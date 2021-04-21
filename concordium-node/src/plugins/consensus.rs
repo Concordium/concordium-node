@@ -18,7 +18,6 @@ use crate::{
         },
         messaging::{ConsensusMessage, DistributionMode, MessageType},
     },
-    lock_or_die,
     p2p::{
         connectivity::{send_broadcast_message, send_direct_message},
         P2PNode,
@@ -162,10 +161,7 @@ pub fn handle_pkt_out(
             match e.downcast::<TrySendError<QueueMsg<ConsensusMessage>>>()? {
                 TrySendError::Full(_) => {
                     node.stats.inbound_low_priority_consensus_drops_inc();
-                    lock_or_die!(node.bad_events.dropped_low_queue)
-                        .entry(peer_id)
-                        .and_modify(|x| *x += 1)
-                        .or_insert(1);
+                    node.bad_events.inc_dropped_low_queue(peer_id);
                 }
                 TrySendError::Disconnected(_) => {
                     panic!("Low priority consensus queue has been shutdown!")
@@ -180,10 +176,7 @@ pub fn handle_pkt_out(
             match e.downcast::<TrySendError<QueueMsg<ConsensusMessage>>>()? {
                 TrySendError::Full(_) => {
                     node.stats.inbound_high_priority_consensus_drops_inc();
-                    lock_or_die!(node.bad_events.dropped_high_queue)
-                        .entry(peer_id)
-                        .and_modify(|x| *x += 1)
-                        .or_insert(1);
+                    node.bad_events.inc_dropped_high_queue(peer_id);
                 }
                 TrySendError::Disconnected(_) => {
                     panic!("High priority consensus queue has been shutdown!")
@@ -313,10 +306,7 @@ fn send_msg_to_consensus(
     if consensus_response.is_acceptable() {
         debug!("Processed a {} from {}", message.variant, source_id);
     } else {
-        let num_bad_events = *lock_or_die!(node.bad_events.invalid_messages)
-            .entry(source_id)
-            .and_modify(|x| *x += 1)
-            .or_insert(1);
+        let num_bad_events = node.bad_events.inc_invalid_messages(source_id);
         // we do log some invalid messages to both ease debugging and see problems in
         // normal circumstances
         if num_bad_events < 10 {
