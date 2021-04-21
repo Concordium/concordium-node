@@ -56,6 +56,8 @@ data UpdateResult
     -- ^The message duplicates a previously received message
     | ResultStale
     -- ^The message may have been valid in the past, but is no longer relevant
+    | ResultExpiryTooLate
+    -- ^The transaction expiry time is too far in the future
     | ResultIncorrectFinalizationSession
     -- ^The message refers to a different/unknown finalization session
     | ResultUnverifiable

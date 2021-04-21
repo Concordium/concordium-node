@@ -25,10 +25,11 @@ import Concordium.Types.Transactions
 import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.AccountTransactionIndex
+import Concordium.GlobalState.Parameters (RuntimeParameters(..))
 
 import Concordium.Scheduler.TreeStateEnvironment(executeFrom, ExecutionResult'(..), ExecutionResult, FinalizerInfo)
 
-import Concordium.Kontrol
+import Concordium.Kontrol hiding (getRuntimeParameters)
 import Concordium.Birk.LeaderElection
 import Concordium.Kontrol.UpdateLeaderElectionParameters
 import Concordium.Afgjort.Finalize
@@ -469,50 +470,55 @@ doReceiveTransaction tr slot = unlessShutDown $ do
 -- This function should only be called when a transaction is received as part of a block.
 -- The difference from the above function is that this function returns an already existing
 -- transaction in case of a duplicate, ensuring more sharing of transaction data.
-doReceiveTransactionInternal :: (TreeStateMonad pv m) => BlockItem -> Slot -> m (Maybe BlockItem, UpdateResult)
+doReceiveTransactionInternal :: (TreeStateMonad pv m, SkovQueryMonad pv m) => BlockItem -> Slot -> m (Maybe BlockItem, UpdateResult)
 doReceiveTransactionInternal tr slot = do
         -- let maxPendingTransactionsPerAccount = 100
         -- let maxPendingCredentials = 100
-        addCommitTransaction tr slot >>= \case
-          Added bi@WithMetadata{..} -> do
-              ptrs <- getPendingTransactions
-              case wmdData of
-                NormalTransaction tx -> do
-                  focus <- getFocusBlock
-                  st <- blockState focus
-                  macct <- getAccount st $! transactionSender tx
-                  (exists, nextNonce) <- case macct of
-                    Nothing -> return (False, minNonce)
-                    Just acc -> do
-                      nn <- getAccountNonce acc
-                      -- keys <- getAccountVerificationKeys acc
-                      -- if verifyTransaction keys tx then return (ResultSuccess, nn)
-                      return (True, nn)
-                  -- If a transaction with this nonce has already been run by
-                  -- the focus block, then we do not need to add it to the
-                  -- pending transactions.  Otherwise, we do.
-                  if nextNonce <= transactionNonce tx then do
-                    let (newPendingTable, nextInLine) = addPendingTransaction nextNonce WithMetadata{wmdData=tx,..} ptrs
-                    putPendingTransactions $! newPendingTable
-                    -- if this transaction was next in line then we retransmit it
-                    -- otherwise we only store it but do not transmit it to peers.
-                    return (Just bi, if exists && nextInLine then ResultSuccess else ResultUnverifiable)
-                  -- if a transaction with this nonce was already in the focus block
-                  -- then we do not retransmit it to peers. This indicates some kind of an issue and incorrect usage.
-                  else return (Just bi, ResultUnverifiable)
-                CredentialDeployment _ -> do
-                  let newTable = addPendingDeployCredential wmdHash ptrs
-                      -- newSize = numPendingCredentials newTable
-                  putPendingTransactions $! newTable
-                  return (Just bi, ResultSuccess)
-                ChainUpdate cu -> do
-                    focus <- getFocusBlock
-                    st <- blockState focus
-                    nextSN <- getNextUpdateSequenceNumber st (updateType (uiPayload cu))
-                    if (nextSN <= updateSeqNumber (uiHeader cu)) then do
-                        let (newPending, nextInLine) = addPendingUpdate nextSN cu ptrs
-                        putPendingTransactions $! newPending
-                        return (Just bi, if nextInLine then ResultSuccess else ResultUnverifiable)
-                    else return (Just bi, ResultUnverifiable)
-          Duplicate tx -> return (Just tx, ResultDuplicate)
-          ObsoleteNonce -> return (Nothing, ResultStale)
+        maxTimeToExpiry <- durationMillis . rpMaxTimeToExpiry <$> getRuntimeParameters
+        slotTime <- getSlotTimestamp slot
+        let expiry = transactionTimeToTimestamp $ msgExpiry tr
+        if tsMillis (expiry - slotTime) > maxTimeToExpiry
+        then return (Just tr, ResultExpiryTooLate)
+        else addCommitTransaction tr slot >>= \case
+                Added bi@WithMetadata{..} -> do
+                    ptrs <- getPendingTransactions
+                    case wmdData of
+                      NormalTransaction tx -> do
+                        focus <- getFocusBlock
+                        st <- blockState focus
+                        macct <- getAccount st $! transactionSender tx
+                        (exists, nextNonce) <- case macct of
+                          Nothing -> return (False, minNonce)
+                          Just acc -> do
+                            nn <- getAccountNonce acc
+                            -- keys <- getAccountVerificationKeys acc
+                            -- if verifyTransaction keys tx then return (ResultSuccess, nn)
+                            return (True, nn)
+                        -- If a transaction with this nonce has already been run by
+                        -- the focus block, then we do not need to add it to the
+                        -- pending transactions.  Otherwise, we do.
+                        if nextNonce <= transactionNonce tx then do
+                          let (newPendingTable, nextInLine) = addPendingTransaction nextNonce WithMetadata{wmdData=tx,..} ptrs
+                          putPendingTransactions $! newPendingTable
+                          -- if this transaction was next in line then we retransmit it
+                          -- otherwise we only store it but do not transmit it to peers.
+                          return (Just bi, if exists && nextInLine then ResultSuccess else ResultUnverifiable)
+                        -- if a transaction with this nonce was already in the focus block
+                        -- then we do not retransmit it to peers. This indicates some kind of an issue and incorrect usage.
+                        else return (Just bi, ResultUnverifiable)
+                      CredentialDeployment _ -> do
+                        let newTable = addPendingDeployCredential wmdHash ptrs
+                            -- newSize = numPendingCredentials newTable
+                        putPendingTransactions $! newTable
+                        return (Just bi, ResultSuccess)
+                      ChainUpdate cu -> do
+                          focus <- getFocusBlock
+                          st <- blockState focus
+                          nextSN <- getNextUpdateSequenceNumber st (updateType (uiPayload cu))
+                          if (nextSN <= updateSeqNumber (uiHeader cu)) then do
+                              let (newPending, nextInLine) = addPendingUpdate nextSN cu ptrs
+                              putPendingTransactions $! newPending
+                              return (Just bi, if nextInLine then ResultSuccess else ResultUnverifiable)
+                          else return (Just bi, ResultUnverifiable)
+                Duplicate tx -> return (Just tx, ResultDuplicate)
+                ObsoleteNonce -> return (Nothing, ResultStale)
