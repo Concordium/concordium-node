@@ -36,6 +36,8 @@ use std::{
 };
 
 const FILE_NAME_GENESIS_DATA: &str = "genesis.dat";
+// The maximum allowed transaction size in bytes.
+pub const MAX_TRANSACTION_MESSAGE_SIZE: usize = 100_1000;
 
 /// Initializes the consensus layer with the given setup.
 pub fn start_consensus_layer(
@@ -147,6 +149,7 @@ pub fn handle_pkt_out(
     } else {
         DistributionMode::Direct
     };
+    let msg_len = msg.len();
 
     let request = ConsensusMessage::new(
         MessageType::Inbound(peer_id, distribution_mode),
@@ -157,7 +160,11 @@ pub fn handle_pkt_out(
     );
 
     match if packet_type == PacketType::Transaction {
-        CALLBACK_QUEUE.send_in_low_priority_message(request)
+        if msg_len > MAX_TRANSACTION_MESSAGE_SIZE {
+            bail!("Transaction size exceeds {} bytes.", MAX_TRANSACTION_MESSAGE_SIZE)
+        } else {
+            CALLBACK_QUEUE.send_in_low_priority_message(request)
+        }
     } else {
         CALLBACK_QUEUE.send_in_high_priority_message(request)
     } {
