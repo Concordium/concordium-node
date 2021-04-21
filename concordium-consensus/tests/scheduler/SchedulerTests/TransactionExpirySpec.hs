@@ -96,7 +96,7 @@ testExpiryTime :: Types.TransactionExpiryTime -> IO TestResult
 testExpiryTime expiry = do
     ts <- processUngroupedTransactions $ transactions expiry
     let (Sch.FilteredTransactions{..}, finState) =
-          Types.runSI (Sch.filterTransactions dummyBlockSize ts)
+          Types.runSI (Sch.filterTransactions dummyBlockSize dummyBlockTimeout ts)
             dummyChainMeta { Types.slotTime = slotTime }
             maxBound
             maxBound

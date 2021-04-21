@@ -30,10 +30,11 @@ use concordium_node::{
         *,
     },
     plugins::{self, consensus::*},
+    read_or_die,
     rpc::RpcServerImpl,
     spawn_or_die,
     stats_export_service::{instantiate_stats_export_engine, StatsExportService},
-    utils::{self, get_config_and_logging_setup},
+    utils::get_config_and_logging_setup,
 };
 use rand::Rng;
 use std::{
@@ -189,7 +190,7 @@ async fn main() -> Fallible<()> {
 
     // Connect to nodes (args and bootstrap)
     if !conf.cli.no_network {
-        establish_connections(&conf, &node);
+        establish_connections(&conf, &node)?;
     }
 
     // start baking
@@ -251,24 +252,27 @@ fn instantiate_node(
     P2PNode::new(Some(node_id), &conf, PeerType::Node, stats_export_service, regenesis_arc)
 }
 
-fn establish_connections(conf: &config::Config, node: &Arc<P2PNode>) {
+fn establish_connections(conf: &config::Config, node: &Arc<P2PNode>) -> Fallible<()> {
     info!("Starting the P2P layer");
-    connect_to_config_nodes(&conf.connection, node);
+    connect_to_config_nodes(node);
     if !conf.connection.no_bootstrap_dns {
         attempt_bootstrap(node);
     }
+    Ok(())
 }
 
-fn connect_to_config_nodes(conf: &config::ConnectionConfig, node: &Arc<P2PNode>) {
-    for connect_to in &conf.connect_to {
-        match utils::parse_host_port(&connect_to, &node.config.dns_resolvers, conf.dnssec_disabled)
-        {
-            Ok(addrs) => {
-                for addr in addrs {
-                    let _ = connect(node, PeerType::Node, addr, None).map_err(|e| error!("{}", e));
-                }
-            }
-            Err(err) => error!("Can't parse configured addresses to connect to: {}", err),
+fn connect_to_config_nodes(node: &Arc<P2PNode>) {
+    // clone the addresses to release the lock before the relatively expensive
+    // connect calls.
+    let conns = read_or_die!(node.config.given_addresses).clone();
+    // We try to connect to all the given addresses, only warning if we fail.
+    // This logic is consistent with subsequent retries in connection
+    // housekeeping and means that it is a bit easier to set up a fully
+    // connected network of given addresses. Warnings should suffice to detect
+    // configuration mistakes.
+    for &given_addr in conns.iter() {
+        if let Err(e) = connect(node, PeerType::Node, given_addr, None, false) {
+            warn!("Could not connect to a given address {}: {}", given_addr, e);
         }
     }
 }

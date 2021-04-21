@@ -73,7 +73,7 @@ testSimpleTransfer :: IO TestResult
 testSimpleTransfer = do
     transactions <- processUngroupedTransactions transactionsInput
     let (Sch.FilteredTransactions{..}, finState) =
-          Types.runSI (Sch.filterTransactions dummyBlockSize transactions)
+          Types.runSI (Sch.filterTransactions dummyBlockSize dummyBlockTimeout transactions)
             dummyChainMeta
             maxBound
             maxBound

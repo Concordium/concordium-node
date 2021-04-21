@@ -791,11 +791,9 @@ lookupNextUpdateSequenceNumber uref uty = do
             UpdateBakerStakeThreshold -> uqNextSequenceNumber <$> refLoad (pBakerStakeThresholdQueue pendingUpdates)
             UpdateAddAnonymityRevoker -> uqNextSequenceNumber <$> refLoad (pAddAnonymityRevokerQueue pendingUpdates)
             UpdateAddIdentityProvider -> uqNextSequenceNumber <$> refLoad (pAddIdentityProviderQueue pendingUpdates)
-            UpdateRootKeysWithRootKeys -> uqNextSequenceNumber <$> refLoad (pRootKeysUpdateQueue pendingUpdates)
-            UpdateLevel1KeysWithRootKeys -> uqNextSequenceNumber <$> refLoad (pLevel1KeysUpdateQueue pendingUpdates)
-            UpdateLevel2KeysWithRootKeys -> uqNextSequenceNumber <$> refLoad (pLevel2KeysUpdateQueue pendingUpdates)
-            UpdateLevel1KeysWithLevel1Keys -> uqNextSequenceNumber <$> refLoad (pLevel1KeysUpdateQueue pendingUpdates)
-            UpdateLevel2KeysWithLevel1Keys -> uqNextSequenceNumber <$> refLoad (pLevel2KeysUpdateQueue pendingUpdates)
+            UpdateRootKeys -> uqNextSequenceNumber <$> refLoad (pRootKeysUpdateQueue pendingUpdates)
+            UpdateLevel1Keys -> uqNextSequenceNumber <$> refLoad (pLevel1KeysUpdateQueue pendingUpdates)
+            UpdateLevel2Keys -> uqNextSequenceNumber <$> refLoad (pLevel2KeysUpdateQueue pendingUpdates)
 
 -- |Enqueue an update in the appropriate queue.
 enqueueUpdate :: (MonadBlobStore m) => TransactionTime -> UpdateValue -> BufferedRef Updates -> m (BufferedRef Updates)

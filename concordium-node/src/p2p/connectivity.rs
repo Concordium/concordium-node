@@ -98,8 +98,8 @@ impl P2PNode {
         write_or_die!(self.connection_handler.networks).insert(network_id);
     }
 
-    /// Find a connection token of the connection to the given peer, if such a
-    /// connection exists.
+    /// Find a connection token of the connection to the given post-handshake
+    /// peer, if such a connection exists.
     /// NB: This acquires and releases a read lock on the node's connections.
     pub fn find_conn_token_by_id(&self, id: RemotePeerId) -> Option<Token> {
         read_or_die!(self.connections()).values().find_map(|conn| {
@@ -109,6 +109,22 @@ impl P2PNode {
                 None
             }
         })
+    }
+
+    /// Find a connection to the given address. We assume at most one such
+    /// exists.
+    /// NB: This acquires and releases a read lock on the node's connections.
+    pub fn find_conn_to(&self, addr: SocketAddr) -> Option<Token> {
+        read_or_die!(self.connections())
+            .values()
+            .chain(lock_or_die!(self.conn_candidates()).values())
+            .find_map(|conn| {
+                if conn.remote_addr() == addr {
+                    Some(conn.token())
+                } else {
+                    None
+                }
+            })
     }
 
     /// Find connection tokens for all connections to the given ip address.
@@ -165,6 +181,12 @@ impl P2PNode {
             self.bump_last_peer_update();
         }
         removed_candidates || removed_peers
+    }
+
+    /// Close connection to the given address, if any.
+    pub fn remove_connection_to_addr(&self, addr: SocketAddr) {
+        lock_or_die!(self.conn_candidates()).retain(|_, conn| conn.remote_addr() != addr);
+        write_or_die!(self.connections()).retain(|_, conn| conn.remote_addr() != addr);
     }
 
     fn process_network_packet(&self, inner_pkt: NetworkPacket) -> Fallible<usize> {
@@ -306,21 +328,76 @@ impl P2PNode {
     }
 }
 
+#[derive(Debug)]
+pub enum AcceptFailureReason {
+    TooManyConnections {
+        addr: SocketAddr,
+    },
+    AlreadyConnectedToIP {
+        ip: IpAddr,
+    },
+    DuplicateConnection {
+        addr: SocketAddr,
+    },
+    Banned,
+    SoftBanned,
+    Other {
+        err: failure::Error,
+    },
+}
+
+impl std::fmt::Display for AcceptFailureReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AcceptFailureReason::TooManyConnections {
+                addr,
+            } => write!(
+                f,
+                "Too many existing connections. Not accepting an additional one from {}.",
+                addr
+            ),
+            AcceptFailureReason::AlreadyConnectedToIP {
+                ip,
+            } => write!(f, "Already connected to IP {}.", ip),
+            AcceptFailureReason::DuplicateConnection {
+                addr,
+            } => write!(f, "Duplicate connection attempt from {}", addr),
+            AcceptFailureReason::Banned => f.write_str("Connection attempt from a banned address."),
+            AcceptFailureReason::SoftBanned => {
+                f.write_str("Connection attempt from a soft-banned address.")
+            }
+            AcceptFailureReason::Other {
+                err,
+            } => err.fmt(f),
+        }
+    }
+}
+
+impl From<failure::Error> for AcceptFailureReason {
+    fn from(err: failure::Error) -> Self {
+        Self::Other {
+            err,
+        }
+    }
+}
+
 /// Attempt to accept an incoming network connection.
-/// - If the connection is from a banned peer return Ok(None).
 /// - If an error occurs, e.g., fail to accept the socket connection, or fail to
 ///   register with the poll registry return Err
 /// - Else return the new connection token that can be used to poll for incoming
 ///   data.
-pub fn accept(node: &Arc<P2PNode>) -> Fallible<Option<Token>> {
-    let (socket, addr) = node.connection_handler.socket_server.accept()?;
+pub fn accept(
+    node: &Arc<P2PNode>,
+    socket: TcpStream,
+    addr: SocketAddr,
+) -> Result<Token, AcceptFailureReason> {
     node.stats.conn_received_inc();
 
     // if we fail to read the database we allow the connection.
     // This is fine as long as we assume that nobody can corrupt our ban database.
     if node.is_banned(PersistedBanId::Ip(addr.ip())).unwrap_or(false) {
         warn!("Connection attempt from a banned IP {}.", addr.ip());
-        return Ok(None);
+        return Err(AcceptFailureReason::Banned);
     }
 
     // Lock the candidate list for added safety against duplicate connections
@@ -329,28 +406,41 @@ pub fn accept(node: &Arc<P2PNode>) -> Fallible<Option<Token>> {
     {
         let conn_read_lock = read_or_die!(node.connections());
 
+        // A reasonable argument might be made to try and accept connections
+        // from given addresses even if we have reached the maximum limit.
+        // However the remote address will almost certainly not be what we have recorded
+        // among the given addresses since it will have some OS generated
+        // outgoing socket. We could check that it is coming from a given IP,
+        // but at the moment that is not how we identify trusted addresses, so
+        // it would violate the general rule and complicate local testing.
         if node.self_peer.peer_type == PeerType::Node
             && candidates_lock.len() + conn_read_lock.len()
                 >= node.config.hard_connection_limit as usize
         {
-            bail!("Too many connections, rejecting attempt from {}", addr);
+            return Err(AcceptFailureReason::TooManyConnections {
+                addr,
+            });
         }
 
         for conn in candidates_lock.values().chain(conn_read_lock.values()) {
             if conn.remote_addr().ip() == addr.ip() {
                 if node.config.disallow_multiple_peers_on_ip {
-                    bail!("Already connected to IP {}", addr.ip());
+                    return Err(AcceptFailureReason::AlreadyConnectedToIP {
+                        ip: addr.ip(),
+                    });
                 } else if conn.remote_addr().port() == addr.port()
                     || conn.remote_peer.external_port == addr.port()
                 {
-                    bail!("Duplicate connection attempt from {}; rejecting", addr);
+                    return Err(AcceptFailureReason::DuplicateConnection {
+                        addr,
+                    });
                 }
             }
         }
 
         if node.connection_handler.is_soft_banned(addr) {
             warn!("Connection attempt from a soft-banned IP ({}); rejecting", addr.ip());
-            return Ok(None);
+            return Err(AcceptFailureReason::SoftBanned);
         }
     }
 
@@ -369,16 +459,18 @@ pub fn accept(node: &Arc<P2PNode>) -> Fallible<Option<Token>> {
     let conn = Connection::new(node, socket, token, remote_peer, false)?;
     candidates_lock.insert(conn.token(), conn);
 
-    Ok(Some(token))
+    Ok(token)
 }
 
 /// Connect to another node with the specified address and optionally peer id,
 /// registering it as the given peer type.
 pub fn connect(
     node: &Arc<P2PNode>,
-    peer_type: PeerType,
-    peer_addr: SocketAddr,
-    peer_id: Option<P2PNodeId>,
+    peer_type: PeerType, /* type of the peer we are connecting to. This is a our expectation of
+                          * what the peer will be, not what it actually is. */
+    peer_addr: SocketAddr,      // address to connect to
+    peer_id: Option<P2PNodeId>, // id of the peer we are connecting to, if known
+    respect_max_peers: bool,    // whether this should respect the maximum peeers setting or not.
 ) -> Fallible<()> {
     debug!(
         "Attempting to connect to {}{}",
@@ -390,7 +482,7 @@ pub fn connect(
         }
     );
 
-    if peer_type == PeerType::Node {
+    if respect_max_peers && peer_type == PeerType::Node {
         let current_peer_count = node.get_peer_stats(Some(PeerType::Node)).len() as u16;
         if current_peer_count >= node.config.max_allowed_nodes {
             bail!(
@@ -445,12 +537,13 @@ pub fn connect(
                 peer_type,
             };
 
-            let conn = Connection::new(node, socket, token, remote_peer, true)?;
+            let mut conn = Connection::new(node, socket, token, remote_peer, true)?;
+            // send the initial handshake
+            conn.low_level.send_handshake_message_a()?;
+            // and record the connection candidate. Note that we maintain the
+            // connection candidates lock so it is OK to only insert the connection at the
+            // end here.
             candidates_lock.insert(conn.token(), conn);
-
-            if let Some(ref mut conn) = candidates_lock.get_mut(&token) {
-                conn.low_level.send_handshake_message_a()?;
-            }
 
             Ok(())
         }
@@ -467,7 +560,8 @@ pub fn connect(
 }
 
 /// Perform a round of connection maintenance, e.g. removing inactive ones.
-pub fn connection_housekeeping(node: &Arc<P2PNode>) {
+/// Return whether we attempted to bootstrap.
+pub fn connection_housekeeping(node: &Arc<P2PNode>) -> bool {
     debug!("Running connection housekeeping");
 
     let curr_stamp = get_current_stamp();
@@ -512,15 +606,23 @@ pub fn connection_housekeeping(node: &Arc<P2PNode>) {
     }
 
     // if the number of peers exceeds the desired value, close a random selection of
-    // post-handshake connections to lower it
+    // post-handshake non-given connections to lower it
     if peer_type == PeerType::Node {
         let max_allowed_nodes = node.config.max_allowed_nodes;
         let peer_count = node.get_peer_stats(Some(PeerType::Node)).len() as u16;
         if peer_count > max_allowed_nodes {
+            // drop connections to any non-given peers.
             let mut rng = rand::thread_rng();
             let to_drop = read_or_die!(node.connections())
-                .keys()
-                .copied()
+                .iter()
+                .filter_map(|(&token, conn)| {
+                    // only consider non-given connections for removal
+                    if node.is_given_connection(conn) {
+                        None
+                    } else {
+                        Some(token)
+                    }
+                })
                 .choose_multiple(&mut rng, (peer_count - max_allowed_nodes) as usize);
 
             node.remove_connections(&to_drop);
@@ -536,12 +638,25 @@ pub fn connection_housekeeping(node: &Arc<P2PNode>) {
         }
     }
 
-    // reconnect to bootstrappers after a specified amount of time
+    // Try to connect to any given addresses we are not connected to.
+    for given in node.unconnected_given_addresses() {
+        if let Err(e) = connect(node, PeerType::Node, given, None, false) {
+            warn!("Cannot establish connection to a given address {}: {}", given, e)
+        }
+    }
+
+    // Reconnect to bootstrappers after a specified amount of time.
+    // It's unclear whether we should always be doing this, even if we have enough
+    // peers. But the current logic is to try to bootstrap again, and if we have
+    // too many peers drop a subset of them.
     if !node.config.no_bootstrap_dns
         && peer_type == PeerType::Node
         && curr_stamp >= node.get_last_bootstrap() + node.config.bootstrapping_interval * 1000
     {
         attempt_bootstrap(node);
+        true
+    } else {
+        false
     }
 }
 
