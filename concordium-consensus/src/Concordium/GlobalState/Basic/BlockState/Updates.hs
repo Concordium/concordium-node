@@ -471,11 +471,9 @@ lookupNextUpdateSequenceNumber u UpdateGASRewards = u ^. pendingUpdates . pGASRe
 lookupNextUpdateSequenceNumber u UpdateBakerStakeThreshold = u ^. pendingUpdates . pBakerStakeThresholdQueue . uqNextSequenceNumber
 lookupNextUpdateSequenceNumber u UpdateAddAnonymityRevoker = u ^. pendingUpdates . pAddAnonymityRevokerQueue . uqNextSequenceNumber
 lookupNextUpdateSequenceNumber u UpdateAddIdentityProvider = u ^. pendingUpdates . pAddIdentityProviderQueue . uqNextSequenceNumber
-lookupNextUpdateSequenceNumber u UpdateRootKeysWithRootKeys = u ^. pendingUpdates . pRootKeysUpdateQueue . uqNextSequenceNumber
-lookupNextUpdateSequenceNumber u UpdateLevel1KeysWithRootKeys = u ^. pendingUpdates . pLevel1KeysUpdateQueue . uqNextSequenceNumber
-lookupNextUpdateSequenceNumber u UpdateLevel2KeysWithRootKeys = u ^. pendingUpdates . pLevel2KeysUpdateQueue . uqNextSequenceNumber
-lookupNextUpdateSequenceNumber u UpdateLevel1KeysWithLevel1Keys = u ^. pendingUpdates . pLevel1KeysUpdateQueue . uqNextSequenceNumber
-lookupNextUpdateSequenceNumber u UpdateLevel2KeysWithLevel1Keys = u ^. pendingUpdates . pLevel2KeysUpdateQueue . uqNextSequenceNumber
+lookupNextUpdateSequenceNumber u UpdateRootKeys = u ^. pendingUpdates . pRootKeysUpdateQueue . uqNextSequenceNumber
+lookupNextUpdateSequenceNumber u UpdateLevel1Keys = u ^. pendingUpdates . pLevel1KeysUpdateQueue . uqNextSequenceNumber
+lookupNextUpdateSequenceNumber u UpdateLevel2Keys = u ^. pendingUpdates . pLevel2KeysUpdateQueue . uqNextSequenceNumber
 
 -- |Enqueue an update in the appropriate queue.
 enqueueUpdate :: TransactionTime -> UpdateValue -> Updates -> Updates

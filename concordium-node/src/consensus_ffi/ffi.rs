@@ -254,6 +254,7 @@ type RegenesisFreeCallback = unsafe extern "C" fn(*const RwLock<Vec<BlockHash>>)
 extern "C" {
     pub fn startConsensus(
         max_block_size: u64,
+        block_construction_timeout: u64,
         insertions_before_purging: u64,
         transaction_keep_alive: u64,
         transactions_purging_delay: u64,
@@ -276,6 +277,7 @@ extern "C" {
     ) -> i64;
     pub fn startConsensusPassive(
         max_block_size: u64,
+        block_construction_timeout: u64,
         insertions_before_purging: u64,
         transaction_keep_alive: u64,
         transactions_purging_delay: u64,
@@ -413,6 +415,7 @@ extern "C" {
 #[allow(clippy::too_many_arguments)]
 pub fn get_consensus_ptr(
     max_block_size: u64,
+    block_construction_timeout: u64,
     insertions_before_purging: u64,
     transaction_keep_alive: u64,
     transactions_purging_delay: u64,
@@ -438,6 +441,7 @@ pub fn get_consensus_ptr(
                     CString::from_vec_unchecked(private_data_bytes.to_owned());
                 startConsensus(
                     max_block_size,
+                    block_construction_timeout,
                     insertions_before_purging,
                     transaction_keep_alive,
                     transactions_purging_delay,
@@ -466,6 +470,7 @@ pub fn get_consensus_ptr(
                 {
                     startConsensusPassive(
                         max_block_size,
+                        block_construction_timeout,
                         insertions_before_purging,
                         transaction_keep_alive,
                         transactions_purging_delay,

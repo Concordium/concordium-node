@@ -17,7 +17,8 @@ RUN apt-get update && \
     apt-get install -y unbound ca-certificates libpq-dev && \
     rm -rf /var/lib/apt/lists/*
 
-COPY --from=build /out/$build_type/node-collector-backend /node-collector-backend
+COPY --from=build /out/$build_type/concordium-node /concordium-node
 COPY --from=build /out/start.sh /start.sh
+#COPY --from=build /out/genesis-data /genesis-data
 
 ENTRYPOINT ["/start.sh"]

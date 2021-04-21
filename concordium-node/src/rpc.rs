@@ -5,32 +5,27 @@ use crate::{
     common::{grpc_api::*, p2p_peer::RemotePeerId, PeerType},
     configuration,
     connection::ConnChange,
+    consensus_ffi::{
+        consensus::{ConsensusContainer, CALLBACK_QUEUE},
+        helpers::{ConsensusFfiResponse, ConsensusIsInBakingCommitteeResponse, PacketType},
+        messaging::{ConsensusMessage, MessageType},
+    },
     failure::Fallible,
     network::NetworkId,
-    p2p::{
-        bans::{BanId, PersistedBanId},
-        P2PNode,
-    },
+    p2p::{bans::PersistedBanId, P2PNode},
     read_or_die,
 };
-
-use crate::consensus_ffi::{
-    consensus::{ConsensusContainer, CALLBACK_QUEUE},
-    helpers::{ConsensusFfiResponse, ConsensusIsInBakingCommitteeResponse, PacketType},
-    messaging::{ConsensusMessage, MessageType},
-};
 use byteorder::WriteBytesExt;
-use tonic::{transport::Server, Code, Request, Response, Status};
-
+use p2p_server::*;
 use std::{
+    convert::TryInto,
     io::Write,
     net::{IpAddr, SocketAddr},
     str::FromStr,
     sync::{atomic::Ordering, Arc},
     time::{SystemTime, UNIX_EPOCH},
 };
-
-use p2p_server::*;
+use tonic::{transport::Server, Code, Request, Response, Status};
 
 /// The object used to initiate a gRPC server.
 #[derive(Clone)]
@@ -135,10 +130,39 @@ impl P2p for RpcServerImpl {
             return Err(Status::new(Code::InvalidArgument, "Missing port"));
         };
         let addr = SocketAddr::new(ip, port);
-        self.node.register_conn_change(ConnChange::NewConn(addr, PeerType::Node));
+        self.node.register_conn_change(ConnChange::NewConn {
+            addr,
+            peer_type: PeerType::Node,
+            given: true,
+        });
         Ok(Response::new(BoolResponse {
             value: true,
         }))
+    }
+
+    async fn peer_disconnect(
+        &self,
+        req: Request<PeerConnectRequest>,
+    ) -> Result<Response<BoolResponse>, Status> {
+        authenticate!(req, self.access_token);
+        let req = req.get_ref();
+
+        let ip_addr = if let Some(ref ip) = req.ip {
+            IpAddr::from_str(ip)
+                .map_err(|_| Status::new(Code::InvalidArgument, "Invalid IP address"))
+        } else {
+            Err(Status::new(Code::InvalidArgument, "Missing IP address"))
+        }?;
+        if let Some(port) = req.port {
+            match port.try_into() {
+                Ok(x) => Ok(Response::new(BoolResponse {
+                    value: self.node.drop_addr(SocketAddr::new(ip_addr, x)),
+                })),
+                Err(_) => Err(Status::new(Code::InvalidArgument, "Port out of range.")),
+            }
+        } else {
+            Err(Status::new(Code::InvalidArgument, "Disconnect is only supported by address."))
+        }
     }
 
     async fn peer_version(&self, req: Request<Empty>) -> Result<Response<StringResponse>, Status> {
@@ -420,27 +444,38 @@ impl P2p for RpcServerImpl {
         let req = req.get_ref();
         let banned_node = match (&req.node_id, &req.ip) {
             (Some(node_id), None) => {
-                RemotePeerId::from_str(&node_id.to_string()).ok().map(BanId::NodeId)
-            }
-            (None, Some(ip)) => IpAddr::from_str(&ip.to_string()).ok().map(BanId::Ip),
-            _ => None,
-        };
-
-        if let Some(to_ban) = banned_node {
-            match self.node.drop_and_maybe_ban_node(to_ban) {
-                Ok(value) => Ok(Response::new(BoolResponse {
-                    value,
-                })),
-                Err(e) => {
-                    warn!("couldn't fulfill a BanNode request: {}", e);
-                    Err(Status::new(
-                        Code::Aborted,
-                        format!("couldn't fulfill a BanNode request: {}", e),
-                    ))
+                if let Ok(id) = RemotePeerId::from_str(&node_id.to_string()) {
+                    Ok(self.node.drop_by_id(id))
+                } else {
+                    return Err(Status::new(Code::InvalidArgument, "Malformed node ID."));
                 }
             }
-        } else {
-            Err(Status::new(Code::InvalidArgument, "Missing IP or address to ban"))
+            (None, Some(ip)) => {
+                if let Ok(ip) = IpAddr::from_str(&ip.to_string()) {
+                    self.node.drop_by_ip_and_ban(ip)
+                } else {
+                    return Err(Status::new(Code::InvalidArgument, "Malformed IP address."));
+                }
+            }
+            _ => {
+                return Err(Status::new(
+                    Code::InvalidArgument,
+                    "Exactly one of IP or node ID must be provided.",
+                ))
+            }
+        };
+
+        match banned_node {
+            Ok(value) => Ok(Response::new(BoolResponse {
+                value,
+            })),
+            Err(e) => {
+                warn!("couldn't fulfill a BanNode request: {}", e);
+                Err(Status::new(
+                    Code::Aborted,
+                    format!("couldn't fulfill a BanNode request: {}", e),
+                ))
+            }
         }
     }
 

@@ -1,5 +1,3 @@
-# syntax=docker/dockerfile:experimental
-
 # This is a multi-stage build process
 #
 # Stage one builds a number of genesis configurations inside the genesis-tools image
@@ -17,7 +15,10 @@ FROM concordium/genesis-tools:0.5 as genesis-builder
 # Build all the relevant genesis files and embed them in the image itself.
 COPY scripts/genesis/ /genesis
 WORKDIR /genesis
-RUN apt-get update && apt-get install python3 -y
+RUN apt-get update && \
+    apt-get -y install python3 && \
+    rm -rf /var/lib/apt/lists/*
+
 # Use globally installed tools
 ARG GENESIS_DAT_TOOL=genesis
 ARG GENERATE_UPDATE_KEYS=generate-update-keys
@@ -35,14 +36,13 @@ RUN GENESIS_DIR=./out/genesis-25-bakers NUM_BAKERS=25 python3 generate-test-gene
 FROM concordium/static-libraries:0.19 as static-builder
 COPY scripts/static-libraries/build-static-libraries.sh /build-static-libraries.sh
 COPY . /build
-ARG GHC_VERSION=8.10.4
-RUN chmod +x /build-static-libraries.sh
-RUN --mount=type=ssh ./build-static-libraries.sh
+ARG ghc_version
+RUN GHC_VERSION="${ghc_version}" ./build-static-libraries.sh
 
 # And build the node
 FROM concordium/base:0.19 as build
 
-ARG ghc_version=8.10.4
+ARG ghc_version
 ARG consensus_profiling
 ENV CONSENSUS_PROFILING=$consensus_profiling
 
@@ -57,18 +57,15 @@ COPY --from=static-builder /build/static-consensus-${ghc_version}.tar.gz .
 RUN mkdir -p concordium-node/deps/static-libs/linux
 RUN tar -xf static-consensus-${ghc_version}.tar.gz && cd target && cp -r * ../concordium-node/deps/static-libs/linux/
 # And then start the build of the rust parts of the node.
-RUN --mount=type=ssh ./build-binaries.sh "collector"
-RUN chmod +x /build/start.sh
-
-RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan github.com >> ~/.ssh/known_hosts
+RUN ./build-binaries.sh "collector"
 
 # Baker id gen
-RUN --mount=type=ssh git clone --recurse-submodules --depth 1 --branch main git@github.com:Concordium/concordium-tools-baker-id-gen.git /baker_id_gen
+RUN git clone --recurse-submodules --depth 1 --branch main https://github.com/Concordium/concordium-tools-baker-id-gen.git /baker_id_gen
 WORKDIR /baker_id_gen
 RUN cargo build --release
 
 # Wallet-proxy
-RUN --mount=type=ssh git clone --recurse-submodules --depth 1 --branch main git@github.com:Concordium/concordium-wallet-proxy.git /wallet-proxy
+RUN git clone --recurse-submodules --depth 1 --branch main https://github.com/Concordium/concordium-wallet-proxy.git /wallet-proxy
 WORKDIR /wallet-proxy
 RUN stack build --copy-bins --ghc-options -j4 --local-bin-path target
 

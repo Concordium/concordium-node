@@ -109,7 +109,13 @@ impl P2PNode {
 
 /// Checks whether we need any more peers, based on the `desired_nodes_count`
 /// config.
-pub fn check_peers(node: &Arc<P2PNode>, peer_stats: &[PeerStats]) {
+/// If bootstrapping was just attempted then this function will not attempt it
+/// again. Otherwise if there are no peers bootstrapping will be attempted.
+/// FIXME: This is not a good solution, but I do not want to change the
+/// bootstrapping logic at the last minute. This addresses the duplication of
+/// work and the strange looking messages "already connected to ..." in the
+/// logs.
+pub fn check_peers(node: &Arc<P2PNode>, peer_stats: &[PeerStats], attempted_bootstrap: bool) {
     debug!("I currently have {}/{} peers", peer_stats.len(), node.config.max_allowed_nodes);
 
     if node.config.print_peers {
@@ -121,14 +127,16 @@ pub fn check_peers(node: &Arc<P2PNode>, peer_stats: &[PeerStats]) {
 
         if !node.config.no_net && node_count < node.config.desired_nodes_count as usize {
             if peer_stats.is_empty() {
-                if !node.config.no_bootstrap_dns {
-                    info!("No peers at all - retrying bootstrapping");
-                    attempt_bootstrap(node);
-                } else {
-                    info!(
-                        "No nodes at all - Not retrying bootstrapping using DNS since \
-                         --no-bootstrap is specified"
-                    );
+                if !attempted_bootstrap {
+                    if !node.config.no_bootstrap_dns {
+                        info!("No peers at all - retrying bootstrapping");
+                        attempt_bootstrap(node);
+                    } else {
+                        info!(
+                            "No nodes at all - Not retrying bootstrapping using DNS since \
+                             --no-bootstrap is specified"
+                        );
+                    }
                 }
             } else {
                 info!("Not enough peers - sending GetPeers requests");
