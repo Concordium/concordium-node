@@ -5,10 +5,6 @@ extern crate log;
 #[macro_use]
 extern crate lazy_static;
 
-#[cfg(feature = "elastic_logging")]
-#[macro_use]
-extern crate elastic_derive;
-
 cfg_if! {
     if #[cfg(feature = "instrumentation")] {
         #[macro_use]
