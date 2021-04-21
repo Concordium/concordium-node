@@ -1481,6 +1481,9 @@ filterTransactions maxSize timeout groups0 = do
   maxEnergy <- getMaxBlockEnergy
   credLimit <- getAccountCreationLimit
   ftTrans <- runNext maxEnergy 0 credLimit False emptyFilteredTransactions groups0
+  -- For each type of invalid message we only log the first 10 items so as to
+  -- not to spend too much time in the logging phase. This makes it useful for debugging,
+  -- but not a potential problem when a lot of invalid transactions are being sent.
   let (toReportTrans, restTrans) = splitAt 10 (ftFailed ftTrans)
   forM_ toReportTrans $ uncurry logInvalidTransaction
   unless (null restTrans) $ logEvent Scheduler LLWarning "Too many invalid transactions. Suppressing reporting the remaining ones."
