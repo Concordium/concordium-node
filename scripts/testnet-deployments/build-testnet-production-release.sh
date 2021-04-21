@@ -29,6 +29,4 @@ if [ -z "$JENKINS_HOME" ]; then
   git checkout $CURRENT_BRANCH
 fi
 
-GENESIS_VERSION=$(cat ./scripts/GENESIS_DATA_VERSION)
-
-echo "Finished building and pushing develop release with tag $VERSION with profiling $CONSENSUS_PROFILING and genesis $GENESIS_VERSION"
+echo "Finished building and pushing develop release with tag $VERSION with profiling $CONSENSUS_PROFILING"
