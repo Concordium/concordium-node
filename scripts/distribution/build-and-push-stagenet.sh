@@ -1,28 +1,37 @@
 #!/usr/bin/env bash
 
-set -ex
+set -euxo pipefail
 
-version=$(awk '/version = / { print substr($3, 2, length($3)-2); exit }' concordium-node/Cargo.toml) # extract and unquote value of the first occurrence of a 'version' key in Cargo.toml
-
+image_tag="${IMAGE_TAG}"
+base_image_tag="${BASE_IMAGE_TAG}"
+static_libraries_image_tag="${STATIC_LIBRARIES_IMAGE_TAG}"
 genesis_ref="${GENESIS_REF}"
 genesis_path="${GENESIS_PATH}"
-base_image_tag="${BASE_IMAGE_TAG}"
 
+# Using '--no-cache' because we're cloning genesis data
+# and BuildKit (and '--ssh default') because the repo is on GitLab.
 DOCKER_BUILDKIT=1 docker build \
+  --build-arg base_image_tag="${base_image_tag}" \
+  --build-arg static_libraries_image_tag="${static_libraries_image_tag}" \
+  --build-arg ghc_version="${ghc_version}" \
   --build-arg genesis_ref="${genesis_ref}" \
   --build-arg genesis_path="${genesis_path}" \
-  --build-arg base_image_tag="${base_image_tag}" \
+  --label base_image_tag="${base_image_tag}" \
+  --label static_libraries_image_tag="${static_libraries_image_tag}" \
+  --label ghc_version="${ghc_version}" \
   --label genesis_ref="${genesis_ref}" \
   --label genesis_path="${genesis_path}" \
-  --label base_image_tag="${base_image_tag}" \
-  -t "concordium/staging-client:${version}" \
+  -t "concordium/staging-client:${image_tag}" \
   -f scripts/distribution/stagenet.Dockerfile \
   --ssh default \
   --no-cache \
   .
 
-docker save "concordium/staging-client:${version}" | gzip > "staging-client-${version}.tar.gz"
-echo "${version}" > VERSION
+docker save "concordium/staging-client:${image_tag}" | gzip > "staging-client-${image_tag}.tar.gz"
+aws s3 cp "staging-client-${image_tag}.tar.gz" s3://distribution.concordium.com/ --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
 
-aws s3 cp "staging-client-${version}.tar.gz" s3://distribution.concordium.com/ --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
-aws s3 cp VERSION s3://distribution.concordium.com/ --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
+# Make the image current unless the tag starts with "test"
+if [ "${image_tag#test}" = "${image_tag}" ]; then
+	echo "${image_tag}" > VERSION
+	aws s3 cp VERSION s3://distribution.concordium.com/ --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
+fi
