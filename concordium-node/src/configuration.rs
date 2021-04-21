@@ -44,7 +44,7 @@ pub(crate) fn is_compatible_wire_version(
 
 /// The maximum size of objects accepted from the network.
 pub const PROTOCOL_MAX_MESSAGE_SIZE: u32 = 20_971_520; // 20 MIB
-// The maximum allowed transaction size in bytes.
+/// The maximum allowed transaction size in bytes.
 pub const MAX_TRANSACTION_MESSAGE_SIZE: u32 = 100_1000;
 
 const APP_PREFERENCES_MAIN: &str = "main.config";
