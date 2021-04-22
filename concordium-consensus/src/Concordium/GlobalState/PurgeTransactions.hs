@@ -171,10 +171,13 @@ purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptabl
         }
 
 -- Helper function for updating an entry in the pending transaction table
--- that is used by purgeAccount and purgeUpdate
+-- that is used by purgeAccount and purgeUpdate. The update consists in leaving
+-- only those sequence numbers for an account or contract instance that are at least
+-- as big as the next sequence number for that account/instance.
+-- Returns the value that the original value in the map should be updated to, if the value should remain in the map.
 updatePttEntry :: Ord n 
-               => Seq.Seq n 
-               -> Maybe (n, b)
+               => Seq.Seq n -- The sequence of remaining sequence numbers for an account or address
+               -> Maybe (n, Seq.Seq n) -- The old value in the map, if it is present
                -> Maybe (n, Seq.Seq n)
 updatePttEntry remainingNs (Just (low, _)) =
   case Seq.dropWhileL (< low) remainingNs of

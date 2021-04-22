@@ -36,8 +36,6 @@ use std::{
 };
 
 const FILE_NAME_GENESIS_DATA: &str = "genesis.dat";
-// The maximum allowed transaction size in bytes.
-pub const MAX_TRANSACTION_MESSAGE_SIZE: usize = 100_1000;
 
 /// Initializes the consensus layer with the given setup.
 pub fn start_consensus_layer(
@@ -67,6 +65,7 @@ pub fn start_consensus_layer(
     ConsensusContainer::new(
         u64::from(conf.maximum_block_size),
         u64::from(conf.block_construction_timeout),
+        u64::from(conf.max_time_to_expiry),
         u64::from(conf.transaction_insertions_before_purge),
         u64::from(conf.transaction_keep_alive),
         u64::from(conf.transactions_purging_delay),
@@ -160,8 +159,9 @@ pub fn handle_pkt_out(
     );
 
     match if packet_type == PacketType::Transaction {
-        if msg_len > MAX_TRANSACTION_MESSAGE_SIZE {
-            bail!("Transaction size exceeds {} bytes.", MAX_TRANSACTION_MESSAGE_SIZE)
+        let size = &node.config.max_transaction_message_size;
+        if msg_len > *size {
+            bail!("Transaction size exceeds {} bytes.", size)
         } else {
             CALLBACK_QUEUE.send_in_low_priority_message(request)
         }

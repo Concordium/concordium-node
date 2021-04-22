@@ -462,11 +462,10 @@ doStoreBlock pb@GB.PendingBlock{..} = unlessShutDown $ do
 --   * 'ResultShutDown' which indicates that consensus was shut down, and so the transaction was not added.
 doReceiveTransaction :: (TreeStateMonad pv m, TimeMonad m, SkovQueryMonad pv m) => BlockItem -> Slot -> m UpdateResult
 doReceiveTransaction tr slot = unlessShutDown $ do
-  -- Don't accept the transaction if there are too many pending transactions.
-  pendingNum <- numPendingTransactions <$> getPendingTransactions
-  maxPendingNum <- rpMaxPendingTransactionNum <$> getRuntimeParameters
-  if pendingNum > maxPendingNum
-  then return ResultUnverifiable
+  -- Don't accept the transaction if its expiry time is too far in the future
+  expiryTooLate <- isExpiryTooLate
+  if expiryTooLate
+  then return ResultExpiryTooLate
   -- Don't accept the transaction if the stated energy is smaller than the minimum energy amount.
   else if energyTooLow tr
   then return ResultTooLowEnergy
@@ -480,6 +479,11 @@ doReceiveTransaction tr slot = unlessShutDown $ do
                 statedEnergy = thEnergyAmount $ transactionHeader tx
             in baseEnergy > statedEnergy
           energyTooLow _ = False -- TODO ?
+          isExpiryTooLate = do
+            maxTimeToExpiry <-  rpMaxTimeToExpiry <$> getRuntimeParameters
+            slotTime <- getSlotTimestamp slot
+            let expiry = transactionTimeToTimestamp $ msgExpiry tr
+            return $ fromIntegral (expiry - slotTime) > maxTimeToExpiry
 
 -- |Add a transaction to the transaction table.  The 'Slot' should be
 -- the slot number of the block that the transaction was received with.
@@ -487,15 +491,8 @@ doReceiveTransaction tr slot = unlessShutDown $ do
 -- The difference from the above function is that this function returns an already existing
 -- transaction in case of a duplicate, ensuring more sharing of transaction data.
 doReceiveTransactionInternal :: (TreeStateMonad pv m, SkovQueryMonad pv m) => BlockItem -> Slot -> m (Maybe BlockItem, UpdateResult)
-doReceiveTransactionInternal tr slot = do
-        -- let maxPendingTransactionsPerAccount = 100
-        -- let maxPendingCredentials = 100
-        maxTimeToExpiry <- durationMillis . rpMaxTimeToExpiry <$> getRuntimeParameters
-        slotTime <- getSlotTimestamp slot
-        let expiry = transactionTimeToTimestamp $ msgExpiry tr
-        if tsMillis (expiry - slotTime) > maxTimeToExpiry
-        then return (Just tr, ResultExpiryTooLate)
-        else addCommitTransaction tr slot >>= \case
+doReceiveTransactionInternal tr slot =
+        addCommitTransaction tr slot >>= \case
                 Added bi@WithMetadata{..} -> do
                     ptrs <- getPendingTransactions
                     case wmdData of
@@ -503,25 +500,28 @@ doReceiveTransactionInternal tr slot = do
                         focus <- getFocusBlock
                         st <- blockState focus
                         macct <- getAccount st $! transactionSender tx
-                        (exists, nextNonce) <- case macct of
-                          Nothing -> return (False, minNonce)
+                        (exists, verified, nextNonce) <- case macct of
+                          Nothing -> return (False, False, minNonce)
                           Just acc -> do
                             nn <- getAccountNonce acc
-                            -- keys <- getAccountVerificationKeys acc
-                            -- if verifyTransaction keys tx then return (ResultSuccess, nn)
-                            return (True, nn)
+                            keys <- getAccountVerificationKeys acc
+                            let verified = verifyTransaction keys tx
+                            return (True, verified, nn)
                         -- If a transaction with this nonce has already been run by
                         -- the focus block, then we do not need to add it to the
                         -- pending transactions.  Otherwise, we do.
                         if nextNonce <= transactionNonce tx then do
                           let (newPendingTable, nextInLine) = addPendingTransaction nextNonce WithMetadata{wmdData=tx,..} ptrs
                           putPendingTransactions $! newPendingTable
-                          -- if this transaction was next in line then we retransmit it
-                          -- otherwise we only store it but do not transmit it to peers.
-                          return (Just bi, if exists && nextInLine then ResultSuccess else ResultUnverifiable)
+                          let result = case (exists, verified, nextInLine) of
+                                            (False, _, _) -> ResultNonexistingSenderAccount
+                                            (_, False, _) -> ResultVerificationFailed
+                                            (_, _, False) -> ResultNonceTooLarge
+                                            _ -> ResultSuccess
+                          return (Just bi, result)
                         -- if a transaction with this nonce was already in the focus block
                         -- then we do not retransmit it to peers. This indicates some kind of an issue and incorrect usage.
-                        else return (Just bi, ResultUnverifiable)
+                        else return (Just bi, ResultDuplicateNonce)
                       CredentialDeployment _ -> do
                         let newTable = addPendingDeployCredential wmdHash ptrs
                             -- newSize = numPendingCredentials newTable
@@ -531,10 +531,10 @@ doReceiveTransactionInternal tr slot = do
                           focus <- getFocusBlock
                           st <- blockState focus
                           nextSN <- getNextUpdateSequenceNumber st (updateType (uiPayload cu))
-                          if (nextSN <= updateSeqNumber (uiHeader cu)) then do
+                          if nextSN <= updateSeqNumber (uiHeader cu) then do
                               let (newPending, nextInLine) = addPendingUpdate nextSN cu ptrs
                               putPendingTransactions $! newPending
-                              return (Just bi, if nextInLine then ResultSuccess else ResultUnverifiable)
-                          else return (Just bi, ResultUnverifiable)
+                              return (Just bi, if nextInLine then ResultSuccess else ResultNonceTooLarge)
+                          else return (Just bi, ResultDuplicateNonce)
                 Duplicate tx -> return (Just tx, ResultDuplicate)
                 ObsoleteNonce -> return (Nothing, ResultStale)

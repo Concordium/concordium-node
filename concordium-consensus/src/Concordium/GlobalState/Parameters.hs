@@ -103,9 +103,7 @@ data RuntimeParameters = RuntimeParameters {
   -- |Number of seconds between automatic transaction table purging  runs.
   rpTransactionsPurgingDelay :: !Int,
   -- |The maximum allowed time difference between slot time and a transaction's expiry time.
-  rpMaxTimeToExpiry :: !Duration,
-  -- |The maximum number of pending transactions that are allowed to be in the pending table a given time.
-  rpMaxPendingTransactionNum :: Int
+  rpMaxTimeToExpiry :: !Duration
   }
 
 -- |Default runtime parameters, block size = 10MB.
@@ -120,8 +118,7 @@ defaultRuntimeParameters = RuntimeParameters {
   rpInsertionsBeforeTransactionPurge = 1000,
   rpTransactionsKeepAliveTime = 5 * 60, -- 5 min
   rpTransactionsPurgingDelay = 3 * 60, -- 3 min
-  rpMaxTimeToExpiry = 1000 * 60 * 60 * 2, -- 2 hours
-  rpMaxPendingTransactionNum = 1000
+  rpMaxTimeToExpiry = 1000 * 60 * 60 * 2 -- 2 hours
   }
 
 instance FromJSON RuntimeParameters where
@@ -136,7 +133,6 @@ instance FromJSON RuntimeParameters where
     rpTransactionsKeepAliveTime <- (fromIntegral :: Int -> TransactionTime) <$> v .: "transactionsKeepAliveTime"
     rpTransactionsPurgingDelay <- v .: "transactionsPurgingDelay"
     rpMaxTimeToExpiry <- v .: "maxTimeToExpiry"
-    rpMaxPendingTransactionNum <- v .: "maxPendingTransactionNum"
     when (rpBlockSize <= 0) $
       fail "Block size must be a positive integer."
     when (rpEarlyBlockThreshold <= 0) $

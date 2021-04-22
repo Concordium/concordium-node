@@ -188,10 +188,12 @@ emptyTransactionTable = TransactionTable {
 
 -- |A pending transaction table records whether transactions are pending after
 -- execution of a particular block.  For each account address, if there are
--- pending transactions, then it should be in the map with value @(nextNonce, highNonce)@,
+-- pending transactions, then it should be in the map with value @(nextNonce, remainingNonces)@,
 -- where @nextNonce@ is the next nonce for the account address (i.e. 1+nonce of last executed transaction),
--- and @highNonce@ is the highest nonce known for a transaction associated with that account.
--- @highNonce@ should always be at least @nextNonce@ (otherwise, what transaction is pending?).
+-- and @remainingNonces@ is the ascending sequence of remaining pending nonces known for a transaction associated
+-- with that account.
+-- @highNonce@ should always be at least the minimum (first) element of @remainingNonces@
+-- (otherwise, what transaction is pending?).
 -- If an account has no pending transactions, then it should not be in the map.
 data PendingTransactionTable = PTT {
   _pttWithSender :: !(HM.HashMap AccountAddress (Nonce, Seq.Seq Nonce)),
@@ -209,11 +211,6 @@ emptyPendingTransactionTable = PTT HM.empty HS.empty Map.empty
 
 numPendingCredentials :: PendingTransactionTable -> Int
 numPendingCredentials = HS.size . _pttDeployCredential
-
-numPendingTransactions :: PendingTransactionTable -> Int
-numPendingTransactions table = numPendingCredentials table + countNonces (_pttWithSender table) + countNonces (_pttUpdates table)
-  where countNonces :: Foldable (m a) => m a (b, Seq.Seq c) -> Int 
-        countNonces = foldl' (\s (_, ns) -> s + length ns) 0
 
 -- |Find the next free nonce (or sequence number) in the sequence of nonces starting at the given nonce.
 -- Concretely, @nextFreeNonce 1 [3,4,5] == 1@, @nextFreeNonce 1 [1, 3, 5] == 2@
@@ -360,9 +357,16 @@ reversePTT trs ptt0 = foldr reverse1 ptt0 trs
                                               | otherwise -> known
                         in Just (low - 1, newKnown)
 
--- Helper function for updating an entry in the pending transaction table
--- that is used by addPendingTransaction and addPendingAccount
-updatePttEntry :: (Ord n, Num n) => n -> n -> Maybe (n, Seq.Seq n) -> (Bool, Maybe (n, Seq.Seq n))
+-- Helper function for updating an entry for a given transaction in the pending transaction table
+-- that is used by addPendingTransaction and addPendingAccount.
+-- Returns a flag indicating whether the sequence number for the transaction corresponds to the next sequence number
+-- for the given account/instance, and the value that the original value in the map should be updated to, if the value 
+-- is to remain in the map.
+updatePttEntry :: (Ord n, Num n)
+               => n -- The next free sequence number for that account/instance
+               -> n -- The sequence number of a transaction
+               -> Maybe (n, Seq.Seq n) -- The value in the map that should be updated, if present for that account/instance
+               -> (Bool, Maybe (n, Seq.Seq n))
 updatePttEntry nextN n Nothing = (True, Just (nextN, Seq.singleton n))
 updatePttEntry _ n (Just (l, known)) =
   let nextFree = nextFreeNonce l known

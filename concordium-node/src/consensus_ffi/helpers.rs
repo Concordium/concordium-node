@@ -183,6 +183,12 @@ pub enum ConsensusFfiResponse {
     BlockTooEarly,
     MissingImportFile,
     ConsensusShutDown,
+    ResultExpiryTooLate,
+    ResultVerificationFailed,
+    ResultNonexistingSenderAccount,
+    ResultDuplicateNonce,
+    ResultNonceTooLarge,
+    ResultTooLowEnergy,
 }
 
 impl ConsensusFfiResponse {
@@ -254,6 +260,12 @@ impl TryFrom<i64> for ConsensusFfiResponse {
             11 => Ok(BlockTooEarly),
             12 => Ok(MissingImportFile),
             13 => Ok(ConsensusShutDown),
+            14 => Ok(ResultExpiryTooLate),
+            15 => Ok(ResultVerificationFailed),
+            16 => Ok(ResultNonexistingSenderAccount),
+            17 => Ok(ResultDuplicateNonce),
+            18 => Ok(ResultNonceTooLarge),
+            19 => Ok(ResultTooLowEnergy),
             _ => Err(format_err!("Unsupported FFI return code ({})", value)),
         }
     }

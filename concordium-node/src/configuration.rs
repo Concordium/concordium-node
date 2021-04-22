@@ -44,8 +44,6 @@ pub(crate) fn is_compatible_wire_version(
 
 /// The maximum size of objects accepted from the network.
 pub const PROTOCOL_MAX_MESSAGE_SIZE: u32 = 20_971_520; // 20 MIB
-/// The maximum allowed transaction size in bytes.
-pub const MAX_TRANSACTION_MESSAGE_SIZE: u32 = 100_1000;
 
 const APP_PREFERENCES_MAIN: &str = "main.config";
 const APP_PREFERENCES_KEY_VERSION: &str = "VERSION";
@@ -227,6 +225,8 @@ pub struct BakerConfig {
         long = "import-blocks-from",
         help = "Path to a file exported by the database exporter"
     )]
+    #[structopt(long = "max-expiry-duration", help = "Maximum allowed time difference between now and a transaction's expiry time in seconds", default_value = "7200")]
+    pub max_time_to_expiry: u64,
     pub import_path: Option<String>,
     #[structopt(long = "baker-credentials-file", help = "Path to the baker credentials file")]
     pub baker_credentials_file: Option<PathBuf>,
@@ -468,6 +468,8 @@ pub struct CommonConfig {
         default_value = "600000"
     )]
     pub bucket_cleanup_interval: u64,
+    #[structopt(long = "max-transaction-size", help = "The maximum allowed transaction size in bytes", default_value = "100000")]
+    pub max_transaction_size: usize,
 }
 
 // Client's parameters.
