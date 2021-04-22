@@ -11,6 +11,7 @@ import Data.Foldable
 
 import GHC.Stack
 
+import Concordium.Cost (baseCost)
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Updates
@@ -466,10 +467,19 @@ doReceiveTransaction tr slot = unlessShutDown $ do
   maxPendingNum <- rpMaxPendingTransactionNum <$> getRuntimeParameters
   if pendingNum > maxPendingNum
   then return ResultUnverifiable
+  -- Don't accept the transaction if the stated energy is smaller than the minimum energy amount.
+  else if energyTooLow tr
+  then return ResultTooLowEnergy
   else do
     (_, ur) <- doReceiveTransactionInternal tr slot
     when (ur == ResultSuccess) $ purgeTransactionTable False =<< currentTime
     return ur
+
+    where energyTooLow WithMetadata{wmdData = NormalTransaction tx,..} =
+            let baseEnergy = baseCost (getTransactionHeaderPayloadSize $ transactionHeader tx) (getTransactionNumSigs $ transactionSignature tx)
+                statedEnergy = thEnergyAmount $ transactionHeader tx
+            in baseEnergy > statedEnergy
+          energyTooLow _ = False -- TODO ?
 
 -- |Add a transaction to the transaction table.  The 'Slot' should be
 -- the slot number of the block that the transaction was received with.

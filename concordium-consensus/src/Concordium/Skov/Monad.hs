@@ -58,6 +58,8 @@ data UpdateResult
     -- ^The message may have been valid in the past, but is no longer relevant
     | ResultExpiryTooLate
     -- ^The transaction expiry time is too far in the future
+    | ResultTooLowEnergy
+    -- ^The stated transaction energy is too low
     | ResultIncorrectFinalizationSession
     -- ^The message refers to a different/unknown finalization session
     | ResultUnverifiable
