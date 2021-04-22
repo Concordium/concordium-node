@@ -225,7 +225,12 @@ pub struct BakerConfig {
         long = "import-blocks-from",
         help = "Path to a file exported by the database exporter"
     )]
-    #[structopt(long = "max-expiry-duration", help = "Maximum allowed time difference between now and a transaction's expiry time in seconds", default_value = "7200")]
+    #[structopt(
+        long = "max-expiry-duration",
+        help = "Maximum allowed time difference between now and a transaction's expiry time in \
+                milliseconds",
+        default_value = "7200000"
+    )]
     pub max_time_to_expiry: u64,
     pub import_path: Option<String>,
     #[structopt(long = "baker-credentials-file", help = "Path to the baker credentials file")]
