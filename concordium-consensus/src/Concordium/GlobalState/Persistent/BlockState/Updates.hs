@@ -4,8 +4,7 @@
 module Concordium.GlobalState.Persistent.BlockState.Updates where
 
 import Data.Foldable (toList)
-import qualified Data.Map as Map
-import qualified Data.Map.Strict as StrictMap
+import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Seq
 import Data.Serialize
 import Control.Monad
@@ -643,15 +642,22 @@ processAddAnonymityRevokerUpdates :: (MonadBlobStore m)
   -> m (Map.Map TransactionTime UpdateValue, BufferedRef Updates, HashedBufferedRef ARS.AnonymityRevokers)
 processAddAnonymityRevokerUpdates t bu hbar = do
     u@Updates{..} <- refLoad bu
-    oldARs <- ARS.arRevokers <$> refLoad hbar
     oldQ <- refLoad (pAddAnonymityRevokerQueue pendingUpdates)
     let (ql, qr) = Seq.spanl ((<= t) . transactionTimeToTimestamp . fst) (uqQueue oldQ)
-    (changes, updatedARs) <- addAndAccumNonduplicateUpdates oldARs ARS.arIdentity UVAddAnonymityRevoker ql
+    if null ql
+        then return (Map.empty, bu, hbar)
+        else do
+            oldARs <- ARS.arRevokers <$> refLoad hbar
+            (changes, updatedARs) <- addAndAccumNonduplicateUpdates oldARs ARS.arIdentity UVAddAnonymityRevoker ql
 
-    newQ <- refMake oldQ { uqQueue = qr }
-    newU <- refMake u { pendingUpdates = pendingUpdates {pAddAnonymityRevokerQueue = newQ} }
-    updatedARsRef <- refMake . ARS.AnonymityRevokers $ updatedARs
-    return (changes, newU, updatedARsRef)
+            newQ <- refMake oldQ { uqQueue = qr }
+            newU <- refMake u { pendingUpdates = pendingUpdates {pAddAnonymityRevokerQueue = newQ} }
+
+            -- Since updates might be invalid, we check whether any actual changes occured.
+            hbar' <- if null changes
+                        then return hbar -- Return existing reference if no changes occured.
+                        else refMake . ARS.AnonymityRevokers $ updatedARs
+            return (changes, newU, hbar')
 
 -- |Process the add identity provider update queue.
 --  Ignores updates with duplicate IPs.
@@ -662,35 +668,42 @@ processAddIdentityProviderUpdates :: (MonadBlobStore m)
   -> m (Map.Map TransactionTime UpdateValue, BufferedRef Updates, HashedBufferedRef IPS.IdentityProviders)
 processAddIdentityProviderUpdates t bu hbip = do
     u@Updates{..} <- refLoad bu
-    oldIPs <- IPS.idProviders <$> refLoad hbip
     oldQ <- refLoad (pAddIdentityProviderQueue pendingUpdates)
     let (ql, qr) = Seq.spanl ((<= t) . transactionTimeToTimestamp . fst) (uqQueue oldQ)
-    (changes, updatedIPs) <- addAndAccumNonduplicateUpdates oldIPs IPS.ipIdentity UVAddIdentityProvider ql
+    if null ql
+        then return (Map.empty, bu, hbip)
+        else do
+            oldIPs <- IPS.idProviders <$> refLoad hbip
+            (changes, updatedIPs) <- addAndAccumNonduplicateUpdates oldIPs IPS.ipIdentity UVAddIdentityProvider ql
 
-    newQ <- refMake oldQ { uqQueue = qr }
-    newU <- refMake u { pendingUpdates = pendingUpdates {pAddIdentityProviderQueue = newQ} }
-    updatedIPsRef <- refMake . IPS.IdentityProviders $ updatedIPs
-    return (changes, newU, updatedIPsRef)
+            newQ <- refMake oldQ { uqQueue = qr }
+            newU <- refMake u { pendingUpdates = pendingUpdates {pAddIdentityProviderQueue = newQ} }
+
+            -- Since updates might be invalid, we check whether any actual changes occured.
+            hbip' <- if null changes
+                        then return hbip -- Return existing reference if no changes occured.
+                        else refMake . IPS.IdentityProviders $ updatedIPs
+            return (changes, newU, hbip')
 
 -- |Used for adding new IPs and ARs.
 -- Ensuring that new IPs/ARs have unique ids is difficult when enqueueing.
 -- Instead, it is handled here by ignoring updates with duplicate IPs/ARs.
 -- It also accumulates the actual changes that occured.
 addAndAccumNonduplicateUpdates :: (MonadBlobStore m, Foldable f, Reference m ref (StoreSerialized v), Ord k)
-                      => StrictMap.Map k v -- ^ The existing IPs / ARs.
+                      => Map.Map k v -- ^ The existing IPs / ARs.
                       -> (v -> k) -- ^ Getter for the key field.
                       -> (v -> UpdateValue) -- ^ Data constructor for UpdateValue.
                       -> f (TransactionTime, ref (StoreSerialized v)) -- ^ The updates.
-                      -> m (Map.Map TransactionTime UpdateValue, StrictMap.Map k v)
+                      -> m (Map.Map TransactionTime UpdateValue, Map.Map k v)
 addAndAccumNonduplicateUpdates oldMap getKey toUV = foldM go (Map.empty, oldMap)
   where go (changesMap, valMap) (tt, r) = do
           v <- unStoreSerialized <$> refLoad r
           let key = getKey v
-          if StrictMap.member key valMap
+          if Map.member key valMap
             then return (changesMap, valMap) -- Ignore invalid update
             else do
                 let changesMap' = Map.insert tt (toUV v) changesMap
-                    valMap' = StrictMap.insert key v valMap
+                    valMap' = Map.insert key v valMap
                 return (changesMap', valMap')
 
 -- |Process the protocol update queue.  Unlike other queues, once a protocol update occurs, it is not
