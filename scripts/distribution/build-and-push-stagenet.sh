@@ -30,8 +30,8 @@ DOCKER_BUILDKIT=1 docker build \
 docker save "concordium/staging-client:${image_tag}" | gzip > "staging-client-${image_tag}.tar.gz"
 aws s3 cp "staging-client-${image_tag}.tar.gz" s3://distribution.concordium.com/ --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
 
-# Make the image current unless the tag starts with "test"
-if [ "${image_tag#test}" = "${image_tag}" ]; then
+# Make the image current if the tag is formatted as "<number>:<number>:<number>".
+if [[ "${image_tag}" =~ ^[[:digit:]]\.[[:digit:]]\.[[:digit:]]$ ]]; then
 	echo "${image_tag}" > VERSION
 	aws s3 cp VERSION s3://distribution.concordium.com/ --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
 fi
