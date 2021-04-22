@@ -354,10 +354,10 @@ processARsAndIPsUpdates :: Ord k
                         -> (Map.Map k v, UpdateQueue v, Map.Map TransactionTime v)
 processARsAndIPsUpdates oldValMap getKey t uq = (updatedValMap, uq {_uqQueue = qr}, changes)
   where (ql, qr) = span ((<= t) . transactionTimeToTimestamp . fst) (uq ^. uqQueue)
-        (changes, updatedValMap) = foldr go (Map.empty, oldValMap) ql
+        (changes, updatedValMap) = foldl' go (Map.empty, oldValMap) ql
 
         -- Adds non-duplicate updates to the map with IPs/ARs and accumulates the actual changes that occured.
-        go (tt, v) (changesMap, valMap) =
+        go (changesMap, valMap) (tt, v) =
           if Map.member k valMap
             then (changesMap, valMap) -- Ignore invalid update
             else (changesMap', valMap')
