@@ -15,7 +15,7 @@ import qualified Data.HashMap.Strict as HM
 import Control.Monad.State.Class
 
 import Concordium.Common.Version
-import Concordium.ID.Types (CredentialRegistrationID)
+import Concordium.ID.Types (CredentialRegistrationID, aiThreshold)
 import qualified Concordium.Scheduler.Types as AT
 import Concordium.GlobalState.Types
 import qualified Concordium.GlobalState.TreeState as TS
@@ -226,6 +226,7 @@ getAccountInfo hash sfsRef pointer = runStateQuery sfsRef $
               Nonce nonce <- BS.getAccountNonce acc
               amount <- BS.getAccountAmount acc
               creds <- BS.getAccountCredentials acc
+              accountThreshold <- aiThreshold <$> BS.getAccountVerificationKeys acc
               baker <- BS.getAccountBaker acc
               encrypted <- BS.getAccountEncryptedAmount acc
               encryptionKey <- BS.getAccountEncryptionKey acc
@@ -234,6 +235,7 @@ getAccountInfo hash sfsRef pointer = runStateQuery sfsRef $
                               ,"accountAmount" .= amount
                               , "accountReleaseSchedule" .= releaseSchedule
                               ,"accountCredentials" .= fmap (Versioned 0) creds
+                              ,"accountThreshold" .= accountThreshold
                               ,"accountEncryptedAmount" .= encrypted
                               ,"accountEncryptionKey" .= encryptionKey
                               ] <> renderBaker baker
