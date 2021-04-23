@@ -645,6 +645,17 @@ pub fn connection_housekeeping(node: &Arc<P2PNode>) -> bool {
         }
     }
 
+    // Log all the bad events that happened and reset all their counters.
+    for (peer_id, invalid_msgs) in lock_or_die!(node.bad_events.invalid_messages).drain() {
+        warn!("Received {} invalid messages from peer {}", invalid_msgs, peer_id);
+    }
+    for (peer_id, dropped) in lock_or_die!(node.bad_events.dropped_high_queue).drain() {
+        warn!("Dropped {} high priority messages from peer {}.", dropped, peer_id);
+    }
+    for (peer_id, dropped) in lock_or_die!(node.bad_events.dropped_low_queue).drain() {
+        warn!("Dropped {} low priority messages from peer {}.", dropped, peer_id);
+    }
+
     // Reconnect to bootstrappers after a specified amount of time.
     // It's unclear whether we should always be doing this, even if we have enough
     // peers. But the current logic is to try to bootstrap again, and if we have

@@ -1481,9 +1481,18 @@ filterTransactions maxSize timeout groups0 = do
   maxEnergy <- getMaxBlockEnergy
   credLimit <- getAccountCreationLimit
   ftTrans <- runNext maxEnergy 0 credLimit False emptyFilteredTransactions groups0
-  forM_ (ftFailed ftTrans) $ uncurry logInvalidTransaction
-  forM_ (ftFailedCredentials ftTrans) $ uncurry logInvalidCredential
-  forM_ (ftFailedUpdates ftTrans) $ uncurry logInvalidChainUpdate
+  -- For each type of invalid message we only log the first 10 items so as to
+  -- not to spend too much time in the logging phase. This makes it useful for debugging,
+  -- but not a potential problem when a lot of invalid transactions are being sent.
+  let (toReportTrans, restTrans) = splitAt 10 (ftFailed ftTrans)
+  forM_ toReportTrans $ uncurry logInvalidTransaction
+  unless (null restTrans) $ logEvent Scheduler LLWarning "Too many invalid transactions. Suppressing reporting the remaining ones."
+  let (toReportCredentials, restCredentials) = splitAt 10 (ftFailedCredentials ftTrans)
+  forM_ toReportCredentials $ uncurry logInvalidCredential
+  unless (null restCredentials) $ logEvent Scheduler LLWarning "Too many invalid credentials. Suppressing reporting the remaining ones."
+  let (toReportUpdates, restUpdates) = splitAt 10 (ftFailedUpdates ftTrans)
+  forM_ toReportUpdates $ uncurry logInvalidChainUpdate
+  unless (null restUpdates) $ logEvent Scheduler LLWarning "Too many invalid updates. Suppressing reporting the remaining ones."
   return ftTrans
   where
         -- Run next credential deployment or transaction group, depending on arrival time.
