@@ -360,12 +360,12 @@ reversePTT trs ptt0 = foldr reverse1 ptt0 trs
 -- Helper function for updating an entry for a given transaction in the pending transaction table
 -- that is used by addPendingTransaction and addPendingAccount.
 -- Returns a flag indicating whether the sequence number for the transaction corresponds to the next sequence number
--- for the given account/instance, and the value that the original value in the map should be updated to, if the value 
+-- for the given account or update type, and the value that the original value in the map should be updated to, if the value 
 -- is to remain in the map.
 updatePttEntry :: (Ord n, Num n)
-               => n -- The next free sequence number for that account/instance
+               => n -- The next free sequence number
                -> n -- The sequence number of a transaction
-               -> Maybe (n, Seq.Seq n) -- The value in the map that should be updated, if present for that account/instance
+               -> Maybe (n, Seq.Seq n) -- The value in the map that should be updated, if present for that account or update type
                -> (Bool, Maybe (n, Seq.Seq n))
 updatePttEntry nextN n Nothing = (True, Just (nextN, Seq.singleton n))
 updatePttEntry _ n (Just (l, known)) =

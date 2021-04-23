@@ -519,9 +519,9 @@ stopBaker cptr = mask_ $
 +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
 |    16 | ResultNonexistingSenderAccount     | The transaction's sender account does not exist according to the focus block           | No       |
 +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
-|    17 | ResultDuplicateNonce               | The sequence number for this account/instance was already used                         | No       |
+|    17 | ResultDuplicateNonce               | The sequence number for this account or udpate type was already used                   | No       |
 +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
-|    18 | ResultNonceTooLarge                | The transaction sequence number is larger than the next one for this account/instance  | No       |
+|    18 | ResultNonceTooLarge                | The transaction seq. number is larger than the next one for this account/update type   | No       |
 +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
 |    19 | ResultTooLowEnergy                 | The stated transaction energy is lower than the minimum amount necessary to execute it | No       |
 +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+

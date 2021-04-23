@@ -478,7 +478,7 @@ doReceiveTransaction tr slot = unlessShutDown $ do
             let baseEnergy = baseCost (getTransactionHeaderPayloadSize $ transactionHeader tx) (getTransactionNumSigs $ transactionSignature tx)
                 statedEnergy = thEnergyAmount $ transactionHeader tx
             in baseEnergy > statedEnergy
-          energyTooLow _ = False -- TODO ?
+          energyTooLow _ = False
           isExpiryTooLate = do
             maxTimeToExpiry <-  rpMaxTimeToExpiry <$> getRuntimeParameters
             slotTime <- getSlotTimestamp slot

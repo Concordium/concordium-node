@@ -57,9 +57,9 @@ data UpdateResult
     | ResultStale
     -- ^The message may have been valid in the past, but is no longer relevant
     | ResultDuplicateNonce
-    -- ^The sequence number for that account/instance was already used in another transaction
+    -- ^The sequence number for that account or update type was already used in another transaction
     | ResultNonceTooLarge
-    -- ^The sequence number for that account/instance is larger than the next sequence number
+    -- ^The sequence number for that account or update type is larger than the next sequence number
     | ResultNonexistingSenderAccount
     -- ^An account corresponding to the transaction's sender does not exist in the focus block
     | ResultVerificationFailed
