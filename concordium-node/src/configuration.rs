@@ -228,8 +228,8 @@ pub struct BakerConfig {
     #[structopt(
         long = "max-expiry-duration",
         help = "Maximum allowed time difference between now and a transaction's expiry time in \
-                milliseconds",
-        default_value = "7200000"
+                seconds",
+        default_value = "7200"
     )]
     pub max_time_to_expiry: u64,
     pub import_path: Option<String>,
@@ -473,7 +473,11 @@ pub struct CommonConfig {
         default_value = "600000"
     )]
     pub bucket_cleanup_interval: u64,
-    #[structopt(long = "max-transaction-size", help = "The maximum allowed transaction size in bytes", default_value = "100000")]
+    #[structopt(
+        long = "max-transaction-size",
+        help = "The maximum allowed transaction size in bytes",
+        default_value = "100000"
+    )]
     pub max_transaction_size: usize,
 }
 

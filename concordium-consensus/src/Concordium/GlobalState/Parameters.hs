@@ -103,7 +103,7 @@ data RuntimeParameters = RuntimeParameters {
   -- |Number of seconds between automatic transaction table purging  runs.
   rpTransactionsPurgingDelay :: !Int,
   -- |The maximum allowed time difference between slot time and a transaction's expiry time.
-  rpMaxTimeToExpiry :: !Duration
+  rpMaxTimeToExpiry :: !TransactionTime
   }
 
 -- |Default runtime parameters, block size = 10MB.
@@ -118,7 +118,7 @@ defaultRuntimeParameters = RuntimeParameters {
   rpInsertionsBeforeTransactionPurge = 1000,
   rpTransactionsKeepAliveTime = 5 * 60, -- 5 min
   rpTransactionsPurgingDelay = 3 * 60, -- 3 min
-  rpMaxTimeToExpiry = 1000 * 60 * 60 * 2 -- 2 hours
+  rpMaxTimeToExpiry = 60 * 60 * 2 -- 2 hours
   }
 
 instance FromJSON RuntimeParameters where
