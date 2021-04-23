@@ -592,6 +592,8 @@ pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll, consensus: Option<Consensu
         let mut log_time = Instant::now();
         let mut last_buckets_cleaned = Instant::now();
         let mut last_peer_list_update = 0;
+        // The number of polling loop iterations since the last housekeeping.
+        let mut iterations_since_housekeeping = 0;
 
         let num_socket_threads = match node.self_peer.peer_type {
             PeerType::Bootstrapper => 1,
@@ -677,29 +679,36 @@ pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll, consensus: Option<Consensu
             pool.install(|| node.process_network_events(&events));
 
             // Run periodic tasks
-            let now = Instant::now();
-            if now.duration_since(log_time)
-                >= Duration::from_secs(node.config.housekeeping_interval)
-            {
-                let attempted_bootstrap = connection_housekeeping(&node);
-                if node.peer_type() != PeerType::Bootstrapper {
-                    node.measure_connection_latencies();
+            // We prevent housekeeping from occurring too often so that new connections have
+            // a chance to complete the handshake in between invocations of
+            // housekeeping.
+            if iterations_since_housekeeping >= 10 {
+                if Instant::now().duration_since(log_time)
+                    >= Duration::from_secs(node.config.housekeeping_interval)
+                {
+                    let attempted_bootstrap = connection_housekeeping(&node);
+                    if node.peer_type() != PeerType::Bootstrapper {
+                        node.measure_connection_latencies();
+                    }
+
+                    let peer_stat_list = node.get_peer_stats(None);
+                    check_peers(&node, &peer_stat_list, attempted_bootstrap);
+                    node.measure_throughput(&peer_stat_list);
+
+                    log_time = Instant::now();
+                    iterations_since_housekeeping = 0;
                 }
-
-                let peer_stat_list = node.get_peer_stats(None);
-                check_peers(&node, &peer_stat_list, attempted_bootstrap);
-                node.measure_throughput(&peer_stat_list);
-
-                log_time = now;
+            } else {
+                iterations_since_housekeeping += 1;
             }
 
             if node.is_bucket_cleanup_enabled()
-                && now.duration_since(last_buckets_cleaned)
+                && Instant::now().duration_since(last_buckets_cleaned)
                     >= Duration::from_millis(node.config.bucket_cleanup_interval)
             {
                 write_or_die!(node.buckets())
                     .clean_buckets(node.config.timeout_bucket_entry_period);
-                last_buckets_cleaned = now;
+                last_buckets_cleaned = Instant::now();
             }
         }
         info!("Shutting down");
