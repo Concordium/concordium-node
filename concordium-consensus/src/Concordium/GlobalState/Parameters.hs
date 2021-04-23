@@ -162,6 +162,10 @@ data UpdateValue
     | UVGASRewards !GASRewards
     -- |Updates to the baker minimum threshold
     | UVBakerStakeThreshold !Amount
+    -- |Adds a new anonymity revoker
+    | UVAddAnonymityRevoker !ArInfo
+    -- |Adds a new identity provider
+    | UVAddIdentityProvider !IpInfo
     -- |Updates to root keys.
     | UVRootKeys !(HigherLevelKeys RootKeysKind)
     -- |Updates to level 1 keys.
