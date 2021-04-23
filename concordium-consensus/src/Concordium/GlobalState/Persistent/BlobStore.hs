@@ -670,7 +670,9 @@ cacheBufferedBlobbed cacheF (LBMemory ref inner) = do
 cacheBufferedBlobbed cacheF (LBCached c) = LBCached <$> cacheCachedBlobbed cacheF c
 
 -- BlobStorable instances
+instance MonadBlobStore m => BlobStorable m IPS.IpInfo
 instance MonadBlobStore m => BlobStorable m IPS.IdentityProviders
+instance MonadBlobStore m => BlobStorable m ARS.ArInfo
 instance MonadBlobStore m => BlobStorable m ARS.AnonymityRevokers
 instance MonadBlobStore m => BlobStorable m Parameters.CryptographicParameters
 -- FIXME: This uses serialization of accounts for storing them.
