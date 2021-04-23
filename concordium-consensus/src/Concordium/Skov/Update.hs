@@ -474,7 +474,7 @@ doReceiveTransaction tr slot = unlessShutDown $ do
     when (ur == ResultSuccess) $ purgeTransactionTable False =<< currentTime
     return ur
 
-    where energyTooLow WithMetadata{wmdData = NormalTransaction tx,..} =
+    where energyTooLow WithMetadata{wmdData = NormalTransaction tx} =
             let baseEnergy = baseCost (getTransactionHeaderPayloadSize $ transactionHeader tx) (getTransactionNumSigs $ transactionSignature tx)
                 statedEnergy = thEnergyAmount $ transactionHeader tx
             in baseEnergy > statedEnergy
@@ -490,7 +490,7 @@ doReceiveTransaction tr slot = unlessShutDown $ do
 -- This function should only be called when a transaction is received as part of a block.
 -- The difference from the above function is that this function returns an already existing
 -- transaction in case of a duplicate, ensuring more sharing of transaction data.
-doReceiveTransactionInternal :: (TreeStateMonad pv m, SkovQueryMonad pv m) => BlockItem -> Slot -> m (Maybe BlockItem, UpdateResult)
+doReceiveTransactionInternal :: TreeStateMonad pv m => BlockItem -> Slot -> m (Maybe BlockItem, UpdateResult)
 doReceiveTransactionInternal tr slot =
         addCommitTransaction tr slot >>= \case
                 Added bi@WithMetadata{..} -> do
@@ -513,10 +513,10 @@ doReceiveTransactionInternal tr slot =
                         if nextNonce <= transactionNonce tx then do
                           let (newPendingTable, nextInLine) = addPendingTransaction nextNonce WithMetadata{wmdData=tx,..} ptrs
                           putPendingTransactions $! newPendingTable
-                          let result = case (exists, verified, nextInLine) of
+                          let result = case (exists, nextInLine, verified) of
                                             (False, _, _) -> ResultNonexistingSenderAccount
-                                            (_, False, _) -> ResultVerificationFailed
-                                            (_, _, False) -> ResultNonceTooLarge
+                                            (_, False, _) -> ResultNonceTooLarge
+                                            (_, _, False) -> ResultVerificationFailed
                                             _ -> ResultSuccess
                           return (Just bi, result)
                         -- if a transaction with this nonce was already in the focus block
@@ -534,7 +534,13 @@ doReceiveTransactionInternal tr slot =
                           if nextSN <= updateSeqNumber (uiHeader cu) then do
                               let (newPending, nextInLine) = addPendingUpdate nextSN cu ptrs
                               putPendingTransactions $! newPending
-                              return (Just bi, if nextInLine then ResultSuccess else ResultNonceTooLarge)
+                              keys <- bsoGetUpdateKeyCollection =<< thawBlockState st
+                              let verified = checkAuthorizedUpdate keys cu
+                                  result = case (nextInLine, verified) of
+                                                (False, _) -> ResultNonceTooLarge
+                                                (_, False) -> ResultVerificationFailed
+                                                _ -> ResultSuccess
+                              return (Just bi, result)
                           else return (Just bi, ResultDuplicateNonce)
                 Duplicate tx -> return (Just tx, ResultDuplicate)
                 ObsoleteNonce -> return (Nothing, ResultStale)
