@@ -1,7 +1,5 @@
 # Concordium node implementation
 
-`master` [![master pipeline status](https://gitlab.com/Concordium/concordium-node/badges/master/pipeline.svg)](https://gitlab.com/Concordium/concordium-node/commits/master).
-
 ## General usage information
 This repository relies on git submodules for some internal and external component dependencies.
 Do remember to clone recursively or use `git submodule update --init --recursive` after having cloned it.
