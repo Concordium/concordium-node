@@ -8,7 +8,7 @@ import Control.Monad
 import qualified Data.Sequence as Seq
 import Lens.Micro.Platform
 import Data.Foldable
-import Data.Maybe(fromMaybe)
+import Data.Maybe(fromMaybe, isNothing)
 
 import GHC.Stack
 
@@ -363,7 +363,7 @@ addBlock block = do
                                     stateHash <- getStateHash (_finalState result)
                                     check "Claimed stateHash did not match calculated stateHash"(stateHash == blockStateHash block) $ do
                                         -- Check that the TransactionOutcomeHash is correct
-                                        tohash <- getTransactionOutcomesHash (_finalState result) 
+                                        tohash <- getTransactionOutcomesHash (_finalState result)
                                         check "Claimed transactionOutcomesHash did not match actual transactionOutcomesHash"(tohash ==  blockTransactionOutcomesHash block) $ do
                                             -- Add the block to the tree
                                             blockP <- blockArrive block parentP lfBlockP result
@@ -429,7 +429,7 @@ doStoreBlock pb@GB.PendingBlock{..} = unlessShutDown $ do
         BakedBlock{..} = pbBlock
     oldBlock <- getBlockStatus cbp
     case oldBlock of
-        Nothing ->  
+        Nothing ->
             -- Check that the claimed key matches the signature/blockhash
             checkClaimedSignature pb $ do
             -- The block is new, so we have some work to do.
@@ -447,7 +447,7 @@ doStoreBlock pb@GB.PendingBlock{..} = unlessShutDown $ do
         Just _ -> return ResultDuplicate
     where
         checkClaimedSignature b a = if verifyBlockSignature b then a else do
-            logEvent Skov LLWarning $ "Dropping block where signature did not match claimed key or blockhash: " 
+            logEvent Skov LLWarning $ "Dropping block where signature did not match claimed key or blockhash: "
             return ResultInvalid
 
 -- |Add a transaction to the transaction table.  The 'Slot' should be
@@ -470,18 +470,25 @@ doReceiveTransaction tr slot = unlessShutDown $ do
   -- Don't accept the transaction if its expiry time is too far in the future
   expiryTooLate <- isExpiryTooLate
   if expiryTooLate then return ResultExpiryTooLate
-  -- Don't accept the transaction if the stated energy is smaller than the minimum energy amount.
-  else if energyTooLow tr then return ResultTooLowEnergy
   else do
-    (_, ur) <- doReceiveTransactionInternal tr slot
+    ur <- case tr of
+           WithMetadata{wmdData = NormalTransaction tx} -> do
+             -- Don't accept the transaction if the stated energy is smaller than the minimum energy amount.
+             let baseEnergy = baseCost (getTransactionHeaderPayloadSize $ transactionHeader tx) (getTransactionNumSigs $ transactionSignature tx)
+                 statedEnergy = thEnergyAmount $ transactionHeader tx
+             if baseEnergy > statedEnergy then return ResultTooLowEnergy
+             else do
+               -- this is not ideal since we look up the entire account.
+               -- In the current implementation this is not a problem since all states since the last finalized one are cached
+               -- but this should be revised to add a "accountExists" function in the future
+               senderExists <- flip getAccount (transactionSender tx) =<< queryBlockState =<< lastFinalizedBlock
+               if isNothing senderExists then return ResultNonexistingSenderAccount
+               else snd <$> doReceiveTransactionInternal tr slot
+           _ -> snd <$> doReceiveTransactionInternal tr slot
     when (ur == ResultSuccess) $ purgeTransactionTable False =<< currentTime
     return ur
 
-    where energyTooLow WithMetadata{wmdData = NormalTransaction tx} =
-            let baseEnergy = baseCost (getTransactionHeaderPayloadSize $ transactionHeader tx) (getTransactionNumSigs $ transactionSignature tx)
-                statedEnergy = thEnergyAmount $ transactionHeader tx
-            in baseEnergy > statedEnergy
-          energyTooLow _ = False
+    where
           isExpiryTooLate = do
             maxTimeToExpiry <- rpMaxTimeToExpiry <$> getRuntimeParameters
             now <- utcTimeToTransactionTime <$> currentTime
