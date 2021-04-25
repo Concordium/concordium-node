@@ -13,7 +13,9 @@ class DockerRunner:
     # pip3 install docker
 
     def __init__(self):
-        self.image = os.environ.get("GENESIS_TOOLS_DOCKER_IMAGE", default = "concordium/genesis-tools:0.5")
+        self.image = os.environ.get("USE_DOCKER")
+        if self.image == "": # default to latest image
+            self.image = "concordium/genesis-tools:latest"
         import docker
         self.client = docker.from_env()
         self.root = os.getcwd()

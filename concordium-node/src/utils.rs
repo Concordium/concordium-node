@@ -126,7 +126,7 @@ pub fn get_resolvers(resolv_conf: &Path, resolvers: &[String]) -> Vec<String> {
 }
 
 #[cfg(target_os = "windows")]
-pub fn get_resolvers(_resolv_conf: &str, resolvers: &[String]) -> Vec<String> {
+pub fn get_resolvers(_resolv_conf: &Path, resolvers: &[String]) -> Vec<String> {
     if !resolvers.is_empty() {
         resolvers.to_owned()
     } else {

@@ -148,7 +148,8 @@ pub fn handle_pkt_out(
     } else {
         DistributionMode::Direct
     };
-    let msg_len = msg.len();
+    // length of the actual payload. The message has a 1-byte tag prepended to it.
+    let payload_len = msg[1..].len();
 
     let request = ConsensusMessage::new(
         MessageType::Inbound(peer_id, distribution_mode),
@@ -159,9 +160,11 @@ pub fn handle_pkt_out(
     );
 
     if packet_type == PacketType::Transaction {
-        let size = &node.config.max_transaction_message_size;
-        if msg_len > *size {
-            bail!("Transaction size exceeds {} bytes.", size)
+        if payload_len > configuration::PROTOCOL_MAX_TRANSACTION_SIZE {
+            bail!(
+                "Transaction size exceeds {} bytes.",
+                configuration::PROTOCOL_MAX_TRANSACTION_SIZE
+            )
         }
         if let Err(e) = CALLBACK_QUEUE.send_in_low_priority_message(request) {
             match e.downcast::<TrySendError<QueueMsg<ConsensusMessage>>>()? {

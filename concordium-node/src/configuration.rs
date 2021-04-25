@@ -45,6 +45,9 @@ pub(crate) fn is_compatible_wire_version(
 /// The maximum size of objects accepted from the network.
 pub const PROTOCOL_MAX_MESSAGE_SIZE: u32 = 20_971_520; // 20 MIB
 
+/// Upper bound on the transaction object size, in bytes.
+pub const PROTOCOL_MAX_TRANSACTION_SIZE: usize = 100 * 1024; // 100 kB.
+
 const APP_PREFERENCES_MAIN: &str = "main.config";
 const APP_PREFERENCES_KEY_VERSION: &str = "VERSION";
 /// Used for a persistent node id setup.
@@ -473,12 +476,6 @@ pub struct CommonConfig {
         default_value = "600000"
     )]
     pub bucket_cleanup_interval: u64,
-    #[structopt(
-        long = "max-transaction-size",
-        help = "The maximum allowed transaction size in bytes",
-        default_value = "100000"
-    )]
-    pub max_transaction_size: usize,
 }
 
 // Client's parameters.
