@@ -304,7 +304,7 @@ handleStartExceptions logM c =
 startConsensus ::
            Word64 -- ^Maximum block size.
            -> Word64 -- ^Block construction timeout in milliseconds
-           -> Word64 -- ^Maximum allowed time difference between slot time and a transaction's expiry time
+           -> Word64 -- ^The amount of time in the future a transaction's expiry can be. In seconds.
            -> Word64 -- ^Insertions before purging of transactions
            -> Word64 -- ^Time in seconds during which a transaction can't be purged
            -> Word64 -- ^Number of seconds between transaction table purging runs
@@ -387,7 +387,7 @@ startConsensus maxBlock timeout maxTimeToExpiry insertionsBeforePurge transactio
 startConsensusPassive ::
            Word64 -- ^Maximum block size.
            -> Word64 -- ^Block construction timeout in milliseconds
-           -> Word64 -- ^Maximum allowed time difference between slot time and a transaction's expiry time
+           -> Word64 -- ^The amount of time in the future a transaction's expiry can be. In seconds.
            -> Word64 -- ^Insertions before purging of transactions
            -> Word64 -- ^Time in seconds during which a transaction can't be purged
            -> Word64 -- ^Number of seconds between transaction table purging runs

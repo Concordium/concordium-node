@@ -460,15 +460,17 @@ doStoreBlock pb@GB.PendingBlock{..} = unlessShutDown $ do
 --     and nonce has already been finalized. In this case the transaction is not added to the table.
 --   * 'ResultInvalid' which indicates that the transaction signature was invalid.
 --   * 'ResultShutDown' which indicates that consensus was shut down, and so the transaction was not added.
+--   * 'ResultExpiryTooLate' which indicates that transaction's expiry was too far in the future and so the transaction
+--     was not accepted.
+--   * 'ResultTooLowEnergy' which indicates that the transactions stated energy was below the minimum amount needed for the
+--     transaction to be included in a block. The transaction is not added to the transaction table
 doReceiveTransaction :: (TreeStateMonad pv m, TimeMonad m, SkovQueryMonad pv m) => BlockItem -> Slot -> m UpdateResult
 doReceiveTransaction tr slot = unlessShutDown $ do
   -- Don't accept the transaction if its expiry time is too far in the future
   expiryTooLate <- isExpiryTooLate
-  if expiryTooLate
-  then return ResultExpiryTooLate
+  if expiryTooLate then return ResultExpiryTooLate
   -- Don't accept the transaction if the stated energy is smaller than the minimum energy amount.
-  else if energyTooLow tr
-  then return ResultTooLowEnergy
+  else if energyTooLow tr then return ResultTooLowEnergy
   else do
     (_, ur) <- doReceiveTransactionInternal tr slot
     when (ur == ResultSuccess) $ purgeTransactionTable False =<< currentTime
@@ -483,7 +485,7 @@ doReceiveTransaction tr slot = unlessShutDown $ do
             maxTimeToExpiry <- rpMaxTimeToExpiry <$> getRuntimeParameters
             now <- utcTimeToTransactionTime <$> currentTime
             let expiry = msgExpiry tr
-            return $ expiry - fromIntegral now > maxTimeToExpiry
+            return $ expiry > maxTimeToExpiry + fromIntegral now
 
 -- |Add a transaction to the transaction table.  The 'Slot' should be
 -- the slot number of the block that the transaction was received with.
