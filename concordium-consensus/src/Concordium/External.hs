@@ -304,6 +304,7 @@ handleStartExceptions logM c =
 startConsensus ::
            Word64 -- ^Maximum block size.
            -> Word64 -- ^Block construction timeout in milliseconds
+           -> Word64 -- ^The amount of time in the future a transaction's expiry can be. In seconds.
            -> Word64 -- ^Insertions before purging of transactions
            -> Word64 -- ^Time in seconds during which a transaction can't be purged
            -> Word64 -- ^Number of seconds between transaction table purging runs
@@ -320,7 +321,7 @@ startConsensus ::
            -> CString -> Int64 -- ^Database connection string. If length is 0 don't do logging.
            -> Ptr (StablePtr ConsensusRunner)
            -> IO Int64
-startConsensus maxBlock timeout insertionsBeforePurge transactionsKeepAlive transactionsPurgingDelay gdataC gdataLenC bidC bidLenC bcbk cucbk regenesisArcPtr freeRegenesisArc regenesisCB maxLogLevel lcbk appDataC appDataLenC connStringPtr connStringLen runnerPtrPtr = handleStartExceptions logM $ do
+startConsensus maxBlock timeout maxTimeToExpiry insertionsBeforePurge transactionsKeepAlive transactionsPurgingDelay gdataC gdataLenC bidC bidLenC bcbk cucbk regenesisArcPtr freeRegenesisArc regenesisCB maxLogLevel lcbk appDataC appDataLenC connStringPtr connStringLen runnerPtrPtr = handleStartExceptions logM $ do
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         bdata <- BS.packCStringLen (bidC, fromIntegral bidLenC)
         appData <- peekCStringLen (appDataC, fromIntegral appDataLenC)
@@ -333,7 +334,8 @@ startConsensus maxBlock timeout insertionsBeforePurge transactionsKeepAlive tran
               rpMaxBakingDelay = defaultMaxBakingDelay,
               rpInsertionsBeforeTransactionPurge = fromIntegral insertionsBeforePurge,
               rpTransactionsKeepAliveTime = TransactionTime transactionsKeepAlive,
-              rpTransactionsPurgingDelay = fromIntegral transactionsPurgingDelay
+              rpTransactionsPurgingDelay = fromIntegral transactionsPurgingDelay,
+              rpMaxTimeToExpiry = fromIntegral maxTimeToExpiry
             }
         case (runGet getVersionedGenesisData gdata, AE.eitherDecodeStrict bdata) of
             (Right genData, Right bid) -> do
@@ -385,6 +387,7 @@ startConsensus maxBlock timeout insertionsBeforePurge transactionsKeepAlive tran
 startConsensusPassive ::
            Word64 -- ^Maximum block size.
            -> Word64 -- ^Block construction timeout in milliseconds
+           -> Word64 -- ^The amount of time in the future a transaction's expiry can be. In seconds.
            -> Word64 -- ^Insertions before purging of transactions
            -> Word64 -- ^Time in seconds during which a transaction can't be purged
            -> Word64 -- ^Number of seconds between transaction table purging runs
@@ -399,7 +402,7 @@ startConsensusPassive ::
            -> CString -> Int64 -- ^Connection string to access the database. If length is 0 don't do logging.
            -> Ptr (StablePtr ConsensusRunner)
            -> IO Int64
-startConsensusPassive timeout maxBlock insertionsBeforePurge transactionsPurgingDelay transactionsKeepAlive gdataC gdataLenC cucbk regenesisArcPtr freeRegenesisArc regenesisCB maxLogLevel lcbk appDataC appDataLenC connStringPtr connStringLen runnerPtrPtr = handleStartExceptions logM $ do
+startConsensusPassive timeout maxTimeToExpiry maxBlock insertionsBeforePurge transactionsPurgingDelay transactionsKeepAlive gdataC gdataLenC cucbk regenesisArcPtr freeRegenesisArc regenesisCB maxLogLevel lcbk appDataC appDataLenC connStringPtr connStringLen runnerPtrPtr = handleStartExceptions logM $ do
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         appData <- peekCStringLen (appDataC, fromIntegral appDataLenC)
         let runtimeParams = RuntimeParameters {
@@ -411,7 +414,8 @@ startConsensusPassive timeout maxBlock insertionsBeforePurge transactionsPurging
               rpMaxBakingDelay = defaultMaxBakingDelay,
               rpInsertionsBeforeTransactionPurge = fromIntegral insertionsBeforePurge,
               rpTransactionsKeepAliveTime = TransactionTime transactionsKeepAlive,
-              rpTransactionsPurgingDelay = fromIntegral transactionsPurgingDelay
+              rpTransactionsPurgingDelay = fromIntegral transactionsPurgingDelay,
+              rpMaxTimeToExpiry = fromIntegral maxTimeToExpiry
             }
         case runGet getVersionedGenesisData gdata of
             Right genData -> do
@@ -509,6 +513,18 @@ stopBaker cptr = mask_ $
 +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
 |    13 | ResultConsensusShutDown            | Consensus has been shut down and the message was ignored                               | No       |
 +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
+|    14 | ResultExpiryTooLate                | The transaction expiry time is too far in the future                                   | No       |
++-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
+|    15 | ResultVerificationFailed           | The transaction signature verification failed                                          | No       |
++-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
+|    16 | ResultNonexistingSenderAccount     | The transaction's sender account does not exist according to the focus block           | No       |
++-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
+|    17 | ResultDuplicateNonce               | The sequence number for this account or udpate type was already used                   | No       |
++-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
+|    18 | ResultNonceTooLarge                | The transaction seq. number is larger than the next one for this account/update type   | No       |
++-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
+|    19 | ResultTooLowEnergy                 | The stated transaction energy is lower than the minimum amount necessary to execute it | No       |
++-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
 -}
 type ReceiveResult = Int64
 
@@ -527,7 +543,12 @@ toReceiveResult ResultContinueCatchUp = 10
 toReceiveResult ResultEarlyBlock = 11
 toReceiveResult ResultMissingImportFile = 12
 toReceiveResult ResultConsensusShutDown = 13
-
+toReceiveResult ResultExpiryTooLate = 14
+toReceiveResult ResultVerificationFailed = 15
+toReceiveResult ResultNonexistingSenderAccount = 16
+toReceiveResult ResultDuplicateNonce = 17
+toReceiveResult ResultNonceTooLarge = 18
+toReceiveResult ResultTooLowEnergy = 19
 
 -- |Handle receipt of a block.
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,
@@ -600,7 +621,8 @@ receiveFinalizationRecord bptr cstr l = do
 
 -- |Handle receipt of a transaction.
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultDuplicate@,
--- @ResultStale@, @ResultInvalid@, and @ResultConsensusShutDown@.
+-- @ResultStale@, @ResultInvalid@, @ResultConsensusShutDown@, @ResultExpiryTooLate@, @ResultVerificationFailed@,
+-- @ResultNonexistingSenderAccount@, @ResultDuplicateNonce@, @ResultNonceTooLarge@, @ResultTooLowEnergy@.
 receiveTransaction :: StablePtr ConsensusRunner -> CString -> Int64 -> IO ReceiveResult
 receiveTransaction bptr tdata len = do
     c <- deRefStablePtr bptr
@@ -1143,8 +1165,8 @@ importBlocks cptr cstr len = do
   logm External LLDebug "Done importing file."
   return ret
 
-foreign export ccall startConsensus :: Word64 -> Word64 -> Word64 -> Word64 -> Word64 -> CString -> Int64 -> CString -> Int64 -> FunPtr BroadcastCallback -> FunPtr CatchUpStatusCallback -> Ptr () -> FunPtr (Ptr () -> IO ()) -> FunPtr RegenesisCallback -> Word8 -> FunPtr LogCallback -> CString -> Int64 -> CString -> Int64 -> Ptr (StablePtr ConsensusRunner) -> IO Int64
-foreign export ccall startConsensusPassive :: Word64 -> Word64 -> Word64 -> Word64 -> Word64 -> CString -> Int64 -> FunPtr CatchUpStatusCallback -> Ptr () -> FunPtr (Ptr () -> IO ()) -> FunPtr RegenesisCallback -> Word8 -> FunPtr LogCallback -> CString -> Int64 ->CString -> Int64 -> Ptr (StablePtr ConsensusRunner) -> IO Int64
+foreign export ccall startConsensus :: Word64 -> Word64 -> Word64 -> Word64 -> Word64 -> Word64 -> CString -> Int64 -> CString -> Int64 -> FunPtr BroadcastCallback -> FunPtr CatchUpStatusCallback -> Ptr () -> FunPtr (Ptr () -> IO ()) -> FunPtr RegenesisCallback -> Word8 -> FunPtr LogCallback -> CString -> Int64 -> CString -> Int64 -> Ptr (StablePtr ConsensusRunner) -> IO Int64
+foreign export ccall startConsensusPassive :: Word64 -> Word64 -> Word64 -> Word64 -> Word64 -> Word64 -> CString -> Int64 -> FunPtr CatchUpStatusCallback -> Ptr () -> FunPtr (Ptr () -> IO ()) -> FunPtr RegenesisCallback -> Word8 -> FunPtr LogCallback -> CString -> Int64 ->CString -> Int64 -> Ptr (StablePtr ConsensusRunner) -> IO Int64
 foreign export ccall stopConsensus :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall startBaker :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall stopBaker :: StablePtr ConsensusRunner -> IO ()

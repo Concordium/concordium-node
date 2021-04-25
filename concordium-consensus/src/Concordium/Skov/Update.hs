@@ -8,9 +8,11 @@ import Control.Monad
 import qualified Data.Sequence as Seq
 import Lens.Micro.Platform
 import Data.Foldable
+import Data.Maybe(fromMaybe)
 
 import GHC.Stack
 
+import Concordium.Cost (baseCost)
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Updates
@@ -25,10 +27,11 @@ import Concordium.Types.Transactions
 import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.AccountTransactionIndex
+import Concordium.GlobalState.Parameters (RuntimeParameters(..))
 
 import Concordium.Scheduler.TreeStateEnvironment(executeFrom, ExecutionResult'(..), ExecutionResult, FinalizerInfo)
 
-import Concordium.Kontrol
+import Concordium.Kontrol hiding (getRuntimeParameters)
 import Concordium.Birk.LeaderElection
 import Concordium.Kontrol.UpdateLeaderElectionParameters
 import Concordium.Afgjort.Finalize
@@ -36,7 +39,6 @@ import Concordium.Afgjort.Finalize.Types
 import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.Skov.Statistics
-import Data.Maybe (fromMaybe)
 
 
 -- |Determine if one block is an ancestor of another.
@@ -459,11 +461,32 @@ doStoreBlock pb@GB.PendingBlock{..} = unlessShutDown $ do
 --     and nonce has already been finalized. In this case the transaction is not added to the table.
 --   * 'ResultInvalid' which indicates that the transaction signature was invalid.
 --   * 'ResultShutDown' which indicates that consensus was shut down, and so the transaction was not added.
+--   * 'ResultExpiryTooLate' which indicates that transaction's expiry was too far in the future and so the transaction
+--     was not accepted.
+--   * 'ResultTooLowEnergy' which indicates that the transactions stated energy was below the minimum amount needed for the
+--     transaction to be included in a block. The transaction is not added to the transaction table
 doReceiveTransaction :: (TreeStateMonad pv m, TimeMonad m, SkovQueryMonad pv m) => BlockItem -> Slot -> m UpdateResult
 doReceiveTransaction tr slot = unlessShutDown $ do
-  (_, ur) <- doReceiveTransactionInternal tr slot
-  when (ur == ResultSuccess) $ purgeTransactionTable False =<< currentTime
-  return ur
+  -- Don't accept the transaction if its expiry time is too far in the future
+  expiryTooLate <- isExpiryTooLate
+  if expiryTooLate then return ResultExpiryTooLate
+  -- Don't accept the transaction if the stated energy is smaller than the minimum energy amount.
+  else if energyTooLow tr then return ResultTooLowEnergy
+  else do
+    (_, ur) <- doReceiveTransactionInternal tr slot
+    when (ur == ResultSuccess) $ purgeTransactionTable False =<< currentTime
+    return ur
+
+    where energyTooLow WithMetadata{wmdData = NormalTransaction tx} =
+            let baseEnergy = baseCost (getTransactionHeaderPayloadSize $ transactionHeader tx) (getTransactionNumSigs $ transactionSignature tx)
+                statedEnergy = thEnergyAmount $ transactionHeader tx
+            in baseEnergy > statedEnergy
+          energyTooLow _ = False
+          isExpiryTooLate = do
+            maxTimeToExpiry <- rpMaxTimeToExpiry <$> getRuntimeParameters
+            now <- utcTimeToTransactionTime <$> currentTime
+            let expiry = msgExpiry tr
+            return $ expiry > maxTimeToExpiry + fromIntegral now
 
 -- |Add a transaction to the transaction table.  The 'Slot' should be
 -- the slot number of the block that the transaction was received with.
