@@ -56,6 +56,18 @@ data UpdateResult
     -- ^The message duplicates a previously received message
     | ResultStale
     -- ^The message may have been valid in the past, but is no longer relevant
+    | ResultDuplicateNonce
+    -- ^The sequence number for that account or update type was already used in another transaction
+    | ResultNonceTooLarge
+    -- ^The sequence number for that account or update type is larger than the next sequence number
+    | ResultNonexistingSenderAccount
+    -- ^An account corresponding to the transaction's sender does not exist in the focus block
+    | ResultVerificationFailed
+    -- ^Verifying the transaction's signature failed
+    | ResultExpiryTooLate
+    -- ^The transaction expiry time is too far in the future
+    | ResultTooLowEnergy
+    -- ^The stated transaction energy is too low
     | ResultIncorrectFinalizationSession
     -- ^The message refers to a different/unknown finalization session
     | ResultUnverifiable
