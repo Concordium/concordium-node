@@ -254,6 +254,7 @@ impl P2p for RpcServerImpl {
                 (Ok(_), InvalidResult) => Ok(mk_response(false)),
                 (Ok(_), TooLowEnergy) => Ok(mk_response(false)),
                 (Ok(_), ExpiryTooLate) => Ok(mk_response(false)),
+                (Ok(_), NonexistingSenderAccount) => Ok(mk_response(false)),
                 (Err(e), Success) => {
                     warn!("Couldn't put a transaction in the outbound queue due to {:?}", e);
                     Err(Status::new(
