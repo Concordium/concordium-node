@@ -90,10 +90,14 @@ impl Connection {
             bail!("Rejecting handshake: Handshake message lacked wire versions.");
         }
         if is_compatible_wire_version(&handshake.wire_versions).is_none() {
-            bail!(
-                "Rejecting handshake: incompatible wire protocol versions ({:?}).",
-                handshake.wire_versions
-            );
+            if handshake.wire_versions.len() > 10 {
+                bail!("Rejecting handshake: incompatible wire protocol versions received.",);
+            } else {
+                bail!(
+                    "Rejecting handshake: incompatible wire protocol versions ({:?}).",
+                    handshake.wire_versions
+                );
+            }
         }
         if handshake.networks.len() > MAX_PEER_NETWORKS {
             bail!("Rejecting handshake: too many networks.");
@@ -106,15 +110,15 @@ impl Connection {
             let common_blocks = our_blocks
                 .iter()
                 .zip(handshake.genesis_blocks.iter())
-                .take_while(|(a, b)| a == b)
-                .count();
-            if common_blocks != our_blocks.len() && common_blocks != handshake.genesis_blocks.len()
-            {
+                .enumerate()
+                .find(|(_, (a, b))| a != b);
+            if let Some((i, (ours, theirs))) = common_blocks {
                 bail!(
                     "Rejecting handshake: Didn't find a common prefix on the genesis block \
-                     hashes.\nOur blocks: {:?}\nTheir blocks:{:?}",
-                    our_blocks.clone(),
-                    handshake.genesis_blocks
+                     hashes. Difference: our block: {}, their block {} at position {}.",
+                    ours,
+                    theirs,
+                    i
                 );
             }
         }
