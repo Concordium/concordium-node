@@ -10,7 +10,7 @@
 # The genesis configurations are in the /genesis-data directory, in subdirectories
 # named genesis-$NUM_BAKERS-bakers.
 
-FROM concordium/genesis-tools:0.5 as genesis-builder
+FROM concordium/genesis-tools:latest as genesis-builder
 
 # Build all the relevant genesis files and embed them in the image itself.
 COPY scripts/genesis/ /genesis
