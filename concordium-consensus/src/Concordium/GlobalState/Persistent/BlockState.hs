@@ -1318,7 +1318,8 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateStorage (Persi
 
     dropUpdatableBlockState pbs = liftIO $ writeIORef pbs (error "Block state dropped")
 
-    purgeBlockState pbs = liftIO $ writeIORef (hpbsPointers pbs) (error "Block state purged")
+    purgeBlockState _ = return ()
+    {-# INLINE purgeBlockState #-}
 
     archiveBlockState HashedPersistentBlockState{..} = do
         inner <- liftIO $ readIORef hpbsPointers
