@@ -402,7 +402,7 @@ startConsensusPassive ::
            -> CString -> Int64 -- ^Connection string to access the database. If length is 0 don't do logging.
            -> Ptr (StablePtr ConsensusRunner)
            -> IO Int64
-startConsensusPassive timeout maxTimeToExpiry maxBlock insertionsBeforePurge transactionsPurgingDelay transactionsKeepAlive gdataC gdataLenC cucbk regenesisArcPtr freeRegenesisArc regenesisCB maxLogLevel lcbk appDataC appDataLenC connStringPtr connStringLen runnerPtrPtr = handleStartExceptions logM $ do
+startConsensusPassive maxBlock timeout maxTimeToExpiry insertionsBeforePurge transactionsPurgingDelay transactionsKeepAlive gdataC gdataLenC cucbk regenesisArcPtr freeRegenesisArc regenesisCB maxLogLevel lcbk appDataC appDataLenC connStringPtr connStringLen runnerPtrPtr = handleStartExceptions logM $ do
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         appData <- peekCStringLen (appDataC, fromIntegral appDataLenC)
         let runtimeParams = RuntimeParameters {
