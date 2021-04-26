@@ -65,6 +65,7 @@ pub fn start_consensus_layer(
     ConsensusContainer::new(
         u64::from(conf.maximum_block_size),
         u64::from(conf.block_construction_timeout),
+        conf.max_time_to_expiry,
         u64::from(conf.transaction_insertions_before_purge),
         u64::from(conf.transaction_keep_alive),
         u64::from(conf.transactions_purging_delay),
@@ -147,6 +148,8 @@ pub fn handle_pkt_out(
     } else {
         DistributionMode::Direct
     };
+    // length of the actual payload. The message has a 1-byte tag prepended to it.
+    let payload_len = msg[1..].len();
 
     let request = ConsensusMessage::new(
         MessageType::Inbound(peer_id, distribution_mode),
@@ -157,6 +160,12 @@ pub fn handle_pkt_out(
     );
 
     if packet_type == PacketType::Transaction {
+        if payload_len > configuration::PROTOCOL_MAX_TRANSACTION_SIZE {
+            bail!(
+                "Transaction size exceeds {} bytes.",
+                configuration::PROTOCOL_MAX_TRANSACTION_SIZE
+            )
+        }
         if let Err(e) = CALLBACK_QUEUE.send_in_low_priority_message(request) {
             match e.downcast::<TrySendError<QueueMsg<ConsensusMessage>>>()? {
                 TrySendError::Full(_) => {

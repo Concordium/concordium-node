@@ -209,13 +209,21 @@ impl P2p for RpcServerImpl {
         &self,
         req: Request<SendTransactionRequest>,
     ) -> Result<Response<BoolResponse>, Status> {
+        use ConsensusFfiResponse::*;
+
         authenticate!(req, self.access_token);
         if let Some(ref consensus) = self.consensus {
             let req = req.get_ref();
             let transaction = &req.payload;
+            if transaction.len() > configuration::PROTOCOL_MAX_TRANSACTION_SIZE {
+                warn!("Received a transaction that exceeds maximum transaction size.");
+                return Err(Status::invalid_argument(
+                    "Transaction size exceeds maximum allowed size.",
+                ));
+            }
             let consensus_result = consensus.send_transaction(transaction);
 
-            let result = if consensus_result == ConsensusFfiResponse::Success {
+            let result = if consensus_result == Success {
                 let mut payload = Vec::with_capacity(1 + transaction.len());
                 payload.write_u8(PacketType::Transaction as u8)?;
                 payload.write_all(&transaction)?;
@@ -230,25 +238,24 @@ impl P2p for RpcServerImpl {
             } else {
                 Ok(())
             };
+            // make the successful response. If the transaction was added
+            // and retransmitted then the response is true, otherwise
+            // we respond with false
+            let mk_response = |value| {
+                Response::new(BoolResponse {
+                    value,
+                })
+            };
             match (result, consensus_result) {
-                (Ok(_), ConsensusFfiResponse::Success) => Ok(Response::new(BoolResponse {
-                    value: true,
-                })),
-                (Ok(_), ConsensusFfiResponse::DuplicateEntry) => Ok(Response::new(BoolResponse {
-                    value: false,
-                })),
-                (Ok(_), ConsensusFfiResponse::DeserializationError) => {
-                    Ok(Response::new(BoolResponse {
-                        value: false,
-                    }))
-                }
-                (Ok(_), ConsensusFfiResponse::Stale) => Ok(Response::new(BoolResponse {
-                    value: false,
-                })),
-                (Ok(_), ConsensusFfiResponse::InvalidResult) => Ok(Response::new(BoolResponse {
-                    value: false,
-                })),
-                (Err(e), ConsensusFfiResponse::Success) => {
+                (Ok(_), Success) => Ok(mk_response(true)),
+                (Ok(_), DuplicateEntry) => Ok(mk_response(false)),
+                (Ok(_), DeserializationError) => Ok(mk_response(false)),
+                (Ok(_), Stale) => Ok(mk_response(false)),
+                (Ok(_), InvalidResult) => Ok(mk_response(false)),
+                (Ok(_), TooLowEnergy) => Ok(mk_response(false)),
+                (Ok(_), ExpiryTooLate) => Ok(mk_response(false)),
+                (Ok(_), NonexistingSenderAccount) => Ok(mk_response(false)),
+                (Err(e), Success) => {
                     warn!("Couldn't put a transaction in the outbound queue due to {:?}", e);
                     Err(Status::new(
                         Code::Internal,

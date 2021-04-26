@@ -13,7 +13,9 @@ class DockerRunner:
     # pip3 install docker
 
     def __init__(self):
-        self.image = os.environ.get("GENESIS_TOOLS_DOCKER_IMAGE", default = "concordium/genesis-tools:0.5")
+        self.image = os.environ.get("USE_DOCKER")
+        if self.image == "": # default to latest image
+            self.image = "concordium/genesis-tools:latest"
         import docker
         self.client = docker.from_env()
         self.root = os.getcwd()
@@ -106,6 +108,8 @@ INITIAL_STAKE = os.environ.get("INITIAL_STAKE", default = "3000000.0")
 
 # The number of bakers that will be created.
 NUM_BAKERS = os.environ.get("NUM_BAKERS", default = "5")
+# The number of account keys on each of the generated accounts
+NUM_KEYS = os.environ.get("NUM_KEYS", default = "1")
 
 MAX_BLOCK_ENERGY = os.environ.get("MAX_BLOCK_ENERGY", default = "3000000")
 
@@ -147,6 +151,7 @@ def create_bakers():
                           "--ip-info", os.path.join(GENESIS_DIR, "identity_provider-0.pub.json"),
                           "--global", GLOBAL_FILE,
                           "--num", NUM_BAKERS,
+                          "--num-keys", NUM_KEYS,
                           "--stake", INITIAL_STAKE,
                           "--balance", INITIAL_BALANCE,
                           "--template", "baker-account",
