@@ -214,7 +214,17 @@ impl ConsensusFfiResponse {
         use ConsensusFfiResponse::*;
 
         match self {
-            BakerNotFound | DeserializationError | InvalidResult | Unverifiable | BlockTooEarly
+            BakerNotFound
+            | DeserializationError
+            | InvalidResult
+            | Unverifiable
+            | BlockTooEarly
+            | ExpiryTooLate
+            | VerificationFailed
+            | NonexistingSenderAccount
+            | DuplicateNonce
+            | NonceTooLarge
+            | TooLowEnergy
             | ConsensusShutDown => false,
             _ => true,
         }
@@ -231,6 +241,12 @@ impl ConsensusFfiResponse {
             | Stale
             | IncorrectFinalizationSession
             | BlockTooEarly
+            | ExpiryTooLate
+            | VerificationFailed
+            | NonexistingSenderAccount
+            | DuplicateNonce
+            | NonceTooLarge
+            | TooLowEnergy
             | ConsensusShutDown => false,
             _ => true,
         }
