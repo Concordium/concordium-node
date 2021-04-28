@@ -1,9 +1,4 @@
 # Concordium node implementation
-
-## General usage information
-This repository relies on git submodules for some internal and external component dependencies.
-Do remember to clone recursively or use `git submodule update --init --recursive` after having cloned it.
-
 ## Dependencies to build the project
 * Rust (stable 1.45.2 for using static libraries)
 * binutils >= 2.22
@@ -25,8 +20,8 @@ Do remember to clone recursively or use `git submodule update --init --recursive
 * s11n_serde_msgpack - enables serialization using [rmp-serde](https://crates.io/crates/rmp-serde) (only used in benches)
 * instrumentation - enables stats data exporting to [prometheus](https://crates.io/crates/prometheus)
 * network_dump - makes the network dumping capabilites available.
-* static - build against static haskell libraries in GIT LFS (Linux only)
-* profiling - build against haskell libraries in GIT LFS with profiling support enabled (Linux only)
+* static - build against static haskell libraries (Linux only)
+* profiling - build against haskell libraries with profiling support enabled (Linux only)
 * collector - enables the build of the node-collector and backend
 * staging_net - enables special staging network only features like client username/password validation
 * database_emitter - enables building the database emitter binary to inject a database exported to a set of nodes
@@ -43,16 +38,31 @@ different ways, either via environment variables or Cargo features.
 
 The package supports the following features related to linking with the Haskell component.
 
-- `static`: This feature enables linking with static Haskell libraries.
+- `static`: This feature enables linking with static Haskell libraries on linux
    They are expected to be available in `./deps/static-libs/linux/vanilla`.
-   The [../scripts/download-static-libs.sh](../scripts/download-static-libs.sh)`
-   script will download them into the correct location.
-   **The script is intended to be run from the root of the repository.**
+
+   These static libraries can be built using the docker image built from
+   [../scripts/static-libraries/static-libraries.Dockerfile] by doing the following from the **root of the repository**.
+
+  ```console
+  docker build -t concordium/static-libraries -f scripts/static-libraries/static-libraries.Dockerfile .
+  mkdir out
+  docker run -v $(pwd)/out:/out concordium/static-libraries
+  mkdir -p concordium-node/deps/static-libs/linux
+  tar -xf out/static-consensus-8.10.4.tar.gz --strip-components=1 -C concordium-node/deps/static-libs/linux
+  ```
+  (this is assuming a GNU version of tar)
 
 - `profiling`: This will link with Haskell libraries built with profiling support. This option implies `static`, with the difference
   that the libraries must be available in `./deps/static-libs/linux/profiling`.
+  The same process and Dockerfile can be used to build them. In fact both versions of static libraries are always built.
 
 By default none of these features are enabled.
+
+Building a node with any of these features, e.g., `cargo build --release
+--features=static` produces a mostly statically linked binary `concordium-node`,
+apart from system libraries and `libunbound` and `libpq` for the unbound library
+and postgres.
 
 ### Environment variables
 
@@ -101,15 +111,14 @@ Environment variables only apply to the default build. This links with shared Ha
   node itself is built, the `--release` only applies to the optimization of the Rust node xcomponents.
 
 - The node built with Haskell library auto-discovery is not suitable for distribution to other
-  machines. It is a dynamically linked binary with a large number of shared library dependencies
-  that have
+  machines. It is a dynamically linked binary with a large number of shared library dependencies.
 
 ## Installing genesis data
-Unpack the relevant set of genesis data and private baker data from [genesis-data/](/genesis-data) to the correct OS folder (e.g. on Linux this would be `$HOME/.local/share/concordium`). This determines how many bakers you need to run for the network to be able to work properly.
+Unpack the relevant set of genesis data and private baker data from [genesis-data/](/genesis-data) to the folder that will be used as the `--data-dir` of the node.
 
 ## Running a bootstrapper node
 
-The bootstrapper node uses a configuration closely similar to the one of a
+The bootstrapper node uses a configuration similar to the one of a
 normal node. Using `--help` will show all the available flags.
 
 There is one mandatory parameter that must be set:
@@ -186,7 +195,3 @@ For the average to better withstand outliers, it is calculated from a percentage
 The percentage can be adjusted using `--percentage-used-for-averages` and must be an integer between 1 and 100.
 
 Example: Say, we set the percentage to 60, with 20 nodes running, then new data would be compared to the average of 12 nodes, leaving out the nodes with the 3 lowest values and the 3 highest values.
-
-
-
-
