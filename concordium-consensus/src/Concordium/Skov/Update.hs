@@ -510,7 +510,7 @@ doReceiveTransactionInternal tr slot =
                   focus <- getFocusBlock
                   st <- blockState focus
                   macct <- getAccount st $! transactionSender tx
-                  nextNonce <- fromMaybe minNonce <$> mapM getAccountNonce macct
+                  nextNonce <- fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
                   -- If a transaction with this nonce has already been run by
                   -- the focus block, then we do not need to add it to the
                   -- pending transactions.  Otherwise, we do.

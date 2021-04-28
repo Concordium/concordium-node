@@ -189,10 +189,10 @@ class AccountOperations m => BlockStateQuery m where
     -- |Get the module source from the module table as deployed to the chain.
     getModule :: BlockState m -> ModuleRef -> m (Maybe Wasm.WasmModule)
     -- |Get the account state from the account table of the state instance.
-    getAccount :: BlockState m -> AccountAddress -> m (Maybe (Account m))
+    getAccount :: BlockState m -> AccountAddress -> m (Maybe (AccountIndex, Account m))
 
     -- |Query an account by the id of the credential that belonged to it.
-    getAccountByCredId :: BlockState m -> CredentialRegistrationID -> m (Maybe (Account m))
+    getAccountByCredId :: BlockState m -> CredentialRegistrationID -> m (Maybe (AccountIndex, Account m))
 
     -- |Get the contract state from the contract table of the state instance.
     getContractInstance :: BlockState m -> ContractAddress -> m (Maybe Instance)

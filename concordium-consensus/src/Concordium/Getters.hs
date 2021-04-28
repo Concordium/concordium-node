@@ -222,7 +222,7 @@ getAccountInfo :: (SkovStateQueryable z m) => BlockHash -> z -> Either Credentia
 getAccountInfo hash sfsRef pointer = runStateQuery sfsRef $
   withBlockStateJSON hash $ \st -> either (BS.getAccountByCredId st) (BS.getAccount st) pointer >>=
       \case Nothing -> return Null
-            Just acc -> do
+            Just (accountIndex, acc) -> do
               Nonce nonce <- BS.getAccountNonce acc
               amount <- BS.getAccountAmount acc
               creds <- BS.getAccountCredentials acc
@@ -238,6 +238,7 @@ getAccountInfo hash sfsRef pointer = runStateQuery sfsRef $
                               ,"accountThreshold" .= accountThreshold
                               ,"accountEncryptedAmount" .= encrypted
                               ,"accountEncryptionKey" .= encryptionKey
+                              ,"accountIndex" .= accountIndex
                               ] <> renderBaker baker
   where
     renderBaker :: Maybe AccountBaker -> [Pair]

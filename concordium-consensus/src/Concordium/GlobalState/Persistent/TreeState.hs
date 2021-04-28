@@ -291,7 +291,7 @@ loadSkovPersistentData rp _genesisData pbsc atiPair = do
         tt0 <- foldM (\table addr ->
                  getAccount lastState addr >>= \case
                   Nothing -> logExceptionAndThrowTS (DatabaseInvariantViolation $ "Account " ++ show addr ++ " which is in the account list cannot be loaded.")
-                  Just acc -> return (table & ttNonFinalizedTransactions . at addr ?~ emptyANFTWithNonce (acc ^. accountNonce)))
+                  Just (_, acc) -> return (table & ttNonFinalizedTransactions . at addr ?~ emptyANFTWithNonce (acc ^. accountNonce)))
             emptyTransactionTable
             accs
         foldM (\table uty -> do
