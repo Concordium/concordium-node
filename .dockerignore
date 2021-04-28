@@ -1,6 +1,6 @@
 *.swo
 *.swp
-target
+**/target
 Cargo.lock
 *.orig
 *.bk
