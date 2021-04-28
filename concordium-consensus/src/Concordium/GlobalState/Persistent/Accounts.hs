@@ -187,14 +187,14 @@ getAccount addr Accounts{..} = Trie.lookup addr accountMap >>= \case
 
 -- |Retrieve an account associated with the given credential registration ID.
 -- Returns @Nothing@ if no such account exists.
-getAccountByCredId :: (MonadBlobStore m, IsProtocolVersion pv) => ID.CredentialRegistrationID -> Accounts pv -> m (Maybe (PersistentAccount pv))
+getAccountByCredId :: (MonadBlobStore m, IsProtocolVersion pv) => ID.CredentialRegistrationID -> Accounts pv -> m (Maybe (AccountIndex, PersistentAccount pv))
 getAccountByCredId cid accs@Accounts{accountRegIds = Null,..} = Trie.lookup cid accountRegIdHistory  >>= \case
         Nothing -> return Nothing
-        Just ai -> indexedAccount ai accs
+        Just ai -> fmap (ai, ) <$> indexedAccount ai accs
 getAccountByCredId cid accs@Accounts{accountRegIds = Some cachedIds} =
     case Map.lookup cid cachedIds of
         Nothing -> return Nothing
-        Just ai -> indexedAccount ai accs
+        Just ai -> fmap (ai, ) <$> indexedAccount ai accs
 
 
 -- |Get the account at a given index (if any).

@@ -120,7 +120,7 @@ maintainTransactions bp FilteredTransactions{..} = do
           macc <- getAccount stateHandle addr
           case macc of
             Nothing -> return minNonce
-            Just acc -> getAccountNonce acc
+            Just (_, acc) -> getAccountNonce acc
     -- construct a new pending transaction table adding back some failed transactions.
     let purgeFailed cpt tx = do
           b <- purgeTransaction (normalTransaction tx)
