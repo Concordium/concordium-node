@@ -113,9 +113,6 @@ Environment variables only apply to the default build. This links with shared Ha
 - The node built with Haskell library auto-discovery is not suitable for distribution to other
   machines. It is a dynamically linked binary with a large number of shared library dependencies.
 
-## Installing genesis data
-Unpack the relevant set of genesis data and private baker data from [genesis-data/](/genesis-data) to the folder that will be used as the `--data-dir` of the node.
-
 ## Running a bootstrapper node
 
 The bootstrapper node uses a configuration similar to the one of a
