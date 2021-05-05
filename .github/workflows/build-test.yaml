@@ -149,6 +149,9 @@ jobs:
     - name: Test globalstate
       run: |
         stack --stack-yaml concordium-consensus/stack.yaml test concordium-consensus:globalstate --bench --no-run-benchmarks --ta --level=${TEST_LEVEL}
+    - name: Test scheduler
+      run: |
+        stack --stack-yaml concordium-consensus/stack.yaml test concordium-consensus:scheduler --bench --no-run-benchmarks
 
     # RUST #
 
