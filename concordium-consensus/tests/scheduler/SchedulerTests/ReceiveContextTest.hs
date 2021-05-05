@@ -92,7 +92,6 @@ checkReceiveResult (suc, fails, instances) = do
   assertEqual "There should be no failed transactions." [] fails
   assertEqual "There should be no rejected transactions." [] reject
   assertEqual "There should be 3 instances." 3 (length instances)
-
   where
     reject = filter (\case (_, Types.TxSuccess{}) -> False
                            (_, Types.TxReject{}) -> True
