@@ -7,10 +7,8 @@ use std::{alloc::System, sync::RwLock};
 #[global_allocator]
 static A: System = System;
 
-use failure::{Fallible, ResultExt};
 use mio::Poll;
 use parking_lot::Mutex as ParkingMutex;
-
 use concordium_node::{
     common::PeerType,
     configuration as config,
@@ -44,6 +42,7 @@ use std::{
     },
     thread::JoinHandle,
 };
+use anyhow::Context;
 
 #[cfg(feature = "instrumentation")]
 use concordium_node::stats_export_service::start_push_gateway;
@@ -51,7 +50,7 @@ use concordium_node::stats_export_service::start_push_gateway;
 use std::net::{IpAddr, SocketAddr};
 
 #[tokio::main]
-async fn main() -> Fallible<()> {
+async fn main() -> anyhow::Result<()> {
     let (conf, mut app_prefs) = get_config_and_logging_setup()?;
     let shutdown_handler_state = Arc::new(AtomicBool::new(false));
 
@@ -225,7 +224,7 @@ fn instantiate_node(
     app_prefs: &mut config::AppPreferences,
     stats_export_service: Arc<StatsExportService>,
     regenesis_arc: Arc<RwLock<Vec<BlockHash>>>,
-) -> Fallible<(Arc<P2PNode>, Poll)> {
+) -> anyhow::Result<(Arc<P2PNode>, Poll)> {
     // If the node id is supplied on the command line (in the conf argument) use it.
     // Otherwise try to look it up from the persistent config.
     let node_id = match conf.common.id {
@@ -252,7 +251,7 @@ fn instantiate_node(
     P2PNode::new(Some(node_id), &conf, PeerType::Node, stats_export_service, regenesis_arc)
 }
 
-fn establish_connections(conf: &config::Config, node: &Arc<P2PNode>) -> Fallible<()> {
+fn establish_connections(conf: &config::Config, node: &Arc<P2PNode>) -> anyhow::Result<()> {
     info!("Starting the P2P layer");
     connect_to_config_nodes(node);
     if !conf.connection.no_bootstrap_dns {
@@ -392,7 +391,7 @@ fn start_consensus_message_threads(
 
 fn handle_queue_stop<F>(msg: QueueMsg<ConsensusMessage>, dir: &'static str, f: F) -> bool
 where
-    F: FnOnce(ConsensusMessage) -> Fallible<()>, {
+    F: FnOnce(ConsensusMessage) -> anyhow::Result<()>, {
     match msg {
         QueueMsg::Relay(msg) => {
             if let Err(e) = f(msg) {
