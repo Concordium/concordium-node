@@ -7,8 +7,7 @@ use std::{alloc::System, sync::RwLock};
 #[global_allocator]
 static A: System = System;
 
-use mio::Poll;
-use parking_lot::Mutex as ParkingMutex;
+use anyhow::Context;
 use concordium_node::{
     common::PeerType,
     configuration as config,
@@ -34,6 +33,8 @@ use concordium_node::{
     stats_export_service::{instantiate_stats_export_engine, StatsExportService},
     utils::get_config_and_logging_setup,
 };
+use mio::Poll;
+use parking_lot::Mutex as ParkingMutex;
 use rand::Rng;
 use std::{
     sync::{
@@ -42,7 +43,6 @@ use std::{
     },
     thread::JoinHandle,
 };
-use anyhow::Context;
 
 #[cfg(feature = "instrumentation")]
 use concordium_node::stats_export_service::start_push_gateway;
