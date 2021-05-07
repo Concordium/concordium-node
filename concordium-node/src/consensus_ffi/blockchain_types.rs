@@ -1,10 +1,8 @@
+use crate::consensus_ffi::helpers::HashBytes;
+use anyhow::anyhow;
 use base58check::ToBase58Check;
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use crypto_common::{Buffer, Deserial, Serial};
-use failure::{format_err, Fallible};
-
-use crate::consensus_ffi::helpers::HashBytes;
-
 use std::{convert::TryFrom, fmt, io::Cursor, mem::size_of};
 
 pub type ContractIndex = u64;
@@ -30,7 +28,7 @@ impl Serial for ContractAddress {
 }
 
 impl Deserial for ContractAddress {
-    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
+    fn deserial<R: ReadBytesExt>(source: &mut R) -> anyhow::Result<Self> {
         let index = ContractIndex::deserial(source)?;
         let subindex = ContractSubIndex::deserial(source)?;
 
@@ -67,12 +65,12 @@ impl SchemeId {
 }
 
 impl TryFrom<u8> for SchemeId {
-    type Error = failure::Error;
+    type Error = anyhow::Error;
 
-    fn try_from(id: u8) -> Fallible<Self> {
+    fn try_from(id: u8) -> anyhow::Result<Self> {
         match id {
             0 => Ok(SchemeId::Ed25519),
-            _ => Err(format_err!("Unsupported SchemeId ({})!", id)),
+            _ => Err(anyhow!("Unsupported SchemeId ({})!", id)),
         }
     }
 }
@@ -105,7 +103,7 @@ impl Serial for AccountAddress {
 }
 
 impl Deserial for AccountAddress {
-    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
+    fn deserial<R: ReadBytesExt>(source: &mut R) -> anyhow::Result<Self> {
         let mut buf = [0; 32];
         source.read_exact(&mut buf)?;
         Ok(AccountAddress(buf))

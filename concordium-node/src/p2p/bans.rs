@@ -1,11 +1,10 @@
 //! Peer ban handling.
 
 use crate::{common::p2p_peer::RemotePeerId, connection::ConnChange, p2p::P2PNode, write_or_die};
+use anyhow::bail;
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use crypto_common::{Buffer, Deserial, Serial};
-use failure::{self, Fallible};
 use rkv::{StoreOptions, Value};
-
 use std::net::{IpAddr, SocketAddr};
 
 const BAN_STORE_NAME: &str = "bans";
@@ -47,7 +46,7 @@ impl Serial for PersistedBanId {
 }
 
 impl Deserial for PersistedBanId {
-    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
+    fn deserial<R: ReadBytesExt>(source: &mut R) -> anyhow::Result<Self> {
         let bn = match source.read_u8()? {
             0 => Self::Ip(IpAddr::deserial(source)?),
             _ => bail!("Unsupported type of `BanNode`"),
@@ -70,7 +69,7 @@ impl P2PNode {
     }
 
     /// Register the node's connection to be closed and ban the IP.
-    pub fn drop_by_ip_and_ban(&self, ip_addr: IpAddr) -> Fallible<bool> {
+    pub fn drop_by_ip_and_ban(&self, ip_addr: IpAddr) -> anyhow::Result<bool> {
         info!("Banning IP {}", ip_addr);
 
         let bid = PersistedBanId::Ip(ip_addr);
@@ -112,7 +111,7 @@ impl P2PNode {
 
     /// Remove a node from the banned peer list if it exists.
     /// If the peer is not banned then this does nothing.
-    pub fn unban_node(&self, peer: PersistedBanId) -> Fallible<()> {
+    pub fn unban_node(&self, peer: PersistedBanId) -> anyhow::Result<()> {
         info!("Unbanning node {:?}", peer);
 
         if let Ok(ban_kvs_env) = self.kvs.read() {
@@ -129,7 +128,7 @@ impl P2PNode {
     }
 
     /// Check whether a specified id has been banned.
-    pub fn is_banned(&self, peer: PersistedBanId) -> Fallible<bool> {
+    pub fn is_banned(&self, peer: PersistedBanId) -> anyhow::Result<bool> {
         if let Ok(ban_kvs_env) = self.kvs.read() {
             let ban_store = ban_kvs_env.open_single(BAN_STORE_NAME, StoreOptions::create())?;
             let ban_reader = ban_kvs_env.read()?;
@@ -143,7 +142,7 @@ impl P2PNode {
     }
 
     /// Obtain the list of banned nodes.
-    pub fn get_banlist(&self) -> Fallible<Vec<PersistedBanId>> {
+    pub fn get_banlist(&self) -> anyhow::Result<Vec<PersistedBanId>> {
         if let Ok(ban_kvs_env) = self.kvs.read() {
             let ban_store = ban_kvs_env.open_single(BAN_STORE_NAME, StoreOptions::create())?;
 
@@ -164,7 +163,7 @@ impl P2PNode {
     }
 
     /// Lift all existing bans.
-    pub fn clear_bans(&self) -> Fallible<()> {
+    pub fn clear_bans(&self) -> anyhow::Result<()> {
         if let Ok(kvs_env) = self.kvs.read() {
             let ban_store = kvs_env.open_single(BAN_STORE_NAME, StoreOptions::create())?;
             let mut writer = kvs_env.write()?;

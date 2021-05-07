@@ -1,5 +1,4 @@
 use crate::concordium_dns::sys_c as sys;
-use failure::{Fail, Fallible};
 use libc::c_int;
 use std::{
     borrow::Borrow,
@@ -8,14 +7,15 @@ use std::{
     io::{self, Write},
     net, ptr,
 };
+use thiserror::Error;
 
 const IP_CSTR_MAX: usize = 40;
 
-#[derive(Debug, Fail)]
-#[fail(display = "argument contains null byte")]
+#[derive(Debug, Error)]
+#[error("argument contains null byte")]
 pub struct NullByteError;
 
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub struct UBError {
     pub err_code: c_int,
 }
@@ -92,7 +92,7 @@ impl Context {
         }
     }
 
-    pub fn set_fwd<T: Borrow<net::IpAddr>>(&self, ip: T) -> Fallible<()> {
+    pub fn set_fwd<T: Borrow<net::IpAddr>>(&self, ip: T) -> anyhow::Result<()> {
         match *ip.borrow() {
             net::IpAddr::V4(ref ip) => self.set_fwd4(ip),
             net::IpAddr::V6(ref ip) => self.set_fwd6(ip),
@@ -100,14 +100,14 @@ impl Context {
     }
 
     /// Forward queries to an IPv4 host.
-    pub fn set_fwd4<T: Borrow<net::Ipv4Addr>>(&self, ip: T) -> Fallible<()> {
+    pub fn set_fwd4<T: Borrow<net::Ipv4Addr>>(&self, ip: T) -> anyhow::Result<()> {
         let mut buf = [0u8; IP_CSTR_MAX];
         let target = ipv4_to_cstr(ip.borrow(), &mut buf);
         unsafe { into_result!(sys::ub_ctx_set_fwd(self.ub_ctx, target.as_ptr())) }
     }
 
     /// Forward queries to an IPv6 host.
-    pub fn set_fwd6<T: Borrow<net::Ipv6Addr>>(&self, ip: T) -> Fallible<()> {
+    pub fn set_fwd6<T: Borrow<net::Ipv6Addr>>(&self, ip: T) -> anyhow::Result<()> {
         let mut buf = [0u8; IP_CSTR_MAX];
         let target = ipv6_to_cstr(ip.borrow(), &mut buf);
         unsafe { into_result!(sys::ub_ctx_set_fwd(self.ub_ctx, target.as_ptr())) }
@@ -115,13 +115,13 @@ impl Context {
 
     /// Add a single line string containing a valid DNSKEY or DS RR as a trust
     /// anchor.
-    pub fn add_ta(&self, ta: &str) -> Fallible<()> {
+    pub fn add_ta(&self, ta: &str) -> anyhow::Result<()> {
         let ta = CString::new(ta)?;
         unsafe { into_result!(sys::ub_ctx_add_ta(self.ub_ctx, ta.as_ptr())) }
     }
 
     /// Resolve and validate a query.
-    pub fn resolve(&self, name: &str, rrtype: u16, class: u16) -> Fallible<Answer> {
+    pub fn resolve(&self, name: &str, rrtype: u16, class: u16) -> anyhow::Result<Answer> {
         let mut result: *mut sys::ub_result = ptr::null_mut();
         let name = CString::new(name)?;
         unsafe {

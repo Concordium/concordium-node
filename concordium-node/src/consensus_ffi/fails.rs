@@ -1,17 +1,10 @@
-use failure::{Backtrace, Fail};
+use std::backtrace::Backtrace;
+use thiserror::Error;
 
-#[derive(Debug, Fail)]
-#[fail(display = "Resource was poisoned")]
+#[derive(Debug, Error)]
+#[error("Resource was poisoned")]
 pub struct PoisonError {
-    backtrace: Backtrace,
-}
-
-impl<T> From<std::sync::PoisonError<T>> for PoisonError {
-    fn from(_: std::sync::PoisonError<T>) -> Self {
-        PoisonError {
-            backtrace: Backtrace::new(),
-        }
-    }
+    backtrace: Backtrace, // The backtrace is automatically detected.
 }
 
 #[macro_export]

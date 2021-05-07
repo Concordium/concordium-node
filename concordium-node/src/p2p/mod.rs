@@ -16,7 +16,6 @@ mod tests {
         p2p::bans::PersistedBanId,
         test_utils::*,
     };
-    use failure::Fallible;
     use std::net::IpAddr;
 
     #[test]
