@@ -31,7 +31,6 @@ pub const HANDSHAKE_SIZE_LIMIT: usize = 1024;
 pub const PSK: &[u8] = b"b6461bd246843f70ac1328401405b2b4e725994d7d144a75bff1a04a247d64b7";
 /// The size of the initial socket write queue allocation.
 const WRITE_QUEUE_ALLOC: usize = 1024 * 1024;
-pub type ConnectionResult<T, E = anyhow::Error> = anyhow::Result<T, E>;
 
 /// A single encrypted message currently being read from the socket.
 #[derive(Default)]
@@ -277,13 +276,13 @@ impl ConnectionLowLevel {
     // the XX noise handshake
 
     /// Immediately sends the XX-A handshake message
-    pub fn send_handshake_message_a(&mut self) -> ConnectionResult<()> {
+    pub fn send_handshake_message_a(&mut self) -> anyhow::Result<()> {
         let pad = 16;
         send_xx_msg!(self, DHLEN, PSK, pad, "A");
         Ok(())
     }
 
-    fn process_msg_a(&mut self, len: usize) -> ConnectionResult<Vec<u8>> {
+    fn process_msg_a(&mut self, len: usize) -> anyhow::Result<Vec<u8>> {
         recv_xx_msg!(self, len, "A");
         let pad = 16;
         let payload_in = self.socket_buffer.slice(len)[DHLEN..][..len - DHLEN - pad].try_into()?;
@@ -293,7 +292,7 @@ impl ConnectionLowLevel {
         Ok(payload_in)
     }
 
-    fn process_msg_b(&mut self, len: usize) -> ConnectionResult<Vec<u8>> {
+    fn process_msg_b(&mut self, len: usize) -> anyhow::Result<Vec<u8>> {
         recv_xx_msg!(self, len, "B");
         let payload_in = self.socket_buffer.slice(len)[DHLEN * 2 + MAC_LENGTH..]
             [..len - DHLEN * 2 - MAC_LENGTH * 2]
@@ -304,7 +303,7 @@ impl ConnectionLowLevel {
         Ok(payload_in)
     }
 
-    fn process_msg_c(&mut self, len: usize) -> ConnectionResult<Vec<u8>> {
+    fn process_msg_c(&mut self, len: usize) -> anyhow::Result<Vec<u8>> {
         recv_xx_msg!(self, len, "C");
         let payload = self.socket_buffer.slice(len)[DHLEN + MAC_LENGTH..]
             [..len - DHLEN - MAC_LENGTH * 2]
@@ -327,7 +326,7 @@ impl ConnectionLowLevel {
 
     /// Attempts to read a complete message from the socket.
     #[inline]
-    pub fn read_from_socket(&mut self) -> ConnectionResult<ReadResult> {
+    pub fn read_from_socket(&mut self) -> anyhow::Result<ReadResult> {
         if self.socket_buffer.is_exhausted() {
             self.socket_buffer.reset();
         }
@@ -365,7 +364,7 @@ impl ConnectionLowLevel {
 
     /// Attempt to discover the length of the incoming encrypted message.
     #[inline]
-    fn attempt_to_read_length(&mut self) -> ConnectionResult<()> {
+    fn attempt_to_read_length(&mut self) -> anyhow::Result<()> {
         let read_size = cmp::min(
             self.socket_buffer.remaining,
             PAYLOAD_SIZE - self.incoming_msg.size_bytes.len(),
@@ -411,7 +410,7 @@ impl ConnectionLowLevel {
     /// are bytes pending to be processed, register them as part of the
     /// current message and decrypt it when all bytes have been read.
     #[inline]
-    fn process_incoming_msg(&mut self) -> ConnectionResult<ReadResult> {
+    fn process_incoming_msg(&mut self) -> anyhow::Result<ReadResult> {
         let to_read = cmp::min(self.incoming_msg.pending_bytes, self.socket_buffer.remaining);
 
         self.incoming_msg.message.write_all(self.socket_buffer.slice(to_read))?;
@@ -454,7 +453,7 @@ impl ConnectionLowLevel {
 
     /// Decrypt a full message read from the socket.
     #[inline]
-    fn decrypt(&mut self) -> ConnectionResult<Vec<u8>> {
+    fn decrypt(&mut self) -> anyhow::Result<Vec<u8>> {
         let mut msg = Cursor::new(mem::replace(&mut self.incoming_msg.message, Vec::new()));
         // calculate the number of full-sized chunks
         let len = msg.get_ref().len();
@@ -485,7 +484,7 @@ impl ConnectionLowLevel {
         &mut self,
         msg: &mut Cursor<Vec<u8>>,
         offset_mul: usize,
-    ) -> ConnectionResult<()> {
+    ) -> anyhow::Result<()> {
         msg.seek(SeekFrom::Start((offset_mul * NOISE_MAX_MESSAGE_LEN) as u64))?;
         let read_size =
             cmp::min(NOISE_MAX_MESSAGE_LEN, msg.get_ref().len() - msg.position() as usize);
@@ -515,14 +514,14 @@ impl ConnectionLowLevel {
 
     /// Enqueue a message to be written to the socket.
     #[inline]
-    pub fn write_to_socket(&mut self, input: Arc<[u8]>) -> ConnectionResult<()> {
+    pub fn write_to_socket(&mut self, input: Arc<[u8]>) -> anyhow::Result<()> {
         self.encrypt_and_enqueue(&input)
     }
 
     /// Writes enequeued bytes to the socket until the queue is exhausted
     /// or the write would be blocking.
     #[inline]
-    pub fn flush_socket(&mut self) -> ConnectionResult<()> {
+    pub fn flush_socket(&mut self) -> anyhow::Result<()> {
         if self.is_writable {
             while !self.output_queue.is_empty() {
                 match self.flush_socket_once() {
@@ -538,7 +537,7 @@ impl ConnectionLowLevel {
 
     /// Writes a single batch of enqueued bytes to the socket.
     #[inline]
-    fn flush_socket_once(&mut self) -> ConnectionResult<usize> {
+    fn flush_socket_once(&mut self) -> anyhow::Result<usize> {
         // Always ignore max write buffer when we're handshaking, as we need to ensure
         // we won't chunk the handshake messages, which can cause issues for the
         // noise protocol
@@ -581,7 +580,7 @@ impl ConnectionLowLevel {
     /// It encrypts `input` and enqueues the encrypted chunks preceded by the
     /// length for later sending.
     #[inline]
-    fn encrypt_and_enqueue(&mut self, input: &[u8]) -> ConnectionResult<()> {
+    fn encrypt_and_enqueue(&mut self, input: &[u8]) -> anyhow::Result<()> {
         let num_full_chunks = input.len() / NOISE_MAX_PAYLOAD_LEN;
         let last_chunk_len = {
             let rem = input.len() % NOISE_MAX_PAYLOAD_LEN;
@@ -612,7 +611,7 @@ impl ConnectionLowLevel {
     /// Produces and enqueues a single noise message from `input`, potentially
     /// squeezing it with the previously enqueued chunk.
     #[inline]
-    fn encrypt_chunk(&mut self, input: &mut Cursor<&[u8]>) -> ConnectionResult<()> {
+    fn encrypt_chunk(&mut self, input: &mut Cursor<&[u8]>) -> anyhow::Result<()> {
         let remaining_len = input.get_ref().len() - input.position() as usize;
         let chunk_size = cmp::min(NOISE_MAX_PAYLOAD_LEN, remaining_len);
         input.read_exact(&mut self.noise_buffer[..chunk_size])?;
