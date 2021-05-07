@@ -19,7 +19,7 @@ mod tests {
     use std::net::IpAddr;
 
     #[test]
-    fn test_ban_functionalities() -> Fallible<()> {
+    fn test_ban_functionalities() -> anyhow::Result<()> {
         let port = next_available_port();
         let (node, dp) = make_node_and_sync(port, vec![100], PeerType::Node, vec![])?;
 
