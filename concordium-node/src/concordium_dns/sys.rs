@@ -12,7 +12,7 @@ use thiserror::Error;
 const IP_CSTR_MAX: usize = 40;
 
 #[derive(Debug, Error)]
-#[error("argument contains null byte")]
+#[error("Argument contains null byte.")]
 pub struct NullByteError;
 
 #[derive(Debug, Error)]
