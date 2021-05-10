@@ -85,9 +85,7 @@ pub async fn authenticate(token: &str) -> anyhow::Result<()> {
         .map_err(|s| anyhow!("Failed to post to authentication server due to {}", s))?
         .json::<ClientLoginResponse>()
         .await
-        .map_err(|s| {
-            anyhow!("Failed to deserialize response from authentication server {}", s)
-        })?;
+        .map_err(|s| anyhow!("Failed to deserialize response from authentication server {}", s))?;
 
     match response.status {
         ClientLoginReturnStatus::OK => Ok(()),
