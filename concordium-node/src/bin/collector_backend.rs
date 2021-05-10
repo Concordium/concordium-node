@@ -191,7 +191,7 @@ impl CollectorStateData {
     }
 }
 
-pub fn main() -> Fallible<()> {
+pub fn main() -> anyhow::Result<()> {
     let conf = ConfigCli::from_args();
 
     // Prepare the logger
