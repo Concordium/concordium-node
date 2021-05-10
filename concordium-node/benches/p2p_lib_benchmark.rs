@@ -97,32 +97,12 @@ mod s11n {
     pub mod fbs {
         bench_s11n!("flatbuffers");
     }
-
-    #[cfg(feature = "s11n_serde_cbor")]
-    pub mod cbor {
-        bench_s11n!("CBOR");
-    }
-
-    #[cfg(feature = "s11n_serde_msgpack")]
-    pub mod msgpack {
-        bench_s11n!("msgpack");
-    }
 }
 
 #[cfg(not(feature = "s11n_serde"))]
 criterion_group!(s11n_fbs_benches, s11n::fbs::bench_s11n);
 #[cfg(feature = "s11n_serde")]
 criterion_group!(s11n_fbs_benches, nop::nop_bench);
-
-#[cfg(feature = "s11n_serde_cbor")]
-criterion_group!(s11n_cbor_benches, s11n::cbor::bench_s11n);
-#[cfg(not(feature = "s11n_serde_cbor"))]
-criterion_group!(s11n_cbor_benches, nop::nop_bench);
-
-#[cfg(feature = "s11n_serde_msgpack")]
-criterion_group!(s11n_msgpack_benches, s11n::msgpack::bench_s11n);
-#[cfg(not(feature = "s11n_serde_msgpack"))]
-criterion_group!(s11n_msgpack_benches, nop::nop_bench);
 
 #[cfg(feature = "dedup_benchmarks")]
 criterion_group!(
@@ -137,4 +117,4 @@ criterion_group!(
 #[cfg(not(feature = "dedup_benchmarks"))]
 criterion_group!(dedup_benches, nop::nop_bench);
 
-criterion_main!(s11n_fbs_benches, s11n_cbor_benches, s11n_msgpack_benches, dedup_benches,);
+criterion_main!(s11n_fbs_benches, dedup_benches,);
