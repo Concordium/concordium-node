@@ -63,7 +63,7 @@ jobs:
         #token: ${{ secrets.CONCORDIUM_CI }}
         submodules: recursive
     - name: Install system packages
-      run: sudo apt-get -y install liblmdb-dev flatbuffers-compiler libunbound-dev
+      run: sudo apt-get update && sudo apt-get -y install liblmdb-dev flatbuffers-compiler libunbound-dev
 
     # Set up Rust and restore dependencies and targets from cache.
     # This must be done before checking the Rust sources (obviously)
