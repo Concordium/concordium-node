@@ -8,7 +8,6 @@ cfg_if! {
     }
 }
 use crate::{network::NetworkMessage, spawn_or_die};
-use anyhow::bail;
 use chrono::prelude::{DateTime, Utc};
 
 use std::{fmt, net::IpAddr, sync::Arc};
