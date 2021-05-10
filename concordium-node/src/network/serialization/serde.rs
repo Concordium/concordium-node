@@ -10,7 +10,7 @@ impl NetworkMessage {
         from_slice::<NetworkMessage>(input).map_err(|e| e.into())
     }
 
-    pub fn serialize<T: Write>(&self, target: &mut T) -> Fallible<()> {
+    pub fn serialize<T: Write>(&self, target: &mut T) -> anyhow::Result<()> {
         to_writer(target, self)?;
         Ok(())
     }
