@@ -46,7 +46,7 @@ RUN ./build-binaries.sh "collector,staging_net" release && \
     strip /build/concordium-node/target/release/concordium-node && \
     strip /build/concordium-node/target/release/node-collector
 
-FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/node-dashboard:0.1.0-alpha as node-dashboard
+FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/node-dashboard:0.1.1 as node-dashboard
 
 # Collect artifacts from build image.
 FROM ubuntu:20.04
