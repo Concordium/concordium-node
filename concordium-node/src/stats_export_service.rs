@@ -242,7 +242,7 @@ impl StatsExportService {
     }
 
     /// Creates a new instance of the starts export service object.
-    #[cfg(not(feature = "Instrumentation"))]
+    #[cfg(not(feature = "instrumentation"))]
     pub fn new() -> anyhow::Result<Self> { Ok(Default::default()) }
 
     /// Increases the peer count.

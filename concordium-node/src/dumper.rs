@@ -4,11 +4,11 @@ cfg_if! {
     if #[cfg(feature = "network_dump")] {
         use crate::common::P2PNodeId;
         use crossbeam_channel::{self, Receiver};
-        use failure::Fallible;
         use std::io::Write;
     }
 }
 use crate::{network::NetworkMessage, spawn_or_die};
+use anyhow::bail;
 use chrono::prelude::{DateTime, Utc};
 
 use std::{fmt, net::IpAddr, sync::Arc};
@@ -62,7 +62,7 @@ pub fn create_dump_thread(
     act_rx: Receiver<(std::path::PathBuf, bool)>,
     base_dir: std::path::PathBuf,
 ) {
-    spawn_or_die!("network dump", move || -> Fallible<()> {
+    spawn_or_die!("network dump", move || -> anyhow::Result<()> {
         let mut dir: Option<std::path::PathBuf> = None;
         let mut pretty_dump: Option<std::fs::File> = None;
         let mut raw_dump: Option<std::fs::File> = None;

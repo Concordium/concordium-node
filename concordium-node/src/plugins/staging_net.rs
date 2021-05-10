@@ -1,4 +1,4 @@
-use failure::{format_err, Fallible};
+use anyhow::{anyhow, bail};
 use jsonwebtoken::dangerous_insecure_decode;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -71,7 +71,7 @@ pub fn get_username_from_jwt(token: &str) -> String {
 /// supplying the JWT and then responds back if authentication
 /// was successful or not
 
-pub async fn authenticate(token: &str) -> Fallible<()> {
+pub async fn authenticate(token: &str) -> anyhow::Result<()> {
     let client = Client::new();
     let login_details = ClientLogin {
         token:   token.to_owned(),
@@ -82,11 +82,11 @@ pub async fn authenticate(token: &str) -> Fallible<()> {
         .json(&login_details)
         .send()
         .await
-        .map_err(|s| format_err!("Failed to post to authentication server due to {}", s))?
+        .map_err(|s| anyhow!("Failed to post to authentication server due to {}", s))?
         .json::<ClientLoginResponse>()
         .await
         .map_err(|s| {
-            format_err!("Failed to deserialize response from authentication server {}", s)
+            anyhow!("Failed to deserialize response from authentication server {}", s)
         })?;
 
     match response.status {
