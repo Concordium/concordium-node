@@ -5,6 +5,7 @@ set -euxo pipefail
 image_tag="${IMAGE_TAG}"
 base_image_tag="${BASE_IMAGE_TAG}"
 static_libraries_image_tag="${STATIC_LIBRARIES_IMAGE_TAG}"
+ghc_version="${GHC_VERSION}"
 genesis_ref="${GENESIS_REF}"
 genesis_path="${GENESIS_PATH}"
 
@@ -32,6 +33,6 @@ aws s3 cp "staging-client-${image_tag}.tar.gz" s3://distribution.concordium.com/
 
 # Make the image current if the tag is formatted as "<number>:<number>:<number>".
 if [[ "${image_tag}" =~ ^[[:digit:]]\.[[:digit:]]\.[[:digit:]]$ ]]; then
-	echo "${image_tag}" > VERSION
-	aws s3 cp VERSION s3://distribution.concordium.com/ --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
+  echo "${image_tag}" > VERSION
+  aws s3 cp VERSION s3://distribution.concordium.com/ --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
 fi

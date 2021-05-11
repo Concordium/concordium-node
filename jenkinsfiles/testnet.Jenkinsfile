@@ -7,12 +7,17 @@ pipeline {
             }
         }
         stage('build') {
-            environment {
-                DOCKER_BUILDKIT = 1
-            }
             steps {
                 sshagent (credentials: ['jenkins-gitlab-ssh']) {
-                    sh './scripts/distribution/build-and-push-testnet.sh'
+                    sh '''\
+                        IMAGE_TAG="${image_tag}" \
+                        BASE_IMAGE_TAG="${base_image_tag}" \
+                        STATIC_LIBRARIES_IMAGE_TAG="${static_libraries_image_tag}" \
+                        GHC_VERSION="${ghc_version}" \
+                        GENESIS_REF="${genesis_ref}" \
+                        GENESIS_PATH="${genesis_path}" \
+                          ./scripts/distribution/build-and-push-testnet.sh
+                    '''
                 }
             }
         }

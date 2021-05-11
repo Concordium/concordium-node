@@ -1,27 +1,49 @@
 # syntax=docker/dockerfile:experimental
 
 # Build node.
-FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.17 as build
+ARG base_image_tag
+ARG static_libraries_image_tag
+
+# Fetch genesis-data.
+FROM alpine/git:latest as genesis-data
+ARG genesis_ref
+ARG genesis_path
+RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
+RUN --mount=type=ssh git clone --depth 1 --branch "${genesis_ref}" git@gitlab.com:Concordium/genesis-data.git
+RUN mv "genesis-data/${genesis_path}" /data
+
+# Build static consensus libraries.
+FROM concordium/static-libraries:${static_libraries_image_tag} as static-builder
+COPY . /build
+ARG ghc_version
+WORKDIR /build
+RUN GHC_VERSION="${ghc_version}" \
+      /build/scripts/static-libraries/build-static-libraries.sh
+
+# Build node.
+FROM concordium/base:${base_image_tag} as build
 
 ARG consensus_profiling=false
 ENV CONSENSUS_PROFILING=$consensus_profiling
 
-COPY . /build-project
-WORKDIR /build-project
+COPY . /build
+WORKDIR /build
 
 COPY ./scripts/start.sh ./start.sh
-COPY ./genesis-data ./genesis-data
 COPY ./scripts/build-binaries.sh ./build-binaries.sh
 
-RUN --mount=type=ssh ./scripts/download-static-libs.sh
-RUN --mount=type=ssh ./build-binaries.sh "collector" release && \
-    strip /build-project/concordium-node/target/release/concordium-node && \
-    strip /build-project/concordium-node/target/release/node-collector && \
-    cd /build-project/genesis-data && \
-    tar -xf 20-bakers.tar.gz && \
-    cd genesis_data && \
-    sha256sum genesis.dat && \
-    cp genesis.dat /build-project/
+# Copy static libraries that were built by the static-builder into the correct place
+# (/build/concordium-node/deps/static-libs/linux).
+ARG ghc_version
+COPY --from=static-builder /build/static-consensus-${ghc_version}.tar.gz /tmp/static-consensus.tar.gz
+RUN tar -C /tmp -xf /tmp/static-consensus.tar.gz && \
+    mkdir -p /build/concordium-node/deps/static-libs && \
+    mv /tmp/target /build/concordium-node/deps/static-libs/linux && \
+    rm /tmp/static-consensus.tar.gz
+
+RUN ./build-binaries.sh "collector" release && \
+    strip /build/concordium-node/target/release/concordium-node && \
+    strip /build/concordium-node/target/release/node-collector
 
 FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/node-dashboard:0.1.0-alpha as node-dashboard
 
@@ -55,10 +77,10 @@ COPY --from=node-dashboard /static /node-dashboard/static
 COPY --from=node-dashboard /envoy.yaml /node-dashboard/envoy.yaml
 COPY --from=node-dashboard /nginx.conf /etc/nginx/sites-enabled/node-dashboard
 
-COPY --from=build /build-project/concordium-node/target/release/concordium-node /concordium-node
-COPY --from=build /build-project/concordium-node/target/release/node-collector /node-collector
-COPY --from=build /build-project/start.sh /start.sh
-COPY --from=build /build-project/genesis.dat /genesis.dat
+COPY --from=build /build/concordium-node/target/release/concordium-node /concordium-node
+COPY --from=build /build/concordium-node/target/release/node-collector /node-collector
+COPY --from=build /build/start.sh /start.sh
+COPY --from=genesis-data /data/genesis.dat /genesis.dat
 RUN sha256sum /genesis.dat
 
 COPY ./scripts/distribution/supervisord.conf /etc/supervisor/supervisord.conf
