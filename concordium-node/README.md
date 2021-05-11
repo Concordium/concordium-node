@@ -3,9 +3,7 @@
 * Rust (stable 1.45.2 for using static libraries)
 * binutils >= 2.22
 * cmake >= 3.8.0
-* [flatc](http://google.github.io/flatbuffers/flatbuffers_guide_building.html)
-  commit fec58aa129818ed0c0613a7ec36b55135bf81278, but others around it are
-  likely to work as well (build using CMake and copy to `~/.local/bin`)
+* [flatc](http://google.github.io/flatbuffers/flatbuffers_guide_building.html) v1.11 and v1.12 are known to work. (build using CMake and copy to `~/.local/bin`)
 * protobuf >= 3.7.1
 * LLVM and Clang >= 3.9
 * [Unbound](https://www.nlnetlabs.nl/documentation/unbound/howto-setup/) >= 1.9.2 (the dependency `openssl-devel` is named `libssl-dev` on Ubuntu 19.10)
@@ -112,9 +110,6 @@ Environment variables only apply to the default build. This links with shared Ha
 
 - The node built with Haskell library auto-discovery is not suitable for distribution to other
   machines. It is a dynamically linked binary with a large number of shared library dependencies.
-
-## Installing genesis data
-Unpack the relevant set of genesis data and private baker data from [genesis-data/](/genesis-data) to the folder that will be used as the `--data-dir` of the node.
 
 ## Running a bootstrapper node
 

@@ -48,7 +48,7 @@ vk :: Sig.KeyPair -> Sig.VerifyKey
 vk = Sig.correspondingVerifyKey
 
 alesCid :: CredentialRegistrationID
-alesCid = dummyRegId globalContext alesAccount
+alesCid = dummyRegId dummyCryptographicParameters alesAccount
 
 testCases :: [TestCase]
 testCases =
