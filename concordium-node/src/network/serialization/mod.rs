@@ -1,10 +1,6 @@
 //! Network object serialization.
 
-#[cfg(not(feature = "s11n_serde"))]
 pub mod fbs;
-
-#[cfg(feature = "s11n_serde")]
-pub mod serde;
 
 #[cfg(test)]
 mod tests;
