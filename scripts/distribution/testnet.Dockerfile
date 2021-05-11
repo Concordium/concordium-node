@@ -45,7 +45,7 @@ RUN ./build-binaries.sh "collector" release && \
     strip /build/concordium-node/target/release/concordium-node && \
     strip /build/concordium-node/target/release/node-collector
 
-FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/node-dashboard:0.1.0-alpha as node-dashboard
+FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/node-dashboard:0.1.1 as node-dashboard
 
 # Collect artifacts from build image.
 FROM ubuntu:20.04
@@ -81,7 +81,6 @@ COPY --from=build /build/concordium-node/target/release/concordium-node /concord
 COPY --from=build /build/concordium-node/target/release/node-collector /node-collector
 COPY --from=build /build/start.sh /start.sh
 COPY --from=genesis-data /data/genesis.dat /genesis.dat
-RUN sha256sum /genesis.dat
 
 COPY ./scripts/distribution/supervisord.conf /etc/supervisor/supervisord.conf
 COPY ./scripts/distribution/concordium.conf /etc/supervisor/conf.d/concordium.conf

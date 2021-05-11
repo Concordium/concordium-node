@@ -82,7 +82,6 @@ COPY --from=build /build/concordium-node/target/release/concordium-node /concord
 COPY --from=build /build/concordium-node/target/release/node-collector /node-collector
 COPY --from=build /build/start.sh /start.sh
 COPY --from=genesis-data /genesis-data/genesis.dat /genesis.dat
-RUN sha256sum /genesis.dat
 
 COPY ./scripts/distribution/supervisord.conf /etc/supervisor/supervisord.conf
 COPY ./scripts/distribution/concordium.conf /etc/supervisor/conf.d/concordium.conf
