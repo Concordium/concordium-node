@@ -8,7 +8,7 @@ set -ex
 
 VERSION=$(awk '/version = / { print substr($3, 2, length($3)-2); exit }' concordium-node/Cargo.toml) # extract and unquote value of the first occurrence of a 'version' key in Cargo.toml
 
-docker build --ssh default -t concordium/opentestnet-client:$VERSION -f scripts/distribution/opentestnet-client.Dockerfile . --no-cache
+docker build --ssh default -t concordium/opentestnet-client:$VERSION -f scripts/distribution/testnet.Dockerfile . --no-cache
 
 docker save concordium/opentestnet-client:$VERSION | gzip > opentestnet-client-$VERSION.tar.gz
 echo $VERSION > OPENTESTNET-VERSION
