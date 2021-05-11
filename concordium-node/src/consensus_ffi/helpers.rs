@@ -67,8 +67,7 @@ impl HashBytes {
     /// Construct HashBytes from a slice.
     /// This will succeed if and only if the length of the slice is 32.
     pub fn new(bytes: &[u8]) -> anyhow::Result<Self> {
-        let buf: anyhow::Result<[u8; 32], _> = bytes.try_into();
-        let buf = buf.context("HashBytes::new passed slice of incorrect length.")?;
+        let buf = bytes.try_into()?;
         Ok(HashBytes(buf))
     }
 }
@@ -148,7 +147,7 @@ impl TryFrom<u8> for PacketType {
         PACKET_TYPE_FROM_INT
             .get(value as usize)
             .copied()
-            .ok_or_else(|| anyhow!("Unsupported packet type ({})", value))
+            .context(format! {"Unsupported packet type ({})", value})
     }
 }
 

@@ -1,6 +1,6 @@
 //! Node maintenance methods.
 
-use anyhow::{anyhow, Context};
+use anyhow::Context;
 use chrono::prelude::*;
 use crossbeam_channel::{self, Receiver, Sender};
 use mio::{net::TcpListener, Events, Interest, Poll, Registry, Token};
@@ -293,9 +293,8 @@ impl P2PNode {
         let ip = if let Some(ref addy) = conf.common.listen_address {
             IpAddr::from_str(addy).context("Could not parse the provided listen address.")?
         } else {
-            P2PNode::get_ip().ok_or_else(|| {
-                anyhow!("Could not compute my own ip. Use `--listen-address` to specify it.")
-            })?
+            P2PNode::get_ip()
+                .context("Could not compute my own ip. Use `--listen-address` to specify it.")?
         };
 
         let id = supplied_id.unwrap_or_else(|| rand::thread_rng().gen::<P2PNodeId>());

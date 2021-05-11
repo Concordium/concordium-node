@@ -196,7 +196,7 @@ fn deserialize_request(root: &network::NetworkMessage) -> anyhow::Result<Network
                             wv.genesis_block()
                                 .map_or_else(|| bail!("Missing block hash"), |w| BlockHash::new(w))
                         })
-                        .collect::<Result<Vec<BlockHash>, anyhow::Error>>()?
+                        .collect::<anyhow::Result<Vec<BlockHash>>>()?
                 } else {
                     bail!("missing genesis blocks in a Handshake")
                 };

@@ -20,7 +20,7 @@ use concordium_node::{
 #[cfg(feature = "instrumentation")]
 use concordium_node::stats_export_service::start_push_gateway;
 
-fn main() -> anyhow::Result<(), anyhow::Error> {
+fn main() -> anyhow::Result<()> {
     let (mut conf, app_prefs) = get_config_and_logging_setup()?;
     conf.connection.max_allowed_nodes = Some(conf.bootstrapper.max_nodes);
     let data_dir_path = app_prefs.get_user_app_dir();
