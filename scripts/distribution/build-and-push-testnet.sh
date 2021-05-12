@@ -33,6 +33,6 @@ aws s3 cp "opentestnet-client-${image_tag}.tar.gz" s3://distribution.concordium.
 
 # Make the image current if the tag is formatted as "<number>:<number>:<number>".
 if [[ "${image_tag}" =~ ^[[:digit:]]\.[[:digit:]]\.[[:digit:]]$ ]]; then
-  echo "${image_tag}" > OPENTESTNET_VERSION
+  echo "${image_tag}" > OPENTESTNET-VERSION
   aws s3 cp OPENTESTNET-VERSION s3://distribution.concordium.com/ --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
 fi
