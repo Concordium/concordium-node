@@ -70,7 +70,7 @@ impl P2PNode {
                                                  // second. Hence the number of bytes received/send must be multiplied by a
                                                  // factor 1000 in order to obtain bps.
         let (avg_bpms_in, avg_bpms_out) = calculate_average_throughput(
-            self.stats.get_throughput_timestamp(),
+            self.stats.get_last_throughput_measurement(),
             now,
             prev_bytes_received * 1000,
             bytes_received * 1000,
@@ -81,7 +81,7 @@ impl P2PNode {
         let (avg_bps_in, avg_bps_out) = (avg_bpms_in, avg_bpms_out);
         self.stats.set_avg_bps_in(avg_bps_in);
         self.stats.set_avg_bps_out(avg_bps_out);
-        self.stats.set_throughput_timestamp(now);
+        self.stats.set_last_throughput_measurement(now);
 
         (avg_bps_in, avg_bps_out)
     }
