@@ -61,6 +61,7 @@ cfg_if! {
             inbound_low_priority_consensus_size: IntGauge,
             outbound_high_priority_consensus_size: IntGauge,
             outbound_low_priority_consensus_size: IntGauge,
+            throughput_timestamp: GenericGauge<AtomicI64>,
             bytes_received: GenericGauge<AtomicU64>,
             bytes_sent: GenericGauge<AtomicU64>,
             avg_bps_in: GenericGauge<AtomicU64>,
