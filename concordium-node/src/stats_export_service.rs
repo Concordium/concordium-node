@@ -85,6 +85,7 @@ pub struct StatsExportService {
     inbound_low_priority_consensus_size: AtomicUsize,
     outbound_high_priority_consensus_size: AtomicUsize,
     outbound_low_priority_consensus_size: AtomicUsize,
+    throughput_timestamp: AtomicU64,
     bytes_received: AtomicU64,
     bytes_sent: AtomicU64,
     avg_bps_in: AtomicU64,
@@ -350,6 +351,26 @@ impl StatsExportService {
         self.outbound_low_priority_consensus_size.set(value);
         #[cfg(not(feature = "instrumentation"))]
         self.outbound_low_priority_consensus_size.store(value as usize, Ordering::Relaxed);
+    }
+
+    /// Gets the timestamp for the last throughput check.
+    pub fn get_throughput_timestamp(&self) -> u64 {
+        #[cfg(feature = "instrumentation")]
+        {
+            self.throughput_timestamp.get()
+        }
+        #[cfg(not(feature = "instrumentation"))]
+        {
+            self.throughput_timestamp.load(std::sync::atomic::Ordering::Relaxed)
+        }
+    }
+
+    /// Sets the value of throughput timestamp.
+    pub fn set_throughput_timestamp(&self, value: u64) {
+        #[cfg(feature = "instrumentation")]
+        self.throughput_timestamp.set(value);
+        #[cfg(not(feature = "instrumentation"))]
+        self.throughput_timestamp.store(value, Ordering::Relaxed);
     }
 
     /// Gets the count of received bytes.
