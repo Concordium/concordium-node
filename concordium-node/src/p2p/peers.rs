@@ -69,7 +69,7 @@ impl P2PNode {
         let now = Utc::now().timestamp_millis(); // Timestamps are stored in millis in order to allow measurements within the
                                                  // second. Hence the number of bytes received/send must be multiplied by a
                                                  // factor 1000 in order to obtain bps.
-        let (avg_bpms_in, avg_bpms_out) = checked_calculate_average_throughput(
+        let (avg_bpms_in, avg_bpms_out) = calculate_average_throughput(
             self.stats.get_throughput_timestamp(),
             now,
             prev_bytes_received * 1000,
@@ -158,7 +158,7 @@ pub fn check_peers(node: &Arc<P2PNode>, peer_stats: &[PeerStats], attempted_boot
 /// Calculate the `checked` average of the received and send bytes.
 /// If any of the arguments would imply in a non-defined or otherwise
 /// non-meaningful result, then the function returns (0, 0).
-fn checked_calculate_average_throughput(
+fn calculate_average_throughput(
     before_millis: i64,
     now_millis: i64,
     prev_bytes_recv: u64,
