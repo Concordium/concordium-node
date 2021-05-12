@@ -9,10 +9,8 @@ use crate::{
     p2p::{maintenance::attempt_bootstrap, P2PNode},
     read_or_die,
 };
-use std::{
-    sync::{atomic::Ordering, Arc},
-    time::{Duration, SystemTime},
-};
+use chrono::prelude::*;
+use std::sync::{atomic::Ordering, Arc};
 
 impl P2PNode {
     /// Obtain the list of statistics from all the peers, optionally of a
@@ -67,27 +65,14 @@ impl P2PNode {
         self.stats.set_bytes_received(bytes_received);
         self.stats.set_bytes_sent(bytes_sent);
 
-        let now = SystemTime::now();
-        let last_measurement =
-            SystemTime::UNIX_EPOCH + Duration::from_secs(self.stats.get_throughput_timestamp());
-        match now.duration_since(last_measurement) {
-            Ok(delta) => {
-                let delta_secs = delta.as_secs();
-                let avg_bps_in = bytes_received.saturating_sub(prev_bytes_received / delta_secs);
-                let avg_bps_out = bytes_sent.saturating_sub(prev_bytes_sent) / delta_secs;
-                self.stats.set_avg_bps_in(avg_bps_in);
-                self.stats.set_avg_bps_out(avg_bps_out);
-                match now.duration_since(SystemTime::UNIX_EPOCH) {
-                    Ok(timestamp) => {
-                        self.stats.set_throughput_timestamp(timestamp.as_secs());
-                    }
-                    Err(_err) => (), // This only happens if suddenly `now` was before `1/1/1970`
-                }
-                (avg_bps_in, avg_bps_out)
-            }
-            Err(_err) => (0, 0), /* this only happens if `prev_throughput_measurement_timestamp`
-                                  * is later than `now`. */
-        }
+        let now = Utc::now().timestamp();
+        let delta = now - self.stats.get_throughput_timestamp();
+        let avg_bps_in = bytes_received.saturating_sub(prev_bytes_received) / (delta as u64);
+        let avg_bps_out = bytes_sent.saturating_sub(prev_bytes_sent) / (delta as u64);
+        self.stats.set_avg_bps_in(avg_bps_in);
+        self.stats.set_avg_bps_out(avg_bps_out);
+        self.stats.set_throughput_timestamp(now);
+        (avg_bps_in, avg_bps_out)
     }
 
     fn send_get_peers(&self) {
