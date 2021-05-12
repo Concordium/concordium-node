@@ -51,7 +51,8 @@ impl P2PNode {
         self.get_peer_stats(Some(PeerType::Node)).into_iter().map(|stats| stats.local_id).collect()
     }
 
-    /// Measures the node's average byte throughput.
+    /// Measures the node's average byte throughput as bps i.e., bytes per
+    /// second.
     pub fn measure_throughput(&self, peer_stats: &[PeerStats]) -> (u64, u64) {
         let prev_bytes_received = self.stats.get_bytes_received();
         let prev_bytes_sent = self.stats.get_bytes_sent();
@@ -65,13 +66,23 @@ impl P2PNode {
         self.stats.set_bytes_received(bytes_received);
         self.stats.set_bytes_sent(bytes_sent);
 
-        let now = Utc::now().timestamp();
-        let delta = now - self.stats.get_throughput_timestamp();
-        let avg_bps_in = bytes_received.saturating_sub(prev_bytes_received) / (delta as u64);
-        let avg_bps_out = bytes_sent.saturating_sub(prev_bytes_sent) / (delta as u64);
+        let now = Utc::now().timestamp_millis(); // Timestamps are stored in millis in order to allow measurements within the
+                                                 // second. Hence the number of bytes received/send must be multiplied by a
+                                                 // factor 1000 in order to obtain bps.
+        let (avg_bpms_in, avg_bpms_out) = checked_calculate_average_throughput(
+            self.stats.get_throughput_timestamp(),
+            now,
+            prev_bytes_received * 1000,
+            bytes_received * 1000,
+            prev_bytes_sent * 1000,
+            bytes_sent * 1000,
+        );
+
+        let (avg_bps_in, avg_bps_out) = (avg_bpms_in, avg_bpms_out);
         self.stats.set_avg_bps_in(avg_bps_in);
         self.stats.set_avg_bps_out(avg_bps_out);
         self.stats.set_throughput_timestamp(now);
+
         (avg_bps_in, avg_bps_out)
     }
 
@@ -141,5 +152,49 @@ pub fn check_peers(node: &Arc<P2PNode>, peer_stats: &[PeerStats], attempted_boot
                 node.send_get_peers();
             }
         }
+    }
+}
+
+/// Calculate the `checked` average of the received and send bytes.
+/// If any of the arguments would imply in a non-defined or otherwise
+/// non-meaningful result, then the function returns (0, 0).
+fn checked_calculate_average_throughput(
+    before_millis: i64,
+    now_millis: i64,
+    prev_bytes_recv: u64,
+    bytes_recv: u64,
+    prev_bytes_sent: u64,
+    bytes_sent: u64,
+) -> (u64, u64) {
+    let delta = now_millis.saturating_sub(before_millis);
+    let avg_bpms_in = bytes_recv.saturating_sub(prev_bytes_recv).checked_div(delta as u64);
+    let avg_bpms_out = bytes_sent.saturating_sub(prev_bytes_sent).checked_div(delta as u64);
+    match (avg_bpms_in, avg_bpms_out) {
+        (Some(recv), Some(send)) => (recv, send),
+        // Just return (0,0) as the time delta is wrong (negative or zero).
+        (_, _) => (0, 0),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_average_throughput() {
+        // Test with a sound delta
+        let (recv, send) = calculate_average_throughput(1, 2, 1, 2, 1, 2);
+        assert_eq!(recv, 1);
+        assert_eq!(send, 1);
+
+        // Test with a zero delta
+        let (recv, send) = calculate_average_throughput(1, 1, 1, 2, 1, 2);
+        assert_eq!(recv, 0);
+        assert_eq!(send, 0);
+
+        // Test with a negative delta
+        let (recv, send) = calculate_average_throughput(2, 1, 1, 2, 1, 2);
+        assert_eq!(recv, 0);
+        assert_eq!(send, 0);
     }
 }
