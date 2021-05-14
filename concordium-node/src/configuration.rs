@@ -27,9 +27,7 @@ pub const APP_INFO: AppInfo = AppInfo {
 /// incompatible ones.
 /// When we reach version 1 we should stick to major versions being for breaking
 /// changes.
-pub(crate) fn is_compatible_version(other: &semver::Version) -> bool {
-    other.major == 0 && other.minor == 6
-}
+pub(crate) fn is_compatible_version(other: &semver::Version) -> bool { other.major == 1 }
 
 /// Check that the other wire version is compatible with ours. See
 /// `network::WIRE_PROTOCOL_VERSION`. For now it only checks if there is a
@@ -44,6 +42,9 @@ pub(crate) fn is_compatible_wire_version(
 
 /// The maximum size of objects accepted from the network.
 pub const PROTOCOL_MAX_MESSAGE_SIZE: u32 = 20_971_520; // 20 MIB
+
+/// Upper bound on the transaction object size, in bytes.
+pub const PROTOCOL_MAX_TRANSACTION_SIZE: usize = 100 * 1024; // 100 kB.
 
 const APP_PREFERENCES_MAIN: &str = "main.config";
 const APP_PREFERENCES_KEY_VERSION: &str = "VERSION";
@@ -226,6 +227,13 @@ pub struct BakerConfig {
         help = "Path to a file exported by the database exporter"
     )]
     pub import_path: Option<String>,
+    #[structopt(
+        long = "max-expiry-duration",
+        help = "Maximum allowed time difference between now and a transaction's expiry time in \
+                seconds",
+        default_value = "7200"
+    )]
+    pub max_time_to_expiry: u64,
     #[structopt(long = "baker-credentials-file", help = "Path to the baker credentials file")]
     pub baker_credentials_file: Option<PathBuf>,
     #[structopt(

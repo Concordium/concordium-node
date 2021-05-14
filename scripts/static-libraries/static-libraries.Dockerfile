@@ -1,13 +1,17 @@
 # syntax=docker/dockerfile:experimental
-FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/static-libraries:0.18
+FROM concordium/static-libraries:0.19
 
 ENV GHC_VERSION 8.10.4
 
 COPY scripts/static-libraries/build-static-libraries.sh /build-static-libraries.sh
 COPY scripts/static-libraries/build-static-libraries-copy-out.sh /build-static-libraries-copy-out.sh
-COPY . /build
+RUN mkdir /build
+COPY LICENSE /build/LICENSE
+COPY concordium-base /build/concordium-base
+COPY concordium-consensus /build/concordium-consensus
+
 
 RUN chmod +x /build-static-libraries.sh
 WORKDIR /
-RUN --mount=type=ssh ./build-static-libraries.sh
+RUN ./build-static-libraries.sh
 ENTRYPOINT ["./build-static-libraries-copy-out.sh"]

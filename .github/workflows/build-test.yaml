@@ -41,7 +41,7 @@ on:
   workflow_dispatch: # allow manual trigger
 
 env:
-  dummy: 0                 # change to force cache invalidation
+  dummy: 1                 # change to force cache invalidation
   CARGO_TERM_COLOR: always # implicitly adds '--color=always' to all cargo commands
   TEST_LEVEL: 1            # for stack tests
 
@@ -63,7 +63,7 @@ jobs:
         #token: ${{ secrets.CONCORDIUM_CI }}
         submodules: recursive
     - name: Install system packages
-      run: sudo apt-get -y install liblmdb-dev flatbuffers-compiler libunbound-dev
+      run: sudo apt-get update && sudo apt-get -y install liblmdb-dev flatbuffers-compiler libunbound-dev
 
     # Set up Rust and restore dependencies and targets from cache.
     # This must be done before checking the Rust sources (obviously)
@@ -149,6 +149,9 @@ jobs:
     - name: Test globalstate
       run: |
         stack --stack-yaml concordium-consensus/stack.yaml test concordium-consensus:globalstate --bench --no-run-benchmarks --ta --level=${TEST_LEVEL}
+    - name: Test scheduler
+      run: |
+        stack --stack-yaml concordium-consensus/stack.yaml test concordium-consensus:scheduler --bench --no-run-benchmarks
 
     # RUST #
 

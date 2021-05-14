@@ -344,15 +344,17 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
     getContractInstance bs caddr = return (Instances.getInstance caddr (bs ^. blockInstances))
 
     {-# INLINE getAccount #-}
-    getAccount bs aaddr =
-      return $ bs ^? blockAccounts . ix aaddr
+    getAccount bs aaddr = return $!
+        case Accounts.getAccountIndex aaddr (bs ^. blockAccounts) of
+          Nothing -> Nothing
+          Just ai -> (ai, ) <$> (bs ^? blockAccounts . Accounts.indexedAccount ai)
 
     {-# INLINE getAccountByCredId #-}
     getAccountByCredId bs cid =
       let mai = bs ^? blockAccounts . to Accounts.accountRegIds . ix cid
       in case mai of
            Nothing -> return Nothing
-           Just ai -> return $ bs ^? blockAccounts . Accounts.indexedAccount ai
+           Just ai -> return $ (ai, ) <$> bs ^? blockAccounts . Accounts.indexedAccount ai
 
     {-# INLINE getBakerAccount #-}
     getBakerAccount bs (BakerId ai) =
@@ -729,9 +731,12 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
       return $! bs & blockTransactionOutcomes . Transactions.outcomeSpecial %~ (Seq.|> o)
 
     {-# INLINE bsoProcessUpdateQueues #-}
-    bsoProcessUpdateQueues bs ts = return (changes, bs & blockUpdates .~ newBlockUpdates)
+    bsoProcessUpdateQueues bs ts = return (changes, bs & blockUpdates .~ newBlockUpdates
+                                                       & blockAnonymityRevokers .~ makeHashed updatedARs
+                                                       & blockIdentityProviders .~ makeHashed updatedIPs)
       where
-        (!changes, !newBlockUpdates) = processUpdateQueues ts (bs ^. blockUpdates)
+        (u, ars, ips) = (bs ^. blockUpdates, bs ^. blockAnonymityRevokers . unhashed, bs ^. blockIdentityProviders . unhashed)
+        (!changes, !(newBlockUpdates, updatedARs, updatedIPs)) = processUpdateQueues ts (u, ars, ips)
 
     {-# INLINE bsoProcessReleaseSchedule #-}
     bsoProcessReleaseSchedule bs ts = do

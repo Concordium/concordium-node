@@ -1,6 +1,10 @@
 # concordium-node
 
-[![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.0-4baaaa.svg)](https://github.com/Concordium/.github/blob/main/.github/CODE_OF_CONDUCT.md)
+- [![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.0-4baaaa.svg)](https://github.com/Concordium/.github/blob/main/.github/CODE_OF_CONDUCT.md)
+
+- ![Format](https://github.com/Concordium/concordium-node/actions/workflows/rustfmt.yaml/badge.svg)
+
+- ![Build and test](https://github.com/Concordium/concordium-node/actions/workflows/build-test.yaml/badge.svg)
 
 This repository contains the implementation of the concordium p2p node with its
 dependencies. It is split into two parts
@@ -31,6 +35,8 @@ defines the external GRPC API of the node. This is in term of the `.proto` file.
 Because this is used by other components it is also a small separate repository
 brought in as a submodule.
 
+Do remember to clone recursively or use `git submodule update --init --recursive` after
+cloning this repository, or after changing branches.
 
 ## Configurations and scripts
 
@@ -49,7 +55,7 @@ See [concordium-node/README.md](./concordium-node/README.md).
 
 # Contributing
 
-To contribute start a new branch starting from master, make changes, and make a
+To contribute start a new branch starting from `main`, make changes, and make a
 merge request. A person familiar with the codebase should be asked to review the
 changes before they are merged.
 
@@ -80,6 +86,6 @@ The CI is configured to check two things
 - the [rust fmt](https://github.com/rust-lang/rustfmt) tool is run to check the
   formatting. Unfortunately the stable version of the tool is quite outdated, so
   we use a nightly version, which is updated a few times a year. Thus in order
-  for the CI to pass you will need to install the relevant nightly version (for
-  which see the [.gitlab-ci.yml](.gitlab-ci.yml) file, the `"lint:fmt"`
-  section).
+  for the CI to pass you will need to install the relevant nightly version, see
+  see the file [.github/workflows/rustfmt.yaml](.github/workflows/rustfmt.yaml),
+  look for `nightly-...`).

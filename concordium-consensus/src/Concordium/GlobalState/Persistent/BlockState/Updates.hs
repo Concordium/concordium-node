@@ -4,7 +4,7 @@
 module Concordium.GlobalState.Persistent.BlockState.Updates where
 
 import Data.Foldable (toList)
-import qualified Data.Map as Map
+import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Seq
 import Data.Serialize
 import Control.Monad
@@ -21,6 +21,8 @@ import Concordium.Utils.Serialization.Put
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Basic.BlockState.Updates as Basic
+import qualified Concordium.Types.IdentityProviders as IPS
+import qualified Concordium.Types.AnonymityRevokers as ARS
 
 -- |An update queue consists of pending future updates ordered by
 -- the time at which they will take effect.
@@ -169,7 +171,11 @@ data PendingUpdates = PendingUpdates {
         -- |Updates to the GAS rewards.
         pGASRewardsQueue :: !(HashedBufferedRef (UpdateQueue GASRewards)),
         -- |Updates to the baker minimum threshold
-        pBakerStakeThresholdQueue :: !(HashedBufferedRef (UpdateQueue Amount))
+        pBakerStakeThresholdQueue :: !(HashedBufferedRef (UpdateQueue Amount)),
+        -- |Additions to the set of anonymity revokers
+        pAddAnonymityRevokerQueue :: !(HashedBufferedRef (UpdateQueue ARS.ArInfo)),
+        -- |Additions to the set of identity providers
+        pAddIdentityProviderQueue :: !(HashedBufferedRef (UpdateQueue IPS.IpInfo))
     }
 
 instance (MonadBlobStore m) => MHashableTo m H.Hash PendingUpdates where
@@ -186,6 +192,8 @@ instance (MonadBlobStore m) => MHashableTo m H.Hash PendingUpdates where
         hTransactionFeeDistributionQueue <- H.hashToByteString <$> getHashM pTransactionFeeDistributionQueue
         hGASRewardsQueue <- H.hashToByteString <$> getHashM pGASRewardsQueue
         hBakerStakeThresholdQueue <- H.hashToByteString <$> getHashM pBakerStakeThresholdQueue
+        hAddAnonymityRevokerQueue <- H.hashToByteString <$> getHashM pAddAnonymityRevokerQueue
+        hAddIdentityProviderQueue <- H.hashToByteString <$> getHashM pAddIdentityProviderQueue
         return $! H.hash $
             hRootKeysUpdateQueue
             <> hLevel1KeysUpdateQueue
@@ -199,6 +207,8 @@ instance (MonadBlobStore m) => MHashableTo m H.Hash PendingUpdates where
             <> hTransactionFeeDistributionQueue
             <> hGASRewardsQueue
             <> hBakerStakeThresholdQueue
+            <> hAddAnonymityRevokerQueue
+            <> hAddIdentityProviderQueue
 
 instance (MonadBlobStore m)
         => BlobStorable m PendingUpdates where
@@ -215,6 +225,8 @@ instance (MonadBlobStore m)
             (putTransactionFeeDistributionQueue, newTransactionFeeDistributionQueue) <- storeUpdate pTransactionFeeDistributionQueue
             (putGASRewardsQueue, newGASRewardsQueue) <- storeUpdate pGASRewardsQueue
             (putBakerStakeThresholdQueue, newBakerStakeThresholdQueue) <- storeUpdate pBakerStakeThresholdQueue
+            (putAddAnonymityRevokerQueue, newAddAnonymityRevokerQueue) <- storeUpdate pAddAnonymityRevokerQueue
+            (putAddIdentityProviderQueue, newAddIdentityProviderQueue) <- storeUpdate pAddIdentityProviderQueue
             let newPU = PendingUpdates {
                     pRootKeysUpdateQueue = rkQ,
                     pLevel1KeysUpdateQueue = l1kQ,
@@ -227,7 +239,9 @@ instance (MonadBlobStore m)
                     pMintDistributionQueue = newMintDistributionQueue,
                     pTransactionFeeDistributionQueue = newTransactionFeeDistributionQueue,
                     pGASRewardsQueue = newGASRewardsQueue,
-                    pBakerStakeThresholdQueue = newBakerStakeThresholdQueue
+                    pBakerStakeThresholdQueue = newBakerStakeThresholdQueue,
+                    pAddAnonymityRevokerQueue = newAddAnonymityRevokerQueue,
+                    pAddIdentityProviderQueue = newAddIdentityProviderQueue
                 }
             let putPU = pRKQ >> pL1KQ >> pL2KQ >> pPrQ >> pEDQ >> pEPEQ >> pMGTUPEQ
                     >> putFoundationAccountQueue
@@ -235,6 +249,8 @@ instance (MonadBlobStore m)
                     >> putTransactionFeeDistributionQueue
                     >> putGASRewardsQueue
                     >> putBakerStakeThresholdQueue
+                    >> putAddAnonymityRevokerQueue
+                    >> putAddIdentityProviderQueue
             return (putPU, newPU)
     store pu = fst <$> storeUpdate pu
     load = do
@@ -250,6 +266,8 @@ instance (MonadBlobStore m)
         mTransactionFeeDistributionQueue <- label "Transaction fee distribution update queue" load
         mGASRewardsQueue <- label "GAS rewards update queue" load
         mBakerStakeThresholdQueue <- label "Baker minimum threshold update queue" load
+        mAddAnonymityRevokerQueue <- label "Add anonymity revoker update queue" load
+        mAddIdentityProviderQueue <- label "Add identity provider update queue" load
         return $! do
             pRootKeysUpdateQueue <- mRKQ
             pLevel1KeysUpdateQueue <- mL1KQ
@@ -263,6 +281,8 @@ instance (MonadBlobStore m)
             pTransactionFeeDistributionQueue <- mTransactionFeeDistributionQueue
             pGASRewardsQueue <- mGASRewardsQueue
             pBakerStakeThresholdQueue <- mBakerStakeThresholdQueue
+            pAddAnonymityRevokerQueue <- mAddAnonymityRevokerQueue
+            pAddIdentityProviderQueue <- mAddIdentityProviderQueue
             return PendingUpdates{..}
 
 instance (MonadBlobStore m) => Cacheable m PendingUpdates where
@@ -280,6 +300,8 @@ instance (MonadBlobStore m) => Cacheable m PendingUpdates where
             <*> cache pTransactionFeeDistributionQueue
             <*> cache pGASRewardsQueue
             <*> cache pBakerStakeThresholdQueue
+            <*> cache pAddAnonymityRevokerQueue
+            <*> cache pAddIdentityProviderQueue
 
 -- |Serialize the pending updates.
 putPendingUpdatesV0 :: (MonadBlobStore m, MonadPut m) => PendingUpdates -> m ()
@@ -296,10 +318,12 @@ putPendingUpdatesV0 PendingUpdates{..} = do
         putUpdateQueueV0 =<< refLoad pTransactionFeeDistributionQueue
         putUpdateQueueV0 =<< refLoad pGASRewardsQueue
         putUpdateQueueV0 =<< refLoad pBakerStakeThresholdQueue
+        putUpdateQueueV0 =<< refLoad pAddAnonymityRevokerQueue
+        putUpdateQueueV0 =<< refLoad pAddIdentityProviderQueue
 
 -- |Initial pending updates with empty queues.
 emptyPendingUpdates :: forall m. (MonadBlobStore m) => m PendingUpdates
-emptyPendingUpdates = PendingUpdates <$> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e
+emptyPendingUpdates = PendingUpdates <$> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e
     where
         e :: MHashableTo m H.Hash (UpdateQueue a) => m (HashedBufferedRef (UpdateQueue a))
         e = makeHashedBufferedRef emptyUpdateQueue
@@ -319,6 +343,8 @@ makePersistentPendingUpdates Basic.PendingUpdates{..} = do
         pTransactionFeeDistributionQueue <- refMake =<< makePersistentUpdateQueue _pTransactionFeeDistributionQueue
         pGASRewardsQueue <- refMake =<< makePersistentUpdateQueue _pGASRewardsQueue
         pBakerStakeThresholdQueue <- refMake =<< makePersistentUpdateQueue _pBakerStakeThresholdQueue
+        pAddAnonymityRevokerQueue <- refMake =<< makePersistentUpdateQueue _pAddAnonymityRevokerQueue
+        pAddIdentityProviderQueue <- refMake =<< makePersistentUpdateQueue _pAddIdentityProviderQueue
         return PendingUpdates{..}
 
 -- |Convert a persistent 'PendingUpdates' to an in-memory 'Basic.PendingUpdates'.
@@ -336,6 +362,8 @@ makeBasicPendingUpdates PendingUpdates{..} = do
         _pTransactionFeeDistributionQueue <- makeBasicUpdateQueue =<< refLoad pTransactionFeeDistributionQueue
         _pGASRewardsQueue <- makeBasicUpdateQueue =<< refLoad pGASRewardsQueue
         _pBakerStakeThresholdQueue <- makeBasicUpdateQueue =<< refLoad pBakerStakeThresholdQueue
+        _pAddAnonymityRevokerQueue <- makeBasicUpdateQueue =<< refLoad pAddAnonymityRevokerQueue
+        _pAddIdentityProviderQueue <- makeBasicUpdateQueue =<< refLoad pAddIdentityProviderQueue
         return Basic.PendingUpdates{..}
 
 -- |Current state of updatable parameters and update queues.
@@ -615,6 +643,79 @@ processBakerStakeThresholdUpdates t bu = do
                     pendingUpdates = pendingUpdates{pBakerStakeThresholdQueue = newpQ}
                 }
 
+-- |Process the add anonymity revoker update queue.
+--  Ignores updates with duplicate ARs.
+processAddAnonymityRevokerUpdates :: (MonadBlobStore m)
+  => Timestamp
+  -> BufferedRef Updates
+  -> HashedBufferedRef ARS.AnonymityRevokers
+  -> m (Map.Map TransactionTime UpdateValue, BufferedRef Updates, HashedBufferedRef ARS.AnonymityRevokers)
+processAddAnonymityRevokerUpdates t bu hbar = do
+    u@Updates{..} <- refLoad bu
+    oldQ <- refLoad (pAddAnonymityRevokerQueue pendingUpdates)
+    let (ql, qr) = Seq.spanl ((<= t) . transactionTimeToTimestamp . fst) (uqQueue oldQ)
+    if null ql
+        then return (Map.empty, bu, hbar)
+        else do
+            oldARs <- ARS.arRevokers <$> refLoad hbar
+            (changes, updatedARs) <- addAndAccumNonduplicateUpdates oldARs ARS.arIdentity UVAddAnonymityRevoker ql
+
+            newQ <- refMake oldQ { uqQueue = qr }
+            newU <- refMake u { pendingUpdates = pendingUpdates {pAddAnonymityRevokerQueue = newQ} }
+
+            -- Since updates might be invalid, we check whether any actual changes occured.
+            hbar' <- if null changes
+                        then return hbar -- Return existing reference if no changes occured.
+                        else refMake . ARS.AnonymityRevokers $ updatedARs
+            return (changes, newU, hbar')
+
+-- |Process the add identity provider update queue.
+--  Ignores updates with duplicate IPs.
+processAddIdentityProviderUpdates :: (MonadBlobStore m)
+  => Timestamp
+  -> BufferedRef Updates
+  -> HashedBufferedRef IPS.IdentityProviders
+  -> m (Map.Map TransactionTime UpdateValue, BufferedRef Updates, HashedBufferedRef IPS.IdentityProviders)
+processAddIdentityProviderUpdates t bu hbip = do
+    u@Updates{..} <- refLoad bu
+    oldQ <- refLoad (pAddIdentityProviderQueue pendingUpdates)
+    let (ql, qr) = Seq.spanl ((<= t) . transactionTimeToTimestamp . fst) (uqQueue oldQ)
+    if null ql
+        then return (Map.empty, bu, hbip)
+        else do
+            oldIPs <- IPS.idProviders <$> refLoad hbip
+            (changes, updatedIPs) <- addAndAccumNonduplicateUpdates oldIPs IPS.ipIdentity UVAddIdentityProvider ql
+
+            newQ <- refMake oldQ { uqQueue = qr }
+            newU <- refMake u { pendingUpdates = pendingUpdates {pAddIdentityProviderQueue = newQ} }
+
+            -- Since updates might be invalid, we check whether any actual changes occured.
+            hbip' <- if null changes
+                        then return hbip -- Return existing reference if no changes occured.
+                        else refMake . IPS.IdentityProviders $ updatedIPs
+            return (changes, newU, hbip')
+
+-- |Used for adding new IPs and ARs.
+-- Ensuring that new IPs/ARs have unique ids is difficult when enqueueing.
+-- Instead, it is handled here by ignoring updates with duplicate IPs/ARs.
+-- It also accumulates the actual changes that occured.
+addAndAccumNonduplicateUpdates :: (MonadBlobStore m, Foldable f, Reference m ref (StoreSerialized v), Ord k)
+                      => Map.Map k v -- ^ The existing IPs / ARs.
+                      -> (v -> k) -- ^ Getter for the key field.
+                      -> (v -> UpdateValue) -- ^ Data constructor for UpdateValue.
+                      -> f (TransactionTime, ref (StoreSerialized v)) -- ^ The updates.
+                      -> m (Map.Map TransactionTime UpdateValue, Map.Map k v)
+addAndAccumNonduplicateUpdates oldMap getKey toUV = foldM go (Map.empty, oldMap)
+  where go (changesMap, valMap) (tt, r) = do
+          v <- unStoreSerialized <$> refLoad r
+          let key = getKey v
+          if Map.member key valMap
+            then return (changesMap, valMap) -- Ignore invalid update
+            else do
+                let changesMap' = Map.insert tt (toUV v) changesMap
+                    valMap' = Map.insert key v valMap
+                return (changesMap', valMap')
+
 -- |Process the protocol update queue.  Unlike other queues, once a protocol update occurs, it is not
 -- overridden by later ones.
 -- FIXME: We may just want to keep unused protocol updates in the queue, even if their timestamps have
@@ -643,9 +744,15 @@ processProtocolUpdates t bu = do
             v <- UVProtocol . unStoreSerialized <$> refLoad r
             return $! Map.insert tt v m
 
+type UpdatesWithARsAndIPs = (BufferedRef Updates, HashedBufferedRef ARS.AnonymityRevokers, HashedBufferedRef IPS.IdentityProviders)
+
 -- |Process all update queues.
-processUpdateQueues :: (MonadBlobStore m) => Timestamp -> BufferedRef Updates -> m (Map.Map TransactionTime UpdateValue, BufferedRef Updates)
-processUpdateQueues t = processRootKeysUpdates t
+processUpdateQueues :: (MonadBlobStore m)
+                    => Timestamp
+                    -> UpdatesWithARsAndIPs
+                    -> m (Map.Map TransactionTime UpdateValue, UpdatesWithARsAndIPs)
+processUpdateQueues t (u0, ars, ips) = do
+  (m1, u1) <- (processRootKeysUpdates t
         `pThen` processLevel1KeysUpdates t
         `pThen` processLevel2KeysUpdates t
         `pThen` processProtocolUpdates t
@@ -656,7 +763,13 @@ processUpdateQueues t = processRootKeysUpdates t
         `pThen` processMintDistributionUpdates t
         `pThen` processTransactionFeeDistributionUpdates t
         `pThen` processGASRewardsUpdates t
-        `pThen` processBakerStakeThresholdUpdates t
+        `pThen` processBakerStakeThresholdUpdates t) u0
+
+  -- AR and IP updates are handled separately to avoid adding the large objects to the 'Updates' types.
+  (m2, u2, ars') <- processAddAnonymityRevokerUpdates t u1 ars
+  (m3, u3, ips') <- processAddIdentityProviderUpdates t u2 ips
+
+  return (m1 <> m2 <> m3, (u3, ars', ips'))
     where
         pThen a b = \i -> do
             (m1, r1) <- a i
@@ -699,6 +812,8 @@ lookupNextUpdateSequenceNumber uref uty = do
             UpdateTransactionFeeDistribution -> uqNextSequenceNumber <$> refLoad (pTransactionFeeDistributionQueue pendingUpdates)
             UpdateGASRewards -> uqNextSequenceNumber <$> refLoad (pGASRewardsQueue pendingUpdates)
             UpdateBakerStakeThreshold -> uqNextSequenceNumber <$> refLoad (pBakerStakeThresholdQueue pendingUpdates)
+            UpdateAddAnonymityRevoker -> uqNextSequenceNumber <$> refLoad (pAddAnonymityRevokerQueue pendingUpdates)
+            UpdateAddIdentityProvider -> uqNextSequenceNumber <$> refLoad (pAddIdentityProviderQueue pendingUpdates)
             UpdateRootKeys -> uqNextSequenceNumber <$> refLoad (pRootKeysUpdateQueue pendingUpdates)
             UpdateLevel1Keys -> uqNextSequenceNumber <$> refLoad (pLevel1KeysUpdateQueue pendingUpdates)
             UpdateLevel2Keys -> uqNextSequenceNumber <$> refLoad (pLevel2KeysUpdateQueue pendingUpdates)
@@ -717,6 +832,8 @@ enqueueUpdate effectiveTime payload uref = do
             UVTransactionFeeDistribution v -> enqueue effectiveTime v pTransactionFeeDistributionQueue <&> \newQ -> p {pTransactionFeeDistributionQueue=newQ}
             UVGASRewards v -> enqueue effectiveTime v pGASRewardsQueue <&> \newQ -> p {pGASRewardsQueue=newQ}
             UVBakerStakeThreshold v -> enqueue effectiveTime v pBakerStakeThresholdQueue <&> \newQ -> p {pBakerStakeThresholdQueue=newQ}
+            UVAddAnonymityRevoker v -> enqueue effectiveTime v pAddAnonymityRevokerQueue <&> \newQ -> p {pAddAnonymityRevokerQueue=newQ}
+            UVAddIdentityProvider v -> enqueue effectiveTime v pAddIdentityProviderQueue <&> \newQ -> p {pAddIdentityProviderQueue=newQ}
             UVRootKeys v -> enqueue effectiveTime v pRootKeysUpdateQueue <&> \newQ -> p {pRootKeysUpdateQueue=newQ}
             UVLevel1Keys v -> enqueue effectiveTime v pLevel1KeysUpdateQueue <&> \newQ -> p {pLevel1KeysUpdateQueue=newQ}
             UVLevel2Keys v -> enqueue effectiveTime v pLevel2KeysUpdateQueue <&> \newQ -> p {pLevel2KeysUpdateQueue=newQ}

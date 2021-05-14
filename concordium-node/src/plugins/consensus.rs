@@ -64,6 +64,7 @@ pub fn start_consensus_layer(
     ConsensusContainer::new(
         u64::from(conf.maximum_block_size),
         u64::from(conf.block_construction_timeout),
+        conf.max_time_to_expiry,
         u64::from(conf.transaction_insertions_before_purge),
         u64::from(conf.transaction_keep_alive),
         u64::from(conf.transactions_purging_delay),
@@ -133,7 +134,7 @@ pub fn get_baker_data(
 pub fn handle_pkt_out(
     node: &P2PNode,
     dont_relay_to: Vec<RemotePeerId>,
-    peer_id: RemotePeerId,
+    peer_id: RemotePeerId, // id of the peer that sent the message.
     msg: Vec<u8>,
     is_broadcast: bool,
 ) -> Fallible<()> {
@@ -146,6 +147,8 @@ pub fn handle_pkt_out(
     } else {
         DistributionMode::Direct
     };
+    // length of the actual payload. The message has a 1-byte tag prepended to it.
+    let payload_len = msg[1..].len();
 
     let request = ConsensusMessage::new(
         MessageType::Inbound(peer_id, distribution_mode),
@@ -155,32 +158,41 @@ pub fn handle_pkt_out(
         None,
     );
 
-    match if packet_type == PacketType::Transaction {
-        CALLBACK_QUEUE.send_in_low_priority_message(request)
-    } else {
-        CALLBACK_QUEUE.send_in_high_priority_message(request)
-    } {
-        Ok(_) => {
-            if packet_type == PacketType::Transaction {
-                node.stats.inbound_low_priority_consensus_inc();
-            } else {
-                node.stats.inbound_high_priority_consensus_inc();
-            }
+    if packet_type == PacketType::Transaction {
+        if payload_len > configuration::PROTOCOL_MAX_TRANSACTION_SIZE {
+            bail!(
+                "Transaction size exceeds {} bytes.",
+                configuration::PROTOCOL_MAX_TRANSACTION_SIZE
+            )
         }
-        Err(e) => match e.downcast::<TrySendError<QueueMsg<ConsensusMessage>>>()? {
-            TrySendError::Full(_) => {
-                if packet_type == PacketType::Transaction {
+        if let Err(e) = CALLBACK_QUEUE.send_in_low_priority_message(request) {
+            match e.downcast::<TrySendError<QueueMsg<ConsensusMessage>>>()? {
+                TrySendError::Full(_) => {
                     node.stats.inbound_low_priority_consensus_drops_inc();
-                    warn!("The low priority inbound consensus queue is full!")
-                } else {
-                    node.stats.inbound_high_priority_consensus_drops_inc();
-                    warn!("The high priority inbound consensus queue is full!")
+                    node.bad_events.inc_dropped_low_queue(peer_id);
+                }
+                TrySendError::Disconnected(_) => {
+                    panic!("Low priority consensus queue has been shutdown!")
                 }
             }
-            TrySendError::Disconnected(_) => {
-                panic!("One of the inbound consensus queues has been shutdown!")
+        } else {
+            node.stats.inbound_low_priority_consensus_inc();
+        }
+    } else {
+        // high priority message
+        if let Err(e) = CALLBACK_QUEUE.send_in_high_priority_message(request) {
+            match e.downcast::<TrySendError<QueueMsg<ConsensusMessage>>>()? {
+                TrySendError::Full(_) => {
+                    node.stats.inbound_high_priority_consensus_drops_inc();
+                    node.bad_events.inc_dropped_high_queue(peer_id);
+                }
+                TrySendError::Disconnected(_) => {
+                    panic!("High priority consensus queue has been shutdown!")
+                }
             }
-        },
+        } else {
+            node.stats.inbound_high_priority_consensus_inc();
+        }
     }
 
     Ok(())
@@ -313,7 +325,12 @@ fn send_msg_to_consensus(
     if consensus_response.is_acceptable() {
         debug!("Processed a {} from {}", message.variant, source_id);
     } else {
-        warn!("Couldn't process a {} due to error code {:?}", message, consensus_response,);
+        let num_bad_events = node.bad_events.inc_invalid_messages(source_id);
+        // we do log some invalid messages to both ease debugging and see problems in
+        // normal circumstances
+        if num_bad_events < 10 {
+            warn!("Couldn't process a {} due to error code {:?}", message, consensus_response);
+        }
     }
 
     Ok(consensus_response)

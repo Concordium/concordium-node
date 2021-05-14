@@ -21,10 +21,15 @@ pipeline {
             steps {
                 sh '''\
                     docker build \
-                      -t "${universal_image_name}" \
                       --build-arg base_image_tag="${base_image_tag}" \
+                      --build-arg static_libraries_image_tag="${static_libraries_image_tag}" \
+                      --build-arg ghc_version="${ghc_version}" \
                       --build-arg consensus_profiling="${CONSENSUS_PROFILING}" \
                       --label base_image_tag="${base_image_tag}" \
+                      --label static_libraries_image_tag="${static_libraries_image_tag}" \
+                      --label ghc_version="${ghc_version}" \
+                      --label consensus_profiling="${CONSENSUS_PROFILING}" \
+                      -t "${universal_image_name}" \
                       -f ./scripts/testnet-deployments/universal.Dockerfile \
                       .
                 '''
@@ -38,9 +43,11 @@ pipeline {
             steps {
                 sh '''\
                     docker build \
-                      -t "${image_name}" \
                       --build-arg universal_image_name="${universal_image_name}" \
                       --build-arg build_type="${BUILD_TYPE}" \
+                      --label universal_image_name="${universal_image_name}" \
+                      --label build_type="${BUILD_TYPE}" \
+                      -t "${image_name}" \
                       -f scripts/testnet-deployments/bootstrapper.Dockerfile \
                       .
                     docker push "${image_name}"
@@ -54,15 +61,27 @@ pipeline {
                 image_name = "${image_repo}:${image_tag}"
             }
             steps {
-                sh '''\
-                    docker build \
-                      -t "${image_name}" \
-                      --build-arg universal_image_name="${universal_image_name}" \
-                      --build-arg build_type="${BUILD_TYPE}" \
-                      -f scripts/testnet-deployments/node.Dockerfile \
-                      .
-                    docker push "${image_name}"
-                '''
+                sshagent (credentials: ['jenkins-gitlab-ssh']) {
+                    sh '''\
+                        # Using '--no-cache' because we're cloning genesis data
+                        # and BuildKit (and '--ssh default') because the repo is on GitLab.
+                        DOCKER_BUILDKIT=1 docker build \
+                          --build-arg universal_image_name="${universal_image_name}" \
+                          --build-arg build_type="${BUILD_TYPE}" \
+                          --build-arg genesis_ref="${genesis_ref}" \
+                          --build-arg genesis_path="${genesis_path}" \
+                          --label universal_image_name="${universal_image_name}" \
+                          --label build_type="${BUILD_TYPE}" \
+                          --label genesis_ref="${genesis_ref}" \
+                          --label genesis_path="${genesis_path}" \
+                          -t "${image_name}" \
+                          -f scripts/testnet-deployments/node.Dockerfile \
+                          --ssh default \
+                          --no-cache \
+                          .
+                        docker push "${image_name}"
+                    '''
+                }
             }
         }
 
@@ -74,9 +93,11 @@ pipeline {
             steps {
                 sh '''\
                     docker build \
-                      -t "${image_name}" \
                       --build-arg universal_image_name="${universal_image_name}" \
                       --build-arg build_type="${BUILD_TYPE}" \
+                      --label universal_image_name="${universal_image_name}" \
+                      --label build_type="${BUILD_TYPE}" \
+                      -t "${image_name}" \
                       -f scripts/testnet-deployments/node-collector.Dockerfile \
                       .
                     docker push "${image_name}"
@@ -92,9 +113,11 @@ pipeline {
             steps {
                 sh '''\
                     docker build \
-                      -t "${image_name}" \
                       --build-arg universal_image_name="${universal_image_name}" \
                       --build-arg build_type="${BUILD_TYPE}" \
+                      --label universal_image_name="${universal_image_name}" \
+                      --label build_type="${BUILD_TYPE}" \
+                      -t "${image_name}" \
                       -f scripts/testnet-deployments/collector-backend.Dockerfile \
                       .
                     docker push "${image_name}"

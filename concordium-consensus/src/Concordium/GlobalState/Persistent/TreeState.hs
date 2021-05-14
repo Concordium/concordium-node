@@ -191,7 +191,7 @@ initialSkovPersistentData rp treeStateDir gd genState genATI atiContext serState
   acctNonces <- foldM (\hm addr ->
       getAccount genState addr >>= \case
           Nothing -> error "Invariant violation: listed account does not exist"
-          Just acct -> do
+          Just (_, acct) -> do
               nonce <- getAccountNonce acct
               return $! HM.insert addr nonce hm) HM.empty acctAddrs
   updSeqNums <- foldM (\m uty -> do
@@ -329,7 +329,7 @@ loadSkovPersistentData rp _treeStateDirectory _genesisData pbsc atiContext = do
         tt0 <- foldM (\table addr ->
                  getAccount lastState addr >>= \case
                   Nothing -> logExceptionAndThrowTS (DatabaseInvariantViolation $ "Account " ++ show addr ++ " which is in the account list cannot be loaded.")
-                  Just acc -> return (table & ttNonFinalizedTransactions . at addr ?~ emptyANFTWithNonce (acc ^. accountNonce)))
+                  Just (_, acc) -> return (table & ttNonFinalizedTransactions . at addr ?~ emptyANFTWithNonce (acc ^. accountNonce)))
             emptyTransactionTable
             accs
         foldM (\table uty -> do

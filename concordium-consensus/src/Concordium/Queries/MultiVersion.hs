@@ -358,11 +358,12 @@ getAccountInfo blockHash acct =
             ( \bp -> do
                 bs <- blockState bp
                 macc <- either (BS.getAccountByCredId bs) (BS.getAccount bs) acct
-                forM macc $ \acc -> do
+                forM macc $ \(aiAccountIndex, acc) -> do
                     aiAccountNonce <- BS.getAccountNonce acc
                     aiAccountAmount <- BS.getAccountAmount acc
                     aiAccountReleaseSchedule <- BS.getAccountReleaseSchedule acc
                     aiAccountCredentials <- fmap (Versioned 0) <$> BS.getAccountCredentials acc
+                    aiAccountThreshold <- aiThreshold <$> BS.getAccountVerificationKeys acc
                     aiAccountEncryptedAmount <- BS.getAccountEncryptedAmount acc
                     aiAccountEncryptionKey <- BS.getAccountEncryptionKey acc
                     aiBaker <- BS.getAccountBaker acc

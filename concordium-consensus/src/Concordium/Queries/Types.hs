@@ -187,10 +187,14 @@ data AccountInfo = AccountInfo
       aiAccountReleaseSchedule :: AccountReleaseSchedule,
       -- |The credentials on the account
       aiAccountCredentials :: Map.Map CredentialIndex (Versioned AccountCredential),
+      -- |Number of credentials required to sign a valid transaction
+      aiAccountThreshold :: AccountThreshold,
       -- |The encrypted amount on the account
       aiAccountEncryptedAmount :: AccountEncryptedAmount,
       -- |The encryption key for the account
       aiAccountEncryptionKey :: AccountEncryptionKey,
+      -- |The account index
+      aiAccountIndex :: AccountIndex,
       -- |The baker associated with the account (if any)
       aiBaker :: Maybe AccountBaker
     }
@@ -202,8 +206,10 @@ instance ToJSON AccountInfo where
               "accountAmount" .= aiAccountAmount,
               "accountReleaseSchedule" .= aiAccountReleaseSchedule,
               "accountCredentials" .= aiAccountCredentials,
+              "accountThreshold" .= aiAccountThreshold,
               "accountEncryptedAmount" .= aiAccountEncryptedAmount,
-              "accountEncryptionKey" .= aiAccountEncryptionKey
+              "accountEncryptionKey" .= aiAccountEncryptionKey,
+              "accountIndex" .= aiAccountIndex
             ]
                 <> maybe [] (\b -> ["accountBaker" .= b]) aiBaker
     toEncoding AccountInfo{..} =
@@ -212,8 +218,10 @@ instance ToJSON AccountInfo where
                 <> "accountAmount" .= aiAccountAmount
                 <> "accountReleaseSchedule" .= aiAccountReleaseSchedule
                 <> "accountCredentials" .= aiAccountCredentials
+                <> "accountThreshold" .= aiAccountThreshold
                 <> "accountEncryptedAmount" .= aiAccountEncryptedAmount
                 <> "accountEncryptionKey" .= aiAccountEncryptionKey
+                <> "accountIndex" .= aiAccountIndex
                 <> maybe mempty ("accountBaker" .=) aiBaker
 
 data RewardStatus = RewardStatus

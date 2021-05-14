@@ -28,11 +28,12 @@ fn c10_init(_ctx: &impl HasInitContext<()>, _amount: Amount) -> InitResult<State
 
 #[receive(contract = "c20", name = "call_c10", payable)]
 fn call_c10<A: HasActions>(
-    _ctx: &impl HasReceiveContext<()>,
+    ctx: &impl HasReceiveContext<()>,
     amount: Amount,
     _state: &mut State,
 ) -> ReceiveResult<A> {
-    Ok(A::send(&ContractAddress{ index: 1, subindex: 0 }, "c10.check_receive_context", amount, &[]))
+    ensure!(ctx.sender() == Address::Account(THOMAS_ACCOUNT));
+    Ok(A::send_raw(&ContractAddress{ index: 1, subindex: 0 }, ReceiveName::new_unchecked("c10.check_receive_gcontext"), amount, &[]))
 }
 
 const ALES_ACCOUNT: AccountAddress = AccountAddress([1; 32]);

@@ -13,7 +13,9 @@ class DockerRunner:
     # pip3 install docker
 
     def __init__(self):
-        self.image = os.environ.get("GENESIS_TOOLS_DOCKER_IMAGE", default = "concordium/genesis-tools:0.5")
+        self.image = os.environ.get("USE_DOCKER")
+        if self.image == "": # default to latest image
+            self.image = "concordium/genesis-tools:latest"
         import docker
         self.client = docker.from_env()
         self.root = os.getcwd()
@@ -106,6 +108,8 @@ INITIAL_STAKE = os.environ.get("INITIAL_STAKE", default = "3000000.0")
 
 # The number of bakers that will be created.
 NUM_BAKERS = os.environ.get("NUM_BAKERS", default = "5")
+# The number of account keys on each of the generated accounts
+NUM_KEYS = os.environ.get("NUM_KEYS", default = "1")
 
 MAX_BLOCK_ENERGY = os.environ.get("MAX_BLOCK_ENERGY", default = "3000000")
 
@@ -147,6 +151,7 @@ def create_bakers():
                           "--ip-info", os.path.join(GENESIS_DIR, "identity_provider-0.pub.json"),
                           "--global", GLOBAL_FILE,
                           "--num", NUM_BAKERS,
+                          "--num-keys", NUM_KEYS,
                           "--stake", INITIAL_STAKE,
                           "--balance", INITIAL_BALANCE,
                           "--template", "baker-account",
@@ -185,7 +190,7 @@ def generate_update_keys():
     else:
         os.makedirs(updates_dir)
     res = runner.run_generate_keys(
-                          "37",
+                          "47",
                           "--keys-outfile", os.path.join(updates_dir, "authorizations.json"),
                           "--keys-outdir", updates_dir,
                           "--root-keys", "3:5",
@@ -199,7 +204,9 @@ def generate_update_keys():
                           "--mint-distribution", "3:17,18,19,20,21",
                           "--fee-distribution", "3:22,23,24,25,26",
                           "--gas-rewards", "3:27,28,29,30,31",
-                          "--baker-minimum-threshold", "3:32,33,34,35,36"
+                          "--baker-minimum-threshold", "3:32,33,34,35,36",
+                          "--add-anonymity-revoker", "3:37,38,39,40,41",
+                          "--add-identity-provider", "3:42,43,44,45,46"
                           )
     if res != 0:
         raise Exception(f"Could not generate update keys.")

@@ -182,9 +182,9 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
         a1 <- coerceBSML (getAccount ls addr)
         a2 <- coerceBSMR (getAccount rs addr)
         case (a1, a2) of
-          (Just a1', Just a2') ->
-            assert ((getHash a1' :: H.Hash) == getHash a2') $
-              return $ Just (a1', a2')
+          (Just (ai1, a1'), Just (ai2, a2')) ->
+            assert ((getHash a1' :: H.Hash) == getHash a2' && ai1 == ai2) $
+              return $ Just (ai1, (a1', a2'))
           (Nothing, Nothing) ->
             return Nothing
           (Nothing, _) -> error $ "Cannot get account with address " ++ show addr ++ " in left implementation"
@@ -193,9 +193,9 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
         a1 <- coerceBSML (getAccountByCredId ls cid)
         a2 <- coerceBSMR (getAccountByCredId rs cid)
         case (a1, a2) of
-          (Just a1', Just a2') ->
-            assert ((getHash a1' :: H.Hash) == getHash a2') $
-              return $ Just (a1', a2')
+          (Just (ai1, a1'), Just (ai2, a2')) ->
+            assert ((getHash a1' :: H.Hash) == getHash a2' && ai1 == ai2) $
+              return $ Just (ai1, (a1', a2'))
           (Nothing, Nothing) ->
             return Nothing
           (Nothing, _) -> error $ "Cannot get account with credid " ++ show cid ++ " in left implementation"

@@ -867,12 +867,12 @@ doMint pbs mint = do
         (_, newAccounts) <- Accounts.updateAccountsAtIndex updAcc foundationAccount (bspAccounts bsp)
         storePBS pbs (bsp {bspBank = newBank, bspAccounts = newAccounts})
 
-doGetAccount :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> AccountAddress -> m (Maybe (PersistentAccount pv))
+doGetAccount :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> AccountAddress -> m (Maybe (AccountIndex, PersistentAccount pv))
 doGetAccount pbs addr = do
         bsp <- loadPBS pbs
-        Accounts.getAccount addr (bspAccounts bsp)
+        Accounts.getAccountWithIndex addr (bspAccounts bsp)
 
-doGetAccountByCredId :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> ID.CredentialRegistrationID -> m (Maybe (PersistentAccount pv))
+doGetAccountByCredId :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> ID.CredentialRegistrationID -> m (Maybe (AccountIndex, PersistentAccount pv))
 doGetAccountByCredId pbs cid = do
         bsp <- loadPBS pbs
         Accounts.getAccountByCredId cid (bspAccounts bsp)
@@ -1089,8 +1089,9 @@ doGetProtocolUpdateStatus = protocolUpdateStatus . bspUpdates <=< loadPBS
 doProcessUpdateQueues :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> Timestamp -> m (Map.Map TransactionTime UpdateValue, PersistentBlockState pv)
 doProcessUpdateQueues pbs ts = do
         bsp <- loadPBS pbs
-        (changes, u') <- processUpdateQueues ts (bspUpdates bsp)
-        (changes,) <$> storePBS pbs bsp{bspUpdates = u'}
+        let (u, ars, ips) = (bspUpdates bsp, bspAnonymityRevokers bsp, bspIdentityProviders bsp)
+        (changes, (u', ars', ips')) <- processUpdateQueues ts (u, ars, ips)
+        (changes,) <$> storePBS pbs bsp{bspUpdates = u', bspAnonymityRevokers = ars', bspIdentityProviders = ips'}
 
 doProcessReleaseSchedule :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> Timestamp -> m (PersistentBlockState pv)
 doProcessReleaseSchedule pbs ts = do
@@ -1278,7 +1279,7 @@ instance (PersistentState r m, IsProtocolVersion pv) => AccountOperations (Persi
 
 instance (IsProtocolVersion pv, PersistentState r m) => BlockStateOperations (PersistentBlockStateMonad pv r m) where
     bsoGetModule pbs mref = doGetModule pbs mref
-    bsoGetAccount = doGetAccount
+    bsoGetAccount bs = fmap (fmap snd) . doGetAccount bs
     bsoGetAccountIndex = doGetAccountIndex
     bsoGetInstance = doGetInstance
     bsoRegIdExists = doRegIdExists
@@ -1332,6 +1333,7 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateStorage (Persi
     dropUpdatableBlockState pbs = liftIO $ writeIORef pbs (error "Block state dropped")
 
     purgeBlockState _ = return ()
+    {-# INLINE purgeBlockState #-}
 
     archiveBlockState HashedPersistentBlockState{..} = do
         inner <- liftIO $ readIORef hpbsPointers

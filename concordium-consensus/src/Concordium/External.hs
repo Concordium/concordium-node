@@ -275,6 +275,8 @@ startConsensus ::
     Word64 ->
     -- |Block construction timeout in milliseconds
     Word64 ->
+    -- |The amount of time in the future a transaction's expiry can be. In seconds.
+    Word64 ->
     -- |Insertions before purging of transactions
     Word64 ->
     -- |Time in seconds during which a transaction can't be purged
@@ -315,6 +317,7 @@ startConsensus ::
 startConsensus
     maxBlock
     blockConstructionTimeout
+    maxTimeToExpiry
     insertionsBeforePurge
     transactionsKeepAlive
     transactionsPurgingDelay
@@ -406,7 +409,8 @@ startConsensus
                   rpMaxBakingDelay = defaultMaxBakingDelay,
                   rpInsertionsBeforeTransactionPurge = fromIntegral insertionsBeforePurge,
                   rpTransactionsKeepAliveTime = TransactionTime transactionsKeepAlive,
-                  rpTransactionsPurgingDelay = fromIntegral transactionsPurgingDelay
+              rpTransactionsPurgingDelay = fromIntegral transactionsPurgingDelay,
+              rpMaxTimeToExpiry = fromIntegral maxTimeToExpiry
                 }
 
 -- |Start up an instance of Skov without starting the baker thread.
@@ -416,6 +420,8 @@ startConsensusPassive ::
     -- |Maximum block size.
     Word64 ->
     -- |Block construction timeout in milliseconds
+    Word64 ->
+    -- |The amount of time in the future a transaction's expiry can be. In seconds.
     Word64 ->
     -- |Insertions before purging of transactions
     Word64 ->
@@ -452,6 +458,7 @@ startConsensusPassive ::
 startConsensusPassive
     maxBlock
     blockConstructionTimeout
+    maxTimeToExpiry
     insertionsBeforePurge
     transactionsKeepAlive
     transactionsPurgingDelay
@@ -526,7 +533,8 @@ startConsensusPassive
                   rpMaxBakingDelay = defaultMaxBakingDelay,
                   rpInsertionsBeforeTransactionPurge = fromIntegral insertionsBeforePurge,
                   rpTransactionsKeepAliveTime = TransactionTime transactionsKeepAlive,
-                  rpTransactionsPurgingDelay = fromIntegral transactionsPurgingDelay
+              rpTransactionsPurgingDelay = fromIntegral transactionsPurgingDelay,
+              rpMaxTimeToExpiry = fromIntegral maxTimeToExpiry
                 }
 
 -- |Shut down consensus, stopping any baker thread if necessary.
@@ -585,7 +593,19 @@ stopBaker cptr = mask_ $ do
 -- +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
 -- |    13 | ResultConsensusShutDown            | Consensus has been shut down and the message was ignored                               | No       |
 -- +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
--- |    14 | ResultInvalidGenesisIndex          | The message is for an unknown genesis index                                            | No       |
+-- |    14 | ResultExpiryTooLate                | The transaction expiry time is too far in the future                                   | No       |
+-- +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
+-- |    15 | ResultVerificationFailed           | The transaction signature verification failed                                          | No       |
+-- +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
+-- |    16 | ResultNonexistingSenderAccount     | The transaction's sender account does not exist according to the focus block           | No       |
+-- +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
+-- |    17 | ResultDuplicateNonce               | The sequence number for this account or udpate type was already used                   | No       |
+-- +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
+-- |    18 | ResultNonceTooLarge                | The transaction seq. number is larger than the next one for this account/update type   | No       |
+-- +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
+-- |    19 | ResultTooLowEnergy                 | The stated transaction energy is lower than the minimum amount necessary to execute it | No       |
+-- +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
+-- |    20 | ResultInvalidGenesisIndex          | The message is for an unknown genesis index                                            | No       |
 -- +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
 type ReceiveResult = Int64
 
@@ -605,7 +625,13 @@ toReceiveResult ResultContinueCatchUp = 10
 toReceiveResult ResultEarlyBlock = 11
 toReceiveResult ResultMissingImportFile = 12
 toReceiveResult ResultConsensusShutDown = 13
-toReceiveResult ResultInvalidGenesisIndex = 14
+toReceiveResult ResultExpiryTooLate = 14
+toReceiveResult ResultVerificationFailed = 15
+toReceiveResult ResultNonexistingSenderAccount = 16
+toReceiveResult ResultDuplicateNonce = 17
+toReceiveResult ResultNonceTooLarge = 18
+toReceiveResult ResultTooLowEnergy = 19
+toReceiveResult ResultInvalidGenesisIndex = 20
 
 -- |Handle receipt of a block.
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,
@@ -655,7 +681,8 @@ receiveFinalizationRecord bptr genIndex msg msgLen = do
 
 -- |Handle receipt of a transaction.
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultDuplicate@,
--- @ResultStale@, @ResultInvalid@, and @ResultConsensusShutDown@.
+-- @ResultStale@, @ResultInvalid@, @ResultConsensusShutDown@, @ResultExpiryTooLate@, @ResultVerificationFailed@,
+-- @ResultNonexistingSenderAccount@, @ResultDuplicateNonce@, @ResultNonceTooLarge@, @ResultTooLowEnergy@.
 receiveTransaction :: StablePtr ConsensusRunner -> CString -> Int64 -> IO ReceiveResult
 receiveTransaction bptr transactionData transactionLen = do
     (ConsensusRunner mvr) <- deRefStablePtr bptr
@@ -1080,6 +1107,8 @@ foreign export ccall
         Word64 ->
         -- |Block construction timeout in milliseconds
         Word64 ->
+        -- |The amount of time in the future a transaction's expiry can be. In seconds.
+        Word64 ->
         -- |Insertions before purging of transactions
         Word64 ->
         -- |Time in seconds during which a transaction can't be purged
@@ -1122,6 +1151,8 @@ foreign export ccall
         -- |Maximum block size.
         Word64 ->
         -- |Block construction timeout in milliseconds
+        Word64 ->
+        -- |The amount of time in the future a transaction's expiry can be. In seconds.
         Word64 ->
         -- |Insertions before purging of transactions
         Word64 ->

@@ -22,6 +22,7 @@ import Concordium.Types
 
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF
+import qualified Concordium.Crypto.BlsSignature as BLS
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Block hiding (PendingBlock, makePendingBlock)
@@ -74,6 +75,8 @@ instance FromJSON BakerIdentity where
     bakerElectionKey <- parseJSON v
     bakerAggregationKey <- obj .: "aggregationSignKey"
     bakerAggregationPublicKey <- obj .: "aggregationVerifyKey"
+    when (bakerAggregationPublicKey /= BLS.derivePublicKey bakerAggregationKey) $
+        fail "Aggregation signing key does not correspond to the verification key."
     return BakerIdentity{..}
 
 processTransactions
@@ -122,7 +125,7 @@ maintainTransactions bp FilteredTransactions{..} = do
           macc <- getAccount stateHandle addr
           case macc of
             Nothing -> return minNonce
-            Just acc -> getAccountNonce acc
+            Just (_, acc) -> getAccountNonce acc
     -- construct a new pending transaction table adding back some failed transactions.
     let purgeFailed cpt tx = do
           b <- purgeTransaction (normalTransaction tx)

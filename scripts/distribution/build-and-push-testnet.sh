@@ -22,17 +22,17 @@ DOCKER_BUILDKIT=1 docker build \
   --label ghc_version="${ghc_version}" \
   --label genesis_ref="${genesis_ref}" \
   --label genesis_path="${genesis_path}" \
-  -t "concordium/staging-client:${image_tag}" \
-  -f scripts/distribution/stagenet.Dockerfile \
+  -t "concordium/opentestnet-client:${image_tag}" \
+  -f scripts/distribution/testnet.Dockerfile \
   --ssh default \
   --no-cache \
   .
 
-docker save "concordium/staging-client:${image_tag}" | gzip > "staging-client-${image_tag}.tar.gz"
-aws s3 cp "staging-client-${image_tag}.tar.gz" s3://distribution.concordium.com/ --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
+docker save concordium/opentestnet-client:"${image_tag}" | gzip > "opentestnet-client-${image_tag}.tar.gz"
+aws s3 cp "opentestnet-client-${image_tag}.tar.gz" s3://distribution.concordium.com/ --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
 
 # Make the image current if the tag is formatted as "<number>:<number>:<number>".
 if [[ "${image_tag}" =~ ^[[:digit:]]\.[[:digit:]]\.[[:digit:]]$ ]]; then
-  echo "${image_tag}" > VERSION
-  aws s3 cp VERSION s3://distribution.concordium.com/ --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
+  echo "${image_tag}" > OPENTESTNET-VERSION
+  aws s3 cp OPENTESTNET-VERSION s3://distribution.concordium.com/ --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
 fi

@@ -183,6 +183,12 @@ pub enum ConsensusFfiResponse {
     BlockTooEarly,
     MissingImportFile,
     ConsensusShutDown,
+    ExpiryTooLate,
+    VerificationFailed,
+    NonexistingSenderAccount,
+    DuplicateNonce,
+    NonceTooLarge,
+    TooLowEnergy,
     InvalidGenesisIndex,
 }
 
@@ -209,7 +215,17 @@ impl ConsensusFfiResponse {
         use ConsensusFfiResponse::*;
 
         match self {
-            BakerNotFound | DeserializationError | InvalidResult | Unverifiable | BlockTooEarly
+            BakerNotFound
+            | DeserializationError
+            | InvalidResult
+            | Unverifiable
+            | BlockTooEarly
+            | ExpiryTooLate
+            | VerificationFailed
+            | NonexistingSenderAccount
+            | DuplicateNonce
+            | NonceTooLarge
+            | TooLowEnergy
             | ConsensusShutDown | InvalidGenesisIndex => false,
             _ => true,
         }
@@ -226,6 +242,12 @@ impl ConsensusFfiResponse {
             | Stale
             | IncorrectFinalizationSession
             | BlockTooEarly
+            | ExpiryTooLate
+            | VerificationFailed
+            | NonexistingSenderAccount
+            | DuplicateNonce
+            | NonceTooLarge
+            | TooLowEnergy
             | ConsensusShutDown
             | InvalidGenesisIndex => false,
             _ => true,
@@ -256,7 +278,13 @@ impl TryFrom<i64> for ConsensusFfiResponse {
             11 => Ok(BlockTooEarly),
             12 => Ok(MissingImportFile),
             13 => Ok(ConsensusShutDown),
-            14 => Ok(InvalidGenesisIndex),
+            14 => Ok(ExpiryTooLate),
+            15 => Ok(VerificationFailed),
+            16 => Ok(NonexistingSenderAccount),
+            17 => Ok(DuplicateNonce),
+            18 => Ok(NonceTooLarge),
+            19 => Ok(TooLowEnergy),
+            20 => Ok(InvalidGenesisIndex),
             _ => Err(format_err!("Unsupported FFI return code ({})", value)),
         }
     }

@@ -16,7 +16,7 @@ use crate::dumper::{create_dump_thread, DumpItem};
 #[cfg(feature = "staging_net")]
 use crate::plugins::staging_net::get_username_from_jwt;
 use crate::{
-    common::{get_current_stamp, P2PNodeId, P2PPeer, PeerType},
+    common::{get_current_stamp, p2p_peer::RemotePeerId, P2PNodeId, P2PPeer, PeerType},
     configuration::{self as config, Config},
     connection::{ConnChange, Connection, DeduplicationHashAlgorithm, DeduplicationQueues},
     consensus_ffi::{
@@ -196,6 +196,50 @@ impl NetworkDumper {
     }
 }
 
+/// A count of bad events indexed by peer. We use this to not spam warnings
+/// constantly and instead only emit warnings on each iteration of connection
+/// housekeeping.
+///
+/// NB: At the moment these are all simple mutexes since there is never a need
+/// for shared access. Ideally this would be joined together with connection
+/// stats so that it would not need the additional indexing that we have now
+/// (because connections are already per-peer) but that will require a bit more
+/// care so that we can update the values in the appropriate places without
+/// introducing deadlocks and a bit of redesign. In contrast to connection stats
+/// this structure is more transient and is cleared on each housekeeping
+/// interval.
+#[derive(Debug, Default)]
+pub struct BadEvents {
+    /// Number of high priority messages that were dropped because they could
+    /// not be enqueued.
+    pub dropped_high_queue: Mutex<HashMap<RemotePeerId, u64>>,
+    /// Number of low priority messages that were dropped because they could not
+    /// be enqueued.
+    pub dropped_low_queue: Mutex<HashMap<RemotePeerId, u64>>,
+    /// Number of invalid messages received from the given peer.
+    pub invalid_messages: Mutex<HashMap<RemotePeerId, u64>>,
+}
+
+impl BadEvents {
+    /// Register a new dropped value for the given peer and return the amount of
+    /// dropped high priority messages for the peer.
+    pub fn inc_dropped_high_queue(&self, peer_id: RemotePeerId) -> u64 {
+        *lock_or_die!(self.dropped_high_queue).entry(peer_id).and_modify(|x| *x += 1).or_insert(1)
+    }
+
+    /// Register a new dropped value for the given peer and return the amount of
+    /// dropped high priority messages for the peer.
+    pub fn inc_dropped_low_queue(&self, peer_id: RemotePeerId) -> u64 {
+        *lock_or_die!(self.dropped_low_queue).entry(peer_id).and_modify(|x| *x += 1).or_insert(1)
+    }
+
+    /// Register a new dropped value for the given peer and return the amount of
+    /// invalid messages that were received.
+    pub fn inc_invalid_messages(&self, peer_id: RemotePeerId) -> u64 {
+        *lock_or_die!(self.invalid_messages).entry(peer_id).and_modify(|x| *x += 1).or_insert(1)
+    }
+}
+
 /// The central object belonging to a node in the network; it handles
 /// connectivity and contains the metadata, statistics etc.
 pub struct P2PNode {
@@ -217,6 +261,9 @@ pub struct P2PNode {
     pub kvs: Arc<RwLock<Rkv<LmdbEnvironment>>>,
     /// The catch-up list of peers.
     pub peers: RwLock<PeerList>,
+    /// Cache of bad events that we report on each connection housekeeping
+    /// interval to avoid spamming the logs in case of failure.
+    pub bad_events: BadEvents,
 }
 
 impl P2PNode {
@@ -364,6 +411,7 @@ impl P2PNode {
             is_terminated: Default::default(),
             kvs,
             peers: Default::default(),
+            bad_events: BadEvents::default(),
         });
 
         if !node.config.no_clear_bans {

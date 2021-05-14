@@ -5,13 +5,14 @@
 module Concordium.Skov.Update where
 
 import Control.Monad
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isNothing)
 import qualified Data.Sequence as Seq
 import Lens.Micro.Platform
 import Data.Foldable
 
 import GHC.Stack
 
+import Concordium.Cost (baseCost)
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Updates
@@ -30,7 +31,7 @@ import Concordium.GlobalState.AccountTransactionIndex
 
 import Concordium.Scheduler.TreeStateEnvironment(executeFrom, ExecutionResult'(..), ExecutionResult, FinalizerInfo)
 
-import Concordium.Kontrol
+import Concordium.Kontrol hiding (getRuntimeParameters)
 import Concordium.Birk.LeaderElection
 import Concordium.Kontrol.UpdateLeaderElectionParameters
 import Concordium.Afgjort.Finalize
@@ -362,7 +363,7 @@ addBlock block = do
                                     stateHash <- getStateHash (_finalState result)
                                     check "Claimed stateHash did not match calculated stateHash"(stateHash == blockStateHash block) $ do
                                         -- Check that the TransactionOutcomeHash is correct
-                                        tohash <- getTransactionOutcomesHash (_finalState result) 
+                                        tohash <- getTransactionOutcomesHash (_finalState result)
                                         check "Claimed transactionOutcomesHash did not match actual transactionOutcomesHash"(tohash ==  blockTransactionOutcomesHash block) $ do
                                             -- Add the block to the tree
                                             blockP <- blockArrive block parentP lfBlockP result
@@ -438,7 +439,7 @@ doStoreBlock pb@GB.PendingBlock{..} = unlessShutDown $ do
             BakedBlock{..} = pbBlock
         oldBlock <- getBlockStatus cbp
         case oldBlock of
-            Nothing ->  
+            Nothing ->
                 -- Check that the claimed key matches the signature/blockhash
                 checkClaimedSignature pb $ do
                 -- The block is new, so we have some work to do.
@@ -457,7 +458,7 @@ doStoreBlock pb@GB.PendingBlock{..} = unlessShutDown $ do
             Just _ -> return ResultDuplicate
     where
         checkClaimedSignature b a = if verifyBlockSignature b then a else do
-            logEvent Skov LLWarning $ "Dropping block where signature did not match claimed key or blockhash: " 
+            logEvent Skov LLWarning $ "Dropping block where signature did not match claimed key or blockhash: "
             return ResultInvalid
 
 -- |Add a transaction to the transaction table.  The 'Slot' should be
@@ -471,11 +472,39 @@ doStoreBlock pb@GB.PendingBlock{..} = unlessShutDown $ do
 --     and nonce has already been finalized. In this case the transaction is not added to the table.
 --   * 'ResultInvalid' which indicates that the transaction signature was invalid.
 --   * 'ResultShutDown' which indicates that consensus was shut down, and so the transaction was not added.
+--   * 'ResultExpiryTooLate' which indicates that transaction's expiry was too far in the future and so the transaction
+--     was not accepted.
+--   * 'ResultTooLowEnergy' which indicates that the transactions stated energy was below the minimum amount needed for the
+--     transaction to be included in a block. The transaction is not added to the transaction table
 doReceiveTransaction :: (TreeStateMonad pv m, TimeMonad m, SkovQueryMonad pv m) => BlockItem -> Slot -> m UpdateResult
 doReceiveTransaction tr slot = unlessShutDown $ do
-  (_, ur) <- doReceiveTransactionInternal tr slot
-  when (ur == ResultSuccess) $ purgeTransactionTable False =<< currentTime
-  return ur
+  -- Don't accept the transaction if its expiry time is too far in the future
+  expiryTooLate <- isExpiryTooLate
+  if expiryTooLate then return ResultExpiryTooLate
+  else do
+    ur <- case tr of
+        WithMetadata{wmdData = NormalTransaction tx} -> do
+            -- Don't accept the transaction if the stated energy is smaller than the minimum energy amount.
+            let baseEnergy = baseCost (getTransactionHeaderPayloadSize $ transactionHeader tx) (getTransactionNumSigs $ transactionSignature tx)
+                statedEnergy = thEnergyAmount $ transactionHeader tx
+            if baseEnergy > statedEnergy then return ResultTooLowEnergy
+            else do
+               -- this is not ideal since we look up the entire account.
+               -- In the current implementation this is not a problem since all states since the last finalized one are cached
+               -- but this should be revised to add a "accountExists" function in the future
+               senderExists <- flip getAccount (transactionSender tx) =<< queryBlockState =<< lastFinalizedBlock
+               if isNothing senderExists then return ResultNonexistingSenderAccount
+               else snd <$> doReceiveTransactionInternal tr slot
+        _ -> snd <$> doReceiveTransactionInternal tr slot
+    when (ur == ResultSuccess) $ purgeTransactionTable False =<< currentTime
+    return ur
+
+    where
+          isExpiryTooLate = do
+            maxTimeToExpiry <- rpMaxTimeToExpiry <$> getRuntimeParameters
+            now <- utcTimeToTransactionTime <$> currentTime
+            let expiry = msgExpiry tr
+            return $ expiry > maxTimeToExpiry + fromIntegral now
 
 -- |Add a transaction to the transaction table.  The 'Slot' should be
 -- the slot number of the block that the transaction was received with.
@@ -492,7 +521,7 @@ doReceiveTransactionInternal tr slot =
                   focus <- getFocusBlock
                   st <- blockState focus
                   macct <- getAccount st $! transactionSender tx
-                  nextNonce <- fromMaybe minNonce <$> mapM getAccountNonce macct
+                  nextNonce <- fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
                   -- If a transaction with this nonce has already been run by
                   -- the focus block, then we do not need to add it to the
                   -- pending transactions.  Otherwise, we do.

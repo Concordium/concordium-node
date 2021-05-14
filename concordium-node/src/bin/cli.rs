@@ -405,36 +405,3 @@ where
     }
     true
 }
-
-#[cfg(feature = "elastic_logging")]
-fn setup_transfer_log_thread(conf: &config::CliConfig) -> JoinHandle<()> {
-    use concordium_node::plugins::elasticlogging;
-
-    let (enabled, url) = (conf.elastic_logging_enabled, conf.elastic_logging_url.clone());
-    if enabled {
-        if let Err(e) = elasticlogging::create_transfer_index(&url) {
-            error!("{}", e);
-        }
-    }
-    spawn_or_die!("transfer log", {
-        let receiver = consensus_ffi::transferlog::TRANSACTION_LOG_QUEUE.receiver.lock().unwrap();
-        loop {
-            match receiver.recv() {
-                Ok(QueueMsg::Relay(msg)) => {
-                    if enabled {
-                        if let Err(e) = elasticlogging::log_transfer_event(&url, msg) {
-                            error!("{}", e);
-                        }
-                    } else {
-                        info!("{}", msg);
-                    }
-                }
-                Ok(QueueMsg::Stop) => {
-                    debug!("Shutting down transfer log queues");
-                    break;
-                }
-                Err(_) => error!("Error receiving a transfer log message from the consensus layer"),
-            }
-        }
-    })
-}

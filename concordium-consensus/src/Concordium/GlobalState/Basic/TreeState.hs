@@ -87,7 +87,7 @@ initialSkovData rp gd genState = do
     acctNonces <- foldM (\hm addr ->
         BS.getAccount genState addr >>= \case
             Nothing -> error "Invariant violation: listed account does not exist"
-            Just acct -> do
+            Just (_, acct) -> do
                 nonce <- BS.getAccountNonce acct
                 return $! HM.insert addr nonce hm) HM.empty acctAddrs
     updSeqNums <- foldM (\m uty -> do
