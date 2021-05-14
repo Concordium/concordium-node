@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+- Check that baker keys are consistent (private key matches the public one) on startup.
+
 ## concordium-node 1.0.0
 
 - Expose accountIndex in the `getAccountInfo` query.
