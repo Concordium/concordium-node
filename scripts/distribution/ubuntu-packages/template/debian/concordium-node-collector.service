@@ -1,0 +1,34 @@
+[Unit]
+Description=Concordium Node Collector
+After=syslog.target network.target concordium-node.service
+# The node should be started before this service.
+# Requires will automatically start the node service if this
+# one is activated. Conversely, if the node is stopped the collector
+# will be stopped as well.
+# The 'After' clause above means that the node service will be up
+# before this one is started.
+Requires=concordium-node.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/concordium-node-wrapper
+Restart=always
+RestartSec=20
+
+# sandboxing
+# mount the entire filesystem as read-only (apart from /dev, /proc and /sys)
+ProtectSystem=strict
+DynamicUser=true
+ProtectClock=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectHostname=true
+
+Environment=MODE=collector
+Environment=COLLECTOR_INTERVAL=5000
+Environment=COLLECTOR_URL=https://dashboard.testnet.concordium.com/nodes/post
+Environment=COLLECTOR_GRPC_HOST=http://localhost:10000
+
+[Install]
+# start the service when reaching multi-user target
+WantedBy=multi-user.target

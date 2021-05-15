@@ -7,7 +7,6 @@ static_libraries_image_tag="${STATIC_LIBRARIES_IMAGE_TAG}"
 ghc_version="${GHC_VERSION}"
 extra_features=${EXTRA_FEATURES:-""}
 
-# Setting '--no-cache' because we clone repos from the build script.
 docker build \
 	--build-arg ubuntu_version="$ubuntu_version" \
 	--build-arg static_libraries_image_tag="$static_libraries_image_tag" \
@@ -22,5 +21,5 @@ docker build \
 	"."
 
 echo "The binaries are ready inside the 'static-node-binaries' image in the '/build/bin/' directory."
-echo "They can be obtained by mounting the directory using 'docker run -v $OUT_DIR:/out/ static-node-binaries' cp ..."
+echo "They can be obtained by mounting the directory using 'docker run -v \$OUT_DIR:/out/ static-node-binaries' cp ..."
 echo "and copying the files."
