@@ -188,7 +188,8 @@ mod tests {
     #[test]
     fn test_average_throughput() {
         // Test with a sound delta
-        if let Ok((recv, send)) = calculate_average_throughput(1, 2, 1, 2, 1, 2) {
+        // Send and receive 1kb in 1000 milliseconds is 1000bps or 1kbps
+        if let Ok((recv, send)) = calculate_average_throughput(1, 1001, 1, 1001, 1, 1001) {
             assert_eq!(1000, recv);
             assert_eq!(1000, send);
         }
