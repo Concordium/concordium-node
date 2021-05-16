@@ -9,7 +9,8 @@ use crate::{
     p2p::{maintenance::attempt_bootstrap, P2PNode},
     read_or_die,
 };
-use chrono::prelude::*;
+use anyhow::bail;
+use chrono::Utc;
 use std::sync::{atomic::Ordering, Arc};
 
 impl P2PNode {
@@ -53,7 +54,7 @@ impl P2PNode {
 
     /// Measures the node's average byte throughput as bps i.e., bytes per
     /// second.
-    pub fn measure_throughput(&self, peer_stats: &[PeerStats]) -> (u64, u64) {
+    pub fn measure_throughput(&self, peer_stats: &[PeerStats]) -> anyhow::Result<()> {
         let prev_bytes_received = self.stats.get_bytes_received();
         let prev_bytes_sent = self.stats.get_bytes_sent();
 
@@ -66,24 +67,23 @@ impl P2PNode {
         self.stats.set_bytes_received(bytes_received);
         self.stats.set_bytes_sent(bytes_sent);
 
-        let now = Utc::now().timestamp_millis(); // Timestamps are stored in millis in order to allow measurements within the
-                                                 // second. Hence the number of bytes received/send must be multiplied by a
-                                                 // factor 1000 in order to obtain bps.
-        let (avg_bpms_in, avg_bpms_out) = calculate_average_throughput(
-            self.stats.get_last_throughput_measurement(),
+        let now = Utc::now().timestamp_millis();
+        match calculate_average_throughput(
+            self.stats.get_last_throughput_measurement_timestamp(),
             now,
-            prev_bytes_received * 1000,
-            bytes_received * 1000,
-            prev_bytes_sent * 1000,
-            bytes_sent * 1000,
-        );
-
-        let (avg_bps_in, avg_bps_out) = (avg_bpms_in, avg_bpms_out);
-        self.stats.set_avg_bps_in(avg_bps_in);
-        self.stats.set_avg_bps_out(avg_bps_out);
-        self.stats.set_last_throughput_measurement(now);
-
-        (avg_bps_in, avg_bps_out)
+            prev_bytes_received,
+            bytes_received,
+            prev_bytes_sent,
+            bytes_sent,
+        ) {
+            Ok((avg_bps_in, avg_bps_out)) => {
+                self.stats.set_avg_bps_in(avg_bps_in);
+                self.stats.set_avg_bps_out(avg_bps_out);
+                self.stats.set_last_throughput_measurement_timestamp(now);
+                Ok(())
+            }
+            Err(e) => Err(e),
+        }
     }
 
     fn send_get_peers(&self) {
@@ -155,9 +155,8 @@ pub fn check_peers(node: &Arc<P2PNode>, peer_stats: &[PeerStats], attempted_boot
     }
 }
 
-/// Calculate the `checked` average of the received and send bytes.
-/// If any of the arguments would imply in a non-defined or otherwise
-/// non-meaningful result, then the function returns (0, 0).
+/// Calculate the average bytes bps (Bytes per second) received and send during
+/// the time `delta` (specified in milliseconds).
 fn calculate_average_throughput(
     before_millis: i64,
     now_millis: i64,
@@ -165,15 +164,21 @@ fn calculate_average_throughput(
     bytes_recv: u64,
     prev_bytes_sent: u64,
     bytes_sent: u64,
-) -> (u64, u64) {
-    let delta = now_millis.saturating_sub(before_millis);
-    let avg_bpms_in = bytes_recv.saturating_sub(prev_bytes_recv).checked_div(delta as u64);
-    let avg_bpms_out = bytes_sent.saturating_sub(prev_bytes_sent).checked_div(delta as u64);
-    match (avg_bpms_in, avg_bpms_out) {
-        (Some(recv), Some(send)) => (recv, send),
-        // Just return (0,0) as the time delta is wrong (negative or zero).
-        (_, _) => (0, 0),
+) -> anyhow::Result<(u64, u64)> {
+    let milliseconds_to_second = 1000f64;
+    let delta = ((now_millis - before_millis) as f64) / milliseconds_to_second; // convert the delta to seconds
+
+    if delta == 0f64 {
+        bail!("Delta must not be zero.");
     }
+    if delta < 0f64 {
+        bail!("Delta must not be negative.");
+    }
+
+    let avg_bps_in = ((bytes_recv - prev_bytes_recv) as f64) / (delta as f64);
+    let avg_bps_out = ((bytes_sent - prev_bytes_sent) as f64) / (delta as f64);
+
+    Ok((avg_bps_in as u64, avg_bps_out as u64))
 }
 
 #[cfg(test)]
@@ -183,18 +188,19 @@ mod tests {
     #[test]
     fn test_average_throughput() {
         // Test with a sound delta
-        let (recv, send) = calculate_average_throughput(1, 2, 1, 2, 1, 2);
-        assert_eq!(recv, 1);
-        assert_eq!(send, 1);
+        if let Ok((recv, send)) = calculate_average_throughput(1, 2, 1, 2, 1, 2) {
+            assert_eq!(1000, recv);
+            assert_eq!(1000, send);
+        }
 
         // Test with a zero delta
-        let (recv, send) = calculate_average_throughput(1, 1, 1, 2, 1, 2);
-        assert_eq!(recv, 0);
-        assert_eq!(send, 0);
+        if let Err(e) = calculate_average_throughput(1, 1, 1, 2, 1, 2) {
+            assert_eq!("Delta must not be zero.", e.to_string());
+        }
 
         // Test with a negative delta
-        let (recv, send) = calculate_average_throughput(2, 1, 1, 2, 1, 2);
-        assert_eq!(recv, 0);
-        assert_eq!(send, 0);
+        if let Err(e) = calculate_average_throughput(2, 1, 1, 2, 1, 2) {
+            assert_eq!("Delta must not be negative.", e.to_string());
+        }
     }
 }

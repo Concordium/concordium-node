@@ -61,7 +61,7 @@ cfg_if! {
             inbound_low_priority_consensus_size: IntGauge,
             outbound_high_priority_consensus_size: IntGauge,
             outbound_low_priority_consensus_size: IntGauge,
-            last_throughput_measurement: GenericGauge<AtomicI64>,
+            last_throughput_measurement_timestamp: GenericGauge<AtomicI64>,
             bytes_received: GenericGauge<AtomicU64>,
             bytes_sent: GenericGauge<AtomicU64>,
             avg_bps_in: GenericGauge<AtomicU64>,
@@ -86,7 +86,7 @@ pub struct StatsExportService {
     inbound_low_priority_consensus_size: AtomicUsize,
     outbound_high_priority_consensus_size: AtomicUsize,
     outbound_low_priority_consensus_size: AtomicUsize,
-    last_throughput_measurement: AtomicI64,
+    last_throughput_measurement_timestamp: AtomicI64,
     bytes_received: AtomicU64,
     bytes_sent: AtomicU64,
     avg_bps_in: AtomicU64,
@@ -207,9 +207,9 @@ impl StatsExportService {
             IntGauge::with_opts(outbound_low_priority_consensus_size_opts)?;
         registry.register(Box::new(outbound_low_priority_consensus_size.clone()))?;
 
-        let last_throughput_measurement_opts =
-            Opts::new("last_throughput_measurement", "last_throughput_measurement");
-        let ltm = GenericGauge::with_opts(last_throughput_measurement_opts)?;
+        let last_throughput_measurement_timestamp_opts =
+            Opts::new("last_throughput_measurement_timestamp", "last_throughput_measurement_timestamp");
+        let ltm = GenericGauge::with_opts(last_throughput_measurement_timestamp_opts)?;
         registry.register(Box::new(ltm.clone()))?;
 
         let brc_opts = Opts::new("bytes_received", "bytes received");
@@ -242,7 +242,7 @@ impl StatsExportService {
             inbound_low_priority_consensus_size,
             outbound_high_priority_consensus_size,
             outbound_low_priority_consensus_size,
-            last_throughput_measurement: ltm,
+            last_throughput_measurement_timestamp: ltm,
             bytes_received: brc,
             bytes_sent: bsc,
             avg_bps_in,
@@ -361,23 +361,23 @@ impl StatsExportService {
     }
 
     /// Gets the timestamp for the last throughput check.
-    pub fn get_last_throughput_measurement(&self) -> i64 {
+    pub fn get_last_throughput_measurement_timestamp(&self) -> i64 {
         #[cfg(feature = "instrumentation")]
         {
-            self.last_throughput_measurement.get()
+            self.last_throughput_measurement_timestamp.get()
         }
         #[cfg(not(feature = "instrumentation"))]
         {
-            self.last_throughput_measurement.load(std::sync::atomic::Ordering::Relaxed)
+            self.last_throughput_measurement_timestamp.load(std::sync::atomic::Ordering::Relaxed)
         }
     }
 
     /// Sets the value of throughput timestamp.
-    pub fn set_last_throughput_measurement(&self, value: i64) {
+    pub fn set_last_throughput_measurement_timestamp(&self, value: i64) {
         #[cfg(feature = "instrumentation")]
-        self.last_throughput_measurement.set(value);
+        self.last_throughput_measurement_timestamp.set(value);
         #[cfg(not(feature = "instrumentation"))]
-        self.last_throughput_measurement.store(value, Ordering::Relaxed);
+        self.last_throughput_measurement_timestamp.store(value, Ordering::Relaxed);
     }
 
     /// Gets the count of received bytes.
