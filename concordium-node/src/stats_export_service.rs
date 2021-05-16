@@ -207,8 +207,10 @@ impl StatsExportService {
             IntGauge::with_opts(outbound_low_priority_consensus_size_opts)?;
         registry.register(Box::new(outbound_low_priority_consensus_size.clone()))?;
 
-        let last_throughput_measurement_timestamp_opts =
-            Opts::new("last_throughput_measurement_timestamp", "last_throughput_measurement_timestamp");
+        let last_throughput_measurement_timestamp_opts = Opts::new(
+            "last_throughput_measurement_timestamp",
+            "last_throughput_measurement_timestamp",
+        );
         let ltm = GenericGauge::with_opts(last_throughput_measurement_timestamp_opts)?;
         registry.register(Box::new(ltm.clone()))?;
 
