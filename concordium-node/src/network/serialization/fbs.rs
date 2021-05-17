@@ -45,7 +45,7 @@ impl NetworkMessage {
         } else {
             256
         };
-        let mut builder = FlatBufferBuilder::new_with_capacity(capacity);
+        let mut builder = FlatBufferBuilder::with_capacity(capacity);
 
         let (payload_type, payload_offset) = match self.payload {
             NetworkPayload::NetworkPacket(ref packet) => {
@@ -86,7 +86,7 @@ fn _deserialize(buffer: &[u8]) -> Fallible<NetworkMessage> {
         bail!("unrecognized protocol name")
     }
 
-    let root = network::get_size_prefixed_root_as_network_message(buffer);
+    let root = network::size_prefixed_root_as_network_message(buffer)?;
 
     let created = root.timestamp();
 
@@ -114,13 +114,15 @@ fn deserialize_packet(root: &network::NetworkMessage) -> Fallible<NetworkPayload
     let destination = if let Some(destination) = packet.destination() {
         match destination.variant() {
             network::Direction::Direct => {
-                PacketDestination::Direct((destination.target() as usize).into())
+                Ok(PacketDestination::Direct((destination.target() as usize).into()))
+                    as Fallible<PacketDestination>
             }
-            network::Direction::Broadcast => PacketDestination::Broadcast(Vec::new()),
+            network::Direction::Broadcast => Ok(PacketDestination::Broadcast(Vec::new())),
+            network::Direction(x) => bail!("Invalid direction type: {}", x),
         }
     } else {
         bail!("missing direction on network packet");
-    };
+    }?;
 
     let network_id = NetworkId::from(packet.network_id());
 
@@ -231,6 +233,7 @@ fn deserialize_request(root: &network::NetworkMessage) -> Fallible<NetworkPayloa
                 bail!("missing network id in a join/leave network request")
             }
         }
+        network::RequestVariant(x) => bail!("Invalid request variant type: {}", x),
     }
 }
 
@@ -264,6 +267,7 @@ fn deserialize_response(root: &network::NetworkMessage) -> Fallible<NetworkPaylo
                                     ip.read_exact(&mut octets)?;
                                     SocketAddr::new(IpAddr::from(octets), peer.port())
                                 }
+                                network::IpVariant(x) => bail!("Invalid ip variant type: {}", x),
                             }
                         } else {
                             bail!("missing peer ip in a PeerList response")
@@ -273,9 +277,10 @@ fn deserialize_response(root: &network::NetworkMessage) -> Fallible<NetworkPaylo
                     };
 
                     let peer_type = match peer.variant() {
-                        network::PeerVariant::Node => PeerType::Node,
-                        network::PeerVariant::Bootstrapper => PeerType::Bootstrapper,
-                    };
+                        network::PeerVariant::Node => Ok(PeerType::Node) as Fallible<PeerType>,
+                        network::PeerVariant::Bootstrapper => Ok(PeerType::Bootstrapper),
+                        network::PeerVariant(x) => bail!("Invalid peer variant type: {}", x),
+                    }?;
 
                     let peer = P2PPeer {
                         id: P2PNodeId(peer.id()),
@@ -291,6 +296,7 @@ fn deserialize_response(root: &network::NetworkMessage) -> Fallible<NetworkPaylo
                 bail!("missing peers in a PeerList response")
             }
         }
+        network::ResponseVariant(x) => bail! {"Invalid response variant type: {}", x},
     }
 }
 
