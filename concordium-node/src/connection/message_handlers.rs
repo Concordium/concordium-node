@@ -93,11 +93,11 @@ impl Connection {
             if handshake.wire_versions.len() > 10 {
                 bail!("Rejecting handshake: incompatible wire protocol versions received.",);
             } else {
-            bail!(
-                "Rejecting handshake: incompatible wire protocol versions ({:?}).",
-                handshake.wire_versions
-            );
-        }
+                bail!(
+                    "Rejecting handshake: incompatible wire protocol versions ({:?}).",
+                    handshake.wire_versions
+                );
+            }
         }
         if handshake.networks.len() > MAX_PEER_NETWORKS {
             bail!("Rejecting handshake: too many networks.");

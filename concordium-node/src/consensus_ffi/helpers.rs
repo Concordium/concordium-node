@@ -226,7 +226,8 @@ impl ConsensusFfiResponse {
             | DuplicateNonce
             | NonceTooLarge
             | TooLowEnergy
-            | ConsensusShutDown | InvalidGenesisIndex => false,
+            | ConsensusShutDown
+            | InvalidGenesisIndex => false,
             _ => true,
         }
     }
