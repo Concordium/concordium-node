@@ -54,7 +54,7 @@ import qualified Concordium.GlobalState.TransactionTable as T
 import Concordium.Crypto.SHA256
 import Concordium.Types.HashableTo
 import Control.Concurrent (runInBoundThread)
-import Control.Exception (tryJust, handleJust)
+import Control.Monad.Catch (tryJust, handleJust, MonadCatch)
 import Control.Monad.IO.Class
 import Control.Monad
 import Control.Monad.State
@@ -375,12 +375,15 @@ closeDatabase db = runInBoundThread $ mdb_env_close (db ^. storeEnv)
 -- to handle resizes to the database that are made by the writer.
 -- The supplied action will be executed. If it fails with an 'MDB_MAP_RESIZED'
 -- error, then the map will be resized and the action retried.
-resizeOnResized :: DatabaseHandlers pv st -> IO a -> IO a
-resizeOnResized dbh a = inner
+resizeOnResized :: (MonadIO m, MonadState s m, HasDatabaseHandlers pv st s, MonadCatch m) => m a -> m a
+resizeOnResized a = inner
   where
     inner = handleJust checkResized onResized a
     checkResized LMDB_Error{..} = guard (e_code == Right MDB_MAP_RESIZED)
-    onResized _ = mdb_env_set_mapsize (dbh ^. storeEnv) 0 >> inner
+    onResized _ = do
+      dbh <- use dbHandlers
+      liftIO (mdb_env_set_mapsize (dbh ^. storeEnv) 0)
+      inner
 
 resizeDatabaseHandlers :: (MonadIO m, MonadLogger m) => DatabaseHandlers pv st -> Int -> m ()
 resizeDatabaseHandlers dbh size = do

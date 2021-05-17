@@ -190,7 +190,7 @@ exportDatabaseV3 dbDir outFile = do
 -- field of the state is updated accordingly.
 exportBlocks ::
     forall pv m.
-    (IsProtocolVersion pv, MonadIO m, MonadState (DBState pv) m) =>
+    (IsProtocolVersion pv, MonadIO m, MonadState (DBState pv) m, MonadCatch m) =>
     -- |Handle to export to
     Handle ->
     -- |Height of next block to export
@@ -199,7 +199,7 @@ exportBlocks ::
 exportBlocks hdl = eb 0
   where
     eb count height =
-        readFinalizedBlockAtHeight height >>= \case
+        resizeOnResized (readFinalizedBlockAtHeight height) >>= \case
             Nothing -> return count
             Just sb -> do
                 let serializedBlock =
@@ -225,11 +225,11 @@ exportBlocks hdl = eb 0
 
 -- |Export a series of finalization records, starting from the successor of 'dbsLastFinIndex'
 -- as recorded in the state.
-exportFinRecs :: (MonadIO m, MonadState (DBState pv) m) => Handle -> m Word64
+exportFinRecs :: (MonadIO m, MonadState (DBState pv) m, MonadCatch m) => Handle -> m Word64
 exportFinRecs hdl = exportFinRecsFrom 0 . (+ 1) =<< use dbsLastFinIndex
   where
     exportFinRecsFrom count finRecIndex =
-        readFinalizationRecord finRecIndex >>= \case
+        resizeOnResized (readFinalizationRecord finRecIndex) >>= \case
             Nothing -> return count
             Just fr -> do
                 let serializedFr = runPut $ putVersionedFinalizationRecordV0 fr
@@ -265,7 +265,7 @@ exportSections hdl dbDir genIndex = do
             Just (VersionDatabaseHandlers (dbh :: DatabaseHandlers pv ())) ->
                 evalStateT
                     ( do
-                        mgenFinRec <- readFinalizationRecord 0
+                        mgenFinRec <- resizeOnResized $ readFinalizationRecord 0
                         forM_ mgenFinRec $ \genFinRec -> do
                             let genHash = finalizationBlockPointer genFinRec
                                 startHeight = 1
