@@ -16,7 +16,6 @@ use crate::{
         Handshake, NetworkId, NetworkPacket, NetworkRequest, PacketDestination,
         WIRE_PROTOCOL_VERSION,
     },
-    only_fbs,
     p2p::{
         bans::{BanId, PersistedBanId},
         maintenance::attempt_bootstrap,
@@ -52,15 +51,13 @@ impl P2PNode {
     /// Note that this needs a write lock on the node's connections object.
     pub fn broadcast_network_request(&self, request: NetworkRequest) {
         let message = netmsg!(NetworkRequest, request);
-        only_fbs!({
-            let mut serialized = Vec::with_capacity(256);
-            if let Err(e) = message.serialize(&mut serialized) {
-                error!("Could not serialize a network request message: {}", e)
-            } else {
-                let filter = |_: &Connection| true;
-                self.send_over_all_connections(&serialized, &filter);
-            }
-        });
+        let mut serialized = Vec::with_capacity(256);
+        if let Err(e) = message.serialize(&mut serialized) {
+            error!("Could not serialize a network request message: {}", e)
+        } else {
+            let filter = |_: &Connection| true;
+            self.send_over_all_connections(&serialized, &filter);
+        }
     }
 
     /// Send a `data` message to all connections adhering to the specified
@@ -220,9 +217,7 @@ impl P2PNode {
 
         let message = netmsg!(NetworkPacket, inner_pkt);
         let mut serialized = Vec::with_capacity(256);
-        only_fbs!({
-            message.serialize(&mut serialized)?;
-        });
+        message.serialize(&mut serialized)?;
 
         let mut sent = 0;
         if let Some(target_token) = target {
@@ -320,9 +315,7 @@ impl P2PNode {
             })
         );
         let mut serialized = Vec::with_capacity(128);
-        only_fbs!({
-            handshake_request.serialize(&mut serialized)?;
-        });
+        handshake_request.serialize(&mut serialized)?;
 
         Ok(serialized)
     }

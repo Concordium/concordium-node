@@ -93,16 +93,12 @@ mod dedup {
 }
 
 mod s11n {
-    #[cfg(not(feature = "s11n_serde"))]
     pub mod fbs {
         bench_s11n!("flatbuffers");
     }
 }
 
-#[cfg(not(feature = "s11n_serde"))]
 criterion_group!(s11n_fbs_benches, s11n::fbs::bench_s11n);
-#[cfg(feature = "s11n_serde")]
-criterion_group!(s11n_fbs_benches, nop::nop_bench);
 
 #[cfg(feature = "dedup_benchmarks")]
 criterion_group!(

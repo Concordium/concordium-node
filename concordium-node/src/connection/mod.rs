@@ -27,7 +27,6 @@ use crate::{
         NetworkId, NetworkMessage, NetworkPacket, NetworkPayload, NetworkRequest, NetworkResponse,
         Networks,
     },
-    only_fbs,
     p2p::P2PNode,
     read_or_die, write_or_die,
 };
@@ -612,7 +611,7 @@ impl Connection {
 
         let mut serialized = Vec::with_capacity(56);
 
-        only_fbs!(ping.serialize(&mut serialized)?);
+        ping.serialize(&mut serialized)?;
         self.stats.notify_ping();
 
         self.async_send(Arc::from(serialized), MessageSendingPriority::High);
@@ -626,7 +625,7 @@ impl Connection {
 
         let pong = netmsg!(NetworkResponse, NetworkResponse::Pong);
         let mut serialized = Vec::with_capacity(56);
-        only_fbs!(pong.serialize(&mut serialized)?);
+        pong.serialize(&mut serialized)?;
         self.async_send(Arc::from(serialized), MessageSendingPriority::High);
 
         Ok(())
@@ -685,7 +684,7 @@ impl Connection {
             debug!("Sending a PeerList to peer {}", requestor);
 
             let mut serialized = Vec::with_capacity(256);
-            only_fbs!(resp.serialize(&mut serialized)?);
+            resp.serialize(&mut serialized)?;
             self.async_send(Arc::from(serialized), MessageSendingPriority::Normal);
 
             Ok(())

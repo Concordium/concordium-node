@@ -14,7 +14,6 @@ license-file = "../LICENSE"
 [features]
 default = []
 test_utils = [ "tempfile" ]
-s11n_serde = ["serde_derive"]
 instrumentation = ["serde_derive", "gotham", "mime", "gotham_derive", "prometheus", "hyper", "num_cpus", "reqwest", "http" ]
 network_dump = []
 static = [ ]

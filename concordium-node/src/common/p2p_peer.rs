@@ -19,7 +19,6 @@ use std::{
 /// Specifies the type of the node - either a regular `Node` or a
 /// `Bootstrapper`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub enum PeerType {
     Node,
     Bootstrapper,
@@ -44,7 +43,6 @@ impl fmt::Display for PeerType {
 /// packets.
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub struct RemotePeerId {
     pub(crate) remote_peer_id: usize,
 }
@@ -189,7 +187,6 @@ impl RemotePeer {
 
 /// Information about a peer that is transmitted over the network.
 #[derive(Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub struct P2PPeer {
     /// The peer's chosen identifier.
     pub id: P2PNodeId,
