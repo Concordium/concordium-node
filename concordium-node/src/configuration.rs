@@ -610,7 +610,11 @@ pub struct CommonConfig {
         env = "CONCORDIUM_NODE_MINIMUM_PEERS_BUCKET"
     )]
     pub min_peers_bucket: usize,
-    #[structopt(long = "print-config", help = "Print out config struct")]
+    #[structopt(
+        long = "print-config",
+        help = "Print out config struct",
+        env = "CONCORDIUM_NODE_PRINT_CONFIG"
+    )]
     pub print_config: bool,
     #[structopt(
         long = "bucket-cleanup-interval",
@@ -732,14 +736,14 @@ pub struct BootstrapperConfig {
     )]
     pub bootstrapper_timeout_bucket_entry_period: u64,
     #[structopt(
-        long = "peer-list-size",
+        long = "bootstrapper-peer-list-size",
         help = "The number of random peers shared by a bootstrapper in a PeerList",
         default_value = "10",
         env = "CONCORDIUM_NODE_BOOTSTRAPPER_PEER_LIST_SIZE"
     )]
     pub peer_list_size: usize,
     #[structopt(
-        long = "regenesis-block-hashes-file",
+        long = "bootstrapper-regenesis-block-hashes-file",
         help = "Path to a file that contains a json array of regenesis hashes.",
         env = "CONCORDIUM_NODE_BOOTSTRAPPER_REGENESIS_BLOCK_HASHES_FILE"
     )]
