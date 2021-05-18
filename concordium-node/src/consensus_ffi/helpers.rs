@@ -170,7 +170,7 @@ impl PacketType {
     /// Determine whether a packet type can be relayed.
     /// Those that are must be subject to appropriate de-duplication
     /// checks to ensure they are not relayed endlessly.
-    fn is_rebroadcastable(&self) -> bool {
+    pub fn is_rebroadcastable(&self) -> bool {
         match self {
             PacketType::Block => true,
             PacketType::Transaction => true,
