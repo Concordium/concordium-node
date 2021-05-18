@@ -12,152 +12,87 @@ export LD_LIBRARY_PATH=/usr/local/lib
 ARGS=""
 
 # Set overrides for configuration and data store paths
-if [ -n "$CONFIG_DIR" ];
-then
-    ARGS="$ARGS --config-dir $CONFIG_DIR"
-    mkdir -p $CONFIG_DIR
+if [ -n "$CONCORDIUM_NODE_CONFIG_DIR" ]; then
+    mkdir -p $CONCORDIUM_NODE_CONFIG_DIR
 fi
 
-if [ -n "$DATA_DIR" ];
-then
-    ARGS="$ARGS --data-dir $DATA_DIR"
-    mkdir -p $DATA_DIR
-    cd $DATA_DIR
+if [ -n "$CONCORDIUM_NODE_DATA_DIR" ]; then
+    mkdir -p $CONCORDIUM_NODE_DATA_DIR
+    cd $CONCORDIUM_NODE_DATA_DIR
 fi
 
 # FIXME: This is obsolete. We do not build these testing genesis setups at the moment.
 # Unwrap proper genesis bundle, and swap to one of the benchmarks if set
-if [ -n "$NUM_BAKERS" ];
-then
-    if [ -n "$DATA_DIR" ];
-    then
-        if [ -n "$FINBENCH_NUM" ]; 
-        then
+if [ -n "$NUM_BAKERS" ]; then
+    if [ -n "$DATA_DIR" ]; then
+        if [ -n "$FINBENCH_NUM" ]; then
             cd /genesis-data
             tar -xzf finbench-bakers.tar.gz
             cd genesis_data/
-            cp * $DATA_DIR/
-            cd $DATA_DIR
+            cp * $CONCORDIUM_NODE_DATA_DIR/
+            cd $CONCORDIUM_NODE_DATA_DIR
             cp "genesis-finbench-${FINBENCH_NUM}.dat" genesis.dat
-        elif [ -n "$TPS_NUM" ];
-        then
+        elif [ -n "$TPS_NUM" ]; then
             cd /genesis-data
             tar -xzf tps-bakers.tar.gz
             cd genesis_data/
-            cp * $DATA_DIR/
-            cd $DATA_DIR
+            cp * $CONCORDIUM_NODE_DATA_DIR/
+            cd $CONCORDIUM_NODE_DATA_DIR
             cp "genesis-tps-${TPS_NUM}.dat" genesis.dat
-        elif [ -n "$CATCHUP_NUM" ];
-        then
+        elif [ -n "$CATCHUP_NUM" ]; then
             cd /genesis-data
             tar -xzf catchup-bakers.tar.gz
             cd genesis_data/
-            cp * $DATA_DIR/
-            cd $DATA_DIR
+            cp * $CONCORDIUM_NODE_DATA_DIR/
+            cd $CONCORDIUM_NODE_DATA_DIR
             cp "genesis-catchup-${CATCHUP_NUM}.dat" genesis.dat
         else
-            cp /genesis-data/genesis-$NUM_BAKERS-bakers/{genesis.dat,genesis_hash} $DATA_DIR
+            cp /genesis-data/genesis-$NUM_BAKERS-bakers/{genesis.dat,genesis_hash} $CONCORDIUM_NODE_DATA_DIR
         fi
     fi
 fi
 
-# Determine what arguments to pass to the binary
-if [ -n "$ID" ];
-then
-    ARGS="$ARGS --id $ID"
-elif [ -n "$PERSISTENT_ID_BASED_ON_BAKER_ID" ];
-then
-    ID=$(printf "%016d\n" $(echo $BAKER_ID | cut -d'-' -f2))
-    ARGS="$ARGS --id $ID"
-elif [ -n "$PERSISTENT_BOOTSTRAPPER_ID_BASED_ON_NODE_ID" ];
-then
-    ID=$(printf "%016d\n" $(($(echo $(hostname) | cut -d'-' -f2)+1000000)))
-    ARGS="$ARGS --id $ID"
+
+# Use CONCORDIUM_NODE_ID if present.
+# Otherwise fallback to deduce CONCORDIUM_NODE_ID from baker id or hostname respectively.
+if [ -n "$CONCORDIUM_NODE_PERSISTENT_ID_BASED_ON_BAKER_ID" && -z "$CONCORDIUM_NODE_ID"]; then
+    export CONCORDIUM_NODE_ID=$(printf "%016d\n" $(echo $BAKER_ID | cut -d'-' -f2))
+elif [ -n "$PERSISTENT_BOOTSTRAPPER_ID_BASED_ON_NODE_ID" && -z "$CONCORDIUM_NODE_ID"]; then
+    export CONCORDIUM_NODE=$(printf "%016d\n" $(($(echo $(hostname) | cut -d'-' -f2)+1000000)))
 fi
 
-if [ -n "$LISTEN_PORT" ];
-then
-    ARGS="$ARGS --listen-port $LISTEN_PORT"
-fi
 
-if [ -n "$DESIRED_PEERS" ];
-then
-    ARGS="$ARGS --desired-nodes $DESIRED_PEERS"
-fi
-
-# If BAKER_CREDENTIALS_FILENAME is provided, get that one.
+# Use CONCORDIUM_NODE_BAKER_CREDENTIALS_FILE if present.
+# Or if CONCORDIUM_NODE_BAKER_CREDENTIALS_FILENAME is provided, use this for deducing
+# CONCORDIUM_NODE_BAKER_CREDENTIALS_FILE together with CONCORDIUM_NODE_DATA_DIR. 
 # Otherwise we assume we are given a baker number, from which we construct the credential
 # file `baker-n-credentials.json`. This is used for testing where we spawn a number of
 # bakers at the same time. The id's are provided by the baker_id_gen tool.
-if [ -n "$BAKER_CREDENTIALS_FILENAME" ];
-then
-    BAKER_CREDENTIALS_FILE="${DATA_DIR}/${BAKER_CREDENTIALS_FILENAME}"
-    if [ -f $BAKER_CREDENTIALS_FILE ];
-    then
-        ARGS="$ARGS --baker-credentials-file $BAKER_CREDENTIALS_FILE"
+if [ -n "$CONCORDIUM_NODE_BAKER_CREDENTIALS_FILENAME" && -z "$CONCORDIUM_NODE_BAKER_CREDENTIALS_FILE" ]; then
+    BAKER_CREDENTIALS_FILE="${CONCORDIUM_NODE_DATA_DIR}/${CONCORDIUM_NODE_BAKER_CREDENTIALS_FILENAME}"
+    if [ -f $BAKER_CREDENTIALS_FILE ]; then
+        export CONCORDIUM_NODE_BAKER_CREDENTIALS_FILE=$BAKER_CREDENTIALS_FILE
     fi
-elif [ -n "$BAKER_ID" ];
-then
+elif [ -n "$CONCORDIUM_NODE_BAKER_ID" && -z "$CONCORDIUM_NODE_BAKER_CREDENTIALS_FILE" ]; then
     REAL_BAKER_ID=$(echo $BAKER_ID | cut -d'-' -f2)
     BAKER_CREDENTIALS_FILE="${DATA_DIR}/baker-${REAL_BAKER_ID}-credentials.json"
-    if [ -f $BAKER_CREDENTIALS_FILE ];
-    then
-        ARGS="$ARGS --baker-credentials-file $BAKER_CREDENTIALS_FILE"
+    if [ -f $BAKER_CREDENTIALS_FILE ]; then
+        export CONCORDIUM_NODE_BAKER_CREDENTIALS_FILE=$BAKER_CREDENTIALS_FILE
     fi
 
     if [ -n "$LOGGING_SPLIT_HALF_TRACE_HALF_INFO" ]; then
         if [ $(($REAL_BAKER_ID % 2 )) == 0 ]; then
-            ARGS="$ARGS --trace"
+            export CONCORDIUM_NODE_LOG_LEVEL_TRACE=1
         else
-            ARGS="$ARGS --info"
+            export CONCORDIUM_NODE_LOG_LEVEL_INFO=1
         fi
     fi
-    if [ -n "$ARGS_SPLIT_HALF_AND_HALF" ]; then
-        if [[ $(($REAL_BAKER_ID % 2 )) == 0 && -n "$ARGS_SPLIT_HALF_AND_HALF_ARG_ONE" ]]; then
-            ARGS="$ARGS $ARGS_SPLIT_HALF_AND_HALF_ARG_ONE"
-        elif [ -n "$ARGS_SPLIT_HALF_AND_HALF_ARG_TWO" ]; then
-            ARGS="$ARGS $ARGS_SPLIT_HALF_AND_HALF_ARG_TWO"
-        fi
-    fi
-    if [[ -n "$TRANSACTION_OUTCOME_LOGGING" && "$REAL_BAKER_ID" == "0" ]];
-    then
+
+    # hmm
+    if [[ -n "$CONCORDIUM_NODE_TRANSACTION_OUTCOME_LOGGING" && "$REAL_BAKER_ID" == "0" ]]; then
         ARGS="$ARGS --transaction-outcome-logging"
-        if [ -n "$TRANSACTION_OUTCOME_LOGGING_NAME" ]
-        then
-            ARGS="$ARGS --transaction-outcome-logging-database-name $TRANSACTION_OUTCOME_LOGGING_NAME"
-        fi
-        if [ -n "$TRANSACTION_OUTCOME_LOGGING_HOST" ]
-        then
-            ARGS="$ARGS --transaction-outcome-logging-database-host $TRANSACTION_OUTCOME_LOGGING_HOST"
-        fi
-        if [ -n "$TRANSACTION_OUTCOME_LOGGING_PORT" ]
-        then
-            ARGS="$ARGS --transaction-outcome-logging-database-port $TRANSACTION_OUTCOME_LOGGING_PORT"
-        fi
-        if [ -n "$TRANSACTION_OUTCOME_LOGGING_USERNAME" ]
-        then
-            ARGS="$ARGS --transaction-outcome-logging-database-username $TRANSACTION_OUTCOME_LOGGING_USERNAME"
-        fi
-        if [ -n "$TRANSACTION_OUTCOME_LOGGING_PASSWORD" ]
-        then
-            ARGS="$ARGS --transaction-outcome-logging-database-password $TRANSACTION_OUTCOME_LOGGING_PASSWORD"
-        fi
+        
     fi
-fi
-
-if [ -n "$PROMETHEUS_METRICS_SERVER" ];
-then
-    ARGS="$ARGS --prometheus-server"
-fi
-
-if [ -n "$PROMETHEUS_METRICS_PORT" ];
-then
-    ARGS="$ARGS --prometheus-listen-port $PROMETHEUS_METRICS_PORT"
-fi
-
-if [ -n "$PROMETHEUS_METRICS_IP" ];
-then
-    ARGS="$ARGS --prometheus-listen-addr $PROMETHEUS_METRICS_IP"
 fi
 
 if [ -n "$BOOTSTRAP_FIRST_NODE" ];
@@ -170,44 +105,23 @@ then
     ARGS="$ARGS --bootstrap-node $BOOTSTRAP_SECOND_NODE"
 fi
 
-if [ -n "$RPC_SERVER_ADDR" ];
-then
-    ARGS="$ARGS --rpc-server-addr $RPC_SERVER_ADDR"
-fi
 
+# can't find reference
 if [ -n "$TPS_MESSAGE_COUNT" ];
 then
     ARGS="$ARGS --tps-message-count $TPS_MESSAGE_COUNT"
 fi
 
+# can't find reference
 if [ -n "$TPS_RECEIVER_ID" ];
 then
     ARGS="$ARGS --tps-test-recv-id $TPS_RECEIVER_ID"
 fi
 
-if [ -n "$BOOTSTRAPPER_WAIT_UNTIL_MINIMUM_NODES" ];
-then
-    ARGS="$ARGS --max-nodes $MAX_NODES"
-fi
-
+# can't find reference
 if [ -n "$LISTEN_HTTP_PORT" ];
 then
     ARGS="$ARGS --listen-http-port $LISTEN_HTTP_PORT"
-fi
-
-if [ -n "$MAX_ALLOWED_NODES" ];
-then
-    ARGS="$ARGS --max-allowed-nodes $MAX_ALLOWED_NODES"
-fi
-
-if [ -n "$MAX_ALLOWED_NODES_PERCENTAGE" ];
-then
-    ARGS="$ARGS --max-allowed-nodes-percentage $MAX_NODES_PERCENTAGE"
-fi
-
-if [ -n "$THREAD_POOL_SIZE" ];
-then
-    ARGS="$ARGS --thread-pool-size $THREAD_POOL_SIZE"
 fi
 
 if [ -n "$EXTRA_ARGS" ];
@@ -220,16 +134,19 @@ then
     sleep $ARTIFICIAL_DELAY
 fi
 
+# can't find reference
 if [ -n "$SEEN_MESSAGE_IDS_SIZE" ];
 then
     ARGS="$ARGS --gossip-seen-message-ids-size $SEEN_MESSAGE_IDS_SIZE"
 fi
 
+# can't find reference
 if [ -n "$MAX_RESEND_ATTEMPTS" ];
 then
     ARGS="$ARGS --max-resend-attempts $MAX_RESEND_ATTEMPTS"
 fi
 
+# can't find reference
 if [ -n "$RELAY_BROADCAST_PERCENTAGE" ];
 then
     ARGS="$ARGS --relay-broadcast-percentage $RELAY_BROADCAST_PERCENTAGE"
@@ -240,60 +157,37 @@ then
     ARGS="$ARGS --global-state-catch-up-requests"
 fi
 
+# can't find reference. 
 if [ -n "$NOISE_CRYPTO_DH_ALGORITHM" ];
 then
     ARGS="$NOISE_ARGS --dh-algorithm $NOISE_CRYPTO_DH_ALGORITHM"
 fi
 
+# can't find reference. 
 if [ -n "$CRYPTO_CIPHER_ALGORITHM" ];
 then
     ARGS="$ARGS --cipher-algorithm $NOISE_CRYPTO_CIPHER_ALGORITHM"
 fi
 
+# can't find reference. 
 if [ -n "$NOISE_CRYPTO_HASH_ALGORITHM" ];
 then
     ARGS="$ARGS --hash-algorithm $NOISE_CRYPTO_HASH_ALGORITHM"
 fi
 
+# can't find reference. 
 if [ -n "$PROFILING_ARGS" ];
 then
     ARGS="$ARGS $PROFILING_ARGS"
 fi
 
-if [ -n "$EXTERNAL_PORT" ];
-then
-    ARGS="$ARGS --external-port $EXTERNAL_PORT"
-fi
 
+# can't find reference. 
 if [ -n "$NOISE_CRYPTO_HASH_ALGORITHM" ];
 then
     ARGS="$ARGS --hash-algorithm $NOISE_CRYPTO_HASH_ALGORITHM"
 fi
 
-if [ -n "$BOOTSTRAPPER_WAIT_UNTIL_MINIMUM_NODES" ];
-then
-    ARGS="$ARGS --wait-until-minimum-nodes $BOOTSTRAPPER_WAIT_UNTIL_MINIMUM_NODES"
-fi
-
-if [ -n "$MAX_LATENCY" ];
-then
-    ARGS="$ARGS --max-latency $MAX_LATENCY"
-fi
-
-if [ -n "$HARD_CONNECTION_LIMIT" ];
-then
-    ARGS="$ARGS --hard-connection-limit $HARD_CONNECTION_LIMIT"
-fi
-
-if [ -n "$COLLECTOR_INTERVAL" ];
-then
-    ARGS="$ARGS --collect-interval $COLLECTOR_INTERVAL"
-fi
-
-if [ -n "$COLLECTOR_URL" ];
-then
-    ARGS="$ARGS --collector-url $COLLECTOR_URL"
-fi
 
 if [ -n "$COLLECTOR_NODE_NAME" ];
 then
@@ -330,55 +224,6 @@ then
     cp /genesis.dat $DATA_DIR
 fi
 
-if [ -n "$COLLECTOR_BACKEND_PORT" ];
-then
-    ARGS="$ARGS --listen-port $COLLECTOR_BACKEND_PORT"
-fi
-
-if [ -n "$COLLECTOR_BACKEND_HOST" ];
-then
-    ARGS="$ARGS --listen-address $COLLECTOR_BACKEND_HOST"
-fi
-
-if [ -n "$COLLECTOR_BACKEND_STALE_TIME_ALLOWED" ];
-then
-    ARGS="$ARGS --stale-time-allowed $COLLECTOR_BACKEND_STALE_TIME_ALLOWED"
-fi
-
-if [ -n "$COLLECTOR_BACKEND_CLEANUP_INTERVAL" ];
-then
-    ARGS="$ARGS --cleanup-interval $COLLECTOR_BACKEND_CLEANUP_INTERVAL"
-fi
-
-if [ -n "$BUCKET_CLEANUP_INTERVAL" ];
-then
-    ARGS="$ARGS --bucket_cleanup_interval $BUCKET_CLEANUP_INTERVAL"
-fi
-
-if [ -n "$TIMEOUT_BUCKET_ENTRY_PERIOD" ];
-then
-    ARGS="$ARGS --timeout-bucket-entry-period $TIMEOUT_BUCKET_ENTRY_PERIOD"
-fi
-
-if [ -n "$BOOTSTRAPPER_TIMEOUT_BUCKET_ENTRY_PERIOD" ];
-then
-    ARGS="$ARGS --bootstrapper-timeout-bucket-entry-period $BOOTSTRAPPER_TIMEOUT_BUCKET_ENTRY_PERIOD"
-fi
-
-if [ -n "$NO_REBROADCAST_CONSENSUS_VALIDATION" ];
-then
-    ARGS="$ARGS --no-rebroadcast-consensus-validation"
-fi
-
-if [ -n "$BOOTSTRAP_SERVER" ];
-then
-    ARGS="$ARGS --bootstrap-server $BOOTSTRAP_SERVER"
-fi
-
-if [ -n "$IMPORT_BLOCKS_FROM" ];
-then
-    ARGS="$ARGS --import-blocks-from $IMPORT_BLOCKS_FROM"
-fi
 
 if [ "$MODE" == "tps_receiver" ]; then
     echo "Receiver!"

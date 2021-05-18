@@ -50,49 +50,55 @@ struct ConfigCli {
     #[structopt(
         long = "grpc-authentication-token",
         help = "gRPC authentication token",
-        default_value = "rpcadmin"
+        default_value = "rpcadmin",
+        env = "COLLECTOR_GRPC_AUTHENTICATION_TOKEN"
     )]
     pub grpc_auth_token: String,
     #[structopt(
         long = "grpc-host",
         help = "gRPC host to collect from",
-        default_value = "http://127.0.0.1:10000"
+        default_value = "http://127.0.0.1:10000",
+        env = "COLLECTOR_GRPC_HOST"
     )]
     pub grpc_hosts: Vec<String>,
-    #[structopt(long = "node-name", help = "Node name")]
+    #[structopt(long = "COLLECTOR_NODE_NAME", help = "Node name", env = "NODE_NAME")]
     pub node_names: Vec<NodeName>,
     #[structopt(
         long = "collector-url",
         help = "Alias submitted of the node collected from",
-        default_value = "http://localhost:3000/post/nodes"
+        default_value = "http://localhost:3000/post/nodes",
+        env = "COLLECTOR_URL"
     )]
     pub collector_url: String,
-    #[structopt(long = "print-config", help = "Print out config struct")]
+    #[structopt(long = "print-config", help = "Print out config struct", env = "COLLECTOR_PRINT_CONFIG")]
     pub print_config: bool,
-    #[structopt(long = "debug", short = "d", help = "Debug mode")]
+    #[structopt(long = "debug", short = "d", help = "Debug mode", env = "COLLECTOR_DEBUG")]
     pub debug: bool,
-    #[structopt(long = "trace", help = "Trace mode")]
+    #[structopt(long = "trace", help = "Trace mode", env = "COLLECTOR_TRACE")]
     pub trace: bool,
-    #[structopt(long = "info", help = "Info mode")]
+    #[structopt(long = "info", help = "Info mode", env = "COLLECTOR_INFO")]
     pub info: bool,
-    #[structopt(long = "no-log-timestamp", help = "Do not output timestamp in log output")]
+    #[structopt(long = "no-log-timestamp", help = "Do not output timestamp in log output", env = "COLLECTOR_NO_LOG_TIMESTAMP")]
     pub no_log_timestamp: bool,
     #[structopt(
         long = "collect-interval",
         help = "Interval in miliseconds to sleep between runs of the collector",
-        default_value = "5000"
+        default_value = "5000",
+        env = "COLLECT_INTERVAL"
     )]
     pub collector_interval: u64,
     #[structopt(
         long = "artificial-start-delay",
         help = "Time (in ms) to delay when the first gRPC request is sent to the node",
-        default_value = "3000"
+        default_value = "3000",
+        env = "COLLECTOR_ARTIFICIAL_START_DELAY"
     )]
     pub artificial_start_delay: u64,
     #[structopt(
         long = "max-grpc-failures-allowed",
         help = "Maximum allowed times a gRPC call can fail before terminating the program",
-        default_value = "50"
+        default_value = "50",
+        env = "COLLECTOR_MAX_GRPC_FAILURES_ALLOWED"
     )]
     pub max_grpc_failures_allowed: u64,
 }
