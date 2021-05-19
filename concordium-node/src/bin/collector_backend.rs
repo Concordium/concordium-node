@@ -42,14 +42,14 @@ static A: System = System;
 #[structopt(name = "Node Collector Backend")]
 struct ConfigCli {
     #[structopt(
-        long = "address",
+        long = "listen-address",
         help = "IP to listen on",
         default_value = "0.0.0.0",
         env = "COLLECTOR_BACKEND_ADDRESS"
     )]
     pub host: String,
     #[structopt(
-        long = "port",
+        long = "listen-port",
         help = "Port to listen on",
         default_value = "8080",
         env = "COLLECTOR_BACKEND_PORT"

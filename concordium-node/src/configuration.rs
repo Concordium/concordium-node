@@ -84,7 +84,7 @@ pub struct DatabaseEmitterConfig {
     #[structopt(
         long = "import-file",
         help = "File to import from",
-        env = "CONCORDIUM_NODE_IMPORT_FILE"
+        env = "CONCORDIUM_NODE_DB_EMITTER_IMPORT_FILE"
     )]
     pub import_file: String,
 
@@ -92,7 +92,7 @@ pub struct DatabaseEmitterConfig {
         long = "batches-delay",
         help = "Delay between batches in miliseconds",
         default_value = "2000",
-        env = "CONCORDIUM_NODE_BATCHES_DELAY"
+        env = "CONCORDIUM_NODE_DB_EMITTER_BATCHES_DELAY"
     )]
     pub delay_between_batches: u64,
 
@@ -100,7 +100,7 @@ pub struct DatabaseEmitterConfig {
         long = "batch-size",
         help = "Size of each batch to emit",
         default_value = "40",
-        env = "CONCORDIUM_NODE_BATCH_SIZES"
+        env = "CONCORDIUM_NODE_DB_EMITTER_BATCH_SIZES"
     )]
     pub batch_sizes: u64,
 
@@ -108,7 +108,7 @@ pub struct DatabaseEmitterConfig {
         long = "skip-first",
         help = "Amount of the initial blocks to skip",
         default_value = "0",
-        env = "CONCORDIUM_NODE_SKIP_FIRST"
+        env = "CONCORDIUM_NODE_DB_EMITTER_SKIP_FIRST"
     )]
     pub skip_first: u64,
 }
@@ -118,60 +118,61 @@ pub struct DatabaseEmitterConfig {
 // Parameters related to Prometheus.
 pub struct PrometheusConfig {
     #[structopt(
-        long = "listen-address",
+        long = "prometheus-listen-addr",
         help = "IP to listen for prometheus requests on",
         default_value = "127.0.0.1",
         env = "CONCORDIUM_NODE_PROMETHEUS_LISTEN_ADDRESSS"
     )]
     pub prometheus_listen_addr: String,
     #[structopt(
-        long = "listen-port",
+        long = "prometheus-listen-port",
         help = "Port for prometheus to listen on",
         default_value = "9090",
         env = "CONCORDIUM_NODE_PROMETHEUS_LISTEN_PORT"
     )]
     pub prometheus_listen_port: u16,
     #[structopt(
-        long = "server",
+        long = "prometheus-server",
         help = "Enable prometheus server for metrics",
         env = "CONCORDIUM_NODE_PROMETHEUS_SERVER"
     )]
     pub prometheus_server: bool,
     #[structopt(
-        long = "push-gateway",
+        long = "prometheus-push-gateway",
         help = "Enable prometheus via push gateway",
         env = "CONCORDIUM_NODE_PROMETHEUS_PUSH_GATEWAY"
     )]
     pub prometheus_push_gateway: Option<String>,
     #[structopt(
-        long = "job-name",
+        long = "prometheus-job-name",
         help = "Job name to send to push gateway",
         default_value = "p2p_node_push",
         env = "CONCORDIUM_NODE_PROMETHEUS_JOB_NAME"
     )]
     pub prometheus_job_name: String,
     #[structopt(
-        long = "instance-name",
+        long = "prometheus-instance-name",
         help = "If not present node_id will be used",
         env = "CONCORDIUM_NODE_PROMETHEUS_INSTANCE_NAME"
     )]
     pub prometheus_instance_name: Option<String>,
     #[structopt(
-        long = "push-gateway-username",
+        long = "prometheus-push-gateway-username",
         help = "Username to use for push gateway, if either username or password is omitted \
                 authentication isn't used",
         env = "CONCORDIUM_NODE_PROMETHEUS_PUSH_GATEWAY_USERNAME"
     )]
     pub prometheus_push_username: Option<String>,
     #[structopt(
-        long = "push-gateway-password",
+        long = "prometheus-push-gateway-password",
         help = "Password to use for push gateway, if either username or password is omitted \
                 authentication isn't used",
-        env = "CONCORDIUM_NODE_PROMETHEUS_PUSH_GATEWAY_PASSWORD"
+        env = "CONCORDIUM_NODE_PROMETHEUS_PUSH_GATEWAY_PASSWORD",
+        hide_env_values = true
     )]
     pub prometheus_push_password: Option<String>,
     #[structopt(
-        long = "push-gateway-interval",
+        long = "prometheus-push-gateway-interval",
         help = "Interval in seconds between pushes",
         default_value = "2",
         env = "CONCORDIUM_NODE_PROMETHEUS_PUSH_GATEWAY_INTERVAL"
@@ -284,13 +285,13 @@ pub struct BakerConfig {
     )]
     pub max_time_to_expiry: u64,
     #[structopt(
-        long = "credentials-file",
+        long = "baker-credentials-file",
         help = "Path to the baker credentials file",
         env = "CONCORDIUM_NODE_BAKER_CREDENTIALS_FILE"
     )]
     pub baker_credentials_file: Option<PathBuf>,
     #[structopt(
-        long = "decrypt-credentials",
+        long = "decrypt-baker-credentials",
         help = "Indicate that the baker credentials are provided encrypted and thus need to be \
                 decrypted.",
         env = "CONCORDIUM_NODE_BAKER_DECRYPT_CREDENTIALS"
@@ -302,7 +303,7 @@ pub struct BakerConfig {
 // Parameters related to the RPC (only used in cli).
 pub struct RpcCliConfig {
     #[structopt(
-        long = "rpc-no-server",
+        long = "no-rpc-server",
         help = "Disable the built-in RPC server",
         env = "CONCORDIUM_NODE_RPC_NO_SERVER"
     )]
@@ -325,7 +326,8 @@ pub struct RpcCliConfig {
         long = "rpc-server-token",
         help = "RPC server access token",
         default_value = "rpcadmin",
-        env = "CONCORDIUM_NODE_RPC_SERVER_TOKEN"
+        env = "CONCORDIUM_NODE_RPC_SERVER_TOKEN",
+        hide_env_values = true
     )]
     pub rpc_server_token: String,
 }
@@ -355,7 +357,7 @@ pub struct ConnectionConfig {
     )]
     pub max_allowed_nodes_percentage: u16,
     #[structopt(
-        long = "no-bootstrap-dns",
+        long = "no-bootstrap",
         help = "Do not bootstrap via DNS",
         env = "CONCORDIUM_NODE_CONNECTION_NO_BOOTSTRAP_DNS"
     )]
@@ -408,8 +410,8 @@ pub struct ConnectionConfig {
     )]
     pub dns_resolver: Vec<String>,
     #[structopt(
-        name = "bootstrap-nodes",
-        long = "bootstrap-nodes",
+        name = "bootstrap-node",
+        long = "bootstrap-node",
         help = "Bootstrap nodes to use upon startup host/ip:port (this disables DNS bootstrapping)",
         env = "CONCORDIUM_NODE_CONNECTION_BOOSTRAP_NODES"
     )]
@@ -449,7 +451,7 @@ pub struct ConnectionConfig {
     )]
     pub hard_connection_limit: u16,
     #[structopt(
-        long = "requests-batch-limit",
+        long = "connection-requests-batch-limit",
         help = "Maximum number of incoming connection requests to attempt to process per \
                 iteration.",
         default_value = "9",
@@ -628,13 +630,17 @@ pub struct CommonConfig {
 // Client's parameters.
 #[derive(StructOpt, Debug)]
 pub struct CliConfig {
-    #[structopt(long = "no-network", help = "Disable network")]
+    #[structopt(
+        long = "no-network",
+        help = "Disable network",
+        env = "CONCORDIUM_NODE_CLIENT_NO_NETWORK"
+    )]
     pub no_network: bool,
     #[structopt(
         long = "poll-interval",
         help = "The polling interval in milliseconds",
         default_value = "100",
-        env = "CONCORDIUM_NODE_CLI_POLL_INTERVAL"
+        env = "CONCORDIUM_NODE_CLIENT_POLL_INTERVAL"
     )]
     pub poll_interval: u64,
     #[structopt(flatten)]
@@ -645,67 +651,69 @@ pub struct CliConfig {
     #[structopt(
         long = "staging-net-token",
         help = "Staging network client token",
-        env = "CONCORDIUM_NODE_CLI_STAGING_NET"
+        env = "CONCORDIUM_NODE_CLIENT_STAGING_NET_TOKEN",
+        hide_env_values = true
     )]
     pub staging_net_token: String,
     #[structopt(
         long = "timeout-bucket-entry-period",
         help = "Timeout an entry in the buckets after a given period (in ms), 0 means never",
         default_value = "0",
-        env = "CONCORDIUM_NODE_CLI_TIMEOUT_BUCKET_ENTRY_PERIOD"
+        env = "CONCORDIUM_NODE_CLIENT_TIMEOUT_BUCKET_ENTRY_PERIOD"
     )]
     pub timeout_bucket_entry_period: u64,
     #[structopt(
         long = "no-rebroadcast-consensus-validation",
         help = "Disable consensus controlling whether to rebroadcast or not",
-        env = "CONCORDIUM_NODE_CLI_NO_REBROADCAST_CONSENSUS_VALIDATION"
+        env = "CONCORDIUM_NODE_CLIENT_NO_REBROADCAST_CONSENSUS_VALIDATION"
     )]
     pub no_rebroadcast_consensus_validation: bool,
     #[structopt(
         long = "drop-rebroadcast-probability",
         help = "Drop a message from being rebroadcasted by a certain probability",
-        env = "CONCORDIUM_NODE_CLI_DROP_REBROADCSAT_PROBABILITY"
+        env = "CONCORDIUM_NODE_CLIENT_DROP_REBROADCSAT_PROBABILITY"
     )]
     pub drop_rebroadcast_probability: Option<f64>,
     #[structopt(
         long = "transaction-outcome-logging",
         help = "Enable transaction outcome logging",
-        env = "CONCORDIUM_NODE_CLI_TRANSACTION_OUTCOME_LOGGING"
+        env = "CONCORDIUM_NODE_CLIENT_TRANSACTION_OUTCOME_LOGGING"
     )]
     pub transaction_outcome_logging: bool,
     #[structopt(
         long = "transaction-outcome-logging-database-name",
         help = "Transaction outcome logging database name",
         default_value = "concordium",
-        env = "CONCORDIUM_NODE_CLI_TRANSACTION_OUTCOME_LOGGING_NAME"
+        env = "CONCORDIUM_NODE_CLIENT_TRANSACTION_OUTCOME_LOGGING_NAME"
     )]
     pub transaction_outcome_logging_database_name: String,
     #[structopt(
         long = "transaction-outcome-logging-database-host",
         help = "Transaction outcome logging database host",
         default_value = "127.0.0.1",
-        env = "CONCORDIUM_NODE_CLI_TRANSACTION_OUTCOME_LOGGING_HOST"
+        env = "CONCORDIUM_NODE_CLIENT_TRANSACTION_OUTCOME_LOGGING_HOST"
     )]
     pub transaction_outcome_logging_database_host: String,
     #[structopt(
         long = "transaction-outcome-logging-database-username",
         help = "Transaction outcome logging database username",
         default_value = "concordium",
-        env = "CONCORDIUM_NODE_CLI_TRANSACTION_OUTCOME_LOGGING_USERNAME"
+        env = "CONCORDIUM_NODE_CLIENT_TRANSACTION_OUTCOME_LOGGING_USERNAME"
     )]
     pub transaction_outcome_logging_database_username: String,
     #[structopt(
         long = "transaction-outcome-logging-database-password",
         help = "Transaction outcome logging database password",
         default_value = "concordium",
-        env = "CONCORDIUM_NODE_CLI_TRANSACTION_OUTCOME_LOGGING_PASSWORD"
+        env = "CONCORDIUM_NODE_CLIENT_TRANSACTION_OUTCOME_LOGGING_PASSWORD",
+        hide_env_values = true
     )]
     pub transaction_outcome_logging_database_password: String,
     #[structopt(
         long = "transaction-outcome-logging-database-port",
         help = "Transaction outcome logging database port",
         default_value = "5432",
-        env = "CONCORDIUM_NODE_CLI_TRANSACTION_OUTCOME_LOGGING_PORT"
+        env = "CONCORDIUM_NODE_CLIENT_TRANSACTION_OUTCOME_LOGGING_PORT"
     )]
     pub transaction_outcome_logging_database_port: u16,
 }
@@ -714,14 +722,14 @@ pub struct CliConfig {
 // Parameters applicable to a bootstrapper.
 pub struct BootstrapperConfig {
     #[structopt(
-        long = "boostrapper-max-nodes",
+        long = "max-nodes",
         help = "Max nodes allowed to connect",
         default_value = "10000",
         env = "CONCORDIUM_NODE_BOOTSTRAPPER_MAX_NODES"
     )]
     pub max_nodes: u16,
     #[structopt(
-        long = "bootstrapper-wait-until-minimum-nodes",
+        long = "wait-until-minimum-nodes",
         help = "Wait until a minumum number of nodes have been obtained before sending out peer \
                 lists to peers",
         default_value = "0",
@@ -736,14 +744,14 @@ pub struct BootstrapperConfig {
     )]
     pub bootstrapper_timeout_bucket_entry_period: u64,
     #[structopt(
-        long = "bootstrapper-peer-list-size",
+        long = "peer-list-size",
         help = "The number of random peers shared by a bootstrapper in a PeerList",
         default_value = "10",
         env = "CONCORDIUM_NODE_BOOTSTRAPPER_PEER_LIST_SIZE"
     )]
     pub peer_list_size: usize,
     #[structopt(
-        long = "bootstrapper-regenesis-block-hashes-file",
+        long = "regenesis-block-hashes-file",
         help = "Path to a file that contains a json array of regenesis hashes.",
         env = "CONCORDIUM_NODE_BOOTSTRAPPER_REGENESIS_BLOCK_HASHES_FILE"
     )]

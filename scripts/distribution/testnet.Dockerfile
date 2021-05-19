@@ -57,17 +57,18 @@ EXPOSE 8099
 EXPOSE 9999
 # GRPC
 EXPOSE 10000
-ENV RPC_SERVER_ADDR=0.0.0.0
-ENV MODE=basic
-ENV BOOTSTRAP_FIRST_NODE=bootstrap.testnet.concordium.com:8888
-ENV DATA_DIR=/var/lib/concordium/data
-ENV CONFIG_DIR=/var/lib/concordium/config
-ENV EXTRA_ARGS="--no-dnssec"
-ENV NODE_URL=localhost:10000
-ENV COLLECTORD_URL=https://dashboard.testnet.concordium.com/nodes/post
-ENV GRPC_HOST=http://localhost:10000
-ENV DISTRIBUTION_CLIENT=true
-ENV ENABLE_TERM_HANDLER=true
+    
+# Concordium Node configuration    
+ENV CONCORDIUM_NODE_RPC_SERVER_ADDR=0.0.0.0
+ENV CONCORDIUM_NODE_DATA_DIR=/var/lib/concordium/data
+ENV CONCORDIUM_NODE_CONFIG_DIR=/var/lib/concordium/config
+ENV CONCORDIUM_NODE_GRPC_HOST=http://localhost:10000
+ENV CONCORDIUM_NODE_CONNECTION_BOOSTRAP_NODES=bootstrap.testnet.concordium.com:8888
+ENV CONCORDIUM_NODE_CONNECTION_NO_DNSSEC=1
+    
+# Concordium Node Collector configuration
+ENV CONCORDIUM_NODE_COLLECTOR_URL=https://dashboard.testnet.concordium.com/nodes/post
+ENV CONCORDIUM_NODE_COLLECTOR_GRPC_HOST=http://localhost:10000
 
 RUN apt-get update && apt-get install -y unbound curl netbase ca-certificates supervisor nginx libnuma1 libtinfo6 libpq-dev liblmdb-dev jq
 RUN curl -L https://getenvoy.io/cli | bash -s -- -b /usr/local/bin
