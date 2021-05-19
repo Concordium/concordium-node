@@ -17,9 +17,6 @@ cfg_if! {
 #[macro_use]
 extern crate cfg_if;
 
-#[macro_use]
-extern crate failure;
-
 #[cfg(test)]
 #[macro_use]
 extern crate quickcheck;

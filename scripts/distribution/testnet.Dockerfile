@@ -8,10 +8,9 @@ ARG static_libraries_image_tag
 FROM alpine/git:latest as genesis-data
 ARG genesis_ref
 ARG genesis_path
-WORKDIR /tmp
 RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
 RUN --mount=type=ssh git clone --depth 1 --branch "${genesis_ref}" git@gitlab.com:Concordium/genesis-data.git
-RUN mv "genesis-data/${genesis_path}/generated-data" /genesis-data
+RUN mv "genesis-data/${genesis_path}" /data
 
 # Build static consensus libraries.
 FROM concordium/static-libraries:${static_libraries_image_tag} as static-builder
@@ -42,7 +41,7 @@ RUN tar -C /tmp -xf /tmp/static-consensus.tar.gz && \
     mv /tmp/target /build/concordium-node/deps/static-libs/linux && \
     rm /tmp/static-consensus.tar.gz
 
-RUN ./build-binaries.sh "collector,staging_net" release && \
+RUN ./build-binaries.sh "collector" release && \
     strip /build/concordium-node/target/release/concordium-node && \
     strip /build/concordium-node/target/release/node-collector
 
@@ -60,12 +59,12 @@ EXPOSE 9999
 EXPOSE 10000
 ENV RPC_SERVER_ADDR=0.0.0.0
 ENV MODE=basic
-ENV BOOTSTRAP_FIRST_NODE=bootstrap.eu.staging.concordium.com:8888
+ENV BOOTSTRAP_FIRST_NODE=bootstrap.testnet.concordium.com:8888
 ENV DATA_DIR=/var/lib/concordium/data
 ENV CONFIG_DIR=/var/lib/concordium/config
 ENV EXTRA_ARGS="--no-dnssec"
 ENV NODE_URL=localhost:10000
-ENV COLLECTORD_URL=https://dashboard.eu.staging.concordium.com/nodes/post
+ENV COLLECTORD_URL=https://dashboard.testnet.concordium.com/nodes/post
 ENV GRPC_HOST=http://localhost:10000
 ENV DISTRIBUTION_CLIENT=true
 ENV ENABLE_TERM_HANDLER=true
@@ -81,7 +80,7 @@ COPY --from=node-dashboard /nginx.conf /etc/nginx/sites-enabled/node-dashboard
 COPY --from=build /build/concordium-node/target/release/concordium-node /concordium-node
 COPY --from=build /build/concordium-node/target/release/node-collector /node-collector
 COPY --from=build /build/start.sh /start.sh
-COPY --from=genesis-data /genesis-data/genesis.dat /genesis.dat
+COPY --from=genesis-data /data/genesis.dat /genesis.dat
 
 COPY ./scripts/distribution/supervisord.conf /etc/supervisor/supervisord.conf
 COPY ./scripts/distribution/concordium.conf /etc/supervisor/conf.d/concordium.conf

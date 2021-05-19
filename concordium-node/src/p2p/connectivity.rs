@@ -1,12 +1,5 @@
 //! Node connection handling.
 
-use failure::Fallible;
-use mio::{event::Event, net::TcpStream, Events, Token};
-
-use rand::seq::IteratorRandom;
-use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
-use semver::Version;
-
 use crate::{
     common::{get_current_stamp, p2p_peer::RemotePeerId, P2PNodeId, PeerType, RemotePeer},
     configuration as config,
@@ -23,13 +16,18 @@ use crate::{
     },
     read_or_die, write_or_die,
 };
-
+use anyhow::bail;
+use mio::{event::Event, net::TcpStream, Events, Token};
+use rand::seq::IteratorRandom;
+use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
+use semver::Version;
 use std::{
     io,
     net::{IpAddr, SocketAddr},
     sync::{atomic::Ordering, Arc},
     time::{Duration, Instant},
 };
+use thiserror::Error;
 
 /// The poll token of the node's socket server.
 pub const SELF_TOKEN: Token = Token(0);
@@ -186,7 +184,7 @@ impl P2PNode {
         write_or_die!(self.connections()).retain(|_, conn| conn.remote_addr() != addr);
     }
 
-    fn process_network_packet(&self, inner_pkt: NetworkPacket) -> Fallible<usize> {
+    fn process_network_packet(&self, inner_pkt: NetworkPacket) -> anyhow::Result<usize> {
         let peers_to_skip = match inner_pkt.destination {
             PacketDestination::Direct(..) => vec![],
             PacketDestination::Broadcast(ref dont_relay_to) => {
@@ -301,7 +299,7 @@ impl P2PNode {
     }
 
     /// Creates a "high-level" handshake request to be sent to new peers.
-    pub fn produce_handshake_request(&self) -> Fallible<Vec<u8>> {
+    pub fn produce_handshake_request(&self) -> anyhow::Result<Vec<u8>> {
         let handshake_request = netmsg!(
             NetworkRequest,
             NetworkRequest::Handshake(Handshake {
@@ -321,57 +319,29 @@ impl P2PNode {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum AcceptFailureReason {
+    #[error("Too many existing connections. Not accepting an additional one from {addr}.")]
     TooManyConnections {
         addr: SocketAddr,
     },
+    #[error("Already connected to IP {ip}.")]
     AlreadyConnectedToIP {
         ip: IpAddr,
     },
+    #[error("Duplicate connection attempt from {addr}.")]
     DuplicateConnection {
         addr: SocketAddr,
     },
+    #[error("Connection attempt from a banned address.")]
     Banned,
+    #[error("Connection attempt from a soft-banned address.")]
     SoftBanned,
+    #[error("{err}")]
     Other {
-        err: failure::Error,
+        #[from]
+        err: anyhow::Error,
     },
-}
-
-impl std::fmt::Display for AcceptFailureReason {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            AcceptFailureReason::TooManyConnections {
-                addr,
-            } => write!(
-                f,
-                "Too many existing connections. Not accepting an additional one from {}.",
-                addr
-            ),
-            AcceptFailureReason::AlreadyConnectedToIP {
-                ip,
-            } => write!(f, "Already connected to IP {}.", ip),
-            AcceptFailureReason::DuplicateConnection {
-                addr,
-            } => write!(f, "Duplicate connection attempt from {}", addr),
-            AcceptFailureReason::Banned => f.write_str("Connection attempt from a banned address."),
-            AcceptFailureReason::SoftBanned => {
-                f.write_str("Connection attempt from a soft-banned address.")
-            }
-            AcceptFailureReason::Other {
-                err,
-            } => err.fmt(f),
-        }
-    }
-}
-
-impl From<failure::Error> for AcceptFailureReason {
-    fn from(err: failure::Error) -> Self {
-        Self::Other {
-            err,
-        }
-    }
 }
 
 /// Attempt to accept an incoming network connection.
@@ -464,7 +434,7 @@ pub fn connect(
     peer_addr: SocketAddr,      // address to connect to
     peer_id: Option<P2PNodeId>, // id of the peer we are connecting to, if known
     respect_max_peers: bool,    // whether this should respect the maximum peeers setting or not.
-) -> Fallible<()> {
+) -> anyhow::Result<()> {
     debug!(
         "Attempting to connect to {}{}",
         peer_addr,

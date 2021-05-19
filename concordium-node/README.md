@@ -3,9 +3,7 @@
 * Rust (stable 1.45.2 for using static libraries)
 * binutils >= 2.22
 * cmake >= 3.8.0
-* [flatc](http://google.github.io/flatbuffers/flatbuffers_guide_building.html)
-  commit fec58aa129818ed0c0613a7ec36b55135bf81278, but others around it are
-  likely to work as well (build using CMake and copy to `~/.local/bin`)
+* [flatc](http://google.github.io/flatbuffers/flatbuffers_guide_building.html) v1.11 and v1.12 are known to work. (build using CMake and copy to `~/.local/bin`)
 * protobuf >= 3.7.1
 * LLVM and Clang >= 3.9
 * [Unbound](https://www.nlnetlabs.nl/documentation/unbound/howto-setup/) >= 1.9.2 (the dependency `openssl-devel` is named `libssl-dev` on Ubuntu 19.10)
