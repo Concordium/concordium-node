@@ -9,7 +9,7 @@ use crate::{
     p2p::{maintenance::attempt_bootstrap, P2PNode},
     read_or_die,
 };
-use anyhow::bail;
+use anyhow::ensure;
 use chrono::Utc;
 use std::sync::{atomic::Ordering, Arc};
 
@@ -68,22 +68,18 @@ impl P2PNode {
         self.stats.set_bytes_sent(bytes_sent);
 
         let now = Utc::now().timestamp_millis();
-        match calculate_average_throughput(
+        let (avg_bps_in, avg_bps_out) = calculate_average_throughput(
             self.stats.get_last_throughput_measurement_timestamp(),
             now,
             prev_bytes_received,
             bytes_received,
             prev_bytes_sent,
             bytes_sent,
-        ) {
-            Ok((avg_bps_in, avg_bps_out)) => {
-                self.stats.set_avg_bps_in(avg_bps_in);
-                self.stats.set_avg_bps_out(avg_bps_out);
-                self.stats.set_last_throughput_measurement_timestamp(now);
-                Ok(())
-            }
-            Err(e) => Err(e),
-        }
+        )?;
+        self.stats.set_avg_bps_in(avg_bps_in);
+        self.stats.set_avg_bps_out(avg_bps_out);
+        self.stats.set_last_throughput_measurement_timestamp(now);
+        Ok(())
     }
 
     fn send_get_peers(&self) {
@@ -158,27 +154,24 @@ pub fn check_peers(node: &Arc<P2PNode>, peer_stats: &[PeerStats], attempted_boot
 /// Calculate the average bytes bps (Bytes per second) received and send during
 /// the time `delta` (specified in milliseconds).
 fn calculate_average_throughput(
-    before_millis: i64,
-    now_millis: i64,
-    prev_bytes_recv: u64,
-    bytes_recv: u64,
-    prev_bytes_sent: u64,
-    bytes_sent: u64,
+    before_millis: i64,   // timestamp of the last measurement
+    now_millis: i64,      // timestamp of the current measurement
+    prev_bytes_recv: u64, // number of bytes received at the time of previous measurement
+    bytes_recv: u64,      // number of bytes received at the time of current measurement
+    prev_bytes_sent: u64, // number of bytes sent at the time of previous measurement
+    bytes_sent: u64,      // number of bytes sent at the the time of current measurement
 ) -> anyhow::Result<(u64, u64)> {
-    let milliseconds_to_second = 1000f64;
-    let delta = ((now_millis - before_millis) as f64) / milliseconds_to_second; // convert the delta to seconds
+    let milliseconds_to_second = 1000u64;
+    ensure!(
+        now_millis > before_millis,
+        "Time went backwards or did not change. Refusing to calculate average throughput."
+    );
+    let delta: u64 = (now_millis - before_millis) as u64; // as is safe since we checked the difference is positive.
 
-    if delta == 0f64 {
-        bail!("Delta must not be zero.");
-    }
-    if delta < 0f64 {
-        bail!("Delta must not be negative.");
-    }
+    let avg_bps_in = (milliseconds_to_second * (bytes_recv - prev_bytes_recv)) / delta;
+    let avg_bps_out = (milliseconds_to_second * (bytes_sent - prev_bytes_sent)) / delta;
 
-    let avg_bps_in = ((bytes_recv - prev_bytes_recv) as f64) / (delta as f64);
-    let avg_bps_out = ((bytes_sent - prev_bytes_sent) as f64) / (delta as f64);
-
-    Ok((avg_bps_in as u64, avg_bps_out as u64))
+    Ok((avg_bps_in, avg_bps_out))
 }
 
 #[cfg(test)]
@@ -195,13 +188,14 @@ mod tests {
         }
 
         // Test with a zero delta
-        if let Err(e) = calculate_average_throughput(1, 1, 1, 2, 1, 2) {
-            assert_eq!("Delta must not be zero.", e.to_string());
-        }
+        assert!(
+            calculate_average_throughput(1, 1, 1, 2, 1, 2).is_err(),
+            "Calculation should fail since time difference is 0."
+        );
 
-        // Test with a negative delta
-        if let Err(e) = calculate_average_throughput(2, 1, 1, 2, 1, 2) {
-            assert_eq!("Delta must not be negative.", e.to_string());
-        }
+        assert!(
+            calculate_average_throughput(2, 1, 1, 2, 1, 2).is_err(),
+            "Calculation should fail since time difference is negative."
+        );
     }
 }
