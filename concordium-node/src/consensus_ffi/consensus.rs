@@ -4,7 +4,6 @@ use crate::consensus_ffi::{
     helpers::{QueueReceiver, QueueSyncSender, RelayOrStopSenderHelper},
     messaging::ConsensusMessage,
 };
-use failure::Fallible;
 use parking_lot::Condvar;
 use std::{
     convert::TryFrom,
@@ -25,9 +24,9 @@ pub enum ConsensusLogLevel {
 }
 
 impl TryFrom<u8> for ConsensusLogLevel {
-    type Error = failure::Error;
+    type Error = anyhow::Error;
 
-    fn try_from(value: u8) -> Fallible<Self> {
+    fn try_from(value: u8) -> anyhow::Result<Self> {
         Ok(match value {
             1 => Self::Error,
             2 => Self::Warning,
@@ -106,7 +105,7 @@ impl Default for ConsensusQueues {
 }
 
 impl ConsensusQueues {
-    pub fn send_in_high_priority_message(&self, message: ConsensusMessage) -> Fallible<()> {
+    pub fn send_in_high_priority_message(&self, message: ConsensusMessage) -> anyhow::Result<()> {
         self.inbound
             .sender_high_priority
             .send_msg(message)
@@ -116,7 +115,7 @@ impl ConsensusQueues {
             .map_err(|e| e.into())
     }
 
-    pub fn send_in_low_priority_message(&self, message: ConsensusMessage) -> Fallible<()> {
+    pub fn send_in_low_priority_message(&self, message: ConsensusMessage) -> anyhow::Result<()> {
         self.inbound
             .sender_low_priority
             .send_msg(message)
@@ -126,7 +125,7 @@ impl ConsensusQueues {
             .map_err(|e| e.into())
     }
 
-    pub fn send_out_message(&self, message: ConsensusMessage) -> Fallible<()> {
+    pub fn send_out_message(&self, message: ConsensusMessage) -> anyhow::Result<()> {
         self.outbound
             .sender_low_priority
             .send_msg(message)
@@ -136,7 +135,7 @@ impl ConsensusQueues {
             .map_err(|e| e.into())
     }
 
-    pub fn send_out_blocking_msg(&self, message: ConsensusMessage) -> Fallible<()> {
+    pub fn send_out_blocking_msg(&self, message: ConsensusMessage) -> anyhow::Result<()> {
         self.outbound
             .sender_high_priority
             .send_blocking_msg(message)
@@ -173,7 +172,7 @@ impl ConsensusQueues {
         }
     }
 
-    pub fn stop(&self) -> Fallible<()> {
+    pub fn stop(&self) -> anyhow::Result<()> {
         self.outbound.sender_low_priority.send_stop()?;
         self.outbound.sender_high_priority.send_stop()?;
         self.outbound.signaler.notify_one();
@@ -236,7 +235,7 @@ impl ConsensusContainer {
         appdata_dir: &PathBuf,
         database_connection_url: &str,
         regenesis_arc: Arc<RwLock<Vec<BlockHash>>>,
-    ) -> Fallible<Self> {
+    ) -> anyhow::Result<Self> {
         info!("Starting up the consensus layer");
 
         let consensus_type = if private_data.is_some() {

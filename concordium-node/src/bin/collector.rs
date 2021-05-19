@@ -5,7 +5,6 @@ use concordium_node::{
     utils::setup_logger_env,
 };
 use env_logger::Env;
-use failure::Fallible;
 use serde_json::Value;
 use std::{
     borrow::ToOwned,
@@ -31,7 +30,7 @@ static A: System = System;
 struct NodeName(Vec<String>);
 
 impl FromStr for NodeName {
-    type Err = failure::Error;
+    type Err = anyhow::Error;
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
         Ok(Self(input.split_whitespace().map(ToOwned::to_owned).collect::<Vec<String>>()))
@@ -183,7 +182,7 @@ async fn collect_data<'a>(
     node_name: NodeName,
     grpc_host: String,
     grpc_auth_token: &str,
-) -> Fallible<NodeInfo> {
+) -> anyhow::Result<NodeInfo> {
     info!(
         "Collecting node information via gRPC from {}/{}/{}",
         node_name, grpc_host, grpc_auth_token

@@ -1,5 +1,4 @@
 use crate::network::NetworkMessage;
-use failure::Fallible;
 #[cfg(feature = "s11n_serde_msgpack")]
 use rmp_serde::{encode::write as to_writer, from_slice};
 #[cfg(feature = "s11n_serde_cbor")]
@@ -7,11 +6,11 @@ use serde_cbor::{from_slice, to_writer};
 use std::io::Write;
 
 impl NetworkMessage {
-    pub fn deserialize(input: &[u8]) -> Fallible<Self> {
+    pub fn deserialize(input: &[u8]) -> anyhow::Result<Self> {
         from_slice::<NetworkMessage>(input).map_err(|e| e.into())
     }
 
-    pub fn serialize<T: Write>(&self, target: &mut T) -> Fallible<()> {
+    pub fn serialize<T: Write>(&self, target: &mut T) -> anyhow::Result<()> {
         to_writer(target, self)?;
         Ok(())
     }
