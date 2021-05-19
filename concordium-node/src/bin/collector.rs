@@ -70,7 +70,11 @@ struct ConfigCli {
         env = "COLLECTOR_URL"
     )]
     pub collector_url: String,
-    #[structopt(long = "print-config", help = "Print out config struct", env = "COLLECTOR_PRINT_CONFIG")]
+    #[structopt(
+        long = "print-config",
+        help = "Print out config struct",
+        env = "COLLECTOR_PRINT_CONFIG"
+    )]
     pub print_config: bool,
     #[structopt(long = "debug", short = "d", help = "Debug mode", env = "COLLECTOR_DEBUG")]
     pub debug: bool,
@@ -78,7 +82,11 @@ struct ConfigCli {
     pub trace: bool,
     #[structopt(long = "info", help = "Info mode", env = "COLLECTOR_INFO")]
     pub info: bool,
-    #[structopt(long = "no-log-timestamp", help = "Do not output timestamp in log output", env = "COLLECTOR_NO_LOG_TIMESTAMP")]
+    #[structopt(
+        long = "no-log-timestamp",
+        help = "Do not output timestamp in log output",
+        env = "COLLECTOR_NO_LOG_TIMESTAMP"
+    )]
     pub no_log_timestamp: bool,
     #[structopt(
         long = "collect-interval",
