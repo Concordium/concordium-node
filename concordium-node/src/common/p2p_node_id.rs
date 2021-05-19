@@ -12,7 +12,6 @@ pub type PeerId = u64;
 /// It is only in a descriptive manner, for logging and sending to other peers,
 /// not for identifying peers locally by the node.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 #[repr(transparent)]
 pub struct P2PNodeId(pub PeerId);
 

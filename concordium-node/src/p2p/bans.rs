@@ -21,7 +21,6 @@ pub enum BanId {
 /// Some bans are persisted to the database so we block reconnects from those
 /// peers.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub enum PersistedBanId {
     Ip(IpAddr),
 }
