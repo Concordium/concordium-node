@@ -10,14 +10,21 @@ RestartSec=20
 
 # sandboxing
 # do not allow the process to access /home, /root, and /run/user
-ProtectHome=true
+ProtectHome=yes
 # mount /usr, /boot, /efi, and /etc as read-only
 ProtectSystem=full
-NoNewPrivileges=true
-ProtectClock=true
-PrivateDevices=true
-PrivateTmp=true
-ProtectHostname=true
+NoNewPrivileges=yes
+ProtectClock=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectHostname=yes
+PrivateUsers=yes
+ProtectControlGroups=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+CapabilityBoundingSet=
+LockPersonality=yes
 
 Environment=MODE=basic
 # port on which the node will listen for incoming connections

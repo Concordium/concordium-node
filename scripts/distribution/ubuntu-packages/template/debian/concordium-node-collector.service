@@ -18,11 +18,21 @@ RestartSec=20
 # sandboxing
 # mount the entire filesystem as read-only (apart from /dev, /proc and /sys)
 ProtectSystem=strict
-DynamicUser=true
-ProtectClock=true
-PrivateDevices=true
-PrivateTmp=true
-ProtectHostname=true
+DynamicUser=yes
+ProtectClock=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectHostname=yes
+ProtectHome=yes
+PrivateUsers=yes
+ProtectControlGroups=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+CapabilityBoundingSet=
+LockPersonality=yes
+RestrictRealtime=yes
+MemoryDenyWriteExecute=yes
 
 Environment=MODE=collector
 Environment=COLLECTOR_INTERVAL=5000
