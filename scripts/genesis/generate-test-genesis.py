@@ -4,6 +4,7 @@ import sys
 import os
 import subprocess
 import shutil
+import time
 
 # The docker runner is designed to work with the image built by the
 # ../../concordium-base/scripts/genesis-tools.Dockerfile script.
@@ -84,6 +85,10 @@ else:
     GENERATE_UPDATE_KEYS = os.environ.get("GENERATE_UPDATE_KEYS", default = "./generate-update-keys").split()
 
     runner = HostRunner()
+
+# either a timestamp in milliseconds or "current", in which case it will be set to current time.
+# If not supplied then genesis time is kept as is in genesis.json.
+GENESIS_TIME = os.environ.get("GENESIS_TIME")
 
 # If used with docker genesis tools image GENESIS_DIR must be a path under the current working directory.
 GENESIS_DIR = os.environ.get("GENESIS_DIR", default = "./genesis_data")
@@ -223,6 +228,11 @@ def combine(foundation_account, extra = None):
         data = json.load(gfile)
         data["value"]["chainParameters"]["foundationAccount"] = foundation_account
         data["value"]["maxBlockEnergy"] = int(MAX_BLOCK_ENERGY)
+        if GENESIS_TIME is not None:
+            if GENESIS_TIME == "current":
+                data["value"]["genesisTime"] = int(time.time() * 1000)
+            else:
+                data["value"]["genesisTime"] = int(GENESIS_TIME)
         with open("genesis-tmp.json", "w") as out_file:
             json.dump(data, out_file)
 

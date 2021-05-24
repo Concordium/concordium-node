@@ -1,0 +1,166 @@
+# Necessary enviornment variables
+# - HOST_ROOT ... an **absolute** path to a directory where the necessary
+# configuration files lie. See the accompanying readme for details.
+
+version: '3'
+services:
+  # the collector backend that serves data about the nodes
+  # It exposes endpoints at localhost:12000
+  # The two endpoints of interest are
+  # - GET /nodesSummary
+  # - GET /nodesBlocksInfo
+  collector_backend:
+    image: concordium/dev-node:latest
+    environment:
+    - RUST_BACKTRACE=1
+    - RUST_LOG=info
+    entrypoint: ["/node-collector-backend",
+      "--listen-port", "10000",
+      "--listen-address", "0.0.0.0"
+    ]
+    ports:
+    - 12000:10000
+  # the node to which the wallet-proxy connects.
+  # It is also the only baker in this configuration.
+  baker_reporter:
+    image: concordium/dev-node:latest
+    volumes:
+      # volume mount host path must be relative to **this** docker-compose file,
+      # or an absolute path.
+      - ${HOST_ROOT}/baker-reporter:/var/lib/concordium/
+    depends_on:
+    - postgresql
+    entrypoint: ["/concordium-node",
+       "--no-dnssec",
+       "--no-bootstrap",
+       "--debug",
+       "--config-dir", "/var/lib/concordium",
+       "--data-dir", "/var/lib/concordium",
+       "--baker-credentials-file", "/var/lib/concordium/baker-0-credentials.json",
+       "--bootstrap-node", "bootstrapper:8888",
+       "--transaction-outcome-logging-database-host", "postgresql",
+       "--transaction-outcome-logging-database-port", "5432",
+       "--transaction-outcome-logging-database-name", "concordium",
+       "--transaction-outcome-logging-database-username", "concordium",
+       "--transaction-outcome-logging-database-password", "concordium",
+       "--rpc-server-addr", "0.0.0.0",
+       "--desired-nodes", "0"
+       ]
+    environment:
+    - RUST_BACKTRACE=1
+    - RUST_LOG=info
+    ports:
+    - 10000:10000
+
+  # The collector that posts data to the collector backend to display it.
+  collector:
+    image: concordium/dev-node:latest
+    depends_on:
+    - baker_reporter
+    environment:
+    - RUST_BACKTRACE=1
+    - RUST_LOG=info
+    entrypoint: ["/node-collector",
+      "--collector-url", "http://collector_backend:10000/nodes/post",
+      "--grpc-host", "http://baker_reporter:10000",
+      "--node-name", "reporter-node"
+    ]
+
+  # database where the transaction log is stored for the wallet-proxy.
+  # The database is persisted to `db-volume`
+  postgresql:
+    image: postgres:latest
+    # persist the database through restarts
+    volumes:
+      - db-volume:/var/lib/postgresql/data
+    environment:
+      POSTGRES_PASSWORD: concordium
+      POSTGRES_USER: concordium
+      POSTGRES_DB: concordium
+    ports:
+    - 5432:5432
+
+  wallet_proxy:
+    image: abizjak/wallet-proxy:latest
+    depends_on:
+    - baker_reporter
+    - postgresql
+    environment:
+    - DB_SLEEP=5 # delay start for 5 seconds to wait for the postgres db to start
+    - WALLET_PROXY_GRPC_IP=baker_reporter
+    - WALLET_PROXY_GRPC_PORT=10000
+    - WALLET_PROXY_DATABASE="host=postgresql port=5432 user=concordium dbname=concordium password=concordium"
+    # comment the following line to disable gtu-drop
+    # NB: paths are in the containers.
+    - WALLET_PROXY_ACCOUNT_FILE=/data/gtu-drop-account.json
+    - WALLET_SERVER_INFOS_FILE=/data/ips-with-metadata.json
+    # mount the genesis data directory into the container to get the following
+    # files
+    # - data/gtu-drop-account.json
+    # - data/ips-with-metadata.json
+    # The mounted directory must contain these two. If this is not the case the
+    # values of environment variables WALLET_PROXY_ACCOUNT_FILE and
+    # WALLET_SERVER_INFOS_FILE must be changed accordingly
+    volumes:
+      # path to genesis data, relative to this file, or absolute path
+      - $HOST_ROOT/configuration/wallet-proxy:/data
+    entrypoint:
+    - /start.sh
+    ports:
+    - 14000:3000
+
+  identity_verifier:
+    image: abizjak/test-identity-provider:latest
+    depends_on:
+      - wallet_proxy
+    environment:
+      - RUST_BACKTRACE=1
+      - IDENTITY_VERIFIER_PORT=7012
+      # this needs to be an external URL since it is used by the user to
+      # redirect back to the IP
+      - IDENTITY_PROVIDER_URL=http://localhost:7011
+      - IDENTITY_PROVIDER_PUBLIC=/data/identity_provider.pub.json
+      - RUST_LOG=debug
+    volumes:
+      # the configuration directory must contain the files refered to in the
+      # environment description above.
+      - $HOST_ROOT/configuration/identity-verifier:/data
+      - $HOST_ROOT/identity-verifier-database:/database
+    # the verifier will listen on port 7012
+    ports:
+    - 7012:7012
+    entrypoint: "/identity-verifier"
+
+  identity_provider:
+    image: abizjak/test-identity-provider:latest
+    depends_on:
+      - identity_verifier
+      - wallet_proxy
+    environment:
+      - RUST_BACKTRACE=full
+      - IDENTITY_PROVIDER_SERVICE_PORT=7011
+      - ANONYMITY_REVOKERS=/data/anonymity_revokers.json
+      - IDENTITY_PROVIDER=/data/identity_provider.json
+      - GLOBAL_CONTEXT=/data/global.json
+      - RETRIEVE_BASE=http://localhost:7011
+      # this needs to be an external URL since it is used by the user to
+      # redirect back to the verifier
+      - ID_VERIFICATION_URL=http://localhost:7012/api/verify
+      # This needs to be internal. It is used by the provider to query the
+      # verifier for attributes.
+      - ID_VERIFICATION_QUERY_URL=http://identity_verifier:7012/api/verify
+      - WALLET_PROXY_BASE=http://wallet_proxy:3000
+      - RUST_LOG=debug
+
+    # the identity provider will listen on port 7011
+    ports:
+    - 7011:7011
+    entrypoint: "/identity-provider-service"
+    volumes:
+      # the configuration directory must contain the files refered to in the
+      # environment description above.
+      - $HOST_ROOT/configuration/identity-provider:/data
+      - $HOST_ROOT/identity-provider-database:/database
+
+volumes:
+  db-volume:
