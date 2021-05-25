@@ -62,7 +62,11 @@ struct ConfigCli {
         env = "CONCORDIUM_NODE_COLLECTOR_GRPC_HOST"
     )]
     pub grpc_hosts: Vec<String>,
-    #[structopt(long = "node-name", help = "Node name", env = "CONCORDIUM_NODE_COLLECTOR_NODE_NAME")]
+    #[structopt(
+        long = "node-name",
+        help = "Node name",
+        env = "CONCORDIUM_NODE_COLLECTOR_NODE_NAME"
+    )]
     pub node_names: Vec<NodeName>,
     #[structopt(
         long = "collector-url",
@@ -77,7 +81,12 @@ struct ConfigCli {
         env = "CONCORDIUM_NODE_COLLECTOR_PRINT_CONFIG"
     )]
     pub print_config: bool,
-    #[structopt(long = "debug", short = "d", help = "Debug mode", env = "CONCORDIUM_NODE_COLLECTOR_DEBUG")]
+    #[structopt(
+        long = "debug",
+        short = "d",
+        help = "Debug mode",
+        env = "CONCORDIUM_NODE_COLLECTOR_DEBUG"
+    )]
     pub debug: bool,
     #[structopt(long = "trace", help = "Trace mode", env = "CONCORDIUM_NODE_COLLECTOR_TRACE")]
     pub trace: bool,
