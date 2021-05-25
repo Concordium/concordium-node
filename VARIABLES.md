@@ -1,10 +1,14 @@
 # Configuration of the Node
 
 The node can be configured via environment variables or command-line arguments. 
+Below is a summary of the environment variables available. To see a full list of available variables provide the
+`--help` flag to the executable. 
 
-## Common configurations
+## Common
 - `CONCORDIUM_NODE_ID` Force sets the node id. 
 Note the id must be a 64 bit unsigned integer in zero padded HEX. Must be 16 characters long.
+
+- `CONCORDIUM_NODE_LISTEN_ADDRESS` The address on which the node listens on. 
 
 - `CONCORDIUM_NODE_LISTEN_PORT` The port on which the node is listening for incoming connections. 
 The port should be reachable, hence the port should be open in any firewall rules. The default value is 8888.
