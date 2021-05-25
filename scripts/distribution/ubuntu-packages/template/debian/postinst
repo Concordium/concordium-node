@@ -17,7 +17,8 @@ then
 Environment="COLLECTOR_NODE_NAME=$NODE_NAME"
 EOF
 else
-    echo "Node collector override file already exists."
+    echo "Node collector override file '/etc/systemd/system/node-collector.d/override.conf' already exists."
+    echo "To update settings edit the file."
 fi
 
 # include automatically generated postinst scripts after we've update the override files.

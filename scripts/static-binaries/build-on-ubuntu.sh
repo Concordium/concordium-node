@@ -8,10 +8,10 @@ set -euxo pipefail
 
 # The script must be invoked with the concordium-node source directory as working directory.
 
-# Expected parameters:
+# Optional parameters:
 # - EXTRA_FEATURES, features to use in addition to `static` when building the node, e.g., collector. Comma separated list.
 
-extra_features="$EXTRA_FEATURES"
+extra_features=${EXTRA_FEATURES:-""}
 
 flatbuffers_version=v1.12.1
 rust_toolchain_version=1.45.2
