@@ -47,7 +47,7 @@ This should be set a bit higher than the maximum number of nodes, so that new pe
 - `CONCORDIUM_NODE_CONNECTION_THREAD_POOL_SIZE` Specifies the thread pool size of the node for handling connection events in parallel. The default value is 4. 
 
 ## gRPC
-Configurations regarding the built-in gRPC server for a node.
+Configuration parameters related to the built-in gRPC server.
 
 - `CONCORDIUM_NODE_RPC_NO_SERVER` Disables the gRPC server. Default the RPC server is turned on.
 
