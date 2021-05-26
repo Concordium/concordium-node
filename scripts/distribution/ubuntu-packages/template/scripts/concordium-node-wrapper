@@ -157,15 +157,6 @@ then
     ARGS="$ARGS --collector-url $COLLECTOR_URL"
 fi
 
-if [ -n "$COLLECTOR_NODE_NAME" ];
-then
-    ARGS="$ARGS --node-name $COLLECTOR_NODE_NAME"
-elif [ "$MODE" == "collector" ];
-then
-    echo "Node name must be given for the collector."
-    exit 1
-fi
-
 if [ -n "$COLLECTOR_GRPC_HOST" ];
 then
     ARGS="$ARGS --grpc-host $COLLECTOR_GRPC_HOST"
@@ -194,7 +185,16 @@ if [ "$MODE" == "basic" ]; then
 elif [ "$MODE" == "bootstrapper" ]; then
     /usr/bin/p2p_bootstrapper-cli $ARGS
 elif [ "$MODE" == "collector" ]; then
-    /usr/bin/node-collector $ARGS
+    if [ -n "COLLECTOR_NODE_NAME" ];
+    then
+        # this slightly awkward handling of the node name is needed so that
+        # we support node names with spaces. Otherwise when we construct the ARGS string above,
+        # when we splice it here the different words in the name get passed as separate arguments.
+        /usr/bin/node-collector $ARGS --node-name "$COLLECTOR_NODE_NAME"
+    else
+        echo "Node name must be given for the collector."
+        exit 1
+    fi
 else
     echo "No matching MODE was found. Please check!"
 fi
