@@ -14,7 +14,7 @@ then
     mkdir -p /etc/systemd/system/concordium-node-collector.service.d/
     cat > /etc/systemd/system/concordium-node-collector.service.d/override.conf <<EOF
 [Service]
-Environment="COLLECTOR_NODE_NAME=$NODE_NAME"
+Environment='COLLECTOR_NODE_NAME=`systemd-escape "$NODE_NAME"`'
 EOF
 else
     echo "Node collector override file '/etc/systemd/system/node-collector.d/override.conf' already exists."
