@@ -15,7 +15,7 @@ image_name="mainnet-node"
 # Using '--no-cache' because we're cloning genesis data
 # and BuildKit (and '--ssh default') because the repo is on GitLab.
 DOCKER_BUILDKIT=1 docker build \
-  --build-arg environment="mainnet"\
+  --build-arg environment="mainnet.concordium.software"\
   --build-arg base_image_tag="${base_image_tag}" \
   --build-arg static_libraries_image_tag="${static_libraries_image_tag}" \
   --build-arg ghc_version="${ghc_version}" \
