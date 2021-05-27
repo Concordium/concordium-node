@@ -188,8 +188,8 @@ elif [ "$MODE" == "collector" ]; then
     if [ -n "COLLECTOR_NODE_NAME" ];
     then
         # this slightly awkward handling of the node name is needed so that
-        # we support node names with spaces. Otherwise when we construct the ARGS string above,
-        # when we splice it here the different words in the name get passed as separate arguments.
+        # we support node names with whitespace. Otherwise the ARGS string might have spaces,
+        # and items separated with spaces are passed as separate arguments here.
         /usr/bin/node-collector $ARGS --node-name "$COLLECTOR_NODE_NAME"
     else
         echo "Node name must be given for the collector."
