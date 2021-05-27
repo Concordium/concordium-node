@@ -166,6 +166,21 @@ impl fmt::Display for PacketType {
     }
 }
 
+impl PacketType {
+    /// Determine whether a packet type can be relayed.
+    /// Those that are must be subject to appropriate de-duplication
+    /// checks to ensure they are not relayed endlessly.
+    pub fn is_rebroadcastable(&self) -> bool {
+        match self {
+            PacketType::Block => true,
+            PacketType::Transaction => true,
+            PacketType::FinalizationRecord => true,
+            PacketType::FinalizationMessage => true,
+            PacketType::CatchUpStatus => false,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ConsensusFfiResponse {
     BakerNotFound = -1,

@@ -866,6 +866,10 @@ pub extern "C" fn direct_callback(
 
 pub extern "C" fn catchup_status_callback(msg: *const u8, msg_length: i64) {
     trace!("Catch-up status callback hit - queueing message");
+    // Note: this sends a catch-up status message as a broadcast. This is not ideal:
+    // a catch-up status message should always be sent as a direct message, even
+    // when it is sent to every peer.  However, we will rely on peers not to
+    // rebroadcast catch-up status messages.
     sending_callback!(
         None,
         CallbackType::CatchUpStatus,
