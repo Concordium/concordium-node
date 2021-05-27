@@ -4,6 +4,10 @@
 ARG base_image_tag
 ARG static_libraries_image_tag
 
+# Which environment we are building the image from.
+# This affects URLs. Currently it should be either `eu.staging`, `testnet`, or `mainnet`.
+ARG environment
+
 # Fetch genesis-data.
 FROM alpine/git:latest as genesis-data
 ARG genesis_ref
@@ -59,12 +63,12 @@ EXPOSE 9999
 EXPOSE 10000
 ENV RPC_SERVER_ADDR=0.0.0.0
 ENV MODE=basic
-ENV BOOTSTRAP_FIRST_NODE=bootstrap.testnet.concordium.com:8888
+ENV BOOTSTRAP_FIRST_NODE=bootstrap."${environment}".concordium.com:8888
 ENV DATA_DIR=/var/lib/concordium/data
 ENV CONFIG_DIR=/var/lib/concordium/config
 ENV EXTRA_ARGS="--no-dnssec"
 ENV NODE_URL=localhost:10000
-ENV COLLECTORD_URL=https://dashboard.testnet.concordium.com/nodes/post
+ENV COLLECTORD_URL=https://dashboard."${environment}".concordium.com/nodes/post
 ENV GRPC_HOST=http://localhost:10000
 ENV DISTRIBUTION_CLIENT=true
 ENV ENABLE_TERM_HANDLER=true
