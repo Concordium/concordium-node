@@ -177,48 +177,48 @@ which will set the environment variable `LISTEN_PORT` to `8888` for the node.
 
 The node supports the following environment variables.
 
-- `BAKER_CREDENTIALS_FILE` the file with baker keys. This must be an absolute
+- `CONCORDIUM_NODE_BAKER_CREDENTIALS_FILE` the file with baker keys. This must be an absolute
   path. If it is set then the node will start as a baker. Setting this variable
   is the way for the node to become a baker.
 
-- `LISTEN_PORT`, the port on which the node is listening for incoming
+- `CONCORDIUM_NODE_LISTEN_PORT`, the port on which the node is listening for incoming
   connections. This should be opened in any firewall rules so that the node is a
   good network participant. Default value is 8888
 
 - `BOOTSTRAP_FIRST_NODE` is the address:port of the bootstrap node. This is the
   first node to connect to. Generally this should be left at the default value.
 
-- `DESIRED_PEERS` is the minimum number of peers the node will want to have. If
+- `CONCORDIUM_NODE_CONNECTION_DESIRED_NODES` is the minimum number of peers the node will want to have. If
   it has fewer than the given number it will attempt to acquire more via
   bootstraping or asking its existing peers for their peers.
 
-- `MAX_ALLOWED_NODES` is the maximum number of peers the node will tolerate. If
+- `CONCORDIUM_NODE_CONNECTION_MAX_ALLOWED_NODES` is the maximum number of peers the node will tolerate. If
   it gets more it will drop peers until the number drops below.
 
-- `HARD_CONNECTION_LIMIT` is the maximum number of **connections** (as opposed
+- `CONCORDIUM_NODE_CONNECTION_HARD_CONNECTION_LIMIT` is the maximum number of **connections** (as opposed
   to nodes) that a node will have at a given time. This should be set a bit
   higher than the maximum number of nodes so that new peers are accepted and
   discovered over time. Default value is 20.
 
-- `THREAD_POOL_SIZE` is the number of threads the node should use for processing
+- `CONCORDIUM_NODE_CONNECTION_THREAD_POOL_SIZE` is the number of threads the node should use for processing
   network messages. This should be fewer than the available number of hardware
   threads to allow consensus the space to work. Default value is `2`.
 
-- `CONFIG_DIR`, `DATA_DIR` are directories where the node stores its
-  configuration and data. In particular the `DATA_DIR` is where the node's
+- `CONCORDIUM_NODE_CONFIG_DIR`, `CONCORDIUM_NODE_DATA_DIR` are directories where the node stores its
+  configuration and data. In particular the `CONCORDIUM_NODE_DATA_DIR` is where the node's
   database is stored.
 
 - `EXTRA_ARGS` are any extra arguments that are not directly supported by
   environment variables. The complete list can be obtained by running
   `concordium-node --help`.
 
-- `RPC_SERVER_ADDR` is the listen address of the node's grpc server (default 0.0.0.0)
+- `CONCORDIUM_NODE_RPC_SERVER_ADDR` is the listen address of the node's grpc server (default 0.0.0.0)
 
-- `RPC_SERVER_PORT` is the port of the grpc server (default 10000) (NB: If this
+- `CONCORDIUM_NODE_RPC_SERVER_PORT` is the port of the grpc server (default 10000) (NB: If this
   is changed then the variable `COLLECTOR_GRPC_PORT` must be changed as well for
   the `concordium-node-collector` service)
 
-- `EXTERNAL_PORT` is related to the listen-port. If the external port of the
+- `CONCORDIUM_NODE_EXTERNAl_PORT` is related to the listen-port. If the external port of the
   server is not the same as the port the node is listening on (i.e., it is
   remapped) then this should be set to the external port so that other nodes can
   successfully connect.
@@ -283,4 +283,4 @@ the network dashboard. Use
 ```console
 sudo systemctl edit concordium-node-collector.service
 ```
-to edit. The environment variable name is `COLLECTOR_NODE_NAME`.
+to edit. The environment variable name is `CONCORDIUM_NODE_COLLECTOR_NODE_NAME`.
