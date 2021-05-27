@@ -171,9 +171,9 @@ The configuration should be done via `Environment` directives in a `[Service]`
 section, e.g., an example file could be
 ```
 [Service]
-Environment=LISTEN_PORT=8888
+Environment=CONCORDIUM_NODE_LISTEN_PORT=8888
 ```
-which will set the environment variable `LISTEN_PORT` to `8888` for the node.
+which will set the environment variable `CONCORDIUM_NODE_LISTEN_PORT` to `8888` for the node.
 
 The node supports the following environment variables.
 
@@ -208,10 +208,6 @@ The node supports the following environment variables.
   configuration and data. In particular the `CONCORDIUM_NODE_DATA_DIR` is where the node's
   database is stored.
 
-- `EXTRA_ARGS` are any extra arguments that are not directly supported by
-  environment variables. The complete list can be obtained by running
-  `concordium-node --help`.
-
 - `CONCORDIUM_NODE_RPC_SERVER_ADDR` is the listen address of the node's grpc server (default 0.0.0.0)
 
 - `CONCORDIUM_NODE_RPC_SERVER_PORT` is the port of the grpc server (default 10000) (NB: If this
@@ -230,6 +226,9 @@ The node supports the following environment variables.
 
   NB: The node is sandboxed, so it would be best to put the file under the
   node's state directory `/var/lib/concordium/`
+  
+- The complete list of configuration options can be obtained by running
+  `concordium-node --help`.
 
 After editing the configuration file the node must be restarted. This can be
 done via
