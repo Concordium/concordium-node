@@ -41,10 +41,6 @@ aws s3 cp "${file}" s3://distribution.mainnet.concordium.software/image/ --grant
 # Make the image current if the tag is formatted as "<number>:<number>:<number>".
 # Other versions are for testing only.
 if [[ "${image_tag}" =~ ^[[:digit:]]\.[[:digit:]]\.[[:digit:]]$ ]]; then
-  # construct a JSON file with latest version information. Use jq to avoid dealing with quoting manually.
-  jq -n --arg image_tag "${image_tag}"\
-        --arg file "${file}"\
-        --arg image_name "${image_name}"\
-        '{ image_tag: $image_tag, file: $file, image_name: $image_name}' > version.json
+  echo "{\"image_tag\": \"${image_tag}\", \"file\": \"$file\", \"image_name\": \"$image_name\"}" > version.json
   aws s3 cp version.json s3://distribution.mainnet.concordium.software/image/ --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
 fi
