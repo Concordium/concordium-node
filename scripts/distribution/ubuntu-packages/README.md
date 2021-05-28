@@ -289,10 +289,15 @@ concordium-node.service: Main process exited, code=exited, status=1/FAILURE
 concordium-node.service: Failed with result 'exit-code'.
 ```
 
-In order to `recover` from such a situation, one may delete the contents (**except** the genesis.dat file) of the `data` folder.
-The default path for the `data` folder is `/var/lib/concordium/b6078154d6717e909ce0da4a45a25151b592824f31624b755900a74429e3073d/data/`.
+In order to `recover` from such a situation, one should take the following steps. 
 
-When deleted restart the concordium-node service and verify that it starts up succesfully e.g. by using `systemctl`.
+- Stop the concordium-node service by running the command `sudo systemctl stop concordium-node.service`
+
+- Delete the contents (**except** the genesis.dat file) of the `data` folder.
+The default path for the `data` folder is `/var/lib/concordium/$GENESIS_HASH/data/`.
+Where $GENESIS_HASH is a hash derived from the configured genesis data.
+
+- Start the concordium-node service again by running `sudo systemctl start concordium-node-collector.service`.
 
 ## Configuration of the collector
 
