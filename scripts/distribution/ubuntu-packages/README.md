@@ -299,6 +299,9 @@ Where $GENESIS_HASH is a hash derived from the configured genesis data.
 
 - Start the concordium-node service again by running `sudo systemctl start concordium-node-collector.service`.
 
+The concordium-node should now be up and running again. 
+Verify with the command: `sudo systemctl status concordium-node`.
+
 ## Configuration of the collector
 
 The main configuration option for the collector is the node name that appears on
