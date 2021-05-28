@@ -4,7 +4,7 @@
 ARG base_image_tag
 ARG static_libraries_image_tag
 
-# Which environment we are building the image from.
+# Which environment we are building the image for.
 # This affects URLs. Currently it should be either
 #   - eu.staging.concordium.com
 #   - testnet.concordium.com
