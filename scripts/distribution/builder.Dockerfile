@@ -4,6 +4,13 @@
 ARG base_image_tag
 ARG static_libraries_image_tag
 
+# Which environment we are building the image for.
+# This affects URLs. Currently it should be either
+#   - eu.staging.concordium.com
+#   - testnet.concordium.com
+#   - mainnet.concordium.software
+ARG environment
+
 # Fetch genesis-data.
 FROM alpine/git:latest as genesis-data
 ARG genesis_ref
@@ -65,9 +72,10 @@ ENV CONCORDIUM_NODE_CONFIG_DIR=/var/lib/concordium/config
 ENV CONCORDIUM_NODE_GRPC_HOST=http://localhost:10000
 ENV CONCORDIUM_NODE_CONNECTION_BOOSTRAP_NODES=bootstrap.testnet.concordium.com:8888
 ENV CONCORDIUM_NODE_CONNECTION_NO_DNSSEC=1
+ENV CONCORDIUM_NODE_CONNECTION_BOOSTRAP_NODES=bootstrap."${environment}":8888
     
 # Concordium Node Collector configuration
-ENV CONCORDIUM_NODE_COLLECTOR_URL=https://dashboard.testnet.concordium.com/nodes/post
+ENV CONCORDIUM_NODE_COLLECTOR_URL=https://dashboard."${environment}"/nodes/post
 ENV CONCORDIUM_NODE_COLLECTOR_GRPC_HOST=http://localhost:10000
 
 RUN apt-get update && apt-get install -y unbound curl netbase ca-certificates supervisor nginx libnuma1 libtinfo6 libpq-dev liblmdb-dev jq

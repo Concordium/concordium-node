@@ -246,7 +246,7 @@ you need to first reload the configuration files. This can be done with
 sudo systemctl daemon-reload
 ```
 
-## Monitoring
+## Maintenance
 
 To see whether the node is running correctly you may use `systemctl` commands.
 
@@ -273,6 +273,33 @@ or only the most recent (e.g., last 10min)
 ```console
 sudo journalctl -u concordium-node.service --since '10min ago'
 ```
+
+### Troubleshooting
+It can happen that the database of the concordium-node gets corrupted by a sudden shutdown of the concordium-node service e.g., by a sudden machine shutdown etc.
+
+This will result in an endless loop of service restarts as the concordium-node cannot startup successfully due to a database corruption.
+If this is the case then the log of the concordium-node will contain errors along the lines:
+
+```
+error, called at src/Concordium/GlobalState/Persistent/BlobStore.hs
+...
+concordium-node: warning: too many hs_exit()s
+concordium-node.service: Main process exited, code=exited, status=1/FAILURE
+concordium-node.service: Failed with result 'exit-code'.
+```
+
+In order to `recover` from such a situation, one should take the following steps. 
+
+- Stop the concordium-node service by running the command `sudo systemctl stop concordium-node.service`
+
+- Delete the contents (**except** the genesis.dat file) of the `data` folder.
+The default path for the `data` folder is `/var/lib/concordium/$GENESIS_HASH/data/`.
+Where $GENESIS_HASH is a hash derived from the configured genesis data.
+
+- Start the concordium-node service again by running `sudo systemctl start concordium-node-collector.service`.
+
+The concordium-node should now be up and running again. 
+Verify with the command: `sudo systemctl status concordium-node`.
 
 ## Configuration of the collector
 

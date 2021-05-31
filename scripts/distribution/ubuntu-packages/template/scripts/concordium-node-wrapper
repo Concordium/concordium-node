@@ -41,7 +41,16 @@ if [ "$MODE" == "basic" ]; then
 elif [ "$MODE" == "bootstrapper" ]; then
     /usr/bin/p2p_bootstrapper-cli $ARGS
 elif [ "$MODE" == "collector" ]; then
-    /usr/bin/node-collector $ARGS
+    if [ -n "COLLECTOR_NODE_NAME" ];
+    then
+        # this slightly awkward handling of the node name is needed so that
+        # we support node names with whitespace. Otherwise the ARGS string might have spaces,
+        # and items separated with spaces are passed as separate arguments here.
+        /usr/bin/node-collector $ARGS --node-name "$COLLECTOR_NODE_NAME"
+    else
+        echo "Node name must be given for the collector."
+        exit 1
+    fi
 else
     echo "No matching MODE was found. Please check!"
 fi
