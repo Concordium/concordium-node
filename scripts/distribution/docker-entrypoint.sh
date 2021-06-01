@@ -25,6 +25,11 @@ chown -R $USER_ID:$GROUP_ID /var/lib/concordium
 
 if [ -f /var/lib/concordium/data/baker-credentials.json ];
 then
+    if grep -q cipherText /var/lib/concordium/data/baker-credentials.json; then
+        echo "This distribution does not support encrypted baker credentials."
+        echo "Please decrypt the baker credentials file before starting the baker."
+        exit 1
+    fi
     export BAKER_CREDENTIALS_FILENAME="baker-credentials.json"
 fi
 
