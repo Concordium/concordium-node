@@ -11,7 +11,7 @@ Requires=concordium-node.service
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/concordium-node-wrapper
+ExecStart=/usr/bin/node-collector
 Restart=always
 RestartSec=20
 
@@ -34,10 +34,9 @@ LockPersonality=yes
 RestrictRealtime=yes
 MemoryDenyWriteExecute=yes
 
-Environment=MODE=collector
-Environment=COLLECTOR_INTERVAL=5000
-Environment=COLLECTOR_URL=https://dashboard.testnet.concordium.com/nodes/post
-Environment=COLLECTOR_GRPC_HOST=http://localhost:10000
+Environment=CONCORDIUM_NODE_COLLECTOR_COLLECT_INTERVAL=5000
+Environment=CONCORDIUM_NODE_COLLECTOR_URL=https://dashboard.testnet.concordium.com/nodes/post
+Environment=CONCORDIUM_NODE_COLLECTOR_GRPC_HOST=http://localhost:10000
 
 [Install]
 # start the service when reaching multi-user target

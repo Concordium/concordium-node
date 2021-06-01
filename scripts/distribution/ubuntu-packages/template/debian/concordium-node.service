@@ -4,7 +4,7 @@ After=syslog.target network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/concordium-node-wrapper
+ExecStart=/usr/bin/concordium-node
 Restart=always
 RestartSec=20
 
@@ -26,7 +26,6 @@ ProtectKernelTunables=yes
 CapabilityBoundingSet=
 LockPersonality=yes
 
-Environment=MODE=basic
 # port on which the node will listen for incoming connections
 Environment=CONCORDIUM_NODE_LISTEN_PORT=8888
 # where to bootstrap from
@@ -49,14 +48,16 @@ Environment=CONCORDIUM_NODE_CONNECTION_HARD_CONNECTION_LIMIT=20
 Environment=CONCORDIUM_NODE_CONNECTION_THREAD_POOL_SIZE=2
 # Extra arguments that generally should not be altered.
 # Do not output timestamp in log output.
-Environment=CONCORDIUM_NODE_NO_LOG_TIMESTAMP=1
+Environment=CONCORDIUM_NODE_NO_LOG_TIMESTAMP=true
 # The bootstrapping interval in seconds.
 Environment=CONCORDIUM_NODE_CONNECTION_BOOTSTRAPPING_INTERVAL=1800
 # Do not perform DNSsec tests for lookups.
-Environment=CONCORDIUM_NODE_CONNECTION_NO_DNSSEC=1
+Environment=CONCORDIUM_NODE_CONNECTION_NO_DNSSEC=true
 # Haskell RTS flags to pass to consensus.
 Environment=CONCORDIUM_NODE_BAKER_HASKELL_RTS_FLAGS=-N2
-
+# Haskell binding needs proper library path to function
+Environment=LD_LIBRARY_PATH=/usr/local/lib
+    
 [Install]
 # start the service when reaching multi-user target
 WantedBy=multi-user.target

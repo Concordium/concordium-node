@@ -49,11 +49,6 @@ directory. The following files are relevant
   with minor modifications to install two systemd services as opposed to a
   single, which would be the default.
 
-- [template/scripts/concordium-node-wrapper](template/scripts/concordium-node-wrapper)
-  is the startup script covering both services. This should eventually be
-  changed so that the binaries get their parameters directly from environment
-  variables, making the script obsolete.
-
 The strategy for building the package is as follows.
 
 1. Obtain genesis-data for the specific network. Copy `genesis.dat` to the
@@ -118,7 +113,6 @@ The layout of the files in the package is as follows (for an example genesis).
 ├── usr
 │   ├── bin
 │   │   ├── concordium-node
-│   │   ├── concordium-node-wrapper
 │   │   └── node-collector
 │   └── share
 │       └── doc
@@ -219,14 +213,10 @@ The node supports the following environment variables.
   remapped) then this should be set to the external port so that other nodes can
   successfully connect.
 
-- `TRUSTED_NODES_FILE` should be a path to a file. The file must be a list of
-  lines, each line being in the format `addr:port` where addr and port are the
-  address and port of a "trusted node". These are peers to which this node will
-  try to keep connection to and never drop.
+- `CONCORDIUM_NODE_CONNECTION_CONNECT_TO` is a comma separated list of peers which the node will try 
+to keep connection to and never drop. The peers must be in the format `addr:port` where addr and port are the
+  address and port of a "trusted node".
 
-  NB: The node is sandboxed, so it would be best to put the file under the
-  node's state directory `/var/lib/concordium/`
-  
 - The complete list of configuration options can be obtained by running
   `concordium-node --help`.
 

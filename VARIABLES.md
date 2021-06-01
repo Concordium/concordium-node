@@ -25,13 +25,13 @@ Then this should be set to the external port in order to allow other nodes to co
 ## Baker
 Configurations related to baking.
 
-- `CONCORDIUM_NODE_BAKER_CREDENTIALS_FILE` An absolute filepath to the file containing baker keys. If this variable is not set, then the node is not eligible for baking. 
+- `CONCORDIUM_NODE_BAKER_CREDENTIALS_FILE` A path to the file containing the baker keys. The filepath must be either an absolute path or a relative filepath to the CWD of the process. If this variable is not set, then the node is not eligible for baking. 
 
 ## Connection
 Network related configurations for a node.
 
 - `CONCORDIUM_NODE_CONNECTION_DESIRED_NODES` Specifies the minimum number of nodes that the node wishes. 
-If the node has fewer connected nodes than specified, then the node will acquire more nodes via bootstrapping or requesting more nodes from its existing peers. The default value is 7.
+If the node has fewer connected nodes than specified, then the node will try to acquire more nodes via bootstrapping or requesting more nodes from its existing peers. The default value is 7.
 
 - `CONCORDIUM_NODE_CONNECTION_MAX_ALLOWED_NODES` Is the maximum allowed number of peers the node will tolerate. 
 If the node gets more than specificed, then the node will start dropping its peers until the number of peers is below the specified amount.
