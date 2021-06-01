@@ -62,10 +62,10 @@ The strategy for building the package is as follows.
    emitted by the genesis tool into a file `genesis_hash`)
 5. Update
    [template/debian/concordium-node.service](template/debian/concordium-node.service)
-   to match `CONFIG_DIR` and `DATA_DIR` to the genesis hash.
-6. Possibly update  `BOOTSTRAP_FIRST_NODE` if it does not point to the correct
+   to match `CONCORDIUM_NODE_CONFIG_DIR` and `CONCORDIUM_NODE_DATA_DIR` to the genesis hash.
+6. Possibly update  `CONCORDIUM_NODE_CONNECTION_BOOSTRAP_NODES` if it does not point to the correct
    network.
-7. Possibly update `COLLECTOR_URL` in
+7. Possibly update `CONCORDIUM_NODE_COLLECTOR_URL` in
    [template/debian/concordium-node-collector.service](template/debian/concordium-node-collector.service)
    to point to the correct backend for the network.
 6. Obtain the `concordium-node` and `node-collector` binaries built for the
