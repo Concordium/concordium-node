@@ -528,7 +528,7 @@ pub struct CommonConfig {
     #[structopt(
         long = "external-port",
         help = "Own external port",
-        env = "CONCORDIUM_NODE_EXTERNAl_PORT"
+        env = "CONCORDIUM_NODE_EXTERNAL_PORT"
     )]
     pub external_port: Option<u16>,
     #[structopt(
