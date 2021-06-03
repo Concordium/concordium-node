@@ -15,7 +15,7 @@ Note the id must be a 64 bit unsigned integer in zero padded HEX. Must be 16 cha
 - `CONCORDIUM_NODE_LISTEN_PORT` The port on which the node is listening for incoming connections. 
 The port should be reachable, hence the port should be open in any firewall rules. The default value is 8888.
 
-- `CONCORDIUM_NODE_EXTERNAl_PORT` is related to the `CONCORDIUM_NODE_LISTEN_PORT`. If the external port of the ***server*** is not the same as the listening port i.e., it has been remapped. 
+- `CONCORDIUM_NODE_EXTERNAL_PORT` is related to the `CONCORDIUM_NODE_LISTEN_PORT`. If the external port of the ***server*** is not the same as the listening port i.e., it has been remapped. 
 Then this should be set to the external port in order to allow other nodes to connect to this node.
 
 - `CONCORDIUM_NODE_CONFIG_DIR` Where the node should store its configuration.
