@@ -208,7 +208,7 @@ The node supports the following environment variables.
   is changed then the variable `COLLECTOR_GRPC_PORT` must be changed as well for
   the `concordium-node-collector` service)
 
-- `CONCORDIUM_NODE_EXTERNAl_PORT` is related to the listen-port. If the external port of the
+- `CONCORDIUM_NODE_EXTERNAL_PORT` is related to the listen-port. If the external port of the
   server is not the same as the port the node is listening on (i.e., it is
   remapped) then this should be set to the external port so that other nodes can
   successfully connect.

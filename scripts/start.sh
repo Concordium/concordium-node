@@ -6,6 +6,9 @@ _term() {
   wait ${CHILD_PID}
 }
 
+# Haskell binding needs proper library path to function
+export LD_LIBRARY_PATH=/usr/local/lib
+
 if [ -z "$CONCORDIUM_NODE_CONFIG_DIR" ]; then
     echo "CONCORDIUM_NODE_CONFIG_DIR must be set."
     exit 1
@@ -25,8 +28,6 @@ then
     cp /genesis.dat $CONCORDIUM_NODE_DATA_DIR
 fi
 
-# Haskell binding needs proper library path to function
-export LD_LIBRARY_PATH=/usr/local/lib
 
 if [ -n "$ENABLE_TERM_HANDLER" ];
 then
