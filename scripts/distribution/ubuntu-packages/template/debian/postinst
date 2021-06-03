@@ -7,7 +7,7 @@ NODE_NAME="$RET"
 
 # Only update the node name if the override configuration does not already exist.
 # This is not perfect, since we don't know whether the override contains
-# COLLECTOR_NODE_NAME, but it is good enough for now.
+# CONCORDIUM_NODE_COLLECTOR_NODE_NAME, but it is good enough for now.
 if [[ ! -f /etc/systemd/system/concordium-node-collector.service.d/override.conf ]]
 then 
     echo "Writing node name to '/etc/systemd/system/node-collector.d/override.conf'."
