@@ -385,16 +385,6 @@ impl P2p for RpcServerImpl {
         let peer_type = self.node.peer_type().to_string();
         let current_localtime =
             SystemTime::now().duration_since(UNIX_EPOCH).expect("Time went backwards").as_secs();
-        let staging_net_username = {
-            #[cfg(feature = "staging_net")]
-            {
-                Some(self.node.config.staging_net_username.clone())
-            }
-            #[cfg(not(feature = "staging_net"))]
-            {
-                None
-            }
-        };
         Ok(Response::new(match self.consensus {
             Some(ref consensus) => {
                 let consensus_baking_committee_status = consensus.in_baking_committee();
@@ -421,7 +411,6 @@ impl P2p for RpcServerImpl {
                         }
                     },
                     consensus_finalizer_committee: consensus.in_finalization_committee(),
-                    staging_net_username,
                     consensus_baker_id: match consensus_baking_committee_status {
                         ConsensusIsInBakingCommitteeResponse::ActiveInCommittee(baker_id) => {
                             Some(baker_id)
@@ -440,7 +429,6 @@ impl P2p for RpcServerImpl {
                 consensus_baker_committee: node_info_response::IsInBakingCommittee::NotInCommittee
                     as i32,
                 consensus_finalizer_committee: false,
-                staging_net_username,
                 consensus_baker_id: None,
             },
         }))

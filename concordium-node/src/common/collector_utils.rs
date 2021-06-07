@@ -38,7 +38,6 @@ pub struct NodeInfo {
     pub consensusBakerId: Option<u64>,
     pub finalizationCommitteeMember: bool,
     pub ancestorsSinceBestBlock: Option<Vec<String>>,
-    pub stagingNetUsername: Option<String>,
     pub transactionsPerBlockEMA: Option<f64>,
     pub transactionsPerBlockEMSD: Option<f64>,
     pub bestBlockTransactionsSize: Option<u64>,
@@ -191,25 +190,6 @@ impl<'a> From<&'a NodeInfo> for NodeInfoChainViz<'a> {
             finalizedBlockHeight:    other.finalizedBlockHeight,
             finalizedBlockParent:    &other.finalizedBlockParent,
             ancestorsSinceBestBlock: other.ancestorsSinceBestBlock.as_deref(),
-        }
-    }
-}
-
-/// Contains node details available in `nodes_staging_net_users_info`.
-#[allow(non_snake_case)]
-#[derive(Serialize)]
-pub struct NodeInfoStagingNetUsers<'a> {
-    pub nodeName:           &'a str,
-    pub nodeId:             &'a str,
-    pub stagingNetUsername: Option<&'a str>,
-}
-
-impl<'a> From<&'a NodeInfo> for NodeInfoStagingNetUsers<'a> {
-    fn from(other: &'a NodeInfo) -> Self {
-        Self {
-            nodeName:           &other.nodeName,
-            nodeId:             &other.nodeId,
-            stagingNetUsername: other.stagingNetUsername.as_deref(),
         }
     }
 }

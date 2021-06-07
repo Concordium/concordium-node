@@ -55,13 +55,6 @@ async fn main() -> Fallible<()> {
     let (conf, mut app_prefs) = get_config_and_logging_setup()?;
     let shutdown_handler_state = Arc::new(AtomicBool::new(false));
 
-    #[cfg(feature = "staging_net")]
-    {
-        concordium_node::plugins::staging_net::authenticate(&conf.cli.staging_net_token)
-            .await
-            .context("Staging network client authentication failed")?;
-    }
-
     let stats_export_service = instantiate_stats_export_engine(&conf)?;
     let regenesis_arc = Arc::new(RwLock::new(vec![]));
 

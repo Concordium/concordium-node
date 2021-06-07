@@ -491,9 +491,6 @@ pub struct CliConfig {
     pub baker: BakerConfig,
     #[structopt(flatten)]
     pub rpc: RpcCliConfig,
-    #[cfg(feature = "staging_net")]
-    #[structopt(long = "staging-net-token", help = "Staging network client token")]
-    pub staging_net_token: String,
     #[structopt(
         long = "timeout-bucket-entry-period",
         help = "Timeout an entry in the buckets after a given period (in ms), 0 means never",

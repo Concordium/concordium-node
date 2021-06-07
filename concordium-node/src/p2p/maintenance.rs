@@ -13,8 +13,6 @@ use rkv::{
 
 #[cfg(feature = "network_dump")]
 use crate::dumper::{create_dump_thread, DumpItem};
-#[cfg(feature = "staging_net")]
-use crate::plugins::staging_net::get_username_from_jwt;
 use crate::{
     common::{get_current_stamp, p2p_peer::RemotePeerId, P2PNodeId, P2PPeer, PeerType},
     configuration::{self as config, Config},
