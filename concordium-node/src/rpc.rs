@@ -417,6 +417,7 @@ impl P2p for RpcServerImpl {
                         }
                         _ => None,
                     },
+                    staging_net_username: None,
                 }
             }
             None => NodeInfoResponse {
@@ -430,6 +431,7 @@ impl P2p for RpcServerImpl {
                     as i32,
                 consensus_finalizer_committee: false,
                 consensus_baker_id: None,
+                staging_net_username: None,
             },
         }))
     }
