@@ -1,14 +1,13 @@
 //! Types related to identifying peers.
 
+use crate::{common::P2PNodeId, connection::ConnectionStats};
+use anyhow::bail;
 use byteorder::{ReadBytesExt, WriteBytesExt};
-use crypto_common::{Buffer, Deserial, Fallible, Serial};
+use crypto_common::{Buffer, Deserial, Serial};
 use rand::{
     distributions::{Standard, Uniform},
     prelude::Distribution,
 };
-
-use crate::{common::P2PNodeId, connection::ConnectionStats};
-
 use std::{
     fmt::{self, Display},
     hash::{Hash, Hasher},
@@ -19,7 +18,6 @@ use std::{
 /// Specifies the type of the node - either a regular `Node` or a
 /// `Bootstrapper`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub enum PeerType {
     Node,
     Bootstrapper,
@@ -44,7 +42,6 @@ impl fmt::Display for PeerType {
 /// packets.
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub struct RemotePeerId {
     pub(crate) remote_peer_id: usize,
 }
@@ -67,9 +64,9 @@ impl Display for RemotePeerId {
 
 /// Parse from a (possibly 0 padded) hex value.
 impl std::str::FromStr for RemotePeerId {
-    type Err = failure::Error;
+    type Err = anyhow::Error;
 
-    fn from_str(s: &str) -> Fallible<Self> {
+    fn from_str(s: &str) -> anyhow::Result<Self> {
         match usize::from_str_radix(s, 16) {
             Ok(remote_peer_id) => Ok(RemotePeerId {
                 remote_peer_id,
@@ -112,7 +109,7 @@ impl Serial for RemotePeerId {
 }
 
 impl Deserial for RemotePeerId {
-    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
+    fn deserial<R: ReadBytesExt>(source: &mut R) -> anyhow::Result<Self> {
         Ok(RemotePeerId {
             remote_peer_id: u64::deserial(source)? as usize,
         })
@@ -189,7 +186,6 @@ impl RemotePeer {
 
 /// Information about a peer that is transmitted over the network.
 #[derive(Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub struct P2PPeer {
     /// The peer's chosen identifier.
     pub id: P2PNodeId,

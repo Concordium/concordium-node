@@ -5,7 +5,6 @@ use crate::{
     connection::Connection,
     netmsg,
     network::NetworkRequest,
-    only_fbs,
     p2p::{maintenance::attempt_bootstrap, P2PNode},
     read_or_die,
 };
@@ -83,17 +82,15 @@ impl P2PNode {
         let message = netmsg!(NetworkRequest, request);
         let filter = |_: &Connection| true;
 
-        only_fbs!({
-            let mut buf = Vec::with_capacity(256);
+        let mut buf = Vec::with_capacity(256);
 
-            if let Err(e) = message
-                .serialize(&mut buf)
-                .map(|_| buf)
-                .map(|buf| self.send_over_all_connections(&buf, &filter))
-            {
-                error!("Can't send a GetPeers request: {}", e);
-            }
-        });
+        if let Err(e) = message
+            .serialize(&mut buf)
+            .map(|_| buf)
+            .map(|buf| self.send_over_all_connections(&buf, &filter))
+        {
+            error!("Can't send a GetPeers request: {}", e);
+        }
     }
 
     /// Update the timestamp of the last peer update.

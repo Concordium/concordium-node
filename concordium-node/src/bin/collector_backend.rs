@@ -1,12 +1,12 @@
 #![recursion_limit = "1024"]
 #[macro_use]
 extern crate gotham_derive;
+use anyhow::anyhow;
 use concordium_node::{
     common::{collector_utils::*, get_current_stamp},
     utils::setup_logger_env,
 };
 use env_logger::Env;
-use failure::Fallible;
 use structopt::StructOpt;
 use twox_hash::XxHash64;
 #[macro_use]
@@ -191,7 +191,7 @@ impl CollectorStateData {
     }
 }
 
-pub fn main() -> Fallible<()> {
+pub fn main() -> anyhow::Result<()> {
     let conf = ConfigCli::from_args();
 
     // Prepare the logger

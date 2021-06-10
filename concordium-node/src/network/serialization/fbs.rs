@@ -1,23 +1,21 @@
 //! Flatbuffers serialization.
 
-use failure::{Error, Fallible};
-use flatbuffers::FlatBufferBuilder;
-use semver::Version;
-
-use crate::{consensus_ffi::blockchain_types::BlockHash, flatbuffers_shim::network};
-
 use crate::{
     common::{
         get_current_stamp,
         p2p_peer::{P2PPeer, PeerType},
         P2PNodeId,
     },
+    consensus_ffi::blockchain_types::BlockHash,
+    flatbuffers_shim::network,
     network::{
         Handshake, NetworkId, NetworkMessage, NetworkPacket, NetworkPayload, NetworkRequest,
         NetworkResponse, PacketDestination,
     },
 };
-
+use anyhow::{bail, Error};
+use flatbuffers::FlatBufferBuilder;
+use semver::Version;
 use std::{
     io::{self, Read, Write},
     net::{IpAddr, SocketAddr},
@@ -32,14 +30,14 @@ pub const HANDSHAKE_MESSAGE_VERSION: u8 = 0;
 
 impl NetworkMessage {
     // FIXME: remove the unwind once the verifier is available
-    pub fn deserialize(buffer: &[u8]) -> Fallible<Self> {
+    pub fn deserialize(buffer: &[u8]) -> anyhow::Result<Self> {
         match panic::catch_unwind(|| _deserialize(buffer)) {
             Ok(msg) => msg,
             Err(_) => bail!("caught a panic: received a mangled buffer"),
         }
     }
 
-    pub fn serialize<T: Write>(&self, target: &mut T) -> Fallible<()> {
+    pub fn serialize<T: Write>(&self, target: &mut T) -> anyhow::Result<()> {
         let capacity = if let NetworkPayload::NetworkPacket(ref packet) = self.payload {
             packet.message.len() + 64 // FIXME: fine-tune the overhead
         } else {
@@ -77,7 +75,7 @@ impl NetworkMessage {
 
 // deserialization
 
-fn _deserialize(buffer: &[u8]) -> Fallible<NetworkMessage> {
+fn _deserialize(buffer: &[u8]) -> anyhow::Result<NetworkMessage> {
     if buffer.len() < 12 {
         bail!("the buffer is too small")
     }
@@ -104,7 +102,7 @@ fn _deserialize(buffer: &[u8]) -> Fallible<NetworkMessage> {
     })
 }
 
-fn deserialize_packet(root: &network::NetworkMessage) -> Fallible<NetworkPayload> {
+fn deserialize_packet(root: &network::NetworkMessage) -> anyhow::Result<NetworkPayload> {
     let packet = if let Some(payload) = root.payload() {
         network::NetworkPacket::init_from_table(payload)
     } else {
@@ -137,7 +135,7 @@ fn deserialize_packet(root: &network::NetworkMessage) -> Fallible<NetworkPayload
     }))
 }
 
-fn deserialize_request(root: &network::NetworkMessage) -> Fallible<NetworkPayload> {
+fn deserialize_request(root: &network::NetworkMessage) -> anyhow::Result<NetworkPayload> {
     let request = if let Some(payload) = root.payload() {
         network::NetworkRequest::init_from_table(payload)
     } else {
@@ -198,7 +196,7 @@ fn deserialize_request(root: &network::NetworkMessage) -> Fallible<NetworkPayloa
                             wv.genesis_block()
                                 .map_or_else(|| bail!("Missing block hash"), |w| BlockHash::new(w))
                         })
-                        .collect::<Result<Vec<BlockHash>, failure::Error>>()?
+                        .collect::<anyhow::Result<Vec<BlockHash>>>()?
                 } else {
                     bail!("missing genesis blocks in a Handshake")
                 };
@@ -234,7 +232,7 @@ fn deserialize_request(root: &network::NetworkMessage) -> Fallible<NetworkPayloa
     }
 }
 
-fn deserialize_response(root: &network::NetworkMessage) -> Fallible<NetworkPayload> {
+fn deserialize_response(root: &network::NetworkMessage) -> anyhow::Result<NetworkPayload> {
     let response = if let Some(payload) = root.payload() {
         network::NetworkResponse::init_from_table(payload)
     } else {
