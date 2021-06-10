@@ -1,0 +1,55 @@
+[Unit]
+Description=Concordium Node
+After=syslog.target network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/concordium-node-wrapper
+Restart=always
+RestartSec=20
+
+# sandboxing
+# do not allow the process to access /home, /root, and /run/user
+ProtectHome=yes
+# mount /usr, /boot, /efi, and /etc as read-only
+ProtectSystem=full
+NoNewPrivileges=yes
+ProtectClock=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectHostname=yes
+PrivateUsers=yes
+ProtectControlGroups=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+CapabilityBoundingSet=
+LockPersonality=yes
+
+Environment=MODE=basic
+# port on which the node will listen for incoming connections
+Environment=LISTEN_PORT=8888
+# where to bootstrap from
+Environment=BOOTSTRAP_FIRST_NODE=bootstrap.testnet.concordium.com:8888
+# desired number of nodes to be connected to.
+Environment=DESIRED_PEERS=5
+# maximum number of __nodes__ the node will be connected to.
+Environment=MAX_ALLOWED_NODES=10
+# configuration and data directories.
+Environment=CONFIG_DIR=/var/lib/concordium/b6078154d6717e909ce0da4a45a25151b592824f31624b755900a74429e3073d/config
+Environment=DATA_DIR=/var/lib/concordium/b6078154d6717e909ce0da4a45a25151b592824f31624b755900a74429e3073d/data
+# address of the GRPC server
+Environment=RPC_SERVER_ADDR=0.0.0.0
+# and its port
+Environment=RPC_SERVER_PORT=10000
+# maximum number of __connections__ the node can have. This can temporarily be more than
+# the number of peers when incoming connections are processed. 
+Environment=HARD_CONNECTION_LIMIT=20
+# number of threads to use to process network events
+Environment=THREAD_POOL_SIZE=2
+# Extra arguments that generally should not be altered.
+Environment=EXTRA_ARGS="--no-log-timestamp --bootstrapping-interval 1800 --no-dnssec --haskell-rts-flags=-N2"
+
+[Install]
+# start the service when reaching multi-user target
+WantedBy=multi-user.target

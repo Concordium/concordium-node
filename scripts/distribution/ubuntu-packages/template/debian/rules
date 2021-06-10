@@ -1,0 +1,23 @@
+#!/usr/bin/make -f
+%:
+	dh $@
+
+# override_dh_update_autotools_config:
+# 		mkdir -p binaries
+# 		docker run -v $(shell pwd)/binaries:/out static-node-binaries cp /build/bin/concordium-node /out
+# 		docker run -v $(shell pwd)/binaries:/out static-node-binaries cp /build/bin/node-collector /out
+
+# install two services
+# They will be enabled and started automatically when installed.
+# Enabled means they will be started on boot.
+override_dh_installsystemd:
+		dh_installsystemd --name=concordium-node # --no-enable --no-start
+		dh_installsystemd --name=concordium-node-collector # --no-enable --no-start
+
+override_dh_dwz:
+		# do nothing since we already stripped the binary
+
+# remove any binaries that were potentially copied in
+override_dh_clean:
+#		rm -rf binaries
+		dh_clean

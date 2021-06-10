@@ -45,10 +45,17 @@ RUN ./build-binaries.sh "collector" release && \
     strip /build/concordium-node/target/release/concordium-node && \
     strip /build/concordium-node/target/release/node-collector
 
-FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/node-dashboard:0.1.1 as node-dashboard
+FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/node-dashboard:0.1.2 as node-dashboard
 
 # Collect artifacts from build image.
 FROM ubuntu:20.04
+
+# Which environment we are building the image for.
+# This affects URLs. Currently it should be either
+#   - eu.staging.concordium.com
+#   - testnet.concordium.com
+#   - mainnet.concordium.software
+ARG environment
 
 EXPOSE 8888
 # Node dashboard
@@ -59,12 +66,12 @@ EXPOSE 9999
 EXPOSE 10000
 ENV RPC_SERVER_ADDR=0.0.0.0
 ENV MODE=basic
-ENV BOOTSTRAP_FIRST_NODE=bootstrap.testnet.concordium.com:8888
+ENV BOOTSTRAP_FIRST_NODE=bootstrap.${environment}:8888
 ENV DATA_DIR=/var/lib/concordium/data
 ENV CONFIG_DIR=/var/lib/concordium/config
 ENV EXTRA_ARGS="--no-dnssec"
 ENV NODE_URL=localhost:10000
-ENV COLLECTORD_URL=https://dashboard.testnet.concordium.com/nodes/post
+ENV COLLECTORD_URL=https://dashboard.${environment}/nodes/post
 ENV GRPC_HOST=http://localhost:10000
 ENV DISTRIBUTION_CLIENT=true
 ENV ENABLE_TERM_HANDLER=true

@@ -798,8 +798,9 @@ impl P2p for RpcServerImpl {
     #[cfg(not(feature = "network_dump"))]
     async fn dump_start(
         &self,
-        _req: Request<DumpRequest>,
+        req: Request<DumpRequest>,
     ) -> Result<Response<BoolResponse>, Status> {
+        authenticate!(req, self.access_token);
         warn!("DumpStart RPC request received, but the \"network_dump\" feature is not active");
         Err(Status::new(Code::Unavailable, "Feature \"network_dump\" is not active"))
     }
@@ -828,7 +829,8 @@ impl P2p for RpcServerImpl {
     }
 
     #[cfg(not(feature = "network_dump"))]
-    async fn dump_stop(&self, _req: Request<Empty>) -> Result<Response<BoolResponse>, Status> {
+    async fn dump_stop(&self, req: Request<Empty>) -> Result<Response<BoolResponse>, Status> {
+        authenticate!(req, self.access_token);
         warn!("DumpStop RPC request received, but the \"network_dump\" feature is not active");
         Err(Status::new(Code::Unavailable, "Feature \"network_dump\" is not active"))
     }
