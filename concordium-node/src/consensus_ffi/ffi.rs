@@ -9,9 +9,9 @@ use crate::{
     },
     write_or_die,
 };
+use anyhow::{anyhow, bail};
 use byteorder::{NetworkEndian, ReadBytesExt};
 use crypto_common::Serial;
-use failure::{bail, format_err, Fallible};
 use std::{
     convert::TryFrom,
     ffi::{CStr, CString},
@@ -428,7 +428,7 @@ pub fn get_consensus_ptr(
     appdata_dir: &PathBuf,
     database_connection_url: &str,
     regenesis_arc: Arc<RwLock<Vec<BlockHash>>>,
-) -> Fallible<*mut consensus_runner> {
+) -> anyhow::Result<*mut consensus_runner> {
     let genesis_data_len = genesis_data.len();
 
     let c_string_genesis = unsafe { CString::from_vec_unchecked(genesis_data) };
@@ -767,15 +767,15 @@ pub enum CallbackType {
 }
 
 impl TryFrom<u8> for CallbackType {
-    type Error = failure::Error;
+    type Error = anyhow::Error;
 
-    fn try_from(byte: u8) -> Fallible<Self> {
+    fn try_from(byte: u8) -> anyhow::Result<Self> {
         match byte {
             0 => Ok(CallbackType::Block),
             1 => Ok(CallbackType::FinalizationMessage),
             2 => Ok(CallbackType::FinalizationRecord),
             3 => Ok(CallbackType::CatchUpStatus),
-            _ => Err(format_err!("Received invalid callback type: {}", byte)),
+            _ => Err(anyhow!("Received invalid callback type: {}", byte)),
         }
     }
 }
@@ -866,6 +866,10 @@ pub extern "C" fn direct_callback(
 
 pub extern "C" fn catchup_status_callback(msg: *const u8, msg_length: i64) {
     trace!("Catch-up status callback hit - queueing message");
+    // Note: this sends a catch-up status message as a broadcast. This is not ideal:
+    // a catch-up status message should always be sent as a direct message, even
+    // when it is sent to every peer.  However, we will rely on peers not to
+    // rebroadcast catch-up status messages.
     sending_callback!(
         None,
         CallbackType::CatchUpStatus,

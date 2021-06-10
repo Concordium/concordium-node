@@ -20,6 +20,7 @@ import Concordium.Types
 
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF
+import qualified Concordium.Crypto.BlsSignature as BLS
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Block hiding (PendingBlock, makePendingBlock)
@@ -72,6 +73,8 @@ instance FromJSON BakerIdentity where
     bakerElectionKey <- parseJSON v
     bakerAggregationKey <- obj .: "aggregationSignKey"
     bakerAggregationPublicKey <- obj .: "aggregationVerifyKey"
+    when (bakerAggregationPublicKey /= BLS.derivePublicKey bakerAggregationKey) $
+        fail "Aggregation signing key does not correspond to the verification key."
     return BakerIdentity{..}
 
 processTransactions

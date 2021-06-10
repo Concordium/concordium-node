@@ -20,7 +20,6 @@ cfg_if! {
     }
 }
 use crate::configuration;
-use failure::Fallible;
 use std::sync::Arc;
 
 cfg_if! {
@@ -96,7 +95,7 @@ pub struct StatsExportService {
 impl StatsExportService {
     /// Creates a new instance of the starts export service object.
     #[cfg(feature = "instrumentation")]
-    pub fn new() -> Fallible<Self> {
+    pub fn new() -> anyhow::Result<Self> {
         let registry = Registry::new();
         let pg_opts = Opts::new("peer_number", "current peers connected");
         let pg = IntGauge::with_opts(pg_opts)?;
@@ -254,7 +253,7 @@ impl StatsExportService {
 
     /// Creates a new instance of the starts export service object.
     #[cfg(not(feature = "instrumentation"))]
-    pub fn new() -> Fallible<Self> { Ok(Default::default()) }
+    pub fn new() -> anyhow::Result<Self> { Ok(Default::default()) }
 
     /// Increases the peer count.
     pub fn peers_inc(&self) {
@@ -538,7 +537,7 @@ impl StatsExportService {
 #[cfg(feature = "instrumentation")]
 pub fn instantiate_stats_export_engine(
     conf: &configuration::Config,
-) -> Fallible<Arc<StatsExportService>> {
+) -> anyhow::Result<Arc<StatsExportService>> {
     let prom = if conf.prometheus.prometheus_server {
         info!("Enabling prometheus server");
         StatsExportService::new()?
@@ -555,7 +554,7 @@ pub fn instantiate_stats_export_engine(
 #[cfg(not(feature = "instrumentation"))]
 pub fn instantiate_stats_export_engine(
     _: &configuration::Config,
-) -> Fallible<Arc<StatsExportService>> {
+) -> anyhow::Result<Arc<StatsExportService>> {
     Ok(Arc::new(StatsExportService::new()?))
 }
 

@@ -3,9 +3,7 @@
 * Rust (stable 1.45.2 for using static libraries)
 * binutils >= 2.22
 * cmake >= 3.8.0
-* [flatc](http://google.github.io/flatbuffers/flatbuffers_guide_building.html)
-  commit fec58aa129818ed0c0613a7ec36b55135bf81278, but others around it are
-  likely to work as well (build using CMake and copy to `~/.local/bin`)
+* [flatc](http://google.github.io/flatbuffers/flatbuffers_guide_building.html) v1.11 and v1.12 are known to work. (build using CMake and copy to `~/.local/bin`)
 * protobuf >= 3.7.1
 * LLVM and Clang >= 3.9
 * [Unbound](https://www.nlnetlabs.nl/documentation/unbound/howto-setup/) >= 1.9.2 (the dependency `openssl-devel` is named `libssl-dev` on Ubuntu 19.10)
@@ -16,14 +14,11 @@
 
 ## Supported features
 * instrumentation - switches the default internal counter implementation out with prometheus
-* s11n_serde_cbor - enables serialization using [serde_cbor](https://crates.io/crates/serde_cbor) (only used in benches)
-* s11n_serde_msgpack - enables serialization using [rmp-serde](https://crates.io/crates/rmp-serde) (only used in benches)
 * instrumentation - enables stats data exporting to [prometheus](https://crates.io/crates/prometheus)
 * network_dump - makes the network dumping capabilites available.
 * static - build against static haskell libraries (Linux only)
 * profiling - build against haskell libraries with profiling support enabled (Linux only)
 * collector - enables the build of the node-collector and backend
-* staging_net - enables special staging network only features like client username/password validation
 * database_emitter - enables building the database emitter binary to inject a database exported to a set of nodes
 * genesis_tester - a tool used by a CI to validate the genesis data
 * dedup_benchmarks - enable support in the benchmarks for deduplication queues

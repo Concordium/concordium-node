@@ -1,12 +1,12 @@
 #![recursion_limit = "1024"]
 #[macro_use]
 extern crate gotham_derive;
+use anyhow::anyhow;
 use concordium_node::{
     common::{collector_utils::*, get_current_stamp},
     utils::setup_logger_env,
 };
 use env_logger::Env;
-use failure::Fallible;
 use structopt::StructOpt;
 use twox_hash::XxHash64;
 #[macro_use]
@@ -191,7 +191,7 @@ impl CollectorStateData {
     }
 }
 
-pub fn main() -> Fallible<()> {
+pub fn main() -> anyhow::Result<()> {
     let conf = ConfigCli::from_args();
 
     // Prepare the logger
@@ -290,24 +290,6 @@ fn nodes_block_info(state: State) -> (State, JSONStringResponse) {
                 response.extend(b",");
             }
             serde_json::to_writer(&mut response, &NodeInfoChainViz::from(node_info)).unwrap()
-        }
-        response.extend(b"]");
-    }
-    (state, JSONStringResponse(String::from_utf8(response).unwrap()))
-}
-
-fn nodes_staging_users_info(state: State) -> (State, JSONStringResponse) {
-    trace!("Processing a nodes staging net users info request");
-    let state_data = CollectorStateData::borrow_from(&state);
-    let mut response = Vec::new();
-    {
-        let map_lock = &*read_or_die!(state_data.nodes);
-        response.extend(b"[");
-        for (i, node_info) in map_lock.values().enumerate() {
-            if i != 0 {
-                response.extend(b",");
-            }
-            serde_json::to_writer(&mut response, &NodeInfoStagingNetUsers::from(node_info)).unwrap()
         }
         response.extend(b"]");
     }
@@ -432,8 +414,6 @@ pub fn router(
         route.get("/data/nodesSummary").to(nodes_summary);
         route.get("/nodesBlocksInfo").to(nodes_block_info);
         route.get("/data/nodesBlocksInfo").to(nodes_block_info);
-        route.get("/nodesStagingNetUsers").to(nodes_staging_users_info);
-        route.get("/data/nodesStagingNetUsers").to(nodes_staging_users_info);
         route.post("/nodes/post").to_async_borrowing(nodes_post_handler_wrapper);
         route.post("/post/nodes").to_async_borrowing(nodes_post_handler_wrapper);
     })
