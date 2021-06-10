@@ -13,8 +13,6 @@ use rkv::{
 
 #[cfg(feature = "network_dump")]
 use crate::dumper::{create_dump_thread, DumpItem};
-#[cfg(feature = "staging_net")]
-use crate::plugins::staging_net::get_username_from_jwt;
 use crate::{
     common::{get_current_stamp, p2p_peer::RemotePeerId, P2PNodeId, P2PPeer, PeerType},
     configuration::{self as config, Config},
@@ -87,8 +85,6 @@ pub struct NodeConfig {
     pub catch_up_batch_limit: i64,
     pub timeout_bucket_entry_period: u64,
     pub bucket_cleanup_interval: u64,
-    #[cfg(feature = "staging_net")]
-    pub staging_net_username: String,
     pub thread_pool_size: usize,
     pub dedup_size_long: usize,
     pub dedup_size_short: usize,
@@ -369,8 +365,6 @@ impl P2PNode {
                 conf.cli.timeout_bucket_entry_period
             },
             bucket_cleanup_interval: conf.common.bucket_cleanup_interval,
-            #[cfg(feature = "staging_net")]
-            staging_net_username: get_username_from_jwt(&conf.cli.staging_net_token),
             thread_pool_size: conf.connection.thread_pool_size,
             dedup_size_long: conf.connection.dedup_size_long,
             dedup_size_short: conf.connection.dedup_size_short,

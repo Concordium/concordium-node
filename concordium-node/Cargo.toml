@@ -1,6 +1,6 @@
 [package]
 name = "concordium_node"
-version = "1.0.1" # must be kept in sync with 'is_compatible_version' in 'src/configuration.rs'
+version = "1.0.2" # must be kept in sync with 'is_compatible_version' in 'src/configuration.rs'
 description = "Concordium Node"
 authors = ["Concordium <developers@concordium.com>"]
 exclude = [".gitignore", ".gitlab-ci.yml", "test/**/*","**/**/.gitignore","**/**/.gitlab-ci.yml"]
@@ -19,7 +19,6 @@ network_dump = []
 static = [ ]
 profiling = [ "static" ]
 collector = [ "reqwest/default-tls", "serde/derive", "rmp-serde", "gotham", "mime", "gotham_derive", "hyper", "futures" ]
-staging_net = [ "serde/derive", "reqwest/default-tls", "jsonwebtoken" ]
 database_emitter = []
 genesis_tester = [ "tempfile" ]
 

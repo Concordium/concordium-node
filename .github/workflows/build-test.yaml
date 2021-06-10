@@ -162,9 +162,9 @@ jobs:
     - name: Run clippy (without extra features)
       run: |
         cargo clippy --manifest-path concordium-node/Cargo.toml --all -- -Dclippy::all
-    - name: Run clippy (with features 'instrumentation', 'collector', 'network_dump', 'staging_net', 'database_emitter')
+    - name: Run clippy (with features 'instrumentation', 'collector', 'network_dump', 'database_emitter')
       run: |
-        cargo clippy --manifest-path concordium-node/Cargo.toml --features=instrumentation,collector,network_dump,staging_net,database_emitter --all -- -Dclippy::all
+        cargo clippy --manifest-path concordium-node/Cargo.toml --features=instrumentation,collector,network_dump,database_emitter --all -- -Dclippy::all
     - name: Test Rust crates (without extra features)
       run: |
         cargo test --manifest-path concordium-node/Cargo.toml --all

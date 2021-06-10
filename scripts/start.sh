@@ -320,11 +320,6 @@ then
     ARGS="$ARGS --rpc-server-token $RPC_PASSWORD"
 fi
 
-if [ -n "$STAGING_NET_TOKEN" ];
-then
-    ARGS="$ARGS --staging-net-token $STAGING_NET_TOKEN"
-fi
-
 if [ -n "$DISTRIBUTION_CLIENT" ];
 then
     cp /genesis.dat $DATA_DIR
