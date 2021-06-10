@@ -148,7 +148,7 @@ pub fn check_peers(node: &Arc<P2PNode>, peer_stats: &[PeerStats], attempted_boot
     }
 }
 
-/// Calculate the average bytes bps (Bytes per second) received and send during
+/// Calculate the average bytes bps (Bytes per second) received and sent during
 /// the time `delta` (specified in milliseconds).
 fn calculate_average_throughput(
     before_millis: i64,   // timestamp of the last measurement
