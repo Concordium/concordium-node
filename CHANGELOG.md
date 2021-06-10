@@ -3,6 +3,8 @@
 ## Unreleased changes
 
 - Update dependencies, code cleanup, and removal of the staging_net feature. No functional changes.
+- Fix a bug in average throughput calculation that was triggered in some cases
+  of bad connectivity.
 
 ## concordium-node 1.0.1
 
