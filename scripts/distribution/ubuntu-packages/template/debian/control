@@ -1,0 +1,10 @@
+Source: concordium-node
+Maintainer: Concordium Foundation <developers@concordium.com>
+Build-Depends: debconf ( >= 1.5.73 ), debhelper ( >= 12 )
+
+Package: concordium-node
+Section: extra
+Priority: optional
+Architecture: amd64
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: Concordium Testnet Node

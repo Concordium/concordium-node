@@ -253,7 +253,10 @@ pub fn handle_consensus_inbound_msg(
     let source = request.source_peer();
 
     if node.config.no_rebroadcast_consensus_validation {
-        if !drop_message && request.distribution_mode() == DistributionMode::Broadcast {
+        if !drop_message
+            && request.distribution_mode() == DistributionMode::Broadcast
+            && request.variant.is_rebroadcastable()
+        {
             send_consensus_msg_to_net(
                 &node,
                 request.dont_relay_to(),
@@ -283,6 +286,7 @@ pub fn handle_consensus_inbound_msg(
         // rebroadcast incoming broadcasts if applicable
         if !drop_message
             && request.distribution_mode() == DistributionMode::Broadcast
+            && request.variant.is_rebroadcastable()
             && consensus_result.is_rebroadcastable()
         {
             send_consensus_msg_to_net(

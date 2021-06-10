@@ -10,12 +10,12 @@ genesis_ref="${GENESIS_REF}"
 genesis_path="${GENESIS_PATH}"
 
 # defined variables
-image_name="stagenet-node"
+image_name="mainnet-node"
 
 # Using '--no-cache' because we're cloning genesis data
 # and BuildKit (and '--ssh default') because the repo is on GitLab.
 DOCKER_BUILDKIT=1 docker build \
-  --build-arg environment="eu.staging.concordium.com"\
+  --build-arg environment="mainnet.concordium.software"\
   --build-arg base_image_tag="${base_image_tag}" \
   --build-arg static_libraries_image_tag="${static_libraries_image_tag}" \
   --build-arg ghc_version="${ghc_version}" \
@@ -36,11 +36,11 @@ DOCKER_BUILDKIT=1 docker build \
 file="${image_name}-${image_tag}.tar.gz"
 
 docker save concordium/"${image_name}:${image_tag}" | gzip > "${file}"
-aws s3 cp "${file}" s3://distribution.stagenet.concordium.com/image/ --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
+aws s3 cp "${file}" s3://distribution.mainnet.concordium.software/image/ --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
 
 # Make the image current if the tag is formatted as "<number>:<number>:<number>".
 # Other versions are for testing only.
 if [[ "${image_tag}" =~ ^[[:digit:]]\.[[:digit:]]\.[[:digit:]]$ ]]; then
   echo "{\"image_tag\": \"${image_tag}\", \"file\": \"$file\", \"image_name\": \"$image_name\"}" > version.json
-  aws s3 cp version.json s3://distribution.stagenet.concordium.com/image/ --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
+  aws s3 cp version.json s3://distribution.mainnet.concordium.software/image/ --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
 fi

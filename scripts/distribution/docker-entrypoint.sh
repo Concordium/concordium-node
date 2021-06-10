@@ -25,6 +25,18 @@ chown -R $USER_ID:$GROUP_ID /var/lib/concordium
 
 if [ -f /var/lib/concordium/data/baker-credentials.json ];
 then
+    if grep -q cipherText /var/lib/concordium/data/baker-credentials.json; then
+        echo "This distribution does not support encrypted baker credentials."
+        echo "Please replace baker-credentials.json with unencrypted credentials"
+        echo "and restart the baker."
+        echo ""
+        echo "Unencrypted credentails can be generated with"
+        echo "  concordium-client baker generate-keys <keys-file>.json"
+        echo "supplying no password at the prompt."
+        echo "To replace the baker keys on your account with these, use"
+        echo "  concordium-client baker set-keys <keys-file>.json --sender bakerAccount --out <concordium-data-dir>/baker-credentials.json"
+        exit 1
+    fi
     export BAKER_CREDENTIALS_FILENAME="baker-credentials.json"
 fi
 

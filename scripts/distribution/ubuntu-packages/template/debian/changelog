@@ -1,0 +1,5 @@
+concordium-node (1.0.1-testnet) unstable; urgency=medium
+
+   * Initial release of the testnet version.
+ 
+ -- Concordium developers <developers@concordium.com>  Thu, 13 May 2021 11:48:16 +2000
