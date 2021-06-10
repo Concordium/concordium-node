@@ -378,6 +378,8 @@ impl P2p for RpcServerImpl {
         }))
     }
 
+    #[allow(deprecated)] // this is allowed until we remove the staging_net_username from the RPC
+                         // specification.
     async fn node_info(&self, req: Request<Empty>) -> Result<Response<NodeInfoResponse>, Status> {
         authenticate!(req, self.access_token);
         let node_id = Some(self.node.id().to_string());

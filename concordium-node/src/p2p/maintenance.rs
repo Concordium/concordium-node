@@ -730,12 +730,14 @@ pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll, consensus: Option<Consensu
                 {
                     let attempted_bootstrap = connection_housekeeping(&node);
                     if node.peer_type() != PeerType::Bootstrapper {
-                        node.measure_connection_latencies();
+                        node.measure_connection_latencies()
                     }
 
                     let peer_stat_list = node.get_peer_stats(None);
                     check_peers(&node, &peer_stat_list, attempted_bootstrap);
-                    node.measure_throughput(&peer_stat_list);
+                    if let Err(e) = node.measure_throughput(&peer_stat_list) {
+                        error!("Could not measure throughput: {}", e);
+                    }
 
                     log_time = Instant::now();
                     iterations_since_housekeeping = 0;

@@ -2,7 +2,7 @@
 
 cfg_if! {
     if #[cfg(feature = "instrumentation")] {
-        use prometheus::{self, Encoder, core::{AtomicU64, GenericGauge}, IntCounter, IntGauge, Opts, Registry, TextEncoder};
+        use prometheus::{self, Encoder, core::{AtomicI64, AtomicU64, GenericGauge}, IntCounter, IntGauge, Opts, Registry, TextEncoder};
         use crate::{common::p2p_node_id::P2PNodeId, spawn_or_die, read_or_die};
         use std::{net::SocketAddr, thread, time, sync::RwLock};
         use gotham::{
@@ -16,7 +16,7 @@ cfg_if! {
         use http::{status::StatusCode, Response};
         use hyper::Body;
     } else {
-        use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+        use std::sync::atomic::{AtomicI64, AtomicU64, AtomicUsize, Ordering};
     }
 }
 use crate::configuration;
@@ -60,6 +60,7 @@ cfg_if! {
             inbound_low_priority_consensus_size: IntGauge,
             outbound_high_priority_consensus_size: IntGauge,
             outbound_low_priority_consensus_size: IntGauge,
+            last_throughput_measurement_timestamp: GenericGauge<AtomicI64>,
             bytes_received: GenericGauge<AtomicU64>,
             bytes_sent: GenericGauge<AtomicU64>,
             avg_bps_in: GenericGauge<AtomicU64>,
@@ -84,6 +85,7 @@ pub struct StatsExportService {
     inbound_low_priority_consensus_size: AtomicUsize,
     outbound_high_priority_consensus_size: AtomicUsize,
     outbound_low_priority_consensus_size: AtomicUsize,
+    last_throughput_measurement_timestamp: AtomicI64,
     bytes_received: AtomicU64,
     bytes_sent: AtomicU64,
     avg_bps_in: AtomicU64,
@@ -204,6 +206,13 @@ impl StatsExportService {
             IntGauge::with_opts(outbound_low_priority_consensus_size_opts)?;
         registry.register(Box::new(outbound_low_priority_consensus_size.clone()))?;
 
+        let last_throughput_measurement_timestamp_opts = Opts::new(
+            "last_throughput_measurement_timestamp",
+            "last_throughput_measurement_timestamp",
+        );
+        let ltm = GenericGauge::with_opts(last_throughput_measurement_timestamp_opts)?;
+        registry.register(Box::new(ltm.clone()))?;
+
         let brc_opts = Opts::new("bytes_received", "bytes received");
         let brc = GenericGauge::with_opts(brc_opts)?;
         registry.register(Box::new(brc.clone()))?;
@@ -234,6 +243,7 @@ impl StatsExportService {
             inbound_low_priority_consensus_size,
             outbound_high_priority_consensus_size,
             outbound_low_priority_consensus_size,
+            last_throughput_measurement_timestamp: ltm,
             bytes_received: brc,
             bytes_sent: bsc,
             avg_bps_in,
@@ -349,6 +359,26 @@ impl StatsExportService {
         self.outbound_low_priority_consensus_size.set(value);
         #[cfg(not(feature = "instrumentation"))]
         self.outbound_low_priority_consensus_size.store(value as usize, Ordering::Relaxed);
+    }
+
+    /// Gets the timestamp for the last throughput check.
+    pub fn get_last_throughput_measurement_timestamp(&self) -> i64 {
+        #[cfg(feature = "instrumentation")]
+        {
+            self.last_throughput_measurement_timestamp.get()
+        }
+        #[cfg(not(feature = "instrumentation"))]
+        {
+            self.last_throughput_measurement_timestamp.load(std::sync::atomic::Ordering::Relaxed)
+        }
+    }
+
+    /// Sets the value of throughput timestamp.
+    pub fn set_last_throughput_measurement_timestamp(&self, value: i64) {
+        #[cfg(feature = "instrumentation")]
+        self.last_throughput_measurement_timestamp.set(value);
+        #[cfg(not(feature = "instrumentation"))]
+        self.last_throughput_measurement_timestamp.store(value, Ordering::Relaxed);
     }
 
     /// Gets the count of received bytes.
