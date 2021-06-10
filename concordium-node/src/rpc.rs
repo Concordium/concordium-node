@@ -10,7 +10,6 @@ use crate::{
         helpers::{ConsensusFfiResponse, ConsensusIsInBakingCommitteeResponse, PacketType},
         messaging::{ConsensusMessage, MessageType},
     },
-    failure::Fallible,
     network::NetworkId,
     p2p::{bans::PersistedBanId, P2PNode},
     read_or_die,
@@ -43,7 +42,7 @@ impl RpcServerImpl {
         node: Arc<P2PNode>,
         consensus: Option<ConsensusContainer>,
         conf: &configuration::RpcCliConfig,
-    ) -> Fallible<Self> {
+    ) -> anyhow::Result<Self> {
         let listen_addr =
             SocketAddr::from((IpAddr::from_str(&conf.rpc_server_addr)?, conf.rpc_server_port));
 
@@ -56,7 +55,7 @@ impl RpcServerImpl {
     }
 
     /// Starts the gRPC server.
-    pub async fn start_server(&mut self) -> Fallible<()> {
+    pub async fn start_server(&mut self) -> anyhow::Result<()> {
         let self_clone = self.clone();
         let server = Server::builder().add_service(P2pServer::new(self_clone));
 
@@ -846,7 +845,6 @@ mod tests {
         },
     };
     use chrono::prelude::Utc;
-    use failure::Fallible;
     use tonic::{metadata::MetadataValue, transport::channel::Channel, Code, Request};
 
     use grpc_api::p2p_client::P2pClient;
@@ -858,7 +856,7 @@ mod tests {
     // The intended use is for spawning nodes for testing gRPC api.
     async fn create_test_rpc_node(
         nt: PeerType,
-    ) -> Fallible<(P2pClient<Channel>, Arc<P2PNode>, DeletePermission)> {
+    ) -> anyhow::Result<(P2pClient<Channel>, Arc<P2PNode>, DeletePermission)> {
         let (node, dp) =
             make_node_and_sync(next_available_port(), vec![100], nt, dummy_regenesis_blocks())
                 .unwrap();
@@ -881,7 +879,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_grpc_noauth() -> Fallible<()> {
+    async fn test_grpc_noauth() -> anyhow::Result<()> {
         let (mut client, node, dp) = create_test_rpc_node(PeerType::Node).await.unwrap();
 
         match client.peer_version(req_with_auth!(grpc_api::Empty {}, "derp")).await {
@@ -893,7 +891,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_peer_version() -> Fallible<()> {
+    async fn test_peer_version() -> anyhow::Result<()> {
         let (mut client, node, dp) = create_test_rpc_node(PeerType::Node).await.unwrap();
         assert_eq!(
             client
@@ -909,7 +907,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_peer_uptime() -> Fallible<()> {
+    async fn test_peer_uptime() -> anyhow::Result<()> {
         let t0 = Utc::now().timestamp_millis() as u64;
         let (mut client, node, dp) = create_test_rpc_node(PeerType::Node).await.unwrap();
 
@@ -928,7 +926,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_peer_total_received() -> Fallible<()> {
+    async fn test_peer_total_received() -> anyhow::Result<()> {
         let (mut client, node, dp) = create_test_rpc_node(PeerType::Node).await.unwrap();
         let port = next_available_port();
         let (node2, dp2) =
@@ -948,7 +946,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_peer_total_sent() -> Fallible<()> {
+    async fn test_peer_total_sent() -> anyhow::Result<()> {
         let (mut client, node, dp) = create_test_rpc_node(PeerType::Node).await.unwrap();
         let port = next_available_port();
         let (node2, dp2) =
@@ -968,7 +966,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_peer_connect() -> Fallible<()> {
+    async fn test_peer_connect() -> anyhow::Result<()> {
         let (mut client, node, dp) = create_test_rpc_node(PeerType::Node).await.unwrap();
         let port = next_available_port();
         let (node2, dp2) =
@@ -995,7 +993,7 @@ mod tests {
     // `tests/consensus-tests.rs`
 
     #[tokio::test]
-    async fn test_join_network() -> Fallible<()> {
+    async fn test_join_network() -> anyhow::Result<()> {
         let (mut client, node, dp) = create_test_rpc_node(PeerType::Node).await.unwrap();
         let port = next_available_port();
         let (node2, dp2) =
@@ -1016,7 +1014,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_leave_network() -> Fallible<()> {
+    async fn test_leave_network() -> anyhow::Result<()> {
         let (mut client, node, dp) = create_test_rpc_node(PeerType::Node).await.unwrap();
         let port = next_available_port();
         let (node2, dp2) =
@@ -1037,7 +1035,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_peer_stats() -> Fallible<()> {
+    async fn test_peer_stats() -> anyhow::Result<()> {
         let (mut client, node, dp) = create_test_rpc_node(PeerType::Node).await.unwrap();
         let port = next_available_port();
         let (node2, dp2) =
@@ -1061,7 +1059,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_peer_list() -> Fallible<()> {
+    async fn test_peer_list() -> anyhow::Result<()> {
         let (mut client, node, dp) = create_test_rpc_node(PeerType::Node).await.unwrap();
         let port = next_available_port();
         let (node2, dp2) =
@@ -1091,7 +1089,7 @@ mod tests {
 
     #[cfg(flag = "bootstrapper")]
     #[tokio::test]
-    async fn test_grpc_peer_list_bootstrapper() -> Fallible<()> {
+    async fn test_grpc_peer_list_bootstrapper() -> anyhow::Result<()> {
         let (mut client, _, dp) = create_test_rpc_node(PeerType::Bootstrapper).await.unwrap();
         let req = req_with_auth!(
             grpc_api::PeersRequest {
@@ -1105,7 +1103,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_node_info() -> Fallible<()> {
+    async fn test_node_info() -> anyhow::Result<()> {
         let instant1 = (Utc::now().timestamp_millis() as u64) / 1000;
         let (mut client, node, dp) = create_test_rpc_node(PeerType::Node).await.unwrap();
         let reply = client.node_info(req_with_auth!(grpc_api::Empty {}, TOKEN)).await.unwrap();
@@ -1135,7 +1133,7 @@ mod tests {
     // - Get last final instance info
 
     #[tokio::test]
-    async fn test_shutdown() -> Fallible<()> {
+    async fn test_shutdown() -> anyhow::Result<()> {
         let (mut client, node, dp) = create_test_rpc_node(PeerType::Node).await.unwrap();
         assert!(
             client

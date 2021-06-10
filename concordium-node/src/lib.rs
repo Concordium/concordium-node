@@ -17,16 +17,9 @@ cfg_if! {
 #[macro_use]
 extern crate cfg_if;
 
-#[macro_use]
-extern crate failure;
-
 #[cfg(test)]
 #[macro_use]
 extern crate quickcheck;
-
-#[cfg(feature = "s11n_serde")]
-#[macro_use]
-extern crate serde_derive;
 
 /// Client's version.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -35,7 +28,7 @@ pub const APPNAME: &str = env!("CARGO_PKG_NAME");
 
 pub mod common;
 pub mod configuration;
-#[cfg_attr(feature = "s11n_serde", allow(unreachable_code, unused))]
+
 pub mod connection;
 
 pub mod network;

@@ -1,8 +1,8 @@
 //! Node maintenance methods.
 
+use anyhow::Context;
 use chrono::prelude::*;
 use crossbeam_channel::{self, Receiver, Sender};
-use failure::{Fallible, ResultExt};
 use mio::{net::TcpListener, Events, Interest, Poll, Registry, Token};
 use nohash_hasher::BuildNoHashHasher;
 use rand::{prelude::SliceRandom, thread_rng, Rng};
@@ -273,7 +273,7 @@ impl P2PNode {
         peer_type: PeerType,
         stats: Arc<StatsExportService>,
         regenesis_arc: Arc<RwLock<Vec<BlockHash>>>,
-    ) -> Fallible<(Arc<Self>, Poll)> {
+    ) -> anyhow::Result<(Arc<Self>, Poll)> {
         let addr = if let Some(ref addy) = conf.common.listen_address {
             let ip_addr = addy.parse::<IpAddr>().context(
                 "Supplied listen address could not be parsed. The address must be a valid IP \
@@ -289,9 +289,8 @@ impl P2PNode {
         let ip = if let Some(ref addy) = conf.common.listen_address {
             IpAddr::from_str(addy).context("Could not parse the provided listen address.")?
         } else {
-            P2PNode::get_ip().ok_or_else(|| {
-                format_err!("Could not compute my own ip. Use `--listen-address` to specify it.")
-            })?
+            P2PNode::get_ip()
+                .context("Could not compute my own ip. Use `--listen-address` to specify it.")?
         };
 
         let id = supplied_id.unwrap_or_else(|| rand::thread_rng().gen::<P2PNodeId>());
@@ -492,7 +491,7 @@ impl P2PNode {
 
     /// Activate the network dump feature.
     #[cfg(feature = "network_dump")]
-    pub fn activate_dump(&self, path: &str, raw: bool) -> Fallible<()> {
+    pub fn activate_dump(&self, path: &str, raw: bool) -> anyhow::Result<()> {
         let path = std::path::PathBuf::from(path);
         self.network_dumper.switch.send((path, raw))?;
         self.dump_start(self.network_dumper.sender.clone());
@@ -501,7 +500,7 @@ impl P2PNode {
 
     /// Deactivate the network dump feature.
     #[cfg(feature = "network_dump")]
-    pub fn stop_dump(&self) -> Fallible<()> {
+    pub fn stop_dump(&self) -> anyhow::Result<()> {
         let path = std::path::PathBuf::new();
         self.network_dumper.switch.send((path, false))?;
         self.dump_stop();
@@ -597,7 +596,7 @@ impl P2PNode {
     /// Waits for all the spawned threads to terminate.
     /// This may panic or deadlock (depending on platform) if used from two
     /// different node threads.
-    pub fn join(&self) -> Fallible<()> {
+    pub fn join(&self) -> anyhow::Result<()> {
         // try to acquire the thread handles.
         let handles = {
             match self.threads.write() {
@@ -621,7 +620,7 @@ impl P2PNode {
     /// This method should only be called once by the thread that created the
     /// node. It may panic or deadlock (depending on platform) if used from
     /// two different node threads.
-    pub fn close_and_join(&self) -> Fallible<()> {
+    pub fn close_and_join(&self) -> anyhow::Result<()> {
         self.close();
         self.join()
     }
@@ -889,7 +888,7 @@ fn get_ip_if_suitable(addr: &IpAddr) -> Option<IpAddr> {
 fn parse_config_nodes(
     conf: &config::ConnectionConfig,
     dns_resolvers: &[String],
-) -> Fallible<HashSet<SocketAddr>> {
+) -> anyhow::Result<HashSet<SocketAddr>> {
     let mut out = HashSet::new();
     for connect_to in &conf.connect_to {
         let new_addresses =
