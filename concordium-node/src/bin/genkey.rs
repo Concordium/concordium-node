@@ -2,7 +2,6 @@
 
 use concordium_node::utils::{generate_ed25519_key, to_hex_string};
 use ed25519_dalek::{PublicKey, SecretKey};
-use failure::Fallible;
 use std::{fs::OpenOptions, io::Write, process::exit};
 use structopt::StructOpt;
 
@@ -19,7 +18,7 @@ struct ConfigCli {
     pub print_config: bool,
 }
 
-pub fn main() -> Fallible<()> {
+pub fn main() -> anyhow::Result<()> {
     let conf = ConfigCli::from_args();
 
     if conf.print_config {

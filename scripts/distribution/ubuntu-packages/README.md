@@ -56,8 +56,8 @@ The strategy for building the package is as follows.
 2. Update [template/debian/changelog](template/debian/changelog) as appropriate.
 3. Update [template/debian/control](template/debian/control) as appropriate.
 4. Update the
-   [template/debian/concordium-node.install](template/debian/concordium-node.install)
-   file with the genesis hash (NB: This is __not__ the hash of genesis.dat file,
+   [template/debian/concordium-node.install](template/debian/concordium-node.install) and [template/debian/concordium-node.dirs](template/debian/concordium-node.dirs) files
+   with the genesis hash (NB: This is __not__ the hash of genesis.dat file,
    it is the hash of the genesis block, which is defined differently. It is
    emitted by the genesis tool into a file `genesis_hash`)
 5. Update

@@ -1,7 +1,6 @@
 #![recursion_limit = "1024"]
 
 // Force the system allocator on every platform
-use failure::ResultExt;
 use std::{
     alloc::System,
     sync::{Arc, RwLock},
@@ -9,6 +8,7 @@ use std::{
 #[global_allocator]
 static A: System = System;
 
+use anyhow::{ensure, Context};
 use concordium_node::{
     common::PeerType,
     consensus_ffi::blockchain_types::BlockHash,
@@ -16,11 +16,10 @@ use concordium_node::{
     stats_export_service::instantiate_stats_export_engine,
     utils::get_config_and_logging_setup,
 };
-use failure::{ensure, Error};
 
 use std::{env, process::Command, thread, time::Duration};
 
-fn main() -> Result<(), Error> {
+fn main() -> anyhow::Result<()> {
     let (mut conf, app_prefs) = get_config_and_logging_setup()?;
     let data_dir_path = app_prefs.get_user_app_dir();
 

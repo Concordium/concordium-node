@@ -1,5 +1,5 @@
+use anyhow::{anyhow, Context};
 use byteorder::{NetworkEndian, ReadBytesExt};
-use failure::{format_err, Fallible, ResultExt};
 use serde::{Deserialize, Serialize};
 use std::{
     convert::{TryFrom, TryInto},
@@ -66,9 +66,8 @@ pub struct HashBytes([u8; SHA256 as usize]);
 impl HashBytes {
     /// Construct HashBytes from a slice.
     /// This will succeed if and only if the length of the slice is 32.
-    pub fn new(bytes: &[u8]) -> Fallible<Self> {
-        let buf: Result<[u8; 32], _> = bytes.try_into();
-        let buf = buf.context("HashBytes::new passed slice of incorrect length.")?;
+    pub fn new(bytes: &[u8]) -> anyhow::Result<Self> {
+        let buf = bytes.try_into()?;
         Ok(HashBytes(buf))
     }
 }
@@ -88,7 +87,7 @@ impl AsRef<[u8]> for HashBytes {
 }
 
 impl FromStr for HashBytes {
-    type Err = failure::Error;
+    type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let hex_decoded = hex::decode(s)?;
@@ -97,7 +96,7 @@ impl FromStr for HashBytes {
 }
 
 impl TryFrom<String> for HashBytes {
-    type Error = failure::Error;
+    type Error = anyhow::Error;
 
     fn try_from(value: String) -> Result<Self, Self::Error> { Self::from_str(value.as_str()) }
 }
@@ -141,14 +140,14 @@ static PACKET_TYPE_FROM_INT: &[PacketType] = &[
 ];
 
 impl TryFrom<u8> for PacketType {
-    type Error = failure::Error;
+    type Error = anyhow::Error;
 
     #[inline]
-    fn try_from(value: u8) -> Fallible<PacketType> {
+    fn try_from(value: u8) -> anyhow::Result<PacketType> {
         PACKET_TYPE_FROM_INT
             .get(value as usize)
             .copied()
-            .ok_or_else(|| format_err!("Unsupported packet type ({})", value))
+            .context(format! {"Unsupported packet type ({})", value})
     }
 }
 
@@ -269,10 +268,10 @@ impl ConsensusFfiResponse {
 }
 
 impl TryFrom<i64> for ConsensusFfiResponse {
-    type Error = failure::Error;
+    type Error = anyhow::Error;
 
     #[inline]
-    fn try_from(value: i64) -> Fallible<ConsensusFfiResponse> {
+    fn try_from(value: i64) -> anyhow::Result<ConsensusFfiResponse> {
         use ConsensusFfiResponse::*;
 
         match value {
@@ -297,7 +296,7 @@ impl TryFrom<i64> for ConsensusFfiResponse {
             17 => Ok(DuplicateNonce),
             18 => Ok(NonceTooLarge),
             19 => Ok(TooLowEnergy),
-            _ => Err(format_err!("Unsupported FFI return code ({})", value)),
+            _ => Err(anyhow!("Unsupported FFI return code ({})", value)),
         }
     }
 }
@@ -311,10 +310,10 @@ pub enum ConsensusIsInBakingCommitteeResponse {
 }
 
 impl TryFrom<i64> for ConsensusIsInBakingCommitteeResponse {
-    type Error = failure::Error;
+    type Error = anyhow::Error;
 
     #[inline]
-    fn try_from(value: i64) -> Fallible<ConsensusIsInBakingCommitteeResponse> {
+    fn try_from(value: i64) -> anyhow::Result<ConsensusIsInBakingCommitteeResponse> {
         use ConsensusIsInBakingCommitteeResponse::*;
 
         match value {
@@ -322,7 +321,7 @@ impl TryFrom<i64> for ConsensusIsInBakingCommitteeResponse {
             -2 => Ok(AddedButNotActiveInCommittee),
             -3 => Ok(AddedButWrongKeys),
             baker_id if baker_id >= 0 => Ok(ActiveInCommittee(baker_id as u64)),
-            _ => Err(format_err!("Unsupported FFI return code for committee status ({})", value)),
+            _ => Err(anyhow!("Unsupported FFI return code for committee status ({})", value)),
         }
     }
 }
@@ -335,17 +334,17 @@ pub enum ConsensusIsInFinalizationCommitteeResponse {
 }
 
 impl TryFrom<u8> for ConsensusIsInFinalizationCommitteeResponse {
-    type Error = failure::Error;
+    type Error = anyhow::Error;
 
     #[inline]
-    fn try_from(value: u8) -> Fallible<ConsensusIsInFinalizationCommitteeResponse> {
+    fn try_from(value: u8) -> anyhow::Result<ConsensusIsInFinalizationCommitteeResponse> {
         use ConsensusIsInFinalizationCommitteeResponse::*;
 
         match value {
             0 => Ok(NotInCommittee),
             1 => Ok(AddedButNotActiveInCommittee),
             2 => Ok(ActiveInCommittee),
-            _ => Err(format_err!("Unsupported FFI return code for committee status ({})", value)),
+            _ => Err(anyhow!("Unsupported FFI return code for committee status ({})", value)),
         }
     }
 }

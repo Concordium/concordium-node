@@ -5,8 +5,8 @@ use crate::{
     connection::DeduplicationHashAlgorithm,
     network::{WireProtocolVersion, WIRE_PROTOCOL_VERSION},
 };
+use anyhow::{ensure, Context};
 use app_dirs2::*;
-use failure::{Fallible, ResultExt};
 use preferences::{Preferences, PreferencesMap};
 use std::{
     fs::{File, OpenOptions},
@@ -643,14 +643,6 @@ pub struct CliConfig {
     pub baker: BakerConfig,
     #[structopt(flatten)]
     pub rpc: RpcCliConfig,
-    #[cfg(feature = "staging_net")]
-    #[structopt(
-        long = "staging-net-token",
-        help = "Staging network client token",
-        env = "CONCORDIUM_NODE_STAGING_NET_TOKEN",
-        hide_env_values = true
-    )]
-    pub staging_net_token: String,
     #[structopt(
         long = "timeout-bucket-entry-period",
         help = "Timeout an entry in the buckets after a given period (in ms), 0 means never",
@@ -791,7 +783,7 @@ impl Config {
 }
 
 /// Verifies the validity of the configuration.
-pub fn parse_config() -> Fallible<Config> {
+pub fn parse_config() -> anyhow::Result<Config> {
     let conf = {
         let app = Config::clap()
             .setting(AppSettings::ArgRequiredElseHelp)
@@ -936,7 +928,10 @@ impl AppPreferences {
     /// Get a piece of config from the config map.
     /// If the value is not present return Ok(None), if it is present, but
     /// cannot be parsed as the requested type return an error.
-    pub fn get_config<X: FromStr<Err = failure::Error>>(&self, key: &str) -> Fallible<Option<X>> {
+    pub fn get_config<X: FromStr<Err = anyhow::Error>>(
+        &self,
+        key: &str,
+    ) -> anyhow::Result<Option<X>> {
         match self.preferences_map.get(key) {
             Some(x_str) => {
                 let x = X::from_str(x_str).context(
