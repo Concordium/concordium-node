@@ -95,7 +95,8 @@ struct ConfigCli {
     #[structopt(
         long = "banned-versions",
         help = "Versions that are banned from publishing to the collector backend",
-        env = "COLLECTOR_BACKEND_BANNED_VERSIONS"
+        env = "COLLECTOR_BACKEND_BANNED_VERSIONS",
+        use_delimiter = true
     )]
     pub banned_versions: Vec<String>,
     #[structopt(

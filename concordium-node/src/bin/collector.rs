@@ -58,13 +58,15 @@ struct ConfigCli {
         long = "grpc-host",
         help = "gRPC host to collect from",
         default_value = "http://127.0.0.1:10000",
-        env = "CONCORDIUM_NODE_COLLECTOR_GRPC_HOST"
+        env = "CONCORDIUM_NODE_COLLECTOR_GRPC_HOST",
+        use_delimiter = true // default delimiter is a comma
     )]
     pub grpc_hosts: Vec<String>,
     #[structopt(
         long = "node-name",
         help = "Node name",
-        env = "CONCORDIUM_NODE_COLLECTOR_NODE_NAME"
+        env = "CONCORDIUM_NODE_COLLECTOR_NODE_NAME",
+        use_delimiter = true // default delimiter is a comma
     )]
     pub node_names: Vec<NodeName>,
     #[structopt(

@@ -406,14 +406,16 @@ pub struct ConnectionConfig {
     #[structopt(
         long = "dns-resolver",
         help = "DNS resolver to use",
-        env = "CONCORDIUM_NODE_CONNECTION_DNS_RESOLVER"
+        env = "CONCORDIUM_NODE_CONNECTION_DNS_RESOLVER",
+        use_delimiter = true
     )]
     pub dns_resolver: Vec<String>,
     #[structopt(
         name = "bootstrap-node",
         long = "bootstrap-node",
         help = "Bootstrap nodes to use upon startup host/ip:port (this disables DNS bootstrapping)",
-        env = "CONCORDIUM_NODE_CONNECTION_BOOSTRAP_NODES"
+        env = "CONCORDIUM_NODE_CONNECTION_BOOSTRAP_NODES",
+        use_delimiter = true
     )]
     pub bootstrap_nodes: Vec<String>,
     #[structopt(
@@ -584,7 +586,8 @@ pub struct CommonConfig {
         short = "n",
         help = "Enable network id",
         default_value = "1000",
-        env = "CONCORDIUM_NODE_NETWORK_ID"
+        env = "CONCORDIUM_NODE_NETWORK_ID",
+        use_delimiter = true
     )]
     pub network_ids: Vec<u16>,
     #[structopt(
