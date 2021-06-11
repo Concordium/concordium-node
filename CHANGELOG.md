@@ -5,6 +5,8 @@
 - Update dependencies, code cleanup, and removal of the staging_net feature. No functional changes.
 - Fix a bug in average throughput calculation that was triggered in some cases
   of bad connectivity.
+- Add support for configuring the node and the collector via environment
+  variables in addition to command line arguments.
 
 ## concordium-node 1.0.1
 
