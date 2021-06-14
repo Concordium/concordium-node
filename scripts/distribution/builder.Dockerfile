@@ -60,8 +60,6 @@ ARG environment
 EXPOSE 8888
 # Node dashboard
 EXPOSE 8099
-# GRPC-web proxy
-EXPOSE 9999
 # GRPC
 EXPOSE 10000
     
