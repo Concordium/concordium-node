@@ -4,6 +4,7 @@ mod low_level;
 pub mod message_handlers;
 #[cfg(test)]
 mod tests;
+pub mod version_adapter;
 
 use low_level::ConnectionLowLevel;
 
@@ -21,11 +22,11 @@ use crate::{
         P2PNodeId, PeerType, RemotePeer,
     },
     configuration::MAX_PEER_NETWORKS,
-    connection::low_level::ReadResult,
+    connection::{low_level::ReadResult, version_adapter::rewrite_incoming},
     netmsg,
     network::{
         NetworkId, NetworkMessage, NetworkPacket, NetworkPayload, NetworkRequest, NetworkResponse,
-        Networks,
+        Networks, WireProtocolVersion, WIRE_PROTOCOL_CURRENT_VERSION,
     },
     only_fbs,
     p2p::P2PNode,
@@ -375,6 +376,8 @@ pub struct Connection {
     pub stats: ConnectionStats,
     /// The queue of messages to be sent to the connection.
     pub pending_messages: MessageQueues,
+    /// The wire protocol version for communicating on the connection.
+    pub wire_version: WireProtocolVersion,
 }
 
 impl PartialEq for Connection {
@@ -430,6 +433,9 @@ impl Connection {
             remote_end_networks: Default::default(),
             stats,
             pending_messages: MessageQueues::new(1024, 128),
+            // When we create the connection, we set the wire protocol version
+            // to the current version, but this is overwritten in the handshake.
+            wire_version: WIRE_PROTOCOL_CURRENT_VERSION,
         })
     }
 
@@ -521,6 +527,10 @@ impl Connection {
 
         let mut message = NetworkMessage::deserialize(&bytes)?;
 
+        if self.wire_version != WIRE_PROTOCOL_CURRENT_VERSION {
+            rewrite_incoming(self.wire_version, &mut message)?;
+        }
+
         if let NetworkPayload::NetworkPacket(ref mut packet) = message.payload {
             // disregard packets when in bootstrapper mode
             if self.handler.self_peer.peer_type == PeerType::Bootstrapper {
@@ -537,7 +547,13 @@ impl Connection {
     }
 
     /// Concludes the connection's handshake process.
-    pub fn promote_to_post_handshake(&mut self, id: P2PNodeId, peer_port: u16, nets: &Networks) {
+    pub fn promote_to_post_handshake(
+        &mut self,
+        id: P2PNodeId,
+        peer_port: u16,
+        nets: &Networks,
+        wire_version: WireProtocolVersion,
+    ) {
         self.remote_peer.self_id = Some(id);
         self.remote_peer.external_port = peer_port;
         self.handler.stats.peers_inc();
@@ -545,8 +561,12 @@ impl Connection {
             self.handler.update_last_bootstrap();
         }
         self.populate_remote_end_networks(self.remote_peer, nets);
+        self.wire_version = wire_version;
         self.handler.register_conn_change(ConnChange::Promotion(self.token()));
-        debug!("Concluded handshake with peer {}(their id {})", self.remote_peer.local_id, id);
+        debug!(
+            "Concluded handshake with peer {} (their id {}); wire protocol version {}",
+            self.remote_peer.local_id, id, wire_version
+        );
     }
 
     /// Queues a message to be sent to the connection.

@@ -89,16 +89,17 @@ impl Connection {
         if handshake.wire_versions.is_empty() {
             bail!("Rejecting handshake: Handshake message lacked wire versions.");
         }
-        if is_compatible_wire_version(&handshake.wire_versions).is_none() {
-            if handshake.wire_versions.len() > 10 {
+        let wire_version =
+            if let Some(wire_version) = is_compatible_wire_version(&handshake.wire_versions) {
+                wire_version
+            } else if handshake.wire_versions.len() > 10 {
                 bail!("Rejecting handshake: incompatible wire protocol versions received.",);
             } else {
                 bail!(
                     "Rejecting handshake: incompatible wire protocol versions ({:?}).",
                     handshake.wire_versions
                 );
-            }
-        }
+            };
         if handshake.networks.len() > MAX_PEER_NETWORKS {
             bail!("Rejecting handshake: too many networks.");
         }
@@ -127,6 +128,7 @@ impl Connection {
             handshake.remote_id,
             handshake.remote_port,
             &handshake.networks,
+            wire_version,
         );
 
         if self.handler.peer_type() == PeerType::Bootstrapper {

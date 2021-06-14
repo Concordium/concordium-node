@@ -3,7 +3,7 @@
 use crate::{
     common::P2PNodeId,
     connection::DeduplicationHashAlgorithm,
-    network::{WireProtocolVersion, WIRE_PROTOCOL_VERSION},
+    network::{WireProtocolVersion, WIRE_PROTOCOL_VERSIONS},
 };
 use app_dirs2::*;
 use failure::{Fallible, ResultExt};
@@ -29,15 +29,13 @@ pub const APP_INFO: AppInfo = AppInfo {
 /// changes.
 pub(crate) fn is_compatible_version(other: &semver::Version) -> bool { other.major == 1 }
 
-/// Check that the other wire version is compatible with ours. See
-/// `network::WIRE_PROTOCOL_VERSION`. For now it only checks if there is a
-/// matching version because we only have version 0. In the future, a node
-/// should support several versions and it should find the highest matching
-/// version that can be used.
+/// Check that the other wire version is compatible with ours. This returns
+/// the highest wire protocol version that is supported by both nodes (since
+/// `network::WIRE_PROTOCOL_VERSIONS` is in descending order).
 pub(crate) fn is_compatible_wire_version(
     other: &[WireProtocolVersion],
 ) -> Option<WireProtocolVersion> {
-    other.iter().find(|x| **x == WIRE_PROTOCOL_VERSION).copied()
+    WIRE_PROTOCOL_VERSIONS.iter().find(|&&ours| other.iter().any(|&theirs| theirs == ours)).copied()
 }
 
 /// The maximum size of objects accepted from the network.

@@ -527,7 +527,7 @@ fn update_peer_states(
                 // That should not be necessary if we simply relay the
                 // messages to them.
 
-                // relay rebroadcastable direct messages to non-pending peers, but originator
+                // relay rebroadcastable direct messages to non-pending peers, except originator
                 for non_pending_peer in peers
                     .peer_states
                     .iter()
