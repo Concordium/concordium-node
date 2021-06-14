@@ -60,8 +60,6 @@ ARG environment
 EXPOSE 8888
 # Node dashboard
 EXPOSE 8099
-# GRPC-web proxy
-EXPOSE 9999
 # GRPC
 EXPOSE 10000
 ENV RPC_SERVER_ADDR=0.0.0.0
