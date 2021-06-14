@@ -36,20 +36,20 @@ const WRITE_QUEUE_ALLOC: usize = 1024 * 1024;
 #[derive(Default)]
 struct IncomingMessage {
     /// Contains bytes comprising the length of the message.
-    size_bytes: Vec<u8>,
+    size_bytes:    Vec<u8>,
     /// The number of bytes remaining to be read in order to complete the
     /// current message.
     pending_bytes: usize,
     /// The encrypted message currently being read.
-    message: Vec<u8>,
+    message:       Vec<u8>,
 }
 
 /// A buffer used to handle reads/writes to the socket.
 struct SocketBuffer {
     /// The socket read/write buffer.
-    buf: Box<[u8]>,
+    buf:       Box<[u8]>,
     /// The buffer's offset.
-    offset: usize,
+    offset:    usize,
     /// The bytes remaining from the last read from the socket.
     remaining: usize,
 }
@@ -106,23 +106,23 @@ pub enum ReadResult {
 /// The `Connection`'s socket, noise session and some helper objects.
 pub struct ConnectionLowLevel {
     /// A reference to the node.
-    pub handler: Weak<P2PNode>,
+    pub handler:    Weak<P2PNode>,
     /// The socket associated with the connection.
-    pub socket: TcpStream,
-    noise_session: NoiseSession,
-    noise_buffer: Box<[u8]>,
-    socket_buffer: SocketBuffer,
-    incoming_msg: IncomingMessage,
+    pub socket:     TcpStream,
+    noise_session:  NoiseSession,
+    noise_buffer:   Box<[u8]>,
+    socket_buffer:  SocketBuffer,
+    incoming_msg:   IncomingMessage,
     /// A priority queue for bytes waiting to be written to the socket.
-    output_queue: VecDeque<u8>,
+    output_queue:   VecDeque<u8>,
     /// The desired size of a single write to the socket.
-    write_size: usize,
+    write_size:     usize,
     /// Whether the socket is writable.
-    is_writable: bool,
+    is_writable:    bool,
     /// Whether the socket has been initialized
     is_initialized: bool,
     /// If specified, the linger value to set for the socket
-    so_linger: Option<u16>,
+    so_linger:      Option<u16>,
 }
 
 macro_rules! recv_xx_msg {

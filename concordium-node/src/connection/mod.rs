@@ -89,7 +89,7 @@ pub trait DeduplicationQueue: Send + Sync {
 /// XxHash64 deduplication struct
 pub struct DeduplicationQueueXxHash64 {
     /// Random seed generated per queue when constructed
-    seed: u64,
+    seed:  u64,
     /// The queue itself
     queue: CircularQueue<u64>,
 }
@@ -214,27 +214,27 @@ impl DeduplicationQueues {
 /// Contains all the statistics of a connection.
 pub struct ConnectionStats {
     /// Timestamp of connection creation.
-    pub created: u64,
+    pub created:           u64,
     /// Timestamp at which the connection was last seen.
     /// For regular peers, this is the timestamp of the
     /// last received message.
-    pub last_seen: AtomicU64,
+    pub last_seen:         AtomicU64,
     /// Timestamp of last ping message being sent
-    last_ping: AtomicU64,
+    last_ping:             AtomicU64,
     /// Interval between sending the last two pings
-    last_ping_interval: AtomicU64,
+    last_ping_interval:    AtomicU64,
     /// Number of pings sent minus number of pongs received
-    pending_pongs: AtomicI64,
+    pending_pongs:         AtomicI64,
     /// Latency measured at last received pong
-    last_latency: AtomicU64,
+    last_latency:          AtomicU64,
     /// Number of messages sent.
-    pub messages_sent: AtomicU64,
+    pub messages_sent:     AtomicU64,
     /// Number of messages received.
     pub messages_received: AtomicU64,
     /// Number of bytes received.
-    pub bytes_received: AtomicU64,
+    pub bytes_received:    AtomicU64,
     /// Number of bytes sent.
-    pub bytes_sent: AtomicU64,
+    pub bytes_sent:        AtomicU64,
 }
 
 impl ConnectionStats {
@@ -296,11 +296,11 @@ pub enum ConnChange {
     /// Prospect node address to attempt to connect to.
     NewConn {
         /// address to connect to
-        addr: SocketAddr,
+        addr:      SocketAddr,
         /// what kind of a peer to expect on the address
         peer_type: PeerType,
         /// whether the connection was given or discovered
-        given: bool,
+        given:     bool,
     },
     /// Prospect peers to possibly connect to.
     NewPeers(Vec<P2PPeer>),
@@ -363,16 +363,16 @@ impl MessageQueues {
 /// A collection of objects related to the connection to a single peer.
 pub struct Connection {
     /// A reference to the parent node.
-    handler: Arc<P2PNode>,
+    handler:                 Arc<P2PNode>,
     /// The connection's representation as a peer object.
-    pub remote_peer: RemotePeer,
+    pub remote_peer:         RemotePeer,
     /// Low-level connection objects.
-    pub low_level: ConnectionLowLevel,
+    pub low_level:           ConnectionLowLevel,
     /// The list of networks the connection belongs to.
     pub remote_end_networks: Networks,
-    pub stats: ConnectionStats,
+    pub stats:               ConnectionStats,
     /// The queue of messages to be sent to the connection.
-    pub pending_messages: MessageQueues,
+    pub pending_messages:    MessageQueues,
 }
 
 impl PartialEq for Connection {

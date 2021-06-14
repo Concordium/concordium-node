@@ -16,8 +16,8 @@ const BUCKET_COUNT: usize = 1;
 /// A representation of a node in a bucket.
 #[derive(Eq, Clone)]
 pub struct Node {
-    pub peer: RemotePeer,
-    pub networks: Networks,
+    pub peer:      RemotePeer,
+    pub networks:  Networks,
     /// The timestamp pointing to when the node was seen last.
     pub last_seen: u64,
 }

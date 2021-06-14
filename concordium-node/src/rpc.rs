@@ -33,7 +33,7 @@ pub struct RpcServerImpl {
     listen_addr:  SocketAddr,
     access_token: String,
     // this field is optional only for test purposes
-    consensus: Option<ConsensusContainer>,
+    consensus:    Option<ConsensusContainer>,
 }
 
 impl RpcServerImpl {
@@ -361,9 +361,9 @@ impl P2p for RpcServerImpl {
                 PeerType::Bootstrapper => req.get_ref().include_bootstrappers,
             })
             .map(|peer| PeerElement {
-                node_id: Some(format!("{}", peer.self_id)),
-                ip:      Some(peer.addr.ip().to_string()),
-                port:    Some(peer.addr.port() as u32),
+                node_id:        Some(format!("{}", peer.self_id)),
+                ip:             Some(peer.addr.ip().to_string()),
+                port:           Some(peer.addr.port() as u32),
                 // We map the state, and if there's no state dwe default to pending
                 catchup_status: match peer_catchup_stats.get(&peer.local_id) {
                     Some(&status) => status as i32,
@@ -759,9 +759,10 @@ impl P2p for RpcServerImpl {
                     };
 
                     PeerElement {
-                        node_id: Some("*".to_owned()), // we do not record the id of banned peers.
-                        ip: Some(ip),
-                        port: None,
+                        node_id:        Some("*".to_owned()), /* we do not record the id of
+                                                               * banned peers. */
+                        ip:             Some(ip),
+                        port:           None,
                         /// a banned peer is always in state pending for
                         /// catch-up
                         catchup_status: peer_element::CatchupStatus::Pending as i32,

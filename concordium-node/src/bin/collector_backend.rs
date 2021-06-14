@@ -47,58 +47,58 @@ struct ConfigCli {
         default_value = "0.0.0.0",
         env = "COLLECTOR_BACKEND_ADDRESS"
     )]
-    pub host: String,
+    pub host:                   String,
     #[structopt(
         long = "listen-port",
         help = "Port to listen on",
         default_value = "8080",
         env = "COLLECTOR_BACKEND_PORT"
     )]
-    pub port: u16,
+    pub port:                   u16,
     #[structopt(
         long = "stale-time-allowed",
         help = "Time in ms nodes are allowed to not have reported updates in before being removed",
         default_value = "3600000",
         env = "COLLECTOR_BACKEND_STALE_TIME_ALLOWED"
     )]
-    pub stale_time_allowed: u64,
+    pub stale_time_allowed:     u64,
     #[structopt(
         long = "cleanup-interval",
         help = "Time in ms to sleep between cleanups",
         default_value = "300000",
         env = "COLLECTOR_BACKEND_CLEANUP_INTERVAL"
     )]
-    pub cleanup_interval: u64,
+    pub cleanup_interval:       u64,
     #[structopt(
         long = "print-config",
         help = "Print out config struct",
         env = "COLLECTOR_BACKEND_PRINT_CONFIG"
     )]
-    pub print_config: bool,
+    pub print_config:           bool,
     #[structopt(
         long = "debug",
         short = "d",
         help = "Debug mode",
         env = "COLLECTOR_BACKEND_LOG_LEVEL_DEBUG"
     )]
-    pub debug: bool,
+    pub debug:                  bool,
     #[structopt(long = "trace", help = "Trace mode", env = "COLLECTOR_BACKEND_LOG_LEVEL_TRACE")]
-    pub trace: bool,
+    pub trace:                  bool,
     #[structopt(long = "info", help = "Info mode", env = "COLLECTOR_BACKEND_LOG_LEVEL_INFO")]
-    pub info: bool,
+    pub info:                   bool,
     #[structopt(
         long = "no-log-timestamp",
         help = "Do not output timestamp in log output",
         env = "COLLECTOR_BACKEND_NO_LOG_TIMESTAMP"
     )]
-    pub no_log_timestamp: bool,
+    pub no_log_timestamp:       bool,
     #[structopt(
         long = "banned-versions",
         help = "Versions that are banned from publishing to the collector backend",
         env = "COLLECTOR_BACKEND_BANNED_VERSIONS",
         use_delimiter = true
     )]
-    pub banned_versions: Vec<String>,
+    pub banned_versions:        Vec<String>,
     #[structopt(
         long = "banned-node-names-file",
         env = "COLLECTOR_BACKEND_BANNED_NODE_NAMES_FILE",
@@ -108,7 +108,7 @@ struct ConfigCli {
     )]
     pub banned_node_names_file: Option<PathBuf>,
     #[structopt(flatten)]
-    validation_config: ValidationConfig,
+    validation_config:          ValidationConfig,
 }
 
 #[derive(Debug, Clone, StateData, StructOpt)]
@@ -119,35 +119,35 @@ pub struct ValidationConfig {
         default_value = "100000",
         env = "COLLECTOR_BACKEND_VALIDATION_VALID_CONTENT_LENGTH"
     )]
-    pub valid_content_length: u64,
+    pub valid_content_length:                    u64,
     #[structopt(
         long = "valid-node-name-lenght",
         help = "Maximum number of bytes allowed for the name of the node",
         default_value = "100",
         env = "COLLECTOR_BACKEND_VALIDATION_VALID_NODE_NAME_LENGTH"
     )]
-    pub valid_node_name_lenght: usize,
+    pub valid_node_name_lenght:                  usize,
     #[structopt(
         long = "valid-node-average-ping",
         help = "Maximum average ping allowed in milliseconds",
         default_value = "150000",
         env = "COLLECTOR_BACKEND_VALIDATION_VALID_NODE_AVERAGE_PING"
     )]
-    pub valid_node_average_ping: f64,
+    pub valid_node_average_ping:                 f64,
     #[structopt(
         long = "valid-node-peers-count",
         help = "Maximum number for peers count",
         default_value = "50",
         env = "COLLECTOR_BACKEND_VALIDATION_VALID_NODE_PEERS_COUNT"
     )]
-    pub valid_node_peers_count: u64,
+    pub valid_node_peers_count:                  u64,
     #[structopt(
         long = "validate-against-average-at",
         help = "The minimum number of nodes needed to calculate averages for validation",
         default_value = "20",
         env = "COLLECTOR_BACKEND_VALIDATION_VALIDATE_AGAINTS_AVERAGE_AT"
     )]
-    pub validate_against_average_at: u64,
+    pub validate_against_average_at:             u64,
     #[structopt(
         long = "percentage-used-for-averages",
         help = "A whole number representing the percentage of node data to use when calculating \
@@ -156,7 +156,7 @@ pub struct ValidationConfig {
         default_value = "60",
         env = "COLLECTOR_BACKEND_VALIDATION_PERCENTAGE_USED_FOR_AVERAGES"
     )]
-    pub percentage_used_for_averages: usize,
+    pub percentage_used_for_averages:            usize,
     #[structopt(
         long = "valid-additional-best-block-height",
         help = "Maximum additional height of the best block allowed compared to the average best \
@@ -164,7 +164,7 @@ pub struct ValidationConfig {
         default_value = "1000",
         env = "COLLECTOR_BACKEND_VALIDATION_VALID_ADDITIONAL_BEST_BLOCK_HEIGHT"
     )]
-    pub valid_additional_best_block_height: u64,
+    pub valid_additional_best_block_height:      u64,
     #[structopt(
         long = "valid-additional-finalized-block-height",
         help = "Maximum additional height of the finalized block allowed compared to the average \

@@ -47,11 +47,11 @@ pub type Networks = HashSet<NetworkId, BuildNoHashHasher<u16>>;
 #[derive(Debug, PartialEq)]
 pub struct NetworkMessage {
     /// The creation timestamp.
-    pub created: u64,
+    pub created:  u64,
     /// The receipt timestamp (if received from the network).
     pub received: Option<u64>,
     /// The message's payload.
-    pub payload: NetworkPayload,
+    pub payload:  NetworkPayload,
 }
 
 /// A helper macro used to create a network message with the given payload.

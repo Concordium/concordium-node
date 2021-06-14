@@ -11,13 +11,13 @@ struct ConfigCli {
         long = "add-peers",
         help = "Peer in format IP:PORT, multiple allowed"
     )]
-    peers: Vec<String>,
+    peers:             Vec<String>,
     #[structopt(help = "Read private key from file", long = "keyfile", required = true)]
-    keyfile: String,
+    keyfile:           String,
     #[structopt(long = "record-length", help = "DNS record length", default_value = "250")]
     dns_record_length: usize,
     #[structopt(long = "print-config", help = "Print out config struct")]
-    pub print_config: bool,
+    pub print_config:  bool,
 }
 
 pub fn main() -> anyhow::Result<()> {
