@@ -17,7 +17,7 @@ struct ConfigCli {
         help = "Genesis file to open",
         env = "GENESIS_TESTER_GENESIS_FILE"
     )]
-    genesis_file: String,
+    genesis_file:     String,
     #[structopt(
         long = "private-key-file",
         help = "Private key file to open",

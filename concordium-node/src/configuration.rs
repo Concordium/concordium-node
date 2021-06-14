@@ -123,33 +123,33 @@ pub struct PrometheusConfig {
         default_value = "127.0.0.1",
         env = "CONCORDIUM_NODE_PROMETHEUS_LISTEN_ADDRESSS"
     )]
-    pub prometheus_listen_addr: String,
+    pub prometheus_listen_addr:   String,
     #[structopt(
         long = "prometheus-listen-port",
         help = "Port for prometheus to listen on",
         default_value = "9090",
         env = "CONCORDIUM_NODE_PROMETHEUS_LISTEN_PORT"
     )]
-    pub prometheus_listen_port: u16,
+    pub prometheus_listen_port:   u16,
     #[structopt(
         long = "prometheus-server",
         help = "Enable prometheus server for metrics",
         env = "CONCORDIUM_NODE_PROMETHEUS_SERVER"
     )]
-    pub prometheus_server: bool,
+    pub prometheus_server:        bool,
     #[structopt(
         long = "prometheus-push-gateway",
         help = "Enable prometheus via push gateway",
         env = "CONCORDIUM_NODE_PROMETHEUS_PUSH_GATEWAY"
     )]
-    pub prometheus_push_gateway: Option<String>,
+    pub prometheus_push_gateway:  Option<String>,
     #[structopt(
         long = "prometheus-job-name",
         help = "Job name to send to push gateway",
         default_value = "p2p_node_push",
         env = "CONCORDIUM_NODE_PROMETHEUS_JOB_NAME"
     )]
-    pub prometheus_job_name: String,
+    pub prometheus_job_name:      String,
     #[structopt(
         long = "prometheus-instance-name",
         help = "If not present node_id will be used",
@@ -307,21 +307,21 @@ pub struct RpcCliConfig {
         help = "Disable the built-in RPC server",
         env = "CONCORDIUM_NODE_DISABLE_RPC_SERVER"
     )]
-    pub no_rpc_server: bool,
+    pub no_rpc_server:    bool,
     #[structopt(
         long = "rpc-server-port",
         help = "RPC server port",
         default_value = "10000",
         env = "CONCORDIUM_NODE_RPC_SERVER_PORT"
     )]
-    pub rpc_server_port: u16,
+    pub rpc_server_port:  u16,
     #[structopt(
         long = "rpc-server-addr",
         help = "RPC server listen address",
         default_value = "127.0.0.1",
         env = "CONCORDIUM_NODE_RPC_SERVER_ADDR"
     )]
-    pub rpc_server_addr: String,
+    pub rpc_server_addr:  String,
     #[structopt(
         long = "rpc-server-token",
         help = "RPC server access token",
@@ -754,16 +754,16 @@ pub struct BootstrapperConfig {
 #[derive(StructOpt, Debug)]
 pub struct Config {
     #[structopt(flatten)]
-    pub common: CommonConfig,
+    pub common:           CommonConfig,
     #[cfg(feature = "instrumentation")]
     #[structopt(flatten)]
-    pub prometheus: PrometheusConfig,
+    pub prometheus:       PrometheusConfig,
     #[structopt(flatten)]
-    pub connection: ConnectionConfig,
+    pub connection:       ConnectionConfig,
     #[structopt(flatten)]
-    pub cli: CliConfig,
+    pub cli:              CliConfig,
     #[structopt(flatten)]
-    pub bootstrapper: BootstrapperConfig,
+    pub bootstrapper:     BootstrapperConfig,
     #[cfg(feature = "database_emitter")]
     #[structopt(flatten)]
     pub database_emitter: DatabaseEmitterConfig,

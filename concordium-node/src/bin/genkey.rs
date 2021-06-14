@@ -9,11 +9,11 @@ use structopt::StructOpt;
 #[structopt(name = "DNS Key Generator")]
 struct ConfigCli {
     #[structopt(long = "keyfile", help = "Output key to file in binary")]
-    keyfile: String,
+    keyfile:          String,
     #[structopt(long = "print-key", short = "p", help = "Print key as HEX when done")]
-    print_key: bool,
+    print_key:        bool,
     #[structopt(long = "force-overwrite", help = "Force overwrite if file already exists")]
-    force_overwrite: bool,
+    force_overwrite:  bool,
     #[structopt(long = "print-config", help = "Print out config struct")]
     pub print_config: bool,
 }

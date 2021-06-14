@@ -111,21 +111,21 @@ pub struct ConnChanges {
 
 /// The set of objects related to node's connections.
 pub struct ConnectionHandler {
-    pub socket_server: TcpListener,
-    pub next_token: AtomicUsize,
-    pub buckets: RwLock<Buckets>,
+    pub socket_server:        TcpListener,
+    pub next_token:           AtomicUsize,
+    pub buckets:              RwLock<Buckets>,
     #[cfg(feature = "network_dump")]
-    pub log_dumper: RwLock<Option<Sender<DumpItem>>>,
-    pub conn_candidates: Mutex<Connections>,
-    pub connections: RwLock<Connections>,
-    pub conn_changes: ConnChanges,
-    pub soft_bans: RwLock<HashMap<BanId, Instant>>, // (id, expiry)
-    pub networks: RwLock<Networks>,
+    pub log_dumper:           RwLock<Option<Sender<DumpItem>>>,
+    pub conn_candidates:      Mutex<Connections>,
+    pub connections:          RwLock<Connections>,
+    pub conn_changes:         ConnChanges,
+    pub soft_bans:            RwLock<HashMap<BanId, Instant>>, // (id, expiry)
+    pub networks:             RwLock<Networks>,
     pub deduplication_queues: DeduplicationQueues,
-    pub last_bootstrap: AtomicU64,
-    pub last_peer_update: AtomicU64,
-    pub total_received: AtomicU64,
-    pub total_sent: AtomicU64,
+    pub last_bootstrap:       AtomicU64,
+    pub last_peer_update:     AtomicU64,
+    pub total_received:       AtomicU64,
+    pub total_sent:           AtomicU64,
 }
 
 impl ConnectionHandler {
@@ -212,9 +212,9 @@ pub struct BadEvents {
     pub dropped_high_queue: Mutex<HashMap<RemotePeerId, u64>>,
     /// Number of low priority messages that were dropped because they could not
     /// be enqueued.
-    pub dropped_low_queue: Mutex<HashMap<RemotePeerId, u64>>,
+    pub dropped_low_queue:  Mutex<HashMap<RemotePeerId, u64>>,
     /// Number of invalid messages received from the given peer.
-    pub invalid_messages: Mutex<HashMap<RemotePeerId, u64>>,
+    pub invalid_messages:   Mutex<HashMap<RemotePeerId, u64>>,
 }
 
 impl BadEvents {
@@ -240,27 +240,27 @@ impl BadEvents {
 /// The central object belonging to a node in the network; it handles
 /// connectivity and contains the metadata, statistics etc.
 pub struct P2PNode {
-    pub self_peer: P2PPeer,
+    pub self_peer:          P2PPeer,
     /// Holds the handles to threads spawned by the node.
-    pub threads: RwLock<Vec<JoinHandle<()>>>,
+    pub threads:            RwLock<Vec<JoinHandle<()>>>,
     /// The handle to the poll registry.
-    pub poll_registry: Registry,
+    pub poll_registry:      Registry,
     pub connection_handler: ConnectionHandler,
     #[cfg(feature = "network_dump")]
-    pub network_dumper: NetworkDumper,
-    pub stats: Arc<StatsExportService>,
-    pub config: NodeConfig,
+    pub network_dumper:     NetworkDumper,
+    pub stats:              Arc<StatsExportService>,
+    pub config:             NodeConfig,
     /// The time the node was launched.
-    pub start_time: DateTime<Utc>,
+    pub start_time:         DateTime<Utc>,
     /// The flag indicating whether a node should shut down.
-    pub is_terminated: AtomicBool,
+    pub is_terminated:      AtomicBool,
     /// The key-value store holding the node's persistent data.
-    pub kvs: Arc<RwLock<Rkv<LmdbEnvironment>>>,
+    pub kvs:                Arc<RwLock<Rkv<LmdbEnvironment>>>,
     /// The catch-up list of peers.
-    pub peers: RwLock<PeerList>,
+    pub peers:              RwLock<PeerList>,
     /// Cache of bad events that we report on each connection housekeeping
     /// interval to avoid spamming the logs in case of failure.
-    pub bad_events: BadEvents,
+    pub bad_events:         BadEvents,
 }
 
 impl P2PNode {
