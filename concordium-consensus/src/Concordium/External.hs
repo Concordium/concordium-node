@@ -16,6 +16,8 @@ import qualified Data.Serialize as S
 import Data.Word
 import Foreign
 import Foreign.C
+import System.Directory
+import System.FilePath
 import Text.Read (readMaybe)
 
 import qualified Concordium.Crypto.SHA256 as SHA256
@@ -29,6 +31,7 @@ import Concordium.Birk.Bake
 import Concordium.Constants.Time (defaultEarlyBlockThreshold, defaultMaxBakingDelay)
 import Concordium.Crypto.ByteStringHelpers
 import Concordium.GlobalState
+import Concordium.GlobalState.Persistent.LMDB (addDatabaseVersion)
 import Concordium.GlobalState.Persistent.TreeState (InitException (..))
 import Concordium.MultiVersion (
     Callbacks (..),
@@ -267,6 +270,22 @@ handleStartExceptions logM c =
     handleInitException ex = StartInitException ex <$ logM External LLError (displayException ex)
     handleGlobalStateInitException (InvalidGenesisData _) = return StartGenesisFailure
 
+-- |Migrate a legacy global state, if necessary.
+migrateGlobalState :: FilePath -> LogMethod IO -> IO ()
+migrateGlobalState dbPath logM = do
+    blockStateExists <- doesPathExist $ dbPath </> "blockstate-0" <.> "dat"
+    treeStateExists <- doesPathExist $ dbPath </> "treestate-0"
+    -- Only attempt migration when neither state exists
+    unless (blockStateExists || treeStateExists) $ do
+        oldBlockStateExists <- doesFileExist $ dbPath </> "blockstate" <.> "dat"
+        oldTreeStateExists <- doesDirectoryExist $ dbPath </> "treestate"
+        when (oldBlockStateExists && oldTreeStateExists) $ do
+            logM GlobalState LLInfo "Migrating global state from legacy version."
+            renameFile (dbPath </> "blockstate" <.> "dat") (dbPath </> "blockstate-0" <.> "dat")
+            renameDirectory (dbPath </> "treestate") (dbPath </> "treestate-0")
+            runLoggerT (addDatabaseVersion (dbPath </> "treestate-0")) logM
+            logM GlobalState LLInfo "Migration complete."
+
 -- |Start up an instance of Skov without starting the baker thread.
 -- If an error occurs starting Skov, the error will be logged and
 -- a null pointer will be returned.
@@ -340,6 +359,8 @@ startConsensus
         decodeGenesis $ \genesisData -> decodeBakerIdentity $ \bakerIdentity -> do
             -- Get the data directory
             appDataPath <- peekCStringLen (appDataC, fromIntegral appDataLenC)
+            -- Do globalstate migration if necessary
+            migrateGlobalState appDataPath logM
             let mvcStateConfig = DiskStateConfig appDataPath
             let mvcFinalizationConfig =
                     BufferedFinalization
@@ -409,8 +430,8 @@ startConsensus
                   rpMaxBakingDelay = defaultMaxBakingDelay,
                   rpInsertionsBeforeTransactionPurge = fromIntegral insertionsBeforePurge,
                   rpTransactionsKeepAliveTime = TransactionTime transactionsKeepAlive,
-              rpTransactionsPurgingDelay = fromIntegral transactionsPurgingDelay,
-              rpMaxTimeToExpiry = fromIntegral maxTimeToExpiry
+                  rpTransactionsPurgingDelay = fromIntegral transactionsPurgingDelay,
+                  rpMaxTimeToExpiry = fromIntegral maxTimeToExpiry
                 }
 
 -- |Start up an instance of Skov without starting the baker thread.
@@ -478,6 +499,8 @@ startConsensusPassive
         decodeGenesis $ \genesisData -> do
             -- Get the data directory
             appDataPath <- peekCStringLen (appDataC, fromIntegral appDataLenC)
+            -- Do globalstate migration if necessary
+            migrateGlobalState appDataPath logM
             let mvcStateConfig = DiskStateConfig appDataPath
             let mvcFinalizationConfig = NoFinalization
             -- Callbacks
@@ -533,8 +556,8 @@ startConsensusPassive
                   rpMaxBakingDelay = defaultMaxBakingDelay,
                   rpInsertionsBeforeTransactionPurge = fromIntegral insertionsBeforePurge,
                   rpTransactionsKeepAliveTime = TransactionTime transactionsKeepAlive,
-              rpTransactionsPurgingDelay = fromIntegral transactionsPurgingDelay,
-              rpMaxTimeToExpiry = fromIntegral maxTimeToExpiry
+                  rpTransactionsPurgingDelay = fromIntegral transactionsPurgingDelay,
+                  rpMaxTimeToExpiry = fromIntegral maxTimeToExpiry
                 }
 
 -- |Shut down consensus, stopping any baker thread if necessary.

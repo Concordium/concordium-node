@@ -24,6 +24,7 @@ module Concordium.GlobalState.Persistent.LMDB (
   , VersionDatabaseHandlers(..)
   , openReadOnlyDatabase
   , closeDatabase
+  , addDatabaseVersion
   , checkDatabaseVersion
   , resizeOnResized
   , finalizedByHeightStore
@@ -165,10 +166,10 @@ versionMetadata = "version"
 
 data VersionMetadata = VersionMetadata {
     -- |Version signifier for the database itself.
-    vmDatabaseVersion :: Version,
+    vmDatabaseVersion :: !Version,
     -- |Protocol version, which may impact the storage of blocks/finalization records
     -- independently of the database version.
-    vmProtocolVersion :: ProtocolVersion
+    vmProtocolVersion :: !ProtocolVersion
 } deriving (Eq)
 
 instance Show VersionMetadata where
@@ -208,6 +209,9 @@ makeLenses ''DatabaseHandlers
 -- The third parameter is the state that has the 'DatabaseHandlers'.
 class HasDatabaseHandlers (pv :: ProtocolVersion) st s | s -> pv st where
   dbHandlers :: Lens' s (DatabaseHandlers pv st)
+
+instance HasDatabaseHandlers pv st (DatabaseHandlers pv st) where
+  dbHandlers = id
 
 -- |Name of the block store.
 blockStoreName :: String
@@ -281,7 +285,10 @@ data VersionDatabaseHandlers = forall pv. IsProtocolVersion pv =>
     VersionDatabaseHandlers (DatabaseHandlers pv ())
 
 -- |Open an existing database for reading. This checks that the version is supported and returns
--- a handler that is existentially quantified over the database version.
+-- a handler that is existentially quantified over the protocol version.
+--
+-- This is required for functionality such as the block exporter, which reads the database but does
+-- not have sufficient context to infer the protocol version.
 openReadOnlyDatabase
   :: FilePath
   -- ^Path of database
@@ -348,6 +355,22 @@ initializeDatabase gb stRef treeStateDir = do
             vmProtocolVersion = demoteProtocolVersion (protocolVersion @pv)
         }
   return handlers
+
+-- |Add a database version record to a database (if one is not already present).
+-- The record indicates database version 0 and protocol version 'P1', which is appropriate when
+-- migrating a database from an earlier version.
+addDatabaseVersion :: (MonadLogger m, MonadIO m) => FilePath -> m ()
+addDatabaseVersion treeStateDir = do
+  handlers :: DatabaseHandlers 'P1 () <- liftIO $ makeDatabaseHandlers treeStateDir False dbInitSize
+  handlers' <- execStateT
+    (resizeOnFull 4096 $ \h -> transaction (_storeEnv h) False $ \txn -> 
+      storeRecord txn (_metadataStore h) versionMetadata
+        (S.encode VersionMetadata {
+          vmDatabaseVersion = 0,
+          vmProtocolVersion = P1
+        }))
+    handlers
+  liftIO $ closeDatabase handlers'
 
 -- |Check whether the database version matches the expected version.
 -- If the version does not match, the result is a string describing the problem.
