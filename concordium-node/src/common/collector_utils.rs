@@ -38,6 +38,9 @@ pub struct NodeInfo {
     pub consensusBakerId: Option<u64>,
     pub finalizationCommitteeMember: bool,
     pub ancestorsSinceBestBlock: Option<Vec<String>>,
+    // stagingNetUsername should not be used.
+    // It exists to ensure backwards compatibillity and should not be removed.
+    pub stagingNetUsername: Option<String>,
     pub transactionsPerBlockEMA: Option<f64>,
     pub transactionsPerBlockEMSD: Option<f64>,
     pub bestBlockTransactionsSize: Option<u64>,
