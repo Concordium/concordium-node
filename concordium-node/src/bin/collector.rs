@@ -416,6 +416,7 @@ async fn collect_data<'a>(
         consensusBakerId: baker_id,
         finalizationCommitteeMember: finalization_committee,
         ancestorsSinceBestBlock: ancestors_since_best_block,
+        stagingNetUsername: None,
         last_updated: 0,
         transactionsPerBlockEMA: transactions_per_block_ema,
         transactionsPerBlockEMSD: transactions_per_block_emsd,
