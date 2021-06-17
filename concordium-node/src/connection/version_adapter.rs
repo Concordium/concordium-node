@@ -2,8 +2,8 @@ use crate::{
     consensus_ffi::helpers::PacketType,
     network::{NetworkMessage, NetworkPayload, WireProtocolVersion, WIRE_PROTOCOL_LEGACY_VERSION},
 };
+use anyhow::bail;
 use crypto_common::Deserial;
-use failure::Fallible;
 use std::{convert::TryFrom, io::Cursor, sync::Arc};
 
 /// Rewrite an outgoing message from the current wire protocol version to the
@@ -14,7 +14,7 @@ use std::{convert::TryFrom, io::Cursor, sync::Arc};
 pub fn rewrite_outgoing(
     wire_version: WireProtocolVersion,
     message: &[u8],
-) -> Fallible<Option<Arc<[u8]>>> {
+) -> anyhow::Result<Option<Arc<[u8]>>> {
     if wire_version != WIRE_PROTOCOL_LEGACY_VERSION {
         error!("Cannot rewrite to wire protocol version {}", wire_version);
         bail!("Invalid wire version.");
@@ -40,7 +40,7 @@ pub fn rewrite_outgoing(
 ///   * For catch-up requests, remove the version header, which is assumed to be
 ///     a single 0 byte.  This is not checked, but currently 0 is the only
 ///     supported version.
-fn rewrite_outgoing_payload(payload: &mut Vec<u8>) -> Fallible<Option<()>> {
+fn rewrite_outgoing_payload(payload: &mut Vec<u8>) -> anyhow::Result<Option<()>> {
     if payload.is_empty() {
         bail!("Empty payload.")
     }
@@ -87,7 +87,7 @@ fn rewrite_outgoing_payload(payload: &mut Vec<u8>) -> Fallible<Option<()>> {
 pub fn rewrite_incoming(
     wire_version: WireProtocolVersion,
     message: &mut NetworkMessage,
-) -> Fallible<()> {
+) -> anyhow::Result<()> {
     if wire_version != WIRE_PROTOCOL_LEGACY_VERSION {
         error!("Cannot rewrite from wire protocol version {}", wire_version);
         bail!("Invalid wire version.");
@@ -104,7 +104,7 @@ pub fn rewrite_incoming(
 ///
 ///   * For non-transaction packets, inserts a genesis index of 0.
 ///   * For catch-up requests, insert a version header of 0.
-pub fn rewrite_incoming_payload(payload: &mut Vec<u8>) -> Fallible<()> {
+pub fn rewrite_incoming_payload(payload: &mut Vec<u8>) -> anyhow::Result<()> {
     if payload.is_empty() {
         bail!("Empty payload.")
     }
