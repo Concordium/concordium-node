@@ -104,6 +104,7 @@ pub fn rewrite_incoming(
 ///
 ///   * For non-transaction packets, inserts a genesis index of 0.
 ///   * For catch-up requests, insert a version header of 0.
+#[allow(clippy::reversed_empty_ranges)]
 pub fn rewrite_incoming_payload(payload: &mut Vec<u8>) -> anyhow::Result<()> {
     if payload.is_empty() {
         bail!("Empty payload.")
