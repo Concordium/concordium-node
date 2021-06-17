@@ -7,6 +7,9 @@
   of bad connectivity.
 - Add support for configuring the node and the collector via environment
   variables in addition to command line arguments.
+- Global state database now includes version metadata. The treestate directory and blockstate file
+  names are suffixed with "-0" to indicate genesis index 0, for compatibility with protocol updates.
+  A legacy database will automatically be migrated by renaming and adding version metadata.
 
 ## concordium-node 1.0.1
 
