@@ -71,6 +71,8 @@ data InitException =
       ieIs :: !BlockHash
       }
   | DatabaseInvariantViolation !String
+  -- |The database version is not correct.
+  | IncorrectDatabaseVersion !String
   deriving(Show, Typeable)
 
 instance Exception InitException where
@@ -83,6 +85,7 @@ instance Exception InitException where
     "Incorrect genesis block. Genesis block in the database does not match the genesis data. Hash of the database genesis block is: " ++ show bh
   displayException (DatabaseInvariantViolation err) =
     "Database invariant violation: " ++ err
+  displayException (IncorrectDatabaseVersion err) = "Incorrect database version: " ++ err
 
 logExceptionAndThrowTS :: (MonadLogger m, MonadIO m, Exception e) => e -> m a
 logExceptionAndThrowTS = logExceptionAndThrow TreeState
@@ -169,7 +172,7 @@ initialSkovPersistentData rp gd genState ati serState = do
   gb <- makeGenesisPersistentBlockPointer gd genState (fst ati)
   let gbh = bpHash gb
       gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
-  initialDb <- initializeDatabase gb serState rp
+  initialDb <- initializeDatabase gb serState (rpTreeStateDir rp)
   return SkovPersistentData {
             _blockTable = HM.singleton gbh (BlockFinalized 0),
             _possiblyPendingTable = HM.empty,
@@ -258,7 +261,11 @@ loadSkovPersistentData rp _genesisData pbsc atiPair = do
   -- and on insertions we resize the environment anyhow.
   -- But this behaviour of LMDB is poorly documented, so we might experience issues.
   _db <- either (logExceptionAndThrowTS . DatabaseOpeningError) return =<<
-          liftIO (try $ databaseHandlers rp)
+          liftIO (try $ databaseHandlers (rpTreeStateDir rp))
+
+  -- Check that the database version matches what we expect.
+  liftIO (checkDatabaseVersion _db) >>=
+      either (logExceptionAndThrowTS . IncorrectDatabaseVersion) return
 
   -- Get the genesis block and check that its data matches the supplied genesis data.
   genStoredBlock <- maybe (logExceptionAndThrowTS GenesisBlockNotInDataBaseError) return =<<
