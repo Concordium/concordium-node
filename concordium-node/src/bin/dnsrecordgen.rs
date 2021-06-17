@@ -1,6 +1,5 @@
 #![recursion_limit = "1024"]
 use concordium_node::utils::generate_bootstrap_dns;
-use failure::Fallible;
 use std::{fs::File, io::Read, process::exit};
 use structopt::StructOpt;
 
@@ -12,16 +11,16 @@ struct ConfigCli {
         long = "add-peers",
         help = "Peer in format IP:PORT, multiple allowed"
     )]
-    peers: Vec<String>,
+    peers:             Vec<String>,
     #[structopt(help = "Read private key from file", long = "keyfile", required = true)]
-    keyfile: String,
+    keyfile:           String,
     #[structopt(long = "record-length", help = "DNS record length", default_value = "250")]
     dns_record_length: usize,
     #[structopt(long = "print-config", help = "Print out config struct")]
-    pub print_config: bool,
+    pub print_config:  bool,
 }
 
-pub fn main() -> Fallible<()> {
+pub fn main() -> anyhow::Result<()> {
     let conf = ConfigCli::from_args();
 
     if conf.print_config {

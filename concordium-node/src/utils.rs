@@ -1,10 +1,10 @@
 //! Miscellaneous utilities.
 
 use crate::{concordium_dns::dns, configuration as config};
+use anyhow::{bail, ensure, Context};
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use ed25519_dalek::{Keypair, PublicKey, SecretKey, Signature, Signer, Verifier};
 use env_logger::{Builder, Env};
-use failure::{Fallible, ResultExt};
 use log::LevelFilter;
 use rand::rngs::OsRng;
 #[cfg(not(target_os = "windows"))]
@@ -150,7 +150,7 @@ pub fn parse_host_port(
     input: &str,
     resolvers: &[String],
     dnssec_fail: bool,
-) -> Fallible<Vec<SocketAddr>> {
+) -> anyhow::Result<Vec<SocketAddr>> {
     if let Some(n) = input.rfind(':') {
         let (ip, port) = input.split_at(n);
         let port = port[1..].parse::<u16>().context(format!(
@@ -485,7 +485,7 @@ fn read_peers_from_dns_entries(
 
 pub fn generate_ed25519_key() -> SecretKey { SecretKey::generate(&mut OsRng::default()) }
 
-pub fn get_config_and_logging_setup() -> Fallible<(config::Config, config::AppPreferences)> {
+pub fn get_config_and_logging_setup() -> anyhow::Result<(config::Config, config::AppPreferences)> {
     // Get config and app preferences
     let conf = config::parse_config()?;
     let app_prefs = config::AppPreferences::new(

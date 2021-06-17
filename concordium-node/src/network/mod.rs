@@ -38,7 +38,6 @@ pub const WIRE_PROTOCOL_VERSIONS: [WireProtocolVersion; 2] =
 
 /// Identifies a network.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub struct NetworkId {
     pub id: u16,
 }
@@ -56,14 +55,13 @@ pub type Networks = HashSet<NetworkId, BuildNoHashHasher<u16>>;
 
 /// The main object used to transmit data over the network.
 #[derive(Debug, PartialEq)]
-#[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub struct NetworkMessage {
     /// The creation timestamp.
-    pub created: u64,
+    pub created:  u64,
     /// The receipt timestamp (if received from the network).
     pub received: Option<u64>,
     /// The message's payload.
-    pub payload: NetworkPayload,
+    pub payload:  NetworkPayload,
 }
 
 /// A helper macro used to create a network message with the given payload.
@@ -80,7 +78,6 @@ macro_rules! netmsg {
 
 /// The contents of a network message.
 #[derive(Debug, PartialEq)]
-#[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub enum NetworkPayload {
     NetworkRequest(NetworkRequest),
     NetworkResponse(NetworkResponse),
@@ -89,7 +86,6 @@ pub enum NetworkPayload {
 
 /// The "high-level" network handshake.
 #[derive(Debug, PartialEq)]
-#[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub struct Handshake {
     pub remote_id:      P2PNodeId,
     pub remote_port:    u16,
@@ -102,7 +98,6 @@ pub struct Handshake {
 
 /// A network message serving a specified purpose.
 #[derive(Debug, PartialEq)]
-#[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub enum NetworkRequest {
     /// Used to measure connection liveness and latency.
     Ping,
@@ -118,7 +113,6 @@ pub enum NetworkRequest {
 
 /// A network message sent only in response to a network request.
 #[derive(Debug, PartialEq)]
-#[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub enum NetworkResponse {
     /// A response to a Ping request.
     Pong,
@@ -128,7 +122,6 @@ pub enum NetworkResponse {
 
 /// A network message carrying any bytes as payload.
 #[derive(Debug, PartialEq)]
-#[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub struct NetworkPacket {
     pub destination: PacketDestination,
     pub network_id:  NetworkId,
@@ -137,10 +130,9 @@ pub struct NetworkPacket {
 
 /// The desired target of a network packet.
 #[derive(Debug, PartialEq)]
-#[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub enum PacketDestination {
     /// A single node.
     Direct(RemotePeerId),
     /// All peers, optionally excluding the ones in the vector.
-    Broadcast(#[cfg_attr(feature = "s11n_serde", serde(skip))] Vec<RemotePeerId>),
+    Broadcast(Vec<RemotePeerId>),
 }

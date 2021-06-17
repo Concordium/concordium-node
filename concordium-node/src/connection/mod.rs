@@ -6,11 +6,10 @@ pub mod message_handlers;
 mod tests;
 pub mod version_adapter;
 
-use low_level::ConnectionLowLevel;
-
+use anyhow::{bail, ensure};
 use bytesize::ByteSize;
 use circular_queue::CircularQueue;
-use failure::Fallible;
+use low_level::ConnectionLowLevel;
 use mio::{net::TcpStream, Interest, Token};
 
 #[cfg(feature = "network_dump")]
@@ -28,7 +27,6 @@ use crate::{
         NetworkId, NetworkMessage, NetworkPacket, NetworkPayload, NetworkRequest, NetworkResponse,
         Networks, WireProtocolVersion, WIRE_PROTOCOL_CURRENT_VERSION,
     },
-    only_fbs,
     p2p::P2PNode,
     read_or_die, write_or_die,
 };
@@ -69,7 +67,7 @@ pub enum DeduplicationHashAlgorithm {
 }
 
 impl FromStr for DeduplicationHashAlgorithm {
-    type Err = failure::Error;
+    type Err = anyhow::Error;
 
     fn from_str(algorithm: &str) -> Result<Self, Self::Err> {
         match algorithm {
@@ -84,7 +82,7 @@ impl FromStr for DeduplicationHashAlgorithm {
 pub trait DeduplicationQueue: Send + Sync {
     /// Check if element exists, and if not insert it - return status is whether
     /// or not message was a duplicate
-    fn check_and_insert(&mut self, input: &[u8]) -> Fallible<bool>;
+    fn check_and_insert(&mut self, input: &[u8]) -> anyhow::Result<bool>;
     /// Invalidate the entry in the queue if a key is found
     fn invalidate_if_exists(&mut self, input: &[u8]);
 }
@@ -92,7 +90,7 @@ pub trait DeduplicationQueue: Send + Sync {
 /// XxHash64 deduplication struct
 pub struct DeduplicationQueueXxHash64 {
     /// Random seed generated per queue when constructed
-    seed: u64,
+    seed:  u64,
     /// The queue itself
     queue: CircularQueue<u64>,
 }
@@ -118,7 +116,7 @@ impl DeduplicationQueueXxHash64 {
 }
 
 impl DeduplicationQueue for DeduplicationQueueXxHash64 {
-    fn check_and_insert(&mut self, input: &[u8]) -> Fallible<bool> {
+    fn check_and_insert(&mut self, input: &[u8]) -> anyhow::Result<bool> {
         let num = self.hash(&input);
         if !self.queue.iter().any(|n| n == &num) {
             trace!("Message XxHash64 {:x} is unique, adding to dedup queue", num);
@@ -161,7 +159,7 @@ impl DeduplicationQueueSha256 {
 }
 
 impl DeduplicationQueue for DeduplicationQueueSha256 {
-    fn check_and_insert(&mut self, input: &[u8]) -> Fallible<bool> {
+    fn check_and_insert(&mut self, input: &[u8]) -> anyhow::Result<bool> {
         let hash = self.hash(&input);
         if !self.queue.iter().any(|n| *n == hash) {
             trace!("Message SHA256 {:X?} is unique, adding to dedup queue", &hash[..]);
@@ -217,27 +215,27 @@ impl DeduplicationQueues {
 /// Contains all the statistics of a connection.
 pub struct ConnectionStats {
     /// Timestamp of connection creation.
-    pub created: u64,
+    pub created:           u64,
     /// Timestamp at which the connection was last seen.
     /// For regular peers, this is the timestamp of the
     /// last received message.
-    pub last_seen: AtomicU64,
+    pub last_seen:         AtomicU64,
     /// Timestamp of last ping message being sent
-    last_ping: AtomicU64,
+    last_ping:             AtomicU64,
     /// Interval between sending the last two pings
-    last_ping_interval: AtomicU64,
+    last_ping_interval:    AtomicU64,
     /// Number of pings sent minus number of pongs received
-    pending_pongs: AtomicI64,
+    pending_pongs:         AtomicI64,
     /// Latency measured at last received pong
-    last_latency: AtomicU64,
+    last_latency:          AtomicU64,
     /// Number of messages sent.
-    pub messages_sent: AtomicU64,
+    pub messages_sent:     AtomicU64,
     /// Number of messages received.
     pub messages_received: AtomicU64,
     /// Number of bytes received.
-    pub bytes_received: AtomicU64,
+    pub bytes_received:    AtomicU64,
     /// Number of bytes sent.
-    pub bytes_sent: AtomicU64,
+    pub bytes_sent:        AtomicU64,
 }
 
 impl ConnectionStats {
@@ -263,7 +261,7 @@ impl ConnectionStats {
         self.pending_pongs.fetch_add(1, Ordering::SeqCst);
     }
 
-    pub fn notify_pong(&self) -> Fallible<()> {
+    pub fn notify_pong(&self) -> anyhow::Result<()> {
         let now = get_current_stamp();
         let old_pending_pongs = self.pending_pongs.fetch_sub(1, Ordering::SeqCst);
         if old_pending_pongs <= 0 {
@@ -299,11 +297,11 @@ pub enum ConnChange {
     /// Prospect node address to attempt to connect to.
     NewConn {
         /// address to connect to
-        addr: SocketAddr,
+        addr:      SocketAddr,
         /// what kind of a peer to expect on the address
         peer_type: PeerType,
         /// whether the connection was given or discovered
-        given: bool,
+        given:     bool,
     },
     /// Prospect peers to possibly connect to.
     NewPeers(Vec<P2PPeer>),
@@ -366,18 +364,18 @@ impl MessageQueues {
 /// A collection of objects related to the connection to a single peer.
 pub struct Connection {
     /// A reference to the parent node.
-    handler: Arc<P2PNode>,
+    handler:                 Arc<P2PNode>,
     /// The connection's representation as a peer object.
-    pub remote_peer: RemotePeer,
+    pub remote_peer:         RemotePeer,
     /// Low-level connection objects.
-    pub low_level: ConnectionLowLevel,
+    pub low_level:           ConnectionLowLevel,
     /// The list of networks the connection belongs to.
     pub remote_end_networks: Networks,
-    pub stats: ConnectionStats,
+    pub stats:               ConnectionStats,
     /// The queue of messages to be sent to the connection.
-    pub pending_messages: MessageQueues,
+    pub pending_messages:    MessageQueues,
     /// The wire protocol version for communicating on the connection.
-    pub wire_version: WireProtocolVersion,
+    pub wire_version:        WireProtocolVersion,
 }
 
 impl PartialEq for Connection {
@@ -406,7 +404,7 @@ impl Connection {
         token: Token,
         remote_peer: RemotePeer,
         is_initiator: bool,
-    ) -> Fallible<Self> {
+    ) -> anyhow::Result<Self> {
         let curr_stamp = get_current_stamp();
 
         let mut low_level = ConnectionLowLevel::new(
@@ -462,7 +460,7 @@ impl Connection {
     pub fn last_seen(&self) -> u64 { self.stats.last_seen.load(Ordering::Relaxed) }
 
     #[inline]
-    fn is_packet_duplicate(&self, packet: &mut NetworkPacket) -> Fallible<bool> {
+    fn is_packet_duplicate(&self, packet: &mut NetworkPacket) -> anyhow::Result<bool> {
         use super::network::PacketDestination;
         let packet_type = if let Some(tag) = packet.message.first().copied() {
             PacketType::try_from(tag)?
@@ -501,7 +499,7 @@ impl Connection {
     /// and the operation is not blocking.
     /// The return value indicates if the connection is still open.
     #[inline]
-    pub fn read_stream(&mut self, conn_stats: &[PeerStats]) -> Fallible<bool> {
+    pub fn read_stream(&mut self, conn_stats: &[PeerStats]) -> anyhow::Result<bool> {
         loop {
             match self.low_level.read_from_socket()? {
                 ReadResult::Complete(msg) => self.process_message(Arc::from(msg), conn_stats)?,
@@ -513,7 +511,11 @@ impl Connection {
     }
 
     #[inline]
-    fn process_message(&mut self, bytes: Arc<[u8]>, conn_stats: &[PeerStats]) -> Fallible<()> {
+    fn process_message(
+        &mut self,
+        bytes: Arc<[u8]>,
+        conn_stats: &[PeerStats],
+    ) -> anyhow::Result<()> {
         self.update_last_seen();
         self.stats.messages_received.fetch_add(1, Ordering::Relaxed);
         self.stats.bytes_received.fetch_add(bytes.len() as u64, Ordering::Relaxed);
@@ -593,7 +595,7 @@ impl Connection {
     }
 
     /// Add a single network to the connection's remote end networks.
-    pub fn add_remote_end_network(&mut self, network: NetworkId) -> Fallible<()> {
+    pub fn add_remote_end_network(&mut self, network: NetworkId) -> anyhow::Result<()> {
         ensure!(
             self.remote_end_networks.len() < MAX_PEER_NETWORKS,
             "refusing to add any more networks"
@@ -607,7 +609,7 @@ impl Connection {
     }
 
     /// Remove a network from the connection's remote end networks.
-    pub fn remove_remote_end_network(&mut self, network: NetworkId) -> Fallible<()> {
+    pub fn remove_remote_end_network(&mut self, network: NetworkId) -> anyhow::Result<()> {
         self.remote_end_networks.remove(&network);
 
         ensure!(self.is_post_handshake(), "missing handshake");
@@ -625,14 +627,14 @@ impl Connection {
     }
 
     /// Send a ping to the connection.
-    pub fn send_ping(&mut self) -> Fallible<()> {
+    pub fn send_ping(&mut self) -> anyhow::Result<()> {
         trace!("Sending a ping to {}", self);
 
         let ping = netmsg!(NetworkRequest, NetworkRequest::Ping);
 
         let mut serialized = Vec::with_capacity(56);
 
-        only_fbs!(ping.serialize(&mut serialized)?);
+        ping.serialize(&mut serialized)?;
         self.stats.notify_ping();
 
         self.async_send(Arc::from(serialized), MessageSendingPriority::High);
@@ -641,12 +643,12 @@ impl Connection {
     }
 
     /// Send a pong to the connection.
-    pub fn send_pong(&mut self) -> Fallible<()> {
+    pub fn send_pong(&mut self) -> anyhow::Result<()> {
         trace!("Sending a pong to {}", self);
 
         let pong = netmsg!(NetworkResponse, NetworkResponse::Pong);
         let mut serialized = Vec::with_capacity(56);
-        only_fbs!(pong.serialize(&mut serialized)?);
+        pong.serialize(&mut serialized)?;
         self.async_send(Arc::from(serialized), MessageSendingPriority::High);
 
         Ok(())
@@ -657,7 +659,7 @@ impl Connection {
         &mut self,
         nets: Networks,
         conn_stats: &[PeerStats],
-    ) -> Fallible<()> {
+    ) -> anyhow::Result<()> {
         let requestor = self.remote_peer.local_id;
 
         let peer_list_resp = match self.handler.peer_type() {
@@ -705,7 +707,7 @@ impl Connection {
             debug!("Sending a PeerList to peer {}", requestor);
 
             let mut serialized = Vec::with_capacity(256);
-            only_fbs!(resp.serialize(&mut serialized)?);
+            resp.serialize(&mut serialized)?;
             self.async_send(Arc::from(serialized), MessageSendingPriority::Normal);
 
             Ok(())
@@ -717,7 +719,7 @@ impl Connection {
 
     /// Processes a queue with pending messages, writing them to the socket.
     #[inline]
-    pub fn send_pending_messages(&mut self) -> Fallible<()> {
+    pub fn send_pending_messages(&mut self) -> anyhow::Result<()> {
         while let Some(msg) = self.pending_messages.dequeue() {
             trace!(
                 "Attempting to send {} to {}",
@@ -767,6 +769,6 @@ impl Drop for Connection {
 
 /// Returns a bool indicating whether the message is a duplicate.
 #[inline]
-fn dedup_with(message: &[u8], queue: &mut dyn DeduplicationQueue) -> Fallible<bool> {
+fn dedup_with(message: &[u8], queue: &mut dyn DeduplicationQueue) -> anyhow::Result<bool> {
     queue.check_and_insert(message)
 }

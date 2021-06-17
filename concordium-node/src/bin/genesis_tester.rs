@@ -12,9 +12,17 @@ use tempfile::TempDir;
 #[derive(StructOpt, Debug)]
 #[structopt(name = "Genesis tester tool")]
 struct ConfigCli {
-    #[structopt(long = "genesis-file", help = "Genesis file to open")]
-    genesis_file: String,
-    #[structopt(long = "private-key-file", help = "Private key file to open")]
+    #[structopt(
+        long = "genesis-file",
+        help = "Genesis file to open",
+        env = "GENESIS_TESTER_GENESIS_FILE"
+    )]
+    genesis_file:     String,
+    #[structopt(
+        long = "private-key-file",
+        help = "Private key file to open",
+        env = "GENESIS_TESTER_PRIVATE_KEY_FILE"
+    )]
     private_key_file: Option<String>,
 }
 

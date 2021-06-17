@@ -2,7 +2,6 @@
 
 use concordium_node::utils::{generate_ed25519_key, to_hex_string};
 use ed25519_dalek::{PublicKey, SecretKey};
-use failure::Fallible;
 use std::{fs::OpenOptions, io::Write, process::exit};
 use structopt::StructOpt;
 
@@ -10,16 +9,16 @@ use structopt::StructOpt;
 #[structopt(name = "DNS Key Generator")]
 struct ConfigCli {
     #[structopt(long = "keyfile", help = "Output key to file in binary")]
-    keyfile: String,
+    keyfile:          String,
     #[structopt(long = "print-key", short = "p", help = "Print key as HEX when done")]
-    print_key: bool,
+    print_key:        bool,
     #[structopt(long = "force-overwrite", help = "Force overwrite if file already exists")]
-    force_overwrite: bool,
+    force_overwrite:  bool,
     #[structopt(long = "print-config", help = "Print out config struct")]
     pub print_config: bool,
 }
 
-pub fn main() -> Fallible<()> {
+pub fn main() -> anyhow::Result<()> {
     let conf = ConfigCli::from_args();
 
     if conf.print_config {

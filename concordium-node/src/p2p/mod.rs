@@ -1,10 +1,8 @@
 //! Central node object handling.
 
 pub mod bans;
-#[cfg_attr(feature = "s11n_serde", allow(unreachable_code, unused))]
 pub mod connectivity;
 pub mod maintenance;
-#[cfg_attr(feature = "s11n_serde", allow(unreachable_code, unused))]
 pub mod peers;
 
 pub use self::maintenance::{Connections, P2PNode};
@@ -16,11 +14,10 @@ mod tests {
         p2p::bans::PersistedBanId,
         test_utils::*,
     };
-    use failure::Fallible;
     use std::net::IpAddr;
 
     #[test]
-    fn test_ban_functionalities() -> Fallible<()> {
+    fn test_ban_functionalities() -> anyhow::Result<()> {
         let port = next_available_port();
         let (node, dp) = make_node_and_sync(port, vec![100], PeerType::Node, vec![])?;
 

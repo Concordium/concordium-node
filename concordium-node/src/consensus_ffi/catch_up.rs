@@ -47,13 +47,13 @@ pub enum PeerStatus {
 #[derive(Default)]
 pub struct PeerList {
     /// The state of each peer.
-    pub peer_states: HashMap<RemotePeerId, PeerStatus, BuildNoHashHasher<PeerId>>,
+    pub peer_states:    HashMap<RemotePeerId, PeerStatus, BuildNoHashHasher<PeerId>>,
     /// The timestamp at which we last tried to catch up with a peer.
     pub catch_up_stamp: u64,
     /// The peer that we are currently catching up with (if any).
-    pub catch_up_peer: Option<RemotePeerId>,
+    pub catch_up_peer:  Option<RemotePeerId>,
     /// Queue of pending peers.
-    pub pending_queue: VecDeque<RemotePeerId>,
+    pub pending_queue:  VecDeque<RemotePeerId>,
 }
 
 impl PeerList {

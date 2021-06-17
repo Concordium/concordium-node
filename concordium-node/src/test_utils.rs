@@ -1,6 +1,5 @@
 //! Test utilities.
 
-use failure::Fallible;
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use structopt::StructOpt;
 
@@ -112,7 +111,7 @@ pub fn make_node_and_sync(
     networks: Vec<u16>,
     node_type: PeerType,
     regenesis_blocks: Vec<BlockHash>,
-) -> Fallible<(Arc<P2PNode>, DeletePermission)> {
+) -> anyhow::Result<(Arc<P2PNode>, DeletePermission)> {
     // locally-run tests and benches can be polled with a much greater frequency
     let mut config = get_test_config(port, networks);
     config.cli.no_network = true;
@@ -152,7 +151,7 @@ pub fn generate_random_data(size: usize) -> Vec<u8> {
     thread_rng().sample_iter(&Alphanumeric).take(size).map(|c| c as u32 as u8).collect()
 }
 
-fn generate_fake_block(size: usize) -> Fallible<Vec<u8>> {
+fn generate_fake_block(size: usize) -> anyhow::Result<Vec<u8>> {
     let mut buffer = Vec::with_capacity(1 + size);
     (PacketType::Block as u8).serial(&mut buffer);
     buffer.write_all(&generate_random_data(size))?;

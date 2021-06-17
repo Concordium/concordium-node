@@ -14,14 +14,11 @@
 
 ## Supported features
 * instrumentation - switches the default internal counter implementation out with prometheus
-* s11n_serde_cbor - enables serialization using [serde_cbor](https://crates.io/crates/serde_cbor) (only used in benches)
-* s11n_serde_msgpack - enables serialization using [rmp-serde](https://crates.io/crates/rmp-serde) (only used in benches)
 * instrumentation - enables stats data exporting to [prometheus](https://crates.io/crates/prometheus)
 * network_dump - makes the network dumping capabilites available.
 * static - build against static haskell libraries (Linux only)
 * profiling - build against haskell libraries with profiling support enabled (Linux only)
 * collector - enables the build of the node-collector and backend
-* staging_net - enables special staging network only features like client username/password validation
 * database_emitter - enables building the database emitter binary to inject a database exported to a set of nodes
 * genesis_tester - a tool used by a CI to validate the genesis data
 * dedup_benchmarks - enable support in the benchmarks for deduplication queues

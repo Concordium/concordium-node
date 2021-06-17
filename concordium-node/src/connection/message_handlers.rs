@@ -14,8 +14,7 @@ use crate::{
     plugins::consensus::*,
     read_or_die,
 };
-
-use failure::Fallible;
+use anyhow::{bail, ensure};
 
 impl Connection {
     /// Processes a network message based on its type.
@@ -23,7 +22,7 @@ impl Connection {
         &mut self,
         msg: NetworkMessage,
         conn_stats: &[PeerStats],
-    ) -> Fallible<()> {
+    ) -> anyhow::Result<()> {
         // the handshake should be the first incoming network message
         let peer_id = match msg.payload {
             NetworkPayload::NetworkRequest(NetworkRequest::Handshake(handshake), ..) => {
@@ -80,7 +79,7 @@ impl Connection {
         &mut self,
         handshake: Handshake,
         conn_stats: &[PeerStats],
-    ) -> Fallible<()> {
+    ) -> anyhow::Result<()> {
         debug!("Got a Handshake request from peer {}", handshake.remote_id);
 
         if !is_compatible_version(&handshake.node_version) {
@@ -142,9 +141,13 @@ impl Connection {
     /// Check whether the connection has completed the handshake.
     pub(crate) fn is_post_handshake(&self) -> bool { self.remote_peer.self_id.is_some() }
 
-    fn handle_pong(&self) -> Fallible<()> { self.stats.notify_pong() }
+    fn handle_pong(&self) -> anyhow::Result<()> { self.stats.notify_pong() }
 
-    fn handle_incoming_packet(&self, pac: NetworkPacket, peer_id: RemotePeerId) -> Fallible<()> {
+    fn handle_incoming_packet(
+        &self,
+        pac: NetworkPacket,
+        peer_id: RemotePeerId,
+    ) -> anyhow::Result<()> {
         let is_broadcast = match pac.destination {
             PacketDestination::Broadcast(..) => true,
             _ => false,

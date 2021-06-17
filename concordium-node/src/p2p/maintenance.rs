@@ -1,8 +1,8 @@
 //! Node maintenance methods.
 
+use anyhow::Context;
 use chrono::prelude::*;
 use crossbeam_channel::{self, Receiver, Sender};
-use failure::{Fallible, ResultExt};
 use mio::{net::TcpListener, Events, Interest, Poll, Registry, Token};
 use nohash_hasher::BuildNoHashHasher;
 use rand::{prelude::SliceRandom, thread_rng, Rng};
@@ -13,8 +13,6 @@ use rkv::{
 
 #[cfg(feature = "network_dump")]
 use crate::dumper::{create_dump_thread, DumpItem};
-#[cfg(feature = "staging_net")]
-use crate::plugins::staging_net::get_username_from_jwt;
 use crate::{
     common::{get_current_stamp, p2p_peer::RemotePeerId, P2PNodeId, P2PPeer, PeerType},
     configuration::{self as config, Config},
@@ -86,8 +84,6 @@ pub struct NodeConfig {
     pub catch_up_batch_limit: i64,
     pub timeout_bucket_entry_period: u64,
     pub bucket_cleanup_interval: u64,
-    #[cfg(feature = "staging_net")]
-    pub staging_net_username: String,
     pub thread_pool_size: usize,
     pub dedup_size_long: usize,
     pub dedup_size_short: usize,
@@ -114,21 +110,21 @@ pub struct ConnChanges {
 
 /// The set of objects related to node's connections.
 pub struct ConnectionHandler {
-    pub socket_server: TcpListener,
-    pub next_token: AtomicUsize,
-    pub buckets: RwLock<Buckets>,
+    pub socket_server:        TcpListener,
+    pub next_token:           AtomicUsize,
+    pub buckets:              RwLock<Buckets>,
     #[cfg(feature = "network_dump")]
-    pub log_dumper: RwLock<Option<Sender<DumpItem>>>,
-    pub conn_candidates: Mutex<Connections>,
-    pub connections: RwLock<Connections>,
-    pub conn_changes: ConnChanges,
-    pub soft_bans: RwLock<HashMap<BanId, Instant>>, // (id, expiry)
-    pub networks: RwLock<Networks>,
+    pub log_dumper:           RwLock<Option<Sender<DumpItem>>>,
+    pub conn_candidates:      Mutex<Connections>,
+    pub connections:          RwLock<Connections>,
+    pub conn_changes:         ConnChanges,
+    pub soft_bans:            RwLock<HashMap<BanId, Instant>>, // (id, expiry)
+    pub networks:             RwLock<Networks>,
     pub deduplication_queues: DeduplicationQueues,
-    pub last_bootstrap: AtomicU64,
-    pub last_peer_update: AtomicU64,
-    pub total_received: AtomicU64,
-    pub total_sent: AtomicU64,
+    pub last_bootstrap:       AtomicU64,
+    pub last_peer_update:     AtomicU64,
+    pub total_received:       AtomicU64,
+    pub total_sent:           AtomicU64,
 }
 
 impl ConnectionHandler {
@@ -215,9 +211,9 @@ pub struct BadEvents {
     pub dropped_high_queue: Mutex<HashMap<RemotePeerId, u64>>,
     /// Number of low priority messages that were dropped because they could not
     /// be enqueued.
-    pub dropped_low_queue: Mutex<HashMap<RemotePeerId, u64>>,
+    pub dropped_low_queue:  Mutex<HashMap<RemotePeerId, u64>>,
     /// Number of invalid messages received from the given peer.
-    pub invalid_messages: Mutex<HashMap<RemotePeerId, u64>>,
+    pub invalid_messages:   Mutex<HashMap<RemotePeerId, u64>>,
 }
 
 impl BadEvents {
@@ -243,27 +239,27 @@ impl BadEvents {
 /// The central object belonging to a node in the network; it handles
 /// connectivity and contains the metadata, statistics etc.
 pub struct P2PNode {
-    pub self_peer: P2PPeer,
+    pub self_peer:          P2PPeer,
     /// Holds the handles to threads spawned by the node.
-    pub threads: RwLock<Vec<JoinHandle<()>>>,
+    pub threads:            RwLock<Vec<JoinHandle<()>>>,
     /// The handle to the poll registry.
-    pub poll_registry: Registry,
+    pub poll_registry:      Registry,
     pub connection_handler: ConnectionHandler,
     #[cfg(feature = "network_dump")]
-    pub network_dumper: NetworkDumper,
-    pub stats: Arc<StatsExportService>,
-    pub config: NodeConfig,
+    pub network_dumper:     NetworkDumper,
+    pub stats:              Arc<StatsExportService>,
+    pub config:             NodeConfig,
     /// The time the node was launched.
-    pub start_time: DateTime<Utc>,
+    pub start_time:         DateTime<Utc>,
     /// The flag indicating whether a node should shut down.
-    pub is_terminated: AtomicBool,
+    pub is_terminated:      AtomicBool,
     /// The key-value store holding the node's persistent data.
-    pub kvs: Arc<RwLock<Rkv<LmdbEnvironment>>>,
+    pub kvs:                Arc<RwLock<Rkv<LmdbEnvironment>>>,
     /// The catch-up list of peers.
-    pub peers: RwLock<PeerList>,
+    pub peers:              RwLock<PeerList>,
     /// Cache of bad events that we report on each connection housekeeping
     /// interval to avoid spamming the logs in case of failure.
-    pub bad_events: BadEvents,
+    pub bad_events:         BadEvents,
 }
 
 impl P2PNode {
@@ -276,7 +272,7 @@ impl P2PNode {
         peer_type: PeerType,
         stats: Arc<StatsExportService>,
         regenesis_arc: Arc<Regenesis>,
-    ) -> Fallible<(Arc<Self>, Poll)> {
+    ) -> anyhow::Result<(Arc<Self>, Poll)> {
         let addr = if let Some(ref addy) = conf.common.listen_address {
             let ip_addr = addy.parse::<IpAddr>().context(
                 "Supplied listen address could not be parsed. The address must be a valid IP \
@@ -292,9 +288,8 @@ impl P2PNode {
         let ip = if let Some(ref addy) = conf.common.listen_address {
             IpAddr::from_str(addy).context("Could not parse the provided listen address.")?
         } else {
-            P2PNode::get_ip().ok_or_else(|| {
-                format_err!("Could not compute my own ip. Use `--listen-address` to specify it.")
-            })?
+            P2PNode::get_ip()
+                .context("Could not compute my own ip. Use `--listen-address` to specify it.")?
         };
 
         let id = supplied_id.unwrap_or_else(|| rand::thread_rng().gen::<P2PNodeId>());
@@ -369,8 +364,6 @@ impl P2PNode {
                 conf.cli.timeout_bucket_entry_period
             },
             bucket_cleanup_interval: conf.common.bucket_cleanup_interval,
-            #[cfg(feature = "staging_net")]
-            staging_net_username: get_username_from_jwt(&conf.cli.staging_net_token),
             thread_pool_size: conf.connection.thread_pool_size,
             dedup_size_long: conf.connection.dedup_size_long,
             dedup_size_short: conf.connection.dedup_size_short,
@@ -497,7 +490,7 @@ impl P2PNode {
 
     /// Activate the network dump feature.
     #[cfg(feature = "network_dump")]
-    pub fn activate_dump(&self, path: &str, raw: bool) -> Fallible<()> {
+    pub fn activate_dump(&self, path: &str, raw: bool) -> anyhow::Result<()> {
         let path = std::path::PathBuf::from(path);
         self.network_dumper.switch.send((path, raw))?;
         self.dump_start(self.network_dumper.sender.clone());
@@ -506,7 +499,7 @@ impl P2PNode {
 
     /// Deactivate the network dump feature.
     #[cfg(feature = "network_dump")]
-    pub fn stop_dump(&self) -> Fallible<()> {
+    pub fn stop_dump(&self) -> anyhow::Result<()> {
         let path = std::path::PathBuf::new();
         self.network_dumper.switch.send((path, false))?;
         self.dump_stop();
@@ -602,7 +595,7 @@ impl P2PNode {
     /// Waits for all the spawned threads to terminate.
     /// This may panic or deadlock (depending on platform) if used from two
     /// different node threads.
-    pub fn join(&self) -> Fallible<()> {
+    pub fn join(&self) -> anyhow::Result<()> {
         // try to acquire the thread handles.
         let handles = {
             match self.threads.write() {
@@ -626,7 +619,7 @@ impl P2PNode {
     /// This method should only be called once by the thread that created the
     /// node. It may panic or deadlock (depending on platform) if used from
     /// two different node threads.
-    pub fn close_and_join(&self) -> Fallible<()> {
+    pub fn close_and_join(&self) -> anyhow::Result<()> {
         self.close();
         self.join()
     }
@@ -736,12 +729,14 @@ pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll, consensus: Option<Consensu
                 {
                     let attempted_bootstrap = connection_housekeeping(&node);
                     if node.peer_type() != PeerType::Bootstrapper {
-                        node.measure_connection_latencies();
+                        node.measure_connection_latencies()
                     }
 
                     let peer_stat_list = node.get_peer_stats(None);
                     check_peers(&node, &peer_stat_list, attempted_bootstrap);
-                    node.measure_throughput(&peer_stat_list);
+                    if let Err(e) = node.measure_throughput(&peer_stat_list) {
+                        error!("Could not measure throughput: {}", e);
+                    }
 
                     log_time = Instant::now();
                     iterations_since_housekeeping = 0;
@@ -894,7 +889,7 @@ fn get_ip_if_suitable(addr: &IpAddr) -> Option<IpAddr> {
 fn parse_config_nodes(
     conf: &config::ConnectionConfig,
     dns_resolvers: &[String],
-) -> Fallible<HashSet<SocketAddr>> {
+) -> anyhow::Result<HashSet<SocketAddr>> {
     let mut out = HashSet::new();
     for connect_to in &conf.connect_to {
         let new_addresses =

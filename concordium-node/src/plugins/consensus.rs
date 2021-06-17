@@ -1,6 +1,6 @@
 //! Consensus layer handling.
+use anyhow::{bail, ensure};
 use crossbeam_channel::TrySendError;
-use failure::Fallible;
 
 use crate::{
     common::{get_current_stamp, p2p_peer::RemotePeerId},
@@ -45,7 +45,7 @@ pub fn start_consensus_layer(
     appdata_dir: &PathBuf,
     database_connection_url: &str,
     regenesis_arc: Arc<Regenesis>,
-) -> Fallible<ConsensusContainer> {
+) -> anyhow::Result<ConsensusContainer> {
     info!("Starting up the consensus thread");
 
     #[cfg(feature = "profiling")]
@@ -88,7 +88,7 @@ pub fn stop_consensus_layer(container: ConsensusContainer) {
 pub fn get_baker_data(
     app_prefs: &configuration::AppPreferences,
     conf: &configuration::BakerConfig,
-) -> Fallible<(Vec<u8>, Option<Vec<u8>>)> {
+) -> anyhow::Result<(Vec<u8>, Option<Vec<u8>>)> {
     let mut genesis_loc = app_prefs.get_user_app_dir().to_path_buf();
     genesis_loc.push(FILE_NAME_GENESIS_DATA);
 
@@ -137,7 +137,7 @@ pub fn handle_pkt_out(
     peer_id: RemotePeerId, // id of the peer that sent the message.
     msg: Vec<u8>,
     is_broadcast: bool,
-) -> Fallible<()> {
+) -> anyhow::Result<()> {
     ensure!(!msg.is_empty(), "Packet payload can't be empty");
     let consensus_type = u8::deserial(&mut Cursor::new(&msg[..1]))?;
     let packet_type = PacketType::try_from(consensus_type)?;
@@ -199,7 +199,10 @@ pub fn handle_pkt_out(
 }
 
 /// Routes a self-made consensus message to the right peers.
-pub fn handle_consensus_outbound_msg(node: &P2PNode, message: ConsensusMessage) -> Fallible<()> {
+pub fn handle_consensus_outbound_msg(
+    node: &P2PNode,
+    message: ConsensusMessage,
+) -> anyhow::Result<()> {
     if let Some(status) = message.omit_status {
         for peer in read_or_die!(node.peers)
             .peer_states
@@ -230,7 +233,7 @@ pub fn handle_consensus_inbound_msg(
     node: &P2PNode,
     consensus: &ConsensusContainer,
     request: ConsensusMessage,
-) -> Fallible<()> {
+) -> anyhow::Result<()> {
     // If the drop_rebroadcast_probability parameter is set, do not
     // rebroadcast the packet to the network with the given chance.
     let drop_message = match node.config.drop_rebroadcast_probability {
@@ -302,7 +305,7 @@ fn send_msg_to_consensus(
     source_id: RemotePeerId,
     consensus: &ConsensusContainer,
     message: &ConsensusMessage,
-) -> Fallible<ConsensusFfiResponse> {
+) -> anyhow::Result<ConsensusFfiResponse> {
     let payload = &message.payload[1..]; // non-empty, already checked
 
     let consensus_response = match message.variant {

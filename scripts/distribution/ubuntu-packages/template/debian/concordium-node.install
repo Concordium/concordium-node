@@ -1,4 +1,3 @@
-scripts/concordium-node-wrapper usr/bin
 binaries/concordium-node usr/bin
 binaries/node-collector usr/bin
 data/genesis.dat var/lib/concordium/b6078154d6717e909ce0da4a45a25151b592824f31624b755900a74429e3073d/data

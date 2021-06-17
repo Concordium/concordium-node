@@ -1,14 +1,13 @@
 //! Types related to identifying peers.
 
+use crate::{common::P2PNodeId, connection::ConnectionStats};
+use anyhow::bail;
 use byteorder::{ReadBytesExt, WriteBytesExt};
-use crypto_common::{Buffer, Deserial, Fallible, Serial};
+use crypto_common::{Buffer, Deserial, Serial};
 use rand::{
     distributions::{Standard, Uniform},
     prelude::Distribution,
 };
-
-use crate::{common::P2PNodeId, connection::ConnectionStats};
-
 use std::{
     fmt::{self, Display},
     hash::{Hash, Hasher},
@@ -19,7 +18,6 @@ use std::{
 /// Specifies the type of the node - either a regular `Node` or a
 /// `Bootstrapper`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub enum PeerType {
     Node,
     Bootstrapper,
@@ -44,7 +42,6 @@ impl fmt::Display for PeerType {
 /// packets.
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub struct RemotePeerId {
     pub(crate) remote_peer_id: usize,
 }
@@ -67,9 +64,9 @@ impl Display for RemotePeerId {
 
 /// Parse from a (possibly 0 padded) hex value.
 impl std::str::FromStr for RemotePeerId {
-    type Err = failure::Error;
+    type Err = anyhow::Error;
 
-    fn from_str(s: &str) -> Fallible<Self> {
+    fn from_str(s: &str) -> anyhow::Result<Self> {
         match usize::from_str_radix(s, 16) {
             Ok(remote_peer_id) => Ok(RemotePeerId {
                 remote_peer_id,
@@ -112,7 +109,7 @@ impl Serial for RemotePeerId {
 }
 
 impl Deserial for RemotePeerId {
-    fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
+    fn deserial<R: ReadBytesExt>(source: &mut R) -> anyhow::Result<Self> {
         Ok(RemotePeerId {
             remote_peer_id: u64::deserial(source)? as usize,
         })
@@ -136,17 +133,17 @@ pub struct RemotePeer {
     /// the handshake completes.
     /// This id is only used in logging and externally, i.e., when
     /// reporting peers. It is not used by the node for managing peers.
-    pub self_id: Option<P2PNodeId>,
+    pub self_id:       Option<P2PNodeId>,
     /// Our local address of the node.
-    pub addr: SocketAddr,
+    pub addr:          SocketAddr,
     /// Our local identifier for the peer.
-    pub local_id: RemotePeerId,
+    pub local_id:      RemotePeerId,
     /// External port communicated to us by the node itself as part of the
     /// handshake. This is the port that the node can be reached at to
     /// initiate connections, as a result this is the port that is
     /// advertised as part of the peer list we serve.
     pub external_port: u16,
-    pub peer_type: PeerType,
+    pub peer_type:     PeerType,
 }
 
 // This instance is only used for storing peers in buckets, in which case
@@ -189,14 +186,13 @@ impl RemotePeer {
 
 /// Information about a peer that is transmitted over the network.
 #[derive(Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub struct P2PPeer {
     /// The peer's chosen identifier.
-    pub id: P2PNodeId,
+    pub id:        P2PNodeId,
     /// The peer's address. Note that this is the address they advertise as part
     /// of the handshake, and thus it is ostensibly the address where it
     /// listens to for new connections.
-    pub addr: SocketAddr,
+    pub addr:      SocketAddr,
     pub peer_type: PeerType,
 }
 
@@ -218,16 +214,16 @@ impl Display for P2PPeer {
 #[derive(Debug)]
 pub struct PeerStats {
     /// The peer's self identifier. Only used for reporting.
-    pub self_id: P2PNodeId,
-    pub addr: SocketAddr,
-    pub external_port: u16,
+    pub self_id:        P2PNodeId,
+    pub addr:           SocketAddr,
+    pub external_port:  u16,
     /// Our identifier for the remote peer.
-    pub local_id: RemotePeerId,
-    pub peer_type: PeerType,
-    pub latency: u64,
-    pub msgs_sent: u64,
-    pub msgs_received: u64,
-    pub bytes_sent: u64,
+    pub local_id:       RemotePeerId,
+    pub peer_type:      PeerType,
+    pub latency:        u64,
+    pub msgs_sent:      u64,
+    pub msgs_received:  u64,
+    pub bytes_sent:     u64,
     pub bytes_received: u64,
 }
 

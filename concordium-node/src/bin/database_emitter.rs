@@ -7,6 +7,7 @@ use std::alloc::System;
 #[global_allocator]
 static A: System = System;
 
+use anyhow::{bail, Context};
 use concordium_node::{
     common::PeerType,
     consensus_ffi::helpers::PacketType,
@@ -19,10 +20,9 @@ use concordium_node::{
     utils,
 };
 use crypto_common::serialize::Serial;
-use failure::{bail, Fallible, ResultExt};
 use std::{fs::File, io::prelude::*, sync::Arc, thread, time::Duration};
 
-fn main() -> Fallible<()> {
+fn main() -> anyhow::Result<()> {
     let (mut conf, _app_prefs) = utils::get_config_and_logging_setup()?;
 
     conf.connection.dnssec_disabled = true;

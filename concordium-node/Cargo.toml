@@ -14,15 +14,11 @@ license-file = "../LICENSE"
 [features]
 default = []
 test_utils = [ "tempfile" ]
-s11n_serde = ["serde_derive"]
-s11n_serde_cbor = ["s11n_serde", "serde_cbor"]
-s11n_serde_msgpack = ["s11n_serde", "rmp-serde"]
 instrumentation = ["serde_derive", "gotham", "mime", "gotham_derive", "prometheus", "hyper", "num_cpus", "reqwest", "http" ]
 network_dump = []
 static = [ ]
 profiling = [ "static" ]
 collector = [ "reqwest/default-tls", "serde/derive", "rmp-serde", "gotham", "mime", "gotham_derive", "hyper", "futures" ]
-staging_net = [ "serde/derive", "reqwest/default-tls", "jsonwebtoken" ]
 database_emitter = []
 genesis_tester = [ "tempfile" ]
 
@@ -45,7 +41,6 @@ byteorder = "1.3"
 preferences = "1.1"
 app_dirs2 = "2.3"
 chrono = "0.4"
-failure = "0.1.7"
 cfg-if = "1.0.0"
 base64 = "0.13.0"
 rkv = "0.17.0"
@@ -68,6 +63,8 @@ base58check = "^0.1"
 serde = { version = "1.0", features = ["rc"] }
 hex = "0.4"
 rpassword = "5.0"
+anyhow = "1.0"
+thiserror = "1.0"
 
 # gRPC dependencies
 tonic = "0.4.1"
@@ -83,7 +80,6 @@ reqwest = { version = "0.11.2", default-features = false, optional = true, featu
 mime = { version = "0.3", optional = true }
 futures = { version = "0.3", optional = true }
 serde_derive = { version = "1.0", optional = true }
-serde_cbor = { version = "0.11", optional = true }
 rmp-serde = { version = "0.15.4", optional = true }
 serde_json = { version = "1" }
 num_cpus = { version = "1.13", optional = true }
