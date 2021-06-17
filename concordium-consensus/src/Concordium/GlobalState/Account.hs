@@ -249,32 +249,26 @@ instance Serialize AccountBaker where
       _ -> return ()
     return AccountBaker{..}
 
+-- |Helper function for JSON encoding an 'AccountBaker'.
+accountBakerPairs :: AE.KeyValue kv => AccountBaker -> [kv]
+{-# INLINE accountBakerPairs #-}
+accountBakerPairs ab =
+    [ "stakedAmount" AE..= (ab ^. stakedAmount),
+      "restakeEarnings" AE..= (ab ^. stakeEarnings),
+      "bakerId" AE..= (ab ^. accountBakerInfo . bakerIdentity),
+      "bakerElectionVerifyKey" AE..= (ab ^. accountBakerInfo . bakerElectionVerifyKey),
+      "bakerSignatureVerifyKey" AE..= (ab ^. accountBakerInfo . bakerSignatureVerifyKey),
+      "bakerAggregationVerifyKey" AE..= (ab ^. accountBakerInfo . bakerAggregationVerifyKey)
+    ]
+        <> case ab ^. bakerPendingChange of
+            NoChange -> []
+            ReduceStake amt ep -> ["pendingChange" AE..= AE.object ["change" AE..= AE.String "ReduceStake", "newStake" AE..= amt, "epoch" AE..= ep]]
+            RemoveBaker ep -> ["pendingChange" AE..= AE.object ["change" AE..= AE.String "RemoveBaker", "epoch" AE..= ep]]
+
 -- |ToJSON instance supporting consensus queries.
 instance AE.ToJSON AccountBaker where
-    toJSON ab = AE.object
-        ( [ "stakedAmount" AE..= (ab ^. stakedAmount),
-            "restakeEarnings" AE..= (ab ^. stakeEarnings),
-            "bakerId" AE..= (ab ^. accountBakerInfo . bakerIdentity),
-            "bakerElectionVerifyKey" AE..= (ab ^. accountBakerInfo . bakerElectionVerifyKey),
-            "bakerSignatureVerifyKey" AE..= (ab ^. accountBakerInfo . bakerSignatureVerifyKey),
-            "bakerAggregationVerifyKey" AE..= (ab ^. accountBakerInfo . bakerAggregationVerifyKey)
-            ]
-            <> case ab ^. bakerPendingChange of
-                NoChange -> []
-                ReduceStake amt ep -> ["pendingChange" AE..= AE.object ["change" AE..= AE.String "ReduceStake", "newStake" AE..= amt, "epoch" AE..= ep]]
-                RemoveBaker ep -> ["pendingChange" AE..= AE.object ["change" AE..= AE.String "RemoveBaker", "epoch" AE..= ep]]
-        )
-    toEncoding ab = AE.pairs $
-        "stakedAmount" AE..= (ab ^. stakedAmount) <>
-            "restakeEarnings" AE..= (ab ^. stakeEarnings) <>
-            "bakerId" AE..= (ab ^. accountBakerInfo . bakerIdentity) <>
-            "bakerElectionVerifyKey" AE..= (ab ^. accountBakerInfo . bakerElectionVerifyKey) <>
-            "bakerSignatureVerifyKey" AE..= (ab ^. accountBakerInfo . bakerSignatureVerifyKey) <>
-            "bakerAggregationVerifyKey" AE..= (ab ^. accountBakerInfo . bakerAggregationVerifyKey)
-            <> case ab ^. bakerPendingChange of
-                NoChange -> mempty
-                ReduceStake amt ep -> "pendingChange" AE..= AE.object ["change" AE..= AE.String "ReduceStake", "newStake" AE..= amt, "epoch" AE..= ep]
-                RemoveBaker ep -> "pendingChange" AE..= AE.object ["change" AE..= AE.String "RemoveBaker", "epoch" AE..= ep]
+    toJSON ab = AE.object (accountBakerPairs ab)
+    toEncoding ab = AE.pairs (mconcat (accountBakerPairs ab))
 
 instance HashableTo AccountBakerHash AccountBaker where
   getHash AccountBaker{..}

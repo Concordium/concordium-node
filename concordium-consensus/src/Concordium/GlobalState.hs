@@ -352,8 +352,11 @@ instance Exception GlobalStateInitException
 
 -- |This class is implemented by types that determine configurations for the global state.
 class GlobalStateConfig (c :: ProtocolVersion -> Type) where
+    -- |The read-only context type associated with a global state configuration.
     type GSContext c (pv :: ProtocolVersion)
+    -- |The (mutable) state type associated with a global state configuration.
     type GSState c (pv :: ProtocolVersion)
+    -- |Context for transaction logging associated with a global state configuration.
     type GSLogContext c (pv :: ProtocolVersion)
     -- |Generate context and state from the initial configuration. This may
     -- have 'IO' side effects to set up any necessary storage.

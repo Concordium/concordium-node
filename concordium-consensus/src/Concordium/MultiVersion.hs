@@ -50,15 +50,22 @@ import Concordium.TimerMonad
 import Control.Monad.Catch (MonadCatch, MonadMask, MonadThrow)
 
 -- |Handler configuration for supporting protocol updates.
+-- This handler defines an instance of 'HandlerConfigHandlers' that responds to finalization events
+-- by checking for protocol updates (see 'checkForProtocolUpdate').
 data UpdateHandler = UpdateHandler
 
 -- |State for the 'UpdateHandler' handler configuration.
+-- This records whether the handler was notified about a (pending) protocol update.
+-- Since a pending protocol update may be replaced, the last seen pending protocol update is
+-- recorded to detect any such replacement.
 data UpdateHandlerState
-    = -- |Indicates that no pending update has been logged.
+    = -- |Indicates that no pending update has been notified.
       NeverNotified
-    | -- |Indicates that the specified protocol update has already been logged.
+    | -- |Indicates that the specified protocol update has already been notified.
       AlreadyNotified
-        { uhNotifiedEffectiveTimestamp :: !TransactionTime,
+        { -- |The effective time of the update.
+          uhNotifiedEffectiveTimestamp :: !TransactionTime,
+          -- |The contents of the update itself.
           uhNotifiedProtocolUpdate :: !ProtocolUpdate
         }
     deriving (Eq)
@@ -88,13 +95,17 @@ newtype DiskStateConfig = DiskStateConfig
     }
 
 -- |Configuration for the global state that logs finalized
--- transactions in an external database
+-- transactions in an external database.
 newtype TransactionDBConfig = TransactionDBConfig
     { -- |Database connection string.
       dbConnString :: ByteString
     }
 
 -- |Configuration information for a multi-version runner.
+-- The first type parameter defines the global state configuration, and should be an instance of
+-- 'MultiVersionStateConfig' (and, as a superclass, 'GlobalStateConfig').
+-- The second type parameter defines the finalization configuration, and should be an instance of
+-- 'FinalizationConfig'.
 data MultiVersionConfiguration gsconf finconf = MultiVersionConfiguration
     { -- |Configuration for the global state.
       mvcStateConfig :: !(StateConfig gsconf),
@@ -276,14 +287,19 @@ instance
     newVersion = EVersionedConfiguration
     liftSkov a = a
 
--- |State of catch-up buffering.
+-- |State of catch-up buffering.  This is used for buffering the sending of catch-up status messages
+-- that need to be sent as a result of pending blocks becoming live.  See
+-- 'bufferedHandlePendingLive' for details.
 data CatchUpStatusBufferState
     = -- |We are not currently waiting to send a catch-up status message.
       BufferEmpty
     | -- |We are currently waiting to send a catch-up status message.
       BufferPending
-        { cusbsGenesisIndex :: !GenesisIndex,
+        { -- |The genesis index for which the status message is buffered.
+          cusbsGenesisIndex :: !GenesisIndex,
+          -- |The soonest the status message should be sent.
           cusbsSoonest :: !UTCTime,
+          -- |The latest the status message should be sent.
           cusbsLatest :: !UTCTime
         }
     | -- |We should not send any more catch-up status messages.

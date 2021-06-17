@@ -110,7 +110,9 @@ notifyBuffer handleMsg bufId = do
                     logEvent Runner LLTrace $ "Flushing buffered message on notify. expectedNotifyTime=" ++ show expectedNotifyTime ++ " notifyTime=" ++ show notifyTime
                     handleMsg msg
 
--- |A 'FinalizationState' equipped with a 'FinalizationBuffer'.
+-- |A 'FinalizationState' equipped with a 'FinalizationBuffer'.  The buffer is used in the
+-- 'Concordium.Skov.MonadImplementation.BufferedFinalization' configuration to buffer Seen
+-- messages so that fewer messages need to be sent.
 data BufferedFinalizationState t = BufferedFinalizationState {
         _bfsFinalization :: !(FinalizationState t),
         _bfsBuffer :: !FinalizationBuffer

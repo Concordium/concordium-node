@@ -223,7 +223,7 @@ initialSkovPersistentData rp treeStateDir gd genState genATI atiContext serState
 
 -- |Check the permissions in the required files.
 -- Returns 'True' if the database already existed, 'False' if not.
--- Raises an exception of the database is inaccessible, or only partially exists.
+-- Raises an exception if the database is inaccessible, or only partially exists.
 checkExistingDatabase :: forall m. (MonadLogger m, MonadIO m) =>
     -- |Tree state path
     FilePath ->
@@ -296,7 +296,8 @@ loadSkovPersistentData rp _treeStateDirectory _genesisData pbsc atiContext = do
           liftIO (try $ databaseHandlers _treeStateDirectory)
 
   -- Check that the database version matches what we expect.
-  liftIO (checkDatabaseVersion _db) >>= mapM_ (logExceptionAndThrowTS . IncorrectDatabaseVersion)
+  liftIO (checkDatabaseVersion _db) >>=
+      either (logExceptionAndThrowTS . IncorrectDatabaseVersion) return
 
   -- Get the genesis block and check that its data matches the supplied genesis data.
   genStoredBlock <- maybe (logExceptionAndThrowTS GenesisBlockNotInDataBaseError) return =<<
@@ -514,7 +515,7 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
               blockTable . at' bh ?=! BlockFinalized (finalizationIndex fr)
             _ -> return ()
     markPending pb = blockTable . at' (getHash pb) ?=! BlockPending pb
-    markAllNonFinalizedDead = blockTable %= fmap nonFinDead
+    markAllNonFinalizedDead = blockTable %=! fmap nonFinDead
         where
             nonFinDead BlockAlive{} = BlockDead
             nonFinDead BlockPending{} = BlockDead
@@ -585,8 +586,8 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
                     possiblyPendingQueue .= ppq
                     return Nothing
     wipePendingBlocks = do
-        possiblyPendingTable .= HM.empty
-        possiblyPendingQueue .= MPQ.empty
+        possiblyPendingTable .=! HM.empty
+        possiblyPendingQueue .=! MPQ.empty
     getFocusBlock = use focusBlock
     putFocusBlock bb = focusBlock .= bb
     getPendingTransactions = use pendingTransactions
@@ -805,7 +806,7 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
         -- The motivation for using foldr here is that the list will be consumed by iteration
         -- almost immediately, so it is reasonable to build it lazily.
         oldTransactions <- HM.foldr ((:) . fst) [] <$> use (transactionTable . ttHashMap)
-        transactionTable %= (ttHashMap .~ HM.empty)
+        transactionTable %=! (ttHashMap .~ HM.empty)
             . (ttNonFinalizedTransactions %~ fmap (anftMap .~ Map.empty))
             . (ttNonFinalizedChainUpdates %~ fmap (nfcuMap .~ Map.empty))
         return oldTransactions

@@ -114,6 +114,8 @@ sectionHeaderLength :: Word64
 sectionHeaderLength = fromIntegral $ BS.length $ encode dummySectionHeader
 
 -- |Write a section to the file handle.  It must be possible to write and seek the handle.
+-- The section is written at the current seek location of the handle, and afterwards the seek
+-- location is at the end of the the written section.
 writeSection ::
     (MonadIO m) =>
     -- |Genesis index
@@ -164,14 +166,8 @@ writeSection
 -- |Open a file handle for writing the database.
 initialHandle :: FilePath -> IO Handle
 initialHandle p = do
-    exists <- doesFileExist p
-    if exists
-        then do
-            removeFile p
-            openBinaryFile p WriteMode
-        else do
-            createDirectoryIfMissing True (takeDirectory p)
-            openBinaryFile p WriteMode
+    createDirectoryIfMissing True (takeDirectory p)
+    openBinaryFile p WriteMode
 
 -- |Export a database in V3 format, given the data directory root.
 exportDatabaseV3 ::
@@ -320,12 +316,16 @@ importBlocksV3 inFile firstGenIndex cbk = runExceptT $
             case decode v of
                 Left err -> failWith $ "Error deserializing version header: " ++ err
                 Right version
-                    | version == (3 :: Version) -> importSections hdl
+                    | version == supportedVersion -> importSections hdl
                     | otherwise ->
                         failWith $
                             "Block file version is " ++ show version
-                                ++ " which is not supported"
+                                ++ " which is not supported. Only version "
+                                ++ show supportedVersion
+                                ++ " is supported."
   where
+    supportedVersion :: Version
+    supportedVersion = 3
     failWith :: String -> ExceptT (ImportFailure a) m r
     failWith s = do
         logEvent External LLError $ "Error importing blocks: " ++ s

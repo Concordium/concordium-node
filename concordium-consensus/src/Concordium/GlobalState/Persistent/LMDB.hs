@@ -308,6 +308,10 @@ openReadOnlyDatabase treeStateDir = do
     Nothing -> Nothing <$ mdb_env_close _storeEnv
     Just v -> case S.decode v of
         Right VersionMetadata{vmDatabaseVersion = 0, ..} ->
+            -- Promote the term level vmProtocolVersion to a type-level value pv, which is
+            -- existentially quantified in the return type.  We do not currently match on the
+            -- protocol version itself, since the database handlers are parametric in the protocol
+            -- version.
             case promoteProtocolVersion vmProtocolVersion of
                 SomeProtocolVersion (_ :: SProtocolVersion pv) ->
                     transaction _storeEnv True $ \txn -> do
@@ -374,7 +378,7 @@ addDatabaseVersion treeStateDir = do
 
 -- |Check whether the database version matches the expected version.
 -- If the version does not match, the result is a string describing the problem.
-checkDatabaseVersion :: forall pv st. IsProtocolVersion pv => DatabaseHandlers pv st -> IO (Maybe String)
+checkDatabaseVersion :: forall pv st. IsProtocolVersion pv => DatabaseHandlers pv st -> IO (Either String ())
 checkDatabaseVersion db = checkVersion <$> transaction (db ^. storeEnv) True
         (\txn -> loadRecord txn (db ^. metadataStore) versionMetadata)
     where
@@ -382,12 +386,12 @@ checkDatabaseVersion db = checkVersion <$> transaction (db ^. storeEnv) True
                 vmDatabaseVersion = 0,
                 vmProtocolVersion = demoteProtocolVersion (protocolVersion @pv)
             }
-        checkVersion Nothing = Just $ "expected " ++ show expectedVersion ++ " but no version was found"
+        checkVersion Nothing = Left $ "expected " ++ show expectedVersion ++ " but no version was found"
         checkVersion (Just vs) = case S.decode vs of
             Right vm
-                | vm == expectedVersion -> Nothing
-                | otherwise -> Just $ "expected " ++ show expectedVersion ++ " but found " ++ show vm
-            _ -> Just $ "expected " ++ show expectedVersion ++ " but the version could not be deserialized"
+                | vm == expectedVersion -> Right ()
+                | otherwise -> Left $ "expected " ++ show expectedVersion ++ " but found " ++ show vm
+            _ -> Left $ "expected " ++ show expectedVersion ++ " but the version could not be deserialized"
 
 -- |Close down the database, freeing the file handles.
 closeDatabase :: DatabaseHandlers pv st -> IO ()

@@ -55,29 +55,24 @@ instance Show Instance where
 instance HashableTo H.Hash Instance where
     getHash = instanceHash
 
+-- |Helper function for JSON encoding an 'Instance'.
+instancePairs :: KeyValue kv => Instance -> [kv]
+{-# INLINE instancePairs #-}
+instancePairs istance =
+    [ "model" .= instanceModel istance,
+      "owner" .= instanceOwner params,
+      "amount" .= instanceAmount istance,
+      "methods" .= instanceReceiveFuns params,
+      "name" .= instanceInitName params,
+      "sourceModule" .= instanceContractModule params
+    ]
+  where
+    params = instanceParameters istance
+
 -- |JSON instance to support consensus queries.
 instance ToJSON Instance where
-    toJSON istance =
-        object
-            [ "model" .= instanceModel istance,
-              "owner" .= instanceOwner params,
-              "amount" .= instanceAmount istance,
-              "methods" .= instanceReceiveFuns params,
-              "name" .= instanceInitName params,
-              "sourceModule" .= instanceContractModule params
-            ]
-      where
-        params = instanceParameters istance
-    toEncoding istance =
-        pairs $
-            "model" .= instanceModel istance
-                <> "owner" .= instanceOwner params
-                <> "amount" .= instanceAmount istance
-                <> "methods" .= instanceReceiveFuns params
-                <> "name" .= instanceInitName params
-                <> "sourceModule" .= instanceContractModule params
-      where
-        params = instanceParameters istance
+    toJSON = object . instancePairs
+    toEncoding = pairs . mconcat .instancePairs
             
 makeInstanceParameterHash :: ContractAddress -> AccountAddress -> ModuleRef -> Wasm.InitName -> H.Hash
 makeInstanceParameterHash ca aa modRef conName = H.hashLazy $ runPutLazy $ do

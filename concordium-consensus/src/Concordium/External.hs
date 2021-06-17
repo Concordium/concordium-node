@@ -227,6 +227,12 @@ makeRegenesisRef = newForeignPtr
 
 -- * Consensus operations
 
+-- |A 'ConsensusRunner' is a 'MultiVersionRunner' with an existentially quantified global state
+-- and finalization configuration.  A 'StablePtr' to a consensus runner is used as the reference
+-- to the consensus that is passed over the FFI.
+--
+-- The use of the existential type is convenient, since it avoids or defers case analysis, while
+-- allowing for multiple possible configurations.
 data ConsensusRunner = forall gsconf finconf. ConsensusRunner (MultiVersionRunner gsconf finconf)
 
 -- |Result of starting consensus
@@ -824,7 +830,13 @@ freeCStr :: CString -> IO ()
 freeCStr = free
 
 -- |Convenience wrapper for queries that return JSON values.
-jsonQuery :: AE.ToJSON a => StablePtr ConsensusRunner -> (forall gsconf finconf. MVR gsconf finconf a) -> IO CString
+jsonQuery ::
+    AE.ToJSON a =>
+    -- |Consensus pointer
+    StablePtr ConsensusRunner ->
+    -- |Configuration-independent query operation
+    (forall gsconf finconf. MVR gsconf finconf a) ->
+    IO CString
 jsonQuery cptr a = do
     (ConsensusRunner mvr) <- deRefStablePtr cptr
     res <- runMVR a mvr
