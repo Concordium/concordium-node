@@ -4,7 +4,8 @@
     UndecidableInstances,
     ConstraintKinds,
     TypeApplications,
-    TypeFamilies
+    TypeFamilies,
+    NumericUnderscores
 #-}
 module Concordium.Runner where
 
@@ -50,17 +51,17 @@ type SkovTLogIO c = SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO
 
 type SkovBlockPointer c = BlockPointerType (SkovTLogIO c)
 
-data SimpleOutMessage c
-    = SOMsgNewBlock !(SkovBlockPointer c)
-    | SOMsgFinalization !FinalizationPseudoMessage
-    | SOMsgFinalizationRecord !FinalizationRecord
+data SimpleOutMessage
+    = SOMsgNewBlock !BS.ByteString
+    | SOMsgFinalization !BS.ByteString
+    | SOMsgFinalizationRecord !BS.ByteString
 
 data SyncRunner c = SyncRunner {
     syncBakerIdentity :: !BakerIdentity,
     syncState :: !(MVar (SkovState c)),
     syncBakerThread :: !(MVar ThreadId),
     syncLogMethod :: LogMethod IO,
-    syncCallback :: SimpleOutMessage c -> IO (),
+    syncCallback :: SimpleOutMessage -> IO (),
     syncFinalizationCatchUpActive :: MVar (Maybe (IORef Bool)),
     syncContext :: !(SkovContext c),
     syncHandlePendingLive :: !(IO ()),
@@ -107,7 +108,7 @@ bufferedHandlePendingLive hpl bufferMVar = do
 makeSyncRunner :: (SkovConfiguration c, SkovQueryMonad (SkovProtocolVersion c) (SkovT () c LogIO)) => LogMethod IO ->
                   BakerIdentity ->
                   c ->
-                  (SimpleOutMessage c -> IO ()) ->
+                  (SimpleOutMessage -> IO ()) ->
                   (CatchUpStatus -> IO ()) ->
                   (BlockHash -> IO ()) ->
                   IO (SyncRunner c)
@@ -143,20 +144,58 @@ runSkovTransaction sr@SyncRunner{..} a = runWithStateLog syncState syncLogMethod
 
 syncSkovHandlers :: forall c. SyncRunner c -> SkovHandlers ThreadTimer c LogIO
 syncSkovHandlers sr@SyncRunner{..} = SkovHandlers{
-        shBroadcastFinalizationMessage = liftIO . syncCallback . SOMsgFinalization,
-        shBroadcastFinalizationRecord = liftIO . syncCallback . SOMsgFinalizationRecord,
+        shBroadcastFinalizationMessage = liftIO . syncCallback . SOMsgFinalization . runPut . putVersionedFPMV0,
+        shBroadcastFinalizationRecord = liftIO . syncCallback . SOMsgFinalizationRecord . runPut . putVersionedFinalizationRecordV0,
         shOnTimeout = \timeout a -> liftIO $ makeThreadTimer timeout $ void $ runSkovTransaction sr a,
         shCancelTimer = liftIO . cancelThreadTimer,
         shPendingLive = liftIO syncHandlePendingLive
     }
 
 -- |Start the baker thread for a 'SyncRunner'. This will also spawn a background thread for purging the transaction table periodically.
-startSyncRunner :: forall c. (
-    (SkovQueryMonad (SkovProtocolVersion c) (SkovT () c LogIO)),
-    (BakerMonad (SkovProtocolVersion c) (SkovTLogIO c)),
-    (TreeStateMonad (SkovProtocolVersion c) (SkovTLogIO c))
-    ) => SyncRunner c -> IO ()
+startSyncRunner :: forall c.
+    (BakerMonad (SkovProtocolVersion c) (SkovTLogIO c))
+    => SyncRunner c -> IO ()
 startSyncRunner sr@SyncRunner{..} = do
+    _ <- forkOS $ do
+        tid <- myThreadId
+        started <- tryPutMVar syncBakerThread tid
+        if started
+            then do
+                syncLogMethod Runner LLInfo "Starting baker thread"
+                bakerLoop 0 `finally` syncLogMethod Runner LLInfo "Exiting baker thread"
+            else syncLogMethod Runner LLInfo "Starting baker thread aborted: baker is already running"
+    -- This synchronises on the baker MVar to ensure that a baker should definitely be
+    -- running before startBaker returns.
+    modifyMVarMasked_ syncBakerThread return
+  where
+    bakerLoop :: Slot -> IO ()
+    bakerLoop nextSlot = do
+
+        res <- runWithStateLog syncState syncLogMethod
+            (runSkovT (tryBake syncBakerIdentity nextSlot) (syncSkovHandlers sr) syncContext)
+        case res of
+            BakeSuccess slot' block -> do
+                syncCallback (SOMsgNewBlock block)
+                bakerLoop slot'
+            BakeWaitUntil slot' ts -> do
+                now <- utcTimeToTimestamp <$> currentTime
+                when (now < ts) $ threadDelay $ fromIntegral (tsMillis (ts - now)) * 1_000
+                bakerLoop slot'
+            BakeShutdown -> do
+                -- Note that on a successful protocol update this should not occur because a new
+                -- genesis should be started up when the old one is shut down within the same
+                -- critical region. i.e. while the write lock is held.
+                -- If the protocol update was unsuccessful (i.e. we do not know how to continue)
+                -- then exiting the baker thread is the appropriate behaviour
+                syncLogMethod Runner LLInfo "Consensus is shut down; baking will terminate."
+                -- Since we are exiting the baker thread without being killed, we drain the MVar.
+                -- This may not be necessary, but should ensure that the thread can be garbage
+                -- collected.
+                void $ takeMVar syncBakerThread
+
+{-
+
+
         -- start baking at the current time.
         initialSlot <- runStateQuery sr getCurrentSlot
         rp <- runStateQuery sr getRuntimeParameters
@@ -254,6 +293,8 @@ startSyncRunner sr@SyncRunner{..} = do
         putMVar syncTransactionPurgingThread =<< forkIO purgingLoop
         return ()
 
+-- -}
+
 -- |Stop the baker thread for a 'SyncRunner'.
 stopSyncRunner :: SyncRunner c -> IO ()
 stopSyncRunner SyncRunner{..} = do
@@ -277,7 +318,7 @@ isSlotTooEarly s = do
     threshold <- rpEarlyBlockThreshold <$> getRuntimeParameters
     now <- currentTimestamp
     slotTime <- getSlotTimestamp s
-    return $ slotTime > now + threshold
+    return $ slotTime > addDuration now threshold
 
 syncReceiveBlock :: (SkovMonad (SkovProtocolVersion c) (SkovTLogIO c))
     => SyncRunner c
@@ -333,6 +374,7 @@ instance (SkovQueryMonad (SkovProtocolVersion c) (SkovT () c LogIO)) => SkovStat
 
 runSkovPassive :: SyncPassiveRunner c -> SkovT (SkovPassiveHandlers c LogIO) c LogIO a -> IO a
 {-# INLINE runSkovPassive #-}
+{-# LANGUAGE NumericUnderscores #-}
 runSkovPassive SyncPassiveRunner{..} a = runWithStateLog syncPState syncPLogMethod (runSkovT a syncPHandlers syncPContext)
 
 
@@ -418,7 +460,6 @@ data OutMessage peer =
 makeAsyncRunner :: forall c source.
     (SkovConfiguration c,
     (SkovQueryMonad (SkovProtocolVersion c) (SkovT () c LogIO)),
-    (TreeStateMonad (SkovProtocolVersion c) (SkovTLogIO c)),
     (BakerMonad (SkovProtocolVersion c) (SkovTLogIO c)))
     => LogMethod IO
     -> BakerIdentity
@@ -481,9 +522,9 @@ makeAsyncRunner logm bkr config = do
         _ <- forkIO (msgLoop `catch` \(e :: SomeException) -> (logm Runner LLError ("Message loop exited with exception: " ++ show e) >> Prelude.putStrLn ("// **** " ++ show e)))
         return (inChan, outChan, sr)
     where
-        simpleToOutMessage (SOMsgNewBlock block) = MsgNewBlock $ runPut $ putVersionedBlock (protocolVersion @(SkovProtocolVersion c)) block
-        simpleToOutMessage (SOMsgFinalization finMsg) = MsgFinalization $ runPut $ putVersionedFPMV0 finMsg
-        simpleToOutMessage (SOMsgFinalizationRecord finRec) = MsgFinalizationRecord $ runPut $ putVersionedFinalizationRecordV0 finRec
+        simpleToOutMessage (SOMsgNewBlock block) = MsgNewBlock block
+        simpleToOutMessage (SOMsgFinalization finMsg) = MsgFinalization finMsg
+        simpleToOutMessage (SOMsgFinalizationRecord finRec) = MsgFinalizationRecord finRec
 
         catchUpLimit = 100
 
