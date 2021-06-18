@@ -29,7 +29,7 @@ import Concordium.Types.Transactions
 import Concordium.GlobalState.Finalization
 import Concordium.Types
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.TreeState (TreeStateMonad, purgeTransactionTable, readBlocksV2, ImportingResult(..))
+import Concordium.GlobalState.TreeState (readBlocksV2, ImportingResult(..))
 
 import Concordium.TimeMonad
 import Concordium.TimerMonad
