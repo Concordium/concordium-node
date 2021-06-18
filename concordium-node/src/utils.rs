@@ -149,7 +149,7 @@ pub fn get_resolvers(_resolv_conf: &Path, resolvers: &[String]) -> Vec<String> {
 pub fn parse_host_port(
     input: &str,
     resolvers: &[String],
-    dnssec_fail: bool,
+    require_dnssec: bool,
 ) -> anyhow::Result<Vec<SocketAddr>> {
     if let Some(n) = input.rfind(':') {
         let (ip, port) = input.split_at(n);
@@ -166,19 +166,20 @@ pub fn parse_host_port(
                 resolvers.iter().map(|x| IpAddr::from_str(x)).flatten().collect::<Vec<_>>();
             ensure!(!resolver_addresses.is_empty(), "No DNS resolvers available");
 
-            let a_record_resolver =
-                if let Ok(res) = dns::resolve_dns_a_record(&ip, &resolver_addresses, dnssec_fail) {
-                    res.into_iter()
-                        .filter_map(|element| match IpAddr::from_str(&element) {
-                            Ok(ip) => Some(SocketAddr::new(ip, port).to_owned()),
-                            _ => None,
-                        })
-                        .collect::<Vec<_>>()
-                } else {
-                    vec![]
-                };
+            let a_record_resolver = if let Ok(res) =
+                dns::resolve_dns_a_record(&ip, &resolver_addresses, require_dnssec)
+            {
+                res.into_iter()
+                    .filter_map(|element| match IpAddr::from_str(&element) {
+                        Ok(ip) => Some(SocketAddr::new(ip, port).to_owned()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+            } else {
+                vec![]
+            };
             let aaaa_record_resolver = if let Ok(res) =
-                dns::resolve_dns_aaaa_record(&ip, &resolver_addresses, dnssec_fail)
+                dns::resolve_dns_aaaa_record(&ip, &resolver_addresses, require_dnssec)
             {
                 res.into_iter()
                     .filter_map(|element| IpAddr::from_str(&element).ok())
@@ -201,7 +202,7 @@ pub fn parse_host_port(
 pub fn get_bootstrap_nodes(
     bootstrap_server: Option<&str>,
     resolvers: &[String],
-    dnssec_fail: bool,
+    require_dnssec: bool,
     bootstrap_nodes: &[String],
 ) -> Result<Vec<SocketAddr>, &'static str> {
     if !bootstrap_nodes.is_empty() {
@@ -209,7 +210,7 @@ pub fn get_bootstrap_nodes(
         let bootstrap_nodes = bootstrap_nodes
             .iter()
             .filter_map(|ip_port| {
-                parse_host_port(ip_port, resolvers, dnssec_fail)
+                parse_host_port(ip_port, resolvers, require_dnssec)
                     .map_err(|err| error!("Invalid bootstrapper node received: {}", err))
                     .ok()
             })
@@ -223,7 +224,7 @@ pub fn get_bootstrap_nodes(
         if resolver_addresses.is_empty() {
             return Err("No valid resolvers given");
         }
-        match dns::resolve_dns_txt_record(bootstrap_server, &resolver_addresses, dnssec_fail) {
+        match dns::resolve_dns_txt_record(bootstrap_server, &resolver_addresses, require_dnssec) {
             Ok(res) => read_peers_from_dns_entries(res, get_dns_public_key()),
             Err(_) => Err("Error looking up bootstrap nodes"),
         }

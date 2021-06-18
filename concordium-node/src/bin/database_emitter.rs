@@ -31,7 +31,7 @@ use std::{
 fn main() -> anyhow::Result<()> {
     let (mut conf, _app_prefs) = utils::get_config_and_logging_setup()?;
 
-    conf.connection.dnssec_disabled = true;
+    conf.connection.require_dnssec = false;
     conf.connection.no_bootstrap_dns = true;
     conf.connection.desired_nodes = conf.connection.connect_to.len() as u16;
 
@@ -52,7 +52,7 @@ fn main() -> anyhow::Result<()> {
         match utils::parse_host_port(
             &host,
             &node.config.dns_resolvers,
-            conf.connection.dnssec_disabled,
+            conf.connection.require_dnssec,
         ) {
             Ok(addrs) => {
                 for addr in addrs {
