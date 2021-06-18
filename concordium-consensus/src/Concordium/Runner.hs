@@ -152,9 +152,10 @@ syncSkovHandlers sr@SyncRunner{..} = SkovHandlers{
     }
 
 -- |Start the baker thread for a 'SyncRunner'. This will also spawn a background thread for purging the transaction table periodically.
-startSyncRunner :: forall c.
+startSyncRunner :: forall c. (
+    (SkovQueryMonad (SkovProtocolVersion c) (SkovT () c LogIO)),
     (BakerMonad (SkovProtocolVersion c) (SkovTLogIO c))
-    => SyncRunner c -> IO ()
+    ) => SyncRunner c -> IO ()
 startSyncRunner sr@SyncRunner{..} = do
     _ <- forkOS $ do
         tid <- myThreadId
@@ -167,6 +168,14 @@ startSyncRunner sr@SyncRunner{..} = do
     -- This synchronises on the baker MVar to ensure that a baker should definitely be
     -- running before startBaker returns.
     modifyMVarMasked_ syncBakerThread return
+    rp <- runStateQuery sr getRuntimeParameters
+    let delay = rpTransactionsPurgingDelay rp * 10 ^ (6 :: Int)
+        purgingLoop = do
+            runSkovTransaction sr purgeTransactions
+            threadDelay delay
+            purgingLoop
+    putMVar syncTransactionPurgingThread =<< forkIO purgingLoop
+    return ()
   where
     bakerLoop :: Slot -> IO ()
     bakerLoop nextSlot = do
@@ -277,7 +286,7 @@ runSkovPassive SyncPassiveRunner{..} a = runWithStateLog syncPState syncPLogMeth
 
 
 -- |Make a 'SyncPassiveRunner', which does not support a baker thread. This will also spawn a background thread for purging the transaction table periodically.
-makeSyncPassiveRunner :: (SkovConfiguration c, SkovQueryMonad (SkovProtocolVersion c) (SkovT () c LogIO), TreeStateMonad (SkovProtocolVersion c) (SkovT (SkovPassiveHandlers c LogIO) c LogIO)) => LogMethod IO ->
+makeSyncPassiveRunner :: (SkovConfiguration c, SkovQueryMonad (SkovProtocolVersion c) (SkovT () c LogIO), SkovMonad (SkovProtocolVersion c) (SkovT (SkovPassiveHandlers c LogIO) c LogIO)) => LogMethod IO ->
                         c ->
                         (CatchUpStatus -> IO ()) ->
                         (BlockHash -> IO ()) ->
@@ -294,8 +303,7 @@ makeSyncPassiveRunner syncPLogMethod config cusCallback syncPRegenesisCallback =
         rp <- runSkovPassive spr getRuntimeParameters
         let delay = rpTransactionsPurgingDelay rp * 10 ^ (6 :: Int)
         let loop = do
-              tm <- currentTime
-              runSkovPassive spr (purgeTransactionTable True tm)
+              runSkovPassive spr purgeTransactions
               threadDelay delay
               loop
         putMVar syncPTransactionPurgingThread =<< forkIO loop
