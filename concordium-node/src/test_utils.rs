@@ -60,7 +60,7 @@ pub fn get_test_config(port: u16, networks: Vec<u16>) -> Config {
         100,
     );
     config.connection.no_bootstrap_dns = true;
-    config.connection.dnssec_disabled = true;
+    config.connection.require_dnssec = false;
     config.cli.no_network = true;
     let dir = td.into_path();
     config.common.data_dir = dir.clone();

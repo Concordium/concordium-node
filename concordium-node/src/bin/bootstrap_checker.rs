@@ -25,7 +25,7 @@ fn main() -> anyhow::Result<()> {
 
     conf.connection.max_allowed_nodes = Some(0);
     conf.connection.thread_pool_size = 1;
-    conf.connection.dnssec_disabled = true;
+    conf.connection.require_dnssec = false;
     let pager_duty_token = env::var("PD_TOKEN")?;
     let pager_duty_email = env::var("PD_EMAIL")?;
     let pager_duty_svcid = env::var("PD_SVCID")?;

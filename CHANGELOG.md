@@ -6,7 +6,11 @@
 - Fix a bug in average throughput calculation that was triggered in some cases
   of bad connectivity.
 - Add support for configuring the node and the collector via environment
-  variables in addition to command line arguments.
+  variables in addition to command line arguments. This is a breaking change in
+  that flags now need to have an explicit argument.
+- disable dnssec by default. This replaces the flag `--no-dnssec` with
+  `--require-dnssec`, and the environment variable
+  `CONCORIDUM_NODE_CONNECTION_NO_DNSSEC` with `CONCORDIUM_NODE_CONNECTION_REQUIRE_DNSSEC`.
 
 ## concordium-node 1.0.1
 

@@ -51,8 +51,6 @@ Environment=CONCORDIUM_NODE_CONNECTION_THREAD_POOL_SIZE=2
 Environment=CONCORDIUM_NODE_NO_LOG_TIMESTAMP=true
 # The bootstrapping interval in seconds.
 Environment=CONCORDIUM_NODE_CONNECTION_BOOTSTRAPPING_INTERVAL=1800
-# Do not perform DNSsec tests for lookups.
-Environment=CONCORDIUM_NODE_CONNECTION_NO_DNSSEC=true
 # Haskell RTS flags to pass to consensus.
 Environment=CONCORDIUM_NODE_BAKER_HASKELL_RTS_FLAGS=-N2
 # Haskell binding needs proper library path to function
