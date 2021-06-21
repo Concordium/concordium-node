@@ -166,8 +166,9 @@ startSyncRunner sr@SyncRunner{..} = do
                 bakerLoop 0 `finally` syncLogMethod Runner LLInfo "Exiting baker thread"
             else syncLogMethod Runner LLInfo "Starting baker thread aborted: baker is already running"
     -- This synchronises on the baker MVar to ensure that a baker should definitely be
-    -- running before startBaker returns.
-    modifyMVarMasked_ syncBakerThread return
+    -- running before startSyncRunner returns.  This ensures that if syncStopRunner is called
+    -- immediately after, it will correctly stop the baker thread.
+    void $ readMVar syncBakerThread
     rp <- runStateQuery sr getRuntimeParameters
     let delay = rpTransactionsPurgingDelay rp * 10 ^ (6 :: Int)
         purgingLoop = do
@@ -175,7 +176,6 @@ startSyncRunner sr@SyncRunner{..} = do
             threadDelay delay
             purgingLoop
     putMVar syncTransactionPurgingThread =<< forkIO purgingLoop
-    return ()
   where
     bakerLoop :: Slot -> IO ()
     bakerLoop nextSlot = do
