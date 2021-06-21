@@ -29,7 +29,7 @@ LockPersonality=yes
 # port on which the node will listen for incoming connections
 Environment=CONCORDIUM_NODE_LISTEN_PORT=8888
 # where to bootstrap from
-Environment=CONCORDIUM_NODE_CONNECTION_BOOSTRAP_NODES=bootstrap.testnet.concordium.com:8888
+Environment=CONCORDIUM_NODE_CONNECTION_BOOTSTRAP_NODES=bootstrap.testnet.concordium.com:8888
 # desired number of nodes to be connected to.
 Environment=CONCORDIUM_NODE_CONNECTION_DESIRED_NODES=5
 # maximum number of __nodes__ the node will be connected to.

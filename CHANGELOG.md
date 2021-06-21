@@ -8,7 +8,7 @@
 - Add support for configuring the node and the collector via environment
   variables in addition to command line arguments. This is a breaking change in
   that flags now need to have an explicit argument.
-- disable dnssec by default. This replaces the flag `--no-dnssec` with
+- Disable dnssec by default. This replaces the flag `--no-dnssec` with
   `--require-dnssec`, and the environment variable
   `CONCORIDUM_NODE_CONNECTION_NO_DNSSEC` with `CONCORDIUM_NODE_CONNECTION_REQUIRE_DNSSEC`.
 
