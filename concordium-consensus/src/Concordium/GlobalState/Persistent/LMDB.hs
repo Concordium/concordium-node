@@ -238,10 +238,12 @@ databaseCount :: Int
 databaseCount = 5
 
 -- |Database growth size increment.
+-- This is currently set at 64MB, and must be a multiple of the page size.
 dbStepSize :: Int
 dbStepSize = 2^(26 :: Int) -- 64MB
 
 -- |Initial database size.
+-- This is currently set to be the same as 'dbStepSize'.
 dbInitSize :: Int
 dbInitSize = dbStepSize
 
@@ -255,6 +257,8 @@ databaseHandlers treeStateDir = makeDatabaseHandlers treeStateDir False dbInitSi
 
 -- |Initialize database handlers.
 -- The size will be rounded up to a multiple of 'dbStepSize'.
+-- (This ensures in particular that the size is a multiple of the page size, which is required by
+-- LMDB.)
 makeDatabaseHandlers
   :: FilePath
   -- ^Path of database
@@ -300,7 +304,7 @@ openReadOnlyDatabase treeStateDir = do
   mdb_env_set_maxreaders _storeEnv 126
   -- TODO: Consider MDB_NOLOCK
   mdb_env_open _storeEnv treeStateDir [MDB_RDONLY]
-  (_metadataStore, mversion) <- transaction _storeEnv True $ \txn -> do
+  (_metadataStore, mversion) <- resizeOnResizedInternal _storeEnv $ transaction _storeEnv True $ \txn -> do
     _metadataStore <- MetadataStore <$> mdb_dbi_open' txn (Just metadataStoreName) []
     mversion <- loadRecord txn _metadataStore versionMetadata
     return (_metadataStore, mversion)
@@ -314,7 +318,7 @@ openReadOnlyDatabase treeStateDir = do
             -- version.
             case promoteProtocolVersion vmProtocolVersion of
                 SomeProtocolVersion (_ :: SProtocolVersion pv) ->
-                    transaction _storeEnv True $ \txn -> do
+                    resizeOnResizedInternal _storeEnv $ transaction _storeEnv True $ \txn -> do
                         _blockStore <- BlockStore <$> mdb_dbi_open' txn (Just blockStoreName) []
                         _finalizationRecordStore <- FinalizationRecordStore <$> mdb_dbi_open' txn (Just finalizationRecordStoreName) []
                         _finalizedByHeightStore <- FinalizedByHeightStore <$> mdb_dbi_open' txn (Just finalizedByHeightStoreName) []
@@ -367,12 +371,13 @@ addDatabaseVersion :: (MonadLogger m, MonadIO m) => FilePath -> m ()
 addDatabaseVersion treeStateDir = do
   handlers :: DatabaseHandlers 'P1 () <- liftIO $ makeDatabaseHandlers treeStateDir False dbInitSize
   handlers' <- execStateT
-    (resizeOnFull 4096 $ \h -> transaction (_storeEnv h) False $ \txn -> 
-      storeRecord txn (_metadataStore h) versionMetadata
-        (S.encode VersionMetadata {
-          vmDatabaseVersion = 0,
-          vmProtocolVersion = P1
-        }))
+    (resizeOnFull 4096 $ -- This size is mostly arbitrary, but should be enough to store the serialized metadata
+      \h -> transaction (_storeEnv h) False $ \txn -> 
+        storeRecord txn (_metadataStore h) versionMetadata
+          (S.encode VersionMetadata {
+            vmDatabaseVersion = 0,
+            vmProtocolVersion = P1
+          }))
     handlers
   liftIO $ closeDatabase handlers'
 
@@ -403,13 +408,17 @@ closeDatabase db = runInBoundThread $ mdb_env_close (db ^. storeEnv)
 -- The supplied action will be executed. If it fails with an 'MDB_MAP_RESIZED'
 -- error, then the map will be resized and the action retried.
 resizeOnResized :: (MonadIO m, MonadState s m, HasDatabaseHandlers pv st s, MonadCatch m) => m a -> m a
-resizeOnResized a = inner
+resizeOnResized a = do
+    dbh <- use dbHandlers
+    resizeOnResizedInternal (dbh ^. storeEnv) a
+
+resizeOnResizedInternal :: (MonadIO m, MonadCatch m) => MDB_env -> m a -> m a
+resizeOnResizedInternal env a = inner
   where
     inner = handleJust checkResized onResized a
     checkResized LMDB_Error{..} = guard (e_code == Right MDB_MAP_RESIZED)
     onResized _ = do
-      dbh <- use dbHandlers
-      liftIO (mdb_env_set_mapsize (dbh ^. storeEnv) 0)
+      liftIO (mdb_env_set_mapsize env 0)
       inner
 
 resizeDatabaseHandlers :: (MonadIO m, MonadLogger m) => DatabaseHandlers pv st -> Int -> m ()

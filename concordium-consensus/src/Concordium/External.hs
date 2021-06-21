@@ -18,7 +18,7 @@ import qualified Data.Aeson as AE
 import Data.Foldable(forM_)
 import Text.Read(readMaybe)
 import Control.Exception
-import Control.Monad(when,unless)
+import Control.Monad(unless)
 import Control.Monad.State.Class(MonadState)
 import System.FilePath ((</>), (<.>))
 import System.Directory
@@ -311,12 +311,17 @@ migrateGlobalState dbPath logM = do
     unless (blockStateExists || treeStateExists) $ do
         oldBlockStateExists <- doesFileExist $ dbPath </> "blockstate" <.> "dat"
         oldTreeStateExists <- doesDirectoryExist $ dbPath </> "treestate"
-        when (oldBlockStateExists && oldTreeStateExists) $ do
+        case (oldBlockStateExists, oldTreeStateExists) of
+          (True, True) -> do
             logM GlobalState LLInfo "Migrating global state from legacy version."
             renameFile (dbPath </> "blockstate" <.> "dat") (dbPath </> "blockstate-0" <.> "dat")
             renameDirectory (dbPath </> "treestate") (dbPath </> "treestate-0")
             runLoggerT (addDatabaseVersion (dbPath </> "treestate-0")) logM
             logM GlobalState LLInfo "Migration complete."
+          (True, False) -> logM GlobalState LLWarning "Cannot migrate legacy database as 'treestate' is absent."
+          (False, True) -> logM GlobalState LLWarning "Cannot migrate legacy database as 'blockstate.dat' is absent."
+          _ -> return ()
+        
 
 -- |Start up an instance of Skov without starting the baker thread.
 -- If an error occurs starting Skov, the error will be logged and
@@ -350,6 +355,7 @@ startConsensus maxBlock timeout maxTimeToExpiry insertionsBeforePurge transactio
         let runtimeParams = RuntimeParameters {
               rpBlockSize = fromIntegral maxBlock,
               rpBlockTimeout = fromIntegral timeout,
+              -- Tree state and block state are suffixed by the genesis index (currently fixed at 0)
               rpTreeStateDir = appData </> "treestate-0",
               rpBlockStateFile = appData </> "blockstate-0",
               rpEarlyBlockThreshold = defaultEarlyBlockThreshold,
@@ -432,6 +438,7 @@ startConsensusPassive maxBlock timeout maxTimeToExpiry insertionsBeforePurge tra
         let runtimeParams = RuntimeParameters {
               rpBlockSize = fromIntegral maxBlock,
               rpBlockTimeout = fromIntegral timeout,
+              -- Tree state and block state are suffixed by the genesis index (currently fixed at 0)
               rpTreeStateDir = appData </> "treestate-0",
               rpBlockStateFile = appData </> "blockstate-0",
               rpEarlyBlockThreshold = defaultEarlyBlockThreshold,
