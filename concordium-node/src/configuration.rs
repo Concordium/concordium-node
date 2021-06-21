@@ -413,7 +413,7 @@ pub struct ConnectionConfig {
         name = "bootstrap-node",
         long = "bootstrap-node",
         help = "Bootstrap nodes to use upon startup host/ip:port (this disables DNS bootstrapping)",
-        env = "CONCORDIUM_NODE_CONNECTION_BOOSTRAP_NODES",
+        env = "CONCORDIUM_NODE_CONNECTION_BOOTSTRAP_NODES",
         use_delimiter = true
     )]
     pub bootstrap_nodes: Vec<String>,
