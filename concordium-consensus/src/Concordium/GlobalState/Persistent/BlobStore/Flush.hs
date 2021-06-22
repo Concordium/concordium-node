@@ -2,7 +2,7 @@
 
 -- |This module provides functionality for flushing the operating system buffer associated with
 -- a file handle.
-module Concordium.GlobalState.Persistent.BlobStore.Flush(hFlushOS) where
+module Concordium.GlobalState.Persistent.BlobStore.Flush (hFlushOS) where
 
 import Control.Concurrent
 import Control.Monad
@@ -35,11 +35,9 @@ osFlush h = do
         IOError (Just h) IllegalOperation "hFlushOS" "is a socket" Nothing Nothing
     res <- flushFileBuffers (fdFD fd)
     when (res /= 0) $ throwGetLastError "hFlushOS"
-
 #else
     res <- fsync (fdFD fd)
-    when (res /= 0) $ ioError $ errnoToIOError "hFlushOS" res (Just h) Nothing
-
+    when (res /= 0) $ throwErrno "hFlushOS"
 #endif
 
 -- |Flush a file handle, including the operating system buffers.
