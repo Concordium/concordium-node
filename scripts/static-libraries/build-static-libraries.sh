@@ -37,8 +37,7 @@ done
 #############################################################################################################################
 ## Copy rust binaries
 
-# TODO: genesis executable might be gone
-cp $(find /build/concordium-base/.stack-work -type f \( -name genesis -or -name generate-update-keys \)) /binaries/bin/
+cp $(stack --stack-yaml /build/concordium-consensus/stack.integer-simple.yaml path --profile --local-install-root)/bin/{generate-update-keys,genesis,database-exporter} /binaries/bin/
 cp /build/concordium-base/rust-src/target/release/*.so /binaries/lib/
 cp /build/concordium-consensus/smart-contracts/wasm-chain-integration/target/release/*.so /binaries/lib/
 cargo build --release --manifest-path /build/concordium-base/rust-bins/Cargo.toml
