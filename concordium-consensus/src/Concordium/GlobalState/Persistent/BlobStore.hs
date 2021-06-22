@@ -53,6 +53,7 @@ import qualified Concordium.Types.IdentityProviders as IPS
 import qualified Concordium.Types.AnonymityRevokers as ARS
 import qualified Concordium.GlobalState.Parameters as Parameters
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
+import Concordium.GlobalState.Persistent.BlobStore.Flush
 import Concordium.Types
 import Concordium.Types.Updates
 import Concordium.Wasm
@@ -114,7 +115,7 @@ loadBlobStore blobStoreFilePath = do
 -- ensuring all the contents is written out.
 flushBlobStore :: BlobStore -> IO ()
 flushBlobStore BlobStore{..} =
-    withMVar blobStoreFile (hFlush . bhHandle)
+    withMVar blobStoreFile (hFlushOS . bhHandle)
 
 -- |Close all references to the blob store, flushing it
 -- in the process.
