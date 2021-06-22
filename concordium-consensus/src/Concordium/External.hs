@@ -4,7 +4,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 module Concordium.External where
 
 import Foreign
@@ -45,7 +44,7 @@ import Concordium.Afgjort.Finalize
 import Concordium.Runner
 import Concordium.Skov hiding (receiveTransaction, MessageType, getCatchUpStatus, getBlocksAtHeight)
 import qualified Concordium.Skov as Skov
-import Concordium.Afgjort.Finalize.Types(getExactVersionedFPM, putVersionedFPMV0)
+import Concordium.Afgjort.Finalize.Types(getExactVersionedFPM)
 import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.TimerMonad (ThreadTimer)
@@ -187,25 +186,18 @@ callBroadcastCallback cbk mt bs = BS.useAsCStringLen bs $ \(cdata, clen) -> invo
 
 -- |Broadcast a consensus message. This can be either a block,, finalization record, or finalization (pseudo) message.
 -- All messages are serialized with a version.
-broadcastCallback :: forall pv gs finconf hconf.
-    (EncodeBlock pv (TS.BlockPointerType (SkovT (SkovHandlers ThreadTimer (SkovConfig pv gs finconf hconf) LogIO)
-                                          (SkovConfig pv gs finconf hconf)
-                                          (LoggerT IO))))
-                     => LogMethod IO -> FunPtr BroadcastCallback -> SimpleOutMessage (SkovConfig pv gs finconf hconf) -> IO ()
+broadcastCallback ::
+    LogMethod IO -> FunPtr BroadcastCallback -> SimpleOutMessage -> IO ()
 broadcastCallback logM bcbk = handleB
     where
-        handleB (SOMsgNewBlock block) = do
-            -- we assume that genesis block (the only block that doesn't have signature) will never be sent to the network
-            let blockbs = runPut $ putVersionedBlock (protocolVersion @pv) block
+        handleB (SOMsgNewBlock blockbs) = do
             logM External LLDebug $ "Broadcasting block [size=" ++ show (BS.length blockbs) ++ "]"
             callBroadcastCallback bcbk MTBlock blockbs
-        handleB (SOMsgFinalization finMsg) = do
-            let finbs = runPut (putVersionedFPMV0 finMsg)
-            logM External LLDebug $ "Broadcasting finalization message [size=" ++ show (BS.length finbs) ++ "]: " ++ show finMsg
+        handleB (SOMsgFinalization finbs) = do
+            logM External LLDebug $ "Broadcasting finalization message [size=" ++ show (BS.length finbs) ++ "]"
             callBroadcastCallback bcbk MTFinalization finbs
-        handleB (SOMsgFinalizationRecord finRec) = do
-            let msgbs = runPut (putVersionedFinalizationRecordV0 finRec)
-            logM External LLDebug $ "Broadcasting finalization record [size=" ++ show (BS.length msgbs) ++ "]: " ++ show finRec
+        handleB (SOMsgFinalizationRecord msgbs) = do
+            logM External LLDebug $ "Broadcasting finalization record [size=" ++ show (BS.length msgbs) ++ "]"
             callBroadcastCallback bcbk MTFinalizationRecord msgbs
 
 -- |Callback for direct-sending a catch-up status message to all (non-pending) peers.
@@ -258,12 +250,12 @@ runWithConsensus PassiveRunnerWithLog{..} = runSkovPassive passiveSyncRunnerWith
 
 -- |Default value for early block threshold.
 -- Set to 30 seconds.
-defaultEarlyBlockThreshold :: Timestamp
+defaultEarlyBlockThreshold :: Duration
 defaultEarlyBlockThreshold = 30000
 
 -- |Default value for maximum baking delay.
 -- Set to 10 seconds.
-defaultMaxBakingDelay :: Timestamp
+defaultMaxBakingDelay :: Duration
 defaultMaxBakingDelay = 10000
 
 data StartResult = StartSuccess

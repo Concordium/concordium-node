@@ -281,6 +281,7 @@ instance (
     trustedFinalize = doTrustedFinalize
     {- - INLINE handleCatchUpStatus - -}
     handleCatchUpStatus = doHandleCatchUp
+    purgeTransactions = doPurgeTransactions
 
 class GlobalStateQuery (SkovProtocolVersion c) gsconf => FinalizationConfig gsconf c | c -> gsconf where
     type FCContext c
