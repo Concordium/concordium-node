@@ -49,7 +49,7 @@ import qualified Concordium.GlobalState.Persistent.Trie as Trie
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Types
-import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToSelfEncryptedAmount, _stakedAmount, _stakeEarnings, _accountBakerInfo, _bakerPendingChange, stakedAmount, stakeEarnings, accountBakerInfo, bakerPendingChange)
+import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToSelfEncryptedAmount)
 import qualified Concordium.Types.IdentityProviders as IPS
 import qualified Concordium.Types.AnonymityRevokers as ARS
 import qualified Concordium.GlobalState.Rewards as Rewards
@@ -64,8 +64,11 @@ import Concordium.GlobalState.Persistent.Account
 import Concordium.GlobalState.Persistent.BlockState.Updates
 import qualified Concordium.GlobalState.Basic.BlockState.Account as TransientAccount
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
-import qualified Concordium.GlobalState.Basic.BlockState.Updates as Basic
+import qualified Concordium.Types.UpdateQueues as UQ
 import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Modules
+import qualified Concordium.Types.Accounts as BaseAccounts
+import Concordium.Types.Accounts hiding (_stakedAmount, _stakeEarnings, _accountBakerInfo, _bakerPendingChange, stakedAmount, stakeEarnings, accountBakerInfo, bakerPendingChange)
+-- import Concordium.Types.Accounts.Releases
 import Concordium.Types.SeedState
 import Concordium.Logger (MonadLogger)
 import Concordium.Types.HashableTo
@@ -570,9 +573,9 @@ doGetSlotBakers pbs slot = do
                                 pab <- refLoad bkr
                                 abi <- refLoad (pab ^. accountBakerInfo)
                                 return $ case _bakerPendingChange pab of
-                                    RemoveBaker remEpoch
+                                    BaseAccounts.RemoveBaker remEpoch
                                         | remEpoch < slotEpoch -> Nothing
-                                    ReduceStake newAmt redEpoch
+                                    BaseAccounts.ReduceStake newAmt redEpoch
                                         | redEpoch < slotEpoch -> Just (FullBakerInfo abi newAmt)
                                     _ -> Just (FullBakerInfo abi (pab ^. stakedAmount))
                             Null -> error "Persistent.getSlotBakers invariant violation: active baker account not a baker"
@@ -598,7 +601,7 @@ doTransitionEpochBakers pbs newEpoch = do
                 Just PersistentAccount{_accountBaker = Some acctBkrRef} -> do
                     acctBkr <- refLoad acctBkrRef
                     case _bakerPendingChange acctBkr of
-                        RemoveBaker remEpoch
+                        BaseAccounts.RemoveBaker remEpoch
                             -- Removal takes effect next epoch, so exclude it from the list of bakers
                             | remEpoch == newEpoch + 1 -> return (bs0, bkrs0)
                             -- Removal complete, so update the active bakers and account as well
@@ -620,7 +623,7 @@ doTransitionEpochBakers pbs newEpoch = do
                                         bspBirkParameters = (bspBirkParameters bs0) {_birkActiveBakers = newABs},
                                         bspAccounts = newAccounts
                                     }, bkrs0)
-                        ReduceStake newAmt redEpoch
+                        BaseAccounts.ReduceStake newAmt redEpoch
                             -- Reduction takes effect next epoch, so apply it in the generated list
                             | redEpoch == newEpoch + 1 -> return (bs0, (_accountBakerInfo acctBkr, newAmt) : bkrs0)
                             -- Reduction complete, so update the account as well
@@ -770,7 +773,7 @@ doUpdateBakerStake pbs aaddr newStake = do
                             LT -> if newStake < bakerStakeThreshold
                                   then return (BSUStakeUnderThreshold, pbs)
                                   else (BSUStakeReduced (BakerId ai) (curEpoch + cooldown),) <$>
-                                        applyUpdate (bakerPendingChange .~ ReduceStake newStake (curEpoch + cooldown))
+                                        applyUpdate (bakerPendingChange .~ BaseAccounts.ReduceStake newStake (curEpoch + cooldown))
                             EQ -> return (BSUStakeUnchanged (BakerId ai), pbs)
                             GT -> (BSUStakeIncreased (BakerId ai),) <$> applyUpdate (stakedAmount .~ newStake)
             _ -> return (BSUInvalidBaker, pbs)
@@ -809,7 +812,7 @@ doRemoveBaker pbs aaddr = do
                     upds <- refLoad (bspUpdates bsp)
                     cooldown <- (2+) . _cpBakerExtraCooldownEpochs . unStoreSerialized <$> refLoad (currentParameters upds)
                     let updAcc acc = do
-                            acc' <- setPersistentAccountBaker acc (Some ab{_bakerPendingChange = RemoveBaker (curEpoch + cooldown)})
+                            acc' <- setPersistentAccountBaker acc (Some ab{_bakerPendingChange = BaseAccounts.RemoveBaker(curEpoch + cooldown)})
                             return ((), acc')
                     (_, newAccounts) <- Accounts.updateAccountsAtIndex updAcc ai (bspAccounts bsp)
                     (BRRemoved (BakerId ai) (curEpoch + cooldown),) <$> storePBS pbs bsp{bspAccounts = newAccounts}
@@ -1080,7 +1083,7 @@ doGetCurrentElectionDifficulty pbs = do
         upds <- refLoad (bspUpdates bsp)
         _cpElectionDifficulty . unStoreSerialized <$> refLoad (currentParameters upds)
 
-doGetUpdates :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m Basic.Updates
+doGetUpdates :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m UQ.Updates
 doGetUpdates = makeBasicUpdates <=< refLoad . bspUpdates <=< loadPBS
 
 doGetProtocolUpdateStatus :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m (Either ProtocolUpdate [(TransactionTime, ProtocolUpdate)])
@@ -1263,7 +1266,7 @@ instance (PersistentState r m, IsProtocolVersion pv) => AccountOperations (Persi
         Some bref -> do
             PersistentAccountBaker{..} <- refLoad bref
             abi <- refLoad _accountBakerInfo
-            return $ Just AccountBaker{_accountBakerInfo = abi, ..}
+            return $ Just BaseAccounts.AccountBaker{_accountBakerInfo = abi, ..}
 
 instance (IsProtocolVersion pv, PersistentState r m) => BlockStateOperations (PersistentBlockStateMonad pv r m) where
     bsoGetModule pbs mref = doGetModule pbs mref

@@ -48,12 +48,12 @@ import Concordium.GlobalState.Persistent.MonadicRecursive
 
 -- Imports for providing instances
 import Concordium.GlobalState.Account
-import Concordium.GlobalState.BakerInfo
 import qualified Concordium.Types.IdentityProviders as IPS
 import qualified Concordium.Types.AnonymityRevokers as ARS
 import qualified Concordium.GlobalState.Parameters as Parameters
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 import Concordium.Types
+import Concordium.Types.Accounts
 import Concordium.Types.Updates
 import Concordium.Wasm
 

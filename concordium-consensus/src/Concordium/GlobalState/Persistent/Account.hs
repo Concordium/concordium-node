@@ -28,12 +28,14 @@ import qualified Concordium.Types as TY (_incomingEncryptedAmounts, _startIndex,
 import Concordium.ID.Types
 import Concordium.ID.Parameters
 
+import Concordium.Types.Accounts hiding (_stakedAmount, _stakeEarnings, _accountBakerInfo)
+import qualified Concordium.Types.Accounts as Transient
+import qualified Concordium.Types.Accounts.Releases as Transient
 import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
 import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as Transient
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule
-import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToSelfEncryptedAmount, _stakedAmount, _stakeEarnings, _accountBakerInfo, _bakerPendingChange, stakedAmount, stakeEarnings, accountBakerInfo, bakerPendingChange)
-import Concordium.GlobalState.BakerInfo
+import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToSelfEncryptedAmount)
 
 -- | The persistent version of the encrypted amount structure per account.
 data PersistentAccountEncryptedAmount = PersistentAccountEncryptedAmount {

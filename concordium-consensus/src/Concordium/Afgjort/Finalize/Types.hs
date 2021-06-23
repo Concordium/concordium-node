@@ -21,9 +21,9 @@ import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.BlsSignature as Bls
 import Concordium.Types
+import Concordium.Types.Accounts
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.Finalization
 import Concordium.Afgjort.Types
 import Concordium.Afgjort.WMVBA
 

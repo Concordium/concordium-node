@@ -58,7 +58,8 @@ import Concordium.GlobalState.Account
 
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 import Concordium.GlobalState.BakerInfo
-import qualified Concordium.GlobalState.Basic.BlockState.Updates as Basic
+import qualified Concordium.Types.UpdateQueues as UQ
+import Concordium.Types.Accounts
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Instance
@@ -250,7 +251,7 @@ class AccountOperations m => BlockStateQuery m where
     -- |Get the value of the election difficulty that was used to bake this block.
     getCurrentElectionDifficulty :: BlockState m -> m ElectionDifficulty
     -- |Get the current chain parameters and pending updates.
-    getUpdates :: BlockState m -> m Basic.Updates
+    getUpdates :: BlockState m -> m UQ.Updates
     -- |Get the protocol update status. If a protocol update has taken effect,
     -- returns @Left protocolUpdate@. Otherwise, returns @Right pendingProtocolUpdates@.
     -- The @pendingProtocolUpdates@ is a (possibly-empty) list of timestamps and protocol

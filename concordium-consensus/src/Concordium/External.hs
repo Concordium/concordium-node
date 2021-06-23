@@ -51,6 +51,7 @@ import Concordium.TimerMonad (ThreadTimer)
 -- import Concordium.Skov.CatchUp (CatchUpStatus,cusIsResponse)
 
 import qualified Concordium.Getters as Get
+import qualified Concordium.Types.Queries as Q
 
 -- |A 'PeerID' identifies peer at the p2p layer.
 type PeerID = Word64
@@ -852,10 +853,10 @@ bakerIdBestBlock cptr = do
           let bid = syncBakerIdentity s
           status <- runConsensusQuery c (Get.bakerStatusBestBlock bid)
           let r = case status of
-                  Get.ActiveBaker -> fromIntegral $ bakerId bid
-                  Get.InactiveBaker -> (-2)
-                  Get.NoBaker -> (-1)
-                  Get.BadKeys -> (-3)
+                  Q.ActiveBaker -> fromIntegral $ bakerId bid
+                  Q.InactiveBaker -> (-2)
+                  Q.NoBaker -> (-1)
+                  Q.BadKeys -> (-3)
           logm External LLTrace $ "Replying with " ++ show r ++ " (" ++ show status ++ ")"
           return r
     case c of

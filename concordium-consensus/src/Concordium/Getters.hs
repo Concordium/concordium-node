@@ -21,12 +21,12 @@ import Concordium.GlobalState.Types
 import qualified Concordium.GlobalState.TreeState as TS
 import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
 import Concordium.GlobalState.BlockMonads
-import Concordium.GlobalState.Account
 import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Statistics as Stat
 import qualified Concordium.GlobalState.Parameters as Parameters
 import qualified Concordium.GlobalState.TransactionTable as TT
 import Concordium.Types as T
+import Concordium.Types.Accounts
 import qualified Concordium.Wasm as Wasm
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Block hiding (PendingBlock)
@@ -34,6 +34,7 @@ import Concordium.Types.HashableTo
 import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Finalization
 import Concordium.Types.SeedState
+import qualified Concordium.Types.Queries as Q
 
 import Concordium.Afgjort.Finalize(FinalizationStateLenses(..), FinalizationCurrentRound(..))
 import Concordium.Afgjort.Finalize.Types
@@ -446,40 +447,29 @@ getBlockFinalization sfsRef bh = runStateQuery sfsRef $ do
                 Just (TS.BlockFinalized _ fr) -> return $ Just fr
                 _ -> return Nothing
 
-data BakerStatus
-    = ActiveBaker
-    -- ^The baker is a member of the current committee
-    | InactiveBaker
-    -- ^The account has a baker, but it is not yet in the committee
-    | NoBaker
-    -- ^The baker id does not correspond with a current baker
-    | BadKeys
-    -- ^The baker may exist, but the keys do not match
-    deriving (Eq,Ord,Show)
-
 bakerStatusBestBlock :: (BlockPointerMonad m, SkovStateQueryable z m)
     => BakerIdentity
     -> z
-    -> IO BakerStatus
+    -> IO Q.BakerStatus
 bakerStatusBestBlock bid sfsRef = runStateQuery sfsRef $ do
         bb <- bestBlock
         bs <- queryBlockState bb
         bakers <- BS.getCurrentEpochBakers bs
         case fullBaker bakers (bakerId bid) of
           Just fbinfo
-            | validateBakerKeys (fbinfo ^. bakerInfo) bid -> return ActiveBaker
-            | otherwise -> return BadKeys
+            | validateBakerKeys (fbinfo ^. bakerInfo) bid -> return Q.ActiveBaker
+            | otherwise -> return Q.BadKeys
           Nothing -> do
               macc <- BS.getBakerAccount bs (bakerId bid)
               case macc of
                 Just acc -> do
                   mab <- BS.getAccountBaker acc
                   case mab of
-                    Nothing -> return NoBaker
+                    Nothing -> return Q.NoBaker
                     Just ab
-                      | validateBakerKeys (ab ^. accountBakerInfo) bid -> return InactiveBaker
-                      | otherwise -> return BadKeys
-                Nothing -> return NoBaker
+                      | validateBakerKeys (ab ^. accountBakerInfo) bid -> return Q.InactiveBaker
+                      | otherwise -> return Q.BadKeys
+                Nothing -> return Q.NoBaker
 
 -- |Check whether the node is currently a member of the finalization committee.
 checkIsCurrentFinalizer :: (SkovStateQueryable z m, MonadState s m, FinalizationStateLenses s t) => z -> IO Bool

@@ -28,9 +28,10 @@ import Concordium.Utils
 import qualified Concordium.Wasm as Wasm
 import Concordium.Scheduler.Types
 import qualified Concordium.Cost as Cost
+import Concordium.Types.Accounts
 import Concordium.GlobalState.Types
 import Concordium.GlobalState.Classes (MGSTrans(..))
-import Concordium.GlobalState.Account (EncryptedAmountUpdate(..), AccountUpdate(..), auAmount, auEncrypted, auReleaseSchedule, emptyAccountUpdate, stakedAmount)
+import Concordium.GlobalState.Account (EncryptedAmountUpdate(..), AccountUpdate(..), auAmount, auEncrypted, auReleaseSchedule, emptyAccountUpdate)
 import Concordium.GlobalState.BlockState (AccountOperations(..))
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.AccountTransactionIndex
