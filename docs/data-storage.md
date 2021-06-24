@@ -49,7 +49,7 @@ These databases are
 
    for each block since genesis.
 
-3. **transaction index database** which is optional external database which
+3. the **transaction index database** which is an optional external database that
    stores an index of transactions by affected account, and by affected smart
    contract. This means that both incoming and outgoing transactions are
    accessible for an account or contract. In contrast to the block and tree
@@ -129,7 +129,7 @@ stores, all of which are simple key-value stores.
 - Values: finalization records
 
 This is used to quickly access finalization records outside of blocks.
-Finalization records are part of blocks as well, so there eventually each
+Finalization records are part of blocks as well, so eventually each
 finalization record is stored twice, once in the **finalization record store**,
 and once in the **block store**.
 
@@ -378,7 +378,7 @@ This part of the state stores
 - current keys authorized to sign the different update types
 - whether a protocol update is currently in effect. This is used to stop
   consensus.
-- current values of chain parameters, this are reward fractions, inflation rate, etc.
+- current values of chain parameters, i.e. reward fractions, inflation rate, etc.
 - pending updates
 
 The **pending updates** consist of an update queue for each update type. All
@@ -394,8 +394,8 @@ but it will make a copy of the rest of the update queue.
 
 The release schedule is a result of scheduled transfers. The main complication
 is that the effect of the transaction is not only immediate, but the GTU are
-release over a period of time. This part of the state keeps the information
-needed to efficiently check whether any releases need to be affected at the
+released over a period of time. This part of the state keeps the information
+needed to efficiently check whether any releases need to be effected at the
 beginning of each block. In particular this part just maps account addresses to
 the timestamp of the next release. This is used together with the information
 stored for each account in the account table, which contains all remaining
@@ -466,7 +466,7 @@ As described above, this is a left-full tree that supports efficient
 (asymptotically) lookups, insertions, and updates to the hash of the root and
 subtrees.
 
-The trees are stored in a straighforward way on when serialized. Leafs store the
+The trees are stored in a straightforward way when serialized. Leaves store the
 value, and inner nodes store pointers to the left and right subtrees (pointers
 in the sense of offset from the start of the file).
 
@@ -497,8 +497,8 @@ The first is an index of non-finalized transactions for an account. This
 contains the next nonce (from the perspective of the last finalized block) for
 each existing account, and, if there are any, the nonce-indexed transactions
 that are not yet finalized for the account. This information is used in two
-ways. The next nonce for the account is used to both deduplicate transactions,
-both on the network, but also to ensure that no transaction is ever put into two
+ways. The next nonce for the account is used both to deduplicate transactions
+on the network, and to ensure that no transaction is ever put into two
 blocks on the same branch. The index of transactions by nonce is used when the
 baker creates blocks. At that time the transactions per account must be ordered
 by increasing nonce.
@@ -533,7 +533,7 @@ The postgres database consists of three tables
 - the **summaries** table, which has columns
   - **id** --- the auto-generated id of the summary, i.e., the row number. This
     is the primary key.
-  - **block** --- hash of the block the transction is in
+  - **block** --- hash of the block the transaction is in
   - **timestamp** --- the timestamp, in milliseconds, of the block slot
   - **height** --- the height of the block
   - **summary** --- a JSON value containing the transaction outcome
