@@ -365,7 +365,18 @@ In addition to these three sets of bakers birk parameters store the current
 
 The seed state is stored as a flat structure, serialized and stored.
 
-Each set of bakers is stored
+The set of bakers for the current epoch is stored differently than the other two
+sets. The bakers in the current epochs are the ones that can be updated, but are
+otherwise not used for anything by the protocol. Most of their information is
+stored as part of the account table, and the only additional information stored
+as part of birk parameters is an index in the account table, pointing to the
+currently registered bakers.
+
+At the end of the epoch whatever bakers currently exist are frozen as **previous
+epoch bakers**, together with their stake, and stored with enough information to
+support efficient execution of consensus and finalization. The bakers that used
+to be the **previous epoch bakers** become the **epoch bakers**, and these are
+the ones that participate in consensus and finalization.
 
 ### Cryptographic parameters
 
@@ -422,7 +433,12 @@ list of transaction outcomes. The outcomes for a block are never updated once
 they are created, so this is not too wasteful, the only downside is that it
 prevents individual indexing, i.e., looking up the 5th transaction in the block.
 
-This structure does not contribute to the block state hash.
+This structure does not contribute to the block state hash. Instead, the hash of
+transaction outcomes is included as a separate item in a block. The hash of
+transaction outcomes is currently based on the serialization, i.e., all outcomes
+are serialized and then hashed. In the future this is intended to change to
+hashing in a Merkle-tree style, so that it will be possible to prove a specific
+outcome of a transaction in a block in a more efficient way.
 
 ### Epoch blocks
 
