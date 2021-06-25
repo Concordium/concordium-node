@@ -22,6 +22,7 @@ import qualified Concordium.GlobalState.Persistent.Trie as Trie
 import Concordium.ID.DummyData
 import qualified Concordium.ID.Types as ID
 import Concordium.Types
+import Concordium.Types.Accounts
 import Concordium.Types.HashableTo
 import Control.Exception (bracket)
 import Control.Monad hiding (fail)

@@ -13,8 +13,10 @@ import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import Concordium.Scheduler.Runner
 import qualified Concordium.Scheduler as Sch
 
+import Concordium.Types.Accounts
+
+
 import Concordium.GlobalState.BakerInfo
-import Concordium.GlobalState.Account
 import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
 import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.Basic.BlockState

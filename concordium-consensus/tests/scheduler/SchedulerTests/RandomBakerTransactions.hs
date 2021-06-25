@@ -21,6 +21,8 @@ import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
 import Concordium.Crypto.SignatureScheme as Sig
 import Concordium.ID.Types(randomAccountAddress)
 
+import qualified Concordium.Types.Accounts as BAcc
+
 import Concordium.Scheduler.Types hiding (Payload(..))
 
 import System.Random
@@ -163,11 +165,11 @@ updateBaker m0 = do
                     bkr = fbkr ^. bakerInfo
                 in do
                   return (toTJSON UpdateBakerKeys{
-                             bElectionVerifyKey = bkr ^. bakerElectionVerifyKey,
+                             bElectionVerifyKey = bkr ^. BAcc.bakerElectionVerifyKey,
                              bElectionSecretKey = electionSecretKey,
-                             bSignVerifyKey = bkr ^. bakerSignatureVerifyKey,
+                             bSignVerifyKey = bkr ^. BAcc.bakerSignatureVerifyKey,
                              bSignSecretKey = signKey,
-                             bAggregateVerifyKey = bkr ^. bakerAggregationVerifyKey,
+                             bAggregateVerifyKey = bkr ^. BAcc.bakerAggregationVerifyKey,
                              bAggregateSecretKey = aggregationKey
                              },
                           m0
@@ -188,11 +190,11 @@ updateBaker m0 = do
                 restake <- arbitrary
 
                 return (toTJSON AddBaker{
-                             bElectionVerifyKey = bkr ^. bakerElectionVerifyKey,
+                             bElectionVerifyKey = bkr ^. BAcc.bakerElectionVerifyKey,
                              bElectionSecretKey = electionSecretKey,
-                             bSignVerifyKey = bkr ^. bakerSignatureVerifyKey,
+                             bSignVerifyKey = bkr ^. BAcc.bakerSignatureVerifyKey,
                              bSignSecretKey = signKey,
-                             bAggregateVerifyKey = bkr ^. bakerAggregationVerifyKey,
+                             bAggregateVerifyKey = bkr ^. BAcc.bakerAggregationVerifyKey,
                              bAggregateSecretKey = aggregationKey,
                              bInitialStake = initStake,
                              bRestakeEarnings = restake
