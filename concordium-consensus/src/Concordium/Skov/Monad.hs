@@ -157,6 +157,9 @@ class (SkovQueryMonad pv m, TimeMonad m, MonadLogger m) => SkovMonad pv m | m ->
     trustedFinalize :: FinalizationRecord -> m (Either UpdateResult (BlockPointerType m))
     -- |Handle a catch-up status message.
     handleCatchUpStatus :: CatchUpStatus -> Int -> m (Maybe ([(MessageType, ByteString)], CatchUpStatus), UpdateResult)
+    -- |Purge uncommitted transactions from the transaction table.  This can be called
+    -- periodically to clean up transactions that are not committed to any block.
+    purgeTransactions :: m ()
 
 
 instance (Monad (t m), MonadTrans t, SkovQueryMonad pv m) => SkovQueryMonad pv (MGSTrans t m) where
@@ -210,6 +213,7 @@ instance (MonadLogger (t m), MonadTrans t, SkovMonad pv m) => SkovMonad pv (MGST
     receiveTransaction = lift . receiveTransaction
     trustedFinalize = lift . trustedFinalize
     handleCatchUpStatus peerCUS = lift . handleCatchUpStatus peerCUS
+    purgeTransactions = lift purgeTransactions
     {- - INLINE storeBlock - -}
     {- - INLINE receiveTransaction - -}
     {- - INLINE trustedFinalize - -}

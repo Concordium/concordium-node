@@ -89,10 +89,10 @@ data RuntimeParameters = RuntimeParameters {
   -- |Threshold for how far into the future we accept blocks. Blocks with a slot
   -- time that exceeds our current time + this threshold are rejected and the p2p
   -- is told to not relay these blocks.
-  rpEarlyBlockThreshold :: !Timestamp,
+  rpEarlyBlockThreshold :: !Duration,
   -- |Maximum number of milliseconds we can get behind before skipping to the current time
   -- when baking.
-  rpMaxBakingDelay :: !Timestamp,
+  rpMaxBakingDelay :: !Duration,
   -- |Number of insertions to be performed in the transaction table before running
   -- a purge to remove long living transactions that have not been executed for more
   -- than `rpTransactionsKeepAliveTime` seconds.

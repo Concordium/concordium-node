@@ -527,3 +527,9 @@ doReceiveTransactionInternal tr slot =
               return (Just bi, ResultSuccess)
           Duplicate tx -> return (Just tx, ResultDuplicate)
           ObsoleteNonce -> return (Nothing, ResultStale)
+
+-- |Purge the transaction table.
+doPurgeTransactions :: (TimeMonad m, TreeStateMonad pv m) => m ()
+doPurgeTransactions = do
+        now <- currentTime
+        purgeTransactionTable True now

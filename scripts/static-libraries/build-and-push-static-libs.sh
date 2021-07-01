@@ -5,19 +5,6 @@
 #
 # This will create a docker container that will build the tar archives to the
 # `out` directory and will push the archives to aws s3.
-#
-# It will also modify the `scripts/LATEST_STATIC_LIBRARIES` file with the
-# commit hash of the built libraries. This file is later consumed by
-# `scripts/download-static-libraries.sh` to correctly place all the required
-# libraries for the node to be started with the features `static` or `profiling`.
-#
-# Note this script cannot be used with branches that are push-protected such
-# as `master` or `develop`.
-#
-# This script is consumed by `jenkinsfiles/static-libraries.Jenkinsfile`.
-
-# checkout requested branch for later push
-BRANCH=$(echo $GIT_BRANCH | cut -d'/' -f2-)
 
 set -e
 

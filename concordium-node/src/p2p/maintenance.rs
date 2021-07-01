@@ -62,7 +62,7 @@ pub struct NodeConfig {
     pub no_clear_bans: bool,
     pub bootstrap_server: Option<String>,
     pub dns_resolvers: Vec<String>,
-    pub dnssec_disabled: bool,
+    pub require_dnssec: bool,
     pub disallow_multiple_peers_on_ip: bool,
     pub bootstrap_nodes: Vec<String>,
     /// Nodes to try and keep the connections to. A node will maintain two
@@ -333,7 +333,7 @@ impl P2PNode {
             no_clear_bans: conf.connection.no_clear_bans,
             bootstrap_server: conf.connection.bootstrap_server.clone(),
             dns_resolvers,
-            dnssec_disabled: conf.connection.dnssec_disabled,
+            require_dnssec: conf.connection.require_dnssec,
             disallow_multiple_peers_on_ip: conf.connection.disallow_multiple_peers_on_ip,
             bootstrap_nodes: conf.connection.bootstrap_nodes.clone(),
             given_addresses,
@@ -853,7 +853,7 @@ pub fn attempt_bootstrap(node: &Arc<P2PNode>) {
         let bootstrap_nodes = utils::get_bootstrap_nodes(
             node.config.bootstrap_server.as_deref(),
             &node.config.dns_resolvers,
-            node.config.dnssec_disabled,
+            node.config.require_dnssec,
             &node.config.bootstrap_nodes,
         );
 
@@ -893,8 +893,7 @@ fn parse_config_nodes(
 ) -> anyhow::Result<HashSet<SocketAddr>> {
     let mut out = HashSet::new();
     for connect_to in &conf.connect_to {
-        let new_addresses =
-            utils::parse_host_port(connect_to, dns_resolvers, conf.dnssec_disabled)?;
+        let new_addresses = utils::parse_host_port(connect_to, dns_resolvers, conf.require_dnssec)?;
         out.extend(new_addresses)
     }
     Ok(out)

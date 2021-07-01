@@ -52,7 +52,7 @@ instance FixedTrieKey SHA256.Hash
 deriving via SHA256.Hash instance FixedTrieKey ModuleRef
 instance FixedTrieKey AccountAddress
 deriving via Word64 instance FixedTrieKey BakerId
-instance FixedTrieKey Bls.PublicKey
+instance FixedTrieKey Bls.PublicKey -- FIXME: This is a bad instance. Serialization of these is expensive.
 instance FixedTrieKey IDTypes.CredentialRegistrationID -- FIXME: this is not the best instance, serialization is expensive.
 
 -- |Class for Trie keys that respect the 'Ord' instance.
