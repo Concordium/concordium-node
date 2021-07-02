@@ -62,7 +62,7 @@ import qualified Concordium.Types.UpdateQueues as UQ
 import Concordium.Types.Accounts
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Rewards
-import Concordium.GlobalState.Instance
+import Concordium.Types.Instance
 import Concordium.GlobalState.Types
 import Concordium.Types.IdentityProviders
 import Concordium.Types.AnonymityRevokers

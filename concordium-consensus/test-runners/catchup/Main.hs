@@ -23,7 +23,7 @@ import Concordium.GlobalState.Parameters
 import Concordium.Types.Transactions
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
-import Concordium.GlobalState.Instance
+import Concordium.Types.Instance
 import Concordium.Types.AnonymityRevokers
 
 import Concordium.GlobalState.BlockState

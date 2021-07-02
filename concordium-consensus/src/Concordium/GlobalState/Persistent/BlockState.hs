@@ -59,7 +59,7 @@ import qualified Concordium.GlobalState.Persistent.Instances as Instances
 import qualified Concordium.Types.Transactions as Transactions
 import qualified Concordium.Types.Execution as Transactions
 import Concordium.GlobalState.Persistent.Instances(PersistentInstance(..), PersistentInstanceParameters(..))
-import Concordium.GlobalState.Instance (Instance(..),InstanceParameters(..),makeInstanceHash')
+import Concordium.Types.Instance (Instance(..),InstanceParameters(..),makeInstanceHash')
 import Concordium.GlobalState.Persistent.Account
 import Concordium.GlobalState.Persistent.BlockState.Updates
 import qualified Concordium.GlobalState.Basic.BlockState.Account as TransientAccount

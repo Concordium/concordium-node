@@ -59,8 +59,8 @@ type PeerID = Word64
 -- |A 'BlockReference' is a pointer to a block hash as a sequence of 32 bytes.
 type BlockReference = Ptr Word8
 
-jsonValueToCString :: Value -> IO CString
-jsonValueToCString = newCString . LT.unpack . AET.encodeToLazyText
+toJSONCString :: (AE.ToJSON a) => a -> IO CString
+toJSONCString = newCString . LT.unpack . AET.encodeToLazyText
 
 -- |Use a 'BlockHash' as a 'BlockReference'.  The 'BlockReference' may not
 -- be valid after the function has returned.
@@ -652,7 +652,7 @@ getConsensusStatus :: StablePtr ConsensusRunner -> IO CString
 getConsensusStatus cptr = do
     c <- deRefStablePtr cptr
     status <- runConsensusQuery c Get.getConsensusStatus
-    jsonValueToCString status
+    toJSONCString status
 
 -- |Given a null-terminated string that represents a block hash (base 16), returns a null-terminated
 -- string containing a JSON representation of the block.
@@ -661,7 +661,7 @@ getBlockInfo cptr blockcstr = do
     c <- deRefStablePtr cptr
     block <- peekCString blockcstr
     blockInfo <- runConsensusQuery c Get.getBlockInfo block
-    jsonValueToCString blockInfo
+    toJSONCString blockInfo
 
 -- |Given a null-terminated string that represents a block hash (base 16), and a number of blocks,
 -- returns a null-terminated string containing a JSON list of the ancestors of the node (up to the
@@ -671,7 +671,7 @@ getAncestors cptr blockcstr depth = do
     c <- deRefStablePtr cptr
     block <- peekCString blockcstr
     ancestors <- runConsensusQuery c Get.getAncestors block (fromIntegral depth :: BlockHeight)
-    jsonValueToCString ancestors
+    toJSONCString ancestors
 
 -- |Returns a null-terminated string with a JSON representation of the current branches from the
 -- last finalized block (inclusive).
@@ -679,7 +679,7 @@ getBranches :: StablePtr ConsensusRunner -> IO CString
 getBranches cptr = do
     c <- deRefStablePtr cptr
     rbranches <- runConsensusQuery c Get.getBranches
-    jsonValueToCString rbranches
+    toJSONCString rbranches
 
 
 
@@ -719,7 +719,7 @@ getAccountList cptr blockcstr = do
     withBlockHash blockcstr (logm External LLDebug) $ \hash -> do
       alist <- runConsensusQuery c (Get.getAccountList hash)
       logm External LLTrace $ "Replying with the list: " ++ show alist
-      jsonValueToCString alist
+      toJSONCString alist
 
 -- |Get the list of contract instances (their addresses) in the given block. The
 -- block must be given as a null-terminated base16 encoding of the block hash.
@@ -731,9 +731,9 @@ getInstances cptr blockcstr = do
     let logm = consensusLogMethod c
     logm External LLDebug "Received instance list request."
     withBlockHash blockcstr (logm External LLDebug) $ \hash -> do
-      istances <- runConsensusQuery c (Get.getInstances hash)
+      istances <- runConsensusQuery c (Get.getInstanceList hash)
       logm External LLTrace $ "Replying with the list: " ++ show istances
-      jsonValueToCString istances
+      toJSONCString istances
 
 withAccountAddress :: CString -> (String -> IO ()) -> (AccountAddress -> IO CString) -> IO CString
 withAccountAddress cstr logm k = do
@@ -741,7 +741,7 @@ withAccountAddress cstr logm k = do
   case addressFromBytes bs of
       Left err -> do
         logm $ "Could not decode address: " ++ err
-        jsonValueToCString Null
+        toJSONCString Null
       Right acc -> k acc
 
 withCredIdOrAccountAddress :: CString -> (String -> IO ()) -> (Either CredentialRegistrationID AccountAddress -> IO CString) -> IO CString
@@ -752,7 +752,7 @@ withCredIdOrAccountAddress cstr logm k = do
         case bsDeserializeBase16 bs of
           Nothing -> do
             logm $ "Could not decode address: " ++ err
-            jsonValueToCString Null
+            toJSONCString Null
           Just cid -> k (Left cid)
       Right acc -> k (Right acc)
 
@@ -774,7 +774,7 @@ getAccountInfo cptr blockcstr cstr = do
         withBlockHash blockcstr (logm External LLDebug) $ \hash -> do
           ainfo <- runConsensusQuery c (Get.getAccountInfo hash) acc
           logm External LLTrace $ "Replying with: " ++ show ainfo
-          jsonValueToCString ainfo
+          toJSONCString ainfo
 
 -- |Get the status of the rewards parameters for the given block. The block must
 -- be given as a null-terminated base16 encoding of the block hash.
@@ -788,7 +788,7 @@ getRewardStatus cptr blockcstr = do
     withBlockHash blockcstr (logm External LLDebug) $ \hash -> do
       reward <- runConsensusQuery c (Get.getRewardStatus hash)
       logm External LLTrace $ "Replying with: " ++ show reward
-      jsonValueToCString reward
+      toJSONCString reward
 
 
 -- |Get the list of modules in the given block. The block must be given as a
@@ -803,7 +803,7 @@ getModuleList cptr blockcstr = do
     withBlockHash blockcstr (logm External LLDebug) $ \hash -> do
       mods <- runConsensusQuery c (Get.getModuleList hash)
       logm External LLTrace $ "Replying with" ++ show mods
-      jsonValueToCString mods
+      toJSONCString mods
 
 -- |Get birk parameters for the given block. The block must be given as a
 -- null-terminated base16 encoding of the block hash.
@@ -817,7 +817,7 @@ getBirkParameters cptr blockcstr = do
     withBlockHash blockcstr (logm External LLDebug) $ \hash -> do
       bps <- runConsensusQuery c (Get.getBlockBirkParameters hash)
       logm External LLTrace $ "Replying with" ++ show bps
-      jsonValueToCString bps
+      toJSONCString bps
 
 -- |Get the cryptographic parameters in a given block. The block must be given as a
 -- null-terminated base16 encoding of the block hash.
@@ -831,7 +831,7 @@ getCryptographicParameters cptr blockcstr = do
     withBlockHash blockcstr (logm External LLDebug) $ \hash -> do
       params <- runConsensusQuery c (Get.getCryptographicParameters hash)
       logm External LLTrace $ "Replying."
-      jsonValueToCString (AE.toJSON params)
+      toJSONCString (AE.toJSON params)
 
 
 -- |Check whether we are a baker from the perspective of the best block.
@@ -905,13 +905,13 @@ getInstanceInfo cptr blockcstr cstr = do
     case AE.decodeStrict bs :: Maybe ContractAddress of
       Nothing -> do
         logm External LLDebug "Could not decode address."
-        jsonValueToCString Null
+        toJSONCString Null
       Just ii -> do
         logm External LLDebug $ "Decoded address to: " ++ show ii
         withBlockHash blockcstr (logm External LLDebug) $ \hash -> do
           iinfo <- runConsensusQuery c (Get.getContractInfo hash) ii
           logm External LLTrace $ "Replying with: " ++ show iinfo
-          jsonValueToCString iinfo
+          toJSONCString iinfo
 
 
 -- |NB: The return value is __NOT__ JSON encoded but rather it is a binary
@@ -954,7 +954,7 @@ getTransactionStatus cptr trcstr = do
     withTransactionHash trcstr (logm External LLDebug) $ \hash -> do
       status <- runConsensusQuery c (Get.getTransactionStatus hash)
       logm External LLTrace $ "Replying with: " ++ show status
-      jsonValueToCString status
+      toJSONCString status
 
 -- |Get the status of a transaction. The first input is a base16-encoded null-terminated string
 -- denoting a transaction hash, the second input is the hash of the block.
@@ -973,7 +973,7 @@ getTransactionStatusInBlock cptr trcstr bhcstr = do
       withBlockHash bhcstr (logm External LLDebug) $ \blockHash -> do
         status <- runConsensusQuery c (Get.getTransactionStatusInBlock txHash blockHash)
         logm External LLTrace $ "Replying with: " ++ show status
-        jsonValueToCString status
+        toJSONCString status
 
 
 -- |Get the list of non-finalized transactions for a given account.
@@ -989,7 +989,7 @@ getAccountNonFinalizedTransactions cptr addrcstr = do
     withAccountAddress addrcstr (logm External LLDebug) $ \addr -> do
         status <- runConsensusQuery c (Get.getAccountNonFinalizedTransactions addr)
         logm External LLTrace $ "Replying with: " ++ show status
-        jsonValueToCString (AE.toJSON status)
+        toJSONCString (AE.toJSON status)
 
 -- |Get the best guess for the next available account nonce.
 -- The arguments are
@@ -1004,7 +1004,7 @@ getNextAccountNonce cptr addrcstr = do
     withAccountAddress addrcstr (logm External LLDebug) $ \addr -> do
         status <- runConsensusQuery c (Get.getNextAccountNonce addr)
         logm External LLTrace $ "Replying with: " ++ show status
-        jsonValueToCString status
+        toJSONCString status
 
 -- |Get the list of transactions in a block with short summaries of their effects.
 -- Returns a NUL-termianated string encoding a JSON value.
@@ -1016,7 +1016,7 @@ getBlockSummary cptr bhcstr = do
   withBlockHash bhcstr (logm External LLDebug) $ \blockHash -> do
     summary <- runConsensusQuery c (Get.getBlockSummary blockHash)
     logm External LLTrace $ "Replying with: " ++ show summary
-    jsonValueToCString summary
+    toJSONCString summary
 
 -- |Get the list of live blocks at a given height.
 -- Returns a NUL-terminated string encoding a JSON list.
@@ -1027,7 +1027,7 @@ getBlocksAtHeight cptr height = do
     logm External LLDebug "Received blocks at height request."
     blocks <- runConsensusQuery c Get.getBlocksAtHeight (fromIntegral height)
     logm External LLTrace $ "Replying with: " ++ show blocks
-    jsonValueToCString blocks
+    toJSONCString blocks
 
 getAllIdentityProviders :: StablePtr ConsensusRunner -> CString -> IO CString
 getAllIdentityProviders cptr blockcstr = do
@@ -1037,7 +1037,7 @@ getAllIdentityProviders cptr blockcstr = do
     withBlockHash blockcstr (logm External LLDebug) $ \hash -> do
       ips <- runConsensusQuery c (Get.getAllIdentityProviders hash)
       logm External LLTrace $ "Replying with: " ++ show ips
-      jsonValueToCString ips
+      toJSONCString ips
 
 getAllAnonymityRevokers :: StablePtr ConsensusRunner -> CString -> IO CString
 getAllAnonymityRevokers cptr blockcstr = do
@@ -1047,7 +1047,7 @@ getAllAnonymityRevokers cptr blockcstr = do
     withBlockHash blockcstr (logm External LLDebug) $ \hash -> do
       ars <- runConsensusQuery c (Get.getAllAnonymityRevokers hash)
       logm External LLTrace $ "Replying with: " ++ show ars
-      jsonValueToCString ars
+      toJSONCString ars
 
 freeCStr :: CString -> IO ()
 freeCStr = free

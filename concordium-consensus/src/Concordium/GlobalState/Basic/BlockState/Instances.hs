@@ -20,7 +20,7 @@ module Concordium.GlobalState.Basic.BlockState.Instances(
 
 import Concordium.Types
 import qualified Concordium.Wasm as Wasm
-import Concordium.GlobalState.Instance
+import Concordium.Types.Instance
 import Concordium.GlobalState.Basic.BlockState.InstanceTable
 
 import Data.Serialize
