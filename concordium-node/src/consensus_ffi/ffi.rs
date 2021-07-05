@@ -511,6 +511,7 @@ pub fn get_consensus_ptr(
         8 => bail!("Genesis block is not in the supplied tree state database."),
         9 => bail!("Database genesis block does not align with the supplied genesis data."),
         10 => bail!("Database invariant violation. See logs for details."),
+        11 => bail!("Block state database has incorrect version information."),
         n => bail!("Unknown error code: {}.", n),
     }
 }

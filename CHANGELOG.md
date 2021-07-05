@@ -11,6 +11,9 @@
 - Disable dnssec by default. This replaces the flag `--no-dnssec` with
   `--require-dnssec`, and the environment variable
   `CONCORIDUM_NODE_CONNECTION_NO_DNSSEC` with `CONCORDIUM_NODE_CONNECTION_REQUIRE_DNSSEC`.
+- Global state database now includes version metadata. The treestate directory and blockstate file
+  names are suffixed with "-0" to indicate genesis index 0, for compatibility with protocol updates.
+  A legacy database will automatically be migrated by renaming and adding version metadata.
 
 ## concordium-node 1.0.1
 

@@ -17,8 +17,10 @@ import qualified Data.Aeson as AE
 import Data.Foldable(forM_)
 import Text.Read(readMaybe)
 import Control.Exception
+import Control.Monad(unless)
 import Control.Monad.State.Class(MonadState)
-import System.FilePath ((</>))
+import System.FilePath ((</>), (<.>))
+import System.Directory
 
 import qualified Data.Text.Lazy as LT
 import qualified Data.Aeson.Text as AET
@@ -45,6 +47,7 @@ import Concordium.Runner
 import Concordium.Skov hiding (receiveTransaction, MessageType, getCatchUpStatus, getBlocksAtHeight)
 import qualified Concordium.Skov as Skov
 import Concordium.Afgjort.Finalize.Types(getExactVersionedFPM)
+import Concordium.GlobalState.Persistent.LMDB (addDatabaseVersion)
 import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.TimerMonad (ThreadTimer)
@@ -279,6 +282,7 @@ toStartResult =
             GenesisBlockNotInDataBaseError -> 8
             GenesisBlockIncorrect _ -> 9
             DatabaseInvariantViolation _ -> 10
+            IncorrectDatabaseVersion _ -> 11
 
 handleStartExceptions :: LogMethod IO -> IO Int64 -> IO Int64
 handleStartExceptions logM c =
@@ -289,6 +293,27 @@ handleStartExceptions logM c =
     ]
   where
     handleGlobalStateInitException (InvalidGenesisData _) = return (toStartResult StartGenesisFailure)
+
+-- |Migrate a legacy global state, if necessary.
+migrateGlobalState :: FilePath -> LogMethod IO -> IO ()
+migrateGlobalState dbPath logM = do
+    blockStateExists <- doesPathExist $ dbPath </> "blockstate-0" <.> "dat"
+    treeStateExists <- doesPathExist $ dbPath </> "treestate-0"
+    -- Only attempt migration when neither state exists
+    unless (blockStateExists || treeStateExists) $ do
+        oldBlockStateExists <- doesFileExist $ dbPath </> "blockstate" <.> "dat"
+        oldTreeStateExists <- doesDirectoryExist $ dbPath </> "treestate"
+        case (oldBlockStateExists, oldTreeStateExists) of
+          (True, True) -> do
+            logM GlobalState LLInfo "Migrating global state from legacy version."
+            renameFile (dbPath </> "blockstate" <.> "dat") (dbPath </> "blockstate-0" <.> "dat")
+            renameDirectory (dbPath </> "treestate") (dbPath </> "treestate-0")
+            runLoggerT (addDatabaseVersion (dbPath </> "treestate-0")) logM
+            logM GlobalState LLInfo "Migration complete."
+          (True, False) -> logM GlobalState LLWarning "Cannot migrate legacy database as 'treestate' is absent."
+          (False, True) -> logM GlobalState LLWarning "Cannot migrate legacy database as 'blockstate.dat' is absent."
+          _ -> return ()
+        
 
 -- |Start up an instance of Skov without starting the baker thread.
 -- If an error occurs starting Skov, the error will be logged and
@@ -317,11 +342,14 @@ startConsensus maxBlock timeout maxTimeToExpiry insertionsBeforePurge transactio
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         bdata <- BS.packCStringLen (bidC, fromIntegral bidLenC)
         appData <- peekCStringLen (appDataC, fromIntegral appDataLenC)
+        -- Do globalstate migration if necessary
+        migrateGlobalState appData logM
         let runtimeParams = RuntimeParameters {
               rpBlockSize = fromIntegral maxBlock,
               rpBlockTimeout = fromIntegral timeout,
-              rpTreeStateDir = appData </> "treestate",
-              rpBlockStateFile = appData </> "blockstate",
+              -- Tree state and block state are suffixed by the genesis index (currently fixed at 0)
+              rpTreeStateDir = appData </> "treestate-0",
+              rpBlockStateFile = appData </> "blockstate-0",
               rpEarlyBlockThreshold = defaultEarlyBlockThreshold,
               rpMaxBakingDelay = defaultMaxBakingDelay,
               rpInsertionsBeforeTransactionPurge = fromIntegral insertionsBeforePurge,
@@ -397,11 +425,14 @@ startConsensusPassive ::
 startConsensusPassive maxBlock timeout maxTimeToExpiry insertionsBeforePurge transactionsPurgingDelay transactionsKeepAlive gdataC gdataLenC cucbk regenesisArcPtr freeRegenesisArc regenesisCB maxLogLevel lcbk appDataC appDataLenC connStringPtr connStringLen runnerPtrPtr = handleStartExceptions logM $ do
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         appData <- peekCStringLen (appDataC, fromIntegral appDataLenC)
+        -- Do globalstate migration if necessary
+        migrateGlobalState appData logM
         let runtimeParams = RuntimeParameters {
               rpBlockSize = fromIntegral maxBlock,
               rpBlockTimeout = fromIntegral timeout,
-              rpTreeStateDir = appData </> "treestate",
-              rpBlockStateFile = appData </> "blockstate",
+              -- Tree state and block state are suffixed by the genesis index (currently fixed at 0)
+              rpTreeStateDir = appData </> "treestate-0",
+              rpBlockStateFile = appData </> "blockstate-0",
               rpEarlyBlockThreshold = defaultEarlyBlockThreshold,
               rpMaxBakingDelay = defaultMaxBakingDelay,
               rpInsertionsBeforeTransactionPurge = fromIntegral insertionsBeforePurge,

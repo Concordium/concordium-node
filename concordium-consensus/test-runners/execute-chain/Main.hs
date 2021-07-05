@@ -2,11 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Main where
 
--- import Control.Exception
--- import Control.Monad
 import Control.Monad.IO.Class
--- import Control.Monad.Reader
-import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
 import Data.IORef
 import qualified Data.Sequence as Seq
@@ -20,7 +16,6 @@ import System.Clock
 import Concordium.Logger
 import Concordium.TimerMonad
 import Concordium.Types.Execution (tsEnergyCost)
--- import Concordium.Types.HashableTo
 import Concordium.Types.ProtocolVersion
 
 import Concordium.GlobalState
@@ -40,13 +35,13 @@ import Concordium.Skov
 -- |Protocol version
 type PV = 'P1
 
--- type TreeConfig = DiskTreeDiskBlockConfig PV
--- makeGlobalStateConfig :: RuntimeParameters -> GenesisData PV -> IO TreeConfig
--- makeGlobalStateConfig rt genData = return $ DTDBConfig rt genData
-
-type TreeConfig = MemoryTreeDiskBlockConfig PV
+type TreeConfig = DiskTreeDiskBlockConfig PV
 makeGlobalStateConfig :: RuntimeParameters -> GenesisData PV -> IO TreeConfig
-makeGlobalStateConfig rt genData = return $ MTDBConfig rt genData
+makeGlobalStateConfig rt genData = return $ DTDBConfig rt genData
+
+-- type TreeConfig = MemoryTreeDiskBlockConfig PV
+-- makeGlobalStateConfig :: RuntimeParameters -> GenesisData PV -> IO TreeConfig
+-- makeGlobalStateConfig rt genData = return $ MTDBConfig rt genData
 
 -- type TreeConfig = MemoryTreeMemoryBlockConfig PV
 -- makeGlobalStateConfig :: RuntimeParameters -> GenesisData PV -> IO TreeConfig
@@ -146,31 +141,13 @@ main = do
                         writeIORef stateRef ss'
                         return Success
                     else return $ OtherError ur
-        -- res <- readBlocksV1 blocks t logM Runner importBlock
-        res <- readBlocks blocks importBlock
+        res <- readBlocks blocks logM importBlock
         t1 <- getTime Monotonic
         print $ toNanoSecs $ diffTimeSpec t1 startTime
         print res
 
-readBlocks :: FilePath -> (PendingBlock -> IO (ImportingResult a)) -> IO (ImportingResult a)
-readBlocks fp continuation = do
+readBlocks :: (Show a) => FilePath -> LogMethod IO -> (PendingBlock -> IO (ImportingResult a)) -> IO (ImportingResult a)
+readBlocks fp logM continuation = do
         h <- openFile fp ReadMode
         tm <- getCurrentTime
-        version <- BS.hGet h 1
-        if version /= "\x01" then
-            return SerializationFail
-        else
-            let loop = do
-                    lbs <- BS.hGet h 8
-                    if BS.null lbs then
-                        return Success
-                    else case runGet getWord64be lbs of
-                        Left _ -> return SerializationFail
-                        Right l -> do
-                            bbs <- BS.hGet h (fromIntegral l)
-                            case deserializePendingBlock SP1 bbs tm of
-                                Left _ -> return SerializationFail
-                                Right block -> continuation block >>= \case
-                                    Success -> loop
-                                    r -> return r
-            in loop
+        readBlocksV2 h tm logM External continuation
