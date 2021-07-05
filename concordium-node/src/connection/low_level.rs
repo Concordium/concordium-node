@@ -454,7 +454,7 @@ impl ConnectionLowLevel {
     /// Decrypt a full message read from the socket.
     #[inline]
     fn decrypt(&mut self) -> anyhow::Result<Vec<u8>> {
-        let mut msg = Cursor::new(mem::replace(&mut self.incoming_msg.message, Vec::new()));
+        let mut msg = Cursor::new(mem::take(&mut self.incoming_msg.message));
         // calculate the number of full-sized chunks
         let len = msg.get_ref().len();
         let num_full_chunks = len / NOISE_MAX_MESSAGE_LEN;
