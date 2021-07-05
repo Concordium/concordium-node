@@ -600,7 +600,7 @@ impl P2PNode {
         // try to acquire the thread handles.
         let handles = {
             match self.threads.write() {
-                Ok(mut wlock) => mem::replace::<Vec<_>>(&mut wlock, Vec::new()),
+                Ok(mut wlock) => mem::take::<Vec<_>>(&mut wlock),
                 // if unsuccessful then most likely some other thread acquired the threads lock and
                 // panicked. There is not much we can easily do, so we just do nothing and
                 // terminate.

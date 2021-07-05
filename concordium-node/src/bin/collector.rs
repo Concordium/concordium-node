@@ -257,11 +257,7 @@ async fn collect_data<'a>(
     let version = node_version_reply.get_ref().value.to_owned();
     let packets_sent = node_total_sent_reply.get_ref().value;
     let packets_received = node_total_received_reply.get_ref().value;
-    let baker_id = if let Some(baker_id) = node_info_reply.consensus_baker_id {
-        Some(baker_id)
-    } else {
-        None
-    };
+    let baker_id = node_info_reply.consensus_baker_id;
     let node_peer_stats_reply = node_peer_stats_reply.get_ref();
     let peer_stats = &node_peer_stats_reply.peerstats;
     let peers_summed_latency = peer_stats.iter().map(|element| element.latency).sum::<u64>() as f64;
@@ -330,16 +326,12 @@ async fn collect_data<'a>(
         let json_consensus_ancestors_value: Value =
             serde_json::from_str(&node_ancestors_reply.get_ref().value)?;
         if json_consensus_ancestors_value.is_array() {
-            if let Some(ancestors_arr) = json_consensus_ancestors_value.as_array() {
-                Some(
-                    ancestors_arr
-                        .iter()
-                        .map(|value| value.as_str().unwrap().to_owned())
-                        .collect::<Vec<String>>(),
-                )
-            } else {
-                None
-            }
+            json_consensus_ancestors_value.as_array().map(|ancestors_arr| {
+                ancestors_arr
+                    .iter()
+                    .map(|value| value.as_str().unwrap().to_owned())
+                    .collect::<Vec<String>>()
+            })
         } else {
             None
         }

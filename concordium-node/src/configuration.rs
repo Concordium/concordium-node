@@ -896,8 +896,8 @@ impl AppPreferences {
         new_prefs
     }
 
-    fn calculate_config_file_path(config_path: &PathBuf, key: &str) -> PathBuf {
-        let mut new_path = config_path.clone();
+    fn calculate_config_file_path(config_path: &Path, key: &str) -> PathBuf {
+        let mut new_path = config_path.to_path_buf();
         new_path.push(&format!("{}.json", key));
         new_path
     }
