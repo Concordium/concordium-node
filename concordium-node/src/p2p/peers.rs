@@ -164,9 +164,10 @@ fn calculate_average_throughput(
         "Time went backwards or did not change. Refusing to calculate average throughput."
     );
     let delta: u64 = (now_millis - before_millis) as u64; // as is safe since we checked the difference is positive.
-
-    let avg_bps_in = (milliseconds_to_second * (bytes_recv - prev_bytes_recv)) / delta;
-    let avg_bps_out = (milliseconds_to_second * (bytes_sent - prev_bytes_sent)) / delta;
+    let recv_diff = if bytes_recv > prev_bytes_recv { bytes_recv - prev_bytes_recv } else {0};
+    let sent_diff = if bytes_sent > prev_bytes_sent { bytes_sent - prev_bytes_sent } else {0};
+    let avg_bps_in = (milliseconds_to_second * recv_diff) / delta;
+    let avg_bps_out = (milliseconds_to_second * sent_diff) / delta;
 
     Ok((avg_bps_in, avg_bps_out))
 }
