@@ -77,7 +77,7 @@ The strategy for building the package is as follows.
    how to obtain it). Make sure to use the `collector` feature to build them,
    e.g.,
    ```console
-   $ UBUNTU_VERSION=20.04 STATIC_LIBRARIES_IMAGE_TAG=0.20 GHC_VERSION=8.10.4 EXTRA_FEATURES=collector ./scripts/static-binaries/build-static-binaries.sh
+   $ UBUNTU_VERSION=20.04 STATIC_LIBRARIES_IMAGE_TAG=0.21 GHC_VERSION=8.10.4 EXTRA_FEATURES=collector ./scripts/static-binaries/build-static-binaries.sh
    ```
 
    If not then just comment out the relevant lines and manually copy the
