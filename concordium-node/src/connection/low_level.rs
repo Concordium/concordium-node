@@ -231,7 +231,7 @@ impl ConnectionLowLevel {
         struct linger {
             pub l_onoff:  c_ushort,
             pub l_linger: c_ushort,
-        };
+        }
         const SOL_SOCKET: c_int = 0xffff;
         const SO_LINGER: c_int = 0x0080;
 
