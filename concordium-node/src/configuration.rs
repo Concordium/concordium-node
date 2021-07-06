@@ -376,13 +376,6 @@ pub struct ConnectionConfig {
     )]
     pub relay_broadcast_percentage: f64,
     #[structopt(
-        long = "bootstrap-server",
-        help = "DNS name to resolve bootstrap nodes from",
-        conflicts_with = "bootstrap-node",
-        env = "CONCORDIUM_NODE_CONNECTION_BOOTSTRAP_SERVER"
-    )]
-    pub bootstrap_server: Option<String>,
-    #[structopt(
         long = "connect-to",
         short = "c",
         help = "Peer to connect to upon startup (host/ip:port)",

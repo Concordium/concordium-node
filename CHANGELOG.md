@@ -14,6 +14,9 @@
 - Global state database now includes version metadata. The treestate directory and blockstate file
   names are suffixed with "-0" to indicate genesis index 0, for compatibility with protocol updates.
   A legacy database will automatically be migrated by renaming and adding version metadata.
+- Remove CONCORDIUM_NODE_CONNECTION_BOOTSTRAP_SERVER option and the
+  corresponding `--bootstrap-server` flag. This was never used, and the
+  implementation was buggy, with unclear intent.
 
 ## concordium-node 1.0.1
 

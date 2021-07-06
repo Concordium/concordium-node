@@ -60,7 +60,6 @@ pub struct NodeConfig {
     pub no_bootstrap_dns: bool,
     /// Do not clear persistent bans on startup.
     pub no_clear_bans: bool,
-    pub bootstrap_server: Option<String>,
     pub dns_resolvers: Vec<String>,
     pub require_dnssec: bool,
     pub disallow_multiple_peers_on_ip: bool,
@@ -331,7 +330,6 @@ impl P2PNode {
             desired_nodes_count: conf.connection.desired_nodes,
             no_bootstrap_dns: conf.connection.no_bootstrap_dns,
             no_clear_bans: conf.connection.no_clear_bans,
-            bootstrap_server: conf.connection.bootstrap_server.clone(),
             dns_resolvers,
             require_dnssec: conf.connection.require_dnssec,
             disallow_multiple_peers_on_ip: conf.connection.disallow_multiple_peers_on_ip,
@@ -851,7 +849,6 @@ pub fn attempt_bootstrap(node: &Arc<P2PNode>) {
         info!("Attempting to bootstrap");
 
         let bootstrap_nodes = utils::get_bootstrap_nodes(
-            node.config.bootstrap_server.as_deref(),
             &node.config.dns_resolvers,
             node.config.require_dnssec,
             &node.config.bootstrap_nodes,
