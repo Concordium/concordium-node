@@ -206,7 +206,7 @@ mod tests {
 
         assert!(
             calculate_average_throughput(1, 1001, 1002, 1001, 1001, 1002).is_err(),
-            "Received bytes was lost. Refusing to calculate average throughput."
+            "Received bytes were lost. Refusing to calculate average throughput."
         );
 
         assert!(
