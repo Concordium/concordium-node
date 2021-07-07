@@ -164,10 +164,18 @@ fn calculate_average_throughput(
         "Time went backwards or did not change. Refusing to calculate average throughput."
     );
     let delta: u64 = (now_millis - before_millis) as u64; // as is safe since we checked the difference is positive.
-    let recv_diff = if bytes_recv > prev_bytes_recv { bytes_recv - prev_bytes_recv } else {0};
-    let sent_diff = if bytes_sent > prev_bytes_sent { bytes_sent - prev_bytes_sent } else {0};
-    let avg_bps_in = (milliseconds_to_second * recv_diff) / delta;
-    let avg_bps_out = (milliseconds_to_second * sent_diff) / delta;
+
+    ensure!(
+        bytes_recv >= prev_bytes_recv,
+        "Received bytes was lost. Refusing to calculate average throughput."
+    );
+    let avg_bps_in = (milliseconds_to_second * (bytes_recv - prev_bytes_recv)) / delta;
+
+    ensure!(
+        bytes_sent >= prev_bytes_sent,
+        "Sent bytes was lost. Refusing to calculate average throughput."
+    );
+    let avg_bps_out = (milliseconds_to_second * (bytes_sent - prev_bytes_sent)) / delta;
 
     Ok((avg_bps_in, avg_bps_out))
 }
@@ -194,6 +202,16 @@ mod tests {
         assert!(
             calculate_average_throughput(2, 1, 1, 2, 1, 2).is_err(),
             "Calculation should fail since time difference is negative."
+        );
+
+        assert!(
+            calculate_average_throughput(1, 1001, 1002, 1001, 1001, 1002).is_err(),
+            "Received bytes was lost. Refusing to calculate average throughput."
+        );
+
+        assert!(
+            calculate_average_throughput(1, 1001, 1001, 1002, 1001, 1000).is_err(),
+            "Sent bytes was lost. Refusing to calculate average throughput."
         );
     }
 }
