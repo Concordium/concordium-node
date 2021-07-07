@@ -77,11 +77,10 @@ fn main() -> anyhow::Result<()> {
                     if read_bytes != block_len_buffer.len() {
                         if read_bytes == 0 {
                             info!("No more blocks to be read from file");
-                            break;
                         } else {
                             error!("No enough bytes to read");
-                            break;
                         }
+                        break;
                     }
                     let block_size = u64::from_be_bytes(block_len_buffer);
                     info!(

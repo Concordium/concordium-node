@@ -488,20 +488,10 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- |Get the foundation account.
   bsoGetFoundationAccount :: UpdatableBlockState m -> m (Account m)
 
-  -- FIXME: Remove
-  -- |Set the amount of minted GTU per slot.
-  -- bsoSetInflation :: UpdatableBlockState m -> Amount -> m (UpdatableBlockState m)
-
   -- |Mint currency and distribute it to the BakerRewardAccount,
   -- FinalizationRewardAccount and foundation account.
   -- This increases the total GTU in circulation.
   bsoMint :: UpdatableBlockState m -> MintAmounts -> m (UpdatableBlockState m)
-
-  -- FIXME: Remove
-  -- |Subtract the amount from the central bank. Return the new amount. The
-  -- precondition of this method is that the amount on the account is
-  -- sufficient.
-  -- bsoDecrementCentralBankGTU :: UpdatableBlockState m -> Amount -> m (Amount, UpdatableBlockState m)
 
   -- |Get the identity provider data for the given identity provider, or Nothing if
   -- the identity provider with given ID does not exist.

@@ -450,7 +450,9 @@ pub fn router(
 /// Calculates the average, but only from a part of the values. The omitted are
 /// taken from the highest and lowest values.
 fn average_without_outer_values(mut values: Vec<u64>, number_to_include: usize) -> u64 {
-    values.sort();
+    // the unstable sort is faster and stability makes no difference for sorting
+    // sequences of u64.
+    values.sort_unstable();
     let omitting = values.len() - number_to_include;
     let start = omitting / 2;
     let end = start + number_to_include;

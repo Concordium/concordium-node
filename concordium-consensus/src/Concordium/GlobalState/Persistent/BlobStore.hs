@@ -334,8 +334,9 @@ class Monad m => Reference m ref a where
   -- |Given a reference, flush the data and return an uncached reference.
   refUncache :: ref a -> m (ref a)
 
--- |A value that may exists purely on disk ('BRBlobbed'), purely in memory ('BRMemory'), or both ('BRCached').
--- When the value is cached, the cached value must match the value stored on disk.
+-- |A value that may exists purely on disk ('BRBlobbed'), purely in memory
+-- ('BRMemory' with @brIORef = null@), or both in memory and on disk. When the
+-- value is both on disk and in memory the two values must match.
 data BufferedRef a
     = BRBlobbed {brRef :: !(BlobRef a)}
     -- ^Value stored on disk

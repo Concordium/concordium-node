@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:experimental
-FROM concordium/static-libraries:0.19
+FROM concordium/static-libraries:0.21
 
 ENV GHC_VERSION 8.10.4
 

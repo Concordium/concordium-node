@@ -376,13 +376,6 @@ pub struct ConnectionConfig {
     )]
     pub relay_broadcast_percentage: f64,
     #[structopt(
-        long = "bootstrap-server",
-        help = "DNS name to resolve bootstrap nodes from",
-        conflicts_with = "bootstrap-node",
-        env = "CONCORDIUM_NODE_CONNECTION_BOOTSTRAP_SERVER"
-    )]
-    pub bootstrap_server: Option<String>,
-    #[structopt(
         long = "connect-to",
         short = "c",
         help = "Peer to connect to upon startup (host/ip:port)",
@@ -896,8 +889,8 @@ impl AppPreferences {
         new_prefs
     }
 
-    fn calculate_config_file_path(config_path: &PathBuf, key: &str) -> PathBuf {
-        let mut new_path = config_path.clone();
+    fn calculate_config_file_path(config_path: &Path, key: &str) -> PathBuf {
+        let mut new_path = config_path.to_path_buf();
         new_path.push(&format!("{}.json", key));
         new_path
     }

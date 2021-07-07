@@ -44,6 +44,7 @@ import           Concordium.GlobalState.Types
 import           Concordium.Types
 import           Control.Monad.IO.Class
 import           Control.Monad.Reader
+import           Control.Monad.State
 import           Data.ByteString as BS hiding (putStrLn, tail, last, sort)
 import qualified Data.Serialize as S
 import           Data.Time.Clock
@@ -60,7 +61,7 @@ data ReadEnv = ReadEnv
 makeLenses ''ReadEnv
 
 initialDatabase :: FilePath -> IO (DatabaseHandlers 'P1 (BlockStatePointer (PersistentBlockState 'P1)))
-initialDatabase p = makeDatabaseHandlers p True
+initialDatabase p = makeDatabaseHandlers p True 0
 
 initialHandle :: FilePath -> IO Handle
 initialHandle p = do
@@ -81,7 +82,7 @@ exportHeaderV2 = do
 exportBlockV2 :: BlockHeight -> ReaderT ReadEnv IO ()
 exportBlockV2 finalizedHeight = do
   theDB <- view db
-  mblock <- liftIO $ resizeOnResized theDB (getFinalizedBlockAtHeight theDB finalizedHeight)
+  mblock <- liftIO $ evalStateT (resizeOnResized (readFinalizedBlockAtHeight finalizedHeight)) theDB
   case mblock of
     Nothing -> return ()
     Just storedBlock -> do

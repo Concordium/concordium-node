@@ -282,6 +282,8 @@ data BlockStatePointers (pv :: ProtocolVersion) = BlockStatePointers {
     bspReleaseSchedule :: !(BufferedRef (Map.Map AccountAddress Timestamp)),
     -- FIXME: Store transaction outcomes in a way that allows for individual indexing.
     bspTransactionOutcomes :: !Transactions.TransactionOutcomes,
+    -- |Identities of bakers that baked blocks in the current epoch. This is
+    -- used for rewarding bakers at the end of epochs.
     bspEpochBlocks :: !HashedEpochBlocks
 }
 

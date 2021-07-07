@@ -1,5 +1,8 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DefaultSignatures #-}
+{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
@@ -18,7 +21,11 @@ module Concordium.GlobalState.Persistent.LMDB (
   , databaseHandlers
   , makeDatabaseHandlers
   , initializeDatabase
+  , VersionDatabaseHandlers(..)
+  , openReadOnlyDatabase
   , closeDatabase
+  , addDatabaseVersion
+  , checkDatabaseVersion
   , resizeOnResized
   , finalizedByHeightStore
   , StoredBlock(..)
@@ -38,7 +45,6 @@ module Concordium.GlobalState.Persistent.LMDB (
   ) where
 
 import Concordium.GlobalState.LMDB.Helpers
-import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.Finalization
@@ -49,10 +55,11 @@ import qualified Concordium.GlobalState.TransactionTable as T
 import Concordium.Crypto.SHA256
 import Concordium.Types.HashableTo
 import Control.Concurrent (runInBoundThread)
-import Control.Exception (tryJust, handleJust)
+import Control.Monad.Catch (tryJust, handleJust, MonadCatch)
 import Control.Monad.IO.Class
 import Control.Monad
 import Control.Monad.State
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Serialize as S
 import Database.LMDB.Raw
@@ -60,6 +67,7 @@ import Lens.Micro.Platform
 import System.Directory
 import qualified Data.HashMap.Strict as HM
 import Concordium.Logger
+import Concordium.Common.Version
 
 -- |A (finalized) block as stored in the database.
 data StoredBlock pv st = StoredBlock {
@@ -69,6 +77,10 @@ data StoredBlock pv st = StoredBlock {
   sbState :: !st
 }
 
+-- Note: 'openReadOnlyDatabase' works on the presumption that the state is always the last part of
+-- the serialization, so we can serialize a stored block with any state type and deserialize it
+-- with the unit state type.  Any changes to the serialization used here must respect this or
+-- be accompanied by corresponding changes there.
 instance (IsProtocolVersion pv, S.Serialize st) => S.Serialize (StoredBlock pv st) where
   put StoredBlock{..} = S.put sbFinalizationIndex <>
           S.put sbInfo <>
@@ -135,6 +147,44 @@ instance MDBDatabase FinalizedByHeightStore where
   type DBValue FinalizedByHeightStore = BlockHash
   encodeValue _ = LBS.fromStrict . hashToByteString . blockHash
 
+-- |The metadata store table.
+-- This table is for storing version-related information.
+newtype MetadataStore = MetadataStore MDB_dbi'
+
+instance MDBDatabase MetadataStore where
+    type DBKey MetadataStore = BS.ByteString
+    encodeKey _ bs = bs
+    decodeKey _ k = Right <$> byteStringFromMDB_val k
+    type DBValue MetadataStore = BS.ByteString
+    encodeValue _ = LBS.fromStrict
+    decodeValue _ v = Right <$> byteStringFromMDB_val v
+
+-- |Key to the version information.
+-- This key should map to a serialized 'VersionMetadata' structure.
+versionMetadata :: DBKey MetadataStore
+versionMetadata = "version"
+
+data VersionMetadata = VersionMetadata {
+    -- |Version signifier for the database itself.
+    vmDatabaseVersion :: !Version,
+    -- |Protocol version, which may impact the storage of blocks/finalization records
+    -- independently of the database version.
+    vmProtocolVersion :: !ProtocolVersion
+} deriving (Eq)
+
+instance Show VersionMetadata where
+    show VersionMetadata{..} = "{databaseVersion: " ++ show vmDatabaseVersion ++
+        ", protocolVersion: " ++ show vmProtocolVersion ++ "}"
+
+instance S.Serialize VersionMetadata where
+    put VersionMetadata{..} = do
+        S.put vmDatabaseVersion
+        S.put vmProtocolVersion
+    get = do
+        vmDatabaseVersion <- S.get
+        vmProtocolVersion <- S.get
+        return VersionMetadata{..}
+
 -- |Values used by the LMDBStoreMonad to manage the database.
 -- The type is parametrised by the protocol version and the block state type.
 data DatabaseHandlers (pv :: ProtocolVersion) st = DatabaseHandlers {
@@ -147,7 +197,9 @@ data DatabaseHandlers (pv :: ProtocolVersion) st = DatabaseHandlers {
     -- |Index of transaction references by transaction hash.
     _transactionStatusStore :: !TransactionStatusStore,
     -- |Index of block hashes by block height.
-    _finalizedByHeightStore :: !FinalizedByHeightStore
+    _finalizedByHeightStore :: !FinalizedByHeightStore,
+    -- |Metadata store.
+    _metadataStore :: !MetadataStore
 }
 makeLenses ''DatabaseHandlers
 
@@ -158,39 +210,67 @@ makeLenses ''DatabaseHandlers
 class HasDatabaseHandlers (pv :: ProtocolVersion) st s | s -> pv st where
   dbHandlers :: Lens' s (DatabaseHandlers pv st)
 
-blockStoreName, finalizationRecordStoreName, transactionStatusStoreName, finalizedByHeightStoreName :: String
+instance HasDatabaseHandlers pv st (DatabaseHandlers pv st) where
+  dbHandlers = id
+
+-- |Name of the block store.
+blockStoreName :: String
 blockStoreName = "blocks"
+
+-- |Name of the finalization record store.
+finalizationRecordStoreName :: String
 finalizationRecordStoreName = "finalization"
+
+-- |Name of the finalization-by-height index.
+finalizedByHeightStoreName :: String
 finalizedByHeightStoreName = "finalizedByHeight"
+
+-- |Name of the transaction status index.
+transactionStatusStoreName :: String
 transactionStatusStoreName = "transactionstatus"
 
+-- |Name of the metadata store.
+metadataStoreName :: String
+metadataStoreName = "metadata"
+
+-- |The number of databases in the LMDB environment for 'DatabaseHandlers'.
+databaseCount :: Int
+databaseCount = 5
+
 -- |Database growth size increment.
+-- This is currently set at 64MB, and must be a multiple of the page size.
 dbStepSize :: Int
 dbStepSize = 2^(26 :: Int) -- 64MB
 
 -- |Initial database size.
+-- This is currently set to be the same as 'dbStepSize'.
 dbInitSize :: Int
 dbInitSize = dbStepSize
-
 
 -- NB: The @ati@ is stored in an external database if chosen to.
 
 -- |Initialize database handlers in ReadWrite mode.
 -- This simply loads the references and does not initialize the databases.
-databaseHandlers :: RuntimeParameters -> IO (DatabaseHandlers pv st)
-databaseHandlers RuntimeParameters{..} = makeDatabaseHandlers rpTreeStateDir False
+-- The initial size is set to 64MB.
+databaseHandlers :: FilePath -> IO (DatabaseHandlers pv st)
+databaseHandlers treeStateDir = makeDatabaseHandlers treeStateDir False dbInitSize
 
 -- |Initialize database handlers.
+-- The size will be rounded up to a multiple of 'dbStepSize'.
+-- (This ensures in particular that the size is a multiple of the page size, which is required by
+-- LMDB.)
 makeDatabaseHandlers
   :: FilePath
   -- ^Path of database
   -> Bool
   -- ^Open read only
+  -> Int
+  -- ^Initial database size
   -> IO (DatabaseHandlers pv st)
-makeDatabaseHandlers treeStateDir readOnly = do
+makeDatabaseHandlers treeStateDir readOnly initSize = do
   _storeEnv <- mdb_env_create
-  mdb_env_set_mapsize _storeEnv dbInitSize
-  mdb_env_set_maxdbs _storeEnv 4
+  mdb_env_set_mapsize _storeEnv (initSize + dbStepSize - initSize `mod` dbStepSize)
+  mdb_env_set_maxdbs _storeEnv databaseCount
   mdb_env_set_maxreaders _storeEnv 126
   -- TODO: Consider MDB_NOLOCK
   mdb_env_open _storeEnv treeStateDir [MDB_RDONLY | readOnly]
@@ -199,29 +279,124 @@ makeDatabaseHandlers treeStateDir readOnly = do
     _finalizationRecordStore <- FinalizationRecordStore <$> mdb_dbi_open' txn (Just finalizationRecordStoreName) [MDB_CREATE | not readOnly]
     _finalizedByHeightStore <- FinalizedByHeightStore <$> mdb_dbi_open' txn (Just finalizedByHeightStoreName) [MDB_CREATE | not readOnly]
     _transactionStatusStore <- TransactionStatusStore <$> mdb_dbi_open' txn (Just transactionStatusStoreName) [MDB_CREATE | not readOnly]
+    _metadataStore <- MetadataStore <$> mdb_dbi_open' txn (Just metadataStoreName) [MDB_CREATE | not readOnly]
     return DatabaseHandlers{..}
 
+-- |'DatabaseHandlers' existentially quantified over the protocol version and without block state.
+-- Note that we can treat the state type as '()' soundly when reading, since the state is the last
+-- part of the serialization: we just ignore the remaining bytes.
+data VersionDatabaseHandlers = forall pv. IsProtocolVersion pv =>
+    VersionDatabaseHandlers (DatabaseHandlers pv ())
+
+-- |Open an existing database for reading. This checks that the version is supported and returns
+-- a handler that is existentially quantified over the protocol version.
+--
+-- This is required for functionality such as the block exporter, which reads the database but does
+-- not have sufficient context to infer the protocol version.
+openReadOnlyDatabase
+  :: FilePath
+  -- ^Path of database
+  -> IO (Maybe VersionDatabaseHandlers)
+openReadOnlyDatabase treeStateDir = do
+  _storeEnv <- mdb_env_create
+  mdb_env_set_mapsize _storeEnv dbInitSize
+  mdb_env_set_maxdbs _storeEnv databaseCount
+  mdb_env_set_maxreaders _storeEnv 126
+  -- TODO: Consider MDB_NOLOCK
+  mdb_env_open _storeEnv treeStateDir [MDB_RDONLY]
+  (_metadataStore, mversion) <- resizeOnResizedInternal _storeEnv $ transaction _storeEnv True $ \txn -> do
+    _metadataStore <- MetadataStore <$> mdb_dbi_open' txn (Just metadataStoreName) []
+    mversion <- loadRecord txn _metadataStore versionMetadata
+    return (_metadataStore, mversion)
+  case mversion of
+    Nothing -> Nothing <$ mdb_env_close _storeEnv
+    Just v -> case S.decode v of
+        Right VersionMetadata{vmDatabaseVersion = 0, ..} ->
+            -- Promote the term level vmProtocolVersion to a type-level value pv, which is
+            -- existentially quantified in the return type.  We do not currently match on the
+            -- protocol version itself, since the database handlers are parametric in the protocol
+            -- version.
+            case promoteProtocolVersion vmProtocolVersion of
+                SomeProtocolVersion (_ :: SProtocolVersion pv) ->
+                    resizeOnResizedInternal _storeEnv $ transaction _storeEnv True $ \txn -> do
+                        _blockStore <- BlockStore <$> mdb_dbi_open' txn (Just blockStoreName) []
+                        _finalizationRecordStore <- FinalizationRecordStore <$> mdb_dbi_open' txn (Just finalizationRecordStoreName) []
+                        _finalizedByHeightStore <- FinalizedByHeightStore <$> mdb_dbi_open' txn (Just finalizedByHeightStoreName) []
+                        _transactionStatusStore <- TransactionStatusStore <$> mdb_dbi_open' txn (Just transactionStatusStoreName) []
+                        return (Just (VersionDatabaseHandlers @pv DatabaseHandlers{..}))
+        _ -> Nothing <$ mdb_env_close _storeEnv
+
+
 -- |Initialize the database handlers creating the databases if needed and writing the genesis block and its finalization record into the disk
-initializeDatabase :: (IsProtocolVersion pv, S.Serialize st) => PersistentBlockPointer pv ati bs -> st -> RuntimeParameters -> IO (DatabaseHandlers pv st)
-initializeDatabase gb stRef rp@RuntimeParameters{..} = do
-  -- The initial mapsize needs to be high enough to allocate the genesis block and its finalization record or
-  -- initialization would fail. It also needs to be a multiple of the OS page size. We considered keeping 4096 as a typical
-  -- OS page size and setting the initial mapsize to 64MB which is very unlikely to be reached just by the genesis block.
-  createDirectoryIfMissing False rpTreeStateDir
-  handlers@DatabaseHandlers{..} <- databaseHandlers rp
-  let gbh = getHash gb
-      gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
-  transaction _storeEnv False $ \txn -> do
-    storeRecord txn _finalizedByHeightStore 0 gbh
-    storeRecord txn _blockStore gbh StoredBlock {
+initializeDatabase :: forall pv st ati bs. (IsProtocolVersion pv, S.Serialize st) =>
+  -- |Genesis block pointer
+  PersistentBlockPointer pv ati bs ->
+  -- |Genesis block state
+  st ->
+  -- |Tree state directory
+  FilePath ->
+  IO (DatabaseHandlers pv st)
+initializeDatabase gb stRef treeStateDir = do
+  createDirectoryIfMissing False treeStateDir
+  let storedGenesis = StoredBlock {
                     sbFinalizationIndex = 0,
                     sbInfo = _bpInfo gb,
                     sbBlock = _bpBlock gb,
                     sbState = stRef
                   }
+  -- The initial mapsize needs to be high enough to allocate the genesis block and its finalization record or
+  -- initialization would fail. Since a regenesis block can contain a serialization of the state, which may be
+  -- arbitrarily large, to be safe we ensure that we have at least 1MB more than the size of the serialization
+  -- of the genesis block.
+  let initSize = fromIntegral $ LBS.length (S.encodeLazy storedGenesis) + 1_048_576
+  handlers@DatabaseHandlers{..} <- makeDatabaseHandlers treeStateDir False initSize
+  let gbh = getHash gb
+      gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
+  transaction _storeEnv False $ \txn -> do
+    storeRecord txn _finalizedByHeightStore 0 gbh
+    storeRecord txn _blockStore gbh storedGenesis
     storeRecord txn _finalizedByHeightStore 0 gbh
     storeRecord txn _finalizationRecordStore 0 gbfin
+    storeRecord txn _metadataStore versionMetadata $
+        S.encode $ VersionMetadata {
+            vmDatabaseVersion = 0,
+            vmProtocolVersion = demoteProtocolVersion (protocolVersion @pv)
+        }
   return handlers
+
+-- |Add a database version record to a database (if one is not already present).
+-- The record indicates database version 0 and protocol version 'P1', which is appropriate when
+-- migrating a database from an earlier version.
+addDatabaseVersion :: (MonadLogger m, MonadIO m) => FilePath -> m ()
+addDatabaseVersion treeStateDir = do
+  handlers :: DatabaseHandlers 'P1 () <- liftIO $ makeDatabaseHandlers treeStateDir False dbInitSize
+  handlers' <- execStateT
+    (resizeOnFull 4096 $ -- This size is mostly arbitrary, but should be enough to store the serialized metadata
+      \h -> transaction (_storeEnv h) False $ \txn -> 
+        storeRecord txn (_metadataStore h) versionMetadata
+          (S.encode VersionMetadata {
+            vmDatabaseVersion = 0,
+            vmProtocolVersion = P1
+          }))
+    handlers
+  liftIO $ closeDatabase handlers'
+
+-- |Check whether the database version matches the expected version.
+-- If the version does not match, the result is a string describing the problem.
+checkDatabaseVersion :: forall pv st. IsProtocolVersion pv => DatabaseHandlers pv st -> IO (Either String ())
+checkDatabaseVersion db = checkVersion <$> transaction (db ^. storeEnv) True
+        (\txn -> loadRecord txn (db ^. metadataStore) versionMetadata)
+    where
+        expectedVersion = VersionMetadata {
+                vmDatabaseVersion = 0,
+                vmProtocolVersion = demoteProtocolVersion (protocolVersion @pv)
+            }
+        checkVersion Nothing = Left $ "expected " ++ show expectedVersion ++ " but no version was found"
+        checkVersion (Just vs) = case S.decode vs of
+            Right vm
+                | vm == expectedVersion -> Right ()
+                | otherwise -> Left $ "expected " ++ show expectedVersion ++ " but found " ++ show vm
+            _ -> Left $ "expected " ++ show expectedVersion ++ " but the version could not be deserialized"
 
 -- |Close down the database, freeing the file handles.
 closeDatabase :: DatabaseHandlers pv st -> IO ()
@@ -232,12 +407,19 @@ closeDatabase db = runInBoundThread $ mdb_env_close (db ^. storeEnv)
 -- to handle resizes to the database that are made by the writer.
 -- The supplied action will be executed. If it fails with an 'MDB_MAP_RESIZED'
 -- error, then the map will be resized and the action retried.
-resizeOnResized :: DatabaseHandlers pv st -> IO a -> IO a
-resizeOnResized dbh a = inner
+resizeOnResized :: (MonadIO m, MonadState s m, HasDatabaseHandlers pv st s, MonadCatch m) => m a -> m a
+resizeOnResized a = do
+    dbh <- use dbHandlers
+    resizeOnResizedInternal (dbh ^. storeEnv) a
+
+resizeOnResizedInternal :: (MonadIO m, MonadCatch m) => MDB_env -> m a -> m a
+resizeOnResizedInternal env a = inner
   where
     inner = handleJust checkResized onResized a
     checkResized LMDB_Error{..} = guard (e_code == Right MDB_MAP_RESIZED)
-    onResized _ = mdb_env_set_mapsize (dbh ^. storeEnv) 0 >> inner
+    onResized _ = do
+      liftIO (mdb_env_set_mapsize env 0)
+      inner
 
 resizeDatabaseHandlers :: (MonadIO m, MonadLogger m) => DatabaseHandlers pv st -> Int -> m ()
 resizeDatabaseHandlers dbh size = do
