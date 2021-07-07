@@ -167,7 +167,7 @@ fn calculate_average_throughput(
 
     ensure!(
         bytes_recv >= prev_bytes_recv,
-        "Received bytes was lost. Refusing to calculate average throughput."
+        "Received bytes were lost. Refusing to calculate average throughput."
     );
     let avg_bps_in = (milliseconds_to_second * (bytes_recv - prev_bytes_recv)) / delta;
 
