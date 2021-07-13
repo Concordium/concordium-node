@@ -53,7 +53,7 @@ extern "C" {
     fn wrapped_os_log_with_type(log: LogT, log_level: LogLevelT, message: *const c_char);
 }
 
-/// Safely creates a new CString by replacing any `\0` chars with `(null)`.
+/// Safely creates a new [CString] by replacing any `\0` chars with `(null)`.
 #[inline]
 fn to_cstr(message: &str) -> CString {
     let fixed = message.replace('\0', "(null)");
@@ -166,13 +166,14 @@ impl log::Log for MacOsLogger {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     #[test]
-    fn logs_correctly_to_syslog() {
+    pub fn logs_correctly_to_syslog() {
+        use super::*;
         // To view the logs:
-        //  1. Open the `Console` app (on macOS)
-        //  2. Click 'Start' to start capturing logs
-        //  3. Search for com.macoslog.test to filter the logs
+        //  1. Open the 'Console' app (on macOS)
+        //  2. Include Info and Debug logs under the 'Action' menu option
+        //  3. Click 'Start' to start capturing logs
+        //  4. Search for `com.macoslog.test` to filter the logs
 
         MacOsLogger::new("com.macoslog.test")
             .level_filter(log::LevelFilter::Trace)

@@ -93,10 +93,7 @@ pub fn setup_logger_env(env: Env, no_log_timestamp: bool) {
 
 #[cfg(target_os = "macos")]
 pub fn setup_logger_env(_env: Env, _no_log_timestamp: bool) {
-    #[path = "macos_log.rs"]
-    mod macos_log;
-
-    macos_log::MacOsLogger::new("software.concordium.node")
+    crate::macos_log::MacOsLogger::new("software.concordium.node")
         .level_filter(LevelFilter::Trace)
         .category_level_filter("tokio_reactor", LevelFilter::Error)
         .category_level_filter("hyper", LevelFilter::Error)
