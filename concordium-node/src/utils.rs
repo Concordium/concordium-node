@@ -4,13 +4,16 @@ use crate::{concordium_dns::dns, configuration as config};
 use anyhow::{bail, ensure, Context};
 use byteorder::{NetworkEndian, WriteBytesExt};
 use ed25519_dalek::{Keypair, PublicKey, SecretKey, Signer};
-use env_logger::{Builder, Env};
+#[cfg(not(target_os = "macos"))]
+use env_logger::Builder;
+use env_logger::Env;
 use log::LevelFilter;
 use rand::rngs::OsRng;
 #[cfg(not(target_os = "windows"))]
 use std::fs::File;
+#[cfg(not(target_os = "macos"))]
+use std::io::Write;
 use std::{
-    io::Write,
     net::{IpAddr, SocketAddr},
     path::Path,
     str::{self, FromStr},
@@ -70,6 +73,7 @@ fn parse_ip_port(input: &str) -> Option<SocketAddr> {
     None
 }
 
+#[cfg(not(target_os = "macos"))]
 pub fn setup_logger_env(env: Env, no_log_timestamp: bool) {
     let mut log_builder = Builder::from_env(env);
     if no_log_timestamp {
@@ -85,6 +89,22 @@ pub fn setup_logger_env(env: Env, no_log_timestamp: bool) {
     log_builder.filter(Some(&"gotham"), LevelFilter::Error);
     log_builder.filter(Some(&"h2"), LevelFilter::Error);
     log_builder.init();
+}
+
+#[cfg(target_os = "macos")]
+pub fn setup_logger_env(_env: Env, _no_log_timestamp: bool) {
+    #[path = "macos_log.rs"]
+    mod macos_log;
+
+    macos_log::MacOsLogger::new("software.concordium.node")
+        .level_filter(LevelFilter::Trace)
+        .category_level_filter("tokio_reactor", LevelFilter::Error)
+        .category_level_filter("hyper", LevelFilter::Error)
+        .category_level_filter("reqwest", LevelFilter::Error)
+        .category_level_filter("gotham", LevelFilter::Error)
+        .category_level_filter("h2", LevelFilter::Error)
+        .init()
+        .expect("Failed to initialise MacOsLogger");
 }
 
 #[cfg(not(target_os = "windows"))]

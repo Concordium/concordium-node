@@ -13,6 +13,9 @@ fn command_output(cmd: &mut Command) -> String {
 }
 
 fn main() -> std::io::Result<()> {
+    // TODO: only compile on mac, and make name more descriptive
+    cc::Build::new().file("macos_log_wrapper.c").compile("macos_log_wrapper");
+
     let cargo_dir = env!("CARGO_MANIFEST_DIR");
     // Compile the flatbuffers schema
     println!("cargo:rerun-if-changed={}/src/network/serialization/schema.fbs", cargo_dir);
