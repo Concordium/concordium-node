@@ -92,9 +92,17 @@ pub fn setup_logger_env(env: Env, no_log_timestamp: bool) {
 }
 
 #[cfg(target_os = "macos")]
-pub fn setup_logger_env(_env: Env, _no_log_timestamp: bool) {
+pub fn setup_macos_logger(trace: bool, debug: bool) {
+    let level_filter = if trace {
+        LevelFilter::Trace
+    } else if debug {
+        LevelFilter::Debug
+    } else {
+        LevelFilter::Info
+    };
+
     crate::macos_log::MacOsLogger::new("software.concordium.node")
-        .level_filter(LevelFilter::Trace)
+        .level_filter(level_filter)
         .category_level_filter("tokio_reactor", LevelFilter::Error)
         .category_level_filter("hyper", LevelFilter::Error)
         .category_level_filter("reqwest", LevelFilter::Error)
@@ -314,7 +322,11 @@ pub fn get_config_and_logging_setup() -> anyhow::Result<(config::Config, config:
         (Env::default().filter_or("LOG_LEVEL", "info"), "info")
     };
 
+    #[cfg(not(target_os = "macos"))]
     setup_logger_env(env, conf.common.no_log_timestamp);
+
+    #[cfg(target_os = "macos")]
+    setup_macos_logger(conf.common.trace, conf.common.debug);
 
     if conf.common.print_config {
         info!("Config:{:?}\n", conf);
