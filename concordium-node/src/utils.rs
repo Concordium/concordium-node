@@ -5,8 +5,7 @@ use anyhow::{bail, ensure, Context};
 use byteorder::{NetworkEndian, WriteBytesExt};
 use ed25519_dalek::{Keypair, PublicKey, SecretKey, Signer};
 #[cfg(not(target_os = "macos"))]
-use env_logger::Builder;
-use env_logger::Env;
+use env_logger::{Builder, Env};
 use log::LevelFilter;
 use rand::rngs::OsRng;
 #[cfg(not(target_os = "windows"))]
@@ -73,8 +72,17 @@ fn parse_ip_port(input: &str) -> Option<SocketAddr> {
     None
 }
 
+/// Sets up a logger that logs to stderr.
 #[cfg(not(target_os = "macos"))]
-pub fn setup_logger_env(env: Env, no_log_timestamp: bool) {
+pub fn setup_logger_env(trace: bool, debug: bool, no_log_timestamp: bool) -> &'static str {
+    let (env, log_lvl) = if trace {
+        (Env::default().filter_or("LOG_LEVEL", "trace"), "trace")
+    } else if debug {
+        (Env::default().filter_or("LOG_LEVEL", "debug"), "debug")
+    } else {
+        (Env::default().filter_or("LOG_LEVEL", "info"), "info")
+    };
+
     let mut log_builder = Builder::from_env(env);
     if no_log_timestamp {
         log_builder.format_timestamp(None);
@@ -89,16 +97,21 @@ pub fn setup_logger_env(env: Env, no_log_timestamp: bool) {
     log_builder.filter(Some(&"gotham"), LevelFilter::Error);
     log_builder.filter(Some(&"h2"), LevelFilter::Error);
     log_builder.init();
+
+    log_lvl
 }
 
+/// Sets up a logger for the macOS syslog.
 #[cfg(target_os = "macos")]
-pub fn setup_macos_logger(trace: bool, debug: bool) {
-    let level_filter = if trace {
-        LevelFilter::Trace
+pub fn setup_logger_env(trace: bool, debug: bool, _no_log_timestamp: bool) -> &'static str {
+    // NB: Timestamps and levels are included automatically. No need to encode them
+    // in the message.
+    let (level_filter, log_lvl) = if trace {
+        (LevelFilter::Trace, "trace")
     } else if debug {
-        LevelFilter::Debug
+        (LevelFilter::Debug, "debug")
     } else {
-        LevelFilter::Info
+        (LevelFilter::Info, "info")
     };
 
     crate::macos_log::MacOsLogger::new("software.concordium.node")
@@ -110,6 +123,7 @@ pub fn setup_macos_logger(trace: bool, debug: bool) {
         .category_level_filter("h2", LevelFilter::Error)
         .init()
         .expect("Failed to initialise MacOsLogger");
+    log_lvl
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -313,20 +327,8 @@ pub fn get_config_and_logging_setup() -> anyhow::Result<(config::Config, config:
         conf.common.data_dir.to_owned(),
     );
 
-    // Prepare the logger
-    let (env, log_lvl) = if conf.common.trace {
-        (Env::default().filter_or("LOG_LEVEL", "trace"), "trace")
-    } else if conf.common.debug {
-        (Env::default().filter_or("LOG_LEVEL", "debug"), "debug")
-    } else {
-        (Env::default().filter_or("LOG_LEVEL", "info"), "info")
-    };
-
-    #[cfg(not(target_os = "macos"))]
-    setup_logger_env(env, conf.common.no_log_timestamp);
-
-    #[cfg(target_os = "macos")]
-    setup_macos_logger(conf.common.trace, conf.common.debug);
+    let log_lvl =
+        setup_logger_env(conf.common.trace, conf.common.debug, conf.common.no_log_timestamp);
 
     if conf.common.print_config {
         info!("Config:{:?}\n", conf);
