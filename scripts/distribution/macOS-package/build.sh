@@ -14,12 +14,14 @@ macPackageDir=$(pwd)
 readonly macPackageDir
 readonly nodeDir="$macPackageDir/../../../concordium-node"
 readonly consensusDir="$macPackageDir/../../../concordium-consensus"
-readonly macdylibbundlerDir="$macPackageDir/macdylibbundler-1.0.0"
 readonly distDir="$macPackageDir/dist"
-# readonly distLibsDir="$distDir/libs"
+readonly tmpDir="$macPackageDir/tmp"
+readonly macdylibbundlerDir="$tmpDir/macdylibbundler-1.0.0"
+
 
 # Cleanup
 [ -d "$distDir" ] && step "Cleaning '$distDir' folder" && rm -r "$distDir"
+
 
 # Compile consensus
 cd "$consensusDir"
@@ -27,11 +29,13 @@ step "Building Consensus..."
 stack build
 step "Done"
 
+
 # Compile node
 cd "$nodeDir"
 step "Building Node..."
 cargo build --release
 step "Done"
+
 
 # Get concordium-node binary
 step "Copy concordium-node binary to '$distDir'.."
@@ -39,13 +43,27 @@ mkdir "$distDir"
 cp "$nodeDir/target/release/concordium-node" "$distDir"
 step "Done"
 
+
 # Fetch dylibbundler and build it
-# TODO: skip if already built
 step "Getting dylibbundler..."
-step " -- Downloading..."
-cd "$macPackageDir"
-curl -sSL "https://github.com/auriamg/macdylibbundler/archive/refs/tags/1.0.0.zip" > "dylibbundler.zip" && step " -- Unzipping..." && unzip "dylibbundler.zip" && step " -- Building..." && cd "$macdylibbundlerDir" && make
-step "Done"
+
+if test -f "$macdylibbundlerDir/dylibbundler"
+then
+    step "Skipped: already exists"
+else
+    step " -- Downloading..."
+    mkdir "$tmpDir"
+    cd "$macPackageDir"
+    curl -sSL "https://github.com/auriamg/macdylibbundler/archive/refs/tags/1.0.0.zip" > "$tmpDir/dylibbundler.zip" \
+                && step " -- Unzipping..." \
+                && cd "$tmpDir" \
+                && unzip "dylibbundler.zip" \
+                && step " -- Building..." \
+                && cd "$macdylibbundlerDir" \
+                && make
+    step "Done"
+fi
+
 
 # Collect dylibs
 step "Collecting dylibs with dylibbundler"
