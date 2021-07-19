@@ -1,6 +1,6 @@
 # Running a node with finalized transaction logging
 
-The node can be started in a configuration where it logs outcomes of finalized blocks in a Postgres database, and create an index by affected account and smart contract.
+The node can be started in a configuration where it logs outcomes of finalized blocks in a Postgres database, and creates an index by affected account and smart contract.
 This can be used for monitoring incoming transactions on an account.
 Logging into this database is relatively expensive so it is not enabled in the default configuration.
 
@@ -11,10 +11,10 @@ To enable it the following configuration options must be given. We list environm
 - `CONCORDIUM_NODE_TRANSACTION_OUTCOME_LOGGING_NAME`, the name of the database to log into. The database must exist, otherwise the node will fail to start.
 - `CONCORDIUM_NODE_TRANSACTION_OUTCOME_LOGGING_HOST`, host name or IP of the database, e.g., `127.0.0.1`
 - `CONCORDIUM_NODE_TRANSACTION_OUTCOME_LOGGING_PORT`, port on which the Postgres database is available, e.g., `5432`
-- `CONCORDIUM_NODE_TRANSACTION_OUTCOME_LOGGING_USERNAME`, username to log into the database
-- `CONCORDIUM_NODE_TRANSACTION_OUTCOME_LOGGING_PASSWORD`, password to log into the database
+- `CONCORDIUM_NODE_TRANSACTION_OUTCOME_LOGGING_USERNAME`, username to log in to the database
+- `CONCORDIUM_NODE_TRANSACTION_OUTCOME_LOGGING_PASSWORD`, password to log in to the database
 
-As mentioned above the database must exist, otherwise the node will fail to start. If correct tables exist in the database then they will be used, otherwise the following will be executed upoon startup
+As mentioned above the database must exist, otherwise the node will fail to start. If correct tables exist in the database then they will be used, otherwise the following will be executed upon startup
 ```sql
 CREATE TABLE "summaries"("id" SERIAL8  PRIMARY KEY UNIQUE,"block" BYTEA NOT NULL,"timestamp" INT8 NOT NULL,"height" INT8 NOT NULL,"summary" JSONB NOT NULL)
 CREATE TABLE "ati"("id" SERIAL8  PRIMARY KEY UNIQUE,"account" BYTEA NOT NULL,"summary" INT8 NOT NULL)
@@ -23,7 +23,7 @@ ALTER TABLE "ati" ADD CONSTRAINT "ati_summary_fkey" FOREIGN KEY("summary") REFER
 ALTER TABLE "cti" ADD CONSTRAINT "cti_summary_fkey" FOREIGN KEY("summary") REFERENCES "summaries"("id") ON DELETE RESTRICT  ON UPDATE RESTRICT
 ```
 
-which crates three tables, `ati`, `cti`, and `summaries`. The `ati` and `cti` stand for **a**ccount, respectively **c**ontract, **t**ransaction **i**ndex. They contain an index so that a transaction affecting a given contract or account can be quickly looked up. The outcome of each transaction is in the `summaries` table.
+which creates three tables, `ati`, `cti`, and `summaries`. The `ati` and `cti` stand for **a**ccount, respectively **c**ontract, **t**ransaction **i**ndex. They contain an index so that a transaction affecting a given contract or account can be quickly looked up. The outcome of each transaction is in the `summaries` table.
 
 The summary that is stored in the `summary` column of the `summaries` table is stored as a JSON value. The contents is either of the form
 ```json
@@ -45,7 +45,7 @@ The meaning of the `(id, account, summary_id)` row in the `ati` table is that ac
 
 The data is written to the table upon each finalization from oldest to newest block finalized by that round. For each block transactions are written from left to right, that is, from start to end of the block. The ids in all tables are automatically generated. Note that they should not be relied upon to be strictly sequential. Postgres does not guarantee this.
 
-The node will never update update any rows in the database, it only ever appends data to the tables.
+The node will never update any rows in the database, it only ever appends data to the tables.
 
 ## Contract transaction index
 
