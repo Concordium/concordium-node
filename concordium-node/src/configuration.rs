@@ -601,6 +601,12 @@ pub struct CommonConfig {
     )]
     pub no_log_timestamp: bool,
     #[structopt(
+        long = "log-config",
+        help = "Configure logging with a log4rs configuration file",
+        env = "CONCORDIUM_NODE_LOG_CONFIG"
+    )]
+    pub log_config: Option<PathBuf>,
+    #[structopt(
         long = "minimum-peers-bucket",
         help = "Minimum peers to keep in each bucket always",
         default_value = "100",
@@ -882,7 +888,9 @@ impl AppPreferences {
                         override_config_dir: override_conf,
                     }
                 }
-                _ => panic!("Can't write to config file!"),
+                Err(e) => {
+                    panic!("Can't write to config file '{}': {}", file_path.as_path().display(), e)
+                }
             },
         };
         new_prefs.set_config(APP_PREFERENCES_KEY_VERSION, Some(super::VERSION));

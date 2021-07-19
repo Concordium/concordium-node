@@ -12,7 +12,7 @@ use std::fs::File;
 use std::{
     io::Write,
     net::{IpAddr, SocketAddr},
-    path::Path,
+    path::{Path, PathBuf},
     str::{self, FromStr},
 };
 
@@ -68,6 +68,11 @@ fn parse_ip_port(input: &str) -> Option<SocketAddr> {
     }
 
     None
+}
+
+/// Setup a log4rs logger based on the given configuration file.
+pub fn setup_logger_config(config_file: &PathBuf) {
+    log4rs::init_file(config_file, Default::default()).unwrap();
 }
 
 pub fn setup_logger_env(env: Env, no_log_timestamp: bool) {
@@ -297,7 +302,11 @@ pub fn get_config_and_logging_setup() -> anyhow::Result<(config::Config, config:
         (Env::default().filter_or("LOG_LEVEL", "info"), "info")
     };
 
-    setup_logger_env(env, conf.common.no_log_timestamp);
+    if let Some(ref log_config) = conf.common.log_config {
+        setup_logger_config(log_config);
+    } else {
+        setup_logger_env(env, conf.common.no_log_timestamp);
+    }
 
     if conf.common.print_config {
         info!("Config:{:?}\n", conf);
