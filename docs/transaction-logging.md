@@ -43,7 +43,9 @@ where `...` is a special transaction outcome in the same format as it appears in
 
 The meaning of the `(id, account, summary_id)` row in the `ati` table is that account `account` was affected by transaction pointed to by `summary_id`. **Affected** here means that either the account sent the transaction, or it was the target of it, for example another account sent a transfer to it. Note that accounts are stored in binary format, so as 32-byte arrays, and not in their Base58check encoding.
 
-The data is written to the table upon each finalization from oldest to newest block finalized by that round. For each block transactions are written from left to right, that is, from start to end of the block. The ids in all tables are automatically generated. Note that they should not be relied upon to be strictly sequential. Postgres does not guarantee this.
+The data is written to the table upon each finalization from oldest to newest block finalized by that round.
+For each block transactions are written in the order they appear in the block, that is, from start to end of the block.
+The ids in all tables are automatically generated. Note that they should not be relied upon to be strictly sequential. Postgres does not guarantee this. It only guarantees that they will be strictly increasing, but there might be gaps.
 
 The node will never update any rows in the database, it only ever appends data to the tables.
 
