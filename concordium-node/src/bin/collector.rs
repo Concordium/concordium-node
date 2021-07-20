@@ -2,8 +2,9 @@
 use concordium_node::{
     common::{collector_utils::NodeInfo, grpc_api},
     req_with_auth,
-    utils::setup_logger_env,
+    utils::setup_logger,
 };
+#[cfg(not(target_os = "macos"))]
 use env_logger::Env;
 use serde_json::Value;
 use std::{
@@ -126,18 +127,7 @@ struct ConfigCli {
 async fn main() {
     let conf = ConfigCli::from_args();
 
-    // Prepare the logger
-    let env = if conf.trace {
-        Env::default().filter_or("LOG_LEVEL", "trace")
-    } else if conf.debug {
-        Env::default().filter_or("LOG_LEVEL", "debug")
-    } else if conf.info {
-        Env::default().filter_or("LOG_LEVEL", "info")
-    } else {
-        Env::default().filter_or("LOG_LEVEL", "warn")
-    };
-
-    setup_logger_env(env, conf.no_log_timestamp);
+    setup_logger(conf.trace, conf.debug, conf.no_log_timestamp);
 
     if conf.print_config {
         info!("{:?}", conf);

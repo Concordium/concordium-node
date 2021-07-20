@@ -74,7 +74,7 @@ fn parse_ip_port(input: &str) -> Option<SocketAddr> {
 
 /// Sets up a logger that logs to stderr.
 #[cfg(not(target_os = "macos"))]
-pub fn setup_logger_env(trace: bool, debug: bool, no_log_timestamp: bool) -> &'static str {
+pub fn setup_logger(trace: bool, debug: bool, no_log_timestamp: bool) -> &'static str {
     let (env, log_lvl) = if trace {
         (Env::default().filter_or("LOG_LEVEL", "trace"), "trace")
     } else if debug {
@@ -103,7 +103,7 @@ pub fn setup_logger_env(trace: bool, debug: bool, no_log_timestamp: bool) -> &'s
 
 /// Sets up a logger for the macOS syslog.
 #[cfg(target_os = "macos")]
-pub fn setup_logger_env(trace: bool, debug: bool, _no_log_timestamp: bool) -> &'static str {
+pub fn setup_logger(trace: bool, debug: bool, _no_log_timestamp: bool) -> &'static str {
     // NB: Timestamps and levels are included automatically. No need to encode them
     // in the message.
     let (level_filter, log_lvl) = if trace {
@@ -327,8 +327,7 @@ pub fn get_config_and_logging_setup() -> anyhow::Result<(config::Config, config:
         conf.common.data_dir.to_owned(),
     );
 
-    let log_lvl =
-        setup_logger_env(conf.common.trace, conf.common.debug, conf.common.no_log_timestamp);
+    let log_lvl = setup_logger(conf.common.trace, conf.common.debug, conf.common.no_log_timestamp);
 
     if conf.common.print_config {
         info!("Config:{:?}\n", conf);
