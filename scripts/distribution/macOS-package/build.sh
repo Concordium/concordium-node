@@ -32,15 +32,20 @@ step "Done"
 
 # Compile node
 cd "$nodeDir"
-step "Building Node..."
-cargo build --release
+step "Building Node and Collector..."
+cargo build --bin concordium-node --bin node-collector --features collector --release
 step "Done"
 
 
 # Get concordium-node binary
-step "Copy concordium-node binary to '$distDir'.."
+step "Copy concordium-node and node-collector binaries to '$distDir'.."
 mkdir "$distDir"
 cp "$nodeDir/target/release/concordium-node" "$distDir"
+cp "$nodeDir/target/release/node-collector" "$distDir"
+step "Done"
+
+step "Downloading genesis.dat"
+curl -sSL "https://distribution.mainnet.concordium.software/data/genesis.dat" > "$distDir/genesis.dat"
 step "Done"
 
 
@@ -75,9 +80,19 @@ readonly concordiumDylibDir
 readonly stackSnapshotDir
 readonly stackLibDirs
 
-cd "$distDir"
-"$macdylibbundlerDir/dylibbundler" --fix-file "$distDir/concordium-node" --bundle-deps --dest-dir "./libs" --install-path "@executable_path/libs/" --overwrite-dir \
-    -s "$concordiumDylibDir" \
-    -s "$stackSnapshotDir" \
-    $stackLibDirs
+function collectDylibs() {
+    local fileToFix=${1:?"Missing file to fix with dylibbundler"};
+    cd "$distDir"
+    "$macdylibbundlerDir/dylibbundler" --fix-file "$fileToFix" --bundle-deps --dest-dir "./libs" --install-path "@executable_path/libs/" --overwrite-dir \
+        -s "$concordiumDylibDir" \
+        -s "$stackSnapshotDir" \
+        $stackLibDirs # Unquoted on purpose to use as arguments correctly
+}
+
+step " -- Processing concordium-node"
+collectDylibs "$distDir/concordium-node"
+step " -- Processing node-collector"
+collectDylibs "$distDir/node-collector"
+
 step "Done"
+
