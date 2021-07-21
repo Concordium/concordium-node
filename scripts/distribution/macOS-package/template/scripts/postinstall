@@ -1,0 +1,4 @@
+#!/bin/bash
+
+rm -f /usr/local/bin/concordium-node
+ln -s /Library/concordium-node/concordium-node /usr/local/bin/concordium-node

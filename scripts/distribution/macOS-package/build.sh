@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+
+# Parameters
+readonly version=${1:?"Please provide a version number (e.g. '1.0.2')"}
+readonly developerIdApplication="Developer ID Application: Concordium Software Aps (K762RM4LQ3)"
+readonly developerIdInstaller="Developer ID Installer: Concordium Software Aps (K762RM4LQ3)"
+
 readonly GREEN='\033[0;32m'
 readonly NC='\033[0m' # No Color
 
@@ -95,4 +101,25 @@ step " -- Processing node-collector"
 collectDylibs "$distDir/node-collector"
 
 step "Done"
+function buildPackage {
+    logInfo "Building package"
+    cd "$macPackageDir"
+    pkgbuild --identifier software.concordium.node \
+        --version "$version" \
+        --install-location "$installDir" \
+        --root "$distDir" \
+        concordium-node.pkg
+}
+
+function buildProduct {
+    logInfo "Building product"
+    cd "$macPackageDir"
+    productbuild \
+        --distribution template/distribution.xml \
+        --scripts template/scripts \
+        --package-path concordium-node.pkg \
+        --resources template/resources \
+        --sign "$developerIdInstaller" \
+        concordium-node-signed.pkg
+}
 
