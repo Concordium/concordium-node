@@ -178,7 +178,7 @@ The node supports the following environment variables.
   and some other parts of the system.
   The recommended way to expose the baker keys to the node is to use the
   `BindReadOnlyPaths` option to remap the file from wherever it is on the host
-  system to a locatio which the node can read. For example (this assumes the baker keys are located in `/home/user/baker-credentials.json` on the host system)
+  system to a location which the node can read. For example (this assumes the baker keys are located in `/home/user/baker-credentials.json` on the host system)
   ```
   Environment=CONCORDIUM_NODE_BAKER_CREDENTIALS_FILE=%S/concordium/baker-credentials.json
   BindReadOnlyPaths=/home/user/baker-credentials.json:%S/concordium/baker-credentials.json
