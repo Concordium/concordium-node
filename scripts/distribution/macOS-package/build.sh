@@ -96,7 +96,7 @@ function collectDylibsFor() {
 }
 
 function collectDylibs() {
-    logInfo "Collecting dylibs with dylibbundler"
+    logInfo "Collecting dylibs with dylibbundler..."
 
     concordiumDylibDir=$(stack --stack-yaml "$consensusDir/stack.yaml" path --local-install-root)"/lib/$ghcVariant"
     stackSnapshotDir=$(stack --stack-yaml "$consensusDir/stack.yaml" path --snapshot-install-root)"/lib/$ghcVariant"
@@ -114,27 +114,29 @@ function collectDylibs() {
 }
 
 function signBinaries() {
-    logInfo "Signing binaries"
+    logInfo "Signing binaries..."
     # perm +111 finds the executable files
     find "$distDir" \
         -type f \
         -perm +111 \
-        -execdir sudo codesign -f -s "$developerIdApplication" {} \;
+        -execdir sudo codesign -f --options runtime -s "$developerIdApplication" {} \;
     logInfo "Done"
 }
 
-function buildPackage {
-    logInfo "Building package"
+function buildPackage() {
+    logInfo "Building package..."
     cd "$macPackageDir"
     pkgbuild --identifier software.concordium.node \
         --version "$version" \
         --install-location "$installDir" \
         --root "$distDir" \
+        --sign "$developerIdInstaller" \
         concordium-node.pkg
+    logInfo "Done"
 }
 
-function buildProduct {
-    logInfo "Building product"
+function buildProduct() {
+    logInfo "Building product..."
     cd "$macPackageDir"
     productbuild \
         --distribution template/distribution.xml \
@@ -143,6 +145,23 @@ function buildProduct {
         --resources template/resources \
         --sign "$developerIdInstaller" \
         concordium-node-signed.pkg
+    logInfo "Done"
+}
+
+function notarize() {
+    logInfo "Notarizing..."
+    # FIXME: The keychain-profile part will not work on other computers
+    xcrun notarytool submit \
+        concordium-node-signed.pkg \
+        --keychain-profile "notarytool" \
+        --wait
+    logInfo "Done"
+}
+
+function staple() {
+    logInfo "Stapling..."
+    xcrun stapler staple concordium-node-signed.pkg
+    logInfo "Done"
 }
 
 function main() {
@@ -156,6 +175,8 @@ function main() {
     signBinaries
     buildPackage
     buildProduct
+    notarize
+    # staple
 }
 
 main
