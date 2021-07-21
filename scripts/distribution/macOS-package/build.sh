@@ -113,10 +113,15 @@ function collectDylibs() {
     logInfo "Done"
 }
 
-# TODO
-# function sign() {
-#
-# }
+function signBinaries() {
+    logInfo "Signing binaries"
+    # perm +111 finds the executable files
+    find "$distDir" \
+        -type f \
+        -perm +111 \
+        -execdir sudo codesign -f -s "$developerIdApplication" {} \;
+    logInfo "Done"
+}
 
 function buildPackage {
     logInfo "Building package"
@@ -148,6 +153,7 @@ function main() {
     downloadGenesis
     getDylibbundler
     collectDylibs
+    signBinaries
     buildPackage
     buildProduct
 }
