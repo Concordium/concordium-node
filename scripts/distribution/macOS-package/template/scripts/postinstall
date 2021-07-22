@@ -2,13 +2,22 @@
 
 set -euo pipefail
 
-readonly nodeInLibrary="/Library/concordium-node/__VERSION__/concordium-node"
-readonly nodeInBin="/usr/local/bin/concordium-node-__VERSION__"
+readonly nodeDir="/Library/Concordium Node/__VERSION__"
+readonly localBinDir="/usr/local/bin"
 
-# Remove existing symlink if present
-if [ -f "$nodeInBin" ]; then
-    rm -f "$nodeInBin"
+readonly node="$nodeDir/concordium-node"
+readonly nodeSymlink="$localBinDir/concordium-node-__VERSION__"
+readonly collector="$nodeDir/concordium-node-collector"
+readonly collectorSymlink="$localBinDir/concordium-node-collector-__VERSION__"
+
+# Remove existing symlinks if present
+if [ -f "$nodeSymlink" ]; then
+    rm -f "$nodeSymlink"
+fi
+if [ -f "$collectorSymlink" ]; then
+    rm -f "$collectorSymlink"
 fi
 
-# Add new symlink
-ln -s "$nodeInLibrary" "$nodeInBin"
+# Add new symlinks
+ln -s "$node" "$nodeSymlink"
+ln -s "$collector" "$collectorSymlink"

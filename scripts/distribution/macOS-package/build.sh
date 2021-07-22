@@ -24,11 +24,10 @@ readonly nodeDir="$macPackageDir/../../../concordium-node"
 readonly consensusDir="$macPackageDir/../../../concordium-consensus"
 readonly toolsDir="$macPackageDir/tools"
 readonly macdylibbundlerDir="$toolsDir/macdylibbundler-1.0.0"
-readonly installDir="/Library/Concordium Node/$version"
+readonly installDir="/Library"
 readonly templateDir="$macPackageDir/template"
 readonly buildDir="$macPackageDir/build"
 readonly packageContentDir="$buildDir/packageContent"
-readonly supportingFilesDir="$packageContentDir/supportingFiles" # TODO: rename
 readonly packagesDir="$buildDir/packages"
 readonly pkgFile="$packagesDir/concordium-node.pkg"
 readonly signedPkgFile="$packagesDir/concordium-node-signed.pkg"
@@ -51,8 +50,8 @@ function createBuildDirFromTemplate() {
     cp -r "$templateDir" "$buildDir"
     replaceVersionPlaceholder "$buildDir/distribution.xml"
     replaceVersionPlaceholder "$buildDir/scripts/postinstall"
-    replaceVersionPlaceholder "$supportingFilesDir/software.concordium.node.plist"
-    replaceVersionPlaceholder "$supportingFilesDir/software.concordium.node-collector.plist"
+    replaceVersionPlaceholder "$packageContentDir/LaunchDaemons/software.concordium.node.plist"
+    replaceVersionPlaceholder "$packageContentDir/LaunchDaemons/software.concordium.node-collector.plist"
     logInfo "Done"
 }
 
@@ -77,14 +76,14 @@ function compile() {
 
 function copyBinaries() {
     logInfo "Copy concordium-node and node-collector binaries to '$packageContentDir'.."
-    cp "$nodeDir/target/release/concordium-node" "$packageContentDir"
-    cp "$nodeDir/target/release/node-collector" "$packageContentDir"
+    cp "$nodeDir/target/release/concordium-node" "$packageContentDir/Concordium Node"
+    cp "$nodeDir/target/release/node-collector" "$packageContentDir/Concordium Node"
     logInfo "Done"
 }
 
 function downloadGenesis() {
     logInfo "Downloading genesis.dat"
-    curl -sSL "https://distribution.mainnet.concordium.software/data/genesis.dat" > "$supportingFilesDir/genesis.dat"
+    curl -sSL "https://distribution.mainnet.concordium.software/data/genesis.dat" > "$packageContentDir/Application Support/Concordium Node/Mainnet/Data/genesis.dat"
     logInfo "Done"
 }
 
@@ -130,9 +129,9 @@ function collectDylibs() {
     readonly stackLibDirs
 
     logInfo " -- Processing concordium-node"
-    collectDylibsFor "$packageContentDir/concordium-node"
+    collectDylibsFor "$packageContentDir/Concordium Node/concordium-node"
     logInfo " -- Processing node-collector"
-    collectDylibsFor "$packageContentDir/node-collector"
+    collectDylibsFor "$packageContentDir/Concordium Node/node-collector"
 
     logInfo "Done"
 }
