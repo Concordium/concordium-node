@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN"
+    "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>software.concordium.node-collector</string>
+    <key>Program</key>
+    <string>/usr/local/bin/concordium-node-collector-__VERSION__</string>
+    <key>RunAtLoad</key>
+    <false />
+    <key>KeepAlive</key>
+    <dict>
+        <key>OtherJobActive</key> <!-- Not sure if this is a real key -->
+        <dict>
+            <key>software.concordium.node</key>
+            <true />
+        </dict>
+    </dict>
+</dict>
+</plist>

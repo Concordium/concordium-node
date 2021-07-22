@@ -6,17 +6,19 @@
     <key>Label</key>
     <string>software.concordium.node</string>
     <key>Program</key>
-    <string>/usr/local/bin/concordium-node</string>
+    <string>/usr/local/bin/concordium-node-__VERSION__</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>CONCORDIUM_NODE_CONFIG_DIR</key>
-        <string>/Users/kasper/.config/concordium</string>
+        <string>/Library/Application Support/Concordium Node/Mainnet/Config</string>
         <key>CONCORDIUM_NODE_DATA_DIR</key>
-        <string>/Users/kasper/.local/share/concordium</string>
+        <string>/Library/Application Support/Concordium Node/Mainnet/Data</string>
         <key>CONCORDIUM_NODE_CONNECTION_BOOTSTRAP_NODES</key>
         <string>bootstrap.testnet.concordium.com:8888</string>
     </dict>
     <key>RunAtLoad</key>
-    <false/>
+    <false />
+    <key>KeepAlive</key>
+    <true />
 </dict>
 </plist>
