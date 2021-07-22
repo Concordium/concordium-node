@@ -16,16 +16,19 @@ logInfo () {
 
 readonly ghcVariant="x86_64-osx-ghc-8.10.4"
 
+# TODO: Add tree comment
+
 macPackageDir=$(pwd)
 readonly macPackageDir
 readonly nodeDir="$macPackageDir/../../../concordium-node"
 readonly consensusDir="$macPackageDir/../../../concordium-consensus"
 readonly toolsDir="$macPackageDir/tools"
 readonly macdylibbundlerDir="$toolsDir/macdylibbundler-1.0.0"
-readonly installDir="/Library/concordium-node/$version"
+readonly installDir="/Library/Concordium Node/$version"
 readonly templateDir="$macPackageDir/template"
 readonly buildDir="$macPackageDir/build"
-readonly distDir="$buildDir/dist" # TODO: rename
+readonly packageContentDir="$buildDir/packageContent"
+readonly supportingFilesDir="$packageContentDir/supportingFiles" # TODO: rename
 readonly packagesDir="$buildDir/packages"
 readonly pkgFile="$packagesDir/concordium-node.pkg"
 readonly signedPkgFile="$packagesDir/concordium-node-signed.pkg"
@@ -38,11 +41,18 @@ function clean() {
     fi
 }
 
+function replaceVersionPlaceholder() {
+    local theFile=${1:?"replaceVersionPlaceholder expects 1 parameter: file"}
+    sed -i '' -e 's/__VERSION__/'"$version"'/g' "$theFile"
+}
+
 function createBuildDirFromTemplate() {
     logInfo "Creating build folder from template..."
     cp -r "$templateDir" "$buildDir"
-    sed -i '' -e 's/__VERSION__/'"$version"'/g' "$buildDir/distribution.xml"
-    sed -i '' -e 's/__VERSION__/'"$version"'/g' "$buildDir/scripts/postinstall"
+    replaceVersionPlaceholder "$buildDir/distribution.xml"
+    replaceVersionPlaceholder "$buildDir/scripts/postinstall"
+    replaceVersionPlaceholder "$supportingFilesDir/software.concordium.node.plist"
+    replaceVersionPlaceholder "$supportingFilesDir/software.concordium.node-collector.plist"
     logInfo "Done"
 }
 
@@ -66,16 +76,15 @@ function compile() {
 }
 
 function copyBinaries() {
-    logInfo "Copy concordium-node and node-collector binaries to '$distDir'.."
-    mkdir "$distDir"
-    cp "$nodeDir/target/release/concordium-node" "$distDir"
-    cp "$nodeDir/target/release/node-collector" "$distDir"
+    logInfo "Copy concordium-node and node-collector binaries to '$packageContentDir'.."
+    cp "$nodeDir/target/release/concordium-node" "$packageContentDir"
+    cp "$nodeDir/target/release/node-collector" "$packageContentDir"
     logInfo "Done"
 }
 
 function downloadGenesis() {
     logInfo "Downloading genesis.dat"
-    curl -sSL "https://distribution.mainnet.concordium.software/data/genesis.dat" > "$distDir/genesis.dat"
+    curl -sSL "https://distribution.mainnet.concordium.software/data/genesis.dat" > "$supportingFilesDir/genesis.dat"
     logInfo "Done"
 }
 
@@ -103,7 +112,7 @@ function getDylibbundler() {
 
 function collectDylibsFor() {
     local fileToFix=${1:?"Missing file to fix with dylibbundler"};
-    cd "$distDir"
+    cd "$packageContentDir"
     "$macdylibbundlerDir/dylibbundler" --fix-file "$fileToFix" --bundle-deps --dest-dir "./libs" --install-path "@executable_path/libs/" --overwrite-dir \
         -s "$concordiumDylibDir" \
         -s "$stackSnapshotDir" \
@@ -121,9 +130,9 @@ function collectDylibs() {
     readonly stackLibDirs
 
     logInfo " -- Processing concordium-node"
-    collectDylibsFor "$distDir/concordium-node"
+    collectDylibsFor "$packageContentDir/concordium-node"
     logInfo " -- Processing node-collector"
-    collectDylibsFor "$distDir/node-collector"
+    collectDylibsFor "$packageContentDir/node-collector"
 
     logInfo "Done"
 }
@@ -131,7 +140,7 @@ function collectDylibs() {
 function signBinaries() {
     logInfo "Signing binaries..."
     # perm +111 finds the executable files
-    find "$distDir" \
+    find "$packageContentDir" \
         -type f \
         -execdir sudo codesign -f --options runtime -s "$developerIdApplication" {} \;
     logInfo "Done"
@@ -150,7 +159,7 @@ function buildPackage() {
     pkgbuild --identifier software.concordium.node \
         --version "$version" \
         --install-location "$installDir" \
-        --root "$distDir" \
+        --root "$packageContentDir" \
         "$pkgFile"
     logInfo "Done"
 }
