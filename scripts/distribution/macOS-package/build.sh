@@ -24,10 +24,24 @@ readonly distDir="$macPackageDir/dist"
 readonly tmpDir="$macPackageDir/tmp"
 readonly macdylibbundlerDir="$tmpDir/macdylibbundler-1.0.0"
 readonly installDir="/Library/concordium-node/$version"
+readonly pkgFile="$macPackageDir/concordium-node.pkg"
+readonly signedPkgFile="$macPackageDir/concordium-node-signed.pkg"
 
 
-function cleanOldDist() {
-    [ -d "$distDir" ] && logInfo "Cleaning '$distDir' folder" && rm -r "$distDir"
+function clean() {
+    if [ -d "$distDir" ]; then
+        logInfo "Cleaning '$distDir' folder"
+        rm -r "$distDir"
+    fi
+
+    if [ -f "$pkgFile" ]; then
+        logInfo "Cleaning '$pkgFile'"
+        rm "$pkgFile"
+    fi
+    if [ -f "$signedPkgFile" ]; then
+        logInfo "Cleaning '$signedPkgFile'"
+        rm "$signedPkgFile"
+    fi
 }
 
 
@@ -129,7 +143,7 @@ function buildPackage() {
         --version "$version" \
         --install-location "$installDir" \
         --root "$distDir" \
-        concordium-node.pkg
+        "$pkgFile"
     logInfo "Done"
 }
 
@@ -139,10 +153,10 @@ function buildProduct() {
     productbuild \
         --distribution template/distribution.xml \
         --scripts template/scripts \
-        --package-path concordium-node.pkg \
+        --package-path "$pkgFile" \
         --resources template/resources \
         --sign "$developerIdInstaller" \
-        concordium-node-signed.pkg
+        "$signedPkgFile"
     logInfo "Done"
 }
 
@@ -150,7 +164,7 @@ function notarize() {
     logInfo "Notarizing..."
     # FIXME: The keychain-profile part will not work on other computers
     xcrun notarytool submit \
-        concordium-node-signed.pkg \
+        "$signedPkgFile" \
         --keychain-profile "notarytool" \
         --wait
     logInfo "Done"
@@ -158,13 +172,12 @@ function notarize() {
 
 function staple() {
     logInfo "Stapling..."
-    xcrun stapler staple concordium-node-signed.pkg
+    xcrun stapler staple "$signedPkgFile"
     logInfo "Done"
 }
 
 function main() {
-
-    cleanOldDist
+    clean
     compile
     copyBinaries
     downloadGenesis
