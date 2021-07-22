@@ -118,7 +118,6 @@ function signBinaries() {
     # perm +111 finds the executable files
     find "$distDir" \
         -type f \
-        -perm +111 \
         -execdir sudo codesign -f --options runtime -s "$developerIdApplication" {} \;
     logInfo "Done"
 }
@@ -130,7 +129,6 @@ function buildPackage() {
         --version "$version" \
         --install-location "$installDir" \
         --root "$distDir" \
-        --sign "$developerIdInstaller" \
         concordium-node.pkg
     logInfo "Done"
 }
@@ -176,7 +174,7 @@ function main() {
     buildPackage
     buildProduct
     notarize
-    # staple
+    staple
 }
 
 main
