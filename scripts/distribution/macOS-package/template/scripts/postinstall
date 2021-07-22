@@ -1,4 +1,14 @@
 #!/bin/bash
 
-rm -f /usr/local/bin/concordium-node
-ln -s /Library/concordium-node/concordium-node /usr/local/bin/concordium-node
+set -euo pipefail
+
+readonly nodeInLibrary="/Library/concordium-node/__VERSION__/concordium-node"
+readonly nodeInBin="/usr/local/bin/concordium-node-__VERSION__"
+
+# Remove existing symlink if present
+if [ -f "$nodeInBin" ]; then
+    rm -f "$nodeInBin"
+fi
+
+# Add new symlink
+ln -s "$nodeInLibrary" "$nodeInBin"

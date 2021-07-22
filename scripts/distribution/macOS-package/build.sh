@@ -20,30 +20,31 @@ macPackageDir=$(pwd)
 readonly macPackageDir
 readonly nodeDir="$macPackageDir/../../../concordium-node"
 readonly consensusDir="$macPackageDir/../../../concordium-consensus"
-readonly distDir="$macPackageDir/dist"
-readonly tmpDir="$macPackageDir/tmp"
-readonly macdylibbundlerDir="$tmpDir/macdylibbundler-1.0.0"
+readonly toolsDir="$macPackageDir/tools"
+readonly macdylibbundlerDir="$toolsDir/macdylibbundler-1.0.0"
 readonly installDir="/Library/concordium-node/$version"
-readonly pkgFile="$macPackageDir/concordium-node.pkg"
-readonly signedPkgFile="$macPackageDir/concordium-node-signed.pkg"
+readonly templateDir="$macPackageDir/template"
+readonly buildDir="$macPackageDir/build"
+readonly distDir="$buildDir/dist" # TODO: rename
+readonly packagesDir="$buildDir/packages"
+readonly pkgFile="$packagesDir/concordium-node.pkg"
+readonly signedPkgFile="$packagesDir/concordium-node-signed.pkg"
 
 
 function clean() {
-    if [ -d "$distDir" ]; then
-        logInfo "Cleaning '$distDir' folder"
-        rm -r "$distDir"
-    fi
-
-    if [ -f "$pkgFile" ]; then
-        logInfo "Cleaning '$pkgFile'"
-        rm "$pkgFile"
-    fi
-    if [ -f "$signedPkgFile" ]; then
-        logInfo "Cleaning '$signedPkgFile'"
-        rm "$signedPkgFile"
+    if [ -d "$buildDir" ]; then
+        logInfo "Cleaning '$buildDir' folder"
+        rm -r "$buildDir"
     fi
 }
 
+function createBuildDirFromTemplate() {
+    logInfo "Creating build folder from template..."
+    cp -r "$templateDir" "$buildDir"
+    sed -i '' -e 's/__VERSION__/'"$version"'/g' "$buildDir/distribution.xml"
+    sed -i '' -e 's/__VERSION__/'"$version"'/g' "$buildDir/scripts/postinstall"
+    logInfo "Done"
+}
 
 function compileConsensus() {
     cd "$consensusDir"
@@ -87,11 +88,11 @@ function getDylibbundler() {
         logInfo "Skipped: already exists"
     else
         logInfo " -- Downloading..."
-        mkdir "$tmpDir"
+        mkdir "$toolsDir"
         cd "$macPackageDir"
-        curl -sSL "https://github.com/auriamg/macdylibbundler/archive/refs/tags/1.0.0.zip" > "$tmpDir/dylibbundler.zip" \
+        curl -sSL "https://github.com/auriamg/macdylibbundler/archive/refs/tags/1.0.0.zip" > "$toolsDir/dylibbundler.zip" \
                     && logInfo " -- Unzipping..." \
-                    && cd "$tmpDir" \
+                    && cd "$toolsDir" \
                     && unzip "dylibbundler.zip" \
                     && logInfo " -- Building..." \
                     && cd "$macdylibbundlerDir" \
@@ -136,9 +137,16 @@ function signBinaries() {
     logInfo "Done"
 }
 
+function ensureDirExists() {
+    local theDir=${1:?"ensureDirExists requires 1 parameter: directory"}
+    if [ ! -d "$theDir" ]; then
+        mkdir "$theDir"
+    fi
+}
+
 function buildPackage() {
     logInfo "Building package..."
-    cd "$macPackageDir"
+    ensureDirExists "$packagesDir"
     pkgbuild --identifier software.concordium.node \
         --version "$version" \
         --install-location "$installDir" \
@@ -149,12 +157,12 @@ function buildPackage() {
 
 function buildProduct() {
     logInfo "Building product..."
-    cd "$macPackageDir"
+    ensureDirExists "$packagesDir"
     productbuild \
-        --distribution template/distribution.xml \
-        --scripts template/scripts \
+        --distribution "$buildDir/distribution.xml" \
+        --scripts "$buildDir/scripts" \
         --package-path "$pkgFile" \
-        --resources template/resources \
+        --resources "$buildDir/resources" \
         --sign "$developerIdInstaller" \
         "$signedPkgFile"
     logInfo "Done"
@@ -178,6 +186,7 @@ function staple() {
 
 function main() {
     clean
+    createBuildDirFromTemplate
     compile
     copyBinaries
     downloadGenesis
