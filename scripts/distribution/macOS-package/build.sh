@@ -169,7 +169,7 @@ function buildProduct() {
     productbuild \
         --distribution "$buildDir/distribution.xml" \
         --scripts "$buildDir/scripts" \
-        --package-path "$pkgFile" \
+        --package-path "$packagesDir" \
         --resources "$buildDir/resources" \
         --sign "$developerIdInstaller" \
         "$signedPkgFile"
