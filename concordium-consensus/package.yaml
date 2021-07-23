@@ -59,6 +59,14 @@ dependencies:
 - file-embed >= 0.0.11
 - lmdb
 
+when:
+  - condition: os(linux)
+    dependencies:
+      - name: unix
+        mixin:
+          - hiding (System.Posix.IO.ByteString)
+      - unix-bytestring
+
 default-extensions:
 - FlexibleContexts
 - FlexibleInstances

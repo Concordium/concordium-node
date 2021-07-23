@@ -29,20 +29,22 @@
 module Concordium.GlobalState.Persistent.BlobStore where
 
 import Control.Concurrent.MVar
-import System.IO
 import Data.Serialize
 import Data.Word
 import qualified Data.ByteString as BS
 import Control.Exception
 import Data.Functor.Foldable
 import Control.Monad.Reader.Class
-import Control.Monad.Trans.Reader (ReaderT, runReaderT)
+import Control.Monad.Trans.Reader (ReaderT)
 import Control.Monad.IO.Class
 import System.Directory
 import GHC.Stack
 import Data.IORef
 import Concordium.Crypto.EncryptedTransfers
 import Data.Map (Map)
+
+import System.Posix hiding (Null, fdWrite)
+import System.Posix.IO.ByteString (fdPread, fdWrite)
 
 import Concordium.GlobalState.Persistent.MonadicRecursive
 
@@ -72,9 +74,7 @@ instance Show (BlobRef a) where
 -- | The handler for the BlobStore file
 data BlobHandle = BlobHandle{
   -- |File handle that should be opened in read/write mode.
-  bhHandle :: !Handle,
-  -- |Whether we are already at the end of the file, to avoid the need to seek on writes.
-  bhAtEnd :: !Bool,
+  bhWriteHandle :: !Fd,
   -- |Current size of the file.
   bhSize :: !Int
   }
@@ -82,6 +82,9 @@ data BlobHandle = BlobHandle{
 -- | The storage context
 data BlobStore = BlobStore {
     blobStoreFile :: !(MVar BlobHandle),
+    -- |The read handle. This does not require a lock since all reads are via
+    -- pread, so the file descriptor is not updated, and pread is thread safe.
+    blobReadHandle :: !Fd,
     blobStoreFilePath :: !FilePath
 }
 
@@ -97,31 +100,34 @@ createBlobStore :: FilePath -> IO BlobStore
 createBlobStore blobStoreFilePath = do
     pathEx <- doesPathExist blobStoreFilePath
     when pathEx $ throwIO (userError $ "Blob store path already exists: " ++ blobStoreFilePath)
-    bhHandle <- openBinaryFile blobStoreFilePath ReadWriteMode
-    blobStoreFile <- newMVar BlobHandle{bhSize=0, bhAtEnd=True,..}
+    bhWriteHandle <- openFd blobStoreFilePath WriteOnly (Just stdFileMode) (defaultFileFlags { append = True })
+    blobReadHandle <- openFd blobStoreFilePath ReadOnly Nothing defaultFileFlags
+    blobStoreFile <- newMVar BlobHandle{bhSize=0, ..}
     return BlobStore{..}
 
 -- |Load an existing blob store from a file.
 -- The file must be readable and writable, but this is not checked here.
 loadBlobStore :: FilePath -> IO BlobStore
 loadBlobStore blobStoreFilePath = do
-  bhHandle <- openBinaryFile blobStoreFilePath ReadWriteMode
-  bhSize <- fromIntegral <$> hFileSize bhHandle
-  blobStoreFile <- newMVar BlobHandle{bhAtEnd=bhSize==0,..}
+  bhWriteHandle <- openFd blobStoreFilePath WriteOnly Nothing (defaultFileFlags { append = True })
+  blobReadHandle <- openFd blobStoreFilePath ReadOnly Nothing defaultFileFlags
+  bhSize <- fromIntegral . fileSize <$> getFileStatus blobStoreFilePath
+  blobStoreFile <- newMVar BlobHandle{..}
   return BlobStore{..}
 
 -- |Flush all buffers associated with the blob store,
 -- ensuring all the contents is written out.
 flushBlobStore :: BlobStore -> IO ()
 flushBlobStore BlobStore{..} =
-    withMVar blobStoreFile (hFlush . bhHandle)
+    withMVar blobStoreFile (fileSynchroniseDataOnly . bhWriteHandle)
 
 -- |Close all references to the blob store, flushing it
 -- in the process.
 closeBlobStore :: BlobStore -> IO ()
 closeBlobStore BlobStore{..} = do
     BlobHandle{..} <- takeMVar blobStoreFile
-    hClose bhHandle
+    closeFd bhWriteHandle
+    closeFd blobReadHandle
 
 -- |Close all references to the blob store and delete the backing file.
 destroyBlobStore :: BlobStore -> IO ()
@@ -134,49 +140,42 @@ destroyBlobStore bs@BlobStore{..} = do
 -- store will be created.
 -- The blob store file is deleted afterwards.
 runBlobStoreTemp :: FilePath -> ReaderT BlobStore IO a -> IO a
-runBlobStoreTemp dir a = bracket openf closef usef
-    where
-        openf = openBinaryTempFile dir "blb.dat"
-        closef (tempFP, h) = do
-            hClose h
-            removeFile tempFP
-        usef (fp, h) = do
-            mv <- newMVar (BlobHandle h True 0)
-            res <- runReaderT a (BlobStore mv fp)
-            _ <- takeMVar mv
-            return res
+runBlobStoreTemp dir a = undefined -- bracket openf closef usef
+    -- where
+    --     openf = openBinaryTempFile dir "blb.dat"
+    --     closef (tempFP, h) = do
+    --         hClose h
+    --         removeFile tempFP
+    --     usef (fp, h) = do
+    --         mv <- newMVar (BlobHandle h 0)
+    --         res <- runReaderT a (BlobStore mv fp)
+    --         _ <- takeMVar mv
+    --         return res
 
 -- | Read a bytestring from the blob store at the given offset
 readBlobBS :: BlobStore -> BlobRef a -> IO BS.ByteString
-readBlobBS BlobStore{..} (BlobRef offset) = mask $ \restore -> do
-        bh@BlobHandle{..} <- takeMVar blobStoreFile
-        eres <- try $ restore $ do
-            hSeek bhHandle AbsoluteSeek (fromIntegral offset)
-            esize <- decode <$> BS.hGet bhHandle 8
-            case esize :: Either String Word64 of
-                Left e -> error e
-                Right size -> BS.hGet bhHandle (fromIntegral size)
-        putMVar blobStoreFile bh{bhAtEnd=False}
-        case eres :: Either SomeException BS.ByteString of
-            Left e -> throwIO e
-            Right bs -> return bs
+readBlobBS BlobStore{..} (BlobRef offset) = do
+  esize <- fdPread blobReadHandle 8 (fromIntegral offset)
+  case decode esize :: Either String Word64 of
+    Left e -> error e
+    Right size -> fdPread blobReadHandle (fromIntegral size) (fromIntegral offset + 8)
 
 -- | Write a bytestring into the blob store and return the offset
 writeBlobBS :: BlobStore -> BS.ByteString -> IO (BlobRef a)
 writeBlobBS BlobStore{..} bs = mask $ \restore -> do
-        bh@BlobHandle{bhHandle=writeHandle,bhAtEnd=atEnd} <- takeMVar blobStoreFile
+        bh@BlobHandle{bhWriteHandle=writeHandle} <- takeMVar blobStoreFile
         eres <- try $ restore $ do
-            unless atEnd (hSeek writeHandle SeekFromEnd 0)
-            BS.hPut writeHandle size
-            BS.hPut writeHandle bs
+            _ <- fdWrite writeHandle size
+            _ <- fdWrite writeHandle bs
+            return ()
         case eres :: Either SomeException () of
             Left e -> do
                 -- In case of an exception, query for the size and assume we are not at the end.
-                fSize <- hFileSize writeHandle
-                putMVar blobStoreFile bh{bhSize = fromInteger fSize, bhAtEnd=False}
+                fSize <- fileSize <$> getFileStatus blobStoreFilePath
+                putMVar blobStoreFile bh{bhSize = fromIntegral fSize}
                 throwIO e
             Right _ -> do
-                putMVar blobStoreFile bh{bhSize = bhSize bh + 8 + BS.length bs, bhAtEnd=True}
+                putMVar blobStoreFile bh{bhSize = bhSize bh + 8 + BS.length bs}
                 return (BlobRef (fromIntegral (bhSize bh)))
     where
         size = encode (fromIntegral (BS.length bs) :: Word64)
