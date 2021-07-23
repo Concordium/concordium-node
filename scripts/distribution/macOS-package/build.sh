@@ -27,7 +27,7 @@ readonly macdylibbundlerDir="$toolsDir/macdylibbundler-1.0.0"
 readonly installDir="/Library"
 readonly templateDir="$macPackageDir/template"
 readonly buildDir="$macPackageDir/build"
-readonly packageContentDir="$buildDir/packageContent"
+readonly payloadDir="$buildDir/payload"
 readonly packagesDir="$buildDir/packages"
 readonly pkgFile="$packagesDir/concordium-node.pkg"
 readonly signedPkgFile="$packagesDir/concordium-node-signed.pkg"
@@ -50,8 +50,8 @@ function createBuildDirFromTemplate() {
     cp -r "$templateDir" "$buildDir"
     replaceVersionPlaceholder "$buildDir/distribution.xml"
     replaceVersionPlaceholder "$buildDir/scripts/postinstall"
-    replaceVersionPlaceholder "$packageContentDir/LaunchDaemons/software.concordium.node.plist"
-    replaceVersionPlaceholder "$packageContentDir/LaunchDaemons/software.concordium.node-collector.plist"
+    replaceVersionPlaceholder "$payloadDir/LaunchDaemons/software.concordium.node.plist"
+    replaceVersionPlaceholder "$payloadDir/LaunchDaemons/software.concordium.node-collector.plist"
     logInfo "Done"
 }
 
@@ -75,15 +75,15 @@ function compile() {
 }
 
 function copyBinaries() {
-    logInfo "Copy concordium-node and node-collector binaries to '$packageContentDir'.."
-    cp "$nodeDir/target/release/concordium-node" "$packageContentDir/Concordium Node"
-    cp "$nodeDir/target/release/node-collector" "$packageContentDir/Concordium Node"
+    logInfo "Copy concordium-node and node-collector binaries to '$payloadDir'.."
+    cp "$nodeDir/target/release/concordium-node" "$payloadDir/Concordium Node"
+    cp "$nodeDir/target/release/node-collector" "$payloadDir/Concordium Node"
     logInfo "Done"
 }
 
 function downloadGenesis() {
     logInfo "Downloading genesis.dat"
-    curl -sSL "https://distribution.mainnet.concordium.software/data/genesis.dat" > "$packageContentDir/Application Support/Concordium Node/Mainnet/Data/genesis.dat"
+    curl -sSL "https://distribution.mainnet.concordium.software/data/genesis.dat" > "$payloadDir/Application Support/Concordium Node/Mainnet/Data/genesis.dat"
     logInfo "Done"
 }
 
@@ -111,7 +111,7 @@ function getDylibbundler() {
 
 function collectDylibsFor() {
     local fileToFix=${1:?"Missing file to fix with dylibbundler"};
-    cd "$packageContentDir"
+    cd "$payloadDir"
     "$macdylibbundlerDir/dylibbundler" --fix-file "$fileToFix" --bundle-deps --dest-dir "./libs" --install-path "@executable_path/libs/" --overwrite-dir \
         -s "$concordiumDylibDir" \
         -s "$stackSnapshotDir" \
@@ -129,9 +129,9 @@ function collectDylibs() {
     readonly stackLibDirs
 
     logInfo " -- Processing concordium-node"
-    collectDylibsFor "$packageContentDir/Concordium Node/concordium-node"
+    collectDylibsFor "$payloadDir/Concordium Node/concordium-node"
     logInfo " -- Processing node-collector"
-    collectDylibsFor "$packageContentDir/Concordium Node/node-collector"
+    collectDylibsFor "$payloadDir/Concordium Node/node-collector"
 
     logInfo "Done"
 }
@@ -139,7 +139,7 @@ function collectDylibs() {
 function signBinaries() {
     logInfo "Signing binaries..."
     # perm +111 finds the executable files
-    find "$packageContentDir" \
+    find "$payloadDir" \
         -type f \
         -execdir sudo codesign -f --options runtime -s "$developerIdApplication" {} \;
     logInfo "Done"
@@ -158,7 +158,7 @@ function buildPackage() {
     pkgbuild --identifier software.concordium.node \
         --version "$version" \
         --install-location "$installDir" \
-        --root "$packageContentDir" \
+        --root "$payloadDir" \
         "$pkgFile"
     logInfo "Done"
 }
