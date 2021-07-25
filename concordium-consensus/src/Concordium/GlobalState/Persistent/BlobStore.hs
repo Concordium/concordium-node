@@ -154,7 +154,7 @@ runBlobStoreTemp dir a = bracket openf closef usef
             _ <- takeMVar mv
             return res
 
--- | Read a bytestring from the blob store at the given offset
+-- | Read a bytestring from the blob store at the given offset using the file handle.
 readBlobBSFromHandle :: BlobStore -> BlobRef a -> IO BS.ByteString
 readBlobBSFromHandle BlobStore{..} (BlobRef offset) = mask $ \restore -> do
         bh@BlobHandle{..} <- takeMVar blobStoreFile
@@ -169,23 +169,34 @@ readBlobBSFromHandle BlobStore{..} (BlobRef offset) = mask $ \restore -> do
             Left e -> throwIO e
             Right bs -> return bs
 
+-- | Read a bytestring from the blob store at the given offset using the memory map.
+-- The file handle is used as a backstop if the data to be read would be outside the memory map
+-- even after re-mapping.
 readBlobBS :: BlobStore -> BlobRef a -> IO BS.ByteString
 readBlobBS bs@BlobStore{..} br@(BlobRef offset) = do
         let ioffset = fromIntegral offset
+        let dataOffset = ioffset + 8
         mmap0 <- readIORef blobStoreMMap
-        mmap <- if ioffset >= BS.length mmap0 then do
+        mmap <- if dataOffset > BS.length mmap0 then do
                 -- Remap the file
                 mmap <- mmapFileByteString blobStoreFilePath Nothing
                 writeIORef blobStoreMMap mmap
                 return mmap
             else return mmap0
-        if ioffset >= BS.length mmap then readBlobBSFromHandle bs br else do
-            let stringStart = BS.drop ioffset mmap
-            case decode (BS.take 8 stringStart) of
+        let mmapLength = BS.length mmap
+        if dataOffset > mmapLength then
+            readBlobBSFromHandle bs br
+        else do
+            let lengthStart = BS.drop ioffset mmap
+            case decode (BS.take 8 lengthStart) of
                 Left e -> error e
-                Right (size :: Word64) -> return
-                    $ BS.take (fromIntegral size)
-                    $ BS.drop 8 stringStart
+                Right (size :: Word64) -> do
+                    if dataOffset + fromIntegral size > mmapLength then
+                        readBlobBSFromHandle bs br
+                    else
+                        return
+                            $ BS.take (fromIntegral size)
+                            $ BS.drop dataOffset mmap
 
 -- | Write a bytestring into the blob store and return the offset
 writeBlobBS :: BlobStore -> BS.ByteString -> IO (BlobRef a)
