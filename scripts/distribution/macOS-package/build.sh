@@ -54,6 +54,9 @@ function createBuildDirFromTemplate() {
     replaceVersionPlaceholder "$buildDir/scripts/postinstall"
     replaceVersionPlaceholder "$payloadDir/LaunchDaemons/software.concordium.node.plist"
     replaceVersionPlaceholder "$payloadDir/LaunchDaemons/software.concordium.node-collector.plist"
+
+    chmod -R 755 "$buildDir/scripts"
+
     logInfo "Done"
 }
 
