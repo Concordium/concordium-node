@@ -158,6 +158,7 @@ function buildPackage() {
     ensureDirExists "$packagesDir"
     pkgbuild --identifier software.concordium.node \
         --version "$version" \
+        --scripts "$buildDir/scripts" \
         --install-location "$installDir" \
         --root "$payloadDir" \
         "$pkgFile"
@@ -169,7 +170,6 @@ function buildProduct() {
     ensureDirExists "$packagesDir"
     productbuild \
         --distribution "$buildDir/distribution.xml" \
-        --scripts "$buildDir/scripts" \
         --package-path "$packagesDir" \
         --resources "$buildDir/resources" \
         --sign "$developerIdInstaller" \
