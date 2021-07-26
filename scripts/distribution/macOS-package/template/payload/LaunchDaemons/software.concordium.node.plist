@@ -14,7 +14,7 @@
         <key>CONCORDIUM_NODE_DATA_DIR</key>
         <string>/Library/Application Support/Concordium Node/Mainnet/Data</string>
         <key>CONCORDIUM_NODE_CONNECTION_BOOTSTRAP_NODES</key>
-        <string>bootstrap.testnet.concordium.com:8888</string>
+        <string>bootstrap.mainnet.concordium.software:8888</string>
     </dict>
     <key>RunAtLoad</key>
     <false />
