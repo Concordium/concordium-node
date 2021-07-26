@@ -4,16 +4,16 @@ echo "Running postinstall script"
 
 readonly nodeDir="/Library/Concordium Node/__VERSION__"
 
-echo "Ensuring '/usr/local/bin' exists"
 # Ensure the local bin folder exists
+echo "Ensuring '/usr/local/bin' exists"
 if [ ! -d "/usr/local/bin" ]; then
     mkdir "/usr/local/bin"
 fi
 
-echo "Creating symlinks to node and collector"
 # Create/replace symlinks that are in PATH
+echo "Creating symlinks to node and collector"
 ln -f -s "$nodeDir/concordium-node" "/usr/local/bin/concordium-node-__VERSION__"
-ln -f -s "$nodeDir/concordium-node-collector" "/usr/local/bin/concordium-node-collector-__VERSION__"
+ln -f -s "$nodeDir/node-collector" "/usr/local/bin/concordium-node-collector-__VERSION__"
 
 echo "Postinstall finished"
 exit 0
