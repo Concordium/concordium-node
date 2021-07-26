@@ -11,11 +11,19 @@
     <false />
     <key>KeepAlive</key>
     <dict>
-        <key>OtherJobActive</key> <!-- Not sure if this is a real key -->
+        <key>OtherJobActive</key>
+        <!-- Keep alive when node is running, and stop when node is stopped. -->
         <dict>
             <key>software.concordium.node</key>
             <true />
         </dict>
+
+        <key>AfterInitialDemand</key>
+        <dict>
+           <key>software.concordium.node-collector</key>
+           <true />
+        </dict>
+
     </dict>
 </dict>
 </plist>

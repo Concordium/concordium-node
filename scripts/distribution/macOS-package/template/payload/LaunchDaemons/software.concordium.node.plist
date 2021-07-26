@@ -19,6 +19,12 @@
     <key>RunAtLoad</key>
     <false />
     <key>KeepAlive</key>
-    <true />
+    <dict>
+        <key>AfterInitialDemand</key>
+        <dict>
+	    <key>software.concordium.node</key>
+            <true />
+        </dict>
+    </dict>
 </dict>
 </plist>
