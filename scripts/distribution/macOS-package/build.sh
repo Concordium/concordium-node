@@ -28,6 +28,7 @@ readonly installDir="/Library"
 readonly templateDir="$macPackageDir/template"
 readonly buildDir="$macPackageDir/build"
 readonly payloadDir="$buildDir/payload"
+readonly versionedBinDir="$payloadDir/Concordium Node/$version"
 readonly packagesDir="$buildDir/packages"
 readonly pkgFile="$packagesDir/concordium-node.pkg"
 readonly signedPkgFile="$packagesDir/concordium-node-signed.pkg"
@@ -48,6 +49,7 @@ function replaceVersionPlaceholder() {
 function createBuildDirFromTemplate() {
     logInfo "Creating build folder from template..."
     cp -r "$templateDir" "$buildDir"
+    mkdir "$versionedBinDir"
     replaceVersionPlaceholder "$buildDir/distribution.xml"
     replaceVersionPlaceholder "$buildDir/scripts/postinstall"
     replaceVersionPlaceholder "$payloadDir/LaunchDaemons/software.concordium.node.plist"
@@ -75,9 +77,9 @@ function compile() {
 }
 
 function copyBinaries() {
-    logInfo "Copy concordium-node and node-collector binaries to '$payloadDir'.."
-    cp "$nodeDir/target/release/concordium-node" "$payloadDir/Concordium Node"
-    cp "$nodeDir/target/release/node-collector" "$payloadDir/Concordium Node"
+    logInfo "Copy concordium-node and node-collector binaries to '$versionedBinDir'.."
+    cp "$nodeDir/target/release/concordium-node" "$versionedBinDir"
+    cp "$nodeDir/target/release/node-collector" "$versionedBinDir"
     logInfo "Done"
 }
 
@@ -111,7 +113,7 @@ function getDylibbundler() {
 
 function collectDylibsFor() {
     local fileToFix=${1:?"Missing file to fix with dylibbundler"};
-    cd "$payloadDir"
+    cd "$versionedBinDir"
     "$macdylibbundlerDir/dylibbundler" --fix-file "$fileToFix" --bundle-deps --dest-dir "./libs" --install-path "@executable_path/libs/" --overwrite-dir \
         -s "$concordiumDylibDir" \
         -s "$stackSnapshotDir" \
@@ -129,16 +131,15 @@ function collectDylibs() {
     readonly stackLibDirs
 
     logInfo " -- Processing concordium-node"
-    collectDylibsFor "$payloadDir/Concordium Node/concordium-node"
+    collectDylibsFor "$versionedBinDir/concordium-node"
     logInfo " -- Processing node-collector"
-    collectDylibsFor "$payloadDir/Concordium Node/node-collector"
+    collectDylibsFor "$versionedBinDir/node-collector"
 
     logInfo "Done"
 }
 
 function signBinaries() {
     logInfo "Signing binaries..."
-    # perm +111 finds the executable files
     find "$payloadDir" \
         -type f \
         -execdir sudo codesign -f --options runtime -s "$developerIdApplication" {} \;

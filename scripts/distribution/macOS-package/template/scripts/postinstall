@@ -1,23 +1,19 @@
 #!/bin/bash
 
-set -euo pipefail
+echo "Running postinstall script"
 
 readonly nodeDir="/Library/Concordium Node/__VERSION__"
-readonly localBinDir="/usr/local/bin"
 
-readonly node="$nodeDir/concordium-node"
-readonly nodeSymlink="$localBinDir/concordium-node-__VERSION__"
-readonly collector="$nodeDir/concordium-node-collector"
-readonly collectorSymlink="$localBinDir/concordium-node-collector-__VERSION__"
-
-# Remove existing symlinks if present
-if [ -f "$nodeSymlink" ]; then
-    rm -f "$nodeSymlink"
-fi
-if [ -f "$collectorSymlink" ]; then
-    rm -f "$collectorSymlink"
+echo "Ensuring '/usr/local/bin' exists"
+# Ensure the local bin folder exists
+if [ ! -d "/usr/local/bin" ]; then
+    mkdir "/usr/local/bin"
 fi
 
-# Add new symlinks
-ln -s "$node" "$nodeSymlink"
-ln -s "$collector" "$collectorSymlink"
+echo "Creating symlinks to node and collector"
+# Create/replace symlinks that are in PATH
+ln -f -s "$nodeDir/concordium-node" "/usr/local/bin/concordium-node-__VERSION__"
+ln -f -s "$nodeDir/concordium-node-collector" "/usr/local/bin/concordium-node-collector-__VERSION__"
+
+echo "Postinstall finished"
+exit 0
