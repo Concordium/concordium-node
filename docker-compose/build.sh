@@ -2,8 +2,7 @@
 
 set -euxo pipefail
 
-if [ "$#" -lt 2 ]
-then
+if [ "$#" -lt 2 ]; then
   echo "Usage: ./build.sh VERSION_TAG [consensus_profiling]"
   exit 1
 fi

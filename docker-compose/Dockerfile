@@ -31,7 +31,6 @@ RUN GENESIS_DIR=./out/genesis-5-bakers NUM_BAKERS=5 python3 generate-test-genesi
 RUN GENESIS_DIR=./out/genesis-10-bakers NUM_BAKERS=10 python3 generate-test-genesis.py
 RUN GENESIS_DIR=./out/genesis-25-bakers NUM_BAKERS=25 python3 generate-test-genesis.py
 
-
 # Build static consensus libraries
 FROM concordium/static-libraries:latest as static-builder
 COPY scripts/static-libraries/build-static-libraries.sh /build-static-libraries.sh
@@ -78,7 +77,9 @@ EXPOSE 9090
 EXPOSE 8900
 EXPOSE 10000
 
-RUN apt update && apt -y install unbound curl postgresql-server-dev-12 libnuma1
+RUN apt-get update && \
+    apt-get install -y less curl unbound postgresql-server-dev-12 libnuma1 && \
+    rm -rf /var/lib/apt/lists/*
 
 # Genesis data files for all configurations.
 COPY --from=genesis-builder /genesis/out/ /genesis-data
@@ -87,8 +88,12 @@ COPY --from=genesis-builder /genesis/out/ /genesis-data
 COPY --from=build /build/concordium-node/target/debug/concordium-node /concordium-node
 COPY --from=build /build/concordium-node/target/debug/p2p_bootstrapper-cli /p2p_bootstrapper-cli
 COPY --from=build /build/concordium-node/target/debug/node-collector /node-collector
-COPY --from=build /build/concordium-node/target/debug/node-collector-backend /node-collector-backend 
-COPY --from=build /build/start.sh /start.sh
+COPY --from=build /build/concordium-node/target/debug/node-collector-backend /node-collector-backend
+
+# Entrypoints for the various components.
+COPY --from=build /build/docker-compose/concordium-node-entrypoint.sh /concordium-node-entrypoint.sh
+COPY --from=build /build/docker-compose/node-collector-entrypoint.sh /node-collector-entrypoint.sh
+COPY --from=build /build/docker-compose/bootstrapper-entrypoint.sh /bootstrapper-entrypoint.sh
 
 # Baker ID generator.
 COPY --from=build /baker_id_gen/target/release/baker_id_gen /baker_id_generator
@@ -97,4 +102,4 @@ COPY --from=build /baker_id_gen/target/release/baker_id_gen /baker_id_generator
 COPY --from=build /wallet-proxy/target/wallet-proxy /wallet-proxy
 COPY --from=build /wallet-proxy/deps/concordium-client/deps/concordium-base/rust-src/target/release/*.so /usr/lib/
 
-ENTRYPOINT ["/start.sh"]
+# No default entrypoint is defined because the image serves multiple purposes.
