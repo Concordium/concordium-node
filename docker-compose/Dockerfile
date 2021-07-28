@@ -39,7 +39,9 @@ COPY ./concordium-base /build/concordium-base
 COPY ./concordium-consensus /build/concordium-consensus
 COPY ./concordium-node /build/concordium-node
 COPY ./concordium-grpc-api /build/concordium-grpc-api
+COPY ./deps /build/deps
 COPY ./scripts/static-libraries/build-static-libraries.sh /build/build-static-libraries.sh
+COPY ./LICENSE /build/LICENSE
 WORKDIR /build
 ARG ghc_version
 RUN GHC_VERSION="${ghc_version}" ./build-static-libraries.sh
@@ -56,8 +58,8 @@ COPY ./concordium-base /build/concordium-base
 COPY ./concordium-consensus /build/concordium-consensus
 COPY ./concordium-node /build/concordium-node
 COPY ./concordium-grpc-api /build/concordium-grpc-api
+COPY ./deps /build/deps
 COPY ./scripts/build-binaries.sh /build/build-binaries.sh
-COPY ./LICENSE /build/LICENSE
 WORKDIR /build
 
 # Node
@@ -71,12 +73,12 @@ RUN mkdir -p concordium-node/deps/static-libs/linux && \
 RUN ./build-binaries.sh "collector"
 
 # Baker id gen
-RUN git clone --recurse-submodules --depth 1 --branch main https://github.com/Concordium/concordium-tools-baker-id-gen.git baker_id_gen && \
-    (cd baker_id_gen && cargo build --release)
+RUN git clone --recurse-submodules --depth 1 --branch main https://github.com/Concordium/concordium-tools-baker-id-gen.git /build/baker_id_gen && \
+    (cd /build/baker_id_gen && cargo build --release)
 
 # Wallet-proxy
-RUN git clone --recurse-submodules --depth 1 --branch main https://github.com/Concordium/concordium-wallet-proxy.git wallet-proxy && \
-    (cd wallet-proxy && stack build --copy-bins --ghc-options -j4 --local-bin-path target)
+RUN git clone --recurse-submodules --depth 1 --branch main https://github.com/Concordium/concordium-wallet-proxy.git /build/wallet-proxy && \
+    (cd /build/wallet-proxy && stack build --copy-bins --ghc-options -j4 --local-bin-path target)
 
 # Copy artifacts into fresh image.
 FROM ubuntu:20.04
@@ -100,16 +102,15 @@ COPY --from=build /build/concordium-node/target/debug/p2p_bootstrapper-cli /p2p_
 COPY --from=build /build/concordium-node/target/debug/node-collector /node-collector
 COPY --from=build /build/concordium-node/target/debug/node-collector-backend /node-collector-backend
 
+# Baker ID generator.
+COPY --from=build /build/baker_id_gen/target/release/baker_id_gen /baker_id_generator
+
+# Wallet proxy.
+COPY --from=build /build/wallet-proxy/target/wallet-proxy /wallet-proxy
+COPY --from=build /build/wallet-proxy/deps/concordium-client/deps/concordium-base/rust-src/target/release/*.so /usr/lib/
+
 # Entrypoints for the various components.
+# No default entrypoint is defined because the image serves multiple purposes.
 COPY ./docker-compose/concordium-node-entrypoint.sh /concordium-node-entrypoint.sh
 COPY ./docker-compose/node-collector-entrypoint.sh /node-collector-entrypoint.sh
 COPY ./docker-compose/bootstrapper-entrypoint.sh /bootstrapper-entrypoint.sh
-
-# Baker ID generator.
-COPY --from=build /baker_id_gen/target/release/baker_id_gen /baker_id_generator
-
-# Wallet proxy.
-COPY --from=build /wallet-proxy/target/wallet-proxy /wallet-proxy
-COPY --from=build /wallet-proxy/deps/concordium-client/deps/concordium-base/rust-src/target/release/*.so /usr/lib/
-
-# No default entrypoint is defined because the image serves multiple purposes.
