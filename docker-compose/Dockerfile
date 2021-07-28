@@ -57,6 +57,7 @@ COPY ./concordium-consensus /build/concordium-consensus
 COPY ./concordium-node /build/concordium-node
 COPY ./concordium-grpc-api /build/concordium-grpc-api
 COPY ./scripts/build-binaries.sh /build/build-binaries.sh
+COPY ./LICENSE /build/LICENSE
 WORKDIR /build
 
 # Node
