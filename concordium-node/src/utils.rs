@@ -103,7 +103,7 @@ pub fn setup_logger(trace: bool, debug: bool, no_log_timestamp: bool) -> &'stati
 
 /// Sets up a logger for the macOS syslog.
 #[cfg(target_os = "macos")]
-pub fn setup_logger(trace: bool, debug: bool, _no_log_timestamp: bool) -> &'static str {
+pub fn setup_logger(trace: bool, debug: bool, subsystem_name: &str) -> &'static str {
     // NB: Timestamps and levels are included automatically. No need to encode them
     // in the message.
     let (level_filter, log_lvl) = if trace {
@@ -114,7 +114,7 @@ pub fn setup_logger(trace: bool, debug: bool, _no_log_timestamp: bool) -> &'stat
         (LevelFilter::Info, "info")
     };
 
-    crate::macos_log::MacOsLogger::new("software.concordium.node")
+    crate::macos_log::MacOsLogger::new(subsystem_name)
         .level_filter(level_filter)
         .category_level_filter("tokio_reactor", LevelFilter::Error)
         .category_level_filter("hyper", LevelFilter::Error)
@@ -327,6 +327,9 @@ pub fn get_config_and_logging_setup() -> anyhow::Result<(config::Config, config:
         conf.common.data_dir.to_owned(),
     );
 
+    #[cfg(target_os = "macos")]
+    let log_lvl = setup_logger(conf.common.trace, conf.common.debug, &conf.macos.subsystem_name);
+    #[cfg(not(target_os = "macos"))]
     let log_lvl = setup_logger(conf.common.trace, conf.common.debug, conf.common.no_log_timestamp);
 
     if conf.common.print_config {

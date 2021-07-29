@@ -15,6 +15,8 @@
         <string>/Library/Application Support/Concordium Node/Mainnet/Data</string>
         <key>CONCORDIUM_NODE_CONNECTION_BOOTSTRAP_NODES</key>
         <string>bootstrap.mainnet.concordium.software:8888</string>
+        <key>CONCORDIUM_NODE_MACOS_SUBSYSTEM_NAME</key>
+        <string>software.concordium.mainnet.node</string>
     </dict>
     <key>RunAtLoad</key>
     <false />
