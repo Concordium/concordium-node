@@ -34,9 +34,10 @@ services:
     - RUST_BACKTRACE=1
     - RUST_LOG=info
     - LD_LIBRARY_PATH=/usr/local/lib
-    - COPY_GENESIS_DAT_FILE=/genesis-data/genesis-${NUM_BAKERS}-bakers/genesis.dat
-    - CONCORDIUM_NODE_DESIRED_PEERS=${DESIRED_PEERS}
-    - CONCORDIUM_NODE_CONNECTION_BOOTSTRAP=bootstrapper:8888
+    - GENESIS_DATA_PATH=/genesis-data/genesis-${NUM_BAKERS}-bakers
+    - BAKER_ID_GEN_NEXT_ID_URL=http://baker_id_gen:8000/next_id
+    - CONCORDIUM_NODE_CONNECTION_DESIRED_NODES=${DESIRED_PEERS}
+    - CONCORDIUM_NODE_CONNECTION_BOOTSTRAP_NODES=bootstrapper:8888
     - CONCORDIUM_NODE_EXTERNAL_PORT=8888
     - CONCORDIUM_NODE_DATA_DIR=/var/lib/concordium/data
     - CONCORDIUM_NODE_CONFIG_DIR=/var/lib/concordium/config
@@ -53,4 +54,4 @@ services:
     - RUST_LOG=info
     - NUM_BAKERS=${NUM_BAKERS}
     - COLLECTOR_SLEEP=${COLLECTOR_SLEEP}
-    - COLLECTOR_URL=http://collector_backend:10000/nodes/post
+    - CONCORDIUM_NODE_COLLECTOR_URL=http://collector_backend:10000/nodes/post
