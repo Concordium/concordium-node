@@ -5,14 +5,15 @@ spinning up a network using docker-compose for local development.
 
 ## Usage
 
-Two parameterized `docker-compose` files are available:
+Two parameterized Docker Compose files will be available:
 
 - `bakers.yaml`: Run a network of bakers with collectors and a collector-backend.
   This is useful for e.g. testing the network dashboard.
   A middleware instance needs to be started separately.
 - `bakers+wallet-proxy.yaml`: Same as the above but also with a wallet-proxy instance running.
   A postgres instance is started as well and the nodes configured to ingest data.
-  At the time of this writing, this setup seems outdated and broken and will be fixed ASAP.
+  At the time of this writing, the setup was entirely nonfunctional and has been deleted.
+  The intention is to re-add a working setup as soon as time permits.
 
 It seems like there was an option that included a Middleware instance in the past.
 Including this will be attempted once the Wallet Proxy setup has been fixed.

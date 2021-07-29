@@ -3,9 +3,6 @@ services:
   bootstrapper:
     image: concordium/dev-node:latest
     entrypoint: /bootstrapper-entrypoint.sh
-    depends_on:
-    - baker_id_gen
-    - collector_backend
     environment:
     - RUST_BACKTRACE=1
     - RUST_LOG=info
@@ -29,13 +26,14 @@ services:
     image: concordium/dev-node:latest
     depends_on:
     - bootstrapper
-    entrypoint: /concordium-node-entrypoint.sh
+    - baker_id_gen
+    entrypoint: /node-entrypoint.sh
     environment:
     - RUST_BACKTRACE=1
     - RUST_LOG=info
     - LD_LIBRARY_PATH=/usr/local/lib
     - GENESIS_DATA_PATH=/genesis-data/genesis-${NUM_BAKERS}-bakers
-    - BAKER_ID_GEN_NEXT_ID_URL=http://baker_id_gen:8000/next_id
+    - BAKER_ID_GEN_DNS=baker_id_gen
     - CONCORDIUM_NODE_CONNECTION_DESIRED_NODES=${DESIRED_PEERS}
     - CONCORDIUM_NODE_CONNECTION_BOOTSTRAP_NODES=bootstrapper:8888
     - CONCORDIUM_NODE_EXTERNAL_PORT=8888
@@ -46,12 +44,39 @@ services:
     - "11100-11500:10000"
   collector:
     image: concordium/dev-node:latest
-    entrypoint: /node-collector-entrypoint.sh
+    entrypoint: /collector-entrypoint.sh
     depends_on:
     - baker
+    - collector_backend
     environment:
     - RUST_BACKTRACE=1
     - RUST_LOG=info
     - NUM_BAKERS=${NUM_BAKERS}
+    - NODE_DNS_BASE=docker-compose_baker
     - COLLECTOR_SLEEP=${COLLECTOR_SLEEP}
     - CONCORDIUM_NODE_COLLECTOR_URL=http://collector_backend:10000/nodes/post
+
+# WIP - for bakers+wallet-proxy
+#  postgresql:
+#    image: postgres:latest
+#    environment:
+#    - POSTGRES_PASSWORD=concordium
+#    - POSTGRES_USER=concordium
+#    - POSTGRES_DB=concordium
+#    ports:
+#    - "5432:5432"
+#  wallet_proxy:
+#    image: concordium/dev-node:latest
+#    depends_on:
+#    - baker
+#    - postgresql
+#    environment:
+#    - MODE=local_wallet_proxy
+#    - WALLET_PROXY_GRPC_IP=docker-compose_baker_1
+#    - WALLET_PROXY_GRPC_PORT=10000
+#    - WALLET_PROXY_DATABASE="host=postgresql port=5432 user=concordium dbname=concordium password=concordium"
+#    - DB_SLEEP=${DB_SLEEP}
+#    entrypoint:
+#    - /wallet-proxy-entrypoint.sh
+#    ports:
+#    - "14000:3000"

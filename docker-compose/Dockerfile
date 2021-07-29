@@ -111,6 +111,7 @@ COPY --from=build /build/wallet-proxy/deps/concordium-client/deps/concordium-bas
 
 # Entrypoints for the various components.
 # No default entrypoint is defined because the image serves multiple purposes.
-COPY ./docker-compose/concordium-node-entrypoint.sh /concordium-node-entrypoint.sh
-COPY ./docker-compose/node-collector-entrypoint.sh /node-collector-entrypoint.sh
+COPY ./docker-compose/node-entrypoint.sh /node-entrypoint.sh
+COPY ./docker-compose/collector-entrypoint.sh /collector-entrypoint.sh
 COPY ./docker-compose/bootstrapper-entrypoint.sh /bootstrapper-entrypoint.sh
+COPY ./docker-compose/wallet-proxy-entrypoint.sh /wallet-proxy-entrypoint.sh
