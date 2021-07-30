@@ -1,4 +1,6 @@
-﻿Write-Output "Building Windows node installer..."
+﻿param ([string] $toolchain="")
+
+Write-Output "Building Windows node installer..."
 
 # Move to the location of the script so that relative paths make sense
 Push-Location $PSScriptRoot
@@ -8,7 +10,7 @@ try {
     # Build the custom actions DLL. This provides custom functionality used by the installer.
     Write-Output "Building custom-actions.dll..."
     Push-Location custom-actions
-    cargo build --release
+    cargo +$toolchain build --release
     Pop-Location
     if ($LASTEXITCODE -ne 0) { throw "Failed building custom-actions.dll" }
 
