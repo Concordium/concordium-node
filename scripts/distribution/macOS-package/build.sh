@@ -16,8 +16,7 @@ logInfo () {
 
 readonly ghcVariant="x86_64-osx-ghc-8.10.4"
 
-# TODO: Add tree comment
-
+# FIXME: Don't use pwd.
 macPackageDir=$(pwd)
 readonly macPackageDir
 readonly nodeDir="$macPackageDir/../../../concordium-node"
@@ -74,9 +73,23 @@ function compileNodeAndCollector() {
     logInfo "Done"
 }
 
+function compileInstallerPlugin() {
+    logInfo "Building installer plugin..."
+    xcodebuild -project "$macPackageDir/NodeConfigurationInstallerPlugin/NodeConfigurationInstallerPlugin.xcodeproj"
+    logInfo "Done"
+}
+
 function compile() {
     compileConsensus
     compileNodeAndCollector
+    compileInstallerPlugin
+}
+
+function copyInstallerPluginData() {
+    logInfo "Copying installer plugin data to build folder"
+    cp -r "$macPackageDir/NodeConfigurationInstallerPlugin/build/Release/NodeConfigurationInstallerPlugin.bundle" "$buildDir/plugins"
+    cp "$macPackageDir/NodeConfigurationInstallerPlugin/NodeConfigurationInstallerPlugin/InstallerSections.plist" "$buildDir/plugins"
+    logInfo "Done"
 }
 
 function copyBinaries() {
@@ -175,6 +188,7 @@ function buildProduct() {
         --distribution "$buildDir/distribution.xml" \
         --package-path "$packagesDir" \
         --resources "$buildDir/resources" \
+        --plugins "$buildDir/plugins" \
         --sign "$developerIdInstaller" \
         "$signedPkgFile"
     logInfo "Done"
@@ -201,6 +215,7 @@ function main() {
     createBuildDirFromTemplate
     compile
     copyBinaries
+    copyInstallerPluginData
     downloadGenesis
     getDylibbundler
     collectDylibs
