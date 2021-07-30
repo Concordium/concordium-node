@@ -121,12 +121,22 @@ struct ConfigCli {
         env = "CONCORDIUM_NODE_COLLECTOR_MAX_GRPC_FAILURES_ALLOWED"
     )]
     pub max_grpc_failures_allowed: u64,
+    #[cfg(target_os = "macos")]
+    #[structopt(
+        long = "subsystem-name",
+        help = "The subsystem used when logging on macOS, e.g. 'software.concordium.mainnet.node'",
+        env = "CONCORDIUM_NODE_COLLECTOR_MACOS_SUBSYSTEM_NAME"
+    )]
+    pub subsystem_name: String,
 }
 
 #[tokio::main]
 async fn main() {
     let conf = ConfigCli::from_args();
 
+    #[cfg(target_os = "macos")]
+    setup_logger(conf.trace, conf.debug, &conf.subsystem_name);
+    #[cfg(not(target_os = "macos"))]
     setup_logger(conf.trace, conf.debug, conf.no_log_timestamp);
 
     if conf.print_config {

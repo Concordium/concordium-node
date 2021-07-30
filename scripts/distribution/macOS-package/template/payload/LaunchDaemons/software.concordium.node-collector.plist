@@ -7,6 +7,10 @@
     <string>software.concordium.node-collector</string>
     <key>Program</key>
     <string>/usr/local/bin/concordium-node-collector-__VERSION__</string>
+    <dict>
+        <key>CONCORDIUM_NODE_COLLECTOR_MACOS_SUBSYSTEM_NAME</key>
+        <string>software.concordium.mainnet.node</string>
+    </dict>
     <key>RunAtLoad</key>
     <false />
     <key>KeepAlive</key>
