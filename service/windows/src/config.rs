@@ -10,7 +10,7 @@ use toml::Value;
 use winreg::{enums::HKEY_LOCAL_MACHINE, RegKey};
 
 /// Look up the config file path in the registry.
-fn get_config_file_path() -> anyhow::Result<PathBuf> {
+pub fn get_config_file_path() -> anyhow::Result<PathBuf> {
     let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
     let key_name = r"SOFTWARE\Concordium\Node Runner";
     let node_runner_key = hklm.open_subkey(key_name).with_context(|| {

@@ -6,7 +6,7 @@ mod manager;
 mod node;
 mod subprocess;
 
-use crate::config::load_config;
+use crate::config::{get_config_file_path, load_config};
 use crate::subprocess::create_console;
 use anyhow::{bail, Context};
 use log::*;
@@ -293,12 +293,19 @@ fn nonservice_main() -> anyhow::Result<()> {
             manager::stop()?;
             println!("Done");
         }
+        "configure" => {
+            let config_path = get_config_file_path()?;
+            std::process::Command::new("notepad")
+                .arg(config_path)
+                .spawn()?;
+        }
         _ => {
             println!("Try running this program with one of the following arguments:");
             println!(" install - install the service");
             println!(" remove - remove the service");
             println!(" start - start the service");
             println!(" stop - stop the service");
+            println!(" configure - open the configuration file in notepad");
         }
     }
     Ok(())
