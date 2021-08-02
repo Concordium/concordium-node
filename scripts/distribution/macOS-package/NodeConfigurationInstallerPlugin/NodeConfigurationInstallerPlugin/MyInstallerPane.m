@@ -14,25 +14,15 @@
     return [[NSBundle bundleForClass:[self class]] localizedStringForKey:@"PaneTitle" value:nil table:nil];
 }
 
-- (void)didEnterPane:(InstallerSectionDirection)aDir
-{
-    // Disable the 'Continue' button.
-    [self setNextEnabled:false];
-    
-    // Enabled the 'Go Back' button.
-    [self setPreviousEnabled:true];
-}
-
 // Invoked when either 'Go Back' or 'Continue' is pressed.
 - (BOOL)shouldExitPane:(InstallerSectionDirection)aDir
 {
     NSAlert *tWrn;
-    
+
     // Check the direction of movement.
     if (aDir == InstallerDirectionForward) {
         
-        // Check if either node name is empty.
-        if (([[_oMainnetNodeName stringValue] length] > 0) && ([[_oTestnetNodeName stringValue] length] > 0)) {
+        if ([self nodeNamesAreValid]) {
             [self saveConfigurationToDisk];
         } else {
             // Create a warning dialog.
@@ -41,16 +31,13 @@
             {
                 // Initialize the dialog.
                 [tWrn addButtonWithTitle:@"OK"];
-                [tWrn setMessageText:@"Node names cannot be empty"];
-                [tWrn setInformativeText:@"Please enter valid node names."];
+                [tWrn setMessageText:@"Invalid node names"];
+                [tWrn setInformativeText:@"Node names cannot be empty or contain '\"'."];
                 [tWrn setAlertStyle:NSAlertStyleInformational];
                 
                 // Display the warning dialog.
                 [tWrn runModal];
             }
-            // Disable the Continue button.
-            [self setNextEnabled:NO];
-            
             // Prevent 'Continue' movement.
             return (NO);
         }
@@ -71,11 +58,11 @@
     NSString *configData = [NSString stringWithFormat:@"CONCORDIUM_NODE_INSTALL_MAINNET_RUN_ON_STARTUP=%d\n"
                                                        "CONCORIDUM_NODE_INSTALL_MAINNET_RUN_AFTER_INSTALL=%d\n"
                                                        "CONCORIDUM_NODE_INSTALL_MAINNET_REPORT_TO_NETWORK_DASHBOARD=%d\n"
-                                                       "CONCORIDUM_NODE_INSTALL_MAINNET_NODE_NAME=%@\n\n"
+                                                       "CONCORIDUM_NODE_INSTALL_MAINNET_NODE_NAME=\"%@\"\n\n"
                                                        "CONCORDIUM_NODE_INSTALL_TESTNET_RUN_ON_STARTUP=%d\n"
                                                        "CONCORIDUM_NODE_INSTALL_TESTNET_RUN_AFTER_INSTALL=%d\n"
                                                        "CONCORIDUM_NODE_INSTALL_TESTNET_REPORT_TO_NETWORK_DASHBOARD=%d\n"
-                                                       "CONCORIDUM_NODE_INSTALL_TESTNET_NODE_NAME=%@\n",
+                                                       "CONCORIDUM_NODE_INSTALL_TESTNET_NODE_NAME=\"%@\"\n",
                             ([_oMainnetRunOnStartup state] == NSControlStateValueOn),
                             ([_oMainnetRunAfterInstall state] == NSControlStateValueOn),
                             ([_oMainnetReportToNetworkDashboard state] == NSControlStateValueOn),
@@ -90,14 +77,18 @@
     [configData writeToFile:configFilePath atomically:YES encoding:NSUTF8StringEncoding error:nil];
 }
 
-- (IBAction) validateNodeNames:(id)aSnd
+// Checks that both the mainnet and testnet node names:
+// - have length > 0
+// - contain no double quotes
+- (BOOL) nodeNamesAreValid
 {
-    BOOL tChk;
-    // Check the node name fields.
-    tChk = ([[_oMainnetNodeName stringValue] length] > 0) && ([[_oTestnetNodeName stringValue] length] > 0);
+    NSString *mainnetName = [_oMainnetNodeName stringValue];
+    NSString *testnetName = [_oTestnetNodeName stringValue];
     
-    // Enable/disable the Continue button.
-    [self setNextEnabled:tChk];
+    return      [mainnetName length] > 0
+            &&  [testnetName length] > 0
+            && ![mainnetName containsString:@"\""]
+            && ![testnetName containsString:@"\""];
 }
 
 @end

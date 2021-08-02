@@ -19,6 +19,4 @@
 @property IBOutlet NSButton *oTestnetReportToNetworkDashboard;
 @property IBOutlet NSTextField *oTestnetNodeName;
 
-- (IBAction) validateNodeNames:(id)aSnd;
-
 @end

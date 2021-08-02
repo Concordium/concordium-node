@@ -93,9 +93,6 @@ dashboard</string>
                                                     <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
                                                     <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
                                                 </textFieldCell>
-                                                <connections>
-                                                    <action selector="validateNodeNames:" target="Qsn-FY-4qK" id="IYv-GS-iBe"/>
-                                                </connections>
                                             </textField>
                                         </subviews>
                                         <visibilityPriorities>
@@ -177,9 +174,6 @@ dashboard</string>
                                                     <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
                                                     <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
                                                 </textFieldCell>
-                                                <connections>
-                                                    <action selector="validateNodeNames:" target="Qsn-FY-4qK" id="Cxf-wC-gtD"/>
-                                                </connections>
                                             </textField>
                                         </subviews>
                                         <visibilityPriorities>
