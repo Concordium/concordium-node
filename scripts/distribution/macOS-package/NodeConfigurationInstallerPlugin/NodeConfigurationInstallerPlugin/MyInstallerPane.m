@@ -17,7 +17,7 @@
 // Invoked when either 'Go Back' or 'Continue' is pressed.
 - (BOOL)shouldExitPane:(InstallerSectionDirection)aDir
 {
-    NSAlert *tWrn;
+    NSAlert *warning;
 
     // Check the direction of movement.
     if (aDir == InstallerDirectionForward) {
@@ -26,17 +26,17 @@
             [self saveConfigurationToDisk];
         } else {
             // Create a warning dialog.
-            tWrn = [[NSAlert alloc] init];
-            if (tWrn != nil)
+            warning = [[NSAlert alloc] init];
+            if (warning != nil)
             {
                 // Initialize the dialog.
-                [tWrn addButtonWithTitle:@"OK"];
-                [tWrn setMessageText:@"Invalid node names"];
-                [tWrn setInformativeText:@"Node names cannot be empty or contain '\"'."];
-                [tWrn setAlertStyle:NSAlertStyleInformational];
+                [warning addButtonWithTitle:@"OK"];
+                [warning setMessageText:@"Invalid node names"];
+                [warning setInformativeText:@"Node names cannot be empty or contain '\"'."];
+                [warning setAlertStyle:NSAlertStyleInformational];
                 
                 // Display the warning dialog.
-                [tWrn runModal];
+                [warning runModal];
             }
             // Prevent 'Continue' movement.
             return (NO);
