@@ -16,10 +16,6 @@
 
 - (void)didEnterPane:(InstallerSectionDirection)aDir
 {
-    // Initialize the node name fields.
-    [_oNodeNameMainnet setStringValue:@"mainnet node name.."];
-    [_oNodeNameTestnet setStringValue:@"test node name.."];
-    
     // Disable the 'Continue' button.
     [self setNextEnabled:false];
     
@@ -36,7 +32,7 @@
     if (aDir == InstallerDirectionForward) {
         
         // Check if either node name is empty.
-        if (([[_oNodeNameMainnet stringValue] length] > 0) && ([[_oNodeNameTestnet stringValue] length] > 0)) {
+        if (([[_oMainnetNodeName stringValue] length] > 0) && ([[_oTestnetNodeName stringValue] length] > 0)) {
             [self saveConfigurationToDisk];
         } else {
             // Create a warning dialog.
@@ -65,19 +61,40 @@
 
 - (void) saveConfigurationToDisk {
     
-    // Create a file in /tmp.
-    // TODO: Add version placeholder to file name.
-    [[NSFileManager defaultManager] createFileAtPath:@"/tmp/concordium.node.install.config" contents:nil attributes:nil];
+    NSString *const configFilePath = @"/tmp/software.concordium.node.install.config";
     
-    NSString *configData = [NSString stringWithFormat:@"NODE_NAME_MAINNET=%@\nNODE_NAME_MAINNET=%@", [_oNodeNameMainnet stringValue], [_oNodeNameTestnet stringValue]];
-    [configData writeToFile:@"/tmp/concordium.node.install.config" atomically:YES encoding:NSUTF8StringEncoding error:nil];
+    // Create a file in /tmp.
+    [[NSFileManager defaultManager] createFileAtPath:configFilePath contents:nil attributes:nil];
+    
+    // Get configuration from properties.
+    // Checkbox states will be written as '1' or '0' for checked and unchecked, respectively.
+    NSString *configData = [NSString stringWithFormat:@"CONCORDIUM_NODE_INSTALL_MAINNET_RUN_ON_STARTUP=%d\n"
+                                                       "CONCORIDUM_NODE_INSTALL_MAINNET_RUN_AFTER_INSTALL=%d\n"
+                                                       "CONCORIDUM_NODE_INSTALL_MAINNET_REPORT_TO_NETWORK_DASHBOARD=%d\n"
+                                                       "CONCORIDUM_NODE_INSTALL_MAINNET_NODE_NAME=%@\n\n"
+                                                       "CONCORDIUM_NODE_INSTALL_TESTNET_RUN_ON_STARTUP=%d\n"
+                                                       "CONCORIDUM_NODE_INSTALL_TESTNET_RUN_AFTER_INSTALL=%d\n"
+                                                       "CONCORIDUM_NODE_INSTALL_TESTNET_REPORT_TO_NETWORK_DASHBOARD=%d\n"
+                                                       "CONCORIDUM_NODE_INSTALL_TESTNET_NODE_NAME=%@\n",
+                            ([_oMainnetRunOnStartup state] == NSControlStateValueOn),
+                            ([_oMainnetRunAfterInstall state] == NSControlStateValueOn),
+                            ([_oMainnetReportToNetworkDashboard state] == NSControlStateValueOn),
+                            [_oMainnetNodeName stringValue],
+                            
+                            ([_oTestnetRunOnStartup state] == NSControlStateValueOn),
+                            ([_oTestnetRunAfterInstall state] == NSControlStateValueOn),
+                            ([_oTestnetReportToNetworkDashboard state] == NSControlStateValueOn),
+                            [_oTestnetNodeName stringValue]];
+    
+    // Write contents to file.
+    [configData writeToFile:configFilePath atomically:YES encoding:NSUTF8StringEncoding error:nil];
 }
 
 - (IBAction) validateNodeNames:(id)aSnd
 {
     BOOL tChk;
     // Check the node name fields.
-    tChk = ([[_oNodeNameMainnet stringValue] length] > 0) && ([[_oNodeNameTestnet stringValue] length] > 0);
+    tChk = ([[_oMainnetNodeName stringValue] length] > 0) && ([[_oTestnetNodeName stringValue] length] > 0);
     
     // Enable/disable the Continue button.
     [self setNextEnabled:tChk];

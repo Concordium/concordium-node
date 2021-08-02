@@ -9,8 +9,15 @@
 
 @interface MyInstallerPane : InstallerPane
 
-@property IBOutlet NSTextField *oNodeNameMainnet;
-@property IBOutlet NSTextField *oNodeNameTestnet;
+@property IBOutlet NSButton *oMainnetRunOnStartup;
+@property IBOutlet NSButton *oMainnetRunAfterInstall;
+@property IBOutlet NSButton *oMainnetReportToNetworkDashboard;
+@property IBOutlet NSTextField *oMainnetNodeName;
+
+@property IBOutlet NSButton *oTestnetRunOnStartup;
+@property IBOutlet NSButton *oTestnetRunAfterInstall;
+@property IBOutlet NSButton *oTestnetReportToNetworkDashboard;
+@property IBOutlet NSTextField *oTestnetNodeName;
 
 - (IBAction) validateNodeNames:(id)aSnd;
 

@@ -16,8 +16,14 @@
         <customObject id="Qsn-FY-4qK" customClass="MyInstallerPane">
             <connections>
                 <outlet property="contentView" destination="TUK-W2-vig" id="gTd-A7-dof"/>
-                <outlet property="oNodeNameMainnet" destination="tp3-7x-Q2w" id="0RA-fC-MHD"/>
-                <outlet property="oNodeNameTestnet" destination="xxl-pA-Opt" id="Kwg-Kf-bdo"/>
+                <outlet property="oMainnetNodeName" destination="tp3-7x-Q2w" id="6kF-it-oiJ"/>
+                <outlet property="oMainnetReportToNetworkDashboard" destination="eb0-B9-ujV" id="Iht-kF-GON"/>
+                <outlet property="oMainnetRunAfterInstall" destination="LQe-C5-BaQ" id="fhp-mR-KOY"/>
+                <outlet property="oMainnetRunOnStartup" destination="UyF-vD-mXn" id="4R6-gb-CZG"/>
+                <outlet property="oTestnetNodeName" destination="VEj-Ym-Tci" id="oW5-Kq-L9V"/>
+                <outlet property="oTestnetReportToNetworkDashboard" destination="E6D-gA-wdc" id="f5x-hB-Thp"/>
+                <outlet property="oTestnetRunAfterInstall" destination="hFo-wT-utD" id="dzQ-iq-PRS"/>
+                <outlet property="oTestnetRunOnStartup" destination="6ag-Uq-Zu9" id="XfC-au-SaA"/>
                 <outlet property="parentSection" destination="-2" id="FB7-UV-e8k"/>
             </connections>
         </customObject>
@@ -25,50 +31,194 @@
             <rect key="frame" x="0.0" y="0.0" width="418" height="330"/>
             <autoresizingMask key="autoresizingMask"/>
             <subviews>
-                <textField horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="azY-EI-1ao">
-                    <rect key="frame" x="63" y="236" width="126" height="16"/>
+                <textField horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="qd1-0u-nZv">
+                    <rect key="frame" x="33" y="294" width="4" height="16"/>
                     <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
-                    <textFieldCell key="cell" lineBreakMode="clipping" title="Node name mainnet" id="zMy-O3-aKH">
+                    <textFieldCell key="cell" lineBreakMode="clipping" id="HqH-vO-3c0">
                         <font key="font" usesAppearanceFont="YES"/>
                         <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
                         <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
                     </textFieldCell>
                 </textField>
-                <textField horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="gqh-MQ-z1d">
-                    <rect key="frame" x="63" y="157" width="120" height="16"/>
+                <box fixedFrame="YES" title="Mainnet" translatesAutoresizingMaskIntoConstraints="NO" id="7Lc-iK-bCO">
+                    <rect key="frame" x="11" y="20" width="196" height="227"/>
                     <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
-                    <textFieldCell key="cell" lineBreakMode="clipping" title="Node name testnet" id="FDE-PW-e8Y">
-                        <font key="font" usesAppearanceFont="YES"/>
+                    <view key="contentView" id="916-BY-oyA">
+                        <rect key="frame" x="3" y="3" width="190" height="209"/>
+                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                        <subviews>
+                            <stackView distribution="fill" orientation="vertical" alignment="leading" spacing="18" horizontalStackHuggingPriority="249.99998474121094" verticalStackHuggingPriority="249.99998474121094" fixedFrame="YES" detachesHiddenViews="YES" translatesAutoresizingMaskIntoConstraints="NO" id="UCw-RY-ska">
+                                <rect key="frame" x="9" y="15" width="173" height="181"/>
+                                <subviews>
+                                    <button verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="UyF-vD-mXn">
+                                        <rect key="frame" x="-2" y="151" width="139" height="30"/>
+                                        <buttonCell key="cell" type="check" title="Run a mainnet node at start-up" bezelStyle="regularSquare" imagePosition="left" state="on" inset="2" id="aCR-Yk-dSc">
+                                            <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
+                                            <font key="font" metaFont="system" size="12"/>
+                                        </buttonCell>
+                                    </button>
+                                    <button verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="LQe-C5-BaQ">
+                                        <rect key="frame" x="-2" y="103" width="156" height="30"/>
+                                        <buttonCell key="cell" type="check" bezelStyle="regularSquare" imagePosition="left" state="on" inset="2" id="rfO-eP-WzF">
+                                            <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
+                                            <string key="title">Start the node after
+installation is complete</string>
+                                            <font key="font" metaFont="system" size="12"/>
+                                        </buttonCell>
+                                    </button>
+                                    <button verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="eb0-B9-ujV">
+                                        <rect key="frame" x="-2" y="55" width="153" height="30"/>
+                                        <buttonCell key="cell" type="check" bezelStyle="regularSquare" imagePosition="left" state="on" inset="2" id="MNN-jX-5GI">
+                                            <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
+                                            <string key="title">Report to the network 
+dashboard</string>
+                                            <font key="font" metaFont="system" size="12"/>
+                                        </buttonCell>
+                                    </button>
+                                    <stackView distribution="fill" orientation="vertical" alignment="leading" spacing="1" horizontalStackHuggingPriority="249.99998474121094" verticalStackHuggingPriority="249.99998474121094" ambiguous="YES" detachesHiddenViews="YES" translatesAutoresizingMaskIntoConstraints="NO" id="iBl-6w-lGX">
+                                        <rect key="frame" x="0.0" y="0.0" width="173" height="37"/>
+                                        <subviews>
+                                            <textField horizontalHuggingPriority="251" verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="azY-EI-1ao">
+                                                <rect key="frame" x="-2" y="22" width="109" height="15"/>
+                                                <textFieldCell key="cell" lineBreakMode="clipping" title="Public node name:" id="zMy-O3-aKH">
+                                                    <font key="font" metaFont="system" size="12"/>
+                                                    <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                                                    <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                </textFieldCell>
+                                            </textField>
+                                            <textField verticalHuggingPriority="750" ambiguous="YES" translatesAutoresizingMaskIntoConstraints="NO" id="tp3-7x-Q2w">
+                                                <rect key="frame" x="0.0" y="0.0" width="173" height="21"/>
+                                                <textFieldCell key="cell" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" borderStyle="bezel" drawsBackground="YES" id="Eo1-Dv-onL">
+                                                    <font key="font" metaFont="system"/>
+                                                    <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                                                    <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                </textFieldCell>
+                                                <connections>
+                                                    <action selector="validateNodeNames:" target="Qsn-FY-4qK" id="IYv-GS-iBe"/>
+                                                </connections>
+                                            </textField>
+                                        </subviews>
+                                        <visibilityPriorities>
+                                            <integer value="1000"/>
+                                            <integer value="1000"/>
+                                        </visibilityPriorities>
+                                        <customSpacing>
+                                            <real value="3.4028234663852886e+38"/>
+                                            <real value="3.4028234663852886e+38"/>
+                                        </customSpacing>
+                                    </stackView>
+                                </subviews>
+                                <visibilityPriorities>
+                                    <integer value="1000"/>
+                                    <integer value="1000"/>
+                                    <integer value="1000"/>
+                                    <integer value="1000"/>
+                                </visibilityPriorities>
+                                <customSpacing>
+                                    <real value="3.4028234663852886e+38"/>
+                                    <real value="3.4028234663852886e+38"/>
+                                    <real value="3.4028234663852886e+38"/>
+                                    <real value="3.4028234663852886e+38"/>
+                                </customSpacing>
+                            </stackView>
+                        </subviews>
+                    </view>
+                </box>
+                <box fixedFrame="YES" title="Testnet" translatesAutoresizingMaskIntoConstraints="NO" id="f7Z-NY-cYx">
+                    <rect key="frame" x="215" y="20" width="196" height="227"/>
+                    <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+                    <view key="contentView" id="7nm-hZ-1rR">
+                        <rect key="frame" x="3" y="3" width="190" height="209"/>
+                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                        <subviews>
+                            <stackView distribution="fill" orientation="vertical" alignment="leading" spacing="18" horizontalStackHuggingPriority="249.99998474121094" verticalStackHuggingPriority="249.99998474121094" fixedFrame="YES" detachesHiddenViews="YES" translatesAutoresizingMaskIntoConstraints="NO" id="KTj-bN-39B">
+                                <rect key="frame" x="9" y="15" width="173" height="181"/>
+                                <subviews>
+                                    <button verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="6ag-Uq-Zu9">
+                                        <rect key="frame" x="-2" y="151" width="133" height="30"/>
+                                        <buttonCell key="cell" type="check" title="Run a testnet node at start-up" bezelStyle="regularSquare" imagePosition="left" state="on" inset="2" id="uF9-mR-ihH">
+                                            <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
+                                            <font key="font" metaFont="system" size="12"/>
+                                        </buttonCell>
+                                    </button>
+                                    <button verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="hFo-wT-utD">
+                                        <rect key="frame" x="-2" y="103" width="156" height="30"/>
+                                        <buttonCell key="cell" type="check" bezelStyle="regularSquare" imagePosition="left" state="on" inset="2" id="rRV-vL-Ipw">
+                                            <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
+                                            <string key="title">Start the node after
+installation is complete</string>
+                                            <font key="font" metaFont="system" size="12"/>
+                                        </buttonCell>
+                                    </button>
+                                    <button verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="E6D-gA-wdc">
+                                        <rect key="frame" x="-2" y="55" width="153" height="30"/>
+                                        <buttonCell key="cell" type="check" bezelStyle="regularSquare" imagePosition="left" state="on" inset="2" id="4LM-PC-4iE">
+                                            <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
+                                            <string key="title">Report to the network 
+dashboard</string>
+                                            <font key="font" metaFont="system" size="12"/>
+                                        </buttonCell>
+                                    </button>
+                                    <stackView distribution="fill" orientation="vertical" alignment="leading" spacing="1" horizontalStackHuggingPriority="249.99998474121094" verticalStackHuggingPriority="249.99998474121094" ambiguous="YES" detachesHiddenViews="YES" translatesAutoresizingMaskIntoConstraints="NO" id="8yU-7r-OGL">
+                                        <rect key="frame" x="0.0" y="0.0" width="173" height="37"/>
+                                        <subviews>
+                                            <textField horizontalHuggingPriority="251" verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="ezv-0h-zad">
+                                                <rect key="frame" x="-2" y="22" width="109" height="15"/>
+                                                <textFieldCell key="cell" lineBreakMode="clipping" title="Public node name:" id="84b-oq-i3Z">
+                                                    <font key="font" metaFont="system" size="12"/>
+                                                    <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                                                    <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                </textFieldCell>
+                                            </textField>
+                                            <textField verticalHuggingPriority="750" ambiguous="YES" translatesAutoresizingMaskIntoConstraints="NO" id="VEj-Ym-Tci">
+                                                <rect key="frame" x="0.0" y="0.0" width="173" height="21"/>
+                                                <textFieldCell key="cell" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" borderStyle="bezel" drawsBackground="YES" id="dqx-Ea-Mvh">
+                                                    <font key="font" metaFont="system"/>
+                                                    <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                                                    <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                </textFieldCell>
+                                                <connections>
+                                                    <action selector="validateNodeNames:" target="Qsn-FY-4qK" id="Cxf-wC-gtD"/>
+                                                </connections>
+                                            </textField>
+                                        </subviews>
+                                        <visibilityPriorities>
+                                            <integer value="1000"/>
+                                            <integer value="1000"/>
+                                        </visibilityPriorities>
+                                        <customSpacing>
+                                            <real value="3.4028234663852886e+38"/>
+                                            <real value="3.4028234663852886e+38"/>
+                                        </customSpacing>
+                                    </stackView>
+                                </subviews>
+                                <visibilityPriorities>
+                                    <integer value="1000"/>
+                                    <integer value="1000"/>
+                                    <integer value="1000"/>
+                                    <integer value="1000"/>
+                                </visibilityPriorities>
+                                <customSpacing>
+                                    <real value="3.4028234663852886e+38"/>
+                                    <real value="3.4028234663852886e+38"/>
+                                    <real value="3.4028234663852886e+38"/>
+                                    <real value="3.4028234663852886e+38"/>
+                                </customSpacing>
+                            </stackView>
+                        </subviews>
+                    </view>
+                </box>
+                <textField verticalHuggingPriority="750" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="vgF-gh-KyD">
+                    <rect key="frame" x="18" y="267" width="392" height="38"/>
+                    <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+                    <textFieldCell key="cell" selectable="YES" title="The node can be configured to run nodes on the Concordium mainnet and testnet." id="3oT-yX-bDD">
+                        <font key="font" metaFont="system"/>
                         <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
                         <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
                     </textFieldCell>
-                </textField>
-                <textField verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="tp3-7x-Q2w">
-                    <rect key="frame" x="65" y="207" width="245" height="21"/>
-                    <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
-                    <textFieldCell key="cell" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" borderStyle="bezel" drawsBackground="YES" id="Eo1-Dv-onL">
-                        <font key="font" metaFont="system"/>
-                        <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
-                        <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
-                    </textFieldCell>
-                    <connections>
-                        <action selector="validateNodeNames:" target="Qsn-FY-4qK" id="4LP-tn-lVI"/>
-                    </connections>
-                </textField>
-                <textField verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="xxl-pA-Opt">
-                    <rect key="frame" x="65" y="128" width="245" height="21"/>
-                    <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
-                    <textFieldCell key="cell" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" borderStyle="bezel" drawsBackground="YES" id="9Yp-BH-vxI">
-                        <font key="font" metaFont="system"/>
-                        <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
-                        <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
-                    </textFieldCell>
-                    <connections>
-                        <action selector="validateNodeNames:" target="Qsn-FY-4qK" id="7Ph-ug-2Qa"/>
-                    </connections>
                 </textField>
             </subviews>
-            <point key="canvasLocation" x="139" y="154"/>
+            <point key="canvasLocation" x="-2" y="-3"/>
         </customView>
     </objects>
 </document>
