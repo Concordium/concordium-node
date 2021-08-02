@@ -3,16 +3,24 @@
     "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+
     <key>Label</key>
     <string>software.concordium.node-collector</string>
+
     <key>Program</key>
     <string>/usr/local/bin/concordium-node-collector-__VERSION__</string>
+
+    <key>EnvironmentVariables</key>
     <dict>
         <key>CONCORDIUM_NODE_COLLECTOR_MACOS_SUBSYSTEM_NAME</key>
         <string>software.concordium.mainnet.node</string>
+        <key>CONCORDIUM_NODE_COLLECTOR_NODE_NAME</key>
+        <string>__NODE_NAME__</string>
     </dict>
+
     <key>RunAtLoad</key>
     <false />
+
     <key>KeepAlive</key>
     <dict>
         <key>OtherJobActive</key>
@@ -27,7 +35,7 @@
            <key>software.concordium.node-collector</key>
            <true />
         </dict>
-
     </dict>
+
 </dict>
 </plist>

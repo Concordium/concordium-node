@@ -66,9 +66,10 @@
 - (void) saveConfigurationToDisk {
     
     // Create a file in /tmp.
+    // TODO: Add version placeholder to file name.
     [[NSFileManager defaultManager] createFileAtPath:@"/tmp/concordium.node.install.config" contents:nil attributes:nil];
     
-    NSString *configData = [NSString stringWithFormat:@"mainnet_node_name=%@\ntestnet_node_name=%@", [_oNodeNameMainnet stringValue], [_oNodeNameTestnet stringValue]];
+    NSString *configData = [NSString stringWithFormat:@"NODE_NAME_MAINNET=%@\nNODE_NAME_MAINNET=%@", [_oNodeNameMainnet stringValue], [_oNodeNameTestnet stringValue]];
     [configData writeToFile:@"/tmp/concordium.node.install.config" atomically:YES encoding:NSUTF8StringEncoding error:nil];
 }
 
