@@ -75,7 +75,7 @@ function compileNodeAndCollector() {
 
 function compileInstallerPlugin() {
     logInfo "Building installer plugin..."
-    xcodebuild -project "$macPackageDir/NodeConfigurationInstallerPlugin/NodeConfigurationInstallerPlugin.xcodeproj"
+    xcodebuild -project "$macPackageDir/NodeConfigurationInstallerPlugin/NodeConfigurationInstallerPlugin.xcodeproj" > /dev/null
     logInfo "Done"
 }
 
@@ -111,7 +111,7 @@ function getDylibbundler() {
 
     if test -f "$macdylibbundlerDir/dylibbundler"
     then
-        logInfo "Skipped: already exists"
+        logInfo "Done (skipped: already exists)"
     else
         logInfo " -- Downloading..."
         mkdir "$toolsDir"
@@ -137,7 +137,7 @@ function collectDylibsFor() {
 }
 
 function collectDylibs() {
-    logInfo "Collecting dylibs with dylibbundler..."
+    logInfo "Collecting dylibs with dylibbundler (this will take a few minutes)..."
 
     concordiumDylibDir=$(stack --stack-yaml "$consensusDir/stack.yaml" path --local-install-root)"/lib/$ghcVariant"
     stackSnapshotDir=$(stack --stack-yaml "$consensusDir/stack.yaml" path --snapshot-install-root)"/lib/$ghcVariant"
@@ -147,9 +147,9 @@ function collectDylibs() {
     readonly stackLibDirs
 
     logInfo " -- Processing concordium-node"
-    collectDylibsFor "$versionedBinDir/concordium-node"
+    collectDylibsFor "$versionedBinDir/concordium-node" &> /dev/null
     logInfo " -- Processing node-collector"
-    collectDylibsFor "$versionedBinDir/node-collector"
+    collectDylibsFor "$versionedBinDir/node-collector" &> /dev/null
 
     logInfo "Done"
 }
