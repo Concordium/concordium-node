@@ -1,5 +1,10 @@
 pipeline {
-    agent { label 'windows' }
+    agent {
+        node {
+            label 'windows'
+            customWorkspace 'C:\\node-ws'
+        }
+    }
     environment {
         BASE_OUTFILE = 's3://distribution.concordium.software/windows/'
         TAG = """${sh(
@@ -12,17 +17,18 @@ pipeline {
                     fi
                 '''
             )}""".trim()
+        OUTFILE = "${BASE_OUTFILE}Node-${TAG}.msi"
     }
     stages {
         stage('build') {
             steps {
-                powershell '''\
+                sh '''\
                         # Build
-                        ./scripts/distribution/windows/build-all.ps1
+                        powershell -File ./scripts/distribution/windows/build-all.ps1
 
                         # Push
-                        $OUTFILE = "$($env:BASE_OUTFILE)Node-$($env:TAG).msi"
                         aws s3 cp ./service/windows/installer/Node.msi $OUTFILE --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
+
                     '''
             }
         }
