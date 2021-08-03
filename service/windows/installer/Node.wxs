@@ -1,12 +1,20 @@
 <?xml version='1.0' encoding='windows-1252'?>
 <Wix xmlns='http://schemas.microsoft.com/wix/2006/wi' xmlns:Util="http://schemas.microsoft.com/wix/UtilExtension">
-    <Product Name='Concordium Node' Manufacturer='Concordium' Id='ae8c6e39-db6f-4538-9b8f-efefa3e195ad' UpgradeCode='297295b4-c716-4d33-8170-0f6136663bfd' Language='1033' Codepage='1252' Version='1.0.2'>
-        <Package Id='*' Keywords='Concordium Installer' Description='Concordium Node 1.0.2 Installer' Manufacturer='Concordium' InstallerVersion='500' Languages='1033' Compressed='yes' InstallScope="perMachine" />
+    <Product Name='Concordium Node' Manufacturer='Concordium Software' Id='ae8c6e39-db6f-4538-9b8f-efefa3e195ad' UpgradeCode='297295b4-c716-4d33-8170-0f6136663bfd' Language='1033' Codepage='1252' Version='1.0.2'>
+        <Package Id='*' Keywords='Concordium Installer' Description='Concordium Node 1.0.2 Installer' Manufacturer='Concordium Software' InstallerVersion='500' Languages='1033' Compressed='yes' InstallScope="perMachine" />
         <Media Id='1' Cabinet='Node.cab' EmbedCab='yes' />
         <Directory Id='TARGETDIR' Name='SourceDir'>
             <Directory Id='ProgramFiles64Folder' Name='PFiles'>
                 <Directory Id='Concordium' Name='Concordium'>
                     <Directory Id='INSTALLDIR' Name='Node 1.0'>
+                        <!-- The installation directory. Here, we install:
+                            * concordium-node.exe
+                            * HSdll.dll
+                            * node-collector.exe
+                            * node-runner-service.exe
+                            * third-party-licenses.exe
+                            * additional DLLs (in the ThirdPartyDLLs component group)
+                        -->
                         <Component Id='NodeExecutable' Guid='90257d98-bcb9-4570-881a-aa7b6404b315'>
                             <File Id='ConcordiumNode' Name='concordium-node.exe' DiskId='1' Source='!(bindpath.node)concordium-node.exe' Checksum='yes' KeyPath='yes' />
                             <File Id='HSdll' Name='HSdll.dll' DiskId='1' Source='!(bindpath.consensus)HSdll.dll' Checksum='yes' />
@@ -23,18 +31,23 @@
                             <!-- This installs the node runner service. It is important that the
                                 Name matches the SERVICE_NAME constant in main.rs. -->
                             <ServiceInstall Name="ConcordiumNode" DisplayName="Concordium Node Runner Service" Description="Runs one or more Concordium blockchain nodes." Type="ownProcess" Start="auto" ErrorControl="ignore"></ServiceInstall>
+                            <!-- This stops and removes the service when we are un-/re-installing. -->
                             <ServiceControl Id="ConcordiumNodeServiceControl" Name="ConcordiumNode" Stop="both" Remove="both" />
-
                             <!-- This sets up the event source for the node runner service.
                                 It is important that the Name matches the EVENT_LOG_NAME constant
                                 in main.rs. -->
                             <Util:EventSource Name="Concordium Node Runner Service" Log="Application" EventMessageFile="[#NodeRunnerService]" />
+                        </Component>
+                        <Component Id='ThirdPartyLicenses' Guid='385d76f5-e504-4f73-9bdc-38172f294228'>
+                            <File Id="Licenses" Name='third-party-licenses.html' Source='!(bindpath.res)licenses.html' Checksum='yes' KeyPath="yes" />
+                            <Util:InternetShortcut Id="LicensesShortcut" Name="Third Party Licenses" Target="file:///[#Licenses]" Directory='ProgramMenuDir' />
                         </Component>
                     </Directory>
                 </Directory>
             </Directory>
             <Directory Id="ProgramMenuFolder" Name="Programs">
                 <Directory Id="ProgramMenuDir" Name="Concordium Node">
+                    <!-- Program menu folder. The shortcuts are placed here. -->
                     <Component Id="ProgramMenuDir" Guid="4179b16f-f459-4d80-a3d8-7b64519a20db">
                         <RemoveFolder Id="ProgramMenuDir" On="uninstall" />
                         <RegistryValue Root="HKCU" Key='Software\[Manufacturer]\[ProductName]' Type="string" Value="" KeyPath="yes" />
@@ -44,8 +57,19 @@
             <Directory Id="CommonAppDataFolder" Name="Data">
                 <Directory Id="ConcordiumData" Name="Concordium">
                     <Directory Id="INSTALLDATADIR" Name="Node Runner">
+                        <!-- Data directory. Here are installed:
+                            * nodes.toml
+                            * mainnet/data/genesis.dat
+                            * mainnet/config (empty folder)
+                            * mainnet/logs (empty folder)
+                            * testnet/data/genesis.dat
+                            * testnet/config (empty folder)
+                            * testnet/logs (empty folder)
+                        -->
                         <Component Id="NodesToml" Guid="faec3dbc-fbfe-402f-8602-9e80aae57a82">
                             <File Id="NodesToml" Name="nodes.toml" Source="!(bindpath.res)nodes.toml" KeyPath="yes" />
+                            <!-- Various configuration options are written to the nodes.toml.
+                                We treat it as if it were an ini file. -->
                             <IniFile Id="NodesTomlMainnetEnabled" Directory="INSTALLDATADIR" Name="nodes.toml" Action="addLine" Section="node.mainnet" Key="enabled" Value="[MainnetEnable]" />
                             <IniFile Id="NodesTomlMainnetCollector" Directory="INSTALLDATADIR" Name="nodes.toml" Action="addLine" Section="node.mainnet" Key="collector.enabled" Value="[MainnetCollectorEnable]" />
                             <IniFile Id="NodesTomlMainnetCollectorName" Directory="INSTALLDATADIR" Name="nodes.toml" Action="addLine" Section="node.mainnet" Key="collector.node_name" Value="'''[MAINNETNODENAME]'''" />
@@ -69,10 +93,15 @@
                 </Directory>
             </Directory>
             <Component Id="NoRemoveEntry">
+                <!-- This key is written to the registry to disable the Uninstall option in
+                    Add/Remove Programs. The user must then use the Change option instead, which
+                    is interactive, and so the UI will be shown that allows the user to delete
+                    the entire data directory. -->
                 <RegistryValue Root="HKLM" Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\[ProductCode]" Name="NoRemove" Type="integer" Value="1" KeyPath="yes" />
-            </Component>    
+            </Component>
         </Directory>
 
+        <!-- The third party DLLs -->
         <ComponentGroup Id="ThirdPartyDLLs" Directory="INSTALLDIR">
             <Component>
                 <File Name="libcrypto-1_1-x64.dll" Source="!(bindpath.lib)libcrypto-1_1-x64.dll" KeyPath="yes" />
@@ -106,6 +135,7 @@
             </Component>
         </ComponentGroup>
 
+        <!-- The mainnet genesis data, and config/log folders -->
         <ComponentGroup Id="MainnetFiles">
             <Component Directory="MainnetData" Guid="73516d96-86a6-4f8d-ba7e-b8885528ac2c">
                 <File Id="MainnetGenesis" Name="genesis.dat" Source="!(bindpath.res)mainnet-genesis.dat" KeyPath="yes" />
@@ -118,6 +148,7 @@
             </Component>
         </ComponentGroup>
 
+        <!-- The mainnet genesis data, and config/log folders -->
         <ComponentGroup Id="TestnetFiles">
             <Component Directory="TestnetData" Guid="60860e8e-726f-4d5c-ac1e-838fb5776672">
                 <File Id="TestnetGenesis" Name="genesis.dat" Source="!(bindpath.res)testnet-genesis.dat" KeyPath="yes" />
@@ -130,17 +161,25 @@
             </Component>
         </ComponentGroup>
 
+        <!-- Icons used for shortcuts and for the installer itself. -->
         <Icon Id="base.ico" SourceFile="!(bindpath.res)base.ico" />
         <Icon Id="config.ico" SourceFile="!(bindpath.res)config.ico" />
         <Icon Id="play.ico" SourceFile="!(bindpath.res)play.ico" />
         <Icon Id="stop.ico" SourceFile="!(bindpath.res)stop.ico" />
+
+        <!-- Configuration for how the installer shows in Add/Remove Programs. -->
         <Property Id="ARPPRODUCTICON" Value="base.ico" />
-        <!-- This disables the Uninstall button in Programs and Features. Uninstallation is via
-            Change instead, since this displays the UI and allows the choice to remove the
-            application data. -->
-        <!-- <Property Id="ARPNOREMOVE" Value="1" /> -->
+        <Property Id="ARPCONTACT" Value="support@concordium.software" />
+        <Property Id="ARPHELPLINK" Value="https://support.concordium.software/" />
+        <!-- Disable the repair option; the functionality is available through Change instead. -->
         <Property Id="ARPNOREPAIR" Value="1" />
 
+        <!-- Custom actions for the installer:
+            * RemoveDataFolder: removes the data directory; run when the option is chosen during uninstall.
+            * ServiceStartAuto: sets the service as autostart; run when the option is chosen and the node is installed.
+            * ServiceStartDemand: sets the service as manual start; run when the autostart option is not chosen and the node is installed.
+            * StartService: starts the service; run after installation if the option is chosen.
+        -->
         <Binary Id="CustomActions" SourceFile="!(bindpath.ca)custom_actions.dll" />
         <CustomAction Id="RemoveDataFolder" BinaryKey="CustomActions" DllEntry="DeleteDataFolder" Execute="deferred" Return="check" Impersonate="no" />
         <CustomAction Id="RemoveDataFolder.SetProperty" Return="check" Property="RemoveDataFolder" Value="[INSTALLDATADIR]" />
@@ -157,26 +196,41 @@
             <Custom Action="RemoveDataFolder.SetProperty" Before="RemoveDataFolder">
                 <![CDATA[ REMOVEDATADIR=1 ]]>
             </Custom>
-            <Custom Action="ServiceStartAuto" After="InstallServices"><![CDATA[$NodeRunnerService=3 AND AUTOSTART]]></Custom>
-            <Custom Action="ServiceStartAuto.SetProperty" Before="ServiceStartAuto"><![CDATA[$NodeRunnerService=3 AND AUTOSTART]]></Custom>
-            <Custom Action="ServiceStartDemand" After="InstallServices"><![CDATA[$NodeRunnerService=3 AND NOT AUTOSTART]]></Custom>
-            <Custom Action="ServiceStartDemand.SetProperty" Before="ServiceStartDemand"><![CDATA[$NodeRunnerService=3 AND NOT AUTOSTART]]></Custom>
-            <Custom Action="StartService" After="StartServices"><![CDATA[$NodeRunnerService=3 AND INSTALLSTART]]></Custom>
-            <Custom Action="StartService.SetProperty" Before="StartService"><![CDATA[$NodeRunnerService=3 AND INSTALLSTART]]></Custom>
+            <Custom Action="ServiceStartAuto" After="InstallServices">
+                <![CDATA[$NodeRunnerService=3 AND AUTOSTART]]>
+            </Custom>
+            <Custom Action="ServiceStartAuto.SetProperty" Before="ServiceStartAuto">
+                <![CDATA[$NodeRunnerService=3 AND AUTOSTART]]>
+            </Custom>
+            <Custom Action="ServiceStartDemand" After="InstallServices">
+                <![CDATA[$NodeRunnerService=3 AND NOT AUTOSTART]]>
+            </Custom>
+            <Custom Action="ServiceStartDemand.SetProperty" Before="ServiceStartDemand">
+                <![CDATA[$NodeRunnerService=3 AND NOT AUTOSTART]]>
+            </Custom>
+            <Custom Action="StartService" After="StartServices">
+                <![CDATA[$NodeRunnerService=3 AND INSTALLSTART]]>
+            </Custom>
+            <Custom Action="StartService.SetProperty" Before="StartService">
+                <![CDATA[$NodeRunnerService=3 AND INSTALLSTART]]>
+            </Custom>
         </InstallExecuteSequence>
 
+        <!-- All of the components are grouped into a single feature for simplicity. -->
         <Feature Id="Complete" Level="1" Title="Concordium Node" ConfigurableDirectory="INSTALLDIR">
             <ComponentRef Id="NodeExecutable" />
             <ComponentGroupRef Id="ThirdPartyDLLs" />
             <ComponentRef Id="NodeCollector" />
             <ComponentRef Id="NodeRunnerService" />
             <ComponentRef Id="ProgramMenuDir" />
+            <ComponentRef Id="ThirdPartyLicenses" />
             <ComponentRef Id="NodesToml" />
             <ComponentGroupRef Id="MainnetFiles" />
             <ComponentGroupRef Id="TestnetFiles" />
             <ComponentRef Id="NoRemoveEntry" />
         </Feature>
 
+        <!-- Configuration options -->
         <Property Id="AUTOSTART" Value="1" Secure="yes" />
         <Property Id="INSTALLSTART" Value="1" Secure="yes" />
         <Property Id="MAINNETENABLED" Value="1" Secure="yes" />
@@ -191,6 +245,8 @@
         <SetProperty Id="MAINNETNODENAME" Value="[ComputerName]" After="LaunchConditions" Sequence="first">NOT MAINNETNODENAME</SetProperty>
         <SetProperty Id="TESTNETNODENAME" Value="[ComputerName]" After="LaunchConditions" Sequence="first">NOT TESTNETNODENAME</SetProperty>
 
+        <!-- The following properties are used for writing to nodes.toml. They convert the set/not-set
+            state of other properties into true/false string values that are what we actually write. -->
         <Property Id="MainnetEnable" Value="false" />
         <SetProperty Id="MainnetEnable" Sequence="execute" Before="WriteIniValues" Value="true">
             <![CDATA[MAINNETENABLED=1]]>
@@ -208,8 +264,12 @@
             <![CDATA[TESTNETCOLLECTOR=1]]>
         </SetProperty>
 
+        <!-- These properties tell the UI which variables are used for the installation directories. -->
         <Property Id="WIXUI_INSTALLDIR" Value="INSTALLDIR" />
         <Property Id="WIXUI_DATADIR" Value="INSTALLDATADIR" />
+
+        <!-- Define the user interface. This combines WiX's predefined dialogs with custom dialogs
+            defined in CustomDlgs.wxs. -->
         <UI Id="CustomWixUI">
             <TextStyle Id="WixUI_Font_Normal" FaceName="Tahoma" Size="8" />
             <TextStyle Id="WixUI_Font_Bigger" FaceName="Tahoma" Size="12" />
@@ -281,6 +341,7 @@
 
         </UI>
 
+        <!-- UI assets -->
         <WixVariable Id="WixUIDialogBmp" Value="!(bindpath.res)WixUiDialog.png" />
         <WixVariable Id="WixUIBannerBmp" Value="!(bindpath.res)WixUiBanner.png" />
         <WixVariable Id="WixUILicenseRtf" Value="!(bindpath.res)license.rtf" />

@@ -2,6 +2,8 @@ pipeline {
     agent {
         node {
             label 'windows'
+            // We set a custom workspace because the build can hit problems with long paths
+            // (beyond ~260 characters) otherwise.
             customWorkspace 'C:\\node-ws'
         }
     }
