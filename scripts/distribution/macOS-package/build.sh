@@ -51,6 +51,7 @@ function createBuildDirFromTemplate() {
     cp -r "$templateDir" "$buildDir"
 
     mkdir "$versionedBinDir"
+    mkdir "$buildDir/plugins"
     mkdir "$payloadDir/Application Support/Concordium Node/Mainnet/Config"
     mkdir "$payloadDir/Application Support/Concordium Node/Testnet/Config"
 
@@ -156,9 +157,14 @@ function collectDylibs() {
 
 function signBinaries() {
     logInfo "Signing binaries..."
+
     find "$payloadDir" \
         -type f \
         -execdir sudo codesign -f --options runtime -s "$developerIdApplication" {} \;
+
+    sudo codesign -f --options runtime -s "$developerIdApplication" \
+        "$buildDir/plugins/NodeConfigurationInstallerPlugin.bundle"
+
     logInfo "Done"
 }
 
