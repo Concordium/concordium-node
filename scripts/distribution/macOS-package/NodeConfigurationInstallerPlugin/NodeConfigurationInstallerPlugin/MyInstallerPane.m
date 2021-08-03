@@ -56,13 +56,13 @@
     // Get configuration from properties.
     // Checkbox states will be written as '1' or '0' for checked and unchecked, respectively.
     NSString *configData = [NSString stringWithFormat:@"CONCORDIUM_NODE_INSTALL_MAINNET_RUN_ON_STARTUP=%d\n"
-                                                       "CONCORIDUM_NODE_INSTALL_MAINNET_RUN_AFTER_INSTALL=%d\n"
-                                                       "CONCORIDUM_NODE_INSTALL_MAINNET_REPORT_TO_NETWORK_DASHBOARD=%d\n"
-                                                       "CONCORIDUM_NODE_INSTALL_MAINNET_NODE_NAME=\"%@\"\n\n"
+                                                       "CONCORDIUM_NODE_INSTALL_MAINNET_RUN_AFTER_INSTALL=%d\n"
+                                                       "CONCORDIUM_NODE_INSTALL_MAINNET_REPORT_TO_NETWORK_DASHBOARD=%d\n"
+                                                       "CONCORDIUM_NODE_INSTALL_MAINNET_NODE_NAME=\"%@\"\n\n"
                                                        "CONCORDIUM_NODE_INSTALL_TESTNET_RUN_ON_STARTUP=%d\n"
-                                                       "CONCORIDUM_NODE_INSTALL_TESTNET_RUN_AFTER_INSTALL=%d\n"
-                                                       "CONCORIDUM_NODE_INSTALL_TESTNET_REPORT_TO_NETWORK_DASHBOARD=%d\n"
-                                                       "CONCORIDUM_NODE_INSTALL_TESTNET_NODE_NAME=\"%@\"\n",
+                                                       "CONCORDIUM_NODE_INSTALL_TESTNET_RUN_AFTER_INSTALL=%d\n"
+                                                       "CONCORDIUM_NODE_INSTALL_TESTNET_REPORT_TO_NETWORK_DASHBOARD=%d\n"
+                                                       "CONCORDIUM_NODE_INSTALL_TESTNET_NODE_NAME=\"%@\"\n",
                             ([_oMainnetRunOnStartup state] == NSControlStateValueOn),
                             ([_oMainnetRunAfterInstall state] == NSControlStateValueOn),
                             ([_oMainnetReportToNetworkDashboard state] == NSControlStateValueOn),

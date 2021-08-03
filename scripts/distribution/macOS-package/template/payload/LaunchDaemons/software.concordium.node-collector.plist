@@ -5,37 +5,39 @@
 <dict>
 
     <key>Label</key>
-    <string>software.concordium.node-collector</string>
+    <string>software.concordium.mainnet.node-collector</string>
 
     <key>Program</key>
     <string>/usr/local/bin/concordium-node-collector-__VERSION__</string>
 
     <key>EnvironmentVariables</key>
     <dict>
-        <key>CONCORDIUM_NODE_COLLECTOR_MACOS_SUBSYSTEM_NAME</key>
-        <string>software.concordium.mainnet.node</string>
+
+        <!-- Public node name showed on network dashboard. -->
         <key>CONCORDIUM_NODE_COLLECTOR_NODE_NAME</key>
         <string>__NODE_NAME__</string>
+
+        <!-- Dashboard to post collected data to. -->
+        <key>CONCORDIUM_NODE_COLLECTOR_GRPC_URL</key>
+        <string>https://dashboard.mainnet.concordium.node.com/nodes/post</string>
+
+        <!-- Interval in milliseconds to sleep between runs of the collector. -->
+        <key>CONCORDIUM_NODE_COLLECTOR_COLLECT_INTERVAL</key>
+        <string>5000</string>
+
+        <!-- gRPC host to collect from. -->
+        <key>CONCORDIUM_NODE_COLLECTOR_GRPC_HOST</key>
+        <string>http://localhost:10000</string>
+
+        <!-- Subsystem identifier name used for logging. -->
+        <key>CONCORDIUM_NODE_COLLECTOR_MACOS_SUBSYSTEM_NAME</key>
+        <string>software.concordium.mainnet.node</string>
+
     </dict>
 
-    <key>RunAtLoad</key>
-    <false />
-
+    <!-- Runs when loaded and is kept alive. -->
     <key>KeepAlive</key>
-    <dict>
-        <key>OtherJobActive</key>
-        <!-- Keep alive when node is running, and stop when node is stopped. -->
-        <dict>
-            <key>software.concordium.node</key>
-            <true />
-        </dict>
-
-        <key>AfterInitialDemand</key>
-        <dict>
-           <key>software.concordium.node-collector</key>
-           <true />
-        </dict>
-    </dict>
+    <true />
 
 </dict>
 </plist>

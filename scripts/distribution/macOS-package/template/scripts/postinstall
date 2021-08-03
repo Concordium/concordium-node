@@ -3,7 +3,7 @@
 echo "Running postinstall script"
 
 readonly nodeDir="/Library/Concordium Node/__VERSION__"
-readonly installConfigFile="/tmp/concordium.node.install.config"
+readonly installConfigFile="/tmp/software.concordium.node.install.config"
 readonly serviceFileCollectorMainnet="/Library/LaunchDaemons/software.concordium.node-collector.plist"
 
 # Ensure the local bin folder exists
@@ -20,7 +20,9 @@ ln -f -s "$nodeDir/node-collector" "/usr/local/bin/concordium-node-collector-__V
 # Use data from install configuration
 echo 'Configuring services'
 source "$installConfigFile"
-sed -i '' -e 's/__NODE_NAME__/'"$NODE_NAME_MAINNET"'/g' "$serviceFileCollectorMainnet"
+echo "-- Mainnet:"
+echo "  -- Node name: $CONCORDIUM_NODE_INSTALL_MAINNET_NODE_NAME"
+sed -i '' -e 's/__NODE_NAME__/'"$CONCORDIUM_NODE_INSTALL_MAINNET_NODE_NAME"'/g' "$serviceFileCollectorMainnet"
 
 echo "Postinstall finished"
 exit 0

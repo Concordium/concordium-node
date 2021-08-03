@@ -3,30 +3,79 @@
     "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+
     <key>Label</key>
-    <string>software.concordium.node</string>
+    <string>software.concordium.mainnet.node</string>
+
     <key>Program</key>
     <string>/usr/local/bin/concordium-node-__VERSION__</string>
+
     <key>EnvironmentVariables</key>
     <dict>
-        <key>CONCORDIUM_NODE_CONFIG_DIR</key>
-        <string>/Library/Application Support/Concordium Node/Mainnet/Config</string>
-        <key>CONCORDIUM_NODE_DATA_DIR</key>
-        <string>/Library/Application Support/Concordium Node/Mainnet/Data</string>
+        <!-- Port on which the node will listen for incoming connections. -->
+        <key>CONCORDIUM_NODE_LISTEN_PORT</key>
+        <string>8888</string>
+
+        <!-- Where to bootstrap from. -->
         <key>CONCORDIUM_NODE_CONNECTION_BOOTSTRAP_NODES</key>
         <string>bootstrap.mainnet.concordium.software:8888</string>
+
+        <!-- Desired number of nodes to be connected to. -->
+        <key>CONCORDIUM_NODE_CONNECTION_DESIRED_NODES</key>
+        <string>5</string>
+
+        <!-- Maximum number of __nodes__ the node will be connected to. -->
+        <key>CONCORDIUM_NODE_CONNECTION_MAX_ALLOWED_NODES</key>
+        <string>10</string>
+
+        <!-- Configuration directory. -->
+        <key>CONCORDIUM_NODE_CONFIG_DIR</key>
+        <string>/Library/Application Support/Concordium Node/Mainnet/Config</string>
+
+        <!-- Data directory. -->
+        <key>CONCORDIUM_NODE_DATA_DIR</key>
+        <string>/Library/Application Support/Concordium Node/Mainnet/Data</string>
+
+        <!-- Address of the GRPC server. -->
+        <key>CONCORDIUM_NODE_RPC_SERVER_ADDR</key>
+        <string>0.0.0.0</string>
+
+        <!-- Port of the GRPC server. -->
+        <key>CONCORDIUM_NODE_RPC_SERVER_PORT</key>
+        <string>10000</string>
+
+        <!-- Maximum number of __connections__ the node can have. This can temporarily be more than -->
+        <!-- the number of peers when incoming connections are processed.  -->
+        <key>CONCORDIUM_NODE_CONNECTION_HARD_CONNECTION_LIMIT</key>
+        <string>20</string>
+
+        <!-- Number of threads to use to process network events. -->
+        <key>CONCORDIUM_NODE_CONNECTION_THREAD_POOL_SIZE</key>
+        <string>2</string>
+
+        <!-- Subsystem identifier name used for logging. -->
         <key>CONCORDIUM_NODE_MACOS_SUBSYSTEM_NAME</key>
         <string>software.concordium.mainnet.node</string>
+
+        <!-- Extra arguments that generally should not be altered. -->
+
+        <!-- Do not output timestamp in log output. -->
+        <key>CONCORDIUM_NODE_NO_LOG_TIMESTAMP</key>
+        <string>true</string>
+
+        <!-- The bootstrapping interval in seconds. -->
+        <key>CONCORDIUM_NODE_CONNECTION_BOOTSTRAPPING_INTERVAL</key>
+        <string>1800</string>
+
+        <!-- Haskell RTS flags to pass to consensus. -->
+        <key>CONCORDIUM_NODE_BAKER_HASKELL_RTS_FLAGS</key>
+        <string>-N2</string>
+
     </dict>
-    <key>RunAtLoad</key>
-    <false />
+
+    <!-- Runs when loaded and is kept alive. -->
     <key>KeepAlive</key>
-    <dict>
-        <key>AfterInitialDemand</key>
-        <dict>
-	    <key>software.concordium.node</key>
-            <true />
-        </dict>
-    </dict>
+    <true />
+
 </dict>
 </plist>
