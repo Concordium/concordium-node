@@ -19,7 +19,7 @@
 
         <!-- Dashboard to post collected data to. -->
         <key>CONCORDIUM_NODE_COLLECTOR_GRPC_URL</key>
-        <string>https://dashboard.mainnet.concordium.node.com/nodes/post</string>
+        <string>https://dashboard.mainnet.concordium.software/nodes/post</string>
 
         <!-- Interval in milliseconds to sleep between runs of the collector. -->
         <key>CONCORDIUM_NODE_COLLECTOR_COLLECT_INTERVAL</key>
@@ -29,9 +29,11 @@
         <key>CONCORDIUM_NODE_COLLECTOR_GRPC_HOST</key>
         <string>http://localhost:10000</string>
 
-        <!-- Subsystem identifier name used for logging. -->
-        <key>CONCORDIUM_NODE_COLLECTOR_MACOS_SUBSYSTEM_NAME</key>
-        <string>software.concordium.mainnet.node</string>
+        <!-- Net name used for logging. Logs can be viewed in Console.app by
+             filtering on 'software.concordium.<net-name>.node' where
+             '<net-name>' is the value set here. -->
+        <key>CONCORDIUM_NODE_COLLECTOR_MACOS_NET_NAME</key>
+        <string>mainnet</string>
 
     </dict>
 

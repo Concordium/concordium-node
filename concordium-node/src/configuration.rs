@@ -746,11 +746,13 @@ pub struct BootstrapperConfig {
 // Parameters applicable to macOS.
 pub struct MacOsConfig {
     #[structopt(
-        long = "subsystem-name",
-        help = "The subsystem used when logging on macOS, e.g. 'software.concordium.mainnet.node'",
-        env = "CONCORDIUM_NODE_MACOS_SUBSYSTEM_NAME"
+        long = "net-name",
+        help = "The net named used for logging on macOS, e.g. 'mainnet'. Messages will be logged \
+                with the subsystem 'software.concordium.<net-name>.node', which can be searched \
+                for in Console.app.",
+        env = "CONCORDIUM_NODE_MACOS_NET_NAME"
     )]
-    pub subsystem_name: String,
+    pub net_name: String,
 }
 
 // The main configuration object.
