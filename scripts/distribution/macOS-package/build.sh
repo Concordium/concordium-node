@@ -16,8 +16,8 @@ logInfo () {
 
 readonly ghcVariant="x86_64-osx-ghc-8.10.4"
 
-# FIXME: Don't use pwd.
-macPackageDir=$(pwd)
+# Get the location of this script.
+macPackageDir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 readonly macPackageDir
 readonly nodeDir="$macPackageDir/../../../concordium-node"
 readonly consensusDir="$macPackageDir/../../../concordium-consensus"
