@@ -47,12 +47,19 @@ function replaceVersionPlaceholder() {
 
 function createBuildDirFromTemplate() {
     logInfo "Creating build folder from template..."
+
     cp -r "$templateDir" "$buildDir"
+
     mkdir "$versionedBinDir"
+    mkdir "$payloadDir/Application Support/Concordium Node/Mainnet/Config"
+    mkdir "$payloadDir/Application Support/Concordium Node/Testnet/Config"
+
     replaceVersionPlaceholder "$buildDir/distribution.xml"
     replaceVersionPlaceholder "$buildDir/scripts/postinstall"
-    replaceVersionPlaceholder "$payloadDir/LaunchDaemons/software.concordium.node.plist"
-    replaceVersionPlaceholder "$payloadDir/LaunchDaemons/software.concordium.node-collector.plist"
+    replaceVersionPlaceholder "$payloadDir/LaunchDaemons/software.concordium.mainnet.node.plist"
+    replaceVersionPlaceholder "$payloadDir/LaunchDaemons/software.concordium.testnet.node.plist"
+    replaceVersionPlaceholder "$payloadDir/LaunchDaemons/software.concordium.mainnet.node-collector.plist"
+    replaceVersionPlaceholder "$payloadDir/LaunchDaemons/software.concordium.testnet.node-collector.plist"
 
     chmod -R 755 "$buildDir/scripts"
 
@@ -98,13 +105,6 @@ function copyBinaries() {
     cp "$nodeDir/target/release/node-collector" "$versionedBinDir"
     logInfo "Done"
 }
-
-function downloadGenesis() {
-    logInfo "Downloading genesis.dat"
-    curl -sSL "https://distribution.mainnet.concordium.software/data/genesis.dat" > "$payloadDir/Application Support/Concordium Node/Mainnet/Data/genesis.dat"
-    logInfo "Done"
-}
-
 
 function getDylibbundler() {
     logInfo "Getting dylibbundler..."
@@ -216,7 +216,6 @@ function main() {
     compile
     copyBinaries
     copyInstallerPluginData
-    downloadGenesis
     getDylibbundler
     collectDylibs
     signBinaries

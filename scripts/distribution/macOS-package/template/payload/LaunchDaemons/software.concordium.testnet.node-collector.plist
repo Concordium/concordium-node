@@ -5,7 +5,7 @@
 <dict>
 
     <key>Label</key>
-    <string>software.concordium.mainnet.node-collector</string>
+    <string>software.concordium.testnet.node-collector</string>
 
     <key>Program</key>
     <string>/usr/local/bin/concordium-node-collector-__VERSION__</string>
@@ -18,8 +18,8 @@
         <string>__NODE_NAME__</string>
 
         <!-- Dashboard to post collected data to. -->
-        <key>CONCORDIUM_NODE_COLLECTOR_GRPC_URL</key>
-        <string>https://dashboard.mainnet.concordium.software/nodes/post</string>
+        <key>CONCORDIUM_NODE_COLLECTOR_URL</key>
+        <string>https://dashboard.testnet.concordium.com/nodes/post</string>
 
         <!-- Interval in milliseconds to sleep between runs of the collector. -->
         <key>CONCORDIUM_NODE_COLLECTOR_COLLECT_INTERVAL</key>
@@ -27,13 +27,13 @@
 
         <!-- gRPC host to collect from. -->
         <key>CONCORDIUM_NODE_COLLECTOR_GRPC_HOST</key>
-        <string>http://localhost:10000</string>
+        <string>http://localhost:10001</string>
 
         <!-- Net name used for logging. Logs can be viewed in Console.app by
              filtering on 'software.concordium.<net-name>.node' where
              '<net-name>' is the value set here. -->
         <key>CONCORDIUM_NODE_COLLECTOR_MACOS_NET_NAME</key>
-        <string>mainnet</string>
+        <string>testnet</string>
 
     </dict>
 
