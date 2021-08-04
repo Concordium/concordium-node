@@ -16,6 +16,11 @@
   A legacy database will automatically be migrated by renaming and adding version metadata.
 - Remove unused CONCORDIUM_NODE_CONNECTION_BOOTSTRAP_SERVER option and the
   corresponding `--bootstrap-server` flag.
+- Support [log4rs](https://docs.rs/log4rs/1.0.0/log4rs/) logging, by specifying a configuration file
+  (in toml or yaml format) with the `--log-config` argument or `CONCORDIUM_NODE_LOG_CONFIG`
+  environment variable.
+- A Windows node runner service and installer.
+  See [service/windows/README.md](service/windows/README.md).
 
 ## concordium-node 1.0.1
 
