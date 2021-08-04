@@ -12,64 +12,75 @@
 
 FROM concordium/genesis-tools:latest as genesis-builder
 
-# Build all the relevant genesis files and embed them in the image itself.
-COPY scripts/genesis/ /genesis
-WORKDIR /genesis
 RUN apt-get update && \
     apt-get -y install python3 && \
     rm -rf /var/lib/apt/lists/*
 
-# Use globally installed tools
+# Use globally installed tools.
 ARG GENESIS_DAT_TOOL=genesis
 ARG GENERATE_UPDATE_KEYS=generate-update-keys
 ARG CLIENT_TOOL=client
 ARG GENESIS_ACCOUNTS_TOOL=genesis_tool
-# And build images for different configurations. Currently for 1, 5, 10, and 25
+
+# Build images for different configurations. Currently for 1, 5, 10, and 25
 # bakers using the default genesis.json configuration.
-RUN GENESIS_DIR=./out/genesis-1-bakers NUM_BAKERS=1 python3 generate-test-genesis.py
-RUN GENESIS_DIR=./out/genesis-5-bakers NUM_BAKERS=5 python3 generate-test-genesis.py
-RUN GENESIS_DIR=./out/genesis-10-bakers NUM_BAKERS=10 python3 generate-test-genesis.py
-RUN GENESIS_DIR=./out/genesis-25-bakers NUM_BAKERS=25 python3 generate-test-genesis.py
+# Build all the relevant genesis files and embed them in the image itself.
+COPY scripts/genesis/ /genesis
+WORKDIR /genesis
+RUN GENESIS_DIR=./out/genesis-1-bakers NUM_BAKERS=1 python3 generate-test-genesis.py && \
+    GENESIS_DIR=./out/genesis-5-bakers NUM_BAKERS=5 python3 generate-test-genesis.py && \
+    GENESIS_DIR=./out/genesis-10-bakers NUM_BAKERS=10 python3 generate-test-genesis.py && \
+    GENESIS_DIR=./out/genesis-25-bakers NUM_BAKERS=25 python3 generate-test-genesis.py
 
-
-# Build static consensus libraries
-FROM concordium/static-libraries:0.21 as static-builder
-COPY scripts/static-libraries/build-static-libraries.sh /build-static-libraries.sh
-COPY . /build
+# Build static consensus libraries.
+FROM concordium/static-libraries:latest as static-builder
+# Copy source files (only copy what's needed to utilize caching).
+COPY ./concordium-base /build/concordium-base
+COPY ./concordium-consensus /build/concordium-consensus
+COPY ./concordium-node /build/concordium-node
+COPY ./concordium-grpc-api /build/concordium-grpc-api
+COPY ./deps /build/deps
+COPY ./scripts/static-libraries/build-static-libraries.sh /build/build-static-libraries.sh
+COPY ./LICENSE /build/LICENSE
+WORKDIR /build
 ARG ghc_version
 RUN GHC_VERSION="${ghc_version}" ./build-static-libraries.sh
 
 # And build the node
-FROM concordium/base:0.21 as build
+FROM concordium/base:latest as build
 
 ARG ghc_version
 ARG consensus_profiling
 ENV CONSENSUS_PROFILING=$consensus_profiling
 
-COPY . /build/
-COPY scripts/start.sh /build/start.sh
-COPY scripts/build-binaries.sh /build/build-binaries.sh
+# Copy source files (only copy what's needed to utilize caching).
+COPY ./concordium-base /build/concordium-base
+COPY ./concordium-consensus /build/concordium-consensus
+COPY ./concordium-node /build/concordium-node
+COPY ./concordium-grpc-api /build/concordium-grpc-api
+COPY ./deps /build/deps
+COPY ./scripts/build-binaries.sh /build/build-binaries.sh
+WORKDIR /build
 
 # Node
-WORKDIR /build
-# Copy static libraries that were built by the static-builder into the correct place, which is concordium-node/deps/static/linux
+# Copy static libraries that were built in the 'static-builder' step into the correct place ('concordium-node/deps/static/linux').
 COPY --from=static-builder /build/static-consensus-${ghc_version}.tar.gz .
-RUN mkdir -p concordium-node/deps/static-libs/linux
-RUN tar -xf static-consensus-${ghc_version}.tar.gz && cd target && cp -r * ../concordium-node/deps/static-libs/linux/
-# And then start the build of the rust parts of the node.
+RUN mkdir -p concordium-node/deps/static-libs/linux && \
+    tar -xf static-consensus-${ghc_version}.tar.gz && \
+    cp -r target/* concordium-node/deps/static-libs/linux/
+
+# Build the Rust parts of the node.
 RUN ./build-binaries.sh "collector"
 
-# Baker id gen
-RUN git clone --recurse-submodules --depth 1 --branch main https://github.com/Concordium/concordium-tools-baker-id-gen.git /baker_id_gen
-WORKDIR /baker_id_gen
-RUN cargo build --release
+# Build baker id gen.
+RUN git clone --recurse-submodules --depth 1 --branch main https://github.com/Concordium/concordium-tools-baker-id-gen.git /build/baker_id_gen && \
+    (cd /build/baker_id_gen && cargo build --release)
 
-# Wallet-proxy
-RUN git clone --recurse-submodules --depth 1 --branch main https://github.com/Concordium/concordium-wallet-proxy.git /wallet-proxy
-WORKDIR /wallet-proxy
-RUN stack build --copy-bins --ghc-options -j4 --local-bin-path target
+# Build Wallet Proxy.
+RUN git clone --recurse-submodules --depth 1 --branch main https://github.com/Concordium/concordium-wallet-proxy.git /build/wallet-proxy && \
+    (cd /build/wallet-proxy && stack build --copy-bins --ghc-options -j4 --local-bin-path target)
 
-# Construct the final image. This contains only the necessary binaries without all the build artifacts to make it reasonably small.
+# Copy artifacts into fresh image.
 FROM ubuntu:20.04
 
 EXPOSE 8950
@@ -78,7 +89,9 @@ EXPOSE 9090
 EXPOSE 8900
 EXPOSE 10000
 
-RUN apt update && apt -y install unbound curl postgresql-server-dev-12 libnuma1
+RUN apt-get update && \
+    apt-get install -y less curl unbound postgresql-server-dev-12 libnuma1 && \
+    rm -rf /var/lib/apt/lists/*
 
 # Genesis data files for all configurations.
 COPY --from=genesis-builder /genesis/out/ /genesis-data
@@ -87,14 +100,18 @@ COPY --from=genesis-builder /genesis/out/ /genesis-data
 COPY --from=build /build/concordium-node/target/debug/concordium-node /concordium-node
 COPY --from=build /build/concordium-node/target/debug/p2p_bootstrapper-cli /p2p_bootstrapper-cli
 COPY --from=build /build/concordium-node/target/debug/node-collector /node-collector
-COPY --from=build /build/concordium-node/target/debug/node-collector-backend /node-collector-backend 
-COPY --from=build /build/start.sh /start.sh
+COPY --from=build /build/concordium-node/target/debug/node-collector-backend /node-collector-backend
 
 # Baker ID generator.
-COPY --from=build /baker_id_gen/target/release/baker_id_gen /baker_id_generator
+COPY --from=build /build/baker_id_gen/target/release/baker_id_gen /baker_id_generator
 
 # Wallet proxy.
-COPY --from=build /wallet-proxy/target/wallet-proxy /wallet-proxy
-COPY --from=build /wallet-proxy/deps/concordium-client/deps/concordium-base/rust-src/target/release/*.so /usr/lib/
+COPY --from=build /build/wallet-proxy/target/wallet-proxy /wallet-proxy
+COPY --from=build /build/wallet-proxy/deps/concordium-client/deps/concordium-base/rust-src/target/release/*.so /usr/lib/
 
-ENTRYPOINT ["/start.sh"]
+# Entrypoints for the various components.
+# No default entrypoint is defined because the image serves multiple purposes.
+COPY ./docker-compose/node-entrypoint.sh /node-entrypoint.sh
+COPY ./docker-compose/collector-entrypoint.sh /collector-entrypoint.sh
+COPY ./docker-compose/bootstrapper-entrypoint.sh /bootstrapper-entrypoint.sh
+# TODO Add wallet-proxy endpoint.

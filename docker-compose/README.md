@@ -5,17 +5,30 @@ spinning up a network using docker-compose for local development.
 
 ## Usage
 
-Two parameterized `docker-compose` files are available:
+A parameterized Docker Compose file `bakers.yaml` is available:
+It sets up a network of 1, 5, 10, or 25 bakers with collectors and a single collector-backend.
 
-- `bakers.yaml`: Run a network of bakers with collectors and a collector-backend.
-  This is useful for e.g. testing the network dashboard.
-  A middleware instance needs to be started separately.
-- `bakers+wallet-proxy.yaml`: Same as the above but also with a wallet-proxy instance running.
-  A postgres instance is started as well and the nodes configured to ingest data.
-  At the time of this writing, this setup seems outdated and broken and will be fixed ASAP.
+Start a cluster of `<n>` (where `n` is 1, 5, 10, or 25) nodes using:
 
-It seems like there was an option that included a Middleware instance in the past.
-Including this will be attempted once the Wallet Proxy setup has been fixed.
+```
+NUM_BAKERS=<n> DESIRED_PEERS=<n-1> docker-compose -f bakers.yaml up --scale baker=<n>
+```
+
+Example: Boot a cluster of 5 nodes (with forced non-reuse of containers):
+
+```
+NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f bakers.yaml up --scale baker=5 --force-recreate
+```
+
+Update the Docker image using
+
+```
+docker-compose -f bakers.yaml pull
+```
+
+There is an intent to integrate a Wallet Proxy and a Middleware instance into the setup
+once time permits...
+This seems to have been implemented in the past but was removed due to lack of maintenance.
 
 ## Accounts
 
@@ -26,28 +39,13 @@ under the `bakers` subdirectory, and any additional accounts are under the
 `accounts` subdirectory. They can be copied out either via `docker cp` when a
 container is running, or via `docker run` and mapping /genesis-data to a host directory.
 
-### Example
-
-To boot a cluster of 5 nodes (no wallet-proxy), use the command
-
-```
-NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f bakers.yaml up --scale baker=5 --force-recreate
-```
-
-Update the used docker image using 
-
-```
-docker-compose -f bakers.yaml pull
-```
-...
-
 ## Build
 
 See [dev-master.Jenkinsfile](https://gitlab.com/Concordium/concordium-node/-/blob/master/jenkinsfiles/dev-master.Jenkinsfile).
 
 # OLD
 
-Information from the old README that might still be relevant:
+Information from the old README that might still be(come) relevant:
  
 > Remember to clean out PostgreSQL data between runs using
 > ```bash
