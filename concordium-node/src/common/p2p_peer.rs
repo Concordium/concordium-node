@@ -167,15 +167,11 @@ impl RemotePeer {
     /// the network, as long as its id is known, i.e., as long as it is
     /// post-handshake.
     pub fn peer(&self) -> Option<P2PPeer> {
-        if let Some(id) = self.self_id {
-            Some(P2PPeer {
-                id,
-                addr: self.external_addr(),
-                peer_type: self.peer_type,
-            })
-        } else {
-            None
-        }
+        self.self_id.map(|id| P2PPeer {
+            id,
+            addr: self.external_addr(),
+            peer_type: self.peer_type,
+        })
     }
 
     /// Gets the external socket address of a remote peer.

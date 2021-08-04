@@ -1,9 +1,10 @@
 # Concordium node implementation
 ## Dependencies to build the project
-* Rust (stable 1.45.2 for using static libraries)
+* Rust (stable 1.53 for using static libraries)
 * binutils >= 2.22
 * cmake >= 3.8.0
-* [flatc](http://google.github.io/flatbuffers/flatbuffers_guide_building.html) v1.11 and v1.12 are known to work. (build using CMake and copy to `~/.local/bin`)
+* [flatc](http://google.github.io/flatbuffers/flatbuffers_guide_building.html)
+  v2.0.0 is what we currently use. Either build from the v2.0.0 tag of the repository using CMake and copy the `flatc` binary somewhere in your PATH, or download a released binary from https://github.com/google/flatbuffers/releases/tag/v2.0.0 and place it somewhere in your PATH.
 * protobuf >= 3.7.1
 * LLVM and Clang >= 3.9
 * [Unbound](https://www.nlnetlabs.nl/documentation/unbound/howto-setup/) >= 1.9.2 (the dependency `openssl-devel` is named `libssl-dev` on Ubuntu 19.10)

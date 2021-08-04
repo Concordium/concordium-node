@@ -30,7 +30,7 @@ use std::{
     convert::TryFrom,
     fs::OpenOptions,
     io::{Cursor, Read},
-    path::PathBuf,
+    path::Path,
     sync::{atomic::Ordering, Arc},
 };
 
@@ -42,7 +42,7 @@ pub fn start_consensus_layer(
     genesis_data: Vec<u8>,
     private_data: Option<Vec<u8>>,
     max_logging_level: consensus::ConsensusLogLevel,
-    appdata_dir: &PathBuf,
+    appdata_dir: &Path,
     database_connection_url: &str,
     regenesis_arc: Arc<Regenesis>,
 ) -> anyhow::Result<ConsensusContainer> {

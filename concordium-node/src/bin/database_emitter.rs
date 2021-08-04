@@ -25,7 +25,7 @@ use std::{fs::File, io::prelude::*, sync::Arc, thread, time::Duration};
 fn main() -> anyhow::Result<()> {
     let (mut conf, _app_prefs) = utils::get_config_and_logging_setup()?;
 
-    conf.connection.dnssec_disabled = true;
+    conf.connection.require_dnssec = false;
     conf.connection.no_bootstrap_dns = true;
     conf.connection.desired_nodes = conf.connection.connect_to.len() as u16;
 
@@ -46,7 +46,7 @@ fn main() -> anyhow::Result<()> {
         match utils::parse_host_port(
             &host,
             &node.config.dns_resolvers,
-            conf.connection.dnssec_disabled,
+            conf.connection.require_dnssec,
         ) {
             Ok(addrs) => {
                 for addr in addrs {
@@ -71,11 +71,10 @@ fn main() -> anyhow::Result<()> {
                     if read_bytes != block_len_buffer.len() {
                         if read_bytes == 0 {
                             info!("No more blocks to be read from file");
-                            break;
                         } else {
                             error!("No enough bytes to read");
-                            break;
                         }
+                        break;
                     }
                     let block_size = u64::from_be_bytes(block_len_buffer);
                     info!(

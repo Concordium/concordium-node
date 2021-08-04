@@ -41,7 +41,7 @@ on:
   workflow_dispatch: # allow manual trigger
 
 env:
-  dummy: 1                 # change to force cache invalidation
+  dummy: 2                 # change to force cache invalidation
   CARGO_TERM_COLOR: always # implicitly adds '--color=always' to all cargo commands
   TEST_LEVEL: 1            # for stack tests
 
@@ -54,7 +54,7 @@ jobs:
     strategy:
       matrix:
         plan:
-        - rust: 1.45.2
+        - rust: 1.53
 
     steps:
     - name: Checkout
@@ -63,7 +63,9 @@ jobs:
         #token: ${{ secrets.CONCORDIUM_CI }}
         submodules: recursive
     - name: Install system packages
-      run: sudo apt-get update && sudo apt-get -y install liblmdb-dev flatbuffers-compiler libunbound-dev
+      run: |
+        sudo apt-get update && sudo apt-get -y install liblmdb-dev libunbound-dev
+        sudo snap install flatbuffers
 
     # Set up Rust and restore dependencies and targets from cache.
     # This must be done before checking the Rust sources (obviously)

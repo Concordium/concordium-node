@@ -1,6 +1,6 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE
-    DeriveGeneric, OverloadedStrings, UndecidableInstances, MonoLocalBinds, ScopedTypeVariables #-}
+    DeriveGeneric, OverloadedStrings, UndecidableInstances, MonoLocalBinds, ScopedTypeVariables, TypeApplications #-}
 module Concordium.Birk.Bake(
   BakerIdentity(..),
   BakeResult(..),
@@ -313,6 +313,8 @@ class (SkovMonad pv m, FinalizationMonad m) => BakerMonad pv m where
     -- to the newly created block.
     bakeForSlot :: BakerIdentity -> Slot -> m (Maybe (BlockPointerType m))
     -- |Try to bake for a slot later than the given slot, up to the current slot.
+    -- This will never bake for a slot earlier than the last finalized block, or that precedes
+    -- the current slot by more than the 'rpMaxBakingDelay' runtime parameter.
     tryBake :: BakerIdentity -> Slot -> m BakeResult
 
 instance (FinalizationMonad (SkovT pv h c m), MonadIO m, SkovMonad pv (SkovT pv h c m), TreeStateMonad pv (SkovT pv h c m), OnSkov (SkovT pv h c m)) =>

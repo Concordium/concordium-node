@@ -39,7 +39,7 @@ If the node gets more than specificed, then the node will start dropping its pee
 - `CONCORDIUM_NODE_CONNECTION_MAX_ALLOWED_NODES_PERCENTAGE` Is the default way of setting the maximum number of peers, that the node will tolerate. 
 This variable is set as a percentage wrt. `CONCORDIUM_NODE_CONNECTION_DESIRED_NODES`. The default value is 150.
 
-- `CONCORDIUM_NODE_CONNECTION_BOOSTRAP_NODES` A comma seperated list of URLs specifying the first nodes that the node should connect to. (This option disables DNS bootstrapping feature).
+- `CONCORDIUM_NODE_CONNECTION_BOOTSTRAP_NODES` A comma seperated list of URLs specifying the first nodes that the node should connect to. (This option disables DNS bootstrapping feature).
 
 - `CONCORDIUM_NODE_CONNECTION_HARD_CONNECTION_LIMIT` Is the maximum number of ***connections*** (as opposed to nodes) that a node will have at a given time. 
 This should be set a bit higher than the maximum number of nodes, so that new peers are accepted and discovered over time. The default value is 20. 

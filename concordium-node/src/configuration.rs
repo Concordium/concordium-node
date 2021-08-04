@@ -374,13 +374,6 @@ pub struct ConnectionConfig {
     )]
     pub relay_broadcast_percentage: f64,
     #[structopt(
-        long = "bootstrap-server",
-        help = "DNS name to resolve bootstrap nodes from",
-        conflicts_with = "bootstrap-node",
-        env = "CONCORDIUM_NODE_CONNECTION_BOOTSTRAP_SERVER"
-    )]
-    pub bootstrap_server: Option<String>,
-    #[structopt(
         long = "connect-to",
         short = "c",
         help = "Peer to connect to upon startup (host/ip:port)",
@@ -389,12 +382,11 @@ pub struct ConnectionConfig {
     )]
     pub connect_to: Vec<String>,
     #[structopt(
-        long = "no-dnssec",
-        help = "Do not perform DNSsec tests for lookups. If flag is set, then no DNSSEC \
-                validation will be performed",
-        env = "CONCORDIUM_NODE_CONNECTION_NO_DNSSEC"
+        long = "require-dnssec",
+        help = "Perform DNSsec tests for lookups",
+        env = "CONCORDIUM_NODE_CONNECTION_REQUIRE_DNSSEC"
     )]
-    pub dnssec_disabled: bool,
+    pub require_dnssec: bool,
     #[structopt(
         long = "disallow-multiple-peers-on-ip",
         help = "Disallow multiple peers on the same IP address.",
@@ -412,7 +404,7 @@ pub struct ConnectionConfig {
         name = "bootstrap-node",
         long = "bootstrap-node",
         help = "Bootstrap nodes to use upon startup host/ip:port (this disables DNS bootstrapping)",
-        env = "CONCORDIUM_NODE_CONNECTION_BOOSTRAP_NODES",
+        env = "CONCORDIUM_NODE_CONNECTION_BOOTSTRAP_NODES",
         use_delimiter = true
     )]
     pub bootstrap_nodes: Vec<String>,
@@ -748,8 +740,8 @@ pub struct BootstrapperConfig {
 }
 
 // The main configuration object.
-#[structopt(about = "Concordium P2P node.")]
 #[derive(StructOpt, Debug)]
+#[structopt(about = "Concordium P2P node.")]
 pub struct Config {
     #[structopt(flatten)]
     pub common:           CommonConfig,
@@ -895,8 +887,8 @@ impl AppPreferences {
         new_prefs
     }
 
-    fn calculate_config_file_path(config_path: &PathBuf, key: &str) -> PathBuf {
-        let mut new_path = config_path.clone();
+    fn calculate_config_file_path(config_path: &Path, key: &str) -> PathBuf {
+        let mut new_path = config_path.to_path_buf();
         new_path.push(&format!("{}.json", key));
         new_path
     }

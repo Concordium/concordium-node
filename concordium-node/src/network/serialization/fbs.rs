@@ -43,7 +43,7 @@ impl NetworkMessage {
         } else {
             256
         };
-        let mut builder = FlatBufferBuilder::new_with_capacity(capacity);
+        let mut builder = FlatBufferBuilder::with_capacity(capacity);
 
         let (payload_type, payload_offset) = match self.payload {
             NetworkPayload::NetworkPacket(ref packet) => {
@@ -84,7 +84,7 @@ fn _deserialize(buffer: &[u8]) -> anyhow::Result<NetworkMessage> {
         bail!("unrecognized protocol name")
     }
 
-    let root = network::get_size_prefixed_root_as_network_message(buffer);
+    let root = network::size_prefixed_root_as_network_message(buffer)?;
 
     let created = root.timestamp();
 
@@ -115,6 +115,7 @@ fn deserialize_packet(root: &network::NetworkMessage) -> anyhow::Result<NetworkP
                 PacketDestination::Direct((destination.target() as usize).into())
             }
             network::Direction::Broadcast => PacketDestination::Broadcast(Vec::new()),
+            dst => bail!("Unsupported destination {:?}", dst),
         }
     } else {
         bail!("missing direction on network packet");
@@ -229,6 +230,7 @@ fn deserialize_request(root: &network::NetworkMessage) -> anyhow::Result<Network
                 bail!("missing network id in a join/leave network request")
             }
         }
+        msg => bail!("Unsupported request variant {:?}", msg),
     }
 }
 
@@ -262,6 +264,7 @@ fn deserialize_response(root: &network::NetworkMessage) -> anyhow::Result<Networ
                                     ip.read_exact(&mut octets)?;
                                     SocketAddr::new(IpAddr::from(octets), peer.port())
                                 }
+                                ip_variant => bail!("Unsupported IP variant {:?}", ip_variant),
                             }
                         } else {
                             bail!("missing peer ip in a PeerList response")
@@ -273,6 +276,7 @@ fn deserialize_response(root: &network::NetworkMessage) -> anyhow::Result<Networ
                     let peer_type = match peer.variant() {
                         network::PeerVariant::Node => PeerType::Node,
                         network::PeerVariant::Bootstrapper => PeerType::Bootstrapper,
+                        var => bail!("Unsupported peer variant {:?}", var),
                     };
 
                     let peer = P2PPeer {
@@ -289,6 +293,7 @@ fn deserialize_response(root: &network::NetworkMessage) -> anyhow::Result<Networ
                 bail!("missing peers in a PeerList response")
             }
         }
+        msg => bail!("Unsupported response variant {:?}", msg),
     }
 }
 

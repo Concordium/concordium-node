@@ -59,9 +59,8 @@ pub struct NodeConfig {
     pub no_bootstrap_dns: bool,
     /// Do not clear persistent bans on startup.
     pub no_clear_bans: bool,
-    pub bootstrap_server: Option<String>,
     pub dns_resolvers: Vec<String>,
-    pub dnssec_disabled: bool,
+    pub require_dnssec: bool,
     pub disallow_multiple_peers_on_ip: bool,
     pub bootstrap_nodes: Vec<String>,
     /// Nodes to try and keep the connections to. A node will maintain two
@@ -330,9 +329,8 @@ impl P2PNode {
             desired_nodes_count: conf.connection.desired_nodes,
             no_bootstrap_dns: conf.connection.no_bootstrap_dns,
             no_clear_bans: conf.connection.no_clear_bans,
-            bootstrap_server: conf.connection.bootstrap_server.clone(),
             dns_resolvers,
-            dnssec_disabled: conf.connection.dnssec_disabled,
+            require_dnssec: conf.connection.require_dnssec,
             disallow_multiple_peers_on_ip: conf.connection.disallow_multiple_peers_on_ip,
             bootstrap_nodes: conf.connection.bootstrap_nodes.clone(),
             given_addresses,
@@ -599,7 +597,7 @@ impl P2PNode {
         // try to acquire the thread handles.
         let handles = {
             match self.threads.write() {
-                Ok(mut wlock) => mem::replace::<Vec<_>>(&mut wlock, Vec::new()),
+                Ok(mut wlock) => mem::take::<Vec<_>>(&mut wlock),
                 // if unsuccessful then most likely some other thread acquired the threads lock and
                 // panicked. There is not much we can easily do, so we just do nothing and
                 // terminate.
@@ -850,9 +848,8 @@ pub fn attempt_bootstrap(node: &Arc<P2PNode>) {
         info!("Attempting to bootstrap");
 
         let bootstrap_nodes = utils::get_bootstrap_nodes(
-            node.config.bootstrap_server.as_deref(),
             &node.config.dns_resolvers,
-            node.config.dnssec_disabled,
+            node.config.require_dnssec,
             &node.config.bootstrap_nodes,
         );
 
@@ -892,8 +889,7 @@ fn parse_config_nodes(
 ) -> anyhow::Result<HashSet<SocketAddr>> {
     let mut out = HashSet::new();
     for connect_to in &conf.connect_to {
-        let new_addresses =
-            utils::parse_host_port(connect_to, dns_resolvers, conf.dnssec_disabled)?;
+        let new_addresses = utils::parse_host_port(connect_to, dns_resolvers, conf.require_dnssec)?;
         out.extend(new_addresses)
     }
     Ok(out)

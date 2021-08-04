@@ -33,14 +33,14 @@ RUN GENESIS_DIR=./out/genesis-25-bakers NUM_BAKERS=25 python3 generate-test-gene
 
 
 # Build static consensus libraries
-FROM concordium/static-libraries:0.19 as static-builder
+FROM concordium/static-libraries:0.21 as static-builder
 COPY scripts/static-libraries/build-static-libraries.sh /build-static-libraries.sh
 COPY . /build
 ARG ghc_version
 RUN GHC_VERSION="${ghc_version}" ./build-static-libraries.sh
 
 # And build the node
-FROM concordium/base:0.19 as build
+FROM concordium/base:0.21 as build
 
 ARG ghc_version
 ARG consensus_profiling

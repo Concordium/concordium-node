@@ -51,12 +51,12 @@ nohash-hasher = "0.2"
 rayon = "1.4"
 noiseexplorer_xx = { path = "../deps/external/noiseexplorer_xx" }
 bytesize = "1.0"
-crossbeam-channel = "0.4"
-semver = { version = "0.11.0", features = ["serde"] }
+crossbeam-channel = "0.5"
+semver = { version = "1", features = ["serde"] }
 ctrlc = "3.1"
-signal-hook = "0.1"
-flatbuffers = { version = "0.7.0" } # Must be updated when we update Rust version.
-flatc-rust = { version = "0.2.0" }
+signal-hook = "0.3"
+flatbuffers = { version = "2" }
+flatc-rust = { version = "0.2" }
 sha2 = "0.9"
 lazy_static = "^1.2"
 base58check = "^0.1"
@@ -75,16 +75,16 @@ tokio = { version = "1.4.0", features = ["macros", "rt-multi-thread"] }
 gotham = { version = "0.6", optional = true }
 gotham_derive = { version = "0.6", optional = true }
 http = { version = "0.2", optional = true }
-hyper = { version = "=0.14.4", optional = true } # 0.14.5 depends on socket2 0.4 which is not supported on 1.45.2 rustc
-reqwest = { version = "0.11.2", default-features = false, optional = true, features = ["default-tls", "stream", "json"] }
+hyper = { version = "0.14", optional = true }
+reqwest = { version = "0.11", default-features = false, optional = true, features = ["default-tls", "stream", "json"] }
 mime = { version = "0.3", optional = true }
 futures = { version = "0.3", optional = true }
 serde_derive = { version = "1.0", optional = true }
-rmp-serde = { version = "0.15.4", optional = true }
+rmp-serde = { version = "0.15", optional = true }
 serde_json = { version = "1" }
 num_cpus = { version = "1.13", optional = true }
 jsonwebtoken = { version = "7", optional = true }
-prometheus = { version = "0.12.0", default-features = false, features = ["gen", "push", "protobuf"], optional = true }
+prometheus = { version = "0.12", default-features = false, features = ["gen", "push", "protobuf"], optional = true }
 tempfile = { version = "3.1", optional = true }
 
 [target.'cfg(windows)'.dependencies]
@@ -103,7 +103,7 @@ walkdir = "2"
 
 [dev-dependencies]
 criterion = "0.3"
-quickcheck = "^0.9"
+quickcheck = "1"
 futures = "0.3"
 itertools = "0.10.0"
 tempfile = "3.1"

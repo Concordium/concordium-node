@@ -7,7 +7,7 @@ use crate::consensus_ffi::{
 use parking_lot::Condvar;
 use std::{
     convert::TryFrom,
-    path::PathBuf,
+    path::Path,
     sync::{
         atomic::{AtomicBool, AtomicPtr, Ordering},
         Arc, Mutex, RwLock,
@@ -232,7 +232,7 @@ impl ConsensusContainer {
         genesis_data: Vec<u8>,
         private_data: Option<Vec<u8>>,
         max_log_level: ConsensusLogLevel,
-        appdata_dir: &PathBuf,
+        appdata_dir: &Path,
         database_connection_url: &str,
         regenesis_arc: Arc<Regenesis>,
     ) -> anyhow::Result<Self> {

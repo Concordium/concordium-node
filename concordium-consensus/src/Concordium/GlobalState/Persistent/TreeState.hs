@@ -71,6 +71,7 @@ data InitException =
       ieIs :: !BlockHash
       }
   | DatabaseInvariantViolation !String
+  -- |The database version is not correct.
   | IncorrectDatabaseVersion !String
   deriving(Show, Typeable)
 

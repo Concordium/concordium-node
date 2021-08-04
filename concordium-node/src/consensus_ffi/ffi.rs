@@ -17,7 +17,7 @@ use std::{
     ffi::{CStr, CString},
     io::{Cursor, Write},
     os::raw::{c_char, c_int},
-    path::PathBuf,
+    path::Path,
     ptr, slice,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -188,8 +188,8 @@ fn start_haskell_init(
 fn start_haskell_init(rts_flags: &[String]) {
     let program_name = std::env::args().take(1).next().unwrap();
     let mut args = vec![program_name];
+    args.push("+RTS".to_owned());
     if !rts_flags.is_empty() {
-        args.push("+RTS".to_owned());
         if rts_flags.iter().all(|arg| !arg.trim().starts_with("--install-signal-handlers")) {
             args.push("--install-signal-handlers=no".to_owned());
         }
@@ -198,12 +198,10 @@ fn start_haskell_init(rts_flags: &[String]) {
                 args.push(flag.to_owned());
             }
         }
-        args.push("-RTS".to_owned());
     } else {
-        args.push("+RTS".to_owned());
         args.push("--install-signal-handlers=no".to_owned());
-        args.push("-RTS".to_owned());
     }
+    args.push("-RTS".to_owned());
     let args =
         args.iter().map(|arg| CString::new(arg.as_bytes()).unwrap()).collect::<Vec<CString>>();
     let c_args = args.iter().map(|arg| arg.as_ptr()).collect::<Vec<*const c_char>>();
@@ -438,7 +436,7 @@ pub fn get_consensus_ptr(
     genesis_data: Vec<u8>,
     private_data: Option<Vec<u8>>,
     maximum_log_level: ConsensusLogLevel,
-    appdata_dir: &PathBuf,
+    appdata_dir: &Path,
     database_connection_url: &str,
     regenesis_arc: Arc<Regenesis>,
 ) -> anyhow::Result<*mut consensus_runner> {
@@ -451,7 +449,7 @@ pub fn get_consensus_ptr(
     let ret_code = match private_data {
         Some(ref private_data_bytes) => {
             let private_data_len = private_data_bytes.len();
-            let appdata_buf = appdata_dir.as_path().to_str().unwrap();
+            let appdata_buf = appdata_dir.to_str().unwrap();
             unsafe {
                 let c_string_private_data =
                     CString::from_vec_unchecked(private_data_bytes.to_owned());
@@ -482,7 +480,7 @@ pub fn get_consensus_ptr(
             }
         }
         None => {
-            let appdata_buf = appdata_dir.as_path().to_str().unwrap();
+            let appdata_buf = appdata_dir.to_str().unwrap();
             unsafe {
                 {
                     startConsensusPassive(

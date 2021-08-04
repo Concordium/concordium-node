@@ -4,15 +4,15 @@ After=syslog.target network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/concordium-node
+ExecStart=/usr/bin/concordium-node --config-dir ${STATE_DIRECTORY}/config --data-dir ${STATE_DIRECTORY}/data
 Restart=always
 RestartSec=20
 
 # sandboxing
 # do not allow the process to access /home, /root, and /run/user
 ProtectHome=yes
-# mount /usr, /boot, /efi, and /etc as read-only
-ProtectSystem=full
+# mount /usr, /boot, /efi, and /etc as read-only. Implied by dynamic-user as well.
+ProtectSystem=strict
 NoNewPrivileges=yes
 ProtectClock=yes
 PrivateDevices=yes
@@ -25,18 +25,23 @@ ProtectKernelModules=yes
 ProtectKernelTunables=yes
 CapabilityBoundingSet=
 LockPersonality=yes
+RestrictRealtime=yes
+MemoryDenyWriteExecute=yes
+DynamicUser=yes
+# state directory is relative to /var/lib/, see systemd man pages Sandboxing section.
+# This sets the STATE_DIRECTORY environment variable that is used as part of the ExecStart command.
+StateDirectory=concordium/b6078154d6717e909ce0da4a45a25151b592824f31624b755900a74429e3073d
+# relative to the state directory root %S
+WorkingDirectory=%S/concordium/b6078154d6717e909ce0da4a45a25151b592824f31624b755900a74429e3073d
 
 # port on which the node will listen for incoming connections
 Environment=CONCORDIUM_NODE_LISTEN_PORT=8888
 # where to bootstrap from
-Environment=CONCORDIUM_NODE_CONNECTION_BOOSTRAP_NODES=bootstrap.testnet.concordium.com:8888
+Environment=CONCORDIUM_NODE_CONNECTION_BOOTSTRAP_NODES=bootstrap.testnet.concordium.com:8888
 # desired number of nodes to be connected to.
 Environment=CONCORDIUM_NODE_CONNECTION_DESIRED_NODES=5
 # maximum number of __nodes__ the node will be connected to.
 Environment=CONCORDIUM_NODE_CONNECTION_MAX_ALLOWED_NODES=10
-# configuration and data directories.
-Environment=CONCORDIUM_NODE_CONFIG_DIR=/var/lib/concordium/b6078154d6717e909ce0da4a45a25151b592824f31624b755900a74429e3073d/config
-Environment=CONCORDIUM_NODE_DATA_DIR=/var/lib/concordium/b6078154d6717e909ce0da4a45a25151b592824f31624b755900a74429e3073d/data
 # address of the GRPC server
 Environment=CONCORDIUM_NODE_RPC_SERVER_ADDR=0.0.0.0
 # and its port
@@ -51,12 +56,8 @@ Environment=CONCORDIUM_NODE_CONNECTION_THREAD_POOL_SIZE=2
 Environment=CONCORDIUM_NODE_NO_LOG_TIMESTAMP=true
 # The bootstrapping interval in seconds.
 Environment=CONCORDIUM_NODE_CONNECTION_BOOTSTRAPPING_INTERVAL=1800
-# Do not perform DNSsec tests for lookups.
-Environment=CONCORDIUM_NODE_CONNECTION_NO_DNSSEC=true
 # Haskell RTS flags to pass to consensus.
 Environment=CONCORDIUM_NODE_BAKER_HASKELL_RTS_FLAGS=-N2
-# Haskell binding needs proper library path to function
-Environment=LD_LIBRARY_PATH=/usr/local/lib
     
 [Install]
 # start the service when reaching multi-user target

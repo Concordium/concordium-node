@@ -148,10 +148,7 @@ impl Connection {
         pac: NetworkPacket,
         peer_id: RemotePeerId,
     ) -> anyhow::Result<()> {
-        let is_broadcast = match pac.destination {
-            PacketDestination::Broadcast(..) => true,
-            _ => false,
-        };
+        let is_broadcast = matches!(pac.destination, PacketDestination::Broadcast(..));
 
         // Ignore the deserialized p2p node ids to be excluded from the wire.
         handle_pkt_out(&self.handler, vec![peer_id], peer_id, pac.message, is_broadcast)

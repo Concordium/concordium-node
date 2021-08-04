@@ -62,8 +62,8 @@ The strategy for building the package is as follows.
    emitted by the genesis tool into a file `genesis_hash`)
 5. Update
    [template/debian/concordium-node.service](template/debian/concordium-node.service)
-   to match `CONCORDIUM_NODE_CONFIG_DIR` and `CONCORDIUM_NODE_DATA_DIR` to the genesis hash.
-6. Possibly update  `CONCORDIUM_NODE_CONNECTION_BOOSTRAP_NODES` if it does not point to the correct
+   to match `StateDirectory` and WorkingDirectory values to match the genesis hash.
+6. Possibly update  `CONCORDIUM_NODE_CONNECTION_BOOTSTRAP_NODES` if it does not point to the correct
    network.
 7. Possibly update `CONCORDIUM_NODE_COLLECTOR_URL` in
    [template/debian/concordium-node-collector.service](template/debian/concordium-node-collector.service)
@@ -77,7 +77,7 @@ The strategy for building the package is as follows.
    how to obtain it). Make sure to use the `collector` feature to build them,
    e.g.,
    ```console
-   $ UBUNTU_VERSION=20.04 STATIC_LIBRARIES_IMAGE_TAG=0.19 GHC_VERSION=8.10.4 EXTRA_FEATURES=collector ./scripts/static-binaries/build-static-binaries.sh
+   $ UBUNTU_VERSION=20.04 STATIC_LIBRARIES_IMAGE_TAG=0.21 GHC_VERSION=8.10.4 EXTRA_FEATURES=collector ./scripts/static-binaries/build-static-binaries.sh
    ```
 
    If not then just comment out the relevant lines and manually copy the
@@ -171,9 +171,19 @@ which will set the environment variable `CONCORDIUM_NODE_LISTEN_PORT` to `8888` 
 
 The node supports the following environment variables.
 
-- `CONCORDIUM_NODE_BAKER_CREDENTIALS_FILE` the file with baker keys. This must be an absolute
-  path. If it is set then the node will start as a baker. Setting this variable
-  is the way for the node to become a baker.
+- `CONCORDIUM_NODE_BAKER_CREDENTIALS_FILE` the file with baker keys.
+  If it is set then the node will start as a baker, or at least attempt to.
+  This must be a path relative to the `WorkingDirectory` or an absolute path.
+  Since the node is sandboxed it does not have access to the `/home` directory
+  and some other parts of the system.
+  The recommended way to expose the baker keys to the node is to use the
+  `BindReadOnlyPaths` option to remap the file from wherever it is on the host
+  system to a location which the node can read. For example (this assumes the baker keys are located in `/home/user/baker-credentials.json` on the host system)
+  ```
+  Environment=CONCORDIUM_NODE_BAKER_CREDENTIALS_FILE=%S/concordium/baker-credentials.json
+  BindReadOnlyPaths=/home/user/baker-credentials.json:%S/concordium/baker-credentials.json
+  ```
+
 
 - `CONCORDIUM_NODE_LISTEN_PORT`, the port on which the node is listening for incoming
   connections. This should be opened in any firewall rules so that the node is a
@@ -213,7 +223,7 @@ The node supports the following environment variables.
   remapped) then this should be set to the external port so that other nodes can
   successfully connect.
 
-- `CONCORDIUM_NODE_CONNECTION_CONNECT_TO` is a comma separated list of peers which the node will try 
+- `CONCORDIUM_NODE_CONNECTION_CONNECT_TO` is a comma separated list of peers which the node will try
 to keep connection to and never drop. The peers must be in the format `addr:port` where addr and port are the
   address and port of a "trusted node".
 
@@ -278,7 +288,7 @@ concordium-node.service: Main process exited, code=exited, status=1/FAILURE
 concordium-node.service: Failed with result 'exit-code'.
 ```
 
-In order to `recover` from such a situation, one should take the following steps. 
+In order to `recover` from such a situation, one should take the following steps.
 
 - Stop the concordium-node service by running the command `sudo systemctl stop concordium-node.service`
 
@@ -288,7 +298,7 @@ Where $GENESIS_HASH is a hash derived from the configured genesis data.
 
 - Start the concordium-node service again by running `sudo systemctl start concordium-node-collector.service`.
 
-The concordium-node should now be up and running again. 
+The concordium-node should now be up and running again.
 Verify with the command: `sudo systemctl status concordium-node`.
 
 ## Configuration of the collector
