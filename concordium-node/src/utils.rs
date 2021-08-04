@@ -12,7 +12,7 @@ use std::fs::File;
 use std::{
     io::Write,
     net::{IpAddr, SocketAddr},
-    path::{Path, PathBuf},
+    path::Path,
     str::{self, FromStr},
 };
 
@@ -71,7 +71,7 @@ fn parse_ip_port(input: &str) -> Option<SocketAddr> {
 }
 
 /// Setup a log4rs logger based on the given configuration file.
-pub fn setup_logger_config(config_file: &PathBuf) {
+pub fn setup_logger_config(config_file: &Path) {
     log4rs::init_file(config_file, Default::default()).unwrap();
 }
 
