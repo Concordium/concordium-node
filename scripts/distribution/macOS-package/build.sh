@@ -26,8 +26,9 @@ readonly macdylibbundlerDir="$toolsDir/macdylibbundler-1.0.0"
 readonly installDir="/Library"
 readonly templateDir="$macPackageDir/template"
 readonly buildDir="$macPackageDir/build"
-readonly payloadDir="$buildDir/payload"
-readonly versionedBinDir="$payloadDir/Concordium Node/$version"
+readonly appsPayloadDir="$buildDir/payload/Applications"
+readonly libraryPayloadDir="$buildDir/payload/Library"
+readonly versionedBinDir="$libraryPayloadDir/Concordium Node/$version"
 readonly packagesDir="$buildDir/packages"
 readonly pkgFile="$packagesDir/concordium-node.pkg"
 readonly signedPkgFile="$packagesDir/concordium-node-signed.pkg"
@@ -50,17 +51,18 @@ function createBuildDirFromTemplate() {
 
     cp -r "$templateDir" "$buildDir"
 
-    mkdir "$versionedBinDir"
+    mkdir -p "$versionedBinDir"
     mkdir "$buildDir/plugins"
-    mkdir "$payloadDir/Application Support/Concordium Node/Mainnet/Config"
-    mkdir "$payloadDir/Application Support/Concordium Node/Testnet/Config"
+    mkdir "$libraryPayloadDir/Application Support/Concordium Node/Mainnet/Config"
+    mkdir "$libraryPayloadDir/Application Support/Concordium Node/Testnet/Config"
 
     replaceVersionPlaceholder "$buildDir/distribution.xml"
     replaceVersionPlaceholder "$buildDir/scripts/postinstall"
-    replaceVersionPlaceholder "$payloadDir/LaunchDaemons/software.concordium.mainnet.node.plist"
-    replaceVersionPlaceholder "$payloadDir/LaunchDaemons/software.concordium.testnet.node.plist"
-    replaceVersionPlaceholder "$payloadDir/LaunchDaemons/software.concordium.mainnet.node-collector.plist"
-    replaceVersionPlaceholder "$payloadDir/LaunchDaemons/software.concordium.testnet.node-collector.plist"
+    replaceVersionPlaceholder "$libraryPayloadDir/LaunchDaemons/software.concordium.mainnet.node.plist"
+    replaceVersionPlaceholder "$libraryPayloadDir/LaunchDaemons/software.concordium.testnet.node.plist"
+    replaceVersionPlaceholder "$libraryPayloadDir/LaunchDaemons/software.concordium.mainnet.node-collector.plist"
+    replaceVersionPlaceholder "$libraryPayloadDir/LaunchDaemons/software.concordium.testnet.node-collector.plist"
+    replaceVersionPlaceholder "$appsPayloadDir/Concordium Node/Concordium Node Uninstaller.app/Contents/MacOS/uninstall.applescript"
 
     chmod -R 755 "$buildDir/scripts"
 
@@ -158,7 +160,7 @@ function collectDylibs() {
 function signBinaries() {
     logInfo "Signing binaries..."
 
-    find "$payloadDir" \
+    find "$libraryPayloadDir" \
         -type f \
         -execdir sudo codesign -f --options runtime -s "$developerIdApplication" {} \;
 
@@ -182,7 +184,7 @@ function buildPackage() {
         --version "$version" \
         --scripts "$buildDir/scripts" \
         --install-location "$installDir" \
-        --root "$payloadDir" \
+        --root "$libraryPayloadDir" \
         "$pkgFile"
     logInfo "Done"
 }
