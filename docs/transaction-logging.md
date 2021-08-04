@@ -16,11 +16,9 @@ To enable it the following configuration options must be given. We list environm
 
 As mentioned above the database must exist, otherwise the node will fail to start. If correct tables exist in the database then they will be used, otherwise the following will be executed upon startup
 ```sql
-CREATE TABLE "summaries"("id" SERIAL8  PRIMARY KEY UNIQUE,"block" BYTEA NOT NULL,"timestamp" INT8 NOT NULL,"height" INT8 NOT NULL,"summary" JSONB NOT NULL)
-CREATE TABLE "ati"("id" SERIAL8  PRIMARY KEY UNIQUE,"account" BYTEA NOT NULL,"summary" INT8 NOT NULL)
-CREATE TABLE "cti"("id" SERIAL8  PRIMARY KEY UNIQUE,"index" INT8 NOT NULL,"subindex" INT8 NOT NULL,"summary" INT8 NOT NULL)
-ALTER TABLE "ati" ADD CONSTRAINT "ati_summary_fkey" FOREIGN KEY("summary") REFERENCES "summaries"("id") ON DELETE RESTRICT  ON UPDATE RESTRICT
-ALTER TABLE "cti" ADD CONSTRAINT "cti_summary_fkey" FOREIGN KEY("summary") REFERENCES "summaries"("id") ON DELETE RESTRICT  ON UPDATE RESTRICT
+CREATE TABLE summaries(id SERIAL8 PRIMARY KEY UNIQUE, block BYTEA NOT NULL, timestamp INT8 NOT NULL, height INT8 NOT NULL, summary JSONB NOT NULL);
+CREATE TABLE ati(id SERIAL8, account BYTEA NOT NULL, summary INT8 NOT NULL, CONSTRAINT ati_pkey PRIMARY KEY (account, id), CONSTRAINT ati_summary_fkey FOREIGN KEY(summary) REFERENCES summaries(id) ON DELETE RESTRICT  ON UPDATE RESTRICT);
+CREATE TABLE cti(id SERIAL8, index INT8 NOT NULL,subindex INT8 NOT NULL,summary INT8 NOT NULL, CONSTRAINT cti_pkey PRIMARY KEY (index, subindex, id), CONSTRAINT cti_summary_fkey FOREIGN KEY(summary) REFERENCES summaries(id) ON DELETE RESTRICT  ON UPDATE RESTRICT);
 ```
 
 which creates three tables, `ati`, `cti`, and `summaries`. The `ati` and `cti` stand for **a**ccount, respectively **c**ontract, **t**ransaction **i**ndex. They contain an index so that a transaction affecting a given contract or account can be quickly looked up. The outcome of each transaction is in the `summaries` table.
