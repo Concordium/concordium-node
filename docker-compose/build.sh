@@ -20,5 +20,4 @@ docker build \
 	--label "consensus_profiling=$CONSENSUS_PROFILING" \
 	-t "concordium/dev-node:$VERSION" \
 	--pull \
-	--no-cache \
 	.
