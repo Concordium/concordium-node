@@ -23,11 +23,12 @@ readonly nodeDir="$macPackageDir/../../../concordium-node"
 readonly consensusDir="$macPackageDir/../../../concordium-consensus"
 readonly toolsDir="$macPackageDir/tools"
 readonly macdylibbundlerDir="$toolsDir/macdylibbundler-1.0.0"
-readonly installDir="/Library"
+readonly installDir="/"
 readonly templateDir="$macPackageDir/template"
 readonly buildDir="$macPackageDir/build"
-readonly appsPayloadDir="$buildDir/payload/Applications"
-readonly libraryPayloadDir="$buildDir/payload/Library"
+readonly payloadDir="$buildDir/payload"
+readonly appsPayloadDir="$payloadDir/Applications"
+readonly libraryPayloadDir="$payloadDir/Library"
 readonly versionedBinDir="$libraryPayloadDir/Concordium Node/$version"
 readonly packagesDir="$buildDir/packages"
 readonly pkgFile="$packagesDir/concordium-node.pkg"
@@ -184,7 +185,7 @@ function buildPackage() {
         --version "$version" \
         --scripts "$buildDir/scripts" \
         --install-location "$installDir" \
-        --root "$libraryPayloadDir" \
+        --root "$payloadDir" \
         "$pkgFile"
     logInfo "Done"
 }
