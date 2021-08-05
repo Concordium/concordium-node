@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8" standalone="no"?>
 <installer-script minSpecVersion="1.000000">
     <title>Concordium Node</title>
+    <background file="background.png" mime-type="image/png" alignment="topleft" />
     <welcome file="welcome.html" mime-type="text/html" />
     <conclusion file="conclusion.html" mime-type="text/html" />
     <license file="license.html" mime-type="text/html" />
@@ -15,9 +16,9 @@ function installCheck() {
         my.result.type = 'Fatal';
         return false;
     }
-    if(system.files.fileExistsAtPath('/Library/Concordium Node/__VERSION__/')) {
+    if(system.files.fileExistsAtPath('/Library/Concordium Node/1.0.2/')) {
         my.result.title = 'Previous Installation Detected';
-        my.result.message = 'A previous installation of Concordium Node exists at /Library/Concordium Node/__VERSION__/. This installer will remove the previous installation prior to installing. Please back up any data before proceeding.';
+        my.result.message = 'A previous installation of Concordium Node exists at /Library/Concordium Node/1.0.2/. This installer will remove the previous installation prior to installing. Please back up any data before proceeding.';
         my.result.type = 'Warning';
         return false;
     }
