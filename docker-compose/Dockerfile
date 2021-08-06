@@ -109,9 +109,13 @@ COPY --from=build /build/baker_id_gen/target/release/baker_id_gen /baker_id_gene
 COPY --from=build /build/wallet-proxy/target/wallet-proxy /wallet-proxy
 COPY --from=build /build/wallet-proxy/deps/concordium-client/deps/concordium-base/rust-src/target/release/*.so /usr/lib/
 
+# Set up dirs expected by node and bootstrapper.
+ENV CONCORDIUM_NODE_DATA_DIR=/var/lib/concordium/data
+ENV CONCORDIUM_NODE_CONFIG_DIR=/var/lib/concordium/config
+RUN mkdir -p "${CONCORDIUM_NODE_CONFIG_DIR}" "${CONCORDIUM_NODE_DATA_DIR}"
+    
 # Entrypoints for the various components.
 # No default entrypoint is defined because the image serves multiple purposes.
 COPY ./docker-compose/node-entrypoint.sh /node-entrypoint.sh
 COPY ./docker-compose/collector-entrypoint.sh /collector-entrypoint.sh
-COPY ./docker-compose/bootstrapper-entrypoint.sh /bootstrapper-entrypoint.sh
 # TODO Add wallet-proxy endpoint.

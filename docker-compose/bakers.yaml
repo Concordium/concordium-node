@@ -2,12 +2,10 @@ version: '3'
 services:
   bootstrapper:
     image: concordium/dev-node:latest
-    entrypoint: /bootstrapper-entrypoint.sh
+    entrypoint: /p2p_bootstrapper-cli
     environment:
     - RUST_BACKTRACE=1
     - RUST_LOG=info
-    - CONCORDIUM_NODE_DATA_DIR=/var/lib/concordium/data
-    - CONCORDIUM_NODE_CONFIG_DIR=/var/lib/concordium/config
     - CONCORDIUM_NODE_BOOTSTRAPPER_REGENESIS_BLOCK_HASHES_FILE=/genesis-data/genesis-${NUM_BAKERS}-bakers/genesis_hash
   collector_backend:
     image: concordium/dev-node:latest
@@ -31,17 +29,14 @@ services:
     environment:
     - RUST_BACKTRACE=1
     - RUST_LOG=info
-    - LD_LIBRARY_PATH=/usr/local/lib
     - GENESIS_DATA_PATH=/genesis-data/genesis-${NUM_BAKERS}-bakers
     - BAKER_ID_GEN_DNS=baker_id_gen
     - CONCORDIUM_NODE_CONNECTION_DESIRED_NODES=${DESIRED_PEERS}
     - CONCORDIUM_NODE_CONNECTION_BOOTSTRAP_NODES=bootstrapper:8888
     - CONCORDIUM_NODE_EXTERNAL_PORT=8888
-    - CONCORDIUM_NODE_DATA_DIR=/var/lib/concordium/data
-    - CONCORDIUM_NODE_CONFIG_DIR=/var/lib/concordium/config
     - CONCORDIUM_NODE_RPC_SERVER_ADDR=0.0.0.0
     ports:
-    - "11100-11500:10000"
+    - "10000"
   collector:
     image: concordium/dev-node:latest
     entrypoint: /collector-entrypoint.sh
