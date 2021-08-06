@@ -51,17 +51,17 @@ function createBuildDirFromTemplate() {
 
     cp -r "$templateDir" "$buildDir"
 
-    mkdir -p "$versionedBinDir"
+    mkdir "$versionedBinDir"
     mkdir "$buildDir/plugins"
     mkdir "$libraryPayloadDir/Application Support/Concordium Node/Mainnet/Config"
     mkdir "$libraryPayloadDir/Application Support/Concordium Node/Testnet/Config"
 
     replaceVersionPlaceholder "$buildDir/distribution.xml"
     replaceVersionPlaceholder "$buildDir/scripts/postinstall"
-    replaceVersionPlaceholder "$libraryPayloadDir/LaunchDaemons/software.concordium.mainnet.node.plist"
-    replaceVersionPlaceholder "$libraryPayloadDir/LaunchDaemons/software.concordium.testnet.node.plist"
-    replaceVersionPlaceholder "$libraryPayloadDir/LaunchDaemons/software.concordium.mainnet.node-collector.plist"
-    replaceVersionPlaceholder "$libraryPayloadDir/LaunchDaemons/software.concordium.testnet.node-collector.plist"
+    replaceVersionPlaceholder "$libraryPayloadDir/Concordium Node/LaunchDaemons/software.concordium.mainnet.node.plist"
+    replaceVersionPlaceholder "$libraryPayloadDir/Concordium Node/LaunchDaemons/software.concordium.testnet.node.plist"
+    replaceVersionPlaceholder "$libraryPayloadDir/Concordium Node/LaunchDaemons/software.concordium.mainnet.node-collector.plist"
+    replaceVersionPlaceholder "$libraryPayloadDir/Concordium Node/LaunchDaemons/software.concordium.testnet.node-collector.plist"
     replaceVersionPlaceholder "$payloadDir/Applications/Concordium Node/Concordium Node Uninstaller.app/Contents/MacOS/uninstall.applescript"
     replaceVersionPlaceholder "$buildDir/resources/welcome.html"
 
