@@ -27,7 +27,6 @@ readonly installDir="/"
 readonly templateDir="$macPackageDir/template"
 readonly buildDir="$macPackageDir/build"
 readonly payloadDir="$buildDir/payload"
-readonly appsPayloadDir="$payloadDir/Applications"
 readonly libraryPayloadDir="$payloadDir/Library"
 readonly versionedBinDir="$libraryPayloadDir/Concordium Node/$version"
 readonly packagesDir="$buildDir/packages"
@@ -63,7 +62,7 @@ function createBuildDirFromTemplate() {
     replaceVersionPlaceholder "$libraryPayloadDir/LaunchDaemons/software.concordium.testnet.node.plist"
     replaceVersionPlaceholder "$libraryPayloadDir/LaunchDaemons/software.concordium.mainnet.node-collector.plist"
     replaceVersionPlaceholder "$libraryPayloadDir/LaunchDaemons/software.concordium.testnet.node-collector.plist"
-    replaceVersionPlaceholder "$appsPayloadDir/Concordium Node/Concordium Node Uninstaller.app/Contents/MacOS/uninstall.applescript"
+    replaceVersionPlaceholder "$payloadDir/Applications/Concordium Node/Concordium Node Uninstaller.app/Contents/MacOS/uninstall.applescript"
     replaceVersionPlaceholder "$buildDir/resources/welcome.html"
 
     chmod -R 755 "$buildDir/scripts"
@@ -185,6 +184,7 @@ function buildPackage() {
     pkgbuild --identifier software.concordium.node \
         --version "$version" \
         --scripts "$buildDir/scripts" \
+        --component-plist "$buildDir/components.plist" \
         --install-location "$installDir" \
         --root "$payloadDir" \
         "$pkgFile"
