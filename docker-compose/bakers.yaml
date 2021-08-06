@@ -36,7 +36,7 @@ services:
     - CONCORDIUM_NODE_EXTERNAL_PORT=8888
     - CONCORDIUM_NODE_RPC_SERVER_ADDR=0.0.0.0
     ports:
-    - "10000"
+    - "10000" # bind to ephemeral ports because port range doesn't work on Windows
   collector:
     image: concordium/dev-node:latest
     entrypoint: /collector-entrypoint.sh

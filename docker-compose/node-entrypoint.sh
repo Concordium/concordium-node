@@ -2,7 +2,14 @@
 
 set -euxo pipefail
 
-if [ -n "${GENESIS_DATA_PATH}" ]; then
+# The correct 'genesis.dat' and baker credentials files for the network are stored in
+# '/genesis-data/genesis-${NUM_BAKERS}-bakers'.
+# The node expects to find 'genesis.dat' in the data dir '/var/lib/concordium/data'.
+# The Compose file sets 'GENESIS_DATA_PATH' to the former path such that we can copy it here
+# and also point at the correct credentials.
+# If the variable isn't set, the assumption is that the files/environment has been set up by some other means.
+# The node will fail on startup if this is not done correctly.
+if [ -n "${GENESIS_DATA_PATH-}" ]; then
 	# Copy 'genesis.dat' - better solution: support flag in concordium-node to set location.
 	cp "${GENESIS_DATA_PATH}/genesis.dat" "${CONCORDIUM_NODE_DATA_DIR}"
 	# Select unique baker credentials file.

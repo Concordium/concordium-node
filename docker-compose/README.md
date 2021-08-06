@@ -8,19 +8,24 @@ spinning up a network using docker-compose for local development.
 A parameterized Docker Compose file `bakers.yaml` is available:
 It sets up a network of 1, 5, 10, or 25 bakers with collectors and a single collector-backend.
 
-Start a cluster of `<n>` (where `n` is 1, 5, 10, or 25) nodes using:
+Expected environment variables:
+
+- `NUM_BAKERS`: The number of bakers to start. Should be provided as argument to `--scale baker=` as well.
+- `DESIRED_PEERS`: The number of peers expected by a baker node. Should be one less than `NUM_BAKERS`.
+
+The following command will start a cluster of `<n>` (1, 5, 10, or 25) nodes:
 
 ```
 NUM_BAKERS=<n> DESIRED_PEERS=<n-1> docker-compose -f bakers.yaml up --scale baker=<n>
 ```
 
-Example: Boot a cluster of 5 nodes (with forced non-reuse of containers):
+Example: Boot a cluster of 5 nodes (with no reuse of containers):
 
 ```
 NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f bakers.yaml up --scale baker=5 --force-recreate
 ```
 
-Update the Docker image using
+Update the instantiated Docker image using
 
 ```
 docker-compose -f bakers.yaml pull
@@ -28,7 +33,11 @@ docker-compose -f bakers.yaml pull
 
 There is an intent to integrate a Wallet Proxy and a Middleware instance into the setup
 once time permits...
-This seems to have been implemented in the past but was removed due to lack of maintenance.
+This has been implemented in the past but was removed due to lack of maintenance.
+
+The environment variables with prefix `CONCORDIUM_NODE_` defined in the Compose file are passed directly
+to the relevant binary.
+The full set of supported variables is listed in [VARIABLES.md](../VARIABLES.md).
 
 ## Accounts
 
