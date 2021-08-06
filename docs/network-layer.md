@@ -29,7 +29,7 @@ After completing the first part of the handshake, then the two peers will carry 
 
 1. The client versions are compatible
 2. The wire versions are compatible
-3. The peers have *compatible* genesis blocks. *Compatible* in this context means that one peer's list of *genesis blocks* must be a prefix of the other's.
+3. The peers have *compatible* genesis blocks. Initially, where the chain has a single genesis block, this means the peers' genesis blocks must be equal. If there are additional genesis blocks introduced by protocol updates, *compatible* means that one peer's list of *genesis blocks* must be a prefix of the other's. In particular, the initial genesis blocks of both peers must always be equal.
 
 When the *handshake* has been successfully completed then the peers will *promote* each other into their corresponding lists of peers, i.e. the peers are now connected and can communicate with each other, hence the peers can now relay messages between them, carry out *consensus* and *catchup* etc.
 
