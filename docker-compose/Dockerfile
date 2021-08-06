@@ -11,7 +11,6 @@
 # named genesis-$NUM_BAKERS-bakers.
 
 FROM concordium/genesis-tools:latest as genesis-builder
-
 RUN apt-get update && \
     apt-get -y install python3 && \
     rm -rf /var/lib/apt/lists/*
@@ -22,15 +21,13 @@ ARG GENERATE_UPDATE_KEYS=generate-update-keys
 ARG CLIENT_TOOL=client
 ARG GENESIS_ACCOUNTS_TOOL=genesis_tool
 
-# Build images for different configurations. Currently for 1, 5, 10, and 25
-# bakers using the default genesis.json configuration.
-# Build all the relevant genesis files and embed them in the image itself.
+# Build configurations for 1, 5, 10, and 25 bakers using the default configuration in 'scripts/genesis/genesis.json'.
+# All the generated genesis files are baked into the image.
 COPY scripts/genesis/ /genesis
 WORKDIR /genesis
-RUN GENESIS_DIR=./out/genesis-1-bakers NUM_BAKERS=1 python3 generate-test-genesis.py && \
-    GENESIS_DIR=./out/genesis-5-bakers NUM_BAKERS=5 python3 generate-test-genesis.py && \
-    GENESIS_DIR=./out/genesis-10-bakers NUM_BAKERS=10 python3 generate-test-genesis.py && \
-    GENESIS_DIR=./out/genesis-25-bakers NUM_BAKERS=25 python3 generate-test-genesis.py
+RUN for n in 1 5 10 25; do \
+        GENESIS_DIR="./out/genesis-${n}-bakers" NUM_BAKERS="${n}" python3 generate-test-genesis.py; \
+    done
 
 # Build static consensus libraries.
 FROM concordium/static-libraries:latest as static-builder
@@ -46,12 +43,8 @@ WORKDIR /build
 ARG ghc_version
 RUN GHC_VERSION="${ghc_version}" ./build-static-libraries.sh
 
-# And build the node
 FROM concordium/base:latest as build
-
 ARG ghc_version
-ARG consensus_profiling
-ENV CONSENSUS_PROFILING=$consensus_profiling
 
 # Copy source files (only copy what's needed to utilize caching).
 COPY ./concordium-base /build/concordium-base
@@ -62,7 +55,6 @@ COPY ./deps /build/deps
 COPY ./scripts/build-binaries.sh /build/build-binaries.sh
 WORKDIR /build
 
-# Node
 # Copy static libraries that were built in the 'static-builder' step into the correct place ('concordium-node/deps/static/linux').
 COPY --from=static-builder /build/static-consensus-${ghc_version}.tar.gz .
 RUN mkdir -p concordium-node/deps/static-libs/linux && \
@@ -71,10 +63,6 @@ RUN mkdir -p concordium-node/deps/static-libs/linux && \
 
 # Build the Rust parts of the node.
 RUN ./build-binaries.sh "collector"
-
-# Build baker id gen.
-RUN git clone --recurse-submodules --depth 1 --branch main https://github.com/Concordium/concordium-tools-baker-id-gen.git /build/baker_id_gen && \
-    (cd /build/baker_id_gen && cargo build --release)
 
 # Build Wallet Proxy.
 RUN git clone --recurse-submodules --depth 1 --branch main https://github.com/Concordium/concordium-wallet-proxy.git /build/wallet-proxy && \
@@ -101,9 +89,6 @@ COPY --from=build /build/concordium-node/target/debug/concordium-node /concordiu
 COPY --from=build /build/concordium-node/target/debug/p2p_bootstrapper-cli /p2p_bootstrapper-cli
 COPY --from=build /build/concordium-node/target/debug/node-collector /node-collector
 COPY --from=build /build/concordium-node/target/debug/node-collector-backend /node-collector-backend
-
-# Baker ID generator.
-COPY --from=build /build/baker_id_gen/target/release/baker_id_gen /baker_id_generator
 
 # Wallet proxy.
 COPY --from=build /build/wallet-proxy/target/wallet-proxy /wallet-proxy

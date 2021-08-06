@@ -1,16 +1,12 @@
 #!/usr/bin/env bash
 
-set -exo pipefail
+set -euxo pipefail
 
-# Optionally delay startup.
-if [ -n "${COLLECTOR_SLEEP}" ]; then
-	echo "Sleeping for ${COLLECTOR_SLEEP}"
-	sleep "${COLLECTOR_SLEEP}"
-fi
+num_bakers="${NUM_BAKERS-1}"
 
 # Collect data from all nodes.
 url_args=()
-for i in $(seq 1 "${NUM_BAKERS}"); do
+for i in $(seq 1 "${num_bakers}"); do
 	url_args=(
 		"${url_args[@]}"
 		--grpc-host "http://${NODE_DNS_BASE}_${i}:10000" --node-name "baker_${i}"

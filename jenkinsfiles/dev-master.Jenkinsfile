@@ -1,5 +1,11 @@
 pipeline {
     agent any
+    
+    environment {
+        image_repo = 'concordium/dev-node'
+        image_name = "${image_repo}:${image_tag}"
+    }
+    
     stages {
         stage('ecr-login') {
             steps {
@@ -16,12 +22,21 @@ pipeline {
         }
         stage('build') {
             steps {
-                sshagent (credentials: ['jenkins-gitlab-ssh']) {
-                    sh '''\
-                           ./docker-compose/build.sh latest false
-                           docker push concordium/dev-node:latest
-                       '''
-                }
+                sh '''\
+                    docker build \
+                        --build-arg ghc_version="${ghc_version}" \
+                        --label ghc_version="${ghc_version}" \
+                        -t "concordium/dev-node:${image_tag}" \
+                        -f docker-compose/Dockerfile \
+                        --pull \
+                        .
+                '''
+            }
+        }
+        
+        stage('push') {
+            steps {
+                sh 'docker push "${image_name}"'
             }
         }
     }
