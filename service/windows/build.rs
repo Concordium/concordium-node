@@ -1,5 +1,3 @@
-use winres;
-
 fn main() -> std::io::Result<()> {
     let mut res = winres::WindowsResource::new();
     // Require administrator permissions

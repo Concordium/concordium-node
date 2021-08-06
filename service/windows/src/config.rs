@@ -35,6 +35,12 @@ pub struct Config {
 }
 
 /// Convenience macro for looking up a value in a TOML table.
+/// This can be used to look up a path and try to treat it as a particular type, as in:
+/// ```
+/// toml_get_as(as_integer, v, "node", "exe")
+/// ```
+/// This can be applied to a `Table` or a `Value`.  The first argument should be a function on
+/// `Value` that tries to convert it to another type.
 macro_rules! toml_get_as {
     ( $as:ident, $v:expr, $( $x:expr),* ) => {
         {(|| {
@@ -44,7 +50,6 @@ macro_rules! toml_get_as {
             )*
             temp.$as()
         }) ()}
-
     }
 }
 
@@ -58,18 +63,14 @@ fn get_env(
 ) -> anyhow::Result<()> {
     if let Some(env_table) = env_table_opt {
         for (k, v) in env_table {
-            env.insert(
-                k.to_string(),
-                v.as_str()
-                    .ok_or_else(|| {
-                        anyhow!(
-                            "Environment variables must be strings, but {}.{} is not",
-                            table_name,
-                            k
-                        )
-                    })?
-                    .to_string(),
-            );
+            let value = v.as_str().ok_or_else(|| {
+                anyhow!(
+                    "Environment variables must be strings, but {}.{} is not",
+                    table_name,
+                    k
+                )
+            })?;
+            env.insert(k.to_string(), value.to_string());
         }
     }
     Ok(())
@@ -85,11 +86,10 @@ fn get_args(
     if let Some(vs) = args_array_opt {
         let mut args = Vec::with_capacity(vs.len());
         for arg in vs {
-            args.push(
-                arg.as_str()
-                    .ok_or_else(|| anyhow!("{} contains a non-string argument", array_name))?
-                    .to_string(),
-            );
+            let arg_val = arg
+                .as_str()
+                .ok_or_else(|| anyhow!("{} contains a non-string argument", array_name))?;
+            args.push(arg_val.to_string());
         }
         Ok(Some(args))
     } else {

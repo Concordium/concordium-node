@@ -69,11 +69,11 @@
                 <Control Id="RepairButton" Type="PushButton" X="40" Y="78" Width="80" Height="17" ToolTip="!(loc.MaintenanceTypeDlgRepairButtonTooltip)" Text="!(loc.MaintenanceTypeDlgRepairButton)">
                     <Publish Property="WixUI_InstallMode" Value="Repair">1</Publish>
                 </Control>
-                <Control Id="RepairText" Type="Text" X="60" Y="98" Width="280" Height="30" Text="!(loc.MaintenanceTypeDlgRepairText)"></Control>
+                <Control Id="RepairText" Type="Text" X="60" Y="98" Width="280" Height="30" Text="!(loc.MaintenanceTypeDlgRepairText)" />
                 <Control Id="RemoveButton" Type="PushButton" X="40" Y="131" Width="80" Height="17" ToolTip="!(loc.MaintenanceTypeDlgRemoveButtonTooltip)" Text="!(loc.MaintenanceTypeDlgRemoveButton)">
                     <Publish Property="WixUI_InstallMode" Value="Remove">1</Publish>
                 </Control>
-                <Control Id="RemoveText" Type="Text" X="60" Y="151" Width="280" Height="20" NoPrefix="yes" Text="!(loc.MaintenanceTypeDlgRemoveText)"></Control>
+                <Control Id="RemoveText" Type="Text" X="60" Y="151" Width="280" Height="20" NoPrefix="yes" Text="!(loc.MaintenanceTypeDlgRemoveText)" />
                 <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="!(loc.WixUIBack)" />
                 <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Disabled="yes" Text="!(loc.WixUINext)" />
                 <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="!(loc.WixUICancel)">

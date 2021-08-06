@@ -1,36 +1,36 @@
-<?xml version='1.0' encoding='windows-1252'?>
-<Wix xmlns='http://schemas.microsoft.com/wix/2006/wi' xmlns:Util="http://schemas.microsoft.com/wix/UtilExtension">
-    <Product Name='Concordium Node' Manufacturer='Concordium Software' Id='ae8c6e39-db6f-4538-9b8f-efefa3e195ad' UpgradeCode='297295b4-c716-4d33-8170-0f6136663bfd' Language='1033' Codepage='1252' Version='1.0.2'>
-        <Package Id='*' Keywords='Concordium Installer' Description='Concordium Node 1.0.2 Installer' Manufacturer='Concordium Software' InstallerVersion='500' Languages='1033' Compressed='yes' InstallScope="perMachine" />
-        <Media Id='1' Cabinet='Node.cab' EmbedCab='yes' />
-        <Directory Id='TARGETDIR' Name='SourceDir'>
-            <Directory Id='ProgramFiles64Folder' Name='PFiles'>
-                <Directory Id='Concordium' Name='Concordium'>
-                    <Directory Id='INSTALLDIR' Name='Node 1.0'>
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi" xmlns:Util="http://schemas.microsoft.com/wix/UtilExtension">
+    <Product Name="Concordium Node" Manufacturer="Concordium Software" Id="ae8c6e39-db6f-4538-9b8f-efefa3e195ad" UpgradeCode="297295b4-c716-4d33-8170-0f6136663bfd" Language="1033" Codepage="1252" Version="1.0.2">
+        <Package Id="*" Keywords="Concordium Installer" Description="Concordium Node 1.0.2 Installer" Manufacturer="Concordium Software" InstallerVersion="500" Languages="1033" Compressed="yes" InstallScope="perMachine" />
+        <Media Id="1" Cabinet="Node.cab" EmbedCab="yes" />
+        <Directory Id="TARGETDIR" Name="SourceDir">
+            <Directory Id="ProgramFiles64Folder" Name="PFiles">
+                <Directory Id="Concordium" Name="Concordium">
+                    <Directory Id="INSTALLDIR" Name="Node 1.0">
                         <!-- The installation directory. Here, we install:
                             * concordium-node.exe
                             * HSdll.dll
                             * node-collector.exe
                             * node-runner-service.exe
-                            * third-party-licenses.exe
+                            * third-party-licenses.html
                             * additional DLLs (in the ThirdPartyDLLs component group)
                         -->
-                        <Component Id='NodeExecutable' Guid='90257d98-bcb9-4570-881a-aa7b6404b315'>
-                            <File Id='ConcordiumNode' Name='concordium-node.exe' DiskId='1' Source='!(bindpath.node)concordium-node.exe' Checksum='yes' KeyPath='yes' />
-                            <File Id='HSdll' Name='HSdll.dll' DiskId='1' Source='!(bindpath.consensus)HSdll.dll' Checksum='yes' />
+                        <Component Id="NodeExecutable" Guid="90257d98-bcb9-4570-881a-aa7b6404b315">
+                            <File Id="ConcordiumNode" Name="concordium-node.exe" Source="!(bindpath.node)concordium-node.exe" Checksum="yes" KeyPath="yes" />
+                            <File Id="HSdll" Name="HSdll.dll" Source="!(bindpath.consensus)HSdll.dll" Checksum="yes" />
                         </Component>
-                        <Component Id='NodeCollector' Guid='95747611-1415-483c-9f0a-6f9b78fb22af'>
-                            <File Id='NodeCollector' Name='node-collector.exe' DiskId='1' Source='!(bindpath.node)node-collector.exe' Checksum='yes' KeyPath='yes' />
+                        <Component Id="NodeCollector" Guid="95747611-1415-483c-9f0a-6f9b78fb22af">
+                            <File Id="NodeCollector" Name="node-collector.exe" Source="!(bindpath.node)node-collector.exe" Checksum="yes" KeyPath="yes" />
                         </Component>
-                        <Component Id='NodeRunnerService' Guid='93278686-a434-4a86-a81e-61aaa79982de'>
-                            <File Id='NodeRunnerService' Name='node-runner-service.exe' Source='!(bindpath.service)node-runner-service.exe' Checksum='yes' KeyPath='yes'>
-                                <Shortcut Id='startmenuStartNodeRunnerService' Directory='ProgramMenuDir' Name='Start Concordium Node Service' WorkingDirectory='INSTALLDIR' Icon='play.ico' IconIndex='0' Arguments='start' Advertise="yes" />
-                                <Shortcut Id='startmenuStopNodeRunnerService' Directory='ProgramMenuDir' Name='Stop Concordium Node Service' WorkingDirectory='INSTALLDIR' Icon='stop.ico' IconIndex='0' Arguments='stop' Advertise="yes" />
-                                <Shortcut Id='startmenuConfigureNodeRunnerService' Directory='ProgramMenuDir' Name='Configure Concordium Node Service' WorkingDirectory='INSTALLDIR' Icon='config.ico' IconIndex='0' Arguments='configure' Advertise="yes" />
+                        <Component Id="NodeRunnerService" Guid="93278686-a434-4a86-a81e-61aaa79982de">
+                            <File Id="NodeRunnerService" Name="node-runner-service.exe" Source="!(bindpath.service)node-runner-service.exe" Checksum="yes" KeyPath="yes">
+                                <Shortcut Id="startmenuStartNodeRunnerService" Directory="ProgramMenuDir" Name="Start Concordium Node Service" WorkingDirectory="INSTALLDIR" Icon="play.ico" IconIndex="0" Arguments="start" Advertise="yes" />
+                                <Shortcut Id="startmenuStopNodeRunnerService" Directory="ProgramMenuDir" Name="Stop Concordium Node Service" WorkingDirectory="INSTALLDIR" Icon="stop.ico" IconIndex="0" Arguments="stop" Advertise="yes" />
+                                <Shortcut Id="startmenuConfigureNodeRunnerService" Directory="ProgramMenuDir" Name="Configure Concordium Node Service" WorkingDirectory="INSTALLDIR" Icon="config.ico" IconIndex="0" Arguments="configure" Advertise="yes" />
                             </File>
                             <!-- This installs the node runner service. It is important that the
                                 Name matches the SERVICE_NAME constant in main.rs. -->
-                            <ServiceInstall Name="ConcordiumNode" DisplayName="Concordium Node Runner Service" Description="Runs one or more Concordium blockchain nodes." Type="ownProcess" Start="auto" ErrorControl="ignore"></ServiceInstall>
+                            <ServiceInstall Name="ConcordiumNode" DisplayName="Concordium Node Runner Service" Description="Runs one or more Concordium blockchain nodes." Type="ownProcess" Start="auto" ErrorControl="ignore" />
                             <!-- This stops and removes the service when we are un-/re-installing. -->
                             <ServiceControl Id="ConcordiumNodeServiceControl" Name="ConcordiumNode" Stop="both" Remove="both" />
                             <!-- This sets up the event source for the node runner service.
@@ -38,9 +38,9 @@
                                 in main.rs. -->
                             <Util:EventSource Name="Concordium Node Runner Service" Log="Application" EventMessageFile="[#NodeRunnerService]" />
                         </Component>
-                        <Component Id='ThirdPartyLicenses' Guid='385d76f5-e504-4f73-9bdc-38172f294228'>
-                            <File Id="Licenses" Name='third-party-licenses.html' Source='!(bindpath.res)licenses.html' Checksum='yes' KeyPath="yes" />
-                            <Util:InternetShortcut Id="LicensesShortcut" Name="Third Party Licenses" Target="file:///[#Licenses]" Directory='ProgramMenuDir' />
+                        <Component Id="ThirdPartyLicenses" Guid="385d76f5-e504-4f73-9bdc-38172f294228">
+                            <File Id="Licenses" Name="third-party-licenses.html" Source="!(bindpath.res)licenses.html" Checksum="yes" KeyPath="yes" />
+                            <Util:InternetShortcut Id="LicensesShortcut" Name="Third Party Licenses" Target="file:///[#Licenses]" Directory="ProgramMenuDir" />
                         </Component>
                     </Directory>
                 </Directory>
@@ -50,7 +50,7 @@
                     <!-- Program menu folder. The shortcuts are placed here. -->
                     <Component Id="ProgramMenuDir" Guid="4179b16f-f459-4d80-a3d8-7b64519a20db">
                         <RemoveFolder Id="ProgramMenuDir" On="uninstall" />
-                        <RegistryValue Root="HKCU" Key='Software\[Manufacturer]\[ProductName]' Type="string" Value="" KeyPath="yes" />
+                        <RegistryValue Root="HKCU" Key="Software\[Manufacturer]\[ProductName]" Type="string" Value="" KeyPath="yes" />
                     </Component>
                 </Directory>
             </Directory>
@@ -190,30 +190,14 @@
         <CustomAction Id="StartService" BinaryKey="CustomActions" DllEntry="StartService" Execute="deferred" Return="check" Impersonate="no" />
         <CustomAction Id="StartService.SetProperty" Return="check" Property="StartService" Value="ConcordiumNode" />
         <InstallExecuteSequence>
-            <Custom Action="RemoveDataFolder" After="RemoveFiles">
-                <![CDATA[ REMOVEDATADIR=1 ]]>
-            </Custom>
-            <Custom Action="RemoveDataFolder.SetProperty" Before="RemoveDataFolder">
-                <![CDATA[ REMOVEDATADIR=1 ]]>
-            </Custom>
-            <Custom Action="ServiceStartAuto" After="InstallServices">
-                <![CDATA[$NodeRunnerService=3 AND AUTOSTART]]>
-            </Custom>
-            <Custom Action="ServiceStartAuto.SetProperty" Before="ServiceStartAuto">
-                <![CDATA[$NodeRunnerService=3 AND AUTOSTART]]>
-            </Custom>
-            <Custom Action="ServiceStartDemand" After="InstallServices">
-                <![CDATA[$NodeRunnerService=3 AND NOT AUTOSTART]]>
-            </Custom>
-            <Custom Action="ServiceStartDemand.SetProperty" Before="ServiceStartDemand">
-                <![CDATA[$NodeRunnerService=3 AND NOT AUTOSTART]]>
-            </Custom>
-            <Custom Action="StartService" After="StartServices">
-                <![CDATA[$NodeRunnerService=3 AND INSTALLSTART]]>
-            </Custom>
-            <Custom Action="StartService.SetProperty" Before="StartService">
-                <![CDATA[$NodeRunnerService=3 AND INSTALLSTART]]>
-            </Custom>
+            <Custom Action="RemoveDataFolder" After="RemoveFiles"><![CDATA[ REMOVEDATADIR=1 ]]></Custom>
+            <Custom Action="RemoveDataFolder.SetProperty" Before="RemoveDataFolder"><![CDATA[ REMOVEDATADIR=1 ]]></Custom>
+            <Custom Action="ServiceStartAuto" After="InstallServices"><![CDATA[$NodeRunnerService=3 AND AUTOSTART]]></Custom>
+            <Custom Action="ServiceStartAuto.SetProperty" Before="ServiceStartAuto"><![CDATA[$NodeRunnerService=3 AND AUTOSTART]]></Custom>
+            <Custom Action="ServiceStartDemand" After="InstallServices"><![CDATA[$NodeRunnerService=3 AND NOT AUTOSTART]]></Custom>
+            <Custom Action="ServiceStartDemand.SetProperty" Before="ServiceStartDemand"><![CDATA[$NodeRunnerService=3 AND NOT AUTOSTART]]></Custom>
+            <Custom Action="StartService" After="StartServices"><![CDATA[$NodeRunnerService=3 AND INSTALLSTART]]></Custom>
+            <Custom Action="StartService.SetProperty" Before="StartService"><![CDATA[$NodeRunnerService=3 AND INSTALLSTART]]></Custom>
         </InstallExecuteSequence>
 
         <!-- All of the components are grouped into a single feature for simplicity. -->
@@ -248,21 +232,13 @@
         <!-- The following properties are used for writing to nodes.toml. They convert the set/not-set
             state of other properties into true/false string values that are what we actually write. -->
         <Property Id="MainnetEnable" Value="false" />
-        <SetProperty Id="MainnetEnable" Sequence="execute" Before="WriteIniValues" Value="true">
-            <![CDATA[MAINNETENABLED=1]]>
-        </SetProperty>
+        <SetProperty Id="MainnetEnable" Sequence="execute" Before="WriteIniValues" Value="true"><![CDATA[MAINNETENABLED=1]]></SetProperty>
         <Property Id="MainnetCollectorEnable" Value="false" />
-        <SetProperty Id="MainnetCollectorEnable" Sequence="execute" Before="WriteIniValues" Value="true">
-            <![CDATA[MAINNETCOLLECTOR=1]]>
-        </SetProperty>
+        <SetProperty Id="MainnetCollectorEnable" Sequence="execute" Before="WriteIniValues" Value="true"><![CDATA[MAINNETCOLLECTOR=1]]></SetProperty>
         <Property Id="TestnetEnable" Value="false" />
-        <SetProperty Id="TestnetEnable" Sequence="execute" Before="WriteIniValues" Value="true">
-            <![CDATA[TESTNETENABLED=1]]>
-        </SetProperty>
+        <SetProperty Id="TestnetEnable" Sequence="execute" Before="WriteIniValues" Value="true"><![CDATA[TESTNETENABLED=1]]></SetProperty>
         <Property Id="TestnetCollectorEnable" Value="false" />
-        <SetProperty Id="TestnetCollectorEnable" Sequence="execute" Before="WriteIniValues" Value="true">
-            <![CDATA[TESTNETCOLLECTOR=1]]>
-        </SetProperty>
+        <SetProperty Id="TestnetCollectorEnable" Sequence="execute" Before="WriteIniValues" Value="true"><![CDATA[TESTNETCOLLECTOR=1]]></SetProperty>
 
         <!-- These properties tell the UI which variables are used for the installation directories. -->
         <Property Id="WIXUI_INSTALLDIR" Value="INSTALLDIR" />
@@ -290,9 +266,7 @@
             <DialogRef Id="UserExit" />
 
             <Publish Dialog="BrowseDlg" Control="OK" Event="DoAction" Value="WixUIValidatePath" Order="3">1</Publish>
-            <Publish Dialog="BrowseDlg" Control="OK" Event="SpawnDialog" Value="InvalidDirDlg" Order="4">
-                <![CDATA[NOT WIXUI_DONTVALIDATEPATH AND WIXUI_INSTALLDIR_VALID<>"1"]]>
-            </Publish>
+            <Publish Dialog="BrowseDlg" Control="OK" Event="SpawnDialog" Value="InvalidDirDlg" Order="4"><![CDATA[NOT WIXUI_DONTVALIDATEPATH AND WIXUI_INSTALLDIR_VALID<>"1"]]></Publish>
 
             <Publish Dialog="ExitDialog" Control="Finish" Event="EndDialog" Value="Return" Order="999">1</Publish>
 
@@ -305,9 +279,7 @@
             <Publish Dialog="InstallDirsDlg" Control="Back" Event="NewDialog" Value="LicenseAgreementDlg">1</Publish>
             <Publish Dialog="InstallDirsDlg" Control="Next" Event="SetTargetPath" Value="[WIXUI_INSTALLDIR]" Order="1">1</Publish>
             <Publish Dialog="InstallDirsDlg" Control="Next" Event="DoAction" Value="WixUIValidatePath" Order="2">NOT WIXUI_DONTVALIDATEPATH</Publish>
-            <Publish Dialog="InstallDirsDlg" Control="Next" Event="SpawnDialog" Value="InvalidDirDlg" Order="3">
-                <![CDATA[NOT WIXUI_DONTVALIDATEPATH AND WIXUI_INSTALLDIR_VALID<>"1"]]>
-            </Publish>
+            <Publish Dialog="InstallDirsDlg" Control="Next" Event="SpawnDialog" Value="InvalidDirDlg" Order="3"><![CDATA[NOT WIXUI_DONTVALIDATEPATH AND WIXUI_INSTALLDIR_VALID<>"1"]]></Publish>
             <Publish Dialog="InstallDirsDlg" Control="Next" Event="NewDialog" Value="NodeConfigurationDlg" Order="4">WIXUI_DONTVALIDATEPATH OR WIXUI_INSTALLDIR_VALID="1"</Publish>
             <Publish Dialog="InstallDirsDlg" Control="ChangeFolder" Property="_BrowseProperty" Value="[WIXUI_INSTALLDIR]" Order="1">1</Publish>
             <Publish Dialog="InstallDirsDlg" Control="ChangeFolder" Event="SpawnDialog" Value="BrowseDlg" Order="2">1</Publish>

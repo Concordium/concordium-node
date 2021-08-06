@@ -46,37 +46,43 @@ fn runner_service_main(arguments: Vec<OsString>) {
 
 /// Macro for constructing a simple status message given the new state and enabled controls (if
 /// any).
-macro_rules! simple_status {
-    ($state: expr, $controls: expr) => {
-        ServiceStatus {
-            service_type: ServiceType::OWN_PROCESS,
-            current_state: $state,
-            controls_accepted: $controls,
-            exit_code: ServiceExitCode::Win32(0),
-            checkpoint: 0,
-            wait_hint: Duration::from_secs(0),
-            process_id: None,
-        }
-    };
-    ($state: expr) => {
-        simple_status!($state, ServiceControlAccept::empty())
-    };
+
+/// Construct a simple status message with no enabled controls.
+fn simple_status(state: ServiceState) -> ServiceStatus {
+    simple_status_with_controls(state, ServiceControlAccept::empty())
 }
 
-/// Macro for constructing a pending status message given the new state and checkpoint and wait
-/// hint values.
-macro_rules! pending_status {
-    ($state: expr, $checkpoint: expr, $wait_hint: expr) => {
-        ServiceStatus {
-            service_type: ServiceType::OWN_PROCESS,
-            current_state: $state,
-            controls_accepted: ServiceControlAccept::empty(),
-            exit_code: ServiceExitCode::Win32(0),
-            checkpoint: $checkpoint,
-            wait_hint: $wait_hint,
-            process_id: None,
-        }
-    };
+/// Construct a simple status message with the specified controls.
+fn simple_status_with_controls(
+    current_state: ServiceState,
+    controls_accepted: ServiceControlAccept,
+) -> ServiceStatus {
+    ServiceStatus {
+        service_type: ServiceType::OWN_PROCESS,
+        current_state,
+        controls_accepted,
+        exit_code: ServiceExitCode::Win32(0),
+        checkpoint: 0,
+        wait_hint: Duration::from_secs(0),
+        process_id: None,
+    }
+}
+
+/// Constructing a pending status message given the new state, checkpoint, and wait hint.
+fn pending_status(
+    current_state: ServiceState,
+    checkpoint: u32,
+    wait_hint: Duration,
+) -> ServiceStatus {
+    ServiceStatus {
+        service_type: ServiceType::OWN_PROCESS,
+        current_state,
+        controls_accepted: ServiceControlAccept::empty(),
+        exit_code: ServiceExitCode::Win32(0),
+        checkpoint,
+        wait_hint,
+        process_id: None,
+    }
 }
 
 /// Service runner.
@@ -120,10 +126,10 @@ fn run_service(_arguments: Vec<OsString>) -> anyhow::Result<()> {
     let status_handle = register(SERVICE_NAME, event_handler)?;
 
     // Set the status to StartPending while we load the configuration and start the nodes.
-    status_handle.set_service_status(pending_status!(
+    status_handle.set_service_status(pending_status(
         ServiceState::StartPending,
         0,
-        Duration::from_secs(1)
+        Duration::from_secs(1),
     ))?;
 
     let config = load_config()?;
@@ -142,9 +148,9 @@ fn run_service(_arguments: Vec<OsString>) -> anyhow::Result<()> {
     }
 
     // Tell the system that the service is running now
-    status_handle.set_service_status(simple_status!(
+    status_handle.set_service_status(simple_status_with_controls(
         ServiceState::Running,
-        ServiceControlAccept::STOP | ServiceControlAccept::PRESHUTDOWN
+        ServiceControlAccept::STOP | ServiceControlAccept::PRESHUTDOWN,
     ))?;
 
     // Loop until shutdown is triggered
@@ -182,10 +188,10 @@ fn run_service(_arguments: Vec<OsString>) -> anyhow::Result<()> {
     // seconds to do so.  Any node that has not shut down in that time will be terminated.
     let expected_shutdown_duration = Duration::from_secs(61);
     let mut checkpoint = 0;
-    status_handle.set_service_status(pending_status!(
+    status_handle.set_service_status(pending_status(
         ServiceState::StopPending,
         checkpoint,
-        expected_shutdown_duration
+        expected_shutdown_duration,
     ))?;
 
     let shutdown_begin = std::time::Instant::now();
@@ -198,10 +204,10 @@ fn run_service(_arguments: Vec<OsString>) -> anyhow::Result<()> {
     // Loop, checking if all nodes have shutdown, until we run out of time.
     while t < shutdown_begin + expected_shutdown_duration {
         checkpoint += 1;
-        status_handle.set_service_status(pending_status!(
+        status_handle.set_service_status(pending_status(
             ServiceState::StopPending,
             checkpoint,
-            expected_shutdown_duration - (t - shutdown_begin)
+            expected_shutdown_duration - (t - shutdown_begin),
         ))?;
         nodes.retain_mut(|node| match node.check_exit() {
             Ok(None) => true,
@@ -240,7 +246,7 @@ fn run_service(_arguments: Vec<OsString>) -> anyhow::Result<()> {
         });
     }
 
-    status_handle.set_service_status(simple_status!(ServiceState::Stopped))?;
+    status_handle.set_service_status(simple_status(ServiceState::Stopped))?;
 
     Ok(())
 }

@@ -602,7 +602,7 @@ pub struct CommonConfig {
     pub no_log_timestamp: bool,
     #[structopt(
         long = "log-config",
-        help = "Configure logging with a log4rs configuration file",
+        help = "Configure logging with a log4rs configuration file. Overrides the default logging.",
         env = "CONCORDIUM_NODE_LOG_CONFIG"
     )]
     pub log_config: Option<PathBuf>,

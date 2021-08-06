@@ -37,7 +37,9 @@ pub extern "system" fn DeleteDataFolder(install_handle: MsiHandle) -> UINT {
     ERROR_SUCCESS
 }
 
+/// Service should start automatically at start-up
 const SERVICE_AUTO_START: DWORD = 0x00000002;
+/// Service should start on-demand
 const SERVICE_DEMAND_START: DWORD = 0x00000003;
 
 /// Custom action to configure a service as auto starting.

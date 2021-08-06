@@ -92,8 +92,7 @@ pub struct Node {
     collector_process: Option<Child>,
     /// A temporary file used for configuring the node's logging.
     /// (When this is dropped, the file will be deleted.)
-    #[allow(dead_code)]
-    log_config_file: Option<TempPath>,
+    _log_config_file: Option<TempPath>,
 }
 
 impl NodeConfig {
@@ -275,7 +274,7 @@ impl NodeConfig {
             node_config: self,
             stderr_path,
             collector_process,
-            log_config_file,
+            _log_config_file: log_config_file,
         })
     }
 }
