@@ -65,8 +65,6 @@ function createBuildDirFromTemplate() {
     replaceVersionPlaceholder "$payloadDir/Applications/Concordium Node/Concordium Node Uninstaller.app/Contents/MacOS/uninstall.applescript"
     replaceVersionPlaceholder "$buildDir/resources/welcome.html"
 
-    chmod -R 755 "$buildDir/scripts"
-
     logInfo "Done"
 }
 
