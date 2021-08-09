@@ -30,7 +30,6 @@ import Concordium.ID.Parameters
 
 import Concordium.Types.Accounts hiding (_stakedAmount, _stakeEarnings, _accountBakerInfo)
 import qualified Concordium.Types.Accounts as Transient
-import qualified Concordium.Types.Accounts.Releases as Transient
 import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
 import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as Transient
 import Concordium.GlobalState.Persistent.BlobStore
@@ -374,7 +373,7 @@ rehashAccount pac = do
   return pac{_accountHash = newHash}
 
 -- |Set the baker of an account.
-setPersistentAccountBaker :: forall m pv. (MonadBlobStore m, IsProtocolVersion pv) => PersistentAccount pv-> Nullable PersistentAccountBaker -> m (PersistentAccount pv)
+setPersistentAccountBaker :: forall m pv. (MonadBlobStore m, IsProtocolVersion pv) => PersistentAccount pv -> Nullable PersistentAccountBaker -> m (PersistentAccount pv)
 setPersistentAccountBaker pac pab = do
   eac <- loadPersistentAccountEncryptedAmount =<< loadBufferedRef (_accountEncryptedAmount pac)
   sdata <- refLoad (_accountReleaseSchedule pac)

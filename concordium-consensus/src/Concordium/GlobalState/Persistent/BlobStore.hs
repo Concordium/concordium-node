@@ -447,7 +447,7 @@ instance (Monad m, BlobStorable m a) => Reference m BufferedRef a where
   {-# INLINE refCache #-}
   {-# INLINE refUncache #-}
 
-instance (BlobStorable m a, MHashableTo m H.Hash a) => MHashableTo m H.Hash (BufferedRef a) where
+instance (BlobStorable m a, MHashableTo m h a) => MHashableTo m h (BufferedRef a) where
   getHashM ref = getHashM =<< refLoad ref
 
 instance (Serialize a, Serialize b, BlobStorable m a) => MHashableTo m H.Hash (BufferedRef a, b) where

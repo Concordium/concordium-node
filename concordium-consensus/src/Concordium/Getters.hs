@@ -25,6 +25,7 @@ import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Statistics as Stat
 import qualified Concordium.GlobalState.Parameters as Parameters
 import qualified Concordium.GlobalState.TransactionTable as TT
+import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule (toAccountReleaseSummary)
 import Concordium.Types as T
 import Concordium.Types.Accounts
 import Concordium.Types.Queries
@@ -210,7 +211,7 @@ getAccountInfo hash sfsRef pointer = runStateQuery sfsRef $
                 forM macc $ \(aiAccountIndex, acc) -> do
                     aiAccountNonce <- BS.getAccountNonce acc
                     aiAccountAmount <- BS.getAccountAmount acc
-                    aiAccountReleaseSchedule <- BS.getAccountReleaseSchedule acc
+                    aiAccountReleaseSchedule <- toAccountReleaseSummary <$> BS.getAccountReleaseSchedule acc
                     aiAccountCredentials <- fmap (Versioned 0) <$> BS.getAccountCredentials acc
                     aiAccountThreshold <- aiThreshold <$> BS.getAccountVerificationKeys acc
                     aiAccountEncryptedAmount <- BS.getAccountEncryptedAmount acc

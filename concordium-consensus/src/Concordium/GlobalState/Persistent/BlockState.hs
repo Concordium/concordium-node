@@ -68,7 +68,6 @@ import qualified Concordium.Types.UpdateQueues as UQ
 import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Modules
 import qualified Concordium.Types.Accounts as BaseAccounts
 import Concordium.Types.Accounts hiding (_stakedAmount, _stakeEarnings, _accountBakerInfo, _bakerPendingChange, stakedAmount, stakeEarnings, accountBakerInfo, bakerPendingChange)
--- import Concordium.Types.Accounts.Releases
 import Concordium.Types.SeedState
 import Concordium.Logger (MonadLogger)
 import Concordium.Types.HashableTo
