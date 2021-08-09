@@ -5,7 +5,7 @@
   <key>CFBundleGetInfoString</key>
   <string>Concordium Node Uninstaller</string>
   <key>CFBundleExecutable</key>
-  <string>uninstall.sh</string>
+  <string>runApplescript.sh</string>
   <key>CFBundleIdentifier</key>
   <string>software.concordium.node</string>
   <key>CFBundleName</key>

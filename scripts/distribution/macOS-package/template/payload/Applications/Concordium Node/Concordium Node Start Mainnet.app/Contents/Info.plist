@@ -5,7 +5,7 @@
   <key>CFBundleGetInfoString</key>
   <string>StartNode</string>
   <key>CFBundleExecutable</key>
-  <string>startNode.sh</string>
+  <string>runApplescript.sh</string>
   <key>CFBundleIdentifier</key>
   <string>software.concordium.mainnet.node</string>
   <key>CFBundleName</key>
