@@ -425,9 +425,14 @@ instance (IsProtocolVersion pv) => GlobalStateConfig (DiskTreeDiskBlockWithLogCo
     initialiseGlobalState (DTDBWLConfig rtparams gendata txLog) = do
         -- check if all the necessary database files exist
       (blockStateFile, existingDB) <- checkExistingDatabase rtparams
-      dbHandle <- liftIO $ do
-        dbHandle <- connectPostgres txLog
-        createTable dbHandle
+      dbHandle <- do
+        dbHandle <- liftIO $ connectPostgres txLog
+        liftIO (checkTablesExist dbHandle) >>= \case
+          Ok -> logEvent GlobalState LLInfo "Using existing PostgreSQL tables for transaction logging."
+          NoTables -> do
+            logEvent GlobalState LLInfo "No relevant tables found in transaction logging database. Creating them."
+            liftIO $ createTables dbHandle
+          IncorrectFormat -> logExceptionAndThrow GlobalState (DatabaseOpeningError (userError "The connected SQL database has some of the 'ati', 'cti', or 'summaries', but either not all or they have incorrect columns."))
         return dbHandle
       if existingDB then do
         pbscBlobStore <- liftIO $
