@@ -385,30 +385,42 @@ getBranches sfsRef = runStateQuery sfsRef $ do
             )
             Map.empty
 
+-- |Result of a baker status query.
+data BakerStatus
+    = -- |The baker is a member of the current committee
+      ActiveBaker
+    | -- |The account has a baker, but it is not yet in the committee
+      InactiveBaker
+    | -- |The baker id does not correspond with a current baker
+      NoBaker
+    | -- |The baker may exist, but the keys do not match
+      BadKeys
+    deriving (Eq, Ord, Show)
+
 -- |Determine the status of the baker with respect to the current best block.
 bakerStatusBestBlock :: (BlockPointerMonad m, SkovStateQueryable z m)
     => BakerIdentity
     -> z
-    -> IO Q.BakerStatus
+    -> IO BakerStatus
 bakerStatusBestBlock bid sfsRef = runStateQuery sfsRef $ do
         bb <- bestBlock
         bs <- queryBlockState bb
         bakers <- BS.getCurrentEpochBakers bs
         case fullBaker bakers (bakerId bid) of
           Just fbinfo
-            | validateBakerKeys (fbinfo ^. bakerInfo) bid -> return Q.ActiveBaker
-            | otherwise -> return Q.BadKeys
+            | validateBakerKeys (fbinfo ^. bakerInfo) bid -> return ActiveBaker
+            | otherwise -> return BadKeys
           Nothing -> do
               macc <- BS.getBakerAccount bs (bakerId bid)
               case macc of
                 Just acc -> do
                   mab <- BS.getAccountBaker acc
                   case mab of
-                    Nothing -> return Q.NoBaker
+                    Nothing -> return NoBaker
                     Just ab
-                      | validateBakerKeys (ab ^. accountBakerInfo) bid -> return Q.InactiveBaker
-                      | otherwise -> return Q.BadKeys
-                Nothing -> return Q.NoBaker
+                      | validateBakerKeys (ab ^. accountBakerInfo) bid -> return InactiveBaker
+                      | otherwise -> return BadKeys
+                Nothing -> return NoBaker
 
 -- |Check whether the node is currently a member of the finalization committee.
 checkIsCurrentFinalizer :: (SkovStateQueryable z m, MonadState s m, FinalizationStateLenses s t) => z -> IO Bool
