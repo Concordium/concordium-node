@@ -102,30 +102,30 @@ getTransactionStatus hash sfsRef = runStateQuery sfsRef $
 -- Note that, since this does not acquire the write lock, it is possible that
 -- 'queryTransactionStatus' reports that the transaction is finalized even if it does not occur in
 -- any block currently visible in the state.
-getTransactionStatusInBlock :: SkovStateQueryable z m => AT.TransactionHash -> BlockHash -> z -> IO (Maybe BlockTransactionStatus)
+getTransactionStatusInBlock :: SkovStateQueryable z m => AT.TransactionHash -> BlockHash -> z -> IO BlockTransactionStatus
 getTransactionStatusInBlock txHash blockHash sfsRef = runStateQuery sfsRef $
   queryTransactionStatus txHash >>= \case
-    Nothing -> return Nothing
-    Just TT.Received{} -> return $ Just BTSReceived
+    Nothing -> return BTSNotInBlock
+    Just TT.Received{} -> return BTSReceived
     Just TT.Committed{..} -> case HM.lookup blockHash tsResults of
-        Nothing -> return $ Just BTSNotInBlock
+        Nothing -> return BTSNotInBlock
         Just idx ->
             resolveBlock blockHash >>= \case
-                Nothing -> return $ Just BTSNotInBlock -- should not happen
+                Nothing -> return BTSNotInBlock -- should not happen
                 Just bp -> do
                     bs <- queryBlockState bp
                     outcome <- BS.getTransactionOutcome bs idx
-                    return $ Just $ BTSCommitted outcome
+                    return $ BTSCommitted outcome
     Just TT.Finalized{..} ->
         if tsBlockHash == blockHash
             then
                 resolveBlock blockHash >>= \case
-                    Nothing -> return $ Just BTSNotInBlock -- unlikely but possible
+                    Nothing -> return BTSNotInBlock -- unlikely but possible
                     Just bp -> do
                         bs <- queryBlockState bp
                         outcome <- BS.getTransactionOutcome bs tsFinResult
-                        return $ Just $ BTSFinalized outcome
-            else return $ Just BTSNotInBlock
+                        return $ BTSFinalized outcome
+            else return BTSNotInBlock
 
 -- |Get a list of non-finalized transaction hashes for a given account.
 getAccountNonFinalizedTransactions :: SkovStateQueryable z m => AccountAddress -> z -> IO [TransactionHash]
@@ -203,7 +203,7 @@ getInstanceList hash sfsRef = runStateQuery sfsRef $ withBlockState hash $
 -- The account can be given either via an address, or via a credential registration id.
 -- In the latter case we lookup the account the credential is associated with, even if it was
 -- removed from the account.
-getAccountInfo :: (SkovStateQueryable z m) => BlockHash -> z -> Either CredentialRegistrationID AccountAddress  -> IO (Maybe AccountInfo)
+getAccountInfo :: (SkovStateQueryable z m) => BlockHash -> z -> Either CredentialRegistrationID AccountAddress -> IO (Maybe AccountInfo)
 getAccountInfo hash sfsRef pointer = runStateQuery sfsRef $
   withBlockStateMaybe hash $ \bs -> do
                 macc <- either (BS.getAccountByCredId bs) (BS.getAccount bs) pointer

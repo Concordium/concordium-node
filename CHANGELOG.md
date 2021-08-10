@@ -20,6 +20,9 @@
   Instead of an index on the `id` column on `ati` and `cti` tables there are now
   multi-column indices that better support the intended use-cases. This only
   affects newly created databases.
+- In the GetRewardStatus GRPC call, the amounts that were previously represented as integers are now
+  represented as strings in the JSON serialization. This is in line with how amounts are serialized
+  elsewhere.
 
 ## concordium-node 1.0.1
 
