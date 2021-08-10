@@ -36,7 +36,6 @@ import Concordium.Types.HashableTo
 import Concordium.Types.Instance
 import Concordium.GlobalState.Finalization
 import Concordium.Types.SeedState
-import qualified Concordium.Types.Queries as Q
 
 import Concordium.Afgjort.Finalize(FinalizationStateLenses(..), FinalizationCurrentRound(..))
 import Concordium.Afgjort.Finalize.Types(FinalizationCommittee(..), PartyInfo(..))

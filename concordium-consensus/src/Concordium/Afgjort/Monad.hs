@@ -2,9 +2,10 @@ module Concordium.Afgjort.Monad where
 
 import qualified Data.Sequence as Seq
 
+import Concordium.Types (FinalizationIndex)
+
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Types
-import Concordium.Types (FinalizationIndex)
 import Concordium.Afgjort.Finalize.Types
 import Concordium.Skov.Monad (UpdateResult)
 
