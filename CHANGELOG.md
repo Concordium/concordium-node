@@ -10,12 +10,16 @@
   that flags now need to have an explicit argument.
 - Disable dnssec by default. This replaces the flag `--no-dnssec` with
   `--require-dnssec`, and the environment variable
-  `CONCORIDUM_NODE_CONNECTION_NO_DNSSEC` with `CONCORDIUM_NODE_CONNECTION_REQUIRE_DNSSEC`.
+  `CONCORDIUM_NODE_CONNECTION_NO_DNSSEC` with `CONCORDIUM_NODE_CONNECTION_REQUIRE_DNSSEC`.
 - Global state database now includes version metadata. The treestate directory and blockstate file
   names are suffixed with "-0" to indicate genesis index 0, for compatibility with protocol updates.
   A legacy database will automatically be migrated by renaming and adding version metadata.
 - Remove unused CONCORDIUM_NODE_CONNECTION_BOOTSTRAP_SERVER option and the
   corresponding `--bootstrap-server` flag.
+- Change the automatically created indices on the transaction logging database.
+  Instead of an index on the `id` column on `ati` and `cti` tables there are now
+  multi-column indices that better support the intended use-cases. This only
+  affects newly created databases.
 
 ## concordium-node 1.0.1
 
