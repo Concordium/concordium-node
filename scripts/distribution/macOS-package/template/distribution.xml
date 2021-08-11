@@ -7,7 +7,9 @@
     <license file="license.html" mime-type="text/html" />
     <options customize="never" allow-external-scripts="no" hostArchitectures="x86_64"/>
     <domains enable_localSystem="true" />
-    <installation-check script="installCheck();"/>
+    <installation-check script="installCheck();">
+        <ram min-gb="16.00"/>
+    </installation-check>
     <script>
 function installCheck() {
     if(!(system.compareVersions(system.version.ProductVersion, '10.6.0') >= 0)) {
@@ -16,9 +18,12 @@ function installCheck() {
         my.result.type = 'Fatal';
         return false;
     }
-    if(system.files.fileExistsAtPath('/Library/Concordium Node/1.0.2/')) {
+    if(system.files.fileExistsAtPath('/Library/Concordium Node/')) {
         my.result.title = 'Previous Installation Detected';
-        my.result.message = 'A previous installation of Concordium Node exists at /Library/Concordium Node/1.0.2/. This installer will remove the previous installation prior to installing. Please back up any data before proceeding.';
+        my.result.message = 'A previous installation of Concordium Node exists
+        at /Library/Concordium Node/. This installer will remove the previous
+        installation prior to installing. Your keys and the chain data will remain
+        untouched.';
         my.result.type = 'Warning';
         return false;
     }
