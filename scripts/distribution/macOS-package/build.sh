@@ -28,7 +28,6 @@ readonly templateDir="$macPackageDir/template"
 readonly buildDir="$macPackageDir/build"
 readonly payloadDir="$buildDir/payload"
 readonly libraryPayloadDir="$payloadDir/Library"
-readonly versionedBinDir="$libraryPayloadDir/Concordium Node/$version"
 readonly packagesDir="$buildDir/packages"
 readonly pkgFile="$packagesDir/concordium-node.pkg"
 readonly signedPkgFile="$packagesDir/concordium-node-signed.pkg"
@@ -86,20 +85,12 @@ function createBuildDirFromTemplate() {
 
     cp -r "$templateDir" "$buildDir"
 
-    mkdir "$versionedBinDir"
     mkdir "$buildDir/plugins"
     mkdir "$libraryPayloadDir/Application Support/Concordium Node/Mainnet/Config"
     mkdir "$libraryPayloadDir/Application Support/Concordium Node/Testnet/Config"
 
     createStartStopAppsFromTemplate
 
-    replaceVersionPlaceholder "$buildDir/distribution.xml"
-    replaceVersionPlaceholder "$buildDir/scripts/postinstall"
-    replaceVersionPlaceholder "$libraryPayloadDir/Concordium Node/LaunchDaemons/software.concordium.mainnet.node.plist"
-    replaceVersionPlaceholder "$libraryPayloadDir/Concordium Node/LaunchDaemons/software.concordium.testnet.node.plist"
-    replaceVersionPlaceholder "$libraryPayloadDir/Concordium Node/LaunchDaemons/software.concordium.mainnet.node-collector.plist"
-    replaceVersionPlaceholder "$libraryPayloadDir/Concordium Node/LaunchDaemons/software.concordium.testnet.node-collector.plist"
-    replaceVersionPlaceholder "$payloadDir/Applications/Concordium Node/Concordium Node Uninstaller.app/Contents/MacOS/run.applescript"
     replaceVersionPlaceholder "$buildDir/resources/welcome.html"
 
     logInfo "Done"
@@ -139,9 +130,9 @@ function copyInstallerPluginData() {
 }
 
 function copyBinaries() {
-    logInfo "Copy concordium-node and node-collector binaries to '$versionedBinDir'.."
-    cp "$nodeDir/target/release/concordium-node" "$versionedBinDir"
-    cp "$nodeDir/target/release/node-collector" "$versionedBinDir"
+    logInfo "Copy concordium-node and node-collector binaries to '$libraryPayloadDir/Concordium Node/'.."
+    cp "$nodeDir/target/release/concordium-node" "$libraryPayloadDir/Concordium Node"
+    cp "$nodeDir/target/release/node-collector" "$libraryPayloadDir/Concordium Node"
     logInfo "Done"
 }
 
@@ -168,7 +159,7 @@ function getDylibbundler() {
 
 function collectDylibsFor() {
     local fileToFix=${1:?"Missing file to fix with dylibbundler"};
-    cd "$versionedBinDir"
+    cd "$libraryPayloadDir/Concordium Node"
     "$macdylibbundlerDir/dylibbundler" --fix-file "$fileToFix" --bundle-deps --dest-dir "./libs" --install-path "@executable_path/libs/" --overwrite-dir \
         -s "$concordiumDylibDir" \
         -s "$stackSnapshotDir" \
@@ -186,9 +177,9 @@ function collectDylibs() {
     readonly stackLibDirs
 
     logInfo " -- Processing concordium-node"
-    collectDylibsFor "$versionedBinDir/concordium-node" &> /dev/null
+    collectDylibsFor "$libraryPayloadDir/Concordium Node/concordium-node" &> /dev/null
     logInfo " -- Processing node-collector"
-    collectDylibsFor "$versionedBinDir/node-collector" &> /dev/null
+    collectDylibsFor "$libraryPayloadDir/Concordium Node/node-collector" &> /dev/null
 
     logInfo "Done"
 }

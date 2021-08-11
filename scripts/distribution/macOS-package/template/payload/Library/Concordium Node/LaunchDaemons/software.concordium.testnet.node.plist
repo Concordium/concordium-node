@@ -8,7 +8,7 @@
     <string>software.concordium.testnet.node</string>
 
     <key>Program</key>
-    <string>/usr/local/bin/concordium-node-__VERSION__</string>
+    <string>/usr/local/bin/concordium-node</string>
 
     <key>EnvironmentVariables</key>
     <dict>

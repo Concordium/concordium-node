@@ -11,12 +11,12 @@ function addBinariesToPath() {
 
     # Create/replace symlinks that are in PATH
     echo "Creating symlinks to node and collector";
-    local symlinkNode="/usr/local/bin/concordium-node-__VERSION__";
-    local symlinkCollector="/usr/local/bin/concordium-node-collector-__VERSION__";
+    local symlinkNode="/usr/local/bin/concordium-node";
+    local symlinkCollector="/usr/local/bin/concordium-node-collector";
     echo "-- Create '$symlinkNode'";
-    ln -f -s "/Library/Concordium Node/__VERSION__/concordium-node" "$symlinkNode"
+    ln -f -s "/Library/Concordium Node/concordium-node" "$symlinkNode"
     echo "-- Create '$symlinkCollector'";
-    ln -f -s "/Library/Concordium Node/__VERSION__/node-collector" "$symlinkCollector"
+    ln -f -s "/Library/Concordium Node/node-collector" "$symlinkCollector"
 }
 
 function configureService() {

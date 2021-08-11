@@ -40,8 +40,8 @@ to removeNodeFiles()
 		do shell script "
 		rm -r '/Library/Concordium Node';
 		rm -r '/Applications/Concordium Node';
-		rm '/usr/local/bin/concordium-node-__VERSION__';
-		rm '/usr/local/bin/concordium-node-collector-__VERSION__';
+		rm '/usr/local/bin/concordium-node';
+		rm '/usr/local/bin/concordium-node-collector';
 		rm '/Library/LaunchDaemons/software.concordium.mainnet.node.plist';
 		rm '/Library/LaunchDaemons/software.concordium.mainnet.node-collector.plist';
 		rm '/Library/LaunchDaemons/software.concordium.testnet.node.plist';
