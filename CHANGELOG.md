@@ -12,7 +12,7 @@
   `--require-dnssec`, and the environment variable
   `CONCORDIUM_NODE_CONNECTION_NO_DNSSEC` with `CONCORDIUM_NODE_CONNECTION_REQUIRE_DNSSEC`.
 - Global state database now includes version metadata. The treestate directory and blockstate file
-  names are suffixed with "-0" to indicate genesis index 0, for compatibility with protocol updates.
+  names are suffixed with "-*n*" to indicate genesis index *n*.
   A legacy database will automatically be migrated by renaming and adding version metadata.
 - Remove unused CONCORDIUM_NODE_CONNECTION_BOOTSTRAP_SERVER option and the
   corresponding `--bootstrap-server` flag.
@@ -23,6 +23,9 @@
 - In the GetRewardStatus GRPC call, the amounts that were previously represented as integers are now
   represented as strings in the JSON serialization. This is in line with how amounts are serialized
   elsewhere.
+- Implement protocol updates, allowing migration to a new protocol. One protocol update is
+  implemented, which does not switch to a new protocol version, but allows for updating a number
+  of genesis parameters that would otherwise be immutable, while retaining the state.
 
 ## concordium-node 1.0.1
 

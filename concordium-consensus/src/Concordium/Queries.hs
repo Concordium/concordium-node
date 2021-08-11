@@ -4,7 +4,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- |Consensus queries against the multi-version runner.
-module Concordium.Queries.MultiVersion where
+module Concordium.Queries where
 
 import Control.Monad
 import Control.Monad.Reader
@@ -48,7 +48,6 @@ import Concordium.ID.Types
 import Concordium.Kontrol
 import Concordium.Kontrol.BestBlock
 import Concordium.MultiVersion
-import Concordium.Queries.Types
 import Concordium.Skov as Skov
 
 -- |Run a query against a specific skov version.
@@ -432,11 +431,12 @@ getTransactionStatusInBlock trHash blockHash =
     fromMaybe BTSNotInBlock
         <$> liftSkovQueryLatestResult
             ( queryTransactionStatus trHash >>= \case
-                Nothing -> resolveBlock blockHash >>= \case
-                    -- If the block is unknown in this skov version, then try earlier versions.
-                    Nothing -> return Nothing
-                    -- If the block is known, then we can return BTSNotInBlock already.
-                    Just _ -> return $ Just BTSNotInBlock
+                Nothing ->
+                    resolveBlock blockHash >>= \case
+                        -- If the block is unknown in this skov version, then try earlier versions.
+                        Nothing -> return Nothing
+                        -- If the block is known, then we can return BTSNotInBlock already.
+                        Just _ -> return $ Just BTSNotInBlock
                 Just TT.Received{} -> return $ Just BTSReceived
                 Just TT.Committed{..} -> case HM.lookup blockHash tsResults of
                     Nothing -> return $ Just BTSNotInBlock
@@ -464,6 +464,18 @@ getTransactionStatusInBlock trHash blockHash =
 -- |Check whether the node is currently a member of the finalization committee.
 checkIsCurrentFinalizer :: MVR gsconf finconf Bool
 checkIsCurrentFinalizer = liftSkovQueryLatest isFinalizationCommitteeMember
+
+-- |Result of a baker status query.
+data BakerStatus
+    = -- |The baker is a member of the current committee
+      ActiveBaker !BakerId
+    | -- |The account has a baker, but it is not yet in the committee
+      InactiveBaker !BakerId
+    | -- |The baker id does not correspond with a current baker
+      NoBaker
+    | -- |The baker may exist, but the keys do not match
+      BadKeys !BakerId
+    deriving (Eq, Ord, Show)
 
 -- |Determine the status of the baker with respect to the current best block.
 getBakerStatusBestBlock :: MVR gsconf finconf BakerStatus
