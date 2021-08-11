@@ -24,10 +24,10 @@ to removeServices()
 	# Wrap in try to ignore an error when no services were loaded.
 	try
 		do shell script "
-		sudo launchctl remove software.concordium.mainnet.node
-		sudo launchctl remove software.concordium.mainnet.node-collector
-		sudo launchctl remove software.concordium.testnet.node
-		sudo launchctl remove software.concordium.testnet.node-collector	
+		launchctl remove software.concordium.mainnet.node
+		launchctl remove software.concordium.mainnet.node-collector
+		launchctl remove software.concordium.testnet.node
+		launchctl remove software.concordium.testnet.node-collector	
 	" with administrator privileges
 	end try
 end removeServices
@@ -38,14 +38,14 @@ to removeNodeFiles()
 	# Wrap in try to avoid an error prompt when one or more files do not exist.
 	try
 		do shell script "
-		sudo rm -r '/Library/Concordium Node';
-		sudo rm -r '/Applications/Concordium Node';
-		sudo rm '/usr/local/bin/concordium-node-__VERSION__';
-		sudo rm '/usr/local/bin/concordium-node-collector-__VERSION__';
-		sudo rm '/Library/LaunchDaemons/software.concordium.mainnet.node.plist';
-		sudo rm '/Library/LaunchDaemons/software.concordium.mainnet.node-collector.plist';
-		sudo rm '/Library/LaunchDaemons/software.concordium.testnet.node.plist';
-		sudo rm '/Library/LaunchDaemons/software.concordium.testnet.node-collector.plist';				
+		rm -r '/Library/Concordium Node';
+		rm -r '/Applications/Concordium Node';
+		rm '/usr/local/bin/concordium-node-__VERSION__';
+		rm '/usr/local/bin/concordium-node-collector-__VERSION__';
+		rm '/Library/LaunchDaemons/software.concordium.mainnet.node.plist';
+		rm '/Library/LaunchDaemons/software.concordium.mainnet.node-collector.plist';
+		rm '/Library/LaunchDaemons/software.concordium.testnet.node.plist';
+		rm '/Library/LaunchDaemons/software.concordium.testnet.node-collector.plist';				
 		" with administrator privileges
 	end try
 end removeNodeFiles
@@ -56,7 +56,7 @@ to removeDataFiles()
 	# Wrap in try to avoid an error prompt when one or more files do not exist.
 	try
 		do shell script "
-		sudo rm -r '/Library/Application Support/Concordium Node'
+		rm -r '/Library/Application Support/Concordium Node'
 		" with administrator privileges
 	end try
 end removeDataFiles

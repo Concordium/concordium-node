@@ -2,7 +2,7 @@
 # Check whether a service is loaded.
 to serviceIsLoaded(serviceName)
 	# Use '$' so that "*node" does not also return "*node-collector".
-	set checkStatusCmd to "sudo launchctl list | grep " & serviceName & "$"
+	set checkStatusCmd to "launchctl list | grep " & serviceName & "$"
 	try
 		# grep will return -1 and thus produce an error, if the service isn't loaded.
 		do shell script checkStatusCmd with administrator privileges
@@ -13,7 +13,7 @@ to serviceIsLoaded(serviceName)
 end serviceIsLoaded
 
 to stopService(serviceName)
-	set stopServiceCmd to "sudo launchctl remove " & serviceName
+	set stopServiceCmd to "launchctl remove " & serviceName
 	
 	# Wrap in try so stopping non-loaded services don't cause an error prompt.
 	try

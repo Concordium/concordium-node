@@ -1,5 +1,5 @@
 to startService(plistFile)
-	set loadServiceCmd to "sudo launchctl load '" & plistFile & "';"
+	set loadServiceCmd to "launchctl load '" & plistFile & "';"
 	do shell script loadServiceCmd with administrator privileges
 end startService
 
@@ -37,7 +37,7 @@ to checkServiceStatus(serviceName)
 	set terminatedServiceName to serviceName & "$"
 	
 	# 'cut -f2' gets the second field in a line, which is the statusCode.
-	set getStatusCmd to "sudo launchctl list | grep " & terminatedServiceName & " | cut -f2"
+	set getStatusCmd to "launchctl list | grep " & terminatedServiceName & " | cut -f2"
 	
 	return do shell script getStatusCmd with administrator privileges
 end checkServiceStatus
