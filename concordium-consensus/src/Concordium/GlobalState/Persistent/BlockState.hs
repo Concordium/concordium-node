@@ -67,7 +67,7 @@ import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import qualified Concordium.Types.UpdateQueues as UQ
 import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Modules
 import qualified Concordium.Types.Accounts as BaseAccounts
-import Concordium.Types.Accounts hiding (_stakedAmount, _stakeEarnings, _accountBakerInfo, _bakerPendingChange, stakedAmount, stakeEarnings, accountBakerInfo, bakerPendingChange)
+import Concordium.Types.Accounts (BakerPendingChange(NoChange), BakerInfo(_bakerAggregationVerifyKey), BakerPendingChange(..))
 import Concordium.Types.SeedState
 import Concordium.Logger (MonadLogger)
 import Concordium.Types.HashableTo
@@ -574,9 +574,9 @@ doGetSlotBakers pbs slot = do
                                 pab <- refLoad bkr
                                 abi <- refLoad (pab ^. accountBakerInfo)
                                 return $ case _bakerPendingChange pab of
-                                    BaseAccounts.RemoveBaker remEpoch
+                                    RemoveBaker remEpoch
                                         | remEpoch < slotEpoch -> Nothing
-                                    BaseAccounts.ReduceStake newAmt redEpoch
+                                    ReduceStake newAmt redEpoch
                                         | redEpoch < slotEpoch -> Just (FullBakerInfo abi newAmt)
                                     _ -> Just (FullBakerInfo abi (pab ^. stakedAmount))
                             Null -> error "Persistent.getSlotBakers invariant violation: active baker account not a baker"
@@ -602,7 +602,7 @@ doTransitionEpochBakers pbs newEpoch = do
                 Just PersistentAccount{_accountBaker = Some acctBkrRef} -> do
                     acctBkr <- refLoad acctBkrRef
                     case _bakerPendingChange acctBkr of
-                        BaseAccounts.RemoveBaker remEpoch
+                        RemoveBaker remEpoch
                             -- Removal takes effect next epoch, so exclude it from the list of bakers
                             | remEpoch == newEpoch + 1 -> return (bs0, bkrs0)
                             -- Removal complete, so update the active bakers and account as well
@@ -624,7 +624,7 @@ doTransitionEpochBakers pbs newEpoch = do
                                         bspBirkParameters = (bspBirkParameters bs0) {_birkActiveBakers = newABs},
                                         bspAccounts = newAccounts
                                     }, bkrs0)
-                        BaseAccounts.ReduceStake newAmt redEpoch
+                        ReduceStake newAmt redEpoch
                             -- Reduction takes effect next epoch, so apply it in the generated list
                             | redEpoch == newEpoch + 1 -> return (bs0, (_accountBakerInfo acctBkr, newAmt) : bkrs0)
                             -- Reduction complete, so update the account as well
@@ -774,7 +774,7 @@ doUpdateBakerStake pbs aaddr newStake = do
                             LT -> if newStake < bakerStakeThreshold
                                   then return (BSUStakeUnderThreshold, pbs)
                                   else (BSUStakeReduced (BakerId ai) (curEpoch + cooldown),) <$>
-                                        applyUpdate (bakerPendingChange .~ BaseAccounts.ReduceStake newStake (curEpoch + cooldown))
+                                        applyUpdate (bakerPendingChange .~ ReduceStake newStake (curEpoch + cooldown))
                             EQ -> return (BSUStakeUnchanged (BakerId ai), pbs)
                             GT -> (BSUStakeIncreased (BakerId ai),) <$> applyUpdate (stakedAmount .~ newStake)
             _ -> return (BSUInvalidBaker, pbs)
@@ -813,7 +813,7 @@ doRemoveBaker pbs aaddr = do
                     upds <- refLoad (bspUpdates bsp)
                     cooldown <- (2+) . _cpBakerExtraCooldownEpochs . unStoreSerialized <$> refLoad (currentParameters upds)
                     let updAcc acc = do
-                            acc' <- setPersistentAccountBaker acc (Some ab{_bakerPendingChange = BaseAccounts.RemoveBaker(curEpoch + cooldown)})
+                            acc' <- setPersistentAccountBaker acc (Some ab{_bakerPendingChange = RemoveBaker (curEpoch + cooldown)})
                             return ((), acc')
                     (_, newAccounts) <- Accounts.updateAccountsAtIndex updAcc ai (bspAccounts bsp)
                     (BRRemoved (BakerId ai) (curEpoch + cooldown),) <$> storePBS pbs bsp{bspAccounts = newAccounts}

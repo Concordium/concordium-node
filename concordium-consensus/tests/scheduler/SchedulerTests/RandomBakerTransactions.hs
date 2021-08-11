@@ -21,7 +21,11 @@ import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
 import Concordium.Crypto.SignatureScheme as Sig
 import Concordium.ID.Types(randomAccountAddress)
 
-import qualified Concordium.Types.Accounts as BAcc
+import Concordium.Types.Accounts (
+    bakerAggregationVerifyKey,
+    bakerElectionVerifyKey,
+    bakerSignatureVerifyKey,
+ )
 
 import Concordium.Scheduler.Types hiding (Payload(..))
 
@@ -165,11 +169,11 @@ updateBaker m0 = do
                     bkr = fbkr ^. bakerInfo
                 in do
                   return (toTJSON UpdateBakerKeys{
-                             bElectionVerifyKey = bkr ^. BAcc.bakerElectionVerifyKey,
+                             bElectionVerifyKey = bkr ^. bakerElectionVerifyKey,
                              bElectionSecretKey = electionSecretKey,
-                             bSignVerifyKey = bkr ^. BAcc.bakerSignatureVerifyKey,
+                             bSignVerifyKey = bkr ^. bakerSignatureVerifyKey,
                              bSignSecretKey = signKey,
-                             bAggregateVerifyKey = bkr ^. BAcc.bakerAggregationVerifyKey,
+                             bAggregateVerifyKey = bkr ^. bakerAggregationVerifyKey,
                              bAggregateSecretKey = aggregationKey
                              },
                           m0
@@ -190,11 +194,11 @@ updateBaker m0 = do
                 restake <- arbitrary
 
                 return (toTJSON AddBaker{
-                             bElectionVerifyKey = bkr ^. BAcc.bakerElectionVerifyKey,
+                             bElectionVerifyKey = bkr ^. bakerElectionVerifyKey,
                              bElectionSecretKey = electionSecretKey,
-                             bSignVerifyKey = bkr ^. BAcc.bakerSignatureVerifyKey,
+                             bSignVerifyKey = bkr ^. bakerSignatureVerifyKey,
                              bSignSecretKey = signKey,
-                             bAggregateVerifyKey = bkr ^. BAcc.bakerAggregationVerifyKey,
+                             bAggregateVerifyKey = bkr ^. bakerAggregationVerifyKey,
                              bAggregateSecretKey = aggregationKey,
                              bInitialStake = initStake,
                              bRestakeEarnings = restake

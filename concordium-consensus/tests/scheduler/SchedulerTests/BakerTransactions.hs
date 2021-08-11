@@ -12,9 +12,11 @@ import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import Concordium.Scheduler.Runner
 import qualified Concordium.Scheduler as Sch
-
-import Concordium.Types.Accounts hiding (RemoveBaker)
-
+import Concordium.Types.Accounts (
+    bakerAggregationVerifyKey,
+    bakerElectionVerifyKey,
+    bakerSignatureVerifyKey,
+ )
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Basic.BlockState.Bakers
 import Concordium.GlobalState.Basic.BlockState.Accounts as Acc

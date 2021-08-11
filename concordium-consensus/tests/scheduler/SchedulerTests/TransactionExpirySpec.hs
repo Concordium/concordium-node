@@ -7,7 +7,11 @@ import Test.HUnit
 import Control.Monad.IO.Class
 import Lens.Micro.Platform
 
-import qualified Concordium.Types.Accounts as BAcc
+import Concordium.Types.Accounts (
+    bakerAggregationVerifyKey,
+    bakerElectionVerifyKey,
+    bakerSignatureVerifyKey,
+ )
 
 import qualified Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.BlockSignature as BlockSig
@@ -47,11 +51,11 @@ transactions t = [TJSON { payload = Transfer { toaddress = alesAccount, amount =
                         , keys = [(0,[(0, alesKP)])]
                         }
                  ,TJSON { payload = AddBaker {
-                              bElectionVerifyKey = baker ^. _1 . bakerInfo . BAcc.bakerElectionVerifyKey,
+                              bElectionVerifyKey = baker ^. _1 . bakerInfo . bakerElectionVerifyKey,
                               bElectionSecretKey = baker ^. _2,
-                              bSignVerifyKey = baker ^. _1 . bakerInfo . BAcc.bakerSignatureVerifyKey,
+                              bSignVerifyKey = baker ^. _1 . bakerInfo . bakerSignatureVerifyKey,
                               bSignSecretKey = baker ^. _3,
-                              bAggregateVerifyKey = baker ^. _1 . bakerInfo . BAcc.bakerAggregationVerifyKey,
+                              bAggregateVerifyKey = baker ^. _1 . bakerInfo . bakerAggregationVerifyKey,
                               bAggregateSecretKey = baker ^. _4,
                               bInitialStake = 300000000000,
                               bRestakeEarnings = True
@@ -64,11 +68,11 @@ transactions t = [TJSON { payload = Transfer { toaddress = alesAccount, amount =
                         , keys = [(0,[(0, alesKP)])]
                         }
                  ,TJSON { payload = UpdateBakerKeys {
-                              bElectionVerifyKey = baker ^. _1 . bakerInfo . BAcc.bakerElectionVerifyKey,
+                              bElectionVerifyKey = baker ^. _1 . bakerInfo . bakerElectionVerifyKey,
                               bElectionSecretKey = baker ^. _2,
-                              bSignVerifyKey = baker ^. _1 . bakerInfo . BAcc.bakerSignatureVerifyKey,
+                              bSignVerifyKey = baker ^. _1 . bakerInfo . bakerSignatureVerifyKey,
                               bSignSecretKey = baker ^. _3,
-                              bAggregateVerifyKey = baker ^. _1 . bakerInfo . BAcc.bakerAggregationVerifyKey,
+                              bAggregateVerifyKey = baker ^. _1 . bakerInfo . bakerAggregationVerifyKey,
                               bAggregateSecretKey = baker ^. _4
                             }
                         , metadata = makeHeaderWithExpiry alesAccount 4 100000 t
