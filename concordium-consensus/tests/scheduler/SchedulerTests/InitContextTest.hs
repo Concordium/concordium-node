@@ -26,7 +26,7 @@ import Concordium.Crypto.DummyData
 
 import SchedulerTests.Helpers
 
-initialBlockState :: BlockState PV
+initialBlockState :: BlockState PV1
 initialBlockState = blockStateWithAlesAccount 1000000000 emptyAccounts
 
 chainMeta :: Types.ChainMetadata

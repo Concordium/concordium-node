@@ -23,12 +23,12 @@ import qualified  Data.Map as Map
 import            SchedulerTests.TestUtils
 
 
-initialBlockState :: BlockState PV
+initialBlockState :: BlockState PV1
 initialBlockState = createBlockState $
                     Acc.putAccountWithRegIds (mkAccountMultipleKeys [vk kp0, vk kp1] 2 alesAccount 10000000000)
                     Acc.emptyAccounts
 
-initialBlockState2 :: BlockState PV
+initialBlockState2 :: BlockState PV1
 initialBlockState2 = createBlockState $
                     Acc.putAccountWithRegIds (mkAccountMultipleKeys [vk kp0, vk kp1, vk kp2, vk kp3, vk kp4] 2 alesAccount 10000000000)
                     Acc.emptyAccounts
@@ -50,7 +50,7 @@ vk = Sig.correspondingVerifyKey
 alesCid :: CredentialRegistrationID
 alesCid = dummyRegId dummyCryptographicParameters alesAccount
 
-testCases :: [TestCase]
+testCases :: [TestCase PV1]
 testCases =
   [ TestCase
     { tcName = "Credential key updates"

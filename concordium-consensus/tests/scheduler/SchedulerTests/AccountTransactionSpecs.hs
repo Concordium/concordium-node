@@ -29,7 +29,7 @@ shouldReturnP action f = action >>= (`shouldSatisfy` f)
 initialAmount :: Types.Amount
 initialAmount = 0
 
-initialBlockState :: BlockState PV
+initialBlockState :: BlockState PV1
 initialBlockState = blockStateWithAlesAccount initialAmount Acc.emptyAccounts
 
 -- cdi7, but with lowest possible expiry
@@ -55,8 +55,8 @@ testAccountCreation ::
     IO
     ([(Types.BlockItem, Types.ValidResult)],
      [(Types.CredentialDeploymentWithMeta, Types.FailureKind)],
-     [Maybe (Account PV)],
-     Account PV,
+     [Maybe (Account PV1)],
+     Account PV1,
      Amount)
 testAccountCreation = do
     let transactions = Types.TGCredentialDeployment <$> transactionsInput
@@ -79,8 +79,8 @@ testAccountCreation = do
 checkAccountCreationResult ::
   ([(Types.BlockItem, Types.ValidResult)],
      [(Types.CredentialDeploymentWithMeta, Types.FailureKind)],
-     [Maybe (Account PV)],
-     Account PV,
+     [Maybe (Account PV1)],
+     Account PV1,
      Amount)
   -> Assertion
 checkAccountCreationResult (suc, fails, stateAccs, stateAles, executionCost) = do
