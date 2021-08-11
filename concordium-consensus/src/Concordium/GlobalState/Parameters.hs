@@ -23,12 +23,12 @@ import Data.Aeson.Types (FromJSON(..), (.:), withObject)
 import Concordium.Types.Updates
 import Concordium.Common.Version
 import Concordium.Types
+import Concordium.Types.Accounts
 import Concordium.Types.Parameters
 import Concordium.Types.IdentityProviders
 import Concordium.Types.AnonymityRevokers
 import Concordium.Genesis.Data
 
-import Concordium.GlobalState.BakerInfo
 
 readIdentityProviders :: BSL.ByteString -> Maybe IdentityProviders
 readIdentityProviders bs = do

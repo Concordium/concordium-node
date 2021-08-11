@@ -22,7 +22,7 @@ import Concordium.Utils.Serialization.Put
 
 import Concordium.GlobalState.Persistent.MonadicRecursive
 import Concordium.GlobalState.Persistent.BlobStore
-import qualified Concordium.GlobalState.Instance as Transient
+import qualified Concordium.Types.Instance as Transient
 import qualified Concordium.GlobalState.Basic.BlockState.InstanceTable as Transient
 import Concordium.GlobalState.Persistent.BlockState.Modules
 import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Modules

@@ -54,7 +54,7 @@ import Concordium.ID.Parameters
 import Concordium.ID.DummyData
 import Concordium.Common.Time
 import qualified Concordium.GlobalState.Persistent.BlockState.Updates as PU
-import qualified Concordium.GlobalState.Basic.BlockState.Updates as BU
+import qualified Concordium.Types.UpdateQueues as UQ
 
 --------------------------------------------------------------------------------
 --                                                                            --
@@ -204,7 +204,7 @@ increaseLimit newLimit (bs, bs2) = do
                         -- requirements.
                         runReaderT (PBS.runPersistentBlockStateMonad f) rc
                         return ((), ps, ())))
-  return (bs & blockUpdates . BU.currentParameters . cpBakerStakeThreshold .~ newLimit, bs2)
+  return (bs & blockUpdates . UQ.currentParameters . cpBakerStakeThreshold .~ newLimit, bs2)
 
 --------------------------------------------------------------------------------
 --                                                                            --

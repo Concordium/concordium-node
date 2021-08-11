@@ -21,6 +21,12 @@ import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
 import Concordium.Crypto.SignatureScheme as Sig
 import Concordium.ID.Types(randomAccountAddress)
 
+import Concordium.Types.Accounts (
+    bakerAggregationVerifyKey,
+    bakerElectionVerifyKey,
+    bakerSignatureVerifyKey,
+ )
+
 import Concordium.Scheduler.Types hiding (Payload(..))
 
 import System.Random

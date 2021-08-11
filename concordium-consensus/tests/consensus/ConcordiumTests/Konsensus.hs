@@ -29,6 +29,7 @@ import Concordium.Crypto.SHA256
 
 import Concordium.Afgjort.Finalize.Types
 import Concordium.Types
+import Concordium.Types.Accounts
 import Concordium.Types.HashableTo
 import Concordium.Types.Updates
 import Concordium.GlobalState.Rewards (BankStatus(..))

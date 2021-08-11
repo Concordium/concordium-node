@@ -7,7 +7,6 @@
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
 module Concordium.GlobalState.Account where
 
-import qualified Data.Aeson as AE
 import Data.Bits
 import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Seq
@@ -22,11 +21,11 @@ import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Crypto.EncryptedTransfers
 import Concordium.ID.Types
 import Concordium.Types
+import Concordium.Types.Accounts
 import Concordium.Constants
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 
-import Concordium.GlobalState.BakerInfo
 
 -- |A list of credential IDs that have been removed from an account.
 data RemovedCredentials
@@ -198,98 +197,6 @@ instance IsProtocolVersion pv => Serialize (PersistingAccountData pv) where
     _accountRemovedCredentials <- makeHashed <$> get
     return PersistingAccountData{..}
 
--- |Pending changes to the baker associated with an account.
--- Changes are effective on the actual bakers, two epochs after the specified epoch,
--- however, the changes will be made to the 'AccountBaker' at the specified epoch.
-data BakerPendingChange
-  = NoChange
-  -- ^There is no change pending to the baker.
-  | ReduceStake !Amount !Epoch
-  -- ^The stake will be decreased to the given amount.
-  | RemoveBaker !Epoch
-  -- ^The baker will be removed.
-  deriving (Eq, Ord, Show)
-
-instance Serialize BakerPendingChange where
-  put NoChange = putWord8 0
-  put (ReduceStake amt epoch) = putWord8 1 >> put amt >> put epoch
-  put (RemoveBaker epoch) = putWord8 2 >> put epoch
-
-  get = getWord8 >>= \case
-    0 -> return NoChange
-    1 -> ReduceStake <$> get <*> get
-    2 -> RemoveBaker <$> get
-    _ -> fail "Invalid BakerPendingChange"
-
--- |A baker associated with an account.
-data AccountBaker = AccountBaker {
-  _stakedAmount :: !Amount,
-  _stakeEarnings :: !Bool,
-  _accountBakerInfo :: !BakerInfo,
-  _bakerPendingChange :: !BakerPendingChange
-} deriving (Eq, Show)
-
-makeLenses ''AccountBaker
-
-instance Serialize AccountBaker where
-  put AccountBaker{..} = do
-    put _stakedAmount
-    put _stakeEarnings
-    put _accountBakerInfo
-    put _bakerPendingChange
-  get = do
-    _stakedAmount <- get
-    _stakeEarnings <- get
-    _accountBakerInfo <- get
-    _bakerPendingChange <- get
-    -- If there is a pending reduction, check that it is actually a reduction.
-    case _bakerPendingChange of
-      ReduceStake amt _
-        | amt > _stakedAmount -> fail "Pending stake reduction is not a reduction in stake"
-      _ -> return ()
-    return AccountBaker{..}
-
--- |Helper function for JSON encoding an 'AccountBaker'.
-accountBakerPairs :: AE.KeyValue kv => AccountBaker -> [kv]
-{-# INLINE accountBakerPairs #-}
-accountBakerPairs ab =
-    [ "stakedAmount" AE..= (ab ^. stakedAmount),
-      "restakeEarnings" AE..= (ab ^. stakeEarnings),
-      "bakerId" AE..= (ab ^. accountBakerInfo . bakerIdentity),
-      "bakerElectionVerifyKey" AE..= (ab ^. accountBakerInfo . bakerElectionVerifyKey),
-      "bakerSignatureVerifyKey" AE..= (ab ^. accountBakerInfo . bakerSignatureVerifyKey),
-      "bakerAggregationVerifyKey" AE..= (ab ^. accountBakerInfo . bakerAggregationVerifyKey)
-    ]
-        <> case ab ^. bakerPendingChange of
-            NoChange -> []
-            ReduceStake amt ep -> ["pendingChange" AE..= AE.object ["change" AE..= AE.String "ReduceStake", "newStake" AE..= amt, "epoch" AE..= ep]]
-            RemoveBaker ep -> ["pendingChange" AE..= AE.object ["change" AE..= AE.String "RemoveBaker", "epoch" AE..= ep]]
-
--- |ToJSON instance supporting consensus queries.
-instance AE.ToJSON AccountBaker where
-    toJSON ab = AE.object (accountBakerPairs ab)
-    toEncoding ab = AE.pairs (mconcat (accountBakerPairs ab))
-
-instance HashableTo AccountBakerHash AccountBaker where
-  getHash AccountBaker{..}
-    = makeAccountBakerHash
-        _stakedAmount
-        _stakeEarnings
-        _accountBakerInfo
-        _bakerPendingChange
-
-type AccountBakerHash = Hash.Hash
-
--- |Make an 'AccountBakerHash' for a baker.
-makeAccountBakerHash :: Amount -> Bool -> BakerInfo -> BakerPendingChange -> AccountBakerHash
-makeAccountBakerHash amt stkEarnings binfo bpc = Hash.hashLazy $ runPutLazy $
-  put amt >> put stkEarnings >> put binfo >> put bpc
-
--- |An 'AccountBakerHash' that is used when an account has no baker.
--- This is defined as the hash of the empty string.
-nullAccountBakerHash :: AccountBakerHash
-nullAccountBakerHash = Hash.hash ""
-
 -- |Function for computing the hash of an account for protocol version P1.
 makeAccountHashP1 :: Nonce -> Amount -> AccountEncryptedAmount -> AccountReleaseScheduleHash -> PersistingAccountDataHash -> AccountBakerHash -> Hash.Hash
 makeAccountHashP1 n a eas arsh padh abh = Hash.hashLazy $ runPutLazy $ do
@@ -394,17 +301,17 @@ updateCredentialKeys credIndex credKeys d =
 -- The purpose of this structure is to pack multiple flags into a single
 -- byte of the serialization.
 data AccountSerializationFlags = AccountSerializationFlags {
-    -- |Whether the account address is serialized explicity,
+    -- |Whether the account address is serialized explicitly,
     -- or derived from the initial credential.
     asfExplicitAddress :: Bool,
-    -- |Whether the encryption key is serialized explicity,
+    -- |Whether the encryption key is serialized explicitly,
     -- or derived from the cryptographic parameters and 
     -- initial credential.
     asfExplicitEncryptionKey :: Bool,
     -- |Whether the account has more than one credential.
     asfMultipleCredentials :: Bool,
     -- |Whether the account's encrypted amount is serialized
-    -- explicity, or is the default (empty) value.
+    -- explicitly, or is the default (empty) value.
     asfExplicitEncryptedAmount :: Bool,
     -- |Whether the account's release schedule is serialized
     -- explicitly, or is the default (empty) value.

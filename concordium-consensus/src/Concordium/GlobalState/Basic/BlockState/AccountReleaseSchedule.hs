@@ -24,6 +24,7 @@ structure, effectively resetting the size of the vector to 0.
 module Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule (
   AccountReleaseSchedule(..),
   Release(..),
+  toAccountReleaseSummary,
   totalLockedUpBalance,
   values,
   pendingReleases,
@@ -34,113 +35,130 @@ module Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule (
   unlockAmountsUntil
   ) where
 
-import Concordium.Crypto.SHA256
-import Concordium.Types
-import Concordium.Types.HashableTo
-import Data.Aeson (ToJSON)
-import qualified Data.Aeson as AE
+import Control.Monad
 import qualified Data.ByteString as BS
 import Data.Foldable
 import Data.Function
 import Data.List (group, groupBy, sort, sortOn)
-import Data.Map (Map)
-import qualified Data.Map as Map
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
 import Data.Serialize
 import Data.Vector (Vector)
 import qualified Data.Vector as Vector
 import Lens.Micro.Platform
+
+import Concordium.Crypto.SHA256
+import Concordium.Types
+import Concordium.Types.Accounts.Releases
+import Concordium.Types.HashableTo
 import Concordium.Utils.Serialization
+
 
 ----------------------------------- Release ------------------------------------
 
--- | A Release represents a moment at which the amount should be released.
--- A TransferWithSchedule transaction generates a list of these Releases.
-data Release = Release {
-  timestamp :: !Timestamp -- ^ The moment at which the amount is considered unlocked
-  , amount :: !Amount -- ^ The amount to unlock
-  } deriving (Show, Eq)
+-- | A 'Release' represents a moment at which the amount should be released.
+-- A 'TransferWithSchedule' transaction generates a list of these 'Release's.
+data Release = Release
+    { -- | The moment at which the amount is considered unlocked
+      timestamp :: !Timestamp,
+      -- | The amount to unlock
+      amount :: !Amount
+    }
+    deriving (Show, Eq)
 
 instance Serialize Release where
-  put Release{..} = do
-    put timestamp
-    put amount
-  get = do
-    timestamp <- get
-    amount <-  get
-    return Release{..}
+    put Release{..} = do
+        put timestamp
+        put amount
+    get = do
+        timestamp <- get
+        amount <- get
+        return Release{..}
 
 -- | Generate the hash of a list of releases.
 -- PRECONDITION: this should never be called with an empty list of releases
 getHashOfReleases :: [Release] -> Hash
 getHashOfReleases [] = error "Unreachable"
-getHashOfReleases (x:[]) = hash $ encode x
-getHashOfReleases (x:xs) =
-  let xSerialized = encode x
-      hashOfNext = getHashOfReleases xs
-  in
-    hash (xSerialized <> hashToByteString hashOfNext)
+getHashOfReleases [x] = hash $ encode x
+getHashOfReleases (x : xs) =
+    let xSerialized = encode x
+        hashOfNext = getHashOfReleases xs
+     in hash (xSerialized <> hashToByteString hashOfNext)
 
 --------------------------- Account release schedule ---------------------------
 
 -- | Contains the amounts that are locked for a given account as well as
 -- their release dates.
-data AccountReleaseSchedule = AccountReleaseSchedule {
-  -- | The vector of current releases. When a schedule has been fully released its
-  -- entry in this vector is replaced by a Nothing and will eventually be removed when
-  -- all the current Schedules are released.
-  _values :: !(Vector (Maybe ([Release], TransactionHash))),
-  -- | The priority queue with indices to the vector items on each timestamp.
-  _pendingReleases :: !(Map Timestamp [Int]),
-  -- | The total amount that is locked for this account
-  _totalLockedUpBalance :: !Amount
-  } deriving (Show, Eq)
+data AccountReleaseSchedule = AccountReleaseSchedule
+    { -- | The vector of current releases. When a schedule has been fully released its
+      -- entry in this vector is replaced by a Nothing and will eventually be removed when
+      -- all the current Schedules are released.
+      _values :: !(Vector (Maybe ([Release], TransactionHash))),
+      -- | The priority queue with indices to the vector items on each timestamp.
+      _pendingReleases :: !(Map Timestamp [Int]),
+      -- | The total amount that is locked for this account
+      _totalLockedUpBalance :: !Amount
+    }
+    deriving (Show, Eq)
+
 makeLenses ''AccountReleaseSchedule
 
-instance ToJSON AccountReleaseSchedule where
-  toJSON AccountReleaseSchedule{..} =
-    let listOfReleasesByTimestamp = [ (tm, (a, t)) | Just (r, t) <- Vector.toList _values, Release tm a <- r ]
-        sortedAndGroupedByTimestamp = groupBy ((==) `on` fst) $ sortOn fst listOfReleasesByTimestamp
-        -- combine the elements for each timestamp by summing up the amounts and creating a list with the transaction hashes
-        -- @head@ is safe because group won't create empty lists.
-        schedule = map (\x -> (fst (head x), foldl' (\(accB, accT) (_, (b, t)) -> (accB + b, t : accT)) (0, []) x)) sortedAndGroupedByTimestamp
-    in
-      AE.object ["total" AE..= _totalLockedUpBalance,
-                 "schedule" AE..= map toObject schedule]
-
-
-    where toObject :: (Timestamp, (Amount, [TransactionHash])) -> AE.Value
-          toObject (timestamp, (amount, hashes)) = AE.object [
-            "timestamp" AE..= timestamp,
-            "amount" AE..= amount,
-            "transactions" AE..= hashes
-            ]
+-- |Produce an 'AccountReleaseSummary' from an 'AccountReleaseSchedule'.
+toAccountReleaseSummary :: AccountReleaseSchedule -> AccountReleaseSummary
+toAccountReleaseSummary AccountReleaseSchedule{..} = AccountReleaseSummary{..}
+  where
+    releaseTotal = _totalLockedUpBalance
+    listOfReleasesByTimestamp = [(tm, (a, t)) | Just (r, t) <- Vector.toList _values, Release tm a <- r]
+    sortedAndGroupedByTimestamp = groupBy ((==) `on` fst) $ sortOn fst listOfReleasesByTimestamp
+    accumReleases (!accB, !accT) (_, (b, t)) = (accB + b, t : accT)
+    makeScheduledRelease rels =
+        let (releaseAmount, releaseTransactions) = foldl' accumReleases (0, []) rels
+         in ScheduledRelease
+                { -- @head@ is safe since group won't create empty lists
+                  releaseTimestamp = fst (head rels),
+                  ..
+                }
+    releaseSchedule = map makeScheduledRelease sortedAndGroupedByTimestamp
 
 instance Serialize AccountReleaseSchedule where
-  get = do
-    vecLength <- getLength
-    _values <- Vector.replicateM vecLength (getMaybe (do
-                                                         l <- getLength
-                                                         item <- sequence $ replicate l get
-                                                         txh <- get
-                                                         return (item, txh)))
-    let (_pendingReleases, _totalLockedUpBalance) =
-          Vector.ifoldl' (\acc idx -> \case
-                             Nothing -> acc
-                             Just (rel, _) ->
-                               let f (pending, am) Release{..} =
-                                     let pending' = Map.alter (maybe (Just [idx]) (Just . (idx :))) timestamp pending
-                                         am' = am + amount
+    get = do
+        vecLength <- getLength
+        _values <-
+            Vector.replicateM
+                vecLength
+                ( getMaybe
+                    ( do
+                        l <- getLength
+                        item <- replicateM l get
+                        txh <- get
+                        return (item, txh)
+                    )
+                )
+        let (_pendingReleases, _totalLockedUpBalance) =
+                Vector.ifoldl'
+                    ( \acc idx -> \case
+                        Nothing -> acc
+                        Just (rel, _) ->
+                            let f (pending, am) Release{..} =
+                                    let pending' = Map.alter (maybe (Just [idx]) (Just . (idx :))) timestamp pending
+                                        am' = am + amount
                                      in (pending', am')
-                               in
-                                 foldl' f acc rel) (Map.empty, 0) _values
-    return AccountReleaseSchedule{..}
-  put AccountReleaseSchedule{..} = do
-    putLength $ Vector.length _values
-    Vector.mapM_ (putMaybe (\(rel, txh) -> do
-                               putLength $ length rel
-                               mapM_ put rel
-                               put txh)
-                 ) _values
+                             in foldl' f acc rel
+                    )
+                    (Map.empty, 0)
+                    _values
+        return AccountReleaseSchedule{..}
+    put AccountReleaseSchedule{..} = do
+        putLength $ Vector.length _values
+        Vector.mapM_
+            ( putMaybe
+                ( \(rel, txh) -> do
+                    putLength $ length rel
+                    mapM_ put rel
+                    put txh
+                )
+            )
+            _values
 
 -- λ: getHash $ addReleases ([(3,5), (4,10)], th) $ addReleases ([(1,2), (3,4)], th) emptyAccountReleaseSchedule :: Hash
 -- 5473ef105c995db8d8dfe75881d8a2018bb12eaeef32032569edfff6814f1b50
@@ -150,18 +168,25 @@ instance Serialize AccountReleaseSchedule where
 -- 5473ef105c995db8d8dfe75881d8a2018bb12eaeef32032569edfff6814f1b50
 
 newtype AccountReleaseScheduleHash = AccountReleaseScheduleHash Hash
- deriving (Serialize, Eq, Ord, Show)
+    deriving (Serialize, Eq, Ord, Show)
 
 emptyAccountReleaseScheduleHash :: AccountReleaseScheduleHash
 emptyAccountReleaseScheduleHash = AccountReleaseScheduleHash (hash "EmptyAccountReleaseSchedule")
 
 instance HashableTo AccountReleaseScheduleHash AccountReleaseSchedule where
-  getHash AccountReleaseSchedule{..} =
-    if _totalLockedUpBalance == 0
-    then emptyAccountReleaseScheduleHash
-    else AccountReleaseScheduleHash $ hash $ Vector.foldl' (\prevB -> \case
-                                    Nothing -> prevB
-                                    Just (r, _) -> prevB <> hashToByteString (getHashOfReleases r)) BS.empty _values
+    getHash AccountReleaseSchedule{..} =
+        if _totalLockedUpBalance == 0
+            then emptyAccountReleaseScheduleHash
+            else
+                AccountReleaseScheduleHash $
+                    hash $
+                        Vector.foldl'
+                            ( \prevB -> \case
+                                Nothing -> prevB
+                                Just (r, _) -> prevB <> hashToByteString (getHashOfReleases r)
+                            )
+                            BS.empty
+                            _values
 
 ------------------------------------- API --------------------------------------
 

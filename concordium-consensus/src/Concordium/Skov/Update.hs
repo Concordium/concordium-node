@@ -14,6 +14,7 @@ import GHC.Stack
 
 import Concordium.Cost (baseCost)
 import Concordium.Types
+import Concordium.Types.Accounts
 import Concordium.Types.HashableTo
 import Concordium.Types.Updates
 import Concordium.GlobalState.TreeState as TS

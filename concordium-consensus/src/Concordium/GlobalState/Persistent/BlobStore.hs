@@ -48,12 +48,12 @@ import Concordium.GlobalState.Persistent.MonadicRecursive
 
 -- Imports for providing instances
 import Concordium.GlobalState.Account
-import Concordium.GlobalState.BakerInfo
 import qualified Concordium.Types.IdentityProviders as IPS
 import qualified Concordium.Types.AnonymityRevokers as ARS
 import qualified Concordium.GlobalState.Parameters as Parameters
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 import Concordium.Types
+import Concordium.Types.Accounts
 import Concordium.Types.Updates
 import Concordium.Wasm
 
@@ -447,7 +447,7 @@ instance (Monad m, BlobStorable m a) => Reference m BufferedRef a where
   {-# INLINE refCache #-}
   {-# INLINE refUncache #-}
 
-instance (BlobStorable m a, MHashableTo m H.Hash a) => MHashableTo m H.Hash (BufferedRef a) where
+instance (BlobStorable m a, MHashableTo m h a) => MHashableTo m h (BufferedRef a) where
   getHashM ref = getHashM =<< refLoad ref
 
 instance (Serialize a, Serialize b, BlobStorable m a) => MHashableTo m H.Hash (BufferedRef a, b) where

@@ -1,7 +1,7 @@
 {
   "v": 2,
   "value": {
-    "genesisTime": 1616143538000,
+    "genesisTime": 1628241804000,
     "slotDuration": 250,
     "leadershipElectionNonce": "5bb78b5f359007c9532e17e474ff188c30bbd999147f6721d870f7ab2004e438",
     "epochLength": 14400,

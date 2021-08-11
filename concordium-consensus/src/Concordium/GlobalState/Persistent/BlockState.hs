@@ -49,7 +49,7 @@ import qualified Concordium.GlobalState.Persistent.Trie as Trie
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Types
-import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToSelfEncryptedAmount, _stakedAmount, _stakeEarnings, _accountBakerInfo, _bakerPendingChange, stakedAmount, stakeEarnings, accountBakerInfo, bakerPendingChange)
+import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToSelfEncryptedAmount)
 import qualified Concordium.Types.IdentityProviders as IPS
 import qualified Concordium.Types.AnonymityRevokers as ARS
 import qualified Concordium.GlobalState.Rewards as Rewards
@@ -59,13 +59,15 @@ import qualified Concordium.GlobalState.Persistent.Instances as Instances
 import qualified Concordium.Types.Transactions as Transactions
 import qualified Concordium.Types.Execution as Transactions
 import Concordium.GlobalState.Persistent.Instances(PersistentInstance(..), PersistentInstanceParameters(..))
-import Concordium.GlobalState.Instance (Instance(..),InstanceParameters(..),makeInstanceHash')
+import Concordium.Types.Instance (Instance(..),InstanceParameters(..),makeInstanceHash')
 import Concordium.GlobalState.Persistent.Account
 import Concordium.GlobalState.Persistent.BlockState.Updates
 import qualified Concordium.GlobalState.Basic.BlockState.Account as TransientAccount
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
-import qualified Concordium.GlobalState.Basic.BlockState.Updates as Basic
+import qualified Concordium.Types.UpdateQueues as UQ
 import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Modules
+import qualified Concordium.Types.Accounts as BaseAccounts
+import Concordium.Types.Accounts (BakerPendingChange(NoChange), BakerInfo(_bakerAggregationVerifyKey), BakerPendingChange(..))
 import Concordium.Types.SeedState
 import Concordium.Logger (MonadLogger)
 import Concordium.Types.HashableTo
@@ -1082,7 +1084,7 @@ doGetCurrentElectionDifficulty pbs = do
         upds <- refLoad (bspUpdates bsp)
         _cpElectionDifficulty . unStoreSerialized <$> refLoad (currentParameters upds)
 
-doGetUpdates :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m Basic.Updates
+doGetUpdates :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m UQ.Updates
 doGetUpdates = makeBasicUpdates <=< refLoad . bspUpdates <=< loadPBS
 
 doGetProtocolUpdateStatus :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m (Either ProtocolUpdate [(TransactionTime, ProtocolUpdate)])
@@ -1277,7 +1279,7 @@ instance (PersistentState r m, IsProtocolVersion pv) => AccountOperations (Persi
         Some bref -> do
             PersistentAccountBaker{..} <- refLoad bref
             abi <- refLoad _accountBakerInfo
-            return $ Just AccountBaker{_accountBakerInfo = abi, ..}
+            return $ Just BaseAccounts.AccountBaker{_accountBakerInfo = abi, ..}
 
 instance (IsProtocolVersion pv, PersistentState r m) => BlockStateOperations (PersistentBlockStateMonad pv r m) where
     bsoGetModule pbs mref = doGetModule pbs mref

@@ -12,7 +12,6 @@ import Lens.Micro.Platform
 
 import qualified Concordium.ID.Types as ID
 import Concordium.GlobalState.Basic.BlockState
-import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Basic.BlockState.Bakers
 import Concordium.GlobalState.Basic.BlockState.Account
 import qualified Concordium.GlobalState.Basic.BlockState.Accounts as Account
@@ -21,6 +20,7 @@ import Concordium.GlobalState.Basic.BlockState.Instances as Instances
 import qualified Concordium.GlobalState.Rewards as Rewards
 
 import Concordium.Types
+import Concordium.Types.Accounts
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 
 checkBinary :: (Show a, Show b) => (a -> b -> Bool) -> a -> b -> String -> String -> String -> Either String ()

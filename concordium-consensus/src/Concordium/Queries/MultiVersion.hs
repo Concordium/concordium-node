@@ -12,6 +12,7 @@ import Data.Foldable
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import qualified Data.Map.Strict as Map
+import Data.Maybe
 import qualified Data.Set as Set
 import qualified Data.Vector as Vec
 import Lens.Micro.Platform
@@ -19,24 +20,26 @@ import Lens.Micro.Platform
 import Concordium.Common.Version
 import Concordium.Genesis.Data
 import Concordium.Types
+import Concordium.Types.Accounts
 import Concordium.Types.AnonymityRevokers
 import Concordium.Types.HashableTo
 import Concordium.Types.IdentityProviders
+import Concordium.Types.Instance
 import Concordium.Types.Parameters
+import Concordium.Types.Queries
 import Concordium.Types.SeedState
 import qualified Concordium.Wasm as Wasm
 
 import Concordium.Afgjort.Finalize.Types (FinalizationCommittee (..), PartyInfo (..))
 import Concordium.Afgjort.Monad
 import Concordium.Birk.Bake
-import Concordium.GlobalState.Account (accountBakerInfo)
 import Concordium.GlobalState.BakerInfo
+import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule (toAccountReleaseSummary)
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer
 import qualified Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.Finalization
-import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Statistics
 import qualified Concordium.GlobalState.TransactionTable as TT
@@ -361,7 +364,7 @@ getAccountInfo blockHash acct =
                 forM macc $ \(aiAccountIndex, acc) -> do
                     aiAccountNonce <- BS.getAccountNonce acc
                     aiAccountAmount <- BS.getAccountAmount acc
-                    aiAccountReleaseSchedule <- BS.getAccountReleaseSchedule acc
+                    aiAccountReleaseSchedule <- toAccountReleaseSummary <$> BS.getAccountReleaseSchedule acc
                     aiAccountCredentials <- fmap (Versioned 0) <$> BS.getAccountCredentials acc
                     aiAccountThreshold <- aiThreshold <$> BS.getAccountVerificationKeys acc
                     aiAccountEncryptedAmount <- BS.getAccountEncryptedAmount acc
@@ -424,31 +427,37 @@ getTransactionStatus trHash =
 -- Note that, since this does not acquire the write lock, it is possible that
 -- 'queryTransactionStatus' reports that the transaction is finalized even if it does not occur in
 -- any block currently visible in the state.
-getTransactionStatusInBlock :: TransactionHash -> BlockHash -> MVR gsconf finconf (Maybe BlockTransactionStatus)
+getTransactionStatusInBlock :: TransactionHash -> BlockHash -> MVR gsconf finconf BlockTransactionStatus
 getTransactionStatusInBlock trHash blockHash =
-    liftSkovQueryLatestResult $
-        queryTransactionStatus trHash >>= \case
-            Nothing -> return Nothing
-            Just TT.Received{} -> return $ Just BTSReceived
-            Just TT.Committed{..} -> case HM.lookup blockHash tsResults of
-                Nothing -> return $ Just BTSNotInBlock
-                Just idx ->
-                    resolveBlock blockHash >>= \case
-                        Nothing -> return $ Just BTSNotInBlock -- should not happen
-                        Just bp -> do
-                            bs <- blockState bp
-                            outcome <- BS.getTransactionOutcome bs idx
-                            return $ Just $ BTSCommitted outcome
-            Just TT.Finalized{..} ->
-                if tsBlockHash == blockHash
-                    then
+    fromMaybe BTSNotInBlock
+        <$> liftSkovQueryLatestResult
+            ( queryTransactionStatus trHash >>= \case
+                Nothing -> resolveBlock blockHash >>= \case
+                    -- If the block is unknown in this skov version, then try earlier versions.
+                    Nothing -> return Nothing
+                    -- If the block is known, then we can return BTSNotInBlock already.
+                    Just _ -> return $ Just BTSNotInBlock
+                Just TT.Received{} -> return $ Just BTSReceived
+                Just TT.Committed{..} -> case HM.lookup blockHash tsResults of
+                    Nothing -> return $ Just BTSNotInBlock
+                    Just idx ->
                         resolveBlock blockHash >>= \case
-                            Nothing -> return $ Just BTSNotInBlock -- unlikely but possible
+                            Nothing -> return $ Just BTSNotInBlock -- should not happen
                             Just bp -> do
                                 bs <- blockState bp
-                                outcome <- BS.getTransactionOutcome bs tsFinResult
-                                return $ Just $ BTSFinalized outcome
-                    else return $ Just BTSNotInBlock
+                                outcome <- BS.getTransactionOutcome bs idx
+                                return $ Just $ BTSCommitted outcome
+                Just TT.Finalized{..} ->
+                    if tsBlockHash == blockHash
+                        then
+                            resolveBlock blockHash >>= \case
+                                Nothing -> return $ Just BTSNotInBlock -- unlikely but possible
+                                Just bp -> do
+                                    bs <- blockState bp
+                                    outcome <- BS.getTransactionOutcome bs tsFinResult
+                                    return $ Just $ BTSFinalized outcome
+                        else return $ Just BTSNotInBlock
+            )
 
 -- * Miscellaneous
 

@@ -19,7 +19,7 @@ use concordium_node::{
     stats_export_service::instantiate_stats_export_engine,
     utils,
 };
-use crypto_common::serialize::Serial;
+use crypto_common::Serial;
 use std::{fs::File, io::prelude::*, sync::Arc, thread, time::Duration};
 
 fn main() -> anyhow::Result<()> {

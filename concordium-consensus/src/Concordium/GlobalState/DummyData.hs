@@ -26,6 +26,7 @@ import Concordium.Types.AnonymityRevokers
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Rewards as Rewards
 import Concordium.Types.Updates
+import Concordium.Types.Accounts
 
 import qualified Concordium.Types.SeedState as SeedState
 import Concordium.GlobalState.Basic.BlockState.AccountTable(toList)

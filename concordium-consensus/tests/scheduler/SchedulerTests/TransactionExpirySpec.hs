@@ -7,6 +7,12 @@ import Test.HUnit
 import Control.Monad.IO.Class
 import Lens.Micro.Platform
 
+import Concordium.Types.Accounts (
+    bakerAggregationVerifyKey,
+    bakerElectionVerifyKey,
+    bakerSignatureVerifyKey,
+ )
+
 import qualified Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.BlockSignature as BlockSig
 import qualified Concordium.Crypto.BlsSignature as Bls

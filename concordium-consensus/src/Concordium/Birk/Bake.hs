@@ -19,6 +19,7 @@ import Data.Aeson(FromJSON, parseJSON, withObject, (.:))
 import Data.List (foldl')
 
 import Concordium.Types
+import Concordium.Types.Accounts
 
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF

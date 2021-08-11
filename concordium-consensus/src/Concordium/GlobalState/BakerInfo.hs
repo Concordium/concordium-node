@@ -9,35 +9,10 @@ import qualified Data.Vector as Vec
 import Lens.Micro.Platform
 import Concordium.Types.HashableTo
 import qualified Concordium.Crypto.SHA256 as H
+import Concordium.Types.Accounts
 
 import Concordium.Types
 
-data BakerInfo = BakerInfo {
-    -- |Identity of the baker. This is actually the account index of
-    -- the account controlling the baker.
-    _bakerIdentity :: !BakerId,
-    -- |The baker's public VRF key
-    _bakerElectionVerifyKey :: !BakerElectionVerifyKey,
-    -- |The baker's public signature key
-    _bakerSignatureVerifyKey :: !BakerSignVerifyKey,
-    -- |The baker's public key for finalization record aggregation
-    _bakerAggregationVerifyKey :: !BakerAggregationVerifyKey
-} deriving (Eq, Show)
-
-instance Serialize BakerInfo where
-  put BakerInfo{..} = do
-    put _bakerIdentity
-    put _bakerElectionVerifyKey
-    put _bakerSignatureVerifyKey
-    put _bakerAggregationVerifyKey
-  get = do
-    _bakerIdentity <- get
-    _bakerElectionVerifyKey <- get
-    _bakerSignatureVerifyKey <- get
-    _bakerAggregationVerifyKey <- get
-    return BakerInfo{..}
-
-makeLenses ''BakerInfo
 
 data FullBakerInfo = FullBakerInfo {
     _bakerInfo :: !BakerInfo,
