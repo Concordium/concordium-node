@@ -1,0 +1,65 @@
+#!/bin/bash
+
+set -e
+
+function removeFileIfExists() {
+    local theFile=${1:?"removeIfExists expects 1 argument: file"}
+    if [ -f "$theFile" ]
+    then
+        echo "     $theFile"
+        sudo rm "$theFile"
+    fi
+}
+
+function removeServiceIfExists() {
+    local service=${1:?"removeServiceIfExists expects 1 argument: service-name"}
+
+    if sudo launchctl list "$service" &> /dev/null
+    then
+        echo "     $service"
+        sudo launchctl remove "$service"
+    fi
+}
+
+function removeSymlinks(){
+    removeFileIfExists "/usr/local/bin/concordium-node"
+    removeFileIfExists "/usr/local/bin/concordium-node-collector"
+}
+
+function removeLaunchDaemons(){
+    echo "Removing launch daemons"
+
+    echo "-- Removing the following services from launchctl:"
+    removeServiceIfExists "software.concordium.mainnet.node"
+    removeServiceIfExists "software.concordium.mainnet.node-collector"
+    removeServiceIfExists "software.concordium.testnet.node"
+    removeServiceIfExists "software.concordium.testnet.node-collector"
+
+    echo "-- Deleting the following files from '/Library/LaunchDaemons/':"
+    removeFileIfExists "/Library/LaunchDaemons/software.concordium.mainnet.node.plist"
+    removeFileIfExists "/Library/LaunchDaemons/software.concordium.mainnet.node-collector.plist"
+    removeFileIfExists "/Library/LaunchDaemons/software.concordium.testnet.node.plist"
+    removeFileIfExists "/Library/LaunchDaemons/software.concordium.testnet.node-collector.plist"
+}
+
+function removeNodeDir(){
+    if [ -d "/Library/Concordium Node/" ]
+    then
+        echo "-- Deleting '/Library/Concordium Node/'"
+        sudo rm -r "/Library/Concordium Node/"
+    fi
+}
+
+function main(){
+    echo "Running preinstall script"
+
+    removeLaunchDaemons
+
+    removeSymlinks
+
+    removeNodeDir
+
+    echo "Preinstall finished"
+}
+
+main
