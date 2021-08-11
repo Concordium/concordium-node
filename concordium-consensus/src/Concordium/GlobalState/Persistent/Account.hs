@@ -24,16 +24,17 @@ import Concordium.Crypto.EncryptedTransfers
 import Concordium.Types.HashableTo
 import Concordium.Types hiding (_incomingEncryptedAmounts, _startIndex, _selfAmount, _aggregatedAmount)
 import Concordium.Constants
-import qualified Concordium.Types as TY (_incomingEncryptedAmounts, _startIndex, _selfAmount, _aggregatedAmount)
+import qualified Concordium.Types as TY
 import Concordium.ID.Types
 import Concordium.ID.Parameters
 
+import Concordium.Types.Accounts hiding (_stakedAmount, _stakeEarnings, _accountBakerInfo)
+import qualified Concordium.Types.Accounts as Transient
 import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
 import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as Transient
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule
-import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToSelfEncryptedAmount, _stakedAmount, _stakeEarnings, _accountBakerInfo, _bakerPendingChange, stakedAmount, stakeEarnings, accountBakerInfo, bakerPendingChange)
-import Concordium.GlobalState.BakerInfo
+import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToSelfEncryptedAmount)
 
 -- | The persistent version of the encrypted amount structure per account.
 data PersistentAccountEncryptedAmount = PersistentAccountEncryptedAmount {
@@ -372,7 +373,7 @@ rehashAccount pac = do
   return pac{_accountHash = newHash}
 
 -- |Set the baker of an account.
-setPersistentAccountBaker :: forall m pv. (MonadBlobStore m, IsProtocolVersion pv) => PersistentAccount pv-> Nullable PersistentAccountBaker -> m (PersistentAccount pv)
+setPersistentAccountBaker :: forall m pv. (MonadBlobStore m, IsProtocolVersion pv) => PersistentAccount pv -> Nullable PersistentAccountBaker -> m (PersistentAccount pv)
 setPersistentAccountBaker pac pab = do
   eac <- loadPersistentAccountEncryptedAmount =<< loadBufferedRef (_accountEncryptedAmount pac)
   sdata <- refLoad (_accountReleaseSchedule pac)

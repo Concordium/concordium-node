@@ -3,7 +3,7 @@ module Concordium.Scheduler.Types (module Concordium.Scheduler.Types,
                                    module Concordium.Types.Updates,
                                    module Concordium.Types.Execution,
                                    module Concordium.Types.Transactions,
-                                   module Concordium.GlobalState.Instance,
+                                   module Concordium.Types.Instance,
                                    module Concordium.GlobalState.Rewards,
                                    module Concordium.GlobalState.Parameters,
                                    module Concordium.Types.IdentityProviders,
@@ -13,7 +13,7 @@ module Concordium.Scheduler.Types (module Concordium.Scheduler.Types,
 import Concordium.Types
 import Concordium.Types.Updates
 import Concordium.Types.Execution
-import Concordium.GlobalState.Instance
+import Concordium.Types.Instance
 import Concordium.GlobalState.Rewards
 import Concordium.Types.Transactions
 import Concordium.GlobalState.Parameters

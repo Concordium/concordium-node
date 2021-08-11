@@ -10,6 +10,7 @@ import Data.Set(Set)
 import qualified Data.Vector as Vec
 import Data.Serialize
 import Lens.Micro.Platform
+import Concordium.Types.Accounts
 
 import Concordium.GlobalState.BakerInfo
 import Concordium.Types

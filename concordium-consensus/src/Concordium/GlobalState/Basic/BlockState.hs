@@ -24,7 +24,9 @@ import Data.ByteString.Builder (hPutBuilder)
 import Control.Monad.IO.Class
 
 import Concordium.Types
+import Concordium.Types.Accounts
 import Concordium.Types.Updates
+import Concordium.Types.UpdateQueues
 import qualified Concordium.Genesis.Data.P1 as P1
 import qualified Concordium.GlobalState.Types as GT
 import Concordium.GlobalState.BakerInfo
