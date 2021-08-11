@@ -3,11 +3,11 @@
 <plist version="1.0">
 <dict>
   <key>CFBundleGetInfoString</key>
-  <string>StartNode</string>
+  <string>Concordium Node Stop __NET__</string>
   <key>CFBundleExecutable</key>
   <string>runApplescript.sh</string>
   <key>CFBundleIdentifier</key>
-  <string>software.concordium.mainnet.node</string>
+  <string>software.concordium.__NET__.node</string>
   <key>CFBundleName</key>
   <string>stop</string>
   <key>CFBundleIconFile</key>

@@ -41,9 +41,44 @@ function clean() {
     fi
 }
 
+function replacePlaceholderInFile() {
+    local theFile=${1:?"replacePlaceholderInFile expects 3 parameters: file, placeholder, replacement"}
+    local placeholder=${2:?"replacePlaceholderInFile expects 3 parameters: file, placeholder, replacement"}
+    local replacement=${3:?"replacePlaceholderInFile expects 3 parameters: file, placeholder, replacement"}
+    sed -i '' -e 's/'"$placeholder"'/'"$replacement"'/g' "$theFile"
+}
+
 function replaceVersionPlaceholder() {
     local theFile=${1:?"replaceVersionPlaceholder expects 1 parameter: file"}
-    sed -i '' -e 's/__VERSION__/'"$version"'/g' "$theFile"
+    replacePlaceholderInFile "$theFile" "__VERSION__" "$version"
+}
+
+# Should be called after build folder has been created.
+function createStartStopAppsFromTemplate() {
+    local startNodeMainnet="$payloadDir/Applications/Concordium Node/Concordium Node Start Mainnet.app"
+    local startNodeTestnet="$payloadDir/Applications/Concordium Node/Concordium Node Start Testnet.app"
+    local stopNodeMainnet="$payloadDir/Applications/Concordium Node/Concordium Node Stop Mainnet.app"
+    local stopNodeTestnet="$payloadDir/Applications/Concordium Node/Concordium Node Stop Testnet.app"
+
+    # Use 'mv' to replace the __NET__ version template folder.
+    cp -r "$payloadDir/Applications/Concordium Node/Concordium Node Start __NET__.app" "$startNodeMainnet"
+    mv "$payloadDir/Applications/Concordium Node/Concordium Node Start __NET__.app" "$startNodeTestnet"
+    cp -r "$payloadDir/Applications/Concordium Node/Concordium Node Stop __NET__.app" "$stopNodeMainnet"
+    mv "$payloadDir/Applications/Concordium Node/Concordium Node Stop __NET__.app" "$stopNodeTestnet"
+
+    replacePlaceholderInFile "$startNodeMainnet/Contents/info.plist" "__NET__" "mainnet"
+    replacePlaceholderInFile "$startNodeMainnet/Contents/MacOS/run.applescript" "__NET__" "mainnet"
+    replacePlaceholderInFile "$startNodeMainnet/Contents/MacOS/run.applescript" "__NET_CAPITALISED__" "MAINNET"
+
+    replacePlaceholderInFile "$startNodeTestnet/Contents/MacOS/run.applescript" "__NET__" "testnet"
+    replacePlaceholderInFile "$startNodeTestnet/Contents/info.plist" "__NET__" "testnet"
+    replacePlaceholderInFile "$startNodeTestnet/Contents/MacOS/run.applescript" "__NET_CAPITALISED__" "TESTNET"
+
+    replacePlaceholderInFile "$stopNodeMainnet/Contents/MacOS/run.applescript"  "__NET__" "mainnet"
+    replacePlaceholderInFile "$stopNodeMainnet/Contents/info.plist" "__NET__" "mainnet"
+
+    replacePlaceholderInFile "$stopNodeTestnet/Contents/MacOS/run.applescript"  "__NET__" "testnet"
+    replacePlaceholderInFile "$stopNodeTestnet/Contents/info.plist" "__NET__" "testnet"
 }
 
 function createBuildDirFromTemplate() {
@@ -56,13 +91,15 @@ function createBuildDirFromTemplate() {
     mkdir "$libraryPayloadDir/Application Support/Concordium Node/Mainnet/Config"
     mkdir "$libraryPayloadDir/Application Support/Concordium Node/Testnet/Config"
 
+    createStartStopAppsFromTemplate
+
     replaceVersionPlaceholder "$buildDir/distribution.xml"
     replaceVersionPlaceholder "$buildDir/scripts/postinstall"
     replaceVersionPlaceholder "$libraryPayloadDir/Concordium Node/LaunchDaemons/software.concordium.mainnet.node.plist"
     replaceVersionPlaceholder "$libraryPayloadDir/Concordium Node/LaunchDaemons/software.concordium.testnet.node.plist"
     replaceVersionPlaceholder "$libraryPayloadDir/Concordium Node/LaunchDaemons/software.concordium.mainnet.node-collector.plist"
     replaceVersionPlaceholder "$libraryPayloadDir/Concordium Node/LaunchDaemons/software.concordium.testnet.node-collector.plist"
-    replaceVersionPlaceholder "$payloadDir/Applications/Concordium Node/Concordium Node Uninstaller.app/Contents/MacOS/uninstall.applescript"
+    replaceVersionPlaceholder "$payloadDir/Applications/Concordium Node/Concordium Node Uninstaller.app/Contents/MacOS/run.applescript"
     replaceVersionPlaceholder "$buildDir/resources/welcome.html"
 
     logInfo "Done"

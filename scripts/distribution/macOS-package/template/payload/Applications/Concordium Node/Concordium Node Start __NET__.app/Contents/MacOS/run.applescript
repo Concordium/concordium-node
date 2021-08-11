@@ -14,27 +14,18 @@ to shouldRunCollector(configFile)
 	end try
 end shouldRunCollector
 
-# Converts the empty statusCode to "-". The empty status code occurs when the service isn't loaded.
-to toErrorCode(statusCode)
-	if statusCode = "" then
-		return "-"
-	else
-		return statusCode
-	end if
-end toErrorCode
-
 to displayResultAlert(runCollector, prettyServiceName, nodeStatusCode, collectorStatusCode)
-	set successMsgPrefix to "Successfully started the " & prettyServiceName
+	set successMsg to "Successfully started the " & prettyServiceName & "."
 	set failMsgPrefix to "Failed to start the " & prettyServiceName & ". Error: "
 	if runCollector then
 		if nodeStatusCode = "0" and collectorStatusCode = "0" then
-			display alert successMsgPrefix & " and collector."
+			display alert successMsg
 		else
 			display alert failMsgPrefix & "(" & nodeStatusCode & "," & collectorStatusCode & ")"
 		end if
 	else
 		if nodeStatusCode = "0" then
-			display alert successMsgPrefix & "."
+			display alert successMsg
 		else
 			display alert failMsgPrefix & nodeStatusCode
 		end if
@@ -45,7 +36,7 @@ to checkServiceStatus(serviceName)
 	# Use $ to ensure that it is the end of a line. Otherwise '*node' will also return '*node-collector'.
 	set terminatedServiceName to serviceName & "$"
 	
-	# 'cut -f2' gets the second field in a line, which is the exitCode.
+	# 'cut -f2' gets the second field in a line, which is the statusCode.
 	set getStatusCmd to "sudo launchctl list | grep " & terminatedServiceName & " | cut -f2"
 	
 	return do shell script getStatusCmd with administrator privileges
@@ -53,18 +44,18 @@ end checkServiceStatus
 
 to main()
 	
-	startService("/Library/Concordium Node/LaunchDaemons/software.concordium.mainnet.node.plist")
-	set nodeStatus to checkServiceStatus("software.concordium.mainnet.node")
+	startService("/Library/Concordium Node/LaunchDaemons/software.concordium.__NET__.node.plist")
+	set nodeStatus to checkServiceStatus("software.concordium.__NET__.node")
 	
-	set collectorStatus to "0" # default value, overriden if runCollector
+	set collectorStatus to "0" # default value, overriden if runCollector 
 	
-	set runCollector to shouldRunCollector("/Library/Concordium Node/REPORT_TO_NETWORK_DASHBOARD_MAINNET")
+	set runCollector to shouldRunCollector("/Library/Concordium Node/REPORT_TO_NETWORK_DASHBOARD___NET_CAPITALISED__")
 	if runCollector then
-		startService("/Library/Concordium Node/LaunchDaemons/software.concordium.mainnet.node-collector.plist")
-		set collectorStatus to checkServiceStatus("software.concordium.mainnet.nodse-collector")
+		startService("/Library/Concordium Node/LaunchDaemons/software.concordium.__NET__.node-collector.plist")
+		set collectorStatus to checkServiceStatus("software.concordium.__NET__.node-collector")
 	end if
 	
-	displayResultAlert(runCollector, "Concordium mainnet node", nodeStatus, collectorStatus)
+	displayResultAlert(runCollector, "Concordium __NET__ node", nodeStatus, collectorStatus)
 	
 end main
 
