@@ -44,14 +44,21 @@ end checkServiceStatus
 
 to main()
 	
-	startService("/Library/Concordium Node/LaunchDaemons/software.concordium.__NET__.node.plist")
-	set nodeStatus to checkServiceStatus("software.concordium.__NET__.node")
-	
-	set collectorStatus to "0" # default value, overriden if runCollector 
-	
 	set runCollector to shouldRunCollector("/Library/Concordium Node/REPORT_TO_NETWORK_DASHBOARD___NET_CAPITALISED__")
+
+	# Start services
+	startService("/Library/Concordium Node/LaunchDaemons/software.concordium.__NET__.node.plist")
 	if runCollector then
 		startService("/Library/Concordium Node/LaunchDaemons/software.concordium.__NET__.node-collector.plist")
+	end if
+	
+	# The node shows up as running briefly before exiting. Sleep x seconds to get reliable status result.
+	delay 0.5
+	
+	# Get status codes
+	set nodeStatus to checkServiceStatus("software.concordium.__NET__.node")
+	set collectorStatus to "0" # default value, overriden if runCollector
+	if runCollector then
 		set collectorStatus to checkServiceStatus("software.concordium.__NET__.node-collector")
 	end if
 	
