@@ -42,7 +42,7 @@ import Test.Hspec
 -- ** Test runners **
 
 -- | Run a number of init tests from a specific file.
-runInitTestsFromFile :: FilePath -> [(Text, ShortByteString, TResultSpec)] -> [TestCase]
+runInitTestsFromFile :: FilePath -> [(Text, ShortByteString, TResultSpec)] -> [TestCase PV1]
 runInitTestsFromFile testFile = map f
   where
     f (testName, initParam, resSpec) =
@@ -71,7 +71,7 @@ runInitTestsFromFile testFile = map f
 --   Each test is run in isolation, i.e., with a new state.
 --   The file is expected to have an init function named 'init_test'
 --   and a number of receive functions, each prefixed with 'test.'.
-runReceiveTestsFromFile :: FilePath -> [(Text, ShortByteString, TResultSpec)] -> [TestCase]
+runReceiveTestsFromFile :: FilePath -> [(Text, ShortByteString, TResultSpec)] -> [TestCase PV1]
 runReceiveTestsFromFile testFile = map f
   where
     f (testName, rcvParam, resSpec) =
@@ -105,7 +105,7 @@ runReceiveTestsFromFile testFile = map f
 
 -- ** Helper Functions **
 
-initialBlockState :: BlockState PV
+initialBlockState :: BlockState PV1
 initialBlockState =
   blockStateWithAlesAccount
     100000000
@@ -129,7 +129,7 @@ expectGTUTransferred expectedAmnt events = foldr sumTransfers 0 events `shouldBe
 
 -- ** Tests **
 
-logEventTestCases :: [TestCase]
+logEventTestCases :: [TestCase PV1]
 logEventTestCases =
   runReceiveTestsFromFile
     "./testdata/contracts/log-event-tests.wasm"
@@ -142,7 +142,7 @@ logEventTestCases =
       ("length_greater_than_mem__fail", emptyParam, Reject RuntimeFailure)
     ]
 
-getParameterSizeTestCases :: [TestCase]
+getParameterSizeTestCases :: [TestCase PV1]
 getParameterSizeTestCases =
   runReceiveTestsFromFile
     "./testdata/contracts/get-parameter-size-tests.wasm"
@@ -153,7 +153,7 @@ getParameterSizeTestCases =
     -- Value must stay in sync with MAX_PARAMETER_SIZE from 'wasm-chain-integration/src/constants.src'
     maxSizedParam = mkParamOfSize 1024
 
-getParameterSectionTestCases :: [TestCase]
+getParameterSectionTestCases :: [TestCase PV1]
 getParameterSectionTestCases =
   runReceiveTestsFromFile
     "./testdata/contracts/get-parameter-section-tests.wasm"
@@ -176,7 +176,7 @@ getParameterSectionTestCases =
   where
     param100 = mkParamOfSize 100
 
-stateSizeTestCases :: [TestCase]
+stateSizeTestCases :: [TestCase PV1]
 stateSizeTestCases =
   runReceiveTestsFromFile
     "./testdata/contracts/state-size-tests.wasm"
@@ -184,7 +184,7 @@ stateSizeTestCases =
       ("size_is_max__return_max_and_succeed", emptyParam, Success emptyExpect)
     ]
 
-loadStateTestCases :: [TestCase]
+loadStateTestCases :: [TestCase PV1]
 loadStateTestCases =
   runReceiveTestsFromFile
     "./testdata/contracts/load-state-tests.wasm"
@@ -205,7 +205,7 @@ loadStateTestCases =
       ("write_location_greater_than_mem__fail", emptyParam, Reject RuntimeFailure)
     ]
 
-writeStateTestCases :: [TestCase]
+writeStateTestCases :: [TestCase PV1]
 writeStateTestCases =
   runReceiveTestsFromFile
     "./testdata/contracts/write-state-tests.wasm"
@@ -222,7 +222,7 @@ writeStateTestCases =
       ("offset_greater_than_current_state_size__fail", emptyParam, Reject RuntimeFailure)
     ]
 
-resizeStateTestCases :: [TestCase]
+resizeStateTestCases :: [TestCase PV1]
 resizeStateTestCases =
   runReceiveTestsFromFile
     "./testdata/contracts/resize-state-tests.wasm"
@@ -233,7 +233,7 @@ resizeStateTestCases =
       ("new_size_greater_than_max__return_zero_and_succeed", emptyParam, Success emptyExpect)
     ]
 
-onlyInInitTestCases :: [TestCase]
+onlyInInitTestCases :: [TestCase PV1]
 onlyInInitTestCases =
   runInitTestsFromFile
     file
@@ -247,7 +247,7 @@ onlyInInitTestCases =
   where
     file = "./testdata/contracts/only-in-init-tests.wasm"
 
-onlyInReceiveTestCases :: [TestCase]
+onlyInReceiveTestCases :: [TestCase PV1]
 onlyInReceiveTestCases =
   runInitTestsFromFile
     file
@@ -282,7 +282,7 @@ onlyInReceiveTestCases =
   where
     file = "./testdata/contracts/only-in-receive-tests.wasm"
 
-simpleTransferTestCases :: [TestCase]
+simpleTransferTestCases :: [TestCase PV1]
 simpleTransferTestCases =
   runReceiveTestsFromFile
     "./testdata/contracts/simple-transfer-tests.wasm"
@@ -317,7 +317,7 @@ simpleTransferTestCases =
     -- When using pointing to 32 0s in memory, this is the address that is used.
     Right accRef = addressFromText "2wkBET2rRgE8pahuaczxKbmv7ciehqsne57F9gtzf1PVdr2VP3"
 
-sendTestCases :: [TestCase]
+sendTestCases :: [TestCase PV1]
 sendTestCases =
   runReceiveTestsFromFile
     "./testdata/contracts/send-tests.wasm"
@@ -363,7 +363,7 @@ sendTestCases =
   where
     rcvNameParam = BSS.toShort "test.accept"
 
-actionTreeTestCases :: [TestCase]
+actionTreeTestCases :: [TestCase PV1]
 actionTreeTestCases =
   runReceiveTestsFromFile
     "./testdata/contracts/action-tree-tests.wasm"
@@ -387,7 +387,7 @@ actionTreeTestCases =
       ("combine_or__own_action_id__fail", encodedThomasAcc, Reject RuntimeFailure)
     ]
 
-memoryTestCases :: [TestCase]
+memoryTestCases :: [TestCase PV1]
 memoryTestCases =
   runReceiveTestsFromFile
     "./testdata/contracts/memory-tests.wasm"
