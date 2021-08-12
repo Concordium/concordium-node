@@ -108,7 +108,7 @@ function createBuildDirFromTemplate() {
     createHelperAppsFromTemplate
 
     replaceVersionPlaceholder "$buildDir/resources/welcome.html"
-    replacePlaceholderInFilde "$buildDir/resources/conclusion.html" "__YEAR__" "$year"
+    replacePlaceholderInFile "$buildDir/resources/conclusion.html" "__YEAR__" "$year"
 
     logInfo "Done"
 }
