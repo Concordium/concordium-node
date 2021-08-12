@@ -26,7 +26,7 @@ import Concordium.Crypto.DummyData
 
 import SchedulerTests.TestUtils
 
-initialBlockState :: BlockState PV
+initialBlockState :: BlockState PV1
 initialBlockState = blockStateWithAlesAccount
     100000000
     (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 100000000) Acc.emptyAccounts)
@@ -34,7 +34,7 @@ initialBlockState = blockStateWithAlesAccount
 toAddr :: BSS.ShortByteString
 toAddr = BSS.toShort (encode alesAccount)
 
-testCases :: [TestCase]
+testCases :: [TestCase PV1]
 testCases =
   [ -- NOTE: Could also check resulting balances on each affected account or contract, but
     -- the block state invariant at least tests that the total amount is preserved.

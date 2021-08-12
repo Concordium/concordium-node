@@ -27,6 +27,7 @@ import Concordium.Types.IdentityProviders
 import Concordium.Types.AnonymityRevokers
 import Concordium.Birk.Bake
 import Concordium.Types
+import Concordium.Types.Accounts
 import Concordium.Types.Updates
 import Concordium.ID.Types(randomAccountAddress)
 import Concordium.Crypto.DummyData

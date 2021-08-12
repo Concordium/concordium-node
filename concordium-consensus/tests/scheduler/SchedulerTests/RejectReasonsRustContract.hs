@@ -27,7 +27,7 @@ import Concordium.Wasm (ReceiveName(..))
 import SchedulerTests.Helpers
 import Data.Text (Text)
 
-initialBlockState :: BlockState PV
+initialBlockState :: BlockState PV1
 initialBlockState = blockStateWithAlesAccount 1000000000 Acc.emptyAccounts
 
 chainMeta :: Types.ChainMetadata

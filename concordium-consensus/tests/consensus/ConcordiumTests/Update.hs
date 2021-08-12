@@ -44,6 +44,7 @@ import Concordium.Skov.MonadImplementations
 import Concordium.Startup (defaultFinalizationParameters, makeBakersByStake)
 
 import Concordium.Types
+import Concordium.Types.Accounts
 
 import Data.FixedByteString as FBS
 import Concordium.Crypto.SHA256 as Hash

@@ -52,7 +52,7 @@ import qualified Concordium.ID.Types as ID
 
 import Concordium.GlobalState.BlockState (AccountOperations(..), AccountAllowance (..))
 import qualified Concordium.GlobalState.BakerInfo as BI
-import qualified Concordium.GlobalState.Instance as Ins
+import qualified Concordium.Types.Instance as Ins
 import Concordium.GlobalState.Types
 import qualified Concordium.Cost as Cost
 import Concordium.Crypto.EncryptedTransfers

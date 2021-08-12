@@ -10,7 +10,7 @@ Also checks invariants on the block state after each processed transaction.
 NOTE: This processes each transaction individually - for testing grouped transactions, see
       'SchedulerTests.TransactionGroupingSpec' and 'SchedulerTests.TransactionGroupingSpec2'.
 -}
-module SchedulerTests.TestUtils(PV,ResultSpec,TResultSpec(..),emptySpec,emptyExpect,TestCase(..),
+module SchedulerTests.TestUtils(PV1, ResultSpec,TResultSpec(..),emptySpec,emptyExpect,TestCase(..),
                                 TestParameters(..),defaultParams, mkSpec,mkSpecs) where
 
 import Test.Hspec
@@ -32,10 +32,10 @@ import Concordium.Scheduler.DummyData
 import Data.Time
 
 -- |Protocol version
-type PV = 'P1
+type PV1 = 'P1
 
 -- | Specification on the expected result of executing a transaction and the resulting block state.
-type ResultSpec = (TResultSpec, BlockState PV -> Spec)
+type ResultSpec pv = (TResultSpec, BlockState pv -> Spec)
 
 -- | Specification on the expected result of executing a transaction.
 data TResultSpec
@@ -58,10 +58,10 @@ emptyExpect :: a -> Expectation
 emptyExpect _ = return ()
 
 
-data TestParameters = TestParameters
+data TestParameters pv = TestParameters
   { tpChainMeta :: ChainMetadata
     -- | The blockstate to start from.
-  , tpInitialBlockState :: BlockState PV
+  , tpInitialBlockState :: BlockState pv
     -- | Limit on the total energy the processed transactions can use.
   , tpEnergyLimit :: Energy
     -- | Limit on the number of credential deployments that can occur in a block.
@@ -72,7 +72,7 @@ data TestParameters = TestParameters
   , tpBlockTimeout :: UTCTime
   }
 
-defaultParams :: TestParameters
+defaultParams :: TestParameters pv
 defaultParams = TestParameters
   { tpChainMeta = dummyChainMeta
   , tpInitialBlockState = createBlockState Acc.emptyAccounts
@@ -85,16 +85,16 @@ defaultParams = TestParameters
 -- | A test case for executing a list of transactions, specifying 'ResultSpec's for the result
 -- of each transaction's execution. The transactions are run with 'Sch.filterTransactions'
 -- in sequenced and not grouped, with the given parameters.
-data TestCase = TestCase
+data TestCase pv = TestCase
   { -- | A name for the test case, which is printed.
     tcName :: String
     -- | Parameters for executing the transactions.
-  , tcParameters :: TestParameters
+  , tcParameters :: TestParameters pv
     -- | The transactions to run, with their respective 'ResultSpec'.
     -- NOTE: The following could be parametrized over the loaded module data like references, names etc.
     -- to be able to specify result events like specifying the TJSON.
     -- See transactionHelper in Runner to implement this.
-  , tcTransactions :: [(TransactionJSON, ResultSpec)]
+  , tcTransactions :: [(TransactionJSON, ResultSpec pv)]
   }
 
 -- | Result of processing a single transaction.
@@ -108,9 +108,10 @@ data ProcessResult
 -- | Execute the given transactions in sequence (ungrouped) with 'Sch.filterTransactions',
 -- with the given parameters. Returns a list of result and block state after each transaction.
 runWithIntermediateStates ::
-  TestParameters
+  IsProtocolVersion pv
+  => TestParameters pv
   -> [TransactionJSON]
-  -> IO [(ProcessResult, BlockState PV, Amount)]
+  -> IO [(ProcessResult, BlockState pv, Amount)]
 runWithIntermediateStates TestParameters{..} transactions = do
   -- Create actual 'Transaction's from the 'TransactionJSON'.
   txs <- processUngroupedTransactions transactions
@@ -147,7 +148,7 @@ runWithIntermediateStates TestParameters{..} transactions = do
 -- Note: If there are errors thrown while processing a transactions, this currently results in the
 -- test suite failing without showing in which test case this happens (probably because tests are
 -- executed already when constructing the test suite).
-mkSpec :: TestCase -> Spec
+mkSpec :: IsProtocolVersion pv => TestCase pv -> Spec
 mkSpec TestCase{..} =
   describe tcName $ do
   let (tJsons, resultSpecs) = unzip tcTransactions
@@ -208,5 +209,5 @@ mkSpec TestCase{..} =
               _ -> specify "Transaction failed" failure
 
 -- | Make a 'Spec' for the given test cases. See 'mkSpec'.
-mkSpecs :: [TestCase] -> Spec
+mkSpecs :: IsProtocolVersion pv => [TestCase pv] -> Spec
 mkSpecs = mapM_ mkSpec
