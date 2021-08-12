@@ -35,5 +35,44 @@
 		<key>RootRelativeBundlePath</key>
 		<string>Applications/Concordium Node/Concordium Node Start Mainnet.app</string>
 	</dict>
+	<dict>
+		<key>BundleHasStrictIdentifier</key>
+		<true/>
+		<!-- See explanation above. -->
+		<key>BundleIsRelocatable</key>
+		<false/>
+		<key>BundleIsVersionChecked</key>
+		<true/>
+		<key>BundleOverwriteAction</key>
+		<string>upgrade</string>
+		<key>RootRelativeBundlePath</key>
+		<string>Applications/Concordium Node/Concordium Node Start Testnet.app</string>
+	</dict>
+	<dict>
+		<key>BundleHasStrictIdentifier</key>
+		<true/>
+		<!-- See explanation above. -->
+		<key>BundleIsRelocatable</key>
+		<false/>
+		<key>BundleIsVersionChecked</key>
+		<true/>
+		<key>BundleOverwriteAction</key>
+		<string>upgrade</string>
+		<key>RootRelativeBundlePath</key>
+		<string>Applications/Concordium Node/Concordium Node Stop Mainnet.app</string>
+	</dict>
+	<dict>
+		<key>BundleHasStrictIdentifier</key>
+		<true/>
+		<!-- See explanation above. -->
+		<key>BundleIsRelocatable</key>
+		<false/>
+		<key>BundleIsVersionChecked</key>
+		<true/>
+		<key>BundleOverwriteAction</key>
+		<string>upgrade</string>
+		<key>RootRelativeBundlePath</key>
+		<string>Applications/Concordium Node/Concordium Node Stop Testnet.app</string>
+	</dict>
 </array>
 </plist>
