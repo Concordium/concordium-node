@@ -162,6 +162,12 @@ jobs:
     - name: Check that Rust target compiles
       run: |
         cargo check --manifest-path concordium-node/Cargo.toml --workspace
+    - name: Check that the Windows node runner service compiles (gnu toolchain, disable embedded resources)
+      run: |
+        cargo check --target x86_64-pc-windows-gnu --manifest-path service/windows/Cargo.toml --workspace --no-default-features
+    - name: Check that the Windows installer custom action library compiles (gnu toolchain)
+      run: |
+        cargo check --target x86_64-pc-windows-gnu --manifest-path service/windows/installer/custom-actions/Cargo.toml --workspace
     - name: Run clippy (without extra features)
       run: |
         cargo clippy --manifest-path concordium-node/Cargo.toml --all -- -Dclippy::all
