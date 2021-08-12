@@ -18,10 +18,13 @@ log = "0.4"
 retain_mut = "0.1"
 tempfile = "3.2"
 toml = "0.5"
-winapi = { version="0.3", features=["wincon", "consoleapi"] }
+winapi = { version = "0.3", features = ["wincon", "consoleapi"] }
 windows-service = "0.3"
-winlog = { version="0.2" }
+winlog = { version = "0.2" }
 winreg = "0.9"
 
 [build-dependencies]
-winres = "0.1"
+winres = { version = "0.1", optional = true }
+
+[features]
+default = ["winres"]

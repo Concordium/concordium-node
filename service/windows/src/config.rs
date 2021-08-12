@@ -1,4 +1,4 @@
-use crate::node::{LogFileConfig, LoggerConfig::*, NodeConfig};
+use crate::node::{LogFileConfig, LoggerConfig, NodeConfig};
 use anyhow::{anyhow, Context};
 use log::Level;
 use std::collections::HashMap;
@@ -170,7 +170,7 @@ fn load_config_file(conf_str: &str, conf_root: &Path) -> anyhow::Result<Config> 
             let baker_credentials =
                 toml_get_as!(as_str, &node, "baker_credentials").map(make_relative_path);
             let log_config = if let Some(config) = toml_get_as!(as_str, &node, "log", "config") {
-                ConfigLog(make_relative_path(config))
+                LoggerConfig::Config(make_relative_path(config))
             } else if let Some(log_path) = toml_get_as!(as_str, &node, "log", "path") {
                 let roll_size =
                     toml_get_as!(as_str, &node, "log", "roll", "size").map(String::from);
@@ -178,14 +178,14 @@ fn load_config_file(conf_str: &str, conf_root: &Path) -> anyhow::Result<Config> 
                     .and_then(|c| u16::try_from(c).ok());
                 let roll_pattern = toml_get_as!(as_str, &node, "log", "roll", "pattern")
                     .map(|pattern| make_relative_path(pattern).to_string_lossy().to_string());
-                FileLog(LogFileConfig {
+                LoggerConfig::File(LogFileConfig {
                     path: make_relative_path(log_path),
                     roll_size,
                     roll_count,
                     roll_pattern,
                 })
             } else {
-                NoLog
+                LoggerConfig::None
             };
             let log_level = toml_get_as!(as_str, &node, "log", "level")
                 .or_else(|| toml_get_as!(as_str, &common, "log", "level"))
@@ -318,7 +318,7 @@ pub fn load_config() -> anyhow::Result<Config> {
         )
     })?;
 
-    load_config_file(conf_str.as_ref(), &conf_root).with_context(|| {
+    load_config_file(conf_str.as_ref(), conf_root).with_context(|| {
         format!(
             "Failed to parse configuration file '{}'",
             conf_path.as_path().display()

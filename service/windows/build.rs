@@ -1,3 +1,4 @@
+#[cfg(feature = "winres")]
 fn main() -> std::io::Result<()> {
     let mut res = winres::WindowsResource::new();
     // Require administrator permissions
@@ -18,3 +19,6 @@ fn main() -> std::io::Result<()> {
     res.compile()?;
     Ok(())
 }
+
+#[cfg(not(feature = "winres"))]
+fn main() {}

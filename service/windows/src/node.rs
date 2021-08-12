@@ -15,17 +15,28 @@ use winapi::um::winbase::CREATE_NEW_PROCESS_GROUP;
 /// Default RPC port
 const DEFAULT_RPC_PORT: u16 = 10000;
 
+/// Configuration for logging to a rollable log file.
 pub struct LogFileConfig {
+    /// Base path of the file to log to.
     pub path: PathBuf,
+    /// Size at which the log is rolled. If None, the log is never rolled.
     pub roll_size: Option<String>,
+    /// The number of rolled logs to keep. If None, this is treated as 0, and the log is deleted
+    /// when it is rolled.
     pub roll_count: Option<u16>,
+    /// File name pattern for rolled logs. This needs to include "{}", which is replaced with a
+    /// number. If None, the pattern is derived from the base path by adding ".{}" before the
+    /// file extension.
     pub roll_pattern: Option<String>,
 }
 
 pub enum LoggerConfig {
-    NoLog,
-    ConfigLog(PathBuf),
-    FileLog(LogFileConfig),
+    /// No logging
+    None,
+    /// Configuration file for specifying logging
+    Config(PathBuf),
+    /// Configure logging to a (rollable) log file
+    File(LogFileConfig),
 }
 
 /// Runner for a node
@@ -287,7 +298,7 @@ fn make_log_config_file(
     cmd: &mut Command,
 ) -> anyhow::Result<Option<TempPath>> {
     match &logger_config {
-        LoggerConfig::NoLog => {
+        LoggerConfig::None => {
             let temp_file = tempfile::Builder::new()
                 .prefix("node-log-conf")
                 .suffix(".toml")
@@ -299,11 +310,11 @@ fn make_log_config_file(
             cmd.env("CONCORDIUM_NODE_LOG_CONFIG", &lc_path);
             Ok(Some(lc_path))
         }
-        LoggerConfig::ConfigLog(log_config_file) => {
+        LoggerConfig::Config(log_config_file) => {
             cmd.env("CONCORDIUM_NODE_LOG_CONFIG", &log_config_file);
             Ok(None)
         }
-        LoggerConfig::FileLog(log_config) => {
+        LoggerConfig::File(log_config) => {
             use toml::map::Map;
 
             let mut appenders_file_map = Map::with_capacity(3);
