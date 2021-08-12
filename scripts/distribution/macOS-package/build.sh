@@ -6,6 +6,7 @@ set -euo pipefail
 readonly version=${1:?"Please provide a version number (e.g. '1.0.2')"}
 readonly developerIdApplication="Developer ID Application: Concordium Software Aps (K762RM4LQ3)"
 readonly developerIdInstaller="Developer ID Installer: Concordium Software Aps (K762RM4LQ3)"
+readonly teamId="K762RM4LQ3"
 readonly year="2021" # Used for copyright notice.
 
 readonly GREEN='\033[0;32m'
@@ -31,7 +32,8 @@ readonly payloadDir="$buildDir/payload"
 readonly libraryPayloadDir="$payloadDir/Library"
 readonly packagesDir="$buildDir/packages"
 readonly pkgFile="$packagesDir/concordium-node.pkg"
-readonly signedPkgFile="$packagesDir/concordium-node-signed.pkg"
+readonly productFile="$packagesDir/concordium-node-$version.pkg"
+readonly signedProductFile="$packagesDir/concordium-node-$version-signed.pkg"
 
 
 function clean() {
@@ -242,25 +244,59 @@ function buildProduct() {
         --package-path "$packagesDir" \
         --resources "$buildDir/resources" \
         --plugins "$buildDir/plugins" \
-        --sign "$developerIdInstaller" \
-        "$signedPkgFile"
+        "$productFile"
+
+    # Remove the .pkg file now included in $productFile
+    rm "$pkgFile"
+
+    logInfo "Done"
+}
+
+function signProduct() {
+    logInfo "Signing product..."
+    productSign --sign "$developerIdInstaller" "$productFile" "$signedProductFile"
     logInfo "Done"
 }
 
 function notarize() {
     logInfo "Notarizing..."
-    # FIXME: The keychain-profile part will not work on other computers
     xcrun notarytool submit \
-        "$signedPkgFile" \
-        --keychain-profile "notarytool" \
+        "$signedProductFile" \
+        --apple-id "$APPLEID" \
+        --password "$APPLEIDPASS" \
+        --team-id "$teamId" \
         --wait
     logInfo "Done"
 }
 
 function staple() {
     logInfo "Stapling..."
-    xcrun stapler staple "$signedPkgFile"
+    xcrun stapler staple "$signedProductFile"
     logInfo "Done"
+}
+
+function promptToSignOrJustBuild() {
+    while true; do
+    read -rp "Do you wish to sign and notarize the installer? " yn
+    case $yn in
+        [Yy]* ) signBuildAndNotarizeInstaller; break;;
+        [Nn]* ) buildInstaller; break;;
+        * ) echo "Please answer yes[Yy] or no[Nn].";;
+    esac
+done
+}
+
+function signBuildAndNotarizeInstaller() {
+    signBinaries
+    buildPackage
+    buildProduct
+    signProduct
+    notarize
+}
+
+function buildInstaller() {
+    buildPackage
+    buildProduct
 }
 
 function main() {
@@ -271,11 +307,7 @@ function main() {
     copyInstallerPluginData
     getDylibbundler
     collectDylibs
-    signBinaries
-    buildPackage
-    buildProduct
-    notarize
-    staple
+    promptToSignOrJustBuild
 }
 
 main
