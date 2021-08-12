@@ -6,6 +6,7 @@ set -euo pipefail
 readonly version=${1:?"Please provide a version number (e.g. '1.0.2')"}
 readonly developerIdApplication="Developer ID Application: Concordium Software Aps (K762RM4LQ3)"
 readonly developerIdInstaller="Developer ID Installer: Concordium Software Aps (K762RM4LQ3)"
+readonly year="2021" # Used for copyright notice.
 
 readonly GREEN='\033[0;32m'
 readonly NC='\033[0m' # No Color
@@ -53,11 +54,12 @@ function replaceVersionPlaceholder() {
 }
 
 # Should be called after build folder has been created.
-function createStartStopAppsFromTemplate() {
+function createHelperAppsFromTemplate() {
     local startNodeMainnet="$payloadDir/Applications/Concordium Node/Concordium Node Start Mainnet.app"
     local startNodeTestnet="$payloadDir/Applications/Concordium Node/Concordium Node Start Testnet.app"
     local stopNodeMainnet="$payloadDir/Applications/Concordium Node/Concordium Node Stop Mainnet.app"
     local stopNodeTestnet="$payloadDir/Applications/Concordium Node/Concordium Node Stop Testnet.app"
+    local nodeUninstaller="$payloadDir/Applications/Concordium Node/Concordium Node Uninstaller.app"
 
     # Use 'mv' to replace the __NET__ version template folder.
     cp -r "$payloadDir/Applications/Concordium Node/Concordium Node Start __NET__.app" "$startNodeMainnet"
@@ -65,19 +67,33 @@ function createStartStopAppsFromTemplate() {
     cp -r "$payloadDir/Applications/Concordium Node/Concordium Node Stop __NET__.app" "$stopNodeMainnet"
     mv "$payloadDir/Applications/Concordium Node/Concordium Node Stop __NET__.app" "$stopNodeTestnet"
 
-    replacePlaceholderInFile "$startNodeMainnet/Contents/info.plist" "__NET__" "mainnet"
-    replacePlaceholderInFile "$startNodeMainnet/Contents/MacOS/run.applescript" "__NET__" "mainnet"
-    replacePlaceholderInFile "$startNodeMainnet/Contents/MacOS/run.applescript" "__NET_CAPITALISED__" "MAINNET"
+    replacePlaceholderInFile  "$startNodeMainnet/Contents/MacOS/run.applescript" "__NET__" "mainnet"
+    replacePlaceholderInFile  "$startNodeMainnet/Contents/MacOS/run.applescript" "__NET_UPPERCASE__" "MAINNET"
+    replacePlaceholderInFile  "$startNodeMainnet/Contents/Info.plist" "__NET_CAPITALISED__" "Mainnet"
+    replacePlaceholderInFile  "$startNodeMainnet/Contents/Info.plist" "__NET__" "mainnet"
+    replacePlaceholderInFile  "$startNodeMainnet/Contents/Info.plist" "__YEAR__" "$year"
+    replaceVersionPlaceholder "$startNodeMainnet/Contents/Info.plist"
 
-    replacePlaceholderInFile "$startNodeTestnet/Contents/MacOS/run.applescript" "__NET__" "testnet"
-    replacePlaceholderInFile "$startNodeTestnet/Contents/info.plist" "__NET__" "testnet"
-    replacePlaceholderInFile "$startNodeTestnet/Contents/MacOS/run.applescript" "__NET_CAPITALISED__" "TESTNET"
+    replacePlaceholderInFile  "$startNodeTestnet/Contents/MacOS/run.applescript" "__NET__" "testnet"
+    replacePlaceholderInFile  "$startNodeTestnet/Contents/MacOS/run.applescript" "__NET_UPPERCASE__" "TESTNET"
+    replacePlaceholderInFile  "$startNodeTestnet/Contents/Info.plist" "__NET_CAPITALISED__" "Testnet"
+    replacePlaceholderInFile  "$startNodeTestnet/Contents/Info.plist" "__NET__" "testnet"
+    replacePlaceholderInFile  "$startNodeTestnet/Contents/Info.plist" "__YEAR__" "$year"
+    replaceVersionPlaceholder "$startNodeTestnet/Contents/Info.plist"
 
-    replacePlaceholderInFile "$stopNodeMainnet/Contents/MacOS/run.applescript"  "__NET__" "mainnet"
-    replacePlaceholderInFile "$stopNodeMainnet/Contents/info.plist" "__NET__" "mainnet"
+    replacePlaceholderInFile  "$stopNodeMainnet/Contents/MacOS/run.applescript"  "__NET__" "mainnet"
+    replacePlaceholderInFile  "$stopNodeMainnet/Contents/Info.plist" "__NET_CAPITALISED__" "Mainnet"
+    replacePlaceholderInFile  "$stopNodeMainnet/Contents/Info.plist" "__NET__" "mainnet"
+    replacePlaceholderInFile  "$stopNodeMainnet/Contents/Info.plist" "__YEAR__" "$year"
+    replaceVersionPlaceholder "$stopNodeMainnet/Contents/Info.plist"
 
-    replacePlaceholderInFile "$stopNodeTestnet/Contents/MacOS/run.applescript"  "__NET__" "testnet"
-    replacePlaceholderInFile "$stopNodeTestnet/Contents/info.plist" "__NET__" "testnet"
+    replacePlaceholderInFile  "$stopNodeTestnet/Contents/MacOS/run.applescript"  "__NET__" "testnet"
+    replacePlaceholderInFile  "$stopNodeTestnet/Contents/Info.plist" "__NET_CAPITALISED__" "Testnet"
+    replacePlaceholderInFile  "$stopNodeTestnet/Contents/Info.plist" "__NET__" "testnet"
+    replacePlaceholderInFile  "$stopNodeTestnet/Contents/Info.plist" "__YEAR__" "$year"
+    replaceVersionPlaceholder "$stopNodeTestnet/Contents/Info.plist"
+
+    replaceVersionPlaceholder "$nodeUninstaller/Contents/Info.plist"
 }
 
 function createBuildDirFromTemplate() {
@@ -89,9 +105,10 @@ function createBuildDirFromTemplate() {
     mkdir "$libraryPayloadDir/Application Support/Concordium Node/Mainnet/Config"
     mkdir "$libraryPayloadDir/Application Support/Concordium Node/Testnet/Config"
 
-    createStartStopAppsFromTemplate
+    createHelperAppsFromTemplate
 
     replaceVersionPlaceholder "$buildDir/resources/welcome.html"
+    replacePlaceholderInFilde "$buildDir/resources/conclusion.html" "__YEAR__" "$year"
 
     logInfo "Done"
 }

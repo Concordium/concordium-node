@@ -44,7 +44,7 @@ end checkServiceStatus
 
 to main()
 	
-	set runCollector to shouldRunCollector("/Library/Concordium Node/REPORT_TO_NETWORK_DASHBOARD___NET_CAPITALISED__")
+	set runCollector to shouldRunCollector("/Library/Concordium Node/REPORT_TO_NETWORK_DASHBOARD___NET_UPPERCASE__")
 
 	# Start services
 	startService("/Library/Concordium Node/LaunchDaemons/software.concordium.__NET__.node.plist")
