@@ -34,7 +34,7 @@ import Concordium.GlobalState.Parameters
 import Concordium.Types.SeedState
 import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.AccountTransactionIndex
-import Concordium.GlobalState.Basic.BlockState.Updates
+import Concordium.Types.UpdateQueues
     (HasUpdates(currentParameters))
 import Concordium.Scheduler.Types
 import Concordium.Scheduler.Environment

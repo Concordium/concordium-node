@@ -13,8 +13,10 @@ import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import Concordium.Scheduler.Runner
 import qualified Concordium.Scheduler as Sch
 
+import Concordium.Types.Accounts
+
+
 import Concordium.GlobalState.BakerInfo
-import Concordium.GlobalState.Account
 import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
 import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.Basic.BlockState
@@ -35,7 +37,7 @@ import Concordium.Types.DummyData
 import Concordium.Crypto.DummyData
 
 -- |Protocol version
-type PV = 'Types.P1
+type PV1 = 'Types.P1
 
 keyPair :: Int -> SigScheme.KeyPair
 keyPair = uncurry SigScheme.KeyPairEd25519 . fst . randomEd25519KeyPair . mkStdGen
@@ -46,7 +48,7 @@ account = accountAddressFrom
 baker0 :: (FullBakerInfo, VRF.SecretKey, BlockSig.SignKey, Bls.SecretKey)
 baker0 = mkFullBaker 0 0
 
-initialBlockState :: BlockState PV
+initialBlockState :: BlockState PV1
 initialBlockState = createBlockState $ foldr putAccountWithRegIds Acc.emptyAccounts [acc, accWithLockup]
   where acc = mkAccount (SigScheme.correspondingVerifyKey (keyPair 0)) (account 0) 10_000_058 & accountBaker ?~ baker
         baker = AccountBaker {

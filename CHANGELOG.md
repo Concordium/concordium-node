@@ -16,6 +16,13 @@
   A legacy database will automatically be migrated by renaming and adding version metadata.
 - Remove unused CONCORDIUM_NODE_CONNECTION_BOOTSTRAP_SERVER option and the
   corresponding `--bootstrap-server` flag.
+- Change the automatically created indices on the transaction logging database.
+  Instead of an index on the `id` column on `ati` and `cti` tables there are now
+  multi-column indices that better support the intended use-cases. This only
+  affects newly created databases.
+- In the GetRewardStatus GRPC call, the amounts that were previously represented as integers are now
+  represented as strings in the JSON serialization. This is in line with how amounts are serialized
+  elsewhere.
 
 ## concordium-node 1.0.1
 

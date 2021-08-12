@@ -1,36 +1,36 @@
 # This is a multi-stage build process
 #
-# Stage one builds a number of genesis configurations inside the genesis-tools image
+# Stage one builds a number of genesis configurations inside the genesis-tools image.
 #
-# Stage two buils the node, the collector, the collector backend, and the wallet-proxy
+# Stage two buils the node, the collector, the collector backend, and the wallet-proxy.
 #
-# The final image collects all the binaries in a minimal package without build dependencies.
-# Inside the image there are private keys for all the bakers and accounts, as well as genesis.dat
-# files for the configurations that are built.
-# The genesis configurations are in the /genesis-data directory, in subdirectories
-# named genesis-$NUM_BAKERS-bakers.
+# The final image collects all the binaries in a minimal image without intermediate build files.
+# The genesis configuration ('genesis.dat' and keys of all bakers and accounts)
+# for a cluster of N bakers is stored in the directory '/genesis-data/genesis-N-bakers'.
 
+# ARGs that are used in multiple stages are defined globally in order to set a shared default value.
+# They need to be redeclared in the steps that they are used but retain the default value defined here.
+ARG ghc_version=8.10.4
+
+# Build genesis packages.
 FROM concordium/genesis-tools:latest as genesis-builder
-
 RUN apt-get update && \
     apt-get -y install python3 && \
     rm -rf /var/lib/apt/lists/*
 
 # Use globally installed tools.
-ARG GENESIS_DAT_TOOL=genesis
-ARG GENERATE_UPDATE_KEYS=generate-update-keys
-ARG CLIENT_TOOL=client
-ARG GENESIS_ACCOUNTS_TOOL=genesis_tool
+ENV GENESIS_DAT_TOOL=genesis
+ENV GENERATE_UPDATE_KEYS=generate-update-keys
+ENV CLIENT_TOOL=client
+ENV GENESIS_ACCOUNTS_TOOL=genesis_tool
 
-# Build images for different configurations. Currently for 1, 5, 10, and 25
-# bakers using the default genesis.json configuration.
-# Build all the relevant genesis files and embed them in the image itself.
-COPY scripts/genesis/ /genesis
+# Build configurations for 1, 5, 10, and 25 bakers using the default configuration in 'scripts/genesis/genesis.json'.
+# All the generated genesis files are baked into the image.
+COPY ./scripts/genesis/ /genesis
 WORKDIR /genesis
-RUN GENESIS_DIR=./out/genesis-1-bakers NUM_BAKERS=1 python3 generate-test-genesis.py && \
-    GENESIS_DIR=./out/genesis-5-bakers NUM_BAKERS=5 python3 generate-test-genesis.py && \
-    GENESIS_DIR=./out/genesis-10-bakers NUM_BAKERS=10 python3 generate-test-genesis.py && \
-    GENESIS_DIR=./out/genesis-25-bakers NUM_BAKERS=25 python3 generate-test-genesis.py
+RUN for n in 1 5 10 25; do \
+        GENESIS_DIR="./out/genesis-${n}-bakers" NUM_BAKERS="${n}" python3 generate-test-genesis.py; \
+    done
 
 # Build static consensus libraries.
 FROM concordium/static-libraries:latest as static-builder
@@ -46,12 +46,9 @@ WORKDIR /build
 ARG ghc_version
 RUN GHC_VERSION="${ghc_version}" ./build-static-libraries.sh
 
-# And build the node
+# Build concordium-node and wallet-proxy.
 FROM concordium/base:latest as build
-
 ARG ghc_version
-ARG consensus_profiling
-ENV CONSENSUS_PROFILING=$consensus_profiling
 
 # Copy source files (only copy what's needed to utilize caching).
 COPY ./concordium-base /build/concordium-base
@@ -62,7 +59,6 @@ COPY ./deps /build/deps
 COPY ./scripts/build-binaries.sh /build/build-binaries.sh
 WORKDIR /build
 
-# Node
 # Copy static libraries that were built in the 'static-builder' step into the correct place ('concordium-node/deps/static/linux').
 COPY --from=static-builder /build/static-consensus-${ghc_version}.tar.gz .
 RUN mkdir -p concordium-node/deps/static-libs/linux && \
@@ -72,13 +68,10 @@ RUN mkdir -p concordium-node/deps/static-libs/linux && \
 # Build the Rust parts of the node.
 RUN ./build-binaries.sh "collector"
 
-# Build baker id gen.
-RUN git clone --recurse-submodules --depth 1 --branch main https://github.com/Concordium/concordium-tools-baker-id-gen.git /build/baker_id_gen && \
-    (cd /build/baker_id_gen && cargo build --release)
-
 # Build Wallet Proxy.
-RUN git clone --recurse-submodules --depth 1 --branch main https://github.com/Concordium/concordium-wallet-proxy.git /build/wallet-proxy && \
-    (cd /build/wallet-proxy && stack build --copy-bins --ghc-options -j4 --local-bin-path target)
+ARG wallet_proxy_branch=main
+RUN git clone --recurse-submodules --depth=1 --branch="${wallet_proxy_branch}" https://github.com/Concordium/concordium-wallet-proxy.git /build/wallet-proxy && \
+    (cd /build/wallet-proxy && stack build --copy-bins --ghc-options="-j4" --local-bin-path=target)
 
 # Copy artifacts into fresh image.
 FROM ubuntu:20.04
@@ -101,9 +94,6 @@ COPY --from=build /build/concordium-node/target/debug/concordium-node /concordiu
 COPY --from=build /build/concordium-node/target/debug/p2p_bootstrapper-cli /p2p_bootstrapper-cli
 COPY --from=build /build/concordium-node/target/debug/node-collector /node-collector
 COPY --from=build /build/concordium-node/target/debug/node-collector-backend /node-collector-backend
-
-# Baker ID generator.
-COPY --from=build /build/baker_id_gen/target/release/baker_id_gen /baker_id_generator
 
 # Wallet proxy.
 COPY --from=build /build/wallet-proxy/target/wallet-proxy /wallet-proxy

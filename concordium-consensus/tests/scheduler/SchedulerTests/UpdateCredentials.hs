@@ -20,7 +20,7 @@ import qualified  Data.Map as Map
 import            SchedulerTests.TestUtils
 import Data.Maybe
 
-initialBlockState :: BlockState PV
+initialBlockState :: BlockState PV1
 initialBlockState = createBlockState $
                     Acc.putAccountWithRegIds ((newAccount dummyCryptographicParameters cdi8address cdi8ac) & accountAmount .~ 10000000000)
                     Acc.emptyAccounts
@@ -74,7 +74,7 @@ cdi11kp0 = keys cdi11keys Map.! 0
 cdi11kp1 :: Sig.KeyPair
 cdi11kp1 = keys cdi11keys Map.! 1
 
-testCases :: [TestCase]
+testCases :: [TestCase PV1]
 testCases =
   [ TestCase
     { tcName = "Account Credential updates"

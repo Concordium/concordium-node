@@ -15,6 +15,7 @@ import Data.Serialize
 
 import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.Basic.BlockState.Bakers as Basic
+import qualified Concordium.Types.Accounts as BaseAccounts
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.Types
 import Concordium.Utils.Serialization
@@ -25,7 +26,7 @@ import Concordium.Types.HashableTo
 import Concordium.Utils.Serialization.Put
 
 -- |A list of 'BakerInfo's, ordered by increasing 'BakerId'.
-newtype BakerInfos = BakerInfos (Vec.Vector (BufferedRef BakerInfo)) deriving (Show)
+newtype BakerInfos = BakerInfos (Vec.Vector (BufferedRef BaseAccounts.BakerInfo)) deriving (Show)
 
 instance MonadBlobStore m => BlobStorable m BakerInfos where
     storeUpdate (BakerInfos v) = do

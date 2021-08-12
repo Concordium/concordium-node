@@ -7,7 +7,7 @@ module Concordium.GlobalState.Basic.BlockState.InstanceTable where
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types
 import Concordium.Types.HashableTo
-import Concordium.GlobalState.Instance
+import Concordium.Types.Instance
 
 import Data.Word
 import Lens.Micro.Platform
