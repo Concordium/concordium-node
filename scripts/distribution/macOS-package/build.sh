@@ -1,48 +1,49 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-
-# Parameters
 readonly version=${1:?"Please provide a version number (e.g. '1.0.2')"}
+readonly year="2021" # Used for copyright notices.
+
 readonly developerIdApplication="Developer ID Application: Concordium Software Aps (K762RM4LQ3)"
 readonly developerIdInstaller="Developer ID Installer: Concordium Software Aps (K762RM4LQ3)"
 readonly teamId="K762RM4LQ3"
-readonly year="2021" # Used for copyright notice.
-
-readonly GREEN='\033[0;32m'
-readonly NC='\033[0m' # No Color
-
-logInfo () {
-    printf "\n${GREEN}$@${NC}\n"
-}
 
 readonly ghcVariant="x86_64-osx-ghc-8.10.4"
 
 # Get the location of this script.
 macPackageDir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 readonly macPackageDir
+
 readonly nodeDir="$macPackageDir/../../../concordium-node"
 readonly consensusDir="$macPackageDir/../../../concordium-consensus"
+
 readonly toolsDir="$macPackageDir/tools"
 readonly macdylibbundlerDir="$toolsDir/macdylibbundler-1.0.0"
-readonly installDir="/"
-readonly templateDir="$macPackageDir/template"
+
 readonly buildDir="$macPackageDir/build"
 readonly payloadDir="$buildDir/payload"
-readonly libraryPayloadDir="$payloadDir/Library"
-readonly packagesDir="$buildDir/packages"
-readonly pkgFile="$packagesDir/concordium-node.pkg"
-readonly productFile="$packagesDir/concordium-node-$version.pkg"
-readonly signedProductFile="$packagesDir/concordium-node-$version-signed.pkg"
 
+readonly pkgFile="$buildDir/packages/concordium-node.pkg"
+readonly productFile="$buildDir/packages/concordium-node-$version.pkg"
+readonly signedProductFile="$buildDir/packages/concordium-node-$version-signed.pkg"
 
-function clean() {
+# Log info in green color.
+logInfo () {
+    local GREEN='\033[0;32m'
+    local NOCOLOR='\033[0m'
+    printf "\n${GREEN}$@${NOCOLOR}\n"
+}
+
+function cleanBuildDir() {
     if [ -d "$buildDir" ]; then
         logInfo "Cleaning '$buildDir' folder"
         rm -r "$buildDir"
+        logInfo "Done"
     fi
 }
 
+# Replace placeholder with replacement in a given file using sed.
+# Parameters: file, placeholder, replacement
 function replacePlaceholderInFile() {
     local theFile=${1:?"replacePlaceholderInFile expects 3 parameters: file, placeholder, replacement"}
     local placeholder=${2:?"replacePlaceholderInFile expects 3 parameters: file, placeholder, replacement"}
@@ -50,12 +51,16 @@ function replacePlaceholderInFile() {
     sed -i '' -e 's/'"$placeholder"'/'"$replacement"'/g' "$theFile"
 }
 
+# Replace __VERSION__ in given file with $version.
+# Parameters: file
 function replaceVersionPlaceholder() {
     local theFile=${1:?"replaceVersionPlaceholder expects 1 parameter: file"}
     replacePlaceholderInFile "$theFile" "__VERSION__" "$version"
 }
 
-# Should be called after build folder has been created.
+# Create stop/start testnet/mainnet helper apps from the template versions.
+# Replaces a number of variables in the files.
+# NB: Should be called after build folder has been created.
 function createHelperAppsFromTemplate() {
     local startNodeMainnet="$payloadDir/Applications/Concordium Node/Concordium Node Start Mainnet.app"
     local startNodeTestnet="$payloadDir/Applications/Concordium Node/Concordium Node Start Testnet.app"
@@ -98,14 +103,17 @@ function createHelperAppsFromTemplate() {
     replaceVersionPlaceholder "$nodeUninstaller/Contents/Info.plist"
 }
 
+# Create the 'build' folder from the 'template' folder.
+# It copies the 'template' folder to 'build', creates a few new folders
+# and replaces a number of variables in the files.
 function createBuildDirFromTemplate() {
     logInfo "Creating build folder from template..."
 
-    cp -r "$templateDir" "$buildDir"
+    cp -r "$macPackageDir/template" "$buildDir"
 
     mkdir "$buildDir/plugins"
-    mkdir "$libraryPayloadDir/Application Support/Concordium Node/Mainnet/Config"
-    mkdir "$libraryPayloadDir/Application Support/Concordium Node/Testnet/Config"
+    mkdir "$payloadDir/Library/Application Support/Concordium Node/Mainnet/Config"
+    mkdir "$payloadDir/Library/Application Support/Concordium Node/Testnet/Config"
 
     createHelperAppsFromTemplate
 
@@ -115,6 +123,7 @@ function createBuildDirFromTemplate() {
     logInfo "Done"
 }
 
+# Compile Consensus using stack.
 function compileConsensus() {
     cd "$consensusDir"
     logInfo "Building Consensus..."
@@ -122,6 +131,7 @@ function compileConsensus() {
     logInfo "Done"
 }
 
+# Compile the node and collector using dynamic linking.
 function compileNodeAndCollector() {
     cd "$nodeDir"
     logInfo "Building Node and Collector..."
@@ -129,18 +139,22 @@ function compileNodeAndCollector() {
     logInfo "Done"
 }
 
+# Compile the installer plugin using xcodebuild.
+# The plugin is located in 'NodeConfigurationInstallerPlugin'.
 function compileInstallerPlugin() {
     logInfo "Building installer plugin..."
     xcodebuild -project "$macPackageDir/NodeConfigurationInstallerPlugin/NodeConfigurationInstallerPlugin.xcodeproj" > /dev/null
     logInfo "Done"
 }
 
+# Compile consensus, node, collector, and the installer plugin.
 function compile() {
     compileConsensus
     compileNodeAndCollector
     compileInstallerPlugin
 }
 
+# Copy the needed compiled files from the installer plugin to the build folder.
 function copyInstallerPluginData() {
     logInfo "Copying installer plugin data to build folder"
     cp -r "$macPackageDir/NodeConfigurationInstallerPlugin/build/Release/NodeConfigurationInstallerPlugin.bundle" "$buildDir/plugins"
@@ -148,13 +162,17 @@ function copyInstallerPluginData() {
     logInfo "Done"
 }
 
+# Copy the node and collector binaries to the build folder.
 function copyBinaries() {
-    logInfo "Copy concordium-node and node-collector binaries to '$libraryPayloadDir/Concordium Node/'.."
-    cp "$nodeDir/target/release/concordium-node" "$libraryPayloadDir/Concordium Node"
-    cp "$nodeDir/target/release/node-collector" "$libraryPayloadDir/Concordium Node"
+    logInfo "Copy concordium-node and node-collector binaries to '$payloadDir/Library/Concordium Node/'.."
+    cp "$nodeDir/target/release/concordium-node" "$payloadDir/Library/Concordium Node"
+    cp "$nodeDir/target/release/node-collector" "$payloadDir/Library/Concordium Node"
     logInfo "Done"
 }
 
+# Get the tool dylibbundler, which is used to recursively find and
+# bundle the needed dylibs for a binary.
+# Checks whether the tool is already installed and then potentially skips the build step.
 function getDylibbundler() {
     logInfo "Getting dylibbundler..."
 
@@ -176,29 +194,35 @@ function getDylibbundler() {
     fi
 }
 
-function collectDylibsFor() {
-    local fileToFix=${1:?"Missing file to fix with dylibbundler"};
-    cd "$libraryPayloadDir/Concordium Node"
-    "$macdylibbundlerDir/dylibbundler" --fix-file "$fileToFix" --bundle-deps --dest-dir "./libs" --install-path "@executable_path/libs/" --overwrite-dir \
-        -s "$concordiumDylibDir" \
-        -s "$stackSnapshotDir" \
-        $stackLibDirs # Unquoted on purpose to use as arguments correctly
-}
-
+# Use dylibbundler to recursively find and bundle the dylibs for node and collector.
+# It moves all the dylibs into relative folder /libs and rewrites the binaries
+# to look for the dylibs there.
 function collectDylibs() {
+
+    function collectDylibsFor() {
+        local fileToFix=${1:?"Missing file to fix with dylibbundler"};
+        cd "$payloadDir/Library/Concordium Node"
+        # Paths to search for dylibs are added with the '-s' flag.
+        "$macdylibbundlerDir/dylibbundler" --fix-file "$fileToFix" --bundle-deps --dest-dir "./libs" --install-path "@executable_path/libs/" --overwrite-dir \
+            -s "$concordiumDylibDir" \
+            -s "$stackSnapshotDir" \
+            $stackLibDirs # Unquoted on purpose to use as arguments correctly
+    }
+
     logInfo "Collecting dylibs with dylibbundler (this will take a few minutes)..."
 
     concordiumDylibDir=$(stack --stack-yaml "$consensusDir/stack.yaml" path --local-install-root)"/lib/$ghcVariant"
     stackSnapshotDir=$(stack --stack-yaml "$consensusDir/stack.yaml" path --snapshot-install-root)"/lib/$ghcVariant"
+    # Use awk to preprend '-s ' to each dylib, to be used as argument for dylibbundler directly.
     stackLibDirs=$(find "$(stack --stack-yaml "$consensusDir/stack.yaml" ghc -- --print-libdir)" -maxdepth 1 -type d | awk '{print "-s "$0}')
     readonly concordiumDylibDir
     readonly stackSnapshotDir
     readonly stackLibDirs
 
     logInfo " -- Processing concordium-node"
-    collectDylibsFor "$libraryPayloadDir/Concordium Node/concordium-node" &> /dev/null
+    collectDylibsFor "$payloadDir/Library/Concordium Node/concordium-node" &> /dev/null
     logInfo " -- Processing node-collector"
-    collectDylibsFor "$libraryPayloadDir/Concordium Node/node-collector" &> /dev/null
+    collectDylibsFor "$payloadDir/Library/Concordium Node/node-collector" &> /dev/null
 
     logInfo "Done"
 }
@@ -206,16 +230,21 @@ function collectDylibs() {
 function signBinaries() {
     logInfo "Signing binaries..."
 
-    find "$libraryPayloadDir" \
+    # Find and sign all the binaries and dylibs.
+    # TODO: There might be a better way to do this.
+    find "$payloadDir/Library" \
         -type f \
         -execdir sudo codesign -f --options runtime -s "$developerIdApplication" {} \;
 
+    # Sign the installer plugin.
     sudo codesign -f --options runtime -s "$developerIdApplication" \
         "$buildDir/plugins/NodeConfigurationInstallerPlugin.bundle"
 
     logInfo "Done"
 }
 
+# Ensure a directory exists.
+# Parameter: directory
 function ensureDirExists() {
     local theDir=${1:?"ensureDirExists requires 1 parameter: directory"}
     if [ ! -d "$theDir" ]; then
@@ -223,25 +252,28 @@ function ensureDirExists() {
     fi
 }
 
+# Build the package.
+# Look in the README.md for descriptions of the different files.
+# The install-location is where to put the contents of the build/payload folder.
 function buildPackage() {
     logInfo "Building package..."
-    ensureDirExists "$packagesDir"
+    ensureDirExists "$buildDir/packages"
     pkgbuild --identifier software.concordium.node \
         --version "$version" \
         --scripts "$buildDir/scripts" \
         --component-plist "$buildDir/components.plist" \
-        --install-location "$installDir" \
+        --install-location "/" \
         --root "$payloadDir" \
         "$pkgFile"
     logInfo "Done"
 }
 
+# Build the product, which contains the package from the buildPackage step.
 function buildProduct() {
     logInfo "Building product..."
-    ensureDirExists "$packagesDir"
     productbuild \
         --distribution "$buildDir/distribution.xml" \
-        --package-path "$packagesDir" \
+        --package-path "$buildDir/packages" \
         --resources "$buildDir/resources" \
         --plugins "$buildDir/plugins" \
         "$productFile"
@@ -252,12 +284,16 @@ function buildProduct() {
     logInfo "Done"
 }
 
+# Sign the product.
 function signProduct() {
     logInfo "Signing product..."
     productSign --sign "$developerIdInstaller" "$productFile" "$signedProductFile"
     logInfo "Done"
 }
 
+# Notarize the product and wait for it to finish.
+# If successful, a notarization 'ticket' will be created on Apple's servers for the product.
+# To enable offline installation without warnings, the ticket should be stapled onto the installer.
 function notarize() {
     logInfo "Notarizing..."
     xcrun notarytool submit \
@@ -269,21 +305,11 @@ function notarize() {
     logInfo "Done"
 }
 
+# Staple the notarization ticket onto the installer.
 function staple() {
     logInfo "Stapling..."
     xcrun stapler staple "$signedProductFile"
     logInfo "Done"
-}
-
-function promptToSignOrJustBuild() {
-    while true; do
-    read -rp "Do you wish to sign and notarize the installer? " yn
-    case $yn in
-        [Yy]* ) signBuildAndNotarizeInstaller; break;;
-        [Nn]* ) buildInstaller; break;;
-        * ) echo "Please answer yes[Yy] or no[Nn].";;
-    esac
-done
 }
 
 function signBuildAndNotarizeInstaller() {
@@ -292,15 +318,32 @@ function signBuildAndNotarizeInstaller() {
     buildProduct
     signProduct
     notarize
+    logInfo "Build complete"
+    logInfo "Installer located at:\n$signedProductFile"
 }
 
 function buildInstaller() {
     buildPackage
     buildProduct
+    logInfo "Build complete"
+    logInfo "Installer located at:\n$productFile"
+}
+
+# Ask whether the installer should be signed or not.
+# Then performs the selected action.
+function promptToSignOrJustBuild() {
+    while true; do
+    read -rp "Do you wish to sign and notarize the installer [y/n]? " yn
+    case $yn in
+        [Yy]* ) signBuildAndNotarizeInstaller; break;;
+        [Nn]* ) buildInstaller; break;;
+        * ) echo "Please answer yes or no.";;
+    esac
+done
 }
 
 function main() {
-    clean
+    cleanBuildDir
     createBuildDirFromTemplate
     compile
     copyBinaries
