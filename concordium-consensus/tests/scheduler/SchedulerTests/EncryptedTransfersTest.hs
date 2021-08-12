@@ -16,6 +16,7 @@ import Concordium.Crypto.DummyData
 import Concordium.Crypto.FFIDataTypes (ElgamalSecretKey)
 import Concordium.ID.DummyData (dummyEncryptionSecretKey)
 import Concordium.ID.Types (AccountEncryptionKey(..))
+import qualified Data.ByteString.Short as BSS
 
 import Concordium.Scheduler.Types
 import qualified Concordium.Scheduler.Runner as Runner
@@ -209,10 +210,15 @@ mkTestCases = do
                         ], checkEncryptedBalance initialAccountEncryptedAmount{_selfAmount = encryptedAmount1000} alesAccount
               )
             ),
+           ( Runner.TJSON { payload = Runner.EncryptedAmountTransferWithMemo thomasAccount (Memo $ BSS.pack [0,1,2,3]) encryptedTransferData1
+                         , metadata = makeDummyHeader alesAccount 2 100000
+                         , keys = [(0,[(0, alesKP)])]
+                         }
+          , (Reject SerializationFailure, checkEncryptedBalance initialAccountEncryptedAmount{_selfAmount = encryptedAmount1000} alesAccount)),  
           let EncryptedAmountTransferData{..} = encryptedTransferData1
           in
            ( Runner.TJSON { payload = Runner.EncryptedAmountTransfer thomasAccount encryptedTransferData1
-                         , metadata = makeDummyHeader alesAccount 2 100000
+                         , metadata = makeDummyHeader alesAccount 3 100000
                          , keys = [(0,[(0, alesKP)])]
                          }
           , (SuccessE [EncryptedAmountsRemoved {
@@ -235,7 +241,7 @@ mkTestCases = do
           let EncryptedAmountTransferData{..} = encryptedTransferData2
           in
            ( Runner.TJSON { payload = Runner.EncryptedAmountTransfer thomasAccount encryptedTransferData2
-                         , metadata = makeDummyHeader alesAccount 3 100000
+                         , metadata = makeDummyHeader alesAccount 4 100000
                          , keys = [(0,[(0, alesKP)])]
                          }
           , (SuccessE [EncryptedAmountsRemoved {
@@ -258,7 +264,7 @@ mkTestCases = do
           let EncryptedAmountTransferData{..} = encryptedTransferData3
           in
            ( Runner.TJSON { payload = Runner.EncryptedAmountTransfer thomasAccount encryptedTransferData3
-                         , metadata = makeDummyHeader alesAccount 4 100000
+                         , metadata = makeDummyHeader alesAccount 5 100000
                          , keys = [(0,[(0, alesKP)])]
                          }
           , (SuccessE [EncryptedAmountsRemoved {
@@ -327,7 +333,7 @@ mkTestCases = do
             )
           ),
           ( Runner.TJSON { payload = Runner.TransferToPublic secToPubTransferData1
-                         , metadata = makeDummyHeader alesAccount 5 100000
+                         , metadata = makeDummyHeader alesAccount 6 100000
                          , keys = [(0,[(0, alesKP)])]
                          }
           , (SuccessE [EncryptedAmountsRemoved {
@@ -346,7 +352,7 @@ mkTestCases = do
             )
           ),
           ( Runner.TJSON { payload = Runner.TransferToPublic secToPubTransferData2
-                         , metadata = makeDummyHeader alesAccount 6 100000
+                         , metadata = makeDummyHeader alesAccount 7 100000
                          , keys = [(0,[(0, alesKP)])]
                          }
           , (SuccessE [EncryptedAmountsRemoved {
@@ -365,7 +371,7 @@ mkTestCases = do
             )
           ),
           ( Runner.TJSON { payload = Runner.TransferToPublic secToPubTransferData3
-                         , metadata = makeDummyHeader alesAccount 7 100000
+                         , metadata = makeDummyHeader alesAccount 8 100000
                          , keys = [(0,[(0, alesKP)])]
                          }
           , (SuccessE [EncryptedAmountsRemoved {
