@@ -75,6 +75,11 @@ initialBlockState = blockStateWithAlesAccount
     10000000000
     (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 10000000000) Acc.emptyAccounts)
 
+initialBlockState2 :: BlockState PV2
+initialBlockState2 = blockStateWithAlesAccount
+    10000000000
+    (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 10000000000) Acc.emptyAccounts)
+
 alesEncryptionSecretKey :: ElgamalSecretKey
 alesEncryptionSecretKey = dummyEncryptionSecretKey dummyCryptographicParameters alesAccount
 alesEncryptionPublicKey :: AccountEncryptionKey
@@ -104,7 +109,7 @@ aggregatedDecryptedAmount1 = makeAggregatedDecryptedAmount encryptedAmount1000 1
 mkEncryptedTransferData1 :: IO EncryptedAmountTransferData
 mkEncryptedTransferData1 = fromJust <$> createEncryptedTransferData thomasEncryptionPublicKey alesEncryptionSecretKey aggregatedDecryptedAmount1 100
 
-mkTestCases :: IO [TestCase PV1]
+mkTestCases :: IO ([TestCase PV1], [TestCase PV2])
 mkTestCases = do
   encryptedTransferData1 <- mkEncryptedTransferData1
 
@@ -194,7 +199,7 @@ mkTestCases = do
       incomingAmounts7A = Seq.singleton $ eatdTransferAmount encryptedTransferData5
 
   return $ 
-    [ TestCase
+    ([ TestCase
       { tcName = "Makes an encrypted transfer"
       , tcParameters = defaultParams { tpInitialBlockState = initialBlockState }
       , tcTransactions =
@@ -391,11 +396,398 @@ mkTestCases = do
           )
         ]
        }
-    ]
+    ], [ TestCase
+      { tcName = "Makes an encrypted transfer where protocol version is 2"
+      , tcParameters = defaultParams { tpInitialBlockState = initialBlockState2 }
+      , tcTransactions =
+        [ ( Runner.TJSON { payload = Runner.TransferToEncrypted 1000
+                           , metadata = makeDummyHeader alesAccount 1 100000
+                           , keys = [(0,[(0, alesKP)])]
+                           }
+            , (SuccessE [EncryptedSelfAmountAdded {
+                            eaaAccount = alesAccount,
+                            eaaNewAmount = encryptedAmount1000,
+                            eaaAmount = 1000
+                            }
+                        ], checkEncryptedBalance initialAccountEncryptedAmount{_selfAmount = encryptedAmount1000} alesAccount
+              )
+            ),
+          let EncryptedAmountTransferData{..} = encryptedTransferData1
+          in
+           ( Runner.TJSON { payload = Runner.EncryptedAmountTransfer thomasAccount encryptedTransferData1
+                         , metadata = makeDummyHeader alesAccount 2 100000
+                         , keys = [(0,[(0, alesKP)])]
+                         }
+          , (SuccessE [EncryptedAmountsRemoved {
+                          earAccount = alesAccount,
+                          earUpToIndex = 0,
+                          earNewAmount = eatdRemainingAmount,
+                          earInputAmount = encryptedAmount1000
+                          },
+                        NewEncryptedAmount {
+                          neaAccount = thomasAccount,
+                          neaNewIndex = 0,
+                          neaEncryptedAmount = eatdTransferAmount
+                          }
+                      ], \bs -> do
+                           checkEncryptedBalance initialAccountEncryptedAmount{_selfAmount = eatdRemainingAmount} alesAccount bs
+                           checkEncryptedBalance initialAccountEncryptedAmount{_startIndex = 0,
+                                                                               _incomingEncryptedAmounts = incomingAmounts1} thomasAccount bs
+            )
+          ),
+          let EncryptedAmountTransferData{..} = encryptedTransferData2
+          in
+           ( Runner.TJSON { payload = Runner.EncryptedAmountTransfer thomasAccount encryptedTransferData2
+                         , metadata = makeDummyHeader alesAccount 3 100000
+                         , keys = [(0,[(0, alesKP)])]
+                         }
+          , (SuccessE [EncryptedAmountsRemoved {
+                          earAccount = alesAccount,
+                          earUpToIndex = 0,
+                          earNewAmount = eatdRemainingAmount,
+                          earInputAmount = Concordium.Crypto.EncryptedTransfers.eatdRemainingAmount encryptedTransferData1
+                          },
+                        NewEncryptedAmount {
+                          neaAccount = thomasAccount,
+                          neaNewIndex = 1,
+                          neaEncryptedAmount = eatdTransferAmount
+                          }
+                      ], \bs -> do
+                           checkEncryptedBalance initialAccountEncryptedAmount{_selfAmount = eatdRemainingAmount} alesAccount bs
+                           checkEncryptedBalance initialAccountEncryptedAmount{_startIndex = 0,
+                                                                               _incomingEncryptedAmounts = incomingAmounts2 } thomasAccount bs
+            )
+          ),
+          let EncryptedAmountTransferData{..} = encryptedTransferData3
+          in
+           ( Runner.TJSON { payload = Runner.EncryptedAmountTransfer thomasAccount encryptedTransferData3
+                         , metadata = makeDummyHeader alesAccount 4 100000
+                         , keys = [(0,[(0, alesKP)])]
+                         }
+          , (SuccessE [EncryptedAmountsRemoved {
+                          earAccount = alesAccount,
+                          earUpToIndex = 0,
+                          earNewAmount = eatdRemainingAmount,
+                          earInputAmount = Concordium.Crypto.EncryptedTransfers.eatdRemainingAmount encryptedTransferData2
+                          },
+                        NewEncryptedAmount {
+                          neaAccount = thomasAccount,
+                          neaNewIndex = 2,
+                          neaEncryptedAmount = eatdTransferAmount
+                          }
+                      ], \bs -> do
+                           checkEncryptedBalance initialAccountEncryptedAmount{_selfAmount = eatdRemainingAmount} alesAccount bs
+                           checkEncryptedBalance initialAccountEncryptedAmount{_startIndex = 0,
+                                                                               _incomingEncryptedAmounts = incomingAmounts3 } thomasAccount bs
+            )
+          ),
+          ( Runner.TJSON { payload = Runner.EncryptedAmountTransfer alesAccount encryptedTransferData4
+                         , metadata = makeDummyHeader thomasAccount 1 100000
+                         , keys = [(0,[(0, thomasKP)])]
+                         }
+          , (SuccessE [EncryptedAmountsRemoved {
+                          earAccount = thomasAccount,
+                          earUpToIndex = 2,
+                          earNewAmount = eatdRemainingAmount encryptedTransferData4,
+                          earInputAmount = aggregatedEncryptedAmount4
+                          },
+                        NewEncryptedAmount {
+                          neaAccount = alesAccount,
+                          neaNewIndex = 0,
+                          neaEncryptedAmount = eatdTransferAmount encryptedTransferData4
+                          }
+                      ], \bs -> do
+                           checkEncryptedBalance initialAccountEncryptedAmount{_selfAmount = eatdRemainingAmount encryptedTransferData3,
+                                                                               _startIndex = 0,
+                                                                               _incomingEncryptedAmounts = incomingAmounts4A} alesAccount bs
+                           checkEncryptedBalance initialAccountEncryptedAmount{_selfAmount = eatdRemainingAmount encryptedTransferData4,
+                                                                               _startIndex = 2,
+                                                                               _incomingEncryptedAmounts = incomingAmounts4T } thomasAccount bs
+            )
+          ),
+          ( Runner.TJSON { payload = Runner.EncryptedAmountTransfer alesAccount encryptedTransferData5
+                         , metadata = makeDummyHeader thomasAccount 2 100000
+                         , keys = [(0,[(0, thomasKP)])]
+                         }
+          , (SuccessE [EncryptedAmountsRemoved {
+                          earAccount = thomasAccount,
+                          earUpToIndex = 3,
+                          earNewAmount = eatdRemainingAmount encryptedTransferData5,
+                          earInputAmount = aggregatedEncryptedAmount5
+                          },
+                        NewEncryptedAmount {
+                          neaAccount = alesAccount,
+                          neaNewIndex = 1,
+                          neaEncryptedAmount = eatdTransferAmount encryptedTransferData5
+                          }
+                      ], \bs -> do
+                           checkEncryptedBalance initialAccountEncryptedAmount{_selfAmount = eatdRemainingAmount encryptedTransferData3,
+                                                                               _startIndex = 0,
+                                                                               _incomingEncryptedAmounts = incomingAmounts5A} alesAccount bs
+                           checkEncryptedBalance initialAccountEncryptedAmount{_selfAmount = eatdRemainingAmount encryptedTransferData5,
+                                                                               _startIndex = 3,
+                                                                               _incomingEncryptedAmounts = incomingAmounts5T } thomasAccount bs
+            )
+          ),
+          ( Runner.TJSON { payload = Runner.TransferToPublic secToPubTransferData1
+                         , metadata = makeDummyHeader alesAccount 5 100000
+                         , keys = [(0,[(0, alesKP)])]
+                         }
+          , (SuccessE [EncryptedAmountsRemoved {
+                          earAccount = alesAccount,
+                          earUpToIndex = 0,
+                          earNewAmount = stpatdRemainingAmount secToPubTransferData1,
+                          earInputAmount = Concordium.Crypto.EncryptedTransfers.eatdRemainingAmount encryptedTransferData3
+                          },
+                        AmountAddedByDecryption {
+                          aabdAccount = alesAccount,
+                          aabdAmount = 650
+                          }
+                      ], checkEncryptedBalance initialAccountEncryptedAmount{_selfAmount = stpatdRemainingAmount secToPubTransferData1,
+                                                                               _startIndex = 0,
+                                                                               _incomingEncryptedAmounts = incomingAmounts5A} alesAccount
+            )
+          ),
+          ( Runner.TJSON { payload = Runner.TransferToPublic secToPubTransferData2
+                         , metadata = makeDummyHeader alesAccount 6 100000
+                         , keys = [(0,[(0, alesKP)])]
+                         }
+          , (SuccessE [EncryptedAmountsRemoved {
+                          earAccount = alesAccount,
+                          earUpToIndex = 1,
+                          earNewAmount = stpatdRemainingAmount secToPubTransferData2,
+                          earInputAmount = aggregatedEncryptedAmount7
+                          },
+                        AmountAddedByDecryption {
+                          aabdAccount = alesAccount,
+                          aabdAmount = 150
+                          }
+                      ], checkEncryptedBalance initialAccountEncryptedAmount{_selfAmount = stpatdRemainingAmount secToPubTransferData2,
+                                                                               _startIndex = 1,
+                                                                               _incomingEncryptedAmounts = incomingAmounts7A} alesAccount
+            )
+          ),
+          ( Runner.TJSON { payload = Runner.TransferToPublic secToPubTransferData3
+                         , metadata = makeDummyHeader alesAccount 7 100000
+                         , keys = [(0,[(0, alesKP)])]
+                         }
+          , (SuccessE [EncryptedAmountsRemoved {
+                          earAccount = alesAccount,
+                          earUpToIndex = 2,
+                          earNewAmount = stpatdRemainingAmount secToPubTransferData3,
+                          earInputAmount = aggregatedEncryptedAmount8
+                          },
+                        AmountAddedByDecryption {
+                          aabdAccount = alesAccount,
+                          aabdAmount = 200
+                          }
+                      ], checkEncryptedBalance initialAccountEncryptedAmount{_selfAmount = stpatdRemainingAmount secToPubTransferData3,
+                                                                               _startIndex = 2,
+                                                                               _incomingEncryptedAmounts = incomingAmounts8A} alesAccount
+            )
+          )
+        ]
+      },
+          TestCase
+      { tcName = "Makes an encrypted transfer with memo where protocol version is 2"
+      , tcParameters = defaultParams { tpInitialBlockState = initialBlockState2 }
+      , tcTransactions =
+        [ ( Runner.TJSON { payload = Runner.TransferToEncrypted 1000
+                           , metadata = makeDummyHeader alesAccount 1 100000
+                           , keys = [(0,[(0, alesKP)])]
+                           }
+            , (SuccessE [EncryptedSelfAmountAdded {
+                            eaaAccount = alesAccount,
+                            eaaNewAmount = encryptedAmount1000,
+                            eaaAmount = 1000
+                            }
+                        ], checkEncryptedBalance initialAccountEncryptedAmount{_selfAmount = encryptedAmount1000} alesAccount
+              )
+            ),
+          let EncryptedAmountTransferData{..} = encryptedTransferData1
+          in
+           ( Runner.TJSON { payload = Runner.EncryptedAmountTransferWithMemo thomasAccount (Memo $ BSS.pack [0,1,2,3]) encryptedTransferData1
+                         , metadata = makeDummyHeader alesAccount 2 100000
+                         , keys = [(0,[(0, alesKP)])]
+                         }
+          , (SuccessE [EncryptedAmountsRemoved {
+                          earAccount = alesAccount,
+                          earUpToIndex = 0,
+                          earNewAmount = eatdRemainingAmount,
+                          earInputAmount = encryptedAmount1000
+                          },
+                        NewEncryptedAmount {
+                          neaAccount = thomasAccount,
+                          neaNewIndex = 0,
+                          neaEncryptedAmount = eatdTransferAmount
+                          }, TransferMemo (Memo $ BSS.pack [0,1,2,3])
+                      ], \bs -> do
+                           checkEncryptedBalance initialAccountEncryptedAmount{_selfAmount = eatdRemainingAmount} alesAccount bs
+                           checkEncryptedBalance initialAccountEncryptedAmount{_startIndex = 0,
+                                                                               _incomingEncryptedAmounts = incomingAmounts1} thomasAccount bs
+            )
+          ),
+          let EncryptedAmountTransferData{..} = encryptedTransferData2
+          in
+           ( Runner.TJSON { payload = Runner.EncryptedAmountTransferWithMemo thomasAccount (Memo $ BSS.pack [0,1,2,3]) encryptedTransferData2
+                         , metadata = makeDummyHeader alesAccount 3 100000
+                         , keys = [(0,[(0, alesKP)])]
+                         }
+          , (SuccessE [EncryptedAmountsRemoved {
+                          earAccount = alesAccount,
+                          earUpToIndex = 0,
+                          earNewAmount = eatdRemainingAmount,
+                          earInputAmount = Concordium.Crypto.EncryptedTransfers.eatdRemainingAmount encryptedTransferData1
+                          },
+                        NewEncryptedAmount {
+                          neaAccount = thomasAccount,
+                          neaNewIndex = 1,
+                          neaEncryptedAmount = eatdTransferAmount
+                          }, TransferMemo (Memo $ BSS.pack [0,1,2,3])
+                      ], \bs -> do
+                           checkEncryptedBalance initialAccountEncryptedAmount{_selfAmount = eatdRemainingAmount} alesAccount bs
+                           checkEncryptedBalance initialAccountEncryptedAmount{_startIndex = 0,
+                                                                               _incomingEncryptedAmounts = incomingAmounts2 } thomasAccount bs
+            )
+          ),
+          let EncryptedAmountTransferData{..} = encryptedTransferData3
+          in
+           ( Runner.TJSON { payload = Runner.EncryptedAmountTransferWithMemo thomasAccount (Memo $ BSS.pack [0,1,2,3]) encryptedTransferData3
+                         , metadata = makeDummyHeader alesAccount 4 100000
+                         , keys = [(0,[(0, alesKP)])]
+                         }
+          , (SuccessE [EncryptedAmountsRemoved {
+                          earAccount = alesAccount,
+                          earUpToIndex = 0,
+                          earNewAmount = eatdRemainingAmount,
+                          earInputAmount = Concordium.Crypto.EncryptedTransfers.eatdRemainingAmount encryptedTransferData2
+                          },
+                        NewEncryptedAmount {
+                          neaAccount = thomasAccount,
+                          neaNewIndex = 2,
+                          neaEncryptedAmount = eatdTransferAmount
+                          }, TransferMemo (Memo $ BSS.pack [0,1,2,3])
+                      ], \bs -> do
+                           checkEncryptedBalance initialAccountEncryptedAmount{_selfAmount = eatdRemainingAmount} alesAccount bs
+                           checkEncryptedBalance initialAccountEncryptedAmount{_startIndex = 0,
+                                                                               _incomingEncryptedAmounts = incomingAmounts3 } thomasAccount bs
+            )
+          ),
+          ( Runner.TJSON { payload = Runner.EncryptedAmountTransferWithMemo alesAccount (Memo $ BSS.pack [0,1,2,3]) encryptedTransferData4
+                         , metadata = makeDummyHeader thomasAccount 1 100000
+                         , keys = [(0,[(0, thomasKP)])]
+                         }
+          , (SuccessE [EncryptedAmountsRemoved {
+                          earAccount = thomasAccount,
+                          earUpToIndex = 2,
+                          earNewAmount = eatdRemainingAmount encryptedTransferData4,
+                          earInputAmount = aggregatedEncryptedAmount4
+                          },
+                        NewEncryptedAmount {
+                          neaAccount = alesAccount,
+                          neaNewIndex = 0,
+                          neaEncryptedAmount = eatdTransferAmount encryptedTransferData4
+                          }, TransferMemo (Memo $ BSS.pack [0,1,2,3])
+                      ], \bs -> do
+                           checkEncryptedBalance initialAccountEncryptedAmount{_selfAmount = eatdRemainingAmount encryptedTransferData3,
+                                                                               _startIndex = 0,
+                                                                               _incomingEncryptedAmounts = incomingAmounts4A} alesAccount bs
+                           checkEncryptedBalance initialAccountEncryptedAmount{_selfAmount = eatdRemainingAmount encryptedTransferData4,
+                                                                               _startIndex = 2,
+                                                                               _incomingEncryptedAmounts = incomingAmounts4T } thomasAccount bs
+            )
+          ),
+          ( Runner.TJSON { payload = Runner.EncryptedAmountTransferWithMemo alesAccount (Memo $ BSS.pack [0,1,2,3]) encryptedTransferData5
+                         , metadata = makeDummyHeader thomasAccount 2 100000
+                         , keys = [(0,[(0, thomasKP)])]
+                         }
+          , (SuccessE [EncryptedAmountsRemoved {
+                          earAccount = thomasAccount,
+                          earUpToIndex = 3,
+                          earNewAmount = eatdRemainingAmount encryptedTransferData5,
+                          earInputAmount = aggregatedEncryptedAmount5
+                          },
+                        NewEncryptedAmount {
+                          neaAccount = alesAccount,
+                          neaNewIndex = 1,
+                          neaEncryptedAmount = eatdTransferAmount encryptedTransferData5
+                          }, TransferMemo (Memo $ BSS.pack [0,1,2,3])
+                      ], \bs -> do
+                           checkEncryptedBalance initialAccountEncryptedAmount{_selfAmount = eatdRemainingAmount encryptedTransferData3,
+                                                                               _startIndex = 0,
+                                                                               _incomingEncryptedAmounts = incomingAmounts5A} alesAccount bs
+                           checkEncryptedBalance initialAccountEncryptedAmount{_selfAmount = eatdRemainingAmount encryptedTransferData5,
+                                                                               _startIndex = 3,
+                                                                               _incomingEncryptedAmounts = incomingAmounts5T } thomasAccount bs
+            )
+          ),
+          ( Runner.TJSON { payload = Runner.TransferToPublic secToPubTransferData1
+                         , metadata = makeDummyHeader alesAccount 5 100000
+                         , keys = [(0,[(0, alesKP)])]
+                         }
+          , (SuccessE [EncryptedAmountsRemoved {
+                          earAccount = alesAccount,
+                          earUpToIndex = 0,
+                          earNewAmount = stpatdRemainingAmount secToPubTransferData1,
+                          earInputAmount = Concordium.Crypto.EncryptedTransfers.eatdRemainingAmount encryptedTransferData3
+                          },
+                        AmountAddedByDecryption {
+                          aabdAccount = alesAccount,
+                          aabdAmount = 650
+                          }
+                      ], checkEncryptedBalance initialAccountEncryptedAmount{_selfAmount = stpatdRemainingAmount secToPubTransferData1,
+                                                                               _startIndex = 0,
+                                                                               _incomingEncryptedAmounts = incomingAmounts5A} alesAccount
+            )
+          ),
+          ( Runner.TJSON { payload = Runner.TransferToPublic secToPubTransferData2
+                         , metadata = makeDummyHeader alesAccount 6 100000
+                         , keys = [(0,[(0, alesKP)])]
+                         }
+          , (SuccessE [EncryptedAmountsRemoved {
+                          earAccount = alesAccount,
+                          earUpToIndex = 1,
+                          earNewAmount = stpatdRemainingAmount secToPubTransferData2,
+                          earInputAmount = aggregatedEncryptedAmount7
+                          },
+                        AmountAddedByDecryption {
+                          aabdAccount = alesAccount,
+                          aabdAmount = 150
+                          }
+                      ], checkEncryptedBalance initialAccountEncryptedAmount{_selfAmount = stpatdRemainingAmount secToPubTransferData2,
+                                                                               _startIndex = 1,
+                                                                               _incomingEncryptedAmounts = incomingAmounts7A} alesAccount
+            )
+          ),
+          ( Runner.TJSON { payload = Runner.TransferToPublic secToPubTransferData3
+                         , metadata = makeDummyHeader alesAccount 7 100000
+                         , keys = [(0,[(0, alesKP)])]
+                         }
+          , (SuccessE [EncryptedAmountsRemoved {
+                          earAccount = alesAccount,
+                          earUpToIndex = 2,
+                          earNewAmount = stpatdRemainingAmount secToPubTransferData3,
+                          earInputAmount = aggregatedEncryptedAmount8
+                          },
+                        AmountAddedByDecryption {
+                          aabdAccount = alesAccount,
+                          aabdAmount = 200
+                          }
+                      ], checkEncryptedBalance initialAccountEncryptedAmount{_selfAmount = stpatdRemainingAmount secToPubTransferData3,
+                                                                               _startIndex = 2,
+                                                                               _incomingEncryptedAmounts = incomingAmounts8A} alesAccount
+            )
+          )
+        ]
+       }
+    ])
   where checkEncryptedBalance accEncAmount acc = (\bs -> specify ("Correct final balance on " ++ show acc) $
            case Acc.getAccount acc (bs ^. blockAccounts) of
              Nothing -> HUnit.assertFailure $ "Account with id '" ++ show acc ++ "' not found"
              Just account -> HUnit.assertEqual "Expected encrypted amount matches"  accEncAmount (account ^. accountEncryptedAmount))
 
 tests :: Spec
-tests = runIO mkTestCases >>= describe "Encrypted transfers." . mkSpecs 
+tests = do
+  (t1, t2) <- runIO mkTestCases
+  describe "Encrypted transfers." $ mkSpecs t1
+  describe "Encrypted transfers with memo." $ mkSpecs t2
