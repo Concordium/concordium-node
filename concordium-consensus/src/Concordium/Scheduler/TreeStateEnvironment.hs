@@ -44,6 +44,7 @@ import Concordium.Scheduler.EnvironmentImplementation
      HasSchedulerState(..),
      schedulerBlockState, schedulerEnergyUsed
      )
+import qualified Concordium.TransactionVerification as TV
 
 import Control.Monad.RWS.Strict
 
@@ -118,6 +119,15 @@ deriving via (BSOMonadWrapper pv ContextState w state (MGSTrans (RWST ContextSta
               TreeStateMonad pv m,
               MonadLogger m,
               BlockStateOperations m) => SchedulerMonad pv (BlockStateMonad pv w state m)
+
+deriving via (BSOMonadWrapper pv ContextState w state (MGSTrans (RWST ContextState w state) m))
+    instance (
+              SS state ~ UpdatableBlockState m,
+              Footprint (ATIStorage m) ~ w,
+              HasSchedulerState state,
+              TreeStateMonad pv m,
+              MonadLogger m,
+              BlockStateOperations m) => TV.TransactionVerifier (BlockStateMonad pv w state m)
 
 runBSM :: Monad m => BlockStateMonad pv w b m a -> ContextState -> b -> m (a, b)
 runBSM m cm s = do

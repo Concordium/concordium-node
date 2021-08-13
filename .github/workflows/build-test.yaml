@@ -154,6 +154,9 @@ jobs:
     - name: Test scheduler
       run: |
         stack --stack-yaml concordium-consensus/stack.yaml test concordium-consensus:scheduler --bench --no-run-benchmarks
+    - name: Test commons
+      run: |
+        stack --stack-yaml concordium-consensus/stack.yaml test concordium-consensus:common --bench --no-run-benchmarks
 
     # RUST #
 

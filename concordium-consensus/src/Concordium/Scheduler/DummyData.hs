@@ -114,7 +114,18 @@ cdi11keys = readSigningKeys . BSL.fromStrict $ $(makeRelativeToProject "testdata
 -- {-# WARNING cdi13 "Do not use in production." #-}
 -- cdi13 :: CredentialDeploymentInformation
 -- cdi13 = readCredential . BSL.fromStrict $ $(makeRelativeToProject "testdata/credential-12.json" >>= embedFile)
-
+{-# WARNING cdi14 "Do not use in production." #-}
+-- same registration id as cdi3, but invalid IP
+cdi14 :: AccountCreation
+cdi14 = readAccountCreation . BSL.fromStrict $ $(makeRelativeToProject "testdata/credential-14.json" >>= embedFile)
+{-# WARNING cdi15 "Do not use in production." #-}
+-- same registration id as cdi3, but invalid AR
+cdi15 :: AccountCreation
+cdi15 = readAccountCreation . BSL.fromStrict $ $(makeRelativeToProject "testdata/credential-15.json" >>= embedFile)
+{-# WARNING cdi16 "Do not use in production." #-}
+-- same registration id as cdi3, but invalid key size
+cdi16 :: AccountCreation
+cdi16 = readAccountCreation . BSL.fromStrict $ $(makeRelativeToProject "testdata/credential-16.json" >>= embedFile)
 
 {-# WARNING icdi1 "Do not use in production." #-}
 icdi1 :: AccountCreation

@@ -36,6 +36,8 @@ import Concordium.Types.HashableTo
 import Concordium.Types.Transactions
 import Concordium.Types.Updates
 import Concordium.GlobalState.AccountTransactionIndex
+import qualified Concordium.TransactionVerification as TVer
+import qualified Concordium.Caching as Caching
 
 -- |Datatype representing an in-memory tree state.
 -- The first type parameter, @pv@, is the protocol version.
@@ -68,7 +70,12 @@ data SkovData (pv :: ProtocolVersion) bs = SkovData {
     -- |Runtime parameters
     _runtimeParameters :: !RuntimeParameters,
     -- |Transaction table purge counter
-    _transactionTablePurgeCounter :: !Int
+    _transactionTablePurgeCounter :: !Int,
+    -- |transactionVerificationResults
+    -- Transaction which have been subject to a 'verification' resides in this cache.
+    -- The purpose of the cache is to eliminate the need for re-verifying already verified transactions.
+    -- Entries should be deleted when either the corresponding transaction has been *purged* or *finalized*. 
+    _transactionVerificationResults :: !(Caching.Cache TransactionHash TVer.VerificationResult)
 }
 makeLenses ''SkovData
 
@@ -96,7 +103,8 @@ initialSkovData rp gd genState =
             _transactionTable = emptyTransactionTable,
             _statistics = initialConsensusStatistics,
             _runtimeParameters = rp,
-            _transactionTablePurgeCounter = 0
+            _transactionTablePurgeCounter = 0,
+            _transactionVerificationResults = Caching.empty -- todo: decide on a good capacity
         }
   where gbh = bpHash gb
         gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
@@ -255,7 +263,7 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
             when (slot > results ^. tsSlot) $ transactionTable . ttHashMap . at' trHash . mapped . _2 %= updateSlot slot
             return $ TS.Duplicate tr'
 
-    finalizeTransactions bh slot = mapM_ finTrans
+    finalizeTransactions bh slot = mapM_ $ finTrans
         where
             finTrans WithMetadata{wmdData=NormalTransaction tr,..} = do
                 let nonce = transactionNonce tr
@@ -269,6 +277,11 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
                         -- They can never be part of any other block after this point.
                         forM_ (Set.delete wmdtr nfn) $
                           \deadTransaction -> transactionTable . ttHashMap . at' (getHash deadTransaction) .= Nothing
+                        -- delete the transaction from the verified transaction cache
+                        -- todo: must be possible to do this in a cleaner way
+                        cache <- use transactionVerificationResults
+                        let cache' = Caching.delete wmdHash cache
+                        transactionVerificationResults .= cache'
                         -- Mark the status of the transaction as finalized.
                         -- Singular here is safe due to the precondition (and assertion) that all transactions
                         -- which are part of live blocks are in the transaction table.
@@ -311,6 +324,12 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
                 if lastFinSlot >= results ^. tsSlot then do
                     -- remove from the table
                     transactionTable . ttHashMap . at' wmdHash .= Nothing
+                    -- delete the transaction from the verified transaction cache
+                    -- todo: must be possible to do this in a cleaner way
+                    cache <- use transactionVerificationResults
+                    let cache' = Caching.delete wmdHash cache
+                    transactionVerificationResults .= cache'
+ 
                     -- if the transaction is from a sender also delete the relevant
                     -- entry in the account non finalized table
                     case wmdData of
@@ -358,3 +377,14 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
           (newTT, newPT) = purgeTables lastFinalizedSlot oldestArrivalTime currentTimestamp transactionTable' pendingTransactions'
         transactionTable .= newTT
         pendingTransactions .= newPT
+
+    {-# INLINE insertTxVerificationResult #-}
+    insertTxVerificationResult txHash err = do
+      cache <- use transactionVerificationResults
+      let cache' = Caching.insert txHash err cache
+      transactionVerificationResults .= cache'
+
+    {-# INLINE lookupTxVerificationResult #-}
+    lookupTxVerificationResult txHash = do
+      cache <- use transactionVerificationResults
+      return $ Caching.lookup txHash cache

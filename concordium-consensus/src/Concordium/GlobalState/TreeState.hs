@@ -32,6 +32,7 @@ import Concordium.Types.HashableTo
 import Concordium.Types
 import Concordium.Types.Updates
 import Concordium.GlobalState.AccountTransactionIndex
+import qualified Concordium.TransactionVerification as TV
 
 import Data.ByteString
 import Concordium.Logger
@@ -196,6 +197,27 @@ class (Eq (BlockPointerType m),
     -- less than or equal to the given value, removing it from the pending
     -- table.  Returns 'Nothing' if there is no such pending block.
     takeNextPendingUntil :: Slot -> m (Maybe PendingBlock)
+
+
+    -- | Operations on transaction verification results
+    --
+    -- If a transaction is processed by the TransactionVerifier then it should be added to 
+    -- the transaction verification results such that we don't later on try to verify the
+    -- transaction.
+    -- Cache entries should be removed when a transaction is either finalized or purged.
+    
+    -- |Adds an transaction hash and the corresponding verification result to the cache
+    -- of transaction verification results
+    -- Note: The reason we are storing the verification result instead of '()' is
+    -- such that 'doReceiveTransactionInternal' and 'doReceiveTransactionInternal' can
+    -- forward the verification error result (if such one exists).
+    insertTxVerificationResult :: TransactionHash -> TV.VerificationResult -> m ()
+    
+    -- |Checks whether an transaction has been verified.
+    -- If the cache contains an entry with the given 'Transactionhash' then
+    -- return the associated 'VerificationResult'.
+    -- Otherwise return 'Nothing'.
+    lookupTxVerificationResult :: TransactionHash -> m (Maybe TV.VerificationResult)
 
     -- * Operations on the pending transaction table
     --
@@ -369,6 +391,8 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad pv m) => TreeStateMonad pv (
     putConsensusStatistics = lift . putConsensusStatistics
     getRuntimeParameters = lift getRuntimeParameters
     purgeTransactionTable tm = lift . (purgeTransactionTable tm)
+    insertTxVerificationResult hash err = lift $ insertTxVerificationResult hash err
+    lookupTxVerificationResult = lift . lookupTxVerificationResult
     {-# INLINE makePendingBlock #-}
     {-# INLINE getBlockStatus #-}
     {-# INLINE makeLiveBlock #-}
@@ -409,6 +433,8 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad pv m) => TreeStateMonad pv (
     {-# INLINE putConsensusStatistics #-}
     {-# INLINE getRuntimeParameters #-}
     {-# INLINE purgeTransactionTable #-}
+    {-# INLINE insertTxVerificationResult #-}
+    {-# INLINE lookupTxVerificationResult #-}
 
 deriving via (MGSTrans MaybeT m) instance TreeStateMonad pv m => TreeStateMonad pv (MaybeT m)
 deriving via (MGSTrans (ExceptT e) m) instance TreeStateMonad pv m => TreeStateMonad pv (ExceptT e m)

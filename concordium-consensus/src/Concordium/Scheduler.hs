@@ -69,6 +69,7 @@ import qualified Data.Set as Set
 
 import qualified Concordium.Crypto.Proofs as Proofs
 import qualified Concordium.Crypto.BlsSignature as Bls
+import qualified Concordium.TransactionVerification as TV
 
 import Lens.Micro.Platform
 
@@ -312,7 +313,7 @@ handleTransferToPublic ::
   -> SecToPubAmountTransferData
   -> m (Maybe TransactionSummary)
 handleTransferToPublic wtc transferData@SecToPubAmountTransferData{..} = do
-  cryptoParams <- getCryptoParams
+  cryptoParams <- TV.getCryptographicParameters
   withDeposit wtc (c cryptoParams) k
   where senderAccount = wtc ^. wtcSenderAccount
         txHash = wtc ^. wtcTransactionHash
@@ -368,7 +369,7 @@ handleTransferToEncrypted ::
   -> Amount
   -> m (Maybe TransactionSummary)
 handleTransferToEncrypted wtc toEncrypted = do
-  cryptoParams <- getCryptoParams
+  cryptoParams <- TV.getCryptographicParameters
   withDeposit wtc (c cryptoParams) k
   where senderAccount = wtc ^. wtcSenderAccount
         txHash = wtc ^. wtcTransactionHash
@@ -415,7 +416,7 @@ handleEncryptedAmountTransfer ::
   -> EncryptedAmountTransferData
   -> m (Maybe TransactionSummary)
 handleEncryptedAmountTransfer wtc toAddress transferData@EncryptedAmountTransferData{..} = do
-  cryptoParams <- getCryptoParams
+  cryptoParams <- TV.getCryptographicParameters
   withDeposit wtc (c cryptoParams) k
   where senderAccount = wtc ^. wtcSenderAccount
         txHash = wtc ^. wtcTransactionHash
@@ -1087,10 +1088,14 @@ handleDeployCredential ::
   AccountCreation ->
   TransactionHash ->
   m (Maybe TxResult)
-handleDeployCredential AccountCreation{messageExpiry=messageExpiry, credential=cdi} cdiHash = do
+handleDeployCredential accCreation@AccountCreation{messageExpiry=messageExpiry, credential=cdi} cdiHash = do
+  cryptoParams <- TV.getCryptographicParameters
+   -- check that the account does not already exist
+  accountExistsResult <- TV.verifyCredentialDeploymentAccountDoesNotExist accCreation
   res <- runExceptT $ do
-    cm <- lift getChainMetadata
-    when (transactionExpired messageExpiry $ slotTime cm) $ throwError (Just ExpiredTransaction)
+    -- check that the transaction is not expired
+    liftedCm <- lift getChainMetadata
+    when (transactionExpired messageExpiry $ slotTime liftedCm) $ throwError (Just ExpiredTransaction)
 
     remainingEnergy <- lift getRemainingEnergy
     let cost = Cost.deployCredential (ID.credentialType cdi) (ID.credNumKeys . ID.credPubKeys $ cdi)
@@ -1105,61 +1110,31 @@ handleDeployCredential AccountCreation{messageExpiry=messageExpiry, credential=c
             tsType = TSTCredentialDeploymentTransaction (ID.credentialType cdi),
             ..
             }
-
-    let expiry = ID.validTo cdi
-
-    -- check that a registration id does not yet exist
-    let regId = ID.credId cdi
-    regIdEx <- lift (accountRegIdExists regId)
-    unless (isTimestampBefore (slotTime cm) expiry) $ throwError $ Just AccountCredentialInvalid
-    when regIdEx $ throwError $ Just (DuplicateAccountRegistrationID (ID.credId cdi))
-    -- We now look up the identity provider this credential is derived from.
-    -- Of course if it does not exist we reject the transaction.
-    let credentialIP = ID.ipId cdi
-    lift (getIPInfo credentialIP) >>= \case
-      Nothing -> throwError $ Just (NonExistentIdentityProvider (ID.ipId cdi))
-      Just ipInfo -> do
-        case cdi of
+    -- Verify the credential deployment
+    -- todo: introduce mechanism preventing double checking properties
+    -- e.g., idP exists, signatures etc.
+    case accountExistsResult of
+      TV.ResultSuccess -> do
+        let regId = ID.credId accCreation
+        let aaddr = ID.addressFromRegId regId
+        -- Verification checks passed. Now we create either an initial or normal account
+        case cdi of 
           ID.InitialACWP icdi -> do
-               let aaddr = ID.addressFromRegId regId
-               accExistsAlready <- isJust <$> lift (getAccount aaddr)
-               when accExistsAlready $ throwError $ Just AccountCredentialInvalid
-               unless (AH.verifyInitialAccountCreation ipInfo messageExpiry (S.encode icdi)) $ throwError $ Just AccountCredentialInvalid
-               -- Create the account with the credential, but don't yet add it to the state
-               cryptoParams <- lift getCryptoParams
-               -- Creation is guaranteed to succeed since an account with the address
-               -- does not already exist.
-               _ <- lift (createAccount cryptoParams aaddr (ID.InitialAC (ID.icdiValues icdi)))
-               mkSummary (TxSuccess [AccountCreated aaddr, CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}])
-
-          ID.NormalACWP ncdi -> do
-            let cdiBytes = S.encode ncdi
-            let ncdv = ID.cdiValues ncdi
-            lift (getArInfos (OrdMap.keys (ID.cdvArData ncdv))) >>= \case
-              Nothing -> throwError $ Just UnsupportedAnonymityRevokers
-              Just arsInfos -> do
-                cryptoParams <- lift getCryptoParams
-                -- we have two options. One is that we are deploying a credential on an existing account.
-                case ID.cdvPublicKeys ncdv of
-                  ID.CredentialPublicKeys keys _ -> do
-                    -- account does not yet exist, so create it, but we need to be careful
-                    when (null keys || length keys > 255) $ throwError $ Just AccountCredentialInvalid
-                    let aaddr = ID.addressFromRegId regId
-                    case ID.values cdi of
-                      Nothing -> throwError $ Just AccountCredentialInvalid
-                      Just cdv -> do
-                        -- this check is extremely unlikely to fail (it would amount to a hash collision since
-                        -- we checked regIdEx above already).
-                        accExistsAlready <- isJust <$> lift (getAccount aaddr)
-                        let check = AH.verifyCredential cryptoParams ipInfo arsInfos cdiBytes (Left messageExpiry)
-                        unless (not accExistsAlready && check) $ throwError $ Just AccountCredentialInvalid
-                        -- Add the account to the state, but only if the credential was valid and the account does not exist
-                        _ <- lift (createAccount cryptoParams aaddr cdv)
-                        mkSummary (TxSuccess [AccountCreated aaddr, CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}])
+            _ <- lift (createAccount cryptoParams aaddr (ID.InitialAC (ID.icdiValues icdi)))
+            mkSummary (TxSuccess [AccountCreated aaddr, CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}])
+          ID.NormalACWP _ -> do
+              case ID.values cdi of
+                Just cdv -> do
+                  _ <- lift (createAccount cryptoParams aaddr cdv)
+                  mkSummary (TxSuccess [AccountCreated aaddr, CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}])
+                Nothing -> throwError $  Just AccountCredentialInvalid
+      err -> throwError $ Just $ mapErr err
   case res of
     Left err -> return (TxInvalid <$> err)
     Right ts -> return (Just ts)
-
+  where
+    mapErr (TV.ResultDuplicateAccountRegistrationID dup) = DuplicateAccountRegistrationID dup
+    mapErr _ = AccountCredentialInvalid
 
 -- |Updates the credential keys in the credential with the given Credential ID.
 -- It rejects if there is no credential with the given Credential ID.
@@ -1297,7 +1272,7 @@ handleUpdateCredentials wtc cdis removeRegIds threshold =
     k ls existingCredentials = do
       (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
       chargeExecutionCost txHash senderAccount energyCost
-      cryptoParams <- getCryptoParams
+      cryptoParams <- TV.getCryptographicParameters
       senderAddress <- getAccountAddress senderAccount
 
       -- check that all credentials that are to be removed actually exist.
@@ -1336,14 +1311,14 @@ handleUpdateCredentials wtc cdis removeRegIds threshold =
       -- reporting.
       (existingCredIds, newCredIds) <- foldM (\(acc, newRids) cdi -> do
                                        let rid = ID.cdvCredId . ID.cdiValues $ cdi
-                                       exists <- accountRegIdExists rid
+                                       exists <- TV.registrationIdExists rid
                                        if exists || Set.member rid newRids then
                                          return (rid:acc, rid `Set.insert` newRids)
                                        else return (acc, rid `Set.insert` newRids)
                                     ) ([], Set.empty) cdis
 
-      let getIP cdi = getIPInfo $ ID.ipId $ ID.NormalACWP cdi
-          getAR cdi = getArInfos $ OrdMap.keys $ ID.cdvArData $ ID.cdiValues cdi
+      let getIP cdi = TV.getIdentityProvider $ ID.ipId $ ID.NormalACWP cdi
+          getAR cdi = TV.getAnonymityRevokers $ OrdMap.keys $ ID.cdvArData $ ID.cdiValues cdi
           -- verify the cryptographic proofs
           checkCDI cdi = do
               ip <- getIP cdi

@@ -164,6 +164,11 @@ emptyNFCUWithSequenceNumber = NonFinalizedChainUpdates Map.empty
 -- number of the highest such block.  A transaction that is not included any block
 -- may also have a non-zero highest slot if it is received in a block, but that block
 -- is not yet considered arrived.
+--
+-- Invariants that must be uphold:
+-- The 'TransactionTable' may not store unverifiable credential deployments.
+-- That is 'CredentialDeployment's containing bad signatures, invalid IP/AR's or
+-- possible causes to duplicate accounts due to duplicate registration id's.
 data TransactionTable = TransactionTable {
     -- |Map from transaction hashes to transactions, together with their current status.
     _ttHashMap :: !(HM.HashMap TransactionHash (BlockItem, TransactionStatus)),

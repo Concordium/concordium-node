@@ -291,11 +291,22 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
         us1 <- coerceBSML (getProtocolUpdateStatus bps1)
         us2 <- coerceBSMR (getProtocolUpdateStatus bps2)
         assert (us1 == us2) $ return us1
-
     getCryptographicParameters (bps1, bps2) = do
         u1 <- coerceBSML (getCryptographicParameters bps1)
         u2 <- coerceBSMR (getCryptographicParameters bps2)
         assert (u1 == u2) $ return u1
+    getIdentityProvider (bs1, bs2) ipid = do
+        r1 <- coerceBSML $ getIdentityProvider bs1 ipid
+        r2 <- coerceBSMR $ getIdentityProvider bs2 ipid
+        assert (r1 == r2) $ return r1
+    regIdExists (bs1, bs2) regId = do
+        r1 <- coerceBSML $ regIdExists bs1 regId
+        r2 <- coerceBSMR $ regIdExists bs2 regId
+        assert (r1 == r2) $ return r1
+    getAnonymityRevokers (bs1, bs2) arIds = do
+        r1 <- coerceBSML $ getAnonymityRevokers bs1 arIds
+        r2 <- coerceBSMR $ getAnonymityRevokers bs2 arIds
+        assert (r1 == r2) $ return r1
 
 instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, AccountOperations (BSML pv lc r ls s m), AccountOperations (BSMR pv rc r rs s m), HashableTo H.Hash (Account (BSML pv lc r ls s m)), HashableTo H.Hash (Account (BSMR pv rc r rs s m)))
   => AccountOperations (BlockStateM pv (PairGSContext lc rc) r (PairGState ls rs) s m) where
@@ -812,6 +823,16 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
     purgeTransactionTable t i = do
       coerceGSML (purgeTransactionTable t i)
       coerceGSMR (purgeTransactionTable t i)
+
+    insertTxVerificationResult txHash err = do
+      t <- coerceGSML (insertTxVerificationResult txHash err)
+      t' <- coerceGSMR (insertTxVerificationResult txHash err)
+      assert (t == t') $ return t
+      
+    lookupTxVerificationResult txHash = do
+      t <- coerceGSML (lookupTxVerificationResult txHash)
+      t' <-coerceGSMR (lookupTxVerificationResult txHash)
+      assert (t == t') $ return t
 
 newtype PairGSConfig c1 c2 = PairGSConfig (c1, c2)
 

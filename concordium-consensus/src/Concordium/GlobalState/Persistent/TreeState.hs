@@ -50,6 +50,8 @@ import System.FilePath
 import Concordium.GlobalState.SQL.AccountTransactionIndex
 import Concordium.Logger
 import Control.Monad.Except
+import qualified Concordium.TransactionVerification as TVer
+import qualified Concordium.Caching as Caching
 
 -- * Exceptions
 
@@ -141,7 +143,12 @@ data SkovPersistentData (pv :: ProtocolVersion) ati bs = SkovPersistentData {
     -- | Database handlers
     _db :: !(DatabaseHandlers pv (TS.BlockStatePointer bs)),
     -- |Context for the transaction log.
-    _atiCtx :: !(ATIContext ati)
+    _atiCtx :: !(ATIContext ati),
+    -- |transactionVerificationResults
+    -- Transaction which have been subject to a 'verification' resides in this cache.
+    -- The purpose of the cache is to eliminate the need for re-verifying already verified transactions.
+    -- Entries should be deleted when either the corresponding transaction has been *purged* or *finalized*. 
+    _transactionVerificationResults :: !(Caching.Cache TransactionHash TVer.VerificationResult)
 }
 makeLenses ''SkovPersistentData
 
@@ -189,7 +196,8 @@ initialSkovPersistentData rp gd genState ati serState = do
             _statistics = initialConsensusStatistics,
             _runtimeParameters = rp,
             _db = initialDb,
-            _atiCtx = snd ati
+            _atiCtx = snd ati,
+            _transactionVerificationResults = Caching.empty  -- todo: decide on a good capacity
         }
 
 --------------------------------------------------------------------------------
@@ -321,6 +329,7 @@ loadSkovPersistentData rp _genesisData pbsc atiPair = do
             _statistics = initialConsensusStatistics,
             _runtimeParameters = rp,
             _atiCtx = snd atiPair,
+            _transactionVerificationResults = Caching.empty,  -- todo: decide on a good capacity
             ..
         }
 
@@ -649,6 +658,11 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
                           \deadTransaction -> transactionTable . ttHashMap . at' (getHash deadTransaction) .= Nothing
                         -- Mark the status of the transaction as finalized, and remove the data from the in-memory table.
                         ss <- deleteAndFinalizeStatus wmdHash
+                        -- delete the transaction from the verified transaction cache
+                        -- todo: must be possible to do this in a cleaner way
+                        cache <- use transactionVerificationResults
+                        let cache' = Caching.delete wmdHash cache
+                        transactionVerificationResults .= cache'
 
                         -- Update the non-finalized transactions for the sender
                         transactionTable . ttNonFinalizedTransactions . at' sender ?= (anft & (anftMap . at' nonce .~ Nothing)
@@ -709,6 +723,11 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
                 if lastFinSlot >= results ^. tsSlot then do
                     -- remove from the table
                     transactionTable . ttHashMap . at' wmdHash .= Nothing
+                    -- delete the transaction from the verified transaction cache
+                    cache <- use transactionVerificationResults
+                    let cache' = Caching.delete wmdHash cache
+                    transactionVerificationResults .= cache'
+
                     -- if the transaction is from a sender also delete the relevant
                     -- entry in the account non finalized table
                     case wmdData of
@@ -759,3 +778,15 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
           (newTT, newPT) = purgeTables lastFinalizedSlot oldestArrivalTime currentTimestamp transactionTable' pendingTransactions'
         transactionTable .= newTT
         pendingTransactions .= newPT
+
+    {-# INLINE insertTxVerificationResult #-}
+    insertTxVerificationResult txHash err = do
+      cache <- use transactionVerificationResults
+      let cache' = Caching.insert txHash err cache
+      transactionVerificationResults .= cache'
+
+    {-# INLINE lookupTxVerificationResult #-}
+    lookupTxVerificationResult txHash = do
+      cache <- use transactionVerificationResults
+      return $ Caching.lookup txHash cache
+

@@ -40,6 +40,7 @@ import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule 
 import Control.Exception(assert)
 
 import qualified Concordium.ID.Types as ID
+import Concordium.TransactionVerification
 
 -- |Whether the current energy limit is block energy or current transaction energy.
 data EnergyLimitReason = BlockEnergy | TransactionEnergy
@@ -61,7 +62,7 @@ class (Monad m) => StaticInformation m where
   getAccountCreationLimit :: m CredentialsPerBlockLimit
 
 -- |Information needed to execute transactions in the form that is easy to use.
-class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m)), AccountOperations m, MonadLogger m, IsProtocolVersion pv)
+class (Monad m, StaticInformation m, TransactionVerifier m, CanRecordFootprint (Footprint (ATIStorage m)), AccountOperations m, MonadLogger m, IsProtocolVersion pv)
     => SchedulerMonad pv m | m -> pv where
 
   -- |Notify the transaction log that a transaction had the given footprint. The
@@ -78,9 +79,6 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
 
   -- |Get the 'AccountIndex' for an account, if it exists.
   getAccountIndex :: AccountAddress -> m (Maybe AccountIndex)
-
-  -- |Check whether a given registration id exists in the global state.
-  accountRegIdExists :: ID.CredentialRegistrationID -> m Bool
 
   -- |Commit to global state all the updates to local state that have
   -- accumulated through the execution. This method is also in charge of
@@ -242,17 +240,6 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
   -- * The account exists
   -- * The account has keys defined at the specified indices
   updateCredentialKeys :: AccountAddress -> ID.CredentialIndex -> ID.CredentialPublicKeys -> m ()
-
-  -- *Other metadata.
-
-  -- |Retrieve the identity provider with given id, if possible.
-  getIPInfo :: IdentityProviderIdentity -> m (Maybe IpInfo)
-
-  -- |Retrieve the identity provider with given id, if possible.
-  getArInfos :: [ID.ArIdentity] -> m (Maybe [ArInfo])
-
-  -- |Get cryptographic parameters for the current state.
-  getCryptoParams :: m CryptographicParameters
 
   -- * Chain updates
 

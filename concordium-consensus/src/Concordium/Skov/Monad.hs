@@ -80,6 +80,18 @@ data UpdateResult
     -- ^The file provided for importing blocks is missing
     | ResultConsensusShutDown
     -- ^The message was not processed because consensus has been shut down
+    | ResultTransactionExpired
+    -- ^The transaction was expired.
+    | ResultDuplicateAccountRegistrationID
+    -- ^An account already exists to the corresponding registration id of the 'CredentialDeployment'.
+    | ResultCredentialDeploymentInvalidIdentityProvider
+    -- ^The identity provider was not valid
+    | ResultCredentialDeploymentInvalidAnonymityRevokers
+    -- ^The anonymity revokers was not valid
+    | ResultCredentialDeploymentInvalidKeys
+    -- ^The keys were malformed
+    | ResultCredentialDeploymentInvalidSignatures
+    -- ^The 'CredentialDeployment' contained invalid identity provider signatures.
     deriving (Eq, Show)
 
 class (Monad m, Eq (BlockPointerType m), BlockPointerData (BlockPointerType m), EncodeBlock pv (BlockPointerType m), BlockStateQuery m, IsProtocolVersion pv)

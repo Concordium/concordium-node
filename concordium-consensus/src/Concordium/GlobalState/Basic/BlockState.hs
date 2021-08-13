@@ -451,6 +451,17 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
     getCryptographicParameters bs =
       return $! bs ^. blockCryptographicParameters . unhashed
 
+    {-# INLINE getIdentityProvider #-}
+    getIdentityProvider bs ipid = return $! bs ^? blockIdentityProviders . unhashed . to IPS.idProviders . ix ipid
+
+    {-# INLINE regIdExists #-}
+    regIdExists bs regid = return (Accounts.regIdExists regid (bs ^. blockAccounts))
+
+    {-# INLINE getAnonymityRevokers #-}
+    getAnonymityRevokers bs arIds = return $!
+      let ars = bs ^. blockAnonymityRevokers . unhashed . to ARS.arRevokers
+      in forM arIds (flip Map.lookup ars)
+    
 instance (Monad m, IsProtocolVersion pv) => BS.AccountOperations (PureBlockStateMonad pv m) where
 
   getAccountAddress acc = return $ acc ^. accountAddress
