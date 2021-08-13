@@ -19,7 +19,7 @@ use concordium_node::{
     stats_export_service::instantiate_stats_export_engine,
     utils,
 };
-use crypto_common::serialize::Serial;
+use crypto_common::Serial;
 use std::{
     fs::File,
     io::prelude::*,
@@ -77,11 +77,10 @@ fn main() -> anyhow::Result<()> {
                     if read_bytes != block_len_buffer.len() {
                         if read_bytes == 0 {
                             info!("No more blocks to be read from file");
-                            break;
                         } else {
                             error!("No enough bytes to read");
-                            break;
                         }
+                        break;
                     }
                     let block_size = u64::from_be_bytes(block_len_buffer);
                     info!(

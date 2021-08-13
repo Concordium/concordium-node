@@ -52,7 +52,7 @@ import qualified Concordium.ID.Types as ID
 
 import Concordium.GlobalState.BlockState (AccountOperations(..), AccountAllowance (..))
 import qualified Concordium.GlobalState.BakerInfo as BI
-import qualified Concordium.GlobalState.Instance as Ins
+import qualified Concordium.Types.Instance as Ins
 import Concordium.GlobalState.Types
 import qualified Concordium.Cost as Cost
 import Concordium.Crypto.EncryptedTransfers
@@ -152,8 +152,6 @@ dispatch msg = do
       increaseAccountNonce senderAccount
 
       let psize = payloadSize (transactionPayload msg)
-      -- TODO: Check whether the cost for deserializing the transaction is sufficiently covered
-      -- by the cost for checking the header (which is linear in the transaction size).
 
       tsIndex <- bumpTransactionIndex
       case decodePayload psize (transactionPayload msg) of
@@ -837,10 +835,6 @@ runInterpreter f = withExternal $ \availableEnergy -> do
       -- or outOfBlockEnergy termination.
       let usedEnergy = availableEnergy - remainingEnergy
       return (Just (result, usedEnergy))
-
--- FIXME: The baker handling is purely proof-of-concept. In particular the
--- precise logic for when a baker can be added and removed should be analyzed
--- from a security perspective.
 
 -- |A simple sigma protocol to check knowledge of secret key.
 checkElectionKeyProof :: BS.ByteString -> BakerElectionVerifyKey -> Proofs.Dlog25519Proof -> Bool

@@ -28,7 +28,7 @@ import SchedulerTests.Helpers
 shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
-initialBlockState :: BlockState PV
+initialBlockState :: BlockState PV1
 initialBlockState = blockStateWithAlesAccount 200000 Acc.emptyAccounts
 
 -- We will use simple transfer transactions.

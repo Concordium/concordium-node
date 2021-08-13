@@ -69,7 +69,7 @@ import Test.Hspec
 --- |                                  | incomingAmounts |        [] |            [] |
 --- |----------------------------------+-----------------+-----------+---------------|
 
-initialBlockState :: BlockState PV
+initialBlockState :: BlockState PV1
 initialBlockState = blockStateWithAlesAccount
     10000000000
     (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 10000000000) Acc.emptyAccounts)
@@ -103,7 +103,7 @@ aggregatedDecryptedAmount1 = makeAggregatedDecryptedAmount encryptedAmount1000 1
 mkEncryptedTransferData1 :: IO EncryptedAmountTransferData
 mkEncryptedTransferData1 = fromJust <$> createEncryptedTransferData thomasEncryptionPublicKey alesEncryptionSecretKey aggregatedDecryptedAmount1 100
 
-mkTestCases :: IO [TestCase]
+mkTestCases :: IO [TestCase PV1]
 mkTestCases = do
   encryptedTransferData1 <- mkEncryptedTransferData1
 

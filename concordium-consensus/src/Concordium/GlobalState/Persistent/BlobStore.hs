@@ -48,13 +48,13 @@ import Concordium.GlobalState.Persistent.MonadicRecursive
 
 -- Imports for providing instances
 import Concordium.GlobalState.Account
-import Concordium.GlobalState.BakerInfo
 import qualified Concordium.Types.IdentityProviders as IPS
 import qualified Concordium.Types.AnonymityRevokers as ARS
 import qualified Concordium.GlobalState.Parameters as Parameters
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 import Concordium.GlobalState.Persistent.BlobStore.Flush
 import Concordium.Types
+import Concordium.Types.Accounts
 import Concordium.Types.Updates
 import Concordium.Wasm
 
@@ -335,8 +335,9 @@ class Monad m => Reference m ref a where
   -- |Given a reference, flush the data and return an uncached reference.
   refUncache :: ref a -> m (ref a)
 
--- |A value that may exists purely on disk ('BRBlobbed'), purely in memory ('BRMemory'), or both ('BRCached').
--- When the value is cached, the cached value must match the value stored on disk.
+-- |A value that may exists purely on disk ('BRBlobbed'), purely in memory
+-- ('BRMemory' with @brIORef = null@), or both in memory and on disk. When the
+-- value is both on disk and in memory the two values must match.
 data BufferedRef a
     = BRBlobbed {brRef :: !(BlobRef a)}
     -- ^Value stored on disk
@@ -447,7 +448,7 @@ instance (Monad m, BlobStorable m a) => Reference m BufferedRef a where
   {-# INLINE refCache #-}
   {-# INLINE refUncache #-}
 
-instance (BlobStorable m a, MHashableTo m H.Hash a) => MHashableTo m H.Hash (BufferedRef a) where
+instance (BlobStorable m a, MHashableTo m h a) => MHashableTo m h (BufferedRef a) where
   getHashM ref = getHashM =<< refLoad ref
 
 instance (Serialize a, Serialize b, BlobStorable m a) => MHashableTo m H.Hash (BufferedRef a, b) where

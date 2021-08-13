@@ -73,7 +73,7 @@ already exists.
 
 ## Rust workflow
 
-We use **stable version** of rust, 1.45.2, to compile the code.
+We use **stable version** of rust, 1.53, to compile the code.
 
 The CI is configured to check two things
 - the [clippy](https://github.com/rust-lang/rust-clippy) tool is run to check

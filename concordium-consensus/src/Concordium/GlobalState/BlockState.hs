@@ -58,10 +58,11 @@ import Concordium.GlobalState.Account
 
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 import Concordium.GlobalState.BakerInfo
-import qualified Concordium.GlobalState.Basic.BlockState.Updates as Basic
+import qualified Concordium.Types.UpdateQueues as UQ
+import Concordium.Types.Accounts
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Rewards
-import Concordium.GlobalState.Instance
+import Concordium.Types.Instance
 import Concordium.GlobalState.Types
 import Concordium.Types.IdentityProviders
 import Concordium.Types.AnonymityRevokers
@@ -250,7 +251,7 @@ class AccountOperations m => BlockStateQuery m where
     -- |Get the value of the election difficulty that was used to bake this block.
     getCurrentElectionDifficulty :: BlockState m -> m ElectionDifficulty
     -- |Get the current chain parameters and pending updates.
-    getUpdates :: BlockState m -> m Basic.Updates
+    getUpdates :: BlockState m -> m UQ.Updates
     -- |Get the protocol update status. If a protocol update has taken effect,
     -- returns @Left protocolUpdate@. Otherwise, returns @Right pendingProtocolUpdates@.
     -- The @pendingProtocolUpdates@ is a (possibly-empty) list of timestamps and protocol
@@ -487,20 +488,10 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- |Get the foundation account.
   bsoGetFoundationAccount :: UpdatableBlockState m -> m (Account m)
 
-  -- FIXME: Remove
-  -- |Set the amount of minted GTU per slot.
-  -- bsoSetInflation :: UpdatableBlockState m -> Amount -> m (UpdatableBlockState m)
-
   -- |Mint currency and distribute it to the BakerRewardAccount,
   -- FinalizationRewardAccount and foundation account.
   -- This increases the total GTU in circulation.
   bsoMint :: UpdatableBlockState m -> MintAmounts -> m (UpdatableBlockState m)
-
-  -- FIXME: Remove
-  -- |Subtract the amount from the central bank. Return the new amount. The
-  -- precondition of this method is that the amount on the account is
-  -- sufficient.
-  -- bsoDecrementCentralBankGTU :: UpdatableBlockState m -> Amount -> m (Amount, UpdatableBlockState m)
 
   -- |Get the identity provider data for the given identity provider, or Nothing if
   -- the identity provider with given ID does not exist.

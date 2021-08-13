@@ -28,9 +28,10 @@ import Concordium.Utils
 import qualified Concordium.Wasm as Wasm
 import Concordium.Scheduler.Types
 import qualified Concordium.Cost as Cost
+import Concordium.Types.Accounts
 import Concordium.GlobalState.Types
 import Concordium.GlobalState.Classes (MGSTrans(..))
-import Concordium.GlobalState.Account (EncryptedAmountUpdate(..), AccountUpdate(..), auAmount, auEncrypted, auReleaseSchedule, emptyAccountUpdate, stakedAmount)
+import Concordium.GlobalState.Account (EncryptedAmountUpdate(..), AccountUpdate(..), auAmount, auEncrypted, auReleaseSchedule, emptyAccountUpdate)
 import Concordium.GlobalState.BlockState (AccountOperations(..))
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.AccountTransactionIndex
@@ -153,10 +154,6 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
 
   -- |Convert the given energy amount into an amount of GTU. The exchange
   -- rate can vary depending on the current state of the blockchain.
-  -- TODO: In this setup the exchange rate is determined by the blockchain, and
-  -- the user (aka sender of the transaction) cannot choose to pay more to have
-  -- their transaction prioritised. If the user can choose to do so then this
-  -- function needs to be replaced.
   energyToGtu :: Energy -> m Amount
 
   -- *Operations related to bakers.

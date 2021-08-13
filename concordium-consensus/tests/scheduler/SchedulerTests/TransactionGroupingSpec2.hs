@@ -35,7 +35,7 @@ import SchedulerTests.Helpers
 
 -- * Definition of test cases
 
-initialBlockState :: BlockState PV
+initialBlockState :: BlockState PV1
 initialBlockState = blockStateWithAlesAccount 2000000 Acc.emptyAccounts
 
 maxBlockEnergy :: Types.Energy

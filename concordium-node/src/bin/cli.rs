@@ -65,17 +65,26 @@ async fn main() -> anyhow::Result<()> {
     // Signal handling closure. so we shut down cleanly
     let signal_closure = |signal_handler_node: &Arc<P2PNode>,
                           shutdown_handler_state: &Arc<AtomicBool>| {
-        if !shutdown_handler_state.compare_and_swap(false, true, Ordering::SeqCst) {
-            info!("Signal received attempting to shutdown node cleanly");
-            if !signal_handler_node.close() {
-                error!("Can't shutdown node properly!");
-                std::process::exit(1);
+        match shutdown_handler_state.compare_exchange(
+            false,
+            true,
+            Ordering::SeqCst,
+            Ordering::SeqCst,
+        ) {
+            Ok(false) => {
+                info!("Signal received attempting to shutdown node cleanly");
+                if !signal_handler_node.close() {
+                    error!("Can't shutdown node properly!");
+                    std::process::exit(1);
+                }
             }
-        } else {
-            info!(
-                "Signal received to shutdown node cleanly, but an attempt to do so is already in \
-                 progress."
-            );
+            Err(true) => {
+                info!(
+                    "Signal received to shutdown node cleanly, but an attempt to do so is already \
+                     in progress."
+                );
+            }
+            _ => info!("Could not handle signal to shut down. Try again."),
         }
     };
 
@@ -85,7 +94,7 @@ async fn main() -> anyhow::Result<()> {
         let sigterm_shutdown_handler_state = shutdown_handler_state.clone();
         let signal_hook_node = node.clone();
         unsafe {
-            signal_hook::register(signal_hook::SIGTERM, move || {
+            signal_hook::low_level::register(signal_hook::consts::SIGTERM, move || {
                 signal_closure(&signal_hook_node, &sigterm_shutdown_handler_state)
             })
         }?;

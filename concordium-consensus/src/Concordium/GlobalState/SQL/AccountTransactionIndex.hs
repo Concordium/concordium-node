@@ -20,6 +20,7 @@ import Data.Pool
 import qualified Data.Aeson as AE
 import qualified Data.Map as Map
 import qualified Data.Sequence as Seq
+import qualified Data.Text as Text
 
 import Control.Monad.Logger
 import Control.Monad.Reader
@@ -30,8 +31,50 @@ connectPostgres connString = runNoLoggingT (createPostgresqlPool connString 5)
 runPostgres :: Pool SqlBackend -> ReaderT SqlBackend (NoLoggingT IO) a -> IO a
 runPostgres pool c = runNoLoggingT (runSqlPool c pool)
 
-createTable :: Pool SqlBackend -> IO ()
-createTable pool = runPostgres pool (runMigration migrateAll)
+-- | Create the database tables that are used when inserting transaction outcomes.
+-- Three tables are created, "ati", "cti" and "summaries", with the first two having foreign keys
+-- in the third.
+--
+-- The ati and cti tables have the pair of address and id as the primary key.
+-- The way these tables are used, which is to lookup of some transactions for a
+-- given address, this provides reasonable performance.
+createStatement :: Text.Text
+createStatement = Text.unlines [
+  "CREATE TABLE summaries(id SERIAL8 PRIMARY KEY UNIQUE, block BYTEA NOT NULL, timestamp INT8 NOT NULL, height INT8 NOT NULL, summary JSONB NOT NULL);",
+  "CREATE TABLE ati(id SERIAL8, account BYTEA NOT NULL, summary INT8 NOT NULL, CONSTRAINT ati_pkey PRIMARY KEY (account, id), CONSTRAINT ati_summary_fkey FOREIGN KEY(summary) REFERENCES summaries(id) ON DELETE RESTRICT  ON UPDATE RESTRICT);",
+  "CREATE TABLE cti(id SERIAL8, index INT8 NOT NULL,subindex INT8 NOT NULL,summary INT8 NOT NULL, CONSTRAINT cti_pkey PRIMARY KEY (index, subindex, id), CONSTRAINT cti_summary_fkey FOREIGN KEY(summary) REFERENCES summaries(id) ON DELETE RESTRICT  ON UPDATE RESTRICT);"
+  ]
+
+-- |Result of checking existence of SQL tables needed for transaction logging.
+data CheckTableResult =
+  Ok
+  -- | There are no tables with the given names
+  | NoTables
+  -- | Some of the tables exist, but they have an incorrect format.
+  | IncorrectFormat
+
+-- |Check whether correct tables exists in the connected database.
+checkTablesExist :: Pool SqlBackend -> IO CheckTableResult
+checkTablesExist pool = runPostgres pool $ do
+  (numAti, noExtraAti) <- checkTableExists atiExistsStmt
+  (numCti, noExtraCti) <- checkTableExists ctiExistsStmt
+  (numSummaries, noExtraSummaries) <- checkTableExists summariesExistsStmt
+  if numAti == 0 && numCti == 0 && numSummaries == 0 then return NoTables
+  else if numAti == 3 && numCti == 4 && numSummaries == 5 && noExtraAti && noExtraCti && noExtraSummaries then return Ok
+  else return IncorrectFormat
+  where checkTableExists :: Text.Text -> ReaderT SqlBackend (NoLoggingT IO) (Int, Bool)
+        checkTableExists stmt = do
+          res <- rawSql stmt []
+          let numRows = length res
+          return (numRows, all unSingle res)
+
+        atiExistsStmt = "SELECT (column_name, data_type) IN (('id', 'bigint'), ('account', 'bytea'), ('summary', 'bigint')) FROM information_schema.columns WHERE table_name='ati';"
+        ctiExistsStmt = "SELECT (column_name, data_type) IN (('id', 'bigint'), ('index', 'bigint'), ('subindex', 'bigint'), ('summary', 'bigint')) FROM information_schema.columns WHERE table_name='cti';"
+        summariesExistsStmt = "SELECT (column_name, data_type) IN (('id', 'bigint'), ('block', 'bytea'), ('timestamp', 'bigint'), ('height', 'bigint'), ('summary', 'jsonb')) FROM information_schema.columns WHERE table_name='summaries';"
+
+
+createTables :: Pool SqlBackend -> IO ()
+createTables pool = runPostgres pool (rawExecute createStatement [])
 
 type PersistentTransactionOutcome = Either TransactionSummary SpecialTransactionOutcome
 
