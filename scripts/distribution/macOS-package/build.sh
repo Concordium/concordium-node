@@ -163,11 +163,17 @@ function copyInstallerPluginData() {
 }
 
 # Copy the node and collector binaries to the build folder.
-function copyBinaries() {
+function copyNodeBinaries() {
     logInfo "Copy concordium-node and node-collector binaries to '$payloadDir/Library/Concordium Node/'.."
     cp "$nodeDir/target/release/concordium-node" "$payloadDir/Library/Concordium Node"
     cp "$nodeDir/target/release/node-collector" "$payloadDir/Library/Concordium Node"
     logInfo "Done"
+}
+
+# Copy the compiled items (binaries and supporting data) to the build folder.
+function copyCompiledItemsToBuildDir() {
+    copyNodeBinaries
+    copyInstallerPluginData
 }
 
 # Get the tool dylibbundler, which is used to recursively find and
@@ -346,8 +352,7 @@ function main() {
     cleanBuildDir
     createBuildDirFromTemplate
     compile
-    copyBinaries
-    copyInstallerPluginData
+    copyCompiledItemsToBuildDir
     getDylibbundler
     collectDylibs
     promptToSignOrJustBuild
