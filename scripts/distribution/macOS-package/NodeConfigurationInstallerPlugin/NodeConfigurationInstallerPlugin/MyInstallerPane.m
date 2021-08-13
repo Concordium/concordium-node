@@ -6,6 +6,7 @@
 //
 
 #import "MyInstallerPane.h"
+#import <os/log.h>
 
 @implementation MyInstallerPane
 
@@ -17,18 +18,25 @@
 // Invoked when either 'Go Back' or 'Continue' is pressed.
 - (BOOL)shouldExitPane:(InstallerSectionDirection)aDir
 {
+    os_log_t customLog = os_log_create("software.concordium.node.installer", "shouldExitPane");
     NSAlert *warning;
 
     // Check the direction of movement.
     if (aDir == InstallerDirectionForward) {
         
+        os_log(customLog, "'Continue' was pressed");
+
         if ([self nodeNamesAreValid]) {
+            os_log(customLog, "Node names valid: Save configuration to disk");
             [self saveConfigurationToDisk];
         } else {
+            os_log(customLog, "Node names invalid: show alert");
             // Create a warning dialog.
+            os_log(customLog, "NSAlert: alloc and init");
             warning = [[NSAlert alloc] init];
             if (warning != nil)
             {
+                os_log(customLog, "NSAlert: alloc and init succeeded");
                 // Initialize the dialog.
                 [warning addButtonWithTitle:@"OK"];
                 [warning setMessageText:@"Invalid node names"];
@@ -36,22 +44,29 @@
                 [warning setAlertStyle:NSAlertStyleInformational];
                 
                 // Display the warning dialog.
+                os_log(customLog, "Show NSAlert modal");
                 [warning runModal];
             }
             // Prevent 'Continue' movement.
+            os_log(customLog, "Prevent forward movement");
             return (NO);
         }
     }
+
     // Allow panel movement.
+    os_log(customLog, "Allow panel movement");
     return (YES);
 }
 
 - (void) saveConfigurationToDisk {
     
+    os_log_t customLog = os_log_create("software.concordium.node.installer", "saveConfigurationToDisk");
     NSString *const configFilePath = @"/tmp/software.concordium.node.install.config";
     
     // Create a file in /tmp.
-    [[NSFileManager defaultManager] createFileAtPath:configFilePath contents:nil attributes:nil];
+    os_log(customLog, "Create file: %@", configFilePath);
+    BOOL createdFile = [[NSFileManager defaultManager] createFileAtPath:configFilePath contents:nil attributes:nil];
+    os_log(customLog, "File-creation result: %d", createdFile);
     
     // Get configuration from properties.
     // Checkbox states will be written as '1' or '0' for checked and unchecked, respectively.
@@ -74,7 +89,15 @@
                             [_oTestnetNodeName stringValue]];
     
     // Write contents to file.
-    [configData writeToFile:configFilePath atomically:YES encoding:NSUTF8StringEncoding error:nil];
+    os_log(customLog, "Write to file: %@", configFilePath);
+    NSError *__autoreleasing  _Nullable * writeToFileError = nil;
+    BOOL writeSucceeded = [configData writeToFile:configFilePath atomically:YES encoding:NSUTF8StringEncoding error:writeToFileError];
+    
+    if (writeSucceeded) {
+        os_log(customLog, "Writing to file succeeded");
+    } else {
+        os_log(customLog, "Writing to file failed with error %ld: %@", [*writeToFileError code], [*writeToFileError localizedDescription]);
+    }
 }
 
 // Checks that both the mainnet and testnet node names:
