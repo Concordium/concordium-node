@@ -122,17 +122,17 @@ For the APPLEIDPASS, setting up an [app-specific password](https://support.apple
 ## How the build process works
 
 The build script goes through the following major steps:
-  0. Clean old `build/` folder
-  1. Generate a `build/` folder from the `template/` folder and replace
+  1. Clean old `build/` folder if existing
+  2. Generate a `build/` folder from the `template/` folder and replace
   placeholders in files, most of which are the version number with placeholder
   `__VERSION__`.
-  2. Compile consensus, node and collector with dynamic linking
+  3. Compile consensus, node and collector with dynamic linking
      - Compile NodeConfigurationInstallerPlugin using Xcode.
-  3. Find and collect dylibs for the node and collector
+  4. Find and collect dylibs for the node and collector
      - The tool macdylibbundler is automatically downloaded for this purpose.
-  4. Create the installer .pkg file
+  5. Create the installer .pkg file
      - Optionally signing the code inside it first.
-  5. Optionally notarizing the installer.
+  6. Optionally notarizing the installer.
 
 ## How to become a baker
 
