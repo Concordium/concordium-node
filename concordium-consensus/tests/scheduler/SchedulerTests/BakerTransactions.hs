@@ -12,7 +12,11 @@ import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import Concordium.Scheduler.Runner
 import qualified Concordium.Scheduler as Sch
-
+import Concordium.Types.Accounts (
+    bakerAggregationVerifyKey,
+    bakerElectionVerifyKey,
+    bakerSignatureVerifyKey,
+ )
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Basic.BlockState.Bakers
 import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
@@ -44,7 +48,7 @@ keyPair = uncurry SigScheme.KeyPairEd25519 . fst . randomEd25519KeyPair . mkStdG
 account :: Int -> Types.AccountAddress
 account = accountAddressFrom
 
-initialBlockState :: BlockState PV
+initialBlockState :: BlockState PV1
 initialBlockState = createBlockState $ foldr putAccountWithRegIds Acc.emptyAccounts
   [mkAccount (SigScheme.correspondingVerifyKey (keyPair i)) (account i) 400_000_000_000 | i <- reverse [0..3]]
 
@@ -225,7 +229,7 @@ transactionsInput =
 type TestResult = ([([(Types.BlockItem, Types.ValidResult)],
                      [(Types.Transaction, Types.FailureKind)],
                      BasicBirkParameters)],
-                    BlockState PV,
+                    BlockState PV1,
                     Types.Amount)
 
 runWithIntermediateStates :: IO TestResult

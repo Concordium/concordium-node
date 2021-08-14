@@ -21,6 +21,12 @@ import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
 import Concordium.Crypto.SignatureScheme as Sig
 import Concordium.ID.Types(randomAccountAddress)
 
+import Concordium.Types.Accounts (
+    bakerAggregationVerifyKey,
+    bakerElectionVerifyKey,
+    bakerSignatureVerifyKey,
+ )
+
 import Concordium.Scheduler.Types hiding (Payload(..))
 
 import System.Random
@@ -48,7 +54,7 @@ staticKeys = ks (mkStdGen 1333)
 numAccounts :: Int
 numAccounts = 10
 
-initialBlockState :: BlockState PV
+initialBlockState :: BlockState PV1
 initialBlockState = createBlockState
     (foldr addAcc Acc.emptyAccounts (take numAccounts staticKeys))
     where

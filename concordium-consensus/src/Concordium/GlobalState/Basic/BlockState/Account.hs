@@ -29,6 +29,7 @@ import Concordium.GlobalState.Account
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 
 import Concordium.Types
+import Concordium.Types.Accounts
 
 -- |Type for how a 'PersitingAccountData' value is stored as part of
 -- an account. This is stored with its hash.

@@ -8,18 +8,12 @@ import Data.Word
 import qualified Data.ByteString as BS
 import Control.Exception (assert)
 import Control.Monad
-import Data.Aeson(FromJSON, ToJSON)
 
 import Concordium.Common.Version
 import qualified Concordium.Crypto.BlsSignature as Bls
 import Concordium.Types
 import Concordium.Afgjort.Types
 
-newtype FinalizationIndex = FinalizationIndex {theFinalizationIndex :: Word64} deriving (Eq, Ord, Num, Real, Enum, Integral, Show, ToJSON, FromJSON)
-
-instance Serialize FinalizationIndex where
-  put (FinalizationIndex w) = putWord64be w
-  get = FinalizationIndex <$> getWord64be
 
 -- TODO (MR) Should the first argument type be [Party] rather than [Word32]?
 data FinalizationProof = FinalizationProof {

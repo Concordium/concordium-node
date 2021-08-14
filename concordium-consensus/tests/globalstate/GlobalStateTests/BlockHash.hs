@@ -8,7 +8,7 @@ import Concordium.Crypto.VRF as VRF
 import Concordium.GlobalState.Block as Block
 import Concordium.GlobalState.Finalization
 import Concordium.Types
-
+import Concordium.Types.Accounts
 import Concordium.GlobalState.BakerInfo
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.BlsSignature as Bls

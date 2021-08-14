@@ -27,7 +27,7 @@ import Concordium.Types.Updates
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.Finalization
-import Concordium.GlobalState.Instance
+import Concordium.Types.Instance
 import Concordium.Types.AnonymityRevokers
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState
