@@ -16,6 +16,13 @@
   A legacy database will automatically be migrated by renaming and adding version metadata.
 - Remove unused CONCORDIUM_NODE_CONNECTION_BOOTSTRAP_SERVER option and the
   corresponding `--bootstrap-server` flag.
+- For macOS:
+  - Log to the unified logging system. View the logs with `log show --predicate
+    'subsystem == "software.concordium.<net-name>.node"'`, where `<net>` comes from
+    `--net-name` flag, or by using Console.app. 
+  - Add new flag `--net-name` to the node and collector with corresponding environment variables
+    `CONCORDIUM_NODE_MACOS_NET_NAME` for the node, and
+    `CONCORDIUM_NODE_COLLECTOR_MACOS_NET_NAME` for the collector.
 
 ## concordium-node 1.0.1
 
