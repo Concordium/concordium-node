@@ -47,15 +47,15 @@ For the APPLEIDPASS, setting up an [app-specific password](https://support.apple
    can proceed.
    - The check is defined in `template/distribution.xml`
 2. During the installation you configure your nodes (names, run on startup etc.)
-  - This configuration pane is the "installer plugin" Xcode project
+   - This configuration pane is the "installer plugin" Xcode project
     *NodeConfigurationInstallerPlugin*.
-  - It saves the configuration options in the file
+   - It saves the configuration options in the file
     `/tmp/software.concordium.node.install.config`.
 3. After clicking *install* the `preinstall` script runs.
-  - It cleans up previous installs by:
-    - Stopping any running node and collector services.
-    - Deletes `/Library/Concordium Node` if existing.
-  - `preinstall` logs to the file `/var/log/install.log` 
+   - It cleans up previous installs by:
+     - Stopping any running node and collector services.
+     - Deletes `/Library/Concordium Node` if existing.
+   - `preinstall` logs to the file `/var/log/install.log` 
 4. Then the payload is installed:
 
     ```
@@ -104,11 +104,11 @@ For the APPLEIDPASS, setting up an [app-specific password](https://support.apple
     ```
 
 5. The `postinstall` script runs:
-  - Adds `concordium-node` and `concordium-node-collector` to path by adding
-    symlinks in `/usr/local/bin`. This enables advanced users to easily run
-    nodes with custom options (e.g. a local chain).
-  - Configures the services according to options in
-    `/tmp/software.concordium.node.installer.config`
+   - Adds `concordium-node` and `concordium-node-collector` to path by adding
+     symlinks in `/usr/local/bin`. This enables advanced users to easily run
+     nodes with custom options (e.g. a local chain).
+   - Configures the services according to options in
+     `/tmp/software.concordium.node.installer.config`
       - Run on startup: Create symlinks to the service files:
         `/Library/LaunchDaemons/software.concordium.mainnet.node.plist ->
         /Library/Concordium Node/LaunchDaemons/software.concordium.mainnet.node.plist`
@@ -117,7 +117,7 @@ For the APPLEIDPASS, setting up an [app-specific password](https://support.apple
       - Run after install: Run the service(s) with `launchctl`.
       - Report to network dashboard: Create a file which existence is checked
         by `Concordium Node Start __NET__.app`. E.g. for mainnet: `/Library/Concordium Node/REPORT_TO_NETWORK_DASHBOARD_MAINNET`
-  - `postinstall` logs to the file `/var/log/install.log` 
+   - `postinstall` logs to the file `/var/log/install.log` 
 
 ## How the build process works
 
