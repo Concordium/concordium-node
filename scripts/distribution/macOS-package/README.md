@@ -8,7 +8,6 @@
   - `$ xcode-select --install`
 - [Build concordium-node dependencies](../../../concordium-node/README.md)
 
-
 ## Building
 
 Simply run the build script with a version number.
@@ -20,6 +19,9 @@ $ ./build 1.0.2
 
 The build script will ask whether you want to build and sign, or simply build
 the installer.
+
+NB: Make sure to replace the `genesis.dat` file in `template/payload/Library/Application
+Support/Concordium Node/Testnet/Data` when a new testnet is launched.
 
 ### Sign and Notarize
 
@@ -41,17 +43,20 @@ For the APPLEIDPASS, setting up an [app-specific password](https://support.apple
 
 ## How the installer works
 
-1. During the installation you configure your nodes (names, run on startup etc.)
+1. The installer runs a preinstall-check to determine whether the installation
+   can proceed.
+   - The check is defined in `template/distribution.xml`
+2. During the installation you configure your nodes (names, run on startup etc.)
   - This configuration pane is the "installer plugin" Xcode project
     *NodeConfigurationInstallerPlugin*.
   - It saves the configuration options in the file
     `/tmp/software.concordium.node.install.config`.
-2. After clicking *install* the `preinstall` script runs.
+3. After clicking *install* the `preinstall` script runs.
   - It cleans up previous installs by:
     - Stopping any running node and collector services.
     - Deletes `/Library/Concordium Node` if existing.
   - `preinstall` logs to the file `/var/log/install.log` 
-3. Then the payload is installed:
+4. Then the payload is installed:
 
     ```
     .
@@ -98,7 +103,7 @@ For the APPLEIDPASS, setting up an [app-specific password](https://support.apple
             └── node-collector    
     ```
 
-4. The `postinstall` script runs:
+5. The `postinstall` script runs:
   - Adds `concordium-node` and `concordium-node-collector` to path by adding
     symlinks in `/usr/local/bin`. This enables advanced users to easily run
     nodes with custom options (e.g. a local chain).
@@ -115,3 +120,38 @@ For the APPLEIDPASS, setting up an [app-specific password](https://support.apple
   - `postinstall` logs to the file `/var/log/install.log` 
 
 ## How the build process works
+
+The build script goes through the following major steps:
+  0. Clean old `build/` folder
+  1. Generate a `build/` folder from the `template/` folder and replace
+  placeholders in files, most of which are the version number with placeholder
+  `__VERSION__`.
+  2. Compile consensus, node and collector with dynamic linking
+     - Compile NodeConfigurationInstallerPlugin using Xcode.
+  3. Find and collect dylibs for the node and collector
+     - The tool macdylibbundler is automatically downloaded for this purpose.
+  4. Create the installer .pkg file
+     - Optionally signing the code inside it first.
+  5. Optionally notarizing the installer.
+
+## How to become a baker
+
+1. Add a path to the baker credentials in the appropriate service file (mainnet
+   or testnet)
+   - For example in
+     `/Library/Concordium
+     Node/LaunchDaemons/software.concordium.mainnet.node.plist` in the
+     EnviromentVariables section:
+     ```
+     <!-- Path to the baker credentials file. -->
+     <key>CONCORDIUM_NODE_BAKER_CREDENTIALS_FILE</key>
+     <string>/Library/Application Support/Concordium Node/Mainnet/Config/baker-credentials.json</string>
+     ```
+ 2. Restart the given node by using the stop/start shortcuts.
+
+## Resources used
+
+- Installer plugins are poorly documented by Apple, but [this article in the web
+archive](https://web.archive.org/web/20120703051958/mactech.com/articles/mactech/Vol.25/25.06/InstallerPlugins/index.html) explains the possibilities and steps nicely.
+
+- [Learn AppleScript: The Comprehensive Guide to Scripting and Automation on Mac OS X](https://www.amazon.com/Learn-AppleScript-Comprehensive-Scripting-Automation-dp-1430223618/dp/1430223618)
