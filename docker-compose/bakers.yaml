@@ -18,8 +18,10 @@ services:
     ports:
     - "12000:10000"
   baker_id_gen:
-    image: concordium/dev-node:latest
-    entrypoint: /baker_id_generator
+    image: node:14-alpine
+    entrypoint: node /app.js
+    volumes:
+    - ./node-counter.js:/app.js:ro
   baker:
     image: concordium/dev-node:latest
     depends_on:
@@ -30,7 +32,7 @@ services:
     - RUST_BACKTRACE=1
     - RUST_LOG=info
     - GENESIS_DATA_PATH=/genesis-data/genesis-${NUM_BAKERS}-bakers
-    - BAKER_ID_GEN_DNS=baker_id_gen
+    - BAKER_ID_URL=http://baker_id_gen:8000
     - CONCORDIUM_NODE_CONNECTION_DESIRED_NODES=${DESIRED_PEERS}
     - CONCORDIUM_NODE_CONNECTION_BOOTSTRAP_NODES=bootstrapper:8888
     - CONCORDIUM_NODE_EXTERNAL_PORT=8888
@@ -48,5 +50,4 @@ services:
     - RUST_LOG=info
     - NUM_BAKERS=${NUM_BAKERS}
     - NODE_DNS_BASE=docker-compose_baker
-    - COLLECTOR_SLEEP=${COLLECTOR_SLEEP}
     - CONCORDIUM_NODE_COLLECTOR_URL=http://collector_backend:10000/nodes/post

@@ -54,7 +54,7 @@ staticKeys = ks (mkStdGen 1333)
 numAccounts :: Int
 numAccounts = 10
 
-initialBlockState :: BlockState PV
+initialBlockState :: BlockState PV1
 initialBlockState = createBlockState
     (foldr addAcc Acc.emptyAccounts (take numAccounts staticKeys))
     where
