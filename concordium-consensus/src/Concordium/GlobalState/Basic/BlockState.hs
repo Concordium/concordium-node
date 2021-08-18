@@ -832,7 +832,7 @@ instance (IsProtocolVersion pv, MonadIO m) => BS.BlockStateStorage (PureBlockSta
     cacheBlockState = return
 
     {-# INLINE serializeBlockState #-}
-    serializeBlockState = return . runPutLazy . putBlockState . _unhashedBlockState
+    serializeBlockState = return . runPut . putBlockState . _unhashedBlockState
 
     {-# INLINE writeBlockState #-}
     writeBlockState h = PureBlockStateMonad . liftIO . hPutBuilder h . snd . runPutMBuilder . putBlockState . _unhashedBlockState
@@ -920,7 +920,7 @@ genesisStateP1 (GDP1 P1.GDP1Initial{
     _blockUpdates = initialUpdates genesisUpdateKeys genesisChainParameters
     _blockReleaseSchedule = Map.empty
     _blockEpochBlocksBaked = emptyHashedEpochBlocks
-genesisStateP1 (GDP1 P1.GDP1Regenesis{..}) = case runGetLazy getBlockState genesisNewState of
+genesisStateP1 (GDP1 P1.GDP1Regenesis{..}) = case runGet getBlockState genesisNewState of
   Left err -> Left $ "Could not deserialize genesis state: " ++ err
   Right bs
       | hbs ^. blockStateHash /= genesisStateHash -> Left "Could not deserialize genesis state: state hash is incorrect"

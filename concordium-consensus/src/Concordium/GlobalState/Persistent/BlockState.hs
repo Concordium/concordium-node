@@ -1363,7 +1363,7 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateStorage (Persi
 
     serializeBlockState hpbs = do
         p <- runPutT (putBlockStateV0 (hpbsPointers hpbs))
-        return $ runPutLazy p
+        return $ runPut p
 
     writeBlockState h hpbs =
         runPutH (putBlockStateV0 (hpbsPointers hpbs)) h

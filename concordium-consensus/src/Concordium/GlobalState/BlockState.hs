@@ -44,7 +44,7 @@ import Data.Serialize(Serialize)
 import qualified Data.Map as Map
 import qualified Data.Sequence as Seq
 import Data.Foldable (foldl')
-import qualified Data.ByteString.Lazy as LBS
+import qualified Data.ByteString as BS
 import Data.Word
 import System.IO (Handle)
 
@@ -605,7 +605,7 @@ class (BlockStateOperations m, Serialize (BlockStateRef m)) => BlockStateStorage
 
     -- |Serialize the block state to a byte string.
     -- This serialization does not include transaction outcomes.
-    serializeBlockState :: BlockState m -> m LBS.ByteString
+    serializeBlockState :: BlockState m -> m BS.ByteString
 
     -- |Serialize the block state to a file handle.
     -- This serialization does not include transaction outcomes.

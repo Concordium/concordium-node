@@ -46,9 +46,7 @@ import Concordium.Afgjort.Finalize.Types
 import Concordium.Afgjort.Finalize
 import Concordium.Afgjort.Buffer
 
--- * Global state runner for querying the tree and block states to establish
--- a finalization state.
-
+-- |Base monad that provides: IO, logging, global-state context and global-state state.
 type RWSTIO c pv = RWST (Identity (GSContext c pv)) () (Identity (GSState c pv)) LogIO
 
 type BlockStateType pv c = BlockStateM
@@ -93,17 +91,30 @@ getFinalizationState _ _ (gsCtx, gsState) mInst = fst <$> evalRWST (runGlobalSta
   where comp :: GlobalState pv c (FinalizationState timer)
         comp = recoverFinalizationState mInst
 
+-- * Handler configuration
+
+-- |'HandlerConfig' characterises a type of configuration for handlers that can respond to certain
+-- consensus events.
 class HandlerConfig handlerconfig where
+    -- |The read-only context type associated with handlers of this type of configuration.
     type HCContext handlerconfig
+    -- |The state type associated with handlers of this type of configuration.
     type HCState handlerconfig
+    -- |Generate an initial context and state from a handler configuration.
     initialiseHandler :: handlerconfig -> (HCContext handlerconfig, HCState handlerconfig)
 
 -- * Finalization configuration
+
+-- |'FinalizationConfig' characterises a type of configuration for how finalization is handled.
 class FinalizationConfig finconfig where
+    -- |The read-only context type associated with this type of finalization configuration.
     type FCContext finconfig
+    -- |The state type associated with this type of finalization configuration.
     type FCState finconfig
+    -- |Generate an initial context and state from a finalization configuration.
     initialiseFinalization :: (MonadIO m, SkovQueryMonad pv m) => finconfig -> m (FCContext finconfig, FCState finconfig)
 
+-- |Type of finalization configuration for no active participation in finalization.
 data NoFinalization (t :: Type) = NoFinalization
 
 instance FinalizationConfig (NoFinalization t) where
@@ -549,8 +560,7 @@ type TreeStateConfigM pv h c m = TreeStateM
                 (SkovT pv h c m))
 
 type SkovConfigMonad (pv :: ProtocolVersion) (h :: Type) (c :: Type) (m :: Type -> Type) =
-    ( --SkovConfiguration pv c,
-      OnSkov (SkovT pv h c m),
+    ( OnSkov (SkovT pv h c m),
       BlockStateStorage (BlockStateConfigM pv h c m),
       GlobalStateTypes (TreeStateConfigM pv h c m),
       TreeStateMonad pv (TreeStateConfigM pv h c m),
@@ -560,8 +570,8 @@ type SkovConfigMonad (pv :: ProtocolVersion) (h :: Type) (c :: Type) (m :: Type 
     )
 
 type SkovQueryConfigMonad pv c m =
-    (BlockFields ~ BlockFieldType (BlockPointerType (TreeStateConfigM pv () c m)),
-     TreeStateMonad pv (SkovTGSM pv () c m),
-     BlockPointerMonad (SkovTGSM pv () c m),
-     BlockStateStorage (BlockStateConfigM pv () c m)
+    ( BlockFields ~ BlockFieldType (BlockPointerType (TreeStateConfigM pv () c m)),
+      TreeStateMonad pv (SkovTGSM pv () c m),
+      BlockPointerMonad (SkovTGSM pv () c m),
+      BlockStateStorage (BlockStateConfigM pv () c m)
     )
