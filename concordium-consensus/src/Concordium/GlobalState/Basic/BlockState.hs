@@ -213,7 +213,7 @@ emptyBlockState _blockBirkParameters cryptographicParameters keysCollection chai
 
 -- |Convert a @BlockState 'P1@ to a @HashedBlockState 'P1@ by computing
 -- the state hash.
-hashBlockStateP1 :: BlockState 'P1 -> HashedBlockState 'P1
+hashBlockStateP1 :: BlockState pv -> HashedBlockState pv
 hashBlockStateP1 bs@BlockState{..} = HashedBlockState {
         _unhashedBlockState = bs,
         _blockStateHash = h
@@ -235,6 +235,7 @@ hashBlockStateP1 bs@BlockState{..} = HashedBlockState {
 hashBlockState :: forall pv. IsProtocolVersion pv => BlockState pv -> HashedBlockState pv
 hashBlockState = case protocolVersion :: SProtocolVersion pv of
   SP1 -> hashBlockStateP1
+  SP2 -> hashBlockStateP1
 
 instance IsProtocolVersion pv => HashableTo StateHash (BlockState pv) where
     getHash = _blockStateHash . hashBlockState
