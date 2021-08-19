@@ -1,4 +1,3 @@
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE
     DeriveGeneric, OverloadedStrings, UndecidableInstances, MonoLocalBinds, ScopedTypeVariables, TypeApplications #-}
 module Concordium.Birk.Bake(

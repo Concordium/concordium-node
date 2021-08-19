@@ -84,7 +84,9 @@ data RuntimeParameters = RuntimeParameters {
   rpBlockTimeout :: !Duration,
   -- |Threshold for how far into the future we accept blocks. Blocks with a slot
   -- time that exceeds our current time + this threshold are rejected and the p2p
-  -- is told to not relay these blocks.
+  -- is told to not relay these blocks.  Setting this to 'maxBound' will disable the
+  -- check.  Otherwise, the value should not be so large as to overflow when added
+  -- to a timestamp within the operational life of the node.
   rpEarlyBlockThreshold :: !Duration,
   -- |Maximum number of milliseconds we can get behind before skipping to the current time
   -- when baking.

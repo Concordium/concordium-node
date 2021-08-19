@@ -29,7 +29,7 @@ pub type WireProtocolVersion = u8;
 /// The current wire protocol version, currently 1.
 pub const WIRE_PROTOCOL_CURRENT_VERSION: WireProtocolVersion = 1;
 /// The legacy wire protocol version (0), which is supported for backwards
-/// compatability.
+/// compatibility.
 pub const WIRE_PROTOCOL_LEGACY_VERSION: WireProtocolVersion = 0;
 
 /// The supported write protocol versions in descending order.

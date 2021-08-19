@@ -12,6 +12,11 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
+-- |This module defines a multi-version consensus runner. In particular, this supports protocol
+-- updates by restarting the consensus with a new genesis block derived from the state of the last
+-- finalized block of the previous chain. This is embodied in the 'MultiVersionRunner' type, which
+-- encapsulates the state and context required to run multiple consensus instances. The 'MVR' monad
+-- is used to run operations within the multi-version runner.
 module Concordium.MultiVersion where
 
 import Control.Concurrent
@@ -31,6 +36,7 @@ import System.FilePath
 import Concordium.Logger hiding (Baker)
 import Concordium.Types
 import Concordium.Types.Transactions
+import Concordium.Types.UpdateQueues (ProtocolUpdateStatus (..))
 import Concordium.Types.Updates
 
 import Concordium.Afgjort.Finalize
@@ -305,9 +311,13 @@ data CatchUpStatusBufferState
     | -- |We should not send any more catch-up status messages.
       BufferShutdown
 
+-- |The context for managing multi-version consensus.
 data MultiVersionRunner gsconf finconf = MultiVersionRunner
-    { mvConfiguration :: !(MultiVersionConfiguration gsconf finconf),
+    { -- |Base configuration.
+      mvConfiguration :: !(MultiVersionConfiguration gsconf finconf),
+      -- |Callback functions for sending messsages to the network.
       mvCallbacks :: !Callbacks,
+      -- |Baker identity.
       mvBaker :: !(Maybe Baker),
       -- |Thread that periodically purges uncommitted transactions.
       mvTransactionPurgingThread :: !(MVar ThreadId),
@@ -323,6 +333,9 @@ data MultiVersionRunner gsconf finconf = MultiVersionRunner
       mvLog :: LogMethod IO
     }
 
+-- |Multi-version runner monad. Ultimately, @MVR gsconf finconf@ is a newtype wrapper around
+-- @ReaderT (MultiVersionRunner gsconf finconf) IO@. That is, it is an @IO@ monad with a
+-- @MultiVersionRunner@ context.
 newtype MVR gsconf finconf a = MVR {runMVR :: MultiVersionRunner gsconf finconf -> IO a}
     deriving
         ( Functor,
@@ -413,10 +426,10 @@ newGenesis (PVGenesisData (gd :: GenesisData pv)) =
                     newEConfig = VersionedConfiguration{..}
                 writeIORef mvVersions (oldVersions `Vec.snoc` newVersion newEConfig)
                 notifyRegenesis (genesisBlockHash gd)
-                -- Detect if the consensus is already shut down.
-                -- (This can happen when restoring a state.)
+                -- Because this may be restoring an existing state, it is possible that a protocol
+                -- update has already happened on this chain.  Therefore, we must handle this
+                -- contingency.
                 runMVR (liftSkovUpdate newEConfig checkForProtocolUpdate) mvr
-                return ()
 
 -- |Determine if a protocol update has occurred, and handle it.
 -- When a protocol update first becomes pending, this logs the update that will occur (if it is
@@ -443,7 +456,7 @@ checkForProtocolUpdate = liftSkov body
         VersionedSkovM gc fc pv ()
     body =
         Skov.getProtocolUpdateStatus >>= \case
-            Left pu -> case checkUpdate @pv pu of
+            ProtocolUpdated pu -> case checkUpdate @pv pu of
                 Left err ->
                     logEvent Kontrol LLError $
                         "An unsupported protocol update (" ++ err ++ ") has taken effect:"
@@ -460,8 +473,8 @@ checkForProtocolUpdate = liftSkov body
                             (EVersionedConfiguration vc) ->
                                 liftSkovUpdate vc $ mapM_ Skov.receiveTransaction oldTransactions
                     return ()
-            Right [] -> return ()
-            Right ((ts, pu) : _) -> do
+            PendingProtocolUpdates [] -> return ()
+            PendingProtocolUpdates ((ts, pu) : _) -> do
                 -- There is a queued protocol update, but only log about it
                 -- if we have not done so already.
                 alreadyNotified <-
@@ -565,14 +578,19 @@ startBaker mvr@MultiVersionRunner{mvBaker = Just Baker{..}, ..} = do
                 bakerLoop 0 0 `finally` mvLog Runner LLInfo "Exiting baker thread"
             else mvLog Runner LLInfo "Starting baker thread aborted: baker is already running"
     -- This synchronises on the baker MVar to ensure that a baker should definitely be
-    -- running before startBaker returns.
+    -- running before startBaker returns.  This is to ensure that if stopBaker is subsequently
+    -- called then the baker will be stopped.
     modifyMVarMasked_ bakerThread return
   where
+    -- The baker loop takes the current genesis index and last known slot that we baked for, and
+    -- will continually attempt to bake until the consensus is shut down.
     bakerLoop :: GenesisIndex -> Slot -> IO ()
     bakerLoop lastGenIndex slot = do
         (genIndex, res) <-
             withWriteLockIO mvr $ do
                 EVersionedConfiguration vc <- Vec.last <$> readIORef mvVersions
+                -- If the genesis index has changed, we reset the slot counter to 0, since this
+                -- is a different chain.
                 let nextSlot = if vcIndex vc == lastGenIndex then slot else 0
                 (vcIndex vc,) <$> runMVR (liftSkovUpdate vc (tryBake bakerIdentity nextSlot)) mvr
         case res of
@@ -782,7 +800,7 @@ receiveBlock gi blockBS = withLatestExpectedVersion gi $
         now <- currentTime
         case deserializeExactVersionedPendingBlock (protocolVersion @pv) blockBS now of
             Left err -> do
-                logEvent External LLDebug err
+                logEvent Runner LLDebug err
                 return ResultSerializationFail
             Right block -> runSkovTransaction vc (storeBlock block)
 
@@ -792,7 +810,7 @@ receiveFinalizationMessage gi finMsgBS = withLatestExpectedVersion gi $
     \(EVersionedConfiguration (vc :: VersionedConfiguration gsconf finconf pv)) ->
         case runGet getExactVersionedFPM finMsgBS of
             Left err -> do
-                logEvent External LLDebug err
+                logEvent Runner LLDebug $ "Could not deserialize finalization message: " ++ err
                 return ResultSerializationFail
             Right finMsg -> runSkovTransaction vc (finalizationReceiveMessage finMsg)
 
@@ -802,7 +820,7 @@ receiveFinalizationRecord gi finRecBS = withLatestExpectedVersion gi $
     \(EVersionedConfiguration (vc :: VersionedConfiguration gsconf finconf pv)) ->
         case runGet getExactVersionedFinalizationRecord finRecBS of
             Left err -> do
-                logEvent External LLDebug err
+                logEvent Runner LLDebug $ "Could not deserialized finalization record: " ++ err
                 return ResultSerializationFail
             Right finRec -> runSkovTransaction vc (finalizationReceiveRecord False finRec)
 
@@ -825,10 +843,10 @@ receiveCatchUpStatus ::
 receiveCatchUpStatus gi catchUpBS CatchUpConfiguration{..} =
     case runGet getExactVersionedCatchUpStatus catchUpBS of
         Left err -> do
-            logEvent External LLDebug err
+            logEvent Runner LLDebug $ "Could not deserialize catch-up status message: " ++ err
             return ResultSerializationFail
         Right catchUp -> do
-            logEvent External LLDebug $ "Catch-up status message deserialized: " ++ show catchUp
+            logEvent Runner LLDebug $ "Catch-up status message deserialized: " ++ show catchUp
             vvec <- liftIO . readIORef =<< asks mvVersions
             case vvec Vec.!? fromIntegral gi of
                 -- If we have a (re)genesis as the given index then...
@@ -852,10 +870,10 @@ receiveCatchUpStatus gi catchUpBS CatchUpConfiguration{..} =
                                 mvr
                         -- Send out the messages, where necessary.
                         forM_ mmsgs $ \(blocksFins, cusResp) -> do
-                            mvLog mvr External LLTrace $
+                            mvLog mvr Runner LLTrace $
                                 "Sending " ++ show (length blocksFins) ++ " blocks/finalization records"
                             forM_ blocksFins $ uncurry catchUpCallback
-                            mvLog mvr External LLDebug $
+                            mvLog mvr Runner LLDebug $
                                 "Catch-up response status message: " ++ show cusResp
                             catchUpCallback MessageCatchUpStatus $
                                 runPut $ putVersionedCatchUpStatus cusResp
@@ -902,7 +920,7 @@ receiveTransaction transactionBS = do
     now <- utcTimeToTransactionTime <$> currentTime
     case runGet (getExactVersionedBlockItem now) transactionBS of
         Left err -> do
-            logEvent External LLDebug err
+            logEvent Runner LLDebug err
             return ResultSerializationFail
         Right transaction -> withWriteLock $ do
             vvec <- liftIO . readIORef =<< asks mvVersions

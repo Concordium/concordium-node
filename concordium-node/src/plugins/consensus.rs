@@ -324,7 +324,7 @@ fn send_msg_to_consensus(
                     source_id,
                     node.config.catch_up_batch_limit,
                 ),
-                Transaction => unreachable!(),
+                Transaction => unreachable!("Transaction message variant already handled."),
             }
         }
     };
@@ -428,8 +428,13 @@ fn try_catch_up(node: &P2PNode, consensus: &ConsensusContainer, peers: &mut Peer
 /// Check whether the peers require catching up.
 pub fn check_peer_states(node: &P2PNode, consensus: &ConsensusContainer) {
     // If we have a new genesis block, then mark all peers as pending.
-    if node.config.regenesis_arc.trigger_catchup.load(Ordering::Acquire) {
-        node.config.regenesis_arc.trigger_catchup.store(false, Ordering::Release);
+    if node
+        .config
+        .regenesis_arc
+        .trigger_catchup
+        .compare_exchange(true, false, Ordering::SeqCst, Ordering::Acquire)
+        .is_ok()
+    {
         debug!("Regenesis occurred; marking all peers as pending.");
         write_or_die!(node.peers).mark_all_pending();
     }

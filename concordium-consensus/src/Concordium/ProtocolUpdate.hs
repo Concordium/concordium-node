@@ -7,6 +7,7 @@ module Concordium.ProtocolUpdate where
 
 import Concordium.Genesis.Data
 import Concordium.Types
+import Concordium.Types.UpdateQueues (ProtocolUpdateStatus (..))
 import Concordium.Types.Updates
 
 import Concordium.GlobalState.BlockState (BlockStateStorage)
@@ -41,7 +42,7 @@ getUpdateGenesisData ::
     m (Maybe PVGenesisData)
 getUpdateGenesisData =
     getProtocolUpdateStatus >>= \case
-        Left pu -> case checkUpdate pu of
+        ProtocolUpdated pu -> case checkUpdate pu of
             Left _ -> return Nothing
             Right u -> Just <$> updateRegenesis u
-        Right _ -> return Nothing
+        PendingProtocolUpdates _ -> return Nothing

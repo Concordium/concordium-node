@@ -674,7 +674,7 @@ toReceiveResult ResultInvalidGenesisIndex = 20
 receiveBlock :: StablePtr ConsensusRunner -> GenesisIndex -> CString -> Int64 -> IO ReceiveResult
 receiveBlock bptr genIndex msg msgLen = do
     (ConsensusRunner mvr) <- deRefStablePtr bptr
-    mvLog mvr External LLDebug $ "Received block data, size = " ++ show msgLen ++ "."
+    mvLog mvr External LLTrace $ "Received block data, size = " ++ show msgLen ++ "."
     blockBS <- BS.packCStringLen (msg, fromIntegral msgLen)
     toReceiveResult <$> runMVR (MV.receiveBlock genIndex blockBS) mvr
 
@@ -691,7 +691,7 @@ receiveFinalizationMessage ::
     IO ReceiveResult
 receiveFinalizationMessage bptr genIndex msg msgLen = do
     (ConsensusRunner mvr) <- deRefStablePtr bptr
-    mvLog mvr External LLDebug $ "Received finalization message, size = " ++ show msgLen ++ "."
+    mvLog mvr External LLTrace $ "Received finalization message, size = " ++ show msgLen ++ "."
     finMsgBS <- BS.packCStringLen (msg, fromIntegral msgLen)
     toReceiveResult <$> runMVR (MV.receiveFinalizationMessage genIndex finMsgBS) mvr
 
@@ -708,7 +708,7 @@ receiveFinalizationRecord ::
     IO ReceiveResult
 receiveFinalizationRecord bptr genIndex msg msgLen = do
     (ConsensusRunner mvr) <- deRefStablePtr bptr
-    mvLog mvr External LLDebug $ "Received finalization record, size = " ++ show msgLen ++ "."
+    mvLog mvr External LLTrace $ "Received finalization record, size = " ++ show msgLen ++ "."
     finRecBS <- BS.packCStringLen (msg, fromIntegral msgLen)
     toReceiveResult <$> runMVR (MV.receiveFinalizationRecord genIndex finRecBS) mvr
 
@@ -719,7 +719,7 @@ receiveFinalizationRecord bptr genIndex msg msgLen = do
 receiveTransaction :: StablePtr ConsensusRunner -> CString -> Int64 -> IO ReceiveResult
 receiveTransaction bptr transactionData transactionLen = do
     (ConsensusRunner mvr) <- deRefStablePtr bptr
-    mvLog mvr External LLDebug $ "Received transaction, size = " ++ show transactionLen ++ "."
+    mvLog mvr External LLTrace $ "Received transaction, size = " ++ show transactionLen ++ "."
     transactionBS <- BS.packCStringLen (transactionData, fromIntegral transactionLen)
     toReceiveResult <$> runMVR (MV.receiveTransaction transactionBS) mvr
 
@@ -979,10 +979,6 @@ getAncestors cptr blockcstr depth =
 -- given as a null-terminated base16 encoding of the block hash. The return
 -- value is a null-terminated JSON-encoded list of addresses.
 -- The returned string should be freed by calling 'freeCStr'.
---
--- Note: the behaviour on an ill-formed block hash has changed slightly, so that
--- JSON null value is returned. Previously, the JSON string
--- "Invalid block hash." was returned.
 getAccountList :: StablePtr ConsensusRunner -> CString -> IO CString
 getAccountList cptr blockcstr =
     decodeBlockHash blockcstr >>= \case
@@ -993,8 +989,6 @@ getAccountList cptr blockcstr =
 -- block must be given as a null-terminated base16 encoding of the block hash.
 -- The return value is a null-terminated JSON-encoded list of addresses.
 -- The returned string should be freed by calling 'freeCStr'.
---
--- Note: the behaviour on ill-formed block hashes has changed as for 'getAccountList'.
 getInstances :: StablePtr ConsensusRunner -> CString -> IO CString
 getInstances cptr blockcstr =
     decodeBlockHash blockcstr >>= \case
@@ -1005,8 +999,6 @@ getInstances cptr blockcstr =
 -- null-terminated base16 encoding of the block hash.
 -- The return value is a null-terminated JSON-encoded list.
 -- The returned string should be freed by calling 'freeCStr'.
---
--- Note: the behaviour on ill-formed block hashes has changed as for 'getAccountList'.
 getModuleList :: StablePtr ConsensusRunner -> CString -> IO CString
 getModuleList cptr blockcstr = do
     decodeBlockHash blockcstr >>= \case
@@ -1059,7 +1051,7 @@ getModuleSource cptr blockcstr modcstr = do
         (Just bh, Just modref) -> do
             msrc <- runMVR (Q.getModuleSource bh modref) mvr
             byteStringToCString $ maybe BS.empty S.encode msrc
-        _ -> jsonCString AE.Null
+        _ -> byteStringToCString BS.empty
 
 -- ** Transaction-indexed queries
 
@@ -1256,8 +1248,6 @@ foreign export ccall
         FunPtr DirectMessageCallback ->
         IO ReceiveResult
 
--- report global state information will be removed in the future when global
--- state is handled better
 foreign export ccall getAccountList :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getInstances :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getAccountInfo :: StablePtr ConsensusRunner -> CString -> CString -> IO CString

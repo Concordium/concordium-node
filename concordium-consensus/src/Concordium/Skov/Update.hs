@@ -17,7 +17,7 @@ import Concordium.Types
 import Concordium.Types.Accounts
 import Concordium.Types.HashableTo
 import Concordium.Types.Updates
-import Concordium.GlobalState.TreeState as TS
+import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockState
@@ -427,10 +427,11 @@ blockArrive block parentP lfBlockP ExecutionResult{..} = do
 doStoreBlock :: (TreeStateMonad pv m, FinalizationMonad m, SkovMonad pv m, OnSkov m) => PendingBlock -> m UpdateResult
 {- - INLINE doStoreBlock - -}
 doStoreBlock pb@GB.PendingBlock{..} = unlessShutDown $ do
-    threshold <- rpEarlyBlockThreshold <$> TS.getRuntimeParameters
+    threshold <- rpEarlyBlockThreshold <$> getRuntimeParameters
     slotTime <- getSlotTimestamp (blockSlot pb)
     -- Check if the block is too early. We check that the threshold is not maxBound also, so that
     -- by setting the threshold to maxBound we can ensure blocks will never be considered early.
+    -- This can be useful for testing.
     -- A more general approach might be to check for overflow generally, but this is simple and
     -- workable.
     if slotTime > addDuration (utcTimeToTimestamp pbReceiveTime) threshold && threshold /= maxBound then

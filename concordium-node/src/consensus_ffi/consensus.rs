@@ -323,7 +323,7 @@ impl ConsensusContainer {
 /// A Regenesis object consists of a list of the genesis block hashes and a flag
 /// that is set when regenesis occurs to trigger catch-up with peers.
 pub struct Regenesis {
-    /// The list of genesis blocks.
+    /// The list of genesis block hashes, in order of increasing genesis index.
     pub blocks:          RwLock<Vec<BlockHash>>,
     /// A flag that is set to indicate that peers should be added to the
     /// catch-up queue.

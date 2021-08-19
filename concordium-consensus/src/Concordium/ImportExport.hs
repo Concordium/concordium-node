@@ -105,13 +105,14 @@ instance Serialize SectionHeader where
         sectionFinalizationCount <- getWord64be
         return SectionHeader{..}
 
--- |A dummy 'SectionHeader' that is used as a placeholder.
-dummySectionHeader :: SectionHeader
-dummySectionHeader = SectionHeader 0 0 P1 (BlockHash minBound) 0 0 0 0
+-- |A dummy 'SectionHeader' that is used as a placeholder when writing a section, before being
+-- overwritten with the correct data.
+placeholderSectionHeader :: SectionHeader
+placeholderSectionHeader = SectionHeader 0 0 P1 (BlockHash minBound) 0 0 0 0
 
 -- |The length of a section header in bytes.
 sectionHeaderLength :: Word64
-sectionHeaderLength = fromIntegral $ BS.length $ encode dummySectionHeader
+sectionHeaderLength = fromIntegral $ BS.length $ encode placeholderSectionHeader
 
 -- |Write a section to the file handle.  It must be possible to write and seek the handle.
 -- The section is written at the current seek location of the handle, and afterwards the seek
@@ -144,7 +145,7 @@ writeSection
         (sectionStart, blocksStart) <- liftIO $ do
             sectionStart <- hTell hdl
             -- Write a dummy section header that we will later overwrite
-            runPutH (liftPut $ putWord64be sectionHeaderLength >> put dummySectionHeader) hdl
+            runPutH (liftPut $ putWord64be sectionHeaderLength >> put placeholderSectionHeader) hdl
             blocksStart <- hTell hdl
             return (sectionStart, blocksStart)
         sectionBlockCount <- writeBlocks
@@ -255,27 +256,30 @@ exportSections hdl dbDir genIndex = do
     let treeStateDir = dbDir </> "treestate-" ++ show genIndex
     -- Check if the database exists for this genesis index
     dbEx <- doesPathExist $ treeStateDir </> "data.mdb"
-    when dbEx $
-        openReadOnlyDatabase treeStateDir >>= \case
-            Nothing -> return () -- Stop if we failed to open the DB
-            Just (VersionDatabaseHandlers (dbh :: DatabaseHandlers pv ())) ->
-                evalStateT
-                    ( do
-                        mgenFinRec <- resizeOnResized $ readFinalizationRecord 0
-                        forM_ mgenFinRec $ \genFinRec -> do
-                            let genHash = finalizationBlockPointer genFinRec
-                                startHeight = 1
-                            writeSection
-                                genIndex
-                                (demoteProtocolVersion (protocolVersion @pv))
-                                genHash
-                                startHeight
-                                hdl
-                                (exportBlocks hdl startHeight)
-                                (exportFinRecs hdl)
-                    )
-                    (DBState dbh 0)
-                    >> exportSections hdl dbDir (genIndex + 1)
+    if dbEx
+        then
+            openReadOnlyDatabase treeStateDir >>= \case
+                Nothing -> putStrLn "Tree state database could not be opened."
+                Just (VersionDatabaseHandlers (dbh :: DatabaseHandlers pv ())) -> do
+                    evalStateT
+                        ( do
+                            mgenFinRec <- resizeOnResized $ readFinalizationRecord 0
+                            forM_ mgenFinRec $ \genFinRec -> do
+                                let genHash = finalizationBlockPointer genFinRec
+                                    startHeight = 1
+                                writeSection
+                                    genIndex
+                                    (demoteProtocolVersion (protocolVersion @pv))
+                                    genHash
+                                    startHeight
+                                    hdl
+                                    (exportBlocks hdl startHeight)
+                                    (exportFinRecs hdl)
+                        )
+                        (DBState dbh 0)
+                    closeDatabase dbh
+                    exportSections hdl dbDir (genIndex + 1)
+        else putStrLn ("The tree state database does not exist at " ++ treeStateDir)
 
 -- |Imported data for processing.
 data ImportData

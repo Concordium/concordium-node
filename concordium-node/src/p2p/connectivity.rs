@@ -69,6 +69,11 @@ impl P2PNode {
     ) -> usize {
         let mut sent_messages = 0usize;
         let data = Arc::from(data);
+        // legacy_data holds a rewritten version of data for legacy peers on a by-need
+        // basis. If legacy_data is None, then so far no peers have required the
+        // legacy version. If legacy_data is Some(None), then the message is not
+        // supported by legacy peers. If legacy_data is Some(Some(v)), then v
+        // should be sent to the legacy peers.
         let mut legacy_data: Option<Option<Arc<[u8]>>> = None;
 
         for conn in write_or_die!(self.connections()).values_mut().filter(|conn| conn_filter(conn))
@@ -80,6 +85,7 @@ impl P2PNode {
                 assert_eq!(conn.wire_version, WIRE_PROTOCOL_LEGACY_VERSION);
                 let send_data = match legacy_data.clone() {
                     None => {
+                        // The message for legacy peers has not yet been constructed, so do so.
                         let send_data = match rewrite_outgoing(WIRE_PROTOCOL_LEGACY_VERSION, &data)
                         {
                             Ok(None) => Some(Arc::clone(&data)),
@@ -97,6 +103,8 @@ impl P2PNode {
                 if let Some(send) = send_data {
                     conn.async_send(send, MessageSendingPriority::Normal);
                     sent_messages += 1;
+                } else {
+                    trace!("Message cannot be sent on legacy connection to {}", conn);
                 }
             }
         }
@@ -335,7 +343,7 @@ impl P2PNode {
                 networks:       read_or_die!(self.networks()).iter().copied().collect(),
                 node_version:   Version::parse(env!("CARGO_PKG_VERSION"))?,
                 wire_versions:  WIRE_PROTOCOL_VERSIONS.to_vec(),
-                genesis_blocks: self.config.regenesis_arc.blocks.read().unwrap().clone(),
+                genesis_blocks: read_or_die!(self.config.regenesis_arc.blocks).clone(),
                 proof:          vec![],
             })
         );

@@ -20,7 +20,7 @@ import Control.Monad.IO.Class
 import Concordium.Skov.Query
 
 import Concordium.Types
-import Concordium.Types.Updates
+import Concordium.Types.UpdateQueues (ProtocolUpdateStatus)
 import Concordium.GlobalState.Types
 import Concordium.Types.HashableTo
 import Concordium.GlobalState
@@ -138,7 +138,7 @@ class (Monad m, Eq (BlockPointerType m), HashableTo BlockHash (BlockPointerType 
     isShutDown :: m Bool
     -- |Return the current protocol update, or any pending updates if none has
     -- yet taken effect.
-    getProtocolUpdateStatus :: m (Either ProtocolUpdate [(TransactionTime, ProtocolUpdate)])
+    getProtocolUpdateStatus :: m ProtocolUpdateStatus
 
     getConsensusStatistics :: m ConsensusStatistics
     default getConsensusStatistics :: (TS.TreeStateMonad pv m) => m ConsensusStatistics

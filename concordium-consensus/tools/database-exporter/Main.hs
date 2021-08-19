@@ -32,13 +32,13 @@ checkDatabase filepath = do
         SomeProtocolVersion spv -> case deserializeExactVersionedPendingBlock spv bs t of
             Left _ -> return $ Left ImportSerializationFail
             Right pb -> do
-                logEvent External LLInfo $ "GensisIndex: " ++ show gi ++ " block: " ++ show (pbHash pb) ++ " slot: " ++ show (blockSlot pb)
+                logEvent External LLInfo $ "GenesisIndex: " ++ show gi ++ " block: " ++ show (pbHash pb) ++ " slot: " ++ show (blockSlot pb)
                 return $ Right ()
     handleImport _ (ImportFinalizationRecord _ gi bs) =
         case runGet getExactVersionedFinalizationRecord bs of
             Left _ -> return $ Left ImportSerializationFail
             Right fr -> do
-                logEvent External LLInfo $ "GensisIndex: " ++ show gi ++ " finrec for: " ++ show (finalizationBlockPointer fr)
+                logEvent External LLInfo $ "GenesisIndex: " ++ show gi ++ " finrec for: " ++ show (finalizationBlockPointer fr)
                 return $ Right ()
 
 -- |Export a block database, or check and exported block file, depending on the command line.

@@ -112,17 +112,20 @@ notifyBuffer handleMsg bufId = do
 
 -- |A 'FinalizationState' equipped with a 'FinalizationBuffer'.  The buffer is used in the
 -- 'Concordium.Skov.MonadImplementation.BufferedFinalization' configuration to buffer Seen
--- messages so that fewer messages need to be sent.
-data BufferedFinalizationState t = BufferedFinalizationState {
-        _bfsFinalization :: !(FinalizationState t),
+-- messages so that fewer messages need to be sent.  The type parameter is the type of timers.
+data BufferedFinalizationState timer = BufferedFinalizationState {
+        _bfsFinalization :: !(FinalizationState timer),
         _bfsBuffer :: !FinalizationBuffer
     }
     deriving(Show)
 makeLenses ''BufferedFinalizationState
 
 instance FinalizationQueueLenses (BufferedFinalizationState t) where
+    {-# INLINE finQueue #-}
     finQueue = bfsFinalization . finQueue
 instance FinalizationStateLenses (BufferedFinalizationState t) t where
+    {-# INLINE finState #-}
     finState = bfsFinalization
 instance FinalizationBufferLenses (BufferedFinalizationState t) where
+    {-# INLINE finBuffer #-}
     finBuffer = bfsBuffer

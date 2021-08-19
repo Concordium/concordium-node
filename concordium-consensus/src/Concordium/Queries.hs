@@ -202,7 +202,6 @@ getAccountNonFinalizedTransactions acct = liftSkovQueryLatest $ queryNonFinalize
 -- If all account transactions are finalized then this information is reliable.
 -- Otherwise this is the best guess, assuming all other transactions will be
 -- committed to blocks and eventually finalized.
--- The 'Bool' indicates whether all transactions are finalized.
 getNextAccountNonce :: AccountAddress -> MVR gsconf finconf NextAccountNonce
 getNextAccountNonce acct = liftSkovQueryLatest $ do
     (nanNonce, nanAllFinal) <- queryNextAccountNonce acct

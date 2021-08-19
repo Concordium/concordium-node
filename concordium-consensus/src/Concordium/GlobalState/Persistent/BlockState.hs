@@ -221,7 +221,7 @@ emptyHashedEpochBlocks = HashedEpochBlocks {
         hebHash = Rewards.emptyEpochBlocksHash
     }
 
--- |Add a new 'BakerId' to the start of a 'HashedEpcohBlocks'.
+-- |Add a new 'BakerId' to the start of a 'HashedEpochBlocks'.
 consEpochBlock :: (MonadBlobStore m) => BakerId -> HashedEpochBlocks -> m HashedEpochBlocks
 consEpochBlock b hebbs = do
         mbr <- refMake EpochBlock{
@@ -1087,7 +1087,7 @@ doGetCurrentElectionDifficulty pbs = do
 doGetUpdates :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m UQ.Updates
 doGetUpdates = makeBasicUpdates <=< refLoad . bspUpdates <=< loadPBS
 
-doGetProtocolUpdateStatus :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m (Either ProtocolUpdate [(TransactionTime, ProtocolUpdate)])
+doGetProtocolUpdateStatus :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m UQ.ProtocolUpdateStatus
 doGetProtocolUpdateStatus = protocolUpdateStatus . bspUpdates <=< loadPBS
 
 doProcessUpdateQueues :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> Timestamp -> m (Map.Map TransactionTime UpdateValue, PersistentBlockState pv)

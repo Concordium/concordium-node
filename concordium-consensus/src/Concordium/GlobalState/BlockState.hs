@@ -256,7 +256,7 @@ class AccountOperations m => BlockStateQuery m where
     -- returns @Left protocolUpdate@. Otherwise, returns @Right pendingProtocolUpdates@.
     -- The @pendingProtocolUpdates@ is a (possibly-empty) list of timestamps and protocol
     -- updates that have not yet taken effect.
-    getProtocolUpdateStatus :: BlockState m -> m (Either ProtocolUpdate [(TransactionTime, ProtocolUpdate)])
+    getProtocolUpdateStatus :: BlockState m -> m UQ.ProtocolUpdateStatus
 
     -- |Get the current cryptographic parameters of the chain.
     getCryptographicParameters :: BlockState m -> m CryptographicParameters

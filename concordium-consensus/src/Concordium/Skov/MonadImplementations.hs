@@ -7,7 +7,6 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -25,6 +24,7 @@ import Data.Proxy
 import qualified Data.Text as Text
 
 import Concordium.Types
+import Concordium.Types.UpdateQueues (ProtocolUpdateStatus(..))
 import Concordium.Types.Updates
 
 import Concordium.GlobalState.Finalization
@@ -115,7 +115,9 @@ class FinalizationConfig finconfig where
     initialiseFinalization :: (MonadIO m, SkovQueryMonad pv m) => finconfig -> m (FCContext finconfig, FCState finconfig)
 
 -- |Type of finalization configuration for no active participation in finalization.
-data NoFinalization (t :: Type) = NoFinalization
+-- The type parameter is the type of timers supported by the 'TimerMonad' in which finalization
+-- operations occur.
+data NoFinalization (timer :: Type) = NoFinalization
 
 instance FinalizationConfig (NoFinalization t) where
     type FCContext (NoFinalization t) = ()
@@ -131,7 +133,10 @@ instance (Monad m)
         => FinalizationOutputMonad (SkovT pv h (SkovConfig pv gc (NoFinalization t) hc) m) where
     broadcastFinalizationPseudoMessage _ = return ()
 
-data ActiveFinalization (t :: Type) = ActiveFinalization !FinalizationInstance
+-- |Type of finalization configuration for active participation in finalization with no buffering.
+-- The type parameter is the type of timers supported by the 'TimerMonad' in which finalization
+-- operations occur.
+newtype ActiveFinalization (timer :: Type) = ActiveFinalization FinalizationInstance
 
 instance FinalizationConfig (ActiveFinalization t) where
     type FCContext (ActiveFinalization t) = FinalizationInstance
@@ -143,7 +148,11 @@ instance (SkovFinalizationHandlers h m, Monad m)
         => FinalizationOutputMonad (SkovT pv h (SkovConfig pv gc (ActiveFinalization t) hc) m) where
     broadcastFinalizationPseudoMessage pmsg = SkovT (\h _ -> lift $ handleBroadcastFinalizationMessage h pmsg)
 
-data BufferedFinalization (t :: Type) = BufferedFinalization !FinalizationInstance
+-- |Type of finalization configuration for active participation in finalization with buffering
+-- to reduce the number of finalization messages that need to be sent.
+-- The type parameter is the type of timers supported by the 'TimerMonad' in which finalization
+-- operations occur.
+newtype BufferedFinalization (timer :: Type) = BufferedFinalization FinalizationInstance
 
 
 instance FinalizationConfig (BufferedFinalization t) where
@@ -290,7 +299,7 @@ instance SkovTimerHandlers pv (SkovHandlers pv t c m) c m where
 instance SkovPendingLiveHandlers (SkovHandlers pv t c m) m where
     handlePendingLive = shPendingLive
 
-data SkovPassiveHandlers (pv :: ProtocolVersion) (c :: Type) m = SkovPassiveHandlers {
+newtype SkovPassiveHandlers (pv :: ProtocolVersion) (c :: Type) m = SkovPassiveHandlers {
     sphPendingLive :: m ()
 }
 
@@ -307,6 +316,16 @@ instance SkovTimerHandlers pv (SkovPassiveHandlers pv c m) c m where
 
 -- |The 'SkovT' monad transformer equips a monad with state, context and handlers for
 -- performing Skov operations.
+-- The type parameters are as follows:
+--
+-- * @pv@: the protocol version.
+-- * @h@: the handler configuration. This should be an instance of 'SkovPendingLiveHandlers', and,
+--   if active finalization is required, 'SkovFinalizationHandlers' and 'SkovTimerHandlers'.
+--   Typically, this is either @SkovHandlers pv t s m@ or @SkovPassiveHandlers pv c m@.
+-- * @c@: the Skov configuration. Typically, this is @SkovConfig pv gc fc hc@.
+-- * @m@: the underlying monad. Typically, this should be an instance of 'MonadIO', 'MonadLogger',
+--   and 'TimeMonad'.
+-- * @a@: the return type.
 newtype SkovT (pv :: ProtocolVersion) h c m a = SkovT { runSkovT' :: h -> SkovContext c -> StateT (SkovState c) m a }
     deriving (Functor, Applicative, Monad, MonadState (SkovState c), MonadIO, MonadLogger, TimeMonad)
         via (ReaderT h (ReaderT (SkovContext c) (StateT (SkovState c) m)))
@@ -441,15 +460,15 @@ instance (Monad m, SkovMonad pv (SkovT pv h (SkovConfig pv gc fc LogUpdateHandle
     handleBlock = \_ -> return ()
     handleFinalize = \_ _ ->
         Skov.getProtocolUpdateStatus >>= \case
-            Left pu -> logEvent Kontrol LLError $
+            ProtocolUpdated pu -> logEvent Kontrol LLError $
                 "Consensus has been updated: " ++ showPU pu
-            Right [] -> return ()
-            Right ((ts, pu):_) -> logEvent Kontrol LLWarning $
+            PendingProtocolUpdates [] -> return ()
+            PendingProtocolUpdates ((ts, pu):_) -> logEvent Kontrol LLWarning $
                 "Consensus is scheduled to update at " ++
                 show (timestampToUTCTime $ transactionTimeToTimestamp ts) ++
                 ": " ++ showPU pu
         where
-            showPU ProtocolUpdate{..} = Text.unpack puMessage ++ "\n[" 
+            showPU ProtocolUpdate{..} = Text.unpack puMessage ++ "\n["
                 ++ Text.unpack puSpecificationURL ++ " (hash " ++ show puSpecificationHash ++ ")]"
 
 instance (FinalizationQueueLenses (FCState finconf))
@@ -477,10 +496,10 @@ instance GSLogContext gsconf pv ~ a => HasLogContext a (SkovState (SkovConfig pv
   {- - INLINE logContext - -}
 
 instance (c ~ GSContext gsconf pv) => HasGlobalStateContext c (SkovContext (SkovConfig pv gsconf finconf hconf)) where
-    globalStateContext = lens (scGSContext) (\sc v -> sc{scGSContext = v})
+    globalStateContext = lens scGSContext (\sc v -> sc{scGSContext = v})
     {- - INLINE globalStateContext - -}
 instance (g ~ GSState gsconf pv) => HasGlobalState g (SkovState (SkovConfig pv gsconf finconf hconf)) where
-    globalState = lens (ssGSState) (\ss v -> ss {ssGSState = v})
+    globalState = lens ssGSState (\ss v -> ss {ssGSState = v})
     {- - INLINE globalState - -}
 
 instance (MonadIO m,
