@@ -27,7 +27,9 @@ import Concordium.Types
 import Concordium.Types.Accounts
 import Concordium.Types.Updates
 import Concordium.Types.UpdateQueues
+import qualified Concordium.Genesis.Data as GenesisData
 import qualified Concordium.Genesis.Data.P1 as P1
+import qualified Concordium.Genesis.Data.P2 as P2
 import qualified Concordium.GlobalState.Types as GT
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Parameters
@@ -880,7 +882,7 @@ initialState seedState cryptoParams genesisAccounts ips anonymityRevokers keysCo
 -- |Initial block state based on 'GenesisData', for protocol version P1.
 genesisStateP1 :: GenesisData 'P1 -> Either String (BlockState 'P1)
 genesisStateP1 (GDP1 P1.GDP1Initial{
-    genesisCore=P1.CoreGenesisParameters{..},
+    genesisCore=GenesisData.CoreGenesisParameters{..},
     genesisInitialState = P1.GenesisState{..}
   }) = do
     accounts <- mapM mkAccount (zip [0..] (toList genesisAccounts))
@@ -921,11 +923,22 @@ genesisStateP1 (GDP1 P1.GDP1Initial{
     _blockUpdates = initialUpdates genesisUpdateKeys genesisChainParameters
     _blockReleaseSchedule = Map.empty
     _blockEpochBlocksBaked = emptyHashedEpochBlocks
-genesisStateP1 (GDP1 P1.GDP1Regenesis{..}) = case runGet getBlockState genesisNewState of
-  Left err -> Left $ "Could not deserialize genesis state: " ++ err
+genesisStateP1 (GDP1 P1.GDP1Regenesis{genesisRegenesis=GenesisData.RegenesisData{..}}) = case runGet getBlockState genesisNewState of
+  Left err -> Left $ "Could not deserialize P1 genesis state: " ++ err
   Right bs
       | hbs ^. blockStateHash /= genesisStateHash -> Left "Could not deserialize genesis state: state hash is incorrect"
-      | epochLength (bs ^. blockBirkParameters . birkSeedState) /= P1.genesisEpochLength genesisCore -> Left "Could not deserialize genesis state: epoch length mismatch"      
+      | epochLength (bs ^. blockBirkParameters . birkSeedState) /= GenesisData.genesisEpochLength genesisCore -> Left "Could not deserialize genesis state: epoch length mismatch"
+      | otherwise -> Right bs
+    where
+      hbs = hashBlockState bs
+
+-- |Initial block state based on 'GenesisData', for protocol version P2.
+genesisStateP2 :: GenesisData 'P2 -> Either String (BlockState 'P2)
+genesisStateP2 (GDP2 P2.GenesisDataP2{unGenesisDataP2=GenesisData.RegenesisData{..}}) = case runGet getBlockState genesisNewState of
+  Left err -> Left $ "Could not deserialize P2 genesis state: " ++ err
+  Right bs
+      | hbs ^. blockStateHash /= genesisStateHash -> Left "Could not deserialize genesis state: state hash is incorrect"
+      | epochLength (bs ^. blockBirkParameters . birkSeedState) /= GenesisData.genesisEpochLength genesisCore -> Left "Could not deserialize genesis state: epoch length mismatch"
       | otherwise -> Right bs
     where
       hbs = hashBlockState bs
@@ -935,5 +948,6 @@ genesisStateP1 (GDP1 P1.GDP1Regenesis{..}) = case runGet getBlockState genesisNe
 -- indicating the cause of the failure.  Otherwise, it returns @Right bs@ with a valid block state
 -- constructed according to the supplied genesis data.
 genesisState :: forall pv. (IsProtocolVersion pv) => GenesisData pv -> Either String (BlockState pv)
-genesisState = case protocolVersion :: SProtocolVersion pv of
+genesisState = case protocolVersion @pv of
   SP1 -> genesisStateP1
+  SP2 -> genesisStateP2

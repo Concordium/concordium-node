@@ -39,6 +39,7 @@ import qualified Data.ByteString as BS
 import Concordium.Crypto.DummyData
 import Concordium.ID.DummyData
 import Concordium.Types.DummyData
+import qualified Concordium.Genesis.Data as GenesisData
 import qualified Concordium.Genesis.Data.P1 as P1
 
 cryptoParamsFileContents :: BS.ByteString
@@ -178,7 +179,7 @@ makeTestingGenesisDataP1
   genesisUpdateKeys
   genesisChainParameters
     = GDP1 P1.GDP1Initial {
-        genesisCore=P1.CoreGenesisParameters{..},
+        genesisCore=GenesisData.CoreGenesisParameters{..},
         genesisInitialState=P1.GenesisState{..}
       }
     where

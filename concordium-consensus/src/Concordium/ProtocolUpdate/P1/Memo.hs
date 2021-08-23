@@ -58,7 +58,9 @@ import Data.Serialize
 
 import qualified Concordium.Crypto.SHA256 as SHA256
 import Concordium.Genesis.Data
+import qualified Concordium.Genesis.Data as GenesisData
 import qualified Concordium.Genesis.Data.P1 as P1
+import qualified Concordium.Genesis.Data.P2 as P2
 import Concordium.Types
 import Concordium.Types.SeedState
 
@@ -73,7 +75,7 @@ import Concordium.Kontrol
 -- FIXME: This should be the hash of a specification document that
 -- properly describes the update.
 updateHash :: SHA256.Hash
-updateHash = SHA256.hash "P1.Memo"
+updateHash = read "665a3041df9ef9b2ab1b74f9a9aabe6736542f3f7741349db82569407d799ad0"
 
 -- |Construct the genesis data for a P1.Reboot update.
 -- It is assumed that the last finalized block is the terminal block of the old chain:
@@ -84,17 +86,15 @@ updateRegenesis = do
     lfb <- lastFinalizedBlock
     -- Genesis time is the timestamp of the terminal block
     regenesisTime <- getSlotTimestamp (blockSlot lfb)
-    -- Core parameters are derived from the UpdateData
+    -- Core parameters are derived from the old genesis, apart from genesis time which is set for
+    -- the time of the last finalized block.
     gd <- getGenesisData
-    let core =
-            (P1.genesisCore $ unGDP1 gd)
-                { P1.genesisTime = regenesisTime
-                }
+    let core = (P1.genesisCore $ unGDP1 gd) { GenesisData.genesisTime = regenesisTime }
     -- genesisFirstGenesis is the block hash of the previous genesis, if it is initial,
     -- or the genesisFirstGenesis of the previous genesis otherwise.
     let genesisFirstGenesis = case gd of
             GDP1 P1.GDP1Initial{} -> genesisBlockHash gd
-            GDP1 P1.GDP1Regenesis{genesisFirstGenesis = firstGen} -> firstGen
+            GDP1 P1.GDP1Regenesis{genesisRegenesis=GenesisData.RegenesisData{genesisFirstGenesis = firstGen}} -> firstGen
     let genesisPreviousGenesis = genesisBlockHash gd
     let genesisTerminalBlock = bpHash lfb
     -- Determine the new state by updating the terminal state.
@@ -111,4 +111,5 @@ updateRegenesis = do
     regenesisState <- freezeBlockState s3
     genesisStateHash <- getStateHash regenesisState
     genesisNewState <- serializeBlockState regenesisState
-    return $ PVGenesisData $ GDP2 P1.GDP1Regenesis{genesisCore = core,..}
+    let unGenesisDataP2 = GenesisData.RegenesisData{genesisCore=core,..}
+    return . PVGenesisData . GDP2 $ P2.GenesisDataP2 unGenesisDataP2

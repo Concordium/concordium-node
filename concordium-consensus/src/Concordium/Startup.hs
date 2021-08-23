@@ -34,6 +34,7 @@ import Concordium.Crypto.DummyData
     ( randomBlockKeyPair, randomBlsSecretKey, randomEd25519KeyPair )
 import Concordium.GlobalState.DummyData
 import Concordium.ID.DummyData
+import qualified Concordium.Genesis.Data as GenesisData
 import qualified Concordium.Genesis.Data.P1 as P1
 
 makeBakersByStake :: [Amount] -> [(BakerIdentity, FullBakerInfo, GenesisAccount, SigScheme.KeyPair)]
@@ -146,6 +147,7 @@ makeGenesisData
         genesisTotalAmount = sum (gaBalance <$> genesisAccounts)
         gd = case protocolVersion @pv of
             SP1 -> GDP1 P1.GDP1Initial{
-                        genesisCore=P1.CoreGenesisParameters{..},
+                        genesisCore=GenesisData.CoreGenesisParameters{..},
                         genesisInitialState=P1.GenesisState{genesisAccounts = Vec.fromList genesisAccounts, ..}
                     }
+            SP2 -> error "FIXME: Add startup with P2 genesis."

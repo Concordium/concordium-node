@@ -58,6 +58,7 @@ import Data.Serialize
 
 import qualified Concordium.Crypto.SHA256 as SHA256
 import Concordium.Genesis.Data
+import qualified Concordium.Genesis.Data as GenesisData
 import qualified Concordium.Genesis.Data.P1 as P1
 import Concordium.Types
 import Concordium.Types.Parameters
@@ -112,7 +113,7 @@ updateRegenesis UpdateData{..} = do
     regenesisTime <- getSlotTimestamp (blockSlot lfb)
     -- Core parameters are derived from the UpdateData
     let genesisCore =
-            P1.CoreGenesisParameters
+            GenesisData.CoreGenesisParameters
                 { genesisTime = regenesisTime,
                   genesisSlotDuration = updateSlotDuration,
                   genesisEpochLength = updateEpochLength,
@@ -124,7 +125,7 @@ updateRegenesis UpdateData{..} = do
     -- or the genesisFirstGenesis of the previous genesis otherwise.
     let genesisFirstGenesis = case gd of
             GDP1 P1.GDP1Initial{} -> genesisBlockHash gd
-            GDP1 P1.GDP1Regenesis{genesisFirstGenesis = firstGen} -> firstGen
+            GDP1 P1.GDP1Regenesis{genesisRegenesis=GenesisData.RegenesisData{genesisFirstGenesis = firstGen}} -> firstGen
     let genesisPreviousGenesis = genesisBlockHash gd
     let genesisTerminalBlock = bpHash lfb
     -- Determine the new state by updating the terminal state.
@@ -143,4 +144,5 @@ updateRegenesis UpdateData{..} = do
     regenesisState <- freezeBlockState s3
     genesisStateHash <- getStateHash regenesisState
     genesisNewState <- serializeBlockState regenesisState
+    let genesisRegenesis = GenesisData.RegenesisData{..}
     return $ PVGenesisData $ GDP1 P1.GDP1Regenesis{..}
