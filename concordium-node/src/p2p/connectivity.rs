@@ -3,11 +3,13 @@
 use crate::{
     common::{get_current_stamp, p2p_peer::RemotePeerId, P2PNodeId, PeerType, RemotePeer},
     configuration as config,
-    connection::{ConnChange, Connection, MessageSendingPriority},
+    connection::{
+        version_adapter::rewrite_outgoing, ConnChange, Connection, MessageSendingPriority,
+    },
     lock_or_die, netmsg,
     network::{
         Handshake, NetworkId, NetworkPacket, NetworkRequest, PacketDestination,
-        WIRE_PROTOCOL_VERSION,
+        WIRE_PROTOCOL_CURRENT_VERSION, WIRE_PROTOCOL_LEGACY_VERSION, WIRE_PROTOCOL_VERSIONS,
     },
     p2p::{
         bans::{BanId, PersistedBanId},
@@ -67,11 +69,44 @@ impl P2PNode {
     ) -> usize {
         let mut sent_messages = 0usize;
         let data = Arc::from(data);
+        // legacy_data holds a rewritten version of data for legacy peers on a by-need
+        // basis. If legacy_data is None, then so far no peers have required the
+        // legacy version. If legacy_data is Some(None), then the message is not
+        // supported by legacy peers. If legacy_data is Some(Some(v)), then v
+        // should be sent to the legacy peers.
+        let mut legacy_data: Option<Option<Arc<[u8]>>> = None;
 
         for conn in write_or_die!(self.connections()).values_mut().filter(|conn| conn_filter(conn))
         {
-            conn.async_send(Arc::clone(&data), MessageSendingPriority::Normal);
-            sent_messages += 1;
+            if conn.wire_version == WIRE_PROTOCOL_CURRENT_VERSION {
+                conn.async_send(Arc::clone(&data), MessageSendingPriority::Normal);
+                sent_messages += 1;
+            } else {
+                assert_eq!(conn.wire_version, WIRE_PROTOCOL_LEGACY_VERSION);
+                let send_data = match legacy_data.clone() {
+                    None => {
+                        // The message for legacy peers has not yet been constructed, so do so.
+                        let send_data = match rewrite_outgoing(WIRE_PROTOCOL_LEGACY_VERSION, &data)
+                        {
+                            Ok(None) => Some(Arc::clone(&data)),
+                            Ok(Some(legacy)) => Some(legacy),
+                            Err(e) => {
+                                debug!("Dropping message for legacy peers: {}", e);
+                                None
+                            }
+                        };
+                        legacy_data = Some(send_data.clone());
+                        send_data
+                    }
+                    Some(legacy) => legacy,
+                };
+                if let Some(send) = send_data {
+                    conn.async_send(send, MessageSendingPriority::Normal);
+                    sent_messages += 1;
+                } else {
+                    trace!("Message cannot be sent on legacy connection to {}", conn);
+                }
+            }
         }
 
         sent_messages
@@ -307,8 +342,8 @@ impl P2PNode {
                 remote_port:    self.self_peer.port(),
                 networks:       read_or_die!(self.networks()).iter().copied().collect(),
                 node_version:   Version::parse(env!("CARGO_PKG_VERSION"))?,
-                wire_versions:  vec![WIRE_PROTOCOL_VERSION],
-                genesis_blocks: self.config.regenesis_arc.read().expect("").clone(),
+                wire_versions:  WIRE_PROTOCOL_VERSIONS.to_vec(),
+                genesis_blocks: read_or_die!(self.config.regenesis_arc.blocks).clone(),
                 proof:          vec![],
             })
         );

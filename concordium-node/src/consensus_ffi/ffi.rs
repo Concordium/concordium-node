@@ -18,10 +18,10 @@ use std::{
     io::{Cursor, Write},
     os::raw::{c_char, c_int},
     path::Path,
-    slice,
+    ptr, slice,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Once, RwLock,
+        Arc, Once,
     },
 };
 
@@ -241,12 +241,17 @@ pub struct consensus_runner {
 }
 
 type LogCallback = extern "C" fn(c_char, c_char, *const u8);
-type BroadcastCallback = extern "C" fn(i64, *const u8, i64);
-type CatchUpStatusCallback = extern "C" fn(*const u8, i64);
-type DirectMessageCallback =
-    extern "C" fn(peer_id: PeerIdFFI, message_type: i64, msg: *const c_char, msg_len: i64);
-type RegenesisCallback = unsafe extern "C" fn(*const RwLock<Vec<BlockHash>>, *const u8);
-type RegenesisFreeCallback = unsafe extern "C" fn(*const RwLock<Vec<BlockHash>>);
+type BroadcastCallback = extern "C" fn(i64, u32, *const u8, i64);
+type CatchUpStatusCallback = extern "C" fn(u32, *const u8, i64);
+type DirectMessageCallback = extern "C" fn(
+    peer_id: PeerIdFFI,
+    message_type: i64,
+    genesis_index: u32,
+    msg: *const c_char,
+    msg_len: i64,
+);
+type RegenesisCallback = unsafe extern "C" fn(*const Regenesis, *const u8);
+type RegenesisFreeCallback = unsafe extern "C" fn(*const Regenesis);
 
 #[allow(improper_ctypes)]
 extern "C" {
@@ -263,7 +268,7 @@ extern "C" {
         private_data_len: i64,
         broadcast_callback: BroadcastCallback,
         catchup_status_callback: CatchUpStatusCallback,
-        regenesis_arc: *const RwLock<Vec<BlockHash>>,
+        regenesis_arc: *const Regenesis,
         free_regenesis_arc: RegenesisFreeCallback,
         regenesis_callback: RegenesisCallback,
         maximum_log_level: u8,
@@ -284,7 +289,7 @@ extern "C" {
         genesis_data: *const u8,
         genesis_data_len: i64,
         catchup_status_callback: CatchUpStatusCallback,
-        regenesis_arc: *const RwLock<Vec<BlockHash>>,
+        regenesis_arc: *const Regenesis,
         free_regenesis_arc: RegenesisFreeCallback,
         regenesis_callback: RegenesisCallback,
         maximum_log_level: u8,
@@ -299,16 +304,19 @@ extern "C" {
     pub fn startBaker(consensus: *mut consensus_runner);
     pub fn receiveBlock(
         consensus: *mut consensus_runner,
+        genesis_index: u32,
         block_data: *const u8,
         data_length: i64,
     ) -> i64;
-    pub fn receiveFinalization(
+    pub fn receiveFinalizationMessage(
         consensus: *mut consensus_runner,
+        genesis_index: u32,
         finalization_data: *const u8,
         data_length: i64,
     ) -> i64;
     pub fn receiveFinalizationRecord(
         consensus: *mut consensus_runner,
+        genesis_index: u32,
         finalization_data: *const u8,
         data_length: i64,
     ) -> i64;
@@ -359,10 +367,15 @@ extern "C" {
         module_ref: *const u8,
     ) -> *const u8;
     pub fn freeCStr(hstring: *const c_char);
-    pub fn getCatchUpStatus(consensus: *mut consensus_runner) -> *const u8;
+    pub fn getCatchUpStatus(
+        consensus: *mut consensus_runner,
+        genesis_index: *mut u32,
+        msg: *mut *const u8,
+    ) -> i64;
     pub fn receiveCatchUpStatus(
         consensus: *mut consensus_runner,
         peer_id: PeerIdFFI,
+        genesis_index: u32,
         msg: *const u8,
         msg_len: i64,
         object_limit: i64,
@@ -425,7 +438,7 @@ pub fn get_consensus_ptr(
     maximum_log_level: ConsensusLogLevel,
     appdata_dir: &Path,
     database_connection_url: &str,
-    regenesis_arc: Arc<RwLock<Vec<BlockHash>>>,
+    regenesis_arc: Arc<Regenesis>,
 ) -> anyhow::Result<*mut consensus_runner> {
     let genesis_data_len = genesis_data.len();
 
@@ -515,16 +528,16 @@ pub fn get_consensus_ptr(
 }
 
 impl ConsensusContainer {
-    pub fn send_block(&self, block: &[u8]) -> ConsensusFfiResponse {
-        wrap_send_data_to_c!(self, block, receiveBlock)
+    pub fn send_block(&self, genesis_index: u32, block: &[u8]) -> ConsensusFfiResponse {
+        wrap_send_data_to_c!(self, genesis_index, block, receiveBlock)
     }
 
-    pub fn send_finalization(&self, msg: &[u8]) -> ConsensusFfiResponse {
-        wrap_send_data_to_c!(self, msg, receiveFinalization)
+    pub fn send_finalization(&self, genesis_index: u32, msg: &[u8]) -> ConsensusFfiResponse {
+        wrap_send_data_to_c!(self, genesis_index, msg, receiveFinalizationMessage)
     }
 
-    pub fn send_finalization_record(&self, rec: &[u8]) -> ConsensusFfiResponse {
-        wrap_send_data_to_c!(self, rec, receiveFinalizationRecord)
+    pub fn send_finalization_record(&self, genesis_index: u32, rec: &[u8]) -> ConsensusFfiResponse {
+        wrap_send_data_to_c!(self, genesis_index, rec, receiveFinalizationRecord)
     }
 
     pub fn send_transaction(&self, data: &[u8]) -> ConsensusFfiResponse {
@@ -643,16 +656,29 @@ impl ConsensusContainer {
         ))
     }
 
+    /// Construct a catch-up request message. The message includes the packet
+    /// type byte and genesis index.
     pub fn get_catch_up_status(&self) -> Arc<[u8]> {
-        wrap_c_call_payload!(
-            self,
-            |consensus| getCatchUpStatus(consensus),
-            &(PacketType::CatchUpStatus as u8).to_be_bytes()
-        )
+        let consensus = self.consensus.load(Ordering::SeqCst);
+
+        unsafe {
+            let mut genesis_index: u32 = 0;
+            let mut message_bytes: *const u8 = ptr::null();
+            let message_length =
+                getCatchUpStatus(consensus, &mut genesis_index, &mut message_bytes);
+            let slice = &slice::from_raw_parts(message_bytes, message_length as usize);
+            let mut ret = Vec::with_capacity(5 + slice.len());
+            ret.extend_from_slice(&(PacketType::CatchUpStatus as u8).to_be_bytes());
+            ret.extend_from_slice(&genesis_index.to_be_bytes());
+            ret.extend_from_slice(slice);
+            freeCStr(message_bytes as *const i8);
+            Arc::from(ret)
+        }
     }
 
     pub fn receive_catch_up_status(
         &self,
+        genesis_index: u32,
         request: &[u8],
         peer_id: RemotePeerId,
         object_limit: i64,
@@ -660,6 +686,7 @@ impl ConsensusContainer {
         wrap_c_call!(self, |consensus| receiveCatchUpStatus(
             consensus,
             peer_id.into(),
+            genesis_index,
             request.as_ptr(),
             request.len() as i64,
             object_limit,
@@ -809,7 +836,14 @@ pub extern "C" fn on_finalization_message_catchup_out(
 }
 
 macro_rules! sending_callback {
-    ($target:expr, $msg_type:expr, $msg:expr, $msg_length:expr, $omit_status:expr) => {
+    (
+        $target:expr,
+        $msg_type:expr,
+        $genesis_index:expr,
+        $msg:expr,
+        $msg_length:expr,
+        $omit_status:expr
+    ) => {
         unsafe {
             let callback_type = match CallbackType::try_from($msg_type as u8) {
                 Ok(ct) => ct,
@@ -827,8 +861,9 @@ macro_rules! sending_callback {
             };
 
             let payload = slice::from_raw_parts($msg as *const u8, $msg_length as usize);
-            let mut full_payload = Vec::with_capacity(1 + payload.len());
+            let mut full_payload = Vec::with_capacity(5 + payload.len());
             (msg_variant as u8).serial(&mut full_payload);
+            ($genesis_index as u32).serial(&mut full_payload);
             full_payload.write_all(&payload).unwrap(); // infallible
             let full_payload = Arc::from(full_payload);
 
@@ -848,22 +883,35 @@ macro_rules! sending_callback {
     };
 }
 
-pub extern "C" fn broadcast_callback(msg_type: i64, msg: *const u8, msg_length: i64) {
+pub extern "C" fn broadcast_callback(
+    msg_type: i64,
+    genesis_index: u32,
+    msg: *const u8,
+    msg_length: i64,
+) {
     trace!("Broadcast callback hit - queueing message");
-    sending_callback!(None, msg_type, msg, msg_length, None);
+    sending_callback!(None, msg_type, genesis_index, msg, msg_length, None);
 }
 
 pub extern "C" fn direct_callback(
     peer_id: u64,
     msg_type: i64,
+    genesis_index: u32,
     msg: *const c_char,
     msg_length: i64,
 ) {
     trace!("Direct callback hit - queueing message");
-    sending_callback!(Some((peer_id as usize).into()), msg_type, msg, msg_length, None);
+    sending_callback!(
+        Some((peer_id as usize).into()),
+        msg_type,
+        genesis_index,
+        msg,
+        msg_length,
+        None
+    );
 }
 
-pub extern "C" fn catchup_status_callback(msg: *const u8, msg_length: i64) {
+pub extern "C" fn catchup_status_callback(genesis_index: u32, msg: *const u8, msg_length: i64) {
     trace!("Catch-up status callback hit - queueing message");
     // Note: this sends a catch-up status message as a broadcast. This is not ideal:
     // a catch-up status message should always be sent as a direct message, even
@@ -872,6 +920,7 @@ pub extern "C" fn catchup_status_callback(msg: *const u8, msg_length: i64) {
     sending_callback!(
         None,
         CallbackType::CatchUpStatus,
+        genesis_index,
         msg,
         msg_length,
         Some(PeerStatus::Pending)
@@ -879,31 +928,35 @@ pub extern "C" fn catchup_status_callback(msg: *const u8, msg_length: i64) {
 }
 
 /// A callback function that will append a regenesis block to the list of known
-/// regenesis hashes.
+/// regenesis hashes, and raise a flag indicating that all peers should be
+/// marked for catch-up.
 ///
 /// # Safety
 ///
-/// The first argument has to be an Arc<RwLock<Vec<BlockHash>>> which was
+/// The first argument has to be an Arc<Regenesis> which was
 /// converted into raw, as it will be casted into that type. The second argument
 /// has to be a pointer to a bytestring of length 32.
-pub unsafe extern "C" fn regenesis_callback(
-    arc: *const RwLock<Vec<BlockHash>>,
-    block_hash: *const u8,
-) {
+pub unsafe extern "C" fn regenesis_callback(ptr: *const Regenesis, block_hash: *const u8) {
     trace!("Regenesis callback hit");
-    write_or_die!(Arc::from_raw(arc)).push(
+    let arc = Arc::from_raw(ptr);
+    write_or_die!(arc.blocks).push(
         BlockHash::new(std::slice::from_raw_parts(block_hash, 32))
             .expect("The slice is exactly 32 bytes so ::new must succeed."),
     );
+    arc.trigger_catchup.store(true, Ordering::Release);
+
+    // The pointer must remain valid, so we use into_raw to prevent the reference
+    // count from being decremented.
+    Arc::into_raw(arc);
 }
 
 /// A callback to free the regenesis Arc.
 ///
 /// # Safety
 ///
-/// The given pointer must be an Arc<RwLock<Vec<BlockHash>>> which was converted
+/// The given pointer must be an Arc<Regenesis> which was converted
 /// into raw.
-pub unsafe extern "C" fn free_regenesis_arc(ptr: *const RwLock<Vec<BlockHash>>) {
+pub unsafe extern "C" fn free_regenesis_arc(ptr: *const Regenesis) {
     if ptr.is_null() {
         return;
     }

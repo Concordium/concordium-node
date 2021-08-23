@@ -1,4 +1,3 @@
-{-# LANGUAGE TemplateHaskell, BangPatterns, DeriveFunctor, OverloadedStrings #-}
 -- |Implementation of the chain update mechanism: https://concordium.gitlab.io/whitepapers/update-mechanism/main.pdf
 module Concordium.GlobalState.Basic.BlockState.Updates where
 
@@ -60,7 +59,7 @@ processARsAndIPsUpdates oldValMap getKey t uq = (updatedValMap, uq {_uqQueue = q
   where (ql, qr) = span ((<= t) . transactionTimeToTimestamp . fst) (uq ^. uqQueue)
         (changes, updatedValMap) = foldl' go (Map.empty, oldValMap) ql
 
-        -- Adds non-duplicate updates to the map with IPs/ARs and accumulates the actual changes that occured.
+        -- Adds non-duplicate updates to the map with IPs/ARs and accumulates the actual changes that occurred.
         go (changesMap, valMap) (tt, v) =
           if Map.member k valMap
             then (changesMap, valMap) -- Ignore invalid update
@@ -156,11 +155,11 @@ futureElectionDifficulty Updates{_pendingUpdates = PendingUpdates{..},..} ts
 
 -- |Get the protocol update status: either an effective protocol update or
 -- a list of pending future protocol updates.
-protocolUpdateStatus :: Updates -> Either ProtocolUpdate [(TransactionTime, ProtocolUpdate)]
+protocolUpdateStatus :: Updates -> ProtocolUpdateStatus
 protocolUpdateStatus Updates{_pendingUpdates = PendingUpdates{..},..}
         = case _currentProtocolUpdate of
-            Nothing -> Right (_uqQueue _pProtocolQueue)
-            Just pu -> Left pu
+            Nothing -> PendingProtocolUpdates (_uqQueue _pProtocolQueue)
+            Just pu -> ProtocolUpdated pu
 
 -- |Determine the next sequence number for a given update type.
 lookupNextUpdateSequenceNumber :: Updates -> UpdateType -> UpdateSequenceNumber
@@ -195,3 +194,17 @@ enqueueUpdate effectiveTime (UVGASRewards upd) = pendingUpdates . pGASRewardsQue
 enqueueUpdate effectiveTime (UVBakerStakeThreshold upd) = pendingUpdates . pBakerStakeThresholdQueue %~ enqueue effectiveTime upd
 enqueueUpdate effectiveTime (UVAddAnonymityRevoker upd) = pendingUpdates . pAddAnonymityRevokerQueue %~ enqueue effectiveTime upd
 enqueueUpdate effectiveTime (UVAddIdentityProvider upd) = pendingUpdates . pAddIdentityProviderQueue %~ enqueue effectiveTime upd
+
+-- |Overwrite the election difficulty with the specified value and remove
+-- any pending updates to the election difficulty from the queue.
+overwriteElectionDifficulty :: ElectionDifficulty -> Updates -> Updates
+overwriteElectionDifficulty newDifficulty =
+    (currentParameters . cpElectionDifficulty .~ newDifficulty) .
+    (pendingUpdates . pElectionDifficultyQueue . uqQueue .~ [])
+
+-- |Clear the protocol update and remove any pending protocol updates from
+-- the queue.
+clearProtocolUpdate :: Updates -> Updates
+clearProtocolUpdate =
+    (currentProtocolUpdate .~ Nothing) .
+    (pendingUpdates . pProtocolQueue . uqQueue .~ [])

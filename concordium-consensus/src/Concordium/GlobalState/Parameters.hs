@@ -82,13 +82,11 @@ data RuntimeParameters = RuntimeParameters {
   -- processing transaction groups in `filterTransactions` in Scheduler.hs
   -- and mark the rest as unprocessed. 
   rpBlockTimeout :: !Duration,
-  -- |Treestate storage directory.
-  rpTreeStateDir :: !FilePath,
-  -- |BlockState storage file.
-  rpBlockStateFile :: !FilePath,
   -- |Threshold for how far into the future we accept blocks. Blocks with a slot
   -- time that exceeds our current time + this threshold are rejected and the p2p
-  -- is told to not relay these blocks.
+  -- is told to not relay these blocks.  Setting this to 'maxBound' will disable the
+  -- check.  Otherwise, the value should not be so large as to overflow when added
+  -- to a timestamp within the operational life of the node.
   rpEarlyBlockThreshold :: !Duration,
   -- |Maximum number of milliseconds we can get behind before skipping to the current time
   -- when baking.
@@ -111,8 +109,6 @@ defaultRuntimeParameters :: RuntimeParameters
 defaultRuntimeParameters = RuntimeParameters {
   rpBlockSize = 10 * 10^(6 :: Int), -- 10MB
   rpBlockTimeout = 3000, -- 3 seconds
-  rpTreeStateDir = "treestate",
-  rpBlockStateFile = "blockstate",
   rpEarlyBlockThreshold = 30000, -- 30 seconds
   rpMaxBakingDelay = 10000, -- 10 seconds
   rpInsertionsBeforeTransactionPurge = 1000,
@@ -125,8 +121,6 @@ instance FromJSON RuntimeParameters where
   parseJSON = withObject "RuntimeParameters" $ \v -> do
     rpBlockSize <- v .: "blockSize"
     rpBlockTimeout <- v .: "blockTimeout"
-    rpTreeStateDir <- v .: "treeStateDir"
-    rpBlockStateFile <- v .: "blockStateFile"
     rpEarlyBlockThreshold <- v .: "earlyBlockThreshold"
     rpMaxBakingDelay <- v .: "maxBakingDelay"
     rpInsertionsBeforeTransactionPurge <- v .: "insertionsBeforeTransactionPurge"

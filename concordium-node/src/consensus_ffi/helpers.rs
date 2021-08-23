@@ -203,6 +203,7 @@ pub enum ConsensusFfiResponse {
     DuplicateNonce,
     NonceTooLarge,
     TooLowEnergy,
+    InvalidGenesisIndex,
 }
 
 impl ConsensusFfiResponse {
@@ -215,7 +216,7 @@ impl ConsensusFfiResponse {
     pub fn is_pending(self) -> bool {
         use ConsensusFfiResponse::*;
 
-        matches!(self, PendingBlock | PendingFinalization)
+        matches!(self, PendingBlock | PendingFinalization | InvalidGenesisIndex)
     }
 
     pub fn is_acceptable(self) -> bool {
@@ -235,6 +236,7 @@ impl ConsensusFfiResponse {
                 | NonceTooLarge
                 | TooLowEnergy
                 | ConsensusShutDown
+                | InvalidGenesisIndex
         )
     }
 
@@ -257,6 +259,7 @@ impl ConsensusFfiResponse {
                 | NonceTooLarge
                 | TooLowEnergy
                 | ConsensusShutDown
+                | InvalidGenesisIndex
         )
     }
 }
@@ -290,6 +293,7 @@ impl TryFrom<i64> for ConsensusFfiResponse {
             17 => Ok(DuplicateNonce),
             18 => Ok(NonceTooLarge),
             19 => Ok(TooLowEnergy),
+            20 => Ok(InvalidGenesisIndex),
             _ => Err(anyhow!("Unsupported FFI return code ({})", value)),
         }
     }

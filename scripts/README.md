@@ -26,14 +26,8 @@ The [`distribution`](./distribution) folder contains the scripts to build and pu
 
 ## Static libraries
 
-The [`static-libraries`](./static-libraries) folder contains scripts to build the haskell static version of
-the consensus that can be used to compile the node with the flags `static/profiling` enabled, allowing for
-profiling and making the user not need to install the Haskell ecosystem to run the node.
-
-### [`download-static-libraries.sh`](./download-static-libraries)
-
-Using the [`static-libraries/LATEST_STATIC_LIBRARIES`](static-libraries/LATEST_STATIC_LIBRARIES) file
-this script downloads a set of static libraries [built by Jenkins](../jenkinsfiles/static-libraries.Jenkinsfile).
+The [`static-libraries`](./static-libraries) folder contains scripts to build the Haskell static version of
+the consensus that can be used to compile the node with the flags `static/profiling` enabled.
 
 ## Genesis
 

@@ -28,13 +28,15 @@ import Concordium.Kontrol.BestBlock
 import Concordium.Afgjort.Finalize
 
 
--- |Produce a catchup response and a new catchup status for the peer.
--- The list of messages (blocks or finalization records) is versioned
+-- |Handle a catch-up message from a peer. If the message is a catch-up request,
+-- this returns a list of serialized and versioned blocks and finalization records.
+-- The maximum length of this list is specified by the second parameter.
 doHandleCatchUp :: forall pv m. (TreeStateMonad pv m, SkovQueryMonad pv m, FinalizationMonad m, MonadLogger m)
                 => CatchUpStatus
                 -> Int -- ^How many blocks + finalization records should be sent.
                 -> m (Maybe ([(MessageType, ByteString)], CatchUpStatus), UpdateResult)
-doHandleCatchUp peerCUS limit = do
+doHandleCatchUp NoGenesisCatchUpStatus _ = return (Nothing, ResultSuccess)
+doHandleCatchUp peerCUS@CatchUpStatus{} limit = do
         let resultDoCatchUp = if cusIsResponse peerCUS then ResultPendingBlock else ResultContinueCatchUp
         lfb <- fst <$> getLastFinalized
         if cusLastFinalizedHeight peerCUS > bpHeight lfb then do

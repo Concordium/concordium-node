@@ -23,7 +23,7 @@ config =
          <$> strOption
           (long "dbpath"
             <> metavar "PATH"
-            <> help "Database path")
+            <> help "Database root path")
           <*> strOption
           (long "exportpath"
             <> metavar "PATH"
