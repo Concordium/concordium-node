@@ -17,14 +17,15 @@ import Concordium.Types.Updates
 import Concordium.GlobalState.BlockState
 import Concordium.Kontrol
 import qualified Concordium.ProtocolUpdate.P1.Reboot as Reboot
+import qualified Concordium.ProtocolUpdate.P1.Memo as Memo
 
 -- |Updates that are supported from protocol version P1.
-data Update = Reboot Reboot.UpdateData
+data Update = Reboot Reboot.UpdateData | AddMemo
     deriving (Show)
 
 -- |Hash map for resolving updates from their specification hash.
 updates :: HM.HashMap SHA256.Hash (Get Update)
-updates = HM.fromList [(Reboot.updateHash, Reboot <$> get)]
+updates = HM.fromList [(Reboot.updateHash, Reboot <$> get), (Memo.updateHash, return AddMemo)]
 
 -- |Determine if a 'ProtocolUpdate' corresponds to a supported update type.
 checkUpdate :: ProtocolUpdate -> Either String Update
@@ -40,3 +41,4 @@ checkUpdate ProtocolUpdate{..} = case HM.lookup puSpecificationHash updates of
 -- update takes effect.
 updateRegenesis :: (BlockStateStorage m, SkovQueryMonad 'P1 m) => Update -> m PVGenesisData
 updateRegenesis (Reboot upd) = Reboot.updateRegenesis upd
+updateRegenesis AddMemo = Memo.updateRegenesis
