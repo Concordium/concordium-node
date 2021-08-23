@@ -44,6 +44,7 @@ makeAccountPersisting = makeHashed
 showAccountPersisting :: SProtocolVersion pv -> AccountPersisting pv -> String
 showAccountPersisting spv = case spv of
   SP1 -> show
+  SP2 -> show
 
 -- |An (in-memory) account.
 data Account (pv :: ProtocolVersion) = Account {
