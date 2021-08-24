@@ -138,6 +138,8 @@ data SkovPersistentData (pv :: ProtocolVersion) ati bs = SkovPersistentData {
     _statistics :: !ConsensusStatistics,
     -- |Runtime parameters
     _runtimeParameters :: !RuntimeParameters,
+    -- |Tree state directory
+    _treeStateDirectory :: !FilePath,
     -- | Database handlers
     _db :: !(DatabaseHandlers pv (TS.BlockStatePointer bs)),
     -- |Context for the transaction log.
@@ -151,28 +153,51 @@ instance (bsp ~ TS.BlockStatePointer bs)
 
 -- |Initial skov data with default runtime parameters (block size = 10MB).
 initialSkovPersistentDataDefault
-    :: (IsProtocolVersion pv, Serialize (TS.BlockStatePointer bs))
+    :: (IsProtocolVersion pv, Serialize (TS.BlockStatePointer bs), BlockStateQuery m, bs ~ BlockState m, MonadIO m)
     => FilePath
     -> GenesisData pv
     -> bs
-    -> (ATIValues ati, ATIContext ati)
+    -> ATIValues ati
+    -> ATIContext ati
     -> TS.BlockStatePointer bs -- ^How to serialize the block state reference for inclusion in the table.
-    -> IO (SkovPersistentData pv ati bs)
-initialSkovPersistentDataDefault dir = initialSkovPersistentData (defaultRuntimeParameters { rpTreeStateDir = dir })
+    -> m (SkovPersistentData pv ati bs)
+initialSkovPersistentDataDefault = initialSkovPersistentData defaultRuntimeParameters
 
 initialSkovPersistentData
-    :: (IsProtocolVersion pv, Serialize (TS.BlockStatePointer bs))
+    :: (IsProtocolVersion pv, Serialize (TS.BlockStatePointer bs), BlockStateQuery m, bs ~ BlockState m, MonadIO m)
     => RuntimeParameters
+    -- ^Runtime parameters
+    -> FilePath
+    -- ^Tree state directory
     -> GenesisData pv
+    -- ^Genesis data
     -> bs
-    -> (ATIValues ati, ATIContext ati)
-    -> TS.BlockStatePointer bs -- ^How to serialize the block state reference for inclusion in the table.
-    -> IO (SkovPersistentData pv ati bs)
-initialSkovPersistentData rp gd genState ati serState = do
-  gb <- makeGenesisPersistentBlockPointer gd genState (fst ati)
+    -- ^Genesis state
+    -> ATIValues ati
+    -- ^Account transaction index summary for genesis block
+    -> ATIContext ati
+    -- ^Account transaction index configuration
+    -> TS.BlockStatePointer bs
+    -- ^Genesis block state
+    -> m (SkovPersistentData pv ati bs)
+initialSkovPersistentData rp treeStateDir gd genState genATI atiContext serState = do
+  gb <- makeGenesisPersistentBlockPointer gd genState genATI
   let gbh = bpHash gb
       gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
-  initialDb <- initializeDatabase gb serState (rpTreeStateDir rp)
+  initialDb <- liftIO $ initializeDatabase gb serState treeStateDir
+  -- When the state contains accounts, we must ensure that the transaction
+  -- table correctly reflects the account nonces, and similarly for
+  -- updates.
+  acctAddrs <- getAccountList genState
+  acctNonces <- foldM (\hm addr ->
+      getAccount genState addr >>= \case
+          Nothing -> error "Invariant violation: listed account does not exist"
+          Just (_, acct) -> do
+              nonce <- getAccountNonce acct
+              return $! HM.insert addr nonce hm) HM.empty acctAddrs
+  updSeqNums <- foldM (\m uty -> do
+      sn <- getNextUpdateSequenceNumber genState uty
+      return $! Map.insert uty sn m) Map.empty [minBound..]
   return SkovPersistentData {
             _blockTable = HM.singleton gbh (BlockFinalized 0),
             _possiblyPendingTable = HM.empty,
@@ -184,12 +209,13 @@ initialSkovPersistentData rp gd genState ati serState = do
             _genesisBlockPointer = gb,
             _focusBlock = gb,
             _pendingTransactions = emptyPendingTransactionTable,
-            _transactionTable = emptyTransactionTable,
+            _transactionTable = emptyTransactionTableWithSequenceNumbers acctNonces updSeqNums,
             _transactionTablePurgeCounter = 0,
             _statistics = initialConsensusStatistics,
             _runtimeParameters = rp,
+            _treeStateDirectory = treeStateDir,
             _db = initialDb,
-            _atiCtx = snd ati
+            _atiCtx = atiContext
         }
 
 --------------------------------------------------------------------------------
@@ -197,10 +223,16 @@ initialSkovPersistentData rp gd genState ati serState = do
 -- * Initialization functions
 
 -- |Check the permissions in the required files.
-checkExistingDatabase :: forall m. (MonadLogger m, MonadIO m) => RuntimeParameters -> m (FilePath, Bool)
-checkExistingDatabase rp = do
-  let blockStateFile = rpBlockStateFile rp <.> "dat"
-      treeStateFile = rpTreeStateDir rp </> "data.mdb"
+-- Returns 'True' if the database already existed, 'False' if not.
+-- Raises an exception if the database is inaccessible, or only partially exists.
+checkExistingDatabase :: forall m. (MonadLogger m, MonadIO m) =>
+    -- |Tree state path
+    FilePath ->
+    -- |Block state file
+    FilePath ->
+    m Bool
+checkExistingDatabase treeStateDir blockStateFile = do
+  let treeStateFile = treeStateDir </> "data.mdb"
   bsPathEx <- liftIO $ doesPathExist blockStateFile
   tsPathEx <- liftIO $ doesPathExist treeStateFile
 
@@ -225,13 +257,13 @@ checkExistingDatabase rp = do
          checkRWFile blockStateFile BlockStatePermissionError
          checkRWFile treeStateFile TreeStatePermissionError
          mapM_ (logEvent TreeState LLTrace) ["Existing database found.", "TreeState filepath: " ++ show blockStateFile, "BlockState filepath: " ++ show treeStateFile]
-         return (blockStateFile, True)
+         return True
      | bsPathEx -> do
          logExceptionAndThrowTS $ DatabaseInvariantViolation "Block state file exists, but tree state file does not."
      | tsPathEx -> do
          logExceptionAndThrowTS $ DatabaseInvariantViolation "Tree state file exists, but block state file does not."
      | otherwise ->
-         return (blockStateFile, False)
+         return False
 
 -- |Try to load an existing instance of skov persistent data.
 -- This function will raise an exception if it detects invariant violation in the
@@ -250,18 +282,19 @@ checkExistingDatabase rp = do
 -- random segmentation faults and similar exceptions.
 loadSkovPersistentData :: forall ati pv. (IsProtocolVersion pv, CanExtend (ATIValues ati))
                        => RuntimeParameters
+                       -> FilePath -- ^Tree state directory
                        -> GenesisData pv
                        -> PBS.PersistentBlockStateContext
-                       -> (ATIValues ati, ATIContext ati)
+                       -> ATIContext ati
                        -> LogIO (SkovPersistentData pv ati (PBS.HashedPersistentBlockState pv))
-loadSkovPersistentData rp _genesisData pbsc atiPair = do
+loadSkovPersistentData rp _treeStateDirectory _genesisData pbsc atiContext = do
   -- we open the environment first.
   -- It might be that the database is bigger than the default environment size.
   -- This seems to not be an issue while we only read from the database,
   -- and on insertions we resize the environment anyhow.
   -- But this behaviour of LMDB is poorly documented, so we might experience issues.
   _db <- either (logExceptionAndThrowTS . DatabaseOpeningError) return =<<
-          liftIO (try $ databaseHandlers (rpTreeStateDir rp))
+          liftIO (try $ databaseHandlers _treeStateDirectory)
 
   -- Check that the database version matches what we expect.
   liftIO (checkDatabaseVersion _db) >>=
@@ -320,7 +353,7 @@ loadSkovPersistentData rp _genesisData pbsc atiPair = do
             -- consensus started.
             _statistics = initialConsensusStatistics,
             _runtimeParameters = rp,
-            _atiCtx = snd atiPair,
+            _atiCtx = atiContext,
             ..
         }
 
@@ -483,6 +516,11 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
               blockTable . at' bh ?=! BlockFinalized (finalizationIndex fr)
             _ -> return ()
     markPending pb = blockTable . at' (getHash pb) ?=! BlockPending pb
+    markAllNonFinalizedDead = blockTable %=! fmap nonFinDead
+        where
+            nonFinDead BlockAlive{} = BlockDead
+            nonFinDead BlockPending{} = BlockDead
+            nonFinDead o = o
     getGenesisBlockPointer = use genesisBlockPointer
     getGenesisData = use genesisData
     getLastFinalized = do
@@ -548,6 +586,9 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
                 Nothing -> do
                     possiblyPendingQueue .= ppq
                     return Nothing
+    wipePendingBlocks = do
+        possiblyPendingTable .=! HM.empty
+        possiblyPendingQueue .=! MPQ.empty
     getFocusBlock = use focusBlock
     putFocusBlock bb = focusBlock .= bb
     getPendingTransactions = use pendingTransactions
@@ -605,7 +646,7 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
                 else return TS.ObsoleteNonce
               CredentialDeployment{} -> do
                 -- because we do not have nonce tracking for these transactions we need to check that
-                -- this transction does not already exist in the on-disk storage.
+                -- this transaction does not already exist in the on-disk storage.
                 finalizedP <- memberTransactionTable trHash
                 if finalizedP then
                   return TS.ObsoleteNonce
@@ -759,3 +800,14 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
           (newTT, newPT) = purgeTables lastFinalizedSlot oldestArrivalTime currentTimestamp transactionTable' pendingTransactions'
         transactionTable .= newTT
         pendingTransactions .= newPT
+
+    wipeNonFinalizedTransactions = do
+        -- This assumes that the transaction table only
+        -- contains non-finalized transactions.
+        -- The motivation for using foldr here is that the list will be consumed by iteration
+        -- almost immediately, so it is reasonable to build it lazily.
+        oldTransactions <- HM.foldr ((:) . fst) [] <$> use (transactionTable . ttHashMap)
+        transactionTable %=! (ttHashMap .~ HM.empty)
+            . (ttNonFinalizedTransactions %~ fmap (anftMap .~ Map.empty))
+            . (ttNonFinalizedChainUpdates %~ fmap (nfcuMap .~ Map.empty))
+        return oldTransactions

@@ -18,13 +18,23 @@ use crate::{
 
 use std::collections::HashSet;
 
+/// Wire protocol version number. Nodes must agree on a common wire protocol in
+/// order to communicate. This should be the highest protocol version supported
+/// by both nodes.
+///
+/// Note that the wire protocol version is somewhat independent of the consensus
+/// protocol version.
 pub type WireProtocolVersion = u8;
 
-/// The Wire protocol version. Incompatible versions (checked in
-/// `configuration::is_compatible_wire_version`) will be rejected as it is
-/// assumed they will use different messages or expect a different communication
-/// flow. This value is sent in the Handshake request.
-pub const WIRE_PROTOCOL_VERSION: WireProtocolVersion = 0;
+/// The current wire protocol version, currently 1.
+pub const WIRE_PROTOCOL_CURRENT_VERSION: WireProtocolVersion = 1;
+/// The legacy wire protocol version (0), which is supported for backwards
+/// compatibility.
+pub const WIRE_PROTOCOL_LEGACY_VERSION: WireProtocolVersion = 0;
+
+/// The supported write protocol versions in descending order.
+pub const WIRE_PROTOCOL_VERSIONS: [WireProtocolVersion; 2] =
+    [WIRE_PROTOCOL_CURRENT_VERSION, WIRE_PROTOCOL_LEGACY_VERSION];
 
 /// Identifies a network.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

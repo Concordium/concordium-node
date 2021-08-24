@@ -9,6 +9,7 @@ import Data.Time.Clock
 
 import qualified Concordium.Afgjort.CSS.NominationSet as NS
 import Concordium.Afgjort.Finalize
+import Concordium.Afgjort.FinalizationQueue
 import Concordium.Afgjort.ABBA
 import Concordium.Afgjort.WMVBA
 import Concordium.TimeMonad
@@ -108,3 +109,23 @@ notifyBuffer handleMsg bufId = do
                     finBuffer . fbDelays %= Map.delete bufId
                     logEvent Runner LLTrace $ "Flushing buffered message on notify. expectedNotifyTime=" ++ show expectedNotifyTime ++ " notifyTime=" ++ show notifyTime
                     handleMsg msg
+
+-- |A 'FinalizationState' equipped with a 'FinalizationBuffer'.  The buffer is used in the
+-- 'Concordium.Skov.MonadImplementation.BufferedFinalization' configuration to buffer Seen
+-- messages so that fewer messages need to be sent.  The type parameter is the type of timers.
+data BufferedFinalizationState timer = BufferedFinalizationState {
+        _bfsFinalization :: !(FinalizationState timer),
+        _bfsBuffer :: !FinalizationBuffer
+    }
+    deriving(Show)
+makeLenses ''BufferedFinalizationState
+
+instance FinalizationQueueLenses (BufferedFinalizationState t) where
+    {-# INLINE finQueue #-}
+    finQueue = bfsFinalization . finQueue
+instance FinalizationStateLenses (BufferedFinalizationState t) t where
+    {-# INLINE finState #-}
+    finState = bfsFinalization
+instance FinalizationBufferLenses (BufferedFinalizationState t) where
+    {-# INLINE finBuffer #-}
+    finBuffer = bfsBuffer

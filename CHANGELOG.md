@@ -12,7 +12,7 @@
   `--require-dnssec`, and the environment variable
   `CONCORDIUM_NODE_CONNECTION_NO_DNSSEC` with `CONCORDIUM_NODE_CONNECTION_REQUIRE_DNSSEC`.
 - Global state database now includes version metadata. The treestate directory and blockstate file
-  names are suffixed with "-0" to indicate genesis index 0, for compatibility with protocol updates.
+  names are suffixed with "-*n*" to indicate genesis index *n*.
   A legacy database will automatically be migrated by renaming and adding version metadata.
 - Remove unused CONCORDIUM_NODE_CONNECTION_BOOTSTRAP_SERVER option and the
   corresponding `--bootstrap-server` flag.
@@ -23,6 +23,19 @@
 - In the GetRewardStatus GRPC call, the amounts that were previously represented as integers are now
   represented as strings in the JSON serialization. This is in line with how amounts are serialized
   elsewhere.
+- The behaviour of the GetAccountList, GetInstances, and GetModuleList have changed in the case
+  where the block hash is ill-formed. Instead of returning the JSON string "Invalid block hash.",
+  these functions will now return the JSON null value.
+- Implement protocol updates, allowing migration to a new protocol. One protocol update is
+  implemented, which does not switch to a new protocol version, but allows for updating a number
+  of genesis parameters that would otherwise be immutable, while retaining the state.
+- Support for a new wire-protocol version (version 1) that adds a genesis index to non-transaction
+  messages, a version header to catch-up messages. Version 0 is still supported for communication
+  with legacy nodes during migration.
+- Reduced logging of certain events. Received blocks, finalization messages/records, and
+  transactions are only logged at Trace level. GRPC queries are not logged.
+- The block export format has been revised to a new version (version 3) which allows for
+  protocol updates. Version 2 is no longer supported.
 - Support [log4rs](https://docs.rs/log4rs/1.0.0/log4rs/) logging, by specifying a configuration file
   (in toml or yaml format) with the `--log-config` argument or `CONCORDIUM_NODE_LOG_CONFIG`
   environment variable.

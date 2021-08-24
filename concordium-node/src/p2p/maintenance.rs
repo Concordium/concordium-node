@@ -18,9 +18,8 @@ use crate::{
     configuration::{self as config, Config},
     connection::{ConnChange, Connection, DeduplicationHashAlgorithm, DeduplicationQueues},
     consensus_ffi::{
-        blockchain_types::BlockHash,
         catch_up::PeerList,
-        consensus::{ConsensusContainer, CALLBACK_QUEUE},
+        consensus::{ConsensusContainer, Regenesis, CALLBACK_QUEUE},
     },
     lock_or_die,
     network::{Buckets, NetworkId, Networks},
@@ -96,7 +95,7 @@ pub struct NodeConfig {
     pub socket_so_linger: Option<u16>,
     pub events_queue_size: usize,
     pub deduplication_hashing_algorithm: DeduplicationHashAlgorithm,
-    pub regenesis_arc: Arc<RwLock<Vec<BlockHash>>>,
+    pub regenesis_arc: Arc<Regenesis>,
 }
 
 /// The collection of connections to peer nodes.
@@ -271,7 +270,7 @@ impl P2PNode {
         conf: &Config,
         peer_type: PeerType,
         stats: Arc<StatsExportService>,
-        regenesis_arc: Arc<RwLock<Vec<BlockHash>>>,
+        regenesis_arc: Arc<Regenesis>,
     ) -> anyhow::Result<(Arc<Self>, Poll)> {
         let addr = if let Some(ref addy) = conf.common.listen_address {
             let ip_addr = addy.parse::<IpAddr>().context(
@@ -653,12 +652,12 @@ pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll, consensus: Option<Consensu
 
         // Process network events until signalled to terminate.
         // For each loop iteration do the following in sequence
-        // - check whether ther are any incoming connection requests
+        // - check whether there are any incoming connection requests
         // - then process any connection changes, e.g., drop connections, promote to
         //   initial connections to peers, ...
         // - then read from all existing connections in parallel, using the above
         //   allocated thread pool
-        // - occassionally (dictated by the housekeeping_interval) do connection
+        // - occasionally (dictated by the housekeeping_interval) do connection
         //   housekeeping, checking whether peers and connections are active.
         while !node.is_terminated.load(Ordering::Relaxed) {
             // check for new events or wait
