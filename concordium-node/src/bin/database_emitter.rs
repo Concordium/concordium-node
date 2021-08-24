@@ -20,13 +20,7 @@ use concordium_node::{
     utils,
 };
 use crypto_common::Serial;
-use std::{
-    fs::File,
-    io::prelude::*,
-    sync::{Arc, RwLock},
-    thread,
-    time::Duration,
-};
+use std::{fs::File, io::prelude::*, sync::Arc, thread, time::Duration};
 
 fn main() -> anyhow::Result<()> {
     let (mut conf, _app_prefs) = utils::get_config_and_logging_setup()?;
@@ -42,7 +36,7 @@ fn main() -> anyhow::Result<()> {
         &conf,
         PeerType::Node,
         stats_export_service,
-        Arc::new(RwLock::new(vec![])),
+        Arc::new(Default::default()),
     )
     .context("Failed to create the node")?;
 

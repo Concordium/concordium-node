@@ -89,7 +89,7 @@ type Trs = HM.HashMap TransactionHash (BlockItem, TransactionStatus)
 type ANFTS = HM.HashMap AccountAddress AccountNonFinalizedTransactions
 type NFCUS = Map.Map UpdateType NonFinalizedChainUpdates
 
-type Config t = SkovConfig PV (MemoryTreeMemoryBlockConfig PV) (ActiveFinalization t) NoHandler
+type Config t = SkovConfig PV MemoryTreeMemoryBlockConfig (ActiveFinalization t) NoHandler
 
 finalizationParameters :: FinalizationCommitteeSize -> FinalizationParameters
 finalizationParameters finComSize = defaultFinalizationParameters{finalizationCommitteeMaxSize = finComSize}
@@ -348,7 +348,7 @@ instance MonadLogger DummyM where
 
 
 
-type MyHandlers = SkovHandlers DummyTimer (Config DummyTimer) (StateT ExecState LogIO)
+type MyHandlers = SkovHandlers PV DummyTimer (Config DummyTimer) (StateT ExecState LogIO)
 
 data Event
     = EBake Slot
@@ -356,7 +356,7 @@ data Event
     | ETransaction BlockItem
     | EFinalization FinalizationPseudoMessage
     | EFinalizationRecord FinalizationRecord
-    | ETimer Integer (SkovT MyHandlers (Config DummyTimer) (StateT ExecState LogIO) ())
+    | ETimer Integer (SkovT PV MyHandlers (Config DummyTimer) (StateT ExecState LogIO) ())
 
 instance Show Event where
     show (EBake sl) = "bake for " ++ show sl
@@ -396,7 +396,6 @@ dummyHandlers :: Int -> [Int] -> MyHandlers
 dummyHandlers src btargets = SkovHandlers {..}
     where
         shBroadcastFinalizationMessage fm = esEventPool %= (<> Seq.fromList [(r, EFinalization fm) | r <- btargets])
-        shBroadcastFinalizationRecord fr = esEventPool %= (<> Seq.fromList [(r, EFinalizationRecord fr) | r <- btargets])
         shOnTimeout _ action = do
             t <- esNextTimer <<%= (+1)
             esEventPool %= (Seq.|> (src, ETimer t (void action)))
@@ -405,7 +404,7 @@ dummyHandlers src btargets = SkovHandlers {..}
             esCancelledTimers %= Set.insert t
         shPendingLive = return ()
 
-myRunSkovT :: (MonadIO m) => (SkovT MyHandlers (Config DummyTimer) (StateT ExecState LogIO) a) -> MyHandlers -> SkovContext (Config DummyTimer) -> SkovState (Config DummyTimer) -> ExecState -> m (a, SkovState (Config DummyTimer), ExecState)
+myRunSkovT :: (MonadIO m) => SkovT PV MyHandlers (Config DummyTimer) (StateT ExecState LogIO) a -> MyHandlers -> SkovContext (Config DummyTimer) -> SkovState (Config DummyTimer) -> ExecState -> m (a, SkovState (Config DummyTimer), ExecState)
 myRunSkovT a handlers ctx st es = liftIO $ flip runLoggerT doLog $ do
         ((res, st'), es') <- runStateT (runSkovT a handlers ctx st) es
         return (res, st', es')
@@ -413,10 +412,10 @@ myRunSkovT a handlers ctx st es = liftIO $ flip runLoggerT doLog $ do
         doLog src LLError msg = error $ show src ++ ": " ++ msg
         doLog _ _ _ = return ()
 
-myEvalSkovT :: (MonadIO m) => (SkovT () (Config DummyTimer) IO a) -> SkovContext (Config DummyTimer) -> SkovState (Config DummyTimer) -> m a
+myEvalSkovT :: (MonadIO m) => SkovT PV () (Config DummyTimer) IO a -> SkovContext (Config DummyTimer) -> SkovState (Config DummyTimer) -> m a
 myEvalSkovT a ctx st = liftIO $ evalSkovT a () ctx st
 
-myLoggedEvalSkovT :: (MonadIO m) => (SkovT () (Config DummyTimer) LogIO a) -> SkovContext (Config DummyTimer) -> SkovState (Config DummyTimer) -> m a
+myLoggedEvalSkovT :: (MonadIO m) => SkovT PV () (Config DummyTimer) LogIO a -> SkovContext (Config DummyTimer) -> SkovState (Config DummyTimer) -> m a
 myLoggedEvalSkovT a ctx st = liftIO $ runSilentLogger $ evalSkovT a () ctx st
 
 type FinComPartiesSet = Set.Set (Set.Set Sig.VerifyKey)

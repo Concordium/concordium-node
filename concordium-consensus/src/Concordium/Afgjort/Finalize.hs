@@ -57,6 +57,7 @@ import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.BlsSignature as Bls
 import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Types
+import Concordium.Constants.Time (finalizationReplayBaseDelay, finalizationReplayStaggerDelay)
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.BlockPointer
@@ -179,7 +180,7 @@ makeLenses ''FinalizationState
 -- finalization round is constructed.
 -- NB: This function should for now only be used in a tree state that has no branches,
 -- and will raise an exception otherwise.
-recoverFinalizationState :: (MonadIO m, SkovQueryMonad pv m, BlockPointerMonad m)
+recoverFinalizationState :: (MonadIO m, SkovQueryMonad pv m)
                          => Maybe FinalizationInstance
                          -> m (FinalizationState timer)
 recoverFinalizationState mfinInstance = do
@@ -369,15 +370,6 @@ type FinalizationStateMonad r s m = (MonadState s m, FinalizationStateLenses s (
 -- and 'SkovMonad' abstractions.  This is intentional, to guarantee that the
 -- finalization code makes no direct changes to the Skov state.
 type FinalizationBaseMonad (pv :: ProtocolVersion) r s m = (BlockPointerMonad m, SkovMonad pv m, FinalizationStateMonad r s m, MonadIO m, TimerMonad m, FinalizationOutputMonad m)
-
--- |This sets the base time for triggering finalization replay.
-finalizationReplayBaseDelay :: NominalDiffTime
-finalizationReplayBaseDelay = 300
-
--- |This sets the per-party additional delay for finalization replay.
---
-finalizationReplayStaggerDelay :: NominalDiffTime
-finalizationReplayStaggerDelay = 5
 
 -- |Reset the finalization catch-up timer.  This is called when progress is
 -- made in finalization (i.e. we produce a message).
@@ -1080,3 +1072,7 @@ instance (FinalizationBaseMonad pv r s m) => FinalizationMonad (ActiveFinalizati
     finalizationReceiveRecord b fr = unlessShutDown $ receiveFinalizationRecord b fr
     finalizationUnsettledRecordAt = getQueuedFinalization
     finalizationUnsettledRecords = getQueuedFinalizationsBeyond
+    isFinalizationCommitteeMember =
+        use finCurrentRound >>= \case
+            PassiveCurrentRound _ -> return False
+            ActiveCurrentRound _ -> return True

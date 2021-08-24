@@ -221,7 +221,7 @@ emptyHashedEpochBlocks = HashedEpochBlocks {
         hebHash = Rewards.emptyEpochBlocksHash
     }
 
--- |Add a new 'BakerId' to the start of a 'HashedEpcohBlocks'.
+-- |Add a new 'BakerId' to the start of a 'HashedEpochBlocks'.
 consEpochBlock :: (MonadBlobStore m) => BakerId -> HashedEpochBlocks -> m HashedEpochBlocks
 consEpochBlock b hebbs = do
         mbr <- refMake EpochBlock{
@@ -261,7 +261,7 @@ putHashedEpochBlocksV0 HashedEpochBlocks{..} = do
 type PersistentBlockState (pv :: ProtocolVersion) = IORef (BufferedRef (BlockStatePointers pv))
 
 
--- |References to the componenets that make up the block state.
+-- |References to the components that make up the block state.
 --
 -- This type is parametric in the protocol version (as opposed to defined
 -- as a data family) on the principle that the structure will be mostly
@@ -1087,7 +1087,7 @@ doGetCurrentElectionDifficulty pbs = do
 doGetUpdates :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m UQ.Updates
 doGetUpdates = makeBasicUpdates <=< refLoad . bspUpdates <=< loadPBS
 
-doGetProtocolUpdateStatus :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m (Either ProtocolUpdate [(TransactionTime, ProtocolUpdate)])
+doGetProtocolUpdateStatus :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m UQ.ProtocolUpdateStatus
 doGetProtocolUpdateStatus = protocolUpdateStatus . bspUpdates <=< loadPBS
 
 doProcessUpdateQueues :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> Timestamp -> m (Map.Map TransactionTime UpdateValue, PersistentBlockState pv)
@@ -1130,6 +1130,18 @@ doEnqueueUpdate :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockSt
 doEnqueueUpdate pbs effectiveTime payload = do
         bsp <- loadPBS pbs
         u' <- enqueueUpdate effectiveTime payload (bspUpdates bsp)
+        storePBS pbs bsp{bspUpdates = u'}
+
+doOverwriteElectionDifficulty :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> ElectionDifficulty -> m (PersistentBlockState pv)
+doOverwriteElectionDifficulty pbs newElectionDifficulty = do
+        bsp <- loadPBS pbs
+        u' <- overwriteElectionDifficulty newElectionDifficulty (bspUpdates bsp)
+        storePBS pbs bsp{bspUpdates = u'}
+
+doClearProtocolUpdate :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m (PersistentBlockState pv)
+doClearProtocolUpdate pbs = do
+        bsp <- loadPBS pbs
+        u' <- clearProtocolUpdate (bspUpdates bsp)
         storePBS pbs bsp{bspUpdates = u'}
 
 doAddReleaseSchedule :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> [(AccountAddress, Timestamp)] -> m (PersistentBlockState pv)
@@ -1305,6 +1317,8 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateOperations (Pe
     bsoGetUpdateKeyCollection = doGetUpdateKeyCollection
     bsoGetNextUpdateSequenceNumber = doGetNextUpdateSequenceNumber
     bsoEnqueueUpdate = doEnqueueUpdate
+    bsoOverwriteElectionDifficulty = doOverwriteElectionDifficulty
+    bsoClearProtocolUpdate = doClearProtocolUpdate
     bsoAddReleaseSchedule = doAddReleaseSchedule
     bsoGetEnergyRate = doGetEnergyRate
     bsoGetChainParameters = doGetChainParameters
@@ -1349,7 +1363,7 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateStorage (Persi
 
     serializeBlockState hpbs = do
         p <- runPutT (putBlockStateV0 (hpbsPointers hpbs))
-        return $ runPutLazy p
+        return $ runPut p
 
     writeBlockState h hpbs =
         runPutH (putBlockStateV0 (hpbsPointers hpbs)) h

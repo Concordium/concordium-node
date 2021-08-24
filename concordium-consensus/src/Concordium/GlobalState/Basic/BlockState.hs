@@ -772,6 +772,12 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
     {-# INLINE bsoEnqueueUpdate #-}
     bsoEnqueueUpdate bs effectiveTime payload = return $! bs & blockUpdates %~ enqueueUpdate effectiveTime payload
 
+    {-# INLINE bsoOverwriteElectionDifficulty #-}
+    bsoOverwriteElectionDifficulty bs newDifficulty = return $! bs & blockUpdates %~ overwriteElectionDifficulty newDifficulty
+
+    {-# INLINE bsoClearProtocolUpdate #-}
+    bsoClearProtocolUpdate bs = return $! bs & blockUpdates %~ clearProtocolUpdate
+
     {-# INLINE bsoAddReleaseSchedule #-}
     bsoAddReleaseSchedule bs rel = do
       let f relSchedule (addr, t) = Map.alter (\case
@@ -826,7 +832,7 @@ instance (IsProtocolVersion pv, MonadIO m) => BS.BlockStateStorage (PureBlockSta
     cacheBlockState = return
 
     {-# INLINE serializeBlockState #-}
-    serializeBlockState = return . runPutLazy . putBlockState . _unhashedBlockState
+    serializeBlockState = return . runPut . putBlockState . _unhashedBlockState
 
     {-# INLINE writeBlockState #-}
     writeBlockState h = PureBlockStateMonad . liftIO . hPutBuilder h . snd . runPutMBuilder . putBlockState . _unhashedBlockState

@@ -61,17 +61,17 @@ import System.Directory
 -- |Protocol version
 type PV = 'P1
 
-type TreeConfig = DiskTreeDiskBlockConfig PV
+type TreeConfig = DiskTreeDiskBlockConfig
 
 -- |Construct the global state configuration.
 -- Can be customised if changing the configuration.
-makeGlobalStateConfig :: RuntimeParameters -> (GenesisData PV) -> IO TreeConfig
-makeGlobalStateConfig rt genData = return $ DTDBConfig rt genData
+makeGlobalStateConfig :: RuntimeParameters -> FilePath -> FilePath -> GenesisData PV -> IO (TreeConfig PV)
+makeGlobalStateConfig rt treeStateDir blockStateFile genData = return $ DTDBConfig rt treeStateDir blockStateFile genData
 
 {-
-type TreeConfig = PairGSConfig (MemoryTreeMemoryBlockConfig PV) (DiskTreeDiskBlockConfig PV)
-makeGlobalStateConfig rp genData =
-   return $ PairGSConfig (MTMBConfig rp genData, DTDBConfig rp genData)
+type TreeConfig = PairGSConfig MemoryTreeMemoryBlockConfig DiskTreeDiskBlockConfig
+makeGlobalStateConfig rp treeStateDir blockStateFile genData =
+   return $ PairGSConfig (MTMBConfig rp genData, DTDBConfig rp treeStateDir blockStateFile genData)
 -}
 
 -- |A timer is represented as an integer identifier.
@@ -107,10 +107,10 @@ runDeterministic (DeterministicTime a) t = runReaderT a t
 type LogBase = LoggerT (DeterministicTime IO)
 
 -- |How 'SkovHandlers' should be instantiated for our setting.
-type MyHandlers = SkovHandlers DummyTimer BakerConfig (StateT SimState LogBase)
+type MyHandlers = SkovHandlers PV DummyTimer BakerConfig (StateT SimState LogBase)
 
 -- |The monad for bakers to run in.
-type BakerM = SkovT MyHandlers BakerConfig (StateT SimState LogBase)
+type BakerM = SkovT PV MyHandlers BakerConfig (StateT SimState LogBase)
 
 -- |Events that trigger actions by bakers.
 data Event
@@ -263,7 +263,11 @@ initialState = do
         mkBakerState :: Timestamp -> (BakerId, (BakerIdentity, FullBakerInfo)) -> IO BakerState
         mkBakerState now (bakerId, (_bsIdentity, _bsInfo)) = do
             createDirectoryIfMissing True "data"
-            gsconfig <- makeGlobalStateConfig (defaultRuntimeParameters { rpTreeStateDir = "data/treestate-" ++ show now ++ "-" ++ show bakerId, rpBlockStateFile = "data/blockstate-" ++ show now ++ "-" ++ show bakerId }) genData --dbConnString
+            gsconfig <- makeGlobalStateConfig 
+                            defaultRuntimeParameters 
+                            ("data/treestate-" ++ show now ++ "-" ++ show bakerId)
+                            ("data/blockstate-" ++ show now ++ "-" ++ show bakerId ++ ".dat")
+                            genData
             let
                 finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey _bsIdentity) (bakerElectionKey _bsIdentity) (bakerAggregationKey _bsIdentity))
                 hconfig = NoHandler
@@ -297,7 +301,6 @@ runBaker curTime bid a = do
         curTimeUTC = posixSecondsToUTCTime (fromIntegral curTime)
         handlers = SkovHandlers {..}
         shBroadcastFinalizationMessage = broadcastEvent curTime . EFinalization
-        shBroadcastFinalizationRecord = broadcastEvent curTime . EFinalizationRecord
         shOnTimeout timeout action = do
             tmr <- ssNextTimer <<%= (1+)
             let t = case timeout of

@@ -35,9 +35,9 @@ type PV = 'P1
 dummyArs :: AnonymityRevokers
 dummyArs = emptyAnonymityRevokers
 
--- type TreeConfig = DiskTreeDiskBlockConfig PV
-type TreeConfig = MemoryTreeMemoryBlockConfig PV
-makeGlobalStateConfig :: RuntimeParameters -> GenesisData PV -> IO TreeConfig
+-- type TreeConfig = DiskTreeDiskBlockConfig
+type TreeConfig = MemoryTreeMemoryBlockConfig
+makeGlobalStateConfig :: RuntimeParameters -> GenesisData PV -> IO (TreeConfig PV)
 makeGlobalStateConfig rt genData = return $ MTMBConfig rt genData
 
 genesis :: Word -> (GenesisData PV, [(BakerIdentity, FullBakerInfo)], Amount)

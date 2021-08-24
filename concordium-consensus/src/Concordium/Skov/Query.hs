@@ -13,7 +13,7 @@ import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.Finalization
 import Concordium.Types
-import Concordium.Types.Updates
+import Concordium.Types.UpdateQueues (ProtocolUpdateStatus(..))
 import Concordium.Skov.CatchUp.Types
 
 doResolveBlock :: TreeStateMonad pv m => BlockHash -> m (Maybe (BlockPointerType m))
@@ -75,7 +75,7 @@ doGetCatchUpStatus cusIsRequest = do
         (leaves, branches) <- leavesBranches br
         makeCatchUpStatus cusIsRequest False lfb leaves (if cusIsRequest then branches else [])
 
-doGetProtocolUpdateStatus :: (TreeStateMonad pv m) => m (Either ProtocolUpdate [(TransactionTime, ProtocolUpdate)])
+doGetProtocolUpdateStatus :: (TreeStateMonad pv m) => m ProtocolUpdateStatus
 doGetProtocolUpdateStatus = do
         (lastFin, _) <- getLastFinalized
         lastFinState <- blockState lastFin
@@ -85,8 +85,8 @@ doIsShutDown :: (TreeStateMonad pv m) => m Bool
 doIsShutDown = do
         status <- doGetProtocolUpdateStatus
         return $ case status of
-            Left _ -> True
-            Right _ -> False
+            ProtocolUpdated _ -> True
+            PendingProtocolUpdates _ -> False
 
 makeCatchUpStatus :: (BlockPointerMonad m) => Bool -> Bool -> (BlockPointerType m) -> [BlockPointerType m] -> [BlockPointerType m] -> m CatchUpStatus
 makeCatchUpStatus cusIsRequest cusIsResponse lfb leaves branches = return CatchUpStatus{..}

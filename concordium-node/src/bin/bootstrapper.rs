@@ -1,17 +1,14 @@
 #![recursion_limit = "1024"]
 
 // Force the system allocator on every platform
-use std::{
-    alloc::System,
-    sync::{Arc, RwLock},
-};
+use std::{alloc::System, sync::Arc};
 #[global_allocator]
 static A: System = System;
 
 use anyhow::{ensure, Context};
 use concordium_node::{
     common::PeerType,
-    consensus_ffi::blockchain_types::BlockHash,
+    consensus_ffi::{blockchain_types::BlockHash, consensus::Regenesis},
     p2p::{maintenance::spawn, *},
     stats_export_service::instantiate_stats_export_engine,
     utils::get_config_and_logging_setup,
@@ -36,10 +33,10 @@ fn main() -> anyhow::Result<()> {
         .context(format!("Could not open file {} with genesis hashes.", fname.to_string_lossy()))?;
     let regenesis_blocks: Vec<BlockHash> = serde_json::from_slice(&regenesis_hashes_bytes)
         .context("Could not parse genesis hashes.")?;
-    let regenesis_arc: Arc<RwLock<Vec<BlockHash>>> = Arc::new(RwLock::new(regenesis_blocks));
+    let regenesis_arc: Arc<Regenesis> = Arc::new(Regenesis::from_blocks(regenesis_blocks));
 
     ensure!(
-        regenesis_arc.read().unwrap().len() > 0,
+        regenesis_arc.blocks.read().unwrap().len() > 0,
         "Bootstrapper can't run without specifying genesis hashes."
     );
 

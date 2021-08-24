@@ -20,7 +20,7 @@ import Control.Monad.IO.Class
 import Concordium.Skov.Query
 
 import Concordium.Types
-import Concordium.Types.Updates
+import Concordium.Types.UpdateQueues (ProtocolUpdateStatus)
 import Concordium.GlobalState.Types
 import Concordium.Types.HashableTo
 import Concordium.GlobalState
@@ -32,6 +32,7 @@ import Concordium.GlobalState.Block as B
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.BlockState (BlockStateQuery, AccountOperations, BlockStateStorage, BlockStateOperations)
+import Concordium.GlobalState.Statistics (ConsensusStatistics)
 import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.Classes as C
 import Concordium.Logger
@@ -80,9 +81,11 @@ data UpdateResult
     -- ^The file provided for importing blocks is missing
     | ResultConsensusShutDown
     -- ^The message was not processed because consensus has been shut down
+    | ResultInvalidGenesisIndex
+    -- ^The message is for an unknown genesis index
     deriving (Eq, Show)
 
-class (Monad m, Eq (BlockPointerType m), BlockPointerData (BlockPointerType m), EncodeBlock pv (BlockPointerType m), BlockStateQuery m, IsProtocolVersion pv)
+class (Monad m, Eq (BlockPointerType m), HashableTo BlockHash (BlockPointerType m), BlockPointerData (BlockPointerType m), BlockPointerMonad m, EncodeBlock pv (BlockPointerType m), BlockStateQuery m, IsProtocolVersion pv)
         => SkovQueryMonad pv m | m -> pv where
     -- |Look up a block in the table given its hash
     resolveBlock :: BlockHash -> m (Maybe (BlockPointerType m))
@@ -135,14 +138,23 @@ class (Monad m, Eq (BlockPointerType m), BlockPointerData (BlockPointerType m), 
     isShutDown :: m Bool
     -- |Return the current protocol update, or any pending updates if none has
     -- yet taken effect.
-    getProtocolUpdateStatus :: m (Either ProtocolUpdate [(TransactionTime, ProtocolUpdate)])
+    getProtocolUpdateStatus :: m ProtocolUpdateStatus
 
-data MessageType = MessageBlock | MessageFinalizationRecord
+    getConsensusStatistics :: m ConsensusStatistics
+    default getConsensusStatistics :: (TS.TreeStateMonad pv m) => m ConsensusStatistics
+    getConsensusStatistics = TS.getConsensusStatistics
+
+data MessageType
+    = MessageBlock
+    | MessageFinalization
+    | MessageFinalizationRecord
+    | MessageCatchUpStatus
     deriving (Eq, Show)
-
+    
 class (SkovQueryMonad pv m, TimeMonad m, MonadLogger m) => SkovMonad pv m | m -> pv where
     -- |Store a block in the block table and add it to the tree
-    -- if possible.
+    -- if possible. This also checks that the block is not early in the sense that its received
+    -- time predates its slot time by more than the early block threshold.
     storeBlock :: PendingBlock -> m UpdateResult
     -- |Add a transaction to the transaction table.
     receiveTransaction :: BlockItem -> m UpdateResult
@@ -152,11 +164,14 @@ class (SkovQueryMonad pv m, TimeMonad m, MonadLogger m) => SkovMonad pv m | m ->
     --  * If the block being finalized is live, it is finalized and the block pointer is returned.
     --  * If the block is already finalized or dead, 'ResultInvalid' is returned
     --  * If the block is unknown or pending, 'ResultUnverifiable' is returned.
-    -- Note that this function is indended to be called by the finalization implemention,
+    -- Note that this function is intended to be called by the finalization implementation,
     -- and will not call the finalization implementation itself.
     trustedFinalize :: FinalizationRecord -> m (Either UpdateResult (BlockPointerType m))
     -- |Handle a catch-up status message.
     handleCatchUpStatus :: CatchUpStatus -> Int -> m (Maybe ([(MessageType, ByteString)], CatchUpStatus), UpdateResult)
+    -- |Clean up the Skov state once it is shut down (i.e. a protocol update has
+    -- occurred). Returns a list of non-finalized transactions.
+    terminateSkov :: m [BlockItem]
     -- |Purge uncommitted transactions from the transaction table.  This can be called
     -- periodically to clean up transactions that are not committed to any block.
     purgeTransactions :: m ()
@@ -184,6 +199,7 @@ instance (Monad (t m), MonadTrans t, SkovQueryMonad pv m) => SkovQueryMonad pv (
     getRuntimeParameters = lift getRuntimeParameters
     isShutDown = lift isShutDown
     getProtocolUpdateStatus = lift getProtocolUpdateStatus
+    getConsensusStatistics = lift getConsensusStatistics
     {- - INLINE resolveBlock - -}
     {- - INLINE isFinalized - -}
     {- - INLINE lastFinalizedBlock - -}
@@ -213,6 +229,7 @@ instance (MonadLogger (t m), MonadTrans t, SkovMonad pv m) => SkovMonad pv (MGST
     receiveTransaction = lift . receiveTransaction
     trustedFinalize = lift . trustedFinalize
     handleCatchUpStatus peerCUS = lift . handleCatchUpStatus peerCUS
+    terminateSkov = lift terminateSkov
     purgeTransactions = lift purgeTransactions
     {- - INLINE storeBlock - -}
     {- - INLINE receiveTransaction - -}
@@ -263,9 +280,7 @@ deriving via (MGSTrans SkovQueryMonadT m) instance BlockStateStorage m => BlockS
 deriving via (MGSTrans SkovQueryMonadT m) instance PerAccountDBOperations m => PerAccountDBOperations (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance BlockStateOperations m => BlockStateOperations (SkovQueryMonadT m)
 
-instance (Monad m,
-          BlockStateQuery m,
-          TS.TreeStateMonad pv m)
+instance (TS.TreeStateMonad pv m)
           => SkovQueryMonad pv (SkovQueryMonadT m) where
     {- - INLINE resolveBlock - -}
     resolveBlock = lift . doResolveBlock
