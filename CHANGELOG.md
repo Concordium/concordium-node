@@ -8,9 +8,8 @@
 - Add support for configuring the node and the collector via environment
   variables in addition to command line arguments. This is a breaking change in
   that flags now need to have an explicit argument.
-- Disable dnssec by default. This replaces the flag `--no-dnssec` with
-  `--require-dnssec`, and the environment variable
-  `CONCORDIUM_NODE_CONNECTION_NO_DNSSEC` with `CONCORDIUM_NODE_CONNECTION_REQUIRE_DNSSEC`.
+- Remove use of `unbound` for DNS resolution. This also removes the dnssec functionality, and the
+  flag `--no-dnssec` is no longer supported.
 - Global state database now includes version metadata. The treestate directory and blockstate file
   names are suffixed with "-*n*" to indicate genesis index *n*.
   A legacy database will automatically be migrated by renaming and adding version metadata.

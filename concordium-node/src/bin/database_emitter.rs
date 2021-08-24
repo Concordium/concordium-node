@@ -20,12 +20,11 @@ use concordium_node::{
     utils,
 };
 use crypto_common::Serial;
-use std::{fs::File, io::prelude::*, sync::Arc, thread, time::Duration};
+use std::{fs::File, io::prelude::*, net::ToSocketAddrs, sync::Arc, thread, time::Duration};
 
 fn main() -> anyhow::Result<()> {
     let (mut conf, _app_prefs) = utils::get_config_and_logging_setup()?;
 
-    conf.connection.require_dnssec = false;
     conf.connection.no_bootstrap_dns = true;
     conf.connection.desired_nodes = conf.connection.connect_to.len() as u16;
 
@@ -42,12 +41,8 @@ fn main() -> anyhow::Result<()> {
 
     spawn(&node, poll, None);
 
-    conf.connection.connect_to.iter().for_each(|host: &String| {
-        match utils::parse_host_port(
-            &host,
-            &node.config.dns_resolvers,
-            conf.connection.require_dnssec,
-        ) {
+    conf.connection.connect_to.iter().for_each(
+        |host: &String| match ToSocketAddrs::to_socket_addrs(&host) {
             Ok(addrs) => {
                 for addr in addrs {
                     let _ = connect(&node, PeerType::Node, addr, None, false)
@@ -55,8 +50,8 @@ fn main() -> anyhow::Result<()> {
                 }
             }
             Err(err) => error!("Can't parse configured addresses to connect to: {}", err),
-        }
-    });
+        },
+    );
 
     info!("Sleeping to let network connections settle");
     thread::sleep(Duration::from_millis(10000));

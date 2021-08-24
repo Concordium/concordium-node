@@ -83,7 +83,7 @@ EXPOSE 8900
 EXPOSE 10000
 
 RUN apt-get update && \
-    apt-get install -y less curl unbound postgresql-server-dev-12 libnuma1 && \
+    apt-get install -y less curl postgresql-server-dev-12 libnuma1 && \
     rm -rf /var/lib/apt/lists/*
 
 # Genesis data files for all configurations.

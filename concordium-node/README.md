@@ -7,7 +7,6 @@
   v2.0.0 is what we currently use. Either build from the v2.0.0 tag of the repository using CMake and copy the `flatc` binary somewhere in your PATH, or download a released binary from https://github.com/google/flatbuffers/releases/tag/v2.0.0 and place it somewhere in your PATH.
 * protobuf >= 3.7.1
 * LLVM and Clang >= 3.9
-* [Unbound](https://www.nlnetlabs.nl/documentation/unbound/howto-setup/) >= 1.9.2 (the dependency `openssl-devel` is named `libssl-dev` on Ubuntu 19.10)
 * PostGreSQL >= 10
 
 ### Optional dependencies
@@ -57,8 +56,7 @@ By default none of these features are enabled.
 
 Building a node with any of these features, e.g., `cargo build --release
 --features=static` produces a mostly statically linked binary `concordium-node`,
-apart from system libraries and `libunbound` and `libpq` for the unbound library
-and postgres.
+apart from system libraries and `libpq` for postgres.
 
 ### Environment variables
 
@@ -121,10 +119,10 @@ Before building the node, you should install the following dependencies:
   * For building the node runner service (optional), the toolchain `1.53.0-x86_64-pc-windows-msvc`  is required, which can be installed with the command: `rustup toolchain install 1.53.0-x86_64-pc-windows-msvc`.
 * [flatc](https://github.com/google/flatbuffers/releases/tag/v2.0.0) 2.0.0 (should be in the path)
 * [protoc](https://github.com/protocolbuffers/protobuf/releases) >= 3.7.1
-* Unbound, PostGreSQL and LMDB should be installed under `stack`'s `msys2` installation, which can be done with the following commands:
+* PostGreSQL and LMDB should be installed under `stack`'s `msys2` installation, which can be done with the following commands:
 ```
 stack exec -- pacman -Syuq --noconfirm
-stack exec -- pacman -Syq mingw-w64-x86_64-unbound mingw-w64-x86_64-postgresql mingw-w64-x86_64-lmdb --noconfirm
+stack exec -- pacman -Syq mingw-w64-x86_64-postgresql mingw-w64-x86_64-lmdb --noconfirm
 ```
 * If building the installer, the [Wix Toolset](https://wixtoolset.org/releases/) is required, and should be in the path.
 
