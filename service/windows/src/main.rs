@@ -186,6 +186,10 @@ fn run_service(_arguments: Vec<OsString>) -> anyhow::Result<()> {
     // Shut down the nodes.
     // Nodes are first sent a CTRL+BREAK signal to trigger shutdown gracefully, and are allowed 61
     // seconds to do so.  Any node that has not shut down in that time will be terminated.
+    // The time duration is chosen to be shorter than the timeout for the anticipated shutdown
+    // scenarios (180 seconds for preshutdown, and 125 seconds for shutdown from the Services
+    // control panel).  It was chosen to be 61 seconds as that is a second longer than twice the
+    // default housekeeping interval.
     let expected_shutdown_duration = Duration::from_secs(61);
     let mut checkpoint = 0;
     status_handle.set_service_status(pending_status(
