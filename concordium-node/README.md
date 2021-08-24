@@ -109,6 +109,47 @@ Environment variables only apply to the default build. This links with shared Ha
 - The node built with Haskell library auto-discovery is not suitable for distribution to other
   machines. It is a dynamically linked binary with a large number of shared library dependencies.
 
+## Building on Windows
+
+### Dependencies
+
+Before building the node, you should install the following dependencies:
+
+* Haskell [stack](https://docs.haskellstack.org/en/stable/install_and_upgrade/)
+* [Rust](https://www.rust-lang.org/tools/install)
+  * For building the node, the toolchain `1.53.0-x86_64-pc-windows-gnu` is required, which can be installed with the command: `rustup toolchain install 1.53.0-x86_64-pc-windows-gnu`.
+  * For building the node runner service (optional), the toolchain `1.53.0-x86_64-pc-windows-msvc`  is required, which can be installed with the command: `rustup toolchain install 1.53.0-x86_64-pc-windows-msvc`.
+* [flatc](https://github.com/google/flatbuffers/releases/tag/v2.0.0) 2.0.0 (should be in the path)
+* [protoc](https://github.com/protocolbuffers/protobuf/releases) >= 3.7.1
+* Unbound, PostGreSQL and LMDB should be installed under `stack`'s `msys2` installation, which can be done with the following commands:
+```
+stack exec -- pacman -Syuq --noconfirm
+stack exec -- pacman -Syq mingw-w64-x86_64-unbound mingw-w64-x86_64-postgresql mingw-w64-x86_64-lmdb --noconfirm
+```
+* If building the installer, the [Wix Toolset](https://wixtoolset.org/releases/) is required, and should be in the path.
+
+### Building and Running
+
+The simplest way to build the complete node, as well as the service runner and installer is with the [`build-all.ps1`](../scripts/distribution/windows/build-all.ps1`) powershell script.
+
+The node binary will be built at `.\target\release\concordium-node.exe`.
+However, running the node requires the consensus DLL, which is compiled to `..\concordium-consensus\HSdll.dll`.
+If you wish to run the node directly, you should copy `HSdll.dll` to the location of `concordium-node.exe`.
+The node also depends on a number of DLLs that are part of `stack`'s `msys2` installation.
+To run the node with these DLLs in the path, you can use `stack exec`, as in:
+```
+stack exec -- concordium-node.exe --help
+```
+
+### Build issue: long paths
+If the root directory of the repository is too long, then the build may fail with `No such file or directory` errors, such as:
+```
+concordium-consensus   >   = note: x86_64-w64-mingw32-gcc.exe: error: C:\msys64\jenkins-agent\workspace\concordium-node-windows\concordium-consensus\smart-contracts\wasm-chain-integration\target\release\build\winapi-x86_64-pc-windows-gnu-0838443214203ebf\build_script_build-0838443214203ebf.build_script_build.8py00u3m-cgu.0.rcgu.o: No such file or directory
+```
+This is caused by the path exceeding the Windows maximum path length.
+The simplest solution for this is to clone the repository into a shorter root path.
+
+
 ## Running a bootstrapper node
 
 The bootstrapper node uses a configuration similar to the one of a

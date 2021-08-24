@@ -1,0 +1,30 @@
+[package]
+name = "node-runner-service"
+version = "1.0.0"
+description = "Concordium Node Runner Service"
+authors = ["Concordium <developers@concordium.com>"]
+edition = "2018"
+
+[package.metadata.winres]
+LegalCopyright = "Copyright © 2021 Concordium"
+
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0"
+atomic_ref = "0.2"
+log = "0.4"
+retain_mut = "0.1"
+tempfile = "3.2"
+toml = "0.5"
+winapi = { version = "0.3", features = ["wincon", "consoleapi"] }
+windows-service = "0.3"
+winlog = { version = "0.2" }
+winreg = "0.9"
+
+[build-dependencies]
+winres = { version = "0.1", optional = true }
+
+[features]
+default = ["winres"]

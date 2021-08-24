@@ -36,6 +36,11 @@
   transactions are only logged at Trace level. GRPC queries are not logged.
 - The block export format has been revised to a new version (version 3) which allows for
   protocol updates. Version 2 is no longer supported.
+- Support [log4rs](https://docs.rs/log4rs/1.0.0/log4rs/) logging, by specifying a configuration file
+  (in toml or yaml format) with the `--log-config` argument or `CONCORDIUM_NODE_LOG_CONFIG`
+  environment variable.
+- A Windows node runner service and installer.
+  See [service/windows/README.md](service/windows/README.md).
 
 ## concordium-node 1.0.1
 

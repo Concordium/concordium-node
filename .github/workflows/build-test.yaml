@@ -64,7 +64,7 @@ jobs:
         submodules: recursive
     - name: Install system packages
       run: |
-        sudo apt-get update && sudo apt-get -y install liblmdb-dev libunbound-dev
+        sudo apt-get update && sudo apt-get -y install liblmdb-dev libunbound-dev gcc-mingw-w64-x86-64 binutils-mingw-w64-x86-64
         sudo snap install flatbuffers
 
     # Set up Rust and restore dependencies and targets from cache.
@@ -78,6 +78,7 @@ jobs:
         toolchain: ${{ matrix.plan.rust }}
         override: true
         components: clippy
+        target: x86_64-pc-windows-gnu
     - name: Cache cargo dependencies and targets
       uses: actions/cache@v2
       with:
@@ -161,12 +162,24 @@ jobs:
     - name: Check that Rust target compiles
       run: |
         cargo check --manifest-path concordium-node/Cargo.toml --workspace
+    - name: Check that the Windows node runner service compiles (gnu toolchain, disable embedded resources)
+      run: |
+        cargo check --target x86_64-pc-windows-gnu --manifest-path service/windows/Cargo.toml --workspace --no-default-features
+    - name: Check that the Windows installer custom action library compiles (gnu toolchain)
+      run: |
+        cargo check --target x86_64-pc-windows-gnu --manifest-path service/windows/installer/custom-actions/Cargo.toml --workspace
     - name: Run clippy (without extra features)
       run: |
         cargo clippy --manifest-path concordium-node/Cargo.toml --all -- -Dclippy::all
     - name: Run clippy (with features 'instrumentation', 'collector', 'network_dump', 'database_emitter')
       run: |
         cargo clippy --manifest-path concordium-node/Cargo.toml --features=instrumentation,collector,network_dump,database_emitter --all -- -Dclippy::all
+    - name: Run clippy on Windows node runner service
+      run: |
+        cargo clippy --target x86_64-pc-windows-gnu --manifest-path service/windows/Cargo.toml --all --no-default-features -- -Dclippy::all
+    - name: Run clippy on Windows installer custom action library
+      run: |
+        cargo clippy --target x86_64-pc-windows-gnu --manifest-path service/windows/installer/custom-actions/Cargo.toml --all -- -Dclippy::all
     - name: Test Rust crates (without extra features)
       run: |
         cargo test --manifest-path concordium-node/Cargo.toml --all
