@@ -14,7 +14,7 @@ pipeline {
                 CRED = credentials('jenkins-dockerhub')
             }
             steps {
-                sh 'echo "${CRED_PSW}" | docker login --username "${CRED_USR}" --password-stdin'
+                sh 'docker login --username "${CRED_USR}" --password "${CRED_PSW}"'
             }
         }
         stage('build') {

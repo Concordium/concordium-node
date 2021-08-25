@@ -50,7 +50,7 @@ container is running, or via `docker run` and mapping /genesis-data to a host di
 
 ## Build
 
-See [`dev-node.Jenkinsfile`](https://gitlab.com/Concordium/concordium-node/-/blob/master/jenkinsfiles/dev-node.Jenkinsfile).
+See [`dev-node.Jenkinsfile`](jenkinsfiles/dev-node.Jenkinsfile).
 
 # OLD
 
