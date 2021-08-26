@@ -7,17 +7,14 @@ pipeline {
     }
     
     stages {
-        stage('ecr-login') {
-            steps {
-                sh '$(aws --region eu-west-1 ecr get-login | sed -e \'s/-e none//g\')'
-            }
-        }
         stage('dockerhub-login') {
             environment {
+                // Defines 'CRED_USR' and 'CRED_PSW'
+                // (see 'https://www.jenkins.io/doc/book/pipeline/jenkinsfile/#handling-credentials').
                 CRED = credentials('jenkins-dockerhub')
             }
             steps {
-                sh 'echo $CRED_PSW | docker login --username $CRED_USR --password-stdin'
+                sh 'docker login --username "${CRED_USR}" --password "${CRED_PSW}"'
             }
         }
         stage('build') {
