@@ -49,6 +49,5 @@ concordium-node/deps/static-libs
 .dir-locals.el
 hie.yaml
 **/**/TAGS
-/scripts/genesis/genesis-tmp.json
 .DS_Store
 /concordium-node/*.log
