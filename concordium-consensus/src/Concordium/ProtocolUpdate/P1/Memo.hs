@@ -1,22 +1,21 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
--- |This module implements the P1.Reboot protocol update.
+-- |This module implements the P1.Memo protocol update.
 -- This protocol update is valid at protocol version P1, and updates
--- to protocol version P1.
--- The block state is preserved across the update with limited changes
--- that are specified by the auxiliary data.
+-- to protocol version P2.
+-- The block state is preserved across the update.
 --
--- This produces a new 'GenesisDataP1' using the 'GDP1Regenesis' constructor,
+-- This produces a new 'GenesisDataP2' using the 'GenesisDataP2' constructor,
 -- as follows:
 --
 -- * 'genesisCore':
 --
 --     * 'genesisTime' is the timestamp of the last finalized block of the previous chain.
---     * 'genesisSlotDuration' is 'updateSlotDuration'.
---     * 'genesisEpochLength' is 'updateEpochLength'.
---     * 'genesisMaxBlockEnergy' is 'updateMaxBlockEnergy'.
---     * 'genesisFinalizationParameters' is 'updateFinalizationParameters'.
+--     * 'genesisSlotDuration' is unchanged.
+--     * 'genesisEpochLength' is unchanged.
+--     * 'genesisMaxBlockEnergy' is unchanged.
+--     * 'genesisFinalizationParameters' is unchanged.
 --
 -- * 'genesisFirstGenesis' is either:
 --
@@ -34,15 +33,13 @@
 --
 --     * The 'SeedState' is updated with:
 --
---         * 'epochLength' is 'updateEpochLength';
+--         * 'epochLength' is unchanged;
 --         * 'epoch' is @0@;
 --         * 'currentLeadershipElectionNonce' is the SHA256 hash of (@"Regenesis" <> encode (updatedNonce oldSeedState)@); and
 --         * 'updatedNonce' is the same as 'currentLeadershipElectionNonce'.
 --
 --     * The 'Updates' are updated with:
 --
---         * the election difficulty chain parameter is set to 'updateElectionDifficulty';
---         * the election difficulty update queue is emptied;
 --         * the current protocol update is set to 'Nothing'; and
 --         * the protocol update queue is emptied.
 --
