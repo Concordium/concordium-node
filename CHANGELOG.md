@@ -36,6 +36,8 @@
   transactions are only logged at Trace level. GRPC queries are not logged.
 - The block export format has been revised to a new version (version 3) which allows for
   protocol updates. Version 2 is no longer supported.
+- Introduce protocol P2 that supports transfers with memo. A new protocol update
+  is added that updates from P1 to P2 protocol.
 
 ## concordium-node 1.0.1
 
