@@ -180,7 +180,7 @@ makeTestingGenesisDataP1
   genesisChainParameters
     = GDP1 P1.GDP1Initial {
         genesisCore=GenesisData.CoreGenesisParameters{..},
-        genesisInitialState=P1.GenesisState{..}
+        genesisInitialState=GenesisData.GenesisState{..}
       }
     where
         -- todo hardcoded epoch length (and initial seed)

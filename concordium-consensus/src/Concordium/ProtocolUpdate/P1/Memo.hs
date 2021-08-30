@@ -108,5 +108,4 @@ updateRegenesis = do
     regenesisState <- freezeBlockState s3
     genesisStateHash <- getStateHash regenesisState
     genesisNewState <- serializeBlockState regenesisState
-    let unGenesisDataP2 = GenesisData.RegenesisData{genesisCore=core,..}
-    return . PVGenesisData . GDP2 $ P2.GenesisDataP2 unGenesisDataP2
+    return . PVGenesisData . GDP2 $ P2.GDP2Regenesis{genesisRegenesis = GenesisData.RegenesisData{genesisCore=core,..}}

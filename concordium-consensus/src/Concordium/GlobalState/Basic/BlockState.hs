@@ -879,75 +879,62 @@ initialState seedState cryptoParams genesisAccounts ips anonymityRevokers keysCo
               bshEpochBlocks = getHash _blockEpochBlocksBaked
             }
 
--- |Initial block state based on 'GenesisData', for protocol version P1.
-genesisStateP1 :: GenesisData 'P1 -> Either String (BlockState 'P1)
-genesisStateP1 (GDP1 P1.GDP1Initial{
-    genesisCore=GenesisData.CoreGenesisParameters{..},
-    genesisInitialState = P1.GenesisState{..}
-  }) = do
-    accounts <- mapM mkAccount (zip [0..] (toList genesisAccounts))
-    let
-        _blockBirkParameters = initialBirkParameters accounts genesisSeedState
-        _blockAccounts = List.foldl' (flip Accounts.putAccountWithRegIds) Accounts.emptyAccounts accounts
-        -- initial amount in the central bank is the amount on all genesis accounts combined
-        initialAmount = List.foldl' (\c acc -> c + acc ^. accountAmount) 0 accounts
-        _blockBank = makeHashed $ Rewards.makeGenesisBankStatus initialAmount
-    return BlockState {..}
-  where
-    mkAccount (bid, GenesisAccount{..}) =
-          case gaBaker of
-            Just GenesisBaker{..} | gbBakerId /= bid -> Left "Mismatch between assigned and chosen baker id."
-            _ -> Right $! newAccountMultiCredential genesisCryptographicParameters gaThreshold gaAddress gaCredentials
-                      & accountAmount .~ gaBalance
-                      & case gaBaker of
-                          Nothing -> id
-                          Just GenesisBaker{..} -> accountBaker ?~ AccountBaker {
-                            _stakedAmount = gbStake,
-                            _stakeEarnings = gbRestakeEarnings,
-                            _accountBakerInfo = BakerInfo {
-                                _bakerIdentity = bid,
-                                _bakerSignatureVerifyKey = gbSignatureVerifyKey,
-                                _bakerElectionVerifyKey = gbElectionVerifyKey,
-                                _bakerAggregationVerifyKey = gbAggregationVerifyKey
-                                },
-                            _bakerPendingChange = NoChange
-                            }
-    -- accounts = zipWith mkAccount (toList genesisAccounts) [0..]
-    genesisSeedState = initialSeedState genesisLeadershipElectionNonce genesisEpochLength
-    _blockCryptographicParameters = makeHashed genesisCryptographicParameters
-    _blockInstances = Instances.emptyInstances
-    _blockModules = Modules.emptyModules
-    _blockIdentityProviders = makeHashed genesisIdentityProviders
-    _blockAnonymityRevokers = makeHashed genesisAnonymityRevokers
-    _blockTransactionOutcomes = Transactions.emptyTransactionOutcomes
-    _blockUpdates = initialUpdates genesisUpdateKeys genesisChainParameters
-    _blockReleaseSchedule = Map.empty
-    _blockEpochBlocksBaked = emptyHashedEpochBlocks
-genesisStateP1 (GDP1 P1.GDP1Regenesis{genesisRegenesis=GenesisData.RegenesisData{..}}) = case runGet getBlockState genesisNewState of
-  Left err -> Left $ "Could not deserialize P1 genesis state: " ++ err
-  Right bs
-      | hbs ^. blockStateHash /= genesisStateHash -> Left "Could not deserialize genesis state: state hash is incorrect"
-      | epochLength (bs ^. blockBirkParameters . birkSeedState) /= GenesisData.genesisEpochLength genesisCore -> Left "Could not deserialize genesis state: epoch length mismatch"
-      | otherwise -> Right bs
+-- |Initial block state based on 'GenesisData', for a given protocol version.
+genesisState :: forall pv . IsProtocolVersion pv => GenesisData pv -> Either String (BlockState pv)
+genesisState gd = case protocolVersion @pv of
+                    SP1 -> case gd of
+                      GDP1 P1.GDP1Initial{..} -> mkGenesisStateInitial genesisCore genesisInitialState
+                      GDP1 P1.GDP1Regenesis{..} -> mkGenesisStateRegenesis genesisRegenesis
+                    SP2 -> case gd of
+                      GDP2 P2.GDP2Initial{..} -> mkGenesisStateInitial genesisCore genesisInitialState
+                      GDP2 P2.GDP2Regenesis{..} -> mkGenesisStateRegenesis genesisRegenesis
     where
-      hbs = hashBlockState bs
+        mkGenesisStateInitial GenesisData.CoreGenesisParameters{..} GenesisData.GenesisState{..} = do
+            accounts <- mapM mkAccount (zip [0..] (toList genesisAccounts))
+            let
+                _blockBirkParameters = initialBirkParameters accounts genesisSeedState
+                _blockAccounts = List.foldl' (flip Accounts.putAccountWithRegIds) Accounts.emptyAccounts accounts
+                -- initial amount in the central bank is the amount on all genesis accounts combined
+                initialAmount = List.foldl' (\c acc -> c + acc ^. accountAmount) 0 accounts
+                _blockBank = makeHashed $ Rewards.makeGenesisBankStatus initialAmount
+            return BlockState {..}
+              where 
+                  mkAccount (bid, GenesisAccount{..}) =
+                      case gaBaker of
+                        Just GenesisBaker{..} | gbBakerId /= bid -> Left "Mismatch between assigned and chosen baker id."
+                        _ -> Right $! newAccountMultiCredential genesisCryptographicParameters gaThreshold gaAddress gaCredentials
+                                  & accountAmount .~ gaBalance
+                                  & case gaBaker of
+                                      Nothing -> id
+                                      Just GenesisBaker{..} -> accountBaker ?~ AccountBaker {
+                                        _stakedAmount = gbStake,
+                                        _stakeEarnings = gbRestakeEarnings,
+                                        _accountBakerInfo = BakerInfo {
+                                            _bakerIdentity = bid,
+                                            _bakerSignatureVerifyKey = gbSignatureVerifyKey,
+                                            _bakerElectionVerifyKey = gbElectionVerifyKey,
+                                            _bakerAggregationVerifyKey = gbAggregationVerifyKey
+                                            },
+                                        _bakerPendingChange = NoChange
+                                        }
+                  genesisSeedState = initialSeedState genesisLeadershipElectionNonce genesisEpochLength
+                  _blockCryptographicParameters = makeHashed genesisCryptographicParameters
+                  _blockInstances = Instances.emptyInstances
+                  _blockModules = Modules.emptyModules
+                  _blockIdentityProviders = makeHashed genesisIdentityProviders
+                  _blockAnonymityRevokers = makeHashed genesisAnonymityRevokers
+                  _blockTransactionOutcomes = Transactions.emptyTransactionOutcomes
+                  _blockUpdates = initialUpdates genesisUpdateKeys genesisChainParameters
+                  _blockReleaseSchedule = Map.empty
+                  _blockEpochBlocksBaked = emptyHashedEpochBlocks
 
--- |Initial block state based on 'GenesisData', for protocol version P2.
-genesisStateP2 :: GenesisData 'P2 -> Either String (BlockState 'P2)
-genesisStateP2 (GDP2 P2.GenesisDataP2{unGenesisDataP2=GenesisData.RegenesisData{..}}) = case runGet getBlockState genesisNewState of
-  Left err -> Left $ "Could not deserialize P2 genesis state: " ++ err
-  Right bs
-      | hbs ^. blockStateHash /= genesisStateHash -> Left "Could not deserialize genesis state: state hash is incorrect"
-      | epochLength (bs ^. blockBirkParameters . birkSeedState) /= GenesisData.genesisEpochLength genesisCore -> Left "Could not deserialize genesis state: epoch length mismatch"
-      | otherwise -> Right bs
-    where
-      hbs = hashBlockState bs
 
--- |Initial block state based on 'GenesisData'.
--- If the genesis data does not satisfy the required invariant properties, this returns @Left err@
--- indicating the cause of the failure.  Otherwise, it returns @Right bs@ with a valid block state
--- constructed according to the supplied genesis data.
-genesisState :: forall pv. (IsProtocolVersion pv) => GenesisData pv -> Either String (BlockState pv)
-genesisState = case protocolVersion @pv of
-  SP1 -> genesisStateP1
-  SP2 -> genesisStateP2
+        mkGenesisStateRegenesis GenesisData.RegenesisData{..} = do
+            case runGet getBlockState genesisNewState of
+                Left err -> Left $ "Could not deserialize genesis state: " ++ err
+                Right bs
+                    | hbs ^. blockStateHash /= genesisStateHash -> Left "Could not deserialize genesis state: state hash is incorrect"
+                    | epochLength (bs ^. blockBirkParameters . birkSeedState) /= GenesisData.genesisEpochLength genesisCore -> Left "Could not deserialize genesis state: epoch length mismatch"
+                    | otherwise -> Right bs
+                    where
+                        hbs = hashBlockState bs
