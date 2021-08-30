@@ -9,7 +9,8 @@
   variables in addition to command line arguments. This is a breaking change in
   that flags now need to have an explicit argument.
 - Remove use of `unbound` for DNS resolution. This also removes the dnssec functionality, and the
-  flag `--no-dnssec` is no longer supported.
+  flag `--no-dnssec` is no longer supported. The command-line option `--resolv-conf` is also
+  removed, as the system resolver will be used.
 - Global state database now includes version metadata. The treestate directory and blockstate file
   names are suffixed with "-*n*" to indicate genesis index *n*.
   A legacy database will automatically be migrated by renaming and adding version metadata.

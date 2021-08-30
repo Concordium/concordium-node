@@ -403,13 +403,6 @@ pub struct ConnectionConfig {
     )]
     pub bootstrap_nodes: Vec<String>,
     #[structopt(
-        long = "resolv-conf",
-        help = "Location of resolv.conf",
-        default_value = "/etc/resolv.conf",
-        env = "CONCORDIUM_NODE_CONNECTION_RESOLV_CONF"
-    )]
-    pub resolv_conf: PathBuf,
-    #[structopt(
         long = "housekeeping-interval",
         help = "The connection housekeeping interval in seconds",
         default_value = "30",
