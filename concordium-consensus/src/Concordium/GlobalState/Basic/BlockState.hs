@@ -213,31 +213,32 @@ emptyBlockState _blockBirkParameters cryptographicParameters keysCollection chai
       _blockReleaseSchedule = Map.empty
       _blockEpochBlocksBaked = emptyHashedEpochBlocks
 
--- |Convert a @BlockState 'P1@ to a @HashedBlockState 'P1@ by computing
--- the state hash.
-hashBlockStateP1 :: BlockState pv -> HashedBlockState pv
-hashBlockStateP1 bs@BlockState{..} = HashedBlockState {
-        _unhashedBlockState = bs,
-        _blockStateHash = h
-      }
-    where
-        h = BS.makeBlockStateHash BS.BlockStateHashInputs {
-              bshBirkParameters = getHash _blockBirkParameters,
-              bshCryptographicParameters = getHash _blockCryptographicParameters,
-              bshIdentityProviders = getHash _blockIdentityProviders,
-              bshAnonymityRevokers = getHash _blockAnonymityRevokers,
-              bshModules = getHash _blockModules,
-              bshBankStatus = getHash _blockBank,
-              bshAccounts = getHash _blockAccounts,
-              bshInstances = getHash _blockInstances,
-              bshUpdates = getHash _blockUpdates,
-              bshEpochBlocks = getHash _blockEpochBlocksBaked
-            }
 
 hashBlockState :: forall pv. IsProtocolVersion pv => BlockState pv -> HashedBlockState pv
 hashBlockState = case protocolVersion :: SProtocolVersion pv of
-  SP1 -> hashBlockStateP1
-  SP2 -> hashBlockStateP1
+  SP1 -> hashBlockStateP1P2
+  SP2 -> hashBlockStateP1P2
+    -- For protocol versions P1 and P2, convert a @BlockState pv@ to a
+    -- @HashedBlockState pv@ by computing the state hash. The state and hashing
+    -- is the same.
+  where hashBlockStateP1P2 bs@BlockState{..} = HashedBlockState {
+          _unhashedBlockState = bs,
+          _blockStateHash = h
+          }
+          where
+            h = BS.makeBlockStateHash BS.BlockStateHashInputs {
+                  bshBirkParameters = getHash _blockBirkParameters,
+                  bshCryptographicParameters = getHash _blockCryptographicParameters,
+                  bshIdentityProviders = getHash _blockIdentityProviders,
+                  bshAnonymityRevokers = getHash _blockAnonymityRevokers,
+                  bshModules = getHash _blockModules,
+                  bshBankStatus = getHash _blockBank,
+                  bshAccounts = getHash _blockAccounts,
+                  bshInstances = getHash _blockInstances,
+                  bshUpdates = getHash _blockUpdates,
+                  bshEpochBlocks = getHash _blockEpochBlocksBaked
+                  }
+
 
 instance IsProtocolVersion pv => HashableTo StateHash (BlockState pv) where
     getHash = _blockStateHash . hashBlockState
