@@ -75,7 +75,7 @@ ENV DISTRIBUTION_CLIENT=true
 ENV CONCORDIUM_NODE_COLLECTOR_URL=https://dashboard.${environment}/nodes/post
 ENV CONCORDIUM_NODE_COLLECTOR_GRPC_HOST=http://localhost:10000
 
-RUN apt-get update && apt-get install -y unbound curl netbase ca-certificates supervisor nginx libnuma1 libtinfo6 libpq-dev liblmdb-dev jq
+RUN apt-get update && apt-get install -y curl netbase ca-certificates supervisor nginx libnuma1 libtinfo6 libpq-dev liblmdb-dev jq
 RUN curl -L https://getenvoy.io/install.sh | bash -s -- -b /usr/local/bin
 RUN getenvoy use 1.18.3
 

@@ -23,13 +23,6 @@ fn main() -> std::io::Result<()> {
     })
     .expect("Can't compile the flatbuffers schema");
 
-    let mode = if env::var_os("UNBOUND_STATIC").is_some() {
-        "static"
-    } else {
-        "dylib"
-    };
-    println!("cargo:rustc-link-lib={}=unbound", mode);
-
     // Build GRPC
 
     let proto_root_input = format!("{}/../concordium-grpc-api", cargo_dir);

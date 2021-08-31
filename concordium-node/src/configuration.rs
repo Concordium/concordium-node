@@ -382,12 +382,6 @@ pub struct ConnectionConfig {
     )]
     pub connect_to: Vec<String>,
     #[structopt(
-        long = "require-dnssec",
-        help = "Perform DNSsec tests for lookups",
-        env = "CONCORDIUM_NODE_CONNECTION_REQUIRE_DNSSEC"
-    )]
-    pub require_dnssec: bool,
-    #[structopt(
         long = "disallow-multiple-peers-on-ip",
         help = "Disallow multiple peers on the same IP address.",
         env = "CONCORDIUM_NODE_CONNECTION_DISALLOW_MULTIPLE_PEERS_ON_SAME_IP"
@@ -408,13 +402,6 @@ pub struct ConnectionConfig {
         use_delimiter = true
     )]
     pub bootstrap_nodes: Vec<String>,
-    #[structopt(
-        long = "resolv-conf",
-        help = "Location of resolv.conf",
-        default_value = "/etc/resolv.conf",
-        env = "CONCORDIUM_NODE_CONNECTION_RESOLV_CONF"
-    )]
-    pub resolv_conf: PathBuf,
     #[structopt(
         long = "housekeeping-interval",
         help = "The connection housekeeping interval in seconds",

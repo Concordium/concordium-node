@@ -122,14 +122,6 @@ path = "src/bin/bootstrapper.rs"
 name = "p2p_bootstrapper-cli"
 
 [[bin]]
-path = "src/bin/dnsrecordgen.rs"
-name = "dns_record_generator"
-
-[[bin]]
-path = "src/bin/genkey.rs"
-name = "dns_key_generator"
-
-[[bin]]
 name = "node-collector"
 path = "src/bin/collector.rs"
 required-features = [ "collector" ]

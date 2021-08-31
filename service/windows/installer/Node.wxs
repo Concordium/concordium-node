@@ -125,9 +125,6 @@
                 <File Name="libssl-1_1-x64.dll" Source="!(bindpath.lib)libssl-1_1-x64.dll" KeyPath="yes" />
             </Component>
             <Component>
-                <File Name="libunbound-8.dll" Source="!(bindpath.lib)libunbound-8.dll" KeyPath="yes" />
-            </Component>
-            <Component>
                 <File Name="libxml2-2.dll" Source="!(bindpath.lib)libxml2-2.dll" KeyPath="yes" />
             </Component>
             <Component>

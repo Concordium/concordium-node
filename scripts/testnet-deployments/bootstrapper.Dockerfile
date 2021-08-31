@@ -14,7 +14,7 @@ EXPOSE 10000
 
 # TODO only install actually used packages.
 RUN apt-get update && \
-    apt-get install -y unbound libpq-dev && \
+    apt-get install -y libpq-dev && \
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /out/"$build_type"/p2p_bootstrapper-cli /p2p_bootstrapper-cli
