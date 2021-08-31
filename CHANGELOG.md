@@ -38,6 +38,8 @@
   protocol updates. Version 2 is no longer supported.
 - Introduce protocol P2 that supports transfers with memo. A new protocol update
   is added that updates from P1 to P2 protocol.
+- Relax compatibility check so that the node only checks a lower bound on the
+  peer major version, in contrast to requiring an exact major version match.
 
 ## concordium-node 1.0.1
 
