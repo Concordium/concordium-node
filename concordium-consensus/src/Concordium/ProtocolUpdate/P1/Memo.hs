@@ -67,12 +67,10 @@ import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.BlockState
 import Concordium.Kontrol
 
--- |The hash that identifies a P1.Reboot update.
---
--- FIXME: This should be the hash of a specification document that
--- properly describes the update.
+-- |The hash that identifies a update from P1 to P2 protocol.
+-- This is the hash of the published specification document.
 updateHash :: SHA256.Hash
-updateHash = read "665a3041df9ef9b2ab1b74f9a9aabe6736542f3f7741349db82569407d799ad0"
+updateHash = read "fc2bd4a820c7b598c0c1a209c9c720a492f06478199a5daa3a83b4020ac01e71"
 
 -- |Construct the genesis data for a P1.Reboot update.
 -- It is assumed that the last finalized block is the terminal block of the old chain:
