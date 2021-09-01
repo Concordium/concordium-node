@@ -115,10 +115,6 @@ async fn main() -> anyhow::Result<()> {
         tokio::spawn(async move { stats.start_server(SocketAddr::new(pla, plp)).await });
     }
 
-    for resolver in &node.config.dns_resolvers {
-        debug!("Using resolver: {}", resolver);
-    }
-
     #[cfg(feature = "instrumentation")]
     // The push gateway to Prometheus thread
     start_push_gateway(&conf.prometheus, &node.stats, node.id());

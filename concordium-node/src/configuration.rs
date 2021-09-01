@@ -382,12 +382,6 @@ pub struct ConnectionConfig {
     )]
     pub connect_to: Vec<String>,
     #[structopt(
-        long = "require-dnssec",
-        help = "Perform DNSsec tests for lookups",
-        env = "CONCORDIUM_NODE_CONNECTION_REQUIRE_DNSSEC"
-    )]
-    pub require_dnssec: bool,
-    #[structopt(
         long = "disallow-multiple-peers-on-ip",
         help = "Disallow multiple peers on the same IP address.",
         env = "CONCORDIUM_NODE_CONNECTION_DISALLOW_MULTIPLE_PEERS_ON_SAME_IP"
@@ -408,13 +402,6 @@ pub struct ConnectionConfig {
         use_delimiter = true
     )]
     pub bootstrap_nodes: Vec<String>,
-    #[structopt(
-        long = "resolv-conf",
-        help = "Location of resolv.conf",
-        default_value = "/etc/resolv.conf",
-        env = "CONCORDIUM_NODE_CONNECTION_RESOLV_CONF"
-    )]
-    pub resolv_conf: PathBuf,
     #[structopt(
         long = "housekeeping-interval",
         help = "The connection housekeeping interval in seconds",
@@ -598,6 +585,12 @@ pub struct CommonConfig {
         env = "CONCORDIUM_NODE_NO_LOG_TIMESTAMP"
     )]
     pub no_log_timestamp: bool,
+    #[structopt(
+        long = "log-config",
+        help = "Configure logging with a log4rs configuration file. Overrides the default logging.",
+        env = "CONCORDIUM_NODE_LOG_CONFIG"
+    )]
+    pub log_config: Option<PathBuf>,
     #[structopt(
         long = "minimum-peers-bucket",
         help = "Minimum peers to keep in each bucket always",
@@ -880,7 +873,9 @@ impl AppPreferences {
                         override_config_dir: override_conf,
                     }
                 }
-                _ => panic!("Can't write to config file!"),
+                Err(e) => {
+                    panic!("Can't write to config file '{}': {}", file_path.as_path().display(), e)
+                }
             },
         };
         new_prefs.set_config(APP_PREFERENCES_KEY_VERSION, Some(super::VERSION));

@@ -1,0 +1,15 @@
+# This should be kept in line with concordium-consensus/stack.yaml and
+# concordium-base/stack.yaml
+
+resolver: lts-17.4
+
+packages:
+- ./concordium-base
+- ./concordium-consensus
+
+extra-deps:
+- ./concordium-consensus/haskell-lmdb
+
+extra-lib-dirs:
+- ./concordium-base/lib
+- ./concordium-consensus/smart-contracts/lib

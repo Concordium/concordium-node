@@ -929,7 +929,6 @@ genesisState gd = case protocolVersion @pv of
                   _blockReleaseSchedule = Map.empty
                   _blockEpochBlocksBaked = emptyHashedEpochBlocks
 
-
         mkGenesisStateRegenesis GenesisData.RegenesisData{..} = do
             case runGet getBlockState genesisNewState of
                 Left err -> Left $ "Could not deserialize genesis state: " ++ err

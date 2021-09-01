@@ -8,9 +8,9 @@
 - Add support for configuring the node and the collector via environment
   variables in addition to command line arguments. This is a breaking change in
   that flags now need to have an explicit argument.
-- Disable dnssec by default. This replaces the flag `--no-dnssec` with
-  `--require-dnssec`, and the environment variable
-  `CONCORDIUM_NODE_CONNECTION_NO_DNSSEC` with `CONCORDIUM_NODE_CONNECTION_REQUIRE_DNSSEC`.
+- Remove use of `unbound` for DNS resolution. This also removes the dnssec functionality, and the
+  flag `--no-dnssec` is no longer supported. The command-line option `--resolv-conf` is also
+  removed, as the system resolver will be used.
 - Global state database now includes version metadata. The treestate directory and blockstate file
   names are suffixed with "-*n*" to indicate genesis index *n*.
   A legacy database will automatically be migrated by renaming and adding version metadata.
@@ -36,12 +36,17 @@
   transactions are only logged at Trace level. GRPC queries are not logged.
 - The block export format has been revised to a new version (version 3) which allows for
   protocol updates. Version 2 is no longer supported.
+- Support [log4rs](https://docs.rs/log4rs/1.0.0/log4rs/) logging, by specifying a configuration file
+  (in toml or yaml format) with the `--log-config` argument or `CONCORDIUM_NODE_LOG_CONFIG`
+  environment variable.
+- A Windows node runner service and installer.
+  See [service/windows/README.md](service/windows/README.md).
 - Introduce protocol P2 that supports transfers with memo. A new protocol update
   is added that updates from P1 to P2 protocol.
 - Relax compatibility check so that the node only checks a lower bound on the
   peer major version, in contrast to requiring an exact major version match.
-- GetConsensusStatus has additional fields to indicate the protocol version and
-  effected protocol updates.
+- GetConsensusStatus return value has additional fields to indicate the protocol
+  version and effected protocol updates.
 
 ## concordium-node 1.0.1
 
