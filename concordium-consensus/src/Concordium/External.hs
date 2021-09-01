@@ -24,6 +24,7 @@ import qualified Concordium.Crypto.SHA256 as SHA256
 import Concordium.ID.Types
 import Concordium.Logger
 import Concordium.Types
+import Concordium.Types.Block
 import qualified Data.FixedByteString as FBS
 
 import Concordium.Afgjort.Finalize.Types (FinalizationInstance (FinalizationInstance))
@@ -888,10 +889,10 @@ getConsensusStatus cptr = jsonQuery cptr Q.getConsensusStatus
 getBranches :: StablePtr ConsensusRunner -> IO CString
 getBranches cptr = jsonQuery cptr Q.getBranches
 
--- |Get the list of live blocks at a given height.
+-- |Get the list of live blocks at a given absolute height.
 -- Returns a null-terminated string encoding a JSON list.
 getBlocksAtHeight :: StablePtr ConsensusRunner -> Word64 -> IO CString
-getBlocksAtHeight cptr height = jsonQuery cptr (Q.getBlocksAtHeight (BlockHeight height))
+getBlocksAtHeight cptr height = jsonQuery cptr (Q.getBlocksAtHeight (AbsoluteBlockHeight height))
 
 -- ** Block-indexed queries
 
