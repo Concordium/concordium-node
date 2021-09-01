@@ -1,7 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
--- |This module implements the P1.Memo protocol update.
+-- |This module implements the P1.ProtocolP2 protocol update.
 -- This protocol update is valid at protocol version P1, and updates
 -- to protocol version P2.
 -- The block state is preserved across the update.
