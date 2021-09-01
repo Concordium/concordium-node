@@ -256,7 +256,7 @@ handleTransferWithSchedule ::
   => WithDepositContext m
   -> AccountAddress
   -> [(Timestamp, Amount)]
-  -> Maybe Memo
+  -> Maybe Memo  -- ^Nothing in case of a TransferWithSchedule and Just in case of a TransferWithScheduleAndMemo
   -> m (Maybe TransactionSummary)
 handleTransferWithSchedule wtc twsTo twsSchedule maybeMemo = withDeposit wtc c k
   where senderAccount = wtc ^. wtcSenderAccount
@@ -309,10 +309,8 @@ handleTransferWithSchedule wtc twsTo twsSchedule maybeMemo = withDeposit wtc c k
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
           chargeExecutionCost txHash senderAccount energyCost
           commitChanges (ls ^. changeSet)
-          let eventListWithoutMemo = [TransferredWithSchedule{etwsFrom = senderAddress, etwsTo = twsTo, etwsAmount = twsSchedule}] 
-          let eventList = case maybeMemo of
-                Just memo -> eventListWithoutMemo++[TransferMemo memo]
-                Nothing -> eventListWithoutMemo
+          let eventList = TransferredWithSchedule{etwsFrom = senderAddress, etwsTo = twsTo, etwsAmount = twsSchedule}
+                  : (TransferMemo <$> maybeToList maybeMemo)
           return (TxSuccess eventList,
                     energyCost,
                     usedEnergy)
@@ -425,7 +423,7 @@ handleEncryptedAmountTransfer ::
   => WithDepositContext m
   -> AccountAddress -- ^ Receiver address.
   -> EncryptedAmountTransferData
-  -> Maybe Memo
+  -> Maybe Memo -- ^Nothing in case of an EncryptedAmountTransfer and Just in case of an EncryptedAmountTransferWithMemo
   -> m (Maybe TransactionSummary)
 handleEncryptedAmountTransfer wtc toAddress transferData@EncryptedAmountTransferData{..} maybeMemo = do
   cryptoParams <- getCryptoParams
@@ -484,7 +482,7 @@ handleEncryptedAmountTransfer wtc toAddress transferData@EncryptedAmountTransfer
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
           chargeExecutionCost txHash senderAccount energyCost
           commitChanges (ls ^. changeSet)
-          let eventListWithoutMemo = [EncryptedAmountsRemoved{
+          let eventList = [EncryptedAmountsRemoved{
                                 earAccount = senderAddress,
                                 earUpToIndex = eatdIndex,
                                 earInputAmount = senderAmount,
@@ -495,10 +493,7 @@ handleEncryptedAmountTransfer wtc toAddress transferData@EncryptedAmountTransfer
                                 neaNewIndex = targetAccountIndex,
                                 neaEncryptedAmount = eatdTransferAmount
                                 }
-                            ]
-          let eventList = case maybeMemo of
-                Just memo -> eventListWithoutMemo++[TransferMemo memo]
-                Nothing -> eventListWithoutMemo
+                            ] ++ (TransferMemo <$> maybeToList maybeMemo)
 
           return (TxSuccess eventList,
                    energyCost,
@@ -644,7 +639,7 @@ handleSimpleTransfer ::
     => WithDepositContext m
     -> AccountAddress -- ^Address to send the amount to, either account or contract.
     -> Amount -- ^The amount to transfer.
-    -> Maybe Memo
+    -> Maybe Memo -- ^Nothing in case of a Transfer and Just in case of a TransferWithMemo
     -> m (Maybe TransactionSummary)
 handleSimpleTransfer wtc toaddr amount maybeMemo =
   withDeposit wtc c (defaultSuccess wtc)
@@ -818,11 +813,11 @@ mkSenderAddrCredentials sender =
 handleTransferAccount ::
   (TransactionMonad pv m, AccountOperations m)
   => Account m -- ^The account that sent the top-level transaction.
-  -> AccountAddress -- The target account address.
-  -> Either (Account m, Instance) (Account m) -- The sender of this transfer (contract instance or account).
-  -> Amount -- The amount to transfer.
-  -> Maybe Memo
-  -> m [Event] -- The events resulting from the transfer.
+  -> AccountAddress -- ^The target account address.
+  -> Either (Account m, Instance) (Account m) -- ^The sender of this transfer (contract instance or account).
+  -> Amount -- ^The amount to transfer.
+  -> Maybe Memo  -- ^Nothing in case of a Transfer and Just in case of a TransferWithMemo
+  -> m [Event] -- ^The events resulting from the transfer.
 handleTransferAccount _origin accAddr sender transferamount maybeMemo = do
   -- charge at the beginning, successful and failed transfers will have the same cost.
   tickEnergy Cost.simpleTransferCost
@@ -836,9 +831,7 @@ handleTransferAccount _origin accAddr sender transferamount maybeMemo = do
 
   -- Add the transfer to the current changeset and return the corresponding event.
   withToAccountAmount sender targetAccount transferamount $
-      return $ case maybeMemo of 
-        Just memo -> [Transferred addr transferamount (AddressAccount accAddr), TransferMemo memo]
-        Nothing -> [Transferred addr transferamount (AddressAccount accAddr)]
+      return $ Transferred addr transferamount (AddressAccount accAddr) : (TransferMemo <$> maybeToList maybeMemo)
 
 -- |Run the interpreter with the remaining amount of energy. If the interpreter
 -- runs out of energy set the remaining gas to 0 and reject the transaction,
