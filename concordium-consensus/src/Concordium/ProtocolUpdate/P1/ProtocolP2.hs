@@ -6,7 +6,7 @@
 -- to protocol version P2.
 -- The block state is preserved across the update.
 --
--- This produces a new 'GenesisDataP2' using the 'GenesisDataP2' constructor,
+-- This produces a new 'GenesisDataP2' using the 'GDP2Regenesis' constructor,
 -- as follows:
 --
 -- * 'genesisCore':
