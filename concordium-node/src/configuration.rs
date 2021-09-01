@@ -27,7 +27,7 @@ pub const APP_INFO: AppInfo = AppInfo {
 /// incompatible ones.
 /// When we reach version 1 we should stick to major versions being for breaking
 /// changes.
-pub(crate) fn is_compatible_version(other: &semver::Version) -> bool { other.major == 1 }
+pub(crate) fn is_compatible_version(other: &semver::Version) -> bool { other.major >= 1 }
 
 /// Check that the other wire version is compatible with ours. This returns
 /// the highest wire protocol version that is supported by both nodes (since

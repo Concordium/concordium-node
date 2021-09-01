@@ -25,6 +25,7 @@ instance Show (Update pv) where
 checkUpdate :: forall pv. (IsProtocolVersion pv) => ProtocolUpdate -> Either String (Update pv)
 checkUpdate = case protocolVersion @pv of
     SP1 -> fmap UpdateP1 . P1.checkUpdate
+    SP2 -> const $ Left "Unsupported update."
 
 -- |Construct the genesis data for a P1 update.
 -- It is assumed that the last finalized block is the terminal block of the old chain:

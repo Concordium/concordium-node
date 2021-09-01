@@ -4,6 +4,7 @@ module SchedulerTests.Helpers where
 import Concordium.Scheduler.Types
 import qualified Concordium.Cost as Cost
 import qualified Concordium.Scheduler.Types as Types
+import Data.Word
 
 getResults :: [(a, TransactionSummary)] -> [(a, ValidResult)]
 getResults = map (\(x, r) -> (x, tsResult r))
@@ -15,5 +16,13 @@ getResults = map (\(x, r) -> (x, tsResult r))
 simpleTransferCost :: Energy
 simpleTransferCost = Cost.baseCost (Types.transactionHeaderSize + 41) 1 + Cost.simpleTransferCost
 
+
+simpleTransferCostWithMemo1 :: Word64 -> Energy
+simpleTransferCostWithMemo1 memoSize = Cost.baseCost (Types.transactionHeaderSize + 41 + 2 + memoSize) 1
+
+simpleTransferCostWithMemo2 :: Word64 -> Energy
+simpleTransferCostWithMemo2 memoSize = Cost.baseCost (Types.transactionHeaderSize + 41 + 2 + memoSize) 1 + Cost.simpleTransferCost
+
 -- |Protocol version
 type PV1 = 'Types.P1
+type PV2 = 'Types.P2
