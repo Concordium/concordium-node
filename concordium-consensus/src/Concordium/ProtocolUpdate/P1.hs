@@ -17,7 +17,7 @@ import Concordium.Types.Updates
 import Concordium.GlobalState.BlockState
 import Concordium.Kontrol
 import qualified Concordium.ProtocolUpdate.P1.Reboot as Reboot
-import qualified Concordium.ProtocolUpdate.P1.Memo as Memo
+import qualified Concordium.ProtocolUpdate.P1.ProtocolP2 as ProtocolP2
 
 -- |Updates that are supported from protocol version P1.
 data Update = Reboot Reboot.UpdateData | ProtocolP2
@@ -25,7 +25,7 @@ data Update = Reboot Reboot.UpdateData | ProtocolP2
 
 -- |Hash map for resolving updates from their specification hash.
 updates :: HM.HashMap SHA256.Hash (Get Update)
-updates = HM.fromList [(Reboot.updateHash, Reboot <$> get), (Memo.updateHash, return ProtocolP2)]
+updates = HM.fromList [(Reboot.updateHash, Reboot <$> get), (ProtocolP2.updateHash, return ProtocolP2)]
 
 -- |Determine if a 'ProtocolUpdate' corresponds to a supported update type.
 checkUpdate :: ProtocolUpdate -> Either String Update
@@ -41,4 +41,4 @@ checkUpdate ProtocolUpdate{..} = case HM.lookup puSpecificationHash updates of
 -- update takes effect.
 updateRegenesis :: (BlockStateStorage m, SkovQueryMonad 'P1 m) => Update -> m PVGenesisData
 updateRegenesis (Reboot upd) = Reboot.updateRegenesis upd
-updateRegenesis ProtocolP2 = Memo.updateRegenesis
+updateRegenesis ProtocolP2 = ProtocolP2.updateRegenesis

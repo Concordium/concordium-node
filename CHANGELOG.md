@@ -40,6 +40,8 @@
   is added that updates from P1 to P2 protocol.
 - Relax compatibility check so that the node only checks a lower bound on the
   peer major version, in contrast to requiring an exact major version match.
+- GetConsensusStatus has additional fields to indicate the protocol version and
+  effected protocol updates.
 
 ## concordium-node 1.0.1
 

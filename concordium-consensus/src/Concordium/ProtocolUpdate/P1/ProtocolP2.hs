@@ -49,7 +49,7 @@
 -- and in the final epoch of the previous chain.
 -- Furthermore, the bakers from the final epoch of the previous chain are also the bakers for the
 -- initial epoch of the new chain.
-module Concordium.ProtocolUpdate.P1.Memo where
+module Concordium.ProtocolUpdate.P1.ProtocolP2 where
 
 import Data.Serialize
 
