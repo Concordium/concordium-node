@@ -563,7 +563,11 @@ impl P2p for RpcServerImpl {
     ) -> Result<Response<JsonResponse>, Status> {
         authenticate!(req, self.access_token);
         call_consensus!(self, "GetBlocksAtHeight", JsonResponse, |cc: &ConsensusContainer| {
-            cc.get_blocks_at_height(req.get_ref().block_height)
+            cc.get_blocks_at_height(
+                req.get_ref().block_height,
+                req.get_ref().from_genesis_index,
+                req.get_ref().restrict_to_genesis_index,
+            )
         })
     }
 

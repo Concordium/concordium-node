@@ -1,8 +1,8 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- |Consensus queries against the multi-version runner.
 module Concordium.Queries where
@@ -23,6 +23,7 @@ import Concordium.Genesis.Data
 import Concordium.Types
 import Concordium.Types.Accounts
 import Concordium.Types.AnonymityRevokers
+import Concordium.Types.Block (absoluteToLocalBlockHeight, localToAbsoluteBlockHeight)
 import Concordium.Types.HashableTo
 import Concordium.Types.IdentityProviders
 import Concordium.Types.Instance
@@ -53,7 +54,6 @@ import Concordium.Skov as Skov (
     SkovQueryMonad (getBlocksAtHeight),
     evalSkovT,
  )
-import Concordium.Types.Block (AbsoluteBlockHeight, absoluteToLocalBlockHeight, localToAbsoluteBlockHeight)
 
 -- |Run a query against a specific skov version.
 liftSkovQuery ::
@@ -98,7 +98,7 @@ liftSkovQueryAtGenesisIndex genIndex a = MVR $ \mvr -> do
     liftSkovQuery mvr (versions Vec.! fromIntegral genIndex) a
 
 atLatestSuccessfulVersion ::
-    (EVersionedConfiguration gsconf finconf -> MultiVersionRunner gsconf finconf -> IO (Maybe a)) ->
+    (EVersionedConfiguration gsconf finconf -> IO (Maybe a)) ->
     MultiVersionRunner gsconf finconf ->
     IO (Maybe a)
 atLatestSuccessfulVersion a mvr = do
@@ -106,7 +106,7 @@ atLatestSuccessfulVersion a mvr = do
     let tryAt (i :: Int)
             | i < 0 = return Nothing
             | otherwise = do
-                r <- a (versions Vec.! i) mvr
+                r <- a (versions Vec.! i)
                 case r of
                     Just _ -> return r
                     Nothing -> tryAt (i - 1)
@@ -123,7 +123,8 @@ liftSkovQueryLatestResult ::
       VersionedSkovM gsconf finconf pv (Maybe a)
     ) ->
     MVR gsconf finconf (Maybe a)
-liftSkovQueryLatestResult a = MVR $ atLatestSuccessfulVersion (\vc mvr -> liftSkovQuery mvr vc a)
+liftSkovQueryLatestResult a = MVR $ \mvr ->
+    atLatestSuccessfulVersion (\vc -> liftSkovQuery mvr vc a) mvr
 
 -- |Try a block based query on the latest skov version, working
 -- backwards until we find the specified block or run out of
@@ -139,9 +140,10 @@ liftSkovQueryBlock ::
     BlockHash ->
     MVR gsconf finconf (Maybe a)
 liftSkovQueryBlock a bh =
-    MVR $
+    MVR $ \mvr ->
         atLatestSuccessfulVersion
-            (\vc mvr -> liftSkovQuery mvr vc (mapM a =<< resolveBlock bh))
+            (\vc -> liftSkovQuery mvr vc (mapM a =<< resolveBlock bh))
+            mvr
 
 -- |Try a block based query on the latest skov version, working
 -- backwards until we find the specified block or run out of
@@ -158,19 +160,20 @@ liftSkovQueryBlockAndVersion ::
     ) ->
     BlockHash ->
     MVR gsconf finconf (Maybe a)
-liftSkovQueryBlockAndVersion a bh =
-    MVR $
-        atLatestSuccessfulVersion $
-            \(EVersionedConfiguration vc) mvr -> do
-                st <- readIORef (vcState vc)
-                runMVR
-                    ( evalSkovT
-                        (mapM (a vc) =<< resolveBlock bh)
-                        (mvrSkovHandlers vc mvr)
-                        (vcContext vc)
-                        st
-                    )
-                    mvr
+liftSkovQueryBlockAndVersion a bh = MVR $ \mvr ->
+    atLatestSuccessfulVersion
+        ( \(EVersionedConfiguration vc) -> do
+            st <- readIORef (vcState vc)
+            runMVR
+                ( evalSkovT
+                    (mapM (a vc) =<< resolveBlock bh)
+                    (mvrSkovHandlers vc mvr)
+                    (vcContext vc)
+                    st
+                )
+                mvr
+        )
+        mvr
 
 -- |Retrieve the consensus status.
 getConsensusStatus :: MVR gsconf finconf ConsensusStatus
@@ -249,16 +252,41 @@ getBranches = liftSkovQueryLatest $ do
 -- |Get a list of block hashes at a particular absolute height.
 -- This traverses versions from the latest to the earliest, which is probably
 -- fine for most practical cases.
-getBlocksAtHeight :: AbsoluteBlockHeight -> MVR gsconf finconf [BlockHash]
-getBlocksAtHeight height =
-    -- The default case should never be needed, since 'absoluteToLocalBlockHeight' won't fail
-    -- at a genesis block height of 0, which should be the case for the initial genesis.
-    fromMaybe []
-        <$> MVR
-            ( atLatestSuccessfulVersion $ \evc@(EVersionedConfiguration vc) mvr ->
-                forM (absoluteToLocalBlockHeight (vcGenesisHeight vc) height) $ \localHeight ->
-                    liftSkovQuery mvr evc (map getHash <$> Skov.getBlocksAtHeight localHeight)
-            )
+getBlocksAtHeight ::
+    -- |Height at which to get blocks
+    BlockHeight ->
+    -- |Base genesis index to query from
+    GenesisIndex ->
+    -- |Whether to restrict to the specified genesis index
+    Bool ->
+    MVR gsconf finconf [BlockHash]
+getBlocksAtHeight basedHeight baseGI False = MVR $ \mvr -> do
+    baseGenHeight <-
+        if baseGI == 0
+            then return (Just 0)
+            else do
+                versions <- readIORef (mvVersions mvr)
+                return $
+                    (\(EVersionedConfiguration vc) -> vcGenesisHeight vc)
+                        <$> (versions Vec.!? fromIntegral baseGI)
+    case baseGenHeight of
+        Nothing -> return [] -- This occurs if the genesis index is invalid
+        Just genHeight -> do
+            let height = localToAbsoluteBlockHeight genHeight basedHeight
+            -- The default case should never be needed, since 'absoluteToLocalBlockHeight' won't fail
+            -- at a genesis block height of 0, which should be the case for the initial genesis.
+            fromMaybe []
+                <$> atLatestSuccessfulVersion
+                    ( \evc@(EVersionedConfiguration vc) ->
+                        forM (absoluteToLocalBlockHeight (vcGenesisHeight vc) height) $ \localHeight ->
+                            liftSkovQuery mvr evc (map getHash <$> Skov.getBlocksAtHeight localHeight)
+                    )
+                    mvr
+getBlocksAtHeight height baseGI True = MVR $ \mvr -> do
+    versions <- readIORef (mvVersions mvr)
+    case versions Vec.!? fromIntegral baseGI of
+        Nothing -> return []
+        Just evc -> liftSkovQuery mvr evc (map getHash <$> Skov.getBlocksAtHeight height)
 
 -- ** Accounts
 
@@ -299,6 +327,8 @@ getBlockInfo bh =
                     else getHash <$> bpParent bp
             biBlockLastFinalized <- getHash <$> bpLastFinalized bp
             let biBlockHeight = localToAbsoluteBlockHeight (vcGenesisHeight vc) (bpHeight bp)
+            let biGenesisIndex = vcIndex vc
+            let biLocalBlockHeight = bpHeight bp
             let biBlockReceiveTime = bpReceiveTime bp
             let biBlockArriveTime = bpArriveTime bp
             let biBlockSlot = blockSlot bp
