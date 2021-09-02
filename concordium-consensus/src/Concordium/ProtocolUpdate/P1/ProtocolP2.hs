@@ -1,22 +1,21 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
--- |This module implements the P1.Reboot protocol update.
+-- |This module implements the P1.ProtocolP2 protocol update.
 -- This protocol update is valid at protocol version P1, and updates
--- to protocol version P1.
--- The block state is preserved across the update with limited changes
--- that are specified by the auxiliary data.
+-- to protocol version P2.
+-- The block state is preserved across the update.
 --
--- This produces a new 'GenesisDataP1' using the 'GDP1Regenesis' constructor,
+-- This produces a new 'GenesisDataP2' using the 'GDP2Regenesis' constructor,
 -- as follows:
 --
 -- * 'genesisCore':
 --
 --     * 'genesisTime' is the timestamp of the last finalized block of the previous chain.
---     * 'genesisSlotDuration' is 'updateSlotDuration'.
---     * 'genesisEpochLength' is 'updateEpochLength'.
---     * 'genesisMaxBlockEnergy' is 'updateMaxBlockEnergy'.
---     * 'genesisFinalizationParameters' is 'updateFinalizationParameters'.
+--     * 'genesisSlotDuration' is unchanged.
+--     * 'genesisEpochLength' is unchanged.
+--     * 'genesisMaxBlockEnergy' is unchanged.
+--     * 'genesisFinalizationParameters' is unchanged.
 --
 -- * 'genesisFirstGenesis' is either:
 --
@@ -34,15 +33,13 @@
 --
 --     * The 'SeedState' is updated with:
 --
---         * 'epochLength' is 'updateEpochLength';
+--         * 'epochLength' is unchanged;
 --         * 'epoch' is @0@;
 --         * 'currentLeadershipElectionNonce' is the SHA256 hash of (@"Regenesis" <> encode (updatedNonce oldSeedState)@); and
 --         * 'updatedNonce' is the same as 'currentLeadershipElectionNonce'.
 --
 --     * The 'Updates' are updated with:
 --
---         * the election difficulty chain parameter is set to 'updateElectionDifficulty';
---         * the election difficulty update queue is emptied;
 --         * the current protocol update is set to 'Nothing'; and
 --         * the protocol update queue is emptied.
 --
@@ -52,7 +49,7 @@
 -- and in the final epoch of the previous chain.
 -- Furthermore, the bakers from the final epoch of the previous chain are also the bakers for the
 -- initial epoch of the new chain.
-module Concordium.ProtocolUpdate.P1.Reboot where
+module Concordium.ProtocolUpdate.P1.ProtocolP2 where
 
 import Data.Serialize
 
@@ -60,8 +57,8 @@ import qualified Concordium.Crypto.SHA256 as SHA256
 import Concordium.Genesis.Data
 import qualified Concordium.Genesis.Data as GenesisData
 import qualified Concordium.Genesis.Data.P1 as P1
+import qualified Concordium.Genesis.Data.P2 as P2
 import Concordium.Types
-import Concordium.Types.Parameters
 import Concordium.Types.SeedState
 
 import Concordium.GlobalState.Block
@@ -70,57 +67,24 @@ import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.BlockState
 import Concordium.Kontrol
 
--- |The data required to perform a P1.Reboot update.
-data UpdateData = UpdateData
-    { updateSlotDuration :: !Duration,
-      updateElectionDifficulty :: !ElectionDifficulty,
-      updateEpochLength :: !EpochLength,
-      updateMaxBlockEnergy :: !Energy,
-      updateFinalizationParameters :: !FinalizationParameters
-    }
-    deriving (Show)
-
-instance Serialize UpdateData where
-    put UpdateData{..} = do
-        put updateSlotDuration
-        put updateElectionDifficulty
-        put updateEpochLength
-        put updateMaxBlockEnergy
-        putFinalizationParametersGD3 updateFinalizationParameters
-    get = do
-        updateSlotDuration <- get
-        updateElectionDifficulty <- get
-        updateEpochLength <- get
-        updateMaxBlockEnergy <- get
-        updateFinalizationParameters <- getFinalizationParametersGD3
-        return UpdateData{..}
-
--- |The hash that identifies a P1.Reboot update.
---
--- FIXME: This should be the hash of a specification document that
--- properly describes the update.
+-- |The hash that identifies a update from P1 to P2 protocol.
+-- This is the hash of the published specification document.
 updateHash :: SHA256.Hash
-updateHash = SHA256.hash "P1.Reboot"
+updateHash = read "4318fc1e8137114b2b85a118bc468fdfac1b678e705777cf80729dd2f80363c9"
 
 -- |Construct the genesis data for a P1.Reboot update.
 -- It is assumed that the last finalized block is the terminal block of the old chain:
 -- i.e. it is the first (and only) explicitly-finalized block with timestamp after the
 -- update takes effect.
-updateRegenesis :: (BlockPointerMonad m, BlockStateStorage m, SkovQueryMonad 'P1 m) => UpdateData -> m PVGenesisData
-updateRegenesis UpdateData{..} = do
+updateRegenesis :: (BlockPointerMonad m, BlockStateStorage m, SkovQueryMonad 'P1 m) => m PVGenesisData
+updateRegenesis = do
     lfb <- lastFinalizedBlock
     -- Genesis time is the timestamp of the terminal block
     regenesisTime <- getSlotTimestamp (blockSlot lfb)
-    -- Core parameters are derived from the UpdateData
-    let genesisCore =
-            GenesisData.CoreGenesisParameters
-                { genesisTime = regenesisTime,
-                  genesisSlotDuration = updateSlotDuration,
-                  genesisEpochLength = updateEpochLength,
-                  genesisMaxBlockEnergy = updateMaxBlockEnergy,
-                  genesisFinalizationParameters = updateFinalizationParameters
-                }
+    -- Core parameters are derived from the old genesis, apart from genesis time which is set for
+    -- the time of the last finalized block.
     gd <- getGenesisData
+    let core = (P1.genesisCore $ unGDP1 gd) { GenesisData.genesisTime = regenesisTime }
     -- genesisFirstGenesis is the block hash of the previous genesis, if it is initial,
     -- or the genesisFirstGenesis of the previous genesis otherwise.
     let genesisFirstGenesis = case gd of
@@ -136,13 +100,10 @@ updateRegenesis UpdateData{..} = do
         bsoSetSeedState s0 $
             initialSeedState
                 (SHA256.hash $ "Regenesis" <> encode (updatedNonce oldSeedState))
-                updateEpochLength
-    -- Overwrite the election difficulty.
-    s2 <- bsoOverwriteElectionDifficulty s1 updateElectionDifficulty
+                $ gdEpochLength gd
     -- Clear the protocol update.
-    s3 <- bsoClearProtocolUpdate s2
+    s3 <- bsoClearProtocolUpdate s1
     regenesisState <- freezeBlockState s3
     genesisStateHash <- getStateHash regenesisState
     genesisNewState <- serializeBlockState regenesisState
-    let genesisRegenesis = GenesisData.RegenesisData{..}
-    return $ PVGenesisData $ GDP1 P1.GDP1Regenesis{..}
+    return . PVGenesisData . GDP2 $ P2.GDP2Regenesis{genesisRegenesis = GenesisData.RegenesisData{genesisCore=core,..}}

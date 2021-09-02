@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE MonoLocalBinds #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -179,39 +180,46 @@ getConsensusStatus = MVR $ \mvr -> do
         genesis <- genesisBlock
         genTime <- getGenesisTime
         return (getHash genesis :: BlockHash, timestampToUTCTime genTime)
-    let currentVersion = Vec.last versions
-    let curGenesisHeight = case currentVersion of
-            EVersionedConfiguration vc -> vcGenesisHeight vc
-    liftSkovQuery mvr currentVersion $ do
-        bb <- bestBlock
-        let csBestBlock = getHash bb
-        let csBestBlockHeight = localToAbsoluteBlockHeight curGenesisHeight (bpHeight bb)
-        genData <- getGenesisData
-        let csSlotDuration = gdSlotDuration genData
-        let csEpochDuration = fromIntegral (gdEpochLength genData) * csSlotDuration
-        lfb <- lastFinalizedBlock
-        let csLastFinalizedBlock = getHash lfb
-        let csLastFinalizedBlockHeight = localToAbsoluteBlockHeight curGenesisHeight (bpHeight lfb)
-        stats <- getConsensusStatistics
-        let csBlocksReceivedCount = stats ^. blocksReceivedCount
-            csBlockLastReceivedTime = stats ^. blockLastReceived
-            csBlockReceiveLatencyEMA = stats ^. blockReceiveLatencyEMA
-            csBlockReceiveLatencyEMSD = sqrt $ stats ^. blockReceiveLatencyEMVar
-            csBlockReceivePeriodEMA = stats ^. blockReceivePeriodEMA
-            csBlockReceivePeriodEMSD = sqrt <$> stats ^. blockReceivePeriodEMVar
-            csBlocksVerifiedCount = stats ^. blocksVerifiedCount
-            csBlockLastArrivedTime = stats ^. blockLastArrive
-            csBlockArriveLatencyEMA = stats ^. blockArriveLatencyEMA
-            csBlockArriveLatencyEMSD = sqrt $ stats ^. blockArriveLatencyEMVar
-            csBlockArrivePeriodEMA = stats ^. blockArrivePeriodEMA
-            csBlockArrivePeriodEMSD = sqrt <$> stats ^. blockArrivePeriodEMVar
-            csTransactionsPerBlockEMA = stats ^. transactionsPerBlockEMA
-            csTransactionsPerBlockEMSD = sqrt $ stats ^. transactionsPerBlockEMVar
-            csFinalizationCount = stats ^. finalizationCount
-            csLastFinalizedTime = stats ^. lastFinalizedTime
-            csFinalizationPeriodEMA = stats ^. finalizationPeriodEMA
-            csFinalizationPeriodEMSD = sqrt <$> stats ^. finalizationPeriodEMVar
-        return ConsensusStatus{..}
+    -- while this case statement might look strange, it is needed because EVersionedConfiguration
+    -- is an existential type and in the subsequent computation we need access to the implicit parameter `pv`
+    -- the protocol version.
+    case Vec.last versions of
+        evc@(EVersionedConfiguration (vc :: VersionedConfiguration gsconf finconf pv)) -> do
+            liftSkovQuery mvr evc $ do
+                let absoluteHeight = localToAbsoluteBlockHeight (vcGenesisHeight vc) . bpHeight
+                bb <- bestBlock
+                let csBestBlock = getHash bb
+                let csBestBlockHeight = absoluteHeight bb
+                csCurrentEraGenesisBlock <- getHash <$> genesisBlock
+                csCurrentEraGenesisTime <- timestampToUTCTime <$> getGenesisTime
+                genData <- getGenesisData
+                let csSlotDuration = gdSlotDuration genData
+                let csEpochDuration = fromIntegral (gdEpochLength genData) * csSlotDuration
+                lfb <- lastFinalizedBlock
+                let csLastFinalizedBlock = getHash lfb
+                let csLastFinalizedBlockHeight = absoluteHeight lfb
+                let csGenesisIndex = vcIndex vc
+                let csProtocolVersion = demoteProtocolVersion (protocolVersion @pv)
+                stats <- getConsensusStatistics
+                let csBlocksReceivedCount = stats ^. blocksReceivedCount
+                    csBlockLastReceivedTime = stats ^. blockLastReceived
+                    csBlockReceiveLatencyEMA = stats ^. blockReceiveLatencyEMA
+                    csBlockReceiveLatencyEMSD = sqrt $ stats ^. blockReceiveLatencyEMVar
+                    csBlockReceivePeriodEMA = stats ^. blockReceivePeriodEMA
+                    csBlockReceivePeriodEMSD = sqrt <$> stats ^. blockReceivePeriodEMVar
+                    csBlocksVerifiedCount = stats ^. blocksVerifiedCount
+                    csBlockLastArrivedTime = stats ^. blockLastArrive
+                    csBlockArriveLatencyEMA = stats ^. blockArriveLatencyEMA
+                    csBlockArriveLatencyEMSD = sqrt $ stats ^. blockArriveLatencyEMVar
+                    csBlockArrivePeriodEMA = stats ^. blockArrivePeriodEMA
+                    csBlockArrivePeriodEMSD = sqrt <$> stats ^. blockArrivePeriodEMVar
+                    csTransactionsPerBlockEMA = stats ^. transactionsPerBlockEMA
+                    csTransactionsPerBlockEMSD = sqrt $ stats ^. transactionsPerBlockEMVar
+                    csFinalizationCount = stats ^. finalizationCount
+                    csLastFinalizedTime = stats ^. lastFinalizedTime
+                    csFinalizationPeriodEMA = stats ^. finalizationPeriodEMA
+                    csFinalizationPeriodEMSD = sqrt <$> stats ^. finalizationPeriodEMVar
+                return ConsensusStatus{..}
 
 -- * Queries against latest version
 

@@ -137,7 +137,7 @@ checkHeader meta = do
 -- * @Nothing@ if the transaction would exceed the remaining block energy.
 -- * @Just result@ if the transaction failed ('TxInvalid') or was successfully committed
 --  ('TxValid', with either 'TxSuccess' or 'TxReject').
-dispatch :: (TransactionData msg, SchedulerMonad pv m) => msg -> m (Maybe TxResult)
+dispatch :: forall msg pv m. (TransactionData msg, SchedulerMonad pv m) => msg -> m (Maybe TxResult)
 dispatch msg = do
   let meta = transactionHeader msg
   validMeta <- runExceptT (checkHeader msg)
@@ -154,7 +154,7 @@ dispatch msg = do
       let psize = payloadSize (transactionPayload msg)
 
       tsIndex <- bumpTransactionIndex
-      case decodePayload psize (transactionPayload msg) of
+      case decodePayload (protocolVersion @pv) psize (transactionPayload msg) of
         Left _ -> do
           -- In case of serialization failure we charge the sender for checking
           -- the header and reject the transaction; we have checked that the amount
@@ -196,7 +196,7 @@ dispatch msg = do
                      handleInitContract (mkWTC TTInitContract) icAmount icModRef icInitName icParam
 
                    Transfer toaddr amount ->
-                     handleSimpleTransfer (mkWTC TTTransfer) toaddr amount
+                     handleSimpleTransfer (mkWTC TTTransfer) toaddr amount Nothing
 
                    Update{..} ->
                      handleUpdateContract (mkWTC TTUpdate) uAmount uAddress uReceiveName uMessage
@@ -220,7 +220,7 @@ dispatch msg = do
                      handleUpdateCredentialKeys (mkWTC TTUpdateCredentialKeys) uckCredId uckKeys (transactionSignature msg)
 
                    EncryptedAmountTransfer{..} ->
-                     handleEncryptedAmountTransfer (mkWTC TTEncryptedAmountTransfer) eatTo eatData
+                     handleEncryptedAmountTransfer (mkWTC TTEncryptedAmountTransfer) eatTo eatData Nothing
 
                    TransferToEncrypted{..} ->
                      handleTransferToEncrypted (mkWTC TTTransferToEncrypted) tteAmount
@@ -229,7 +229,7 @@ dispatch msg = do
                      handleTransferToPublic (mkWTC TTTransferToPublic) ttpData
 
                    TransferWithSchedule{..} ->
-                     handleTransferWithSchedule (mkWTC TTTransferWithSchedule) twsTo twsSchedule
+                     handleTransferWithSchedule (mkWTC TTTransferWithSchedule) twsTo twsSchedule Nothing
 
                    UpdateCredentials{..} ->
                      handleUpdateCredentials (mkWTC TTUpdateCredentials) ucNewCredInfos ucRemoveCredIds ucNewThreshold
@@ -237,6 +237,15 @@ dispatch msg = do
                    RegisterData {..} ->
                      handleRegisterData (mkWTC TTRegisterData) rdData
 
+                   TransferWithMemo toaddr memo amount ->
+                     handleSimpleTransfer (mkWTC TTTransferWithMemo) toaddr amount $ Just memo
+
+                   EncryptedAmountTransferWithMemo{..} ->
+                     handleEncryptedAmountTransfer (mkWTC TTEncryptedAmountTransferWithMemo) eatwmTo eatwmData $ Just eatwmMemo
+
+                   TransferWithScheduleAndMemo{..} ->
+                     handleTransferWithSchedule (mkWTC TTTransferWithScheduleAndMemo) twswmTo twswmSchedule $ Just twswmMemo
+                     
           case res of
             -- The remaining block energy is not sufficient for the handler to execute the transaction.
             Nothing -> return Nothing
@@ -247,8 +256,9 @@ handleTransferWithSchedule ::
   => WithDepositContext m
   -> AccountAddress
   -> [(Timestamp, Amount)]
+  -> Maybe Memo  -- ^Nothing in case of a TransferWithSchedule and Just in case of a TransferWithScheduleAndMemo
   -> m (Maybe TransactionSummary)
-handleTransferWithSchedule wtc twsTo twsSchedule = withDeposit wtc c k
+handleTransferWithSchedule wtc twsTo twsSchedule maybeMemo = withDeposit wtc c k
   where senderAccount = wtc ^. wtcSenderAccount
         txHash = wtc ^. wtcTransactionHash
         meta = wtc ^. wtcTransactionHeader
@@ -299,9 +309,9 @@ handleTransferWithSchedule wtc twsTo twsSchedule = withDeposit wtc c k
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
           chargeExecutionCost txHash senderAccount energyCost
           commitChanges (ls ^. changeSet)
-          return (TxSuccess [TransferredWithSchedule{etwsFrom = senderAddress,
-                                                     etwsTo = twsTo,
-                                                     etwsAmount = twsSchedule}],
+          let eventList = TransferredWithSchedule{etwsFrom = senderAddress, etwsTo = twsTo, etwsAmount = twsSchedule}
+                  : (TransferMemo <$> maybeToList maybeMemo)
+          return (TxSuccess eventList,
                     energyCost,
                     usedEnergy)
 
@@ -413,8 +423,9 @@ handleEncryptedAmountTransfer ::
   => WithDepositContext m
   -> AccountAddress -- ^ Receiver address.
   -> EncryptedAmountTransferData
+  -> Maybe Memo -- ^Nothing in case of an EncryptedAmountTransfer and Just in case of an EncryptedAmountTransferWithMemo
   -> m (Maybe TransactionSummary)
-handleEncryptedAmountTransfer wtc toAddress transferData@EncryptedAmountTransferData{..} = do
+handleEncryptedAmountTransfer wtc toAddress transferData@EncryptedAmountTransferData{..} maybeMemo = do
   cryptoParams <- getCryptoParams
   withDeposit wtc (c cryptoParams) k
   where senderAccount = wtc ^. wtcSenderAccount
@@ -471,8 +482,7 @@ handleEncryptedAmountTransfer wtc toAddress transferData@EncryptedAmountTransfer
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
           chargeExecutionCost txHash senderAccount energyCost
           commitChanges (ls ^. changeSet)
-
-          return (TxSuccess [EncryptedAmountsRemoved{
+          let eventList = [EncryptedAmountsRemoved{
                                 earAccount = senderAddress,
                                 earUpToIndex = eatdIndex,
                                 earInputAmount = senderAmount,
@@ -483,7 +493,9 @@ handleEncryptedAmountTransfer wtc toAddress transferData@EncryptedAmountTransfer
                                 neaNewIndex = targetAccountIndex,
                                 neaEncryptedAmount = eatdTransferAmount
                                 }
-                            ],
+                            ] ++ (TransferMemo <$> maybeToList maybeMemo)
+
+          return (TxSuccess eventList,
                    energyCost,
                    usedEnergy)
 
@@ -627,11 +639,12 @@ handleSimpleTransfer ::
     => WithDepositContext m
     -> AccountAddress -- ^Address to send the amount to, either account or contract.
     -> Amount -- ^The amount to transfer.
+    -> Maybe Memo -- ^Nothing in case of a Transfer and Just in case of a TransferWithMemo
     -> m (Maybe TransactionSummary)
-handleSimpleTransfer wtc toaddr amount =
+handleSimpleTransfer wtc toaddr amount maybeMemo =
   withDeposit wtc c (defaultSuccess wtc)
     where senderAccount = wtc ^. wtcSenderAccount
-          c = handleTransferAccount senderAccount toaddr (Right senderAccount) amount
+          c = handleTransferAccount senderAccount toaddr (Right senderAccount) amount maybeMemo
 
 -- | Handle a top-level update transaction to a contract.
 handleUpdateContract ::
@@ -768,7 +781,7 @@ foldEvents origin istance initEvent = fmap (initEvent:) . go
                               erName
                               erParameter
         go Wasm.TSimpleTransfer{..} = do
-          handleTransferAccount origin erTo (Left istance) erAmount
+          handleTransferAccount origin erTo (Left istance) erAmount Nothing
         go (Wasm.And l r) = do
           tickEnergy traversalStepCost
           resL <- go l
@@ -800,11 +813,12 @@ mkSenderAddrCredentials sender =
 handleTransferAccount ::
   (TransactionMonad pv m, AccountOperations m)
   => Account m -- ^The account that sent the top-level transaction.
-  -> AccountAddress -- The target account address.
-  -> Either (Account m, Instance) (Account m) -- The sender of this transfer (contract instance or account).
-  -> Amount -- The amount to transfer.
-  -> m [Event] -- The events resulting from the transfer.
-handleTransferAccount _origin accAddr sender transferamount = do
+  -> AccountAddress -- ^The target account address.
+  -> Either (Account m, Instance) (Account m) -- ^The sender of this transfer (contract instance or account).
+  -> Amount -- ^The amount to transfer.
+  -> Maybe Memo  -- ^Nothing in case of a Transfer and Just in case of a TransferWithMemo
+  -> m [Event] -- ^The events resulting from the transfer.
+handleTransferAccount _origin accAddr sender transferamount maybeMemo = do
   -- charge at the beginning, successful and failed transfers will have the same cost.
   tickEnergy Cost.simpleTransferCost
   -- Check whether the sender has the amount to be transferred and reject the transaction if not.
@@ -817,7 +831,7 @@ handleTransferAccount _origin accAddr sender transferamount = do
 
   -- Add the transfer to the current changeset and return the corresponding event.
   withToAccountAmount sender targetAccount transferamount $
-      return [Transferred addr transferamount (AddressAccount accAddr)]
+      return $ Transferred addr transferamount (AddressAccount accAddr) : (TransferMemo <$> maybeToList maybeMemo)
 
 -- |Run the interpreter with the remaining amount of energy. If the interpreter
 -- runs out of energy set the remaining gas to 0 and reject the transaction,
