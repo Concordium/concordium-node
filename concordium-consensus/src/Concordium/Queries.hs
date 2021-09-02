@@ -48,7 +48,10 @@ import Concordium.ID.Types
 import Concordium.Kontrol
 import Concordium.Kontrol.BestBlock
 import Concordium.MultiVersion
-import Concordium.Skov as Skov
+import Concordium.Skov as Skov (
+    SkovQueryMonad (getBlocksAtHeight),
+    evalSkovT,
+ )
 import Concordium.Types.Block (AbsoluteBlockHeight, absoluteToLocalBlockHeight, localToAbsoluteBlockHeight)
 
 -- |Run a query against a specific skov version.
@@ -78,6 +81,20 @@ liftSkovQueryLatest ::
 liftSkovQueryLatest a = MVR $ \mvr -> do
     versions <- readIORef (mvVersions mvr)
     liftSkovQuery mvr (Vec.last versions) a
+
+-- |Run a query at a specific genesis index. The genesis index is assumed to be valid.
+liftSkovQueryAtGenesisIndex ::
+    GenesisIndex ->
+    ( forall (pv :: ProtocolVersion).
+      ( SkovMonad pv (VersionedSkovM gsconf finconf pv),
+        FinalizationMonad (VersionedSkovM gsconf finconf pv)
+      ) =>
+      VersionedSkovM gsconf finconf pv a
+    ) ->
+    MVR gsconf finconf a
+liftSkovQueryAtGenesisIndex genIndex a = MVR $ \mvr -> do
+    versions <- readIORef (mvVersions mvr)
+    liftSkovQuery mvr (versions Vec.! fromIntegral genIndex) a
 
 atLatestSuccessfulVersion ::
     (EVersionedConfiguration gsconf finconf -> MultiVersionRunner gsconf finconf -> IO (Maybe a)) ->
@@ -260,7 +277,18 @@ getBlockInfo bh =
     liftSkovQueryBlockAndVersion
         ( \vc bp -> do
             let biBlockHash = getHash bp
-            biBlockParent <- getHash <$> bpParent bp
+            biBlockParent <-
+                if blockSlot bp == 0 && vcIndex vc /= 0
+                    then do
+                        -- The block is the genesis block of a non-initial chain, so we use the
+                        -- hash of the last finalized block of the previous chain as the parent block.
+                        -- Since the genesis index is non-zero, we know that there will be a previous
+                        -- chain, and that it will be shut down with the last finalized block being
+                        -- terminal.
+                        lift $
+                            liftSkovQueryAtGenesisIndex (vcIndex vc - 1) $
+                                getHash <$> lastFinalizedBlock
+                    else getHash <$> bpParent bp
             biBlockLastFinalized <- getHash <$> bpLastFinalized bp
             let biBlockHeight = localToAbsoluteBlockHeight (vcGenesisHeight vc) (bpHeight bp)
             let biBlockReceiveTime = bpReceiveTime bp
