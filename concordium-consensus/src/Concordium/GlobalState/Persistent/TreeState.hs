@@ -400,15 +400,15 @@ instance (CanExtend (ATIValues ati),
 
 instance (Monad m) => PerAccountDBOperations (PersistentTreeStateMonad pv () bs m)
 
-instance (MonadIO m, MonadState (SkovPersistentData pv DiskDump bs) m) => PerAccountDBOperations (PersistentTreeStateMonad pv DiskDump bs m) where
+instance (MonadIO m, MonadState (SkovPersistentData pv SQLTransactionLog bs) m) => PerAccountDBOperations (PersistentTreeStateMonad pv SQLTransactionLog bs m) where
   flushBlockSummaries bh ati sos = do
-    PAAIConfig handle <- use logContext
-    liftIO $ writeEntries handle bh ati sos
+    context <- use logContext
+    liftIO $ writeEntries context bh ati sos
 
 instance GlobalStateTypes (PersistentTreeStateMonad pv ati bs m) where
     type BlockPointerType (PersistentTreeStateMonad pv ati bs m) = PersistentBlockPointer pv (ATIValues ati) bs
 
-instance HasLogContext PerAccountAffectIndex (SkovPersistentData pv DiskDump bs) where
+instance HasLogContext SQLTransactionLogContext (SkovPersistentData pv SQLTransactionLog bs) where
   logContext = atiCtx
 
 getWeakPointer :: (MonadLogger (PersistentTreeStateMonad pv ati bs m),

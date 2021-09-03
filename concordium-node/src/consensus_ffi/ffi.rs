@@ -391,7 +391,12 @@ extern "C" {
         consensus: *mut consensus_runner,
         block_hash: *const u8,
     ) -> *const c_char;
-    pub fn getBlocksAtHeight(consensus: *mut consensus_runner, block_height: u64) -> *const c_char;
+    pub fn getBlocksAtHeight(
+        consensus: *mut consensus_runner,
+        block_height: u64,
+        genesis_index: u32,
+        restrict: u8,
+    ) -> *const c_char;
     pub fn getTransactionStatus(
         consensus: *mut consensus_runner,
         transaction_hash: *const u8,
@@ -569,8 +574,18 @@ impl ConsensusContainer {
         ))
     }
 
-    pub fn get_blocks_at_height(&self, block_height: u64) -> String {
-        wrap_c_call_string!(self, consensus, |consensus| getBlocksAtHeight(consensus, block_height))
+    pub fn get_blocks_at_height(
+        &self,
+        block_height: u64,
+        genesis_index: u32,
+        restrict: bool,
+    ) -> String {
+        wrap_c_call_string!(self, consensus, |consensus| getBlocksAtHeight(
+            consensus,
+            block_height,
+            genesis_index,
+            restrict as u8
+        ))
     }
 
     pub fn get_ancestors(&self, block_hash: &str, amount: u64) -> String {

@@ -889,9 +889,24 @@ getBranches :: StablePtr ConsensusRunner -> IO CString
 getBranches cptr = jsonQuery cptr Q.getBranches
 
 -- |Get the list of live blocks at a given height.
+-- The height is interpreted relative to the genesis block at the specified index.
+-- The last parameter indicates whether to restrict to a single genesis (if it is a non-zero value).
 -- Returns a null-terminated string encoding a JSON list.
-getBlocksAtHeight :: StablePtr ConsensusRunner -> Word64 -> IO CString
-getBlocksAtHeight cptr height = jsonQuery cptr (Q.getBlocksAtHeight (BlockHeight height))
+getBlocksAtHeight ::
+    StablePtr ConsensusRunner ->
+    -- |Block height to query
+    Word64 ->
+    -- |Genesis index that block height is based on
+    Word32 ->
+    -- |Non-zero to restrict to blocks at specified genesis index
+    Word8 ->
+    IO CString
+getBlocksAtHeight cptr height genIndex restrict =
+    jsonQuery cptr $
+        Q.getBlocksAtHeight
+            (BlockHeight height)
+            (GenesisIndex genIndex)
+            (restrict /= 0)
 
 -- ** Block-indexed queries
 
@@ -1261,7 +1276,7 @@ foreign export ccall getTransactionStatusInBlock :: StablePtr ConsensusRunner ->
 foreign export ccall getAccountNonFinalizedTransactions :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getBlockSummary :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getNextAccountNonce :: StablePtr ConsensusRunner -> CString -> IO CString
-foreign export ccall getBlocksAtHeight :: StablePtr ConsensusRunner -> Word64 -> IO CString
+foreign export ccall getBlocksAtHeight :: StablePtr ConsensusRunner -> Word64 -> Word32 -> Word8 -> IO CString
 foreign export ccall getAllIdentityProviders :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getAllAnonymityRevokers :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getCryptographicParameters :: StablePtr ConsensusRunner -> CString -> IO CString

@@ -33,6 +33,7 @@ import Concordium.GlobalState.TreeState as TS
 import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.GlobalState.SQL.AccountTransactionIndex
 import Concordium.Logger
+import Concordium.Types.Block (AbsoluteBlockHeight)
 
 -- For the avid reader.
 -- The strategy followed in this module is the following: First `BlockStateM` and
@@ -336,7 +337,8 @@ data DiskTreeDiskBlockWithLogConfig pv = DTDBWLConfig {
     dtdbwlTreeStateDirectory :: !FilePath,
     dtdbwlBlockStateFile :: !FilePath,
     dtdbwlGenesisData :: !(GenesisData pv),
-    dtdbwlTxDBConnectionString :: !ByteString
+    dtdbwlTxDBConnectionString :: !ByteString,
+    dtdbwlGenesisHeight  :: !AbsoluteBlockHeight
   }
 
 -- |Exceptions that can occur when initialising the global state.
@@ -436,9 +438,9 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
         closeSkovPersistentData st
 
 instance GlobalStateConfig DiskTreeDiskBlockWithLogConfig where
-    type GSState DiskTreeDiskBlockWithLogConfig pv = SkovPersistentData pv DiskDump (HashedPersistentBlockState pv)
+    type GSState DiskTreeDiskBlockWithLogConfig pv = SkovPersistentData pv SQLTransactionLog (HashedPersistentBlockState pv)
     type GSContext DiskTreeDiskBlockWithLogConfig pv = PersistentBlockStateContext
-    type GSLogContext DiskTreeDiskBlockWithLogConfig pv = PerAccountAffectIndex
+    type GSLogContext DiskTreeDiskBlockWithLogConfig pv = SQLTransactionLogContext
     initialiseGlobalState DTDBWLConfig{..} = do
         -- check if all the necessary database files exist
       existingDB <- checkExistingDatabase dtdbwlTreeStateDirectory dtdbwlBlockStateFile
@@ -451,6 +453,10 @@ instance GlobalStateConfig DiskTreeDiskBlockWithLogConfig where
             liftIO $ createTables dbHandle
           IncorrectFormat -> logExceptionAndThrow GlobalState (DatabaseOpeningError (userError "The connected SQL database has some of the 'ati', 'cti', or 'summaries', but either not all or they have incorrect columns."))
         return dbHandle
+      let transactionLogContext = SQLTransactionLogContext{
+            connectionPool = dbHandle,
+            genesisAbsoluteHeight = dtdbwlGenesisHeight                
+          }
       if existingDB then do
         pbscBlobStore <- liftIO $
           -- the block state file exists, is readable and writable
@@ -458,9 +464,9 @@ instance GlobalStateConfig DiskTreeDiskBlockWithLogConfig where
           loadBlobStore dtdbwlBlockStateFile
         let pbsc = PersistentBlockStateContext{..}
         logm <- ask
-        skovData <- liftIO (runLoggerT (loadSkovPersistentData dtdbwlRuntimeParameters dtdbwlTreeStateDirectory dtdbwlGenesisData pbsc (PAAIConfig dbHandle)) logm
+        skovData <- liftIO (runLoggerT (loadSkovPersistentData dtdbwlRuntimeParameters dtdbwlTreeStateDirectory dtdbwlGenesisData pbsc transactionLogContext) logm
                     `onException` (destroyAllResources dbHandle >> closeBlobStore pbscBlobStore))
-        return (pbsc, skovData, PAAIConfig dbHandle)
+        return (pbsc, skovData, transactionLogContext)
       else do
         pbscBlobStore <- liftIO $ createBlobStore dtdbwlBlockStateFile
         let pbsc = PersistentBlockStateContext{..}
@@ -471,11 +477,11 @@ instance GlobalStateConfig DiskTreeDiskBlockWithLogConfig where
                 pbs <- makePersistent genState
                 ser <- saveBlockState pbs
                 let ati = defaultValue
-                initialSkovPersistentData dtdbwlRuntimeParameters dtdbwlTreeStateDirectory dtdbwlGenesisData pbs ati (PAAIConfig dbHandle) ser
+                initialSkovPersistentData dtdbwlRuntimeParameters dtdbwlTreeStateDirectory dtdbwlGenesisData pbs ati transactionLogContext ser
         isd <- runReaderT (runPersistentBlockStateMonad initGS) pbsc
                 `onException` liftIO (destroyAllResources dbHandle >> destroyBlobStore pbscBlobStore)
-        return (pbsc, isd, PAAIConfig dbHandle)
-    shutdownGlobalState _ _ PersistentBlockStateContext{..} st (PAAIConfig dbHandle) = do
+        return (pbsc, isd, transactionLogContext)
+    shutdownGlobalState _ _ PersistentBlockStateContext{..} st transactionLogContext = do
         closeBlobStore pbscBlobStore
-        destroyAllResources dbHandle
+        destroyAllResources (connectionPool transactionLogContext)
         closeSkovPersistentData st

@@ -21,6 +21,7 @@ module Concordium.MultiVersion where
 
 import Control.Concurrent
 import Control.Exception
+import Control.Monad.Catch (MonadCatch, MonadMask, MonadThrow)
 import Control.Monad.Reader
 import Control.Monad.State
 import Data.ByteString (ByteString)
@@ -35,6 +36,7 @@ import System.FilePath
 
 import Concordium.Logger hiding (Baker)
 import Concordium.Types
+import Concordium.Types.Block
 import Concordium.Types.Transactions
 import Concordium.Types.UpdateQueues (ProtocolUpdateStatus (..))
 import Concordium.Types.Updates
@@ -44,6 +46,7 @@ import Concordium.Afgjort.Finalize.Types
 import Concordium.Birk.Bake
 import Concordium.GlobalState
 import Concordium.GlobalState.Block
+import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Paired
 import Concordium.GlobalState.Parameters
@@ -53,7 +56,6 @@ import Concordium.ProtocolUpdate
 import Concordium.Skov as Skov
 import Concordium.TimeMonad
 import Concordium.TimerMonad
-import Control.Monad.Catch (MonadCatch, MonadMask, MonadThrow)
 
 -- |Handler configuration for supporting protocol updates.
 -- This handler defines an instance of 'HandlerConfigHandlers' that responds to finalization events
@@ -142,18 +144,20 @@ class
         TXLogConfig gsconf ->
         RuntimeParameters ->
         GenesisIndex ->
+        -- |Absolute height of the genesis block.
+        AbsoluteBlockHeight ->
         GenesisData pv ->
         gsconf pv
 
 instance MultiVersionStateConfig MemoryTreeMemoryBlockConfig where
     type StateConfig MemoryTreeMemoryBlockConfig = ()
     type TXLogConfig MemoryTreeMemoryBlockConfig = ()
-    globalStateConfig _ _ rtp _ gd = MTMBConfig rtp gd
+    globalStateConfig _ _ rtp _ _ gd = MTMBConfig rtp gd
 
 instance MultiVersionStateConfig DiskTreeDiskBlockConfig where
     type StateConfig DiskTreeDiskBlockConfig = DiskStateConfig
     type TXLogConfig DiskTreeDiskBlockConfig = ()
-    globalStateConfig DiskStateConfig{..} _ rtp gi gd =
+    globalStateConfig DiskStateConfig{..} _ rtp gi _ gd =
         ( DTDBConfig
             { dtdbRuntimeParameters = rtp,
               dtdbTreeStateDirectory = stateBasePath </> ("treestate-" ++ show gi),
@@ -165,13 +169,14 @@ instance MultiVersionStateConfig DiskTreeDiskBlockConfig where
 instance MultiVersionStateConfig DiskTreeDiskBlockWithLogConfig where
     type StateConfig DiskTreeDiskBlockWithLogConfig = DiskStateConfig
     type TXLogConfig DiskTreeDiskBlockWithLogConfig = TransactionDBConfig
-    globalStateConfig DiskStateConfig{..} TransactionDBConfig{..} rtp gi gd =
+    globalStateConfig DiskStateConfig{..} TransactionDBConfig{..} rtp gi genHeight gd =
         ( DTDBWLConfig
             { dtdbwlRuntimeParameters = rtp,
               dtdbwlTreeStateDirectory = stateBasePath </> ("treestate-" ++ show gi),
               dtdbwlBlockStateFile = stateBasePath </> ("blockstate-" ++ show gi) <.> "dat",
               dtdbwlGenesisData = gd,
-              dtdbwlTxDBConnectionString = dbConnString
+              dtdbwlTxDBConnectionString = dbConnString,
+              dtdbwlGenesisHeight = genHeight
             }
         )
 
@@ -181,10 +186,10 @@ instance
     where
     type StateConfig (PairGSConfig c1 c2) = (StateConfig c1, StateConfig c2)
     type TXLogConfig (PairGSConfig c1 c2) = (TXLogConfig c1, TXLogConfig c2)
-    globalStateConfig (sc1, sc2) (txc1, txc2) rtp gi gd =
+    globalStateConfig (sc1, sc2) (txc1, txc2) rtp gi gh gd =
         PairGSConfig
-            ( globalStateConfig sc1 txc1 rtp gi gd,
-              globalStateConfig sc2 txc2 rtp gi gd
+            ( globalStateConfig sc1 txc1 rtp gi gh gd,
+              globalStateConfig sc2 txc2 rtp gi gh gd
             )
 
 -- |Callback functions for communicating with the network layer.
@@ -224,6 +229,8 @@ data VersionedConfiguration gsconf finconf (pv :: ProtocolVersion) = VersionedCo
       vcState :: !(IORef (SkovState (SkovConfig pv gsconf finconf UpdateHandler))),
       -- |The genesis index
       vcIndex :: GenesisIndex,
+      -- |The absolute block height of the genesis block
+      vcGenesisHeight :: AbsoluteBlockHeight,
       -- |Shutdown the skov. This should only be called by a thread that holds the global lock
       -- and the configuration should not be used subsequently.
       vcShutdown :: LogIO ()
@@ -390,9 +397,12 @@ newGenesis ::
       MultiVersion gsconf finconf,
       SkovConfiguration gsconf finconf UpdateHandler
     ) =>
+    -- |Genesis data
     PVGenesisData ->
+    -- |Absolute height of the new genesis block
+    AbsoluteBlockHeight ->
     MVR gsconf finconf ()
-newGenesis (PVGenesisData (gd :: GenesisData pv)) =
+newGenesis (PVGenesisData (gd :: GenesisData pv)) vcGenesisHeight =
     MVR $
         \mvr@MultiVersionRunner
             { mvCallbacks = Callbacks{..},
@@ -400,8 +410,10 @@ newGenesis (PVGenesisData (gd :: GenesisData pv)) =
               ..
             } -> do
                 mvLog Runner LLInfo $
-                    "Starting new chain with genesis block: "
+                    "Starting new chain with genesis block "
                         ++ show (genesisBlockHash gd)
+                        ++ " at absolute height "
+                        ++ show vcGenesisHeight
                 oldVersions <- readIORef mvVersions
                 let vcIndex = fromIntegral (length oldVersions)
                 (vcContext, st) <-
@@ -413,6 +425,7 @@ newGenesis (PVGenesisData (gd :: GenesisData pv)) =
                                     mvcTXLogConfig
                                     mvcRuntimeParameters
                                     vcIndex
+                                    vcGenesisHeight
                                     gd
                                 )
                                 mvcFinalizationConfig
@@ -463,7 +476,14 @@ checkForProtocolUpdate = liftSkov body
                             ++ showPU pu
                 Right upd -> do
                     regenesis <- updateRegenesis upd
-                    lift $ newGenesis regenesis
+                    lfbHeight <- bpHeight <$> lastFinalizedBlock
+                    latestEraGenesisHeight <- lift $
+                        MVR $ \mvr -> do
+                            versions <- readIORef $ mvVersions mvr
+                            return $ case Vec.last versions of
+                                EVersionedConfiguration vc -> vcGenesisHeight vc
+                    let newGenesisHeight = 1 + localToAbsoluteBlockHeight latestEraGenesisHeight lfbHeight
+                    lift $ newGenesis regenesis $! newGenesisHeight
                     -- Close down the state and get the non-finalized transactions.
                     oldTransactions <- terminateSkov
                     -- Transfer the non-finalized transactions to the new version.
@@ -532,7 +552,7 @@ makeMultiVersionRunner
         mvCatchUpStatusBuffer <- newMVar BufferEmpty
         mvTransactionPurgingThread <- newEmptyMVar
         let mvr = MultiVersionRunner{..}
-        runMVR (newGenesis genesis) mvr
+        runMVR (newGenesis genesis 0) mvr
         putMVar mvWriteLock ()
         startTransactionPurgingThread mvr
         return mvr
