@@ -397,9 +397,12 @@ newGenesis ::
       MultiVersion gsconf finconf,
       SkovConfiguration gsconf finconf UpdateHandler
     ) =>
+    -- |Genesis data
     PVGenesisData ->
+    -- |Absolute height of the new genesis block
+    AbsoluteBlockHeight ->
     MVR gsconf finconf ()
-newGenesis (PVGenesisData (gd :: GenesisData pv)) =
+newGenesis (PVGenesisData (gd :: GenesisData pv)) vcGenesisHeight =
     MVR $
         \mvr@MultiVersionRunner
             { mvCallbacks = Callbacks{..},
@@ -407,21 +410,12 @@ newGenesis (PVGenesisData (gd :: GenesisData pv)) =
               ..
             } -> do
                 mvLog Runner LLInfo $
-                    "Starting new chain with genesis block: "
+                    "Starting new chain with genesis block "
                         ++ show (genesisBlockHash gd)
+                        ++ " at absolute height "
+                        ++ show vcGenesisHeight
                 oldVersions <- readIORef mvVersions
                 let vcIndex = fromIntegral (length oldVersions)
-                vcGenesisHeight <-
-                    if vcIndex == 0
-                        then return 0
-                        else case Vec.last oldVersions of
-                            EVersionedConfiguration vc -> do
-                                localFinHeight <-
-                                    runMVR
-                                        (liftSkovUpdate vc (bpHeight <$> lastFinalizedBlock))
-                                        mvr
-                                return $! 1
-                                    + localToAbsoluteBlockHeight (vcGenesisHeight vc) localFinHeight
                 (vcContext, st) <-
                     runLoggerT
                         ( initialiseSkov
@@ -482,7 +476,14 @@ checkForProtocolUpdate = liftSkov body
                             ++ showPU pu
                 Right upd -> do
                     regenesis <- updateRegenesis upd
-                    lift $ newGenesis regenesis
+                    lfbHeight <- bpHeight <$> lastFinalizedBlock
+                    latestEraGenesisHeight <- lift $
+                        MVR $ \mvr -> do
+                            versions <- readIORef $ mvVersions mvr
+                            return $ case Vec.last versions of
+                                EVersionedConfiguration vc -> vcGenesisHeight vc
+                    let newGenesisHeight = 1 + localToAbsoluteBlockHeight latestEraGenesisHeight lfbHeight
+                    lift $ newGenesis regenesis $! newGenesisHeight
                     -- Close down the state and get the non-finalized transactions.
                     oldTransactions <- terminateSkov
                     -- Transfer the non-finalized transactions to the new version.
@@ -551,7 +552,7 @@ makeMultiVersionRunner
         mvCatchUpStatusBuffer <- newMVar BufferEmpty
         mvTransactionPurgingThread <- newEmptyMVar
         let mvr = MultiVersionRunner{..}
-        runMVR (newGenesis genesis) mvr
+        runMVR (newGenesis genesis 0) mvr
         putMVar mvWriteLock ()
         startTransactionPurgingThread mvr
         return mvr

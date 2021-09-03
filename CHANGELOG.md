@@ -23,7 +23,7 @@
 - In the GetRewardStatus GRPC call, the amounts that were previously represented as integers are now
   represented as strings in the JSON serialization. This is in line with how amounts are serialized
   elsewhere.
-- The behaviour of the GetAccountList, GetInstances, and GetModuleList have changed in the case
+- The behaviour of GetAccountList, GetInstances, and GetModuleList have changed in the case
   where the block hash is ill-formed. Instead of returning the JSON string "Invalid block hash.",
   these functions will now return the JSON null value.
 - Implement protocol updates, allowing migration to a new protocol. One protocol update is
@@ -47,6 +47,14 @@
   peer major version, in contrast to requiring an exact major version match.
 - GetConsensusStatus return value has additional fields to indicate the protocol
   version and effected protocol updates.
+- GetBlockInfo return value has additional fields indicating the genesis index and local height
+  (relative to the genesis block at the genesis index) of the block. The block height reported
+  is absolute. The reported parent of a re-genesis block will be the last final block of the
+  preceding chain, so the absolute height indicates how many times the parent pointer should be
+  followed to reach the initial genesis.
+- GetBlocksAtHeight supports specifying a genesis index, with the supplied height being treated as
+  relative to the genesis block at that index. An additional flag allows restricting the query to
+  just that index.
 
 ## concordium-node 1.0.1
 
