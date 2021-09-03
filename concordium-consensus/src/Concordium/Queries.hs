@@ -97,6 +97,7 @@ liftSkovQueryAtGenesisIndex genIndex a = MVR $ \mvr -> do
     versions <- readIORef (mvVersions mvr)
     liftSkovQuery mvr (versions Vec.! fromIntegral genIndex) a
 
+-- |Run a function at each genesis index from the latest, until it returns a 'Just' result.
 atLatestSuccessfulVersion ::
     (EVersionedConfiguration gsconf finconf -> IO (Maybe a)) ->
     MultiVersionRunner gsconf finconf ->
@@ -328,7 +329,7 @@ getBlockInfo bh =
             biBlockLastFinalized <- getHash <$> bpLastFinalized bp
             let biBlockHeight = localToAbsoluteBlockHeight (vcGenesisHeight vc) (bpHeight bp)
             let biGenesisIndex = vcIndex vc
-            let biLocalBlockHeight = bpHeight bp
+            let biEraBlockHeight = bpHeight bp
             let biBlockReceiveTime = bpReceiveTime bp
             let biBlockArriveTime = bpArriveTime bp
             let biBlockSlot = blockSlot bp

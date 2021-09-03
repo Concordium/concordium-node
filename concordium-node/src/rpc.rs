@@ -562,6 +562,9 @@ impl P2p for RpcServerImpl {
         req: Request<BlockHeight>,
     ) -> Result<Response<JsonResponse>, Status> {
         authenticate!(req, self.access_token);
+        // Under the proto3 semantics, the default values for from_genesis_index and
+        // restrict_to_genesis_index are 0 and false respectively. This means the
+        // default behaviour will be to query with the absolute block height.
         call_consensus!(self, "GetBlocksAtHeight", JsonResponse, |cc: &ConsensusContainer| {
             cc.get_blocks_at_height(
                 req.get_ref().block_height,
