@@ -56,10 +56,12 @@ These databases are
    state this database is never read by the node, only by external services such
    as the wallet-proxy.
 
-The **tree state** is stored in an LMDB database with 4
-**stores** corresponding to the 4 different items that are stored. LMDB is a
-simple key-value store, so it only supports lookups by the specified index, and
-traversals. It does not support any additional queries.
+The **tree state** is stored in an LMDB database with 5 key-value **stores**.
+Three of these store blocks, finalization records and the status of finalized
+transactions. A fourth indexes blocks by height. The remaining store is used
+for database metadata. LMDB is a simple key-value store, so it only supports
+lookups by the specified index, and traversals. It does not support any
+additional queries.
 
 The **block state** is stored in a simple file in an ad-hoc way defined by the
 implementation. Sharing is used so that storage does not grow too quickly. For
@@ -571,7 +573,7 @@ The postgres database consists of three tables
     is the primary key.
   - **block** --- hash of the block the transaction is in
   - **timestamp** --- the timestamp, in milliseconds, of the block slot
-  - **height** --- the height of the block
+  - **height** --- the absolute height of the block
   - **summary** --- a JSON value containing the transaction outcome
 
 - the **ati** (account transaction index) table, which has columns
