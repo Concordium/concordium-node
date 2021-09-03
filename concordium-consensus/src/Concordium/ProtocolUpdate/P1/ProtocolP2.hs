@@ -70,7 +70,7 @@ import Concordium.Kontrol
 -- |The hash that identifies a update from P1 to P2 protocol.
 -- This is the hash of the published specification document.
 updateHash :: SHA256.Hash
-updateHash = read "4318fc1e8137114b2b85a118bc468fdfac1b678e705777cf80729dd2f80363c9"
+updateHash = read "9b1f206bbe230fef248c9312805460b4f1b05c1ef3964946981a8d4abb58b923"
 
 -- |Construct the genesis data for a P1.Reboot update.
 -- It is assumed that the last finalized block is the terminal block of the old chain:
