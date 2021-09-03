@@ -24,7 +24,7 @@ Data is written to databases on each finalization.
 
 ### Databases
 
-The node stores data in two internal databases, and an optional external
+The node stores data in two internal databases (per genesis), and an optional external
 database. The internal/external distinction refers to how the databases are
 intended to be used. Internal means that only the node accesses the database,
 whereas external means that the data is written by the node, but read by other
@@ -56,10 +56,12 @@ These databases are
    state this database is never read by the node, only by external services such
    as the wallet-proxy.
 
-The **tree state** is stored in a single LMDB database with 4
-**stores** corresponding to the 4 different items that are stored. LMDB is a
-simple key-value store, so it only supports lookups by the specified index, and
-traversals. It does not support any additional queries.
+The **tree state** is stored in an LMDB database with 5 key-value **stores**.
+Three of these store blocks, finalization records and the status of finalized
+transactions. A fourth indexes blocks by height. The remaining store is used
+for database metadata. LMDB is a simple key-value store, so it only supports
+lookups by the specified index, and traversals. It does not support any
+additional queries.
 
 The **block state** is stored in a simple file in an ad-hoc way defined by the
 implementation. Sharing is used so that storage does not grow too quickly. For
@@ -71,6 +73,13 @@ The **transaction index** is stored in an external PostgreSQL database in a
 fairly unstructured way. We mostly store transaction outcomes as a JSON blob,
 but some metadata is stored in separate columns to enable more efficient
 indexing.
+
+In the event of a protocol update, a new chain is started, with a new genesis
+block that is based on the last finalized block of the previous chain. The new
+chain maintains a separate **tree state** and **block state** from the previous
+chain, while the **transaction index** is shared. Once a protocol update
+occurs, the tree state and block state databases of the old chain will not be
+changed any further, since no new blocks will be finalized on the old chain.
 
 ### Data processed by the node
 
@@ -100,11 +109,22 @@ payloads meaningful to the consensus layer and above. These messages are
 ## The tree state database
 
 The tree state database is an LMDB database. This database is located in the
-node's data directory, under `DATABASE_SUB_DIRECTORY_NAME/treestate` where
-`DATABASE_SUB_DIRECTORY_NAME` is a compile-time constant. This database has four
-stores, all of which are simple key-value stores.
+node's data directory, under `DATABASE_SUB_DIRECTORY_NAME/treestate-<n>` where
+`DATABASE_SUB_DIRECTORY_NAME` is a compile-time constant and `<n>` is the
+*genesis index* (0 for the initial chain, and incremented at each protocol
+update). This database has five stores, all of which are simple key-value stores.
 
-### Block store
+### Metadata store `metadata`
+
+- Key: `version`
+- Value: a serialized pair of
+  - Database version tag (variable length, big endian); currently `0`
+  - Protocol version (64-bit unsigned integer, big endian)
+
+This store contains metadata about the database, in particular the version
+information. Only one key (`version`) is supported in the current version.
+
+### Block store `blocks`
 
 - Keys: block hashes
 - Values: finalized **stored blocks**. A stored block consists of
@@ -123,7 +143,7 @@ stores, all of which are simple key-value stores.
   - pointer (in the form of an offset in the file) to the **block state
     database** to where the state at the end of the block can be read
 
-### Finalization record store
+### Finalization record store `finalization`
 
 - Keys: finalization indices
 - Values: finalization records
@@ -133,7 +153,7 @@ Finalization records are part of blocks as well, so eventually each
 finalization record is stored twice, once in the **finalization record store**,
 and once in the **block store**.
 
-### Finalized transaction status store
+### Finalized transaction status store `transactionstatus`
 
 - Keys: transaction hashes
 - Values: Information about a finalized transaction consisting of
@@ -144,7 +164,7 @@ and once in the **block store**.
   The actual outcome of the transaction, e.g., whether it succeeded, failed, is
   recorded in the **block state database**.
 
-### Index of finalized blocks by height
+### Index of finalized blocks by height `finalizedByHeight`
 
 - Keys: block height
 - Values: block hashes
@@ -155,7 +175,9 @@ stored in the **block store**.
 ## The block state database
 
 This is a single file which stores for each block the state of the chain after
-that block derived from activity on it, i.e., from transactions. The main
+that block derived from activity on it, i.e., from transactions. The block
+state database is stored at `DATABASE_SUB_DIRECTORY_NAME/blockstate-<n>.dat`,
+where `<n>` is the genesis index (as for the tree state database). The main
 complexity of this database is that data needs to be shared between different
 blocks so that database size does not grow too quickly, under the assumption
 that most of the data does not change between blocks.
@@ -551,7 +573,7 @@ The postgres database consists of three tables
     is the primary key.
   - **block** --- hash of the block the transaction is in
   - **timestamp** --- the timestamp, in milliseconds, of the block slot
-  - **height** --- the height of the block
+  - **height** --- the absolute height of the block
   - **summary** --- a JSON value containing the transaction outcome
 
 - the **ati** (account transaction index) table, which has columns
