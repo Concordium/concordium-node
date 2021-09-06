@@ -1,8 +1,11 @@
-use dashmap::DashMap;
 use std::{
+    collections::HashMap,
     ffi::{c_void, CString},
     os::raw::c_char,
+    sync::RwLock,
 };
+
+use crate::{read_or_die, write_or_die};
 
 /// The native representation of a logger. Used by [LogT].
 #[repr(C)]
@@ -103,7 +106,7 @@ impl MacOsLog {
 
 /// Logger that logs to the macOS syslog and implements [log::Log].
 pub struct MacOsLogger {
-    loggers:   DashMap<String, (Option<log::LevelFilter>, MacOsLog)>,
+    loggers:   RwLock<HashMap<String, (Option<log::LevelFilter>, MacOsLog)>>,
     subsystem: String,
 }
 
@@ -115,7 +118,7 @@ impl MacOsLogger {
     /// must be called**, otherwise logging won't occur.
     pub fn new(subsystem: &str) -> Self {
         Self {
-            loggers:   DashMap::new(),
+            loggers:   RwLock::new(HashMap::new()),
             subsystem: subsystem.to_string(),
         }
     }
@@ -131,7 +134,7 @@ impl MacOsLogger {
     /// Set a level filter on a given category/target. Overrides the default
     /// level filter set by [level_filter].
     pub fn category_level_filter(self, category: &str, level: log::LevelFilter) -> Self {
-        self.loggers
+        write_or_die!(self.loggers)
             .entry(category.into())
             .and_modify(|(existing_level, _)| *existing_level = Some(level))
             .or_insert((Some(level), MacOsLog::new(&self.subsystem, category)));
@@ -145,19 +148,26 @@ impl MacOsLogger {
 
 impl log::Log for MacOsLogger {
     fn enabled(&self, metadata: &log::Metadata) -> bool {
-        let max_level =
-            self.loggers.get(metadata.target()).and_then(|pair| pair.0).unwrap_or(log::max_level());
+        let max_level = read_or_die!(self.loggers)
+            .get(metadata.target())
+            .and_then(|pair| pair.0)
+            .unwrap_or(log::max_level());
         metadata.level() <= max_level
     }
 
     fn log(&self, record: &log::Record) {
         if self.enabled(record.metadata()) {
-            let pair = self
-                .loggers
-                .entry(record.target().to_string())
-                .or_insert((None, MacOsLog::new(&self.subsystem, record.target())));
             let message = record.args().to_string();
-            pair.1.log_with_level(record.level().into(), &message);
+
+            match read_or_die!(self.loggers).get(&record.target().to_string()) {
+                Some((_, logger)) => logger.log_with_level(record.level().into(), &message),
+                None => {
+                    let new_logger = MacOsLog::new(&self.subsystem, record.target());
+                    new_logger.log_with_level(record.level().into(), &message);
+                    write_or_die!(self.loggers)
+                        .insert(record.target().to_string(), (None, new_logger));
+                }
+            };
         }
     }
 

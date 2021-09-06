@@ -424,6 +424,7 @@ dependencies = [
  "base64 0.13.0",
  "byteorder",
  "bytesize",
+ "cc",
  "cfg-if 1.0.0",
  "chrono",
  "circular-queue",

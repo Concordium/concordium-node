@@ -65,7 +65,6 @@ hex = "0.4"
 rpassword = "5.0"
 anyhow = "1.0"
 thiserror = "1.0"
-dashmap = "4"
 
 # gRPC dependencies
 tonic = "0.4.1"
