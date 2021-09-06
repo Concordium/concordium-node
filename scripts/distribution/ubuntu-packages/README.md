@@ -56,8 +56,8 @@ instantiated during build time with a tool such as `envsubst`. The variables are
 - `build_version` (e.g., 1.1.0, should match the concordium-node version)
 - `build_env_name` (e.g., Testnet)
 - `build_env_name_lower` (e.g., testnet)
-- `build_genesis_hash` (hash of the genesis block (NB: Not this is not the same
-  as the hash of the genesis.dat file.))
+- `build_genesis_hash` (hash of the genesis block (NB: This is not the same
+  as the hash of the genesis.dat file, instead it is the protocol defined hash of the contents of the genesis block.))
 - `build_collector_backend_url` (e.g. https://dashboard.testnet.concordium.com/nodes/post)
 - `build_rpc_server_port` (e.g., 10001)
 - `build_listen_port` (e.g., 8889)
@@ -200,8 +200,8 @@ The node supports the following environment variables.
   `BindReadOnlyPaths` option to remap the file from wherever it is on the host
   system to a location which the node can read. For example (this assumes the baker keys are located in `/home/user/baker-credentials.json` on the host system)
   ```
-  Environment=CONCORDIUM_NODE_BAKER_CREDENTIALS_FILE=%S/concordium/baker-credentials.json
-  BindReadOnlyPaths=/home/user/baker-credentials.json:%S/concordium/baker-credentials.json
+  Environment=CONCORDIUM_NODE_BAKER_CREDENTIALS_FILE=%S/concordium-${build_genesis_hash}/baker-credentials.json
+  BindReadOnlyPaths=/home/user/baker-credentials.json:%S/concordium-${build_genesis_hash}/baker-credentials.json
   ```
 
 
