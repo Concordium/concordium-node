@@ -71,7 +71,7 @@ The general strategy for building the package is as follows.
 
 1. Obtain genesis-data for the specific network. Copy `genesis.dat` to the
    [template/data](template/data) directory, naming it
-   `$build_env_name_lower-genesis.dat` (e.g., `testnet-genesis.dat`).
+   `${build_env_name_lower}-genesis.dat` (e.g., `testnet-genesis.dat`).
 2. Update [template/debian/changelog](template/debian/changelog) as appropriate.
 3. Update [template/debian/control](template/debian/control) as appropriate.
 4. Possibly update `CONCORDIUM_NODE_COLLECTOR_URL` in
@@ -165,20 +165,20 @@ These files are __not__ removed by the uninstall scripts since they contain
 # Configuration of the node
 
 The node is configured via `systemd` unit files. When installed there is only
-the system unit file in `/lib/systemd/system/concordium-testnet-node.service` which
+the system unit file in `/lib/systemd/system/concordium-${build_env_name_lower}-node.service` which
 contains reasonable defaults for an average system. However there are a number
 of configuration options that could make sense to alter. The intended way to
 modify node settings is to add `systemd` drop-in files. The simplest way to do
 that is to use `systemctl edit`. To edit the node settings
 
 ```console
-sudo systemctl edit concordium-testnet-node.service
+sudo systemctl edit concordium-${build_env_name_lower}-node.service
 ```
 
 this will open an editor which can be used to override the settings in
-`/lib/systemd/system/concordium-testnet-node.service` and add new configuration options.
+`/lib/systemd/system/concordium-${build_env_name_lower}-node.service` and add new configuration options.
 The first time this command is invoked a fresh file will be created at
-`/etc/systemd/system/concordium-testnet-node.service.d/override.conf`. After that the
+`/etc/systemd/system/concordium-${build_env_name_lower}-node.service.d/override.conf`. After that the
 same file will be opened for editing.
 
 The configuration should be done via `Environment` directives in a `[Service]`
@@ -236,7 +236,7 @@ The node supports the following environment variables.
 
 - `CONCORDIUM_NODE_RPC_SERVER_PORT` is the port of the grpc server (default 10000) (NB: If this
   is changed then the variable `COLLECTOR_GRPC_PORT` must be changed as well for
-  the `concordium-testnet-node-collector` service)
+  the `concordium-${build_env_name_lower}-node-collector` service)
 
 - `CONCORDIUM_NODE_EXTERNAL_PORT` is related to the listen-port. If the external port of the
   server is not the same as the port the node is listening on (i.e., it is
@@ -248,13 +248,13 @@ to keep connection to and never drop. The peers must be in the format `addr:port
   address and port of a "trusted node".
 
 - The complete list of configuration options can be obtained by running
-  `concordium-testnet-node --help`.
+  `concordium-${build_env_name_lower}-node --help`.
 
 After editing the configuration file the node must be restarted. This can be
 done via
 
 ```console
-sudo systemctl restart concordium-testnet-node.service
+sudo systemctl restart concordium-${build_env_name_lower}-node.service
 ```
 
 ## Caveat
@@ -271,7 +271,7 @@ sudo systemctl daemon-reload
 To see whether the node is running correctly you may use `systemctl` commands.
 
 ```console
-sudo systemctl status concordium-testnet-node.service
+sudo systemctl status concordium-${build_env_name_lower}-node.service
 ```
 
 will show whether the node is up and what configuration files it is using.
@@ -279,19 +279,19 @@ will show whether the node is up and what configuration files it is using.
 To see the contents of the configuration files you can use
 
 ```console
-sudo systemctl cat concordium-testnet-node.service
+sudo systemctl cat concordium-${build_env_name_lower}-node.service
 ```
 
 The node logs data using `journald`. The logs can be obtained via `journalctl`,
 e.g.,
 
 ```console
-sudo journalctl -u concordium-testnet-node.service
+sudo journalctl -u concordium-${build_env_name_lower}-node.service
 ```
 or only the most recent (e.g., last 10min)
 
 ```console
-sudo journalctl -u concordium-testnet-node.service --since '10min ago'
+sudo journalctl -u concordium-${build_env_name_lower}-node.service --since '10min ago'
 ```
 
 ### Troubleshooting
@@ -303,23 +303,23 @@ If this is the case then the log of the concordium-node will contain errors alon
 ```
 error, called at src/Concordium/GlobalState/Persistent/BlobStore.hs
 ...
-concordium-testnet-node: warning: too many hs_exit()s
-concordium-testnet-node.service: Main process exited, code=exited, status=1/FAILURE
-concordium-testnet-node.service: Failed with result 'exit-code'.
+concordium-${build_env_name_lower}-node: warning: too many hs_exit()s
+concordium-${build_env_name_lower}-node.service: Main process exited, code=exited, status=1/FAILURE
+concordium-${build_env_name_lower}-node.service: Failed with result 'exit-code'.
 ```
 
 In order to `recover` from such a situation, one should take the following steps.
 
-- Stop the concordium-testnet-node service by running the command `sudo systemctl stop concordium-testnet-node.service`
+- Stop the concordium-${build_env_name_lower}-node service by running the command `sudo systemctl stop concordium-${build_env_name_lower}-node.service`
 
 - Delete the contents (**except** the genesis.dat file) of the `data` folder.
 The default path for the `data` folder is `/var/lib/concordium/$GENESIS_HASH/data/`.
 Where $GENESIS_HASH is a hash derived from the configured genesis data.
 
-- Start the concordium-testnet-node service again by running `sudo systemctl start concordium-testnet-node-collector.service`.
+- Start the concordium-${build_env_name_lower}-node service again by running `sudo systemctl start concordium-${build_env_name_lower}-node-collector.service`.
 
 The concordium-node should now be up and running again.
-Verify with the command: `sudo systemctl status concordium-testnet-node`.
+Verify with the command: `sudo systemctl status concordium-${build_env_name_lower}-node`.
 
 ## Configuration of the collector
 
@@ -327,6 +327,6 @@ The main configuration option for the collector is the node name that appears on
 the network dashboard. Use
 
 ```console
-sudo systemctl edit concordium-testnet-node-collector.service
+sudo systemctl edit concordium-${build_env_name_lower}-node-collector.service
 ```
 to edit. The environment variable name is `CONCORDIUM_NODE_COLLECTOR_NODE_NAME`.
