@@ -34,5 +34,3 @@ docker build\
 id=$(docker create testnet-deb)
 docker cp $id:/out testnet-build
 docker rm $id
-
-

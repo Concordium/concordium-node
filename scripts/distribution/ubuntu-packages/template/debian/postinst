@@ -31,11 +31,15 @@ fi
 # disjoint. This postinst script is responsible for migration from the old to
 # the new directories.
 
-if [ -d "/var/lib/concordium/${build_genesis_hash}" ];
+if [[ -d "/var/lib/concordium/${build_genesis_hash}/data" && -d "/var/lib/concordium/${build_genesis_hash}/config" ]];
 then
     echo "Migrating existing database directory to '/var/lib/concordium-${build_genesis_hash}'."
-    # At this point the target directory exists, so we only move the data and config to the new place.
-    mv "/var/lib/concordium/${build_genesis_hash}/{data,config}" "/var/lib/concordium-${build_genesis_hash}/"
+    # At this point the target data directory contains genesis.dat so we have to move the contents
+    # instead of just the directory to avoid conflicts.
+    mv /var/lib/concordium/${build_genesis_hash}/data/* /var/lib/concordium-${build_genesis_hash}/data/
+    rmdir /var/lib/concordium/${build_genesis_hash}/data
+    # The target config directory should be empty at this point, so it is OK to just move.
+    mv /var/lib/concordium/${build_genesis_hash}/config /var/lib/concordium-${build_genesis_hash}/
 fi
 
 # include automatically generated postinst scripts after we've update the override files.
