@@ -9,8 +9,8 @@ In particular the packages will include
 - the start script for both services
 - configuration files
 
-The start scripts query for some information during setup, in particular they
-query for the node name.
+The installation scripts query for some information during setup, in particular
+they query for the node name.
 
 The template for building the packages is in the [template](./template)
 directory. The following files are relevant
@@ -49,33 +49,38 @@ directory. The following files are relevant
   with minor modifications to install two systemd services as opposed to a
   single, which would be the default.
 
-The strategy for building the package is as follows.
+These files contain a number of placeholders that can be instantiated when
+building a package for different environments. These are meant to be
+instantiated during build time with a tool such as `envsubst`. The variables are
+
+- `build_version` (e.g., 1.1.0, should match the concordium-node version)
+- `build_env_name` (e.g., Testnet)
+- `build_env_name_lower` (e.g., testnet)
+- `build_genesis_hash` (hash of the genesis block (NB: Not this is not the same
+  as the hash of the genesis.dat file.))
+- `build_collector_backend_url` (e.g. https://dashboard.testnet.concordium.com/nodes/post)
+- `build_rpc_server_port` (e.g., 10001)
+- `build_listen_port` (e.g., 8889)
+- `build_bootstrap` (e.g., bootstrap.testnet.concordium.com:8888)
+
+There is a script [./template/instantiate.sh](./template/instantiate.sh) to
+instantiate the template to obtain a concrete package. See the script
+documentation for the steps needed to instantiate the template.
+
+The general strategy for building the package is as follows.
 
 1. Obtain genesis-data for the specific network. Copy `genesis.dat` to the
-   [template/data](template/data) directory (creating the directory as well).
+   [template/data](template/data) directory, naming it
+   `${build_env_name_lower}-genesis.dat` (e.g., `testnet-genesis.dat`).
 2. Update [template/debian/changelog](template/debian/changelog) as appropriate.
 3. Update [template/debian/control](template/debian/control) as appropriate.
-4. Update the
-   [template/debian/concordium-node.install](template/debian/concordium-node.install) and [template/debian/concordium-node.dirs](template/debian/concordium-node.dirs) files
-   with the genesis hash (NB: This is __not__ the hash of genesis.dat file,
-   it is the hash of the genesis block, which is defined differently. It is
-   emitted by the genesis tool into a file `genesis_hash`)
-5. Update
-   [template/debian/concordium-node.service](template/debian/concordium-node.service)
-   to match `StateDirectory` and WorkingDirectory values to match the genesis hash.
-6. Possibly update  `CONCORDIUM_NODE_CONNECTION_BOOTSTRAP_NODES` if it does not point to the correct
-   network.
-7. Possibly update `CONCORDIUM_NODE_COLLECTOR_URL` in
+4. Possibly update `CONCORDIUM_NODE_COLLECTOR_URL` in
    [template/debian/concordium-node-collector.service](template/debian/concordium-node-collector.service)
    to point to the correct backend for the network.
-6. Obtain the `concordium-node` and `node-collector` binaries built for the
+5. Obtain the `concordium-node` and `node-collector` binaries built for the
    specific ubuntu platform.
 
-   The [template/debian/rules](template/debian/rules)
-   script assumes that the `static-node-binaries` docker image is available (see
-   [../static-binaries/README.md](../static-binaries/README.md) for details on
-   how to obtain it). Make sure to use the `collector` feature to build them,
-   e.g.,
+   For example use the [../../static-binaries/build-static-binaries.sh](../../static-binaries/build-static-binaries.sh).
    ```console
    $ UBUNTU_VERSION=20.04 STATIC_LIBRARIES_IMAGE_TAG=0.21 GHC_VERSION=8.10.4 EXTRA_FEATURES=collector ./scripts/static-binaries/build-static-binaries.sh
    ```
@@ -83,10 +88,25 @@ The strategy for building the package is as follows.
    If not then just comment out the relevant lines and manually copy the
    binaries into the [template/binaries](template/binaries) (creating the
    directory if needed).
-6. Run `dpkg-buildpackage -us -uc --build=binary` from **inside the template directory**.
+6. Run [template/instantiate.sh](./template/instantiate.sh) script from **inside the template directory**.
    This produces a .deb file in this directory. The file is named in line with
    the debian naming convention, including the version number.
 
+
+# Mainnet and testnet builds
+
+Since mainnet and testnet builds are common the repository includes two scripts
+that will build packages for those two environments with minimal input. These
+scripts are [./build-mainnet-deb.sh](./build-mainnet-deb.sh) and
+[./build-testnet-deb.sh](./build-testnet-deb.sh). They should be run from the
+directory they are in as follows.
+
+```console
+UBUNTU_VERSION=20.04 ./build-testnet-deb.sh
+```
+
+The script uses docker to build the binaries and the debian package. The output
+of the script will be in the directory `testnet-build` (or `mainnet-build`).
 
 # Installing the package
 
@@ -101,40 +121,40 @@ This will take care to install dependencies first.
 
 # Installed package configuration
 
-The layout of the files in the package is as follows (for an example genesis).
+The layout of the files in the package is as follows (for an example genesis)
+and the `testnet` environment.
 
 ```
 .
 ├── lib
 │   └── systemd
 │       └── system
-│           ├── concordium-node-collector.service
-│           └── concordium-node.service
+│           ├── concordium-testnet-node-collector.service
+│           └── concordium-testnet-node.service
 ├── usr
 │   ├── bin
-│   │   ├── concordium-node
-│   │   └── node-collector
+│   │   ├── concordium-testnet-node-1.1.0
+│   │   └── concordium-testnet-node-collector-1.1.0
 │   └── share
 │       └── doc
-│           └── concordium-node
+│           └── concordium-testnet-node
 │               └── changelog.Debian.gz
 └── var
     └── lib
-        └── concordium
-            └── b6078154d6717e909ce0da4a45a25151b592824f31624b755900a74429e3073d
-                └── data
-                    └── genesis.dat
+        └── concordium-b6078154d6717e909ce0da4a45a25151b592824f31624b755900a74429e3073d
+            └── data
+                └── genesis.dat
 ```
 
 The packaging achieves the following
-- upon install the `concordium-node` and `concordium-node-collector` services will be started.
+- upon install the `concordium-testnet-node` and `concordium-testnet-node-collector` services will be started.
 - removing the package will stop the services and delete all of the mentioned
   files.
 
 In addition to the files above the following files are created by the
 installation scripts
 
-- `/etc/systemd/system/concordium-node-collector.service.d/override.conf`
+- `/etc/systemd/system/concordium-testnet-node-collector.service.d/override.conf`
   which is the configuration file with user-specific values for some environment
   variables. This currently contains only the node name that was chosen during
   installation.
@@ -145,20 +165,20 @@ These files are __not__ removed by the uninstall scripts since they contain
 # Configuration of the node
 
 The node is configured via `systemd` unit files. When installed there is only
-the system unit file in `/lib/systemd/system/concordium-node.service` which
+the system unit file in `/lib/systemd/system/concordium-${build_env_name_lower}-node.service` which
 contains reasonable defaults for an average system. However there are a number
 of configuration options that could make sense to alter. The intended way to
 modify node settings is to add `systemd` drop-in files. The simplest way to do
 that is to use `systemctl edit`. To edit the node settings
 
 ```console
-sudo systemctl edit concordium-node.service
+sudo systemctl edit concordium-${build_env_name_lower}-node.service
 ```
 
 this will open an editor which can be used to override the settings in
-`/lib/systemd/system/concordium-node.service` and add new configuration options.
+`/lib/systemd/system/concordium-${build_env_name_lower}-node.service` and add new configuration options.
 The first time this command is invoked a fresh file will be created at
-`/etc/systemd/system/concordium-node.service.d/override.conf`. After that the
+`/etc/systemd/system/concordium-${build_env_name_lower}-node.service.d/override.conf`. After that the
 same file will be opened for editing.
 
 The configuration should be done via `Environment` directives in a `[Service]`
@@ -216,7 +236,7 @@ The node supports the following environment variables.
 
 - `CONCORDIUM_NODE_RPC_SERVER_PORT` is the port of the grpc server (default 10000) (NB: If this
   is changed then the variable `COLLECTOR_GRPC_PORT` must be changed as well for
-  the `concordium-node-collector` service)
+  the `concordium-${build_env_name_lower}-node-collector` service)
 
 - `CONCORDIUM_NODE_EXTERNAL_PORT` is related to the listen-port. If the external port of the
   server is not the same as the port the node is listening on (i.e., it is
@@ -228,13 +248,13 @@ to keep connection to and never drop. The peers must be in the format `addr:port
   address and port of a "trusted node".
 
 - The complete list of configuration options can be obtained by running
-  `concordium-node --help`.
+  `concordium-${build_env_name_lower}-node --help`.
 
 After editing the configuration file the node must be restarted. This can be
 done via
 
 ```console
-sudo systemctl restart concordium-node.service
+sudo systemctl restart concordium-${build_env_name_lower}-node.service
 ```
 
 ## Caveat
@@ -251,7 +271,7 @@ sudo systemctl daemon-reload
 To see whether the node is running correctly you may use `systemctl` commands.
 
 ```console
-sudo systemctl status concordium-node.service
+sudo systemctl status concordium-${build_env_name_lower}-node.service
 ```
 
 will show whether the node is up and what configuration files it is using.
@@ -259,19 +279,19 @@ will show whether the node is up and what configuration files it is using.
 To see the contents of the configuration files you can use
 
 ```console
-sudo systemctl cat concordium-node.service
+sudo systemctl cat concordium-${build_env_name_lower}-node.service
 ```
 
 The node logs data using `journald`. The logs can be obtained via `journalctl`,
 e.g.,
 
 ```console
-sudo journalctl -u concordium-node.service
+sudo journalctl -u concordium-${build_env_name_lower}-node.service
 ```
 or only the most recent (e.g., last 10min)
 
 ```console
-sudo journalctl -u concordium-node.service --since '10min ago'
+sudo journalctl -u concordium-${build_env_name_lower}-node.service --since '10min ago'
 ```
 
 ### Troubleshooting
@@ -283,23 +303,23 @@ If this is the case then the log of the concordium-node will contain errors alon
 ```
 error, called at src/Concordium/GlobalState/Persistent/BlobStore.hs
 ...
-concordium-node: warning: too many hs_exit()s
-concordium-node.service: Main process exited, code=exited, status=1/FAILURE
-concordium-node.service: Failed with result 'exit-code'.
+concordium-${build_env_name_lower}-node: warning: too many hs_exit()s
+concordium-${build_env_name_lower}-node.service: Main process exited, code=exited, status=1/FAILURE
+concordium-${build_env_name_lower}-node.service: Failed with result 'exit-code'.
 ```
 
 In order to `recover` from such a situation, one should take the following steps.
 
-- Stop the concordium-node service by running the command `sudo systemctl stop concordium-node.service`
+- Stop the concordium-${build_env_name_lower}-node service by running the command `sudo systemctl stop concordium-${build_env_name_lower}-node.service`
 
 - Delete the contents (**except** the genesis.dat file) of the `data` folder.
 The default path for the `data` folder is `/var/lib/concordium/$GENESIS_HASH/data/`.
 Where $GENESIS_HASH is a hash derived from the configured genesis data.
 
-- Start the concordium-node service again by running `sudo systemctl start concordium-node-collector.service`.
+- Start the concordium-${build_env_name_lower}-node service again by running `sudo systemctl start concordium-${build_env_name_lower}-node-collector.service`.
 
 The concordium-node should now be up and running again.
-Verify with the command: `sudo systemctl status concordium-node`.
+Verify with the command: `sudo systemctl status concordium-${build_env_name_lower}-node`.
 
 ## Configuration of the collector
 
@@ -307,6 +327,6 @@ The main configuration option for the collector is the node name that appears on
 the network dashboard. Use
 
 ```console
-sudo systemctl edit concordium-node-collector.service
+sudo systemctl edit concordium-${build_env_name_lower}-node-collector.service
 ```
 to edit. The environment variable name is `CONCORDIUM_NODE_COLLECTOR_NODE_NAME`.
