@@ -26,9 +26,10 @@
 - The behaviour of GetAccountList, GetInstances, and GetModuleList have changed in the case
   where the block hash is ill-formed. Instead of returning the JSON string "Invalid block hash.",
   these functions will now return the JSON null value.
-- Implement protocol updates, allowing migration to a new protocol. One protocol update is
-  implemented, which does not switch to a new protocol version, but allows for updating a number
-  of genesis parameters that would otherwise be immutable, while retaining the state.
+- Implement protocol updates, allowing migration to a new protocol. Two protocol updates are
+  implemented. One which does not switch to a new protocol version, but allows for updating a number
+  of genesis parameters that would otherwise be immutable, while retaining the
+  state. A second protocol update updates from P1 to P2.
 - Support for a new wire-protocol version (version 1) that adds a genesis index to non-transaction
   messages, a version header to catch-up messages. Version 0 is still supported for communication
   with legacy nodes during migration.

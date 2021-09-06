@@ -2,23 +2,39 @@
 set -e
 . /usr/share/debconf/confmodule
 set -u
-db_get node-collector/node-name
+db_get concordium-${build_env_name_lower}-node-collector/node-name
 NODE_NAME="$RET"
+
+# The systemd dropin file with user configuration.
+DROP_IN="/etc/systemd/system/concordium-${build_env_name_lower}-node-collector.service.d/override.conf"
 
 # Only update the node name if the override configuration does not already exist.
 # This is not perfect, since we don't know whether the override contains
 # CONCORDIUM_NODE_COLLECTOR_NODE_NAME, but it is good enough for now.
-if [[ ! -f /etc/systemd/system/concordium-node-collector.service.d/override.conf ]]
+if [[ ! -f "${DROP_IN}" ]]
 then 
-    echo "Writing node name to '/etc/systemd/system/node-collector.d/override.conf'."
-    mkdir -p /etc/systemd/system/concordium-node-collector.service.d/
-    cat > /etc/systemd/system/concordium-node-collector.service.d/override.conf <<EOF
+    echo "Writing node name to '${DROP_IN}'."
+    mkdir -p "$(dirname "${DROP_IN}")"
+    cat > "$DROP_IN" <<EOF
 [Service]
-Environment='CONCORDIUM_NODE_COLLECTOR_NODE_NAME=`systemd-escape "$NODE_NAME"`'
+Environment='CONCORDIUM_NODE_COLLECTOR_NODE_NAME=$(systemd-escape "$NODE_NAME")'
 EOF
 else
-    echo "Node collector override file '/etc/systemd/system/node-collector.d/override.conf' already exists."
+    echo "Node collector override file '${DROP_IN}' already exists."
     echo "To update settings edit the file."
+fi
+
+# Migrate previous state directories. The original concordium-node package.
+# stored state directories in /var/lib/concordium/$HASH. This causes some issues
+# with systemd and DynamicUser sandboxing, so in version 1.1.0 and onward we put
+# state directories in /var/lib/concordium-$HASH so that they are completely
+# disjoint. This postinst script is responsible for migration from the old to
+# the new directories.
+
+if [ -d "/var/lib/concordium/${build_genesis_hash}" ];
+then
+    echo "Migrating existing database directory to '/var/lib/concordium-${build_genesis_hash}'."
+    mv "/var/lib/concordium/${build_genesis_hash}" "/var/lib/concordium-${build_genesis_hash}"
 fi
 
 # include automatically generated postinst scripts after we've update the override files.
