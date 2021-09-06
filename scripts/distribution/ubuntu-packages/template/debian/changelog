@@ -1,7 +1,5 @@
 concordium-${build_env_name_lower}-node ($build_version) unstable; urgency=medium
 
-   * No changes from upstream. See changelog
-	https://github.com/Concordium/concordium-node/blob/main/CHANGELOG.md
-	for upstream changes.
+   * See changelog https://github.com/Concordium/concordium-node/blob/main/CHANGELOG.md for upstream changes.
  
  -- Concordium developers <developers@concordium.com>  Mon, 6 Sep 2021 08:15:00 +2000

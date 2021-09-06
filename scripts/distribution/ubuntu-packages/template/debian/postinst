@@ -34,7 +34,8 @@ fi
 if [ -d "/var/lib/concordium/${build_genesis_hash}" ];
 then
     echo "Migrating existing database directory to '/var/lib/concordium-${build_genesis_hash}'."
-    mv "/var/lib/concordium/${build_genesis_hash}" "/var/lib/concordium-${build_genesis_hash}"
+    # At this point the target directory exists, so we only move the data and config to the new place.
+    mv "/var/lib/concordium/${build_genesis_hash}/{data,config}" "/var/lib/concordium-${build_genesis_hash}/"
 fi
 
 # include automatically generated postinst scripts after we've update the override files.
