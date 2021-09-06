@@ -2,8 +2,9 @@
 
 ## Prerequities
 
-- Xcode
-  - Download from App Store
+- Xcode 13
+  - Download from [developer.apple.com](https://developer.apple.com/download) or
+    from App Store (once version 13 is released).
 - Xcode toolkit
   - `$ xcode-select --install`
 - [Build concordium-node dependencies](../../../concordium-node/README.md)
@@ -130,6 +131,7 @@ The build script goes through the following major steps:
      - Compile NodeConfigurationInstallerPlugin using Xcode.
   4. Find and collect dylibs for the node and collector
      - The tool macdylibbundler is automatically downloaded for this purpose.
+     - `otool` and `install_name_tool` can also perform this step, although less conveniently.
   5. Create the installer .pkg file
      - Optionally signing the code inside it first.
   6. Optionally notarizing the installer.
@@ -148,6 +150,15 @@ The build script goes through the following major steps:
      <string>/Library/Application Support/Concordium Node/Mainnet/Config/baker-credentials.json</string>
      ```
  2. Restart the given node by using the stop/start shortcuts.
+
+## How to view the native macOS logs
+
+View the native macOS logs (enabled with `--use-mac-log <subsystem-name>`) by:
+- Using the `log` cli tool: `log show --predicate 'subsystem == "<subsystem-name>"'`
+  - Use `log stream` with same arguments for live logs. 
+  - Use `--debug` or `--info` to include these types of messages.
+- Or, using the `Console.app` by searching for `<subsystem-name>` in the search bar.
+  - View debug and info messages by toggling them under `Action` in the menu bar.
 
 ## Resources used
 
