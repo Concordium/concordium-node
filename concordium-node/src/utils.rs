@@ -4,15 +4,13 @@ use crate::{concordium_dns::dns, configuration as config};
 use anyhow::{bail, ensure, Context};
 use byteorder::{NetworkEndian, WriteBytesExt};
 use ed25519_dalek::{Keypair, PublicKey, SecretKey, Signer};
-#[cfg(not(target_os = "macos"))]
 use env_logger::{Builder, Env};
 use log::LevelFilter;
 use rand::rngs::OsRng;
 #[cfg(not(target_os = "windows"))]
 use std::fs::File;
-#[cfg(not(target_os = "macos"))]
-use std::io::Write;
 use std::{
+    io::Write,
     net::{IpAddr, SocketAddr},
     path::Path,
     str::{self, FromStr},
@@ -73,7 +71,6 @@ fn parse_ip_port(input: &str) -> Option<SocketAddr> {
 }
 
 /// Sets up a logger that logs to stderr.
-#[cfg(not(target_os = "macos"))]
 pub fn setup_logger(trace: bool, debug: bool, no_log_timestamp: bool) -> &'static str {
     let (env, log_lvl) = if trace {
         (Env::default().filter_or("LOG_LEVEL", "trace"), "trace")
@@ -101,11 +98,10 @@ pub fn setup_logger(trace: bool, debug: bool, no_log_timestamp: bool) -> &'stati
     log_lvl
 }
 
-/// Sets up a logger for the macOS syslog.
-/// Logs will have the subsystem set as 'software.concordium.<net_name>.node',
-/// where '<net_name>' typically is 'mainnet' or 'testnet'.
+/// Sets up a logger for the macOS syslog which logs with the provided
+/// subsystem name.
 #[cfg(target_os = "macos")]
-pub fn setup_logger(trace: bool, debug: bool, net_name: &str) -> &'static str {
+pub fn setup_macos_logger(trace: bool, debug: bool, subsystem: &str) -> &'static str {
     // NB: Timestamps and levels are included automatically. No need to encode them
     // in the message.
     let (level_filter, log_lvl) = if trace {
@@ -116,9 +112,7 @@ pub fn setup_logger(trace: bool, debug: bool, net_name: &str) -> &'static str {
         (LevelFilter::Info, "info")
     };
 
-    let subsystem_name = format!("software.concordium.{}.node", net_name);
-
-    crate::macos_log::MacOsLogger::new(&subsystem_name)
+    crate::macos_log::MacOsLogger::new(subsystem)
         .level_filter(level_filter)
         .category_level_filter("tokio_reactor", LevelFilter::Error)
         .category_level_filter("hyper", LevelFilter::Error)
@@ -332,7 +326,10 @@ pub fn get_config_and_logging_setup() -> anyhow::Result<(config::Config, config:
     );
 
     #[cfg(target_os = "macos")]
-    let log_lvl = setup_logger(conf.common.trace, conf.common.debug, &conf.macos.net_name);
+    let log_lvl = match conf.macos.use_mac_log {
+        Some(ref subsystem) => setup_macos_logger(conf.common.trace, conf.common.debug, &subsystem),
+        None => setup_logger(conf.common.trace, conf.common.debug, conf.common.no_log_timestamp),
+    };
     #[cfg(not(target_os = "macos"))]
     let log_lvl = setup_logger(conf.common.trace, conf.common.debug, conf.common.no_log_timestamp);
 

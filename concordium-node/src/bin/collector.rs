@@ -2,7 +2,7 @@
 use concordium_node::{
     common::{collector_utils::NodeInfo, grpc_api},
     req_with_auth,
-    utils::setup_logger,
+    utils::{setup_logger, setup_macos_logger},
 };
 #[cfg(not(target_os = "macos"))]
 use env_logger::Env;
@@ -123,13 +123,13 @@ struct ConfigCli {
     pub max_grpc_failures_allowed: u64,
     #[cfg(target_os = "macos")]
     #[structopt(
-        long = "net-name",
-        help = "The net named used for logging on macOS, e.g. 'mainnet'. Messages will be logged \
-                with the subsystem 'software.concordium.<net-name>.node', which can be searched \
-                for in Console.app.",
-        env = "CONCORDIUM_NODE_COLLECTOR_MACOS_NET_NAME"
+        long = "use-mac-log",
+        help = "Enable native logging on macOS by providing a subsystem name, e.g. \
+                'software.concordium.mainnet.node'. Log messages can be found via Console.app or \
+                the log commandline tool by searching for the subsystem.",
+        env = "CONCORDIUM_NODE_COLLECTOR_USE_MAC_LOG"
     )]
-    pub net_name: String,
+    pub use_mac_log: Option<String>,
 }
 
 #[tokio::main]
@@ -137,7 +137,10 @@ async fn main() {
     let conf = ConfigCli::from_args();
 
     #[cfg(target_os = "macos")]
-    setup_logger(conf.trace, conf.debug, &conf.net_name);
+    match conf.use_mac_log {
+        Some(ref subsystem) => setup_macos_logger(conf.trace, conf.debug, &subsystem),
+        None => setup_logger(conf.trace, conf.debug, conf.no_log_timestamp),
+    };
     #[cfg(not(target_os = "macos"))]
     setup_logger(conf.trace, conf.debug, conf.no_log_timestamp);
 

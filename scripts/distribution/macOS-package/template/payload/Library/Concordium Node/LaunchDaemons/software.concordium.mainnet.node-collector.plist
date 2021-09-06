@@ -29,11 +29,11 @@
         <key>CONCORDIUM_NODE_COLLECTOR_GRPC_HOST</key>
         <string>http://localhost:10000</string>
 
-        <!-- Net name used for logging. Logs can be viewed in Console.app by
-             filtering on 'software.concordium.<net-name>.node' where
-             '<net-name>' is the value set here. -->
-        <key>CONCORDIUM_NODE_COLLECTOR_MACOS_NET_NAME</key>
-        <string>mainnet</string>
+        <!-- Enable native logging on macOS by providing a subsystem name, e.g.
+             'software.concordium.mainnet.node'. Log messages can be found via Console.app or
+             the log commandline tool by searching for the subsystem. -->
+        <key>CONCORDIUM_NODE_COLLECTOR_USE_MAC_LOG</key>
+        <string>software.concordium.mainnet.node</string>
 
     </dict>
 
