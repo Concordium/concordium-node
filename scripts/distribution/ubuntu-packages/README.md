@@ -200,8 +200,8 @@ The node supports the following environment variables.
   `BindReadOnlyPaths` option to remap the file from wherever it is on the host
   system to a location which the node can read. For example (this assumes the baker keys are located in `/home/user/baker-credentials.json` on the host system)
   ```
-  Environment=CONCORDIUM_NODE_BAKER_CREDENTIALS_FILE=%S/concordium/baker-credentials.json
-  BindReadOnlyPaths=/home/user/baker-credentials.json:%S/concordium/baker-credentials.json
+  Environment=CONCORDIUM_NODE_BAKER_CREDENTIALS_FILE=%S/concordium-${build_genesis_hash}/baker-credentials.json
+  BindReadOnlyPaths=/home/user/baker-credentials.json:%S/concordium-${build_genesis_hash}/baker-credentials.json
   ```
 
 
