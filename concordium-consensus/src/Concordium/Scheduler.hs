@@ -1090,51 +1090,52 @@ handleDeployCredential ::
   m (Maybe TxResult)
 handleDeployCredential accCreation@AccountCreation{messageExpiry=messageExpiry, credential=cdi} cdiHash = do
   cryptoParams <- TV.getCryptographicParameters
-   -- check that the account does not already exist
-  accountExistsResult <- TV.verifyCredentialDeploymentAccountDoesNotExist accCreation
-  res <- runExceptT $ do
+  -- check that the account does not already exist
+  -- this check is required even is the transaction has been verified earlier,
+  -- as an account could've been created in the meantime, a new IP could've been added
+  accountUnique <- TV.verifyCredentialUniqueness accCreation
+  -- check if the transaction is in the cache, otherwise verify now and possibly fail early
+  if accountUnique /= TV.ResultSuccess
+  then do return (TxInvalid <$> mapErr accountUnique)
+  else do
+    res <- runExceptT $ do
     -- check that the transaction is not expired
-    liftedCm <- lift getChainMetadata
-    when (transactionExpired messageExpiry $ slotTime liftedCm) $ throwError (Just ExpiredTransaction)
+      liftedCm <- lift getChainMetadata
+      when (transactionExpired messageExpiry $ slotTime liftedCm) $ throwError (Just ExpiredTransaction)
 
-    remainingEnergy <- lift getRemainingEnergy
-    let cost = Cost.deployCredential (ID.credentialType cdi) (ID.credNumKeys . ID.credPubKeys $ cdi)
-    when (remainingEnergy < cost) $ throwError Nothing
-    let mkSummary tsResult = do
-          tsIndex <- lift bumpTransactionIndex
-          return $ TxValid $ TransactionSummary{
-            tsSender = Nothing,
-            tsHash = cdiHash,
-            tsCost = 0,
-            tsEnergyCost = cost,
-            tsType = TSTCredentialDeploymentTransaction (ID.credentialType cdi),
-            ..
-            }
-    -- Verify the credential deployment
-    -- todo: introduce mechanism preventing double checking properties
-    -- e.g., idP exists, signatures etc.
-    case accountExistsResult of
-      TV.ResultSuccess -> do
-        let regId = ID.credId accCreation
-        let aaddr = ID.addressFromRegId regId
-        -- Verification checks passed. Now we create either an initial or normal account
-        case cdi of 
-          ID.InitialACWP icdi -> do
-            _ <- lift (createAccount cryptoParams aaddr (ID.InitialAC (ID.icdiValues icdi)))
-            mkSummary (TxSuccess [AccountCreated aaddr, CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}])
-          ID.NormalACWP _ -> do
-              case ID.values cdi of
-                Just cdv -> do
-                  _ <- lift (createAccount cryptoParams aaddr cdv)
-                  mkSummary (TxSuccess [AccountCreated aaddr, CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}])
-                Nothing -> throwError $  Just AccountCredentialInvalid
-      err -> throwError $ Just $ mapErr err
-  case res of
-    Left err -> return (TxInvalid <$> err)
-    Right ts -> return (Just ts)
+      remainingEnergy <- lift getRemainingEnergy
+      let cost = Cost.deployCredential (ID.credentialType cdi) (ID.credNumKeys . ID.credPubKeys $ cdi)
+      when (remainingEnergy < cost) $ throwError Nothing
+      let mkSummary tsResult = do
+            tsIndex <- lift bumpTransactionIndex
+            return $ TxValid $ TransactionSummary{
+              tsSender = Nothing,
+              tsHash = cdiHash,
+              tsCost = 0,
+              tsEnergyCost = cost,
+              tsType = TSTCredentialDeploymentTransaction (ID.credentialType cdi),
+              ..
+              }
+
+      let regId = ID.credId accCreation
+      let aaddr = ID.addressFromRegId regId
+      -- Verification checks passed. Now we create either an initial or normal account
+      case cdi of 
+        ID.InitialACWP icdi -> do
+          _ <- lift (createAccount cryptoParams aaddr (ID.InitialAC (ID.icdiValues icdi)))
+          mkSummary (TxSuccess [AccountCreated aaddr, CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}])
+        ID.NormalACWP _ -> do
+            case ID.values cdi of
+              Just cdv -> do
+                _ <- lift (createAccount cryptoParams aaddr cdv)
+                mkSummary (TxSuccess [AccountCreated aaddr, CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}])
+              Nothing -> throwError $  Just AccountCredentialInvalid
+    case res of
+      Left err -> return (TxInvalid <$> err)
+      Right ts -> return (Just ts)
   where
-    mapErr (TV.ResultDuplicateAccountRegistrationID dup) = DuplicateAccountRegistrationID dup
-    mapErr _ = AccountCredentialInvalid
+    mapErr (TV.ResultDuplicateAccountRegistrationID dup) = Just (DuplicateAccountRegistrationID dup)
+    mapErr _ = Just AccountCredentialInvalid
 
 -- |Updates the credential keys in the credential with the given Credential ID.
 -- It rejects if there is no credential with the given Credential ID.

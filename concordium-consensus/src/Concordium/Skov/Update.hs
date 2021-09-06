@@ -521,8 +521,8 @@ doReceiveTransaction tr slot = unlessShutDown $ do
                  case result of
                    -- forward a successful verified transaction
                    TV.ResultSuccess -> snd <$> doReceiveTransactionInternal tr slot
-                   -- if the verification failed reject the transaction and put it into
-                   -- the cache of verified transactions
+                   -- If the verification failed, then we reject the transaction and put it into
+                   -- the cache of transaction verification results
                    err -> do
                      insertTxVerificationResult (getHash tr) err
                      return $ mapTransactionVerificationResult err
@@ -541,57 +541,40 @@ doReceiveTransaction tr slot = unlessShutDown $ do
 -- This function should only be called when a transaction is received as part of a block.
 -- The difference from the above function is that this function returns an already existing
 -- transaction in case of a duplicate, ensuring more sharing of transaction data.
-doReceiveTransactionInternal :: (TreeStateMonad pv m,
-                                 TimeMonad m,
-                                 SkovQueryMonad pv m) => BlockItem -> Slot -> m (Maybe BlockItem, UpdateResult)
-doReceiveTransactionInternal tr slot = do
-          now <- currentTime
-          lastFinalState <- queryBlockState =<< lastFinalizedBlock
-          expired <- runReaderT (TV.verifyTransactionNotExpired tr (utcTimeToTimestamp now)) lastFinalState
-          -- reject expired transactions, we don't cache the result though.
-          if expired == TV.ResultTransactionExpired
-          then return (Nothing, mapTransactionVerificationResult expired)
-          else do
-            -- Verify the transactions before addding them to the transaction table.
-            tvResult <- case tr of
-              WithMetadata{wmdData = NormalTransaction _} -> return TV.ResultSuccess
-              WithMetadata{wmdData = CredentialDeployment cred} -> do
-                unverifiable <- lookupTxVerificationResult (getHash tr)
-                case unverifiable of
-                  Just err -> return err
-                  Nothing ->  do
-                    res <- runReaderT (TV.verifyCredentialDeployment cred) lastFinalState
-                    insertTxVerificationResult (getHash tr) res
-                    return res
-              _ -> return TV.ResultSuccess 
-            case tvResult of
-              TV.ResultSuccess ->
-                addCommitTransaction tr slot >>= \case
-                Added bi@WithMetadata{..} -> do
-                  ptrs <- getPendingTransactions
-                  case wmdData of
-                    NormalTransaction tx -> do
-                      focus <- getFocusBlock
-                      st <- blockState focus
-                      macct <- getAccount st $! transactionSender tx
-                      nextNonce <- fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
-                      -- If a transaction with this nonce has already been run by
-                      -- the focus block, then we do not need to add it to the
-                      -- pending transactions.  Otherwise, we do.
-                      when (nextNonce <= transactionNonce tx) $
-                        putPendingTransactions $! addPendingTransaction nextNonce WithMetadata{wmdData=tx,..} ptrs
-                    CredentialDeployment _ -> do
-                        putPendingTransactions $! addPendingDeployCredential wmdHash ptrs
-                    ChainUpdate cu -> do
-                      focus <- getFocusBlock
-                      st <- blockState focus
-                      nextSN <- getNextUpdateSequenceNumber st (updateType (uiPayload cu))
-                      when (nextSN <= updateSeqNumber (uiHeader cu)) $
-                          putPendingTransactions $! addPendingUpdate nextSN cu ptrs
-                  return (Just bi, ResultSuccess)
-                Duplicate tx -> return (Just tx, ResultDuplicate)
-                ObsoleteNonce -> return (Nothing, ResultStale)
-              verificationFailure -> return (Nothing, mapTransactionVerificationResult verificationFailure)
+-- Note: We do not carry out any particular transaction verification here (as we do in 'doReceiveTransaction')
+-- since transactions that has an origin in a block could potentially be valid in the future even though
+-- it was deemed invalid at the current chain/time.
+-- For an example an IP could be added in the meantime of receiving `the` transaction and
+-- when the transaction is actually being executed.
+-- Hence a transaction which has been added to the transaction table through a block must be `fully` verified
+-- at the scheduler anyhow.
+doReceiveTransactionInternal :: (TreeStateMonad pv m) => BlockItem -> Slot -> m (Maybe BlockItem, UpdateResult)
+doReceiveTransactionInternal tr slot =
+        addCommitTransaction tr slot >>= \case
+          Added bi@WithMetadata{..} -> do
+              ptrs <- getPendingTransactions
+              case wmdData of
+                NormalTransaction tx -> do
+                  focus <- getFocusBlock
+                  st <- blockState focus
+                  macct <- getAccount st $! transactionSender tx
+                  nextNonce <- fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
+                  -- If a transaction with this nonce has already been run by
+                  -- the focus block, then we do not need to add it to the
+                  -- pending transactions.  Otherwise, we do.
+                  when (nextNonce <= transactionNonce tx) $
+                      putPendingTransactions $! addPendingTransaction nextNonce WithMetadata{wmdData=tx,..} ptrs
+                CredentialDeployment _ ->
+                  putPendingTransactions $! addPendingDeployCredential wmdHash ptrs
+                ChainUpdate cu -> do
+                    focus <- getFocusBlock
+                    st <- blockState focus
+                    nextSN <- getNextUpdateSequenceNumber st (updateType (uiPayload cu))
+                    when (nextSN <= updateSeqNumber (uiHeader cu)) $
+                        putPendingTransactions $! addPendingUpdate nextSN cu ptrs
+              return (Just bi, ResultSuccess)
+          Duplicate tx -> return (Just tx, ResultDuplicate)
+          ObsoleteNonce -> return (Nothing, ResultStale)
 
 -- |Purge the transaction table.
 doPurgeTransactions :: (TimeMonad m, TreeStateMonad pv m) => m ()

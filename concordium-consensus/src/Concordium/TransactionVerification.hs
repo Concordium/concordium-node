@@ -73,9 +73,9 @@ verifyTransactionNotExpired tx now = do
 verifyCredentialDeployment :: TransactionVerifier m => Tx.AccountCreation -> m VerificationResult
 verifyCredentialDeployment accountCreation@Tx.AccountCreation{..} = do
   -- check that the credential deployment is not a duplicate
-  existsResult <- verifyCredentialDeploymentAccountDoesNotExist accountCreation
-  if existsResult /= ResultSuccess
-  then return existsResult
+  unique <- verifyCredentialUniqueness accountCreation
+  if unique /= ResultSuccess
+  then return unique
   else do
     let credIpId = ID.ipId accountCreation
     mIpInfo <- getIdentityProvider credIpId
@@ -107,9 +107,9 @@ verifyCredentialDeployment accountCreation@Tx.AccountCreation{..} = do
                       then return ResultCredentialDeploymentInvalidSignatures
                       else return ResultSuccess
 
--- |Verifies that a credential does not already exist wrt. the provided 'AccountCreation'.
-verifyCredentialDeploymentAccountDoesNotExist :: TransactionVerifier m => Tx.AccountCreation -> m VerificationResult
-verifyCredentialDeploymentAccountDoesNotExist accountCreation = do
+-- |Verifies that a credential is unique
+verifyCredentialUniqueness :: TransactionVerifier m => Tx.AccountCreation -> m VerificationResult
+verifyCredentialUniqueness accountCreation = do
   -- check that the registration id does not already exist
   regIdExists <- registrationIdExists (ID.credId accountCreation)
   -- check that the account does not already exist (very unlikely to happen but we check it for good measurement)
