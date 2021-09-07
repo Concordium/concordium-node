@@ -160,6 +160,10 @@ View the native macOS logs (enabled with `--use-mac-log <subsystem-name>`) by:
 - Or, using the `Console.app` by searching for `<subsystem-name>` in the search bar.
   - View debug and info messages by toggling them under `Action` in the menu bar.
 
+It is also possible to persist info and debug messages on disk by using:
+```sudo log config --subsystem <subsystem-name> --mode persist:debug```
+(Or `persist:info`).
+
 ## Resources used
 
 - Installer plugins are poorly documented by Apple, but [this article in the web

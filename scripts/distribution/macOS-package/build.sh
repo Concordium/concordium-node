@@ -203,6 +203,8 @@ function getDylibbundler() {
 # Use dylibbundler to recursively find and bundle the dylibs for node and collector.
 # It moves all the dylibs into relative folder /libs and rewrites the binaries
 # to look for the dylibs there.
+# NB: This should be mostly reproducible across machines as we use a fixed resolver
+# for Stack, and most of the dependencies are Haskell dylibs.
 function collectDylibs() {
 
     function collectDylibsFor() {
