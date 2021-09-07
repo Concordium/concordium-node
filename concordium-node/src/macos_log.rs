@@ -159,15 +159,15 @@ impl log::Log for MacOsLogger {
         if self.enabled(record.metadata()) {
             let message = record.args().to_string();
 
-            match read_or_die!(self.loggers).get(&record.target().to_string()) {
-                Some((_, logger)) => logger.log_with_level(record.level().into(), &message),
-                None => {
-                    let new_logger = MacOsLog::new(&self.subsystem, record.target());
-                    new_logger.log_with_level(record.level().into(), &message);
-                    write_or_die!(self.loggers)
-                        .insert(record.target().to_string(), (None, new_logger));
-                }
-            };
+            if let Some((_, logger)) = read_or_die!(self.loggers).get(&record.target().to_string())
+            {
+                logger.log_with_level(record.level().into(), &message);
+                return;
+            }
+
+            let new_logger = MacOsLog::new(&self.subsystem, record.target());
+            new_logger.log_with_level(record.level().into(), &message);
+            write_or_die!(self.loggers).insert(record.target().to_string(), (None, new_logger));
         }
     }
 
