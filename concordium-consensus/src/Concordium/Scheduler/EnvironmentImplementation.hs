@@ -34,6 +34,7 @@ import Concordium.GlobalState.TreeState
     ( BlockStateTypes(UpdatableBlockState), MGSTrans(..) )
 import qualified Concordium.GlobalState.Types as GS
 import qualified Concordium.TransactionVerification as TV
+import qualified Concordium.TransactionVerificationCache as TxVerResCache
 
 -- |Chain metadata together with the maximum allowed block energy.
 data ContextState = ContextState{
@@ -49,6 +50,7 @@ makeLenses ''ContextState
 class CanExtend (TransactionLog a) => HasSchedulerState a where
   type SS a
   type TransactionLog a
+  type CacheMonad a
 
   schedulerBlockState :: Lens' a (SS a)
   schedulerEnergyUsed :: Lens' a Energy
@@ -322,7 +324,7 @@ deriving instance GS.BlockStateTypes (BSOMonadWrapper pv r w state m)
 deriving instance AccountOperations m => AccountOperations (BSOMonadWrapper pv r w state m)
 
 -- Pure block state scheduler state
-type PBSSS pv = NoLogSchedulerState (PureBlockStateMonad pv Identity)
+type PBSSS pv = (NoLogSchedulerState (PureBlockStateMonad pv Identity), TxVerResCache.Cache)
 -- newtype wrapper to forget the automatic writer instance so we can repurpose it for logging.
 newtype RWSTBS pv m a = RWSTBS {_runRWSTBS :: RWST ContextState [(LogSource, LogLevel, String)] (PBSSS pv) m a}
   deriving (Functor, Applicative, Monad, MonadReader ContextState, MonadState (PBSSS pv), MonadTrans)
@@ -337,6 +339,7 @@ newtype SchedulerImplementation pv a = SchedulerImplementation { _runScheduler :
     deriving (Functor, Applicative, Monad, MonadReader ContextState, MonadState (PBSSS pv))
     deriving (StaticInformation, AccountOperations, MonadLogger)
       via (BSOMonadWrapper pv ContextState () (PBSSS pv) (MGSTrans (RWSTBS pv) (PureBlockStateMonad pv Identity)))
+
 
 --Dummy implementation of TimeMonad, for testing. 
 instance TimeMonad (SchedulerImplementation pv) where

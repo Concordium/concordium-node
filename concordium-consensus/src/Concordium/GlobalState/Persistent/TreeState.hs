@@ -52,6 +52,7 @@ import Concordium.Logger
 import Control.Monad.Except
 import qualified Concordium.TransactionVerification as TVer
 import qualified Concordium.Caching as Caching
+import qualified Concordium.TransactionVerificationCache as TxVerResCache
 
 -- * Exceptions
 
@@ -380,6 +381,27 @@ instance (MonadIO m, MonadState (SkovPersistentData pv DiskDump bs) m) => PerAcc
   flushBlockSummaries bh ati sos = do
     PAAIConfig handle <- use logContext
     liftIO $ writeEntries handle bh ati sos
+
+instance (Monad m, MonadState (SkovDataPersistent pv ati bs) m) => TxVerResCache.CacheMonad (PersistentTreeStateMonad pv ati bs m) where
+  {-# INLINE insert #-}
+  insert txHash err = do
+    cache <- use transactionVerificationResults
+    let cache' = Caching.insert txHash err cache
+    transactionVerificationResults .= cache'
+    return ()
+
+  {-# INLINE lookup #-}
+  lookup txHash = do
+    cache <- use transactionVerificationResults
+    return $ Caching.lookup txHash cache
+
+  {-# INLINE delete #-}
+  delete txhash = do
+    cache <- use transactionVerificationResults
+    let cache' = Caching.delete txHash err cache
+    transactionVerificationResults .= cache'
+    return ()
+
 
 instance GlobalStateTypes (PersistentTreeStateMonad pv ati bs m) where
     type BlockPointerType (PersistentTreeStateMonad pv ati bs m) = PersistentBlockPointer pv (ATIValues ati) bs
@@ -778,15 +800,4 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
           (newTT, newPT) = purgeTables lastFinalizedSlot oldestArrivalTime currentTimestamp transactionTable' pendingTransactions'
         transactionTable .= newTT
         pendingTransactions .= newPT
-
-    {-# INLINE insertTxVerificationResult #-}
-    insertTxVerificationResult txHash err = do
-      cache <- use transactionVerificationResults
-      let cache' = Caching.insert txHash err cache
-      transactionVerificationResults .= cache'
-
-    {-# INLINE lookupTxVerificationResult #-}
-    lookupTxVerificationResult txHash = do
-      cache <- use transactionVerificationResults
-      return $ Caching.lookup txHash cache
 

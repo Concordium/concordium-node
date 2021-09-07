@@ -45,6 +45,7 @@ import Concordium.Scheduler.EnvironmentImplementation
      schedulerBlockState, schedulerEnergyUsed
      )
 import qualified Concordium.TransactionVerification as TV
+import qualified Concordium.TransactionVerificationCache as TxVerResCache
 
 import Control.Monad.RWS.Strict
 
@@ -53,7 +54,7 @@ import Lens.Micro.Platform
 import qualified Concordium.Scheduler as Sch
 
 newtype BlockStateMonad (pv :: ProtocolVersion) w state m a = BSM { _runBSM :: RWST ContextState w state m a}
-    deriving (Functor, Applicative, Monad, MonadState state, MonadReader ContextState, MonadTrans, MonadWriter w, MonadLogger, TimeMonad)
+    deriving (Functor, Applicative, Monad, MonadState state, MonadReader ContextState, MonadTrans, MonadWriter w, MonadLogger, TimeMonad, TxVerResCache.CacheMonad)
 
 deriving via (BSOMonadWrapper pv ContextState w state (MGSTrans (RWST ContextState w state) m))
     instance
@@ -90,6 +91,7 @@ makeLenses ''ExecutionResult'
 instance TreeStateMonad pv m => HasSchedulerState (LogSchedulerState m) where
   type SS (LogSchedulerState m) = UpdatableBlockState m
   type TransactionLog (LogSchedulerState m) = ATIStorage m
+  type CacheMonad m = TxVerResCache.CacheMonad m
   schedulerBlockState = lssBlockState
   schedulerEnergyUsed = lssSchedulerEnergyUsed
   schedulerExecutionCosts = lssSchedulerExecutionCosts
@@ -117,6 +119,7 @@ deriving via (BSOMonadWrapper pv ContextState w state (MGSTrans (RWST ContextSta
               Footprint (ATIStorage m) ~ w,
               HasSchedulerState state,
               TreeStateMonad pv m,
+              TxVerResCache.CacheMonad m,
               MonadLogger m,
               BlockStateOperations m) => SchedulerMonad pv (BlockStateMonad pv w state m)
 

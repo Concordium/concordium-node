@@ -38,6 +38,7 @@ import Concordium.Types.Updates
 import Concordium.GlobalState.AccountTransactionIndex
 import qualified Concordium.TransactionVerification as TVer
 import qualified Concordium.Caching as Caching
+import qualified Concordium.TransactionVerificationCache as TxVerResCache
 
 -- |Datatype representing an in-memory tree state.
 -- The first type parameter, @pv@, is the protocol version.
@@ -126,6 +127,26 @@ newtype PureTreeStateMonad (pv :: ProtocolVersion) bs m a = PureTreeStateMonad {
             BS.BlockStateQuery, BS.AccountOperations, BS.BlockStateOperations, BS.BlockStateStorage)
 
 deriving instance (Monad m, MonadState (SkovData pv bs) m) => MonadState (SkovData pv bs) (PureTreeStateMonad pv bs m)
+
+instance (Monad m, MonadState (SkovData pv bs) m) => TxVerResCache.CacheMonad (PureTreeStateMonad pv bs m) where
+    {-# INLINE insert #-}
+    insert txHash err = do
+      cache <- use transactionVerificationResults
+      let cache' = Caching.insert txHash err cache
+      transactionVerificationResults .= cache'
+      return ()
+
+    {-# INLINE lookup #-}
+    lookup txHash = do
+      cache <- use transactionVerificationResults
+      return $ Caching.lookup txHash cache
+
+    {-# INLINE delete #-}
+    delete txhash = do
+      cache <- use transactionVerificationResults
+      let cache' = Caching.delete txHash err cache
+      transactionVerificationResults .= cache'
+      return ()
 
 instance (bs ~ BlockState m) => GlobalStateTypes (PureTreeStateMonad pv bs m) where
     type BlockPointerType (PureTreeStateMonad pv bs m) = BasicBlockPointer pv bs
@@ -378,13 +399,3 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
         transactionTable .= newTT
         pendingTransactions .= newPT
 
-    {-# INLINE insertTxVerificationResult #-}
-    insertTxVerificationResult txHash err = do
-      cache <- use transactionVerificationResults
-      let cache' = Caching.insert txHash err cache
-      transactionVerificationResults .= cache'
-
-    {-# INLINE lookupTxVerificationResult #-}
-    lookupTxVerificationResult txHash = do
-      cache <- use transactionVerificationResults
-      return $ Caching.lookup txHash cache

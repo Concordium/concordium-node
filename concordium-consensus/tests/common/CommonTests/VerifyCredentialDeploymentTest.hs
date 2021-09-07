@@ -1,15 +1,12 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE UndecidableInstances #-}
-
 module CommonTests.VerifyCredentialDeploymentTest where
 
-
-import qualified Concordium.GlobalState.DummyData as DD
 import Concordium.Types.Transactions
-import qualified Concordium.Scheduler.DummyData as DD
+import Concordium.ID.Types
+
 import qualified Concordium.TransactionVerification as TVer
-import qualified Concordium.ID.Types as IDTypes
 import qualified Concordium.Types as Types
 import qualified Concordium.ID.IdentityProvider as IP
 import qualified Data.Map.Strict as Map
@@ -24,32 +21,26 @@ tests = do
   describe "Testing 'CredentialDeployment' verification" $ do
     parallel $ do
       specify "Duplicate 'CredentialRegistrationID' results in error" $ do
-        res <- TVer.verifyCredentialDeployment DD.cdi1
-        res `shouldBe` TVer.ResultDuplicateAccountRegistrationID (regId DD.cdi1)
+        res <- TVer.verifyCredentialDeployment mkNormalDuplicateRegIdAC
+        res `shouldBe` TVer.ResultDuplicateAccountRegistrationID (regId mkNormalDuplicateRegIdAC)
       specify "Duplicate account address results in error" $ do
-        res <- TVer.verifyCredentialDeployment DD.cdi2
-        res `shouldBe` TVer.ResultDuplicateAccountRegistrationID (regId DD.cdi2)
+        res <- TVer.verifyCredentialDeployment mkNormalDuplicateAccAddrAC
+        res `shouldBe` TVer.ResultDuplicateAccountRegistrationID (regId mkNormalDuplicateAccAddrAC)
       specify "Invalid 'IdentityProvider' results in error" $ do
-        res <- TVer.verifyCredentialDeployment DD.cdi14
+        res <- TVer.verifyCredentialDeployment mkNormalInvalidIPAC
         res `shouldBe` TVer.ResultCredentialDeploymentInvalidIdentityProvider
       specify "Invalid 'AnonymityRevoker' results in error" $ do
-        res <- TVer.verifyCredentialDeployment DD.cdi15
+        res <- TVer.verifyCredentialDeployment mkNormalInvalidARAC
         res `shouldBe` TVer.ResultCredentialDeploymentInvalidAnonymityRevokers
       specify "Malformed keys results in error" $ do
-        res <- TVer.verifyCredentialDeployment DD.cdi16
+        res <- TVer.verifyCredentialDeployment mkNormalMalformedKeysAC
         res `shouldBe` TVer.ResultCredentialDeploymentInvalidKeys
       specify "OK 'CredentialDeployment' should pass verification" $ do
-        res <- TVer.verifyCredentialDeployment DD.cdi3
+        res <- TVer.verifyCredentialDeployment mkNormalVerifiableAC
         res `shouldBe` TVer.ResultSuccess
       specify "OK initial 'CredentialDeployment' should pass verification" $ do
-        res <- TVer.verifyCredentialDeployment DD.icdi1
+        res <- TVer.verifyCredentialDeployment mkInitialVerifiableAC
         res `shouldBe` TVer.ResultSuccess
-
---  describe "Testing initial 'CredentialDeployment' verification" $ do
---    parallel $ do
---      specify "Testing initial credential deployment signature verification" $ do
---        res <- TVer.verifyCredentialDeployment DD.icdi1
---        res `shouldBe` TVer.ResultCredentialDeploymentInvalidSignatures
         
 -- |A mocked TransactionVerifier for testing purposes
 instance Monad m => TVer.TransactionVerifier m where
@@ -64,20 +55,61 @@ instance Monad m => TVer.TransactionVerifier m where
   {-# INLINE accountExists #-}
   accountExists aaddr = return $ aaddrExists aaddr
 
--- Helper functions for mocking 
-regId :: AccountCreation -> IDTypes.CredentialRegistrationID
-regId AccountCreation{..} = IDTypes.credId credential
 
-regIdExists :: IDTypes.CredentialRegistrationID -> Bool
-regIdExists rId = if rId == (regId DD.cdi1) then True else False
+-- Account creations
+mkNormalDuplicateRegIdAC :: AccountCreation
+mkNormalDuplicateRegIdAC = mkNormalAC vals
+  where
+    vals = CredentialDeploymentValues{
+      
+    }
+
+mkNormalDuplicateAccAddrAC :: AccountCreation
+mkNormalDuplicateAccAddrAC = mkNormalCredDeploymentInfo vals
+  where
+    vals = CredentialDeploymentValues{}
+
+mkNormalInvalidIPAC :: AccountCreation
+mkNormalInvalidIPAC = undefined
+
+mkNormalInvalidARAC :: AccountCreation
+mkNormalInvalidARAC = undefined
+
+mkNormalMalformedKeysAC :: AccountCreation
+mkNormalMalformedKeysAC = undefined
+
+mkNormalVerifiableAC :: AccountCreation
+mkNormalVerifiableAC = undefined
+
+mkInitialVerifiableAC :: AccountCreation
+mkInitialVerifiableAC = undefined
+
+mkNormalAC :: CredentialDeploymentInformation -> AccountCreation
+mkNormalAC = undefined
+
+mkNormalCredDeploymentInfo :: CredentialDeploymentValues -> CredentialDeploymentInformation
+mkNormalCredDeploymentInfo vals = CredentialDeploymentInformation{cdiValues: vals}
+
+mkIntialCredDeploymentInfo :: InitialCredentialDeploymentValues -> InitialCredentialDeploymentInfo
+mkIntialCredDeploymentInfo = undefined
+
+mkInitialAC :: InitialCredentialDeploymentInfo -> AccountCreation
+mkInitialAC = undefined  
+
+-- Helper functions for mocking 
+regId :: AccountCreation -> CredentialRegistrationID
+regId AccountCreation{..} = credId credential
+
+regIdExists :: CredentialRegistrationID -> Bool
+regIdExists rId = if rId == (regId mkNormalDuplicateRegIdAC) then True else False
 
 aaddrExists :: Types.AccountAddress -> Bool
-aaddrExists aaddr = if aaddr == (IDTypes.addressFromRegId $ regId DD.cdi2) then True else False
+aaddrExists aaddr = if aaddr == (addressFromRegId $ regId mkNormalDuplicateAccAddrAC) then True else False
 
-getIP :: IDTypes.IdentityProviderIdentity -> Maybe IP.IpInfo
+getIP :: IdentityProviderIdentity -> Maybe IP.IpInfo
 getIP ipId = Map.lookup ipId (TIP.idProviders DD.dummyIdentityProviders)
 
-getARs :: [IDTypes.ArIdentity] ->  Maybe [AR.ArInfo]
+getARs :: [ArIdentity] ->  Maybe [AR.ArInfo]
 getARs arrIds = case res of
                   [] -> Nothing
                   _ -> Just res

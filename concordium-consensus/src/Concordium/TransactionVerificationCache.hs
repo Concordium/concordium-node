@@ -1,5 +1,4 @@
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE AllowAmbiguousTypes #-}
 module Concordium.TransactionVerificationCache
 where
 
@@ -19,10 +18,10 @@ data Cache = Cache {
     -- Entries should be deleted when either the corresponding transaction has been *purged* or *finalized*. 
   transactionVerificationResults :: !(Caching.Cache TransactionHash TVer.VerificationResult)
 }
+
 makeLenses ''Cache
 
-class (MonadReader Cache m, MonadState Cache m) => CachingMonad s m where
-  insert :: k -> v -> ()
-  lookup :: k -> Maybe v
-  delete :: k -> ()
-  empty :: Cache
+class CacheMonad m where
+  insert :: k -> v -> m ()
+  lookup :: k -> m (Maybe v)
+  delete :: k -> m ()
