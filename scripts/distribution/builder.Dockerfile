@@ -75,9 +75,14 @@ ENV DISTRIBUTION_CLIENT=true
 ENV CONCORDIUM_NODE_COLLECTOR_URL=https://dashboard.${environment}/nodes/post
 ENV CONCORDIUM_NODE_COLLECTOR_GRPC_HOST=http://localhost:10000
 
-RUN apt-get update && apt-get install -y curl netbase ca-certificates supervisor nginx libnuma1 libtinfo6 libpq-dev liblmdb-dev jq
-RUN curl -L https://getenvoy.io/install.sh | bash -s -- -b /usr/local/bin
-RUN getenvoy use 1.18.3
+RUN apt-get update && \
+    apt-get install -y curl netbase ca-certificates supervisor nginx libnuma1 libtinfo6 libpq-dev liblmdb-dev jq apt-transport-https gnupg2 curl lsb-release && \
+    rm -rf /var/lib/apt/lists/*
+RUN curl -sL 'https://deb.dl.getenvoy.io/public/gpg.8115BA8E629CC074.key' | gpg --dearmor -o /usr/share/keyrings/getenvoy-keyring.gpg && \
+    echo a077cb587a1b622e03aa4bf2f3689de14658a9497a9af2c427bba5f4cc3c4723 /usr/share/keyrings/getenvoy-keyring.gpg | sha256sum --check && \
+    echo "deb [arch=amd64 signed-by=/usr/share/keyrings/getenvoy-keyring.gpg] https://deb.dl.getenvoy.io/public/deb/ubuntu $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/getenvoy.list && \
+    apt-get update && \
+    apt-get install -y getenvoy-envoy=1.18.2.p0.gd362e79-1p75.g76c310e
 
 COPY --from=node-dashboard /static /node-dashboard/static
 COPY --from=node-dashboard /envoy.yaml /node-dashboard/envoy.yaml
