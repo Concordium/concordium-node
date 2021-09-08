@@ -45,3 +45,5 @@ A powershell script [installer/build.ps1](installer/build.ps1) is provided to bu
 The build script requires that the WiX tools (`candle` and `light`) are available on the path.
 The script builds a DLL from rust sources that provides custom actions that are used in the installer.
 The script does not build the node or the node runner service itself, but assumes that they are already built.
+
+Note that for future releases of the installer, the install script should be updated to reflect the new version, and the product GUID should be refreshed.
