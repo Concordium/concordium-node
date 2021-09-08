@@ -52,7 +52,7 @@ FROM ubuntu:20.04
 
 # Which environment we are building the image for.
 # This affects URLs. Currently it should be either
-#   - staging.concordium.com
+#   - stagenet.concordium.com
 #   - testnet.concordium.com
 #   - mainnet.concordium.software
 ARG environment
