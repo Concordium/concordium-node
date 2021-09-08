@@ -2,6 +2,10 @@
 
 ## Unreleased changes
 
+- Fix response of the transaction status query. Due to incorrect serialization
+  the response was incorrectly reported as finalized even if transaction was
+  only committed.
+
 ## concordium-node 1.1.0
 
 - Node improvements and new features
