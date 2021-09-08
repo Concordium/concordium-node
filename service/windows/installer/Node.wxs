@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi" xmlns:Util="http://schemas.microsoft.com/wix/UtilExtension">
-    <Product Name="Concordium Node" Manufacturer="Concordium Software" Id="ae8c6e39-db6f-4538-9b8f-efefa3e195ad" UpgradeCode="297295b4-c716-4d33-8170-0f6136663bfd" Language="1033" Codepage="1252" Version="1.0.2">
-        <Package Id="*" Keywords="Concordium Installer" Description="Concordium Node 1.0.2 Installer" Manufacturer="Concordium Software" InstallerVersion="500" Languages="1033" Compressed="yes" InstallScope="perMachine" />
+    <Product Name="Concordium Node" Manufacturer="Concordium Software" Id="ae8c6e39-db6f-4538-9b8f-efefa3e195ad" UpgradeCode="297295b4-c716-4d33-8170-0f6136663bfd" Language="1033" Codepage="1252" Version="1.1.0">
+        <Package Id="*" Keywords="Concordium Installer" Description="Concordium Node 1.1.0 Installer" Manufacturer="Concordium Software" InstallerVersion="500" Languages="1033" Compressed="yes" InstallScope="perMachine" />
         <Media Id="1" Cabinet="Node.cab" EmbedCab="yes" />
         <Directory Id="TARGETDIR" Name="SourceDir">
             <Directory Id="ProgramFiles64Folder" Name="PFiles">
                 <Directory Id="Concordium" Name="Concordium">
-                    <Directory Id="INSTALLDIR" Name="Node 1.0">
+                    <Directory Id="INSTALLDIR" Name="Node 1.1.0">
                         <!-- The installation directory. Here, we install:
                             * concordium-node.exe
                             * HSdll.dll
