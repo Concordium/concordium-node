@@ -11,15 +11,18 @@ import Concordium.Types
 import qualified Concordium.Caching as Caching
 import qualified Concordium.TransactionVerification as TVer
 
-data Cache = Cache {
+newtype Cache = Cache {
     -- |transactionVerificationResults
     -- Transaction which have been subject to a 'verification' resides in this cache.
     -- The purpose of the cache is to eliminate the need for re-verifying already verified transactions.
     -- Entries should be deleted when either the corresponding transaction has been *purged* or *finalized*. 
-  transactionVerificationResults :: !(Caching.Cache TransactionHash TVer.VerificationResult)
+  transactionVerificationResults :: Caching.Cache TransactionHash TVer.VerificationResult
 }
 
 makeLenses ''Cache
+
+emptyCache :: Cache
+emptyCache = Cache Caching.empty
 
 class CacheMonad m where
   insert :: k -> v -> m ()

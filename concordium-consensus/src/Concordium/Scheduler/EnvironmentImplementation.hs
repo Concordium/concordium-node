@@ -75,13 +75,13 @@ mkInitialSS _ssBlockState = NoLogSchedulerState{
 
 makeLenses ''NoLogSchedulerState
 
-instance HasSchedulerState (NoLogSchedulerState m) where
-  type SS (NoLogSchedulerState m) = UpdatableBlockState m
-  type TransactionLog (NoLogSchedulerState m) = ()
-  schedulerBlockState = ssBlockState . _1
-  schedulerEnergyUsed = ssSchedulerEnergyUsed . _1
-  schedulerExecutionCosts = ssSchedulerExecutionCosts . _1
-  nextIndex = ssNextIndex . _1
+instance HasSchedulerState (NoLogSchedulerState m, TxVerResCache.Cache) where
+  type SS (NoLogSchedulerState m, TxVerResCache.Cache) = UpdatableBlockState m
+  type TransactionLog (NoLogSchedulerState m, TxVerResCache.Cache) = ()
+  schedulerBlockState = _1 . ssBlockState
+  schedulerEnergyUsed = _1 . ssSchedulerEnergyUsed
+  schedulerExecutionCosts = _1 . ssSchedulerExecutionCosts
+  nextIndex = _1 . ssNextIndex
   schedulerTransactionLog f s = s <$ f ()
 
 newtype BSOMonadWrapper (pv :: ProtocolVersion) r w state m a = BSOMonadWrapper (m a)
@@ -355,6 +355,12 @@ deriving via (BSOMonadWrapper pv ContextState () (PBSSS pv) (MGSTrans (RWSTBS pv
 deriving via (BSOMonadWrapper pv ContextState () (PBSSS pv) (MGSTrans (RWSTBS pv) (PureBlockStateMonad pv Identity))) instance
   (IsProtocolVersion pv) => SchedulerMonad pv (SchedulerImplementation pv)
 
+instance TxVerResCache.CacheMonad (SchedulerImplementation pv) where
+  insert = _
+  lookup = _
+  delete = _
+  
+
 instance ATITypes (SchedulerImplementation pv) where
   type ATIStorage (SchedulerImplementation pv) = ()
 
@@ -363,7 +369,7 @@ runSI sc cd energy maxCreds gs =
   let (a, s, !_) =
         runIdentity $
         runPureBlockStateMonad $
-        runRWST (_runRWSTBS . _runScheduler $ sc) (ContextState cd energy maxCreds) (mkInitialSS gs)
+        runRWST (_runRWSTBS . _runScheduler $ sc) (ContextState cd energy maxCreds) (mkInitialSS gs, TxVerResCache.emptyCache)
   in (a, s)
 
 -- |Same as the previous method, but retain the logs of the run.
@@ -371,17 +377,17 @@ runSIWithLogs :: SchedulerImplementation pv a -> ChainMetadata -> Energy -> Cred
 runSIWithLogs sc cd energy maxCreds gs =
   runIdentity $
   runPureBlockStateMonad $
-  runRWST (_runRWSTBS . _runScheduler $ sc) (ContextState cd energy maxCreds) (mkInitialSS gs)
+  runRWST (_runRWSTBS . _runScheduler $ sc) (ContextState cd energy maxCreds) (mkInitialSS gs, TxVerResCache.emptyCache)
 
 
 execSI :: SchedulerImplementation pv a -> ChainMetadata -> Energy -> CredentialsPerBlockLimit -> BlockState pv -> PBSSS pv
 execSI sc cd energy maxCreds gs =
   fst (runIdentity $
        runPureBlockStateMonad $
-       execRWST (_runRWSTBS . _runScheduler $ sc) (ContextState cd energy maxCreds) (mkInitialSS gs))
+       execRWST (_runRWSTBS . _runScheduler $ sc) (ContextState cd energy maxCreds) (mkInitialSS gs, TxVerResCache.emptyCache))
 
 evalSI :: SchedulerImplementation pv a -> ChainMetadata -> Energy -> CredentialsPerBlockLimit -> BlockState pv -> a
 evalSI sc cd energy maxCreds gs =
   fst (runIdentity $
        runPureBlockStateMonad $
-       evalRWST (_runRWSTBS . _runScheduler $ sc) (ContextState cd energy maxCreds) (mkInitialSS gs))
+       evalRWST (_runRWSTBS . _runScheduler $ sc) (ContextState cd energy maxCreds) (mkInitialSS gs, TxVerResCache.emptyCache))
