@@ -34,6 +34,15 @@ logInfo () {
     printf "\n${GREEN}$@${NOCOLOR}\n"
 }
 
+function printVersions() {
+    logInfo "Printing versions:"
+    echo "stack version: $(stack --version)"
+    echo "cargo version: $(cargo --version)"
+    echo "flatc version: $(flatc --version)"
+    echo "protoc version: $(protoc --version)"
+    logInfo "Done"
+}
+
 function cleanBuildDir() {
     if [ -d "$buildDir" ]; then
         logInfo "Cleaning '$buildDir' folder"
@@ -351,6 +360,7 @@ done
 }
 
 function main() {
+    printVersions
     cleanBuildDir
     createBuildDirFromTemplate
     compile
