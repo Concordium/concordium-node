@@ -36,10 +36,10 @@ tests = do
         res <- TVer.verifyCredentialDeployment mkNormalMalformedKeysAC
         res `shouldBe` TVer.ResultCredentialDeploymentInvalidKeys
       specify "OK 'CredentialDeployment' should pass verification" $ do
-        res <- TVer.verifyCredentialDeployment mkNormalVerifiableAC
+        res <- TVer.verifyCredentialDeployment DD.cdi1
         res `shouldBe` TVer.ResultSuccess
       specify "OK initial 'CredentialDeployment' should pass verification" $ do
-        res <- TVer.verifyCredentialDeployment mkInitialVerifiableAC
+        res <- TVer.verifyCredentialDeployment dd.icdi1
         res `shouldBe` TVer.ResultSuccess
         
 -- |A mocked TransactionVerifier for testing purposes

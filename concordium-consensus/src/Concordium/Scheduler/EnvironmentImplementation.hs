@@ -50,7 +50,6 @@ makeLenses ''ContextState
 class CanExtend (TransactionLog a) => HasSchedulerState a where
   type SS a
   type TransactionLog a
-  type CacheMonad a
 
   schedulerBlockState :: Lens' a (SS a)
   schedulerEnergyUsed :: Lens' a Energy
@@ -79,10 +78,10 @@ makeLenses ''NoLogSchedulerState
 instance HasSchedulerState (NoLogSchedulerState m) where
   type SS (NoLogSchedulerState m) = UpdatableBlockState m
   type TransactionLog (NoLogSchedulerState m) = ()
-  schedulerBlockState = ssBlockState
-  schedulerEnergyUsed = ssSchedulerEnergyUsed
-  schedulerExecutionCosts = ssSchedulerExecutionCosts
-  nextIndex = ssNextIndex
+  schedulerBlockState = ssBlockState . _1
+  schedulerEnergyUsed = ssSchedulerEnergyUsed . _1
+  schedulerExecutionCosts = ssSchedulerExecutionCosts . _1
+  nextIndex = ssNextIndex . _1
   schedulerTransactionLog f s = s <$ f ()
 
 newtype BSOMonadWrapper (pv :: ProtocolVersion) r w state m a = BSOMonadWrapper (m a)
