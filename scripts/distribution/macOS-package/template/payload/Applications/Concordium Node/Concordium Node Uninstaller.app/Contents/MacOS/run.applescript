@@ -2,15 +2,15 @@
 to promptUninstallOption()
 	try
 		set iconFile to (POSIX file getConcordiumIconPath() as alias)
-		display dialog "Do you really want to uninstall Concordium Node from your system?
+		display dialog "Are you sure you want to uninstall Concordium Node from your system?
+
 		
-If you want to also delete the data, click 'Yes, and delete data'." buttons {"Yes, and delete data", "No", "Yes"} default button "Yes" cancel button "No" with title "Delete Concordium Node?" with icon iconFile
+If you want to also delete the data and keys, click 'Yes, and delete data' (make sure your keys are backed up)." buttons {"Yes, and delete data", "No", "Yes"} default button "Yes" cancel button "No" with title "Delete Concordium Node?" with icon iconFile
 	on error
 		# 'display dialog' returns an error and exits when 'No' (Cancel action) is pressed. We catch it and return a proper value instead.
 		return {button returned:"No"}
 	end try
 end promptUninstallOption
-
 
 # Get icon path in Resources/ 
 to getConcordiumIconPath()
