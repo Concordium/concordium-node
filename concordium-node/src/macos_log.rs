@@ -151,7 +151,7 @@ impl log::Log for MacOsLogger {
         let max_level = read_or_die!(self.loggers)
             .get(metadata.target())
             .and_then(|pair| pair.0)
-            .unwrap_or(log::max_level());
+            .unwrap_or_else(log::max_level);
         metadata.level() <= max_level
     }
 
