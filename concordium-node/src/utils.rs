@@ -19,13 +19,13 @@ pub fn setup_logger_config(config_file: &Path) {
 }
 
 /// Sets up a logger that logs to stderr.
-pub fn setup_logger(trace: bool, debug: bool, no_log_timestamp: bool) -> &'static str {
-    let (env, log_lvl) = if trace {
-        (Env::default().filter_or("LOG_LEVEL", "trace"), "trace")
+pub fn setup_logger(trace: bool, debug: bool, no_log_timestamp: bool) {
+    let env = if trace {
+        Env::default().filter_or("LOG_LEVEL", "trace")
     } else if debug {
-        (Env::default().filter_or("LOG_LEVEL", "debug"), "debug")
+        Env::default().filter_or("LOG_LEVEL", "debug")
     } else {
-        (Env::default().filter_or("LOG_LEVEL", "info"), "info")
+        Env::default().filter_or("LOG_LEVEL", "info")
     };
 
     let mut log_builder = Builder::from_env(env);
@@ -42,22 +42,20 @@ pub fn setup_logger(trace: bool, debug: bool, no_log_timestamp: bool) -> &'stati
     log_builder.filter(Some(&"gotham"), LevelFilter::Error);
     log_builder.filter(Some(&"h2"), LevelFilter::Error);
     log_builder.init();
-
-    log_lvl
 }
 
 /// Sets up a logger for the macOS syslog which logs with the provided
 /// subsystem name.
 #[cfg(target_os = "macos")]
-pub fn setup_macos_logger(trace: bool, debug: bool, subsystem: &str) -> &'static str {
+pub fn setup_macos_logger(trace: bool, debug: bool, subsystem: &str) {
     // NB: Timestamps and levels are included automatically. No need to encode them
     // in the message.
-    let (level_filter, log_lvl) = if trace {
-        (LevelFilter::Trace, "trace")
+    let level_filter = if trace {
+        LevelFilter::Trace
     } else if debug {
-        (LevelFilter::Debug, "debug")
+        LevelFilter::Debug
     } else {
-        (LevelFilter::Info, "info")
+        LevelFilter::Info
     };
 
     crate::macos_log::MacOsLogger::new(subsystem)
@@ -69,7 +67,6 @@ pub fn setup_macos_logger(trace: bool, debug: bool, subsystem: &str) -> &'static
         .category_level_filter("h2", LevelFilter::Error)
         .init()
         .expect("Failed to initialise MacOsLogger");
-    log_lvl
 }
 
 pub fn get_bootstrap_nodes(bootstrap_nodes: &[String]) -> Result<Vec<SocketAddr>, String> {
@@ -98,8 +95,20 @@ pub fn get_config_and_logging_setup() -> anyhow::Result<(config::Config, config:
         conf.common.data_dir.to_owned(),
     );
 
+    if conf.common.print_config {
+        info!("Config:{:?}\n", conf);
+    }
+
+    let log_lvl = if conf.common.trace {
+        "trace"
+    } else if conf.common.debug {
+        "debug"
+    } else {
+        "info"
+    };
+
     #[cfg(target_os = "macos")]
-    let log_lvl = match conf.macos.use_mac_log {
+    match conf.macos.use_mac_log {
         Some(ref subsystem) => setup_macos_logger(conf.common.trace, conf.common.debug, &subsystem),
         None => setup_logger(conf.common.trace, conf.common.debug, conf.common.no_log_timestamp),
     };
@@ -108,11 +117,7 @@ pub fn get_config_and_logging_setup() -> anyhow::Result<(config::Config, config:
     if let Some(ref log_config) = conf.common.log_config {
         setup_logger_config(log_config);
     } else {
-        setup_logger_env(env, conf.common.no_log_timestamp);
-    }
-
-    if conf.common.print_config {
-        info!("Config:{:?}\n", conf);
+        setup_logger(conf.common.trace, conf.common.debug, conf.common.no_log_timestamp);
     }
 
     info!("Starting up {} version {}!", crate::APPNAME, crate::VERSION);
@@ -126,6 +131,8 @@ pub fn get_config_and_logging_setup() -> anyhow::Result<(config::Config, config:
             "enabled"
         }
     );
+
+    // FIXME: This is only the log level for consensus when log_config is used.
     info!("Log level: {}", log_lvl);
 
     Ok((conf, app_prefs))
