@@ -110,6 +110,7 @@ class (BlockMetadata b, BlockData b, HashableTo BlockHash b, Show b) => BlockPen
 -- |Defines the block version serialization associated with a protocol version.
 blockVersion :: SProtocolVersion pv -> Version
 blockVersion SP1 = 2
+blockVersion SP2 = 2
 {-# INLINE blockVersion #-}
 
 -- |Type class that supports serialization of a block.
@@ -247,7 +248,7 @@ putBakedBlockV2 b = do
         put (bbSignature b)
 
 instance (IsProtocolVersion pv) => EncodeBlock pv BakedBlock where
-    putBlock SP1 = putBakedBlockV2
+    putBlock _ = putBakedBlockV2
 
 -- |Deserialized a normal (non-genesis) block according to the V1/V2 format,
 -- except for the initial slot number, which is provided as a parameter.
@@ -279,7 +280,7 @@ getBakedBlock arrivalTime = do
 type instance DecodeBlockMetadata BakedBlock = TransactionTime
 
 instance (IsProtocolVersion pv) => DecodeBlock pv BakedBlock where
-    getBlock SP1 = getBakedBlock
+    getBlock _ = getBakedBlock
 
 -- |Representation of a block
 --

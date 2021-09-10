@@ -353,6 +353,9 @@ makeAccountHash :: (MonadBlobStore m) => SProtocolVersion pv -> Nonce -> Amount 
 makeAccountHash SP1 n a eas ars pd abh = do
   pdHash <- getHashM pd
   return $ makeAccountHashP1 n a eas ars pdHash abh
+makeAccountHash SP2 n a eas ars pd abh = do
+  pdHash <- getHashM pd
+  return $ makeAccountHashP1 n a eas ars pdHash abh
 
 
 -- |Recompute the hash of an account.

@@ -1,17 +1,14 @@
 #![recursion_limit = "1024"]
 
 // Force the system allocator on every platform
-use std::{
-    alloc::System,
-    sync::{Arc, RwLock},
-};
+use std::{alloc::System, sync::Arc};
 #[global_allocator]
 static A: System = System;
 
 use anyhow::{ensure, Context};
 use concordium_node::{
     common::PeerType,
-    consensus_ffi::blockchain_types::BlockHash,
+    consensus_ffi::{blockchain_types::BlockHash, consensus::Regenesis},
     p2p::maintenance::{attempt_bootstrap, spawn, P2PNode},
     stats_export_service::instantiate_stats_export_engine,
     utils::get_config_and_logging_setup,
@@ -25,7 +22,6 @@ fn main() -> anyhow::Result<()> {
 
     conf.connection.max_allowed_nodes = Some(0);
     conf.connection.thread_pool_size = 1;
-    conf.connection.require_dnssec = false;
     let pager_duty_token = env::var("PD_TOKEN")?;
     let pager_duty_email = env::var("PD_EMAIL")?;
     let pager_duty_svcid = env::var("PD_SVCID")?;
@@ -37,10 +33,10 @@ fn main() -> anyhow::Result<()> {
         .clone()
         .unwrap_or_else(|| data_dir_path.join(std::path::Path::new("genesis_hash")));
     let regenesis_blocks: Vec<BlockHash> = serde_json::from_slice(&std::fs::read(fname)?)?;
-    let regenesis_arc: Arc<RwLock<Vec<BlockHash>>> = Arc::new(RwLock::new(regenesis_blocks));
+    let regenesis_arc: Arc<Regenesis> = Arc::new(Regenesis::from_blocks(regenesis_blocks));
 
     ensure!(
-        regenesis_arc.read().unwrap().len() > 0,
+        regenesis_arc.blocks.read().unwrap().len() > 0,
         "Bootstrapper can't run without specifying genesis hashes."
     );
 

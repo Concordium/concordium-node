@@ -14,9 +14,6 @@ import Control.Monad.Identity
 import Data.Kind
 import qualified Data.Sequence as Seq
 
-import Data.Pool
-import Database.Persist.Sql
-
 import Concordium.Types
 import Concordium.Types.Execution
 import Concordium.Types.Transactions
@@ -136,11 +133,6 @@ deriving via (MGSTrans (ExceptT e) m) instance ATITypes m => ATITypes (ExceptT e
 deriving via (MGSTrans MaybeT m) instance PerAccountDBOperations m => PerAccountDBOperations (MaybeT m)
 deriving via (MGSTrans (ExceptT e) m) instance PerAccountDBOperations m => PerAccountDBOperations (ExceptT e m)
 
--- -- Only have the default instance since RWST might be used with genuine ati otherwise.
--- instance (Monoid w, Monad m) => PerAccountDBOperations (RWST c w s m) where
---   type (ATIStorage (RWST c w s m)) = ()
---   -- default instance
-
 
 -- auxiliary classes to derive instances
 
@@ -150,20 +142,17 @@ class HasLogContext ctx r | r -> ctx where
 instance HasLogContext g (Identity g) where
     logContext = lens runIdentity (const Identity)
 
--- |Additional logs produced by execution
-data NoLogContext = NoLogContext
 
+-- |Value type used for an account transaction index.
 type family ATIValues ati
+-- |Context type used for an account transaction index.
 type family ATIContext ati
+
+-- * No logging ATI
+
+-- |Context for ATI with no logging.
+data NoLogContext = NoLogContext
 
 -- instance used when we want no logging of transactions
 type instance ATIValues () = ()
 type instance ATIContext () = NoLogContext
-
--- * Sqlite log instance.
-
-data PerAccountAffectIndex = PAAIConfig (Pool SqlBackend)
--- When we want to dump data to disk.
-data DiskDump
-type instance ATIValues DiskDump = AccountTransactionIndex
-type instance ATIContext DiskDump = PerAccountAffectIndex

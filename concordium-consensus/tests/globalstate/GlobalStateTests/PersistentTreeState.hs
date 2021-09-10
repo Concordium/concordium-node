@@ -2,6 +2,7 @@
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
@@ -36,7 +37,7 @@ import Control.Monad.RWS.Strict as RWS hiding (state)
 import Data.Proxy
 import Data.Time.Clock.POSIX
 import Lens.Micro.Platform
-import System.FilePath ((</>))
+import System.FilePath ((</>), (<.>))
 import System.IO.Temp
 import qualified Concordium.Types.Transactions as Trns
 
@@ -64,13 +65,13 @@ createGlobalState dbDir = do
   let
     n = 3
     genesis = makeTestingGenesisDataP1 now n 1 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters emptyIdentityProviders emptyAnonymityRevokers maxBound dummyKeyCollection dummyChainParameters
-    config = DTDBConfig (defaultRuntimeParameters { rpTreeStateDir = dbDir, rpBlockStateFile = dbDir </> "blockstate" }) genesis
+    config = DTDBConfig defaultRuntimeParameters dbDir (dbDir </> "blockstate" <.> "dat") genesis
   (x, y, NoLogContext) <- runSilentLogger $ initialiseGlobalState config
   return (x, y)
 
 destroyGlobalState :: (PBS.PersistentBlockStateContext, SkovPersistentData PV () (PBS.HashedPersistentBlockState PV)) -> IO ()
 destroyGlobalState (c, s) =
-  shutdownGlobalState (Proxy :: Proxy (DiskTreeDiskBlockConfig PV)) c s NoLogContext
+  shutdownGlobalState (protocolVersion @PV) (Proxy :: Proxy DiskTreeDiskBlockConfig) c s NoLogContext
 
 specifyWithGS :: String -> Test -> SpecWith (Arg Expectation)
 specifyWithGS s f =

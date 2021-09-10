@@ -246,7 +246,7 @@ testTransactions = forAll makeTransactions (ioProperty . tt)
                     maxBound
                     initialBlockState
             let gs = finState ^. EI.ssBlockState
-            let rejs = [(z, decodePayload (thPayloadSize . atrHeader $ z) (atrPayload z), rr) | (WithMetadata{wmdData=NormalTransaction z}, TxReject rr) <- getResults ftAdded]
+            let rejs = [(z, decodePayload SP1 (thPayloadSize . atrHeader $ z) (atrPayload z), rr) | (WithMetadata{wmdData=NormalTransaction z}, TxReject rr) <- getResults ftAdded]
             let checkRejects [] [] = return ()
                 checkRejects [] _ = Left "Expected additional rejected transactions"
                 checkRejects rs [] = Left $ "Unexpected rejected transactions:" ++ show rs

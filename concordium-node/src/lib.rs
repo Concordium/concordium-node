@@ -41,7 +41,6 @@ pub mod rpc;
 pub mod stats_export_service;
 pub mod utils;
 
-pub mod concordium_dns;
 pub mod consensus_ffi;
 
 #[cfg(any(test, bench, feature = "test_utils"))]

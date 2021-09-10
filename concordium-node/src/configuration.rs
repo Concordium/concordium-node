@@ -3,7 +3,7 @@
 use crate::{
     common::P2PNodeId,
     connection::DeduplicationHashAlgorithm,
-    network::{WireProtocolVersion, WIRE_PROTOCOL_VERSION},
+    network::{WireProtocolVersion, WIRE_PROTOCOL_VERSIONS},
 };
 use anyhow::{ensure, Context};
 use app_dirs2::*;
@@ -27,17 +27,15 @@ pub const APP_INFO: AppInfo = AppInfo {
 /// incompatible ones.
 /// When we reach version 1 we should stick to major versions being for breaking
 /// changes.
-pub(crate) fn is_compatible_version(other: &semver::Version) -> bool { other.major == 1 }
+pub(crate) fn is_compatible_version(other: &semver::Version) -> bool { other.major >= 1 }
 
-/// Check that the other wire version is compatible with ours. See
-/// `network::WIRE_PROTOCOL_VERSION`. For now it only checks if there is a
-/// matching version because we only have version 0. In the future, a node
-/// should support several versions and it should find the highest matching
-/// version that can be used.
+/// Check that the other wire version is compatible with ours. This returns
+/// the highest wire protocol version that is supported by both nodes (since
+/// `network::WIRE_PROTOCOL_VERSIONS` is in descending order).
 pub(crate) fn is_compatible_wire_version(
     other: &[WireProtocolVersion],
 ) -> Option<WireProtocolVersion> {
-    other.iter().find(|x| **x == WIRE_PROTOCOL_VERSION).copied()
+    WIRE_PROTOCOL_VERSIONS.iter().find(|&&ours| other.iter().any(|&theirs| theirs == ours)).copied()
 }
 
 /// The maximum size of objects accepted from the network.
@@ -384,12 +382,6 @@ pub struct ConnectionConfig {
     )]
     pub connect_to: Vec<String>,
     #[structopt(
-        long = "require-dnssec",
-        help = "Perform DNSsec tests for lookups",
-        env = "CONCORDIUM_NODE_CONNECTION_REQUIRE_DNSSEC"
-    )]
-    pub require_dnssec: bool,
-    #[structopt(
         long = "disallow-multiple-peers-on-ip",
         help = "Disallow multiple peers on the same IP address.",
         env = "CONCORDIUM_NODE_CONNECTION_DISALLOW_MULTIPLE_PEERS_ON_SAME_IP"
@@ -410,13 +402,6 @@ pub struct ConnectionConfig {
         use_delimiter = true
     )]
     pub bootstrap_nodes: Vec<String>,
-    #[structopt(
-        long = "resolv-conf",
-        help = "Location of resolv.conf",
-        default_value = "/etc/resolv.conf",
-        env = "CONCORDIUM_NODE_CONNECTION_RESOLV_CONF"
-    )]
-    pub resolv_conf: PathBuf,
     #[structopt(
         long = "housekeeping-interval",
         help = "The connection housekeeping interval in seconds",
@@ -600,6 +585,12 @@ pub struct CommonConfig {
         env = "CONCORDIUM_NODE_NO_LOG_TIMESTAMP"
     )]
     pub no_log_timestamp: bool,
+    #[structopt(
+        long = "log-config",
+        help = "Configure logging with a log4rs configuration file. Overrides the default logging.",
+        env = "CONCORDIUM_NODE_LOG_CONFIG"
+    )]
+    pub log_config: Option<PathBuf>,
     #[structopt(
         long = "minimum-peers-bucket",
         help = "Minimum peers to keep in each bucket always",
@@ -899,7 +890,9 @@ impl AppPreferences {
                         override_config_dir: override_conf,
                     }
                 }
-                _ => panic!("Can't write to config file!"),
+                Err(e) => {
+                    panic!("Can't write to config file '{}': {}", file_path.as_path().display(), e)
+                }
             },
         };
         new_prefs.set_config(APP_PREFERENCES_KEY_VERSION, Some(super::VERSION));

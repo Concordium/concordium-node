@@ -1,0 +1,79 @@
+# This file defines the configuration for nodes run by the Concordium Node Runner Service.
+# If the service is already running, changes made here will not take effect until it is restarted.
+
+# For information on the configuration options availabe, visit https://developer.concordium.software
+
+[common]
+# Common configuration across all nodes can be set here
+
+[node.mainnet]
+# Controls whether the node is enabled
+enabled = false
+# Name used to refer to the node in the event log.
+# This is also the default value for collector.node_name
+name = "Mainnet Node"
+# Bootstrapper node address
+bootstrap_nodes = "bootstrap.mainnet.concordium.software:8888"
+# Configuration directory
+config_dir = 'mainnet\config'
+# Data directory
+data_dir = 'mainnet\data'
+# Port to listen for incoming peer connections
+listen.port = 8888
+# IP address to listen on. 0.0.0.0 listens on all (IPv4) adapters.
+listen.ip = "0.0.0.0"
+# Port to listen for GRPC requests
+rpc.port = 10000
+# IP address to listen for GRPC requests on.
+# It is not recommended to allow connections on a public address.
+# 127.0.0.1 will only allow connections on the local machine.
+rpc.ip = "127.0.0.1"
+# The lowest severity level of log events to include in the logs.
+# From highest to lowest, the options are: "error", "warn", "info", "debug", "trace".
+log.level = "warn"
+# The path of the log file.
+log.path = 'mainnet\logs\mainnet.log'
+# The maximum size of the log file, beyond which it should be rolled, creating a new log file.
+log.roll.size = '50mb'
+# The number of old, rolled, log files to keep.
+log.roll.count = 2
+# The URL that the collector should use for submitting data to the network dashboard.
+collector.url = 'https://dashboard.mainnet.concordium.software/nodes/post'
+# Controls whether data is submitted to the network dashboard for this node.
+collector.enabled = false
+
+[node.testnet]
+# Controls whether the node is enabled
+enabled = false
+# Name used to refer to the node in the event log.
+# This is also the default value for collector.node_name
+name = "Testnet Node"
+# Bootstrapper node address
+bootstrap_nodes = "bootstrap.testnet.concordium.com:8888"
+# Configuration directory
+config_dir = 'testnet\config'
+# Data directory
+data_dir = 'testnet\data'
+# Port to listen for incoming peer connections
+listen.port = 8889
+# IP address to listen on. 0.0.0.0 listens on all (IPv4) adapters.
+listen.ip = "0.0.0.0"
+# Port to listen for GRPC requests
+rpc.port = 10001
+# IP address to listen for GRPC requests on.
+# It is not recommended to allow connections on a public address.
+# 127.0.0.1 will only allow connections on the local machine.
+rpc.ip = "127.0.0.1"
+# The lowest severity level of log events to include in the logs.
+# From highest to lowest, the options are: "error", "warn", "info", "debug", "trace".
+log.level = "warn"
+# The path of the log file.
+log.path = 'testnet\logs\testnet.log'
+# The maximum size of the log file, beyond which it should be rolled, creating a new log file.
+log.roll.size = '50mb'
+# The number of old, rolled, log files to keep.
+log.roll.count = 2
+# The URL that the collector should use for submitting data to the network dashboard.
+collector.url = 'https://dashboard.testnet.concordium.com/nodes/post'
+# Controls whether data is submitted to the network dashboard for this node.
+collector.enabled = false

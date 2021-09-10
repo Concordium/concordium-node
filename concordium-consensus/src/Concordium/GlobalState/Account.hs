@@ -301,17 +301,17 @@ updateCredentialKeys credIndex credKeys d =
 -- The purpose of this structure is to pack multiple flags into a single
 -- byte of the serialization.
 data AccountSerializationFlags = AccountSerializationFlags {
-    -- |Whether the account address is serialized explicity,
+    -- |Whether the account address is serialized explicitly,
     -- or derived from the initial credential.
     asfExplicitAddress :: Bool,
-    -- |Whether the encryption key is serialized explicity,
+    -- |Whether the encryption key is serialized explicitly,
     -- or derived from the cryptographic parameters and 
     -- initial credential.
     asfExplicitEncryptionKey :: Bool,
     -- |Whether the account has more than one credential.
     asfMultipleCredentials :: Bool,
     -- |Whether the account's encrypted amount is serialized
-    -- explicity, or is the default (empty) value.
+    -- explicitly, or is the default (empty) value.
     asfExplicitEncryptedAmount :: Bool,
     -- |Whether the account's release schedule is serialized
     -- explicitly, or is the default (empty) value.

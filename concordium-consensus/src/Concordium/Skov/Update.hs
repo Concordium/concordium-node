@@ -5,10 +5,10 @@
 module Concordium.Skov.Update where
 
 import Control.Monad
+import Data.Maybe (fromMaybe, isNothing)
 import qualified Data.Sequence as Seq
 import Lens.Micro.Platform
 import Data.Foldable
-import Data.Maybe(fromMaybe, isNothing)
 
 import GHC.Stack
 
@@ -24,11 +24,11 @@ import Concordium.GlobalState.BlockState
 import qualified Concordium.GlobalState.Block as GB (PendingBlock(..))
 import Concordium.GlobalState.Block hiding (PendingBlock)
 import Concordium.GlobalState.Finalization
+import Concordium.GlobalState.Parameters
 import Concordium.Types.Transactions
 import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.AccountTransactionIndex
-import Concordium.GlobalState.Parameters (RuntimeParameters(..))
 
 import Concordium.Scheduler.TreeStateEnvironment(executeFrom, ExecutionResult'(..), ExecutionResult, FinalizerInfo)
 
@@ -96,7 +96,7 @@ class OnSkov m where
     onPendingLive :: m ()
 
 -- |Handle a block arriving that is dead.  That is, the block has never
--- been in the tree before, and now it never can be.  Any descendents of
+-- been in the tree before, and now it never can be.  Any descendants of
 -- this block that have previously arrived cannot have been added to the
 -- tree, and we purge them recursively from '_skovPossiblyPendingTable'.
 blockArriveDead :: (HasCallStack, BlockPointerMonad m, MonadLogger m, TreeStateMonad pv m) => BlockHash -> m ()
@@ -423,29 +423,41 @@ blockArrive block parentP lfBlockP ExecutionResult{..} = do
 -- |Store a block (as received from the network) in the tree.
 -- This checks for validity of the block, and may add the block
 -- to a pending queue if its prerequisites are not met.
+-- If the block is too early, it is rejected with 'ResultEarlyBlock'.
 doStoreBlock :: (TreeStateMonad pv m, FinalizationMonad m, SkovMonad pv m, OnSkov m) => PendingBlock -> m UpdateResult
 {- - INLINE doStoreBlock - -}
 doStoreBlock pb@GB.PendingBlock{..} = unlessShutDown $ do
-    let cbp = getHash pb
-        BakedBlock{..} = pbBlock
-    oldBlock <- getBlockStatus cbp
-    case oldBlock of
-        Nothing ->
-            -- Check that the claimed key matches the signature/blockhash
-            checkClaimedSignature pb $ do
-            -- The block is new, so we have some work to do.
-            logEvent Skov LLDebug $ "Received block " ++ show pb
-            txList <- sequence <$> forM (blockTransactions pb) (\tr -> fst <$> doReceiveTransactionInternal tr (blockSlot pb))
-            case txList of
-              Nothing -> do
-                blockArriveDead cbp
-                return ResultStale
-              Just newTransactions -> do
-                purgeTransactionTable False =<< currentTime
-                let block1 = GB.PendingBlock{pbBlock = BakedBlock{bbTransactions = newTransactions, ..}, ..}
-                updateReceiveStatistics block1
-                addBlock block1
-        Just _ -> return ResultDuplicate
+    threshold <- rpEarlyBlockThreshold <$> getRuntimeParameters
+    slotTime <- getSlotTimestamp (blockSlot pb)
+    -- Check if the block is too early. We check that the threshold is not maxBound also, so that
+    -- by setting the threshold to maxBound we can ensure blocks will never be considered early.
+    -- This can be useful for testing.
+    -- A more general approach might be to check for overflow generally, but this is simple and
+    -- workable.
+    if slotTime > addDuration (utcTimeToTimestamp pbReceiveTime) threshold && threshold /= maxBound then
+        return ResultEarlyBlock
+    else do
+        let cbp = getHash pb
+            BakedBlock{..} = pbBlock
+        oldBlock <- getBlockStatus cbp
+        case oldBlock of
+            Nothing ->
+                -- Check that the claimed key matches the signature/blockhash
+                checkClaimedSignature pb $ do
+                -- The block is new, so we have some work to do.
+                logEvent Skov LLDebug $ "Received block " ++ show pb
+                txList <- sequence <$> forM (blockTransactions pb)
+                    (\tr -> fst <$> doReceiveTransactionInternal tr (blockSlot pb))
+                case txList of
+                    Nothing -> do
+                        blockArriveDead cbp
+                        return ResultStale
+                    Just newTransactions -> do
+                        purgeTransactionTable False =<< currentTime
+                        let block1 = GB.PendingBlock{pbBlock = BakedBlock{bbTransactions = newTransactions, ..}, ..}
+                        updateReceiveStatistics block1
+                        addBlock block1
+            Just _ -> return ResultDuplicate
     where
         checkClaimedSignature b a = if verifyBlockSignature b then a else do
             logEvent Skov LLWarning $ "Dropping block where signature did not match claimed key or blockhash: "
@@ -473,19 +485,19 @@ doReceiveTransaction tr slot = unlessShutDown $ do
   if expiryTooLate then return ResultExpiryTooLate
   else do
     ur <- case tr of
-           WithMetadata{wmdData = NormalTransaction tx} -> do
-             -- Don't accept the transaction if the stated energy is smaller than the minimum energy amount.
-             let baseEnergy = baseCost (getTransactionHeaderPayloadSize $ transactionHeader tx) (getTransactionNumSigs $ transactionSignature tx)
-                 statedEnergy = thEnergyAmount $ transactionHeader tx
-             if baseEnergy > statedEnergy then return ResultTooLowEnergy
-             else do
+        WithMetadata{wmdData = NormalTransaction tx} -> do
+            -- Don't accept the transaction if the stated energy is smaller than the minimum energy amount.
+            let baseEnergy = baseCost (getTransactionHeaderPayloadSize $ transactionHeader tx) (getTransactionNumSigs $ transactionSignature tx)
+                statedEnergy = thEnergyAmount $ transactionHeader tx
+            if baseEnergy > statedEnergy then return ResultTooLowEnergy
+            else do
                -- this is not ideal since we look up the entire account.
                -- In the current implementation this is not a problem since all states since the last finalized one are cached
                -- but this should be revised to add a "accountExists" function in the future
                senderExists <- flip getAccount (transactionSender tx) =<< queryBlockState =<< lastFinalizedBlock
                if isNothing senderExists then return ResultNonexistingSenderAccount
                else snd <$> doReceiveTransactionInternal tr slot
-           _ -> snd <$> doReceiveTransactionInternal tr slot
+        _ -> snd <$> doReceiveTransactionInternal tr slot
     when (ur == ResultSuccess) $ purgeTransactionTable False =<< currentTime
     return ur
 
@@ -529,7 +541,25 @@ doReceiveTransactionInternal tr slot =
           Duplicate tx -> return (Just tx, ResultDuplicate)
           ObsoleteNonce -> return (Nothing, ResultStale)
 
--- |Purge the transaction table.
+-- |Shutdown the skov, returning a list of pending transactions.
+doTerminateSkov :: (TreeStateMonad pv m, SkovMonad pv m) => m [BlockItem]
+doTerminateSkov = isShutDown >>= \case
+    False -> return []
+    True -> do
+        lfb <- lastFinalizedBlock
+        -- Archive the state
+        archiveBlockState =<< blockState lfb
+        -- Make the last finalized block the focus block
+        -- and empty the pending transaction table.
+        putFocusBlock lfb
+        putPendingTransactions emptyPendingTransactionTable
+        -- Clear out all of the non-finalized blocks.
+        putBranches Seq.empty
+        wipePendingBlocks
+        markAllNonFinalizedDead
+        -- Clear out (and return) the non-finalized transactions.
+        wipeNonFinalizedTransactions
+
 doPurgeTransactions :: (TimeMonad m, TreeStateMonad pv m) => m ()
 doPurgeTransactions = do
         now <- currentTime

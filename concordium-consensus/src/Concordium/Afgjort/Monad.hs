@@ -75,3 +75,5 @@ class (Monad m) => FinalizationMonad m where
     -- |Return the finalization records for the unsettled finalized blocks with
     -- finalization index greater than the specified value.
     finalizationUnsettledRecords :: FinalizationIndex -> m (Seq.Seq FinalizationRecord)
+    -- |Return @True@ if we are a member of the current finalization committee.
+    isFinalizationCommitteeMember :: m Bool
