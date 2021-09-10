@@ -1,11 +1,11 @@
 #![recursion_limit = "1024"]
+#[cfg(target_os = "macos")]
+use concordium_node::utils::setup_macos_logger;
 use concordium_node::{
     common::{collector_utils::NodeInfo, grpc_api},
     req_with_auth,
-    utils::{setup_logger, setup_macos_logger},
+    utils::setup_logger,
 };
-#[cfg(not(target_os = "macos"))]
-use env_logger::Env;
 use serde_json::Value;
 use std::{
     borrow::ToOwned,

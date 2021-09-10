@@ -6,8 +6,6 @@ use concordium_node::{
     common::{collector_utils::*, get_current_stamp},
     utils::setup_logger,
 };
-#[cfg(not(target_os = "macos"))]
-use env_logger::Env;
 use structopt::StructOpt;
 use twox_hash::XxHash64;
 #[macro_use]
