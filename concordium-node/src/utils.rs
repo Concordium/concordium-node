@@ -132,7 +132,12 @@ pub fn get_config_and_logging_setup() -> anyhow::Result<(config::Config, config:
         }
     );
 
-    // FIXME: This is only the log level for consensus when log_config is used.
+    // FIXME: The semantics of the log level changes when the --log-config flag is
+    // used. With regular and macOS logging, the log level printed here is the
+    // actual logging level used troughout the node. But with --log-config, you
+    // provide a file which can have more fine-grained settings for logging. And
+    // in that case, the --info, --debug, --trace flags are only used to set the
+    // logging level for consensus.
     info!("Log level: {}", log_lvl);
 
     Ok((conf, app_prefs))
