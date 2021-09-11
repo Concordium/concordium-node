@@ -112,6 +112,17 @@ function createHelperAppsFromTemplate() {
     replaceVersionPlaceholder "$nodeUninstaller/Contents/Info.plist"
 }
 
+# Fetch the genesis.dat files for mainnet and testnet.
+function fetchGenesisFiles() {
+    logInfo "Fetching genesis.dat files"
+    logInfo "-- Mainnet"
+    wget -P "$payloadDir/Library/Application Support/Concordium Node/Mainnet/Data" "https://distribution.mainnet.concordium.software/data/genesis.dat"
+    logInfo "-- Testnet"
+    # To lower the maintenance burden, we should, ideally, also download this file instead of storing it in this repo.
+    cp "$nodeDir/../service/windows/installer/resources/testnet-genesis.dat" "$payloadDir/Library/Application Support/Concordium Node/Testnet/Data/genesis.dat"
+    logInfo "Done"
+}
+
 # Create the 'build' folder from the 'template' folder.
 # It copies the 'template' folder to 'build', creates a few new folders
 # and replaces a number of variables in the files.
@@ -121,8 +132,10 @@ function createBuildDirFromTemplate() {
     cp -r "$macPackageDir/template" "$buildDir"
 
     mkdir "$buildDir/plugins"
-    mkdir "$payloadDir/Library/Application Support/Concordium Node/Mainnet/Config"
-    mkdir "$payloadDir/Library/Application Support/Concordium Node/Testnet/Config"
+    mkdir -p "$payloadDir/Library/Application Support/Concordium Node/Mainnet/Config"
+    mkdir "$payloadDir/Library/Application Support/Concordium Node/Mainnet/Data"
+    mkdir -p "$payloadDir/Library/Application Support/Concordium Node/Testnet/Config"
+    mkdir "$payloadDir/Library/Application Support/Concordium Node/Testnet/Data"
 
     createHelperAppsFromTemplate
 
@@ -353,6 +366,7 @@ function main() {
     printVersions
     cleanBuildDir
     createBuildDirFromTemplate
+    fetchGenesisFiles
     compile
     copyCompiledItemsToBuildDir
     getDylibbundler
