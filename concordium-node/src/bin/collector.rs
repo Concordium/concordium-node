@@ -140,7 +140,7 @@ async fn main() {
 
     #[cfg(target_os = "macos")]
     match conf.use_mac_log {
-        Some(ref subsystem) => setup_macos_logger(conf.trace, conf.debug, &subsystem),
+        Some(ref subsystem) => setup_macos_logger(conf.trace, conf.debug, subsystem),
         None => setup_logger(conf.trace, conf.debug, conf.no_log_timestamp),
     };
     #[cfg(not(target_os = "macos"))]

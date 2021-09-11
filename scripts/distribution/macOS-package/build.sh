@@ -4,9 +4,9 @@ set -euo pipefail
 readonly version=${1:?"Please provide a version number (e.g. '1.0.2')"}
 readonly year="2021" # Used for copyright notices.
 
-readonly developerIdApplication="Developer ID Application: Concordium Software Aps (K762RM4LQ3)"
-readonly developerIdInstaller="Developer ID Installer: Concordium Software Aps (K762RM4LQ3)"
 readonly teamId="K762RM4LQ3"
+readonly developerIdApplication="Developer ID Application: Concordium Software Aps ($teamId)"
+readonly developerIdInstaller="Developer ID Installer: Concordium Software Aps ($teamId)"
 
 readonly ghcVariant="x86_64-osx-ghc-8.10.4"
 
@@ -248,7 +248,6 @@ function signBinaries() {
     logInfo "Signing binaries..."
 
     # Find and sign all the binaries and dylibs.
-    # TODO: There might be a better way to do this.
     find "$payloadDir/Library" \
         -type f \
         -execdir sudo codesign -f --options runtime -s "$developerIdApplication" {} \;
@@ -260,21 +259,12 @@ function signBinaries() {
     logInfo "Done"
 }
 
-# Ensure a directory exists.
-# Parameter: directory
-function ensureDirExists() {
-    local theDir=${1:?"ensureDirExists requires 1 parameter: directory"}
-    if [ ! -d "$theDir" ]; then
-        mkdir "$theDir"
-    fi
-}
-
 # Build the package.
 # Look in the README.md for descriptions of the different files.
 # The install-location is where to put the contents of the build/payload folder.
 function buildPackage() {
     logInfo "Building package..."
-    ensureDirExists "$buildDir/packages"
+    mkdir -p "$buildDir/packages"
     pkgbuild --identifier software.concordium.node \
         --version "$version" \
         --scripts "$buildDir/scripts" \

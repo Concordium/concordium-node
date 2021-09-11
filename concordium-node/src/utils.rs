@@ -109,7 +109,7 @@ pub fn get_config_and_logging_setup() -> anyhow::Result<(config::Config, config:
 
     #[cfg(target_os = "macos")]
     match conf.macos.use_mac_log {
-        Some(ref subsystem) => setup_macos_logger(conf.common.trace, conf.common.debug, &subsystem),
+        Some(ref subsystem) => setup_macos_logger(conf.common.trace, conf.common.debug, subsystem),
         None => setup_logger(conf.common.trace, conf.common.debug, conf.common.no_log_timestamp),
     };
 
