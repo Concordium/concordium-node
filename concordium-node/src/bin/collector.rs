@@ -125,9 +125,11 @@ struct ConfigCli {
     #[structopt(
         long = "use-mac-log",
         help = "Enable native logging on macOS by providing a subsystem name, e.g. \
-                'software.concordium.mainnet.node'. Log messages can be found via Console.app or \
+                'software.concordium.mainnet.node'. This disables the normal logging system and \
+                is incompatible with '--log-config'. Log messages can be found via Console.app or \
                 the log commandline tool by searching for the subsystem.",
-        env = "CONCORDIUM_NODE_COLLECTOR_USE_MAC_LOG"
+        env = "CONCORDIUM_NODE_COLLECTOR_USE_MAC_LOG",
+        conflicts_with = "log-config"
     )]
     pub use_mac_log: Option<String>,
 }
