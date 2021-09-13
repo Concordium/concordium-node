@@ -23,6 +23,10 @@ fn main() -> std::io::Result<()> {
     })
     .expect("Can't compile the flatbuffers schema");
 
+    // MacOS logger
+    #[cfg(target_os = "macos")]
+    cc::Build::new().file("macos_log_wrapper.c").compile("macos_log_wrapper");
+
     // Build GRPC
 
     let proto_root_input = format!("{}/../concordium-grpc-api", cargo_dir);

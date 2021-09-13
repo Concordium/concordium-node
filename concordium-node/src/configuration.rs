@@ -732,6 +732,22 @@ pub struct BootstrapperConfig {
     pub regenesis_block_hashes: Option<PathBuf>,
 }
 
+#[cfg(target_os = "macos")]
+#[derive(StructOpt, Debug)]
+// Parameters applicable to macOS.
+pub struct MacOsConfig {
+    #[structopt(
+        long = "use-mac-log",
+        help = "Enable native logging on macOS by providing a subsystem name, e.g. \
+                'software.concordium.mainnet.node'. This disables the normal logging system and \
+                is incompatible with '--log-config'. Log messages can be found via Console.app or \
+                the log commandline tool by searching for the subsystem.",
+        env = "CONCORDIUM_NODE_MACOS_USE_MAC_LOG",
+        conflicts_with = "log-config"
+    )]
+    pub use_mac_log: Option<String>,
+}
+
 // The main configuration object.
 #[derive(StructOpt, Debug)]
 #[structopt(about = "Concordium P2P node.")]
@@ -750,6 +766,9 @@ pub struct Config {
     #[cfg(feature = "database_emitter")]
     #[structopt(flatten)]
     pub database_emitter: DatabaseEmitterConfig,
+    #[cfg(target_os = "macos")]
+    #[structopt(flatten)]
+    pub macos:            MacOsConfig,
 }
 
 impl Config {

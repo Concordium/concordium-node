@@ -7,6 +7,13 @@
 - Fix response of the transaction status query. Due to incorrect serialization
   the response was incorrectly reported as finalized even if transaction was
   only committed.
+- For macOS:
+  - Added option to use the native mac logging system. To enable it, provide
+    the new flag `--use-mac-log <subsystem-name>`. The flag is available on both
+    the node and collector with corresponding, respective, environment variables
+    `CONCORDIUM_NODE_MACOS_USE_MAC_LOG` and `CONCORDIUM_NODE_COLLECTOR_USE_MAC_LOG`.
+  - When the flag is provided, you can view the logs with `log show --predicate
+    'subsystem == "<subsystem-name>"'`, or by using Console.app. 
 
 ## concordium-node 1.1.0
 

@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN"
+    "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+
+    <key>Label</key>
+    <string>software.concordium.mainnet.node-collector</string>
+
+    <key>Program</key>
+    <string>/usr/local/bin/concordium-node-collector</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+
+        <!-- Public node name showed on network dashboard. -->
+        <key>CONCORDIUM_NODE_COLLECTOR_NODE_NAME</key>
+        <string>__NODE_NAME__</string>
+
+        <!-- Dashboard to post collected data to. -->
+        <key>CONCORDIUM_NODE_COLLECTOR_URL</key>
+        <string>https://dashboard.mainnet.concordium.software/nodes/post</string>
+
+        <!-- Interval in milliseconds to sleep between runs of the collector. -->
+        <key>CONCORDIUM_NODE_COLLECTOR_COLLECT_INTERVAL</key>
+        <string>5000</string>
+
+        <!-- gRPC host to collect from. -->
+        <key>CONCORDIUM_NODE_COLLECTOR_GRPC_HOST</key>
+        <string>http://localhost:10000</string>
+
+        <!-- Enable native logging on macOS by providing a subsystem name, e.g.
+             'software.concordium.mainnet.node'. Log messages can be found via Console.app or
+             the log commandline tool by searching for the subsystem. -->
+        <key>CONCORDIUM_NODE_COLLECTOR_USE_MAC_LOG</key>
+        <string>software.concordium.mainnet.node</string>
+
+    </dict>
+
+    <!-- Runs when loaded and is kept alive. -->
+    <key>KeepAlive</key>
+    <true />
+
+</dict>
+</plist>

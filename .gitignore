@@ -51,3 +51,10 @@ hie.yaml
 **/**/TAGS
 .DS_Store
 /concordium-node/*.log
+
+# MacOS distribution
+/scripts/distribution/macOS-package/tools
+/scripts/distribution/macOS-package/build
+xcuserdata/
+/scripts/distribution/macOS-package/NodeConfigurationInstallerPlugin/build/
+/scripts/distribution/macOS-package/NodeConfigurationInstallerPlugin/*.gcno
