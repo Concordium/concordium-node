@@ -216,7 +216,7 @@ Get an overview of the parameters used for baking.
 - `bakers : [BakerInfo]` where `BakerInfo` is a JSON record with the following fields
    - `bakerId : Int` &mdash; unique id of the baker
    - `bakerAccount : AccountAddress` &mdash; address of the account to which the baker gets their reward
-   - `bakerLotteryPower : Number` &mdash; the baker's current lottery power. At the moment this is still fixed at genesis, but in the future the lottery power will be calculdated based on their stake.
+   - `bakerLotteryPower : Number` &mdash; the baker's current lottery power. At the moment this is still fixed at genesis, but in the future the lottery power will be calculated based on their stake.
 
 ## GetModuleList : `BlockHash -> ?[ModuleRef]`
 
