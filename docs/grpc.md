@@ -213,7 +213,7 @@ Get an overview of the parameters used for baking.
 `BirkParameters` is a record with fields
 - `electionDifficulty : Number` &mdash; election difficulty for block election
 - `electionNonce : String` &mdash; base-16 encoded leadership election nonce.
-- `bakers : [BakerInfo]` where `BakerInfo` is a JSON recod with the following fields
+- `bakers : [BakerInfo]` where `BakerInfo` is a JSON record with the following fields
    - `bakerId : Int` &mdash; unique id of the baker
    - `bakerAccount : AccountAddress` &mdash; address of the account to which the baker gets their reward
    - `bakerLotteryPower : Number` &mdash; the baker's current lottery power. At the moment this is still fixed at genesis, but in the future the lottery power will be calculdated based on their stake.
