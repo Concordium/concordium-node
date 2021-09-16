@@ -471,7 +471,7 @@ doStoreBlock pb@GB.PendingBlock{..} = unlessShutDown $ do
 --   * 'ResultSuccess' if the transaction is freshly added.
 --   * 'ResultDuplicate', which indicates that either the transaction is a duplicate
 --   * 'ResultStale' which indicates that a transaction with the same sender
---     and nonce has already been finalized. In this case the transaction is not added to the table.
+--     and nonce has already been finalized, or the transaction has already expired. In this case the transaction is not added to the table.
 --   * 'ResultInvalid' which indicates that the transaction signature was invalid.
 --   * 'ResultShutDown' which indicates that consensus was shut down, and so the transaction was not added.
 --   * 'ResultExpiryTooLate' which indicates that transaction's expiry was too far in the future and so the transaction
@@ -481,8 +481,10 @@ doStoreBlock pb@GB.PendingBlock{..} = unlessShutDown $ do
 doReceiveTransaction :: (TreeStateMonad pv m, TimeMonad m, SkovQueryMonad pv m) => BlockItem -> Slot -> m UpdateResult
 doReceiveTransaction tr slot = unlessShutDown $ do
   -- Don't accept the transaction if its expiry time is too far in the future
-  expiryTooLate <- isExpiryTooLate
+  now <- currentTime
+  expiryTooLate <- isExpiryTooLate now
   if expiryTooLate then return ResultExpiryTooLate
+  else if transactionExpired (msgExpiry tr) (utcTimeToTimestamp now) then return ResultStale
   else do
     ur <- case tr of
         WithMetadata{wmdData = NormalTransaction tx} -> do
@@ -502,11 +504,10 @@ doReceiveTransaction tr slot = unlessShutDown $ do
     return ur
 
     where
-          isExpiryTooLate = do
+          isExpiryTooLate now = do
             maxTimeToExpiry <- rpMaxTimeToExpiry <$> getRuntimeParameters
-            now <- utcTimeToTransactionTime <$> currentTime
             let expiry = msgExpiry tr
-            return $ expiry > maxTimeToExpiry + fromIntegral now
+            return $ expiry > maxTimeToExpiry + fromIntegral (utcTimeToTransactionTime now)
 
 -- |Add a transaction to the transaction table.  The 'Slot' should be
 -- the slot number of the block that the transaction was received with.

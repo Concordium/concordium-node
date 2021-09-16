@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+- Fix regression where expired transactions were not immediately rejected.
+
 ## concordium-node 1.1.1
 
 - Fix response of the transaction status query. Due to incorrect serialization
