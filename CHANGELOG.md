@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+## concordium-node 1.1.2
+
 - Fix regression where expired transactions were not immediately rejected.
 
 ## concordium-node 1.1.1
