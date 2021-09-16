@@ -507,7 +507,7 @@ doReceiveTransaction tr slot = unlessShutDown $ do
           isExpiryTooLate now = do
             maxTimeToExpiry <- rpMaxTimeToExpiry <$> getRuntimeParameters
             let expiry = msgExpiry tr
-            return $ expiry > maxTimeToExpiry + fromIntegral (utcTimeToTransactionTime now)
+            return $ expiry > maxTimeToExpiry + utcTimeToTransactionTime now
 
 -- |Add a transaction to the transaction table.  The 'Slot' should be
 -- the slot number of the block that the transaction was received with.
