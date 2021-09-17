@@ -3,7 +3,7 @@
 // - image_tag
 
 pipeline {
-    agent { label 'jenkins-master' }
+    agent { label 'master-node' }
 
     environment {
         // TODO Extract shared function for domain stuff.
