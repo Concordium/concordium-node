@@ -30,7 +30,7 @@ pipeline {
                     EOF
                     invalidation_result="$(aws cloudfront create-invalidation --distribution-id "${CF_DISTRIBUTION_ID}" --paths "/${S3_VERSION_PATH}")"
                     # Wait for invalidation to complete. Depends on 'jq' which is currently available on the master but not the workers.
-                    invalidation_id="$(jq -r '.Invalidation.Id' <<< "${invalidation_result}")"
+                    invalidation_id="$(echo "${invalidation_result}" | jq -r '.Invalidation.Id')"
                     aws cloudfront invalidation-completed --distribution-id "${CF_DISTRIBUTION_ID}" --id "${invalidation_id}"
                 '''.stripIndent()
             }
