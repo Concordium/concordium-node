@@ -3,8 +3,7 @@
 // - image_tag
 
 pipeline {
-    // TODO Run on master node (needs 'jq' and 'awscli' to be installed).
-    agent any
+    agent { label 'jenkins-master' }
 
     environment {
         // TODO Extract shared function for domain stuff.
@@ -30,9 +29,9 @@ pipeline {
                     }
                     EOF
                     invalidation_result="$(aws cloudfront create-invalidation --distribution-id "${CF_DISTRIBUTION_ID}" --paths "/${S3_VERSION_PATH}")"
-                    # Wait for invalidation to complete. Depends on 'jq' which is currently not available on the workers.
-                    #invalidation_id="$(jq -r '.Invalidation.Id' <<< "${invalidation_result}")"
-                    #aws cloudfront invalidation-completed --distribution-id "${CF_DISTRIBUTION_ID}" --id "${invalidation_id}"
+                    # Wait for invalidation to complete. Depends on 'jq' which is currently available on the master but not the workers.
+                    invalidation_id="$(jq -r '.Invalidation.Id' <<< "${invalidation_result}")"
+                    aws cloudfront invalidation-completed --distribution-id "${CF_DISTRIBUTION_ID}" --id "${invalidation_id}"
                 '''.stripIndent()
             }
         }
