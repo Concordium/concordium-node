@@ -266,6 +266,38 @@ you need to first reload the configuration files. This can be done with
 sudo systemctl daemon-reload
 ```
 
+## Out of band catchup
+
+The debian package can be configured to import blocks from a local file to speed up initial catchup.
+To configure a node for out of band catchup do the following.
+
+1. Save the file with blocks to import to `$BLOCKS_TO_IMPORT`.
+2. If the node is running stop it.
+```console
+sudo systemctl stop concordium-${build_env_name_lower}-node.service
+```
+3. Edit the node's configuration file
+```console
+sudo systemctl edit concordium-${build_env_name_lower}-node.service
+```
+In the `[Service]` section add
+```
+Environment=CONCORDIUM_NODE_CONSENSUS_IMPORT_BLOCKS_FROM=%S/concordium-${build_genesis_hash}/blocks_to_import.dat
+BindReadOnlyPaths=$BLOCKS_TO_IMPORT:%S/concordium-${build_genesis_hash}/blocks_to_import.dat
+```
+replacing `$BLOCKS_TO_IMPORT` with the path to the downloaded file.
+4. Start the node again.
+```console
+sudo systemctl start concordium-${build_env_name_lower}-node.service
+```
+
+After the block import is completed we recommend to edit the configuration file again removing
+```
+Environment=CONCORDIUM_NODE_CONSENSUS_IMPORT_BLOCKS_FROM=%S/concordium-${build_genesis_hash}/blocks_to_import.dat
+BindReadOnlyPaths=$BLOCKS_TO_IMPORT:%S/concordium-${build_genesis_hash}/blocks_to_import.dat
+```
+so that in subsequent restarts out of band catchup will be disabled, which will speed up restarts.
+
 ## Maintenance
 
 To see whether the node is running correctly you may use `systemctl` commands.
