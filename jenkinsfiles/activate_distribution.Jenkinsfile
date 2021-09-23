@@ -1,13 +1,13 @@
 // Parameters:
 // - environment
 // - image_tag
-
+@Library('concordium-pipelines') _
 pipeline {
     agent { label 'master-node' }
 
     environment {
         // TODO Extract shared function for domain stuff.
-        S3_BUCKET = "s3://distribution.${environment}.concordium.${environment == 'mainnet' ? 'software' : 'com'}"
+        S3_BUCKET = "s3://distribution.${concordiumDomain(environment)}"
         S3_VERSION_PATH = 'image/version.json'
         S3_IMAGE_PATH = "image/${environment}-node-${image_tag}.tar.gz"
         CF_DISTRIBUTION_ID = "${[stagenet: 'E2Z6VZ10YEWPDX', testnet: 'E3OE3P6NHHWU0I', mainnet: 'E1F07594M64NU0'][environment]}"
