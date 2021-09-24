@@ -36,12 +36,13 @@ import Concordium.GlobalState.BlockState (AccountOperations(..))
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.AccountTransactionIndex
 import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as ARS
-import qualified Concordium.TransactionVerificationCache as TxVerResCache
+
+import qualified Concordium.Cache as Cache
+import qualified Concordium.TransactionVerification as TVer
 
 import Control.Exception(assert)
 
 import qualified Concordium.ID.Types as ID
-import Concordium.TransactionVerification
 
 -- |Whether the current energy limit is block energy or current transaction energy.
 data EnergyLimitReason = BlockEnergy | TransactionEnergy
@@ -63,7 +64,7 @@ class (Monad m) => StaticInformation m where
   getAccountCreationLimit :: m CredentialsPerBlockLimit
 
 -- |Information needed to execute transactions in the form that is easy to use.
-class (Monad m, StaticInformation m, TxVerResCache.CacheMonad m, TransactionVerifier m, CanRecordFootprint (Footprint (ATIStorage m)), AccountOperations m, MonadLogger m, IsProtocolVersion pv)
+class (Monad m, StaticInformation m, (Cache.CacheMonad TransactionHash TVer.VerificationResult) m, TVer.TransactionVerifier m, CanRecordFootprint (Footprint (ATIStorage m)), AccountOperations m, MonadLogger m, IsProtocolVersion pv)
     => SchedulerMonad pv m | m -> pv where
 
   -- |Notify the transaction log that a transaction had the given footprint. The

@@ -1,19 +1,35 @@
-{-# LANGUAGE TemplateHaskell #-}
-module Concordium.Caching
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
+module Concordium.Cache
   (
+  -- Type classes
+  CacheMonad,
+  insert, lookup, delete,
   -- Types
-  Cache, 
+  Cache,
   -- Creating caches
   empty, emptyCapped,
   -- Functions
-  insert, lookup, size, delete
+  doInsert, doLookup, size, doDelete
   )
 where
 
 import Prelude hiding (lookup)
 import Data.Hashable
-import Lens.Micro.Platform
 import qualified Data.HashMap.Strict as Map
+
+class CacheMonad k v m where
+  -- |Insert an entry to the 'Cache'.
+  -- The first parameter, @k@, is the key of the entry.
+  -- The second parameter, @v@, is the value of the entry.
+  --
+  -- If the capacity is reached for the cache, then we expunge all content
+  -- of the cache and insert the new entry.
+  insert :: (Eq k, Hashable k) =>  k -> v  -> m ()
+  -- |Returns whether the entry is present in the cache or not.
+  lookup :: (Eq k, Hashable k) => k  -> m (Maybe v)
+  -- | Deletes an entry (if it was present) in the cache.
+  delete :: (Eq k, Hashable k) => k -> m ()
 
 -- |A generic cache where entries consists of
 -- a key @k@  and a value @v@.
@@ -31,7 +47,6 @@ data Cache k v = C {
   _contents :: Map.HashMap k v,
   _capacity :: !(Maybe Int)
 } deriving (Eq, Show)
-makeLenses ''Cache
 
 -- |Create an empty cache
 {-# INLINE empty #-}
@@ -53,31 +68,27 @@ _empty cap = C{_contents = Map.empty, _capacity=cap}
 size :: Cache k v -> Int
 size C{..} = Map.size _contents
 
--- |Insert an entry to the 'Cache'.
--- The first parameter, @k@, is the key of the entry.
--- The second parameter, @v@, is the value of the entry.
---
--- If the capacity is reached for the cache, then we expunge all content
--- of the cache and insert the new entry.
-{-# INLINE insert #-}
-insert :: (Eq k, Hashable k) => k -> v -> Cache k v -> Cache k v
-insert k v c@C{..} = 
+
+{-# INLINE doInsert #-}
+doInsert :: (Eq k, Hashable k) => k -> v -> Cache k v -> Cache k v
+doInsert k v c@C{..}  = 
   case _capacity of
     Just cap ->
       if size c >= cap then _insert k v (_empty $ Just cap)
       else _insert k v c
     Nothing -> _insert k v c
 
--- |Helper function to insert entries into the underlying PSQ
+-- |Helper function to insert entries into the underlying Map
 {-# INLINE _insert #-}
 _insert :: (Eq k, Hashable k) => k -> v -> Cache k v -> Cache k v
-_insert k v C{..} = C{_contents=Map.insert k v _contents, _capacity=_capacity}
+_insert k v C{..} = C{_contents=Map.insert k v _contents, _capacity=_capacity}    
 
--- |Returns whether the entry is present in the cache or not.
-{-# INLINE lookup #-}
-lookup :: (Eq k, Hashable k) => k -> Cache k v -> Maybe v
-lookup k C{..} = Map.lookup k _contents
+{-# INLINE doLookup #-}
+doLookup :: (Eq k, Hashable k) => k -> Cache k v -> Maybe v
+doLookup k C{..} = Map.lookup k _contents
 
-{-# INLINE delete #-}                 
-delete :: (Eq k, Hashable k) => k -> Cache k v -> Cache k v
-delete k C{..} = C{_contents = Map.delete k _contents, _capacity=_capacity}
+{-# INLINE doDelete #-}                 
+{-# LANGUAGE AllowAmbiguousTypes #-}
+doDelete :: (Eq k, Hashable k) => k -> Cache k v -> Cache k v
+doDelete k C{..} = C{_contents = Map.delete k _contents, _capacity=_capacity}
+

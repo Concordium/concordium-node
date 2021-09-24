@@ -44,8 +44,8 @@ import Concordium.Scheduler.EnvironmentImplementation
      HasSchedulerState(..),
      schedulerBlockState, schedulerEnergyUsed
      )
-import qualified Concordium.TransactionVerification as TV
-import qualified Concordium.TransactionVerificationCache as TxVerResCache
+import qualified Concordium.TransactionVerification as TVer
+import qualified Concordium.Cache as Cache
 
 import Control.Monad.RWS.Strict
 
@@ -54,7 +54,7 @@ import Lens.Micro.Platform
 import qualified Concordium.Scheduler as Sch
 
 newtype BlockStateMonad (pv :: ProtocolVersion) w state m a = BSM { _runBSM :: RWST ContextState w state m a}
-    deriving (Functor, Applicative, Monad, MonadState state, MonadReader ContextState, MonadTrans, MonadWriter w, MonadLogger, TimeMonad, TxVerResCache.CacheMonad)
+    deriving (Functor, Applicative, Monad, MonadState state, MonadReader ContextState, MonadTrans, MonadWriter w, MonadLogger, TimeMonad, Cache.CacheMonad TransactionHash TVer.VerificationResult)
 
 deriving via (BSOMonadWrapper pv ContextState w state (MGSTrans (RWST ContextState w state) m))
     instance
@@ -91,7 +91,7 @@ makeLenses ''ExecutionResult'
 instance TreeStateMonad pv m => HasSchedulerState (LogSchedulerState m) where
   type SS (LogSchedulerState m) = UpdatableBlockState m
   type TransactionLog (LogSchedulerState m) = ATIStorage m
-  type CacheMonad m = TxVerResCache.CacheMonad m
+  type CacheMonad k v m = Cache.CacheMonad k v m
   schedulerBlockState = lssBlockState
   schedulerEnergyUsed = lssSchedulerEnergyUsed
   schedulerExecutionCosts = lssSchedulerExecutionCosts
@@ -119,7 +119,7 @@ deriving via (BSOMonadWrapper pv ContextState w state (MGSTrans (RWST ContextSta
               Footprint (ATIStorage m) ~ w,
               HasSchedulerState state,
               TreeStateMonad pv m,
-              TxVerResCache.CacheMonad m,
+              Cache.CacheMonad k v m,
               MonadLogger m,
               BlockStateOperations m) => SchedulerMonad pv (BlockStateMonad pv w state m)
 
@@ -130,7 +130,7 @@ deriving via (BSOMonadWrapper pv ContextState w state (MGSTrans (RWST ContextSta
               HasSchedulerState state,
               TreeStateMonad pv m,
               MonadLogger m,
-              BlockStateOperations m) => TV.TransactionVerifier (BlockStateMonad pv w state m)
+              BlockStateOperations m) => TVer.TransactionVerifier (BlockStateMonad pv w state m)
 
 runBSM :: Monad m => BlockStateMonad pv w b m a -> ContextState -> b -> m (a, b)
 runBSM m cm s = do

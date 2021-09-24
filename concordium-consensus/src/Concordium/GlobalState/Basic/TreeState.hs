@@ -37,8 +37,11 @@ import Concordium.Types.Transactions
 import Concordium.Types.Updates
 import Concordium.GlobalState.AccountTransactionIndex
 import qualified Concordium.TransactionVerification as TVer
-import qualified Concordium.Caching as Caching
-import qualified Concordium.TransactionVerificationCache as TxVerResCache
+import qualified Concordium.Cache as Cache
+
+-- The Transaction verification cache for storing transaction hashes
+-- associated with transaction verification results
+type TransactionVerificationCache = Cache.Cache TransactionHash TVer.VerificationResult
 
 -- |Datatype representing an in-memory tree state.
 -- The first type parameter, @pv@, is the protocol version.
@@ -76,7 +79,7 @@ data SkovData (pv :: ProtocolVersion) bs = SkovData {
     -- Transaction which have been subject to a 'verification' resides in this cache.
     -- The purpose of the cache is to eliminate the need for re-verifying already verified transactions.
     -- Entries should be deleted when either the corresponding transaction has been *purged* or *finalized*. 
-    _transactionVerificationResults :: !(Caching.Cache TransactionHash TVer.VerificationResult)
+    _transactionVerificationResults :: !TransactionVerificationCache
 }
 makeLenses ''SkovData
 
@@ -105,7 +108,7 @@ initialSkovData rp gd genState =
             _statistics = initialConsensusStatistics,
             _runtimeParameters = rp,
             _transactionTablePurgeCounter = 0,
-            _transactionVerificationResults = Caching.empty -- todo: decide on a good capacity
+            _transactionVerificationResults = Cache.empty -- todo: decide on a good capacity
         }
   where gbh = bpHash gb
         gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
@@ -128,23 +131,23 @@ newtype PureTreeStateMonad (pv :: ProtocolVersion) bs m a = PureTreeStateMonad {
 
 deriving instance (Monad m, MonadState (SkovData pv bs) m) => MonadState (SkovData pv bs) (PureTreeStateMonad pv bs m)
 
-instance (Monad m, MonadState (SkovData pv bs) m) => TxVerResCache.CacheMonad (PureTreeStateMonad pv bs m) where
+instance (Monad m, MonadState (SkovData pv bs) m) => Cache.CacheMonad TransactionHash TVer.VerificationResult (PureTreeStateMonad pv bs m) where
     {-# INLINE insert #-}
     insert txHash err = do
       cache <- use transactionVerificationResults
-      let cache' = Caching.insert txHash err cache
+      let cache' = Cache.doInsert txHash err cache
       transactionVerificationResults .= cache'
       return ()
 
     {-# INLINE lookup #-}
     lookup txHash = do
       cache <- use transactionVerificationResults
-      return $ Caching.lookup txHash cache
+      return $ Cache.doLookup txHash cache
 
     {-# INLINE delete #-}
-    delete txhash = do
+    delete txHash = do
       cache <- use transactionVerificationResults
-      let cache' = Caching.delete txHash err cache
+      let cache' = Cache.doDelete txHash err cache
       transactionVerificationResults .= cache'
       return ()
 
@@ -301,7 +304,7 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
                         -- delete the transaction from the verified transaction cache
                         -- todo: must be possible to do this in a cleaner way
                         cache <- use transactionVerificationResults
-                        let cache' = Caching.delete wmdHash cache
+                        let cache' = Cache.doDelete wmdHash cache
                         transactionVerificationResults .= cache'
                         -- Mark the status of the transaction as finalized.
                         -- Singular here is safe due to the precondition (and assertion) that all transactions
@@ -348,7 +351,7 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
                     -- delete the transaction from the verified transaction cache
                     -- todo: must be possible to do this in a cleaner way
                     cache <- use transactionVerificationResults
-                    let cache' = Caching.delete wmdHash cache
+                    let cache' = Cache.doDelete wmdHash cache
                     transactionVerificationResults .= cache'
  
                     -- if the transaction is from a sender also delete the relevant

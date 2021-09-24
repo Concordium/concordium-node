@@ -51,8 +51,7 @@ import Concordium.GlobalState.SQL.AccountTransactionIndex
 import Concordium.Logger
 import Control.Monad.Except
 import qualified Concordium.TransactionVerification as TVer
-import qualified Concordium.Caching as Caching
-import qualified Concordium.TransactionVerificationCache as TxVerResCache
+import qualified Concordium.Cache as Cache
 
 -- * Exceptions
 
@@ -95,6 +94,11 @@ logExceptionAndThrowTS = logExceptionAndThrow TreeState
 
 logErrorAndThrowTS :: (MonadLogger m, MonadIO m) => String -> m a
 logErrorAndThrowTS = logErrorAndThrow TreeState
+
+
+-- The Transaction verification cache for storing transaction hashes
+-- associated with transaction verification results
+type TransactionVerificationCache = Cache.Cache TransactionHash TVer.VerificationResult
 
 --------------------------------------------------------------------------------
 
@@ -149,7 +153,7 @@ data SkovPersistentData (pv :: ProtocolVersion) ati bs = SkovPersistentData {
     -- Transaction which have been subject to a 'verification' resides in this cache.
     -- The purpose of the cache is to eliminate the need for re-verifying already verified transactions.
     -- Entries should be deleted when either the corresponding transaction has been *purged* or *finalized*. 
-    _transactionVerificationResults :: !(Caching.Cache TransactionHash TVer.VerificationResult)
+    _transactionVerificationResults :: !TransactionVerificationCache
 }
 makeLenses ''SkovPersistentData
 
@@ -198,7 +202,7 @@ initialSkovPersistentData rp gd genState ati serState = do
             _runtimeParameters = rp,
             _db = initialDb,
             _atiCtx = snd ati,
-            _transactionVerificationResults = Caching.empty  -- todo: decide on a good capacity
+            _transactionVerificationResults = Cache.empty  -- todo: decide on a good capacity
         }
 
 --------------------------------------------------------------------------------
@@ -330,7 +334,7 @@ loadSkovPersistentData rp _genesisData pbsc atiPair = do
             _statistics = initialConsensusStatistics,
             _runtimeParameters = rp,
             _atiCtx = snd atiPair,
-            _transactionVerificationResults = Caching.empty,  -- todo: decide on a good capacity
+            _transactionVerificationResults = Cache.empty,  -- todo: decide on a good capacity
             ..
         }
 
@@ -382,23 +386,23 @@ instance (MonadIO m, MonadState (SkovPersistentData pv DiskDump bs) m) => PerAcc
     PAAIConfig handle <- use logContext
     liftIO $ writeEntries handle bh ati sos
 
-instance (Monad m, MonadState (SkovDataPersistent pv ati bs) m) => TxVerResCache.CacheMonad (PersistentTreeStateMonad pv ati bs m) where
+instance (Monad m, MonadState (SkovDataPersistent pv ati bs) m) => Cache.CacheMonad TransactionHash TVer.VerificationResult  (PersistentTreeStateMonad pv ati bs m) where
   {-# INLINE insert #-}
   insert txHash err = do
     cache <- use transactionVerificationResults
-    let cache' = Caching.insert txHash err cache
+    let cache' = Cache.doInsert txHash err cache
     transactionVerificationResults .= cache'
     return ()
 
   {-# INLINE lookup #-}
   lookup txHash = do
     cache <- use transactionVerificationResults
-    return $ Caching.lookup txHash cache
+    return $ Cache.doLookup txHash cache
 
   {-# INLINE delete #-}
   delete txhash = do
     cache <- use transactionVerificationResults
-    let cache' = Caching.delete txHash err cache
+    let cache' = Cache.doDelete txHash err cache
     transactionVerificationResults .= cache'
     return ()
 
@@ -683,7 +687,7 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
                         -- delete the transaction from the verified transaction cache
                         -- todo: must be possible to do this in a cleaner way
                         cache <- use transactionVerificationResults
-                        let cache' = Caching.delete wmdHash cache
+                        let cache' = Cache.delete wmdHash cache
                         transactionVerificationResults .= cache'
 
                         -- Update the non-finalized transactions for the sender
@@ -747,7 +751,7 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
                     transactionTable . ttHashMap . at' wmdHash .= Nothing
                     -- delete the transaction from the verified transaction cache
                     cache <- use transactionVerificationResults
-                    let cache' = Caching.delete wmdHash cache
+                    let cache' = Cache.delete wmdHash cache
                     transactionVerificationResults .= cache'
 
                     -- if the transaction is from a sender also delete the relevant
