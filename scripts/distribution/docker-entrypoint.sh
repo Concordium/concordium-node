@@ -37,7 +37,7 @@ then
         echo "  concordium-client baker set-keys <keys-file>.json --sender bakerAccount --out <concordium-data-dir>/baker-credentials.json"
         exit 1
     fi
-    export CONCORDIUM_NODE_BAKER_CREDENTIALS_FILE="baker-credentials.json"
+    export CONCORDIUM_NODE_BAKER_CREDENTIALS_FILE="/var/lib/concordium/data/baker-credentials.json"
 fi
 
 /usr/bin/supervisord -c /etc/supervisor/supervisord.conf
