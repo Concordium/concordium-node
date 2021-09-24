@@ -64,7 +64,7 @@ class (Monad m) => StaticInformation m where
   getAccountCreationLimit :: m CredentialsPerBlockLimit
 
 -- |Information needed to execute transactions in the form that is easy to use.
-class (Monad m, StaticInformation m, (Cache.CacheMonad TransactionHash TVer.VerificationResult) m, TVer.TransactionVerifier m, CanRecordFootprint (Footprint (ATIStorage m)), AccountOperations m, MonadLogger m, IsProtocolVersion pv)
+class (Monad m, StaticInformation m, Cache.CacheMonad TransactionHash TVer.VerificationResult m, TVer.TransactionVerifier m, CanRecordFootprint (Footprint (ATIStorage m)), AccountOperations m, MonadLogger m, IsProtocolVersion pv)
     => SchedulerMonad pv m | m -> pv where
 
   -- |Notify the transaction log that a transaction had the given footprint. The

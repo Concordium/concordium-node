@@ -25,11 +25,11 @@ class CacheMonad k v m where
   --
   -- If the capacity is reached for the cache, then we expunge all content
   -- of the cache and insert the new entry.
-  insert :: (Eq k, Hashable k) =>  k -> v  -> m ()
+  insert :: k -> v  -> m ()
   -- |Returns whether the entry is present in the cache or not.
-  lookup :: (Eq k, Hashable k) => k  -> m (Maybe v)
+  lookup :: k  -> m (Maybe v)
   -- | Deletes an entry (if it was present) in the cache.
-  delete :: (Eq k, Hashable k) => k -> m ()
+  delete :: k -> m ()
 
 -- |A generic cache where entries consists of
 -- a key @k@  and a value @v@.
