@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+- Support custom path for genesis data via `CONCORDIUM_NODE_CONSENSUS_GENESIS_DATA_FILE`.
+
 ## concordium-node 1.1.2
 
 - Fix regression where expired transactions were not immediately rejected.
