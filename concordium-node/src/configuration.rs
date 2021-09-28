@@ -283,8 +283,17 @@ pub struct BakerConfig {
     )]
     pub max_time_to_expiry: u64,
     #[structopt(
+        long = "genesis-data-file",
+        help = "Path to the data that constitutes the genesis block. If the path is relative it \
+                is interpreted relative to the supplied data directory.",
+        default_value = "genesis.dat",
+        env = "CONCORDIUM_NODE_CONSENSUS_GENESIS_DATA_FILE"
+    )]
+    pub genesis_data_file: PathBuf,
+    #[structopt(
         long = "baker-credentials-file",
-        help = "Path to the baker credentials file",
+        help = "Path to the baker credentials file. If the path is relative it is interpreted \
+                relative to the node process' working directory.",
         env = "CONCORDIUM_NODE_BAKER_CREDENTIALS_FILE"
     )]
     pub baker_credentials_file: Option<PathBuf>,
@@ -951,8 +960,8 @@ impl AppPreferences {
     }
 
     /// Returns the path to the application directory.
-    pub fn get_user_app_dir(&self) -> &Path { &self.override_data_dir }
+    pub fn get_data_dir(&self) -> &Path { &self.override_data_dir }
 
     /// Returns the path to the config directory.
-    pub fn get_user_config_dir(&self) -> &Path { &self.override_config_dir }
+    pub fn get_config_dir(&self) -> &Path { &self.override_config_dir }
 }
