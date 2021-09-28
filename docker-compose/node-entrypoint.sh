@@ -13,9 +13,9 @@ genesis_data_path="${GENESIS_DATA_PATH-}"
 
 if [ -n "${genesis_data_path}" ]; then
     # Get the baker id by querying a simple service and select the baker credentials file based on this.
-	baker_id_url="${BAKER_ID_URL}"
-	id="$(curl -sS "${baker_id_url}")"
-	export CONCORDIUM_NODE_BAKER_CREDENTIALS_FILE="${genesis_data_path}/bakers/baker-${id}-credentials.json"
+    baker_id_url="${BAKER_ID_URL}"
+    id="$(curl -sS "${baker_id_url}")"
+    export CONCORDIUM_NODE_BAKER_CREDENTIALS_FILE="${genesis_data_path}/bakers/baker-${id}-credentials.json"
     # Set the correct genesis for the network.
     export CONCORDIUM_NODE_CONSENSUS_GENESIS_DATA_FILE="${genesis_data_path}/genesis.dat"
 fi
