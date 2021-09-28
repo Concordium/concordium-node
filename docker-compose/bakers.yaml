@@ -31,7 +31,7 @@ services:
     environment:
     - RUST_BACKTRACE=1
     - RUST_LOG=info
-    - GENESIS_DATA_PATH=/genesis-data/genesis-${NUM_BAKERS}-bakers
+    - GENESIS_DATA_PATH=/genesis-data/genesis-${NUM_BAKERS}-bakers # should be an absolute path
     - BAKER_ID_URL=http://baker_id_gen:8000
     - CONCORDIUM_NODE_CONNECTION_DESIRED_NODES=${DESIRED_PEERS}
     - CONCORDIUM_NODE_CONNECTION_BOOTSTRAP_NODES=bootstrapper:8888
