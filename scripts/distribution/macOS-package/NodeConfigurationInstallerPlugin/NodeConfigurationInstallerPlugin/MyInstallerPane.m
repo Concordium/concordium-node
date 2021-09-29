@@ -40,7 +40,7 @@
                 // Initialize the dialog.
                 [warning addButtonWithTitle:@"OK"];
                 [warning setMessageText:@"Invalid node names"];
-                [warning setInformativeText:@"Node names must be between 1 and 100 characters in length and can only contain a-z, A-Z, 0-9, '-', or '_'."];
+                [warning setInformativeText:@"Node names must be between 1 and 100 characters in length and can only contain a-z, A-Z, 0-9, spaces, '-', or '_'."];
                 [warning setAlertStyle:NSAlertStyleInformational];
                 
                 // Display the warning dialog.
@@ -102,12 +102,12 @@
 
 // Checks that both the mainnet and testnet node names:
 // - have length > 0 and <= 100
-// - only contain characters in [a-zA-Z0-9-_]
+// - only contain characters in [a-zA-Z0-9-_ ]
 - (BOOL) nodeNamesAreValid
 {
     // NB: This character set must be accepted by the service file XML parser.
     // This naturally excludes '<', '>', etc., but the service won't start with a sequence of ',.' in the node name either.
-    NSCharacterSet *allowedChars = [[NSCharacterSet characterSetWithCharactersInString:@"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890-_"] invertedSet];
+    NSCharacterSet *allowedChars = [[NSCharacterSet characterSetWithCharactersInString:@"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890-_ "] invertedSet];
 
     // Default maximum node name length that the collector-backend will accept. Measured in UTF-8 encoded bytes.
     int maxLen = 100;
