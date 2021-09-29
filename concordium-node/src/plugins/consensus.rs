@@ -28,13 +28,10 @@ use crypto_common::Deserial;
 use std::{
     collections::hash_map::Entry::*,
     convert::TryFrom,
-    fs::OpenOptions,
     io::{Cursor, Read},
     path::Path,
     sync::{atomic::Ordering, Arc},
 };
-
-const FILE_NAME_GENESIS_DATA: &str = "genesis.dat";
 
 /// Initializes the consensus layer with the given setup.
 pub fn start_consensus_layer(
@@ -89,24 +86,26 @@ pub fn get_baker_data(
     app_prefs: &configuration::AppPreferences,
     conf: &configuration::BakerConfig,
 ) -> anyhow::Result<(Vec<u8>, Option<Vec<u8>>)> {
-    let mut genesis_loc = app_prefs.get_user_app_dir().to_path_buf();
-    genesis_loc.push(FILE_NAME_GENESIS_DATA);
+    let mut genesis_loc = app_prefs.get_data_dir().to_path_buf();
+    // if the genesis_data_file is absolute this replaces the entire path
+    // otherwise the path is appended to the data directory
+    genesis_loc.push(&conf.genesis_data_file);
 
-    let genesis_data = match OpenOptions::new().read(true).open(&genesis_loc) {
+    let genesis_data = match std::fs::File::open(&genesis_loc) {
         Ok(mut file) => {
             let mut read_data = vec![];
             match file.read_to_end(&mut read_data) {
                 Ok(_) => read_data,
-                Err(_) => bail!("Couldn't read genesis file properly"),
+                Err(e) => bail!("Cannot not read genesis file ({})!", e),
             }
         }
-        Err(e) => bail!("Can't open the genesis file ({})!", e),
+        Err(e) => bail!("Cannot open the genesis file ({})", e),
     };
 
     let private_data = if let Some(path) = &conf.baker_credentials_file {
         let read_data = match std::fs::read(&path) {
             Ok(read_data) => read_data,
-            Err(e) => bail!("Can't open the baker credentials file ({})!", e),
+            Err(e) => bail!("Cannot open the baker credentials file ({})!", e),
         };
         if conf.decrypt_baker_credentials {
             let et = serde_json::from_slice(&read_data)?;

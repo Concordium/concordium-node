@@ -18,7 +18,7 @@ use std::{env, process::Command, thread, time::Duration};
 
 fn main() -> anyhow::Result<()> {
     let (mut conf, app_prefs) = get_config_and_logging_setup()?;
-    let data_dir_path = app_prefs.get_user_app_dir();
+    let data_dir_path = app_prefs.get_data_dir();
 
     conf.connection.max_allowed_nodes = Some(0);
     conf.connection.thread_pool_size = 1;

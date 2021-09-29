@@ -121,8 +121,8 @@ pub fn get_config_and_logging_setup() -> anyhow::Result<(config::Config, config:
     }
 
     info!("Starting up {} version {}!", crate::APPNAME, crate::VERSION);
-    info!("Application data directory: {}", app_prefs.get_user_app_dir().to_string_lossy());
-    info!("Application config directory: {}", app_prefs.get_user_config_dir().to_string_lossy());
+    info!("Application data directory: {}", app_prefs.get_data_dir().display());
+    info!("Application config directory: {}", app_prefs.get_config_dir().display());
     info!(
         "Network: {}",
         if conf.cli.no_network {

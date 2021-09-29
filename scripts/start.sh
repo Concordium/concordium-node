@@ -25,7 +25,8 @@ fi
 
 if [ -n "$DISTRIBUTION_CLIENT" ];
 then
-    cp /genesis.dat $CONCORDIUM_NODE_DATA_DIR
+    # Tell the node where to find the genesis file.
+    export CONCORDIUM_NODE_CONSENSUS_GENESIS_DATA_FILE=/genesis.dat
 fi
 
 
