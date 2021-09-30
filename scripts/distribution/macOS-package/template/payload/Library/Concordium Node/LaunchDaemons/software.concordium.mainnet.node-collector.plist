@@ -13,7 +13,17 @@
     <key>EnvironmentVariables</key>
     <dict>
 
-        <!-- Public node name showed on network dashboard. -->
+        <!-- Public node name showed on network dashboard.
+
+             Please note the following:
+                - Must have length 1 - 100 (in bytes)
+                - Replace (escape) characters with special meaning in XML, e.g.: '<'
+                with '&lt;' and '>' with '&gt;'.
+                - Prefixes and suffixes of spaces will be ignored
+                - When using commas it will be interpreted as a list of node names
+                    - In which case you must also provide a comma-separated list
+                    of GRPC hosts of the same length.
+        -->
         <key>CONCORDIUM_NODE_COLLECTOR_NODE_NAME</key>
         <string>__NODE_NAME__</string>
 

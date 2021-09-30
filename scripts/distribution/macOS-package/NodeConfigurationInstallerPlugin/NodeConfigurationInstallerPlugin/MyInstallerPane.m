@@ -40,7 +40,7 @@
                 // Initialize the dialog.
                 [warning addButtonWithTitle:@"OK"];
                 [warning setMessageText:@"Invalid node names"];
-                [warning setInformativeText:@"Node names cannot be empty or contain '\"'."];
+                [warning setInformativeText:@"Node names must be between 1 and 100 characters in length and can only contain a-z, A-Z, 0-9, spaces, '-', or '_'. Additionally, names cannot start or end with spaces."];
                 [warning setAlertStyle:NSAlertStyleInformational];
                 
                 // Display the warning dialog.
@@ -101,17 +101,33 @@
 }
 
 // Checks that both the mainnet and testnet node names:
-// - have length > 0
-// - contain no double quotes
+// - have length > 0 and <= 100
+// - only contain characters in [a-zA-Z0-9-_ ]
+// - cannot start or end with spaces
 - (BOOL) nodeNamesAreValid
 {
+    // NB: This character set must be accepted by the service file XML parser.
+    // This naturally excludes '<', '>', etc., but the service won't start with a sequence of ',.' in the node name either.
+    NSCharacterSet *allowedChars = [[NSCharacterSet characterSetWithCharactersInString:@"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890-_ "] invertedSet];
+
+    // Default maximum node name length that the collector-backend will accept. Measured in UTF-8 encoded bytes.
+    int maxLen = 100;
+
     NSString *mainnetName = [_oMainnetNodeName stringValue];
     NSString *testnetName = [_oTestnetNodeName stringValue];
-    
-    return      [mainnetName length] > 0
-            &&  [testnetName length] > 0
-            && ![mainnetName containsString:@"\""]
-            && ![testnetName containsString:@"\""];
+
+    // NB: Get the actual length in bytes if allowedChars is changed to contain non-ascii characters.
+    NSUInteger mainnetNameLen = [mainnetName length];
+    NSUInteger testnetNameLen = [mainnetName length];
+
+    return      mainnetNameLen > 0
+            &&  mainnetNameLen <= maxLen
+            &&  testnetNameLen > 0
+            &&  testnetNameLen <= maxLen
+            &&  ![mainnetName hasPrefix:@" "]
+            &&  ![mainnetName hasSuffix:@" "]
+            && !([mainnetName rangeOfCharacterFromSet:allowedChars].location != NSNotFound)
+            && !([testnetName rangeOfCharacterFromSet:allowedChars].location != NSNotFound);
 }
 
 @end
