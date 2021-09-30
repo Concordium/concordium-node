@@ -40,7 +40,7 @@
                 // Initialize the dialog.
                 [warning addButtonWithTitle:@"OK"];
                 [warning setMessageText:@"Invalid node names"];
-                [warning setInformativeText:@"Node names must be between 1 and 100 characters in length and can only contain a-z, A-Z, 0-9, spaces, '-', or '_'."];
+                [warning setInformativeText:@"Node names must be between 1 and 100 characters in length and can only contain a-z, A-Z, 0-9, spaces, '-', or '_'. Additionally, names cannot start or end with spaces."];
                 [warning setAlertStyle:NSAlertStyleInformational];
                 
                 // Display the warning dialog.
@@ -103,6 +103,7 @@
 // Checks that both the mainnet and testnet node names:
 // - have length > 0 and <= 100
 // - only contain characters in [a-zA-Z0-9-_ ]
+// - cannot start or end with spaces
 - (BOOL) nodeNamesAreValid
 {
     // NB: This character set must be accepted by the service file XML parser.
@@ -123,6 +124,8 @@
             &&  mainnetNameLen <= maxLen
             &&  testnetNameLen > 0
             &&  testnetNameLen <= maxLen
+            &&  ![mainnetName hasPrefix:@" "]
+            &&  ![mainnetName hasSuffix:@" "]
             && !([mainnetName rangeOfCharacterFromSet:allowedChars].location != NSNotFound)
             && !([testnetName rangeOfCharacterFromSet:allowedChars].location != NSNotFound);
 }
