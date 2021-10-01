@@ -9,7 +9,6 @@
 
 @Library('concordium-pipelines') _
 node {
-
     if (!environment?.trim()) {
         error "No value for 'environment' provided."
     }
@@ -23,27 +22,31 @@ node {
     def image_name = "${environment}-node"
 
     stage('build') {
+        checkout scm
+
         // Using '--no-cache' because we're cloning genesis data
         // and BuildKit (and '--ssh default') because the repo is on GitLab.
-        sh(script: """\
-            DOCKER_BUILDKIT=1 docker build \
-              --build-arg environment="${domain}"\
-              --build-arg base_image_tag="${base_image_tag}" \
-              --build-arg static_libraries_image_tag="${static_libraries_image_tag}" \
-              --build-arg ghc_version="${ghc_version}" \
-              --build-arg genesis_ref="${genesis_ref}" \
-              --build-arg genesis_path="${genesis_path}" \
-              --label base_image_tag="${base_image_tag}" \
-              --label static_libraries_image_tag="${static_libraries_image_tag}" \
-              --label ghc_version="${ghc_version}" \
-              --label genesis_ref="${genesis_ref}" \
-              --label genesis_path="${genesis_path}" \
-              -t "concordium/${image_name}:${image_tag}" \
-              -f scripts/distribution/builder.Dockerfile \
-              --ssh default\
-              --no-cache \
-              .
-        """.stripIndent())
+        sshagent (credentials: ['jenkins-gitlab-ssh']) {
+            sh(script: """\
+                DOCKER_BUILDKIT=1 docker build \
+                  --build-arg environment="${domain}"\
+                  --build-arg base_image_tag="${base_image_tag}" \
+                  --build-arg static_libraries_image_tag="${static_libraries_image_tag}" \
+                  --build-arg ghc_version="${ghc_version}" \
+                  --build-arg genesis_ref="${genesis_ref}" \
+                  --build-arg genesis_path="${genesis_path}" \
+                  --label base_image_tag="${base_image_tag}" \
+                  --label static_libraries_image_tag="${static_libraries_image_tag}" \
+                  --label ghc_version="${ghc_version}" \
+                  --label genesis_ref="${genesis_ref}" \
+                  --label genesis_path="${genesis_path}" \
+                  -t "concordium/${image_name}:${image_tag}" \
+                  -f scripts/distribution/builder.Dockerfile \
+                  --ssh default\
+                  --no-cache \
+                  .
+            """.stripIndent())
+        }
     }
 
     stage('push') {
