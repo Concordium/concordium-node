@@ -430,11 +430,21 @@ getWeakPointer weakPtr ptrHash name = do
             lf <- use lastFinalized
             if ptrHash == getHash lf then
               return lf
-            else do
-              nb <- readBlock ptrHash
-              case nb of
-                Just sb -> constructBlock sb
-                Nothing -> logErrorAndThrowTS ("Couldn't find " ++ name ++ " block in disk")
+            else
+              -- Weak pointers are used for parent pointers. A block that is alive should always have
+              -- a parent that is also alive, which means either actually in memory `BlockAlive` or already
+              -- finalized. If we fail to dereference the weak pointer we should thus be able to directly look
+              -- up the block from the block table.
+              use (blockTable . at' ptrHash) >>=
+                 \case Just (BlockAlive bp) -> return bp
+                       Just (BlockFinalized _) -> do
+                         nb <- readBlock ptrHash
+                         case nb of
+                           Just sb -> constructBlock sb
+                           Nothing -> do
+                             logErrorAndThrowTS ("Could not retrieve " ++ name ++ " block even though it is meant to be finalized. Block hash: " ++ show ptrHash)
+                       other ->
+                         logErrorAndThrowTS ("Could not retrieve " ++ name ++ " block. Block hash: " ++ show ptrHash ++ ", block status " ++ show other)
 
 instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
           Monad (PersistentTreeStateMonad pv ati bs m),
