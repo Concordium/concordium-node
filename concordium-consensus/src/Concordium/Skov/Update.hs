@@ -159,10 +159,10 @@ processFinalization newFinBlock finRec@FinalizationRecord{..} = do
         let pruneHeight = fromIntegral (bpHeight newFinBlock - lastFinHeight)
         -- First, prune the trunk: the section of the branches beyond the
         -- last finalized block up to and including the new finalized block.
-        -- We proceed backwards from the new finalized block, marking it and
-        -- its ancestors as finalized, while other blocks at the same height
-        -- are marked dead.
-        -- Instead of marking blocks dead immediately we accummulate them
+        -- We proceed backwards from the new finalized block, collecting blocks
+        -- to mark as dead. When we exhaust the branches we then mark blocks as finalized
+        -- by increasing height.
+        -- Instead of marking blocks dead immediately we accumulate them
         -- and a return a list. The reason for doing this is that we never
         -- have to look up a parent block that is already marked dead.
         let
@@ -174,17 +174,12 @@ processFinalization newFinBlock finRec@FinalizationRecord{..} = do
                        -- by increasing height.
             pruneTrunk toRemove _ Seq.Empty = return toRemove
             pruneTrunk toRemove keeper (brs Seq.:|> l) = do
-                toRemove1 <- foldM (\remove bp -> if bp == keeper then do
-                                      markFinalized (getHash bp) finRec
-                                      logEvent Skov LLDebug $ "Block " ++ show bp ++ " marked finalized"
-                                      return remove
-                                    else
-                                      return (bp:remove)
-                                  )
-                            toRemove
-                            l
                 parent <- bpParent keeper
+                let toRemove1 = filter (/= keeper) l ++ toRemove
                 toRemove2 <- pruneTrunk toRemove1 parent brs
+                -- mark blocks as finalized now, so that blocks are marked finalized by increasing height
+                markFinalized (getHash keeper) finRec
+                logEvent Skov LLDebug $ "Block " ++ show keeper ++ " marked finalized"
                 -- Finalize the transactions of the surviving block.
                 -- (This is handled in order of finalization.)
                 finalizeTransactions (getHash keeper) (blockSlot keeper) (blockTransactions keeper)
@@ -241,8 +236,8 @@ processFinalization newFinBlock finRec@FinalizationRecord{..} = do
                     _ -> return prunedbrs
         newBranches <- trimBranches unTrimmedBranches
         putBranches newBranches
-        -- mark dead blocks by increasing height
-        forM_ (toRemoveFromTrunk ++ reverse toRemoveFromBranches) $ \bp -> do
+        -- mark dead blocks by decreasing height
+        forM_ (toRemoveFromBranches ++ reverse toRemoveFromTrunk) $ \bp -> do
           markLiveBlockDead bp
           logEvent Skov LLDebug $ "Block " ++ show (bpHash bp) ++ " marked dead"
         -- purge pending blocks with slot numbers predating the last finalized slot
