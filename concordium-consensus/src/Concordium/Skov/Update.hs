@@ -162,18 +162,29 @@ processFinalization newFinBlock finRec@FinalizationRecord{..} = do
         -- We proceed backwards from the new finalized block, marking it and
         -- its ancestors as finalized, while other blocks at the same height
         -- are marked dead.
+        -- Instead of marking blocks dead immediately we accummulate them
+        -- and a return a list. The reason for doing this is that we never
+        -- have to look up a parent block that is already marked dead.
         let
-            pruneTrunk :: BlockPointerType m -> Branches m -> m ()
-            pruneTrunk _ Seq.Empty = return ()
-            pruneTrunk keeper (brs Seq.:|> l) = do
-                forM_ l $ \bp -> if bp == keeper then do
-                                    markFinalized (getHash bp) finRec
-                                    logEvent Skov LLDebug $ "Block " ++ show bp ++ " marked finalized"
-                                else do
-                                    markLiveBlockDead bp
-                                    logEvent Skov LLDebug $ "Block " ++ show bp ++ " marked dead"
+            pruneTrunk :: [BlockPointerType m] -- ^List of blocks to remove.
+                       -> BlockPointerType m -- ^The block that was finalized.
+                       -> Branches m
+                       -> m [BlockPointerType m]
+                       -- ^ The return value is a list of blocks to mark dead, ordered
+                       -- by increasing height.
+            pruneTrunk toRemove _ Seq.Empty = return toRemove
+            pruneTrunk toRemove keeper (brs Seq.:|> l) = do
+                toRemove1 <- foldM (\remove bp -> if bp == keeper then do
+                                      markFinalized (getHash bp) finRec
+                                      logEvent Skov LLDebug $ "Block " ++ show bp ++ " marked finalized"
+                                      return remove
+                                    else
+                                      return (bp:remove)
+                                  )
+                            toRemove
+                            l
                 parent <- bpParent keeper
-                pruneTrunk parent brs
+                toRemove2 <- pruneTrunk toRemove1 parent brs
                 -- Finalize the transactions of the surviving block.
                 -- (This is handled in order of finalization.)
                 finalizeTransactions (getHash keeper) (blockSlot keeper) (blockTransactions keeper)
@@ -184,8 +195,9 @@ processFinalization newFinBlock finRec@FinalizationRecord{..} = do
                         bcHeight = bpHeight keeper,
                         ..}
                 flushBlockSummaries ctx ati =<< getSpecialOutcomes =<< blockState keeper
+                return toRemove2
 
-        pruneTrunk newFinBlock (Seq.take pruneHeight oldBranches)
+        toRemoveFromTrunk <- pruneTrunk [] newFinBlock (Seq.take pruneHeight oldBranches)
         -- Archive the states of blocks up to but not including the new finalized block
         let doArchive b = case compare (bpHeight b) lastFinHeight of
                 LT -> return ()
@@ -196,21 +208,29 @@ processFinalization newFinBlock finRec@FinalizationRecord{..} = do
         doArchive =<< bpParent newFinBlock
         -- Prune the branches: mark dead any block that doesn't descend from
         -- the newly-finalized block.
+        -- Instead of marking blocks dead immediately we accummulate them
+        -- and a return a list. The reason for doing this is that we never
+        -- have to look up a parent block that is already marked dead.
         let
-            pruneBranches _ Seq.Empty = return Seq.empty
-            pruneBranches parents (brs Seq.:<| rest) = do
-                survivors <- foldrM (\bp l -> do
+            pruneBranches :: [BlockPointerType m] -- ^Accumulator of blocks to mark dead.
+                          -> [BlockPointerType m] -- ^Parents that remain alive.
+                          -> Branches m -- ^Branches to prune
+                          -> m (Branches m, [BlockPointerType m])
+                          -- ^The return value is a pair of new branches and the
+                          -- list of blocks to mark dead. The blocks are ordered
+                          -- by decreasing height.
+            pruneBranches toRemove _ Seq.Empty = return (Seq.empty, toRemove)
+            pruneBranches toRemove parents (brs Seq.:<| rest) = do
+                (survivors, removals) <- foldrM (\bp ~(keep, remove) -> do
                     parent <- bpParent bp
                     if parent `elem` parents then
-                        return (bp:l)
-                    else do
-                        markLiveBlockDead bp
-                        logEvent Skov LLDebug $ "Block " ++ show (bpHash bp) ++ " marked dead"
-                        return l)
-                    [] brs
-                rest' <- pruneBranches survivors rest
-                return (survivors Seq.<| rest')
-        unTrimmedBranches <- pruneBranches [newFinBlock] (Seq.drop pruneHeight oldBranches)
+                        return (bp:keep, remove)
+                    else
+                        return (keep, bp:remove))
+                    ([], toRemove) brs
+                (rest', toRemove') <- pruneBranches removals survivors rest
+                return (survivors Seq.<| rest', toRemove')
+        (unTrimmedBranches, toRemoveFromBranches) <- pruneBranches [] [newFinBlock] (Seq.drop pruneHeight oldBranches)
         -- This removes empty lists at the end of branches which can result in finalizing on a
         -- block not in the current best local branch
         let
@@ -221,6 +241,10 @@ processFinalization newFinBlock finRec@FinalizationRecord{..} = do
                     _ -> return prunedbrs
         newBranches <- trimBranches unTrimmedBranches
         putBranches newBranches
+        -- mark dead blocks by increasing height
+        forM_ (toRemoveFromTrunk ++ reverse toRemoveFromBranches) $ \bp -> do
+          markLiveBlockDead bp
+          logEvent Skov LLDebug $ "Block " ++ show (bpHash bp) ++ " marked dead"
         -- purge pending blocks with slot numbers predating the last finalized slot
         purgePending
         onFinalize finRec newFinBlock
