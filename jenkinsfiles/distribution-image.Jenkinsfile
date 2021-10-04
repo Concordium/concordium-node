@@ -17,6 +17,15 @@ pipeline {
     }
 
     stages {
+        stage('ecr-login') {
+            steps {
+                sh 'aws ecr get-login-password \
+                        --region eu-west-1 \
+                    | docker login \
+                        --username AWS \
+                        --password-stdin 192549843005.dkr.ecr.eu-west-1.amazonaws.com'
+            }
+        }
         stage('build') {
             steps {
                 // Using '--no-cache' because we're cloning genesis data
