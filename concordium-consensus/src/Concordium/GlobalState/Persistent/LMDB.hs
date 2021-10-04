@@ -188,8 +188,8 @@ instance S.Serialize VersionMetadata where
 -- |Values used by the LMDBStoreMonad to manage the database.
 -- The type is parametrised by the protocol version and the block state type.
 data DatabaseHandlers (pv :: ProtocolVersion) st = DatabaseHandlers {
-    -- |The LMDB environment.
-    _storeEnv :: !MDB_env,
+    -- |LMDB store environment with a reader-writer lock..
+    _storeEnv :: !StoreEnv,
     -- |Store of blocks by hash.
     _blockStore :: !(BlockStore pv st),
     -- |Store of finalization records by index.
@@ -268,12 +268,14 @@ makeDatabaseHandlers
   -- ^Initial database size
   -> IO (DatabaseHandlers pv st)
 makeDatabaseHandlers treeStateDir readOnly initSize = do
-  _storeEnv <- mdb_env_create
-  mdb_env_set_mapsize _storeEnv (initSize + dbStepSize - initSize `mod` dbStepSize)
-  mdb_env_set_maxdbs _storeEnv databaseCount
-  mdb_env_set_maxreaders _storeEnv 126
+  _storeEnv <- makeStoreEnv
+  -- here nobody else has access to the environment, so we need not lock
+  let env = _storeEnv ^. seEnv
+  mdb_env_set_mapsize env (initSize + dbStepSize - initSize `mod` dbStepSize)
+  mdb_env_set_maxdbs env databaseCount
+  mdb_env_set_maxreaders env 126
   -- TODO: Consider MDB_NOLOCK
-  mdb_env_open _storeEnv treeStateDir [MDB_RDONLY | readOnly]
+  mdb_env_open env treeStateDir [MDB_RDONLY | readOnly]
   transaction _storeEnv readOnly $ \txn -> do
     _blockStore <- BlockStore <$> mdb_dbi_open' txn (Just blockStoreName) [MDB_CREATE | not readOnly]
     _finalizationRecordStore <- FinalizationRecordStore <$> mdb_dbi_open' txn (Just finalizationRecordStoreName) [MDB_CREATE | not readOnly]
@@ -298,18 +300,19 @@ openReadOnlyDatabase
   -- ^Path of database
   -> IO (Maybe VersionDatabaseHandlers)
 openReadOnlyDatabase treeStateDir = do
-  _storeEnv <- mdb_env_create
-  mdb_env_set_mapsize _storeEnv dbInitSize
-  mdb_env_set_maxdbs _storeEnv databaseCount
-  mdb_env_set_maxreaders _storeEnv 126
+  _storeEnv <- makeStoreEnv
+  let env = _storeEnv ^. seEnv
+  mdb_env_set_mapsize env dbInitSize
+  mdb_env_set_maxdbs env databaseCount
+  mdb_env_set_maxreaders env 126
   -- TODO: Consider MDB_NOLOCK
-  mdb_env_open _storeEnv treeStateDir [MDB_RDONLY]
+  mdb_env_open env treeStateDir [MDB_RDONLY]
   (_metadataStore, mversion) <- resizeOnResizedInternal _storeEnv $ transaction _storeEnv True $ \txn -> do
     _metadataStore <- MetadataStore <$> mdb_dbi_open' txn (Just metadataStoreName) []
     mversion <- loadRecord txn _metadataStore versionMetadata
     return (_metadataStore, mversion)
   case mversion of
-    Nothing -> Nothing <$ mdb_env_close _storeEnv
+    Nothing -> Nothing <$ mdb_env_close env
     Just v -> case S.decode v of
         Right VersionMetadata{vmDatabaseVersion = 0, ..} ->
             -- Promote the term level vmProtocolVersion to a type-level value pv, which is
@@ -324,7 +327,7 @@ openReadOnlyDatabase treeStateDir = do
                         _finalizedByHeightStore <- FinalizedByHeightStore <$> mdb_dbi_open' txn (Just finalizedByHeightStoreName) []
                         _transactionStatusStore <- TransactionStatusStore <$> mdb_dbi_open' txn (Just transactionStatusStoreName) []
                         return (Just (VersionDatabaseHandlers @pv DatabaseHandlers{..}))
-        _ -> Nothing <$ mdb_env_close _storeEnv
+        _ -> Nothing <$ mdb_env_close env
 
 
 -- |Initialize the database handlers creating the databases if needed and writing the genesis block and its finalization record into the disk
@@ -400,7 +403,8 @@ checkDatabaseVersion db = checkVersion <$> transaction (db ^. storeEnv) True
 
 -- |Close down the database, freeing the file handles.
 closeDatabase :: DatabaseHandlers pv st -> IO ()
-closeDatabase db = runInBoundThread $ mdb_env_close (db ^. storeEnv)
+closeDatabase db = runInBoundThread $ withWriteStoreEnv (db ^. storeEnv) mdb_env_close
+  -- The use of withWriteStoreEnv ensures that there are no outstanding transactions and cursors are closed.
 
 -- |Resize the LMDB map if the file size has changed.
 -- This is used to allow a secondary process that is reading the database
@@ -412,24 +416,24 @@ resizeOnResized a = do
     dbh <- use dbHandlers
     resizeOnResizedInternal (dbh ^. storeEnv) a
 
-resizeOnResizedInternal :: (MonadIO m, MonadCatch m) => MDB_env -> m a -> m a
-resizeOnResizedInternal env a = inner
+resizeOnResizedInternal :: (MonadIO m, MonadCatch m) => StoreEnv -> m a -> m a
+resizeOnResizedInternal se a = inner
   where
     inner = handleJust checkResized onResized a
     checkResized LMDB_Error{..} = guard (e_code == Right MDB_MAP_RESIZED)
     onResized _ = do
-      liftIO (mdb_env_set_mapsize env 0)
+      liftIO (withWriteStoreEnv se $ flip mdb_env_set_mapsize 0)
       inner
 
 resizeDatabaseHandlers :: (MonadIO m, MonadLogger m) => DatabaseHandlers pv st -> Int -> m ()
 resizeDatabaseHandlers dbh size = do
-  envInfo <- liftIO $ mdb_env_info (dbh ^. storeEnv)
+  envInfo <- liftIO $ mdb_env_info (dbh ^. storeEnv . seEnv)
   let delta = size + (dbStepSize - size `mod` dbStepSize)
       oldMapSize = fromIntegral $ me_mapsize envInfo
       newMapSize = oldMapSize + delta
       _storeEnv = dbh ^. storeEnv
   logEvent LMDB LLDebug $ "Resizing database from " ++ show oldMapSize ++ " to " ++ show newMapSize
-  liftIO $ mdb_env_set_mapsize _storeEnv newMapSize
+  liftIO . withWriteStoreEnv (dbh ^. storeEnv) $ flip mdb_env_set_mapsize newMapSize
 
 -- |Read a block from the database by hash.
 readBlock :: (MonadIO m, MonadState s m, IsProtocolVersion pv, HasDatabaseHandlers pv st s, S.Serialize st)

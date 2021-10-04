@@ -1,7 +1,8 @@
 {-# LANGUAGE
         ScopedTypeVariables,
         DefaultSignatures,
-        TypeFamilies
+        TypeFamilies,
+        TemplateHaskell
 #-}
 {- |This module provides abstractions for working with LMDB databases.
     Chief among them is the 'MDBDatabase' class, which can be used for
@@ -12,6 +13,7 @@
 module Concordium.GlobalState.LMDB.Helpers where
 
 import Control.Concurrent (runInBoundThread)
+import Control.Concurrent.MVar
 import Control.Exception
 import Control.Monad
 import Control.Monad.Trans.Except
@@ -28,6 +30,158 @@ import Foreign.Marshal.Utils
 import Foreign.Marshal.Alloc
 import Foreign.Ptr
 import Foreign.Storable
+import Lens.Micro.Platform
+
+
+-- Implementation of reader-writer locks that strongly prefer writers.
+
+data RWState =
+   -- |Nobody has acquired the lock.
+  Free { waitingWriters :: !Word64 }
+  -- |The given number of readers have acquired the lock.
+  | ReadLocked {
+      readers :: !Word64,
+      waitingWriters :: !Word64
+      }
+  -- |The lock is acquired by a single writer.
+  | WriteLocked {
+      waitingWriters :: !Word64
+      }
+    deriving(Show)
+
+-- |A reader writer lock with a bias for writers. If there are waiting writers
+-- readers will block.
+data RWLock = RWLock {
+  state :: !(MVar RWState),
+  -- |Used to signal waiting readers to wake up. This is empty when there is at
+  -- least one active reader and full otherwise.
+  readLock :: !(MVar ()),
+  -- |Used to signal waiting writers to wake up. This is empty when there is an
+  -- active writer, and full otherwise.
+  writeLock :: !(MVar ())
+  }
+
+-- |Initialize a lock in the unlocked state.
+initializeLock :: IO RWLock
+initializeLock = do
+  state <- newMVar (Free 0)
+  readLock <- newMVar ()
+  writeLock <- newMVar ()
+  return RWLock{..}
+
+-- |Acquire a read lock. This will block until there are no pending writers
+-- waiting to acquire the lock.
+acquireRead :: RWLock -> IO ()
+acquireRead RWLock{..} = mask_ go
+  where
+    go = takeMVar state >>= \case
+      st@(Free waitingWriters)
+        | waitingWriters == 0 -> do
+            -- the lock is free and there are no waiting writers. Acquire a read lock.
+            takeMVar readLock
+            putMVar state (ReadLocked 1 0)
+        | otherwise -> do
+            -- the lock is free, but there are waiting writers. We do nothing and try again.
+            -- Due to fairness of MVars next time another thread will make progress
+            -- so we are going to end up after a finite number of iterations, in a WriteLocked state.
+            putMVar state st
+            go
+      st@(ReadLocked n waitingWriters)
+          | waitingWriters == 0 ->
+            -- No waiting writers, add another reader.
+            putMVar state $! ReadLocked (n + 1) 0
+          | otherwise -> do
+              -- Some readers hold the lock, but there are waiting writers.
+              -- We do nothing and wait until there are no more readers and attempt again.
+              -- At that point we are likely to end up in WriteLocked state.
+              putMVar state st
+              readMVar readLock
+              go
+      lockState@(WriteLocked _) -> do
+        -- There is an active writer. Do nothing and wait until the writer is done.
+        putMVar state lockState
+        readMVar writeLock
+        go
+
+
+acquireWrite :: RWLock -> IO ()
+acquireWrite RWLock{..} = mask_ $ go False
+  where
+    -- the boolean flag indicates whether this is a first iteration of the loop (False) or not (True)
+    go b = takeMVar state >>= \case
+      (Free waitingWriters) -> do
+        -- The lock is free, take it.
+        takeMVar writeLock
+        putMVar state $! WriteLocked (waitingWriters - if b then 1 else 0)
+      (ReadLocked n waitingWriters) -> do
+        -- There are active readers. Queue ourselves up and wait until all existing readers
+        -- are done. This will block all subsequent readers from acquiring the lock.
+        putMVar state $! ReadLocked n (waitingWriters + if not b then 1 else 0)
+        readMVar readLock
+        go True
+      (WriteLocked waitingWriters) -> do
+        -- There is an active writer. Queue ourselves up so that readers are
+        -- blocked from acquiring the lock and wait until the current writer is done.
+        putMVar state $! WriteLocked (waitingWriters + if not b then 1 else 0)
+        readMVar writeLock
+        go True
+
+
+releaseWrite :: RWLock -> IO ()
+releaseWrite RWLock{..} = mask_ $
+   takeMVar state >>= \case
+    (WriteLocked waitingWriters) -> do
+      putMVar writeLock ()
+      putMVar state (Free waitingWriters)
+    lockState -> do
+      putMVar state lockState
+      error $ "releaseWrite: attempting to release while in state: " ++ show lockState
+
+
+releaseRead :: RWLock -> IO ()
+releaseRead RWLock{..} = mask_ $
+  takeMVar state >>= \case
+    (ReadLocked 1 waitingWriters) -> do
+      putMVar readLock ()
+      putMVar state (Free waitingWriters)
+    (ReadLocked n waitingWriters) -> putMVar state $! ReadLocked (n - 1) waitingWriters
+    lockState -> do
+      putMVar state lockState
+      error $ "releaseRead: attempting to release read when in state: " ++ show lockState
+
+-- |Acquire the write lock and execute the action. The lock will be released
+-- even if the action raises an exception.
+withWriteLock :: RWLock -> IO a -> IO a
+withWriteLock ls = bracket_ (acquireWrite ls) (releaseWrite ls)
+
+-- |Acquire the read lock and execute the action. The lock will be released even
+-- if the action raises an exception.
+withReadLock :: RWLock -> IO a -> IO a
+withReadLock ls = bracket_ (acquireRead ls) (releaseRead ls)
+
+-- |LMDB database environment with a reader-writer lock. The reader writer lock
+-- is used to make sure that modifications of the environment are done when
+-- there are no active transactions. The intended way to use this is to acquire
+-- a read lock for each normal transaction (e.g., read, write), and acquire a
+-- write lock when the environment needs to be modified, e.g., resized.
+data StoreEnv = StoreEnv {
+  -- |The LMDB environment.
+  _seEnv :: !MDB_env,
+  -- |Lock to quard access to the environment. When resizing the environment
+  -- we must ensure that there are no outstanding transactions.
+  _seEnvLock :: !RWLock
+}
+makeLenses ''StoreEnv
+
+makeStoreEnv :: IO StoreEnv
+makeStoreEnv = do
+  _seEnv <- mdb_env_create
+  _seEnvLock <- initializeLock
+  return StoreEnv{..}
+
+-- |Acquire exclusive access to the LMDB environment and perform the given action.
+withWriteStoreEnv :: StoreEnv -> (MDB_env -> IO a) -> IO a
+withWriteStoreEnv env f = withWriteLock (env ^. seEnvLock) (f (env ^. seEnv))
 
 -- |A type-safe wrapper for an LMDB database.  Typically, this can be
 -- implemented with a @newtype@ wrapper around 'MDB_dbi'' and defining
@@ -68,16 +222,22 @@ class MDBDatabase db where
   default decodeValue :: (S.Serialize (DBValue db)) => Proxy db -> MDB_val -> IO (Either String (DBValue db))
   decodeValue _ v = S.decode <$> byteStringFromMDB_val v
 
--- |Run a transaction in an LMDB environment.  The second argument
--- specifies if the transaction is read-only.
-transaction :: MDB_env -> Bool -> (MDB_txn -> IO a) -> IO a
-transaction env readOnly tx
-  = threadRun $ mask $ \unmask -> do
-      txn <- mdb_txn_begin env Nothing readOnly
-      res <- unmask (tx txn) `onException` mdb_txn_abort txn
-      mdb_txn_commit txn
-      return res
+-- |Run a transaction in an LMDB environment. The second argument specifies if
+-- the transaction is read-only. This will acquire a read lock so the given IO
+-- action must not contain a transaction, or acquire a read or write lock
+-- itself. Doing so is likely to lead to a deadlock if other threads have access
+-- to the same environment.
+transaction :: StoreEnv -> Bool -> (MDB_txn -> IO a) -> IO a
+transaction se readOnly tx
+  = threadRun $ mask $ \unmask ->
+      withReadLock lock $ do
+        txn <- mdb_txn_begin env Nothing readOnly
+        res <- unmask (tx txn) `onException` mdb_txn_abort txn
+        mdb_txn_commit txn
+        return res
   where
+    env = se ^. seEnv
+    lock = se ^. seEnvLock
     threadRun
         | readOnly = id
         | otherwise = runInBoundThread
