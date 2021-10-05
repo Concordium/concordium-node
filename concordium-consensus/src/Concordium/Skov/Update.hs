@@ -203,7 +203,7 @@ processFinalization newFinBlock finRec@FinalizationRecord{..} = do
         doArchive =<< bpParent newFinBlock
         -- Prune the branches: mark dead any block that doesn't descend from
         -- the newly-finalized block.
-        -- Instead of marking blocks dead immediately we accummulate them
+        -- Instead of marking blocks dead immediately we accumulate them
         -- and a return a list. The reason for doing this is that we never
         -- have to look up a parent block that is already marked dead.
         let
