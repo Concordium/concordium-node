@@ -204,7 +204,7 @@ processFinalization newFinBlock finRec@FinalizationRecord{..} = do
         -- Prune the branches: mark dead any block that doesn't descend from
         -- the newly-finalized block.
         -- Instead of marking blocks dead immediately we accummulate them
-        -- and a return a list. The reason for doing this is that we never
+        -- and return a list. The reason for doing this is that we never
         -- have to look up a parent block that is already marked dead.
         let
             pruneBranches :: [BlockPointerType m] -- ^Accumulator of blocks to mark dead.
