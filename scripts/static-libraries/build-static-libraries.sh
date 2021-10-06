@@ -8,11 +8,11 @@ STACK_VERSION="2.7.1"
 
 mkdir -p /target/{profiling,vanilla}/{ghc,dependencies,concordium}
 mkdir -p /binaries/{lib,bin}
-for lib in $(find `stack --stack-yaml /build/concordium-consensus/stack.integer-simple.yaml ghc -- --print-libdir` -type f -name "*_p.a" ! -name "*_debug_p.a" ! -name "*rts_p.a" ! -name "*ffi_p.a"); do
+for lib in $(find `stack --stack-yaml /build/concordium-consensus/stack.static.yaml ghc -- --print-libdir` -type f -name "*_p.a" ! -name "*_debug_p.a" ! -name "*rts_p.a" ! -name "*ffi_p.a"); do
     cp $lib /target/profiling/ghc/
 done
 
-for lib in $(find `stack --stack-yaml /build/concordium-consensus/stack.integer-simple.yaml ghc -- --print-libdir` -type f -name "*.a" ! -name "*_p.a" ! -name "*_l.a" ! -name "*_debug.a" ! -name "*rts.a" ! -name "*ffi.a"); do
+for lib in $(find `stack --stack-yaml /build/concordium-consensus/stack.static.yaml ghc -- --print-libdir` -type f -name "*.a" ! -name "*_p.a" ! -name "*_l.a" ! -name "*_debug.a" ! -name "*rts.a" ! -name "*ffi.a"); do
     cp $lib /target/vanilla/ghc/
 done
 
@@ -24,7 +24,7 @@ cd /build
 cargo update --manifest-path /build/concordium-base/rust-src/Cargo.toml
 cargo check --manifest-path /build/concordium-base/rust-src/Cargo.toml
 
-stack build --profile --flag "concordium-consensus:-dynamic" --stack-yaml /build/concordium-consensus/stack.integer-simple.yaml
+stack build --profile --flag "concordium-consensus:-dynamic" --stack-yaml /build/concordium-consensus/stack.static.yaml
 
 for lib in $(find /build/concordium-consensus/.stack-work -type f -name "*.a" ! -name "*_p.a"); do
     cp $lib /target/vanilla/concordium/;
@@ -37,7 +37,7 @@ done
 #############################################################################################################################
 ## Copy rust binaries
 
-cp $(stack --stack-yaml /build/concordium-consensus/stack.integer-simple.yaml path --profile --local-install-root)/bin/{generate-update-keys,genesis,database-exporter} /binaries/bin/
+cp $(stack --stack-yaml /build/concordium-consensus/stack.static.yaml path --profile --local-install-root)/bin/{generate-update-keys,genesis,database-exporter} /binaries/bin/
 cp /build/concordium-base/rust-src/target/release/*.so /binaries/lib/
 cp /build/concordium-consensus/smart-contracts/wasm-chain-integration/target/release/*.so /binaries/lib/
 cargo build --release --manifest-path /build/concordium-base/rust-bins/Cargo.toml
