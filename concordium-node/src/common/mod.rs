@@ -8,9 +8,6 @@ pub mod utils;
 
 use chrono::prelude::*;
 
-#[cfg(feature = "collector")]
-pub mod collector_utils;
-
 /// Returns the current timestamp.
 pub fn get_current_stamp() -> u64 { Utc::now().timestamp_millis() as u64 }
 

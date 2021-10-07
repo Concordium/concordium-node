@@ -1,0 +1,31 @@
+[package]
+name = "collector-backend"
+version = "1.1.2"
+edition = "2018"
+authors = ["Concordium <developers@concordium.com>"]
+license-file = "../LICENSE"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+serde = { version = "1.0", features = ["rc", "derive"] }
+rmp-serde = { version = "0.15" }
+serde_json = { version = "1" }
+mime = { version = "0.3"  }
+gotham = { version = "0.6" }
+gotham_derive = { version = "0.6" }
+hyper = { version = "0.14" }
+futures = { version = "0.3"}
+reqwest = { version = "0.11", default-features = false, features = ["default-tls", "stream", "json"] }
+structopt = "0.3"
+log = "0.4"
+env_logger = "0.8"
+anyhow = "1.0"
+tonic = "0.4.1"
+prost = "0.7.0"
+twox-hash = { version = "^1.5.0", features = ["digest"] }
+chrono = "0.4"
+tokio = { version = "1.4.0", features = ["macros", "rt-multi-thread"] }
+
+[build-dependencies]
+tonic-build = { version = "0.4.1", default-features = false, features = ["transport", "prost"] }

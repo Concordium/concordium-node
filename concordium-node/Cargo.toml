@@ -18,7 +18,7 @@ instrumentation = ["serde_derive", "gotham", "mime", "gotham_derive", "prometheu
 network_dump = []
 static = [ ]
 profiling = [ "static" ]
-collector = [ "reqwest/default-tls", "serde/derive", "rmp-serde", "gotham", "mime", "gotham_derive", "hyper", "futures" ]
+collector = [ "reqwest/default-tls", "serde/derive", "rmp-serde", "mime", "collector-backend" ]
 database_emitter = []
 genesis_tester = [ "tempfile" ]
 
@@ -88,6 +88,8 @@ jsonwebtoken = { version = "7", optional = true }
 prometheus = { version = "0.12", default-features = false, features = ["gen", "push", "protobuf"], optional = true }
 tempfile = { version = "3.1", optional = true }
 
+collector-backend = { version = "*", path = "../collector-backend/", optional = true }
+
 [target.'cfg(target_os = "macos")'.build-dependencies]
 cc = "1.0"
 
@@ -127,11 +129,6 @@ name = "p2p_bootstrapper-cli"
 [[bin]]
 name = "node-collector"
 path = "src/bin/collector.rs"
-required-features = [ "collector" ]
-
-[[bin]]
-name = "node-collector-backend"
-path = "src/bin/collector_backend.rs"
 required-features = [ "collector" ]
 
 [[bin]]

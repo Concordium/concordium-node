@@ -417,6 +417,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "collector-backend"
+version = "1.1.2"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "env_logger",
+ "futures",
+ "gotham",
+ "gotham_derive",
+ "hyper",
+ "log",
+ "mime",
+ "prost",
+ "reqwest",
+ "rmp-serde",
+ "serde 1.0.126",
+ "serde_json 1.0.64",
+ "structopt",
+ "tokio",
+ "tonic",
+ "tonic-build",
+ "twox-hash",
+]
+
+[[package]]
 name = "combine"
 version = "4.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -440,6 +465,7 @@ dependencies = [
  "cfg-if 1.0.0",
  "chrono",
  "circular-queue",
+ "collector-backend",
  "criterion",
  "crossbeam-channel",
  "crypto_common",

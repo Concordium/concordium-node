@@ -162,6 +162,9 @@ jobs:
     - name: Check that Rust target compiles
       run: |
         cargo check --manifest-path concordium-node/Cargo.toml --workspace
+    - name: Check that the collector-backend compiles
+      run: |
+        cargo check --manifest-path collector-backend/Cargo.toml --workspace
     - name: Check that the Windows node runner service compiles (gnu toolchain, disable embedded resources)
       run: |
         cargo check --target x86_64-pc-windows-gnu --manifest-path service/windows/Cargo.toml --workspace --no-default-features
@@ -174,6 +177,9 @@ jobs:
     - name: Run clippy (with features 'instrumentation', 'collector', 'network_dump', 'database_emitter')
       run: |
         cargo clippy --manifest-path concordium-node/Cargo.toml --features=instrumentation,collector,network_dump,database_emitter --all -- -Dclippy::all
+    - name: Run clippy on collector backend
+      run: |
+        cargo clippy --manifest-path collector-backend/Cargo.toml -- -Dclippy::all
     - name: Run clippy on Windows node runner service
       run: |
         cargo clippy --target x86_64-pc-windows-gnu --manifest-path service/windows/Cargo.toml --all --no-default-features -- -Dclippy::all
