@@ -13,9 +13,11 @@ node('master-node') {
         error "No value for 'environment' provided."
     }
     
+    def image_name = ${environment}-node"
+    def file_name = "${image_name}-${image_tag}.tar.gz"
     def s3_bucket = "s3://distribution.${concordiumDomain(environment)}"
     def s3_version_path = 'image/version.json'
-    def s3_image_path = "image/${environment}-node-${image_tag}.tar.gz"
+    def s3_image_path = "image/${file_name}"
     def cf_distribution_id = DISTRIBUTION_IDS[environment]
     if (!cf_distribution_id) {
         error "No value for 'cf_distribution_id' found."
@@ -35,8 +37,8 @@ node('master-node') {
             aws s3 cp - "${s3_bucket}/${s3_version_path}" --grants=read=uri=http://acs.amazonaws.com/groups/global/AllUsers <<EOF
             {
                 "image_tag": "${image_tag}",
-                "file": "testnet-node-${image_tag}.tar.gz",
-                "image_name": "testnet-node"
+                "file": "${file_name}",
+                "image_name": "${image_name}"
             }
             EOF
         """.stripIndent())
