@@ -199,6 +199,7 @@ fn link_static_libs() -> std::io::Result<()> {
     println!("cargo:rustc-link-lib=static=wasm_chain_integration");
 
     println!("cargo:rustc-link-lib=dylib=pq");
+    println!("cargo:rustc-link-lib=dylib=gmp");
 
     Ok(())
 }

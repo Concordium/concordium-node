@@ -7,6 +7,7 @@ FROM static-node-binaries as binaries
 
 COPY template /pkg-root
 
+RUN mkdir -p /pkg-root/binaries
 RUN cp /build/bin/concordium-node /pkg-root/binaries/concordium-node
 RUN cp /build/bin/node-collector /pkg-root/binaries/concordium-node-collector
 
@@ -17,7 +18,7 @@ COPY --from=binaries /pkg-root /pkg-root
 WORKDIR /pkg-root
 
 RUN apt-get update && \
-DEBIAN_FRONTEND=noninteractive apt-get -y install debhelper dh-exec libpq5
+DEBIAN_FRONTEND=noninteractive apt-get -y install debhelper dh-exec libpq5 libgmp10
 
 ARG build_env_name=Testnet
 ARG build_env_name_lower=testnet

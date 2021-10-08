@@ -11,15 +11,5 @@ extra-lib-dirs:
 - ../concordium-base/lib
 - ./smart-contracts/lib
 
-flags:
-  hashable:
-    integer-gmp: false
-  integer-logarithms:
-    integer-gmp: false
-  scientific:
-    integer-simple: true
-  cryptonite:
-    integer-gmp: false
-
 ghc-options:
     "$everything": -fPIC
