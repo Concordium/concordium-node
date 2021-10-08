@@ -13,7 +13,7 @@ node('master-node') {
         error "No value for 'environment' provided."
     }
     
-    def image_name = ${environment}-node"
+    def image_name = "${environment}-node"
     def file_name = "${image_name}-${image_tag}.tar.gz"
     def s3_bucket = "s3://distribution.${concordiumDomain(environment)}"
     def s3_version_path = 'image/version.json'
