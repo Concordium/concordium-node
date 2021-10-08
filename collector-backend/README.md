@@ -12,7 +12,7 @@ The collector backend tries to do some validation of the data received from the 
 For a description of all the arguments run:
 
 ```console
-$> cargo run --bin node-collector-backend --features=collector -- --help
+$> cargo run -- --help
 ```
 
 But some of the settings require a bit more explaination:
