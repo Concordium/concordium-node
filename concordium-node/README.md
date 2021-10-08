@@ -185,45 +185,14 @@ To automatically open the browser with the documentation once it is generated us
 $> cargo doc --open
 ```
 
-# Collector-backend and collectors
+# Collector
 
 To allow the network dashboard to display nodes in the network and their current status, a node must run a collector, which is a process that uses the GRPC api of the node to collect information and sends it to a centralized collector backend.
 
-## Collectors
+See [./collector-backend/](./collector-backend/) for details of the collector backend and how to run it.
+
 Assuming you have a node running locally with GRPC available at `127.0.0.1:10000` and a collector backend at `127.0.0.1:8080`, a collector can be run using:
 
 ```console
 $> cargo run --bin node-collector --features=collector -- --collector-url http://127.0.0.1:8080/post/nodes --grpc-host http://127.0.0.1:10000  --node-name "my-node-name"
 ```
-
-## Collector-backend
-
-To run a collector-backend:
-```console
-$> cargo run --bin node-collector-backend --features=collector
-```
-
-### Adjusting validation
-The collector backend tries to do some validation of the data received from the collectors. These checks can be set using either command line arguments or environment variables.
-For a description of all the arguments run:
-
-```console
-$> cargo run --bin node-collector-backend --features=collector -- --help
-```
-
-But some of the settings require a bit more explaination:
-
-#### Limiting total data size
-Setting `--valid-content-length` is a limit on the total byte size of the data received from a node, meaning it should also accommodate for everything in the data set. If we change something like the allowed node name length or the valid node peers count, this should probably be adjusted as well.
-
-#### Comparing block heights against the average
-Data where the best block height or finalized block height is too far from the current average will be rejected.
-
-Adjusting what is considered 'too far' can be done for each check using `--valid-additional-best-block-height` and`--valid-additional-finalized-block-height`.
-
-Comparing with averages only makes sense when the collector-backend have enough data points, the minimum number of required data points can be adjusted using `--validate-against-average-at`.
-
-For the average to better withstand outliers, it is calculated from a percentage of the nodes, where the leftout nodes are the highest and lowest data values.
-The percentage can be adjusted using `--percentage-used-for-averages` and must be an integer between 1 and 100.
-
-Example: Say, we set the percentage to 60, with 20 nodes running, then new data would be compared to the average of 12 nodes, leaving out the nodes with the 3 lowest values and the 3 highest values.
