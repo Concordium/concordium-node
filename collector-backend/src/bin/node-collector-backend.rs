@@ -261,7 +261,8 @@ pub fn main() -> anyhow::Result<()> {
 fn index(state: State) -> (State, HTMLStringResponse) {
     trace!("Processing an index request");
     let message = HTMLStringResponse(format!(
-        "<html><body><h1>Collector backend for concordium v{}</h1>Operational!</p></body></html>",
+        "<html><body><h1>Collector backend for concordium \
+         v{}</h1><p>Operational!</p></body></html>",
         env!("CARGO_PKG_VERSION")
     ));
     (state, message)

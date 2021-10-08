@@ -18,7 +18,7 @@ instrumentation = ["serde_derive", "gotham", "mime", "gotham_derive", "prometheu
 network_dump = []
 static = [ ]
 profiling = [ "static" ]
-collector = [ "reqwest/default-tls", "serde/derive", "rmp-serde", "mime", "collector-backend" ]
+collector = [ "reqwest/default-tls", "serde/derive", "rmp-serde", "collector-backend" ]
 database_emitter = []
 genesis_tester = [ "tempfile" ]
 

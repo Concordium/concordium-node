@@ -264,7 +264,6 @@ pub fn setup_logger(trace: bool, debug: bool, no_log_timestamp: bool) {
     }
     log_builder.filter(Some(&"tokio_reactor"), LevelFilter::Warn);
     log_builder.filter(Some(&"hyper"), LevelFilter::Warn);
-    log_builder.filter(Some(&"reqwest"), LevelFilter::Warn);
     log_builder.filter(Some(&"gotham"), LevelFilter::Warn);
     log_builder.filter(Some(&"h2"), LevelFilter::Warn);
     log_builder.init();
