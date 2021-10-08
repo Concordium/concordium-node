@@ -39,66 +39,58 @@ struct ConfigCli {
         default_value = "0.0.0.0",
         env = "COLLECTOR_BACKEND_ADDRESS"
     )]
-    pub host: String,
+    pub host:                   String,
     #[structopt(
         long = "listen-port",
         help = "Port to listen on",
         default_value = "8080",
         env = "COLLECTOR_BACKEND_PORT"
     )]
-    pub port: u16,
+    pub port:                   u16,
     #[structopt(
         long = "stale-time-allowed",
         help = "Time in ms nodes are allowed to not have reported updates in before being removed",
         default_value = "3600000",
         env = "COLLECTOR_BACKEND_STALE_TIME_ALLOWED"
     )]
-    pub stale_time_allowed: u64,
+    pub stale_time_allowed:     u64,
     #[structopt(
         long = "cleanup-interval",
         help = "Time in ms to sleep between cleanups",
         default_value = "300000",
         env = "COLLECTOR_BACKEND_CLEANUP_INTERVAL"
     )]
-    pub cleanup_interval: u64,
+    pub cleanup_interval:       u64,
     #[structopt(
         long = "print-config",
         help = "Print out config struct",
         env = "COLLECTOR_BACKEND_PRINT_CONFIG"
     )]
-    pub print_config: bool,
+    pub print_config:           bool,
     #[structopt(
         long = "debug",
         short = "d",
         help = "Debug mode",
         env = "COLLECTOR_BACKEND_LOG_LEVEL_DEBUG"
     )]
-    pub debug: bool,
-    #[structopt(
-        long = "trace",
-        help = "Trace mode",
-        env = "COLLECTOR_BACKEND_LOG_LEVEL_TRACE"
-    )]
-    pub trace: bool,
-    #[structopt(
-        long = "info",
-        help = "Info mode",
-        env = "COLLECTOR_BACKEND_LOG_LEVEL_INFO"
-    )]
-    pub info: bool,
+    pub debug:                  bool,
+    #[structopt(long = "trace", help = "Trace mode", env = "COLLECTOR_BACKEND_LOG_LEVEL_TRACE")]
+    pub trace:                  bool,
+    #[structopt(long = "info", help = "Info mode", env = "COLLECTOR_BACKEND_LOG_LEVEL_INFO")]
+    pub info:                   bool,
     #[structopt(
         long = "no-log-timestamp",
         help = "Do not output timestamp in log output",
         env = "COLLECTOR_BACKEND_NO_LOG_TIMESTAMP"
     )]
-    pub no_log_timestamp: bool,
+    pub no_log_timestamp:       bool,
     #[structopt(
         long = "banned-versions",
         help = "Versions that are banned from publishing to the collector backend",
         env = "COLLECTOR_BACKEND_BANNED_VERSIONS",
         use_delimiter = true
     )]
-    pub banned_versions: Vec<String>,
+    pub banned_versions:        Vec<String>,
     #[structopt(
         long = "banned-node-names-file",
         env = "COLLECTOR_BACKEND_BANNED_NODE_NAMES_FILE",
@@ -108,7 +100,7 @@ struct ConfigCli {
     )]
     pub banned_node_names_file: Option<PathBuf>,
     #[structopt(flatten)]
-    validation_config: ValidationConfig,
+    validation_config:          ValidationConfig,
 }
 
 #[derive(Debug, Clone, StateData, StructOpt)]
@@ -119,35 +111,35 @@ pub struct ValidationConfig {
         default_value = "100000",
         env = "COLLECTOR_BACKEND_VALIDATION_VALID_CONTENT_LENGTH"
     )]
-    pub valid_content_length: u64,
+    pub valid_content_length:                    u64,
     #[structopt(
         long = "valid-node-name-lenght",
         help = "Maximum number of bytes allowed for the name of the node",
         default_value = "100",
         env = "COLLECTOR_BACKEND_VALIDATION_VALID_NODE_NAME_LENGTH"
     )]
-    pub valid_node_name_lenght: usize,
+    pub valid_node_name_lenght:                  usize,
     #[structopt(
         long = "valid-node-average-ping",
         help = "Maximum average ping allowed in milliseconds",
         default_value = "150000",
         env = "COLLECTOR_BACKEND_VALIDATION_VALID_NODE_AVERAGE_PING"
     )]
-    pub valid_node_average_ping: f64,
+    pub valid_node_average_ping:                 f64,
     #[structopt(
         long = "valid-node-peers-count",
         help = "Maximum number for peers count",
         default_value = "50",
         env = "COLLECTOR_BACKEND_VALIDATION_VALID_NODE_PEERS_COUNT"
     )]
-    pub valid_node_peers_count: u64,
+    pub valid_node_peers_count:                  u64,
     #[structopt(
         long = "validate-against-average-at",
         help = "The minimum number of nodes needed to calculate averages for validation",
         default_value = "20",
         env = "COLLECTOR_BACKEND_VALIDATION_VALIDATE_AGAINTS_AVERAGE_AT"
     )]
-    pub validate_against_average_at: u64,
+    pub validate_against_average_at:             u64,
     #[structopt(
         long = "percentage-used-for-averages",
         help = "A whole number representing the percentage of node data to use when calculating \
@@ -156,7 +148,7 @@ pub struct ValidationConfig {
         default_value = "60",
         env = "COLLECTOR_BACKEND_VALIDATION_PERCENTAGE_USED_FOR_AVERAGES"
     )]
-    pub percentage_used_for_averages: usize,
+    pub percentage_used_for_averages:            usize,
     #[structopt(
         long = "valid-additional-best-block-height",
         help = "Maximum additional height of the best block allowed compared to the average best \
@@ -164,7 +156,7 @@ pub struct ValidationConfig {
         default_value = "1000",
         env = "COLLECTOR_BACKEND_VALIDATION_VALID_ADDITIONAL_BEST_BLOCK_HEIGHT"
     )]
-    pub valid_additional_best_block_height: u64,
+    pub valid_additional_best_block_height:      u64,
     #[structopt(
         long = "valid-additional-finalized-block-height",
         help = "Maximum additional height of the finalized block allowed compared to the average \
@@ -188,8 +180,7 @@ pub struct JSONStringResponse(pub String);
 impl IntoResponse for JSONStringResponse {
     fn into_response(self, state: &State) -> Response<Body> {
         let mut res = create_response(state, StatusCode::OK, mime::APPLICATION_JSON, self.0);
-        res.headers_mut()
-            .insert("Access-Control-Allow-Origin", "*".parse().unwrap());
+        res.headers_mut().insert("Access-Control-Allow-Origin", "*".parse().unwrap());
         res
     }
 }
@@ -201,8 +192,8 @@ type NodeInfoMap = Arc<RwLock<HashMap<NodeId, NodeInfo, BuildHasherDefault<XxHas
 
 #[derive(Clone, StateData)]
 struct CollectorStateData {
-    pub nodes: NodeInfoMap,
-    pub banned_versions: Vec<String>,
+    pub nodes:             NodeInfoMap,
+    pub banned_versions:   Vec<String>,
     pub banned_node_names: Vec<String>,
 }
 
@@ -229,24 +220,16 @@ pub fn main() -> anyhow::Result<()> {
         info!("{:?}", conf);
     }
 
-    info!(
-        "Starting up concordium-node-collector-backend version {}!",
-        env!("CARGO_PKG_VERSION")
-    );
+    info!("Starting up concordium-node-collector-backend version {}!", env!("CARGO_PKG_VERSION"));
 
     let banned_node_names: Vec<String> = if let Some(file) = conf.banned_node_names_file {
-        fs::read_to_string(file)?
-            .lines()
-            .map(|s| s.to_string())
-            .collect()
+        fs::read_to_string(file)?.lines().map(|s| s.to_string()).collect()
     } else {
         vec![]
     };
 
-    let node_info_map: NodeInfoMap = Arc::new(RwLock::new(HashMap::with_capacity_and_hasher(
-        1500,
-        Default::default(),
-    )));
+    let node_info_map: NodeInfoMap =
+        Arc::new(RwLock::new(HashMap::with_capacity_and_hasher(1500, Default::default())));
 
     let _allowed_stale_time = conf.stale_time_allowed;
     let _node_info_map_clone = Arc::clone(&node_info_map);
@@ -270,12 +253,7 @@ pub fn main() -> anyhow::Result<()> {
 
     gotham::start(
         addr,
-        router(
-            node_info_map,
-            conf.banned_versions,
-            banned_node_names,
-            conf.validation_config,
-        ),
+        router(node_info_map, conf.banned_versions, banned_node_names, conf.validation_config),
     );
     Ok(())
 }
@@ -304,10 +282,7 @@ fn nodes_summary(state: State) -> (State, JSONStringResponse) {
         }
         response.extend(b"]");
     }
-    (
-        state,
-        JSONStringResponse(String::from_utf8(response).unwrap()),
-    )
+    (state, JSONStringResponse(String::from_utf8(response).unwrap()))
 }
 
 fn nodes_block_info(state: State) -> (State, JSONStringResponse) {
@@ -325,10 +300,7 @@ fn nodes_block_info(state: State) -> (State, JSONStringResponse) {
         }
         response.extend(b"]");
     }
-    (
-        state,
-        JSONStringResponse(String::from_utf8(response).unwrap()),
-    )
+    (state, JSONStringResponse(String::from_utf8(response).unwrap()))
 }
 
 async fn nodes_post_handler_wrapper(state: &mut State) -> Result<Response<Body>, HandlerError> {
@@ -342,10 +314,8 @@ async fn nodes_post_handler(state: &mut State) -> gotham::anyhow::Result<Respons
     trace!("Processing a post from a node-collector");
     let validation_conf = ValidationConfig::take_from(state);
     let mut body = Body::take_from(state);
-    let content_length = body
-        .size_hint()
-        .exact()
-        .ok_or_else(|| anyhow!("Header 'Content-Length' is required"))?;
+    let content_length =
+        body.size_hint().exact().ok_or_else(|| anyhow!("Header 'Content-Length' is required"))?;
 
     ensure!(
         content_length <= validation_conf.valid_content_length,
@@ -357,10 +327,7 @@ async fn nodes_post_handler(state: &mut State) -> gotham::anyhow::Result<Respons
         let mut content = Vec::with_capacity(content_length as usize);
         while let Some(buf) = body.data().await {
             let buffer = buf?;
-            ensure!(
-                content.len() + buffer.len() <= (content_length as usize),
-                "Invalid body"
-            );
+            ensure!(content.len() + buffer.len() <= (content_length as usize), "Invalid body");
             content.append(&mut buffer.to_vec());
         }
         ensure!(content.len() == content_length as usize, "Invalid body");
@@ -391,14 +358,9 @@ async fn nodes_post_handler(state: &mut State) -> gotham::anyhow::Result<Respons
         "peersCount is too high to be considered valid"
     );
     let state_data = CollectorStateData::borrow_from(&state);
+    ensure!(!state_data.banned_versions.contains(&nodes_info.client), "node version is banned");
     ensure!(
-        !state_data.banned_versions.contains(&nodes_info.client),
-        "node version is banned"
-    );
-    ensure!(
-        !state_data
-            .banned_node_names
-            .contains(&nodes_info.nodeName.trim().to_string()),
+        !state_data.banned_node_names.contains(&nodes_info.nodeName.trim().to_string()),
         "node name is banned"
     );
 
@@ -455,10 +417,7 @@ pub fn router(
     let validation_config_middleware = StateMiddleware::new(validation_config);
     let collector_state_middleware = StateMiddleware::new(state_data);
     let (chain, pipelines) = single_pipeline(
-        new_pipeline()
-            .add(validation_config_middleware)
-            .add(collector_state_middleware)
-            .build(),
+        new_pipeline().add(validation_config_middleware).add(collector_state_middleware).build(),
     );
     build_router(chain, pipelines, |route| {
         route.get("/").to(index);
@@ -466,12 +425,8 @@ pub fn router(
         route.get("/data/nodesSummary").to(nodes_summary);
         route.get("/nodesBlocksInfo").to(nodes_block_info);
         route.get("/data/nodesBlocksInfo").to(nodes_block_info);
-        route
-            .post("/nodes/post")
-            .to_async_borrowing(nodes_post_handler_wrapper);
-        route
-            .post("/post/nodes")
-            .to_async_borrowing(nodes_post_handler_wrapper);
+        route.post("/nodes/post").to_async_borrowing(nodes_post_handler_wrapper);
+        route.post("/post/nodes").to_async_borrowing(nodes_post_handler_wrapper);
     })
 }
 
