@@ -15,15 +15,15 @@ pub fn install() -> anyhow::Result<()> {
     let manager =
         ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CREATE_SERVICE)?;
     let service_info = ServiceInfo {
-        name: OsString::from(crate::SERVICE_NAME),
-        display_name: OsString::from(SERVICE_DISPLAY_NAME),
-        service_type: ServiceType::OWN_PROCESS,
-        start_type: ServiceStartType::OnDemand,
-        error_control: ServiceErrorControl::Normal,
-        executable_path: exe_path,
+        name:             OsString::from(crate::SERVICE_NAME),
+        display_name:     OsString::from(SERVICE_DISPLAY_NAME),
+        service_type:     ServiceType::OWN_PROCESS,
+        start_type:       ServiceStartType::OnDemand,
+        error_control:    ServiceErrorControl::Normal,
+        executable_path:  exe_path,
         launch_arguments: vec![],
-        dependencies: vec![],
-        account_name: None,
+        dependencies:     vec![],
+        account_name:     None,
         account_password: None,
     };
     let service = manager.create_service(

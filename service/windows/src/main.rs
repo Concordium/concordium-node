@@ -6,19 +6,24 @@ mod manager;
 mod node;
 mod subprocess;
 
-use crate::config::{get_config_file_path, load_config};
-use crate::subprocess::create_console;
+use crate::{
+    config::{get_config_file_path, load_config},
+    subprocess::create_console,
+};
 use anyhow::{bail, Context};
 use log::*;
 use retain_mut::RetainMut;
-use std::ffi::OsString;
-use std::string::String;
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
+use std::{
+    env,
+    ffi::OsString,
+    string::String,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    thread,
+    time::{Duration, Instant},
 };
-use std::time::{Duration, Instant};
-use std::{env, thread};
 use winapi::shared::winerror::ERROR_FAILED_SERVICE_CONTROLLER_CONNECT;
 use windows_service::{service::*, service_control_handler::*, service_dispatcher};
 
@@ -28,24 +33,22 @@ const EVENT_LOG_NAME: &str = "Concordium Node Runner Service";
 // Produce an FFI wrapper for the service main function.
 define_windows_service!(ffi_service_main, runner_service_main);
 
-/// Service main entrypoint. This is invoked by the service control dispatcher when the service
-/// is started.
+/// Service main entrypoint. This is invoked by the service control dispatcher
+/// when the service is started.
 ///
-/// This delegates to run_service, and panics, logging an error, if an unrecoverable error occurs.
+/// This delegates to run_service, and panics, logging an error, if an
+/// unrecoverable error occurs.
 fn runner_service_main(arguments: Vec<OsString>) {
     winlog::init(EVENT_LOG_NAME).unwrap();
 
     if let Err(e) = run_service(arguments) {
-        error!(
-            "The node runner service failed for the following reason:\n{:#}",
-            e
-        );
+        error!("The node runner service failed for the following reason:\n{:#}", e);
         panic!()
     }
 }
 
-/// Macro for constructing a simple status message given the new state and enabled controls (if
-/// any).
+/// Macro for constructing a simple status message given the new state and
+/// enabled controls (if any).
 
 /// Construct a simple status message with no enabled controls.
 fn simple_status(state: ServiceState) -> ServiceStatus {
@@ -68,7 +71,8 @@ fn simple_status_with_controls(
     }
 }
 
-/// Constructing a pending status message given the new state, checkpoint, and wait hint.
+/// Constructing a pending status message given the new state, checkpoint, and
+/// wait hint.
 fn pending_status(
     current_state: ServiceState,
     checkpoint: u32,
@@ -87,21 +91,24 @@ fn pending_status(
 
 /// Service runner.
 ///
-/// This function first registers the service event handler. The handler only responds to Stop
-/// and Preshutdown events, for which it sets a shutdown flag and unparks the runner thread.
+/// This function first registers the service event handler. The handler only
+/// responds to Stop and Preshutdown events, for which it sets a shutdown flag
+/// and unparks the runner thread.
 ///
-/// It then enters the StartPending state, reads the configuration file, and attempts to start
-/// the nodes.
+/// It then enters the StartPending state, reads the configuration file, and
+/// attempts to start the nodes.
 ///
 /// Next, it enters the Running state, and
 fn run_service(_arguments: Vec<OsString>) -> anyhow::Result<()> {
-    // We create a console in order to be able to sent CTRL+BREAK messages to subprocesses.
-    // A service is created detatched (i.e. without a console). Creating a console before
-    // starting the child processes will allow the children to share the console, and therefore
-    // allow the service to send the appropriate messages.
+    // We create a console in order to be able to sent CTRL+BREAK messages to
+    // subprocesses. A service is created detatched (i.e. without a console).
+    // Creating a console before starting the child processes will allow the
+    // children to share the console, and therefore allow the service to send
+    // the appropriate messages.
     create_console()?;
 
-    // Boolean flag for the event handler to signal that the service is being shut down.
+    // Boolean flag for the event handler to signal that the service is being shut
+    // down.
     let is_shutdown = Arc::new(AtomicBool::new(false));
     let handler_is_shutdown = is_shutdown.clone();
     let service_thread = thread::current();
@@ -125,7 +132,8 @@ fn run_service(_arguments: Vec<OsString>) -> anyhow::Result<()> {
     // Register the event handler callback.
     let status_handle = register(SERVICE_NAME, event_handler)?;
 
-    // Set the status to StartPending while we load the configuration and start the nodes.
+    // Set the status to StartPending while we load the configuration and start the
+    // nodes.
     status_handle.set_service_status(pending_status(
         ServiceState::StartPending,
         0,
@@ -155,8 +163,8 @@ fn run_service(_arguments: Vec<OsString>) -> anyhow::Result<()> {
 
     // Loop until shutdown is triggered
     while !is_shutdown.load(Ordering::Acquire) {
-        // Check for any stopped nodes. If a node is stopped, the fact is logged, but we do not
-        // attempt to restart it.
+        // Check for any stopped nodes. If a node is stopped, the fact is logged, but we
+        // do not attempt to restart it.
         nodes.retain_mut(|node| match node.check_exit() {
             Ok(None) => true,
             Ok(Some(e)) => {
@@ -184,12 +192,13 @@ fn run_service(_arguments: Vec<OsString>) -> anyhow::Result<()> {
     }
 
     // Shut down the nodes.
-    // Nodes are first sent a CTRL+BREAK signal to trigger shutdown gracefully, and are allowed 61
-    // seconds to do so.  Any node that has not shut down in that time will be terminated.
-    // The time duration is chosen to be shorter than the timeout for the anticipated shutdown
-    // scenarios (180 seconds for preshutdown, and 125 seconds for shutdown from the Services
-    // control panel).  It was chosen to be 61 seconds as that is a second longer than twice the
-    // default housekeeping interval.
+    // Nodes are first sent a CTRL+BREAK signal to trigger shutdown gracefully, and
+    // are allowed 61 seconds to do so.  Any node that has not shut down in that
+    // time will be terminated. The time duration is chosen to be shorter than
+    // the timeout for the anticipated shutdown scenarios (180 seconds for
+    // preshutdown, and 125 seconds for shutdown from the Services
+    // control panel).  It was chosen to be 61 seconds as that is a second longer
+    // than twice the default housekeeping interval.
     let expected_shutdown_duration = Duration::from_secs(61);
     let mut checkpoint = 0;
     status_handle.set_service_status(pending_status(
@@ -238,15 +247,9 @@ fn run_service(_arguments: Vec<OsString>) -> anyhow::Result<()> {
     }
 
     for node in &mut nodes {
-        error!(
-            "Node '{}' did not shutdown gracefully; it will be killed.",
-            node.node_config.name
-        );
+        error!("Node '{}' did not shutdown gracefully; it will be killed.", node.node_config.name);
         node.force_shutdown().unwrap_or_else(|e| {
-            error!(
-                "Error while killing node '{}': {:#}",
-                node.node_config.name, e
-            )
+            error!("Error while killing node '{}': {:#}", node.node_config.name, e)
         });
     }
 
@@ -256,8 +259,8 @@ fn run_service(_arguments: Vec<OsString>) -> anyhow::Result<()> {
 }
 
 /// Main entrypoint. This tries to start the service dispatcher.
-/// If the program was not started as a service, this will fail, in which case we delegate
-/// to nonservice_main.
+/// If the program was not started as a service, this will fail, in which case
+/// we delegate to nonservice_main.
 fn main() -> anyhow::Result<()> {
     if let Err(e) = service_dispatcher::start(SERVICE_NAME, ffi_service_main) {
         match e {
@@ -273,13 +276,10 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Parse the command line argument as one of the commands "install", "remove", "start" or "stop",
-/// and perform the associated action for the service.
+/// Parse the command line argument as one of the commands "install", "remove",
+/// "start" or "stop", and perform the associated action for the service.
 fn nonservice_main() -> anyhow::Result<()> {
-    let arg = env::args()
-        .nth(1)
-        .map(|s| s.to_lowercase())
-        .unwrap_or_else(|| String::from(""));
+    let arg = env::args().nth(1).map(|s| s.to_lowercase()).unwrap_or_else(|| String::from(""));
     match &arg as &str {
         "install" => {
             println!("Installing service...");
@@ -305,9 +305,7 @@ fn nonservice_main() -> anyhow::Result<()> {
         }
         "configure" => {
             let config_path = get_config_file_path()?;
-            std::process::Command::new("notepad")
-                .arg(config_path)
-                .spawn()?;
+            std::process::Command::new("notepad").arg(config_path).spawn()?;
         }
         _ => {
             println!("Try running this program with one of the following arguments:");

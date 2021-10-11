@@ -1,16 +1,5 @@
-#![recursion_limit = "1024"]
-#[macro_use]
-extern crate gotham_derive;
 use anyhow::anyhow;
-use concordium_node::{
-    common::{collector_utils::*, get_current_stamp},
-    utils::setup_logger,
-};
-use structopt::StructOpt;
-use twox_hash::XxHash64;
-#[macro_use]
-extern crate log;
-use concordium_node::{read_or_die, spawn_or_die, write_or_die};
+use collector_backend::{setup_logger, NodeInfo, NodeInfoChainViz, NodeInfoDashboard};
 use gotham::{
     anyhow::*,
     handler::{HandlerError, IntoResponse},
@@ -20,7 +9,9 @@ use gotham::{
     router::{builder::*, Router},
     state::{FromState, State},
 };
+use gotham_derive::*;
 use hyper::{body::HttpBody, Body, Response, StatusCode};
+use log::{info, trace, warn};
 use std::{
     collections::HashMap,
     fs,
@@ -31,6 +22,8 @@ use std::{
     thread,
     time::Duration,
 };
+use structopt::StructOpt;
+use twox_hash::XxHash64;
 
 // Force the system allocator on every platform
 use std::alloc::System;
@@ -227,11 +220,7 @@ pub fn main() -> anyhow::Result<()> {
         info!("{:?}", conf);
     }
 
-    info!(
-        "Starting up {}-node-collector-backend version {}!",
-        concordium_node::APPNAME,
-        concordium_node::VERSION
-    );
+    info!("Starting up concordium-node-collector-backend version {}!", env!("CARGO_PKG_VERSION"));
 
     let banned_node_names: Vec<String> = if let Some(file) = conf.banned_node_names_file {
         fs::read_to_string(file)?.lines().map(|s| s.to_string()).collect()
@@ -246,15 +235,18 @@ pub fn main() -> anyhow::Result<()> {
     let _node_info_map_clone = Arc::clone(&node_info_map);
     let _cleanup_interval = conf.cleanup_interval;
     #[allow(unreachable_code)] // the loop never breaks on its own
-    let _ = spawn_or_die!("collector backend cleanup", {
-        loop {
+    let _ = std::thread::Builder::new()
+        .name("collector backend cleanup".into())
+        .spawn(move || loop {
             thread::sleep(Duration::from_millis(_cleanup_interval));
             info!("Running cleanup");
-            let current_stamp = get_current_stamp();
-            write_or_die!(_node_info_map_clone)
+            let current_stamp = chrono::Utc::now().timestamp_millis() as u64;
+            _node_info_map_clone
+                .write()
+                .expect("RWLock poisoned")
                 .retain(|_, element| current_stamp < element.last_updated + _allowed_stale_time);
-        }
-    });
+        })
+        .expect("The OS refused to create a new thread");
 
     let addr = format!("{}:{}", conf.host, conf.port);
     info!("Listening for requests at http://{}", addr);
@@ -269,9 +261,9 @@ pub fn main() -> anyhow::Result<()> {
 fn index(state: State) -> (State, HTMLStringResponse) {
     trace!("Processing an index request");
     let message = HTMLStringResponse(format!(
-        "<html><body><h1>Collector backend for {} v{}</h1>Operational!</p></body></html>",
-        concordium_node::APPNAME,
-        concordium_node::VERSION
+        "<html><body><h1>Collector backend for concordium \
+         v{}</h1><p>Operational!</p></body></html>",
+        env!("CARGO_PKG_VERSION")
     ));
     (state, message)
 }
@@ -281,7 +273,7 @@ fn nodes_summary(state: State) -> (State, JSONStringResponse) {
     let state_data = CollectorStateData::borrow_from(&state);
     let mut response = Vec::new();
     {
-        let map_lock = &*read_or_die!(state_data.nodes);
+        let map_lock = &*state_data.nodes.read().expect("RWLock poisoned");
         response.extend(b"[");
         for (i, node_info) in map_lock.values().enumerate() {
             if i != 0 {
@@ -299,7 +291,7 @@ fn nodes_block_info(state: State) -> (State, JSONStringResponse) {
     let state_data = CollectorStateData::borrow_from(&state);
     let mut response = Vec::new();
     {
-        let map_lock = &*read_or_die!(state_data.nodes);
+        let map_lock = &*state_data.nodes.read().expect("RWLock poisoned");
         response.extend(b"[");
         for (i, node_info) in map_lock.values().enumerate() {
             if i != 0 {
@@ -376,7 +368,7 @@ async fn nodes_post_handler(state: &mut State) -> gotham::anyhow::Result<Respons
     // Check the best block height and finalized block height against the average,
     // But only if the state contains information from enough nodes.
     {
-        let nodes = read_or_die!(state_data.nodes);
+        let nodes = state_data.nodes.read().expect("RWLock poisoned");
         let len = nodes.len() as u64;
         if len >= validation_conf.validate_against_average_at {
             let number_of_nodes_to_include =
@@ -406,8 +398,12 @@ async fn nodes_post_handler(state: &mut State) -> gotham::anyhow::Result<Respons
         }
     }
 
-    nodes_info.last_updated = get_current_stamp();
-    write_or_die!(state_data.nodes).insert(nodes_info.nodeId.clone(), nodes_info);
+    nodes_info.last_updated = chrono::Utc::now().timestamp_millis() as u64;
+    state_data
+        .nodes
+        .write()
+        .expect("RWLock poisoned")
+        .insert(nodes_info.nodeId.clone(), nodes_info);
 
     Ok(create_empty_response(&state, StatusCode::OK))
 }

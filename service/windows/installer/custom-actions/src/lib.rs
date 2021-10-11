@@ -1,12 +1,20 @@
-use std::ffi::{OsStr, OsString};
-use std::fs::remove_dir_all;
-use std::os::windows::ffi::{OsStrExt, OsStringExt};
-use std::path::Path;
-use std::ptr;
-use winapi::shared::minwindef::{DWORD, LPDWORD, UINT};
-use winapi::shared::winerror::{ERROR_FUNCTION_NOT_CALLED, ERROR_MORE_DATA, ERROR_SUCCESS};
-use winapi::um::winnt::{LPCWSTR, LPWSTR};
-use winapi::um::winsvc::*;
+use std::{
+    ffi::{OsStr, OsString},
+    fs::remove_dir_all,
+    os::windows::ffi::{OsStrExt, OsStringExt},
+    path::Path,
+    ptr,
+};
+use winapi::{
+    shared::{
+        minwindef::{DWORD, LPDWORD, UINT},
+        winerror::{ERROR_FUNCTION_NOT_CALLED, ERROR_MORE_DATA, ERROR_SUCCESS},
+    },
+    um::{
+        winnt::{LPCWSTR, LPWSTR},
+        winsvc::*,
+    },
+};
 
 type MsiHandle = u32;
 
@@ -137,30 +145,21 @@ fn start_service(install_handle: MsiHandle) -> Result<(), UINT> {
     }
 }
 
-/// Get the CustomActionData property that is used to pass data to a deferred custom action.
+/// Get the CustomActionData property that is used to pass data to a deferred
+/// custom action.
 fn get_data(install_handle: MsiHandle) -> Result<Vec<u16>, UINT> {
     let mut len = 0;
     let mut value_vec: Vec<u16> = vec![0];
     let property: &OsStr = "CustomActionData\0".as_ref();
     let property_vec: Vec<u16> = property.encode_wide().collect();
     let res = unsafe {
-        MsiGetPropertyW(
-            install_handle,
-            property_vec.as_ptr(),
-            value_vec.as_mut_ptr(),
-            &mut len,
-        )
+        MsiGetPropertyW(install_handle, property_vec.as_ptr(), value_vec.as_mut_ptr(), &mut len)
     };
     if res == ERROR_MORE_DATA {
         len += 1;
         value_vec = vec![0; len as usize];
         let res = unsafe {
-            MsiGetPropertyW(
-                install_handle,
-                property_vec.as_ptr(),
-                value_vec.as_mut_ptr(),
-                &mut len,
-            )
+            MsiGetPropertyW(install_handle, property_vec.as_ptr(), value_vec.as_mut_ptr(), &mut len)
         };
         if res == ERROR_SUCCESS {
             Ok(value_vec)

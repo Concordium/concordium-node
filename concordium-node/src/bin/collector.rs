@@ -1,11 +1,7 @@
-#![recursion_limit = "1024"]
+use collector_backend::{IsInBakingCommittee, NodeInfo};
 #[cfg(target_os = "macos")]
 use concordium_node::utils::setup_macos_logger;
-use concordium_node::{
-    common::{collector_utils::NodeInfo, grpc_api},
-    req_with_auth,
-    utils::setup_logger,
-};
+use concordium_node::{common::grpc_api, req_with_auth, utils::setup_logger};
 use serde_json::Value;
 use std::{
     borrow::ToOwned,
@@ -382,6 +378,21 @@ async fn collect_data<'a>(
         json_finalized_block_info_value["blockParent"].as_str().unwrap().to_owned()
     };
 
+    let baking_committee_member = match baker_committee {
+        grpc_api::node_info_response::IsInBakingCommittee::NotInCommittee => {
+            IsInBakingCommittee::NotInCommittee
+        }
+        grpc_api::node_info_response::IsInBakingCommittee::AddedButNotActiveInCommittee => {
+            IsInBakingCommittee::AddedButNotActiveInCommittee
+        }
+        grpc_api::node_info_response::IsInBakingCommittee::AddedButWrongKeys => {
+            IsInBakingCommittee::AddedButWrongKeys
+        }
+        grpc_api::node_info_response::IsInBakingCommittee::ActiveInCommittee => {
+            IsInBakingCommittee::ActiveInCommittee
+        }
+    };
+
     Ok(NodeInfo {
         nodeName: node_name.to_string(),
         nodeId: node_id,
@@ -411,7 +422,7 @@ async fn collect_data<'a>(
         packetsSent: packets_sent,
         packetsReceived: packets_received,
         consensusRunning: consensus_running,
-        bakingCommitteeMember: baker_committee,
+        bakingCommitteeMember: baking_committee_member,
         consensusBakerId: baker_id,
         finalizationCommitteeMember: finalization_committee,
         ancestorsSinceBestBlock: ancestors_since_best_block,

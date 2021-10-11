@@ -33,3 +33,8 @@ RUN tar -C /tmp -xf /tmp/static-consensus.tar.gz && \
 
 It's best practice to follow this by a final stage that copies the build artifacts into a fresh image.
 See [`universal.Dockerfile`](../testnet-deployments/universal.Dockerfile) for a full example.
+
+# Replacement of integer-simple
+
+Prior to [`concordium/static-libraries`](https://hub.docker.com/r/concordium/static-libraries/tags) version 0.30 the included GHC was using the integer library `integer-simple`, starting from version 0.30 the default GMP integer library is used.
+The static build of concordium-node up until (including) version 1.1.3 depends on integer-simple.

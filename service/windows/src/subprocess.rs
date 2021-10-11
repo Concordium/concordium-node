@@ -1,10 +1,12 @@
-use std::io::Error;
-use std::process::Child;
-use winapi::um::consoleapi::AllocConsole;
-use winapi::um::wincon::{GenerateConsoleCtrlEvent, GetConsoleWindow, CTRL_BREAK_EVENT};
+use std::{io::Error, process::Child};
+use winapi::um::{
+    consoleapi::AllocConsole,
+    wincon::{GenerateConsoleCtrlEvent, GetConsoleWindow, CTRL_BREAK_EVENT},
+};
 
 /// Send a CTRL+BREAK signal to a child process's process group.
-/// This requires that the process should be created with CREATE_NEW_PROCESS_GROUP.
+/// This requires that the process should be created with
+/// CREATE_NEW_PROCESS_GROUP.
 pub fn send_child_ctrl_break(child: &Child) -> Result<(), Error> {
     if 0 != unsafe { GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, child.id()) } {
         Ok(())

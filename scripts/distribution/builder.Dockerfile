@@ -76,7 +76,7 @@ ENV CONCORDIUM_NODE_COLLECTOR_URL=https://dashboard.${environment}/nodes/post
 ENV CONCORDIUM_NODE_COLLECTOR_GRPC_HOST=http://localhost:10000
 
 RUN apt-get update && \
-    apt-get install -y curl netbase ca-certificates supervisor nginx libnuma1 libtinfo6 libpq-dev liblmdb-dev jq apt-transport-https gnupg2 curl lsb-release && \
+    apt-get install -y curl netbase ca-certificates supervisor nginx libnuma1 libtinfo6 libpq5 libgmp10 liblmdb0 jq apt-transport-https gnupg2 curl lsb-release && \
     rm -rf /var/lib/apt/lists/*
 # Install Envoy Proxy according to official instructions
 # (see 'https://www.envoyproxy.io/docs/envoy/latest/start/install#install-envoy-on-ubuntu-linux')

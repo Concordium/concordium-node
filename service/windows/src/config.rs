@@ -1,11 +1,13 @@
 use crate::node::{LogFileConfig, LoggerConfig, NodeConfig};
 use anyhow::{anyhow, Context};
 use log::Level;
-use std::collections::HashMap;
-use std::convert::TryFrom;
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::str::FromStr;
+use std::{
+    collections::HashMap,
+    convert::TryFrom,
+    fs,
+    path::{Path, PathBuf},
+    str::FromStr,
+};
 use toml::Value;
 use winreg::{enums::HKEY_LOCAL_MACHINE, RegKey};
 
@@ -14,17 +16,11 @@ pub fn get_config_file_path() -> anyhow::Result<PathBuf> {
     let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
     let key_name = r"SOFTWARE\Concordium\Node Runner";
     let node_runner_key = hklm.open_subkey(key_name).with_context(|| {
-        format!(
-            "Could not resolve registry key 'HKEY_LOCAL_MACHINE\\{}'",
-            key_name
-        )
+        format!("Could not resolve registry key 'HKEY_LOCAL_MACHINE\\{}'", key_name)
     })?;
     let value_name = "Config";
     let conf: String = node_runner_key.get_value(value_name).with_context(|| {
-        format!(
-            "Could not get registry value 'HKEY_LOCAL_MACHINE\\{}\\{}'",
-            key_name, value_name
-        )
+        format!("Could not get registry value 'HKEY_LOCAL_MACHINE\\{}\\{}'", key_name, value_name)
     })?;
     Ok(PathBuf::from(conf))
 }
@@ -35,12 +31,12 @@ pub struct Config {
 }
 
 /// Convenience macro for looking up a value in a TOML table.
-/// This can be used to look up a path and try to treat it as a particular type, as in:
-/// ```
+/// This can be used to look up a path and try to treat it as a particular type,
+/// as in: ```
 /// toml_get_as(as_integer, v, "node", "exe")
 /// ```
-/// This can be applied to a `Table` or a `Value`.  The first argument should be a function on
-/// `Value` that tries to convert it to another type.
+/// This can be applied to a `Table` or a `Value`.  The first argument should be
+/// a function on `Value` that tries to convert it to another type.
 macro_rules! toml_get_as {
     ( $as:ident, $v:expr, $( $x:expr),* ) => {
         {(|| {
@@ -53,9 +49,9 @@ macro_rules! toml_get_as {
     }
 }
 
-/// Given an (optional) TOML table, add all of its entries to a HashMap of environment variables.
-/// If there are non-string entries in the table, this will fail, and the supplied name of the
-/// table is used in the error message.
+/// Given an (optional) TOML table, add all of its entries to a HashMap of
+/// environment variables. If there are non-string entries in the table, this
+/// will fail, and the supplied name of the table is used in the error message.
 fn get_env(
     env_table_opt: Option<&toml::value::Table>,
     table_name: &str,
@@ -64,11 +60,7 @@ fn get_env(
     if let Some(env_table) = env_table_opt {
         for (k, v) in env_table {
             let value = v.as_str().ok_or_else(|| {
-                anyhow!(
-                    "Environment variables must be strings, but {}.{} is not",
-                    table_name,
-                    k
-                )
+                anyhow!("Environment variables must be strings, but {}.{} is not", table_name, k)
             })?;
             env.insert(k.to_string(), value.to_string());
         }
@@ -76,9 +68,9 @@ fn get_env(
     Ok(())
 }
 
-/// Given an (optional) TOML array, produce an (optional) vector of command-line arguments.
-/// If any entry is not a string, this fails with an error message that includes the supplied
-/// table name.
+/// Given an (optional) TOML array, produce an (optional) vector of command-line
+/// arguments. If any entry is not a string, this fails with an error message
+/// that includes the supplied table name.
 fn get_args(
     args_array_opt: Option<&toml::value::Array>,
     array_name: &str,
@@ -97,7 +89,8 @@ fn get_args(
     }
 }
 
-/// Load a configuration file given the contents of the file and the file's parent folder.
+/// Load a configuration file given the contents of the file and the file's
+/// parent folder.
 fn load_config_file(conf_str: &str, conf_root: &Path) -> anyhow::Result<Config> {
     // Function to treat a path as though it is relative to conf_root.
     let make_relative_path = |pb: &str| {
@@ -110,9 +103,7 @@ fn load_config_file(conf_str: &str, conf_root: &Path) -> anyhow::Result<Config> 
     let conf_val: Value = toml::from_str(conf_str)?;
 
     // The [common] table.
-    let common = toml_get_as!(as_table, &conf_val, "common")
-        .cloned()
-        .unwrap_or_default();
+    let common = toml_get_as!(as_table, &conf_val, "common").cloned().unwrap_or_default();
 
     // Common node environment variables
     let mut common_node_env = HashMap::new();
@@ -124,10 +115,8 @@ fn load_config_file(conf_str: &str, conf_root: &Path) -> anyhow::Result<Config> 
     let common_node_env = common_node_env; // Should not be mutated further
 
     // Common node arguments
-    let common_node_args = get_args(
-        toml_get_as!(as_array, &common, "node", "args"),
-        "common.node.args",
-    )?;
+    let common_node_args =
+        get_args(toml_get_as!(as_array, &common, "node", "args"), "common.node.args")?;
 
     // Common collector environment variables
     let mut common_collector_env = HashMap::new();
@@ -139,10 +128,8 @@ fn load_config_file(conf_str: &str, conf_root: &Path) -> anyhow::Result<Config> 
     let common_collector_env = common_collector_env; // Should not be mutated further
 
     // Common collector arguments
-    let common_collector_args = get_args(
-        toml_get_as!(as_array, &common, "collector", "args"),
-        "common.collector.args",
-    )?;
+    let common_collector_args =
+        get_args(toml_get_as!(as_array, &common, "collector", "args"), "common.collector.args")?;
 
     let mut nodes = Vec::new();
     if let Some(node_table) = toml_get_as!(as_table, &conf_val, "node") {
@@ -152,9 +139,7 @@ fn load_config_file(conf_str: &str, conf_root: &Path) -> anyhow::Result<Config> 
                 continue;
             }
 
-            let name = toml_get_as!(as_str, &node, "name")
-                .unwrap_or_else(|| nname)
-                .to_string();
+            let name = toml_get_as!(as_str, &node, "name").unwrap_or_else(|| nname).to_string();
             let bootstrap_nodes = toml_get_as!(as_str, &node, "bootstrap_nodes")
                 .or_else(|| toml_get_as!(as_str, &common, "bootstrap_nodes"))
                 .ok_or_else(|| anyhow!("Missing string entry node.{}.bootstrap_nodes", nname))?
@@ -298,18 +283,17 @@ fn load_config_file(conf_str: &str, conf_root: &Path) -> anyhow::Result<Config> 
             });
         }
     }
-    Ok(Config { nodes })
+    Ok(Config {
+        nodes,
+    })
 }
 
-/// Load the configuration by looking up the configuration file in the registry and then parsing
-/// the file.
+/// Load the configuration by looking up the configuration file in the registry
+/// and then parsing the file.
 pub fn load_config() -> anyhow::Result<Config> {
     let conf_path = get_config_file_path()?;
     let conf_str = fs::read_to_string(&conf_path).with_context(|| {
-        format!(
-            "Could not read configuration file '{}'",
-            conf_path.as_path().display(),
-        )
+        format!("Could not read configuration file '{}'", conf_path.as_path().display(),)
     })?;
     let conf_root = conf_path.parent().ok_or_else(|| {
         anyhow!(
@@ -319,9 +303,6 @@ pub fn load_config() -> anyhow::Result<Config> {
     })?;
 
     load_config_file(conf_str.as_ref(), conf_root).with_context(|| {
-        format!(
-            "Failed to parse configuration file '{}'",
-            conf_path.as_path().display()
-        )
+        format!("Failed to parse configuration file '{}'", conf_path.as_path().display())
     })
 }

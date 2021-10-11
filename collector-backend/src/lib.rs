@@ -1,6 +1,53 @@
-use serde::{Deserialize, Serialize};
+use env_logger::{Builder, Env};
+use log::LevelFilter;
+use serde::{de, Deserialize, Deserializer, Serialize};
+use std::io::Write;
 
-use crate::common::grpc_api::node_info_response::IsInBakingCommittee;
+#[derive(Debug, Clone, Copy)]
+pub enum IsInBakingCommittee {
+    ActiveInCommittee,
+    AddedButNotActiveInCommittee,
+    AddedButWrongKeys,
+    NotInCommittee,
+}
+
+impl Serialize for IsInBakingCommittee {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer, {
+        use IsInBakingCommittee::*;
+        match self {
+            ActiveInCommittee => serializer.serialize_str("ActiveInCommittee"),
+            AddedButNotActiveInCommittee => {
+                serializer.serialize_str("AddedButNotActiveInCommittee")
+            }
+            AddedButWrongKeys => serializer.serialize_str("AddedButWrongKeys"),
+            NotInCommittee => serializer.serialize_str("NotInCommittee"),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for IsInBakingCommittee {
+    fn deserialize<D>(deserializer: D) -> Result<IsInBakingCommittee, D::Error>
+    where
+        D: Deserializer<'de>, {
+        use IsInBakingCommittee::*;
+        let s: String = Deserialize::deserialize(deserializer)?;
+        let res = match s.as_str() {
+            "ActiveInCommittee" => ActiveInCommittee,
+            "AddedButNotActiveInCommittee" => AddedButNotActiveInCommittee,
+            "AddedButWrongKeys" => AddedButWrongKeys,
+            "NotInCommittee" => NotInCommittee,
+            s => {
+                return Err(de::Error::custom(format!(
+                    "Failed deserializing string '{}' as IsInBakingCommittee",
+                    s
+                )))
+            }
+        };
+        Ok(res)
+    }
+}
 
 /// Contains all the node information used by the collector.
 #[allow(non_snake_case)]
@@ -195,4 +242,29 @@ impl<'a> From<&'a NodeInfo> for NodeInfoChainViz<'a> {
             ancestorsSinceBestBlock: other.ancestorsSinceBestBlock.as_deref(),
         }
     }
+}
+
+/// Sets up a logger that logs to stderr.
+pub fn setup_logger(trace: bool, debug: bool, no_log_timestamp: bool) {
+    let env = if trace {
+        Env::default().filter_or("LOG_LEVEL", "trace")
+    } else if debug {
+        Env::default().filter_or("LOG_LEVEL", "debug")
+    } else {
+        Env::default().filter_or("LOG_LEVEL", "info")
+    };
+
+    let mut log_builder = Builder::from_env(env);
+    if no_log_timestamp {
+        log_builder.format_timestamp(None);
+    } else {
+        log_builder.format(|buf, record| {
+            writeln!(buf, "{}: {}: {}", buf.timestamp_nanos(), record.level(), record.args())
+        });
+    }
+    log_builder.filter(Some(&"tokio_reactor"), LevelFilter::Warn);
+    log_builder.filter(Some(&"hyper"), LevelFilter::Warn);
+    log_builder.filter(Some(&"gotham"), LevelFilter::Warn);
+    log_builder.filter(Some(&"h2"), LevelFilter::Warn);
+    log_builder.init();
 }
