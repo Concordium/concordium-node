@@ -37,12 +37,7 @@ then
         echo "  concordium-client baker set-keys <keys-file>.json --sender bakerAccount --out <concordium-data-dir>/baker-credentials.json"
         exit 1
     fi
-    export BAKER_CREDENTIALS_FILENAME="baker-credentials.json"
-fi
-
-if [ -f /var/lib/concordium/data/blocks_to_import.dat ];
-then
-  export IMPORT_BLOCKS_FROM="/var/lib/concordium/data/blocks_to_import.dat"
+    export CONCORDIUM_NODE_BAKER_CREDENTIALS_FILE="/var/lib/concordium/data/baker-credentials.json"
 fi
 
 /usr/bin/supervisord -c /etc/supervisor/supervisord.conf

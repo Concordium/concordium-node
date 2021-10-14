@@ -1,11 +1,12 @@
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
 -- |This module pairs together two global state implementations
 -- for testing purposes.
+
 module Concordium.GlobalState.Paired where
 
 import Lens.Micro.Platform
@@ -519,6 +520,14 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         bs1' <- coerceBSML $ bsoEnqueueUpdate bs1 tt p
         bs2' <- coerceBSMR $ bsoEnqueueUpdate bs2 tt p
         return (bs1', bs2')
+    bsoOverwriteElectionDifficulty (bs1, bs2) ed = do
+        bs1' <- coerceBSML $ bsoOverwriteElectionDifficulty bs1 ed
+        bs2' <- coerceBSMR $ bsoOverwriteElectionDifficulty bs2 ed
+        return (bs1', bs2')
+    bsoClearProtocolUpdate (bs1, bs2) = do
+        bs1' <- coerceBSML $ bsoClearProtocolUpdate bs1
+        bs2' <- coerceBSMR $ bsoClearProtocolUpdate bs2
+        return (bs1', bs2')
     bsoAddReleaseSchedule (bs1, bs2) tt = do
         bs1' <- coerceBSML $ bsoAddReleaseSchedule bs1 tt
         bs2' <- coerceBSMR $ bsoAddReleaseSchedule bs2 tt
@@ -692,6 +701,9 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
     markPending pb = do
         coerceGSML $ markPending pb
         coerceGSMR $ markPending pb
+    markAllNonFinalizedDead  = do
+        coerceGSML markAllNonFinalizedDead
+        coerceGSMR markAllNonFinalizedDead
     getGenesisBlockPointer = do
         gen1 <- coerceGSML getGenesisBlockPointer
         gen2 <- coerceGSMR getGenesisBlockPointer
@@ -765,6 +777,9 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
             (Nothing, Nothing) -> return Nothing
             (Just pb1, Just pb2) -> assert (pb1 == pb2) $ return $ Just pb1
             _ -> error "takeNextPendingUntil (Paired): implementations returned different results"
+    wipePendingBlocks = do
+        coerceGSML wipePendingBlocks
+        coerceGSMR wipePendingBlocks
     getFocusBlock = do
         fb1 <- coerceGSML $ getFocusBlock
         fb2 <- coerceGSMR $ getFocusBlock
@@ -823,6 +838,14 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
     purgeTransactionTable t i = do
       coerceGSML (purgeTransactionTable t i)
       coerceGSMR (purgeTransactionTable t i)
+    
+    wipeNonFinalizedTransactions = do
+        l1 <- coerceGSML wipeNonFinalizedTransactions
+        l2 <- coerceGSMR wipeNonFinalizedTransactions
+        -- Note that this test assumes the ordering is consistent
+        -- between implementations, which may not in general be a
+        -- reasonable assumption.
+        assert (l1 == l2) $ return l1
 
     insertTxVerificationResult txHash err = do
       t <- coerceGSML (insertTxVerificationResult txHash err)
@@ -834,17 +857,17 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
       t' <-coerceGSMR (lookupTxVerificationResult txHash)
       assert (t == t') $ return t
 
-newtype PairGSConfig c1 c2 = PairGSConfig (c1, c2)
+newtype PairGSConfig c1 c2 (pv :: ProtocolVersion) = PairGSConfig (c1 pv, c2 pv)
 
 instance (GlobalStateConfig c1, GlobalStateConfig c2) => GlobalStateConfig (PairGSConfig c1 c2) where
-    type GSContext (PairGSConfig c1 c2) = PairGSContext (GSContext c1) (GSContext c2)
-    type GSState (PairGSConfig c1 c2) = PairGState (GSState c1) (GSState c2)
+    type GSContext (PairGSConfig c1 c2) pv = PairGSContext (GSContext c1 pv) (GSContext c2 pv)
+    type GSState (PairGSConfig c1 c2) pv = PairGState (GSState c1 pv) (GSState c2 pv)
     -- FIXME: The below could also be improved to add pairs.
-    type GSLogContext (PairGSConfig c1 c2) = (GSLogContext c1, GSLogContext c2)
+    type GSLogContext (PairGSConfig c1 c2) pv = (GSLogContext c1 pv, GSLogContext c2 pv)
     initialiseGlobalState (PairGSConfig (conf1, conf2)) = do
             (ctx1, s1, c1) <- initialiseGlobalState conf1
             (ctx2, s2, c2) <- initialiseGlobalState conf2
             return (PairGSContext ctx1 ctx2, PairGState s1 s2, (c1, c2))
-    shutdownGlobalState _ (PairGSContext ctx1 ctx2) (PairGState s1 s2) (c1, c2) = do
-            shutdownGlobalState (Proxy :: Proxy c1) ctx1 s1 c1
-            shutdownGlobalState (Proxy :: Proxy c2) ctx2 s2 c2
+    shutdownGlobalState spv _ (PairGSContext ctx1 ctx2) (PairGState s1 s2) (c1, c2) = do
+            shutdownGlobalState spv (Proxy :: Proxy c1) ctx1 s1 c1
+            shutdownGlobalState spv (Proxy :: Proxy c2) ctx2 s2 c2

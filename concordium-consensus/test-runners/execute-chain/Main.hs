@@ -1,64 +1,30 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
+
+-- |A runner that takes a genesis data file and a block file and executes the chain.
+-- This is currently configured to use the Paired global state with disk-based and
+-- memory-based storage to ensure that the execution is consistent between these.
 module Main where
 
-import Control.Monad.IO.Class
 import qualified Data.ByteString.Lazy as LBS
-import Data.IORef
-import qualified Data.Sequence as Seq
 import Data.Serialize
-import Data.Time.Clock.POSIX
-import qualified Data.Vector as Vec
+import System.Directory
 import System.Environment
+import System.FilePath
 import System.IO
-import System.Clock
-
-import Concordium.Logger
-import Concordium.TimerMonad
-import Concordium.Types.Execution (tsEnergyCost)
-import Concordium.Types.ProtocolVersion
 
 import Concordium.GlobalState
--- import Concordium.GlobalState.Basic.BlockState (getBlockState)
-import Concordium.GlobalState.Block
-import Concordium.GlobalState.BlockState
-
--- import Concordium.GlobalState.Paired
+import Concordium.GlobalState.Paired
 import Concordium.GlobalState.Parameters
--- import Concordium.GlobalState.Persistent.BlobStore
--- import Concordium.GlobalState.Persistent.BlockState (hpbsHash, makePersistent)
-import Concordium.GlobalState.TreeState
 import Concordium.Kontrol (currentTimestamp)
-import Concordium.Kontrol.BestBlock
+import Concordium.MultiVersion
 import Concordium.Skov
+import Concordium.TimerMonad
 
--- |Protocol version
-type PV = 'P1
-
-type TreeConfig = DiskTreeDiskBlockConfig PV
-makeGlobalStateConfig :: RuntimeParameters -> GenesisData PV -> IO TreeConfig
-makeGlobalStateConfig rt genData = return $ DTDBConfig rt genData
-
--- type TreeConfig = MemoryTreeDiskBlockConfig PV
--- makeGlobalStateConfig :: RuntimeParameters -> GenesisData PV -> IO TreeConfig
--- makeGlobalStateConfig rt genData = return $ MTDBConfig rt genData
-
--- type TreeConfig = MemoryTreeMemoryBlockConfig PV
--- makeGlobalStateConfig :: RuntimeParameters -> GenesisData PV -> IO TreeConfig
--- makeGlobalStateConfig rt genData = return $ MTMBConfig rt genData
-
---uncomment if wanting paired config
--- type TreeConfig = PairGSConfig (MemoryTreeMemoryBlockConfig PV) (DiskTreeDiskBlockConfig PV)
--- makeGlobalStateConfig :: RuntimeParameters -> GenesisData PV -> IO TreeConfig
--- makeGlobalStateConfig rp genData =
---     return $ PairGSConfig (MTMBConfig rp genData, DTDBConfig rp genData)
-
-type ActiveConfig = SkovConfig PV TreeConfig (BufferedFinalization ThreadTimer) LogUpdateHandler
-
-parseArgs :: [String] -> IO (GenesisData PV, FilePath)
+parseArgs :: [String] -> IO (PVGenesisData, FilePath)
 parseArgs [gdPath, blocksPath] = do
     gdfile <- LBS.readFile gdPath
-    gd <- case runGetLazy getVersionedGenesisData gdfile of
+    gd <- case runGetLazy getPVGenesisData gdfile of
         Left err -> error err
         Right gd -> return gd
     -- blocks <- LBS.readFile blocksPath
@@ -73,81 +39,28 @@ main = do
     let logM src lvl msg = {- when (lvl == LLInfo) $ -} do
             hPutStrLn logFile $ show lvl ++ " - " ++ show src ++ ": " ++ msg
             hFlush logFile
-    gsconfig <-
-        makeGlobalStateConfig
-            defaultRuntimeParameters
-                { rpTreeStateDir = "data/treestate-" ++ show now,
-                  rpBlockStateFile = "data/blockstate-" ++ show now
+    let dataDir = "data" </> ("db" ++ show now)
+    createDirectoryIfMissing True dataDir
+    let config ::
+            MultiVersionConfiguration
+                (PairGSConfig DiskTreeDiskBlockConfig MemoryTreeMemoryBlockConfig)
+                (NoFinalization ThreadTimer)
+        config =
+            MultiVersionConfiguration
+                { mvcStateConfig = (DiskStateConfig dataDir, ()),
+                  mvcTXLogConfig = ((), ()),
+                  mvcFinalizationConfig = NoFinalization,
+                  mvcRuntimeParameters = defaultRuntimeParameters{rpTransactionsPurgingDelay = 0}
                 }
-            genesisData
-    let config = SkovConfig gsconfig NoFinalization LogUpdateHandler
-    (skovContext, skovState0) <- runLoggerT (initialiseSkov config) logM
-    -- t <- getCurrentTime
-    stateRef <- newIORef skovState0
-    startTime <- getTime Monotonic
-    -- cRef <- newIORef (0, startTime)
-    {- bracket (createBlobStore ("data/dummy-" ++ show now ++ ".dat")) destroyBlobStore $ \tempBS -> -}
-    do
-        {-
-        let importBlock pb = do
-                (c0, t0) <- readIORef cRef
-                t1 <- liftIO $ getTime Monotonic
-                let c1 = c0+1
-                liftIO . putStrLn $ show c1 ++ "\t" ++ show (toNanoSecs $ diffTimeSpec t1 t0)
-                writeIORef cRef (c0+1, t1)
-                return (Success :: ImportingResult ())
-        -}
-        let importBlock pb = do
-                ss <- readIORef stateRef
-                let storeGetHeight = do
-                        t0 <- liftIO $ getTime Monotonic
-                        ur <- storeBlock pb
-                        bb <- bestBlock
-                        bs <- queryBlockState bb
-                        outcomes <- getOutcomes bs
-                        specialOutcomes <- getSpecialOutcomes bs
-                        let energyCost = sum . fmap tsEnergyCost $ outcomes
-                        stateHash <- getStateHash bs
-                        {-
-                        bss <- serializeBlockState bs
-                        case runGetLazy getBlockStateV0 bss of
-                            Left err -> error err
-                            Right bs' -> do
-                                unless (stateHash == getHash bs') $ error "State hash mismatch after (de)serialization"
-                                bs'' <- liftIO $ runReaderT (makePersistent bs') tempBS
-                                unless (stateHash == hpbsHash bs'') $ error "State hash mismatch after conversion to persistent"
-                        -}
-                        ts <- getSlotTime . blockSlot $ bb
-                        h <- getCurrentHeight
-                        t1 <- liftIO $ getTime Monotonic
+    let callbacks =
+            Callbacks
+                { broadcastBlock = \_ _ -> return (),
+                  broadcastFinalizationMessage = \_ _ -> return (),
+                  broadcastFinalizationRecord = \_ _ -> return (),
+                  notifyCatchUpStatus = \_ _ -> return (),
+                  notifyRegenesis = \_ -> return ()
+                }
 
-                        liftIO . putStrLn $
-                            "Height: " ++ show h
-                                ++ "\tExecution time: " ++ show (toNanoSecs $ diffTimeSpec t1 t0)
-                                ++ "\tState hash: "
-                                ++ show stateHash
-                                ++ " ["
-                                ++ show ts
-                                ++ "]  \tTransactions: "
-                                ++ show (Vec.length outcomes)
-                                ++ " + "
-                                ++ show (Seq.length specialOutcomes)
-                                ++ " special\tEnergy: "
-                                ++ show energyCost
-                        return ur
-                (ur, ss') <- runLoggerT (runSkovT storeGetHeight (SkovPassiveHandlers (return ())) skovContext ss) logM
-                if ur == ResultSuccess
-                    then do
-                        writeIORef stateRef ss'
-                        return Success
-                    else return $ OtherError ur
-        res <- readBlocks blocks logM importBlock
-        t1 <- getTime Monotonic
-        print $ toNanoSecs $ diffTimeSpec t1 startTime
-        print res
-
-readBlocks :: (Show a) => FilePath -> LogMethod IO -> (PendingBlock -> IO (ImportingResult a)) -> IO (ImportingResult a)
-readBlocks fp logM continuation = do
-        h <- openFile fp ReadMode
-        tm <- getCurrentTime
-        readBlocksV2 h tm logM External continuation
+    mvr <- makeMultiVersionRunner config callbacks Nothing logM genesisData
+    result <- runMVR (importBlocks blocks) mvr
+    print result

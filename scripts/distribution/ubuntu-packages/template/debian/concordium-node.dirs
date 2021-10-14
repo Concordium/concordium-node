@@ -1,1 +1,1 @@
-/var/lib/concordium/b6078154d6717e909ce0da4a45a25151b592824f31624b755900a74429e3073d/config
+/var/lib/concordium-${build_genesis_hash}/config

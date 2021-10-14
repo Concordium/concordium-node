@@ -4,8 +4,11 @@ import Data.Serialize
 import Control.Monad
 
 import Concordium.Types
+import Concordium.Common.Version
 
-data CatchUpStatus = CatchUpStatus {
+type CatchUpStatus = CatchUpStatusV0
+
+data CatchUpStatusV0 = CatchUpStatus {
     -- |If this flag is set, the recipient is expected to send any
     -- blocks and finalization records the sender may be missing,
     -- followed by a CatchUpStatus message with the response flag
@@ -25,8 +28,11 @@ data CatchUpStatus = CatchUpStatus {
     -- |Hashes of all live non-finalized non-leaf blocks, if the message
     -- is a request.
     cusBranches :: [BlockHash]
-} deriving (Show)
-instance Serialize CatchUpStatus where
+    }
+    | NoGenesisCatchUpStatus
+    -- ^A special response when a peer does not have a (re)genesis block.
+    deriving (Show)
+instance Serialize CatchUpStatusV0 where
     put CatchUpStatus{..} = do
         putWord8 $ case (cusIsRequest, cusIsResponse) of
             (False, False) -> 0
@@ -37,15 +43,33 @@ instance Serialize CatchUpStatus where
         put cusLastFinalizedHeight
         put cusLeaves
         when cusIsRequest $ put cusBranches
+    put NoGenesisCatchUpStatus = putWord8 6
     get = do
-        (cusIsRequest, cusIsResponse) <- getWord8 >>= \case
-            0 -> return (False, False)
-            1 -> return (True, False)
-            2 -> return (False, True)
-            3 -> return (True, True)
+        getWord8 >>= \case
+            0 -> getNormal False False
+            1 -> getNormal True False
+            2 -> getNormal False True
+            3 -> getNormal True True
+            6 -> return NoGenesisCatchUpStatus
             _ -> fail "Invalid flags"
-        cusLastFinalizedBlock <- get
-        cusLastFinalizedHeight <- get
-        cusLeaves <- get
-        cusBranches <- if cusIsRequest then get else return []
-        return CatchUpStatus{..}
+      where
+        getNormal cusIsRequest cusIsResponse = do
+            cusLastFinalizedBlock <- get
+            cusLastFinalizedHeight <- get
+            cusLeaves <- get
+            cusBranches <- if cusIsRequest then get else return []
+            return CatchUpStatus{..}
+
+-- |Deserialize a 'CatchUpStatus' message with a version header.
+getExactVersionedCatchUpStatus :: Get CatchUpStatus
+getExactVersionedCatchUpStatus = do
+    version <- getVersion 
+    case version of
+        0 -> get
+        _ -> fail $ "Unsupported catch-up status message version " ++ show version ++ "."
+
+-- |Serialize a 'CatchUpStatus' message with a version header.
+putVersionedCatchUpStatus :: Putter CatchUpStatus
+putVersionedCatchUpStatus cus = do
+    putVersion 0
+    put cus

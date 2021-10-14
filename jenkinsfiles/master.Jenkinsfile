@@ -104,25 +104,5 @@ pipeline {
                 '''
             }
         }
-
-        stage('build-collector-backend') {
-            environment {
-                image_repo = "${ecr_repo_base}/collector-backend"
-                image_name = "${image_repo}:${image_tag}"
-            }
-            steps {
-                sh '''\
-                    docker build \
-                      --build-arg universal_image_name="${universal_image_name}" \
-                      --build-arg build_type="${BUILD_TYPE}" \
-                      --label universal_image_name="${universal_image_name}" \
-                      --label build_type="${BUILD_TYPE}" \
-                      -t "${image_name}" \
-                      -f scripts/testnet-deployments/collector-backend.Dockerfile \
-                      .
-                    docker push "${image_name}"
-                '''
-            }
-        }
     }
 }

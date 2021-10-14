@@ -7,9 +7,8 @@ use crate::{
     configuration::{self, MAX_CATCH_UP_TIME},
     connection::ConnChange,
     consensus_ffi::{
-        blockchain_types::BlockHash,
         catch_up::{PeerList, PeerStatus},
-        consensus::{self, ConsensusContainer, CALLBACK_QUEUE},
+        consensus::{self, ConsensusContainer, Regenesis, CALLBACK_QUEUE},
         ffi,
         helpers::{
             ConsensusFfiResponse,
@@ -29,13 +28,10 @@ use crypto_common::Deserial;
 use std::{
     collections::hash_map::Entry::*,
     convert::TryFrom,
-    fs::OpenOptions,
     io::{Cursor, Read},
     path::Path,
-    sync::{Arc, RwLock},
+    sync::{atomic::Ordering, Arc},
 };
-
-const FILE_NAME_GENESIS_DATA: &str = "genesis.dat";
 
 /// Initializes the consensus layer with the given setup.
 pub fn start_consensus_layer(
@@ -45,7 +41,7 @@ pub fn start_consensus_layer(
     max_logging_level: consensus::ConsensusLogLevel,
     appdata_dir: &Path,
     database_connection_url: &str,
-    regenesis_arc: Arc<RwLock<Vec<BlockHash>>>,
+    regenesis_arc: Arc<Regenesis>,
 ) -> anyhow::Result<ConsensusContainer> {
     info!("Starting up the consensus thread");
 
@@ -90,24 +86,26 @@ pub fn get_baker_data(
     app_prefs: &configuration::AppPreferences,
     conf: &configuration::BakerConfig,
 ) -> anyhow::Result<(Vec<u8>, Option<Vec<u8>>)> {
-    let mut genesis_loc = app_prefs.get_user_app_dir().to_path_buf();
-    genesis_loc.push(FILE_NAME_GENESIS_DATA);
+    let mut genesis_loc = app_prefs.get_data_dir().to_path_buf();
+    // if the genesis_data_file is absolute this replaces the entire path
+    // otherwise the path is appended to the data directory
+    genesis_loc.push(&conf.genesis_data_file);
 
-    let genesis_data = match OpenOptions::new().read(true).open(&genesis_loc) {
+    let genesis_data = match std::fs::File::open(&genesis_loc) {
         Ok(mut file) => {
             let mut read_data = vec![];
             match file.read_to_end(&mut read_data) {
                 Ok(_) => read_data,
-                Err(_) => bail!("Couldn't read genesis file properly"),
+                Err(e) => bail!("Cannot not read genesis file ({})!", e),
             }
         }
-        Err(e) => bail!("Can't open the genesis file ({})!", e),
+        Err(e) => bail!("Cannot open the genesis file ({})", e),
     };
 
     let private_data = if let Some(path) = &conf.baker_credentials_file {
         let read_data = match std::fs::read(&path) {
             Ok(read_data) => read_data,
-            Err(e) => bail!("Can't open the baker credentials file ({})!", e),
+            Err(e) => bail!("Cannot open the baker credentials file ({})!", e),
         };
         if conf.decrypt_baker_credentials {
             let et = serde_json::from_slice(&read_data)?;
@@ -310,12 +308,23 @@ fn send_msg_to_consensus(
     let payload = &message.payload[1..]; // non-empty, already checked
 
     let consensus_response = match message.variant {
-        Block => consensus.send_block(payload),
         Transaction => consensus.send_transaction(payload),
-        FinalizationMessage => consensus.send_finalization(payload),
-        FinalizationRecord => consensus.send_finalization_record(payload),
-        CatchUpStatus => {
-            consensus.receive_catch_up_status(payload, source_id, node.config.catch_up_batch_limit)
+        _ => {
+            let genesis_index = u32::deserial(&mut Cursor::new(&payload[..4]))?;
+            match message.variant {
+                Block => consensus.send_block(genesis_index, &payload[4..]),
+                FinalizationMessage => consensus.send_finalization(genesis_index, &payload[4..]),
+                FinalizationRecord => {
+                    consensus.send_finalization_record(genesis_index, &payload[4..])
+                }
+                CatchUpStatus => consensus.receive_catch_up_status(
+                    genesis_index,
+                    &payload[4..],
+                    source_id,
+                    node.config.catch_up_batch_limit,
+                ),
+                Transaction => unreachable!("Transaction message variant already handled."),
+            }
         }
     };
 
@@ -417,6 +426,18 @@ fn try_catch_up(node: &P2PNode, consensus: &ConsensusContainer, peers: &mut Peer
 
 /// Check whether the peers require catching up.
 pub fn check_peer_states(node: &P2PNode, consensus: &ConsensusContainer) {
+    // If we have a new genesis block, then mark all peers as pending.
+    if node
+        .config
+        .regenesis_arc
+        .trigger_catchup
+        .compare_exchange(true, false, Ordering::SeqCst, Ordering::Acquire)
+        .is_ok()
+    {
+        debug!("Regenesis occurred; marking all peers as pending.");
+        write_or_die!(node.peers).mark_all_pending();
+    }
+
     // If we are catching-up with a peer, check if the peer has timed-out.
     let now = get_current_stamp();
     let (catch_up_peer, catch_up_stamp) = {
@@ -513,7 +534,7 @@ fn update_peer_states(
                 // That should not be necessary if we simply relay the
                 // messages to them.
 
-                // relay rebroadcastable direct messages to non-pending peers, but originator
+                // relay rebroadcastable direct messages to non-pending peers, except originator
                 for non_pending_peer in peers
                     .peer_states
                     .iter()

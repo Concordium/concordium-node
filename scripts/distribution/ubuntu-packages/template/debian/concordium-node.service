@@ -1,10 +1,10 @@
 [Unit]
-Description=Concordium Node
+Description=Concordium ${build_env_name} Node
 After=syslog.target network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/concordium-node --config-dir ${STATE_DIRECTORY}/config --data-dir ${STATE_DIRECTORY}/data
+ExecStart=/usr/bin/concordium-${build_env_name_lower}-node-${build_version} --config-dir ${STATE_DIRECTORY}/config --data-dir ${STATE_DIRECTORY}/data
 Restart=always
 RestartSec=20
 
@@ -30,14 +30,14 @@ MemoryDenyWriteExecute=yes
 DynamicUser=yes
 # state directory is relative to /var/lib/, see systemd man pages Sandboxing section.
 # This sets the STATE_DIRECTORY environment variable that is used as part of the ExecStart command.
-StateDirectory=concordium/b6078154d6717e909ce0da4a45a25151b592824f31624b755900a74429e3073d
+StateDirectory=concordium-${build_genesis_hash}
 # relative to the state directory root %S
-WorkingDirectory=%S/concordium/b6078154d6717e909ce0da4a45a25151b592824f31624b755900a74429e3073d
+WorkingDirectory=%S/concordium-${build_genesis_hash}
 
 # port on which the node will listen for incoming connections
-Environment=CONCORDIUM_NODE_LISTEN_PORT=8888
+Environment=CONCORDIUM_NODE_LISTEN_PORT=${build_listen_port}
 # where to bootstrap from
-Environment=CONCORDIUM_NODE_CONNECTION_BOOTSTRAP_NODES=bootstrap.testnet.concordium.com:8888
+Environment=CONCORDIUM_NODE_CONNECTION_BOOTSTRAP_NODES=${build_bootstrap}
 # desired number of nodes to be connected to.
 Environment=CONCORDIUM_NODE_CONNECTION_DESIRED_NODES=5
 # maximum number of __nodes__ the node will be connected to.
@@ -45,7 +45,7 @@ Environment=CONCORDIUM_NODE_CONNECTION_MAX_ALLOWED_NODES=10
 # address of the GRPC server
 Environment=CONCORDIUM_NODE_RPC_SERVER_ADDR=0.0.0.0
 # and its port
-Environment=CONCORDIUM_NODE_RPC_SERVER_PORT=10000
+Environment=CONCORDIUM_NODE_RPC_SERVER_PORT=${build_rpc_server_port}
 # maximum number of __connections__ the node can have. This can temporarily be more than
 # the number of peers when incoming connections are processed. 
 Environment=CONCORDIUM_NODE_CONNECTION_HARD_CONNECTION_LIMIT=20

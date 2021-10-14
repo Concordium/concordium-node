@@ -40,6 +40,7 @@ genesis-complementary-bundle
 genesis-data-test
 genesis_data
 /concordium-consensus/stack.yaml.lock
+/concordium-consensus/stack.static.yaml.lock
 /concordium-consensus/stack.integer-simple.yaml.lock
 /concordium-consensus/concordium-consensus.cabal
 /concordium-consensus/a.out
@@ -49,6 +50,12 @@ concordium-node/deps/static-libs
 .dir-locals.el
 hie.yaml
 **/**/TAGS
-/scripts/genesis/genesis-tmp.json
 .DS_Store
 /concordium-node/*.log
+
+# MacOS distribution
+/scripts/distribution/macOS-package/tools
+/scripts/distribution/macOS-package/build
+xcuserdata/
+/scripts/distribution/macOS-package/NodeConfigurationInstallerPlugin/build/
+/scripts/distribution/macOS-package/NodeConfigurationInstallerPlugin/*.gcno

@@ -210,6 +210,8 @@ executables:
     - -Wall
     - -Wcompat
     - -fno-ignore-asserts
+    - -threaded
+
     when:
       - condition: os(windows)
         then:

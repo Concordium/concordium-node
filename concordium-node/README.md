@@ -7,7 +7,6 @@
   v2.0.0 is what we currently use. Either build from the v2.0.0 tag of the repository using CMake and copy the `flatc` binary somewhere in your PATH, or download a released binary from https://github.com/google/flatbuffers/releases/tag/v2.0.0 and place it somewhere in your PATH.
 * protobuf >= 3.7.1
 * LLVM and Clang >= 3.9
-* [Unbound](https://www.nlnetlabs.nl/documentation/unbound/howto-setup/) >= 1.9.2 (the dependency `openssl-devel` is named `libssl-dev` on Ubuntu 19.10)
 * PostGreSQL >= 10
 
 ### Optional dependencies
@@ -57,8 +56,7 @@ By default none of these features are enabled.
 
 Building a node with any of these features, e.g., `cargo build --release
 --features=static` produces a mostly statically linked binary `concordium-node`,
-apart from system libraries and `libunbound` and `libpq` for the unbound library
-and postgres.
+apart from system libraries and `libpq` for postgres.
 
 ### Environment variables
 
@@ -109,6 +107,47 @@ Environment variables only apply to the default build. This links with shared Ha
 - The node built with Haskell library auto-discovery is not suitable for distribution to other
   machines. It is a dynamically linked binary with a large number of shared library dependencies.
 
+## Building on Windows
+
+### Dependencies
+
+Before building the node, you should install the following dependencies:
+
+* Haskell [stack](https://docs.haskellstack.org/en/stable/install_and_upgrade/)
+* [Rust](https://www.rust-lang.org/tools/install)
+  * For building the node, the toolchain `1.53.0-x86_64-pc-windows-gnu` is required, which can be installed with the command: `rustup toolchain install 1.53.0-x86_64-pc-windows-gnu`.
+  * For building the node runner service (optional), the toolchain `1.53.0-x86_64-pc-windows-msvc`  is required, which can be installed with the command: `rustup toolchain install 1.53.0-x86_64-pc-windows-msvc`.
+* [flatc](https://github.com/google/flatbuffers/releases/tag/v2.0.0) 2.0.0 (should be in the path)
+* [protoc](https://github.com/protocolbuffers/protobuf/releases) >= 3.7.1
+* PostGreSQL and LMDB should be installed under `stack`'s `msys2` installation, which can be done with the following commands:
+```
+stack exec -- pacman -Syuq --noconfirm
+stack exec -- pacman -Syq mingw-w64-x86_64-postgresql mingw-w64-x86_64-lmdb --noconfirm
+```
+* If building the installer, the [Wix Toolset](https://wixtoolset.org/releases/) is required, and should be in the path.
+
+### Building and Running
+
+The simplest way to build the complete node, as well as the service runner and installer is with the [`build-all.ps1`](../scripts/distribution/windows/build-all.ps1`) powershell script.
+
+The node binary will be built at `.\target\release\concordium-node.exe`.
+However, running the node requires the consensus DLL, which is compiled to `..\concordium-consensus\HSdll.dll`.
+If you wish to run the node directly, you should copy `HSdll.dll` to the location of `concordium-node.exe`.
+The node also depends on a number of DLLs that are part of `stack`'s `msys2` installation.
+To run the node with these DLLs in the path, you can use `stack exec`, as in:
+```
+stack exec -- concordium-node.exe --help
+```
+
+### Build issue: long paths
+If the root directory of the repository is too long, then the build may fail with `No such file or directory` errors, such as:
+```
+concordium-consensus   >   = note: x86_64-w64-mingw32-gcc.exe: error: C:\msys64\jenkins-agent\workspace\concordium-node-windows\concordium-consensus\smart-contracts\wasm-chain-integration\target\release\build\winapi-x86_64-pc-windows-gnu-0838443214203ebf\build_script_build-0838443214203ebf.build_script_build.8py00u3m-cgu.0.rcgu.o: No such file or directory
+```
+This is caused by the path exceeding the Windows maximum path length.
+The simplest solution for this is to clone the repository into a shorter root path.
+
+
 ## Running a bootstrapper node
 
 The bootstrapper node uses a configuration similar to the one of a
@@ -146,45 +185,14 @@ To automatically open the browser with the documentation once it is generated us
 $> cargo doc --open
 ```
 
-# Collector-backend and collectors
+# Collector
 
 To allow the network dashboard to display nodes in the network and their current status, a node must run a collector, which is a process that uses the GRPC api of the node to collect information and sends it to a centralized collector backend.
 
-## Collectors
+See [./collector-backend/](./collector-backend/) for details of the collector backend and how to run it.
+
 Assuming you have a node running locally with GRPC available at `127.0.0.1:10000` and a collector backend at `127.0.0.1:8080`, a collector can be run using:
 
 ```console
 $> cargo run --bin node-collector --features=collector -- --collector-url http://127.0.0.1:8080/post/nodes --grpc-host http://127.0.0.1:10000  --node-name "my-node-name"
 ```
-
-## Collector-backend
-
-To run a collector-backend:
-```console
-$> cargo run --bin node-collector-backend --features=collector
-```
-
-### Adjusting validation
-The collector backend tries to do some validation of the data received from the collectors. These checks can be set using either command line arguments or environment variables.
-For a description of all the arguments run:
-
-```console
-$> cargo run --bin node-collector-backend --features=collector -- --help
-```
-
-But some of the settings require a bit more explaination:
-
-#### Limiting total data size
-Setting `--valid-content-length` is a limit on the total byte size of the data received from a node, meaning it should also accommodate for everything in the data set. If we change something like the allowed node name length or the valid node peers count, this should probably be adjusted as well.
-
-#### Comparing block heights against the average
-Data where the best block height or finalized block height is too far from the current average will be rejected.
-
-Adjusting what is considered 'too far' can be done for each check using `--valid-additional-best-block-height` and`--valid-additional-finalized-block-height`.
-
-Comparing with averages only makes sense when the collector-backend have enough data points, the minimum number of required data points can be adjusted using `--validate-against-average-at`.
-
-For the average to better withstand outliers, it is calculated from a percentage of the nodes, where the leftout nodes are the highest and lowest data values.
-The percentage can be adjusted using `--percentage-used-for-averages` and must be an integer between 1 and 100.
-
-Example: Say, we set the percentage to 60, with 20 nodes running, then new data would be compared to the average of 12 nodes, leaving out the nodes with the 3 lowest values and the 3 highest values.

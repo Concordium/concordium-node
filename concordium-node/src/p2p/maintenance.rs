@@ -18,9 +18,8 @@ use crate::{
     configuration::{self as config, Config},
     connection::{ConnChange, Connection, DeduplicationHashAlgorithm, DeduplicationQueues},
     consensus_ffi::{
-        blockchain_types::BlockHash,
         catch_up::PeerList,
-        consensus::{ConsensusContainer, CALLBACK_QUEUE},
+        consensus::{ConsensusContainer, Regenesis, CALLBACK_QUEUE},
     },
     lock_or_die,
     network::{Buckets, NetworkId, Networks},
@@ -41,7 +40,7 @@ use std::{
     mem,
     net::{
         IpAddr::{self, V4, V6},
-        Ipv4Addr, SocketAddr,
+        Ipv4Addr, SocketAddr, ToSocketAddrs,
     },
     path::PathBuf,
     str::FromStr,
@@ -60,8 +59,6 @@ pub struct NodeConfig {
     pub no_bootstrap_dns: bool,
     /// Do not clear persistent bans on startup.
     pub no_clear_bans: bool,
-    pub dns_resolvers: Vec<String>,
-    pub require_dnssec: bool,
     pub disallow_multiple_peers_on_ip: bool,
     pub bootstrap_nodes: Vec<String>,
     /// Nodes to try and keep the connections to. A node will maintain two
@@ -96,7 +93,7 @@ pub struct NodeConfig {
     pub socket_so_linger: Option<u16>,
     pub events_queue_size: usize,
     pub deduplication_hashing_algorithm: DeduplicationHashAlgorithm,
-    pub regenesis_arc: Arc<RwLock<Vec<BlockHash>>>,
+    pub regenesis_arc: Arc<Regenesis>,
 }
 
 /// The collection of connections to peer nodes.
@@ -271,7 +268,7 @@ impl P2PNode {
         conf: &Config,
         peer_type: PeerType,
         stats: Arc<StatsExportService>,
-        regenesis_arc: Arc<RwLock<Vec<BlockHash>>>,
+        regenesis_arc: Arc<Regenesis>,
     ) -> anyhow::Result<(Arc<Self>, Poll)> {
         let addr = if let Some(ref addy) = conf.common.listen_address {
             let ip_addr = addy.parse::<IpAddr>().context(
@@ -321,17 +318,13 @@ impl P2PNode {
             addr: SocketAddr::new(ip, own_peer_port),
         };
 
-        let dns_resolvers =
-            utils::get_resolvers(&conf.connection.resolv_conf, &conf.connection.dns_resolver);
-        let given_addresses = RwLock::new(parse_config_nodes(&conf.connection, &dns_resolvers)?);
+        let given_addresses = RwLock::new(parse_config_nodes(&conf.connection)?);
 
         let config = NodeConfig {
             no_net: conf.cli.no_network,
             desired_nodes_count: conf.connection.desired_nodes,
             no_bootstrap_dns: conf.connection.no_bootstrap_dns,
             no_clear_bans: conf.connection.no_clear_bans,
-            dns_resolvers,
-            require_dnssec: conf.connection.require_dnssec,
             disallow_multiple_peers_on_ip: conf.connection.disallow_multiple_peers_on_ip,
             bootstrap_nodes: conf.connection.bootstrap_nodes.clone(),
             given_addresses,
@@ -653,12 +646,12 @@ pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll, consensus: Option<Consensu
 
         // Process network events until signalled to terminate.
         // For each loop iteration do the following in sequence
-        // - check whether ther are any incoming connection requests
+        // - check whether there are any incoming connection requests
         // - then process any connection changes, e.g., drop connections, promote to
         //   initial connections to peers, ...
         // - then read from all existing connections in parallel, using the above
         //   allocated thread pool
-        // - occassionally (dictated by the housekeeping_interval) do connection
+        // - occasionally (dictated by the housekeeping_interval) do connection
         //   housekeeping, checking whether peers and connections are active.
         while !node.is_terminated.load(Ordering::Relaxed) {
             // check for new events or wait
@@ -848,11 +841,7 @@ pub fn attempt_bootstrap(node: &Arc<P2PNode>) {
     if !node.config.no_net {
         info!("Attempting to bootstrap");
 
-        let bootstrap_nodes = utils::get_bootstrap_nodes(
-            &node.config.dns_resolvers,
-            node.config.require_dnssec,
-            &node.config.bootstrap_nodes,
-        );
+        let bootstrap_nodes = utils::get_bootstrap_nodes(&node.config.bootstrap_nodes);
 
         match bootstrap_nodes {
             Ok(nodes) => {
@@ -884,13 +873,10 @@ fn get_ip_if_suitable(addr: &IpAddr) -> Option<IpAddr> {
 }
 
 /// Parse and potentially resolve IPs (via DNS) of nodes supplied on startup.
-fn parse_config_nodes(
-    conf: &config::ConnectionConfig,
-    dns_resolvers: &[String],
-) -> anyhow::Result<HashSet<SocketAddr>> {
+fn parse_config_nodes(conf: &config::ConnectionConfig) -> anyhow::Result<HashSet<SocketAddr>> {
     let mut out = HashSet::new();
     for connect_to in &conf.connect_to {
-        let new_addresses = utils::parse_host_port(connect_to, dns_resolvers, conf.require_dnssec)?;
+        let new_addresses = ToSocketAddrs::to_socket_addrs(connect_to)?;
         out.extend(new_addresses)
     }
     Ok(out)

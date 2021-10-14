@@ -7,6 +7,7 @@
 module Concordium.GlobalState.SQL.AccountTransactionIndex where
 
 import Concordium.Types
+import Concordium.Types.Block
 import Concordium.Types.Execution
 import Concordium.Types.Transactions
 import Concordium.GlobalState.AccountTransactionIndex
@@ -24,6 +25,20 @@ import qualified Data.Text as Text
 
 import Control.Monad.Logger
 import Control.Monad.Reader
+
+-- |Type marker for the SQL account transaction index
+data SQLTransactionLog
+
+-- |Context for transaction logging to an SQL database.
+data SQLTransactionLogContext = SQLTransactionLogContext {
+    -- |The database connection pool.
+    connectionPool :: !(Pool SqlBackend),
+    -- |The absolute height of the genesis block.
+    genesisAbsoluteHeight :: !AbsoluteBlockHeight
+  }
+
+type instance ATIValues SQLTransactionLog = AccountTransactionIndex
+type instance ATIContext SQLTransactionLog = SQLTransactionLogContext
 
 connectPostgres :: ConnectionString -> IO (Pool SqlBackend)
 connectPostgres connString = runNoLoggingT (createPostgresqlPool connString 5)
@@ -81,9 +96,9 @@ type PersistentTransactionOutcome = Either TransactionSummary SpecialTransaction
 -- |Write the outcomes of the transactions and the special transaction outcomes of a block
 -- into the postgresql backend. Note that this will make only one database commit as it uses
 -- `runSqlConn` internally.
-writeEntries :: Pool SqlBackend -> BlockContext -> AccountTransactionIndex -> Seq.Seq SpecialTransactionOutcome -> IO ()
-writeEntries pool BlockContext{..} ati stos = do
-  runPostgres pool c
+writeEntries :: SQLTransactionLogContext -> BlockContext -> AccountTransactionIndex -> Seq.Seq SpecialTransactionOutcome -> IO ()
+writeEntries SQLTransactionLogContext{..} BlockContext{..} ati stos = do
+  runPostgres connectionPool c
   where c :: ReaderT SqlBackend (NoLoggingT IO) ()
         c = do
           let
@@ -128,4 +143,4 @@ writeEntries pool BlockContext{..} ati stos = do
           summaryBlock = ByteStringSerialized bcHash,
           summarySummary = AE.toJSON v,
           summaryTimestamp = bcTime,
-          summaryHeight = bcHeight}
+          summaryHeight = localToAbsoluteBlockHeight genesisAbsoluteHeight bcHeight}

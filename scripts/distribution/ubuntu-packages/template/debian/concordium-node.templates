@@ -1,3 +1,3 @@
-Template: node-collector/node-name
+Template: concordium-${build_env_name_lower}-node-collector/node-name
 Type: string
-Description: Name of the node to appear on the network dashboard
+Description: Name of the node to appear on the network dashboard. Must not be empty.

@@ -1,5 +1,5 @@
 [Unit]
-Description=Concordium Node Collector
+Description=Concordium ${build_env_name} Node Collector
 After=syslog.target network.target concordium-node.service
 # The node should be started before this service.
 # Requires will automatically start the node service if this
@@ -7,11 +7,11 @@ After=syslog.target network.target concordium-node.service
 # will be stopped as well.
 # The 'After' clause above means that the node service will be up
 # before this one is started.
-Requires=concordium-node.service
+Requires=concordium-${build_env_name_lower}-node.service
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/node-collector
+ExecStart=/usr/bin/concordium-${build_env_name_lower}-node-collector-${build_version}
 Restart=always
 RestartSec=20
 
@@ -35,8 +35,8 @@ RestrictRealtime=yes
 MemoryDenyWriteExecute=yes
 
 Environment=CONCORDIUM_NODE_COLLECTOR_COLLECT_INTERVAL=5000
-Environment=CONCORDIUM_NODE_COLLECTOR_URL=https://dashboard.testnet.concordium.com/nodes/post
-Environment=CONCORDIUM_NODE_COLLECTOR_GRPC_HOST=http://localhost:10000
+Environment=CONCORDIUM_NODE_COLLECTOR_URL=${build_collector_backend_url}
+Environment=CONCORDIUM_NODE_COLLECTOR_GRPC_HOST=http://localhost:${build_rpc_server_port}
 
 [Install]
 # start the service when reaching multi-user target

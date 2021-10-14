@@ -11,7 +11,7 @@ import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.BlockPointer (bpArriveTime, bpTransactionCount)
 import Concordium.GlobalState.Statistics
 
-import Concordium.Skov.Monad
+import Concordium.Skov.Monad hiding (getConsensusStatistics)
 import Concordium.Logger
 import Concordium.TimeMonad
 

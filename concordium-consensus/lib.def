@@ -8,7 +8,7 @@ EXPORTS
  startBaker
  stopBaker
  receiveBlock
- receiveFinalization
+ receiveFinalizationMessage
  receiveFinalizationRecord
  receiveTransaction
  getConsensusStatus

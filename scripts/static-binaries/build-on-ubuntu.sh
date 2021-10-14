@@ -22,7 +22,6 @@ apt-get update && \
 DEBIAN_FRONTEND=noninteractive apt-get -y install \
 	git \
 	curl \
-	libunbound-dev \
 	libprotobuf-dev \
 	libssl-dev \
 	protobuf-compiler \
