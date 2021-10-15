@@ -230,7 +230,10 @@ pub struct BakerConfig {
         long = "haskell-rts-flags",
         help = "Haskell RTS flags to pass to consensus.",
         default_value = "",
-        env = "CONCORDIUM_NODE_RUNTIME_HASKELL_RTS_FLAGS"
+        env = "CONCORDIUM_NODE_RUNTIME_HASKELL_RTS_FLAGS",
+        // parse the argument as a comma separated list of values.
+        // Especially useful when supplied via the environment variable.
+        use_delimiter = true
     )]
     pub rts_flags: Vec<String>,
     #[structopt(
