@@ -41,6 +41,7 @@ import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.Skov.Statistics
 import qualified Concordium.TransactionVerification as TV
+import qualified Concordium.Cache as Cache
 import Control.Monad.Reader
 
 
@@ -519,7 +520,6 @@ doReceiveTransaction tr slot = unlessShutDown $ do
   if expiryTooLate then return ResultExpiryTooLate
   else if transactionExpired (msgExpiry tr) (utcTimeToTimestamp now) then return ResultStale
   else do
-
     -- reject expired transactions, we don't cache the result though.
     lastFinalState <- queryBlockState =<< lastFinalizedBlock
     expired <- runReaderT (TV.verifyTransactionNotExpired tr (utcTimeToTimestamp now)) lastFinalState
@@ -541,23 +541,36 @@ doReceiveTransaction tr slot = unlessShutDown $ do
                else snd <$> doReceiveTransactionInternal tr slot
         WithMetadata{wmdData = CredentialDeployment cred} -> do
              -- check if the transaction has already been verified
-             verResult <- lookupTxVerificationResult (getHash tr)
+             txVerCache <- getTransactionVerificationCache
+             let verResult = Cache.lookup (getHash tr) txVerCache
              case verResult of
                Just res -> case res of
-                 -- forward if the cached result permits us
+                 -- Forward the successful transaction
                  TV.ResultSuccess -> snd <$> doReceiveTransactionInternal tr slot
-                 -- reject the transaction and return the error otherwise 
+                 -- Forward this transaction as it may be valid in the future
+                 TV.ResultCredentialDeploymentInvalidIdentityProvider -> snd <$> doReceiveTransactionInternal tr slot
+                 -- Forward this transaction as it may be valid in the future
+                 TV.ResultCredentialDeploymentInvalidAnonymityRevokers -> snd <$> doReceiveTransactionInternal tr slot
+                 -- reject otherwise
                  err -> return $ mapTransactionVerificationResult err
                Nothing -> do
                  -- if the transaction has not yet been verified we do so
                  result <- runReaderT (TV.verifyCredentialDeployment cred) lastFinalState
                  case result of
-                   -- forward a successful verified transaction
-                   TV.ResultSuccess -> snd <$> doReceiveTransactionInternal tr slot
-                   -- If the verification failed, then we reject the transaction and put it into
-                   -- the cache of transaction verification results
+                   -- insert the result into the cache and forward the transaction
+                   TV.ResultSuccess -> do
+                     insertIntoCache (getHash tr) result
+                     snd <$> doReceiveTransactionInternal tr slot
+                   TV.ResultCredentialDeploymentInvalidIdentityProvider -> do
+                     insertIntoCache (getHash tr) result
+                     snd <$> doReceiveTransactionInternal tr slot
+                   TV.ResultCredentialDeploymentInvalidAnonymityRevokers -> do
+                     insertIntoCache (getHash tr) result
+                     snd <$> doReceiveTransactionInternal tr slot
+                   -- If the verification failed for reasons it cannot never be valid in the future 
+                   -- we put it into the cache and reject the transaction
                    err -> do
-                     insertTxVerificationResult (getHash tr) err
+                     insertIntoCache (getHash tr) result
                      return $ mapTransactionVerificationResult err
         _ -> snd <$> doReceiveTransactionInternal tr slot
       when (ur == ResultSuccess) $ purgeTransactionTable False =<< currentTime
@@ -567,6 +580,10 @@ doReceiveTransaction tr slot = unlessShutDown $ do
             maxTimeToExpiry <- rpMaxTimeToExpiry <$> getRuntimeParameters
             let expiry = msgExpiry tr
             return $ expiry > maxTimeToExpiry + utcTimeToTransactionTime now
+          insertIntoCache txHash verResult = do
+            c <- getTransactionVerificationCache
+            let c' = Cache.insert txHash verResult c
+            putTransactionVerificationCache c'
 
 -- |Add a transaction to the transaction table.  The 'Slot' should be
 -- the slot number of the block that the transaction was received with.

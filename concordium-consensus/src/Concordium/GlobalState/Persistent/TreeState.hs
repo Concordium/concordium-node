@@ -615,14 +615,8 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
         possiblyPendingTable .=! HM.empty
         possiblyPendingQueue .=! MPQ.empty
 
-    insertTxVerificationResult txHash verResult = do
-      transactionVerificationResults %=! Cache.doInsert txHash verResult
-    lookupTxVerificationResult txHash =
-      Cache.doLookup txHash <$> use transactionVerificationResults
-
     getTransactionVerificationCache = use transactionVerificationResults
     putTransactionVerificationCache = (transactionVerificationResults .=!)
-
 
     getFocusBlock = use focusBlock
     putFocusBlock bb = focusBlock .= bb
@@ -726,8 +720,7 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
                         -- Mark the status of the transaction as finalized, and remove the data from the in-memory table.
                         ss <- deleteAndFinalizeStatus wmdHash
                         -- delete the transaction from the verified transaction cache
-                        -- todo: must be possible to do this in a cleaner way
-                        transactionVerificationResults %=! Cache.doDelete wmdHash
+                        transactionVerificationResults %=! Cache.delete wmdHash
 
                         -- Update the non-finalized transactions for the sender
                         transactionTable . ttNonFinalizedTransactions . at' sender ?= (anft & (anftMap . at' nonce .~ Nothing)
@@ -789,7 +782,7 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
                     -- remove from the table
                     transactionTable . ttHashMap . at' wmdHash .= Nothing
                     -- delete the transaction from the verified transaction cache
-                    transactionVerificationResults %=! Cache.doDelete wmdHash
+                    transactionVerificationResults %=! Cache.delete wmdHash
 
                     -- if the transaction is from a sender also delete the relevant
                     -- entry in the account non finalized table

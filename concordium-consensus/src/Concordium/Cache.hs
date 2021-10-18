@@ -7,7 +7,7 @@ module Concordium.Cache
   -- Creating caches
   empty, emptyCapped,
   -- Functions
-  doInsert, doLookup, size, doDelete
+  insert, lookup, delete, size
   )
 where
 
@@ -53,9 +53,9 @@ size :: Cache k v -> Int
 size C{..} = Map.size _contents
 
 
-{-# INLINE doInsert #-}
-doInsert :: (Eq k, Hashable k) => k -> v -> Cache k v -> Cache k v
-doInsert k v c@C{..}  = 
+{-# INLINE insert #-}
+insert :: (Eq k, Hashable k) => k -> v -> Cache k v -> Cache k v
+insert k v c@C{..}  = 
   case _capacity of
     Just cap ->
       if size c >= cap then _insert k v (_empty $ Just cap)
@@ -67,11 +67,11 @@ doInsert k v c@C{..}  =
 _insert :: (Eq k, Hashable k) => k -> v -> Cache k v -> Cache k v
 _insert k v C{..} = C{_contents=Map.insert k v _contents, _capacity=_capacity}    
 
-{-# INLINE doLookup #-}
-doLookup :: (Eq k, Hashable k) => k -> Cache k v -> Maybe v
-doLookup k C{..} = Map.lookup k _contents
+{-# INLINE lookup #-}
+lookup :: (Eq k, Hashable k) => k -> Cache k v -> Maybe v
+lookup k C{..} = Map.lookup k _contents
 
-{-# INLINE doDelete #-}                 
+{-# INLINE delete #-}                 
 {-# LANGUAGE AllowAmbiguousTypes #-}
-doDelete :: (Eq k, Hashable k) => k -> Cache k v -> Cache k v
-doDelete k C{..} = C{_contents = Map.delete k _contents, _capacity=_capacity}
+delete :: (Eq k, Hashable k) => k -> Cache k v -> Cache k v
+delete k C{..} = C{_contents = Map.delete k _contents, _capacity=_capacity}

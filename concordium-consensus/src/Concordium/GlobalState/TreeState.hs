@@ -209,29 +209,19 @@ class (Eq (BlockPointerType m),
     wipePendingBlocks :: m ()
 
 
-    -- | Operations on transaction verification results
+    -- | The transaction verification cache
     --
     -- If a transaction is processed by the TransactionVerifier then it should be added to 
     -- the transaction verification results such that we don't later on try to verify the
     -- transaction.
-    -- Cache entries should be removed when a transaction is either finalized or purged.
+    -- Cache entries should be removed when a transaction is finalized, purged or expired
+    -- Expired transactions should not be put in the cache, but instead they are rejected upfront.
+    -- Hence it's safe to simply delete expired transactions from the cache such that it won't grow
+    -- in eternity.
     
-    -- |Adds an transaction hash and the corresponding verification result to the cache
-    -- of transaction verification results
-    -- Note: The reason we are storing the verification result instead of '()' is
-    -- such that 'doReceiveTransactionInternal' and 'doReceiveTransactionInternal' can
-    -- forward the verification error result (if such one exists).
-    insertTxVerificationResult :: TransactionHash -> TV.VerificationResult -> m ()
-    
-    -- |Checks whether an transaction has been verified.
-    -- If the cache contains an entry with the given 'Transactionhash' then
-    -- return the associated 'VerificationResult'.
-    -- Otherwise return 'Nothing'.
-    lookupTxVerificationResult :: TransactionHash -> m (Maybe TV.VerificationResult)
-
-
-    -- TODO: Documentation
+    -- |Gets the transaction verification cache from the TreeState
     getTransactionVerificationCache :: m TransactionVerificationCache
+    -- |Puts a transaction verification cache into the TreeState
     putTransactionVerificationCache :: TransactionVerificationCache -> m ()
 
     -- * Operations on the pending transaction table
@@ -415,8 +405,6 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad pv m) => TreeStateMonad pv (
     putConsensusStatistics = lift . putConsensusStatistics
     getRuntimeParameters = lift getRuntimeParameters
     purgeTransactionTable tm = lift . (purgeTransactionTable tm)
-    insertTxVerificationResult hash err = lift $ insertTxVerificationResult hash err
-    lookupTxVerificationResult = lift . lookupTxVerificationResult
     getTransactionVerificationCache = lift getTransactionVerificationCache
     putTransactionVerificationCache = lift . putTransactionVerificationCache
     {-# INLINE makePendingBlock #-}
@@ -462,8 +450,6 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad pv m) => TreeStateMonad pv (
     {-# INLINE putConsensusStatistics #-}
     {-# INLINE getRuntimeParameters #-}
     {-# INLINE purgeTransactionTable #-}
-    {-# INLINE insertTxVerificationResult #-}
-    {-# INLINE lookupTxVerificationResult #-}
     {-# INLINE getTransactionVerificationCache #-}
     {-# INLINE putTransactionVerificationCache #-}
 

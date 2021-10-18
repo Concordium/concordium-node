@@ -213,11 +213,6 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
                     possiblyPendingQueue .= ppq
                     return Nothing
 
-    insertTxVerificationResult txHash verResult = do
-      transactionVerificationResults %=! Cache.doInsert txHash verResult
-    lookupTxVerificationResult txHash =
-      Cache.doLookup txHash <$> use transactionVerificationResults
-
     getTransactionVerificationCache = use transactionVerificationResults
     putTransactionVerificationCache = (transactionVerificationResults .=!)
 
@@ -310,10 +305,8 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
                         forM_ (Set.delete wmdtr nfn) $
                           \deadTransaction -> transactionTable . ttHashMap . at' (getHash deadTransaction) .= Nothing
                         -- delete the transaction from the verified transaction cache
-                        -- todo: must be possible to do this in a cleaner way
-                        cache <- use transactionVerificationResults
-                        let cache' = Cache.doDelete wmdHash cache
-                        transactionVerificationResults .= cache'
+                        transactionVerificationResults %=! Cache.delete wmdHash
+
                         -- Mark the status of the transaction as finalized.
                         -- Singular here is safe due to the precondition (and assertion) that all transactions
                         -- which are part of live blocks are in the transaction table.
@@ -357,11 +350,8 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
                     -- remove from the table
                     transactionTable . ttHashMap . at' wmdHash .= Nothing
                     -- delete the transaction from the verified transaction cache
-                    -- todo: must be possible to do this in a cleaner way
-                    cache <- use transactionVerificationResults
-                    let cache' = Cache.doDelete wmdHash cache
-                    transactionVerificationResults .= cache'
- 
+                    transactionVerificationResults %=! Cache.delete wmdHash
+
                     -- if the transaction is from a sender also delete the relevant
                     -- entry in the account non finalized table
                     case wmdData of

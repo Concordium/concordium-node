@@ -167,12 +167,12 @@ instance (MonadReader ContextState m,
 
   insertTransactionVerificationResult txHash verResult = do
     cache <- use transactionVerificationCache
-    let cache' = Cache.doInsert txHash verResult cache
+    let cache' = Cache.insert txHash verResult cache
     assign transactionVerificationCache cache'
 
   lookupTransactionVerificationResult k = do
     cache <- use transactionVerificationCache
-    let value = Cache.doLookup k cache
+    let value = Cache.lookup k cache
     return value
 
 

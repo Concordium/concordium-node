@@ -852,16 +852,6 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
         -- reasonable assumption.
         assert (l1 == l2) $ return l1
 
-    insertTxVerificationResult txHash err = do
-      t <- coerceGSML (insertTxVerificationResult txHash err)
-      t' <- coerceGSMR (insertTxVerificationResult txHash err)
-      assert (t == t') $ return t
-      
-    lookupTxVerificationResult txHash = do
-      t <- coerceGSML (lookupTxVerificationResult txHash)
-      t' <-coerceGSMR (lookupTxVerificationResult txHash)
-      assert (t == t') $ return t
-
 newtype PairGSConfig c1 c2 (pv :: ProtocolVersion) = PairGSConfig (c1 pv, c2 pv)
 
 instance (GlobalStateConfig c1, GlobalStateConfig c2) => GlobalStateConfig (PairGSConfig c1 c2) where

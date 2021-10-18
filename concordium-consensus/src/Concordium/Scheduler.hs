@@ -1134,29 +1134,49 @@ handleDeployCredential accCreation@AccountCreation{messageExpiry=messageExpiry, 
 
       let regId = ID.credId accCreation
       let aaddr = ID.addressFromRegId regId
-      -- Verification checks passed. Now we create either an initial or normal account
-      foo <- lift (lookupTransactionVerificationResult cdiHash)
-      case foo of
-        Just TV.ResultSuccess -> return ()
-        _ -> do -- FIXME: If already failed figure out whether we can just reject.
+      cachedTVResult <- lift (lookupTransactionVerificationResult cdiHash)
+      case cachedTVResult of
+        Just TV.ResultSuccess -> do
+        -- Verification checks passed. Now we create either an initial or normal account
+          newAccount regId aaddr cryptoParams mkSummary
+        Just TV.ResultCredentialDeploymentInvalidIdentityProvider -> do
+          -- We cannot simply reject this error as an identity provider could've
+          -- been added in the mean time
           tVerResult <- lift (verifyCredentialDeployment accCreation)
-          unless (tVerResult == TV.ResultSuccess) $ throwError $ Just AccountCredentialInvalid
-      case cdi of 
-        ID.InitialACWP icdi -> do
-          _ <- lift (createAccount cryptoParams aaddr (ID.InitialAC (ID.icdiValues icdi)))
-          mkSummary (TxSuccess [AccountCreated aaddr, CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}])
-        ID.NormalACWP _ -> do
-            case ID.values cdi of
-              Just cdv -> do
-                _ <- lift (createAccount cryptoParams aaddr cdv)
-                mkSummary (TxSuccess [AccountCreated aaddr, CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}])
-              Nothing -> throwError $  Just AccountCredentialInvalid
+          unless (tVerResult == TV.ResultSuccess) $ throwError $ mapErr tVerResult
+          newAccount regId aaddr cryptoParams mkSummary
+        Just TV.ResultCredentialDeploymentInvalidAnonymityRevokers -> do
+          -- We cannot simply reject this error as an anonymity revoker could've
+          -- been added in the mean time
+          tVerResult <- lift (verifyCredentialDeployment accCreation)
+          unless (tVerResult == TV.ResultSuccess) $ throwError $ mapErr tVerResult
+          newAccount regId aaddr cryptoParams mkSummary
+        Just tVerResult -> do
+          -- The other verification errors can never be valid in the future and
+          -- as such we simply reject them here.
+          throwError $ mapErr tVerResult
+        Nothing -> do
+          -- If the transaction has not been verified before we verify it now 
+          tVerResult <- lift (verifyCredentialDeployment accCreation)
+          unless (tVerResult == TV.ResultSuccess) $ throwError $ mapErr tVerResult
+          newAccount regId aaddr cryptoParams mkSummary
     case res of
       Left err -> return (TxInvalid <$> err)
       Right ts -> return (Just ts)
   where
     mapErr (TV.ResultDuplicateAccountRegistrationID dup) = Just (DuplicateAccountRegistrationID dup)
     mapErr _ = Just AccountCredentialInvalid
+    newAccount regId aaddr cryptoParams mkSummary = do
+      case cdi of
+        ID.InitialACWP icdi -> do
+          _ <- lift (createAccount cryptoParams aaddr (ID.InitialAC (ID.icdiValues icdi)))
+          mkSummary (TxSuccess [AccountCreated aaddr, CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}])
+        ID.NormalACWP _ -> do
+          case ID.values cdi of
+            Just cdv -> do
+              _ <- lift (createAccount cryptoParams aaddr cdv)
+              mkSummary (TxSuccess [AccountCreated aaddr, CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}])
+            Nothing -> throwError $  Just AccountCredentialInvalid
 
 -- |Updates the credential keys in the credential with the given Credential ID.
 -- It rejects if there is no credential with the given Credential ID.
