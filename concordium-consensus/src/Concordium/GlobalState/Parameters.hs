@@ -19,6 +19,7 @@ import Control.Monad hiding (fail)
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Aeson as AE
 import Data.Aeson.Types (FromJSON(..), (.:), withObject)
+import Data.Word
 
 import Concordium.Types.Updates
 import Concordium.Common.Version
@@ -69,6 +70,19 @@ getExactVersionedCryptographicParameters bs = do
    guard (vVersion v == 0)
    return (vValue v)
 
+-- |Mode to use for flushing the blob store buffer.
+-- Flushing to disk is more resilient, as it ensures that the data is written when a flush occurs.
+-- However, it does increase the overhead of the flush operation.
+data FlushMode
+    = FlushToOS
+    -- ^Flush the buffer to the operating system, but don't force a disk flush.
+    | FlushToDisk
+    -- ^Flush the buffer to the operating system and subsequently to disk.
+
+-- |Decode a 'FlushMode' from a 'Word64'.
+flushModeFromWord64 :: Word64 -> FlushMode
+flushModeFromWord64 1 = FlushToDisk
+flushModeFromWord64 _ = FlushToOS
 
 -- |Implementation-defined parameters, such as block size. They are not
 -- protocol-level parameters hence do not fit into 'GenesisParameters'.
@@ -101,7 +115,9 @@ data RuntimeParameters = RuntimeParameters {
   -- |Number of seconds between automatic transaction table purging  runs.
   rpTransactionsPurgingDelay :: !Int,
   -- |The maximum allowed time difference between slot time and a transaction's expiry time.
-  rpMaxTimeToExpiry :: !TransactionTime
+  rpMaxTimeToExpiry :: !TransactionTime,
+  -- |Flushing mode to use for the block state.
+  rpBlockStateFlushMode :: !FlushMode
   }
 
 -- |Default runtime parameters, block size = 10MB.
@@ -114,24 +130,9 @@ defaultRuntimeParameters = RuntimeParameters {
   rpInsertionsBeforeTransactionPurge = 1000,
   rpTransactionsKeepAliveTime = 5 * 60, -- 5 min
   rpTransactionsPurgingDelay = 3 * 60, -- 3 min
-  rpMaxTimeToExpiry = 60 * 60 * 2 -- 2 hours
+  rpMaxTimeToExpiry = 60 * 60 * 2, -- 2 hours
+  rpBlockStateFlushMode = FlushToOS
   }
-
-instance FromJSON RuntimeParameters where
-  parseJSON = withObject "RuntimeParameters" $ \v -> do
-    rpBlockSize <- v .: "blockSize"
-    rpBlockTimeout <- v .: "blockTimeout"
-    rpEarlyBlockThreshold <- v .: "earlyBlockThreshold"
-    rpMaxBakingDelay <- v .: "maxBakingDelay"
-    rpInsertionsBeforeTransactionPurge <- v .: "insertionsBeforeTransactionPurge"
-    rpTransactionsKeepAliveTime <- (fromIntegral :: Int -> TransactionTime) <$> v .: "transactionsKeepAliveTime"
-    rpTransactionsPurgingDelay <- v .: "transactionsPurgingDelay"
-    rpMaxTimeToExpiry <- v .: "maxTimeToExpiry"
-    when (rpBlockSize <= 0) $
-      fail "Block size must be a positive integer."
-    when (rpEarlyBlockThreshold <= 0) $
-      fail "The early block threshold must be a positive integer"
-    return RuntimeParameters{..}
 
 -- |Values of updates that are stored in update queues.
 -- These are slightly different to the 'UpdatePayload' type,

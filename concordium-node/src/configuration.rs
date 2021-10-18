@@ -3,6 +3,7 @@
 use crate::{
     common::P2PNodeId,
     connection::DeduplicationHashAlgorithm,
+    consensus_ffi::consensus::FlushMode,
     network::{WireProtocolVersion, WIRE_PROTOCOL_VERSIONS},
 };
 use anyhow::{ensure, Context};
@@ -307,6 +308,15 @@ pub struct BakerConfig {
         env = "CONCORDIUM_NODE_BAKER_DECRYPT_CREDENTIALS"
     )]
     pub decrypt_baker_credentials: bool,
+    #[structopt(
+        long = "block-state-flush-mode",
+        help = "Set to 'disk' to flush the block state to the disk on finalization, or 'os' (the \
+                default) to just flush to the operating system. 'disk' is slower but less likely \
+                to lead to a corrupted database in the event of a crash.",
+        default_value = "os",
+        env = "CONCORDIUM_NODE_BLOCK_STATE_FLUSH_MODE"
+    )]
+    pub block_state_flush_mode: FlushMode,
 }
 
 #[derive(StructOpt, Debug)]

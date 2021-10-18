@@ -16,6 +16,7 @@ import qualified Concordium.GlobalState.Persistent.Account as PA
 import qualified Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule as PA
 import qualified Concordium.GlobalState.Persistent.Accounts as P
 import qualified Concordium.GlobalState.Persistent.LFMBTree as L
+import Concordium.GlobalState.Parameters (FlushMode(..))
 import Concordium.GlobalState.DummyData
 import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Persistent.Trie as Trie
@@ -273,7 +274,7 @@ tests :: Word -> Spec
 tests lvl = describe "GlobalStateTests.Accounts" $
             around (\kont ->
                       withTempDirectory "." "blockstate" $ \dir -> bracket
-                        (createBlobStore (dir </> "blockstate.dat"))
+                        (createBlobStore (dir </> "blockstate.dat") FlushToOS)
                         closeBlobStore
                         kont
                    ) $ do emptyTest

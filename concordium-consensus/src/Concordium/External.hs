@@ -312,6 +312,8 @@ startConsensus ::
     Word64 ->
     -- |Number of seconds between transaction table purging runs
     Word64 ->
+    -- |Block state flush mode
+    Word64 ->
     -- |Serialized genesis data (c string + len)
     CString ->
     Int64 ->
@@ -350,6 +352,7 @@ startConsensus
     insertionsBeforePurge
     transactionsKeepAlive
     transactionsPurgingDelay
+    blockStateFlushMode
     gdataC
     gdataLenC
     bidC
@@ -441,7 +444,8 @@ startConsensus
                   rpInsertionsBeforeTransactionPurge = fromIntegral insertionsBeforePurge,
                   rpTransactionsKeepAliveTime = TransactionTime transactionsKeepAlive,
                   rpTransactionsPurgingDelay = fromIntegral transactionsPurgingDelay,
-                  rpMaxTimeToExpiry = fromIntegral maxTimeToExpiry
+                  rpMaxTimeToExpiry = fromIntegral maxTimeToExpiry,
+                  rpBlockStateFlushMode = flushModeFromWord64 blockStateFlushMode
                 }
 
 -- |Start up an instance of Skov without starting the baker thread.
@@ -459,6 +463,8 @@ startConsensusPassive ::
     -- |Time in seconds during which a transaction can't be purged
     Word64 ->
     -- |Number of seconds between transaction table purging runs
+    Word64 ->
+    -- |Block state flush mode
     Word64 ->
     -- |Serialized genesis data (c string + len)
     CString ->
@@ -493,6 +499,7 @@ startConsensusPassive
     insertionsBeforePurge
     transactionsKeepAlive
     transactionsPurgingDelay
+    blockStateFlushMode
     gdataC
     gdataLenC
     cucbk
@@ -567,7 +574,8 @@ startConsensusPassive
                   rpInsertionsBeforeTransactionPurge = fromIntegral insertionsBeforePurge,
                   rpTransactionsKeepAliveTime = TransactionTime transactionsKeepAlive,
                   rpTransactionsPurgingDelay = fromIntegral transactionsPurgingDelay,
-                  rpMaxTimeToExpiry = fromIntegral maxTimeToExpiry
+                  rpMaxTimeToExpiry = fromIntegral maxTimeToExpiry,
+                  rpBlockStateFlushMode = flushModeFromWord64 blockStateFlushMode
                 }
 
 -- |Shut down consensus, stopping any baker thread if necessary.
@@ -1161,6 +1169,8 @@ foreign export ccall
         Word64 ->
         -- |Number of seconds between transaction table purging runs
         Word64 ->
+        -- |Block state flush mode
+        Word64 ->
         -- |Serialized genesis data (c string + len)
         CString ->
         Int64 ->
@@ -1205,6 +1215,8 @@ foreign export ccall
         -- |Time in seconds during which a transaction can't be purged
         Word64 ->
         -- |Number of seconds between transaction table purging runs
+        Word64 ->
+        -- |Block state flush mode
         Word64 ->
         -- |Serialized genesis data (c string + len)
         CString ->

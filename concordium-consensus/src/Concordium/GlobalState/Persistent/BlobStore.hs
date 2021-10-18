@@ -51,6 +51,7 @@ import Concordium.GlobalState.Account
 import qualified Concordium.Types.IdentityProviders as IPS
 import qualified Concordium.Types.AnonymityRevokers as ARS
 import qualified Concordium.GlobalState.Parameters as Parameters
+import Concordium.GlobalState.Parameters (FlushMode(..))
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 import Concordium.GlobalState.Persistent.BlobStore.Flush
 import Concordium.Types
@@ -82,8 +83,12 @@ data BlobHandle = BlobHandle{
 
 -- | The storage context
 data BlobStore = BlobStore {
+    -- |Handle for the blob store file
     blobStoreFile :: !(MVar BlobHandle),
-    blobStoreFilePath :: !FilePath
+    -- |Path to the blob store file
+    blobStoreFilePath :: !FilePath,
+    -- |Mode to use for flushing data
+    blobStoreFlushMode :: !FlushMode
 }
 
 class HasBlobStore a where
@@ -94,8 +99,8 @@ instance HasBlobStore BlobStore where
 
 -- |Create a new blob store at a given location.
 -- Fails if a file or directory at that location already exists.
-createBlobStore :: FilePath -> IO BlobStore
-createBlobStore blobStoreFilePath = do
+createBlobStore :: FilePath -> FlushMode -> IO BlobStore
+createBlobStore blobStoreFilePath blobStoreFlushMode = do
     pathEx <- doesPathExist blobStoreFilePath
     when pathEx $ throwIO (userError $ "Blob store path already exists: " ++ blobStoreFilePath)
     bhHandle <- openBinaryFile blobStoreFilePath ReadWriteMode
@@ -104,17 +109,19 @@ createBlobStore blobStoreFilePath = do
 
 -- |Load an existing blob store from a file.
 -- The file must be readable and writable, but this is not checked here.
-loadBlobStore :: FilePath -> IO BlobStore
-loadBlobStore blobStoreFilePath = do
+loadBlobStore :: FilePath -> FlushMode -> IO BlobStore
+loadBlobStore blobStoreFilePath blobStoreFlushMode = do
   bhHandle <- openBinaryFile blobStoreFilePath ReadWriteMode
   bhSize <- fromIntegral <$> hFileSize bhHandle
   blobStoreFile <- newMVar BlobHandle{bhAtEnd=bhSize==0,..}
   return BlobStore{..}
 
--- |Flush all buffers associated with the blob store,
--- ensuring all the contents is written out.
+-- |Flush all buffers associated with the blob store. This either flushes the buffer just to the
+-- OS, or also to the disk, depending on the 'FlushMode' of the 'BlobStore'.
 flushBlobStore :: BlobStore -> IO ()
-flushBlobStore BlobStore{..} =
+flushBlobStore BlobStore{blobStoreFlushMode = FlushToOS, ..} =
+    withMVar blobStoreFile (hFlush . bhHandle)
+flushBlobStore BlobStore{blobStoreFlushMode = FlushToDisk, ..} =
     withMVar blobStoreFile (hFlushOS . bhHandle)
 
 -- |Close all references to the blob store, flushing it
@@ -143,7 +150,7 @@ runBlobStoreTemp dir a = bracket openf closef usef
             removeFile tempFP
         usef (fp, h) = do
             mv <- newMVar (BlobHandle h True 0)
-            res <- runReaderT a (BlobStore mv fp)
+            res <- runReaderT a (BlobStore mv fp FlushToOS)
             _ <- takeMVar mv
             return res
 
