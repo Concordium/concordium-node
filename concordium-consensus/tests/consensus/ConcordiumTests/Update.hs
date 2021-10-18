@@ -57,16 +57,16 @@ type PV = 'P1
 dummyTime :: UTCTime
 dummyTime = posixSecondsToUTCTime 0
 
-type Config t = SkovConfig PV (MemoryTreeMemoryBlockConfig PV) (ActiveFinalization t) NoHandler
+type Config t = SkovConfig PV MemoryTreeMemoryBlockConfig (ActiveFinalization t) NoHandler
 
 finalizationParameters :: FinalizationParameters
 finalizationParameters = defaultFinalizationParameters{finalizationMinimumSkip=100} -- setting minimum skip to 100 to prevent finalizers to finalize blocks when they store them
 
-type MyHandlers = SkovHandlers DummyTimer (Config DummyTimer) (StateT () LogIO)
+type MyHandlers = SkovHandlers PV DummyTimer (Config DummyTimer) (StateT () LogIO)
 
 newtype DummyTimer = DummyTimer Integer
 
-type MySkovT = SkovT MyHandlers (Config DummyTimer) (StateT () LogIO)
+type MySkovT = SkovT PV MyHandlers (Config DummyTimer) (StateT () LogIO)
 
 instance MonadFail MySkovT where
   fail = error
@@ -75,7 +75,6 @@ dummyHandlers :: MyHandlers
 dummyHandlers = SkovHandlers {..}
     where
         shBroadcastFinalizationMessage _ = return ()
-        shBroadcastFinalizationRecord _ = return ()
         shOnTimeout _ _ = return $ DummyTimer 0
         shCancelTimer _ = return ()
         shPendingLive = return ()

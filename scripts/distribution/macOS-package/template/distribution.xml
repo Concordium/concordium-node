@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<installer-script minSpecVersion="1.000000">
+    <title>Concordium Node</title>
+    <background file="background.png" mime-type="image/png" alignment="topleft" />
+    <welcome file="welcome.html" mime-type="text/html" />
+    <conclusion file="conclusion.html" mime-type="text/html" />
+    <license file="license.html" mime-type="text/html" />
+    <options customize="never" allow-external-scripts="no" hostArchitectures="x86_64"/>
+    <domains enable_localSystem="true" />
+    <installation-check script="installCheck();">
+        <ram min-gb="16.00"/>
+    </installation-check>
+    <script>
+function installCheck() {
+    if(!(system.compareVersions(system.version.ProductVersion, '10.14.0') >= 0)) {
+        my.result.title = 'Unable to install';
+        my.result.message = 'Concordium Node requires macOS 10.14 or later.';
+        my.result.type = 'Fatal';
+        return false;
+    }
+    if(system.files.fileExistsAtPath('/Library/Concordium Node/')) {
+        my.result.title = 'Previous Installation Detected';
+        my.result.message = 'A previous installation of Concordium Node exists at /Library/Concordium Node/. This installer will remove the previous installation prior to installing. Your keys and the chain data will remain untouched.';
+        my.result.type = 'Warning';
+        return false;
+    }
+    return true;
+}
+    </script>
+    <choices-outline>
+        <line choice="software.concordium.node"/>
+    </choices-outline>
+    <choice id="software.concordium.node" title="Concordium Node">
+        <pkg-ref id="concordium-node.pkg"/>
+    </choice>
+    <pkg-ref id="concordium-node.pkg" auth="Root">concordium-node.pkg</pkg-ref>
+</installer-script>

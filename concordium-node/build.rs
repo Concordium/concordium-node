@@ -23,12 +23,9 @@ fn main() -> std::io::Result<()> {
     })
     .expect("Can't compile the flatbuffers schema");
 
-    let mode = if env::var_os("UNBOUND_STATIC").is_some() {
-        "static"
-    } else {
-        "dylib"
-    };
-    println!("cargo:rustc-link-lib={}=unbound", mode);
+    // MacOS logger
+    #[cfg(target_os = "macos")]
+    cc::Build::new().file("macos_log_wrapper.c").compile("macos_log_wrapper");
 
     // Build GRPC
 
@@ -202,6 +199,7 @@ fn link_static_libs() -> std::io::Result<()> {
     println!("cargo:rustc-link-lib=static=wasm_chain_integration");
 
     println!("cargo:rustc-link-lib=dylib=pq");
+    println!("cargo:rustc-link-lib=dylib=gmp");
 
     Ok(())
 }

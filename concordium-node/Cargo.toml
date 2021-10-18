@@ -1,6 +1,6 @@
 [package]
 name = "concordium_node"
-version = "1.0.2" # must be kept in sync with 'is_compatible_version' in 'src/configuration.rs'
+version = "1.1.3" # must be kept in sync with 'is_compatible_version' in 'src/configuration.rs'
 description = "Concordium Node"
 authors = ["Concordium <developers@concordium.com>"]
 exclude = [".gitignore", ".gitlab-ci.yml", "test/**/*","**/**/.gitignore","**/**/.gitlab-ci.yml"]
@@ -18,7 +18,7 @@ instrumentation = ["serde_derive", "gotham", "mime", "gotham_derive", "prometheu
 network_dump = []
 static = [ ]
 profiling = [ "static" ]
-collector = [ "reqwest/default-tls", "serde/derive", "rmp-serde", "gotham", "mime", "gotham_derive", "hyper", "futures" ]
+collector = [ "reqwest/default-tls", "serde/derive", "rmp-serde", "collector-backend" ]
 database_emitter = []
 genesis_tester = [ "tempfile" ]
 
@@ -37,6 +37,7 @@ ed25519-dalek = "1.0.1"
 mio = { version = "0.7", features = ["os-poll", "tcp"] }
 log = "0.4"
 env_logger = "0.8.3"
+log4rs = { version = "1.0", features = ["all_components", "config_parsing", "toml_format", "yaml_format", "gzip"] }
 byteorder = "1.3"
 preferences = "1.1"
 app_dirs2 = "2.3"
@@ -87,6 +88,11 @@ jsonwebtoken = { version = "7", optional = true }
 prometheus = { version = "0.12", default-features = false, features = ["gen", "push", "protobuf"], optional = true }
 tempfile = { version = "3.1", optional = true }
 
+collector-backend = { version = "*", path = "../collector-backend/", optional = true }
+
+[target.'cfg(target_os = "macos")'.build-dependencies]
+cc = "1.0"
+
 [target.'cfg(windows)'.dependencies]
 ipconfig = { version = "0.2" }
 libc = "0.2"
@@ -121,21 +127,8 @@ path = "src/bin/bootstrapper.rs"
 name = "p2p_bootstrapper-cli"
 
 [[bin]]
-path = "src/bin/dnsrecordgen.rs"
-name = "dns_record_generator"
-
-[[bin]]
-path = "src/bin/genkey.rs"
-name = "dns_key_generator"
-
-[[bin]]
 name = "node-collector"
 path = "src/bin/collector.rs"
-required-features = [ "collector" ]
-
-[[bin]]
-name = "node-collector-backend"
-path = "src/bin/collector_backend.rs"
 required-features = [ "collector" ]
 
 [[bin]]

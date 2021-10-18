@@ -9,6 +9,7 @@ use crate::{
     connection::ConnChange,
     consensus_ffi::{
         blockchain_types::BlockHash,
+        consensus::Regenesis,
         helpers::{PacketType, SHA256},
     },
     netmsg,
@@ -24,7 +25,7 @@ use std::{
     net::TcpListener,
     sync::{
         atomic::{AtomicUsize, Ordering},
-        Arc, RwLock,
+        Arc,
     },
     thread,
     time::Duration,
@@ -60,7 +61,6 @@ pub fn get_test_config(port: u16, networks: Vec<u16>) -> Config {
         100,
     );
     config.connection.no_bootstrap_dns = true;
-    config.connection.require_dnssec = false;
     config.cli.no_network = true;
     let dir = td.into_path();
     config.common.data_dir = dir.clone();
@@ -116,7 +116,7 @@ pub fn make_node_and_sync(
     config.cli.no_network = true;
     config.cli.poll_interval = 1;
     config.connection.housekeeping_interval = 10;
-    let regenesis_arc = Arc::new(RwLock::new(regenesis_blocks));
+    let regenesis_arc = Arc::new(Regenesis::from_blocks(regenesis_blocks));
 
     let stats = Arc::new(StatsExportService::new().unwrap());
     let (node, poll) = P2PNode::new(None, &config, node_type, stats, regenesis_arc)?;

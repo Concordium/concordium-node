@@ -1,0 +1,105 @@
+#!/bin/bash
+
+set -e
+
+function addBinariesToPath() {
+    # Ensure the local bin folder exists
+    echo "Ensuring '/usr/local/bin' exists"
+    mkdir -p "/usr/local/bin"
+
+    # Create/replace symlinks that are in PATH
+    echo "Creating symlinks to node and collector"
+    local symlinkNode="/usr/local/bin/concordium-node"
+    local symlinkCollector="/usr/local/bin/concordium-node-collector"
+    echo "-- Create '$symlinkNode'"
+    ln -f -s "/Library/Concordium Node/concordium-node" "$symlinkNode"
+    echo "-- Create '$symlinkCollector'"
+    ln -f -s "/Library/Concordium Node/node-collector" "$symlinkCollector"
+}
+
+function configureService() {
+    local netName=$1
+    local serviceFileNode=$2
+    local serviceFileCollector=$3
+    local runOnStartup=$4
+    local reportToNetworkDashboard=$5
+    local runAfterInstall=$6
+    local nodeName=$7
+
+    # Obj-c returns 1 for true in NodeConfigurationInstallerPlugin.
+    local TRUE=1
+
+    # Set node name in service file
+    echo "  -- Node name: $nodeName"
+    sed -i '' -e 's/__NODE_NAME__/'"$nodeName"'/g' "$serviceFileCollector"
+
+    # Add symlinks to service plist files to enable run on startup
+    if [[ $runOnStartup = "$TRUE" ]] && [[ $reportToNetworkDashboard = "$TRUE" ]]
+    then
+        echo "  -- Add node and collector symlinks to '/Library/LaunchDaemons/' for running on startup"
+        ln -f -s "$serviceFileNode" "/Library/LaunchDaemons"
+        ln -f -s "$serviceFileCollector" "/Library/LaunchDaemons"
+    elif [[ $runOnStartup = "$TRUE" ]]
+    then
+        echo "  -- Add node symlink to '/Library/LaunchDaemons/' for running on startup"
+        ln -f -s "$serviceFileNode" "/Library/LaunchDaemons"
+    fi
+
+    # Launch services after install
+    if [[ $runAfterInstall = "$TRUE" ]] && [[ $reportToNetworkDashboard = "$TRUE" ]]
+    then
+        echo "  -- Starting node and collector services"
+        launchctl load "$serviceFileNode"
+        launchctl load "$serviceFileCollector"
+    elif [[ $runAfterInstall = "$TRUE" ]]
+    then
+        echo "  -- Starting node services"
+        launchctl load "$serviceFileNode"
+    fi
+
+    # Create file for toggling network-dashboard reporting
+    if [[ $reportToNetworkDashboard = "$TRUE" ]]
+    then
+        echo "  -- Creating report to network dashboard file"
+        touch "/Library/Concordium Node/REPORT_TO_NETWORK_DASHBOARD_$netName"
+    fi
+}
+
+function configureServices () {
+
+    # Use data from install configuration
+    echo 'Configuring services'
+    source "/tmp/software.concordium.node.install.config"
+
+    echo "-- Mainnet:"
+    configureService \
+        "MAINNET" \
+        "/Library/Concordium Node/LaunchDaemons/software.concordium.mainnet.node.plist" \
+        "/Library/Concordium Node/LaunchDaemons/software.concordium.mainnet.node-collector.plist" \
+        "$CONCORDIUM_NODE_INSTALL_MAINNET_RUN_ON_STARTUP" \
+        "$CONCORDIUM_NODE_INSTALL_MAINNET_REPORT_TO_NETWORK_DASHBOARD" \
+        "$CONCORDIUM_NODE_INSTALL_MAINNET_RUN_AFTER_INSTALL" \
+        "$CONCORDIUM_NODE_INSTALL_MAINNET_NODE_NAME"
+
+    echo "-- Testnet:"
+    configureService \
+        "TESTNET" \
+        "/Library/Concordium Node/LaunchDaemons/software.concordium.testnet.node.plist" \
+        "/Library/Concordium Node/LaunchDaemons/software.concordium.testnet.node-collector.plist" \
+        "$CONCORDIUM_NODE_INSTALL_TESTNET_RUN_ON_STARTUP" \
+        "$CONCORDIUM_NODE_INSTALL_TESTNET_REPORT_TO_NETWORK_DASHBOARD" \
+        "$CONCORDIUM_NODE_INSTALL_TESTNET_RUN_AFTER_INSTALL" \
+        "$CONCORDIUM_NODE_INSTALL_TESTNET_NODE_NAME"
+}
+
+function main (){
+    echo "Running postinstall script"
+
+    addBinariesToPath
+
+    configureServices
+
+    echo "Postinstall finished"
+}
+
+main

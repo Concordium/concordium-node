@@ -1,0 +1,15 @@
+resolver: lts-17.4
+
+packages:
+- .
+- haskell-lmdb
+- ../concordium-base
+
+extra-deps: []
+
+extra-lib-dirs:
+- ../concordium-base/lib
+- ./smart-contracts/lib
+
+ghc-options:
+    "$everything": -fPIC

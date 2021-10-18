@@ -105,6 +105,12 @@ transactionHelper t =
       return $ signTx keys meta (Types.encodePayload Types.TransferWithSchedule{..})
     (TJSON meta UpdateCredentials{..} keys) ->
       return $ signTx keys meta (Types.encodePayload Types.UpdateCredentials{..})
+    (TJSON meta (TransferWithMemo to memo amnt) keys) ->
+      return $ signTx keys meta (Types.encodePayload (Types.TransferWithMemo to memo amnt))
+    (TJSON meta EncryptedAmountTransferWithMemo{..} keys) ->
+      return $ signTx keys meta (Types.encodePayload Types.EncryptedAmountTransferWithMemo{..})
+    (TJSON meta TransferWithScheduleAndMemo{..} keys) ->
+      return $ signTx keys meta (Types.encodePayload Types.TransferWithScheduleAndMemo{..})
 
 
 processTransactions :: (MonadFail m, MonadIO m) => [TransactionJSON]  -> m [Types.AccountTransaction]
@@ -193,6 +199,21 @@ data PayloadJSON = DeployModule { version :: Word32, moduleName :: FilePath }
                      ucRemoveCredIds :: ![CredentialRegistrationID],
                      ucNewThreshold :: !AccountThreshold
                      }
+                  | TransferWithMemo {
+                      twmToAddress :: !AccountAddress,
+                      twmMemo :: !Memo,
+                      twmAmount :: !Amount
+                      }
+                  | EncryptedAmountTransferWithMemo {
+                      eatwmTo :: !AccountAddress,
+                      eatwmMemo :: !Memo,
+                      eatwmData :: !EncryptedAmountTransferData
+                  }
+                  | TransferWithScheduleAndMemo {
+                      twswmTo :: !AccountAddress,
+                      twswmMemo :: !Memo,
+                      twswmSchedule :: ![(Timestamp, Amount)]
+                      }
                  deriving(Show, Generic)
 
 data TransactionHeader = TransactionHeader {

@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+    <Fragment>
+        <UI>
+            <!-- Node configuration dialog -->
+            <Dialog Id="NodeConfigurationDlg" Width="370" Height="270" Title="[ProductName] Setup">
+                <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" TabSkip="no" Text="WixUI_Bmp_Banner" />
+                <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+                <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+                <Control Id="Description" Type="Text" X="25" Y="23" Width="340" Height="30" Transparent="yes" NoPrefix="yes" Text="The Node Runner Service can be configured to run nodes on the Concordium mainnet and testnet." />
+                <Control Id="Title" Type="Text" X="15" Y="6" Width="200" Height="15" Transparent="yes" NoPrefix="yes" Text="{\WixUI_Font_Title}Node Runner Service Configuration" />
+                <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)">
+                    <Publish Event="SpawnWaitDialog" Value="WaitForCostingDlg">!(wix.WixUICostingPopupOptOut) OR CostingComplete = 1</Publish>
+                </Control>
+                <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="!(loc.WixUIBack)" />
+                <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="!(loc.WixUICancel)">
+                    <Publish Event="SpawnDialog" Value="CancelDlg">1</Publish>
+                </Control>
+                <Control Type="CheckBox" Id="ServiceAutoStart" Width="290" Height="17" X="26" Y="60" Text="&amp;Automatically start nodes at system startup" Property="AUTOSTART" CheckBoxValue="1" />
+                <Control Type="CheckBox" Id="ServiceInstallStart" Width="290" Height="17" X="26" Y="82" Text="&amp;Start nodes after installation is complete" Property="INSTALLSTART" CheckBoxValue="1" />
+                <Control Type="GroupBox" Id="MainnetGroup" Width="156" Height="112" X="19" Y="105" Text="Mainnet" />
+                <Control Type="CheckBox" Id="MainnetEnable" Width="136" Height="22" X="26" Y="120" Text="Run a &amp;mainnet node" ToolTip="If selected, the node runner service will run a node on the Concordium mainnet." CheckBoxValue="1" Property="MAINNETENABLED" />
+                <Control Type="CheckBox" Id="MainnetReport" Width="136" Height="22" X="26" Y="149" Text="&amp;Report to network dashboard" ToolTip="If selected, the real-time status of the node will be reported to the Concordium mainnet dashboard." CheckBoxValue="1" Property="MAINNETCOLLECTOR" />
+                <Control Type="Text" Id="MainnetNameLabel" Width="136" Height="15" X="26" Y="178" Text="&amp;Public node name:" TabSkip="no" />
+                <Control Type="Edit" Id="MainnetName" Width="131" Height="18" X="30" Y="192" Property="MAINNETNODENAME" ToolTip="The name of the node as reported to the network dashboard." />
+                <Control Type="GroupBox" Id="TestnetGroup" Width="156" Height="112" X="189" Y="105" Text="Testnet" />
+                <Control Type="CheckBox" Id="TestnetEnable" Width="136" Height="22" X="196" Y="120" Text="Run a &amp;testnet node" ToolTip="If selected, the node runner service will run a node on the Concordium testnet." CheckBoxValue="1" Property="TESTNETENABLED" />
+                <Control Type="CheckBox" Id="TestnetReport" Width="136" Height="22" X="196" Y="149" Text="R&amp;eport to network dashboard" ToolTip="If selected, the real-time status of the node will be reported to the Concordium testnet dashboard." CheckBoxValue="1" Property="TESTNETCOLLECTOR" />
+                <Control Type="Text" Id="TestnetNameLabel" Width="136" Height="15" X="196" Y="178" Text="P&amp;ublic node name:" TabSkip="no" />
+                <Control Type="Edit" Id="TestnetName" Width="131" Height="18" X="200" Y="192" Property="TESTNETNODENAME" ToolTip="The name of the node as reported to the network dashboard." />
+            </Dialog>
+            <!-- Installation directories dialog -->
+            <Dialog Id="InstallDirsDlg" Width="370" Height="270" Title="!(loc.InstallDirDlg_Title)">
+                <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)" />
+                <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="!(loc.WixUIBack)" />
+                <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="!(loc.WixUICancel)">
+                    <Publish Event="SpawnDialog" Value="CancelDlg">1</Publish>
+                </Control>
+                <Control Id="Description" Type="Text" X="25" Y="23" Width="280" Height="15" Transparent="yes" NoPrefix="yes" Text="Click Next to install to the default folders or click Change to choose others." />
+                <Control Id="Title" Type="Text" X="15" Y="6" Width="200" Height="15" Transparent="yes" NoPrefix="yes" Text="!(loc.InstallDirDlgTitle)" />
+                <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" TabSkip="no" Text="!(loc.InstallDirDlgBannerBitmap)" />
+                <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+                <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+                <Control Id="FolderLabel" Type="Text" X="20" Y="75" Width="290" Height="15" NoPrefix="yes" Text="Install [ProductName] to:" />
+                <Control Id="Folder" Type="PathEdit" X="20" Y="100" Width="320" Height="18" Property="WIXUI_INSTALLDIR" Indirect="yes" />
+                <Control Id="ChangeFolder" Type="PushButton" X="20" Y="120" Width="56" Height="17" Text="&amp;Change..." />
+                <Control Id="DataFolderLabel" Type="Text" X="20" Y="155" Width="290" Height="15" NoPrefix="yes" Text="Install [ProductName] configuration and data to:" />
+                <Control Id="DataFolder" Type="PathEdit" X="20" Y="180" Width="320" Height="18" Property="WIXUI_DATADIR" Indirect="yes" />
+                <Control Id="DataChangeFolder" Type="PushButton" X="20" Y="200" Width="56" Height="17" Text="C&amp;hange..." />
+            </Dialog>
+            <!-- Remove application data directory dialog -->
+            <Dialog Id="RemoveDataDlg" Width="370" Height="270" Title="[ProductName] Setup)">
+                <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)" />
+                <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="!(loc.WixUIBack)" />
+                <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="!(loc.WixUICancel)">
+                    <Publish Event="SpawnDialog" Value="CancelDlg">1</Publish>
+                </Control>
+                <Control Id="Description" Type="Text" X="25" Y="23" Width="280" Height="15" Transparent="yes" NoPrefix="yes" Text="Choose whether to remove all node data." />
+                <Control Id="Title" Type="Text" X="15" Y="6" Width="200" Height="15" Transparent="yes" NoPrefix="yes" Text="{\WixUI_Font_Title}Remove [ProductName] Data" />
+                <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" TabSkip="no" Text="WixUI_Bmp_Banner" />
+                <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+                <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+                <Control Type="CheckBox" Id="MainnetEnable" Width="236" Height="30" X="30" Y="79" Text="&amp;Remove node data folder" CheckBoxValue="1" Property="REMOVEDATADIR" />
+                <Control Type="PathEdit" Id="DataDir" Width="269" Height="15" X="45" Y="110" Disabled="yes" Property="INSTALLDATADIR" />
+                <Control Type="Text" Id="Advice" Width="302" Height="49" X="34" Y="152" Text="[ProductName] stores data and logs in this folder by default. If you are permanantly removing [ProductName], select this option to remove these files. Note that any other files in this folder or its subfolders will also be deleted." />
+            </Dialog>
+            <!-- Maintenance type dialog -->
+            <Dialog Id="CustomMaintenanceTypeDlg" Width="370" Height="270" Title="!(loc.MaintenanceTypeDlg_Title)">
+                <Control Id="RepairButton" Type="PushButton" X="40" Y="78" Width="80" Height="17" ToolTip="!(loc.MaintenanceTypeDlgRepairButtonTooltip)" Text="!(loc.MaintenanceTypeDlgRepairButton)">
+                    <Publish Property="WixUI_InstallMode" Value="Repair">1</Publish>
+                </Control>
+                <Control Id="RepairText" Type="Text" X="60" Y="98" Width="280" Height="30" Text="!(loc.MaintenanceTypeDlgRepairText)" />
+                <Control Id="RemoveButton" Type="PushButton" X="40" Y="131" Width="80" Height="17" ToolTip="!(loc.MaintenanceTypeDlgRemoveButtonTooltip)" Text="!(loc.MaintenanceTypeDlgRemoveButton)">
+                    <Publish Property="WixUI_InstallMode" Value="Remove">1</Publish>
+                </Control>
+                <Control Id="RemoveText" Type="Text" X="60" Y="151" Width="280" Height="20" NoPrefix="yes" Text="!(loc.MaintenanceTypeDlgRemoveText)" />
+                <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="!(loc.WixUIBack)" />
+                <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Disabled="yes" Text="!(loc.WixUINext)" />
+                <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="!(loc.WixUICancel)">
+                    <Publish Event="SpawnDialog" Value="CancelDlg">1</Publish>
+                </Control>
+                <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" TabSkip="no" Text="!(loc.MaintenanceTypeDlgBannerBitmap)" />
+                <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+                <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+                <Control Id="Title" Type="Text" X="15" Y="6" Width="340" Height="15" Transparent="yes" NoPrefix="yes" Text="{\WixUI_Font_Title}Repair or remove installation" />
+                <Control Id="Description" Type="Text" X="25" Y="23" Width="340" Height="20" Transparent="yes" NoPrefix="yes" Text="!(loc.MaintenanceTypeDlgDescription)" />
+            </Dialog>
+        </UI>
+    </Fragment>
+</Wix>

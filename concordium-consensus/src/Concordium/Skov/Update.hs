@@ -5,10 +5,10 @@
 module Concordium.Skov.Update where
 
 import Control.Monad
+import Data.Maybe (fromMaybe, isNothing)
 import qualified Data.Sequence as Seq
 import Lens.Micro.Platform
 import Data.Foldable
-import Data.Maybe(fromMaybe, isNothing)
 
 import GHC.Stack
 
@@ -24,11 +24,11 @@ import Concordium.GlobalState.BlockState
 import qualified Concordium.GlobalState.Block as GB (PendingBlock(..))
 import Concordium.GlobalState.Block hiding (PendingBlock)
 import Concordium.GlobalState.Finalization
+import Concordium.GlobalState.Parameters
 import Concordium.Types.Transactions
 import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.AccountTransactionIndex
-import Concordium.GlobalState.Parameters (RuntimeParameters(..))
 
 import Concordium.Scheduler.TreeStateEnvironment(executeFrom, ExecutionResult'(..), ExecutionResult, FinalizerInfo)
 
@@ -96,7 +96,7 @@ class OnSkov m where
     onPendingLive :: m ()
 
 -- |Handle a block arriving that is dead.  That is, the block has never
--- been in the tree before, and now it never can be.  Any descendents of
+-- been in the tree before, and now it never can be.  Any descendants of
 -- this block that have previously arrived cannot have been added to the
 -- tree, and we purge them recursively from '_skovPossiblyPendingTable'.
 blockArriveDead :: (HasCallStack, BlockPointerMonad m, MonadLogger m, TreeStateMonad pv m) => BlockHash -> m ()
@@ -159,21 +159,27 @@ processFinalization newFinBlock finRec@FinalizationRecord{..} = do
         let pruneHeight = fromIntegral (bpHeight newFinBlock - lastFinHeight)
         -- First, prune the trunk: the section of the branches beyond the
         -- last finalized block up to and including the new finalized block.
-        -- We proceed backwards from the new finalized block, marking it and
-        -- its ancestors as finalized, while other blocks at the same height
-        -- are marked dead.
+        -- We proceed backwards from the new finalized block, collecting blocks
+        -- to mark as dead. When we exhaust the branches we then mark blocks as finalized
+        -- by increasing height.
+        -- Instead of marking blocks dead immediately we accumulate them
+        -- and a return a list. The reason for doing this is that we never
+        -- have to look up a parent block that is already marked dead.
         let
-            pruneTrunk :: BlockPointerType m -> Branches m -> m ()
-            pruneTrunk _ Seq.Empty = return ()
-            pruneTrunk keeper (brs Seq.:|> l) = do
-                forM_ l $ \bp -> if bp == keeper then do
-                                    markFinalized (getHash bp) finRec
-                                    logEvent Skov LLDebug $ "Block " ++ show bp ++ " marked finalized"
-                                else do
-                                    markLiveBlockDead bp
-                                    logEvent Skov LLDebug $ "Block " ++ show bp ++ " marked dead"
+            pruneTrunk :: [BlockPointerType m] -- ^List of blocks to remove.
+                       -> BlockPointerType m -- ^The block that was finalized.
+                       -> Branches m
+                       -> m [BlockPointerType m]
+                       -- ^ The return value is a list of blocks to mark dead, ordered
+                       -- by increasing height.
+            pruneTrunk toRemove _ Seq.Empty = return toRemove
+            pruneTrunk toRemove keeper (brs Seq.:|> l) = do
                 parent <- bpParent keeper
-                pruneTrunk parent brs
+                let toRemove1 = filter (/= keeper) l ++ toRemove
+                toRemove2 <- pruneTrunk toRemove1 parent brs
+                -- mark blocks as finalized now, so that blocks are marked finalized by increasing height
+                markFinalized (getHash keeper) finRec
+                logEvent Skov LLDebug $ "Block " ++ show keeper ++ " marked finalized"
                 -- Finalize the transactions of the surviving block.
                 -- (This is handled in order of finalization.)
                 finalizeTransactions (getHash keeper) (blockSlot keeper) (blockTransactions keeper)
@@ -184,8 +190,9 @@ processFinalization newFinBlock finRec@FinalizationRecord{..} = do
                         bcHeight = bpHeight keeper,
                         ..}
                 flushBlockSummaries ctx ati =<< getSpecialOutcomes =<< blockState keeper
+                return toRemove2
 
-        pruneTrunk newFinBlock (Seq.take pruneHeight oldBranches)
+        toRemoveFromTrunk <- pruneTrunk [] newFinBlock (Seq.take pruneHeight oldBranches)
         -- Archive the states of blocks up to but not including the new finalized block
         let doArchive b = case compare (bpHeight b) lastFinHeight of
                 LT -> return ()
@@ -196,21 +203,29 @@ processFinalization newFinBlock finRec@FinalizationRecord{..} = do
         doArchive =<< bpParent newFinBlock
         -- Prune the branches: mark dead any block that doesn't descend from
         -- the newly-finalized block.
+        -- Instead of marking blocks dead immediately we accumulate them
+        -- and a return a list. The reason for doing this is that we never
+        -- have to look up a parent block that is already marked dead.
         let
-            pruneBranches _ Seq.Empty = return Seq.empty
-            pruneBranches parents (brs Seq.:<| rest) = do
-                survivors <- foldrM (\bp l -> do
+            pruneBranches :: [BlockPointerType m] -- ^Accumulator of blocks to mark dead.
+                          -> [BlockPointerType m] -- ^Parents that remain alive.
+                          -> Branches m -- ^Branches to prune
+                          -> m (Branches m, [BlockPointerType m])
+                          -- ^The return value is a pair of new branches and the
+                          -- list of blocks to mark dead. The blocks are ordered
+                          -- by decreasing height.
+            pruneBranches toRemove _ Seq.Empty = return (Seq.empty, toRemove)
+            pruneBranches toRemove parents (brs Seq.:<| rest) = do
+                (survivors, removals) <- foldrM (\bp ~(keep, remove) -> do
                     parent <- bpParent bp
                     if parent `elem` parents then
-                        return (bp:l)
-                    else do
-                        markLiveBlockDead bp
-                        logEvent Skov LLDebug $ "Block " ++ show (bpHash bp) ++ " marked dead"
-                        return l)
-                    [] brs
-                rest' <- pruneBranches survivors rest
-                return (survivors Seq.<| rest')
-        unTrimmedBranches <- pruneBranches [newFinBlock] (Seq.drop pruneHeight oldBranches)
+                        return (bp:keep, remove)
+                    else
+                        return (keep, bp:remove))
+                    ([], toRemove) brs
+                (rest', toRemove') <- pruneBranches removals survivors rest
+                return (survivors Seq.<| rest', toRemove')
+        (unTrimmedBranches, toRemoveFromBranches) <- pruneBranches [] [newFinBlock] (Seq.drop pruneHeight oldBranches)
         -- This removes empty lists at the end of branches which can result in finalizing on a
         -- block not in the current best local branch
         let
@@ -221,6 +236,10 @@ processFinalization newFinBlock finRec@FinalizationRecord{..} = do
                     _ -> return prunedbrs
         newBranches <- trimBranches unTrimmedBranches
         putBranches newBranches
+        -- mark dead blocks by decreasing height
+        forM_ (toRemoveFromBranches ++ reverse toRemoveFromTrunk) $ \bp -> do
+          markLiveBlockDead bp
+          logEvent Skov LLDebug $ "Block " ++ show (bpHash bp) ++ " marked dead"
         -- purge pending blocks with slot numbers predating the last finalized slot
         purgePending
         onFinalize finRec newFinBlock
@@ -423,29 +442,41 @@ blockArrive block parentP lfBlockP ExecutionResult{..} = do
 -- |Store a block (as received from the network) in the tree.
 -- This checks for validity of the block, and may add the block
 -- to a pending queue if its prerequisites are not met.
+-- If the block is too early, it is rejected with 'ResultEarlyBlock'.
 doStoreBlock :: (TreeStateMonad pv m, FinalizationMonad m, SkovMonad pv m, OnSkov m) => PendingBlock -> m UpdateResult
 {- - INLINE doStoreBlock - -}
 doStoreBlock pb@GB.PendingBlock{..} = unlessShutDown $ do
-    let cbp = getHash pb
-        BakedBlock{..} = pbBlock
-    oldBlock <- getBlockStatus cbp
-    case oldBlock of
-        Nothing ->
-            -- Check that the claimed key matches the signature/blockhash
-            checkClaimedSignature pb $ do
-            -- The block is new, so we have some work to do.
-            logEvent Skov LLDebug $ "Received block " ++ show pb
-            txList <- sequence <$> forM (blockTransactions pb) (\tr -> fst <$> doReceiveTransactionInternal tr (blockSlot pb))
-            case txList of
-              Nothing -> do
-                blockArriveDead cbp
-                return ResultStale
-              Just newTransactions -> do
-                purgeTransactionTable False =<< currentTime
-                let block1 = GB.PendingBlock{pbBlock = BakedBlock{bbTransactions = newTransactions, ..}, ..}
-                updateReceiveStatistics block1
-                addBlock block1
-        Just _ -> return ResultDuplicate
+    threshold <- rpEarlyBlockThreshold <$> getRuntimeParameters
+    slotTime <- getSlotTimestamp (blockSlot pb)
+    -- Check if the block is too early. We check that the threshold is not maxBound also, so that
+    -- by setting the threshold to maxBound we can ensure blocks will never be considered early.
+    -- This can be useful for testing.
+    -- A more general approach might be to check for overflow generally, but this is simple and
+    -- workable.
+    if slotTime > addDuration (utcTimeToTimestamp pbReceiveTime) threshold && threshold /= maxBound then
+        return ResultEarlyBlock
+    else do
+        let cbp = getHash pb
+            BakedBlock{..} = pbBlock
+        oldBlock <- getBlockStatus cbp
+        case oldBlock of
+            Nothing ->
+                -- Check that the claimed key matches the signature/blockhash
+                checkClaimedSignature pb $ do
+                -- The block is new, so we have some work to do.
+                logEvent Skov LLDebug $ "Received block " ++ show pb
+                txList <- sequence <$> forM (blockTransactions pb)
+                    (\tr -> fst <$> doReceiveTransactionInternal tr (blockSlot pb))
+                case txList of
+                    Nothing -> do
+                        blockArriveDead cbp
+                        return ResultStale
+                    Just newTransactions -> do
+                        purgeTransactionTable False =<< currentTime
+                        let block1 = GB.PendingBlock{pbBlock = BakedBlock{bbTransactions = newTransactions, ..}, ..}
+                        updateReceiveStatistics block1
+                        addBlock block1
+            Just _ -> return ResultDuplicate
     where
         checkClaimedSignature b a = if verifyBlockSignature b then a else do
             logEvent Skov LLWarning $ "Dropping block where signature did not match claimed key or blockhash: "
@@ -459,7 +490,7 @@ doStoreBlock pb@GB.PendingBlock{..} = unlessShutDown $ do
 --   * 'ResultSuccess' if the transaction is freshly added.
 --   * 'ResultDuplicate', which indicates that either the transaction is a duplicate
 --   * 'ResultStale' which indicates that a transaction with the same sender
---     and nonce has already been finalized. In this case the transaction is not added to the table.
+--     and nonce has already been finalized, or the transaction has already expired. In this case the transaction is not added to the table.
 --   * 'ResultInvalid' which indicates that the transaction signature was invalid.
 --   * 'ResultShutDown' which indicates that consensus was shut down, and so the transaction was not added.
 --   * 'ResultExpiryTooLate' which indicates that transaction's expiry was too far in the future and so the transaction
@@ -469,32 +500,33 @@ doStoreBlock pb@GB.PendingBlock{..} = unlessShutDown $ do
 doReceiveTransaction :: (TreeStateMonad pv m, TimeMonad m, SkovQueryMonad pv m) => BlockItem -> Slot -> m UpdateResult
 doReceiveTransaction tr slot = unlessShutDown $ do
   -- Don't accept the transaction if its expiry time is too far in the future
-  expiryTooLate <- isExpiryTooLate
+  now <- currentTime
+  expiryTooLate <- isExpiryTooLate now
   if expiryTooLate then return ResultExpiryTooLate
+  else if transactionExpired (msgExpiry tr) (utcTimeToTimestamp now) then return ResultStale
   else do
     ur <- case tr of
-           WithMetadata{wmdData = NormalTransaction tx} -> do
-             -- Don't accept the transaction if the stated energy is smaller than the minimum energy amount.
-             let baseEnergy = baseCost (getTransactionHeaderPayloadSize $ transactionHeader tx) (getTransactionNumSigs $ transactionSignature tx)
-                 statedEnergy = thEnergyAmount $ transactionHeader tx
-             if baseEnergy > statedEnergy then return ResultTooLowEnergy
-             else do
+        WithMetadata{wmdData = NormalTransaction tx} -> do
+            -- Don't accept the transaction if the stated energy is smaller than the minimum energy amount.
+            let baseEnergy = baseCost (getTransactionHeaderPayloadSize $ transactionHeader tx) (getTransactionNumSigs $ transactionSignature tx)
+                statedEnergy = thEnergyAmount $ transactionHeader tx
+            if baseEnergy > statedEnergy then return ResultTooLowEnergy
+            else do
                -- this is not ideal since we look up the entire account.
                -- In the current implementation this is not a problem since all states since the last finalized one are cached
                -- but this should be revised to add a "accountExists" function in the future
                senderExists <- flip getAccount (transactionSender tx) =<< queryBlockState =<< lastFinalizedBlock
                if isNothing senderExists then return ResultNonexistingSenderAccount
                else snd <$> doReceiveTransactionInternal tr slot
-           _ -> snd <$> doReceiveTransactionInternal tr slot
+        _ -> snd <$> doReceiveTransactionInternal tr slot
     when (ur == ResultSuccess) $ purgeTransactionTable False =<< currentTime
     return ur
 
     where
-          isExpiryTooLate = do
+          isExpiryTooLate now = do
             maxTimeToExpiry <- rpMaxTimeToExpiry <$> getRuntimeParameters
-            now <- utcTimeToTransactionTime <$> currentTime
             let expiry = msgExpiry tr
-            return $ expiry > maxTimeToExpiry + fromIntegral now
+            return $ expiry > maxTimeToExpiry + utcTimeToTransactionTime now
 
 -- |Add a transaction to the transaction table.  The 'Slot' should be
 -- the slot number of the block that the transaction was received with.
@@ -529,7 +561,25 @@ doReceiveTransactionInternal tr slot =
           Duplicate tx -> return (Just tx, ResultDuplicate)
           ObsoleteNonce -> return (Nothing, ResultStale)
 
--- |Purge the transaction table.
+-- |Shutdown the skov, returning a list of pending transactions.
+doTerminateSkov :: (TreeStateMonad pv m, SkovMonad pv m) => m [BlockItem]
+doTerminateSkov = isShutDown >>= \case
+    False -> return []
+    True -> do
+        lfb <- lastFinalizedBlock
+        -- Archive the state
+        archiveBlockState =<< blockState lfb
+        -- Make the last finalized block the focus block
+        -- and empty the pending transaction table.
+        putFocusBlock lfb
+        putPendingTransactions emptyPendingTransactionTable
+        -- Clear out all of the non-finalized blocks.
+        putBranches Seq.empty
+        wipePendingBlocks
+        markAllNonFinalizedDead
+        -- Clear out (and return) the non-finalized transactions.
+        wipeNonFinalizedTransactions
+
 doPurgeTransactions :: (TimeMonad m, TreeStateMonad pv m) => m ()
 doPurgeTransactions = do
         now <- currentTime

@@ -128,7 +128,7 @@ data AccountNonFinalizedTransactions = AccountNonFinalizedTransactions {
     -- |The next available nonce at the last finalized block.
     -- 'anftMap' should only contain nonces that are at least 'anftNextNonce'.
     _anftNextNonce :: Nonce
-} deriving (Eq)
+} deriving (Eq, Show)
 makeLenses ''AccountNonFinalizedTransactions
 
 -- |Empty (no pending transactions) account non-finalized table starting at the
@@ -164,6 +164,11 @@ emptyNFCUWithSequenceNumber = NonFinalizedChainUpdates Map.empty
 -- number of the highest such block.  A transaction that is not included any block
 -- may also have a non-zero highest slot if it is received in a block, but that block
 -- is not yet considered arrived.
+--
+-- Generally, '_ttNonFinalizedTransactions' should have an entry for every account,
+-- with the exception of where the entry would be 'emptyANFT'. Similarly with
+-- '_ttNonFinalizedChainUpdates' and 'emptyNFCU'.  In particular, there should be
+-- an entry if the next nonce/sequence number is not the minimum value.
 data TransactionTable = TransactionTable {
     -- |Map from transaction hashes to transactions, together with their current status.
     _ttHashMap :: !(HM.HashMap TransactionHash (BlockItem, TransactionStatus)),
@@ -181,6 +186,15 @@ emptyTransactionTable = TransactionTable {
         _ttHashMap = HM.empty,
         _ttNonFinalizedTransactions = HM.empty,
         _ttNonFinalizedChainUpdates = Map.empty
+    }
+
+-- |A transaction table with no transactions, but with the initial next sequence numbers
+-- set for the accounts and update types.
+emptyTransactionTableWithSequenceNumbers :: HM.HashMap AccountAddress Nonce -> Map.Map UpdateType UpdateSequenceNumber -> TransactionTable
+emptyTransactionTableWithSequenceNumbers accs upds = TransactionTable {
+        _ttHashMap = HM.empty,
+        _ttNonFinalizedTransactions = emptyANFTWithNonce <$> HM.filter (/= minNonce) accs,
+        _ttNonFinalizedChainUpdates = emptyNFCUWithSequenceNumber <$> Map.filter (/= minUpdateSequenceNumber) upds
     }
 
 -- * Pending transaction table

@@ -1,10 +1,7 @@
-#![recursion_limit = "1024"]
-use concordium_node::{
-    common::{collector_utils::NodeInfo, grpc_api},
-    req_with_auth,
-    utils::setup_logger_env,
-};
-use env_logger::Env;
+use collector_backend::{IsInBakingCommittee, NodeInfo};
+#[cfg(target_os = "macos")]
+use concordium_node::utils::setup_macos_logger;
+use concordium_node::{common::grpc_api, req_with_auth, utils::setup_logger};
 use serde_json::Value;
 use std::{
     borrow::ToOwned,
@@ -120,24 +117,30 @@ struct ConfigCli {
         env = "CONCORDIUM_NODE_COLLECTOR_MAX_GRPC_FAILURES_ALLOWED"
     )]
     pub max_grpc_failures_allowed: u64,
+    #[cfg(target_os = "macos")]
+    #[structopt(
+        long = "use-mac-log",
+        help = "Enable native logging on macOS by providing a subsystem name, e.g. \
+                'software.concordium.mainnet.node'. This disables the normal logging system and \
+                is incompatible with '--log-config'. Log messages can be found via Console.app or \
+                the log commandline tool by searching for the subsystem.",
+        env = "CONCORDIUM_NODE_COLLECTOR_USE_MAC_LOG",
+        conflicts_with = "log-config"
+    )]
+    pub use_mac_log: Option<String>,
 }
 
 #[tokio::main]
 async fn main() {
     let conf = ConfigCli::from_args();
 
-    // Prepare the logger
-    let env = if conf.trace {
-        Env::default().filter_or("LOG_LEVEL", "trace")
-    } else if conf.debug {
-        Env::default().filter_or("LOG_LEVEL", "debug")
-    } else if conf.info {
-        Env::default().filter_or("LOG_LEVEL", "info")
-    } else {
-        Env::default().filter_or("LOG_LEVEL", "warn")
+    #[cfg(target_os = "macos")]
+    match conf.use_mac_log {
+        Some(ref subsystem) => setup_macos_logger(conf.trace, conf.debug, subsystem),
+        None => setup_logger(conf.trace, conf.debug, conf.no_log_timestamp),
     };
-
-    setup_logger_env(env, conf.no_log_timestamp);
+    #[cfg(not(target_os = "macos"))]
+    setup_logger(conf.trace, conf.debug, conf.no_log_timestamp);
 
     if conf.print_config {
         info!("{:?}", conf);
@@ -375,6 +378,21 @@ async fn collect_data<'a>(
         json_finalized_block_info_value["blockParent"].as_str().unwrap().to_owned()
     };
 
+    let baking_committee_member = match baker_committee {
+        grpc_api::node_info_response::IsInBakingCommittee::NotInCommittee => {
+            IsInBakingCommittee::NotInCommittee
+        }
+        grpc_api::node_info_response::IsInBakingCommittee::AddedButNotActiveInCommittee => {
+            IsInBakingCommittee::AddedButNotActiveInCommittee
+        }
+        grpc_api::node_info_response::IsInBakingCommittee::AddedButWrongKeys => {
+            IsInBakingCommittee::AddedButWrongKeys
+        }
+        grpc_api::node_info_response::IsInBakingCommittee::ActiveInCommittee => {
+            IsInBakingCommittee::ActiveInCommittee
+        }
+    };
+
     Ok(NodeInfo {
         nodeName: node_name.to_string(),
         nodeId: node_id,
@@ -404,7 +422,7 @@ async fn collect_data<'a>(
         packetsSent: packets_sent,
         packetsReceived: packets_received,
         consensusRunning: consensus_running,
-        bakingCommitteeMember: baker_committee,
+        bakingCommitteeMember: baking_committee_member,
         consensusBakerId: baker_id,
         finalizationCommitteeMember: finalization_committee,
         ancestorsSinceBestBlock: ancestors_since_best_block,

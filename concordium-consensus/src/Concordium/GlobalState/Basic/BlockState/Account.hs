@@ -44,6 +44,7 @@ makeAccountPersisting = makeHashed
 showAccountPersisting :: SProtocolVersion pv -> AccountPersisting pv -> String
 showAccountPersisting spv = case spv of
   SP1 -> show
+  SP2 -> show
 
 -- |An (in-memory) account.
 data Account (pv :: ProtocolVersion) = Account {
@@ -157,8 +158,9 @@ deserializeAccount cryptoParams = do
     return Account{..}
 
 instance (IsProtocolVersion pv) => HashableTo Hash.Hash (Account pv) where
-  getHash Account{..} = case protocolVersion @pv of
+  getHash Account{..} = case protocolVersion @pv of 
       SP1 -> makeAccountHashP1 _accountNonce _accountAmount _accountEncryptedAmount (getHash _accountReleaseSchedule) (getHash _accountPersisting) bkrHash
+      SP2 -> makeAccountHashP1 _accountNonce _accountAmount _accountEncryptedAmount (getHash _accountReleaseSchedule) (getHash _accountPersisting) bkrHash
     where
       bkrHash = maybe nullAccountBakerHash getHash _accountBaker
 

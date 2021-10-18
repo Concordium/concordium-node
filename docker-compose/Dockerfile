@@ -53,6 +53,7 @@ ARG ghc_version
 # Copy source files (only copy what's needed to utilize caching).
 COPY ./concordium-base /build/concordium-base
 COPY ./concordium-consensus /build/concordium-consensus
+COPY ./collector-backend /build/collector-backend
 COPY ./concordium-node /build/concordium-node
 COPY ./concordium-grpc-api /build/concordium-grpc-api
 COPY ./deps /build/deps
@@ -67,6 +68,8 @@ RUN mkdir -p concordium-node/deps/static-libs/linux && \
 
 # Build the Rust parts of the node.
 RUN ./build-binaries.sh "collector"
+# build the collector backend
+RUN cargo build --manifest-path collector-backend/Cargo.toml
 
 # Build Wallet Proxy.
 ARG wallet_proxy_branch=main
@@ -83,7 +86,7 @@ EXPOSE 8900
 EXPOSE 10000
 
 RUN apt-get update && \
-    apt-get install -y less curl unbound postgresql-server-dev-12 libnuma1 && \
+    apt-get install -y less curl postgresql-server-dev-12 libnuma1 && \
     rm -rf /var/lib/apt/lists/*
 
 # Genesis data files for all configurations.
@@ -93,7 +96,7 @@ COPY --from=genesis-builder /genesis/out/ /genesis-data
 COPY --from=build /build/concordium-node/target/debug/concordium-node /concordium-node
 COPY --from=build /build/concordium-node/target/debug/p2p_bootstrapper-cli /p2p_bootstrapper-cli
 COPY --from=build /build/concordium-node/target/debug/node-collector /node-collector
-COPY --from=build /build/concordium-node/target/debug/node-collector-backend /node-collector-backend
+COPY --from=build /build/collector-backend/target/debug/node-collector-backend /node-collector-backend
 
 # Wallet proxy.
 COPY --from=build /build/wallet-proxy/target/wallet-proxy /wallet-proxy

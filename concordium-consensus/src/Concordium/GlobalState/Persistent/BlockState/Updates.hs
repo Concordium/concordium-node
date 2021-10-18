@@ -136,6 +136,16 @@ enqueue !t !e q = do
                 uqQueue = surviving Seq.|> (t, eref)
             }
 
+-- |Clear all pending updates from a queue.
+clearQueue :: (MonadIO m, Reference m ref (UpdateQueue e))
+    => ref (UpdateQueue e) -> m (ref (UpdateQueue e))
+clearQueue q = do
+        UpdateQueue{..} <- refLoad q
+        refMake $ UpdateQueue {
+                uqNextSequenceNumber = uqNextSequenceNumber,
+                uqQueue = Seq.empty
+            }
+
 -- |Update queues for all on-chain update types.
 data PendingUpdates = PendingUpdates {
         -- |Updates to the root keys.
@@ -779,14 +789,14 @@ futureElectionDifficulty uref ts = do
 
 -- |Get the protocol update status: either an effective protocol update or
 -- a list of pending future protocol updates.
-protocolUpdateStatus :: (MonadBlobStore m) => BufferedRef Updates -> m (Either ProtocolUpdate [(TransactionTime, ProtocolUpdate)])
+protocolUpdateStatus :: (MonadBlobStore m) => BufferedRef Updates -> m UQ.ProtocolUpdateStatus
 protocolUpdateStatus uref = do
         Updates{..} <- refLoad uref
         case currentProtocolUpdate of
             Null -> do
                 pq <- refLoad (pProtocolQueue pendingUpdates)
-                Right . toList <$> forM (uqQueue pq) (\(t, e) -> (t,) . unStoreSerialized <$> refLoad e)
-            Some puRef -> Left . unStoreSerialized <$> refLoad puRef
+                UQ.PendingProtocolUpdates . toList <$> forM (uqQueue pq) (\(t, e) -> (t,) . unStoreSerialized <$> refLoad e)
+            Some puRef -> UQ.ProtocolUpdated . unStoreSerialized <$> refLoad puRef
 
 -- |Determine the next sequence number for a given update type.
 lookupNextUpdateSequenceNumber :: (MonadBlobStore m) => BufferedRef Updates -> UpdateType -> m UpdateSequenceNumber
@@ -828,6 +838,24 @@ enqueueUpdate effectiveTime payload uref = do
             UVLevel1Keys v -> enqueue effectiveTime v pLevel1KeysUpdateQueue <&> \newQ -> p {pLevel1KeysUpdateQueue=newQ}
             UVLevel2Keys v -> enqueue effectiveTime v pLevel2KeysUpdateQueue <&> \newQ -> p {pLevel2KeysUpdateQueue=newQ}
         refMake u{pendingUpdates = newPendingUpdates}
+
+-- |Overwrite the election difficulty with the specified value and remove
+-- any pending updates to the election difficulty from the queue.
+overwriteElectionDifficulty :: (MonadBlobStore m) => ElectionDifficulty -> BufferedRef Updates -> m (BufferedRef Updates)
+overwriteElectionDifficulty newDifficulty uref = do
+    u@Updates{pendingUpdates = p@PendingUpdates{..}, ..} <- refLoad uref
+    StoreSerialized cp <- refLoad currentParameters
+    newCurrentParameters <- refMake $ StoreSerialized (cp & cpElectionDifficulty .~ newDifficulty)
+    newPendingUpdates <- clearQueue pElectionDifficultyQueue <&> \newQ -> p{pElectionDifficultyQueue=newQ}
+    refMake u{currentParameters = newCurrentParameters, pendingUpdates = newPendingUpdates}
+
+-- |Clear the protocol update and remove any pending protocol updates from
+-- the queue.
+clearProtocolUpdate :: (MonadBlobStore m) => BufferedRef Updates -> m (BufferedRef Updates)
+clearProtocolUpdate uref = do
+    u@Updates{pendingUpdates = p@PendingUpdates{..}} <- refLoad uref
+    newPendingUpdates <- clearQueue pProtocolQueue <&> \newQ -> p{pProtocolQueue=newQ}
+    refMake u{currentProtocolUpdate = Null, pendingUpdates = newPendingUpdates}
 
 -- |Get the current EnergyRate.
 lookupEnergyRate :: (MonadBlobStore m) => BufferedRef Updates -> m EnergyRate

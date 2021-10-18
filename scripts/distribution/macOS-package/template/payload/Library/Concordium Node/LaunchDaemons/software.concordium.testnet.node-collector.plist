@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN"
+    "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+
+    <key>Label</key>
+    <string>software.concordium.testnet.node-collector</string>
+
+    <key>Program</key>
+    <string>/usr/local/bin/concordium-node-collector</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+
+        <!-- Public node name showed on network dashboard.
+
+             Please note the following:
+                - Must have length 1 - 100 (in bytes)
+                - Replace (escape) characters with special meaning in XML, e.g.: '<'
+                with '&lt;' and '>' with '&gt;'.
+                - Prefixes and suffixes of spaces will be ignored
+                - When using commas it will be interpreted as a list of node names
+                    - In which case you must also provide a comma-separated list
+                    of GRPC hosts of the same length.
+        -->
+        <key>CONCORDIUM_NODE_COLLECTOR_NODE_NAME</key>
+        <string>__NODE_NAME__</string>
+
+        <!-- Dashboard to post collected data to. -->
+        <key>CONCORDIUM_NODE_COLLECTOR_URL</key>
+        <string>https://dashboard.testnet.concordium.com/nodes/post</string>
+
+        <!-- Interval in milliseconds to sleep between runs of the collector. -->
+        <key>CONCORDIUM_NODE_COLLECTOR_COLLECT_INTERVAL</key>
+        <string>5000</string>
+
+        <!-- gRPC host to collect from. -->
+        <key>CONCORDIUM_NODE_COLLECTOR_GRPC_HOST</key>
+        <string>http://localhost:10001</string>
+
+        <!-- Enable native logging on macOS by providing a subsystem name, e.g.
+             'software.concordium.testnet.node'. Log messages can be found via Console.app or
+             the log commandline tool by searching for the subsystem. -->
+        <key>CONCORDIUM_NODE_COLLECTOR_USE_MAC_LOG</key>
+        <string>software.concordium.testnet.node</string>
+
+    </dict>
+
+    <!-- Runs when loaded and is kept alive. -->
+    <key>KeepAlive</key>
+    <true />
+
+</dict>
+</plist>

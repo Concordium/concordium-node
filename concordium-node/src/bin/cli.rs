@@ -3,7 +3,7 @@
 extern crate log;
 
 // Force the system allocator on every platform
-use std::{alloc::System, sync::RwLock};
+use std::alloc::System;
 #[global_allocator]
 static A: System = System;
 
@@ -12,10 +12,9 @@ use concordium_node::{
     common::PeerType,
     configuration as config,
     consensus_ffi::{
-        blockchain_types::BlockHash,
         consensus::{
-            ConsensusContainer, ConsensusLogLevel, CALLBACK_QUEUE, CONSENSUS_QUEUE_DEPTH_IN_HI,
-            CONSENSUS_QUEUE_DEPTH_OUT_HI,
+            ConsensusContainer, ConsensusLogLevel, Regenesis, CALLBACK_QUEUE,
+            CONSENSUS_QUEUE_DEPTH_IN_HI, CONSENSUS_QUEUE_DEPTH_OUT_HI,
         },
         ffi,
         helpers::QueueMsg,
@@ -55,7 +54,7 @@ async fn main() -> anyhow::Result<()> {
     let shutdown_handler_state = Arc::new(AtomicBool::new(false));
 
     let stats_export_service = instantiate_stats_export_engine(&conf)?;
-    let regenesis_arc = Arc::new(RwLock::new(vec![]));
+    let regenesis_arc: Arc<Regenesis> = Arc::new(Default::default());
 
     // The P2PNode thread
     let (node, poll) =
@@ -116,10 +115,6 @@ async fn main() -> anyhow::Result<()> {
         tokio::spawn(async move { stats.start_server(SocketAddr::new(pla, plp)).await });
     }
 
-    for resolver in &node.config.dns_resolvers {
-        debug!("Using resolver: {}", resolver);
-    }
-
     #[cfg(feature = "instrumentation")]
     // The push gateway to Prometheus thread
     start_push_gateway(&conf.prometheus, &node.stats, node.id());
@@ -140,7 +135,7 @@ async fn main() -> anyhow::Result<()> {
         String::new()
     };
 
-    let data_dir_path = app_prefs.get_user_app_dir();
+    let data_dir_path = app_prefs.get_data_dir();
     let mut database_directory = data_dir_path.to_path_buf();
     database_directory.push(concordium_node::configuration::DATABASE_SUB_DIRECTORY_NAME);
     if !database_directory.exists() {
@@ -225,7 +220,7 @@ fn instantiate_node(
     conf: &config::Config,
     app_prefs: &mut config::AppPreferences,
     stats_export_service: Arc<StatsExportService>,
-    regenesis_arc: Arc<RwLock<Vec<BlockHash>>>,
+    regenesis_arc: Arc<Regenesis>,
 ) -> anyhow::Result<(Arc<P2PNode>, Poll)> {
     // If the node id is supplied on the command line (in the conf argument) use it.
     // Otherwise try to look it up from the persistent config.
