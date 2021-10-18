@@ -31,14 +31,10 @@ import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.Basic.BlockState (PureBlockStateMonad(..), BlockState)
 import Concordium.GlobalState.TreeState
-    ( BlockStateTypes(UpdatableBlockState), MGSTrans(..) )
+    ( BlockStateTypes(UpdatableBlockState), MGSTrans(..), TransactionVerificationCache )
 import qualified Concordium.GlobalState.Types as GS
 import qualified Concordium.TransactionVerification as TVer
 import qualified Concordium.Cache as Cache
-
--- The Transaction verification cache for storing transaction hashes
--- associated with transaction verification results
-type TransactionVerificationCache = Cache.Cache TransactionHash TVer.VerificationResult
 
 -- |Chain metadata together with the maximum allowed block energy.
 data ContextState = ContextState{
@@ -48,6 +44,7 @@ data ContextState = ContextState{
   }
 
 makeLenses ''ContextState
+
 
 -- Doing it manually because otherwise the generated class definition
 -- seems to be wrong (m has kind *).
@@ -100,9 +97,6 @@ newtype BSOMonadWrapper (pv :: ProtocolVersion) r w state m a = BSOMonadWrapper 
               MonadState state,
               MonadWriter w,
               MonadLogger)
-
--- Use the underlying monad's instance of the cache.
-deriving instance (Cache.CacheMonad k v m) => (Cache.CacheMonad k v (BSOMonadWrapper pv r w state m))
 
 instance MonadTrans (BSOMonadWrapper pv r w s) where
     {-# INLINE lift #-}
@@ -167,10 +161,20 @@ instance (MonadReader ContextState m,
           Footprint (ATIStorage m) ~ w,
           MonadWriter w m,
           MonadLogger m,
-          IsProtocolVersion pv,
-          Cache.CacheMonad TransactionHash TVer.VerificationResult m
+          IsProtocolVersion pv
          )
          => SchedulerMonad pv (BSOMonadWrapper pv ContextState w state m) where
+
+  insertTransactionVerificationResult txHash verResult = do
+    cache <- use transactionVerificationCache
+    let cache' = Cache.doInsert txHash verResult cache
+    assign transactionVerificationCache cache'
+
+  lookupTransactionVerificationResult k = do
+    cache <- use transactionVerificationCache
+    let value = Cache.doLookup k cache
+    return value
+
 
   {-# INLINE tlNotifyAccountEffect #-}
   tlNotifyAccountEffect items summary = do
@@ -347,7 +351,7 @@ instance Monad m => MonadWriter () (RWSTBS pv m) where
 
 -- |Basic implementation of the scheduler that does no transaction logging.
 newtype SchedulerImplementation pv a = SchedulerImplementation { _runScheduler :: RWSTBS pv (PureBlockStateMonad pv Identity) a }
-    deriving (Functor, Applicative, Monad, MonadReader ContextState, MonadState (PBSSS pv), Cache.CacheMonad TransactionHash TVer.VerificationResult)
+    deriving (Functor, Applicative, Monad, MonadReader ContextState, MonadState (PBSSS pv))
     deriving (StaticInformation, AccountOperations, MonadLogger)
       via (BSOMonadWrapper pv ContextState () (PBSSS pv) (MGSTrans (RWSTBS pv) (PureBlockStateMonad pv Identity)))
 
@@ -366,23 +370,6 @@ deriving via (BSOMonadWrapper pv ContextState () (PBSSS pv) (MGSTrans (RWSTBS pv
 
 deriving via (BSOMonadWrapper pv ContextState () (PBSSS pv) (MGSTrans (RWSTBS pv) (PureBlockStateMonad pv Identity))) instance
   (IsProtocolVersion pv) => SchedulerMonad pv (SchedulerImplementation pv)
-
-instance Monad m => Cache.CacheMonad TransactionHash TVer.VerificationResult (RWSTBS pv m) where
-  insert txHash verResult = do
-    cache <- use transactionVerificationCache
-    let cache' = Cache.doInsert txHash verResult cache
-    assign transactionVerificationCache cache'
-    return ()
-  lookup k = do
-    cache <- use transactionVerificationCache
-    let value = Cache.doLookup k cache
-    return value
-  delete txHash = do
-    cache <- use transactionVerificationCache
-    let cache' = Cache.doDelete txHash cache
-    assign transactionVerificationCache cache'
-    return ()
-
 
 instance ATITypes (SchedulerImplementation pv) where
   type ATIStorage (SchedulerImplementation pv) = ()

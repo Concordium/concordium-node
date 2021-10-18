@@ -142,26 +142,6 @@ newtype PureTreeStateMonad (pv :: ProtocolVersion) bs m a = PureTreeStateMonad {
 
 deriving instance (Monad m, MonadState (SkovData pv bs) m) => MonadState (SkovData pv bs) (PureTreeStateMonad pv bs m)
 
-instance (Monad m, MonadState (SkovData pv bs) m) => Cache.CacheMonad TransactionHash TVer.VerificationResult (PureTreeStateMonad pv bs m) where
-    {-# INLINE insert #-}
-    insert txHash err = do
-      cache <- use transactionVerificationResults
-      let cache' = Cache.doInsert txHash err cache
-      transactionVerificationResults .= cache'
-      return ()
-
-    {-# INLINE lookup #-}
-    lookup txHash = do
-      cache <- use transactionVerificationResults
-      return $ Cache.doLookup txHash cache
-
-    {-# INLINE delete #-}
-    delete txHash = do
-      cache <- use transactionVerificationResults
-      let cache' = Cache.doDelete txHash err cache
-      transactionVerificationResults .= cache'
-      return ()
-
 instance (bs ~ BlockState m) => GlobalStateTypes (PureTreeStateMonad pv bs m) where
     type BlockPointerType (PureTreeStateMonad pv bs m) = BasicBlockPointer pv bs
 
@@ -232,6 +212,15 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
                 Nothing -> do
                     possiblyPendingQueue .= ppq
                     return Nothing
+
+    insertTxVerificationResult txHash verResult = do
+      transactionVerificationResults %=! Cache.doInsert txHash verResult
+    lookupTxVerificationResult txHash =
+      Cache.doLookup txHash <$> use transactionVerificationResults
+
+    getTransactionVerificationCache = use transactionVerificationResults
+    putTransactionVerificationCache = (transactionVerificationResults .=!)
+
     wipePendingBlocks = do
         possiblyPendingTable .= HM.empty
         possiblyPendingQueue .= MPQ.empty

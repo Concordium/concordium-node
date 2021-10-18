@@ -777,6 +777,11 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
             (Nothing, Nothing) -> return Nothing
             (Just pb1, Just pb2) -> assert (pb1 == pb2) $ return $ Just pb1
             _ -> error "takeNextPendingUntil (Paired): implementations returned different results"
+
+    -- FIXME: Figure out whether this is sensible or whether we should require both caches to be the same.
+    getTransactionVerificationCache = coerceGSML getTransactionVerificationCache
+    putTransactionVerificationCache = coerceGSML . putTransactionVerificationCache
+
     wipePendingBlocks = do
         coerceGSML wipePendingBlocks
         coerceGSMR wipePendingBlocks

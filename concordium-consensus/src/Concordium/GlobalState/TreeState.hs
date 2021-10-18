@@ -32,6 +32,7 @@ import Concordium.Types.HashableTo
 import Concordium.Types
 import Concordium.Types.Updates
 import Concordium.GlobalState.AccountTransactionIndex
+import qualified Concordium.Cache as Cache
 import qualified Concordium.TransactionVerification as TV
 
 import Data.ByteString
@@ -71,6 +72,10 @@ data AddTransactionResult =
   -- The transaction is not added to the table.
   ObsoleteNonce
   deriving(Eq, Show)
+
+-- |The Transaction verification cache for storing transaction hashes
+-- associated with transaction verification results
+type TransactionVerificationCache = Cache.Cache TransactionHash TV.VerificationResult
 
 -- |Monad that provides operations for working with the low-level tree state.
 -- These operations are abstracted where possible to allow for a range of implementation
@@ -223,6 +228,11 @@ class (Eq (BlockPointerType m),
     -- return the associated 'VerificationResult'.
     -- Otherwise return 'Nothing'.
     lookupTxVerificationResult :: TransactionHash -> m (Maybe TV.VerificationResult)
+
+
+    -- TODO: Documentation
+    getTransactionVerificationCache :: m TransactionVerificationCache
+    putTransactionVerificationCache :: TransactionVerificationCache -> m ()
 
     -- * Operations on the pending transaction table
     --
@@ -407,6 +417,8 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad pv m) => TreeStateMonad pv (
     purgeTransactionTable tm = lift . (purgeTransactionTable tm)
     insertTxVerificationResult hash err = lift $ insertTxVerificationResult hash err
     lookupTxVerificationResult = lift . lookupTxVerificationResult
+    getTransactionVerificationCache = lift getTransactionVerificationCache
+    putTransactionVerificationCache = lift . putTransactionVerificationCache
     {-# INLINE makePendingBlock #-}
     {-# INLINE getBlockStatus #-}
     {-# INLINE makeLiveBlock #-}
@@ -452,6 +464,8 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad pv m) => TreeStateMonad pv (
     {-# INLINE purgeTransactionTable #-}
     {-# INLINE insertTxVerificationResult #-}
     {-# INLINE lookupTxVerificationResult #-}
+    {-# INLINE getTransactionVerificationCache #-}
+    {-# INLINE putTransactionVerificationCache #-}
 
 deriving via (MGSTrans MaybeT m) instance TreeStateMonad pv m => TreeStateMonad pv (MaybeT m)
 deriving via (MGSTrans (ExceptT e) m) instance TreeStateMonad pv m => TreeStateMonad pv (ExceptT e m)

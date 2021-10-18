@@ -45,7 +45,6 @@ import Concordium.Scheduler.EnvironmentImplementation
      schedulerBlockState, schedulerEnergyUsed
      )
 import qualified Concordium.TransactionVerification as TVer
-import qualified Concordium.Cache as Cache
 
 import Control.Monad.RWS.Strict
 
@@ -53,8 +52,11 @@ import Lens.Micro.Platform
 
 import qualified Concordium.Scheduler as Sch
 
-newtype BlockStateMonad (pv :: ProtocolVersion) w state m a = BSM { _runBSM :: RWST ContextState w state m a}
-    deriving (Functor, Applicative, Monad, MonadState state, MonadReader ContextState, MonadTrans, MonadWriter w, MonadLogger, TimeMonad, Cache.CacheMonad TransactionHash TVer.VerificationResult)
+newtype RWSTC w state m a = RWSTC { _runRWSTC :: RWST ContextState w state m a }
+    deriving (Functor, Applicative, Monad, MonadState state, MonadReader ContextState, MonadTrans, MonadWriter w, MonadLogger, TimeMonad)
+
+newtype BlockStateMonad (pv :: ProtocolVersion) w state m a = BSM { _runBSM :: RWSTC w state m a}
+    deriving (Functor, Applicative, Monad, MonadState state, MonadReader ContextState, MonadTrans, MonadWriter w, MonadLogger, TimeMonad)
 
 deriving via (BSOMonadWrapper pv ContextState w state (MGSTrans (RWST ContextState w state) m))
     instance
@@ -70,7 +72,8 @@ data LogSchedulerState (m :: DK.Type -> DK.Type) = LogSchedulerState {
   _lssSchedulerEnergyUsed :: !Energy,
   _lssSchedulerExecutionCosts :: !Amount,
   _lssNextIndex :: !TransactionIndex,
-  _lssSchedulerTransactionLog :: !(ATIStorage m)
+  _lssSchedulerTransactionLog :: !(ATIStorage m),
+  _lssVerificationCache :: !TransactionVerificationCache
   }
 
 makeLenses ''LogSchedulerState
@@ -91,39 +94,38 @@ makeLenses ''ExecutionResult'
 instance TreeStateMonad pv m => HasSchedulerState (LogSchedulerState m) where
   type SS (LogSchedulerState m) = UpdatableBlockState m
   type TransactionLog (LogSchedulerState m) = ATIStorage m
-  type CacheMonad k v m = Cache.CacheMonad k v m
   schedulerBlockState = lssBlockState
   schedulerEnergyUsed = lssSchedulerEnergyUsed
   schedulerExecutionCosts = lssSchedulerExecutionCosts
   nextIndex = lssNextIndex
   schedulerTransactionLog = lssSchedulerTransactionLog
+  transactionVerificationCache = error "TODO: The abstractions need to be changed. This is not good."
 
 
-mkInitialSS :: CanExtend (ATIStorage m) => UpdatableBlockState m -> LogSchedulerState m
-mkInitialSS _lssBlockState =
+mkInitialSS :: CanExtend (ATIStorage m) => UpdatableBlockState m -> TransactionVerificationCache -> LogSchedulerState m
+mkInitialSS _lssBlockState _lssVerificationCache =
   LogSchedulerState{_lssSchedulerEnergyUsed = 0,
                     _lssSchedulerExecutionCosts = 0,
                     _lssSchedulerTransactionLog = defaultValue,
                     _lssNextIndex = 0,
                     ..}
 
-deriving via (MGSTrans (RWST ContextState w state) m)
+deriving via (MGSTrans (RWSTC w state) m)
     instance BlockStateTypes (BlockStateMonad pv w state m)
 
-deriving via (MGSTrans (RWST ContextState w state) m)
+deriving via (MGSTrans (RWSTC w state) m)
     instance (Monoid w, AccountOperations m) => AccountOperations (BlockStateMonad pv w state m)
 
-deriving via (BSOMonadWrapper pv ContextState w state (MGSTrans (RWST ContextState w state) m))
+deriving via (BSOMonadWrapper pv ContextState w state (MGSTrans (RWSTC w state) m))
     instance (
               SS state ~ UpdatableBlockState m,
               Footprint (ATIStorage m) ~ w,
               HasSchedulerState state,
               TreeStateMonad pv m,
-              Cache.CacheMonad k v m,
               MonadLogger m,
               BlockStateOperations m) => SchedulerMonad pv (BlockStateMonad pv w state m)
 
-deriving via (BSOMonadWrapper pv ContextState w state (MGSTrans (RWST ContextState w state) m))
+deriving via (BSOMonadWrapper pv ContextState w state (MGSTrans (RWSTC w state) m))
     instance (
               SS state ~ UpdatableBlockState m,
               Footprint (ATIStorage m) ~ w,
@@ -134,7 +136,7 @@ deriving via (BSOMonadWrapper pv ContextState w state (MGSTrans (RWST ContextSta
 
 runBSM :: Monad m => BlockStateMonad pv w b m a -> ContextState -> b -> m (a, b)
 runBSM m cm s = do
-  (r, s', _) <- runRWST (_runBSM m) cm s
+  (r, s', _) <- runRWST (_runRWSTC $ _runBSM m) cm s
   return (r, s')
 
 -- |Distribute the baking rewards for the last epoch to the bakers of
@@ -488,9 +490,12 @@ executeFrom blockHash slotNumber slotTime blockParent blockBaker mfinInfo newSee
               _maxBlockEnergy = maxBlockEnergy,
               _accountCreationLimit = chainParams ^. cpAccountCreationLimit
               }
-        (res, finState) <- runBSM (Sch.runTransactions txs) context (mkInitialSS bshandle1 :: LogSchedulerState m)
+        startingCache <- getTransactionVerificationCache
+        (res, finState) <- runBSM (Sch.runTransactions txs) context (mkInitialSS bshandle1 startingCache :: LogSchedulerState m)
         let usedEnergy = finState ^. schedulerEnergyUsed
         let bshandle2 = finState ^. schedulerBlockState
+        let finalCache = finState ^. transactionVerificationCache
+        putTransactionVerificationCache finalCache
         case res of
             Left fk -> Left fk <$ dropUpdatableBlockState bshandle2
             Right outcomes -> do
@@ -580,8 +585,13 @@ constructBlock slotNumber slotTime blockParent blockBaker mfinInfo newSeedState 
           _maxBlockEnergy = maxBlockEnergy,
           _accountCreationLimit = chainParams ^. cpAccountCreationLimit
           }
+    startingCache <- getTransactionVerificationCache
     (ft@Sch.FilteredTransactions{..}, finState) <-
-        runBSM (Sch.filterTransactions (fromIntegral maxSize) timeout transactionGroups) context (mkInitialSS bshandle1 :: LogSchedulerState m)
+        runBSM (Sch.filterTransactions (fromIntegral maxSize) timeout transactionGroups) context (mkInitialSS bshandle1 startingCache :: LogSchedulerState m)
+    let finalCache = finState ^. transactionVerificationCache
+    putTransactionVerificationCache finalCache
+
+
     -- FIXME: At some point we should log things here using the same logging infrastructure as in consensus.
 
     let usedEnergy = finState ^. schedulerEnergyUsed

@@ -6,6 +6,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE TypeApplications #-}
 -- |This module provides a monad that is an instance of both `LMDBStoreMonad`, `LMDBQueryMonad`,
 -- and `TreeStateMonad` effectively adding persistence to the tree state.
 module Concordium.GlobalState.Persistent.TreeState where
@@ -227,7 +228,7 @@ initialSkovPersistentData rp treeStateDir gd genState genATI atiContext serState
             _runtimeParameters = rp,
             _treeStateDirectory = treeStateDir,
             _db = initialDb,
-            _transactionVerificationResults = Cache.empty  -- todo: decide on a good capacity
+            _transactionVerificationResults = Cache.empty,  -- todo: decide on a good capacity
             _atiCtx = atiContext
         }
 
@@ -418,27 +419,6 @@ instance (MonadIO m, MonadState (SkovPersistentData pv SQLTransactionLog bs) m) 
   flushBlockSummaries bh ati sos = do
     context <- use logContext
     liftIO $ writeEntries context bh ati sos
-
-instance (Monad m, MonadState (SkovDataPersistent pv ati bs) m) => Cache.CacheMonad TransactionHash TVer.VerificationResult  (PersistentTreeStateMonad pv ati bs m) where
-  {-# INLINE insert #-}
-  insert txHash err = do
-    cache <- use transactionVerificationResults
-    let cache' = Cache.doInsert txHash err cache
-    transactionVerificationResults .= cache'
-    return ()
-
-  {-# INLINE lookup #-}
-  lookup txHash = do
-    cache <- use transactionVerificationResults
-    return $ Cache.doLookup txHash cache
-
-  {-# INLINE delete #-}
-  delete txhash = do
-    cache <- use transactionVerificationResults
-    let cache' = Cache.doDelete txHash err cache
-    transactionVerificationResults .= cache'
-    return ()
-
 
 instance GlobalStateTypes (PersistentTreeStateMonad pv ati bs m) where
     type BlockPointerType (PersistentTreeStateMonad pv ati bs m) = PersistentBlockPointer pv (ATIValues ati) bs
@@ -634,6 +614,16 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
     wipePendingBlocks = do
         possiblyPendingTable .=! HM.empty
         possiblyPendingQueue .=! MPQ.empty
+
+    insertTxVerificationResult txHash verResult = do
+      transactionVerificationResults %=! Cache.doInsert txHash verResult
+    lookupTxVerificationResult txHash =
+      Cache.doLookup txHash <$> use transactionVerificationResults
+
+    getTransactionVerificationCache = use transactionVerificationResults
+    putTransactionVerificationCache = (transactionVerificationResults .=!)
+
+
     getFocusBlock = use focusBlock
     putFocusBlock bb = focusBlock .= bb
     getPendingTransactions = use pendingTransactions
@@ -737,9 +727,7 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
                         ss <- deleteAndFinalizeStatus wmdHash
                         -- delete the transaction from the verified transaction cache
                         -- todo: must be possible to do this in a cleaner way
-                        cache <- use transactionVerificationResults
-                        let cache' = Cache.delete wmdHash cache
-                        transactionVerificationResults .= cache'
+                        transactionVerificationResults %=! Cache.doDelete wmdHash
 
                         -- Update the non-finalized transactions for the sender
                         transactionTable . ttNonFinalizedTransactions . at' sender ?= (anft & (anftMap . at' nonce .~ Nothing)
@@ -801,9 +789,7 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
                     -- remove from the table
                     transactionTable . ttHashMap . at' wmdHash .= Nothing
                     -- delete the transaction from the verified transaction cache
-                    cache <- use transactionVerificationResults
-                    let cache' = Cache.delete wmdHash cache
-                    transactionVerificationResults .= cache'
+                    transactionVerificationResults %=! Cache.doDelete wmdHash
 
                     -- if the transaction is from a sender also delete the relevant
                     -- entry in the account non finalized table

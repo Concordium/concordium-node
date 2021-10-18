@@ -74,6 +74,7 @@ import qualified Concordium.TransactionVerification as TV
 import Lens.Micro.Platform
 
 import Prelude hiding (exp, mod)
+import Concordium.TransactionVerification (verifyCredentialDeployment)
 
 -- |Check that
 --  * the transaction has a valid sender,
@@ -1134,6 +1135,12 @@ handleDeployCredential accCreation@AccountCreation{messageExpiry=messageExpiry, 
       let regId = ID.credId accCreation
       let aaddr = ID.addressFromRegId regId
       -- Verification checks passed. Now we create either an initial or normal account
+      foo <- lift (lookupTransactionVerificationResult cdiHash)
+      case foo of
+        Just TV.ResultSuccess -> return ()
+        _ -> do -- FIXME: If already failed figure out whether we can just reject.
+          tVerResult <- lift (verifyCredentialDeployment accCreation)
+          unless (tVerResult == TV.ResultSuccess) $ throwError $ Just AccountCredentialInvalid
       case cdi of 
         ID.InitialACWP icdi -> do
           _ <- lift (createAccount cryptoParams aaddr (ID.InitialAC (ID.icdiValues icdi)))

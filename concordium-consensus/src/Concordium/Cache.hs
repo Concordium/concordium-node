@@ -2,9 +2,6 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 module Concordium.Cache
   (
-  -- Type classes
-  CacheMonad,
-  insert, lookup, delete,
   -- Types
   Cache,
   -- Creating caches
@@ -17,19 +14,6 @@ where
 import Prelude hiding (lookup)
 import Data.Hashable
 import qualified Data.HashMap.Strict as Map
-
-class CacheMonad k v m where
-  -- |Insert an entry to the 'Cache'.
-  -- The first parameter, @k@, is the key of the entry.
-  -- The second parameter, @v@, is the value of the entry.
-  --
-  -- If the capacity is reached for the cache, then we expunge all content
-  -- of the cache and insert the new entry.
-  insert :: k -> v  -> m ()
-  -- |Returns whether the entry is present in the cache or not.
-  lookup :: k  -> m (Maybe v)
-  -- | Deletes an entry (if it was present) in the cache.
-  delete :: k -> m ()
 
 -- |A generic cache where entries consists of
 -- a key @k@  and a value @v@.
@@ -91,4 +75,3 @@ doLookup k C{..} = Map.lookup k _contents
 {-# LANGUAGE AllowAmbiguousTypes #-}
 doDelete :: (Eq k, Hashable k) => k -> Cache k v -> Cache k v
 doDelete k C{..} = C{_contents = Map.delete k _contents, _capacity=_capacity}
-

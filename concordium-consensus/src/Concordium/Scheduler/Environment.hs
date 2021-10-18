@@ -37,7 +37,6 @@ import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.AccountTransactionIndex
 import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as ARS
 
-import qualified Concordium.Cache as Cache
 import qualified Concordium.TransactionVerification as TVer
 
 import Control.Exception(assert)
@@ -64,8 +63,18 @@ class (Monad m) => StaticInformation m where
   getAccountCreationLimit :: m CredentialsPerBlockLimit
 
 -- |Information needed to execute transactions in the form that is easy to use.
-class (Monad m, StaticInformation m, Cache.CacheMonad TransactionHash TVer.VerificationResult m, TVer.TransactionVerifier m, CanRecordFootprint (Footprint (ATIStorage m)), AccountOperations m, MonadLogger m, IsProtocolVersion pv)
+class (Monad m, StaticInformation m, TVer.TransactionVerifier m, CanRecordFootprint (Footprint (ATIStorage m)), AccountOperations m, MonadLogger m, IsProtocolVersion pv)
     => SchedulerMonad pv m | m -> pv where
+
+  -- |Insert an entry to the 'Cache'.
+  -- The first parameter, @k@, is the key of the entry.
+  -- The second parameter, @v@, is the value of the entry.
+  --
+  -- If the capacity is reached for the cache, then we expunge all content
+  -- of the cache and insert the new entry.
+  insertTransactionVerificationResult :: TransactionHash -> TVer.VerificationResult -> m ()
+  -- |Returns whether the entry is present in the cache or not.
+  lookupTransactionVerificationResult :: TransactionHash  -> m (Maybe TVer.VerificationResult)
 
   -- |Notify the transaction log that a transaction had the given footprint. The
   -- nature of the footprint will depend on the configuration, e.g., it could be

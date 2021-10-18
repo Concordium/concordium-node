@@ -522,12 +522,11 @@ doReceiveTransaction tr slot = unlessShutDown $ do
 
     -- reject expired transactions, we don't cache the result though.
     lastFinalState <- queryBlockState =<< lastFinalizedBlock
-    now <- currentTime
     expired <- runReaderT (TV.verifyTransactionNotExpired tr (utcTimeToTimestamp now)) lastFinalState
     if expired == TV.ResultTransactionExpired
     then return $ mapTransactionVerificationResult expired
     else do
-    ur <- case tr of
+      ur <- case tr of
         WithMetadata{wmdData = NormalTransaction tx} -> do
             -- Don't accept the transaction if the stated energy is smaller than the minimum energy amount.
             let baseEnergy = baseCost (getTransactionHeaderPayloadSize $ transactionHeader tx) (getTransactionNumSigs $ transactionSignature tx)
@@ -540,7 +539,7 @@ doReceiveTransaction tr slot = unlessShutDown $ do
                senderExists <- flip getAccount (transactionSender tx) =<< queryBlockState =<< lastFinalizedBlock
                if isNothing senderExists then return ResultNonexistingSenderAccount
                else snd <$> doReceiveTransactionInternal tr slot
-           WithMetadata{wmdData = CredentialDeployment cred} -> do
+        WithMetadata{wmdData = CredentialDeployment cred} -> do
              -- check if the transaction has already been verified
              verResult <- lookupTxVerificationResult (getHash tr)
              case verResult of
@@ -560,7 +559,7 @@ doReceiveTransaction tr slot = unlessShutDown $ do
                    err -> do
                      insertTxVerificationResult (getHash tr) err
                      return $ mapTransactionVerificationResult err
-           _ -> snd <$> doReceiveTransactionInternal tr slot
+        _ -> snd <$> doReceiveTransactionInternal tr slot
       when (ur == ResultSuccess) $ purgeTransactionTable False =<< currentTime
       return ur
     where

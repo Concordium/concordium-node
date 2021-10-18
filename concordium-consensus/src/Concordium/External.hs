@@ -586,7 +586,7 @@ startBaker cptr = mask_ $ do
 
 -- |Stop a baker thread.  The baker thread may be restarted by calling 'startBaker'.
 -- This does not otherwise affect the consensus.
-
+stopBaker :: StablePtr ConsensusRunner -> IO ()
 stopBaker cptr = mask_ $ do
     ConsensusRunner mvr <- deRefStablePtr cptr
     MV.stopBaker mvr

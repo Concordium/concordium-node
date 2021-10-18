@@ -13,7 +13,6 @@ import Control.Monad.Reader.Class
 import Control.Monad.Writer.Class
 import Data.Functor.Identity
 import Concordium.Logger
-import Concordium.Cache
 
 -- |Defines a lens for accessing the global state component of a type.
 class HasGlobalState g s | s -> g where
@@ -62,4 +61,3 @@ deriving instance MonadReader r (t m) => MonadReader r (MGSTrans t m)
 deriving instance MonadState s (t m) => MonadState s (MGSTrans t m)
 deriving instance MonadWriter w (t m) => MonadWriter w (MGSTrans t m)
 deriving instance MonadLogger (t m) => MonadLogger (MGSTrans t m)
-deriving instance CacheMonad k v (t m) => CacheMonad k v (MGSTrans t m)
