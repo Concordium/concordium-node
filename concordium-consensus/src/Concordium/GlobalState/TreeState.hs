@@ -32,7 +32,7 @@ import Concordium.Types.HashableTo
 import Concordium.Types
 import Concordium.Types.Updates
 import Concordium.GlobalState.AccountTransactionIndex
-import qualified Concordium.Cache as Cache
+import qualified Data.HashMap.Strict as HM
 import qualified Concordium.TransactionVerification as TV
 
 import Data.ByteString
@@ -75,7 +75,7 @@ data AddTransactionResult =
 
 -- |The Transaction verification cache for storing transaction hashes
 -- associated with transaction verification results
-type TransactionVerificationCache = Cache.Cache TransactionHash TV.VerificationResult
+type TransactionVerificationCache = HM.HashMap TransactionHash TV.VerificationResult
 
 -- |Monad that provides operations for working with the low-level tree state.
 -- These operations are abstracted where possible to allow for a range of implementation

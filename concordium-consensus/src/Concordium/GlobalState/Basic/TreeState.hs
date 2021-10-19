@@ -37,11 +37,10 @@ import Concordium.Types.Transactions
 import Concordium.Types.Updates
 import Concordium.GlobalState.AccountTransactionIndex
 import qualified Concordium.TransactionVerification as TVer
-import qualified Concordium.Cache as Cache
 
 -- The Transaction verification cache for storing transaction hashes
 -- associated with transaction verification results
-type TransactionVerificationCache = Cache.Cache TransactionHash TVer.VerificationResult
+type TransactionVerificationCache = HM.HashMap TransactionHash TVer.VerificationResult
 
 -- |Datatype representing an in-memory tree state.
 -- The first type parameter, @pv@, is the protocol version.
@@ -119,7 +118,7 @@ initialSkovData rp gd genState = do
             _statistics = initialConsensusStatistics,
             _runtimeParameters = rp,
             _transactionTablePurgeCounter = 0,
-            _transactionVerificationResults = Cache.empty -- todo: decide on a good capacity
+            _transactionVerificationResults = HM.empty
         }
   where gbh = bpHash gb
         gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
@@ -305,7 +304,7 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
                         forM_ (Set.delete wmdtr nfn) $
                           \deadTransaction -> transactionTable . ttHashMap . at' (getHash deadTransaction) .= Nothing
                         -- delete the transaction from the verified transaction cache
-                        transactionVerificationResults %=! Cache.delete wmdHash
+                        transactionVerificationResults %=! HM.delete wmdHash
 
                         -- Mark the status of the transaction as finalized.
                         -- Singular here is safe due to the precondition (and assertion) that all transactions
@@ -350,7 +349,7 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
                     -- remove from the table
                     transactionTable . ttHashMap . at' wmdHash .= Nothing
                     -- delete the transaction from the verified transaction cache
-                    transactionVerificationResults %=! Cache.delete wmdHash
+                    transactionVerificationResults %=! HM.delete wmdHash
 
                     -- if the transaction is from a sender also delete the relevant
                     -- entry in the account non finalized table
@@ -390,15 +389,17 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
         lastFinalizedSlot <- TS.getLastFinalizedSlot
         transactionTable' <- use transactionTable
         pendingTransactions' <- use pendingTransactions
+        tVerCache <- use transactionVerificationResults
         let
           currentTransactionTime = utcTimeToTransactionTime currentTime
           oldestArrivalTime = if currentTransactionTime > rpTransactionsKeepAliveTime
                                 then currentTransactionTime - rpTransactionsKeepAliveTime
                                 else 0
           currentTimestamp = utcTimeToTimestamp currentTime
-          (newTT, newPT) = purgeTables lastFinalizedSlot oldestArrivalTime currentTimestamp transactionTable' pendingTransactions'
+          (newTT, newPT, newTVerCache) = purgeTables lastFinalizedSlot oldestArrivalTime currentTimestamp transactionTable' pendingTransactions' tVerCache
         transactionTable .= newTT
         pendingTransactions .= newPT
+        transactionVerificationResults .= newTVerCache
 
     wipeNonFinalizedTransactions = do
         let consNonFin (_, Finalized{}) = id

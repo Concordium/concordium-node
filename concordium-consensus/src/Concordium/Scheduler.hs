@@ -1140,13 +1140,13 @@ handleDeployCredential accCreation@AccountCreation{messageExpiry=messageExpiry, 
         -- Verification checks passed. Now we create either an initial or normal account
           newAccount regId aaddr cryptoParams mkSummary
         Just TV.ResultCredentialDeploymentInvalidIdentityProvider -> do
-          -- We cannot simply reject this error as an identity provider could've
+          -- We need to verify it again since we cannot simply reject this error, as an identity provider could've
           -- been added in the mean time
           tVerResult <- lift (verifyCredentialDeployment accCreation)
           unless (tVerResult == TV.ResultSuccess) $ throwError $ mapErr tVerResult
           newAccount regId aaddr cryptoParams mkSummary
         Just TV.ResultCredentialDeploymentInvalidAnonymityRevokers -> do
-          -- We cannot simply reject this error as an anonymity revoker could've
+          -- We need to verify it again since we cannot simply reject this error, as an anonymity revoker could've
           -- been added in the mean time
           tVerResult <- lift (verifyCredentialDeployment accCreation)
           unless (tVerResult == TV.ResultSuccess) $ throwError $ mapErr tVerResult
@@ -1156,7 +1156,7 @@ handleDeployCredential accCreation@AccountCreation{messageExpiry=messageExpiry, 
           -- as such we simply reject them here.
           throwError $ mapErr tVerResult
         Nothing -> do
-          -- If the transaction has not been verified before we verify it now 
+          -- If the transaction has not been verified before we verify it now
           tVerResult <- lift (verifyCredentialDeployment accCreation)
           unless (tVerResult == TV.ResultSuccess) $ throwError $ mapErr tVerResult
           newAccount regId aaddr cryptoParams mkSummary

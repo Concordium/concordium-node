@@ -9,6 +9,7 @@ import Data.Maybe (fromMaybe, isNothing)
 import qualified Data.Sequence as Seq
 import Lens.Micro.Platform
 import Data.Foldable
+import qualified Data.HashMap.Strict as HM
 
 import GHC.Stack
 
@@ -41,7 +42,6 @@ import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.Skov.Statistics
 import qualified Concordium.TransactionVerification as TV
-import qualified Concordium.Cache as Cache
 import Control.Monad.Reader
 
 
@@ -539,39 +539,12 @@ doReceiveTransaction tr slot = unlessShutDown $ do
                senderExists <- flip getAccount (transactionSender tx) =<< queryBlockState =<< lastFinalizedBlock
                if isNothing senderExists then return ResultNonexistingSenderAccount
                else snd <$> doReceiveTransactionInternal tr slot
-        WithMetadata{wmdData = CredentialDeployment cred} -> do
+        WithMetadata{wmdData = CredentialDeployment _} -> do
              -- check if the transaction has already been verified
-             txVerCache <- getTransactionVerificationCache
-             let verResult = Cache.lookup (getHash tr) txVerCache
-             case verResult of
-               Just res -> case res of
-                 -- Forward the successful transaction
-                 TV.ResultSuccess -> snd <$> doReceiveTransactionInternal tr slot
-                 -- Forward this transaction as it may be valid in the future
-                 TV.ResultCredentialDeploymentInvalidIdentityProvider -> snd <$> doReceiveTransactionInternal tr slot
-                 -- Forward this transaction as it may be valid in the future
-                 TV.ResultCredentialDeploymentInvalidAnonymityRevokers -> snd <$> doReceiveTransactionInternal tr slot
-                 -- reject otherwise
-                 err -> return $ mapTransactionVerificationResult err
-               Nothing -> do
-                 -- if the transaction has not yet been verified we do so
-                 result <- runReaderT (TV.verifyCredentialDeployment cred) lastFinalState
-                 case result of
-                   -- insert the result into the cache and forward the transaction
-                   TV.ResultSuccess -> do
-                     insertIntoCache (getHash tr) result
-                     snd <$> doReceiveTransactionInternal tr slot
-                   TV.ResultCredentialDeploymentInvalidIdentityProvider -> do
-                     insertIntoCache (getHash tr) result
-                     snd <$> doReceiveTransactionInternal tr slot
-                   TV.ResultCredentialDeploymentInvalidAnonymityRevokers -> do
-                     insertIntoCache (getHash tr) result
-                     snd <$> doReceiveTransactionInternal tr slot
-                   -- If the verification failed for reasons it cannot never be valid in the future 
-                   -- we put it into the cache and reject the transaction
-                   err -> do
-                     insertIntoCache (getHash tr) result
-                     return $ mapTransactionVerificationResult err
+             (verRes, mTr) <- verifyBlockItem tr lastFinalState
+             case mTr of
+               Just x -> snd <$> doReceiveTransactionInternal x slot
+               Nothing -> return $ mapTransactionVerificationResult verRes
         _ -> snd <$> doReceiveTransactionInternal tr slot
       when (ur == ResultSuccess) $ purgeTransactionTable False =<< currentTime
       return ur
@@ -580,10 +553,7 @@ doReceiveTransaction tr slot = unlessShutDown $ do
             maxTimeToExpiry <- rpMaxTimeToExpiry <$> getRuntimeParameters
             let expiry = msgExpiry tr
             return $ expiry > maxTimeToExpiry + utcTimeToTransactionTime now
-          insertIntoCache txHash verResult = do
-            c <- getTransactionVerificationCache
-            let c' = Cache.insert txHash verResult c
-            putTransactionVerificationCache c'
+
 
 -- |Add a transaction to the transaction table.  The 'Slot' should be
 -- the slot number of the block that the transaction was received with.
@@ -598,32 +568,35 @@ doReceiveTransaction tr slot = unlessShutDown $ do
 -- Hence a transaction which has been added to the transaction table through a block must be `fully` verified
 -- at the scheduler anyhow.
 doReceiveTransactionInternal :: (TreeStateMonad pv m) => BlockItem -> Slot -> m (Maybe BlockItem, UpdateResult)
-doReceiveTransactionInternal tr slot =
-        addCommitTransaction tr slot >>= \case
-          Added bi@WithMetadata{..} -> do
-              ptrs <- getPendingTransactions
-              case wmdData of
-                NormalTransaction tx -> do
-                  focus <- getFocusBlock
-                  st <- blockState focus
-                  macct <- getAccount st $! transactionSender tx
-                  nextNonce <- fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
-                  -- If a transaction with this nonce has already been run by
-                  -- the focus block, then we do not need to add it to the
-                  -- pending transactions.  Otherwise, we do.
-                  when (nextNonce <= transactionNonce tx) $
+doReceiveTransactionInternal tr slot = do
+        focus <- getFocusBlock
+        st <- blockState focus
+        -- only put the transactions which are valid, or might be valid in the future into the transaction table as pending.
+        (verRes, mTr) <- verifyBlockItem tr st
+        case mTr of
+          Nothing -> return (Nothing, mapTransactionVerificationResult verRes)
+          Just x -> do
+            addCommitTransaction x slot >>= \case
+              Added bi@WithMetadata{..} -> do
+                ptrs <- getPendingTransactions
+                case wmdData of
+                  NormalTransaction tx -> do       
+                    macct <- getAccount st $! transactionSender tx
+                    nextNonce <- fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
+                    -- If a transaction with this nonce has already been run by
+                    -- the focus block, then we do not need to add it to the
+                    -- pending transactions.  Otherwise, we do.
+                    when (nextNonce <= transactionNonce tx) $
                       putPendingTransactions $! addPendingTransaction nextNonce WithMetadata{wmdData=tx,..} ptrs
-                CredentialDeployment _ ->
-                  putPendingTransactions $! addPendingDeployCredential wmdHash ptrs
-                ChainUpdate cu -> do
-                    focus <- getFocusBlock
-                    st <- blockState focus
+                  CredentialDeployment _ -> do
+                    putPendingTransactions $! addPendingDeployCredential wmdHash ptrs
+                  ChainUpdate cu -> do
                     nextSN <- getNextUpdateSequenceNumber st (updateType (uiPayload cu))
                     when (nextSN <= updateSeqNumber (uiHeader cu)) $
                         putPendingTransactions $! addPendingUpdate nextSN cu ptrs
-              return (Just bi, ResultSuccess)
-          Duplicate tx -> return (Just tx, ResultDuplicate)
-          ObsoleteNonce -> return (Nothing, ResultStale)
+                return (Just bi, ResultSuccess)
+              Duplicate tx -> return (Just tx, ResultDuplicate)
+              ObsoleteNonce -> return (Nothing, ResultStale)
 
 -- |Shutdown the skov, returning a list of pending transactions.
 doTerminateSkov :: (TreeStateMonad pv m, SkovMonad pv m) => m [BlockItem]
@@ -657,3 +630,52 @@ mapTransactionVerificationResult TV.ResultCredentialDeploymentInvalidAnonymityRe
 mapTransactionVerificationResult TV.ResultCredentialDeploymentInvalidSignatures = ResultCredentialDeploymentInvalidSignatures
 mapTransactionVerificationResult TV.ResultCredentialDeploymentInvalidKeys = ResultCredentialDeploymentInvalidKeys
 mapTransactionVerificationResult TV.ResultSuccess = ResultSuccess
+
+
+-- |Verifies a block item and puts the `VerificationResult` into the cache.
+-- We return the `BlockItem` if the transaction is subject for execution.
+-- Otherwise we simply return `Nothing` and the associcated `VerificationResult` (error)
+verifyBlockItem :: (TreeStateMonad pv m) => BlockItem -> BlockState m -> m (TV.VerificationResult, Maybe BlockItem)
+verifyBlockItem tr lastFinalState = do
+  -- check if the transaction has already been verified
+  txVerCache <- getTransactionVerificationCache
+  let verResult = HM.lookup (getHash tr) txVerCache
+  case tr of
+    WithMetadata{wmdData = CredentialDeployment cred} -> do        
+      case verResult of
+        Just res -> case res of
+          -- Forward the successful transaction
+          TV.ResultSuccess -> return (TV.ResultSuccess, Just tr)
+          -- Forward this transaction as it may be valid in the future
+          TV.ResultCredentialDeploymentInvalidIdentityProvider ->
+            return (TV.ResultCredentialDeploymentInvalidIdentityProvider, Just tr)
+          -- Forward this transaction as it may be valid in the future
+          TV.ResultCredentialDeploymentInvalidAnonymityRevokers ->
+            return (TV.ResultCredentialDeploymentInvalidAnonymityRevokers, Just tr)
+          -- reject otherwise
+          err -> return (err, Nothing)
+        Nothing -> do
+          -- if the transaction has not yet been verified we do so
+          result <- runReaderT (TV.verifyCredentialDeployment cred) lastFinalState
+          case result of
+            -- insert the result into the cache and forward the transaction
+            TV.ResultSuccess -> do
+              insertIntoCache (getHash tr) result
+              return (TV.ResultSuccess, Just tr)
+            TV.ResultCredentialDeploymentInvalidIdentityProvider -> do
+              insertIntoCache (getHash tr) result
+              return (TV.ResultCredentialDeploymentInvalidIdentityProvider, Just tr)
+            TV.ResultCredentialDeploymentInvalidAnonymityRevokers -> do
+              insertIntoCache (getHash tr) result
+              return (TV.ResultCredentialDeploymentInvalidAnonymityRevokers, Just tr)
+            -- If the verification failed for reasons it cannot never be valid in the future 
+            -- we put it into the cache and reject the transaction
+            err -> do
+              insertIntoCache (getHash tr) result
+              return (err, Nothing)
+    _ -> return (TV.ResultSuccess, Just tr)
+  where
+    insertIntoCache txHash verResult = do
+            c <- getTransactionVerificationCache
+            let c' = HM.insert txHash verResult c
+            putTransactionVerificationCache c'

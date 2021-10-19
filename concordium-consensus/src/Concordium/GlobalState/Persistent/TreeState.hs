@@ -52,7 +52,6 @@ import Concordium.GlobalState.SQL.AccountTransactionIndex
 import Concordium.Logger
 import Control.Monad.Except
 import qualified Concordium.TransactionVerification as TVer
-import qualified Concordium.Cache as Cache
 
 -- * Exceptions
 
@@ -99,7 +98,7 @@ logErrorAndThrowTS = logErrorAndThrow TreeState
 
 -- The Transaction verification cache for storing transaction hashes
 -- associated with transaction verification results
-type TransactionVerificationCache = Cache.Cache TransactionHash TVer.VerificationResult
+type TransactionVerificationCache = HM.HashMap TransactionHash TVer.VerificationResult
 
 --------------------------------------------------------------------------------
 
@@ -228,7 +227,7 @@ initialSkovPersistentData rp treeStateDir gd genState genATI atiContext serState
             _runtimeParameters = rp,
             _treeStateDirectory = treeStateDir,
             _db = initialDb,
-            _transactionVerificationResults = Cache.empty,  -- todo: decide on a good capacity
+            _transactionVerificationResults = HM.empty,
             _atiCtx = atiContext
         }
 
@@ -367,7 +366,7 @@ loadSkovPersistentData rp _treeStateDirectory _genesisData pbsc atiContext = do
             -- consensus started.
             _statistics = initialConsensusStatistics,
             _runtimeParameters = rp,
-            _transactionVerificationResults = Cache.empty,  -- todo: decide on a good capacity
+            _transactionVerificationResults = HM.empty,
             _atiCtx = atiContext,
             ..
         }
@@ -720,7 +719,7 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
                         -- Mark the status of the transaction as finalized, and remove the data from the in-memory table.
                         ss <- deleteAndFinalizeStatus wmdHash
                         -- delete the transaction from the verified transaction cache
-                        transactionVerificationResults %=! Cache.delete wmdHash
+                        transactionVerificationResults %=! HM.delete wmdHash
 
                         -- Update the non-finalized transactions for the sender
                         transactionTable . ttNonFinalizedTransactions . at' sender ?= (anft & (anftMap . at' nonce .~ Nothing)
@@ -782,7 +781,7 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
                     -- remove from the table
                     transactionTable . ttHashMap . at' wmdHash .= Nothing
                     -- delete the transaction from the verified transaction cache
-                    transactionVerificationResults %=! Cache.delete wmdHash
+                    transactionVerificationResults %=! HM.delete wmdHash
 
                     -- if the transaction is from a sender also delete the relevant
                     -- entry in the account non finalized table
@@ -825,15 +824,17 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
         lastFinalizedSlot <- TS.getLastFinalizedSlot
         transactionTable' <- use transactionTable
         pendingTransactions' <- use pendingTransactions
+        tVerCache <- use transactionVerificationResults
         let
           currentTransactionTime = utcTimeToTransactionTime currentTime
           oldestArrivalTime = if currentTransactionTime > rpTransactionsKeepAliveTime
                                 then currentTransactionTime - rpTransactionsKeepAliveTime
                                 else 0
           currentTimestamp = utcTimeToTimestamp currentTime
-          (newTT, newPT) = purgeTables lastFinalizedSlot oldestArrivalTime currentTimestamp transactionTable' pendingTransactions'
+          (newTT, newPT, newTVerCache) = purgeTables lastFinalizedSlot oldestArrivalTime currentTimestamp transactionTable' pendingTransactions' tVerCache
         transactionTable .= newTT
         pendingTransactions .= newPT
+        transactionVerificationResults .= newTVerCache
 
     wipeNonFinalizedTransactions = do
         -- This assumes that the transaction table only

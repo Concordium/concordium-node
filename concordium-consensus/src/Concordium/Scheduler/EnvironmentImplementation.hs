@@ -34,7 +34,6 @@ import Concordium.GlobalState.TreeState
     ( BlockStateTypes(UpdatableBlockState), MGSTrans(..), TransactionVerificationCache )
 import qualified Concordium.GlobalState.Types as GS
 import qualified Concordium.TransactionVerification as TVer
-import qualified Concordium.Cache as Cache
 
 -- |Chain metadata together with the maximum allowed block energy.
 data ContextState = ContextState{
@@ -73,7 +72,7 @@ mkInitialSS _ssBlockState = NoLogSchedulerState{
     _ssSchedulerEnergyUsed = 0,
     _ssSchedulerExecutionCosts = 0,
     _ssNextIndex = 0,
-    _ssTransactionVerificationCache = Cache.empty,
+    _ssTransactionVerificationCache = Map.empty,
     ..
   }
 
@@ -167,12 +166,12 @@ instance (MonadReader ContextState m,
 
   insertTransactionVerificationResult txHash verResult = do
     cache <- use transactionVerificationCache
-    let cache' = Cache.insert txHash verResult cache
+    let cache' = Map.insert txHash verResult cache
     assign transactionVerificationCache cache'
 
   lookupTransactionVerificationResult k = do
     cache <- use transactionVerificationCache
-    let value = Cache.lookup k cache
+    let value = Map.lookup k cache
     return value
 
 
@@ -379,7 +378,7 @@ runSI sc cd energy maxCreds gs =
   let (a, s, !_) =
         runIdentity $
         runPureBlockStateMonad $
-        runRWST (_runRWSTBS . _runScheduler $ sc) (ContextState cd energy maxCreds) (mkInitialSS gs, Cache.empty)
+        runRWST (_runRWSTBS . _runScheduler $ sc) (ContextState cd energy maxCreds) (mkInitialSS gs, Map.empty)
   in (a, s)
 
 -- |Same as the previous method, but retain the logs of the run.
@@ -387,17 +386,17 @@ runSIWithLogs :: SchedulerImplementation pv a -> ChainMetadata -> Energy -> Cred
 runSIWithLogs sc cd energy maxCreds gs =
   runIdentity $
   runPureBlockStateMonad $
-  runRWST (_runRWSTBS . _runScheduler $ sc) (ContextState cd energy maxCreds) (mkInitialSS gs, Cache.empty)
+  runRWST (_runRWSTBS . _runScheduler $ sc) (ContextState cd energy maxCreds) (mkInitialSS gs, Map.empty)
 
 
 execSI :: SchedulerImplementation pv a -> ChainMetadata -> Energy -> CredentialsPerBlockLimit -> BlockState pv -> PBSSS pv
 execSI sc cd energy maxCreds gs =
   fst (runIdentity $
        runPureBlockStateMonad $
-       execRWST (_runRWSTBS . _runScheduler $ sc) (ContextState cd energy maxCreds) (mkInitialSS gs, Cache.empty))
+       execRWST (_runRWSTBS . _runScheduler $ sc) (ContextState cd energy maxCreds) (mkInitialSS gs, Map.empty))
 
 evalSI :: SchedulerImplementation pv a -> ChainMetadata -> Energy -> CredentialsPerBlockLimit -> BlockState pv -> a
 evalSI sc cd energy maxCreds gs =
   fst (runIdentity $
        runPureBlockStateMonad $
-       evalRWST (_runRWSTBS . _runScheduler $ sc) (ContextState cd energy maxCreds) (mkInitialSS gs, Cache.empty))
+       evalRWST (_runRWSTBS . _runScheduler $ sc) (ContextState cd energy maxCreds) (mkInitialSS gs, Map.empty))

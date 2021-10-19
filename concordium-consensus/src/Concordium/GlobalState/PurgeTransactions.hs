@@ -17,6 +17,7 @@ import Concordium.Types
 import Concordium.Types.Updates
 
 import Concordium.GlobalState.TransactionTable
+import Concordium.GlobalState.TreeState (TransactionVerificationCache)
 
 type TransactionHashTable = HM.HashMap TransactionHash (BlockItem, TransactionStatus)
 
@@ -59,8 +60,10 @@ purgeTables
     -- ^Transaction table to purge
     -> PendingTransactionTable
     -- ^Pending transaction table to purge
-    -> (TransactionTable, PendingTransactionTable)
-purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptable = (ttable', ptable')
+    -> TransactionVerificationCache
+    -- ^TransactionVerificationCache to purge
+    -> (TransactionTable, PendingTransactionTable, TransactionVerificationCache)
+purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptable tVerCache = (ttable', ptable', tVerCache')
     where
         -- A transaction is too old if its arrival predates the oldest allowed
         -- arrival time, or if its expiry time has passed.
@@ -116,7 +119,7 @@ purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptabl
                 !ptt1 = ptt0 & pttWithSender . at' addr %~ updptt mmax
             put (ptt1, trs1)
             return AccountNonFinalizedTransactions{_anftMap = newANFTMap, ..}
-        -- Purge the deploy credential transactions that are pending.
+        -- Purge the deploy credential transactions that are pending.       
         purgeDeployCredentials = do
             dc0 <- use (_1 . pttDeployCredential)
             trs0 <- use _2
@@ -132,8 +135,11 @@ purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptabl
                 -- Purge the hash from the transaction table and pending
                 -- transaction table.
                 purgeDC (dc, trs) cdihash = case trs & at' cdihash <%~ p of
-                    -- The CDI is no longer in the transaction table, so delete it.
-                    (Nothing, trs') -> (HS.delete cdihash dc, trs')
+                    -- The CDI is no longer in the transaction table, so delete it from the transaction table and the
+                    -- transaction verification cache.
+                    (Nothing, trs') -> do
+                      let c' = HM.delete cdihash tVerCache
+                      (HS.delete cdihash dc, trs')
                     -- The CDI was kept, so do nothing.
                     _ -> (dc, trs)
                 -- Fold over the set of credential deployments and purge them
@@ -173,9 +179,9 @@ purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptabl
             return (nnft, nnfcu)
 
         ((newNFT, newNFCU), (ptable', finalTT)) = runState purge (ptable, _ttHashMap)
+        tVerCache' = undefined
         ttable' = TransactionTable{
             _ttHashMap = finalTT,
             _ttNonFinalizedTransactions = newNFT,
             _ttNonFinalizedChainUpdates = newNFCU
-        }
-        
+        }       
