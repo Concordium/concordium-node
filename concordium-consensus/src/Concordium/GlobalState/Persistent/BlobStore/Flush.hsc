@@ -32,18 +32,30 @@ foreign import ccall safe "FlushFileBuffers" flushFileBuffers :: CInt -> IO CInt
 #include <fcntl.h>
 
 foreign import ccall safe "fcntl" fcntl :: CInt -> CInt -> IO CInt
--------- Linux/other ---------
-#else
 
+#else
+-------- Linux/other ---------
 #include <unistd.h>
 #if _POSIX_SYNCHRONIZED_IO > 0
-foreign import ccall safe "fdatasync" fsync :: CInt -> IO CInt
+foreign import ccall safe "fdatasync" fdatasync :: CInt -> IO CInt
 #else
-foreign import ccall safe "fsync" fsync :: CInt -> IO CInt
+foreign import ccall safe "fsync" fdatasync :: CInt -> IO CInt
 #endif
 
 #endif
 
+-- |Flush the file descriptor associated with a file handle to the disk.
+-- The mechanism for this is platform dependent, and there may be differences in what this
+-- actually guarantees and how it behaves on each platform.
+--
+-- - On Windows, FlushFileBuffers is used.
+--   https://docs.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-flushfilebuffers
+--
+-- - On MacOS, the system call fcntl is used with F_FULLFSYNC.
+--   https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/fcntl.2.html#//apple_ref/doc/man/2/fcntl
+--
+-- - On Linux (or other *nix) fsync, or fdatasync (if available) is used.
+--   https://man7.org/linux/man-pages/man2/fdatasync.2.html
 osFlush :: Handle -> IO ()
 osFlush h = do
     fd <- handleToFd h
@@ -60,7 +72,7 @@ osFlush h = do
     when (res == -1) $ throwErrno "hFlushOS"
 #else
     -- Linux/other
-    res <- fsync (fdFD fd)
+    res <- fdatasync (fdFD fd)
     when (res /= 0) $ throwErrno "hFlushOS"
 #endif
 
