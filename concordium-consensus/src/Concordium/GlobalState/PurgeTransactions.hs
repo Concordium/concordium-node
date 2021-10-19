@@ -106,9 +106,9 @@ purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptabl
             put (mmnonce', tht')
             return mres
         -- Purge the non-finalized transactions for a specific account.
-        purgeAccount :: AccountAddress -> AccountNonFinalizedTransactions -> State (PendingTransactionTable, TransactionHashTable) AccountNonFinalizedTransactions
+        purgeAccount :: AccountAddress -> AccountNonFinalizedTransactions -> State (PendingTransactionTable, TransactionHashTable, TransactionVerificationCache) AccountNonFinalizedTransactions
         purgeAccount addr AccountNonFinalizedTransactions{..} = do
-            (ptt0, trs0) <- get
+            (ptt0, trs0, tvercache0) <- get
             -- Purge the transactions from the transaction table.
             let (newANFTMap, (mmax, !trs1)) = runState (Map.traverseMaybeWithKey purgeTxs _anftMap) (Nothing, trs0)
             -- Update the pending transaction table.
@@ -117,12 +117,13 @@ purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptabl
                     | otherwise = Just (low, newHigh)
                 updptt _ _ = Nothing
                 !ptt1 = ptt0 & pttWithSender . at' addr %~ updptt mmax
-            put (ptt1, trs1)
+            put (ptt1, trs1, tvercache0)
             return AccountNonFinalizedTransactions{_anftMap = newANFTMap, ..}
         -- Purge the deploy credential transactions that are pending.       
         purgeDeployCredentials = do
             dc0 <- use (_1 . pttDeployCredential)
             trs0 <- use _2
+            tvercache0 <- use _3
             let
                 -- Remove entry from the transaction table if eligible
                 p Nothing = Nothing
@@ -134,18 +135,19 @@ purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptabl
                         = r
                 -- Purge the hash from the transaction table and pending
                 -- transaction table.
-                purgeDC (dc, trs) cdihash = case trs & at' cdihash <%~ p of
+                purgeDC (dc, trs, tvercache) cdihash = case trs & at' cdihash <%~ p of
                     -- The CDI is no longer in the transaction table, so delete it from the transaction table and the
                     -- transaction verification cache.
                     (Nothing, trs') -> do
                       let c' = HM.delete cdihash tVerCache
-                      (HS.delete cdihash dc, trs')
+                      (HS.delete cdihash dc, trs', c')
                     -- The CDI was kept, so do nothing.
-                    _ -> (dc, trs)
+                    _ -> (dc, trs, tvercache)
                 -- Fold over the set of credential deployments and purge them
-                (dc1, trs1) = HS.foldl' purgeDC (dc0, trs0) dc0
+                (dc1, trs1, tvercache1) = HS.foldl' purgeDC (dc0, trs0, tvercache0) dc0
             _1 . pttDeployCredential .= dc1
             _2 .= trs1
+            _3 .= tvercache1
         purgeUpds :: UpdateSequenceNumber -> Set.Set (WithMetadata UpdateInstruction) -> State (Maybe (Max UpdateSequenceNumber), TransactionHashTable) (Maybe (Set.Set (WithMetadata UpdateInstruction)))
         purgeUpds sn uis = state $ \(mmsn, tht) ->
             let
@@ -160,15 +162,15 @@ purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptabl
                     | null uisl' = (mmsn, Nothing)
                     | otherwise = (mmsn <> Just (Max sn), Just (Set.fromDistinctAscList uisl'))
             in (mres, (mmsn', tht'))
-        purgeUpdates :: UpdateType -> NonFinalizedChainUpdates -> State (PendingTransactionTable, TransactionHashTable) NonFinalizedChainUpdates
-        purgeUpdates uty nfcu@NonFinalizedChainUpdates{..} = state $ \(ptt0, trs0) ->
+        purgeUpdates :: UpdateType -> NonFinalizedChainUpdates -> State (PendingTransactionTable, TransactionHashTable, TransactionVerificationCache) NonFinalizedChainUpdates
+        purgeUpdates uty nfcu@NonFinalizedChainUpdates{..} = state $ \(ptt0, trs0, tvercache0) ->
             let (newNFCUMap, (mmax, !uis1)) = runState (Map.traverseMaybeWithKey purgeUpds _nfcuMap) (Nothing, trs0)
                 updptt (Just (Max newHigh)) (Just (low, _))
                     | newHigh < low = Nothing
                     | otherwise = Just (low, newHigh)
                 updptt _ _ = Nothing
                 !ptt1 = ptt0 & pttUpdates . at' uty %~ updptt mmax
-            in (nfcu{_nfcuMap = newNFCUMap}, (ptt1, uis1))
+            in (nfcu{_nfcuMap = newNFCUMap}, (ptt1, uis1, tvercache0))
         purge = do
             -- Purge each account
             nnft <- HM.traverseWithKey purgeAccount _ttNonFinalizedTransactions
@@ -178,8 +180,7 @@ purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptabl
             nnfcu <- Map.traverseWithKey purgeUpdates _ttNonFinalizedChainUpdates
             return (nnft, nnfcu)
 
-        ((newNFT, newNFCU), (ptable', finalTT)) = runState purge (ptable, _ttHashMap)
-        tVerCache' = undefined
+        ((newNFT, newNFCU), (ptable', finalTT, tVerCache')) = runState purge (ptable, _ttHashMap, tVerCache)
         ttable' = TransactionTable{
             _ttHashMap = finalTT,
             _ttNonFinalizedTransactions = newNFT,
