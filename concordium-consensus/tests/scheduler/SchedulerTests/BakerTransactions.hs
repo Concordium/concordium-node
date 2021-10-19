@@ -243,7 +243,7 @@ runWithIntermediateStates = do
                                     maxBound
                                     maxBound
                                     st
-                            in (acc ++ [(getResults ftAdded, ftFailed, st' ^. Types.ssBlockState . blockBirkParameters)], st' ^. Types.schedulerBlockState, fees + st' ^. Types.schedulerExecutionCosts))
+                            in (acc ++ [(getResults ftAdded, ftFailed, fst st' ^. Types.ssBlockState . blockBirkParameters)], st' ^. Types.schedulerBlockState, fees + st' ^. Types.schedulerExecutionCosts))
                          ([], initialBlockState, 0)
                          (Types.perAccountTransactions txs)
   return (res, state, feeTotal)

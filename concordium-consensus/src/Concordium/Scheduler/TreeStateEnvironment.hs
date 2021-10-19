@@ -499,10 +499,6 @@ executeFrom blockHash slotNumber slotTime blockParent blockBaker mfinInfo newSee
         case res of
             Left fk -> Left fk <$ dropUpdatableBlockState bshandle2
             Right outcomes -> do
-                -- delete entries from the transaction verification cache which has been successfully run.
-                let toRemove = map (wmdHash . fst) outcomes
-                let updatedCache = foldl' (flip HM.delete) startingCache toRemove
-                putTransactionVerificationCache updatedCache
                 -- Record the transaction outcomes
                 bshandle3 <- bsoSetTransactionOutcomes bshandle2 (map snd outcomes)
                 -- Record transaction outcomes in the transaction table as well.

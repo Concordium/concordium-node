@@ -52,7 +52,7 @@ testAccountCreation = do
             maxBound
             maxBound
             initialBlockState
-    let state = finState ^. Types.ssBlockState
+    let state = fst finState ^. Types.ssBlockState
     let accounts = state ^. blockAccounts
     let accAddrs = map (accountAddressFromCredential . Types.credential) [icdi1,icdi2,icdi4] -- cdi3 has the same address as cdi2
     case invariantBlockState state (finState ^. Types.schedulerExecutionCosts) of

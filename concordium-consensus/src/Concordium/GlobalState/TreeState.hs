@@ -73,8 +73,13 @@ data AddTransactionResult =
   ObsoleteNonce
   deriving(Eq, Show)
 
--- |The Transaction verification cache for storing transaction hashes
--- associated with transaction verification results
+-- |The Transaction verification cache stores a transaction `VerificationResult` alongside its
+-- `TransactionHash`.
+-- New entries are being put into the cache via the Updater.
+-- The cached verification results is then used by the Scheduler for allowing for an easier verification process during
+-- during block execution.
+-- Entries in the cache are being removed when the associated transaction is either
+-- finalized or purged.
 type TransactionVerificationCache = HM.HashMap TransactionHash TV.VerificationResult
 
 -- |Monad that provides operations for working with the low-level tree state.

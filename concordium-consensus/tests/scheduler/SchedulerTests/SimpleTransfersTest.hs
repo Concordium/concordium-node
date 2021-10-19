@@ -128,7 +128,7 @@ testSimpleTransfer initialBs tInput = do
             maxBound
             maxBound
             initialBs
-    let gstate = finState ^. Types.ssBlockState
+    let gstate = fst finState ^. Types.ssBlockState
     case invariantBlockState gstate (finState ^. Types.schedulerExecutionCosts) of
         Left f -> liftIO $ assertFailure f
         Right _ -> return ()
