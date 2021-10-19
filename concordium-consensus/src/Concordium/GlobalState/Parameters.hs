@@ -14,11 +14,9 @@ module Concordium.GlobalState.Parameters(
 ) where
 
 import Prelude hiding (fail)
-import Control.Monad.Fail
 import Control.Monad hiding (fail)
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Aeson as AE
-import Data.Aeson.Types (FromJSON(..), (.:), withObject)
 import Data.Word
 
 import Concordium.Types.Updates

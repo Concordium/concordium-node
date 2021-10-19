@@ -2,6 +2,12 @@
 
 ## Unreleased changes
 
+- Support flushing the block state file to disk on finalization. This is configured
+  by the command line option `--block_state_flush_mode <os|disk>` or the corresponding
+  environment variable `CONCORDIUM_NODE_BLOCK_STATE_FLUSH_MODE`. A value of `os` does
+  not flush to the disk (the default), while `disk` will force a flush when the state
+  file is updated.
+
 ## concordium-node 1.1.3
 
 - Fix a number of bugs that led to node crashes due to failed block lookup in some situations.
