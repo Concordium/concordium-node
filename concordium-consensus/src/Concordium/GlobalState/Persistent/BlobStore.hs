@@ -122,7 +122,7 @@ flushBlobStore :: BlobStore -> IO ()
 flushBlobStore BlobStore{blobStoreFlushMode = FlushToOS, ..} =
     withMVar blobStoreFile (hFlush . bhHandle)
 flushBlobStore BlobStore{blobStoreFlushMode = FlushToDisk, ..} =
-    withMVar blobStoreFile (hFlushOS . bhHandle)
+    withMVar blobStoreFile (hFlushToDisk . bhHandle)
 
 -- |Close all references to the blob store, flushing it
 -- in the process.

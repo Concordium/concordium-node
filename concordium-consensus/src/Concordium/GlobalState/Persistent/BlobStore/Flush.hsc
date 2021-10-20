@@ -11,7 +11,7 @@
 --
 -- On Linux (or other platforms), fdatasync (where supported) or fsync is called.
 -- <https://man7.org/linux/man-pages/man2/fsync.2.html>
-module Concordium.GlobalState.Persistent.BlobStore.Flush (hFlushOS) where
+module Concordium.GlobalState.Persistent.BlobStore.Flush (hFlushToDisk) where
 
 import Control.Concurrent
 import Control.Monad
@@ -63,21 +63,21 @@ osFlush h = do
 #if defined(mingw32_HOST_OS)
     -- Windows
     when (fdIsSocket_ fd /= 0) $ ioException $
-        IOError (Just h) IllegalOperation "hFlushOS" "is a socket" Nothing Nothing
+        IOError (Just h) IllegalOperation "hFlushToDisk" "is a socket" Nothing Nothing
     res <- flushFileBuffers (fdFD fd)
-    when (res /= 0) $ throwGetLastError "hFlushOS"
+    when (res /= 0) $ throwGetLastError "hFlushToDisk"
 #elif defined(darwin_HOST_OS)
     -- MacOS
     res <- fcntl (fdFD fd) (#const F_FULLFSYNC)
-    when (res == -1) $ throwErrno "hFlushOS"
+    when (res == -1) $ throwErrno "hFlushToDisk"
 #else
     -- Linux/other
     res <- fdatasync (fdFD fd)
-    when (res /= 0) $ throwErrno "hFlushOS"
+    when (res /= 0) $ throwErrno "hFlushToDisk"
 #endif
 
 -- |Flush a file handle, including the operating system buffers.
-hFlushOS :: Handle -> IO ()
-hFlushOS h = runInBoundThread $ do
+hFlushToDisk :: Handle -> IO ()
+hFlushToDisk h = runInBoundThread $ do
     hFlush h
     osFlush h
