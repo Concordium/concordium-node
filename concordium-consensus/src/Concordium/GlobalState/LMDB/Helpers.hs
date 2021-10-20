@@ -148,7 +148,9 @@ acquireRead RWLock{..} = mask_ go
         readMVar rwlWriteLock
         go
 
-
+-- |Acquire a write lock. This will block when there are active readers or
+-- writers. When this is operation is blocked it also blocks new readers from
+-- acquiring the lock.
 acquireWrite :: RWLock -> IO ()
 acquireWrite RWLock{..} = mask_ $ go False
   where
@@ -171,7 +173,8 @@ acquireWrite RWLock{..} = mask_ $ go False
         readMVar rwlWriteLock
         go True
 
-
+-- |Release the write lock. The lock is assumed to be in write state, otherwise
+-- this function will raise an exception.
 releaseWrite :: RWLock -> IO ()
 releaseWrite RWLock{..} = mask_ $
    takeMVar rwlState >>= \case
@@ -183,6 +186,11 @@ releaseWrite RWLock{..} = mask_ $
       error $ "releaseWrite: attempting to release while in state: " ++ show lockState
 
 
+-- |Release the read lock. The lock is assumed to be in read state, otherwise
+-- this function will raise an exception. Note that since multiple readers may
+-- acquire the read lock at the same time this either decrements the read count
+-- and leaves the lock in read state, or unlocks it if called when there is only
+-- a single active reader.
 releaseRead :: RWLock -> IO ()
 releaseRead RWLock{..} = mask_ $
   takeMVar rwlState >>= \case
@@ -195,12 +203,12 @@ releaseRead RWLock{..} = mask_ $
       error $ "releaseRead: attempting to release read when in state: " ++ show lockState
 
 -- |Acquire the write lock and execute the action. The lock will be released
--- even if the action raises an exception.
+-- even if the action raises an exception. See 'acquireWrite' for more details.
 withWriteLock :: RWLock -> IO a -> IO a
 withWriteLock ls = bracket_ (acquireWrite ls) (releaseWrite ls)
 
 -- |Acquire the read lock and execute the action. The lock will be released even
--- if the action raises an exception.
+-- if the action raises an exception. See 'acquireRead' for more details.
 withReadLock :: RWLock -> IO a -> IO a
 withReadLock ls = bracket_ (acquireRead ls) (releaseRead ls)
 
@@ -218,6 +226,7 @@ data StoreEnv = StoreEnv {
 }
 makeLenses ''StoreEnv
 
+-- |Construct a new LMDB environment with associated locks that protect its use.
 makeStoreEnv :: IO StoreEnv
 makeStoreEnv = do
   _seEnv <- mdb_env_create
@@ -225,6 +234,7 @@ makeStoreEnv = do
   return StoreEnv{..}
 
 -- |Acquire exclusive access to the LMDB environment and perform the given action.
+-- The IO action should not leak the 'MDB_env'.
 withWriteStoreEnv :: StoreEnv -> (MDB_env -> IO a) -> IO a
 withWriteStoreEnv env f = withWriteLock (env ^. seEnvLock) (f (env ^. seEnv))
 
