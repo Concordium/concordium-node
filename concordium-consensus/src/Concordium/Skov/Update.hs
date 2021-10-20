@@ -505,8 +505,6 @@ doStoreBlock pb@GB.PendingBlock{..} = unlessShutDown $ do
 --   * 'ResultDuplicateAccountRegistrationID' which indicates that the registration id of
 --     the 'CredentialDeployment' already exists on the chain (or less likely a hash collision).
 --     The transaction is not added to the transaction table
---   * 'ResultCredentialDeploymentInvalidIdentityProvider' indicates that the 'CredentialDeployment' contained an invalid IP.
---   * 'ResultCredentialDeploymentInvalidAnonymityRevokers' indicates that the 'CredentialDeployment' contained an invalid AR.
 --   * 'ResultCredentialDeploymentInvalidKeys' indicates that the 'CredentialDeployment' contained malformed keys.
 --   * 'ResultCredentialDeploymentInvalidSignatures' which indicates that the signatures for the 'CredentialDeployment' was invalid.
 --     The transaction is not added to the transaction table
