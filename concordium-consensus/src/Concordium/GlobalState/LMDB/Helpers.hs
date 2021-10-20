@@ -10,7 +10,37 @@
     The 'Cursor' type and the 'withCursor' and 'getCursor' operations
     provide a type-safe abstraction over cursors.
 -}
-module Concordium.GlobalState.LMDB.Helpers where
+module Concordium.GlobalState.LMDB.Helpers (
+  -- * Database environment.
+  StoreEnv,
+  makeStoreEnv,
+  withWriteStoreEnv,
+  seEnv,
+
+  -- * Database queries and updates.
+  MDBDatabase(..),
+  transaction,
+  isRecordPresent,
+  storeRecord,
+  storeReplaceRecord,
+  loadRecord,
+  databaseSize,
+
+  -- * Traversing the database.
+  CursorMove(..),
+  withCursor,
+  getCursor,
+  getPrimitiveCursor,
+  movePrimitiveCursor,
+  withPrimitiveCursor,
+  PrimitiveCursor,
+  traverseTable,
+  loadAll,
+
+  -- * Low level operations.
+  byteStringFromMDB_val
+                                           )
+where
 
 import Control.Concurrent (runInBoundThread)
 import Control.Concurrent.MVar
@@ -31,7 +61,6 @@ import Foreign.Marshal.Alloc
 import Foreign.Ptr
 import Foreign.Storable
 import Lens.Micro.Platform
-
 
 -- |State of a reader-writer lock.
 data RWState =
@@ -155,21 +184,21 @@ acquireWrite :: RWLock -> IO ()
 acquireWrite RWLock{..} = mask_ $ go False
   where
     -- the boolean flag indicates whether this is a first iteration of the loop (False) or not (True)
-    go b = takeMVar rwlState >>= \case
+    go alreadyWaiting = takeMVar rwlState >>= \case
       (Free waitingWriters) -> do
         -- The lock is free, take it.
         takeMVar rwlWriteLock
-        putMVar rwlState $! WriteLocked (waitingWriters - if b then 1 else 0)
+        putMVar rwlState $! WriteLocked (waitingWriters - if alreadyWaiting then 1 else 0)
       (ReadLocked n waitingWriters) -> do
         -- There are active readers. Queue ourselves up and wait until all existing readers
         -- are done. This will block all subsequent readers from acquiring the lock.
-        putMVar rwlState $! ReadLocked n (waitingWriters + if not b then 1 else 0)
+        putMVar rwlState $! ReadLocked n (waitingWriters + if alreadyWaiting then 0 else 1)
         readMVar rwlReadLock
         go True
       (WriteLocked waitingWriters) -> do
         -- There is an active writer. Queue ourselves up so that readers are
         -- blocked from acquiring the lock and wait until the current writer is done.
-        putMVar rwlState $! WriteLocked (waitingWriters + if not b then 1 else 0)
+        putMVar rwlState $! WriteLocked (waitingWriters + if alreadyWaiting then 0 else 1)
         readMVar rwlWriteLock
         go True
 
