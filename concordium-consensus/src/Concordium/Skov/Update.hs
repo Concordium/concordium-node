@@ -539,7 +539,7 @@ doReceiveTransaction tr slot = unlessShutDown $ do
                else snd <$> doReceiveTransactionInternal tr slot
         WithMetadata{wmdData = CredentialDeployment _} -> do
              -- check if the transaction has already been verified
-             (verRes, mTr) <- verifyBlockItem tr lastFinalState
+             (verRes, mTr) <- cachedBlockItemVerification tr lastFinalState
              case mTr of
                Just x -> snd <$> doReceiveTransactionInternal x slot
                Nothing -> return $ mapTransactionVerificationResult verRes
@@ -549,6 +549,7 @@ doReceiveTransaction tr slot = unlessShutDown $ do
     where
           isExpiryTooLate now = do
             maxTimeToExpiry <- rpMaxTimeToExpiry <$> getRuntimeParameters
+
             let expiry = msgExpiry tr
             return $ expiry > maxTimeToExpiry + utcTimeToTransactionTime now
 
@@ -570,7 +571,7 @@ doReceiveTransactionInternal tr slot = do
         focus <- getFocusBlock
         st <- blockState focus
         -- only put the transactions which are valid, or might be valid in the future into the transaction table as pending.
-        (verRes, mTr) <- verifyBlockItem tr st
+        (verRes, mTr) <- cachedBlockItemVerification tr st
         case mTr of
           Nothing -> return (Nothing, mapTransactionVerificationResult verRes)
           Just x -> do
@@ -630,11 +631,14 @@ mapTransactionVerificationResult TV.ResultCredentialDeploymentInvalidKeys = Resu
 mapTransactionVerificationResult TV.ResultSuccess = ResultSuccess
 
 
--- |Verifies a block item and puts the `VerificationResult` into the cache.
--- We return the `BlockItem` if the transaction is subject for execution.
--- Otherwise we simply return `Nothing` and the associcated `VerificationResult` (error)
-verifyBlockItem :: (TreeStateMonad pv m) => BlockItem -> BlockState m -> m (TV.VerificationResult, Maybe BlockItem)
-verifyBlockItem tr lastFinalState = do
+-- |Looks up if the transaction has already been verified. If that is the case
+-- then use the cached `VerificationResult`. If the transaction has not been
+-- verified before we verify it now, and puts the `VerificationResult` into the cache. 
+-- We return `Just BlockItem` if the transaction is subject for execution.
+-- Meaning that the transaction is valid (or possible valid in the future) see below for details.
+-- Otherwise we simply return `Nothing` and the associcated `VerificationResult` (error).
+cachedBlockItemVerification :: (TreeStateMonad pv m) => BlockItem -> BlockState m -> m (TV.VerificationResult, Maybe BlockItem)
+cachedBlockItemVerification tr lastFinalState = do
   -- check if the transaction has already been verified
   txVerCache <- getTransactionVerificationCache
   let verResult = HM.lookup (getHash tr) txVerCache
