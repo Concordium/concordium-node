@@ -312,7 +312,7 @@ startConsensus ::
     Word64 ->
     -- |Number of seconds between transaction table purging runs
     Word64 ->
-    -- |Block state flush mode
+    -- |Block state flush mode. Encoding defined by 'flushModeFromWord64'.
     Word64 ->
     -- |Serialized genesis data (c string + len)
     CString ->
@@ -464,7 +464,7 @@ startConsensusPassive ::
     Word64 ->
     -- |Number of seconds between transaction table purging runs
     Word64 ->
-    -- |Block state flush mode
+    -- |Block state flush mode. Encoding defined by 'flushModeFromWord64'.
     Word64 ->
     -- |Serialized genesis data (c string + len)
     CString ->

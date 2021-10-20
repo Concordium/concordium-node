@@ -78,6 +78,18 @@ data FlushMode
     -- ^Flush the buffer to the operating system and subsequently to disk.
 
 -- |Decode a 'FlushMode' from a 'Word64'.
+--
+-- +--------+-------------+
+-- |Encoding|'FlushMode'  |
+-- +========+=============|
+-- |0       |'FlushToOS'  |
+-- +--------+-------------+
+-- |1       |'FlushToDisk'|
+-- +--------+-------------+
+--
+-- Any other value is interpreted as 'FlushToOS', but this behaviour should not be relied upon.
+--
+-- This should be kept in sync with the Rust type consensus_ffi::consensus::FlushMode.
 flushModeFromWord64 :: Word64 -> FlushMode
 flushModeFromWord64 1 = FlushToDisk
 flushModeFromWord64 _ = FlushToOS

@@ -129,6 +129,7 @@ flushBlobStore BlobStore{blobStoreFlushMode = FlushToDisk, ..} =
 closeBlobStore :: BlobStore -> IO ()
 closeBlobStore BlobStore{..} = do
     BlobHandle{..} <- takeMVar blobStoreFile
+    hFlushToDisk bhHandle
     hClose bhHandle
 
 -- |Close all references to the blob store and delete the backing file.
