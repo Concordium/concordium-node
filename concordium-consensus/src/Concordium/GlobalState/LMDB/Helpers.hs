@@ -124,14 +124,19 @@ data RWState =
 -- (WriteLocked n, ⊤, ⊥) -RW-> (Free n, ⊤, ⊤), WW
 --
 -- No other state should be reachable.
+--
+-- Additionally, rwlReadLock and rwlWriteLock can only be modified while the
+-- rwlState MVar is held.
 data RWLock = RWLock {
   -- |The state the lock is currently in.
   rwlState :: !(MVar RWState),
-  -- |An MVar used to signal waiting readers to wake up. This is empty when
-  -- there is at least one active reader and full otherwise.
+  -- |An MVar used to signal threads that are waiting for all active readers to
+  -- wake up. This is empty when there is at least one active reader and full
+  -- otherwise.
   rwlReadLock :: !(MVar ()),
-  -- |An MVar used to signal waiting writers to wake up. This is empty when
-  -- there is an active writer, and full otherwise.
+  -- |An MVar used to signal waiting readers and writers to wake up. This is
+  -- empty when there is an active writer, and full otherwise. Readers wait on
+  -- this MVar when there is an active writer.
   rwlWriteLock :: !(MVar ())
   }
 
