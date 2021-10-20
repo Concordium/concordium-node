@@ -99,8 +99,7 @@ instance TreeStateMonad pv m => HasSchedulerState (LogSchedulerState m) where
   schedulerExecutionCosts = lssSchedulerExecutionCosts
   nextIndex = lssNextIndex
   schedulerTransactionLog = lssSchedulerTransactionLog
-  transactionVerificationCache = error "TODO: The abstractions need to be changed. This is not good."
-
+  transactionVerificationCache = lssVerificationCache
 
 mkInitialSS :: CanExtend (ATIStorage m) => UpdatableBlockState m -> TransactionVerificationCache -> LogSchedulerState m
 mkInitialSS _lssBlockState _lssVerificationCache =

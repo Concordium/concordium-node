@@ -229,35 +229,6 @@ executables:
     - filepath >= 1.4
 
 tests:
-  common:
-    main: Spec.hs
-    source-dirs: tests/common
-    ghc-options:
-    - -threaded
-    - -rtsopts
-    - -with-rtsopts=-N
-    - -Wall
-    - -Wcompat
-    - -fno-ignore-asserts
-    - -Wno-deprecations
-    when:
-      - condition: os(windows)
-        then:
-          ghc-options: -static
-        else:
-          when:
-            - condition: flag(dynamic)
-              then:
-                ghc-options: -dynamic
-              else:
-                ghc-options: -static
-    dependencies:
-    - concordium-consensus
-    - hspec >= 2.5
-    - QuickCheck >= 2.10
-    - hspec-expectations >= 0.8
-    - vector >= 0.12
-    - math-functions >= 0.2
   consensus:
     main:                Spec.hs
     source-dirs:         tests/consensus
