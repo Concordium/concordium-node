@@ -15,6 +15,7 @@ use crate::{
     read_or_die,
 };
 use byteorder::WriteBytesExt;
+use futures::future::Future;
 use p2p_server::*;
 use std::{
     convert::TryInto,
@@ -55,11 +56,13 @@ impl RpcServerImpl {
     }
 
     /// Starts the gRPC server.
-    pub async fn start_server(&mut self) -> anyhow::Result<()> {
+    pub async fn start_server(
+        &mut self,
+        shutdown_signal: impl Future<Output = ()>,
+    ) -> anyhow::Result<()> {
         let self_clone = self.clone();
         let server = Server::builder().add_service(P2pServer::new(self_clone));
-
-        server.serve(self.listen_addr).await.map_err(|e| e.into())
+        server.serve_with_shutdown(self.listen_addr, shutdown_signal).await.map_err(|e| e.into())
     }
 }
 
