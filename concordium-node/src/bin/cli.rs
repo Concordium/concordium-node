@@ -176,7 +176,9 @@ async fn main() -> anyhow::Result<()> {
 
     // Message rpc to shutdown first
     if !conf.cli.rpc.no_rpc_server {
-        let _ = shutdown_rpc_sender.send(());
+        shutdown_rpc_sender
+            .send(())
+            .map_err(|_| anyhow::anyhow!("Failed to message rpc to shutdown"))?;
         rpc_server_task.await?;
     }
 
@@ -226,8 +228,10 @@ async fn get_shutdown_signal() -> anyhow::Result<()> {
     }
     #[cfg(windows)]
     {
-        let ctrl_break = windows_signal::ctrl_break()?.recv();
-        let ctrl_c = windows_signal::ctrl_c()?.recv();
+        let ctrl_break_stream = Box::leak(Box::new(windows_signal::ctrl_break()?));
+        let ctrl_c_stream = Box::leak(Box::new(windows_signal::ctrl_c()?));
+        let ctrl_break = Box::pin(ctrl_break_stream.recv());
+        let ctrl_c = Box::pin(ctrl_c_stream.recv());
         futures::future::select(ctrl_break, ctrl_c).await;
     }
     Ok(())
