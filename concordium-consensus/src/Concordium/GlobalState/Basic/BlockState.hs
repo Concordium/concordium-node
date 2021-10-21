@@ -27,6 +27,7 @@ import Concordium.Types
 import Concordium.Types.Accounts
 import Concordium.Types.Updates
 import Concordium.Types.UpdateQueues
+import Concordium.TimeMonad
 import qualified Concordium.Genesis.Data as GenesisData
 import qualified Concordium.Genesis.Data.P1 as P1
 import qualified Concordium.Genesis.Data.P2 as P2
@@ -52,6 +53,7 @@ import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types.HashableTo
 import Concordium.Utils.Serialization
 import qualified Concordium.Wasm as Wasm
+import Control.Monad.State (MonadState)
 
 data BasicBirkParameters = BasicBirkParameters {
     -- |The currently-registered bakers.
@@ -325,7 +327,7 @@ getBlockState = do
 
 
 newtype PureBlockStateMonad (pv :: ProtocolVersion) m a = PureBlockStateMonad {runPureBlockStateMonad :: m a}
-    deriving (Functor, Applicative, Monad)
+    deriving (Functor, Applicative, Monad, MonadIO, MonadState s, TimeMonad)
 
 type instance GT.BlockStatePointer (BlockState pv) = ()
 type instance GT.BlockStatePointer (HashedBlockState pv) = ()

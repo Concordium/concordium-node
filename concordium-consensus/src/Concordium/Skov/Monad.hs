@@ -291,6 +291,7 @@ deriving via (MGSTrans SkovQueryMonadT m) instance TS.TreeStateMonad pv m => TS.
 deriving via (MGSTrans SkovQueryMonadT m) instance BlockStateStorage m => BlockStateStorage (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance PerAccountDBOperations m => PerAccountDBOperations (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance BlockStateOperations m => BlockStateOperations (SkovQueryMonadT m)
+deriving via (MGSTrans SkovQueryMonadT m) instance TimeMonad m => TimeMonad (SkovQueryMonadT m)
 
 instance (TS.TreeStateMonad pv m)
           => SkovQueryMonad pv (SkovQueryMonadT m) where

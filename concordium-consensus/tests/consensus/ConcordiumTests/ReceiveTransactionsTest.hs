@@ -1,30 +1,83 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE UndecidableInstances #-}
 module ConcordiumTests.ReceiveTransactionsTest where
 
 import Test.Hspec
 
 import qualified Data.Map.Strict as Map
 import Data.Word
+import Data.Time.Clock
 import Data.ByteString.Short(ShortByteString)
+import Control.Monad.State
+import Control.Monad.Reader
 
 import Concordium.Types
+import Concordium.TimeMonad
 import Concordium.Types.Transactions
 import Concordium.ID.Types
 import Concordium.Crypto.FFIDataTypes
 import Concordium.Common.Time
 import Concordium.ID.Parameters
+import Concordium.Types.IdentityProviders
+import Concordium.Types.AnonymityRevokers
 
 import Concordium.Skov.Update (doReceiveTransaction, doReceiveTransactionInternal)
 import Concordium.Types.Transactions (BlockItem)
+import Concordium.Genesis.Data
+import Concordium.GlobalState
+import Concordium.GlobalState.Types ()
+import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.BlockMonads
+import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.GlobalState.TreeState (TreeStateMonad)
+import Concordium.GlobalState.Basic.TreeState
+import Concordium.GlobalState.Basic.BlockState
 import Concordium.TimeMonad (TimeMonad)
 import Concordium.Skov.Monad
+
+import Concordium.GlobalState.DummyData
+import Concordium.Crypto.DummyData
+import Concordium.Types.DummyData
+import Concordium.ID.Parameters
+import Concordium.ID.DummyData
 
 
 -- Tests of doReceiveTransaction and doReceiveTransactionInternal of the Updater.
 
 type PV = 'P1
+
+type MyBlockState = HashedBlockState PV
+type MyState = SkovData PV MyBlockState
+
+newtype FixedTime a = FixedTime { runDeterministic :: ReaderT UTCTime IO a }
+    deriving (Functor, Applicative, Monad, MonadIO)
+
+instance TimeMonad FixedTime where
+    currentTime = FixedTime ask
+
+-- |A composition that implements TreeStateMonad, TimeMonad (via FixedTime) and SkovQueryMonadT.
+type MyMonad = SkovQueryMonadT (PureTreeStateMonad PV MyBlockState (PureBlockStateMonad PV (StateT MyState FixedTime)))
+
+-- |Run the computation in the given initial state. All queries to
+-- 'currentTimeStamp' will return the given time. The IO is unfortunate, but it
+-- is needed since PureBlockStateMonad is otherwise not a BlockStateStorage.
+-- This should probably be revised at some point.
+runMyMonad :: MyMonad a -> UTCTime -> MyState -> IO (a, MyState)
+runMyMonad act time initialState = runReaderT (runDeterministic (runStateT (runPureBlockStateMonad . runPureTreeStateMonad . runSkovQueryMonad $ act) initialState)) time
+
+-- |Run the given computation in a state consisting of only the genesis block and the state determined by it.
+runMyMonad' :: MyMonad a -> UTCTime -> GenesisData PV -> IO (a, MyState)
+runMyMonad' act time gd = runPureBlockStateMonad (initialSkovDataDefault gd (hashBlockState bs)) >>= runMyMonad act time
+  where bs = case genesisState gd of
+               Left err -> error $ "Invalid genesis state: " ++ err
+               Right x -> x
+
+-- |Construct a genesis state with hardcoded values for parameters that should not affect this test.
+-- Modify as you see fit.
+dummyGenesisState :: UTCTime -> IdentityProviders -> AnonymityRevokers -> GenesisData PV
+dummyGenesisState now ips ars = makeTestingGenesisDataP1 (utcTimeToTimestamp now) 1 1 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters ips ars maxBound dummyKeyCollection dummyChainParameters
 
 accountCreations :: [BlockItem]
 accountCreations = undefined
@@ -32,10 +85,10 @@ accountCreations = undefined
 slot :: Slot
 slot = undefined
 
-testDoReceiveTransactionAccountCreations :: (TreeStateMonad pv m, TimeMonad m, SkovQueryMonad pv m) => [BlockItem] -> Slot -> m [UpdateResult]
+testDoReceiveTransactionAccountCreations :: [BlockItem] -> Slot -> MyMonad [UpdateResult]
 testDoReceiveTransactionAccountCreations trs slot = mapM (\tr -> doReceiveTransaction tr slot) trs
 
-testDoReceiveTransactionInternalAccountCreations :: (TreeStateMonad pv m, TimeMonad m, SkovQueryMonad pv m) => [BlockItem] -> Slot -> m [UpdateResult]
+testDoReceiveTransactionInternalAccountCreations :: [BlockItem] -> Slot -> MyMonad [UpdateResult]
 testDoReceiveTransactionInternalAccountCreations trs slot = do
   mapM (\tr -> snd <$> doReceiveTransactionInternal tr slot) trs
 
@@ -48,8 +101,8 @@ test = do
       1 `shouldBe` 1
 
 
-mkBlockItem :: AccountCreation ->  BlockItem
-mkBlockItem = addMetadata CredentialDeployment
+-- mkBlockItem :: AccountCreation ->  BlockItem
+-- mkBlockItem = addMetadata CredentialDeployment
 
 mkInitialAccountCreation :: GlobalContext -> AccountCreation
 mkInitialAccountCreation globalContext = AccountCreation TransactionTime{ttsSeconds=10} $
