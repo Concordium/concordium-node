@@ -24,29 +24,30 @@ function log {
 
 function do_export {
   rm -f "${export_path}"
-  if ! database-exporter export --dbpath "${db_path}" --exportpath "${export_path}" > /dev/null; then
+  if ! database-exporter export --dbpath="${db_path}" --exportpath="${export_path}" > /dev/null; then
     log "Export failed."
     exit 1
   fi
 }
 
 function do_validate_db {
-  if ! database-exporter check --exportpath "${export_path}" > /dev/null; then
+  if ! database-exporter check --exportpath="${export_path}" > /dev/null; then
     log "Database is invalid."
-		return 1
+      return 1
   fi
 }
 
 function upload_to_s3_and_invalidate_cf_cache {
   aws s3 cp "${export_path}" "s3://${s3_bucket_name}/" --grants=read=uri=http://acs.amazonaws.com/groups/global/AllUsers
-  aws cloudfront create-invalidation --distribution-id "${cf_distribution_id}" --paths "/$(basename "${export_path}")"
+  invalidation_id="$(aws cloudfront create-invalidation --distribution-id="${cf_distribution_id}" --paths="/$(basename "${export_path}")" | jq -r '.Invalidation.Id')"
+  aws cloudfront wait invalidation-completed --distribution-id="${cf_distribution_id}" --id="${invalidation_id}"
 }
 
 # Try exporting and validating up to 3 times. Otherwise bail out.
 for _ in {1..3}; do
   do_export
   if do_validate_db; then
-	  upload_to_s3_and_invalidate_cf_cache
-	  break
+    upload_to_s3_and_invalidate_cf_cache
+    break
   fi
 done
