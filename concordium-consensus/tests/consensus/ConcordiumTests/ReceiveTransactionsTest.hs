@@ -76,8 +76,13 @@ runMyMonad' act time gd = runPureBlockStateMonad (initialSkovDataDefault gd (has
 
 -- |Construct a genesis state with hardcoded values for parameters that should not affect this test.
 -- Modify as you see fit.
-dummyGenesisState :: UTCTime -> IdentityProviders -> AnonymityRevokers -> GenesisData PV
-dummyGenesisState now ips ars = makeTestingGenesisDataP1 (utcTimeToTimestamp now) 1 1 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters ips ars maxBound dummyKeyCollection dummyChainParameters
+testGenesisData :: UTCTime -> IdentityProviders -> AnonymityRevokers -> GenesisData PV
+testGenesisData now ips ars = makeTestingGenesisDataP1 (utcTimeToTimestamp now) 1 1 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters ips ars maxBound dummyKeyCollection dummyChainParameters
+
+runExample :: IO ([UpdateResult], MyState)
+runExample = do
+  now <- currentTime
+  runMyMonad' (testDoReceiveTransactionAccountCreations accountCreations slot) now (testGenesisData now dummyIdentityProviders dummyArs)
 
 accountCreations :: [BlockItem]
 accountCreations = undefined
