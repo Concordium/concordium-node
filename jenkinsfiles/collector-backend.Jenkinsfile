@@ -4,15 +4,15 @@ pipeline {
     environment {
         BUILD_TYPE = 'release'
 
-        ecr_repo_base = '192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium'
-        image_repo = "${ecr_repo_base}/collector-backend"
+        ecr_repo_domain = '192549843005.dkr.ecr.eu-west-1.amazonaws.com'
+        image_repo = "${ecr_repo_domain}/concordium/collector-backend"
         image_name = "${image_repo}:${image_tag}"
     }
 
     stages {
         stage('ecr-login') {
             steps {
-                sh '$(aws --region eu-west-1 ecr get-login | sed -e \'s/-e none//g\')'
+                ecrLogin(env.ecr_repo_domain, 'eu-west-1')
             }
         }
 

@@ -5,7 +5,7 @@ pipeline {
         BUILD_TYPE = 'release'
         CONSENSUS_PROFILING = 'false'
 
-        ecr_repo_base = '192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium'
+        ecr_repo_domain = '192549843005.dkr.ecr.eu-west-1.amazonaws.com'
         universal_image_repo = 'concordium/universal'
         universal_image_name = "${universal_image_repo}:${image_tag}"
     }
@@ -13,7 +13,7 @@ pipeline {
     stages {
         stage('ecr-login') {
             steps {
-                sh '$(aws --region eu-west-1 ecr get-login | sed -e \'s/-e none//g\')'
+                ecrLogin(env.ecr_repo_domain, 'eu-west-1')
             }
         }
 
@@ -37,7 +37,7 @@ pipeline {
         }
         stage('build-bootstrapper') {
             environment {
-                image_repo = "${ecr_repo_base}/bootstrapper"
+                image_repo = "${ecr_repo_domain}/concordium/bootstrapper"
                 image_name = "${image_repo}:${image_tag}"
             }
             steps {
@@ -57,7 +57,7 @@ pipeline {
 
         stage('build-node') {
             environment {
-                image_repo = "${ecr_repo_base}/node"
+                image_repo = "${ecr_repo_domain}/concordium/node"
                 image_name = "${image_repo}:${image_tag}"
             }
             steps {
@@ -87,7 +87,7 @@ pipeline {
 
         stage('build-collector') {
             environment {
-                image_repo = "${ecr_repo_base}/node-collector"
+                image_repo = "${ecr_repo_domain}/concordium/node-collector"
                 image_name = "${image_repo}:${image_tag}"
             }
             steps {
