@@ -52,12 +52,13 @@ test :: Spec
 test = do
   describe "doReceiveTansaction" $ do
     parallel $
-      specify "Receive expired normal account creation fails" $ do
+      specify "Receive normal account creation should fail with expected types" $ do
       s <- runMkNormalCredentialDeployments
       let results = fst s
-      -- first should yield an expired result
+      -- First should yield that expiry was set as too distant in the future
       let expectedExpiryTooLate = head results
       expectedExpiryTooLate `shouldBe` ResultExpiryTooLate
+      -- Second should yield an expired result
       let expectedExpired = results !! 1
       expectedExpired `shouldBe` ResultTransactionExpired
 
@@ -96,8 +97,8 @@ runMyMonad' act time gd = runPureBlockStateMonad (setupState $ initialSkovDataDe
     bs = case genesisState gd of
                Left err -> error $ "Invalid genesis state: " ++ err
                Right x -> x
-    setupState s = s
-      
+    setupState s = do
+      s
 
 -- |Construct a genesis state with hardcoded values for parameters that should not affect this test.
 -- Modify as you see fit.
