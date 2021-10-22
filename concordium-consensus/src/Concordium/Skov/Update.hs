@@ -488,26 +488,7 @@ doStoreBlock pb@GB.PendingBlock{..} = unlessShutDown $ do
 -- |Add a transaction to the transaction table.  The 'Slot' should be
 -- the slot number of the block that the transaction was received with,
 -- and 0 if the transaction was received separately from a block.
--- This returns
---
---   * 'ResultSuccess' if the transaction is freshly added.
---   * 'ResultDuplicate', which indicates that either the transaction is a duplicate
---   * 'ResultStale' which indicates that a transaction with the same sender
---     and nonce has already been finalized, or the transaction has already expired. In this case the transaction is not added to the table.
---   * 'ResultInvalid' which indicates that the transaction signature was invalid.
---   * 'ResultShutDown' which indicates that consensus was shut down, and so the transaction was not added.
---   * 'ResultExpiryTooLate' which indicates that transaction's expiry was too far in the future and so the transaction
---     was not accepted.
---   * 'ResultTooLowEnergy' which indicates that the transactions stated energy was below the minimum amount needed for the
---     transaction to be included in a block. The transaction is not added to the transaction table
---   * 'ResultCredentialDeploymentExpired' which indicates that the 'CredentialDeployment' was expired.
---     The transaction is not added to the transaction table
---   * 'ResultDuplicateAccountRegistrationID' which indicates that the registration id of
---     the 'CredentialDeployment' already exists on the chain (or less likely a hash collision).
---     The transaction is not added to the transaction table
---   * 'ResultCredentialDeploymentInvalidKeys' indicates that the 'CredentialDeployment' contained malformed keys.
---   * 'ResultCredentialDeploymentInvalidSignatures' which indicates that the signatures for the 'CredentialDeployment' was invalid.
---     The transaction is not added to the transaction table
+-- For an explanation of return values see `cachedBlockItemVerification` below.
 doReceiveTransaction :: (TreeStateMonad pv m,
                          TimeMonad m,
                          SkovQueryMonad pv m) => BlockItem -> Slot -> m UpdateResult
@@ -516,7 +497,6 @@ doReceiveTransaction tr slot = unlessShutDown $ do
   now <- currentTime
   expiryTooLate <- isExpiryTooLate now
   if expiryTooLate then return ResultExpiryTooLate
-  else if transactionExpired (msgExpiry tr) (utcTimeToTimestamp now) then return ResultStale
   else do
     -- reject expired transactions, we don't cache the result though.
     lastFinalState <- queryBlockState =<< lastFinalizedBlock
@@ -539,6 +519,8 @@ doReceiveTransaction tr slot = unlessShutDown $ do
                else snd <$> doReceiveTransactionInternal tr slot
         WithMetadata{wmdData = CredentialDeployment _} -> do
              -- check if the transaction has already been verified
+             -- todo: this should be moved out when cachedBlockItemVerification
+             -- operates on 'NormalTransaction's as well.
              (verRes, mTr) <- cachedBlockItemVerification tr lastFinalState
              case mTr of
                Just x -> snd <$> doReceiveTransactionInternal x slot
@@ -549,7 +531,6 @@ doReceiveTransaction tr slot = unlessShutDown $ do
     where
           isExpiryTooLate now = do
             maxTimeToExpiry <- rpMaxTimeToExpiry <$> getRuntimeParameters
-
             let expiry = msgExpiry tr
             return $ expiry > maxTimeToExpiry + utcTimeToTransactionTime now
 
@@ -559,13 +540,8 @@ doReceiveTransaction tr slot = unlessShutDown $ do
 -- This function should only be called when a transaction is received as part of a block.
 -- The difference from the above function is that this function returns an already existing
 -- transaction in case of a duplicate, ensuring more sharing of transaction data.
--- Note: We do not carry out any particular transaction verification here (as we do in 'doReceiveTransaction')
--- since transactions that has an origin in a block could potentially be valid in the future even though
--- it was deemed invalid at the current chain/time.
--- For an example an IP could be added in the meantime of receiving `the` transaction and
--- when the transaction is actually being executed.
--- Hence a transaction which has been added to the transaction table through a block must be `fully` verified
--- at the scheduler anyhow.
+-- This function also verifies the transactions incoming and adds them to the internal
+-- transaction verification cache such that it can be used by the 'Scheduler'.
 doReceiveTransactionInternal :: (TreeStateMonad pv m) => BlockItem -> Slot -> m (Maybe BlockItem, UpdateResult)
 doReceiveTransactionInternal tr slot = do
         focus <- getFocusBlock
@@ -573,7 +549,11 @@ doReceiveTransactionInternal tr slot = do
         -- only put the transactions which are valid, or might be valid in the future into the transaction table as pending.
         (verRes, mTr) <- cachedBlockItemVerification tr st
         case mTr of
+          -- The transaction was deemed invalid and also it cannot be valid in the future,
+          -- so we just return VerificationResult here.
           Nothing -> return (Nothing, mapTransactionVerificationResult verRes)
+          -- The transaction was successfully verifired and thus we try to add it to the
+          -- transaction table as pending.
           Just x -> do
             addCommitTransaction x slot >>= \case
               Added bi@WithMetadata{..} -> do
@@ -624,8 +604,8 @@ doPurgeTransactions = do
 mapTransactionVerificationResult :: TV.VerificationResult -> UpdateResult
 mapTransactionVerificationResult TV.ResultTransactionExpired = ResultTransactionExpired
 mapTransactionVerificationResult (TV.ResultDuplicateAccountRegistrationID _) = ResultDuplicateAccountRegistrationID
-mapTransactionVerificationResult TV.ResultCredentialDeploymentInvalidIdentityProvider = ResultCredentialDeploymentInvalidIdentityProvider
-mapTransactionVerificationResult TV.ResultCredentialDeploymentInvalidAnonymityRevokers = ResultCredentialDeploymentInvalidAnonymityRevokers
+mapTransactionVerificationResult TV.ResultCredentialDeploymentInvalidIdentityProvider = ResultCredentialDeploymentInvalidIP
+mapTransactionVerificationResult TV.ResultCredentialDeploymentInvalidAnonymityRevokers = ResultCredentialDeploymentInvalidAR
 mapTransactionVerificationResult TV.ResultCredentialDeploymentInvalidSignatures = ResultCredentialDeploymentInvalidSignatures
 mapTransactionVerificationResult TV.ResultCredentialDeploymentInvalidKeys = ResultCredentialDeploymentInvalidKeys
 mapTransactionVerificationResult TV.ResultSuccess = ResultSuccess
@@ -637,6 +617,27 @@ mapTransactionVerificationResult TV.ResultSuccess = ResultSuccess
 -- We return `Just BlockItem` if the transaction is subject for execution.
 -- Meaning that the transaction is valid (or possible valid in the future) see below for details.
 -- Otherwise we simply return `Nothing` and the associcated `VerificationResult` (error).
+-- Return values:
+--   * 'ResultSuccess' if the transaction is freshly added.
+--   * 'ResultDuplicate', which indicates that either the transaction is a duplicate
+--   * 'ResultStale' which indicates that a transaction with the same sender
+--     and nonce has already been finalized, or the transaction has already expired. In this case the transaction is not added to the table.
+--   * 'ResultInvalid' which indicates that the transaction signature was invalid.
+--   * 'ResultShutDown' which indicates that consensus was shut down, and so the transaction was not added.
+--   * 'ResultExpiryTooLate' which indicates that transaction's expiry was too far in the future and so the transaction
+--     was not accepted.
+--   * 'ResultTooLowEnergy' which indicates that the transactions stated energy was below the minimum amount needed for the
+--     transaction to be included in a block. The transaction is not added to the transaction table
+--   * 'ResultCredentialDeploymentExpired' which indicates that the 'CredentialDeployment' was expired.
+--     The transaction is not added to the transaction table
+--   * 'ResultDuplicateAccountRegistrationID' which indicates that the registration id of
+--     the 'CredentialDeployment' already exists on the chain (or less likely a hash collision).
+--     The transaction is not added to the transaction table
+--   * 'ResultCredentialDeploymentInvalidKeys' indicates that the 'CredentialDeployment' contained malformed keys.
+--   * 'ResultCredentialDeploymentInvalidSignatures' which indicates that the signatures for the 'CredentialDeployment' was invalid.
+--     The transaction is not added to the transaction table
+--   * 'ResultCredentialDeploymentInvalidIP' indicates that the 'CredentialDeployment' contained an invalid Identity Provider.
+--   * 'ResultCredentialDeploymentInvalidAR' indicates that the 'CredentialDeployment' contained an invalid Anonymity Revoker.
 cachedBlockItemVerification :: (TreeStateMonad pv m) => BlockItem -> BlockState m -> m (TV.VerificationResult, Maybe BlockItem)
 cachedBlockItemVerification tr lastFinalState = do
   -- check if the transaction has already been verified

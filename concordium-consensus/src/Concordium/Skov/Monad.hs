@@ -85,9 +85,9 @@ data UpdateResult
     -- ^The transaction was expired.
     | ResultDuplicateAccountRegistrationID
     -- ^An account already exists to the corresponding registration id of the 'CredentialDeployment'.
-    | ResultCredentialDeploymentInvalidIdentityProvider
+    | ResultCredentialDeploymentInvalidIP
     -- ^The identity provider was not valid
-    | ResultCredentialDeploymentInvalidAnonymityRevokers
+    | ResultCredentialDeploymentInvalidAR
     -- ^The anonymity revokers was not valid
     | ResultCredentialDeploymentInvalidKeys
     -- ^The keys were malformed

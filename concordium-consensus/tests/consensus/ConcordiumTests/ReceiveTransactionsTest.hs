@@ -22,6 +22,7 @@ import Concordium.Common.Time
 import Concordium.ID.Parameters
 import Concordium.Types.IdentityProviders
 import Concordium.Types.AnonymityRevokers
+import Concordium.Crypto.SignatureScheme
 
 import Concordium.Skov.Update (doReceiveTransaction, doReceiveTransactionInternal)
 import Concordium.Types.Transactions (BlockItem)
@@ -33,7 +34,7 @@ import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.GlobalState.TreeState (TreeStateMonad)
 import Concordium.GlobalState.Basic.TreeState
-import Concordium.GlobalState.Basic.BlockState
+import Concordium.GlobalState.Basic.BlockState hiding (initialState)
 import Concordium.TimeMonad (TimeMonad)
 import Concordium.Skov.Monad
 
@@ -42,12 +43,33 @@ import Concordium.Crypto.DummyData
 import Concordium.Types.DummyData
 import Concordium.ID.Parameters
 import Concordium.ID.DummyData
+import Concordium.GlobalState.Persistent.Accounts (emptyAccounts)
+import Lens.Micro.Platform
 
 
--- Tests of doReceiveTransaction and doReceiveTransactionInternal of the Updater.
+-- |Tests of doReceiveTransaction and doReceiveTransactionInternal of the Updater.
+test :: Spec
+test = do
+  describe "doReceiveTansaction" $ do
+    parallel $
+      specify "Receive expired normal account creation fails" $ do
+      s <- runMkNormalCredentialDeployments
+      let results = fst s
+      -- first should yield an expired result
+      let expectedExpiryTooLate = head results
+      expectedExpiryTooLate `shouldBe` ResultExpiryTooLate
+      let expectedExpired = results !! 1
+      expectedExpired `shouldBe` ResultTransactionExpired
+
+runMkNormalCredentialDeployments :: IO ([UpdateResult], MyState)
+runMkNormalCredentialDeployments = do
+  now <- currentTime
+  runMyMonad' (testDoReceiveTransactionAccountCreations (txs now) slot) now (testGenesisData now dummyIdentityProviders dummyArs)
+  where
+    txs now =  accountCreations mkGlobalContext $ utcTimeToTransactionTime now
+    slot = genesisSlot + 1
 
 type PV = 'P1
-
 type MyBlockState = HashedBlockState PV
 type MyState = SkovData PV MyBlockState
 
@@ -69,77 +91,79 @@ runMyMonad act time initialState = runReaderT (runDeterministic (runStateT (runP
 
 -- |Run the given computation in a state consisting of only the genesis block and the state determined by it.
 runMyMonad' :: MyMonad a -> UTCTime -> GenesisData PV -> IO (a, MyState)
-runMyMonad' act time gd = runPureBlockStateMonad (initialSkovDataDefault gd (hashBlockState bs)) >>= runMyMonad act time
-  where bs = case genesisState gd of
+runMyMonad' act time gd = runPureBlockStateMonad (setupState $ initialSkovDataDefault gd (hashBlockState bs)) >>= runMyMonad act time
+  where
+    bs = case genesisState gd of
                Left err -> error $ "Invalid genesis state: " ++ err
                Right x -> x
+    setupState s = s
+      
 
 -- |Construct a genesis state with hardcoded values for parameters that should not affect this test.
 -- Modify as you see fit.
 testGenesisData :: UTCTime -> IdentityProviders -> AnonymityRevokers -> GenesisData PV
 testGenesisData now ips ars = makeTestingGenesisDataP1 (utcTimeToTimestamp now) 1 1 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters ips ars maxBound dummyKeyCollection dummyChainParameters
 
-runExample :: IO ([UpdateResult], MyState)
-runExample = do
-  now <- currentTime
-  runMyMonad' (testDoReceiveTransactionAccountCreations accountCreations slot) now (testGenesisData now dummyIdentityProviders dummyArs)
-
-accountCreations :: [BlockItem]
-accountCreations = undefined
-
-slot :: Slot
-slot = undefined
-
 testDoReceiveTransactionAccountCreations :: [BlockItem] -> Slot -> MyMonad [UpdateResult]
 testDoReceiveTransactionAccountCreations trs slot = mapM (\tr -> doReceiveTransaction tr slot) trs
 
-testDoReceiveTransactionInternalAccountCreations :: [BlockItem] -> Slot -> MyMonad [UpdateResult]
-testDoReceiveTransactionInternalAccountCreations trs slot = do
-  mapM (\tr -> snd <$> doReceiveTransactionInternal tr slot) trs
+accountCreations :: GlobalContext -> TransactionTime -> [BlockItem]
+accountCreations gCtx now = [
+  credentialDeploymentWithExpiryTooLate,
+  expiredCredentialDeployment,
+  credentialDeploymentWithDuplicateRegId
+  ]
+  where
+    credentialDeploymentWithExpiryTooLate = credentialDeployment $
+      addMetadata (\x -> CredentialDeployment {biCred=x}) now (mkAccountCreation (now + (60 * 60 * 2) + 1) (regId 0))
+    expiredCredentialDeployment = credentialDeployment $
+      addMetadata (\x -> CredentialDeployment {biCred=x}) now (mkAccountCreation (now - 1) (regId 0))
+    credentialDeploymentWithDuplicateRegId = credentialDeployment $
+      addMetadata (\x -> CredentialDeployment {biCred=x}) now (mkAccountCreation (now - 1) (regId 0))
+    regId seed = RegIdCred $ mkGroupElement gCtx seed
 
-test :: Spec
-test = do
-  describe "doReceiveTansaction" $ do
-    parallel $
-      specify "Receive invalid AccountCreation fails " $ do
-      let accs = accountCreations
-      1 `shouldBe` 1
+--testDoReceiveTransactionInternalAccountCreations :: [BlockItem] -> Slot -> MyMonad [UpdateResult]
+--testDoReceiveTransactionInternalAccountCreations trs slot = do
+--        mapM (\tr -> snd <$> doReceiveTransactionInternal tr slot) trs
 
 
--- mkBlockItem :: AccountCreation ->  BlockItem
--- mkBlockItem = addMetadata CredentialDeployment
-
-mkInitialAccountCreation :: GlobalContext -> AccountCreation
-mkInitialAccountCreation globalContext = AccountCreation TransactionTime{ttsSeconds=10} $
-  InitialACWP InitialCredentialDeploymentInfo
+mkAccountCreation :: TransactionTime -> CredentialRegistrationID -> AccountCreation
+mkAccountCreation expiry regId = AccountCreation
   {
-  icdiValues=InitialCredentialDeploymentValues
-    {
-      icdvAccount=mkCredentialPublicKeys,
-      icdvRegId=RegIdCred $ mkGroupElement globalContext,
-      icdvIpId=IP_ID 0,
-      icdvPolicy=mkPolicy
-      },
-    icdiSig=IpCdiSignature
-    {
-      theSignature="invalid signature"
-    }
+    messageExpiry=expiry,
+    credential= NormalACWP CredentialDeploymentInformation
+                {
+                  cdiValues=CredentialDeploymentValues
+                  {
+                    cdvPublicKeys=mkCredentialPublicKeys,
+                    cdvCredId=regId,
+                    cdvIpId=IP_ID 0,
+                    cdvThreshold=Threshold 1,
+                    cdvArData=mkArData,
+                    cdvPolicy=mkPolicy
+                  },
+                  cdiProofs=Proofs "invalid proof"
+                }
   }
 
-mkAccountCreation :: GlobalContext -> AccountCreation
-mkAccountCreation globalContext = AccountCreation TransactionTime{ttsSeconds=10} $
-  NormalACWP CredentialDeploymentInformation
+mkInitialAccountCreation :: TransactionTime -> CredentialRegistrationID -> AccountCreation
+mkInitialAccountCreation expiry regId = AccountCreation
   {
-    cdiValues=CredentialDeploymentValues
-              {
-                cdvPublicKeys=mkCredentialPublicKeys,
-                cdvCredId=RegIdCred $ mkGroupElement globalContext,
-                cdvIpId=IP_ID 0,
-                cdvThreshold=Threshold 1,
-                cdvArData=mkArData,
-                cdvPolicy=mkPolicy
-              },
-    cdiProofs=Proofs "invalid proof"
+    messageExpiry=expiry,
+    credential=InitialACWP InitialCredentialDeploymentInfo
+               {
+                 icdiValues=InitialCredentialDeploymentValues
+                 {
+                   icdvAccount=mkCredentialPublicKeys,
+                   icdvRegId=regId,
+                   icdvIpId=IP_ID 0,
+                   icdvPolicy=mkPolicy
+                 },
+                 icdiSig=IpCdiSignature
+                 {
+                   theSignature="invalid signature"
+                 }
+               }
   }
 
 mkCredentialPublicKeys :: CredentialPublicKeys
@@ -166,9 +190,12 @@ mkPolicy = Policy
 
 mkArData :: Map.Map ArIdentity ChainArData
 mkArData = Map.empty
-        
-mkGroupElement :: GlobalContext -> GroupElement
-mkGroupElement ctx = generateGroupElementFromSeed ctx 10
+
+mkGroupElement :: GlobalContext -> Word64 -> GroupElement
+mkGroupElement = generateGroupElementFromSeed
+
+mkCredentialKeyPair :: IO KeyPair
+mkCredentialKeyPair = newKeyPair Ed25519
 
 mkGlobalContext :: GlobalContext
 mkGlobalContext = dummyGlobalContext
