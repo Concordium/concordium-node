@@ -1,3 +1,4 @@
+@Library('concordium-pipelines') _
 pipeline {
     agent any
 
