@@ -860,8 +860,8 @@ mod tests {
     use chrono::prelude::Utc;
     use tonic::{metadata::MetadataValue, transport::channel::Channel, Code, Request};
 
+    use futures::future;
     use grpc_api::p2p_client::P2pClient;
-
     use std::sync::Arc;
 
     const TOKEN: &str = "rpcadmin";
@@ -880,7 +880,7 @@ mod tests {
         config.cli.rpc.rpc_server_addr = "127.0.0.1".to_owned();
         config.cli.rpc.rpc_server_token = TOKEN.to_owned();
         let mut rpc_server = RpcServerImpl::new(node.clone(), None, &config.cli.rpc)?;
-        tokio::spawn(async move { rpc_server.start_server().await });
+        tokio::spawn(async move { rpc_server.start_server(future::pending()).await });
         tokio::task::yield_now().await;
 
         let addr: &'static str =
