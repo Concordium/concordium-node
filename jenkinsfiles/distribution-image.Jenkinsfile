@@ -12,6 +12,7 @@ pipeline {
     agent any
     
     environment {
+        ecr_repo_domain = '192549843005.dkr.ecr.eu-west-1.amazonaws.com'
         image_name = "${environment}-node"
         domain = "${concordiumDomain(environment)}"
     }
@@ -19,11 +20,7 @@ pipeline {
     stages {
         stage('ecr-login') {
             steps {
-                sh 'aws ecr get-login-password \
-                        --region eu-west-1 \
-                    | docker login \
-                        --username AWS \
-                        --password-stdin 192549843005.dkr.ecr.eu-west-1.amazonaws.com'
+                ecrLogin(env.ecr_repo_domain, 'eu-west-1')
             }
         }
         stage('build') {
