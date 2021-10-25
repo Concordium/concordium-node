@@ -391,7 +391,9 @@ instance GlobalStateConfig MemoryTreeDiskBlockConfig where
             Left err -> logExceptionAndThrow GlobalState (InvalidGenesisData err)
             Right genState -> return genState
         liftIO $ do
-            pbscBlobStore <- createBlobStore mtdbBlockStateFile
+            pbscBlobStore <- createBlobStore
+                    mtdbBlockStateFile
+                    (rpBlockStateFlushMode mtdbRuntimeParameters)
             let pbsc = PersistentBlockStateContext {..}
             let initState = do
                     pbs <- makePersistent genState
@@ -414,14 +416,14 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
         pbscBlobStore <- liftIO $ do
           -- the block state file exists, is readable and writable
           -- we ignore the given block state parameter in such a case.
-          loadBlobStore dtdbBlockStateFile
+          loadBlobStore dtdbBlockStateFile (rpBlockStateFlushMode dtdbRuntimeParameters)
         let pbsc = PersistentBlockStateContext{..}
         logm <- ask
         skovData <- liftIO (runLoggerT (loadSkovPersistentData dtdbRuntimeParameters dtdbTreeStateDirectory dtdbGenesisData pbsc NoLogContext) logm
                     `onException` (closeBlobStore pbscBlobStore))
         return (pbsc, skovData, NoLogContext)
       else do
-        pbscBlobStore <- liftIO $ createBlobStore dtdbBlockStateFile
+        pbscBlobStore <- liftIO $ createBlobStore dtdbBlockStateFile (rpBlockStateFlushMode dtdbRuntimeParameters)
         let pbsc = PersistentBlockStateContext{..}
         let initGS = do
                 genState <- case genesisState dtdbGenesisData of
@@ -461,14 +463,14 @@ instance GlobalStateConfig DiskTreeDiskBlockWithLogConfig where
         pbscBlobStore <- liftIO $
           -- the block state file exists, is readable and writable
           -- we ignore the given block state parameter in such a case.
-          loadBlobStore dtdbwlBlockStateFile
+          loadBlobStore dtdbwlBlockStateFile (rpBlockStateFlushMode dtdbwlRuntimeParameters)
         let pbsc = PersistentBlockStateContext{..}
         logm <- ask
         skovData <- liftIO (runLoggerT (loadSkovPersistentData dtdbwlRuntimeParameters dtdbwlTreeStateDirectory dtdbwlGenesisData pbsc transactionLogContext) logm
                     `onException` (destroyAllResources dbHandle >> closeBlobStore pbscBlobStore))
         return (pbsc, skovData, transactionLogContext)
       else do
-        pbscBlobStore <- liftIO $ createBlobStore dtdbwlBlockStateFile
+        pbscBlobStore <- liftIO $ createBlobStore dtdbwlBlockStateFile (rpBlockStateFlushMode dtdbwlRuntimeParameters)
         let pbsc = PersistentBlockStateContext{..}
         let initGS = do
                 genState <- case genesisState dtdbwlGenesisData of

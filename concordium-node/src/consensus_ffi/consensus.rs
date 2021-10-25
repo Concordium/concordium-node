@@ -8,11 +8,13 @@ use parking_lot::Condvar;
 use std::{
     convert::TryFrom,
     path::Path,
+    str::FromStr,
     sync::{
         atomic::{AtomicBool, AtomicPtr, Ordering},
         Arc, Mutex, RwLock,
     },
 };
+use thiserror::Error;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ConsensusLogLevel {
@@ -205,6 +207,37 @@ impl std::fmt::Display for ConsensusType {
     }
 }
 
+/// Modes for flushing the block state buffer.
+/// This replicates the Haskell type
+/// Concordium.GlobalState.Parameters.FlushMode.
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum FlushMode {
+    ToOS   = 0,
+    ToDisk = 1,
+}
+
+impl Default for FlushMode {
+    fn default() -> FlushMode { FlushMode::ToOS }
+}
+
+#[derive(Debug, Error)]
+pub enum ParseFlushModeError {
+    #[error("invalid state flushing mode")]
+    InvalidFlushMode,
+}
+
+impl FromStr for FlushMode {
+    type Err = ParseFlushModeError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_ascii_lowercase().as_str() {
+            "os" => Ok(FlushMode::ToOS),
+            "disk" => Ok(FlushMode::ToDisk),
+            _ => Err(ParseFlushModeError::InvalidFlushMode),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct ConsensusContainer {
     pub max_block_size:             u64,
@@ -229,6 +262,7 @@ impl ConsensusContainer {
         insertions_before_purging: u64,
         transaction_keep_alive: u64,
         transactions_purging_delay: u64,
+        block_state_flush_mode: FlushMode,
         genesis_data: Vec<u8>,
         private_data: Option<Vec<u8>>,
         max_log_level: ConsensusLogLevel,
@@ -251,6 +285,7 @@ impl ConsensusContainer {
             insertions_before_purging,
             transaction_keep_alive,
             transactions_purging_delay,
+            block_state_flush_mode,
             genesis_data.clone(),
             private_data,
             max_log_level,
