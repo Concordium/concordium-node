@@ -55,7 +55,8 @@ impl RpcServerImpl {
         })
     }
 
-    /// Starts the gRPC server.
+    /// Starts the gRPC server, which will shutdown gracefully when the provided
+    /// future is ready.
     pub async fn start_server(
         &mut self,
         shutdown_signal: impl Future<Output = ()>,

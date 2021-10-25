@@ -64,7 +64,10 @@ async fn main() -> anyhow::Result<()> {
             tx.send(()).unwrap();
             loop {
                 get_shutdown_signal().await.unwrap();
-                info!("Signal received attempting to shutdown node cleanly");
+                info!(
+                    "Signal received to shutdown node cleanly, but an attempt to do so is already \
+                     in progress."
+                );
             }
         });
         rx
@@ -137,6 +140,7 @@ async fn main() -> anyhow::Result<()> {
     // Start the RPC server with a channel for shutting it down.
     let (shutdown_rpc_sender, shutdown_rpc_signal) = oneshot::channel();
     let rpc_server_task = if !conf.cli.rpc.no_rpc_server {
+        info!("Starting RPC server");
         let mut serv = RpcServerImpl::new(node.clone(), Some(consensus.clone()), &conf.cli.rpc)
             .context("Cannot create RPC server.")?;
 
@@ -145,10 +149,9 @@ async fn main() -> anyhow::Result<()> {
                 .await
                 .expect("Can't start the RPC server");
         });
-        info!("RPC server started");
-        task
+        Some(task)
     } else {
-        tokio::spawn(futures::future::ready(()))
+        None
     };
 
     if let Some(ref import_path) = conf.cli.baker.import_path {
@@ -172,14 +175,21 @@ async fn main() -> anyhow::Result<()> {
     consensus.start_baker();
 
     // Everything is running, so we wait for a signal to shutdown.
-    shutdown_signal.await?;
+    shutdown_signal.await.context("Failed to receive signal for shutting down properly.")?;
 
     // Message rpc to shutdown first
-    if !conf.cli.rpc.no_rpc_server {
-        shutdown_rpc_sender
-            .send(())
-            .map_err(|_| anyhow::anyhow!("Failed to message rpc to shutdown"))?;
-        rpc_server_task.await?;
+    if let Some(task) = rpc_server_task {
+        if shutdown_rpc_sender.send(()).is_err() {
+            info!("Could not stop the RPC server correctly. Forcing shutdown.");
+            task.abort();
+        }
+        if let Err(err) = task.await {
+            if err.is_cancelled() {
+                info!("RPC was successfully shutdown by force.");
+            } else if err.is_panic() {
+                info!("RPC panicked!");
+            }
+        }
     }
 
     // Shutdown node
@@ -214,22 +224,20 @@ async fn main() -> anyhow::Result<()> {
 
 /// Construct a future for shutdown signals (for unix: SIGINT and SIGTERM) (for
 /// windows: ctrl c and ctrl break). The signal handler is set when the future
-/// is pulled and until then the default signal handler.
+/// is polled and until then the default signal handler.
 async fn get_shutdown_signal() -> anyhow::Result<()> {
     #[cfg(unix)]
     {
-        let terminate_stream =
-            Box::leak(Box::new(unix_signal::signal(unix_signal::SignalKind::terminate())?));
-        let interrupt_stream =
-            Box::leak(Box::new(unix_signal::signal(unix_signal::SignalKind::interrupt())?));
+        let mut terminate_stream = unix_signal::signal(unix_signal::SignalKind::terminate())?;
+        let mut interrupt_stream = unix_signal::signal(unix_signal::SignalKind::interrupt())?;
         let terminate = Box::pin(terminate_stream.recv());
         let interrupt = Box::pin(interrupt_stream.recv());
         futures::future::select(terminate, interrupt).await;
     }
     #[cfg(windows)]
     {
-        let ctrl_break_stream = Box::leak(Box::new(windows_signal::ctrl_break()?));
-        let ctrl_c_stream = Box::leak(Box::new(windows_signal::ctrl_c()?));
+        let mut ctrl_break_stream = windows_signal::ctrl_break()?;
+        let mut ctrl_c_stream = windows_signal::ctrl_c()?;
         let ctrl_break = Box::pin(ctrl_break_stream.recv());
         let ctrl_c = Box::pin(ctrl_c_stream.recv());
         futures::future::select(ctrl_break, ctrl_c).await;
