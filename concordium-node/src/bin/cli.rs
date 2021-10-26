@@ -176,20 +176,20 @@ async fn main() -> anyhow::Result<()> {
 
     // Everything is running, so we wait for a signal to shutdown.
     if shutdown_signal.await.is_err() {
-        info!("Shutdown signal handler was dropped unexpectedly. Shutting down.");
+        error!("Shutdown signal handler was dropped unexpectedly. Shutting down.");
     }
 
     // Message rpc to shutdown first
     if let Some(task) = rpc_server_task {
         if shutdown_rpc_sender.send(()).is_err() {
-            info!("Could not stop the RPC server correctly. Forcing shutdown.");
+            error!("Could not stop the RPC server correctly. Forcing shutdown.");
             task.abort();
         }
         if let Err(err) = task.await {
             if err.is_cancelled() {
-                info!("RPC was successfully shutdown by force.");
+                info!("RPC server was successfully shutdown by force.");
             } else if err.is_panic() {
-                info!("RPC panicked!");
+                error!("RPC server panicked!");
             }
         }
     }
