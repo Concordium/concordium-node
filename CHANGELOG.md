@@ -3,7 +3,7 @@
 ## Unreleased changes
 - Fix a bug due to incorrect use of LMDB database environments where a node
   would crash if queried at specific times.
-- Faster state queries by memory-mapping the block state file for reading.
+- Faster state queries by avoiding locking the block state file when reading.
 
 ## concordium-node 1.1.3
 
