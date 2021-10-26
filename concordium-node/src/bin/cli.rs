@@ -175,7 +175,9 @@ async fn main() -> anyhow::Result<()> {
     consensus.start_baker();
 
     // Everything is running, so we wait for a signal to shutdown.
-    shutdown_signal.await.context("Failed to receive signal for shutting down properly.")?;
+    if shutdown_signal.await.is_err() {
+        info!("Shutdown signal handler was dropped unexpectedly. Shutting down.");
+    }
 
     // Message rpc to shutdown first
     if let Some(task) = rpc_server_task {
