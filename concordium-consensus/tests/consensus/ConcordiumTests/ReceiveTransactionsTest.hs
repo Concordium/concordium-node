@@ -9,9 +9,9 @@ import Test.Hspec
 import qualified Data.Map.Strict as Map
 import Data.Word
 import Data.Time.Clock
-import Data.ByteString.Short(ShortByteString)
 import Control.Monad.State
 import Control.Monad.Reader
+import qualified Data.HashMap.Strict as HM
 
 import Concordium.Types
 import Concordium.TimeMonad
@@ -24,27 +24,23 @@ import Concordium.Types.IdentityProviders
 import Concordium.Types.AnonymityRevokers
 import Concordium.Crypto.SignatureScheme
 
-import Concordium.Skov.Update (doReceiveTransaction, doReceiveTransactionInternal)
-import Concordium.Types.Transactions (BlockItem)
 import Concordium.Genesis.Data
-import Concordium.GlobalState
 import Concordium.GlobalState.Types ()
-import Concordium.GlobalState.BlockState
-import Concordium.GlobalState.BlockMonads
-import Concordium.GlobalState.AccountTransactionIndex
-import Concordium.GlobalState.TreeState (TreeStateMonad)
 import Concordium.GlobalState.Basic.TreeState
 import Concordium.GlobalState.Basic.BlockState hiding (initialState)
-import Concordium.TimeMonad (TimeMonad)
 import Concordium.Skov.Monad
+import qualified Concordium.TransactionVerification as TVer
 
 import Concordium.GlobalState.DummyData
 import Concordium.Crypto.DummyData
 import Concordium.Types.DummyData
-import Concordium.ID.Parameters
 import Concordium.ID.DummyData
-import Concordium.GlobalState.Persistent.Accounts (emptyAccounts)
 import Lens.Micro.Platform
+import qualified Concordium.Crypto.SignatureScheme as SigScheme
+import System.Random
+import Concordium.Skov.Update
+
+import Debug.Trace
 
 
 -- |Tests of doReceiveTransaction and doReceiveTransactionInternal of the Updater.
@@ -52,24 +48,60 @@ test :: Spec
 test = do
   describe "doReceiveTansaction" $ do
     parallel $
-      specify "Receive normal account creation should fail with expected types" $ do
-      s <- runMkNormalCredentialDeployments
+      specify "Receive normal (invalid) account creation should fail properly" $ do
+      let gCtx = dummyGlobalContext
+      s <- runMkNormalCredentialDeployments gCtx
       let results = fst s
-      -- First should yield that expiry was set as too distant in the future
-      let expectedExpiryTooLate = head results
-      expectedExpiryTooLate `shouldBe` ResultExpiryTooLate
-      -- Second should yield an expired result
-      let expectedExpired = results !! 1
-      expectedExpired `shouldBe` ResultTransactionExpired
+      let outState = snd s
+      let cache = outState ^. transactionVerificationResults
+      check results cache 0 False TVer.ResultExpiryTooLate
+      check results cache 1 False TVer.ResultTransactionExpired
+--      check results cache 2 $ TVer.ResultDuplicateAccountRegistrationID (duplicateRegId gCtx)
+      check results cache 3 True TVer.ResultCredentialDeploymentInvalidIdentityProvider
+      check results cache 4 True TVer.ResultCredentialDeploymentInvalidKeys
+      check results cache 5 True TVer.ResultCredentialDeploymentInvalidAnonymityRevokers
+      check results cache 6 True TVer.ResultCredentialDeploymentInvalidSignatures
+--      check results cache 7 True TVer.ResultSuccess
 
-runMkNormalCredentialDeployments :: IO ([UpdateResult], MyState)
-runMkNormalCredentialDeployments = do
+      -- now check that the cache is being cleared when we purge transactions
+      s' <- runPurgeTransactions outState
+      let cache' = snd s' ^. transactionVerificationResults
+      HM.null cache' `shouldBe` True
+    specify "Receive normal valid account creation should result in success" $ do
+      -- todo
+      1 `shouldBe` 1
+    specify "Receive inital (invalid) account creation should fail properly" $ do
+      -- todo
+      1 `shouldBe` 1
+    specify "Receive intial valid account creation should result in success" $ do
+      -- todo
+      1 `shouldBe` 1
+  where
+    check results cache idx shouldBeInCache verRes = do
+      checkVerificationResult (snd $ results !! idx) $ mapTransactionVerificationResult verRes
+      -- result should be in cache
+      if shouldBeInCache
+        then checkCacheIsOK cache (fst $ results !! idx) (Just verRes)
+        else checkCacheIsOK cache (fst $ results !! idx) Nothing
+    checkVerificationResult actual expected = do
+      actual `shouldBe` expected      
+    checkCacheIsOK c k expected = do
+      let cacheResult = HM.lookup k c
+      cacheResult `shouldBe` expected
+
+runMkNormalCredentialDeployments :: GlobalContext -> IO ([(TransactionHash, UpdateResult)], MyState)
+runMkNormalCredentialDeployments gCtx = do
   now <- currentTime
+  traceM ("tx verification time " ++ show (utcTimeToTimestamp now))
   runMyMonad' (testDoReceiveTransactionAccountCreations (txs now) slot) now (testGenesisData now dummyIdentityProviders dummyArs)
   where
-    txs now =  accountCreations mkGlobalContext $ utcTimeToTransactionTime now
+    txs now = accountCreations gCtx $ utcTimeToTransactionTime now
     slot = genesisSlot + 1
 
+runPurgeTransactions :: MyState -> IO ((), MyState)
+runPurgeTransactions s = currentTime >>=
+  (\now -> runMyMonad doPurgeTransactions (addUTCTime (secondsToNominalDiffTime 2) now) s)
+                         
 type PV = 'P1
 type MyBlockState = HashedBlockState PV
 type MyState = SkovData PV MyBlockState
@@ -92,55 +124,75 @@ runMyMonad act time initialState = runReaderT (runDeterministic (runStateT (runP
 
 -- |Run the given computation in a state consisting of only the genesis block and the state determined by it.
 runMyMonad' :: MyMonad a -> UTCTime -> GenesisData PV -> IO (a, MyState)
-runMyMonad' act time gd = runPureBlockStateMonad (setupState $ initialSkovDataDefault gd (hashBlockState bs)) >>= runMyMonad act time
+runMyMonad' act time gd = runPureBlockStateMonad (initialSkovDataDefault gd (hashBlockState bs)) >>= runMyMonad act time
   where
     bs = case genesisState gd of
                Left err -> error $ "Invalid genesis state: " ++ err
                Right x -> x
-    setupState s = do
-      s
 
 -- |Construct a genesis state with hardcoded values for parameters that should not affect this test.
 -- Modify as you see fit.
 testGenesisData :: UTCTime -> IdentityProviders -> AnonymityRevokers -> GenesisData PV
 testGenesisData now ips ars = makeTestingGenesisDataP1 (utcTimeToTimestamp now) 1 1 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters ips ars maxBound dummyKeyCollection dummyChainParameters
 
-testDoReceiveTransactionAccountCreations :: [BlockItem] -> Slot -> MyMonad [UpdateResult]
-testDoReceiveTransactionAccountCreations trs slot = mapM (\tr -> doReceiveTransaction tr slot) trs
+testDoReceiveTransactionAccountCreations :: [BlockItem] -> Slot -> MyMonad [(TransactionHash, UpdateResult)]
+testDoReceiveTransactionAccountCreations trs slot = mapM (\tr -> doReceiveTransaction tr slot
+                                                           >>= (\res -> pure (wmdHash tr, res))) trs
 
 accountCreations :: GlobalContext -> TransactionTime -> [BlockItem]
-accountCreations gCtx now = [
-  credentialDeploymentWithExpiryTooLate,
-  expiredCredentialDeployment,
-  credentialDeploymentWithDuplicateRegId
+accountCreations gCtx now =
+  [
+    credentialDeploymentWithExpiryTooLate,
+    expiredCredentialDeployment,
+    credentialDeploymentWithDuplicateRegId,
+    credentialWithInvalidIP,
+    credentialWithInvalidKeys,
+    credentialWithInvalidAr,
+    credentialWithInvalidSignatures,
+    verifiableCredential
   ]
   where
+    expiry = now + 1
     credentialDeploymentWithExpiryTooLate = credentialDeployment $
-      addMetadata (\x -> CredentialDeployment {biCred=x}) now (mkAccountCreation (now + (60 * 60 * 2) + 1) (regId 0))
+      addMetadata (\x -> CredentialDeployment {biCred=x}) now (mkAccountCreation (now + (60 * 60 * 2) + 1) (regId 0) 0 True True)
     expiredCredentialDeployment = credentialDeployment $
-      addMetadata (\x -> CredentialDeployment {biCred=x}) now (mkAccountCreation (now - 1) (regId 0))
+      addMetadata (\x -> CredentialDeployment {biCred=x}) now (mkAccountCreation (now - 1) (regId 1) 0 True True)
     credentialDeploymentWithDuplicateRegId = credentialDeployment $
-      addMetadata (\x -> CredentialDeployment {biCred=x}) now (mkAccountCreation (now - 1) (regId 0))
-    regId seed = RegIdCred $ mkGroupElement gCtx seed
+      addMetadata (\x -> CredentialDeployment {biCred=x}) now (mkAccountCreation expiry (duplicateRegId gCtx) 0 True True)
+    credentialWithInvalidIP = credentialDeployment $
+      addMetadata (\x -> CredentialDeployment {biCred=x}) now (mkAccountCreation expiry (regId 1) 42 True True)
+    credentialWithInvalidKeys = credentialDeployment $
+      addMetadata (\x -> CredentialDeployment {biCred=x}) now (mkAccountCreation expiry (regId 1) 0 True False)
+    credentialWithInvalidAr = credentialDeployment $
+      addMetadata (\x -> CredentialDeployment {biCred=x}) now (mkAccountCreation expiry (regId 1) 0 False True)
+    credentialWithInvalidSignatures = credentialDeployment $
+      addMetadata (\x -> CredentialDeployment {biCred=x}) now (mkAccountCreation expiry (regId 1) 0 True True)
+    verifiableCredential = credentialDeployment $
+      addMetadata (\x -> CredentialDeployment {biCred=x}) now (mkAccountCreation expiry (regId 1) 0 True True)
+    regId seed = RegIdCred $ generateGroupElementFromSeed gCtx seed
+
+duplicateRegId :: GlobalContext -> CredentialRegistrationID
+duplicateRegId gCtx = dummyRegId gCtx aaddr
+  where aaddr = accountAddressFrom 0 
 
 --testDoReceiveTransactionInternalAccountCreations :: [BlockItem] -> Slot -> MyMonad [UpdateResult]
 --testDoReceiveTransactionInternalAccountCreations trs slot = do
 --        mapM (\tr -> snd <$> doReceiveTransactionInternal tr slot) trs
 
 
-mkAccountCreation :: TransactionTime -> CredentialRegistrationID -> AccountCreation
-mkAccountCreation expiry regId = AccountCreation
+mkAccountCreation :: TransactionTime -> CredentialRegistrationID -> Word32 -> Bool ->  Bool -> AccountCreation
+mkAccountCreation expiry regId identityProviderId validAr validPubKeys = AccountCreation
   {
     messageExpiry=expiry,
     credential= NormalACWP CredentialDeploymentInformation
                 {
                   cdiValues=CredentialDeploymentValues
                   {
-                    cdvPublicKeys=mkCredentialPublicKeys,
+                    cdvPublicKeys=mkCredentialPublicKeys validPubKeys,
                     cdvCredId=regId,
-                    cdvIpId=IP_ID 0,
+                    cdvIpId=IP_ID identityProviderId,
                     cdvThreshold=Threshold 1,
-                    cdvArData=mkArData,
+                    cdvArData=mkArData validAr,
                     cdvPolicy=mkPolicy
                   },
                   cdiProofs=Proofs "invalid proof"
@@ -155,7 +207,7 @@ mkInitialAccountCreation expiry regId = AccountCreation
                {
                  icdiValues=InitialCredentialDeploymentValues
                  {
-                   icdvAccount=mkCredentialPublicKeys,
+                   icdvAccount=mkCredentialPublicKeys True,
                    icdvRegId=regId,
                    icdvIpId=IP_ID 0,
                    icdvPolicy=mkPolicy
@@ -167,11 +219,22 @@ mkInitialAccountCreation expiry regId = AccountCreation
                }
   }
 
-mkCredentialPublicKeys :: CredentialPublicKeys
-mkCredentialPublicKeys = CredentialPublicKeys
-                         {
-                           credKeys=Map.empty, credThreshold=SignatureThreshold 1
-                         }
+mkCredentialPublicKeys :: Bool -> CredentialPublicKeys
+mkCredentialPublicKeys validKeys = credKeys
+                         where
+                           credKeys =
+                             if validKeys
+                             then makeCredentialPublicKeys [key] 1
+                             else
+                               CredentialPublicKeys
+                               {
+                                 credKeys=Map.empty,
+                                 credThreshold=0
+                               }
+                           key = SigScheme.correspondingVerifyKey $ dummyKeyPair 1
+                             
+dummyKeyPair :: Int -> SigScheme.KeyPair
+dummyKeyPair = uncurry SigScheme.KeyPairEd25519 . fst . randomEd25519KeyPair . mkStdGen
 
 mkPolicy :: Policy
 mkPolicy = Policy
@@ -189,15 +252,13 @@ mkPolicy = Policy
           pItems=Map.empty
         }
 
-mkArData :: Map.Map ArIdentity ChainArData
-mkArData = Map.empty
-
-mkGroupElement :: GlobalContext -> Word64 -> GroupElement
-mkGroupElement = generateGroupElementFromSeed
+mkArData :: Bool -> Map.Map ArIdentity ChainArData
+mkArData valid = if valid then validAr else Map.empty
+  where
+    validAr = Map.insert key arData Map.empty
+    arData = ChainArData {ardIdCredPubShare=AREnc zeroElgamalCipher}
+    key = head $ Map.keys $ arRevokers dummyArs
 
 mkCredentialKeyPair :: IO KeyPair
 mkCredentialKeyPair = newKeyPair Ed25519
-
-mkGlobalContext :: GlobalContext
-mkGlobalContext = dummyGlobalContext
 

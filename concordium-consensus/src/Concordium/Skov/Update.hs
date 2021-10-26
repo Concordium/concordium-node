@@ -1,3 +1,4 @@
+
 {-# LANGUAGE
     ScopedTypeVariables,
     TypeFamilies,
@@ -488,7 +489,6 @@ doStoreBlock pb@GB.PendingBlock{..} = unlessShutDown $ do
 -- |Add a transaction to the transaction table.  The 'Slot' should be
 -- the slot number of the block that the transaction was received with,
 -- and 0 if the transaction was received separately from a block.
--- For an explanation of return values see `cachedBlockItemVerification` below.
 doReceiveTransaction :: (TreeStateMonad pv m,
                          TimeMonad m,
                          SkovQueryMonad pv m) => BlockItem -> Slot -> m UpdateResult
@@ -517,14 +517,6 @@ doReceiveTransaction tr slot = unlessShutDown $ do
                senderExists <- flip getAccount (transactionSender tx) =<< queryBlockState =<< lastFinalizedBlock
                if isNothing senderExists then return ResultNonexistingSenderAccount
                else snd <$> doReceiveTransactionInternal tr slot
-        WithMetadata{wmdData = CredentialDeployment _} -> do
-             -- check if the transaction has already been verified
-             -- todo: this should be moved out when cachedBlockItemVerification
-             -- operates on 'NormalTransaction's as well.
-             (verRes, mTr) <- cachedBlockItemVerification tr lastFinalState
-             case mTr of
-               Just x -> snd <$> doReceiveTransactionInternal x slot
-               Nothing -> return $ mapTransactionVerificationResult verRes
         _ -> snd <$> doReceiveTransactionInternal tr slot
       when (ur == ResultSuccess) $ purgeTransactionTable False =<< currentTime
       return ur
@@ -546,36 +538,34 @@ doReceiveTransactionInternal :: (TreeStateMonad pv m) => BlockItem -> Slot -> m 
 doReceiveTransactionInternal tr slot = do
         focus <- getFocusBlock
         st <- blockState focus
-        -- only put the transactions which are valid, or might be valid in the future into the transaction table as pending.
-        (verRes, mTr) <- cachedBlockItemVerification tr st
-        case mTr of
-          -- The transaction was deemed invalid and also it cannot be valid in the future,
-          -- so we just return VerificationResult here.
-          Nothing -> return (Nothing, mapTransactionVerificationResult verRes)
-          -- The transaction was successfully verifired and thus we try to add it to the
-          -- transaction table as pending.
-          Just x -> do
-            addCommitTransaction x slot >>= \case
-              Added bi@WithMetadata{..} -> do
-                ptrs <- getPendingTransactions
-                case wmdData of
-                  NormalTransaction tx -> do       
-                    macct <- getAccount st $! transactionSender tx
-                    nextNonce <- fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
-                    -- If a transaction with this nonce has already been run by
-                    -- the focus block, then we do not need to add it to the
-                    -- pending transactions.  Otherwise, we do.
-                    when (nextNonce <= transactionNonce tx) $
-                      putPendingTransactions $! addPendingTransaction nextNonce WithMetadata{wmdData=tx,..} ptrs
-                  CredentialDeployment _ -> do
-                    putPendingTransactions $! addPendingDeployCredential wmdHash ptrs
-                  ChainUpdate cu -> do
-                    nextSN <- getNextUpdateSequenceNumber st (updateType (uiPayload cu))
-                    when (nextSN <= updateSeqNumber (uiHeader cu)) $
-                        putPendingTransactions $! addPendingUpdate nextSN cu ptrs
-                return (Just bi, ResultSuccess)
-              Duplicate tx -> return (Just tx, ResultDuplicate)
-              ObsoleteNonce -> return (Nothing, ResultStale)
+        -- Currently we put all transactions into the pending transaction table even if they're deemed invalid.
+        -- This is a consequence of the fact that currently the cache is being maintained together with the
+        -- transaction table i.e., cached results are being expunged when the associated transaction is either
+        -- finalized or purged.
+        -- todo: This could be further optimized having the cache represented as a PSQ and ordering consisting
+        -- of expiry dates.
+        verRes <- cachedBlockItemVerification tr st
+        addCommitTransaction tr slot >>= \case
+          Added bi@WithMetadata{..} -> do
+            ptrs <- getPendingTransactions
+            case wmdData of
+              NormalTransaction tx -> do       
+                macct <- getAccount st $! transactionSender tx
+                nextNonce <- fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
+                -- If a transaction with this nonce has already been run by
+                -- the focus block, then we do not need to add it to the
+                -- pending transactions.  Otherwise, we do.
+                when (nextNonce <= transactionNonce tx) $
+                  putPendingTransactions $! addPendingTransaction nextNonce WithMetadata{wmdData=tx,..} ptrs
+              CredentialDeployment _ -> do
+                putPendingTransactions $! addPendingDeployCredential wmdHash ptrs
+              ChainUpdate cu -> do
+                nextSN <- getNextUpdateSequenceNumber st (updateType (uiPayload cu))
+                when (nextSN <= updateSeqNumber (uiHeader cu)) $
+                    putPendingTransactions $! addPendingUpdate nextSN cu ptrs
+            return (Just bi, mapTransactionVerificationResult verRes)
+          Duplicate tx -> return (Just tx, ResultDuplicate)
+          ObsoleteNonce -> return (Nothing, ResultStale)
 
 -- |Shutdown the skov, returning a list of pending transactions.
 doTerminateSkov :: (TreeStateMonad pv m, SkovMonad pv m) => m [BlockItem]
@@ -603,6 +593,7 @@ doPurgeTransactions = do
 
 mapTransactionVerificationResult :: TV.VerificationResult -> UpdateResult
 mapTransactionVerificationResult TV.ResultTransactionExpired = ResultTransactionExpired
+mapTransactionVerificationResult TV.ResultExpiryTooLate = ResultExpiryTooLate
 mapTransactionVerificationResult (TV.ResultDuplicateAccountRegistrationID _) = ResultDuplicateAccountRegistrationID
 mapTransactionVerificationResult TV.ResultCredentialDeploymentInvalidIdentityProvider = ResultCredentialDeploymentInvalidIP
 mapTransactionVerificationResult TV.ResultCredentialDeploymentInvalidAnonymityRevokers = ResultCredentialDeploymentInvalidAR
@@ -614,31 +605,8 @@ mapTransactionVerificationResult TV.ResultSuccess = ResultSuccess
 -- |Looks up if the transaction has already been verified. If that is the case
 -- then use the cached `VerificationResult`. If the transaction has not been
 -- verified before we verify it now, and puts the `VerificationResult` into the cache. 
--- We return `Just BlockItem` if the transaction is subject for execution.
--- Meaning that the transaction is valid (or possible valid in the future) see below for details.
--- Otherwise we simply return `Nothing` and the associcated `VerificationResult` (error).
--- Return values:
---   * 'ResultSuccess' if the transaction is freshly added.
---   * 'ResultDuplicate', which indicates that either the transaction is a duplicate
---   * 'ResultStale' which indicates that a transaction with the same sender
---     and nonce has already been finalized, or the transaction has already expired. In this case the transaction is not added to the table.
---   * 'ResultInvalid' which indicates that the transaction signature was invalid.
---   * 'ResultShutDown' which indicates that consensus was shut down, and so the transaction was not added.
---   * 'ResultExpiryTooLate' which indicates that transaction's expiry was too far in the future and so the transaction
---     was not accepted.
---   * 'ResultTooLowEnergy' which indicates that the transactions stated energy was below the minimum amount needed for the
---     transaction to be included in a block. The transaction is not added to the transaction table
---   * 'ResultCredentialDeploymentExpired' which indicates that the 'CredentialDeployment' was expired.
---     The transaction is not added to the transaction table
---   * 'ResultDuplicateAccountRegistrationID' which indicates that the registration id of
---     the 'CredentialDeployment' already exists on the chain (or less likely a hash collision).
---     The transaction is not added to the transaction table
---   * 'ResultCredentialDeploymentInvalidKeys' indicates that the 'CredentialDeployment' contained malformed keys.
---   * 'ResultCredentialDeploymentInvalidSignatures' which indicates that the signatures for the 'CredentialDeployment' was invalid.
---     The transaction is not added to the transaction table
---   * 'ResultCredentialDeploymentInvalidIP' indicates that the 'CredentialDeployment' contained an invalid Identity Provider.
---   * 'ResultCredentialDeploymentInvalidAR' indicates that the 'CredentialDeployment' contained an invalid Anonymity Revoker.
-cachedBlockItemVerification :: (TreeStateMonad pv m) => BlockItem -> BlockState m -> m (TV.VerificationResult, Maybe BlockItem)
+-- We return the 'VerificationResult'
+cachedBlockItemVerification :: (TreeStateMonad pv m) => BlockItem -> BlockState m -> m TV.VerificationResult
 cachedBlockItemVerification tr lastFinalState = do
   -- check if the transaction has already been verified
   txVerCache <- getTransactionVerificationCache
@@ -646,37 +614,15 @@ cachedBlockItemVerification tr lastFinalState = do
   case tr of
     WithMetadata{wmdData = CredentialDeployment cred} -> do        
       case verResult of
-        Just res -> case res of
-          -- Forward the successful transaction
-          TV.ResultSuccess -> return (TV.ResultSuccess, Just tr)
-          -- Forward this transaction as it may be valid in the future
-          TV.ResultCredentialDeploymentInvalidIdentityProvider ->
-            return (TV.ResultCredentialDeploymentInvalidIdentityProvider, Just tr)
-          -- Forward this transaction as it may be valid in the future
-          TV.ResultCredentialDeploymentInvalidAnonymityRevokers ->
-            return (TV.ResultCredentialDeploymentInvalidAnonymityRevokers, Just tr)
-          -- reject otherwise
-          err -> return (err, Nothing)
+        Just res -> return res
         Nothing -> do
           -- if the transaction has not yet been verified we do so
           result <- runReaderT (TV.verifyCredentialDeployment cred) lastFinalState
-          case result of
-            -- insert the result into the cache and forward the transaction
-            TV.ResultSuccess -> do
-              insertIntoCache (getHash tr) result
-              return (TV.ResultSuccess, Just tr)
-            TV.ResultCredentialDeploymentInvalidIdentityProvider -> do
-              insertIntoCache (getHash tr) result
-              return (TV.ResultCredentialDeploymentInvalidIdentityProvider, Just tr)
-            TV.ResultCredentialDeploymentInvalidAnonymityRevokers -> do
-              insertIntoCache (getHash tr) result
-              return (TV.ResultCredentialDeploymentInvalidAnonymityRevokers, Just tr)
-            -- If the verification failed for reasons it cannot never be valid in the future 
-            -- we put it into the cache and reject the transaction
-            err -> do
-              insertIntoCache (getHash tr) result
-              return (err, Nothing)
-    _ -> return (TV.ResultSuccess, Just tr)
+          insertIntoCache (getHash tr) result
+          return result
+    -- todo: returning ResutSuccess should be fine for now, as currently the cache is only used
+    -- for credential deployments when executing transactions (also we assume hash collisions are very rare...)
+    _ -> return TV.ResultSuccess
   where
     insertIntoCache txHash verResult = do
             c <- getTransactionVerificationCache

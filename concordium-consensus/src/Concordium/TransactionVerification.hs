@@ -17,13 +17,17 @@ import qualified Data.Map.Strict as OrdMap
 import qualified Concordium.ID.Types as ID
 import Data.Maybe (isJust)
 
+import Debug.Trace
+
 -- |The 'VerificationResult' type serves as an intermediate `result type` between the 'TxResult' and 'UpdateResult' types.
 -- VerificationResult's contains possible verification errors that may have occured when verifying a 'AccountCreation' type.
 data VerificationResult
   = ResultSuccess
     -- ^The verification passed
     | ResultTransactionExpired
-    -- ^The 'CredentialDeployment' was expired.
+    -- ^The transaction was expired.
+    | ResultExpiryTooLate
+    -- ^The transaction had an expiry too distant in the future
     | ResultDuplicateAccountRegistrationID !ID.CredentialRegistrationID
     -- ^The 'CredentialDeployment' contained an invalid registration id.
     -- There already exists an account with the registration id.
@@ -36,6 +40,7 @@ data VerificationResult
     | ResultCredentialDeploymentInvalidSignatures
     -- ^The 'AccountCreation' contained invalid identity provider signatures.
     deriving (Eq, Show)
+  
 
 -- |Type which can verify transactions in a monadic context. 
 -- The type is responsible for retrieving the neccessary information
@@ -60,6 +65,7 @@ class Monad m => TransactionVerifier m where
 -- |Verifies that a transaction is not yet expired.
 verifyTransactionNotExpired :: TransactionVerifier m => Tx.BlockItem -> Types.Timestamp -> m VerificationResult
 verifyTransactionNotExpired tx now = do
+  traceM ("tr expiry: " ++ show (Tx.msgExpiry tx))
   let expired = Types.transactionExpired (Tx.msgExpiry tx) now
   if expired then return ResultTransactionExpired else return ResultSuccess
 
@@ -102,6 +108,9 @@ verifyCredentialDeployment accountCreation@Tx.AccountCreation{..} = do
                     -- check that the anonymity revokers exists
                     Nothing -> return ResultCredentialDeploymentInvalidAnonymityRevokers
                     Just arsInfos ->
+                      -- if the credential deployment contained an empty map of 'ChainArData' then the result will be 'Just empty'.
+                      if null arsInfos then return ResultCredentialDeploymentInvalidAnonymityRevokers
+                      else do
                      -- check signatures for a normal credential deployment
                       if not (A.verifyCredential cryptoParams ipInfo arsInfos (S.encode ncdi) (Left messageExpiry))
                       then return ResultCredentialDeploymentInvalidSignatures
