@@ -33,8 +33,6 @@ import qualified Concordium.TransactionVerification as TVer
 
 import Concordium.GlobalState.DummyData
 import Concordium.Crypto.DummyData
-import Concordium.Types.DummyData
-import Concordium.ID.DummyData
 import Lens.Micro.Platform
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import System.Random
@@ -55,17 +53,17 @@ test = do
       let cache = outState ^. transactionVerificationResults
       check results cache 0 False TVer.ResultExpiryTooLate
       check results cache 1 False TVer.ResultTransactionExpired
---      check results cache 2 $ TVer.ResultDuplicateAccountRegistrationID (duplicateRegId gCtx)
+      check results cache 2 True $ TVer.ResultDuplicateAccountRegistrationID duplicateRegId
       check results cache 3 True TVer.ResultCredentialDeploymentInvalidIdentityProvider
       check results cache 4 True TVer.ResultCredentialDeploymentInvalidKeys
       check results cache 5 True TVer.ResultCredentialDeploymentInvalidAnonymityRevokers
       check results cache 6 True TVer.ResultCredentialDeploymentInvalidSignatures
-
       -- now check that the cache is being cleared when we purge transactions
       s' <- runPurgeTransactions (addUTCTime (secondsToNominalDiffTime 2) now) outState
       let cache' = snd s' ^. transactionVerificationResults
       cache' `shouldBe` HM.empty
     specify "Receive normal valid account creation should result in success" $ do
+      makeFakeBakers 1 `shouldBe` makeFakeBakers 1
       -- todo
       1 `shouldBe` 1
     specify "Receive inital (invalid) account creation should fail properly" $ do
@@ -153,7 +151,7 @@ accountCreations gCtx now =
     expiredCredentialDeployment = credentialDeployment $
       addMetadata (\x -> CredentialDeployment {biCred=x}) now (mkAccountCreation (now - 1) (regId 1) 0 True True)
     credentialDeploymentWithDuplicateRegId = credentialDeployment $
-      addMetadata (\x -> CredentialDeployment {biCred=x}) now (mkAccountCreation expiry (duplicateRegId gCtx) 0 True True)
+      addMetadata (\x -> CredentialDeployment {biCred=x}) now (mkAccountCreation expiry duplicateRegId 0 True True)
     credentialWithInvalidIP = credentialDeployment $
       addMetadata (\x -> CredentialDeployment {biCred=x}) now (mkAccountCreation expiry (regId 1) 42 True True)
     credentialWithInvalidKeys = credentialDeployment $
@@ -166,9 +164,13 @@ accountCreations gCtx now =
       addMetadata (\x -> CredentialDeployment {biCred=x}) now (mkAccountCreation expiry (regId 1) 0 True True)
     regId seed = RegIdCred $ generateGroupElementFromSeed gCtx seed
 
-duplicateRegId :: GlobalContext -> CredentialRegistrationID
-duplicateRegId gCtx = dummyRegId gCtx aaddr
-  where aaddr = accountAddressFrom 0 
+duplicateRegId :: CredentialRegistrationID
+duplicateRegId = cred
+  where
+    cred = case Map.lookup 0 (gaCredentials $  head (makeFakeBakers 1)) of
+              Nothing -> undefined
+              Just x -> credId x
+  
 
 --testDoReceiveTransactionInternalAccountCreations :: [BlockItem] -> Slot -> MyMonad [UpdateResult]
 --testDoReceiveTransactionInternalAccountCreations trs slot = do
