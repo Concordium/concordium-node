@@ -19,7 +19,7 @@ import qualified Data.Sequence as Seq
 import qualified Data.PQueue.Prio.Min as MPQ
 import qualified Data.Set as Set
 
-import Concordium.TimeMonad
+import Concordium.TimeMonad (TimeMonad)
 import Concordium.GlobalState.Types
 import Concordium.GlobalState.Basic.BlockPointer
 import Concordium.GlobalState.Block

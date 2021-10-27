@@ -19,8 +19,6 @@ import Concordium.Types.Updates
 import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.TreeState (TransactionVerificationCache)
 
-import Debug.Trace
-
 type TransactionHashTable = HM.HashMap TransactionHash (BlockItem, TransactionStatus)
 
 -- |Purge transactions that are not present in any live or finalized blocks
@@ -123,12 +121,9 @@ purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptabl
             return AccountNonFinalizedTransactions{_anftMap = newANFTMap, ..}
         -- Purge the deploy credential transactions that are pending.       
         purgeDeployCredentials = do
-            traceM ("purge current time " ++ show currentTime)
             dc0 <- use (_1 . pttDeployCredential)
             trs0 <- use _2
             tvercache0 <- use _3
-            traceM ("tx verRes cache " ++ show tvercache0)
-            traceM ("dc0 " ++ show dc0)
             let
                 -- Remove entry from the transaction table if eligible
                 p Nothing = Nothing
@@ -144,7 +139,7 @@ purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptabl
                     -- The CDI is no longer in the transaction table, so delete it from the transaction table and the
                     -- transaction verification cache.
                     (Nothing, trs') -> do
-                      let c' = HM.delete cdihash tVerCache
+                      let c' = HM.delete cdihash tvercache
                       (HS.delete cdihash dc, trs', c')
                     -- The CDI was kept, so do nothing.
                     _ -> do

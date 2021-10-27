@@ -17,8 +17,6 @@ import qualified Data.Map.Strict as OrdMap
 import qualified Concordium.ID.Types as ID
 import Data.Maybe (isJust)
 
-import Debug.Trace
-
 -- |The 'VerificationResult' type serves as an intermediate `result type` between the 'TxResult' and 'UpdateResult' types.
 -- VerificationResult's contains possible verification errors that may have occured when verifying a 'AccountCreation' type.
 data VerificationResult
@@ -65,7 +63,6 @@ class Monad m => TransactionVerifier m where
 -- |Verifies that a transaction is not yet expired.
 verifyTransactionNotExpired :: TransactionVerifier m => Tx.BlockItem -> Types.Timestamp -> m VerificationResult
 verifyTransactionNotExpired tx now = do
-  traceM ("tr expiry: " ++ show (Tx.msgExpiry tx))
   let expired = Types.transactionExpired (Tx.msgExpiry tx) now
   if expired then return ResultTransactionExpired else return ResultSuccess
 

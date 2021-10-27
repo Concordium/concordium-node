@@ -40,8 +40,6 @@ import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import System.Random
 import Concordium.Skov.Update
 
-import Debug.Trace
-
 
 -- |Tests of doReceiveTransaction and doReceiveTransactionInternal of the Updater.
 test :: Spec
@@ -50,7 +48,8 @@ test = do
     parallel $
       specify "Receive normal (invalid) account creation should fail properly" $ do
       let gCtx = dummyGlobalContext
-      s <- runMkNormalCredentialDeployments gCtx
+      now <- currentTime 
+      s <- runMkNormalCredentialDeployments gCtx now
       let results = fst s
       let outState = snd s
       let cache = outState ^. transactionVerificationResults
@@ -61,12 +60,11 @@ test = do
       check results cache 4 True TVer.ResultCredentialDeploymentInvalidKeys
       check results cache 5 True TVer.ResultCredentialDeploymentInvalidAnonymityRevokers
       check results cache 6 True TVer.ResultCredentialDeploymentInvalidSignatures
---      check results cache 7 True TVer.ResultSuccess
 
       -- now check that the cache is being cleared when we purge transactions
-      s' <- runPurgeTransactions outState
+      s' <- runPurgeTransactions (addUTCTime (secondsToNominalDiffTime 2) now) outState
       let cache' = snd s' ^. transactionVerificationResults
-      HM.null cache' `shouldBe` True
+      cache' `shouldBe` HM.empty
     specify "Receive normal valid account creation should result in success" $ do
       -- todo
       1 `shouldBe` 1
@@ -89,18 +87,15 @@ test = do
       let cacheResult = HM.lookup k c
       cacheResult `shouldBe` expected
 
-runMkNormalCredentialDeployments :: GlobalContext -> IO ([(TransactionHash, UpdateResult)], MyState)
-runMkNormalCredentialDeployments gCtx = do
-  now <- currentTime
-  traceM ("tx verification time " ++ show (utcTimeToTimestamp now))
-  runMyMonad' (testDoReceiveTransactionAccountCreations (txs now) slot) now (testGenesisData now dummyIdentityProviders dummyArs)
+runMkNormalCredentialDeployments :: GlobalContext -> UTCTime -> IO ([(TransactionHash, UpdateResult)], MyState)
+runMkNormalCredentialDeployments gCtx now = do
+  runMyMonad' (testDoReceiveTransactionAccountCreations txs slot) now (testGenesisData now dummyIdentityProviders dummyArs)
   where
-    txs now = accountCreations gCtx $ utcTimeToTransactionTime now
-    slot = genesisSlot + 1
+    txs = accountCreations gCtx $ utcTimeToTransactionTime now
+    slot = 0
 
-runPurgeTransactions :: MyState -> IO ((), MyState)
-runPurgeTransactions s = currentTime >>=
-  (\now -> runMyMonad doPurgeTransactions (addUTCTime (secondsToNominalDiffTime 2) now) s)
+runPurgeTransactions :: UTCTime -> MyState -> IO ((), MyState)
+runPurgeTransactions = runMyMonad doPurgeTransactions
                          
 type PV = 'P1
 type MyBlockState = HashedBlockState PV
