@@ -2,6 +2,7 @@
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE TemplateHaskell #-}
 module ConcordiumTests.ReceiveTransactionsTest where
 
 import Test.Hspec
@@ -12,6 +13,10 @@ import Data.Time.Clock
 import Control.Monad.State
 import Control.Monad.Reader
 import qualified Data.HashMap.Strict as HM
+import qualified Data.ByteString.Lazy as BSL
+import Data.FileEmbed
+import Data.Time.Clock.POSIX
+import qualified Data.Aeson as AE
 
 import Concordium.Types
 import Concordium.TimeMonad
@@ -19,13 +24,13 @@ import Concordium.Types.Transactions
 import Concordium.ID.Types
 import Concordium.Crypto.FFIDataTypes
 import Concordium.Common.Time
+import Concordium.Common.Version
 import Concordium.ID.Parameters
 import Concordium.Types.IdentityProviders
 import Concordium.Types.AnonymityRevokers
 import Concordium.Crypto.SignatureScheme
 
 import Concordium.Genesis.Data
-import Concordium.GlobalState.Types ()
 import Concordium.GlobalState.Basic.TreeState
 import Concordium.GlobalState.Basic.BlockState hiding (initialState)
 import Concordium.Skov.Monad
@@ -37,7 +42,7 @@ import Lens.Micro.Platform
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import System.Random
 import Concordium.Skov.Update
-
+import Concordium.Types.Parameters (CryptographicParameters)
 
 -- |Tests of doReceiveTransaction and doReceiveTransactionInternal of the Updater.
 test :: Spec
@@ -47,7 +52,7 @@ test = do
       specify "Receive invalid account creations should fail properly" $ do
       let gCtx = dummyGlobalContext
       now <- currentTime 
-      s <- runMkNormalCredentialDeployments gCtx now
+      s <- runMkCredentialDeployments (accountCreations gCtx $ utcTimeToTransactionTime now) now (testGenesisData now dummyIdentityProviders dummyArs dummyCryptographicParameters)
       let results = fst s
       let outState = snd s
       let cache = outState ^. transactionVerificationResults
@@ -64,12 +69,16 @@ test = do
       s' <- runPurgeTransactions (addUTCTime (secondsToNominalDiffTime 2) now) outState
       let cache' = snd s' ^. transactionVerificationResults
       cache' `shouldBe` HM.empty
-    specify "Receive normal valid account creation should result in success" $ do
-      -- todo
-      1 `shouldBe` 1
-    specify "Receive initial valid account creation should result in success" $ do
-      -- todo
-      1 `shouldBe` 1
+    specify "Receive valid account creations should result in success" $ do      
+      let credentialDeploymentExpiryTime = 1596409020
+      let now = posixSecondsToUTCTime $ credentialDeploymentExpiryTime - 1
+      let txArrivalTime = utcTimeToTransactionTime now
+      s <- runMkCredentialDeployments [toBlockItem txArrivalTime mycdi , toBlockItem txArrivalTime myicdi] now (testGenesisData now myips myars myCryptoParams)
+      let results = fst s
+      let outState = snd s
+      let cache = outState ^. transactionVerificationResults
+      check results cache 0 True TVer.ResultSuccess
+--      check results cache 1 True TVer.ResultSuccess
   where
     check results cache idx shouldBeInCache verRes = do
       checkVerificationResult (snd $ results !! idx) $ mapTransactionVerificationResult verRes
@@ -83,11 +92,10 @@ test = do
       let cacheResult = HM.lookup k c
       cacheResult `shouldBe` expected
 
-runMkNormalCredentialDeployments :: GlobalContext -> UTCTime -> IO ([(TransactionHash, UpdateResult)], MyState)
-runMkNormalCredentialDeployments gCtx now = do
-  runMyMonad' (testDoReceiveTransactionAccountCreations txs slot) now (testGenesisData now dummyIdentityProviders dummyArs)
+runMkCredentialDeployments :: [BlockItem] -> UTCTime -> GenesisData PV -> IO ([(TransactionHash, UpdateResult)], MyState)
+runMkCredentialDeployments txs now gData = do
+  runMyMonad' (testDoReceiveTransactionAccountCreations txs slot) now gData
   where
-    txs = accountCreations gCtx $ utcTimeToTransactionTime now
     slot = 0
 
 runPurgeTransactions :: UTCTime -> MyState -> IO ((), MyState)
@@ -123,8 +131,8 @@ runMyMonad' act time gd = runPureBlockStateMonad (initialSkovDataDefault gd (has
 
 -- |Construct a genesis state with hardcoded values for parameters that should not affect this test.
 -- Modify as you see fit.
-testGenesisData :: UTCTime -> IdentityProviders -> AnonymityRevokers -> GenesisData PV
-testGenesisData now ips ars = makeTestingGenesisDataP1 (utcTimeToTimestamp now) 1 1 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters ips ars maxBound dummyKeyCollection dummyChainParameters
+testGenesisData :: UTCTime -> IdentityProviders -> AnonymityRevokers -> CryptographicParameters -> GenesisData PV
+testGenesisData now ips ars cryptoParams = makeTestingGenesisDataP1 (utcTimeToTimestamp now) 1 1 1 dummyFinalizationCommitteeMaxSize cryptoParams ips ars maxBound dummyKeyCollection dummyChainParameters
 
 testDoReceiveTransactionAccountCreations :: [BlockItem] -> Slot -> MyMonad [(TransactionHash, UpdateResult)]
 testDoReceiveTransactionAccountCreations trs slot = mapM (\tr -> doReceiveTransaction tr slot
@@ -144,23 +152,19 @@ accountCreations gCtx now =
   ]
   where
     expiry = now + 1
-    credentialDeploymentWithExpiryTooLate = credentialDeployment $
-      addMetadata (\x -> CredentialDeployment {biCred=x}) now (mkAccountCreation (now + (60 * 60 * 2) + 1) (regId 0) 0 True True)
-    expiredCredentialDeployment = credentialDeployment $
-      addMetadata (\x -> CredentialDeployment {biCred=x}) now (mkAccountCreation (now - 1) (regId 1) 0 True True)
-    credentialDeploymentWithDuplicateRegId = credentialDeployment $
-      addMetadata (\x -> CredentialDeployment {biCred=x}) now (mkAccountCreation expiry duplicateRegId 0 True True)
-    credentialWithInvalidIP = credentialDeployment $
-      addMetadata (\x -> CredentialDeployment {biCred=x}) now (mkAccountCreation expiry (regId 1) 42 True True)
-    credentialWithInvalidKeys = credentialDeployment $
-      addMetadata (\x -> CredentialDeployment {biCred=x}) now (mkAccountCreation expiry (regId 1) 0 True False)
-    credentialWithInvalidAr = credentialDeployment $
-      addMetadata (\x -> CredentialDeployment {biCred=x}) now (mkAccountCreation expiry (regId 1) 0 False True)
-    credentialWithInvalidSignatures = credentialDeployment $
-      addMetadata (\x -> CredentialDeployment {biCred=x}) now (mkAccountCreation expiry (regId 1) 0 True True)
-    intialCredentialWithInvalidSignatures = credentialDeployment $
-      addMetadata (\x -> CredentialDeployment {biCred=x}) now (mkInitialAccountCreationWithInvalidSignatures expiry (regId 42))
+    credentialDeploymentWithExpiryTooLate =  toBlockItem now (mkAccountCreation (now + (60 * 60 * 2) + 1) (regId 0) 0 True True)
+    expiredCredentialDeployment = toBlockItem now (mkAccountCreation (now - 1) (regId 1) 0 True True)
+    credentialDeploymentWithDuplicateRegId = toBlockItem now (mkAccountCreation expiry duplicateRegId 0 True True)
+    credentialWithInvalidIP = toBlockItem now (mkAccountCreation expiry (regId 1) 42 True True)
+    credentialWithInvalidKeys = toBlockItem now (mkAccountCreation expiry (regId 1) 0 True False)
+    credentialWithInvalidAr = toBlockItem now (mkAccountCreation expiry (regId 1) 0 False True)
+    credentialWithInvalidSignatures = toBlockItem now (mkAccountCreation expiry (regId 1) 0 True True)
+    intialCredentialWithInvalidSignatures = toBlockItem now (mkInitialAccountCreationWithInvalidSignatures expiry (regId 42))
     regId seed = RegIdCred $ generateGroupElementFromSeed gCtx seed
+
+toBlockItem :: TransactionTime -> AccountCreation -> BlockItem
+toBlockItem now acc = credentialDeployment $
+      addMetadata (\x -> CredentialDeployment {biCred=x}) now acc
 
 duplicateRegId :: CredentialRegistrationID
 duplicateRegId = cred
@@ -251,3 +255,63 @@ mkArData valid = if valid then validAr else Map.empty
 mkCredentialKeyPair :: IO KeyPair
 mkCredentialKeyPair = newKeyPair Ed25519
 
+-- expiry time for credentials 1596409020 // 2020-08-03 00:57:00
+{-# WARNING mycdi "Do not use in production." #-}
+mycdi :: AccountCreation
+mycdi = readAccountCreation . BSL.fromStrict $ $(makeRelativeToProject "testdata/verifiable-credential.json" >>= embedFile)
+
+{-# WARNING myicdi "Do not use in production." #-}
+myicdi :: AccountCreation
+myicdi = readAccountCreation . BSL.fromStrict $ $(makeRelativeToProject "testdata/verifiable-initial-credential.json" >>= embedFile)
+
+{-# WARNING myips "Do not use in production." #-}
+myips :: IdentityProviders
+myips = case readIps . BSL.fromStrict $ $(makeRelativeToProject "testdata/verifiable-ips.json" >>= embedFile) of
+  Just x -> x
+  Nothing -> error "oops"
+
+{-# WARNING myars "Do not use in production." #-}
+myars :: AnonymityRevokers
+myars = case readArs . BSL.fromStrict $ $(makeRelativeToProject "testdata/verifiable-ars.json" >>= embedFile) of
+  Just x -> x
+  Nothing -> error "oops"
+
+{-# WARNING myCryptoParams "Do not use in production" #-}
+myCryptoParams :: CryptographicParameters
+myCryptoParams =
+  case getExactVersionedCryptographicParameters (BSL.fromStrict $(makeRelativeToProject "testdata/verifiable-global.json" >>= embedFile)) of
+    Nothing -> error "Could not read cryptographic parameters."
+    Just params -> params  
+
+readAccountCreation :: BSL.ByteString -> AccountCreation
+readAccountCreation bs =
+  case AE.eitherDecode bs of
+    Left err -> error $ "Cannot read account creation " ++ err
+    Right d -> if vVersion d == 0 then vValue d else error "Incorrect account creation version."
+
+readIps :: BSL.ByteString -> Maybe IdentityProviders
+readIps bs = do
+  v <- AE.decode bs
+   -- We only support Version 0 at this point for testing. When we support more
+   -- versions we'll have to decode in a dependent manner, first reading the
+   -- version, and then decoding based on that.
+  guard (vVersion v == 0)
+  return (vValue v)
+
+readArs :: BSL.ByteString -> Maybe AnonymityRevokers
+readArs bs = do
+  v <- AE.decode bs
+   -- We only support Version 0 at this point for testing. When we support more
+   -- versions we'll have to decode in a dependent manner, first reading the
+   -- version, and then decoding based on that.
+  guard (vVersion v == 0)
+  return (vValue v)
+
+getExactVersionedCryptographicParameters :: BSL.ByteString -> Maybe CryptographicParameters
+getExactVersionedCryptographicParameters bs = do
+   v <- AE.decode bs
+   -- We only support Version 0 at this point for testing. When we support more
+   -- versions we'll have to decode in a dependent manner, first reading the
+   -- version, and then decoding based on that.
+   guard (vVersion v == 0)
+   return (vValue v)
