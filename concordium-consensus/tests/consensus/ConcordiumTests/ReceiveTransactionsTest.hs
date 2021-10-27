@@ -44,7 +44,7 @@ test :: Spec
 test = do
   describe "doReceiveTansaction" $ do
     parallel $
-      specify "Receive normal (invalid) account creation should fail properly" $ do
+      specify "Receive invalid account creations should fail properly" $ do
       let gCtx = dummyGlobalContext
       now <- currentTime 
       s <- runMkNormalCredentialDeployments gCtx now
@@ -58,18 +58,16 @@ test = do
       check results cache 4 True TVer.ResultCredentialDeploymentInvalidKeys
       check results cache 5 True TVer.ResultCredentialDeploymentInvalidAnonymityRevokers
       check results cache 6 True TVer.ResultCredentialDeploymentInvalidSignatures
+      -- the intial account creation which has an invalid signature
+      check results cache 7 True TVer.ResultCredentialDeploymentInvalidSignatures
       -- now check that the cache is being cleared when we purge transactions
       s' <- runPurgeTransactions (addUTCTime (secondsToNominalDiffTime 2) now) outState
       let cache' = snd s' ^. transactionVerificationResults
       cache' `shouldBe` HM.empty
     specify "Receive normal valid account creation should result in success" $ do
-      makeFakeBakers 1 `shouldBe` makeFakeBakers 1
       -- todo
       1 `shouldBe` 1
-    specify "Receive inital (invalid) account creation should fail properly" $ do
-      -- todo
-      1 `shouldBe` 1
-    specify "Receive intial valid account creation should result in success" $ do
+    specify "Receive initial valid account creation should result in success" $ do
       -- todo
       1 `shouldBe` 1
   where
@@ -142,7 +140,7 @@ accountCreations gCtx now =
     credentialWithInvalidKeys,
     credentialWithInvalidAr,
     credentialWithInvalidSignatures,
-    verifiableCredential
+    intialCredentialWithInvalidSignatures
   ]
   where
     expiry = now + 1
@@ -160,8 +158,8 @@ accountCreations gCtx now =
       addMetadata (\x -> CredentialDeployment {biCred=x}) now (mkAccountCreation expiry (regId 1) 0 False True)
     credentialWithInvalidSignatures = credentialDeployment $
       addMetadata (\x -> CredentialDeployment {biCred=x}) now (mkAccountCreation expiry (regId 1) 0 True True)
-    verifiableCredential = credentialDeployment $
-      addMetadata (\x -> CredentialDeployment {biCred=x}) now (mkAccountCreation expiry (regId 1) 0 True True)
+    intialCredentialWithInvalidSignatures = credentialDeployment $
+      addMetadata (\x -> CredentialDeployment {biCred=x}) now (mkInitialAccountCreationWithInvalidSignatures expiry (regId 42))
     regId seed = RegIdCred $ generateGroupElementFromSeed gCtx seed
 
 duplicateRegId :: CredentialRegistrationID
@@ -170,12 +168,6 @@ duplicateRegId = cred
     cred = case Map.lookup 0 (gaCredentials $  head (makeFakeBakers 1)) of
               Nothing -> undefined
               Just x -> credId x
-  
-
---testDoReceiveTransactionInternalAccountCreations :: [BlockItem] -> Slot -> MyMonad [UpdateResult]
---testDoReceiveTransactionInternalAccountCreations trs slot = do
---        mapM (\tr -> snd <$> doReceiveTransactionInternal tr slot) trs
-
 
 mkAccountCreation :: TransactionTime -> CredentialRegistrationID -> Word32 -> Bool ->  Bool -> AccountCreation
 mkAccountCreation expiry regId identityProviderId validAr validPubKeys = AccountCreation
@@ -196,8 +188,8 @@ mkAccountCreation expiry regId identityProviderId validAr validPubKeys = Account
                 }
   }
 
-mkInitialAccountCreation :: TransactionTime -> CredentialRegistrationID -> AccountCreation
-mkInitialAccountCreation expiry regId = AccountCreation
+mkInitialAccountCreationWithInvalidSignatures :: TransactionTime -> CredentialRegistrationID -> AccountCreation
+mkInitialAccountCreationWithInvalidSignatures expiry regId = AccountCreation
   {
     messageExpiry=expiry,
     credential=InitialACWP InitialCredentialDeploymentInfo
