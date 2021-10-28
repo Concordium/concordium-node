@@ -543,7 +543,6 @@ doReceiveTransactionInternal tr slot = do
         -- finalized or purged.
         -- todo: This could be further optimized having the cache represented as a PSQ and ordering consisting
         -- of expiry dates.
-        verRes <- cachedBlockItemVerification tr st
         addCommitTransaction tr slot >>= \case
           Added bi@WithMetadata{..} -> do
             ptrs <- getPendingTransactions
@@ -562,7 +561,7 @@ doReceiveTransactionInternal tr slot = do
                 nextSN <- getNextUpdateSequenceNumber st (updateType (uiPayload cu))
                 when (nextSN <= updateSeqNumber (uiHeader cu)) $
                     putPendingTransactions $! addPendingUpdate nextSN cu ptrs
-            return (Just bi, mapTransactionVerificationResult verRes)
+            (\verRes -> return (Just bi, mapTransactionVerificationResult verRes)) =<< cachedBlockItemVerification tr st 
           Duplicate tx -> return (Just tx, ResultDuplicate)
           ObsoleteNonce -> return (Nothing, ResultStale)
 
