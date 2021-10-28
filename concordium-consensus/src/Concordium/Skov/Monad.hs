@@ -81,6 +81,18 @@ data UpdateResult
     -- ^The file provided for importing blocks is missing
     | ResultConsensusShutDown
     -- ^The message was not processed because consensus has been shut down
+    | ResultTransactionExpired
+    -- ^The transaction was expired.
+    | ResultDuplicateAccountRegistrationID
+    -- ^An account already exists to the corresponding registration id of the 'CredentialDeployment'.
+    | ResultCredentialDeploymentInvalidIP
+    -- ^The identity provider was not valid
+    | ResultCredentialDeploymentInvalidAR
+    -- ^The anonymity revokers was not valid
+    | ResultCredentialDeploymentInvalidKeys
+    -- ^The keys were malformed
+    | ResultCredentialDeploymentInvalidSignatures
+    -- ^The 'CredentialDeployment' contained invalid identity provider signatures.
     | ResultInvalidGenesisIndex
     -- ^The message is for an unknown genesis index
     deriving (Eq, Show)
@@ -279,6 +291,7 @@ deriving via (MGSTrans SkovQueryMonadT m) instance TS.TreeStateMonad pv m => TS.
 deriving via (MGSTrans SkovQueryMonadT m) instance BlockStateStorage m => BlockStateStorage (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance PerAccountDBOperations m => PerAccountDBOperations (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance BlockStateOperations m => BlockStateOperations (SkovQueryMonadT m)
+deriving via (MGSTrans SkovQueryMonadT m) instance TimeMonad m => TimeMonad (SkovQueryMonadT m)
 
 instance (TS.TreeStateMonad pv m)
           => SkovQueryMonad pv (SkovQueryMonadT m) where

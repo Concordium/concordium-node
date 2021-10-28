@@ -19,6 +19,7 @@ import qualified Data.Sequence as Seq
 import qualified Data.PQueue.Prio.Min as MPQ
 import qualified Data.Set as Set
 
+import Concordium.TimeMonad (TimeMonad)
 import Concordium.GlobalState.Types
 import Concordium.GlobalState.Basic.BlockPointer
 import Concordium.GlobalState.Block
@@ -36,6 +37,11 @@ import Concordium.Types.HashableTo
 import Concordium.Types.Transactions
 import Concordium.Types.Updates
 import Concordium.GlobalState.AccountTransactionIndex
+import qualified Concordium.TransactionVerification as TVer
+
+-- The Transaction verification cache for storing transaction hashes
+-- associated with transaction verification results
+type TransactionVerificationCache = HM.HashMap TransactionHash TVer.VerificationResult
 
 -- |Datatype representing an in-memory tree state.
 -- The first type parameter, @pv@, is the protocol version.
@@ -68,7 +74,12 @@ data SkovData (pv :: ProtocolVersion) bs = SkovData {
     -- |Runtime parameters
     _runtimeParameters :: !RuntimeParameters,
     -- |Transaction table purge counter
-    _transactionTablePurgeCounter :: !Int
+    _transactionTablePurgeCounter :: !Int,
+    -- |transactionVerificationResults
+    -- Transaction which have been subject to a 'verification' resides in this cache.
+    -- The purpose of the cache is to eliminate the need for re-verifying already verified transactions.
+    -- Entries should be deleted when either the corresponding transaction has been *purged* or *finalized*. 
+    _transactionVerificationResults :: !TransactionVerificationCache
 }
 makeLenses ''SkovData
 
@@ -107,7 +118,8 @@ initialSkovData rp gd genState = do
             _transactionTable = emptyTransactionTableWithSequenceNumbers acctNonces updSeqNums,
             _statistics = initialConsensusStatistics,
             _runtimeParameters = rp,
-            _transactionTablePurgeCounter = 0
+            _transactionTablePurgeCounter = 0,
+            _transactionVerificationResults = HM.empty
         }
   where gbh = bpHash gb
         gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
@@ -126,7 +138,7 @@ initialSkovData rp gd genState = do
 -- type used in the implementation.
 newtype PureTreeStateMonad (pv :: ProtocolVersion) bs m a = PureTreeStateMonad { runPureTreeStateMonad :: m a }
   deriving (Functor, Applicative, Monad, MonadIO, BlockStateTypes,
-            BS.BlockStateQuery, BS.AccountOperations, BS.BlockStateOperations, BS.BlockStateStorage)
+            BS.BlockStateQuery, BS.AccountOperations, BS.BlockStateOperations, BS.BlockStateStorage, TimeMonad)
 
 deriving instance (Monad m, MonadState (SkovData pv bs) m) => MonadState (SkovData pv bs) (PureTreeStateMonad pv bs m)
 
@@ -200,6 +212,10 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
                 Nothing -> do
                     possiblyPendingQueue .= ppq
                     return Nothing
+
+    getTransactionVerificationCache = use transactionVerificationResults
+    putTransactionVerificationCache = (transactionVerificationResults .=!)
+
     wipePendingBlocks = do
         possiblyPendingTable .= HM.empty
         possiblyPendingQueue .= MPQ.empty
@@ -274,7 +290,7 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
             when (slot > results ^. tsSlot) $ transactionTable . ttHashMap . at' trHash . mapped . _2 %= updateSlot slot
             return $ TS.Duplicate tr'
 
-    finalizeTransactions bh slot = mapM_ finTrans
+    finalizeTransactions bh slot = mapM_ $ finTrans
         where
             finTrans WithMetadata{wmdData=NormalTransaction tr,..} = do
                 let nonce = transactionNonce tr
@@ -297,6 +313,8 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
                         -- Update the non-finalized transactions for the sender
                         transactionTable . ttNonFinalizedTransactions . at' sender ?= (anft & (anftMap . at' nonce .~ Nothing) & (anftNextNonce .~ nonce + 1))
             finTrans WithMetadata{wmdData=CredentialDeployment{},..} = do
+              -- delete the transaction from the verified transaction cache
+              transactionVerificationResults %=! HM.delete wmdHash
               transactionTable . ttHashMap . singular (ix wmdHash) . _2 %=
                             \case Committed{..} -> Finalized{_tsSlot=slot,tsBlockHash=bh,tsFinResult=tsResults HM.! bh,..}
                                   _ -> error "Transaction should be in committed state when finalized."
@@ -330,6 +348,9 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
                 if lastFinSlot >= results ^. tsSlot then do
                     -- remove from the table
                     transactionTable . ttHashMap . at' wmdHash .= Nothing
+                    -- delete the transaction from the verified transaction cache
+                    transactionVerificationResults %=! HM.delete wmdHash
+
                     -- if the transaction is from a sender also delete the relevant
                     -- entry in the account non finalized table
                     case wmdData of
@@ -368,15 +389,17 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
         lastFinalizedSlot <- TS.getLastFinalizedSlot
         transactionTable' <- use transactionTable
         pendingTransactions' <- use pendingTransactions
+        tVerCache <- use transactionVerificationResults
         let
           currentTransactionTime = utcTimeToTransactionTime currentTime
           oldestArrivalTime = if currentTransactionTime > rpTransactionsKeepAliveTime
                                 then currentTransactionTime - rpTransactionsKeepAliveTime
                                 else 0
           currentTimestamp = utcTimeToTimestamp currentTime
-          (newTT, newPT) = purgeTables lastFinalizedSlot oldestArrivalTime currentTimestamp transactionTable' pendingTransactions'
+          (newTT, newPT, newTVerCache) = purgeTables lastFinalizedSlot oldestArrivalTime currentTimestamp transactionTable' pendingTransactions' tVerCache
         transactionTable .= newTT
         pendingTransactions .= newPT
+        transactionVerificationResults .= newTVerCache
 
     wipeNonFinalizedTransactions = do
         let consNonFin (_, Finalized{}) = id

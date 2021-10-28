@@ -292,11 +292,22 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
         us1 <- coerceBSML (getProtocolUpdateStatus bps1)
         us2 <- coerceBSMR (getProtocolUpdateStatus bps2)
         assert (us1 == us2) $ return us1
-
     getCryptographicParameters (bps1, bps2) = do
         u1 <- coerceBSML (getCryptographicParameters bps1)
         u2 <- coerceBSMR (getCryptographicParameters bps2)
         assert (u1 == u2) $ return u1
+    getIdentityProvider (bs1, bs2) ipid = do
+        r1 <- coerceBSML $ getIdentityProvider bs1 ipid
+        r2 <- coerceBSMR $ getIdentityProvider bs2 ipid
+        assert (r1 == r2) $ return r1
+    regIdExists (bs1, bs2) regId = do
+        r1 <- coerceBSML $ regIdExists bs1 regId
+        r2 <- coerceBSMR $ regIdExists bs2 regId
+        assert (r1 == r2) $ return r1
+    getAnonymityRevokers (bs1, bs2) arIds = do
+        r1 <- coerceBSML $ getAnonymityRevokers bs1 arIds
+        r2 <- coerceBSMR $ getAnonymityRevokers bs2 arIds
+        assert (r1 == r2) $ return r1
 
 instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, AccountOperations (BSML pv lc r ls s m), AccountOperations (BSMR pv rc r rs s m), HashableTo H.Hash (Account (BSML pv lc r ls s m)), HashableTo H.Hash (Account (BSMR pv rc r rs s m)))
   => AccountOperations (BlockStateM pv (PairGSContext lc rc) r (PairGState ls rs) s m) where
@@ -766,6 +777,11 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
             (Nothing, Nothing) -> return Nothing
             (Just pb1, Just pb2) -> assert (pb1 == pb2) $ return $ Just pb1
             _ -> error "takeNextPendingUntil (Paired): implementations returned different results"
+
+    -- FIXME: Figure out whether this is sensible or whether we should require both caches to be the same.
+    getTransactionVerificationCache = coerceGSML getTransactionVerificationCache
+    putTransactionVerificationCache = coerceGSML . putTransactionVerificationCache
+
     wipePendingBlocks = do
         coerceGSML wipePendingBlocks
         coerceGSMR wipePendingBlocks

@@ -32,6 +32,8 @@ import Concordium.Types.HashableTo
 import Concordium.Types
 import Concordium.Types.Updates
 import Concordium.GlobalState.AccountTransactionIndex
+import qualified Data.HashMap.Strict as HM
+import qualified Concordium.TransactionVerification as TV
 
 import Data.ByteString
 import Concordium.Logger
@@ -70,6 +72,15 @@ data AddTransactionResult =
   -- The transaction is not added to the table.
   ObsoleteNonce
   deriving(Eq, Show)
+
+-- |The Transaction verification cache stores a transaction `VerificationResult` alongside its
+-- `TransactionHash`.
+-- New entries are being put into the cache via the Updater.
+-- The cached verification results is then used by the Scheduler for allowing for an easier verification process during
+-- during block execution.
+-- Entries in the cache are being removed when the associated transaction is either
+-- finalized or purged.
+type TransactionVerificationCache = HM.HashMap TransactionHash TV.VerificationResult
 
 -- |Monad that provides operations for working with the low-level tree state.
 -- These operations are abstracted where possible to allow for a range of implementation
@@ -201,6 +212,22 @@ class (Eq (BlockPointerType m),
     -- |Remove all blocks from the pending table. This is only intended to
     -- be used on Skov shut down, when these blocks are no longer needed.
     wipePendingBlocks :: m ()
+
+
+    -- | The transaction verification cache
+    --
+    -- If a transaction is processed by the TransactionVerifier then it should be added to 
+    -- the transaction verification results such that we don't later on try to verify the
+    -- transaction.
+    -- Cache entries should be removed when a transaction is finalized, purged or expired
+    -- Expired transactions should not be put in the cache, but instead they are rejected upfront.
+    -- Hence it's safe to simply delete expired transactions from the cache such that it won't grow
+    -- in eternity.
+    
+    -- |Gets the transaction verification cache from the TreeState
+    getTransactionVerificationCache :: m TransactionVerificationCache
+    -- |Puts a transaction verification cache into the TreeState
+    putTransactionVerificationCache :: TransactionVerificationCache -> m ()
 
     -- * Operations on the pending transaction table
     --
@@ -383,6 +410,8 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad pv m) => TreeStateMonad pv (
     putConsensusStatistics = lift . putConsensusStatistics
     getRuntimeParameters = lift getRuntimeParameters
     purgeTransactionTable tm = lift . (purgeTransactionTable tm)
+    getTransactionVerificationCache = lift getTransactionVerificationCache
+    putTransactionVerificationCache = lift . putTransactionVerificationCache
     {-# INLINE makePendingBlock #-}
     {-# INLINE getBlockStatus #-}
     {-# INLINE makeLiveBlock #-}
@@ -426,6 +455,8 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad pv m) => TreeStateMonad pv (
     {-# INLINE putConsensusStatistics #-}
     {-# INLINE getRuntimeParameters #-}
     {-# INLINE purgeTransactionTable #-}
+    {-# INLINE getTransactionVerificationCache #-}
+    {-# INLINE putTransactionVerificationCache #-}
 
 deriving via (MGSTrans MaybeT m) instance TreeStateMonad pv m => TreeStateMonad pv (MaybeT m)
 deriving via (MGSTrans (ExceptT e) m) instance TreeStateMonad pv m => TreeStateMonad pv (ExceptT e m)

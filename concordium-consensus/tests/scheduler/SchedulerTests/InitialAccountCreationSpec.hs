@@ -35,8 +35,7 @@ transactionsInput :: [Types.CredentialDeploymentWithMeta]
 transactionsInput = map (Types.addMetadata Types.CredentialDeployment 0) $ [
   icdi1,
   icdi2,
-  icdi3, -- should fail because reuse of prf key
-  icdi4 -- should fail because incorrect signature
+  icdi3 -- should fail because reuse of prf key
   ]
 
 testAccountCreation ::
@@ -53,7 +52,7 @@ testAccountCreation = do
             maxBound
             maxBound
             initialBlockState
-    let state = finState ^. Types.ssBlockState
+    let state = fst finState ^. Types.ssBlockState
     let accounts = state ^. blockAccounts
     let accAddrs = map (accountAddressFromCredential . Types.credential) [icdi1,icdi2,icdi4] -- cdi3 has the same address as cdi2
     case invariantBlockState state (finState ^. Types.schedulerExecutionCosts) of
@@ -70,7 +69,7 @@ checkAccountCreationResult ::
      Amount)
   -> Assertion
 checkAccountCreationResult (suc, fails, stateAccs, executionCost) = do
-  assertEqual "The first but the 4th transactions should fail." 2 (length fails)
+  assertEqual "The third transaction should fail." 1 (length fails)
   assertEqual "Execution cost should be 0." 0 executionCost
 
   -- FIXME: Make these more fine-grained so that failures are understandable.

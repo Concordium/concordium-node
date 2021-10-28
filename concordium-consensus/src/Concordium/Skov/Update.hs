@@ -9,6 +9,7 @@ import Data.Maybe (fromMaybe, isNothing)
 import qualified Data.Sequence as Seq
 import Lens.Micro.Platform
 import Data.Foldable
+import qualified Data.HashMap.Strict as HM
 
 import GHC.Stack
 
@@ -40,6 +41,8 @@ import Concordium.Afgjort.Finalize.Types
 import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.Skov.Statistics
+import qualified Concordium.TransactionVerification as TV
+import Control.Monad.Reader
 
 
 -- |Determine if one block is an ancestor of another.
@@ -64,13 +67,13 @@ updateFocusBlockTo newBB = do
         updatePTs :: (BlockPointerMonad m) => BlockPointerType m -> BlockPointerType m -> [BlockPointerType m] -> PendingTransactionTable -> m PendingTransactionTable
         updatePTs oBB nBB forw pts = case compare (bpHeight oBB) (bpHeight nBB) of
                 LT -> do
-                  parent <- (bpParent nBB)
+                  parent <- bpParent nBB
                   updatePTs oBB parent (nBB : forw) pts
                 EQ -> if oBB == nBB then
                             return $ foldl (\p f-> forwardPTT (blockTransactions f) p) pts forw
                         else do
-                            parent1 <- (bpParent oBB)
-                            parent2 <- (bpParent nBB)
+                            parent1 <- bpParent oBB
+                            parent2 <- bpParent nBB
                             updatePTs parent1 parent2 (nBB : forw) (reversePTT (blockTransactions oBB) pts)
                 GT -> do
                   parent <- bpParent oBB
@@ -479,33 +482,28 @@ doStoreBlock pb@GB.PendingBlock{..} = unlessShutDown $ do
             Just _ -> return ResultDuplicate
     where
         checkClaimedSignature b a = if verifyBlockSignature b then a else do
-            logEvent Skov LLWarning $ "Dropping block where signature did not match claimed key or blockhash: "
+            logEvent Skov LLWarning "Dropping block where signature did not match claimed key or blockhash: "
             return ResultInvalid
 
 -- |Add a transaction to the transaction table.  The 'Slot' should be
 -- the slot number of the block that the transaction was received with,
 -- and 0 if the transaction was received separately from a block.
--- This returns
---
---   * 'ResultSuccess' if the transaction is freshly added.
---   * 'ResultDuplicate', which indicates that either the transaction is a duplicate
---   * 'ResultStale' which indicates that a transaction with the same sender
---     and nonce has already been finalized, or the transaction has already expired. In this case the transaction is not added to the table.
---   * 'ResultInvalid' which indicates that the transaction signature was invalid.
---   * 'ResultShutDown' which indicates that consensus was shut down, and so the transaction was not added.
---   * 'ResultExpiryTooLate' which indicates that transaction's expiry was too far in the future and so the transaction
---     was not accepted.
---   * 'ResultTooLowEnergy' which indicates that the transactions stated energy was below the minimum amount needed for the
---     transaction to be included in a block. The transaction is not added to the transaction table
-doReceiveTransaction :: (TreeStateMonad pv m, TimeMonad m, SkovQueryMonad pv m) => BlockItem -> Slot -> m UpdateResult
+doReceiveTransaction :: (TreeStateMonad pv m,
+                         TimeMonad m,
+                         SkovQueryMonad pv m) => BlockItem -> Slot -> m UpdateResult
 doReceiveTransaction tr slot = unlessShutDown $ do
   -- Don't accept the transaction if its expiry time is too far in the future
   now <- currentTime
   expiryTooLate <- isExpiryTooLate now
   if expiryTooLate then return ResultExpiryTooLate
-  else if transactionExpired (msgExpiry tr) (utcTimeToTimestamp now) then return ResultStale
   else do
-    ur <- case tr of
+    -- reject expired transactions, we don't cache the result though.
+    lastFinalState <- queryBlockState =<< lastFinalizedBlock
+    expired <- runReaderT (TV.verifyTransactionNotExpired tr (utcTimeToTimestamp now)) lastFinalState
+    if expired == TV.ResultTransactionExpired
+    then return $ mapTransactionVerificationResult expired
+    else do
+      ur <- case tr of
         WithMetadata{wmdData = NormalTransaction tx} -> do
             -- Don't accept the transaction if the stated energy is smaller than the minimum energy amount.
             let baseEnergy = baseCost (getTransactionHeaderPayloadSize $ transactionHeader tx) (getTransactionNumSigs $ transactionSignature tx)
@@ -519,45 +517,51 @@ doReceiveTransaction tr slot = unlessShutDown $ do
                if isNothing senderExists then return ResultNonexistingSenderAccount
                else snd <$> doReceiveTransactionInternal tr slot
         _ -> snd <$> doReceiveTransactionInternal tr slot
-    when (ur == ResultSuccess) $ purgeTransactionTable False =<< currentTime
-    return ur
-
+      when (ur == ResultSuccess) $ purgeTransactionTable False =<< currentTime
+      return ur
     where
           isExpiryTooLate now = do
             maxTimeToExpiry <- rpMaxTimeToExpiry <$> getRuntimeParameters
             let expiry = msgExpiry tr
             return $ expiry > maxTimeToExpiry + utcTimeToTransactionTime now
 
+
 -- |Add a transaction to the transaction table.  The 'Slot' should be
 -- the slot number of the block that the transaction was received with.
 -- This function should only be called when a transaction is received as part of a block.
 -- The difference from the above function is that this function returns an already existing
 -- transaction in case of a duplicate, ensuring more sharing of transaction data.
+-- This function also verifies the transactions incoming and adds them to the internal
+-- transaction verification cache such that it can be used by the 'Scheduler'.
 doReceiveTransactionInternal :: (TreeStateMonad pv m) => BlockItem -> Slot -> m (Maybe BlockItem, UpdateResult)
-doReceiveTransactionInternal tr slot =
+doReceiveTransactionInternal tr slot = do
+        focus <- getFocusBlock
+        st <- blockState focus
+        -- Currently we put all transactions into the pending transaction table even if they're deemed invalid.
+        -- This is a consequence of the fact that currently the cache is being maintained together with the
+        -- transaction table i.e., cached results are being expunged when the associated transaction is either
+        -- finalized or purged.
+        -- todo: This could be further optimized having the cache represented as a PSQ and ordering consisting
+        -- of expiry dates.
         addCommitTransaction tr slot >>= \case
           Added bi@WithMetadata{..} -> do
-              ptrs <- getPendingTransactions
-              case wmdData of
-                NormalTransaction tx -> do
-                  focus <- getFocusBlock
-                  st <- blockState focus
-                  macct <- getAccount st $! transactionSender tx
-                  nextNonce <- fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
-                  -- If a transaction with this nonce has already been run by
-                  -- the focus block, then we do not need to add it to the
-                  -- pending transactions.  Otherwise, we do.
-                  when (nextNonce <= transactionNonce tx) $
-                      putPendingTransactions $! addPendingTransaction nextNonce WithMetadata{wmdData=tx,..} ptrs
-                CredentialDeployment _ ->
-                  putPendingTransactions $! addPendingDeployCredential wmdHash ptrs
-                ChainUpdate cu -> do
-                    focus <- getFocusBlock
-                    st <- blockState focus
-                    nextSN <- getNextUpdateSequenceNumber st (updateType (uiPayload cu))
-                    when (nextSN <= updateSeqNumber (uiHeader cu)) $
-                        putPendingTransactions $! addPendingUpdate nextSN cu ptrs
-              return (Just bi, ResultSuccess)
+            ptrs <- getPendingTransactions
+            case wmdData of
+              NormalTransaction tx -> do       
+                macct <- getAccount st $! transactionSender tx
+                nextNonce <- fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
+                -- If a transaction with this nonce has already been run by
+                -- the focus block, then we do not need to add it to the
+                -- pending transactions.  Otherwise, we do.
+                when (nextNonce <= transactionNonce tx) $
+                  putPendingTransactions $! addPendingTransaction nextNonce WithMetadata{wmdData=tx,..} ptrs
+              CredentialDeployment _ -> do
+                putPendingTransactions $! addPendingDeployCredential wmdHash ptrs
+              ChainUpdate cu -> do
+                nextSN <- getNextUpdateSequenceNumber st (updateType (uiPayload cu))
+                when (nextSN <= updateSeqNumber (uiHeader cu)) $
+                    putPendingTransactions $! addPendingUpdate nextSN cu ptrs
+            (\verRes -> return (Just bi, mapTransactionVerificationResult verRes)) =<< cachedBlockItemVerification tr st 
           Duplicate tx -> return (Just tx, ResultDuplicate)
           ObsoleteNonce -> return (Nothing, ResultStale)
 
@@ -584,3 +588,42 @@ doPurgeTransactions :: (TimeMonad m, TreeStateMonad pv m) => m ()
 doPurgeTransactions = do
         now <- currentTime
         purgeTransactionTable True now
+
+
+mapTransactionVerificationResult :: TV.VerificationResult -> UpdateResult
+mapTransactionVerificationResult TV.ResultTransactionExpired = ResultTransactionExpired
+mapTransactionVerificationResult TV.ResultExpiryTooLate = ResultExpiryTooLate
+mapTransactionVerificationResult (TV.ResultDuplicateAccountRegistrationID _) = ResultDuplicateAccountRegistrationID
+mapTransactionVerificationResult TV.ResultCredentialDeploymentInvalidIdentityProvider = ResultCredentialDeploymentInvalidIP
+mapTransactionVerificationResult TV.ResultCredentialDeploymentInvalidAnonymityRevokers = ResultCredentialDeploymentInvalidAR
+mapTransactionVerificationResult TV.ResultCredentialDeploymentInvalidSignatures = ResultCredentialDeploymentInvalidSignatures
+mapTransactionVerificationResult TV.ResultCredentialDeploymentInvalidKeys = ResultCredentialDeploymentInvalidKeys
+mapTransactionVerificationResult TV.ResultSuccess = ResultSuccess
+
+
+-- |Looks up if the transaction has already been verified. If that is the case
+-- then use the cached `VerificationResult`. If the transaction has not been
+-- verified before we verify it now, and puts the `VerificationResult` into the cache. 
+-- We return the 'VerificationResult'
+cachedBlockItemVerification :: (TreeStateMonad pv m) => BlockItem -> BlockState m -> m TV.VerificationResult
+cachedBlockItemVerification tr lastFinalState = do
+  -- check if the transaction has already been verified
+  txVerCache <- getTransactionVerificationCache
+  let verResult = HM.lookup (getHash tr) txVerCache
+  case tr of
+    WithMetadata{wmdData = CredentialDeployment cred} -> do        
+      case verResult of
+        Just res -> return res
+        Nothing -> do
+          -- if the transaction has not yet been verified we do so
+          result <- runReaderT (TV.verifyCredentialDeployment cred) lastFinalState
+          insertIntoCache (getHash tr) result
+          return result
+    -- todo: returning ResutSuccess should be fine for now, as currently the cache is only used
+    -- for credential deployments when executing transactions (also we assume hash collisions are very rare...)
+    _ -> return TV.ResultSuccess
+  where
+    insertIntoCache txHash verResult = do
+            c <- getTransactionVerificationCache
+            let c' = HM.insert txHash verResult c
+            putTransactionVerificationCache c'

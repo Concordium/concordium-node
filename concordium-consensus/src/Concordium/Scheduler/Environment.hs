@@ -37,6 +37,8 @@ import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.AccountTransactionIndex
 import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as ARS
 
+import qualified Concordium.TransactionVerification as TVer
+
 import Control.Exception(assert)
 
 import qualified Concordium.ID.Types as ID
@@ -61,8 +63,18 @@ class (Monad m) => StaticInformation m where
   getAccountCreationLimit :: m CredentialsPerBlockLimit
 
 -- |Information needed to execute transactions in the form that is easy to use.
-class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m)), AccountOperations m, MonadLogger m, IsProtocolVersion pv)
+class (Monad m, StaticInformation m, TVer.TransactionVerifier m, CanRecordFootprint (Footprint (ATIStorage m)), AccountOperations m, MonadLogger m, IsProtocolVersion pv)
     => SchedulerMonad pv m | m -> pv where
+
+  -- |Insert an entry to the 'Cache'.
+  -- The first parameter, @k@, is the key of the entry.
+  -- The second parameter, @v@, is the value of the entry.
+  --
+  -- If the capacity is reached for the cache, then we expunge all content
+  -- of the cache and insert the new entry.
+  insertTransactionVerificationResult :: TransactionHash -> TVer.VerificationResult -> m ()
+  -- |Returns whether the entry is present in the cache or not.
+  lookupTransactionVerificationResult :: TransactionHash  -> m (Maybe TVer.VerificationResult)
 
   -- |Notify the transaction log that a transaction had the given footprint. The
   -- nature of the footprint will depend on the configuration, e.g., it could be
@@ -78,9 +90,6 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
 
   -- |Get the 'AccountIndex' for an account, if it exists.
   getAccountIndex :: AccountAddress -> m (Maybe AccountIndex)
-
-  -- |Check whether a given registration id exists in the global state.
-  accountRegIdExists :: ID.CredentialRegistrationID -> m Bool
 
   -- |Commit to global state all the updates to local state that have
   -- accumulated through the execution. This method is also in charge of
@@ -242,17 +251,6 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
   -- * The account exists
   -- * The account has keys defined at the specified indices
   updateCredentialKeys :: AccountAddress -> ID.CredentialIndex -> ID.CredentialPublicKeys -> m ()
-
-  -- *Other metadata.
-
-  -- |Retrieve the identity provider with given id, if possible.
-  getIPInfo :: IdentityProviderIdentity -> m (Maybe IpInfo)
-
-  -- |Retrieve the identity provider with given id, if possible.
-  getArInfos :: [ID.ArIdentity] -> m (Maybe [ArInfo])
-
-  -- |Get cryptographic parameters for the current state.
-  getCryptoParams :: m CryptographicParameters
 
   -- * Chain updates
 

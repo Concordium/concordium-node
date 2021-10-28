@@ -260,6 +260,15 @@ class AccountOperations m => BlockStateQuery m where
 
     -- |Get the current cryptographic parameters of the chain.
     getCryptographicParameters :: BlockState m -> m CryptographicParameters
+    -- |Get the identity provider data for the given identity provider, or Nothing if
+    -- the identity provider with given ID does not exist.
+    getIdentityProvider :: BlockState m -> ID.IdentityProviderIdentity -> m (Maybe IpInfo)
+    -- |Check whether an the given credential registration ID exists, and return
+    -- the account index of the account it is or was associated with.
+    regIdExists :: BlockState m -> ID.CredentialRegistrationID -> m (Maybe AccountIndex)
+    -- |Get the anonymity revokers with given ids. Returns 'Nothing' if any of the
+    -- anonymity revokers are not found.
+    getAnonymityRevokers :: BlockState m -> [ID.ArIdentity] -> m (Maybe [ArInfo])
 
 -- |Distribution of newly-minted GTU.
 data MintAmounts = MintAmounts {
@@ -638,6 +647,9 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   getUpdates = lift . getUpdates
   getProtocolUpdateStatus = lift . getProtocolUpdateStatus
   getCryptographicParameters = lift . getCryptographicParameters
+  getIdentityProvider s = lift . getIdentityProvider s
+  regIdExists s = lift . regIdExists s
+  getAnonymityRevokers s = lift . getAnonymityRevokers s
   {-# INLINE getModule #-}
   {-# INLINE getAccount #-}
   {-# INLINE getAccountByCredId #-}
@@ -662,6 +674,9 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   {-# INLINE getUpdates #-}
   {-# INLINE getProtocolUpdateStatus #-}
   {-# INLINE getCryptographicParameters #-}
+  {-# INLINE getIdentityProvider #-}
+  {-# INLINE regIdExists #-}
+  {-# INLINE getAnonymityRevokers #-}
 
 instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (MGSTrans t m) where
   getAccountAddress = lift . getAccountAddress
