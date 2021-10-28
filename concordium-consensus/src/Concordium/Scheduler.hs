@@ -1142,10 +1142,8 @@ handleDeployCredential accCreation@AccountCreation{messageExpiry=messageExpiry, 
           tVerResult <- lift (verifyCredentialDeployment accCreation)
           unless (tVerResult == TV.ResultSuccess) $ throwError $ mapErr tVerResult
           newAccount regId aaddr liftedCryptoParams mkSummary
-        Just tVerResult -> do
-          -- The other verification errors can never be valid in the future and
-          -- as such we simply reject them here.
-          throwError $ mapErr tVerResult
+        Just tverResultErr -> do
+          throwError $ mapErr tverResultErr
         Nothing -> do
           -- If the transaction has not been verified before we verify it now
           tVerResult <- lift (verifyCredentialDeployment accCreation)
