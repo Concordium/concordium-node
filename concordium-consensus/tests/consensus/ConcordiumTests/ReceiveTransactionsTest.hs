@@ -43,19 +43,22 @@ import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import System.Random
 import Concordium.Skov.Update
 import Concordium.Types.Parameters (CryptographicParameters)
+import Concordium.GlobalState.TreeState (TreeStateMonad(finalizeTransactions))
 
 -- |Tests of doReceiveTransaction and doReceiveTransactionInternal of the Updater.
 test :: Spec
 test = do
-  describe "doReceiveTansaction" $ do
+  describe "doReceiveTransaction" $ do
     parallel $
       specify "Receive invalid account creations should fail properly" $ do
       let gCtx = dummyGlobalContext
       now <- currentTime
-      s <- runMkCredentialDeployments (accountCreations gCtx $ utcTimeToTransactionTime now) now (testGenesisData now dummyIdentityProviders dummyArs dummyCryptographicParameters)
+      let genesis = testGenesisData now dummyIdentityProviders dummyArs dummyCryptographicParameters
+          txs = accountCreations gCtx $ utcTimeToTransactionTime now
+      s <- runMkCredentialDeployments txs now genesis
       let results = fst s
-      let outState = snd s
-      let cache = outState ^. transactionVerificationResults
+          outState = snd s
+          cache = outState ^. transactionVerificationResults
       check results cache 0 False TVer.ResultExpiryTooLate
       check results cache 1 False TVer.ResultTransactionExpired
       check results cache 2 True $ TVer.ResultDuplicateAccountRegistrationID duplicateRegId
@@ -71,14 +74,27 @@ test = do
       cache' `shouldBe` HM.empty
     specify "Receive valid account creations should result in success" $ do
       let credentialDeploymentExpiryTime = 1596409020
-      let now = posixSecondsToUTCTime $ credentialDeploymentExpiryTime - 1
-      let txArrivalTime = utcTimeToTransactionTime now
-      s <- runMkCredentialDeployments [toBlockItem txArrivalTime mycdi , toBlockItem txArrivalTime myicdi] now (testGenesisData now myips myars myCryptoParams)
+          now = posixSecondsToUTCTime $ credentialDeploymentExpiryTime - 1
+          txArrivalTime = utcTimeToTransactionTime now
+          genesis = testGenesisData now myips myars myCryptoParams
+          txs = [toBlockItem txArrivalTime mycdi, toBlockItem txArrivalTime myicdi]
+      s <- runMkCredentialDeployments  txs now genesis
       let results = fst s
-      let outState = snd s
-      let cache = outState ^. transactionVerificationResults
+          outState = snd s
+          cache = outState ^. transactionVerificationResults
       check results cache 0 True TVer.ResultSuccess
---      check results cache 1 True TVer.ResultSuccess
+      check results cache 1 True TVer.ResultSuccess
+    specify "Finalize transactions deletes from cachce"  $ do
+      let credentialDeploymentExpiryTime = 1596409020
+          now = posixSecondsToUTCTime $ credentialDeploymentExpiryTime - 1
+          txArrivalTime = utcTimeToTransactionTime now
+          txs = [toBlockItem txArrivalTime mycdi]
+          genesis = testGenesisData now myips myars myCryptoParams
+      s <- runMkCredentialDeployments txs now genesis
+      let bh = genesisBlockHash genesis
+      s' <- runFinalizeTransactions now bh txs $ snd s
+      let cache' = snd s' ^. transactionVerificationResults
+      cache' `shouldBe` HM.empty
   where
     check results cache idx shouldBeInCache verRes = do
       checkVerificationResult (snd $ results !! idx) $ mapTransactionVerificationResult verRes
@@ -100,6 +116,12 @@ runMkCredentialDeployments txs now gData = do
 
 runPurgeTransactions :: UTCTime -> MyState -> IO ((), MyState)
 runPurgeTransactions = runMyMonad doPurgeTransactions
+
+runFinalizeTransactions :: UTCTime -> BlockHash -> [BlockItem] -> MyState -> IO ((), MyState)
+runFinalizeTransactions now bh txs s = do
+  runMyMonad (finalizeTransactions bh slot txs) now s
+  where
+    slot = 0
 
 type PV = 'P1
 type MyBlockState = HashedBlockState PV
@@ -255,7 +277,7 @@ mkArData valid = if valid then validAr else Map.empty
 mkCredentialKeyPair :: IO KeyPair
 mkCredentialKeyPair = newKeyPair Ed25519
 
--- expiry time for credentials 1596409020 // 2020-08-03 00:57:00
+-- expiry time for credentials 1596409020
 {-# WARNING mycdi "Do not use in production." #-}
 mycdi :: AccountCreation
 mycdi = readAccountCreation . BSL.fromStrict $ $(makeRelativeToProject "testdata/verifiable-credential.json" >>= embedFile)

@@ -304,9 +304,6 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
                         -- They can never be part of any other block after this point.
                         forM_ (Set.delete wmdtr nfn) $
                           \deadTransaction -> transactionTable . ttHashMap . at' (getHash deadTransaction) .= Nothing
-                        -- delete the transaction from the verified transaction cache
-                        transactionVerificationResults %=! HM.delete wmdHash
-
                         -- Mark the status of the transaction as finalized.
                         -- Singular here is safe due to the precondition (and assertion) that all transactions
                         -- which are part of live blocks are in the transaction table.
@@ -316,6 +313,8 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
                         -- Update the non-finalized transactions for the sender
                         transactionTable . ttNonFinalizedTransactions . at' sender ?= (anft & (anftMap . at' nonce .~ Nothing) & (anftNextNonce .~ nonce + 1))
             finTrans WithMetadata{wmdData=CredentialDeployment{},..} = do
+              -- delete the transaction from the verified transaction cache
+              transactionVerificationResults %=! HM.delete wmdHash
               transactionTable . ttHashMap . singular (ix wmdHash) . _2 %=
                             \case Committed{..} -> Finalized{_tsSlot=slot,tsBlockHash=bh,tsFinResult=tsResults HM.! bh,..}
                                   _ -> error "Transaction should be in committed state when finalized."

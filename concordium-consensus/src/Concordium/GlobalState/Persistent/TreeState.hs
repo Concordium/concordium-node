@@ -718,9 +718,6 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
                           \deadTransaction -> transactionTable . ttHashMap . at' (getHash deadTransaction) .= Nothing
                         -- Mark the status of the transaction as finalized, and remove the data from the in-memory table.
                         ss <- deleteAndFinalizeStatus wmdHash
-                        -- delete the transaction from the verified transaction cache
-                        transactionVerificationResults %=! HM.delete wmdHash
-
                         -- Update the non-finalized transactions for the sender
                         transactionTable . ttNonFinalizedTransactions . at' sender ?= (anft & (anftMap . at' nonce .~ Nothing)
                                                                                            & (anftNextNonce .~ nonce + 1))
@@ -730,7 +727,10 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
                 else do
                  logErrorAndThrowTS $
                       "The recorded next nonce for the account " ++ show sender ++ " (" ++ show (anft ^. anftNextNonce) ++ ") doesn't match the one that is going to be finalized (" ++ show nonce ++ ")"
-            finTrans WithMetadata{wmdData=CredentialDeployment{},..} = deleteAndFinalizeStatus wmdHash
+            finTrans WithMetadata{wmdData=CredentialDeployment{},..} = do
+                -- delete the transaction from the verified transaction cache
+                transactionVerificationResults %=! HM.delete wmdHash
+                deleteAndFinalizeStatus wmdHash
             finTrans WithMetadata{wmdData=ChainUpdate cu,..} = do
                 let sn = updateSeqNumber (uiHeader cu)
                     uty = updateType (uiPayload cu)
