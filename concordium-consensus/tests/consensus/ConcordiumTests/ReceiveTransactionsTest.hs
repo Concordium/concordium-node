@@ -280,28 +280,28 @@ mkCredentialKeyPair = newKeyPair Ed25519
 -- expiry time for credentials 1596409020
 {-# WARNING mycdi "Do not use in production." #-}
 mycdi :: AccountCreation
-mycdi = readAccountCreation . BSL.fromStrict $ $(makeRelativeToProject "testdata/verifiable-credential.json" >>= embedFile)
+mycdi = readAccountCreation . BSL.fromStrict $ $(makeRelativeToProject "testdata/transactionverification/verifiable-credential.json" >>= embedFile)
 
 {-# WARNING myicdi "Do not use in production." #-}
 myicdi :: AccountCreation
-myicdi = readAccountCreation . BSL.fromStrict $ $(makeRelativeToProject "testdata/verifiable-initial-credential.json" >>= embedFile)
+myicdi = readAccountCreation . BSL.fromStrict $ $(makeRelativeToProject "testdata/transactionverification/verifiable-initial-credential.json" >>= embedFile)
 
 {-# WARNING myips "Do not use in production." #-}
 myips :: IdentityProviders
-myips = case readIps . BSL.fromStrict $ $(makeRelativeToProject "testdata/verifiable-ips.json" >>= embedFile) of
+myips = case readIps . BSL.fromStrict $ $(makeRelativeToProject "testdata/transactionverification/verifiable-ips.json" >>= embedFile) of
   Just x -> x
   Nothing -> error "oops"
 
 {-# WARNING myars "Do not use in production." #-}
 myars :: AnonymityRevokers
-myars = case readArs . BSL.fromStrict $ $(makeRelativeToProject "testdata/verifiable-ars.json" >>= embedFile) of
+myars = case readArs . BSL.fromStrict $ $(makeRelativeToProject "testdata/transactionverification/verifiable-ars.json" >>= embedFile) of
   Just x -> x
   Nothing -> error "oops"
 
 {-# WARNING myCryptoParams "Do not use in production" #-}
 myCryptoParams :: CryptographicParameters
 myCryptoParams =
-  case getExactVersionedCryptographicParameters (BSL.fromStrict $(makeRelativeToProject "testdata/verifiable-global.json" >>= embedFile)) of
+  case getExactVersionedCryptographicParameters (BSL.fromStrict $(makeRelativeToProject "testdata/transactionverification/verifiable-global.json" >>= embedFile)) of
     Nothing -> error "Could not read cryptographic parameters."
     Just params -> params
 
