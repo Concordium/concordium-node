@@ -113,6 +113,7 @@ verifyCredentialDeployment accountCreation@Tx.AccountCreation{..} = do
                       then return ResultCredentialDeploymentInvalidSignatures
                       else return ResultSuccess
 
+
 -- |Verifies that a credential is unique
 verifyCredentialUniqueness :: TransactionVerifier m => Tx.AccountCreation -> m VerificationResult
 verifyCredentialUniqueness accountCreation = do

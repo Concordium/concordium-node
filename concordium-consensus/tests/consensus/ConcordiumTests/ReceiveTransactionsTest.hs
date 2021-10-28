@@ -48,9 +48,9 @@ import Concordium.GlobalState.TreeState (TreeStateMonad(finalizeTransactions))
 -- |Tests of doReceiveTransaction and doReceiveTransactionInternal of the Updater.
 test :: Spec
 test = do
-  describe "doReceiveTransaction" $ do
+  describe "Verification of received acccount creations" $ do
     parallel $
-      specify "Receive invalid account creations should fail properly" $ do
+      specify "Invalid account creations should fail with expected error codes" $ do
       let gCtx = dummyGlobalContext
       now <- currentTime
       let genesis = testGenesisData now dummyIdentityProviders dummyArs dummyCryptographicParameters
@@ -84,7 +84,7 @@ test = do
           cache = outState ^. transactionVerificationResults
       check results cache 0 True TVer.ResultSuccess
       check results cache 1 True TVer.ResultSuccess
-    specify "Finalize transactions deletes from cachce"  $ do
+    specify "Finalized account creations should be expunged from the cache"  $ do
       let credentialDeploymentExpiryTime = 1596409020
           now = posixSecondsToUTCTime $ credentialDeploymentExpiryTime - 1
           txArrivalTime = utcTimeToTransactionTime now

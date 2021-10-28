@@ -204,6 +204,12 @@ pub enum ConsensusFfiResponse {
     NonceTooLarge,
     TooLowEnergy,
     InvalidGenesisIndex,
+    TransactionExpired,
+    DuplicateAccountRegistrationID,
+    CredentialDeploymentInvalidKeys,
+    CredentialDeploymentInvalidSignatures,
+    CredentialDeploymentInvalidIP,
+    CredentialDeploymentInvalidAR,
 }
 
 impl ConsensusFfiResponse {
@@ -260,6 +266,9 @@ impl ConsensusFfiResponse {
                 | TooLowEnergy
                 | ConsensusShutDown
                 | InvalidGenesisIndex
+                | CredentialDeploymentInvalidIP // as invalid ip could be valid in the future we rebroadcast them
+                | CredentialDeploymentInvalidAR /* as invalid ars's could be valid in a future
+                                                 * block we rebroadcast them */
         )
     }
 }
@@ -294,6 +303,12 @@ impl TryFrom<i64> for ConsensusFfiResponse {
             18 => Ok(NonceTooLarge),
             19 => Ok(TooLowEnergy),
             20 => Ok(InvalidGenesisIndex),
+            21 => Ok(TransactionExpired),
+            22 => Ok(DuplicateAccountRegistrationID),
+            23 => Ok(CredentialDeploymentInvalidKeys),
+            24 => Ok(CredentialDeploymentInvalidSignatures),
+            25 => Ok(CredentialDeploymentInvalidIP),
+            26 => Ok(CredentialDeploymentInvalidAR),
             _ => Err(anyhow!("Unsupported FFI return code ({})", value)),
         }
     }
