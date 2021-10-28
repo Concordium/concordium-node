@@ -43,6 +43,7 @@ import GHC.Stack
 import Data.IORef
 import Concordium.Crypto.EncryptedTransfers
 import Data.Map (Map)
+import System.IO.MMap
 
 import Concordium.GlobalState.Persistent.MonadicRecursive
 
@@ -82,7 +83,11 @@ data BlobHandle = BlobHandle{
 -- | The storage context
 data BlobStore = BlobStore {
     blobStoreFile :: !(MVar BlobHandle),
-    blobStoreFilePath :: !FilePath
+    blobStoreFilePath :: !FilePath,
+    -- |The blob store file memory-mapped into a (read-only) 'ByteString'.
+    -- At any given time, this may be smaller than the file, requiring remapping to read later
+    -- parts. It will always map from the start of the file.
+    blobStoreMMap :: !(IORef BS.ByteString)
 }
 
 class HasBlobStore a where
@@ -99,6 +104,7 @@ createBlobStore blobStoreFilePath = do
     when pathEx $ throwIO (userError $ "Blob store path already exists: " ++ blobStoreFilePath)
     bhHandle <- openBinaryFile blobStoreFilePath ReadWriteMode
     blobStoreFile <- newMVar BlobHandle{bhSize=0, bhAtEnd=True,..}
+    blobStoreMMap <- newIORef BS.empty
     return BlobStore{..}
 
 -- |Load an existing blob store from a file.
@@ -108,6 +114,7 @@ loadBlobStore blobStoreFilePath = do
   bhHandle <- openBinaryFile blobStoreFilePath ReadWriteMode
   bhSize <- fromIntegral <$> hFileSize bhHandle
   blobStoreFile <- newMVar BlobHandle{bhAtEnd=bhSize==0,..}
+  blobStoreMMap <- newIORef =<< mmapFileByteString blobStoreFilePath Nothing
   return BlobStore{..}
 
 -- |Flush all buffers associated with the blob store,
@@ -142,13 +149,14 @@ runBlobStoreTemp dir a = bracket openf closef usef
             removeFile tempFP
         usef (fp, h) = do
             mv <- newMVar (BlobHandle h True 0)
-            res <- runReaderT a (BlobStore mv fp)
+            mmap <- newIORef BS.empty
+            res <- runReaderT a (BlobStore mv fp mmap)
             _ <- takeMVar mv
             return res
 
--- | Read a bytestring from the blob store at the given offset
-readBlobBS :: BlobStore -> BlobRef a -> IO BS.ByteString
-readBlobBS BlobStore{..} (BlobRef offset) = mask $ \restore -> do
+-- | Read a bytestring from the blob store at the given offset using the file handle.
+readBlobBSFromHandle :: BlobStore -> BlobRef a -> IO BS.ByteString
+readBlobBSFromHandle BlobStore{..} (BlobRef offset) = mask $ \restore -> do
         bh@BlobHandle{..} <- takeMVar blobStoreFile
         eres <- try $ restore $ do
             hSeek bhHandle AbsoluteSeek (fromIntegral offset)
@@ -160,6 +168,35 @@ readBlobBS BlobStore{..} (BlobRef offset) = mask $ \restore -> do
         case eres :: Either SomeException BS.ByteString of
             Left e -> throwIO e
             Right bs -> return bs
+
+-- | Read a bytestring from the blob store at the given offset using the memory map.
+-- The file handle is used as a backstop if the data to be read would be outside the memory map
+-- even after re-mapping.
+readBlobBS :: BlobStore -> BlobRef a -> IO BS.ByteString
+readBlobBS bs@BlobStore{..} br@(BlobRef offset) = do
+        let ioffset = fromIntegral offset
+        let dataOffset = ioffset + 8
+        mmap0 <- readIORef blobStoreMMap
+        mmap <- if dataOffset > BS.length mmap0 then do
+                -- Remap the file
+                mmap <- mmapFileByteString blobStoreFilePath Nothing
+                writeIORef blobStoreMMap mmap
+                return mmap
+            else return mmap0
+        let mmapLength = BS.length mmap
+        if dataOffset > mmapLength then
+            readBlobBSFromHandle bs br
+        else do
+            let lengthStart = BS.drop ioffset mmap
+            case decode (BS.take 8 lengthStart) of
+                Left e -> error e
+                Right (size :: Word64) -> do
+                    if dataOffset + fromIntegral size > mmapLength then
+                        readBlobBSFromHandle bs br
+                    else
+                        return
+                            $ BS.take (fromIntegral size)
+                            $ BS.drop dataOffset mmap
 
 -- | Write a bytestring into the blob store and return the offset
 writeBlobBS :: BlobStore -> BS.ByteString -> IO (BlobRef a)

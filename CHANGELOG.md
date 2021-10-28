@@ -1,6 +1,11 @@
 # Changelog
 
 ## Unreleased changes
+- Fix a bug due to incorrect use of LMDB database environments where a node
+  would crash if queried at specific times.
+- Faster state queries by avoiding locking the block state file when reading.
+- Fix a bug by shutting down RPC before the node, which caused the node to crash
+  when attempting a graceful shutdown while processing RPC requests.
 
 ## concordium-node 1.1.3
 

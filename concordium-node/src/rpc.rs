@@ -15,6 +15,7 @@ use crate::{
     read_or_die,
 };
 use byteorder::WriteBytesExt;
+use futures::future::Future;
 use p2p_server::*;
 use std::{
     convert::TryInto,
@@ -54,12 +55,16 @@ impl RpcServerImpl {
         })
     }
 
-    /// Starts the gRPC server.
-    pub async fn start_server(&mut self) -> anyhow::Result<()> {
+    /// Starts the gRPC server, which will shutdown when the provided future is
+    /// ready. When shutting down, the server will stop accepting new
+    /// requests and shutdown once all the in-progress requests are completed.
+    pub async fn start_server(
+        &mut self,
+        shutdown_signal: impl Future<Output = ()>,
+    ) -> anyhow::Result<()> {
         let self_clone = self.clone();
         let server = Server::builder().add_service(P2pServer::new(self_clone));
-
-        server.serve(self.listen_addr).await.map_err(|e| e.into())
+        server.serve_with_shutdown(self.listen_addr, shutdown_signal).await.map_err(|e| e.into())
     }
 }
 
@@ -857,8 +862,8 @@ mod tests {
     use chrono::prelude::Utc;
     use tonic::{metadata::MetadataValue, transport::channel::Channel, Code, Request};
 
+    use futures::future;
     use grpc_api::p2p_client::P2pClient;
-
     use std::sync::Arc;
 
     const TOKEN: &str = "rpcadmin";
@@ -877,7 +882,7 @@ mod tests {
         config.cli.rpc.rpc_server_addr = "127.0.0.1".to_owned();
         config.cli.rpc.rpc_server_token = TOKEN.to_owned();
         let mut rpc_server = RpcServerImpl::new(node.clone(), None, &config.cli.rpc)?;
-        tokio::spawn(async move { rpc_server.start_server().await });
+        tokio::spawn(async move { rpc_server.start_server(future::pending()).await });
         tokio::task::yield_now().await;
 
         let addr: &'static str =

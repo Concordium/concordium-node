@@ -3,6 +3,7 @@
 extern crate log;
 
 // Force the system allocator on every platform
+use futures::FutureExt;
 use std::alloc::System;
 #[global_allocator]
 static A: System = System;
@@ -35,13 +36,12 @@ use concordium_node::{
 use mio::Poll;
 use parking_lot::Mutex as ParkingMutex;
 use rand::Rng;
-use std::{
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
-    thread::JoinHandle,
-};
+use std::{sync::Arc, thread::JoinHandle};
+#[cfg(unix)]
+use tokio::signal::unix as unix_signal;
+#[cfg(windows)]
+use tokio::signal::windows as windows_signal;
+use tokio::sync::oneshot;
 
 #[cfg(feature = "instrumentation")]
 use concordium_node::stats_export_service::start_push_gateway;
@@ -51,57 +51,32 @@ use std::net::{IpAddr, SocketAddr};
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let (conf, mut app_prefs) = get_config_and_logging_setup()?;
-    let shutdown_handler_state = Arc::new(AtomicBool::new(false));
 
     let stats_export_service = instantiate_stats_export_engine(&conf)?;
     let regenesis_arc: Arc<Regenesis> = Arc::new(Default::default());
 
-    // The P2PNode thread
-    let (node, poll) =
-        instantiate_node(&conf, &mut app_prefs, stats_export_service, regenesis_arc.clone())
-            .context("Failed to create the node.")?;
-
-    // Signal handling closure. so we shut down cleanly
-    let signal_closure = |signal_handler_node: &Arc<P2PNode>,
-                          shutdown_handler_state: &Arc<AtomicBool>| {
-        match shutdown_handler_state.compare_exchange(
-            false,
-            true,
-            Ordering::SeqCst,
-            Ordering::SeqCst,
-        ) {
-            Ok(false) => {
-                info!("Signal received attempting to shutdown node cleanly");
-                if !signal_handler_node.close() {
-                    error!("Can't shutdown node properly!");
-                    std::process::exit(1);
-                }
-            }
-            Err(true) => {
+    // Setup task with signal handling.
+    let shutdown_signal = {
+        let (tx, rx) = oneshot::channel();
+        tokio::spawn(async move {
+            get_shutdown_signal().await.unwrap();
+            info!("Signal received attempting to shutdown node cleanly");
+            tx.send(()).unwrap();
+            loop {
+                get_shutdown_signal().await.unwrap();
                 info!(
                     "Signal received to shutdown node cleanly, but an attempt to do so is already \
                      in progress."
                 );
             }
-            _ => info!("Could not handle signal to shut down. Try again."),
-        }
+        });
+        rx
     };
 
-    // Register a SIGTERM handler for a POSIX.1-2001 system
-    #[cfg(not(windows))]
-    {
-        let sigterm_shutdown_handler_state = shutdown_handler_state.clone();
-        let signal_hook_node = node.clone();
-        unsafe {
-            signal_hook::low_level::register(signal_hook::consts::SIGTERM, move || {
-                signal_closure(&signal_hook_node, &sigterm_shutdown_handler_state)
-            })
-        }?;
-    }
-
-    // Register a safe handler for SIGINT / ^C
-    let ctrlc_node = node.clone();
-    ctrlc::set_handler(move || signal_closure(&ctrlc_node, &shutdown_handler_state))?;
+    // The P2PNode thread
+    let (node, poll) =
+        instantiate_node(&conf, &mut app_prefs, stats_export_service, regenesis_arc.clone())
+            .context("Failed to create the node.")?;
 
     #[cfg(feature = "instrumentation")]
     {
@@ -162,14 +137,21 @@ async fn main() -> anyhow::Result<()> {
     )?;
     info!("Consensus layer started");
 
-    // Start the RPC server
-    if !conf.cli.rpc.no_rpc_server {
+    // Start the RPC server with a channel for shutting it down.
+    let (shutdown_rpc_sender, shutdown_rpc_signal) = oneshot::channel();
+    let rpc_server_task = if !conf.cli.rpc.no_rpc_server {
+        info!("Starting RPC server");
         let mut serv = RpcServerImpl::new(node.clone(), Some(consensus.clone()), &conf.cli.rpc)
             .context("Cannot create RPC server.")?;
-        tokio::spawn(async move {
-            serv.start_server().await.expect("Can't start the RPC server");
+
+        let task = tokio::spawn(async move {
+            serv.start_server(shutdown_rpc_signal.map(|_| ()))
+                .await
+                .expect("Can't start the RPC server");
         });
-        info!("RPC server started");
+        Some(task)
+    } else {
+        None
     };
 
     if let Some(ref import_path) = conf.cli.baker.import_path {
@@ -189,8 +171,34 @@ async fn main() -> anyhow::Result<()> {
         establish_connections(&conf, &node)?;
     }
 
-    // start baking
+    // Start baking
     consensus.start_baker();
+
+    // Everything is running, so we wait for a signal to shutdown.
+    if shutdown_signal.await.is_err() {
+        error!("Shutdown signal handler was dropped unexpectedly. Shutting down.");
+    }
+
+    // Message rpc to shutdown first
+    if let Some(task) = rpc_server_task {
+        if shutdown_rpc_sender.send(()).is_err() {
+            error!("Could not stop the RPC server correctly. Forcing shutdown.");
+            task.abort();
+        }
+        if let Err(err) = task.await {
+            if err.is_cancelled() {
+                info!("RPC server was successfully shutdown by force.");
+            } else if err.is_panic() {
+                error!("RPC server panicked!");
+            }
+        }
+    }
+
+    // Shutdown node
+    if !node.close() {
+        error!("Can't shutdown node properly!");
+        std::process::exit(1);
+    }
 
     // Wait for the P2PNode to close
     node.join().context("The node thread panicked!")?;
@@ -213,6 +221,29 @@ async fn main() -> anyhow::Result<()> {
 
     info!("P2PNode gracefully closed.");
 
+    Ok(())
+}
+
+/// Construct a future for shutdown signals (for unix: SIGINT and SIGTERM) (for
+/// windows: ctrl c and ctrl break). The signal handler is set when the future
+/// is polled and until then the default signal handler.
+async fn get_shutdown_signal() -> anyhow::Result<()> {
+    #[cfg(unix)]
+    {
+        let mut terminate_stream = unix_signal::signal(unix_signal::SignalKind::terminate())?;
+        let mut interrupt_stream = unix_signal::signal(unix_signal::SignalKind::interrupt())?;
+        let terminate = Box::pin(terminate_stream.recv());
+        let interrupt = Box::pin(interrupt_stream.recv());
+        futures::future::select(terminate, interrupt).await;
+    }
+    #[cfg(windows)]
+    {
+        let mut ctrl_break_stream = windows_signal::ctrl_break()?;
+        let mut ctrl_c_stream = windows_signal::ctrl_c()?;
+        let ctrl_break = Box::pin(ctrl_break_stream.recv());
+        let ctrl_c = Box::pin(ctrl_c_stream.recv());
+        futures::future::select(ctrl_break, ctrl_c).await;
+    }
     Ok(())
 }
 

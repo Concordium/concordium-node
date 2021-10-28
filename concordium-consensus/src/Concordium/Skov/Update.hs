@@ -590,6 +590,7 @@ doPurgeTransactions = do
         now <- currentTime
         purgeTransactionTable True now
 
+
 mapTransactionVerificationResult :: TV.VerificationResult -> UpdateResult
 mapTransactionVerificationResult TV.ResultTransactionExpired = ResultTransactionExpired
 mapTransactionVerificationResult TV.ResultExpiryTooLate = ResultExpiryTooLate
