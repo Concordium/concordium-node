@@ -51,7 +51,7 @@ test = do
     parallel $
       specify "Receive invalid account creations should fail properly" $ do
       let gCtx = dummyGlobalContext
-      now <- currentTime 
+      now <- currentTime
       s <- runMkCredentialDeployments (accountCreations gCtx $ utcTimeToTransactionTime now) now (testGenesisData now dummyIdentityProviders dummyArs dummyCryptographicParameters)
       let results = fst s
       let outState = snd s
@@ -69,7 +69,7 @@ test = do
       s' <- runPurgeTransactions (addUTCTime (secondsToNominalDiffTime 2) now) outState
       let cache' = snd s' ^. transactionVerificationResults
       cache' `shouldBe` HM.empty
-    specify "Receive valid account creations should result in success" $ do      
+    specify "Receive valid account creations should result in success" $ do
       let credentialDeploymentExpiryTime = 1596409020
       let now = posixSecondsToUTCTime $ credentialDeploymentExpiryTime - 1
       let txArrivalTime = utcTimeToTransactionTime now
@@ -87,7 +87,7 @@ test = do
         then checkCacheIsOK cache (fst $ results !! idx) (Just verRes)
         else checkCacheIsOK cache (fst $ results !! idx) Nothing
     checkVerificationResult actual expected = do
-      actual `shouldBe` expected      
+      actual `shouldBe` expected
     checkCacheIsOK c k expected = do
       let cacheResult = HM.lookup k c
       cacheResult `shouldBe` expected
@@ -100,7 +100,7 @@ runMkCredentialDeployments txs now gData = do
 
 runPurgeTransactions :: UTCTime -> MyState -> IO ((), MyState)
 runPurgeTransactions = runMyMonad doPurgeTransactions
-                         
+
 type PV = 'P1
 type MyBlockState = HashedBlockState PV
 type MyState = SkovData PV MyBlockState
@@ -169,9 +169,9 @@ toBlockItem now acc = credentialDeployment $
 duplicateRegId :: CredentialRegistrationID
 duplicateRegId = cred
   where
-    cred = case Map.lookup 0 (gaCredentials $  head (makeFakeBakers 1)) of
-              Nothing -> undefined
-              Just x -> credId x
+    cred = maybe
+      undefined credId
+      (Map.lookup 0 (gaCredentials $ head (makeFakeBakers 1)))
 
 mkAccountCreation :: TransactionTime -> CredentialRegistrationID -> Word32 -> Bool ->  Bool -> AccountCreation
 mkAccountCreation expiry regId identityProviderId validAr validPubKeys = AccountCreation
@@ -225,7 +225,7 @@ mkCredentialPublicKeys validKeys = credKeys
                                  credThreshold=0
                                }
                            key = SigScheme.correspondingVerifyKey $ dummyKeyPair 1
-                             
+
 dummyKeyPair :: Int -> SigScheme.KeyPair
 dummyKeyPair = uncurry SigScheme.KeyPairEd25519 . fst . randomEd25519KeyPair . mkStdGen
 
@@ -281,7 +281,7 @@ myCryptoParams :: CryptographicParameters
 myCryptoParams =
   case getExactVersionedCryptographicParameters (BSL.fromStrict $(makeRelativeToProject "testdata/verifiable-global.json" >>= embedFile)) of
     Nothing -> error "Could not read cryptographic parameters."
-    Just params -> params  
+    Just params -> params
 
 readAccountCreation :: BSL.ByteString -> AccountCreation
 readAccountCreation bs =
