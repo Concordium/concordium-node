@@ -259,6 +259,12 @@ impl P2p for RpcServerImpl {
                 (Ok(_), TooLowEnergy) => Ok(mk_response(false)),
                 (Ok(_), ExpiryTooLate) => Ok(mk_response(false)),
                 (Ok(_), NonexistingSenderAccount) => Ok(mk_response(false)),
+                (Ok(_), TransactionExpired) => Ok(mk_response(false)),
+                (Ok(_), DuplicateAccountRegistrationID) => Ok(mk_response(false)),
+                (Ok(_), CredentialDeploymentInvalidKeys) => Ok(mk_response(false)),
+                (Ok(_), CredentialDeploymentInvalidSignatures) => Ok(mk_response(false)),
+                (Ok(_), CredentialDeploymentInvalidIP) => Ok(mk_response(false)),
+                (Ok(_), CredentialDeploymentInvalidAR) => Ok(mk_response(false)),
                 (Err(e), Success) => {
                     warn!("Couldn't put a transaction in the outbound queue due to {:?}", e);
                     Err(Status::new(
