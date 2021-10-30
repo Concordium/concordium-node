@@ -6,7 +6,7 @@
 - Faster state queries by avoiding locking the block state file when reading.
 - Fix a bug by shutting down RPC before the node, which caused the node to crash
   when attempting a graceful shutdown while processing RPC requests.
-- Introduced an earlier verification process for credential deployments and accordingly more fine grained
+- Introduce an earlier verification process for credential deployments and accordingly more fine grained
   FFI result codes.
 - The `send_transaction` function exposed via the GRPC now provides the caller with detailed error messages if the 
   transaction was rejected by the consensus instead of just `False`. The function still returns `True` if 
