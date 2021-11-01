@@ -18,7 +18,7 @@ import qualified Concordium.ID.Types as ID
 import Data.Maybe (isJust)
 
 -- |The 'VerificationResult' type serves as an intermediate `result type` between the 'TxResult' and 'UpdateResult' types.
--- VerificationResult's contains possible verification errors that may have occured when verifying a 'AccountCreation' type.
+-- VerificationResult's contains possible verification errors that may have occurred when verifying a 'AccountCreation' type.
 data VerificationResult
   = ResultSuccess
     -- ^The verification passed
@@ -41,7 +41,7 @@ data VerificationResult
   
 
 -- |Type which can verify transactions in a monadic context. 
--- The type is responsible for retrieving the neccessary information
+-- The type is responsible for retrieving the necessary information
 -- in order to deem a transaction valid or 'unverifiable'.
 -- Unverifiable transactions are transactions which are and never will be valid transactions
 -- e.g., due to erroneous signatures, invalid 'IdentityProvider's, invalid 'AnonymityRevoker's etc.
@@ -119,7 +119,7 @@ verifyCredentialUniqueness :: TransactionVerifier m => Tx.AccountCreation -> m V
 verifyCredentialUniqueness accountCreation = do
   -- check that the registration id does not already exist
   regIdExists <- registrationIdExists (ID.credId accountCreation)
-  -- check that the account does not already exist (very unlikely to happen but we check it for good measurement)
+  -- check that the account does not already exist (very unlikely to happen but we check it for good measure)
   accExists <- accountExists (ID.addressFromRegId (ID.credId accountCreation))
   if regIdExists || accExists
   then return $ ResultDuplicateAccountRegistrationID (ID.credId accountCreation)

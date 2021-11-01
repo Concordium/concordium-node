@@ -31,7 +31,7 @@ import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.Basic.BlockState (PureBlockStateMonad(..), BlockState)
 import Concordium.GlobalState.TreeState
-    ( BlockStateTypes(UpdatableBlockState), MGSTrans(..), TransactionVerificationCache )
+    ( BlockStateTypes(UpdatableBlockState), MGSTrans(..), TransactionVerificationCache)
 import qualified Concordium.GlobalState.Types as GS
 import qualified Concordium.TransactionVerification as TVer
 
@@ -164,16 +164,12 @@ instance (MonadReader ContextState m,
          )
          => SchedulerMonad pv (BSOMonadWrapper pv ContextState w state m) where
 
+  {-# INLINE insertTransactionVerificationResult #-}
   insertTransactionVerificationResult txHash verResult = do
-    cache <- use transactionVerificationCache
-    let cache' = Map.insert txHash verResult cache
-    assign transactionVerificationCache cache'
+    transactionVerificationCache %= Map.insert txHash verResult
 
-  lookupTransactionVerificationResult k = do
-    cache <- use transactionVerificationCache
-    let value = Map.lookup k cache
-    return value
-
+  {-# INLINE lookupTransactionVerificationResult #-}
+  lookupTransactionVerificationResult k = use (transactionVerificationCache . at k)
 
   {-# INLINE tlNotifyAccountEffect #-}
   tlNotifyAccountEffect items summary = do

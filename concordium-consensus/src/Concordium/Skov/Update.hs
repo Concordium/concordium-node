@@ -619,7 +619,7 @@ cachedBlockItemVerification tr lastFinalState = do
           result <- runReaderT (TV.verifyCredentialDeployment cred) lastFinalState
           insertIntoCache (getHash tr) result
           return result
-    -- todo: returning ResutSuccess should be fine for now, as currently the cache is only used
+    -- todo: returning ResultSuccess should be fine for now, as currently the cache is only used
     -- for credential deployments when executing transactions (also we assume hash collisions are very rare...)
     _ -> return TV.ResultSuccess
   where

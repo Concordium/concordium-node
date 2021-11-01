@@ -239,7 +239,15 @@ class AccountOperations m => BlockStateQuery m where
     -- They should be returned in the order that they were emitted.
     getSpecialOutcomes :: BlockState m -> m (Seq.Seq SpecialTransactionOutcome)
 
+    getIdentityProvider :: BlockState m -> ID.IdentityProviderIdentity -> m (Maybe IpInfo)
+    -- |Check whether an the given credential registration ID exists, and return
+    -- the account index of the account it is or was associated with.
+
     getAllIdentityProviders :: BlockState m -> m [IpInfo]
+
+    -- |Get the anonymity revokers with given ids. Returns 'Nothing' if any of the
+    -- anonymity revokers are not found.
+    getAnonymityRevokers :: BlockState m -> [ID.ArIdentity] -> m (Maybe [ArInfo])
 
     getAllAnonymityRevokers :: BlockState m -> m [ArInfo]
 
@@ -262,13 +270,7 @@ class AccountOperations m => BlockStateQuery m where
     getCryptographicParameters :: BlockState m -> m CryptographicParameters
     -- |Get the identity provider data for the given identity provider, or Nothing if
     -- the identity provider with given ID does not exist.
-    getIdentityProvider :: BlockState m -> ID.IdentityProviderIdentity -> m (Maybe IpInfo)
-    -- |Check whether an the given credential registration ID exists, and return
-    -- the account index of the account it is or was associated with.
     regIdExists :: BlockState m -> ID.CredentialRegistrationID -> m (Maybe AccountIndex)
-    -- |Get the anonymity revokers with given ids. Returns 'Nothing' if any of the
-    -- anonymity revokers are not found.
-    getAnonymityRevokers :: BlockState m -> [ID.ArIdentity] -> m (Maybe [ArInfo])
 
 -- |Distribution of newly-minted GTU.
 data MintAmounts = MintAmounts {

@@ -32,8 +32,7 @@ import Concordium.Types.HashableTo
 import Concordium.Types
 import Concordium.Types.Updates
 import Concordium.GlobalState.AccountTransactionIndex
-import qualified Data.HashMap.Strict as HM
-import qualified Concordium.TransactionVerification as TV
+import qualified Concordium.TransactionVerification as TVer
 
 import Data.ByteString
 import Concordium.Logger
@@ -41,6 +40,7 @@ import Data.Serialize as S
 import Concordium.Common.Version (Version)
 import qualified Concordium.GlobalState.Block as B
 import Data.Bits
+import qualified Data.HashMap.Strict as HM
 
 data BlockStatus bp pb =
     BlockAlive !bp
@@ -73,14 +73,13 @@ data AddTransactionResult =
   ObsoleteNonce
   deriving(Eq, Show)
 
--- |The Transaction verification cache stores a transaction `VerificationResult` alongside its
--- `TransactionHash`.
--- New entries are being put into the cache via the Updater.
--- The cached verification results is then used by the Scheduler for allowing for an easier verification process during
+-- |The transaction verification cache stores transaction 'VerificationResult's associated with 'TransactionHash'es.
+-- New entries are being put into the cache when receiving new transasactions (either as a single transaction or within a block).
+-- The cached verification results are used by the Scheduler to short-cut verification
 -- during block execution.
--- Entries in the cache are being removed when the associated transaction is either
+-- Entries in the cache are removed when the associated transaction is either
 -- finalized or purged.
-type TransactionVerificationCache = HM.HashMap TransactionHash TV.VerificationResult
+type TransactionVerificationCache = HM.HashMap TransactionHash TVer.VerificationResult
 
 -- |Monad that provides operations for working with the low-level tree state.
 -- These operations are abstracted where possible to allow for a range of implementation
@@ -214,15 +213,13 @@ class (Eq (BlockPointerType m),
     wipePendingBlocks :: m ()
 
 
-    -- | The transaction verification cache
+    -- * The transaction verification cache
     --
     -- If a transaction is processed by the TransactionVerifier then it should be added to 
     -- the transaction verification results such that we don't later on try to verify the
     -- transaction.
-    -- Cache entries should be removed when a transaction is finalized, purged or expired
+    -- Cache entries should be removed when a transaction is finalized or purged.
     -- Expired transactions should not be put in the cache, but instead they are rejected upfront.
-    -- Hence it's safe to simply delete expired transactions from the cache such that it won't grow
-    -- in eternity.
     
     -- |Gets the transaction verification cache from the TreeState
     getTransactionVerificationCache :: m TransactionVerificationCache

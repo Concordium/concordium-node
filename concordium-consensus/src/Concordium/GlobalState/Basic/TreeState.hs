@@ -37,11 +37,6 @@ import Concordium.Types.HashableTo
 import Concordium.Types.Transactions
 import Concordium.Types.Updates
 import Concordium.GlobalState.AccountTransactionIndex
-import qualified Concordium.TransactionVerification as TVer
-
--- The Transaction verification cache for storing transaction hashes
--- associated with transaction verification results
-type TransactionVerificationCache = HM.HashMap TransactionHash TVer.VerificationResult
 
 -- |Datatype representing an in-memory tree state.
 -- The first type parameter, @pv@, is the protocol version.
@@ -75,11 +70,8 @@ data SkovData (pv :: ProtocolVersion) bs = SkovData {
     _runtimeParameters :: !RuntimeParameters,
     -- |Transaction table purge counter
     _transactionTablePurgeCounter :: !Int,
-    -- |transactionVerificationResults
-    -- Transaction which have been subject to a 'verification' resides in this cache.
-    -- The purpose of the cache is to eliminate the need for re-verifying already verified transactions.
-    -- Entries should be deleted when either the corresponding transaction has been *purged* or *finalized*. 
-    _transactionVerificationResults :: !TransactionVerificationCache
+    -- |transactionVerificationCache containing verification results of received transactions.
+    _transactionVerificationResults :: !TS.TransactionVerificationCache
 }
 makeLenses ''SkovData
 
