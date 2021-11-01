@@ -1105,9 +1105,10 @@ handleDeployCredential ::
   m (Maybe TxResult)
 handleDeployCredential accCreation@AccountCreation{messageExpiry=messageExpiry, credential=cdi} cdiHash = do
     res <- runExceptT $ do
-    -- check that the transaction is not expired
       liftedCm <- lift getChainMetadata
-      when (transactionExpired messageExpiry $ slotTime liftedCm) $ throwError (Just ExpiredTransaction)
+      let ts = slotTime liftedCm
+      -- check that the transaction is not expired
+      when (transactionExpired messageExpiry ts) $ throwError (Just ExpiredTransaction)
       remainingEnergy <- lift getRemainingEnergy
       let cost = Cost.deployCredential (ID.credentialType cdi) (ID.credNumKeys . ID.credPubKeys $ cdi)
       when (remainingEnergy < cost) $ throwError Nothing
@@ -1127,33 +1128,33 @@ handleDeployCredential accCreation@AccountCreation{messageExpiry=messageExpiry, 
       liftedCryptoParams <- lift TV.getCryptographicParameters      
       cachedTVResult <- lift (lookupTransactionVerificationResult cdiHash)
       case cachedTVResult of
-        Just TV.ResultSuccess -> do
+        Just TV.Success -> do
         -- Verification checks passed. Now we create either an initial or normal account
           newAccount regId aaddr liftedCryptoParams mkSummary
-        Just TV.ResultCredentialDeploymentInvalidIdentityProvider -> do
+        Just TV.CredentialDeploymentInvalidIdentityProvider -> do
           -- We need to verify it again since we cannot simply reject this error, as an identity provider could've
           -- been added in the mean time
-          tVerResult <- lift (verifyCredentialDeployment accCreation)
-          unless (tVerResult == TV.ResultSuccess) $ throwError $ mapErr tVerResult
+          tVerResult <- lift (verifyCredentialDeployment ts accCreation)
+          unless (tVerResult == TV.Success) $ throwError $ mapErr tVerResult
           newAccount regId aaddr liftedCryptoParams mkSummary
-        Just TV.ResultCredentialDeploymentInvalidAnonymityRevokers -> do
+        Just TV.CredentialDeploymentInvalidAnonymityRevokers -> do
           -- We need to verify it again since we cannot simply reject this error, as an anonymity revoker could've
           -- been added in the mean time
-          tVerResult <- lift (verifyCredentialDeployment accCreation)
-          unless (tVerResult == TV.ResultSuccess) $ throwError $ mapErr tVerResult
+          tVerResult <- lift (verifyCredentialDeployment ts accCreation)
+          unless (tVerResult == TV.Success) $ throwError $ mapErr tVerResult
           newAccount regId aaddr liftedCryptoParams mkSummary
         Just tverResultErr -> do
           throwError $ mapErr tverResultErr
         Nothing -> do
           -- If the transaction has not been verified before we verify it now
-          tVerResult <- lift (verifyCredentialDeployment accCreation)
-          unless (tVerResult == TV.ResultSuccess) $ throwError $ mapErr tVerResult
+          tVerResult <- lift (verifyCredentialDeployment ts accCreation)
+          unless (tVerResult == TV.Success) $ throwError $ mapErr tVerResult
           newAccount regId aaddr liftedCryptoParams mkSummary
     case res of
       Left err -> return (TxInvalid <$> err)
       Right ts -> return (Just ts)
   where
-    mapErr (TV.ResultDuplicateAccountRegistrationID dup) = Just (DuplicateAccountRegistrationID dup)
+    mapErr (TV.DuplicateAccountRegistrationID dup) = Just (DuplicateAccountRegistrationID dup)
     mapErr _ = Just AccountCredentialInvalid
     newAccount regId aaddr cryptoParams mkSummary = do
       case cdi of

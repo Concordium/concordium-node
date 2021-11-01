@@ -44,7 +44,6 @@ import Concordium.Skov.Statistics
 import qualified Concordium.TransactionVerification as TV
 import Control.Monad.Reader
 
-
 -- |Determine if one block is an ancestor of another.
 -- A block is considered to be an ancestor of itself.
 isAncestorOf :: BlockPointerMonad m => BlockPointerType m -> BlockPointerType m -> m Bool
@@ -500,7 +499,7 @@ doReceiveTransaction tr slot = unlessShutDown $ do
     -- reject expired transactions, we don't cache the result though.
     lastFinalState <- queryBlockState =<< lastFinalizedBlock
     expired <- runReaderT (TV.verifyTransactionNotExpired tr (utcTimeToTimestamp now)) lastFinalState
-    if expired == TV.ResultTransactionExpired
+    if expired == TV.TransactionExpired
     then return $ mapTransactionVerificationResult expired
     else do
       ur <- case tr of
@@ -533,7 +532,7 @@ doReceiveTransaction tr slot = unlessShutDown $ do
 -- transaction in case of a duplicate, ensuring more sharing of transaction data.
 -- This function also verifies the transactions incoming and adds them to the internal
 -- transaction verification cache such that it can be used by the 'Scheduler'.
-doReceiveTransactionInternal :: (TreeStateMonad pv m) => BlockItem -> Slot -> m (Maybe BlockItem, UpdateResult)
+doReceiveTransactionInternal :: (TreeStateMonad pv m, TimeMonad m) => BlockItem -> Slot -> m (Maybe BlockItem, UpdateResult)
 doReceiveTransactionInternal tr slot = do
         focus <- getFocusBlock
         st <- blockState focus
@@ -591,21 +590,22 @@ doPurgeTransactions = do
 
 
 mapTransactionVerificationResult :: TV.VerificationResult -> UpdateResult
-mapTransactionVerificationResult TV.ResultTransactionExpired = ResultTransactionExpired
-mapTransactionVerificationResult TV.ResultExpiryTooLate = ResultExpiryTooLate
-mapTransactionVerificationResult (TV.ResultDuplicateAccountRegistrationID _) = ResultDuplicateAccountRegistrationID
-mapTransactionVerificationResult TV.ResultCredentialDeploymentInvalidIdentityProvider = ResultCredentialDeploymentInvalidIP
-mapTransactionVerificationResult TV.ResultCredentialDeploymentInvalidAnonymityRevokers = ResultCredentialDeploymentInvalidAR
-mapTransactionVerificationResult TV.ResultCredentialDeploymentInvalidSignatures = ResultCredentialDeploymentInvalidSignatures
-mapTransactionVerificationResult TV.ResultCredentialDeploymentInvalidKeys = ResultCredentialDeploymentInvalidKeys
-mapTransactionVerificationResult TV.ResultSuccess = ResultSuccess
+mapTransactionVerificationResult TV.TransactionExpired = ResultTransactionExpired
+mapTransactionVerificationResult TV.ExpiryTooLate = ResultExpiryTooLate
+mapTransactionVerificationResult (TV.DuplicateAccountRegistrationID _) = ResultDuplicateAccountRegistrationID
+mapTransactionVerificationResult TV.CredentialDeploymentInvalidIdentityProvider = ResultCredentialDeploymentInvalidIP
+mapTransactionVerificationResult TV.CredentialDeploymentInvalidAnonymityRevokers = ResultCredentialDeploymentInvalidAR
+mapTransactionVerificationResult TV.CredentialDeploymentInvalidSignatures = ResultCredentialDeploymentInvalidSignatures
+mapTransactionVerificationResult TV.CredentialDeploymentInvalidKeys = ResultCredentialDeploymentInvalidKeys
+mapTransactionVerificationResult TV.CredentialDeploymentExpired = ResultCredentialDeploymentExpired
+mapTransactionVerificationResult TV.Success = ResultSuccess
 
 
 -- |Looks up if the transaction has already been verified. If that is the case
 -- then use the cached `VerificationResult`. If the transaction has not been
 -- verified before we verify it now, and puts the `VerificationResult` into the cache. 
 -- We return the 'VerificationResult'
-cachedBlockItemVerification :: (TreeStateMonad pv m) => BlockItem -> BlockState m -> m TV.VerificationResult
+cachedBlockItemVerification :: (TreeStateMonad pv m, TimeMonad m) => BlockItem -> BlockState m -> m TV.VerificationResult
 cachedBlockItemVerification tr lastFinalState = do
   -- check if the transaction has already been verified
   txVerCache <- getTransactionVerificationCache
@@ -615,15 +615,17 @@ cachedBlockItemVerification tr lastFinalState = do
       case verResult of
         Just res -> return res
         Nothing -> do
+          now <- currentTime
+          let ts = utcTimeToTimestamp now
           -- if the transaction has not yet been verified we do so
-          result <- runReaderT (TV.verifyCredentialDeployment cred) lastFinalState
+          result <- runReaderT (TV.verifyCredentialDeployment ts cred) lastFinalState
           insertIntoCache (getHash tr) result
           return result
     -- todo: returning ResultSuccess should be fine for now, as currently the cache is only used
     -- for credential deployments when executing transactions (also we assume hash collisions are very rare...)
-    _ -> return TV.ResultSuccess
+    _ -> return TV.Success
   where
     insertIntoCache txHash verResult = do
-            c <- getTransactionVerificationCache
-            let c' = HM.insert txHash verResult c
-            putTransactionVerificationCache c'
+      c <- getTransactionVerificationCache
+      let c' = HM.insert txHash verResult c
+      putTransactionVerificationCache c'

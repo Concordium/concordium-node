@@ -210,6 +210,7 @@ pub enum ConsensusFfiResponse {
     CredentialDeploymentInvalidSignatures,
     CredentialDeploymentInvalidIP,
     CredentialDeploymentInvalidAR,
+    CredentialDeploymentExpired,
 }
 
 impl fmt::Display for ConsensusFfiResponse {

@@ -48,7 +48,8 @@ import Concordium.GlobalState.TreeState (TreeStateMonad(finalizeTransactions))
 -- |Tests of doReceiveTransaction and doReceiveTransactionInternal of the Updater.
 test :: Spec
 test = do
-  describe "Verification of received acccount creations" $ do
+  --describe "Verification of received acccount creations" $ do
+  describe "foo" $ do
     parallel $
       specify "Invalid account creations should fail with expected error codes" $ do
       let gCtx = dummyGlobalContext
@@ -59,15 +60,16 @@ test = do
       let results = fst s
           outState = snd s
           cache = outState ^. transactionVerificationResults
-      check results cache 0 False TVer.ResultExpiryTooLate
-      check results cache 1 False TVer.ResultTransactionExpired
-      check results cache 2 True $ TVer.ResultDuplicateAccountRegistrationID duplicateRegId
-      check results cache 3 True TVer.ResultCredentialDeploymentInvalidIdentityProvider
-      check results cache 4 True TVer.ResultCredentialDeploymentInvalidKeys
-      check results cache 5 True TVer.ResultCredentialDeploymentInvalidAnonymityRevokers
-      check results cache 6 True TVer.ResultCredentialDeploymentInvalidSignatures
+      check results cache 0 False TVer.TransactionExpired
+      check results cache 1 False TVer.ExpiryTooLate
+      check results cache 2 True TVer.CredentialDeploymentExpired
+      check results cache 3 True $ TVer.DuplicateAccountRegistrationID duplicateRegId
+      check results cache 4 True TVer.CredentialDeploymentInvalidIdentityProvider
+      check results cache 5 True TVer.CredentialDeploymentInvalidKeys
+      check results cache 6 True TVer.CredentialDeploymentInvalidAnonymityRevokers
+      check results cache 7 True TVer.CredentialDeploymentInvalidSignatures
       -- the intial account creation which has an invalid signature
-      check results cache 7 True TVer.ResultCredentialDeploymentInvalidSignatures
+      check results cache 8 True TVer.CredentialDeploymentInvalidSignatures
       -- now check that the cache is being cleared when we purge transactions
       s' <- runPurgeTransactions (addUTCTime (secondsToNominalDiffTime 2) now) outState
       let cache' = snd s' ^. transactionVerificationResults
@@ -78,12 +80,12 @@ test = do
           txArrivalTime = utcTimeToTransactionTime now
           genesis = testGenesisData now myips myars myCryptoParams
           txs = [toBlockItem txArrivalTime mycdi, toBlockItem txArrivalTime myicdi]
-      s <- runMkCredentialDeployments  txs now genesis
+      s <- runMkCredentialDeployments txs now genesis
       let results = fst s
           outState = snd s
           cache = outState ^. transactionVerificationResults
-      check results cache 0 True TVer.ResultSuccess
-      check results cache 1 True TVer.ResultSuccess
+      check results cache 0 True TVer.Success
+      check results cache 1 True TVer.Success
     specify "Finalized account creations should be expunged from the cache"  $ do
       let credentialDeploymentExpiryTime = 1596409020
           now = posixSecondsToUTCTime $ credentialDeploymentExpiryTime - 1
@@ -163,6 +165,7 @@ testDoReceiveTransactionAccountCreations trs slot = mapM (\tr -> doReceiveTransa
 accountCreations :: GlobalContext -> TransactionTime -> [BlockItem]
 accountCreations gCtx now =
   [
+    expiredTransaction,
     credentialDeploymentWithExpiryTooLate,
     expiredCredentialDeployment,
     credentialDeploymentWithDuplicateRegId,
@@ -174,13 +177,14 @@ accountCreations gCtx now =
   ]
   where
     expiry = now + 1
-    credentialDeploymentWithExpiryTooLate =  toBlockItem now (mkAccountCreation (now + (60 * 60 * 2) + 1) (regId 0) 0 True True)
-    expiredCredentialDeployment = toBlockItem now (mkAccountCreation (now - 1) (regId 1) 0 True True)
-    credentialDeploymentWithDuplicateRegId = toBlockItem now (mkAccountCreation expiry duplicateRegId 0 True True)
-    credentialWithInvalidIP = toBlockItem now (mkAccountCreation expiry (regId 1) 42 True True)
-    credentialWithInvalidKeys = toBlockItem now (mkAccountCreation expiry (regId 1) 0 True False)
-    credentialWithInvalidAr = toBlockItem now (mkAccountCreation expiry (regId 1) 0 False True)
-    credentialWithInvalidSignatures = toBlockItem now (mkAccountCreation expiry (regId 1) 0 True True)
+    expiredTransaction = toBlockItem now (mkAccountCreation (now - 1) (regId 1) 0 True True False)
+    credentialDeploymentWithExpiryTooLate =  toBlockItem now (mkAccountCreation (now + (60 * 60 * 2) + 1) (regId 0) 0 True True False)
+    expiredCredentialDeployment = toBlockItem now (mkAccountCreation expiry (regId 1) 0 True True True)
+    credentialDeploymentWithDuplicateRegId = toBlockItem now (mkAccountCreation expiry duplicateRegId 0 True True False)
+    credentialWithInvalidIP = toBlockItem now (mkAccountCreation expiry (regId 1) 42 True True False)
+    credentialWithInvalidKeys = toBlockItem now (mkAccountCreation expiry (regId 1) 0 True False False)
+    credentialWithInvalidAr = toBlockItem now (mkAccountCreation expiry (regId 1) 0 False True False)
+    credentialWithInvalidSignatures = toBlockItem now (mkAccountCreation expiry (regId 1) 0 True True False)
     intialCredentialWithInvalidSignatures = toBlockItem now (mkInitialAccountCreationWithInvalidSignatures expiry (regId 42))
     regId seed = RegIdCred $ generateGroupElementFromSeed gCtx seed
 
@@ -195,8 +199,8 @@ duplicateRegId = cred
       undefined credId
       (Map.lookup 0 (gaCredentials $ head (makeFakeBakers 1)))
 
-mkAccountCreation :: TransactionTime -> CredentialRegistrationID -> Word32 -> Bool ->  Bool -> AccountCreation
-mkAccountCreation expiry regId identityProviderId validAr validPubKeys = AccountCreation
+mkAccountCreation :: TransactionTime -> CredentialRegistrationID -> Word32 -> Bool -> Bool ->  Bool -> AccountCreation
+mkAccountCreation expiry regId identityProviderId validAr validPubKeys credExpired = AccountCreation
   {
     messageExpiry=expiry,
     credential= NormalACWP CredentialDeploymentInformation
@@ -208,7 +212,7 @@ mkAccountCreation expiry regId identityProviderId validAr validPubKeys = Account
                     cdvIpId=IP_ID identityProviderId,
                     cdvThreshold=Threshold 1,
                     cdvArData=mkArData validAr,
-                    cdvPolicy=mkPolicy
+                    cdvPolicy=mkPolicy credExpired
                   },
                   cdiProofs=Proofs "invalid proof"
                 }
@@ -225,7 +229,7 @@ mkInitialAccountCreationWithInvalidSignatures expiry regId = AccountCreation
                    icdvAccount=mkCredentialPublicKeys True,
                    icdvRegId=regId,
                    icdvIpId=IP_ID 0,
-                   icdvPolicy=mkPolicy
+                   icdvPolicy=mkPolicy False
                  },
                  icdiSig=IpCdiSignature
                  {
@@ -236,36 +240,46 @@ mkInitialAccountCreationWithInvalidSignatures expiry regId = AccountCreation
 
 mkCredentialPublicKeys :: Bool -> CredentialPublicKeys
 mkCredentialPublicKeys validKeys = credKeys
-                         where
-                           credKeys =
-                             if validKeys
-                             then makeCredentialPublicKeys [key] 1
-                             else
-                               CredentialPublicKeys
-                               {
-                                 credKeys=Map.empty,
-                                 credThreshold=0
-                               }
-                           key = SigScheme.correspondingVerifyKey $ dummyKeyPair 1
+  where
+    credKeys =
+      if validKeys
+      then makeCredentialPublicKeys [key] 1
+      else
+        CredentialPublicKeys
+        {
+          credKeys=Map.empty,
+          credThreshold=0
+        }
+    key = SigScheme.correspondingVerifyKey $ dummyKeyPair 1
 
 dummyKeyPair :: Int -> SigScheme.KeyPair
 dummyKeyPair = uncurry SigScheme.KeyPairEd25519 . fst . randomEd25519KeyPair . mkStdGen
 
-mkPolicy :: Policy
-mkPolicy = Policy
-        {
-          pValidTo=YearMonth
-                   {
-                     ymYear=2070,
-                     ymMonth=1
-                   },
-          pCreatedAt=YearMonth
-                   {
-                     ymYear=2021,
-                     ymMonth=1
-                   },
-          pItems=Map.empty
-        }
+mkPolicy :: Bool -> Policy
+mkPolicy expired = mkDummyPolicy where
+  mkDummyPolicy = Policy
+           {
+             pValidTo=_validTo,
+             pCreatedAt=YearMonth
+                        {
+                          ymYear=2021,
+                          ymMonth=1
+                        },
+             pItems=Map.empty
+           }
+  _validTo = if expired
+    then 
+      YearMonth
+           {
+             ymYear=1970,
+             ymMonth=1
+           }
+    else 
+      YearMonth
+            {
+              ymYear=2070,
+              ymMonth=1
+            } 
 
 mkArData :: Bool -> Map.Map ArIdentity ChainArData
 mkArData valid = if valid then validAr else Map.empty

@@ -652,6 +652,8 @@ stopBaker cptr = mask_ $ do
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 -- |    26 | ResultCredentialDeploymentInvalidAR         | The CredentialDeployment contained an invalid Anonymity Revoker                               | Yes      |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
+-- |    27 | ResultCredentialDeploymentExpired           | The CredentialDeployment contained an expired 'validTo'                                       | Yes      |
+-- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 type ReceiveResult = Int64
 
 -- |Convert an 'UpdateResult' to the corresponding 'ReceiveResult' value.
@@ -683,6 +685,7 @@ toReceiveResult ResultCredentialDeploymentInvalidKeys = 23
 toReceiveResult ResultCredentialDeploymentInvalidSignatures = 24
 toReceiveResult ResultCredentialDeploymentInvalidIP = 25
 toReceiveResult ResultCredentialDeploymentInvalidAR = 26
+toReceiveResult ResultCredentialDeploymentExpired = 27
 
 -- |Handle receipt of a block.
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,
@@ -737,7 +740,7 @@ receiveFinalizationRecord bptr genIndex msg msgLen = do
 -- @ResultCredentialDeploymentExpired@, @ResultCredentialDeploymentInvalidRegistrationId@,
 -- @ResultCredentialDeploymentAccountAlreadyExists@, @ResultCredentialDeploymentInvalidSignatures@,
 -- @ResultCredentialDeploymentInvalidKeys, @ResultCredentialDeploymentInvalidIP,
--- @ResultCredentialDeploymentInvalidAR
+-- @ResultCredentialDeploymentInvalidAR, @ResultCredentialDeploymentExpired
 receiveTransaction :: StablePtr ConsensusRunner -> CString -> Int64 -> IO ReceiveResult
 receiveTransaction bptr transactionData transactionLen = do
     (ConsensusRunner mvr) <- deRefStablePtr bptr

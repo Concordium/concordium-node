@@ -93,6 +93,8 @@ data UpdateResult
     -- ^The keys were malformed
     | ResultCredentialDeploymentInvalidSignatures
     -- ^The 'CredentialDeployment' contained invalid identity provider signatures.
+    | ResultCredentialDeploymentExpired
+    -- ^The 'CredentialDeployment' contained an expired 'validTo'.
     | ResultInvalidGenesisIndex
     -- ^The message is for an unknown genesis index
     deriving (Eq, Show)
