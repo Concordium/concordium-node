@@ -59,7 +59,7 @@ test = do
       s <- runMkCredentialDeployments txs now genesis
       let results = fst s
           outState = snd s
-          cach =e outState ^. transactionVerificationResults
+          cache = outState ^. transactionVerificationResults
       check results cache 0 False TVer.TransactionExpired
       check results cache 1 False TVer.ExpiryTooLate
       check results cache 2 True TVer.CredentialDeploymentExpired

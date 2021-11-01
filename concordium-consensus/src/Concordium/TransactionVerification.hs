@@ -75,15 +75,9 @@ class Monad m => TransactionVerifier m where
   -- |Check whether the account address corresponds to an existing account.
   accountExists :: Types.AccountAddress -> m Bool
 
-
--- |Verifies that a transaction is not yet expired.
-verifyTransactionNotExpired :: TransactionVerifier m => Tx.BlockItem -> Types.Timestamp -> m VerificationResult
-verifyTransactionNotExpired tx now = do
-  let expired = Types.transactionExpired (Tx.msgExpiry tx) now
-  if expired then return TransactionExpired else return Success
-
 -- |Verifies a 'CredentialDeployment'
 -- That is:
+-- * Check the transaction is not expired
 -- * Checks that the 'CredentialDeployment' is not expired
 -- * Making sure that an registration id does not already exist and also that 
 -- a corresponding account does not exist.
@@ -92,47 +86,50 @@ verifyTransactionNotExpired tx now = do
 -- * Valid signatures on the 'CredentialDeployment'
 verifyCredentialDeployment :: TransactionVerifier m => Types.Timestamp -> Tx.AccountCreation -> m VerificationResult
 verifyCredentialDeployment now accountCreation@Tx.AccountCreation{..} = do
-  -- check that the credential deployment is not yet expired
-  let expiry = ID.validTo credential
-  if not (Types.isTimestampBefore now expiry) then return CredentialDeploymentExpired
-  else do
-    -- check that the credential deployment is not a duplicate
-    unique <- verifyCredentialUniqueness accountCreation
-    if unique /= Success
-    then return unique
+  -- check that the transaction is not yet expired
+  let expired = Types.transactionExpired (Tx.msgExpiry accountCreation) now
+  if expired then return TransactionExpired else do
+    -- check that the credential deployment is not yet expired
+    let expiry = ID.validTo credential
+    if not (Types.isTimestampBefore now expiry) then return CredentialDeploymentExpired
     else do
-      let credIpId = ID.ipId accountCreation
-      mIpInfo <- getIdentityProvider credIpId
-      case mIpInfo of
-      -- check that the identity provider exists
-        Nothing -> return CredentialDeploymentInvalidIdentityProvider
-        Just ipInfo ->
-         case credential of
-           ID.InitialACWP icdi ->
-            -- check signatures for an initial credential deployment
-            if not (A.verifyInitialAccountCreation ipInfo messageExpiry (S.encode icdi))
-            then return CredentialDeploymentInvalidSignatures
-            else return Success
-           ID.NormalACWP ncdi -> do
-             cryptoParams <- getCryptographicParameters
-             let ncdv = ID.cdiValues ncdi
-             case ID.cdvPublicKeys ncdv of
-               ID.CredentialPublicKeys keys _ -> do
-                 -- check that the keys are well sized
-                 if null keys || (length keys > 255) then return CredentialDeploymentInvalidKeys
-                 else do
-                   mArsInfos <- getAnonymityRevokers (OrdMap.keys (ID.cdvArData ncdv))
-                   case mArsInfos of
-                     -- check that the anonymity revokers exists
-                     Nothing -> return CredentialDeploymentInvalidAnonymityRevokers
-                     Just arsInfos ->
-                       -- if the credential deployment contained an empty map of 'ChainArData' then the result will be 'Just empty'.
-                       if null arsInfos then return CredentialDeploymentInvalidAnonymityRevokers
-                       else do
-                        -- check signatures for a normal credential deployment
-                        if not (A.verifyCredential cryptoParams ipInfo arsInfos (S.encode ncdi) (Left messageExpiry))
-                        then return CredentialDeploymentInvalidSignatures
-                        else return Success
+    -- check that the credential deployment is not a duplicate
+      unique <- verifyCredentialUniqueness accountCreation
+      if unique /= Success
+      then return unique
+      else do
+        let credIpId = ID.ipId accountCreation
+        mIpInfo <- getIdentityProvider credIpId
+        case mIpInfo of
+          -- check that the identity provider exists
+          Nothing -> return CredentialDeploymentInvalidIdentityProvider
+          Just ipInfo ->
+            case credential of
+              ID.InitialACWP icdi ->
+                -- check signatures for an initial credential deployment
+                if not (A.verifyInitialAccountCreation ipInfo messageExpiry (S.encode icdi))
+                then return CredentialDeploymentInvalidSignatures
+                else return Success
+              ID.NormalACWP ncdi -> do
+                cryptoParams <- getCryptographicParameters
+                let ncdv = ID.cdiValues ncdi
+                case ID.cdvPublicKeys ncdv of
+                  ID.CredentialPublicKeys keys _ -> do
+                    -- check that the keys are well sized
+                    if null keys || (length keys > 255) then return CredentialDeploymentInvalidKeys
+                    else do
+                      mArsInfos <- getAnonymityRevokers (OrdMap.keys (ID.cdvArData ncdv))
+                      case mArsInfos of
+                      -- check that the anonymity revokers exists
+                        Nothing -> return CredentialDeploymentInvalidAnonymityRevokers
+                        Just arsInfos ->
+                          -- if the credential deployment contained an empty map of 'ChainArData' then the result will be 'Just empty'.
+                          if null arsInfos then return CredentialDeploymentInvalidAnonymityRevokers
+                          else do
+                          -- check signatures for a normal credential deployment
+                            if not (A.verifyCredential cryptoParams ipInfo arsInfos (S.encode ncdi) (Left messageExpiry))
+                            then return CredentialDeploymentInvalidSignatures
+                            else return Success
 
 
 -- |Verifies that a credential is unique

@@ -496,11 +496,10 @@ doReceiveTransaction tr slot = unlessShutDown $ do
   expiryTooLate <- isExpiryTooLate now
   if expiryTooLate then return ResultExpiryTooLate
   else do
-    -- reject expired transactions, we don't cache the result though.
-    lastFinalState <- queryBlockState =<< lastFinalizedBlock
-    expired <- runReaderT (TV.verifyTransactionNotExpired tr (utcTimeToTimestamp now)) lastFinalState
-    if expired == TV.TransactionExpired
-    then return $ mapTransactionVerificationResult expired
+    -- reject expired transactions, we do not cache the result.
+    let expired = transactionExpired (msgExpiry tr) (utcTimeToTimestamp now)
+    if expired
+    then return ResultTransactionExpired
     else do
       ur <- case tr of
         WithMetadata{wmdData = NormalTransaction tx} -> do
