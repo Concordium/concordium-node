@@ -1156,16 +1156,13 @@ handleDeployCredential accCreation@AccountCreation{messageExpiry=messageExpiry, 
     mapErr (TV.ResultDuplicateAccountRegistrationID dup) = Just (DuplicateAccountRegistrationID dup)
     mapErr _ = Just AccountCredentialInvalid
     newAccount regId aaddr cryptoParams mkSummary = do
-      case cdi of
-        ID.InitialACWP icdi -> do
-          _ <- lift (createAccount cryptoParams aaddr (ID.InitialAC (ID.icdiValues icdi)))
-          mkSummary (TxSuccess [AccountCreated aaddr, CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}])
-        ID.NormalACWP _ -> do
-          case ID.values cdi of
-            Just cdv -> do
-              _ <- lift (createAccount cryptoParams aaddr cdv)
-              mkSummary (TxSuccess [AccountCreated aaddr, CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}])
-            Nothing -> throwError $  Just AccountCredentialInvalid
+      cdv <- case cdi of
+        ID.InitialACWP icdi -> return (ID.InitialAC (ID.icdiValues icdi))
+        ID.NormalACWP _ -> case ID.values cdi of
+            Just cdv -> return cdv
+            Nothing -> throwError $ Just AccountCredentialInvalid
+      _ <- lift (createAccount cryptoParams aaddr cdv)
+      mkSummary (TxSuccess [AccountCreated aaddr, CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}])
 
 -- |Updates the credential keys in the credential with the given Credential ID.
 -- It rejects if there is no credential with the given Credential ID.
