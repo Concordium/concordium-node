@@ -94,9 +94,8 @@ verifyCredentialDeployment now accountCreation@Tx.AccountCreation{..} = do
     if not (Types.isTimestampBefore now expiry) then return CredentialDeploymentExpired
     else do
     -- check that the credential deployment is not a duplicate
-      unique <- verifyCredentialUniqueness accountCreation
-      if unique /= Success
-      then return unique
+      exists <- registrationIdExists (ID.credId accountCreation)
+      if exists then return $ DuplicateAccountRegistrationID (ID.credId accountCreation)
       else do
         let credIpId = ID.ipId accountCreation
         mIpInfo <- getIdentityProvider credIpId
@@ -130,18 +129,6 @@ verifyCredentialDeployment now accountCreation@Tx.AccountCreation{..} = do
                             if not (A.verifyCredential cryptoParams ipInfo arsInfos (S.encode ncdi) (Left messageExpiry))
                             then return CredentialDeploymentInvalidSignatures
                             else return Success
-
-
--- |Verifies that a credential is unique
-verifyCredentialUniqueness :: TransactionVerifier m => Tx.AccountCreation -> m VerificationResult
-verifyCredentialUniqueness accountCreation = do
-  -- check that the registration id does not already exist
-  regIdExists <- registrationIdExists (ID.credId accountCreation)
-  -- check that the account does not already exist (very unlikely to happen but we check it for good measure)
-  accExists <- accountExists (ID.addressFromRegId (ID.credId accountCreation))
-  if regIdExists || accExists
-  then return $ DuplicateAccountRegistrationID (ID.credId accountCreation)
-  else return Success 
 
 instance (Monad m, r ~ GSTypes.BlockState m, BS.BlockStateQuery m) => TransactionVerifier (ReaderT r m) where
   {-# INLINE getIdentityProvider #-}
