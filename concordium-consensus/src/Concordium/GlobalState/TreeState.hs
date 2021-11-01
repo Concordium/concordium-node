@@ -40,7 +40,6 @@ import Data.Serialize as S
 import Concordium.Common.Version (Version)
 import qualified Concordium.GlobalState.Block as B
 import Data.Bits
-import qualified Data.HashMap.Strict as HM
 
 data BlockStatus bp pb =
     BlockAlive !bp
@@ -72,14 +71,6 @@ data AddTransactionResult =
   -- The transaction is not added to the table.
   ObsoleteNonce
   deriving(Eq, Show)
-
--- |The transaction verification cache stores transaction 'VerificationResult's associated with 'TransactionHash'es.
--- New entries are being put into the cache when receiving new transasactions (either as a single transaction or within a block).
--- The cached verification results are used by the Scheduler to short-cut verification
--- during block execution.
--- Entries in the cache are removed when the associated transaction is either
--- finalized or purged.
-type TransactionVerificationCache = HM.HashMap TransactionHash TVer.VerificationResult
 
 -- |Monad that provides operations for working with the low-level tree state.
 -- These operations are abstracted where possible to allow for a range of implementation
@@ -222,9 +213,9 @@ class (Eq (BlockPointerType m),
     -- Expired transactions should not be put in the cache, but instead they are rejected upfront.
     
     -- |Gets the transaction verification cache from the TreeState
-    getTransactionVerificationCache :: m TransactionVerificationCache
+    getTransactionVerificationCache :: m TVer.TransactionVerificationCache
     -- |Puts a transaction verification cache into the TreeState
-    putTransactionVerificationCache :: TransactionVerificationCache -> m ()
+    putTransactionVerificationCache :: TVer.TransactionVerificationCache -> m ()
 
     -- * Operations on the pending transaction table
     --

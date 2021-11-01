@@ -892,10 +892,10 @@ doAccountList pbs = do
         bsp <- loadPBS pbs
         Accounts.accountAddresses (bspAccounts bsp)
 
-doRegIdExists :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> ID.CredentialRegistrationID -> m (Maybe AccountIndex)
+doRegIdExists :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> ID.CredentialRegistrationID -> m Bool
 doRegIdExists pbs regid = do
         bsp <- loadPBS pbs
-        fst <$> Accounts.regIdExists regid (bspAccounts bsp)
+        isJust . fst <$> Accounts.regIdExists regid (bspAccounts bsp)
 
 doCreateAccount :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> ID.GlobalContext -> AccountAddress -> ID.AccountCredential ->  m (Maybe (PersistentAccount pv), PersistentBlockState pv)
 doCreateAccount pbs cryptoParams acctAddr credential = do
@@ -967,7 +967,7 @@ doPutNewInstance pbs fnew = do
         (inst, insts) <- Instances.newContractInstance (fnew' mods) (bspInstances bsp)
         let ca = instanceAddress (instanceParameters inst)
         (ca,) <$> storePBS pbs bsp{bspInstances = insts}
-        
+
     where
         fnew' mods ca = let inst@Instance{instanceParameters = InstanceParameters{..}, ..} = fnew ca in do
             params <- makeBufferedRef $ PersistentInstanceParameters {
@@ -1247,7 +1247,6 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateQuery (Persist
     getProtocolUpdateStatus = doGetProtocolUpdateStatus . hpbsPointers
     getCryptographicParameters = doGetCryptoParams . hpbsPointers
     getIdentityProvider = doGetIdentityProvider . hpbsPointers
-    regIdExists = doRegIdExists . hpbsPointers
     getAnonymityRevokers =  doGetAnonymityRevokers . hpbsPointers
 
 instance (PersistentState r m, IsProtocolVersion pv) => AccountOperations (PersistentBlockStateMonad pv r m) where

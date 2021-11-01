@@ -268,9 +268,6 @@ class AccountOperations m => BlockStateQuery m where
 
     -- |Get the current cryptographic parameters of the chain.
     getCryptographicParameters :: BlockState m -> m CryptographicParameters
-    -- |Get the identity provider data for the given identity provider, or Nothing if
-    -- the identity provider with given ID does not exist.
-    regIdExists :: BlockState m -> ID.CredentialRegistrationID -> m (Maybe AccountIndex)
 
 -- |Distribution of newly-minted GTU.
 data MintAmounts = MintAmounts {
@@ -309,9 +306,8 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- |Get the contract state from the contract table of the state instance.
   bsoGetInstance :: UpdatableBlockState m -> ContractAddress -> m (Maybe Instance)
 
-  -- |Check whether an the given credential registration ID exists, and return
-  -- the account index of the account it is or was associated with.
-  bsoRegIdExists :: UpdatableBlockState m -> ID.CredentialRegistrationID -> m (Maybe AccountIndex)
+  -- |Check whether an the given credential registration ID exists
+  bsoRegIdExists :: UpdatableBlockState m -> CredentialRegistrationID -> m Bool
 
   -- |Create and add an empty account with the given public key, address and credential.
   -- If an account with the given address already exists, @Nothing@ is returned.
@@ -650,7 +646,6 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   getProtocolUpdateStatus = lift . getProtocolUpdateStatus
   getCryptographicParameters = lift . getCryptographicParameters
   getIdentityProvider s = lift . getIdentityProvider s
-  regIdExists s = lift . regIdExists s
   getAnonymityRevokers s = lift . getAnonymityRevokers s
   {-# INLINE getModule #-}
   {-# INLINE getAccount #-}
@@ -677,7 +672,6 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   {-# INLINE getProtocolUpdateStatus #-}
   {-# INLINE getCryptographicParameters #-}
   {-# INLINE getIdentityProvider #-}
-  {-# INLINE regIdExists #-}
   {-# INLINE getAnonymityRevokers #-}
 
 instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (MGSTrans t m) where

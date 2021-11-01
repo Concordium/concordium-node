@@ -300,10 +300,6 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
         r1 <- coerceBSML $ getIdentityProvider bs1 ipid
         r2 <- coerceBSMR $ getIdentityProvider bs2 ipid
         assert (r1 == r2) $ return r1
-    regIdExists (bs1, bs2) regId = do
-        r1 <- coerceBSML $ regIdExists bs1 regId
-        r2 <- coerceBSMR $ regIdExists bs2 regId
-        assert (r1 == r2) $ return r1
     getAnonymityRevokers (bs1, bs2) arIds = do
         r1 <- coerceBSML $ getAnonymityRevokers bs1 arIds
         r2 <- coerceBSMR $ getAnonymityRevokers bs2 arIds

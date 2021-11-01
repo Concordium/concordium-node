@@ -17,7 +17,7 @@ import Concordium.Types
 import Concordium.Types.Updates
 
 import Concordium.GlobalState.TransactionTable
-import Concordium.GlobalState.TreeState (TransactionVerificationCache)
+import qualified Concordium.TransactionVerification as TVer
 
 type TransactionHashTable = HM.HashMap TransactionHash (BlockItem, TransactionStatus)
 
@@ -60,9 +60,9 @@ purgeTables
     -- ^Transaction table to purge
     -> PendingTransactionTable
     -- ^Pending transaction table to purge
-    -> TransactionVerificationCache
+    -> TVer.TransactionVerificationCache
     -- ^TransactionVerificationCache to purge
-    -> (TransactionTable, PendingTransactionTable, TransactionVerificationCache)
+    -> (TransactionTable, PendingTransactionTable, TVer.TransactionVerificationCache)
 purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptable tVerCache = (ttable', ptable', tVerCache')
     where
         -- A transaction is too old if its arrival predates the oldest allowed
@@ -106,7 +106,7 @@ purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptabl
             put (mmnonce', tht')
             return mres
         -- Purge the non-finalized transactions for a specific account.
-        purgeAccount :: AccountAddress -> AccountNonFinalizedTransactions -> State (PendingTransactionTable, TransactionHashTable, TransactionVerificationCache) AccountNonFinalizedTransactions
+        purgeAccount :: AccountAddress -> AccountNonFinalizedTransactions -> State (PendingTransactionTable, TransactionHashTable, TVer.TransactionVerificationCache) AccountNonFinalizedTransactions
         purgeAccount addr AccountNonFinalizedTransactions{..} = do
             (ptt0, trs0, tvercache0) <- get
             -- Purge the transactions from the transaction table.
@@ -163,7 +163,7 @@ purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptabl
                     | null uisl' = (mmsn, Nothing)
                     | otherwise = (mmsn <> Just (Max sn), Just (Set.fromDistinctAscList uisl'))
             in (mres, (mmsn', tht'))
-        purgeUpdates :: UpdateType -> NonFinalizedChainUpdates -> State (PendingTransactionTable, TransactionHashTable, TransactionVerificationCache) NonFinalizedChainUpdates
+        purgeUpdates :: UpdateType -> NonFinalizedChainUpdates -> State (PendingTransactionTable, TransactionHashTable, TVer.TransactionVerificationCache) NonFinalizedChainUpdates
         purgeUpdates uty nfcu@NonFinalizedChainUpdates{..} = state $ \(ptt0, trs0, tvercache0) ->
             let (newNFCUMap, (mmax, !uis1)) = runState (Map.traverseMaybeWithKey purgeUpds _nfcuMap) (Nothing, trs0)
                 updptt (Just (Max newHigh)) (Just (low, _))

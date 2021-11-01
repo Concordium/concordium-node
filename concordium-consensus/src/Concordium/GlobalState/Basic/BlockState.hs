@@ -460,9 +460,6 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
     {-# INLINE getIdentityProvider #-}
     getIdentityProvider bs ipid = return $! bs ^? blockIdentityProviders . unhashed . to IPS.idProviders . ix ipid
 
-    {-# INLINE regIdExists #-}
-    regIdExists bs regid = return (Accounts.regIdExists regid (bs ^. blockAccounts))
-
     {-# INLINE getAnonymityRevokers #-}
     getAnonymityRevokers bs arIds = return $!
       let ars = bs ^. blockAnonymityRevokers . unhashed . to ARS.arRevokers
@@ -507,7 +504,9 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
     bsoGetAccountIndex bs aaddr = return $! Accounts.getAccountIndex aaddr (bs ^. blockAccounts)
 
     {-# INLINE bsoRegIdExists #-}
-    bsoRegIdExists bs regid = return (Accounts.regIdExists regid (bs ^. blockAccounts))
+    bsoRegIdExists bs regid = do
+      let res = Accounts.regIdExists regid (bs ^. blockAccounts)
+      return $ isJust res
 
     bsoCreateAccount bs gc addr cred = return $ 
             if Accounts.exists addr accounts then

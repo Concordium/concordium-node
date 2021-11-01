@@ -4,7 +4,10 @@ module Concordium.TransactionVerification
 
 import Control.Monad.Trans
 import Control.Monad.Trans.Reader
+import qualified Data.Map.Strict as OrdMap
+import qualified Data.HashMap.Strict as HM
 import qualified Data.Serialize as S
+
 import qualified Concordium.Types.Transactions as Tx
 import qualified Concordium.ID.AnonymityRevoker as AR
 import qualified Concordium.ID.IdentityProvider as IP
@@ -13,33 +16,45 @@ import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.Types.Parameters as Params
 import qualified Concordium.Types as Types
 import qualified Concordium.ID.Account as A
-import qualified Data.Map.Strict as OrdMap
 import qualified Concordium.ID.Types as ID
 import Data.Maybe (isJust)
 
 -- |The 'VerificationResult' type serves as an intermediate `result type` between the 'TxResult' and 'UpdateResult' types.
 -- VerificationResult's contains possible verification errors that may have occurred when verifying a 'AccountCreation' type.
+
 data VerificationResult
   = Success
-    -- ^The verification passed
-    | TransactionExpired
-    -- ^The transaction was expired.
-    | ExpiryTooLate
-    -- ^The transaction had an expiry too distant in the future
-    | DuplicateAccountRegistrationID !ID.CredentialRegistrationID
-    -- ^The 'CredentialDeployment' contained an invalid registration id.
-    -- There already exists an account with the registration id.
-    | CredentialDeploymentInvalidIdentityProvider
-    -- ^The IdentityProvider does not exist for this 'CredentialDeployment'.
-    | CredentialDeploymentInvalidAnonymityRevokers
-    -- ^The anonymity revokers does not exist for this 'CredentialDeployment'.
-    | CredentialDeploymentInvalidKeys
-    -- ^The 'AccountCreation' contained invalid keys.
-    | CredentialDeploymentInvalidSignatures
-    -- ^The 'AccountCreation' contained invalid identity provider signatures.
-    | CredentialDeploymentExpired
-    -- ^The 'AccountCreation' contained an expired 'validTo'
-    deriving (Eq, Show)
+  -- ^The verification passed
+  | TransactionExpired
+  -- ^The transaction was expired.
+  | ExpiryTooLate
+  -- ^The transaction had an expiry too distant in the future
+  | DuplicateAccountRegistrationID !ID.CredentialRegistrationID
+  -- ^The 'CredentialDeployment' contained an invalid registration id.
+  -- There already exists an account with the registration id.
+  | CredentialDeploymentInvalidIdentityProvider
+  -- ^The IdentityProvider does not exist for this 'CredentialDeployment'.
+  | CredentialDeploymentInvalidAnonymityRevokers
+  -- ^The anonymity revokers does not exist for this 'CredentialDeployment'.
+  | CredentialDeploymentInvalidKeys
+  -- ^The 'AccountCreation' contained invalid keys.
+  | CredentialDeploymentInvalidSignatures
+  -- ^The 'AccountCreation' contained invalid identity provider signatures.
+  | CredentialDeploymentExpired
+  -- ^The 'AccountCreation' contained an expired 'validTo'
+  deriving (Eq, Show)
+
+data VerificationResultType
+  = Cacheable VerificationResult
+  | NonCacheable VerificationResult
+
+-- |The transaction verification cache stores transaction 'VerificationResult's associated with 'TransactionHash'es.
+-- New entries are being put into the cache when receiving new transasactions (either as a single transaction or within a block).
+-- The cached verification results are used by the Scheduler to short-cut verification
+-- during block execution.
+-- Entries in the cache are removed when the associated transaction is either
+-- finalized or purged.
+type TransactionVerificationCache = HM.HashMap Types.TransactionHash VerificationResult
 
 -- |Type which can verify transactions in a monadic context. 
 -- The type is responsible for retrieving the necessary information
@@ -147,8 +162,7 @@ instance (Monad m, r ~ GSTypes.BlockState m, BS.BlockStateQuery m) => Transactio
   {-# INLINE registrationIdExists #-}
   registrationIdExists regId = do
     state <- ask
-    let res = lift (BS.regIdExists state regId)
-    fmap isJust res
+    lift $ isJust <$> BS.getAccountByCredId state regId
   {-# INLINE accountExists #-}
   accountExists aaddr = do
     state <- ask

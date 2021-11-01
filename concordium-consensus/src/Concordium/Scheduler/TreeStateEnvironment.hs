@@ -73,7 +73,7 @@ data LogSchedulerState (m :: DK.Type -> DK.Type) = LogSchedulerState {
   _lssSchedulerExecutionCosts :: !Amount,
   _lssNextIndex :: !TransactionIndex,
   _lssSchedulerTransactionLog :: !(ATIStorage m),
-  _lssVerificationCache :: !TransactionVerificationCache
+  _lssVerificationCache :: !TVer.TransactionVerificationCache
   }
 
 makeLenses ''LogSchedulerState
@@ -101,7 +101,7 @@ instance TreeStateMonad pv m => HasSchedulerState (LogSchedulerState m) where
   schedulerTransactionLog = lssSchedulerTransactionLog
   transactionVerificationCache = lssVerificationCache
 
-mkInitialSS :: CanExtend (ATIStorage m) => UpdatableBlockState m -> TransactionVerificationCache -> LogSchedulerState m
+mkInitialSS :: CanExtend (ATIStorage m) => UpdatableBlockState m -> TVer.TransactionVerificationCache -> LogSchedulerState m
 mkInitialSS _lssBlockState _lssVerificationCache =
   LogSchedulerState{_lssSchedulerEnergyUsed = 0,
                     _lssSchedulerExecutionCosts = 0,
