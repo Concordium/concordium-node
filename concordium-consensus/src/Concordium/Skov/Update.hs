@@ -13,7 +13,6 @@ import qualified Data.HashMap.Strict as HM
 
 import GHC.Stack
 
-import Concordium.Cost (baseCost)
 import Concordium.Types
 import Concordium.Types.Accounts
 import Concordium.Types.HashableTo
@@ -43,6 +42,7 @@ import Concordium.TimeMonad
 import Concordium.Skov.Statistics
 import qualified Concordium.TransactionVerification as TV
 import Control.Monad.Reader
+import Concordium.Cost (baseCost)
 
 -- |Determine if one block is an ancestor of another.
 -- A block is considered to be an ancestor of itself.
@@ -495,13 +495,9 @@ doReceiveTransaction tr slot = unlessShutDown $ do
   now <- currentTime
   expiryTooLate <- isExpiryTooLate now
   if expiryTooLate then return ResultExpiryTooLate
+  else if transactionExpired (msgExpiry tr) (utcTimeToTimestamp now) then return ResultStale
   else do
-    -- reject expired transactions, we do not cache the result.
-    let expired = transactionExpired (msgExpiry tr) (utcTimeToTimestamp now)
-    if expired
-    then return ResultTransactionExpired
-    else do
-      ur <- case tr of
+    ur <- case tr of
         WithMetadata{wmdData = NormalTransaction tx} -> do
             -- Don't accept the transaction if the stated energy is smaller than the minimum energy amount.
             let baseEnergy = baseCost (getTransactionHeaderPayloadSize $ transactionHeader tx) (getTransactionNumSigs $ transactionSignature tx)
@@ -514,14 +510,19 @@ doReceiveTransaction tr slot = unlessShutDown $ do
                senderExists <- flip getAccount (transactionSender tx) =<< queryBlockState =<< lastFinalizedBlock
                if isNothing senderExists then return ResultNonexistingSenderAccount
                else snd <$> doReceiveTransactionInternal tr slot
+        WithMetadata{wmdData = CredentialDeployment _} -> do
+            verRes <- cachedBlockItemVerification tr =<< queryBlockState =<< lastFinalizedBlock
+            if TV.isCacheable verRes then do
+              snd <$> doReceiveTransactionInternal tr slot
+            else return $ mapTransactionVerificationResult verRes
         _ -> snd <$> doReceiveTransactionInternal tr slot
-      when (ur == ResultSuccess) $ purgeTransactionTable False =<< currentTime
-      return ur
+    when (ur == ResultSuccess) $ purgeTransactionTable False =<< currentTime
+    return ur
     where
-          isExpiryTooLate now = do
-            maxTimeToExpiry <- rpMaxTimeToExpiry <$> getRuntimeParameters
-            let expiry = msgExpiry tr
-            return $ expiry > maxTimeToExpiry + utcTimeToTransactionTime now
+      isExpiryTooLate now = do
+        maxTimeToExpiry <- rpMaxTimeToExpiry <$> getRuntimeParameters
+        let expiry = msgExpiry tr
+        return $ expiry > maxTimeToExpiry + utcTimeToTransactionTime now
 
 
 -- |Add a transaction to the transaction table.  The 'Slot' should be
@@ -533,19 +534,22 @@ doReceiveTransaction tr slot = unlessShutDown $ do
 -- transaction verification cache such that it can be used by the 'Scheduler'.
 doReceiveTransactionInternal :: (TreeStateMonad pv m, TimeMonad m) => BlockItem -> Slot -> m (Maybe BlockItem, UpdateResult)
 doReceiveTransactionInternal tr slot = do
-        focus <- getFocusBlock
-        st <- blockState focus
-        -- Currently we put all transactions into the pending transaction table even if they're deemed invalid.
-        -- This is a consequence of the fact that currently the cache is being maintained together with the
-        -- transaction table i.e., cached results are being expunged when the associated transaction is either
-        -- finalized or purged.
-        -- todo: This could be further optimized having the cache represented as a PSQ and ordering consisting
-        -- of expiry dates.
-        addCommitTransaction tr slot >>= \case
+    focus <- getFocusBlock
+    st <- blockState focus
+    case tr of
+      WithMetadata{wmdData = CredentialDeployment _} -> do
+        verRes <- cachedBlockItemVerification tr st
+        if TV.isCacheable verRes then do
+          addTx st verRes
+        else do
+          return (Nothing, mapTransactionVerificationResult verRes)
+      _ -> addTx st TV.Success
+  where
+      addTx st verRes = addCommitTransaction tr slot >>= \case
           Added bi@WithMetadata{..} -> do
             ptrs <- getPendingTransactions
             case wmdData of
-              NormalTransaction tx -> do       
+              NormalTransaction tx -> do
                 macct <- getAccount st $! transactionSender tx
                 nextNonce <- fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
                 -- If a transaction with this nonce has already been run by
@@ -559,7 +563,7 @@ doReceiveTransactionInternal tr slot = do
                 nextSN <- getNextUpdateSequenceNumber st (updateType (uiPayload cu))
                 when (nextSN <= updateSeqNumber (uiHeader cu)) $
                     putPendingTransactions $! addPendingUpdate nextSN cu ptrs
-            (\verRes -> return (Just bi, mapTransactionVerificationResult verRes)) =<< cachedBlockItemVerification tr st 
+            return (Just bi, mapTransactionVerificationResult verRes)
           Duplicate tx -> return (Just tx, ResultDuplicate)
           ObsoleteNonce -> return (Nothing, ResultStale)
 
@@ -589,7 +593,7 @@ doPurgeTransactions = do
 
 
 mapTransactionVerificationResult :: TV.VerificationResult -> UpdateResult
-mapTransactionVerificationResult TV.TransactionExpired = ResultTransactionExpired
+mapTransactionVerificationResult TV.Stale = ResultStale
 mapTransactionVerificationResult TV.ExpiryTooLate = ResultExpiryTooLate
 mapTransactionVerificationResult (TV.DuplicateAccountRegistrationID _) = ResultDuplicateAccountRegistrationID
 mapTransactionVerificationResult TV.CredentialDeploymentInvalidIdentityProvider = ResultCredentialDeploymentInvalidIP
@@ -598,7 +602,6 @@ mapTransactionVerificationResult TV.CredentialDeploymentInvalidSignatures = Resu
 mapTransactionVerificationResult TV.CredentialDeploymentInvalidKeys = ResultCredentialDeploymentInvalidKeys
 mapTransactionVerificationResult TV.CredentialDeploymentExpired = ResultCredentialDeploymentExpired
 mapTransactionVerificationResult TV.Success = ResultSuccess
-
 
 -- |Looks up if the transaction has already been verified. If that is the case
 -- then use the cached `VerificationResult`. If the transaction has not been
@@ -609,22 +612,23 @@ cachedBlockItemVerification tr lastFinalState = do
   -- check if the transaction has already been verified
   txVerCache <- getTransactionVerificationCache
   let verResult = HM.lookup (getHash tr) txVerCache
-  case tr of
-    WithMetadata{wmdData = CredentialDeployment cred} -> do        
-      case verResult of
-        Just res -> return res
-        Nothing -> do
-          now <- currentTime
-          let ts = utcTimeToTimestamp now
-          -- if the transaction has not yet been verified we do so
+  case verResult of
+    Just res -> return res
+    Nothing -> do
+      now <- currentTime
+      let ts = utcTimeToTimestamp now
+      case tr of
+        WithMetadata{wmdData = CredentialDeployment cred} -> do
           result <- runReaderT (TV.verifyCredentialDeployment ts cred) lastFinalState
-          insertIntoCache (getHash tr) result
+          insertIntoCacheIfEligible (getHash tr) result
           return result
-    -- todo: returning ResultSuccess should be fine for now, as currently the cache is only used
-    -- for credential deployments when executing transactions (also we assume hash collisions are very rare...)
-    _ -> return TV.Success
+        -- todo: We're only verifying credential deployments via the transaction verification module
+        -- so this is just the default case that lets the NormalTransaction etc. being passed
+        -- to the scheduler.
+        _ -> return TV.Success
   where
-    insertIntoCache txHash verResult = do
-      c <- getTransactionVerificationCache
-      let c' = HM.insert txHash verResult c
-      putTransactionVerificationCache c'
+    insertIntoCacheIfEligible txHash verResult = do
+      when (TV.isCacheable verResult) $ do
+        c <- getTransactionVerificationCache
+        let c' = HM.insert txHash verResult c
+        putTransactionVerificationCache c'

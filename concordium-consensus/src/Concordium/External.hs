@@ -640,8 +640,6 @@ stopBaker cptr = mask_ $ do
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 -- |    20 | ResultInvalidGenesisIndex                   | The message is for an unknown genesis index                                                   | No       |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
--- |    21 | ResultTransactionExpired                    | The transaction was expired                                                                   | Yes      |
--- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 -- |    22 | ResultDuplicateAccountRegistrationID        | The 'CredentialDeployment' contained a duplicate registration id                              | Yes      |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 -- |    23 | ResultCredentialDeploymentInvalidKeys       | The keys were malformed                                                                       | Yes      |
@@ -679,13 +677,12 @@ toReceiveResult ResultDuplicateNonce = 17
 toReceiveResult ResultNonceTooLarge = 18
 toReceiveResult ResultTooLowEnergy = 19
 toReceiveResult ResultInvalidGenesisIndex = 20
-toReceiveResult ResultTransactionExpired = 21
-toReceiveResult ResultDuplicateAccountRegistrationID = 22
-toReceiveResult ResultCredentialDeploymentInvalidKeys = 23
-toReceiveResult ResultCredentialDeploymentInvalidSignatures = 24
-toReceiveResult ResultCredentialDeploymentInvalidIP = 25
-toReceiveResult ResultCredentialDeploymentInvalidAR = 26
-toReceiveResult ResultCredentialDeploymentExpired = 27
+toReceiveResult ResultDuplicateAccountRegistrationID = 21
+toReceiveResult ResultCredentialDeploymentInvalidKeys = 22
+toReceiveResult ResultCredentialDeploymentInvalidSignatures = 23
+toReceiveResult ResultCredentialDeploymentInvalidIP = 24
+toReceiveResult ResultCredentialDeploymentInvalidAR = 25
+toReceiveResult ResultCredentialDeploymentExpired = 26
 
 -- |Handle receipt of a block.
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,

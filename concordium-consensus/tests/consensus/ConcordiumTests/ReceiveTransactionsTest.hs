@@ -59,16 +59,16 @@ test = do
       let results = fst s
           outState = snd s
           cache = outState ^. transactionVerificationResults
-      check results cache 0 False TVer.TransactionExpired
+      check results cache 0 False TVer.Stale
       check results cache 1 False TVer.ExpiryTooLate
-      check results cache 2 True TVer.CredentialDeploymentExpired
-      check results cache 3 True $ TVer.DuplicateAccountRegistrationID duplicateRegId
+      check results cache 2 False TVer.CredentialDeploymentExpired
+      check results cache 3 False $ TVer.DuplicateAccountRegistrationID duplicateRegId
       check results cache 4 True TVer.CredentialDeploymentInvalidIdentityProvider
-      check results cache 5 True TVer.CredentialDeploymentInvalidKeys
+      check results cache 5 False TVer.CredentialDeploymentInvalidKeys
       check results cache 6 True TVer.CredentialDeploymentInvalidAnonymityRevokers
-      check results cache 7 True TVer.CredentialDeploymentInvalidSignatures
+      check results cache 7 False TVer.CredentialDeploymentInvalidSignatures
       -- the intial account creation which has an invalid signature
-      check results cache 8 True TVer.CredentialDeploymentInvalidSignatures
+      check results cache 8 False TVer.CredentialDeploymentInvalidSignatures
       -- now check that the cache is being cleared when we purge transactions
       s' <- runPurgeTransactions (addUTCTime (secondsToNominalDiffTime 2) now) outState
       let cache' = snd s' ^. transactionVerificationResults

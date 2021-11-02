@@ -1131,27 +1131,17 @@ handleDeployCredential accCreation@AccountCreation{messageExpiry=messageExpiry, 
       cachedTVResult <- lift (lookupTransactionVerificationResult cdiHash)
       case cachedTVResult of
         Just TV.Success -> do
-          -- Verification checks passed. Now we create either an initial or normal account
-          newAccount regId aaddr liftedCryptoParams mkSummary
-        Just TV.CredentialDeploymentInvalidIdentityProvider -> do
-          -- We need to verify it again since we cannot simply reject this error, as an identity provider could've
-          -- been added in the mean time
+          return ()
+        Just _ -> do 
+          -- we verify the transaction again as it might have become
+          -- valid since it was last verified.
           tVerResult <- lift (verifyCredentialDeployment ts accCreation)
-          unless (tVerResult == TV.Success) $ throwError $ mapErr tVerResult
-          newAccount regId aaddr liftedCryptoParams mkSummary
-        Just TV.CredentialDeploymentInvalidAnonymityRevokers -> do
-          -- We need to verify it again since we cannot simply reject this error, as an anonymity revoker could've
-          -- been added in the mean time
-          tVerResult <- lift (verifyCredentialDeployment ts accCreation)
-          unless (tVerResult == TV.Success) $ throwError $ mapErr tVerResult
-          newAccount regId aaddr liftedCryptoParams mkSummary
-        Just tverResultErr -> do
-          throwError $ mapErr tverResultErr
+          when (tVerResult /= TV.Success) $ throwError $ mapErr tVerResult
         Nothing -> do
           -- If the transaction has not been verified before we verify it now
           tVerResult <- lift (verifyCredentialDeployment ts accCreation)
-          unless (tVerResult == TV.Success) $ throwError $ mapErr tVerResult
-          newAccount regId aaddr liftedCryptoParams mkSummary
+          when (tVerResult /= TV.Success) $ throwError $ mapErr tVerResult
+      newAccount regId aaddr liftedCryptoParams mkSummary
     case res of
       Left err -> return (TxInvalid <$> err)
       Right ts -> return (Just ts)

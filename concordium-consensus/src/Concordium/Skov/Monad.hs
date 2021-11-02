@@ -81,8 +81,6 @@ data UpdateResult
     -- ^The file provided for importing blocks is missing
     | ResultConsensusShutDown
     -- ^The message was not processed because consensus has been shut down
-    | ResultTransactionExpired
-    -- ^The transaction was expired.
     | ResultDuplicateAccountRegistrationID
     -- ^An account already exists to the corresponding registration id of the 'CredentialDeployment'.
     | ResultCredentialDeploymentInvalidIP

@@ -21,11 +21,10 @@ import Data.Maybe (isJust)
 
 -- |The 'VerificationResult' type serves as an intermediate `result type` between the 'TxResult' and 'UpdateResult' types.
 -- VerificationResult's contains possible verification errors that may have occurred when verifying a 'AccountCreation' type.
-
 data VerificationResult
   = Success
   -- ^The verification passed
-  | TransactionExpired
+  | Stale
   -- ^The transaction was expired.
   | ExpiryTooLate
   -- ^The transaction had an expiry too distant in the future
@@ -44,9 +43,13 @@ data VerificationResult
   -- ^The 'AccountCreation' contained an expired 'validTo'
   deriving (Eq, Show)
 
-data VerificationResultType
-  = Cacheable VerificationResult
-  | NonCacheable VerificationResult
+-- |Returns `True` if the `VerificationResult` should be stored in the cache.
+-- That is, verification results which are not immediately rejectable and could be valid in the future.
+isCacheable :: VerificationResult -> Bool
+isCacheable Success = True
+isCacheable CredentialDeploymentInvalidIdentityProvider = True
+isCacheable CredentialDeploymentInvalidAnonymityRevokers = True
+isCacheable _ = False
 
 -- |The transaction verification cache stores transaction 'VerificationResult's associated with 'TransactionHash'es.
 -- New entries are being put into the cache when receiving new transasactions (either as a single transaction or within a block).
@@ -60,7 +63,7 @@ type TransactionVerificationCache = HM.HashMap Types.TransactionHash Verificatio
 -- The type is responsible for retrieving the necessary information
 -- in order to deem a transaction valid or 'unverifiable'.
 -- Unverifiable transactions are transactions which are and never will be valid transactions
--- e.g., due to erroneous signatures, invalid 'IdentityProvider's, invalid 'AnonymityRevoker's etc.
+-- e.g., due to erroneous signatures, invalid expiry etc.
 class Monad m => TransactionVerifier m where
   -- |Get the provider identity data for the given identity provider, or Nothing if
   -- the identity provider with given ID does not exist.
@@ -88,7 +91,7 @@ verifyCredentialDeployment :: TransactionVerifier m => Types.Timestamp -> Tx.Acc
 verifyCredentialDeployment now accountCreation@Tx.AccountCreation{..} = do
   -- check that the transaction is not yet expired
   let expired = Types.transactionExpired (Tx.msgExpiry accountCreation) now
-  if expired then return TransactionExpired else do
+  if expired then return Stale else do
     -- check that the credential deployment is not yet expired
     let expiry = ID.validTo credential
     if not (Types.isTimestampBefore now expiry) then return CredentialDeploymentExpired
