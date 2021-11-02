@@ -48,8 +48,7 @@ import Concordium.GlobalState.TreeState (TreeStateMonad(finalizeTransactions))
 -- |Tests of doReceiveTransaction and doReceiveTransactionInternal of the Updater.
 test :: Spec
 test = do
-  --describe "Verification of received acccount creations" $ do
-  describe "foo" $ do
+  describe "Verification of received acccount creations" $ do
     parallel $
       specify "Invalid account creations should fail with expected error codes" $ do
       let gCtx = dummyGlobalContext

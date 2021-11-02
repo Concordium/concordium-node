@@ -1126,7 +1126,7 @@ handleDeployCredential accCreation@AccountCreation{messageExpiry=messageExpiry, 
       let regId = ID.credId accCreation
       let aaddr = ID.addressFromRegId regId
       accExistsAlready <- isJust <$> lift (getAccount aaddr)
-      when accExistsAlready $ throwError $ Just AccountCredentialInvalid
+      when accExistsAlready $ throwError $ Just $ DuplicateAccountRegistrationID regId
       liftedCryptoParams <- lift TV.getCryptographicParameters      
       cachedTVResult <- lift (lookupTransactionVerificationResult cdiHash)
       case cachedTVResult of
