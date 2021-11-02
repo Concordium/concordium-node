@@ -88,15 +88,16 @@ class Monad m => TransactionVerifier m where
 -- * Validity of the 'IdentityProvider' and 'AnonymityRevokers' provided.
 -- * Key sizes for the 'CredentialDeployment'
 -- * Valid signatures on the 'CredentialDeployment'
-verifyCredentialDeployment :: TransactionVerifier m => Types.Timestamp -> Tx.AccountCreation -> m VerificationResult
-verifyCredentialDeployment now accountCreation@Tx.AccountCreation{..} =
-  either id id <$> runExceptT (do
+verifyCredentialDeployment :: TransactionVerifier m => Bool -> Types.Timestamp -> Tx.AccountCreation -> m VerificationResult
+verifyCredentialDeployment fullCheck now accountCreation@Tx.AccountCreation{..} =
+  either id id <$> runExceptT (do                                  
     -- check that the transaction is not yet expired
-    let expired = Types.transactionExpired (Tx.msgExpiry accountCreation) now
-    when expired $ throwError Stale
-    -- check that the credential deployment is not yet expired
-    let expiry = ID.validTo credential
-    unless (Types.isTimestampBefore now expiry) $ throwError CredentialDeploymentExpired
+    unless fullCheck $ do 
+      let expired = Types.transactionExpired (Tx.msgExpiry accountCreation) now
+      when expired $ throwError Stale
+      -- check that the credential deployment is not yet expired
+      let expiry = ID.validTo credential
+      unless (Types.isTimestampBefore now expiry) $ throwError CredentialDeploymentExpired
     -- check that the credential deployment is not a duplicate
     exists <- lift (registrationIdExists (ID.credId accountCreation))
     when exists $ throwError $ DuplicateAccountRegistrationID (ID.credId accountCreation)

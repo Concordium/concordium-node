@@ -511,7 +511,7 @@ doReceiveTransaction tr slot = unlessShutDown $ do
                if isNothing senderExists then return ResultNonexistingSenderAccount
                else snd <$> doReceiveTransactionInternal tr slot
         WithMetadata{wmdData = CredentialDeployment _} -> do
-            verRes <- cachedBlockItemVerification tr =<< queryBlockState =<< lastFinalizedBlock
+            verRes <- cachedBlockItemVerification False tr =<< queryBlockState =<< lastFinalizedBlock
             if TV.isCacheable verRes then do
               snd <$> doReceiveTransactionInternal tr slot
             else return $ mapTransactionVerificationResult verRes
@@ -538,7 +538,7 @@ doReceiveTransactionInternal tr slot = do
     st <- blockState focus
     case tr of
       WithMetadata{wmdData = CredentialDeployment _} -> do
-        verRes <- cachedBlockItemVerification tr st
+        verRes <- cachedBlockItemVerification True tr st
         if TV.isCacheable verRes then do
           addTx st verRes
         else do
@@ -607,8 +607,8 @@ mapTransactionVerificationResult TV.Success = ResultSuccess
 -- then use the cached `VerificationResult`. If the transaction has not been
 -- verified before we verify it now, and puts the `VerificationResult` into the cache. 
 -- We return the 'VerificationResult'
-cachedBlockItemVerification :: (TreeStateMonad pv m, TimeMonad m) => BlockItem -> BlockState m -> m TV.VerificationResult
-cachedBlockItemVerification tr lastFinalState = do
+cachedBlockItemVerification :: (TreeStateMonad pv m, TimeMonad m) => Bool -> BlockItem -> BlockState m -> m TV.VerificationResult
+cachedBlockItemVerification fromBlock tr lastFinalState = do
   -- check if the transaction has already been verified
   txVerCache <- getTransactionVerificationCache
   let verResult = HM.lookup (getHash tr) txVerCache
@@ -619,7 +619,7 @@ cachedBlockItemVerification tr lastFinalState = do
       let ts = utcTimeToTimestamp now
       case tr of
         WithMetadata{wmdData = CredentialDeployment cred} -> do
-          result <- runReaderT (TV.verifyCredentialDeployment ts cred) lastFinalState
+          result <- runReaderT (TV.verifyCredentialDeployment fromBlock ts cred) lastFinalState
           insertIntoCacheIfEligible (getHash tr) result
           return result
         -- todo: We're only verifying credential deployments via the transaction verification module
