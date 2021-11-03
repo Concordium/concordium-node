@@ -48,7 +48,10 @@ data VerificationResult
 -- That is, verification results which are not immediately rejectable and could be valid in the future.
 isVerifiable :: VerificationResult -> Bool
 isVerifiable Success = True
+-- An identity provider could potentially be added in the span between receiving the
+-- transaction and the actual execution of the transaction.
 isVerifiable CredentialDeploymentInvalidIdentityProvider = True
+-- Same goes for anonymity revokers.
 isVerifiable CredentialDeploymentInvalidAnonymityRevokers = True
 isVerifiable _ = False
 
