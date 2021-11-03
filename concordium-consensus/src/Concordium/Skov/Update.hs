@@ -510,9 +510,9 @@ doReceiveTransaction tr slot = unlessShutDown $ do
                senderExists <- flip getAccount (transactionSender tx) =<< queryBlockState =<< lastFinalizedBlock
                if isNothing senderExists then return ResultNonexistingSenderAccount
                else snd <$> doReceiveTransactionInternal tr slot
-        WithMetadata{wmdData = CredentialDeployment _} -> do
-            verRes <- cachedBlockItemVerification False tr =<< queryBlockState =<< lastFinalizedBlock
-            if TV.isCacheable verRes then do
+        WithMetadata{wmdData = CredentialDeployment cred} -> do
+            verRes <- cachedVerificationCheck cred =<< queryBlockState =<< lastFinalizedBlock
+            if TV.isVerifiable verRes then do
               snd <$> doReceiveTransactionInternal tr slot
             else return $ mapTransactionVerificationResult verRes
         _ -> snd <$> doReceiveTransactionInternal tr slot
@@ -523,6 +523,23 @@ doReceiveTransaction tr slot = unlessShutDown $ do
         maxTimeToExpiry <- rpMaxTimeToExpiry <$> getRuntimeParameters
         let expiry = msgExpiry tr
         return $ expiry > maxTimeToExpiry + utcTimeToTransactionTime now
+      cachedVerificationCheck cred bs = do
+        txVerCache <- getTransactionVerificationCache
+        let verResult = HM.lookup (getHash tr) txVerCache
+        case verResult of
+          Just res -> return res
+          Nothing -> do
+            now <- currentTime
+            let ts = utcTimeToTimestamp now
+            result <- runReaderT (TV.verifyCredentialDeploymentFull ts cred) bs
+            insertIntoCacheIfEligible (getHash tr) result
+            return result
+      insertIntoCacheIfEligible txHash verResult = do
+        when (TV.isVerifiable verResult) $ do
+          c <- getTransactionVerificationCache
+          let c' = HM.insert txHash verResult c
+          putTransactionVerificationCache c'  
+       
 
 
 -- |Add a transaction to the transaction table.  The 'Slot' should be
@@ -532,14 +549,14 @@ doReceiveTransaction tr slot = unlessShutDown $ do
 -- transaction in case of a duplicate, ensuring more sharing of transaction data.
 -- This function also verifies the transactions incoming and adds them to the internal
 -- transaction verification cache such that it can be used by the 'Scheduler'.
-doReceiveTransactionInternal :: (TreeStateMonad pv m, TimeMonad m) => BlockItem -> Slot -> m (Maybe BlockItem, UpdateResult)
+doReceiveTransactionInternal :: (TreeStateMonad pv m) => BlockItem -> Slot -> m (Maybe BlockItem, UpdateResult)
 doReceiveTransactionInternal tr slot = do
     focus <- getFocusBlock
     st <- blockState focus
     case tr of
-      WithMetadata{wmdData = CredentialDeployment _} -> do
-        verRes <- cachedBlockItemVerification True tr st
-        if TV.isCacheable verRes then do
+      WithMetadata{wmdData = CredentialDeployment cred} -> do
+        verRes <- cachedVerificationCheck cred st
+        if TV.isVerifiable verRes then do
           addTx st verRes
         else do
           return (Nothing, mapTransactionVerificationResult verRes)
@@ -566,6 +583,20 @@ doReceiveTransactionInternal tr slot = do
             return (Just bi, mapTransactionVerificationResult verRes)
           Duplicate tx -> return (Just tx, ResultDuplicate)
           ObsoleteNonce -> return (Nothing, ResultStale)
+      cachedVerificationCheck cred bs = do
+        txVerCache <- getTransactionVerificationCache
+        let verResult = HM.lookup (getHash tr) txVerCache
+        case verResult of
+          Just res -> return res
+          Nothing -> do
+            result <- runReaderT (TV.verifyCredentialDeployment cred) bs
+            insertIntoCacheIfEligible (getHash tr) result
+            return result
+      insertIntoCacheIfEligible txHash verResult = do
+        when (TV.isVerifiable verResult) $ do
+          c <- getTransactionVerificationCache
+          let c' = HM.insert txHash verResult c
+          putTransactionVerificationCache c'  
 
 -- |Shutdown the skov, returning a list of pending transactions.
 doTerminateSkov :: (TreeStateMonad pv m, SkovMonad pv m) => m [BlockItem]
@@ -602,33 +633,4 @@ mapTransactionVerificationResult TV.CredentialDeploymentInvalidSignatures = Resu
 mapTransactionVerificationResult TV.CredentialDeploymentInvalidKeys = ResultCredentialDeploymentInvalidKeys
 mapTransactionVerificationResult TV.CredentialDeploymentExpired = ResultCredentialDeploymentExpired
 mapTransactionVerificationResult TV.Success = ResultSuccess
-
--- |Looks up if the transaction has already been verified. If that is the case
--- then use the cached `VerificationResult`. If the transaction has not been
--- verified before we verify it now, and puts the `VerificationResult` into the cache. 
--- We return the 'VerificationResult'
-cachedBlockItemVerification :: (TreeStateMonad pv m, TimeMonad m) => Bool -> BlockItem -> BlockState m -> m TV.VerificationResult
-cachedBlockItemVerification fromBlock tr lastFinalState = do
-  -- check if the transaction has already been verified
-  txVerCache <- getTransactionVerificationCache
-  let verResult = HM.lookup (getHash tr) txVerCache
-  case verResult of
-    Just res -> return res
-    Nothing -> do
-      now <- currentTime
-      let ts = utcTimeToTimestamp now
-      case tr of
-        WithMetadata{wmdData = CredentialDeployment cred} -> do
-          result <- runReaderT (TV.verifyCredentialDeployment fromBlock ts cred) lastFinalState
-          insertIntoCacheIfEligible (getHash tr) result
-          return result
-        -- todo: We're only verifying credential deployments via the transaction verification module
-        -- so this is just the default case that lets the NormalTransaction etc. being passed
-        -- to the scheduler.
-        _ -> return TV.Success
-  where
-    insertIntoCacheIfEligible txHash verResult = do
-      when (TV.isCacheable verResult) $ do
-        c <- getTransactionVerificationCache
-        let c' = HM.insert txHash verResult c
-        putTransactionVerificationCache c'
+    

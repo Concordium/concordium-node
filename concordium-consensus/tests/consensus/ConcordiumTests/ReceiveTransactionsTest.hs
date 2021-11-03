@@ -50,12 +50,12 @@ test :: Spec
 test = do
   describe "Verification of received acccount creations" $ do
     parallel $
-      specify "Invalid account creations should fail with expected error codes" $ do
+      specify "doReceiveTransaction fails appropriately" $ do
       let gCtx = dummyGlobalContext
       now <- currentTime
       let genesis = testGenesisData now dummyIdentityProviders dummyArs dummyCryptographicParameters
           txs = accountCreations gCtx $ utcTimeToTransactionTime now
-      s <- runMkCredentialDeployments txs now genesis
+      s <- runMkCredentialDeployments testDoReceiveTransactionAccountCreations txs now genesis
       let results = fst s
           outState = snd s
           cache = outState ^. transactionVerificationResults
@@ -73,25 +73,49 @@ test = do
       s' <- runPurgeTransactions (addUTCTime (secondsToNominalDiffTime 2) now) outState
       let cache' = snd s' ^. transactionVerificationResults
       cache' `shouldBe` HM.empty
-    specify "Receive valid account creations should result in success" $ do
+    specify "doReceiveTransaction with valid account creations should result in success" $ do
+      -- Note: This test also implicitly tests the doReceiveTransactionInternal function
+      -- as the doReceiveTransaction forwards (cacheable) transactions to to it.
       let credentialDeploymentExpiryTime = 1596409020
           now = posixSecondsToUTCTime $ credentialDeploymentExpiryTime - 1
           txArrivalTime = utcTimeToTransactionTime now
           genesis = testGenesisData now myips myars myCryptoParams
           txs = [toBlockItem txArrivalTime mycdi, toBlockItem txArrivalTime myicdi]
-      s <- runMkCredentialDeployments txs now genesis
+      s <- runMkCredentialDeployments testDoReceiveTransactionAccountCreations txs now genesis
       let results = fst s
           outState = snd s
           cache = outState ^. transactionVerificationResults
       check results cache 0 True TVer.Success
       check results cache 1 True TVer.Success
+    specify "doReceiveTransactionInternal fails appropriately" $ do
+      let gCtx = dummyGlobalContext
+      now <- currentTime
+      let genesis = testGenesisData now dummyIdentityProviders dummyArs dummyCryptographicParameters
+          txs = accountCreations gCtx $ utcTimeToTransactionTime now
+      s <- runMkCredentialDeployments testDoReceiveTransactionInternalAccountCreations txs now genesis
+      let results = fst s
+          outState = snd s
+          cache = outState ^. transactionVerificationResults
+      -- the doReceiveTransactionInternal does not verify expiries.
+      -- The scheduler will check this before executing the transactions.
+      check results cache 3 False $ TVer.DuplicateAccountRegistrationID duplicateRegId
+      check results cache 4 True TVer.CredentialDeploymentInvalidIdentityProvider
+      check results cache 5 False TVer.CredentialDeploymentInvalidKeys
+      check results cache 6 True TVer.CredentialDeploymentInvalidAnonymityRevokers
+      check results cache 7 False TVer.CredentialDeploymentInvalidSignatures
+      -- the intial account creation which has an invalid signature
+      check results cache 8 False TVer.CredentialDeploymentInvalidSignatures
+      -- now check that the cache is being cleared when we purge transactions
+      s' <- runPurgeTransactions (addUTCTime (secondsToNominalDiffTime 2) now) outState
+      let cache' = snd s' ^. transactionVerificationResults
+      cache' `shouldBe` HM.empty
     specify "Finalized account creations should be expunged from the cache"  $ do
       let credentialDeploymentExpiryTime = 1596409020
           now = posixSecondsToUTCTime $ credentialDeploymentExpiryTime - 1
           txArrivalTime = utcTimeToTransactionTime now
           txs = [toBlockItem txArrivalTime mycdi]
           genesis = testGenesisData now myips myars myCryptoParams
-      s <- runMkCredentialDeployments txs now genesis
+      s <- runMkCredentialDeployments testDoReceiveTransactionAccountCreations txs now genesis
       let bh = genesisBlockHash genesis
       s' <- runFinalizeTransactions now bh txs $ snd s
       let cache' = snd s' ^. transactionVerificationResults
@@ -109,9 +133,11 @@ test = do
       let cacheResult = HM.lookup k c
       cacheResult `shouldBe` expected
 
-runMkCredentialDeployments :: [BlockItem] -> UTCTime -> GenesisData PV -> IO ([(TransactionHash, UpdateResult)], MyState)
-runMkCredentialDeployments txs now gData = do
-  runMyMonad' (testDoReceiveTransactionAccountCreations txs slot) now gData
+type TestFunction = [BlockItem] -> Slot -> MyMonad [(TransactionHash, UpdateResult)]
+
+runMkCredentialDeployments :: TestFunction -> [BlockItem] -> UTCTime -> GenesisData PV -> IO ([(TransactionHash, UpdateResult)], MyState)
+runMkCredentialDeployments f txs now gData = do
+  runMyMonad' (f txs slot) now gData
   where
     slot = 0
 
@@ -157,9 +183,15 @@ runMyMonad' act time gd = runPureBlockStateMonad (initialSkovDataDefault gd (has
 testGenesisData :: UTCTime -> IdentityProviders -> AnonymityRevokers -> CryptographicParameters -> GenesisData PV
 testGenesisData now ips ars cryptoParams = makeTestingGenesisDataP1 (utcTimeToTimestamp now) 1 1 1 dummyFinalizationCommitteeMaxSize cryptoParams ips ars maxBound dummyKeyCollection dummyChainParameters
 
+-- |Run the doReceiveTransaction function and obtain the results
 testDoReceiveTransactionAccountCreations :: [BlockItem] -> Slot -> MyMonad [(TransactionHash, UpdateResult)]
 testDoReceiveTransactionAccountCreations trs slot = mapM (\tr -> doReceiveTransaction tr slot
                                                            >>= (\res -> pure (wmdHash tr, res))) trs
+
+-- |Run the doReceiveTransactionInternal function and obtain the results
+testDoReceiveTransactionInternalAccountCreations :: [BlockItem] -> Slot -> MyMonad [(TransactionHash, UpdateResult)]
+testDoReceiveTransactionInternalAccountCreations trs slot = mapM (\tr -> doReceiveTransactionInternal tr slot
+                                                                   >>= (\res -> pure (wmdHash tr, snd res))) trs                                                    
 
 accountCreations :: GlobalContext -> TransactionTime -> [BlockItem]
 accountCreations gCtx now =

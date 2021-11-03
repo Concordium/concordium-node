@@ -74,7 +74,6 @@ import qualified Concordium.TransactionVerification as TV
 import Lens.Micro.Platform
 
 import Prelude hiding (exp, mod)
-import Concordium.TransactionVerification (verifyCredentialDeployment)
 
 -- |Check that
 --  * the transaction has a valid sender,
@@ -1135,11 +1134,11 @@ handleDeployCredential accCreation@AccountCreation{messageExpiry=messageExpiry, 
         Just _ -> do 
           -- we verify the transaction again as it might have become
           -- valid since it was last verified.
-          tVerResult <- lift (verifyCredentialDeployment False ts accCreation)
+          tVerResult <- lift (TV.verifyCredentialDeploymentFull ts accCreation)
           when (tVerResult /= TV.Success) $ throwError $ mapErr tVerResult
         Nothing -> do
           -- If the transaction has not been verified before we verify it now
-          tVerResult <- lift (verifyCredentialDeployment False ts accCreation)
+          tVerResult <- lift (TV.verifyCredentialDeploymentFull ts accCreation)
           when (tVerResult /= TV.Success) $ throwError $ mapErr tVerResult
       newAccount regId aaddr liftedCryptoParams mkSummary
     case res of
