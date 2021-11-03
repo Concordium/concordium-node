@@ -96,6 +96,8 @@ test = do
       let results = fst s
           outState = snd s
           cache = outState ^. transactionVerificationResults
+      check results cache 0 False TVer.Stale
+      check results cache 1 False TVer.ExpiryTooLate
       check results cache 2 False TVer.CredentialDeploymentExpired
       check results cache 3 False $ TVer.DuplicateAccountRegistrationID duplicateRegId
       check results cache 4 True TVer.CredentialDeploymentInvalidIdentityProvider

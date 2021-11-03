@@ -43,6 +43,7 @@ import Concordium.Skov.Statistics
 import qualified Concordium.TransactionVerification as TV
 import Control.Monad.Reader
 import Concordium.Cost (baseCost)
+import Data.Time.Clock (UTCTime)
 
 -- |Determine if one block is an ancestor of another.
 -- A block is considered to be an ancestor of itself.
@@ -493,8 +494,9 @@ doReceiveTransaction :: (TreeStateMonad pv m,
 doReceiveTransaction tr slot = unlessShutDown $ do
   -- Don't accept the transaction if its expiry time is too far in the future
   now <- currentTime
-  expiryTooLate <- isExpiryTooLate now
+  expiryTooLate <- isExpiryTooLate tr now
   if expiryTooLate then return ResultExpiryTooLate
+  -- Don't accept the transaction if it was expired
   else if transactionExpired (msgExpiry tr) (utcTimeToTimestamp now) then return ResultStale
   else do
     ur <- case tr of
@@ -519,10 +521,6 @@ doReceiveTransaction tr slot = unlessShutDown $ do
     when (ur == ResultSuccess) $ purgeTransactionTable False =<< currentTime
     return ur
     where
-      isExpiryTooLate now = do
-        maxTimeToExpiry <- rpMaxTimeToExpiry <$> getRuntimeParameters
-        let expiry = msgExpiry tr
-        return $ expiry > maxTimeToExpiry + utcTimeToTransactionTime now
       cachedVerificationCheck cred bs = do
         txVerCache <- getTransactionVerificationCache
         let verResult = HM.lookup (getHash tr) txVerCache
@@ -539,18 +537,29 @@ doReceiveTransaction tr slot = unlessShutDown $ do
           c <- getTransactionVerificationCache
           let c' = HM.insert txHash verResult c
           putTransactionVerificationCache c'  
-       
 
+isExpiryTooLate :: TreeStateMonad pv m => BlockItem -> UTCTime -> m Bool
+isExpiryTooLate tr ts = do
+        maxTimeToExpiry <- rpMaxTimeToExpiry <$> getRuntimeParameters
+        let expiry = msgExpiry tr
+        return $ expiry > maxTimeToExpiry + utcTimeToTransactionTime ts
 
 -- |Add a transaction to the transaction table.  The 'Slot' should be
 -- the slot number of the block that the transaction was received with.
 -- This function should only be called when a transaction is received as part of a block.
 -- The difference from the above function is that this function returns an already existing
--- transaction in case of a duplicate, ensuring more sharing of transaction data.
+-- transaction ipn case of a duplicate, ensuring more sharing of transaction data.
 -- This function also verifies the transactions incoming and adds them to the internal
 -- transaction verification cache such that it can be used by the 'Scheduler'.
 doReceiveTransactionInternal :: (TreeStateMonad pv m, SkovQueryMonad pv m) => BlockItem -> Slot -> m (Maybe BlockItem, UpdateResult)
 doReceiveTransactionInternal tr slot = do
+  -- Don't accept the transaction if its expiry time is too far in the future
+   slotTime <- getSlotTime slot
+   expiryTooLate <- isExpiryTooLate tr slotTime
+   if expiryTooLate then return (Nothing,  ResultExpiryTooLate)
+   -- Don't accept the transaction if it was expired
+   else if transactionExpired (msgExpiry tr) (utcTimeToTimestamp slotTime) then return (Nothing, ResultStale)
+   else do
     focus <- getFocusBlock
     st <- blockState focus
     case tr of
