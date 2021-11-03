@@ -512,37 +512,9 @@ doReceiveTransaction tr slot = unlessShutDown $ do
                senderExists <- flip getAccount (transactionSender tx) =<< queryBlockState =<< lastFinalizedBlock
                if isNothing senderExists then return ResultNonexistingSenderAccount
                else snd <$> doReceiveTransactionInternal tr slot
-        WithMetadata{wmdData = CredentialDeployment cred} -> do
-            verRes <- cachedVerificationCheck cred =<< queryBlockState =<< lastFinalizedBlock
-            if TV.isVerifiable verRes then do
-              snd <$> doReceiveTransactionInternal tr slot
-            else return $ mapTransactionVerificationResult verRes
         _ -> snd <$> doReceiveTransactionInternal tr slot
     when (ur == ResultSuccess) $ purgeTransactionTable False =<< currentTime
     return ur
-    where
-      cachedVerificationCheck cred bs = do
-        txVerCache <- getTransactionVerificationCache
-        let verResult = HM.lookup (getHash tr) txVerCache
-        case verResult of
-          Just res -> return res
-          Nothing -> do
-            now <- currentTime
-            let ts = utcTimeToTimestamp now
-            result <- runReaderT (TV.verifyCredentialDeployment ts cred) bs
-            insertIntoCacheIfEligible (getHash tr) result
-            return result
-      insertIntoCacheIfEligible txHash verResult = do
-        when (TV.isVerifiable verResult) $ do
-          c <- getTransactionVerificationCache
-          let c' = HM.insert txHash verResult c
-          putTransactionVerificationCache c'  
-
-isExpiryTooLate :: TreeStateMonad pv m => BlockItem -> UTCTime -> m Bool
-isExpiryTooLate tr ts = do
-        maxTimeToExpiry <- rpMaxTimeToExpiry <$> getRuntimeParameters
-        let expiry = msgExpiry tr
-        return $ expiry > maxTimeToExpiry + utcTimeToTransactionTime ts
 
 -- |Add a transaction to the transaction table.  The 'Slot' should be
 -- the slot number of the block that the transaction was received with.
@@ -606,7 +578,14 @@ doReceiveTransactionInternal tr slot = do
         when (TV.isVerifiable verResult) $ do
           c <- getTransactionVerificationCache
           let c' = HM.insert txHash verResult c
-          putTransactionVerificationCache c'  
+          putTransactionVerificationCache c'
+
+-- |Checks if the expiry of a `BlockItem` is *too* distant in the future.
+isExpiryTooLate :: TreeStateMonad pv m => BlockItem -> UTCTime -> m Bool
+isExpiryTooLate tr ts = do
+        maxTimeToExpiry <- rpMaxTimeToExpiry <$> getRuntimeParameters
+        let expiry = msgExpiry tr
+        return $ expiry > maxTimeToExpiry + utcTimeToTransactionTime ts
 
 -- |Shutdown the skov, returning a list of pending transactions.
 doTerminateSkov :: (TreeStateMonad pv m, SkovMonad pv m) => m [BlockItem]
