@@ -1136,11 +1136,11 @@ handleDeployCredential accCreation@AccountCreation{messageExpiry=messageExpiry, 
         Just _ -> do 
           -- we verify the transaction again as it might have become
           -- valid since it was last verified.
-          tVerResult <- lift (TV.verifyCredentialDeploymentFull ts accCreation)
+          tVerResult <- lift (TV.verifyCredentialDeployment ts accCreation)
           when (tVerResult /= TV.Success) $ throwError $ mapErr tVerResult
         Nothing -> do
           -- If the transaction has not been verified before we verify it now
-          tVerResult <- lift (TV.verifyCredentialDeploymentFull ts accCreation)
+          tVerResult <- lift (TV.verifyCredentialDeployment ts accCreation)
           when (tVerResult /= TV.Success) $ throwError $ mapErr tVerResult
       newAccount regId aaddr liftedCryptoParams mkSummary
     case res of

@@ -531,7 +531,7 @@ doReceiveTransaction tr slot = unlessShutDown $ do
           Nothing -> do
             now <- currentTime
             let ts = utcTimeToTimestamp now
-            result <- runReaderT (TV.verifyCredentialDeploymentFull ts cred) bs
+            result <- runReaderT (TV.verifyCredentialDeployment ts cred) bs
             insertIntoCacheIfEligible (getHash tr) result
             return result
       insertIntoCacheIfEligible txHash verResult = do
@@ -549,13 +549,14 @@ doReceiveTransaction tr slot = unlessShutDown $ do
 -- transaction in case of a duplicate, ensuring more sharing of transaction data.
 -- This function also verifies the transactions incoming and adds them to the internal
 -- transaction verification cache such that it can be used by the 'Scheduler'.
-doReceiveTransactionInternal :: (TreeStateMonad pv m) => BlockItem -> Slot -> m (Maybe BlockItem, UpdateResult)
+doReceiveTransactionInternal :: (TreeStateMonad pv m, SkovQueryMonad pv m) => BlockItem -> Slot -> m (Maybe BlockItem, UpdateResult)
 doReceiveTransactionInternal tr slot = do
     focus <- getFocusBlock
     st <- blockState focus
     case tr of
       WithMetadata{wmdData = CredentialDeployment cred} -> do
-        verRes <- cachedVerificationCheck cred st
+        ts <- getSlotTimestamp slot
+        verRes <- cachedVerificationCheck ts cred st
         if TV.isVerifiable verRes then do
           addTx st verRes
         else do
@@ -583,13 +584,13 @@ doReceiveTransactionInternal tr slot = do
             return (Just bi, mapTransactionVerificationResult verRes)
           Duplicate tx -> return (Just tx, ResultDuplicate)
           ObsoleteNonce -> return (Nothing, ResultStale)
-      cachedVerificationCheck cred bs = do
+      cachedVerificationCheck ts cred bs = do
         txVerCache <- getTransactionVerificationCache
         let verResult = HM.lookup (getHash tr) txVerCache
         case verResult of
           Just res -> return res
           Nothing -> do
-            result <- runReaderT (TV.verifyCredentialDeployment cred) bs
+            result <- runReaderT (TV.verifyCredentialDeployment ts cred) bs
             insertIntoCacheIfEligible (getHash tr) result
             return result
       insertIntoCacheIfEligible txHash verResult = do

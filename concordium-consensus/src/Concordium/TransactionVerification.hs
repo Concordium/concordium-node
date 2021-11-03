@@ -82,24 +82,6 @@ class Monad m => TransactionVerifier m where
   -- |Check whether the account address corresponds to an existing account.
   accountExists :: Types.AccountAddress -> m Bool
 
--- |Verifies a 'CredentialDeployment' transaction.
--- Use this verification function if the transaction has not been received via a block.
--- 
--- In addition to the checks of `verifyCredentialDeployment` this function also carries out the
--- following checks:
--- * Check the transaction is not expired
--- * Checks that the 'CredentialDeployment' is not expired
-verifyCredentialDeploymentFull :: TransactionVerifier m => Types.Timestamp -> Tx.AccountCreation -> m VerificationResult
-verifyCredentialDeploymentFull now tx@Tx.AccountCreation{..} =
-  either id id <$> runExceptT (do
-    -- check that the transaction is not yet expired
-    let expired = Types.transactionExpired (Tx.msgExpiry tx) now
-    when expired $ throwError Stale
-    -- check that the credential deployment is not yet expired
-    let expiry = ID.validTo credential
-    unless (Types.isTimestampBefore now expiry) $ throwError CredentialDeploymentExpired
-    lift (verifyCredentialDeployment tx))
-
 -- |Verifies a 'CredentialDeployment' transaction which origins from a block
 -- Note. The caller must make sure to only use this verification function if the
 -- transaction stems from a block.
@@ -107,14 +89,19 @@ verifyCredentialDeploymentFull now tx@Tx.AccountCreation{..} =
 -- use `verifyCredentialDeploymentFull`.
 --
 -- This function verifies the following:
+-- * Checks the transaction is not expired
+-- * Checks that the 'CredentialDeployment' is not expired
 -- * Making sure that an registration id does not already exist and also that 
 -- a corresponding account does not exist.
 -- * Validity of the 'IdentityProvider' and 'AnonymityRevokers' provided.
 -- * Key sizes for the 'CredentialDeployment'
 -- * Valid signatures on the 'CredentialDeployment'
-verifyCredentialDeployment :: TransactionVerifier m => Tx.AccountCreation -> m VerificationResult
-verifyCredentialDeployment accountCreation@Tx.AccountCreation{..} =
+verifyCredentialDeployment :: TransactionVerifier m => Types.Timestamp -> Tx.AccountCreation -> m VerificationResult
+verifyCredentialDeployment now accountCreation@Tx.AccountCreation{..} =
   either id id <$> runExceptT (do
+    -- check that the credential deployment is not yet expired
+    let expiry = ID.validTo credential
+    unless (Types.isTimestampBefore now expiry) $ throwError CredentialDeploymentExpired
     -- check that the credential deployment is not a duplicate
     exists <- lift (registrationIdExists (ID.credId accountCreation))
     when exists $ throwError $ DuplicateAccountRegistrationID (ID.credId accountCreation)

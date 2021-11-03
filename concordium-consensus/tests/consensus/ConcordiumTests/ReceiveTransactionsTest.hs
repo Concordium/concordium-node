@@ -96,8 +96,7 @@ test = do
       let results = fst s
           outState = snd s
           cache = outState ^. transactionVerificationResults
-      -- the doReceiveTransactionInternal does not verify expiries.
-      -- The scheduler will check this before executing the transactions.
+      check results cache 2 False TVer.CredentialDeploymentExpired
       check results cache 3 False $ TVer.DuplicateAccountRegistrationID duplicateRegId
       check results cache 4 True TVer.CredentialDeploymentInvalidIdentityProvider
       check results cache 5 False TVer.CredentialDeploymentInvalidKeys
