@@ -1124,6 +1124,8 @@ handleDeployCredential accCreation@AccountCreation{messageExpiry=messageExpiry, 
 
       let regId = ID.credId accCreation
       let aaddr = ID.addressFromRegId regId
+      -- We always need to make sure that the account was not created in between
+      -- the transaction was received and the actual execution.
       accExistsAlready <- isJust <$> lift (getAccount aaddr)
       when accExistsAlready $ throwError $ Just $ DuplicateAccountRegistrationID regId
       liftedCryptoParams <- lift TV.getCryptographicParameters      
