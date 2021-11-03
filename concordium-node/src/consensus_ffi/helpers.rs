@@ -312,6 +312,7 @@ impl TryFrom<i64> for ConsensusFfiResponse {
             23 => Ok(CredentialDeploymentInvalidSignatures),
             24 => Ok(CredentialDeploymentInvalidIP),
             25 => Ok(CredentialDeploymentInvalidAR),
+            26 => Ok(CredentialDeploymentExpired),
             _ => Err(anyhow!("Unsupported FFI return code ({})", value)),
         }
     }
