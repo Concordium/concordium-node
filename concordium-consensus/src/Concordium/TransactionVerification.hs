@@ -19,6 +19,7 @@ import qualified Concordium.ID.Account as A
 import qualified Concordium.ID.Types as ID
 import Data.Maybe (isJust)
 import Control.Monad.Except
+import Concordium.Types.HashableTo (getHash)
 
 -- |The 'VerificationResult' type serves as an intermediate `result type` between the 'TxResult' and 'UpdateResult' types.
 -- VerificationResult's contains possible verification errors that may have occurred when verifying a 'AccountCreation' type.
@@ -81,6 +82,24 @@ class Monad m => TransactionVerifier m where
   registrationIdExists :: ID.CredentialRegistrationID -> m Bool
   -- |Check whether the account address corresponds to an existing account.
   accountExists :: Types.AccountAddress -> m Bool
+
+
+-- |Convenience function getting VerificationResults together with a cache.
+-- The function returns the verification result and the (possibly) updated cache.
+verifyWithCache :: TransactionVerifier m => Types.Timestamp -> Tx.BlockItem -> TransactionVerificationCache -> m (VerificationResult, TransactionVerificationCache)
+verifyWithCache now bi cache = do
+  let mVerRes = HM.lookup (getHash bi) cache
+  case mVerRes of
+    Just verRes -> return (verRes, cache)
+    Nothing -> do
+      case bi of
+        Tx.WithMetadata{wmdData = Tx.CredentialDeployment cred} -> do
+          verRes <- verifyCredentialDeployment now cred
+          if isVerifiable verRes then do
+            let c' = HM.insert (getHash bi) verRes cache
+            return (verRes, c')
+          else return (verRes, cache)
+        _ -> return (Success, cache) -- todo: The TransactionVerifier only supports CredentialDeployments at the moment.
 
 -- |Verifies a 'CredentialDeployment' transaction which origins from a block
 -- Note. The caller must make sure to only use this verification function if the

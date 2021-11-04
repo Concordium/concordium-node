@@ -9,7 +9,6 @@ import Data.Maybe (fromMaybe, isNothing)
 import qualified Data.Sequence as Seq
 import Lens.Micro.Platform
 import Data.Foldable
-import qualified Data.HashMap.Strict as HM
 
 import GHC.Stack
 
@@ -499,22 +498,28 @@ doReceiveTransaction tr slot = unlessShutDown $ do
   -- Don't accept the transaction if it was expired
   else if transactionExpired (msgExpiry tr) (utcTimeToTimestamp now) then return ResultStale
   else do
-    ur <- case tr of
-        WithMetadata{wmdData = NormalTransaction tx} -> do
-            -- Don't accept the transaction if the stated energy is smaller than the minimum energy amount.
-            let baseEnergy = baseCost (getTransactionHeaderPayloadSize $ transactionHeader tx) (getTransactionNumSigs $ transactionSignature tx)
-                statedEnergy = thEnergyAmount $ transactionHeader tx
-            if baseEnergy > statedEnergy then return ResultTooLowEnergy
-            else do
-               -- this is not ideal since we look up the entire account.
-               -- In the current implementation this is not a problem since all states since the last finalized one are cached
-               -- but this should be revised to add a "accountExists" function in the future
-               senderExists <- flip getAccount (transactionSender tx) =<< queryBlockState =<< lastFinalizedBlock
-               if isNothing senderExists then return ResultNonexistingSenderAccount
-               else snd <$> doReceiveTransactionInternal tr slot
-        _ -> snd <$> doReceiveTransactionInternal tr slot
-    when (ur == ResultSuccess) $ purgeTransactionTable False =<< currentTime
-    return ur
+    cache <- getTransactionVerificationCache
+    (verRes, cache') <- runReaderT (TV.verifyWithCache (utcTimeToTimestamp now) tr cache) =<< queryBlockState =<< lastFinalizedBlock
+    if not (TV.isVerifiable verRes) then do
+      return $ mapTransactionVerificationResult verRes
+    else do
+      putTransactionVerificationCache cache'
+      ur <- case tr of
+          WithMetadata{wmdData = NormalTransaction tx} -> do
+              -- Don't accept the transaction if the stated energy is smaller than the minimum energy amount.
+              let baseEnergy = baseCost (getTransactionHeaderPayloadSize $ transactionHeader tx) (getTransactionNumSigs $ transactionSignature tx)
+                  statedEnergy = thEnergyAmount $ transactionHeader tx
+              if baseEnergy > statedEnergy then return ResultTooLowEnergy
+              else do
+                 -- this is not ideal since we look up the entire account.
+                 -- In the current implementation this is not a problem since all states since the last finalized one are cached
+                 -- but this should be revised to add a "accountExists" function in the future
+                 senderExists <- flip getAccount (transactionSender tx) =<< queryBlockState =<< lastFinalizedBlock
+                 if isNothing senderExists then return ResultNonexistingSenderAccount
+                 else snd <$> doReceiveTransactionInternal tr slot
+          _ -> snd <$> doReceiveTransactionInternal tr slot
+      when (ur == ResultSuccess) $ purgeTransactionTable False =<< currentTime
+      return ur
 
 -- |Add a transaction to the transaction table.  The 'Slot' should be
 -- the slot number of the block that the transaction was received with.
@@ -532,17 +537,13 @@ doReceiveTransactionInternal tr slot = do
    -- Don't accept the transaction if it was expired
    else if transactionExpired (msgExpiry tr) (utcTimeToTimestamp slotTime) then return (Nothing, ResultStale)
    else do
-    focus <- getFocusBlock
-    st <- blockState focus
-    case tr of
-      WithMetadata{wmdData = CredentialDeployment cred} -> do
-        ts <- getSlotTimestamp slot
-        verRes <- cachedVerificationCheck ts cred st
-        if TV.isVerifiable verRes then do
-          addTx st verRes
-        else do
-          return (Nothing, mapTransactionVerificationResult verRes)
-      _ -> addTx st TV.Success
+    cache <- getTransactionVerificationCache
+    ts <- getSlotTimestamp slot
+    (verRes, cache') <- runReaderT (TV.verifyWithCache ts tr cache) =<< blockState =<< getFocusBlock
+    if not (TV.isVerifiable verRes) then do return (Nothing, mapTransactionVerificationResult verRes)
+    else do
+      putTransactionVerificationCache cache'
+      flip addTx verRes =<< blockState =<< getFocusBlock
   where
       addTx st verRes = addCommitTransaction tr slot >>= \case
           Added bi@WithMetadata{..} -> do
@@ -565,20 +566,6 @@ doReceiveTransactionInternal tr slot = do
             return (Just bi, mapTransactionVerificationResult verRes)
           Duplicate tx -> return (Just tx, ResultDuplicate)
           ObsoleteNonce -> return (Nothing, ResultStale)
-      cachedVerificationCheck ts cred bs = do
-        txVerCache <- getTransactionVerificationCache
-        let verResult = HM.lookup (getHash tr) txVerCache
-        case verResult of
-          Just res -> return res
-          Nothing -> do
-            result <- runReaderT (TV.verifyCredentialDeployment ts cred) bs
-            insertIntoCacheIfEligible (getHash tr) result
-            return result
-      insertIntoCacheIfEligible txHash verResult = do
-        when (TV.isVerifiable verResult) $ do
-          c <- getTransactionVerificationCache
-          let c' = HM.insert txHash verResult c
-          putTransactionVerificationCache c'
 
 -- |Checks if the expiry of a `BlockItem` is *too* distant in the future.
 isExpiryTooLate :: TreeStateMonad pv m => BlockItem -> UTCTime -> m Bool
