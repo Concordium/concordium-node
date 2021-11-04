@@ -145,8 +145,9 @@ getBlockStates = do
       bs2 = PBS.hpbsPointers $ _bpState (bs ^. pairStateRight . Concordium.GlobalState.Persistent.TreeState.focusBlock)
   return (bs1, bs2)
 
--- | Create the thomasAccount with a dummy credential and the provided amount
-createAccountWith :: AmountDelta -> TheBlockStates -> ThisMonadConcrete TheBlockStates
+-- | Create the thomasAccount with a dummy credential and the provided amount. Return the account index of the newly created account
+-- and the updated block state.
+createAccountWith :: AmountDelta -> TheBlockStates -> ThisMonadConcrete (TheBlockStates, AccountIndex)
 createAccountWith a bs = do
   (_, bs') <- bsoCreateAccount bs
                                dummyGlobalContext
@@ -156,28 +157,32 @@ createAccountWith a bs = do
                                                 thomasVK
                                                 (YearMonth 2021 01)
                                                 (YearMonth 2021 12))
-  bsoModifyAccount bs' (emptyAccountUpdate thomasAccount & auAmount ?~ a)
+  ~(Just ai) <- bsoGetAccountIndex bs' thomasAccount
+  (, ai) <$> bsoModifyAccount bs' (emptyAccountUpdate ai thomasAccount & auAmount ?~ a)
 
 -- | Add a baker with the given staked amount.
-addBakerWith :: Amount -> TheBlockStates -> ThisMonadConcrete (BakerAddResult, TheBlockStates)
-addBakerWith am bs = do
+addBakerWith :: Amount -> (TheBlockStates, AccountIndex) -> ThisMonadConcrete (BakerAddResult, (TheBlockStates, AccountIndex))
+addBakerWith am (bs, ai) = do
   a <- BlockSig.verifyKey <$> liftIO BlockSig.newKeyPair
   b <- Bls.derivePublicKey <$> liftIO Bls.generateSecretKey
   c <- VRF.publicKey <$> liftIO VRF.newKeyPair
-  bsoAddBaker bs thomasAccount (BakerAdd (BakerKeyUpdate a b c) am False)
+  (bar, bs') <- bsoAddBaker bs ai (BakerAdd (BakerKeyUpdate a b c) am False)
+  return (bar, (bs', ai))
+  
 
 -- |Modify the staked amount to the given value.
-modifyStakeTo :: Amount -> TheBlockStates -> ThisMonadConcrete (BakerStakeUpdateResult, TheBlockStates)
-modifyStakeTo a bs = do
-  bsoUpdateBakerStake bs thomasAccount a
+modifyStakeTo :: Amount -> (TheBlockStates, AccountIndex) -> ThisMonadConcrete (BakerStakeUpdateResult, (TheBlockStates, AccountIndex))
+modifyStakeTo a (bs, ai) = do
+  (bsur, bs') <- bsoUpdateBakerStake bs ai a
+  return (bsur, (bs', ai))
 
 -- |Increase the current threshold for baking. This uses some trickery to run a
 -- side monad that will be a MonadBlobStore that can retrieve the required
 -- fields from the persistent block state and write them again after modifying
 -- them. This is quite ad-hoc and probably should not be replicated in other
 -- tests.
-increaseLimit :: Amount -> TheBlockStates -> ThisMonadConcrete TheBlockStates
-increaseLimit newLimit (bs, bs2) = do
+increaseLimit :: Amount -> (TheBlockStates, AccountIndex) -> ThisMonadConcrete (TheBlockStates, AccountIndex)
+increaseLimit newLimit ((bs, bs2), ai) = do
   let f :: PBS.PersistentBlockStateMonad PV PBS.PersistentBlockStateContext (ReaderT PBS.PersistentBlockStateContext LogIO) ()
       f = do
         -- load the block from the IORef
@@ -204,7 +209,7 @@ increaseLimit newLimit (bs, bs2) = do
                         -- requirements.
                         runReaderT (PBS.runPersistentBlockStateMonad f) rc
                         return ((), ps, ())))
-  return (bs & blockUpdates . UQ.currentParameters . cpBakerStakeThreshold .~ newLimit, bs2)
+  return ((bs & blockUpdates . UQ.currentParameters . cpBakerStakeThreshold .~ newLimit, bs2), ai)
 
 --------------------------------------------------------------------------------
 --                                                                            --

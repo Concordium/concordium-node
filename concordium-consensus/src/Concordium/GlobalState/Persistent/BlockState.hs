@@ -663,15 +663,15 @@ doTransitionEpochBakers pbs newEpoch = do
             h2 <- getHashM b
             return $ if (h1 :: H.Hash) == h2 then b else a
 
-doAddBaker :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> AccountAddress -> BakerAdd -> m (BakerAddResult, PersistentBlockState pv)
-doAddBaker pbs aaddr BakerAdd{..} = do
+doAddBaker :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> AccountIndex -> BakerAdd -> m (BakerAddResult, PersistentBlockState pv)
+doAddBaker pbs ai BakerAdd{..} = do
         bsp <- loadPBS pbs
-        Accounts.getAccountWithIndex aaddr (bspAccounts bsp) >>= \case
+        Accounts.indexedAccount ai (bspAccounts bsp) >>= \case
             -- Cannot resolve the account
             Nothing -> return (BAInvalidAccount, pbs)
             -- Account is already a baker
-            Just (ai, PersistentAccount{_accountBaker = Some _}) -> return (BAAlreadyBaker (BakerId ai), pbs)
-            Just (ai, PersistentAccount{}) -> do
+            Just PersistentAccount{_accountBaker = Some _} -> return (BAAlreadyBaker (BakerId ai), pbs)
+            Just PersistentAccount{} -> do
                   cp <- (^. cpBakerStakeThreshold) <$> doGetChainParameters pbs
                   if baStake < cp then
                       return (BAStakeUnderThreshold, pbs)
@@ -706,12 +706,12 @@ doAddBaker pbs aaddr BakerAdd{..} = do
                                 bspAccounts = newAccounts
                             }
 
-doUpdateBakerKeys ::(IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> AccountAddress -> BakerKeyUpdate -> m (BakerKeyUpdateResult, PersistentBlockState pv)
-doUpdateBakerKeys pbs aaddr bku@BakerKeyUpdate{..} = do
+doUpdateBakerKeys ::(IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> AccountIndex -> BakerKeyUpdate -> m (BakerKeyUpdateResult, PersistentBlockState pv)
+doUpdateBakerKeys pbs ai bku@BakerKeyUpdate{..} = do
         bsp <- loadPBS pbs
-        Accounts.getAccountWithIndex aaddr (bspAccounts bsp) >>= \case
+        Accounts.indexedAccount ai (bspAccounts bsp) >>= \case
             -- The account is valid and has a baker
-            Just (ai, PersistentAccount{_accountBaker = Some pAcctBkr}) -> do
+            Just PersistentAccount{_accountBaker = Some pAcctBkr} -> do
                 acctBkr <- refLoad pAcctBkr
                 pab <- refLoad (_birkActiveBakers (bspBirkParameters bsp))
                 bkrInfo <- refLoad (_accountBakerInfo acctBkr)
@@ -746,13 +746,13 @@ doUpdateBakerKeys pbs aaddr bku@BakerKeyUpdate{..} = do
             -- Cannot resolve the account, or it is not a baker
             _ -> return (BKUInvalidBaker, pbs)
 
-doUpdateBakerStake :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> AccountAddress -> Amount -> m (BakerStakeUpdateResult, PersistentBlockState pv)
-doUpdateBakerStake pbs aaddr newStake = do
+doUpdateBakerStake :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> AccountIndex -> Amount -> m (BakerStakeUpdateResult, PersistentBlockState pv)
+doUpdateBakerStake pbs ai newStake = do
         bsp <- loadPBS pbs
 
-        Accounts.getAccountWithIndex aaddr (bspAccounts bsp) >>= \case
+        Accounts.indexedAccount ai (bspAccounts bsp) >>= \case
             -- The account is valid and has a baker
-            Just (ai, PersistentAccount{_accountBaker = Some pAcctBkr}) -> do
+            Just PersistentAccount{_accountBaker = Some pAcctBkr} -> do
                 acctBkr <- refLoad pAcctBkr
                 if _bakerPendingChange acctBkr /= NoChange
                 -- A change is already pending
@@ -779,12 +779,12 @@ doUpdateBakerStake pbs aaddr newStake = do
                             GT -> (BSUStakeIncreased (BakerId ai),) <$> applyUpdate (stakedAmount .~ newStake)
             _ -> return (BSUInvalidBaker, pbs)
 
-doUpdateBakerRestakeEarnings :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> AccountAddress -> Bool -> m (BakerRestakeEarningsUpdateResult, PersistentBlockState pv)
-doUpdateBakerRestakeEarnings pbs aaddr newRestakeEarnings = do
+doUpdateBakerRestakeEarnings :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> AccountIndex -> Bool -> m (BakerRestakeEarningsUpdateResult, PersistentBlockState pv)
+doUpdateBakerRestakeEarnings pbs ai newRestakeEarnings = do
         bsp <- loadPBS pbs
-        Accounts.getAccountWithIndex aaddr (bspAccounts bsp) >>= \case
+        Accounts.indexedAccount ai (bspAccounts bsp) >>= \case
             -- The account is valid and has a baker
-            Just (ai, PersistentAccount{_accountBaker = Some pAcctBkr}) -> do
+            Just PersistentAccount{_accountBaker = Some pAcctBkr} -> do
                 acctBkr <- refLoad pAcctBkr
                 if newRestakeEarnings == acctBkr ^. stakeEarnings
                 then return (BREUUpdated (BakerId ai), pbs)
@@ -795,12 +795,12 @@ doUpdateBakerRestakeEarnings pbs aaddr newRestakeEarnings = do
             _ -> return (BREUInvalidBaker, pbs)
 
 
-doRemoveBaker :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> AccountAddress -> m (BakerRemoveResult, PersistentBlockState pv)
-doRemoveBaker pbs aaddr = do
+doRemoveBaker :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> AccountIndex -> m (BakerRemoveResult, PersistentBlockState pv)
+doRemoveBaker pbs ai = do
         bsp <- loadPBS pbs
-        Accounts.getAccountWithIndex aaddr (bspAccounts bsp) >>= \case
+        Accounts.indexedAccount ai (bspAccounts bsp) >>= \case
             -- The account is valid and has a baker
-            Just (ai, PersistentAccount{_accountBaker = Some pab}) -> do
+            Just PersistentAccount{_accountBaker = Some pab} -> do
                 ab <- refLoad pab
                 if _bakerPendingChange ab /= NoChange then
                     -- A change is already pending
@@ -915,33 +915,33 @@ doModifyAccount :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockSt
 doModifyAccount pbs aUpd@AccountUpdate{..} = do
         bsp <- loadPBS pbs
         -- Do the update to the account
-        (_, accts1) <- Accounts.updateAccounts upd _auAddress (bspAccounts bsp)
+        (_, accts1) <- Accounts.updateAccountsAtIndex upd _auIndex (bspAccounts bsp)
         storePBS pbs (bsp {bspAccounts = accts1})
     where
         upd oldAccount = ((), ) <$> Accounts.updateAccount aUpd oldAccount
 
-doSetAccountCredentialKeys :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> AccountAddress -> ID.CredentialIndex -> ID.CredentialPublicKeys -> m (PersistentBlockState pv)
-doSetAccountCredentialKeys pbs accAddress credIx credKeys = do
+doSetAccountCredentialKeys :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> AccountIndex -> ID.CredentialIndex -> ID.CredentialPublicKeys -> m (PersistentBlockState pv)
+doSetAccountCredentialKeys pbs accIndex credIx credKeys = do
         bsp <- loadPBS pbs
-        (_, accts1) <- Accounts.updateAccounts upd accAddress (bspAccounts bsp)
+        (_, accts1) <- Accounts.updateAccountsAtIndex upd accIndex (bspAccounts bsp)
         storePBS pbs (bsp {bspAccounts = accts1})
     where
         upd oldAccount = ((), ) <$> setPAD (updateCredentialKeys credIx credKeys) oldAccount
 
 doUpdateAccountCredentials :: (IsProtocolVersion pv, MonadBlobStore m) =>
     PersistentBlockState pv
-    -> AccountAddress -- ^ Address of the account to update.
+    -> AccountIndex -- ^ Address of the account to update.
     -> [ID.CredentialIndex] -- ^ List of credential indices to remove.
     -> Map.Map ID.CredentialIndex ID.AccountCredential -- ^ New credentials to add.
     -> ID.AccountThreshold -- ^ New account threshold
     -> m (PersistentBlockState pv)
-doUpdateAccountCredentials pbs accAddress remove add thrsh = do
+doUpdateAccountCredentials pbs accIndex remove add thrsh = do
         bsp <- loadPBS pbs
-        (res, accts1) <- Accounts.updateAccounts upd accAddress (bspAccounts bsp)
+        (res, accts1) <- Accounts.updateAccountsAtIndex upd accIndex (bspAccounts bsp)
         case res of
-          Just (idx, ()) -> do
+          Just () -> do
             -- If we deploy a credential, record it
-            accts2 <- Accounts.recordRegIds ((, idx) <$> Map.elems (ID.credId <$> add)) accts1
+            accts2 <- Accounts.recordRegIds ((, accIndex) <$> Map.elems (ID.credId <$> add)) accts1
             storePBS pbs (bsp {bspAccounts = accts2})
           Nothing -> return pbs -- this should not happen, the precondition of this method is that the account exists. But doing nothing is safe.
     where
@@ -1249,7 +1249,7 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateQuery (Persist
 
 instance (PersistentState r m, IsProtocolVersion pv) => AccountOperations (PersistentBlockStateMonad pv r m) where
 
-  getAccountAddress acc = acc ^^. accountAddress
+  getAccountCanonicalAddress acc = acc ^^. accountAddress
 
   getAccountAmount acc = return $ acc ^. accountAmount
 
@@ -1283,7 +1283,7 @@ instance (PersistentState r m, IsProtocolVersion pv) => AccountOperations (Persi
 
 instance (IsProtocolVersion pv, PersistentState r m) => BlockStateOperations (PersistentBlockStateMonad pv r m) where
     bsoGetModule pbs mref = doGetModule pbs mref
-    bsoGetAccount bs = fmap (fmap snd) . doGetAccount bs
+    bsoGetAccount bs = doGetAccount bs
     bsoGetAccountIndex = doGetAccountIndex
     bsoGetInstance = doGetInstance
     bsoRegIdExists = doRegIdExists

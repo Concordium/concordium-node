@@ -376,7 +376,7 @@ mintAndReward bshandle blockParent slotNumber bid isNewEpoch mfinInfo transFees 
     -- Add the block to the list of blocks baked in this epoch
     >>= flip bsoNotifyBlockBaked bid
   
-  foundationAccount <- getAccountAddress =<< bsoGetFoundationAccount bshandleEpoch
+  foundationAccount <- getAccountCanonicalAddress =<< bsoGetFoundationAccount bshandleEpoch
 
   -- Then mint GTU.
   let mintUpdates = [(slot, md) | (slot, UVMintDistribution md) <- updates]

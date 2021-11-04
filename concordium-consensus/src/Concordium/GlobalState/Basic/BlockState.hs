@@ -457,7 +457,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
 
 instance (Monad m, IsProtocolVersion pv) => BS.AccountOperations (PureBlockStateMonad pv m) where
 
-  getAccountAddress acc = return $ acc ^. accountAddress
+  getAccountCanonicalAddress acc = return $ acc ^. accountAddress
 
   getAccountAmount acc = return $ acc ^. accountAmount
 
@@ -488,7 +488,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
 
     {-# INLINE bsoGetAccount #-}
     bsoGetAccount bs aaddr =
-      return $ bs ^? blockAccounts . ix aaddr
+      return $ Accounts.getAccountWithIndex aaddr (bs ^. blockAccounts)
 
     {-# INLINE bsoGetAccountIndex #-}
     bsoGetAccountIndex bs aaddr = return $! Accounts.getAccountIndex aaddr (bs ^. blockAccounts)
@@ -526,21 +526,21 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
         -- Update the account
         bs & blockAccounts %~ Accounts.putAccount updatedAccount
         where
-            account = bs ^. blockAccounts . singular (ix (accountUpdates ^. auAddress))
+            account = bs ^. blockAccounts . singular (Accounts.indexedAccount (accountUpdates ^. auIndex))
             updatedAccount = Accounts.updateAccount accountUpdates account
     
-    bsoSetAccountCredentialKeys bs accountAddr credIx newKeys = return $! bs & blockAccounts %~ Accounts.putAccount updatedAccount
+    bsoSetAccountCredentialKeys bs accIndex credIx newKeys = return $! bs & blockAccounts %~ Accounts.putAccount updatedAccount
         where
-            account = bs ^. blockAccounts . singular (ix accountAddr)
+            account = bs ^. blockAccounts . singular (Accounts.indexedAccount accIndex)
             updatedAccount = updateCredentialKeys credIx newKeys account
 
-    bsoUpdateAccountCredentials bs accountAddr remove add thrsh = return $! bs
+    bsoUpdateAccountCredentials bs accIndex remove add thrsh = return $! bs
             & blockAccounts %~ recordAllRegIds . updateAcct
         where
             updateAcct accts = Accounts.putAccountWithIndex updatedAccount accts
             recordAllRegIds (newIndex, newAccts) = Accounts.recordRegIds ((, newIndex) <$> credIdsToRecord) newAccts
             credIdsToRecord = Map.elems $ credId <$> add
-            account = bs ^. blockAccounts . singular (ix accountAddr)
+            account = bs ^. blockAccounts . singular (Accounts.indexedAccount accIndex)
             updatedAccount = updateCredentials remove add thrsh account
 
     {-# INLINE bsoNotifyEncryptedBalanceChange #-}
@@ -598,14 +598,14 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                         _birkNextEpochBakers = newNextBakers
                     }
 
-    bsoAddBaker bs aaddr BakerAdd{..} = do
+    bsoAddBaker bs ai BakerAdd{..} = do
       bakerStakeThreshold <- BS.bsoGetChainParameters bs <&> (^. cpBakerStakeThreshold)
-      return $! case Accounts.getAccountWithIndex aaddr (bs ^. blockAccounts) of
+      return $! case bs ^? blockAccounts . Accounts.indexedAccount ai of
         -- Cannot resolve the account
         Nothing -> (BAInvalidAccount, bs)
         -- Account is already a baker
-        Just (ai, Account{_accountBaker = Just _}) -> (BAAlreadyBaker (BakerId ai), bs)
-        Just (ai, Account{})
+        Just Account{_accountBaker = Just _} -> (BAAlreadyBaker (BakerId ai), bs)
+        Just Account{}
           -- Aggregation key is a duplicate
           | bkuAggregationKey baKeys `Set.member` (bs ^. blockBirkParameters . birkActiveBakers . aggregationKeys) -> (BADuplicateAggregationKey, bs)
           -- Provided stake is under threshold
@@ -623,9 +623,9 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                 & blockBirkParameters . birkActiveBakers . activeBakers %~ Set.insert bid
                 )
 
-    bsoUpdateBakerKeys bs aaddr bku@BakerKeyUpdate{..} = return $! case Accounts.getAccountWithIndex aaddr (bs ^. blockAccounts) of
+    bsoUpdateBakerKeys bs ai bku@BakerKeyUpdate{..} = return $! case bs ^? blockAccounts . Accounts.indexedAccount ai of
         -- The account is valid and has a baker
-        Just (ai, Account{_accountBaker = Just ab@AccountBaker{..}})
+        Just Account{_accountBaker = Just ab@AccountBaker{..}}
           -- The key would duplicate an existing aggregation key (other than the baker's current key)
           | bkuAggregationKey /= _bakerAggregationVerifyKey _accountBakerInfo
           , bkuAggregationKey `Set.member` (bs ^. blockBirkParameters . birkActiveBakers . aggregationKeys) -> (BKUDuplicateAggregationKey, bs)
@@ -638,11 +638,11 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
         -- Cannot resolve the account, or it is not a baker
         _ -> (BKUInvalidBaker, bs)
 
-    bsoUpdateBakerStake bs aaddr newStake = do
+    bsoUpdateBakerStake bs ai newStake = do
       bakerStakeThreshold <- BS.bsoGetChainParameters bs <&> (^. cpBakerStakeThreshold)
-      return $! case Accounts.getAccountWithIndex aaddr (bs ^. blockAccounts) of
+      return $! case bs ^? blockAccounts . Accounts.indexedAccount ai of
         -- The account is valid and has a baker
-        Just (ai, Account{_accountBaker = Just ab@AccountBaker{..}})
+        Just Account{_accountBaker = Just ab@AccountBaker{..}}
           -- A change is already pending
           | _bakerPendingChange /= NoChange -> (BSUChangePending (BakerId ai), bs)
           -- We can make the change
@@ -662,9 +662,9 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
         -- The account is not valid or has no baker
         _ -> (BSUInvalidBaker, bs)
 
-    bsoUpdateBakerRestakeEarnings bs aaddr newRestakeEarnings = return $! case Accounts.getAccountWithIndex aaddr (bs ^. blockAccounts) of
+    bsoUpdateBakerRestakeEarnings bs ai newRestakeEarnings = return $! case bs ^? blockAccounts . Accounts.indexedAccount ai of
         -- The account is valid and has a baker
-        Just (ai, Account{_accountBaker = Just ab@AccountBaker{..}}) ->
+        Just Account{_accountBaker = Just ab@AccountBaker{..}} ->
           if newRestakeEarnings == _stakeEarnings
           -- No actual change
           then (BREUUpdated (BakerId ai), bs)
@@ -672,9 +672,9 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
           else (BREUUpdated (BakerId ai), bs & blockAccounts . Accounts.indexedAccount ai . accountBaker ?~ ab{_stakeEarnings = newRestakeEarnings})
         _ -> (BREUInvalidBaker, bs)
 
-    bsoRemoveBaker bs aaddr = return $! case Accounts.getAccountWithIndex aaddr (bs ^. blockAccounts) of
+    bsoRemoveBaker bs ai = return $! case bs ^? blockAccounts . Accounts.indexedAccount ai of
         -- The account is valid and has a baker
-        Just (ai, Account{_accountBaker = Just ab@AccountBaker{..}})
+        Just Account{_accountBaker = Just ab@AccountBaker{..}}
           -- A change is already pending
           | _bakerPendingChange /= NoChange -> (BRChangePending (BakerId ai), bs)
           -- We can make the change

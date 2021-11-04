@@ -402,7 +402,7 @@ getBlockBirkParameters = liftSkovQueryBlock $ \bp -> do
             let bsBakerLotteryPower = fromIntegral _bakerStake / fromIntegral bakerTotalStake
             -- This should never return Nothing
             bacct <- BS.getBakerAccount bs _bakerIdentity
-            bsBakerAccount <- mapM BS.getAccountAddress bacct
+            bsBakerAccount <- mapM BS.getAccountCanonicalAddress bacct
             return BakerSummary{..}
     bbpBakers <- mapM resolveBaker fullBakerInfos
     return BlockBirkParameters{..}

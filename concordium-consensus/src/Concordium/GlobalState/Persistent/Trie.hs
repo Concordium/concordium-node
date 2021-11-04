@@ -34,6 +34,14 @@ import qualified Concordium.ID.Types as IDTypes
 
 import Concordium.GlobalState.Persistent.MonadicRecursive
 import Concordium.GlobalState.Persistent.BlobStore
+    ( cacheBufferedBlobbed,
+      BlobRef,
+      BlobStorable(..),
+      BufferedBlobbed,
+      Cacheable(..),
+      FixShowable(..),
+      MonadBlobStore,
+      Nullable(..) )
 
 class FixedTrieKey a where
     -- |Unpack a key to a list of bytes.
