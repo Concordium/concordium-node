@@ -74,6 +74,7 @@ import qualified Concordium.TransactionVerification as TV
 import Lens.Micro.Platform
 
 import Prelude hiding (exp, mod)
+import Concordium.Types.HashableTo (getHash)
 
 -- |Check that
 --  * the transaction has a valid sender,
@@ -1208,7 +1209,7 @@ handleChainUpdate ::
   SchedulerMonad pv m
   => WithMetadata UpdateInstruction
   -> m TxResult
-handleChainUpdate WithMetadata{wmdData = ui@UpdateInstruction{..}, ..} = do
+handleChainUpdate WithMetadata{wmdData = UpdateInstruction{..}, ..} = do
   -- Check that the timeout is not in the past
   cm <- getChainMetadata
   if transactionExpired (updateTimeout uiHeader) (slotTime cm) then
@@ -1246,13 +1247,21 @@ handleChainUpdate WithMetadata{wmdData = ui@UpdateInstruction{..}, ..} = do
           Level1UpdatePayload (Level2KeysLevel1Update u) -> checkSigAndUpdate $ UVLevel2Keys u
 
   where
+    -- Check that the signatures use the appropriate keys and are valid.
     checkSigAndUpdate change = do
-      -- Check that the signatures use the appropriate keys and are valid.
-      keyCollection <- getUpdateKeyCollection
-      if checkAuthorizedUpdate keyCollection ui then do
-        enqueueUpdate (updateEffectiveTime uiHeader) change
-        tsIndex <- bumpTransactionIndex
-        return $ TxValid TransactionSummary {
+      cachedTVResult <- lookupTransactionVerificationResult wmdHash
+      case cachedTVResult of
+        Just (TV.ChainUpdateSuccess keysHash) -> do
+          currentKeys <- getUpdateKeyCollection
+          if getHash currentKeys == keysHash then do 
+            update change
+          else do -- keys has changed. No way the signature can be valid now.
+            return $ TxInvalid IncorrectSignature
+        err -> return $ mapErr err -- This should not happen as the chain update
+    update change = do            -- would've been rejected when received.
+      enqueueUpdate (updateEffectiveTime uiHeader) change
+      tsIndex <- bumpTransactionIndex
+      return $ TxValid TransactionSummary {
             tsSender = Nothing,
             tsHash = wmdHash,
             tsCost = 0,
@@ -1261,8 +1270,7 @@ handleChainUpdate WithMetadata{wmdData = ui@UpdateInstruction{..}, ..} = do
             tsResult = TxSuccess [UpdateEnqueued (updateEffectiveTime uiHeader) uiPayload],
             ..
           }
-      else
-        return (TxInvalid IncorrectSignature)
+    mapErr _ = TxInvalid IncorrectSignature
 
 handleUpdateCredentials ::
   SchedulerMonad pv m

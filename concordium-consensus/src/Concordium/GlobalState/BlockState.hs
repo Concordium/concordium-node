@@ -269,6 +269,9 @@ class AccountOperations m => BlockStateQuery m where
     -- |Get the current cryptographic parameters of the chain.
     getCryptographicParameters :: BlockState m -> m CryptographicParameters
 
+    -- |Get the current UpdateKeysCollection
+    getUpdateKeysCollection :: BlockState m -> m UpdateKeysCollection
+
 -- |Distribution of newly-minted GTU.
 data MintAmounts = MintAmounts {
     -- |Minted amount allocated to the BakingRewardAccount
@@ -526,7 +529,6 @@ class (BlockStateQuery m) => BlockStateOperations m where
 
   -- |Get the current 'Authorizations' for validating updates.
   bsoGetUpdateKeyCollection :: UpdatableBlockState m -> m UpdateKeysCollection
-
   -- |Get the next 'UpdateSequenceNumber' for a given update type.
   bsoGetNextUpdateSequenceNumber :: UpdatableBlockState m -> UpdateType -> m UpdateSequenceNumber
 
@@ -647,6 +649,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   getCryptographicParameters = lift . getCryptographicParameters
   getIdentityProvider s = lift . getIdentityProvider s
   getAnonymityRevokers s = lift . getAnonymityRevokers s
+  getUpdateKeysCollection s = lift $ getUpdateKeysCollection s
   {-# INLINE getModule #-}
   {-# INLINE getAccount #-}
   {-# INLINE getAccountByCredId #-}
@@ -673,6 +676,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   {-# INLINE getCryptographicParameters #-}
   {-# INLINE getIdentityProvider #-}
   {-# INLINE getAnonymityRevokers #-}
+  {-# INLINE getUpdateKeysCollection #-}
 
 instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (MGSTrans t m) where
   getAccountAddress = lift . getAccountAddress

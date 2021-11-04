@@ -533,23 +533,41 @@ doReceiveTransactionInternal tr slot = do
    else if transactionExpired (msgExpiry tr) (utcTimeToTimestamp slotTime) then return (Nothing, ResultStale)
    else do
     focus <- getFocusBlock
-    st <- blockState focus
+    bs <- blockState focus
     case tr of
       WithMetadata{wmdData = CredentialDeployment cred} -> do
-        ts <- getSlotTimestamp slot
-        verRes <- cachedVerificationCheck ts cred st
-        if TV.isVerifiable verRes then do
-          addTx st verRes
-        else do
-          return (Nothing, mapTransactionVerificationResult verRes)
-      _ -> addTx st TV.Success
+        cache <- getTransactionVerificationCache
+        let verRes = HM.lookup (getHash tr) cache
+        case verRes of
+          Just res -> do
+            if TV.isVerifiable res then do addTx bs res
+            else do return (Nothing, mapTransactionVerificationResult res)
+          Nothing -> do
+            ts <- getSlotTimestamp slot
+            res <- runReaderT (TV.verifyCredentialDeployment ts cred) bs
+            insertIntoCacheIfEligible (getHash tr) res
+            if TV.isVerifiable res then do addTx bs res
+            else do return (Nothing, mapTransactionVerificationResult res)
+      WithMetadata{wmdData = ChainUpdate ui} -> do
+        cache <- getTransactionVerificationCache
+        let verRes = HM.lookup (getHash tr) cache
+        case verRes of 
+          Just res -> do
+            if TV.isVerifiable res then do addTx bs res
+            else do return (Nothing, mapTransactionVerificationResult res)
+          Nothing -> do
+            res <- runReaderT (TV.verifyChainUpdate ui) bs
+            insertIntoCacheIfEligible (getHash tr) res
+            if TV.isVerifiable res then do addTx bs res
+            else do return (Nothing, mapTransactionVerificationResult res)
+      _ -> addTx bs TV.Success
   where
-      addTx st verRes = addCommitTransaction tr slot >>= \case
+      addTx bs verRes = addCommitTransaction tr slot >>= \case
           Added bi@WithMetadata{..} -> do
             ptrs <- getPendingTransactions
             case wmdData of
               NormalTransaction tx -> do
-                macct <- getAccount st $! transactionSender tx
+                macct <- getAccount bs $! transactionSender tx
                 nextNonce <- fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
                 -- If a transaction with this nonce has already been run by
                 -- the focus block, then we do not need to add it to the
@@ -559,21 +577,12 @@ doReceiveTransactionInternal tr slot = do
               CredentialDeployment _ -> do
                 putPendingTransactions $! addPendingDeployCredential wmdHash ptrs
               ChainUpdate cu -> do
-                nextSN <- getNextUpdateSequenceNumber st (updateType (uiPayload cu))
+                nextSN <- getNextUpdateSequenceNumber bs (updateType (uiPayload cu))
                 when (nextSN <= updateSeqNumber (uiHeader cu)) $
                     putPendingTransactions $! addPendingUpdate nextSN cu ptrs
             return (Just bi, mapTransactionVerificationResult verRes)
           Duplicate tx -> return (Just tx, ResultDuplicate)
           ObsoleteNonce -> return (Nothing, ResultStale)
-      cachedVerificationCheck ts cred bs = do
-        txVerCache <- getTransactionVerificationCache
-        let verResult = HM.lookup (getHash tr) txVerCache
-        case verResult of
-          Just res -> return res
-          Nothing -> do
-            result <- runReaderT (TV.verifyCredentialDeployment ts cred) bs
-            insertIntoCacheIfEligible (getHash tr) result
-            return result
       insertIntoCacheIfEligible txHash verResult = do
         when (TV.isVerifiable verResult) $ do
           c <- getTransactionVerificationCache
@@ -622,4 +631,6 @@ mapTransactionVerificationResult TV.CredentialDeploymentInvalidSignatures = Resu
 mapTransactionVerificationResult TV.CredentialDeploymentInvalidKeys = ResultCredentialDeploymentInvalidKeys
 mapTransactionVerificationResult TV.CredentialDeploymentExpired = ResultCredentialDeploymentExpired
 mapTransactionVerificationResult TV.Success = ResultSuccess
-    
+mapTransactionVerificationResult (TV.ChainUpdateSuccess _) = ResultSuccess
+mapTransactionVerificationResult TV.ChainUpdateInvalidSignatures = ResultChainUpdateInvalidSignatures
+

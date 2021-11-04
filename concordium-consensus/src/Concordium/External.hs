@@ -652,6 +652,8 @@ stopBaker cptr = mask_ $ do
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 -- |    26 | ResultCredentialDeploymentExpired           | The CredentialDeployment contained an expired 'validTo'                                       | Yes      |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
+-- |    26 | ResultChainUpdateInvalidSignatures          | The ChainUpdate contained an invalid signature                                                | Yes      |
+-- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 type ReceiveResult = Int64
 
 -- |Convert an 'UpdateResult' to the corresponding 'ReceiveResult' value.
@@ -683,6 +685,7 @@ toReceiveResult ResultCredentialDeploymentInvalidSignatures = 23
 toReceiveResult ResultCredentialDeploymentInvalidIP = 24
 toReceiveResult ResultCredentialDeploymentInvalidAR = 25
 toReceiveResult ResultCredentialDeploymentExpired = 26
+toReceiveResult ResultChainUpdateInvalidSignatures = 27
 
 -- |Handle receipt of a block.
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,

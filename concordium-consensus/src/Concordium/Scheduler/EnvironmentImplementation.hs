@@ -149,7 +149,8 @@ instance (SS state ~ UpdatableBlockState m,
   getCryptographicParameters = lift . bsoGetCryptoParams =<< use schedulerBlockState
   {-# INLINE accountExists #-}
   accountExists !aaddr = fmap isJust . lift . flip bsoGetAccount aaddr =<< use schedulerBlockState
-
+  {-# INLINE getUpdateKeysCollection #-}
+  getUpdateKeysCollection = lift . bsoGetUpdateKeyCollection =<< use schedulerBlockState
 instance (MonadReader ContextState m,
           SS state ~ UpdatableBlockState m,
           HasSchedulerState state,

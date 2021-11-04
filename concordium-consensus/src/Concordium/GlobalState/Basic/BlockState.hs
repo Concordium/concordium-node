@@ -464,6 +464,9 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
     getAnonymityRevokers bs arIds = return $!
       let ars = bs ^. blockAnonymityRevokers . unhashed . to ARS.arRevokers
       in forM arIds (flip Map.lookup ars)
+
+    {-# INLINE getUpdateKeysCollection #-}
+    getUpdateKeysCollection bs = return $! bs ^. blockUpdates . currentKeyCollection . unhashed
     
 instance (Monad m, IsProtocolVersion pv) => BS.AccountOperations (PureBlockStateMonad pv m) where
 

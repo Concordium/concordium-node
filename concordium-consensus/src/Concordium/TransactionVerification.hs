@@ -14,11 +14,15 @@ import qualified Concordium.ID.IdentityProvider as IP
 import qualified Concordium.GlobalState.Types as GSTypes
 import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.Types.Parameters as Params
+import qualified Concordium.Types.Updates as Updates
 import qualified Concordium.Types as Types
 import qualified Concordium.ID.Account as A
 import qualified Concordium.ID.Types as ID
 import Data.Maybe (isJust)
 import Control.Monad.Except
+import qualified Concordium.Crypto.SHA256 as Sha256
+import qualified Concordium.Scheduler.Types as Tx
+import Concordium.Types.HashableTo (getHash)
 
 -- |The 'VerificationResult' type serves as an intermediate `result type` between the 'TxResult' and 'UpdateResult' types.
 -- VerificationResult's contains possible verification errors that may have occurred when verifying a 'AccountCreation' type.
@@ -42,6 +46,14 @@ data VerificationResult
   -- ^The 'AccountCreation' contained invalid identity provider signatures.
   | CredentialDeploymentExpired
   -- ^The 'AccountCreation' contained an expired 'validTo'
+  | ChainUpdateSuccess !Sha256.Hash
+  -- ^The 'ChainUpdate' passed verification successfully. The result contains
+  -- the hash of the `UpdateKeysCollection`. It must be checked
+  -- that the hash corresponds to the configured `UpdateKeysCollection` before executing the transaction.
+  | ChainUpdateInvalidSignatures
+  -- ^The 'ChainUpdate' contained invalid signatures.
+  | ChainUpdateTooLowSequenceNumber
+  -- ^The sequence number was too low.
   deriving (Eq, Show)
 
 -- |Returns `True` if the `VerificationResult` should be stored in the cache.
@@ -53,6 +65,9 @@ isVerifiable Success = True
 isVerifiable CredentialDeploymentInvalidIdentityProvider = True
 -- Same goes for anonymity revokers.
 isVerifiable CredentialDeploymentInvalidAnonymityRevokers = True
+-- It must be verified that the `Hash` within the ChainUpdateSuccess
+-- corresponds the to hash of the current UpdateKeysCollection before executing the transaction.
+isVerifiable (ChainUpdateSuccess _) = True
 isVerifiable _ = False
 
 -- |The transaction verification cache stores transaction 'VerificationResult's associated with 'TransactionHash'es.
@@ -81,6 +96,8 @@ class Monad m => TransactionVerifier m where
   registrationIdExists :: ID.CredentialRegistrationID -> m Bool
   -- |Check whether the account address corresponds to an existing account.
   accountExists :: Types.AccountAddress -> m Bool
+  -- |Get the UpdateKeysCollection
+  getUpdateKeysCollection :: m Updates.UpdateKeysCollection
 
 -- |Verifies a 'CredentialDeployment' transaction which origins from a block
 -- Note. The caller must make sure to only use this verification function if the
@@ -133,6 +150,14 @@ verifyCredentialDeployment now accountCreation@Tx.AccountCreation{..} =
                     unless (A.verifyCredential cryptoParams ipInfo arsInfos (S.encode ncdi) (Left messageExpiry)) $ throwError CredentialDeploymentInvalidSignatures
     return Success)
 
+verifyChainUpdate :: TransactionVerifier m => Tx.UpdateInstruction -> m VerificationResult
+verifyChainUpdate tr =
+  either id id <$> runExceptT (do
+    -- check the signature is OK
+    keys <- lift getUpdateKeysCollection
+    when (Updates.checkAuthorizedUpdate keys tr) $ throwError ChainUpdateInvalidSignatures    
+    return (ChainUpdateSuccess (getHash keys)))
+  
 instance (Monad m, r ~ GSTypes.BlockState m, BS.BlockStateQuery m) => TransactionVerifier (ReaderT r m) where
   {-# INLINE getIdentityProvider #-}
   getIdentityProvider ipId = do
@@ -155,4 +180,7 @@ instance (Monad m, r ~ GSTypes.BlockState m, BS.BlockStateQuery m) => Transactio
     state <- ask
     let res = lift (BS.getAccount state aaddr)
     fmap isJust res
-
+  {-# INLINE getUpdateKeysCollection #-}
+  getUpdateKeysCollection = do
+    state <- ask
+    lift (BS.getUpdateKeysCollection state)

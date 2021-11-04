@@ -210,6 +210,7 @@ pub enum ConsensusFfiResponse {
     CredentialDeploymentInvalidIP,
     CredentialDeploymentInvalidAR,
     CredentialDeploymentExpired,
+    ChainUpdateInvalidSignatures,
 }
 
 impl fmt::Display for ConsensusFfiResponse {
@@ -313,6 +314,7 @@ impl TryFrom<i64> for ConsensusFfiResponse {
             24 => Ok(CredentialDeploymentInvalidIP),
             25 => Ok(CredentialDeploymentInvalidAR),
             26 => Ok(CredentialDeploymentExpired),
+            27 => Ok(ChainUpdateInvalidSignatures),
             _ => Err(anyhow!("Unsupported FFI return code ({})", value)),
         }
     }

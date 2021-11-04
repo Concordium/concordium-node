@@ -1248,7 +1248,7 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateQuery (Persist
     getCryptographicParameters = doGetCryptoParams . hpbsPointers
     getIdentityProvider = doGetIdentityProvider . hpbsPointers
     getAnonymityRevokers =  doGetAnonymityRevokers . hpbsPointers
-
+    getUpdateKeysCollection = doGetUpdateKeyCollection . hpbsPointers
 instance (PersistentState r m, IsProtocolVersion pv) => AccountOperations (PersistentBlockStateMonad pv r m) where
 
   getAccountAddress acc = acc ^^. accountAddress

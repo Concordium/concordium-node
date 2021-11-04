@@ -304,6 +304,10 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
         r1 <- coerceBSML $ getAnonymityRevokers bs1 arIds
         r2 <- coerceBSMR $ getAnonymityRevokers bs2 arIds
         assert (r1 == r2) $ return r1
+    getUpdateKeysCollection (bs1, bs2) = do
+        r1 <- coerceBSML $ getUpdateKeysCollection bs1
+        r2 <- coerceBSMR $ getUpdateKeysCollection bs2
+        assert (r1 == r2) $ return r1
 
 instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, AccountOperations (BSML pv lc r ls s m), AccountOperations (BSMR pv rc r rs s m), HashableTo H.Hash (Account (BSML pv lc r ls s m)), HashableTo H.Hash (Account (BSMR pv rc r rs s m)))
   => AccountOperations (BlockStateM pv (PairGSContext lc rc) r (PairGState ls rs) s m) where
