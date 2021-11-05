@@ -686,6 +686,8 @@ toReceiveResult ResultCredentialDeploymentInvalidIP = 24
 toReceiveResult ResultCredentialDeploymentInvalidAR = 25
 toReceiveResult ResultCredentialDeploymentExpired = 26
 toReceiveResult ResultChainUpdateInvalidSignatures = 27
+toReceiveResult ResultChainUpdateExpired = 28
+toReceiveResult ResultChainUpdateInvalidEffectiveTime = 29
 
 -- |Handle receipt of a block.
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,

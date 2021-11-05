@@ -97,6 +97,10 @@ data UpdateResult
     -- ^The message is for an unknown genesis index.
     | ResultChainUpdateInvalidSignatures
     -- ^The 'ChainUpdate' contained invalid signatures.
+    | ResultChainUpdateExpired
+    -- ^The 'ChainUpdate' contained an expired timeout
+    | ResultChainUpdateInvalidEffectiveTime
+    -- ^The 'ChainUpdate' contained an invalid effective time.
     deriving (Eq, Show)
 
 class (Monad m, Eq (BlockPointerType m), HashableTo BlockHash (BlockPointerType m), BlockPointerData (BlockPointerType m), BlockPointerMonad m, EncodeBlock pv (BlockPointerType m), BlockStateQuery m, IsProtocolVersion pv)

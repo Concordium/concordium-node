@@ -1210,42 +1210,31 @@ handleChainUpdate ::
   => WithMetadata UpdateInstruction
   -> m TxResult
 handleChainUpdate WithMetadata{wmdData = UpdateInstruction{..}, ..} = do
-  -- Check that the timeout is not in the past
-  cm <- getChainMetadata
-  if transactionExpired (updateTimeout uiHeader) (slotTime cm) then
-    return (TxInvalid ExpiredTransaction)
+  -- Check that the sequence number is correct
+  expectedSequenceNumber <- getNextUpdateSequenceNumber (updateType uiPayload)
+  if updateSeqNumber uiHeader /= expectedSequenceNumber then
+    return (TxInvalid (NonSequentialNonce expectedSequenceNumber))
   else do
-    -- Check that the timeout is no later than the effective time,
-    -- or the update is immediate
-    if updateTimeout uiHeader >= updateEffectiveTime uiHeader && updateEffectiveTime uiHeader /= 0 then
-      return (TxInvalid InvalidUpdateTime)
-    else do
-      -- Check that the sequence number is correct
-      expectedSequenceNumber <- getNextUpdateSequenceNumber (updateType uiPayload)
-      if updateSeqNumber uiHeader /= expectedSequenceNumber then
-        return (TxInvalid (NonSequentialNonce expectedSequenceNumber))
-      else do
-        -- Convert the payload to an update
-        case uiPayload of
-          ProtocolUpdatePayload u -> checkSigAndUpdate $ UVProtocol u
-          ElectionDifficultyUpdatePayload u -> checkSigAndUpdate $ UVElectionDifficulty u
-          EuroPerEnergyUpdatePayload u -> checkSigAndUpdate $ UVEuroPerEnergy u
-          MicroGTUPerEuroUpdatePayload u -> checkSigAndUpdate $ UVMicroGTUPerEuro u
-          FoundationAccountUpdatePayload u -> getAccountIndex u >>= \case
-            Just ai -> checkSigAndUpdate $ UVFoundationAccount ai
-            Nothing -> return (TxInvalid (UnknownAccount u))
-          MintDistributionUpdatePayload u -> checkSigAndUpdate $ UVMintDistribution u
-          TransactionFeeDistributionUpdatePayload u -> checkSigAndUpdate $ UVTransactionFeeDistribution u
-          GASRewardsUpdatePayload u -> checkSigAndUpdate $ UVGASRewards u
-          BakerStakeThresholdUpdatePayload u -> checkSigAndUpdate $ UVBakerStakeThreshold u
-          AddAnonymityRevokerUpdatePayload u -> checkSigAndUpdate $ UVAddAnonymityRevoker u
-          AddIdentityProviderUpdatePayload u -> checkSigAndUpdate $ UVAddIdentityProvider u
-          RootUpdatePayload (RootKeysRootUpdate u) -> checkSigAndUpdate $ UVRootKeys u
-          RootUpdatePayload (Level1KeysRootUpdate u) -> checkSigAndUpdate $ UVLevel1Keys u
-          RootUpdatePayload (Level2KeysRootUpdate u) -> checkSigAndUpdate $ UVLevel2Keys u
-          Level1UpdatePayload (Level1KeysLevel1Update u) -> checkSigAndUpdate $ UVLevel1Keys u
-          Level1UpdatePayload (Level2KeysLevel1Update u) -> checkSigAndUpdate $ UVLevel2Keys u
-
+    -- Convert the payload to an update
+    case uiPayload of
+      ProtocolUpdatePayload u -> checkSigAndUpdate $ UVProtocol u
+      ElectionDifficultyUpdatePayload u -> checkSigAndUpdate $ UVElectionDifficulty u
+      EuroPerEnergyUpdatePayload u -> checkSigAndUpdate $ UVEuroPerEnergy u
+      MicroGTUPerEuroUpdatePayload u -> checkSigAndUpdate $ UVMicroGTUPerEuro u
+      FoundationAccountUpdatePayload u -> getAccountIndex u >>= \case
+        Just ai -> checkSigAndUpdate $ UVFoundationAccount ai
+        Nothing -> return (TxInvalid (UnknownAccount u))
+      MintDistributionUpdatePayload u -> checkSigAndUpdate $ UVMintDistribution u
+      TransactionFeeDistributionUpdatePayload u -> checkSigAndUpdate $ UVTransactionFeeDistribution u
+      GASRewardsUpdatePayload u -> checkSigAndUpdate $ UVGASRewards u
+      BakerStakeThresholdUpdatePayload u -> checkSigAndUpdate $ UVBakerStakeThreshold u
+      AddAnonymityRevokerUpdatePayload u -> checkSigAndUpdate $ UVAddAnonymityRevoker u
+      AddIdentityProviderUpdatePayload u -> checkSigAndUpdate $ UVAddIdentityProvider u
+      RootUpdatePayload (RootKeysRootUpdate u) -> checkSigAndUpdate $ UVRootKeys u
+      RootUpdatePayload (Level1KeysRootUpdate u) -> checkSigAndUpdate $ UVLevel1Keys u
+      RootUpdatePayload (Level2KeysRootUpdate u) -> checkSigAndUpdate $ UVLevel2Keys u
+      Level1UpdatePayload (Level1KeysLevel1Update u) -> checkSigAndUpdate $ UVLevel1Keys u
+      Level1UpdatePayload (Level2KeysLevel1Update u) -> checkSigAndUpdate $ UVLevel2Keys u
   where
     -- Check that the signatures use the appropriate keys and are valid.
     checkSigAndUpdate change = do

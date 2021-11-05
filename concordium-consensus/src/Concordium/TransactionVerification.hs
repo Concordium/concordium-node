@@ -53,8 +53,10 @@ data VerificationResult
   -- that the hash corresponds to the configured `UpdateKeysCollection` before executing the transaction.
   | ChainUpdateInvalidSignatures
   -- ^The 'ChainUpdate' contained invalid signatures.
-  | ChainUpdateTooLowSequenceNumber
-  -- ^The sequence number was too low.
+  | ChainUpdateTimeoutExpired
+  -- ^The 'ChainUpdate' was expired.
+  | ChainUpdateEffectiveTimeBeforeTimeout
+  -- ^The 'ChainUpdate' had an expiry set too late.
   deriving (Eq, Show)
 
 -- |Returns `True` if the `VerificationResult` should be stored in the cache.
@@ -116,7 +118,14 @@ verifyWithCache now bi cache = do
             let c' = HM.insert (getHash bi) verRes cache
             return (verRes, c')
           else return (verRes, cache)
-        _ -> return (Success, cache) -- todo: The TransactionVerifier only supports CredentialDeployments at the moment.
+        Tx.WithMetadata {wmdData = Tx.ChainUpdate ui} -> do
+          verRes <- verifyChainUpdate now ui
+          if isVerifiable verRes then do
+            let c' = HM.insert (getHash bi) verRes cache
+            return (verRes, c')
+          else return (verRes, cache)
+        -- todo: The TransactionVerifier only supports CredentialDeployments and ChainUpdates at the moment.
+        _ -> return (Success, cache) 
 
 -- |Verifies a 'CredentialDeployment' transaction which origins from a block
 -- Note. The caller must make sure to only use this verification function if the
@@ -169,12 +178,17 @@ verifyCredentialDeployment now accountCreation@Tx.AccountCreation{..} =
                     unless (A.verifyCredential cryptoParams ipInfo arsInfos (S.encode ncdi) (Left messageExpiry)) $ throwError CredentialDeploymentInvalidSignatures
     return Success)
 
-verifyChainUpdate :: TransactionVerifier m => Tx.UpdateInstruction -> m VerificationResult
-verifyChainUpdate tr =
+verifyChainUpdate :: TransactionVerifier m => Types.Timestamp -> Tx.UpdateInstruction -> m VerificationResult
+verifyChainUpdate now ui@Tx.UpdateInstruction{..} =
   either id id <$> runExceptT (do
+    -- check that the timeout is not expired
+    when (Tx.transactionExpired (Tx.updateTimeout uiHeader) now) $ throwError ChainUpdateTimeoutExpired
+    -- check that the timeout is no later than the effective time
+    when (Tx.updateTimeout uiHeader >= Tx.updateEffectiveTime uiHeader && Tx.updateEffectiveTime uiHeader /= 0) $
+      throwError ChainUpdateEffectiveTimeBeforeTimeout
     -- check the signature is OK
     keys <- lift getUpdateKeysCollection
-    when (Updates.checkAuthorizedUpdate keys tr) $ throwError ChainUpdateInvalidSignatures    
+    when (Updates.checkAuthorizedUpdate keys ui) $ throwError ChainUpdateInvalidSignatures    
     return (ChainUpdateSuccess (getHash keys)))
   
 instance (Monad m, r ~ GSTypes.BlockState m, BS.BlockStateQuery m) => TransactionVerifier (ReaderT r m) where

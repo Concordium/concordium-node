@@ -44,6 +44,7 @@ import System.Random
 import Concordium.Skov.Update
 import Concordium.Types.Parameters (CryptographicParameters)
 import Concordium.GlobalState.TreeState (TreeStateMonad(finalizeTransactions))
+import Concordium.Types.Updates
 
 -- |Tests of doReceiveTransaction and doReceiveTransactionInternal of the Updater.
 test :: Spec
@@ -54,8 +55,8 @@ test = do
       let gCtx = dummyGlobalContext
       now <- currentTime
       let genesis = testGenesisData now dummyIdentityProviders dummyArs dummyCryptographicParameters
-          txs = accountCreations gCtx $ utcTimeToTransactionTime now
-      s <- runMkCredentialDeployments testDoReceiveTransactionAccountCreations txs now genesis
+          txs = accountCreations gCtx (utcTimeToTransactionTime now) -- ++ chainUpdates gCtx (utcTimeToTransactionTime now)
+      s <- runMkCredentialDeployments testDoReceiveTransaction txs now genesis
       let results = fst s
           outState = snd s
           cache = outState ^. transactionVerificationResults
@@ -81,7 +82,7 @@ test = do
           txArrivalTime = utcTimeToTransactionTime now
           genesis = testGenesisData now myips myars myCryptoParams
           txs = [toBlockItem txArrivalTime mycdi, toBlockItem txArrivalTime myicdi]
-      s <- runMkCredentialDeployments testDoReceiveTransactionAccountCreations txs now genesis
+      s <- runMkCredentialDeployments testDoReceiveTransaction txs now genesis
       let results = fst s
           outState = snd s
           cache = outState ^. transactionVerificationResults
@@ -91,8 +92,8 @@ test = do
       let gCtx = dummyGlobalContext
       now <- currentTime
       let genesis = testGenesisData now dummyIdentityProviders dummyArs dummyCryptographicParameters
-          txs = accountCreations gCtx $ utcTimeToTransactionTime now
-      s <- runMkCredentialDeployments testDoReceiveTransactionInternalAccountCreations txs now genesis
+          txs = accountCreations gCtx (utcTimeToTransactionTime now) -- ++ chainUpdates gCtx (utcTimeToTransactionTime now)
+      s <- runMkCredentialDeployments testDoReceiveTransactionInternal txs now genesis
       let results = fst s
           outState = snd s
           cache = outState ^. transactionVerificationResults
@@ -116,7 +117,7 @@ test = do
           txArrivalTime = utcTimeToTransactionTime now
           txs = [toBlockItem txArrivalTime mycdi]
           genesis = testGenesisData now myips myars myCryptoParams
-      s <- runMkCredentialDeployments testDoReceiveTransactionAccountCreations txs now genesis
+      s <- runMkCredentialDeployments testDoReceiveTransaction txs now genesis
       let bh = genesisBlockHash genesis
       s' <- runFinalizeTransactions now bh txs $ snd s
       let cache' = snd s' ^. transactionVerificationResults
@@ -185,15 +186,22 @@ testGenesisData :: UTCTime -> IdentityProviders -> AnonymityRevokers -> Cryptogr
 testGenesisData now ips ars cryptoParams = makeTestingGenesisDataP1 (utcTimeToTimestamp now) 1 1 1 dummyFinalizationCommitteeMaxSize cryptoParams ips ars maxBound dummyKeyCollection dummyChainParameters
 
 -- |Run the doReceiveTransaction function and obtain the results
-testDoReceiveTransactionAccountCreations :: [BlockItem] -> Slot -> MyMonad [(TransactionHash, UpdateResult)]
-testDoReceiveTransactionAccountCreations trs slot = mapM (\tr -> doReceiveTransaction tr slot
+testDoReceiveTransaction :: [BlockItem] -> Slot -> MyMonad [(TransactionHash, UpdateResult)]
+testDoReceiveTransaction trs slot = mapM (\tr -> doReceiveTransaction tr slot
                                                            >>= (\res -> pure (wmdHash tr, res))) trs
 
 -- |Run the doReceiveTransactionInternal function and obtain the results
-testDoReceiveTransactionInternalAccountCreations :: [BlockItem] -> Slot -> MyMonad [(TransactionHash, UpdateResult)]
-testDoReceiveTransactionInternalAccountCreations trs slot = mapM (\tr -> doReceiveTransactionInternal tr slot
-                                                                   >>= (\res -> pure (wmdHash tr, snd res))) trs                                                    
-
+testDoReceiveTransactionInternal :: [BlockItem] -> Slot -> MyMonad [(TransactionHash, UpdateResult)]
+testDoReceiveTransactionInternal trs slot = mapM (\tr -> doReceiveTransactionInternal tr slot
+                                                                   >>= (\res -> pure (wmdHash tr, snd res))) trs
+chainUpdates :: GlobalContext -> TransactionTime -> [BlockItem]
+chainUpdates gCtx now =
+  [
+    expiredTimeout
+  ]
+  where
+    expiredTimeout = toBlockItem now (mkChainUpdate (now-1))
+      
 accountCreations :: GlobalContext -> TransactionTime -> [BlockItem]
 accountCreations gCtx now =
   [
@@ -220,9 +228,13 @@ accountCreations gCtx now =
     intialCredentialWithInvalidSignatures = toBlockItem now (mkInitialAccountCreationWithInvalidSignatures expiry (regId 42))
     regId seed = RegIdCred $ generateGroupElementFromSeed gCtx seed
 
-toBlockItem :: TransactionTime -> AccountCreation -> BlockItem
-toBlockItem now acc = credentialDeployment $
-      addMetadata (\x -> CredentialDeployment {biCred=x}) now acc
+toBlockItem :: TransactionTime -> BareBlockItem -> BlockItem
+toBlockItem now bbi =
+  case bbi of
+    CredentialDeployment cred -> credentialDeployment $ addMetadata (\x -> CredentialDeployment {biCred=x}) now cred
+    ChainUpdate ui -> chainUpdate $ addMetadata (\x -> ChainUpdate {biUpdate= x}) now ui
+    _ -> error "foo"
+      
 
 duplicateRegId :: CredentialRegistrationID
 duplicateRegId = cred
@@ -231,8 +243,23 @@ duplicateRegId = cred
       undefined credId
       (Map.lookup 0 (gaCredentials $ head (makeFakeBakers 1)))
 
-mkAccountCreation :: TransactionTime -> CredentialRegistrationID -> Word32 -> Bool -> Bool ->  Bool -> AccountCreation
-mkAccountCreation expiry regId identityProviderId validAr validPubKeys credExpired = AccountCreation
+mkChainUpdate :: TransactionTime -> BareBlockItem
+mkChainUpdate expiry = ChainUpdate UpdateInstruction
+  {
+    uiHeader = UpdateHeader
+    {
+      updateSeqNumber = undefined,
+      updateEffectiveTime = undefined,
+      updateTimeout = expiry,
+      updatePayloadSize = undefined
+    },
+    uiPayload = undefined,
+    uiSignHash = undefined,
+    uiSignatures = undefined
+  }
+
+mkAccountCreation :: TransactionTime -> CredentialRegistrationID -> Word32 -> Bool -> Bool ->  Bool -> BareBlockItem
+mkAccountCreation expiry regId identityProviderId validAr validPubKeys credExpired = CredentialDeployment AccountCreation
   {
     messageExpiry=expiry,
     credential= NormalACWP CredentialDeploymentInformation
@@ -250,8 +277,8 @@ mkAccountCreation expiry regId identityProviderId validAr validPubKeys credExpir
                 }
   }
 
-mkInitialAccountCreationWithInvalidSignatures :: TransactionTime -> CredentialRegistrationID -> AccountCreation
-mkInitialAccountCreationWithInvalidSignatures expiry regId = AccountCreation
+mkInitialAccountCreationWithInvalidSignatures :: TransactionTime -> CredentialRegistrationID -> BareBlockItem
+mkInitialAccountCreationWithInvalidSignatures expiry regId = CredentialDeployment AccountCreation
   {
     messageExpiry=expiry,
     credential=InitialACWP InitialCredentialDeploymentInfo
@@ -300,18 +327,18 @@ mkPolicy expired = mkDummyPolicy where
              pItems=Map.empty
            }
   _validTo = if expired
-    then 
+    then
       YearMonth
            {
              ymYear=1970,
              ymMonth=1
            }
-    else 
+    else
       YearMonth
             {
               ymYear=2070,
               ymMonth=1
-            } 
+            }
 
 mkArData :: Bool -> Map.Map ArIdentity ChainArData
 mkArData valid = if valid then validAr else Map.empty
@@ -325,12 +352,12 @@ mkCredentialKeyPair = newKeyPair Ed25519
 
 -- expiry time for credentials 1596409020
 {-# WARNING mycdi "Do not use in production." #-}
-mycdi :: AccountCreation
-mycdi = readAccountCreation . BSL.fromStrict $ $(makeRelativeToProject "testdata/transactionverification/verifiable-credential.json" >>= embedFile)
+mycdi :: BareBlockItem
+mycdi = CredentialDeployment $ readAccountCreation . BSL.fromStrict $ $(makeRelativeToProject "testdata/transactionverification/verifiable-credential.json" >>= embedFile)
 
 {-# WARNING myicdi "Do not use in production." #-}
-myicdi :: AccountCreation
-myicdi = readAccountCreation . BSL.fromStrict $ $(makeRelativeToProject "testdata/transactionverification/verifiable-initial-credential.json" >>= embedFile)
+myicdi :: BareBlockItem
+myicdi = CredentialDeployment $ readAccountCreation . BSL.fromStrict $ $(makeRelativeToProject "testdata/transactionverification/verifiable-initial-credential.json" >>= embedFile)
 
 {-# WARNING myips "Do not use in production." #-}
 myips :: IdentityProviders
