@@ -9,7 +9,6 @@ import Data.Maybe (fromMaybe, isNothing)
 import qualified Data.Sequence as Seq
 import Lens.Micro.Platform
 import Data.Foldable
-import qualified Data.HashMap.Strict as HM
 
 import GHC.Stack
 
@@ -499,22 +498,28 @@ doReceiveTransaction tr slot = unlessShutDown $ do
   -- Don't accept the transaction if it was expired
   else if transactionExpired (msgExpiry tr) (utcTimeToTimestamp now) then return ResultStale
   else do
-    ur <- case tr of
-        WithMetadata{wmdData = NormalTransaction tx} -> do
-            -- Don't accept the transaction if the stated energy is smaller than the minimum energy amount.
-            let baseEnergy = baseCost (getTransactionHeaderPayloadSize $ transactionHeader tx) (getTransactionNumSigs $ transactionSignature tx)
-                statedEnergy = thEnergyAmount $ transactionHeader tx
-            if baseEnergy > statedEnergy then return ResultTooLowEnergy
-            else do
-               -- this is not ideal since we look up the entire account.
-               -- In the current implementation this is not a problem since all states since the last finalized one are cached
-               -- but this should be revised to add a "accountExists" function in the future
-               senderExists <- flip getAccount (transactionSender tx) =<< queryBlockState =<< lastFinalizedBlock
-               if isNothing senderExists then return ResultNonexistingSenderAccount
-               else snd <$> doReceiveTransactionInternal tr slot
-        _ -> snd <$> doReceiveTransactionInternal tr slot
-    when (ur == ResultSuccess) $ purgeTransactionTable False =<< currentTime
-    return ur
+    cache <- getTransactionVerificationCache
+    (verRes, cache') <- runReaderT (TV.verifyWithCache (utcTimeToTimestamp now) tr cache) =<< queryBlockState =<< lastFinalizedBlock
+    if not (TV.isVerifiable verRes) then do
+      return $ mapTransactionVerificationResult verRes
+    else do
+      putTransactionVerificationCache cache'
+      ur <- case tr of
+          WithMetadata{wmdData = NormalTransaction tx} -> do
+              -- Don't accept the transaction if the stated energy is smaller than the minimum energy amount.
+              let baseEnergy = baseCost (getTransactionHeaderPayloadSize $ transactionHeader tx) (getTransactionNumSigs $ transactionSignature tx)
+                  statedEnergy = thEnergyAmount $ transactionHeader tx
+              if baseEnergy > statedEnergy then return ResultTooLowEnergy
+              else do
+                 -- this is not ideal since we look up the entire account.
+                 -- In the current implementation this is not a problem since all states since the last finalized one are cached
+                 -- but this should be revised to add a "accountExists" function in the future
+                 senderExists <- flip getAccount (transactionSender tx) =<< queryBlockState =<< lastFinalizedBlock
+                 if isNothing senderExists then return ResultNonexistingSenderAccount
+                 else snd <$> doReceiveTransactionInternal tr slot
+          _ -> snd <$> doReceiveTransactionInternal tr slot
+      when (ur == ResultSuccess) $ purgeTransactionTable False =<< currentTime
+      return ur
 
 -- |Add a transaction to the transaction table.  The 'Slot' should be
 -- the slot number of the block that the transaction was received with.
@@ -532,35 +537,13 @@ doReceiveTransactionInternal tr slot = do
    -- Don't accept the transaction if it was expired
    else if transactionExpired (msgExpiry tr) (utcTimeToTimestamp slotTime) then return (Nothing, ResultStale)
    else do
-    focus <- getFocusBlock
-    bs <- blockState focus
-    case tr of
-      WithMetadata{wmdData = CredentialDeployment cred} -> do
-        cache <- getTransactionVerificationCache
-        let verRes = HM.lookup (getHash tr) cache
-        case verRes of
-          Just res -> do
-            if TV.isVerifiable res then do addTx bs res
-            else do return (Nothing, mapTransactionVerificationResult res)
-          Nothing -> do
-            ts <- getSlotTimestamp slot
-            res <- runReaderT (TV.verifyCredentialDeployment ts cred) bs
-            insertIntoCacheIfEligible (getHash tr) res
-            if TV.isVerifiable res then do addTx bs res
-            else do return (Nothing, mapTransactionVerificationResult res)
-      WithMetadata{wmdData = ChainUpdate ui} -> do
-        cache <- getTransactionVerificationCache
-        let verRes = HM.lookup (getHash tr) cache
-        case verRes of 
-          Just res -> do
-            if TV.isVerifiable res then do addTx bs res
-            else do return (Nothing, mapTransactionVerificationResult res)
-          Nothing -> do
-            res <- runReaderT (TV.verifyChainUpdate ui) bs
-            insertIntoCacheIfEligible (getHash tr) res
-            if TV.isVerifiable res then do addTx bs res
-            else do return (Nothing, mapTransactionVerificationResult res)
-      _ -> addTx bs TV.Success
+    cache <- getTransactionVerificationCache
+    ts <- getSlotTimestamp slot
+    (verRes, cache') <- runReaderT (TV.verifyWithCache ts tr cache) =<< blockState =<< getFocusBlock
+    if not (TV.isVerifiable verRes) then do return (Nothing, mapTransactionVerificationResult verRes)
+    else do
+      putTransactionVerificationCache cache'
+      flip addTx verRes =<< blockState =<< getFocusBlock
   where
       addTx bs verRes = addCommitTransaction tr slot >>= \case
           Added bi@WithMetadata{..} -> do
@@ -583,11 +566,6 @@ doReceiveTransactionInternal tr slot = do
             return (Just bi, mapTransactionVerificationResult verRes)
           Duplicate tx -> return (Just tx, ResultDuplicate)
           ObsoleteNonce -> return (Nothing, ResultStale)
-      insertIntoCacheIfEligible txHash verResult = do
-        when (TV.isVerifiable verResult) $ do
-          c <- getTransactionVerificationCache
-          let c' = HM.insert txHash verResult c
-          putTransactionVerificationCache c'
 
 -- |Checks if the expiry of a `BlockItem` is *too* distant in the future.
 isExpiryTooLate :: TreeStateMonad pv m => BlockItem -> UTCTime -> m Bool
