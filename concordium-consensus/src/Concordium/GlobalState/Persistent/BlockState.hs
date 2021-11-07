@@ -892,6 +892,11 @@ doAccountList pbs = do
         bsp <- loadPBS pbs
         Accounts.accountAddresses (bspAccounts bsp)
 
+doAddressWouldClash :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> AccountAddress -> m Bool
+doAddressWouldClash pbs addr = do
+        bsp <- loadPBS pbs
+        Accounts.addressWouldClash addr (bspAccounts bsp)
+
 doRegIdExists :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> ID.CredentialRegistrationID -> m (Maybe AccountIndex)
 doRegIdExists pbs regid = do
         bsp <- loadPBS pbs
@@ -1286,6 +1291,7 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateOperations (Pe
     bsoGetAccount bs = doGetAccount bs
     bsoGetAccountIndex = doGetAccountIndex
     bsoGetInstance = doGetInstance
+    bsoAddressWouldClash = doAddressWouldClash
     bsoRegIdExists = doRegIdExists
     bsoCreateAccount = doCreateAccount
     bsoPutNewInstance = doPutNewInstance

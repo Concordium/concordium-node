@@ -200,6 +200,52 @@ lookupF k = lu (unpackKey k) <=< mproject
             Null -> return Nothing
             Some r -> mproject r >>= lu key'
 
+-- |An auxiliary datatype used by lookupPrefix.
+data FollowStemResult =
+  Equal -- ^ The key and the stem are equal.
+  | KeyIsPrefix -- ^ Key is a strict prefix of the stem.
+  | StemIsPrefix {remainingKey :: ![Word8]}
+  -- ^Stem is a strict prefix of the key. The remaining key is returned.
+  | Diff -- ^The key and stem differ at some point.
+
+-- |Given the key (first argument) and stem (second argument) of the trie compare them and return the result of the
+-- comparison. See 'FollowStem' datatype documentation for
+followStem :: [Word8] -> [Word8] -> FollowStemResult
+followStem = go
+  where go (keyStep:remainingKey) (stemStep:remainingStem)
+            | keyStep /= stemStep = Diff
+            | otherwise = go remainingKey remainingStem
+        go remainingKey@(_:_) [] = StemIsPrefix {..}
+        go [] (_:_) = KeyIsPrefix
+        go [] [] = Equal
+
+-- |Retrieve all the keys and values with the given prefix in the Trie.
+lookupPrefixF :: (MRecursive m t, Base t ~ TrieF k v, FixedTrieKey k) => [Word8] -> t -> m [(k, v)]
+lookupPrefixF ks = lu [] ks <=< mproject
+    where
+        lu prefix [] (Tip v) = pure [(packKey prefix, v)]
+        lu _ _ (Tip _) = pure []
+        lu prefix key (Stem pref r) = case followStem key pref of
+            StemIsPrefix{..} -> mproject r >>= lu (prefix ++ pref) remainingKey
+            Diff -> pure []
+            Equal -> mproject r >>= lu (prefix ++ pref) []
+            KeyIsPrefix -> mproject r >>= collect (prefix ++ pref)
+        lu prefix [] b@(Branch _) = collect prefix b
+        lu prefix (w:key') (Branch vec) = case vec V.! fromIntegral w of
+            Null -> return []
+            Some r -> mproject r >>= lu (prefix ++ [w]) key'
+
+        collect keyPrefix (Tip v) = return [(packKey keyPrefix, v)]
+        collect keyPrefix (Stem pref r) = collect (keyPrefix ++ pref) =<< mproject r
+        collect keyPrefix (Branch vec) = do
+            let
+                handleBranch acc _ Null = return acc
+                handleBranch acc i (Some r) = do
+                  childList <- mproject r >>= collect (keyPrefix ++ [fromIntegral i])
+                  return (childList ++ acc)
+            V.ifoldM handleBranch [] vec
+
+
 -- |Traverse the trie, applying a function to each key value pair and concatenating the
 -- results monoidally.  Keys are traversed from lowest to highest in their byte-wise
 -- resepresation.
@@ -385,6 +431,12 @@ lookup :: (MRecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, F
 lookup _ EmptyTrieN = return Nothing
 lookup k (TrieN _ t) = lookupF k t
 
+-- |Lookup the value at a given key.
+lookupPrefix :: (MRecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, FixedTrieKey k) => [Word8] -> TrieN fix k v -> m [(k, v)]
+lookupPrefix _ EmptyTrieN = return []
+lookupPrefix k (TrieN _ t) = lookupPrefixF k t
+
+
 -- |Alter the value at a particular key.
 adjust :: (MRecursive m (fix (TrieF k v)), MCorecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, FixedTrieKey k) =>
     (Maybe v -> m (a, Alteration v)) -> k -> TrieN fix k v -> m (a, TrieN fix k v)
@@ -413,6 +465,16 @@ keys (TrieN _ t) = mapReduceF (\k _ -> pure [k]) t
 -- |Get the list of keys of a trie in ascending order.
 keysAsc :: (MRecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, OrdFixedTrieKey k) => TrieN fix k v -> m [k]
 keysAsc = keys
+
+-- |Get the list of keys and values in the trie.
+toList :: (MRecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, FixedTrieKey k) => TrieN fix k v -> m [(k, v)]
+toList EmptyTrieN = return []
+toList (TrieN _ t) = mapReduceF (\k v -> pure [(k, v)]) t
+
+-- |Get the list of keys and values in the trie in ascending order of keys.
+toAscList :: (MRecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, OrdFixedTrieKey k) => TrieN fix k v -> m [(k, v)]
+toAscList = toList
+
 
 -- |Convert from a trie using 'Fix' (i.e. direct unrolling) to a trie using a different fixpoint combinator.
 fromTrie :: forall m fix k v. (MCorecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v) => TrieN Fix k v -> m (TrieN fix k v)

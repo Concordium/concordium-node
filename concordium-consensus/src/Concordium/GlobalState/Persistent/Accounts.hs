@@ -26,6 +26,7 @@ import qualified Concordium.GlobalState.Basic.BlockState.Accounts as Transient
 import Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule
 import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.GlobalState.Basic.BlockState.AccountTable as Transient
+import qualified Concordium.GlobalState.AccountMap as AccountMap
 import Concordium.GlobalState.Persistent.LFMBTree (LFMBTree)
 import qualified Concordium.GlobalState.Persistent.LFMBTree as L
 import Concordium.Types.HashableTo
@@ -55,7 +56,7 @@ import Concordium.ID.Parameters
 -- This implementation uses disk-backed structures for implementation.
 data Accounts (pv :: ProtocolVersion) = Accounts {
     -- |Unique index of accounts by 'AccountAddress'
-    accountMap :: !(Trie.TrieN (BufferedBlobbed BlobRef) AccountAddress AccountIndex),
+    accountMap :: !(AccountMap.PersistentAccountMap pv),
     -- |Hashed Merkle-tree of the accounts
     accountTable :: !(LFMBTree AccountIndex HashedBufferedRef (PersistentAccount pv)),
     -- |Optional cached set of used 'ID.CredentialRegistrationID's
@@ -69,7 +70,7 @@ data Accounts (pv :: ProtocolVersion) = Accounts {
 makePersistent :: (MonadBlobStore m, IsProtocolVersion pv) => Transient.Accounts pv -> m (Accounts pv)
 makePersistent (Transient.Accounts amap atbl aregids) = do
     accountTable <- L.fromAscList =<< mapM (makePersistentAccount . snd) (Transient.toList atbl)
-    accountMap <- Trie.fromList (Map.toList amap)
+    accountMap <- AccountMap.toPersistent amap
     accountRegIdHistory <- Trie.fromList (Map.toList aregids)
     return Accounts {accountRegIds = Some aregids,..}
 
@@ -134,7 +135,7 @@ instance (MonadBlobStore m, IsProtocolVersion pv) => Cacheable m (Accounts pv) w
 
 -- |An 'Accounts' with no accounts.
 emptyAccounts :: Accounts pv
-emptyAccounts = Accounts Trie.empty L.empty (Some Map.empty) Trie.empty
+emptyAccounts = Accounts AccountMap.empty L.empty (Some Map.empty) Trie.empty
 
 -- |Add or modify a given account.
 -- If an account matching the given account's address does not exist,
@@ -145,8 +146,8 @@ emptyAccounts = Accounts Trie.empty L.empty (Some Map.empty) Trie.empty
 putAccount :: (MonadBlobStore m, IsProtocolVersion pv) => PersistentAccount pv -> Accounts pv -> m (Accounts pv)
 putAccount !acct accts0 = do
         addr <- acct ^^. accountAddress
-        (isFresh, newAccountMap) <- Trie.adjust addToAM addr (accountMap accts0)
-        newAccountTable <- case isFresh of
+        (existingAccountId, newAccountMap) <- AccountMap.maybeInsert addr acctIndex (accountMap accts0)
+        newAccountTable <- case existingAccountId of
             Nothing -> snd <$> L.append acct (accountTable accts0)
             Just ai -> L.update (const (return ((), acct))) ai (accountTable accts0) <&> \case
                 Nothing -> error $ "Account table corruption: missing account at index " ++ show ai
@@ -154,34 +155,30 @@ putAccount !acct accts0 = do
         return $! accts0 {accountMap = newAccountMap, accountTable = newAccountTable}
     where
         acctIndex = fromIntegral $ L.size (accountTable accts0)
-        addToAM Nothing = return (Nothing, Trie.Insert acctIndex)
-        addToAM (Just v) = return (Just v, Trie.NoChange)
 
 -- |Add a new account. Returns @Just idx@ if the new account is fresh, i.e., the address does not exist,
 -- or @Nothing@ in case the account already exists. In the latter case there is no change to the accounts structure.
 putNewAccount :: (MonadBlobStore m, IsProtocolVersion pv) => PersistentAccount pv -> Accounts pv -> m (Maybe AccountIndex, Accounts pv)
 putNewAccount !acct accts0 = do
         addr <- acct ^^. accountAddress
-        (isFresh, newAccountMap) <- Trie.adjust addToAM addr (accountMap accts0)
-        if isFresh then do
+        (existingAccountId, newAccountMap) <- AccountMap.maybeInsert addr acctIndex (accountMap accts0)
+        if isNothing existingAccountId then do
             (_, newAccountTable) <- L.append acct (accountTable accts0)
             return (Just acctIndex, accts0 {accountMap = newAccountMap, accountTable = newAccountTable})
         else
             return (Nothing, accts0)
     where
         acctIndex = fromIntegral $ L.size (accountTable accts0)
-        addToAM Nothing = return (True, Trie.Insert acctIndex)
-        addToAM (Just _) = return (False, Trie.NoChange)
 
 
 -- |Determine if an account with the given address exists.
-exists :: MonadBlobStore m => AccountAddress -> Accounts pv -> m Bool
-exists addr Accounts{..} = isJust <$> Trie.lookup addr accountMap
+exists :: (IsProtocolVersion pv, MonadBlobStore m) => AccountAddress -> Accounts pv -> m Bool
+exists addr Accounts{..} = AccountMap.accountExists addr accountMap
 
 -- |Retrieve an account with the given address.
 -- Returns @Nothing@ if no such account exists.
 getAccount :: (MonadBlobStore m, IsProtocolVersion pv) => AccountAddress -> Accounts pv -> m (Maybe (PersistentAccount pv))
-getAccount addr Accounts{..} = Trie.lookup addr accountMap >>= \case
+getAccount addr Accounts{..} = AccountMap.lookup addr accountMap >>= \case
         Nothing -> return Nothing
         Just ai -> L.lookup ai accountTable
 
@@ -198,13 +195,13 @@ getAccountByCredId cid accs@Accounts{accountRegIds = Some cachedIds} =
 
 
 -- |Get the account at a given index (if any).
-getAccountIndex :: MonadBlobStore m => AccountAddress -> Accounts pv -> m (Maybe AccountIndex)
-getAccountIndex addr Accounts{..} = Trie.lookup addr accountMap
+getAccountIndex :: (IsProtocolVersion pv, MonadBlobStore m) => AccountAddress -> Accounts pv -> m (Maybe AccountIndex)
+getAccountIndex addr Accounts{..} = AccountMap.lookup addr accountMap
 
 -- |Retrieve an account and its index from a given address.
 -- Returns @Nothing@ if no such account exists.
 getAccountWithIndex :: (MonadBlobStore m, IsProtocolVersion pv) => AccountAddress -> Accounts pv -> m (Maybe (AccountIndex, PersistentAccount pv))
-getAccountWithIndex addr Accounts{..} = Trie.lookup addr accountMap >>= \case
+getAccountWithIndex addr Accounts{..} = AccountMap.lookup addr accountMap >>= \case
         Nothing -> return Nothing
         Just ai -> fmap (ai, ) <$> L.lookup ai accountTable
 
@@ -218,6 +215,11 @@ unsafeGetAccount :: (MonadBlobStore m, IsProtocolVersion pv) => AccountAddress -
 unsafeGetAccount addr accts = getAccount addr accts <&> \case
         Just acct -> acct
         Nothing -> error $ "unsafeGetAccount: Account " ++ show addr ++ " does not exist."
+
+-- |Check whether the given account address would clash with any existing account address.
+-- The meaning of "clash" depends on the protocol version.
+addressWouldClash :: (IsProtocolVersion pv, MonadBlobStore m) => AccountAddress -> Accounts pv -> m Bool
+addressWouldClash addr Accounts{..} = AccountMap.addressWouldClash addr accountMap
 
 -- |Check that an account registration ID is not already on the chain.
 -- See the foundation (Section 4.2) for why this is necessary.
@@ -248,7 +250,7 @@ recordRegIds rids accts0 = foldM (\accts (cid, idx) -> recordRegId cid idx accts
 -- This should not be used to alter the address of an account (which is
 -- disallowed).
 updateAccounts :: (MonadBlobStore m, IsProtocolVersion pv) => (PersistentAccount pv -> m (a, PersistentAccount pv)) -> AccountAddress -> Accounts pv -> m (Maybe (AccountIndex, a), Accounts pv)
-updateAccounts fupd addr a0@Accounts{..} = Trie.lookup addr accountMap >>= \case
+updateAccounts fupd addr a0@Accounts{..} = AccountMap.lookup addr accountMap >>= \case
         Nothing -> return (Nothing, a0)
         Just ai -> L.update fupd ai accountTable >>= \case
             Nothing -> return (Nothing, a0)
@@ -289,7 +291,7 @@ updateAccount !upd !acc = do
 
 -- |Get a list of all account addresses.
 accountAddresses :: MonadBlobStore m => Accounts pv -> m [AccountAddress]
-accountAddresses = Trie.keys . accountMap
+accountAddresses = AccountMap.addresses . accountMap
 
 -- |Serialize accounts in V0 format.
 serializeAccounts :: (MonadBlobStore m, MonadPut m, IsProtocolVersion pv) => GlobalContext -> Accounts pv -> m ()

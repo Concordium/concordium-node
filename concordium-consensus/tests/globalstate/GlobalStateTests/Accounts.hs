@@ -12,13 +12,13 @@ import Concordium.Crypto.FFIDataTypes
 import Concordium.GlobalState.Basic.BlockState.Account as BA
 import qualified Concordium.GlobalState.Basic.BlockState.AccountTable as BAT
 import qualified Concordium.GlobalState.Basic.BlockState.Accounts as B
+import qualified Concordium.GlobalState.AccountMap as AccountMap
 import qualified Concordium.GlobalState.Persistent.Account as PA
 import qualified Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule as PA
 import qualified Concordium.GlobalState.Persistent.Accounts as P
 import qualified Concordium.GlobalState.Persistent.LFMBTree as L
 import Concordium.GlobalState.DummyData
 import Concordium.GlobalState.Persistent.BlobStore
-import qualified Concordium.GlobalState.Persistent.Trie as Trie
 import Concordium.ID.DummyData
 import qualified Concordium.ID.Types as ID
 import Concordium.Types
@@ -62,8 +62,8 @@ checkBinaryM bop x y sbop sx sy = do
 --  use registration ids.
 checkEquivalent :: (MonadBlobStore m, MonadFail m) => B.Accounts PV -> P.Accounts PV -> m ()
 checkEquivalent ba pa = do
-  pam <- Trie.toMap (P.accountMap pa)
-  checkBinary (==) (B.accountMap ba) pam "==" "Basic account map" "Persistent account map"
+  pam <- AccountMap.toMap (P.accountMap pa)
+  checkBinary (==) (AccountMap.toMapPure (B.accountMap ba)) pam "==" "Basic account map" "Persistent account map"
   let bat = BAT.toList (B.accountTable ba)
   pat <- L.toAscPairList (P.accountTable pa)
   checkBinaryM sameAccList bat pat "==" "Basic account table (as list)" "Persistent account table (as list)"

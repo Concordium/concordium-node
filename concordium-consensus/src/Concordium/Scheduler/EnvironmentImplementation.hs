@@ -174,6 +174,10 @@ instance (MonadReader ContextState m,
     schedulerBlockState .= s'
     return res
 
+  {-# INLINE addressWouldClash #-}
+  addressWouldClash !addr =
+    lift . flip bsoAddressWouldClash addr =<< use schedulerBlockState
+
   {-# INLINE accountRegIdExists #-}
   accountRegIdExists !regid =
     lift . fmap isJust . flip bsoRegIdExists regid =<< use schedulerBlockState

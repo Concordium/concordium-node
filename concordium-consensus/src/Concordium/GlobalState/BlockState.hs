@@ -299,6 +299,9 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- |Get the contract state from the contract table of the state instance.
   bsoGetInstance :: UpdatableBlockState m -> ContractAddress -> m (Maybe Instance)
 
+  -- |Check whether the given account address would clash with any existing address.
+  bsoAddressWouldClash :: UpdatableBlockState m -> ID.AccountAddress -> m Bool
+
   -- |Check whether an the given credential registration ID exists, and return
   -- the account index of the account it is or was associated with.
   bsoRegIdExists :: UpdatableBlockState m -> ID.CredentialRegistrationID -> m (Maybe AccountIndex)
@@ -692,6 +695,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoGetAccount s = lift . bsoGetAccount s
   bsoGetAccountIndex s = lift . bsoGetAccountIndex s
   bsoGetInstance s = lift . bsoGetInstance s
+  bsoAddressWouldClash s = lift . bsoAddressWouldClash s
   bsoRegIdExists s = lift . bsoRegIdExists s
   bsoCreateAccount s gc accAddr cdv = lift $ bsoCreateAccount s gc accAddr cdv
   bsoPutNewInstance s = lift . bsoPutNewInstance s
@@ -737,6 +741,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoGetAccount #-}
   {-# INLINE bsoGetAccountIndex #-}
   {-# INLINE bsoGetInstance #-}
+  {-# INLINE bsoAddressWouldClash #-}
   {-# INLINE bsoRegIdExists #-}
   {-# INLINE bsoCreateAccount #-}
   {-# INLINE bsoPutNewInstance #-}

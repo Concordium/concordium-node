@@ -251,7 +251,7 @@ dispatch msg = do
             Nothing -> return Nothing
             Just summary -> return $ Just $ TxValid summary
 
-handleTransferWithSchedule ::
+handleTransferWithSchedule :: forall pv m .
   SchedulerMonad pv m
   => WithDepositContext m
   -> AccountAddress
@@ -268,7 +268,8 @@ handleTransferWithSchedule wtc twsTo twsSchedule maybeMemo = withDeposit wtc c k
           tickEnergy (Cost.scheduledTransferCost $ length twsSchedule)
 
           -- we do not allow for self scheduled transfers
-          when (twsTo == senderAddress) $ rejectTransaction (ScheduledSelfTransfer twsTo)
+          when ((demoteProtocolVersion (protocolVersion @pv) <= P2) && twsTo == senderAddress) $
+              rejectTransaction (ScheduledSelfTransfer twsTo)
 
           -- Get the amount available for the account
           senderAmount <- getCurrentAccountAvailableAmount senderAccount
@@ -297,6 +298,18 @@ handleTransferWithSchedule wtc twsTo twsSchedule maybeMemo = withDeposit wtc c k
 
               -- check the target account
               targetAccount <- getStateAccount twsTo `rejectingWith` InvalidAccountReference twsTo
+              -- In protocol version P3 account addresses are no longer in 1-1
+              -- correspondence with accounts. Thus to check that a scheduled
+              -- transfer is not a self transfer we need to check canonical
+              -- account references. We use account indices for that here. The
+              -- check above for scheduled self transfer using twsTo and
+              -- senderAddress is thus redundant, however it must be kept there
+              -- to keep protocol compatibility with P1 and P2 protocols.
+              -- Rejected transactions's rejection reason is part of block
+              -- hashes.
+              when (demoteProtocolVersion (protocolVersion @pv) >= P3) $
+                when (fst targetAccount == fst senderAccount) $ rejectTransaction (ScheduledSelfTransfer twsTo)
+
 
               withScheduledAmount senderAccount targetAccount transferAmount twsSchedule txHash $ return ()
 
@@ -412,7 +425,7 @@ handleTransferToEncrypted wtc toEncrypted = do
                    energyCost,
                    usedEnergy)
 
-handleEncryptedAmountTransfer ::
+handleEncryptedAmountTransfer :: forall pv m .
   SchedulerMonad pv m
   => WithDepositContext m
   -> AccountAddress -- ^ Receiver address.
@@ -436,7 +449,8 @@ handleEncryptedAmountTransfer wtc toAddress transferData@EncryptedAmountTransfer
           -- We do not allow sending encrypted transfers from an account to itself.
           -- There is no reason to do so in the current setup, and it causes some technical
           -- complications.
-          when (toAddress == senderAddress) $ rejectTransaction (EncryptedAmountSelfTransfer toAddress)
+          when ((demoteProtocolVersion (protocolVersion @pv) <= P2) && toAddress == senderAddress)
+              $ rejectTransaction (EncryptedAmountSelfTransfer toAddress)
 
           senderAllowed <- checkAccountIsAllowed (snd senderAccount) AllowedEncryptedTransfers
           unless senderAllowed $ rejectTransaction NotAllowedToHandleEncrypted
@@ -444,6 +458,15 @@ handleEncryptedAmountTransfer wtc toAddress transferData@EncryptedAmountTransfer
           -- Look up the receiver account first, and don't charge if it does not exist
           -- and does not have a valid credential.
           targetAccount <- getStateAccount toAddress `rejectingWith` InvalidAccountReference toAddress
+          -- Check that the account is not transferring to itself since that
+          -- causes technical complications. In protocol versions 1 and 2
+          -- account addresses and accounts were in 1-1 correspondence. In
+          -- protocol version 3 an account may have multiple addresses and thus
+          -- to check a self transfer we must check with canonical account
+          -- identifiers. We use account indices for that.
+          when ((demoteProtocolVersion (protocolVersion @pv) >= P3) && fst targetAccount == fst senderAccount)
+              $ rejectTransaction (EncryptedAmountSelfTransfer toAddress)
+
 
           receiverAllowed <- checkAccountIsAllowed (snd targetAccount) AllowedEncryptedTransfers
           unless receiverAllowed $ rejectTransaction NotAllowedToReceiveEncrypted
@@ -1146,7 +1169,7 @@ handleDeployCredential AccountCreation{messageExpiry=messageExpiry, credential=c
         case cdi of
           ID.InitialACWP icdi -> do
                let aaddr = ID.addressFromRegId regId
-               accExistsAlready <- isJust <$> lift (getAccount aaddr)
+               accExistsAlready <- lift (addressWouldClash aaddr)
                when accExistsAlready $ throwError $ Just AccountCredentialInvalid
                unless (AH.verifyInitialAccountCreation ipInfo messageExpiry (S.encode icdi)) $ throwError $ Just AccountCredentialInvalid
                -- Create the account with the credential, but don't yet add it to the state
@@ -1174,7 +1197,7 @@ handleDeployCredential AccountCreation{messageExpiry=messageExpiry, credential=c
                       Just cdv -> do
                         -- this check is extremely unlikely to fail (it would amount to a hash collision since
                         -- we checked regIdEx above already).
-                        accExistsAlready <- isJust <$> lift (getAccount aaddr)
+                        accExistsAlready <- lift (addressWouldClash aaddr)
                         let check = AH.verifyCredential cryptoParams ipInfo arsInfos cdiBytes (Left messageExpiry)
                         unless (not accExistsAlready && check) $ throwError $ Just AccountCredentialInvalid
                         -- Add the account to the state, but only if the credential was valid and the account does not exist

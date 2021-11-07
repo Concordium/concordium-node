@@ -79,6 +79,11 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
   -- |Get the 'AccountIndex' for an account, if it exists.
   getAccountIndex :: AccountAddress -> m (Maybe AccountIndex)
 
+  -- |Check whether the given account address would clash with any existing
+  -- account's address. The behaviour of this will generally depend on the
+  -- protocol version.
+  addressWouldClash :: AccountAddress -> m Bool
+
   -- |Check whether a given registration id exists in the global state.
   accountRegIdExists :: ID.CredentialRegistrationID -> m Bool
 

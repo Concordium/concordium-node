@@ -379,6 +379,10 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         r1 <- coerceBSML $ bsoGetInstance bs1 iref
         r2 <- coerceBSMR $ bsoGetInstance bs2 iref
         assert (((==) `on` fmap instanceHash) r1 r2) $ return r1
+    bsoAddressWouldClash (bs1, bs2) addr = do
+        r1 <- coerceBSML $ bsoAddressWouldClash bs1 addr
+        r2 <- coerceBSMR $ bsoAddressWouldClash bs2 addr
+        assert (r1 == r2) $ return r1
     bsoRegIdExists (bs1, bs2) regid = do
         r1 <- coerceBSML $ bsoRegIdExists bs1 regid
         r2 <- coerceBSMR $ bsoRegIdExists bs2 regid

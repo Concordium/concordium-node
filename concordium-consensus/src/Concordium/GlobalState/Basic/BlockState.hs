@@ -30,6 +30,7 @@ import Concordium.Types.UpdateQueues
 import qualified Concordium.Genesis.Data as GenesisData
 import qualified Concordium.Genesis.Data.P1 as P1
 import qualified Concordium.Genesis.Data.P2 as P2
+import qualified Concordium.Genesis.Data.P3 as P3
 import qualified Concordium.GlobalState.Types as GT
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Parameters
@@ -40,6 +41,7 @@ import Concordium.GlobalState.Basic.BlockState.Account
 import qualified Concordium.GlobalState.Basic.BlockState.Accounts as Accounts
 import qualified Concordium.GlobalState.Basic.BlockState.Modules as Modules
 import qualified Concordium.GlobalState.Basic.BlockState.Instances as Instances
+import qualified Concordium.GlobalState.AccountMap as AccountMap
 import qualified Concordium.GlobalState.Rewards as Rewards
 import qualified Concordium.Types.IdentityProviders as IPS
 import qualified Concordium.Types.AnonymityRevokers as ARS
@@ -216,12 +218,13 @@ emptyBlockState _blockBirkParameters cryptographicParameters keysCollection chai
 
 hashBlockState :: forall pv. IsProtocolVersion pv => BlockState pv -> HashedBlockState pv
 hashBlockState = case protocolVersion :: SProtocolVersion pv of
-  SP1 -> hashBlockStateP1P2
-  SP2 -> hashBlockStateP1P2
+  SP1 -> hashBlockStateP1P2P3
+  SP2 -> hashBlockStateP1P2P3
+  SP3 -> hashBlockStateP1P2P3
     -- For protocol versions P1 and P2, convert a @BlockState pv@ to a
     -- @HashedBlockState pv@ by computing the state hash. The state and hashing
     -- is the same.
-  where hashBlockStateP1P2 bs@BlockState{..} = HashedBlockState {
+  where hashBlockStateP1P2P3 bs@BlockState{..} = HashedBlockState {
           _unhashedBlockState = bs,
           _blockStateHash = h
           }
@@ -374,7 +377,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
 
     {-# INLINE getAccountList #-}
     getAccountList bs =
-      return $ Map.keys (Accounts.accountMap (bs ^. blockAccounts))
+      return $ AccountMap.addressesPure (Accounts.accountMap (bs ^. blockAccounts))
 
     getSeedState = return . view (blockBirkParameters . birkSeedState)
 
@@ -492,6 +495,9 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
 
     {-# INLINE bsoGetAccountIndex #-}
     bsoGetAccountIndex bs aaddr = return $! Accounts.getAccountIndex aaddr (bs ^. blockAccounts)
+
+    {-# INLINE bsoAddressWouldClash #-}
+    bsoAddressWouldClash bs addr = return (Accounts.addressWouldClash addr (bs ^. blockAccounts))
 
     {-# INLINE bsoRegIdExists #-}
     bsoRegIdExists bs regid = return (Accounts.regIdExists regid (bs ^. blockAccounts))
@@ -889,6 +895,9 @@ genesisState gd = case protocolVersion @pv of
                     SP2 -> case gd of
                       GDP2 P2.GDP2Initial{..} -> mkGenesisStateInitial genesisCore genesisInitialState
                       GDP2 P2.GDP2Regenesis{..} -> mkGenesisStateRegenesis genesisRegenesis
+                    SP3 -> case gd of
+                      GDP3 P3.GDP3Initial{..} -> mkGenesisStateInitial genesisCore genesisInitialState
+                      GDP3 P3.GDP3Regenesis{..} -> mkGenesisStateRegenesis genesisRegenesis
     where
         mkGenesisStateInitial GenesisData.CoreGenesisParameters{..} GenesisData.GenesisState{..} = do
             accounts <- mapM mkAccount (zip [0..] (toList genesisAccounts))
