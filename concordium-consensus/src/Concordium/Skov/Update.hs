@@ -611,5 +611,4 @@ mapTransactionVerificationResult TV.CredentialDeploymentExpired = ResultCredenti
 mapTransactionVerificationResult TV.Success = ResultSuccess
 mapTransactionVerificationResult (TV.ChainUpdateSuccess _) = ResultSuccess
 mapTransactionVerificationResult TV.ChainUpdateInvalidSignatures = ResultChainUpdateInvalidSignatures
-mapTransactionVerificationResult TV.ChainUpdateTimeoutExpired = ResultChainUpdateExpired
 mapTransactionVerificationResult TV.ChainUpdateEffectiveTimeBeforeTimeout = ResultChainUpdateInvalidEffectiveTime

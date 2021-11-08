@@ -53,8 +53,6 @@ data VerificationResult
   -- that the hash corresponds to the configured `UpdateKeysCollection` before executing the transaction.
   | ChainUpdateInvalidSignatures
   -- ^The 'ChainUpdate' contained invalid signatures.
-  | ChainUpdateTimeoutExpired
-  -- ^The 'ChainUpdate' was expired.
   | ChainUpdateEffectiveTimeBeforeTimeout
   -- ^The 'ChainUpdate' had an expiry set too late.
   deriving (Eq, Show)
@@ -119,7 +117,7 @@ verifyWithCache now bi cache = do
             return (verRes, c')
           else return (verRes, cache)
         Tx.WithMetadata {wmdData = Tx.ChainUpdate ui} -> do
-          verRes <- verifyChainUpdate now ui
+          verRes <- verifyChainUpdate ui
           if isVerifiable verRes then do
             let c' = HM.insert (getHash bi) verRes cache
             return (verRes, c')
@@ -178,15 +176,13 @@ verifyCredentialDeployment now accountCreation@Tx.AccountCreation{..} =
                     unless (A.verifyCredential cryptoParams ipInfo arsInfos (S.encode ncdi) (Left messageExpiry)) $ throwError CredentialDeploymentInvalidSignatures
     return Success)
 
-verifyChainUpdate :: TransactionVerifier m => Types.Timestamp -> Tx.UpdateInstruction -> m VerificationResult
-verifyChainUpdate now ui@Tx.UpdateInstruction{..} =
+verifyChainUpdate :: TransactionVerifier m => Tx.UpdateInstruction -> m VerificationResult
+verifyChainUpdate ui@Tx.UpdateInstruction{..} =
   either id id <$> runExceptT (do
-    -- check that the timeout is not expired
-    when (Tx.transactionExpired (Tx.updateTimeout uiHeader) now) $ throwError ChainUpdateTimeoutExpired
-    -- check that the timeout is no later than the effective time
+    -- check that the effective time is not after the timeout of the chain update.
     when (Tx.updateTimeout uiHeader >= Tx.updateEffectiveTime uiHeader && Tx.updateEffectiveTime uiHeader /= 0) $
       throwError ChainUpdateEffectiveTimeBeforeTimeout
-    -- check the signature is OK
+    -- check the signature is valid
     keys <- lift getUpdateKeysCollection
     when (Updates.checkAuthorizedUpdate keys ui) $ throwError ChainUpdateInvalidSignatures    
     return (ChainUpdateSuccess (getHash keys)))

@@ -652,7 +652,9 @@ stopBaker cptr = mask_ $ do
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 -- |    26 | ResultCredentialDeploymentExpired           | The CredentialDeployment contained an expired 'validTo'                                       | Yes      |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
--- |    26 | ResultChainUpdateInvalidSignatures          | The ChainUpdate contained an invalid signature                                                | Yes      |
+-- |    27 | ResultChainUpdateInvalidEffectiveTime       | The ChainUpdate contained an invalid effective time                                           | Yes      |
+-- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
+-- |    28 | ResultChainUpdateInvalidSignatures          | The ChainUpdate contained an invalid signature                                                | Yes      |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 type ReceiveResult = Int64
 
@@ -685,9 +687,8 @@ toReceiveResult ResultCredentialDeploymentInvalidSignatures = 23
 toReceiveResult ResultCredentialDeploymentInvalidIP = 24
 toReceiveResult ResultCredentialDeploymentInvalidAR = 25
 toReceiveResult ResultCredentialDeploymentExpired = 26
-toReceiveResult ResultChainUpdateInvalidSignatures = 27
-toReceiveResult ResultChainUpdateExpired = 28
-toReceiveResult ResultChainUpdateInvalidEffectiveTime = 29
+toReceiveResult ResultChainUpdateInvalidEffectiveTime = 27
+toReceiveResult ResultChainUpdateInvalidSignatures = 28
 
 -- |Handle receipt of a block.
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,
