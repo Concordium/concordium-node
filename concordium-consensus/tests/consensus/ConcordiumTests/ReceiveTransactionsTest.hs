@@ -47,6 +47,7 @@ import Concordium.Types.Parameters (CryptographicParameters)
 import Concordium.GlobalState.TreeState (TreeStateMonad(finalizeTransactions))
 import Concordium.Types.Updates
 import qualified Concordium.Crypto.SHA256 as SHA256
+import Data.Serialize (encode)
 
 -- |Tests of doReceiveTransaction and doReceiveTransactionInternal of the Updater.
 test :: Spec
@@ -57,7 +58,7 @@ test = do
       let gCtx = dummyGlobalContext
       now <- currentTime
       let genesis = testGenesisData now dummyIdentityProviders dummyArs dummyCryptographicParameters
-          txs = accountCreations gCtx (utcTimeToTransactionTime now) ++ chainUpdates gCtx (utcTimeToTransactionTime now)
+          txs = accountCreations gCtx (utcTimeToTransactionTime now) ++ chainUpdates (utcTimeToTransactionTime now)
       s <- runMkCredentialDeployments testDoReceiveTransaction txs now genesis
       let results = fst s
           outState = snd s
@@ -77,6 +78,7 @@ test = do
       check results cache 9 False TVer.Stale
       check results cache 10 False TVer.ChainUpdateEffectiveTimeBeforeTimeout
       check results cache 11 False TVer.ChainUpdateInvalidSignatures
+      check results cache 12 True TVer.Success
       -- now check that the cache is being cleared when we purge transactions
       s' <- runPurgeTransactions (addUTCTime (secondsToNominalDiffTime 2) now) outState
       let cache' = snd s' ^. transactionVerificationResults
@@ -99,7 +101,7 @@ test = do
       let gCtx = dummyGlobalContext
       now <- currentTime
       let genesis = testGenesisData now dummyIdentityProviders dummyArs dummyCryptographicParameters
-          txs = accountCreations gCtx (utcTimeToTransactionTime now) ++ chainUpdates gCtx (utcTimeToTransactionTime now)
+          txs = accountCreations gCtx (utcTimeToTransactionTime now) ++ chainUpdates (utcTimeToTransactionTime now)
       s <- runMkCredentialDeployments testDoReceiveTransactionInternal txs now genesis
       let results = fst s
           outState = snd s
@@ -120,6 +122,7 @@ test = do
       check results cache 9 False TVer.Stale
       check results cache 10 False TVer.ChainUpdateEffectiveTimeBeforeTimeout
       check results cache 11 False TVer.ChainUpdateInvalidSignatures
+      check results cache 12 True TVer.Success
       s' <- runPurgeTransactions (addUTCTime (secondsToNominalDiffTime 2) now) outState
       let cache' = snd s' ^. transactionVerificationResults
       cache' `shouldBe` HM.empty
@@ -233,17 +236,19 @@ accountCreations gCtx now =
     intialCredentialWithInvalidSignatures = toBlockItem now (mkInitialAccountCreationWithInvalidSignatures expiry (regId 42))
     regId seed = RegIdCred $ generateGroupElementFromSeed gCtx seed
 
-chainUpdates :: GlobalContext -> TransactionTime -> [BlockItem]
-chainUpdates gCtx now =
+chainUpdates :: TransactionTime -> [BlockItem]
+chainUpdates now =
   [
     expiredTimeout,
     invalidEffectiveTime,
-    invalidSignature
+    invalidSignature,
+    verifiable
   ]
   where
-    expiredTimeout = toBlockItem now (mkChainUpdate (now-1) (now +1))
-    invalidEffectiveTime = toBlockItem now (mkChainUpdate (now + 2) (now + 1))
-    invalidSignature = toBlockItem now (mkChainUpdate (now + 1) (now + 2))
+    expiredTimeout = toBlockItem now (mkChainUpdate (now-1) (now +1) False)
+    invalidEffectiveTime = toBlockItem now (mkChainUpdate (now + 2) (now + 1) False)
+    invalidSignature = toBlockItem now (mkChainUpdate (now + 1) (now + 2) False)
+    verifiable = toBlockItem now (mkChainUpdate (now + 1) (now + 2) True)
 
 toBlockItem :: TransactionTime -> BareBlockItem -> BlockItem
 toBlockItem now bbi =
@@ -260,21 +265,37 @@ duplicateRegId = cred
       undefined credId
       (Map.lookup 0 (gaCredentials $ head (makeFakeBakers 1)))
 
-mkChainUpdate :: TransactionTime -> TransactionTime -> BareBlockItem
-mkChainUpdate timeout effectTime = ChainUpdate UpdateInstruction
-  {
-    uiHeader = UpdateHeader
-    {
-      updateSeqNumber = minUpdateSequenceNumber,
-      updateEffectiveTime = effectTime,
-      updateTimeout = timeout,
-      updatePayloadSize = 32
-    },
-    uiPayload = AddIdentityProviderUpdatePayload myipInfo,
-    uiSignHash = UpdateInstructionSignHashV0 dummyHash,
-    uiSignatures = UpdateInstructionSignatures Map.empty
-  }
-
+mkChainUpdate :: TransactionTime -> TransactionTime -> Bool -> BareBlockItem
+mkChainUpdate timeout effectTime validSignature =
+  if validSignature then ChainUpdate ui
+  else ChainUpdate dummyUi
+  where
+    dummyUi = UpdateInstruction
+      {
+        uiHeader = header,
+        uiPayload = payload,
+        uiSignHash = mkDummySignHash,
+        uiSignatures = mkDummySignature
+      }
+    ui = makeUpdateInstruction rawUi (Map.singleton 0 dummyAuthorizationKeyPair)
+    rawUi = RawUpdateInstruction
+      {
+        ruiSeqNumber = minUpdateSequenceNumber,
+        ruiEffectiveTime = effectTime,
+        ruiTimeout = timeout,
+        ruiPayload = AddIdentityProviderUpdatePayload myipInfo
+      }
+    header = UpdateHeader
+        {
+          updateSeqNumber = minUpdateSequenceNumber,
+          updateEffectiveTime = effectTime,
+          updateTimeout = timeout,
+          updatePayloadSize = 32
+        }
+    payload = AddIdentityProviderUpdatePayload myipInfo
+    mkDummySignHash = UpdateInstructionSignHashV0 dummyHash
+    mkDummySignature = UpdateInstructionSignatures Map.empty
+                
 mkAccountCreation :: TransactionTime -> CredentialRegistrationID -> Word32 -> Bool -> Bool ->  Bool -> BareBlockItem
 mkAccountCreation expiry regId identityProviderId validAr validPubKeys credExpired = CredentialDeployment AccountCreation
   {
