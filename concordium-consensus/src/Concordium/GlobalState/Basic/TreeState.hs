@@ -245,7 +245,7 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
           Nothing ->
             case wmdData of
               NormalTransaction tr -> do
-                let sender = transactionSender tr
+                let sender = accountAddressEmbed (transactionSender tr)
                     nonce = transactionNonce tr
                 if (tt ^. ttNonFinalizedTransactions . at' sender . non emptyANFT . anftNextNonce) <= nonce then do
                   transactionTablePurgeCounter += 1
@@ -278,7 +278,7 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
         where
             finTrans WithMetadata{wmdData=NormalTransaction tr,..} = do
                 let nonce = transactionNonce tr
-                    sender = transactionSender tr
+                    sender = accountAddressEmbed (transactionSender tr)
                 anft <- use (transactionTable . ttNonFinalizedTransactions . at' sender . non emptyANFT)
                 assert (anft ^. anftNextNonce == nonce) $ do
                     let nfn = anft ^. anftMap . at' nonce . non Set.empty
@@ -335,7 +335,7 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
                     case wmdData of
                       NormalTransaction tr -> do
                         let nonce = transactionNonce tr
-                            sender = transactionSender tr
+                            sender = accountAddressEmbed (transactionSender tr)
                         transactionTable
                           . ttNonFinalizedTransactions
                           . at' sender

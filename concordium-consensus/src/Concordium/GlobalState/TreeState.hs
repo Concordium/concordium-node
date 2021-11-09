@@ -223,14 +223,14 @@ class (Eq (BlockPointerType m),
     -- with that nonce. Transaction groups are ordered by increasing nonce.
 
     getAccountNonFinalized ::
-      AccountAddress
+      AccountAddressEq
       -> Nonce
       -> m [(Nonce, Set.Set Transaction)]
 
     -- |Get the successor of the largest known account for the given account
     -- The function should return 'True' in the second component if and only if
     -- all (known) transactions from this account are finalized.
-    getNextAccountNonce :: AccountAddress -> m (Nonce, Bool)
+    getNextAccountNonce :: AccountAddressEq -> m (Nonce, Bool)
 
     -- |Get a credential which has not yet been finalized, i.e., it is correct for this function
     -- to return 'Nothing' if the requested credential has already been finalized.

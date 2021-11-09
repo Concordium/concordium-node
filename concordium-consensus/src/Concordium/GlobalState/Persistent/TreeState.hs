@@ -331,7 +331,7 @@ loadSkovPersistentData rp _treeStateDirectory _genesisData pbsc atiContext = do
         tt0 <- foldM (\table addr ->
                  getAccount lastState addr >>= \case
                   Nothing -> logExceptionAndThrowTS (DatabaseInvariantViolation $ "Account " ++ show addr ++ " which is in the account list cannot be loaded.")
-                  Just (_, acc) -> return (table & ttNonFinalizedTransactions . at addr ?~ emptyANFTWithNonce (acc ^. accountNonce)))
+                  Just (_, acc) -> return (table & ttNonFinalizedTransactions . at (accountAddressEmbed addr) ?~ emptyANFTWithNonce (acc ^. accountNonce)))
             emptyTransactionTable
             accs
         foldM (\table uty -> do
@@ -645,7 +645,7 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
           Nothing -> do
             case wmdData of
               NormalTransaction tr -> do
-                let sender = transactionSender tr
+                let sender = accountAddressEmbed (transactionSender tr)
                     nonce = transactionNonce tr
                 if (tt ^. ttNonFinalizedTransactions . at' sender . non emptyANFT . anftNextNonce) <= nonce then do
                   transactionTablePurgeCounter += 1
@@ -686,7 +686,7 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
         where
             finTrans WithMetadata{wmdData=NormalTransaction tr,..} = do
                 let nonce = transactionNonce tr
-                    sender = transactionSender tr
+                    sender = accountAddressEmbed (transactionSender tr)
                 anft <- use (transactionTable . ttNonFinalizedTransactions . at' sender . non emptyANFT)
                 if anft ^. anftNextNonce == nonce
                 then do
@@ -765,7 +765,7 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
                     case wmdData of
                       NormalTransaction tr -> do
                         let nonce = transactionNonce tr
-                            sender = transactionSender tr
+                            sender = accountAddressEmbed (transactionSender tr)
                         transactionTable
                           . ttNonFinalizedTransactions
                           . at' sender

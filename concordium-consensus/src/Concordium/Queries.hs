@@ -293,7 +293,7 @@ getBlocksAtHeight height baseGI True = MVR $ \mvr -> do
 
 -- |Get a list of non-finalized transaction hashes for a given account.
 getAccountNonFinalizedTransactions :: AccountAddress -> MVR gsconf finconf [TransactionHash]
-getAccountNonFinalizedTransactions acct = liftSkovQueryLatest $ queryNonFinalizedTransactions acct
+getAccountNonFinalizedTransactions acct = liftSkovQueryLatest $ queryNonFinalizedTransactions . accountAddressEmbed $ acct
 
 -- |Return the best guess as to what the next account nonce should be.
 -- If all account transactions are finalized then this information is reliable.
@@ -301,7 +301,7 @@ getAccountNonFinalizedTransactions acct = liftSkovQueryLatest $ queryNonFinalize
 -- committed to blocks and eventually finalized.
 getNextAccountNonce :: AccountAddress -> MVR gsconf finconf NextAccountNonce
 getNextAccountNonce acct = liftSkovQueryLatest $ do
-    (nanNonce, nanAllFinal) <- queryNextAccountNonce acct
+    (nanNonce, nanAllFinal) <- queryNextAccountNonce . accountAddressEmbed $ acct
     return NextAccountNonce{..}
 
 -- * Queries against latest version that produces a result
