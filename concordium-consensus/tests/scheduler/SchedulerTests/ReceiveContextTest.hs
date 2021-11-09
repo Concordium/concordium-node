@@ -24,6 +24,7 @@ import Concordium.GlobalState.DummyData
 import Concordium.Crypto.DummyData
 
 import SchedulerTests.Helpers
+import SchedulerTests.TestUtils
 
 alesAccount, thomasAccount :: AccountAddress
 alesAccount = AccountAddress $ pack $ take accountAddressSize $ repeat 1

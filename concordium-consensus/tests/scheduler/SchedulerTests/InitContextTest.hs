@@ -25,6 +25,7 @@ import Concordium.Types.DummyData
 import Concordium.Crypto.DummyData
 
 import SchedulerTests.Helpers
+import SchedulerTests.TestUtils
 
 initialBlockState :: BlockState PV1
 initialBlockState = blockStateWithAlesAccount 1000000000 emptyAccounts

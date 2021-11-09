@@ -10,14 +10,16 @@ Also checks invariants on the block state after each processed transaction.
 NOTE: This processes each transaction individually - for testing grouped transactions, see
       'SchedulerTests.TransactionGroupingSpec' and 'SchedulerTests.TransactionGroupingSpec2'.
 -}
-module SchedulerTests.TestUtils(PV1, PV2, ResultSpec,TResultSpec(..),emptySpec,emptyExpect,TestCase(..),
-                                TestParameters(..),defaultParams, mkSpec,mkSpecs) where
+module SchedulerTests.TestUtils(PV1, PV2, PV3, ResultSpec,TResultSpec(..),emptySpec,emptyExpect,TestCase(..),
+                                TestParameters(..),defaultParams, mkSpec,mkSpecs, mkAlias) where
 
 import Test.Hspec
 
 import Lens.Micro.Platform
 import Control.Monad
 import Data.List (foldl')
+import Data.Bits
+import qualified Data.FixedByteString as FBS
 
 import Concordium.Scheduler.Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
@@ -34,6 +36,8 @@ import Data.Time
 -- |Protocol version
 type PV1 = 'P1
 type PV2 = 'P2
+type PV3 = 'P3
+
 
 -- | Specification on the expected result of executing a transaction and the resulting block state.
 type ResultSpec pv = (TResultSpec, BlockState pv -> Spec)
@@ -212,3 +216,11 @@ mkSpec TestCase{..} =
 -- | Make a 'Spec' for the given test cases. See 'mkSpec'.
 mkSpecs :: IsProtocolVersion pv => [TestCase pv] -> Spec
 mkSpecs = mapM_ mkSpec
+
+-- |Make an account alias for the given account by setting the last 3 bytes to
+-- the big endian representation of the given counter (modulo 2^24).
+mkAlias :: AccountAddress -> Word -> AccountAddress
+mkAlias (AccountAddress addr) count = AccountAddress ((addr .&. mask) .|. rest)
+    where rest = FBS.encodeInteger (toInteger (count `mod` 2^(24 :: Word)))
+          mask = complement (FBS.encodeInteger (255 + 255 * 256 + 255 * 256 * 256)) -- mask to clear out the last three bytes of the addr
+
