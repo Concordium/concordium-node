@@ -47,7 +47,7 @@ import Concordium.Types.Parameters (CryptographicParameters)
 import Concordium.GlobalState.TreeState (TreeStateMonad(finalizeTransactions))
 import Concordium.Types.Updates
 import qualified Concordium.Crypto.SHA256 as SHA256
-import Data.Serialize (encode)
+import Concordium.Types.HashableTo (getHash)
 
 -- |Tests of doReceiveTransaction and doReceiveTransactionInternal of the Updater.
 test :: Spec
@@ -78,7 +78,7 @@ test = do
       check results cache 9 False TVer.Stale
       check results cache 10 False TVer.ChainUpdateEffectiveTimeBeforeTimeout
       check results cache 11 False TVer.ChainUpdateInvalidSignatures
-      check results cache 12 True TVer.Success
+      check results cache 12 True $ TVer.ChainUpdateSuccess expectedHashOfAuthKeys
       -- now check that the cache is being cleared when we purge transactions
       s' <- runPurgeTransactions (addUTCTime (secondsToNominalDiffTime 2) now) outState
       let cache' = snd s' ^. transactionVerificationResults
@@ -122,7 +122,7 @@ test = do
       check results cache 9 False TVer.Stale
       check results cache 10 False TVer.ChainUpdateEffectiveTimeBeforeTimeout
       check results cache 11 False TVer.ChainUpdateInvalidSignatures
-      check results cache 12 True TVer.Success
+      check results cache 12 True $ TVer.ChainUpdateSuccess expectedHashOfAuthKeys
       s' <- runPurgeTransactions (addUTCTime (secondsToNominalDiffTime 2) now) outState
       let cache' = snd s' ^. transactionVerificationResults
       cache' `shouldBe` HM.empty
@@ -265,32 +265,35 @@ duplicateRegId = cred
       undefined credId
       (Map.lookup 0 (gaCredentials $ head (makeFakeBakers 1)))
 
+expectedHashOfAuthKeys :: SHA256.Hash
+expectedHashOfAuthKeys = getHash dummyKeyCollection
+
 mkChainUpdate :: TransactionTime -> TransactionTime -> Bool -> BareBlockItem
 mkChainUpdate timeout effectTime validSignature =
   if validSignature then ChainUpdate ui
   else ChainUpdate dummyUi
   where
-    dummyUi = UpdateInstruction
-      {
-        uiHeader = header,
-        uiPayload = payload,
-        uiSignHash = mkDummySignHash,
-        uiSignatures = mkDummySignature
-      }
-    ui = makeUpdateInstruction rawUi (Map.singleton 0 dummyAuthorizationKeyPair)
+    ui = makeUpdateInstruction rawUi $ Map.singleton 0 dummyAuthorizationKeyPair
     rawUi = RawUpdateInstruction
       {
         ruiSeqNumber = minUpdateSequenceNumber,
         ruiEffectiveTime = effectTime,
         ruiTimeout = timeout,
-        ruiPayload = AddIdentityProviderUpdatePayload myipInfo
+        ruiPayload = payload
       }
-    header = UpdateHeader
+    dummyUi = UpdateInstruction
+      {
+        uiHeader = dummyHeader,
+        uiPayload = payload,
+        uiSignHash = mkDummySignHash,
+        uiSignatures = mkDummySignature
+      }
+    dummyHeader = UpdateHeader
         {
           updateSeqNumber = minUpdateSequenceNumber,
           updateEffectiveTime = effectTime,
           updateTimeout = timeout,
-          updatePayloadSize = 32
+          updatePayloadSize = 42
         }
     payload = AddIdentityProviderUpdatePayload myipInfo
     mkDummySignHash = UpdateInstructionSignHashV0 dummyHash

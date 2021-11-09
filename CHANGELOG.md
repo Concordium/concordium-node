@@ -11,6 +11,7 @@
 - The `SendTransaction` function exposed via the GRPC now provides the caller with detailed error messages if the 
   transaction was rejected by the consensus instead of just `False`. The function still returns `True` if 
   everything went well.
+- Introduce an earlier verification process for chain updates and accordiungly more fine grained FFI result codes.
 
 ## concordium-node 1.1.3
 

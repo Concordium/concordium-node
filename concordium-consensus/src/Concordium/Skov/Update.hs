@@ -600,6 +600,8 @@ doPurgeTransactions = do
 
 
 mapTransactionVerificationResult :: TV.VerificationResult -> UpdateResult
+mapTransactionVerificationResult TV.Success = ResultSuccess
+mapTransactionVerificationResult (TV.ChainUpdateSuccess _) = ResultSuccess
 mapTransactionVerificationResult TV.Stale = ResultStale
 mapTransactionVerificationResult TV.ExpiryTooLate = ResultExpiryTooLate
 mapTransactionVerificationResult (TV.DuplicateAccountRegistrationID _) = ResultDuplicateAccountRegistrationID
@@ -608,7 +610,5 @@ mapTransactionVerificationResult TV.CredentialDeploymentInvalidAnonymityRevokers
 mapTransactionVerificationResult TV.CredentialDeploymentInvalidSignatures = ResultCredentialDeploymentInvalidSignatures
 mapTransactionVerificationResult TV.CredentialDeploymentInvalidKeys = ResultCredentialDeploymentInvalidKeys
 mapTransactionVerificationResult TV.CredentialDeploymentExpired = ResultCredentialDeploymentExpired
-mapTransactionVerificationResult TV.Success = ResultSuccess
-mapTransactionVerificationResult (TV.ChainUpdateSuccess _) = ResultSuccess
 mapTransactionVerificationResult TV.ChainUpdateInvalidSignatures = ResultChainUpdateInvalidSignatures
 mapTransactionVerificationResult TV.ChainUpdateEffectiveTimeBeforeTimeout = ResultChainUpdateInvalidEffectiveTime

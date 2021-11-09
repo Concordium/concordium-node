@@ -184,7 +184,7 @@ verifyChainUpdate ui@Tx.UpdateInstruction{..} =
       throwError ChainUpdateEffectiveTimeBeforeTimeout
     -- check the signature is valid
     keys <- lift getUpdateKeysCollection
-    when (Updates.checkAuthorizedUpdate keys ui) $ throwError ChainUpdateInvalidSignatures    
+    unless (Updates.checkAuthorizedUpdate keys ui) $ throwError ChainUpdateInvalidSignatures
     return (ChainUpdateSuccess (getHash keys)))
   
 instance (Monad m, r ~ GSTypes.BlockState m, BS.BlockStateQuery m) => TransactionVerifier (ReaderT r m) where

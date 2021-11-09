@@ -728,7 +728,7 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
                  logErrorAndThrowTS $
                       "The recorded next nonce for the account " ++ show sender ++ " (" ++ show (anft ^. anftNextNonce) ++ ") doesn't match the one that is going to be finalized (" ++ show nonce ++ ")"
             finTrans WithMetadata{wmdData=CredentialDeployment{},..} = do
-                -- delete the transaction from the verified transaction cache
+                -- delete the transaction from the transaction verification cache
                 transactionVerificationResults %=! HM.delete wmdHash
                 deleteAndFinalizeStatus wmdHash
             finTrans WithMetadata{wmdData=ChainUpdate cu,..} = do
@@ -744,6 +744,9 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
                 -- Remove any other updates with the same sequence number, since they weren't finalized
                 forM_ (Set.delete wmdcu nfsn) $
                   \deadUpdate -> transactionTable . ttHashMap . at' (getHash deadUpdate) .= Nothing
+
+                -- delete the transaction from the transaction verification cache
+                transactionVerificationResults %=! HM.delete wmdHash
                 -- Mark the status of the update as finalized, and remove the data from the in-memory table
                 ss <- deleteAndFinalizeStatus wmdHash
                 -- Update the non-finalized chain updates

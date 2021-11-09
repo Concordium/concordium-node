@@ -149,29 +149,33 @@ purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptabl
             _1 . pttDeployCredential .= dc1
             _2 .= trs1
             _3 .= tvercache1
-        purgeUpds :: UpdateSequenceNumber -> Set.Set (WithMetadata UpdateInstruction) -> State (Maybe (Max UpdateSequenceNumber), TransactionHashTable) (Maybe (Set.Set (WithMetadata UpdateInstruction)))
-        purgeUpds sn uis = state $ \(mmsn, tht) ->
+        purgeUpds :: UpdateSequenceNumber
+          -> Set.Set (WithMetadata UpdateInstruction)
+          -> State (Maybe (Max UpdateSequenceNumber), TransactionHashTable, TVer.TransactionVerificationCache) (Maybe (Set.Set (WithMetadata UpdateInstruction)))
+        purgeUpds sn uis = state $ \(mmsn, tht, tvercache0) ->
             let
-                purgeUpd (uisacc, thtacc) ui
+                purgeUpd (uisacc, thtacc, tvercache) ui
                     | tooOld ui
                     , removable (thtacc ^? ix (biHash ui))
-                        = (uisacc, HM.delete (biHash ui) thtacc)
+                        = (uisacc, HM.delete (biHash ui) thtacc, HM.delete (biHash ui) tvercache)
                     | otherwise
-                        = (ui : uisacc, thtacc)
-                (uisl', tht') = foldl' purgeUpd ([], tht) (Set.toDescList uis)
+                        = (ui : uisacc, thtacc, tvercache)
+                (uisl', tht', cache') = foldl' purgeUpd ([], tht, tvercache0) (Set.toDescList uis)
                 (!mmsn', !mres)
                     | null uisl' = (mmsn, Nothing)
                     | otherwise = (mmsn <> Just (Max sn), Just (Set.fromDistinctAscList uisl'))
-            in (mres, (mmsn', tht'))
-        purgeUpdates :: UpdateType -> NonFinalizedChainUpdates -> State (PendingTransactionTable, TransactionHashTable, TVer.TransactionVerificationCache) NonFinalizedChainUpdates
+            in (mres, (mmsn', tht', cache'))
+        purgeUpdates :: UpdateType
+          -> NonFinalizedChainUpdates
+          -> State (PendingTransactionTable, TransactionHashTable, TVer.TransactionVerificationCache) NonFinalizedChainUpdates
         purgeUpdates uty nfcu@NonFinalizedChainUpdates{..} = state $ \(ptt0, trs0, tvercache0) ->
-            let (newNFCUMap, (mmax, !uis1)) = runState (Map.traverseMaybeWithKey purgeUpds _nfcuMap) (Nothing, trs0)
+            let (newNFCUMap, (mmax, !uis1, tvercache')) = runState (Map.traverseMaybeWithKey purgeUpds _nfcuMap) (Nothing, trs0, tvercache0)
                 updptt (Just (Max newHigh)) (Just (low, _))
                     | newHigh < low = Nothing
                     | otherwise = Just (low, newHigh)
                 updptt _ _ = Nothing
                 !ptt1 = ptt0 & pttUpdates . at' uty %~ updptt mmax
-            in (nfcu{_nfcuMap = newNFCUMap}, (ptt1, uis1, tvercache0))
+            in (nfcu{_nfcuMap = newNFCUMap}, (ptt1, uis1, tvercache'))
         purge = do
             -- Purge each account
             nnft <- HM.traverseWithKey purgeAccount _ttNonFinalizedTransactions

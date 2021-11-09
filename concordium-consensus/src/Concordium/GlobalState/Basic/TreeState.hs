@@ -306,7 +306,7 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
                         -- Update the non-finalized transactions for the sender
                         transactionTable . ttNonFinalizedTransactions . at' sender ?= (anft & (anftMap . at' nonce .~ Nothing) & (anftNextNonce .~ nonce + 1))
             finTrans WithMetadata{wmdData=CredentialDeployment{},..} = do
-              -- delete the transaction from the verified transaction cache
+              -- delete the transaction from the transaction verification cache
               transactionVerificationResults %=! HM.delete wmdHash
               transactionTable . ttHashMap . singular (ix wmdHash) . _2 %=
                             \case Committed{..} -> Finalized{_tsSlot=slot,tsBlockHash=bh,tsFinResult=tsResults HM.! bh,..}
@@ -326,6 +326,8 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
                         transactionTable . ttHashMap . singular (ix wmdHash) . _2 %=
                             \case Committed{..} -> Finalized{_tsSlot=slot,tsBlockHash=bh,tsFinResult=tsResults HM.! bh,..}
                                   _ -> error "Transaction should be in committed state when finalized."
+                        -- delete the transaction from the transaction verification cache
+                        transactionVerificationResults %=! HM.delete wmdHash
                         -- Update the non-finalized chain updates
                         transactionTable . ttNonFinalizedChainUpdates . at' uty ?=
                           (nfcu & (nfcuMap . at' sn .~ Nothing) & (nfcuNextSequenceNumber .~ sn + 1))
