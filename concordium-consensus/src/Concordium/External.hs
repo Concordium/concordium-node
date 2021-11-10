@@ -735,7 +735,7 @@ receiveFinalizationRecord bptr genIndex msg msgLen = do
 -- @ResultStale@, @ResultInvalid@, @ResultConsensusShutDown@, @ResultExpiryTooLate@, @ResultVerificationFailed@,
 -- @ResultNonexistingSenderAccount@, @ResultDuplicateNonce@, @ResultNonceTooLarge@, @ResultTooLowEnergy@,
 -- @ResultCredentialDeploymentInvalidRegistrationID@,
--- @ResultCredentialDeploymentAccountAlreadyExists@, @ResultCredentialDeploymentInvalidSignatures@,
+-- @ResultCredentialDeploymentInvalidSignatures@,
 -- @ResultCredentialDeploymentInvalidKeys@, @ResultCredentialDeploymentInvalidIP@,
 -- @ResultCredentialDeploymentInvalidAR@, @ResultCredentialDeploymentExpired@
 receiveTransaction :: StablePtr ConsensusRunner -> CString -> Int64 -> IO ReceiveResult
