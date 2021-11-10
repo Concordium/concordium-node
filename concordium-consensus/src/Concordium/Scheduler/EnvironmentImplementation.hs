@@ -216,7 +216,9 @@ instance (MonadReader ContextState m,
     -- log the initialized instances too
     lift (mapM_ (tell . logContract)
                       (Set.toList (cs ^. instanceInits)))
-    -- Notify account transfers, but also log the affected accounts.
+    -- Notify account transfers, but also log the affected accounts. Since the
+    -- changeset is meant to contain the canonical address of the account we
+    -- always log affected accounts by the canonical address.
     s'' <- lift (foldM (\curState accUpdate -> do
                            tell (logAccount (accUpdate ^. auAddress))
                            bsoModifyAccount curState accUpdate
