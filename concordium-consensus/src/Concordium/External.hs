@@ -734,7 +734,7 @@ receiveFinalizationRecord bptr genIndex msg msgLen = do
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultDuplicate@,
 -- @ResultStale@, @ResultInvalid@, @ResultConsensusShutDown@, @ResultExpiryTooLate@, @ResultVerificationFailed@,
 -- @ResultNonexistingSenderAccount@, @ResultDuplicateNonce@, @ResultNonceTooLarge@, @ResultTooLowEnergy@,
--- @ResultCredentialDeploymentExpired@, @ResultCredentialDeploymentInvalidRegistrationId@,
+-- @ResultCredentialDeploymentInvalidRegistrationID@,
 -- @ResultCredentialDeploymentAccountAlreadyExists@, @ResultCredentialDeploymentInvalidSignatures@,
 -- @ResultCredentialDeploymentInvalidKeys@, @ResultCredentialDeploymentInvalidIP@,
 -- @ResultCredentialDeploymentInvalidAR@, @ResultCredentialDeploymentExpired@
