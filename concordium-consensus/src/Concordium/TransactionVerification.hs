@@ -102,7 +102,7 @@ verifyCredentialDeployment now accountCreation@Tx.AccountCreation{..} =
                 when (null keys || (length keys > 255)) $ throwError CredentialDeploymentInvalidKeys
                 mArsInfos <- lift (getAnonymityRevokers (OrdMap.keys (ID.cdvArData ncdv)))
                 case mArsInfos of
-                  -- check that the anonymity revokers exists
+                  -- check that the anonymity revokers exist
                   Nothing -> throwError CredentialDeploymentInvalidAnonymityRevokers
                   Just arsInfos -> do
                     -- if the credential deployment contained an empty map of 'ChainArData' then the result will be 'Just empty'.
