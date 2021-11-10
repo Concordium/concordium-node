@@ -59,16 +59,16 @@ test = do
       let results = fst s
           outState = snd s
           cache = outState ^. transactionVerificationResults
-      check results cache 0 False TVer.Stale
-      check results cache 1 False TVer.ExpiryTooLate
-      check results cache 2 False TVer.CredentialDeploymentExpired
-      check results cache 3 False $ TVer.DuplicateAccountRegistrationID duplicateRegId
-      check results cache 4 True TVer.CredentialDeploymentInvalidIdentityProvider
-      check results cache 5 False TVer.CredentialDeploymentInvalidKeys
-      check results cache 6 True TVer.CredentialDeploymentInvalidAnonymityRevokers
-      check results cache 7 False TVer.CredentialDeploymentInvalidSignatures
+      check results cache 0 False $ Right ResultExpiryTooLate
+      check results cache 1 False $ Right ResultStale
+      check results cache 2 False $ Left TVer.CredentialDeploymentExpired
+      check results cache 3 False $ Left (TVer.DuplicateAccountRegistrationID duplicateRegId)
+      check results cache 4 True $ Left TVer.CredentialDeploymentInvalidIdentityProvider
+      check results cache 5 False $ Left TVer.CredentialDeploymentInvalidKeys
+      check results cache 6 True $ Left TVer.CredentialDeploymentInvalidAnonymityRevokers
+      check results cache 7 False $ Left TVer.CredentialDeploymentInvalidSignatures
       -- the intial account creation which has an invalid signature
-      check results cache 8 False TVer.CredentialDeploymentInvalidSignatures
+      check results cache 8 False $ Left TVer.CredentialDeploymentInvalidSignatures
       -- now check that the cache is being cleared when we purge transactions
       s' <- runPurgeTransactions (addUTCTime (secondsToNominalDiffTime 2) now) outState
       let cache' = snd s' ^. transactionVerificationResults
@@ -85,27 +85,26 @@ test = do
       let results = fst s
           outState = snd s
           cache = outState ^. transactionVerificationResults
-      check results cache 0 True TVer.Success
-      check results cache 1 True TVer.Success
+      check results cache 0 True $ Left TVer.Success
+      check results cache 1 True $ Left TVer.Success
     specify "doReceiveTransactionInternal fails appropriately" $ do
       let gCtx = dummyGlobalContext
       now <- currentTime
       let genesis = testGenesisData now dummyIdentityProviders dummyArs dummyCryptographicParameters
-          txs = accountCreations gCtx $ utcTimeToTransactionTime now
+          txs = tail (accountCreations gCtx $ utcTimeToTransactionTime now)
       s <- runMkCredentialDeployments testDoReceiveTransactionInternalAccountCreations txs now genesis
       let results = fst s
           outState = snd s
           cache = outState ^. transactionVerificationResults
-      check results cache 0 False TVer.Stale
-      check results cache 1 False TVer.ExpiryTooLate
-      check results cache 2 False TVer.CredentialDeploymentExpired
-      check results cache 3 False $ TVer.DuplicateAccountRegistrationID duplicateRegId
-      check results cache 4 True TVer.CredentialDeploymentInvalidIdentityProvider
-      check results cache 5 False TVer.CredentialDeploymentInvalidKeys
-      check results cache 6 True TVer.CredentialDeploymentInvalidAnonymityRevokers
-      check results cache 7 False TVer.CredentialDeploymentInvalidSignatures
+      check results cache 0 False $ Right ResultStale
+      check results cache 1 False $ Left TVer.CredentialDeploymentExpired
+      check results cache 2 False $ Left (TVer.DuplicateAccountRegistrationID duplicateRegId)
+      check results cache 3 True $ Left (TVer.CredentialDeploymentInvalidIdentityProvider)
+      check results cache 4 False $ Left TVer.CredentialDeploymentInvalidKeys
+      check results cache 5 True $ Left TVer.CredentialDeploymentInvalidAnonymityRevokers
+      check results cache 6 False $ Left TVer.CredentialDeploymentInvalidSignatures
       -- the intial account creation which has an invalid signature
-      check results cache 8 False TVer.CredentialDeploymentInvalidSignatures
+      check results cache 7 False $ Left TVer.CredentialDeploymentInvalidSignatures
       -- now check that the cache is being cleared when we purge transactions
       s' <- runPurgeTransactions (addUTCTime (secondsToNominalDiffTime 2) now) outState
       let cache' = snd s' ^. transactionVerificationResults
@@ -122,12 +121,19 @@ test = do
       let cache' = snd s' ^. transactionVerificationResults
       cache' `shouldBe` HM.empty
   where
-    check results cache idx shouldBeInCache verRes = do
-      checkVerificationResult (snd $ results !! idx) $ mapTransactionVerificationResult verRes
-      -- result should be in cache
-      if shouldBeInCache
-        then checkCacheIsOK cache (fst $ results !! idx) (Just verRes)
-        else checkCacheIsOK cache (fst $ results !! idx) Nothing
+    check results cache idx shouldBeInCache res = do
+      case res of
+        -- As the TransactionVerifier only supports credential deployments right now
+        -- then expiry checks is carried out beforehand in the doReceiveTransaction and doReceiveTransactionInternal
+        -- hence the ResultStale and ResultExpiryTooLate is not reflected in the current TransactionVerifier.
+        Left verRes -> do
+          checkVerificationResult (snd $ results !! idx) $ mapTransactionVerificationResult verRes
+          -- result should be in cache
+          if shouldBeInCache then checkCacheIsOK cache (fst $ results !! idx) (Just verRes)
+          else checkCacheIsOK cache (fst $ results !! idx) Nothing
+        Right resultRes -> do
+          checkVerificationResult (snd $ results !! idx) resultRes
+          checkCacheIsOK cache (fst $ results !! idx) Nothing
     checkVerificationResult actual expected = do
       actual `shouldBe` expected
     checkCacheIsOK c k expected = do
@@ -191,14 +197,16 @@ testDoReceiveTransactionAccountCreations trs slot = mapM (\tr -> doReceiveTransa
 
 -- |Run the doReceiveTransactionInternal function and obtain the results
 testDoReceiveTransactionInternalAccountCreations :: [BlockItem] -> Slot -> MyMonad [(TransactionHash, UpdateResult)]
-testDoReceiveTransactionInternalAccountCreations trs slot = mapM (\tr -> doReceiveTransactionInternal tr slot
-                                                                   >>= (\res -> pure (wmdHash tr, snd res))) trs                                                    
+testDoReceiveTransactionInternalAccountCreations trs slot = do
+  theTime <- currentTime
+  mapM (\tr -> doReceiveTransactionInternal tr (utcTimeToTimestamp theTime) slot
+              >>= (\res -> pure (wmdHash tr, snd res))) trs                                                    
 
 accountCreations :: GlobalContext -> TransactionTime -> [BlockItem]
 accountCreations gCtx now =
   [
-    expiredTransaction,
     credentialDeploymentWithExpiryTooLate,
+    expiredTransaction,
     expiredCredentialDeployment,
     credentialDeploymentWithDuplicateRegId,
     credentialWithInvalidIP,

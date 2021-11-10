@@ -26,10 +26,6 @@ import Concordium.Types.HashableTo (getHash)
 data VerificationResult
   = Success
   -- ^The verification passed
-  | Stale
-  -- ^The transaction was expired.
-  | ExpiryTooLate
-  -- ^The transaction had an expiry too distant in the future
   | DuplicateAccountRegistrationID !ID.CredentialRegistrationID
   -- ^The 'CredentialDeployment' contained an invalid registration id.
   -- There already exists an account with the registration id.
