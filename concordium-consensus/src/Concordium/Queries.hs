@@ -478,6 +478,7 @@ getAccountInfo blockHash acct =
                     aiAccountEncryptedAmount <- BS.getAccountEncryptedAmount acc
                     aiAccountEncryptionKey <- BS.getAccountEncryptionKey acc
                     aiBaker <- BS.getAccountBaker acc
+                    aiAccountAddress <- BS.getAccountCanonicalAddress acc
                     return AccountInfo{..}
             )
             blockHash

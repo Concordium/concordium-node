@@ -6,6 +6,11 @@
 - Faster state queries by avoiding locking the block state file when reading.
 - Fix a bug by shutting down RPC before the node, which caused the node to crash
   when attempting a graceful shutdown while processing RPC requests.
+- Introduce support for account aliases via protocol P3. Accounts can be queried
+  in `GetAccountInfo`, `GetAccountNonFinalizedTransactions`,
+  `GetNextAccountNonce` by any alias.
+- `GetAccountInfo` object has an additional field `accountAddress` that contains
+  the canonical address of the account.
 
 ## concordium-node 1.1.3
 
