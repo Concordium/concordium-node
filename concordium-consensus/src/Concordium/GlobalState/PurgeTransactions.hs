@@ -118,7 +118,7 @@ purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptabl
                 !ptt1 = ptt0 & pttWithSender . at' addr %~ updptt mmax
             put (ptt1, trs1, tvercache0)
             return AccountNonFinalizedTransactions{_anftMap = newANFTMap, ..}
-        -- Purge the deploy credential transactions that are pending.       
+        -- Purge the deploy credential transactions that are pending.
         purgeDeployCredentials = do
             dc0 <- use (_1 . pttDeployCredential)
             trs0 <- use _2

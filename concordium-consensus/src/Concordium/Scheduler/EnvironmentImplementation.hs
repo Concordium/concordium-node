@@ -65,7 +65,7 @@ data NoLogSchedulerState (m :: DK.Type -> DK.Type)= NoLogSchedulerState {
   _ssSchedulerEnergyUsed :: !Energy,
   _ssSchedulerExecutionCosts :: !Amount,
   _ssNextIndex :: !TransactionIndex,
-  _ssTransactionVerificationCache :: TransactionVerificationCache
+  _ssTransactionVerificationCache :: !TransactionVerificationCache
   }
 
 mkInitialSS :: UpdatableBlockState m -> NoLogSchedulerState m
