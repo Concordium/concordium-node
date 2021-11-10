@@ -530,12 +530,9 @@ doReceiveTransaction tr slot = unlessShutDown $ do
 -- transaction verification cache such that it can be used by the 'Scheduler'.
 doReceiveTransactionInternal :: (TreeStateMonad pv m, SkovQueryMonad pv m) => BlockItem -> Slot -> m (Maybe BlockItem, UpdateResult)
 doReceiveTransactionInternal tr slot = do
-  -- Don't accept the transaction if its expiry time is too far in the future
    slotTime <- getSlotTime slot
-   expiryTooLate <- isExpiryTooLate tr slotTime
-   if expiryTooLate then return (Nothing,  ResultExpiryTooLate)
    -- Don't accept the transaction if it was expired
-   else if transactionExpired (msgExpiry tr) (utcTimeToTimestamp slotTime) then return (Nothing, ResultStale)
+   if transactionExpired (msgExpiry tr) (utcTimeToTimestamp slotTime) then return (Nothing, ResultStale)
    else do
     cache <- getTransactionVerificationCache
     ts <- getSlotTimestamp slot
