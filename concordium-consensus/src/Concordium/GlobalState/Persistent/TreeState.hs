@@ -51,7 +51,6 @@ import System.FilePath
 import Concordium.GlobalState.SQL.AccountTransactionIndex
 import Concordium.Logger
 import Control.Monad.Except
-import qualified Concordium.TransactionVerification as TVer
 
 -- * Exceptions
 
@@ -94,11 +93,6 @@ logExceptionAndThrowTS = logExceptionAndThrow TreeState
 
 logErrorAndThrowTS :: (MonadLogger m, MonadIO m) => String -> m a
 logErrorAndThrowTS = logErrorAndThrow TreeState
-
-
--- The Transaction verification cache for storing transaction hashes
--- associated with transaction verification results
-type TransactionVerificationCache = HM.HashMap TransactionHash TVer.VerificationResult
 
 --------------------------------------------------------------------------------
 

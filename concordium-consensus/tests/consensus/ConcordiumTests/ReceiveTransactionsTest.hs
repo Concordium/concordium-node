@@ -44,6 +44,7 @@ import System.Random
 import Concordium.Skov.Update
 import Concordium.Types.Parameters (CryptographicParameters)
 import Concordium.GlobalState.TreeState (TreeStateMonad(finalizeTransactions))
+import Concordium.GlobalState.TransactionTable
 
 -- |Tests of doReceiveTransaction and doReceiveTransactionInternal of the Updater.
 test :: Spec
@@ -129,7 +130,7 @@ test = do
         Left verRes -> do
           checkVerificationResult (snd $ results !! idx) $ mapTransactionVerificationResult verRes
           -- result should be in cache
-          if shouldBeInCache then checkCacheIsOK cache (fst $ results !! idx) (Just verRes)
+          if shouldBeInCache then checkCacheIsOK cache (fst $ results !! idx) (toCacheable verRes)
           else checkCacheIsOK cache (fst $ results !! idx) Nothing
         Right resultRes -> do
           checkVerificationResult (snd $ results !! idx) resultRes

@@ -33,6 +33,7 @@ import Concordium.GlobalState.Basic.BlockState (PureBlockStateMonad(..), BlockSt
 import Concordium.GlobalState.TreeState
     ( BlockStateTypes(UpdatableBlockState), MGSTrans(..))
 import qualified Concordium.GlobalState.Types as GS
+import Concordium.GlobalState.TransactionTable
 import qualified Concordium.TransactionVerification as TVer
 
 -- |Chain metadata together with the maximum allowed block energy.
@@ -57,14 +58,14 @@ class CanExtend (TransactionLog a) => HasSchedulerState a where
   schedulerExecutionCosts :: Lens' a Amount
   schedulerTransactionLog :: Lens' a (TransactionLog a)
   nextIndex :: Lens' a TransactionIndex
-  transactionVerificationCache :: Lens' a TVer.TransactionVerificationCache
+  transactionVerificationCache :: Lens' a TransactionVerificationCache
 
 data NoLogSchedulerState (m :: DK.Type -> DK.Type)= NoLogSchedulerState {
   _ssBlockState :: !(UpdatableBlockState m),
   _ssSchedulerEnergyUsed :: !Energy,
   _ssSchedulerExecutionCosts :: !Amount,
   _ssNextIndex :: !TransactionIndex,
-  _ssTransactionVerificationCache :: TVer.TransactionVerificationCache
+  _ssTransactionVerificationCache :: TransactionVerificationCache
   }
 
 mkInitialSS :: UpdatableBlockState m -> NoLogSchedulerState m
@@ -78,9 +79,9 @@ mkInitialSS _ssBlockState = NoLogSchedulerState{
 
 makeLenses ''NoLogSchedulerState
 
-instance HasSchedulerState (NoLogSchedulerState m, TVer.TransactionVerificationCache) where
-  type SS (NoLogSchedulerState m, TVer.TransactionVerificationCache) = UpdatableBlockState m
-  type TransactionLog (NoLogSchedulerState m, TVer.TransactionVerificationCache) = ()
+instance HasSchedulerState (NoLogSchedulerState m, TransactionVerificationCache) where
+  type SS (NoLogSchedulerState m, TransactionVerificationCache) = UpdatableBlockState m
+  type TransactionLog (NoLogSchedulerState m, TransactionVerificationCache) = ()
   schedulerBlockState = _1 . ssBlockState
   schedulerEnergyUsed = _1 . ssSchedulerEnergyUsed
   schedulerExecutionCosts = _1 . ssSchedulerExecutionCosts
@@ -334,7 +335,7 @@ deriving instance GS.BlockStateTypes (BSOMonadWrapper pv r w state m)
 deriving instance AccountOperations m => AccountOperations (BSOMonadWrapper pv r w state m)
 
 -- Pure block state scheduler state
-type PBSSS pv = (NoLogSchedulerState (PureBlockStateMonad pv Identity), TVer.TransactionVerificationCache)
+type PBSSS pv = (NoLogSchedulerState (PureBlockStateMonad pv Identity), TransactionVerificationCache)
 -- newtype wrapper to forget the automatic writer instance so we can repurpose it for logging.
 newtype RWSTBS pv m a = RWSTBS {_runRWSTBS :: RWST ContextState [(LogSource, LogLevel, String)] (PBSSS pv) m a}
   deriving (Functor, Applicative, Monad, MonadReader ContextState, MonadState (PBSSS pv), MonadTrans)

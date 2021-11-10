@@ -530,8 +530,8 @@ doReceiveTransactionInternal tr ts slot = do
    if transactionExpired (msgExpiry tr) ts then return (Nothing, ResultStale)
    else do
     cache <- getTransactionVerificationCache   
-    (verRes, cache') <- runReaderT (TV.verifyWithCache ts tr cache) =<< blockState =<< getFocusBlock
-    if not (TV.isVerifiable verRes) then do return (Nothing, mapTransactionVerificationResult verRes)
+    (verRes, cache') <- runReaderT (verifyWithCache ts tr cache) =<< blockState =<< getFocusBlock
+    if not (isCacheable verRes) then do return (Nothing, mapTransactionVerificationResult verRes)
     else do
       putTransactionVerificationCache cache'
       flip addTx verRes =<< blockState =<< getFocusBlock

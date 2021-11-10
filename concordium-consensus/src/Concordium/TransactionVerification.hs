@@ -5,7 +5,6 @@ module Concordium.TransactionVerification
 import Control.Monad.Trans
 import Control.Monad.Trans.Reader
 import qualified Data.Map.Strict as OrdMap
-import qualified Data.HashMap.Strict as HM
 import qualified Data.Serialize as S
 
 import qualified Concordium.Types.Transactions as Tx
@@ -17,9 +16,9 @@ import qualified Concordium.Types.Parameters as Params
 import qualified Concordium.Types as Types
 import qualified Concordium.ID.Account as A
 import qualified Concordium.ID.Types as ID
+
 import Data.Maybe (isJust)
 import Control.Monad.Except
-import Concordium.Types.HashableTo (getHash)
 
 -- |The 'VerificationResult' type serves as an intermediate `result type` between the 'TxResult' and 'UpdateResult' types.
 -- VerificationResult's contains possible verification errors that may have occurred when verifying a 'AccountCreation' type.
@@ -41,25 +40,6 @@ data VerificationResult
   -- ^The 'AccountCreation' contained an expired 'validTo'
   deriving (Eq, Show)
 
--- |Returns `True` if the `VerificationResult` should be stored in the cache.
--- That is, verification results which are not immediately rejectable and could be valid in the future.
-isVerifiable :: VerificationResult -> Bool
-isVerifiable Success = True
--- An identity provider could potentially be added in the span between receiving the
--- transaction and the actual execution of the transaction.
-isVerifiable CredentialDeploymentInvalidIdentityProvider = True
--- Same goes for anonymity revokers.
-isVerifiable CredentialDeploymentInvalidAnonymityRevokers = True
-isVerifiable _ = False
-
--- |The transaction verification cache stores transaction 'VerificationResult's associated with 'TransactionHash'es.
--- New entries are being put into the cache when receiving new transasactions (either as a single transaction or within a block).
--- The cached verification results are used by the Scheduler to short-cut verification
--- during block execution.
--- Entries in the cache are removed when the associated transaction is either
--- finalized or purged.
-type TransactionVerificationCache = HM.HashMap Types.TransactionHash VerificationResult
-
 -- |Type which can verify transactions in a monadic context. 
 -- The type is responsible for retrieving the necessary information
 -- in order to deem a transaction valid or 'unverifiable'.
@@ -79,23 +59,6 @@ class Monad m => TransactionVerifier m where
   -- |Check whether the account address corresponds to an existing account.
   accountExists :: Types.AccountAddress -> m Bool
 
-
--- |Convenience function getting VerificationResults together with a cache.
--- The function returns the verification result and the (possibly) updated cache.
-verifyWithCache :: TransactionVerifier m => Types.Timestamp -> Tx.BlockItem -> TransactionVerificationCache -> m (VerificationResult, TransactionVerificationCache)
-verifyWithCache now bi cache = do
-  let mVerRes = HM.lookup (getHash bi) cache
-  case mVerRes of
-    Just verRes -> return (verRes, cache)
-    Nothing -> do
-      case bi of
-        Tx.WithMetadata{wmdData = Tx.CredentialDeployment cred} -> do
-          verRes <- verifyCredentialDeployment now cred
-          if isVerifiable verRes then do
-            let c' = HM.insert (getHash bi) verRes cache
-            return (verRes, c')
-          else return (verRes, cache)
-        _ -> return (Success, cache) -- todo: The TransactionVerifier only supports CredentialDeployments at the moment.
 
 -- |Verifies a 'CredentialDeployment' transaction which origins from a block
 -- Note. The caller must make sure to only use this verification function if the

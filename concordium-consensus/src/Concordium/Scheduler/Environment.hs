@@ -42,6 +42,7 @@ import qualified Concordium.TransactionVerification as TVer
 import Control.Exception(assert)
 
 import qualified Concordium.ID.Types as ID
+import Concordium.GlobalState.TransactionTable (CacheableVerificationResult)
 
 -- |Whether the current energy limit is block energy or current transaction energy.
 data EnergyLimitReason = BlockEnergy | TransactionEnergy
@@ -72,9 +73,9 @@ class (Monad m, StaticInformation m, TVer.TransactionVerifier m, CanRecordFootpr
   --
   -- If the capacity is reached for the cache, then we expunge all content
   -- of the cache and insert the new entry.
-  insertTransactionVerificationResult :: TransactionHash -> TVer.VerificationResult -> m ()
+  insertTransactionVerificationResult :: TransactionHash -> CacheableVerificationResult -> m ()
   -- |Returns whether the entry is present in the cache or not.
-  lookupTransactionVerificationResult :: TransactionHash  -> m (Maybe TVer.VerificationResult)
+  lookupTransactionVerificationResult :: TransactionHash  -> m (Maybe CacheableVerificationResult)
 
   -- |Notify the transaction log that a transaction had the given footprint. The
   -- nature of the footprint will depend on the configuration, e.g., it could be

@@ -74,6 +74,7 @@ import qualified Concordium.TransactionVerification as TV
 import Lens.Micro.Platform
 
 import Prelude hiding (exp, mod)
+import Concordium.GlobalState.TransactionTable
 
 -- |Check that
 --  * the transaction has a valid sender,
@@ -1131,7 +1132,7 @@ handleDeployCredential accCreation@AccountCreation{messageExpiry=messageExpiry, 
       liftedCryptoParams <- lift TV.getCryptographicParameters      
       cachedTVResult <- lift (lookupTransactionVerificationResult cdiHash)
       case cachedTVResult of
-        Just TV.Success -> do
+        Just VerificationResultSuccess -> do
           return ()
         Just _ -> do 
           -- we verify the transaction again as it might have become
