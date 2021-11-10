@@ -183,59 +183,59 @@ impl PacketType {
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Error)]
 pub enum ConsensusFfiResponse {
-    #[error("BakerNotFound")]
+    #[error("Baker not found")]
     BakerNotFound = -1,
     #[error("Success")]
     Success,
-    #[error("DeserializationError")]
+    #[error("Deserialization error")]
     DeserializationError,
-    #[error("InvalidResult")]
+    #[error("Invalid result")]
     InvalidResult,
-    #[error("PendingBlock")]
+    #[error("Pending block")]
     PendingBlock,
-    #[error("PendingFinalization")]
+    #[error("Pending finalization")]
     PendingFinalization,
     #[error("Asynchronous")]
     Asynchronous,
-    #[error("DuplicateEntry")]
+    #[error("Duplicate entry")]
     DuplicateEntry,
     #[error("Stale")]
     Stale,
-    #[error("IncorrectFinalizationSession")]
+    #[error("Incorrect finalization session")]
     IncorrectFinalizationSession,
     #[error("Unverifiable")]
     Unverifiable,
-    #[error("ContinueCatchUp")]
+    #[error("Continue catchup")]
     ContinueCatchUp,
-    #[error("BlockTooEarly")]
+    #[error("Block too early")]
     BlockTooEarly,
-    #[error("MissingImportFile")]
+    #[error("Missing import file")]
     MissingImportFile,
-    #[error("ConsensusShutDown")]
+    #[error("Consensus shutdown")]
     ConsensusShutDown,
-    #[error("ExpiryTooLate")]
+    #[error("Expiry too late")]
     ExpiryTooLate,
-    #[error("VerificationFailed")]
+    #[error("Verification failed")]
     VerificationFailed,
-    #[error("NonexistingSenderAccount")]
+    #[error("Nonexisting sender account")]
     NonexistingSenderAccount,
-    #[error("DuplicateNonce")]
+    #[error("Duplicate nonce")]
     DuplicateNonce,
-    #[error("NonceTooLarge")]
+    #[error("Nonce too large")]
     NonceTooLarge,
-    #[error("TooLowEnergy")]
+    #[error("Too low energy")]
     TooLowEnergy,
-    #[error("InvalidGenesisIndex")]
+    #[error("Invalid genesis index")]
     InvalidGenesisIndex,
-    #[error("DuplicateAccountRegistrationID")]
+    #[error("An account already exists with the given registration id")]
     DuplicateAccountRegistrationID,
-    #[error("CredentialDeploymentInvalidSignatures")]
+    #[error("The credential deployment contained invalid signatures")]
     CredentialDeploymentInvalidSignatures,
-    #[error("CredentialDeploymentInvalidIP")]
+    #[error("The credential deployment contained an invalid identity provider")]
     CredentialDeploymentInvalidIP,
-    #[error("CredentialDeploymentInvalidAR")]
+    #[error("The credential deployment contained invalid anonymity revokers")]
     CredentialDeploymentInvalidAR,
-    #[error("CredentialDeploymentExpired")]
+    #[error("The credential deployment was expired")]
     CredentialDeploymentExpired,
 }
 
