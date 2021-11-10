@@ -586,6 +586,9 @@ handleInitContract wtc initAmount modref initName param =
     where senderAccount = wtc ^. wtcSenderAccount
           txHash = wtc ^. wtcTransactionHash
           meta = wtc ^. wtcTransactionHeader
+          -- The contract gets the address that was used when signing the
+          -- transactions, as opposed to the canonical one.
+          senderAddress = thSender meta
           c = do
             -- charge for base administrative cost
             tickEnergy Cost.initializeContractInstanceBaseCost
@@ -612,9 +615,8 @@ handleInitContract wtc initAmount modref initName param =
             -- be amount - deposit. Currently this is in any case not exposed in contracts, but in case it
             -- is in the future we should be mindful of which balance is exposed.
             senderCredentials <- getAccountCredentials (snd senderAccount)
-            canonicalSenderAddress <- getAccountCanonicalAddress (snd senderAccount)
             let initCtx = Wasm.InitContext{
-                  initOrigin = canonicalSenderAddress,
+                  initOrigin = senderAddress,
                   icSenderPolicies = map (Wasm.mkSenderPolicy . snd) (OrdMap.toAscList senderCredentials)
                }
             result <- runInterpreter (return . Wasm.applyInitFun iface cm initCtx initName param initAmount)
@@ -636,7 +638,7 @@ handleInitContract wtc initAmount modref initName param =
             cs' <- addAmountToCS senderAccount (amountDiff 0 initAmount) (ls ^. changeSet)
 
             let receiveMethods = OrdMap.findWithDefault Set.empty initName (Wasm.miExposedReceive iface)
-            let ins = makeInstance modref initName receiveMethods iface model initAmount (thSender meta)
+            let ins = makeInstance modref initName receiveMethods iface model initAmount senderAddress
             addr <- putNewInstance ins
 
             -- add the contract initialization to the change set and commit the changes
@@ -688,12 +690,14 @@ handleUpdateContract ::
 handleUpdateContract wtc uAmount uAddress uReceiveName uMessage =
   withDeposit wtc c (defaultSuccess wtc)
   where senderAccount = wtc ^. wtcSenderAccount
+        meta = wtc ^. wtcTransactionHeader
+        senderAddress = thSender meta
         c = do
           ins <- getCurrentContractInstanceTicking uAddress
           -- Now invoke the general handler for contract messages.
-          handleMessage senderAccount
+          handleMessage (senderAddress, senderAccount)
                         ins
-                        (Right senderAccount)
+                        (Right (senderAddress, senderAccount))
                         uAmount
                         uReceiveName
                         uMessage
@@ -705,11 +709,13 @@ handleUpdateContract wtc uAmount uAddress uReceiveName uMessage =
 -- The target contract must exist, so that its state can be looked up.
 handleMessage :: forall pv m.
   (TransactionMonad pv m, AccountOperations m)
-  => IndexedAccount m -- ^The account that sent the top-level transaction.
+  => (AccountAddress, IndexedAccount m) -- ^The account that sent the top-level transaction, with the address that was used.
   -> Instance -- ^The current state of the target contract of the transaction, which must exist.
-  -> Either (IndexedAccount m, Instance) (IndexedAccount m)
+  -> Either (IndexedAccount m, Instance) (AccountAddress, IndexedAccount m)
   -- ^The sender of the message (contract instance or account). In case this is
-  -- a contract the first parameter the owner account of the instance.
+  -- a contract the first parameter is the owner account of the instance. In case this is an account
+  -- (i.e., this is called from a top-level transaction) the value is a pair of the address that was used
+  -- as the sender address of the transaction, and the account to which it points.
   -- On the first invocation of this function this will be the sender of the
   -- top-level transaction, and in recursive calls the respective contract
   -- instance that produced the message.
@@ -729,7 +735,6 @@ handleMessage origin istance sender transferAmount receiveName parameter = do
   (senderAddr, senderCredentials) <- mkSenderAddrCredentials sender
   senderamount <- getCurrentAvailableAmount sender
   unless (senderamount >= transferAmount) $ rejectTransaction (AmountTooLarge senderAddr transferAmount)
-  originAddr <- getAccountCanonicalAddress (snd origin)
 
   let iParams = instanceParameters istance
   let cref = instanceAddress iParams
@@ -746,7 +751,7 @@ handleMessage origin istance sender transferAmount receiveName parameter = do
 
   -- We have established that the owner account of the receiver instance has at least one valid credential.
   let receiveCtx = Wasm.ReceiveContext {
-        invoker = originAddr,
+        invoker = fst origin,
         selfAddress = cref,
         selfBalance = instanceAmount istance,
         sender = senderAddr,
@@ -798,7 +803,7 @@ traversalStepCost :: Energy
 traversalStepCost = 10
 
 foldEvents :: (TransactionMonad pv m, AccountOperations m)
-           =>  IndexedAccount m -- ^Account that originated the top-level transaction
+           => (AccountAddress, IndexedAccount m) -- ^Account that originated the top-level transaction, with the address that was used.
            -> (IndexedAccount m, Instance) -- ^Instance that generated the events.
            -> Event -- ^Event generated by the invocation of the instance.
            -> Wasm.ActionsTree -- ^Actions to perform
@@ -813,7 +818,7 @@ foldEvents origin istance initEvent = fmap (initEvent:) . go
                               erName
                               erParameter
         go Wasm.TSimpleTransfer{..} = do
-          handleTransferAccount origin erTo (snd istance) erAmount Nothing
+          handleTransferAccount erTo (snd istance) erAmount Nothing
         go (Wasm.And l r) = do
           tickEnergy traversalStepCost
           resL <- go l
@@ -827,14 +832,14 @@ foldEvents origin istance initEvent = fmap (initEvent:) . go
           go l `orElse` go r
         go Wasm.Accept = return []
 
-mkSenderAddrCredentials :: AccountOperations m => Either (IndexedAccount m, Instance) (IndexedAccount m) -> m (Address, [ID.AccountCredential])
+mkSenderAddrCredentials :: AccountOperations m => Either (IndexedAccount m, Instance) (AccountAddress, IndexedAccount m) -> m (Address, [ID.AccountCredential])
 mkSenderAddrCredentials sender =
     case sender of
       Left (ownerAccount, istance) -> do
         credentials <- getAccountCredentials (snd ownerAccount)
         return (AddressContract (instanceAddress (instanceParameters istance)), map snd (OrdMap.toAscList credentials))
-      Right (_, acc) -> do
-        addr <- AddressAccount <$> getAccountCanonicalAddress acc
+      Right (usedAddress, (_, acc)) -> do
+        let addr = AddressAccount usedAddress
         credentials <- getAccountCredentials acc
         return (addr, map snd (OrdMap.toAscList credentials))
 
@@ -844,13 +849,12 @@ mkSenderAddrCredentials sender =
 -- whether an account can observe it).
 handleTransferAccount ::
   TransactionMonad pv m
-  => IndexedAccount m -- ^The account that sent the top-level transaction.
-  -> AccountAddress -- ^The target account address.
+  => AccountAddress -- ^The target account address.
   -> Instance -- ^The sender of this transfer.
   -> Amount -- ^The amount to transfer.
   -> Maybe Memo  -- ^Nothing in case of a Transfer and Just in case of a TransferWithMemo
   -> m [Event] -- ^The events resulting from the transfer.
-handleTransferAccount _origin accAddr senderInstance transferamount maybeMemo = do
+handleTransferAccount accAddr senderInstance transferamount maybeMemo = do
   -- charge at the beginning, successful and failed transfers will have the same cost.
   tickEnergy Cost.simpleTransferCost
   -- Check whether the sender has the amount to be transferred and reject the transaction if not.

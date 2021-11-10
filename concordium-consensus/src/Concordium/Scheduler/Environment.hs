@@ -335,16 +335,16 @@ class (StaticInformation m, IsProtocolVersion pv) => TransactionMonad pv m | m -
   -- |Transfer an amount from the first given instance or account to the instance in the second
   -- parameter and run the computation in the modified environment.
   {-# INLINE withToContractAmount #-}
-  withToContractAmount :: Either (IndexedAccount m, Instance) (IndexedAccount m) -> Instance -> Amount -> m a -> m a
+  withToContractAmount :: Either (IndexedAccount m, Instance) (AccountAddress, IndexedAccount m) -> Instance -> Amount -> m a -> m a
   withToContractAmount (Left (_, i)) = withContractToContractAmount i
-  withToContractAmount (Right a) = withAccountToContractAmount a
+  withToContractAmount (Right (_, a)) = withAccountToContractAmount a
 
   getCurrentContractInstance :: ContractAddress -> m (Maybe Instance)
 
   {-# INLINE getCurrentAvailableAmount #-}
-  getCurrentAvailableAmount :: Either (IndexedAccount m, Instance) (IndexedAccount m) -> m Amount
+  getCurrentAvailableAmount :: Either (IndexedAccount m, Instance) (AccountAddress, IndexedAccount m) -> m Amount
   getCurrentAvailableAmount (Left (_, i)) = getCurrentContractAmount i
-  getCurrentAvailableAmount (Right a) = getCurrentAccountAvailableAmount a
+  getCurrentAvailableAmount (Right (_, a)) = getCurrentAccountAvailableAmount a
 
   -- |Get an account with its state at the start of the transaction.
   getStateAccount :: AccountAddress -> m (Maybe (IndexedAccount m))
