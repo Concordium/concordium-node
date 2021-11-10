@@ -32,8 +32,6 @@ data VerificationResult
   -- ^The IdentityProvider does not exist for this 'CredentialDeployment'.
   | CredentialDeploymentInvalidAnonymityRevokers
   -- ^The anonymity revokers does not exist for this 'CredentialDeployment'.
-  | CredentialDeploymentInvalidKeys
-  -- ^The 'AccountCreation' contained invalid keys.
   | CredentialDeploymentInvalidSignatures
   -- ^The 'AccountCreation' contained invalid identity provider signatures.
   | CredentialDeploymentExpired
@@ -60,20 +58,14 @@ class Monad m => TransactionVerifier m where
   accountExists :: Types.AccountAddress -> m Bool
 
 
--- |Verifies a 'CredentialDeployment' transaction which origins from a block
--- Note. The caller must make sure to only use this verification function if the
--- transaction stems from a block.
--- If the transaction does not come from a block, but as a single transaction, then
--- use `verifyCredentialDeploymentFull`.
+-- |Verifies a 'CredentialDeployment' transaction 
 --
 -- This function verifies the following:
--- * Checks the transaction is not expired
 -- * Checks that the 'CredentialDeployment' is not expired
 -- * Making sure that an registration id does not already exist and also that 
 -- a corresponding account does not exist.
 -- * Validity of the 'IdentityProvider' and 'AnonymityRevokers' provided.
--- * Key sizes for the 'CredentialDeployment'
--- * Valid signatures on the 'CredentialDeployment'
+-- * That the 'CredentialDeployment' contains valid signatures.
 verifyCredentialDeployment :: TransactionVerifier m => Types.Timestamp -> Tx.AccountCreation -> m VerificationResult
 verifyCredentialDeployment now accountCreation@Tx.AccountCreation{..} =
   either id id <$> runExceptT (do
@@ -96,19 +88,15 @@ verifyCredentialDeployment now accountCreation@Tx.AccountCreation{..} =
           ID.NormalACWP ncdi -> do
             cryptoParams <- lift getCryptographicParameters
             let ncdv = ID.cdiValues ncdi
-            case ID.cdvPublicKeys ncdv of
-              ID.CredentialPublicKeys keys _ -> do
-                -- check that the keys are well sized
-                when (null keys || (length keys > 255)) $ throwError CredentialDeploymentInvalidKeys
-                mArsInfos <- lift (getAnonymityRevokers (OrdMap.keys (ID.cdvArData ncdv)))
-                case mArsInfos of
-                  -- check that the anonymity revokers exist
-                  Nothing -> throwError CredentialDeploymentInvalidAnonymityRevokers
-                  Just arsInfos -> do
-                    -- if the credential deployment contained an empty map of 'ChainArData' then the result will be 'Just empty'.
-                    when (null arsInfos) $ throwError CredentialDeploymentInvalidAnonymityRevokers
-                    -- check signatures for a normal credential deployment
-                    unless (A.verifyCredential cryptoParams ipInfo arsInfos (S.encode ncdi) (Left messageExpiry)) $ throwError CredentialDeploymentInvalidSignatures
+            mArsInfos <- lift (getAnonymityRevokers (OrdMap.keys (ID.cdvArData ncdv)))
+            case mArsInfos of
+              -- check that the anonymity revokers exist
+              Nothing -> throwError CredentialDeploymentInvalidAnonymityRevokers
+              Just arsInfos -> do
+                -- if the credential deployment contained an empty map of 'ChainArData' then the result will be 'Just empty'.
+                when (null arsInfos) $ throwError CredentialDeploymentInvalidAnonymityRevokers
+                -- check signatures for a normal credential deployment
+                unless (A.verifyCredential cryptoParams ipInfo arsInfos (S.encode ncdi) (Left messageExpiry)) $ throwError CredentialDeploymentInvalidSignatures
     return Success)
 
 instance (Monad m, r ~ GSTypes.BlockState m, BS.BlockStateQuery m) => TransactionVerifier (ReaderT r m) where

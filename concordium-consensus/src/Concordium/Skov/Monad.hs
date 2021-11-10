@@ -87,8 +87,6 @@ data UpdateResult
     -- ^The identity provider was not valid
     | ResultCredentialDeploymentInvalidAR
     -- ^The anonymity revokers was not valid
-    | ResultCredentialDeploymentInvalidKeys
-    -- ^The keys were malformed
     | ResultCredentialDeploymentInvalidSignatures
     -- ^The 'CredentialDeployment' contained invalid identity provider signatures.
     | ResultCredentialDeploymentExpired

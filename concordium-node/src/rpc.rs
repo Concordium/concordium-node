@@ -240,7 +240,7 @@ impl P2p for RpcServerImpl {
                     None,
                 ))
             } else {
-                Err(anyhow::anyhow!(consensus_result))
+                Err(consensus_result)
             };
 
             let mk_response = |value| {
@@ -269,14 +269,14 @@ impl P2p for RpcServerImpl {
                         "Consensus didn't accept a transaction via RPC due to {:?}",
                         DuplicateEntry
                     );
-                    mk_err_response(Code::AlreadyExists, DuplicateEntry.to_string())
+                    mk_err_response(Code::AlreadyExists, DuplicateEntry)
                 }
                 (_, consensus_error) => {
                     warn!(
                         "Consensus didn't accept a transaction via RPC due to {:?}",
                         consensus_error
                     );
-                    mk_err_invalid_argument_response(consensus_error.to_string())
+                    mk_err_invalid_argument_response(consensus_error)
                 }
             }
         } else {

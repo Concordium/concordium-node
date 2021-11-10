@@ -642,15 +642,13 @@ stopBaker cptr = mask_ $ do
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 -- |    21 | ResultDuplicateAccountRegistrationID        | The 'CredentialDeployment' contained a duplicate registration id                              | Yes      |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
--- |    22 | ResultCredentialDeploymentInvalidKeys       | The keys were malformed                                                                       | Yes      |
+-- |    22 | ResultCredentialDeploymentInvalidSignatures | The CredentialDeployment contained invalid identity provider signatures                       | Yes      |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
--- |    23 | ResultCredentialDeploymentInvalidSignatures | The CredentialDeployment contained invalid identity provider signatures                       | Yes      |
+-- |    23 | ResultCredentialDeploymentInvalidIP         | The CredentialDeployment contained an invalid Identity Provider                               | Yes      |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
--- |    24 | ResultCredentialDeploymentInvalidIP         | The CredentialDeployment contained an invalid Identity Provider                               | Yes      |
+-- |    24 | ResultCredentialDeploymentInvalidAR         | The CredentialDeployment contained an invalid Anonymity Revoker                               | Yes      |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
--- |    25 | ResultCredentialDeploymentInvalidAR         | The CredentialDeployment contained an invalid Anonymity Revoker                               | Yes      |
--- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
--- |    26 | ResultCredentialDeploymentExpired           | The CredentialDeployment contained an expired 'validTo'                                       | Yes      |
+-- |    25 | ResultCredentialDeploymentExpired           | The CredentialDeployment contained an expired 'validTo'                                       | Yes      |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 type ReceiveResult = Int64
 
@@ -678,11 +676,10 @@ toReceiveResult ResultNonceTooLarge = 18
 toReceiveResult ResultTooLowEnergy = 19
 toReceiveResult ResultInvalidGenesisIndex = 20
 toReceiveResult ResultDuplicateAccountRegistrationID = 21
-toReceiveResult ResultCredentialDeploymentInvalidKeys = 22
-toReceiveResult ResultCredentialDeploymentInvalidSignatures = 23
-toReceiveResult ResultCredentialDeploymentInvalidIP = 24
-toReceiveResult ResultCredentialDeploymentInvalidAR = 25
-toReceiveResult ResultCredentialDeploymentExpired = 26
+toReceiveResult ResultCredentialDeploymentInvalidSignatures = 22
+toReceiveResult ResultCredentialDeploymentInvalidIP = 23
+toReceiveResult ResultCredentialDeploymentInvalidAR = 24
+toReceiveResult ResultCredentialDeploymentExpired = 25
 
 -- |Handle receipt of a block.
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,

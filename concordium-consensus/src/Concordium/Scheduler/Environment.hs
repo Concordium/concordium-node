@@ -68,13 +68,11 @@ class (Monad m, StaticInformation m, TVer.TransactionVerifier m, CanRecordFootpr
     => SchedulerMonad pv m | m -> pv where
 
   -- |Insert an entry to the 'Cache'.
-  -- The first parameter, @k@, is the key of the entry.
-  -- The second parameter, @v@, is the value of the entry.
-  --
-  -- If the capacity is reached for the cache, then we expunge all content
-  -- of the cache and insert the new entry.
+  -- The first parameter, @TransactionHash@, is the key of the entry.
+  -- The second parameter, @CacheableVerificationResult@, is the value of the entry.
   insertTransactionVerificationResult :: TransactionHash -> CacheableVerificationResult -> m ()
-  -- |Returns whether the entry is present in the cache or not.
+  -- |Retrieves a `Just CacheableVerificationResult` given the `TransactionHash` is such is present in the cache.
+  -- Otherwise return `Nothing`
   lookupTransactionVerificationResult :: TransactionHash  -> m (Maybe CacheableVerificationResult)
 
   -- |Notify the transaction log that a transaction had the given footprint. The

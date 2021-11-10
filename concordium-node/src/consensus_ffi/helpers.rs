@@ -7,6 +7,7 @@ use std::{
     ops::Deref,
     str::FromStr,
 };
+use thiserror::Error;
 
 /// # Serialization packets
 /// Benchmark of each serialization requires to enable it on features
@@ -180,40 +181,62 @@ impl PacketType {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Error)]
 pub enum ConsensusFfiResponse {
+    #[error("BakerNotFound")]
     BakerNotFound = -1,
+    #[error("Success")]
     Success,
+    #[error("DeserializationError")]
     DeserializationError,
+    #[error("InvalidResult")]
     InvalidResult,
+    #[error("PendingBlock")]
     PendingBlock,
+    #[error("PendingFinalization")]
     PendingFinalization,
+    #[error("Asynchronous")]
     Asynchronous,
+    #[error("DuplicateEntry")]
     DuplicateEntry,
+    #[error("Stale")]
     Stale,
+    #[error("IncorrectFinalizationSession")]
     IncorrectFinalizationSession,
+    #[error("Unverifiable")]
     Unverifiable,
+    #[error("ContinueCatchUp")]
     ContinueCatchUp,
+    #[error("BlockTooEarly")]
     BlockTooEarly,
+    #[error("MissingImportFile")]
     MissingImportFile,
+    #[error("ConsensusShutDown")]
     ConsensusShutDown,
+    #[error("ExpiryTooLate")]
     ExpiryTooLate,
+    #[error("VerificationFailed")]
     VerificationFailed,
+    #[error("NonexistingSenderAccount")]
     NonexistingSenderAccount,
+    #[error("DuplicateNonce")]
     DuplicateNonce,
+    #[error("NonceTooLarge")]
     NonceTooLarge,
+    #[error("TooLowEnergy")]
     TooLowEnergy,
+    #[error("InvalidGenesisIndex")]
     InvalidGenesisIndex,
+    #[error("DuplicateAccountRegistrationID")]
     DuplicateAccountRegistrationID,
-    CredentialDeploymentInvalidKeys,
+    #[error("CredentialDeploymentInvalidSignatures")]
     CredentialDeploymentInvalidSignatures,
+    #[error("CredentialDeploymentInvalidIP")]
     CredentialDeploymentInvalidIP,
+    #[error("CredentialDeploymentInvalidAR")]
     CredentialDeploymentInvalidAR,
+    #[error("CredentialDeploymentExpired")]
     CredentialDeploymentExpired,
-}
-
-impl fmt::Display for ConsensusFfiResponse {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { write!(f, "{:?}", self) }
 }
 
 impl ConsensusFfiResponse {
@@ -270,9 +293,11 @@ impl ConsensusFfiResponse {
                 | TooLowEnergy
                 | ConsensusShutDown
                 | InvalidGenesisIndex
-                | CredentialDeploymentInvalidIP // as invalid ip could be valid in the future we rebroadcast them
-                | CredentialDeploymentInvalidAR /* as invalid ars's could be valid in a future
-                                                 * block we rebroadcast them */
+                | CredentialDeploymentExpired
+                | DuplicateAccountRegistrationID
+                | CredentialDeploymentInvalidSignatures
+                | CredentialDeploymentInvalidIP
+                | CredentialDeploymentInvalidAR
         )
     }
 }
@@ -308,11 +333,10 @@ impl TryFrom<i64> for ConsensusFfiResponse {
             19 => Ok(TooLowEnergy),
             20 => Ok(InvalidGenesisIndex),
             21 => Ok(DuplicateAccountRegistrationID),
-            22 => Ok(CredentialDeploymentInvalidKeys),
-            23 => Ok(CredentialDeploymentInvalidSignatures),
-            24 => Ok(CredentialDeploymentInvalidIP),
-            25 => Ok(CredentialDeploymentInvalidAR),
-            26 => Ok(CredentialDeploymentExpired),
+            22 => Ok(CredentialDeploymentInvalidSignatures),
+            23 => Ok(CredentialDeploymentInvalidIP),
+            24 => Ok(CredentialDeploymentInvalidAR),
+            25 => Ok(CredentialDeploymentExpired),
             _ => Err(anyhow!("Unsupported FFI return code ({})", value)),
         }
     }

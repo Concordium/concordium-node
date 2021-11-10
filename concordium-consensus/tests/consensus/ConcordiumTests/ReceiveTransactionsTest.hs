@@ -65,11 +65,10 @@ test = do
       check results cache 2 False $ Left TVer.CredentialDeploymentExpired
       check results cache 3 False $ Left (TVer.DuplicateAccountRegistrationID duplicateRegId)
       check results cache 4 True $ Left TVer.CredentialDeploymentInvalidIdentityProvider
-      check results cache 5 False $ Left TVer.CredentialDeploymentInvalidKeys
-      check results cache 6 True $ Left TVer.CredentialDeploymentInvalidAnonymityRevokers
-      check results cache 7 False $ Left TVer.CredentialDeploymentInvalidSignatures
+      check results cache 5 True $ Left TVer.CredentialDeploymentInvalidAnonymityRevokers
+      check results cache 6 False $ Left TVer.CredentialDeploymentInvalidSignatures
       -- the intial account creation which has an invalid signature
-      check results cache 8 False $ Left TVer.CredentialDeploymentInvalidSignatures
+      check results cache 7 False $ Left TVer.CredentialDeploymentInvalidSignatures
       -- now check that the cache is being cleared when we purge transactions
       s' <- runPurgeTransactions (addUTCTime (secondsToNominalDiffTime 2) now) outState
       let cache' = snd s' ^. transactionVerificationResults
@@ -100,12 +99,11 @@ test = do
       check results cache 0 False $ Right ResultStale
       check results cache 1 False $ Left TVer.CredentialDeploymentExpired
       check results cache 2 False $ Left (TVer.DuplicateAccountRegistrationID duplicateRegId)
-      check results cache 3 True $ Left (TVer.CredentialDeploymentInvalidIdentityProvider)
-      check results cache 4 False $ Left TVer.CredentialDeploymentInvalidKeys
-      check results cache 5 True $ Left TVer.CredentialDeploymentInvalidAnonymityRevokers
-      check results cache 6 False $ Left TVer.CredentialDeploymentInvalidSignatures
+      check results cache 3 True $ Left TVer.CredentialDeploymentInvalidIdentityProvider
+      check results cache 4 True $ Left TVer.CredentialDeploymentInvalidAnonymityRevokers
+      check results cache 5 False $ Left TVer.CredentialDeploymentInvalidSignatures
       -- the intial account creation which has an invalid signature
-      check results cache 7 False $ Left TVer.CredentialDeploymentInvalidSignatures
+      check results cache 6 False $ Left TVer.CredentialDeploymentInvalidSignatures
       -- now check that the cache is being cleared when we purge transactions
       s' <- runPurgeTransactions (addUTCTime (secondsToNominalDiffTime 2) now) outState
       let cache' = snd s' ^. transactionVerificationResults
@@ -211,7 +209,6 @@ accountCreations gCtx now =
     expiredCredentialDeployment,
     credentialDeploymentWithDuplicateRegId,
     credentialWithInvalidIP,
-    credentialWithInvalidKeys,
     credentialWithInvalidAr,
     credentialWithInvalidSignatures,
     intialCredentialWithInvalidSignatures
@@ -223,7 +220,6 @@ accountCreations gCtx now =
     expiredCredentialDeployment = toBlockItem now (mkAccountCreation expiry (regId 1) 0 True True True)
     credentialDeploymentWithDuplicateRegId = toBlockItem now (mkAccountCreation expiry duplicateRegId 0 True True False)
     credentialWithInvalidIP = toBlockItem now (mkAccountCreation expiry (regId 1) 42 True True False)
-    credentialWithInvalidKeys = toBlockItem now (mkAccountCreation expiry (regId 1) 0 True False False)
     credentialWithInvalidAr = toBlockItem now (mkAccountCreation expiry (regId 1) 0 False True False)
     credentialWithInvalidSignatures = toBlockItem now (mkAccountCreation expiry (regId 1) 0 True True False)
     intialCredentialWithInvalidSignatures = toBlockItem now (mkInitialAccountCreationWithInvalidSignatures expiry (regId 42))

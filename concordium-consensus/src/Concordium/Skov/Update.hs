@@ -5,6 +5,7 @@
 module Concordium.Skov.Update where
 
 import Control.Monad
+import Control.Monad.Reader
 import Data.Maybe (fromMaybe, isNothing)
 import qualified Data.Sequence as Seq
 import Lens.Micro.Platform
@@ -16,6 +17,7 @@ import Concordium.Types
 import Concordium.Types.Accounts
 import Concordium.Types.HashableTo
 import Concordium.Types.Updates
+import Concordium.Cost (baseCost)
 import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
 import Concordium.GlobalState.BlockMonads
@@ -40,8 +42,6 @@ import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.Skov.Statistics
 import qualified Concordium.TransactionVerification as TV
-import Control.Monad.Reader
-import Concordium.Cost (baseCost)
 
 -- |Determine if one block is an ancestor of another.
 -- A block is considered to be an ancestor of itself.
@@ -588,7 +588,6 @@ mapTransactionVerificationResult (TV.DuplicateAccountRegistrationID _) = ResultD
 mapTransactionVerificationResult TV.CredentialDeploymentInvalidIdentityProvider = ResultCredentialDeploymentInvalidIP
 mapTransactionVerificationResult TV.CredentialDeploymentInvalidAnonymityRevokers = ResultCredentialDeploymentInvalidAR
 mapTransactionVerificationResult TV.CredentialDeploymentInvalidSignatures = ResultCredentialDeploymentInvalidSignatures
-mapTransactionVerificationResult TV.CredentialDeploymentInvalidKeys = ResultCredentialDeploymentInvalidKeys
 mapTransactionVerificationResult TV.CredentialDeploymentExpired = ResultCredentialDeploymentExpired
 mapTransactionVerificationResult TV.Success = ResultSuccess
     
