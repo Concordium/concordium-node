@@ -632,7 +632,7 @@ stopBaker cptr = mask_ $ do
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 -- |    16 | ResultNonexistingSenderAccount              | The transaction's sender account does not exist according to the focus block                  | No       |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
--- |    17 | ResultDuplicateNonce                        | The sequence number for this account or udpate type was already used                          | No       |
+-- |    17 | ResultDuplicateNonce                        | The sequence number for this account or update type was already used                          | No       |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 -- |    18 | ResultNonceTooLarge                         | The transaction seq. number is larger than the next one for this account/update type          | No       |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
