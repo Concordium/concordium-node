@@ -104,7 +104,11 @@ fn main() -> std::io::Result<()> {
                     println!("cargo:rustc-link-search=native={}", extra_libs_path);
                 }
                 let ghc_lib_dir = link_ghc_libs()?;
-                let lib_path = if cfg!(target_os = "linux") { "LD_LIBRARY_PATH" } else { "DYLD_LIBRARY_PATH" };
+                let lib_path = if cfg!(target_os = "linux") {
+                    "LD_LIBRARY_PATH"
+                } else {
+                    "DYLD_LIBRARY_PATH"
+                };
 
                 println!(
                     "cargo:rustc-env={}={}:{}",
