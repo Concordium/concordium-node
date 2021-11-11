@@ -173,7 +173,7 @@ checkEqualAccountReleaseSchedule (blockStateBasic, blockStatePersistent) acc = d
 
 -- | Check that an an account was correctly updated in the two blockstates with the given release schedule
 checkCorrectAccountReleaseSchedule :: (BS.BlockState PV, PBS.PersistentBlockState PV) -> (BS.BlockState PV, PBS.PersistentBlockState PV) -> ((AccountAddress, AccountIndex), [(Timestamp, Amount)]) -> ThisMonadConcrete ()
-checkCorrectAccountReleaseSchedule (blockStateBasic, blockStatePersistent) (oldBlockStateBasic, _) ((acc, ai), rel) = do
+checkCorrectAccountReleaseSchedule (blockStateBasic, blockStatePersistent) (oldBlockStateBasic, _) ((acc, _), rel) = do
   let Just newBasicAccount = Concordium.GlobalState.Basic.BlockState.Accounts.getAccount acc (blockStateBasic ^. blockAccounts)
   let Just oldBasicAccount = Concordium.GlobalState.Basic.BlockState.Accounts.getAccount acc (oldBlockStateBasic ^. blockAccounts)
   checkEqualAccountReleaseSchedule (blockStateBasic, blockStatePersistent) acc

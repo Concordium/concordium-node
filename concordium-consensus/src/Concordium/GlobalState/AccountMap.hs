@@ -101,7 +101,7 @@ empty :: AccountMap pv fix
 empty = AccountMap Trie.empty
 
 mkPrefix :: AccountAddress -> [Word8]
-mkPrefix = take 29 . Trie.unpackKey
+mkPrefix = take accountAddressPrefixSize . Trie.unpackKey
 
 -- |Retrieve the account index for the given address if the address exists.
 -- The semantics of this method depends on the protocol version.

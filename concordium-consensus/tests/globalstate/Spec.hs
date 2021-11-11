@@ -8,7 +8,7 @@ import qualified GlobalStateTests.Instances(tests)
 import qualified GlobalStateTests.FinalizationSerializationSpec(tests)
 import qualified GlobalStateTests.Trie(tests)
 import qualified GlobalStateTests.LFMBTree(tests)
-import qualified GlobalStateTests.AccountTrie(tests)
+import qualified GlobalStateTests.AccountMap(tests)
 import qualified GlobalStateTests.PersistentTreeState(tests)
 import qualified GlobalStateTests.Accounts(tests)
 import qualified GlobalStateTests.BlockHash(tests)
@@ -36,4 +36,4 @@ main = atLevel $ \lvl -> hspec $ do
   GlobalStateTests.Instances.tests lvl
   GlobalStateTests.AccountReleaseScheduleTest.tests
   GlobalStateTests.Updates.tests
-  GlobalStateTests.AccountTrie.tests lvl
+  GlobalStateTests.AccountMap.tests lvl

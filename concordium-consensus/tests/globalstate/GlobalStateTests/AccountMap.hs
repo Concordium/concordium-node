@@ -2,7 +2,7 @@
 {-|
   Tests of the account map related operations.
 -}
-module GlobalStateTests.AccountTrie where
+module GlobalStateTests.AccountMap where
 
 import Concordium.Types
 import Concordium.ID.Types
@@ -108,7 +108,7 @@ allPrefixes lvl = it "lookup prefix" $
 genAliases :: AccountAddress -> Gen [AccountAddress]
 genAliases (AccountAddress addr) = sized $ \n -> do
   len <- choose (1, min n 1000)
-  aliases <- replicateM len (AccountAddress . FBS.pack . take 29 . (FBS.unpack addr ++) <$> vector 3)
+  aliases <- replicateM len (AccountAddress . FBS.pack . take accountAddressPrefixSize . (FBS.unpack addr ++) <$> vector 3)
   return (nub . sort $ aliases)
 
 constructAccountMap :: forall pv . [(AccountAddress, AccountIndex)] -> AccountMap.PureAccountMap pv
@@ -132,7 +132,7 @@ checkClashesP1P2 :: forall pv . IsProtocolVersion pv => Proxy pv -> Word -> Spec
 checkClashesP1P2 Proxy lvl = it ("check aliases for protocol version " ++ show (demoteProtocolVersion (protocolVersion @pv))) $
     withMaxSuccess (10000 * fromIntegral lvl) $ property $
     forAll genInputs $ \(inputs, _) -> 
-       let mkPrefix (AccountAddress addr, _) = take 29 . FBS.unpack $ addr
+       let mkPrefix (AccountAddress addr, _) = take accountAddressPrefixSize . FBS.unpack $ addr
            withUniquePrefixes = nubBy ((==) `on` mkPrefix) . sortOn mkPrefix $ inputs
            am = constructAccountMap @pv withUniquePrefixes
        in conjoin (map (\(addr, _) -> forAll (genAliases addr) $
