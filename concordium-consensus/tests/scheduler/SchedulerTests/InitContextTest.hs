@@ -1,4 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE DataKinds #-}
 {-| Test that the init context of a contract is passed correctly by the scheduler. -}
 module SchedulerTests.InitContextTest where
 
@@ -7,6 +10,8 @@ import Test.HUnit
 import Lens.Micro.Platform
 import Control.Monad.IO.Class
 import Data.Serialize
+import Data.Proxy
+import Concordium.Types.ProtocolVersion
 
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
@@ -27,21 +32,26 @@ import Concordium.Crypto.DummyData
 import SchedulerTests.Helpers
 import SchedulerTests.TestUtils
 
-initialBlockState :: BlockState PV1
+initialBlockState :: IsProtocolVersion pv => BlockState pv
 initialBlockState = blockStateWithAlesAccount 1000000000 emptyAccounts
 
 chainMeta :: Types.ChainMetadata
 chainMeta = Types.ChainMetadata{ slotTime = 444 }
 
-transactionInputs :: [TransactionJSON]
-transactionInputs = [
+senderAccount :: forall pv . IsProtocolVersion pv => Proxy pv -> Types.AccountAddress
+senderAccount Proxy
+  | demoteProtocolVersion (protocolVersion @pv) >= P3 = mkAlias alesAccount 17
+  | otherwise = alesAccount
+
+transactionInputs :: forall pv . IsProtocolVersion pv => Proxy pv -> [TransactionJSON]
+transactionInputs proxy = [
   TJSON{
-      metadata = makeDummyHeader alesAccount 1 100000,
+      metadata = makeDummyHeader (senderAccount proxy) 1 100000,
       payload = DeployModule 0 "./testdata/contracts/chain-meta-test.wasm",
       keys = [(0,[(0, alesKP)])]
       },
   TJSON{
-      metadata = makeDummyHeader alesAccount 2 100000,
+      metadata = makeDummyHeader (senderAccount proxy) 2 100000,
       payload = InitContract 9 0 "./testdata/contracts/chain-meta-test.wasm" "init_origin" "",
       keys = [(0,[(0, alesKP)])]
       }
@@ -51,9 +61,9 @@ type TestResult = ([(Types.BlockItem, Types.ValidResult)],
                    [(Types.Transaction, Types.FailureKind)],
                    [(Types.ContractAddress, Instance)])
 
-testInit :: IO TestResult
-testInit = do
-    transactions <- processUngroupedTransactions transactionInputs
+testInit :: forall pv . IsProtocolVersion pv => Proxy pv -> IO TestResult
+testInit proxy = do
+    transactions <- processUngroupedTransactions (transactionInputs proxy)
     let (Sch.FilteredTransactions{..}, finState) =
           Types.runSI (Sch.filterTransactions dummyBlockSize dummyBlockTimeout transactions)
             chainMeta
@@ -61,18 +71,18 @@ testInit = do
             maxBound
             initialBlockState
     let gs = finState ^. Types.ssBlockState
-    case invariantBlockState gs (finState ^. Types.schedulerExecutionCosts)of
+    case invariantBlockState @pv gs (finState ^. Types.schedulerExecutionCosts)of
         Left f -> liftIO $ assertFailure $ f ++ " " ++ show gs
         _ -> return ()
     return (getResults ftAdded, ftFailed, gs ^.. blockInstances . foldInstances . to (\i -> (iaddress i, i)))
 
-checkInitResult :: TestResult -> Assertion
-checkInitResult (suc, fails, instances) = do
+checkInitResult :: forall pv . IsProtocolVersion pv => Proxy pv -> TestResult -> Assertion
+checkInitResult proxy (suc, fails, instances) = do
   assertEqual "There should be no failed transactions." [] fails
   assertEqual "There should be no rejected transactions." [] reject
   assertEqual "There should be 1 instance." 1 (length instances)
   let model = contractState . instanceModel . snd . head $ instances
-  assertEqual "Instance model is the sender address of the account which inialized it." model (encode alesAccount)
+  assertEqual "Instance model is the sender address of the account which inialized it." model (encode (senderAccount proxy))
   where
     reject = filter (\case (_, Types.TxSuccess{}) -> False
                            (_, Types.TxReject{}) -> True
@@ -81,6 +91,10 @@ checkInitResult (suc, fails, instances) = do
 
 tests :: SpecWith ()
 tests =
-  describe "Init context in transactions." $
-    specify "Passing init context to contract." $
-      testInit >>= checkInitResult
+  describe "Init context in transactions." $ do
+    specify "Passing init context to contract P1"
+      (testInit (Proxy @'P1) >>= checkInitResult (Proxy @'P1))
+    specify "Passing init context to contract P2" $
+      testInit (Proxy @'P2) >>= checkInitResult (Proxy @'P2)
+    specify "Passing init context to contract P3" $
+      testInit (Proxy @'P3) >>= checkInitResult (Proxy @'P3)
