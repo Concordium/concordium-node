@@ -104,11 +104,36 @@ fn main() -> std::io::Result<()> {
                     println!("cargo:rustc-link-search=native={}", extra_libs_path);
                 }
                 let ghc_lib_dir = link_ghc_libs()?;
-                println!(
-                    "cargo:rustc-env=LD_LIBRARY_PATH={}:{}",
-                    ghc_lib_dir.as_path().to_string_lossy(),
-                    local_package.as_path().to_string_lossy()
-                );
+
+                if cfg!(target_os = "linux") {
+                    println!(
+                        "cargo:rustc-env=LD_LIBRARY_PATH={}:{}",
+                        ghc_lib_dir.as_path().to_string_lossy(),
+                        local_package.as_path().to_string_lossy()
+                    );
+                } else {
+                    println!(
+                        "cargo:rustc-env=DYLD_LIBRARY_PATH={}:{}",
+                        ghc_lib_dir.as_path().to_string_lossy(),
+                        local_package.as_path().to_string_lossy()
+                    );
+                }
+                // #[cfg(linux)]
+                // {
+                //     println!(
+                //         "cargo:rustc-env=LD_LIBRARY_PATH={}:{}",
+                //         ghc_lib_dir.as_path().to_string_lossy(),
+                //         local_package.as_path().to_string_lossy()
+                //     );
+                // }
+                // #[cfg(macos)]
+                // {
+                //     println!(
+                //         "cargo:rustc-env=DYLD_LIBRARY_PATH={}:{}",
+                //         ghc_lib_dir.as_path().to_string_lossy(),
+                //         local_package.as_path().to_string_lossy()
+                //     );
+                // }
             }
         }
     }
