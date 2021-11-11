@@ -730,8 +730,8 @@ handleMessage origin istance sender transferAmount receiveName parameter = do
   let model = instanceModel istance
   -- Check whether the sender of the message has enough on its account/instance for the transfer.
   -- If the amount is not sufficient, the top-level transaction is rejected.
-  -- Note that this returns the canonical address of the account in case the sender is an account.
-  -- This is deliberate so that consistent addresses are exposed to smart contracts.
+  -- Note that this returns the address that was used in the top-level transaction, or the owner address of the contract instance.
+  -- In both cases it is the address that was used by the sender.
   (senderAddr, senderCredentials) <- mkSenderAddrCredentials sender
   senderamount <- getCurrentAvailableAmount sender
   unless (senderamount >= transferAmount) $ rejectTransaction (AmountTooLarge senderAddr transferAmount)
