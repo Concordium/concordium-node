@@ -118,22 +118,6 @@ fn main() -> std::io::Result<()> {
                         local_package.as_path().to_string_lossy()
                     );
                 }
-                // #[cfg(linux)]
-                // {
-                //     println!(
-                //         "cargo:rustc-env=LD_LIBRARY_PATH={}:{}",
-                //         ghc_lib_dir.as_path().to_string_lossy(),
-                //         local_package.as_path().to_string_lossy()
-                //     );
-                // }
-                // #[cfg(macos)]
-                // {
-                //     println!(
-                //         "cargo:rustc-env=DYLD_LIBRARY_PATH={}:{}",
-                //         ghc_lib_dir.as_path().to_string_lossy(),
-                //         local_package.as_path().to_string_lossy()
-                //     );
-                // }
             }
         }
     }
