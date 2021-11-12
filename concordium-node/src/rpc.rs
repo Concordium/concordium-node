@@ -240,7 +240,7 @@ impl P2p for RpcServerImpl {
                     None,
                 ))
             } else {
-                Err(anyhow::anyhow!(consensus_result))
+                Err(consensus_result.into())
             };
 
             let mk_response = |value| {

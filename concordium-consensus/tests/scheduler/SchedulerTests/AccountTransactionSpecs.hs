@@ -66,7 +66,7 @@ testAccountCreation = do
             maxBound
             maxBound
             initialBlockState
-    let state = fst finState ^. Types.ssBlockState
+    let state = finState ^. _1 . Types.ssBlockState
     let accounts = state ^. blockAccounts
     let accAddrs = map (accountAddressFromCredential . Types.credential) [cdi1,cdi2,cdi3,cdi5,cdi7]
     case invariantBlockState state (finState ^. Types.schedulerExecutionCosts) of

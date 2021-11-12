@@ -239,10 +239,10 @@ class AccountOperations m => BlockStateQuery m where
     -- They should be returned in the order that they were emitted.
     getSpecialOutcomes :: BlockState m -> m (Seq.Seq SpecialTransactionOutcome)
 
+    -- |Get the identity provider info for a given block given by its id.
     getIdentityProvider :: BlockState m -> ID.IdentityProviderIdentity -> m (Maybe IpInfo)
-    -- |Check whether an the given credential registration ID exists, and return
-    -- the account index of the account it is or was associated with.
 
+    -- |Get all identity providers for a given block.
     getAllIdentityProviders :: BlockState m -> m [IpInfo]
 
     -- |Get the anonymity revokers with given ids. Returns 'Nothing' if any of the

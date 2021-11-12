@@ -7,6 +7,7 @@ use std::{
     ops::Deref,
     str::FromStr,
 };
+use thiserror::Error;
 
 /// # Serialization packets
 /// Benchmark of each serialization requires to enable it on features
@@ -180,41 +181,66 @@ impl PacketType {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Error)]
 pub enum ConsensusFfiResponse {
+    #[error("Baker not found")]
     BakerNotFound = -1,
+    #[error("Success")]
     Success,
+    #[error("Deserialization error")]
     DeserializationError,
+    #[error("Invalid result")]
     InvalidResult,
+    #[error("Pending block")]
     PendingBlock,
+    #[error("Pending finalization")]
     PendingFinalization,
+    #[error("Asynchronous")]
     Asynchronous,
+    #[error("Duplicate entry")]
     DuplicateEntry,
+    #[error("Stale")]
     Stale,
+    #[error("Incorrect finalization session")]
     IncorrectFinalizationSession,
+    #[error("Unverifiable")]
     Unverifiable,
+    #[error("Continue catchup")]
     ContinueCatchUp,
+    #[error("Block too early")]
     BlockTooEarly,
+    #[error("Missing import file")]
     MissingImportFile,
+    #[error("Consensus shutdown")]
     ConsensusShutDown,
+    #[error("Expiry too late")]
     ExpiryTooLate,
+    #[error("Verification failed")]
     VerificationFailed,
+    #[error("Nonexisting sender account")]
     NonexistingSenderAccount,
+    #[error("Duplicate nonce")]
     DuplicateNonce,
+    #[error("Nonce too large")]
     NonceTooLarge,
+    #[error("Too low energy")]
     TooLowEnergy,
+    #[error("Invalid genesis index")]
     InvalidGenesisIndex,
+    #[error("An account already exists with the given registration id")]
     DuplicateAccountRegistrationID,
-    CredentialDeploymentInvalidKeys,
+    #[error("The credential deployment contained invalid signatures")]
     CredentialDeploymentInvalidSignatures,
+    #[error("The credential deployment contained an invalid identity provider")]
     CredentialDeploymentInvalidIP,
+    #[error("The credential deployment contained invalid anonymity revokers")]
     CredentialDeploymentInvalidAR,
+    #[error("The credential deployment was expired")]
     CredentialDeploymentExpired,
+    #[error("The chain update had an invalid effective time")]
+    ChainUpdateInvalidEffectiveTime,
+    #[error("The chain update contained invalid signatures")]
     ChainUpdateInvalidSignatures,
-}
-
-impl fmt::Display for ConsensusFfiResponse {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { write!(f, "{:?}", self) }
 }
 
 impl ConsensusFfiResponse {
@@ -271,9 +297,11 @@ impl ConsensusFfiResponse {
                 | TooLowEnergy
                 | ConsensusShutDown
                 | InvalidGenesisIndex
-                | CredentialDeploymentInvalidIP // as invalid ip could be valid in the future we rebroadcast them
-                | CredentialDeploymentInvalidAR /* as invalid ars's could be valid in a future
-                                                 * block we rebroadcast them */
+                | CredentialDeploymentExpired
+                | DuplicateAccountRegistrationID
+                | CredentialDeploymentInvalidSignatures
+                | CredentialDeploymentInvalidIP
+                | CredentialDeploymentInvalidAR
         )
     }
 }
@@ -309,11 +337,11 @@ impl TryFrom<i64> for ConsensusFfiResponse {
             19 => Ok(TooLowEnergy),
             20 => Ok(InvalidGenesisIndex),
             21 => Ok(DuplicateAccountRegistrationID),
-            22 => Ok(CredentialDeploymentInvalidKeys),
-            23 => Ok(CredentialDeploymentInvalidSignatures),
-            24 => Ok(CredentialDeploymentInvalidIP),
-            25 => Ok(CredentialDeploymentInvalidAR),
-            26 => Ok(CredentialDeploymentExpired),
+            22 => Ok(CredentialDeploymentInvalidSignatures),
+            23 => Ok(CredentialDeploymentInvalidIP),
+            24 => Ok(CredentialDeploymentInvalidAR),
+            25 => Ok(CredentialDeploymentExpired),
+            26 => Ok(ChainUpdateInvalidEffectiveTime),
             27 => Ok(ChainUpdateInvalidSignatures),
             _ => Err(anyhow!("Unsupported FFI return code ({})", value)),
         }

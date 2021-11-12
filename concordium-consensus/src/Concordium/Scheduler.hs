@@ -50,10 +50,12 @@ import qualified Data.ByteString as BS
 import qualified Concordium.ID.Account as AH
 import qualified Concordium.ID.Types as ID
 
+import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.BlockState (AccountOperations(..), AccountAllowance (..))
 import qualified Concordium.GlobalState.BakerInfo as BI
 import qualified Concordium.Types.Instance as Ins
 import Concordium.GlobalState.Types
+import Concordium.Types.HashableTo (getHash)
 import qualified Concordium.Cost as Cost
 import Concordium.Crypto.EncryptedTransfers
 
@@ -74,7 +76,7 @@ import qualified Concordium.TransactionVerification as TV
 import Lens.Micro.Platform
 
 import Prelude hiding (exp, mod)
-import Concordium.Types.HashableTo (getHash)
+
 
 -- |Check that
 --  * the transaction has a valid sender,
@@ -1124,15 +1126,14 @@ handleDeployCredential accCreation@AccountCreation{messageExpiry=messageExpiry, 
               }
 
       let regId = ID.credId accCreation
-      let aaddr = ID.addressFromRegId regId
       -- We always need to make sure that the account was not created in between
       -- the transaction was received and the actual execution.
-      accExistsAlready <- isJust <$> lift (getAccount aaddr)
+      accExistsAlready <- lift (TV.registrationIdExists regId)
       when accExistsAlready $ throwError $ Just $ DuplicateAccountRegistrationID regId
       liftedCryptoParams <- lift TV.getCryptographicParameters      
       cachedTVResult <- lift (lookupTransactionVerificationResult cdiHash)
       case cachedTVResult of
-        Just TV.Success -> do
+        Just VerificationResultSuccess -> do
           return ()
         Just _ -> do 
           -- we verify the transaction again as it might have become
@@ -1143,7 +1144,7 @@ handleDeployCredential accCreation@AccountCreation{messageExpiry=messageExpiry, 
           -- If the transaction has not been verified before we verify it now
           tVerResult <- lift (TV.verifyCredentialDeployment ts accCreation)
           when (tVerResult /= TV.Success) $ throwError $ mapErr tVerResult
-      newAccount regId aaddr liftedCryptoParams mkSummary
+      newAccount regId (ID.addressFromRegId regId) liftedCryptoParams mkSummary
     case res of
       Left err -> return (TxInvalid <$> err)
       Right ts -> return (Just ts)
@@ -1240,7 +1241,7 @@ handleChainUpdate WithMetadata{wmdData = UpdateInstruction{..}, ..} = do
     checkSigAndUpdate change = do
       cachedTVResult <- lookupTransactionVerificationResult wmdHash
       case cachedTVResult of
-        Just (TV.ChainUpdateSuccess keysHash) -> do
+        Just (VerificationResultChainUpdateSuccess keysHash) -> do
           currentKeys <- getUpdateKeyCollection
           if getHash currentKeys == keysHash then do 
             update change

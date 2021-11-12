@@ -11,12 +11,16 @@ import qualified Data.Serialize as S
 import Control.Monad
 import Control.Exception
 import Data.Foldable
+import Data.Maybe (isJust)
 
 import Concordium.Utils
 import Concordium.Types
 import Concordium.Types.Execution
 import Concordium.Types.Transactions
 import Concordium.Types.Updates
+import qualified Concordium.TransactionVerification as TVer
+import Concordium.Types.HashableTo (getHash)
+import qualified Concordium.Crypto.SHA256 as Sha256
 
 -- * Transaction status
 
@@ -320,3 +324,83 @@ reversePTT trs ptt0 = foldr reverse1 ptt0 trs
                 upd (Just (low, high)) =
                         assert (low == sn + 1) $
                         Just (low - 1, high)
+
+-- * Transaction verification cache
+
+-- |The transaction verification cache stores transaction `CacheableVerificationResult`s associated with `TransactionHash`s.
+-- New entries are being put into the cache when receiving new transasactions (either as a single transaction or within a block)
+-- by `doReceiveTransaction` and `doReceiveTransactionInternal`. 
+-- The cached verification results are used by the Scheduler to short-cut verification
+-- during block execution.
+-- Entries in the cache are being expunged when the associated transaction is either
+-- finalized or purged.
+-- A note on `CacheableVerificationResult`s. These verification results are characterized by being verifiable in the future.
+-- That is, they are either deemed valid or they are possible valid in the future. (when received by one of the two functions mentioned above)
+
+type TransactionVerificationCache = HM.HashMap TransactionHash CacheableVerificationResult
+
+data CacheableVerificationResult
+  = VerificationResultSuccess
+  -- ^The transaction was valid.
+  | VerificationResultCredentialDeploymentInvalidIdentityProvider
+  -- ^The credential deployment was valid except it had an invalid identity provider.
+  -- It may be valid in the future as identity providers can be added to the chain, and such
+  -- the scheduler will need to re-verify this credential deployment.
+  | VerificationResultCredentialDeploymentInvalidAnonymityRevokers
+  -- ^The credential deployment was valid except it had invalid anonymity revokers.
+  -- It may be valid in the future as identity providers can be added to the chain, and such
+  -- the scheduler will need to re-verify this credential deployment.
+  | VerificationResultChainUpdateSuccess !Sha256.Hash
+  -- ^The 'ChainUpdate' passed verification successfully. The result contains
+  -- the hash of the `UpdateKeysCollection`. It must be checked
+  -- that the hash corresponds to the configured `UpdateKeysCollection` before executing the transaction.
+  deriving (Eq, Show)
+
+-- |Convenience function getting VerificationResults together with a cache.
+-- The function returns the verification result and the (possibly) updated cache.
+-- Only `verifiable` transaction verification results will be stored in the cache.
+verifyWithCache :: TVer.TransactionVerifier m => Timestamp -> BlockItem -> TransactionVerificationCache -> m (TVer.VerificationResult, TransactionVerificationCache)
+verifyWithCache now bi cache = do
+  let mVerRes = HM.lookup (getHash bi) cache
+  case mVerRes of
+    Just verRes -> return (mapRes verRes, cache)
+    Nothing -> do
+      case bi of
+        WithMetadata{wmdData = CredentialDeployment cred} -> do
+          verRes <- TVer.verifyCredentialDeployment now cred
+          case toCacheable verRes of
+            Just cacheable -> do               
+              let c' = HM.insert (getHash bi) cacheable cache
+              return (verRes, c')
+            Nothing -> return (verRes, cache)
+        WithMetadata {wmdData = ChainUpdate ui} -> do
+          verRes <- TVer.verifyChainUpdate ui
+          case toCacheable verRes of
+            Just cacheable -> do
+              let c' = HM.insert (getHash bi) cacheable cache
+              return (verRes, c')
+            Nothing -> return (verRes, cache)
+        _ -> return (mapRes VerificationResultSuccess, cache)
+        -- todo: The TransactionVerifier only supports CredentialDeployments
+        -- and ChainUpdates at the moment.
+  where
+    mapRes VerificationResultSuccess = TVer.Success
+    mapRes VerificationResultCredentialDeploymentInvalidIdentityProvider = TVer.CredentialDeploymentInvalidIdentityProvider
+    mapRes VerificationResultCredentialDeploymentInvalidAnonymityRevokers = TVer.CredentialDeploymentInvalidAnonymityRevokers
+    mapRes (VerificationResultChainUpdateSuccess hash) = TVer.ChainUpdateSuccess hash
+
+-- |Determines if a `VerificationResult` is 'cacheable'.
+isCacheable :: TVer.VerificationResult -> Bool
+isCacheable tver = isJust $ toCacheable tver
+
+-- |Converts a general verification result to cacheable one.
+-- If the verification result was not cacheable we return Nothing.
+toCacheable :: TVer.VerificationResult -> Maybe CacheableVerificationResult
+toCacheable TVer.Success = Just VerificationResultSuccess
+-- An identity provider could potentially be added in the span between receiving the
+-- transaction and the actual execution of the transaction.
+toCacheable TVer.CredentialDeploymentInvalidIdentityProvider = Just VerificationResultCredentialDeploymentInvalidIdentityProvider
+-- Same goes for anonymity revokers.
+toCacheable TVer.CredentialDeploymentInvalidAnonymityRevokers = Just VerificationResultCredentialDeploymentInvalidAnonymityRevokers
+toCacheable (TVer.ChainUpdateSuccess hash) = Just $ VerificationResultChainUpdateSuccess hash
+toCacheable _ = Nothing

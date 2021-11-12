@@ -5,6 +5,7 @@
 module Concordium.Skov.Update where
 
 import Control.Monad
+import Control.Monad.Reader
 import Data.Maybe (fromMaybe, isNothing)
 import qualified Data.Sequence as Seq
 import Lens.Micro.Platform
@@ -16,6 +17,7 @@ import Concordium.Types
 import Concordium.Types.Accounts
 import Concordium.Types.HashableTo
 import Concordium.Types.Updates
+import Concordium.Cost (baseCost)
 import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
 import Concordium.GlobalState.BlockMonads
@@ -40,9 +42,6 @@ import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.Skov.Statistics
 import qualified Concordium.TransactionVerification as TV
-import Control.Monad.Reader
-import Concordium.Cost (baseCost)
-import Data.Time.Clock (UTCTime)
 
 -- |Determine if one block is an ancestor of another.
 -- A block is considered to be an ancestor of itself.
@@ -468,7 +467,7 @@ doStoreBlock pb@GB.PendingBlock{..} = unlessShutDown $ do
                 -- The block is new, so we have some work to do.
                 logEvent Skov LLDebug $ "Received block " ++ show pb
                 txList <- sequence <$> forM (blockTransactions pb)
-                    (\tr -> fst <$> doReceiveTransactionInternal tr (blockSlot pb))
+                    (\tr -> fst <$> doReceiveTransactionInternal tr slotTime (blockSlot pb))
                 case txList of
                     Nothing -> do
                         blockArriveDead cbp
@@ -495,31 +494,28 @@ doReceiveTransaction tr slot = unlessShutDown $ do
   now <- currentTime
   expiryTooLate <- isExpiryTooLate tr now
   if expiryTooLate then return ResultExpiryTooLate
-  -- Don't accept the transaction if it was expired
-  else if transactionExpired (msgExpiry tr) (utcTimeToTimestamp now) then return ResultStale
   else do
-    cache <- getTransactionVerificationCache
-    (verRes, cache') <- runReaderT (TV.verifyWithCache (utcTimeToTimestamp now) tr cache) =<< queryBlockState =<< lastFinalizedBlock
-    if not (TV.isVerifiable verRes) then do
-      return $ mapTransactionVerificationResult verRes
-    else do
-      putTransactionVerificationCache cache'
-      ur <- case tr of
-          WithMetadata{wmdData = NormalTransaction tx} -> do
-              -- Don't accept the transaction if the stated energy is smaller than the minimum energy amount.
-              let baseEnergy = baseCost (getTransactionHeaderPayloadSize $ transactionHeader tx) (getTransactionNumSigs $ transactionSignature tx)
-                  statedEnergy = thEnergyAmount $ transactionHeader tx
-              if baseEnergy > statedEnergy then return ResultTooLowEnergy
-              else do
-                 -- this is not ideal since we look up the entire account.
-                 -- In the current implementation this is not a problem since all states since the last finalized one are cached
-                 -- but this should be revised to add a "accountExists" function in the future
-                 senderExists <- flip getAccount (transactionSender tx) =<< queryBlockState =<< lastFinalizedBlock
-                 if isNothing senderExists then return ResultNonexistingSenderAccount
-                 else snd <$> doReceiveTransactionInternal tr slot
-          _ -> snd <$> doReceiveTransactionInternal tr slot
-      when (ur == ResultSuccess) $ purgeTransactionTable False =<< currentTime
-      return ur
+    ur <- case tr of
+        WithMetadata{wmdData = NormalTransaction tx} -> do
+            -- Don't accept the transaction if the stated energy is smaller than the minimum energy amount.
+            let baseEnergy = baseCost (getTransactionHeaderPayloadSize $ transactionHeader tx) (getTransactionNumSigs $ transactionSignature tx)
+                statedEnergy = thEnergyAmount $ transactionHeader tx
+            if baseEnergy > statedEnergy then return ResultTooLowEnergy
+            else do
+               -- this is not ideal since we look up the entire account.
+               -- In the current implementation this is not a problem since all states since the last finalized one are cached
+               -- but this should be revised to add a "accountExists" function in the future
+               senderExists <- flip getAccount (transactionSender tx) =<< queryBlockState =<< lastFinalizedBlock
+               if isNothing senderExists then return ResultNonexistingSenderAccount
+               else snd <$> doReceiveTransactionInternal tr (utcTimeToTimestamp now) slot
+        _ -> snd <$> doReceiveTransactionInternal tr (utcTimeToTimestamp now) slot
+    when (ur == ResultSuccess) $ purgeTransactionTable False =<< currentTime
+    return ur
+  where
+    isExpiryTooLate tx ts = do
+        maxTimeToExpiry <- rpMaxTimeToExpiry <$> getRuntimeParameters
+        let expiry = msgExpiry tx
+        return $ expiry > maxTimeToExpiry + utcTimeToTransactionTime ts
 
 -- |Add a transaction to the transaction table.  The 'Slot' should be
 -- the slot number of the block that the transaction was received with.
@@ -528,16 +524,14 @@ doReceiveTransaction tr slot = unlessShutDown $ do
 -- transaction ipn case of a duplicate, ensuring more sharing of transaction data.
 -- This function also verifies the transactions incoming and adds them to the internal
 -- transaction verification cache such that it can be used by the 'Scheduler'.
-doReceiveTransactionInternal :: (TreeStateMonad pv m, SkovQueryMonad pv m) => BlockItem -> Slot -> m (Maybe BlockItem, UpdateResult)
-doReceiveTransactionInternal tr slot = do
-   slotTime <- getSlotTime slot
+doReceiveTransactionInternal :: (TreeStateMonad pv m) => BlockItem -> Timestamp -> Slot -> m (Maybe BlockItem, UpdateResult)
+doReceiveTransactionInternal tr ts slot = do
    -- Don't accept the transaction if it was expired
-   if transactionExpired (msgExpiry tr) (utcTimeToTimestamp slotTime) then return (Nothing, ResultStale)
+   if transactionExpired (msgExpiry tr) ts then return (Nothing, ResultStale)
    else do
-    cache <- getTransactionVerificationCache
-    ts <- getSlotTimestamp slot
-    (verRes, cache') <- runReaderT (TV.verifyWithCache ts tr cache) =<< blockState =<< getFocusBlock
-    if not (TV.isVerifiable verRes) then do return (Nothing, mapTransactionVerificationResult verRes)
+    cache <- getTransactionVerificationCache   
+    (verRes, cache') <- runReaderT (verifyWithCache ts tr cache) =<< blockState =<< getFocusBlock
+    if not (isCacheable verRes) then do return (Nothing, mapTransactionVerificationResult verRes)
     else do
       putTransactionVerificationCache cache'
       flip addTx verRes =<< blockState =<< getFocusBlock
@@ -563,13 +557,6 @@ doReceiveTransactionInternal tr slot = do
             return (Just bi, mapTransactionVerificationResult verRes)
           Duplicate tx -> return (Just tx, ResultDuplicate)
           ObsoleteNonce -> return (Nothing, ResultStale)
-
--- |Checks if the expiry of a `BlockItem` is *too* distant in the future.
-isExpiryTooLate :: TreeStateMonad pv m => BlockItem -> UTCTime -> m Bool
-isExpiryTooLate tr ts = do
-        maxTimeToExpiry <- rpMaxTimeToExpiry <$> getRuntimeParameters
-        let expiry = msgExpiry tr
-        return $ expiry > maxTimeToExpiry + utcTimeToTransactionTime ts
 
 -- |Shutdown the skov, returning a list of pending transactions.
 doTerminateSkov :: (TreeStateMonad pv m, SkovMonad pv m) => m [BlockItem]
@@ -599,13 +586,10 @@ doPurgeTransactions = do
 mapTransactionVerificationResult :: TV.VerificationResult -> UpdateResult
 mapTransactionVerificationResult TV.Success = ResultSuccess
 mapTransactionVerificationResult (TV.ChainUpdateSuccess _) = ResultSuccess
-mapTransactionVerificationResult TV.Stale = ResultStale
-mapTransactionVerificationResult TV.ExpiryTooLate = ResultExpiryTooLate
 mapTransactionVerificationResult (TV.DuplicateAccountRegistrationID _) = ResultDuplicateAccountRegistrationID
 mapTransactionVerificationResult TV.CredentialDeploymentInvalidIdentityProvider = ResultCredentialDeploymentInvalidIP
 mapTransactionVerificationResult TV.CredentialDeploymentInvalidAnonymityRevokers = ResultCredentialDeploymentInvalidAR
 mapTransactionVerificationResult TV.CredentialDeploymentInvalidSignatures = ResultCredentialDeploymentInvalidSignatures
-mapTransactionVerificationResult TV.CredentialDeploymentInvalidKeys = ResultCredentialDeploymentInvalidKeys
 mapTransactionVerificationResult TV.CredentialDeploymentExpired = ResultCredentialDeploymentExpired
 mapTransactionVerificationResult TV.ChainUpdateInvalidSignatures = ResultChainUpdateInvalidSignatures
 mapTransactionVerificationResult TV.ChainUpdateEffectiveTimeBeforeTimeout = ResultChainUpdateInvalidEffectiveTime

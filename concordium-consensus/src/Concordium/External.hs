@@ -632,7 +632,7 @@ stopBaker cptr = mask_ $ do
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 -- |    16 | ResultNonexistingSenderAccount              | The transaction's sender account does not exist according to the focus block                  | No       |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
--- |    17 | ResultDuplicateNonce                        | The sequence number for this account or udpate type was already used                          | No       |
+-- |    17 | ResultDuplicateNonce                        | The sequence number for this account or update type was already used                          | No       |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 -- |    18 | ResultNonceTooLarge                         | The transaction seq. number is larger than the next one for this account/update type          | No       |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
@@ -642,15 +642,13 @@ stopBaker cptr = mask_ $ do
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 -- |    21 | ResultDuplicateAccountRegistrationID        | The 'CredentialDeployment' contained a duplicate registration id                              | Yes      |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
--- |    22 | ResultCredentialDeploymentInvalidKeys       | The keys were malformed                                                                       | Yes      |
+-- |    22 | ResultCredentialDeploymentInvalidSignatures | The CredentialDeployment contained invalid identity provider signatures                       | Yes      |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
--- |    23 | ResultCredentialDeploymentInvalidSignatures | The CredentialDeployment contained invalid identity provider signatures                       | Yes      |
+-- |    23 | ResultCredentialDeploymentInvalidIP         | The CredentialDeployment contained an invalid Identity Provider                               | Yes      |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
--- |    24 | ResultCredentialDeploymentInvalidIP         | The CredentialDeployment contained an invalid Identity Provider                               | Yes      |
+-- |    24 | ResultCredentialDeploymentInvalidAR         | The CredentialDeployment contained an invalid Anonymity Revoker                               | Yes      |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
--- |    25 | ResultCredentialDeploymentInvalidAR         | The CredentialDeployment contained an invalid Anonymity Revoker                               | Yes      |
--- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
--- |    26 | ResultCredentialDeploymentExpired           | The CredentialDeployment contained an expired 'validTo'                                       | Yes      |
+-- |    25 | ResultCredentialDeploymentExpired           | The CredentialDeployment contained an expired 'validTo'                                       | Yes      |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 -- |    27 | ResultChainUpdateInvalidEffectiveTime       | The ChainUpdate contained an invalid effective time                                           | Yes      |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
@@ -682,13 +680,12 @@ toReceiveResult ResultNonceTooLarge = 18
 toReceiveResult ResultTooLowEnergy = 19
 toReceiveResult ResultInvalidGenesisIndex = 20
 toReceiveResult ResultDuplicateAccountRegistrationID = 21
-toReceiveResult ResultCredentialDeploymentInvalidKeys = 22
-toReceiveResult ResultCredentialDeploymentInvalidSignatures = 23
-toReceiveResult ResultCredentialDeploymentInvalidIP = 24
-toReceiveResult ResultCredentialDeploymentInvalidAR = 25
-toReceiveResult ResultCredentialDeploymentExpired = 26
-toReceiveResult ResultChainUpdateInvalidEffectiveTime = 27
-toReceiveResult ResultChainUpdateInvalidSignatures = 28
+toReceiveResult ResultCredentialDeploymentInvalidSignatures = 22
+toReceiveResult ResultCredentialDeploymentInvalidIP = 23
+toReceiveResult ResultCredentialDeploymentInvalidAR = 24
+toReceiveResult ResultCredentialDeploymentExpired = 25
+toReceiveResult ResultChainUpdateInvalidEffectiveTime = 26
+toReceiveResult ResultChainUpdateInvalidSignatures = 2
 
 -- |Handle receipt of a block.
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,
@@ -740,10 +737,10 @@ receiveFinalizationRecord bptr genIndex msg msgLen = do
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultDuplicate@,
 -- @ResultStale@, @ResultInvalid@, @ResultConsensusShutDown@, @ResultExpiryTooLate@, @ResultVerificationFailed@,
 -- @ResultNonexistingSenderAccount@, @ResultDuplicateNonce@, @ResultNonceTooLarge@, @ResultTooLowEnergy@,
--- @ResultCredentialDeploymentExpired@, @ResultCredentialDeploymentInvalidRegistrationId@,
--- @ResultCredentialDeploymentAccountAlreadyExists@, @ResultCredentialDeploymentInvalidSignatures@,
--- @ResultCredentialDeploymentInvalidKeys, @ResultCredentialDeploymentInvalidIP,
--- @ResultCredentialDeploymentInvalidAR, @ResultCredentialDeploymentExpired
+-- @ResultCredentialDeploymentInvalidRegistrationID@,
+-- @ResultCredentialDeploymentInvalidSignatures@,
+-- @ResultCredentialDeploymentInvalidKeys@, @ResultCredentialDeploymentInvalidIP@,
+-- @ResultCredentialDeploymentInvalidAR@, @ResultCredentialDeploymentExpired@
 receiveTransaction :: StablePtr ConsensusRunner -> CString -> Int64 -> IO ReceiveResult
 receiveTransaction bptr transactionData transactionLen = do
     (ConsensusRunner mvr) <- deRefStablePtr bptr

@@ -37,7 +37,6 @@ import Concordium.Types.HashableTo
 import Concordium.Types.Transactions
 import Concordium.Types.Updates
 import Concordium.GlobalState.AccountTransactionIndex
-import qualified Concordium.TransactionVerification as TVer
 
 -- |Datatype representing an in-memory tree state.
 -- The first type parameter, @pv@, is the protocol version.
@@ -72,7 +71,7 @@ data SkovData (pv :: ProtocolVersion) bs = SkovData {
     -- |Transaction table purge counter
     _transactionTablePurgeCounter :: !Int,
     -- |transactionVerificationCache containing verification results of received transactions.
-    _transactionVerificationResults :: !TVer.TransactionVerificationCache
+    _transactionVerificationResults :: !TransactionVerificationCache
 }
 makeLenses ''SkovData
 
@@ -283,7 +282,7 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
             when (slot > results ^. tsSlot) $ transactionTable . ttHashMap . at' trHash . mapped . _2 %= updateSlot slot
             return $ TS.Duplicate tr'
 
-    finalizeTransactions bh slot = mapM_ $ finTrans
+    finalizeTransactions bh slot = mapM_ finTrans
         where
             finTrans WithMetadata{wmdData=NormalTransaction tr,..} = do
                 let nonce = transactionNonce tr

@@ -17,7 +17,6 @@ import Concordium.Types
 import Concordium.Types.Updates
 
 import Concordium.GlobalState.TransactionTable
-import qualified Concordium.TransactionVerification as TVer
 
 type TransactionHashTable = HM.HashMap TransactionHash (BlockItem, TransactionStatus)
 
@@ -60,9 +59,9 @@ purgeTables
     -- ^Transaction table to purge
     -> PendingTransactionTable
     -- ^Pending transaction table to purge
-    -> TVer.TransactionVerificationCache
+    -> TransactionVerificationCache
     -- ^TransactionVerificationCache to purge
-    -> (TransactionTable, PendingTransactionTable, TVer.TransactionVerificationCache)
+    -> (TransactionTable, PendingTransactionTable, TransactionVerificationCache)
 purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptable tVerCache = (ttable', ptable', tVerCache')
     where
         -- A transaction is too old if its arrival predates the oldest allowed
@@ -106,7 +105,7 @@ purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptabl
             put (mmnonce', tht')
             return mres
         -- Purge the non-finalized transactions for a specific account.
-        purgeAccount :: AccountAddress -> AccountNonFinalizedTransactions -> State (PendingTransactionTable, TransactionHashTable, TVer.TransactionVerificationCache) AccountNonFinalizedTransactions
+        purgeAccount :: AccountAddress -> AccountNonFinalizedTransactions -> State (PendingTransactionTable, TransactionHashTable, TransactionVerificationCache) AccountNonFinalizedTransactions
         purgeAccount addr AccountNonFinalizedTransactions{..} = do
             (ptt0, trs0, tvercache0) <- get
             -- Purge the transactions from the transaction table.
@@ -119,7 +118,7 @@ purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptabl
                 !ptt1 = ptt0 & pttWithSender . at' addr %~ updptt mmax
             put (ptt1, trs1, tvercache0)
             return AccountNonFinalizedTransactions{_anftMap = newANFTMap, ..}
-        -- Purge the deploy credential transactions that are pending.       
+        -- Purge the deploy credential transactions that are pending.
         purgeDeployCredentials = do
             dc0 <- use (_1 . pttDeployCredential)
             trs0 <- use _2
@@ -151,7 +150,7 @@ purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptabl
             _3 .= tvercache1
         purgeUpds :: UpdateSequenceNumber
           -> Set.Set (WithMetadata UpdateInstruction)
-          -> State (Maybe (Max UpdateSequenceNumber), TransactionHashTable, TVer.TransactionVerificationCache) (Maybe (Set.Set (WithMetadata UpdateInstruction)))
+          -> State (Maybe (Max UpdateSequenceNumber), TransactionHashTable, TransactionVerificationCache) (Maybe (Set.Set (WithMetadata UpdateInstruction)))
         purgeUpds sn uis = state $ \(mmsn, tht, tvercache0) ->
             let
                 purgeUpd (uisacc, thtacc, tvercache) ui
@@ -165,9 +164,7 @@ purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptabl
                     | null uisl' = (mmsn, Nothing)
                     | otherwise = (mmsn <> Just (Max sn), Just (Set.fromDistinctAscList uisl'))
             in (mres, (mmsn', tht', cache'))
-        purgeUpdates :: UpdateType
-          -> NonFinalizedChainUpdates
-          -> State (PendingTransactionTable, TransactionHashTable, TVer.TransactionVerificationCache) NonFinalizedChainUpdates
+        purgeUpdates :: UpdateType -> NonFinalizedChainUpdates -> State (PendingTransactionTable, TransactionHashTable, TransactionVerificationCache) NonFinalizedChainUpdates
         purgeUpdates uty nfcu@NonFinalizedChainUpdates{..} = state $ \(ptt0, trs0, tvercache0) ->
             let (newNFCUMap, (mmax, !uis1, tvercache')) = runState (Map.traverseMaybeWithKey purgeUpds _nfcuMap) (Nothing, trs0, tvercache0)
                 updptt (Just (Max newHigh)) (Just (low, _))

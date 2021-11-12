@@ -32,7 +32,6 @@ import Concordium.Types.HashableTo
 import Concordium.Types
 import Concordium.Types.Updates
 import Concordium.GlobalState.AccountTransactionIndex
-import qualified Concordium.TransactionVerification as TVer
 
 import Data.ByteString
 import Concordium.Logger
@@ -213,9 +212,9 @@ class (Eq (BlockPointerType m),
     -- Expired transactions should not be put in the cache, but instead they are rejected upfront.
     
     -- |Gets the transaction verification cache from the TreeState
-    getTransactionVerificationCache :: m TVer.TransactionVerificationCache
+    getTransactionVerificationCache :: m TransactionVerificationCache
     -- |Puts a transaction verification cache into the TreeState
-    putTransactionVerificationCache :: TVer.TransactionVerificationCache -> m ()
+    putTransactionVerificationCache :: TransactionVerificationCache -> m ()
 
     -- * Operations on the pending transaction table
     --
