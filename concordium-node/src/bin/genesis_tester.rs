@@ -1,11 +1,10 @@
 #![recursion_limit = "1024"]
 
 use concordium_node::consensus_ffi::{
-    consensus::{ConsensusContainer, ConsensusLogLevel},
+    consensus::{ConsensusContainer, ConsensusLogLevel, Regenesis},
     ffi,
 };
-use failure::Fallible;
-use std::{fs::OpenOptions, io::Read, process::exit};
+use std::{fs::OpenOptions, io::Read, process::exit, sync::Arc};
 use structopt::StructOpt;
 use tempfile::TempDir;
 
@@ -26,7 +25,7 @@ struct ConfigCli {
     private_key_file: Option<String>,
 }
 
-pub fn main() -> Fallible<()> {
+pub fn main() -> anyhow::Result<()> {
     let conf = ConfigCli::from_args();
 
     let genesis_data = match OpenOptions::new().read(true).open(&conf.genesis_file) {
@@ -71,9 +70,10 @@ pub fn main() -> Fallible<()> {
 
     ffi::start_haskell(&[]);
 
-    let regenesis_arc = std::sync::Arc::new(std::sync::RwLock::new(vec![]));
+    let regenesis_arc = Arc::new(Regenesis::from_blocks(Vec::new()));
 
     match ConsensusContainer::new(
+        u64::max_value(),
         u64::max_value(),
         u64::max_value(),
         u64::max_value(),

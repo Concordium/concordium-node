@@ -120,6 +120,14 @@ impl P2p for RpcServerImpl {
         req: Request<PeerConnectRequest>,
     ) -> Result<Response<BoolResponse>, Status> {
         authenticate!(req, self.access_token);
+
+        if self.node.config.regenesis_arc.stop_network.load(Ordering::Acquire) {
+            return Err(Status::new(
+                Code::FailedPrecondition,
+                "The network is stopped due to unrecognized protocol update.",
+            ));
+        }
+
         let req = req.get_ref();
 
         let ip = if let Some(ref ip) = req.ip {
@@ -216,6 +224,14 @@ impl P2p for RpcServerImpl {
         use ConsensusFfiResponse::*;
 
         authenticate!(req, self.access_token);
+
+        if self.node.config.regenesis_arc.stop_network.load(Ordering::Acquire) {
+            return Err(Status::new(
+                Code::FailedPrecondition,
+                "The network is stopped due to unrecognized protocol update.",
+            ));
+        }
+
         if let Some(ref consensus) = self.consensus {
             let req = req.get_ref();
             let transaction = &req.payload;

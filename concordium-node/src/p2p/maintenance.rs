@@ -107,7 +107,6 @@ pub struct ConnChanges {
 
 /// The set of objects related to node's connections.
 pub struct ConnectionHandler {
-    pub socket_server:        TcpListener,
     pub next_token:           AtomicUsize,
     pub buckets:              RwLock<Buckets>,
     #[cfg(feature = "network_dump")]
@@ -125,7 +124,7 @@ pub struct ConnectionHandler {
 }
 
 impl ConnectionHandler {
-    fn new(conf: &Config, socket_server: TcpListener) -> Self {
+    fn new(conf: &Config) -> Self {
         let networks = conf.common.network_ids.iter().cloned().map(NetworkId::from).collect();
         let (sndr, rcvr) =
             crossbeam_channel::bounded(conf.connection.hard_connection_limit as usize);
@@ -141,7 +140,6 @@ impl ConnectionHandler {
         );
 
         ConnectionHandler {
-            socket_server,
             next_token: AtomicUsize::new(1),
             buckets: Default::default(),
             #[cfg(feature = "network_dump")]
@@ -260,14 +258,16 @@ pub struct P2PNode {
 impl P2PNode {
     /// Creates a new node and its Poll. If the node id is provided the node
     /// will be started with that Peer ID. If it is not a fresh one will be
-    /// generated.
+    /// generated. The return value is a triple of the node, the socket on which
+    /// the node is listening for incoming connections, and the mio poll
+    /// that can be used to notify/poll for incoming connections.
     pub fn new(
         supplied_id: Option<P2PNodeId>,
         conf: &Config,
         peer_type: PeerType,
         stats: Arc<StatsExportService>,
         regenesis_arc: Arc<Regenesis>,
-    ) -> anyhow::Result<(Arc<Self>, Poll)> {
+    ) -> anyhow::Result<(Arc<Self>, TcpListener, Poll)> {
         let addr = if let Some(ref addy) = conf.common.listen_address {
             let ip_addr = addy.parse::<IpAddr>().context(
                 "Supplied listen address could not be parsed. The address must be a valid IP \
@@ -372,7 +372,7 @@ impl P2PNode {
             regenesis_arc,
         };
 
-        let connection_handler = ConnectionHandler::new(conf, server);
+        let connection_handler = ConnectionHandler::new(conf);
 
         // Create the node key-value store environment
         let kvs = Manager::<LmdbEnvironment>::singleton()
@@ -400,7 +400,7 @@ impl P2PNode {
             node.clear_bans().unwrap_or_else(|e| error!("Couldn't reset the ban list: {}", e));
         }
 
-        Ok((node, poll))
+        Ok((node, server, poll))
     }
 
     /// Get the timestamp of the node's last bootstrap attempt.
@@ -609,7 +609,12 @@ impl P2PNode {
 }
 
 /// Spawn the node's poll thread.
-pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll, consensus: Option<ConsensusContainer>) {
+pub fn spawn(
+    node_ref: &Arc<P2PNode>,
+    mut socket_server: TcpListener,
+    mut poll: Poll,
+    consensus: Option<ConsensusContainer>,
+) {
     let node = Arc::clone(node_ref);
     let poll_thread = spawn_or_die!("poll loop", move || {
         let mut events = Events::with_capacity(node.config.events_queue_size);
@@ -656,7 +661,7 @@ pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll, consensus: Option<Consensu
                 let mut attempt_number = 0;
                 unprocessed_attempts = true;
                 while attempt_number < max_num_requests {
-                    match node.connection_handler.socket_server.accept() {
+                    match socket_server.accept() {
                         Ok((socket, addr)) => {
                             if let Err(e) = accept(&node, socket, addr) {
                                 error!("{}", e);
@@ -743,8 +748,11 @@ pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll, consensus: Option<Consensu
         lock_or_die!(node.conn_candidates()).clear();
         write_or_die!(node.connections()).clear();
         write_or_die!(node.peers).clear();
-        // It would be good to drop the socket that accepts connections and free up the
-        // port the node is listening on.
+        // Stop listening and close the socket. The socket is closed when the thread
+        // terminates via drop.
+        if let Err(e) = poll.registry().deregister(&mut socket_server) {
+            error!("Could not deregister listen socket poll: {}", e);
+        }
         info!("Network layer has been shut down.");
     });
 

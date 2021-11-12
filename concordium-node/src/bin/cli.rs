@@ -33,7 +33,7 @@ use concordium_node::{
     stats_export_service::{instantiate_stats_export_engine, StatsExportService},
     utils::get_config_and_logging_setup,
 };
-use mio::Poll;
+use mio::{net::TcpListener, Poll};
 use parking_lot::Mutex as ParkingMutex;
 use rand::Rng;
 use std::{sync::Arc, thread::JoinHandle};
@@ -74,7 +74,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // The P2PNode thread
-    let (node, poll) =
+    let (node, server, poll) =
         instantiate_node(&conf, &mut app_prefs, stats_export_service, regenesis_arc.clone())
             .context("Failed to create the node.")?;
 
@@ -164,7 +164,7 @@ async fn main() -> anyhow::Result<()> {
     let consensus_queue_threads = start_consensus_message_threads(&node, consensus.clone());
 
     // The P2P node event loop thread
-    spawn(&node, poll, Some(consensus.clone()));
+    spawn(&node, server, poll, Some(consensus.clone()));
 
     // Connect to nodes (args and bootstrap)
     if !conf.cli.no_network {
@@ -178,6 +178,7 @@ async fn main() -> anyhow::Result<()> {
     if shutdown_signal.await.is_err() {
         error!("Shutdown signal handler was dropped unexpectedly. Shutting down.");
     }
+    println!("Hello");
 
     // Message rpc to shutdown first
     if let Some(task) = rpc_server_task {
@@ -185,10 +186,6 @@ async fn main() -> anyhow::Result<()> {
             error!("Could not stop the RPC server correctly. Forcing shutdown.");
             task.abort();
         }
-        if let Err(err) = task.await {
-            if err.is_cancelled() {
-                info!("RPC server was successfully shutdown by force.");
-            } else if err.is_panic() {
         // Force the rpc server to shut down in at most 10 seconds.
         let timeout_duration = std::time::Duration::from_secs(10);
         match tokio::time::timeout(timeout_duration, task).await {
@@ -265,7 +262,7 @@ fn instantiate_node(
     app_prefs: &mut config::AppPreferences,
     stats_export_service: Arc<StatsExportService>,
     regenesis_arc: Arc<Regenesis>,
-) -> anyhow::Result<(Arc<P2PNode>, Poll)> {
+) -> anyhow::Result<(Arc<P2PNode>, TcpListener, Poll)> {
     // If the node id is supplied on the command line (in the conf argument) use it.
     // Otherwise try to look it up from the persistent config.
     let node_id = match conf.common.id {
