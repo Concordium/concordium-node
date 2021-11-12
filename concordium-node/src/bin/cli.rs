@@ -178,7 +178,6 @@ async fn main() -> anyhow::Result<()> {
     if shutdown_signal.await.is_err() {
         error!("Shutdown signal handler was dropped unexpectedly. Shutting down.");
     }
-    println!("Hello");
 
     // Message rpc to shutdown first
     if let Some(task) = rpc_server_task {

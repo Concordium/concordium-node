@@ -11,6 +11,8 @@
   `GetNextAccountNonce` by any alias.
 - `GetAccountInfo` object has an additional field `accountAddress` that contains
   the canonical address of the account.
+- The node now drops all connections on an unrecognized protocol update and
+  refuses to accept new transactions.
 
 ## concordium-node 1.1.3
 
