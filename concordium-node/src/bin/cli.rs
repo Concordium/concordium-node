@@ -189,7 +189,20 @@ async fn main() -> anyhow::Result<()> {
             if err.is_cancelled() {
                 info!("RPC server was successfully shutdown by force.");
             } else if err.is_panic() {
-                error!("RPC server panicked!");
+        // Force the rpc server to shut down in at most 10 seconds.
+        let timeout_duration = std::time::Duration::from_secs(10);
+        match tokio::time::timeout(timeout_duration, task).await {
+            Ok(res) => {
+                if let Err(err) = res {
+                    if err.is_cancelled() {
+                        info!("RPC server was successfully shutdown by force.");
+                    } else if err.is_panic() {
+                        error!("RPC server panicked!");
+                    }
+                }
+            }
+            Err(timed_out) => {
+                warn!("RPC server was forcefully shut down due to: {}", timed_out);
             }
         }
     }
