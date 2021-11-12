@@ -222,5 +222,5 @@ mkSpecs = mapM_ mkSpec
 mkAlias :: AccountAddress -> Word -> AccountAddress
 mkAlias (AccountAddress addr) count = AccountAddress ((addr .&. mask) .|. rest)
     where rest = FBS.encodeInteger (toInteger (count `mod` 2^(24 :: Word)))
-          mask = complement (FBS.encodeInteger (255 + 255 * 256 + 255 * 256 * 256)) -- mask to clear out the last three bytes of the addr
+          mask = complement (FBS.encodeInteger 0xffffff) -- mask to clear out the last three bytes of the addr
 

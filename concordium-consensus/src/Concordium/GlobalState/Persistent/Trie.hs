@@ -204,22 +204,24 @@ lookupF k = lu (unpackKey k) <=< mproject
 data FollowStemResult =
   Equal -- ^ The key and the stem are equal.
   | KeyIsPrefix -- ^ Key is a strict prefix of the stem.
-  | StemIsPrefix {remainingKey :: ![Word8]}
-  -- ^Stem is a strict prefix of the key. The remaining key is returned.
+  | StemIsPrefix {remainingKey :: [Word8]}
+  -- ^Stem is a prefix of the key. The remaining key is returned. If it is empty
+  -- then key and stem are equal.
   | Diff -- ^The key and stem differ at some point.
 
--- |Given the key (first argument) and stem (second argument) of the trie compare them and return the result of the
--- comparison. See 'FollowStem' datatype documentation for
+-- |Given the key (first argument) and stem (second argument) of the trie
+-- compare them and return the result of the comparison. See 'FollowStem'
+-- datatype documentation for the meaning of return values.
 followStem :: [Word8] -> [Word8] -> FollowStemResult
 followStem = go
   where go (keyStep:remainingKey) (stemStep:remainingStem)
             | keyStep /= stemStep = Diff
             | otherwise = go remainingKey remainingStem
-        go remainingKey@(_:_) [] = StemIsPrefix {..}
         go [] (_:_) = KeyIsPrefix
-        go [] [] = Equal
+        go remainingKey [] = StemIsPrefix {..}
 
 -- |Retrieve all the keys and values with the given prefix in the Trie.
+-- In case of multiple return values the order of keys is not specified.
 lookupPrefixF :: (MRecursive m t, Base t ~ TrieF k v, FixedTrieKey k) => [Word8] -> t -> m [(k, v)]
 lookupPrefixF ks = lu [] ks <=< mproject
     where
@@ -431,7 +433,7 @@ lookup :: (MRecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, F
 lookup _ EmptyTrieN = return Nothing
 lookup k (TrieN _ t) = lookupF k t
 
--- |Lookup the value at a given key.
+-- |Given a key prefix, look up all the keys and values where the key has the prefix.
 lookupPrefix :: (MRecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, FixedTrieKey k) => [Word8] -> TrieN fix k v -> m [(k, v)]
 lookupPrefix _ EmptyTrieN = return []
 lookupPrefix k (TrieN _ t) = lookupPrefixF k t

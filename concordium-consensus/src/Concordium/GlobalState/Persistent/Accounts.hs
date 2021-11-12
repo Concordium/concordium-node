@@ -137,25 +137,6 @@ instance (MonadBlobStore m, IsProtocolVersion pv) => Cacheable m (Accounts pv) w
 emptyAccounts :: Accounts pv
 emptyAccounts = Accounts AccountMap.empty L.empty (Some Map.empty) Trie.empty
 
--- |Add or modify a given account.
--- If an account matching the given account's address does not exist,
--- the account is created, giving it the next available account index
--- and recording it in 'accountMap'.
--- If an account with the address already exists, 'accountTable' is updated
--- to reflect the new state of the account.
-putAccount :: (MonadBlobStore m, IsProtocolVersion pv) => PersistentAccount pv -> Accounts pv -> m (Accounts pv)
-putAccount !acct accts0 = do
-        addr <- acct ^^. accountAddress
-        (existingAccountId, newAccountMap) <- AccountMap.maybeInsert addr acctIndex (accountMap accts0)
-        newAccountTable <- case existingAccountId of
-            Nothing -> snd <$> L.append acct (accountTable accts0)
-            Just ai -> L.update (const (return ((), acct))) ai (accountTable accts0) <&> \case
-                Nothing -> error $ "Account table corruption: missing account at index " ++ show ai
-                Just ((), newAT) -> newAT
-        return $! accts0 {accountMap = newAccountMap, accountTable = newAccountTable}
-    where
-        acctIndex = fromIntegral $ L.size (accountTable accts0)
-
 -- |Add a new account. Returns @Just idx@ if the new account is fresh, i.e., the address does not exist,
 -- or @Nothing@ in case the account already exists. In the latter case there is no change to the accounts structure.
 putNewAccount :: (MonadBlobStore m, IsProtocolVersion pv) => PersistentAccount pv -> Accounts pv -> m (Maybe AccountIndex, Accounts pv)
@@ -173,7 +154,7 @@ putNewAccount !acct accts0 = do
 
 -- |Determine if an account with the given address exists.
 exists :: (IsProtocolVersion pv, MonadBlobStore m) => AccountAddress -> Accounts pv -> m Bool
-exists addr Accounts{..} = AccountMap.accountExists addr accountMap
+exists addr Accounts{..} = AccountMap.isAddressAssigned addr accountMap
 
 -- |Retrieve an account with the given address.
 -- Returns @Nothing@ if no such account exists.

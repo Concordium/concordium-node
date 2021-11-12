@@ -132,12 +132,16 @@ randomActions = sized (ra Set.empty Map.empty)
           ++ if null s
             then []
             else
-              [putExAcc, exExAcc, getExAcc, unsafeGetExAcc, updateExAcc]
+              [exExAcc, getExAcc, unsafeGetExAcc, updateExAcc]
                 ++ if null rids then [] else [exExReg, recExReg]
       where
+        fresh s x
+            | x `Set.member` (Set.map snd s) = fresh s . snd =<< randAccount
+            | otherwise = return x
         putRandAcc = do
           (vk, addr) <- randAccount
-          acct <- randomizeAccount addr vk
+          freshAddr <- fresh s addr
+          acct <- randomizeAccount freshAddr vk
           (PutAccount acct :) <$> ra (Set.insert (vk, addr) s) rids (n -1)
         putExAcc = do
           (vk, addr) <- elements (Set.toList s)
@@ -208,10 +212,10 @@ makePureAccount PA.PersistentAccount {..} = do
 
 runAccountAction :: (MonadBlobStore m, MonadIO m) => AccountAction -> (B.Accounts PV, P.Accounts PV) -> m (B.Accounts PV, P.Accounts PV)
 runAccountAction (PutAccount acct) (ba, pa) = do
-  let ba' = B.putAccount acct ba
+  let ba' = B.putNewAccount acct ba
   pAcct <- PA.makePersistentAccount acct
-  pa' <- P.putAccount pAcct pa
-  return (ba', pa')
+  pa' <- P.putNewAccount pAcct pa
+  return (snd ba', snd pa')
 runAccountAction (Exists addr) (ba, pa) = do
   let be = B.exists addr ba
   pe <- P.exists addr pa

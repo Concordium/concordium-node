@@ -26,7 +26,7 @@ module Concordium.GlobalState.AccountMap (
   toList,
   toMap,
   addresses,
-  accountExists,
+  isAddressAssigned,
 
   -- * Specializations for the pure in-memory implementation.
   lookupPure,
@@ -36,7 +36,7 @@ module Concordium.GlobalState.AccountMap (
   toListPure,
   toMapPure,
   addressesPure,
-  accountExistsPure
+  isAddressAssignedPure
   )
 
 where
@@ -127,7 +127,7 @@ addressWouldClash addr (AccountMap am) = case protocolVersion @pv of
 -- |Insert a new key value pair if it is fresh. If the key already exists in the
 -- map no changes are made and the existing 'AccountIndex' is returned.
 maybeInsert :: forall pv fix m . TrieModifyContext fix m => AccountAddress -> AccountIndex -> AccountMap pv fix -> m (Maybe AccountIndex, AccountMap pv fix)
-maybeInsert addr ai (AccountMap am)= second AccountMap <$> Trie.adjust upd addr am
+maybeInsert addr ai (AccountMap am) = second AccountMap <$> Trie.adjust upd addr am
   where upd Nothing = pure (Nothing, Trie.Insert ai)
         upd (Just eai) = pure (Just eai, Trie.NoChange)
 
@@ -148,15 +148,15 @@ toMap = Trie.toMap . unAccountMap
 addresses :: TrieGetContext fix m => AccountMap pv fix -> m [AccountAddress]
 addresses = Trie.keys . unAccountMap
 
--- |Check whether an account already exists. Note that this is slightly
--- different than 'addressWouldClash' and it is in principle possible that
--- 'accountExists' returns 'False', but 'addressWouldClash' returns 'True'. This
--- is the case for protocol version 3 where the first 29 bytes of the address
--- match an existing address, there are at least two addresses already with
--- those same 29 bytes as prefix, but the actual address does not match any of
--- the existing ones.
-accountExists :: forall pv fix m . (IsProtocolVersion pv, TrieGetContext fix m) => AccountAddress -> AccountMap pv fix -> m Bool
-accountExists addr am = isJust <$> lookup addr am
+-- |Check whether an there is an account with the specified address (which may
+-- be an alias). Note that this is slightly different than 'addressWouldClash'
+-- and it is in principle possible that 'isAddressAssigned' returns 'False', but
+-- 'addressWouldClash' returns 'True'. This is the case for protocol version 3
+-- where the first 29 bytes of the address match an existing address, there are
+-- at least two addresses already with those same 29 bytes as prefix, but the
+-- actual address does not match any of the existing ones.
+isAddressAssigned :: forall pv fix m . (IsProtocolVersion pv, TrieGetContext fix m) => AccountAddress -> AccountMap pv fix -> m Bool
+isAddressAssigned addr am = isJust <$> lookup addr am
 
 
 -- * Convenient specializations of the methods for the pure in-memory account map implementation.
@@ -182,5 +182,5 @@ toMapPure = runIdentity . toMap
 addressesPure :: PureAccountMap pv -> [AccountAddress]
 addressesPure = runIdentity . addresses
 
-accountExistsPure :: forall pv . IsProtocolVersion pv => AccountAddress -> PureAccountMap pv -> Bool
-accountExistsPure addr = runIdentity . accountExists addr
+isAddressAssignedPure :: forall pv . IsProtocolVersion pv => AccountAddress -> PureAccountMap pv -> Bool
+isAddressAssignedPure addr = runIdentity . isAddressAssigned addr

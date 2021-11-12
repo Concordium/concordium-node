@@ -18,7 +18,7 @@ import Concordium.GlobalState.BlockState
 import Concordium.Kontrol
 import qualified Concordium.ProtocolUpdate.P2.ProtocolP3 as ProtocolP3
 
--- |Updates that are supported from protocol version P1.
+-- |Updates that are supported from protocol version P2.
 data Update = ProtocolP3
     deriving (Show)
 

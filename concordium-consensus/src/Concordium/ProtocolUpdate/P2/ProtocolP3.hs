@@ -19,9 +19,9 @@
 --
 -- * 'genesisFirstGenesis' is either:
 --
---     * the hash of the genesis block of the previous chain, if it is a 'GDP1Initial'; or
+--     * the hash of the genesis block of the previous chain, if it is a 'GDP2Initial'; or
 --     * the 'genesisFirstGenesis' value of the genesis block of the previous chain, if it
---       is a 'GDP1Regenesis'.
+--       is a 'GDP2Regenesis'.
 --
 -- * 'genesisPreviousGenesis' is the hash of the previous genesis block.
 --

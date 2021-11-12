@@ -80,6 +80,13 @@ putAccountWithIndex !acct Accounts{..} =
 
   where addr = acct ^. accountAddress
 
+-- |Add a new account. Returns @Just idx@ if the new account is fresh, i.e., the address does not exist,
+-- or @Nothing@ in case the account already exists. In the latter case there is no change to the accounts structure.
+putNewAccount :: IsProtocolVersion pv => Account pv -> Accounts pv -> (Maybe AccountIndex, Accounts pv)
+putNewAccount acct accts = 
+  case AccountMap.lookupPure (acct ^. accountAddress) (accountMap accts) of
+    Just _ -> (Nothing, putAccount acct accts)
+    Nothing -> let (ai, accts') = putAccountWithIndex acct accts in (Just ai, accts')
 
 -- |Equivalent to calling putAccount and recordRegId in sequence.
 putAccountWithRegIds :: IsProtocolVersion pv => Account pv -> Accounts pv -> Accounts pv
@@ -89,7 +96,7 @@ putAccountWithRegIds !acct accts =
 
 -- |Determine if an account with the given address exists.
 exists :: IsProtocolVersion pv => AccountAddress -> Accounts pv -> Bool
-exists addr Accounts{..} = AccountMap.accountExistsPure addr accountMap
+exists addr Accounts{..} = AccountMap.isAddressAssignedPure addr accountMap
 
 -- |Retrieve an account with the given address.
 -- Returns @Nothing@ if no such account exists.
@@ -141,11 +148,8 @@ unsafeGetAccount addr Accounts{..} = case AccountMap.lookupPure addr accountMap 
                                        Nothing -> error $ "unsafeGetAccount: Account " ++ show addr ++ " does not exist."
                                        Just i -> accountTable ^?! ix i
 
--- |Check that an account registration ID is not already on the chain. See the
--- foundation (Section 4.2) for why this is necessary. Return @Just ai@ if the
--- registration ID already exists in the set of known registration ids, and @ai@
--- is the account index of the account is or was associated with, and @Nothing@
--- otherwise.
+-- |Check whether the given address would clash with any existing addresses in
+-- the accounts structure. The meaning of this depends on the protocol version.
 addressWouldClash :: IsProtocolVersion pv => AccountAddress -> Accounts pv -> Bool
 addressWouldClash addr Accounts{..} = AccountMap.addressWouldClashPure addr accountMap
 

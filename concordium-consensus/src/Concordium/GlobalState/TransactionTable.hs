@@ -153,6 +153,23 @@ emptyNFCU = emptyNFCUWithSequenceNumber minUpdateSequenceNumber
 emptyNFCUWithSequenceNumber :: UpdateSequenceNumber -> NonFinalizedChainUpdates
 emptyNFCUWithSequenceNumber = NonFinalizedChainUpdates Map.empty
 
+-- $equivalence
+-- The non-finalized transactions in the transaction table and the pending table
+-- maintain indices by account address equivalence classes. The reason for this
+-- is that really the mappings should be per account. Since multiple account
+-- addresses refer to the same account we need to identify them.
+-- AccountAddressEq is a best-effort attempt at that. If two addresses refer to
+-- the same account then they must agree on the first 29 bytes, and the AccountAddressEq
+-- identifies any addresses that match on the 29 byte prefix.
+--
+-- There is a caveat, in protocol versions 1 and 2 addresses are in 1-1
+-- correspondence with accounts. This means that technically AccountAddressEq
+-- could identify too many addresses, leading to inability of some accounts to
+-- send transactions in certain circumstances. This is an extremely unlikely
+-- scenarion and will only occur in case of a SHA256 collision on the first 29
+-- bytes.
+
+
 -- |The transaction table stores transactions and their statuses.
 -- In the persistent tree state implementation, finalized transactions are not
 -- stored in this table, but can be looked up from a disk-backed database.
@@ -172,8 +189,7 @@ data TransactionTable = TransactionTable {
     -- |Map from transaction hashes to transactions, together with their current status.
     _ttHashMap :: !(HM.HashMap TransactionHash (BlockItem, TransactionStatus)),
     -- |For each account, the non-finalized transactions for that account,
-    -- grouped by nonce. Account addresses should be canonical, otherwise some
-    -- transactions might not be valid due to incorrect nonces.
+    -- grouped by nonce. See $equivalence for reasons why AccountAddressEq is used.
     _ttNonFinalizedTransactions :: !(HM.HashMap AccountAddressEq AccountNonFinalizedTransactions),
     -- |For each update types, the non-finalized update instructions, grouped by
     -- sequence number.
@@ -207,9 +223,8 @@ emptyTransactionTableWithSequenceNumbers accs upds = TransactionTable {
 -- @highNonce@ should always be at least @nextNonce@ (otherwise, what transaction is pending?).
 -- If an account has no pending transactions, then it should not be in the map.
 data PendingTransactionTable = PTT {
-  -- |Pending transactions from accounts. The account address should be the
-  -- canonical one to the best of our ability to get it. Otherwise transactions
-  -- might not be processed in the correct order leading to rejected transactions.
+  -- |Pending transactions from accounts. See $equivalence for the reason why
+  -- the hashmap uses AccountAddressEq.
   _pttWithSender :: !(HM.HashMap AccountAddressEq (Nonce, Nonce)),
   -- |Pending credentials. We only store the hash because updating the
   -- pending table would otherwise be more costly with the current setup.

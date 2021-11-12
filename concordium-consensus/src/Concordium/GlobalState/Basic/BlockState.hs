@@ -218,13 +218,14 @@ emptyBlockState _blockBirkParameters cryptographicParameters keysCollection chai
 
 hashBlockState :: forall pv. IsProtocolVersion pv => BlockState pv -> HashedBlockState pv
 hashBlockState = case protocolVersion :: SProtocolVersion pv of
-  SP1 -> hashBlockStateP1P2P3
-  SP2 -> hashBlockStateP1P2P3
-  SP3 -> hashBlockStateP1P2P3
-    -- For protocol versions P1 and P2, convert a @BlockState pv@ to a
+  SP1 -> hashBlockStateP1
+  SP2 -> hashBlockStateP1
+  SP3 -> hashBlockStateP1
+    -- For protocol versions P1, P2, and P3, convert a @BlockState pv@ to a
     -- @HashedBlockState pv@ by computing the state hash. The state and hashing
-    -- is the same.
-  where hashBlockStateP1P2P3 bs@BlockState{..} = HashedBlockState {
+    -- is the same. This function was introduced in protocol version 1 which is
+    -- reflected in its name.
+  where hashBlockStateP1 bs@BlockState{..} = HashedBlockState {
           _unhashedBlockState = bs,
           _blockStateHash = h
           }

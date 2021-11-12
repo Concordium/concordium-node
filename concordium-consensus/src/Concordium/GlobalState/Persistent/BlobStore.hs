@@ -724,7 +724,6 @@ instance MonadBlobStore m => BlobStorable m ()
 instance MonadBlobStore m => BlobStorable m Word8
 instance MonadBlobStore m => BlobStorable m Word32
 instance MonadBlobStore m => BlobStorable m Word64
-instance MonadBlobStore m => BlobStorable m Word
 
 instance MonadBlobStore m => BlobStorable m AccountEncryptedAmount
 instance (MonadBlobStore m, Serialize (PersistingAccountData pv)) => BlobStorable m (PersistingAccountData pv)
