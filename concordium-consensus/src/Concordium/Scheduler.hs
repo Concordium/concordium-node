@@ -843,9 +843,7 @@ mkSenderAddrCredentials sender =
         return (addr, map snd (OrdMap.toAscList credentials))
 
 
--- | Handle the transfer of an amount from an account or contract instance to an account.
--- TODO: Figure out whether we need the origin information in here (i.e.,
--- whether an account can observe it).
+-- | Handle the transfer of an amount from a contract instance to an account.
 handleTransferAccount ::
   TransactionMonad pv m
   => AccountAddress -- ^The target account address.
