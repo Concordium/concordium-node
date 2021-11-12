@@ -45,7 +45,7 @@ use std::{
     path::PathBuf,
     str::FromStr,
     sync::{
-        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
+        atomic::{AtomicU64, AtomicUsize, Ordering},
         Arc, Mutex, RwLock,
     },
     thread::JoinHandle,
@@ -248,8 +248,6 @@ pub struct P2PNode {
     pub config:             NodeConfig,
     /// The time the node was launched.
     pub start_time:         DateTime<Utc>,
-    /// The flag indicating whether a node should shut down.
-    pub is_terminated:      AtomicBool,
     /// The key-value store holding the node's persistent data.
     pub kvs:                Arc<RwLock<Rkv<LmdbEnvironment>>>,
     /// The catch-up list of peers.
@@ -393,7 +391,6 @@ impl P2PNode {
             connection_handler,
             self_peer,
             stats,
-            is_terminated: Default::default(),
             kvs,
             peers: Default::default(),
             bad_events: BadEvents::default(),
@@ -573,15 +570,9 @@ impl P2PNode {
     pub fn close(&self) -> bool {
         // First notify the maintenance thread to stop processing new connections or
         // network packets.
-        self.is_terminated.store(true, Ordering::Relaxed);
-        // Then process all messages we still have in the Consensus queues.
-        let queues_stopped = CALLBACK_QUEUE.stop().is_ok();
-        // Finally close all connections
-        // Make sure to drop connections so that the peers or peer candidates can
-        // quickly free up their endpoints.
-        lock_or_die!(self.conn_candidates()).clear();
-        write_or_die!(self.connections()).clear();
-        queues_stopped
+        self.config.regenesis_arc.stop_network.store(true, Ordering::Release);
+        // Then process all messages we still have in the inbound Consensus queues.
+        CALLBACK_QUEUE.stop().is_ok()
     }
 
     /// Waits for all the spawned threads to terminate.
@@ -653,7 +644,7 @@ pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll, consensus: Option<Consensu
         //   allocated thread pool
         // - occasionally (dictated by the housekeeping_interval) do connection
         //   housekeeping, checking whether peers and connections are active.
-        while !node.is_terminated.load(Ordering::Relaxed) {
+        while !node.config.regenesis_arc.stop_network.load(Ordering::Acquire) {
             // check for new events or wait
             if let Err(e) = poll.poll(&mut events, Some(poll_interval)) {
                 error!("{}", e);
@@ -746,7 +737,15 @@ pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll, consensus: Option<Consensu
                 last_buckets_cleaned = Instant::now();
             }
         }
-        info!("Shutting down");
+        // close all connections. At this point no data will be read or written
+        // to connections since the connection loop has terminated. This frees up
+        // resources.
+        lock_or_die!(node.conn_candidates()).clear();
+        write_or_die!(node.connections()).clear();
+        write_or_die!(node.peers).clear();
+        // It would be good to drop the socket that accepts connections and free up the
+        // port the node is listening on.
+        info!("Network layer has been shut down.");
     });
 
     // Register info about thread into P2PNode.

@@ -89,4 +89,11 @@ impl PeerList {
             }
         }
     }
+
+    /// Clear all pending peers.
+    pub fn clear(&mut self) {
+        self.peer_states.clear();
+        self.catch_up_peer = None;
+        self.pending_queue.clear();
+    }
 }
