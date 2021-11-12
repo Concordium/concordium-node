@@ -143,10 +143,6 @@ randomActions = sized (ra Set.empty Map.empty)
           freshAddr <- fresh s addr
           acct <- randomizeAccount freshAddr vk
           (PutAccount acct :) <$> ra (Set.insert (vk, addr) s) rids (n -1)
-        putExAcc = do
-          (vk, addr) <- elements (Set.toList s)
-          acct <- randomizeAccount addr vk
-          (PutAccount acct :) <$> ra s rids (n -1)
         exRandAcc = do
           (_, addr) <- randAccount
           (Exists addr :) <$> ra s rids (n -1)

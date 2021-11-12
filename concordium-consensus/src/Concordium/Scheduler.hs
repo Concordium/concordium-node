@@ -267,6 +267,8 @@ handleTransferWithSchedule wtc twsTo twsSchedule maybeMemo = withDeposit wtc c k
           tickEnergy (Cost.scheduledTransferCost $ length twsSchedule)
 
           -- we do not allow for self scheduled transfers
+          -- (This is checked later for protocol P3 and up, to ensure that the
+          -- addresses are not aliases for the same account.)
           when ((demoteProtocolVersion (protocolVersion @pv) <= P2) && twsTo == senderAddress) $
               rejectTransaction (ScheduledSelfTransfer twsTo)
 
@@ -447,6 +449,8 @@ handleEncryptedAmountTransfer wtc toAddress transferData@EncryptedAmountTransfer
           -- We do not allow sending encrypted transfers from an account to itself.
           -- There is no reason to do so in the current setup, and it causes some technical
           -- complications.
+          -- (This is checked later for protocol P3 and up, to ensure that the
+          -- addresses are not aliases for the same account.)
           when ((demoteProtocolVersion (protocolVersion @pv) <= P2) && toAddress == senderAddress)
               $ rejectTransaction (EncryptedAmountSelfTransfer toAddress)
 
@@ -488,11 +492,11 @@ handleEncryptedAmountTransfer wtc toAddress transferData@EncryptedAmountTransfer
 
           replaceEncryptedAmount senderAccount eatdIndex eatdRemainingAmount
           -- The index that the new amount on the receiver's account will get
-          targetAccountIndex <- addEncryptedAmount targetAccount eatdTransferAmount
+          targetAccountEncryptedAmountIndex <- addEncryptedAmount targetAccount eatdTransferAmount
 
-          return (targetAccountIndex, senderAmount)
+          return (targetAccountEncryptedAmountIndex, senderAmount)
 
-        k ls (targetAccountIndex, senderAmount) = do
+        k ls (targetAccountEncryptedAmountIndex, senderAmount) = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
           chargeExecutionCost txHash senderAccount energyCost
           commitChanges (ls ^. changeSet)
@@ -504,7 +508,7 @@ handleEncryptedAmountTransfer wtc toAddress transferData@EncryptedAmountTransfer
                                 },
                              NewEncryptedAmount{
                                 neaAccount = toAddress,
-                                neaNewIndex = targetAccountIndex,
+                                neaNewIndex = targetAccountEncryptedAmountIndex,
                                 neaEncryptedAmount = eatdTransferAmount
                                 }
                             ] ++ (TransferMemo <$> maybeToList maybeMemo)
@@ -694,7 +698,7 @@ handleUpdateContract wtc uAmount uAddress uReceiveName uMessage =
         c = do
           ins <- getCurrentContractInstanceTicking uAddress
           -- Now invoke the general handler for contract messages.
-          handleMessage (senderAddress, senderAccount)
+          handleMessage senderAddress
                         ins
                         (Right (senderAddress, senderAccount))
                         uAmount
@@ -708,7 +712,7 @@ handleUpdateContract wtc uAmount uAddress uReceiveName uMessage =
 -- The target contract must exist, so that its state can be looked up.
 handleMessage :: forall pv m.
   (TransactionMonad pv m, AccountOperations m)
-  => (AccountAddress, IndexedAccount m) -- ^The account that sent the top-level transaction, with the address that was used.
+  => AccountAddress -- ^The address that was used to send the top-level transaction.
   -> Instance -- ^The current state of the target contract of the transaction, which must exist.
   -> Either (IndexedAccount m, Instance) (AccountAddress, IndexedAccount m)
   -- ^The sender of the message (contract instance or account). In case this is
@@ -722,15 +726,16 @@ handleMessage :: forall pv m.
   -> Wasm.ReceiveName -- ^Name of the contract to invoke.
   -> Wasm.Parameter -- ^Message to invoke the receive method with.
   -> m [Event] -- ^The events resulting from processing the message and all recursively processed messages.
-handleMessage origin istance sender transferAmount receiveName parameter = do
+handleMessage originAddr istance sender transferAmount receiveName parameter = do
   -- Cover administrative costs.
   tickEnergy Cost.updateContractInstanceBaseCost
 
   let model = instanceModel istance
   -- Check whether the sender of the message has enough on its account/instance for the transfer.
   -- If the amount is not sufficient, the top-level transaction is rejected.
-  -- Note that this returns the address that was used in the top-level transaction, or the owner address of the contract instance.
-  -- In both cases it is the address that was used by the sender.
+  -- Note that this returns the address that was used in the top-level transaction, or the contract address.
+  -- In the former case the credentials are credentials of the account, in the
+  -- latter they are credentials of the owner account.
   (senderAddr, senderCredentials) <- mkSenderAddrCredentials sender
   senderamount <- getCurrentAvailableAmount sender
   unless (senderamount >= transferAmount) $ rejectTransaction (AmountTooLarge senderAddr transferAmount)
@@ -750,7 +755,7 @@ handleMessage origin istance sender transferAmount receiveName parameter = do
 
   -- We have established that the owner account of the receiver instance has at least one valid credential.
   let receiveCtx = Wasm.ReceiveContext {
-        invoker = fst origin,
+        invoker = originAddr,
         selfAddress = cref,
         selfBalance = instanceAmount istance,
         sender = senderAddr,
@@ -788,7 +793,7 @@ handleMessage origin istance sender transferAmount receiveName parameter = do
                               euReceiveName=receiveName,
                               euEvents = Wasm.logs result
                                }
-      foldEvents origin (ownerAccount, istance) initEvent txOut
+      foldEvents originAddr (ownerAccount, istance) initEvent txOut
 
 -- Cost of a step in the traversal of the actions tree. We need to charge for
 -- this separately to prevent problems with exponentially sized trees
@@ -802,22 +807,22 @@ traversalStepCost :: Energy
 traversalStepCost = 10
 
 foldEvents :: (TransactionMonad pv m, AccountOperations m)
-           => (AccountAddress, IndexedAccount m) -- ^Account that originated the top-level transaction, with the address that was used.
+           => AccountAddress -- ^Address that was used in the top-level transaction.
            -> (IndexedAccount m, Instance) -- ^Instance that generated the events.
            -> Event -- ^Event generated by the invocation of the instance.
            -> Wasm.ActionsTree -- ^Actions to perform
            -> m [Event] -- ^List of events in order that transactions were traversed.
-foldEvents origin istance initEvent = fmap (initEvent:) . go
+foldEvents originAddr istance initEvent = fmap (initEvent:) . go
   where go Wasm.TSend{..} = do
           cinstance <- getCurrentContractInstanceTicking erAddr
-          handleMessage origin
+          handleMessage originAddr
                               cinstance
                               (Left istance)
                               erAmount
                               erName
                               erParameter
         go Wasm.TSimpleTransfer{..} = do
-          handleTransferAccount erTo (snd istance) erAmount Nothing
+          handleTransferAccount erTo (snd istance) erAmount
         go (Wasm.And l r) = do
           tickEnergy traversalStepCost
           resL <- go l
@@ -849,9 +854,8 @@ handleTransferAccount ::
   => AccountAddress -- ^The target account address.
   -> Instance -- ^The sender of this transfer.
   -> Amount -- ^The amount to transfer.
-  -> Maybe Memo  -- ^Nothing in case of a Transfer and Just in case of a TransferWithMemo
   -> m [Event] -- ^The events resulting from the transfer.
-handleTransferAccount accAddr senderInstance transferamount maybeMemo = do
+handleTransferAccount accAddr senderInstance transferamount = do
   -- charge at the beginning, successful and failed transfers will have the same cost.
   tickEnergy Cost.simpleTransferCost
   -- Check whether the sender has the amount to be transferred and reject the transaction if not.
@@ -864,7 +868,7 @@ handleTransferAccount accAddr senderInstance transferamount maybeMemo = do
 
   -- Add the transfer to the current changeset and return the corresponding event.
   withContractToAccountAmount senderInstance targetAccount transferamount $
-      return $ Transferred addr transferamount (AddressAccount accAddr) : (TransferMemo <$> maybeToList maybeMemo)
+      return [Transferred addr transferamount (AddressAccount accAddr)]
 
 -- |Run the interpreter with the remaining amount of energy. If the interpreter
 -- runs out of energy set the remaining gas to 0 and reject the transaction,

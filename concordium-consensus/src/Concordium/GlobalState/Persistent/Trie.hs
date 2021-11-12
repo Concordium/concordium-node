@@ -434,6 +434,7 @@ lookup _ EmptyTrieN = return Nothing
 lookup k (TrieN _ t) = lookupF k t
 
 -- |Given a key prefix, look up all the keys and values where the key has the prefix.
+-- In case of multiple return values the order of keys is not specified.
 lookupPrefix :: (MRecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, FixedTrieKey k) => [Word8] -> TrieN fix k v -> m [(k, v)]
 lookupPrefix _ EmptyTrieN = return []
 lookupPrefix k (TrieN _ t) = lookupPrefixF k t

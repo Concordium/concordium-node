@@ -153,6 +153,7 @@ emptyNFCU = emptyNFCUWithSequenceNumber minUpdateSequenceNumber
 emptyNFCUWithSequenceNumber :: UpdateSequenceNumber -> NonFinalizedChainUpdates
 emptyNFCUWithSequenceNumber = NonFinalizedChainUpdates Map.empty
 
+-- * Account address equivalence
 -- $equivalence
 -- The non-finalized transactions in the transaction table and the pending table
 -- maintain indices by account address equivalence classes. The reason for this
@@ -165,9 +166,20 @@ emptyNFCUWithSequenceNumber = NonFinalizedChainUpdates Map.empty
 -- There is a caveat, in protocol versions 1 and 2 addresses are in 1-1
 -- correspondence with accounts. This means that technically AccountAddressEq
 -- could identify too many addresses, leading to inability of some accounts to
--- send transactions in certain circumstances. This is an extremely unlikely
--- scenarion and will only occur in case of a SHA256 collision on the first 29
--- bytes.
+-- send transactions in certain circumstances.
+-- This would happen in particular because when receiving transactions we
+-- compare the transaction nonce against the last finalized nonce so we might
+-- reject a transaction directly when receiving it due to accidental address
+-- identification. Similarly we might reject a valid block since we deem a nonce
+-- to be duplicate due to accidental address identification, and we reject a
+-- block with transactions with obsolete nonces outright. Once transactions are
+-- in the transaction table there are no soundness issues anymore since the
+-- scheduler resolves addresses to accounts and compares nonces of those
+-- accounts, however it might still happen that when baking a transaction would
+-- not be selected since we might skip it if we think it has a duplicate nonce due
+-- to accidental address identification.
+-- This is an extremely unlikely scenario and will only occur in case of a
+-- SHA256 collision on the first 29 bytes (but not all remaining 3 bytes).
 
 
 -- |The transaction table stores transactions and their statuses.
