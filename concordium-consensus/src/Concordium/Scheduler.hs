@@ -161,11 +161,10 @@ dispatch msg = do
           -- exists on the account with 'checkHeader'.
           payment <- energyToGtu checkHeaderCost
           chargeExecutionCost (transactionHash msg) senderAccount payment
-          addr <- getAccountCanonicalAddress (snd senderAccount)
           return $ Just $ TxValid $ TransactionSummary{
             tsEnergyCost = checkHeaderCost,
             tsCost = payment,
-            tsSender = Just addr,
+            tsSender = Just (thSender meta), -- the sender of the transaction is as specified in the transaction.
             tsResult = TxReject SerializationFailure,
             tsHash = transactionHash msg,
             tsType = TSTAccountTransaction Nothing,
