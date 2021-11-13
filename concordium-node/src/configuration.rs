@@ -883,40 +883,29 @@ impl AppPreferences {
     /// Creates an `AppPreferences` object.
     pub fn new(override_conf: PathBuf, override_data: PathBuf) -> anyhow::Result<Self> {
         let file_path = Self::calculate_config_file_path(&override_conf, APP_PREFERENCES_MAIN);
-        let mut new_prefs = if let Ok(file) = OpenOptions::new().read(true).write(true).open(&file_path) {
-            let mut reader = BufReader::new(&file);
-            let load_result = PreferencesMap::<String>::load_from(&mut reader);
-            let prefs = load_result.unwrap_or_else(|_| PreferencesMap::<String>::new());
+        let mut new_prefs =
+            if let Ok(file) = OpenOptions::new().read(true).write(true).open(&file_path) {
+                let mut reader = BufReader::new(&file);
+                let load_result = PreferencesMap::<String>::load_from(&mut reader);
+                let prefs = load_result.unwrap_or_else(|_| PreferencesMap::<String>::new());
 
-            AppPreferences {
-                preferences_map:     prefs,
-                override_data_dir:   override_data,
-                override_config_dir: override_conf,
-            }
-        } else {
-            let _ = File::create(&file_path).with_context(|| format!("Can't write to config file: '{}'", file_path.as_path().display()))?;
-            let prefs = PreferencesMap::<String>::new();
+                AppPreferences {
+                    preferences_map:     prefs,
+                    override_data_dir:   override_data,
+                    override_config_dir: override_conf,
+                }
+            } else {
+                let _ = File::create(&file_path).with_context(|| {
+                    format!("Can't write to config file: '{}'", file_path.as_path().display())
+                })?;
+                let prefs = PreferencesMap::<String>::new();
 
-            AppPreferences {
-                preferences_map:     prefs,
-                override_data_dir:   override_data,
-                override_config_dir: override_conf,
-            }
-            // _ => match File::create(&file_path) {
-            //     Ok(_) => {
-            //         let prefs = PreferencesMap::<String>::new();
-            //         let app_prefs = AppPreferences {
-            //             preferences_map:     prefs,
-            //             override_data_dir:   override_data,
-            //             override_config_dir: override_conf,
-            //         };
-
-            //         Ok(app_prefs)
-            //     }
-            //     Err(e) => {
-            //         panic!("Can't write to config file '{}': {}", file_path.as_path().display(), e)
-            //     }
-        };
+                AppPreferences {
+                    preferences_map:     prefs,
+                    override_data_dir:   override_data,
+                    override_config_dir: override_conf,
+                }
+            };
         new_prefs.set_config(APP_PREFERENCES_KEY_VERSION, Some(super::VERSION));
         Ok(new_prefs)
     }
