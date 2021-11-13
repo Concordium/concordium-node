@@ -881,7 +881,7 @@ pub struct AppPreferences {
 
 impl AppPreferences {
     /// Creates an `AppPreferences` object.
-    pub fn new(override_conf: PathBuf, override_data: PathBuf) -> Self {
+    pub fn new(override_conf: PathBuf, override_data: PathBuf) -> anyhow::Result<Self> {
         let file_path = Self::calculate_config_file_path(&override_conf, APP_PREFERENCES_MAIN);
         let mut new_prefs = match OpenOptions::new().read(true).write(true).open(&file_path) {
             Ok(file) => {
@@ -894,23 +894,34 @@ impl AppPreferences {
                     override_data_dir:   override_data,
                     override_config_dir: override_conf,
                 }
-            }
-            _ => match File::create(&file_path) {
-                Ok(_) => {
-                    let prefs = PreferencesMap::<String>::new();
-                    AppPreferences {
-                        preferences_map:     prefs,
-                        override_data_dir:   override_data,
-                        override_config_dir: override_conf,
-                    }
-                }
-                Err(e) => {
-                    panic!("Can't write to config file '{}': {}", file_path.as_path().display(), e)
-                }
             },
+            _ => {
+                let _ = File::create(&file_path).context("Context error!")?;
+                let prefs = PreferencesMap::<String>::new();
+
+                AppPreferences {
+                    preferences_map:     prefs,
+                    override_data_dir:   override_data,
+                    override_config_dir: override_conf,
+                }
+            }
+            // _ => match File::create(&file_path) {
+            //     Ok(_) => {
+            //         let prefs = PreferencesMap::<String>::new();
+            //         let app_prefs = AppPreferences {
+            //             preferences_map:     prefs,
+            //             override_data_dir:   override_data,
+            //             override_config_dir: override_conf,
+            //         };
+
+            //         Ok(app_prefs)
+            //     }
+            //     Err(e) => {
+            //         panic!("Can't write to config file '{}': {}", file_path.as_path().display(), e)
+            //     }
         };
         new_prefs.set_config(APP_PREFERENCES_KEY_VERSION, Some(super::VERSION));
-        new_prefs
+        Ok(new_prefs)
     }
 
     fn calculate_config_file_path(config_path: &Path, key: &str) -> PathBuf {
