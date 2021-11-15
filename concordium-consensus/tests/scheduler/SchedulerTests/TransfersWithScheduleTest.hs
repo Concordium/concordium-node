@@ -212,8 +212,8 @@ testCases3 =
     , tcParameters = defaultParams {tpInitialBlockState=initialBlockState3, tpChainMeta=ChainMetadata { slotTime = 100 }}
     , tcTransactions = [
         -- should get rejected since sender = receiver, even if addresses are not exactly the same, but refer to the same account.
-        ( Runner.TJSON  { payload = Runner.TransferWithSchedule (mkAlias alesAccount 2) [(101, 10),(102, 11),(103, 12)],
-                          metadata = makeDummyHeader (mkAlias alesAccount 1) 1 100000,
+        ( Runner.TJSON  { payload = Runner.TransferWithSchedule (createAlias alesAccount 2) [(101, 10),(102, 11),(103, 12)],
+                          metadata = makeDummyHeader (createAlias alesAccount 1) 1 100000,
                           keys = [(0,[(0, alesKP)])]
                         }
         , (Reject $ ScheduledSelfTransfer alesAccount -- the rejection reason is meant to have the canonical address.

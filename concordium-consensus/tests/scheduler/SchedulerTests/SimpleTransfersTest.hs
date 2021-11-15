@@ -81,29 +81,29 @@ transactionsInput2 =
 transactionsInput3 :: [TransactionJSON]
 transactionsInput3 =
   -- transfer 10000 from A to A
-  [TJSON { payload = Transfer {toaddress = mkAlias alesAccount 0, amount = 10000 }
+  [TJSON { payload = Transfer {toaddress = createAlias alesAccount 0, amount = 10000 }
          , metadata = makeDummyHeader alesAccount 1 simpleTransferCost
          , keys = [(0, [(0, alesKP)])]
          }
   -- transfer 8800 from A to T
-  ,TJSON { payload = Transfer {toaddress = mkAlias thomasAccount 0, amount = 8800 }
+  ,TJSON { payload = Transfer {toaddress = createAlias thomasAccount 0, amount = 8800 }
          , metadata = makeDummyHeader alesAccount 2 simpleTransferCost
          , keys = [(0, [(0, alesKP)])]
          }
   -- transfer everything from from A to T
   -- the (100 *) is conversion between NRG and GTU
-  ,TJSON { payload = Transfer {toaddress = mkAlias thomasAccount 1, amount = 1000000 - 8800 - 3 * 100 * fromIntegral simpleTransferCost }
+  ,TJSON { payload = Transfer {toaddress = createAlias thomasAccount 1, amount = 1000000 - 8800 - 3 * 100 * fromIntegral simpleTransferCost }
          , metadata = makeDummyHeader alesAccount 3 simpleTransferCost
          , keys = [(0, [(0, alesKP)])]
          }
   -- transfer 10000 back from T to A
-  ,TJSON { payload = Transfer {toaddress = mkAlias alesAccount 1, amount = 100 * fromIntegral simpleTransferCost }
+  ,TJSON { payload = Transfer {toaddress = createAlias alesAccount 1, amount = 100 * fromIntegral simpleTransferCost }
          , metadata = makeDummyHeader thomasAccount 1 simpleTransferCost
          , keys = [(0, [(0, thomasKP)])]
          }
     -- the next transaction should fail because the balance on A is now exactly enough to cover the transfer cost
-  ,TJSON { payload = Transfer {toaddress = mkAlias thomasAccount 2, amount = 1 }
-         , metadata = makeDummyHeader (mkAlias alesAccount 4) 4 simpleTransferCost
+  ,TJSON { payload = Transfer {toaddress = createAlias thomasAccount 2, amount = 1 }
+         , metadata = makeDummyHeader (createAlias alesAccount 4) 4 simpleTransferCost
          , keys = [(0, [(0, alesKP)])]
          }
   ]
@@ -246,7 +246,7 @@ checkSimpleTransferResult3 (suc, fails, alesamount, thomasamount) = do
                     (init suc)
     rejectLast = case last suc of
                (_, Types.TxReject (Types.AmountTooLarge addr amnt)) -> do
-                 assertEqual "Sending from A" (Types.AddressAccount (mkAlias alesAccount 4)) addr
+                 assertEqual "Sending from A" (Types.AddressAccount (createAlias alesAccount 4)) addr
                  assertEqual "Exactly 1microGTU" 1 amnt
                err -> assertFailure $ "Incorrect result of the last transaction: " ++ show (snd err)
 

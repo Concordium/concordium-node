@@ -37,12 +37,12 @@ thomasAccount = AccountAddress $ pack $ take accountAddressSize $ repeat 2
 
 sender1 :: forall pv . IsProtocolVersion pv => Proxy pv -> Types.AccountAddress
 sender1 Proxy
-  | demoteProtocolVersion (protocolVersion @pv) >= P3 = mkAlias alesAccount 17
+  | demoteProtocolVersion (protocolVersion @pv) >= P3 = createAlias alesAccount 17
   | otherwise = alesAccount
 
 sender2 :: forall pv . IsProtocolVersion pv => Proxy pv -> Types.AccountAddress
 sender2 Proxy
-  | demoteProtocolVersion (protocolVersion @pv) >= P3 = mkAlias thomasAccount 77
+  | demoteProtocolVersion (protocolVersion @pv) >= P3 = createAlias thomasAccount 77
   | otherwise = thomasAccount
 
 

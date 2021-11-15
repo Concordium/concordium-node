@@ -135,12 +135,12 @@ randomActions = sized (ra Set.empty Map.empty)
               [exExAcc, getExAcc, unsafeGetExAcc, updateExAcc]
                 ++ if null rids then [] else [exExReg, recExReg]
       where
-        fresh s x
-            | x `Set.member` (Set.map snd s) = fresh s . snd =<< randAccount
+        fresh x
+            | x `Set.member` (Set.map snd s) = fresh . snd =<< randAccount
             | otherwise = return x
         putRandAcc = do
           (vk, addr) <- randAccount
-          freshAddr <- fresh s addr
+          freshAddr <- fresh addr
           acct <- randomizeAccount freshAddr vk
           (PutAccount acct :) <$> ra (Set.insert (vk, addr) s) rids (n -1)
         exRandAcc = do

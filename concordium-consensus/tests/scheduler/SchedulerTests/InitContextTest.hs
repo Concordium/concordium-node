@@ -40,7 +40,7 @@ chainMeta = Types.ChainMetadata{ slotTime = 444 }
 
 senderAccount :: forall pv . IsProtocolVersion pv => Proxy pv -> Types.AccountAddress
 senderAccount Proxy
-  | demoteProtocolVersion (protocolVersion @pv) >= P3 = mkAlias alesAccount 17
+  | demoteProtocolVersion (protocolVersion @pv) >= P3 = createAlias alesAccount 17
   | otherwise = alesAccount
 
 transactionInputs :: forall pv . IsProtocolVersion pv => Proxy pv -> [TransactionJSON]

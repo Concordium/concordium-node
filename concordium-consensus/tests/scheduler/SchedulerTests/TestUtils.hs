@@ -11,7 +11,7 @@ NOTE: This processes each transaction individually - for testing grouped transac
       'SchedulerTests.TransactionGroupingSpec' and 'SchedulerTests.TransactionGroupingSpec2'.
 -}
 module SchedulerTests.TestUtils(PV1, PV2, PV3, ResultSpec,TResultSpec(..),emptySpec,emptyExpect,TestCase(..),
-                                TestParameters(..),defaultParams, mkSpec,mkSpecs, mkAlias) where
+                                TestParameters(..),defaultParams, mkSpec,mkSpecs, createAlias) where
 
 import Test.Hspec
 
@@ -19,7 +19,6 @@ import Lens.Micro.Platform
 import Control.Monad
 import Data.List (foldl')
 import Data.Bits
-import qualified Data.FixedByteString as FBS
 
 import Concordium.Scheduler.Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
@@ -216,11 +215,3 @@ mkSpec TestCase{..} =
 -- | Make a 'Spec' for the given test cases. See 'mkSpec'.
 mkSpecs :: IsProtocolVersion pv => [TestCase pv] -> Spec
 mkSpecs = mapM_ mkSpec
-
--- |Make an account alias for the given account by setting the last 3 bytes to
--- the big endian representation of the given counter (modulo 2^24).
-mkAlias :: AccountAddress -> Word -> AccountAddress
-mkAlias (AccountAddress addr) count = AccountAddress ((addr .&. mask) .|. rest)
-    where rest = FBS.encodeInteger (toInteger (count .&. 0xffffff))
-          mask = complement (FBS.encodeInteger 0xffffff) -- mask to clear out the last three bytes of the addr
-
