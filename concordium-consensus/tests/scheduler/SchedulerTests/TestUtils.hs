@@ -133,7 +133,7 @@ runWithIntermediateStates TestParameters{..} transactions = do
                                        | not $ null ftFailed = Failed $ snd $ head ftFailed
                                        | not $ null ftUnprocessed = Unprocessed
                                        | otherwise = error "Failure in test setup."
-                                 in ((res, fst st' ^. Types.ssBlockState, feesAccum + st' ^. Types.schedulerExecutionCosts):acc, st' ^. Types.schedulerBlockState, feesAccum + st' ^. Types.schedulerExecutionCosts)
+                                 in ((res, st' ^. Types.ssBlockState, feesAccum + st' ^. Types.schedulerExecutionCosts):acc, st' ^. Types.schedulerBlockState, feesAccum + st' ^. Types.schedulerExecutionCosts)
                                else error $ "Failure in test setup: Expected one regular transaction in result, but got " ++ show ft
             )
                       ([], tpInitialBlockState, 0)
