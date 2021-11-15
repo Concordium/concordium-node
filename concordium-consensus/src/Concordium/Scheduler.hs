@@ -309,7 +309,7 @@ handleTransferWithSchedule wtc twsTo twsSchedule maybeMemo = withDeposit wtc c k
               -- Rejected transactions's rejection reason is part of block
               -- hashes.
               when (demoteProtocolVersion (protocolVersion @pv) >= P3) $
-                when (fst targetAccount == fst senderAccount) $ rejectTransaction . ScheduledSelfTransfer =<< getAccountCanonicalAddress (snd senderAccount)
+                when (fst targetAccount == fst senderAccount) $ rejectTransaction . ScheduledSelfTransfer $ senderAddress
 
               withScheduledAmount senderAccount targetAccount transferAmount twsSchedule txHash $ return ()
 
@@ -467,7 +467,7 @@ handleEncryptedAmountTransfer wtc toAddress transferData@EncryptedAmountTransfer
           -- to check a self transfer we must check with canonical account
           -- identifiers. We use account indices for that.
           when ((demoteProtocolVersion (protocolVersion @pv) >= P3) && fst targetAccount == fst senderAccount)
-              $ rejectTransaction . EncryptedAmountSelfTransfer =<< getAccountCanonicalAddress (snd senderAccount)
+              $ rejectTransaction . EncryptedAmountSelfTransfer $ senderAddress
 
 
           receiverAllowed <- checkAccountIsAllowed (snd targetAccount) AllowedEncryptedTransfers

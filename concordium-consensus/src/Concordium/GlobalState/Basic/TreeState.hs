@@ -84,12 +84,12 @@ initialSkovDataDefault = initialSkovData defaultRuntimeParameters
 initialSkovData :: (IsProtocolVersion pv, BS.BlockStateQuery m, bs ~ BlockState m) => RuntimeParameters -> GenesisData pv -> bs -> m (SkovData pv bs)
 initialSkovData rp gd genState = do
     acctAddrs <- BS.getAccountList genState
-    acctNonces <- foldM (\hm addr ->
+    acctNonces <- foldM (\nnces addr ->
         BS.getAccount genState addr >>= \case
             Nothing -> error "Invariant violation: listed account does not exist"
             Just (_, acct) -> do
                 nonce <- BS.getAccountNonce acct
-                return $! HM.insert addr nonce hm) HM.empty acctAddrs
+                return $! (addr,nonce):nnces) [] acctAddrs
     updSeqNums <- foldM (\m uty -> do
         sn <- BS.getNextUpdateSequenceNumber genState uty
         return $! Map.insert uty sn m) Map.empty [minBound..]

@@ -189,12 +189,12 @@ initialSkovPersistentData rp treeStateDir gd genState genATI atiContext serState
   -- table correctly reflects the account nonces, and similarly for
   -- updates.
   acctAddrs <- getAccountList genState
-  acctNonces <- foldM (\hm addr ->
+  acctNonces <- foldM (\nnces addr ->
       getAccount genState addr >>= \case
           Nothing -> error "Invariant violation: listed account does not exist"
           Just (_, acct) -> do
               nonce <- getAccountNonce acct
-              return $! HM.insert addr nonce hm) HM.empty acctAddrs
+              return $! (addr, nonce):nnces) [] acctAddrs
   updSeqNums <- foldM (\m uty -> do
       sn <- getNextUpdateSequenceNumber genState uty
       return $! Map.insert uty sn m) Map.empty [minBound..]

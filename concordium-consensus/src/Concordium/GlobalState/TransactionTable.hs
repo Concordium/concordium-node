@@ -218,10 +218,10 @@ emptyTransactionTable = TransactionTable {
 
 -- |A transaction table with no transactions, but with the initial next sequence numbers
 -- set for the accounts and update types.
-emptyTransactionTableWithSequenceNumbers :: HM.HashMap AccountAddress Nonce -> Map.Map UpdateType UpdateSequenceNumber -> TransactionTable
+emptyTransactionTableWithSequenceNumbers :: [(AccountAddress, Nonce)] -> Map.Map UpdateType UpdateSequenceNumber -> TransactionTable
 emptyTransactionTableWithSequenceNumbers accs upds = TransactionTable {
         _ttHashMap = HM.empty,
-        _ttNonFinalizedTransactions = HM.fromList . map (\(k, n) -> (accountAddressEmbed k, emptyANFTWithNonce n)) . HM.toList . HM.filter (/= minNonce) $ accs,
+        _ttNonFinalizedTransactions = HM.fromList . map (\(k, n) -> (accountAddressEmbed k, emptyANFTWithNonce n)) . filter (\(_, n) -> n /= minNonce) $ accs,
         _ttNonFinalizedChainUpdates = emptyNFCUWithSequenceNumber <$> Map.filter (/= minUpdateSequenceNumber) upds
     }
 

@@ -216,7 +216,7 @@ testCases3 =
                           metadata = makeDummyHeader (createAlias alesAccount 1) 1 100000,
                           keys = [(0,[(0, alesKP)])]
                         }
-        , (Reject $ ScheduledSelfTransfer alesAccount -- the rejection reason is meant to have the canonical address.
+        , (Reject $ ScheduledSelfTransfer (createAlias alesAccount 1) -- the rejection reason is meant to have the sender address.
           , emptySpec
           )
         )
