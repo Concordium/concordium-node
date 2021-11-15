@@ -109,6 +109,13 @@ lookup :: forall pv fix m . (IsProtocolVersion pv, TrieGetContext fix m) => Acco
 lookup addr (AccountMap am) = case protocolVersion @pv of
   SP1 -> Trie.lookup addr am
   SP2 -> Trie.lookup addr am
+  -- In protocol version 3, to support account aliases, we look up the account
+  -- via the first 29 bytes of the address only. No new accounts can be created
+  -- which would clash with an existing account on the first 29 bytes of the
+  -- address. However since in principle there might be 2 or more account
+  -- addresses with the same prefix created in protocol versions 1 and 2 we have
+  -- a fallback. If such a situation does occur then those accounts can only be
+  -- referred to by the exact address. This is what the logic below implements.
   SP3 -> Trie.lookupPrefix (mkPrefix addr) am >>= \case
     [] -> return Nothing
     [(_, v)] -> return (Just v)
