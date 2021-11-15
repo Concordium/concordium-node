@@ -122,8 +122,7 @@ impl P2p for RpcServerImpl {
         authenticate!(req, self.access_token);
 
         if self.node.config.regenesis_arc.stop_network.load(Ordering::Acquire) {
-            return Err(Status::new(
-                Code::FailedPrecondition,
+            return Err(Status::failed_precondition(
                 "The network is stopped due to unrecognized protocol update.",
             ));
         }
@@ -157,6 +156,13 @@ impl P2p for RpcServerImpl {
         req: Request<PeerConnectRequest>,
     ) -> Result<Response<BoolResponse>, Status> {
         authenticate!(req, self.access_token);
+
+        if self.node.config.regenesis_arc.stop_network.load(Ordering::Acquire) {
+            return Err(Status::failed_precondition(
+                "The network is stopped due to unrecognized protocol update.",
+            ));
+        }
+
         let req = req.get_ref();
 
         let ip_addr = if let Some(ref ip) = req.ip {
@@ -226,8 +232,7 @@ impl P2p for RpcServerImpl {
         authenticate!(req, self.access_token);
 
         if self.node.config.regenesis_arc.stop_network.load(Ordering::Acquire) {
-            return Err(Status::new(
-                Code::FailedPrecondition,
+            return Err(Status::failed_precondition(
                 "The network is stopped due to unrecognized protocol update.",
             ));
         }
@@ -301,6 +306,13 @@ impl P2p for RpcServerImpl {
         req: Request<NetworkChangeRequest>,
     ) -> Result<Response<BoolResponse>, Status> {
         authenticate!(req, self.access_token);
+
+        if self.node.config.regenesis_arc.stop_network.load(Ordering::Acquire) {
+            return Err(Status::failed_precondition(
+                "The network is stopped due to unrecognized protocol update.",
+            ));
+        }
+
         let req = req.get_ref();
         if let Some(id) = req.network_id {
             if id > 0 && id < 100_000 {
@@ -323,6 +335,13 @@ impl P2p for RpcServerImpl {
         req: Request<NetworkChangeRequest>,
     ) -> Result<Response<BoolResponse>, Status> {
         authenticate!(req, self.access_token);
+
+        if self.node.config.regenesis_arc.stop_network.load(Ordering::Acquire) {
+            return Err(Status::failed_precondition(
+                "The network is stopped due to unrecognized protocol update.",
+            ));
+        }
+
         let req = req.get_ref();
         if let Some(id) = req.network_id {
             if id > 0 && id < 100_000 {
