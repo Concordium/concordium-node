@@ -883,31 +883,30 @@ impl AppPreferences {
     /// Creates an `AppPreferences` object.
     pub fn new(override_conf: PathBuf, override_data: PathBuf) -> anyhow::Result<Self> {
         let file_path = Self::calculate_config_file_path(&override_conf, APP_PREFERENCES_MAIN);
-        let mut new_prefs =
-            if let Ok(file) = OpenOptions::new().open(&file_path) {
-                let mut reader = BufReader::new(&file);
-                let load_result = PreferencesMap::<String>::load_from(&mut reader);
-                let prefs = load_result.unwrap_or_else(|_| PreferencesMap::<String>::new());
+        let mut new_prefs = if let Ok(file) = OpenOptions::new().open(&file_path) {
+            let mut reader = BufReader::new(&file);
+            let load_result = PreferencesMap::<String>::load_from(&mut reader);
+            let prefs = load_result.unwrap_or_else(|_| PreferencesMap::<String>::new());
 
-                AppPreferences {
-                    preferences_map:     prefs,
-                    override_data_dir:   override_data,
-                    override_config_dir: override_conf,
-                }
-            } else {
-                info!("Node configuration file not found. Creating a new one.");
+            AppPreferences {
+                preferences_map:     prefs,
+                override_data_dir:   override_data,
+                override_config_dir: override_conf,
+            }
+        } else {
+            info!("Node configuration file not found. Creating a new one.");
 
-                let _ = File::create(&file_path).with_context(|| {
-                    format!("Could not create configuration file: '{}'", file_path.as_path().display())
-                })?;
-                let prefs = PreferencesMap::<String>::new();
+            let _ = File::create(&file_path).with_context(|| {
+                format!("Could not create configuration file: '{}'", file_path.as_path().display())
+            })?;
+            let prefs = PreferencesMap::<String>::new();
 
-                AppPreferences {
-                    preferences_map:     prefs,
-                    override_data_dir:   override_data,
-                    override_config_dir: override_conf,
-                }
-            };
+            AppPreferences {
+                preferences_map:     prefs,
+                override_data_dir:   override_data,
+                override_config_dir: override_conf,
+            }
+        };
         new_prefs.set_config(APP_PREFERENCES_KEY_VERSION, Some(super::VERSION));
         Ok(new_prefs)
     }
