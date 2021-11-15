@@ -193,7 +193,7 @@ async fn main() -> anyhow::Result<()> {
                     if err.is_cancelled() {
                         info!("RPC server was successfully shutdown by force.");
                     } else if err.is_panic() {
-                        error!("RPC server panicked!");
+                        error!("RPC server panicked: {}", err);
                     }
                 }
             }

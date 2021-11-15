@@ -745,6 +745,12 @@ pub fn spawn(
         // close all connections. At this point no data will be read or written
         // to connections since the connection loop has terminated. This frees up
         // resources.
+        // TODO: This is ugly. Ideally we'd drop the entire connection handler here with
+        // all the data that pertains to it, including all connections and
+        // peers. However that requires a more substantial refactoring since the
+        // connection handler is used in many different places, including in the rpc
+        // module. If we did that there would be no need for clearing connection
+        // collections here.
         lock_or_die!(node.conn_candidates()).clear();
         write_or_die!(node.connections()).clear();
         write_or_die!(node.peers).clear();
