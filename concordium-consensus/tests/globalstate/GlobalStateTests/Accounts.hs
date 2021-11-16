@@ -12,13 +12,13 @@ import Concordium.Crypto.FFIDataTypes
 import Concordium.GlobalState.Basic.BlockState.Account as BA
 import qualified Concordium.GlobalState.Basic.BlockState.AccountTable as BAT
 import qualified Concordium.GlobalState.Basic.BlockState.Accounts as B
+import qualified Concordium.GlobalState.AccountMap as AccountMap
 import qualified Concordium.GlobalState.Persistent.Account as PA
 import qualified Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule as PA
 import qualified Concordium.GlobalState.Persistent.Accounts as P
 import qualified Concordium.GlobalState.Persistent.LFMBTree as L
 import Concordium.GlobalState.DummyData
 import Concordium.GlobalState.Persistent.BlobStore
-import qualified Concordium.GlobalState.Persistent.Trie as Trie
 import Concordium.ID.DummyData
 import qualified Concordium.ID.Types as ID
 import Concordium.Types
@@ -62,8 +62,8 @@ checkBinaryM bop x y sbop sx sy = do
 --  use registration ids.
 checkEquivalent :: (MonadBlobStore m, MonadFail m) => B.Accounts PV -> P.Accounts PV -> m ()
 checkEquivalent ba pa = do
-  pam <- Trie.toMap (P.accountMap pa)
-  checkBinary (==) (B.accountMap ba) pam "==" "Basic account map" "Persistent account map"
+  pam <- AccountMap.toMap (P.accountMap pa)
+  checkBinary (==) (AccountMap.toMapPure (B.accountMap ba)) pam "==" "Basic account map" "Persistent account map"
   let bat = BAT.toList (B.accountTable ba)
   pat <- L.toAscPairList (P.accountTable pa)
   checkBinaryM sameAccList bat pat "==" "Basic account table (as list)" "Persistent account table (as list)"
@@ -132,17 +132,17 @@ randomActions = sized (ra Set.empty Map.empty)
           ++ if null s
             then []
             else
-              [putExAcc, exExAcc, getExAcc, unsafeGetExAcc, updateExAcc]
+              [exExAcc, getExAcc, unsafeGetExAcc, updateExAcc]
                 ++ if null rids then [] else [exExReg, recExReg]
       where
+        fresh x
+            | x `Set.member` (Set.map snd s) = fresh . snd =<< randAccount
+            | otherwise = return x
         putRandAcc = do
           (vk, addr) <- randAccount
-          acct <- randomizeAccount addr vk
+          freshAddr <- fresh addr
+          acct <- randomizeAccount freshAddr vk
           (PutAccount acct :) <$> ra (Set.insert (vk, addr) s) rids (n -1)
-        putExAcc = do
-          (vk, addr) <- elements (Set.toList s)
-          acct <- randomizeAccount addr vk
-          (PutAccount acct :) <$> ra s rids (n -1)
         exRandAcc = do
           (_, addr) <- randAccount
           (Exists addr :) <$> ra s rids (n -1)
@@ -208,10 +208,10 @@ makePureAccount PA.PersistentAccount {..} = do
 
 runAccountAction :: (MonadBlobStore m, MonadIO m) => AccountAction -> (B.Accounts PV, P.Accounts PV) -> m (B.Accounts PV, P.Accounts PV)
 runAccountAction (PutAccount acct) (ba, pa) = do
-  let ba' = B.putAccount acct ba
+  let ba' = B.putNewAccount acct ba
   pAcct <- PA.makePersistentAccount acct
-  pa' <- P.putAccount pAcct pa
-  return (ba', pa')
+  pa' <- P.putNewAccount pAcct pa
+  return (snd ba', snd pa')
 runAccountAction (Exists addr) (ba, pa) = do
   let be = B.exists addr ba
   pe <- P.exists addr pa

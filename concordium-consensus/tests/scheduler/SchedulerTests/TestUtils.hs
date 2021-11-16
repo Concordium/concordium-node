@@ -10,14 +10,15 @@ Also checks invariants on the block state after each processed transaction.
 NOTE: This processes each transaction individually - for testing grouped transactions, see
       'SchedulerTests.TransactionGroupingSpec' and 'SchedulerTests.TransactionGroupingSpec2'.
 -}
-module SchedulerTests.TestUtils(PV1, PV2, ResultSpec,TResultSpec(..),emptySpec,emptyExpect,TestCase(..),
-                                TestParameters(..),defaultParams, mkSpec,mkSpecs) where
+module SchedulerTests.TestUtils(PV1, PV2, PV3, ResultSpec,TResultSpec(..),emptySpec,emptyExpect,TestCase(..),
+                                TestParameters(..),defaultParams, mkSpec,mkSpecs, createAlias) where
 
 import Test.Hspec
 
 import Lens.Micro.Platform
 import Control.Monad
 import Data.List (foldl')
+import Data.Bits
 
 import Concordium.Scheduler.Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
@@ -34,6 +35,8 @@ import Data.Time
 -- |Protocol version
 type PV1 = 'P1
 type PV2 = 'P2
+type PV3 = 'P3
+
 
 -- | Specification on the expected result of executing a transaction and the resulting block state.
 type ResultSpec pv = (TResultSpec, BlockState pv -> Spec)

@@ -130,10 +130,10 @@ class (Monad m, Eq (BlockPointerType m), HashableTo BlockHash (BlockPointerType 
     -- |Get the outcomes of a transaction.
     queryTransactionStatus :: TransactionHash -> m (Maybe TransactionStatus)
     -- |Get non-finalized transactions for an account, ordered by increasing nonce.
-    queryNonFinalizedTransactions :: AccountAddress -> m [TransactionHash]
+    queryNonFinalizedTransactions :: AccountAddressEq -> m [TransactionHash]
     -- |Get best guess for next account nonce.
     -- The second argument is 'True' if and only if all transactions from this account are finalized.
-    queryNextAccountNonce :: AccountAddress -> m (Nonce, Bool)
+    queryNextAccountNonce :: AccountAddressEq -> m (Nonce, Bool)
     -- |Get the finalization index of a block's last finalized block.
     blockLastFinalizedIndex :: BlockPointerType m -> m FinalizationIndex
     -- |Get a catch-up status message. The flag indicates if the

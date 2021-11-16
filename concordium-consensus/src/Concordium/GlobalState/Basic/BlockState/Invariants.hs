@@ -16,6 +16,7 @@ import Concordium.GlobalState.Basic.BlockState.Bakers
 import Concordium.GlobalState.Basic.BlockState.Account
 import qualified Concordium.GlobalState.Basic.BlockState.Accounts as Account
 import qualified Concordium.GlobalState.Basic.BlockState.AccountTable as AT
+import qualified Concordium.GlobalState.AccountMap as AccountMap
 import Concordium.GlobalState.Basic.BlockState.Instances as Instances
 import qualified Concordium.GlobalState.Rewards as Rewards
 
@@ -53,7 +54,7 @@ invariantBlockState bs extraBalance = do
                 ") + GAS account (" ++ show gas ++
                 ") + extra balance (" ++ show extraBalance ++ ")")
             "Total GTU"
-        checkBinary (==) amp (bs ^. blockAccounts . to Account.accountMap) "==" "computed account map" "recorded account map"
+        checkBinary (==) amp (AccountMap.toMapPure (bs ^. blockAccounts . to Account.accountMap)) "==" "computed account map" "recorded account map"
     where
         checkAccount (creds, amp, bal, bakerIds, bakerKeys) (i, acct) = do
             let addr = acct ^. accountAddress
