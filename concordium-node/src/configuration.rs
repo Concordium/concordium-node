@@ -883,7 +883,12 @@ impl AppPreferences {
     /// Creates an `AppPreferences` object.
     pub fn new(override_conf: PathBuf, override_data: PathBuf) -> anyhow::Result<Self> {
         let file_path = Self::calculate_config_file_path(&override_conf, APP_PREFERENCES_MAIN);
-        let mut new_prefs = if let Ok(file) = OpenOptions::new().open(&file_path) {
+
+        let mut new_prefs = if file_path.as_path().is_file() {
+            let file = File::open(&file_path).with_context(|| {
+                format!("Could not open configuration file: '{}'", file_path.as_path().display())
+            })?;
+
             let mut reader = BufReader::new(&file);
             let load_result = PreferencesMap::<String>::load_from(&mut reader);
             let prefs = load_result.unwrap_or_else(|_| PreferencesMap::<String>::new());
@@ -907,6 +912,7 @@ impl AppPreferences {
                 override_config_dir: override_conf,
             }
         };
+
         new_prefs.set_config(APP_PREFERENCES_KEY_VERSION, Some(super::VERSION));
         Ok(new_prefs)
     }
