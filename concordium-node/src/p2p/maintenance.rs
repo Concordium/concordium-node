@@ -45,7 +45,7 @@ use std::{
     path::PathBuf,
     str::FromStr,
     sync::{
-        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
+        atomic::{AtomicU64, AtomicUsize, Ordering},
         Arc, Mutex, RwLock,
     },
     thread::JoinHandle,
@@ -107,7 +107,6 @@ pub struct ConnChanges {
 
 /// The set of objects related to node's connections.
 pub struct ConnectionHandler {
-    pub socket_server:        TcpListener,
     pub next_token:           AtomicUsize,
     pub buckets:              RwLock<Buckets>,
     #[cfg(feature = "network_dump")]
@@ -125,7 +124,7 @@ pub struct ConnectionHandler {
 }
 
 impl ConnectionHandler {
-    fn new(conf: &Config, socket_server: TcpListener) -> Self {
+    fn new(conf: &Config) -> Self {
         let networks = conf.common.network_ids.iter().cloned().map(NetworkId::from).collect();
         let (sndr, rcvr) =
             crossbeam_channel::bounded(conf.connection.hard_connection_limit as usize);
@@ -141,7 +140,6 @@ impl ConnectionHandler {
         );
 
         ConnectionHandler {
-            socket_server,
             next_token: AtomicUsize::new(1),
             buckets: Default::default(),
             #[cfg(feature = "network_dump")]
@@ -248,8 +246,6 @@ pub struct P2PNode {
     pub config:             NodeConfig,
     /// The time the node was launched.
     pub start_time:         DateTime<Utc>,
-    /// The flag indicating whether a node should shut down.
-    pub is_terminated:      AtomicBool,
     /// The key-value store holding the node's persistent data.
     pub kvs:                Arc<RwLock<Rkv<LmdbEnvironment>>>,
     /// The catch-up list of peers.
@@ -262,14 +258,16 @@ pub struct P2PNode {
 impl P2PNode {
     /// Creates a new node and its Poll. If the node id is provided the node
     /// will be started with that Peer ID. If it is not a fresh one will be
-    /// generated.
+    /// generated. The return value is a triple of the node, the socket on which
+    /// the node is listening for incoming connections, and the mio poll
+    /// that can be used to notify/poll for incoming connections.
     pub fn new(
         supplied_id: Option<P2PNodeId>,
         conf: &Config,
         peer_type: PeerType,
         stats: Arc<StatsExportService>,
         regenesis_arc: Arc<Regenesis>,
-    ) -> anyhow::Result<(Arc<Self>, Poll)> {
+    ) -> anyhow::Result<(Arc<Self>, TcpListener, Poll)> {
         let addr = if let Some(ref addy) = conf.common.listen_address {
             let ip_addr = addy.parse::<IpAddr>().context(
                 "Supplied listen address could not be parsed. The address must be a valid IP \
@@ -374,7 +372,7 @@ impl P2PNode {
             regenesis_arc,
         };
 
-        let connection_handler = ConnectionHandler::new(conf, server);
+        let connection_handler = ConnectionHandler::new(conf);
 
         // Create the node key-value store environment
         let kvs = Manager::<LmdbEnvironment>::singleton()
@@ -393,7 +391,6 @@ impl P2PNode {
             connection_handler,
             self_peer,
             stats,
-            is_terminated: Default::default(),
             kvs,
             peers: Default::default(),
             bad_events: BadEvents::default(),
@@ -403,7 +400,7 @@ impl P2PNode {
             node.clear_bans().unwrap_or_else(|e| error!("Couldn't reset the ban list: {}", e));
         }
 
-        Ok((node, poll))
+        Ok((node, server, poll))
     }
 
     /// Get the timestamp of the node's last bootstrap attempt.
@@ -573,15 +570,9 @@ impl P2PNode {
     pub fn close(&self) -> bool {
         // First notify the maintenance thread to stop processing new connections or
         // network packets.
-        self.is_terminated.store(true, Ordering::Relaxed);
-        // Then process all messages we still have in the Consensus queues.
-        let queues_stopped = CALLBACK_QUEUE.stop().is_ok();
-        // Finally close all connections
-        // Make sure to drop connections so that the peers or peer candidates can
-        // quickly free up their endpoints.
-        lock_or_die!(self.conn_candidates()).clear();
-        write_or_die!(self.connections()).clear();
-        queues_stopped
+        self.stop_network();
+        // Then process all messages we still have in the inbound Consensus queues.
+        CALLBACK_QUEUE.stop().is_ok()
     }
 
     /// Waits for all the spawned threads to terminate.
@@ -618,7 +609,12 @@ impl P2PNode {
 }
 
 /// Spawn the node's poll thread.
-pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll, consensus: Option<ConsensusContainer>) {
+pub fn spawn(
+    node_ref: &Arc<P2PNode>,
+    mut socket_server: TcpListener,
+    mut poll: Poll,
+    consensus: Option<ConsensusContainer>,
+) {
     let node = Arc::clone(node_ref);
     let poll_thread = spawn_or_die!("poll loop", move || {
         let mut events = Events::with_capacity(node.config.events_queue_size);
@@ -653,7 +649,7 @@ pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll, consensus: Option<Consensu
         //   allocated thread pool
         // - occasionally (dictated by the housekeeping_interval) do connection
         //   housekeeping, checking whether peers and connections are active.
-        while !node.is_terminated.load(Ordering::Relaxed) {
+        while !node.is_network_stopped() {
             // check for new events or wait
             if let Err(e) = poll.poll(&mut events, Some(poll_interval)) {
                 error!("{}", e);
@@ -665,7 +661,7 @@ pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll, consensus: Option<Consensu
                 let mut attempt_number = 0;
                 unprocessed_attempts = true;
                 while attempt_number < max_num_requests {
-                    match node.connection_handler.socket_server.accept() {
+                    match socket_server.accept() {
                         Ok((socket, addr)) => {
                             if let Err(e) = accept(&node, socket, addr) {
                                 error!("{}", e);
@@ -746,7 +742,24 @@ pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll, consensus: Option<Consensu
                 last_buckets_cleaned = Instant::now();
             }
         }
-        info!("Shutting down");
+        // close all connections. At this point no data will be read or written
+        // to connections since the connection loop has terminated. This frees up
+        // resources.
+        // TODO: This is ugly. Ideally we'd drop the entire connection handler here with
+        // all the data that pertains to it, including all connections and
+        // peers. However that requires a more substantial refactoring since the
+        // connection handler is used in many different places, including in the rpc
+        // module. If we did that there would be no need for clearing connection
+        // collections here.
+        lock_or_die!(node.conn_candidates()).clear();
+        write_or_die!(node.connections()).clear();
+        write_or_die!(node.peers).clear();
+        // Stop listening and close the socket. The socket is closed when the thread
+        // terminates via drop.
+        if let Err(e) = poll.registry().deregister(&mut socket_server) {
+            error!("Could not deregister listen socket poll: {}", e);
+        }
+        info!("Network layer has been shut down.");
     });
 
     // Register info about thread into P2PNode.
