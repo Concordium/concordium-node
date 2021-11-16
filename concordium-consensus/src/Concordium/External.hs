@@ -737,10 +737,10 @@ receiveFinalizationRecord bptr genIndex msg msgLen = do
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultDuplicate@,
 -- @ResultStale@, @ResultInvalid@, @ResultConsensusShutDown@, @ResultExpiryTooLate@, @ResultVerificationFailed@,
 -- @ResultNonexistingSenderAccount@, @ResultDuplicateNonce@, @ResultNonceTooLarge@, @ResultTooLowEnergy@,
--- @ResultCredentialDeploymentInvalidRegistrationID@,
+-- @ResultDuplicateAccountRegistrationID@,
 -- @ResultCredentialDeploymentInvalidSignatures@,
--- @ResultCredentialDeploymentInvalidKeys@, @ResultCredentialDeploymentInvalidIP@,
--- @ResultCredentialDeploymentInvalidAR@, @ResultCredentialDeploymentExpired@
+-- @ResultCredentialDeploymentInvalidIP@, @ResultCredentialDeploymentInvalidAR@,
+-- @ResultCredentialDeploymentExpired@
 receiveTransaction :: StablePtr ConsensusRunner -> CString -> Int64 -> IO ReceiveResult
 receiveTransaction bptr transactionData transactionLen = do
     (ConsensusRunner mvr) <- deRefStablePtr bptr

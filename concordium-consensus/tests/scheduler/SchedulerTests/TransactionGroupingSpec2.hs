@@ -266,7 +266,7 @@ testGroups groups = do
             maxBlockEnergy
             maxBound
             initialBlockState
-    let gstate = fst finState ^. Types.ssBlockState
+    let gstate = finState ^. Types.ssBlockState
     case invariantBlockState gstate (finState ^. Types.schedulerExecutionCosts) of
         Left f -> liftIO $ assertFailure f
         Right _ -> return (getResults ftAdded, ftFailed, ftUnprocessed, concat (Types.perAccountTransactions ts))

@@ -81,7 +81,7 @@ testReceive = do
             maxBound
             maxBound
             initialBlockState
-    let gs = fst finState ^. Types.ssBlockState
+    let gs = finState ^. Types.ssBlockState
     case invariantBlockState gs (finState ^. Types.schedulerExecutionCosts) of
         Left f -> liftIO $ assertFailure $ f ++ " " ++ show gs
         _ -> return ()
