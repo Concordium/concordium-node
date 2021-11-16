@@ -71,7 +71,7 @@ import Concordium.Kontrol
 -- This is the hash of the published specification document.
 -- TODO: Write the document, insert correct hash.
 updateHash :: SHA256.Hash
-updateHash = read "0000000000000000000000000000000000000000000000000000000000000000"
+updateHash = read "ec9f7733e872ed0b8f1f386d12c5c725379fc609ce246ffdce28cfb9163ea350"
 
 -- |Construct the genesis data for a P2.ProtocolP3 update.
 -- It is assumed that the last finalized block is the terminal block of the old chain:
