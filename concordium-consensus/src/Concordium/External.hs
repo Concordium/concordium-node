@@ -633,7 +633,7 @@ stopBaker cptr = mask_ $ do
 -- |    16 | ResultNonexistingSenderAccount              | The transaction's sender account does not exist according to the focus block                  | No       |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 -- |    17 | ResultDuplicateNonce                        | The sequence number for this account or update type was already used                          | No       |
--- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
+-- i+-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 -- |    18 | ResultNonceTooLarge                         | The transaction seq. number is larger than the next one for this account/update type          | No       |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 -- |    19 | ResultTooLowEnergy                          | The stated transaction energy is lower than the minimum amount necessary to execute it        | No       |
@@ -650,9 +650,9 @@ stopBaker cptr = mask_ $ do
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 -- |    25 | ResultCredentialDeploymentExpired           | The CredentialDeployment contained an expired 'validTo'                                       | Yes      |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
--- |    27 | ResultChainUpdateInvalidEffectiveTime       | The ChainUpdate contained an invalid effective time                                           | Yes      |
+-- |    26 | ResultChainUpdateInvalidEffectiveTime       | The ChainUpdate contained an invalid effective time                                           | Yes      |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
--- |    28 | ResultChainUpdateInvalidSignatures          | The ChainUpdate contained an invalid signature                                                | Yes      |
+-- |    27 | ResultChainUpdateInvalidSignatures          | The ChainUpdate contained an invalid signature                                                | Yes      |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 type ReceiveResult = Int64
 
@@ -685,7 +685,7 @@ toReceiveResult ResultCredentialDeploymentInvalidIP = 23
 toReceiveResult ResultCredentialDeploymentInvalidAR = 24
 toReceiveResult ResultCredentialDeploymentExpired = 25
 toReceiveResult ResultChainUpdateInvalidEffectiveTime = 26
-toReceiveResult ResultChainUpdateInvalidSignatures = 2
+toReceiveResult ResultChainUpdateInvalidSignatures = 27
 
 -- |Handle receipt of a block.
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,
