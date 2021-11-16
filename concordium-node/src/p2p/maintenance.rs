@@ -570,7 +570,7 @@ impl P2PNode {
     pub fn close(&self) -> bool {
         // First notify the maintenance thread to stop processing new connections or
         // network packets.
-        self.config.regenesis_arc.stop_network.store(true, Ordering::Release);
+        self.stop_network();
         // Then process all messages we still have in the inbound Consensus queues.
         CALLBACK_QUEUE.stop().is_ok()
     }
@@ -649,7 +649,7 @@ pub fn spawn(
         //   allocated thread pool
         // - occasionally (dictated by the housekeeping_interval) do connection
         //   housekeeping, checking whether peers and connections are active.
-        while !node.config.regenesis_arc.stop_network.load(Ordering::Acquire) {
+        while !node.is_network_stopped() {
             // check for new events or wait
             if let Err(e) = poll.poll(&mut events, Some(poll_interval)) {
                 error!("{}", e);

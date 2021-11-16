@@ -121,7 +121,7 @@ impl P2p for RpcServerImpl {
     ) -> Result<Response<BoolResponse>, Status> {
         authenticate!(req, self.access_token);
 
-        if self.node.config.regenesis_arc.stop_network.load(Ordering::Acquire) {
+        if self.node.is_network_stopped() {
             return Err(Status::failed_precondition(
                 "The network is stopped due to unrecognized protocol update.",
             ));
@@ -157,7 +157,7 @@ impl P2p for RpcServerImpl {
     ) -> Result<Response<BoolResponse>, Status> {
         authenticate!(req, self.access_token);
 
-        if self.node.config.regenesis_arc.stop_network.load(Ordering::Acquire) {
+        if self.node.is_network_stopped() {
             return Err(Status::failed_precondition(
                 "The network is stopped due to unrecognized protocol update.",
             ));
@@ -231,7 +231,7 @@ impl P2p for RpcServerImpl {
 
         authenticate!(req, self.access_token);
 
-        if self.node.config.regenesis_arc.stop_network.load(Ordering::Acquire) {
+        if self.node.is_network_stopped() {
             return Err(Status::failed_precondition(
                 "The network is stopped due to unrecognized protocol update.",
             ));
@@ -307,7 +307,7 @@ impl P2p for RpcServerImpl {
     ) -> Result<Response<BoolResponse>, Status> {
         authenticate!(req, self.access_token);
 
-        if self.node.config.regenesis_arc.stop_network.load(Ordering::Acquire) {
+        if self.node.is_network_stopped() {
             return Err(Status::failed_precondition(
                 "The network is stopped due to unrecognized protocol update.",
             ));
@@ -336,7 +336,7 @@ impl P2p for RpcServerImpl {
     ) -> Result<Response<BoolResponse>, Status> {
         authenticate!(req, self.access_token);
 
-        if self.node.config.regenesis_arc.stop_network.load(Ordering::Acquire) {
+        if self.node.is_network_stopped() {
             return Err(Status::failed_precondition(
                 "The network is stopped due to unrecognized protocol update.",
             ));
