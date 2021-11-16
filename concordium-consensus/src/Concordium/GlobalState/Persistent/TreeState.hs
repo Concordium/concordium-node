@@ -146,7 +146,7 @@ data SkovPersistentData (pv :: ProtocolVersion) ati bs = SkovPersistentData {
     -- |Context for the transaction log.
     _atiCtx :: !(ATIContext ati),
     -- |transactionVerificationResults
-    -- Transaction which have been subject to a 'verification' resides in this cache.
+    -- Transactions which have been subject to a 'verification' resides in this cache.
     -- The purpose of the cache is to eliminate the need for re-verifying already verified transactions.
     -- Entries should be deleted when either the corresponding transaction has been *purged* or *finalized*. 
     _transactionVerificationResults :: !TransactionVerificationCache
