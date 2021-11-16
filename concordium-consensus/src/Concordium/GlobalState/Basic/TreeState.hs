@@ -84,12 +84,12 @@ initialSkovDataDefault = initialSkovData defaultRuntimeParameters
 initialSkovData :: (IsProtocolVersion pv, BS.BlockStateQuery m, bs ~ BlockState m) => RuntimeParameters -> GenesisData pv -> bs -> m (SkovData pv bs)
 initialSkovData rp gd genState = do
     acctAddrs <- BS.getAccountList genState
-    acctNonces <- foldM (\hm addr ->
+    acctNonces <- foldM (\nnces addr ->
         BS.getAccount genState addr >>= \case
             Nothing -> error "Invariant violation: listed account does not exist"
             Just (_, acct) -> do
                 nonce <- BS.getAccountNonce acct
-                return $! HM.insert addr nonce hm) HM.empty acctAddrs
+                return $! (addr,nonce):nnces) [] acctAddrs
     updSeqNums <- foldM (\m uty -> do
         sn <- BS.getNextUpdateSequenceNumber genState uty
         return $! Map.insert uty sn m) Map.empty [minBound..]
@@ -245,7 +245,7 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
           Nothing ->
             case wmdData of
               NormalTransaction tr -> do
-                let sender = transactionSender tr
+                let sender = accountAddressEmbed (transactionSender tr)
                     nonce = transactionNonce tr
                 if (tt ^. ttNonFinalizedTransactions . at' sender . non emptyANFT . anftNextNonce) <= nonce then do
                   transactionTablePurgeCounter += 1
@@ -278,7 +278,7 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
         where
             finTrans WithMetadata{wmdData=NormalTransaction tr,..} = do
                 let nonce = transactionNonce tr
-                    sender = transactionSender tr
+                    sender = accountAddressEmbed (transactionSender tr)
                 anft <- use (transactionTable . ttNonFinalizedTransactions . at' sender . non emptyANFT)
                 assert (anft ^. anftNextNonce == nonce) $ do
                     let nfn = anft ^. anftMap . at' nonce . non Set.empty
@@ -335,7 +335,7 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
                     case wmdData of
                       NormalTransaction tr -> do
                         let nonce = transactionNonce tr
-                            sender = transactionSender tr
+                            sender = accountAddressEmbed (transactionSender tr)
                         transactionTable
                           . ttNonFinalizedTransactions
                           . at' sender

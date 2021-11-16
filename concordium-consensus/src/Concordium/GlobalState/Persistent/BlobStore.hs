@@ -713,8 +713,6 @@ instance MonadBlobStore m => BlobStorable m IPS.IdentityProviders
 instance MonadBlobStore m => BlobStorable m ARS.ArInfo
 instance MonadBlobStore m => BlobStorable m ARS.AnonymityRevokers
 instance MonadBlobStore m => BlobStorable m Parameters.CryptographicParameters
--- FIXME: This uses serialization of accounts for storing them.
--- This is potentially quite wasteful when only small changes are made.
 instance MonadBlobStore m => BlobStorable m Amount
 instance MonadBlobStore m => BlobStorable m BakerId
 instance MonadBlobStore m => BlobStorable m BakerInfo
@@ -723,6 +721,9 @@ instance MonadBlobStore m => BlobStorable m BS.ByteString
 instance MonadBlobStore m => BlobStorable m EncryptedAmount
 instance MonadBlobStore m => BlobStorable m TransactionHash
 instance MonadBlobStore m => BlobStorable m ()
+instance MonadBlobStore m => BlobStorable m Word8
+instance MonadBlobStore m => BlobStorable m Word32
+instance MonadBlobStore m => BlobStorable m Word64
 
 instance MonadBlobStore m => BlobStorable m AccountEncryptedAmount
 instance (MonadBlobStore m, Serialize (PersistingAccountData pv)) => BlobStorable m (PersistingAccountData pv)

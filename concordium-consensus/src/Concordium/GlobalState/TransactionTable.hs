@@ -118,7 +118,6 @@ getTransactionIndex bh = \case
   Finalized{..} -> if bh == tsBlockHash then Just (True, tsFinResult) else Nothing
   _ -> Nothing
 
-
 -- * Transaction table
 
 -- |The non-finalized transactions for a particular account.
@@ -154,6 +153,35 @@ emptyNFCU = emptyNFCUWithSequenceNumber minUpdateSequenceNumber
 emptyNFCUWithSequenceNumber :: UpdateSequenceNumber -> NonFinalizedChainUpdates
 emptyNFCUWithSequenceNumber = NonFinalizedChainUpdates Map.empty
 
+-- * Account address equivalence
+-- $equivalence
+-- The non-finalized transactions in the transaction table and the pending table
+-- maintain indices by account address equivalence classes. The reason for this
+-- is that really the mappings should be per account. Since multiple account
+-- addresses refer to the same account we need to identify them.
+-- AccountAddressEq is a best-effort attempt at that. If two addresses refer to
+-- the same account then they must agree on the first 29 bytes, and the AccountAddressEq
+-- identifies any addresses that match on the 29 byte prefix.
+--
+-- There is a caveat, in protocol versions 1 and 2 addresses are in 1-1
+-- correspondence with accounts. This means that technically AccountAddressEq
+-- could identify too many addresses, leading to inability of some accounts to
+-- send transactions in certain circumstances.
+-- This would happen in particular because when receiving transactions we
+-- compare the transaction nonce against the last finalized nonce so we might
+-- reject a transaction directly when receiving it due to accidental address
+-- identification. Similarly we might reject a valid block since we deem a nonce
+-- to be duplicate due to accidental address identification, and we reject a
+-- block with transactions with obsolete nonces outright. Once transactions are
+-- in the transaction table there are no soundness issues anymore since the
+-- scheduler resolves addresses to accounts and compares nonces of those
+-- accounts, however it might still happen that when baking a transaction would
+-- not be selected since we might skip it if we think it has a duplicate nonce due
+-- to accidental address identification.
+-- This is an extremely unlikely scenario and will only occur in case of a
+-- SHA256 collision on the first 29 bytes (but not all remaining 3 bytes).
+
+
 -- |The transaction table stores transactions and their statuses.
 -- In the persistent tree state implementation, finalized transactions are not
 -- stored in this table, but can be looked up from a disk-backed database.
@@ -172,9 +200,9 @@ emptyNFCUWithSequenceNumber = NonFinalizedChainUpdates Map.empty
 data TransactionTable = TransactionTable {
     -- |Map from transaction hashes to transactions, together with their current status.
     _ttHashMap :: !(HM.HashMap TransactionHash (BlockItem, TransactionStatus)),
-    -- |For each account, the non-finalized transactions for that account, grouped by
-    -- nonce.
-    _ttNonFinalizedTransactions :: !(HM.HashMap AccountAddress AccountNonFinalizedTransactions),
+    -- |For each account, the non-finalized transactions for that account,
+    -- grouped by nonce. See $equivalence for reasons why AccountAddressEq is used.
+    _ttNonFinalizedTransactions :: !(HM.HashMap AccountAddressEq AccountNonFinalizedTransactions),
     -- |For each update types, the non-finalized update instructions, grouped by
     -- sequence number.
     _ttNonFinalizedChainUpdates :: !(Map.Map UpdateType NonFinalizedChainUpdates)
@@ -190,10 +218,10 @@ emptyTransactionTable = TransactionTable {
 
 -- |A transaction table with no transactions, but with the initial next sequence numbers
 -- set for the accounts and update types.
-emptyTransactionTableWithSequenceNumbers :: HM.HashMap AccountAddress Nonce -> Map.Map UpdateType UpdateSequenceNumber -> TransactionTable
+emptyTransactionTableWithSequenceNumbers :: [(AccountAddress, Nonce)] -> Map.Map UpdateType UpdateSequenceNumber -> TransactionTable
 emptyTransactionTableWithSequenceNumbers accs upds = TransactionTable {
         _ttHashMap = HM.empty,
-        _ttNonFinalizedTransactions = emptyANFTWithNonce <$> HM.filter (/= minNonce) accs,
+        _ttNonFinalizedTransactions = HM.fromList . map (\(k, n) -> (accountAddressEmbed k, emptyANFTWithNonce n)) . filter (\(_, n) -> n /= minNonce) $ accs,
         _ttNonFinalizedChainUpdates = emptyNFCUWithSequenceNumber <$> Map.filter (/= minUpdateSequenceNumber) upds
     }
 
@@ -207,7 +235,9 @@ emptyTransactionTableWithSequenceNumbers accs upds = TransactionTable {
 -- @highNonce@ should always be at least @nextNonce@ (otherwise, what transaction is pending?).
 -- If an account has no pending transactions, then it should not be in the map.
 data PendingTransactionTable = PTT {
-  _pttWithSender :: !(HM.HashMap AccountAddress (Nonce, Nonce)),
+  -- |Pending transactions from accounts. See $equivalence for the reason why
+  -- the hashmap uses AccountAddressEq.
+  _pttWithSender :: !(HM.HashMap AccountAddressEq (Nonce, Nonce)),
   -- |Pending credentials. We only store the hash because updating the
   -- pending table would otherwise be more costly with the current setup.
   _pttDeployCredential :: !(HS.HashSet TransactionHash),
@@ -230,7 +260,7 @@ addPendingTransaction nextNonce tx PTT{..} = assert (nextNonce <= nonce) $ let v
         f Nothing = Just (nextNonce, nonce)
         f (Just (l, u)) = Just (l, max u nonce)
         nonce = transactionNonce tx
-        sender = transactionSender tx
+        sender = accountAddressEmbed (transactionSender tx)
 
 -- |Insert an additional element in the pending transaction table.
 -- Does nothing if the next nonce is greater than the transaction nonce.
@@ -239,9 +269,10 @@ addPendingTransaction nextNonce tx PTT{..} = assert (nextNonce <= nonce) $ let v
 checkedAddPendingTransaction :: TransactionData t => Nonce -> t -> PendingTransactionTable -> PendingTransactionTable
 checkedAddPendingTransaction nextNonce tx pt =
   if nextNonce > nonce then pt else
-    pt & pttWithSender . at' (transactionSender tx) %~ \case Nothing -> Just (nextNonce, nonce)
-                                                             Just (l, u) -> Just (l, max u nonce)
+    pt & pttWithSender . at' sender %~ \case Nothing -> Just (nextNonce, nonce)
+                                             Just (l, u) -> Just (l, max u nonce)
   where nonce = transactionNonce tx
+        sender = accountAddressEmbed (transactionSender tx)
 
 -- |Extend the pending transaction table with a credential hash.
 addPendingDeployCredential :: TransactionHash -> PendingTransactionTable -> PendingTransactionTable
@@ -279,8 +310,9 @@ forwardPTT :: [BlockItem] -> PendingTransactionTable -> PendingTransactionTable
 forwardPTT trs ptt0 = foldl' forward1 ptt0 trs
     where
         forward1 :: PendingTransactionTable -> BlockItem -> PendingTransactionTable
-        forward1 ptt WithMetadata{wmdData=NormalTransaction tr} = ptt & pttWithSender . at' (transactionSender tr) %~ upd
+        forward1 ptt WithMetadata{wmdData=NormalTransaction tr} = ptt & pttWithSender . at' sender %~ upd
             where
+                sender = accountAddressEmbed (transactionSender tr)
                 upd Nothing = error "forwardPTT : forwarding transaction that is not pending"
                 upd (Just (low, high)) =
                     assert (low == transactionNonce tr) $ assert (low <= high) $
@@ -304,8 +336,9 @@ reversePTT :: [BlockItem] -> PendingTransactionTable -> PendingTransactionTable
 reversePTT trs ptt0 = foldr reverse1 ptt0 trs
     where
         reverse1 :: BlockItem -> PendingTransactionTable -> PendingTransactionTable
-        reverse1 WithMetadata{wmdData=NormalTransaction tr} = pttWithSender . at' (transactionSender tr) %~ upd
+        reverse1 WithMetadata{wmdData=NormalTransaction tr} = pttWithSender . at' sender %~ upd
             where
+                sender = accountAddressEmbed (transactionSender tr)
                 upd Nothing = Just (transactionNonce tr, transactionNonce tr)
                 upd (Just (low, high)) =
                         assert (low == transactionNonce tr + 1) $

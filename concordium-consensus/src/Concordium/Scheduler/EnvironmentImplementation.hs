@@ -174,6 +174,10 @@ instance (MonadReader ContextState m,
     schedulerBlockState .= s'
     return res
 
+  {-# INLINE addressWouldClash #-}
+  addressWouldClash !addr =
+    lift . flip bsoAddressWouldClash addr =<< use schedulerBlockState
+
   {-# INLINE accountRegIdExists #-}
   accountRegIdExists !regid =
     lift . fmap isJust . flip bsoRegIdExists regid =<< use schedulerBlockState
@@ -185,18 +189,17 @@ instance (MonadReader ContextState m,
     return res
 
   {-# INLINE increaseAccountNonce #-}
-  increaseAccountNonce acc = do
+  increaseAccountNonce (ai, acc) = do
     s <- use schedulerBlockState
     nonce <- getAccountNonce acc
-    addr <- getAccountAddress acc
-    s' <- lift (bsoModifyAccount s (emptyAccountUpdate addr & auNonce ?~ (nonce + 1)))
+    addr <- getAccountCanonicalAddress acc
+    s' <- lift (bsoModifyAccount s (emptyAccountUpdate ai addr & auNonce ?~ (nonce + 1)))
     schedulerBlockState .= s'
 
   {-# INLINE updateAccountCredentials #-}
-  updateAccountCredentials !acc !idcs !creds !threshold  = do
+  updateAccountCredentials !ai !idcs !creds !threshold  = do
     s <- use schedulerBlockState
-    addr <- getAccountAddress acc
-    s' <- lift (bsoUpdateAccountCredentials s addr idcs creds threshold)
+    s' <- lift (bsoUpdateAccountCredentials s ai idcs creds threshold)
     schedulerBlockState .= s'
 
   {-# INLINE commitChanges #-}
@@ -213,7 +216,9 @@ instance (MonadReader ContextState m,
     -- log the initialized instances too
     lift (mapM_ (tell . logContract)
                       (Set.toList (cs ^. instanceInits)))
-    -- Notify account transfers, but also log the affected accounts.
+    -- Notify account transfers, but also log the affected accounts. Since the
+    -- changeset is meant to contain the canonical address of the account we
+    -- always log affected accounts by the canonical address.
     s'' <- lift (foldM (\curState accUpdate -> do
                            tell (logAccount (accUpdate ^. auAddress))
                            bsoModifyAccount curState accUpdate
@@ -244,44 +249,44 @@ instance (MonadReader ContextState m,
     schedulerBlockState .= s'
 
   {-# INLINE addBaker #-}
-  addBaker acct badd = do
+  addBaker ai badd = do
     s <- use schedulerBlockState
-    (ret, s') <- lift (bsoAddBaker s acct badd)
+    (ret, s') <- lift (bsoAddBaker s ai badd)
     schedulerBlockState .= s'
     return ret
 
   {-# INLINE removeBaker #-}
-  removeBaker badd = do
+  removeBaker ai = do
     s <- use schedulerBlockState
-    (ret, s') <- lift (bsoRemoveBaker s badd)
+    (ret, s') <- lift (bsoRemoveBaker s ai)
     schedulerBlockState .= s'
     return ret
 
   {-# INLINE updateBakerKeys #-}
-  updateBakerKeys badd keyUpd = do
+  updateBakerKeys ai keyUpd = do
     s <- use schedulerBlockState
-    (r, s') <- lift (bsoUpdateBakerKeys s badd keyUpd)
+    (r, s') <- lift (bsoUpdateBakerKeys s ai keyUpd)
     schedulerBlockState .= s'
     return r
 
   {-# INLINE updateBakerStake #-}
-  updateBakerStake badd bsu = do
+  updateBakerStake bi bsu = do
     s <- use schedulerBlockState
-    (r, s') <- lift (bsoUpdateBakerStake s badd bsu)
+    (r, s') <- lift (bsoUpdateBakerStake s bi bsu)
     schedulerBlockState .= s'
     return r
 
   {-# INLINE updateBakerRestakeEarnings #-}
-  updateBakerRestakeEarnings badd bre = do
+  updateBakerRestakeEarnings bi bre = do
     s <- use schedulerBlockState
-    (r, s') <- lift (bsoUpdateBakerRestakeEarnings s badd bre)
+    (r, s') <- lift (bsoUpdateBakerRestakeEarnings s bi bre)
     schedulerBlockState .= s'
     return r
 
   {-# INLINE updateCredentialKeys #-}
-  updateCredentialKeys accAddr credIndex newKeys = do
+  updateCredentialKeys accIndex credIndex newKeys = do
     s <- use schedulerBlockState
-    s' <- lift (bsoSetAccountCredentialKeys s accAddr credIndex newKeys)
+    s' <- lift (bsoSetAccountCredentialKeys s accIndex credIndex newKeys)
     schedulerBlockState .= s'
 
   {-# INLINE getIPInfo #-}

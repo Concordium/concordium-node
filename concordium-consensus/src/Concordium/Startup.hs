@@ -37,6 +37,7 @@ import Concordium.ID.DummyData
 import qualified Concordium.Genesis.Data as GenesisData
 import qualified Concordium.Genesis.Data.P1 as P1
 import qualified Concordium.Genesis.Data.P2 as P2
+import qualified Concordium.Genesis.Data.P3 as P3
 
 makeBakersByStake :: [Amount] -> [(BakerIdentity, FullBakerInfo, GenesisAccount, SigScheme.KeyPair)]
 makeBakersByStake = mbs 0
@@ -152,6 +153,10 @@ makeGenesisData
               genesisInitialState=GenesisData.GenesisState{genesisAccounts = Vec.fromList genesisAccounts, ..}
               }
             SP2 -> GDP2 P2.GDP2Initial{
+              genesisCore=GenesisData.CoreGenesisParameters{..},
+              genesisInitialState=GenesisData.GenesisState{genesisAccounts = Vec.fromList genesisAccounts, ..}
+              }
+            SP3 -> GDP3 P3.GDP3Initial{
               genesisCore=GenesisData.CoreGenesisParameters{..},
               genesisInitialState=GenesisData.GenesisState{genesisAccounts = Vec.fromList genesisAccounts, ..}
               }

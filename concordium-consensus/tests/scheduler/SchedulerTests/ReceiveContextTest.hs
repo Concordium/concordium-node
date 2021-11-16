@@ -1,5 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-| Test that the init context of a contract is passed correctly by the scheduler. -}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE TypeApplications #-}
+{-| Test that the receive context of a contract is passed correctly by the scheduler. -}
 module SchedulerTests.ReceiveContextTest where
 
 import Test.Hspec
@@ -7,11 +10,13 @@ import Test.HUnit
 import Lens.Micro.Platform
 import Control.Monad.IO.Class
 import Data.FixedByteString (pack)
+import Data.Proxy
 
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Concordium.Scheduler as Sch
 import Concordium.Scheduler.Runner
+import Concordium.Types.ProtocolVersion
 
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Invariants
@@ -24,14 +29,32 @@ import Concordium.GlobalState.DummyData
 import Concordium.Crypto.DummyData
 
 import SchedulerTests.Helpers
+import SchedulerTests.TestUtils
 
 alesAccount, thomasAccount :: AccountAddress
 alesAccount = AccountAddress $ pack $ take accountAddressSize $ repeat 1
 thomasAccount = AccountAddress $ pack $ take accountAddressSize $ repeat 2
 
-initialBlockState :: BlockState PV1
-initialBlockState = createBlockState $ putAccountWithRegIds (mkAccount alesVK alesAccount 1000000000)
-                                     $ putAccountWithRegIds (mkAccount thomasVK thomasAccount 1000000000) emptyAccounts
+sender1 :: forall pv . IsProtocolVersion pv => Proxy pv -> Types.AccountAddress
+sender1 Proxy
+  | demoteProtocolVersion (protocolVersion @pv) >= P3 = createAlias alesAccount 17
+  | otherwise = alesAccount
+
+sender2 :: forall pv . IsProtocolVersion pv => Proxy pv -> Types.AccountAddress
+sender2 Proxy
+  | demoteProtocolVersion (protocolVersion @pv) >= P3 = createAlias thomasAccount 77
+  | otherwise = thomasAccount
+
+
+-- See the contract in /testdata/contracts/send/src/lib.rs from which the wasm
+-- module is derived. The contract calls check that the invoker or sender is the
+-- account address consisting of only 2's, and that the owner is an account
+-- consisting of only 1's. We set up the state with addresses different from
+-- those and use the above-mentioned addresses as alias for the same account.
+-- This only applies to protocol P3 and up.
+initialBlockState :: forall pv . IsProtocolVersion pv => BlockState pv
+initialBlockState = createBlockState $ putAccountWithRegIds (mkAccount alesVK (sender1 (Proxy @pv)) 1000000000)
+                                     $ putAccountWithRegIds (mkAccount thomasVK (sender2 (Proxy @pv)) 1000000000) emptyAccounts
 
 chainMeta :: Types.ChainMetadata
 chainMeta = Types.ChainMetadata{ slotTime = 444 }
@@ -72,15 +95,15 @@ type TestResult = ([(Types.BlockItem, Types.ValidResult)],
                    [(Types.Transaction, Types.FailureKind)],
                    [(Types.ContractAddress, Instance)])
 
-testReceive :: IO TestResult
-testReceive = do
+testReceive :: forall pv . IsProtocolVersion pv => Proxy pv -> IO TestResult
+testReceive Proxy = do
     transactions <- processUngroupedTransactions transactionInputs
     let (Sch.FilteredTransactions{..}, finState) =
           Types.runSI (Sch.filterTransactions dummyBlockSize dummyBlockTimeout transactions)
             chainMeta
             maxBound
             maxBound
-            initialBlockState
+            (initialBlockState @pv)
     let gs = finState ^. Types.ssBlockState
     case invariantBlockState gs (finState ^. Types.schedulerExecutionCosts) of
         Left f -> liftIO $ assertFailure $ f ++ " " ++ show gs
@@ -100,6 +123,10 @@ checkReceiveResult (suc, fails, instances) = do
 
 tests :: SpecWith ()
 tests =
-  describe "Receive context in transactions." $
-    specify "Passing receive context to contract." $
-      testReceive >>= checkReceiveResult
+  describe "Receive context in transactions." $ do
+    specify "Passing receive context to contract P1." $
+      testReceive (Proxy @'P1) >>= checkReceiveResult
+    specify "Passing receive context to contract P2." $
+      testReceive (Proxy @'P2) >>= checkReceiveResult
+    specify "Passing receive context to contract P3." $
+      testReceive (Proxy @'P3) >>= checkReceiveResult

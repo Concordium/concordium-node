@@ -29,6 +29,11 @@ initialBlockState2 = blockStateWithAlesAccount
     10000000000
     (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 10000000000) Acc.emptyAccounts)
 
+initialBlockState3 :: BlockState PV3
+initialBlockState3 = blockStateWithAlesAccount
+    10000000000
+    (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 10000000000) Acc.emptyAccounts)
+
 cdiKeys :: CredentialDeploymentInformation -> CredentialPublicKeys
 cdiKeys cdi = credPubKeys (NormalACWP cdi)
 
@@ -200,9 +205,29 @@ testCases2 =
     }
   ]  
 
+testCases3 :: [TestCase PV3]
+testCases3 =
+  [ TestCase
+    { tcName = "Transfers with schedule P3"
+    , tcParameters = defaultParams {tpInitialBlockState=initialBlockState3, tpChainMeta=ChainMetadata { slotTime = 100 }}
+    , tcTransactions = [
+        -- should get rejected since sender = receiver, even if addresses are not exactly the same, but refer to the same account.
+        ( Runner.TJSON  { payload = Runner.TransferWithSchedule (createAlias alesAccount 2) [(101, 10),(102, 11),(103, 12)],
+                          metadata = makeDummyHeader (createAlias alesAccount 1) 1 100000,
+                          keys = [(0,[(0, alesKP)])]
+                        }
+        , (Reject $ ScheduledSelfTransfer (createAlias alesAccount 1) -- the rejection reason is meant to have the sender address.
+          , emptySpec
+          )
+        )
+      ]
+    }
+  ]
+
 
 
 tests :: Spec
 tests = do 
   describe "TransfersWithSchedule" $ mkSpecs testCases1 
   describe "TransfersWithScheduleAndMemo" $ mkSpecs testCases2
+  describe "TransfersWithScheduleP3" $ mkSpecs testCases3

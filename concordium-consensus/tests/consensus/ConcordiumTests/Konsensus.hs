@@ -86,7 +86,7 @@ dummyTime :: UTCTime
 dummyTime = posixSecondsToUTCTime 0
 
 type Trs = HM.HashMap TransactionHash (BlockItem, TransactionStatus)
-type ANFTS = HM.HashMap AccountAddress AccountNonFinalizedTransactions
+type ANFTS = HM.HashMap AccountAddressEq AccountNonFinalizedTransactions
 type NFCUS = Map.Map UpdateType NonFinalizedChainUpdates
 
 type Config t = SkovConfig PV MemoryTreeMemoryBlockConfig (ActiveFinalization t) NoHandler
@@ -126,7 +126,7 @@ invariantSkovData TS.SkovData{..} = addContext $ do
                              case bi of
                                WithMetadata{wmdData=NormalTransaction tr,..} ->
                                  _1
-                                 . at (transactionSender tr)
+                                 . at (accountAddressEmbed (transactionSender tr))
                                  . non emptyANFT
                                  . anftMap
                                  . at (transactionNonce tr)
@@ -148,7 +148,7 @@ invariantSkovData TS.SkovData{..} = addContext $ do
         let ptt = foldr (\(bi, _) ->
                         case wmdData bi of
                             NormalTransaction tr ->
-                                checkedAddPendingTransaction (pendingNonces ^. at (transactionSender tr) . non emptyANFT . anftNextNonce) tr
+                                checkedAddPendingTransaction (pendingNonces ^. at (accountAddressEmbed (transactionSender tr)) . non emptyANFT . anftNextNonce) tr
                             CredentialDeployment _ ->
                                 addPendingDeployCredential (wmdHash bi)
                             ChainUpdate cu ->
@@ -217,7 +217,7 @@ invariantSkovData TS.SkovData{..} = addContext $ do
                     let updNonce n =
                             if n == transactionNonce tr then Right (n + 1)
                             else Left $ "Expected " ++ show (transactionNonce tr) ++ " but found " ++ show n ++ " for account " ++ show (transactionSender tr)
-                    anfts' <- (at (transactionSender tr) . non emptyANFT . anftNextNonce) updNonce anfts
+                    anfts' <- (at (accountAddressEmbed (transactionSender tr)) . non emptyANFT . anftNextNonce) updNonce anfts
                     return (trMap', anfts', nfcus)
                 ChainUpdate cu -> do
                     let usn = updateSeqNumber (uiHeader cu)

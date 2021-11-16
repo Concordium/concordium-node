@@ -5,6 +5,7 @@ import Test.Hspec
 import Test.HUnit
 
 import Data.Maybe (catMaybes)
+import Data.Text (Text)
 
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
@@ -25,7 +26,7 @@ import Concordium.Crypto.DummyData
 import Concordium.Wasm (ReceiveName(..))
 
 import SchedulerTests.Helpers
-import Data.Text (Text)
+import SchedulerTests.TestUtils
 
 initialBlockState :: BlockState PV1
 initialBlockState = blockStateWithAlesAccount 1000000000 Acc.emptyAccounts

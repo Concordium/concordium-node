@@ -301,9 +301,9 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
 instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, AccountOperations (BSML pv lc r ls s m), AccountOperations (BSMR pv rc r rs s m), HashableTo H.Hash (Account (BSML pv lc r ls s m)), HashableTo H.Hash (Account (BSMR pv rc r rs s m)))
   => AccountOperations (BlockStateM pv (PairGSContext lc rc) r (PairGState ls rs) s m) where
 
-    getAccountAddress (acc1, acc2) = do
-        addr1 <- coerceBSML (getAccountAddress acc1)
-        addr2 <- coerceBSMR (getAccountAddress acc2)
+    getAccountCanonicalAddress (acc1, acc2) = do
+        addr1 <- coerceBSML (getAccountCanonicalAddress acc1)
+        addr2 <- coerceBSMR (getAccountCanonicalAddress acc2)
         assert (addr1 == addr2) $ return addr1
 
     getAccountAmount (acc1, acc2) = do
@@ -361,9 +361,10 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         r1 <- coerceBSML $ bsoGetAccount bs1 aref
         r2 <- coerceBSMR $ bsoGetAccount bs2 aref
         case (r1, r2) of
-          (Just r1', Just r2') ->
+          (Just (ai1, r1'), Just (ai2, r2')) ->
             assert ((getHash r1' :: H.Hash) == getHash r2') $
-              return $ Just (r1', r2')
+              assert (ai1 == ai2) $ 
+                return $ Just (ai1, (r1', r2'))
           (Nothing, Nothing) ->
             return Nothing
           (Nothing, _) ->
@@ -378,6 +379,10 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         r1 <- coerceBSML $ bsoGetInstance bs1 iref
         r2 <- coerceBSMR $ bsoGetInstance bs2 iref
         assert (((==) `on` fmap instanceHash) r1 r2) $ return r1
+    bsoAddressWouldClash (bs1, bs2) addr = do
+        r1 <- coerceBSML $ bsoAddressWouldClash bs1 addr
+        r2 <- coerceBSMR $ bsoAddressWouldClash bs2 addr
+        assert (r1 == r2) $ return r1
     bsoRegIdExists (bs1, bs2) regid = do
         r1 <- coerceBSML $ bsoRegIdExists bs1 regid
         r2 <- coerceBSMR $ bsoRegIdExists bs2 regid

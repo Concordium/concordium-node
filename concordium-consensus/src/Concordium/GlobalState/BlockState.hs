@@ -115,7 +115,7 @@ data AccountAllowance = AllowedEncryptedTransfers | AllowedMultipleCredentials
 class (BlockStateTypes m, Monad m) => AccountOperations m where
 
   -- | Get the address of the account
-  getAccountAddress :: Account m -> m AccountAddress
+  getAccountCanonicalAddress :: Account m -> m AccountAddress
 
   -- | Get the current public account balance
   getAccountAmount :: Account m -> m Amount
@@ -201,6 +201,7 @@ class AccountOperations m => BlockStateQuery m where
     -- |Get the list of addresses of modules existing in the given block state.
     getModuleList :: BlockState m -> m [ModuleRef]
     -- |Get the list of account addresses existing in the given block state.
+    -- This returns the canonical addresses.
     getAccountList :: BlockState m -> m [AccountAddress]
     -- |Get the list of contract instances existing in the given block state.
     getContractInstanceList :: BlockState m -> m [Instance]
@@ -292,11 +293,14 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- |Get the module from the module table of the state instance.
   bsoGetModule :: UpdatableBlockState m -> ModuleRef -> m (Maybe Wasm.ModuleInterface)
   -- |Get an account by its address.
-  bsoGetAccount :: UpdatableBlockState m -> AccountAddress -> m (Maybe (Account m))
+  bsoGetAccount :: UpdatableBlockState m -> AccountAddress -> m (Maybe (IndexedAccount m))
   -- |Get the index of an account.
   bsoGetAccountIndex :: UpdatableBlockState m -> AccountAddress -> m (Maybe AccountIndex)
   -- |Get the contract state from the contract table of the state instance.
   bsoGetInstance :: UpdatableBlockState m -> ContractAddress -> m (Maybe Instance)
+
+  -- |Check whether the given account address would clash with any existing address.
+  bsoAddressWouldClash :: UpdatableBlockState m -> ID.AccountAddress -> m Bool
 
   -- |Check whether an the given credential registration ID exists, and return
   -- the account index of the account it is or was associated with.
@@ -329,7 +333,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   --
   -- The caller must ensure that the account exists and has a credential with the given
   -- index.
-  bsoSetAccountCredentialKeys :: UpdatableBlockState m -> AccountAddress -> ID.CredentialIndex -> ID.CredentialPublicKeys -> m (UpdatableBlockState m)
+  bsoSetAccountCredentialKeys :: UpdatableBlockState m -> AccountIndex -> ID.CredentialIndex -> ID.CredentialPublicKeys -> m (UpdatableBlockState m)
 
   -- |Update the set of credentials on a given account by: removing credentials, adding
   -- credentials, and updating the account threshold (i.e. number of credentials that are
@@ -350,7 +354,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- This ordering is significant because it affects the account hash.
   bsoUpdateAccountCredentials ::
     UpdatableBlockState m
-    -> AccountAddress
+    -> AccountIndex
     -> [ID.CredentialIndex]
     -- ^Credentials to remove
     -> Map.Map ID.CredentialIndex AccountCredential
@@ -413,7 +417,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   --
   -- The caller MUST ensure that the staked amount does not exceed the total
   -- balance on the account.
-  bsoAddBaker :: UpdatableBlockState m -> AccountAddress -> BakerAdd -> m (BakerAddResult, UpdatableBlockState m)
+  bsoAddBaker :: UpdatableBlockState m -> AccountIndex -> BakerAdd -> m (BakerAddResult, UpdatableBlockState m)
 
   -- |Update the keys associated with an account.
   -- It is assumed that the keys have already been checked for validity/ownership as
@@ -427,7 +431,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- * @BKUInvalidBaker@: the account does not exist or is not currently a baker.
   --
   -- * @BKUDuplicateAggregationKey@: the aggregation key is a duplicate.
-  bsoUpdateBakerKeys :: UpdatableBlockState m -> AccountAddress -> BakerKeyUpdate -> m (BakerKeyUpdateResult, UpdatableBlockState m)
+  bsoUpdateBakerKeys :: UpdatableBlockState m -> AccountIndex -> BakerKeyUpdate -> m (BakerKeyUpdateResult, UpdatableBlockState m)
 
   -- |Update the stake associated with an account.
   -- A reduction in stake will be delayed by the current cool-off period.
@@ -451,7 +455,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- * @BSUChangePending id@: the change could not be made since the account is already in a cooling-off period.
   --
   -- The caller MUST ensure that the staked amount does not exceed the total balance on the account.
-  bsoUpdateBakerStake :: UpdatableBlockState m -> AccountAddress -> Amount -> m (BakerStakeUpdateResult, UpdatableBlockState m)
+  bsoUpdateBakerStake :: UpdatableBlockState m -> AccountIndex -> Amount -> m (BakerStakeUpdateResult, UpdatableBlockState m)
 
   -- |Update whether a baker's earnings are automatically restaked.
   --
@@ -460,7 +464,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- * @BREUUpdated id@: the flag was updated.
   --
   -- * @BREUInvalidBaker@: the account does not exists, or is not currently a baker.
-  bsoUpdateBakerRestakeEarnings :: UpdatableBlockState m -> AccountAddress -> Bool -> m (BakerRestakeEarningsUpdateResult, UpdatableBlockState m)
+  bsoUpdateBakerRestakeEarnings :: UpdatableBlockState m -> AccountIndex -> Bool -> m (BakerRestakeEarningsUpdateResult, UpdatableBlockState m)
 
   -- |Remove the baker associated with an account.
   -- The removal takes effect after a cooling-off period.
@@ -473,7 +477,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- * @BRInvalidBaker@: the account address is not valid, or the account is not a baker.
   --
   -- * @BRChangePending id@: the baker is currently in a cooling-off period and so cannot be removed.
-  bsoRemoveBaker :: UpdatableBlockState m -> AccountAddress -> m (BakerRemoveResult, UpdatableBlockState m)
+  bsoRemoveBaker :: UpdatableBlockState m -> AccountIndex -> m (BakerRemoveResult, UpdatableBlockState m)
 
   -- |Add an amount to a baker's account as a reward. The baker's stake is increased
   -- correspondingly if the baker is set to restake rewards.
@@ -664,7 +668,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   {-# INLINE getCryptographicParameters #-}
 
 instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (MGSTrans t m) where
-  getAccountAddress = lift . getAccountAddress
+  getAccountCanonicalAddress = lift . getAccountCanonicalAddress
   getAccountAmount = lift. getAccountAmount
   checkAccountIsAllowed acc = lift . checkAccountIsAllowed acc
   getAccountAvailableAmount = lift . getAccountAvailableAmount
@@ -675,7 +679,7 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
   getAccountEncryptionKey = lift . getAccountEncryptionKey
   getAccountReleaseSchedule = lift . getAccountReleaseSchedule
   getAccountBaker = lift . getAccountBaker
-  {-# INLINE getAccountAddress #-}
+  {-# INLINE getAccountCanonicalAddress #-}
   {-# INLINE getAccountAmount #-}
   {-# INLINE getAccountAvailableAmount #-}
   {-# INLINE checkAccountIsAllowed #-}
@@ -691,6 +695,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoGetAccount s = lift . bsoGetAccount s
   bsoGetAccountIndex s = lift . bsoGetAccountIndex s
   bsoGetInstance s = lift . bsoGetInstance s
+  bsoAddressWouldClash s = lift . bsoAddressWouldClash s
   bsoRegIdExists s = lift . bsoRegIdExists s
   bsoCreateAccount s gc accAddr cdv = lift $ bsoCreateAccount s gc accAddr cdv
   bsoPutNewInstance s = lift . bsoPutNewInstance s
@@ -736,6 +741,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoGetAccount #-}
   {-# INLINE bsoGetAccountIndex #-}
   {-# INLINE bsoGetInstance #-}
+  {-# INLINE bsoAddressWouldClash #-}
   {-# INLINE bsoRegIdExists #-}
   {-# INLINE bsoCreateAccount #-}
   {-# INLINE bsoPutNewInstance #-}
