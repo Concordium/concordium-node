@@ -557,7 +557,8 @@ doReceiveTransactionInternal tr ts slot = do
    else do
     cache <- getTransactionVerificationCache   
     (verRes, cache') <- runReaderT (verifyWithCache ts tr cache) =<< blockState =<< getFocusBlock
-    if not (isCacheable verRes) then do return (Nothing, mapTransactionVerificationResult verRes)
+    -- If the transaction cannot be valid in the future we reject it now
+    if definitelyNotValid verRes then do return (Nothing, mapTransactionVerificationResult verRes)
     else do
       putTransactionVerificationCache cache'
       flip addTx verRes =<< blockState =<< getFocusBlock
@@ -583,6 +584,7 @@ doReceiveTransactionInternal tr ts slot = do
             return (Just bi, mapTransactionVerificationResult verRes)
           Duplicate tx -> return (Just tx, ResultDuplicate)
           ObsoleteNonce -> return (Nothing, ResultStale)
+      definitelyNotValid verificationResult = not $ isCacheable verificationResult
 
 -- |Shutdown the skov, returning a list of pending transactions.
 doTerminateSkov :: (TreeStateMonad pv m, SkovMonad pv m) => m [BlockItem]
