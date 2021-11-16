@@ -166,10 +166,6 @@ instance (MonadReader ContextState m,
          )
          => SchedulerMonad pv (BSOMonadWrapper pv ContextState w state m) where
 
-  {-# INLINE insertTransactionVerificationResult #-}
-  insertTransactionVerificationResult txHash verResult = do
-    transactionVerificationCache %=! Map.insert txHash verResult
-
   {-# INLINE lookupTransactionVerificationResult #-}
   lookupTransactionVerificationResult k = use (transactionVerificationCache . at k)
 
