@@ -36,6 +36,7 @@ import Concordium.Types.DummyData
 import Concordium.Crypto.DummyData
 
 import SchedulerTests.Helpers
+import SchedulerTests.TestUtils
 
 import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as L
 

@@ -94,7 +94,7 @@ import Prelude hiding (exp, mod)
 -- header and @Just fk@ if any of the checks fails, with the respective 'FailureKind'.
 --
 -- Returns the sender account and the cost to be charged for checking the header.
-checkHeader :: (TransactionData msg, SchedulerMonad pv m) => msg -> ExceptT (Maybe FailureKind) m (Account m, Energy)
+checkHeader :: (TransactionData msg, SchedulerMonad pv m) => msg -> ExceptT (Maybe FailureKind) m (IndexedAccount m, Energy)
 checkHeader meta = do
   -- Before even checking the header we calculate the cost that will be charged for this
   -- and check that at least that much energy is deposited and remaining from the maximum block energy.
@@ -107,7 +107,7 @@ checkHeader meta = do
   macc <- lift (getAccount (transactionSender meta))
   case macc of
     Nothing -> throwError . Just $ (UnknownAccount (transactionSender meta))
-    Just acc -> do
+    Just iacc@(_, acc) -> do
       amnt <- getAccountAvailableAmount acc
       nextNonce <- getAccountNonce acc
       let txnonce = transactionNonce meta
@@ -128,7 +128,7 @@ checkHeader meta = do
       let sigCheck = verifyTransaction keys meta
       unless sigCheck (throwError . Just $ IncorrectSignature)
 
-      return (acc, cost)
+      return (iacc, cost)
 
 -- | Execute a transaction on the current block state, charging valid accounts
 -- for the resulting energy cost.
@@ -165,11 +165,10 @@ dispatch msg = do
           -- exists on the account with 'checkHeader'.
           payment <- energyToGtu checkHeaderCost
           chargeExecutionCost (transactionHash msg) senderAccount payment
-          addr <- getAccountAddress senderAccount
           return $ Just $ TxValid $ TransactionSummary{
             tsEnergyCost = checkHeaderCost,
             tsCost = payment,
-            tsSender = Just addr,
+            tsSender = Just (thSender meta), -- the sender of the transaction is as specified in the transaction.
             tsResult = TxReject SerializationFailure,
             tsHash = transactionHash msg,
             tsType = TSTAccountTransaction Nothing,
@@ -255,7 +254,7 @@ dispatch msg = do
             Nothing -> return Nothing
             Just summary -> return $ Just $ TxValid summary
 
-handleTransferWithSchedule ::
+handleTransferWithSchedule :: forall pv m .
   SchedulerMonad pv m
   => WithDepositContext m
   -> AccountAddress
@@ -266,16 +265,16 @@ handleTransferWithSchedule wtc twsTo twsSchedule maybeMemo = withDeposit wtc c k
   where senderAccount = wtc ^. wtcSenderAccount
         txHash = wtc ^. wtcTransactionHash
         meta = wtc ^. wtcTransactionHeader
-
+        senderAddress = thSender meta
         c = do
-          senderAddress <- getAccountAddress senderAccount
-          -- the expensive operations start now, so we charge.
-
           -- After we've checked all of that, we charge.
           tickEnergy (Cost.scheduledTransferCost $ length twsSchedule)
 
           -- we do not allow for self scheduled transfers
-          when (twsTo == senderAddress) $ rejectTransaction (ScheduledSelfTransfer twsTo)
+          -- (This is checked later for protocol P3 and up, to ensure that the
+          -- addresses are not aliases for the same account.)
+          when ((demoteProtocolVersion (protocolVersion @pv) <= P2) && twsTo == senderAddress) $
+              rejectTransaction (ScheduledSelfTransfer twsTo)
 
           -- Get the amount available for the account
           senderAmount <- getCurrentAccountAvailableAmount senderAccount
@@ -304,12 +303,21 @@ handleTransferWithSchedule wtc twsTo twsSchedule maybeMemo = withDeposit wtc c k
 
               -- check the target account
               targetAccount <- getStateAccount twsTo `rejectingWith` InvalidAccountReference twsTo
-              -- Check that the account has a valid credential and reject the transaction if not
-              -- (it is not allowed to send to accounts without valid credential).
+              -- In protocol version P3 account addresses are no longer in 1-1
+              -- correspondence with accounts. Thus to check that a scheduled
+              -- transfer is not a self transfer we need to check canonical
+              -- account references. We use account indices for that here. The
+              -- check above for scheduled self transfer using twsTo and
+              -- senderAddress is thus redundant, however it must be kept there
+              -- to keep protocol compatibility with P1 and P2 protocols.
+              -- Rejected transactions's rejection reason is part of block
+              -- hashes.
+              when (demoteProtocolVersion (protocolVersion @pv) >= P3) $
+                when (fst targetAccount == fst senderAccount) $ rejectTransaction . ScheduledSelfTransfer $ senderAddress
 
-              withScheduledAmount senderAccount targetAccount transferAmount twsSchedule txHash $ return senderAddress
+              withScheduledAmount senderAccount targetAccount transferAmount twsSchedule txHash $ return ()
 
-        k ls senderAddress = do
+        k ls () = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
           chargeExecutionCost txHash senderAccount energyCost
           commitChanges (ls ^. changeSet)
@@ -331,21 +339,20 @@ handleTransferToPublic wtc transferData@SecToPubAmountTransferData{..} = do
   where senderAccount = wtc ^. wtcSenderAccount
         txHash = wtc ^. wtcTransactionHash
         meta = wtc ^. wtcTransactionHeader
-
+        senderAddress = thSender meta
         c cryptoParams = do
-          senderAddress <- getAccountAddress senderAccount
           -- the expensive operations start now, so we charge.
           tickEnergy Cost.transferToPublicCost
 
-          senderAllowed <- checkAccountIsAllowed senderAccount AllowedEncryptedTransfers
+          senderAllowed <- checkAccountIsAllowed (snd senderAccount) AllowedEncryptedTransfers
           unless senderAllowed $ rejectTransaction NotAllowedToHandleEncrypted
 
           -- Get the encrypted amount at the index that the transfer claims to be using.
-          senderAmount <- getAccountEncryptedAmountAtIndex senderAccount stpatdIndex `rejectingWith` InvalidIndexOnEncryptedTransfer
+          senderAmount <- getAccountEncryptedAmountAtIndex (snd senderAccount) stpatdIndex `rejectingWith` InvalidIndexOnEncryptedTransfer
 
           -- and then we start validating the proof. This is the most expensive
           -- part of the validation by far, the rest only being lookups and a little bit of addition.
-          senderPK <- getAccountEncryptionKey senderAccount
+          senderPK <- getAccountEncryptionKey (snd senderAccount)
           let valid = verifySecretToPublicTransferProof cryptoParams senderPK senderAmount transferData
 
           unless valid $ rejectTransaction InvalidTransferToPublicProof
@@ -355,9 +362,9 @@ handleTransferToPublic wtc transferData@SecToPubAmountTransferData{..} = do
           -- - replace some encrypted amounts on the sender's account
           addAmountFromEncrypted senderAccount stpatdTransferAmount stpatdIndex stpatdRemainingAmount
 
-          return (senderAddress, senderAmount)
+          return senderAmount
 
-        k ls (senderAddress, senderAmount) = do
+        k ls senderAmount = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
           chargeExecutionCost txHash senderAccount energyCost
           notifyEncryptedBalanceChange $ amountDiff 0 stpatdTransferAmount
@@ -387,13 +394,13 @@ handleTransferToEncrypted wtc toEncrypted = do
   where senderAccount = wtc ^. wtcSenderAccount
         txHash = wtc ^. wtcTransactionHash
         meta = wtc ^. wtcTransactionHeader
+        senderAddress = thSender meta
 
         c cryptoParams = do
-          senderAddress <- getAccountAddress senderAccount
 
           tickEnergy Cost.transferToEncryptedCost
 
-          senderAllowed <- checkAccountIsAllowed senderAccount AllowedEncryptedTransfers
+          senderAllowed <- checkAccountIsAllowed (snd senderAccount) AllowedEncryptedTransfers
           unless senderAllowed $ rejectTransaction NotAllowedToHandleEncrypted
 
           -- check that the sender actually owns the amount it claims to be transferred
@@ -406,9 +413,9 @@ handleTransferToEncrypted wtc toEncrypted = do
           -- We have to subtract the amount and update the self encrypted amount
           addSelfEncryptedAmount senderAccount toEncrypted encryptedAmount
 
-          return (senderAddress, encryptedAmount)
+          return encryptedAmount
 
-        k ls (senderAddress, encryptedAmount) = do
+        k ls encryptedAmount = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
           chargeExecutionCost txHash senderAccount energyCost
           notifyEncryptedBalanceChange $ amountToDelta toEncrypted
@@ -422,7 +429,7 @@ handleTransferToEncrypted wtc toEncrypted = do
                    energyCost,
                    usedEnergy)
 
-handleEncryptedAmountTransfer ::
+handleEncryptedAmountTransfer :: forall pv m .
   SchedulerMonad pv m
   => WithDepositContext m
   -> AccountAddress -- ^ Receiver address.
@@ -435,10 +442,9 @@ handleEncryptedAmountTransfer wtc toAddress transferData@EncryptedAmountTransfer
   where senderAccount = wtc ^. wtcSenderAccount
         txHash = wtc ^. wtcTransactionHash
         meta = wtc ^. wtcTransactionHeader
+        senderAddress = thSender meta
 
         c cryptoParams = do
-
-          senderAddress <- getAccountAddress senderAccount
 
           -- We charge as soon as we can even if we could in principle do some
           -- checks that are cheaper.
@@ -447,24 +453,36 @@ handleEncryptedAmountTransfer wtc toAddress transferData@EncryptedAmountTransfer
           -- We do not allow sending encrypted transfers from an account to itself.
           -- There is no reason to do so in the current setup, and it causes some technical
           -- complications.
-          when (toAddress == senderAddress) $ rejectTransaction (EncryptedAmountSelfTransfer toAddress)
+          -- (This is checked later for protocol P3 and up, to ensure that the
+          -- addresses are not aliases for the same account.)
+          when ((demoteProtocolVersion (protocolVersion @pv) <= P2) && toAddress == senderAddress)
+              $ rejectTransaction (EncryptedAmountSelfTransfer toAddress)
 
-          senderAllowed <- checkAccountIsAllowed senderAccount AllowedEncryptedTransfers
+          senderAllowed <- checkAccountIsAllowed (snd senderAccount) AllowedEncryptedTransfers
           unless senderAllowed $ rejectTransaction NotAllowedToHandleEncrypted
 
           -- Look up the receiver account first, and don't charge if it does not exist
           -- and does not have a valid credential.
           targetAccount <- getStateAccount toAddress `rejectingWith` InvalidAccountReference toAddress
+          -- Check that the account is not transferring to itself since that
+          -- causes technical complications. In protocol versions 1 and 2
+          -- account addresses and accounts were in 1-1 correspondence. In
+          -- protocol version 3 an account may have multiple addresses and thus
+          -- to check a self transfer we must check with canonical account
+          -- identifiers. We use account indices for that.
+          when ((demoteProtocolVersion (protocolVersion @pv) >= P3) && fst targetAccount == fst senderAccount)
+              $ rejectTransaction . EncryptedAmountSelfTransfer $ senderAddress
 
-          receiverAllowed <- checkAccountIsAllowed targetAccount AllowedEncryptedTransfers
+
+          receiverAllowed <- checkAccountIsAllowed (snd targetAccount) AllowedEncryptedTransfers
           unless receiverAllowed $ rejectTransaction NotAllowedToReceiveEncrypted
 
           -- Get the encrypted amount at the index that the transfer claims to be using.
-          senderAmount <- getAccountEncryptedAmountAtIndex senderAccount eatdIndex `rejectingWith` InvalidIndexOnEncryptedTransfer
+          senderAmount <- getAccountEncryptedAmountAtIndex (snd senderAccount) eatdIndex `rejectingWith` InvalidIndexOnEncryptedTransfer
           -- and then we start validating the proof. This is the most expensive
           -- part of the validation by far, the rest only being lookups.
-          receiverPK <- getAccountEncryptionKey targetAccount
-          senderPK <- getAccountEncryptionKey senderAccount
+          receiverPK <- getAccountEncryptionKey (snd targetAccount)
+          senderPK <- getAccountEncryptionKey (snd senderAccount)
           let valid = verifyEncryptedTransferProof cryptoParams receiverPK senderPK senderAmount transferData
 
           unless valid $ rejectTransaction InvalidEncryptedAmountTransferProof
@@ -478,11 +496,11 @@ handleEncryptedAmountTransfer wtc toAddress transferData@EncryptedAmountTransfer
 
           replaceEncryptedAmount senderAccount eatdIndex eatdRemainingAmount
           -- The index that the new amount on the receiver's account will get
-          targetAccountIndex <- addEncryptedAmount targetAccount eatdTransferAmount
+          targetAccountEncryptedAmountIndex <- addEncryptedAmount targetAccount eatdTransferAmount
 
-          return (senderAddress, targetAccountIndex, senderAmount)
+          return (targetAccountEncryptedAmountIndex, senderAmount)
 
-        k ls (senderAddress, targetAccountIndex, senderAmount) = do
+        k ls (targetAccountEncryptedAmountIndex, senderAmount) = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
           chargeExecutionCost txHash senderAccount energyCost
           commitChanges (ls ^. changeSet)
@@ -494,7 +512,7 @@ handleEncryptedAmountTransfer wtc toAddress transferData@EncryptedAmountTransfer
                                 },
                              NewEncryptedAmount{
                                 neaAccount = toAddress,
-                                neaNewIndex = targetAccountIndex,
+                                neaNewIndex = targetAccountEncryptedAmountIndex,
                                 neaEncryptedAmount = eatdTransferAmount
                                 }
                             ] ++ (TransferMemo <$> maybeToList maybeMemo)
@@ -575,6 +593,9 @@ handleInitContract wtc initAmount modref initName param =
     where senderAccount = wtc ^. wtcSenderAccount
           txHash = wtc ^. wtcTransactionHash
           meta = wtc ^. wtcTransactionHeader
+          -- The contract gets the address that was used when signing the
+          -- transactions, as opposed to the canonical one.
+          senderAddress = thSender meta
           c = do
             -- charge for base administrative cost
             tickEnergy Cost.initializeContractInstanceBaseCost
@@ -600,9 +621,9 @@ handleInitContract wtc initAmount modref initName param =
             -- sender account. Thus if the initialization function were to observe the current balance it would
             -- be amount - deposit. Currently this is in any case not exposed in contracts, but in case it
             -- is in the future we should be mindful of which balance is exposed.
-            senderCredentials <- getAccountCredentials senderAccount
+            senderCredentials <- getAccountCredentials (snd senderAccount)
             let initCtx = Wasm.InitContext{
-                  initOrigin = thSender meta,
+                  initOrigin = senderAddress,
                   icSenderPolicies = map (Wasm.mkSenderPolicy . snd) (OrdMap.toAscList senderCredentials)
                }
             result <- runInterpreter (return . Wasm.applyInitFun iface cm initCtx initName param initAmount)
@@ -624,7 +645,7 @@ handleInitContract wtc initAmount modref initName param =
             cs' <- addAmountToCS senderAccount (amountDiff 0 initAmount) (ls ^. changeSet)
 
             let receiveMethods = OrdMap.findWithDefault Set.empty initName (Wasm.miExposedReceive iface)
-            let ins = makeInstance modref initName receiveMethods iface model initAmount (thSender meta)
+            let ins = makeInstance modref initName receiveMethods iface model initAmount senderAddress
             addr <- putNewInstance ins
 
             -- add the contract initialization to the change set and commit the changes
@@ -645,10 +666,24 @@ handleSimpleTransfer ::
     -> Amount -- ^The amount to transfer.
     -> Maybe Memo -- ^Nothing in case of a Transfer and Just in case of a TransferWithMemo
     -> m (Maybe TransactionSummary)
-handleSimpleTransfer wtc toaddr amount maybeMemo =
+handleSimpleTransfer wtc toAddr transferamount maybeMemo =
   withDeposit wtc c (defaultSuccess wtc)
     where senderAccount = wtc ^. wtcSenderAccount
-          c = handleTransferAccount senderAccount toaddr (Right senderAccount) amount maybeMemo
+          meta = wtc ^. wtcTransactionHeader
+          senderAddress = thSender meta
+          c = do
+            -- charge at the beginning, successful and failed transfers will have the same cost.
+            tickEnergy Cost.simpleTransferCost
+            -- Check whether the sender has the amount to be transferred and reject the transaction if not.
+            senderamount <- getCurrentAccountAvailableAmount senderAccount
+            unless (senderamount >= transferamount) $! rejectTransaction (AmountTooLarge (AddressAccount senderAddress) transferamount)
+            
+            -- Check whether target account exists and get it.
+            targetAccount <- getStateAccount toAddr `rejectingWith` InvalidAccountReference toAddr
+            
+            -- Add the transfer to the current changeset and return the corresponding event.
+            withAccountToAccountAmount senderAccount targetAccount transferamount $
+                return $ Transferred (AddressAccount senderAddress) transferamount (AddressAccount toAddr) : (TransferMemo <$> maybeToList maybeMemo)
 
 -- | Handle a top-level update transaction to a contract.
 handleUpdateContract ::
@@ -662,12 +697,14 @@ handleUpdateContract ::
 handleUpdateContract wtc uAmount uAddress uReceiveName uMessage =
   withDeposit wtc c (defaultSuccess wtc)
   where senderAccount = wtc ^. wtcSenderAccount
+        meta = wtc ^. wtcTransactionHeader
+        senderAddress = thSender meta
         c = do
           ins <- getCurrentContractInstanceTicking uAddress
           -- Now invoke the general handler for contract messages.
-          handleMessage senderAccount
+          handleMessage senderAddress
                         ins
-                        (Right senderAccount)
+                        (Right (senderAddress, senderAccount))
                         uAmount
                         uReceiveName
                         uMessage
@@ -679,11 +716,13 @@ handleUpdateContract wtc uAmount uAddress uReceiveName uMessage =
 -- The target contract must exist, so that its state can be looked up.
 handleMessage :: forall pv m.
   (TransactionMonad pv m, AccountOperations m)
-  => Account m -- ^The account that sent the top-level transaction.
+  => AccountAddress -- ^The address that was used to send the top-level transaction.
   -> Instance -- ^The current state of the target contract of the transaction, which must exist.
-  -> Either (Account m, Instance) (Account m)
+  -> Either (IndexedAccount m, Instance) (AccountAddress, IndexedAccount m)
   -- ^The sender of the message (contract instance or account). In case this is
-  -- a contract the first parameter the owner account of the instance.
+  -- a contract the first parameter is the owner account of the instance. In case this is an account
+  -- (i.e., this is called from a top-level transaction) the value is a pair of the address that was used
+  -- as the sender address of the transaction, and the account to which it points.
   -- On the first invocation of this function this will be the sender of the
   -- top-level transaction, and in recursive calls the respective contract
   -- instance that produced the message.
@@ -691,17 +730,19 @@ handleMessage :: forall pv m.
   -> Wasm.ReceiveName -- ^Name of the contract to invoke.
   -> Wasm.Parameter -- ^Message to invoke the receive method with.
   -> m [Event] -- ^The events resulting from processing the message and all recursively processed messages.
-handleMessage origin istance sender transferAmount receiveName parameter = do
+handleMessage originAddr istance sender transferAmount receiveName parameter = do
   -- Cover administrative costs.
   tickEnergy Cost.updateContractInstanceBaseCost
 
   let model = instanceModel istance
   -- Check whether the sender of the message has enough on its account/instance for the transfer.
   -- If the amount is not sufficient, the top-level transaction is rejected.
+  -- Note that this returns the address that was used in the top-level transaction, or the contract address.
+  -- In the former case the credentials are credentials of the account, in the
+  -- latter they are credentials of the owner account.
   (senderAddr, senderCredentials) <- mkSenderAddrCredentials sender
   senderamount <- getCurrentAvailableAmount sender
   unless (senderamount >= transferAmount) $ rejectTransaction (AmountTooLarge senderAddr transferAmount)
-  originAddr <- getAccountAddress origin
 
   let iParams = instanceParameters istance
   let cref = instanceAddress iParams
@@ -756,7 +797,7 @@ handleMessage origin istance sender transferAmount receiveName parameter = do
                               euReceiveName=receiveName,
                               euEvents = Wasm.logs result
                                }
-      foldEvents origin (ownerAccount, istance) initEvent txOut
+      foldEvents originAddr (ownerAccount, istance) initEvent txOut
 
 -- Cost of a step in the traversal of the actions tree. We need to charge for
 -- this separately to prevent problems with exponentially sized trees
@@ -770,22 +811,22 @@ traversalStepCost :: Energy
 traversalStepCost = 10
 
 foldEvents :: (TransactionMonad pv m, AccountOperations m)
-           =>  Account m -- ^Account that originated the top-level transaction
-           -> (Account m, Instance) -- ^Instance that generated the events.
+           => AccountAddress -- ^Address that was used in the top-level transaction.
+           -> (IndexedAccount m, Instance) -- ^Instance that generated the events.
            -> Event -- ^Event generated by the invocation of the instance.
            -> Wasm.ActionsTree -- ^Actions to perform
            -> m [Event] -- ^List of events in order that transactions were traversed.
-foldEvents origin istance initEvent = fmap (initEvent:) . go
+foldEvents originAddr istance initEvent = fmap (initEvent:) . go
   where go Wasm.TSend{..} = do
           cinstance <- getCurrentContractInstanceTicking erAddr
-          handleMessage origin
+          handleMessage originAddr
                               cinstance
                               (Left istance)
                               erAmount
                               erName
                               erParameter
         go Wasm.TSimpleTransfer{..} = do
-          handleTransferAccount origin erTo (Left istance) erAmount Nothing
+          handleTransferAccount erTo (snd istance) erAmount
         go (Wasm.And l r) = do
           tickEnergy traversalStepCost
           resL <- go l
@@ -799,43 +840,39 @@ foldEvents origin istance initEvent = fmap (initEvent:) . go
           go l `orElse` go r
         go Wasm.Accept = return []
 
-mkSenderAddrCredentials :: AccountOperations m => Either (Account m, Instance) (Account m) -> m (Address, [ID.AccountCredential])
+mkSenderAddrCredentials :: AccountOperations m => Either (IndexedAccount m, Instance) (AccountAddress, IndexedAccount m) -> m (Address, [ID.AccountCredential])
 mkSenderAddrCredentials sender =
     case sender of
       Left (ownerAccount, istance) -> do
-        credentials <- getAccountCredentials ownerAccount
+        credentials <- getAccountCredentials (snd ownerAccount)
         return (AddressContract (instanceAddress (instanceParameters istance)), map snd (OrdMap.toAscList credentials))
-      Right acc -> do
-        addr <- AddressAccount <$> getAccountAddress acc
+      Right (usedAddress, (_, acc)) -> do
+        let addr = AddressAccount usedAddress
         credentials <- getAccountCredentials acc
         return (addr, map snd (OrdMap.toAscList credentials))
 
 
--- | Handle the transfer of an amount from an account or contract instance to an account.
--- TODO: Figure out whether we need the origin information in here (i.e.,
--- whether an account can observe it).
+-- | Handle the transfer of an amount from a contract instance to an account.
 handleTransferAccount ::
-  (TransactionMonad pv m, AccountOperations m)
-  => Account m -- ^The account that sent the top-level transaction.
-  -> AccountAddress -- ^The target account address.
-  -> Either (Account m, Instance) (Account m) -- ^The sender of this transfer (contract instance or account).
+  TransactionMonad pv m
+  => AccountAddress -- ^The target account address.
+  -> Instance -- ^The sender of this transfer.
   -> Amount -- ^The amount to transfer.
-  -> Maybe Memo  -- ^Nothing in case of a Transfer and Just in case of a TransferWithMemo
   -> m [Event] -- ^The events resulting from the transfer.
-handleTransferAccount _origin accAddr sender transferamount maybeMemo = do
+handleTransferAccount accAddr senderInstance transferamount = do
   -- charge at the beginning, successful and failed transfers will have the same cost.
   tickEnergy Cost.simpleTransferCost
   -- Check whether the sender has the amount to be transferred and reject the transaction if not.
-  senderamount <- getCurrentAvailableAmount sender
-  (addr, _) <- mkSenderAddrCredentials sender
+  senderamount <- getCurrentContractAmount senderInstance
+  let addr = AddressContract (instanceAddress (instanceParameters senderInstance))
   unless (senderamount >= transferamount) $! rejectTransaction (AmountTooLarge addr transferamount)
 
   -- Check whether target account exists and get it.
   targetAccount <- getStateAccount accAddr `rejectingWith` InvalidAccountReference accAddr
 
   -- Add the transfer to the current changeset and return the corresponding event.
-  withToAccountAmount sender targetAccount transferamount $
-      return $ Transferred addr transferamount (AddressAccount accAddr) : (TransferMemo <$> maybeToList maybeMemo)
+  withContractToAccountAmount senderInstance targetAccount transferamount $
+      return [Transferred addr transferamount (AddressAccount accAddr)]
 
 -- |Run the interpreter with the remaining amount of energy. If the interpreter
 -- runs out of energy set the remaining gas to 0 and reject the transaction,
@@ -897,13 +934,13 @@ handleAddBaker wtc abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyK
   where senderAccount = wtc ^. wtcSenderAccount
         txHash = wtc ^. wtcTransactionHash
         meta = wtc ^. wtcTransactionHeader
+        senderAddress = thSender meta
         c = do
           tickEnergy Cost.addBakerCost
           -- Get the total amount on the account, including locked amounts,
           -- less the deposit.
           getCurrentAccountTotalAmount senderAccount
         k ls accountBalance = do
-          senderAddress <- getAccountAddress senderAccount
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
           chargeExecutionCost txHash senderAccount energyCost
 
@@ -918,7 +955,7 @@ handleAddBaker wtc abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyK
           else if electionP && signP && aggregationP then do
             -- The proof validates that the baker owns all the private keys,
             -- thus we can try to create the baker.
-            res <- addBaker senderAddress BI.BakerAdd {
+            res <- addBaker (fst senderAccount) BI.BakerAdd {
                   baKeys = BI.BakerKeyUpdate {
                     bkuSignKey = abSignatureVerifyKey,
                     bkuAggregationKey = abAggregationVerifyKey,
@@ -960,13 +997,13 @@ handleRemoveBaker wtc =
   where senderAccount = wtc ^. wtcSenderAccount
         txHash = wtc ^. wtcTransactionHash
         meta = wtc ^. wtcTransactionHeader
+        senderAddress = thSender meta
         c = tickEnergy Cost.removeBakerCost
-        k ls _ = do
-          senderAddress <- getAccountAddress senderAccount
+        k ls () = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
           chargeExecutionCost txHash senderAccount energyCost
 
-          res <- removeBaker senderAddress
+          res <- removeBaker (fst senderAccount)
           case res of
             BI.BRRemoved bid _ -> do
               let brEvt = BakerRemoved {
@@ -989,20 +1026,20 @@ handleUpdateBakerStake wtc newStake =
     senderAccount = wtc ^. wtcSenderAccount
     txHash = wtc ^. wtcTransactionHash
     meta = wtc ^. wtcTransactionHeader
+    senderAddress = thSender meta
     c = do
       tickEnergy Cost.updateBakerStakeCost
       -- Get the total amount on the account, including locked amounts,
       -- less the deposit.
       getCurrentAccountTotalAmount senderAccount
     k ls accountBalance = do
-      senderAddress <- getAccountAddress senderAccount
       (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
       chargeExecutionCost txHash senderAccount energyCost
       if accountBalance < newStake then
         -- The balance is insufficient.
         return (TxReject InsufficientBalanceForBakerStake, energyCost, usedEnergy)
       else do
-        res <- updateBakerStake senderAddress newStake
+        res <- updateBakerStake (fst senderAccount) newStake
         case res of
           BI.BSUChangePending _ -> return (TxReject BakerInCooldown, energyCost, usedEnergy)
           BI.BSUStakeIncreased bid ->
@@ -1027,13 +1064,13 @@ handleUpdateBakerRestakeEarnings wtc newRestakeEarnings = withDeposit wtc c k
     senderAccount = wtc ^. wtcSenderAccount
     txHash = wtc ^. wtcTransactionHash
     meta = wtc ^. wtcTransactionHeader
+    senderAddress = thSender meta
     c = tickEnergy Cost.updateBakerRestakeCost
-    k ls _ = do
-      senderAddress <- getAccountAddress senderAccount
+    k ls () = do
       (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
       chargeExecutionCost txHash senderAccount energyCost
 
-      res <- updateBakerRestakeEarnings senderAddress newRestakeEarnings
+      res <- updateBakerRestakeEarnings (fst senderAccount) newRestakeEarnings
       case res of
         BI.BREUUpdated bid ->
           return (TxSuccess [BakerSetRestakeEarnings bid senderAddress newRestakeEarnings], energyCost, usedEnergy)
@@ -1068,9 +1105,9 @@ handleUpdateBakerKeys wtc bkuElectionKey bkuSignKey bkuAggregationKey bkuProofSi
   where senderAccount = wtc ^. wtcSenderAccount
         txHash = wtc ^. wtcTransactionHash
         meta = wtc ^. wtcTransactionHeader
+        senderAddress = thSender meta
         c = tickEnergy Cost.updateBakerKeysCost
         k ls _ = do
-          senderAddress <- getAccountAddress senderAccount
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
           chargeExecutionCost txHash senderAccount energyCost
 
@@ -1082,7 +1119,7 @@ handleUpdateBakerKeys wtc bkuElectionKey bkuSignKey bkuAggregationKey bkuProofSi
           if electionP && signP && aggregationP then do
             -- The proof validates that the baker owns all the private keys,
             -- thus we can try to create the baker.
-            res <- updateBakerKeys senderAddress BI.BakerKeyUpdate{..}
+            res <- updateBakerKeys (fst senderAccount) BI.BakerKeyUpdate{..}
             case res of
               BI.BKUSuccess bid -> do
                 let bupdEvt = BakerKeysUpdated{
@@ -1125,10 +1162,11 @@ handleDeployCredential accCreation@AccountCreation{messageExpiry=messageExpiry, 
               ..
               }
 
-      let regId = ID.credId accCreation
+      let regId = ID.credId cdi
+      let aaddr = ID.addressFromRegId regId
       -- We always need to make sure that the account was not created in between
       -- the transaction was received and the actual execution.
-      accExistsAlready <- lift (TV.registrationIdExists regId)
+      accExistsAlready <- lift (addressWouldClash aaddr)
       when accExistsAlready $ throwError $ Just $ DuplicateAccountRegistrationID regId
       liftedCryptoParams <- lift TV.getCryptographicParameters      
       cachedTVResult <- lift (lookupTransactionVerificationResult cdiHash)
@@ -1178,8 +1216,9 @@ handleUpdateCredentialKeys wtc cid keys sigs =
     senderAccount = wtc ^. wtcSenderAccount
     txHash = wtc ^. wtcTransactionHash
     meta = wtc ^. wtcTransactionHeader
+
     c = do
-      existingCredentials <- getAccountCredentials senderAccount
+      existingCredentials <- getAccountCredentials (snd senderAccount)
       tickEnergy $ Cost.updateCredentialKeysCost (OrdMap.size existingCredentials) $ length $ ID.credKeys keys
 
       let credIndex = fst <$> find (\(_, v) -> ID.credId v == cid) (OrdMap.toList existingCredentials)
@@ -1198,8 +1237,7 @@ handleUpdateCredentialKeys wtc cid keys sigs =
     k ls index = do
       (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
       chargeExecutionCost txHash senderAccount energyCost
-      senderAddr <- getAccountAddress senderAccount
-      updateCredentialKeys senderAddr index keys
+      updateCredentialKeys (fst senderAccount) index keys
       return (TxSuccess [CredentialKeysUpdated cid], energyCost, usedEnergy)
 
 
@@ -1271,13 +1309,15 @@ handleUpdateCredentials ::
     -> m (Maybe TransactionSummary)
 handleUpdateCredentials wtc cdis removeRegIds threshold =
   withDeposit wtc c k
-  where
+   where
     senderAccount = wtc ^. wtcSenderAccount
     txHash = wtc ^. wtcTransactionHash
     meta = wtc ^. wtcTransactionHeader
+    senderAddress = thSender meta
+
     c = do
       tickEnergy Cost.updateCredentialsBaseCost
-      creds <- getAccountCredentials senderAccount
+      creds <- getAccountCredentials (snd senderAccount)
       tickEnergy $ Cost.updateCredentialsVariableCost (OrdMap.size creds) (map (ID.credNumKeys . ID.credPubKeys) . OrdMap.elems $ cdis)
       cm <- lift getChainMetadata
       -- ensure none of the credentials have expired yet
@@ -1285,7 +1325,7 @@ handleUpdateCredentials wtc cdis removeRegIds threshold =
         let expiry = ID.validTo cdi
         unless (isTimestampBefore (slotTime cm) expiry) $ rejectTransaction InvalidCredentials
       -- and ensure that this account is allowed to have multiple credentials
-      allowed <- checkAccountIsAllowed senderAccount AllowedMultipleCredentials
+      allowed <- checkAccountIsAllowed (snd senderAccount) AllowedMultipleCredentials
       unless allowed $ rejectTransaction NotAllowedMultipleCredentials
       return creds
 
@@ -1293,7 +1333,6 @@ handleUpdateCredentials wtc cdis removeRegIds threshold =
       (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
       chargeExecutionCost txHash senderAccount energyCost
       cryptoParams <- TV.getCryptographicParameters
-      senderAddress <- getAccountAddress senderAccount
 
       -- check that all credentials that are to be removed actually exist.
       -- This produces:
@@ -1356,7 +1395,7 @@ handleUpdateCredentials wtc cdis removeRegIds threshold =
         case creds of
           Nothing -> return (TxReject InvalidCredentials, energyCost, usedEnergy)
           Just newCredentials -> do
-            updateAccountCredentials senderAccount (reverse revListIndicesToRemove) newCredentials threshold
+            updateAccountCredentials (fst senderAccount) (reverse revListIndicesToRemove) newCredentials threshold
             return (TxSuccess [CredentialsUpdated {
                                   cuAccount = senderAddress,
                                   cuNewCredIds = Set.toList newCredIds,

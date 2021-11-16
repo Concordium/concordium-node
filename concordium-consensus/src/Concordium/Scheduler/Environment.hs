@@ -85,10 +85,15 @@ class (Monad m, StaticInformation m, TVer.TransactionVerifier m, CanRecordFootpr
 
   -- |Get the amount of funds at the particular account address.
   -- To get the amount of funds for a contract instance use getInstance and lookup amount there.
-  getAccount :: AccountAddress -> m (Maybe (Account m))
+  getAccount :: AccountAddress -> m (Maybe (IndexedAccount m))
 
   -- |Get the 'AccountIndex' for an account, if it exists.
   getAccountIndex :: AccountAddress -> m (Maybe AccountIndex)
+
+  -- |Check whether the given account address would clash with any existing
+  -- account's address. The behaviour of this will generally depend on the
+  -- protocol version.
+  addressWouldClash :: AccountAddress -> m Bool
 
   -- |Commit to global state all the updates to local state that have
   -- accumulated through the execution. This method is also in charge of
@@ -113,14 +118,14 @@ class (Monad m, StaticInformation m, TVer.TransactionVerifier m, CanRecordFootpr
 
   -- |Bump the next available transaction nonce of the account.
   -- Precondition: the account exists in the block state.
-  increaseAccountNonce :: Account m -> m ()
+  increaseAccountNonce :: IndexedAccount m -> m ()
 
   -- FIXME: This method should not be here, but rather in the transaction monad.
   -- |Update account credentials.
   -- Preconditions:
   -- - The account exists in the block state.
   -- - The account threshold is reasonable.
-  updateAccountCredentials :: Account m
+  updateAccountCredentials :: AccountIndex
                         -> [ID.CredentialIndex]
                         -- ^ The indices of credentials to remove from the account.
                         -> Map.Map ID.CredentialIndex ID.AccountCredential
@@ -182,7 +187,7 @@ class (Monad m, StaticInformation m, TVer.TransactionVerifier m, CanRecordFootpr
   -- * @BADuplicateAggregationKey@: the aggregation key is already in use.
   --
   -- Note that if two results could apply, the first in this list takes precedence.  
-  addBaker :: AccountAddress -> BakerAdd -> m BakerAddResult
+  addBaker :: AccountIndex -> BakerAdd -> m BakerAddResult
 
   -- |Remove the baker associated with an account.
   -- The removal takes effect after a cooling-off period.
@@ -196,7 +201,7 @@ class (Monad m, StaticInformation m, TVer.TransactionVerifier m, CanRecordFootpr
   -- * @BRInvalidBaker@: the account address is not valid, or the account is not a baker.
   --
   -- * @BRChangePending@: the baker is currently in a cooling-off period and so cannot be removed.
-  removeBaker :: AccountAddress -> m BakerRemoveResult
+  removeBaker :: AccountIndex -> m BakerRemoveResult
 
   -- |Update the keys associated with an account.
   -- It is assumed that the keys have already been checked for validity/ownership as
@@ -210,7 +215,7 @@ class (Monad m, StaticInformation m, TVer.TransactionVerifier m, CanRecordFootpr
   -- * @BKUInvalidBaker@: the account does not exist or is not currently a baker.
   --
   -- * @BKUDuplicateAggregationKey@: the aggregation key is a duplicate.
-  updateBakerKeys :: AccountAddress -> BakerKeyUpdate -> m BakerKeyUpdateResult
+  updateBakerKeys :: AccountIndex -> BakerKeyUpdate -> m BakerKeyUpdateResult
 
   -- |Update the stake associated with an account.
   -- A reduction in stake will be delayed by the current cool-off period.
@@ -232,7 +237,7 @@ class (Monad m, StaticInformation m, TVer.TransactionVerifier m, CanRecordFootpr
   -- * @BSUChangePending@: the change could not be made since the account is already in a cooling-off period.
   --
   -- * @BSUInsufficientBalance@: the account does not have sufficient balance to cover the staked amount.
-  updateBakerStake :: AccountAddress -> Amount -> m BakerStakeUpdateResult
+  updateBakerStake :: AccountIndex -> Amount -> m BakerStakeUpdateResult
 
   -- |Update whether the baker automatically restakes the rewards it earns.
   --
@@ -241,7 +246,7 @@ class (Monad m, StaticInformation m, TVer.TransactionVerifier m, CanRecordFootpr
   -- * @BREUUpdated id@: the flag was updated.
   --
   -- * @BREUInvalidBaker@: the account does not exists, or is not currently a baker.
-  updateBakerRestakeEarnings :: AccountAddress -> Bool -> m BakerRestakeEarningsUpdateResult
+  updateBakerRestakeEarnings :: AccountIndex -> Bool -> m BakerRestakeEarningsUpdateResult
 
   -- *Operations on account keys
 
@@ -249,7 +254,7 @@ class (Monad m, StaticInformation m, TVer.TransactionVerifier m, CanRecordFootpr
   -- Preconditions:
   -- * The account exists
   -- * The account has keys defined at the specified indices
-  updateCredentialKeys :: AccountAddress -> ID.CredentialIndex -> ID.CredentialPublicKeys -> m ()
+  updateCredentialKeys :: AccountIndex -> ID.CredentialIndex -> ID.CredentialPublicKeys -> m ()
 
   -- * Chain updates
 
@@ -282,15 +287,15 @@ class (StaticInformation m, IsProtocolVersion pv) => TransactionMonad pv m | m -
 
   -- |Transfer amount from the first address to the second and run the
   -- computation in the modified environment.
-  withAccountToContractAmount :: Account m -> Instance -> Amount -> m a -> m a
+  withAccountToContractAmount :: IndexedAccount m -> Instance -> Amount -> m a -> m a
 
   -- |Transfer an amount from the first account to the second and run the
   -- computation in the modified environment.
-  withAccountToAccountAmount :: Account m -> Account m -> Amount -> m a -> m a
+  withAccountToAccountAmount :: IndexedAccount m -> IndexedAccount m -> Amount -> m a -> m a
 
   -- |Transfer an amount from the given instance to the given account and run the
   -- computation in the modified environment.
-  withContractToAccountAmount :: Instance -> Account m -> Amount -> m a -> m a
+  withContractToAccountAmount :: Instance -> IndexedAccount m -> Amount -> m a -> m a
 
   -- |Transfer an amount from the first instance to the second and run the
   -- computation in the modified environment.
@@ -298,16 +303,16 @@ class (StaticInformation m, IsProtocolVersion pv) => TransactionMonad pv m | m -
 
   -- |Transfer a scheduled amount from the first address to the second and run
   -- the computation in the modified environment.
-  withScheduledAmount :: Account m -> Account m -> Amount -> [(Timestamp, Amount)] -> TransactionHash -> m a -> m a
+  withScheduledAmount :: IndexedAccount m -> IndexedAccount m -> Amount -> [(Timestamp, Amount)] -> TransactionHash -> m a -> m a
 
   -- |Replace encrypted amounts on an account up to (but not including) the
   -- given limit with a new amount.
-  replaceEncryptedAmount :: Account m -> EncryptedAmountAggIndex -> EncryptedAmount -> m ()
+  replaceEncryptedAmount :: IndexedAccount m -> EncryptedAmountAggIndex -> EncryptedAmount -> m ()
 
   -- |Replace encrypted amounts on an account up to (but not including) the
   -- given limit with a new amount, as well as adding the given amount to the
   -- public balance of the account
-  addAmountFromEncrypted :: Account m -> Amount -> EncryptedAmountAggIndex -> EncryptedAmount -> m ()
+  addAmountFromEncrypted :: IndexedAccount m -> Amount -> EncryptedAmountAggIndex -> EncryptedAmount -> m ()
 
   -- |Add a new encrypted amount to an account, and return its index.
   -- This may assume this is the only update to encrypted amounts on the given account
@@ -315,49 +320,42 @@ class (StaticInformation m, IsProtocolVersion pv) => TransactionMonad pv m | m -
   --
   -- This should be used on the receiver's account when an encrypted amount is
   -- sent to it.
-  addEncryptedAmount :: Account m -> EncryptedAmount -> m EncryptedAmountIndex
+  addEncryptedAmount :: IndexedAccount m -> EncryptedAmount -> m EncryptedAmountIndex
 
   -- |Add an encrypted amount to the self-balance of an account.
   -- This may assume this is the only update to encrypted amounts on the given account
   -- in this transaction.
   --
   -- This should be used when transferring from public to encrypted balance.
-  addSelfEncryptedAmount :: Account m -> Amount -> EncryptedAmount -> m ()
+  addSelfEncryptedAmount :: IndexedAccount m -> Amount -> EncryptedAmount -> m ()
 
   -- |Transfer an amount from the first given instance or account to the instance in the second
   -- parameter and run the computation in the modified environment.
   {-# INLINE withToContractAmount #-}
-  withToContractAmount :: Either (Account m, Instance) (Account m) -> Instance -> Amount -> m a -> m a
+  withToContractAmount :: Either (IndexedAccount m, Instance) (AccountAddress, IndexedAccount m) -> Instance -> Amount -> m a -> m a
   withToContractAmount (Left (_, i)) = withContractToContractAmount i
-  withToContractAmount (Right a) = withAccountToContractAmount a
-
-  -- |Transfer an amount from the first given instance or account to the account in the second
-  -- parameter and run the computation in the modified environment.
-  {-# INLINE withToAccountAmount #-}
-  withToAccountAmount :: Either (Account m, Instance) (Account m) -> Account m -> Amount -> m a -> m a
-  withToAccountAmount (Left (_, i)) = withContractToAccountAmount i
-  withToAccountAmount (Right a) = withAccountToAccountAmount a
+  withToContractAmount (Right (_, a)) = withAccountToContractAmount a
 
   getCurrentContractInstance :: ContractAddress -> m (Maybe Instance)
 
   {-# INLINE getCurrentAvailableAmount #-}
-  getCurrentAvailableAmount :: Either (Account m, Instance) (Account m) -> m Amount
+  getCurrentAvailableAmount :: Either (IndexedAccount m, Instance) (AccountAddress, IndexedAccount m) -> m Amount
   getCurrentAvailableAmount (Left (_, i)) = getCurrentContractAmount i
-  getCurrentAvailableAmount (Right a) = getCurrentAccountAvailableAmount a
+  getCurrentAvailableAmount (Right (_, a)) = getCurrentAccountAvailableAmount a
 
   -- |Get an account with its state at the start of the transaction.
-  getStateAccount :: AccountAddress -> m (Maybe (Account m))
+  getStateAccount :: AccountAddress -> m (Maybe (IndexedAccount m))
 
   -- |Get the current total public balance of an account.
   -- This accounts for any pending changes in the course of execution of the transaction.
   -- This includes any funds that cannot be spent due to lock-up or baking.
-  getCurrentAccountTotalAmount :: Account m -> m Amount
+  getCurrentAccountTotalAmount :: IndexedAccount m -> m Amount
 
   -- |Get the current available public balance of an account.
   -- This accounts for any pending changes in the course of execution of the transaction.
   -- The available balance excludes funds that are locked due to a lock-up release schedule
   -- or due to being staked for baking, or both.  That is @available = total - max locked staked@.
-  getCurrentAccountAvailableAmount :: Account m -> m Amount
+  getCurrentAccountAvailableAmount :: IndexedAccount m -> m Amount
 
   -- |Same as above, but for contracts.
   getCurrentContractAmount :: Instance -> m Amount
@@ -407,7 +405,7 @@ class (StaticInformation m, IsProtocolVersion pv) => TransactionMonad pv m | m -
 -- |The set of changes to be commited on a successful transaction.
 data ChangeSet = ChangeSet
     {_affectedTx :: !TransactionHash, -- ^Transaction affected by this changeset.
-     _accountUpdates :: !(HMap.HashMap AccountAddress AccountUpdate) -- ^Accounts whose states changed.
+     _accountUpdates :: !(HMap.HashMap AccountIndex AccountUpdate) -- ^Accounts whose states changed.
     ,_instanceUpdates :: !(HMap.HashMap ContractAddress (AmountDelta, Wasm.ContractState)) -- ^Contracts whose states changed.
     ,_instanceInits :: !(HSet.HashSet ContractAddress) -- ^Contracts that were initialized.
     ,_encryptedChange :: !AmountDelta -- ^Change in the encrypted balance of the system as a result of this contract's execution.
@@ -419,31 +417,31 @@ makeLenses ''ChangeSet
 emptyCS :: TransactionHash -> ChangeSet
 emptyCS txHash = ChangeSet txHash HMap.empty HMap.empty HSet.empty 0 Map.empty
 
-csWithAccountDelta :: TransactionHash -> AccountAddress -> AmountDelta -> ChangeSet
-csWithAccountDelta txHash addr !amnt =
-  (emptyCS txHash) & accountUpdates . at addr ?~ (emptyAccountUpdate addr & auAmount ?~ amnt)
+csWithAccountDelta :: TransactionHash -> AccountIndex -> AccountAddress -> AmountDelta -> ChangeSet
+csWithAccountDelta txHash ai addr !amnt = do
+  emptyCS txHash & accountUpdates . at ai ?~ (emptyAccountUpdate ai addr & auAmount ?~ amnt)
 
 -- |Record an addition to the amount of the given account in the changeset.
 {-# INLINE addAmountToCS #-}
-addAmountToCS :: (AccountOperations m) => Account m -> AmountDelta -> ChangeSet -> m ChangeSet
-addAmountToCS acc !amnt !cs = do
-  addr <- getAccountAddress acc
+addAmountToCS :: AccountOperations m => IndexedAccount m -> AmountDelta -> ChangeSet -> m ChangeSet
+addAmountToCS (ai, acc) !amnt !cs = do
+  addr <- getAccountCanonicalAddress acc
   -- Check whether there already is an 'AccountUpdate' for the given account in the changeset.
   -- If so, modify it accordingly, otherwise add a new entry.
-  return $ cs & accountUpdates . at addr %~ (\case Just upd -> Just (upd & auAmount %~ \case
-                                                                       Just x -> Just (x + amnt)
-                                                                       Nothing -> Just amnt
-                                                                    )
-                                                   Nothing -> Just (emptyAccountUpdate addr & auAmount ?~ amnt))
+  return $ cs & accountUpdates . at ai %~ (\case Just upd -> Just (upd & auAmount %~ \case
+                                                                     Just x -> Just (x + amnt)
+                                                                     Nothing -> Just amnt
+                                                                 )
+                                                 Nothing -> Just (emptyAccountUpdate ai addr & auAmount ?~ amnt))
 
 -- |Record a list of scheduled releases that has to be pushed into the global map and into the map of the account.
 {-# INLINE addScheduledAmountToCS #-}
-addScheduledAmountToCS :: AccountOperations m => Account m -> ([(Timestamp, Amount)], TransactionHash) -> ChangeSet -> m ChangeSet
+addScheduledAmountToCS :: AccountOperations m => IndexedAccount m -> ([(Timestamp, Amount)], TransactionHash) -> ChangeSet -> m ChangeSet
 addScheduledAmountToCS _ ([], _) cs = return cs
-addScheduledAmountToCS acc rel@(((fstRel, _):_), _) !cs = do
-  addr <- getAccountAddress acc
-  return $ cs & accountUpdates . at addr %~ (\case Just upd -> Just (upd & auReleaseSchedule %~ Just . maybe [rel] (rel :))
-                                                   Nothing -> Just (emptyAccountUpdate addr & auReleaseSchedule ?~ [rel]))
+addScheduledAmountToCS (ai, acc) rel@(((fstRel, _):_), _) !cs = do
+  addr <- getAccountCanonicalAddress acc
+  return $ cs & accountUpdates . at ai %~ (\case Just upd -> Just (upd & auReleaseSchedule %~ Just . maybe [rel] (rel :))
+                                                 Nothing -> Just (emptyAccountUpdate ai addr & auReleaseSchedule ?~ [rel]))
               & addedReleaseSchedules %~ (Map.alter (\case
                                                         Nothing -> Just fstRel
                                                         Just rel' -> Just $ min fstRel rel') addr)
@@ -452,8 +450,8 @@ addScheduledAmountToCS acc rel@(((fstRel, _):_), _) !cs = do
 -- It is assumed that the account is already in the changeset and that its balance
 -- is already affected (the auAmount field is set).
 {-# INLINE modifyAmountCS #-}
-modifyAmountCS :: AccountAddress -> AmountDelta -> ChangeSet -> ChangeSet
-modifyAmountCS addr !amnt !cs = cs & (accountUpdates . ix addr . auAmount ) %~
+modifyAmountCS :: AccountIndex -> AmountDelta -> ChangeSet -> ChangeSet
+modifyAmountCS ai !amnt !cs = cs & (accountUpdates . ix ai . auAmount ) %~
                                      (\case Just a -> Just (a + amnt)
                                             Nothing -> error "modifyAmountCS precondition violated.")
 
@@ -503,7 +501,7 @@ makeLenses ''LocalState
 
 data TransactionContext = TransactionContext{
   -- |Header of the transaction initiating the transaction.
-  _tcTxSender :: !AccountAddress,
+  _tcTxSender :: !AccountIndex,
   _tcDepositedAmount :: !Amount
   }
 
@@ -529,7 +527,7 @@ runLocalT :: SchedulerMonad pv m
           => LocalT a m a
           -> TransactionHash
           -> Amount
-          -> AccountAddress
+          -> AccountIndex
           -> Energy -- Energy limit by the transaction header.
           -> Energy -- remaining block energy
           -> m (Either (Maybe RejectReason) a, LocalState)
@@ -569,16 +567,16 @@ computeExecutionCharge meta energy =
 -- is the only one affected by the transaction, either because a transaction was
 -- rejected, or because it was a transaction which only affects one account's
 -- balance such as DeployCredential, or DeployModule.
-chargeExecutionCost :: (AccountOperations m) => SchedulerMonad pv m => TransactionHash -> Account m -> Amount -> m ()
-chargeExecutionCost txHash acc amnt = do
+chargeExecutionCost :: (AccountOperations m) => SchedulerMonad pv m => TransactionHash -> IndexedAccount m -> Amount -> m ()
+chargeExecutionCost txHash (ai, acc) amnt = do
     balance <- getAccountAmount acc
-    addr <- getAccountAddress acc
+    addr <- getAccountCanonicalAddress acc
     assert (balance >= amnt) $
-          commitChanges (csWithAccountDelta txHash addr (amountDiff 0 amnt))
+          commitChanges (csWithAccountDelta txHash ai addr (amountDiff 0 amnt))
     notifyExecutionCost amnt
 
 data WithDepositContext m = WithDepositContext{
-  _wtcSenderAccount :: !(Account m),
+  _wtcSenderAccount :: !(IndexedAccount m),
   -- ^Address of the account initiating the transaction.
   _wtcTransactionType :: !TransactionType,
   -- ^Type of the top-level transaction.
@@ -628,7 +626,7 @@ withDeposit wtc comp k = do
   let energy = totalEnergyToUse - wtc ^. wtcTransactionCheckHeaderCost
   -- record how much we have deposited. This cannot be touched during execution.
   depositedAmount <- energyToGtu totalEnergyToUse
-  (res, ls) <- runLocalT comp tsHash depositedAmount (thSender txHeader) energy beLeft
+  (res, ls) <- runLocalT comp tsHash depositedAmount (wtc ^. wtcSenderAccount . _1) energy beLeft
   case res of
     -- Failure: maximum block energy exceeded
     Left Nothing -> return Nothing
@@ -748,9 +746,9 @@ instance SchedulerMonad pv m => TransactionMonad pv (LocalT r m) where
     changeSet .= cs''
     cont
 
-  replaceEncryptedAmount acc aggIndex newAmount = do
-    addr <- getAccountAddress acc
-    changeSet . accountUpdates . at' addr . non (emptyAccountUpdate addr) . auEncrypted ?= ReplaceUpTo{..}
+  replaceEncryptedAmount (ai, acc) aggIndex newAmount = do
+    addr <- getAccountCanonicalAddress acc
+    changeSet . accountUpdates . at' ai . non (emptyAccountUpdate ai addr) . auEncrypted ?= ReplaceUpTo{..}
 
   addAmountFromEncrypted acc amount aggIndex newAmount = do
     replaceEncryptedAmount acc aggIndex newAmount
@@ -759,16 +757,16 @@ instance SchedulerMonad pv m => TransactionMonad pv (LocalT r m) where
     changeSet .= cs'
     changeSet . encryptedChange += amountDiff 0 amount
 
-  addEncryptedAmount acc newAmount = do
-    addr <- getAccountAddress acc
-    changeSet . accountUpdates . at' addr . non (emptyAccountUpdate addr) . auEncrypted ?= Add{..}
+  addEncryptedAmount (ai, acc) newAmount = do
+    addr <- getAccountCanonicalAddress acc
+    changeSet . accountUpdates . at' ai . non (emptyAccountUpdate ai addr) . auEncrypted ?= Add{..}
     getAccountEncryptedAmountNextIndex acc
 
-  addSelfEncryptedAmount acc transferredAmount newAmount = do
-    addr <- getAccountAddress acc
+  addSelfEncryptedAmount iacc@(ai, acc) transferredAmount newAmount = do
+    addr <- getAccountCanonicalAddress acc
     cs <- use changeSet
-    changeSet <~ addAmountToCS acc (amountDiff 0 transferredAmount) cs
-    changeSet . accountUpdates . at' addr . non (emptyAccountUpdate addr) . auEncrypted ?= AddSelf{..}
+    changeSet <~ addAmountToCS iacc (amountDiff 0 transferredAmount) cs
+    changeSet . accountUpdates . at' ai . non (emptyAccountUpdate ai addr) . auEncrypted ?= AddSelf{..}
     changeSet . encryptedChange += amountToDelta transferredAmount
 
   getCurrentContractInstance addr = do
@@ -787,15 +785,14 @@ instance SchedulerMonad pv m => TransactionMonad pv (LocalT r m) where
   {-# INLINE getStateAccount #-}
   getStateAccount = liftLocal . getAccount
 
-  getCurrentAccountTotalAmount acc = do
-    addr <- getAccountAddress acc
+  getCurrentAccountTotalAmount (ai, acc) = do
     oldTotal <- getAccountAmount acc
     !txCtx <- ask
     -- If the account is the sender, subtract the deposit
-    let netDeposit = if txCtx ^. tcTxSender == addr
+    let netDeposit = if txCtx ^. tcTxSender == ai
           then oldTotal - (txCtx ^. tcDepositedAmount)
           else oldTotal
-    macc <- use (changeSet . accountUpdates . at addr)
+    macc <- use (changeSet . accountUpdates . at ai)
     case macc of
       Just upd -> do
         -- Apply any pending delta and add any new scheduled releases
@@ -805,18 +802,17 @@ instance SchedulerMonad pv m => TransactionMonad pv (LocalT r m) where
         return $ applyAmountDelta (upd ^. auAmount . non 0) netDeposit + newReleases
       Nothing -> return netDeposit
 
-  getCurrentAccountAvailableAmount acc = do
-    addr <- getAccountAddress acc
+  getCurrentAccountAvailableAmount (ai, acc) = do
     oldTotal <- getAccountAmount acc
     oldLockedUp <- ARS._totalLockedUpBalance <$> getAccountReleaseSchedule acc
     bkr <- getAccountBaker acc
     let staked = maybe 0 (^. stakedAmount) bkr
     !txCtx <- ask
     -- If the account is the sender, subtract the deposit
-    let netDeposit = if txCtx ^. tcTxSender == addr
+    let netDeposit = if txCtx ^. tcTxSender == ai
           then oldTotal - (txCtx ^. tcDepositedAmount)
           else oldTotal
-    macc <- use (changeSet . accountUpdates . at addr)
+    macc <- use (changeSet . accountUpdates . at ai)
     case macc of
       Just upd -> do
         -- Apply any pending delta and add any new scheduled releases

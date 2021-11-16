@@ -22,7 +22,3 @@ simpleTransferCostWithMemo1 memoSize = Cost.baseCost (Types.transactionHeaderSiz
 
 simpleTransferCostWithMemo2 :: Word64 -> Energy
 simpleTransferCostWithMemo2 memoSize = Cost.baseCost (Types.transactionHeaderSize + 41 + 2 + memoSize) 1 + Cost.simpleTransferCost
-
--- |Protocol version
-type PV1 = 'Types.P1
-type PV2 = 'Types.P2

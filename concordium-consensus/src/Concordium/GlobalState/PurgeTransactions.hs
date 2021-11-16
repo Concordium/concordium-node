@@ -105,7 +105,7 @@ purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptabl
             put (mmnonce', tht')
             return mres
         -- Purge the non-finalized transactions for a specific account.
-        purgeAccount :: AccountAddress -> AccountNonFinalizedTransactions -> State (PendingTransactionTable, TransactionHashTable, TransactionVerificationCache) AccountNonFinalizedTransactions
+        purgeAccount :: AccountAddressEq -> AccountNonFinalizedTransactions -> State (PendingTransactionTable, TransactionHashTable, TransactionVerificationCache) AccountNonFinalizedTransactions
         purgeAccount addr AccountNonFinalizedTransactions{..} = do
             (ptt0, trs0, tvercache0) <- get
             -- Purge the transactions from the transaction table.

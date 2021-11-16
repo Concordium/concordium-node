@@ -195,12 +195,12 @@ initialSkovPersistentData rp treeStateDir gd genState genATI atiContext serState
   -- table correctly reflects the account nonces, and similarly for
   -- updates.
   acctAddrs <- getAccountList genState
-  acctNonces <- foldM (\hm addr ->
+  acctNonces <- foldM (\nnces addr ->
       getAccount genState addr >>= \case
           Nothing -> error "Invariant violation: listed account does not exist"
           Just (_, acct) -> do
               nonce <- getAccountNonce acct
-              return $! HM.insert addr nonce hm) HM.empty acctAddrs
+              return $! (addr, nonce):nnces) [] acctAddrs
   updSeqNums <- foldM (\m uty -> do
       sn <- getNextUpdateSequenceNumber genState uty
       return $! Map.insert uty sn m) Map.empty [minBound..]
@@ -338,7 +338,7 @@ loadSkovPersistentData rp _treeStateDirectory _genesisData pbsc atiContext = do
         tt0 <- foldM (\table addr ->
                  getAccount lastState addr >>= \case
                   Nothing -> logExceptionAndThrowTS (DatabaseInvariantViolation $ "Account " ++ show addr ++ " which is in the account list cannot be loaded.")
-                  Just (_, acc) -> return (table & ttNonFinalizedTransactions . at addr ?~ emptyANFTWithNonce (acc ^. accountNonce)))
+                  Just (_, acc) -> return (table & ttNonFinalizedTransactions . at (accountAddressEmbed addr) ?~ emptyANFTWithNonce (acc ^. accountNonce)))
             emptyTransactionTable
             accs
         foldM (\table uty -> do
@@ -657,7 +657,7 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
           Nothing -> do
             case wmdData of
               NormalTransaction tr -> do
-                let sender = transactionSender tr
+                let sender = accountAddressEmbed (transactionSender tr)
                     nonce = transactionNonce tr
                 if (tt ^. ttNonFinalizedTransactions . at' sender . non emptyANFT . anftNextNonce) <= nonce then do
                   transactionTablePurgeCounter += 1
@@ -698,7 +698,7 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
         where
             finTrans WithMetadata{wmdData=NormalTransaction tr,..} = do
                 let nonce = transactionNonce tr
-                    sender = transactionSender tr
+                    sender = accountAddressEmbed (transactionSender tr)
                 anft <- use (transactionTable . ttNonFinalizedTransactions . at' sender . non emptyANFT)
                 if anft ^. anftNextNonce == nonce
                 then do
@@ -785,7 +785,7 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
                     case wmdData of
                       NormalTransaction tr -> do
                         let nonce = transactionNonce tr
-                            sender = transactionSender tr
+                            sender = accountAddressEmbed (transactionSender tr)
                         transactionTable
                           . ttNonFinalizedTransactions
                           . at' sender

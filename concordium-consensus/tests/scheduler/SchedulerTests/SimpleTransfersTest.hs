@@ -24,6 +24,7 @@ import Concordium.Types.DummyData
 import Concordium.Crypto.DummyData
 import qualified Data.ByteString.Short as BSS
 
+import SchedulerTests.TestUtils
 import SchedulerTests.Helpers
 import Concordium.Types.ProtocolVersion (IsProtocolVersion)
 
@@ -37,6 +38,11 @@ initialBlockState = blockStateWithAlesAccount
 
 initialBlockState2 :: BlockState PV2
 initialBlockState2 = blockStateWithAlesAccount
+    1000000
+    (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 1000000) Acc.emptyAccounts)
+
+initialBlockState3 :: BlockState PV3
+initialBlockState3 = blockStateWithAlesAccount
     1000000
     (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 1000000) Acc.emptyAccounts)
 
@@ -67,6 +73,37 @@ transactionsInput2 =
     -- the next transaction should fail because the balance on A is now exactly enough to cover the transfer cost
   ,TJSON { payload = Transfer {toaddress = thomasAccount, amount = 1 }
          , metadata = makeDummyHeader alesAccount 4 simpleTransferCost
+         , keys = [(0, [(0, alesKP)])]
+         }
+  ]
+
+-- simple transfers to be tested with protocol version 3
+transactionsInput3 :: [TransactionJSON]
+transactionsInput3 =
+  -- transfer 10000 from A to A
+  [TJSON { payload = Transfer {toaddress = createAlias alesAccount 0, amount = 10000 }
+         , metadata = makeDummyHeader alesAccount 1 simpleTransferCost
+         , keys = [(0, [(0, alesKP)])]
+         }
+  -- transfer 8800 from A to T
+  ,TJSON { payload = Transfer {toaddress = createAlias thomasAccount 0, amount = 8800 }
+         , metadata = makeDummyHeader alesAccount 2 simpleTransferCost
+         , keys = [(0, [(0, alesKP)])]
+         }
+  -- transfer everything from from A to T
+  -- the (100 *) is conversion between NRG and GTU
+  ,TJSON { payload = Transfer {toaddress = createAlias thomasAccount 1, amount = 1000000 - 8800 - 3 * 100 * fromIntegral simpleTransferCost }
+         , metadata = makeDummyHeader alesAccount 3 simpleTransferCost
+         , keys = [(0, [(0, alesKP)])]
+         }
+  -- transfer 10000 back from T to A
+  ,TJSON { payload = Transfer {toaddress = createAlias alesAccount 1, amount = 100 * fromIntegral simpleTransferCost }
+         , metadata = makeDummyHeader thomasAccount 1 simpleTransferCost
+         , keys = [(0, [(0, thomasKP)])]
+         }
+    -- the next transaction should fail because the balance on A is now exactly enough to cover the transfer cost
+  ,TJSON { payload = Transfer {toaddress = createAlias thomasAccount 2, amount = 1 }
+         , metadata = makeDummyHeader (createAlias alesAccount 4) 4 simpleTransferCost
          , keys = [(0, [(0, alesKP)])]
          }
   ]
@@ -195,6 +232,25 @@ checkSimpleTransferResult2Memo (suc, fails, alesamount, thomasamount) = do
                  assertEqual "Exactly 1microGTU" 1 amnt
                err -> assertFailure $ "Incorrect result of the last transaction: " ++ show (snd err)
 
+checkSimpleTransferResult3 :: TestResult -> Assertion
+checkSimpleTransferResult3 (suc, fails, alesamount, thomasamount) = do
+--  assertEqual "Actual result" suc []
+  assertEqual "There should be no failed transactions." [] fails
+  rejectLast
+  assertBool "Initial transactions are accepted." nonreject
+  assertEqual "Amount on the A account." 0 alesamount 
+  assertEqual ("Amount on the T account." ++ show thomasamount) (2000000 - 5 * 100 * fromIntegral simpleTransferCost) thomasamount
+  where
+    nonreject = all (\case (_, Types.TxSuccess{}) -> True
+                           (_, Types.TxReject{}) -> False)
+                    (init suc)
+    rejectLast = case last suc of
+               (_, Types.TxReject (Types.AmountTooLarge addr amnt)) -> do
+                 assertEqual "Sending from A" (Types.AddressAccount (createAlias alesAccount 4)) addr
+                 assertEqual "Exactly 1microGTU" 1 amnt
+               err -> assertFailure $ "Incorrect result of the last transaction: " ++ show (snd err)
+
+
 tests :: SpecWith ()
 tests =
   do
@@ -207,3 +263,6 @@ tests =
     describe "Simple transfers test with memo (with protocol version 2):" $
       specify "4 successful and 1 failed transaction" $
         testSimpleTransfer initialBlockState2 transactionsInput2Memo >>= checkSimpleTransferResult2Memo
+    describe "Simple transfers test (with protocol version 3):" $
+      specify "4 successful and 1 failed transaction" $
+        testSimpleTransfer initialBlockState3 transactionsInput3 >>= checkSimpleTransferResult3

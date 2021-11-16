@@ -37,6 +37,7 @@ import Concordium.GlobalState.DummyData
 import Concordium.Crypto.DummyData
 
 import SchedulerTests.Helpers
+import SchedulerTests.TestUtils
 
 import qualified Data.List as List
 

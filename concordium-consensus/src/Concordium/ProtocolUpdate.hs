@@ -12,20 +12,24 @@ import Concordium.Types.Updates
 
 import Concordium.GlobalState.BlockState (BlockStateStorage)
 import qualified Concordium.ProtocolUpdate.P1 as P1
+import qualified Concordium.ProtocolUpdate.P2 as P2
 import Concordium.Skov
 
 -- |Type representing currently supported protocol update types.
 data Update (pv :: ProtocolVersion) where
     UpdateP1 :: P1.Update -> Update 'P1
+    UpdateP2 :: P2.Update -> Update 'P2
 
 instance Show (Update pv) where
     show (UpdateP1 u) = "P1." ++ show u
+    show (UpdateP2 u) = "P2." ++ show u
 
 -- |Determine if a 'ProtocolUpdate' corresponds to a supported update type.
 checkUpdate :: forall pv. (IsProtocolVersion pv) => ProtocolUpdate -> Either String (Update pv)
 checkUpdate = case protocolVersion @pv of
     SP1 -> fmap UpdateP1 . P1.checkUpdate
-    SP2 -> const $ Left "Unsupported update."
+    SP2 -> fmap UpdateP2 . P2.checkUpdate
+    SP3 -> const $ Left "Unsupported update."
 
 -- |Construct the genesis data for a P1 update.
 -- It is assumed that the last finalized block is the terminal block of the old chain:
@@ -36,6 +40,7 @@ updateRegenesis ::
     Update pv ->
     m PVGenesisData
 updateRegenesis (UpdateP1 u) = P1.updateRegenesis u
+updateRegenesis (UpdateP2 u) = P2.updateRegenesis u
 
 -- |If a protocol update has taken effect, return the genesis data for the new chain.
 getUpdateGenesisData ::

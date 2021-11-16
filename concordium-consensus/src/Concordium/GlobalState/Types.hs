@@ -9,6 +9,7 @@ import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Except
 import Data.Kind
 
+import Concordium.Types
 import Concordium.GlobalState.BlockPointer (BlockPointerData)
 
 -- |The basic types associated with a monad providing an
@@ -17,6 +18,9 @@ class BlockStateTypes (m :: Type -> Type) where
     type BlockState m :: Type
     type UpdatableBlockState m :: Type
     type Account m :: Type
+
+-- |Account together with its index in the account map.
+type IndexedAccount m = (AccountIndex, Account m)
 
 type family BlockStatePointer (bs :: Type) :: Type
 

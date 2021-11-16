@@ -32,6 +32,7 @@ import Concordium.Types.DummyData
 import Concordium.Crypto.DummyData
 
 import SchedulerTests.Helpers
+import SchedulerTests.TestUtils
 
 -- * Definition of test cases
 

@@ -21,6 +21,7 @@ import Concordium.GlobalState.DummyData
 import Concordium.Types.DummyData
 
 import SchedulerTests.Helpers
+import SchedulerTests.TestUtils
 
 shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)

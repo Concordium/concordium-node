@@ -11,7 +11,12 @@
 - The `SendTransaction` function exposed via the GRPC now provides the caller with detailed error messages if the 
   transaction was rejected by the consensus instead of just `False`. The function still returns `True` if 
   everything went well.
-- Introduce an earlier verification process for chain updates and accordiungly more fine grained FFI result codes.
+- Introduce an earlier verification process for chain updates and accordingly more fine grained FFI result codes.
+- Introduce support for account aliases via protocol P3. Accounts can be queried
+  in `GetAccountInfo`, `GetAccountNonFinalizedTransactions`,
+  `GetNextAccountNonce` by any alias.
+- `GetAccountInfo` object has an additional field `accountAddress` that contains
+  the canonical address of the account.
 
 ## concordium-node 1.1.3
 
