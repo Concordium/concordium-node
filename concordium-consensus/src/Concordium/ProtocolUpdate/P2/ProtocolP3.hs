@@ -85,7 +85,7 @@ updateRegenesis = do
     -- Core parameters are derived from the old genesis, apart from genesis time which is set for
     -- the time of the last finalized block.
     gd <- getGenesisData
-    let core = (P2.genesisCore $ unGDP2 gd) { GenesisData.genesisTime = regenesisTime }
+    let core = (P2._core $ unGDP2 gd) { GenesisData.genesisTime = regenesisTime }
     -- genesisFirstGenesis is the block hash of the previous genesis, if it is initial,
     -- or the genesisFirstGenesis of the previous genesis otherwise.
     let genesisFirstGenesis = case gd of
