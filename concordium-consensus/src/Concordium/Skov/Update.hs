@@ -521,7 +521,7 @@ doReceiveTransaction tr slot = unlessShutDown $ do
 -- the slot number of the block that the transaction was received with.
 -- This function should only be called when a transaction is received as part of a block.
 -- The difference from the above function is that this function returns an already existing
--- transaction ipn case of a duplicate, ensuring more sharing of transaction data.
+-- transaction in case of a duplicate, ensuring more sharing of transaction data.
 -- This function also verifies the transactions incoming and adds them to the internal
 -- transaction verification cache such that it can be used by the 'Scheduler'.
 doReceiveTransactionInternal :: (TreeStateMonad pv m) => BlockItem -> Timestamp -> Slot -> m (Maybe BlockItem, UpdateResult)
