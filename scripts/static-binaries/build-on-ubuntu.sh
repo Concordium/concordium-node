@@ -53,4 +53,4 @@ git clone https://github.com/google/flatbuffers.git
 # This requires an up-to-date lockfile which should be committed to the repository.
 cargo install --path "$(pwd)/concordium-node/" --locked --features=static,$extra_features --root "$(pwd)"
 # Strip all the generated binaries to remove debugging and unused symbols
-strip "$(pwd)/bin/*"
+strip "$(pwd)"/bin/*
