@@ -564,6 +564,7 @@ pub fn connection_housekeeping(node: &Arc<P2PNode>) -> bool {
 
     let curr_stamp = get_current_stamp();
     let peer_type = node.peer_type();
+    let max_keep_alive_ms = node.config.max_normal_keep_alive * 1000;
 
     let is_conn_faulty = |conn: &Connection| -> bool {
         if let Some(max_latency) = node.config.max_latency {
@@ -575,7 +576,7 @@ pub fn connection_housekeeping(node: &Arc<P2PNode>) -> bool {
 
     let is_conn_inactive = |conn: &Connection| -> bool {
         (peer_type == PeerType::Node
-            && conn.last_seen() + config::MAX_NORMAL_KEEP_ALIVE < curr_stamp)
+            && conn.last_seen() + max_keep_alive_ms < curr_stamp)
             || (peer_type == PeerType::Bootstrapper
                 && conn.stats.created + config::MAX_BOOTSTRAPPER_KEEP_ALIVE < curr_stamp)
     };

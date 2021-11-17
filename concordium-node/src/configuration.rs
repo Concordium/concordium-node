@@ -63,8 +63,6 @@ pub const DUMP_SWITCH_QUEUE_DEPTH: usize = 0;
 pub const UNREACHABLE_EXPIRATION_SECS: u64 = 86_400;
 /// Maximum time (in ms) a bootstrapper can hold a connection to a node.
 pub const MAX_BOOTSTRAPPER_KEEP_ALIVE: u64 = 20_000;
-/// Maximum time (in ms) a node can hold an inactive connection to a peer.
-pub const MAX_NORMAL_KEEP_ALIVE: u64 = 1_200_000;
 /// Maximum time (in ms) a connection can be kept without concluding a
 /// handshake.
 pub const MAX_PREHANDSHAKE_KEEP_ALIVE: u64 = 10_000;
@@ -511,6 +509,13 @@ pub struct ConnectionConfig {
         env = "CONCORDIUM_NODE_CONNECTION_DEDUPLICATION_HASHING_ALGORITHM"
     )]
     pub deduplication_hashing_algorithm: DeduplicationHashAlgorithm,
+    #[structopt(
+        long = "max-normal-keep-alive",
+        help = "Max seconds to hold connection to dead \"normal\" node before discarding",
+        default_value = "120",
+        env = "CONCORDIUM_NODE_MAX_NORMAL_KEEP_ALIVE"
+    )]
+    pub max_normal_keep_alive: u64,
 }
 
 #[derive(StructOpt, Debug)]
