@@ -511,7 +511,8 @@ pub struct ConnectionConfig {
     pub deduplication_hashing_algorithm: DeduplicationHashAlgorithm,
     #[structopt(
         long = "max-normal-keep-alive",
-        help = "Max seconds to hold connection to dead \"normal\" node before discarding",
+        help = "Max seconds to hold connection to dead \"normal\" node before discarding. Must be \
+                at least 3 times greater than the value of \"housekeeping-interval\".",
         default_value = "120",
         env = "CONCORDIUM_NODE_MAX_NORMAL_KEEP_ALIVE"
     )]
