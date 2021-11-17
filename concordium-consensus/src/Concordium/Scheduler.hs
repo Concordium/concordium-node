@@ -1177,6 +1177,8 @@ handleDeployCredential accCreation@AccountCreation{messageExpiry=messageExpiry, 
           return ()
         Nothing -> do
           -- If the transaction has not been verified before we verify it now
+          -- Note. This should really not happen as transactions are being verified and optionally cached
+          -- via 'doReceiveTransaction' and 'doReceiveTransactionInternal'
           tVerResult <- lift (TV.verifyCredentialDeployment ts accCreation)
           when (tVerResult /= TV.Success) $ throwError $ mapErr tVerResult
       newAccount regId (ID.addressFromRegId regId) liftedCryptoParams mkSummary
