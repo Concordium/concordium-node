@@ -575,8 +575,7 @@ pub fn connection_housekeeping(node: &Arc<P2PNode>) -> bool {
     };
 
     let is_conn_inactive = |conn: &Connection| -> bool {
-        (peer_type == PeerType::Node
-            && conn.last_seen() + max_keep_alive_ms < curr_stamp)
+        (peer_type == PeerType::Node && conn.last_seen() + max_keep_alive_ms < curr_stamp)
             || (peer_type == PeerType::Bootstrapper
                 && conn.stats.created + config::MAX_BOOTSTRAPPER_KEEP_ALIVE < curr_stamp)
     };

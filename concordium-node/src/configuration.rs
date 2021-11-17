@@ -864,6 +864,14 @@ pub fn parse_config() -> anyhow::Result<Config> {
         "wait-until-minimum-nodes must be lower than or equal to peer-list-size"
     );
 
+    ensure!(
+        conf.connection.max_normal_keep_alive > conf.connection.housekeeping_interval * 3,
+        "max-normal-keep-alive ({}) should be at least 3 times greater than the value of \
+         housekeeping-interval ({})",
+        conf.connection.max_normal_keep_alive,
+        conf.connection.housekeeping_interval
+    );
+
     #[cfg(feature = "instrumentation")]
     {
         ensure!(
