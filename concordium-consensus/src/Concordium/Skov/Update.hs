@@ -557,7 +557,7 @@ doReceiveTransactionInternal tr ts slot = do
    else do
     cache <- getTransactionVerificationCache   
     (verRes, cache') <- runReaderT (verifyWithCache ts tr cache) =<< blockState =<< getFocusBlock
-    -- If the transaction cannot be valid in the future we reject it now
+    -- If the transaction cannot be valid in the future we reject it now 
     if definitelyNotValid verRes then do return (Nothing, mapTransactionVerificationResult verRes)
     else do
       putTransactionVerificationCache cache'

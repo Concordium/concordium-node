@@ -64,8 +64,8 @@ test = do
       check results cache 1 False $ Right ResultStale
       check results cache 2 False $ Left TVer.CredentialDeploymentExpired
       check results cache 3 False $ Left (TVer.DuplicateAccountRegistrationID duplicateRegId)
-      check results cache 4 True $ Left TVer.CredentialDeploymentInvalidIdentityProvider
-      check results cache 5 True $ Left TVer.CredentialDeploymentInvalidAnonymityRevokers
+      check results cache 4 False $ Left TVer.CredentialDeploymentInvalidIdentityProvider
+      check results cache 5 False $ Left TVer.CredentialDeploymentInvalidAnonymityRevokers
       check results cache 6 False $ Left TVer.CredentialDeploymentInvalidSignatures
       -- the intial account creation which has an invalid signature
       check results cache 7 False $ Left TVer.CredentialDeploymentInvalidSignatures
@@ -99,8 +99,8 @@ test = do
       check results cache 0 False $ Right ResultStale
       check results cache 1 False $ Left TVer.CredentialDeploymentExpired
       check results cache 2 False $ Left (TVer.DuplicateAccountRegistrationID duplicateRegId)
-      check results cache 3 True $ Left TVer.CredentialDeploymentInvalidIdentityProvider
-      check results cache 4 True $ Left TVer.CredentialDeploymentInvalidAnonymityRevokers
+      check results cache 3 False $ Left TVer.CredentialDeploymentInvalidIdentityProvider
+      check results cache 4 False $ Left TVer.CredentialDeploymentInvalidAnonymityRevokers
       check results cache 5 False $ Left TVer.CredentialDeploymentInvalidSignatures
       -- the intial account creation which has an invalid signature
       check results cache 6 False $ Left TVer.CredentialDeploymentInvalidSignatures

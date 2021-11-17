@@ -1175,11 +1175,6 @@ handleDeployCredential accCreation@AccountCreation{messageExpiry=messageExpiry, 
       case cachedTVResult of
         Just VerificationResultSuccess -> do
           return ()
-        Just _ -> do 
-          -- we verify the transaction again as it might have become
-          -- valid since it was last verified.
-          tVerResult <- lift (TV.verifyCredentialDeployment ts accCreation)
-          when (tVerResult /= TV.Success) $ throwError $ mapErr tVerResult
         Nothing -> do
           -- If the transaction has not been verified before we verify it now
           tVerResult <- lift (TV.verifyCredentialDeployment ts accCreation)
