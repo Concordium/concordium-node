@@ -72,6 +72,7 @@ pub const SOFT_BAN_DURATION_SECS: u64 = 300;
 pub const MAX_PEER_NETWORKS: usize = 20;
 /// Database subdirectory name
 pub const DATABASE_SUB_DIRECTORY_NAME: &str = "database-v4";
+const HOUSE_KEEPING_INTERVALS_PER_NORMAL_KEEP_ALIVE: u8 = 3;
 
 #[cfg(feature = "database_emitter")]
 #[derive(StructOpt, Debug)]
@@ -516,7 +517,7 @@ pub struct ConnectionConfig {
         default_value = "120",
         env = "CONCORDIUM_NODE_MAX_NORMAL_KEEP_ALIVE"
     )]
-    pub max_normal_keep_alive: u64,
+    pub max_normal_keep_alive: u16,
 }
 
 #[derive(StructOpt, Debug)]
@@ -866,10 +867,13 @@ pub fn parse_config() -> anyhow::Result<Config> {
     );
 
     ensure!(
-        conf.connection.max_normal_keep_alive > conf.connection.housekeeping_interval * 3,
-        "max-normal-keep-alive ({}) should be at least 3 times greater than the value of \
+        (conf.connection.max_normal_keep_alive as u64)
+            > conf.connection.housekeeping_interval
+                * (HOUSE_KEEPING_INTERVALS_PER_NORMAL_KEEP_ALIVE as u64),
+        "max-normal-keep-alive ({}) should be at least {} times greater than the value of \
          housekeeping-interval ({})",
         conf.connection.max_normal_keep_alive,
+        HOUSE_KEEPING_INTERVALS_PER_NORMAL_KEEP_ALIVE,
         conf.connection.housekeeping_interval
     );
 

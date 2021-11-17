@@ -94,7 +94,7 @@ pub struct NodeConfig {
     pub events_queue_size: usize,
     pub deduplication_hashing_algorithm: DeduplicationHashAlgorithm,
     pub regenesis_arc: Arc<Regenesis>,
-    pub max_normal_keep_alive: u64,
+    pub max_normal_keep_alive_ms: u64,
 }
 
 /// The collection of connections to peer nodes.
@@ -373,7 +373,7 @@ impl P2PNode {
             events_queue_size: conf.connection.events_queue_size,
             deduplication_hashing_algorithm: conf.connection.deduplication_hashing_algorithm,
             regenesis_arc,
-            max_normal_keep_alive: conf.connection.max_normal_keep_alive,
+            max_normal_keep_alive_ms: (conf.connection.max_normal_keep_alive * 1000) as u64,
         };
 
         let connection_handler = ConnectionHandler::new(conf, server);
