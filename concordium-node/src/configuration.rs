@@ -72,6 +72,9 @@ pub const SOFT_BAN_DURATION_SECS: u64 = 300;
 pub const MAX_PEER_NETWORKS: usize = 20;
 /// Database subdirectory name
 pub const DATABASE_SUB_DIRECTORY_NAME: &str = "database-v4";
+/// The factor "max_normal_keep_alive" needs to be greater than
+/// "housekeeping_interval" by. Decreasing this increases risk of inactive nodes
+/// being dropped prematurely.
 const HOUSE_KEEPING_INTERVALS_PER_NORMAL_KEEP_ALIVE: u8 = 3;
 
 #[cfg(feature = "database_emitter")]
@@ -512,12 +515,12 @@ pub struct ConnectionConfig {
     pub deduplication_hashing_algorithm: DeduplicationHashAlgorithm,
     #[structopt(
         long = "max-normal-keep-alive",
-        help = "Max seconds to hold connection to dead \"normal\" node before discarding. Must be \
-                at least 3 times greater than the value of \"housekeeping-interval\".",
+        help = "Max seconds to keep alive an inactive connection to a \"normal\" node before \
+                discarding.",
         default_value = "120",
         env = "CONCORDIUM_NODE_MAX_NORMAL_KEEP_ALIVE"
     )]
-    pub max_normal_keep_alive: u16,
+    pub max_normal_keep_alive: u64,
 }
 
 #[derive(StructOpt, Debug)]
@@ -867,8 +870,8 @@ pub fn parse_config() -> anyhow::Result<Config> {
     );
 
     ensure!(
-        (conf.connection.max_normal_keep_alive as u64)
-            > conf.connection.housekeeping_interval
+        conf.connection.max_normal_keep_alive
+            >= conf.connection.housekeeping_interval
                 * (HOUSE_KEEPING_INTERVALS_PER_NORMAL_KEEP_ALIVE as u64),
         "max-normal-keep-alive ({}) should be at least {} times greater than the value of \
          housekeeping-interval ({})",
