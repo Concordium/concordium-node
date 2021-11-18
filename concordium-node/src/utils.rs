@@ -93,7 +93,7 @@ pub fn get_config_and_logging_setup() -> anyhow::Result<(config::Config, config:
     let app_prefs = config::AppPreferences::new(
         conf.common.config_dir.to_owned(),
         conf.common.data_dir.to_owned(),
-    );
+    )?;
 
     if conf.common.print_config {
         info!("Config:{:?}\n", conf);

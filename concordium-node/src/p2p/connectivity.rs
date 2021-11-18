@@ -352,6 +352,16 @@ impl P2PNode {
 
         Ok(serialized)
     }
+
+    /// Check whether the network layer has been stopped.
+    pub fn is_network_stopped(&self) -> bool {
+        self.config.regenesis_arc.stop_network.load(Ordering::Acquire)
+    }
+
+    /// Signal that the network layer should be stopped.
+    pub fn stop_network(&self) {
+        self.config.regenesis_arc.stop_network.store(true, Ordering::Release);
+    }
 }
 
 #[derive(Debug, Error)]
