@@ -950,15 +950,22 @@ pub extern "C" fn catchup_status_callback(genesis_index: u32, msg: *const u8, ms
 ///
 /// The first argument has to be an Arc<Regenesis> which was
 /// converted into raw, as it will be casted into that type. The second argument
-/// has to be a pointer to a bytestring of length 32.
+/// has to be a pointer to a bytestring of length 32 or null. If null this is
+/// interpreted as we did not know the new genesis block since we did not
+/// recognize the protocol update.
 pub unsafe extern "C" fn regenesis_callback(ptr: *const Regenesis, block_hash: *const u8) {
     trace!("Regenesis callback hit");
     let arc = Arc::from_raw(ptr);
-    write_or_die!(arc.blocks).push(
-        BlockHash::new(std::slice::from_raw_parts(block_hash, 32))
-            .expect("The slice is exactly 32 bytes so ::new must succeed."),
-    );
-    arc.trigger_catchup.store(true, Ordering::Release);
+    if block_hash.is_null() {
+        warn!("An unrecognized protocol update encountered. Shutting down the node's connections.");
+        arc.stop_network.store(true, Ordering::Release);
+    } else {
+        write_or_die!(arc.blocks).push(
+            BlockHash::new(std::slice::from_raw_parts(block_hash, 32))
+                .expect("The slice is exactly 32 bytes so ::new must succeed."),
+        );
+        arc.trigger_catchup.store(true, Ordering::Release);
+    }
 
     // The pointer must remain valid, so we use into_raw to prevent the reference
     // count from being decremented.

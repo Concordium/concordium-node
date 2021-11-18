@@ -205,8 +205,9 @@ data Callbacks = Callbacks
       -- This should be used when a pending block becomes live.
       -- The status message should be neither a request nor a response.
       notifyCatchUpStatus :: GenesisIndex -> ByteString -> IO (),
-      -- |Notify the P2P layer that we have a new genesis block.
-      notifyRegenesis :: BlockHash -> IO ()
+      -- |Notify the P2P layer that we have a new genesis block, or Nothing
+      -- if an unrecognized update took effect.
+      notifyRegenesis :: Maybe BlockHash -> IO ()
     }
 
 -- |Baker identity and baking thread 'MVar'.
@@ -438,7 +439,7 @@ newGenesis (PVGenesisData (gd :: GenesisData pv)) vcGenesisHeight =
                 let newEConfig :: VersionedConfiguration gsconf finconf pv
                     newEConfig = VersionedConfiguration{..}
                 writeIORef mvVersions (oldVersions `Vec.snoc` newVersion newEConfig)
-                notifyRegenesis (genesisBlockHash gd)
+                notifyRegenesis (Just (genesisBlockHash gd))
                 -- Because this may be restoring an existing state, it is possible that a protocol
                 -- update has already happened on this chain.  Therefore, we must handle this
                 -- contingency.
@@ -470,10 +471,13 @@ checkForProtocolUpdate = liftSkov body
     body =
         Skov.getProtocolUpdateStatus >>= \case
             ProtocolUpdated pu -> case checkUpdate @pv pu of
-                Left err ->
+                Left err -> do
                     logEvent Kontrol LLError $
                         "An unsupported protocol update (" ++ err ++ ") has taken effect:"
                             ++ showPU pu
+                    lift $ do
+                      callbacks <- asks mvCallbacks
+                      liftIO (notifyRegenesis callbacks Nothing)
                 Right upd -> do
                     regenesis <- updateRegenesis upd
                     lfbHeight <- bpHeight <$> lastFinalizedBlock

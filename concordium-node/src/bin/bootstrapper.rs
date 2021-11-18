@@ -40,7 +40,7 @@ fn main() -> anyhow::Result<()> {
         "Bootstrapper can't run without specifying genesis hashes."
     );
 
-    let (node, poll) = P2PNode::new(
+    let (node, server, poll) = P2PNode::new(
         conf.common.id,
         &conf,
         PeerType::Bootstrapper,
@@ -52,7 +52,7 @@ fn main() -> anyhow::Result<()> {
     #[cfg(feature = "instrumentation")]
     start_push_gateway(&conf.prometheus, &node.stats, node.id());
 
-    spawn(&node, poll, None);
+    spawn(&node, server, poll, None);
 
     node.join().expect("Node thread panicked!");
 

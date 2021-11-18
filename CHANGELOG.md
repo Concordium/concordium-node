@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased changes
+## concordium-node 3.0.0
 - Fix a bug due to incorrect use of LMDB database environments where a node
   would crash if queried at specific times.
 - Faster state queries by avoiding locking the block state file when reading.
@@ -16,6 +16,8 @@
   `GetNextAccountNonce` by any alias.
 - `GetAccountInfo` object has an additional field `accountAddress` that contains
   the canonical address of the account.
+- The node now drops all connections on an unrecognized protocol update and
+  refuses to accept new transactions.
 
 ## concordium-node 1.1.3
 

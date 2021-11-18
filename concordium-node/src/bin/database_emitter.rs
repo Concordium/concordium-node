@@ -30,7 +30,7 @@ fn main() -> anyhow::Result<()> {
 
     let stats_export_service = instantiate_stats_export_engine(&conf)?;
 
-    let (node, poll) = P2PNode::new(
+    let (node, server, poll) = P2PNode::new(
         conf.common.id,
         &conf,
         PeerType::Node,
@@ -39,7 +39,7 @@ fn main() -> anyhow::Result<()> {
     )
     .context("Failed to create the node")?;
 
-    spawn(&node, poll, None);
+    spawn(&node, server, poll, None);
 
     conf.connection.connect_to.iter().for_each(
         |host: &String| match ToSocketAddrs::to_socket_addrs(&host) {
