@@ -73,8 +73,8 @@ pub const MAX_PEER_NETWORKS: usize = 20;
 /// Database subdirectory name
 pub const DATABASE_SUB_DIRECTORY_NAME: &str = "database-v4";
 
-// In order to avoid premature connection drops, it is estimated that the KEEP_ALIVE_FACTOR should
-// be kept above 3.
+// In order to avoid premature connection drops, it is estimated that the
+// KEEP_ALIVE_FACTOR should be kept above 3.
 /// The factor "max_normal_keep_alive" needs to be greater than
 /// "housekeeping_interval" by. Decreasing this increases risk of nodes
 /// being dropped prematurely.
