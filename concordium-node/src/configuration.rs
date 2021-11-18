@@ -73,9 +73,9 @@ pub const MAX_PEER_NETWORKS: usize = 20;
 /// Database subdirectory name
 pub const DATABASE_SUB_DIRECTORY_NAME: &str = "database-v4";
 /// The factor "max_normal_keep_alive" needs to be greater than
-/// "housekeeping_interval" by. Decreasing this increases risk of inactive nodes
+/// "housekeeping_interval" by. Decreasing this increases risk of nodes
 /// being dropped prematurely.
-const HOUSE_KEEPING_INTERVALS_PER_NORMAL_KEEP_ALIVE: u8 = 3;
+const KEEP_ALIVE_FACTOR: u8 = 3;
 
 #[cfg(feature = "database_emitter")]
 #[derive(StructOpt, Debug)]
@@ -871,12 +871,11 @@ pub fn parse_config() -> anyhow::Result<Config> {
 
     ensure!(
         conf.connection.max_normal_keep_alive
-            >= conf.connection.housekeeping_interval
-                * (HOUSE_KEEPING_INTERVALS_PER_NORMAL_KEEP_ALIVE as u64),
+            >= conf.connection.housekeeping_interval * (KEEP_ALIVE_FACTOR as u64),
         "max-normal-keep-alive ({}) should be at least {} times greater than the value of \
          housekeeping-interval ({})",
         conf.connection.max_normal_keep_alive,
-        HOUSE_KEEPING_INTERVALS_PER_NORMAL_KEEP_ALIVE,
+        KEEP_ALIVE_FACTOR,
         conf.connection.housekeeping_interval
     );
 
