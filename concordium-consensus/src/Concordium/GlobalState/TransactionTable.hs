@@ -376,9 +376,8 @@ data CacheableVerificationResult
   -- ^The transaction was valid.
   deriving (Eq, Show)
 
--- |Convenience function getting VerificationResults together with a cache.
+-- |Convenience function for verifying a transaction and updating a 'TransactionVerificationCache'.
 -- The function returns the verification result and the (possibly) updated cache.
--- Only `verifiable` transaction verification results will be stored in the cache.
 verifyWithCache :: TVer.TransactionVerifier m => Timestamp -> BlockItem -> TransactionVerificationCache -> m (TVer.VerificationResult, TransactionVerificationCache)
 verifyWithCache now bi cache = do
   let mVerRes = HM.lookup (getHash bi) cache
