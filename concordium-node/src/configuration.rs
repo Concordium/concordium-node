@@ -63,8 +63,6 @@ pub const DUMP_SWITCH_QUEUE_DEPTH: usize = 0;
 pub const UNREACHABLE_EXPIRATION_SECS: u64 = 86_400;
 /// Maximum time (in ms) a bootstrapper can hold a connection to a node.
 pub const MAX_BOOTSTRAPPER_KEEP_ALIVE: u64 = 20_000;
-/// Maximum time (in ms) a node can hold an inactive connection to a peer.
-pub const MAX_NORMAL_KEEP_ALIVE: u64 = 1_200_000;
 /// Maximum time (in ms) a connection can be kept without concluding a
 /// handshake.
 pub const MAX_PREHANDSHAKE_KEEP_ALIVE: u64 = 10_000;
@@ -74,6 +72,13 @@ pub const SOFT_BAN_DURATION_SECS: u64 = 300;
 pub const MAX_PEER_NETWORKS: usize = 20;
 /// Database subdirectory name
 pub const DATABASE_SUB_DIRECTORY_NAME: &str = "database-v4";
+
+// In order to avoid premature connection drops, it is estimated that the
+// KEEP_ALIVE_FACTOR should be kept above 3.
+/// The factor "max_normal_keep_alive" needs to be greater than
+/// "housekeeping_interval" by. Decreasing this increases risk of nodes
+/// being dropped prematurely.
+const KEEP_ALIVE_FACTOR: u8 = 3;
 
 #[cfg(feature = "database_emitter")]
 #[derive(StructOpt, Debug)]
@@ -511,6 +516,14 @@ pub struct ConnectionConfig {
         env = "CONCORDIUM_NODE_CONNECTION_DEDUPLICATION_HASHING_ALGORITHM"
     )]
     pub deduplication_hashing_algorithm: DeduplicationHashAlgorithm,
+    #[structopt(
+        long = "max-normal-keep-alive",
+        help = "Max seconds to keep alive an inactive connection to a \"normal\" node before \
+                discarding.",
+        default_value = "120",
+        env = "CONCORDIUM_NODE_MAX_NORMAL_KEEP_ALIVE"
+    )]
+    pub max_normal_keep_alive: u64,
 }
 
 #[derive(StructOpt, Debug)]
@@ -857,6 +870,16 @@ pub fn parse_config() -> anyhow::Result<Config> {
     ensure!(
         conf.bootstrapper.wait_until_minimum_nodes as usize <= conf.bootstrapper.peer_list_size,
         "wait-until-minimum-nodes must be lower than or equal to peer-list-size"
+    );
+
+    ensure!(
+        conf.connection.max_normal_keep_alive
+            >= conf.connection.housekeeping_interval * (KEEP_ALIVE_FACTOR as u64),
+        "max-normal-keep-alive ({}) should be at least {} times greater than the value of \
+         housekeeping-interval ({})",
+        conf.connection.max_normal_keep_alive,
+        KEEP_ALIVE_FACTOR,
+        conf.connection.housekeeping_interval
     );
 
     #[cfg(feature = "instrumentation")]
