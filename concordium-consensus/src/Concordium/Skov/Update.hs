@@ -564,12 +564,12 @@ doReceiveTransactionInternal tr ts slot = do
       putTransactionVerificationCache cache'
       addTx verRes bs
   where
-      addTx st verRes = addCommitTransaction tr slot >>= \case
+      addTx verRes bs = addCommitTransaction tr slot >>= \case
           Added bi@WithMetadata{..} -> do
             ptrs <- getPendingTransactions
             case wmdData of
               NormalTransaction tx -> do
-                macct <- getAccount st $! transactionSender tx
+                macct <- getAccount bs $! transactionSender tx
                 nextNonce <- fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
                 -- If a transaction with this nonce has already been run by
                 -- the focus block, then we do not need to add it to the
@@ -579,7 +579,7 @@ doReceiveTransactionInternal tr ts slot = do
               CredentialDeployment _ -> do
                 putPendingTransactions $! addPendingDeployCredential wmdHash ptrs
               ChainUpdate cu -> do
-                nextSN <- getNextUpdateSequenceNumber st (updateType (uiPayload cu))
+                nextSN <- getNextUpdateSequenceNumber bs (updateType (uiPayload cu))
                 when (nextSN <= updateSeqNumber (uiHeader cu)) $
                     putPendingTransactions $! addPendingUpdate nextSN cu ptrs
             return (Just bi, mapTransactionVerificationResult verRes)
