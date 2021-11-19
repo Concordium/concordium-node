@@ -1166,20 +1166,21 @@ handleDeployCredential accCreation@AccountCreation{messageExpiry=messageExpiry, 
       let aaddr = ID.addressFromRegId regId
       -- We always need to make sure that the account was not created in between
       -- the transaction was received and the actual execution.
+      -- Check that the registration id does not exist
+      regIdEx <- lift (TV.registrationIdExists regId)
+      when regIdEx $ throwError $ Just (DuplicateAccountRegistrationID (ID.credId cdi))
+      -- Check that the address would not clash with an existing one.
       accExistsAlready <- lift (addressWouldClash aaddr)
-      when accExistsAlready $ throwError $ Just $ DuplicateAccountRegistrationID regId
+      when accExistsAlready $ throwError $ Just AccountCredentialInvalid
       liftedCryptoParams <- lift TV.getCryptographicParameters      
       cachedTVResult <- lift (lookupTransactionVerificationResult cdiHash)
       case cachedTVResult of
         Just VerificationResultSuccess -> do
           return ()
-        Just _ -> do 
-          -- we verify the transaction again as it might have become
-          -- valid since it was last verified.
-          tVerResult <- lift (TV.verifyCredentialDeployment ts accCreation)
-          when (tVerResult /= TV.Success) $ throwError $ mapErr tVerResult
         Nothing -> do
           -- If the transaction has not been verified before we verify it now
+          -- Note. This should really not happen as transactions are being verified and optionally cached
+          -- via 'doReceiveTransaction' and 'doReceiveTransactionInternal'
           tVerResult <- lift (TV.verifyCredentialDeployment ts accCreation)
           when (tVerResult /= TV.Success) $ throwError $ mapErr tVerResult
       newAccount regId (ID.addressFromRegId regId) liftedCryptoParams mkSummary

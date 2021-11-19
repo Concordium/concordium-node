@@ -352,6 +352,16 @@ impl P2PNode {
 
         Ok(serialized)
     }
+
+    /// Check whether the network layer has been stopped.
+    pub fn is_network_stopped(&self) -> bool {
+        self.config.regenesis_arc.stop_network.load(Ordering::Acquire)
+    }
+
+    /// Signal that the network layer should be stopped.
+    pub fn stop_network(&self) {
+        self.config.regenesis_arc.stop_network.store(true, Ordering::Release);
+    }
 }
 
 #[derive(Debug, Error)]
@@ -575,7 +585,7 @@ pub fn connection_housekeeping(node: &Arc<P2PNode>) -> bool {
 
     let is_conn_inactive = |conn: &Connection| -> bool {
         (peer_type == PeerType::Node
-            && conn.last_seen() + config::MAX_NORMAL_KEEP_ALIVE < curr_stamp)
+            && conn.last_seen() + node.config.max_normal_keep_alive_ms < curr_stamp)
             || (peer_type == PeerType::Bootstrapper
                 && conn.stats.created + config::MAX_BOOTSTRAPPER_KEEP_ALIVE < curr_stamp)
     };

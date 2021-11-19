@@ -204,10 +204,12 @@ type RegenesisCallback = Ptr RegenesisArc -> Ptr Word8 -> IO ()
 foreign import ccall "dynamic" invokeRegenesisCallback :: FunPtr RegenesisCallback -> RegenesisCallback
 
 -- |Helper for invoking a 'RegenesisCallback' function.
-callRegenesisCallback :: FunPtr RegenesisCallback -> RegenesisRef -> BlockHash -> IO ()
-callRegenesisCallback cb rgRef (BlockHash (SHA256.Hash bh)) = withForeignPtr rgRef $ \rg ->
+callRegenesisCallback :: FunPtr RegenesisCallback -> RegenesisRef -> Maybe BlockHash -> IO ()
+callRegenesisCallback cb rgRef (Just (BlockHash (SHA256.Hash bh))) = withForeignPtr rgRef $ \rg ->
     FBS.withPtrReadOnly bh $ \ptr ->
         invokeRegenesisCallback cb rg ptr
+callRegenesisCallback cb rgRef Nothing = withForeignPtr rgRef $ \rg ->
+    invokeRegenesisCallback cb rg nullPtr
 
 -- |Abstract type representing the rust Arc object used for tracking genesis blocks.
 -- A pointer of this type is passed to consensus at start up and must be passed to each call of

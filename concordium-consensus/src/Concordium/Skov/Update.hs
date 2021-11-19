@@ -486,6 +486,32 @@ doStoreBlock pb@GB.PendingBlock{..} = unlessShutDown $ do
 -- |Add a transaction to the transaction table.  The 'Slot' should be
 -- the slot number of the block that the transaction was received with,
 -- and 0 if the transaction was received separately from a block.
+-- This returns
+--   * 'ResultSuccess' if the transaction is freshly added.
+--     The transaction is added to the transaction table.
+--   * 'ResultDuplicate', which indicates that either the transaction is a duplicate
+--     The transaction is not added to the transaction table.
+--   * 'ResultStale' which indicates that a transaction with the same sender
+--     and nonce has already been finalized, or the transaction has already expired. In this case the transaction is not added to the table.
+--   * 'ResultInvalid' which indicates that the transaction signature was invalid.
+--     The transaction is not added to the transaction table.
+--   * 'ResultShutDown' which indicates that consensus was shut down, and so the transaction was not added.
+--   * 'ResultExpiryTooLate' which indicates that transaction's expiry was too far in the future and so the transaction
+--     was not accepted.
+--   * 'ResultTooLowEnergy' which indicates that the transactions stated energy was below the minimum amount needed for the
+--     transaction to be included in a block. The transaction is not added to the transaction table
+--   * 'ResultNonexistingSenderAccount' the transfer contained an invaid sender. The transaction is not added to the
+--     transaction table.
+--   * 'ResultDuplicateAccountRegistrationID' the 'CredentialDeployment' contained an already registered registration id.
+--     The transaction is not added to the transaction table.
+--   * 'ResultCredentialDeploymentInvalidSignatures' the 'CredentialDeployment' contained invalid signatures.
+--     The transaction is not added to the transaction table.
+--   * 'ResultCredentialDeploymentInvalidIP' the 'CredentialDeployment' contained an unreckognized identity provider.
+--     The transaction is not added to the transaction table.
+--   * 'ResultCredentialDeploymentInvalidAR' the 'CredentialDeployment' contained unreckognized anonymity revokers. 
+--     The transaction is not added to the transaction table.
+--   * 'ResultCredentialDeploymentExpired' the 'CredentialDeployment' was expired. The transaction is not added to
+--     the transaction table.
 doReceiveTransaction :: (TreeStateMonad pv m,
                          TimeMonad m,
                          SkovQueryMonad pv m) => BlockItem -> Slot -> m UpdateResult
@@ -521,20 +547,22 @@ doReceiveTransaction tr slot = unlessShutDown $ do
 -- the slot number of the block that the transaction was received with.
 -- This function should only be called when a transaction is received as part of a block.
 -- The difference from the above function is that this function returns an already existing
--- transaction ipn case of a duplicate, ensuring more sharing of transaction data.
--- This function also verifies the transactions incoming and adds them to the internal
--- transaction verification cache such that it can be used by the 'Scheduler'.
+-- transaction in case of a duplicate, ensuring more sharing of transaction data.
+-- This function also verifies the incoming transactions and adds them to the internal
+-- transaction verification cache such that the verification result can be used by the 'Scheduler'.
 doReceiveTransactionInternal :: (TreeStateMonad pv m) => BlockItem -> Timestamp -> Slot -> m (Maybe BlockItem, UpdateResult)
 doReceiveTransactionInternal tr ts slot = do
    -- Don't accept the transaction if it was expired
+   bs <- blockState =<< getFocusBlock
    if transactionExpired (msgExpiry tr) ts then return (Nothing, ResultStale)
    else do
     cache <- getTransactionVerificationCache   
-    (verRes, cache') <- runReaderT (verifyWithCache ts tr cache) =<< blockState =<< getFocusBlock
-    if not (isCacheable verRes) then do return (Nothing, mapTransactionVerificationResult verRes)
+    (verRes, cache') <- runReaderT (verifyWithCache ts tr cache) bs
+    -- If the transaction cannot be valid in the future we reject it now 
+    if definitelyNotValid verRes then do return (Nothing, mapTransactionVerificationResult verRes)
     else do
       putTransactionVerificationCache cache'
-      flip addTx verRes =<< blockState =<< getFocusBlock
+      flip addTx verRes bs
   where
       addTx bs verRes = addCommitTransaction tr slot >>= \case
           Added bi@WithMetadata{..} -> do
@@ -557,6 +585,7 @@ doReceiveTransactionInternal tr ts slot = do
             return (Just bi, mapTransactionVerificationResult verRes)
           Duplicate tx -> return (Just tx, ResultDuplicate)
           ObsoleteNonce -> return (Nothing, ResultStale)
+      definitelyNotValid verificationResult = not $ isCacheable verificationResult
 
 -- |Shutdown the skov, returning a list of pending transactions.
 doTerminateSkov :: (TreeStateMonad pv m, SkovMonad pv m) => m [BlockItem]

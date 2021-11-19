@@ -67,10 +67,6 @@ class (Monad m) => StaticInformation m where
 class (Monad m, StaticInformation m, TVer.TransactionVerifier m, CanRecordFootprint (Footprint (ATIStorage m)), AccountOperations m, MonadLogger m, IsProtocolVersion pv)
     => SchedulerMonad pv m | m -> pv where
 
-  -- |Insert an entry to the 'Cache'.
-  -- The first parameter, @TransactionHash@, is the key of the entry.
-  -- The second parameter, @CacheableVerificationResult@, is the value of the entry.
-  insertTransactionVerificationResult :: TransactionHash -> CacheableVerificationResult -> m ()
   -- |Retrieves a `Just CacheableVerificationResult` given the `TransactionHash` is such is present in the cache.
   -- Otherwise return `Nothing`
   lookupTransactionVerificationResult :: TransactionHash  -> m (Maybe CacheableVerificationResult)

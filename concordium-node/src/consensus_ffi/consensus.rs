@@ -328,6 +328,9 @@ pub struct Regenesis {
     /// A flag that is set to indicate that peers should be added to the
     /// catch-up queue.
     pub trigger_catchup: AtomicBool,
+    /// A flag that is set to indicate to drop all network connections.
+    /// Triggered on an unrecognized protocol update.
+    pub stop_network:    AtomicBool,
 }
 
 impl Default for Regenesis {
@@ -335,6 +338,7 @@ impl Default for Regenesis {
         Regenesis {
             blocks:          RwLock::new(vec![]),
             trigger_catchup: AtomicBool::new(false),
+            stop_network:    AtomicBool::new(false),
         }
     }
 }
@@ -344,6 +348,7 @@ impl Regenesis {
         Regenesis {
             blocks:          RwLock::new(regenesis_blocks),
             trigger_catchup: AtomicBool::new(false),
+            stop_network:    AtomicBool::new(false),
         }
     }
 }

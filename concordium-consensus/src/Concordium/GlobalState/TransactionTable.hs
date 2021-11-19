@@ -375,23 +375,14 @@ type TransactionVerificationCache = HM.HashMap TransactionHash CacheableVerifica
 data CacheableVerificationResult
   = VerificationResultSuccess
   -- ^The transaction was valid.
-  | VerificationResultCredentialDeploymentInvalidIdentityProvider
-  -- ^The credential deployment was valid except it had an invalid identity provider.
-  -- It may be valid in the future as identity providers can be added to the chain, and such
-  -- the scheduler will need to re-verify this credential deployment.
-  | VerificationResultCredentialDeploymentInvalidAnonymityRevokers
-  -- ^The credential deployment was valid except it had invalid anonymity revokers.
-  -- It may be valid in the future as identity providers can be added to the chain, and such
-  -- the scheduler will need to re-verify this credential deployment.
   | VerificationResultChainUpdateSuccess !Sha256.Hash
   -- ^The 'ChainUpdate' passed verification successfully. The result contains
   -- the hash of the `UpdateKeysCollection`. It must be checked
   -- that the hash corresponds to the configured `UpdateKeysCollection` before executing the transaction.
   deriving (Eq, Show)
 
--- |Convenience function getting VerificationResults together with a cache.
+-- |Convenience function for verifying a transaction and updating a 'TransactionVerificationCache'.
 -- The function returns the verification result and the (possibly) updated cache.
--- Only `verifiable` transaction verification results will be stored in the cache.
 verifyWithCache :: TVer.TransactionVerifier m => Timestamp -> BlockItem -> TransactionVerificationCache -> m (TVer.VerificationResult, TransactionVerificationCache)
 verifyWithCache now bi cache = do
   let mVerRes = HM.lookup (getHash bi) cache
@@ -418,8 +409,6 @@ verifyWithCache now bi cache = do
         -- and ChainUpdates at the moment.
   where
     mapRes VerificationResultSuccess = TVer.Success
-    mapRes VerificationResultCredentialDeploymentInvalidIdentityProvider = TVer.CredentialDeploymentInvalidIdentityProvider
-    mapRes VerificationResultCredentialDeploymentInvalidAnonymityRevokers = TVer.CredentialDeploymentInvalidAnonymityRevokers
     mapRes (VerificationResultChainUpdateSuccess hash) = TVer.ChainUpdateSuccess hash
 
 -- |Determines if a `VerificationResult` is 'cacheable'.
@@ -430,10 +419,5 @@ isCacheable tver = isJust $ toCacheable tver
 -- If the verification result was not cacheable we return Nothing.
 toCacheable :: TVer.VerificationResult -> Maybe CacheableVerificationResult
 toCacheable TVer.Success = Just VerificationResultSuccess
--- An identity provider could potentially be added in the span between receiving the
--- transaction and the actual execution of the transaction.
-toCacheable TVer.CredentialDeploymentInvalidIdentityProvider = Just VerificationResultCredentialDeploymentInvalidIdentityProvider
--- Same goes for anonymity revokers.
-toCacheable TVer.CredentialDeploymentInvalidAnonymityRevokers = Just VerificationResultCredentialDeploymentInvalidAnonymityRevokers
 toCacheable (TVer.ChainUpdateSuccess hash) = Just $ VerificationResultChainUpdateSuccess hash
 toCacheable _ = Nothing

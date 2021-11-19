@@ -26,7 +26,6 @@ import Control.Monad.State.Class
 
 import Concordium.Scheduler.Types
 import Concordium.Logger
-import Concordium.Utils ((%=!))
 import Concordium.GlobalState.Account
 import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.GlobalState.BlockState as BS
@@ -166,10 +165,6 @@ instance (MonadReader ContextState m,
           IsProtocolVersion pv
          )
          => SchedulerMonad pv (BSOMonadWrapper pv ContextState w state m) where
-
-  {-# INLINE insertTransactionVerificationResult #-}
-  insertTransactionVerificationResult txHash verResult = do
-    transactionVerificationCache %=! Map.insert txHash verResult
 
   {-# INLINE lookupTransactionVerificationResult #-}
   lookupTransactionVerificationResult k = use (transactionVerificationCache . at k)

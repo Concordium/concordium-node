@@ -301,11 +301,12 @@ callbacks myPeerId peersRef monitorChan = Callbacks{..}
         toAllPeers myPeerId peersRef MessageFinalizationRecord gi bs
     notifyCatchUpStatus gi bs =
         toAllPeers myPeerId peersRef MessageCatchUpStatus gi bs
-    notifyRegenesis gbh = do
+    notifyRegenesis (Just gbh) = do
         writeChan monitorChan $ MERegenesis gbh
         peers <- readIORef peersRef
         forM_ (Map.lookup myPeerId peers) $ \myPeer ->
             forM_ peers $ \peer -> markPeerPending myPeer (peerId peer)
+    notifyRegenesis Nothing = return ()
 
 -- |Construct a 'MultiVersionConfiguration' to use for each baker node.
 config :: FilePath -> BakerIdentity -> MultiVersionConfiguration DiskTreeDiskBlockConfig (BufferedFinalization ThreadTimer)
