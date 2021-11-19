@@ -364,7 +364,7 @@ reversePTT trs ptt0 = foldr reverse1 ptt0 trs
 -- by `doReceiveTransaction` and `doReceiveTransactionInternal`. 
 -- The cached verification results are used by the Scheduler to short-cut verification
 -- during block execution.
--- Entries in the cache are being expunged when the associated transaction is either
+-- Entries in the cache are expunged when the associated transaction is either
 -- finalized or purged.
 -- A note on `CacheableVerificationResult`s. These verification results are characterized by being verifiable in the future.
 -- That is, they are either deemed valid or they are possible valid in the future. (when received by one of the two functions mentioned above)
