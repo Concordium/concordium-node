@@ -68,7 +68,7 @@ class Monad m => TransactionVerifier m where
   -- |Get the UpdateKeysCollection
   getUpdateKeysCollection :: m Updates.UpdateKeysCollection
 
--- |Verifies a 'CredentialDeployment' transaction 
+-- |Verifies a 'CredentialDeployment' transaction.
 --
 -- This function verifies the following:
 -- * Checks that the 'CredentialDeployment' is not expired
@@ -108,7 +108,11 @@ verifyCredentialDeployment now accountCreation@Tx.AccountCreation{..} =
                 -- check signatures for a normal credential deployment
                 unless (A.verifyCredential cryptoParams ipInfo arsInfos (S.encode ncdi) (Left messageExpiry)) $ throwError CredentialDeploymentInvalidSignatures
     return Success)
-
+  
+-- |Verifies a 'ChainUpdate' transaction.
+-- This function verifies the following:
+-- * Chekcs that the effective time is no later than the timeout of the chain update.
+-- * Checks that the 'ChainUpdate' is correctly signed.
 verifyChainUpdate :: TransactionVerifier m => ST.UpdateInstruction -> m VerificationResult
 verifyChainUpdate ui@ST.UpdateInstruction{..} =
   either id id <$> runExceptT (do
