@@ -132,8 +132,8 @@ purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptabl
                         = Nothing
                     | otherwise
                         = r
-                -- Purge the hash from the transaction table and pending
-                -- transaction table.
+                -- Purge the hash from the transaction table, pending
+                -- transaction table and the transaction verification cache.
                 purgeDC (dc, trs, tvercache) cdihash = case trs & at' cdihash <%~ p of
                     -- The CDI is no longer in the transaction table, so delete it from the transaction table and the
                     -- transaction verification cache.
