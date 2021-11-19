@@ -564,7 +564,7 @@ doReceiveTransactionInternal tr ts slot = do
       putTransactionVerificationCache cache'
       addTx verRes bs
   where
-      addTx bs verRes = addCommitTransaction tr slot >>= \case
+      addTx verRes bs = addCommitTransaction tr slot >>= \case
           Added bi@WithMetadata{..} -> do
             ptrs <- getPendingTransactions
             case wmdData of
