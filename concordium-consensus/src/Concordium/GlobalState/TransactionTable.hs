@@ -360,7 +360,7 @@ reversePTT trs ptt0 = foldr reverse1 ptt0 trs
 -- * Transaction verification cache
 
 -- |The transaction verification cache stores transaction `CacheableVerificationResult`s associated with `TransactionHash`s.
--- New entries are being put into the cache when receiving new transasactions (either as a single transaction or within a block)
+-- New entries are put into the cache when receiving new transactions (either as a single transaction or within a block)
 -- by `doReceiveTransaction` and `doReceiveTransactionInternal`. 
 -- The cached verification results are used by the Scheduler to short-cut verification
 -- during block execution.
