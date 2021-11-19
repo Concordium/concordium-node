@@ -1175,7 +1175,7 @@ handleDeployCredential accCreation@AccountCreation{messageExpiry=messageExpiry, 
       liftedCryptoParams <- lift TV.getCryptographicParameters      
       cachedTVResult <- lift (lookupTransactionVerificationResult cdiHash)
       case cachedTVResult of
-        Just VerificationResultSuccess -> do
+        Just _ -> do
           return ()
         Nothing -> do
           -- If the transaction has not been verified before we verify it now
