@@ -562,7 +562,7 @@ doReceiveTransactionInternal tr ts slot = do
     if definitelyNotValid verRes then do return (Nothing, mapTransactionVerificationResult verRes)
     else do
       putTransactionVerificationCache cache'
-      flip addTx verRes bs
+      addTx verRes bs
   where
       addTx st verRes = addCommitTransaction tr slot >>= \case
           Added bi@WithMetadata{..} -> do
