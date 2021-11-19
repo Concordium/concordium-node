@@ -111,7 +111,7 @@ verifyCredentialDeployment now accountCreation@Tx.AccountCreation{..} =
   
 -- |Verifies a 'ChainUpdate' transaction.
 -- This function verifies the following:
--- * Chekcs that the effective time is no later than the timeout of the chain update.
+-- * Checks that the effective time is no later than the timeout of the chain update.
 -- * Checks that the 'ChainUpdate' is correctly signed.
 verifyChainUpdate :: TransactionVerifier m => ST.UpdateInstruction -> m VerificationResult
 verifyChainUpdate ui@ST.UpdateInstruction{..} =
@@ -123,6 +123,16 @@ verifyChainUpdate ui@ST.UpdateInstruction{..} =
     keys <- lift getUpdateKeysCollection
     unless (Updates.checkAuthorizedUpdate keys ui) $ throwError ChainUpdateInvalidSignatures
     return (ChainUpdateSuccess (getHash keys)))
+
+-- |Verifies a 'NormalTransaction' transaction.
+-- This function verifies the following:
+-- * Checks that enough energy is supplied for the transaction
+-- * Checks that the sender is a valid account
+-- * Checks that the nonce is correct
+-- * Checks that 
+verifyNormalTransaction :: TransactionVerifier m => TransactionData -> m VerificationResult
+verifyNormalTransaction meta = either id id <$> runExceptT (do
+  return ChainUpdateSuccess)
   
 instance (Monad m, r ~ GSTypes.BlockState m, BS.BlockStateQuery m) => TransactionVerifier (ReaderT r m) where
   {-# INLINE getIdentityProvider #-}
