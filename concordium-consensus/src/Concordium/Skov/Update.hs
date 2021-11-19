@@ -42,7 +42,6 @@ import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.Skov.Statistics
 import qualified Concordium.TransactionVerification as TV
-import Control.Monad.Trans.RWS (runRWS)
 
 -- |Determine if one block is an ancestor of another.
 -- A block is considered to be an ancestor of itself.
@@ -558,7 +557,7 @@ doReceiveTransactionInternal tr ts slot = do
    if transactionExpired (msgExpiry tr) ts then return (Nothing, ResultStale)
    else do
     cache <- getTransactionVerificationCache   
-    (verRes, cache') <- runRWST (verifyWithCache ts tr) bs
+    (verRes, cache') <- runReaderT (verifyWithCache ts tr cache) bs
     -- If the transaction cannot be valid in the future we reject it now 
     if definitelyNotValid verRes then do return (Nothing, mapTransactionVerificationResult verRes)
     else do
