@@ -14,11 +14,12 @@ This script runs each component in every docker image. It has different behavior
 depending on the environment variables that are defined and it is used as entrypoint
 for the Docker images and for entrypoint for `supervisord` on the [opentestnet/staging_net clients](./distribution).
 
-## Testnet deployments
+## Docker
 
-The folder [`testnet-deployments`](./testnet-deployments) contains a set of scripts that create docker
-images with the different components of the project that can be used to create
-ad-hoc deployments and are used in testnet deployments.
+The folder [`docker`](docker) contains a set of scripts for creating docker
+images for the different components of the project.
+They can be used to create ad-hoc deployments.
+Possible usages range from local bakers over special-purpose nodes running in Kubernetes to full test environments.
 
 ## Distribution
 
