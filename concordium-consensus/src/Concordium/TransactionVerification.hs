@@ -51,8 +51,11 @@ data VerificationResult
   -- It must be checked that this hash corresponds to the current authorization keys before
   -- executing the transaction.
   | NormalTransactionSuccess
+  -- ^The 'NormalTransaction' passed verification.
   | NormalTransactionDepositInsufficient
+  -- ^Not enough energy was supplied for the transaction.
   | NormalTransactionInvalidSender
+  -- ^The 'NormalTransaction' contained an invalid sender
   deriving (Eq, Show)
 
 -- |Type which can verify transactions in a monadic context. 
@@ -73,7 +76,7 @@ class (Monad m) => TransactionVerifier m where
   registrationIdExists :: ID.CredentialRegistrationID -> m Bool
   -- |Get the account associated for the given account address.
   -- Returns 'Nothing' if no such account exists.
-  getAccount :: Types.AccountAddress -> m (Maybe (GSTypes.IndexedAccount m))
+  getAccount :: Types.AccountAddress -> m (Maybe (GSTypes.Account m))
   -- |Get the UpdateKeysCollection
   getUpdateKeysCollection :: m Updates.UpdateKeysCollection
 
@@ -151,12 +154,12 @@ verifyNormalTransaction meta =
     macc <- lift (getAccount (Tx.transactionSender meta))
     case macc of
       Nothing -> throwError NormalTransactionInvalidSender
-      Just (_, acc) -> do
+      Just acc -> do
 --        amnt <- BS.getAccountAvailableAmount acc
 --        nextNonce <- BS.getAccountNonce acc
         return NormalTransactionSuccess)
   
-instance (Monad m, r ~ GSTypes.BlockState m, BS.BlockStateQuery m) => TransactionVerifier (ReaderT r m) where
+instance (Monad m, BS.BlockStateQuery m, r ~ GSTypes.BlockState m) => TransactionVerifier (ReaderT r m) where
   {-# INLINE getIdentityProvider #-}
   getIdentityProvider ipId = do
     state <- ask
@@ -174,7 +177,12 @@ instance (Monad m, r ~ GSTypes.BlockState m, BS.BlockStateQuery m) => Transactio
     state <- ask
     lift $ isJust <$> BS.getAccountByCredId state regId
   {-# INLINE getAccount #-}
-  getAccount aaddr = lift . flip BS.getAccount aaddr =<< ask
+  getAccount aaddr = do
+    state <- ask
+    macc <- BS.getAccount state aaddr
+    case macc of
+      Nothing -> Nothing
+      Just (_, acc) -> acc
   {-# INLINE getUpdateKeysCollection #-}
   getUpdateKeysCollection = do
     state <- ask
