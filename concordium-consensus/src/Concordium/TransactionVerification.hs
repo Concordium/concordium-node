@@ -179,10 +179,10 @@ instance (Monad m, BS.BlockStateQuery m, r ~ GSTypes.BlockState m) => Transactio
   {-# INLINE getAccount #-}
   getAccount aaddr = do
     state <- ask
-    macc <- BS.getAccount state aaddr
+    macc <- lift (BS.getAccount state aaddr)
     case macc of
-      Nothing -> Nothing
-      Just (_, acc) -> acc
+      Nothing -> return Nothing
+      Just (_, acc) -> return (Just acc)
   {-# INLINE getUpdateKeysCollection #-}
   getUpdateKeysCollection = do
     state <- ask
