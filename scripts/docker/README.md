@@ -10,7 +10,13 @@ All the components are compiled (in both release and debug) in a monolithic imag
 The other dockerfiles just extract the individual binaries from this image, install dependencies, and declare exposed ports.
 
 To run the node, the genesis file `genesis.dat` needs to be placed at the data path when the node starts.
-The image built from `genesis.Dockerfile` contains just this file and a script for copying it into the correct path at load time.
+The image built from `genesis.Dockerfile` contains just this file such that a container instantiated from it
+may copy it into the correct path on startup.
+
+As the node now also supports the path of the genesis file to be overridden
+(using `--genesis-data-file`/`CONCORDIUM_NODE_CONSENSUS_GENESIS_DATA_FILE`),
+the file can alternatively be injected using for example a bind mount.
+This is useful for running a locally generated genesis for which a prebuilt image doesn't exist.
 
 ## Jenkins Pipelines
 
@@ -19,7 +25,7 @@ Genesis images are built with `master-genesis.Jenkinsfile`.
 
 ## Docker Compose
 
-The following example shows a minimal setup of a node and an accompanying collector:
+The following example shows a (reasonably) minimal setup of a node and an accompanying collector:
 
 ```yaml
 version: '3'
