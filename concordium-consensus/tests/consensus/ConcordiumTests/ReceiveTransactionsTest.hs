@@ -78,8 +78,9 @@ test = do
       -- Chain Updates
       check results cache 8 False $ Right ResultStale
       check results cache 9 False $ Left TVer.ChainUpdateEffectiveTimeBeforeTimeout
-      check results cache 10 False $ Left TVer.ChainUpdateInvalidSignatures
-      check results cache 11 True $ Left (TVer.ChainUpdateSuccess expectedHashOfAuthKeys)
+      check results cache 10 False $ Left TVer.ChainUpdateInvalidSequenceNumber
+      check results cache 11 False $ Left TVer.ChainUpdateInvalidSignatures
+      check results cache 12 True $ Left (TVer.ChainUpdateSuccess expectedHashOfAuthKeys minUpdateSequenceNumber)
       -- now check that the cache is being cleared when we purge transactions
       s' <- runPurgeTransactions (addUTCTime (secondsToNominalDiffTime 2) now) outState
       let cache' = snd s' ^. transactionVerificationResults
@@ -120,8 +121,9 @@ test = do
       -- Chain Updates
       check results cache 7 False $ Right ResultStale
       check results cache 8 False $ Left TVer.ChainUpdateEffectiveTimeBeforeTimeout
-      check results cache 9 False $ Left TVer.ChainUpdateInvalidSignatures
-      check results cache 10 True $ Left (TVer.ChainUpdateSuccess expectedHashOfAuthKeys)
+      check results cache 9 False $ Left TVer.ChainUpdateInvalidSequenceNumber
+      check results cache 10 False $ Left TVer.ChainUpdateInvalidSignatures
+      check results cache 11 True $ Left (TVer.ChainUpdateSuccess expectedHashOfAuthKeys minUpdateSequenceNumber)
       s' <- runPurgeTransactions (addUTCTime (secondsToNominalDiffTime 2) now) outState
       let cache' = snd s' ^. transactionVerificationResults
       cache' `shouldBe` HM.empty
@@ -247,6 +249,7 @@ chainUpdates now =
   [
     expiredTimeout,
     invalidEffectiveTime,
+    invalidNonce,
     invalidSignature,
     verifiable
   ]
@@ -255,6 +258,7 @@ chainUpdates now =
     invalidEffectiveTime = toBlockItem now (mkChainUpdate (now + 2) (now + 1) False)
     invalidSignature = toBlockItem now (mkChainUpdate (now + 1) (now + 2) False)
     verifiable = toBlockItem now (mkChainUpdate (now + 1) (now + 2) True)
+    invalidNonce = toBlockItem now (mkChainUpdate (now + 1) (now + 2) False)
 
 toBlockItem :: TransactionTime -> BareBlockItem -> BlockItem
 toBlockItem now bbi =
@@ -304,7 +308,7 @@ mkChainUpdate timeout effectTime validSignature =
     payload = AddIdentityProviderUpdatePayload myipInfo
     mkDummySignHash = UpdateInstructionSignHashV0 dummyHash
     mkDummySignature = UpdateInstructionSignatures Map.empty
-                
+    
 mkAccountCreation :: TransactionTime -> CredentialRegistrationID -> Word32 -> Bool -> Bool ->  Bool -> BareBlockItem
 mkAccountCreation expiry regId identityProviderId validAr validPubKeys credExpired = CredentialDeployment AccountCreation
   {

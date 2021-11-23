@@ -579,9 +579,9 @@ doReceiveTransactionInternal tr ts slot = do
               CredentialDeployment _ -> do
                 putPendingTransactions $! addPendingDeployCredential wmdHash ptrs
               ChainUpdate cu -> do
-                nextSN <- getNextUpdateSequenceNumber bs (updateType (uiPayload cu))
-                when (nextSN <= updateSeqNumber (uiHeader cu)) $
-                    putPendingTransactions $! addPendingUpdate nextSN cu ptrs
+                case verRes of
+                  TV.ChainUpdateSuccess _ nonce -> do
+                    putPendingTransactions $! addPendingUpdate nonce cu ptrs
             return (Just bi, mapTransactionVerificationResult verRes)
           Duplicate tx -> return (Just tx, ResultDuplicate)
           ObsoleteNonce -> return (Nothing, ResultStale)
@@ -614,11 +614,13 @@ doPurgeTransactions = do
 
 mapTransactionVerificationResult :: TV.VerificationResult -> UpdateResult
 mapTransactionVerificationResult TV.CredentialDeploymentSuccess = ResultSuccess
-mapTransactionVerificationResult (TV.ChainUpdateSuccess _) = ResultSuccess
+mapTransactionVerificationResult (TV.ChainUpdateSuccess _ _) = ResultSuccess
 mapTransactionVerificationResult (TV.CredentialDeploymentDuplicateAccountRegistrationID _) = ResultDuplicateAccountRegistrationID
 mapTransactionVerificationResult TV.CredentialDeploymentInvalidIdentityProvider = ResultCredentialDeploymentInvalidIP
 mapTransactionVerificationResult TV.CredentialDeploymentInvalidAnonymityRevokers = ResultCredentialDeploymentInvalidAR
 mapTransactionVerificationResult TV.CredentialDeploymentInvalidSignatures = ResultCredentialDeploymentInvalidSignatures
 mapTransactionVerificationResult TV.CredentialDeploymentExpired = ResultCredentialDeploymentExpired
-mapTransactionVerificationResult TV.ChainUpdateInvalidSignatures = ResultChainUpdateInvalidSignatures
 mapTransactionVerificationResult TV.ChainUpdateEffectiveTimeBeforeTimeout = ResultChainUpdateInvalidEffectiveTime
+mapTransactionVerificationResult TV.ChainUpdateInvalidSequenceNumber = ResultChainUpdateInvalidSequenceNumber
+mapTransactionVerificationResult TV.ChainUpdateInvalidSignatures = ResultChainUpdateInvalidSignatures
+

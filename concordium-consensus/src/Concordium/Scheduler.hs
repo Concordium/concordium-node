@@ -1280,7 +1280,7 @@ handleChainUpdate WithMetadata{wmdData = UpdateInstruction{..}, ..} = do
     checkSigAndUpdate change = do
       cachedTVResult <- lookupTransactionVerificationResult wmdHash
       case cachedTVResult of
-        Just (VerificationResultChainUpdateSuccess keysHash) -> do
+        Just (VerificationResultChainUpdateSuccess keysHash _) -> do -- todo: should the nonce be checked again here?
           currentKeys <- getUpdateKeyCollection
           if getHash currentKeys == keysHash then do 
             update change

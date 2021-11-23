@@ -239,6 +239,8 @@ pub enum ConsensusFfiResponse {
     CredentialDeploymentExpired,
     #[error("The chain update had an invalid effective time")]
     ChainUpdateInvalidEffectiveTime,
+    #[error("The chain update had an invalid nonce")]
+    ChainUpdateInvalidSequenceNumber,
     #[error("The chain update contained invalid signatures")]
     ChainUpdateInvalidSignatures,
 }
@@ -302,6 +304,9 @@ impl ConsensusFfiResponse {
                 | CredentialDeploymentInvalidIP
                 | CredentialDeploymentInvalidAR
                 | CredentialDeploymentExpired
+                | ChainUpdateInvalidEffectiveTime
+                | ChainUpdateInvalidSequenceNumber
+                | ChainUpdateInvalidSignatures
         )
     }
 }
@@ -342,7 +347,8 @@ impl TryFrom<i64> for ConsensusFfiResponse {
             24 => Ok(CredentialDeploymentInvalidAR),
             25 => Ok(CredentialDeploymentExpired),
             26 => Ok(ChainUpdateInvalidEffectiveTime),
-            27 => Ok(ChainUpdateInvalidSignatures),
+            27 => Ok(ChainUpdateInvalidSequenceNumber),
+            28 => Ok(ChainUpdateInvalidSignatures),
             _ => Err(anyhow!("Unsupported FFI return code ({})", value)),
         }
     }

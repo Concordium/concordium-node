@@ -93,10 +93,12 @@ data UpdateResult
     -- ^The 'CredentialDeployment' contained an expired 'validTo'.
     | ResultInvalidGenesisIndex
     -- ^The message is for an unknown genesis index.
-    | ResultChainUpdateInvalidSignatures
-    -- ^The 'ChainUpdate' contained invalid signatures.
+    | ResultChainUpdateInvalidSequenceNumber
+    -- ^The 'ChainUpdate' contained an invalid nonce
     | ResultChainUpdateInvalidEffectiveTime
     -- ^The 'ChainUpdate' contained an invalid effective time.
+    | ResultChainUpdateInvalidSignatures
+    -- ^The 'ChainUpdate' contained invalid signatures.
     deriving (Eq, Show)
 
 class (Monad m, Eq (BlockPointerType m), HashableTo BlockHash (BlockPointerType m), BlockPointerData (BlockPointerType m), BlockPointerMonad m, EncodeBlock pv (BlockPointerType m), BlockStateQuery m, IsProtocolVersion pv)

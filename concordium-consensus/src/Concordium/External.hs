@@ -654,8 +654,11 @@ stopBaker cptr = mask_ $ do
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 -- |    26 | ResultChainUpdateInvalidEffectiveTime       | The ChainUpdate contained an invalid effective time                                           | Yes      |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
--- |    27 | ResultChainUpdateInvalidSignatures          | The ChainUpdate contained an invalid signature                                                | Yes      |
+-- |    27 | ResultChainUpdateInvalidSequenceNumber      | The ChainUpdate contained an invalid nonce                                                    | Yes      |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
+-- |    28 | ResultChainUpdateInvalidSignatures          | The ChainUpdate contained an invalid signature                                                | Yes      |
+-- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
+
 type ReceiveResult = Int64
 
 -- |Convert an 'UpdateResult' to the corresponding 'ReceiveResult' value.
@@ -687,7 +690,8 @@ toReceiveResult ResultCredentialDeploymentInvalidIP = 23
 toReceiveResult ResultCredentialDeploymentInvalidAR = 24
 toReceiveResult ResultCredentialDeploymentExpired = 25
 toReceiveResult ResultChainUpdateInvalidEffectiveTime = 26
-toReceiveResult ResultChainUpdateInvalidSignatures = 27
+toReceiveResult ResultChainUpdateInvalidSequenceNumber = 27
+toReceiveResult ResultChainUpdateInvalidSignatures = 28
 
 -- |Handle receipt of a block.
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,
