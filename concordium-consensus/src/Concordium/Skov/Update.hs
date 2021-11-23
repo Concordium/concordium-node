@@ -558,7 +558,7 @@ doReceiveTransactionInternal tr ts slot = do
    else do
     cache <- getTransactionVerificationCache   
     (verRes, cache') <- runReaderT (verifyWithCache ts tr cache) bs
-    -- If the transaction cannot be valid in the future we reject it now 
+    -- If the transaction is not valid we just reject it now.
     if definitelyNotValid verRes then do return (Nothing, mapTransactionVerificationResult verRes)
     else do
       putTransactionVerificationCache cache'
@@ -569,13 +569,7 @@ doReceiveTransactionInternal tr ts slot = do
             ptrs <- getPendingTransactions
             case wmdData of
               NormalTransaction tx -> do
-                macct <- getAccount bs $! transactionSender tx
-                nextNonce <- fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
-                -- If a transaction with this nonce has already been run by
-                -- the focus block, then we do not need to add it to the
-                -- pending transactions.  Otherwise, we do.
-                when (nextNonce <= transactionNonce tx) $
-                  putPendingTransactions $! addPendingTransaction nextNonce WithMetadata{wmdData=tx,..} ptrs
+                addPendingTransaction nextNonce WithMetadata{wmdData=tx,..} ptrs
               CredentialDeployment _ -> do
                 putPendingTransactions $! addPendingDeployCredential wmdHash ptrs
               ChainUpdate cu -> do
