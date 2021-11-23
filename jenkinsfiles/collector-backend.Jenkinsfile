@@ -21,13 +21,12 @@ pipeline {
             steps {
                 sh '''\
                     docker build \
-                      --build-arg base_image_tag="${base_image_tag}" \
-                      --build-arg build_profile="${build_profile}" \
-                      --label base_image_tag="${base_image_tag}" \
-                      --label build_profile="${build_profile}" \
+                      --build-arg=base_image_tag="${base_image_tag}" \
+                      --build-arg=build_profile="${build_profile}" \
+                      --label=base_image_tag="${base_image_tag}" \
+                      --label=build_profile="${build_profile}" \
                       -t "${image_name}" \
-                      -f scripts/docker/collector-backend.Dockerfile \
-                      .
+                      ./collector-backend
                     docker push "${image_name}"
                 '''
             }
