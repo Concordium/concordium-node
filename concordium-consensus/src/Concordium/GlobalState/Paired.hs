@@ -786,7 +786,7 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
     getTransactionVerificationCache = do
       l <- coerceGSML getTransactionVerificationCache
       r <- coerceGSMR getTransactionVerificationCache
-      assert(l == r) $ return l
+      assert (l == r) $ return l
       
     putTransactionVerificationCache c = do
       coerceGSML $ putTransactionVerificationCache c

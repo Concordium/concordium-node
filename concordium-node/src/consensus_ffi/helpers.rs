@@ -297,11 +297,11 @@ impl ConsensusFfiResponse {
                 | TooLowEnergy
                 | ConsensusShutDown
                 | InvalidGenesisIndex
-                | CredentialDeploymentExpired
                 | DuplicateAccountRegistrationID
                 | CredentialDeploymentInvalidSignatures
                 | CredentialDeploymentInvalidIP
                 | CredentialDeploymentInvalidAR
+                | CredentialDeploymentExpired
         )
     }
 }

@@ -27,9 +27,9 @@ import Control.Monad.Except
 -- |The 'VerificationResult' type serves as an intermediate `result type` between the 'TxResult' and 'UpdateResult' types.
 -- VerificationResult's contains possible verification errors that may have occurred when verifying a 'AccountCreation' type.
 data VerificationResult
-  = Success
-  -- ^The verification passed
-  | DuplicateAccountRegistrationID !ID.CredentialRegistrationID
+  = CredentialDeploymentSuccess
+  -- ^The 'CredentialDeployment' passed verification.
+  | CredentialDeploymentDuplicateAccountRegistrationID !ID.CredentialRegistrationID
   -- ^The 'CredentialDeployment' contained an invalid registration id.
   -- There already exists an account with the registration id.
   | CredentialDeploymentInvalidIdentityProvider
@@ -45,6 +45,10 @@ data VerificationResult
   | ChainUpdateEffectiveTimeBeforeTimeout
   -- ^The 'ChainUpdate' had an expiry set too late.
   | ChainUpdateSuccess !Sha256.Hash
+  -- ^The 'ChainUpdate' passed verification.
+  -- The result contains the hash of the autorization keys.
+  -- It must be checked that this hash corresponds to the current authorization keys before
+  -- executing the transaction.
   deriving (Eq, Show)
 
 -- |Type which can verify transactions in a monadic context. 
@@ -84,7 +88,7 @@ verifyCredentialDeployment now accountCreation@Tx.AccountCreation{..} =
     unless (Types.isTimestampBefore now expiry) $ throwError CredentialDeploymentExpired
     -- check that the credential deployment is not a duplicate
     exists <- lift (registrationIdExists (ID.credId accountCreation))
-    when exists $ throwError $ DuplicateAccountRegistrationID (ID.credId accountCreation)
+    when exists $ throwError $ CredentialDeploymentDuplicateAccountRegistrationID (ID.credId accountCreation)
     let credIpId = ID.ipId accountCreation
     mIpInfo <- lift (getIdentityProvider credIpId)
     case mIpInfo of
@@ -107,7 +111,7 @@ verifyCredentialDeployment now accountCreation@Tx.AccountCreation{..} =
                 when (null arsInfos) $ throwError CredentialDeploymentInvalidAnonymityRevokers
                 -- check signatures for a normal credential deployment
                 unless (A.verifyCredential cryptoParams ipInfo arsInfos (S.encode ncdi) (Left messageExpiry)) $ throwError CredentialDeploymentInvalidSignatures
-    return Success)
+    return CredentialDeploymentSuccess)
   
 -- |Verifies a 'ChainUpdate' transaction.
 -- This function verifies the following:

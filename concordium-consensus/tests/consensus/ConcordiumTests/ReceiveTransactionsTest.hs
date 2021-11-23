@@ -69,7 +69,7 @@ test = do
       check results cache 0 False $ Right ResultExpiryTooLate
       check results cache 1 False $ Right ResultStale
       check results cache 2 False $ Left TVer.CredentialDeploymentExpired
-      check results cache 3 False $ Left (TVer.DuplicateAccountRegistrationID duplicateRegId)
+      check results cache 3 False $ Left (TVer.CredentialDeploymentDuplicateAccountRegistrationID duplicateRegId)
       check results cache 4 False $ Left TVer.CredentialDeploymentInvalidIdentityProvider
       check results cache 5 False $ Left TVer.CredentialDeploymentInvalidAnonymityRevokers
       check results cache 6 False $ Left TVer.CredentialDeploymentInvalidSignatures
@@ -96,8 +96,8 @@ test = do
       let results = fst s
           outState = snd s
           cache = outState ^. transactionVerificationResults
-      check results cache 0 True $ Left TVer.Success
-      check results cache 1 True $ Left TVer.Success
+      check results cache 0 True $ Left TVer.CredentialDeploymentSuccess
+      check results cache 1 True $ Left TVer.CredentialDeploymentSuccess
     specify "doReceiveTransactionInternal fails appropriately" $ do
       let gCtx = dummyGlobalContext
       now <- currentTime
@@ -110,7 +110,7 @@ test = do
       -- Credential deployments
       check results cache 0 False $ Right ResultStale
       check results cache 1 False $ Left TVer.CredentialDeploymentExpired
-      check results cache 2 False $ Left (TVer.DuplicateAccountRegistrationID duplicateRegId)
+      check results cache 2 False $ Left (TVer.CredentialDeploymentDuplicateAccountRegistrationID duplicateRegId)
       check results cache 3 False $ Left TVer.CredentialDeploymentInvalidIdentityProvider
       check results cache 4 False $ Left TVer.CredentialDeploymentInvalidAnonymityRevokers
       check results cache 5 False $ Left TVer.CredentialDeploymentInvalidSignatures

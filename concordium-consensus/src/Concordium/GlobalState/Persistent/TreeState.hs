@@ -145,9 +145,9 @@ data SkovPersistentData (pv :: ProtocolVersion) ati bs = SkovPersistentData {
     _db :: !(DatabaseHandlers pv (TS.BlockStatePointer bs)),
     -- |Context for the transaction log.
     _atiCtx :: !(ATIContext ati),
-    -- |transactionVerificationResults
-    -- Transactions which have been subject to a 'verification' resides in this cache.
-    -- The purpose of the cache is to eliminate the need for re-verifying already verified transactions.
+    -- |Transactions which have been succesfully verified resides in the cache.
+    -- The purpose of the cache is to eliminate the need for re-verifying already verified transactions
+    -- when they're being executed.
     -- Entries should be deleted when either the corresponding transaction has been *purged* or *finalized*. 
     _transactionVerificationResults :: !TransactionVerificationCache
 }

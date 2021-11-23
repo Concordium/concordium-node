@@ -313,8 +313,8 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- |Check whether the given account address would clash with any existing address.
   bsoAddressWouldClash :: UpdatableBlockState m -> ID.AccountAddress -> m Bool
 
-  -- |Check whether an the given credential registration ID exists, and return
-  -- the account index of the account it is or was associated with.
+  -- |Check whether an the given credential registration ID exists
+  -- Returns `True` if this was the case otherwise `bFalse`.
   bsoRegIdExists :: UpdatableBlockState m -> ID.CredentialRegistrationID -> m Bool
 
   -- |Create and add an empty account with the given public key, address and credential.

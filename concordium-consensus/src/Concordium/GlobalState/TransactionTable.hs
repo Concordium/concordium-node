@@ -361,24 +361,34 @@ reversePTT trs ptt0 = foldr reverse1 ptt0 trs
 -- * Transaction verification cache
 
 -- |The transaction verification cache stores transaction `CacheableVerificationResult`s associated with `TransactionHash`s.
--- New entries are being put into the cache when receiving new transasactions (either as a single transaction or within a block)
+-- New entries are put into the cache when receiving new transactions (either as a single transaction or within a block)
 -- by `doReceiveTransaction` and `doReceiveTransactionInternal`. 
--- The cached verification results are used by the Scheduler to short-cut verification
--- during block execution.
--- Entries in the cache are being expunged when the associated transaction is either
+-- The cached verification results are used by the 'Scheduler' to short-cut verification
+-- during transaction execution.
+--
+-- Entries in the cache are expunged when the associated transaction is either
 -- finalized or purged.
--- A note on `CacheableVerificationResult`s. These verification results are characterized by being verifiable in the future.
--- That is, they are either deemed valid or they are possible valid in the future. (when received by one of the two functions mentioned above)
-
+--
+-- Only transaction hashes of successfully verified transactions must be put in the cache.
+-- The 'TransactionVerificationCache' allows for 'short-cutting' verification when executing transactions,
+-- this is particularly useful for signature checks as these are computationally expensive.
+-- Further the cache moves some of the more computationally expensive operations from the 'Scheduler' and into the
+-- 'doReceiveTransaction' and 'doReceiveTransactionInternal' functions.
+--
+-- A note on the cached verification results.
+-- The reason only successfully verified transactions is stored in the cache is that
+-- invalid transactions will be rejected immediately and subsequent ones (i.e. duplicates) will
+-- be rejected by the deduplication logic in the node.
 type TransactionVerificationCache = HM.HashMap TransactionHash CacheableVerificationResult
 
 data CacheableVerificationResult
-  = VerificationResultSuccess
+  = CredentialDeploymentVerificationResultSuccess
   -- ^The transaction was valid.
   | VerificationResultChainUpdateSuccess !Sha256.Hash
   -- ^The 'ChainUpdate' passed verification successfully. The result contains
   -- the hash of the `UpdateKeysCollection`. It must be checked
   -- that the hash corresponds to the configured `UpdateKeysCollection` before executing the transaction.
+  | NormalTransactionSuccess
   deriving (Eq, Show)
 
 -- |Convenience function for verifying a transaction and updating a 'TransactionVerificationCache'.
@@ -404,12 +414,16 @@ verifyWithCache now bi cache = do
               let c' = HM.insert (getHash bi) cacheable cache
               return (verRes, c')
             Nothing -> return (verRes, cache)
-        _ -> return (mapRes VerificationResultSuccess, cache)
+        _ -> return (mapRes NormalTransactionSuccess, cache)
         -- todo: The TransactionVerifier only supports CredentialDeployments
         -- and ChainUpdates at the moment.
   where
-    mapRes VerificationResultSuccess = TVer.Success
+    mapRes CredentialDeploymentVerificationResultSuccess = TVer.CredentialDeploymentSuccess
     mapRes (VerificationResultChainUpdateSuccess hash) = TVer.ChainUpdateSuccess hash
+    -- TODO: The cache doesn't currently 'NormalTransactions' and as such we just let it pass here,
+    -- as it still being verified in the scheduler and in the according branch of 'doReceiveTransaction' and
+    -- 'doReceiveTransactionInternal'
+    mapRes NormalTransactionSuccess = TVer.CredentialDeploymentSuccess
 
 -- |Determines if a `VerificationResult` is 'cacheable'.
 isCacheable :: TVer.VerificationResult -> Bool
@@ -418,6 +432,6 @@ isCacheable tver = isJust $ toCacheable tver
 -- |Converts a general verification result to cacheable one.
 -- If the verification result was not cacheable we return Nothing.
 toCacheable :: TVer.VerificationResult -> Maybe CacheableVerificationResult
-toCacheable TVer.Success = Just VerificationResultSuccess
+toCacheable TVer.CredentialDeploymentSuccess = Just CredentialDeploymentVerificationResultSuccess
 toCacheable (TVer.ChainUpdateSuccess hash) = Just $ VerificationResultChainUpdateSuccess hash
 toCacheable _ = Nothing
