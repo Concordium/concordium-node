@@ -21,6 +21,7 @@ import Concordium.Types.Updates
 import qualified Concordium.TransactionVerification as TVer
 import Concordium.Types.HashableTo (getHash)
 import qualified Concordium.Crypto.SHA256 as Sha256
+import qualified Concordium.Types.Transactions as TVer
 
 -- * Transaction status
 
@@ -395,35 +396,27 @@ data CacheableVerificationResult
 -- The function returns the verification result and the (possibly) updated cache.
 verifyWithCache :: TVer.TransactionVerifier m => Timestamp -> BlockItem -> TransactionVerificationCache -> m (TVer.VerificationResult, TransactionVerificationCache)
 verifyWithCache now bi cache = do
-  let mVerRes = HM.lookup (getHash bi) cache
-  case mVerRes of
+  case HM.lookup (getHash bi) cache of
     Just verRes -> return (mapRes verRes, cache)
     Nothing -> do
-      case bi of
+      verRes' <- case bi of
         WithMetadata{wmdData = CredentialDeployment cred} -> do
-          verRes <- TVer.verifyCredentialDeployment now cred
-          case toCacheable verRes of
-            Just cacheable -> do               
-              let c' = HM.insert (getHash bi) cacheable cache
-              return (verRes, c')
-            Nothing -> return (verRes, cache)
+          TVer.verifyCredentialDeployment now cred         
         WithMetadata {wmdData = ChainUpdate ui} -> do
-          verRes <- TVer.verifyChainUpdate ui
-          case toCacheable verRes of
-            Just cacheable -> do
-              let c' = HM.insert (getHash bi) cacheable cache
-              return (verRes, c')
-            Nothing -> return (verRes, cache)
-        _ -> return (mapRes NormalTransactionSuccess, cache)
-        -- todo: The TransactionVerifier only supports CredentialDeployments
-        -- and ChainUpdates at the moment.
+          TVer.verifyChainUpdate ui
+        WithMetadata{wmdData = NormalTransaction tx} -> do
+          TVer.verifyNormalTransaction tx
+      return $ tryPutIntoCache verRes'
   where
     mapRes CredentialDeploymentVerificationResultSuccess = TVer.CredentialDeploymentSuccess
     mapRes (VerificationResultChainUpdateSuccess hash) = TVer.ChainUpdateSuccess hash
-    -- TODO: The cache doesn't currently 'NormalTransactions' and as such we just let it pass here,
-    -- as it still being verified in the scheduler and in the according branch of 'doReceiveTransaction' and
-    -- 'doReceiveTransactionInternal'
-    mapRes NormalTransactionSuccess = TVer.CredentialDeploymentSuccess
+    mapRes NormalTransactionSuccess = TVer.NormalTransactionSuccess
+    tryPutIntoCache verRes = do
+      case toCacheable verRes of
+        Just cacheable -> do
+          let c' = HM.insert (getHash bi) cacheable cache
+          return (verRes, c')
+        Nothing -> return (verRes, cache)
 
 -- |Determines if a `VerificationResult` is 'cacheable'.
 isCacheable :: TVer.VerificationResult -> Bool
@@ -434,4 +427,5 @@ isCacheable tver = isJust $ toCacheable tver
 toCacheable :: TVer.VerificationResult -> Maybe CacheableVerificationResult
 toCacheable TVer.CredentialDeploymentSuccess = Just CredentialDeploymentVerificationResultSuccess
 toCacheable (TVer.ChainUpdateSuccess hash) = Just $ VerificationResultChainUpdateSuccess hash
+toCacheable TVer.NormalTransactionSuccess = Just NormalTransactionSuccess
 toCacheable _ = Nothing
