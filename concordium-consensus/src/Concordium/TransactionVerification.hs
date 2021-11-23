@@ -20,6 +20,7 @@ import qualified Concordium.ID.Types as ID
 import qualified Concordium.Crypto.SHA256 as Sha256
 import qualified Concordium.Scheduler.Types as ST
 import Concordium.Types.HashableTo (getHash)
+import qualified Concordium.Cost as Cost
 
 import Data.Maybe (isJust)
 import Control.Monad.Except
@@ -49,6 +50,9 @@ data VerificationResult
   -- The result contains the hash of the autorization keys.
   -- It must be checked that this hash corresponds to the current authorization keys before
   -- executing the transaction.
+  | NormalTransactionSuccess
+  | NormalTransactionDepositInsufficient
+  | NormalTransactionInvalidSender
   deriving (Eq, Show)
 
 -- |Type which can verify transactions in a monadic context. 
@@ -56,7 +60,7 @@ data VerificationResult
 -- in order to deem a transaction valid or 'unverifiable'.
 -- Unverifiable transactions are transactions which are and never will be valid transactions
 -- e.g., due to erroneous signatures, invalid expiry etc.
-class Monad m => TransactionVerifier m where
+class (Monad m) => TransactionVerifier m where
   -- |Get the provider identity data for the given identity provider, or Nothing if
   -- the identity provider with given ID does not exist.
   getIdentityProvider :: ID.IdentityProviderIdentity -> m (Maybe IP.IpInfo)
@@ -67,8 +71,9 @@ class Monad m => TransactionVerifier m where
   getCryptographicParameters :: m Params.CryptographicParameters
   -- |Check whether the given credential registration ID exists
   registrationIdExists :: ID.CredentialRegistrationID -> m Bool
-  -- |Check whether the account address corresponds to an existing account.
-  accountExists :: Types.AccountAddress -> m Bool
+  -- |Get the account associated for the given account address.
+  -- Returns 'Nothing' if no such account exists.
+  getAccount :: Types.AccountAddress -> m (Maybe (GSTypes.IndexedAccount m))
   -- |Get the UpdateKeysCollection
   getUpdateKeysCollection :: m Updates.UpdateKeysCollection
 
@@ -130,13 +135,26 @@ verifyChainUpdate ui@ST.UpdateInstruction{..} =
 
 -- |Verifies a 'NormalTransaction' transaction.
 -- This function verifies the following:
--- * Checks that enough energy is supplied for the transaction
--- * Checks that the sender is a valid account
--- * Checks that the nonce is correct
--- * Checks that 
-verifyNormalTransaction :: TransactionVerifier m => TransactionData -> m VerificationResult
-verifyNormalTransaction meta = either id id <$> runExceptT (do
-  return ChainUpdateSuccess)
+-- * Checks that enough energy is supplied for the transaction.
+-- * Checks that the sender is a valid account.
+-- * Checks that the nonce is correct.
+-- * Checks that the 'NormalTransaction' is correctly signed.
+verifyNormalTransaction :: (TransactionVerifier m, ST.TransactionData msg)
+                        => msg
+                        -> m VerificationResult
+verifyNormalTransaction meta =
+  either id id <$> runExceptT (do
+    -- Check that enough energy is supplied
+    let cost = Cost.baseCost (Tx.getTransactionHeaderPayloadSize $ Tx.transactionHeader meta) (Tx.getTransactionNumSigs (Tx.transactionSignature meta))
+    unless (Tx.transactionGasAmount meta >= cost) $ throwError NormalTransactionDepositInsufficient
+    -- Check that the sender account exists
+    macc <- lift (getAccount (Tx.transactionSender meta))
+    case macc of
+      Nothing -> throwError NormalTransactionInvalidSender
+      Just (_, acc) -> do
+--        amnt <- BS.getAccountAvailableAmount acc
+--        nextNonce <- BS.getAccountNonce acc
+        return NormalTransactionSuccess)
   
 instance (Monad m, r ~ GSTypes.BlockState m, BS.BlockStateQuery m) => TransactionVerifier (ReaderT r m) where
   {-# INLINE getIdentityProvider #-}
@@ -155,12 +173,10 @@ instance (Monad m, r ~ GSTypes.BlockState m, BS.BlockStateQuery m) => Transactio
   registrationIdExists regId = do
     state <- ask
     lift $ isJust <$> BS.getAccountByCredId state regId
-  {-# INLINE accountExists #-}
-  accountExists aaddr = do
-    state <- ask
-    let res = lift (BS.getAccount state aaddr)
-    fmap isJust res
+  {-# INLINE getAccount #-}
+  getAccount aaddr = lift . flip BS.getAccount aaddr =<< ask
   {-# INLINE getUpdateKeysCollection #-}
   getUpdateKeysCollection = do
     state <- ask
     lift (BS.getUpdateKeysCollection state)
+    
