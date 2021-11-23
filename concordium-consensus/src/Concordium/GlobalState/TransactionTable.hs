@@ -418,12 +418,12 @@ verifyWithCache now bi cache = do
         -- todo: The TransactionVerifier only supports CredentialDeployments
         -- and ChainUpdates at the moment.
   where
-    mapRes CredentialDeploymentVerificationResultSuccess = TVer.Success
+    mapRes CredentialDeploymentVerificationResultSuccess = TVer.CredentialDeploymentSuccess
     mapRes (VerificationResultChainUpdateSuccess hash) = TVer.ChainUpdateSuccess hash
     -- TODO: The cache doesn't currently 'NormalTransactions' and as such we just let it pass here,
     -- as it still being verified in the scheduler and in the according branch of 'doReceiveTransaction' and
     -- 'doReceiveTransactionInternal'
-    mapRes NormalTransactionSuccess = TVer.Success
+    mapRes NormalTransactionSuccess = TVer.CredentialDeploymentSuccess
 
 -- |Determines if a `VerificationResult` is 'cacheable'.
 isCacheable :: TVer.VerificationResult -> Bool
@@ -432,6 +432,6 @@ isCacheable tver = isJust $ toCacheable tver
 -- |Converts a general verification result to cacheable one.
 -- If the verification result was not cacheable we return Nothing.
 toCacheable :: TVer.VerificationResult -> Maybe CacheableVerificationResult
-toCacheable TVer.Success = Just CredentialDeploymentVerificationResultSuccess
+toCacheable TVer.CredentialDeploymentSuccess = Just CredentialDeploymentVerificationResultSuccess
 toCacheable (TVer.ChainUpdateSuccess hash) = Just $ VerificationResultChainUpdateSuccess hash
 toCacheable _ = Nothing

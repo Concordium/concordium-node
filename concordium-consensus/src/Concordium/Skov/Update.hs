@@ -613,9 +613,9 @@ doPurgeTransactions = do
 
 
 mapTransactionVerificationResult :: TV.VerificationResult -> UpdateResult
-mapTransactionVerificationResult TV.Success = ResultSuccess
+mapTransactionVerificationResult TV.CredentialDeploymentSuccess = ResultSuccess
 mapTransactionVerificationResult (TV.ChainUpdateSuccess _) = ResultSuccess
-mapTransactionVerificationResult (TV.DuplicateAccountRegistrationID _) = ResultDuplicateAccountRegistrationID
+mapTransactionVerificationResult (TV.CredentialDeploymentDuplicateAccountRegistrationID _) = ResultDuplicateAccountRegistrationID
 mapTransactionVerificationResult TV.CredentialDeploymentInvalidIdentityProvider = ResultCredentialDeploymentInvalidIP
 mapTransactionVerificationResult TV.CredentialDeploymentInvalidAnonymityRevokers = ResultCredentialDeploymentInvalidAR
 mapTransactionVerificationResult TV.CredentialDeploymentInvalidSignatures = ResultCredentialDeploymentInvalidSignatures

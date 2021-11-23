@@ -73,7 +73,6 @@ import qualified Concordium.ID.Types as ID
 import Concordium.ID.Parameters(GlobalContext)
 import Concordium.ID.Types (AccountCredential, CredentialRegistrationID)
 import Concordium.Crypto.EncryptedTransfers
-import System.Directory.Internal.Prelude (otherwise)
 
 -- |The hashes of the block state components, which are combined
 -- to produce a 'StateHash'.

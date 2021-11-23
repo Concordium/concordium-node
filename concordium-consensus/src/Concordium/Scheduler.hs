@@ -1182,13 +1182,13 @@ handleDeployCredential accCreation@AccountCreation{messageExpiry=messageExpiry, 
           -- Note. This should really not happen as transactions are being verified and optionally cached
           -- via 'doReceiveTransaction' and 'doReceiveTransactionInternal'
           tVerResult <- lift (TV.verifyCredentialDeployment ts accCreation)
-          when (tVerResult /= TV.Success) $ throwError $ mapErr tVerResult
+          when (tVerResult /= TV.CredentialDeploymentSuccess) $ throwError $ mapErr tVerResult
       newAccount regId (ID.addressFromRegId regId) liftedCryptoParams mkSummary
     case res of
       Left err -> return (TxInvalid <$> err)
       Right ts -> return (Just ts)
   where
-    mapErr (TV.DuplicateAccountRegistrationID dup) = Just (DuplicateAccountRegistrationID dup)
+    mapErr (TV.CredentialDeploymentDuplicateAccountRegistrationID dup) = Just (DuplicateAccountRegistrationID dup)
     mapErr _ = Just AccountCredentialInvalid
     newAccount regId aaddr cryptoParams mkSummary = do
       cdv <- case cdi of
