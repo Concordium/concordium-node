@@ -16,7 +16,6 @@ import GHC.Stack
 import Concordium.Types
 import Concordium.Types.Accounts
 import Concordium.Types.HashableTo
-import Concordium.Types.Updates
 import Concordium.Cost (baseCost)
 import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
@@ -582,6 +581,7 @@ doReceiveTransactionInternal tr ts slot = do
                 case verRes of
                   TV.ChainUpdateSuccess _ nonce -> do
                     putPendingTransactions $! addPendingUpdate nonce cu ptrs
+                  _ -> return () -- todo: not as clean as it could be.
             return (Just bi, mapTransactionVerificationResult verRes)
           Duplicate tx -> return (Just tx, ResultDuplicate)
           ObsoleteNonce -> return (Nothing, ResultStale)
