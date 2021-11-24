@@ -52,12 +52,16 @@ data VerificationResult
   -- The result contains the hash of the autorization keys.
   -- It must be checked that this hash corresponds to the current authorization keys before
   -- executing the transaction.
-  | NormalTransactionSuccess
+  | NormalTransactionSuccess !Types.Nonce
   -- ^The 'NormalTransaction' passed verification.
   | NormalTransactionDepositInsufficient
   -- ^Not enough energy was supplied for the transaction.
   | NormalTransactionInvalidSender
   -- ^The 'NormalTransaction' contained an invalid sender
+  | NormalTransactionInsufficientFunds
+  -- ^The sender does not have enough funds to cover the transfer.
+  | NormalTransactionInvalidNonce
+  -- ^The 'NormalTransaction' contained an invalid nonce
   deriving (Eq, Show)
 
 -- |Type which can verify transactions in a monadic context. 
@@ -86,7 +90,8 @@ class (Monad m) => TransactionVerifier m where
   -- |Get the current available amount for the specified account.
   getAccountAvailableAmount :: GSTypes.Account m -> m ST.Amount
   -- |Get the next account nonce.
-  getNextAccountNonce :: GSTypes.Account m -> m ST.Nonce
+  getNextAccountNonce :: GSTypes.Account m -> m Types.Nonce
+  energyToCcd :: ST.Energy -> m ST.Amount
 
 -- |Verifies a 'CredentialDeployment' transaction.
 --
@@ -168,9 +173,17 @@ verifyNormalTransaction meta =
     case macc of
       Nothing -> throwError NormalTransactionInvalidSender
       Just acc -> do
+        -- Check that enough energy is attached to the transaction
         amnt <- lift (getAccountAvailableAmount acc)
+        depositedAmount <- lift (energyToCcd (Tx.transactionGasAmount meta))
+        unless (depositedAmount <= amnt) $ throwError NormalTransactionInsufficientFunds
+
+        -- Check that the nonce of the transaction is correct.
         nextNonce <- lift (getNextAccountNonce acc)
-        return NormalTransactionSuccess)
+        let nonce = Tx.transactionNonce meta
+        unless (nonce == nextNonce) $ throwError NormalTransactionInvalidNonce
+        
+        return $ NormalTransactionSuccess nonce)
   
 instance (Monad m, BS.BlockStateQuery m, r ~ GSTypes.BlockState m) => TransactionVerifier (ReaderT r m) where
   {-# INLINE getIdentityProvider #-}
@@ -208,4 +221,8 @@ instance (Monad m, BS.BlockStateQuery m, r ~ GSTypes.BlockState m) => Transactio
   getAccountAvailableAmount = lift . BS.getAccountAvailableAmount
   {-# INLINE getNextAccountNonce #-}
   getNextAccountNonce = lift . BS.getAccountNonce
-   
+  {-# INLINE energyToCcd #-}
+  energyToCcd e = do
+    state <- ask
+    rate <- lift (BS.getEnergyRate state)
+    return (Types.computeCost rate e)

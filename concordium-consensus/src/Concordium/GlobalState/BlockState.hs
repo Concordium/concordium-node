@@ -273,6 +273,9 @@ class AccountOperations m => BlockStateQuery m where
     -- |Get the current UpdateKeysCollection
     getUpdateKeysCollection :: BlockState m -> m UpdateKeysCollection
 
+    -- |Get the current energy rate
+    getEnergyRate :: BlockState m -> m EnergyRate
+
 -- |Distribution of newly-minted GTU.
 data MintAmounts = MintAmounts {
     -- |Minted amount allocated to the BakingRewardAccount
@@ -655,6 +658,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   getIdentityProvider s = lift . getIdentityProvider s
   getAnonymityRevokers s = lift . getAnonymityRevokers s
   getUpdateKeysCollection s = lift $ getUpdateKeysCollection s
+  getEnergyRate s = lift $ getEnergyRate s
   {-# INLINE getModule #-}
   {-# INLINE getAccount #-}
   {-# INLINE getAccountByCredId #-}
@@ -682,6 +686,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   {-# INLINE getIdentityProvider #-}
   {-# INLINE getAnonymityRevokers #-}
   {-# INLINE getUpdateKeysCollection #-}
+  {-# INLINE getEnergyRate #-}
 
 instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (MGSTrans t m) where
   getAccountCanonicalAddress = lift . getAccountCanonicalAddress

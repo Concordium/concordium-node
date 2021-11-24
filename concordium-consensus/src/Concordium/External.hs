@@ -658,6 +658,8 @@ stopBaker cptr = mask_ $ do
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 -- |    28 | ResultChainUpdateInvalidSignatures          | The ChainUpdate contained an invalid signature                                                | Yes      |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
+-- |    29 | ResultNormalTransactionInsufficientFunds    | The sender did not have enough funds to cover the transfer                                    | Yes      |
+-- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 
 type ReceiveResult = Int64
 
@@ -692,6 +694,7 @@ toReceiveResult ResultCredentialDeploymentExpired = 25
 toReceiveResult ResultChainUpdateInvalidEffectiveTime = 26
 toReceiveResult ResultChainUpdateInvalidSequenceNumber = 27
 toReceiveResult ResultChainUpdateInvalidSignatures = 28
+toReceiveResult ResultNormalTransactionInsufficientFunds = 29
 
 -- |Handle receipt of a block.
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,

@@ -6,7 +6,7 @@ module Concordium.Skov.Update where
 
 import Control.Monad
 import Control.Monad.Reader
-import Data.Maybe (fromMaybe, isNothing)
+import Data.Maybe (isNothing)
 import qualified Data.Sequence as Seq
 import Lens.Micro.Platform
 import Data.Foldable
@@ -561,14 +561,17 @@ doReceiveTransactionInternal tr ts slot = do
     if definitelyNotValid verRes then do return (Nothing, mapTransactionVerificationResult verRes)
     else do
       putTransactionVerificationCache cache'
-      addTx verRes bs
+      addTx verRes
   where
-      addTx verRes bs = addCommitTransaction tr slot >>= \case
+      addTx verRes = addCommitTransaction tr slot >>= \case
           Added bi@WithMetadata{..} -> do
             ptrs <- getPendingTransactions
             case wmdData of
               NormalTransaction tx -> do
-                addPendingTransaction nextNonce WithMetadata{wmdData=tx,..} ptrs
+                case verRes of
+                  TV.NormalTransactionSuccess nonce -> do
+                    putPendingTransactions $! addPendingTransaction nonce WithMetadata{wmdData=tx,..} ptrs
+                  _ -> return ()
               CredentialDeployment _ -> do
                 putPendingTransactions $! addPendingDeployCredential wmdHash ptrs
               ChainUpdate cu -> do
@@ -617,4 +620,8 @@ mapTransactionVerificationResult TV.CredentialDeploymentExpired = ResultCredenti
 mapTransactionVerificationResult TV.ChainUpdateEffectiveTimeBeforeTimeout = ResultChainUpdateInvalidEffectiveTime
 mapTransactionVerificationResult TV.ChainUpdateInvalidSequenceNumber = ResultChainUpdateInvalidSequenceNumber
 mapTransactionVerificationResult TV.ChainUpdateInvalidSignatures = ResultChainUpdateInvalidSignatures
-
+mapTransactionVerificationResult (TV.NormalTransactionSuccess _ ) = ResultSuccess
+mapTransactionVerificationResult TV.NormalTransactionDepositInsufficient = ResultTooLowEnergy
+mapTransactionVerificationResult TV.NormalTransactionInvalidSender = ResultNonexistingSenderAccount
+mapTransactionVerificationResult TV.NormalTransactionInsufficientFunds = ResultNormalTransactionInsufficientFunds
+mapTransactionVerificationResult TV.NormalTransactionInvalidNonce = ResultDuplicateNonce

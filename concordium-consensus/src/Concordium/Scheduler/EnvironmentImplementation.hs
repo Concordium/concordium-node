@@ -10,7 +10,6 @@ module Concordium.Scheduler.EnvironmentImplementation where
 import Concordium.Scheduler.Environment
 
 import qualified Data.Kind as DK
-import Data.Maybe (isJust)
 import Data.HashMap.Strict as Map
 import qualified Data.Map.Strict as OrdMap
 import Data.HashSet as Set
@@ -149,7 +148,14 @@ instance (SS state ~ UpdatableBlockState m,
   {-# INLINE getCryptographicParameters #-}
   getCryptographicParameters = lift . bsoGetCryptoParams =<< use schedulerBlockState
   {-# INLINE getAccount #-}
-  getAccount !aaddr = lift . fmap (fmap snd) . flip bsoGetAccount aaddr =<< use schedulerBlockState
+  getAccount !aaddr = do
+    s <- use schedulerBlockState
+    macc <- lift (bsoGetAccount s aaddr)
+    case macc of
+      Nothing -> return Nothing
+      Just (_, acc) -> return $ Just acc
+    
+--    lift . fmap (fmap snd) . flip bsoGetAccount aaddr =<< use schedulerBlockState
   {-# INLINE getNextUpdateSequenceNumber #-}
   getNextUpdateSequenceNumber uType = lift . flip bsoGetNextUpdateSequenceNumber uType =<< use schedulerBlockState
   {-# INLINE getUpdateKeysCollection #-}
@@ -158,6 +164,11 @@ instance (SS state ~ UpdatableBlockState m,
   getAccountAvailableAmount = lift . getAccountAvailableAmount
   {-# INLINE getNextAccountNonce #-}
   getNextAccountNonce = lift . getAccountNonce
+  {-# INLINE energyToCcd #-}
+  energyToCcd v = do
+    s <- use schedulerBlockState
+    rate <- lift (bsoGetEnergyRate s)
+    return (computeCost rate v)
   
 instance (MonadReader ContextState m,
           SS state ~ UpdatableBlockState m,

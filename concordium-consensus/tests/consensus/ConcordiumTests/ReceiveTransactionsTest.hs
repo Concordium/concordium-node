@@ -28,7 +28,6 @@ import Concordium.Types
 import Concordium.Types.AnonymityRevokers
 import Concordium.Types.HashableTo (getHash)
 import Concordium.Types.IdentityProviders
-import Concordium.Types.Parameters (CryptographicParameters)
 import Concordium.Types.Transactions
 import Concordium.Types.Updates
 import Concordium.TimeMonad

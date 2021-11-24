@@ -388,7 +388,7 @@ data CacheableVerificationResult
   -- ^The 'ChainUpdate' passed verification successfully. The result contains
   -- the hash of the `UpdateKeysCollection`. It must be checked
   -- that the hash corresponds to the configured `UpdateKeysCollection` before executing the transaction.
-  | NormalTransactionSuccess
+  | NormalTransactionSuccess !Nonce
   deriving (Eq, Show)
 
 -- |Convenience function for verifying a transaction and updating a 'TransactionVerificationCache'.
@@ -409,7 +409,7 @@ verifyWithCache now bi cache = do
   where
     mapRes CredentialDeploymentVerificationResultSuccess = TVer.CredentialDeploymentSuccess
     mapRes (VerificationResultChainUpdateSuccess hash nonce) = TVer.ChainUpdateSuccess hash nonce
-    mapRes NormalTransactionSuccess = TVer.NormalTransactionSuccess
+    mapRes (NormalTransactionSuccess nonce) = TVer.NormalTransactionSuccess nonce
     tryPutIntoCache verRes = do
       case toCacheable verRes of
         Just cacheable -> do
@@ -425,6 +425,6 @@ isCacheable tver = isJust $ toCacheable tver
 -- If the verification result was not cacheable we return Nothing.
 toCacheable :: TVer.VerificationResult -> Maybe CacheableVerificationResult
 toCacheable TVer.CredentialDeploymentSuccess = Just CredentialDeploymentVerificationResultSuccess
-toCacheable TVer.NormalTransactionSuccess = Just NormalTransactionSuccess
+toCacheable (TVer.NormalTransactionSuccess nonce) = Just $ NormalTransactionSuccess nonce
 toCacheable (TVer.ChainUpdateSuccess keysHash nonce) = Just $ VerificationResultChainUpdateSuccess keysHash nonce
 toCacheable _ = Nothing
