@@ -58,12 +58,11 @@ data VerificationResult
   -- ^Not enough energy was supplied for the transaction.
   | NormalTransactionInvalidSender
   -- ^The 'NormalTransaction' contained an invalid sender
-  | NormalTransactionInsufficientFunds
-  -- ^The sender does not have enough funds to cover the transfer.
   | NormalTransactionInvalidNonce
   -- ^The 'NormalTransaction' contained an invalid nonce
+  | NormalTransactionInvalidSignatures
+  -- ^The 'NormalTransaction' contained invalid signatures.
   deriving (Eq, Show)
-
 -- |Type which can verify transactions in a monadic context. 
 -- The type is responsible for retrieving the necessary information
 -- in order to deem a transaction valid or 'unverifiable'.
@@ -91,7 +90,8 @@ class (Monad m) => TransactionVerifier m where
   getAccountAvailableAmount :: GSTypes.Account m -> m ST.Amount
   -- |Get the next account nonce.
   getNextAccountNonce :: GSTypes.Account m -> m Types.Nonce
-  energyToCcd :: ST.Energy -> m ST.Amount
+  -- |Get the verification keys assoicated with an Account
+  getAccountVerificationKeys :: GSTypes.Account m -> m ID.AccountInformation
 
 -- |Verifies a 'CredentialDeployment' transaction.
 --
@@ -173,16 +173,14 @@ verifyNormalTransaction meta =
     case macc of
       Nothing -> throwError NormalTransactionInvalidSender
       Just acc -> do
-        -- Check that enough energy is attached to the transaction
-        amnt <- lift (getAccountAvailableAmount acc)
-        depositedAmount <- lift (energyToCcd (Tx.transactionGasAmount meta))
-        unless (depositedAmount <= amnt) $ throwError NormalTransactionInsufficientFunds
-
         -- Check that the nonce of the transaction is correct.
         nextNonce <- lift (getNextAccountNonce acc)
         let nonce = Tx.transactionNonce meta
         unless (nonce == nextNonce) $ throwError NormalTransactionInvalidNonce
-        
+        -- Check the signature
+        keys <- lift (getAccountVerificationKeys acc)
+        let sigCheck = Tx.verifyTransaction keys meta
+        unless sigCheck $ throwError NormalTransactionInvalidSignatures
         return $ NormalTransactionSuccess nonce)
   
 instance (Monad m, BS.BlockStateQuery m, r ~ GSTypes.BlockState m) => TransactionVerifier (ReaderT r m) where
@@ -221,8 +219,5 @@ instance (Monad m, BS.BlockStateQuery m, r ~ GSTypes.BlockState m) => Transactio
   getAccountAvailableAmount = lift . BS.getAccountAvailableAmount
   {-# INLINE getNextAccountNonce #-}
   getNextAccountNonce = lift . BS.getAccountNonce
-  {-# INLINE energyToCcd #-}
-  energyToCcd e = do
-    state <- ask
-    rate <- lift (BS.getEnergyRate state)
-    return (Types.computeCost rate e)
+  {-# INLINE getAccountVerificationKeys #-}
+  getAccountVerificationKeys = lift . BS.getAccountVerificationKeys

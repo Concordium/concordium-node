@@ -154,8 +154,6 @@ instance (SS state ~ UpdatableBlockState m,
     case macc of
       Nothing -> return Nothing
       Just (_, acc) -> return $ Just acc
-    
---    lift . fmap (fmap snd) . flip bsoGetAccount aaddr =<< use schedulerBlockState
   {-# INLINE getNextUpdateSequenceNumber #-}
   getNextUpdateSequenceNumber uType = lift . flip bsoGetNextUpdateSequenceNumber uType =<< use schedulerBlockState
   {-# INLINE getUpdateKeysCollection #-}
@@ -164,11 +162,8 @@ instance (SS state ~ UpdatableBlockState m,
   getAccountAvailableAmount = lift . getAccountAvailableAmount
   {-# INLINE getNextAccountNonce #-}
   getNextAccountNonce = lift . getAccountNonce
-  {-# INLINE energyToCcd #-}
-  energyToCcd v = do
-    s <- use schedulerBlockState
-    rate <- lift (bsoGetEnergyRate s)
-    return (computeCost rate v)
+  {-#INLINE getAccountVerificationKeys #-}
+  getAccountVerificationKeys = lift . getAccountVerificationKeys
   
 instance (MonadReader ContextState m,
           SS state ~ UpdatableBlockState m,

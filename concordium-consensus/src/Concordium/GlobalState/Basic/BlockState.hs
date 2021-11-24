@@ -471,9 +471,6 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
 
     {-# INLINE getUpdateKeysCollection #-}
     getUpdateKeysCollection bs = return $! bs ^. blockUpdates . currentKeyCollection . unhashed
-
-    {-# INLINE getEnergyRate #-}
-    getEnergyRate bs = return $! bs ^. blockUpdates . currentParameters . cpEnergyRate
     
 instance (Monad m, IsProtocolVersion pv) => BS.AccountOperations (PureBlockStateMonad pv m) where
 

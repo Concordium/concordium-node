@@ -142,7 +142,7 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
   -- recently deployed.  The list should be non-empty.
   getAccountCredentials :: Account m -> m (Map.Map ID.CredentialIndex AccountCredential)
 
-  -- -- |Get the key used to verify transaction signatures, it records the signature scheme used as well
+  -- |Get the key used to verify transaction signatures, it records the signature scheme used as well
   getAccountVerificationKeys :: Account m -> m ID.AccountInformation
 
   -- |Get the current encrypted amount on the account.
@@ -272,9 +272,6 @@ class AccountOperations m => BlockStateQuery m where
 
     -- |Get the current UpdateKeysCollection
     getUpdateKeysCollection :: BlockState m -> m UpdateKeysCollection
-
-    -- |Get the current energy rate
-    getEnergyRate :: BlockState m -> m EnergyRate
 
 -- |Distribution of newly-minted GTU.
 data MintAmounts = MintAmounts {
@@ -658,7 +655,6 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   getIdentityProvider s = lift . getIdentityProvider s
   getAnonymityRevokers s = lift . getAnonymityRevokers s
   getUpdateKeysCollection s = lift $ getUpdateKeysCollection s
-  getEnergyRate s = lift $ getEnergyRate s
   {-# INLINE getModule #-}
   {-# INLINE getAccount #-}
   {-# INLINE getAccountByCredId #-}
@@ -686,7 +682,6 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   {-# INLINE getIdentityProvider #-}
   {-# INLINE getAnonymityRevokers #-}
   {-# INLINE getUpdateKeysCollection #-}
-  {-# INLINE getEnergyRate #-}
 
 instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (MGSTrans t m) where
   getAccountCanonicalAddress = lift . getAccountCanonicalAddress

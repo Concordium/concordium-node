@@ -99,8 +99,6 @@ data UpdateResult
     -- ^The 'ChainUpdate' contained an invalid effective time.
     | ResultChainUpdateInvalidSignatures
     -- ^The 'ChainUpdate' contained invalid signatures.
-    | ResultNormalTransactionInsufficientFunds
-    -- ^The sender did not have enough funds to cover the 'NormalTransaction'.
     deriving (Eq, Show)
 
 class (Monad m, Eq (BlockPointerType m), HashableTo BlockHash (BlockPointerType m), BlockPointerData (BlockPointerType m), BlockPointerMonad m, EncodeBlock pv (BlockPointerType m), BlockStateQuery m, IsProtocolVersion pv)
