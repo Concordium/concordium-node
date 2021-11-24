@@ -149,7 +149,7 @@ instance (SS state ~ UpdatableBlockState m,
   {-# INLINE getCryptographicParameters #-}
   getCryptographicParameters = lift . bsoGetCryptoParams =<< use schedulerBlockState
   {-# INLINE getAccount #-}
-  getAccount !aaddr = lift . flip bsoGetAccount aaddr =<< use schedulerBlockState
+  getAccount !aaddr = lift . fmap (fmap snd) . flip bsoGetAccount aaddr =<< use schedulerBlockState
   {-# INLINE getNextUpdateSequenceNumber #-}
   getNextUpdateSequenceNumber uType = lift . flip bsoGetNextUpdateSequenceNumber uType =<< use schedulerBlockState
   {-# INLINE getUpdateKeysCollection #-}
