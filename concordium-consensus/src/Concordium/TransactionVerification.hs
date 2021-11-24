@@ -83,6 +83,10 @@ class (Monad m) => TransactionVerifier m where
   getNextUpdateSequenceNumber :: Updates.UpdateType -> m Updates.UpdateSequenceNumber
   -- |Get the UpdateKeysCollection
   getUpdateKeysCollection :: m Updates.UpdateKeysCollection
+  -- |Get the current available amount for the specified account.
+  getAccountAvailableAmount :: GSTypes.Account m -> m ST.Amount
+  -- |Get the next account nonce.
+  getNextAccountNonce :: GSTypes.Account m -> m ST.Nonce
 
 -- |Verifies a 'CredentialDeployment' transaction.
 --
@@ -164,8 +168,8 @@ verifyNormalTransaction meta =
     case macc of
       Nothing -> throwError NormalTransactionInvalidSender
       Just acc -> do
---        amnt <- BS.getAccountAvailableAmount acc
---        nextNonce <- BS.getAccountNonce acc
+        amnt <- lift (getAccountAvailableAmount acc)
+        nextNonce <- lift (getNextAccountNonce acc)
         return NormalTransactionSuccess)
   
 instance (Monad m, BS.BlockStateQuery m, r ~ GSTypes.BlockState m) => TransactionVerifier (ReaderT r m) where
@@ -200,4 +204,8 @@ instance (Monad m, BS.BlockStateQuery m, r ~ GSTypes.BlockState m) => Transactio
   getUpdateKeysCollection = do
     state <- ask
     lift (BS.getUpdateKeysCollection state)
+  {-# INLINE getAccountAvailableAmount #-}
+  getAccountAvailableAmount = lift . BS.getAccountAvailableAmount
+  {-# INLINE getNextAccountNonce #-}
+  getNextAccountNonce = lift . BS.getAccountNonce
    

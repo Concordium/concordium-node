@@ -148,12 +148,17 @@ instance (SS state ~ UpdatableBlockState m,
     lift (bsoGetAnonymityRevokers s arIds)
   {-# INLINE getCryptographicParameters #-}
   getCryptographicParameters = lift . bsoGetCryptoParams =<< use schedulerBlockState
-  {-# INLINE accountExists #-}
-  accountExists !aaddr = fmap isJust . lift . flip bsoGetAccount aaddr =<< use schedulerBlockState
+  {-# INLINE getAccount #-}
+  getAccount !aaddr = lift . flip bsoGetAccount aaddr =<< use schedulerBlockState
   {-# INLINE getNextUpdateSequenceNumber #-}
   getNextUpdateSequenceNumber uType = lift . flip bsoGetNextUpdateSequenceNumber uType =<< use schedulerBlockState
   {-# INLINE getUpdateKeysCollection #-}
   getUpdateKeysCollection = lift . bsoGetUpdateKeyCollection =<< use schedulerBlockState
+  {-# INLINE getAccountAvailableAmount #-}
+  getAccountAvailableAmount = lift . getAccountAvailableAmount
+  {-# INLINE getNextAccountNonce #-}
+  getNextAccountNonce = lift . getAccountNonce
+  
 instance (MonadReader ContextState m,
           SS state ~ UpdatableBlockState m,
           HasSchedulerState state,

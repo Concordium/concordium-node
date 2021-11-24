@@ -21,7 +21,6 @@ import Concordium.Types.Updates
 import qualified Concordium.TransactionVerification as TVer
 import Concordium.Types.HashableTo (getHash)
 import qualified Concordium.Crypto.SHA256 as Sha256
-import qualified Concordium.Types.Transactions as TVer
 
 -- * Transaction status
 
@@ -406,10 +405,10 @@ verifyWithCache now bi cache = do
           TVer.verifyChainUpdate ui
         WithMetadata{wmdData = NormalTransaction tx} -> do
           TVer.verifyNormalTransaction tx
-      return $ tryPutIntoCache verRes'
+      tryPutIntoCache verRes'
   where
     mapRes CredentialDeploymentVerificationResultSuccess = TVer.CredentialDeploymentSuccess
-    mapRes (VerificationResultChainUpdateSuccess hash) = TVer.ChainUpdateSuccess hash
+    mapRes (VerificationResultChainUpdateSuccess hash nonce) = TVer.ChainUpdateSuccess hash nonce
     mapRes NormalTransactionSuccess = TVer.NormalTransactionSuccess
     tryPutIntoCache verRes = do
       case toCacheable verRes of
