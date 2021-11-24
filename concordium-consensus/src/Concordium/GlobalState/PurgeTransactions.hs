@@ -59,9 +59,9 @@ purgeTables
     -- ^Transaction table to purge
     -> PendingTransactionTable
     -- ^Pending transaction table to purge
-    -> TransactionVerificationCache
+    -> TransactionVerificationCache m
     -- ^TransactionVerificationCache to purge
-    -> (TransactionTable, PendingTransactionTable, TransactionVerificationCache)
+    -> (TransactionTable, PendingTransactionTable, TransactionVerificationCache m)
 purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptable tVerCache = (ttable', ptable', tVerCache')
     where
         -- A transaction is too old if its arrival predates the oldest allowed

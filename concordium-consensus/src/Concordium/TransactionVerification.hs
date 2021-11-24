@@ -27,7 +27,7 @@ import Control.Monad.Except
 
 -- |The 'VerificationResult' type serves as an intermediate `result type` between the 'TxResult' and 'UpdateResult' types.
 -- VerificationResult's contains possible verification errors that may have occurred when verifying a 'AccountCreation' type.
-data VerificationResult
+data VerificationResult m
   = CredentialDeploymentSuccess
   -- ^The 'CredentialDeployment' passed verification.
   | CredentialDeploymentDuplicateAccountRegistrationID !ID.CredentialRegistrationID
@@ -52,8 +52,9 @@ data VerificationResult
   -- The result contains the hash of the autorization keys.
   -- It must be checked that this hash corresponds to the current authorization keys before
   -- executing the transaction.
-  | NormalTransactionSuccess !Types.Nonce
+  | NormalTransactionSuccess !(GSTypes.IndexedAccount m) !ST.Energy !Types.Nonce
   -- ^The 'NormalTransaction' passed verification.
+  -- The result contains the 'IndexedAccount', the cost of the transaction and the transaction nonce.
   | NormalTransactionDepositInsufficient
   -- ^Not enough energy was supplied for the transaction.
   | NormalTransactionInvalidSender
@@ -62,7 +63,16 @@ data VerificationResult
   -- ^The 'NormalTransaction' contained an invalid nonce
   | NormalTransactionInvalidSignatures
   -- ^The 'NormalTransaction' contained invalid signatures.
-  deriving (Eq, Show)
+
+isOk :: Monad m => VerificationResult m -> m Bool
+isOk CredentialDeploymentSuccess = return True
+isOk (ChainUpdateSuccess _ _) = return True
+isOk NormalTransactionSuccess {} = return True
+isOk _ = return False
+
+isNotOk :: Monad m => VerificationResult m -> m Bool
+isNotOk res = fmap not (isOk res)
+
 -- |Type which can verify transactions in a monadic context. 
 -- The type is responsible for retrieving the necessary information
 -- in order to deem a transaction valid or 'unverifiable'.
@@ -81,7 +91,7 @@ class (Monad m) => TransactionVerifier m where
   registrationIdExists :: ID.CredentialRegistrationID -> m Bool
   -- |Get the account associated for the given account address.
   -- Returns 'Nothing' if no such account exists.
-  getAccount :: Types.AccountAddress -> m (Maybe (GSTypes.Account m))
+  getAccount :: Types.AccountAddress -> m (Maybe (GSTypes.IndexedAccount m))
   -- |Get the next 'SequenceNumber' given the 'UpdateType'
   getNextUpdateSequenceNumber :: Updates.UpdateType -> m Updates.UpdateSequenceNumber
   -- |Get the UpdateKeysCollection
@@ -101,7 +111,7 @@ class (Monad m) => TransactionVerifier m where
 -- a corresponding account does not exist.
 -- * Validity of the 'IdentityProvider' and 'AnonymityRevokers' provided.
 -- * That the 'CredentialDeployment' contains valid signatures.
-verifyCredentialDeployment :: TransactionVerifier m => Types.Timestamp -> Tx.AccountCreation -> m VerificationResult
+verifyCredentialDeployment :: TransactionVerifier m => Types.Timestamp -> Tx.AccountCreation -> m (VerificationResult m)
 verifyCredentialDeployment now accountCreation@Tx.AccountCreation{..} =
   either id id <$> runExceptT (do
     -- check that the credential deployment is not yet expired
@@ -133,13 +143,13 @@ verifyCredentialDeployment now accountCreation@Tx.AccountCreation{..} =
                 -- check signatures for a normal credential deployment
                 unless (A.verifyCredential cryptoParams ipInfo arsInfos (S.encode ncdi) (Left messageExpiry)) $ throwError CredentialDeploymentInvalidSignatures
     return CredentialDeploymentSuccess)
-  
+
 -- |Verifies a 'ChainUpdate' transaction.
 -- This function verifies the following:
 -- * Checks that the effective time is no later than the timeout of the chain update.
 -- * Checks that sequence number is ok.
 -- * Checks that the 'ChainUpdate' is correctly signed.
-verifyChainUpdate :: TransactionVerifier m => ST.UpdateInstruction -> m VerificationResult
+verifyChainUpdate :: TransactionVerifier m => ST.UpdateInstruction -> m (VerificationResult m)
 verifyChainUpdate ui@ST.UpdateInstruction{..} =
   either id id <$> runExceptT (do
     -- check that the effective time is not after the timeout of the chain update.
@@ -162,7 +172,7 @@ verifyChainUpdate ui@ST.UpdateInstruction{..} =
 -- * Checks that the 'NormalTransaction' is correctly signed.
 verifyNormalTransaction :: (TransactionVerifier m, ST.TransactionData msg)
                         => msg
-                        -> m VerificationResult
+                        -> m (VerificationResult m)
 verifyNormalTransaction meta =
   either id id <$> runExceptT (do
     -- Check that enough energy is supplied
@@ -172,7 +182,7 @@ verifyNormalTransaction meta =
     macc <- lift (getAccount (Tx.transactionSender meta))
     case macc of
       Nothing -> throwError NormalTransactionInvalidSender
-      Just acc -> do
+      Just iacc@(_, acc) -> do
         -- Check that the nonce of the transaction is correct.
         nextNonce <- lift (getNextAccountNonce acc)
         let nonce = Tx.transactionNonce meta
@@ -181,8 +191,8 @@ verifyNormalTransaction meta =
         keys <- lift (getAccountVerificationKeys acc)
         let sigCheck = Tx.verifyTransaction keys meta
         unless sigCheck $ throwError NormalTransactionInvalidSignatures
-        return $ NormalTransactionSuccess nonce)
-  
+        return $ NormalTransactionSuccess iacc cost nonce)
+
 instance (Monad m, BS.BlockStateQuery m, r ~ GSTypes.BlockState m) => TransactionVerifier (ReaderT r m) where
   {-# INLINE getIdentityProvider #-}
   getIdentityProvider ipId = do
@@ -203,10 +213,7 @@ instance (Monad m, BS.BlockStateQuery m, r ~ GSTypes.BlockState m) => Transactio
   {-# INLINE getAccount #-}
   getAccount aaddr = do
     state <- ask
-    macc <- lift (BS.getAccount state aaddr)
-    case macc of
-      Nothing -> return Nothing
-      Just (_, acc) -> return (Just acc)
+    lift (BS.getAccount state aaddr)
   {-# INLINE getNextUpdateSequenceNumber #-}
   getNextUpdateSequenceNumber uType = do
      state <- ask

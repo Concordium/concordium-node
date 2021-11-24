@@ -212,9 +212,9 @@ class (Eq (BlockPointerType m),
     -- Expired transactions should not be put in the cache, but instead they are rejected upfront.
     
     -- |Gets the transaction verification cache from the TreeState
-    getTransactionVerificationCache :: m TransactionVerificationCache
+    getTransactionVerificationCache :: m (TransactionVerificationCache m)
     -- |Puts a transaction verification cache into the TreeState
-    putTransactionVerificationCache :: TransactionVerificationCache -> m ()
+    putTransactionVerificationCache :: TransactionVerificationCache m -> m ()
 
     -- * Operations on the pending transaction table
     --

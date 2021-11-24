@@ -96,40 +96,13 @@ import Prelude hiding (exp, mod)
 -- Returns the sender account and the cost to be charged for checking the header.
 checkHeader :: (TransactionData msg, SchedulerMonad pv m) => msg -> ExceptT (Maybe FailureKind) m (IndexedAccount m, Energy)
 checkHeader meta = do
-  -- Before even checking the header we calculate the cost that will be charged for this
-  -- and check that at least that much energy is deposited and remaining from the maximum block energy.
-  let cost = Cost.baseCost (getTransactionHeaderPayloadSize $ transactionHeader meta) (getTransactionNumSigs (transactionSignature meta))
-  unless (transactionGasAmount meta >= cost) $ throwError (Just DepositInsufficient)
-  remainingBlockEnergy <- lift getRemainingEnergy
-  unless (remainingBlockEnergy >= cost) $ throwError Nothing
-
-  -- Now check whether the specified sender exists, and only then do all remaining checks.
-  macc <- lift (getAccount (transactionSender meta))
-  case macc of
-    Nothing -> throwError . Just $ (UnknownAccount (transactionSender meta))
-    Just iacc@(_, acc) -> do
-      amnt <- getAccountAvailableAmount acc
-      nextNonce <- getAccountNonce acc
-      let txnonce = transactionNonce meta
-      let expiry = thExpiry $ transactionHeader meta
-
-      cm <- lift getChainMetadata
-      when (transactionExpired expiry $ slotTime cm) $ throwError . Just $ ExpiredTransaction
-
-      -- After the successful credential check we check that the sender account
-      -- has enough GTU to cover the deposited energy.
-      depositedAmount <- lift (energyToGtu (transactionGasAmount meta))
-      unless (depositedAmount <= amnt) (throwError . Just $ InsufficientFunds)
-
-      unless (txnonce == nextNonce) (throwError . Just $ (NonSequentialNonce nextNonce))
-
-      -- Finally do the signature verification, the computationally most expensive part.
-      keys <- getAccountVerificationKeys acc
-      let sigCheck = verifyTransaction keys meta
-      unless sigCheck (throwError . Just $ IncorrectSignature)
-
-      return (iacc, cost)
-
+  cachedTVResult <- lift (lookupTransactionVerificationResult (transactionHash meta))
+  case cachedTVResult of
+    Just (NormalTransactionSuccess iacc cost _) -> return (iacc, cost)
+    -- todo: this is unfortunuate. But only verified transactions are being put
+    -- into the transaction table and thus the cache.
+    _ -> throwError (Just DepositInsufficient) 
+    
 -- | Execute a transaction on the current block state, charging valid accounts
 -- for the resulting energy cost.
 --
@@ -248,7 +221,7 @@ dispatch msg = do
 
                    TransferWithScheduleAndMemo{..} ->
                      handleTransferWithSchedule (mkWTC TTTransferWithScheduleAndMemo) twswmTo twswmSchedule $ Just twswmMemo
-                     
+
           case res of
             -- The remaining block energy is not sufficient for the handler to execute the transaction.
             Nothing -> return Nothing
@@ -677,10 +650,10 @@ handleSimpleTransfer wtc toAddr transferamount maybeMemo =
             -- Check whether the sender has the amount to be transferred and reject the transaction if not.
             senderamount <- getCurrentAccountAvailableAmount senderAccount
             unless (senderamount >= transferamount) $! rejectTransaction (AmountTooLarge (AddressAccount senderAddress) transferamount)
-            
+
             -- Check whether target account exists and get it.
             targetAccount <- getStateAccount toAddr `rejectingWith` InvalidAccountReference toAddr
-            
+
             -- Add the transfer to the current changeset and return the corresponding event.
             withAccountToAccountAmount senderAccount targetAccount transferamount $
                 return $ Transferred (AddressAccount senderAddress) transferamount (AddressAccount toAddr) : (TransferMemo <$> maybeToList maybeMemo)
@@ -1172,17 +1145,18 @@ handleDeployCredential accCreation@AccountCreation{messageExpiry=messageExpiry, 
       -- Check that the address would not clash with an existing one.
       accExistsAlready <- lift (addressWouldClash aaddr)
       when accExistsAlready $ throwError $ Just AccountCredentialInvalid
-      liftedCryptoParams <- lift TV.getCryptographicParameters      
+      liftedCryptoParams <- lift TV.getCryptographicParameters
       cachedTVResult <- lift (lookupTransactionVerificationResult cdiHash)
       case cachedTVResult of
         Just _ -> do
-          return ()
+          return () -- it's already verified
         Nothing -> do
           -- If the transaction has not been verified before we verify it now
-          -- Note. This should really not happen as transactions are being verified and optionally cached
-          -- via 'doReceiveTransaction' and 'doReceiveTransactionInternal'
+          -- Note. This should really not happen as transactions are being verified and only the successfully
+          -- verified ones are being put into the cache.
           tVerResult <- lift (TV.verifyCredentialDeployment ts accCreation)
-          when (tVerResult /= TV.CredentialDeploymentSuccess) $ throwError $ mapErr tVerResult
+          ok <- lift (TV.isNotOk tVerResult)
+          when ok $ throwError $ mapErr tVerResult
       newAccount regId (ID.addressFromRegId regId) liftedCryptoParams mkSummary
     case res of
       Left err -> return (TxInvalid <$> err)
@@ -1282,7 +1256,7 @@ handleChainUpdate WithMetadata{wmdData = UpdateInstruction{..}, ..} = do
       case cachedTVResult of
         Just (VerificationResultChainUpdateSuccess keysHash _) -> do -- todo: should the nonce be checked again here?
           currentKeys <- getUpdateKeyCollection
-          if getHash currentKeys == keysHash then do 
+          if getHash currentKeys == keysHash then do
             update change
           else do -- keys has changed. No way the signature can be valid now.
             return $ TxInvalid IncorrectSignature

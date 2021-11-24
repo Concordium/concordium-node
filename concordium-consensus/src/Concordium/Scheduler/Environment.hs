@@ -69,7 +69,7 @@ class (Monad m, StaticInformation m, TVer.TransactionVerifier m, CanRecordFootpr
 
   -- |Retrieves a `Just CacheableVerificationResult` given the `TransactionHash` is such is present in the cache.
   -- Otherwise return `Nothing`
-  lookupTransactionVerificationResult :: TransactionHash  -> m (Maybe CacheableVerificationResult)
+  lookupTransactionVerificationResult :: TransactionHash  -> m (Maybe (CacheableVerificationResult m))
 
   -- |Notify the transaction log that a transaction had the given footprint. The
   -- nature of the footprint will depend on the configuration, e.g., it could be
