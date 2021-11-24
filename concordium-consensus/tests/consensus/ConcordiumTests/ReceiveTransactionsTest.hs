@@ -17,38 +17,39 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.ByteString.Lazy as BSL
 import Data.FileEmbed
 import Data.Time.Clock.POSIX
+import System.Random
 import qualified Data.Aeson as AE
+import Lens.Micro.Platform
 
-import Concordium.Types
-import Concordium.TimeMonad
-import Concordium.Types.Transactions
-import Concordium.ID.Types
-import Concordium.Crypto.FFIDataTypes
 import Concordium.Common.Time
 import Concordium.Common.Version
-import Concordium.ID.Parameters
-import Concordium.Types.IdentityProviders
-import Concordium.Types.AnonymityRevokers
-import Concordium.Crypto.SignatureScheme
 
+import Concordium.Types
+import Concordium.Types.AnonymityRevokers
+import Concordium.Types.HashableTo (getHash)
+import Concordium.Types.IdentityProviders
+import Concordium.Types.Parameters (CryptographicParameters)
+import Concordium.Types.Transactions
+import Concordium.Types.Updates
+import Concordium.TimeMonad
+import Concordium.Crypto.FFIDataTypes
+import Concordium.Crypto.SignatureScheme
+import Concordium.Crypto.DummyData
+import qualified Concordium.Crypto.SignatureScheme as SigScheme
+import qualified Concordium.Crypto.SHA256 as SHA256
+import Concordium.ID.Types
+import Concordium.ID.Parameters
 import Concordium.Genesis.Data
+import Concordium.Skov.Update
+import Concordium.Skov.Monad
+import Concordium.GlobalState.DummyData
 import Concordium.GlobalState.Basic.TreeState
 import Concordium.GlobalState.Basic.BlockState hiding (initialState)
-import Concordium.Skov.Monad
-import qualified Concordium.TransactionVerification as TVer
-
-import Concordium.GlobalState.DummyData
-import Concordium.Crypto.DummyData
-import Lens.Micro.Platform
-import qualified Concordium.Crypto.SignatureScheme as SigScheme
-import System.Random
-import Concordium.Skov.Update
-import Concordium.Types.Parameters (CryptographicParameters)
 import Concordium.GlobalState.TreeState (TreeStateMonad(finalizeTransactions))
 import Concordium.GlobalState.TransactionTable
-import Concordium.Types.Updates
-import qualified Concordium.Crypto.SHA256 as SHA256
-import Concordium.Types.HashableTo (getHash)
+import Concordium.GlobalState.Basic.BlockState.Updates
+import Concordium.GlobalState.Parameters hiding (getExactVersionedCryptographicParameters)
+import qualified Concordium.TransactionVerification as TVer
 
 
 -- |Tests of doReceiveTransaction and doReceiveTransactionInternal of the Updater.
@@ -78,8 +79,9 @@ test = do
       -- Chain Updates
       check results cache 8 False $ Right ResultStale
       check results cache 9 False $ Left TVer.ChainUpdateEffectiveTimeBeforeTimeout
-      check results cache 10 False $ Left TVer.ChainUpdateInvalidSignatures
-      check results cache 11 True $ Left (TVer.ChainUpdateSuccess expectedHashOfAuthKeys)
+      check results cache 10 False $ Left TVer.ChainUpdateInvalidSequenceNumber
+      check results cache 11 False $ Left TVer.ChainUpdateInvalidSignatures
+      check results cache 12 True $ Left (TVer.ChainUpdateSuccess expectedHashOfAuthKeys (getChainupdateSeqNumber True))
       -- now check that the cache is being cleared when we purge transactions
       s' <- runPurgeTransactions (addUTCTime (secondsToNominalDiffTime 2) now) outState
       let cache' = snd s' ^. transactionVerificationResults
@@ -120,8 +122,9 @@ test = do
       -- Chain Updates
       check results cache 7 False $ Right ResultStale
       check results cache 8 False $ Left TVer.ChainUpdateEffectiveTimeBeforeTimeout
-      check results cache 9 False $ Left TVer.ChainUpdateInvalidSignatures
-      check results cache 10 True $ Left (TVer.ChainUpdateSuccess expectedHashOfAuthKeys)
+      check results cache 9 False $ Left TVer.ChainUpdateInvalidSequenceNumber
+      check results cache 10 False $ Left TVer.ChainUpdateInvalidSignatures
+      check results cache 11 True $ Left (TVer.ChainUpdateSuccess expectedHashOfAuthKeys (getChainupdateSeqNumber True))
       s' <- runPurgeTransactions (addUTCTime (secondsToNominalDiffTime 2) now) outState
       let cache' = snd s' ^. transactionVerificationResults
       cache' `shouldBe` HM.empty
@@ -195,11 +198,15 @@ runMyMonad act time initialState = runReaderT (runDeterministic (runStateT (runP
 
 -- |Run the given computation in a state consisting of only the genesis block and the state determined by it.
 runMyMonad' :: MyMonad a -> UTCTime -> GenesisData PV -> IO (a, MyState)
-runMyMonad' act time gd = runPureBlockStateMonad (initialSkovDataDefault gd (hashBlockState bs)) >>= runMyMonad act time
+runMyMonad' act time gd = runPureBlockStateMonad (initialSkovDataDefault gd (hashBlockState $ mock bs)) >>= runMyMonad act time
   where
     bs = case genesisState gd of
                Left err -> error $ "Invalid genesis state: " ++ err
                Right x -> x
+    mock blockstate =
+      let now = utcTimeToTransactionTime time
+      in
+        blockstate & blockUpdates %~ enqueueUpdate (now - 1) (UVAddIdentityProvider myipInfo)
 
 -- |Construct a genesis state with hardcoded values for parameters that should not affect this test.
 -- Modify as you see fit.
@@ -247,14 +254,16 @@ chainUpdates now =
   [
     expiredTimeout,
     invalidEffectiveTime,
+    invalidNonce,
     invalidSignature,
     verifiable
   ]
   where
-    expiredTimeout = toBlockItem now (mkChainUpdate (now-1) (now +1) False)
-    invalidEffectiveTime = toBlockItem now (mkChainUpdate (now + 2) (now + 1) False)
-    invalidSignature = toBlockItem now (mkChainUpdate (now + 1) (now + 2) False)
-    verifiable = toBlockItem now (mkChainUpdate (now + 1) (now + 2) True)
+    expiredTimeout = toBlockItem now (mkChainUpdate (now-1) (now +1) True True)
+    invalidEffectiveTime = toBlockItem now (mkChainUpdate (now + 2) (now + 1) False True)
+    invalidNonce = toBlockItem now (mkChainUpdate (now + 1) (now + 2) True False)
+    invalidSignature = toBlockItem now (mkChainUpdate (now + 1) (now + 2) False True)
+    verifiable = toBlockItem now (mkChainUpdate (now + 1) (now + 2) True True)
 
 toBlockItem :: TransactionTime -> BareBlockItem -> BlockItem
 toBlockItem now bbi =
@@ -274,15 +283,15 @@ duplicateRegId = cred
 expectedHashOfAuthKeys :: SHA256.Hash
 expectedHashOfAuthKeys = getHash dummyKeyCollection
 
-mkChainUpdate :: TransactionTime -> TransactionTime -> Bool -> BareBlockItem
-mkChainUpdate timeout effectTime validSignature =
+mkChainUpdate :: TransactionTime -> TransactionTime -> Bool -> Bool -> BareBlockItem
+mkChainUpdate timeout effectTime validSignature validSequenceNumber =
   if validSignature then ChainUpdate ui
   else ChainUpdate dummyUi
   where
     ui = makeUpdateInstruction rawUi $ Map.singleton 0 dummyAuthorizationKeyPair
     rawUi = RawUpdateInstruction
       {
-        ruiSeqNumber = minUpdateSequenceNumber,
+        ruiSeqNumber = getChainupdateSeqNumber validSequenceNumber,
         ruiEffectiveTime = effectTime,
         ruiTimeout = timeout,
         ruiPayload = payload
@@ -296,7 +305,7 @@ mkChainUpdate timeout effectTime validSignature =
       }
     dummyHeader = UpdateHeader
         {
-          updateSeqNumber = minUpdateSequenceNumber,
+          updateSeqNumber = getChainupdateSeqNumber True,
           updateEffectiveTime = effectTime,
           updateTimeout = timeout,
           updatePayloadSize = 42
@@ -304,7 +313,7 @@ mkChainUpdate timeout effectTime validSignature =
     payload = AddIdentityProviderUpdatePayload myipInfo
     mkDummySignHash = UpdateInstructionSignHashV0 dummyHash
     mkDummySignature = UpdateInstructionSignatures Map.empty
-                
+    
 mkAccountCreation :: TransactionTime -> CredentialRegistrationID -> Word32 -> Bool -> Bool ->  Bool -> BareBlockItem
 mkAccountCreation expiry regId identityProviderId validAr validPubKeys credExpired = CredentialDeployment AccountCreation
   {
@@ -323,6 +332,9 @@ mkAccountCreation expiry regId identityProviderId validAr validPubKeys credExpir
                   cdiProofs=Proofs "invalid proof"
                 }
   }
+
+getChainupdateSeqNumber :: Bool -> UpdateSequenceNumber
+getChainupdateSeqNumber valid = if valid then minUpdateSequenceNumber + 1 else minUpdateSequenceNumber
 
 mkInitialAccountCreationWithInvalidSignatures :: TransactionTime -> CredentialRegistrationID -> BareBlockItem
 mkInitialAccountCreationWithInvalidSignatures expiry regId = CredentialDeployment AccountCreation

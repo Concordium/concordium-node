@@ -385,7 +385,7 @@ type TransactionVerificationCache = HM.HashMap TransactionHash CacheableVerifica
 data CacheableVerificationResult
   = CredentialDeploymentVerificationResultSuccess
   -- ^The transaction was valid.
-  | VerificationResultChainUpdateSuccess !Sha256.Hash
+  | VerificationResultChainUpdateSuccess !Sha256.Hash !UpdateSequenceNumber
   -- ^The 'ChainUpdate' passed verification successfully. The result contains
   -- the hash of the `UpdateKeysCollection`. It must be checked
   -- that the hash corresponds to the configured `UpdateKeysCollection` before executing the transaction.
@@ -426,6 +426,6 @@ isCacheable tver = isJust $ toCacheable tver
 -- If the verification result was not cacheable we return Nothing.
 toCacheable :: TVer.VerificationResult -> Maybe CacheableVerificationResult
 toCacheable TVer.CredentialDeploymentSuccess = Just CredentialDeploymentVerificationResultSuccess
-toCacheable (TVer.ChainUpdateSuccess hash) = Just $ VerificationResultChainUpdateSuccess hash
 toCacheable TVer.NormalTransactionSuccess = Just NormalTransactionSuccess
+toCacheable (TVer.ChainUpdateSuccess keysHash nonce) = Just $ VerificationResultChainUpdateSuccess keysHash nonce
 toCacheable _ = Nothing

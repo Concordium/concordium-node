@@ -41,11 +41,13 @@ data VerificationResult
   -- ^The 'AccountCreation' contained invalid identity provider signatures.
   | CredentialDeploymentExpired
   -- ^The 'AccountCreation' contained an expired 'validTo'
-  | ChainUpdateInvalidSignatures
-  -- ^The 'ChainUpdate' contained invalid signatures.
   | ChainUpdateEffectiveTimeBeforeTimeout
   -- ^The 'ChainUpdate' had an expiry set too late.
-  | ChainUpdateSuccess !Sha256.Hash
+  | ChainUpdateInvalidSequenceNumber
+  -- ^The 'ChainUpdate' had an invalid sequence number.
+  | ChainUpdateInvalidSignatures
+  -- ^The 'ChainUpdate' contained invalid signatures.
+  | ChainUpdateSuccess !Sha256.Hash !Updates.UpdateSequenceNumber
   -- ^The 'ChainUpdate' passed verification.
   -- The result contains the hash of the autorization keys.
   -- It must be checked that this hash corresponds to the current authorization keys before
@@ -77,6 +79,8 @@ class (Monad m) => TransactionVerifier m where
   -- |Get the account associated for the given account address.
   -- Returns 'Nothing' if no such account exists.
   getAccount :: Types.AccountAddress -> m (Maybe (GSTypes.Account m))
+  -- |Get the next 'SequenceNumber' given the 'UpdateType'
+  getNextUpdateSequenceNumber :: Updates.UpdateType -> m Updates.UpdateSequenceNumber
   -- |Get the UpdateKeysCollection
   getUpdateKeysCollection :: m Updates.UpdateKeysCollection
 
@@ -124,6 +128,7 @@ verifyCredentialDeployment now accountCreation@Tx.AccountCreation{..} =
 -- |Verifies a 'ChainUpdate' transaction.
 -- This function verifies the following:
 -- * Checks that the effective time is no later than the timeout of the chain update.
+-- * Checks that sequence number is ok.
 -- * Checks that the 'ChainUpdate' is correctly signed.
 verifyChainUpdate :: TransactionVerifier m => ST.UpdateInstruction -> m VerificationResult
 verifyChainUpdate ui@ST.UpdateInstruction{..} =
@@ -131,10 +136,14 @@ verifyChainUpdate ui@ST.UpdateInstruction{..} =
     -- check that the effective time is not after the timeout of the chain update.
     when (ST.updateTimeout uiHeader >= ST.updateEffectiveTime uiHeader && ST.updateEffectiveTime uiHeader /= 0) $
       throwError ChainUpdateEffectiveTimeBeforeTimeout
+    -- check that the sequence number is ok
+    nextSN <- lift $ getNextUpdateSequenceNumber (ST.updateType (ST.uiPayload ui))
+    let nonce = ST.updateSeqNumber (ST.uiHeader ui)
+    unless (nextSN <= nonce) $ throwError ChainUpdateInvalidSequenceNumber
     -- check the signature is valid
     keys <- lift getUpdateKeysCollection
     unless (Updates.checkAuthorizedUpdate keys ui) $ throwError ChainUpdateInvalidSignatures
-    return (ChainUpdateSuccess (getHash keys)))
+    return (ChainUpdateSuccess (getHash keys) nonce))
 
 -- |Verifies a 'NormalTransaction' transaction.
 -- This function verifies the following:
@@ -183,8 +192,12 @@ instance (Monad m, BS.BlockStateQuery m, r ~ GSTypes.BlockState m) => Transactio
     case macc of
       Nothing -> return Nothing
       Just (_, acc) -> return (Just acc)
+  {-# INLINE getNextUpdateSequenceNumber #-}
+  getNextUpdateSequenceNumber uType = do
+     state <- ask
+     lift (BS.getNextUpdateSequenceNumber state uType)
   {-# INLINE getUpdateKeysCollection #-}
   getUpdateKeysCollection = do
     state <- ask
     lift (BS.getUpdateKeysCollection state)
-    
+   

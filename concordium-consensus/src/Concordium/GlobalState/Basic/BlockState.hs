@@ -797,7 +797,6 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
 
     {-# INLINE bsoEnqueueUpdate #-}
     bsoEnqueueUpdate bs effectiveTime payload = return $! bs & blockUpdates %~ enqueueUpdate effectiveTime payload
-
     {-# INLINE bsoOverwriteElectionDifficulty #-}
     bsoOverwriteElectionDifficulty bs newDifficulty = return $! bs & blockUpdates %~ overwriteElectionDifficulty newDifficulty
 
