@@ -1140,12 +1140,22 @@ checkIfWeAreFinalizer cptr = do
 bakerIdBestBlock :: StablePtr ConsensusRunner -> IO Int64
 bakerIdBestBlock cptr = do
     (ConsensusRunner mvr) <- deRefStablePtr cptr
-    res <- runMVR Q.getBakerStatusBestBlock mvr
-    return $! case res of
-        NoBaker -> -1
-        InactiveBaker _ -> -2
-        BadKeys _ -> -3
-        ActiveBaker bid -> fromIntegral bid
+    isDown <- runMVR Q.checkIsShutDown mvr
+    if isDown
+      then return $! -5
+      else do
+        res <- runMVR Q.getBakerStatusBestBlock mvr
+        return $! case res of
+          NoBaker -> -1
+          InactiveBaker _ -> -2
+          BadKeys _ -> -3
+          ActiveBaker bid -> fromIntegral bid
+    -- res <- runMVR Q.getBakerStatusBestBlock mvr
+    -- return $! case res of
+    --     NoBaker -> -1
+    --     InactiveBaker _ -> -2
+    --     BadKeys _ -> -3
+    --     ActiveBaker bid -> fromIntegral bid
 
 -- FFI exports
 

@@ -575,6 +575,9 @@ getTransactionStatusInBlock trHash blockHash =
 checkIsCurrentFinalizer :: MVR gsconf finconf Bool
 checkIsCurrentFinalizer = liftSkovQueryLatest isFinalizationCommitteeMember
 
+checkIsShutDown :: MVR gsconf finconf Bool
+checkIsShutDown = liftSkovQueryLatest isShutDown
+
 -- |Result of a baker status query.
 data BakerStatus
     = -- |The baker is a member of the current committee
