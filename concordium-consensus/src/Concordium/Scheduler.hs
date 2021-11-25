@@ -96,13 +96,31 @@ import Prelude hiding (exp, mod)
 -- Returns the sender account and the cost to be charged for checking the header.
 checkHeader :: (TransactionData msg, SchedulerMonad pv m) => msg -> ExceptT (Maybe FailureKind) m (IndexedAccount m, Energy)
 checkHeader meta = do
-  cachedTVResult <- lift (lookupTransactionVerificationResult (transactionHash meta))
-  case cachedTVResult of
-    Just (NormalTransactionSuccess iacc cost _) -> return (iacc, cost)
-    -- todo: this is unfortunuate. But only verified transactions are being put
-    -- into the transaction table and thus the cache.
-    _ -> throwError (Just DepositInsufficient) 
-    
+  let addr = transactionSender meta
+  let cost = Cost.baseCost (getTransactionHeaderPayloadSize $ transactionHeader meta) (getTransactionNumSigs (transactionSignature meta))
+  miacc <- lift (getAccount addr)
+  case miacc of
+    Nothing -> throwError (Just $ UnknownAccount addr)
+    Just iacc -> do
+      cachedTVResult <- lift (lookupTransactionVerificationResult (transactionHash meta))
+      case cachedTVResult of
+        Just (NormalTransactionSuccess _) -> return (iacc, cost)
+        _ -> do
+          -- todo: We verify the transaction as it could not be looked up in the cache.
+          -- Note. this should not happen as all transactions are being verified when received.
+          -- The collapsing of 'Just _' and 'Nothing' is because currently there is only one
+          -- cache for the three tranasctions types. Maybe in the future there should be a cache for each
+          -- of the transaction types.
+          verRes <- lift (TV.verifyNormalTransaction meta)
+          if TV.isOk verRes then return (iacc, cost)
+          else throwError $ Just $ mapErr verRes
+  where
+    mapErr TV.NormalTransactionDepositInsufficient = DepositInsufficient
+    mapErr (TV.NormalTransactionInvalidSender addr) = UnknownAccount addr
+    mapErr (TV.NormalTransactionInvalidNonce nonce) = NonSequentialNonce nonce
+    mapErr TV.NormalTransactionInvalidSignatures = IncorrectSignature
+    mapErr _ = undefined -- todo
+
 -- | Execute a transaction on the current block state, charging valid accounts
 -- for the resulting energy cost.
 --
@@ -1155,8 +1173,7 @@ handleDeployCredential accCreation@AccountCreation{messageExpiry=messageExpiry, 
           -- Note. This should really not happen as transactions are being verified and only the successfully
           -- verified ones are being put into the cache.
           tVerResult <- lift (TV.verifyCredentialDeployment ts accCreation)
-          ok <- lift (TV.isNotOk tVerResult)
-          when ok $ throwError $ mapErr tVerResult
+          unless (TV.isOk tVerResult) $ throwError $ mapErr tVerResult
       newAccount regId (ID.addressFromRegId regId) liftedCryptoParams mkSummary
     case res of
       Left err -> return (TxInvalid <$> err)

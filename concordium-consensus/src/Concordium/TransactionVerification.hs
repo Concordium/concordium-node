@@ -27,7 +27,7 @@ import Control.Monad.Except
 
 -- |The 'VerificationResult' type serves as an intermediate `result type` between the 'TxResult' and 'UpdateResult' types.
 -- VerificationResult's contains possible verification errors that may have occurred when verifying a 'AccountCreation' type.
-data VerificationResult m
+data VerificationResult
   = CredentialDeploymentSuccess
   -- ^The 'CredentialDeployment' passed verification.
   | CredentialDeploymentDuplicateAccountRegistrationID !ID.CredentialRegistrationID
@@ -52,26 +52,24 @@ data VerificationResult m
   -- The result contains the hash of the autorization keys.
   -- It must be checked that this hash corresponds to the current authorization keys before
   -- executing the transaction.
-  | NormalTransactionSuccess !(GSTypes.IndexedAccount m) !ST.Energy !Types.Nonce
+  | NormalTransactionSuccess !Types.Nonce
   -- ^The 'NormalTransaction' passed verification.
   -- The result contains the 'IndexedAccount', the cost of the transaction and the transaction nonce.
   | NormalTransactionDepositInsufficient
   -- ^Not enough energy was supplied for the transaction.
-  | NormalTransactionInvalidSender
+  | NormalTransactionInvalidSender !Types.AccountAddress
   -- ^The 'NormalTransaction' contained an invalid sender
-  | NormalTransactionInvalidNonce
+  | NormalTransactionInvalidNonce !Types.Nonce
   -- ^The 'NormalTransaction' contained an invalid nonce
   | NormalTransactionInvalidSignatures
   -- ^The 'NormalTransaction' contained invalid signatures.
+  deriving (Eq, Show)
 
-isOk :: Monad m => VerificationResult m -> m Bool
-isOk CredentialDeploymentSuccess = return True
-isOk (ChainUpdateSuccess _ _) = return True
-isOk NormalTransactionSuccess {} = return True
-isOk _ = return False
-
-isNotOk :: Monad m => VerificationResult m -> m Bool
-isNotOk res = fmap not (isOk res)
+isOk :: VerificationResult -> Bool
+isOk CredentialDeploymentSuccess = True
+isOk (ChainUpdateSuccess _ _) = True
+isOk NormalTransactionSuccess {} = True
+isOk _ = False
 
 -- |Type which can verify transactions in a monadic context. 
 -- The type is responsible for retrieving the necessary information
@@ -91,7 +89,7 @@ class (Monad m) => TransactionVerifier m where
   registrationIdExists :: ID.CredentialRegistrationID -> m Bool
   -- |Get the account associated for the given account address.
   -- Returns 'Nothing' if no such account exists.
-  getAccount :: Types.AccountAddress -> m (Maybe (GSTypes.IndexedAccount m))
+  getAccount :: Types.AccountAddress -> m (Maybe (GSTypes.Account m))
   -- |Get the next 'SequenceNumber' given the 'UpdateType'
   getNextUpdateSequenceNumber :: Updates.UpdateType -> m Updates.UpdateSequenceNumber
   -- |Get the UpdateKeysCollection
@@ -111,7 +109,7 @@ class (Monad m) => TransactionVerifier m where
 -- a corresponding account does not exist.
 -- * Validity of the 'IdentityProvider' and 'AnonymityRevokers' provided.
 -- * That the 'CredentialDeployment' contains valid signatures.
-verifyCredentialDeployment :: TransactionVerifier m => Types.Timestamp -> Tx.AccountCreation -> m (VerificationResult m)
+verifyCredentialDeployment :: TransactionVerifier m => Types.Timestamp -> Tx.AccountCreation -> m VerificationResult
 verifyCredentialDeployment now accountCreation@Tx.AccountCreation{..} =
   either id id <$> runExceptT (do
     -- check that the credential deployment is not yet expired
@@ -149,7 +147,7 @@ verifyCredentialDeployment now accountCreation@Tx.AccountCreation{..} =
 -- * Checks that the effective time is no later than the timeout of the chain update.
 -- * Checks that sequence number is ok.
 -- * Checks that the 'ChainUpdate' is correctly signed.
-verifyChainUpdate :: TransactionVerifier m => ST.UpdateInstruction -> m (VerificationResult m)
+verifyChainUpdate :: TransactionVerifier m => ST.UpdateInstruction -> m VerificationResult
 verifyChainUpdate ui@ST.UpdateInstruction{..} =
   either id id <$> runExceptT (do
     -- check that the effective time is not after the timeout of the chain update.
@@ -172,26 +170,27 @@ verifyChainUpdate ui@ST.UpdateInstruction{..} =
 -- * Checks that the 'NormalTransaction' is correctly signed.
 verifyNormalTransaction :: (TransactionVerifier m, ST.TransactionData msg)
                         => msg
-                        -> m (VerificationResult m)
+                        -> m VerificationResult
 verifyNormalTransaction meta =
   either id id <$> runExceptT (do
     -- Check that enough energy is supplied
     let cost = Cost.baseCost (Tx.getTransactionHeaderPayloadSize $ Tx.transactionHeader meta) (Tx.getTransactionNumSigs (Tx.transactionSignature meta))
     unless (Tx.transactionGasAmount meta >= cost) $ throwError NormalTransactionDepositInsufficient
     -- Check that the sender account exists
-    macc <- lift (getAccount (Tx.transactionSender meta))
+    let addr = Tx.transactionSender meta
+    macc <- lift (getAccount addr)
     case macc of
-      Nothing -> throwError NormalTransactionInvalidSender
-      Just iacc@(_, acc) -> do
+      Nothing -> throwError (NormalTransactionInvalidSender addr)
+      Just acc -> do
         -- Check that the nonce of the transaction is correct.
         nextNonce <- lift (getNextAccountNonce acc)
         let nonce = Tx.transactionNonce meta
-        unless (nonce == nextNonce) $ throwError NormalTransactionInvalidNonce
+        unless (nonce == nextNonce) $ throwError (NormalTransactionInvalidNonce nonce)
         -- Check the signature
         keys <- lift (getAccountVerificationKeys acc)
         let sigCheck = Tx.verifyTransaction keys meta
         unless sigCheck $ throwError NormalTransactionInvalidSignatures
-        return $ NormalTransactionSuccess iacc cost nonce)
+        return $ NormalTransactionSuccess nonce)
 
 instance (Monad m, BS.BlockStateQuery m, r ~ GSTypes.BlockState m) => TransactionVerifier (ReaderT r m) where
   {-# INLINE getIdentityProvider #-}
@@ -213,7 +212,10 @@ instance (Monad m, BS.BlockStateQuery m, r ~ GSTypes.BlockState m) => Transactio
   {-# INLINE getAccount #-}
   getAccount aaddr = do
     state <- ask
-    lift (BS.getAccount state aaddr)
+    macc <- lift (BS.getAccount state aaddr)
+    case macc of
+      Nothing -> return Nothing
+      Just (_, acc) -> return $ Just acc
   {-# INLINE getNextUpdateSequenceNumber #-}
   getNextUpdateSequenceNumber uType = do
      state <- ask
