@@ -72,7 +72,7 @@ mkInitialSS _ssBlockState = NoLogSchedulerState{
     _ssSchedulerEnergyUsed = 0,
     _ssSchedulerExecutionCosts = 0,
     _ssNextIndex = 0,
-    _ssTransactionVerificationCache = Map.empty,
+    _ssTransactionVerificationCache = emptyTransactionVerificationCache,
     ..
   }
 
@@ -179,8 +179,8 @@ instance (MonadReader ContextState m,
          )
          => SchedulerMonad pv (BSOMonadWrapper pv ContextState w state m) where
 
-  {-# INLINE lookupTransactionVerificationResult #-}
-  lookupTransactionVerificationResult k = use (transactionVerificationCache . at k)
+  {-# INLINE getTransactionVerificationCache #-}
+  getTransactionVerificationCache = use transactionVerificationCache
 
   {-# INLINE tlNotifyAccountEffect #-}
   tlNotifyAccountEffect items summary = do

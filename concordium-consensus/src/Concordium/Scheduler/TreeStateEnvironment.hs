@@ -37,7 +37,7 @@ import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.Types.UpdateQueues
     (HasUpdates(currentParameters))
 import Concordium.Scheduler.Types
-import Concordium.Scheduler.Environment
+import Concordium.Scheduler.Environment hiding (getTransactionVerificationCache)
 import Concordium.Scheduler.EnvironmentImplementation
     (BSOMonadWrapper(..),
      ContextState(..),

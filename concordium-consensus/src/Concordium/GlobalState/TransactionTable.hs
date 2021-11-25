@@ -1,6 +1,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE NamedFieldPuns #-}
 module Concordium.GlobalState.TransactionTable where
 
 import qualified Data.HashMap.Strict as HM
@@ -12,7 +13,6 @@ import qualified Data.Serialize as S
 import Control.Monad
 import Control.Exception
 import Data.Foldable
-import Data.Maybe (isJust)
 
 import Concordium.Utils
 import Concordium.Types
@@ -359,73 +359,118 @@ reversePTT trs ptt0 = foldr reverse1 ptt0 trs
                         assert (low == sn + 1) $
                         Just (low - 1, high)
 
--- * Transaction verification cache
+-- * Transaction verification caches
 
--- |The transaction verification cache stores transaction `CacheableVerificationResult`s associated with `TransactionHash`s.
--- New entries are put into the cache when receiving new transactions (either as a single transaction or within a block)
--- by `doReceiveTransaction` and `doReceiveTransactionInternal`. 
+-- |The transaction verification cache stores the transaction hash alongside some transaction type - specific data
+-- needed by the Scheduler before executing the block.
+--
+-- New entries are put into the caches when the consensus receives new transactions - and successfully verifies it. Transactions
+-- are either received as a single transaction or within a block. This is being handled by  `doReceiveTransaction` and vice versa
+-- `doReceiveTransactionInternal`.
 -- The cached verification results are used by the 'Scheduler' to short-cut verification
 -- during transaction execution.
 --
--- Entries in the cache are expunged when the associated transaction is either
+-- Entries in the caches are expunged when the associated transaction is either
 -- finalized or purged.
 --
--- Only transaction hashes of successfully verified transactions must be put in the cache.
--- The 'TransactionVerificationCache' allows for 'short-cutting' verification when executing transactions,
+-- Important: Only transaction hashes of successfully verified transactions must be put in the cache.
+--
+-- The transaction verification caches allows for 'short-cutting' verification when executing transactions,
 -- this is particularly useful for signature checks as these are computationally expensive.
--- Further the cache moves some of the more computationally expensive operations from the 'Scheduler' and into the
+-- Hence the caches moves some of the more computationally expensive operations from the 'Scheduler' and into the
 -- 'doReceiveTransaction' and 'doReceiveTransactionInternal' functions.
 --
--- A note on the cached verification results.
+-- A note on the caches.
 -- The reason only successfully verified transactions is stored in the cache is that
 -- invalid transactions will be rejected immediately and subsequent ones (i.e. duplicates) will
 -- be rejected by the deduplication logic in the node.
-type TransactionVerificationCache = HM.HashMap TransactionHash CacheableVerificationResult
 
-data CacheableVerificationResult
-  = CredentialDeploymentVerificationResultSuccess
-  -- ^The transaction was valid.
-  | VerificationResultChainUpdateSuccess !Sha256.Hash !UpdateSequenceNumber
-  -- ^The 'ChainUpdate' passed verification successfully. The result contains
-  -- the hash of the `UpdateKeysCollection`. It must be checked
-  -- that the hash corresponds to the configured `UpdateKeysCollection` before executing the transaction.
-  | NormalTransactionSuccess !Nonce
-  deriving (Eq, Show)
+
+-- |The caches
+--
+-- |The cache for CredentialDeployments
+-- After a credential deployment has been deemed valid then no further steps has to be taken
+-- before executing the transaction.
+type CredentialDeploymentVerificationCache = HM.HashMap TransactionHash ()
+-- |The cache for ChainUpdate
+-- After a chain update has been deemed valid, it is required to check that the authorization
+-- keys are the same. This cache contains a hash of those keys, thus the
+-- scheduler will need to check that it (the hash) matches the hash of the current
+-- authorization keys.
+-- The transaction nonce is there for ergonomics
+data ChainUpdateVerificationResult = ChainUpdateVerificationResult {
+    _authKeysHash :: Sha256.Hash,
+    _cutxNonce :: Nonce
+} deriving (Eq)
+makeLenses ''ChainUpdateVerificationResult
+
+type ChainUpdateVerificationCache = HM.HashMap TransactionHash ChainUpdateVerificationResult
+-- |The cache for NormalTransactions
+-- The transaction nonce is there for ergonomics
+newtype NormalTransactionVerificationResult = NormalVerificationResult {
+    _ntxNonce :: Nonce
+} deriving (Eq)
+type NormalTransactionVerificationCache = HM.HashMap TransactionHash NormalTransactionVerificationResult
+
+data TransactionVerificationCache = TransactionVerificationCache {
+  _credentialDeploymentVerifications :: CredentialDeploymentVerificationCache,
+  _chainUpdates :: ChainUpdateVerificationCache,
+  _normalTransactions :: NormalTransactionVerificationCache
+} deriving (Eq)
+makeLenses ''TransactionVerificationCache
+
+emptyTransactionVerificationCache :: TransactionVerificationCache
+emptyTransactionVerificationCache = TransactionVerificationCache
+  {
+    _credentialDeploymentVerifications = HM.empty,
+    _chainUpdates = HM.empty,
+    _normalTransactions = HM.empty
+  }
+
+-- |Removes a transaction verification result from the cache
+-- Note. This is not as fine grained as it could be.
+expungeTransaction :: TransactionHash -> TransactionVerificationCache -> TransactionVerificationCache
+expungeTransaction hash TransactionVerificationCache
+  {
+    _credentialDeploymentVerifications = creds,
+    _chainUpdates = updates,
+    _normalTransactions = normals
+  } = TransactionVerificationCache
+  {
+    _credentialDeploymentVerifications = HM.delete hash creds,
+    _chainUpdates = HM.delete hash updates,
+    _normalTransactions = HM.delete hash normals
+  }
 
 -- |Convenience function for verifying a transaction and updating a 'TransactionVerificationCache'.
--- The function returns the verification result and the (possibly) updated cache.
 verifyWithCache :: TVer.TransactionVerifier m => Timestamp -> BlockItem -> TransactionVerificationCache -> m (TVer.VerificationResult, TransactionVerificationCache)
 verifyWithCache now bi cache = do
-  case HM.lookup (getHash bi) cache of
-    Just verRes -> return (mapRes verRes, cache)
-    Nothing -> do
-      verRes' <- case bi of
-        WithMetadata{wmdData = CredentialDeployment cred} -> do
-          TVer.verifyCredentialDeployment now cred         
-        WithMetadata {wmdData = ChainUpdate ui} -> do
-          TVer.verifyChainUpdate ui
-        WithMetadata{wmdData = NormalTransaction tx} -> do
-          TVer.verifyNormalTransaction tx
-      tryPutIntoCache verRes'
-  where
-    mapRes CredentialDeploymentVerificationResultSuccess = TVer.CredentialDeploymentSuccess
-    mapRes (VerificationResultChainUpdateSuccess hash nonce) = TVer.ChainUpdateSuccess hash nonce
-    mapRes (NormalTransactionSuccess nonce) = TVer.NormalTransactionSuccess nonce
-    tryPutIntoCache verRes = do
-      case toCacheable verRes of
-        Just cacheable -> do
-          let c' = HM.insert (getHash bi) cacheable cache
-          return (verRes, c')
-        Nothing -> return (verRes, cache)
-
--- |Determines if a `VerificationResult` is 'cacheable'.
-isCacheable :: TVer.VerificationResult -> Bool
-isCacheable tver = isJust $ toCacheable tver
-
--- |Converts a general verification result to cacheable one.
--- If the verification result was not cacheable we return Nothing.
-toCacheable :: TVer.VerificationResult -> Maybe CacheableVerificationResult
-toCacheable TVer.CredentialDeploymentSuccess = Just CredentialDeploymentVerificationResultSuccess
-toCacheable (TVer.ChainUpdateSuccess keysHash nonce) = Just $ VerificationResultChainUpdateSuccess keysHash nonce
-toCacheable (TVer.NormalTransactionSuccess nonce) = Just $ NormalTransactionSuccess nonce
-toCacheable _ = Nothing
+  let hash = getHash bi
+  case bi of
+    WithMetadata{wmdData = CredentialDeployment cred} -> do
+     if HM.member hash (cache ^. credentialDeploymentVerifications) then return (TVer.CredentialDeploymentSuccess, cache) else (do
+       res <- TVer.verifyCredentialDeployment now cred
+       case res of
+         TVer.CredentialDeploymentSuccess -> return (res, cache & credentialDeploymentVerifications %~ HM.insert hash ())
+         _ -> return (res, cache))
+    WithMetadata {wmdData = ChainUpdate ui} -> do
+     case HM.lookup hash (cache ^. chainUpdates) of
+       Just ChainUpdateVerificationResult{_authKeysHash, _cutxNonce} -> do
+         return (TVer.ChainUpdateSuccess _authKeysHash _cutxNonce, cache)
+       Nothing -> do
+         res <- TVer.verifyChainUpdate ui
+         case res of
+           TVer.ChainUpdateSuccess keysHash nonce -> do
+             let val = ChainUpdateVerificationResult{_authKeysHash = keysHash, _cutxNonce = nonce}
+             return (res, cache & chainUpdates %~ HM.insert hash val)
+           _ -> return (res, cache)
+    WithMetadata{wmdData = NormalTransaction tx} -> do
+      case HM.lookup hash (cache ^. normalTransactions) of
+        Just NormalVerificationResult{_ntxNonce} -> do
+          return (TVer.NormalTransactionSuccess _ntxNonce, cache)
+        Nothing -> do
+          res <- TVer.verifyNormalTransaction tx
+          case res of
+            TVer.NormalTransactionSuccess nonce -> do
+              return (res, cache & normalTransactions %~ HM.insert hash NormalVerificationResult{_ntxNonce = nonce})
+            _ -> return (res, cache)

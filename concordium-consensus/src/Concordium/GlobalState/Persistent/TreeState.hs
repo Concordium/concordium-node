@@ -149,7 +149,7 @@ data SkovPersistentData (pv :: ProtocolVersion) ati bs = SkovPersistentData {
     -- The purpose of the cache is to eliminate the need for re-verifying already verified transactions
     -- when they're being executed.
     -- Entries should be deleted when either the corresponding transaction has been *purged* or *finalized*. 
-    _transactionVerificationResults :: !TransactionVerificationCache
+    _transactionVerificationCache :: !TransactionVerificationCache
 }
 makeLenses ''SkovPersistentData
 
@@ -221,7 +221,7 @@ initialSkovPersistentData rp treeStateDir gd genState genATI atiContext serState
             _runtimeParameters = rp,
             _treeStateDirectory = treeStateDir,
             _db = initialDb,
-            _transactionVerificationResults = HM.empty,
+            _transactionVerificationCache = emptyTransactionVerificationCache,
             _atiCtx = atiContext
         }
 
@@ -360,7 +360,7 @@ loadSkovPersistentData rp _treeStateDirectory _genesisData pbsc atiContext = do
             -- consensus started.
             _statistics = initialConsensusStatistics,
             _runtimeParameters = rp,
-            _transactionVerificationResults = HM.empty,
+            _transactionVerificationCache = emptyTransactionVerificationCache,
             _atiCtx = atiContext,
             ..
         }
@@ -608,8 +608,8 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
         possiblyPendingTable .=! HM.empty
         possiblyPendingQueue .=! MPQ.empty
 
-    getTransactionVerificationCache = use transactionVerificationResults
-    putTransactionVerificationCache = (transactionVerificationResults .=!)
+    getTransactionVerificationCache = use transactionVerificationCache
+    putTransactionVerificationCache = (transactionVerificationCache .=!)
 
     getFocusBlock = use focusBlock
     putFocusBlock bb = focusBlock .= bb
@@ -706,6 +706,8 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
                         wmdtr = WithMetadata{wmdData=tr,..}
                     if Set.member wmdtr nfn
                     then do
+                        -- delete the transaction from the verification cache
+                        transactionVerificationCache %=! expungeTransaction wmdHash
                         -- Remove any other transactions with this nonce from the transaction table.
                         -- They can never be part of any other block after this point.
                         forM_ (Set.delete wmdtr nfn) $
@@ -723,7 +725,7 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
                       "The recorded next nonce for the account " ++ show sender ++ " (" ++ show (anft ^. anftNextNonce) ++ ") doesn't match the one that is going to be finalized (" ++ show nonce ++ ")"
             finTrans WithMetadata{wmdData=CredentialDeployment{},..} = do
                 -- delete the transaction from the transaction verification cache
-                transactionVerificationResults %=! HM.delete wmdHash
+                transactionVerificationCache %=! expungeTransaction wmdHash
                 deleteAndFinalizeStatus wmdHash
             finTrans WithMetadata{wmdData=ChainUpdate cu,..} = do
                 let sn = updateSeqNumber (uiHeader cu)
@@ -740,7 +742,7 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
                   \deadUpdate -> transactionTable . ttHashMap . at' (getHash deadUpdate) .= Nothing
 
                 -- delete the transaction from the transaction verification cache
-                transactionVerificationResults %=! HM.delete wmdHash
+                transactionVerificationCache %=! expungeTransaction wmdHash
                 -- Mark the status of the update as finalized, and remove the data from the in-memory table
                 ss <- deleteAndFinalizeStatus wmdHash
                 -- Update the non-finalized chain updates
@@ -775,10 +777,10 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
             Just (_, results) -> do
                 lastFinSlot <- blockSlot . _bpBlock . fst <$> TS.getLastFinalized
                 if lastFinSlot >= results ^. tsSlot then do
+                    -- delete the transaction from the verified transaction cache
+                    transactionVerificationCache %=! expungeTransaction wmdHash
                     -- remove from the table
                     transactionTable . ttHashMap . at' wmdHash .= Nothing
-                    -- delete the transaction from the verified transaction cache
-                    transactionVerificationResults %=! HM.delete wmdHash
 
                     -- if the transaction is from a sender also delete the relevant
                     -- entry in the account non finalized table
@@ -821,7 +823,7 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
         lastFinalizedSlot <- TS.getLastFinalizedSlot
         transactionTable' <- use transactionTable
         pendingTransactions' <- use pendingTransactions
-        tVerCache <- use transactionVerificationResults
+        tVerCache <- use transactionVerificationCache
         let
           currentTransactionTime = utcTimeToTransactionTime currentTime
           oldestArrivalTime = if currentTransactionTime > rpTransactionsKeepAliveTime
@@ -831,7 +833,7 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
           (newTT, newPT, newTVerCache) = purgeTables lastFinalizedSlot oldestArrivalTime currentTimestamp transactionTable' pendingTransactions' tVerCache
         transactionTable .= newTT
         pendingTransactions .= newPT
-        transactionVerificationResults .= newTVerCache
+        transactionVerificationCache .= newTVerCache
 
     wipeNonFinalizedTransactions = do
         -- This assumes that the transaction table only

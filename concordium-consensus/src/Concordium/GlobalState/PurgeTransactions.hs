@@ -81,19 +81,19 @@ purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptabl
         -- transactions and the transaction hash table, from which transactions
         -- are purged.  The return value is the updated set of transactions, or
         -- @Nothing@ if all transactions at this nonce have been purged.
-        purgeTxs :: Nonce -> Set.Set Transaction -> State (Maybe (Max Nonce), TransactionHashTable) (Maybe (Set.Set Transaction))
+        purgeTxs :: Nonce -> Set.Set Transaction -> State (Maybe (Max Nonce), TransactionHashTable, TransactionVerificationCache) (Maybe (Set.Set Transaction))
         purgeTxs n ts = do
-            (mmnonce, tht) <- get
+            (mmnonce, tht, tvercache0) <- get
             let
                 -- Remove a transaction if it is too old and removable.
                 -- Transactions that are not removed are accumulated.
-                purgeTx (tsacc, thtacc) tx
+                purgeTx (tsacc, thtacc, tvercache) tx
                     | tooOld tx
                     , removable (thtacc ^? ix (biHash tx))
-                        = (tsacc, HM.delete (biHash tx) thtacc)
+                        = (tsacc, HM.delete (biHash tx) thtacc, tvercache & normalTransactions %~ HM.delete (biHash tx))
                     | otherwise
-                        = (tx : tsacc, thtacc)
-                (tsl', tht') = foldl' purgeTx ([], tht) (Set.toDescList ts)
+                        = (tx : tsacc, thtacc, tvercache)
+                (tsl', tht', tvercache') = foldl' purgeTx ([], tht, tvercache0) (Set.toDescList ts)
                 -- Since we start with the set in descending order and foldl',
                 -- the result will be a list in ascending order.
                 ts' = Set.fromDistinctAscList tsl'
@@ -102,21 +102,21 @@ purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptabl
                     | null tsl' = (mmnonce, Nothing)
                     -- Some transactions left, so keep the updated set and update the max nonce.
                     | otherwise = (mmnonce <> Just (Max n), Just ts')
-            put (mmnonce', tht')
+            put (mmnonce', tht', tvercache')
             return mres
         -- Purge the non-finalized transactions for a specific account.
         purgeAccount :: AccountAddressEq -> AccountNonFinalizedTransactions -> State (PendingTransactionTable, TransactionHashTable, TransactionVerificationCache) AccountNonFinalizedTransactions
         purgeAccount addr AccountNonFinalizedTransactions{..} = do
             (ptt0, trs0, tvercache0) <- get
             -- Purge the transactions from the transaction table.
-            let (newANFTMap, (mmax, !trs1)) = runState (Map.traverseMaybeWithKey purgeTxs _anftMap) (Nothing, trs0)
+            let (newANFTMap, (mmax, !trs1, !tvercache1)) = runState (Map.traverseMaybeWithKey purgeTxs _anftMap) (Nothing, trs0, tvercache0)
             -- Update the pending transaction table.
             let updptt (Just (Max newHigh)) (Just (low, _))
                     | newHigh < low = Nothing
                     | otherwise = Just (low, newHigh)
                 updptt _ _ = Nothing
                 !ptt1 = ptt0 & pttWithSender . at' addr %~ updptt mmax
-            put (ptt1, trs1, tvercache0)
+            put (ptt1, trs1, tvercache1)
             return AccountNonFinalizedTransactions{_anftMap = newANFTMap, ..}
         -- Purge the deploy credential transactions that are pending.
         purgeDeployCredentials = do
@@ -138,7 +138,7 @@ purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptabl
                     -- The CDI is no longer in the transaction table, so delete it from the transaction table and the
                     -- transaction verification cache.
                     (Nothing, trs') -> do
-                      let c' = HM.delete cdihash tvercache
+                      let c' = tvercache & credentialDeploymentVerifications %~ HM.delete cdihash
                       (HS.delete cdihash dc, trs', c')
                     -- The CDI was kept, so do nothing.
                     _ -> do
@@ -156,7 +156,7 @@ purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptabl
                 purgeUpd (uisacc, thtacc, tvercache) ui
                     | tooOld ui
                     , removable (thtacc ^? ix (biHash ui))
-                        = (uisacc, HM.delete (biHash ui) thtacc, HM.delete (biHash ui) tvercache)
+                        = (uisacc, HM.delete (biHash ui) thtacc, tvercache & chainUpdates %~ HM.delete (biHash ui) )
                     | otherwise
                         = (ui : uisacc, thtacc, tvercache)
                 (uisl', tht', cache') = foldl' purgeUpd ([], tht, tvercache0) (Set.toDescList uis)

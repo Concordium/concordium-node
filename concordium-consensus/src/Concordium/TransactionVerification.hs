@@ -68,7 +68,7 @@ data VerificationResult
 isOk :: VerificationResult -> Bool
 isOk CredentialDeploymentSuccess = True
 isOk (ChainUpdateSuccess _ _) = True
-isOk NormalTransactionSuccess {} = True
+isOk (NormalTransactionSuccess _) = True
 isOk _ = False
 
 -- |Type which can verify transactions in a monadic context. 

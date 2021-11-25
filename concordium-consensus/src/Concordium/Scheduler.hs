@@ -68,6 +68,7 @@ import qualified Data.Map.Strict as OrdMap
 import Data.Maybe
 import Data.Ord
 import qualified Data.Set as Set
+import qualified Data.HashMap.Strict as HM
 
 import qualified Concordium.Crypto.Proofs as Proofs
 import qualified Concordium.Crypto.BlsSignature as Bls
@@ -102,24 +103,11 @@ checkHeader meta = do
   case miacc of
     Nothing -> throwError (Just $ UnknownAccount addr)
     Just iacc -> do
-      cachedTVResult <- lift (lookupTransactionVerificationResult (transactionHash meta))
-      case cachedTVResult of
-        Just (NormalTransactionSuccess _) -> return (iacc, cost)
-        _ -> do
-          -- todo: We verify the transaction as it could not be looked up in the cache.
-          -- Note. this should not happen as all transactions are being verified when received.
-          -- The collapsing of 'Just _' and 'Nothing' is because currently there is only one
-          -- cache for the three tranasctions types. Maybe in the future there should be a cache for each
-          -- of the transaction types.
-          verRes <- lift (TV.verifyNormalTransaction meta)
-          if TV.isOk verRes then return (iacc, cost)
-          else throwError $ Just $ mapErr verRes
-  where
-    mapErr TV.NormalTransactionDepositInsufficient = DepositInsufficient
-    mapErr (TV.NormalTransactionInvalidSender addr) = UnknownAccount addr
-    mapErr (TV.NormalTransactionInvalidNonce nonce) = NonSequentialNonce nonce
-    mapErr TV.NormalTransactionInvalidSignatures = IncorrectSignature
-    mapErr _ = undefined -- todo
+      let hash = transactionHash meta
+      cache <- lift getTransactionVerificationCache
+      case HM.lookup hash (cache ^. normalTransactions) of
+        Just (NormalVerificationResult _) -> return (iacc, cost)
+        Nothing -> throwError $ Just IncorrectSignature -- todo: this should never happen
 
 -- | Execute a transaction on the current block state, charging valid accounts
 -- for the resulting energy cost.
@@ -1133,7 +1121,7 @@ handleDeployCredential ::
   AccountCreation ->
   TransactionHash ->
   m (Maybe TxResult)
-handleDeployCredential accCreation@AccountCreation{messageExpiry=messageExpiry, credential=cdi} cdiHash = do
+handleDeployCredential AccountCreation{messageExpiry=messageExpiry, credential=cdi} cdiHash = do
     res <- runExceptT $ do
       liftedCm <- lift getChainMetadata
       let ts = slotTime liftedCm
@@ -1164,23 +1152,15 @@ handleDeployCredential accCreation@AccountCreation{messageExpiry=messageExpiry, 
       accExistsAlready <- lift (addressWouldClash aaddr)
       when accExistsAlready $ throwError $ Just AccountCredentialInvalid
       liftedCryptoParams <- lift TV.getCryptographicParameters
-      cachedTVResult <- lift (lookupTransactionVerificationResult cdiHash)
-      case cachedTVResult of
-        Just _ -> do
-          return () -- it's already verified
-        Nothing -> do
-          -- If the transaction has not been verified before we verify it now
-          -- Note. This should really not happen as transactions are being verified and only the successfully
-          -- verified ones are being put into the cache.
-          tVerResult <- lift (TV.verifyCredentialDeployment ts accCreation)
-          unless (TV.isOk tVerResult) $ throwError $ mapErr tVerResult
+      cache <- lift getTransactionVerificationCache
+      case HM.lookup cdiHash (cache ^. credentialDeploymentVerifications) of
+        Just _ -> return () -- it's already been verified
+        Nothing -> throwError $ Just AccountCredentialInvalid -- todo: this should never happen
       newAccount regId (ID.addressFromRegId regId) liftedCryptoParams mkSummary
     case res of
       Left err -> return (TxInvalid <$> err)
       Right ts -> return (Just ts)
   where
-    mapErr (TV.CredentialDeploymentDuplicateAccountRegistrationID dup) = Just (DuplicateAccountRegistrationID dup)
-    mapErr _ = Just AccountCredentialInvalid
     newAccount regId aaddr cryptoParams mkSummary = do
       cdv <- case cdi of
         ID.InitialACWP icdi -> return (ID.InitialAC (ID.icdiValues icdi))
@@ -1248,37 +1228,36 @@ handleChainUpdate WithMetadata{wmdData = UpdateInstruction{..}, ..} = do
   else do
     -- Convert the payload to an update
     case uiPayload of
-      ProtocolUpdatePayload u -> checkSigAndUpdate $ UVProtocol u
-      ElectionDifficultyUpdatePayload u -> checkSigAndUpdate $ UVElectionDifficulty u
-      EuroPerEnergyUpdatePayload u -> checkSigAndUpdate $ UVEuroPerEnergy u
-      MicroGTUPerEuroUpdatePayload u -> checkSigAndUpdate $ UVMicroGTUPerEuro u
+      ProtocolUpdatePayload u -> checkSigAndEnqueue $ UVProtocol u
+      ElectionDifficultyUpdatePayload u -> checkSigAndEnqueue $ UVElectionDifficulty u
+      EuroPerEnergyUpdatePayload u -> checkSigAndEnqueue $ UVEuroPerEnergy u
+      MicroGTUPerEuroUpdatePayload u -> checkSigAndEnqueue $ UVMicroGTUPerEuro u
       FoundationAccountUpdatePayload u -> getAccountIndex u >>= \case
-        Just ai -> checkSigAndUpdate $ UVFoundationAccount ai
+        Just ai -> checkSigAndEnqueue $ UVFoundationAccount ai
         Nothing -> return (TxInvalid (UnknownAccount u))
-      MintDistributionUpdatePayload u -> checkSigAndUpdate $ UVMintDistribution u
-      TransactionFeeDistributionUpdatePayload u -> checkSigAndUpdate $ UVTransactionFeeDistribution u
-      GASRewardsUpdatePayload u -> checkSigAndUpdate $ UVGASRewards u
-      BakerStakeThresholdUpdatePayload u -> checkSigAndUpdate $ UVBakerStakeThreshold u
-      AddAnonymityRevokerUpdatePayload u -> checkSigAndUpdate $ UVAddAnonymityRevoker u
-      AddIdentityProviderUpdatePayload u -> checkSigAndUpdate $ UVAddIdentityProvider u
-      RootUpdatePayload (RootKeysRootUpdate u) -> checkSigAndUpdate $ UVRootKeys u
-      RootUpdatePayload (Level1KeysRootUpdate u) -> checkSigAndUpdate $ UVLevel1Keys u
-      RootUpdatePayload (Level2KeysRootUpdate u) -> checkSigAndUpdate $ UVLevel2Keys u
-      Level1UpdatePayload (Level1KeysLevel1Update u) -> checkSigAndUpdate $ UVLevel1Keys u
-      Level1UpdatePayload (Level2KeysLevel1Update u) -> checkSigAndUpdate $ UVLevel2Keys u
+      MintDistributionUpdatePayload u -> checkSigAndEnqueue $ UVMintDistribution u
+      TransactionFeeDistributionUpdatePayload u -> checkSigAndEnqueue $ UVTransactionFeeDistribution u
+      GASRewardsUpdatePayload u -> checkSigAndEnqueue $ UVGASRewards u
+      BakerStakeThresholdUpdatePayload u -> checkSigAndEnqueue $ UVBakerStakeThreshold u
+      AddAnonymityRevokerUpdatePayload u -> checkSigAndEnqueue $ UVAddAnonymityRevoker u
+      AddIdentityProviderUpdatePayload u -> checkSigAndEnqueue $ UVAddIdentityProvider u
+      RootUpdatePayload (RootKeysRootUpdate u) -> checkSigAndEnqueue $ UVRootKeys u
+      RootUpdatePayload (Level1KeysRootUpdate u) -> checkSigAndEnqueue $ UVLevel1Keys u
+      RootUpdatePayload (Level2KeysRootUpdate u) -> checkSigAndEnqueue $ UVLevel2Keys u
+      Level1UpdatePayload (Level1KeysLevel1Update u) -> checkSigAndEnqueue $ UVLevel1Keys u
+      Level1UpdatePayload (Level2KeysLevel1Update u) -> checkSigAndEnqueue $ UVLevel2Keys u
   where
     -- Check that the signatures use the appropriate keys and are valid.
-    checkSigAndUpdate change = do
-      cachedTVResult <- lookupTransactionVerificationResult wmdHash
-      case cachedTVResult of
-        Just (VerificationResultChainUpdateSuccess keysHash _) -> do -- todo: should the nonce be checked again here?
+    checkSigAndEnqueue change = do
+      cache <- getTransactionVerificationCache
+      case HM.lookup wmdHash (cache ^. chainUpdates) of
+        Nothing -> return $ TxInvalid IncorrectSignature -- todo: this should never happen.
+        Just (ChainUpdateVerificationResult keysHash _) -> do
           currentKeys <- getUpdateKeyCollection
           if getHash currentKeys == keysHash then do
             update change
-          else do -- keys has changed. No way the signature can be valid now.
-            return $ TxInvalid IncorrectSignature
-        err -> return $ mapErr err -- This should not happen as the chain update
-    update change = do            -- would've been rejected when received.
+          else return $ TxInvalid IncorrectSignature -- keys changed the signature is no longer valid
+    update change = do
       enqueueUpdate (updateEffectiveTime uiHeader) change
       tsIndex <- bumpTransactionIndex
       return $ TxValid TransactionSummary {
@@ -1290,7 +1269,6 @@ handleChainUpdate WithMetadata{wmdData = UpdateInstruction{..}, ..} = do
             tsResult = TxSuccess [UpdateEnqueued (updateEffectiveTime uiHeader) uiPayload],
             ..
           }
-    mapErr _ = TxInvalid IncorrectSignature
 
 handleUpdateCredentials ::
   SchedulerMonad pv m

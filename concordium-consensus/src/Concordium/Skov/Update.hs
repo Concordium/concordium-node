@@ -582,7 +582,7 @@ doReceiveTransactionInternal tr ts slot = do
             return (Just bi, mapTransactionVerificationResult verRes)
           Duplicate tx -> return (Just tx, ResultDuplicate)
           ObsoleteNonce -> return (Nothing, ResultStale)
-      definitelyNotValid verificationResult = not $ isCacheable verificationResult
+      definitelyNotValid verificationResult = not $ TV.isOk verificationResult
 
 -- |Shutdown the skov, returning a list of pending transactions.
 doTerminateSkov :: (TreeStateMonad pv m, SkovMonad pv m) => m [BlockItem]
