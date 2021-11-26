@@ -304,6 +304,7 @@ pub enum ConsensusIsInBakingCommitteeResponse {
     NotInCommittee,
     AddedButNotActiveInCommittee,
     AddedButWrongKeys,
+    ShutDown,
     ActiveInCommittee(u64),
 }
 
@@ -318,6 +319,7 @@ impl TryFrom<i64> for ConsensusIsInBakingCommitteeResponse {
             -1 => Ok(NotInCommittee),
             -2 => Ok(AddedButNotActiveInCommittee),
             -3 => Ok(AddedButWrongKeys),
+            -5 => Ok(ShutDown),
             baker_id if baker_id >= 0 => Ok(ActiveInCommittee(baker_id as u64)),
             _ => Err(anyhow!("Unsupported FFI return code for committee status ({})", value)),
         }

@@ -1135,6 +1135,7 @@ checkIfWeAreFinalizer cptr = do
 -- Returns -1 if we are not added as a baker.
 -- Returns -2 if we are added as a baker, but not part of the baking committee yet.
 -- Returns -3 if we have keys that do not match the baker's public keys on the chain.
+-- Returns -5 if baking has stopped due to consensus being shut down.
 -- Returns >= 0 if we are part of the baking committee. The return value is the
 -- baker id as appearing in blocks.
 bakerIdBestBlock :: StablePtr ConsensusRunner -> IO Int64
@@ -1150,12 +1151,6 @@ bakerIdBestBlock cptr = do
           InactiveBaker _ -> -2
           BadKeys _ -> -3
           ActiveBaker bid -> fromIntegral bid
-    -- res <- runMVR Q.getBakerStatusBestBlock mvr
-    -- return $! case res of
-    --     NoBaker -> -1
-    --     InactiveBaker _ -> -2
-    --     BadKeys _ -> -3
-    --     ActiveBaker bid -> fromIntegral bid
 
 -- FFI exports
 

@@ -575,6 +575,7 @@ getTransactionStatusInBlock trHash blockHash =
 checkIsCurrentFinalizer :: MVR gsconf finconf Bool
 checkIsCurrentFinalizer = liftSkovQueryLatest isFinalizationCommitteeMember
 
+-- |Check whether consensus has been shut down
 checkIsShutDown :: MVR gsconf finconf Bool
 checkIsShutDown = liftSkovQueryLatest isShutDown
 
