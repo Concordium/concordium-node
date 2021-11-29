@@ -589,6 +589,8 @@ data BakerStatus
       NoBaker
     | -- |The baker may exist, but the keys do not match
       BadKeys !BakerId
+    | -- |The baker has been shut down due to consensus being shut down
+      ShutDown !BakerId
     deriving (Eq, Ord, Show)
 
 -- |Determine the status of the baker with respect to the current best block.
@@ -596,29 +598,32 @@ getBakerStatusBestBlock :: MVR gsconf finconf BakerStatus
 getBakerStatusBestBlock =
     asks mvBaker >>= \case
         Nothing -> return NoBaker
-        Just Baker{bakerIdentity = bakerIdent} -> liftSkovQueryLatest $ do
-            bb <- bestBlock
-            bs <- queryBlockState bb
-            bakers <- BS.getCurrentEpochBakers bs
-            case fullBaker bakers (bakerId bakerIdent) of
-                Just fbinfo
-                    -- Current baker with valid keys
-                    | validateBakerKeys (fbinfo ^. bakerInfo) bakerIdent ->
-                        return $ ActiveBaker (bakerId bakerIdent)
-                    -- Current baker, but invalid keys
-                    | otherwise -> return $ BadKeys (bakerId bakerIdent)
-                Nothing ->
-                    -- Not a current baker
-                    BS.getBakerAccount bs (bakerId bakerIdent) >>= \case
-                        Just acc ->
-                            -- Account is valid
-                            BS.getAccountBaker acc >>= \case
-                                -- Account has no registered baker
-                                Nothing -> return NoBaker
-                                Just ab
-                                    -- Registered baker with valid keys
-                                    | validateBakerKeys (ab ^. accountBakerInfo) bakerIdent ->
-                                        return $ InactiveBaker (bakerId bakerIdent)
-                                    -- Registered baker with invalid keys
-                                    | otherwise -> return $ BadKeys (bakerId bakerIdent)
-                        Nothing -> return NoBaker
+        Just Baker{bakerIdentity = bakerIdent} -> checkIsShutDown >>= \isDown -> if isDown
+            -- Baker is not running as consensus has been shut down.
+            then return $ ShutDown (bakerId bakerIdent)
+            else liftSkovQueryLatest $ do
+                bb <- bestBlock
+                bs <- queryBlockState bb
+                bakers <- BS.getCurrentEpochBakers bs
+                case fullBaker bakers (bakerId bakerIdent) of
+                    Just fbinfo
+                        -- Current baker with valid keys
+                        | validateBakerKeys (fbinfo ^. bakerInfo) bakerIdent ->
+                            return $ ActiveBaker (bakerId bakerIdent)
+                        -- Current baker, but invalid keys
+                        | otherwise -> return $ BadKeys (bakerId bakerIdent)
+                    Nothing ->
+                        -- Not a current baker
+                        BS.getBakerAccount bs (bakerId bakerIdent) >>= \case
+                            Just acc ->
+                                -- Account is valid
+                                BS.getAccountBaker acc >>= \case
+                                    -- Account has no registered baker
+                                    Nothing -> return NoBaker
+                                    Just ab
+                                        -- Registered baker with valid keys
+                                        | validateBakerKeys (ab ^. accountBakerInfo) bakerIdent ->
+                                            return $ InactiveBaker (bakerId bakerIdent)
+                                        -- Registered baker with invalid keys
+                                        | otherwise -> return $ BadKeys (bakerId bakerIdent)
+                            Nothing -> return NoBaker
