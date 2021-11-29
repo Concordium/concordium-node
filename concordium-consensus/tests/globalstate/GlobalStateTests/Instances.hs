@@ -1,19 +1,22 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell #-}
 module GlobalStateTests.Instances where
 
 import Data.Word
 import Data.Maybe
-import Data.String
 import qualified Data.Text as Text
 import qualified Data.Set as Set
 import Control.Monad
 import Data.Serialize
 import qualified Data.Map.Strict as Map
 import Lens.Micro.Platform
+import Data.FileEmbed
 
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types
 import qualified Concordium.Wasm as Wasm
+import qualified Concordium.Scheduler.WasmIntegration as WasmIntegration
+import qualified Concordium.GlobalState.Wasm as GSWasm
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.Basic.BlockState.InstanceTable
 import Concordium.GlobalState.Basic.BlockState.Instances
@@ -23,6 +26,16 @@ import qualified Data.ByteString as BS
 
 import Test.QuickCheck
 import Test.Hspec
+
+contractSources :: [(FilePath, BS.ByteString)]
+contractSources = $( makeRelativeToProject "testdata/contracts/" >>= embedDir)
+
+validContractArtifacts :: [(Wasm.ModuleSource, GSWasm.ModuleInterface)]
+validContractArtifacts = mapMaybe packModule contractSources
+    where packModule (_, sourceBytes) =
+            let source = Wasm.ModuleSource sourceBytes
+            in (source,) <$> WasmIntegration.processModule (Wasm.WasmModule 0 source)
+
 
 checkBinary :: Show a => (a -> a -> Bool) -> a -> a -> String -> String -> String -> Either String ()
 checkBinary bop x y sbop sx sy = unless (bop x y) $ Left $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ sy ++ " (" ++ show y ++ ")"
@@ -79,28 +92,14 @@ genContractState = do
   n <- choose (1,1000)
   Wasm.ContractState . BS.pack <$> vector n
 
-makeArbitraryInstance :: Gen (ContractAddress -> Instance)
-makeArbitraryInstance = do
-        let
-            modRef = ModuleRef (H.hash "module")
-        initName <- Wasm.InitName . Text.pack <$> arbitrary
-        receiveNames <- genReceiveNames
-        contractState <- genContractState
-        n <- choose (0,1000)
-        iface <- Wasm.ModuleInterface modRef (Set.singleton initName) receiveNames . Wasm.InstrumentedWasmModule 0 . Wasm.ModuleArtifact . BS.pack <$> vector n
-        amount <- Amount <$> arbitrary
-        owner <- AccountAddress . FBS.pack <$> (vector 21)
-        return $ makeInstance modRef initName (fromMaybe Set.empty (snd <$> Map.lookupMin receiveNames)) (iface (Wasm.moduleSourceLength (Wasm.ModuleSource $ fromString (show n)))) contractState amount owner
-
-makeDummyInstance :: InstanceData -> ContractAddress -> Instance
-makeDummyInstance (InstanceData model amount) =
-        makeInstance modRef initName receiveNames (iface (Wasm.moduleSourceLength . Wasm.ModuleSource $ fromString "<empty>")) model amount owner
+makeDummyInstance :: InstanceData -> Gen (ContractAddress -> Instance)
+makeDummyInstance (InstanceData model amount) = do
+  (_, mInterface@GSWasm.ModuleInterface{..}) <- elements validContractArtifacts
+  initName <- if Set.null miExposedInit then return (Wasm.InitName "init_") else elements (Set.toList miExposedInit)
+  let receiveNames = fromMaybe Set.empty $ Map.lookup initName miExposedReceive
+  return $ makeInstance (GSWasm.miModuleRef mInterface) initName receiveNames mInterface model amount owner
     where
-        modRef = ModuleRef (H.hash "module")
-        initName = Wasm.InitName "init_"
-        receiveNames = Set.singleton (Wasm.ReceiveName ".receive")
-        iface = Wasm.ModuleInterface modRef Set.empty Map.empty (Wasm.InstrumentedWasmModule 0 (Wasm.ModuleArtifact "<empty>"))
-        owner = AccountAddress . FBS.pack . replicate 21 $ 0
+        owner = AccountAddress . FBS.pack . replicate 32 $ 0
 
 data InstanceData = InstanceData Wasm.ContractState Amount
     deriving (Eq, Show)
@@ -214,8 +213,9 @@ generateFromUpdates n0 = gen n0 emptyInstances emptyModel
             where
                 create = do
                     instData <- arbitrary
-                    let (_, insts') = createInstance (makeDummyInstance instData) insts
-                    let (_, model') = modelCreateInstance (makeDummyInstance instData) model
+                    dummyInstance <- makeDummyInstance instData
+                    let (_, insts') = createInstance dummyInstance insts
+                    let (_, model') = modelCreateInstance dummyInstance model
                     gen (n-1) insts' model'
                 deleteExisting = do
                     (ci, (csi, _)) <- arbitraryMapElement (modelInstances model)
@@ -239,8 +239,9 @@ testUpdates n0 = if n0 <= 0 then return (property True) else tu n0 emptyInstance
             where
                 create = do
                     instData <- arbitrary
-                    let (ca, insts') = createInstance (makeDummyInstance instData) insts
-                    let (cam, model') = modelCreateInstance (makeDummyInstance instData) model
+                    dummyInstance <- makeDummyInstance instData
+                    let (ca, insts') = createInstance dummyInstance insts
+                    let (cam, model') = modelCreateInstance dummyInstance model
                     checkEqualThen (instanceAddress $ instanceParameters ca) cam $
                         tu (n-1) insts' model'
                 deleteAbsent = do

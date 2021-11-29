@@ -26,7 +26,7 @@ import Concordium.Types.AnonymityRevokers
 import Concordium.Types.Block (absoluteToLocalBlockHeight, localToAbsoluteBlockHeight)
 import Concordium.Types.HashableTo
 import Concordium.Types.IdentityProviders
-import Concordium.Types.Instance
+import Concordium.GlobalState.Instance
 import Concordium.Types.Parameters
 import Concordium.Types.Queries
 import Concordium.Types.SeedState
