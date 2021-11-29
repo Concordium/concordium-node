@@ -120,10 +120,10 @@ instance MonadBlobStore m => BlobStorable m PersistentInstance where
 
 instance MonadBlobStore m => Cacheable m PersistentInstance where
     cache p@PersistentInstance{..} = do
-        -- TODO: We do not currently cache the pinstanceCachedParameters.
-        -- This behaviour is probably fine.
+        -- we only cache parameters and the interface. The rest is already in memory at this point.
         ips <- cache pinstanceParameters
-        return p{pinstanceParameters = ips}
+        iface <- cache pinstanceModuleInterface
+        return p{pinstanceModuleInterface = iface, pinstanceParameters = ips}
 
 fromPersistentInstance ::  MonadBlobStore m => PersistentInstance -> m Transient.Instance
 fromPersistentInstance PersistentInstance{..} = do
