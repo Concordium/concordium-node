@@ -132,7 +132,6 @@ fromPersistentInstance PersistentInstance{..} = do
     let instanceParameters = Transient.InstanceParameters {
             instanceAddress = pinstanceAddress,
             instanceOwner = pinstanceOwner,
-            instanceContractModule = pinstanceContractModule,
             instanceInitName = pinstanceInitName,
             instanceReceiveFuns = pinstanceReceiveFuns,
             instanceModuleInterface = instanceModuleInterface,
@@ -458,7 +457,7 @@ makePersistent mods (Transient.Instances (Transient.Tree s t)) = InstancesTree s
             pIParams <- makeBufferedRef $ PersistentInstanceParameters{
                 pinstanceAddress = instanceAddress,
                 pinstanceOwner = instanceOwner,
-                pinstanceContractModule = instanceContractModule,
+                pinstanceContractModule = GSWasm.miModuleRef instanceModuleInterface,
                 pinstanceInitName = instanceInitName,
                 pinstanceParameterHash = instanceParameterHash,
                 pinstanceReceiveFuns = instanceReceiveFuns

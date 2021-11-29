@@ -28,8 +28,10 @@ import Test.QuickCheck
 import Test.Hspec
 
 contractSources :: [(FilePath, BS.ByteString)]
-contractSources = $( makeRelativeToProject "testdata/contracts/" >>= embedDir)
+contractSources = $(makeRelativeToProject "testdata/contracts/" >>= embedDir)
 
+-- Read all the files in testdata/contracts and get any valid contract interfaces.
+-- This assumes there is at least one, otherwise the tests will fail.
 validContractArtifacts :: [(Wasm.ModuleSource, GSWasm.ModuleInterface)]
 validContractArtifacts = mapMaybe packModule contractSources
     where packModule (_, sourceBytes) =
@@ -97,7 +99,7 @@ makeDummyInstance (InstanceData model amount) = do
   (_, mInterface@GSWasm.ModuleInterface{..}) <- elements validContractArtifacts
   initName <- if Set.null miExposedInit then return (Wasm.InitName "init_") else elements (Set.toList miExposedInit)
   let receiveNames = fromMaybe Set.empty $ Map.lookup initName miExposedReceive
-  return $ makeInstance (GSWasm.miModuleRef mInterface) initName receiveNames mInterface model amount owner
+  return $ makeInstance initName receiveNames mInterface model amount owner
     where
         owner = AccountAddress . FBS.pack . replicate 32 $ 0
 

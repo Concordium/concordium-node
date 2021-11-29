@@ -642,7 +642,7 @@ handleInitContract wtc initAmount modref initName param =
             cs' <- addAmountToCS senderAccount (amountDiff 0 initAmount) (ls ^. changeSet)
 
             let receiveMethods = OrdMap.findWithDefault Set.empty initName (GSWasm.miExposedReceive iface)
-            let ins = makeInstance modref initName receiveMethods iface model initAmount senderAddress
+            let ins = makeInstance initName receiveMethods iface model initAmount senderAddress
             addr <- putNewInstance ins
 
             -- add the contract initialization to the change set and commit the changes

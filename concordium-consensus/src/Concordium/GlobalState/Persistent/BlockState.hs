@@ -979,7 +979,7 @@ doPutNewInstance pbs fnew = do
             params <- makeBufferedRef $ PersistentInstanceParameters {
                                             pinstanceAddress = instanceAddress,
                                             pinstanceOwner = instanceOwner,
-                                            pinstanceContractModule = instanceContractModule,
+                                            pinstanceContractModule = GSWasm.miModuleRef instanceModuleInterface,
                                             pinstanceReceiveFuns = instanceReceiveFuns,
                                             pinstanceInitName = instanceInitName,
                                             pinstanceParameterHash = instanceParameterHash
