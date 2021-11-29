@@ -15,6 +15,25 @@
     return [[NSBundle bundleForClass:[self class]] localizedStringForKey:@"PaneTitle" value:nil table:nil];
 }
 
+- (void)willEnterPane:(InstallerSectionDirection)dir {
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+
+    if ([fileManager fileExistsAtPath:@"/Library/Concordium Node/LaunchDaemons/software.concordium.mainnet.node-collector.plist"]) {
+        [self handleAlreadyConfigured:_oMainnetNodeNameDescriptor :_oMainnetNodeName];
+    }
+    if ([fileManager fileExistsAtPath:@"/Library/Concordium Node/LaunchDaemons/software.concordium.testnet.node-collector.plist"]) {
+        [self handleAlreadyConfigured:_oTestnetNodeNameDescriptor :_oTestnetNodeName];
+    }
+}
+
+// Replaces the node name field with a message about reconfiguring the node name.
+- (void)handleAlreadyConfigured:(NSTextField*)descriptor_field :(NSTextField*)input_field
+{
+    descriptor_field.stringValue = @"Node name already configured.\nReconfigure in service file.";
+    input_field.stringValue = @"ALREADY_CONFIGURED";
+    input_field.hidden = true;
+}
+
 // Invoked when either 'Go Back' or 'Continue' is pressed.
 - (BOOL)shouldExitPane:(InstallerSectionDirection)aDir
 {

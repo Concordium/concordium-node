@@ -12,11 +12,13 @@
 @property IBOutlet NSButton *oMainnetRunOnStartup;
 @property IBOutlet NSButton *oMainnetRunAfterInstall;
 @property IBOutlet NSButton *oMainnetReportToNetworkDashboard;
+@property IBOutlet NSTextField *oMainnetNodeNameDescriptor;
 @property IBOutlet NSTextField *oMainnetNodeName;
 
 @property IBOutlet NSButton *oTestnetRunOnStartup;
 @property IBOutlet NSButton *oTestnetRunAfterInstall;
 @property IBOutlet NSButton *oTestnetReportToNetworkDashboard;
+@property IBOutlet NSTextField *oTestnetNodeNameDescriptor;
 @property IBOutlet NSTextField *oTestnetNodeName;
 
 @end

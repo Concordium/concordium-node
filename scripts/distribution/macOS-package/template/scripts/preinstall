@@ -34,19 +34,19 @@ function removeLaunchDaemons(){
     removeServiceIfExists "software.concordium.mainnet.node-collector"
     removeServiceIfExists "software.concordium.testnet.node"
     removeServiceIfExists "software.concordium.testnet.node-collector"
-
-    echo "-- Deleting the following files from '/Library/LaunchDaemons/':"
-    removeFileIfExists "/Library/LaunchDaemons/software.concordium.mainnet.node.plist"
-    removeFileIfExists "/Library/LaunchDaemons/software.concordium.mainnet.node-collector.plist"
-    removeFileIfExists "/Library/LaunchDaemons/software.concordium.testnet.node.plist"
-    removeFileIfExists "/Library/LaunchDaemons/software.concordium.testnet.node-collector.plist"
 }
 
-function removeNodeDir(){
-    if [ -d "/Library/Concordium Node/" ]
+# Removes the binaries and report-to-dashboard files if they exist.
+# Does not touch launch daemon files and files created by the user.
+function removeFilesInNodeDir(){
+    local nodeDir="/Library/Concordium Node"
+    if [ -d "$nodeDir" ]
     then
-        echo "-- Deleting '/Library/Concordium Node/'"
-        sudo rm -r "/Library/Concordium Node/"
+        echo "-- Deleting the following files from '$nodeDir':"
+        removeFileIfExists "$nodeDir/concordium-node"
+        removeFileIfExists "$nodeDir/node-collector"
+        removeFileIfExists "$nodeDir/REPORT_TO_NETWORK_DASHBOARD_MAINNET"
+        removeFileIfExists "$nodeDir/REPORT_TO_NETWORK_DASHBOARD_TESTNET"
     fi
 }
 
@@ -57,7 +57,7 @@ function main(){
 
     removeSymlinks
 
-    removeNodeDir
+    removeFilesInNodeDir
 
     echo "Preinstall finished"
 }
