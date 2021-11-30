@@ -120,7 +120,8 @@ instance MonadBlobStore m => BlobStorable m PersistentInstance where
 
 instance MonadBlobStore m => Cacheable m PersistentInstance where
     cache p@PersistentInstance{..} = do
-        -- we only cache parameters and the interface. The rest is already in memory at this point.
+        -- we only cache parameters and the interface. The rest is already in memory at this point since
+        -- the fields are flat, i.e., without indirection via BufferedRef or similar reference wrappers.
         ips <- cache pinstanceParameters
         iface <- cache pinstanceModuleInterface
         return p{pinstanceModuleInterface = iface, pinstanceParameters = ips}
