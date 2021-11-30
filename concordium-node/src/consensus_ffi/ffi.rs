@@ -381,7 +381,11 @@ extern "C" {
         object_limit: i64,
         direct_callback: DirectMessageCallback,
     ) -> i64;
-    pub fn bakerStatusBestBlock(consensus: *mut consensus_runner, baker_id: *mut u64, has_baker_id: *mut u8) -> u8;
+    pub fn bakerStatusBestBlock(
+        consensus: *mut consensus_runner,
+        baker_id: *mut u64,
+        has_baker_id: *mut u8,
+    ) -> u8;
     pub fn checkIfWeAreFinalizer(consensus: *mut consensus_runner) -> u8;
     pub fn checkIfRunning(consensus: *mut consensus_runner) -> u8;
     pub fn getAccountNonFinalizedTransactions(
@@ -718,9 +722,10 @@ impl ConsensusContainer {
             let mut has_baker_id: u8 = 0;
 
             let result = bakerStatusBestBlock(consensus, &mut baker_id, &mut has_baker_id);
-            let status = ConsensusIsInBakingCommitteeResponse::try_from(result).unwrap_or_else(|code| {
-                panic!("Unknown Consensus Baking Committee FFI return code: {}", code)
-            });
+            let status =
+                ConsensusIsInBakingCommitteeResponse::try_from(result).unwrap_or_else(|code| {
+                    panic!("Unknown Consensus Baking Committee FFI return code: {}", code)
+                });
 
             let baker_id_option = match has_baker_id {
                 0 => None,
@@ -735,7 +740,6 @@ impl ConsensusContainer {
     pub fn in_finalization_committee(&self) -> bool {
         wrap_c_bool_call!(self, |consensus| checkIfWeAreFinalizer(consensus))
     }
-
 
     pub fn is_running(&self) -> bool {
         wrap_c_bool_call!(self, |consensus| checkIfRunning(consensus))

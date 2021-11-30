@@ -428,7 +428,8 @@ impl P2p for RpcServerImpl {
             SystemTime::now().duration_since(UNIX_EPOCH).expect("Time went backwards").as_secs();
         Ok(Response::new(match self.consensus {
             Some(ref consensus) => {
-                let (consensus_baking_committee_status, consensus_baker_id) = consensus.in_baking_committee();
+                let (consensus_baking_committee_status, consensus_baker_id) =
+                    consensus.in_baking_committee();
                 let consensus_running = consensus.is_running();
                 let consensus_baker_running = consensus_running && consensus.is_baking();
 
