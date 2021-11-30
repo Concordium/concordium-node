@@ -23,14 +23,14 @@ import Concordium.Wasm
 import Concordium.GlobalState.Wasm
 import Concordium.Utils.Serialization
 
-foreign import ccall "validate_and_process"
+foreign import ccall "validate_and_process_v0"
    validate_and_process :: Ptr Word8 -- ^Pointer to the Wasm module source.
                         -> CSize -- ^Length of the module source.
                         -> Ptr CSize -- ^Total length of the output.
                         -> Ptr (Ptr ModuleArtifactV0) -- ^Null, or the processed module artifact. This is null if and only if the return value is null.
                         -> IO (Ptr Word8) -- ^Null, or exports.
 
-foreign import ccall "call_init"
+foreign import ccall "call_init_v0"
    call_init :: Ptr ModuleArtifactV0 -- ^Pointer to the Wasm artifact.
              -> Ptr Word8 -- ^Pointer to the serialized chain meta + init ctx.
              -> CSize -- ^Length of the preceding data.
@@ -44,7 +44,7 @@ foreign import ccall "call_init"
              -> IO (Ptr Word8) -- ^New state and logs, if applicable, or null, signaling out-of-energy.
 
 
-foreign import ccall "call_receive"
+foreign import ccall "call_receive_v0"
    call_receive :: Ptr ModuleArtifactV0 -- ^Pointer to the Wasm artifact.
              -> Ptr Word8 -- ^Pointer to the serialized receive context.
              -> CSize  -- ^Length of the preceding data.
