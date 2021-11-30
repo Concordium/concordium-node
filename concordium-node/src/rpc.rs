@@ -428,9 +428,8 @@ impl P2p for RpcServerImpl {
             SystemTime::now().duration_since(UNIX_EPOCH).expect("Time went backwards").as_secs();
         Ok(Response::new(match self.consensus {
             Some(ref consensus) => {
-                let consensus_baking_committee_status = consensus.in_baking_committee();
-                let consensus_running = ConsensusIsInBakingCommitteeResponse::ShutDown
-                    != consensus_baking_committee_status;
+                let (consensus_baking_committee_status, consensus_baker_id) = consensus.in_baking_committee();
+                let consensus_running = consensus.is_running();
                 let consensus_baker_running = consensus_running && consensus.is_baking();
 
                 NodeInfoResponse {
@@ -441,7 +440,7 @@ impl P2p for RpcServerImpl {
                     consensus_running,
                     consensus_type: consensus.consensus_type.to_string(),
                     consensus_baker_committee: match consensus_baking_committee_status {
-                        ConsensusIsInBakingCommitteeResponse::ActiveInCommittee(_) => {
+                        ConsensusIsInBakingCommitteeResponse::ActiveInCommittee => {
                             node_info_response::IsInBakingCommittee::ActiveInCommittee.into()
                         }
                         ConsensusIsInBakingCommitteeResponse::AddedButNotActiveInCommittee => {
@@ -454,18 +453,9 @@ impl P2p for RpcServerImpl {
                         ConsensusIsInBakingCommitteeResponse::NotInCommittee => {
                             node_info_response::IsInBakingCommittee::NotInCommittee.into()
                         }
-                        ConsensusIsInBakingCommitteeResponse::ShutDown => {
-                            node_info_response::IsInBakingCommittee::AddedButNotActiveInCommittee
-                                .into()
-                        }
                     },
                     consensus_finalizer_committee: consensus.in_finalization_committee(),
-                    consensus_baker_id: match consensus_baking_committee_status {
-                        ConsensusIsInBakingCommitteeResponse::ActiveInCommittee(baker_id) => {
-                            Some(baker_id)
-                        }
-                        _ => None,
-                    },
+                    consensus_baker_id,
                     staging_net_username: None,
                 }
             }

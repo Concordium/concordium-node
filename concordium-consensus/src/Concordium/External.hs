@@ -1131,24 +1131,36 @@ checkIfWeAreFinalizer cptr = do
     res <- runMVR Q.checkIsCurrentFinalizer mvr
     return $! if res then 1 else 0
 
--- |Check whether we are a baker from the perspective of the best block.
--- Returns -1 if we are not added as a baker.
--- Returns -2 if we are added as a baker, but not part of the baking committee yet.
--- Returns -3 if we have keys that do not match the baker's public keys on the chain.
--- Returns -4 if baking has stopped due to consensus being shut down.
--- Returns >= 0 if we are part of the baking committee. The return value is the
--- baker id as appearing in blocks.
-bakerIdBestBlock :: StablePtr ConsensusRunner -> IO Int64
-bakerIdBestBlock cptr = do
+-- |Check if consensus is still running.
+-- Returns 0 for 'False' and 1 for 'True'.
+checkIfRunning :: StablePtr ConsensusRunner -> IO Word8
+checkIfRunning cptr = do
     (ConsensusRunner mvr) <- deRefStablePtr cptr
-    res <- runMVR Q.getBakerStatusBestBlock mvr
-    return $! case res of
-        NoBaker -> -1
-        InactiveBaker _ -> -2
-        BadKeys _ -> -3
-        ShutDown _ -> -4
-        ActiveBaker bid -> fromIntegral bid
+    res <- runMVR Q.checkIsShutDown mvr
+    return $! if res then 0 else 1
 
+-- |Check whether we are a baker from the perspective of the best block. Puts the baker ID into the ptr "bakerIdPtr"
+-- Returns 1 if we are not added as a baker.
+-- Returns 2 if we are added as a baker, but not part of the baking committee yet.
+-- Returns 3 if we have keys that do not match the baker's public keys on the chain.
+-- Returns 0 if we are part of the baking committee. 
+bakerStatusBestBlock :: StablePtr ConsensusRunner -> Ptr Word64 -> Ptr Word8 -> IO Word8
+bakerStatusBestBlock cptr bakerIdPtr hasBakerIdPtr = do
+    (ConsensusRunner mvr) <- deRefStablePtr cptr
+    (bs, mBid) <- runMVR Q.getBakerStatusBestBlock mvr
+    case mBid of
+        Nothing -> return $! getBakerStatusCode bs
+        Just bid -> do
+            poke hasBakerIdPtr 1
+            poke bakerIdPtr $ fromIntegral bid
+            return $! getBakerStatusCode bs
+    where
+        getBakerStatusCode :: BakerStatus -> Word8
+        getBakerStatusCode bs = case bs of
+            ActiveBaker -> 0
+            NoBaker -> 1
+            InactiveBaker -> 2
+            BadKeys -> 3
 -- FFI exports
 
 foreign export ccall
@@ -1286,8 +1298,9 @@ foreign export ccall getAllAnonymityRevokers :: StablePtr ConsensusRunner -> CSt
 foreign export ccall getCryptographicParameters :: StablePtr ConsensusRunner -> CString -> IO CString
 
 -- baker status checking
-foreign export ccall bakerIdBestBlock :: StablePtr ConsensusRunner -> IO Int64
+foreign export ccall bakerStatusBestBlock :: StablePtr ConsensusRunner -> Ptr Word64 -> Ptr Word8 -> IO Word8
 foreign export ccall checkIfWeAreFinalizer :: StablePtr ConsensusRunner -> IO Word8
+foreign export ccall checkIfRunning :: StablePtr ConsensusRunner -> IO Word8
 
 -- maintenance
 foreign export ccall freeCStr :: CString -> IO ()
