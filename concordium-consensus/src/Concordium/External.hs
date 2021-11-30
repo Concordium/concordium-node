@@ -1139,7 +1139,8 @@ checkIfRunning cptr = do
     res <- runMVR Q.checkIsShutDown mvr
     return $! if res then 0 else 1
 
--- |Check whether we are a baker from the perspective of the best block. Puts the baker ID into the ptr "bakerIdPtr"
+-- |Check whether we are a baker from the perspective of the best block. 
+-- Puts the baker ID into the ptr "bakerIdPtr" along with a flag that a baker ID is found into "hasBakerIdPtr"
 -- Returns 1 if we are not added as a baker.
 -- Returns 2 if we are added as a baker, but not part of the baking committee yet.
 -- Returns 3 if we have keys that do not match the baker's public keys on the chain.
