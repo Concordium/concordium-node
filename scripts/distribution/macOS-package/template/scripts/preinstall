@@ -3,11 +3,11 @@
 set -e
 
 function removeFileIfExists() {
-    local theFile=${1:?"removeIfExists expects 1 argument: file"}
-    if [ -f "$theFile" ]
+    local theFile=${1:?"removeFileIfExists expects 1 argument: file"}
+    if [ -e "$theFile" ]
     then
         echo "     $theFile"
-        sudo rm "$theFile"
+        sudo rm -r "$theFile"
     fi
 }
 
@@ -45,6 +45,7 @@ function removeFilesInNodeDir(){
         echo "-- Deleting the following files from '$nodeDir':"
         removeFileIfExists "$nodeDir/concordium-node"
         removeFileIfExists "$nodeDir/node-collector"
+        removeFileIfExists "$nodeDir/libs"
         removeFileIfExists "$nodeDir/REPORT_TO_NETWORK_DASHBOARD_MAINNET"
         removeFileIfExists "$nodeDir/REPORT_TO_NETWORK_DASHBOARD_TESTNET"
     fi
