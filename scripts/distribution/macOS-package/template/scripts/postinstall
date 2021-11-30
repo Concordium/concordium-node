@@ -31,6 +31,9 @@ function configureService() {
     # Obj-c returns 1 for true in NodeConfigurationInstallerPlugin.
     local TRUE=1
 
+    # Make sure the launchdaemons folder exists.
+    mkdir -p "/Library/Concordium Node/LaunchDaemons"
+
     # Add the collector service file and set the node name in it, unless the file already exists.
     if [[ ! -f "$serviceFileCollector" ]]
     then
