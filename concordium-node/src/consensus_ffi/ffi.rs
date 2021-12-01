@@ -714,34 +714,36 @@ impl ConsensusContainer {
         ))
     }
 
+    /// Gets baker status of the node along with the baker ID registered in the
+    /// baker credentials used, if available.
     pub fn in_baking_committee(&self) -> (ConsensusIsInBakingCommitteeResponse, Option<u64>) {
         let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut baker_id: u64 = 0;
+        let mut has_baker_id: u8 = 0;
 
-        unsafe {
-            let mut baker_id: u64 = 0;
-            let mut has_baker_id: u8 = 0;
+        let result = unsafe { bakerStatusBestBlock(consensus, &mut baker_id, &mut has_baker_id) };
 
-            let result = bakerStatusBestBlock(consensus, &mut baker_id, &mut has_baker_id);
-            let status =
-                ConsensusIsInBakingCommitteeResponse::try_from(result).unwrap_or_else(|code| {
-                    panic!("Unknown Consensus Baking Committee FFI return code: {}", code)
-                });
+        let status =
+            ConsensusIsInBakingCommitteeResponse::try_from(result).unwrap_or_else(|code| {
+                unreachable!("Unknown Consensus Baking Committee FFI return code: {}", code)
+            });
 
-            let baker_id_option = match has_baker_id {
-                0 => None,
-                1 => Some(baker_id),
-                code => panic!("Expected value from FFI to be either 0 or 1, received {}", code),
-            };
+        let baker_id_option = match has_baker_id {
+            0 => None,
+            1 => Some(baker_id),
+            code => unreachable!("Expected value from FFI to be either 0 or 1, received {}", code),
+        };
 
-            (status, baker_id_option)
-        }
+        (status, baker_id_option)
     }
 
     pub fn in_finalization_committee(&self) -> bool {
         wrap_c_bool_call!(self, |consensus| checkIfWeAreFinalizer(consensus))
     }
 
-    pub fn is_running(&self) -> bool {
+    /// Checks if consensus is running, i.e. if consensus has been shut down,
+    /// this will return false.
+    pub fn is_consensus_running(&self) -> bool {
         wrap_c_bool_call!(self, |consensus| checkIfRunning(consensus))
     }
 

@@ -430,7 +430,7 @@ impl P2p for RpcServerImpl {
             Some(ref consensus) => {
                 let (consensus_baking_committee_status, consensus_baker_id) =
                     consensus.in_baking_committee();
-                let consensus_running = consensus.is_running();
+                let consensus_running = consensus.is_consensus_running();
                 let consensus_baker_running = consensus_running && consensus.is_baking();
 
                 NodeInfoResponse {

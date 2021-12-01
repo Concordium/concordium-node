@@ -1131,7 +1131,7 @@ checkIfWeAreFinalizer cptr = do
     res <- runMVR Q.checkIsCurrentFinalizer mvr
     return $! if res then 1 else 0
 
--- |Check if consensus is still running.
+-- |Check if consensus is running.
 -- Returns 0 for 'False' and 1 for 'True'.
 checkIfRunning :: StablePtr ConsensusRunner -> IO Word8
 checkIfRunning cptr = do
