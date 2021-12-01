@@ -730,7 +730,7 @@ impl ConsensusContainer {
             let baker_id_option = match has_baker_id {
                 0 => None,
                 1 => Some(baker_id),
-                code => panic!("Expected value to be either 0 or 1, received {}", code),
+                code => panic!("Expected value from FFI to be either 0 or 1, received {}", code),
             };
 
             (status, baker_id_option)
