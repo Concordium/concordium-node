@@ -24,9 +24,7 @@ module Concordium.GlobalState.Persistent.BlockState (
 
 import Data.Serialize
 import Data.IORef
-import Control.Monad.Reader.Class
-import Control.Monad.Trans
-import Control.Monad
+import Control.Monad.Reader
 import Data.Foldable
 import Data.Maybe
 import Data.Word
@@ -383,8 +381,12 @@ instance (IsProtocolVersion pv, MonadBlobStore m) => BlobStorable m (BlockStateP
 instance (MonadBlobStore m, IsProtocolVersion pv) => Cacheable m (BlockStatePointers pv) where
     cache BlockStatePointers{..} = do
         accts <- cache bspAccounts
-        insts <- cache bspInstances
+        -- first cache the modules
         mods <- cache bspModules
+        -- then cache the instances, but don't cache the modules again. Instead
+        -- share the references in memory we have already constructed by caching
+        -- modules above. Loading the modules here is cheap since we cached them.
+        insts <- runReaderT (cache bspInstances) =<< refLoad mods
         ips <- cache bspIdentityProviders
         ars <- cache bspAnonymityRevokers
         birkParams <- cache bspBirkParameters
