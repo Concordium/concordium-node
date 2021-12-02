@@ -723,10 +723,9 @@ impl ConsensusContainer {
 
         let result = unsafe { bakerStatusBestBlock(consensus, &mut baker_id, &mut has_baker_id) };
 
-        let status =
-            ConsensusIsInBakingCommitteeResponse::try_from(result).unwrap_or_else(|code| {
-                unreachable!("Unknown Consensus Baking Committee FFI return code: {}", code)
-            });
+        let status = ConsensusIsInBakingCommitteeResponse::try_from(result).unwrap_or_else(|err| {
+            unreachable!("An error occured when trying to convert FFI return code: {}", err)
+        });
 
         let baker_id_option = match has_baker_id {
             0 => None,
