@@ -33,14 +33,16 @@ services:
     - CONCORDIUM_NODE_CONNECTION_BOOTSTRAP_NODES=bootstrap.${DOMAIN}:8888
     - CONCORDIUM_NODE_DATA_DIR=/mnt/data
     - CONCORDIUM_NODE_CONFIG_DIR=/mnt/config
+    - CONCORDIUM_NODE_CONSENSUS_GENESIS_DATA_FILE=/mnt/genesis.dat
+    - CONCORDIUM_NODE_BAKER_CREDENTIALS_FILE=/mnt/baker-credentials.json
     - CONCORDIUM_NODE_PROMETHEUS_SERVER=1
     - CONCORDIUM_NODE_RPC_SERVER_ADDR=0.0.0.0
-    - CONCORDIUM_NODE_CONSENSUS_GENESIS_DATA_FILE=/mnt/genesis.dat
     ports:
     - "8888:8888"
     - "10000:10000"
     volumes:
     - ${GENESIS_DATA_FILE}:/mnt/genesis.dat
+    - ${BAKER_CREDENTIALS_FILE}:/mnt/baker-credentials.json
     - data:/mnt/data
     - config:/mnt/config
   node-collector:
@@ -64,10 +66,11 @@ networks:
 Run the script using `docker-compose`; for example:
 
 ```shell
+export NODE_NAME="<name>"
 export NODE_IMAGE="192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/node:<tag>"
 export NODE_COLLECTOR_IMAGE="192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/node-collector:<tag>"
 export DOMAIN=mainnet.concordium.software # alternative values: 'stagenet.concordium.com', 'testnet.concordium.com'
-export GENESIS_DATA_FILE="/absolute/path/to/genesis.dat"
-export NODE_NAME="<name>"
+export GENESIS_DATA_FILE="/path/to/genesis.dat"
+export BAKER_CREDENTIALS_FILE="/path/to/baker-credentials.json"
 docker-compose up
 ```
