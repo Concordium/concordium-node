@@ -5,6 +5,7 @@
 - Support for wire-protocol version 0 is dropped, meaning that the node cannot
   connect to peers that do not support wire-protocol version 1, which is supported
   since version 1.1.0.
+- The macOS installer no longer overwrites the service files when reinstalling.
 
 ## concordium-node 3.0.0
 - Fix a bug due to incorrect use of LMDB database environments where a node
