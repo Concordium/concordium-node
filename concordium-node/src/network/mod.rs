@@ -28,13 +28,9 @@ pub type WireProtocolVersion = u8;
 
 /// The current wire protocol version, currently 1.
 pub const WIRE_PROTOCOL_CURRENT_VERSION: WireProtocolVersion = 1;
-/// The legacy wire protocol version (0), which is supported for backwards
-/// compatibility.
-pub const WIRE_PROTOCOL_LEGACY_VERSION: WireProtocolVersion = 0;
 
 /// The supported write protocol versions in descending order.
-pub const WIRE_PROTOCOL_VERSIONS: [WireProtocolVersion; 2] =
-    [WIRE_PROTOCOL_CURRENT_VERSION, WIRE_PROTOCOL_LEGACY_VERSION];
+pub const WIRE_PROTOCOL_VERSIONS: [WireProtocolVersion; 1] = [WIRE_PROTOCOL_CURRENT_VERSION];
 
 /// Identifies a network.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

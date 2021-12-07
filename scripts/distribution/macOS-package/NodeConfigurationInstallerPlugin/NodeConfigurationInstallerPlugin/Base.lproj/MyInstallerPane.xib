@@ -17,10 +17,12 @@
             <connections>
                 <outlet property="contentView" destination="TUK-W2-vig" id="gTd-A7-dof"/>
                 <outlet property="oMainnetNodeName" destination="tp3-7x-Q2w" id="6kF-it-oiJ"/>
+                <outlet property="oMainnetNodeNameDescriptor" destination="azY-EI-1ao" id="2qg-zZ-g6b"/>
                 <outlet property="oMainnetReportToNetworkDashboard" destination="eb0-B9-ujV" id="Iht-kF-GON"/>
                 <outlet property="oMainnetRunAfterInstall" destination="LQe-C5-BaQ" id="fhp-mR-KOY"/>
                 <outlet property="oMainnetRunOnStartup" destination="UyF-vD-mXn" id="4R6-gb-CZG"/>
                 <outlet property="oTestnetNodeName" destination="VEj-Ym-Tci" id="oW5-Kq-L9V"/>
+                <outlet property="oTestnetNodeNameDescriptor" destination="ezv-0h-zad" id="A4u-g3-29I"/>
                 <outlet property="oTestnetReportToNetworkDashboard" destination="E6D-gA-wdc" id="f5x-hB-Thp"/>
                 <outlet property="oTestnetRunAfterInstall" destination="hFo-wT-utD" id="dzQ-iq-PRS"/>
                 <outlet property="oTestnetRunOnStartup" destination="6ag-Uq-Zu9" id="XfC-au-SaA"/>
@@ -54,7 +56,7 @@
                                         <rect key="frame" x="-2" y="151" width="139" height="30"/>
                                         <buttonCell key="cell" type="check" title="Run a mainnet node at start-up" bezelStyle="regularSquare" imagePosition="left" state="on" inset="2" id="aCR-Yk-dSc">
                                             <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
-                                            <font key="font" metaFont="system" size="12"/>
+                                            <font key="font" metaFont="cellTitle"/>
                                         </buttonCell>
                                     </button>
                                     <button verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="LQe-C5-BaQ">
@@ -63,7 +65,7 @@
                                             <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
                                             <string key="title">Start the node after
 installation is complete</string>
-                                            <font key="font" metaFont="system" size="12"/>
+                                            <font key="font" metaFont="cellTitle"/>
                                         </buttonCell>
                                     </button>
                                     <button verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="eb0-B9-ujV">
@@ -72,7 +74,7 @@ installation is complete</string>
                                             <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
                                             <string key="title">Report to the network 
 dashboard</string>
-                                            <font key="font" metaFont="system" size="12"/>
+                                            <font key="font" metaFont="cellTitle"/>
                                         </buttonCell>
                                     </button>
                                     <stackView distribution="fill" orientation="vertical" alignment="leading" spacing="1" horizontalStackHuggingPriority="249.99998474121094" verticalStackHuggingPriority="249.99998474121094" ambiguous="YES" detachesHiddenViews="YES" translatesAutoresizingMaskIntoConstraints="NO" id="iBl-6w-lGX">
@@ -80,8 +82,8 @@ dashboard</string>
                                         <subviews>
                                             <textField horizontalHuggingPriority="251" verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="azY-EI-1ao">
                                                 <rect key="frame" x="-2" y="22" width="109" height="15"/>
-                                                <textFieldCell key="cell" lineBreakMode="clipping" title="Public node name:" id="zMy-O3-aKH">
-                                                    <font key="font" metaFont="system" size="12"/>
+                                                <textFieldCell key="cell" title="Public node name:" id="zMy-O3-aKH">
+                                                    <font key="font" metaFont="cellTitle"/>
                                                     <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
                                                     <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
                                                 </textFieldCell>
@@ -135,7 +137,7 @@ dashboard</string>
                                         <rect key="frame" x="-2" y="151" width="133" height="30"/>
                                         <buttonCell key="cell" type="check" title="Run a testnet node at start-up" bezelStyle="regularSquare" imagePosition="left" state="on" inset="2" id="uF9-mR-ihH">
                                             <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
-                                            <font key="font" metaFont="system" size="12"/>
+                                            <font key="font" metaFont="cellTitle"/>
                                         </buttonCell>
                                     </button>
                                     <button verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="hFo-wT-utD">
@@ -144,7 +146,7 @@ dashboard</string>
                                             <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
                                             <string key="title">Start the node after
 installation is complete</string>
-                                            <font key="font" metaFont="system" size="12"/>
+                                            <font key="font" metaFont="cellTitle"/>
                                         </buttonCell>
                                     </button>
                                     <button verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="E6D-gA-wdc">
@@ -153,7 +155,7 @@ installation is complete</string>
                                             <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
                                             <string key="title">Report to the network 
 dashboard</string>
-                                            <font key="font" metaFont="system" size="12"/>
+                                            <font key="font" metaFont="cellTitle"/>
                                         </buttonCell>
                                     </button>
                                     <stackView distribution="fill" orientation="vertical" alignment="leading" spacing="1" horizontalStackHuggingPriority="249.99998474121094" verticalStackHuggingPriority="249.99998474121094" ambiguous="YES" detachesHiddenViews="YES" translatesAutoresizingMaskIntoConstraints="NO" id="8yU-7r-OGL">
@@ -161,8 +163,8 @@ dashboard</string>
                                         <subviews>
                                             <textField horizontalHuggingPriority="251" verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="ezv-0h-zad">
                                                 <rect key="frame" x="-2" y="22" width="109" height="15"/>
-                                                <textFieldCell key="cell" lineBreakMode="clipping" title="Public node name:" id="84b-oq-i3Z">
-                                                    <font key="font" metaFont="system" size="12"/>
+                                                <textFieldCell key="cell" title="Public node name:" id="84b-oq-i3Z">
+                                                    <font key="font" metaFont="cellTitle"/>
                                                     <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
                                                     <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
                                                 </textFieldCell>
@@ -214,5 +216,15 @@ dashboard</string>
             </subviews>
             <point key="canvasLocation" x="-2" y="-3"/>
         </customView>
+        <textField verticalHuggingPriority="750" horizontalCompressionResistancePriority="250" id="EHH-84-dAv">
+            <rect key="frame" x="0.0" y="0.0" width="107" height="16"/>
+            <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+            <textFieldCell key="cell" selectable="YES" title="Multiline Label" id="25t-k5-N6k">
+                <font key="font" usesAppearanceFont="YES"/>
+                <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+            </textFieldCell>
+            <point key="canvasLocation" x="-130.5" y="239"/>
+        </textField>
     </objects>
 </document>
