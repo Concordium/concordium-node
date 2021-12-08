@@ -60,7 +60,7 @@ liftSkovQuery ::
     MultiVersionRunner gsconf finconf ->
     EVersionedConfiguration gsconf finconf ->
     ( forall (pv :: ProtocolVersion).
-      ( SkovMonad pv (VersionedSkovM gsconf finconf pv),
+      ( SkovMonad (VersionedSkovM gsconf finconf pv),
         FinalizationMonad (VersionedSkovM gsconf finconf pv)
       ) =>
       VersionedSkovM gsconf finconf pv a
@@ -73,7 +73,7 @@ liftSkovQuery mvr (EVersionedConfiguration vc) a = do
 -- |Run a query against the latest skov version.
 liftSkovQueryLatest ::
     ( forall (pv :: ProtocolVersion).
-      ( SkovMonad pv (VersionedSkovM gsconf finconf pv),
+      ( SkovMonad (VersionedSkovM gsconf finconf pv),
         FinalizationMonad (VersionedSkovM gsconf finconf pv)
       ) =>
       VersionedSkovM gsconf finconf pv a
@@ -87,7 +87,7 @@ liftSkovQueryLatest a = MVR $ \mvr -> do
 liftSkovQueryAtGenesisIndex ::
     GenesisIndex ->
     ( forall (pv :: ProtocolVersion).
-      ( SkovMonad pv (VersionedSkovM gsconf finconf pv),
+      ( SkovMonad (VersionedSkovM gsconf finconf pv),
         FinalizationMonad (VersionedSkovM gsconf finconf pv)
       ) =>
       VersionedSkovM gsconf finconf pv a
@@ -118,7 +118,7 @@ atLatestSuccessfulVersion a mvr = do
 -- versions to check.
 liftSkovQueryLatestResult ::
     ( forall (pv :: ProtocolVersion).
-      ( SkovMonad pv (VersionedSkovM gsconf finconf pv),
+      ( SkovMonad (VersionedSkovM gsconf finconf pv),
         FinalizationMonad (VersionedSkovM gsconf finconf pv)
       ) =>
       VersionedSkovM gsconf finconf pv (Maybe a)
@@ -132,7 +132,7 @@ liftSkovQueryLatestResult a = MVR $ \mvr ->
 -- versions.
 liftSkovQueryBlock ::
     ( forall (pv :: ProtocolVersion).
-      ( SkovMonad pv (VersionedSkovM gsconf finconf pv),
+      ( SkovMonad (VersionedSkovM gsconf finconf pv),
         FinalizationMonad (VersionedSkovM gsconf finconf pv)
       ) =>
       BlockPointerType (VersionedSkovM gsconf finconf pv) ->
@@ -152,7 +152,7 @@ liftSkovQueryBlock a bh =
 -- to the query function.
 liftSkovQueryBlockAndVersion ::
     ( forall (pv :: ProtocolVersion).
-      ( SkovMonad pv (VersionedSkovM gsconf finconf pv),
+      ( SkovMonad (VersionedSkovM gsconf finconf pv),
         FinalizationMonad (VersionedSkovM gsconf finconf pv)
       ) =>
       VersionedConfiguration gsconf finconf pv ->
@@ -397,7 +397,7 @@ getBlockBirkParameters = liftSkovQueryBlock $ \bp -> do
     bbpElectionDifficulty <- BS.getCurrentElectionDifficulty bs
     bbpElectionNonce <- currentLeadershipElectionNonce <$> BS.getSeedState bs
     FullBakers{..} <- BS.getCurrentEpochBakers bs
-    let resolveBaker FullBakerInfo{_bakerInfo = BakerInfo{..}, ..} = do
+    let resolveBaker FullBakerInfo{_theBakerInfo = BakerInfo{..}, ..} = do
             let bsBakerId = _bakerIdentity
             let bsBakerLotteryPower = fromIntegral _bakerStake / fromIntegral bakerTotalStake
             -- This should never return Nothing
@@ -477,7 +477,13 @@ getAccountInfo blockHash acct =
                     aiAccountThreshold <- aiThreshold <$> BS.getAccountVerificationKeys acc
                     aiAccountEncryptedAmount <- BS.getAccountEncryptedAmount acc
                     aiAccountEncryptionKey <- BS.getAccountEncryptionKey acc
-                    aiBaker <- BS.getAccountBaker acc
+                    gd <- getGenesisData
+                    let convEpoch e =
+                            timestampToUTCTime $
+                                addDuration
+                                    (gdGenesisTime gd)
+                                    (fromIntegral e * fromIntegral (gdEpochLength gd) * gdSlotDuration gd)
+                    aiStakingInfo <- toAccountStakingInfo convEpoch <$> BS.getAccountStake acc
                     aiAccountAddress <- BS.getAccountCanonicalAddress acc
                     return AccountInfo{..}
             )
@@ -613,7 +619,7 @@ getBakerStatusBestBlock =
                                 Nothing -> return NoBaker
                                 Just ab
                                     -- Registered baker with valid keys
-                                    | validateBakerKeys (ab ^. accountBakerInfo) bakerIdent ->
+                                    | validateBakerKeys (ab ^. accountBakerInfo . bakerInfo) bakerIdent ->
                                         return $ InactiveBaker (bakerId bakerIdent)
                                     -- Registered baker with invalid keys
                                     | otherwise -> return $ BadKeys (bakerId bakerIdent)

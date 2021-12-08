@@ -51,17 +51,17 @@ import Lens.Micro.Platform
 
 import qualified Concordium.Scheduler as Sch
 
-newtype BlockStateMonad (pv :: ProtocolVersion) w state m a = BSM { _runBSM :: RWST ContextState w state m a}
+newtype BlockStateMonad w state m a = BSM { _runBSM :: RWST ContextState w state m a}
     deriving (Functor, Applicative, Monad, MonadState state, MonadReader ContextState, MonadTrans, MonadWriter w, MonadLogger, TimeMonad)
 
-deriving via (BSOMonadWrapper pv ContextState w state (MGSTrans (RWST ContextState w state) m))
+deriving via (BSOMonadWrapper ContextState w state (MGSTrans (RWST ContextState w state) m))
     instance
         (SS state ~ UpdatableBlockState m, Monoid w, HasSchedulerState state,
         BlockStateOperations m, Footprint (ATIStorage m) ~ w)
-             => StaticInformation (BlockStateMonad pv w state m)
+             => StaticInformation (BlockStateMonad w state m)
 
-instance (ATIStorage m ~ w, ATITypes m) => ATITypes (BlockStateMonad pv w state m) where
-  type ATIStorage (BlockStateMonad pv w state m) = ATIStorage m
+instance (ATIStorage m ~ w, ATITypes m) => ATITypes (BlockStateMonad w state m) where
+  type ATIStorage (BlockStateMonad w state m) = ATIStorage m
 
 data LogSchedulerState (m :: DK.Type -> DK.Type) = LogSchedulerState {
   _lssBlockState :: !(UpdatableBlockState m),
@@ -86,7 +86,7 @@ type ExecutionResult m = ExecutionResult' (BlockState m) (ATIStorage m)
 
 makeLenses ''ExecutionResult'
 
-instance TreeStateMonad pv m => HasSchedulerState (LogSchedulerState m) where
+instance TreeStateMonad m => HasSchedulerState (LogSchedulerState m) where
   type SS (LogSchedulerState m) = UpdatableBlockState m
   type TransactionLog (LogSchedulerState m) = ATIStorage m
   schedulerBlockState = lssBlockState
@@ -105,21 +105,24 @@ mkInitialSS _lssBlockState =
                     ..}
 
 deriving via (MGSTrans (RWST ContextState w state) m)
-    instance BlockStateTypes (BlockStateMonad pv w state m)
+    instance (MonadProtocolVersion m) => MonadProtocolVersion (BlockStateMonad w state m)
 
 deriving via (MGSTrans (RWST ContextState w state) m)
-    instance (Monoid w, AccountOperations m) => AccountOperations (BlockStateMonad pv w state m)
+    instance BlockStateTypes (BlockStateMonad w state m)
 
-deriving via (BSOMonadWrapper pv ContextState w state (MGSTrans (RWST ContextState w state) m))
+deriving via (MGSTrans (RWST ContextState w state) m)
+    instance (Monoid w, AccountOperations m) => AccountOperations (BlockStateMonad w state m)
+
+deriving via (BSOMonadWrapper ContextState w state (MGSTrans (RWST ContextState w state) m))
     instance (
               SS state ~ UpdatableBlockState m,
               Footprint (ATIStorage m) ~ w,
               HasSchedulerState state,
-              TreeStateMonad pv m,
+              TreeStateMonad m,
               MonadLogger m,
-              BlockStateOperations m) => SchedulerMonad pv (BlockStateMonad pv w state m)
+              BlockStateOperations m) => SchedulerMonad (BlockStateMonad w state m)
 
-runBSM :: Monad m => BlockStateMonad pv w b m a -> ContextState -> b -> m (a, b)
+runBSM :: Monad m => BlockStateMonad w b m a -> ContextState -> b -> m (a, b)
 runBSM m cm s = do
   (r, s', _) <- runRWST (_runBSM m) cm s
   return (r, s')
@@ -402,13 +405,14 @@ mintAndReward bshandle blockParent slotNumber bid isNewEpoch mfinInfo transFees 
 -- sufficient because the bakers will not change in the intervening epochs.
 --
 -- The return value is @True@ if the block is the first in a new epoch.
-updateBirkParameters :: BlockStateOperations m
+updateBirkParameters :: forall m. (BlockStateOperations m, MonadProtocolVersion m)
   => SeedState
   -- ^New seed state
   -> UpdatableBlockState m
   -- ^Block state
   -> m (Bool, UpdatableBlockState m)
-updateBirkParameters newSeedState bs0 = do
+updateBirkParameters newSeedState bs0 = case accountVersionFor (protocolVersion @(MPV m)) of
+  SAccountV0 -> do
     oldSeedState <- bsoGetSeedState bs0
     let isNewEpoch = epoch oldSeedState /= epoch newSeedState
     bs1 <- if isNewEpoch
@@ -420,6 +424,7 @@ updateBirkParameters newSeedState bs0 = do
       else
         return bs0
     (isNewEpoch,) <$> bsoSetSeedState bs1 newSeedState
+  _ -> error "Not implemented" -- FIXME: Implement updateBirkParameters for AccountV0
 
 -- |Count the free transactions of each kind in a list.
 -- The second argument indicates if the block contains a finalization record.
@@ -442,8 +447,8 @@ countFreeTransactions bis hasFinRec = foldl' cft f0 bis
 --
 -- The slot number must exceed the slot of the parent block, and the seed state
 -- must indicate the correct epoch of the block.
-executeFrom :: forall m pv.
-  (BlockPointerMonad m, TreeStateMonad pv m, MonadLogger m)
+executeFrom :: forall m.
+  (BlockPointerMonad m, TreeStateMonad m, MonadLogger m)
   => BlockHash -- ^Hash of the block we are executing. Used only for committing transactions.
   -> Slot -- ^Slot number of the block being executed.
   -> Timestamp -- ^Unix timestamp of the beginning of the slot.
@@ -503,8 +508,8 @@ executeFrom blockHash slotNumber slotTime blockParent blockBaker mfinInfo newSee
 -- EFFECTS: This function only updates the block state. It has no effects on the transaction table.
 -- POSTCONDITION: The function always returns a list of transactions which make a valid block in `ftAdded`,
 -- and also returns a list of transactions which failed, and a list of those which were not processed.
-constructBlock :: forall m pv.
-  (BlockPointerMonad m, TreeStateMonad pv m, MonadLogger m, TimeMonad m)
+constructBlock :: forall m.
+  (BlockPointerMonad m, TreeStateMonad m, MonadLogger m, TimeMonad m)
   => Slot -- ^Slot number of the block to bake
   -> Timestamp -- ^Unix timestamp of the beginning of the slot.
   -> BlockPointerType m -- ^Parent pointer from which to start executing

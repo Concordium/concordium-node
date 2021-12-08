@@ -22,7 +22,7 @@ import Concordium.Birk.LeaderElection
 import Concordium.GlobalState.TreeState(Branches, BlockPointerType)
 import Concordium.Kontrol
 
-blockLuck :: (SkovQueryMonad pv m) => BlockPointerType m -> m BlockLuck
+blockLuck :: (SkovQueryMonad m) => BlockPointerType m -> m BlockLuck
 blockLuck block = case blockFields block of
         Nothing -> return genesisLuck -- Genesis block has luck 1 by definition
         Just bf -> do
@@ -40,7 +40,7 @@ blockLuck block = case blockFields block of
                 Just (_, lotteryPower) ->
                     return $! electionLuck elDiff lotteryPower (blockProof bf)
 
-compareBlocks :: (SkovQueryMonad pv m)
+compareBlocks :: (SkovQueryMonad m)
               => BlockPointerType m
               -> (BlockPointerType m, Maybe BlockLuck)
               -> m (BlockPointerType m, Maybe BlockLuck)
@@ -55,7 +55,7 @@ compareBlocks contender best@(bestb, mbestLuck) =
                 Nothing -> blockLuck bestb
             return $ if (bestLuck, bpHash bestb) < (luck, bpHash contender) then (contender, Just luck) else (bestb, Just bestLuck)
 
-bestBlockBranches :: forall pv m. (SkovQueryMonad pv m) => [[BlockPointerType m]] -> m (BlockPointerType m)
+bestBlockBranches :: forall m. (SkovQueryMonad m) => [[BlockPointerType m]] -> m (BlockPointerType m)
 bestBlockBranches [] = lastFinalizedBlock
 bestBlockBranches l = bb l
     where
@@ -67,17 +67,17 @@ bestBlockBranches l = bb l
 
 
 -- |Get the best block currently in the tree.
-bestBlock :: forall pv m. (SkovQueryMonad pv m) => m (BlockPointerType m)
+bestBlock :: forall m. (SkovQueryMonad m) => m (BlockPointerType m)
 bestBlock = bestBlockBranches =<< branchesFromTop
 
 -- |Get the best non-finalized block in the tree with a slot time strictly below the given bound.
 -- If there is no such block, the last finalized block is returned.
-bestBlockBefore :: forall pv m. (SkovQueryMonad pv m) => Slot -> m (BlockPointerType m)
+bestBlockBefore :: forall m. (SkovQueryMonad m) => Slot -> m (BlockPointerType m)
 bestBlockBefore slotBound = bestBlockBranches . fmap (filter (\b -> blockSlot b < slotBound)) =<< branchesFromTop
 
 -- |Given some 'Branches', determine the best block.
 -- This will always be a block at the greatest height that is non-empty.
-bestBlockOf :: (SkovQueryMonad pv m) => Branches m -> m (Maybe (BlockPointerType m))
+bestBlockOf :: (SkovQueryMonad m) => Branches m -> m (Maybe (BlockPointerType m))
 bestBlockOf Seq.Empty = return Nothing
 bestBlockOf (bs' Seq.:|> tbs) = case tbs of
         [] -> bestBlockOf bs'

@@ -67,7 +67,7 @@ import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import qualified Concordium.Types.UpdateQueues as UQ
 import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Modules
 import qualified Concordium.Types.Accounts as BaseAccounts
-import Concordium.Types.Accounts (BakerPendingChange(NoChange), BakerInfo(_bakerAggregationVerifyKey), BakerPendingChange(..))
+import Concordium.Types.Accounts (StakePendingChange'(..), BakerInfo(_bakerAggregationVerifyKey), PendingChangeEffective(..), HasBakerInfo(..))
 import Concordium.Types.SeedState
 import Concordium.Logger (MonadLogger)
 import Concordium.Types.HashableTo
@@ -77,13 +77,13 @@ import Concordium.Utils.Serialization
 
 -- * Birk parameters
 
-data PersistentBirkParameters = PersistentBirkParameters {
+data PersistentBirkParameters (pv :: ProtocolVersion) = PersistentBirkParameters {
     -- |The currently-registered bakers.
     _birkActiveBakers :: !(BufferedRef PersistentActiveBakers),
     -- |The bakers that will be used for the next epoch.
-    _birkNextEpochBakers :: !(HashedBufferedRef PersistentEpochBakers),
+    _birkNextEpochBakers :: !(HashedBufferedRef (PersistentEpochBakers (AccountVersionFor pv))),
     -- |The bakers for the current epoch.
-    _birkCurrentEpochBakers :: !(HashedBufferedRef PersistentEpochBakers),
+    _birkCurrentEpochBakers :: !(HashedBufferedRef (PersistentEpochBakers (AccountVersionFor pv))),
     -- |The seed state used to derive the leadership election nonce.
     _birkSeedState :: !SeedState
 } deriving (Show)
@@ -91,13 +91,13 @@ data PersistentBirkParameters = PersistentBirkParameters {
 makeLenses ''PersistentBirkParameters
 
 -- |Serialize 'PersistentBirkParameters' in V0 format.
-putBirkParametersV0 :: (MonadBlobStore m, MonadPut m) => PersistentBirkParameters -> m ()
+putBirkParametersV0 :: (MonadBlobStore m, MonadPut m, IsProtocolVersion pv) => PersistentBirkParameters pv -> m ()
 putBirkParametersV0 PersistentBirkParameters{..} = do
         sPut _birkSeedState
         putEpochBakersV0 =<< refLoad _birkNextEpochBakers
         putEpochBakersV0 =<< refLoad _birkCurrentEpochBakers
 
-instance MonadBlobStore m => MHashableTo m H.Hash PersistentBirkParameters where
+instance (MonadBlobStore m, IsProtocolVersion pv) => MHashableTo m H.Hash (PersistentBirkParameters pv) where
   getHashM PersistentBirkParameters {..} = do
     nextHash <- getHashM _birkNextEpochBakers
     currentHash <- getHashM _birkCurrentEpochBakers
@@ -105,7 +105,7 @@ instance MonadBlobStore m => MHashableTo m H.Hash PersistentBirkParameters where
         bpH1 = H.hashOfHashes nextHash currentHash
     return $ H.hashOfHashes bpH0 bpH1
 
-instance MonadBlobStore m => BlobStorable m PersistentBirkParameters where
+instance (MonadBlobStore m, IsProtocolVersion pv) => BlobStorable m (PersistentBirkParameters pv) where
     storeUpdate bps@PersistentBirkParameters{..} = do
         (pabs, actBakers) <- storeUpdate _birkActiveBakers
         (pnebs, nextBakers) <- storeUpdate _birkNextEpochBakers
@@ -132,7 +132,7 @@ instance MonadBlobStore m => BlobStorable m PersistentBirkParameters where
             _birkCurrentEpochBakers <- mcebs
             return PersistentBirkParameters{..}
 
-instance MonadBlobStore m => Cacheable m PersistentBirkParameters where
+instance (MonadBlobStore m, IsProtocolVersion pv) => Cacheable m (PersistentBirkParameters pv) where
     cache PersistentBirkParameters{..} = do
         active <- cache _birkActiveBakers
         next <- cache _birkNextEpochBakers
@@ -144,7 +144,8 @@ instance MonadBlobStore m => Cacheable m PersistentBirkParameters where
             ..
         }
 
-makePersistentBirkParameters :: MonadBlobStore m => Basic.BasicBirkParameters -> m PersistentBirkParameters
+makePersistentBirkParameters :: (AccountVersionFor pv ~ 'AccountV0)
+    => MonadBlobStore m => Basic.BasicBirkParameters -> m (PersistentBirkParameters pv)
 makePersistentBirkParameters bbps = do
     _birkActiveBakers <- refMake =<< makePersistentActiveBakers (Basic._birkActiveBakers bbps)
     _birkNextEpochBakers <- refMake =<< makePersistentEpochBakers (_unhashed (Basic._birkNextEpochBakers bbps))
@@ -275,7 +276,7 @@ data BlockStatePointers (pv :: ProtocolVersion) = BlockStatePointers {
     bspBank :: !(Hashed Rewards.BankStatus),
     bspIdentityProviders :: !(HashedBufferedRef IPS.IdentityProviders),
     bspAnonymityRevokers :: !(HashedBufferedRef ARS.AnonymityRevokers),
-    bspBirkParameters :: !PersistentBirkParameters,
+    bspBirkParameters :: !(PersistentBirkParameters pv),
     bspCryptographicParameters :: !(HashedBufferedRef CryptographicParameters),
     bspUpdates :: !(BufferedRef Updates),
     bspReleaseSchedule :: !(BufferedRef (Map.Map AccountAddress Timestamp)),
@@ -408,9 +409,11 @@ instance (MonadBlobStore m, IsProtocolVersion pv) => Cacheable m (BlockStatePoin
         }
 
 -- |Convert an in-memory 'Basic.BlockState' to a disk-backed 'HashedPersistentBlockState'.
-makePersistent :: (IsProtocolVersion pv, MonadBlobStore m) => Basic.BlockState pv -> m (HashedPersistentBlockState pv)
+makePersistent :: forall pv m. (IsProtocolVersion pv, MonadBlobStore m) => Basic.BlockState pv -> m (HashedPersistentBlockState pv)
 makePersistent Basic.BlockState{..} = do
-  persistentBirkParameters <- makePersistentBirkParameters _blockBirkParameters
+  persistentBirkParameters <- case accountVersionFor (protocolVersion @pv) of
+      SAccountV0 -> makePersistentBirkParameters _blockBirkParameters
+      SAccountV1 -> undefined -- FIXME: Handle this
   persistentMods <- Modules.makePersistentModules _blockModules
   persistentBlockInstances <- Instances.makePersistent persistentMods _blockInstances
   modules <- refMake persistentMods
@@ -444,7 +447,7 @@ makePersistent Basic.BlockState{..} = do
 initialPersistentState :: (IsProtocolVersion pv, MonadBlobStore m)
              => SeedState
              -> CryptographicParameters
-             -> [TransientAccount.Account pv]
+             -> [TransientAccount.Account (AccountVersionFor pv)]
              -> IPS.IdentityProviders
              -> ARS.AnonymityRevokers
              -> UpdateKeysCollection
@@ -454,7 +457,7 @@ initialPersistentState ss cps accts ips ars keysCollection chainParams = makePer
 
 -- |A mostly empty block state, but with the given birk parameters, 
 -- cryptographic parameters, update authorizations and chain parameters.
-emptyBlockState :: (MonadBlobStore m) => PersistentBirkParameters -> CryptographicParameters -> UpdateKeysCollection -> ChainParameters -> m (PersistentBlockState pv)
+emptyBlockState :: (MonadBlobStore m) => PersistentBirkParameters pv -> CryptographicParameters -> UpdateKeysCollection -> ChainParameters -> m (PersistentBlockState pv)
 emptyBlockState bspBirkParameters cryptParams keysCollection chainParams = do
   modules <- refMake Modules.emptyModules
   identityProviders <- refMake IPS.emptyIdentityProviders
@@ -574,11 +577,11 @@ doGetSlotBakers pbs slot = do
                                 pab <- refLoad bkr
                                 abi <- refLoad (pab ^. accountBakerInfo)
                                 return $ case _bakerPendingChange pab of
-                                    RemoveBaker remEpoch
+                                    RemoveStake (PendingChangeEffectiveV0 remEpoch)
                                         | remEpoch < slotEpoch -> Nothing
-                                    ReduceStake newAmt redEpoch
-                                        | redEpoch < slotEpoch -> Just (FullBakerInfo abi newAmt)
-                                    _ -> Just (FullBakerInfo abi (pab ^. stakedAmount))
+                                    ReduceStake newAmt (PendingChangeEffectiveV0 redEpoch)
+                                        | redEpoch < slotEpoch -> Just (FullBakerInfo (abi ^. bakerInfo) newAmt)
+                                    _ -> Just (FullBakerInfo (abi ^. bakerInfo) (pab ^. stakedAmount))
                             Null -> error "Persistent.getSlotBakers invariant violation: active baker account not a baker"
                         Nothing -> error "Persistent.getSlotBakers invariant violation: active baker account not valid"
                 futureBakers <- Vec.fromList . catMaybes <$> mapM resolveBaker activeBids
@@ -587,7 +590,7 @@ doGetSlotBakers pbs slot = do
                     bakerTotalStake = sum (_bakerStake <$> futureBakers)
                 }
 
-doGetBakerAccount :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> BakerId -> m (Maybe (PersistentAccount pv))
+doGetBakerAccount :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> BakerId -> m (Maybe (PersistentAccount (AccountVersionFor pv)))
 doGetBakerAccount pbs (BakerId ai) = do
         bsp <- loadPBS pbs
         Accounts.indexedAccount ai (bspAccounts bsp)
@@ -599,10 +602,10 @@ doTransitionEpochBakers pbs newEpoch = do
         curActiveBIDs <- Trie.keysAsc . _activeBakers =<< refLoad (_birkActiveBakers oldBPs)
         -- Retrieve/update the baker info
         let accumBakers (bs0, bkrs0) bkr@(BakerId aid) = Accounts.indexedAccount aid (bspAccounts bsp) >>= \case
-                Just PersistentAccount{_accountBaker = Some acctBkrRef} -> do
+                Just PersistentAccount{_accountStake = PersistentAccountStakeBaker acctBkrRef} -> do
                     acctBkr <- refLoad acctBkrRef
                     case _bakerPendingChange acctBkr of
-                        RemoveBaker remEpoch
+                        RemoveStake (PendingChangeEffectiveV0 remEpoch)
                             -- Removal takes effect next epoch, so exclude it from the list of bakers
                             | remEpoch == newEpoch + 1 -> return (bs0, bkrs0)
                             -- Removal complete, so update the active bakers and account as well
@@ -611,27 +614,27 @@ doTransitionEpochBakers pbs newEpoch = do
                                 curABs <- refLoad (_birkActiveBakers (bspBirkParameters bs0))
                                 newAB <- Trie.delete bkr (_activeBakers curABs)
                                 abi <- refLoad (_accountBakerInfo acctBkr)
-                                newAK <- Trie.delete (_bakerAggregationVerifyKey abi) (_aggregationKeys curABs)
+                                newAK <- Trie.delete (abi ^. bakerAggregationVerifyKey) (_aggregationKeys curABs)
                                 newABs <- refMake $ PersistentActiveBakers {
                                         _activeBakers = newAB,
                                         _aggregationKeys = newAK
                                     }
                                 -- Remove the baker from the account
-                                let updAcc acc = ((),) <$> setPersistentAccountBaker acc Null
+                                let updAcc acc = ((),) <$> setPersistentAccountStake acc PersistentAccountStakeNone
                                 (_, newAccounts) <- Accounts.updateAccountsAtIndex updAcc aid (bspAccounts bs0)
                                 -- The baker is not included for this epoch
                                 return (bs0 {
                                         bspBirkParameters = (bspBirkParameters bs0) {_birkActiveBakers = newABs},
                                         bspAccounts = newAccounts
                                     }, bkrs0)
-                        ReduceStake newAmt redEpoch
+                        ReduceStake newAmt (PendingChangeEffectiveV0 redEpoch)
                             -- Reduction takes effect next epoch, so apply it in the generated list
                             | redEpoch == newEpoch + 1 -> return (bs0, (_accountBakerInfo acctBkr, newAmt) : bkrs0)
                             -- Reduction complete, so update the account as well
                             | redEpoch <= newEpoch -> do
                                 -- Reduce the baker's stake on the account
-                                let newBaker = acctBkr{_stakedAmount = newAmt, _bakerPendingChange = NoChange}
-                                let updAcc acc = ((),) <$> setPersistentAccountBaker acc (Some newBaker)
+                                newBaker <- refMake acctBkr{_stakedAmount = newAmt, _bakerPendingChange = NoChange}
+                                let updAcc acc = ((),) <$> setPersistentAccountStake acc (PersistentAccountStakeBaker newBaker)
                                 (_, newAccounts) <- Accounts.updateAccountsAtIndex updAcc aid (bspAccounts bs0)
                                 -- The baker is included with the revised stake
                                 return (bs0 {bspAccounts = newAccounts}, (_accountBakerInfo acctBkr, newAmt) : bkrs0)
@@ -663,14 +666,18 @@ doTransitionEpochBakers pbs newEpoch = do
             h2 <- getHashM b
             return $ if (h1 :: H.Hash) == h2 then b else a
 
-doAddBaker :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> AccountIndex -> BakerAdd -> m (BakerAddResult, PersistentBlockState pv)
+doAddBaker :: (IsProtocolVersion pv, MonadBlobStore m, AccountVersionFor pv ~ 'AccountV0)
+    => PersistentBlockState pv
+    -> AccountIndex
+    -> BakerAdd
+    -> m (BakerAddResult, PersistentBlockState pv)
 doAddBaker pbs ai BakerAdd{..} = do
         bsp <- loadPBS pbs
         Accounts.indexedAccount ai (bspAccounts bsp) >>= \case
             -- Cannot resolve the account
             Nothing -> return (BAInvalidAccount, pbs)
             -- Account is already a baker
-            Just PersistentAccount{_accountBaker = Some _} -> return (BAAlreadyBaker (BakerId ai), pbs)
+            Just PersistentAccount{_accountStake = PersistentAccountStakeBaker{}} -> return (BAAlreadyBaker (BakerId ai), pbs)
             Just PersistentAccount{} -> do
                   cp <- (^. cpBakerStakeThreshold) <$> doGetChainParameters pbs
                   if baStake < cp then
@@ -691,13 +698,15 @@ doAddBaker pbs ai BakerAdd{..} = do
                                 }
                             let newBirkParams = bspBirkParameters bsp & birkActiveBakers .~ newpabref
                             let updAcc acc = do
-                                    newBakerInfo <- refMake (bakerKeyUpdateToInfo bid baKeys)
-                                    acc' <- setPersistentAccountBaker acc (Some PersistentAccountBaker{
+                                    newBakerInfo <- refMake $ BaseAccounts.BakerInfoExV0 $
+                                        bakerKeyUpdateToInfo bid baKeys
+                                    newPAB <- refMake PersistentAccountBaker{
                                         _stakedAmount = baStake,
                                         _stakeEarnings = baStakeEarnings,
                                         _accountBakerInfo = newBakerInfo,
                                         _bakerPendingChange = NoChange
-                                    })
+                                    }
+                                    acc' <- setPersistentAccountStake acc (PersistentAccountStakeBaker newPAB)
                                     return ((), acc')
                             -- This cannot fail to update the account, since we already looked up the account.
                             (_, newAccounts) <- Accounts.updateAccountsAtIndex updAcc ai (bspAccounts bsp)
@@ -706,15 +715,20 @@ doAddBaker pbs ai BakerAdd{..} = do
                                 bspAccounts = newAccounts
                             }
 
-doUpdateBakerKeys ::(IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> AccountIndex -> BakerKeyUpdate -> m (BakerKeyUpdateResult, PersistentBlockState pv)
+doUpdateBakerKeys ::(IsProtocolVersion pv, MonadBlobStore m, AccountVersionFor pv ~ 'AccountV0)
+    => PersistentBlockState pv
+    -> AccountIndex
+    -> BakerKeyUpdate
+    -> m (BakerKeyUpdateResult, PersistentBlockState pv)
 doUpdateBakerKeys pbs ai bku@BakerKeyUpdate{..} = do
         bsp <- loadPBS pbs
         Accounts.indexedAccount ai (bspAccounts bsp) >>= \case
             -- The account is valid and has a baker
-            Just PersistentAccount{_accountBaker = Some pAcctBkr} -> do
+            Just PersistentAccount{_accountStake = PersistentAccountStakeBaker pAcctBkr} -> do
                 acctBkr <- refLoad pAcctBkr
                 pab <- refLoad (_birkActiveBakers (bspBirkParameters bsp))
-                bkrInfo <- refLoad (_accountBakerInfo acctBkr)
+                bkrInfo <- refLoad (_accountBakerInfo acctBkr) <&> \case
+                    BaseAccounts.BakerInfoExV0 bkrInfo -> bkrInfo
                 -- Try updating the aggregation keys
                 (keyOK, newAggregationKeys) <-
                         -- If the aggregation key has not changed, we have nothing to do.
@@ -733,8 +747,10 @@ doUpdateBakerKeys pbs ai bku@BakerKeyUpdate{..} = do
                     let newBirkParams = bspBirkParameters bsp & birkActiveBakers .~ newActiveBakers
                     -- Update the account with the new keys
                     let updAcc acc = do
-                            newBakerInfo <- refMake (bakerKeyUpdateToInfo (BakerId ai) bku)
-                            acc' <- setPersistentAccountBaker acc (Some acctBkr {_accountBakerInfo = newBakerInfo})
+                            newBakerInfo <- refMake $ BaseAccounts.BakerInfoExV0 $
+                                bakerKeyUpdateToInfo (BakerId ai) bku
+                            newPAB <- refMake $ acctBkr {_accountBakerInfo = newBakerInfo}
+                            acc' <- setPersistentAccountStake acc (PersistentAccountStakeBaker newPAB)
                             return ((), acc')
                     (_, newAccounts) <- Accounts.updateAccountsAtIndex updAcc ai (bspAccounts bsp)
                     (BKUSuccess (BakerId ai),) <$> storePBS pbs bsp{
@@ -746,13 +762,13 @@ doUpdateBakerKeys pbs ai bku@BakerKeyUpdate{..} = do
             -- Cannot resolve the account, or it is not a baker
             _ -> return (BKUInvalidBaker, pbs)
 
-doUpdateBakerStake :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> AccountIndex -> Amount -> m (BakerStakeUpdateResult, PersistentBlockState pv)
+doUpdateBakerStake :: (IsProtocolVersion pv, MonadBlobStore m, AccountVersionFor pv ~ 'AccountV0) => PersistentBlockState pv -> AccountIndex -> Amount -> m (BakerStakeUpdateResult, PersistentBlockState pv)
 doUpdateBakerStake pbs ai newStake = do
         bsp <- loadPBS pbs
 
         Accounts.indexedAccount ai (bspAccounts bsp) >>= \case
             -- The account is valid and has a baker
-            Just PersistentAccount{_accountBaker = Some pAcctBkr} -> do
+            Just PersistentAccount{_accountStake = PersistentAccountStakeBaker pAcctBkr} -> do
                 acctBkr <- refLoad pAcctBkr
                 if _bakerPendingChange acctBkr /= NoChange
                 -- A change is already pending
@@ -766,7 +782,8 @@ doUpdateBakerStake pbs ai newStake = do
                     bakerStakeThreshold <- (^. cpBakerStakeThreshold) <$> doGetChainParameters pbs
                     let applyUpdate updateStake = do
                            let updAcc acc = do
-                                  acc' <- setPersistentAccountBaker acc (Some (updateStake acctBkr))
+                                  newPAB <- refMake $ updateStake acctBkr
+                                  acc' <- setPersistentAccountStake acc (PersistentAccountStakeBaker newPAB)
                                   return ((), acc')
                            (_, newAccounts) <- Accounts.updateAccountsAtIndex updAcc ai (bspAccounts bsp)
                            storePBS pbs bsp{bspAccounts = newAccounts}
@@ -774,33 +791,40 @@ doUpdateBakerStake pbs ai newStake = do
                             LT -> if newStake < bakerStakeThreshold
                                   then return (BSUStakeUnderThreshold, pbs)
                                   else (BSUStakeReduced (BakerId ai) (curEpoch + cooldown),) <$>
-                                        applyUpdate (bakerPendingChange .~ ReduceStake newStake (curEpoch + cooldown))
+                                        applyUpdate (bakerPendingChange .~ ReduceStake newStake (PendingChangeEffectiveV0 $ curEpoch + cooldown))
                             EQ -> return (BSUStakeUnchanged (BakerId ai), pbs)
                             GT -> (BSUStakeIncreased (BakerId ai),) <$> applyUpdate (stakedAmount .~ newStake)
             _ -> return (BSUInvalidBaker, pbs)
 
-doUpdateBakerRestakeEarnings :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> AccountIndex -> Bool -> m (BakerRestakeEarningsUpdateResult, PersistentBlockState pv)
+doUpdateBakerRestakeEarnings :: (IsProtocolVersion pv, MonadBlobStore m)
+    => PersistentBlockState pv
+    -> AccountIndex
+    -> Bool
+    -> m (BakerRestakeEarningsUpdateResult, PersistentBlockState pv)
 doUpdateBakerRestakeEarnings pbs ai newRestakeEarnings = do
         bsp <- loadPBS pbs
         Accounts.indexedAccount ai (bspAccounts bsp) >>= \case
             -- The account is valid and has a baker
-            Just PersistentAccount{_accountBaker = Some pAcctBkr} -> do
+            Just PersistentAccount{_accountStake = PersistentAccountStakeBaker pAcctBkr} -> do
                 acctBkr <- refLoad pAcctBkr
                 if newRestakeEarnings == acctBkr ^. stakeEarnings
                 then return (BREUUpdated (BakerId ai), pbs)
                 else do
-                    let updAcc acc = ((), ) <$> setPersistentAccountBaker acc (Some (acctBkr & stakeEarnings .~ newRestakeEarnings))
+                    let updAcc acc = do
+                            newPAB <- refMake (acctBkr & stakeEarnings .~ newRestakeEarnings)
+                            ((), ) <$> setPersistentAccountStake acc (PersistentAccountStakeBaker newPAB)
                     (_, newAccounts) <- Accounts.updateAccountsAtIndex updAcc ai (bspAccounts bsp)
                     (BREUUpdated (BakerId ai),) <$> storePBS pbs bsp{bspAccounts = newAccounts}
             _ -> return (BREUInvalidBaker, pbs)
 
 
-doRemoveBaker :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> AccountIndex -> m (BakerRemoveResult, PersistentBlockState pv)
+doRemoveBaker :: (IsProtocolVersion pv, MonadBlobStore m, AccountVersionFor pv ~ 'AccountV0)
+    => PersistentBlockState pv -> AccountIndex -> m (BakerRemoveResult, PersistentBlockState pv)
 doRemoveBaker pbs ai = do
         bsp <- loadPBS pbs
         Accounts.indexedAccount ai (bspAccounts bsp) >>= \case
             -- The account is valid and has a baker
-            Just PersistentAccount{_accountBaker = Some pab} -> do
+            Just PersistentAccount{_accountStake = PersistentAccountStakeBaker pab} -> do
                 ab <- refLoad pab
                 if _bakerPendingChange ab /= NoChange then
                     -- A change is already pending
@@ -813,7 +837,8 @@ doRemoveBaker pbs ai = do
                     upds <- refLoad (bspUpdates bsp)
                     cooldown <- (2+) . _cpBakerExtraCooldownEpochs . unStoreSerialized <$> refLoad (currentParameters upds)
                     let updAcc acc = do
-                            acc' <- setPersistentAccountBaker acc (Some ab{_bakerPendingChange = RemoveBaker (curEpoch + cooldown)})
+                            newPAB <- refMake ab{_bakerPendingChange = RemoveStake (PendingChangeEffectiveV0 $ curEpoch + cooldown)}
+                            acc' <- setPersistentAccountStake acc (PersistentAccountStakeBaker newPAB)
                             return ((), acc')
                     (_, newAccounts) <- Accounts.updateAccountsAtIndex updAcc ai (bspAccounts bsp)
                     (BRRemoved (BakerId ai) (curEpoch + cooldown),) <$> storePBS pbs bsp{bspAccounts = newAccounts}
@@ -829,13 +854,15 @@ doRewardBaker pbs (BakerId ai) reward = do
     where
         updAcc acc = do
             addr <- acc ^^. accountAddress
-            newAccountBaker <- forM (acc ^. accountBaker) $ \pbkr -> do
-                bkr <- refLoad pbkr
-                if bkr ^. stakeEarnings then
-                    refMake $ bkr & stakedAmount +~ reward
-                else
-                    return pbkr
-            acc' <- rehashAccount $ acc & accountBaker .~ newAccountBaker & accountAmount +~ reward
+            newAccountBaker <- case acc ^. accountStake of
+                pas@(PersistentAccountStakeBaker pbkr) -> do
+                    bkr <- refLoad pbkr
+                    if bkr ^. stakeEarnings then
+                        PersistentAccountStakeBaker <$> refMake (bkr & stakedAmount +~ reward)
+                    else
+                        return pas
+                pas -> return pas
+            acc' <- rehashAccount $ acc & accountStake .~ newAccountBaker & accountAmount +~ reward
             return (addr, acc')
 
 doGetRewardStatus :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m Rewards.BankStatus
@@ -849,7 +876,7 @@ doRewardFoundationAccount pbs reward = do
         (_, newAccounts) <- Accounts.updateAccountsAtIndex updAcc foundationAccount (bspAccounts bsp)
         storePBS pbs (bsp {bspAccounts = newAccounts})
 
-doGetFoundationAccount :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m (PersistentAccount pv)
+doGetFoundationAccount :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m (PersistentAccount (AccountVersionFor pv))
 doGetFoundationAccount pbs = do
         bsp <- loadPBS pbs
         foundationAccount <- (^. cpFoundationAccount) <$> lookupCurrentParameters (bspUpdates bsp)
@@ -871,12 +898,12 @@ doMint pbs mint = do
         (_, newAccounts) <- Accounts.updateAccountsAtIndex updAcc foundationAccount (bspAccounts bsp)
         storePBS pbs (bsp {bspBank = newBank, bspAccounts = newAccounts})
 
-doGetAccount :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> AccountAddress -> m (Maybe (AccountIndex, PersistentAccount pv))
+doGetAccount :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> AccountAddress -> m (Maybe (AccountIndex, PersistentAccount (AccountVersionFor pv)))
 doGetAccount pbs addr = do
         bsp <- loadPBS pbs
         Accounts.getAccountWithIndex addr (bspAccounts bsp)
 
-doGetAccountByCredId :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> ID.CredentialRegistrationID -> m (Maybe (AccountIndex, PersistentAccount pv))
+doGetAccountByCredId :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> ID.CredentialRegistrationID -> m (Maybe (AccountIndex, PersistentAccount (AccountVersionFor pv)))
 doGetAccountByCredId pbs cid = do
         bsp <- loadPBS pbs
         Accounts.getAccountByCredId cid (bspAccounts bsp)
@@ -902,7 +929,7 @@ doRegIdExists pbs regid = do
         bsp <- loadPBS pbs
         fst <$> Accounts.regIdExists regid (bspAccounts bsp)
 
-doCreateAccount :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> ID.GlobalContext -> AccountAddress -> ID.AccountCredential ->  m (Maybe (PersistentAccount pv), PersistentBlockState pv)
+doCreateAccount :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> ID.GlobalContext -> AccountAddress -> ID.AccountCredential ->  m (Maybe (PersistentAccount (AccountVersionFor pv)), PersistentBlockState pv)
 doCreateAccount pbs cryptoParams acctAddr credential = do
         acct <- newAccount cryptoParams acctAddr credential
         bsp <- loadPBS pbs
@@ -1220,10 +1247,13 @@ instance PersistentState r m => MonadBlobStore (PutH (PersistentBlockStateMonad 
 type instance BlockStatePointer (PersistentBlockState pv) = BlobRef (BlockStatePointers pv)
 type instance BlockStatePointer (HashedPersistentBlockState pv) = BlobRef (BlockStatePointers pv)
 
+instance (IsProtocolVersion pv) => MonadProtocolVersion (PersistentBlockStateMonad pv r m) where
+    type MPV (PersistentBlockStateMonad pv r m) = pv
+
 instance BlockStateTypes (PersistentBlockStateMonad pv r m) where
     type BlockState (PersistentBlockStateMonad pv r m) = HashedPersistentBlockState pv
     type UpdatableBlockState (PersistentBlockStateMonad pv r m) = PersistentBlockState pv
-    type Account (PersistentBlockStateMonad pv r m) = PersistentAccount pv
+    type Account (PersistentBlockStateMonad pv r m) = PersistentAccount (AccountVersionFor pv)
 
 instance (IsProtocolVersion pv, PersistentState r m) => BlockStateQuery (PersistentBlockStateMonad pv r m) where
     getModule = doGetModuleSource . hpbsPointers
@@ -1285,6 +1315,8 @@ instance (PersistentState r m, IsProtocolVersion pv) => AccountOperations (Persi
             PersistentAccountBaker{..} <- refLoad bref
             abi <- refLoad _accountBakerInfo
             return $ Just BaseAccounts.AccountBaker{_accountBakerInfo = abi, ..}
+    
+  getAccountStake acc = loadAccountStake (acc ^. accountStake)
 
 instance (IsProtocolVersion pv, PersistentState r m) => BlockStateOperations (PersistentBlockStateMonad pv r m) where
     bsoGetModule pbs mref = doGetModule pbs mref

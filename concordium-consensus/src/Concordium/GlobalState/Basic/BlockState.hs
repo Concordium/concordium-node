@@ -107,15 +107,16 @@ makeBirkParameters _birkActiveBakers nextEpochBakers currentEpochBakers _birkSee
     _birkCurrentEpochBakers = makeHashed currentEpochBakers
 
 initialBirkParameters ::
-  [Account pv]
+  [Account av]
   -- ^The accounts at genesis, in order
   -> SeedState
   -- ^The seed state
   -> BasicBirkParameters
 initialBirkParameters accounts = makeBirkParameters activeBkrs eBkrs eBkrs
   where
-    abi AccountBaker{..} = (_accountBakerInfo, _stakedAmount)
-    bkr acct = abi <$> acct ^. accountBaker
+    abi (AccountStakeBaker AccountBaker{..}) = Just (_accountBakerInfo ^. bakerInfo, _stakedAmount)
+    abi _ = Nothing
+    bkr acct = abi $ acct ^. accountStaking
     bkrs = catMaybes $ bkr <$> accounts
     activeBkrs = ActiveBakers {
       _activeBakers = Set.fromList (_bakerIdentity . fst <$> bkrs),
@@ -285,8 +286,8 @@ putBlockState bs = do
 --    timestamp for every account with a scheduled release.
 --
 -- Note that the transaction outcomes will always be empty.
-getBlockState :: forall pv. IsProtocolVersion pv => Get (BlockState pv)
-getBlockState = do
+getBlockState :: forall oldpv pv. IsProtocolVersion pv => StateMigrationParameters oldpv pv -> Get (BlockState pv)
+getBlockState migration = do
     -- BirkParameters
     preBirkParameters <- getBirkParameters
     -- CryptographicParameters
@@ -300,7 +301,7 @@ getBlockState = do
     _blockModules <- Modules.getModulesV0
     -- BankStatus
     _blockBank <- makeHashed <$> get
-    (_blockAccounts :: Accounts.Accounts pv) <- Accounts.deserializeAccounts cryptoParams
+    (_blockAccounts :: Accounts.Accounts pv) <- Accounts.deserializeAccounts migration cryptoParams
     let resolveModule modRef initName = do
             mi <- Modules.getInterface modRef _blockModules
             return (Wasm.miExposedReceive mi ^. at initName . non Set.empty, mi)
@@ -312,13 +313,13 @@ getBlockState = do
           let rs' = case Map.minViewWithKey (account ^. accountReleaseSchedule . pendingReleases) of
                   Nothing -> rs
                   Just ((ts, _), _) -> Map.insert (account ^. accountAddress) ts rs
-          bkrs' <- case account ^. accountBaker of
-              Nothing -> return bkrs
-              Just AccountBaker {_accountBakerInfo = BakerInfo{..}} -> do
-                when (_bakerAggregationVerifyKey `Set.member` _aggregationKeys bkrs) $
+          bkrs' <-case account ^. accountStaking of
+            AccountStakeBaker AccountBaker {_accountBakerInfo = abi} -> do
+                when ((abi ^. bakerAggregationVerifyKey) `Set.member` _aggregationKeys bkrs) $
                   fail "Duplicate baker aggregation key"
-                return $! bkrs & activeBakers %~ Set.insert _bakerIdentity
-                          & aggregationKeys %~ Set.insert _bakerAggregationVerifyKey
+                return $! bkrs & activeBakers %~ Set.insert (abi ^. bakerIdentity)
+                          & aggregationKeys %~ Set.insert (abi ^. bakerAggregationVerifyKey)
+            _ -> return bkrs
           return (rs', bkrs')
     (_blockReleaseSchedule, actBkrs) <- foldM processAccount (Map.empty, _birkActiveBakers preBirkParameters) (Accounts.accountList _blockAccounts)
     let _blockBirkParameters = preBirkParameters {_birkActiveBakers = actBkrs}
@@ -334,11 +335,14 @@ newtype PureBlockStateMonad (pv :: ProtocolVersion) m a = PureBlockStateMonad {r
 type instance GT.BlockStatePointer (BlockState pv) = ()
 type instance GT.BlockStatePointer (HashedBlockState pv) = ()
 
+instance IsProtocolVersion pv => GT.MonadProtocolVersion (PureBlockStateMonad pv m) where
+  type MPV (PureBlockStateMonad pv m) = pv
+
 instance GT.BlockStateTypes (PureBlockStateMonad pv m) where
     type BlockState (PureBlockStateMonad pv m) = HashedBlockState pv
     type UpdatableBlockState (PureBlockStateMonad pv m) = BlockState pv
-    type Account (PureBlockStateMonad pv m) = Account pv
-
+    type Account (PureBlockStateMonad pv m) = Account (AccountVersionFor pv)
+  
 instance ATITypes (PureBlockStateMonad pv m) where
   type ATIStorage (PureBlockStateMonad pv m) = ()
 
@@ -404,11 +408,13 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
         resolveBaker (BakerId aid) l = case bs ^? blockAccounts . Accounts.indexedAccount aid of
             Just acct -> case acct ^. accountBaker of
               Just AccountBaker{..} -> case _bakerPendingChange of
-                RemoveBaker remEpoch
+                RemoveStake (PendingChangeEffectiveV0 remEpoch)
                   | remEpoch < slotEpoch -> l
-                ReduceStake newAmt redEpoch
-                  | redEpoch < slotEpoch -> (FullBakerInfo _accountBakerInfo newAmt) : l
-                _ -> (FullBakerInfo _accountBakerInfo _stakedAmount) : l
+                RemoveStake (PendingChangeEffectiveV1 _) -> undefined -- TODO: Implement
+                ReduceStake newAmt (PendingChangeEffectiveV0 redEpoch)
+                  | redEpoch < slotEpoch -> (FullBakerInfo (_accountBakerInfo ^. bakerInfo) newAmt) : l
+                ReduceStake _ (PendingChangeEffectiveV1 _) -> undefined -- TODO: Implement
+                _ -> (FullBakerInfo (_accountBakerInfo ^. bakerInfo) _stakedAmount) : l
               Nothing -> error "Basic.getSlotBakers invariant violation: active baker account not a baker"
             Nothing -> error "Basic.getSlotBakers invariant violation: active baker account not valid"
 
@@ -481,6 +487,8 @@ instance (Monad m, IsProtocolVersion pv) => BS.AccountOperations (PureBlockState
   getAccountReleaseSchedule acc = return $ acc ^. accountReleaseSchedule
 
   getAccountBaker acc = return $ acc ^. accountBaker
+
+  getAccountStake acc = return $ acc ^. accountStaking
 
 instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockStateMonad pv m) where
 
@@ -568,7 +576,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             accumBakers (bs0, bkrs0) bkr@(BakerId bid) = case bs ^? blockAccounts . Accounts.indexedAccount bid of
                 Just acct -> case acct ^. accountBaker of
                   Just abkr@AccountBaker{..} -> case _bakerPendingChange of
-                    RemoveBaker remEpoch
+                    RemoveStake (PendingChangeEffectiveV0 remEpoch)
                       -- The baker will be removed in the next epoch, so do not add it to the list
                       | remEpoch == newEpoch + 1 -> (bs0, bkrs0)
                       -- The baker is now removed, so do not add it to the list and remove it as an active baker
@@ -576,22 +584,22 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                               bs0
                                 -- remove baker id and aggregation key from active bakers
                                 & blockBirkParameters . birkActiveBakers . activeBakers %~ Set.delete bkr
-                                & blockBirkParameters . birkActiveBakers . aggregationKeys %~ Set.delete (_bakerAggregationVerifyKey _accountBakerInfo)
+                                & blockBirkParameters . birkActiveBakers . aggregationKeys %~ Set.delete (_accountBakerInfo ^. bakerAggregationVerifyKey)
                                 -- remove the account's baker record
-                                & blockAccounts . Accounts.indexedAccount bid %~ (accountBaker .~ Nothing),
+                                & blockAccounts . Accounts.indexedAccount bid %~ (accountStaking .~ AccountStakeNone),
                               bkrs0
                               )
-                    ReduceStake newAmt redEpoch
+                    ReduceStake newAmt (PendingChangeEffectiveV0 redEpoch)
                       -- Reduction takes effect in the next epoch
-                      | redEpoch == newEpoch + 1 -> (bs0, (_accountBakerInfo, newAmt) : bkrs0)
+                      | redEpoch == newEpoch + 1 -> (bs0, (abkr ^. bakerInfo, newAmt) : bkrs0)
                       -- Reduction is complete, so update the account accordingly.
                       | redEpoch <= newEpoch -> (
                               bs0
                                 & blockAccounts . Accounts.indexedAccount bid %~
-                                  (accountBaker ?~ abkr{_stakedAmount = newAmt, _bakerPendingChange = NoChange}),
-                              (_accountBakerInfo, newAmt) : bkrs0
+                                  (accountStaking .~ AccountStakeBaker abkr{_stakedAmount = newAmt, _bakerPendingChange = NoChange}),
+                              (abkr ^. bakerInfo, newAmt) : bkrs0
                               )
-                    _ -> (bs0, (_accountBakerInfo, _stakedAmount) : bkrs0)
+                    _ -> (bs0, (abkr ^. bakerInfo, _stakedAmount) : bkrs0)
                   Nothing -> error "Basic.bsoTransitionEpochBakers invariant violation: active baker account not a baker"
                 Nothing -> error "Basic.bsoTransitionEpochBakers invariant violation: active baker account not valid"
             (bs', bkrs) = foldl' accumBakers (bs, []) curActiveBIDs
@@ -611,7 +619,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
         -- Cannot resolve the account
         Nothing -> (BAInvalidAccount, bs)
         -- Account is already a baker
-        Just Account{_accountBaker = Just _} -> (BAAlreadyBaker (BakerId ai), bs)
+        Just Account{_accountStaking = AccountStakeBaker{}} -> (BAAlreadyBaker (BakerId ai), bs)
         Just Account{}
           -- Aggregation key is a duplicate
           | bkuAggregationKey baKeys `Set.member` (bs ^. blockBirkParameters . birkActiveBakers . aggregationKeys) -> (BADuplicateAggregationKey, bs)
@@ -620,10 +628,10 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
           -- All checks pass, add the baker
           | otherwise -> let bid = BakerId ai in
               (BASuccess bid, bs
-                & blockAccounts . Accounts.indexedAccount ai . accountBaker ?~ AccountBaker{
+                & blockAccounts . Accounts.indexedAccount ai . accountStaking .~ AccountStakeBaker AccountBaker{
                   _stakedAmount = baStake,
                   _stakeEarnings = baStakeEarnings,
-                  _accountBakerInfo = bakerKeyUpdateToInfo bid baKeys,
+                  _accountBakerInfo = BakerInfoExV0 $ bakerKeyUpdateToInfo bid baKeys,
                   _bakerPendingChange = NoChange
                 }
                 & blockBirkParameters . birkActiveBakers . aggregationKeys %~ Set.insert (bkuAggregationKey baKeys)
@@ -632,15 +640,15 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
 
     bsoUpdateBakerKeys bs ai bku@BakerKeyUpdate{..} = return $! case bs ^? blockAccounts . Accounts.indexedAccount ai of
         -- The account is valid and has a baker
-        Just Account{_accountBaker = Just ab@AccountBaker{..}}
+        Just Account{_accountStaking = AccountStakeBaker ab}
           -- The key would duplicate an existing aggregation key (other than the baker's current key)
-          | bkuAggregationKey /= _bakerAggregationVerifyKey _accountBakerInfo
+          | bkuAggregationKey /= _bakerAggregationVerifyKey (ab ^. bakerInfo)
           , bkuAggregationKey `Set.member` (bs ^. blockBirkParameters . birkActiveBakers . aggregationKeys) -> (BKUDuplicateAggregationKey, bs)
           -- The aggregation key is not a duplicate, so update the baker
           | otherwise -> (BKUSuccess (BakerId ai), bs
-              & blockAccounts . Accounts.indexedAccount ai . accountBaker ?~
-                ab{_accountBakerInfo = bakerKeyUpdateToInfo (_accountBakerInfo ^. bakerIdentity) bku}
-              & blockBirkParameters . birkActiveBakers . aggregationKeys %~ Set.insert bkuAggregationKey . Set.delete (_bakerAggregationVerifyKey _accountBakerInfo)
+              & blockAccounts . Accounts.indexedAccount ai . accountStaking .~
+                AccountStakeBaker ab{_accountBakerInfo = BakerInfoExV0 $ bakerKeyUpdateToInfo (ab ^. bakerIdentity) bku}
+              & blockBirkParameters . birkActiveBakers . aggregationKeys %~ Set.insert bkuAggregationKey . Set.delete (ab ^. bakerAggregationVerifyKey)
               )
         -- Cannot resolve the account, or it is not a baker
         _ -> (BKUInvalidBaker, bs)
@@ -649,7 +657,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
       bakerStakeThreshold <- BS.bsoGetChainParameters bs <&> (^. cpBakerStakeThreshold)
       return $! case bs ^? blockAccounts . Accounts.indexedAccount ai of
         -- The account is valid and has a baker
-        Just Account{_accountBaker = Just ab@AccountBaker{..}}
+        Just Account{_accountStaking = AccountStakeBaker ab@AccountBaker{..}}
           -- A change is already pending
           | _bakerPendingChange /= NoChange -> (BSUChangePending (BakerId ai), bs)
           -- We can make the change
@@ -660,28 +668,28 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                                 in
                                   if newStake < bakerStakeThreshold
                                   then Left BSUStakeUnderThreshold
-                                  else Right (BSUStakeReduced (BakerId ai) (curEpoch + cooldown), bakerPendingChange .~ ReduceStake newStake (curEpoch + cooldown))
+                                  else Right (BSUStakeReduced (BakerId ai) (curEpoch + cooldown), bakerPendingChange .~ ReduceStake newStake (PendingChangeEffectiveV0 $ curEpoch + cooldown))
                           EQ -> Right (BSUStakeUnchanged (BakerId ai), id)
                           GT -> Right (BSUStakeIncreased (BakerId ai), stakedAmount .~ newStake)
               in case mres of
-                Right (res, updateStake) -> (res, bs & blockAccounts . Accounts.indexedAccount ai . accountBaker ?~ (ab & updateStake))
+                Right (res, updateStake) -> (res, bs & blockAccounts . Accounts.indexedAccount ai . accountStaking .~ AccountStakeBaker (ab & updateStake))
                 Left e -> (e, bs)
         -- The account is not valid or has no baker
         _ -> (BSUInvalidBaker, bs)
 
     bsoUpdateBakerRestakeEarnings bs ai newRestakeEarnings = return $! case bs ^? blockAccounts . Accounts.indexedAccount ai of
         -- The account is valid and has a baker
-        Just Account{_accountBaker = Just ab@AccountBaker{..}} ->
+        Just Account{_accountStaking = AccountStakeBaker ab@AccountBaker{..}} ->
           if newRestakeEarnings == _stakeEarnings
           -- No actual change
           then (BREUUpdated (BakerId ai), bs)
           -- A real change
-          else (BREUUpdated (BakerId ai), bs & blockAccounts . Accounts.indexedAccount ai . accountBaker ?~ ab{_stakeEarnings = newRestakeEarnings})
+          else (BREUUpdated (BakerId ai), bs & blockAccounts . Accounts.indexedAccount ai . accountStaking .~ AccountStakeBaker ab{_stakeEarnings = newRestakeEarnings})
         _ -> (BREUInvalidBaker, bs)
 
     bsoRemoveBaker bs ai = return $! case bs ^? blockAccounts . Accounts.indexedAccount ai of
         -- The account is valid and has a baker
-        Just Account{_accountBaker = Just ab@AccountBaker{..}}
+        Just Account{_accountStaking = AccountStakeBaker ab@AccountBaker{..}}
           -- A change is already pending
           | _bakerPendingChange /= NoChange -> (BRChangePending (BakerId ai), bs)
           -- We can make the change
@@ -689,7 +697,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
               let curEpoch = epoch $ bs ^. blockBirkParameters . birkSeedState
                   cooldown = 2 + bs ^. blockUpdates . currentParameters . cpBakerExtraCooldownEpochs
               in (BRRemoved (BakerId ai) (curEpoch + cooldown), 
-                  bs & blockAccounts . Accounts.indexedAccount ai . accountBaker ?~ (ab & bakerPendingChange .~ RemoveBaker (curEpoch + cooldown)))
+                  bs & blockAccounts . Accounts.indexedAccount ai . accountStaking .~ AccountStakeBaker (ab & bakerPendingChange .~ RemoveStake (PendingChangeEffectiveV0 $ curEpoch + cooldown)))
         -- The account is not valid or has no baker
         _ -> (BRInvalidBaker, bs)
 
@@ -699,10 +707,10 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
     bsoRewardBaker bs (BakerId ai) !reward = return (getFirst <$> mfaddr, bs')
       where
         (mfaddr, !bs') = bs & (blockAccounts . Accounts.indexedAccount ai) payReward
-        payReward acct = (Just . First $! acct ^. accountAddress, acct & accountAmount +~ reward & accountBaker . traversed %~ updateBaker)
-        updateBaker bkr
-          | _stakeEarnings bkr = bkr & stakedAmount +~ reward
-          | otherwise = bkr
+        payReward acct = (Just . First $! acct ^. accountAddress, acct & accountAmount +~ reward & accountStaking %~ updateBaker)
+        updateBaker (AccountStakeBaker bkr)
+          | _stakeEarnings bkr = AccountStakeBaker $ bkr & stakedAmount +~ reward
+        updateBaker stk = stk
 
     bsoRewardFoundationAccount bs !reward = return $ bs & blockAccounts . Accounts.indexedAccount foundationAccount . accountAmount +~ reward
       where
@@ -852,7 +860,7 @@ instance (IsProtocolVersion pv, MonadIO m) => BS.BlockStateStorage (PureBlockSta
 initialState :: (IsProtocolVersion pv)
              => SeedState
              -> CryptographicParameters
-             -> [Account pv]
+             -> [Account (AccountVersionFor pv)]
              -> IPS.IdentityProviders
              -> ARS.AnonymityRevokers
              -> UpdateKeysCollection
@@ -892,13 +900,13 @@ genesisState :: forall pv . IsProtocolVersion pv => GenesisData pv -> Either Str
 genesisState gd = case protocolVersion @pv of
                     SP1 -> case gd of
                       GDP1 P1.GDP1Initial{..} -> mkGenesisStateInitial genesisCore genesisInitialState
-                      GDP1 P1.GDP1Regenesis{..} -> mkGenesisStateRegenesis genesisRegenesis
+                      GDP1 P1.GDP1Regenesis{..} -> mkGenesisStateRegenesis StateMigrationParametersTrivial genesisRegenesis
                     SP2 -> case gd of
                       GDP2 P2.GDP2Initial{..} -> mkGenesisStateInitial genesisCore genesisInitialState
-                      GDP2 P2.GDP2Regenesis{..} -> mkGenesisStateRegenesis genesisRegenesis
+                      GDP2 P2.GDP2Regenesis{..} -> mkGenesisStateRegenesis StateMigrationParametersTrivial genesisRegenesis
                     SP3 -> case gd of
                       GDP3 P3.GDP3Initial{..} -> mkGenesisStateInitial genesisCore genesisInitialState
-                      GDP3 P3.GDP3Regenesis{..} -> mkGenesisStateRegenesis genesisRegenesis
+                      GDP3 P3.GDP3Regenesis{..} -> mkGenesisStateRegenesis StateMigrationParametersTrivial genesisRegenesis
     where
         mkGenesisStateInitial GenesisData.CoreGenesisParameters{..} GenesisData.GenesisState{..} = do
             accounts <- mapM mkAccount (zip [0..] (toList genesisAccounts))
@@ -917,10 +925,10 @@ genesisState gd = case protocolVersion @pv of
                                   & accountAmount .~ gaBalance
                                   & case gaBaker of
                                       Nothing -> id
-                                      Just GenesisBaker{..} -> accountBaker ?~ AccountBaker {
+                                      Just GenesisBaker{..} -> accountStaking .~ AccountStakeBaker AccountBaker {
                                         _stakedAmount = gbStake,
                                         _stakeEarnings = gbRestakeEarnings,
-                                        _accountBakerInfo = BakerInfo {
+                                        _accountBakerInfo = BakerInfoExV0 BakerInfo {
                                             _bakerIdentity = bid,
                                             _bakerSignatureVerifyKey = gbSignatureVerifyKey,
                                             _bakerElectionVerifyKey = gbElectionVerifyKey,
@@ -939,8 +947,8 @@ genesisState gd = case protocolVersion @pv of
                   _blockReleaseSchedule = Map.empty
                   _blockEpochBlocksBaked = emptyHashedEpochBlocks
 
-        mkGenesisStateRegenesis GenesisData.RegenesisData{..} = do
-            case runGet getBlockState genesisNewState of
+        mkGenesisStateRegenesis migration GenesisData.RegenesisData{..} = do
+            case runGet (getBlockState migration) genesisNewState of
                 Left err -> Left $ "Could not deserialize genesis state: " ++ err
                 Right bs
                     | hbs ^. blockStateHash /= genesisStateHash -> Left "Could not deserialize genesis state: state hash is incorrect"

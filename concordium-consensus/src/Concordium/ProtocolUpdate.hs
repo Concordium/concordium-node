@@ -11,6 +11,7 @@ import Concordium.Types.UpdateQueues (ProtocolUpdateStatus (..))
 import Concordium.Types.Updates
 
 import Concordium.GlobalState.BlockState (BlockStateStorage)
+import Concordium.GlobalState.Types (MPV)
 import qualified Concordium.ProtocolUpdate.P1 as P1
 import qualified Concordium.ProtocolUpdate.P2 as P2
 import Concordium.Skov
@@ -36,15 +37,15 @@ checkUpdate = case protocolVersion @pv of
 -- i.e. it is the first (and only) explicitly-finalized block with timestamp after the
 -- update takes effect.
 updateRegenesis ::
-    (BlockStateStorage m, SkovQueryMonad pv m) =>
-    Update pv ->
+    (BlockStateStorage m, SkovQueryMonad m) =>
+    Update (MPV m) ->
     m PVGenesisData
 updateRegenesis (UpdateP1 u) = P1.updateRegenesis u
 updateRegenesis (UpdateP2 u) = P2.updateRegenesis u
 
 -- |If a protocol update has taken effect, return the genesis data for the new chain.
 getUpdateGenesisData ::
-    (BlockStateStorage m, SkovQueryMonad pv m) =>
+    (BlockStateStorage m, SkovQueryMonad m) =>
     m (Maybe PVGenesisData)
 getUpdateGenesisData =
     getProtocolUpdateStatus >>= \case

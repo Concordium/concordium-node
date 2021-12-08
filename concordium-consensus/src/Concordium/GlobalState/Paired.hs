@@ -1,6 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -51,6 +52,8 @@ instance (MonadState s' m, Coercible s' s) =>
     get = ReviseRSM (fmap coerce (get :: m s'))
     put = ReviseRSM . put . coerce
     state f = ReviseRSM (state (coerce f))
+
+deriving instance (MonadProtocolVersion m) => MonadProtocolVersion (ReviseRSM r s m)
 
 data PairGSContext lc rc = PairGSContext {
         _pairContextLeft :: !lc,
@@ -351,6 +354,11 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, AccountOpera
         ab2 <- coerceBSMR (getAccountBaker acc2)
         assert (ab1 == ab2) $ return ab1
 
+    getAccountStake (acc1, acc2) = do
+        ab1 <- coerceBSML (getAccountStake acc1)
+        ab2 <- coerceBSMR (getAccountStake acc2)
+        assert (ab1 == ab2) $ return ab1
+
 instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateOperations (BSML pv lc r ls s m), BlockStateOperations (BSMR pv rc r rs s m), HashableTo H.Hash (Account (BSML pv lc r ls s m)), HashableTo H.Hash (Account (BSMR pv rc r rs s m)))
         => BlockStateOperations (BlockStateM pv (PairGSContext lc rc) r (PairGState ls rs) s m) where
     bsoGetModule (bs1, bs2) mref = do
@@ -640,13 +648,12 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
         C.HasGlobalState (PairGState ls rs) s,
         MonadState s m,
         MonadIO m,
-        IsProtocolVersion pv,
         BlockStateStorage (TreeStateBlockStateM pv (PairGState ls rs) (PairGSContext lc rc) r s m),
-        TreeStateMonad pv (GSML pv lc r ls s m),
+        TreeStateMonad (GSML pv lc r ls s m),
         ATIStorage (GSML pv lc r ls s m) ~ (),
-        TreeStateMonad pv (GSMR pv rc r rs s m),
+        TreeStateMonad (GSMR pv rc r rs s m),
         ATIStorage (GSMR pv rc r rs s m) ~ ())
-        => TreeStateMonad pv (TreeStateBlockStateM pv (PairGState ls rs) (PairGSContext lc rc) r s m) where
+        => TreeStateMonad (TreeStateBlockStateM pv (PairGState ls rs) (PairGSContext lc rc) r s m) where
     makePendingBlock sk sl parent bid bp bn lf trs sthash trouthash brtime = do
       pb1 <- coerceGSML $ TS.makePendingBlock sk sl parent bid bp bn lf trs sthash trouthash brtime
       pb2 <- coerceGSMR $ TS.makePendingBlock sk sl parent bid bp bn lf trs sthash trouthash brtime

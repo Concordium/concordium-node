@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- |This module implements the P1.Reboot protocol update.
 -- This protocol update is valid at protocol version P1, and updates
@@ -68,6 +69,7 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.Types (MPV)
 import Concordium.Kontrol
 
 -- |The data required to perform a P1.Reboot update.
@@ -106,7 +108,10 @@ updateHash = SHA256.hash "P1.Reboot"
 -- It is assumed that the last finalized block is the terminal block of the old chain:
 -- i.e. it is the first (and only) explicitly-finalized block with timestamp after the
 -- update takes effect.
-updateRegenesis :: (BlockPointerMonad m, BlockStateStorage m, SkovQueryMonad 'P1 m) => UpdateData -> m PVGenesisData
+updateRegenesis ::
+    (BlockPointerMonad m, BlockStateStorage m, SkovQueryMonad m, MPV m ~ 'P1) =>
+    UpdateData ->
+    m PVGenesisData
 updateRegenesis UpdateData{..} = do
     lfb <- lastFinalizedBlock
     -- Genesis time is the timestamp of the terminal block
@@ -125,7 +130,10 @@ updateRegenesis UpdateData{..} = do
     -- or the genesisFirstGenesis of the previous genesis otherwise.
     let genesisFirstGenesis = case gd of
             GDP1 P1.GDP1Initial{} -> genesisBlockHash gd
-            GDP1 P1.GDP1Regenesis{genesisRegenesis=GenesisData.RegenesisData{genesisFirstGenesis = firstGen}} -> firstGen
+            GDP1
+                P1.GDP1Regenesis
+                    { genesisRegenesis = GenesisData.RegenesisData{genesisFirstGenesis = firstGen}
+                    } -> firstGen
     let genesisPreviousGenesis = genesisBlockHash gd
     let genesisTerminalBlock = bpHash lfb
     -- Determine the new state by updating the terminal state.

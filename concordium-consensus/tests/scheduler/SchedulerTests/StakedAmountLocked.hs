@@ -1,6 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 module SchedulerTests.StakedAmountLocked where
 
 import Test.Hspec
@@ -50,11 +51,11 @@ baker0 = mkFullBaker 0 0
 
 initialBlockState :: BlockState PV1
 initialBlockState = createBlockState $ foldr putAccountWithRegIds Acc.emptyAccounts [acc, accWithLockup]
-  where acc = mkAccount (SigScheme.correspondingVerifyKey (keyPair 0)) (account 0) 10_000_058 & accountBaker ?~ baker
+  where acc = mkAccount @'AccountV0 (SigScheme.correspondingVerifyKey (keyPair 0)) (account 0) 10_000_058 & accountStaking .~ AccountStakeBaker baker
         baker = AccountBaker {
           _stakedAmount = 10_000_000,
           _stakeEarnings = False,
-          _accountBakerInfo = baker0 ^. _1 . bakerInfo,
+          _accountBakerInfo = BakerInfoExV0 $ baker0 ^. _1 . bakerInfo,
           _bakerPendingChange = NoChange
           }
         accWithLockup = mkAccount (SigScheme.correspondingVerifyKey (keyPair 1)) (account 1) 10_000_033 & accountReleaseSchedule .~ lockup

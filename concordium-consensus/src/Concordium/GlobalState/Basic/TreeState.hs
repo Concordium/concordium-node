@@ -124,28 +124,30 @@ initialSkovData rp gd genState = do
 --
 -- This newtype establishes types for the @GlobalStateTypes@. The type variable @bs@ stands for the BlockState
 -- type used in the implementation.
-newtype PureTreeStateMonad (pv :: ProtocolVersion) bs m a = PureTreeStateMonad { runPureTreeStateMonad :: m a }
-  deriving (Functor, Applicative, Monad, MonadIO, BlockStateTypes,
-            BS.BlockStateQuery, BS.AccountOperations, BS.BlockStateOperations, BS.BlockStateStorage)
+newtype PureTreeStateMonad bs m a = PureTreeStateMonad { runPureTreeStateMonad :: m a }
+  deriving (Functor, Applicative, Monad, MonadIO, BlockStateTypes, BS.AccountOperations,
+            BS.BlockStateQuery, BS.BlockStateOperations, BS.BlockStateStorage)
 
-deriving instance (Monad m, MonadState (SkovData pv bs) m) => MonadState (SkovData pv bs) (PureTreeStateMonad pv bs m)
+deriving instance (MonadProtocolVersion m) => MonadProtocolVersion (PureTreeStateMonad bs m)
 
-instance (bs ~ BlockState m) => GlobalStateTypes (PureTreeStateMonad pv bs m) where
-    type BlockPointerType (PureTreeStateMonad pv bs m) = BasicBlockPointer pv bs
+deriving instance (Monad m, MonadState (SkovData pv bs) m) => MonadState (SkovData pv bs) (PureTreeStateMonad bs m)
 
-instance (bs ~ BlockState m, Monad m, MonadState (SkovData pv bs) m, IsProtocolVersion pv) => BlockPointerMonad (PureTreeStateMonad pv bs m) where
+instance (bs ~ BlockState m) => GlobalStateTypes (PureTreeStateMonad bs m) where
+    type BlockPointerType (PureTreeStateMonad bs m) = BasicBlockPointer (MPV m) bs
+
+instance (bs ~ BlockState m, BlockStateTypes m, Monad m, MonadState (SkovData pv bs) m, IsProtocolVersion pv) => BlockPointerMonad (PureTreeStateMonad bs m) where
     blockState = return . _bpState
     bpParent = return . runIdentity . _bpParent
     bpLastFinalized = return . runIdentity . _bpLastFinalized
 
-instance ATITypes (PureTreeStateMonad pv bs m) where
-  type ATIStorage (PureTreeStateMonad pv bs m) = ()
+instance ATITypes (PureTreeStateMonad bs m) where
+  type ATIStorage (PureTreeStateMonad bs m) = ()
 
-instance (Monad m) => PerAccountDBOperations (PureTreeStateMonad pv bs m) where
+instance (Monad m) => PerAccountDBOperations (PureTreeStateMonad bs m) where
   -- default instance because ati = ()
 
-instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadState (SkovData pv bs) m, IsProtocolVersion pv)
-          => TS.TreeStateMonad pv (PureTreeStateMonad pv bs m) where
+instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadState (SkovData (MPV m) bs) m, MonadProtocolVersion m)
+          => TS.TreeStateMonad (PureTreeStateMonad bs m) where
     makePendingBlock key slot parent bid pf n lastFin trs statehash transactionOutcomesHash time = do
         return $ makePendingBlock (signBlock key slot parent bid pf n lastFin trs statehash transactionOutcomesHash) time
     getBlockStatus bh = use (blockTable . at' bh)
