@@ -8,7 +8,7 @@ module Concordium.GlobalState.Persistent.Instances where
 import Data.Word
 import Data.Functor.Foldable hiding (Nil)
 import Control.Monad
-import Control.Monad.IO.Class
+import Control.Monad.Reader
 import Data.Serialize
 import Data.Bits
 import qualified Data.Set as Set
@@ -117,12 +117,23 @@ instance MonadBlobStore m => BlobStorable m PersistentInstance where
             let pinstanceHash = makeInstanceHash pip pinstanceModel pinstanceAmount
             return PersistentInstance{..}
 
-instance MonadBlobStore m => Cacheable m PersistentInstance where
+-- This cacheable instance is a bit unusual. Caching instances requires us to have access
+-- to the modules so that we can share the module interfaces from different instances.
+instance MonadBlobStore m => Cacheable (ReaderT Modules m) PersistentInstance where
     cache p@PersistentInstance{..} = do
-        -- TODO: We do not currently cache the pinstanceCachedParameters.
-        -- This behaviour is probably fine.
-        ips <- cache pinstanceParameters
-        return p{pinstanceParameters = ips}
+        modules <- ask
+        lift $! do
+            -- we only cache parameters and get the interface from the modules
+            -- table. The rest is already in memory at this point since the
+            -- fields are flat, i.e., without indirection via BufferedRef or
+            -- similar reference wrappers.
+            ips <- cache pinstanceParameters
+            params <- loadBufferedRef ips
+            let modref = pinstanceContractModule params
+            miface <- Modules.getModuleReference modref modules
+            case miface of
+              Nothing -> return p{pinstanceParameters = ips} -- this case should never happen, but it is safe to do this.
+              Just iface -> return p{pinstanceModuleInterface = iface, pinstanceParameters = ips}
 
 fromPersistentInstance ::  MonadBlobStore m => PersistentInstance -> m Transient.Instance
 fromPersistentInstance PersistentInstance{..} = do
@@ -343,12 +354,15 @@ instance (MonadBlobStore m) => BlobStorable m Instances where
             s <- get
             fmap (InstancesTree s) <$> load
 
-instance (MonadBlobStore m) => Cacheable m Instances where
+instance (MonadBlobStore m) => Cacheable (ReaderT Modules m) Instances where
     cache i@InstancesEmpty = return i
-    cache (InstancesTree s r) = InstancesTree s <$> cacheBufferedBlobbed cacheIT r
-        where
-            cacheIT (Leaf l) = Leaf <$> cache l
+    cache (InstancesTree s r) = do
+        modules <- ask
+        let cacheIT :: IT r -> m (IT r)
+            cacheIT (Leaf l) = Leaf <$> runReaderT (cache l) modules
             cacheIT it = return it
+        lift (InstancesTree s <$> cacheBufferedBlobbed cacheIT r)
+            
 
 emptyInstances :: Instances
 emptyInstances = InstancesEmpty
