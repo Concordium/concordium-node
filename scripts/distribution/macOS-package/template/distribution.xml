@@ -20,7 +20,7 @@ function installCheck() {
     }
     if(system.files.fileExistsAtPath('/Library/Concordium Node/')) {
         my.result.title = 'Previous Installation Detected';
-        my.result.message = 'A previous installation of Concordium Node exists at /Library/Concordium Node/. This installer will remove the previous installation prior to installing. Your keys and the chain data will remain untouched.';
+        my.result.message = 'A previous installation of Concordium Node exists at /Library/Concordium Node/. This installer will remove the binaries from the previous installation prior to installing. Your keys, chain data, and service files will remain untouched.';
         my.result.type = 'Warning';
         return false;
     }
