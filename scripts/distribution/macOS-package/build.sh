@@ -136,6 +136,7 @@ function createBuildDirFromTemplate() {
     mkdir "$payloadDir/Library/Application Support/Concordium Node/Mainnet/Data"
     mkdir -p "$payloadDir/Library/Application Support/Concordium Node/Testnet/Config"
     mkdir "$payloadDir/Library/Application Support/Concordium Node/Testnet/Data"
+    mkdir "$payloadDir/Library/Concordium Node"
 
     createHelperAppsFromTemplate
 

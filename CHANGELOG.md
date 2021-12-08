@@ -5,6 +5,7 @@
 - Support for wire-protocol version 0 is dropped, meaning that the node cannot
   connect to peers that do not support wire-protocol version 1, which is supported
   since version 1.1.0.
+- The macOS installer no longer overwrites the service files when reinstalling.
 - Cache smart contract modules on startup from existing state to improve smart
   contract execution.
 
