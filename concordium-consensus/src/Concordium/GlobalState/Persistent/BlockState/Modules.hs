@@ -15,6 +15,7 @@ module Concordium.GlobalState.Persistent.BlockState.Modules
 
 import Concordium.Crypto.SHA256
 import qualified Concordium.GlobalState.Basic.BlockState.Modules as TransientModules
+import Concordium.GlobalState.Wasm
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.LFMBTree (LFMBTree)
 import qualified Concordium.GlobalState.Persistent.LFMBTree as LFMB

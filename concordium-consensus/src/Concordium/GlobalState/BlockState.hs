@@ -53,6 +53,7 @@ import Concordium.Types
 import Concordium.Types.Execution
 import Concordium.Types.Updates
 import qualified Concordium.Wasm as Wasm
+import qualified Concordium.GlobalState.Wasm as GSWasm
 import Concordium.GlobalState.Classes
 import Concordium.GlobalState.Account
 
@@ -62,7 +63,7 @@ import qualified Concordium.Types.UpdateQueues as UQ
 import Concordium.Types.Accounts
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Rewards
-import Concordium.Types.Instance
+import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Types
 import Concordium.Types.IdentityProviders
 import Concordium.Types.AnonymityRevokers
@@ -291,7 +292,7 @@ mintTotal MintAmounts{..} = mintBakingReward + mintFinalizationReward + mintDeve
 -- support different implementations, from pure ones to stateful ones.
 class (BlockStateQuery m) => BlockStateOperations m where
   -- |Get the module from the module table of the state instance.
-  bsoGetModule :: UpdatableBlockState m -> ModuleRef -> m (Maybe Wasm.ModuleInterface)
+  bsoGetModule :: UpdatableBlockState m -> ModuleRef -> m (Maybe GSWasm.ModuleInterface)
   -- |Get an account by its address.
   bsoGetAccount :: UpdatableBlockState m -> AccountAddress -> m (Maybe (IndexedAccount m))
   -- |Get the index of an account.
@@ -317,7 +318,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   bsoPutNewInstance :: UpdatableBlockState m -> (ContractAddress -> Instance) -> m (ContractAddress, UpdatableBlockState m)
   -- |Add the module to the global state. If a module with the given address
   -- already exists return @False@.
-  bsoPutNewModule :: UpdatableBlockState m -> (Wasm.ModuleInterface, Wasm.WasmModule) -> m (Bool, UpdatableBlockState m)
+  bsoPutNewModule :: UpdatableBlockState m -> (GSWasm.ModuleInterface, Wasm.WasmModule) -> m (Bool, UpdatableBlockState m)
 
   -- |Modify an existing account with given data (which includes the address of the account).
   -- This method is only called when an account exists and can thus assume this.

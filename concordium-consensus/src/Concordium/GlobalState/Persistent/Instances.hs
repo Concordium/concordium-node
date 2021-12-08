@@ -20,9 +20,10 @@ import Concordium.Types.HashableTo
 import qualified Concordium.Wasm as Wasm
 import Concordium.Utils.Serialization.Put
 
+import qualified Concordium.GlobalState.Wasm as GSWasm
 import Concordium.GlobalState.Persistent.MonadicRecursive
 import Concordium.GlobalState.Persistent.BlobStore
-import qualified Concordium.Types.Instance as Transient
+import qualified Concordium.GlobalState.Instance as Transient
 import qualified Concordium.GlobalState.Basic.BlockState.InstanceTable as Transient
 import Concordium.GlobalState.Persistent.BlockState.Modules
 import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Modules
@@ -142,7 +143,6 @@ fromPersistentInstance PersistentInstance{..} = do
     let instanceParameters = Transient.InstanceParameters {
             instanceAddress = pinstanceAddress,
             instanceOwner = pinstanceOwner,
-            instanceContractModule = pinstanceContractModule,
             instanceInitName = pinstanceInitName,
             instanceReceiveFuns = pinstanceReceiveFuns,
             instanceModuleInterface = instanceModuleInterface,
@@ -471,14 +471,14 @@ makePersistent mods (Transient.Instances (Transient.Tree s t)) = InstancesTree s
             pIParams <- makeBufferedRef $ PersistentInstanceParameters{
                 pinstanceAddress = instanceAddress,
                 pinstanceOwner = instanceOwner,
-                pinstanceContractModule = instanceContractModule,
+                pinstanceContractModule = GSWasm.miModuleRef instanceModuleInterface,
                 pinstanceInitName = instanceInitName,
                 pinstanceParameterHash = instanceParameterHash,
                 pinstanceReceiveFuns = instanceReceiveFuns
             }
             -- This pattern is irrefutable because if the instance exists in the Basic version,
             -- then the module must be present in the persistent implementation.
-            ~(Just pIModuleInterface) <- Modules.getModuleReference (Wasm.miModuleRef instanceModuleInterface) mods
+            ~(Just pIModuleInterface) <- Modules.getModuleReference (GSWasm.miModuleRef instanceModuleInterface) mods
             return $ PersistentInstance {
                 pinstanceParameters = pIParams,
                 pinstanceModuleInterface = pIModuleInterface,
