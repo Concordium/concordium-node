@@ -1150,7 +1150,7 @@ bakerStatusBestBlock cptr bakerIdPtr hasBakerIdPtr = do
     (ConsensusRunner mvr) <- deRefStablePtr cptr
     (bs, mBid) <- runMVR Q.getBakerStatusBestBlock mvr
     case mBid of
-        Nothing -> return $! getBakerStatusCode bs
+        Nothing -> poke hasBakerIdPtr 0 >> (return $! getBakerStatusCode bs)
         Just bid -> do
             poke hasBakerIdPtr 1
             poke bakerIdPtr $ fromIntegral bid
@@ -1158,10 +1158,10 @@ bakerStatusBestBlock cptr bakerIdPtr hasBakerIdPtr = do
     where
         getBakerStatusCode :: BakerStatus -> Word8
         getBakerStatusCode bs = case bs of
-            ActiveBaker -> 0
-            NoBaker -> 1
-            InactiveBaker -> 2
-            BadKeys -> 3
+            ActiveInComittee -> 0
+            NotInCommittee -> 1
+            AddedButNotActiveInCommittee -> 2
+            AddedButWrongKeys -> 3
 -- FFI exports
 
 foreign export ccall
