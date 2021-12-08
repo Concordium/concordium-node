@@ -123,7 +123,7 @@ instance MonadBlobStore m => Cacheable (ReaderT Modules m) PersistentInstance wh
     cache p@PersistentInstance{..} = do
         modules <- ask
         lift $! do
-            -- we only cache parameters get the interface from the modules
+            -- we only cache parameters and get the interface from the modules
             -- table. The rest is already in memory at this point since the
             -- fields are flat, i.e., without indirection via BufferedRef or
             -- similar reference wrappers.
