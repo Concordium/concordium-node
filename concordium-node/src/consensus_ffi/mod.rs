@@ -70,16 +70,6 @@ macro_rules! wrap_c_bool_call {
     }};
 }
 
-macro_rules! wrap_c_committee_call {
-    ($self:ident, $c_call:expr) => {{
-        let consensus = $self.consensus.load(Ordering::SeqCst);
-        let result = unsafe { $c_call(consensus) };
-        ConsensusIsInBakingCommitteeResponse::try_from(result).unwrap_or_else(|code| {
-            panic!("Unknown Consensus Baking Committee FFI return code: {}", code)
-        })
-    }};
-}
-
 #[macro_use]
 pub mod blockchain_types;
 pub mod catch_up;
