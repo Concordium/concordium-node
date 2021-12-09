@@ -1,3 +1,5 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -37,6 +39,7 @@ module Concordium.Scheduler
   ,execTransactions
   ,FilteredTransactions(..)
   ) where
+import qualified Concordium.GlobalState.Wasm as GSWasm
 import qualified Concordium.Wasm as Wasm
 import qualified Concordium.Scheduler.WasmIntegration as Wasm
 import Concordium.Scheduler.Types
@@ -52,7 +55,7 @@ import qualified Concordium.ID.Types as ID
 
 import Concordium.GlobalState.BlockState (AccountOperations(..), AccountAllowance (..))
 import qualified Concordium.GlobalState.BakerInfo as BI
-import qualified Concordium.Types.Instance as Ins
+import qualified Concordium.GlobalState.Instance as Ins
 import Concordium.GlobalState.Types
 import qualified Concordium.Cost as Cost
 import Concordium.Crypto.EncryptedTransfers
@@ -90,7 +93,7 @@ import Prelude hiding (exp, mod)
 -- header and @Just fk@ if any of the checks fails, with the respective 'FailureKind'.
 --
 -- Returns the sender account and the cost to be charged for checking the header.
-checkHeader :: (TransactionData msg, SchedulerMonad pv m) => msg -> ExceptT (Maybe FailureKind) m (IndexedAccount m, Energy)
+checkHeader :: (TransactionData msg, SchedulerMonad m) => msg -> ExceptT (Maybe FailureKind) m (IndexedAccount m, Energy)
 checkHeader meta = do
   -- Before even checking the header we calculate the cost that will be charged for this
   -- and check that at least that much energy is deposited and remaining from the maximum block energy.
@@ -137,7 +140,7 @@ checkHeader meta = do
 -- * @Nothing@ if the transaction would exceed the remaining block energy.
 -- * @Just result@ if the transaction failed ('TxInvalid') or was successfully committed
 --  ('TxValid', with either 'TxSuccess' or 'TxReject').
-dispatch :: forall msg pv m. (TransactionData msg, SchedulerMonad pv m) => msg -> m (Maybe TxResult)
+dispatch :: forall msg m. (TransactionData msg, SchedulerMonad m) => msg -> m (Maybe TxResult)
 dispatch msg = do
   let meta = transactionHeader msg
   validMeta <- runExceptT (checkHeader msg)
@@ -154,7 +157,7 @@ dispatch msg = do
       let psize = payloadSize (transactionPayload msg)
 
       tsIndex <- bumpTransactionIndex
-      case decodePayload (protocolVersion @pv) psize (transactionPayload msg) of
+      case decodePayload (protocolVersion @(MPV m)) psize (transactionPayload msg) of
         Left _ -> do
           -- In case of serialization failure we charge the sender for checking
           -- the header and reject the transaction; we have checked that the amount
@@ -201,19 +204,20 @@ dispatch msg = do
                      handleUpdateContract (mkWTC TTUpdate) uAmount uAddress uReceiveName uMessage
 
                    AddBaker{..} ->
-                     handleAddBaker (mkWTC TTAddBaker) abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyKey abProofSig abProofElection abProofAggregation abBakingStake abRestakeEarnings
+                     onlyAccountV0 $ 
+                      handleAddBaker (mkWTC TTAddBaker) abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyKey abProofSig abProofElection abProofAggregation abBakingStake abRestakeEarnings
 
                    RemoveBaker ->
-                     handleRemoveBaker (mkWTC TTRemoveBaker)
+                     onlyAccountV0 $ handleRemoveBaker (mkWTC TTRemoveBaker)
 
                    UpdateBakerStake{..} ->
-                     handleUpdateBakerStake (mkWTC TTUpdateBakerStake) ubsStake
+                     onlyAccountV0 $ handleUpdateBakerStake (mkWTC TTUpdateBakerStake) ubsStake
 
                    UpdateBakerRestakeEarnings{..} ->
-                     handleUpdateBakerRestakeEarnings (mkWTC TTUpdateBakerRestakeEarnings) ubreRestakeEarnings
+                     onlyAccountV0 $ handleUpdateBakerRestakeEarnings (mkWTC TTUpdateBakerRestakeEarnings) ubreRestakeEarnings
 
                    UpdateBakerKeys{..} ->
-                     handleUpdateBakerKeys (mkWTC TTUpdateBakerKeys) ubkElectionVerifyKey ubkSignatureVerifyKey ubkAggregationVerifyKey ubkProofSig ubkProofElection ubkProofAggregation
+                     onlyAccountV0 $ handleUpdateBakerKeys (mkWTC TTUpdateBakerKeys) ubkElectionVerifyKey ubkSignatureVerifyKey ubkAggregationVerifyKey ubkProofSig ubkProofElection ubkProofAggregation
 
                    UpdateCredentialKeys{..} ->
                      handleUpdateCredentialKeys (mkWTC TTUpdateCredentialKeys) uckCredId uckKeys (transactionSignature msg)
@@ -249,9 +253,17 @@ dispatch msg = do
             -- The remaining block energy is not sufficient for the handler to execute the transaction.
             Nothing -> return Nothing
             Just summary -> return $ Just $ TxValid summary
+  where
+    -- This function errors if the account version is not V0.
+    -- It is used where parsing of the transaction would fail if the protocol version does not
+    -- imply account version V0, so the error case should never occur.
+    onlyAccountV0 :: ((AccountVersionFor (MPV m) ~ 'AccountV0) => a) -> a
+    onlyAccountV0 c = case accountVersionFor (protocolVersion @(MPV m)) of
+      SAccountV0 -> c
+      _ -> error "Operation unsupported for this protocol version."
 
-handleTransferWithSchedule :: forall pv m .
-  SchedulerMonad pv m
+handleTransferWithSchedule :: forall m .
+  SchedulerMonad m
   => WithDepositContext m
   -> AccountAddress
   -> [(Timestamp, Amount)]
@@ -269,7 +281,7 @@ handleTransferWithSchedule wtc twsTo twsSchedule maybeMemo = withDeposit wtc c k
           -- we do not allow for self scheduled transfers
           -- (This is checked later for protocol P3 and up, to ensure that the
           -- addresses are not aliases for the same account.)
-          when ((demoteProtocolVersion (protocolVersion @pv) <= P2) && twsTo == senderAddress) $
+          when ((demoteProtocolVersion (protocolVersion @(MPV m)) <= P2) && twsTo == senderAddress) $
               rejectTransaction (ScheduledSelfTransfer twsTo)
 
           -- Get the amount available for the account
@@ -308,7 +320,7 @@ handleTransferWithSchedule wtc twsTo twsSchedule maybeMemo = withDeposit wtc c k
               -- to keep protocol compatibility with P1 and P2 protocols.
               -- Rejected transactions's rejection reason is part of block
               -- hashes.
-              when (demoteProtocolVersion (protocolVersion @pv) >= P3) $
+              when (demoteProtocolVersion (protocolVersion @(MPV m)) >= P3) $
                 when (fst targetAccount == fst senderAccount) $ rejectTransaction . ScheduledSelfTransfer $ senderAddress
 
               withScheduledAmount senderAccount targetAccount transferAmount twsSchedule txHash $ return ()
@@ -325,7 +337,7 @@ handleTransferWithSchedule wtc twsTo twsSchedule maybeMemo = withDeposit wtc c k
 
 
 handleTransferToPublic ::
-  SchedulerMonad pv m
+  SchedulerMonad m
   => WithDepositContext m
   -> SecToPubAmountTransferData
   -> m (Maybe TransactionSummary)
@@ -380,7 +392,7 @@ handleTransferToPublic wtc transferData@SecToPubAmountTransferData{..} = do
 
 
 handleTransferToEncrypted ::
-  SchedulerMonad pv m
+  SchedulerMonad m
   => WithDepositContext m
   -> Amount
   -> m (Maybe TransactionSummary)
@@ -425,8 +437,8 @@ handleTransferToEncrypted wtc toEncrypted = do
                    energyCost,
                    usedEnergy)
 
-handleEncryptedAmountTransfer :: forall pv m .
-  SchedulerMonad pv m
+handleEncryptedAmountTransfer :: forall m .
+  SchedulerMonad m
   => WithDepositContext m
   -> AccountAddress -- ^ Receiver address.
   -> EncryptedAmountTransferData
@@ -451,7 +463,7 @@ handleEncryptedAmountTransfer wtc toAddress transferData@EncryptedAmountTransfer
           -- complications.
           -- (This is checked later for protocol P3 and up, to ensure that the
           -- addresses are not aliases for the same account.)
-          when ((demoteProtocolVersion (protocolVersion @pv) <= P2) && toAddress == senderAddress)
+          when ((demoteProtocolVersion (protocolVersion @(MPV m)) <= P2) && toAddress == senderAddress)
               $ rejectTransaction (EncryptedAmountSelfTransfer toAddress)
 
           senderAllowed <- checkAccountIsAllowed (snd senderAccount) AllowedEncryptedTransfers
@@ -466,7 +478,7 @@ handleEncryptedAmountTransfer wtc toAddress transferData@EncryptedAmountTransfer
           -- protocol version 3 an account may have multiple addresses and thus
           -- to check a self transfer we must check with canonical account
           -- identifiers. We use account indices for that.
-          when ((demoteProtocolVersion (protocolVersion @pv) >= P3) && fst targetAccount == fst senderAccount)
+          when ((demoteProtocolVersion (protocolVersion @(MPV m)) >= P3) && fst targetAccount == fst senderAccount)
               $ rejectTransaction . EncryptedAmountSelfTransfer $ senderAddress
 
 
@@ -519,7 +531,7 @@ handleEncryptedAmountTransfer wtc toAddress transferData@EncryptedAmountTransfer
 
 -- | Handle the deployment of a module.
 handleDeployModule ::
-  SchedulerMonad pv m
+  SchedulerMonad m
   => WithDepositContext m
   -> Wasm.WasmModule -- ^The module to deploy.
   -> m (Maybe TransactionSummary)
@@ -538,7 +550,7 @@ handleDeployModule wtc mod =
       case Wasm.processModule mod of
         Nothing -> rejectTransaction ModuleNotWF
         Just iface -> do
-          let mhash = Wasm.miModuleRef iface
+          let mhash = GSWasm.miModuleRef iface
           exists <- isJust <$> getModuleInterfaces mhash
           when exists $ rejectTransaction (ModuleHashAlreadyExists mhash)
           return ((iface, mod), mhash)
@@ -553,7 +565,7 @@ handleDeployModule wtc mod =
 
 -- | Tick energy for storing the given contract state.
 tickEnergyStoreState ::
-  TransactionMonad pv m
+  TransactionMonad m
   => Wasm.ContractState
   -> m ()
 tickEnergyStoreState cs =
@@ -565,7 +577,7 @@ tickEnergyStoreState cs =
 -- NB: In principle we should look up the state size, then charge, and only then lookup the full state
 -- But since state size is limited to be small it is acceptable to look it up and then charge for it.
 getCurrentContractInstanceTicking ::
-  TransactionMonad pv m
+  TransactionMonad m
   => ContractAddress
   -> m Instance
 getCurrentContractInstanceTicking cref = do
@@ -577,7 +589,7 @@ getCurrentContractInstanceTicking cref = do
 
 -- | Handle the initialization of a contract instance.
 handleInitContract ::
-  SchedulerMonad pv m
+  SchedulerMonad m
     => WithDepositContext m
     -> Amount   -- ^The amount to initialize the contract instance with.
     -> ModuleRef  -- ^The module to initialize a contract from.
@@ -604,11 +616,11 @@ handleInitContract wtc initAmount modref initName param =
 
             -- First try to get the module interface of the parent module of the contract.
             iface <- liftLocal (getModuleInterfaces modref) `rejectingWith` InvalidModuleReference modref
-            let iSize = Wasm.miModuleSize iface
+            let iSize = GSWasm.miModuleSize iface
             tickEnergy $ Cost.lookupModule iSize
 
             -- Then get the particular contract interface (in particular the type of the init method).
-            unless (Set.member initName (Wasm.miExposedInit iface)) $ rejectTransaction $ InvalidInitMethod modref initName
+            unless (Set.member initName (GSWasm.miExposedInit iface)) $ rejectTransaction $ InvalidInitMethod modref initName
 
             cm <- liftLocal getChainMetadata
             -- Finally run the initialization function of the contract, resulting in an initial state
@@ -640,8 +652,8 @@ handleInitContract wtc initAmount modref initName param =
             -- Withdraw the amount the contract is initialized with from the sender account.
             cs' <- addAmountToCS senderAccount (amountDiff 0 initAmount) (ls ^. changeSet)
 
-            let receiveMethods = OrdMap.findWithDefault Set.empty initName (Wasm.miExposedReceive iface)
-            let ins = makeInstance modref initName receiveMethods iface model initAmount senderAddress
+            let receiveMethods = OrdMap.findWithDefault Set.empty initName (GSWasm.miExposedReceive iface)
+            let ins = makeInstance initName receiveMethods iface model initAmount senderAddress
             addr <- putNewInstance ins
 
             -- add the contract initialization to the change set and commit the changes
@@ -656,7 +668,7 @@ handleInitContract wtc initAmount modref initName param =
                                                    )
 
 handleSimpleTransfer ::
-  SchedulerMonad pv m
+  SchedulerMonad m
     => WithDepositContext m
     -> AccountAddress -- ^Address to send the amount to, either account or contract.
     -> Amount -- ^The amount to transfer.
@@ -683,7 +695,7 @@ handleSimpleTransfer wtc toAddr transferamount maybeMemo =
 
 -- | Handle a top-level update transaction to a contract.
 handleUpdateContract ::
-  SchedulerMonad pv m
+  SchedulerMonad m
     => WithDepositContext m
     -> Amount -- ^Amount to invoke the contract's receive method with.
     -> ContractAddress -- ^Address of the contract to invoke.
@@ -710,8 +722,8 @@ handleUpdateContract wtc uAmount uAddress uReceiveName uMessage =
 -- This includes the transfer of an amount from the sending account or instance.
 -- Recursively do the same for new messages created by contracts (from left to right, depth first).
 -- The target contract must exist, so that its state can be looked up.
-handleMessage :: forall pv m.
-  (TransactionMonad pv m, AccountOperations m)
+handleMessage :: forall m.
+  (TransactionMonad m, AccountOperations m)
   => AccountAddress -- ^The address that was used to send the top-level transaction.
   -> Instance -- ^The current state of the target contract of the transaction, which must exist.
   -> Either (IndexedAccount m, Instance) (AccountAddress, IndexedAccount m)
@@ -744,7 +756,7 @@ handleMessage originAddr istance sender transferAmount receiveName parameter = d
   let cref = instanceAddress iParams
   let receivefuns = instanceReceiveFuns . instanceParameters $ istance
   unless (Set.member receiveName receivefuns) $ rejectTransaction $
-      InvalidReceiveMethod (Wasm.miModuleRef . instanceModuleInterface $ iParams) receiveName
+      InvalidReceiveMethod (GSWasm.miModuleRef . instanceModuleInterface $ iParams) receiveName
   -- Now we also check that the owner account of the receiver instance has at least one valid credential
   -- and reject the transaction if not.
   let ownerAccountAddress = instanceOwner iParams
@@ -766,7 +778,7 @@ handleMessage originAddr istance sender transferAmount receiveName parameter = d
   -- FIXME: Once errors can be caught in smart contracts update this to not terminate the transaction.
   let iface = instanceModuleInterface iParams
   -- charge for looking up the module
-  tickEnergy $ Cost.lookupModule (Wasm.miModuleSize iface)
+  tickEnergy $ Cost.lookupModule (GSWasm.miModuleSize iface)
 
   result <- runInterpreter (return . Wasm.applyReceiveFun iface cm receiveCtx receiveName parameter transferAmount model)
              `rejectingWith'` wasmRejectToRejectReasonReceive cref receiveName parameter
@@ -806,7 +818,7 @@ handleMessage originAddr istance sender transferAmount receiveName parameter = d
 traversalStepCost :: Energy
 traversalStepCost = 10
 
-foldEvents :: (TransactionMonad pv m, AccountOperations m)
+foldEvents :: (TransactionMonad m, AccountOperations m)
            => AccountAddress -- ^Address that was used in the top-level transaction.
            -> (IndexedAccount m, Instance) -- ^Instance that generated the events.
            -> Event -- ^Event generated by the invocation of the instance.
@@ -850,7 +862,7 @@ mkSenderAddrCredentials sender =
 
 -- | Handle the transfer of an amount from a contract instance to an account.
 handleTransferAccount ::
-  TransactionMonad pv m
+  TransactionMonad m
   => AccountAddress -- ^The target account address.
   -> Instance -- ^The sender of this transfer.
   -> Amount -- ^The amount to transfer.
@@ -874,7 +886,7 @@ handleTransferAccount accAddr senderInstance transferamount = do
 -- runs out of energy set the remaining gas to 0 and reject the transaction,
 -- otherwise decrease the consumed amount of energy and return the result.
 {-# INLINE runInterpreter #-}
-runInterpreter :: TransactionMonad pv m => (Wasm.InterpreterEnergy -> m (Maybe (a, Wasm.InterpreterEnergy))) -> m a
+runInterpreter :: TransactionMonad m => (Wasm.InterpreterEnergy -> m (Maybe (a, Wasm.InterpreterEnergy))) -> m a
 runInterpreter f = withExternal $ \availableEnergy -> do
   f availableEnergy >>= \case
     Nothing -> return Nothing
@@ -911,8 +923,7 @@ checkSignatureVerifyKeyProof = Proofs.checkDlog25519ProofBlock
 -- the transaction could fail (after checking the proofs) with 'InvalidAccountReference'.
 -- If the balance check has not been made, the behaviour is undefined. (Most likely,
 -- this will lead to an underflow and an invariant violation.)
-handleAddBaker ::
-  SchedulerMonad pv m
+handleAddBaker :: (AccountVersionFor (MPV m) ~ 'AccountV0, SchedulerMonad m)
     => WithDepositContext m
     -> BakerElectionVerifyKey
     -> BakerSignVerifyKey
@@ -985,7 +996,7 @@ handleAddBaker wtc abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyK
 --  * If the account is the cool-down period for another baker change, the transaction fails ('BakerInCooldown').
 --  * Otherwise, the baker is removed, which takes effect after the cool-down period.
 handleRemoveBaker ::
-  SchedulerMonad pv m
+  (AccountVersionFor (MPV m) ~ 'AccountV0, SchedulerMonad m)
     => WithDepositContext m
     -> m (Maybe TransactionSummary)
 handleRemoveBaker wtc =
@@ -1011,7 +1022,7 @@ handleRemoveBaker wtc =
             BI.BRChangePending _ -> return (TxReject BakerInCooldown, energyCost, usedEnergy)
 
 handleUpdateBakerStake ::
-  SchedulerMonad pv m
+  (AccountVersionFor (MPV m) ~ 'AccountV0, SchedulerMonad m)
     => WithDepositContext m
     -> Amount
     -- ^new stake
@@ -1050,7 +1061,7 @@ handleUpdateBakerStake wtc newStake =
             return (TxReject StakeUnderMinimumThresholdForBaking, energyCost, usedEnergy)
 
 handleUpdateBakerRestakeEarnings ::
-  SchedulerMonad pv m
+  (AccountVersionFor (MPV m) ~ 'AccountV0, SchedulerMonad m)
     => WithDepositContext m
     -> Bool
     -- ^Whether to restake earnings
@@ -1087,7 +1098,7 @@ handleUpdateBakerRestakeEarnings wtc newRestakeEarnings = withDeposit wtc c k
 -- If the balance check has not been made, the behaviour is undefined. (Most likely,
 -- this will lead to an underflow and an invariant violation.)
 handleUpdateBakerKeys ::
-  SchedulerMonad pv m
+  (AccountVersionFor (MPV m) ~ 'AccountV0, SchedulerMonad m)
     => WithDepositContext m
     -> BakerElectionVerifyKey
     -> BakerSignVerifyKey
@@ -1133,7 +1144,7 @@ handleUpdateBakerKeys wtc bkuElectionKey bkuSignKey bkuAggregationKey bkuProofSi
 
 -- *Transactions without a sender
 handleDeployCredential ::
-  SchedulerMonad pv m =>
+  SchedulerMonad m =>
   -- |Credentials to deploy.
   AccountCreation ->
   TransactionHash ->
@@ -1215,7 +1226,7 @@ handleDeployCredential AccountCreation{messageExpiry=messageExpiry, credential=c
 -- |Updates the credential keys in the credential with the given Credential ID.
 -- It rejects if there is no credential with the given Credential ID.
 handleUpdateCredentialKeys ::
-  SchedulerMonad pv m
+  SchedulerMonad m
     => WithDepositContext m
     -> ID.CredentialRegistrationID
     -- ^Registration ID of the credential we are updating.
@@ -1259,7 +1270,7 @@ handleUpdateCredentialKeys wtc cid keys sigs =
 
 -- |Handle a chain update message
 handleChainUpdate ::
-  SchedulerMonad pv m
+  SchedulerMonad m
   => WithMetadata UpdateInstruction
   -> m TxResult
 handleChainUpdate WithMetadata{wmdData = ui@UpdateInstruction{..}, ..} = do
@@ -1319,7 +1330,7 @@ handleChainUpdate WithMetadata{wmdData = ui@UpdateInstruction{..}, ..} = do
         return (TxInvalid IncorrectSignature)
 
 handleUpdateCredentials ::
-  SchedulerMonad pv m
+  SchedulerMonad m
     => WithDepositContext m
     -> OrdMap.Map ID.CredentialIndex ID.CredentialDeploymentInformation
     -> [ID.CredentialRegistrationID]
@@ -1439,7 +1450,7 @@ handleUpdateCredentials wtc cdis removeRegIds threshold =
 
 -- |Charges energy based on payload size and emits a 'DataRegistered' event.
 handleRegisterData ::
-  SchedulerMonad pv m
+  SchedulerMonad m
   => WithDepositContext m
   -> RegisteredData -- ^The data to register.
   -> m (Maybe TransactionSummary)
@@ -1519,7 +1530,7 @@ handleRegisterData wtc regData =
 -- block state).
 -- There is no guarantee for any order in `ftFailed`, `ftFailedCredentials`, `ftUnprocessed`
 -- and `ftUnprocessedCredentials`.
-filterTransactions :: forall m pv. (SchedulerMonad pv m, TimeMonad m)
+filterTransactions :: forall m. (SchedulerMonad m, TimeMonad m)
                    => Integer -- ^Maximum block size in bytes.
                    -> UTCTime -- ^Timeout for block construction.
                              -- This is the absolute time after which we should stop trying to add new transctions to the block.
@@ -1734,7 +1745,7 @@ filterTransactions maxSize timeout groups0 = do
 -- * @Left Nothing@ if maximum block energy limit was exceeded.
 -- * @Left (Just fk)@ if a transaction failed, with the failure kind of the first failed transaction.
 -- * @Right outcomes@ if all transactions are successful, with the given outcomes.
-runTransactions :: forall m pv. (SchedulerMonad pv m)
+runTransactions :: forall m. (SchedulerMonad m)
                 => [BlockItem]
                 -> m (Either (Maybe FailureKind) [(BlockItem, TransactionSummary)])
 runTransactions = go []
@@ -1766,7 +1777,7 @@ runTransactions = go []
 --
 -- This is more efficient than 'runTransactions' since it does not have to build a list
 -- of results.
-execTransactions :: forall m pv. (SchedulerMonad pv m)
+execTransactions :: forall m. (SchedulerMonad m)
                  => [BlockItem]
                  -> m (Either (Maybe FailureKind) ())
 execTransactions = go

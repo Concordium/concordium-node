@@ -15,21 +15,23 @@ import Concordium.Types
 
 
 data FullBakerInfo = FullBakerInfo {
-    _bakerInfo :: !BakerInfo,
+    _theBakerInfo :: !BakerInfo,
     _bakerStake :: !Amount
 } deriving (Eq, Show)
 
 instance Serialize FullBakerInfo where
   put FullBakerInfo{..} = do
-    put _bakerInfo
+    put _theBakerInfo
     put _bakerStake
   get = do
-    _bakerInfo <- get
+    _theBakerInfo <- get
     _bakerStake <- get
     return FullBakerInfo{..}
 
 makeLenses ''FullBakerInfo
 
+instance HasBakerInfo FullBakerInfo where
+  bakerInfo = theBakerInfo
 instance HashableTo H.Hash FullBakerInfo where
   getHash = H.hash . encode
 
@@ -49,12 +51,12 @@ fullBaker FullBakers{..} bid = binSearch 0 (Vec.length fullBakerInfos - 1)
           LT -> let
                   midIndex = lowIndex + (highIndex - lowIndex) `div` 2
                   bi = fullBakerInfos Vec.! midIndex
-                in case compare bid (_bakerIdentity (_bakerInfo bi)) of
+                in case compare bid (_bakerIdentity (_theBakerInfo bi)) of
                   LT -> binSearch lowIndex (midIndex - 1)
                   EQ -> Just bi
                   GT -> binSearch (midIndex + 1) highIndex
           EQ -> let bi = fullBakerInfos Vec.! lowIndex in
-                if _bakerIdentity (_bakerInfo bi) == bid then
+                if _bakerIdentity (_theBakerInfo bi) == bid then
                   Just bi
                 else
                   Nothing

@@ -20,7 +20,8 @@ module Concordium.GlobalState.Basic.BlockState.Instances(
 
 import Concordium.Types
 import qualified Concordium.Wasm as Wasm
-import Concordium.Types.Instance
+import qualified Concordium.GlobalState.Wasm as GSWasm
+import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Basic.BlockState.InstanceTable
 
 import Data.Serialize
@@ -80,7 +81,7 @@ putInstancesV0 (Instances (Tree _ t)) = do
 
 -- |Deserialize 'Instances' in V0 format.
 getInstancesV0
-    :: (ModuleRef -> Wasm.InitName -> Maybe (Set.Set Wasm.ReceiveName, Wasm.ModuleInterface))
+    :: (ModuleRef -> Wasm.InitName -> Maybe (Set.Set Wasm.ReceiveName, GSWasm.ModuleInterface))
     -> Get Instances
 getInstancesV0 resolve = Instances <$> constructM buildInstance
     where

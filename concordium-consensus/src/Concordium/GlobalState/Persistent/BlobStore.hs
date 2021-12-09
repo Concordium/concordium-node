@@ -728,8 +728,10 @@ instance MonadBlobStore m => BlobStorable m Word32
 instance MonadBlobStore m => BlobStorable m Word64
 
 instance MonadBlobStore m => BlobStorable m AccountEncryptedAmount
-instance (MonadBlobStore m, Serialize (PersistingAccountData pv)) => BlobStorable m (PersistingAccountData pv)
+instance MonadBlobStore m => BlobStorable m PersistingAccountData
 instance (MonadBlobStore m, IsChainParametersVersion cpv) => BlobStorable m (Authorizations cpv)
+instance (MonadBlobStore m, IsAccountVersion av) => BlobStorable m (BakerInfoEx av)
+instance (MonadBlobStore m, IsAccountVersion av) => BlobStorable m (AccountDelegation av)
 instance MonadBlobStore m => BlobStorable m (HigherLevelKeys a)
 instance MonadBlobStore m => BlobStorable m ProtocolUpdate
 instance MonadBlobStore m => BlobStorable m ExchangeRate
@@ -751,29 +753,32 @@ instance (MonadBlobStore m, Serialize a) => BlobStorable m (StoreSerialized a)
 deriving newtype instance HashableTo h a => HashableTo h (StoreSerialized a)
 deriving newtype instance MHashableTo m h a => MHashableTo m h (StoreSerialized a)
 
-data HashedBufferedRef a
+data HashedBufferedRef' h a
   = HashedBufferedRef
       { bufferedReference :: !(BufferedRef a),
-        bufferedHash :: !(Maybe H.Hash)
+        bufferedHash :: !(Maybe h)
       }
+
+type HashedBufferedRef = HashedBufferedRef' H.Hash
 
 bufferHashed :: MonadIO m => Hashed a -> m (HashedBufferedRef a)
 bufferHashed (Hashed val h) = do
   br <- makeBRMemory refNull val
   return $ HashedBufferedRef br (Just h)
 
-makeHashedBufferedRef :: (MonadIO m, MHashableTo m H.Hash a) => a -> m (HashedBufferedRef a)
+makeHashedBufferedRef :: (MonadIO m, MHashableTo m h a) => a -> m (HashedBufferedRef' h a)
 makeHashedBufferedRef val = do
   h <- getHashM val
-  bufferHashed (Hashed val h)
+  br <- makeBRMemory refNull val
+  return $ HashedBufferedRef br (Just h)
 
-instance (BlobStorable m a, MHashableTo m H.Hash a) => MHashableTo m H.Hash (HashedBufferedRef a) where
+instance (BlobStorable m a, MHashableTo m h a) => MHashableTo m h (HashedBufferedRef' h a) where
   getHashM ref = maybe (getHashM =<< refLoad ref) return (bufferedHash ref)
 
 instance Show a => Show (HashedBufferedRef a) where
   show ref = show (bufferedReference ref) ++ maybe "" (\x -> " with hash: " ++ show x) (bufferedHash ref)
 
-instance (BlobStorable m a, MHashableTo m H.Hash a) => BlobStorable m (HashedBufferedRef a) where
+instance (BlobStorable m a, MHashableTo m h a) => BlobStorable m (HashedBufferedRef' h a) where
   store b =
     -- store the value if needed and then serialize the returned reference.
     getBRRef (bufferedReference b) >>= store
@@ -785,7 +790,7 @@ instance (BlobStorable m a, MHashableTo m H.Hash a) => BlobStorable m (HashedBuf
     h <- getHashM . fst =<< cacheBufferedRef br
     return (pt, HashedBufferedRef br (Just h))
 
-instance (Monad m, BlobStorable m a, MHashableTo m H.Hash a) => Reference m HashedBufferedRef a where
+instance (Monad m, BlobStorable m a, MHashableTo m h a) => Reference m (HashedBufferedRef' h) a where
   refFlush ref = do
     (br, r) <- flushBufferedRef (bufferedReference ref)
     return (HashedBufferedRef br (bufferedHash ref), r)
@@ -814,7 +819,7 @@ instance (Monad m, BlobStorable m a, MHashableTo m H.Hash a) => Reference m Hash
   {-# INLINE refCache #-}
   {-# INLINE refUncache #-}
 
-instance (BlobStorable m a, MHashableTo m H.Hash a) => BlobStorable m (Nullable (HashedBufferedRef a)) where
+instance (BlobStorable m a, MHashableTo m h a) => BlobStorable m (Nullable (HashedBufferedRef' h a)) where
     store Null = return $ put (refNull :: BlobRef a)
     store (Some v) = store v
     load = do
@@ -869,7 +874,7 @@ instance (BlobStorable m a, Cacheable m a) => Cacheable m (BufferedRef a) where
         cachedVal <- cache brValue
         return br{brValue = cachedVal}
 
-instance (MHashableTo m H.Hash a, BlobStorable m a, Cacheable m a) => Cacheable m (HashedBufferedRef a) where
+instance (MHashableTo m h a, BlobStorable m a, Cacheable m a) => Cacheable m (HashedBufferedRef' h a) where
   cache (HashedBufferedRef ref Nothing) = do
     ref' <- cache ref
     hsh <- getHashM =<< refLoad ref'
@@ -889,7 +894,9 @@ instance (Applicative m) => Cacheable m EncryptedAmount
 instance (Applicative m) => Cacheable m AccountReleaseSchedule
 instance (Applicative m) => Cacheable m (Map AccountAddress Timestamp)
 instance (Applicative m) => Cacheable m WasmModule
-instance (Applicative m) => Cacheable m (PersistingAccountData pv)
+instance (Applicative m) => Cacheable m PersistingAccountData
+instance (IsAccountVersion av, Applicative m) => Cacheable m (BakerInfoEx av)
+instance (IsAccountVersion av, Applicative m) => Cacheable m (AccountDelegation av)
 -- Required for caching AccountIndexes
 instance (Applicative m) => Cacheable m AccountIndex
 -- Required for caching BlockStatePointers

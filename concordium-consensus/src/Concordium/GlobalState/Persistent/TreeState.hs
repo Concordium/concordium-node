@@ -6,6 +6,9 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
+-- FIXME: This is to suppress compiler warnings for derived instances of BlockStateOperations.
+-- This may be fixed in GHC 9.0.1.
+{-# OPTIONS_GHC -Wno-redundant-constraints #-}
 -- |This module provides a monad that is an instance of both `LMDBStoreMonad`, `LMDBQueryMonad`,
 -- and `TreeStateMonad` effectively adding persistence to the tree state.
 module Concordium.GlobalState.Persistent.TreeState where
@@ -386,42 +389,44 @@ closeSkovPersistentData = closeDatabase . _db
 --
 -- This newtype establishes types for the @GlobalStateTypes@. The type variable @bs@ stands for the BlockState
 -- type used in the implementation.
-newtype PersistentTreeStateMonad (pv :: ProtocolVersion) ati bs m a = PersistentTreeStateMonad { runPersistentTreeStateMonad :: m a }
+newtype PersistentTreeStateMonad ati bs m a = PersistentTreeStateMonad { runPersistentTreeStateMonad :: m a }
   deriving (Functor, Applicative, Monad, MonadIO, BlockStateTypes, MonadLogger, MonadError e,
             BlockStateQuery, AccountOperations, BlockStateOperations, BlockStateStorage)
 
+deriving instance (MonadProtocolVersion m) => MonadProtocolVersion (PersistentTreeStateMonad ati bs m)
+
 deriving instance (Monad m, MonadState (SkovPersistentData pv ati bs) m)
-         => MonadState (SkovPersistentData pv ati bs) (PersistentTreeStateMonad pv ati bs m)
+         => MonadState (SkovPersistentData pv ati bs) (PersistentTreeStateMonad ati bs m)
 
 instance (CanExtend (ATIValues ati),
           CanRecordFootprint (Footprint (ATIValues ati)))
-         => ATITypes (PersistentTreeStateMonad pv ati bs m) where
-  type ATIStorage (PersistentTreeStateMonad pv ati bs m) = ATIValues ati
+         => ATITypes (PersistentTreeStateMonad ati bs m) where
+  type ATIStorage (PersistentTreeStateMonad ati bs m) = ATIValues ati
 
-instance (Monad m) => PerAccountDBOperations (PersistentTreeStateMonad pv () bs m)
+instance (Monad m) => PerAccountDBOperations (PersistentTreeStateMonad () bs m)
 
-instance (MonadIO m, MonadState (SkovPersistentData pv SQLTransactionLog bs) m) => PerAccountDBOperations (PersistentTreeStateMonad pv SQLTransactionLog bs m) where
+instance (MonadIO m, MonadState (SkovPersistentData (MPV m) SQLTransactionLog bs) m) => PerAccountDBOperations (PersistentTreeStateMonad SQLTransactionLog bs m) where
   flushBlockSummaries bh ati sos = do
     context <- use logContext
     liftIO $ writeEntries context bh ati sos
 
-instance GlobalStateTypes (PersistentTreeStateMonad pv ati bs m) where
-    type BlockPointerType (PersistentTreeStateMonad pv ati bs m) = PersistentBlockPointer pv (ATIValues ati) bs
+instance GlobalStateTypes (PersistentTreeStateMonad ati bs m) where
+    type BlockPointerType (PersistentTreeStateMonad ati bs m) = PersistentBlockPointer (MPV m) (ATIValues ati) bs
 
 instance HasLogContext SQLTransactionLogContext (SkovPersistentData pv SQLTransactionLog bs) where
   logContext = atiCtx
 
-getWeakPointer :: (MonadLogger (PersistentTreeStateMonad pv ati bs m),
-                  MonadIO (PersistentTreeStateMonad pv ati bs m),
-                   BlockStateStorage (PersistentTreeStateMonad pv ati bs m),
-                   BlockState (PersistentTreeStateMonad pv ati bs m) ~ bs,
+getWeakPointer :: (MonadLogger (PersistentTreeStateMonad ati bs m),
+                  MonadIO (PersistentTreeStateMonad ati bs m),
+                   BlockStateStorage (PersistentTreeStateMonad ati bs m),
+                   BlockState (PersistentTreeStateMonad ati bs m) ~ bs,
                    CanExtend (ATIValues ati),
-                   MonadState (SkovPersistentData pv ati bs) (PersistentTreeStateMonad pv ati bs m),
-                   IsProtocolVersion pv)
-               => Weak (PersistentBlockPointer pv (ATIValues ati) bs)
+                   MonadState (SkovPersistentData (MPV m) ati bs) (PersistentTreeStateMonad ati bs m),
+                   MonadProtocolVersion m)
+               => Weak (PersistentBlockPointer (MPV m) (ATIValues ati) bs)
                -> BlockHash
                -> String
-               -> PersistentTreeStateMonad pv ati bs m (PersistentBlockPointer pv (ATIValues ati) bs)
+               -> PersistentTreeStateMonad ati bs m (PersistentBlockPointer (MPV m) (ATIValues ati) bs)
 getWeakPointer weakPtr ptrHash name = do
         d <- liftIO $ deRefWeak weakPtr
         case d of
@@ -446,16 +451,16 @@ getWeakPointer weakPtr ptrHash name = do
                        other ->
                          logErrorAndThrowTS ("Could not retrieve " ++ name ++ " block. Block hash: " ++ show ptrHash ++ ", block status " ++ show other)
 
-instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
-          Monad (PersistentTreeStateMonad pv ati bs m),
-          IsProtocolVersion pv,
-          MonadIO (PersistentTreeStateMonad pv ati bs m),
+instance (MonadLogger (PersistentTreeStateMonad ati bs m),
+          Monad (PersistentTreeStateMonad ati bs m),
+          MonadIO (PersistentTreeStateMonad ati bs m),
           TS.BlockState m ~ bs,
-          BlockStateStorage (PersistentTreeStateMonad pv ati bs m),
-          MonadState (SkovPersistentData pv ati bs) (PersistentTreeStateMonad pv ati bs m),
+          BlockStateStorage (PersistentTreeStateMonad ati bs m),
+          MonadState (SkovPersistentData (MPV m) ati bs) (PersistentTreeStateMonad ati bs m),
           CanExtend (ATIValues ati),
-          CanRecordFootprint (Footprint (ATIValues ati)))
-         => BlockPointerMonad (PersistentTreeStateMonad pv ati bs m) where
+          CanRecordFootprint (Footprint (ATIValues ati)),
+          MonadProtocolVersion m)
+         => BlockPointerMonad (PersistentTreeStateMonad ati bs m) where
   blockState = return . _bpState
   bpParent block = case _bpBlock block of
       GenesisBlock{} -> return block
@@ -472,14 +477,14 @@ constructBlock StoredBlock{..} = do
   bstate <- loadBlockState (blockStateHash sbBlock) sbState
   makeBlockPointerFromPersistentBlock sbBlock bstate defaultValue sbInfo
 
-instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
-          MonadIO (PersistentTreeStateMonad pv ati bs m),
-          BlockState (PersistentTreeStateMonad pv ati bs m) ~ bs,
-          BlockStateStorage (PersistentTreeStateMonad pv ati bs m),
-          PerAccountDBOperations (PersistentTreeStateMonad pv ati bs m),
-          MonadState (SkovPersistentData pv ati bs) m,
-          IsProtocolVersion pv)
-         => TS.TreeStateMonad pv (PersistentTreeStateMonad pv ati bs m) where
+instance (MonadLogger (PersistentTreeStateMonad ati bs m),
+          MonadIO (PersistentTreeStateMonad ati bs m),
+          BlockState (PersistentTreeStateMonad ati bs m) ~ bs,
+          BlockStateStorage (PersistentTreeStateMonad ati bs m),
+          PerAccountDBOperations (PersistentTreeStateMonad ati bs m),
+          MonadState (SkovPersistentData (MPV m) ati bs) m,
+          MonadProtocolVersion m)
+         => TS.TreeStateMonad (PersistentTreeStateMonad ati bs m) where
     makePendingBlock key slot parent bid pf n lastFin trs stateHash transactionOutcomesHash time = do
         return $! makePendingBlock (signBlock key slot parent bid pf n lastFin trs stateHash transactionOutcomesHash) time
     getBlockStatus bh = do

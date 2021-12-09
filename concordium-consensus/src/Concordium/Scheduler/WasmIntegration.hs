@@ -20,18 +20,18 @@ import Control.Monad
 import Concordium.Crypto.FFIHelpers(rs_free_array_len)
 import Concordium.Types
 import Concordium.Wasm
+import Concordium.GlobalState.Wasm
 import Concordium.Utils.Serialization
 
-foreign import ccall "validate_and_process"
+foreign import ccall "validate_and_process_v0"
    validate_and_process :: Ptr Word8 -- ^Pointer to the Wasm module source.
                         -> CSize -- ^Length of the module source.
-                        -> Ptr CSize -- ^Length of the artifact.
                         -> Ptr CSize -- ^Total length of the output.
-                        -> IO (Ptr Word8) -- ^Null, or artifact + exports.
+                        -> Ptr (Ptr ModuleArtifactV0) -- ^Null, or the processed module artifact. This is null if and only if the return value is null.
+                        -> IO (Ptr Word8) -- ^Null, or exports.
 
-foreign import ccall "call_init"
-   call_init :: Ptr Word8 -- ^Pointer to the Wasm artifact.
-             -> CSize -- ^Length of the Wasm artifact.
+foreign import ccall "call_init_v0"
+   call_init :: Ptr ModuleArtifactV0 -- ^Pointer to the Wasm artifact.
              -> Ptr Word8 -- ^Pointer to the serialized chain meta + init ctx.
              -> CSize -- ^Length of the preceding data.
              -> Word64 -- ^Amount
@@ -44,9 +44,8 @@ foreign import ccall "call_init"
              -> IO (Ptr Word8) -- ^New state and logs, if applicable, or null, signaling out-of-energy.
 
 
-foreign import ccall "call_receive"
-   call_receive :: Ptr Word8 -- ^Pointer to the Wasm artifact.
-             -> CSize -- ^Length of the Wasm artifact.
+foreign import ccall "call_receive_v0"
+   call_receive :: Ptr ModuleArtifactV0 -- ^Pointer to the Wasm artifact.
              -> Ptr Word8 -- ^Pointer to the serialized receive context.
              -> CSize  -- ^Length of the preceding data.
              -> Word64 -- ^Amount
@@ -75,12 +74,12 @@ applyInitFun
     -- Just (result, remainingEnergy) otherwise, where @remainingEnergy@ is the amount of energy that is left from the amount given.
 applyInitFun miface cm initCtx iName param amnt iEnergy = processInterpreterResult (get :: Get ()) result
   where result = unsafePerformIO $ do
-              BSU.unsafeUseAsCStringLen wasmBytes $ \(wasmBytesPtr, wasmBytesLen) ->
+              withModuleArtifactV0 wasmArtifact $ \wasmArtifactPtr ->
                 BSU.unsafeUseAsCStringLen initCtxBytes $ \(initCtxBytesPtr, initCtxBytesLen) ->
                   BSU.unsafeUseAsCStringLen nameBytes $ \(nameBytesPtr, nameBytesLen) ->
                     BSU.unsafeUseAsCStringLen paramBytes $ \(paramBytesPtr, paramBytesLen) ->
                       alloca $ \outputLenPtr -> do
-                        outPtr <- call_init (castPtr wasmBytesPtr) (fromIntegral wasmBytesLen)
+                        outPtr <- call_init wasmArtifactPtr
                                            (castPtr initCtxBytesPtr) (fromIntegral initCtxBytesLen)
                                            amountWord
                                            (castPtr nameBytesPtr) (fromIntegral nameBytesLen)
@@ -92,7 +91,7 @@ applyInitFun miface cm initCtx iName param amnt iEnergy = processInterpreterResu
                           len <- peek outputLenPtr
                           bs <- BSU.unsafePackCStringFinalizer outPtr (fromIntegral len) (rs_free_array_len outPtr (fromIntegral len))
                           return (Just bs)
-        wasmBytes = artifact . imWasmArtifact . miModule $ miface
+        wasmArtifact = imWasmArtifact . miModule $ miface
         initCtxBytes = encodeChainMeta cm <> encodeInitContext initCtx
         paramBytes = BSS.fromShort (parameter param)
         energy = fromIntegral iEnergy
@@ -144,13 +143,13 @@ applyReceiveFun
     -- of execution with the amount of energy remaining.
 applyReceiveFun miface cm receiveCtx rName param amnt cs initialEnergy = processInterpreterResult getActionsTree result
   where result = unsafePerformIO $ do
-              BSU.unsafeUseAsCStringLen wasmBytes $ \(wasmBytesPtr, wasmBytesLen) ->
+              withModuleArtifactV0 wasmArtifact $ \wasmArtifactPtr ->
                 BSU.unsafeUseAsCStringLen initCtxBytes $ \(initCtxBytesPtr, initCtxBytesLen) ->
                   BSU.unsafeUseAsCStringLen nameBytes $ \(nameBytesPtr, nameBytesLen) ->
                     BSU.unsafeUseAsCStringLen stateBytes $ \(stateBytesPtr, stateBytesLen) ->
                       BSU.unsafeUseAsCStringLen paramBytes $ \(paramBytesPtr, paramBytesLen) ->
                         alloca $ \outputLenPtr -> do
-                          outPtr <- call_receive (castPtr wasmBytesPtr) (fromIntegral wasmBytesLen)
+                          outPtr <- call_receive wasmArtifactPtr
                                                  (castPtr initCtxBytesPtr) (fromIntegral initCtxBytesLen)
                                                  amountWord
                                                  (castPtr nameBytesPtr) (fromIntegral nameBytesLen)
@@ -163,7 +162,7 @@ applyReceiveFun miface cm receiveCtx rName param amnt cs initialEnergy = process
                             len <- peek outputLenPtr
                             bs <- BSU.unsafePackCStringFinalizer outPtr (fromIntegral len) (rs_free_array_len outPtr (fromIntegral len))
                             return (Just bs)
-        wasmBytes = artifact . imWasmArtifact . miModule $ miface
+        wasmArtifact = imWasmArtifact . miModule $ miface
         initCtxBytes = encodeChainMeta cm <> encodeReceiveContext receiveCtx
         amountWord = _amount amnt
         stateBytes = contractState cs
@@ -177,31 +176,31 @@ applyReceiveFun miface cm receiveCtx rName param amnt cs initialEnergy = process
 -- should also do any pre-processing of the module (such as partial
 -- compilation or instrumentation) that is needed to apply the exported
 -- functions from it in an efficient way.
+{-# NOINLINE processModule #-}
 processModule :: WasmModule -> Maybe ModuleInterface
 processModule modl = do
-  (bs, artifactLen) <- ffiResult
-  case getExports (BS.drop artifactLen bs) of
+  (bs, imWasmArtifact) <- ffiResult
+  case getExports bs of
     Left _ -> Nothing
     Right (miExposedInit, miExposedReceive) ->
       let miModuleRef = getModuleRef modl
           miModule = InstrumentedWasmModule{
             imWasmVersion = wasmVersion modl,
-            imWasmArtifact = ModuleArtifact (BS.take artifactLen bs),
             ..
             }
       in Just ModuleInterface{miModuleSize = moduleSourceLength $ wasmSource modl,..}
 
   where ffiResult = unsafePerformIO $ do
           unsafeUseModuleSourceAsCStringLen (wasmSource modl) $ \(wasmBytesPtr, wasmBytesLen) ->
-            alloca $ \artifactLenPtr ->
-              alloca $ \outputLenPtr -> do
-                outPtr <- validate_and_process (castPtr wasmBytesPtr) (fromIntegral wasmBytesLen) artifactLenPtr outputLenPtr
-                if outPtr == nullPtr then return Nothing
-                else do
-                  len <- peek outputLenPtr
-                  bs <- BSU.unsafePackCStringFinalizer outPtr (fromIntegral len) (rs_free_array_len outPtr (fromIntegral len))
-                  artifactLen <- peek artifactLenPtr
-                  return (Just (bs, fromIntegral artifactLen))
+              alloca $ \outputLenPtr -> 
+                alloca $ \outputModuleArtifactPtr -> do
+                  outPtr <- validate_and_process (castPtr wasmBytesPtr) (fromIntegral wasmBytesLen) outputLenPtr outputModuleArtifactPtr
+                  if outPtr == nullPtr then return Nothing
+                  else do
+                    len <- peek outputLenPtr
+                    bs <- BSU.unsafePackCStringFinalizer outPtr (fromIntegral len) (rs_free_array_len outPtr (fromIntegral len))
+                    moduleArtifact <- newModuleArtifactV0 =<< peek outputModuleArtifactPtr
+                    return (Just (bs, moduleArtifact))
 
         getExports bs =
           flip runGet bs $ do
@@ -220,4 +219,3 @@ processModule modl = do
               Nothing -> fail "Incorrect response from FFI call."
               Just x@(exposedInits, exposedReceives) ->
                 if Map.keysSet exposedReceives `Set.isSubsetOf` exposedInits then return x else fail "Receive functions that do not correspond to any contract."
- 

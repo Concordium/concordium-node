@@ -4,7 +4,6 @@ mod low_level;
 pub mod message_handlers;
 #[cfg(test)]
 mod tests;
-pub mod version_adapter;
 
 use anyhow::{bail, ensure};
 use bytesize::ByteSize;
@@ -21,7 +20,7 @@ use crate::{
         P2PNodeId, PeerType, RemotePeer,
     },
     configuration::MAX_PEER_NETWORKS,
-    connection::{low_level::ReadResult, version_adapter::rewrite_incoming},
+    connection::low_level::ReadResult,
     netmsg,
     network::{
         NetworkId, NetworkMessage, NetworkPacket, NetworkPayload, NetworkRequest, NetworkResponse,
@@ -528,10 +527,6 @@ impl Connection {
         }
 
         let mut message = NetworkMessage::deserialize(&bytes)?;
-
-        if self.wire_version != WIRE_PROTOCOL_CURRENT_VERSION {
-            rewrite_incoming(self.wire_version, &mut message)?;
-        }
 
         if let NetworkPayload::NetworkPacket(ref mut packet) = message.payload {
             // disregard packets when in bootstrapper mode

@@ -140,7 +140,7 @@ makeFakeBakers nBakers = take (fromIntegral nBakers) $ mbs (mkStdGen 17) 0
 {-# WARNING mkFullBaker "Do not use in production." #-}
 mkFullBaker :: Int -> BakerId -> (FullBakerInfo, VRF.SecretKey, Sig.SignKey, Bls.SecretKey)
 mkFullBaker seed _bakerIdentity = (FullBakerInfo {
-    _bakerInfo = BakerInfo {
+    _theBakerInfo = BakerInfo {
       _bakerElectionVerifyKey = VRF.publicKey electionKey,
       _bakerSignatureVerifyKey = Sig.verifyKey sk,
       _bakerAggregationVerifyKey = Bls.derivePublicKey blssk,
@@ -242,7 +242,7 @@ blockStateWithAlesAccount alesAmount otherAccounts =
 -- This generates an account with a single credential and single keypair, which has sufficiently
 -- late expiry date, but is otherwise not well-formed.
 {-# WARNING mkAccount "Do not use in production." #-}
-mkAccount :: IsProtocolVersion pv => SigScheme.VerifyKey -> AccountAddress -> Amount -> Account pv
+mkAccount :: IsAccountVersion av => SigScheme.VerifyKey -> AccountAddress -> Amount -> Account av
 mkAccount key addr amnt = newAccount dummyCryptographicParameters addr cred & accountAmount .~ amnt
   where
     cred = dummyCredential dummyCryptographicParameters addr key dummyMaxValidTo dummyCreatedAt
@@ -251,7 +251,7 @@ mkAccount key addr amnt = newAccount dummyCryptographicParameters addr cred & ac
 -- the credential should already be considered expired. (Its valid-to date will be
 -- Jan 1000, which precedes the earliest expressible timestamp by 970 years.)
 {-# WARNING mkAccountExpiredCredential "Do not use in production." #-}
-mkAccountExpiredCredential :: IsProtocolVersion pv => SigScheme.VerifyKey -> AccountAddress -> Amount -> Account pv
+mkAccountExpiredCredential :: IsAccountVersion av => SigScheme.VerifyKey -> AccountAddress -> Amount -> Account av
 mkAccountExpiredCredential key addr amnt = newAccount dummyCryptographicParameters addr cred & accountAmount .~ amnt
   where
     cred = dummyCredential dummyCryptographicParameters addr key dummyLowValidTo dummyCreatedAt
@@ -261,7 +261,7 @@ mkAccountExpiredCredential key addr amnt = newAccount dummyCryptographicParamete
 -- The keys are indexed in ascending order starting from 0
 -- The list of keys should be non-empty.
 {-# WARNING mkAccountMultipleKeys "Do not use in production." #-}
-mkAccountMultipleKeys :: IsProtocolVersion pv => [SigScheme.VerifyKey] -> SignatureThreshold -> AccountAddress -> Amount -> Account pv
+mkAccountMultipleKeys :: IsAccountVersion av => [SigScheme.VerifyKey] -> SignatureThreshold -> AccountAddress -> Amount -> Account av
 mkAccountMultipleKeys keys threshold addr amount = newAccount dummyCryptographicParameters addr cred & accountAmount .~ amount & accountVerificationKeys .~ ai
 
   where

@@ -1,5 +1,10 @@
-{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE StandaloneDeriving #-}
+-- FIXME: This is to suppress compiler warnings for derived instances of BlockStateOperations.
+-- This may be fixed in GHC 9.0.1.
+{-# OPTIONS_GHC -Wno-redundant-constraints #-}
 {-|
  Definition of the API of every BlockState implementation.
 
@@ -53,16 +58,17 @@ import Concordium.Types
 import Concordium.Types.Execution
 import Concordium.Types.Updates
 import qualified Concordium.Wasm as Wasm
+import qualified Concordium.GlobalState.Wasm as GSWasm
 import Concordium.GlobalState.Classes
 import Concordium.GlobalState.Account
 
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 import Concordium.GlobalState.BakerInfo
 import qualified Concordium.Types.UpdateQueues as UQ
-import Concordium.Types.Accounts
+import Concordium.Types.Accounts hiding (getAccountBaker, getAccountStake)
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Rewards
-import Concordium.Types.Instance
+import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Types
 import Concordium.Types.IdentityProviders
 import Concordium.Types.AnonymityRevokers
@@ -181,7 +187,10 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
   getAccountReleaseSchedule :: Account m -> m AccountReleaseSchedule
 
   -- |Get the baker info (if any) attached to an account.
-  getAccountBaker :: Account m -> m (Maybe AccountBaker)
+  getAccountBaker :: Account m -> m (Maybe (AccountBaker (AccountVersionFor (MPV m))))
+
+  -- |Get the baker or stake delegation information attached to an account.
+  getAccountStake :: Account m -> m (AccountStake (AccountVersionFor (MPV m)))
 
 -- |The block query methods can query block state. They are needed by
 -- consensus itself to compute stake, get a list of and information about
@@ -291,7 +300,7 @@ mintTotal MintAmounts{..} = mintBakingReward + mintFinalizationReward + mintDeve
 -- support different implementations, from pure ones to stateful ones.
 class (BlockStateQuery m) => BlockStateOperations m where
   -- |Get the module from the module table of the state instance.
-  bsoGetModule :: UpdatableBlockState m -> ModuleRef -> m (Maybe Wasm.ModuleInterface)
+  bsoGetModule :: UpdatableBlockState m -> ModuleRef -> m (Maybe GSWasm.ModuleInterface)
   -- |Get an account by its address.
   bsoGetAccount :: UpdatableBlockState m -> AccountAddress -> m (Maybe (IndexedAccount m))
   -- |Get the index of an account.
@@ -317,7 +326,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   bsoPutNewInstance :: UpdatableBlockState m -> (ContractAddress -> Instance) -> m (ContractAddress, UpdatableBlockState m)
   -- |Add the module to the global state. If a module with the given address
   -- already exists return @False@.
-  bsoPutNewModule :: UpdatableBlockState m -> (Wasm.ModuleInterface, Wasm.WasmModule) -> m (Bool, UpdatableBlockState m)
+  bsoPutNewModule :: UpdatableBlockState m -> (GSWasm.ModuleInterface, Wasm.WasmModule) -> m (Bool, UpdatableBlockState m)
 
   -- |Modify an existing account with given data (which includes the address of the account).
   -- This method is only called when an account exists and can thus assume this.
@@ -396,7 +405,8 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- Note that instead of iteratively calling this for a succession of epochs,
   -- it should always be sufficient to just call it for the last two of them.
   bsoTransitionEpochBakers
-    :: UpdatableBlockState m
+    :: (AccountVersionFor (MPV m) ~ 'AccountV0)
+    => UpdatableBlockState m
     -> Epoch
     -- ^The new epoch
     -> m (UpdatableBlockState m)
@@ -417,7 +427,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   --
   -- The caller MUST ensure that the staked amount does not exceed the total
   -- balance on the account.
-  bsoAddBaker :: UpdatableBlockState m -> AccountIndex -> BakerAdd -> m (BakerAddResult, UpdatableBlockState m)
+  bsoAddBaker :: (AccountVersionFor (MPV m) ~ 'AccountV0) => UpdatableBlockState m -> AccountIndex -> BakerAdd -> m (BakerAddResult, UpdatableBlockState m)
 
   -- |Update the keys associated with an account.
   -- It is assumed that the keys have already been checked for validity/ownership as
@@ -431,7 +441,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- * @BKUInvalidBaker@: the account does not exist or is not currently a baker.
   --
   -- * @BKUDuplicateAggregationKey@: the aggregation key is a duplicate.
-  bsoUpdateBakerKeys :: UpdatableBlockState m -> AccountIndex -> BakerKeyUpdate -> m (BakerKeyUpdateResult, UpdatableBlockState m)
+  bsoUpdateBakerKeys :: (AccountVersionFor (MPV m) ~ 'AccountV0) => UpdatableBlockState m -> AccountIndex -> BakerKeyUpdate -> m (BakerKeyUpdateResult, UpdatableBlockState m)
 
   -- |Update the stake associated with an account.
   -- A reduction in stake will be delayed by the current cool-off period.
@@ -455,7 +465,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- * @BSUChangePending id@: the change could not be made since the account is already in a cooling-off period.
   --
   -- The caller MUST ensure that the staked amount does not exceed the total balance on the account.
-  bsoUpdateBakerStake :: UpdatableBlockState m -> AccountIndex -> Amount -> m (BakerStakeUpdateResult, UpdatableBlockState m)
+  bsoUpdateBakerStake :: (AccountVersionFor (MPV m) ~ 'AccountV0) => UpdatableBlockState m -> AccountIndex -> Amount -> m (BakerStakeUpdateResult, UpdatableBlockState m)
 
   -- |Update whether a baker's earnings are automatically restaked.
   --
@@ -464,7 +474,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- * @BREUUpdated id@: the flag was updated.
   --
   -- * @BREUInvalidBaker@: the account does not exists, or is not currently a baker.
-  bsoUpdateBakerRestakeEarnings :: UpdatableBlockState m -> AccountIndex -> Bool -> m (BakerRestakeEarningsUpdateResult, UpdatableBlockState m)
+  bsoUpdateBakerRestakeEarnings :: (AccountVersionFor (MPV m) ~ 'AccountV0) => UpdatableBlockState m -> AccountIndex -> Bool -> m (BakerRestakeEarningsUpdateResult, UpdatableBlockState m)
 
   -- |Remove the baker associated with an account.
   -- The removal takes effect after a cooling-off period.
@@ -477,7 +487,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- * @BRInvalidBaker@: the account address is not valid, or the account is not a baker.
   --
   -- * @BRChangePending id@: the baker is currently in a cooling-off period and so cannot be removed.
-  bsoRemoveBaker :: UpdatableBlockState m -> AccountIndex -> m (BakerRemoveResult, UpdatableBlockState m)
+  bsoRemoveBaker :: (AccountVersionFor (MPV m) ~ 'AccountV0) => UpdatableBlockState m -> AccountIndex -> m (BakerRemoveResult, UpdatableBlockState m)
 
   -- |Add an amount to a baker's account as a reward. The baker's stake is increased
   -- correspondingly if the baker is set to restake rewards.
@@ -679,6 +689,7 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
   getAccountEncryptionKey = lift . getAccountEncryptionKey
   getAccountReleaseSchedule = lift . getAccountReleaseSchedule
   getAccountBaker = lift . getAccountBaker
+  getAccountStake = lift . getAccountStake
   {-# INLINE getAccountCanonicalAddress #-}
   {-# INLINE getAccountAmount #-}
   {-# INLINE getAccountAvailableAmount #-}
@@ -689,6 +700,7 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
   {-# INLINE getAccountEncryptedAmount #-}
   {-# INLINE getAccountReleaseSchedule #-}
   {-# INLINE getAccountBaker #-}
+  {-# INLINE getAccountStake #-}
 
 instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperations (MGSTrans t m) where
   bsoGetModule s = lift . bsoGetModule s

@@ -15,6 +15,45 @@
     return [[NSBundle bundleForClass:[self class]] localizedStringForKey:@"PaneTitle" value:nil table:nil];
 }
 
+// Invoked right before the pane is shown.
+- (void)willEnterPane:(InstallerSectionDirection)dir {
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+
+    // Check if a previous installation of the node exists (using existence of launchdaemon as a heuristic).
+    // Then set the configuration options to match those of the previous installation.
+
+    if ([fileManager fileExistsAtPath:@"/Library/Concordium Node/LaunchDaemons/software.concordium.mainnet.node-collector.plist"]) {
+        
+        [self handleNameAlreadyConfigured:_oMainnetNodeNameDescriptor :_oMainnetNodeName];
+
+        if (![fileManager fileExistsAtPath:@"/Library/Concordium Node/REPORT_TO_NETWORK_DASHBOARD_MAINNET"]) {
+            _oMainnetReportToNetworkDashboard.state = NSControlStateValueOff;
+        }
+        if (![fileManager fileExistsAtPath:@"/Library/LaunchDaemons/software.concordium.mainnet.node.plist"]) {
+            _oMainnetRunOnStartup.state = NSControlStateValueOff;
+        }
+    }
+    if ([fileManager fileExistsAtPath:@"/Library/Concordium Node/LaunchDaemons/software.concordium.testnet.node-collector.plist"]) {
+
+        [self handleNameAlreadyConfigured:_oTestnetNodeNameDescriptor :_oTestnetNodeName];
+        
+        if (![fileManager fileExistsAtPath:@"/Library/Concordium Node/REPORT_TO_NETWORK_DASHBOARD_TESTNET"]) {
+            _oTestnetReportToNetworkDashboard.state = NSControlStateValueOff;
+        }
+        if (![fileManager fileExistsAtPath:@"/Library/LaunchDaemons/software.concordium.testnet.node.plist"]) {
+            _oTestnetRunOnStartup.state = NSControlStateValueOff;
+        }
+    }
+}
+
+// Replaces the node name field with a message about reconfiguring the node name.
+- (void)handleNameAlreadyConfigured:(NSTextField*)descriptor_field :(NSTextField*)input_field
+{
+    descriptor_field.stringValue = @"Node name already configured.\nReconfigure in service file.";
+    input_field.stringValue = @"ALREADY_CONFIGURED";
+    input_field.hidden = true;
+}
+
 // Invoked when either 'Go Back' or 'Continue' is pressed.
 - (BOOL)shouldExitPane:(InstallerSectionDirection)aDir
 {

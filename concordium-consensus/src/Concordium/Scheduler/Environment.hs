@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -26,9 +27,10 @@ import Concordium.Logger
 import Concordium.Crypto.EncryptedTransfers
 import Concordium.Utils
 import qualified Concordium.Wasm as Wasm
+import qualified Concordium.GlobalState.Wasm as GSWasm
 import Concordium.Scheduler.Types
 import qualified Concordium.Cost as Cost
-import Concordium.Types.Accounts
+import Concordium.Types.Accounts hiding (getAccountBaker)
 import Concordium.GlobalState.Types
 import Concordium.GlobalState.Classes (MGSTrans(..))
 import Concordium.GlobalState.Account (EncryptedAmountUpdate(..), AccountUpdate(..), auAmount, auEncrypted, auReleaseSchedule, emptyAccountUpdate)
@@ -52,7 +54,7 @@ class (Monad m) => StaticInformation m where
   getChainMetadata :: m ChainMetadata
 
   -- |Get a module interface, if available.
-  getModuleInterfaces :: ModuleRef -> m (Maybe Wasm.ModuleInterface)
+  getModuleInterfaces :: ModuleRef -> m (Maybe GSWasm.ModuleInterface)
 
   -- |Get maximum allowed block energy.
   getMaxBlockEnergy :: m Energy
@@ -61,8 +63,8 @@ class (Monad m) => StaticInformation m where
   getAccountCreationLimit :: m CredentialsPerBlockLimit
 
 -- |Information needed to execute transactions in the form that is easy to use.
-class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m)), AccountOperations m, MonadLogger m, IsProtocolVersion pv)
-    => SchedulerMonad pv m | m -> pv where
+class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m)), AccountOperations m, MonadLogger m, MonadProtocolVersion m)
+    => SchedulerMonad m where
 
   -- |Notify the transaction log that a transaction had the given footprint. The
   -- nature of the footprint will depend on the configuration, e.g., it could be
@@ -101,7 +103,7 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
   -- |Commit a module interface and module value to global state. Returns @True@
   -- if this was successful, and @False@ if a module with the given Hash already
   -- existed. Also store the code of the module for archival purposes.
-  commitModule :: (Wasm.ModuleInterface, Wasm.WasmModule) -> m Bool
+  commitModule :: (GSWasm.ModuleInterface, Wasm.WasmModule) -> m Bool
 
   -- |Create new instance in the global state.
   -- The instance is parametrised by the address, and the return value is the
@@ -179,7 +181,7 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
   -- * @BADuplicateAggregationKey@: the aggregation key is already in use.
   --
   -- Note that if two results could apply, the first in this list takes precedence.  
-  addBaker :: AccountIndex -> BakerAdd -> m BakerAddResult
+  addBaker :: (AccountVersionFor (MPV m) ~ 'AccountV0) => AccountIndex -> BakerAdd -> m BakerAddResult
 
   -- |Remove the baker associated with an account.
   -- The removal takes effect after a cooling-off period.
@@ -193,7 +195,7 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
   -- * @BRInvalidBaker@: the account address is not valid, or the account is not a baker.
   --
   -- * @BRChangePending@: the baker is currently in a cooling-off period and so cannot be removed.
-  removeBaker :: AccountIndex -> m BakerRemoveResult
+  removeBaker :: (AccountVersionFor (MPV m) ~ 'AccountV0) => AccountIndex -> m BakerRemoveResult
 
   -- |Update the keys associated with an account.
   -- It is assumed that the keys have already been checked for validity/ownership as
@@ -207,7 +209,7 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
   -- * @BKUInvalidBaker@: the account does not exist or is not currently a baker.
   --
   -- * @BKUDuplicateAggregationKey@: the aggregation key is a duplicate.
-  updateBakerKeys :: AccountIndex -> BakerKeyUpdate -> m BakerKeyUpdateResult
+  updateBakerKeys :: (AccountVersionFor (MPV m) ~ 'AccountV0) => AccountIndex -> BakerKeyUpdate -> m BakerKeyUpdateResult
 
   -- |Update the stake associated with an account.
   -- A reduction in stake will be delayed by the current cool-off period.
@@ -229,7 +231,7 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
   -- * @BSUChangePending@: the change could not be made since the account is already in a cooling-off period.
   --
   -- * @BSUInsufficientBalance@: the account does not have sufficient balance to cover the staked amount.
-  updateBakerStake :: AccountIndex -> Amount -> m BakerStakeUpdateResult
+  updateBakerStake :: (AccountVersionFor (MPV m) ~ 'AccountV0) => AccountIndex -> Amount -> m BakerStakeUpdateResult
 
   -- |Update whether the baker automatically restakes the rewards it earns.
   --
@@ -238,7 +240,7 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
   -- * @BREUUpdated id@: the flag was updated.
   --
   -- * @BREUInvalidBaker@: the account does not exists, or is not currently a baker.
-  updateBakerRestakeEarnings :: AccountIndex -> Bool -> m BakerRestakeEarningsUpdateResult
+  updateBakerRestakeEarnings :: (AccountVersionFor (MPV m) ~ 'AccountV0) => AccountIndex -> Bool -> m BakerRestakeEarningsUpdateResult
 
   -- *Operations on account keys
 
@@ -280,7 +282,7 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
 -- the state of the world during execution. Local state of contracts and amounts
 -- on contracts might need to be rolled back for various reasons, so we do not
 -- want to commit it to global state.
-class (StaticInformation m, IsProtocolVersion pv) => TransactionMonad pv m | m -> pv where
+class (StaticInformation m, MonadProtocolVersion m) => TransactionMonad m where
   -- |Execute the code in a temporarily modified environment. This is needed in
   -- nested calls to transactions which might end up failing at the end. Thus we
   -- keep track of changes locally first, and only commit them at the end.
@@ -526,7 +528,7 @@ runRST rst r s = flip runStateT s . flip runReaderT r $ rst
 newtype LocalT r m a = LocalT { _runLocalT :: ContT (Either (Maybe RejectReason) r) (RST TransactionContext LocalState m) a }
   deriving(Functor, Applicative, Monad, MonadState LocalState, MonadReader TransactionContext)
 
-runLocalT :: SchedulerMonad pv m
+runLocalT :: SchedulerMonad m
           => LocalT a m a
           -> TransactionHash
           -> Amount
@@ -540,6 +542,9 @@ runLocalT (LocalT st) txHash _tcDepositedAmount _tcTxSender _energyLeft _blockEn
   return (a, s')
 
   where !ctx = TransactionContext{..}
+
+instance (MonadProtocolVersion m) => MonadProtocolVersion (LocalT r m) where
+  type MPV (LocalT r m) = MPV m
 
 instance BlockStateTypes (LocalT r m) where
     type BlockState (LocalT r m) = BlockState m
@@ -556,7 +561,7 @@ energyUsed meta energy = thEnergyAmount meta - energy
 -- the sender of the transaction should be charged, as well as how much energy was used
 -- for execution.
 -- This function assumes that the deposited energy is not less than the used energy.
-computeExecutionCharge :: SchedulerMonad pv m => TransactionHeader -> Energy -> m (Energy, Amount)
+computeExecutionCharge :: SchedulerMonad m => TransactionHeader -> Energy -> m (Energy, Amount)
 computeExecutionCharge meta energy =
   let used = energyUsed meta energy
   in (used, ) <$> energyToGtu used
@@ -570,7 +575,7 @@ computeExecutionCharge meta energy =
 -- is the only one affected by the transaction, either because a transaction was
 -- rejected, or because it was a transaction which only affects one account's
 -- balance such as DeployCredential, or DeployModule.
-chargeExecutionCost :: (AccountOperations m) => SchedulerMonad pv m => TransactionHash -> IndexedAccount m -> Amount -> m ()
+chargeExecutionCost :: (AccountOperations m) => SchedulerMonad m => TransactionHash -> IndexedAccount m -> Amount -> m ()
 chargeExecutionCost txHash (ai, acc) amnt = do
     balance <- getAccountAmount acc
     addr <- getAccountCanonicalAddress acc
@@ -608,7 +613,7 @@ makeLenses ''WithDepositContext
 --   * The deposited amount exists in the public account value.
 --   * The deposited amount is __at least__ Cost.checkHeader applied to the respective parameters (i.e., minimum transaction cost).
 withDeposit ::
-  SchedulerMonad pv m
+  SchedulerMonad m
   => WithDepositContext m
   -> LocalT a m a
   -- ^The computation to run in the modified environment with reduced amount on the initial account.
@@ -664,7 +669,7 @@ withDeposit wtc comp k = do
 -- from the current changeset and returns the recorded events, the amount corresponding to the
 -- used energy and the used energy.
 defaultSuccess ::
-  SchedulerMonad pv m => WithDepositContext m -> LocalState -> [Event] -> m (ValidResult, Amount, Energy)
+  SchedulerMonad m => WithDepositContext m -> LocalState -> [Event] -> m (ValidResult, Amount, Energy)
 defaultSuccess wtc = \ls events -> do
   let txHash = wtc ^. wtcTransactionHash
       meta = wtc ^. wtcTransactionHeader
@@ -709,7 +714,7 @@ instance StaticInformation m => StaticInformation (LocalT r m) where
 
 deriving via (MGSTrans (LocalT r) m) instance AccountOperations m => AccountOperations (LocalT r m)
 
-instance SchedulerMonad pv m => TransactionMonad pv (LocalT r m) where
+instance SchedulerMonad m => TransactionMonad (LocalT r m) where
   {-# INLINE withInstanceState #-}
   withInstanceState istance val cont = do
     changeSet %= addContractStatesToCS istance val
@@ -883,7 +888,7 @@ instance SchedulerMonad pv m => TransactionMonad pv (LocalT r m) where
 --   this is not necessary for the correctness of this function. In the case
 --   where the returned energy exceeds remaining energy this function will
 --   return either with 'OutOfEnergy' or 'outOfBlockEnergy'.
-withExternal :: (Cost.ResourceMeasure r, TransactionMonad pv m) => (r ->  m (Maybe (a, r))) -> m a
+withExternal :: (Cost.ResourceMeasure r, TransactionMonad m) => (r ->  m (Maybe (a, r))) -> m a
 withExternal f = do
   (availableEnergy, reason) <- getEnergy
   f (Cost.fromEnergy availableEnergy) >>= \case
@@ -897,13 +902,13 @@ withExternal f = do
 
 -- |Like 'withExternal' but takes a pure action that only transforms energy and does
 -- not return a value. This is a convenience wrapper only.
-withExternalPure_ :: (Cost.ResourceMeasure r, TransactionMonad pv m) => (r -> Maybe r) -> m ()
+withExternalPure_ :: (Cost.ResourceMeasure r, TransactionMonad m) => (r -> Maybe r) -> m ()
 withExternalPure_ f = withExternal (return . fmap ((),) . f)
 
 
 -- |Helper function to log when a transaction was invalid.
 {-# INLINE logInvalidBlockItem #-}
-logInvalidBlockItem :: SchedulerMonad pv m => BlockItem -> FailureKind -> m ()
+logInvalidBlockItem :: SchedulerMonad m => BlockItem -> FailureKind -> m ()
 logInvalidBlockItem WithMetadata{wmdData=NormalTransaction{},..} fk =
   logEvent Scheduler LLWarning $ "Transaction with hash " ++ show wmdHash ++ " was invalid with reason: " ++ show fk
 logInvalidBlockItem WithMetadata{wmdData=CredentialDeployment cred} fk =
@@ -912,14 +917,14 @@ logInvalidBlockItem WithMetadata{wmdData=ChainUpdate{},..} fk =
   logEvent Scheduler LLWarning $ "Chain update with hash " ++ show wmdHash ++ " was invalid with reason: " ++ show fk
 
 {-# INLINE logInvalidTransaction #-}
-logInvalidTransaction :: SchedulerMonad pv m => Transaction -> FailureKind -> m ()
+logInvalidTransaction :: SchedulerMonad m => Transaction -> FailureKind -> m ()
 logInvalidTransaction WithMetadata{..} fk =
   logEvent Scheduler LLWarning $ "Transaction with hash " ++ show wmdHash ++ " was invalid with reason: " ++ show fk
 
-logInvalidCredential :: SchedulerMonad pv m => CredentialDeploymentWithMeta -> FailureKind -> m ()
+logInvalidCredential :: SchedulerMonad m => CredentialDeploymentWithMeta -> FailureKind -> m ()
 logInvalidCredential WithMetadata{..} fk =
   logEvent Scheduler LLWarning $ "Credential with registration id " ++ (show . ID.credId . credential $ wmdData) ++ " was invalid with reason " ++ show fk
 
-logInvalidChainUpdate :: SchedulerMonad pv m => WithMetadata UpdateInstruction -> FailureKind -> m ()
+logInvalidChainUpdate :: SchedulerMonad m => WithMetadata UpdateInstruction -> FailureKind -> m ()
 logInvalidChainUpdate WithMetadata{..} fk =
   logEvent Scheduler LLWarning $ "Chain update with hash " ++ show wmdHash ++ " was invalid with reason: " ++ show fk

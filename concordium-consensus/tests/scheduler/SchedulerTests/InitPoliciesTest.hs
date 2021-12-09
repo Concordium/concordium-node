@@ -15,6 +15,7 @@ import qualified Data.Map.Strict as Map
 
 import Concordium.ID.Types
 import Concordium.Wasm
+import Concordium.GlobalState.Wasm
 import Concordium.Scheduler.WasmIntegration
 
 import Concordium.Types.DummyData

@@ -47,7 +47,7 @@ makeBakersByStake = mbs 0
             where
                 (account, kp, ident) = makeBakerAccountKeys bid s
                 binfo = FullBakerInfo {
-                    _bakerInfo = BakerInfo {
+                    _theBakerInfo = BakerInfo {
                         _bakerIdentity = bakerId ident,
                         _bakerElectionVerifyKey = bakerElectionPublicKey ident,
                         _bakerSignatureVerifyKey = bakerSignPublicKey ident,

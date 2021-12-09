@@ -25,6 +25,7 @@ import Concordium.Types.Accounts (
     bakerAggregationVerifyKey,
     bakerElectionVerifyKey,
     bakerSignatureVerifyKey,
+    bakerInfo,
  )
 
 import Concordium.Scheduler.Types hiding (Payload(..))

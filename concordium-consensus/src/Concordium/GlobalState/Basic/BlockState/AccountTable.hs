@@ -15,56 +15,60 @@ import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.Types.HashableTo
 import Concordium.Types
 
-data AccountTable (pv :: ProtocolVersion) = Empty | Tree !(AT pv)
+data AccountTable (av :: AccountVersion) = Empty | Tree !(AT av)
 
-instance HashableTo H.Hash (AccountTable pv) where
+instance HashableTo H.Hash (AccountTable av) where
     getHash Empty = H.hash "EmptyLFMBTree" -- this is the definition in the persistent implementation, I think it is acceptable to define it this way in the basic one
     getHash (Tree t) = getHash t
 
-data AT (pv :: ProtocolVersion)
-    = Branch !Word8 !Bool !H.Hash !(AT pv) !(AT pv)
-    | Leaf !H.Hash (Account pv)
+data AT (av :: AccountVersion)
+    = Branch !Word8 !Bool !H.Hash !(AT av) !(AT av)
+    | Leaf !(AccountHash av) (Account av)
 
-instance HashableTo H.Hash (AT pv) where
+instance HashableTo H.Hash (AT av) where
     getHash (Branch _ _ h _ _) = h
-    getHash (Leaf h _) = h
+    getHash (Leaf (AccountHash h) _) = h
 
-nextLevel :: AT pv -> Word8
+nextLevel :: AT av -> Word8
 nextLevel (Branch lvl _ _ _ _) = lvl + 1
 nextLevel (Leaf _ _) = 0
 
-full :: AT pv -> Bool
+full :: AT av -> Bool
 full (Branch _ f _ _ _) = f
 full (Leaf _ _) = True
 
-mkLeaf :: IsProtocolVersion pv => Account pv -> AT pv
+mkLeaf :: IsAccountVersion av => Account av -> AT av
 mkLeaf acct = Leaf (getHash acct) acct
 {-# INLINE mkLeaf #-}
 
-mkBranch :: Word8 -> Bool -> AT pv -> AT pv -> AT pv
+mkBranch :: Word8 -> Bool -> AT av -> AT av -> AT av
 mkBranch lvl f l r = Branch lvl f (H.hashShort $ H.hashToShortByteString (getHash l) <> H.hashToShortByteString (getHash r)) l r
 {-# INLINE mkBranch #-}
 
-empty :: AccountTable pv
+empty :: AccountTable av
 empty = Empty
 
-lookup' :: AccountIndex -> AT pv -> Maybe (Account pv)
+lookup' :: AccountIndex -> AT av -> Maybe (Account av)
 lookup' 0 (Leaf _ acct) = Just acct
 lookup' _ (Leaf _ _) = Nothing
 lookup' x (Branch (fromIntegral -> branchBit) _ _ l r)
     | testBit x branchBit = lookup' (clearBit x branchBit) r
     | otherwise = lookup' x l
 
-lookup :: AccountIndex -> AccountTable pv -> Maybe (Account pv)
+lookup :: AccountIndex -> AccountTable av -> Maybe (Account av)
 lookup _ Empty = Nothing
 lookup x (Tree t) = lookup' x t
 
-append :: forall pv. IsProtocolVersion pv => Account pv -> AccountTable pv -> (AccountIndex, AccountTable pv)
+append :: forall av. IsAccountVersion av => Account av -> AccountTable av -> (AccountIndex, AccountTable av)
 append acct Empty = (0, Tree (Leaf (getHash acct) acct))
-append acct (Tree t) = (append' t) & _2 %~ Tree
+append acct (Tree t) = append' t & _2 %~ Tree
     where
-        append' :: AT pv -> (AccountIndex, AT pv)
-        append' l@(Leaf h _) = (1, Branch 0 True (H.hashShort $ H.hashToShortByteString h <> H.hashToShortByteString newHash) l newLeaf)
+        append' :: AT av -> (AccountIndex, AT av)
+        append' l@(Leaf h _) = (1, Branch 0 True branchHash l newLeaf)
+            where
+                branchHash = H.hashShort $
+                        H.hashToShortByteString (theAccountHash h)
+                        <> H.hashToShortByteString (theAccountHash newHash)
         append' b@(Branch lvl True _ _ _) = (bit (fromIntegral lvl + 1), mkBranch (lvl + 1) False b newLeaf)
         append' (Branch lvl False _ l r) = let (i', r') = append' r in
                                                 (setBit i' (fromIntegral lvl),
@@ -73,7 +77,7 @@ append acct (Tree t) = (append' t) & _2 %~ Tree
         newHash = getHash acct
 
 -- |Get the size of an 'AccountTable'.
-size :: AccountTable pv -> Word64
+size :: AccountTable av -> Word64
 size Empty = 0
 size (Tree t) = size' t
     where
@@ -81,10 +85,10 @@ size (Tree t) = size' t
         size' (Branch lvl True _ _ _) = bit (fromIntegral lvl + 1)
         size' (Branch lvl False _ _ r) = setBit (size' r) (fromIntegral lvl)
 
-type instance Index (AT pv) = AccountIndex
-type instance IxValue (AT pv) = Account pv
+type instance Index (AT av) = AccountIndex
+type instance IxValue (AT av) = Account av
 
-instance IsProtocolVersion pv => Ixed (AT pv) where
+instance IsAccountVersion av => Ixed (AT av) where
     ix i upd l@(Leaf _ acct)
         | i == 0    = mkLeaf <$> upd acct
         | otherwise = pure l
@@ -92,16 +96,16 @@ instance IsProtocolVersion pv => Ixed (AT pv) where
         | testBit i (fromIntegral lvl) = mkBranch lvl f l <$> ix (clearBit i (fromIntegral lvl)) upd r
         | otherwise = (\l' -> mkBranch lvl f l' r) <$> ix i upd l
 
-type instance Index (AccountTable pv) = AccountIndex
-type instance IxValue (AccountTable pv) = Account pv
+type instance Index (AccountTable av) = AccountIndex
+type instance IxValue (AccountTable av) = Account av
 
-instance IsProtocolVersion pv => Ixed (AccountTable pv) where
+instance IsAccountVersion av => Ixed (AccountTable av) where
     ix _ _ Empty = pure Empty
     ix i upd a@(Tree t)
         | i < bit (fromIntegral (nextLevel t)) = Tree <$> ix i upd t
         | otherwise = pure a
 
-toList :: AccountTable pv -> [(AccountIndex, Account pv)]
+toList :: AccountTable av -> [(AccountIndex, Account av)]
 toList Empty = []
 toList (Tree t) = toL 0 t
     where
