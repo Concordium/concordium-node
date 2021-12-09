@@ -4,6 +4,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE TypeApplications #-}
 module Concordium.GlobalState.Block(
     BlockFinalizationData,
     module Concordium.GlobalState.Block
@@ -112,6 +113,7 @@ blockVersion :: SProtocolVersion pv -> Version
 blockVersion SP1 = 2
 blockVersion SP2 = 2
 blockVersion SP3 = 2
+blockVersion SP4 = 2
 {-# INLINE blockVersion #-}
 
 -- |Type class that supports serialization of a block.
@@ -254,8 +256,8 @@ instance (IsProtocolVersion pv) => EncodeBlock pv BakedBlock where
 -- |Deserialized a normal (non-genesis) block according to the V1/V2 format,
 -- except for the initial slot number, which is provided as a parameter.
 -- The arrival time for the transactions is also provided as a parameter.
-getBakedBlockAtSlot :: Slot -> TransactionTime -> Get BakedBlock
-getBakedBlockAtSlot sl arrivalTime = do
+getBakedBlockAtSlot :: SProtocolVersion pv -> Slot -> TransactionTime -> Get BakedBlock
+getBakedBlockAtSlot spv sl arrivalTime = do
         bfBlockPointer <- get
         bfBlockBaker <- get
         bfBlockBakerKey <- get
@@ -264,24 +266,24 @@ getBakedBlockAtSlot sl arrivalTime = do
         bfBlockFinalizationData <- get
         bbStateHash <- get
         bbTransactionOutcomesHash <- get
-        bbTransactions <- getListOf (getBlockItemV0 arrivalTime)
+        bbTransactions <- getListOf (getBlockItemV0 spv arrivalTime)
         bbSignature <- get
         return BakedBlock{bbSlot = sl, bbFields = BlockFields{..}, ..}
 
 -- |Deserialized a normal (non-genesis) block according to the V1/V2 format.
 -- The arrival time for the transactions is provided as a parameter.
-getBakedBlock :: TransactionTime -> Get BakedBlock
-getBakedBlock arrivalTime = do
+getBakedBlock :: SProtocolVersion pv -> TransactionTime -> Get BakedBlock
+getBakedBlock spv arrivalTime = do
         sl <- get
         if sl == genesisSlot then
             fail "Unexpected genesis block"
         else
-            getBakedBlockAtSlot sl arrivalTime
+            getBakedBlockAtSlot spv sl arrivalTime
 
 type instance DecodeBlockMetadata BakedBlock = TransactionTime
 
-instance (IsProtocolVersion pv) => DecodeBlock pv BakedBlock where
-    getBlock _ = getBakedBlock
+instance forall pv. (IsProtocolVersion pv) => DecodeBlock pv BakedBlock where
+    getBlock _ = getBakedBlock (protocolVersion @pv)
 
 -- |Representation of a block
 --
@@ -333,11 +335,11 @@ instance (IsProtocolVersion pv) => EncodeBlock pv (Block pv) where
 
 type instance DecodeBlockMetadata (Block pv) = TransactionTime
 
-instance (IsProtocolVersion pv) => DecodeBlock pv (Block pv) where
+instance forall pv. (IsProtocolVersion pv) => DecodeBlock pv (Block pv) where
     getBlock _ arrivalTime = do
         sl <- get
         if sl == 0 then GenesisBlock <$> get
-        else NormalBlock <$> getBakedBlockAtSlot sl arrivalTime
+        else NormalBlock <$> getBakedBlockAtSlot (protocolVersion @pv) sl arrivalTime
 
 -- |A baked block, pre-hashed with its arrival time.
 --

@@ -1,5 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE StandaloneDeriving #-}
 
 -- |This module defines types for blockchain parameters, including genesis data,
 -- baker parameters and finalization parameters.
@@ -137,33 +140,39 @@ instance FromJSON RuntimeParameters where
 -- These are slightly different to the 'UpdatePayload' type,
 -- specifically in that for the foundation account we store
 -- the account index rather than the account address.
-data UpdateValue
-    = -- |Protocol updates.
-      UVProtocol !ProtocolUpdate
+data UpdateValue (cpv :: ChainParametersVersion) where
+    -- |Protocol updates.
+    UVProtocol :: forall cpv. !ProtocolUpdate -> UpdateValue cpv
     -- |Updates to the election difficulty parameter.
-    | UVElectionDifficulty !ElectionDifficulty
+    UVElectionDifficulty :: forall cpv. !ElectionDifficulty -> UpdateValue cpv
     -- |Updates to the euro:energy exchange rate.
-    | UVEuroPerEnergy !ExchangeRate
+    UVEuroPerEnergy :: forall cpv. !ExchangeRate -> UpdateValue cpv
     -- |Updates to the GTU:euro exchange rate.
-    | UVMicroGTUPerEuro !ExchangeRate
+    UVMicroGTUPerEuro :: forall cpv. !ExchangeRate -> UpdateValue cpv
     -- |Updates to the foundation account.
-    | UVFoundationAccount !AccountIndex
+    UVFoundationAccount :: forall cpv. !AccountIndex -> UpdateValue cpv
     -- |Updates to the mint distribution.
-    | UVMintDistribution !MintDistribution
+    UVMintDistribution :: forall cpv. !MintDistribution -> UpdateValue cpv
     -- |Updates to the transaction fee distribution.
-    | UVTransactionFeeDistribution !TransactionFeeDistribution
+    UVTransactionFeeDistribution :: forall cpv. !TransactionFeeDistribution -> UpdateValue cpv
     -- |Updates to the GAS rewards.
-    | UVGASRewards !GASRewards
-    -- |Updates to the baker minimum threshold
-    | UVBakerStakeThreshold !Amount
+    UVGASRewards :: forall cpv. !GASRewards -> UpdateValue cpv
+    -- |Updates to the pool parameters.
+    UVPoolParameters :: forall cpv. !(PoolParameters cpv) -> UpdateValue cpv
     -- |Adds a new anonymity revoker
-    | UVAddAnonymityRevoker !ArInfo
+    UVAddAnonymityRevoker :: forall cpv. !ArInfo -> UpdateValue cpv
     -- |Adds a new identity provider
-    | UVAddIdentityProvider !IpInfo
+    UVAddIdentityProvider :: forall cpv. !IpInfo -> UpdateValue cpv
     -- |Updates to root keys.
-    | UVRootKeys !(HigherLevelKeys RootKeysKind)
+    UVRootKeys :: forall cpv. !(HigherLevelKeys RootKeysKind) -> UpdateValue cpv
     -- |Updates to level 1 keys.
-    | UVLevel1Keys !(HigherLevelKeys Level1KeysKind)
+    UVLevel1Keys :: forall cpv. !(HigherLevelKeys Level1KeysKind) -> UpdateValue cpv
     -- |Updates to level 2 keys.
-    | UVLevel2Keys !Authorizations
-    deriving (Eq, Show)
+    UVLevel2Keys :: forall cpv. !(Authorizations cpv) -> UpdateValue cpv
+    -- |Updates to cooldown parameters for chain parameter version 1.
+    UVCooldownParameters :: !(CooldownParameters 'ChainParametersV1) -> UpdateValue 'ChainParametersV1
+    -- |Updates to time parameters for chain parameters version 1.
+    UVTimeParameters :: !(TimeParameters 'ChainParametersV1) -> UpdateValue 'ChainParametersV1
+
+deriving instance Eq (UpdateValue cpv)
+deriving instance Show (UpdateValue cpv)

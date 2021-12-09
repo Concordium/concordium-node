@@ -10,6 +10,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 --    Module      : Concordium.GlobalState.Persistent.BlobStore
@@ -526,7 +529,6 @@ instance (BlobStorable m a, BlobStorable m b, MHashableTo m H.Hash a) => BlobSto
     (r, v') <- storeUpdate v
     return (r, Some v')
 
-
 -- | Blobbed is a fixed point of the functor `f` wrapped in references of type @ref@
 newtype Blobbed ref f = Blobbed {unblobbed :: ref (f (Blobbed ref f))}
 
@@ -727,16 +729,19 @@ instance MonadBlobStore m => BlobStorable m Word64
 
 instance MonadBlobStore m => BlobStorable m AccountEncryptedAmount
 instance (MonadBlobStore m, Serialize (PersistingAccountData pv)) => BlobStorable m (PersistingAccountData pv)
-instance MonadBlobStore m => BlobStorable m Authorizations
+instance (MonadBlobStore m, IsChainParametersVersion cpv) => BlobStorable m (Authorizations cpv)
 instance MonadBlobStore m => BlobStorable m (HigherLevelKeys a)
 instance MonadBlobStore m => BlobStorable m ProtocolUpdate
 instance MonadBlobStore m => BlobStorable m ExchangeRate
 instance MonadBlobStore m => BlobStorable m ElectionDifficulty
 instance MonadBlobStore m => BlobStorable m AccountReleaseSchedule
 instance MonadBlobStore m => BlobStorable m MintRate
-instance MonadBlobStore m => BlobStorable m MintDistribution
-instance MonadBlobStore m => BlobStorable m TransactionFeeDistribution
-instance MonadBlobStore m => BlobStorable m GASRewards
+instance MonadBlobStore m => BlobStorable m Parameters.MintDistribution
+instance MonadBlobStore m => BlobStorable m Parameters.TransactionFeeDistribution
+instance MonadBlobStore m => BlobStorable m Parameters.GASRewards
+instance (MonadBlobStore m, IsChainParametersVersion cpv) => BlobStorable m (Parameters.PoolParameters cpv)
+instance (MonadBlobStore m, IsChainParametersVersion cpv) => BlobStorable m (Parameters.CooldownParameters cpv)
+instance (MonadBlobStore m, IsChainParametersVersion cpv) => BlobStorable m (Parameters.TimeParameters cpv)
 instance MonadBlobStore m => BlobStorable m (Map AccountAddress Timestamp)
 instance MonadBlobStore m => BlobStorable m WasmModule
 
@@ -823,15 +828,37 @@ instance (BlobStorable m a, MHashableTo m H.Hash a) => BlobStorable m (Nullable 
         (r, v') <- storeUpdate v
         return (r, Some v')
 
+type HashedBufferedRefForCPV1 (cpv :: ChainParametersVersion) a =
+    JustForCPV1 cpv (HashedBufferedRef a)
+
+instance
+    (BlobStorable m a, MHashableTo m H.Hash a, IsChainParametersVersion cpv) =>
+    BlobStorable m (HashedBufferedRefForCPV1 cpv a)
+    where
+    store NothingForCPV1 = return ()
+    store (JustCPV1ForCPV1 v) = store v
+    load = case chainParametersVersion @cpv of
+            SCPV0 -> return (pure NothingForCPV1)
+            SCPV1 -> fmap (fmap JustCPV1ForCPV1) load
+    storeUpdate NothingForCPV1 = return (pure (), n)
+    storeUpdate (JustCPV1ForCPV1 v) = do
+        (r, v') <- storeUpdate v
+        return (r, JustCPV1ForCPV1 v')
+
 -- |This class abstracts values that can be cached in some monad.
 class Cacheable m a where
     -- |Recursively cache a value of type @a@.
     cache :: a -> m a
     default cache :: (Applicative m) => a -> m a
     cache = pure
+
 instance (Applicative m, Cacheable m a) => Cacheable m (Nullable a) where
     cache Null = pure Null
     cache (Some v) = Some <$> cache v
+
+instance (Applicative m, Cacheable m a) => Cacheable m (JustForCPV1 cpv a) where
+    cache NothingForCPV1 = pure NothingForCPV1
+    cache (JustCPV1ForCPV1 a) = JustCPV1ForCPV1 <$> cache a
 
 instance (BlobStorable m a, Cacheable m a) => Cacheable m (BufferedRef a) where
     cache BRBlobbed{..} = do
@@ -874,3 +901,6 @@ instance (Applicative m) => Cacheable m BakerInfo
 instance (Applicative m) => Cacheable m Amount
 -- Required for caching Updates
 instance (Applicative m) => Cacheable m (StoreSerialized a)
+instance (Applicative m) => Cacheable m (Parameters.PoolParameters cpv)
+instance (Applicative m) => Cacheable m (Parameters.CooldownParameters cpv)
+instance (Applicative m) => Cacheable m (Parameters.TimeParameters cpv)
