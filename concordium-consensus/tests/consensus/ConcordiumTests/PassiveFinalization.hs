@@ -95,7 +95,7 @@ myRunSkovT a handlers ctx st = liftIO $ flip runLoggerT doLog $ do
         doLog _ _ _ = return () -- traceM $ show src ++ ": " ++ msg
 
 type BakerState = (BakerIdentity, SkovContext (Config DummyTimer), SkovState (Config DummyTimer))
-type BakerInformation = (FullBakerInfo, BakerIdentity, Account PV)
+type BakerInformation = (FullBakerInfo, BakerIdentity, Account (AccountVersionFor PV))
 
 -- This test has the following set up:
 -- There are two bakers, baker1 and baker2, and a finalization-committee member, finMember.
@@ -217,7 +217,7 @@ bake bid n = do
           (\BS.BlockPointer {_bpBlock = NormalBlock block} -> return block)
           mb
 
-store :: (SkovMonad PV m, MonadFail m) => BakedBlock -> m ()
+store :: (SkovMonad m, MonadFail m) => BakedBlock -> m ()
 store block = storeBlock (makePendingBlock block dummyTime) >>= \case
     ResultSuccess -> return()
     result        -> fail $ "Could not store block " ++ show block ++ ". Reason: " ++ show result

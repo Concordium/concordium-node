@@ -528,7 +528,7 @@ setPAD f acc@PersistentAccount{..} = do
   arsHash <- getHashM =<< refLoad _accountReleaseSchedule
   let newPData = f pData
   newPDataRef <- refMake newPData
-  persistingHash <- getHashM _persistingData
+  persistingHash <- getHashM newPDataRef
   stakeHash <- getHashM _accountStake
   let newHash = makeAccountHash AccountHashInputs{
               ahiNextNonce = _accountNonce,

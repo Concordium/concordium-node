@@ -27,6 +27,7 @@ import Concordium.Logger
 import Concordium.Crypto.EncryptedTransfers
 import Concordium.Utils
 import qualified Concordium.Wasm as Wasm
+import qualified Concordium.GlobalState.Wasm as GSWasm
 import Concordium.Scheduler.Types
 import qualified Concordium.Cost as Cost
 import Concordium.Types.Accounts hiding (getAccountBaker)
@@ -53,7 +54,7 @@ class (Monad m) => StaticInformation m where
   getChainMetadata :: m ChainMetadata
 
   -- |Get a module interface, if available.
-  getModuleInterfaces :: ModuleRef -> m (Maybe Wasm.ModuleInterface)
+  getModuleInterfaces :: ModuleRef -> m (Maybe GSWasm.ModuleInterface)
 
   -- |Get maximum allowed block energy.
   getMaxBlockEnergy :: m Energy
@@ -102,7 +103,7 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
   -- |Commit a module interface and module value to global state. Returns @True@
   -- if this was successful, and @False@ if a module with the given Hash already
   -- existed. Also store the code of the module for archival purposes.
-  commitModule :: (Wasm.ModuleInterface, Wasm.WasmModule) -> m Bool
+  commitModule :: (GSWasm.ModuleInterface, Wasm.WasmModule) -> m Bool
 
   -- |Create new instance in the global state.
   -- The instance is parametrised by the address, and the return value is the

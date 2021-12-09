@@ -38,6 +38,7 @@ import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.GlobalState.Basic.BlockState.Bakers
 import qualified Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.Basic.BlockState.Account
+import qualified Concordium.GlobalState.Wasm as GSWasm
 import qualified Concordium.GlobalState.Basic.BlockState.Accounts as Accounts
 import qualified Concordium.GlobalState.Basic.BlockState.Modules as Modules
 import qualified Concordium.GlobalState.Basic.BlockState.Instances as Instances
@@ -53,7 +54,6 @@ import Concordium.ID.Types (credId)
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types.HashableTo
 import Concordium.Utils.Serialization
-import qualified Concordium.Wasm as Wasm
 
 data BasicBirkParameters = BasicBirkParameters {
     -- |The currently-registered bakers.
@@ -304,7 +304,7 @@ getBlockState migration = do
     (_blockAccounts :: Accounts.Accounts pv) <- Accounts.deserializeAccounts migration cryptoParams
     let resolveModule modRef initName = do
             mi <- Modules.getInterface modRef _blockModules
-            return (Wasm.miExposedReceive mi ^. at initName . non Set.empty, mi)
+            return (GSWasm.miExposedReceive mi ^. at initName . non Set.empty, mi)
     _blockInstances <- Instances.getInstancesV0 resolveModule
     _blockUpdates <- getUpdatesV0 
     _blockEpochBlocksBaked <- getHashedEpochBlocksV0

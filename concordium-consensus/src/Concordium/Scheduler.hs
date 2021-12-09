@@ -39,6 +39,7 @@ module Concordium.Scheduler
   ,execTransactions
   ,FilteredTransactions(..)
   ) where
+import qualified Concordium.GlobalState.Wasm as GSWasm
 import qualified Concordium.Wasm as Wasm
 import qualified Concordium.Scheduler.WasmIntegration as Wasm
 import Concordium.Scheduler.Types
@@ -54,7 +55,7 @@ import qualified Concordium.ID.Types as ID
 
 import Concordium.GlobalState.BlockState (AccountOperations(..), AccountAllowance (..))
 import qualified Concordium.GlobalState.BakerInfo as BI
-import qualified Concordium.Types.Instance as Ins
+import qualified Concordium.GlobalState.Instance as Ins
 import Concordium.GlobalState.Types
 import qualified Concordium.Cost as Cost
 import Concordium.Crypto.EncryptedTransfers
@@ -549,7 +550,7 @@ handleDeployModule wtc mod =
       case Wasm.processModule mod of
         Nothing -> rejectTransaction ModuleNotWF
         Just iface -> do
-          let mhash = Wasm.miModuleRef iface
+          let mhash = GSWasm.miModuleRef iface
           exists <- isJust <$> getModuleInterfaces mhash
           when exists $ rejectTransaction (ModuleHashAlreadyExists mhash)
           return ((iface, mod), mhash)
@@ -615,11 +616,11 @@ handleInitContract wtc initAmount modref initName param =
 
             -- First try to get the module interface of the parent module of the contract.
             iface <- liftLocal (getModuleInterfaces modref) `rejectingWith` InvalidModuleReference modref
-            let iSize = Wasm.miModuleSize iface
+            let iSize = GSWasm.miModuleSize iface
             tickEnergy $ Cost.lookupModule iSize
 
             -- Then get the particular contract interface (in particular the type of the init method).
-            unless (Set.member initName (Wasm.miExposedInit iface)) $ rejectTransaction $ InvalidInitMethod modref initName
+            unless (Set.member initName (GSWasm.miExposedInit iface)) $ rejectTransaction $ InvalidInitMethod modref initName
 
             cm <- liftLocal getChainMetadata
             -- Finally run the initialization function of the contract, resulting in an initial state
@@ -651,8 +652,8 @@ handleInitContract wtc initAmount modref initName param =
             -- Withdraw the amount the contract is initialized with from the sender account.
             cs' <- addAmountToCS senderAccount (amountDiff 0 initAmount) (ls ^. changeSet)
 
-            let receiveMethods = OrdMap.findWithDefault Set.empty initName (Wasm.miExposedReceive iface)
-            let ins = makeInstance modref initName receiveMethods iface model initAmount senderAddress
+            let receiveMethods = OrdMap.findWithDefault Set.empty initName (GSWasm.miExposedReceive iface)
+            let ins = makeInstance initName receiveMethods iface model initAmount senderAddress
             addr <- putNewInstance ins
 
             -- add the contract initialization to the change set and commit the changes
@@ -755,7 +756,7 @@ handleMessage originAddr istance sender transferAmount receiveName parameter = d
   let cref = instanceAddress iParams
   let receivefuns = instanceReceiveFuns . instanceParameters $ istance
   unless (Set.member receiveName receivefuns) $ rejectTransaction $
-      InvalidReceiveMethod (Wasm.miModuleRef . instanceModuleInterface $ iParams) receiveName
+      InvalidReceiveMethod (GSWasm.miModuleRef . instanceModuleInterface $ iParams) receiveName
   -- Now we also check that the owner account of the receiver instance has at least one valid credential
   -- and reject the transaction if not.
   let ownerAccountAddress = instanceOwner iParams
@@ -777,7 +778,7 @@ handleMessage originAddr istance sender transferAmount receiveName parameter = d
   -- FIXME: Once errors can be caught in smart contracts update this to not terminate the transaction.
   let iface = instanceModuleInterface iParams
   -- charge for looking up the module
-  tickEnergy $ Cost.lookupModule (Wasm.miModuleSize iface)
+  tickEnergy $ Cost.lookupModule (GSWasm.miModuleSize iface)
 
   result <- runInterpreter (return . Wasm.applyReceiveFun iface cm receiveCtx receiveName parameter transferAmount model)
              `rejectingWith'` wasmRejectToRejectReasonReceive cref receiveName parameter

@@ -27,7 +27,7 @@ import Concordium.Types.HashableTo
 import Concordium.Types
 
 import Concordium.GlobalState.AccountTransactionIndex
-import Concordium.Types.Instance
+import Concordium.GlobalState.Instance
 import qualified Concordium.GlobalState.Classes as C
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockMonads

@@ -55,9 +55,13 @@ For the APPLEIDPASS, setting up an [app-specific password](https://support.apple
 3. After clicking *install* the `preinstall` script runs.
    - It cleans up previous installs by:
      - Stopping any running node and collector services.
-     - Deletes `/Library/Concordium Node` if existing.
+     - Deletes the following from `/Library/Concordium Node` (if they exist):
+       - `concordium-node`
+       - `node-collector`
+       - `REPORT_TO_NETWORK_DASHBOARD_MAINNET`
+       - `REPORT_TO_NETWORK_DASHBOARD_TESTNET`
    - `preinstall` logs to the file `/var/log/install.log` 
-4. Then the payload is installed:
+4. Then it installs the payload:
 
     ```
     .
@@ -79,29 +83,32 @@ For the APPLEIDPASS, setting up an [app-specific password](https://support.apple
     │       │   └── ...
     │       └── Concordium\ Node\ Uninstaller.app
     │           └── ...
-    └── Library
-        ├── Application\ Support
-        │   └── Concordium\ Node
-        │       ├── Mainnet
-        │       │   ├── Config
-        │       │   └── Data
-        │       │       └── genesis.dat
-        │       └── Testnet
-        │           ├── Config
-        │           └── Data
-        │               └── genesis.dat
+    ├── Library
+    |   ├── Application\ Support
+    |   │   └── Concordium\ Node
+    |   │       ├── Mainnet
+    |   │       │   ├── Config
+    |   │       │   └── Data
+    |   │       │       └── genesis.dat
+    |   │       └── Testnet
+    |   │           ├── Config
+    |   │           └── Data
+    |   │               └── genesis.dat
+    |   └── Concordium\ Node
+    |       ├── concordium-node
+    |       ├── libs
+    |       │   ├── libHSQuickCheck-2.14.2-88oxj61ONgG1QbYzt1cUFu-ghc8.10.4.dylib
+    |       │   ├── ...
+    |       │   └── libwasm_chain_integration.dylib
+    |       └── node-collector
+    └── tmp
         └── Concordium\ Node
-            ├── LaunchDaemons
-            │   ├── software.concordium.mainnet.node-collector.plist
-            │   ├── software.concordium.mainnet.node.plist
-            │   ├── software.concordium.testnet.node-collector.plist
-            │   └── software.concordium.testnet.node.plist
-            ├── concordium-node
-            ├── libs
-            │   ├── libHSQuickCheck-2.14.2-88oxj61ONgG1QbYzt1cUFu-ghc8.10.4.dylib
-            │   ├── ...
-            │   └── libwasm_chain_integration.dylib
-            └── node-collector    
+            └── LaunchDaemons
+                ├── software.concordium.mainnet.node-collector.plist
+                ├── software.concordium.mainnet.node.plist
+                ├── software.concordium.testnet.node-collector.plist
+                └── software.concordium.testnet.node.plist
+
     ```
 
 5. The `postinstall` script runs:
@@ -110,6 +117,8 @@ For the APPLEIDPASS, setting up an [app-specific password](https://support.apple
      nodes with custom options (e.g. a local chain).
    - Configures the services according to options in
      `/tmp/software.concordium.node.installer.config`
+      - Copies the service files from `/tmp/Concordium Node/LaunchDaemons` to
+        `/Library/Concordium Node/LaunchDaemons` (unless they already exist).
       - Run on startup: Create symlinks to the service files:
         `/Library/LaunchDaemons/software.concordium.mainnet.node.plist ->
         /Library/Concordium Node/LaunchDaemons/software.concordium.mainnet.node.plist`

@@ -3,6 +3,9 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
+-- FIXME: This is to suppress compiler warnings for derived instances of BlockStateOperations.
+-- This may be fixed in GHC 9.0.1.
+{-# OPTIONS_GHC -Wno-redundant-constraints #-}
 -- |This module lifts the abstractions declared in the globalstate package to an
 -- abstracted new type `GlobalStateM` that inherits all the monad behaviors defined
 -- in this package.
@@ -447,7 +450,7 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
         isd <- runReaderT (runPersistentBlockStateMonad initGS) pbsc
                 `onException` liftIO (destroyBlobStore pbscBlobStore)
         return (pbsc, isd, NoLogContext)
-    shutdownGlobalState _ _ (PersistentBlockStateContext{..}) st _ = do
+    shutdownGlobalState _ _ PersistentBlockStateContext{..} st _ = do
         closeBlobStore pbscBlobStore
         closeSkovPersistentData st
 
