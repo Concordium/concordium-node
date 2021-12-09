@@ -181,7 +181,11 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
   -- * @BADuplicateAggregationKey@: the aggregation key is already in use.
   --
   -- Note that if two results could apply, the first in this list takes precedence.  
-  addBaker :: (AccountVersionFor (MPV m) ~ 'AccountV0) => AccountIndex -> BakerAdd -> m BakerAddResult
+  addBaker
+    :: (AccountVersionFor (MPV m) ~ 'AccountV0, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0)
+    => AccountIndex
+    -> BakerAdd
+    -> m BakerAddResult
 
   -- |Remove the baker associated with an account.
   -- The removal takes effect after a cooling-off period.
@@ -195,7 +199,10 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
   -- * @BRInvalidBaker@: the account address is not valid, or the account is not a baker.
   --
   -- * @BRChangePending@: the baker is currently in a cooling-off period and so cannot be removed.
-  removeBaker :: (AccountVersionFor (MPV m) ~ 'AccountV0) => AccountIndex -> m BakerRemoveResult
+  removeBaker
+    :: (AccountVersionFor (MPV m) ~ 'AccountV0, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0)
+    => AccountIndex
+    -> m BakerRemoveResult
 
   -- |Update the keys associated with an account.
   -- It is assumed that the keys have already been checked for validity/ownership as
@@ -209,7 +216,11 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
   -- * @BKUInvalidBaker@: the account does not exist or is not currently a baker.
   --
   -- * @BKUDuplicateAggregationKey@: the aggregation key is a duplicate.
-  updateBakerKeys :: (AccountVersionFor (MPV m) ~ 'AccountV0) => AccountIndex -> BakerKeyUpdate -> m BakerKeyUpdateResult
+  updateBakerKeys
+    :: (AccountVersionFor (MPV m) ~ 'AccountV0, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0)
+    => AccountIndex
+    -> BakerKeyUpdate
+    -> m BakerKeyUpdateResult
 
   -- |Update the stake associated with an account.
   -- A reduction in stake will be delayed by the current cool-off period.
@@ -231,7 +242,11 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
   -- * @BSUChangePending@: the change could not be made since the account is already in a cooling-off period.
   --
   -- * @BSUInsufficientBalance@: the account does not have sufficient balance to cover the staked amount.
-  updateBakerStake :: (AccountVersionFor (MPV m) ~ 'AccountV0) => AccountIndex -> Amount -> m BakerStakeUpdateResult
+  updateBakerStake
+    :: (AccountVersionFor (MPV m) ~ 'AccountV0, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0)
+    => AccountIndex
+    -> Amount
+    -> m BakerStakeUpdateResult
 
   -- |Update whether the baker automatically restakes the rewards it earns.
   --
@@ -264,7 +279,7 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
   -- * Chain updates
 
   -- |Get the current authorized keys for updates.
-  getUpdateKeyCollection :: m UpdateKeysCollection
+  getUpdateKeyCollection :: m (UpdateKeysCollection (ChainParametersVersionFor (MPV m)))
 
   -- |Get the next sequence number of updates of a given type.
   getNextUpdateSequenceNumber :: UpdateType -> m UpdateSequenceNumber
@@ -274,7 +289,7 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
   -- The next sequence number will be correspondingly incremented,
   -- and any queued updates of the given type with a later effective
   -- time are cancelled.
-  enqueueUpdate :: TransactionTime -> UpdateValue -> m ()
+  enqueueUpdate :: TransactionTime -> UpdateValue (ChainParametersVersionFor (MPV m)) -> m ()
 
 
 

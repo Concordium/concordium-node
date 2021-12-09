@@ -37,9 +37,8 @@ import Concordium.GlobalState.Parameters
 import Concordium.Types.SeedState
 import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.AccountTransactionIndex
-import Concordium.Types.UpdateQueues
-    (HasUpdates(currentParameters))
 import Concordium.Scheduler.Types
+import Concordium.Types.UpdateQueues (currentParameters)
 import Concordium.Scheduler.Environment
 import Concordium.Scheduler.EnvironmentImplementation
     (BSOMonadWrapper(..),
@@ -373,7 +372,7 @@ mintAndReward :: (BlockStateOperations m, BlockPointerMonad m)
     -- ^Transaction fees
     -> FreeTransactionCounts
     -- ^Number of "free" transactions of each type
-    -> [(Slot, UpdateValue)]
+    -> [(Slot, UpdateValue (ChainParametersVersionFor (MPV m)))]
     -- ^Ordered chain updates since the last block
     -> m (UpdatableBlockState m)
 mintAndReward bshandle blockParent slotNumber bid isNewEpoch mfinInfo transFees freeCounts updates = do

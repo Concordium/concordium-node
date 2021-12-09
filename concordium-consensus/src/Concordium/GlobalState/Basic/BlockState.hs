@@ -176,7 +176,7 @@ data BlockState (pv :: ProtocolVersion) = BlockState {
     _blockAnonymityRevokers :: !(Hashed ARS.AnonymityRevokers),
     _blockBirkParameters :: !BasicBirkParameters,
     _blockCryptographicParameters :: !(Hashed CryptographicParameters),
-    _blockUpdates :: !Updates,
+    _blockUpdates :: !(Updates pv),
     _blockReleaseSchedule :: !(Map AccountAddress Timestamp), -- ^Contains an entry for each account that has pending releases and the first timestamp for said account
     _blockTransactionOutcomes :: !Transactions.TransactionOutcomes,
     _blockEpochBlocksBaked :: !HashedEpochBlocks
@@ -199,7 +199,13 @@ instance HashableTo StateHash (HashedBlockState pv) where
 
 -- |Construct a block state that is empty, except for the supplied 'BirkParameters',
 -- 'CryptographicParameters', 'Authorizations' and 'ChainParameters'.
-emptyBlockState :: BasicBirkParameters -> CryptographicParameters -> UpdateKeysCollection -> ChainParameters -> BlockState pv
+emptyBlockState
+    :: IsProtocolVersion pv =>
+    BasicBirkParameters ->
+    CryptographicParameters ->
+    UpdateKeysCollection (ChainParametersVersionFor pv) ->
+    ChainParameters pv ->
+    BlockState pv
 emptyBlockState _blockBirkParameters cryptographicParameters keysCollection chainParams = BlockState
           { _blockTransactionOutcomes = Transactions.emptyTransactionOutcomes,
             ..
@@ -614,7 +620,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                     }
 
     bsoAddBaker bs ai BakerAdd{..} = do
-      bakerStakeThreshold <- BS.bsoGetChainParameters bs <&> (^. cpBakerStakeThreshold)
+      bakerStakeThreshold <- BS.bsoGetChainParameters bs <&> (^. cpPoolParameters . ppBakerStakeThreshold)
       return $! case bs ^? blockAccounts . Accounts.indexedAccount ai of
         -- Cannot resolve the account
         Nothing -> (BAInvalidAccount, bs)
@@ -654,7 +660,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
         _ -> (BKUInvalidBaker, bs)
 
     bsoUpdateBakerStake bs ai newStake = do
-      bakerStakeThreshold <- BS.bsoGetChainParameters bs <&> (^. cpBakerStakeThreshold)
+      bakerStakeThreshold <- BS.bsoGetChainParameters bs <&> (^. cpPoolParameters . ppBakerStakeThreshold)
       return $! case bs ^? blockAccounts . Accounts.indexedAccount ai of
         -- The account is valid and has a baker
         Just Account{_accountStaking = AccountStakeBaker ab@AccountBaker{..}}
@@ -664,7 +670,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
           | otherwise ->
               let mres = case compare newStake _stakedAmount of
                           LT -> let curEpoch = epoch $ bs ^. blockBirkParameters . birkSeedState
-                                    cooldown = 2 + bs ^. blockUpdates . currentParameters . cpBakerExtraCooldownEpochs
+                                    cooldown = 2 + bs ^. blockUpdates . currentParameters . cpCooldownParameters . cpBakerExtraCooldownEpochs
                                 in
                                   if newStake < bakerStakeThreshold
                                   then Left BSUStakeUnderThreshold
@@ -695,7 +701,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
           -- We can make the change
           | otherwise ->
               let curEpoch = epoch $ bs ^. blockBirkParameters . birkSeedState
-                  cooldown = 2 + bs ^. blockUpdates . currentParameters . cpBakerExtraCooldownEpochs
+                  cooldown = 2 + bs ^. blockUpdates . currentParameters . cpCooldownParameters . cpBakerExtraCooldownEpochs
               in (BRRemoved (BakerId ai) (curEpoch + cooldown), 
                   bs & blockAccounts . Accounts.indexedAccount ai . accountStaking .~ AccountStakeBaker (ab & bakerPendingChange .~ RemoveStake (PendingChangeEffectiveV0 $ curEpoch + cooldown)))
         -- The account is not valid or has no baker
@@ -806,7 +812,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
       return $! bs & blockReleaseSchedule %~ updateBRS
 
     {-# INLINE bsoGetEnergyRate #-}
-    bsoGetEnergyRate bs = return $! bs ^. blockUpdates . currentParameters . cpEnergyRate
+    bsoGetEnergyRate bs = return $! bs ^. blockUpdates . currentParameters . energyRate
 
     bsoGetChainParameters bs = return $! bs ^. blockUpdates . currentParameters
 
@@ -863,8 +869,8 @@ initialState :: (IsProtocolVersion pv)
              -> [Account (AccountVersionFor pv)]
              -> IPS.IdentityProviders
              -> ARS.AnonymityRevokers
-             -> UpdateKeysCollection
-             -> ChainParameters
+             -> UpdateKeysCollection (ChainParametersVersionFor pv)
+             -> ChainParameters pv
              -> BlockState pv
 initialState seedState cryptoParams genesisAccounts ips anonymityRevokers keysCollection chainParams = BlockState {..}
   where

@@ -261,7 +261,7 @@ class AccountOperations m => BlockStateQuery m where
     -- |Get the value of the election difficulty that was used to bake this block.
     getCurrentElectionDifficulty :: BlockState m -> m ElectionDifficulty
     -- |Get the current chain parameters and pending updates.
-    getUpdates :: BlockState m -> m UQ.Updates
+    getUpdates :: BlockState m -> m (UQ.Updates (MPV m))
     -- |Get the protocol update status. If a protocol update has taken effect,
     -- returns @Left protocolUpdate@. Otherwise, returns @Right pendingProtocolUpdates@.
     -- The @pendingProtocolUpdates@ is a (possibly-empty) list of timestamps and protocol
@@ -427,7 +427,12 @@ class (BlockStateQuery m) => BlockStateOperations m where
   --
   -- The caller MUST ensure that the staked amount does not exceed the total
   -- balance on the account.
-  bsoAddBaker :: (AccountVersionFor (MPV m) ~ 'AccountV0) => UpdatableBlockState m -> AccountIndex -> BakerAdd -> m (BakerAddResult, UpdatableBlockState m)
+  bsoAddBaker
+    :: (AccountVersionFor (MPV m) ~ 'AccountV0, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0)
+    => UpdatableBlockState m
+    -> AccountIndex
+    -> BakerAdd
+    -> m (BakerAddResult, UpdatableBlockState m)
 
   -- |Update the keys associated with an account.
   -- It is assumed that the keys have already been checked for validity/ownership as
@@ -465,7 +470,12 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- * @BSUChangePending id@: the change could not be made since the account is already in a cooling-off period.
   --
   -- The caller MUST ensure that the staked amount does not exceed the total balance on the account.
-  bsoUpdateBakerStake :: (AccountVersionFor (MPV m) ~ 'AccountV0) => UpdatableBlockState m -> AccountIndex -> Amount -> m (BakerStakeUpdateResult, UpdatableBlockState m)
+  bsoUpdateBakerStake
+    :: (AccountVersionFor (MPV m) ~ 'AccountV0, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0)
+    => UpdatableBlockState m
+    -> AccountIndex
+    -> Amount
+    -> m (BakerStakeUpdateResult, UpdatableBlockState m)
 
   -- |Update whether a baker's earnings are automatically restaked.
   --
@@ -487,7 +497,11 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- * @BRInvalidBaker@: the account address is not valid, or the account is not a baker.
   --
   -- * @BRChangePending id@: the baker is currently in a cooling-off period and so cannot be removed.
-  bsoRemoveBaker :: (AccountVersionFor (MPV m) ~ 'AccountV0) => UpdatableBlockState m -> AccountIndex -> m (BakerRemoveResult, UpdatableBlockState m)
+  bsoRemoveBaker
+    :: (AccountVersionFor (MPV m) ~ 'AccountV0, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0)
+    => UpdatableBlockState m
+    -> AccountIndex
+    -> m (BakerRemoveResult, UpdatableBlockState m)
 
   -- |Add an amount to a baker's account as a reward. The baker's stake is increased
   -- correspondingly if the baker is set to restake rewards.
@@ -526,19 +540,28 @@ class (BlockStateQuery m) => BlockStateOperations m where
   bsoAddSpecialTransactionOutcome :: UpdatableBlockState m -> SpecialTransactionOutcome -> m (UpdatableBlockState m)
 
   -- |Process queued updates.
-  bsoProcessUpdateQueues :: UpdatableBlockState m -> Timestamp -> m (Map.Map TransactionTime UpdateValue, UpdatableBlockState m)
+  bsoProcessUpdateQueues
+    :: UpdatableBlockState m
+    -> Timestamp
+    -> m (Map.Map TransactionTime (UpdateValue (ChainParametersVersionFor (MPV m))), UpdatableBlockState m)
 
   -- |Unlock the amounts up to the given timestamp
   bsoProcessReleaseSchedule :: UpdatableBlockState m -> Timestamp -> m (UpdatableBlockState m)
 
   -- |Get the current 'Authorizations' for validating updates.
-  bsoGetUpdateKeyCollection :: UpdatableBlockState m -> m UpdateKeysCollection
+  bsoGetUpdateKeyCollection
+    :: UpdatableBlockState m
+    -> m (UpdateKeysCollection (ChainParametersVersionFor (MPV m)))
 
   -- |Get the next 'UpdateSequenceNumber' for a given update type.
   bsoGetNextUpdateSequenceNumber :: UpdatableBlockState m -> UpdateType -> m UpdateSequenceNumber
 
   -- |Enqueue an update to take effect at the specified time.
-  bsoEnqueueUpdate :: UpdatableBlockState m -> TransactionTime -> UpdateValue -> m (UpdatableBlockState m)
+  bsoEnqueueUpdate
+    :: UpdatableBlockState m
+    -> TransactionTime
+    -> (UpdateValue (ChainParametersVersionFor (MPV m)))
+    -> m (UpdatableBlockState m)
 
   -- |Overwrite the election difficulty, removing any queued election difficulty updates.
   -- This is intended to be used for protocol updates that affect the election difficulty in
@@ -559,7 +582,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   bsoGetEnergyRate :: UpdatableBlockState m -> m EnergyRate
 
   -- |Get the current chain parameters.
-  bsoGetChainParameters :: UpdatableBlockState m -> m ChainParameters
+  bsoGetChainParameters :: UpdatableBlockState m -> m (ChainParameters (MPV m))
 
   -- |Get the number of blocks baked in this epoch, both in total and
   -- per baker.

@@ -205,19 +205,28 @@ dispatch msg = do
 
                    AddBaker{..} ->
                      onlyAccountV0 $ 
-                      handleAddBaker (mkWTC TTAddBaker) abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyKey abProofSig abProofElection abProofAggregation abBakingStake abRestakeEarnings
+                     onlyChainPatametersV0 $
+                     handleAddBaker (mkWTC TTAddBaker) abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyKey abProofSig abProofElection abProofAggregation abBakingStake abRestakeEarnings
 
                    RemoveBaker ->
-                     onlyAccountV0 $ handleRemoveBaker (mkWTC TTRemoveBaker)
+                     onlyAccountV0 $
+                     onlyChainPatametersV0 $
+                     handleRemoveBaker (mkWTC TTRemoveBaker)
 
                    UpdateBakerStake{..} ->
-                     onlyAccountV0 $ handleUpdateBakerStake (mkWTC TTUpdateBakerStake) ubsStake
+                     onlyAccountV0 $
+                     onlyChainPatametersV0 $
+                     handleUpdateBakerStake (mkWTC TTUpdateBakerStake) ubsStake
 
                    UpdateBakerRestakeEarnings{..} ->
-                     onlyAccountV0 $ handleUpdateBakerRestakeEarnings (mkWTC TTUpdateBakerRestakeEarnings) ubreRestakeEarnings
+                     onlyAccountV0 $
+                     onlyChainPatametersV0 $
+                     handleUpdateBakerRestakeEarnings (mkWTC TTUpdateBakerRestakeEarnings) ubreRestakeEarnings
 
                    UpdateBakerKeys{..} ->
-                     onlyAccountV0 $ handleUpdateBakerKeys (mkWTC TTUpdateBakerKeys) ubkElectionVerifyKey ubkSignatureVerifyKey ubkAggregationVerifyKey ubkProofSig ubkProofElection ubkProofAggregation
+                     onlyAccountV0 $
+                     onlyChainPatametersV0 $
+                     handleUpdateBakerKeys (mkWTC TTUpdateBakerKeys) ubkElectionVerifyKey ubkSignatureVerifyKey ubkAggregationVerifyKey ubkProofSig ubkProofElection ubkProofAggregation
 
                    UpdateCredentialKeys{..} ->
                      handleUpdateCredentialKeys (mkWTC TTUpdateCredentialKeys) uckCredId uckKeys (transactionSignature msg)
@@ -261,6 +270,13 @@ dispatch msg = do
     onlyAccountV0 c = case accountVersionFor (protocolVersion @(MPV m)) of
       SAccountV0 -> c
       _ -> error "Operation unsupported for this protocol version."
+    -- This function errors if the chain parameters version is not V0.
+    -- It is used where parsing of the transaction would fail if the protocol version does not
+    -- imply account version V0, so the error case should never occur.
+    onlyChainPatametersV0 :: ((ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0) => a) -> a
+    onlyChainPatametersV0 c = case chainParametersVersionFor (protocolVersion @(MPV m)) of
+      SCPV0 -> c
+      _ -> error "Operation unsupported for this chain parameter version."
 
 handleTransferWithSchedule :: forall m .
   SchedulerMonad m
@@ -923,7 +939,8 @@ checkSignatureVerifyKeyProof = Proofs.checkDlog25519ProofBlock
 -- the transaction could fail (after checking the proofs) with 'InvalidAccountReference'.
 -- If the balance check has not been made, the behaviour is undefined. (Most likely,
 -- this will lead to an underflow and an invariant violation.)
-handleAddBaker :: (AccountVersionFor (MPV m) ~ 'AccountV0, SchedulerMonad m)
+handleAddBaker
+    :: (AccountVersionFor (MPV m) ~ 'AccountV0, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0, SchedulerMonad m)
     => WithDepositContext m
     -> BakerElectionVerifyKey
     -> BakerSignVerifyKey
@@ -995,8 +1012,8 @@ handleAddBaker wtc abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyK
 --  * If the account is not a baker, the transaction fails ('NotABaker').
 --  * If the account is the cool-down period for another baker change, the transaction fails ('BakerInCooldown').
 --  * Otherwise, the baker is removed, which takes effect after the cool-down period.
-handleRemoveBaker ::
-  (AccountVersionFor (MPV m) ~ 'AccountV0, SchedulerMonad m)
+handleRemoveBaker
+    :: (AccountVersionFor (MPV m) ~ 'AccountV0, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0, SchedulerMonad m)
     => WithDepositContext m
     -> m (Maybe TransactionSummary)
 handleRemoveBaker wtc =
@@ -1022,7 +1039,7 @@ handleRemoveBaker wtc =
             BI.BRChangePending _ -> return (TxReject BakerInCooldown, energyCost, usedEnergy)
 
 handleUpdateBakerStake ::
-  (AccountVersionFor (MPV m) ~ 'AccountV0, SchedulerMonad m)
+  (AccountVersionFor (MPV m) ~ 'AccountV0, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0, SchedulerMonad m)
     => WithDepositContext m
     -> Amount
     -- ^new stake
@@ -1061,7 +1078,7 @@ handleUpdateBakerStake wtc newStake =
             return (TxReject StakeUnderMinimumThresholdForBaking, energyCost, usedEnergy)
 
 handleUpdateBakerRestakeEarnings ::
-  (AccountVersionFor (MPV m) ~ 'AccountV0, SchedulerMonad m)
+  (AccountVersionFor (MPV m) ~ 'AccountV0, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0, SchedulerMonad m)
     => WithDepositContext m
     -> Bool
     -- ^Whether to restake earnings
@@ -1098,7 +1115,7 @@ handleUpdateBakerRestakeEarnings wtc newRestakeEarnings = withDeposit wtc c k
 -- If the balance check has not been made, the behaviour is undefined. (Most likely,
 -- this will lead to an underflow and an invariant violation.)
 handleUpdateBakerKeys ::
-  (AccountVersionFor (MPV m) ~ 'AccountV0, SchedulerMonad m)
+  (AccountVersionFor (MPV m) ~ 'AccountV0, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0, SchedulerMonad m)
     => WithDepositContext m
     -> BakerElectionVerifyKey
     -> BakerSignVerifyKey
@@ -1269,10 +1286,11 @@ handleUpdateCredentialKeys wtc cid keys sigs =
 -- * Chain updates
 
 -- |Handle a chain update message
-handleChainUpdate ::
-  SchedulerMonad m
-  => WithMetadata UpdateInstruction
-  -> m TxResult
+handleChainUpdate
+    :: forall m
+     . SchedulerMonad m
+    => WithMetadata UpdateInstruction
+    -> m TxResult
 handleChainUpdate WithMetadata{wmdData = ui@UpdateInstruction{..}, ..} = do
   -- Check that the timeout is not in the past
   cm <- getChainMetadata
@@ -1301,16 +1319,22 @@ handleChainUpdate WithMetadata{wmdData = ui@UpdateInstruction{..}, ..} = do
           MintDistributionUpdatePayload u -> checkSigAndUpdate $ UVMintDistribution u
           TransactionFeeDistributionUpdatePayload u -> checkSigAndUpdate $ UVTransactionFeeDistribution u
           GASRewardsUpdatePayload u -> checkSigAndUpdate $ UVGASRewards u
-          BakerStakeThresholdUpdatePayload u -> checkSigAndUpdate $ UVBakerStakeThreshold u
+          BakerStakeThresholdUpdatePayload u -> checkSigAndUpdateOnlyCPV0 $ UVPoolParameters u
           AddAnonymityRevokerUpdatePayload u -> checkSigAndUpdate $ UVAddAnonymityRevoker u
           AddIdentityProviderUpdatePayload u -> checkSigAndUpdate $ UVAddIdentityProvider u
           RootUpdatePayload (RootKeysRootUpdate u) -> checkSigAndUpdate $ UVRootKeys u
           RootUpdatePayload (Level1KeysRootUpdate u) -> checkSigAndUpdate $ UVLevel1Keys u
-          RootUpdatePayload (Level2KeysRootUpdate u) -> checkSigAndUpdate $ UVLevel2Keys u
+          RootUpdatePayload (Level2KeysRootUpdate u) -> checkSigAndUpdateOnlyCPV0 $ UVLevel2Keys u
           Level1UpdatePayload (Level1KeysLevel1Update u) -> checkSigAndUpdate $ UVLevel1Keys u
-          Level1UpdatePayload (Level2KeysLevel1Update u) -> checkSigAndUpdate $ UVLevel2Keys u
+          Level1UpdatePayload (Level2KeysLevel1Update u) -> checkSigAndUpdateOnlyCPV0 $ UVLevel2Keys u
 
   where
+    checkSigAndUpdateOnlyCPV0 :: UpdateValue 'ChainParametersV0 -> m TxResult
+    checkSigAndUpdateOnlyCPV0 = do
+        case chainParametersVersion @(ChainParametersVersionFor (MPV m)) of
+            SCPV0 -> checkSigAndUpdate
+            SCPV1 -> error "unexpected update for chain parameters version which is not V0"
+    checkSigAndUpdate :: UpdateValue (ChainParametersVersionFor (MPV m)) -> m TxResult
     checkSigAndUpdate change = do
       -- Check that the signatures use the appropriate keys and are valid.
       keyCollection <- getUpdateKeyCollection

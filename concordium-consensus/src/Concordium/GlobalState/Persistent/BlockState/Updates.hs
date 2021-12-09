@@ -363,7 +363,7 @@ emptyPendingUpdates = PendingUpdates <$> e <*> e <*> e <*> e <*> e <*> e <*> e <
     where
         e :: MHashableTo m H.Hash (UpdateQueue a) => m (HashedBufferedRef (UpdateQueue a))
         e = makeHashedBufferedRef emptyUpdateQueue
-        eForCPV1 :: MHashableTo m H.Hash (UpdateQueue a) => m (HashedBufferedRefForCPV1 (UpdateQueue a))
+        eForCPV1 :: MHashableTo m H.Hash (UpdateQueue a) => m (HashedBufferedRefForCPV1 cpv (UpdateQueue a))
         eForCPV1 =
             case chainParametersVersion @cpv of
                 SCPV0 -> return NothingForCPV1

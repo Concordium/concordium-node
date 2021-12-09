@@ -122,8 +122,8 @@ makeGenesisData :: forall pv.
     -> AnonymityRevokers -- ^Initial anonymity revokers.
     -> [GenesisAccount] -- ^Additional accounts.
     -> Energy -- ^Maximum energy allowed to be consumed by the transactions in a block
-    -> UpdateKeysCollection -- ^Authorized keys for chain updates
-    -> ChainParameters -- ^Initial chain parameters
+    -> UpdateKeysCollection (ChainParametersVersionFor pv) -- ^Authorized keys for chain updates
+    -> ChainParameters pv -- ^Initial chain parameters
     -> (GenesisData pv, [(BakerIdentity, FullBakerInfo)], Amount)
 makeGenesisData
         genesisTime

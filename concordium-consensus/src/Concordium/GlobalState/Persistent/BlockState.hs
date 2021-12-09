@@ -277,7 +277,7 @@ data BlockStatePointers (pv :: ProtocolVersion) = BlockStatePointers {
     bspAnonymityRevokers :: !(HashedBufferedRef ARS.AnonymityRevokers),
     bspBirkParameters :: !(PersistentBirkParameters pv),
     bspCryptographicParameters :: !(HashedBufferedRef CryptographicParameters),
-    bspUpdates :: !(BufferedRef Updates),
+    bspUpdates :: !(BufferedRef (Updates pv)),
     bspReleaseSchedule :: !(BufferedRef (Map.Map AccountAddress Timestamp)),
     -- FIXME: Store transaction outcomes in a way that allows for individual indexing.
     bspTransactionOutcomes :: !Transactions.TransactionOutcomes,
@@ -337,7 +337,7 @@ instance (IsProtocolVersion pv, MonadBlobStore m) => BlobStorable m (BlockStateP
                 pars
                 pbps
                 pcryptps
-                put bspTransactionOutcomes
+                Transactions.putTransactionOutcomes bspTransactionOutcomes
                 pupdates
                 preleases
                 pEpochBlocks
@@ -363,7 +363,8 @@ instance (IsProtocolVersion pv, MonadBlobStore m) => BlobStorable m (BlockStateP
         mars <- label "Anonymity revokers" load
         mbps <- label "Birk parameters" load
         mcryptps <- label "Cryptographic parameters" load
-        bspTransactionOutcomes <- label "Transaction outcomes" get
+        bspTransactionOutcomes <- label "Transaction outcomes" $
+            Transactions.getTransactionOutcomes (protocolVersion @pv)
         mUpdates <- label "Updates" load
         mReleases <- label "Release schedule" load
         mEpochBlocks <- label "Epoch blocks" load
@@ -453,14 +454,20 @@ initialPersistentState :: (IsProtocolVersion pv, MonadBlobStore m)
              -> [TransientAccount.Account (AccountVersionFor pv)]
              -> IPS.IdentityProviders
              -> ARS.AnonymityRevokers
-             -> UpdateKeysCollection
-             -> ChainParameters
+             -> UpdateKeysCollection (ChainParametersVersionFor pv)
+             -> ChainParameters pv
              -> m (HashedPersistentBlockState pv)
 initialPersistentState ss cps accts ips ars keysCollection chainParams = makePersistent $ Basic.initialState ss cps accts ips ars keysCollection chainParams
 
 -- |A mostly empty block state, but with the given birk parameters, 
 -- cryptographic parameters, update authorizations and chain parameters.
-emptyBlockState :: (MonadBlobStore m) => PersistentBirkParameters pv -> CryptographicParameters -> UpdateKeysCollection -> ChainParameters -> m (PersistentBlockState pv)
+emptyBlockState
+    :: (IsProtocolVersion pv, MonadBlobStore m)
+    => PersistentBirkParameters pv
+    -> CryptographicParameters
+    -> UpdateKeysCollection (ChainParametersVersionFor pv)
+    -> ChainParameters pv
+    -> m (PersistentBlockState pv)
 emptyBlockState bspBirkParameters cryptParams keysCollection chainParams = do
   modules <- refMake Modules.emptyModules
   identityProviders <- refMake IPS.emptyIdentityProviders
@@ -669,7 +676,8 @@ doTransitionEpochBakers pbs newEpoch = do
             h2 <- getHashM b
             return $ if (h1 :: H.Hash) == h2 then b else a
 
-doAddBaker :: (IsProtocolVersion pv, MonadBlobStore m, AccountVersionFor pv ~ 'AccountV0)
+doAddBaker
+    :: (IsProtocolVersion pv, MonadBlobStore m, AccountVersionFor pv ~ 'AccountV0, ChainParametersVersionFor pv ~ 'ChainParametersV0)
     => PersistentBlockState pv
     -> AccountIndex
     -> BakerAdd
@@ -682,7 +690,7 @@ doAddBaker pbs ai BakerAdd{..} = do
             -- Account is already a baker
             Just PersistentAccount{_accountStake = PersistentAccountStakeBaker{}} -> return (BAAlreadyBaker (BakerId ai), pbs)
             Just PersistentAccount{} -> do
-                  cp <- (^. cpBakerStakeThreshold) <$> doGetChainParameters pbs
+                  cp <- (^. cpPoolParameters . ppBakerStakeThreshold) <$> doGetChainParameters pbs
                   if baStake < cp then
                       return (BAStakeUnderThreshold, pbs)
                   else do
@@ -765,7 +773,12 @@ doUpdateBakerKeys pbs ai bku@BakerKeyUpdate{..} = do
             -- Cannot resolve the account, or it is not a baker
             _ -> return (BKUInvalidBaker, pbs)
 
-doUpdateBakerStake :: (IsProtocolVersion pv, MonadBlobStore m, AccountVersionFor pv ~ 'AccountV0) => PersistentBlockState pv -> AccountIndex -> Amount -> m (BakerStakeUpdateResult, PersistentBlockState pv)
+doUpdateBakerStake
+    :: (IsProtocolVersion pv, MonadBlobStore m, AccountVersionFor pv ~ 'AccountV0, ChainParametersVersionFor pv ~ 'ChainParametersV0)
+    => PersistentBlockState pv
+    -> AccountIndex
+    -> Amount
+    -> m (BakerStakeUpdateResult, PersistentBlockState pv)
 doUpdateBakerStake pbs ai newStake = do
         bsp <- loadPBS pbs
 
@@ -780,9 +793,9 @@ doUpdateBakerStake pbs ai newStake = do
                 else do
                     let curEpoch = epoch $ _birkSeedState (bspBirkParameters bsp)
                     upds <- refLoad (bspUpdates bsp)
-                    cooldown <- (2+) . _cpBakerExtraCooldownEpochs . unStoreSerialized <$> refLoad (currentParameters upds)
+                    cooldown <- (2+) . _cpBakerExtraCooldownEpochs . _cpCooldownParameters . unStoreSerialized <$> refLoad (currentParameters upds)
 
-                    bakerStakeThreshold <- (^. cpBakerStakeThreshold) <$> doGetChainParameters pbs
+                    bakerStakeThreshold <- (^. cpPoolParameters . ppBakerStakeThreshold) <$> doGetChainParameters pbs
                     let applyUpdate updateStake = do
                            let updAcc acc = do
                                   newPAB <- refMake $ updateStake acctBkr
@@ -821,8 +834,11 @@ doUpdateBakerRestakeEarnings pbs ai newRestakeEarnings = do
             _ -> return (BREUInvalidBaker, pbs)
 
 
-doRemoveBaker :: (IsProtocolVersion pv, MonadBlobStore m, AccountVersionFor pv ~ 'AccountV0)
-    => PersistentBlockState pv -> AccountIndex -> m (BakerRemoveResult, PersistentBlockState pv)
+doRemoveBaker
+    :: (IsProtocolVersion pv, MonadBlobStore m, AccountVersionFor pv ~ 'AccountV0, ChainParametersVersionFor pv ~ 'ChainParametersV0)
+    => PersistentBlockState pv
+    -> AccountIndex
+    -> m (BakerRemoveResult, PersistentBlockState pv)
 doRemoveBaker pbs ai = do
         bsp <- loadPBS pbs
         Accounts.indexedAccount ai (bspAccounts bsp) >>= \case
@@ -838,7 +854,7 @@ doRemoveBaker pbs ai = do
                     -- transition.
                     let curEpoch = epoch $ _birkSeedState (bspBirkParameters bsp)
                     upds <- refLoad (bspUpdates bsp)
-                    cooldown <- (2+) . _cpBakerExtraCooldownEpochs . unStoreSerialized <$> refLoad (currentParameters upds)
+                    cooldown <- (2+) . _cpBakerExtraCooldownEpochs . _cpCooldownParameters . unStoreSerialized <$> refLoad (currentParameters upds)
                     let updAcc acc = do
                             newPAB <- refMake ab{_bakerPendingChange = RemoveStake (PendingChangeEffectiveV0 $ curEpoch + cooldown)}
                             acc' <- setPersistentAccountStake acc (PersistentAccountStakeBaker newPAB)
@@ -1119,13 +1135,17 @@ doGetCurrentElectionDifficulty pbs = do
         upds <- refLoad (bspUpdates bsp)
         _cpElectionDifficulty . unStoreSerialized <$> refLoad (currentParameters upds)
 
-doGetUpdates :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m UQ.Updates
+doGetUpdates :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m (UQ.Updates pv)
 doGetUpdates = makeBasicUpdates <=< refLoad . bspUpdates <=< loadPBS
 
 doGetProtocolUpdateStatus :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m UQ.ProtocolUpdateStatus
 doGetProtocolUpdateStatus = protocolUpdateStatus . bspUpdates <=< loadPBS
 
-doProcessUpdateQueues :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> Timestamp -> m (Map.Map TransactionTime UpdateValue, PersistentBlockState pv)
+doProcessUpdateQueues
+    :: (IsProtocolVersion pv, MonadBlobStore m)
+    => PersistentBlockState pv
+    -> Timestamp
+    -> m (Map.Map TransactionTime (UpdateValue (ChainParametersVersionFor pv)), PersistentBlockState pv)
 doProcessUpdateQueues pbs ts = do
         bsp <- loadPBS pbs
         let (u, ars, ips) = (bspUpdates bsp, bspAnonymityRevokers bsp, bspIdentityProviders bsp)
@@ -1155,13 +1175,21 @@ doProcessReleaseSchedule pbs ts = do
           bspReleaseSchedule' <- makeBufferedRef $ foldl' (\b (a, t) -> Map.insert a t b) blockReleaseSchedule' accsToReadd
           storePBS pbs (bsp {bspAccounts = bspAccounts', bspReleaseSchedule = bspReleaseSchedule'})
 
-doGetUpdateKeyCollection :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m UpdateKeysCollection
+doGetUpdateKeyCollection
+    :: (IsProtocolVersion pv, MonadBlobStore m)
+    => PersistentBlockState pv
+    -> m (UpdateKeysCollection (ChainParametersVersionFor pv))
 doGetUpdateKeyCollection pbs = do
         bsp <- loadPBS pbs
         u <- refLoad (bspUpdates bsp)
         unStoreSerialized <$> refLoad (currentKeyCollection u)
 
-doEnqueueUpdate :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> TransactionTime -> UpdateValue -> m (PersistentBlockState pv)
+doEnqueueUpdate
+    :: (IsProtocolVersion pv, MonadBlobStore m)
+    => PersistentBlockState pv
+    -> TransactionTime
+    -> UpdateValue (ChainParametersVersionFor pv)
+    -> m (PersistentBlockState pv)
 doEnqueueUpdate pbs effectiveTime payload = do
         bsp <- loadPBS pbs
         u' <- enqueueUpdate effectiveTime payload (bspUpdates bsp)
@@ -1194,7 +1222,7 @@ doGetEnergyRate pbs = do
     bsp <- loadPBS pbs
     lookupEnergyRate (bspUpdates bsp)
 
-doGetChainParameters :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m ChainParameters
+doGetChainParameters :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m (ChainParameters pv)
 doGetChainParameters pbs = do
         bsp <- loadPBS pbs
         lookupCurrentParameters (bspUpdates bsp)
