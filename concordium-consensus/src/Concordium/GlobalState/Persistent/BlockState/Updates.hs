@@ -359,15 +359,10 @@ emptyPendingUpdates
     :: forall m cpv
      . (MonadBlobStore m, IsChainParametersVersion cpv)
     => m (PendingUpdates cpv)
-emptyPendingUpdates = PendingUpdates <$> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> eForCPV1 <*> eForCPV1
+emptyPendingUpdates = PendingUpdates <$> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> justForCPV1A e <*> justForCPV1A e
     where
         e :: MHashableTo m H.Hash (UpdateQueue a) => m (HashedBufferedRef (UpdateQueue a))
         e = makeHashedBufferedRef emptyUpdateQueue
-        eForCPV1 :: MHashableTo m H.Hash (UpdateQueue a) => m (HashedBufferedRefForCPV1 cpv (UpdateQueue a))
-        eForCPV1 =
-            case chainParametersVersion @cpv of
-                SCPV0 -> return NothingForCPV1
-                SCPV1 -> JustCPV1ForCPV1 <$> e
 
 -- |Construct a persistent 'PendingUpdates' from an in-memory one.
 makePersistentPendingUpdates
@@ -977,10 +972,12 @@ enqueueUpdate effectiveTime payload uref = do
             UVRootKeys v -> enqueue effectiveTime v pRootKeysUpdateQueue <&> \newQ -> p {pRootKeysUpdateQueue=newQ}
             UVLevel1Keys v -> enqueue effectiveTime v pLevel1KeysUpdateQueue <&> \newQ -> p {pLevel1KeysUpdateQueue=newQ}
             UVLevel2Keys v -> enqueue effectiveTime v pLevel2KeysUpdateQueue <&> \newQ -> p {pLevel2KeysUpdateQueue=newQ}
-            UVCooldownParameters v -> enqueue effectiveTime v (justForCPV1 pCooldownParametersQueue)
-                                        <&> \newQ -> p {pCooldownParametersQueue = JustCPV1ForCPV1 newQ}
-            UVTimeParameters v -> enqueue effectiveTime v (justForCPV1 pTimeParametersQueue)
-                                    <&> \newQ -> p {pTimeParametersQueue = JustCPV1ForCPV1 newQ}
+            UVCooldownParameters v ->
+                enqueue effectiveTime v (unJustForCPV1 pCooldownParametersQueue)
+                    <&> \newQ -> p {pCooldownParametersQueue = JustForCPV1 newQ}
+            UVTimeParameters v ->
+                enqueue effectiveTime v (unJustForCPV1 pTimeParametersQueue)
+                    <&> \newQ -> p {pTimeParametersQueue = JustForCPV1 newQ}
         refMake u{pendingUpdates = newPendingUpdates}
 
 -- |Overwrite the election difficulty with the specified value and remove

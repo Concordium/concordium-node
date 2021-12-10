@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 module SchedulerTests.UpdateCredentials where
 
 import Control.Monad
@@ -78,7 +79,7 @@ testCases :: [TestCase PV1]
 testCases =
   [ TestCase
     { tcName = "Account Credential updates"
-    , tcParameters = defaultParams {tpInitialBlockState=initialBlockState}
+    , tcParameters = (defaultParams @PV1){tpInitialBlockState=initialBlockState}
     , tcTransactions = [
         -- correctly update a keypair
         ( Runner.TJSON  { payload = Runner.UpdateCredentials (Map.singleton 1 cdi9) [] 1,

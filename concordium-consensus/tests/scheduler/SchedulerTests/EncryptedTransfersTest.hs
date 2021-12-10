@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 module SchedulerTests.EncryptedTransfersTest where
 
 import Lens.Micro.Platform
@@ -201,7 +202,7 @@ mkTestCases = do
   return $ 
     ([ TestCase
       { tcName = "Makes an encrypted transfer"
-      , tcParameters = defaultParams { tpInitialBlockState = initialBlockState }
+      , tcParameters = (defaultParams @PV1){ tpInitialBlockState = initialBlockState }
       , tcTransactions =
         [ ( Runner.TJSON { payload = Runner.TransferToEncrypted 1000
                            , metadata = makeDummyHeader alesAccount 1 100000
@@ -398,7 +399,7 @@ mkTestCases = do
        }
     ], [ TestCase
       { tcName = "Makes an encrypted transfer where protocol version is 2"
-      , tcParameters = defaultParams { tpInitialBlockState = initialBlockState2 }
+      , tcParameters = (defaultParams @PV1){ tpInitialBlockState = initialBlockState2 }
       , tcTransactions =
         [ ( Runner.TJSON { payload = Runner.TransferToEncrypted 1000
                            , metadata = makeDummyHeader alesAccount 1 100000
@@ -590,7 +591,7 @@ mkTestCases = do
       },
           TestCase
       { tcName = "Makes an encrypted transfer with memo where protocol version is 2"
-      , tcParameters = defaultParams { tpInitialBlockState = initialBlockState2 }
+      , tcParameters = (defaultParams @PV1){ tpInitialBlockState = initialBlockState2 }
       , tcTransactions =
         [ ( Runner.TJSON { payload = Runner.TransferToEncrypted 1000
                            , metadata = makeDummyHeader alesAccount 1 100000

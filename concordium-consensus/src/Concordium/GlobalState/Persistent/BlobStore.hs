@@ -841,14 +841,14 @@ instance
     BlobStorable m (HashedBufferedRefForCPV1 cpv a)
     where
     store NothingForCPV1 = return (pure ())
-    store (JustCPV1ForCPV1 v) = store v
+    store (JustForCPV1 v) = store v
     load = case chainParametersVersion @cpv of
             SCPV0 -> return (pure NothingForCPV1)
-            SCPV1 -> fmap (fmap JustCPV1ForCPV1) load
+            SCPV1 -> fmap (fmap JustForCPV1) load
     storeUpdate NothingForCPV1 = return (pure (), NothingForCPV1)
-    storeUpdate (JustCPV1ForCPV1 v) = do
+    storeUpdate (JustForCPV1 v) = do
         (r, v') <- storeUpdate v
-        return (r, JustCPV1ForCPV1 v')
+        return (r, JustForCPV1 v')
 
 -- |This class abstracts values that can be cached in some monad.
 class Cacheable m a where
@@ -862,8 +862,7 @@ instance (Applicative m, Cacheable m a) => Cacheable m (Nullable a) where
     cache (Some v) = Some <$> cache v
 
 instance (Applicative m, Cacheable m a) => Cacheable m (JustForCPV1 cpv a) where
-    cache NothingForCPV1 = pure NothingForCPV1
-    cache (JustCPV1ForCPV1 a) = JustCPV1ForCPV1 <$> cache a
+    cache = traverse cache
 
 instance (BlobStorable m a, Cacheable m a) => Cacheable m (BufferedRef a) where
     cache BRBlobbed{..} = do

@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 module SchedulerTests.TransfersWithScheduleTest where
 
 import Test.Hspec
@@ -45,7 +46,7 @@ testCases1 :: [TestCase PV1]
 testCases1 =
   [ TestCase
     { tcName = "Transfers with schedule"
-    , tcParameters = defaultParams {tpInitialBlockState=initialBlockState, tpChainMeta=ChainMetadata { slotTime = 100 }}
+    , tcParameters = (defaultParams @PV1){tpInitialBlockState=initialBlockState, tpChainMeta=ChainMetadata { slotTime = 100 }}
     , tcTransactions = [
         -- trying to do a scheduled transfer with memo - should get rejected since we have protocol version 1
         ( Runner.TJSON  { payload = Runner.TransferWithScheduleAndMemo thomasAccount (Memo $ BSS.pack [0,1,2,3]) [(101, 10),(102, 11),(103, 12)],
@@ -109,7 +110,7 @@ testCases2 :: [TestCase PV2]
 testCases2 =
   [ TestCase
     { tcName = "Transfers with schedule and memo"
-    , tcParameters = defaultParams {tpInitialBlockState=initialBlockState2, tpChainMeta=ChainMetadata { slotTime = 100 }}
+    , tcParameters = (defaultParams @PV1){tpInitialBlockState=initialBlockState2, tpChainMeta=ChainMetadata { slotTime = 100 }}
     , tcTransactions = [
         -- make a scheduled transfer with memo - should succeed since protocol version is 2
         ( Runner.TJSON  { payload = Runner.TransferWithScheduleAndMemo thomasAccount (Memo $ BSS.pack [0,1,2,3]) [(101, 10),(102, 11),(103, 12)],
@@ -209,7 +210,7 @@ testCases3 :: [TestCase PV3]
 testCases3 =
   [ TestCase
     { tcName = "Transfers with schedule P3"
-    , tcParameters = defaultParams {tpInitialBlockState=initialBlockState3, tpChainMeta=ChainMetadata { slotTime = 100 }}
+    , tcParameters = (defaultParams @PV1){tpInitialBlockState=initialBlockState3, tpChainMeta=ChainMetadata { slotTime = 100 }}
     , tcTransactions = [
         -- should get rejected since sender = receiver, even if addresses are not exactly the same, but refer to the same account.
         ( Runner.TJSON  { payload = Runner.TransferWithSchedule (createAlias alesAccount 2) [(101, 10),(102, 11),(103, 12)],

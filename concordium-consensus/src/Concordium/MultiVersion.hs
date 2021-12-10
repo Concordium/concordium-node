@@ -928,6 +928,13 @@ getCatchUpRequest = do
             cus <- evalSkovT (getCatchUpStatus @(VersionedSkovM _ _ pv) True) (mvrSkovHandlers vc mvr) (vcContext vc) st
             return (vcIndex vc, runPutLazy $ putVersionedCatchUpStatus cus)
 
+currentProtocolVersion :: MVR gsconf finconf SomeProtocolVersion
+currentProtocolVersion = do
+    vvec <- liftIO . readIORef =<< asks mvVersions
+    case Vec.last vvec of
+        EVersionedConfiguration (_ :: VersionedConfiguration gsconf finconf pv) ->
+            return $ SomeProtocolVersion $ protocolVersion @pv
+
 -- |Deserialize and receive a transaction.  The transaction is passed to
 -- the current version of the chain.
 --
@@ -938,10 +945,11 @@ getCatchUpRequest = do
 --    of the current genesis index.
 -- 2. Determine the current genesis index before deserializing to ensure
 --    that the correct format is used.
-receiveTransaction :: ByteString -> MVR gsconf finconf UpdateResult
+receiveTransaction :: forall gsconf finconf. ByteString -> MVR gsconf finconf UpdateResult
 receiveTransaction transactionBS = do
     now <- utcTimeToTransactionTime <$> currentTime
-    case runGet (getExactVersionedBlockItem now) transactionBS of
+    SomeProtocolVersion spv <- currentProtocolVersion
+    case runGet (getExactVersionedBlockItem spv now) transactionBS of
         Left err -> do
             logEvent Runner LLDebug err
             return ResultSerializationFail

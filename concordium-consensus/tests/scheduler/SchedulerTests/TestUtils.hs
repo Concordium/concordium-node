@@ -1,4 +1,7 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 {-|
 Small test framework for transactions.
 Allows to specify test cases consisting of a list of transactions to be executed in order
@@ -75,10 +78,10 @@ data TestParameters pv = TestParameters
   , tpBlockTimeout :: UTCTime
   }
 
-defaultParams :: TestParameters pv
+defaultParams :: forall pv. (IsProtocolVersion pv, ChainParametersVersionFor pv ~ 'ChainParametersV0) => TestParameters pv
 defaultParams = TestParameters
   { tpChainMeta = dummyChainMeta
-  , tpInitialBlockState = createBlockState Acc.emptyAccounts
+  , tpInitialBlockState = createBlockState @pv Acc.emptyAccounts
   , tpEnergyLimit = maxBound
   , tpMaxCredentials = maxBound
   , tpSizeLimit = fromIntegral $ (maxBound :: Int)

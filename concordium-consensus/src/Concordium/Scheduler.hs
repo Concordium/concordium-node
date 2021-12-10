@@ -1078,7 +1078,7 @@ handleUpdateBakerStake wtc newStake =
             return (TxReject StakeUnderMinimumThresholdForBaking, energyCost, usedEnergy)
 
 handleUpdateBakerRestakeEarnings ::
-  (AccountVersionFor (MPV m) ~ 'AccountV0, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0, SchedulerMonad m)
+  (AccountVersionFor (MPV m) ~ 'AccountV0, SchedulerMonad m)
     => WithDepositContext m
     -> Bool
     -- ^Whether to restake earnings

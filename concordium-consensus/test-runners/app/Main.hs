@@ -336,7 +336,7 @@ main = do
                 [Dummy.createCustomAccount 1000000000000 Dummy.mateuszKP Dummy.mateuszAccount]
                 (Energy maxBound)
                 Dummy.dummyKeyCollection
-                (makeChainParameters (makeElectionDifficulty 20000) 1 1 4 10 Dummy.dummyRewardParameters numberOfBakers 300000000000)
+                (makeChainParametersV0 (makeElectionDifficulty 20000) 1 1 4 10 Dummy.dummyRewardParameters numberOfBakers 300000000000)
     BS.writeFile
         ("data" </> ("genesis-" ++ show now) <.> "dat")
         (runPut $ putVersionedGenesisData genesisData)

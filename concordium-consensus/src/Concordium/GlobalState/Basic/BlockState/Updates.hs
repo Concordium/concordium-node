@@ -47,8 +47,8 @@ processValueUpdatesForCPV1 ::
     -- ^Current queue
     -> (v, UpdateQueueForCPV1 'ChainParametersV1 v, Map.Map TransactionTime v)
 processValueUpdatesForCPV1 t a0 uq =
-    let (v, uq1, m) = processValueUpdates t a0 (justForCPV1 uq)
-    in (v, JustCPV1ForCPV1 uq1, m)
+    let (v, uq1, m) = processValueUpdates t a0 (unJustForCPV1 uq)
+    in (v, JustForCPV1 uq1, m)
 
 -- |Process the protocol update queue.  Unlike other queues, once a protocol update occurs, it is not
 -- overridden by later ones.
@@ -203,7 +203,7 @@ nextUpdateSequenceNumberForCPV1
 nextUpdateSequenceNumberForCPV1 uq =
     case chainParametersVersion @cpv of
         SCPV0 -> minUpdateSequenceNumber
-        SCPV1 -> justForCPV1 uq ^. uqNextSequenceNumber
+        SCPV1 -> unJustForCPV1 uq ^. uqNextSequenceNumber
 
 -- |Determine the next sequence number for a given update type.
 lookupNextUpdateSequenceNumber :: forall cpv. IsChainParametersVersion cpv => Updates' cpv -> UpdateType -> UpdateSequenceNumber
@@ -243,9 +243,9 @@ enqueueUpdate effectiveTime (UVPoolParameters upd) = pendingUpdates . pPoolParam
 enqueueUpdate effectiveTime (UVAddAnonymityRevoker upd) = pendingUpdates . pAddAnonymityRevokerQueue %~ enqueue effectiveTime upd
 enqueueUpdate effectiveTime (UVAddIdentityProvider upd) = pendingUpdates . pAddIdentityProviderQueue %~ enqueue effectiveTime upd
 enqueueUpdate effectiveTime (UVCooldownParameters upd) =
-    pendingUpdates . pCooldownParametersQueue %~ JustCPV1ForCPV1 . enqueue effectiveTime upd . justForCPV1
+    pendingUpdates . pCooldownParametersQueue %~ JustForCPV1 . enqueue effectiveTime upd . unJustForCPV1
 enqueueUpdate effectiveTime (UVTimeParameters upd) =
-    pendingUpdates . pTimeParametersQueue %~ JustCPV1ForCPV1 . enqueue effectiveTime upd . justForCPV1
+    pendingUpdates . pTimeParametersQueue %~ JustForCPV1 . enqueue effectiveTime upd . unJustForCPV1
 
 -- |Overwrite the election difficulty with the specified value and remove
 -- any pending updates to the election difficulty from the queue.

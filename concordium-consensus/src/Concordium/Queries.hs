@@ -348,34 +348,42 @@ getBlockInfo bh =
 --   * The transaction outcomes in the block (including special transactions)
 --   * Details of any finalization record in the block
 --   * The state of the chain parameters and any pending updates
-getBlockSummary :: BlockHash -> MVR gsconf finconf (Maybe BlockSummary)
-getBlockSummary = liftSkovQueryBlock $ \bp -> do
-    bs <- blockState bp
-    bsTransactionSummaries <- BS.getOutcomes bs
-    bsSpecialEvents <- BS.getSpecialOutcomes bs
-    bsFinalizationData <- case blockFinalizationData <$> blockFields bp of
-        Just (BlockFinalizationData FinalizationRecord{..}) -> do
-            -- Get the finalization committee by examining the previous finalized block
-            fsFinalizers <-
-                blockAtFinIndex (finalizationIndex - 1) >>= \case
-                    Nothing -> return Vec.empty
-                    Just prevFin -> do
-                        com <- getFinalizationCommittee prevFin
-                        let signers = Set.fromList (finalizationProofParties finalizationProof)
-                            fromPartyInfo i PartyInfo{..} =
-                                FinalizationSummaryParty
-                                    { fspBakerId = partyBakerId,
-                                      fspWeight = fromIntegral partyWeight,
-                                      fspSigned = Set.member (fromIntegral i) signers
-                                    }
-                        return $ Vec.imap fromPartyInfo (parties com)
-            let fsFinalizationBlockPointer = finalizationBlockPointer
-                fsFinalizationIndex = finalizationIndex
-                fsFinalizationDelay = finalizationDelay
-            return $ Just FinalizationSummary{..}
-        _ -> return Nothing
-    bsUpdates <- BS.getUpdates bs
-    return BlockSummary{..}
+getBlockSummary :: forall gsconf finconf. BlockHash -> MVR gsconf finconf (Maybe BlockSummary)
+getBlockSummary = liftSkovQueryBlock getBlockSummarySkovM
+  where
+    getBlockSummarySkovM
+        :: forall pv
+         . SkovMonad (VersionedSkovM gsconf finconf pv)
+        => BlockPointerType (VersionedSkovM gsconf finconf pv)
+        -> VersionedSkovM gsconf finconf pv BlockSummary
+    getBlockSummarySkovM bp = do
+        bs <- blockState bp
+        bsTransactionSummaries <- BS.getOutcomes bs
+        bsSpecialEvents <- BS.getSpecialOutcomes bs
+        bsFinalizationData <- case blockFinalizationData <$> blockFields bp of
+            Just (BlockFinalizationData FinalizationRecord{..}) -> do
+                -- Get the finalization committee by examining the previous finalized block
+                fsFinalizers <-
+                    blockAtFinIndex (finalizationIndex - 1) >>= \case
+                        Nothing -> return Vec.empty
+                        Just prevFin -> do
+                            com <- getFinalizationCommittee prevFin
+                            let signers = Set.fromList (finalizationProofParties finalizationProof)
+                                fromPartyInfo i PartyInfo{..} =
+                                    FinalizationSummaryParty
+                                        { fspBakerId = partyBakerId,
+                                          fspWeight = fromIntegral partyWeight,
+                                          fspSigned = Set.member (fromIntegral i) signers
+                                        }
+                            return $ Vec.imap fromPartyInfo (parties com)
+                let fsFinalizationBlockPointer = finalizationBlockPointer
+                    fsFinalizationIndex = finalizationIndex
+                    fsFinalizationDelay = finalizationDelay
+                return $ Just FinalizationSummary{..}
+            _ -> return Nothing
+        bsUpdates <- BS.getUpdates bs
+        let bsProtocolVersion = protocolVersion @pv
+        return BlockSummary{..}
 
 -- |Get the total amount of GTU in existence and status of the reward accounts.
 getRewardStatus :: BlockHash -> MVR gsconf finconf (Maybe RewardStatus)

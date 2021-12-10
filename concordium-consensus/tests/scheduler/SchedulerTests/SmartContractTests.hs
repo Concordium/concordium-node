@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 {-|
   Functional tests for smart contract host functions as they are invoked from the scheduler.
   See individual test descriptions for details of what is being tested. The tests in this file rely on hand-written Wasm modules.
@@ -48,7 +49,7 @@ runInitTestsFromFile testFile = map f
     f (testName, initParam, resSpec) =
       TestCase
         { tcName = Text.unpack testName,
-          tcParameters = defaultParams {tpInitialBlockState = initialBlockState},
+          tcParameters = (defaultParams @PV1){tpInitialBlockState = initialBlockState},
           tcTransactions =
             [ ( TJSON
                   { payload = DeployModule 0 testFile,
@@ -77,7 +78,7 @@ runReceiveTestsFromFile testFile = map f
     f (testName, rcvParam, resSpec) =
       TestCase
         { tcName = Text.unpack testName,
-          tcParameters = defaultParams {tpInitialBlockState = initialBlockState},
+          tcParameters = (defaultParams @PV1){tpInitialBlockState = initialBlockState},
           tcTransactions =
             [ ( TJSON
                   { payload = DeployModule 0 testFile,

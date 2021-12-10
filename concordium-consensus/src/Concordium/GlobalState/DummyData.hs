@@ -2,6 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 
 module Concordium.GlobalState.DummyData where
@@ -81,7 +82,7 @@ dummyAuthorizationKeyPair = uncurry SigScheme.KeyPairEd25519 . fst $ randomEd255
 
 {-# NOINLINE dummyAuthorizations #-}
 {-# WARNING dummyAuthorizations "Do not use in production." #-}
-dummyAuthorizations :: Authorizations
+dummyAuthorizations :: IsChainParametersVersion cpv => Authorizations cpv
 dummyAuthorizations = Authorizations {
       asKeys = Vec.singleton (correspondingVerifyKey dummyAuthorizationKeyPair),
       asEmergency = theOnly,
@@ -95,7 +96,9 @@ dummyAuthorizations = Authorizations {
       asParamGASRewards = theOnly,
       asBakerStakeThreshold = theOnly,
       asAddAnonymityRevoker = theOnly,
-      asAddIdentityProvider = theOnly
+      asAddIdentityProvider = theOnly,
+      asCooldownParameters = justForCPV1 theOnly,
+      asTimeParameters = justForCPV1 theOnly
     }
   where
     theOnly = AccessStructure (Set.singleton 0) 1
@@ -110,7 +113,7 @@ dummyHigherLevelKeys = HigherLevelKeys {
 
 {-# NOINLINE dummyKeyCollection #-}
 {-# WARNING dummyKeyCollection "Do not use in production." #-}
-dummyKeyCollection :: UpdateKeysCollection
+dummyKeyCollection :: IsChainParametersVersion cpv => UpdateKeysCollection cpv
 dummyKeyCollection = UpdateKeysCollection {
   rootKeys = dummyHigherLevelKeys,
   level1Keys = dummyHigherLevelKeys,
@@ -163,8 +166,8 @@ makeTestingGenesisDataP1 ::
     -> IdentityProviders   -- ^List of initial identity providers.
     -> AnonymityRevokers -- ^Initial anonymity revokers.
     -> Energy  -- ^Maximum limit on the total stated energy of the transactions in a block
-    -> UpdateKeysCollection -- ^Initial update authorizations
-    -> ChainParameters -- ^Initial chain parameters
+    -> UpdateKeysCollection 'ChainParametersV0 -- ^Initial update authorizations
+    -> ChainParameters 'P1 -- ^Initial chain parameters
     -> GenesisData 'P1
 makeTestingGenesisDataP1
   genesisTime
@@ -222,11 +225,12 @@ dummyRewardParameters = RewardParameters {
     }
 }
 
-dummyChainParameters :: ChainParameters
-dummyChainParameters = makeChainParameters (makeElectionDifficulty 50000) 0.0001 1000000 168 10 dummyRewardParameters 0 300000000000
+dummyChainParameters :: ChainParameters' 'ChainParametersV0
+dummyChainParameters = makeChainParametersV0 (makeElectionDifficulty 50000) 0.0001 1000000 168 10 dummyRewardParameters 0 300000000000
 
+-- FIXME: Generalise this to work for both chain parameters versions and remove LANGUAGE TypeFamilies.
 {-# WARNING createBlockState "Do not use in production" #-}
-createBlockState :: Accounts pv -> BlockState pv
+createBlockState :: (IsProtocolVersion pv, ChainParametersVersionFor pv ~ 'ChainParametersV0) => Accounts pv -> BlockState pv
 createBlockState accounts =
     emptyBlockState (emptyBirkParameters accounts) dummyCryptographicParameters dummyKeyCollection dummyChainParameters &
       (blockAccounts .~ accounts) .
@@ -235,7 +239,7 @@ createBlockState accounts =
       (blockAnonymityRevokers . unhashed .~ dummyArs)
 
 {-# WARNING blockStateWithAlesAccount "Do not use in production" #-}
-blockStateWithAlesAccount :: IsProtocolVersion pv => Amount -> Accounts pv -> BlockState pv
+blockStateWithAlesAccount :: (IsProtocolVersion pv, ChainParametersVersionFor pv ~ 'ChainParametersV0) => Amount -> Accounts pv -> BlockState pv
 blockStateWithAlesAccount alesAmount otherAccounts =
     createBlockState $ putAccountWithRegIds (mkAccount alesVK alesAccount alesAmount) otherAccounts
 
