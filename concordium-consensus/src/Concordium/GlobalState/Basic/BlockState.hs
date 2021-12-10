@@ -303,8 +303,8 @@ getBlockState = do
     (_blockAccounts :: Accounts.Accounts pv) <- Accounts.deserializeAccounts cryptoParams
     let resolveModule modRef initName = do
             mi <- Modules.getInterface modRef _blockModules
-            return (GSWasm.miExposedReceive mi ^. at initName . non Set.empty, mi)
-    _blockInstances <- Instances.getInstancesV0 resolveModule
+            return (GSWasm.exposedReceive mi ^. at initName . non Set.empty, mi)
+    _blockInstances <- Instances.getInstancesV1 resolveModule -- FIXME: Make protocol version dependant
     _blockUpdates <- getUpdatesV0 
     _blockEpochBlocksBaked <- getHashedEpochBlocksV0
     -- Construct the release schedule and active bakers from the accounts
@@ -513,10 +513,9 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             accounts = bs ^. blockAccounts
             newAccounts = Accounts.putAccountWithRegIds acct accounts
 
-    bsoPutNewInstance bs mkInstance = return (instanceAddress, bs')
+    bsoPutNewInstance bs mkInstance = return (Instances.instanceAddress inst, bs')
         where
             (inst, instances') = Instances.createInstance mkInstance (bs ^. blockInstances)
-            Instances.InstanceParameters{..} = Instances.instanceParameters inst
             bs' = bs
                 -- Add the instance
                 & blockInstances .~ instances'

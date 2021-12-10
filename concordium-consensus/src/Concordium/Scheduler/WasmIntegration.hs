@@ -61,7 +61,7 @@ foreign import ccall "call_receive_v0"
 
 -- |Apply an init function which is assumed to be a part of the module.
 applyInitFun
-    :: ModuleInterface
+    :: ModuleInterfaceV V0
     -> ChainMetadata -- ^Chain information available to the contracts.
     -> InitContext -- ^Additional parameters supplied by the chain and
                   -- available to the init method.
@@ -74,7 +74,7 @@ applyInitFun
     -- Just (result, remainingEnergy) otherwise, where @remainingEnergy@ is the amount of energy that is left from the amount given.
 applyInitFun miface cm initCtx iName param amnt iEnergy = processInterpreterResult (get :: Get ()) result
   where result = unsafePerformIO $ do
-              withModuleArtifactV0 wasmArtifact $ \wasmArtifactPtr ->
+              withModuleArtifact wasmArtifact $ \wasmArtifactPtr ->
                 BSU.unsafeUseAsCStringLen initCtxBytes $ \(initCtxBytesPtr, initCtxBytesLen) ->
                   BSU.unsafeUseAsCStringLen nameBytes $ \(nameBytesPtr, nameBytesLen) ->
                     BSU.unsafeUseAsCStringLen paramBytes $ \(paramBytesPtr, paramBytesLen) ->
@@ -91,7 +91,7 @@ applyInitFun miface cm initCtx iName param amnt iEnergy = processInterpreterResu
                           len <- peek outputLenPtr
                           bs <- BSU.unsafePackCStringFinalizer outPtr (fromIntegral len) (rs_free_array_len outPtr (fromIntegral len))
                           return (Just bs)
-        wasmArtifact = imWasmArtifact . miModule $ miface
+        wasmArtifact = imWasmArtifact miface
         initCtxBytes = encodeChainMeta cm <> encodeInitContext initCtx
         paramBytes = BSS.fromShort (parameter param)
         energy = fromIntegral iEnergy
@@ -129,7 +129,7 @@ processInterpreterResult aDecoder result = case result of
 
 -- |Apply a receive function which is assumed to be part of the given module.
 applyReceiveFun
-    :: ModuleInterface
+    :: ModuleInterfaceV V0
     -> ChainMetadata -- ^Metadata available to the contract.
     -> ReceiveContext -- ^Additional parameter supplied by the chain and
                      -- available to the receive method.
@@ -143,7 +143,7 @@ applyReceiveFun
     -- of execution with the amount of energy remaining.
 applyReceiveFun miface cm receiveCtx rName param amnt cs initialEnergy = processInterpreterResult getActionsTree result
   where result = unsafePerformIO $ do
-              withModuleArtifactV0 wasmArtifact $ \wasmArtifactPtr ->
+              withModuleArtifact wasmArtifact $ \wasmArtifactPtr ->
                 BSU.unsafeUseAsCStringLen initCtxBytes $ \(initCtxBytesPtr, initCtxBytesLen) ->
                   BSU.unsafeUseAsCStringLen nameBytes $ \(nameBytesPtr, nameBytesLen) ->
                     BSU.unsafeUseAsCStringLen stateBytes $ \(stateBytesPtr, stateBytesLen) ->
@@ -162,7 +162,7 @@ applyReceiveFun miface cm receiveCtx rName param amnt cs initialEnergy = process
                             len <- peek outputLenPtr
                             bs <- BSU.unsafePackCStringFinalizer outPtr (fromIntegral len) (rs_free_array_len outPtr (fromIntegral len))
                             return (Just bs)
-        wasmArtifact = imWasmArtifact . miModule $ miface
+        wasmArtifact = imWasmArtifact miface
         initCtxBytes = encodeChainMeta cm <> encodeReceiveContext receiveCtx
         amountWord = _amount amnt
         stateBytes = contractState cs
@@ -177,17 +177,15 @@ applyReceiveFun miface cm receiveCtx rName param amnt cs initialEnergy = process
 -- compilation or instrumentation) that is needed to apply the exported
 -- functions from it in an efficient way.
 {-# NOINLINE processModule #-}
-processModule :: WasmModule -> Maybe ModuleInterface
+processModule :: WasmModule -> Maybe (ModuleInterfaceV V0)
 processModule modl = do
-  (bs, imWasmArtifact) <- ffiResult
+  guard (wasmVersion modl == 0)
+  (bs, imWasmArtifactV0) <- ffiResult
   case getExports bs of
     Left _ -> Nothing
     Right (miExposedInit, miExposedReceive) ->
       let miModuleRef = getModuleRef modl
-          miModule = InstrumentedWasmModule{
-            imWasmVersion = wasmVersion modl,
-            ..
-            }
+          miModule = InstrumentedWasmModuleV0{..}
       in Just ModuleInterface{miModuleSize = moduleSourceLength $ wasmSource modl,..}
 
   where ffiResult = unsafePerformIO $ do

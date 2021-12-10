@@ -57,8 +57,8 @@ import Concordium.GlobalState.Persistent.Bakers
 import qualified Concordium.GlobalState.Persistent.Instances as Instances
 import qualified Concordium.Types.Transactions as Transactions
 import qualified Concordium.Types.Execution as Transactions
-import Concordium.GlobalState.Persistent.Instances(PersistentInstance(..), PersistentInstanceParameters(..))
-import Concordium.GlobalState.Instance (Instance(..),InstanceParameters(..),makeInstanceHash')
+import Concordium.GlobalState.Persistent.Instances(PersistentInstance(..), PersistentInstanceV(..), PersistentInstanceParameters(..))
+import Concordium.GlobalState.Instance (Instance(..), InstanceV(..), InstanceParameters(..),makeInstanceHash')
 import Concordium.GlobalState.Persistent.Account
 import Concordium.GlobalState.Persistent.BlockState.Updates
 import qualified Concordium.GlobalState.Basic.BlockState.Account as TransientAccount
@@ -973,29 +973,31 @@ doPutNewInstance pbs fnew = do
         mods <- refLoad (bspModules bsp)
         -- Create the instance
         (inst, insts) <- Instances.newContractInstance (fnew' mods) (bspInstances bsp)
-        let ca = instanceAddress (instanceParameters inst)
+        let ca = _instanceAddress (_instanceVParameters inst)
         (ca,) <$> storePBS pbs bsp{bspInstances = insts}
         
     where
-        fnew' mods ca = let inst@Instance{instanceParameters = InstanceParameters{..}, ..} = fnew ca in do
-            params <- makeBufferedRef $ PersistentInstanceParameters {
-                                            pinstanceAddress = instanceAddress,
-                                            pinstanceOwner = instanceOwner,
-                                            pinstanceContractModule = GSWasm.miModuleRef instanceModuleInterface,
-                                            pinstanceReceiveFuns = instanceReceiveFuns,
-                                            pinstanceInitName = instanceInitName,
-                                            pinstanceParameterHash = instanceParameterHash
-                                        }
-            -- This in an irrefutable pattern because otherwise it would have failed in previous stages
-            -- as it would be trying to create an instance of a module that doesn't exist.
-            ~(Just modRef) <- Modules.getModuleReference (GSWasm.miModuleRef instanceModuleInterface) mods
-            return (inst, PersistentInstance{
-                pinstanceParameters = params,
-                pinstanceModuleInterface = modRef,
-                pinstanceModel = instanceModel,
-                pinstanceAmount = instanceAmount,
-                pinstanceHash = instanceHash
-            })
+        fnew' mods ca =
+          case fnew ca of
+            InstanceV0 inst@InstanceV{_instanceVParameters = InstanceParameters{..}, ..} -> do
+              params <- makeBufferedRef $ PersistentInstanceParameters {
+                pinstanceAddress = _instanceAddress,
+                pinstanceOwner = instanceOwner,
+                pinstanceContractModule = GSWasm.miModuleRef instanceModuleInterface,
+                pinstanceReceiveFuns = instanceReceiveFuns,
+                pinstanceInitName = instanceInitName,
+                pinstanceParameterHash = instanceParameterHash
+                }
+              -- This in an irrefutable pattern because otherwise it would have failed in previous stages
+              -- as it would be trying to create an instance of a module that doesn't exist.
+              ~(Just modRef) <- undefined -- TODO: FIX signature of putnewinstance Modules.getModuleReference (GSWasm.miModuleRef instanceModuleInterface) mods
+              return (inst, PersistentInstanceV0 Instances.PersistentInstanceV{
+                  pinstanceParameters = params,
+                  pinstanceModuleInterface = modRef,
+                  pinstanceModel = _instanceVModel,
+                  pinstanceAmount = _instanceVAmount,
+                  pinstanceHash = _instanceVHash
+                  })
 
 doModifyInstance :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> ContractAddress -> AmountDelta -> Wasm.ContractState -> m (PersistentBlockState pv)
 doModifyInstance pbs caddr deltaAmnt val = do
@@ -1006,13 +1008,19 @@ doModifyInstance pbs caddr deltaAmnt val = do
             Just (_, insts) ->
                 storePBS pbs bsp{bspInstances = insts}
     where
-        upd oldInst = do
+        upd (PersistentInstanceV0 oldInst) = do
             (piParams, newParamsRef) <- cacheBufferedRef (pinstanceParameters oldInst)
             if deltaAmnt == 0 then
-                return ((), rehash (pinstanceParameterHash piParams) $ oldInst {pinstanceParameters = newParamsRef, pinstanceModel = val})
+                return ((), PersistentInstanceV0 $ rehash (pinstanceParameterHash piParams) (oldInst {pinstanceParameters = newParamsRef, pinstanceModel = val}))
             else
-                return ((), rehash (pinstanceParameterHash piParams) $ oldInst {pinstanceParameters = newParamsRef, pinstanceAmount = applyAmountDelta deltaAmnt (pinstanceAmount oldInst), pinstanceModel = val})
-        rehash iph inst@PersistentInstance {..} = inst {pinstanceHash = makeInstanceHash' iph pinstanceModel pinstanceAmount}
+                return ((), PersistentInstanceV0 $ rehash (pinstanceParameterHash piParams) $ oldInst {pinstanceParameters = newParamsRef, pinstanceAmount = applyAmountDelta deltaAmnt (pinstanceAmount oldInst), pinstanceModel = val})
+        upd (PersistentInstanceV1 oldInst) = do
+            (piParams, newParamsRef) <- cacheBufferedRef (pinstanceParameters oldInst)
+            if deltaAmnt == 0 then
+                return ((), PersistentInstanceV1 $ rehash (pinstanceParameterHash piParams) (oldInst {pinstanceParameters = newParamsRef, pinstanceModel = val}))
+            else
+                return ((), PersistentInstanceV1 $ rehash (pinstanceParameterHash piParams) $ oldInst {pinstanceParameters = newParamsRef, pinstanceAmount = applyAmountDelta deltaAmnt (pinstanceAmount oldInst), pinstanceModel = val})
+        rehash iph inst@PersistentInstanceV {..} = inst {pinstanceHash = makeInstanceHash' iph pinstanceModel pinstanceAmount}
 
 doGetIdentityProvider :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> ID.IdentityProviderIdentity -> m (Maybe IPS.IpInfo)
 doGetIdentityProvider pbs ipId = do

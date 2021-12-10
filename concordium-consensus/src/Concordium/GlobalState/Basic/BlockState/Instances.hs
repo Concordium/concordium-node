@@ -1,6 +1,8 @@
 module Concordium.GlobalState.Basic.BlockState.Instances(
     InstanceParameters(..),
     Instance(..),
+    InstanceV(..),
+    HasInstanceParameters(..),
     makeInstance,
     iaddress,
     Instances,
@@ -15,7 +17,8 @@ module Concordium.GlobalState.Basic.BlockState.Instances(
     instanceCount,
     -- * Serialization
     putInstancesV0,
-    getInstancesV0
+    getInstancesV0,
+    getInstancesV1
 ) where
 
 import Concordium.Types
@@ -76,17 +79,37 @@ putInstancesV0 (Instances (Tree _ t)) = do
             putWord8 1
             put si
         putOptInstance (Right inst) = do
-            putWord8 2
-            putInstanceV0 inst
+            case inst of
+              InstanceV0 i -> do
+                putWord8 2
+                putInstanceV0 i
+              InstanceV1 i -> do
+                putWord8 3
+                putInstanceV1 i
 
 -- |Deserialize 'Instances' in V0 format.
 getInstancesV0
-    :: (ModuleRef -> Wasm.InitName -> Maybe (Set.Set Wasm.ReceiveName, GSWasm.ModuleInterface))
+    :: (ModuleRef -> Wasm.InitName -> Maybe (Set.Set Wasm.ReceiveName, GSWasm.ModuleInterfaceV GSWasm.V0))
     -> Get Instances
 getInstancesV0 resolve = Instances <$> constructM buildInstance
     where
         buildInstance idx = getWord8 >>= \case
             0 -> return Nothing
             1 -> Just . Left <$> get
-            2 -> Just . Right <$> getInstanceV0 resolve idx
+            2 -> Just . Right . InstanceV0 <$> getInstanceV0 resolve idx
+            _ -> fail "Bad instance list"
+
+
+-- |Deserialize 'Instances' in V0 format.
+-- FIXME: This is wrong. We need getInstnacesV1 to be told which instance version to use.
+getInstancesV1
+    :: (ModuleRef -> Wasm.InitName -> Maybe (Set.Set Wasm.ReceiveName, GSWasm.ModuleInterface))
+    -> Get Instances
+getInstancesV1 resolve = Instances <$> constructM buildInstance
+    where
+        buildInstance idx = getWord8 >>= \case
+            0 -> return Nothing
+            1 -> Just . Left <$> get
+            2 -> Just . Right <$> getInstanceV1 resolve idx
+            3 -> Just . Right <$> getInstanceV1 resolve idx
             _ -> fail "Bad instance list"

@@ -1,8 +1,8 @@
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE OverloadedStrings #-}
-
 module Concordium.GlobalState.Persistent.Instances where
 
 import Data.Word
@@ -74,13 +74,13 @@ instance Applicative m => Cacheable m PersistentInstanceParameters
 ----------------------------------------------------------------------------------------------------
 
 -- |An instance of a smart contract.
-data PersistentInstance = PersistentInstance {
+data PersistentInstanceV v = PersistentInstanceV {
     -- |The fixed parameters of the instance
     pinstanceParameters :: !(BufferedRef PersistentInstanceParameters),
     -- |The interface of 'pinstanceContractModule'. Note this is a BufferedRef to a Module as this
     -- is how the data is stored in the Modules table. A 'Module' carries a BlobRef to the source
     -- but that reference should never be consulted in the scope of Instance operations.
-    pinstanceModuleInterface :: !(BufferedRef Module),
+    pinstanceModuleInterface :: !(BufferedRef (Modules.ModuleV v)),
     -- |The current local state of the instance
     pinstanceModel :: !Wasm.ContractState,
     -- |The current amount of GTU owned by the instance
@@ -89,14 +89,33 @@ data PersistentInstance = PersistentInstance {
     pinstanceHash :: H.Hash
 }
 
+data PersistentInstance where
+  PersistentInstanceV0 :: PersistentInstanceV GSWasm.V0 -> PersistentInstance
+  PersistentInstanceV1 :: PersistentInstanceV GSWasm.V1 -> PersistentInstance
+
 instance Show PersistentInstance where
-    show PersistentInstance{..} = show pinstanceParameters ++ " {balance=" ++ show pinstanceAmount ++ ", model=" ++ show pinstanceModel ++ "}"
+    show (PersistentInstanceV0 PersistentInstanceV {..}) = show pinstanceParameters ++ " {balance=" ++ show pinstanceAmount ++ ", model=" ++ show pinstanceModel ++ "}"
+    show (PersistentInstanceV1 PersistentInstanceV {..}) = show pinstanceParameters ++ " {balance=" ++ show pinstanceAmount ++ ", model=" ++ show pinstanceModel ++ "}"
+
+loadInstanceParameters :: MonadBlobStore m => PersistentInstance -> m PersistentInstanceParameters
+loadInstanceParameters (PersistentInstanceV0 PersistentInstanceV {..}) = loadBufferedRef pinstanceParameters
+loadInstanceParameters (PersistentInstanceV1 PersistentInstanceV {..}) = loadBufferedRef pinstanceParameters
+
+cacheInstanceParameters :: MonadBlobStore m => PersistentInstance -> m (PersistentInstanceParameters, BufferedRef PersistentInstanceParameters)
+cacheInstanceParameters (PersistentInstanceV0 PersistentInstanceV {..}) = cacheBufferedRef pinstanceParameters
+cacheInstanceParameters (PersistentInstanceV1 PersistentInstanceV {..}) = cacheBufferedRef pinstanceParameters
+
+loadInstanceModule :: MonadBlobStore m => PersistentInstance -> m Module
+loadInstanceModule (PersistentInstanceV0 PersistentInstanceV {..}) = ModuleV0 <$> loadBufferedRef pinstanceModuleInterface
+loadInstanceModule (PersistentInstanceV1 PersistentInstanceV {..}) = ModuleV1 <$> loadBufferedRef pinstanceModuleInterface
 
 instance HashableTo H.Hash PersistentInstance where
-    getHash = pinstanceHash
+    getHash (PersistentInstanceV0 PersistentInstanceV{..})= pinstanceHash
+    getHash (PersistentInstanceV1 PersistentInstanceV{..})= pinstanceHash
 
+-- FIXME: There is no way to retrofit this to two module versions since 
 instance MonadBlobStore m => BlobStorable m PersistentInstance where
-    storeUpdate PersistentInstance{..} = do
+    storeUpdate (PersistentInstanceV0 PersistentInstanceV{..}) = do
         (pparams, newParameters) <- storeUpdate pinstanceParameters
         (pinterface, newpInterface) <- storeUpdate pinstanceModuleInterface
         let putInst = do
@@ -104,7 +123,7 @@ instance MonadBlobStore m => BlobStorable m PersistentInstance where
                 pinterface
                 put pinstanceModel
                 put pinstanceAmount
-        return (putInst, PersistentInstance{pinstanceParameters = newParameters, pinstanceModuleInterface = newpInterface, ..})
+        return (putInst, PersistentInstanceV0 (PersistentInstanceV{pinstanceParameters = newParameters, pinstanceModuleInterface = newpInterface, ..}))
     store pinst = fst <$> storeUpdate pinst
     load = do
         rparams <- load
@@ -116,12 +135,12 @@ instance MonadBlobStore m => BlobStorable m PersistentInstance where
             pinstanceModuleInterface <- rInterface
             pip <- loadBufferedRef pinstanceParameters
             let pinstanceHash = makeInstanceHash pip pinstanceModel pinstanceAmount
-            return PersistentInstance{..}
+            return $! PersistentInstanceV0 (PersistentInstanceV {..})
 
 -- This cacheable instance is a bit unusual. Caching instances requires us to have access
 -- to the modules so that we can share the module interfaces from different instances.
 instance MonadBlobStore m => Cacheable (ReaderT Modules m) PersistentInstance where
-    cache p@PersistentInstance{..} = do
+    cache (PersistentInstanceV0 p@PersistentInstanceV{..}) = do
         modules <- ask
         lift $! do
             -- we only cache parameters and get the interface from the modules
@@ -131,32 +150,44 @@ instance MonadBlobStore m => Cacheable (ReaderT Modules m) PersistentInstance wh
             ips <- cache pinstanceParameters
             params <- loadBufferedRef ips
             let modref = pinstanceContractModule params
-            miface <- Modules.getModuleReference modref modules
+            miface <- undefined -- FIXME: Modules.getModuleReference modref modules
             case miface of
-              Nothing -> return p{pinstanceParameters = ips} -- this case should never happen, but it is safe to do this.
-              Just iface -> return p{pinstanceModuleInterface = iface, pinstanceParameters = ips}
+              Nothing -> return (PersistentInstanceV0 p{pinstanceParameters = ips}) -- this case should never happen, but it is safe to do this.
+              Just iface -> return (PersistentInstanceV0 p{pinstanceModuleInterface = iface, pinstanceParameters = ips})
 
 fromPersistentInstance ::  MonadBlobStore m => PersistentInstance -> m Transient.Instance
-fromPersistentInstance PersistentInstance{..} = do
-    PersistentInstanceParameters{..} <- loadBufferedRef pinstanceParameters
-    instanceModuleInterface <- interface <$> loadBufferedRef pinstanceModuleInterface
-    let instanceParameters = Transient.InstanceParameters {
-            instanceAddress = pinstanceAddress,
+fromPersistentInstance pinst = do
+    PersistentInstanceParameters{..} <- loadInstanceParameters pinst
+    instanceModuleInterface <- getModuleInterface <$> loadInstanceModule pinst
+    let mkParams :: GSWasm.ModuleInterfaceV v -> Transient.InstanceParameters v
+        mkParams miface = Transient.InstanceParameters {
+            _instanceAddress = pinstanceAddress,
             instanceOwner = pinstanceOwner,
             instanceInitName = pinstanceInitName,
             instanceReceiveFuns = pinstanceReceiveFuns,
-            instanceModuleInterface = instanceModuleInterface,
+            instanceModuleInterface = miface,
             instanceParameterHash = pinstanceParameterHash
         }
-    return Transient.Instance{ instanceModel = pinstanceModel,
-            instanceAmount = pinstanceAmount,
-            instanceHash = pinstanceHash,
-            ..
-         }
+    let (instanceModel, instanceAmount, instanceHash) = case pinst of
+          PersistentInstanceV0 PersistentInstanceV{..} -> (pinstanceModel, pinstanceAmount, pinstanceHash)
+          PersistentInstanceV1 PersistentInstanceV{..} -> (pinstanceModel, pinstanceAmount, pinstanceHash)
+    case instanceModuleInterface of
+      GSWasm.ModuleInterfaceV0 iface -> 
+        return $ Transient.InstanceV0 (Transient.InstanceV { _instanceVModel = instanceModel,
+                                                             _instanceVAmount = instanceAmount,
+                                                             _instanceVHash = instanceHash,
+                                                             _instanceVParameters = mkParams iface
+                                                         })
+      GSWasm.ModuleInterfaceV1 iface -> 
+        return $ Transient.InstanceV1 (Transient.InstanceV { _instanceVModel = instanceModel,
+                                                             _instanceVAmount = instanceAmount,
+                                                             _instanceVHash = instanceHash,
+                                                             _instanceVParameters = mkParams iface
+                                                           })
 
 -- |Serialize a smart contract instance in V0 format.
-putInstanceV0 :: (MonadBlobStore m, MonadPut m) => PersistentInstance -> m ()
-putInstanceV0 PersistentInstance{..} = do
+putInstanceV0 :: (MonadBlobStore m, MonadPut m) => PersistentInstanceV GSWasm.V0 -> m ()
+putInstanceV0 PersistentInstanceV {..} = do
         -- Instance parameters
         PersistentInstanceParameters{..} <- refLoad pinstanceParameters
         liftPut $ do
@@ -167,6 +198,22 @@ putInstanceV0 PersistentInstance{..} = do
             put pinstanceInitName
             put pinstanceModel
             put pinstanceAmount
+
+-- |Serialize a smart contract instance in V0 format.
+-- FIXME: Add versioning
+putInstanceV1 :: (MonadBlobStore m, MonadPut m) => PersistentInstanceV GSWasm.V1 -> m ()
+putInstanceV1 PersistentInstanceV {..} = do
+        -- Instance parameters
+        PersistentInstanceParameters{..} <- refLoad pinstanceParameters
+        liftPut $ do
+            -- only put the subindex part of the address
+            put (contractSubindex pinstanceAddress)
+            put pinstanceOwner
+            put pinstanceContractModule
+            put pinstanceInitName
+            put pinstanceModel
+            put pinstanceAmount
+
 
 ----------------------------------------------------------------------------------------------------
 
@@ -380,7 +427,7 @@ deleteContractInstance addr t0@(InstancesTree s it0) = dci (fmap (InstancesTree 
     where
         dci succCont i (Leaf inst)
             | i == 0 = do
-                aaddr <- pinstanceAddress <$> loadBufferedRef (pinstanceParameters inst)
+                aaddr <- pinstanceAddress <$> loadInstanceParameters inst
                 if addr == aaddr then
                     succCont (VacantLeaf $ contractSubindex aaddr)
                 else
@@ -408,7 +455,7 @@ lookupContractInstance addr (InstancesTree _ it0) = lu (contractIndex addr) =<< 
     where
         lu i (Leaf inst)
             | i == 0 = do
-                aaddr <- pinstanceAddress <$> loadBufferedRef (pinstanceParameters inst)
+                aaddr <- pinstanceAddress <$> loadInstanceParameters inst
                 return $! if addr == aaddr then Just inst else Nothing
             | otherwise = return Nothing
         lu _ VacantLeaf{} = return Nothing
@@ -426,7 +473,7 @@ updateContractInstance fupd addr (InstancesTree s it0) = upd baseSuccess (contra
             return $ Just (res, InstancesTree s it)
         upd succCont i (Leaf inst)
             | i == 0 = do
-                aaddr <- pinstanceAddress <$> loadBufferedRef (pinstanceParameters inst)
+                aaddr <- pinstanceAddress <$> loadInstanceParameters inst
                 if addr == aaddr then do
                     (res, inst') <- fupd inst
                     succCont res (Leaf inst')
@@ -467,9 +514,9 @@ makePersistent mods (Transient.Instances (Transient.Tree s t)) = InstancesTree s
             makeBufferedBlobbed (Branch lvl fll vac hsh l' r')
         conv (Transient.Leaf i) = convInst i >>= makeBufferedBlobbed . Leaf
         conv (Transient.VacantLeaf si) = makeBufferedBlobbed (VacantLeaf si)
-        convInst Transient.Instance{instanceParameters=Transient.InstanceParameters{..}, ..} = do
+        convInst (Transient.InstanceV0 Transient.InstanceV {_instanceVParameters=Transient.InstanceParameters{..}, ..}) = do
             pIParams <- makeBufferedRef $ PersistentInstanceParameters{
-                pinstanceAddress = instanceAddress,
+                pinstanceAddress = _instanceAddress,
                 pinstanceOwner = instanceOwner,
                 pinstanceContractModule = GSWasm.miModuleRef instanceModuleInterface,
                 pinstanceInitName = instanceInitName,
@@ -478,13 +525,13 @@ makePersistent mods (Transient.Instances (Transient.Tree s t)) = InstancesTree s
             }
             -- This pattern is irrefutable because if the instance exists in the Basic version,
             -- then the module must be present in the persistent implementation.
-            ~(Just pIModuleInterface) <- Modules.getModuleReference (GSWasm.miModuleRef instanceModuleInterface) mods
-            return $ PersistentInstance {
+            ~(Just pIModuleInterface) <- undefined -- FIXME: Modules.getModuleReference (GSWasm.miModuleRef instanceModuleInterface) mods
+            return $ PersistentInstanceV0 PersistentInstanceV {
                 pinstanceParameters = pIParams,
                 pinstanceModuleInterface = pIModuleInterface,
-                pinstanceModel = instanceModel,
-                pinstanceAmount = instanceAmount,
-                pinstanceHash = instanceHash
+                pinstanceModel = _instanceVModel,
+                pinstanceAmount = _instanceVAmount,
+                pinstanceHash = _instanceVHash
             }
 
 -- |Serialize instances in V0 format.
@@ -497,6 +544,9 @@ putInstancesV0 (InstancesTree _ it) = do
         putOptInstance (Left ca) = liftPut $ do
             putWord8 1
             put (contractSubindex ca)
-        putOptInstance (Right inst) = do
+        putOptInstance (Right (PersistentInstanceV0 inst)) = do
             liftPut $ putWord8 2
             putInstanceV0 inst
+        putOptInstance (Right (PersistentInstanceV1 inst)) = do
+            liftPut $ putWord8 2
+            putInstanceV1 inst

@@ -39,7 +39,7 @@ module Concordium.Scheduler
   ) where
 import qualified Concordium.GlobalState.Wasm as GSWasm
 import qualified Concordium.Wasm as Wasm
-import qualified Concordium.Scheduler.WasmIntegration as Wasm
+import qualified Concordium.Scheduler.WasmIntegration as WasmV0
 import Concordium.Scheduler.Types
 import Concordium.Scheduler.Environment
 import Data.Time
@@ -519,7 +519,7 @@ handleEncryptedAmountTransfer wtc toAddress transferData@EncryptedAmountTransfer
                    usedEnergy)
 
 -- | Handle the deployment of a module.
-handleDeployModule ::
+handleDeployModule :: forall pv m .
   SchedulerMonad pv m
   => WithDepositContext m
   -> Wasm.WasmModule -- ^The module to deploy.
@@ -535,21 +535,24 @@ handleDeployModule wtc mod =
     psize = Wasm.moduleSourceLength . Wasm.wasmSource $ mod
 
     c = do
-      tickEnergy (Cost.deployModuleCost psize)
-      case Wasm.processModule mod of
-        Nothing -> rejectTransaction ModuleNotWF
-        Just iface -> do
-          let mhash = GSWasm.miModuleRef iface
-          exists <- isJust <$> getModuleInterfaces mhash
-          when exists $ rejectTransaction (ModuleHashAlreadyExists mhash)
-          return ((iface, mod), mhash)
+      if demoteProtocolVersion (protocolVersion @pv) <= P3 then do
+        tickEnergy (Cost.deployModuleCost psize)
+        case WasmV0.processModule mod of
+          Nothing -> rejectTransaction ModuleNotWF
+          Just iface -> do
+            let mhash = GSWasm.moduleReference iface
+            exists <- isJust <$> getModuleInterfaces mhash
+            when exists $ rejectTransaction (ModuleHashAlreadyExists mhash)
+            return (iface, mhash)
+      else
+        rejectTransaction ModuleNotWF -- TODO: Handle P4 here
 
     k ls (iface, mhash) = do
       (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
       chargeExecutionCost txHash senderAccount energyCost
       -- Add the module to the global state (module interface, value interface and module itself).
       -- We know the module does not exist at this point, so we can ignore the return value.
-      _ <- commitModule iface
+      _ <- commitModule (GSWasm.ModuleInterfaceV0 iface, mod)
       return (TxSuccess [ModuleDeployed mhash], energyCost, usedEnergy)
 
 -- | Tick energy for storing the given contract state.
@@ -573,7 +576,9 @@ getCurrentContractInstanceTicking cref = do
   inst <- getCurrentContractInstance cref `rejectingWith` (InvalidContractAddress cref)
   -- Compute the size of the contract state value and charge for the lookup based on this size.
   -- This uses the 'ResourceMeasure' instance for 'Cost.LookupByteSize' to determine the cost for lookup.
-  tickEnergy (Cost.lookupContractState $ Wasm.contractStateSize (Ins.instanceModel inst))
+  case inst of
+    InstanceV0 iv -> tickEnergy (Cost.lookupContractState $ Wasm.contractStateSize (Ins._instanceVModel iv))
+    InstanceV1 iv -> error "TODO"
   return inst
 
 -- | Handle the initialization of a contract instance.
@@ -604,34 +609,38 @@ handleInitContract wtc initAmount modref initName param =
             unless (senderAmount >= initAmount) $! rejectTransaction (AmountTooLarge (AddressAccount (thSender meta)) initAmount)
 
             -- First try to get the module interface of the parent module of the contract.
-            iface <- liftLocal (getModuleInterfaces modref) `rejectingWith` InvalidModuleReference modref
-            let iSize = GSWasm.miModuleSize iface
-            tickEnergy $ Cost.lookupModule iSize
-
-            -- Then get the particular contract interface (in particular the type of the init method).
-            unless (Set.member initName (GSWasm.miExposedInit iface)) $ rejectTransaction $ InvalidInitMethod modref initName
-
-            cm <- liftLocal getChainMetadata
-            -- Finally run the initialization function of the contract, resulting in an initial state
-            -- of the contract. This ticks energy during execution, failing when running out of energy.
-            -- NB: At this point the amount to initialize with has not yet been deducted from the
-            -- sender account. Thus if the initialization function were to observe the current balance it would
-            -- be amount - deposit. Currently this is in any case not exposed in contracts, but in case it
-            -- is in the future we should be mindful of which balance is exposed.
-            senderCredentials <- getAccountCredentials (snd senderAccount)
-            let initCtx = Wasm.InitContext{
-                  initOrigin = senderAddress,
-                  icSenderPolicies = map (Wasm.mkSenderPolicy . snd) (OrdMap.toAscList senderCredentials)
-               }
-            result <- runInterpreter (return . Wasm.applyInitFun iface cm initCtx initName param initAmount)
-                       `rejectingWith'` wasmRejectToRejectReasonInit
-
-            -- Charge for storing the contract state.
-            tickEnergyStoreState (Wasm.newState result)
-            -- And for storing the instance.
-            tickEnergy Cost.initializeContractInstanceCreateCost
-
-            return (iface, result)
+            viface <- liftLocal (getModuleInterfaces modref) `rejectingWith` InvalidModuleReference modref
+            case viface of
+              GSWasm.ModuleInterfaceV0 iface -> do
+                let iSize = GSWasm.miModuleSize iface
+                tickEnergy $ Cost.lookupModule iSize
+    
+                -- Then get the particular contract interface (in particular the type of the init method).
+                unless (Set.member initName (GSWasm.miExposedInit iface)) $ rejectTransaction $ InvalidInitMethod modref initName
+    
+                cm <- liftLocal getChainMetadata
+                -- Finally run the initialization function of the contract, resulting in an initial state
+                -- of the contract. This ticks energy during execution, failing when running out of energy.
+                -- NB: At this point the amount to initialize with has not yet been deducted from the
+                -- sender account. Thus if the initialization function were to observe the current balance it would
+                -- be amount - deposit. Currently this is in any case not exposed in contracts, but in case it
+                -- is in the future we should be mindful of which balance is exposed.
+                senderCredentials <- getAccountCredentials (snd senderAccount)
+                let initCtx = Wasm.InitContext{
+                      initOrigin = senderAddress,
+                      icSenderPolicies = map (Wasm.mkSenderPolicy . snd) (OrdMap.toAscList senderCredentials)
+                   }
+                result <- runInterpreter (return . WasmV0.applyInitFun iface cm initCtx initName param initAmount)
+                           `rejectingWith'` wasmRejectToRejectReasonInit
+    
+                -- Charge for storing the contract state.
+                tickEnergyStoreState (Wasm.newState result)
+                -- And for storing the instance.
+                tickEnergy Cost.initializeContractInstanceCreateCost
+    
+                return (iface, result)
+                
+              GSWasm.ModuleInterfaceV1 miv -> error "TODO"
 
           k ls (iface, result) = do
             let model = Wasm.newState result
@@ -715,7 +724,7 @@ handleMessage :: forall pv m.
   (TransactionMonad pv m, AccountOperations m)
   => AccountAddress -- ^The address that was used to send the top-level transaction.
   -> Instance -- ^The current state of the target contract of the transaction, which must exist.
-  -> Either (IndexedAccount m, Instance) (AccountAddress, IndexedAccount m)
+  -> Either (IndexedAccount m, InstanceV GSWasm.V0) (AccountAddress, IndexedAccount m)
   -- ^The sender of the message (contract instance or account). In case this is
   -- a contract the first parameter is the owner account of the instance. In case this is an account
   -- (i.e., this is called from a top-level transaction) the value is a pair of the address that was used
@@ -727,74 +736,76 @@ handleMessage :: forall pv m.
   -> Wasm.ReceiveName -- ^Name of the contract to invoke.
   -> Wasm.Parameter -- ^Message to invoke the receive method with.
   -> m [Event] -- ^The events resulting from processing the message and all recursively processed messages.
-handleMessage originAddr istance sender transferAmount receiveName parameter = do
+handleMessage originAddr vistance sender transferAmount receiveName parameter = do
   -- Cover administrative costs.
   tickEnergy Cost.updateContractInstanceBaseCost
 
-  let model = instanceModel istance
-  -- Check whether the sender of the message has enough on its account/instance for the transfer.
-  -- If the amount is not sufficient, the top-level transaction is rejected.
-  -- Note that this returns the address that was used in the top-level transaction, or the contract address.
-  -- In the former case the credentials are credentials of the account, in the
-  -- latter they are credentials of the owner account.
-  (senderAddr, senderCredentials) <- mkSenderAddrCredentials sender
-  senderamount <- getCurrentAvailableAmount sender
-  unless (senderamount >= transferAmount) $ rejectTransaction (AmountTooLarge senderAddr transferAmount)
-
-  let iParams = instanceParameters istance
-  let cref = instanceAddress iParams
-  let receivefuns = instanceReceiveFuns . instanceParameters $ istance
-  unless (Set.member receiveName receivefuns) $ rejectTransaction $
-      InvalidReceiveMethod (GSWasm.miModuleRef . instanceModuleInterface $ iParams) receiveName
-  -- Now we also check that the owner account of the receiver instance has at least one valid credential
-  -- and reject the transaction if not.
-  let ownerAccountAddress = instanceOwner iParams
-  -- The invariants maintained by global state should ensure that an owner account always exists.
-  -- However we are defensive here and reject the transaction instead of panicking in case it does not.
-  ownerAccount <- getStateAccount ownerAccountAddress `rejectingWith` InvalidAccountReference ownerAccountAddress
-  cm <- getChainMetadata
-
-  -- We have established that the owner account of the receiver instance has at least one valid credential.
-  let receiveCtx = Wasm.ReceiveContext {
-        invoker = originAddr,
-        selfAddress = cref,
-        selfBalance = instanceAmount istance,
-        sender = senderAddr,
-        owner = instanceOwner iParams,
-        rcSenderPolicies = map Wasm.mkSenderPolicy senderCredentials
-        }
-  -- Now run the receive function on the message. This ticks energy during execution, failing when running out of energy.
-  -- FIXME: Once errors can be caught in smart contracts update this to not terminate the transaction.
-  let iface = instanceModuleInterface iParams
-  -- charge for looking up the module
-  tickEnergy $ Cost.lookupModule (GSWasm.miModuleSize iface)
-
-  result <- runInterpreter (return . Wasm.applyReceiveFun iface cm receiveCtx receiveName parameter transferAmount model)
-             `rejectingWith'` wasmRejectToRejectReasonReceive cref receiveName parameter
-
-  -- If we reach here the contract accepted the message and returned a new state as well as outgoing messages.
-  let newModel = Wasm.newState result
-      txOut = Wasm.messages result
-  -- If we reached here we will charge for attempting to store this state. If
-  -- this message is part of a larger `and` composition then it is possible that
-  -- the contract will not actually be stored. We are not doing that because it
-  -- increases complexity and makes tracking of energy even less local than it
-  -- is now.
-  -- TODO We might want to change this behaviour to prevent charging for storage that is not done.
-  tickEnergyStoreState newModel
-
-  -- Process the generated messages in the new context (transferred amount, updated state) in
-  -- sequence from left to right, depth first.
-  withToContractAmount sender istance transferAmount $
-    withInstanceState istance newModel $ do
-      let initEvent = Updated{euAddress=cref,
-                              euInstigator=senderAddr,
-                              euAmount=transferAmount,
-                              euMessage=parameter,
-                              euReceiveName=receiveName,
-                              euEvents = Wasm.logs result
-                               }
-      foldEvents originAddr (ownerAccount, istance) initEvent txOut
+  case vistance of
+    InstanceV0 istance -> do
+      let model = _instanceVModel istance
+      -- Check whether the sender of the message has enough on its account/instance for the transfer.
+      -- If the amount is not sufficient, the top-level transaction is rejected.
+      -- Note that this returns the address that was used in the top-level transaction, or the contract address.
+      -- In the former case the credentials are credentials of the account, in the
+      -- latter they are credentials of the owner account.
+      (senderAddr, senderCredentials) <- mkSenderAddrCredentials sender
+      senderamount <- getCurrentAvailableAmount sender
+      unless (senderamount >= transferAmount) $ rejectTransaction (AmountTooLarge senderAddr transferAmount)
+    
+      let iParams = _instanceVParameters istance
+      let cref = instanceAddress iParams
+      let receivefuns = instanceReceiveFuns . _instanceVParameters $ istance
+      unless (Set.member receiveName receivefuns) $ rejectTransaction $
+          InvalidReceiveMethod (GSWasm.miModuleRef . instanceModuleInterface $ iParams) receiveName
+      -- Now we also check that the owner account of the receiver instance has at least one valid credential
+      -- and reject the transaction if not.
+      let ownerAccountAddress = instanceOwner iParams
+      -- The invariants maintained by global state should ensure that an owner account always exists.
+      -- However we are defensive here and reject the transaction instead of panicking in case it does not.
+      ownerAccount <- getStateAccount ownerAccountAddress `rejectingWith` InvalidAccountReference ownerAccountAddress
+      cm <- getChainMetadata
+    
+      -- We have established that the owner account of the receiver instance has at least one valid credential.
+      let receiveCtx = Wasm.ReceiveContext {
+            invoker = originAddr,
+            selfAddress = cref,
+            selfBalance = _instanceVAmount istance,
+            sender = senderAddr,
+            owner = instanceOwner iParams,
+            rcSenderPolicies = map Wasm.mkSenderPolicy senderCredentials
+            }
+      -- Now run the receive function on the message. This ticks energy during execution, failing when running out of energy.
+      -- FIXME: Once errors can be caught in smart contracts update this to not terminate the transaction.
+      let iface = instanceModuleInterface iParams
+      -- charge for looking up the module
+      tickEnergy $ Cost.lookupModule (GSWasm.miModuleSize iface)
+    
+      result <- runInterpreter (return . WasmV0.applyReceiveFun iface cm receiveCtx receiveName parameter transferAmount model)
+                 `rejectingWith'` wasmRejectToRejectReasonReceive cref receiveName parameter
+    
+      -- If we reach here the contract accepted the message and returned a new state as well as outgoing messages.
+      let newModel = Wasm.newState result
+          txOut = Wasm.messages result
+      -- If we reached here we will charge for attempting to store this state. If
+      -- this message is part of a larger `and` composition then it is possible that
+      -- the contract will not actually be stored. We are not doing that because it
+      -- increases complexity and makes tracking of energy even less local than it
+      -- is now.
+      -- TODO We might want to change this behaviour to prevent charging for storage that is not done.
+      tickEnergyStoreState newModel
+    
+      -- Process the generated messages in the new context (transferred amount, updated state) in
+      -- sequence from left to right, depth first.
+      withToContractAmountV0 sender istance transferAmount $
+        withInstanceStateV0 istance newModel $ do
+          let initEvent = Updated{euAddress=cref,
+                                  euInstigator=senderAddr,
+                                  euAmount=transferAmount,
+                                  euMessage=parameter,
+                                  euReceiveName=receiveName,
+                                  euEvents = Wasm.logs result
+                                   }
+          foldEvents originAddr (ownerAccount, istance) initEvent txOut
 
 -- Cost of a step in the traversal of the actions tree. We need to charge for
 -- this separately to prevent problems with exponentially sized trees
@@ -809,7 +820,7 @@ traversalStepCost = 10
 
 foldEvents :: (TransactionMonad pv m, AccountOperations m)
            => AccountAddress -- ^Address that was used in the top-level transaction.
-           -> (IndexedAccount m, Instance) -- ^Instance that generated the events.
+           -> (IndexedAccount m, InstanceV GSWasm.V0) -- ^Instance that generated the events.
            -> Event -- ^Event generated by the invocation of the instance.
            -> Wasm.ActionsTree -- ^Actions to perform
            -> m [Event] -- ^List of events in order that transactions were traversed.
@@ -837,12 +848,12 @@ foldEvents originAddr istance initEvent = fmap (initEvent:) . go
           go l `orElse` go r
         go Wasm.Accept = return []
 
-mkSenderAddrCredentials :: AccountOperations m => Either (IndexedAccount m, Instance) (AccountAddress, IndexedAccount m) -> m (Address, [ID.AccountCredential])
+mkSenderAddrCredentials :: AccountOperations m => Either (IndexedAccount m, InstanceV GSWasm.V0) (AccountAddress, IndexedAccount m) -> m (Address, [ID.AccountCredential])
 mkSenderAddrCredentials sender =
     case sender of
       Left (ownerAccount, istance) -> do
         credentials <- getAccountCredentials (snd ownerAccount)
-        return (AddressContract (instanceAddress (instanceParameters istance)), map snd (OrdMap.toAscList credentials))
+        return (AddressContract (instanceAddress (_instanceVParameters istance)), map snd (OrdMap.toAscList credentials))
       Right (usedAddress, (_, acc)) -> do
         let addr = AddressAccount usedAddress
         credentials <- getAccountCredentials acc
@@ -853,22 +864,22 @@ mkSenderAddrCredentials sender =
 handleTransferAccount ::
   TransactionMonad pv m
   => AccountAddress -- ^The target account address.
-  -> Instance -- ^The sender of this transfer.
+  -> InstanceV GSWasm.V0 -- ^The sender of this transfer.
   -> Amount -- ^The amount to transfer.
   -> m [Event] -- ^The events resulting from the transfer.
 handleTransferAccount accAddr senderInstance transferamount = do
   -- charge at the beginning, successful and failed transfers will have the same cost.
   tickEnergy Cost.simpleTransferCost
   -- Check whether the sender has the amount to be transferred and reject the transaction if not.
-  senderamount <- getCurrentContractAmount senderInstance
-  let addr = AddressContract (instanceAddress (instanceParameters senderInstance))
+  senderamount <- getCurrentContractAmountV0 senderInstance
+  let addr = AddressContract (instanceAddress (_instanceVParameters senderInstance))
   unless (senderamount >= transferamount) $! rejectTransaction (AmountTooLarge addr transferamount)
 
   -- Check whether target account exists and get it.
   targetAccount <- getStateAccount accAddr `rejectingWith` InvalidAccountReference accAddr
 
   -- Add the transfer to the current changeset and return the corresponding event.
-  withContractToAccountAmount senderInstance targetAccount transferamount $
+  withContractToAccountAmountV0 senderInstance targetAccount transferamount $
       return [Transferred addr transferamount (AddressAccount accAddr)]
 
 -- |Run the interpreter with the remaining amount of energy. If the interpreter

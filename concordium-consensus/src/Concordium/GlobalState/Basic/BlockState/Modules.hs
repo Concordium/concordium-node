@@ -1,6 +1,10 @@
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE GADTs #-}
 module Concordium.GlobalState.Basic.BlockState.Modules
   ( Module(..),
+    ModuleV(..),
+    interface,
+    source,
     Modules,
     emptyModules,
     putInterface,
@@ -11,17 +15,18 @@ module Concordium.GlobalState.Basic.BlockState.Modules
     _modulesMap,
     -- * Serialization
     putModulesV0,
-    getModulesV0
+    getModulesV0,
   ) where
 
 import Concordium.Crypto.SHA256
-import Concordium.GlobalState.Wasm
 import Concordium.GlobalState.Basic.BlockState.LFMBTree (LFMBTree)
 import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as LFMB
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Wasm
-import Concordium.Scheduler.WasmIntegration
+import qualified Concordium.GlobalState.Wasm as GSWasm
+import qualified Concordium.Scheduler.WasmIntegration as V0
+import qualified Concordium.Scheduler.WasmIntegration.V1 as V1
 import Control.Monad
 import Data.Coerce
 import Data.Map.Strict (Map)
@@ -38,23 +43,54 @@ type ModuleIndex = Word64
 
 -- |A module contains both the module interface and the raw source code of the
 -- module.
-data Module = Module {
+data ModuleV v = ModuleV {
   -- | The instrumented module, ready to be instantiated.
-  interface :: !ModuleInterface,
+  moduleVInterface :: !(GSWasm.ModuleInterfaceV v),
   -- | The raw module binary source.
-  source :: !WasmModule
+  moduleVSource :: !WasmModule
   } deriving (Show)
 
+-- Create the class HasSource a with a function
+-- source :: Lens a WasmModule
+makeFields ''ModuleV
+
+data Module where
+  ModuleV0 :: ModuleV GSWasm.V0 -> Module
+  ModuleV1 :: ModuleV GSWasm.V1 -> Module
+  deriving(Show)
+
+fromModule :: Module -> GSWasm.ModuleInterface
+fromModule (ModuleV0 v) = GSWasm.ModuleInterfaceV0 (moduleVInterface v)
+fromModule (ModuleV1 v) = GSWasm.ModuleInterfaceV1 (moduleVInterface v)
+
+toModule :: GSWasm.ModuleInterface -> WasmModule -> Module
+toModule (GSWasm.ModuleInterfaceV0 moduleVInterface) moduleVSource = ModuleV0 ModuleV{..}
+toModule (GSWasm.ModuleInterfaceV1 moduleVInterface) moduleVSource = ModuleV1 ModuleV{..}
+
+instance HasSource Module WasmModule where
+  source f (ModuleV0 m) = ModuleV0 <$> source f m
+  source f (ModuleV1 m) = ModuleV1 <$> source f m
+
+instance GSWasm.HasModuleRef Module where
+  {-# INLINE moduleReference #-}
+  moduleReference (ModuleV0 v) = GSWasm.moduleReference . moduleVInterface $ v
+  moduleReference (ModuleV1 v) = GSWasm.moduleReference . moduleVInterface $ v
+
 instance HashableTo Hash Module where
-  getHash = coerce . miModuleRef . interface
+  getHash = coerce . GSWasm.moduleReference
 
 instance Serialize Module where
-  put = put . source
+  put = put . (^. source)
   get = do
-    source <- get
-    case processModule source of
-      Nothing -> fail "Invalid module"
-      Just interface -> return Module {..}
+    moduleVSource <- get
+    case wasmVersion moduleVSource of
+      0 -> case V0.processModule moduleVSource of
+            Nothing -> fail "Invalid V0 module"
+            Just moduleVInterface -> return (ModuleV0 ModuleV {..})
+      1 -> case V1.processModule moduleVSource of
+            Nothing -> fail "Invalid V1 module"
+            Just moduleVInterface -> return (ModuleV1 ModuleV{..})
+      v -> fail $ "Unsupported module version: " ++ show v
 
 --------------------------------------------------------------------------------
 
@@ -80,26 +116,26 @@ emptyModules = Modules LFMB.empty Map.empty
 
 -- |Try to add interfaces to the module table. If a module with the given
 -- reference exists returns @Nothing@.
-putInterface :: (ModuleInterface, WasmModule) -> Modules -> Maybe Modules
-putInterface (iface, source) m =
+putInterface :: (GSWasm.ModuleInterface, WasmModule) -> Modules -> Maybe Modules
+putInterface (iface, mSource) m =
   if Map.member mref (m ^. modulesMap)
   then Nothing
   else Just $ m & modulesTable .~ modulesTable'
                 & modulesMap %~ Map.insert mref idx
- where mref = miModuleRef iface
-       (idx, modulesTable') = LFMB.append (Module iface source) $ m ^. modulesTable
+ where mref = GSWasm.moduleReference iface
+       (idx, modulesTable') = LFMB.append (toModule iface mSource) $ m ^. modulesTable
 
 getModule :: ModuleRef -> Modules -> Maybe Module
 getModule ref mods = Map.lookup ref (mods ^. modulesMap) >>=
                        flip LFMB.lookup (mods ^. modulesTable)
 
 -- |Get an interface by module reference.
-getInterface :: ModuleRef -> Modules -> Maybe ModuleInterface
-getInterface ref mods = fmap interface $ getModule ref mods
+getInterface :: ModuleRef -> Modules -> Maybe GSWasm.ModuleInterface
+getInterface ref mods = fromModule <$> getModule ref mods
 
 -- |Get the source of a module by module reference.
 getSource :: ModuleRef -> Modules -> Maybe WasmModule
-getSource ref mods = fmap source $ getModule ref mods
+getSource ref mods = (^. source) <$> getModule ref mods
 
 moduleRefList :: Modules -> [ModuleRef]
 moduleRefList mods = Map.keys (mods ^. modulesMap)
@@ -123,6 +159,6 @@ getModulesV0 = do
     mtSize <- getWord64be
     _modulesTable <- LFMB.fromList <$> replicateM (fromIntegral mtSize) get
     let _modulesMap = Map.fromList
-            [(miModuleRef (interface iface), idx)
+            [(GSWasm.moduleReference iface, idx)
               | (idx, iface) <- LFMB.toAscPairList _modulesTable]
     return Modules{..}

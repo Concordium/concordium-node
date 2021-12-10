@@ -287,11 +287,11 @@ class (StaticInformation m, IsProtocolVersion pv) => TransactionMonad pv m | m -
   -- keep track of changes locally first, and only commit them at the end.
   -- Instance keeps track of its own address hence we need not provide it
   -- separately.
-  withInstanceState :: Instance -> Wasm.ContractState -> m a -> m a
+  withInstanceStateV0 :: InstanceV GSWasm.V0 -> Wasm.ContractState -> m a -> m a
 
   -- |Transfer amount from the first address to the second and run the
   -- computation in the modified environment.
-  withAccountToContractAmount :: IndexedAccount m -> Instance -> Amount -> m a -> m a
+  withAccountToContractAmountV0 :: IndexedAccount m -> InstanceV GSWasm.V0 -> Amount -> m a -> m a
 
   -- |Transfer an amount from the first account to the second and run the
   -- computation in the modified environment.
@@ -299,11 +299,11 @@ class (StaticInformation m, IsProtocolVersion pv) => TransactionMonad pv m | m -
 
   -- |Transfer an amount from the given instance to the given account and run the
   -- computation in the modified environment.
-  withContractToAccountAmount :: Instance -> IndexedAccount m -> Amount -> m a -> m a
+  withContractToAccountAmountV0 :: InstanceV GSWasm.V0 -> IndexedAccount m -> Amount -> m a -> m a
 
   -- |Transfer an amount from the first instance to the second and run the
   -- computation in the modified environment.
-  withContractToContractAmount :: Instance -> Instance -> Amount -> m a -> m a
+  withContractToContractAmountV0 :: InstanceV GSWasm.V0 -> InstanceV GSWasm.V0 -> Amount -> m a -> m a
 
   -- |Transfer a scheduled amount from the first address to the second and run
   -- the computation in the modified environment.
@@ -335,16 +335,16 @@ class (StaticInformation m, IsProtocolVersion pv) => TransactionMonad pv m | m -
 
   -- |Transfer an amount from the first given instance or account to the instance in the second
   -- parameter and run the computation in the modified environment.
-  {-# INLINE withToContractAmount #-}
-  withToContractAmount :: Either (IndexedAccount m, Instance) (AccountAddress, IndexedAccount m) -> Instance -> Amount -> m a -> m a
-  withToContractAmount (Left (_, i)) = withContractToContractAmount i
-  withToContractAmount (Right (_, a)) = withAccountToContractAmount a
+  {-# INLINE withToContractAmountV0 #-}
+  withToContractAmountV0 :: Either (IndexedAccount m, InstanceV GSWasm.V0) (AccountAddress, IndexedAccount m) -> InstanceV GSWasm.V0 -> Amount -> m a -> m a
+  withToContractAmountV0 (Left (_, i)) = withContractToContractAmountV0 i
+  withToContractAmountV0 (Right (_, a)) = withAccountToContractAmountV0 a
 
   getCurrentContractInstance :: ContractAddress -> m (Maybe Instance)
 
   {-# INLINE getCurrentAvailableAmount #-}
-  getCurrentAvailableAmount :: Either (IndexedAccount m, Instance) (AccountAddress, IndexedAccount m) -> m Amount
-  getCurrentAvailableAmount (Left (_, i)) = getCurrentContractAmount i
+  getCurrentAvailableAmount :: Either (IndexedAccount m, InstanceV GSWasm.V0) (AccountAddress, IndexedAccount m) -> m Amount
+  getCurrentAvailableAmount (Left (_, i)) = getCurrentContractAmountV0 i
   getCurrentAvailableAmount (Right (_, a)) = getCurrentAccountAvailableAmount a
 
   -- |Get an account with its state at the start of the transaction.
@@ -362,7 +362,7 @@ class (StaticInformation m, IsProtocolVersion pv) => TransactionMonad pv m | m -
   getCurrentAccountAvailableAmount :: IndexedAccount m -> m Amount
 
   -- |Same as above, but for contracts.
-  getCurrentContractAmount :: Instance -> m Amount
+  getCurrentContractAmountV0 :: InstanceV GSWasm.V0 -> m Amount
 
   -- |Get the amount of energy remaining for the transaction.
   getEnergy :: m (Energy, EnergyLimitReason)
@@ -463,21 +463,21 @@ modifyAmountCS ai !amnt !cs = cs & (accountUpdates . ix ai . auAmount ) %~
 -- |Add or update the contract state in the changeset with the given value.
 -- |NB: If the instance is not yet in the changeset we assume that its balance is
 -- as listed in the given instance structure.
-addContractStatesToCS :: Instance -> Wasm.ContractState -> ChangeSet -> ChangeSet
+addContractStatesToCS :: InstanceV GSWasm.V0 -> Wasm.ContractState -> ChangeSet -> ChangeSet
 addContractStatesToCS istance newState =
   instanceUpdates . at addr %~ \case Just (amnt, _) -> Just (amnt, newState)
                                      Nothing -> Just (0, newState)
-  where addr = instanceAddress . instanceParameters $ istance
+  where addr = instanceAddress istance
 
 -- |Add the given delta to the change set for the given contract instance.
 -- NB: If the contract is not yet in the changeset it is added, taking the
 -- model as given in the first argument to be current model (local state)
-addContractAmountToCS :: Instance -> AmountDelta -> ChangeSet -> ChangeSet
+addContractAmountToCS :: InstanceV GSWasm.V0 -> AmountDelta -> ChangeSet -> ChangeSet
 addContractAmountToCS istance amnt cs =
-    (cs & instanceUpdates . at addr %~ \case Just (d, v) -> Just (d + amnt, v)
-                                             Nothing -> Just (amnt, model))
-  where addr = instanceAddress . instanceParameters $ istance
-        model = instanceModel istance
+    cs & instanceUpdates . at addr %~ \case Just (d, v) -> Just (d + amnt, v)
+                                            Nothing -> Just (amnt, model)
+  where addr = instanceAddress istance
+        model = istance ^. instanceModel
 
 -- |Add the given contract address to the set of initialized contract instances.
 -- As the changes on the blockstate are already performed in the handler for this operation,
@@ -487,7 +487,7 @@ addContractAmountToCS istance amnt cs =
 addContractInitToCS :: Instance -> ChangeSet -> ChangeSet
 addContractInitToCS istance cs =
     cs { _instanceInits = HSet.insert addr (cs ^. instanceInits) }
-  where addr = instanceAddress . instanceParameters $ istance
+  where addr = instanceAddress istance
 
 -- |Whether the transaction energy limit is reached because of transaction max energy limit,
 -- or because of block energy limit
@@ -711,8 +711,8 @@ instance StaticInformation m => StaticInformation (LocalT r m) where
 deriving via (MGSTrans (LocalT r) m) instance AccountOperations m => AccountOperations (LocalT r m)
 
 instance SchedulerMonad pv m => TransactionMonad pv (LocalT r m) where
-  {-# INLINE withInstanceState #-}
-  withInstanceState istance val cont = do
+  {-# INLINE withInstanceStateV0 #-}
+  withInstanceStateV0 istance val cont = do
     changeSet %= addContractStatesToCS istance val
     cont
 
@@ -723,21 +723,21 @@ instance SchedulerMonad pv m => TransactionMonad pv (LocalT r m) where
                   addAmountToCS fromAcc (amountDiff 0 amount))
     cont
 
-  {-# INLINE withAccountToContractAmount #-}
-  withAccountToContractAmount fromAcc toAcc amount cont = do
+  {-# INLINE withAccountToContractAmountV0 #-}
+  withAccountToContractAmountV0 fromAcc toAcc amount cont = do
     cs <- changeSet <%= addContractAmountToCS toAcc (amountToDelta amount)
     changeSet <~ addAmountToCS fromAcc (amountDiff 0 amount) cs
     cont
 
-  {-# INLINE withContractToAccountAmount #-}
-  withContractToAccountAmount fromAcc toAcc amount cont = do
+  {-# INLINE withContractToAccountAmountV0 #-}
+  withContractToAccountAmountV0 fromAcc toAcc amount cont = do
     cs <- use changeSet
     cs' <- addAmountToCS toAcc (amountToDelta amount) cs
     changeSet .= addContractAmountToCS fromAcc (amountDiff 0 amount) cs'
     cont
 
-  {-# INLINE withContractToContractAmount #-}
-  withContractToContractAmount fromAcc toAcc amount cont = do
+  {-# INLINE withContractToContractAmountV0 #-}
+  withContractToContractAmountV0 fromAcc toAcc amount cont = do
     changeSet %= addContractAmountToCS toAcc (amountToDelta amount)
     changeSet %= addContractAmountToCS fromAcc (amountDiff 0 amount)
     cont
@@ -827,10 +827,10 @@ instance SchedulerMonad pv m => TransactionMonad pv (LocalT r m) where
                   - max (oldLockedUp + newReleases) staked
       Nothing -> return $ netDeposit - max oldLockedUp staked
 
-  {-# INLINE getCurrentContractAmount #-}
-  getCurrentContractAmount inst = do
-    let amnt = instanceAmount inst
-    let addr = instanceAddress . instanceParameters $ inst
+  {-# INLINE getCurrentContractAmountV0 #-}
+  getCurrentContractAmountV0 inst = do
+    let amnt = inst ^. instanceAmount
+    let addr = instanceAddress inst
     use (changeSet . instanceUpdates . at addr) >>= \case
       Just (delta, _) -> return $! applyAmountDelta delta amnt
       Nothing -> return amnt
