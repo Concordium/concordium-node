@@ -58,7 +58,7 @@ import qualified Concordium.GlobalState.Persistent.Instances as Instances
 import qualified Concordium.Types.Transactions as Transactions
 import qualified Concordium.Types.Execution as Transactions
 import Concordium.GlobalState.Persistent.Instances(PersistentInstance(..), PersistentInstanceV(..), PersistentInstanceParameters(..))
-import Concordium.GlobalState.Instance (Instance(..), InstanceV(..), InstanceParameters(..),makeInstanceHash')
+import Concordium.GlobalState.Instance (Instance(..), InstanceV(..), InstanceParameters(..),makeInstanceHash', instanceAddress)
 import Concordium.GlobalState.Persistent.Account
 import Concordium.GlobalState.Persistent.BlockState.Updates
 import qualified Concordium.GlobalState.Basic.BlockState.Account as TransientAccount
@@ -269,7 +269,7 @@ type PersistentBlockState (pv :: ProtocolVersion) = IORef (BufferedRef (BlockSta
 -- version.
 data BlockStatePointers (pv :: ProtocolVersion) = BlockStatePointers {
     bspAccounts :: !(Accounts.Accounts pv),
-    bspInstances :: !Instances.Instances,
+    bspInstances :: !(Instances.Instances pv),
     bspModules :: !(HashedBufferedRef Modules.Modules),
     bspBank :: !(Hashed Rewards.BankStatus),
     bspIdentityProviders :: !(HashedBufferedRef IPS.IdentityProviders),
@@ -973,13 +973,13 @@ doPutNewInstance pbs fnew = do
         mods <- refLoad (bspModules bsp)
         -- Create the instance
         (inst, insts) <- Instances.newContractInstance (fnew' mods) (bspInstances bsp)
-        let ca = _instanceAddress (_instanceVParameters inst)
+        let ca = instanceAddress inst
         (ca,) <$> storePBS pbs bsp{bspInstances = insts}
         
     where
         fnew' mods ca =
           case fnew ca of
-            InstanceV0 inst@InstanceV{_instanceVParameters = InstanceParameters{..}, ..} -> do
+            inst@(InstanceV0 InstanceV{_instanceVParameters = InstanceParameters{..}, ..}) -> do
               params <- makeBufferedRef $ PersistentInstanceParameters {
                 pinstanceAddress = _instanceAddress,
                 pinstanceOwner = instanceOwner,
@@ -990,8 +990,29 @@ doPutNewInstance pbs fnew = do
                 }
               -- This in an irrefutable pattern because otherwise it would have failed in previous stages
               -- as it would be trying to create an instance of a module that doesn't exist.
-              ~(Just modRef) <- undefined -- TODO: FIX signature of putnewinstance Modules.getModuleReference (GSWasm.miModuleRef instanceModuleInterface) mods
+              -- TODO: FIX signature of putnewinstance 
+              ~(Just modRef) <- Modules.unsafeGetModuleReferenceV0 (GSWasm.miModuleRef instanceModuleInterface) mods
               return (inst, PersistentInstanceV0 Instances.PersistentInstanceV{
+                  pinstanceParameters = params,
+                  pinstanceModuleInterface = modRef,
+                  pinstanceModel = _instanceVModel,
+                  pinstanceAmount = _instanceVAmount,
+                  pinstanceHash = _instanceVHash
+                  })
+            inst@(InstanceV1 InstanceV{_instanceVParameters = InstanceParameters{..}, ..}) -> do
+              params <- makeBufferedRef $ PersistentInstanceParameters {
+                pinstanceAddress = _instanceAddress,
+                pinstanceOwner = instanceOwner,
+                pinstanceContractModule = GSWasm.miModuleRef instanceModuleInterface,
+                pinstanceReceiveFuns = instanceReceiveFuns,
+                pinstanceInitName = instanceInitName,
+                pinstanceParameterHash = instanceParameterHash
+                }
+              -- This in an irrefutable pattern because otherwise it would have failed in previous stages
+              -- as it would be trying to create an instance of a module that doesn't exist.
+              -- TODO: FIX signature of putnewinstance 
+              ~(Just modRef) <- Modules.unsafeGetModuleReferenceV1 (GSWasm.miModuleRef instanceModuleInterface) mods
+              return (inst, PersistentInstanceV1 Instances.PersistentInstanceV{
                   pinstanceParameters = params,
                   pinstanceModuleInterface = modRef,
                   pinstanceModel = _instanceVModel,

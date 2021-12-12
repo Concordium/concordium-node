@@ -10,6 +10,8 @@ module Concordium.GlobalState.Persistent.BlockState.Modules
     getInterface,
     getSource,
     getModuleReference,
+    unsafeGetModuleReferenceV0,
+    unsafeGetModuleReferenceV1,
     putInterface,
     moduleRefList,
     makePersistentModules,
@@ -110,7 +112,7 @@ instance Serialize (ModuleV GSWasm.V0) where
     moduleVInterface <- get
     moduleVSource <- get
     return $! ModuleV {..}
-  put m = put m
+  put ModuleV{..} = put moduleVInterface <> put moduleVSource
 
 -- |This serialization is used for storing the module in the BlobStore.
 -- It should not be used for other purposes.
@@ -120,7 +122,7 @@ instance Serialize (ModuleV GSWasm.V1) where
     moduleVInterface <- get
     moduleVSource <- get
     return $! ModuleV {..}
-  put m = put m
+  put ModuleV{..} = put moduleVInterface <> put moduleVSource
 
 
 instance MonadBlobStore m => BlobStorable m (ModuleV GSWasm.V0) where
@@ -204,6 +206,17 @@ getModuleReference ref mods =
   case modIdx of
     Nothing -> return Nothing
     Just idx -> fmap bufferedReference <$> LFMB.lookupRef idx (mods ^. modulesTable)
+
+-- |Gets the buffered reference to a module as stored in the module table assuming it is version 0.
+unsafeGetModuleReferenceV0 :: MonadBlobStore m => ModuleRef -> Modules -> m (Maybe (BufferedRef (ModuleV GSWasm.V0)))
+unsafeGetModuleReferenceV0 ref mods = fmap (unsafeCoerceBufferedRef extract) <$> getModuleReference ref mods 
+    where extract (ModuleV0 m) = m
+          extract _ = error "Precondition violation."
+-- |Gets the buffered reference to a module as stored in the module table assuming it is version 0.
+unsafeGetModuleReferenceV1 :: MonadBlobStore m => ModuleRef -> Modules -> m (Maybe (BufferedRef (ModuleV GSWasm.V1)))
+unsafeGetModuleReferenceV1 ref mods = fmap (unsafeCoerceBufferedRef extract) <$> getModuleReference ref mods 
+    where extract (ModuleV1 m) = m
+          extract _ = error "Precondition violation."
 
 
 -- |Get an interface by module reference.

@@ -40,6 +40,7 @@ module Concordium.Scheduler
 import qualified Concordium.GlobalState.Wasm as GSWasm
 import qualified Concordium.Wasm as Wasm
 import qualified Concordium.Scheduler.WasmIntegration as WasmV0
+import qualified Concordium.Scheduler.WasmIntegration.V1 as WasmV1
 import Concordium.Scheduler.Types
 import Concordium.Scheduler.Environment
 import Data.Time
@@ -74,6 +75,7 @@ import qualified Concordium.Crypto.BlsSignature as Bls
 import Lens.Micro.Platform
 
 import Prelude hiding (exp, mod)
+import qualified Concordium.Scheduler.WasmIntegration.V1 as V1
 
 -- |Check that
 --  * the transaction has a valid sender,
@@ -578,7 +580,7 @@ getCurrentContractInstanceTicking cref = do
   -- This uses the 'ResourceMeasure' instance for 'Cost.LookupByteSize' to determine the cost for lookup.
   case inst of
     InstanceV0 iv -> tickEnergy (Cost.lookupContractState $ Wasm.contractStateSize (Ins._instanceVModel iv))
-    InstanceV1 iv -> error "TODO"
+    InstanceV1 iv -> tickEnergy (Cost.lookupContractState $ Wasm.contractStateSize (Ins._instanceVModel iv))
   return inst
 
 -- | Handle the initialization of a contract instance.
@@ -638,11 +640,38 @@ handleInitContract wtc initAmount modref initName param =
                 -- And for storing the instance.
                 tickEnergy Cost.initializeContractInstanceCreateCost
     
-                return (iface, result)
+                return (Left (iface, result))
                 
-              GSWasm.ModuleInterfaceV1 miv -> error "TODO"
+              GSWasm.ModuleInterfaceV1 iface -> do
+                let iSize = GSWasm.miModuleSize iface
+                tickEnergy $ Cost.lookupModule iSize
+    
+                -- Then get the particular contract interface (in particular the type of the init method).
+                unless (Set.member initName (GSWasm.miExposedInit iface)) $ rejectTransaction $ InvalidInitMethod modref initName
+    
+                cm <- liftLocal getChainMetadata
+                -- Finally run the initialization function of the contract, resulting in an initial state
+                -- of the contract. This ticks energy during execution, failing when running out of energy.
+                -- NB: At this point the amount to initialize with has not yet been deducted from the
+                -- sender account. Thus if the initialization function were to observe the current balance it would
+                -- be amount - deposit. Currently this is in any case not exposed in contracts, but in case it
+                -- is in the future we should be mindful of which balance is exposed.
+                senderCredentials <- getAccountCredentials (snd senderAccount)
+                let initCtx = Wasm.InitContext{
+                      initOrigin = senderAddress,
+                      icSenderPolicies = map (Wasm.mkSenderPolicy . snd) (OrdMap.toAscList senderCredentials)
+                   }
+                result <- runInterpreter (return . WasmV1.applyInitFun iface cm initCtx initName param initAmount)
+                           `rejectingWith'` V1.cerToRejectReasonInit
+    
+                -- Charge for storing the contract state.
+                tickEnergyStoreState (V1.irdNewState result)
+                -- And for storing the instance.
+                tickEnergy Cost.initializeContractInstanceCreateCost
+    
+                return (Right (iface, result))
 
-          k ls (iface, result) = do
+          k ls (Left (iface, result)) = do
             let model = Wasm.newState result
             (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
             chargeExecutionCost txHash senderAccount energyCost
@@ -662,6 +691,28 @@ handleInitContract wtc initAmount modref initName param =
                                                    ecAmount=initAmount,
                                                    ecInitName=initName,
                                                    ecEvents=Wasm.logs result
+                                                   }], energyCost, usedEnergy
+                                                   )
+          k ls (Right (iface, result)) = do
+            let model = V1.irdNewState result
+            (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+            chargeExecutionCost txHash senderAccount energyCost
+
+            -- Withdraw the amount the contract is initialized with from the sender account.
+            cs' <- addAmountToCS senderAccount (amountDiff 0 initAmount) (ls ^. changeSet)
+
+            let receiveMethods = OrdMap.findWithDefault Set.empty initName (GSWasm.miExposedReceive iface)
+            let ins = makeInstance initName receiveMethods iface model initAmount senderAddress
+            addr <- putNewInstance ins
+
+            -- add the contract initialization to the change set and commit the changes
+            commitChanges $ addContractInitToCS (ins addr) cs'
+
+            return (TxSuccess [ContractInitialized{ecRef=modref,
+                                                   ecAddress=addr,
+                                                   ecAmount=initAmount,
+                                                   ecInitName=initName,
+                                                   ecEvents=V1.irdLogs result
                                                    }], energyCost, usedEnergy
                                                    )
 
