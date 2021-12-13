@@ -383,7 +383,7 @@ mintAndReward bshandle blockParent slotNumber bid isNewEpoch mfinInfo transFees 
       bshandleEpoch <- (if isNewEpoch then rewardLastEpochBakers else return) bshandle
         -- Add the block to the list of blocks baked in this epoch
         >>= flip bsoNotifyBlockBaked bid
-      
+
       foundationAccount <- getAccountCanonicalAddress =<< bsoGetFoundationAccount bshandleEpoch
 
       -- Then mint GTU.
@@ -394,7 +394,7 @@ mintAndReward bshandle blockParent slotNumber bid isNewEpoch mfinInfo transFees 
       bshandleFinRew <- case mfinInfo of
         Nothing -> return bshandleMint
         Just finInfo -> doFinalizationRewards finInfo bshandleMint
-      
+
       -- Finally, reward the block baker.
       doBlockReward transFees freeCounts bid foundationAccount bshandleFinRew
 
