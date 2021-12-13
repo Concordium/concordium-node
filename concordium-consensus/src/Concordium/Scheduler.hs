@@ -1316,7 +1316,7 @@ handleChainUpdate WithMetadata{wmdData = ui@UpdateInstruction{..}, ..} = do
           FoundationAccountUpdatePayload u -> getAccountIndex u >>= \case
             Just ai -> checkSigAndUpdate $ UVFoundationAccount ai
             Nothing -> return (TxInvalid (UnknownAccount u))
-          MintDistributionUpdatePayload u -> checkSigAndUpdate $ UVMintDistribution u
+          MintDistributionUpdatePayload u -> checkSigAndUpdateOnlyCPV0 $ UVMintDistribution u
           TransactionFeeDistributionUpdatePayload u -> checkSigAndUpdate $ UVTransactionFeeDistribution u
           GASRewardsUpdatePayload u -> checkSigAndUpdate $ UVGASRewards u
           BakerStakeThresholdUpdatePayload u -> checkSigAndUpdateOnlyCPV0 $ UVPoolParameters u

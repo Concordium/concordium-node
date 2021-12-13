@@ -206,10 +206,10 @@ makeTestingGenesisDataP1
 emptyBirkParameters :: Accounts pv -> BasicBirkParameters
 emptyBirkParameters accounts = initialBirkParameters (snd <$> AT.toList (accountTable accounts)) (SeedState.initialSeedState (Hash.hash "NONCE") 360)
 
-dummyRewardParameters :: RewardParameters
+dummyRewardParameters :: RewardParameters 'ChainParametersV0
 dummyRewardParameters = RewardParameters {
     _rpMintDistribution = MintDistribution {
-      _mdMintPerSlot = MintRate 1 12,
+      _mdMintPerSlot = MintPerSlotForCPV0Some $ MintRate 1 12,
       _mdBakingReward = RewardFraction 60000, -- 60%
       _mdFinalizationReward = RewardFraction 30000 -- 30%
     },

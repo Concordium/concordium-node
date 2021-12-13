@@ -165,7 +165,7 @@ data PendingUpdates (cpv :: ChainParametersVersion) = PendingUpdates {
         -- |Updates to the foundation account.
         pFoundationAccountQueue :: !(HashedBufferedRef (UpdateQueue AccountIndex)),
         -- |Updates to the mint distribution.
-        pMintDistributionQueue :: !(HashedBufferedRef (UpdateQueue MintDistribution)),
+        pMintDistributionQueue :: !(HashedBufferedRef (UpdateQueue (MintDistribution cpv))),
         -- |Updates to the transaction fee distribution.
         pTransactionFeeDistributionQueue :: !(HashedBufferedRef (UpdateQueue TransactionFeeDistribution)),
         -- |Updates to the GAS rewards.

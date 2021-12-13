@@ -152,7 +152,7 @@ data UpdateValue (cpv :: ChainParametersVersion) where
     -- |Updates to the foundation account.
     UVFoundationAccount :: forall cpv. !AccountIndex -> UpdateValue cpv
     -- |Updates to the mint distribution.
-    UVMintDistribution :: forall cpv. !MintDistribution -> UpdateValue cpv
+    UVMintDistribution :: forall cpv. !(MintDistribution cpv) -> UpdateValue cpv
     -- |Updates to the transaction fee distribution.
     UVTransactionFeeDistribution :: forall cpv. !TransactionFeeDistribution -> UpdateValue cpv
     -- |Updates to the GAS rewards.

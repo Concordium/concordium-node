@@ -52,6 +52,7 @@ import Control.Monad.RWS.Strict
 import Lens.Micro.Platform
 
 import qualified Concordium.Scheduler as Sch
+import Concordium.GlobalState.Types (MonadProtocolVersion)
 
 newtype BlockStateMonad w state m a = BSM { _runBSM :: RWST ContextState w state m a}
     deriving (Functor, Applicative, Monad, MonadState state, MonadReader ContextState, MonadTrans, MonadWriter w, MonadLogger, TimeMonad)
@@ -176,9 +177,9 @@ calculateMintAmounts ::
   -- ^First slot to mint for
   -> Slot
   -- ^Last slot to mint for
-  -> MintDistribution
+  -> MintDistribution 'ChainParametersV0
   -- ^Initial mint distribution
-  -> [(Slot, MintDistribution)]
+  -> [(Slot, MintDistribution 'ChainParametersV0)]
   -- ^Ordered updates to the minting parameters
   -> Amount
   -- ^Total GTU
@@ -193,7 +194,7 @@ calculateMintAmounts  = go mempty
 
         mintRange s e md t =
           let mintSupply s' !m !t'
-                  | s' <= e = let !a = mintAmount (md ^. mdMintPerSlot) t' in mintSupply (s'+1) (m+a) (t'+a)
+                  | s' <= e = let !a = mintAmount (md ^. mdMintPerSlot . mpsMintPerSlot) t' in mintSupply (s'+1) (m+a) (t'+a)
                   | otherwise = (m, t')
               (newMint, newTotal) = mintSupply s 0 t
               mintBakingReward = takeFraction (md ^. mdBakingReward) newMint
@@ -203,14 +204,14 @@ calculateMintAmounts  = go mempty
 
 -- |Mint for all slots since the last block, recording a
 -- special transaction outcome for the minting.
-doMinting :: (GlobalStateTypes m, BlockStateOperations m, BlockPointerMonad m)
+doMinting :: (ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0, GlobalStateTypes m, BlockStateOperations m, BlockPointerMonad m)
   => BlockPointerType m
   -- ^Parent block
   -> Slot
   -- ^New slot
   -> AccountAddress
   -- ^Current foundation account
-  -> [(Slot, MintDistribution)]
+  -> [(Slot, MintDistribution 'ChainParametersV0)]
   -- ^Ordered updates to the minting parameters
   -> UpdatableBlockState m
   -- ^Block state
@@ -355,7 +356,7 @@ doBlockReward transFees FreeTransactionCounts{..} bid foundationAddr bs0 = do
 --    account.  Additionally, a fraction of the old GAS account is paid to the baker,
 --    including incentives for including the 'free' transaction types.  (Rounding of
 --    the fee distribution favours the foundation.  The GAS reward is rounded down.)
-mintAndReward :: (BlockStateOperations m, BlockPointerMonad m)
+mintAndReward :: forall m. (BlockStateOperations m, BlockPointerMonad m, MonadProtocolVersion m)
     => UpdatableBlockState m
     -- ^Block state
     -> BlockPointerType m
@@ -375,25 +376,27 @@ mintAndReward :: (BlockStateOperations m, BlockPointerMonad m)
     -> [(Slot, UpdateValue (ChainParametersVersionFor (MPV m)))]
     -- ^Ordered chain updates since the last block
     -> m (UpdatableBlockState m)
-mintAndReward bshandle blockParent slotNumber bid isNewEpoch mfinInfo transFees freeCounts updates = do
-  -- First, reward bakers from previous epoch, if we are starting a new one.
-  bshandleEpoch <- (if isNewEpoch then rewardLastEpochBakers else return) bshandle
-    -- Add the block to the list of blocks baked in this epoch
-    >>= flip bsoNotifyBlockBaked bid
-  
-  foundationAccount <- getAccountCanonicalAddress =<< bsoGetFoundationAccount bshandleEpoch
+mintAndReward bshandle blockParent slotNumber bid isNewEpoch mfinInfo transFees freeCounts updates =
+  case chainParametersVersionFor $ protocolVersion @(MPV m) of
+    SCPV0 -> do
+      -- First, reward bakers from previous epoch, if we are starting a new one.
+      bshandleEpoch <- (if isNewEpoch then rewardLastEpochBakers else return) bshandle
+        -- Add the block to the list of blocks baked in this epoch
+        >>= flip bsoNotifyBlockBaked bid
+      
+      foundationAccount <- getAccountCanonicalAddress =<< bsoGetFoundationAccount bshandleEpoch
 
-  -- Then mint GTU.
-  let mintUpdates = [(slot, md) | (slot, UVMintDistribution md) <- updates]
-  bshandleMint <- doMinting blockParent slotNumber foundationAccount mintUpdates bshandleEpoch
+      -- Then mint GTU.
+      let mintUpdates = [(slot, md) | (slot, UVMintDistribution md) <- updates]
+      bshandleMint <- doMinting blockParent slotNumber foundationAccount mintUpdates bshandleEpoch
 
-  -- Next, reward the finalizers, if the block includes a finalization record.
-  bshandleFinRew <- case mfinInfo of
-    Nothing -> return bshandleMint
-    Just finInfo -> doFinalizationRewards finInfo bshandleMint
-  
-  -- Finally, reward the block baker.
-  doBlockReward transFees freeCounts bid foundationAccount bshandleFinRew
+      -- Next, reward the finalizers, if the block includes a finalization record.
+      bshandleFinRew <- case mfinInfo of
+        Nothing -> return bshandleMint
+        Just finInfo -> doFinalizationRewards finInfo bshandleMint
+      
+      -- Finally, reward the block baker.
+      doBlockReward transFees freeCounts bid foundationAccount bshandleFinRew
 
 -- |Update the bakers and seed state of the block state.
 -- The epoch for the new seed state must be at least the epoch of
