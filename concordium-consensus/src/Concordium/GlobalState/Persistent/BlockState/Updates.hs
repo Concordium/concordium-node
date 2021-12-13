@@ -743,6 +743,50 @@ processPoolParamatersUpdates t bu = do
                     pendingUpdates = pendingUpdates{pPoolParametersQueue = newpQ}
                 }
 
+-- |Process cooldown parameters updates.
+processCooldownParametersUpdates
+    :: (MonadBlobStore m, IsChainParametersVersion cpv)
+    => Timestamp
+    -> BufferedRef (Updates' cpv)
+    -> m (Map.Map TransactionTime (UpdateValue cpv), BufferedRef (Updates' cpv))
+processCooldownParametersUpdates t bu = do
+        u@Updates{..} <- refLoad bu
+        case pCooldownParametersQueue pendingUpdates of
+            NothingForCPV1 -> return (Map.empty, bu)
+            JustForCPV1 qref -> do
+                oldQ <- refLoad qref
+                processValueUpdates t oldQ (return (Map.empty, bu)) $ \newParamPtr newQ m -> (UVCooldownParameters <$> m,) <$> do
+                    newpQ <- refMake newQ
+                    StoreSerialized oldCP <- refLoad currentParameters
+                    StoreSerialized newParam <- refLoad newParamPtr
+                    newParameters <- refMake $ StoreSerialized $ oldCP & cpCooldownParameters .~ newParam
+                    refMake u{
+                            currentParameters = newParameters,
+                            pendingUpdates = pendingUpdates{pCooldownParametersQueue = JustForCPV1 newpQ}
+                        }
+
+-- |Process time parameters updates.
+processTimeParametersUpdates
+    :: (MonadBlobStore m, IsChainParametersVersion cpv)
+    => Timestamp
+    -> BufferedRef (Updates' cpv)
+    -> m (Map.Map TransactionTime (UpdateValue cpv), BufferedRef (Updates' cpv))
+processTimeParametersUpdates t bu = do
+        u@Updates{..} <- refLoad bu
+        case pTimeParametersQueue pendingUpdates of
+            NothingForCPV1 -> return (Map.empty, bu)
+            JustForCPV1 qref -> do
+                oldQ <- refLoad qref
+                processValueUpdates t oldQ (return (Map.empty, bu)) $ \newParamPtr newQ m -> (UVTimeParameters <$> m,) <$> do
+                    newpQ <- refMake newQ
+                    StoreSerialized oldCP <- refLoad currentParameters
+                    StoreSerialized newParam <- refLoad newParamPtr
+                    newParameters <- refMake $ StoreSerialized $ oldCP & cpTimeParameters .~ newParam
+                    refMake u{
+                            currentParameters = newParameters,
+                            pendingUpdates = pendingUpdates{pTimeParametersQueue = JustForCPV1 newpQ}
+                        }
+
 -- |Process the add anonymity revoker update queue.
 --  Ignores updates with duplicate ARs.
 processAddAnonymityRevokerUpdates
@@ -860,7 +904,6 @@ processUpdateQueues
     -> UpdatesWithARsAndIPs cpv
     -> m (Map.Map TransactionTime (UpdateValue cpv), UpdatesWithARsAndIPs cpv)
 processUpdateQueues t (u0, ars, ips) = do
-  -- TODO: Add missing processing of CooldownParameters and TimeParameters
   (m1, u1) <- (processRootKeysUpdates t
         `pThen` processLevel1KeysUpdates t
         `pThen` processLevel2KeysUpdates t
@@ -872,7 +915,9 @@ processUpdateQueues t (u0, ars, ips) = do
         `pThen` processMintDistributionUpdates t
         `pThen` processTransactionFeeDistributionUpdates t
         `pThen` processGASRewardsUpdates t
-        `pThen` processPoolParamatersUpdates t) u0
+        `pThen` processPoolParamatersUpdates t
+        `pThen` processCooldownParametersUpdates t
+        `pThen` processTimeParametersUpdates t) u0
 
   -- AR and IP updates are handled separately to avoid adding the large objects to the 'Updates' types.
   (m2, u2, ars') <- processAddAnonymityRevokerUpdates t u1 ars
