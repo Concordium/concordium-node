@@ -537,24 +537,31 @@ handleDeployModule wtc mod =
     psize = Wasm.moduleSourceLength . Wasm.wasmSource $ mod
 
     c = do
-      if demoteProtocolVersion (protocolVersion @pv) <= P3 then do
-        tickEnergy (Cost.deployModuleCost psize)
-        case WasmV0.processModule mod of
-          Nothing -> rejectTransaction ModuleNotWF
-          Just iface -> do
-            let mhash = GSWasm.moduleReference iface
-            exists <- isJust <$> getModuleInterfaces mhash
-            when exists $ rejectTransaction (ModuleHashAlreadyExists mhash)
-            return (iface, mhash)
-      else
-        rejectTransaction ModuleNotWF -- TODO: Handle P4 here
+      tickEnergy (Cost.deployModuleCost psize)
+      case Wasm.wasmVersion mod of
+        0 -> case WasmV0.processModule mod of
+              Nothing -> rejectTransaction ModuleNotWF
+              Just iface -> do
+                let mhash = GSWasm.moduleReference iface
+                exists <- isJust <$> getModuleInterfaces mhash
+                when exists $ rejectTransaction (ModuleHashAlreadyExists mhash)
+                return (GSWasm.ModuleInterfaceV0 iface, mhash)
+        1 | demoteProtocolVersion (protocolVersion @pv) >= P4 ->
+            case WasmV1.processModule mod of
+              Nothing -> rejectTransaction ModuleNotWF
+              Just iface -> do
+                let mhash = GSWasm.moduleReference iface
+                exists <- isJust <$> getModuleInterfaces mhash
+                when exists $ rejectTransaction (ModuleHashAlreadyExists mhash)
+                return (GSWasm.ModuleInterfaceV1 iface, mhash)
+        _ -> rejectTransaction ModuleNotWF
 
     k ls (iface, mhash) = do
       (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
       chargeExecutionCost txHash senderAccount energyCost
       -- Add the module to the global state (module interface, value interface and module itself).
       -- We know the module does not exist at this point, so we can ignore the return value.
-      _ <- commitModule (GSWasm.ModuleInterfaceV0 iface, mod)
+      _ <- commitModule (iface, mod)
       return (TxSuccess [ModuleDeployed mhash], energyCost, usedEnergy)
 
 -- | Tick energy for storing the given contract state.
