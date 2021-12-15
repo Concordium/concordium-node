@@ -450,6 +450,10 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         (r1, bs1') <- coerceBSML $ bsoAddBaker bs1 addr bkrAdd
         (r2, bs2') <- coerceBSMR $ bsoAddBaker bs2 addr bkrAdd
         assert (r1 == r2) $ return (r1, (bs1', bs2'))
+    bsoConfigureBaker (bs1, bs2) aconfig bkrConfig = do
+        (r1, bs1') <- coerceBSML $ bsoConfigureBaker bs1 aconfig bkrConfig
+        (r2, bs2') <- coerceBSMR $ bsoConfigureBaker bs2 aconfig bkrConfig
+        assert (r1 == r2) $ return (r1, (bs1', bs2'))
     bsoUpdateBakerKeys (bs1, bs2) addr bkrKUpd = do
         (r1, bs1') <- coerceBSML $ bsoUpdateBakerKeys bs1 addr bkrKUpd
         (r2, bs2') <- coerceBSMR $ bsoUpdateBakerKeys bs2 addr bkrKUpd

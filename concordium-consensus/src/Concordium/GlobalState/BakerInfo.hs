@@ -12,6 +12,7 @@ import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types.Accounts
 
 import Concordium.Types
+import Concordium.Types.Execution (OpenStatus)
 
 
 data FullBakerInfo = FullBakerInfo {
@@ -134,6 +135,44 @@ data BakerAddResult
   | BADuplicateAggregationKey
   -- ^The aggregation key already exists.
   | BAStakeUnderThreshold
+  -- ^The stake is below the required threshold dictated by current chain parameters.
+  deriving (Eq, Ord, Show)
+
+-- TODO: Fix and Document
+data BakerConfigure =
+    BakerConfigureAdd {
+        bcaKeys :: !BakerKeyUpdate,
+        bcaCapital :: !Amount,
+        bcaRestakeEarnings :: !Bool,
+        bcaOpenForDelegation :: !OpenStatus,
+        bcaMetadataURL :: !UrlText,
+        bcaTransactionFeeCommission :: !RewardFraction,
+        bcaBakingRewardCommission :: !RewardFraction,
+        bcaFinalizationRewardCommission :: !RewardFraction
+    }
+  | BakerConfigureRemove
+  | BakerConfigureUpdate {
+        bcuKeysWithProofs :: !(Maybe BakerKeysWithProofs),
+        bcuCapital :: !(Maybe Amount),
+        bcuRestakeEarnings :: !(Maybe Bool),
+        bcuOpenForDelegation :: !(Maybe OpenStatus),
+        bcuMetadataURL :: !(Maybe UrlText),
+        bcuTransactionFeeCommission :: !(Maybe RewardFraction),
+        bcuBakingRewardCommission :: !(Maybe RewardFraction),
+        bcuFinalizationRewardCommission :: !(Maybe RewardFraction)
+    }
+
+-- TODO: Fix and Document
+data BakerConfigureResult
+  = BCSuccess !BakerId
+  -- ^Adding baker successful.
+  | BCInvalidAccount
+  -- ^Account unknown.
+  | BCAlreadyBaker !BakerId
+  -- ^The account is already registered as a baker.
+  | BCDuplicateAggregationKey
+  -- ^The aggregation key already exists.
+  | BCStakeUnderThreshold
   -- ^The stake is below the required threshold dictated by current chain parameters.
   deriving (Eq, Ord, Show)
 

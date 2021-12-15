@@ -434,6 +434,14 @@ class (BlockStateQuery m) => BlockStateOperations m where
     -> BakerAdd
     -> m (BakerAddResult, UpdatableBlockState m)
 
+  -- TODO: Document
+  bsoConfigureBaker
+    :: (AccountVersionFor (MPV m) ~ 'AccountV1, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1)
+    => UpdatableBlockState m
+    -> AccountIndex
+    -> BakerConfigure
+    -> m (BakerConfigureResult, UpdatableBlockState m)
+
   -- |Update the keys associated with an account.
   -- It is assumed that the keys have already been checked for validity/ownership as
   -- far as is necessary.
@@ -744,6 +752,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoSetSeedState s ss = lift $ bsoSetSeedState s ss
   bsoTransitionEpochBakers s e = lift $ bsoTransitionEpochBakers s e
   bsoAddBaker s addr a = lift $ bsoAddBaker s addr a
+  bsoConfigureBaker s aconfig a = lift $ bsoConfigureBaker s aconfig a
   bsoUpdateBakerKeys s addr a = lift $ bsoUpdateBakerKeys s addr a
   bsoUpdateBakerStake s addr a = lift $ bsoUpdateBakerStake s addr a
   bsoUpdateBakerRestakeEarnings s addr a = lift $ bsoUpdateBakerRestakeEarnings s addr a
@@ -790,6 +799,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoSetSeedState #-}
   {-# INLINE bsoTransitionEpochBakers #-}
   {-# INLINE bsoAddBaker #-}
+  {-# INLINE bsoConfigureBaker #-}
   {-# INLINE bsoUpdateBakerKeys #-}
   {-# INLINE bsoUpdateBakerStake #-}
   {-# INLINE bsoUpdateBakerRestakeEarnings #-}

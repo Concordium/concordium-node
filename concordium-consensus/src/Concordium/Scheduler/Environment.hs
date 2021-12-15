@@ -187,6 +187,13 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
     -> BakerAdd
     -> m BakerAddResult
 
+  -- TODO: Documentation
+  configureBaker
+    :: (AccountVersionFor (MPV m) ~ 'AccountV1, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1)
+    => AccountIndex
+    -> BakerConfigure
+    -> m BakerConfigureResult
+
   -- |Remove the baker associated with an account.
   -- The removal takes effect after a cooling-off period.
   -- Removal may fail if the baker is already cooling-off from another change (e.g. stake reduction).

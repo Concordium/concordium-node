@@ -204,28 +204,28 @@ dispatch msg = do
                      handleUpdateContract (mkWTC TTUpdate) uAmount uAddress uReceiveName uMessage
 
                    AddBaker{..} ->
-                     onlyAccountV0 $ 
-                     onlyChainPatametersV0 $
+                     onlyAccountVersion SAccountV0 $ 
+                     onlyChainPatametersVersion SCPV0 $
                      handleAddBaker (mkWTC TTAddBaker) abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyKey abProofSig abProofElection abProofAggregation abBakingStake abRestakeEarnings
 
                    RemoveBaker ->
-                     onlyAccountV0 $
-                     onlyChainPatametersV0 $
+                     onlyAccountVersion SAccountV0 $
+                     onlyChainPatametersVersion SCPV0 $
                      handleRemoveBaker (mkWTC TTRemoveBaker)
 
                    UpdateBakerStake{..} ->
-                     onlyAccountV0 $
-                     onlyChainPatametersV0 $
+                     onlyAccountVersion SAccountV0 $
+                     onlyChainPatametersVersion SCPV0 $
                      handleUpdateBakerStake (mkWTC TTUpdateBakerStake) ubsStake
 
                    UpdateBakerRestakeEarnings{..} ->
-                     onlyAccountV0 $
-                     onlyChainPatametersV0 $
+                     onlyAccountVersion SAccountV0 $
+                     onlyChainPatametersVersion SCPV0 $
                      handleUpdateBakerRestakeEarnings (mkWTC TTUpdateBakerRestakeEarnings) ubreRestakeEarnings
 
                    UpdateBakerKeys{..} ->
-                     onlyAccountV0 $
-                     onlyChainPatametersV0 $
+                     onlyAccountVersion SAccountV0 $
+                     onlyChainPatametersVersion SCPV0 $
                      handleUpdateBakerKeys (mkWTC TTUpdateBakerKeys) ubkElectionVerifyKey ubkSignatureVerifyKey ubkAggregationVerifyKey ubkProofSig ubkProofElection ubkProofAggregation
 
                    UpdateCredentialKeys{..} ->
@@ -257,26 +257,33 @@ dispatch msg = do
 
                    TransferWithScheduleAndMemo{..} ->
                      handleTransferWithSchedule (mkWTC TTTransferWithScheduleAndMemo) twswmTo twswmSchedule $ Just twswmMemo
-                     
+
+                   ConfigureBaker{..} ->
+                     onlyAccountVersion SAccountV1 $
+                     onlyChainPatametersVersion SCPV1 $
+                     handleConfigureBaker (mkWTC TTConfigureBaker) cbCapital cbRestakeEarnings cbOpenForDelegation cbKeysWithProofs cbMetadataURL cbTransactionFeeCommission cbBakingRewardCommission cbFinalizationRewardCommission
+
           case res of
             -- The remaining block energy is not sufficient for the handler to execute the transaction.
             Nothing -> return Nothing
             Just summary -> return $ Just $ TxValid summary
   where
-    -- This function errors if the account version is not V0.
-    -- It is used where parsing of the transaction would fail if the protocol version does not
-    -- imply account version V0, so the error case should never occur.
-    onlyAccountV0 :: ((AccountVersionFor (MPV m) ~ 'AccountV0) => a) -> a
-    onlyAccountV0 c = case accountVersionFor (protocolVersion @(MPV m)) of
-      SAccountV0 -> c
-      _ -> error "Operation unsupported for this protocol version."
-    -- This function errors if the chain parameters version is not V0.
-    -- It is used where parsing of the transaction would fail if the protocol version does not
-    -- imply account version V0, so the error case should never occur.
-    onlyChainPatametersV0 :: ((ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0) => a) -> a
-    onlyChainPatametersV0 c = case chainParametersVersionFor (protocolVersion @(MPV m)) of
-      SCPV0 -> c
-      _ -> error "Operation unsupported for this chain parameter version."
+    -- Function 'onlyAccount' @sav@ @k@ fails if account version for @MPV m@ is not that of @sav@,
+    -- and continues with @k@ if they are the same.
+    onlyAccountVersion :: SAccountVersion av -> ((AccountVersionFor (MPV m) ~ av) => a) -> a
+    onlyAccountVersion sav c =
+        case (sav, accountVersionFor (protocolVersion @(MPV m))) of
+            (SAccountV0, SAccountV0) -> c
+            (SAccountV1, SAccountV1) -> c
+            _ -> error "Operation unsupported for this protocol version."
+    -- Function 'onlyChainPatameters' @scpv@ @k@ fails if chain parameters version for @MPV m@ is
+    -- not that of @sav@, and continues with @k@ if they are the same.
+    onlyChainPatametersVersion :: SChainParametersVersion cpv -> ((ChainParametersVersionFor (MPV m) ~ cpv) => a) -> a
+    onlyChainPatametersVersion scpv c =
+        case (scpv, chainParametersVersionFor (protocolVersion @(MPV m))) of
+            (SCPV0, SCPV0) -> c
+            (SCPV1, SCPV1) -> c
+            _ -> error "Operation unsupported for this chain parameter version."
 
 handleTransferWithSchedule :: forall m .
   SchedulerMonad m
@@ -1006,6 +1013,151 @@ handleAddBaker wtc abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyK
               BI.BADuplicateAggregationKey -> return (TxReject (DuplicateAggregationKey abAggregationVerifyKey), energyCost, usedEnergy)
               BI.BAStakeUnderThreshold -> return (TxReject StakeUnderMinimumThresholdForBaking, energyCost, usedEnergy)
           else return (TxReject InvalidProof, energyCost, usedEnergy)
+
+-- |Argument to configure baker 'withDeposit' continuation.
+data ConfigureBakerCont =
+    ConfigureAddBakerCont {
+        cbcCapital :: !Amount,
+        cbcRestakeEarnings :: !Bool,
+        cbcOpenForDelegation :: !OpenStatus,
+        cbcKeysWithProofs :: !BakerKeysWithProofs,
+        cbcMetadataURL :: !UrlText,
+        cbcTransactionFeeCommission :: !RewardFraction,
+        cbcBakingRewardCommission :: !RewardFraction,
+        cbcFinalizationRewardCommission :: !RewardFraction
+    }
+  | ConfigureRemoveBakerCont
+  | ConfigureUpdateBakerCont
+
+handleConfigureBaker
+    :: (AccountVersionFor (MPV m) ~ 'AccountV1, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1, SchedulerMonad m)
+    => WithDepositContext m
+    -- |The equity capital of the baker
+    -> Maybe Amount
+    -- |Whether the baker's earnings are restaked
+    -> Maybe Bool
+    -- |Whether the pool is open for delegators
+    -> Maybe OpenStatus
+    -- |The key/proof pairs to verify baker.
+    -> Maybe BakerKeysWithProofs
+    -- |The URL referencing the baker's metadata.
+    -> Maybe UrlText
+    -- |The commission the pool owner takes on transaction fees.
+    -> Maybe RewardFraction
+    -- |The commission the pool owner takes on baking rewards.
+    -> Maybe RewardFraction
+    -- |The commission the pool owner takes on finalization rewards.
+    -> Maybe RewardFraction
+    -> m (Maybe TransactionSummary)
+handleConfigureBaker
+  wtc
+  cbCapital
+  cbRestakeEarnings
+  cbOpenForDelegation
+  cbKeysWithProofs
+  cbMetadataURL
+  cbTransactionFeeCommission
+  cbBakingRewardCommission
+  cbFinalizationRewardCommission =
+    withDeposit wtc tickAndGetAccountBalance kWithAccountBalance
+      where
+        senderAccount = wtc ^. wtcSenderAccount
+        txHash = wtc ^. wtcTransactionHash
+        meta = wtc ^. wtcTransactionHeader
+        senderAddress = thSender meta
+        configureAddBakerArg =
+            case
+              (cbCapital,
+               cbRestakeEarnings,
+               cbOpenForDelegation,
+               cbKeysWithProofs,
+               cbMetadataURL,
+               cbTransactionFeeCommission,
+               cbBakingRewardCommission,
+               cbFinalizationRewardCommission) of
+                (Just cbcCapital,
+                 Just cbcRestakeEarnings,
+                 Just cbcOpenForDelegation,
+                 Just cbcKeysWithProofs,
+                 Just cbcMetadataURL,
+                 Just cbcTransactionFeeCommission,
+                 Just cbcBakingRewardCommission,
+                 Just cbcFinalizationRewardCommission) ->
+                    return ConfigureAddBakerCont{..}
+                _ ->
+                    rejectTransaction MissingBakerAddParameters
+        configureRemoveBakerArg =
+            case
+              (cbRestakeEarnings,
+               cbOpenForDelegation,
+               cbKeysWithProofs,
+               cbMetadataURL,
+               cbTransactionFeeCommission,
+               cbBakingRewardCommission,
+               cbFinalizationRewardCommission) of
+                (Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing) ->
+                    return ConfigureRemoveBakerCont
+                _ ->
+                    rejectTransaction UnexpectedBakerRemoveParameters
+        configureUpdateBakerArg =
+            return ConfigureUpdateBakerCont
+        tickAndGetAccountBalance = do
+            -- Check consistency of parameters before charging energy cost:
+            mbaker <- getAccountBaker (snd senderAccount)
+            arg <- case mbaker of
+                    Nothing -> configureAddBakerArg
+                    Just _ ->
+                        if cbCapital == Just 0
+                          then configureRemoveBakerArg
+                          else configureUpdateBakerArg
+            -- XXX: This might not be a good way to compute energy cost:
+            if isJust cbKeysWithProofs
+              then tickEnergy Cost.configureBakerCostWithKey
+              else tickEnergy Cost.configureBakerCostWithoutKeys
+            (arg,) <$> getCurrentAccountTotalAmount senderAccount
+        kWithAccountBalance ls (ConfigureAddBakerCont{cbcKeysWithProofs=BakerKeysWithProofs{..},..}, accountBalance) = do
+            (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+            chargeExecutionCost txHash senderAccount energyCost
+            let challenge = addBakerChallenge senderAddress bkwpElectionVerifyKey bkwpSignatureVerifyKey bkwpAggregationVerifyKey
+                electionP = checkElectionKeyProof challenge bkwpElectionVerifyKey bkwpProofElection
+                signP = checkSignatureVerifyKeyProof challenge bkwpSignatureVerifyKey bkwpProofSig
+                aggregationP = Bls.checkProofOfKnowledgeSK challenge bkwpProofAggregation bkwpAggregationVerifyKey
+            --rangesValid <- areCommissionRangesValid cbcTransactionFeeCommission cbcBakingRewardCommission cbcFinalizationRewardCommission
+            if accountBalance < cbcCapital then
+                -- The balance is insufficient.
+                return (TxReject InsufficientBalanceForBakerStake, energyCost, usedEnergy)
+            --else if not rangesValid then
+            --    return (TxReject TODO, energyCost, usedEnergy)
+            else if electionP && signP && aggregationP then do
+                -- The proof validates that the baker owns all the private keys,
+                -- thus we can try to create the baker.
+                res <- configureBaker (fst senderAccount) BI.BakerConfigureAdd {
+                      bcaKeys = BI.BakerKeyUpdate {
+                          bkuSignKey = bkwpSignatureVerifyKey,
+                          bkuAggregationKey = bkwpAggregationVerifyKey,
+                          bkuElectionKey = bkwpElectionVerifyKey
+                      },
+                      bcaCapital = cbcCapital,
+                      bcaRestakeEarnings = cbcRestakeEarnings,
+                      bcaOpenForDelegation = cbcOpenForDelegation,
+                      bcaMetadataURL = cbcMetadataURL,
+                      bcaTransactionFeeCommission = cbcTransactionFeeCommission,
+                      bcaBakingRewardCommission = cbcBakingRewardCommission,
+                      bcaFinalizationRewardCommission = cbcFinalizationRewardCommission
+                    }
+                -- TODO handle res: see baker remove/add/update for examples.
+                undefined
+              else return (TxReject InvalidProof, energyCost, usedEnergy)
+        kWithAccountBalance ls (ConfigureRemoveBakerCont, accountBalance) = do
+            (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+            chargeExecutionCost txHash senderAccount energyCost
+            res <- configureBaker (fst senderAccount) BI.BakerConfigureRemove
+            -- TODO handle res: see baker remove/add/update for examples.
+            undefined
+        kWithAccountBalance ls (ConfigureUpdateBakerCont, accountBalance) = do
+            (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+            chargeExecutionCost txHash senderAccount energyCost
+            undefined
 
 -- |Remove the baker for an account. The logic is as follows:
 --

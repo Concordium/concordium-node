@@ -644,6 +644,8 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                 & blockBirkParameters . birkActiveBakers . activeBakers %~ Set.insert bid
                 )
 
+    bsoConfigureBaker = undefined -- TODO implement.
+
     bsoUpdateBakerKeys bs ai bku@BakerKeyUpdate{..} = return $! case bs ^? blockAccounts . Accounts.indexedAccount ai of
         -- The account is valid and has a baker
         Just Account{_accountStaking = AccountStakeBaker ab}

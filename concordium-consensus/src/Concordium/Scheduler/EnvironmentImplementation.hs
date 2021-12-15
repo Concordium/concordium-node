@@ -260,6 +260,13 @@ instance (MonadReader ContextState m,
     schedulerBlockState .= s'
     return ret
 
+  {-# INLINE configureBaker #-}
+  configureBaker ai bconfig = do
+    s <- use schedulerBlockState
+    (ret, s') <- lift (bsoConfigureBaker s ai bconfig)
+    schedulerBlockState .= s'
+    return ret
+
   {-# INLINE removeBaker #-}
   removeBaker ai = do
     s <- use schedulerBlockState
