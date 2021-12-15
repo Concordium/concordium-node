@@ -21,6 +21,7 @@ import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Scheduler.Runner
 
+import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
 import Concordium.GlobalState.Basic.BlockState.Instances
 import Concordium.GlobalState.Basic.BlockState
@@ -142,7 +143,7 @@ testCases =
         fibSpec n bs = specify "Contract state" $
           case getInstance (Types.ContractAddress 0 0) (bs ^. blockInstances) of
             Nothing -> assertFailure "Instnace at <0,0> does not exist."
-            Just istance -> assertEqual "State contains the n-th Fibonacci number." (fibNBytes n) (instanceModel istance)
+            Just istance -> assertEqual "State contains the n-th Fibonacci number." (fibNBytes n) (istance ^. instanceModel)
 
         fib n = let go = 1:1:zipWith (+) go (tail go)
                 in go !! n

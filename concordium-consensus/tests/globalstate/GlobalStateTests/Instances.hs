@@ -20,6 +20,7 @@ import qualified Concordium.GlobalState.Wasm as GSWasm
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.Basic.BlockState.InstanceTable
 import Concordium.GlobalState.Basic.BlockState.Instances
+import Concordium.GlobalState.Instance
 
 import qualified Data.FixedByteString as FBS
 import qualified Data.ByteString as BS
@@ -32,8 +33,8 @@ contractSources = $(makeRelativeToProject "testdata/contracts/" >>= embedDir)
 
 -- Read all the files in testdata/contracts and get any valid contract interfaces.
 -- This assumes there is at least one, otherwise the tests will fail.
-validContractArtifacts :: [(Wasm.ModuleSource, GSWasm.ModuleInterface)]
-validContractArtifacts = mapMaybe packModule contractSources
+validContractArtifactsV0 :: [(Wasm.ModuleSource, GSWasm.ModuleInterfaceV GSWasm.V0)]
+validContractArtifactsV0 = mapMaybe packModule contractSources
     where packModule (_, sourceBytes) =
             let source = Wasm.ModuleSource sourceBytes
             in (source,) <$> WasmIntegration.processModule (Wasm.WasmModule 0 source)
@@ -96,7 +97,7 @@ genContractState = do
 
 makeDummyInstance :: InstanceData -> Gen (ContractAddress -> Instance)
 makeDummyInstance (InstanceData model amount) = do
-  (_, mInterface@GSWasm.ModuleInterface{..}) <- elements validContractArtifacts
+  (_, mInterface@GSWasm.ModuleInterface{..}) <- elements validContractArtifactsV0
   initName <- if Set.null miExposedInit then return (Wasm.InitName "init_") else elements (Set.toList miExposedInit)
   let receiveNames = fromMaybe Set.empty $ Map.lookup initName miExposedReceive
   return $ makeInstance initName receiveNames mInterface model amount owner
@@ -113,7 +114,7 @@ instance Arbitrary InstanceData where
         return $ InstanceData model amount
 
 instanceData :: Instance -> InstanceData
-instanceData inst = InstanceData (instanceModel inst) (instanceAmount inst)
+instanceData inst = InstanceData (inst ^. instanceModel) (inst ^. instanceAmount)
 
 data Model = Model {
     -- Data of instances
@@ -175,7 +176,7 @@ instanceTableToModel (Tree _ t0) = ttm 0 emptyModel t0
             let m' = ttm offset m l in
                 ttm (offset + 2^h) m' r
         ttm offset m (Leaf inst) = m {
-                                        modelInstances = Map.insert offset (contractSubindex $ instanceAddress $ instanceParameters inst, instanceData inst) (modelInstances m),
+                                        modelInstances = Map.insert offset (contractSubindex $ instanceAddress inst, instanceData inst) (modelInstances m),
                                         modelBound = modelBound m + 1
                                     }
         ttm offset m (VacantLeaf si) = m {
@@ -244,7 +245,7 @@ testUpdates n0 = if n0 <= 0 then return (property True) else tu n0 emptyInstance
                     dummyInstance <- makeDummyInstance instData
                     let (ca, insts') = createInstance dummyInstance insts
                     let (cam, model') = modelCreateInstance dummyInstance model
-                    checkEqualThen (instanceAddress $ instanceParameters ca) cam $
+                    checkEqualThen (instanceAddress ca) cam $
                         tu (n-1) insts' model'
                 deleteAbsent = do
                     ci <- ContractIndex <$> choose (fromIntegral $ modelBound model, maxBound)
@@ -323,7 +324,7 @@ testGetInstance insts model = oneof $ [present | not (null $ modelInstances mode
 testFoldInstances :: Instances -> Model -> Property
 testFoldInstances insts model = allInsts === modInsts
     where
-        allInsts = (\i -> (instanceAddress (instanceParameters i), instanceData i)) <$> (insts ^.. foldInstances)
+        allInsts = (\i -> (instanceAddress i, instanceData i)) <$> (insts ^.. foldInstances)
         modInsts = (\(ci, (csi, d)) -> (ContractAddress ci csi, d)) <$> Map.toAscList (modelInstances model)
 
 tests :: Word -> Spec

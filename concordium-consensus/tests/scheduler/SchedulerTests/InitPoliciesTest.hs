@@ -21,7 +21,7 @@ import Concordium.Scheduler.WasmIntegration
 import Concordium.Types.DummyData
 import Concordium.Scheduler.DummyData
 
-setup :: String -> IO ModuleInterface
+setup :: String -> IO (ModuleInterfaceV V0)
 setup errString = do
   source <- BS.readFile "./testdata/contracts/context_test.wasm"
   let wasmMod = WasmModule 0 $ ModuleSource source

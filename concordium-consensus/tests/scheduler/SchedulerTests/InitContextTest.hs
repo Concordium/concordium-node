@@ -18,6 +18,7 @@ import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Concordium.Scheduler as Sch
 import Concordium.Scheduler.Runner
 
+import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Invariants
 import Concordium.GlobalState.Basic.BlockState.Instances
@@ -81,7 +82,7 @@ checkInitResult proxy (suc, fails, instances) = do
   assertEqual "There should be no failed transactions." [] fails
   assertEqual "There should be no rejected transactions." [] reject
   assertEqual "There should be 1 instance." 1 (length instances)
-  let model = contractState . instanceModel . snd . head $ instances
+  let model = contractState . (^. instanceModel) . snd . head $ instances
   assertEqual "Instance model is the sender address of the account which inialized it." model (encode (senderAccount proxy))
   where
     reject = filter (\case (_, Types.TxSuccess{}) -> False
