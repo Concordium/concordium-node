@@ -234,12 +234,22 @@ putInstanceV0 InstanceV{ _instanceVParameters = InstanceParameters{..}, ..} = do
         put _instanceVAmount
 
 putInstanceV1 :: Putter (InstanceV GSWasm.V1)
-putInstanceV1 = error "TODO"
+putInstanceV1 InstanceV{ _instanceVParameters = InstanceParameters{..}, ..} = do
+        -- InstanceParameters
+        -- Only put the Subindex part of the address
+        put (contractSubindex _instanceAddress)
+        put instanceOwner
+        put (GSWasm.miModuleRef instanceModuleInterface)
+        put instanceInitName
+        -- instanceReceiveFuns, instanceModuleInterface and instanceParameterHash
+        -- are not included, since they can be derived from context.
+        put _instanceVModel
+        put _instanceVAmount
 
 
 -- |Deserialize a smart contract instance in V0 format.
 getInstanceV0
-    :: (ModuleRef -> Wasm.InitName -> Maybe (Set.Set Wasm.ReceiveName, GSWasm.ModuleInterfaceV GSWasm.V0))
+    :: (ModuleRef -> Wasm.InitName -> Maybe (Set.Set Wasm.ReceiveName, GSWasm.ModuleInterface))
     -- ^Function for resolving the receive functions and module interface.
     -> ContractIndex
     -- ^Index of the contract
@@ -253,19 +263,20 @@ getInstanceV0 resolve idx = do
         instanceInitName <- get
         (instanceReceiveFuns, instanceModuleInterface) <-
             case resolve instanceContractModule instanceInitName of
-                Just r -> return r
+                Just (r, GSWasm.ModuleInterfaceV0 iface) -> return (r, iface)
+                Just (_, GSWasm.ModuleInterfaceV1 _) -> fail "Expected module version 0, but module version 1 encountered."
                 Nothing -> fail "Unable to resolve smart contract"
         _instanceVModel <- get
         _instanceVAmount <- get
         return $ makeInstanceV instanceInitName instanceReceiveFuns instanceModuleInterface _instanceVModel _instanceVAmount instanceOwner _instanceAddress
 
+-- |Deserialize a smart contract instance in V0 format.
 getInstanceV1
     :: (ModuleRef -> Wasm.InitName -> Maybe (Set.Set Wasm.ReceiveName, GSWasm.ModuleInterface))
     -- ^Function for resolving the receive functions and module interface.
     -> ContractIndex
     -- ^Index of the contract
-    -> Get Instance
--- |Deserialize a smart contract instance in V0 format.
+    -> Get (InstanceV GSWasm.V1)
 getInstanceV1 resolve idx = do
         -- InstanceParameters
         subindex <- get
@@ -273,13 +284,11 @@ getInstanceV1 resolve idx = do
         instanceOwner <- get
         instanceContractModule <- get
         instanceInitName <- get
+        (instanceReceiveFuns, instanceModuleInterface) <-
+            case resolve instanceContractModule instanceInitName of
+                Just (_, GSWasm.ModuleInterfaceV0 _) -> fail "Expected module version 1, but module version 0 encountered."
+                Just (r, GSWasm.ModuleInterfaceV1 iface) -> return (r, iface)
+                Nothing -> fail "Unable to resolve smart contract"
         _instanceVModel <- get
         _instanceVAmount <- get
-        case resolve instanceContractModule instanceInitName of
-            Just (instanceReceiveFuns, GSWasm.ModuleInterfaceV0 instanceModuleInterface) ->
-              return $ InstanceV0 $ makeInstanceV instanceInitName instanceReceiveFuns instanceModuleInterface _instanceVModel _instanceVAmount instanceOwner _instanceAddress
-            Just (instanceReceiveFuns, GSWasm.ModuleInterfaceV1 instanceModuleInterface) ->
-              return $ InstanceV1 $ makeInstanceV instanceInitName instanceReceiveFuns instanceModuleInterface _instanceVModel _instanceVAmount instanceOwner _instanceAddress
-            Nothing -> fail "Unable to resolve smart contract"
-        
-
+        return $ makeInstanceV instanceInitName instanceReceiveFuns instanceModuleInterface _instanceVModel _instanceVAmount instanceOwner _instanceAddress

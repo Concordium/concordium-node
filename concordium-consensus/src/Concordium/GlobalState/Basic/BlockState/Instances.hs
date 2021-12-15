@@ -17,8 +17,7 @@ module Concordium.GlobalState.Basic.BlockState.Instances(
     instanceCount,
     -- * Serialization
     putInstancesV0,
-    getInstancesV0,
-    getInstancesV1
+    getInstancesV0
 ) where
 
 import Concordium.Types
@@ -89,7 +88,7 @@ putInstancesV0 (Instances (Tree _ t)) = do
 
 -- |Deserialize 'Instances' in V0 format.
 getInstancesV0
-    :: (ModuleRef -> Wasm.InitName -> Maybe (Set.Set Wasm.ReceiveName, GSWasm.ModuleInterfaceV GSWasm.V0))
+    :: (ModuleRef -> Wasm.InitName -> Maybe (Set.Set Wasm.ReceiveName, GSWasm.ModuleInterface))
     -> Get Instances
 getInstancesV0 resolve = Instances <$> constructM buildInstance
     where
@@ -97,19 +96,5 @@ getInstancesV0 resolve = Instances <$> constructM buildInstance
             0 -> return Nothing
             1 -> Just . Left <$> get
             2 -> Just . Right . InstanceV0 <$> getInstanceV0 resolve idx
-            _ -> fail "Bad instance list"
-
-
--- |Deserialize 'Instances' in V0 format.
--- FIXME: This is wrong. We need getInstnacesV1 to be told which instance version to use.
-getInstancesV1
-    :: (ModuleRef -> Wasm.InitName -> Maybe (Set.Set Wasm.ReceiveName, GSWasm.ModuleInterface))
-    -> Get Instances
-getInstancesV1 resolve = Instances <$> constructM buildInstance
-    where
-        buildInstance idx = getWord8 >>= \case
-            0 -> return Nothing
-            1 -> Just . Left <$> get
-            2 -> Just . Right <$> getInstanceV1 resolve idx
-            3 -> Just . Right <$> getInstanceV1 resolve idx
+            3 -> Just . Right . InstanceV1 <$> getInstanceV1 resolve idx
             _ -> fail "Bad instance list"

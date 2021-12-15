@@ -304,7 +304,7 @@ getBlockState = do
     let resolveModule modRef initName = do
             mi <- Modules.getInterface modRef _blockModules
             return (GSWasm.exposedReceive mi ^. at initName . non Set.empty, mi)
-    _blockInstances <- Instances.getInstancesV1 resolveModule -- FIXME: Make protocol version dependant
+    _blockInstances <- Instances.getInstancesV0 resolveModule
     _blockUpdates <- getUpdatesV0 
     _blockEpochBlocksBaked <- getHashedEpochBlocksV0
     -- Construct the release schedule and active bakers from the accounts
