@@ -1142,8 +1142,7 @@ handleConfigureBaker
                       bcaBakingRewardCommission = cbcBakingRewardCommission,
                       bcaFinalizationRewardCommission = cbcFinalizationRewardCommission
                     }
-                -- TODO handle res: see baker remove/add/update for examples.
-                undefined
+                kResult energyCost usedEnergy res
               else return (TxReject InvalidProof, energyCost, usedEnergy)
         kWithAccountBalance ls (ConfigureRemoveBakerCont, accountBalance) = do
             (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
@@ -1151,8 +1150,7 @@ handleConfigureBaker
             cm <- getChainMetadata
             sd <- getSlotDuration
             res <- configureBaker (fst senderAccount) $ BI.BakerConfigureRemove (slotTime cm) sd
-            -- TODO handle res: see baker remove/add/update for examples.
-            undefined
+            kResult energyCost usedEnergy res
         kWithAccountBalance ls (ConfigureUpdateBakerCont, accountBalance) = do
             (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
             chargeExecutionCost txHash senderAccount energyCost
@@ -1188,9 +1186,24 @@ handleConfigureBaker
                       bcuBakingRewardCommission = cbBakingRewardCommission,
                       bcuFinalizationRewardCommission = cbFinalizationRewardCommission
                     }
-                -- TODO handle res: see baker remove/add/update for examples.
-                undefined
+                kResult energyCost usedEnergy res
               else return (TxReject InvalidProof, energyCost, usedEnergy)
+        kResult energyCost usedEnergy (BI.BCSuccess change bid) =
+            undefined
+        kResult energyCost usedEnergy BI.BCInvalidAccount =
+            return (TxReject (InvalidAccountReference senderAddress), energyCost, usedEnergy)
+        kResult energyCost usedEnergy (BI.BCAlreadyBaker bid) =
+            return (TxReject (AlreadyABaker bid), energyCost, usedEnergy)
+        kResult energyCost usedEnergy (BI.BCDuplicateAggregationKey key) =
+            return (TxReject (DuplicateAggregationKey key), energyCost, usedEnergy)
+        kResult energyCost usedEnergy BI.BCStakeUnderThreshold =
+            return (TxReject StakeUnderMinimumThresholdForBaking, energyCost, usedEnergy)
+        kResult energyCost usedEnergy BI.BCCommissionNotInRange =
+            undefined
+        kResult energyCost usedEnergy BI.BCChangePending =
+            return (TxReject BakerInCooldown, energyCost, usedEnergy)
+        kResult energyCost usedEnergy BI.BCInvalidBaker =
+            return (TxReject (NotABaker senderAddress), energyCost, usedEnergy)
 
 -- |Remove the baker for an account. The logic is as follows:
 --

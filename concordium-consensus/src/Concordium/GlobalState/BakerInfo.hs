@@ -167,24 +167,30 @@ data BakerConfigure =
         bcuFinalizationRewardCommission :: !(Maybe RewardFraction)
     }
 
--- TODO: Fix and Document
+-- |A stake change result from configure baker. Used to indicate whether the configure will cause
+-- the baker's stake to increase, reduce, or remain unchanged.
+data BakerConfigureStakeChange =
+    BakerConfigureStakeIncreased
+  | BakerConfigureStakeReduced
+  | BakerConfigureStakeUnchanged
+  deriving (Eq, Ord, Show)
+
+-- TODO: Document
 data BakerConfigureResult
-  = BCSuccess !BakerId
-  -- ^Adding baker successful.
+  = BCSuccess !BakerConfigureStakeChange !BakerId
+  -- ^Update baker successful.
   | BCInvalidAccount
   -- ^Account unknown.
   | BCAlreadyBaker !BakerId
   -- ^The account is already registered as a baker.
-  | BCDuplicateAggregationKey
+  | BCDuplicateAggregationKey !BakerAggregationVerifyKey
   -- ^The aggregation key already exists.
   | BCStakeUnderThreshold
   -- ^The stake is below the required threshold dictated by current chain parameters.
   | BCCommissionNotInRange
   -- ^The commission is not in the allowed range.
-  | BCChangePending !BakerId
+  | BCChangePending
   -- ^A change is already pending on this baker.
-  | BCRemoved !BakerId
-  -- ^The baker was removed, effective from the given epoch.
   | BCInvalidBaker
   -- ^This is not a valid baker.
   deriving (Eq, Ord, Show)
