@@ -22,6 +22,8 @@ import Data.Serialize
 import qualified Data.Sequence as Seq
 import Data.ByteString.Builder (hPutBuilder)
 import Control.Monad.IO.Class
+import qualified Control.Monad.State.Strict as MTL
+import qualified Control.Monad.Except as MTL
 
 import Concordium.Types
 import Concordium.Types.Accounts
@@ -644,7 +646,89 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                 & blockBirkParameters . birkActiveBakers . activeBakers %~ Set.insert bid
                 )
 
-    bsoConfigureBaker = undefined -- TODO implement.
+    bsoConfigureBaker bs ai BakerConfigureAdd{..} = do
+      chainParams <- BS.bsoGetChainParameters bs
+      let poolParams = chainParams ^. cpPoolParameters
+      let bakerStakeThreshold = poolParams ^. ppMinimumEquityCapital
+      let ranges = poolParams ^. ppCommissionBounds
+      return $! case bs ^? blockAccounts . Accounts.indexedAccount ai of
+        -- Cannot resolve the account
+        Nothing -> (BCInvalidAccount, bs)
+        -- Account is already a baker
+        Just Account{_accountStaking = AccountStakeBaker{}} -> (BCAlreadyBaker (BakerId ai), bs)
+        Just Account{}
+          -- Aggregation key is a duplicate
+          | bkuAggregationKey bcaKeys `Set.member` (bs ^. blockBirkParameters . birkActiveBakers . aggregationKeys) -> (BCDuplicateAggregationKey, bs)
+          -- Provided stake is under threshold
+          | bcaCapital < bakerStakeThreshold -> (BCStakeUnderThreshold, bs)
+          -- Check that commissions are within the valid ranges
+          | not (isInRange bcaFinalizationRewardCommission (ranges ^. finalizationCommissionRange)) -> (BCCommissionOutOfRange, bs)
+          | not (isInRange bcaBakingRewardCommission (ranges ^. bakingCommissionRange)) -> (BCCommissionOutOfRange, bs)
+          | not (isInRange bcaTransactionFeeCommission (ranges ^. transactionCommissionRange)) -> (BCCommissionOutOfRange, bs)
+          -- All checks pass, add the baker
+          | otherwise ->
+            let bid = BakerId ai
+                cr = CommissionRates {
+                    _finalizationCommission = bcaFinalizationRewardCommission,
+                    _bakingCommission = bcaBakingRewardCommission,
+                    _transactionCommission = bcaTransactionFeeCommission
+                }
+                bpi = BakerPoolInfo {
+                    _poolOpenStatus = bcaOpenForDelegation,
+                    _poolMetadataUrl = bcaMetadataURL,
+                    _poolCommissionRates = cr
+                }
+                bi = BakerInfoExV1 {
+                    _bieBakerInfo = bakerKeyUpdateToInfo bid bcaKeys,
+                    _bieBakerPoolInfo = bpi
+                }
+                ab = AccountStakeBaker AccountBaker{
+                    _stakedAmount = bcaCapital,
+                    _stakeEarnings = bcaRestakeEarnings,
+                    _accountBakerInfo = bi,
+                    _bakerPendingChange = NoChange
+                }
+                newBlockState = bs
+                    & blockAccounts . Accounts.indexedAccount ai . accountStaking .~ ab
+                    & blockBirkParameters . birkActiveBakers . aggregationKeys %~ Set.insert (bkuAggregationKey bcaKeys)
+                    & blockBirkParameters . birkActiveBakers . activeBakers %~ Set.insert bid
+            in (BCSuccess bid, newBlockState)
+    bsoConfigureBaker bs ai BakerConfigureUpdate{..} = do
+        let res = MTL.runExcept $ flip MTL.execStateT bs $ do
+                updateKeys
+                updateCapital
+                updateRestakeEarnings
+                updateOpenForDelegation
+                updateMetadataURL
+                updateTransactionFeeCommission
+                updateBakingRewardCommission
+                updateFinalizationRewardCommission
+        return $! case res of
+            Left e -> (e, bs)
+            Right newBlockState -> (BCSuccess bid, newBlockState)
+      where
+        bid = BakerId ai
+        account = case bs ^? blockAccounts . Accounts.indexedAccount ai of
+            Nothing -> MTL.throwError BCInvalidAccount
+            Just Account{_accountStaking = AccountStakeBaker ab} -> return ab
+            Just Account{} -> MTL.throwError (BCNotABaker bid)
+        updateKeys = case bcuKeys of
+            Nothing -> return ()
+            Just keys -> do
+                s <- MTL.get
+                ab <- account
+                MTL.put $! s
+                    & blockAccounts . Accounts.indexedAccount ai . accountStaking
+                    .~ AccountStakeBaker
+                        (ab & accountBakerInfo . bieBakerInfo .~ bakerKeyUpdateToInfo bid keys)
+        -- TODO implement these like the one above:
+        updateCapital = undefined
+        updateRestakeEarnings = undefined
+        updateOpenForDelegation = undefined
+        updateMetadataURL = undefined
+        updateTransactionFeeCommission = undefined
+        updateBakingRewardCommission = undefined
+        updateFinalizationRewardCommission = undefined
 
     bsoUpdateBakerKeys bs ai bku@BakerKeyUpdate{..} = return $! case bs ^? blockAccounts . Accounts.indexedAccount ai of
         -- The account is valid and has a baker

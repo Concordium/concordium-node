@@ -152,7 +152,7 @@ data BakerConfigure =
     }
   | BakerConfigureRemove
   | BakerConfigureUpdate {
-        bcuKeysWithProofs :: !(Maybe BakerKeysWithProofs),
+        bcuKeys :: !(Maybe BakerKeyUpdate),
         bcuCapital :: !(Maybe Amount),
         bcuRestakeEarnings :: !(Maybe Bool),
         bcuOpenForDelegation :: !(Maybe OpenStatus),
@@ -174,6 +174,10 @@ data BakerConfigureResult
   -- ^The aggregation key already exists.
   | BCStakeUnderThreshold
   -- ^The stake is below the required threshold dictated by current chain parameters.
+  | BCCommissionOutOfRange
+  -- ^A given commission was outside the allowed range.
+  | BCNotABaker !BakerId
+  -- ^The account is not a baker account.
   deriving (Eq, Ord, Show)
 
 data BakerRemoveResult
