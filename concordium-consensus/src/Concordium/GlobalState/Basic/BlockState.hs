@@ -662,9 +662,9 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
           -- Provided stake is under threshold
           | bcaCapital < bakerStakeThreshold -> (BCStakeUnderThreshold, bs)
           -- Check that commissions are within the valid ranges
-          | not (isInRange bcaFinalizationRewardCommission (ranges ^. finalizationCommissionRange)) -> (BCCommissionOutOfRange, bs)
-          | not (isInRange bcaBakingRewardCommission (ranges ^. bakingCommissionRange)) -> (BCCommissionOutOfRange, bs)
-          | not (isInRange bcaTransactionFeeCommission (ranges ^. transactionCommissionRange)) -> (BCCommissionOutOfRange, bs)
+          | not (isInRange bcaFinalizationRewardCommission (ranges ^. finalizationCommissionRange)) -> (BCCommissionNotInRange, bs)
+          | not (isInRange bcaBakingRewardCommission (ranges ^. bakingCommissionRange)) -> (BCCommissionNotInRange, bs)
+          | not (isInRange bcaTransactionFeeCommission (ranges ^. transactionCommissionRange)) -> (BCCommissionNotInRange, bs)
           -- All checks pass, add the baker
           | otherwise ->
             let bid = BakerId ai
@@ -693,6 +693,31 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                     & blockBirkParameters . birkActiveBakers . aggregationKeys %~ Set.insert (bkuAggregationKey bcaKeys)
                     & blockBirkParameters . birkActiveBakers . activeBakers %~ Set.insert bid
             in (BCSuccess bid, newBlockState)
+    bsoConfigureBaker bs ai BakerConfigureRemove{..} = return $! case bs ^? blockAccounts . Accounts.indexedAccount ai of
+        -- The account is valid and has a baker
+        Just Account{_accountStaking = AccountStakeBaker ab@AccountBaker{..}}
+          -- A change is already pending
+          | _bakerPendingChange /= NoChange -> (BCChangePending (BakerId ai), bs)
+          -- We can make the change
+          | otherwise ->
+              let curEpoch = epoch $ bs ^. blockBirkParameters . birkSeedState
+                  -- cooldown = 2 + bs ^. blockUpdates . currentParameters . cpCooldownParameters . cpBakerExtraCooldownEpochs
+                  cooldown = 2 + f $ bs ^. blockUpdates . currentParameters . cpCooldownParameters . cpPoolOwnerCooldown -- 
+                  --curEpoch + cooldown
+        --       cooldownEpochsV1 ups =
+        -- let cp = ups ^. currentParameters
+        --     numPeriods = cp ^. cpCooldownParameters ^. cpPoolOwnerCooldown
+        --     periodEpochLen = cp ^. cpTimeParameters ^. tpRewardPeriodLength
+        -- in toInteger numPeriods * toInteger periodEpochLe
+              -- let convEpoch e =
+              --                     timestampToUTCTime $
+              --                         addDuration
+              --                             (gdGenesisTime gd)
+              --                             (fromIntegral e * fromIntegral (gdEpochLength gd) * gdSlotDuration gd)
+              in (BCRemoved (BakerId ai) (curEpoch + cooldown), 
+                  bs & blockAccounts . Accounts.indexedAccount ai . accountStaking .~ AccountStakeBaker (ab & bakerPendingChange .~ RemoveStake (PendingChangeEffectiveV1 timestamp)))
+        -- The account is not valid or has no baker
+        _ -> (BCInvalidBaker, bs)
     bsoConfigureBaker bs ai BakerConfigureUpdate{..} = do
         let res = MTL.runExcept $ flip MTL.execStateT bs $ do
                 updateKeys
@@ -708,15 +733,15 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             Right newBlockState -> (BCSuccess bid, newBlockState)
       where
         bid = BakerId ai
-        account = case bs ^? blockAccounts . Accounts.indexedAccount ai of
+        account s = case s ^? blockAccounts . Accounts.indexedAccount ai of
             Nothing -> MTL.throwError BCInvalidAccount
             Just Account{_accountStaking = AccountStakeBaker ab} -> return ab
-            Just Account{} -> MTL.throwError (BCNotABaker bid)
+            Just Account{} -> MTL.throwError BCInvalidBaker
         updateKeys = case bcuKeys of
             Nothing -> return ()
             Just keys -> do
                 s <- MTL.get
-                ab <- account
+                ab <- account s
                 MTL.put $! s
                     & blockAccounts . Accounts.indexedAccount ai . accountStaking
                     .~ AccountStakeBaker

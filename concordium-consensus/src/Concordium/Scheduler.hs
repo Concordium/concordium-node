@@ -1122,12 +1122,9 @@ handleConfigureBaker
                 electionP = checkElectionKeyProof challenge bkwpElectionVerifyKey bkwpProofElection
                 signP = checkSignatureVerifyKeyProof challenge bkwpSignatureVerifyKey bkwpProofSig
                 aggregationP = Bls.checkProofOfKnowledgeSK challenge bkwpProofAggregation bkwpAggregationVerifyKey
-            --rangesValid <- areCommissionRangesValid cbcTransactionFeeCommission cbcBakingRewardCommission cbcFinalizationRewardCommission
             if accountBalance < cbcCapital then
                 -- The balance is insufficient.
                 return (TxReject InsufficientBalanceForBakerStake, energyCost, usedEnergy)
-            --else if not rangesValid then
-            --    return (TxReject TODO, energyCost, usedEnergy)
             else if electionP && signP && aggregationP then do
                 -- The proof validates that the baker owns all the private keys,
                 -- thus we can try to create the baker.
@@ -1157,7 +1154,37 @@ handleConfigureBaker
         kWithAccountBalance ls (ConfigureUpdateBakerCont, accountBalance) = do
             (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
             chargeExecutionCost txHash senderAccount energyCost
-            undefined
+            let keysOK = case cbKeysWithProofs of
+                  Just BakerKeysWithProofs{..} ->
+                    let challenge = addBakerChallenge senderAddress bkwpElectionVerifyKey bkwpSignatureVerifyKey bkwpAggregationVerifyKey
+                        electionP = checkElectionKeyProof challenge bkwpElectionVerifyKey bkwpProofElection
+                        signP = checkSignatureVerifyKeyProof challenge bkwpSignatureVerifyKey bkwpProofSig
+                        aggregationP = Bls.checkProofOfKnowledgeSK challenge bkwpProofAggregation bkwpAggregationVerifyKey
+                    in electionP && signP && aggregationP
+                  Nothing -> True
+            if maybe False (accountBalance <) cbCapital then
+                return (TxReject InsufficientBalanceForBakerStake, energyCost, usedEnergy)
+            else if keysOK then do
+                -- The proof validates that the baker owns all the private keys,
+                -- thus we can try to create the baker.
+                let bku = cbKeysWithProofs <&> \BakerKeysWithProofs{..} -> BI.BakerKeyUpdate {
+                          bkuSignKey = bkwpSignatureVerifyKey,
+                          bkuAggregationKey = bkwpAggregationVerifyKey,
+                          bkuElectionKey = bkwpElectionVerifyKey
+                      }
+                res <- configureBaker (fst senderAccount) BI.BakerConfigureUpdate {
+                      bcuKeys = bku,
+                      bcuCapital = cbCapital,
+                      bcuRestakeEarnings = cbRestakeEarnings,
+                      bcuOpenForDelegation = cbOpenForDelegation,
+                      bcuMetadataURL = cbMetadataURL,
+                      bcuTransactionFeeCommission = cbTransactionFeeCommission,
+                      bcuBakingRewardCommission = cbBakingRewardCommission,
+                      bcuFinalizationRewardCommission = cbFinalizationRewardCommission
+                    }
+                -- TODO handle res: see baker remove/add/update for examples.
+                undefined
+              else return (TxReject InvalidProof, energyCost, usedEnergy)
 
 -- |Remove the baker for an account. The logic is as follows:
 --

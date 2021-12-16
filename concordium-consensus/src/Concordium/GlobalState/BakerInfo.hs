@@ -174,10 +174,14 @@ data BakerConfigureResult
   -- ^The aggregation key already exists.
   | BCStakeUnderThreshold
   -- ^The stake is below the required threshold dictated by current chain parameters.
-  | BCCommissionOutOfRange
-  -- ^A given commission was outside the allowed range.
-  | BCNotABaker !BakerId
-  -- ^The account is not a baker account.
+  | BCCommissionNotInRange
+  -- ^The commission is not in the allowed range.
+  | BCChangePending !BakerId
+  -- ^A change is already pending on this baker.
+  | BCRemoved !BakerId !Epoch
+  -- ^The baker was removed, effective from the given epoch.
+  | BCInvalidBaker
+  -- ^This is not a valid baker.
   deriving (Eq, Ord, Show)
 
 data BakerRemoveResult
