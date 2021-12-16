@@ -480,10 +480,12 @@ executeFrom blockHash slotNumber slotTime blockParent blockBaker mfinInfo newSee
         -- update the bakers and seed state
         (isNewEpoch, bshandle1) <- updateBirkParameters newSeedState bshandle0b
         maxBlockEnergy <- gdMaxBlockEnergy <$> getGenesisData
+        sd <- gdSlotDuration <$> getGenesisData
         let context = ContextState{
               _chainMetadata = cm,
               _maxBlockEnergy = maxBlockEnergy,
-              _accountCreationLimit = chainParams ^. cpAccountCreationLimit
+              _accountCreationLimit = chainParams ^. cpAccountCreationLimit,
+              _slotDuration = sd
               }
         (res, finState) <- runBSM (Sch.runTransactions txs) context (mkInitialSS bshandle1 :: LogSchedulerState m)
         let usedEnergy = finState ^. schedulerEnergyUsed
@@ -575,7 +577,8 @@ constructBlock slotNumber slotTime blockParent blockBaker mfinInfo newSeedState 
     let context = ContextState{
           _chainMetadata = cm,
           _maxBlockEnergy = maxBlockEnergy,
-          _accountCreationLimit = chainParams ^. cpAccountCreationLimit
+          _accountCreationLimit = chainParams ^. cpAccountCreationLimit,
+          _slotDuration = gdSlotDuration genData
           }
     (ft@Sch.FilteredTransactions{..}, finState) <-
         runBSM (Sch.filterTransactions (fromIntegral maxSize) timeout transactionGroups) context (mkInitialSS bshandle1 :: LogSchedulerState m)

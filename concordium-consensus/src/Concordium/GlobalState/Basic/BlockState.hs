@@ -700,21 +700,11 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
           | _bakerPendingChange /= NoChange -> (BCChangePending (BakerId ai), bs)
           -- We can make the change
           | otherwise ->
-              let curEpoch = epoch $ bs ^. blockBirkParameters . birkSeedState
-                  -- cooldown = 2 + bs ^. blockUpdates . currentParameters . cpCooldownParameters . cpBakerExtraCooldownEpochs
-                  cooldown = 2 + f $ bs ^. blockUpdates . currentParameters . cpCooldownParameters . cpPoolOwnerCooldown -- 
-                  --curEpoch + cooldown
-        --       cooldownEpochsV1 ups =
-        -- let cp = ups ^. currentParameters
-        --     numPeriods = cp ^. cpCooldownParameters ^. cpPoolOwnerCooldown
-        --     periodEpochLen = cp ^. cpTimeParameters ^. tpRewardPeriodLength
-        -- in toInteger numPeriods * toInteger periodEpochLe
-              -- let convEpoch e =
-              --                     timestampToUTCTime $
-              --                         addDuration
-              --                             (gdGenesisTime gd)
-              --                             (fromIntegral e * fromIntegral (gdEpochLength gd) * gdSlotDuration gd)
-              in (BCRemoved (BakerId ai) (curEpoch + cooldown), 
+              let cooldown = bs ^. blockUpdates . currentParameters . cpCooldownParameters . cpPoolOwnerCooldown  
+                  rewardPeriodLength = fromIntegral $ bs ^. blockUpdates . currentParameters . cpTimeParameters . tpRewardPeriodLength
+                  msInEpoch = fromIntegral (epochLength $ bs ^. blockBirkParameters . birkSeedState) * bcrSlotDuration
+                  timestamp = addDuration bcrTimestamp (rewardPeriodLength * msInEpoch)
+              in (BCRemoved (BakerId ai), 
                   bs & blockAccounts . Accounts.indexedAccount ai . accountStaking .~ AccountStakeBaker (ab & bakerPendingChange .~ RemoveStake (PendingChangeEffectiveV1 timestamp)))
         -- The account is not valid or has no baker
         _ -> (BCInvalidBaker, bs)
@@ -733,6 +723,12 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             Right newBlockState -> (BCSuccess bid, newBlockState)
       where
         bid = BakerId ai
+        timestamp =
+            let cooldown = bs ^. blockUpdates . currentParameters . cpCooldownParameters . cpPoolOwnerCooldown  
+                rewardPeriodLength = fromIntegral $ bs ^. blockUpdates . currentParameters . cpTimeParameters . tpRewardPeriodLength
+                msInEpoch = fromIntegral (epochLength $ bs ^. blockBirkParameters . birkSeedState) * bcuSlotDuration
+            in addDuration bcuTimestamp (rewardPeriodLength * msInEpoch)
+        
         account s = case s ^? blockAccounts . Accounts.indexedAccount ai of
             Nothing -> MTL.throwError BCInvalidAccount
             Just Account{_accountStaking = AccountStakeBaker ab} -> return ab

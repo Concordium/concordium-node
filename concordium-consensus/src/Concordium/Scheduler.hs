@@ -1128,7 +1128,7 @@ handleConfigureBaker
             else if electionP && signP && aggregationP then do
                 -- The proof validates that the baker owns all the private keys,
                 -- thus we can try to create the baker.
-                res <- configureBaker (fst senderAccount) BI.BakerConfigureAdd {
+                res <- configureBaker (fst senderAccount)  BI.BakerConfigureAdd {
                       bcaKeys = BI.BakerKeyUpdate {
                           bkuSignKey = bkwpSignatureVerifyKey,
                           bkuAggregationKey = bkwpAggregationVerifyKey,
@@ -1148,7 +1148,9 @@ handleConfigureBaker
         kWithAccountBalance ls (ConfigureRemoveBakerCont, accountBalance) = do
             (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
             chargeExecutionCost txHash senderAccount energyCost
-            res <- configureBaker (fst senderAccount) BI.BakerConfigureRemove
+            cm <- getChainMetadata
+            sd <- getSlotDuration
+            res <- configureBaker (fst senderAccount) $ BI.BakerConfigureRemove (slotTime cm) sd
             -- TODO handle res: see baker remove/add/update for examples.
             undefined
         kWithAccountBalance ls (ConfigureUpdateBakerCont, accountBalance) = do
@@ -1172,7 +1174,11 @@ handleConfigureBaker
                           bkuAggregationKey = bkwpAggregationVerifyKey,
                           bkuElectionKey = bkwpElectionVerifyKey
                       }
+                cm <- getChainMetadata
+                sd <- getSlotDuration
                 res <- configureBaker (fst senderAccount) BI.BakerConfigureUpdate {
+                      bcuTimestamp = slotTime cm,
+                      bcuSlotDuration = sd,
                       bcuKeys = bku,
                       bcuCapital = cbCapital,
                       bcuRestakeEarnings = cbRestakeEarnings,

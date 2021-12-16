@@ -62,6 +62,9 @@ class (Monad m) => StaticInformation m where
   -- |Get maximum number of account creation transactions per block.
   getAccountCreationLimit :: m CredentialsPerBlockLimit
 
+  -- |Get the slot duration, i.e. the number of milliseconds in a slot
+  getSlotDuration :: m Duration
+
 -- |Information needed to execute transactions in the form that is easy to use.
 class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m)), AccountOperations m, MonadLogger m, MonadProtocolVersion m)
     => SchedulerMonad m where
@@ -733,6 +736,9 @@ instance StaticInformation m => StaticInformation (LocalT r m) where
 
   {-# INLINE getAccountCreationLimit #-}
   getAccountCreationLimit = liftLocal getAccountCreationLimit
+
+  {-# INLINE getSlotDuration #-}
+  getSlotDuration = liftLocal getSlotDuration
 
 deriving via (MGSTrans (LocalT r) m) instance AccountOperations m => AccountOperations (LocalT r m)
 

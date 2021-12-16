@@ -150,8 +150,13 @@ data BakerConfigure =
         bcaBakingRewardCommission :: !RewardFraction,
         bcaFinalizationRewardCommission :: !RewardFraction
     }
-  | BakerConfigureRemove
+  | BakerConfigureRemove {
+    bcrTimestamp :: !Timestamp,
+    bcrSlotDuration :: !Duration
+  }
   | BakerConfigureUpdate {
+        bcuTimestamp :: !Timestamp,
+        bcuSlotDuration :: !Duration,
         bcuKeys :: !(Maybe BakerKeyUpdate),
         bcuCapital :: !(Maybe Amount),
         bcuRestakeEarnings :: !(Maybe Bool),
@@ -178,7 +183,7 @@ data BakerConfigureResult
   -- ^The commission is not in the allowed range.
   | BCChangePending !BakerId
   -- ^A change is already pending on this baker.
-  | BCRemoved !BakerId !Epoch
+  | BCRemoved !BakerId
   -- ^The baker was removed, effective from the given epoch.
   | BCInvalidBaker
   -- ^This is not a valid baker.
