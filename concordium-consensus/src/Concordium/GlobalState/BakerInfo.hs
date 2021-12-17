@@ -75,7 +75,7 @@ data BakerKeyUpdate = BakerKeyUpdate {
   bkuAggregationKey :: !BakerAggregationVerifyKey,
   -- |New public election key
   bkuElectionKey :: !BakerElectionVerifyKey
-}
+} deriving (Eq, Ord, Show)
 
 data BakerKeyUpdateResult
   = BKUSuccess !BakerId
@@ -123,7 +123,7 @@ data BakerAdd = BakerAdd {
   baStake :: !Amount,
   -- |Whether to restake GTU earned from rewards.
   baStakeEarnings :: !Bool
-}
+} deriving (Eq, Ord, Show)
 
 data BakerAddResult
   = BASuccess !BakerId
@@ -167,18 +167,28 @@ data BakerConfigure =
         bcuFinalizationRewardCommission :: !(Maybe RewardFraction)
     }
 
--- |A stake change result from configure baker. Used to indicate whether the configure will cause
--- the baker's stake to increase, reduce, or remain unchanged.
-data BakerConfigureStakeChange =
-    BakerConfigureStakeIncreased
-  | BakerConfigureStakeReduced
-  | BakerConfigureStakeUnchanged
-  deriving (Eq, Ord, Show)
+-- |A baker update change result from configure baker. Used to indicate whether the configure will cause
+-- any changes to the baker's stake, keys, etc.
+data BakerConfigureChange =
+    BakerConfigureStakeIncreased !Amount
+  | BakerConfigureStakeReduced !Amount
+  | BakerConfigureRestakeEarnings !Bool
+  | BakerConfigureOpenForDelegation !OpenStatus
+  | BakerConfigureUpdateKeys !BakerKeyUpdate
+  | BakerConfigureMetadataURL !UrlText
+  | BakerConfigureTransactionFeeCommision !RewardFraction
+  | BakerConfigureBakingRewardCommision !RewardFraction
+  | BakerConfigureFinalizationRewardCommision !RewardFraction
+  deriving (Eq, Show)
 
 -- TODO: Document
 data BakerConfigureResult
-  = BCSuccess !BakerConfigureStakeChange !BakerId
+  = BCUpdateSuccess ![BakerConfigureChange] !BakerId
   -- ^Update baker successful.
+  | BCAddSuccess !BakerAdd !BakerId
+    -- ^Add baker successful.
+  | BCRemoveSuccess !BakerId
+    -- ^Remove baker successful.
   | BCInvalidAccount
   -- ^Account unknown.
   | BCAlreadyBaker !BakerId
@@ -193,7 +203,7 @@ data BakerConfigureResult
   -- ^A change is already pending on this baker.
   | BCInvalidBaker
   -- ^This is not a valid baker.
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Show)
 
 data BakerRemoveResult
   = BRRemoved !BakerId !Epoch

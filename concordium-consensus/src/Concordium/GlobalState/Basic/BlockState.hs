@@ -24,6 +24,7 @@ import Data.ByteString.Builder (hPutBuilder)
 import Control.Monad.IO.Class
 import qualified Control.Monad.State.Strict as MTL
 import qualified Control.Monad.Except as MTL
+import qualified Control.Monad.Writer.Strict as MTL
 
 import Concordium.Types
 import Concordium.Types.Accounts
@@ -693,11 +694,16 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                     _accountBakerInfo = bi,
                     _bakerPendingChange = NoChange
                 }
+                ba = BakerAdd { -- FIXME: not sufficient to only provide this
+                  baKeys = bcaKeys,
+                  baStake = bcaCapital,
+                  baStakeEarnings = bcaRestakeEarnings
+                }
                 newBlockState = bs
                     & blockAccounts . Accounts.indexedAccount ai . accountStaking .~ ab
                     & blockBirkParameters . birkActiveBakers . aggregationKeys %~ Set.insert (bkuAggregationKey bcaKeys)
                     & blockBirkParameters . birkActiveBakers . activeBakers %~ Set.insert bid
-            in (BCSuccess BakerConfigureStakeUnchanged bid, newBlockState)
+            in (BCAddSuccess ba bid, newBlockState)
     bsoConfigureBaker bs ai BakerConfigureRemove{..} = return $! case bs ^? blockAccounts . Accounts.indexedAccount ai of
         -- The account is valid and has a baker
         Just Account{_accountStaking = AccountStakeBaker ab@AccountBaker{..}}
@@ -708,12 +714,12 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
               let rewardPeriodLength = fromIntegral $ bs ^. blockUpdates . currentParameters . cpTimeParameters . tpRewardPeriodLength
                   msInEpoch = fromIntegral (epochLength $ bs ^. blockBirkParameters . birkSeedState) * bcrSlotDuration
                   timestamp = addDuration bcrTimestamp (rewardPeriodLength * msInEpoch)
-              in (BCSuccess BakerConfigureStakeUnchanged (BakerId ai),
+              in (BCRemoveSuccess (BakerId ai),
                   bs & blockAccounts . Accounts.indexedAccount ai . accountStaking .~ AccountStakeBaker (ab & bakerPendingChange .~ RemoveStake (PendingChangeEffectiveV1 timestamp)))
         -- The account is not valid or has no baker
         _ -> (BCInvalidBaker, bs)
     bsoConfigureBaker origBS ai BakerConfigureUpdate{..} = do
-        let res = MTL.runExcept $ flip MTL.runStateT origBS $ do
+        let res = MTL.runExcept $ MTL.runWriterT $ flip MTL.execStateT origBS $ do
                 updateKeys
                 updateRestakeEarnings
                 updateOpenForDelegation
@@ -721,10 +727,10 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                 updateTransactionFeeCommission
                 updateBakingRewardCommission
                 updateFinalizationRewardCommission
-                updateCapitalAndGetResult
+                updateCapital
         return $! case res of
             Left errorRes -> (errorRes, origBS)
-            Right (successRes, newBS) -> (successRes, newBS)
+            Right (newBS, changes) -> (BCUpdateSuccess changes bid, newBS)
       where
         bid = BakerId ai
         cooldownTimestamp =
@@ -761,50 +767,54 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             MTL.modify'
                 (blockBirkParameters . birkActiveBakers . aggregationKeys
                     %~ Set.insert (bkuAggregationKey keys) . Set.delete (ab ^. bakerAggregationVerifyKey))
-        updateRestakeEarnings = maybeWith bcuRestakeEarnings $ \restateEarnings -> do
-            modifyAccount (stakeEarnings .~ restateEarnings)
+            MTL.tell [BakerConfigureUpdateKeys keys]
+        updateRestakeEarnings = maybeWith bcuRestakeEarnings $ \restakeEarnings -> do
+            modifyAccount (stakeEarnings .~ restakeEarnings)
+            MTL.tell [BakerConfigureRestakeEarnings restakeEarnings]
         updateOpenForDelegation = maybeWith bcuOpenForDelegation $ \openForDelegation -> do
             modifyAccount (accountBakerInfo . bieBakerPoolInfo . poolOpenStatus .~ openForDelegation)
+            MTL.tell [BakerConfigureOpenForDelegation openForDelegation]
         updateMetadataURL = maybeWith bcuMetadataURL $ \metadataURL -> do
             modifyAccount (accountBakerInfo . bieBakerPoolInfo . poolMetadataUrl .~ metadataURL)
+            MTL.tell [BakerConfigureMetadataURL metadataURL]
         updateTransactionFeeCommission = maybeWith bcuTransactionFeeCommission $ \tfc -> do
             bs <- MTL.get
             let cp = bs ^. blockUpdates . currentParameters
             let range = cp ^. cpPoolParameters . ppCommissionBounds . transactionCommissionRange
             when (not $ isInRange tfc range) (MTL.throwError BCCommissionNotInRange)
             modifyAccount (accountBakerInfo . bieBakerPoolInfo . poolCommissionRates . transactionCommission .~ tfc)
+            MTL.tell [BakerConfigureTransactionFeeCommision tfc]
         updateBakingRewardCommission = maybeWith bcuBakingRewardCommission $ \brc -> do
             bs <- MTL.get
             let cp = bs ^. blockUpdates . currentParameters
             let range = cp ^. cpPoolParameters . ppCommissionBounds . bakingCommissionRange
             when (not $ isInRange brc range) (MTL.throwError BCCommissionNotInRange)
             modifyAccount (accountBakerInfo . bieBakerPoolInfo . poolCommissionRates . bakingCommission .~ brc)
+            MTL.tell [BakerConfigureBakingRewardCommision brc]
         updateFinalizationRewardCommission = maybeWith bcuFinalizationRewardCommission $ \frc -> do
             bs <- MTL.get
             let cp = bs ^. blockUpdates . currentParameters
             let range = cp ^. cpPoolParameters . ppCommissionBounds . finalizationCommissionRange
             when (not $ isInRange frc range) (MTL.throwError BCCommissionNotInRange)
             modifyAccount (accountBakerInfo . bieBakerPoolInfo . poolCommissionRates . finalizationCommission .~ frc)
-        updateCapitalAndGetResult =
-            case bcuCapital of
-                Nothing -> return (BCSuccess BakerConfigureStakeUnchanged bid)
-                Just capital -> do
-                    requireNoPendingChange
-                    ab <- getAccount
-                    bs <- MTL.get
-                    let cp = bs ^. blockUpdates . currentParameters
-                    let threshold = cp ^. cpPoolParameters . ppMinimumEquityCapital
-                    when (capital < threshold) (MTL.throwError BCStakeUnderThreshold)
-                    case compare capital (_stakedAmount ab) of
-                        LT -> do
-                            let bpc = ReduceStake capital (PendingChangeEffectiveV1 cooldownTimestamp)
-                            modifyAccount (bakerPendingChange .~ bpc)
-                            return (BCSuccess BakerConfigureStakeReduced bid)
-                        EQ ->
-                            return (BCSuccess BakerConfigureStakeUnchanged bid)
-                        GT -> do
-                            modifyAccount (stakedAmount .~ capital)
-                            return (BCSuccess BakerConfigureStakeIncreased bid)
+            MTL.tell [BakerConfigureFinalizationRewardCommision frc]
+        updateCapital = maybeWith bcuCapital $ \capital -> do
+            requireNoPendingChange
+            ab <- getAccount
+            bs <- MTL.get
+            let cp = bs ^. blockUpdates . currentParameters
+            let threshold = cp ^. cpPoolParameters . ppMinimumEquityCapital
+            when (capital < threshold) (MTL.throwError BCStakeUnderThreshold)
+            case compare capital (_stakedAmount ab) of
+                LT -> do
+                    let bpc = ReduceStake capital (PendingChangeEffectiveV1 cooldownTimestamp)
+                    modifyAccount (bakerPendingChange .~ bpc)
+                    MTL.tell [BakerConfigureStakeReduced capital]
+                EQ ->
+                    return ()
+                GT -> do
+                    modifyAccount (stakedAmount .~ capital)
+                    MTL.tell [BakerConfigureStakeIncreased capital]
 
     bsoUpdateBakerKeys bs ai bku@BakerKeyUpdate{..} = return $! case bs ^? blockAccounts . Accounts.indexedAccount ai of
         -- The account is valid and has a baker

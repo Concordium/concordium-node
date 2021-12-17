@@ -1144,7 +1144,7 @@ handleConfigureBaker
                     }
                 kResult energyCost usedEnergy res
               else return (TxReject InvalidProof, energyCost, usedEnergy)
-        kWithAccountBalance ls (ConfigureRemoveBakerCont, accountBalance) = do
+        kWithAccountBalance ls (ConfigureRemoveBakerCont, _) = do
             (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
             chargeExecutionCost txHash senderAccount energyCost
             cm <- getChainMetadata
@@ -1188,8 +1188,53 @@ handleConfigureBaker
                     }
                 kResult energyCost usedEnergy res
               else return (TxReject InvalidProof, energyCost, usedEnergy)
-        kResult energyCost usedEnergy (BI.BCSuccess change bid) =
-            undefined
+        kResult energyCost usedEnergy (BI.BCUpdateSuccess changes bid) = do
+            let events = changes <&> \case
+                  BI.BakerConfigureStakeIncreased newStake ->
+                    BakerStakeIncreased bid senderAddress newStake
+                  BI.BakerConfigureStakeReduced newStake ->
+                    BakerStakeDecreased bid senderAddress newStake
+                  BI.BakerConfigureRestakeEarnings newRestakeEarnings ->
+                     BakerSetRestakeEarnings bid senderAddress newRestakeEarnings
+                  BI.BakerConfigureOpenForDelegation newOpenStatus ->
+                     BakerSetOpenStatus bid senderAddress newOpenStatus
+                  BI.BakerConfigureUpdateKeys BI.BakerKeyUpdate{..} -> BakerKeysUpdated{
+                    ebkuBakerId = bid,
+                    ebkuAccount = senderAddress,
+                    ebkuSignKey = bkuSignKey,
+                    ebkuElectionKey = bkuElectionKey,
+                    ebkuAggregationKey = bkuAggregationKey
+                  }
+                  BI.BakerConfigureMetadataURL newMetadataURL ->
+                    BakerSetMetadataURL bid senderAddress newMetadataURL
+                  BI.BakerConfigureTransactionFeeCommision transactionFeeCommission ->
+                    BakerSetTransactionFeeCommission bid senderAddress transactionFeeCommission
+                  BI.BakerConfigureBakingRewardCommision bakingRewardCommission ->
+                    BakerSetBakingRewardCommision bid senderAddress bakingRewardCommission
+                  BI.BakerConfigureFinalizationRewardCommision finalizationRewardCommission ->
+                    BakerSetFinalizationRewardCommision bid senderAddress finalizationRewardCommission
+            return (TxSuccess events, energyCost, usedEnergy)
+        kResult energyCost usedEnergy (BI.BCAddSuccess BI.BakerAdd{baKeys=BI.BakerKeyUpdate{..}, ..} bid) = do
+          -- FIXME: This should probably be replaced with an event that also reports the open status,
+          -- the metadata url and the commissions.
+            let baddEvt =
+                  BakerAdded {
+                    ebaBakerId = bid,
+                    ebaAccount = senderAddress,
+                    ebaSignKey = bkuSignKey,
+                    ebaElectionKey = bkuElectionKey,
+                    ebaAggregationKey = bkuAggregationKey,
+                    ebaStake = baStake,
+                    ebaRestakeEarnings = baStakeEarnings
+                  }
+            return (TxSuccess [baddEvt], energyCost, usedEnergy)
+        kResult energyCost usedEnergy (BI.BCRemoveSuccess bid) = do
+            let brEvt =
+                  BakerRemoved {
+                    ebrBakerId = bid,
+                    ebrAccount = senderAddress
+                  }
+            return (TxSuccess [brEvt], energyCost, usedEnergy)
         kResult energyCost usedEnergy BI.BCInvalidAccount =
             return (TxReject (InvalidAccountReference senderAddress), energyCost, usedEnergy)
         kResult energyCost usedEnergy (BI.BCAlreadyBaker bid) =
@@ -1199,7 +1244,7 @@ handleConfigureBaker
         kResult energyCost usedEnergy BI.BCStakeUnderThreshold =
             return (TxReject StakeUnderMinimumThresholdForBaking, energyCost, usedEnergy)
         kResult energyCost usedEnergy BI.BCCommissionNotInRange =
-            undefined
+            return (TxReject CommissionsNotInRangeForBaking, energyCost, usedEnergy)
         kResult energyCost usedEnergy BI.BCChangePending =
             return (TxReject BakerInCooldown, energyCost, usedEnergy)
         kResult energyCost usedEnergy BI.BCInvalidBaker =
