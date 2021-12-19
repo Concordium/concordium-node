@@ -1369,6 +1369,7 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateOperations (Pe
     bsoTransitionEpochBakers = doTransitionEpochBakers
     bsoAddBaker = doAddBaker
     bsoConfigureBaker = undefined -- TODO implement this.
+    bsoConfigureDelegation = undefined -- TODO implement this.
     bsoUpdateBakerKeys = doUpdateBakerKeys
     bsoUpdateBakerStake = doUpdateBakerStake
     bsoUpdateBakerRestakeEarnings = doUpdateBakerRestakeEarnings

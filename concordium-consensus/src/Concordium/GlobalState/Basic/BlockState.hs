@@ -657,6 +657,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
         Nothing -> (BCInvalidAccount, bs)
         -- Account is already a baker
         Just Account{_accountStaking = AccountStakeBaker{}} -> (BCAlreadyBaker (BakerId ai), bs)
+        Just Account{_accountStaking = AccountStakeDelegate{}} -> (BCAlreadyDelegator (BakerId ai), bs)
         Just Account{}
           -- Aggregation key is a duplicate
           | bkuAggregationKey bcaKeys `Set.member` (bs ^. blockBirkParameters . birkActiveBakers . aggregationKeys) ->
@@ -783,21 +784,21 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             let range = cp ^. cpPoolParameters . ppCommissionBounds . transactionCommissionRange
             when (not $ isInRange tfc range) (MTL.throwError BCCommissionNotInRange)
             modifyAccount (accountBakerInfo . bieBakerPoolInfo . poolCommissionRates . transactionCommission .~ tfc)
-            MTL.tell [BakerConfigureTransactionFeeCommision tfc]
+            MTL.tell [BakerConfigureTransactionFeeCommission tfc]
         updateBakingRewardCommission = maybeWith bcuBakingRewardCommission $ \brc -> do
             bs <- MTL.get
             let cp = bs ^. blockUpdates . currentParameters
             let range = cp ^. cpPoolParameters . ppCommissionBounds . bakingCommissionRange
             when (not $ isInRange brc range) (MTL.throwError BCCommissionNotInRange)
             modifyAccount (accountBakerInfo . bieBakerPoolInfo . poolCommissionRates . bakingCommission .~ brc)
-            MTL.tell [BakerConfigureBakingRewardCommision brc]
+            MTL.tell [BakerConfigureBakingRewardCommission brc]
         updateFinalizationRewardCommission = maybeWith bcuFinalizationRewardCommission $ \frc -> do
             bs <- MTL.get
             let cp = bs ^. blockUpdates . currentParameters
             let range = cp ^. cpPoolParameters . ppCommissionBounds . finalizationCommissionRange
             when (not $ isInRange frc range) (MTL.throwError BCCommissionNotInRange)
             modifyAccount (accountBakerInfo . bieBakerPoolInfo . poolCommissionRates . finalizationCommission .~ frc)
-            MTL.tell [BakerConfigureFinalizationRewardCommision frc]
+            MTL.tell [BakerConfigureFinalizationRewardCommission frc]
         updateCapital = maybeWith bcuCapital $ \capital -> do
             requireNoPendingChange
             ab <- getAccount
@@ -815,6 +816,8 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                 GT -> do
                     modifyAccount (stakedAmount .~ capital)
                     MTL.tell [BakerConfigureStakeIncreased capital]
+
+    bsoConfigureDelegation bs ai delegationArg = undefined
 
     bsoUpdateBakerKeys bs ai bku@BakerKeyUpdate{..} = return $! case bs ^? blockAccounts . Accounts.indexedAccount ai of
         -- The account is valid and has a baker

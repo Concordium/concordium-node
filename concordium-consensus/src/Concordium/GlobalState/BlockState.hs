@@ -442,6 +442,14 @@ class (BlockStateQuery m) => BlockStateOperations m where
     -> BakerConfigure
     -> m (BakerConfigureResult, UpdatableBlockState m)
 
+  -- TODO: Document
+  bsoConfigureDelegation
+    :: (AccountVersionFor (MPV m) ~ 'AccountV1, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1)
+    => UpdatableBlockState m
+    -> AccountIndex
+    -> DelegationConfigure
+    -> m (DelegationConfigureResult, UpdatableBlockState m)
+
   -- |Update the keys associated with an account.
   -- It is assumed that the keys have already been checked for validity/ownership as
   -- far as is necessary.
@@ -753,6 +761,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoTransitionEpochBakers s e = lift $ bsoTransitionEpochBakers s e
   bsoAddBaker s addr a = lift $ bsoAddBaker s addr a
   bsoConfigureBaker s aconfig a = lift $ bsoConfigureBaker s aconfig a
+  bsoConfigureDelegation s aconfig a = lift $ bsoConfigureDelegation s aconfig a
   bsoUpdateBakerKeys s addr a = lift $ bsoUpdateBakerKeys s addr a
   bsoUpdateBakerStake s addr a = lift $ bsoUpdateBakerStake s addr a
   bsoUpdateBakerRestakeEarnings s addr a = lift $ bsoUpdateBakerRestakeEarnings s addr a

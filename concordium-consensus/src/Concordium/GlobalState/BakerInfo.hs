@@ -176,9 +176,9 @@ data BakerConfigureChange =
   | BakerConfigureOpenForDelegation !OpenStatus
   | BakerConfigureUpdateKeys !BakerKeyUpdate
   | BakerConfigureMetadataURL !UrlText
-  | BakerConfigureTransactionFeeCommision !RewardFraction
-  | BakerConfigureBakingRewardCommision !RewardFraction
-  | BakerConfigureFinalizationRewardCommision !RewardFraction
+  | BakerConfigureTransactionFeeCommission !RewardFraction
+  | BakerConfigureBakingRewardCommission !RewardFraction
+  | BakerConfigureFinalizationRewardCommission !RewardFraction
   deriving (Eq, Show)
 
 -- TODO: Document
@@ -193,6 +193,8 @@ data BakerConfigureResult
   -- ^Account unknown.
   | BCAlreadyBaker !BakerId
   -- ^The account is already registered as a baker.
+  | BCAlreadyDelegator !BakerId
+  -- ^The account is already registered as a delegator.
   | BCDuplicateAggregationKey !BakerAggregationVerifyKey
   -- ^The aggregation key already exists.
   | BCStakeUnderThreshold
@@ -212,4 +214,12 @@ data BakerRemoveResult
   -- ^This is not a valid baker.
   | BRChangePending !BakerId
   -- ^A change is already pending on this baker.
+  deriving (Eq, Ord, Show)
+
+-- TODO: Fix and Document
+data DelegationConfigure = DelegationConfigure
+  deriving (Eq, Ord, Show)
+
+-- TODO: Fix and Document
+data DelegationConfigureResult = DelegationConfigureResult
   deriving (Eq, Ord, Show)

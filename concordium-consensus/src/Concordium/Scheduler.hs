@@ -263,6 +263,11 @@ dispatch msg = do
                      onlyChainPatametersVersion SCPV1 $
                      handleConfigureBaker (mkWTC TTConfigureBaker) cbCapital cbRestakeEarnings cbOpenForDelegation cbKeysWithProofs cbMetadataURL cbTransactionFeeCommission cbBakingRewardCommission cbFinalizationRewardCommission
 
+                   ConfigureDelegation{..} ->
+                     onlyAccountVersion SAccountV1 $
+                     onlyChainPatametersVersion SCPV1 $
+                     handleConfigureDelegation (mkWTC TTConfigureDelegation) cdCapital cdRestakeEarnings cdDelegationTarget
+
           case res of
             -- The remaining block energy is not sufficient for the handler to execute the transaction.
             Nothing -> return Nothing
@@ -1207,12 +1212,12 @@ handleConfigureBaker
                   }
                   BI.BakerConfigureMetadataURL newMetadataURL ->
                     BakerSetMetadataURL bid senderAddress newMetadataURL
-                  BI.BakerConfigureTransactionFeeCommision transactionFeeCommission ->
+                  BI.BakerConfigureTransactionFeeCommission transactionFeeCommission ->
                     BakerSetTransactionFeeCommission bid senderAddress transactionFeeCommission
-                  BI.BakerConfigureBakingRewardCommision bakingRewardCommission ->
-                    BakerSetBakingRewardCommision bid senderAddress bakingRewardCommission
-                  BI.BakerConfigureFinalizationRewardCommision finalizationRewardCommission ->
-                    BakerSetFinalizationRewardCommision bid senderAddress finalizationRewardCommission
+                  BI.BakerConfigureBakingRewardCommission bakingRewardCommission ->
+                    BakerSetBakingRewardCommission bid senderAddress bakingRewardCommission
+                  BI.BakerConfigureFinalizationRewardCommission finalizationRewardCommission ->
+                    BakerSetFinalizationRewardCommission bid senderAddress finalizationRewardCommission
             return (TxSuccess events, energyCost, usedEnergy)
         kResult energyCost usedEnergy (BI.BCAddSuccess BI.BakerAdd{baKeys=BI.BakerKeyUpdate{..}, ..} bid) = do
           -- FIXME: This should probably be replaced with an event that also reports the open status,
@@ -1239,6 +1244,8 @@ handleConfigureBaker
             return (TxReject (InvalidAccountReference senderAddress), energyCost, usedEnergy)
         kResult energyCost usedEnergy (BI.BCAlreadyBaker bid) =
             return (TxReject (AlreadyABaker bid), energyCost, usedEnergy)
+        kResult energyCost usedEnergy (BI.BCAlreadyDelegator bid) =
+            return (TxReject (AlreadyADelegator bid), energyCost, usedEnergy)
         kResult energyCost usedEnergy (BI.BCDuplicateAggregationKey key) =
             return (TxReject (DuplicateAggregationKey key), energyCost, usedEnergy)
         kResult energyCost usedEnergy BI.BCStakeUnderThreshold =
@@ -1249,6 +1256,16 @@ handleConfigureBaker
             return (TxReject BakerInCooldown, energyCost, usedEnergy)
         kResult energyCost usedEnergy BI.BCInvalidBaker =
             return (TxReject (NotABaker senderAddress), energyCost, usedEnergy)
+
+handleConfigureDelegation
+    :: (AccountVersionFor (MPV m) ~ 'AccountV1, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1, SchedulerMonad m)
+    => WithDepositContext m
+    -> Maybe Amount
+    -> Maybe Bool
+    -> Maybe DelegationTarget
+    -> m (Maybe TransactionSummary)
+handleConfigureDelegation wtc cdCapital cdRestakeEarnings cdDelegationTarget =
+    undefined
 
 -- |Remove the baker for an account. The logic is as follows:
 --
