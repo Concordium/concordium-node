@@ -187,10 +187,6 @@ data BakerConfigureResult
     -- ^Configure baker successful.
   | BCInvalidAccount
   -- ^Account unknown.
-  | BCAlreadyBaker !BakerId
-  -- ^The account is already registered as a baker.
-  | BCAlreadyDelegator !BakerId
-  -- ^The account is already registered as a delegator.
   | BCDuplicateAggregationKey !BakerAggregationVerifyKey
   -- ^The aggregation key already exists.
   | BCStakeUnderThreshold
@@ -232,6 +228,23 @@ data DelegationConfigure =
   }
   deriving (Eq, Show)
 
+-- |A delegation update change result from configure delegation. Used to indicate whether the
+-- configure will cause any changes to the delegator's stake, restake earnings flag, etc.
+data DelegationConfigureUpdateChange =
+    DelegationConfigureStakeIncreased !Amount
+  | DelegationConfigureStakeReduced !Amount
+  | DelegationConfigureRestakeEarnings !Bool
+  | DelegationConfigureDelegationTarget !DelegationTarget
+  deriving (Eq, Show)
+
 -- TODO: Fix and Document
-data DelegationConfigureResult = DelegationConfigureResult
-  deriving (Eq, Ord, Show)
+data DelegationConfigureResult
+  = DCSuccess ![DelegationConfigureUpdateChange] !DelegatorId
+    -- ^Configure delegation successful.
+  | DCInvalidAccount
+    -- ^Account unknown.
+  | DCChangePending
+  -- ^A change is already pending on this delegator.
+  | DCInvalidDelegator
+  -- ^This is not a valid delegator.
+  deriving (Eq, Show)

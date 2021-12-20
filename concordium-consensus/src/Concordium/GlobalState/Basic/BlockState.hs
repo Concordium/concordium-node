@@ -65,6 +65,8 @@ data BasicBirkParameters = BasicBirkParameters {
     _birkNextEpochBakers :: !(Hashed EpochBakers),
     -- |The bakers for the current epoch.
     _birkCurrentEpochBakers :: !(Hashed EpochBakers),
+    -- |The currently-registered delegators.
+    _birkActiveDelegators :: !ActiveDelegators,
     -- |The seed state used to derive the leadership election nonce.
     _birkSeedState :: !SeedState
 } deriving (Eq, Show)
@@ -95,6 +97,7 @@ getBirkParameters = do
     _birkNextEpochBakers <- makeHashed <$> getEpochBakers
     _birkCurrentEpochBakers <- makeHashed <$> getEpochBakers
     let _birkActiveBakers = ActiveBakers Set.empty Set.empty
+    let _birkActiveDelegators = ActiveDelegators Set.empty
     return BasicBirkParameters{..}
 
 -- | Create a BasicBirkParameters value from the components
@@ -102,9 +105,10 @@ makeBirkParameters ::
   ActiveBakers -- ^ Set of currently-registered bakers
   -> EpochBakers -- ^ Set of bakers for the next epoch
   -> EpochBakers -- ^ Set of bakers for the current epoch
+  -> ActiveDelegators -- ^ Set of currently-registered delegators
   -> SeedState
   -> BasicBirkParameters
-makeBirkParameters _birkActiveBakers nextEpochBakers currentEpochBakers _birkSeedState = BasicBirkParameters {..}
+makeBirkParameters _birkActiveBakers nextEpochBakers currentEpochBakers _birkActiveDelegators _birkSeedState = BasicBirkParameters {..}
   where
     _birkNextEpochBakers = makeHashed nextEpochBakers
     _birkCurrentEpochBakers = makeHashed currentEpochBakers
@@ -115,7 +119,7 @@ initialBirkParameters ::
   -> SeedState
   -- ^The seed state
   -> BasicBirkParameters
-initialBirkParameters accounts = makeBirkParameters activeBkrs eBkrs eBkrs
+initialBirkParameters accounts = makeBirkParameters activeBkrs eBkrs eBkrs activeDels
   where
     abi (AccountStakeBaker AccountBaker{..}) = Just (_accountBakerInfo ^. bakerInfo, _stakedAmount)
     abi _ = Nothing
@@ -124,6 +128,14 @@ initialBirkParameters accounts = makeBirkParameters activeBkrs eBkrs eBkrs
     activeBkrs = ActiveBakers {
       _activeBakers = Set.fromList (_bakerIdentity . fst <$> bkrs),
       _aggregationKeys = Set.fromList (_bakerAggregationVerifyKey . fst <$> bkrs)
+    }
+    adi :: AccountStake av -> Maybe DelegatorId
+    adi (AccountStakeDelegate AccountDelegationV1{..}) = Just _delegationIdentity
+    adi _ = Nothing
+    del acct = adi $ acct ^. accountStaking
+    dels = catMaybes $ del <$> accounts
+    activeDels = ActiveDelegators {
+      _activeDelegators = Set.fromList dels
     }
     stakes = Vec.fromList (snd <$> bkrs)
     eBkrs = EpochBakers {
@@ -648,6 +660,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                 )
 
     bsoConfigureBaker bs ai BakerConfigureAdd{..} = do
+      -- It is assumed here that this account is NOT a baker and NOT a delegator.
       chainParams <- BS.bsoGetChainParameters bs
       let poolParams = chainParams ^. cpPoolParameters
       let bakerStakeThreshold = poolParams ^. ppMinimumEquityCapital
@@ -655,9 +668,6 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
       return $! case bs ^? blockAccounts . Accounts.indexedAccount ai of
         -- Cannot resolve the account
         Nothing -> (BCInvalidAccount, bs)
-        -- Account is already a baker
-        Just Account{_accountStaking = AccountStakeBaker{}} -> (BCAlreadyBaker (BakerId ai), bs) -- should never happen
-        Just Account{_accountStaking = AccountStakeDelegate{}} -> (BCAlreadyDelegator (BakerId ai), bs)
         Just Account{}
           -- Aggregation key is a duplicate
           | bkuAggregationKey bcaKeys `Set.member` (bs ^. blockBirkParameters . birkActiveBakers . aggregationKeys) ->
@@ -733,14 +743,11 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             let rewardPeriodLength = fromIntegral $ origBS ^. blockUpdates . currentParameters . cpTimeParameters . tpRewardPeriodLength
                 msInEpoch = fromIntegral (epochLength $ origBS ^. blockBirkParameters . birkSeedState) * bcuSlotDuration
             in addDuration bcuTimestamp (rewardPeriodLength * msInEpoch)
-        maybeWith Nothing _ = return ()
-        maybeWith (Just a) f = f a
         getAccount = do
             s <- MTL.get
             case s ^? blockAccounts . Accounts.indexedAccount ai of
                 Nothing -> MTL.throwError BCInvalidAccount
-                Just Account{_accountStaking = AccountStakeBaker ab} ->
-                    return ab
+                Just Account{_accountStaking = AccountStakeBaker ab} -> return ab
                 Just Account{} -> MTL.throwError BCInvalidBaker
         putAccount ab =
             MTL.modify' (blockAccounts . Accounts.indexedAccount ai . accountStaking .~ AccountStakeBaker ab)
@@ -750,7 +757,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
         requireNoPendingChange = do
             ab <- getAccount
             when (_bakerPendingChange ab /= NoChange) (MTL.throwError BCChangePending)
-        updateKeys = maybeWith bcuKeys $ \keys -> do
+        updateKeys = flip mapM_ bcuKeys $ \keys -> do
             bs <- MTL.get
             ab <- getAccount
             let key = _bakerAggregationVerifyKey (ab ^. bakerInfo)
@@ -763,36 +770,36 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             MTL.modify'
                 (blockBirkParameters . birkActiveBakers . aggregationKeys
                     %~ Set.insert (bkuAggregationKey keys) . Set.delete (ab ^. bakerAggregationVerifyKey))
-        updateRestakeEarnings = maybeWith bcuRestakeEarnings $ \restakeEarnings -> do
+        updateRestakeEarnings = flip mapM_ bcuRestakeEarnings $ \restakeEarnings -> do
             modifyAccount (stakeEarnings .~ restakeEarnings)
-        updateOpenForDelegation = maybeWith bcuOpenForDelegation $ \openForDelegation -> do
+        updateOpenForDelegation = flip mapM_ bcuOpenForDelegation $ \openForDelegation -> do
             modifyAccount (accountBakerInfo . bieBakerPoolInfo . poolOpenStatus .~ openForDelegation)
             MTL.tell [BakerConfigureOpenForDelegation openForDelegation]
-        updateMetadataURL = maybeWith bcuMetadataURL $ \metadataURL -> do
+        updateMetadataURL = flip mapM_ bcuMetadataURL $ \metadataURL -> do
             modifyAccount (accountBakerInfo . bieBakerPoolInfo . poolMetadataUrl .~ metadataURL)
             MTL.tell [BakerConfigureMetadataURL metadataURL]
-        updateTransactionFeeCommission = maybeWith bcuTransactionFeeCommission $ \tfc -> do
+        updateTransactionFeeCommission = flip mapM_ bcuTransactionFeeCommission $ \tfc -> do
             bs <- MTL.get
             let cp = bs ^. blockUpdates . currentParameters
             let range = cp ^. cpPoolParameters . ppCommissionBounds . transactionCommissionRange
             unless (isInRange tfc range) (MTL.throwError BCCommissionNotInRange)
             modifyAccount (accountBakerInfo . bieBakerPoolInfo . poolCommissionRates . transactionCommission .~ tfc)
             MTL.tell [BakerConfigureTransactionFeeCommission tfc]
-        updateBakingRewardCommission = maybeWith bcuBakingRewardCommission $ \brc -> do
+        updateBakingRewardCommission = flip mapM_ bcuBakingRewardCommission $ \brc -> do
             bs <- MTL.get
             let cp = bs ^. blockUpdates . currentParameters
             let range = cp ^. cpPoolParameters . ppCommissionBounds . bakingCommissionRange
             unless (isInRange brc range) (MTL.throwError BCCommissionNotInRange)
             modifyAccount (accountBakerInfo . bieBakerPoolInfo . poolCommissionRates . bakingCommission .~ brc)
             MTL.tell [BakerConfigureBakingRewardCommission brc]
-        updateFinalizationRewardCommission = maybeWith bcuFinalizationRewardCommission $ \frc -> do
+        updateFinalizationRewardCommission = flip mapM_ bcuFinalizationRewardCommission $ \frc -> do
             bs <- MTL.get
             let cp = bs ^. blockUpdates . currentParameters
             let range = cp ^. cpPoolParameters . ppCommissionBounds . finalizationCommissionRange
             unless (isInRange frc range) (MTL.throwError BCCommissionNotInRange)
             modifyAccount (accountBakerInfo . bieBakerPoolInfo . poolCommissionRates . finalizationCommission .~ frc)
             MTL.tell [BakerConfigureFinalizationRewardCommission frc]
-        updateCapital = maybeWith bcuCapital $ \capital -> do
+        updateCapital = flip mapM_ bcuCapital $ \capital -> do
             requireNoPendingChange
             ab <- getAccount
             bs <- MTL.get
@@ -810,7 +817,82 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                     modifyAccount (stakedAmount .~ capital)
                     MTL.tell [BakerConfigureStakeIncreased capital]
 
-    bsoConfigureDelegation bs ai delegationArg = undefined
+    bsoConfigureDelegation bs ai DelegationConfigureAdd{..} = do
+        -- It is assumed here that this account is NOT a baker and NOT a delegator.
+        -- TODO: Sum the pool's capitals, of the baker and all existing delegators.
+        -- If this sum plus the new 'dcaCapital' is too high, then fail.
+        return $! case bs ^? blockAccounts . Accounts.indexedAccount ai of
+            -- Cannot resolve the account
+            Nothing -> (DCInvalidAccount, bs)
+            Just Account{} ->
+              let did = DelegatorId ai
+                  ad = AccountStakeDelegate AccountDelegationV1{
+                      _delegationIdentity = did,
+                      _delegationStakedAmount = dcaCapital,
+                      _delegationStakeEarnings = dcaRestakeEarnings,
+                      _delegationTarget = dcaDelegationTarget,
+                      _delegationPendingChange = NoChange
+                  }
+                  newBlockState = bs
+                      & blockAccounts . Accounts.indexedAccount ai . accountStaking .~ ad
+                      & blockBirkParameters . birkActiveDelegators . activeDelegators %~ Set.insert did
+              in (DCSuccess [] did, newBlockState)
+    bsoConfigureDelegation bs ai DelegationConfigureRemove{..} =
+        return $! case bs ^? blockAccounts . Accounts.indexedAccount ai of
+            Just Account{_accountStaking = AccountStakeDelegate ad@AccountDelegationV1{..}}
+              | _delegationPendingChange /= NoChange -> (DCChangePending, bs)
+              | otherwise ->
+                  let rewardPeriodLength = fromIntegral $ bs ^. blockUpdates . currentParameters . cpTimeParameters . tpRewardPeriodLength
+                      msInEpoch = fromIntegral (epochLength $ bs ^. blockBirkParameters . birkSeedState) * dcrSlotDuration
+                      timestamp = addDuration dcrTimestamp (rewardPeriodLength * msInEpoch)
+                  in (DCSuccess [] (DelegatorId ai),
+                      bs & blockAccounts . Accounts.indexedAccount ai . accountStaking .~ AccountStakeDelegate (ad & delegationPendingChange .~ RemoveStake (PendingChangeEffectiveV1 timestamp)))
+            _ -> (DCInvalidDelegator, bs)
+    bsoConfigureDelegation origBS ai DelegationConfigureUpdate{..} = do
+        let res = MTL.runExcept $ MTL.runWriterT $ flip MTL.execStateT origBS $ do
+                updateCapital
+                updateRestakeEarnings
+                updateDelegationTarget
+        return $! case res of
+            Left errorRes -> (errorRes, origBS)
+            Right (newBS, changes) -> (DCSuccess changes did, newBS)
+      where
+        did = DelegatorId ai
+        cooldownTimestamp =
+            let rewardPeriodLength = fromIntegral $ origBS ^. blockUpdates . currentParameters . cpTimeParameters . tpRewardPeriodLength
+                msInEpoch = fromIntegral (epochLength $ origBS ^. blockBirkParameters . birkSeedState) * dcuSlotDuration
+            in addDuration dcuTimestamp (rewardPeriodLength * msInEpoch)
+        getAccount = do
+            s <- MTL.get
+            case s ^? blockAccounts . Accounts.indexedAccount ai of
+                Nothing -> MTL.throwError DCInvalidAccount
+                Just Account{_accountStaking = AccountStakeDelegate ad} -> return ad
+                Just Account{} -> MTL.throwError DCInvalidDelegator
+        putAccount ad =
+            MTL.modify' (blockAccounts . Accounts.indexedAccount ai . accountStaking .~ AccountStakeDelegate ad)
+        modifyAccount f = do
+            ab <- getAccount
+            putAccount $! f ab
+        requireNoPendingChange = do
+            ad <- getAccount
+            when (_delegationPendingChange ad /= NoChange) (MTL.throwError DCChangePending)
+        updateCapital = flip mapM_ dcuCapital $ \capital -> do
+            requireNoPendingChange
+            ad <- getAccount
+            case compare capital (ad ^. delegationStakedAmount) of
+                LT -> do
+                    let dpc = ReduceStake capital (PendingChangeEffectiveV1 cooldownTimestamp)
+                    modifyAccount (delegationPendingChange .~ dpc)
+                    MTL.tell [DelegationConfigureStakeReduced capital]
+                EQ ->
+                    return ()
+                GT -> do
+                    modifyAccount (delegationStakedAmount .~ capital)
+                    MTL.tell [DelegationConfigureStakeIncreased capital]
+        updateRestakeEarnings = flip mapM_ dcuRestakeEarnings $ \restakeEarnings ->
+            modifyAccount (delegationStakeEarnings .~ restakeEarnings)
+        updateDelegationTarget = flip mapM_ dcuDelegationTarget $ \target ->
+            modifyAccount (delegationTarget .~ target)
 
     bsoUpdateBakerKeys bs ai bku@BakerKeyUpdate{..} = return $! case bs ^? blockAccounts . Accounts.indexedAccount ai of
         -- The account is valid and has a baker

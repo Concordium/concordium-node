@@ -1261,10 +1261,6 @@ handleConfigureBaker
             return (TxSuccess [brEvt], energyCost, usedEnergy)
         kResult energyCost usedEnergy _ BI.BCInvalidAccount =
             return (TxReject (InvalidAccountReference senderAddress), energyCost, usedEnergy)
-        kResult energyCost usedEnergy _ (BI.BCAlreadyBaker bid) =
-            return (TxReject (AlreadyABaker bid), energyCost, usedEnergy)
-        kResult energyCost usedEnergy _ (BI.BCAlreadyDelegator _) = -- TODO: remove argument do AlreadyDelegator
-            return (TxReject AlreadyADelegator, energyCost, usedEnergy)
         kResult energyCost usedEnergy _ (BI.BCDuplicateAggregationKey key) =
             return (TxReject (DuplicateAggregationKey key), energyCost, usedEnergy)
         kResult energyCost usedEnergy _ BI.BCStakeUnderThreshold =
@@ -1331,8 +1327,7 @@ handleConfigureDelegation wtc cdCapital cdRestakeEarnings cdDelegationTarget =
                       dcaDelegationTarget = cdcDelegationTarget
                     }
                 res <- configureDelegation (fst senderAccount) dca
-                undefined
-                -- kResult energyCost usedEnergy dca res
+                kResult energyCost usedEnergy dca res
         kWithAccountBalance ls (ConfigureRemoveDelegationCont, _) = do
             (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
             chargeExecutionCost txHash senderAccount energyCost
@@ -1340,8 +1335,7 @@ handleConfigureDelegation wtc cdCapital cdRestakeEarnings cdDelegationTarget =
             sd <- getSlotDuration
             let dcr = BI.DelegationConfigureRemove (slotTime cm) sd
             res <- configureDelegation (fst senderAccount) dcr
-            undefined
-            -- kResult energyCost usedEnergy bcr res
+            kResult energyCost usedEnergy dcr res
         kWithAccountBalance ls (ConfigureUpdateDelegationCont, accountBalance) = do
             (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
             chargeExecutionCost txHash senderAccount energyCost
@@ -1358,8 +1352,38 @@ handleConfigureDelegation wtc cdCapital cdRestakeEarnings cdDelegationTarget =
                       dcuDelegationTarget = cdDelegationTarget
                     }
                 res <- configureDelegation (fst senderAccount) dcu
-                undefined
-                -- kResult energyCost usedEnergy bcu res
+                kResult energyCost usedEnergy dcu res
+        kResult energyCost usedEnergy BI.DelegationConfigureUpdate{} (BI.DCSuccess changes did) = do
+            let events = changes <&> \case
+                  BI.DelegationConfigureStakeIncreased newStake ->
+                    DelegationStakeIncreased did senderAddress newStake
+                  BI.DelegationConfigureStakeReduced newStake ->
+                    DelegationStakeDecreased did senderAddress newStake
+                  BI.DelegationConfigureRestakeEarnings newRestakeEarnings ->
+                     DelegationSetRestakeEarnings did senderAddress newRestakeEarnings
+                  BI.DelegationConfigureDelegationTarget newDelegationTarget ->
+                     DelegationSetDelegationTarget did senderAddress newDelegationTarget
+            return (TxSuccess events, energyCost, usedEnergy)
+        kResult energyCost usedEnergy BI.DelegationConfigureAdd{..} (BI.DCSuccess _ did) = do
+            let events = [
+                    DelegationAdded {edaDelegatorId = did, edaAccount = senderAddress},
+                    DelegationSetRestakeEarnings did senderAddress dcaRestakeEarnings,
+                    DelegationSetDelegationTarget did senderAddress dcaDelegationTarget
+                    ]
+            return (TxSuccess events, energyCost, usedEnergy)
+        kResult energyCost usedEnergy BI.DelegationConfigureRemove{} (BI.DCSuccess _ did) = do
+            let evt =
+                  DelegationRemoved {
+                    edrDelegatorId = did,
+                    edrAccount = senderAddress
+                  }
+            return (TxSuccess [evt], energyCost, usedEnergy)
+        kResult energyCost usedEnergy _ BI.DCInvalidAccount =
+            return (TxReject (InvalidAccountReference senderAddress), energyCost, usedEnergy)
+        kResult energyCost usedEnergy _ BI.DCChangePending =
+            return (TxReject DelegatorInCooldown, energyCost, usedEnergy)
+        kResult energyCost usedEnergy _ BI.DCInvalidDelegator =
+            return (TxReject (NotADelegator senderAddress), energyCost, usedEnergy)
 
 -- |Remove the baker for an account. The logic is as follows:
 --
