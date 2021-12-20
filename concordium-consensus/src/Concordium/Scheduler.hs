@@ -76,6 +76,7 @@ import qualified Concordium.Crypto.BlsSignature as Bls
 import Lens.Micro.Platform
 
 import Prelude hiding (exp, mod)
+import Concordium.Types.Accounts hiding (getAccountStake)
 
 -- |Check that
 --  * the transaction has a valid sender,
@@ -1034,6 +1035,17 @@ data ConfigureBakerCont =
   | ConfigureRemoveBakerCont
   | ConfigureUpdateBakerCont
 
+-- |Argument to configure delegation 'withDeposit' continuation.
+
+data ConfigureDelegationCont =
+    ConfigureAddDelegationCont {
+        cdcCapital :: !Amount,
+        cdcRestakeEarnings :: !Bool,
+        cdcDelegationTarget :: !DelegationTarget
+    }
+  | ConfigureRemoveDelegationCont
+  | ConfigureUpdateDelegationCont
+
 handleConfigureBaker
     :: (AccountVersionFor (MPV m) ~ 'AccountV1, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1, SchedulerMonad m)
     => WithDepositContext m
@@ -1108,10 +1120,11 @@ handleConfigureBaker
             return ConfigureUpdateBakerCont
         tickAndGetAccountBalance = do
             -- Check consistency of parameters before charging energy cost:
-            mbaker <- getAccountBaker (snd senderAccount)
-            arg <- case mbaker of
-                    Nothing -> configureAddBakerArg
-                    Just _ ->
+            accountStake <- getAccountStake (snd senderAccount)
+            arg <- case accountStake of
+                    AccountStakeNone -> configureAddBakerArg
+                    AccountStakeDelegate _ -> rejectTransaction AlreadyADelegator
+                    AccountStakeBaker _ ->
                         if cbCapital == Just 0
                           then configureRemoveBakerArg
                           else configureUpdateBakerArg
@@ -1133,7 +1146,7 @@ handleConfigureBaker
             else if electionP && signP && aggregationP then do
                 -- The proof validates that the baker owns all the private keys,
                 -- thus we can try to create the baker.
-                res <- configureBaker (fst senderAccount)  BI.BakerConfigureAdd {
+                let bca =  BI.BakerConfigureAdd {
                       bcaKeys = BI.BakerKeyUpdate {
                           bkuSignKey = bkwpSignatureVerifyKey,
                           bkuAggregationKey = bkwpAggregationVerifyKey,
@@ -1147,15 +1160,17 @@ handleConfigureBaker
                       bcaBakingRewardCommission = cbcBakingRewardCommission,
                       bcaFinalizationRewardCommission = cbcFinalizationRewardCommission
                     }
-                kResult energyCost usedEnergy res
+                res <- configureBaker (fst senderAccount) bca
+                kResult energyCost usedEnergy bca res
               else return (TxReject InvalidProof, energyCost, usedEnergy)
         kWithAccountBalance ls (ConfigureRemoveBakerCont, _) = do
             (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
             chargeExecutionCost txHash senderAccount energyCost
             cm <- getChainMetadata
             sd <- getSlotDuration
-            res <- configureBaker (fst senderAccount) $ BI.BakerConfigureRemove (slotTime cm) sd
-            kResult energyCost usedEnergy res
+            let bcr = BI.BakerConfigureRemove (slotTime cm) sd
+            res <- configureBaker (fst senderAccount) bcr
+            kResult energyCost usedEnergy bcr res
         kWithAccountBalance ls (ConfigureUpdateBakerCont, accountBalance) = do
             (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
             chargeExecutionCost txHash senderAccount energyCost
@@ -1179,7 +1194,7 @@ handleConfigureBaker
                       }
                 cm <- getChainMetadata
                 sd <- getSlotDuration
-                res <- configureBaker (fst senderAccount) BI.BakerConfigureUpdate {
+                let bcu = BI.BakerConfigureUpdate {
                       bcuTimestamp = slotTime cm,
                       bcuSlotDuration = sd,
                       bcuKeys = bku,
@@ -1191,9 +1206,10 @@ handleConfigureBaker
                       bcuBakingRewardCommission = cbBakingRewardCommission,
                       bcuFinalizationRewardCommission = cbFinalizationRewardCommission
                     }
-                kResult energyCost usedEnergy res
+                res <- configureBaker (fst senderAccount) bcu
+                kResult energyCost usedEnergy bcu res
               else return (TxReject InvalidProof, energyCost, usedEnergy)
-        kResult energyCost usedEnergy (BI.BCUpdateSuccess changes bid) = do
+        kResult energyCost usedEnergy BI.BakerConfigureUpdate{} (BI.BCSuccess changes bid) = do
             let events = changes <&> \case
                   BI.BakerConfigureStakeIncreased newStake ->
                     BakerStakeIncreased bid senderAddress newStake
@@ -1219,42 +1235,45 @@ handleConfigureBaker
                   BI.BakerConfigureFinalizationRewardCommission finalizationRewardCommission ->
                     BakerSetFinalizationRewardCommission bid senderAddress finalizationRewardCommission
             return (TxSuccess events, energyCost, usedEnergy)
-        kResult energyCost usedEnergy (BI.BCAddSuccess BI.BakerAdd{baKeys=BI.BakerKeyUpdate{..}, ..} bid) = do
-          -- FIXME: This should probably be replaced with an event that also reports the open status,
-          -- the metadata url and the commissions.
-            let baddEvt =
-                  BakerAdded {
+        kResult energyCost usedEnergy BI.BakerConfigureAdd{..} (BI.BCSuccess _ bid) = do
+            let events =
+                  [BakerAdded {
                     ebaBakerId = bid,
                     ebaAccount = senderAddress,
-                    ebaSignKey = bkuSignKey,
-                    ebaElectionKey = bkuElectionKey,
-                    ebaAggregationKey = bkuAggregationKey,
-                    ebaStake = baStake,
-                    ebaRestakeEarnings = baStakeEarnings
-                  }
-            return (TxSuccess [baddEvt], energyCost, usedEnergy)
-        kResult energyCost usedEnergy (BI.BCRemoveSuccess bid) = do
+                    ebaSignKey = BI.bkuSignKey bcaKeys,
+                    ebaElectionKey = BI.bkuElectionKey bcaKeys,
+                    ebaAggregationKey = BI.bkuAggregationKey bcaKeys,
+                    ebaStake = bcaCapital,
+                    ebaRestakeEarnings = bcaRestakeEarnings
+                  },
+                  BakerSetTransactionFeeCommission bid senderAddress bcaTransactionFeeCommission,
+                  BakerSetBakingRewardCommission bid senderAddress bcaBakingRewardCommission,
+                  BakerSetFinalizationRewardCommission bid senderAddress bcaFinalizationRewardCommission,
+                  BakerSetOpenStatus bid senderAddress bcaOpenForDelegation,
+                  BakerSetRestakeEarnings bid senderAddress bcaRestakeEarnings]
+            return (TxSuccess events, energyCost, usedEnergy)
+        kResult energyCost usedEnergy BI.BakerConfigureRemove{} (BI.BCSuccess _ bid) = do
             let brEvt =
                   BakerRemoved {
                     ebrBakerId = bid,
                     ebrAccount = senderAddress
                   }
             return (TxSuccess [brEvt], energyCost, usedEnergy)
-        kResult energyCost usedEnergy BI.BCInvalidAccount =
+        kResult energyCost usedEnergy _ BI.BCInvalidAccount =
             return (TxReject (InvalidAccountReference senderAddress), energyCost, usedEnergy)
-        kResult energyCost usedEnergy (BI.BCAlreadyBaker bid) =
+        kResult energyCost usedEnergy _ (BI.BCAlreadyBaker bid) =
             return (TxReject (AlreadyABaker bid), energyCost, usedEnergy)
-        kResult energyCost usedEnergy (BI.BCAlreadyDelegator bid) =
-            return (TxReject (AlreadyADelegator bid), energyCost, usedEnergy)
-        kResult energyCost usedEnergy (BI.BCDuplicateAggregationKey key) =
+        kResult energyCost usedEnergy _ (BI.BCAlreadyDelegator _) = -- TODO: remove argument do AlreadyDelegator
+            return (TxReject AlreadyADelegator, energyCost, usedEnergy)
+        kResult energyCost usedEnergy _ (BI.BCDuplicateAggregationKey key) =
             return (TxReject (DuplicateAggregationKey key), energyCost, usedEnergy)
-        kResult energyCost usedEnergy BI.BCStakeUnderThreshold =
+        kResult energyCost usedEnergy _ BI.BCStakeUnderThreshold =
             return (TxReject StakeUnderMinimumThresholdForBaking, energyCost, usedEnergy)
-        kResult energyCost usedEnergy BI.BCCommissionNotInRange =
+        kResult energyCost usedEnergy _ BI.BCCommissionNotInRange =
             return (TxReject CommissionsNotInRangeForBaking, energyCost, usedEnergy)
-        kResult energyCost usedEnergy BI.BCChangePending =
+        kResult energyCost usedEnergy _ BI.BCChangePending =
             return (TxReject BakerInCooldown, energyCost, usedEnergy)
-        kResult energyCost usedEnergy BI.BCInvalidBaker =
+        kResult energyCost usedEnergy _ BI.BCInvalidBaker =
             return (TxReject (NotABaker senderAddress), energyCost, usedEnergy)
 
 handleConfigureDelegation
@@ -1265,7 +1284,82 @@ handleConfigureDelegation
     -> Maybe DelegationTarget
     -> m (Maybe TransactionSummary)
 handleConfigureDelegation wtc cdCapital cdRestakeEarnings cdDelegationTarget =
-    undefined
+    withDeposit wtc tickAndGetAccountBalance kWithAccountBalance
+      where
+        senderAccount = wtc ^. wtcSenderAccount
+        txHash = wtc ^. wtcTransactionHash
+        meta = wtc ^. wtcTransactionHeader
+        senderAddress = thSender meta
+
+        configureAddDelegationArg =
+            case (cdCapital, cdRestakeEarnings, cdDelegationTarget) of
+                (Just cdcCapital, Just cdcRestakeEarnings, Just cdcDelegationTarget) ->
+                    return ConfigureAddDelegationCont{..}
+                _ ->
+                    rejectTransaction MissingDelegationAddParameters
+        configureRemoveDelegationArg =
+            case (cdRestakeEarnings, cdDelegationTarget) of
+                (Nothing, Nothing) -> return ConfigureRemoveDelegationCont
+                _ -> rejectTransaction UnexpectedDelegationRemoveParameters
+        configureUpdateDelegationArg = return ConfigureUpdateDelegationCont
+
+        tickAndGetAccountBalance = do
+            -- Check consistency of parameters before charging energy cost:
+            accountStake <- getAccountStake (snd senderAccount)
+            arg <- case accountStake of
+                    AccountStakeNone -> configureAddDelegationArg
+                    AccountStakeBaker ab -> rejectTransaction $ AlreadyABaker $
+                      ab ^. accountBakerInfo . bieBakerInfo . bakerIdentity
+                    AccountStakeDelegate _ ->
+                        if cdCapital == Just 0
+                          then configureRemoveDelegationArg
+                          else configureUpdateDelegationArg
+            -- TODO: Compute costs
+            (arg,) <$> getCurrentAccountTotalAmount senderAccount
+        kWithAccountBalance ls (ConfigureAddDelegationCont{..}, accountBalance) = do
+            (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+            chargeExecutionCost txHash senderAccount energyCost
+            if accountBalance < cdcCapital then
+                -- The balance is insufficient.
+                return (TxReject InsufficientBalanceForDelegationStake, energyCost, usedEnergy)
+            else do
+                -- The proof validates that the baker owns all the private keys,
+                -- thus we can try to create the baker.
+                let dca =  BI.DelegationConfigureAdd {
+                      dcaCapital = cdcCapital,
+                      dcaRestakeEarnings = cdcRestakeEarnings,
+                      dcaDelegationTarget = cdcDelegationTarget
+                    }
+                res <- configureDelegation (fst senderAccount) dca
+                undefined
+                -- kResult energyCost usedEnergy dca res
+        kWithAccountBalance ls (ConfigureRemoveDelegationCont, _) = do
+            (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+            chargeExecutionCost txHash senderAccount energyCost
+            cm <- getChainMetadata
+            sd <- getSlotDuration
+            let dcr = BI.DelegationConfigureRemove (slotTime cm) sd
+            res <- configureDelegation (fst senderAccount) dcr
+            undefined
+            -- kResult energyCost usedEnergy bcr res
+        kWithAccountBalance ls (ConfigureUpdateDelegationCont, accountBalance) = do
+            (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+            chargeExecutionCost txHash senderAccount energyCost
+            if maybe False (accountBalance <) cdCapital then
+                return (TxReject InsufficientBalanceForDelegationStake, energyCost, usedEnergy)
+            else do
+                cm <- getChainMetadata
+                sd <- getSlotDuration
+                let dcu = BI.DelegationConfigureUpdate {
+                      dcuTimestamp = slotTime cm,
+                      dcuSlotDuration = sd,
+                      dcuCapital = cdCapital,
+                      dcuRestakeEarnings = cdRestakeEarnings,
+                      dcuDelegationTarget = cdDelegationTarget
+                    }
+                res <- configureDelegation (fst senderAccount) dcu
+                undefined
+                -- kResult energyCost usedEnergy bcu res
 
 -- |Remove the baker for an account. The logic is as follows:
 --

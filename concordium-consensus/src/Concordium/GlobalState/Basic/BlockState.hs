@@ -315,7 +315,7 @@ getBlockState migration = do
             mi <- Modules.getInterface modRef _blockModules
             return (GSWasm.miExposedReceive mi ^. at initName . non Set.empty, mi)
     _blockInstances <- Instances.getInstancesV0 resolveModule
-    _blockUpdates <- getUpdatesV0 
+    _blockUpdates <- getUpdatesV0
     _blockEpochBlocksBaked <- getHashedEpochBlocksV0
     -- Construct the release schedule and active bakers from the accounts
     let processAccount (rs,bkrs) account = do
@@ -351,7 +351,7 @@ instance GT.BlockStateTypes (PureBlockStateMonad pv m) where
     type BlockState (PureBlockStateMonad pv m) = HashedBlockState pv
     type UpdatableBlockState (PureBlockStateMonad pv m) = BlockState pv
     type Account (PureBlockStateMonad pv m) = Account (AccountVersionFor pv)
-  
+
 instance ATITypes (PureBlockStateMonad pv m) where
   type ATIStorage (PureBlockStateMonad pv m) = ()
 
@@ -520,7 +520,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
     {-# INLINE bsoRegIdExists #-}
     bsoRegIdExists bs regid = return (Accounts.regIdExists regid (bs ^. blockAccounts))
 
-    bsoCreateAccount bs gc addr cred = return $ 
+    bsoCreateAccount bs gc addr cred = return $
             if Accounts.exists addr accounts then
               (Nothing, bs)
             else
@@ -552,7 +552,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
         where
             account = bs ^. blockAccounts . singular (Accounts.indexedAccount (accountUpdates ^. auIndex))
             updatedAccount = Accounts.updateAccount accountUpdates account
-    
+
     bsoSetAccountCredentialKeys bs accIndex credIx newKeys = return $! bs & blockAccounts %~ Accounts.putAccount updatedAccount
         where
             account = bs ^. blockAccounts . singular (Accounts.indexedAccount accIndex)
@@ -573,7 +573,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
 
     {-# INLINE bsoGetSeedState #-}
     bsoGetSeedState bs = return $! bs ^. blockBirkParameters . birkSeedState
-    
+
     {-# INLINE bsoSetSeedState #-}
     bsoSetSeedState bs ss = return $! bs & blockBirkParameters . birkSeedState .~ ss
 
@@ -656,7 +656,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
         -- Cannot resolve the account
         Nothing -> (BCInvalidAccount, bs)
         -- Account is already a baker
-        Just Account{_accountStaking = AccountStakeBaker{}} -> (BCAlreadyBaker (BakerId ai), bs)
+        Just Account{_accountStaking = AccountStakeBaker{}} -> (BCAlreadyBaker (BakerId ai), bs) -- should never happen
         Just Account{_accountStaking = AccountStakeDelegate{}} -> (BCAlreadyDelegator (BakerId ai), bs)
         Just Account{}
           -- Aggregation key is a duplicate
@@ -695,16 +695,11 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                     _accountBakerInfo = bi,
                     _bakerPendingChange = NoChange
                 }
-                ba = BakerAdd { -- FIXME: not sufficient to only provide this
-                  baKeys = bcaKeys,
-                  baStake = bcaCapital,
-                  baStakeEarnings = bcaRestakeEarnings
-                }
                 newBlockState = bs
                     & blockAccounts . Accounts.indexedAccount ai . accountStaking .~ ab
                     & blockBirkParameters . birkActiveBakers . aggregationKeys %~ Set.insert (bkuAggregationKey bcaKeys)
                     & blockBirkParameters . birkActiveBakers . activeBakers %~ Set.insert bid
-            in (BCAddSuccess ba bid, newBlockState)
+            in (BCSuccess [] bid, newBlockState)
     bsoConfigureBaker bs ai BakerConfigureRemove{..} = return $! case bs ^? blockAccounts . Accounts.indexedAccount ai of
         -- The account is valid and has a baker
         Just Account{_accountStaking = AccountStakeBaker ab@AccountBaker{..}}
@@ -715,7 +710,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
               let rewardPeriodLength = fromIntegral $ bs ^. blockUpdates . currentParameters . cpTimeParameters . tpRewardPeriodLength
                   msInEpoch = fromIntegral (epochLength $ bs ^. blockBirkParameters . birkSeedState) * bcrSlotDuration
                   timestamp = addDuration bcrTimestamp (rewardPeriodLength * msInEpoch)
-              in (BCRemoveSuccess (BakerId ai),
+              in (BCSuccess [] (BakerId ai),
                   bs & blockAccounts . Accounts.indexedAccount ai . accountStaking .~ AccountStakeBaker (ab & bakerPendingChange .~ RemoveStake (PendingChangeEffectiveV1 timestamp)))
         -- The account is not valid or has no baker
         _ -> (BCInvalidBaker, bs)
@@ -731,7 +726,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                 updateCapital
         return $! case res of
             Left errorRes -> (errorRes, origBS)
-            Right (newBS, changes) -> (BCUpdateSuccess changes bid, newBS)
+            Right (newBS, changes) -> (BCSuccess changes bid, newBS)
       where
         bid = BakerId ai
         cooldownTimestamp =
@@ -768,10 +763,8 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             MTL.modify'
                 (blockBirkParameters . birkActiveBakers . aggregationKeys
                     %~ Set.insert (bkuAggregationKey keys) . Set.delete (ab ^. bakerAggregationVerifyKey))
-            MTL.tell [BakerConfigureUpdateKeys keys]
         updateRestakeEarnings = maybeWith bcuRestakeEarnings $ \restakeEarnings -> do
             modifyAccount (stakeEarnings .~ restakeEarnings)
-            MTL.tell [BakerConfigureRestakeEarnings restakeEarnings]
         updateOpenForDelegation = maybeWith bcuOpenForDelegation $ \openForDelegation -> do
             modifyAccount (accountBakerInfo . bieBakerPoolInfo . poolOpenStatus .~ openForDelegation)
             MTL.tell [BakerConfigureOpenForDelegation openForDelegation]
@@ -782,21 +775,21 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             bs <- MTL.get
             let cp = bs ^. blockUpdates . currentParameters
             let range = cp ^. cpPoolParameters . ppCommissionBounds . transactionCommissionRange
-            when (not $ isInRange tfc range) (MTL.throwError BCCommissionNotInRange)
+            unless (isInRange tfc range) (MTL.throwError BCCommissionNotInRange)
             modifyAccount (accountBakerInfo . bieBakerPoolInfo . poolCommissionRates . transactionCommission .~ tfc)
             MTL.tell [BakerConfigureTransactionFeeCommission tfc]
         updateBakingRewardCommission = maybeWith bcuBakingRewardCommission $ \brc -> do
             bs <- MTL.get
             let cp = bs ^. blockUpdates . currentParameters
             let range = cp ^. cpPoolParameters . ppCommissionBounds . bakingCommissionRange
-            when (not $ isInRange brc range) (MTL.throwError BCCommissionNotInRange)
+            unless (isInRange brc range) (MTL.throwError BCCommissionNotInRange)
             modifyAccount (accountBakerInfo . bieBakerPoolInfo . poolCommissionRates . bakingCommission .~ brc)
             MTL.tell [BakerConfigureBakingRewardCommission brc]
         updateFinalizationRewardCommission = maybeWith bcuFinalizationRewardCommission $ \frc -> do
             bs <- MTL.get
             let cp = bs ^. blockUpdates . currentParameters
             let range = cp ^. cpPoolParameters . ppCommissionBounds . finalizationCommissionRange
-            when (not $ isInRange frc range) (MTL.throwError BCCommissionNotInRange)
+            unless (isInRange frc range) (MTL.throwError BCCommissionNotInRange)
             modifyAccount (accountBakerInfo . bieBakerPoolInfo . poolCommissionRates . finalizationCommission .~ frc)
             MTL.tell [BakerConfigureFinalizationRewardCommission frc]
         updateCapital = maybeWith bcuCapital $ \capital -> do
@@ -877,7 +870,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
           | otherwise ->
               let curEpoch = epoch $ bs ^. blockBirkParameters . birkSeedState
                   cooldown = 2 + bs ^. blockUpdates . currentParameters . cpCooldownParameters . cpBakerExtraCooldownEpochs
-              in (BRRemoved (BakerId ai) (curEpoch + cooldown), 
+              in (BRRemoved (BakerId ai) (curEpoch + cooldown),
                   bs & blockAccounts . Accounts.indexedAccount ai . accountStaking .~ AccountStakeBaker (ab & bakerPendingChange .~ RemoveStake (PendingChangeEffectiveV0 $ curEpoch + cooldown)))
         -- The account is not valid or has no baker
         _ -> (BRInvalidBaker, bs)
@@ -896,7 +889,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
     bsoRewardFoundationAccount bs !reward = return $ bs & blockAccounts . Accounts.indexedAccount foundationAccount . accountAmount +~ reward
       where
         foundationAccount = bs ^. blockUpdates . currentParameters . cpFoundationAccount
-    
+
     bsoGetFoundationAccount bs = return $ bs ^?! blockAccounts . Accounts.indexedAccount foundationAccount
       where
         foundationAccount = bs ^. blockUpdates . currentParameters . cpFoundationAccount
@@ -1098,7 +1091,7 @@ genesisState gd = case protocolVersion @pv of
                 initialAmount = List.foldl' (\c acc -> c + acc ^. accountAmount) 0 accounts
                 _blockBank = makeHashed $ Rewards.makeGenesisBankStatus initialAmount
             return BlockState {..}
-              where 
+              where
                   mkAccount (bid, GenesisAccount{..}) =
                       case gaBaker of
                         Just GenesisBaker{..} | gbBakerId /= bid -> Left "Mismatch between assigned and chosen baker id."

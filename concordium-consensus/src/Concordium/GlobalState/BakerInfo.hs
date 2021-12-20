@@ -12,7 +12,7 @@ import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types.Accounts
 
 import Concordium.Types
-import Concordium.Types.Execution (OpenStatus)
+import Concordium.Types.Execution (OpenStatus, DelegationTarget)
 
 
 data FullBakerInfo = FullBakerInfo {
@@ -169,7 +169,7 @@ data BakerConfigure =
 
 -- |A baker update change result from configure baker. Used to indicate whether the configure will cause
 -- any changes to the baker's stake, keys, etc.
-data BakerConfigureChange =
+data BakerConfigureUpdateChange =
     BakerConfigureStakeIncreased !Amount
   | BakerConfigureStakeReduced !Amount
   | BakerConfigureRestakeEarnings !Bool
@@ -183,12 +183,8 @@ data BakerConfigureChange =
 
 -- TODO: Document
 data BakerConfigureResult
-  = BCUpdateSuccess ![BakerConfigureChange] !BakerId
-  -- ^Update baker successful.
-  | BCAddSuccess !BakerAdd !BakerId
-    -- ^Add baker successful.
-  | BCRemoveSuccess !BakerId
-    -- ^Remove baker successful.
+  = BCSuccess ![BakerConfigureUpdateChange] !BakerId
+    -- ^Configure baker successful.
   | BCInvalidAccount
   -- ^Account unknown.
   | BCAlreadyBaker !BakerId
@@ -217,8 +213,24 @@ data BakerRemoveResult
   deriving (Eq, Ord, Show)
 
 -- TODO: Fix and Document
-data DelegationConfigure = DelegationConfigure
-  deriving (Eq, Ord, Show)
+data DelegationConfigure =
+    DelegationConfigureAdd {
+      dcaCapital :: !Amount,
+      dcaRestakeEarnings :: !Bool,
+      dcaDelegationTarget :: !DelegationTarget
+    }
+  | DelegationConfigureUpdate {
+      dcuTimestamp :: !Timestamp,
+      dcuSlotDuration :: !Duration,
+      dcuCapital :: !(Maybe Amount),
+      dcuRestakeEarnings :: !(Maybe Bool),
+      dcuDelegationTarget :: !(Maybe DelegationTarget)
+  }
+  | DelegationConfigureRemove {
+      dcrTimestamp :: !Timestamp,
+      dcrSlotDuration :: !Duration
+  }
+  deriving (Eq, Show)
 
 -- TODO: Fix and Document
 data DelegationConfigureResult = DelegationConfigureResult
