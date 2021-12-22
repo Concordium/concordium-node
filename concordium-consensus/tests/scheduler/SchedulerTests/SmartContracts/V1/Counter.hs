@@ -12,7 +12,7 @@ import Test.HUnit(assertFailure, assertEqual)
 
 import qualified Data.ByteString.Short as BSS
 import qualified Data.ByteString as BS
-import Data.Serialize(runPut, putWord64le)
+import Data.Serialize(runPut, putWord64le, putWord32le, putByteString, putWord16le)
 import Data.Word
 import Lens.Micro.Platform
 import Control.Monad
@@ -80,11 +80,24 @@ testCases =
                 }
         , (SuccessWithSummary ensureAllUpdates , counterSpec 2)
         )
+      , ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "counter.inc10" callArgs
+                , metadata = makeDummyHeader alesAccount 5 700000
+                , keys = [(0,[(0, alesKP)])]
+                }
+        , (SuccessWithSummary ensureAllUpdates , counterSpec 12)
+        )
       ]
      }
   ]
 
   where
+        callArgs = BSS.toShort $ runPut $ do
+          putWord64le 0 -- contract index
+          putWord64le 0 -- contract subindex
+          putWord32le 0 -- length of parameter
+          putWord16le (fromIntegral (BSS.length "counter.inc"))
+          putByteString "counter.inc"
+          putWord64le 0 -- amount
         deploymentCostCheck :: Types.BlockItem -> Types.TransactionSummary -> Expectation
         deploymentCostCheck _ Types.TransactionSummary{..} = do
           checkSuccess "Module deployment failed: " tsResult

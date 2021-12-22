@@ -150,7 +150,6 @@ foreign import ccall "resume_receive_v1"
              -> Ptr ReturnValue -- ^Return value from the call, if any. This will be replaced with an empty vector.
              -> Word64 -- ^Available energy.
              -> Ptr (Ptr ReturnValue) -- ^Location where the pointer to the return value will be written.
-             -> Ptr (Ptr ReceiveInterruptedState) -- ^Location where the pointer to interrupted config will be stored.
              -> Ptr CSize -- ^Length of the output byte array, if non-null.
              -> IO (Ptr Word8) -- ^New state, logs, and actions, if applicable, or null, signaling out-of-energy.
 
@@ -307,11 +306,11 @@ processReceiveResult ::
   -- |Serialized output.
   BS.ByteString
   -> Ptr ReturnValue -- ^Location where the pointer to the return value is (potentially) stored.
-  -> Ptr (Ptr ReceiveInterruptedState) -- ^Location where the pointer to interrupted config is (potentially) stored.
+  -> Either ReceiveInterruptedState (Ptr (Ptr ReceiveInterruptedState)) -- ^Location where the pointer to interrupted config is (potentially) stored.
   -- |Result, and remaining energy. Returns 'Nothing' if and only if
   -- execution ran out of energy.
   -> IO (Maybe (Either ContractExecutionReject ReceiveResultData, InterpreterEnergy))
-processReceiveResult result returnValuePtr interruptedStatePtr = case BS.uncons result of
+processReceiveResult result returnValuePtr eitherInterruptedStatePtr = case BS.uncons result of
   Nothing -> error "Internal error: Could not parse the result from the interpreter."
   Just (tag, payload) ->
     case tag of
@@ -329,7 +328,9 @@ processReceiveResult result returnValuePtr interruptedStatePtr = case BS.uncons 
                 method <- label "Interrupt.method" getInvokeMethod
                 return (remainingEnergy, currentState, method)
           in let (remainingEnergy, rrdCurrentState, rrdMethod)= parseResult parser
-             in do rrdInterruptedConfig <- newReceiveInterruptedState interruptedStatePtr
+             in do rrdInterruptedConfig <- case eitherInterruptedStatePtr of
+                     Left rrid -> return rrid
+                     Right interruptedStatePtr -> newReceiveInterruptedState interruptedStatePtr
                    return (Just (Right ReceiveInterrupt{..}, fromIntegral remainingEnergy))
       2 -> -- done
         let parser = do
@@ -383,7 +384,7 @@ applyReceiveFun miface cm receiveCtx rName param amnt cs initialEnergy = unsafeP
                             len <- peek outputLenPtr
                             bs <- BSU.unsafePackCStringFinalizer outPtr (fromIntegral len) (rs_free_array_len outPtr (fromIntegral len))
                             returnValuePtr <- peek outputReturnValuePtrPtr
-                            processReceiveResult bs returnValuePtr outputInterruptedConfigPtrPtr
+                            processReceiveResult bs returnValuePtr (Right outputInterruptedConfigPtrPtr)
     where
         wasmArtifact = imWasmArtifact miface
         initCtxBytes = encodeChainMeta cm <> encodeReceiveContext receiveCtx
@@ -407,21 +408,20 @@ resumeReceiveFun is cs statusCode rVal remainingEnergy = unsafePerformIO $ do
               withReceiveInterruptedState is $ \isPtr ->
                 BSU.unsafeUseAsCStringLen stateBytes $ \(stateBytesPtr, stateBytesLen) ->
                   withMaybeReturnValue rVal $ \rValPtr ->
-                    alloca $ \outputLenPtr -> alloca $ \outputReturnValuePtrPtr -> alloca $ \outputInterruptedConfigPtrPtr -> do
+                    alloca $ \outputLenPtr -> alloca $ \outputReturnValuePtrPtr -> do
                       outPtr <- resume_receive isPtr
                                               (castPtr stateBytesPtr) (fromIntegral stateBytesLen)
                                               (invokeResponseToWord64 statusCode)
                                               rValPtr
                                               energy
                                               outputReturnValuePtrPtr
-                                              outputInterruptedConfigPtrPtr
                                               outputLenPtr
                       if outPtr == nullPtr then return (Just (Left Trap, 0)) -- this case should not happen
                       else do
                         len <- peek outputLenPtr
                         bs <- BSU.unsafePackCStringFinalizer outPtr (fromIntegral len) (rs_free_array_len outPtr (fromIntegral len))
                         returnValuePtr <- peek outputReturnValuePtrPtr
-                        processReceiveResult bs returnValuePtr outputInterruptedConfigPtrPtr
+                        processReceiveResult bs returnValuePtr (Left is)
     where
         stateBytes = contractState cs
         energy = fromIntegral remainingEnergy

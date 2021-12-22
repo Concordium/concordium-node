@@ -10,6 +10,7 @@
 
   ;; Imports
 
+  (import "concordium" "get_parameter_size" (func $get_parameter_size (param $index i32) (result i32)))
   (import "concordium" "get_parameter_section" (func $get_parameter_section (param $index i32) (param $write_location i32) (param $length i32) (param $offset i32) (result i32)))
   (import "concordium" "invoke" (func $invoke (param $tag i32) (param $start i32) (param $length i32) (result i64)))
   (import "concordium" "write_output" (func $write_output (param $start i32) (param $length i32) (param $offset i32) (result i32)))
@@ -60,5 +61,22 @@
     ;; and return success
     (i32.const 0)
   )
+
+   ;; call the counter.inc method 10 times
+  (func $inc_counter_10 (export "counter.inc10") (param i64) (result i32)
+    (local $n i32)
+    (local $size i32)
+    (local.set $size (call $get_parameter_size (i32.const 0)))
+    (call $get_parameter_section (i32.const 0) (i32.const 0) (local.get $size) (i32.const 0))
+    (loop $loop
+      (call $invoke (i32.const 1) (i32.const 0) (local.get $size))
+      (drop) ;; ignore the return value
+      (local.set $n (i32.add (i32.const 1) (local.get $n)))
+      (br_if $loop (i32.lt_u (local.get $n) (i32.const 10))))
+    (drop)
+    ;; and return success
+    (i32.const 0)
+  )
+
   (memory 1)
 )

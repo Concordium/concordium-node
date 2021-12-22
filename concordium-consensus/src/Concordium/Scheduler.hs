@@ -845,9 +845,9 @@ handleContractUpdateV1 originAddr istance sender transferAmount receiveName para
   -- we've covered basic administrative costs now. Now iterate until the end of execution, handling any interrupts.
   let go :: [Event] -> Either WasmV1.ContractExecutionReject WasmV1.ReceiveResultData -> m (Either WasmV1.ContractCallFailure (WasmV1.ReturnValue, [Event]))
       go _ (Left cer) = return (Left (WasmV1.ExecutionReject cer))
-      go events (Right rrData) = 
+      go events (Right rrData) =
         case rrData of
-          WasmV1.ReceiveSuccess{..} ->
+          WasmV1.ReceiveSuccess{..} -> do
             -- execution terminated, commit the new state
             withInstanceStateV1 istance rrdNewState $ do
               -- transfer the amount from the sender. We first check whether that is actually available for the sender at this point in time
@@ -881,14 +881,16 @@ handleContractUpdateV1 originAddr istance sender transferAmount receiveName para
                        (runSuccess `orElseWith` (return . Left)) >>= \case
                           Left rr -> -- execution failed.
                             go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState (WasmV1.Error (WasmV1.EnvFailure (WasmV1.MessageFailed rr))) Nothing)
-                          Right evs -> 
-                            go (evs ++ events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState WasmV1.Success Nothing)
+                          Right evs -> do
+                            newState <- getCurrentContractInstanceState istance
+                            go (evs ++ events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig newState WasmV1.Success Nothing)
                      Just (InstanceV1 targetInstance) -> do
                        withRollback (handleContractUpdateV1 originAddr targetInstance (Left (ownerAccount, istance)) imcAmount imcName imcParam) >>= \case
                           Left cer ->
                             go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState (WasmV1.Error cer) (WasmV1.ccfToReturnValue cer))
-                          Right (rVal, callEvents) -> 
-                            go (callEvents ++ events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState WasmV1.Success (Just rVal))
+                          Right (rVal, callEvents) -> do
+                            newState <- getCurrentContractInstanceState istance
+                            go (callEvents ++ events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig newState WasmV1.Success (Just rVal))
                   
   -- start contract execution
   go [] =<< runInterpreter (return . WasmV1.applyReceiveFun iface cm receiveCtx receiveName parameter transferAmount model)

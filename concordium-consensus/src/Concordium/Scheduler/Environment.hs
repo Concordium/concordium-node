@@ -371,6 +371,8 @@ class (StaticInformation m, IsProtocolVersion pv) => TransactionMonad pv m | m -
   -- |Same as above, but for contracts.
   getCurrentContractAmount :: (HasInstanceParameters a, HasInstanceFields a) => a -> m Amount
 
+  getCurrentContractInstanceState :: (HasInstanceParameters a, HasInstanceFields a) => a -> m Wasm.ContractState
+
   -- |Get the amount of energy remaining for the transaction.
   getEnergy :: m (Energy, EnergyLimitReason)
 
@@ -806,6 +808,12 @@ instance SchedulerMonad pv m => TransactionMonad pv (LocalT r m) where
             Just (delta, newmodel) ->
               let !updated = updateInstance delta newmodel i
               in return (Just updated)
+
+  getCurrentContractInstanceState istance = do
+    newStates <- use (changeSet . instanceUpdates)
+    case newStates ^. at (instanceAddress istance) of
+      Nothing -> return (istance ^. instanceModel)
+      Just (_, s) -> return s
 
   {-# INLINE getStateAccount #-}
   getStateAccount = liftLocal . getAccount
