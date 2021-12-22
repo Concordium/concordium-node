@@ -1,16 +1,14 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-| This module tests calling a contract from a contract and inspecting the return
-    message. Concretely it invokes a counter countract that maintains a 64-bit
-    counter in its state.
+{-| This module tests making a transfer from a contract to an account.
 -}
-module SchedulerTests.SmartContracts.V1.Counter (tests) where
+module SchedulerTests.SmartContracts.V1.Transfer (tests) where
 
 import Test.Hspec
 import Test.HUnit(assertFailure, assertEqual)
 
 import qualified Data.ByteString.Short as BSS
 import qualified Data.ByteString as BS
-import Data.Serialize(runPut, putWord64le, putWord32le, putByteString, putWord16le)
+import Data.Serialize(encode)
 import Data.Word
 import Lens.Micro.Platform
 import Control.Monad
@@ -39,8 +37,8 @@ initialBlockState = blockStateWithAlesAccount
     100000000
     (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 100000000) Acc.emptyAccounts)
 
-counterSourceFile :: FilePath
-counterSourceFile = "./testdata/contracts/v1/call-counter.wasm"
+transferSourceFile :: FilePath
+transferSourceFile = "./testdata/contracts/v1/transfer.wasm"
 
 -- Tests in this module use version 1, creating V1 instances.
 wasmModVersion :: Word32
@@ -49,55 +47,36 @@ wasmModVersion = 1
 testCases :: [TestCase PV4]
 testCases =
   [ TestCase
-    { tcName = "Counter updates and returns."
+    { tcName = "Transfer from V1 contract to account."
     , tcParameters = defaultParams {tpInitialBlockState=initialBlockState}
     , tcTransactions =
-      [ ( TJSON { payload = DeployModule wasmModVersion counterSourceFile
+      [ ( TJSON { payload = DeployModule wasmModVersion transferSourceFile
                 , metadata = makeDummyHeader alesAccount 1 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
         , (SuccessWithSummary deploymentCostCheck, emptySpec)
         )
-      , ( TJSON { payload = InitContract 0 wasmModVersion counterSourceFile "init_counter" ""
+      , ( TJSON { payload = InitContract 0 wasmModVersion transferSourceFile "init_transfer" ""
                 , metadata = makeDummyHeader alesAccount 2 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
-        , (SuccessWithSummary initializationCostCheck, counterSpec 0)
+        , (SuccessWithSummary initializationCostCheck, transferSpec)
         )
-      , ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "counter.inc" BSS.empty
+      , ( TJSON { payload = Update 123 (Types.ContractAddress 0 0) "transfer.forward" (BSS.toShort (encode alesAccount))
                 , metadata = makeDummyHeader alesAccount 3 700000
                 , keys = [(0,[(0, alesKP)])]
                 }
-        , (SuccessWithSummary ensureSucces , counterSpec 1)
-        )
-      , ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "counter.inc" BSS.empty
-                , metadata = makeDummyHeader alesAccount 4 700000
-                , keys = [(0,[(0, alesKP)])]
-                }
-        , (SuccessWithSummary ensureSucces , counterSpec 2)
-        )
-      , ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "counter.inc10" callArgs
-                , metadata = makeDummyHeader alesAccount 5 700000
-                , keys = [(0,[(0, alesKP)])]
-                }
-        , (SuccessWithSummary ensureSucces , counterSpec 12)
+        , (SuccessWithSummary ensureSucces , transferSpec)
         )
       ]
      }
   ]
 
   where
-        callArgs = BSS.toShort $ runPut $ do
-          putWord64le 0 -- contract index
-          putWord64le 0 -- contract subindex
-          putWord32le 0 -- length of parameter
-          putWord16le (fromIntegral (BSS.length "counter.inc"))
-          putByteString "counter.inc"
-          putWord64le 0 -- amount
         deploymentCostCheck :: Types.BlockItem -> Types.TransactionSummary -> Expectation
         deploymentCostCheck _ Types.TransactionSummary{..} = do
           checkSuccess "Module deployment failed: " tsResult
-          moduleSource <- BS.readFile counterSourceFile
+          moduleSource <- BS.readFile transferSourceFile
           let len = fromIntegral $ BS.length moduleSource
               -- size of the module deploy payload
               payloadSize = Types.payloadSize (Types.encodePayload (Types.DeployModule (WasmModule wasmModVersion ModuleSource{..})))
@@ -112,17 +91,17 @@ testCases =
         initializationCostCheck :: Types.BlockItem -> Types.TransactionSummary -> Expectation
         initializationCostCheck _ Types.TransactionSummary{..} = do
           checkSuccess "Contract initialization failed: " tsResult
-          moduleSource <- BS.readFile counterSourceFile
+          moduleSource <- BS.readFile transferSourceFile
           let modLen = fromIntegral $ BS.length moduleSource
               modRef = Types.ModuleRef (Hash.hash moduleSource)
-              payloadSize = Types.payloadSize (Types.encodePayload (Types.InitContract 0 modRef (InitName "init_counter") (Parameter "")))
+              payloadSize = Types.payloadSize (Types.encodePayload (Types.InitContract 0 modRef (InitName "init_transfer") (Parameter "")))
               -- size of the transaction minus the signatures.
               txSize = Types.transactionHeaderSize + fromIntegral payloadSize
               -- transaction is signed with 1 signature
               baseTxCost = Cost.baseCost txSize 1
               -- lower bound on the cost of the transaction, assuming no interpreter energy
               -- we know the size of the state should be 8 bytes
-              costLowerBound = baseTxCost + Cost.initializeContractInstanceCost 0 modLen (Just 8)
+              costLowerBound = baseTxCost + Cost.initializeContractInstanceCost 0 modLen (Just 0)
           unless (tsEnergyCost >= costLowerBound) $
             assertFailure $ "Actual initialization cost " ++ show tsEnergyCost ++ " not more than lower bound " ++ show costLowerBound
 
@@ -134,11 +113,13 @@ testCases =
         checkSuccess _ _ = return ()
 
         -- Check that the contract state contains n.
-        counterSpec n bs = specify "Contract state" $
+        transferSpec bs = specify "Contract state" $
           case getInstance (Types.ContractAddress 0 0) (bs ^. blockInstances) of
             Nothing -> assertFailure "Instance at <0,0> does not exist."
-            Just istance -> assertEqual ("State contains " ++ show n ++ ".") (ContractState (runPut (putWord64le n))) (istance ^. instanceModel)
+            Just istance -> do
+              assertEqual ("State contains.") (ContractState "") (istance ^. instanceModel)
+              assertEqual ("Contract has 0 CCD.") (Types.Amount 0) (istance ^. instanceAmount)
 
 tests :: Spec
-tests = describe "V1: Counter counts." $
+tests = describe "V1: Transfer from contract to account." $
   mkSpecs testCases

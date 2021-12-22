@@ -1,10 +1,7 @@
-;; Test for one contract calling another, both v1.
-;; The first contract just maintains a counter as the state.
-;; The second one calls it with a parameter which should be added to the counter.
-;; The return value is the value of the counter after the call.
-;;
-;; Docs:
-;;
+;; Test for one contract calling itself.
+;; There are two entrypoints, one which just increments the counter, and another
+;; which repeatedly calls the former endpoint to increase the counter by 10.
+;; This latter endpoint checks the return value.
 
 (module
 

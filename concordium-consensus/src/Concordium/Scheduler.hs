@@ -827,10 +827,18 @@ handleContractUpdateV1 originAddr istance sender transferAmount receiveName para
   -- The invariants maintained by global state should ensure that an owner account always exists.
   -- However we are defensive here and reject the transaction instead of panicking in case it does not.
   ownerAccount <- getStateAccount ownerAccountAddress `rejectingWith` InvalidAccountReference ownerAccountAddress
+
+  -- transfer the amount from the sender to the contract at the start. This is so that the contract may immediately use it
+  -- for, e.g., forwarding.
+  senderamount <- getCurrentAvailableAmount sender
+  unless (senderamount >= transferAmount) $ rejectTransaction (AmountTooLarge senderAddr transferAmount)
+
   cm <- getChainMetadata
   let receiveCtx = Wasm.ReceiveContext {
         invoker = originAddr,
         selfAddress = cref,
+        -- NB: This means that the contract observes the balance without the incoming one
+        -- It gets the transfer amount as a separate parameter.
         selfBalance = _instanceVAmount istance,
         sender = senderAddr,
         owner = instanceOwner iParams,
@@ -849,25 +857,20 @@ handleContractUpdateV1 originAddr istance sender transferAmount receiveName para
         case rrData of
           WasmV1.ReceiveSuccess{..} -> do
             -- execution terminated, commit the new state
-            withInstanceStateV1 istance rrdNewState $ do
-              -- transfer the amount from the sender. We first check whether that is actually available for the sender at this point in time
-              -- since synchronous calls might have affected it before this point.
-              senderamount <- getCurrentAvailableAmount sender
-              if senderamount < transferAmount then return (Left (WasmV1.EnvFailure (WasmV1.AmountTooLarge senderAddr transferAmount)))
-              else withToContractAmount sender istance transferAmount $ 
-                     let event = Updated{euAddress=instanceAddress istance,
-                                   euInstigator=senderAddr,
-                                   euAmount=transferAmount,
-                                   euMessage=parameter,
-                                   euReceiveName=receiveName,
-                                   euEvents = rrdLogs
-                                   }
-                     in return (Right (rrdReturnValue, event:events))
+            withInstanceStateV1 istance rrdNewState $
+              let event = Updated{euAddress=instanceAddress istance,
+                                  euInstigator=senderAddr,
+                                  euAmount=transferAmount,
+                                  euMessage=parameter,
+                                  euReceiveName=receiveName,
+                                  euEvents = rrdLogs
+                                 }
+              in return (Right (rrdReturnValue, event:events))
           WasmV1.ReceiveInterrupt{..} -> do
             case rrdMethod of
               WasmV1.Transfer{..} ->
                 runExceptT (transferAccountSync imtTo istance imtAmount) >>= \case
-                  Left errCode -> 
+                  Left errCode -> do
                     go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState (WasmV1.Error (WasmV1.EnvFailure errCode)) Nothing)
                   Right transferEvents -> go (transferEvents ++ events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState WasmV1.Success Nothing)
               WasmV1.Call{..} ->
@@ -891,9 +894,10 @@ handleContractUpdateV1 originAddr istance sender transferAmount receiveName para
                           Right (rVal, callEvents) -> do
                             newState <- getCurrentContractInstanceState istance
                             go (callEvents ++ events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig newState WasmV1.Success (Just rVal))
-                  
-  -- start contract execution
-  go [] =<< runInterpreter (return . WasmV1.applyReceiveFun iface cm receiveCtx receiveName parameter transferAmount model)
+
+  -- start contract execution.
+  withToContractAmount sender istance transferAmount $
+    go [] =<< runInterpreter (return . WasmV1.applyReceiveFun iface cm receiveCtx receiveName parameter transferAmount model)
           
    where  transferAccountSync :: AccountAddress -- ^The target account address.
                               -> InstanceV GSWasm.V1 -- ^The sender of this transfer.

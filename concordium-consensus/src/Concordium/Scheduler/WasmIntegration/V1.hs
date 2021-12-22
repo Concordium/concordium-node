@@ -90,6 +90,7 @@ data EnvFailure =
   | MissingAccount !AccountAddress
   | MissingContract !ContractAddress
   | MessageFailed !Exec.RejectReason -- message to a V0 contract failed. No further information is available.
+  deriving (Show)
   -- FIXME: We could expose the reject reason if that is what happened.
 
 -- The response is encoded as follows.
