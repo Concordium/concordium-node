@@ -16,7 +16,8 @@ module Concordium.Scheduler.WasmIntegration.V1(
   EnvFailure(..),
   ContractExecutionReject(..),
   ContractCallFailure(..),
-  ccfToReturnValue
+  ccfToReturnValue,
+  returnValueToByteString
   ) where
 
 import Foreign.C.Types
@@ -46,6 +47,8 @@ import Concordium.Wasm
 import Concordium.GlobalState.Wasm
 import Concordium.Utils.Serialization
 
+foreign import ccall unsafe "return_value_to_byte_array" return_value_to_byte_array :: Ptr ReturnValue -> Ptr CSize -> IO (Ptr Word8)
+
 foreign import ccall unsafe "&box_vec_u8_free" freeReturnValue :: FunPtr (Ptr ReturnValue -> IO ())
 foreign import ccall unsafe "&receive_interrupted_state_free" freeReceiveInterruptedState :: FunPtr (Ptr (Ptr ReceiveInterruptedState) -> IO ())
 
@@ -56,7 +59,6 @@ foreign import ccall "validate_and_process_v1"
                         -> Ptr (Ptr ModuleArtifactV1) -- ^Null, or the processed module artifact. This is null if and only if the return value is null.
                         -> IO (Ptr Word8) -- ^Null, or exports.
 
--- TODO: Figure ownership.
 newtype ReturnValue = ReturnValue { rvPtr :: ForeignPtr ReturnValue }
 newtype ReceiveInterruptedState = ReceiveInterruptedState { risPtr :: ForeignPtr (Ptr ReceiveInterruptedState) }
 
@@ -194,6 +196,14 @@ applyInitFun miface cm initCtx iName param amnt iEnergy = unsafePerformIO $ do
         energy = fromIntegral iEnergy
         amountWord = _amount amnt
         nameBytes = Text.encodeUtf8 (initName iName)
+
+{-# NOINLINE returnValueToByteString #-}
+returnValueToByteString :: ReturnValue -> BS.ByteString
+returnValueToByteString rv = unsafePerformIO $
+  withReturnValue rv $ \p -> alloca $ \outputLenPtr -> do
+    rp <- return_value_to_byte_array p outputLenPtr
+    len <- peek outputLenPtr
+    BSU.unsafePackCStringFinalizer rp (fromIntegral len) (rs_free_array_len rp (fromIntegral len))
 
 data InvokeMethod =
   Transfer {
