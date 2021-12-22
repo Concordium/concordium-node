@@ -25,6 +25,9 @@ module Concordium.GlobalState.Persistent.BlockState (
 import Data.Serialize
 import Data.IORef
 import Control.Monad.Reader
+import qualified Control.Monad.State.Strict as MTL
+import qualified Control.Monad.Except as MTL
+import qualified Control.Monad.Writer.Strict as MTL
 import Data.Foldable
 import Data.Maybe
 import Data.Word
@@ -32,7 +35,6 @@ import Lens.Micro.Platform
 import qualified Data.Vector as Vec
 import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Seq
-
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types
 import Concordium.Types.Execution ( TransactionSummary )
@@ -725,6 +727,229 @@ doAddBaker pbs ai BakerAdd{..} = do
                                 bspBirkParameters = newBirkParams,
                                 bspAccounts = newAccounts
                             }
+
+doConfigureBaker
+    :: (IsProtocolVersion pv, MonadBlobStore m, AccountVersionFor pv ~ 'AccountV1, ChainParametersVersionFor pv ~ 'ChainParametersV1)
+    => PersistentBlockState pv
+    -> AccountIndex
+    -> BakerConfigure
+    -> m (BakerConfigureResult, PersistentBlockState pv)
+doConfigureBaker pbs ai BakerConfigureAdd{..} = do
+        -- It is assumed here that this account is NOT a baker and NOT a delegator.
+        bsp <- loadPBS pbs
+        Accounts.indexedAccount ai (bspAccounts bsp) >>= \case
+            -- Cannot resolve the account
+            Nothing -> return (BCInvalidAccount, pbs)
+            Just PersistentAccount{} -> do
+                  chainParams <- doGetChainParameters pbs
+                  let poolParams = chainParams ^. cpPoolParameters
+                  let bakerStakeThreshold = poolParams ^. ppMinimumEquityCapital
+                  let ranges = poolParams ^. ppCommissionBounds
+                  let keysInRange = isInRange bcaFinalizationRewardCommission (ranges ^. finalizationCommissionRange)
+                        && isInRange bcaBakingRewardCommission (ranges ^. bakingCommissionRange)
+                        && isInRange bcaTransactionFeeCommission (ranges ^. transactionCommissionRange)
+                  if bcaCapital < bakerStakeThreshold then
+                      return (BCStakeUnderThreshold, pbs)
+                  else if not keysInRange then
+                      return (BCCommissionNotInRange, pbs)
+                  else do
+                    let bid = BakerId ai
+                    pab <- refLoad (_birkActiveBakers (bspBirkParameters bsp))
+                    let updAgg Nothing = return (True, Trie.Insert ())
+                        updAgg (Just ()) = return (False, Trie.NoChange)
+                    Trie.adjust updAgg (bkuAggregationKey bcaKeys) (_aggregationKeys pab) >>= \case
+                        -- Aggregation key is a duplicate
+                        (False, _) -> return (BCDuplicateAggregationKey (bkuAggregationKey bcaKeys), pbs)
+                        (True, newAggregationKeys) -> do
+                            newActiveBakers <- Trie.insert bid () (_activeBakers pab)
+                            newpabref <- refMake PersistentActiveBakers{
+                                    _aggregationKeys = newAggregationKeys,
+                                    _activeBakers = newActiveBakers
+                                }
+                            let newBirkParams = bspBirkParameters bsp & birkActiveBakers .~ newpabref
+                            let updAcc acc = do
+                                    let cr = CommissionRates {
+                                            _finalizationCommission = bcaFinalizationRewardCommission,
+                                            _bakingCommission = bcaBakingRewardCommission,
+                                            _transactionCommission = bcaTransactionFeeCommission
+                                        }
+                                        bpi = BaseAccounts.BakerPoolInfo {
+                                            _poolOpenStatus = bcaOpenForDelegation,
+                                            _poolMetadataUrl = bcaMetadataURL,
+                                            _poolCommissionRates = cr
+                                        }
+                                        bi = BaseAccounts.BakerInfoExV1 {
+                                            _bieBakerInfo = bakerKeyUpdateToInfo bid bcaKeys,
+                                            _bieBakerPoolInfo = bpi
+                                        }
+                                    newBakerInfo <- refMake bi
+                                    newPAB <- refMake PersistentAccountBaker{
+                                        _stakedAmount = bcaCapital,
+                                        _stakeEarnings = bcaRestakeEarnings,
+                                        _accountBakerInfo = newBakerInfo,
+                                        _bakerPendingChange = NoChange
+                                    }
+                                    acc' <- setPersistentAccountStake acc (PersistentAccountStakeBaker newPAB)
+                                    return ((), acc')
+                            -- This cannot fail to update the account, since we already looked up the account.
+                            (_, newAccounts) <- Accounts.updateAccountsAtIndex updAcc ai (bspAccounts bsp)
+                            (BCSuccess [] bid,) <$> storePBS pbs bsp{
+                                bspBirkParameters = newBirkParams,
+                                bspAccounts = newAccounts
+                            }
+
+doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
+        origBSP <- loadPBS pbs
+        cp <- doGetChainParameters pbs
+        let rewardPeriodLength = fromIntegral $ cp ^. cpTimeParameters . tpRewardPeriodLength
+            msInEpoch = fromIntegral (epochLength $ _birkSeedState . bspBirkParameters $ origBSP) * bcuSlotDuration
+            cooldownTimestamp = addDuration bcuTimestamp (rewardPeriodLength * msInEpoch)
+        res <- MTL.runExceptT $ MTL.runWriterT $ flip MTL.execStateT origBSP $ do
+                updateKeys
+                updateRestakeEarnings
+                updateOpenForDelegation
+                updateMetadataURL
+                updateTransactionFeeCommission cp
+                updateBakingRewardCommission cp
+                updateFinalizationRewardCommission cp
+                updateCapital cooldownTimestamp cp
+        case res of
+            Left errorRes -> return (errorRes, pbs)
+            Right (newBSP, changes) -> (BCSuccess changes bid,) <$> storePBS pbs newBSP
+      where
+        liftBSO = lift . lift . lift
+        bid = BakerId ai
+        getAccountOrFail = do
+            bsp <- MTL.get
+            liftBSO (Accounts.indexedAccount ai (bspAccounts bsp)) >>= \case
+                Nothing -> MTL.throwError BCInvalidAccount
+                Just PersistentAccount{_accountStake = PersistentAccountStakeBaker ab} -> liftBSO $ refLoad ab
+                Just PersistentAccount{} -> MTL.throwError BCInvalidBaker
+        modifyAccount updAcc = do
+            bsp <- MTL.get
+            (_, newAccounts) <- liftBSO $ Accounts.updateAccountsAtIndex updAcc ai (bspAccounts bsp)
+            MTL.put bsp{
+                bspAccounts = newAccounts
+            }
+        requireNoPendingChange = do
+            ab <- getAccountOrFail
+            when (_bakerPendingChange ab /= NoChange) (MTL.throwError BCChangePending)
+        updateKeys = forM_ bcuKeys $ \keys -> do
+            acctBkr <- getAccountOrFail
+            bsp <- MTL.get
+            pab <- liftBSO $ refLoad (_birkActiveBakers (bspBirkParameters bsp))
+            (bkrInfo, bkrPoolInfo) <- liftBSO $ refLoad (_accountBakerInfo acctBkr) <&> \case
+                BaseAccounts.BakerInfoExV1 bkrInfo bkrPoolInfo -> (bkrInfo, bkrPoolInfo)
+            let key = _bakerAggregationVerifyKey bkrInfo
+            -- Try updating the aggregation keys
+            (keyOK, newAggregationKeys) <-
+                    -- If the aggregation key has not changed, we have nothing to do.
+                    if bkuAggregationKey keys == key then
+                        return (True, _aggregationKeys pab)
+                    else do
+                        -- Remove the old key
+                        ak1 <- liftBSO $ Trie.delete key (_aggregationKeys pab)
+                        -- Add the new key and check that it is not already present
+                        let updAgg Nothing = return (True, Trie.Insert ())
+                            updAgg (Just ()) = return (False, Trie.NoChange)
+                        liftBSO $ Trie.adjust updAgg (bkuAggregationKey keys) ak1
+            unless keyOK (MTL.throwError (BCDuplicateAggregationKey key))
+            newActiveBakers <- liftBSO $ refMake pab{_aggregationKeys = newAggregationKeys}
+            let newBirkParams = bspBirkParameters bsp & birkActiveBakers .~ newActiveBakers
+            -- Update the account with the new keys
+            let updAcc acc = do
+                    newBakerInfo <- refMake $ BaseAccounts.BakerInfoExV1
+                        (bakerKeyUpdateToInfo (BakerId ai) keys) bkrPoolInfo
+                    newPAB <- refMake $ acctBkr {_accountBakerInfo = newBakerInfo}
+                    acc' <- setPersistentAccountStake acc (PersistentAccountStakeBaker newPAB)
+                    return ((), acc')
+            modifyAccount updAcc
+            MTL.modify' $ \s -> s{bspBirkParameters = newBirkParams}
+            MTL.tell [BakerConfigureUpdateKeys keys]
+        updateRestakeEarnings = forM_ bcuRestakeEarnings $ \restakeEarnings -> do
+            acctBkr <- getAccountOrFail
+            unless (acctBkr ^. stakeEarnings == restakeEarnings) $ do
+                let updAcc acc = do
+                        newPAB <- refMake (acctBkr & stakeEarnings .~ restakeEarnings)
+                        ((), ) <$> setPersistentAccountStake acc (PersistentAccountStakeBaker newPAB)
+                modifyAccount updAcc
+            MTL.tell [BakerConfigureRestakeEarnings restakeEarnings]
+        updateOpenForDelegation = forM_ bcuOpenForDelegation $ \openForDelegation -> do
+            acctBkr <- getAccountOrFail
+            abi <- liftBSO $ refLoad $ acctBkr ^. accountBakerInfo
+            unless (abi ^. BaseAccounts.bieBakerPoolInfo . BaseAccounts.poolOpenStatus == openForDelegation) $ do
+                let updAcc acc = do
+                        newAbi <- refMake (abi & BaseAccounts.bieBakerPoolInfo . BaseAccounts.poolOpenStatus .~ openForDelegation)
+                        newPAB <- refMake (acctBkr & accountBakerInfo .~ newAbi)
+                        ((), ) <$> setPersistentAccountStake acc (PersistentAccountStakeBaker newPAB)
+                modifyAccount updAcc
+            MTL.tell [BakerConfigureOpenForDelegation openForDelegation]
+        updateMetadataURL = forM_ bcuMetadataURL $ \metadataURL -> do
+            acctBkr <- getAccountOrFail
+            abi <- liftBSO $ refLoad $ acctBkr ^. accountBakerInfo
+            unless (abi ^. BaseAccounts.bieBakerPoolInfo . BaseAccounts.poolMetadataUrl == metadataURL) $ do
+                let updAcc acc = do
+                        newAbi <- refMake (abi & BaseAccounts.bieBakerPoolInfo . BaseAccounts.poolMetadataUrl .~ metadataURL)
+                        newPAB <- refMake (acctBkr & accountBakerInfo .~ newAbi)
+                        ((), ) <$> setPersistentAccountStake acc (PersistentAccountStakeBaker newPAB)
+                modifyAccount updAcc
+            MTL.tell [BakerConfigureMetadataURL metadataURL]
+        updateTransactionFeeCommission cp = forM_ bcuTransactionFeeCommission $ \tfc -> do
+            let range = cp ^. cpPoolParameters . ppCommissionBounds . transactionCommissionRange
+            unless (isInRange tfc range) (MTL.throwError BCCommissionNotInRange)
+            acctBkr <- getAccountOrFail
+            abi <- liftBSO $ refLoad $ acctBkr ^. accountBakerInfo
+            unless (abi ^. BaseAccounts.bieBakerPoolInfo . BaseAccounts.poolCommissionRates . transactionCommission == tfc) $ do
+                let updAcc acc = do
+                        newAbi <- refMake (abi & BaseAccounts.bieBakerPoolInfo . BaseAccounts.poolCommissionRates . transactionCommission .~ tfc)
+                        newPAB <- refMake (acctBkr & accountBakerInfo .~ newAbi)
+                        ((), ) <$> setPersistentAccountStake acc (PersistentAccountStakeBaker newPAB)
+                modifyAccount updAcc
+            MTL.tell [BakerConfigureTransactionFeeCommission tfc]
+        updateBakingRewardCommission cp = forM_ bcuBakingRewardCommission $ \brc -> do
+            let range = cp ^. cpPoolParameters . ppCommissionBounds . transactionCommissionRange
+            unless (isInRange brc range) (MTL.throwError BCCommissionNotInRange)
+            acctBkr <- getAccountOrFail
+            abi <- liftBSO $ refLoad $ acctBkr ^. accountBakerInfo
+            unless (abi ^. BaseAccounts.bieBakerPoolInfo . BaseAccounts.poolCommissionRates . bakingCommission == brc) $ do
+                let updAcc acc = do
+                        newAbi <- refMake (abi & BaseAccounts.bieBakerPoolInfo . BaseAccounts.poolCommissionRates . bakingCommission .~ brc)
+                        newPAB <- refMake (acctBkr & accountBakerInfo .~ newAbi)
+                        ((), ) <$> setPersistentAccountStake acc (PersistentAccountStakeBaker newPAB)
+                modifyAccount updAcc
+            MTL.tell [BakerConfigureBakingRewardCommission brc]
+        updateFinalizationRewardCommission cp = forM_ bcuFinalizationRewardCommission $ \frc -> do
+            let range = cp ^. cpPoolParameters . ppCommissionBounds . transactionCommissionRange
+            unless (isInRange frc range) (MTL.throwError BCCommissionNotInRange)
+            acctBkr <- getAccountOrFail
+            abi <- liftBSO $ refLoad $ acctBkr ^. accountBakerInfo
+            unless (abi ^. BaseAccounts.bieBakerPoolInfo . BaseAccounts.poolCommissionRates . finalizationCommission == frc) $ do
+                let updAcc acc = do
+                        newAbi <- refMake (abi & BaseAccounts.bieBakerPoolInfo . BaseAccounts.poolCommissionRates . finalizationCommission .~ frc)
+                        newPAB <- refMake (acctBkr & accountBakerInfo .~ newAbi)
+                        ((), ) <$> setPersistentAccountStake acc (PersistentAccountStakeBaker newPAB)
+                modifyAccount updAcc
+            MTL.tell [BakerConfigureFinalizationRewardCommission frc]
+        updateCapital cooldownTimestamp cp = forM_ bcuCapital $ \capital -> do
+            requireNoPendingChange
+            ab <- getAccountOrFail
+            let threshold = cp ^. cpPoolParameters . ppMinimumEquityCapital
+            when (capital < threshold) (MTL.throwError BCStakeUnderThreshold)
+            let updAcc updateStake acc = do
+                    newPAB <- refMake $ updateStake ab
+                    acc' <- setPersistentAccountStake acc (PersistentAccountStakeBaker newPAB)
+                    return ((), acc')
+            case compare capital (_stakedAmount ab) of
+                LT -> do
+                    let bpc = ReduceStake capital (PendingChangeEffectiveV1 cooldownTimestamp)
+                    modifyAccount $ updAcc $ bakerPendingChange .~ bpc
+                    MTL.tell [BakerConfigureStakeReduced capital]
+                EQ ->
+                    return ()
+                GT -> do
+                    modifyAccount $ updAcc $ stakedAmount .~ capital
+                    MTL.tell [BakerConfigureStakeIncreased capital]
+doConfigureBaker _ _ _ = undefined
 
 doUpdateBakerKeys ::(IsProtocolVersion pv, MonadBlobStore m, AccountVersionFor pv ~ 'AccountV0)
     => PersistentBlockState pv

@@ -757,7 +757,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
         requireNoPendingChange = do
             ab <- getAccount
             when (_bakerPendingChange ab /= NoChange) (MTL.throwError BCChangePending)
-        updateKeys = flip mapM_ bcuKeys $ \keys -> do
+        updateKeys = forM_ bcuKeys $ \keys -> do
             bs <- MTL.get
             ab <- getAccount
             let key = _bakerAggregationVerifyKey (ab ^. bakerInfo)
@@ -770,36 +770,50 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             MTL.modify'
                 (blockBirkParameters . birkActiveBakers . aggregationKeys
                     %~ Set.insert (bkuAggregationKey keys) . Set.delete (ab ^. bakerAggregationVerifyKey))
-        updateRestakeEarnings = flip mapM_ bcuRestakeEarnings $ \restakeEarnings -> do
-            modifyAccount (stakeEarnings .~ restakeEarnings)
-        updateOpenForDelegation = flip mapM_ bcuOpenForDelegation $ \openForDelegation -> do
-            modifyAccount (accountBakerInfo . bieBakerPoolInfo . poolOpenStatus .~ openForDelegation)
+            MTL.tell [BakerConfigureUpdateKeys keys]
+        updateRestakeEarnings = forM_ bcuRestakeEarnings $ \restakeEarnings -> do
+            ab <- getAccount
+            unless (ab ^. stakeEarnings == restakeEarnings) $
+              modifyAccount (stakeEarnings .~ restakeEarnings)
+            MTL.tell [BakerConfigureRestakeEarnings restakeEarnings]
+        updateOpenForDelegation = forM_ bcuOpenForDelegation $ \openForDelegation -> do
+            ab <- getAccount
+            unless (ab ^. accountBakerInfo . bieBakerPoolInfo . poolOpenStatus == openForDelegation) $
+              modifyAccount (accountBakerInfo . bieBakerPoolInfo . poolOpenStatus .~ openForDelegation)
             MTL.tell [BakerConfigureOpenForDelegation openForDelegation]
-        updateMetadataURL = flip mapM_ bcuMetadataURL $ \metadataURL -> do
-            modifyAccount (accountBakerInfo . bieBakerPoolInfo . poolMetadataUrl .~ metadataURL)
+        updateMetadataURL = forM_ bcuMetadataURL $ \metadataURL -> do
+            ab <- getAccount
+            unless (ab ^. accountBakerInfo . bieBakerPoolInfo . poolMetadataUrl == metadataURL) $
+              modifyAccount (accountBakerInfo . bieBakerPoolInfo . poolMetadataUrl .~ metadataURL)
             MTL.tell [BakerConfigureMetadataURL metadataURL]
-        updateTransactionFeeCommission = flip mapM_ bcuTransactionFeeCommission $ \tfc -> do
+        updateTransactionFeeCommission = forM_ bcuTransactionFeeCommission $ \tfc -> do
             bs <- MTL.get
             let cp = bs ^. blockUpdates . currentParameters
             let range = cp ^. cpPoolParameters . ppCommissionBounds . transactionCommissionRange
             unless (isInRange tfc range) (MTL.throwError BCCommissionNotInRange)
-            modifyAccount (accountBakerInfo . bieBakerPoolInfo . poolCommissionRates . transactionCommission .~ tfc)
+            ab <- getAccount
+            unless (ab ^. accountBakerInfo . bieBakerPoolInfo . poolCommissionRates . transactionCommission == tfc) $
+              modifyAccount (accountBakerInfo . bieBakerPoolInfo . poolCommissionRates . transactionCommission .~ tfc)
             MTL.tell [BakerConfigureTransactionFeeCommission tfc]
-        updateBakingRewardCommission = flip mapM_ bcuBakingRewardCommission $ \brc -> do
+        updateBakingRewardCommission = forM_ bcuBakingRewardCommission $ \brc -> do
             bs <- MTL.get
             let cp = bs ^. blockUpdates . currentParameters
             let range = cp ^. cpPoolParameters . ppCommissionBounds . bakingCommissionRange
             unless (isInRange brc range) (MTL.throwError BCCommissionNotInRange)
-            modifyAccount (accountBakerInfo . bieBakerPoolInfo . poolCommissionRates . bakingCommission .~ brc)
+            ab <- getAccount
+            unless (ab ^. accountBakerInfo . bieBakerPoolInfo . poolCommissionRates . bakingCommission == brc) $
+              modifyAccount (accountBakerInfo . bieBakerPoolInfo . poolCommissionRates . bakingCommission .~ brc)
             MTL.tell [BakerConfigureBakingRewardCommission brc]
-        updateFinalizationRewardCommission = flip mapM_ bcuFinalizationRewardCommission $ \frc -> do
+        updateFinalizationRewardCommission = forM_ bcuFinalizationRewardCommission $ \frc -> do
             bs <- MTL.get
             let cp = bs ^. blockUpdates . currentParameters
             let range = cp ^. cpPoolParameters . ppCommissionBounds . finalizationCommissionRange
             unless (isInRange frc range) (MTL.throwError BCCommissionNotInRange)
-            modifyAccount (accountBakerInfo . bieBakerPoolInfo . poolCommissionRates . finalizationCommission .~ frc)
+            ab <- getAccount
+            unless (ab ^. accountBakerInfo . bieBakerPoolInfo . poolCommissionRates . finalizationCommission == frc) $
+              modifyAccount (accountBakerInfo . bieBakerPoolInfo . poolCommissionRates . finalizationCommission .~ frc)
             MTL.tell [BakerConfigureFinalizationRewardCommission frc]
-        updateCapital = flip mapM_ bcuCapital $ \capital -> do
+        updateCapital = forM_ bcuCapital $ \capital -> do
             requireNoPendingChange
             ab <- getAccount
             bs <- MTL.get
@@ -811,7 +825,9 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                     let bpc = ReduceStake capital (PendingChangeEffectiveV1 cooldownTimestamp)
                     modifyAccount (bakerPendingChange .~ bpc)
                     MTL.tell [BakerConfigureStakeReduced capital]
-                EQ ->
+                EQ -> do
+                    -- We could tell a "BakerConfigureStakeUnchanged", but currently it is not handled
+                    -- in the Scheduler.
                     return ()
                 GT -> do
                     modifyAccount (stakedAmount .~ capital)
@@ -871,12 +887,12 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
         putAccount ad =
             MTL.modify' (blockAccounts . Accounts.indexedAccount ai . accountStaking .~ AccountStakeDelegate ad)
         modifyAccount f = do
-            ab <- getAccount
-            putAccount $! f ab
+            ad <- getAccount
+            putAccount $! f ad
         requireNoPendingChange = do
             ad <- getAccount
             when (_delegationPendingChange ad /= NoChange) (MTL.throwError DCChangePending)
-        updateCapital = flip mapM_ dcuCapital $ \capital -> do
+        updateCapital = forM_ dcuCapital $ \capital -> do
             requireNoPendingChange
             ad <- getAccount
             case compare capital (ad ^. delegationStakedAmount) of
@@ -885,14 +901,22 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                     modifyAccount (delegationPendingChange .~ dpc)
                     MTL.tell [DelegationConfigureStakeReduced capital]
                 EQ ->
+                    -- We could tell a "DelegationConfigureStakeUnchanged", but currently it is not handled
+                    -- in the Scheduler.
                     return ()
                 GT -> do
                     modifyAccount (delegationStakedAmount .~ capital)
                     MTL.tell [DelegationConfigureStakeIncreased capital]
-        updateRestakeEarnings = flip mapM_ dcuRestakeEarnings $ \restakeEarnings ->
-            modifyAccount (delegationStakeEarnings .~ restakeEarnings)
-        updateDelegationTarget = flip mapM_ dcuDelegationTarget $ \target ->
-            modifyAccount (delegationTarget .~ target)
+        updateRestakeEarnings = forM_ dcuRestakeEarnings $ \restakeEarnings -> do
+            ad <- getAccount
+            unless (restakeEarnings == ad ^. delegationStakeEarnings) $
+              modifyAccount $ delegationStakeEarnings .~ restakeEarnings
+            MTL.tell [DelegationConfigureRestakeEarnings restakeEarnings]
+        updateDelegationTarget = forM_ dcuDelegationTarget $ \target -> do
+            ad <- getAccount
+            unless (target == ad ^. delegationTarget) $
+              modifyAccount (delegationTarget .~ target)
+            MTL.tell [DelegationConfigureDelegationTarget target]
 
     bsoUpdateBakerKeys bs ai bku@BakerKeyUpdate{..} = return $! case bs ^? blockAccounts . Accounts.indexedAccount ai of
         -- The account is valid and has a baker
