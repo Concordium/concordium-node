@@ -112,6 +112,7 @@ blockVersion :: SProtocolVersion pv -> Version
 blockVersion SP1 = 2
 blockVersion SP2 = 2
 blockVersion SP3 = 2
+blockVersion SP4 = 2
 {-# INLINE blockVersion #-}
 
 -- |Type class that supports serialization of a block.

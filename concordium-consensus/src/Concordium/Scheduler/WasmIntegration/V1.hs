@@ -261,17 +261,17 @@ processInitResult result returnValuePtr = case BS.uncons result of
     case tag of
       0 -> return Nothing
       1 -> let parser = do -- reject
-                rejectReason <- getInt32be
-                remainingEnergy <- getWord64be
+                rejectReason <- label "Reject.rejectReason" getInt32be
+                remainingEnergy <- label "Reject.remainingEnergy" getWord64be
                 return (rejectReason, remainingEnergy)
           in let (cerRejectReason, remainingEnergy) = parseResult parser
              in do cerReturnValue <- ReturnValue <$> newForeignPtr freeReturnValue returnValuePtr
                    return (Just (Left LogicReject{..}, fromIntegral remainingEnergy))
       2 -> -- done
         let parser = do
-              newState <- get
-              logs <- getLogs
-              remainingEnergy <- getWord64be
+              newState <- label "Done.newState" get
+              logs <- label "Done.logs" getLogs
+              remainingEnergy <- label "Done.remainingEnergy" getWord64be
               return (newState, logs, remainingEnergy)
         in let (irdNewState, irdLogs, remainingEnergy) = parseResult parser
            in do irdReturnValue <- ReturnValue <$> newForeignPtr freeReturnValue returnValuePtr
@@ -317,25 +317,25 @@ processReceiveResult result returnValuePtr interruptedStatePtr = case BS.uncons 
     case tag of
       0 -> return Nothing
       1 -> let parser = do -- reject
-                rejectReason <- getInt32be
-                remainingEnergy <- getWord64be
+                rejectReason <- label "Reject.rejectReason" getInt32be
+                remainingEnergy <- label "Reject.remainingEnergy" getWord64be
                 return (rejectReason, remainingEnergy)
           in let (cerRejectReason, remainingEnergy) = parseResult parser
              in do cerReturnValue <- ReturnValue <$> newForeignPtr freeReturnValue returnValuePtr
                    return (Just (Left LogicReject{..}, fromIntegral remainingEnergy))
-      2 -> let parser = do
-                remainingEnergy <- getWord64be
-                currentState <- get
-                method <- getInvokeMethod
+      3 -> let parser = do -- interrupt
+                remainingEnergy <- label "Interrupt.remainingEnergy" getWord64be
+                currentState <- label "Interrupt.currentState" get
+                method <- label "Interrupt.method" getInvokeMethod
                 return (remainingEnergy, currentState, method)
           in let (remainingEnergy, rrdCurrentState, rrdMethod)= parseResult parser
              in do rrdInterruptedConfig <- newReceiveInterruptedState interruptedStatePtr
                    return (Just (Right ReceiveInterrupt{..}, fromIntegral remainingEnergy))
-      3 -> -- done
+      2 -> -- done
         let parser = do
-              newState <- get
-              logs <- getLogs
-              remainingEnergy <- getWord64be
+              newState <- label "Done.newState" get
+              logs <- label "Done.logs" getLogs
+              remainingEnergy <- label "Done.remainingEnergy" getWord64be
               return (newState, logs, remainingEnergy)
         in let (rrdNewState, rrdLogs, remainingEnergy) = parseResult parser
            in do rrdReturnValue <- ReturnValue <$> newForeignPtr freeReturnValue returnValuePtr

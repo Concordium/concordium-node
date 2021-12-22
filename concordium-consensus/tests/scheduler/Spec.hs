@@ -25,6 +25,8 @@ import qualified SchedulerTests.StakedAmountLocked(tests)
 import qualified SchedulerTests.RejectReasons(tests)
 import qualified SchedulerTests.RejectReasonsRustContract(tests)
 
+import qualified SchedulerTests.SmartContracts.V1.Counter(tests)
+
 import Test.Hspec
 
 main :: IO ()
@@ -53,3 +55,4 @@ main = hspec $ do
          SchedulerTests.StakedAmountLocked.tests
          SchedulerTests.RejectReasons.tests
          SchedulerTests.RejectReasonsRustContract.tests
+         SchedulerTests.SmartContracts.V1.Counter.tests

@@ -853,7 +853,7 @@ handleContractUpdateV1 originAddr istance sender transferAmount receiveName para
               -- transfer the amount from the sender. We first check whether that is actually available for the sender at this point in time
               -- since synchronous calls might have affected it before this point.
               senderamount <- getCurrentAvailableAmount sender
-              if senderamount >= transferAmount then return (Left (WasmV1.EnvFailure (WasmV1.AmountTooLarge senderAddr transferAmount)))
+              if senderamount < transferAmount then return (Left (WasmV1.EnvFailure (WasmV1.AmountTooLarge senderAddr transferAmount)))
               else withToContractAmount sender istance transferAmount $ 
                      let event = Updated{euAddress=instanceAddress istance,
                                    euInstigator=senderAddr,

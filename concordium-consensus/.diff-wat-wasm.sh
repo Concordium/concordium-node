@@ -11,7 +11,7 @@ pushd testdata/contracts
 
 RET=0
 
-for wat in *wat;do
+for wat in $(find -name '*.wat'); do
    OUT=$(mktemp)
    wat2wasm $wat -o $OUT;
    if ! $(diff $OUT "${wat%.wat}.wasm")

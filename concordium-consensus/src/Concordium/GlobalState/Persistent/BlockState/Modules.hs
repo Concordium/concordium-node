@@ -6,6 +6,7 @@ module Concordium.GlobalState.Persistent.BlockState.Modules
     Modules,
     getModuleInterface,
     source,
+    interface,
     emptyModules,
     getInterface,
     getSource,

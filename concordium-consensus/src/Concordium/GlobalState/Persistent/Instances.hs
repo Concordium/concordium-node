@@ -126,7 +126,7 @@ instance (IsProtocolVersion pv, MonadBlobStore m) => BlobStorable m (PersistentI
         if demoteProtocolVersion (protocolVersion @pv) <= P3 then
           case inst of
             PersistentInstanceV0 i -> second PersistentInstanceV0 <$> storeUnversioned i
-            PersistentInstanceV1 i -> error "Precondition violation. V1 instances do not exist in protocol versions <= 3."
+            PersistentInstanceV1 _i -> error "Precondition violation. V1 instances do not exist in protocol versions <= 3."
         else case inst of
             PersistentInstanceV0 i -> addVersion 0 PersistentInstanceV0 <$> storeUnversioned i
             PersistentInstanceV1 i -> addVersion 1 PersistentInstanceV1 <$> storeUnversioned i

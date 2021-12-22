@@ -221,6 +221,7 @@ hashBlockState = case protocolVersion :: SProtocolVersion pv of
   SP1 -> hashBlockStateP1
   SP2 -> hashBlockStateP1
   SP3 -> hashBlockStateP1
+  SP4 -> hashBlockStateP1
     -- For protocol versions P1, P2, and P3, convert a @BlockState pv@ to a
     -- @HashedBlockState pv@ by computing the state hash. The state and hashing
     -- is the same. This function was introduced in protocol version 1 which is
