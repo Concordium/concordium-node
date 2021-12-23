@@ -81,10 +81,10 @@ putInstancesV0 (Instances (Tree _ t)) = do
             case inst of
               InstanceV0 i -> do
                 putWord8 2
-                putInstanceV0 i
+                putV0InstanceV0 i
               InstanceV1 i -> do
                 putWord8 3
-                putInstanceV1 i
+                putV1InstanceV0 i
 
 -- |Deserialize 'Instances' in V0 format.
 getInstancesV0
@@ -95,6 +95,6 @@ getInstancesV0 resolve = Instances <$> constructM buildInstance
         buildInstance idx = getWord8 >>= \case
             0 -> return Nothing
             1 -> Just . Left <$> get
-            2 -> Just . Right . InstanceV0 <$> getInstanceV0 resolve idx
-            3 -> Just . Right . InstanceV1 <$> getInstanceV1 resolve idx
+            2 -> Just . Right . InstanceV0 <$> getV0InstanceV0 resolve idx
+            3 -> Just . Right . InstanceV1 <$> getV1InstanceV0 resolve idx
             _ -> fail "Bad instance list"

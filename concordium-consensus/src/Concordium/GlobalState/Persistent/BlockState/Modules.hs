@@ -45,30 +45,33 @@ type ModuleIndex = Word64
 
 --------------------------------------------------------------------------------
 
--- |A module contains both the module interface and a plain reference to where
--- the raw source code of the module is stored in the blobstore.
+-- |A module contains both the module interface and the raw source code of the
+-- module. The module is parameterized by the wasm version, which determines the shape
+-- of the module interface.
 data ModuleV v = ModuleV {
   -- | The instrumented module, ready to be instantiated.
   moduleVInterface :: !(GSWasm.ModuleInterfaceV v),
-  -- | A plain reference to the raw module binary source.
+  -- | A plain reference to the raw module binary source. This is generally not needed by consensus, so
+  -- it is almost always simply kept on disk.
   moduleVSource :: !(BlobRef WasmModule)
   }
     deriving(Show)
 
 -- Create two typeclasses HasInterface a _ and HasSource a _
 -- with methods source :: Lens' a (BlobRef WasmModule) and
--- interface :: Lens' a (GSWasm.ModuleInterfaceV v)
+-- interface :: Lens' (ModuleV v) (GSWasm.ModuleInterfaceV v)
 makeFields ''ModuleV
 
-fromModule :: Module -> GSWasm.ModuleInterface
-fromModule (ModuleV0 v) = GSWasm.ModuleInterfaceV0 (moduleVInterface v)
-fromModule (ModuleV1 v) = GSWasm.ModuleInterfaceV1 (moduleVInterface v)
-
+-- |Helper to convert from an interface to a module.
 toModule :: GSWasm.ModuleInterface -> BlobRef WasmModule -> Module
 toModule (GSWasm.ModuleInterfaceV0 moduleVInterface) moduleVSource = ModuleV0 ModuleV{..}
 toModule (GSWasm.ModuleInterfaceV1 moduleVInterface) moduleVSource = ModuleV1 ModuleV{..}
 
 
+-- |A module, either of version 0 or 1. This is only used when storing a module
+-- independently, e.g., in the module table. When a module is referenced from a
+-- contract instance we use the ModuleV type directly so we may tie the version
+-- of the module to the version of the instance.
 data Module where
   ModuleV0 :: ModuleV GSWasm.V0 -> Module
   ModuleV1 :: ModuleV GSWasm.V1 -> Module
@@ -87,7 +90,7 @@ instance GSWasm.HasModuleRef Module where
   moduleReference (ModuleV0 m) = GSWasm.moduleReference (moduleVInterface m)
   moduleReference (ModuleV1 m) = GSWasm.moduleReference (moduleVInterface m)
 
--- FIXME: This should probably take host versioning into account since that is not part of the reference
+-- The module reference already takes versioning into account, so this instance is reasonable.
 instance HashableTo Hash Module where
   getHash = coerce . GSWasm.moduleReference
 
@@ -102,7 +105,7 @@ instance Serialize Module where
     moduleVSource <- get
     return $! toModule moduleVInterface moduleVSource
   put m  = do
-    put (fromModule m)
+    put (getModuleInterface m)
     put (m ^. source)
 
 -- |This serialization is used for storing the module in the BlobStore.
@@ -213,7 +216,7 @@ unsafeGetModuleReferenceV0 :: MonadBlobStore m => ModuleRef -> Modules -> m (May
 unsafeGetModuleReferenceV0 ref mods = fmap (unsafeCoerceBufferedRef extract) <$> getModuleReference ref mods 
     where extract (ModuleV0 m) = m
           extract _ = error "Precondition violation."
--- |Gets the buffered reference to a module as stored in the module table assuming it is version 0.
+-- |Gets the buffered reference to a module as stored in the module table assuming it is version 1.
 unsafeGetModuleReferenceV1 :: MonadBlobStore m => ModuleRef -> Modules -> m (Maybe (BufferedRef (ModuleV GSWasm.V1)))
 unsafeGetModuleReferenceV1 ref mods = fmap (unsafeCoerceBufferedRef extract) <$> getModuleReference ref mods 
     where extract (ModuleV1 m) = m
@@ -225,7 +228,7 @@ getInterface :: MonadBlobStore m
              => ModuleRef
              -> Modules
              -> m (Maybe GSWasm.ModuleInterface)
-getInterface ref mods = fmap fromModule <$> getModule ref mods
+getInterface ref mods = fmap getModuleInterface <$> getModule ref mods
 
 -- |Get the source of a module by module reference.
 getSource :: MonadBlobStore m => ModuleRef -> Modules -> m (Maybe WasmModule)

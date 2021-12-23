@@ -219,9 +219,9 @@ updateInstance' amnt val (InstanceV0 i) = InstanceV0 $ updateInstanceV' amnt val
 updateInstance' amnt val (InstanceV1 i) = InstanceV1 $ updateInstanceV' amnt val i
 
 
--- |Serialize a smart contract instance in V0 format.
-putInstanceV0 :: Putter (InstanceV GSWasm.V0)
-putInstanceV0 InstanceV{ _instanceVParameters = InstanceParameters{..}, ..} = do
+-- |Serialize a V0 smart contract instance in V0 format.
+putV0InstanceV0 :: Putter (InstanceV GSWasm.V0)
+putV0InstanceV0 InstanceV{ _instanceVParameters = InstanceParameters{..}, ..} = do
         -- InstanceParameters
         -- Only put the Subindex part of the address
         put (contractSubindex _instanceAddress)
@@ -233,8 +233,9 @@ putInstanceV0 InstanceV{ _instanceVParameters = InstanceParameters{..}, ..} = do
         put _instanceVModel
         put _instanceVAmount
 
-putInstanceV1 :: Putter (InstanceV GSWasm.V1)
-putInstanceV1 InstanceV{ _instanceVParameters = InstanceParameters{..}, ..} = do
+-- |Serialize a V1 smart contract instance in V0 format.
+putV1InstanceV0 :: Putter (InstanceV GSWasm.V1)
+putV1InstanceV0 InstanceV{ _instanceVParameters = InstanceParameters{..}, ..} = do
         -- InstanceParameters
         -- Only put the Subindex part of the address
         put (contractSubindex _instanceAddress)
@@ -247,14 +248,14 @@ putInstanceV1 InstanceV{ _instanceVParameters = InstanceParameters{..}, ..} = do
         put _instanceVAmount
 
 
--- |Deserialize a smart contract instance in V0 format.
-getInstanceV0
+-- |Deserialize a V0 smart contract instance in V0 format.
+getV0InstanceV0
     :: (ModuleRef -> Wasm.InitName -> Maybe (Set.Set Wasm.ReceiveName, GSWasm.ModuleInterface))
     -- ^Function for resolving the receive functions and module interface.
     -> ContractIndex
     -- ^Index of the contract
     -> Get (InstanceV GSWasm.V0)
-getInstanceV0 resolve idx = do
+getV0InstanceV0 resolve idx = do
         -- InstanceParameters
         subindex <- get
         let _instanceAddress = ContractAddress idx subindex
@@ -270,14 +271,14 @@ getInstanceV0 resolve idx = do
         _instanceVAmount <- get
         return $ makeInstanceV instanceInitName instanceReceiveFuns instanceModuleInterface _instanceVModel _instanceVAmount instanceOwner _instanceAddress
 
--- |Deserialize a smart contract instance in V0 format.
-getInstanceV1
+-- |Deserialize a V1 smart contract instance in V0 format.
+getV1InstanceV0
     :: (ModuleRef -> Wasm.InitName -> Maybe (Set.Set Wasm.ReceiveName, GSWasm.ModuleInterface))
     -- ^Function for resolving the receive functions and module interface.
     -> ContractIndex
     -- ^Index of the contract
     -> Get (InstanceV GSWasm.V1)
-getInstanceV1 resolve idx = do
+getV1InstanceV0 resolve idx = do
         -- InstanceParameters
         subindex <- get
         let _instanceAddress = ContractAddress idx subindex

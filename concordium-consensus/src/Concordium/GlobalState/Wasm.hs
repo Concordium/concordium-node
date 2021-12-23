@@ -1,4 +1,5 @@
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -50,11 +51,26 @@ foreign import ccall unsafe "artifact_v1_from_bytes" fromBytesArtifactV1 :: Ptr 
 
 -- | A processed module artifact ready for execution. The actual module is
 -- allocated and stored on the Rust heap, in a reference counted pointer.
-newtype ModuleArtifact v = ModuleArtifact { maArtifact :: ForeignPtr (ModuleArtifact v) }
+newtype ModuleArtifact (v :: WasmVersion) = ModuleArtifact { maArtifact :: ForeignPtr (ModuleArtifact v) }
   deriving(Eq, Show) -- the Eq and Show instances are only for debugging and compare and show pointers.
 
-data V0
-data V1
+-- |Supported versions of Wasm modules. This version defines available host
+-- functions, their semantics, and limitations of contracts.
+data WasmVersion = V0 | V1
+
+instance Serialize WasmVersion where
+  put V0 = putWord32be 0
+  put V1 = putWord32be 1
+
+  get = getWord32be >>= \case
+    0 -> return V0
+    1 -> return V1
+    n -> fail $ "Unrecognized Wasm version " ++ show n
+
+-- These type aliases are provided for convenience to avoid having to enable
+-- DataKinds everywhere we need wasm version.
+type V0 = 'V0
+type V1 = 'V1
 
 type ModuleArtifactV0 = ModuleArtifact V0
 type ModuleArtifactV1 = ModuleArtifact V1
@@ -113,24 +129,6 @@ data InstrumentedModuleV v where
 
 deriving instance Eq (InstrumentedModuleV v)
 deriving instance Show (InstrumentedModuleV v)
-
--- This is just an internal helper 
-data InstrumentedModule where
-  IWMV0 :: { imwArtifactV0 :: ModuleArtifact V0 } -> InstrumentedModule
-  IWMV1 :: { imwArtifactV1 :: ModuleArtifact V1 } -> InstrumentedModule
-
-instance Serialize InstrumentedModule where
-  put IWMV0{..} = do
-    putWord32be 0
-    put imwArtifactV0
-  put IWMV1{..} = do
-    putWord32be 1
-    put imwArtifactV1
-
-  get = getWord32be >>= \case
-    0 -> IWMV0 <$> get
-    1 -> IWMV1 <$> get
-    _ -> fail "Unsupported Wasm module version."
 
 imWasmVersion :: InstrumentedModuleV v -> Word32
 imWasmVersion (InstrumentedWasmModuleV0 _) = 0
@@ -226,11 +224,15 @@ instance Serialize ModuleInterface where
     miModuleRef <- get
     miExposedInit <- getSafeSetOf get
     miExposedReceive <- getSafeMapOf get (getSafeSetOf get)
-    miModuleV <- get
-    miModuleSize <- getWord64be
-    case miModuleV of
-      IWMV0 imWasmArtifactV0 -> return (ModuleInterfaceV0 ModuleInterface{miModule = InstrumentedWasmModuleV0 {..},..})
-      IWMV1 imWasmArtifactV1 -> return (ModuleInterfaceV1 ModuleInterface{miModule = InstrumentedWasmModuleV1 {..},..})
+    get >>= \case
+      V0 -> do
+        miModule <- InstrumentedWasmModuleV0 <$> get
+        miModuleSize <- getWord64be
+        return (ModuleInterfaceV0 ModuleInterface{..})
+      V1 -> do
+        miModule <- InstrumentedWasmModuleV1 <$> get
+        miModuleSize <- getWord64be
+        return (ModuleInterfaceV1 ModuleInterface{..})
   put (ModuleInterfaceV0 ModuleInterface{..}) = do
     put miModuleRef
     putSafeSetOf put miExposedInit

@@ -392,14 +392,15 @@ class (StaticInformation m, IsProtocolVersion pv) => TransactionMonad pv m | m -
   -- entire computation is aborted.
   orElse :: m a -> m a -> m a
 
-  -- |Try to run the first computation. If it leads to `reject` for a logic reason then
-  -- try the second computation. If the left computation fails with out of energy then the
-  -- entire computation is aborted.
+  -- |Try to run the first computation. If it leads to `reject` for a logic
+  -- reason then try the second computation. If the left computation fails with
+  -- out of energy then the entire computation is aborted. Compared to 'orElse'
+  -- above, here the right computation gets access to the rejection reason of the left one.
   orElseWith :: m a -> (RejectReason -> m a) -> m a
 
-  -- |Try to run the first computation. If it leads to `Left err` then abort and revert all the changes.
+  -- |Try to run the first computation. If it leads to `Left err` then abort and revert all the changes
+  -- apart from consumed energy.
   withRollback :: m (Either a b) -> m (Either a b)
-
 
   -- |Fail transaction processing because we would have exceeded maximum block energy limit.
   outOfBlockEnergy :: m a

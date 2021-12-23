@@ -1,5 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE NumericUnderscores #-}
+-- |This module provides most of the functionality that deals with calling V1 smart contracts, processing responses,
+-- and resuming computations. It is used directly by the Scheduler to run smart contracts.
+--
+-- This module uses FFI very heavily. The functions that are imported are defined in smart-contracts/wasm-chain-integration/src/v1/ffi.rs
+-- in the smart contracts submodule.
 module Concordium.Scheduler.WasmIntegration.V1(
   InvokeMethod(..),
   InitResultData(..),
@@ -48,7 +53,6 @@ import Concordium.GlobalState.Wasm
 import Concordium.Utils.Serialization
 
 foreign import ccall unsafe "return_value_to_byte_array" return_value_to_byte_array :: Ptr ReturnValue -> Ptr CSize -> IO (Ptr Word8)
-
 foreign import ccall unsafe "&box_vec_u8_free" freeReturnValue :: FunPtr (Ptr ReturnValue -> IO ())
 foreign import ccall unsafe "&receive_interrupted_state_free" freeReceiveInterruptedState :: FunPtr (Ptr (Ptr ReceiveInterruptedState) -> IO ())
 
@@ -59,12 +63,30 @@ foreign import ccall "validate_and_process_v1"
                         -> Ptr (Ptr ModuleArtifactV1) -- ^Null, or the processed module artifact. This is null if and only if the return value is null.
                         -> IO (Ptr Word8) -- ^Null, or exports.
 
+-- |Return value of a V1 contract call. This is deliberately opaque so that we avoid redundant data copying
+-- for return values for inner contract calls.
 newtype ReturnValue = ReturnValue { rvPtr :: ForeignPtr ReturnValue }
+
+{-# NOINLINE returnValueToByteString #-}
+-- |Convert a return value to a byte array. This copies the data of the return value.
+returnValueToByteString :: ReturnValue -> BS.ByteString
+returnValueToByteString rv = unsafePerformIO $
+  withReturnValue rv $ \p -> alloca $ \outputLenPtr -> do
+    rp <- return_value_to_byte_array p outputLenPtr
+    len <- peek outputLenPtr
+    BSU.unsafePackCStringFinalizer rp (fromIntegral len) (rs_free_array_len rp (fromIntegral len))
+
+-- |State of the Wasm module when a host operation is invoked (a host operation
+-- is either a transfer to an account, or a contract call, at present). This can
+-- only be resumed once. Calling resume on this twice will lead to unpredictable
+-- behaviour, including the possibility of segmentation faults.
 newtype ReceiveInterruptedState = ReceiveInterruptedState { risPtr :: ForeignPtr (Ptr ReceiveInterruptedState) }
 
 withReturnValue :: ReturnValue -> (Ptr ReturnValue -> IO a) -> IO a
 withReturnValue ReturnValue{..} = withForeignPtr rvPtr
 
+-- |Use the (maybe) return value in a foreign computation. If the first argument
+-- is 'Nothing' then the computation is given the null pointer.
 withMaybeReturnValue :: Maybe ReturnValue -> (Ptr ReturnValue -> IO a) -> IO a
 withMaybeReturnValue Nothing k = k nullPtr
 withMaybeReturnValue (Just rv) k = withReturnValue rv k
@@ -72,31 +94,44 @@ withMaybeReturnValue (Just rv) k = withReturnValue rv k
 withReceiveInterruptedState :: ReceiveInterruptedState -> (Ptr (Ptr ReceiveInterruptedState) -> IO a) -> IO a
 withReceiveInterruptedState = withForeignPtr . risPtr
 
+-- |Possible reasons why a contract call failed.
 data ContractCallFailure =
+  -- |The contract call failed because the contract rejected execution for its own reason, or execution trapped.
   ExecutionReject !ContractExecutionReject
-  | EnvFailure !EnvFailure -- failure of execution due to the state of the host.
+  -- |Contract call failed due to other, environment reasons, such as the intended contract not existing.
+  | EnvFailure !EnvFailure
 
+-- |Convert a contract call failure to a return value. If a contract call fails
+-- due to the contract itself, then it can return some data (e.g., an error
+-- message). This function extracts that, if it can.
 ccfToReturnValue :: ContractCallFailure -> Maybe ReturnValue
 ccfToReturnValue (ExecutionReject LogicReject{..}) = Just cerReturnValue
 ccfToReturnValue (ExecutionReject Trap) = Nothing
 ccfToReturnValue (EnvFailure _) = Nothing
 
+-- |Result of an invoke. This just adds Success to the contract call failure.
 data InvokeResponseCode =
   Success
   | Error !ContractCallFailure
 
+-- |Possible reasons why invocation failed that are not directly logic failure of a V1 call.
 data EnvFailure =
   AmountTooLarge !Address !Amount
   | MissingAccount !AccountAddress
   | MissingContract !ContractAddress
   | MessageFailed !Exec.RejectReason -- message to a V0 contract failed. No further information is available.
   deriving (Show)
-  -- FIXME: We could expose the reject reason if that is what happened.
+-- TODO: In principle we could extract a more precise reason than MessageFailed.
 
+-- |Encode the response into 64 bits. This is necessary since Wasm only allows
+-- us to pass simple scalars as parameters. Everything else requires passing
+-- data in memory, or via host functions, both of which are difficult..
 -- The response is encoded as follows.
--- - The first 24 bits are all 0 if success and all 1 if failure.
--- - the next 8 bits encode the "EnvFailure or Trap"
--- - the remaining 32 bits are for any response code from calling a contract
+-- - success is encoded as 0
+-- - every failure has all bits of the first 3 bytes set
+-- - in case of failure
+--   - if the 4th byte is 0 then the remaining 4 bytes encode the rejection reason from the contract
+--   - otherwise only the 4th byte is used, and encodes the enviroment failure.
 invokeResponseToWord64 :: InvokeResponseCode -> Word64
 invokeResponseToWord64 Success = 0
 invokeResponseToWord64 (Error (EnvFailure e)) =
@@ -198,23 +233,18 @@ applyInitFun miface cm initCtx iName param amnt iEnergy = unsafePerformIO $ do
         amountWord = _amount amnt
         nameBytes = Text.encodeUtf8 (initName iName)
 
-{-# NOINLINE returnValueToByteString #-}
-returnValueToByteString :: ReturnValue -> BS.ByteString
-returnValueToByteString rv = unsafePerformIO $
-  withReturnValue rv $ \p -> alloca $ \outputLenPtr -> do
-    rp <- return_value_to_byte_array p outputLenPtr
-    len <- peek outputLenPtr
-    BSU.unsafePackCStringFinalizer rp (fromIntegral len) (rs_free_array_len rp (fromIntegral len))
-
+-- |Allowed methods that a contract can invoke.
 data InvokeMethod =
+  -- |Transfer to an account.
   Transfer {
     imtTo :: !AccountAddress,
     imtAmount :: !Amount
     }
+  -- |Call another smart contract with the given parameter.
   | Call {
     imcTo :: !ContractAddress,
     imcParam :: !Parameter,
-    imcName :: !ReceiveName, -- FIXME: Should be entrypoint name
+    imcName :: !ReceiveName, -- FIXME: Should be entrypoint name, but that requires changes elsewhere to maintain consistency.
     imcAmount :: !Amount
     }
 
@@ -224,22 +254,27 @@ getInvokeMethod = getWord8 >>= \case
   1 -> Call <$> get <*> get <*> get <*> get
   n -> fail $ "Unsupported invoke method tag: " ++ show n
 
+-- |Data return from the contract in case of successful initialization.
 data InitResultData = InitSuccess {
   irdReturnValue :: !ReturnValue,
   irdNewState :: !ContractState,
   irdLogs :: ![ContractEvent]
   }
 
-data ReceiveResultData = ReceiveSuccess {
-  rrdReturnValue :: !ReturnValue,
-  rrdNewState :: !ContractState,
-  rrdLogs :: ![ContractEvent]
+-- |Data returned from the receive call. In contrast to an init call, a receive call may interrupt.
+data ReceiveResultData =
+  -- |Execution terminated with success.
+  ReceiveSuccess {
+    rrdReturnValue :: !ReturnValue,
+    rrdNewState :: !ContractState,
+    rrdLogs :: ![ContractEvent]
+  } |
+  -- |Execution invoked a method. The current state is returned.
+  ReceiveInterrupt {
+    rrdCurrentState :: !ContractState,
+    rrdMethod :: !InvokeMethod,
+    rrdInterruptedConfig :: !ReceiveInterruptedState
   }
-    | ReceiveInterrupt {
-        rrdCurrentState :: !ContractState,
-        rrdMethod :: !InvokeMethod,
-        rrdInterruptedConfig :: !ReceiveInterruptedState
-        }
 
 
 getLogs :: Get [ContractEvent]
@@ -292,7 +327,7 @@ processInitResult result returnValuePtr = case BS.uncons result of
               Right x -> x
               Left err -> error $ "Internal error: Could not interpret output from interpreter: " ++ err
 
--- The input was allocated with alloca. We allocate a fresh one with malloc and register
+-- The input was allocated with alloca. We allocate a fresh one with malloc (via 'new') and register
 -- a finalizer for it.
 newReceiveInterruptedState :: Ptr (Ptr ReceiveInterruptedState) -> IO ReceiveInterruptedState
 newReceiveInterruptedState interruptedStatePtr = do
@@ -302,6 +337,7 @@ newReceiveInterruptedState interruptedStatePtr = do
   addForeignPtrFinalizer freeReceiveInterruptedState fp
   return (ReceiveInterruptedState fp)
 
+-- |Convert a contract call failure to the Scheduler's reject reason.
 cerToRejectReasonReceive :: ContractAddress -> ReceiveName -> Parameter -> ContractCallFailure -> Exec.RejectReason
 cerToRejectReasonReceive contractAddress receiveName parameter (ExecutionReject LogicReject{..}) = Exec.RejectedReceive{rejectReason=cerRejectReason,..}
 cerToRejectReasonReceive _ _ _ (ExecutionReject Trap) = Exec.RuntimeFailure
@@ -405,7 +441,7 @@ applyReceiveFun miface cm receiveCtx rName param amnt cs initialEnergy = unsafeP
         paramBytes = BSS.fromShort (parameter param)
         nameBytes = Text.encodeUtf8 (receiveName rName)
 
--- |Apply a receive function which is assumed to be part of the given module.
+-- |Resume execution after processing the interrupt. This can only be called once on a single 'ReceiveInterruptedState'.
 resumeReceiveFun ::
     ReceiveInterruptedState
     -> ContractState -- ^State of the contract to start in.

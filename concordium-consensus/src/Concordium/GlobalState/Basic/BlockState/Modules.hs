@@ -42,7 +42,8 @@ type ModuleIndex = Word64
 --------------------------------------------------------------------------------
 
 -- |A module contains both the module interface and the raw source code of the
--- module.
+-- module. The module is parameterized by the wasm version, which determines the shape
+-- of the module interface.
 data ModuleV v = ModuleV {
   -- | The instrumented module, ready to be instantiated.
   moduleVInterface :: !(GSWasm.ModuleInterfaceV v),
@@ -50,19 +51,25 @@ data ModuleV v = ModuleV {
   moduleVSource :: !WasmModule
   } deriving (Show)
 
--- Create the class HasSource a with a function
--- source :: Lens a WasmModule
+-- Create the class HasSource a with functions
+-- source :: Lens a WasmModule and interface :: Lens (ModuleV v) (GSWasm.ModuleInterfaceV v)
 makeFields ''ModuleV
 
+-- |A module, either of version 0 or 1. This is only used when storing a module
+-- independently, e.g., in the module table. When a module is referenced from a
+-- contract instance we use the ModuleV type directly so we may tie the version
+-- of the module to the version of the instance.
 data Module where
   ModuleV0 :: ModuleV GSWasm.V0 -> Module
   ModuleV1 :: ModuleV GSWasm.V1 -> Module
   deriving(Show)
 
+-- |Helper (internal to the module) to convert from a module to an interface.
 fromModule :: Module -> GSWasm.ModuleInterface
 fromModule (ModuleV0 v) = GSWasm.ModuleInterfaceV0 (moduleVInterface v)
 fromModule (ModuleV1 v) = GSWasm.ModuleInterfaceV1 (moduleVInterface v)
 
+-- |Helper to convert from an interface to a module.
 toModule :: GSWasm.ModuleInterface -> WasmModule -> Module
 toModule (GSWasm.ModuleInterfaceV0 moduleVInterface) moduleVSource = ModuleV0 ModuleV{..}
 toModule (GSWasm.ModuleInterfaceV1 moduleVInterface) moduleVSource = ModuleV1 ModuleV{..}

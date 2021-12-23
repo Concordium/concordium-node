@@ -76,9 +76,12 @@ instance Applicative m => Cacheable m PersistentInstanceParameters
 
 ----------------------------------------------------------------------------------------------------
 
--- |An instance of a smart contract.
+-- |An instance of a smart contract. This is parametrized by the Wasm version
+-- `v` that is used to tie the instance version to the module version. At
+-- present the version only appears in the module, but with the state changes it
+-- will also appear in the contract state.
 data PersistentInstanceV v = PersistentInstanceV {
-    -- |The fixed parameters of the instance
+    -- |The fixed parameters of the instance.
     pinstanceParameters :: !(BufferedRef PersistentInstanceParameters),
     -- |The interface of 'pinstanceContractModule'. Note this is a BufferedRef to a Module as this
     -- is how the data is stored in the Modules table. A 'Module' carries a BlobRef to the source
@@ -236,9 +239,9 @@ fromPersistentInstance pinst = do
                                                              _instanceVParameters = mkParams iface
                                                            })
 
--- |Serialize a smart contract instance in V0 format.
-putInstanceV0 :: (MonadBlobStore m, MonadPut m) => PersistentInstanceV GSWasm.V0 -> m ()
-putInstanceV0 PersistentInstanceV {..} = do
+-- |Serialize a V0 smart contract instance in V0 format.
+putV0InstanceV0 :: (MonadBlobStore m, MonadPut m) => PersistentInstanceV GSWasm.V0 -> m ()
+putV0InstanceV0 PersistentInstanceV {..} = do
         -- Instance parameters
         PersistentInstanceParameters{..} <- refLoad pinstanceParameters
         liftPut $ do
@@ -250,10 +253,9 @@ putInstanceV0 PersistentInstanceV {..} = do
             put pinstanceModel
             put pinstanceAmount
 
--- |Serialize a smart contract instance in V0 format.
--- FIXME: Add versioning
-putInstanceV1 :: (MonadBlobStore m, MonadPut m) => PersistentInstanceV GSWasm.V1 -> m ()
-putInstanceV1 PersistentInstanceV {..} = do
+-- |Serialize a V1 smart contract instance in V0 format.
+putV1InstanceV0 :: (MonadBlobStore m, MonadPut m) => PersistentInstanceV GSWasm.V1 -> m ()
+putV1InstanceV0 PersistentInstanceV {..} = do
         -- Instance parameters
         PersistentInstanceParameters{..} <- refLoad pinstanceParameters
         liftPut $ do
@@ -616,7 +618,7 @@ putInstancesV0 (InstancesTree _ it) = do
             put (contractSubindex ca)
         putOptInstance (Right (PersistentInstanceV0 inst)) = do
             liftPut $ putWord8 2
-            putInstanceV0 inst
+            putV0InstanceV0 inst
         putOptInstance (Right (PersistentInstanceV1 inst)) = do
             liftPut $ putWord8 3
-            putInstanceV1 inst
+            putV1InstanceV0 inst
