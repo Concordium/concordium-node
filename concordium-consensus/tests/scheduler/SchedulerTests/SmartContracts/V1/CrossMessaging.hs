@@ -8,7 +8,7 @@ import Test.HUnit(assertFailure, assertEqual)
 
 import qualified Data.ByteString.Short as BSS
 import qualified Data.ByteString as BS
-import Data.Serialize(runPut, putWord64le, putWord32le, putByteString, putWord16le)
+import Data.Serialize(runPut, putWord64le, putByteString, putWord16le)
 import Data.Word
 import Lens.Micro.Platform
 
@@ -97,12 +97,12 @@ testCases =
           putWord64le 0 -- subindex of the counter contract
           putWord16le (fromIntegral (BSS.length "counter.inc"))
           putByteString "counter.inc"
-          putWord32le 0 -- length of parameter
+          putWord16le 0 -- length of parameter
           
         callArgs = BSS.toShort $ runPut $ do
           putWord64le 1 -- contract index (the proxy contract)
           putWord64le 0 -- contract subindex
-          putWord32le (fromIntegral (BS.length forwardParameter)) -- length of parameter
+          putWord16le (fromIntegral (BS.length forwardParameter)) -- length of parameter
           putByteString forwardParameter
           putWord16le (fromIntegral (BSS.length "proxy.forward"))
           putByteString "proxy.forward"

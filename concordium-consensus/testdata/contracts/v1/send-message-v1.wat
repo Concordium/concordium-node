@@ -26,8 +26,8 @@
     (call $send (i64.load (i32.const 0)) (i64.load (i32.const 8))
                 (i32.const 18) (i32.load16_u (i32.const 16)) ;; receive name (2 bytes for length + data)
                 (local.get $amount) 
-                (i32.add (i32.const 22) (i32.load16_u (i32.const 16))) ;; start of parameter
-                (i32.load (i32.add (i32.const 18) (i32.load16_u (i32.const 16)))) ;; length of the parameter
+                (i32.add (i32.const 20) (i32.load16_u (i32.const 16))) ;; start of parameter
+                (i32.load16_u (i32.add (i32.const 18) (i32.load16_u (i32.const 16)))) ;; length of the parameter, 2 bytes
                 )
   )
   (memory 1)

@@ -10,7 +10,7 @@ import Test.HUnit(assertFailure, assertEqual)
 
 import qualified Data.ByteString.Short as BSS
 import qualified Data.ByteString as BS
-import Data.Serialize(runPut, putWord64le, putWord32le, putByteString, putWord16le)
+import Data.Serialize(runPut, putWord64le, putByteString, putWord16le)
 import Data.Word
 import Lens.Micro.Platform
 import Control.Monad
@@ -90,7 +90,7 @@ testCases =
         callArgs = BSS.toShort $ runPut $ do
           putWord64le 0 -- contract index
           putWord64le 0 -- contract subindex
-          putWord32le 0 -- length of parameter
+          putWord16le 0 -- length of parameter
           putWord16le (fromIntegral (BSS.length "counter.inc"))
           putByteString "counter.inc"
           putWord64le 0 -- amount
