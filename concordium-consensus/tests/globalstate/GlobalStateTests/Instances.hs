@@ -15,7 +15,8 @@ import Data.FileEmbed
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types
 import qualified Concordium.Wasm as Wasm
-import qualified Concordium.Scheduler.WasmIntegration as WasmIntegration
+import qualified Concordium.Scheduler.WasmIntegration as WasmV0
+import qualified Concordium.Scheduler.WasmIntegration.V1 as WasmV1
 import qualified Concordium.GlobalState.Wasm as GSWasm
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.Basic.BlockState.InstanceTable
@@ -28,17 +29,27 @@ import qualified Data.ByteString as BS
 import Test.QuickCheck
 import Test.Hspec
 
-contractSources :: [(FilePath, BS.ByteString)]
-contractSources = $(makeRelativeToProject "testdata/contracts/" >>= embedDir)
+contractSourcesV0 :: [(FilePath, BS.ByteString)]
+contractSourcesV0 = $(makeRelativeToProject "testdata/contracts/" >>= embedDir)
 
 -- Read all the files in testdata/contracts and get any valid contract interfaces.
 -- This assumes there is at least one, otherwise the tests will fail.
 validContractArtifactsV0 :: [(Wasm.ModuleSource, GSWasm.ModuleInterfaceV GSWasm.V0)]
-validContractArtifactsV0 = mapMaybe packModule contractSources
+validContractArtifactsV0 = mapMaybe packModule contractSourcesV0
     where packModule (_, sourceBytes) =
             let source = Wasm.ModuleSource sourceBytes
-            in (source,) <$> WasmIntegration.processModule (Wasm.WasmModule 0 source)
+            in (source,) <$> WasmV0.processModule (Wasm.WasmModule 0 source)
 
+contractSourcesV1 :: [(FilePath, BS.ByteString)]
+contractSourcesV1 = $(makeRelativeToProject "testdata/contracts/v1" >>= embedDir)
+
+-- Read all the files in testdata/contracts/v1 and get any valid contract interfaces.
+-- This assumes there is at least one, otherwise the tests will fail.
+validContractArtifactsV1 :: [(Wasm.ModuleSource, GSWasm.ModuleInterfaceV GSWasm.V1)]
+validContractArtifactsV1 = mapMaybe packModule contractSourcesV1
+    where packModule (_, sourceBytes) =
+            let source = Wasm.ModuleSource sourceBytes
+            in (source,) <$> WasmV1.processModule (Wasm.WasmModule 1 source)
 
 checkBinary :: Show a => (a -> a -> Bool) -> a -> a -> String -> String -> String -> Either String ()
 checkBinary bop x y sbop sx sy = unless (bop x y) $ Left $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ sy ++ " (" ++ show y ++ ")"
@@ -96,12 +107,18 @@ genContractState = do
   Wasm.ContractState . BS.pack <$> vector n
 
 makeDummyInstance :: InstanceData -> Gen (ContractAddress -> Instance)
-makeDummyInstance (InstanceData model amount) = do
-  (_, mInterface@GSWasm.ModuleInterface{..}) <- elements validContractArtifactsV0
-  initName <- if Set.null miExposedInit then return (Wasm.InitName "init_") else elements (Set.toList miExposedInit)
-  let receiveNames = fromMaybe Set.empty $ Map.lookup initName miExposedReceive
-  return $ makeInstance initName receiveNames mInterface model amount owner
-    where
+makeDummyInstance (InstanceData model amount) = oneof [mkV0, mkV1]
+  where mkV0 = do
+          (_, mInterface@GSWasm.ModuleInterface{..}) <- elements validContractArtifactsV0
+          initName <- if Set.null miExposedInit then return (Wasm.InitName "init_") else elements (Set.toList miExposedInit)
+          let receiveNames = fromMaybe Set.empty $ Map.lookup initName miExposedReceive
+          return $ makeInstance initName receiveNames mInterface model amount owner
+
+        mkV1 = do
+          (_, mInterface@GSWasm.ModuleInterface{..}) <- elements validContractArtifactsV1
+          initName <- if Set.null miExposedInit then return (Wasm.InitName "init_") else elements (Set.toList miExposedInit)
+          let receiveNames = fromMaybe Set.empty $ Map.lookup initName miExposedReceive
+          return $ makeInstance initName receiveNames mInterface model amount owner
         owner = AccountAddress . FBS.pack . replicate 32 $ 0
 
 data InstanceData = InstanceData Wasm.ContractState Amount
