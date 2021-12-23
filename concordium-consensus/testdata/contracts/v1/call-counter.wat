@@ -104,5 +104,21 @@
     ;; and return success
     (i32.const 0)
   )
+
+  ;; like $inc_counter_10 above, but does not check return values.
+  (func $inc_counter_10_no_check (export "counter.inc10nocheck") (param i64) (result i32)
+    (local $n i32)
+    (local $size i32)
+    (local.set $size (call $get_parameter_size (i32.const 0)))
+    (call $get_parameter_section (i32.const 0) (i32.const 0) (local.get $size) (i32.const 0))
+    (loop $loop
+      (call $invoke (i32.const 1) (i32.const 0) (local.get $size))
+      (drop)
+      (local.set $n (i32.add (i32.const 1) (local.get $n)))
+      (br_if $loop (i32.lt_u (local.get $n) (i32.const 10))))
+    (drop)
+    ;; and return success
+    (i32.const 0)
+  )
   (memory 1)
 )
