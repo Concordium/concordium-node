@@ -117,8 +117,8 @@ testCases =
           case getInstance (Types.ContractAddress 0 0) (bs ^. blockInstances) of
             Nothing -> assertFailure "Instance at <0,0> does not exist."
             Just istance -> do
-              assertEqual ("State contains.") (ContractState "") (istance ^. instanceModel)
-              assertEqual ("Contract has 0 CCD.") (Types.Amount 0) (istance ^. instanceAmount)
+              assertEqual ("State contains.") (ContractState "") (instanceModel istance)
+              assertEqual ("Contract has 0 CCD.") (Types.Amount 0) (instanceAmount istance)
 
 tests :: Spec
 tests = describe "V1: Transfer from contract to account." $

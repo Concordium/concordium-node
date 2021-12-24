@@ -82,7 +82,7 @@ checkInitResult proxy (suc, fails, instances) = do
   assertEqual "There should be no failed transactions." [] fails
   assertEqual "There should be no rejected transactions." [] reject
   assertEqual "There should be 1 instance." 1 (length instances)
-  let model = contractState . (^. instanceModel) . snd . head $ instances
+  let model = contractState . instanceModel . snd . head $ instances
   assertEqual "Instance model is the sender address of the account which inialized it." model (encode (senderAccount proxy))
   where
     reject = filter (\case (_, Types.TxSuccess{}) -> False
@@ -99,3 +99,5 @@ tests =
       testInit (Proxy @'P2) >>= checkInitResult (Proxy @'P2)
     specify "Passing init context to contract P3" $
       testInit (Proxy @'P3) >>= checkInitResult (Proxy @'P3)
+    specify "Passing init context to contract P4" $
+      testInit (Proxy @'P4) >>= checkInitResult (Proxy @'P4)

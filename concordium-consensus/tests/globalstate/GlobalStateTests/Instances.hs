@@ -131,7 +131,7 @@ instance Arbitrary InstanceData where
         return $ InstanceData model amount
 
 instanceData :: Instance -> InstanceData
-instanceData inst = InstanceData (inst ^. instanceModel) (inst ^. instanceAmount)
+instanceData inst = InstanceData (instanceModel inst) (instanceAmount inst)
 
 data Model = Model {
     -- Data of instances

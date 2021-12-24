@@ -496,7 +496,7 @@ addContractAmountToCS istance amnt cs =
     cs & instanceUpdates . at addr %~ \case Just (d, v) -> Just (d + amnt, v)
                                             Nothing -> Just (amnt, model)
   where addr = instanceAddress istance
-        model = istance ^. instanceModel
+        model = instanceModel istance
 
 -- |Add the given contract address to the set of initialized contract instances.
 -- As the changes on the blockstate are already performed in the handler for this operation,
@@ -813,7 +813,7 @@ instance SchedulerMonad pv m => TransactionMonad pv (LocalT r m) where
   getCurrentContractInstanceState istance = do
     newStates <- use (changeSet . instanceUpdates)
     case newStates ^. at (instanceAddress istance) of
-      Nothing -> return (istance ^. instanceModel)
+      Nothing -> return (instanceModel istance)
       Just (_, s) -> return s
 
   {-# INLINE getStateAccount #-}
@@ -859,7 +859,7 @@ instance SchedulerMonad pv m => TransactionMonad pv (LocalT r m) where
 
   {-# INLINE getCurrentContractAmount #-}
   getCurrentContractAmount inst = do
-    let amnt = inst ^. instanceAmount
+    let amnt = instanceAmount inst
     let addr = instanceAddress inst
     use (changeSet . instanceUpdates . at addr) >>= \case
       Just (delta, _) -> return $! applyAmountDelta delta amnt

@@ -119,7 +119,7 @@ testCases =
         counterSpec n bs = specify "Contract state" $
           case getInstance (Types.ContractAddress 0 0) (bs ^. blockInstances) of
             Nothing -> assertFailure "Instance at <0,0> does not exist."
-            Just istance -> assertEqual ("State contains " ++ show n ++ ".") (ContractState (runPut (putWord64le n))) (istance ^. instanceModel)
+            Just istance -> assertEqual ("State contains " ++ show n ++ ".") (ContractState (runPut (putWord64le n))) (instanceModel istance)
 
 tests :: Spec
 tests = describe "V1: Counter with cross-messaging." $

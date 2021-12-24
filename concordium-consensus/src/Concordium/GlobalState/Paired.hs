@@ -214,7 +214,7 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
     getContractInstance (ls, rs) caddr = do
         c1 <- coerceBSML (getContractInstance ls caddr)
         c2 <- coerceBSMR (getContractInstance rs caddr)
-        assert (((==) `on` fmap (^. instanceHash)) c1 c2) $ return c1
+        assert (((==) `on` fmap instanceHash) c1 c2) $ return c1
     getModuleList (ls, rs) = do
         m1 <- coerceBSML (getModuleList ls)
         m2 <- coerceBSMR (getModuleList rs)
@@ -226,7 +226,7 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
     getContractInstanceList (ls, rs) = do
         a1 <- coerceBSML (getContractInstanceList ls)
         a2 <- coerceBSMR (getContractInstanceList rs)
-        assert (((==) `on` fmap (^. instanceHash)) a1 a2) $ return a1
+        assert (((==) `on` fmap instanceHash) a1 a2) $ return a1
     getSeedState (ls, rs) = do
         ss1 <- coerceBSML (getSeedState ls)
         ss2 <- coerceBSMR (getSeedState rs)
@@ -378,7 +378,7 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
     bsoGetInstance (bs1, bs2) iref = do
         r1 <- coerceBSML $ bsoGetInstance bs1 iref
         r2 <- coerceBSMR $ bsoGetInstance bs2 iref
-        assert (((==) `on` fmap (^. instanceHash)) r1 r2) $ return r1
+        assert (((==) `on` fmap instanceHash) r1 r2) $ return r1
     bsoAddressWouldClash (bs1, bs2) addr = do
         r1 <- coerceBSML $ bsoAddressWouldClash bs1 addr
         r2 <- coerceBSMR $ bsoAddressWouldClash bs2 addr

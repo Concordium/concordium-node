@@ -7,13 +7,11 @@ import Data.Aeson
 import Data.Serialize
 import qualified Data.Set as Set
 import qualified Concordium.Crypto.SHA256 as H
-import Lens.Micro.Platform (makeLenses, (^.))
 import Concordium.Types
 import Concordium.Types.HashableTo
 import qualified Concordium.Wasm as Wasm
 import qualified Concordium.GlobalState.Wasm as GSWasm
 import Data.Word
-import Lens.Micro (to, Lens')
 
 -- |The fixed parameters associated with a smart contract instance
 data InstanceParameters v = InstanceParameters {
@@ -57,32 +55,30 @@ data InstanceV v = InstanceV {
   _instanceVHash :: H.Hash
   }
 
-makeLenses 'InstanceV
-
 class HasInstanceFields a where
-  instanceAmount :: Lens' a Amount
-  instanceModel :: Lens' a Wasm.ContractState
-  instanceHash :: Lens' a H.Hash
+  instanceAmount :: a -> Amount
+  instanceModel :: a -> Wasm.ContractState
+  instanceHash :: a -> H.Hash
 
 instance HasInstanceFields (InstanceV v) where
   {-# INLINE instanceAmount #-}
-  instanceAmount = instanceVAmount
+  instanceAmount = _instanceVAmount
   {-# INLINE instanceModel #-}
-  instanceModel = instanceVModel
+  instanceModel = _instanceVModel
   {-# INLINE instanceHash #-}
-  instanceHash = instanceVHash
+  instanceHash = _instanceVHash
 
 instance HasInstanceFields Instance where
-  instanceAmount f (InstanceV0 i) = InstanceV0 <$> instanceAmount f i
-  instanceAmount f (InstanceV1 i) = InstanceV1 <$> instanceAmount f i
-  instanceModel f (InstanceV0 i) = InstanceV0 <$> instanceModel f i
-  instanceModel f (InstanceV1 i) = InstanceV1 <$> instanceModel f i
-  instanceHash f (InstanceV0 i) = InstanceV0 <$> instanceHash f i
-  instanceHash f (InstanceV1 i) = InstanceV1 <$> instanceHash f i
+  instanceAmount (InstanceV0 i) = instanceAmount i
+  instanceAmount (InstanceV1 i) = instanceAmount i
+  instanceModel (InstanceV0 i) = instanceModel i
+  instanceModel (InstanceV1 i) = instanceModel i
+  instanceHash (InstanceV0 i) = instanceHash i
+  instanceHash (InstanceV1 i) = instanceHash i
 
 
 instance HasInstanceParameters (InstanceV v) where
-  instanceAddress = (^. instanceVParameters . to instanceAddress)
+  instanceAddress = instanceAddress . _instanceVParameters
 
 instance HasInstanceParameters Instance where
   instanceAddress (InstanceV0 i) = instanceAddress i

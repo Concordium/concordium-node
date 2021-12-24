@@ -143,7 +143,7 @@ testCases =
         fibSpec n bs = specify "Contract state" $
           case getInstance (Types.ContractAddress 0 0) (bs ^. blockInstances) of
             Nothing -> assertFailure "Instnace at <0,0> does not exist."
-            Just istance -> assertEqual "State contains the n-th Fibonacci number." (fibNBytes n) (istance ^. instanceModel)
+            Just istance -> assertEqual "State contains the n-th Fibonacci number." (fibNBytes n) (instanceModel istance)
 
         fib n = let go = 1:1:zipWith (+) go (tail go)
                 in go !! n
