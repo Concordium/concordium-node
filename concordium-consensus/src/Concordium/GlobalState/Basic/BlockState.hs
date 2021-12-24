@@ -31,6 +31,7 @@ import qualified Concordium.Genesis.Data as GenesisData
 import qualified Concordium.Genesis.Data.P1 as P1
 import qualified Concordium.Genesis.Data.P2 as P2
 import qualified Concordium.Genesis.Data.P3 as P3
+import qualified Concordium.Genesis.Data.P4 as P4
 import qualified Concordium.GlobalState.Types as GT
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Parameters
@@ -899,6 +900,9 @@ genesisState gd = case protocolVersion @pv of
                     SP3 -> case gd of
                       GDP3 P3.GDP3Initial{..} -> mkGenesisStateInitial genesisCore genesisInitialState
                       GDP3 P3.GDP3Regenesis{..} -> mkGenesisStateRegenesis genesisRegenesis
+                    SP4 -> case gd of
+                      GDP4 P4.GDP4Initial{..} -> mkGenesisStateInitial genesisCore genesisInitialState
+                      GDP4 P4.GDP4Regenesis{..} -> mkGenesisStateRegenesis genesisRegenesis
     where
         mkGenesisStateInitial GenesisData.CoreGenesisParameters{..} GenesisData.GenesisState{..} = do
             accounts <- mapM mkAccount (zip [0..] (toList genesisAccounts))

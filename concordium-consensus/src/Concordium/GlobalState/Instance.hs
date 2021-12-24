@@ -57,7 +57,6 @@ data InstanceV v = InstanceV {
   _instanceVHash :: H.Hash
   }
 
--- TODO: Use MakeClassy with parameters?
 makeLenses 'InstanceV
 
 class HasInstanceFields a where
@@ -66,8 +65,11 @@ class HasInstanceFields a where
   instanceHash :: Lens' a H.Hash
 
 instance HasInstanceFields (InstanceV v) where
+  {-# INLINE instanceAmount #-}
   instanceAmount = instanceVAmount
+  {-# INLINE instanceModel #-}
   instanceModel = instanceVModel
+  {-# INLINE instanceHash #-}
   instanceHash = instanceVHash
 
 instance HasInstanceFields Instance where
