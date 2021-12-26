@@ -35,6 +35,10 @@ module Concordium.Scheduler
   (filterTransactions
   ,runTransactions
   ,execTransactions
+  ,handleContractUpdateV1
+  ,handleContractUpdateV0
+  ,checkAndGetBalanceInstance
+  ,checkAndGetBalanceAccount
   ,FilteredTransactions(..)
   ) where
 import qualified Concordium.GlobalState.Wasm as GSWasm
@@ -163,7 +167,7 @@ dispatch msg = do
           -- the header and reject the transaction; we have checked that the amount
           -- exists on the account with 'checkHeader'.
           payment <- energyToGtu checkHeaderCost
-          chargeExecutionCost (transactionHash msg) senderAccount payment
+          chargeExecutionCost senderAccount payment
           return $ Just $ TxValid $ TransactionSummary{
             tsEnergyCost = checkHeaderCost,
             tsCost = payment,
@@ -301,7 +305,7 @@ handleTransferWithSchedule wtc twsTo twsSchedule maybeMemo = withDeposit wtc c k
               unless (senderAmount >= transferAmount) $! rejectTransaction (AmountTooLarge (AddressAccount senderAddress) transferAmount)
 
               -- check the target account
-              targetAccount <- getStateAccount twsTo `rejectingWith` InvalidAccountReference twsTo
+              targetAccount <- getAccount twsTo `rejectingWith` InvalidAccountReference twsTo
               -- In protocol version P3 account addresses are no longer in 1-1
               -- correspondence with accounts. Thus to check that a scheduled
               -- transfer is not a self transfer we need to check canonical
@@ -318,7 +322,7 @@ handleTransferWithSchedule wtc twsTo twsSchedule maybeMemo = withDeposit wtc c k
 
         k ls () = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
-          chargeExecutionCost txHash senderAccount energyCost
+          chargeExecutionCost senderAccount energyCost
           commitChanges (ls ^. changeSet)
           let eventList = TransferredWithSchedule{etwsFrom = senderAddress, etwsTo = twsTo, etwsAmount = twsSchedule}
                   : (TransferMemo <$> maybeToList maybeMemo)
@@ -336,7 +340,6 @@ handleTransferToPublic wtc transferData@SecToPubAmountTransferData{..} = do
   cryptoParams <- getCryptoParams
   withDeposit wtc (c cryptoParams) k
   where senderAccount = wtc ^. wtcSenderAccount
-        txHash = wtc ^. wtcTransactionHash
         meta = wtc ^. wtcTransactionHeader
         senderAddress = thSender meta
         c cryptoParams = do
@@ -365,7 +368,7 @@ handleTransferToPublic wtc transferData@SecToPubAmountTransferData{..} = do
 
         k ls senderAmount = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
-          chargeExecutionCost txHash senderAccount energyCost
+          chargeExecutionCost senderAccount energyCost
           notifyEncryptedBalanceChange $ amountDiff 0 stpatdTransferAmount
           commitChanges (ls ^. changeSet)
           return (TxSuccess [EncryptedAmountsRemoved{
@@ -391,7 +394,6 @@ handleTransferToEncrypted wtc toEncrypted = do
   cryptoParams <- getCryptoParams
   withDeposit wtc (c cryptoParams) k
   where senderAccount = wtc ^. wtcSenderAccount
-        txHash = wtc ^. wtcTransactionHash
         meta = wtc ^. wtcTransactionHeader
         senderAddress = thSender meta
 
@@ -416,7 +418,7 @@ handleTransferToEncrypted wtc toEncrypted = do
 
         k ls encryptedAmount = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
-          chargeExecutionCost txHash senderAccount energyCost
+          chargeExecutionCost senderAccount energyCost
           notifyEncryptedBalanceChange $ amountToDelta toEncrypted
           commitChanges (ls ^. changeSet)
 
@@ -439,7 +441,6 @@ handleEncryptedAmountTransfer wtc toAddress transferData@EncryptedAmountTransfer
   cryptoParams <- getCryptoParams
   withDeposit wtc (c cryptoParams) k
   where senderAccount = wtc ^. wtcSenderAccount
-        txHash = wtc ^. wtcTransactionHash
         meta = wtc ^. wtcTransactionHeader
         senderAddress = thSender meta
 
@@ -462,7 +463,7 @@ handleEncryptedAmountTransfer wtc toAddress transferData@EncryptedAmountTransfer
 
           -- Look up the receiver account first, and don't charge if it does not exist
           -- and does not have a valid credential.
-          targetAccount <- getStateAccount toAddress `rejectingWith` InvalidAccountReference toAddress
+          targetAccount <- getAccount toAddress `rejectingWith` InvalidAccountReference toAddress
           -- Check that the account is not transferring to itself since that
           -- causes technical complications. In protocol versions 1 and 2
           -- account addresses and accounts were in 1-1 correspondence. In
@@ -501,7 +502,7 @@ handleEncryptedAmountTransfer wtc toAddress transferData@EncryptedAmountTransfer
 
         k ls (targetAccountEncryptedAmountIndex, senderAmount) = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
-          chargeExecutionCost txHash senderAccount energyCost
+          chargeExecutionCost senderAccount energyCost
           commitChanges (ls ^. changeSet)
           let eventList = [EncryptedAmountsRemoved{
                                 earAccount = senderAddress,
@@ -530,7 +531,6 @@ handleDeployModule wtc mod =
   withDeposit wtc c k
   where
     senderAccount = wtc ^. wtcSenderAccount
-    txHash = wtc ^. wtcTransactionHash
     meta = wtc ^. wtcTransactionHeader
 
     -- Size of the module source
@@ -558,7 +558,7 @@ handleDeployModule wtc mod =
 
     k ls (iface, mhash) = do
       (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
-      chargeExecutionCost txHash senderAccount energyCost
+      chargeExecutionCost senderAccount energyCost
       -- Add the module to the global state (module interface, value interface and module itself).
       -- We know the module does not exist at this point, so we can ignore the return value.
       _ <- commitModule (iface, mod)
@@ -614,7 +614,6 @@ handleInitContract ::
 handleInitContract wtc initAmount modref initName param =
   withDeposit wtc c k
     where senderAccount = wtc ^. wtcSenderAccount
-          txHash = wtc ^. wtcTransactionHash
           meta = wtc ^. wtcTransactionHeader
           -- The contract gets the address that was used when signing the
           -- transactions, as opposed to the canonical one.
@@ -693,7 +692,7 @@ handleInitContract wtc initAmount modref initName param =
           k ls (Left (iface, result)) = do
             let model = Wasm.newState result
             (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
-            chargeExecutionCost txHash senderAccount energyCost
+            chargeExecutionCost senderAccount energyCost
 
             -- Withdraw the amount the contract is initialized with from the sender account.
             cs' <- addAmountToCS senderAccount (amountDiff 0 initAmount) (ls ^. changeSet)
@@ -715,7 +714,7 @@ handleInitContract wtc initAmount modref initName param =
           k ls (Right (iface, result)) = do
             let model = WasmV1.irdNewState result
             (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
-            chargeExecutionCost txHash senderAccount energyCost
+            chargeExecutionCost senderAccount energyCost
 
             -- Withdraw the amount the contract is initialized with from the sender account.
             cs' <- addAmountToCS senderAccount (amountDiff 0 initAmount) (ls ^. changeSet)
@@ -755,7 +754,7 @@ handleSimpleTransfer wtc toAddr transferamount maybeMemo =
             unless (senderamount >= transferamount) $! rejectTransaction (AmountTooLarge (AddressAccount senderAddress) transferamount)
             
             -- Check whether target account exists and get it.
-            targetAccount <- getStateAccount toAddr `rejectingWith` InvalidAccountReference toAddr
+            targetAccount <- getAccount toAddr `rejectingWith` InvalidAccountReference toAddr
             
             -- Add the transfer to the current changeset and return the corresponding event.
             withAccountToAccountAmount senderAccount targetAccount transferamount $
@@ -775,49 +774,64 @@ handleUpdateContract wtc uAmount uAddress uReceiveName uMessage =
   where senderAccount = wtc ^. wtcSenderAccount
         meta = wtc ^. wtcTransactionHeader
         senderAddress = thSender meta
+        checkAndGetBalance = checkAndGetBalanceAccount senderAddress senderAccount
         c = do
           getCurrentContractInstanceTicking uAddress >>= \case
             InstanceV0 ins -> 
                 -- Now invoke the general handler for contract messages.
-                handleMessage senderAddress
+                handleContractUpdateV0 senderAddress
                               ins
-                              (Right (senderAddress, senderAccount))
+                              checkAndGetBalance
                               uAmount
                               uReceiveName
                               uMessage
             InstanceV1 ins -> do
-              handleContractUpdateV1 senderAddress ins (Right (senderAddress, senderAccount)) uAmount uReceiveName uMessage >>= \case
+              handleContractUpdateV1 senderAddress ins checkAndGetBalance uAmount uReceiveName uMessage >>= \case
                 Left cer -> rejectTransaction (WasmV1.cerToRejectReasonReceive uAddress uReceiveName uMessage cer)
                 Right (_, events) -> return events
 
-handleContractUpdateV1 :: forall pv m vOrigin.
+checkAndGetBalanceAccount :: (TransactionMonad pv m, AccountOperations m)
+    => AccountAddress -- ^Used address
+    -> IndexedAccount m
+    -> Amount
+    -> m (Address, [ID.AccountCredential], (Either ContractAddress IndexedAccountAddress))
+checkAndGetBalanceAccount usedAddress senderAccount transferAmount = do
+  (senderAddr, senderCredentials) <- mkSenderAddrCredentials (Right (usedAddress, senderAccount))
+  senderamount <- getAccountAvailableAmount (snd senderAccount)
+  unless (senderamount >= transferAmount) $ rejectTransaction (AmountTooLarge senderAddr transferAmount)
+  canonicalAddr <- getAccountCanonicalAddress (snd senderAccount)
+  return (senderAddr, senderCredentials, Right (fst senderAccount, canonicalAddr))
+
+checkAndGetBalanceInstance :: (TransactionMonad pv m, AccountOperations m)
+    => IndexedAccount m
+    -> InstanceV vOrigin
+    -> Amount
+    -> m (Address, [ID.AccountCredential], (Either ContractAddress IndexedAccountAddress))
+checkAndGetBalanceInstance ownerAccount istance transferAmount = do
+  (senderAddr, senderCredentials) <- mkSenderAddrCredentials (Left (ownerAccount, instanceAddress istance))
+  senderamount <- getCurrentContractAmount istance
+  unless (senderamount >= transferAmount) $ rejectTransaction (AmountTooLarge senderAddr transferAmount)
+  return (senderAddr, senderCredentials, (Left (instanceAddress istance)))
+
+handleContractUpdateV1 :: forall pv m.
   (TransactionMonad pv m, AccountOperations m)
   => AccountAddress -- ^The address that was used to send the top-level transaction.
   -> InstanceV GSWasm.V1 -- ^The current state of the target contract of the transaction, which must exist.
-  -> Either (IndexedAccount m, InstanceV vOrigin) (AccountAddress, IndexedAccount m)
-  -- ^The sender of the message (contract instance or account). In case this is
-  -- a contract the first parameter is the owner account of the instance. In case this is an account
+  -> (Amount -> m (Address, [ID.AccountCredential], (Either ContractAddress IndexedAccountAddress)))
+  -- ^Check that the sender has sufficient amount to cover the given amount and return a triple of
+  -- - used address
+  -- - credentials of the address, either account or owner of the contract
+  -- - resolved address. In case this is an account
   -- (i.e., this is called from a top-level transaction) the value is a pair of the address that was used
   -- as the sender address of the transaction, and the account to which it points.
-  -- On the first invocation of this function this will be the sender of the
-  -- top-level transaction, and in recursive calls the respective contract
-  -- instance that produced the message.
   -> Amount -- ^The amount to be transferred from the sender of the message to the contract upon success.
   -> Wasm.ReceiveName -- ^Name of the contract to invoke.
   -> Wasm.Parameter -- ^Message to invoke the receive method with.
   -> m (Either WasmV1.ContractCallFailure (WasmV1.ReturnValue, [Event])) -- ^The events resulting from processing the message and all recursively processed messages.
-handleContractUpdateV1 originAddr istance sender transferAmount receiveName parameter = do
+handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount receiveName parameter = do
   -- Cover administrative costs.
   tickEnergy Cost.updateContractInstanceBaseCost
   let model = _instanceVModel istance
-
-  -- Check whether the sender of the message has enough on its account/instance for the transfer.
-  -- If the amount is not sufficient, the top-level transaction is rejected.
-  -- Note that this returns the address that was used in the top-level transaction, or the contract address.
-  -- In the former case the credentials are credentials of the account, in the
-  -- latter they are credentials of the owner account.
-  (senderAddr, senderCredentials) <- mkSenderAddrCredentials sender
-  
   let iParams = _instanceVParameters istance
   let cref = instanceAddress iParams
   let receivefuns = instanceReceiveFuns . _instanceVParameters $ istance
@@ -826,12 +840,9 @@ handleContractUpdateV1 originAddr istance sender transferAmount receiveName para
   let ownerAccountAddress = instanceOwner iParams
   -- The invariants maintained by global state should ensure that an owner account always exists.
   -- However we are defensive here and reject the transaction instead of panicking in case it does not.
-  ownerAccount <- getStateAccount ownerAccountAddress `rejectingWith` InvalidAccountReference ownerAccountAddress
+  ownerAccount <- getAccount ownerAccountAddress `rejectingWith` InvalidAccountReference ownerAccountAddress
 
-  -- transfer the amount from the sender to the contract at the start. This is so that the contract may immediately use it
-  -- for, e.g., forwarding.
-  senderamount <- getCurrentAvailableAmount sender
-  unless (senderamount >= transferAmount) $ rejectTransaction (AmountTooLarge senderAddr transferAmount)
+  (senderAddr, senderCredentials, sender) <- checkAndGetSender transferAmount
 
   cm <- getChainMetadata
   let receiveCtx = Wasm.ReceiveContext {
@@ -880,7 +891,7 @@ handleContractUpdateV1 originAddr istance sender transferAmount receiveName para
                    getCurrentContractInstanceTicking' imcTo >>= \case
                      Nothing -> go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState (WasmV1.Error (WasmV1.EnvFailure (WasmV1.MissingContract imcTo))) Nothing)
                      Just (InstanceV0 targetInstance) -> do
-                       let runSuccess = Right <$> handleMessage originAddr targetInstance (Left (ownerAccount, istance)) imcAmount imcName imcParam
+                       let runSuccess = Right <$> handleContractUpdateV0 originAddr targetInstance (checkAndGetBalanceInstance ownerAccount istance) imcAmount imcName imcParam
                        (runSuccess `orElseWith` (return . Left)) >>= \case
                           Left rr -> -- execution failed.
                             go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState (WasmV1.Error (WasmV1.EnvFailure (WasmV1.MessageFailed rr))) Nothing)
@@ -888,7 +899,7 @@ handleContractUpdateV1 originAddr istance sender transferAmount receiveName para
                             newState <- getCurrentContractInstanceState istance
                             go (evs ++ events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig newState WasmV1.Success Nothing)
                      Just (InstanceV1 targetInstance) -> do
-                       withRollback (handleContractUpdateV1 originAddr targetInstance (Left (ownerAccount, istance)) imcAmount imcName imcParam) >>= \case
+                       withRollback (handleContractUpdateV1 originAddr targetInstance (checkAndGetBalanceInstance ownerAccount istance) imcAmount imcName imcParam) >>= \case
                           Left cer ->
                             go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState (WasmV1.Error cer) (WasmV1.ccfToReturnValue cer))
                           Right (rVal, callEvents) -> do
@@ -896,6 +907,8 @@ handleContractUpdateV1 originAddr istance sender transferAmount receiveName para
                             go (callEvents ++ events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig newState WasmV1.Success (Just rVal))
 
   -- start contract execution.
+  -- transfer the amount from the sender to the contract at the start. This is so that the contract may immediately use it
+  -- for, e.g., forwarding.
   withToContractAmount sender istance transferAmount $
     go [] =<< runInterpreter (return . WasmV1.applyReceiveFun iface cm receiveCtx receiveName parameter transferAmount model)
           
@@ -912,11 +925,11 @@ handleContractUpdateV1 originAddr istance sender transferAmount receiveName para
             let addr = AddressContract (instanceAddress senderInstance)
             unless (senderamount >= tAmount) $! throwError (WasmV1.AmountTooLarge addr tAmount)
             -- Check whether target account exists and get it.
-            lift (getStateAccount accAddr) >>=  \case
+            lift (getAccount accAddr) >>=  \case
               Nothing -> throwError (WasmV1.MissingAccount accAddr)
               Just targetAccount -> 
                 -- Add the transfer to the current changeset and return the corresponding event.
-                lift (withContractToAccountAmount senderInstance targetAccount tAmount $
+                lift (withContractToAccountAmount (instanceAddress senderInstance) targetAccount tAmount $
                       return [Transferred addr transferAmount (AddressAccount accAddr)])
            
 
@@ -924,11 +937,11 @@ handleContractUpdateV1 originAddr istance sender transferAmount receiveName para
 -- This includes the transfer of an amount from the sending account or instance.
 -- Recursively do the same for new messages created by contracts (from left to right, depth first).
 -- The target contract must exist, so that its state can be looked up.
-handleMessage :: forall pv m v.
+handleContractUpdateV0 :: forall pv m.
   (TransactionMonad pv m, AccountOperations m)
   => AccountAddress -- ^The address that was used to send the top-level transaction.
   -> InstanceV GSWasm.V0 -- ^The current state of the target contract of the transaction, which must exist.
-  -> Either (IndexedAccount m, InstanceV v) (AccountAddress, IndexedAccount m)
+  -> (Amount -> m (Address, [ID.AccountCredential], (Either ContractAddress IndexedAccountAddress)))
   -- ^The sender of the message (contract instance or account). In case this is
   -- a contract the first parameter is the owner account of the instance. In case this is an account
   -- (i.e., this is called from a top-level transaction) the value is a pair of the address that was used
@@ -940,7 +953,7 @@ handleMessage :: forall pv m v.
   -> Wasm.ReceiveName -- ^Name of the contract to invoke.
   -> Wasm.Parameter -- ^Message to invoke the receive method with.
   -> m [Event] -- ^The events resulting from processing the message and all recursively processed messages.
-handleMessage originAddr istance sender transferAmount receiveName parameter = do
+handleContractUpdateV0 originAddr istance checkAndGetSender transferAmount receiveName parameter = do
   -- Cover administrative costs.
   tickEnergy Cost.updateContractInstanceBaseCost
 
@@ -950,9 +963,7 @@ handleMessage originAddr istance sender transferAmount receiveName parameter = d
   -- Note that this returns the address that was used in the top-level transaction, or the contract address.
   -- In the former case the credentials are credentials of the account, in the
   -- latter they are credentials of the owner account.
-  (senderAddr, senderCredentials) <- mkSenderAddrCredentials sender
-  senderamount <- getCurrentAvailableAmount sender
-  unless (senderamount >= transferAmount) $ rejectTransaction (AmountTooLarge senderAddr transferAmount)
+  (senderAddr, senderCredentials, sender) <- checkAndGetSender transferAmount
 
   let iParams = _instanceVParameters istance
   let cref = instanceAddress iParams
@@ -964,7 +975,7 @@ handleMessage originAddr istance sender transferAmount receiveName parameter = d
   let ownerAccountAddress = instanceOwner iParams
   -- The invariants maintained by global state should ensure that an owner account always exists.
   -- However we are defensive here and reject the transaction instead of panicking in case it does not.
-  ownerAccount <- getStateAccount ownerAccountAddress `rejectingWith` InvalidAccountReference ownerAccountAddress
+  ownerAccount <- getAccount ownerAccountAddress `rejectingWith` InvalidAccountReference ownerAccountAddress
   cm <- getChainMetadata
 
   -- We have established that the owner account of the receiver instance has at least one valid credential.
@@ -1029,9 +1040,9 @@ foldEvents :: (TransactionMonad pv m, AccountOperations m)
 foldEvents originAddr istance initEvent = fmap (initEvent:) . go
   where go Wasm.TSend{..} = do
           getCurrentContractInstanceTicking erAddr >>= \case
-            InstanceV0 cinstance -> handleMessage originAddr
+            InstanceV0 cinstance -> handleContractUpdateV0 originAddr
                                    cinstance
-                                   (Left istance)
+                                   (uncurry checkAndGetBalanceInstance istance)
                                    erAmount
                                    erName
                                    erParameter
@@ -1039,7 +1050,7 @@ foldEvents originAddr istance initEvent = fmap (initEvent:) . go
               let c = handleContractUpdateV1
                       originAddr
                       cinstance
-                      (Left istance)
+                      (uncurry checkAndGetBalanceInstance istance)
                       erAmount
                       erName
                       erParameter
@@ -1059,12 +1070,12 @@ foldEvents originAddr istance initEvent = fmap (initEvent:) . go
           go l `orElse` go r
         go Wasm.Accept = return []
 
-mkSenderAddrCredentials :: AccountOperations m => Either (IndexedAccount m, InstanceV v) (AccountAddress, IndexedAccount m) -> m (Address, [ID.AccountCredential])
+mkSenderAddrCredentials :: AccountOperations m => Either (IndexedAccount m, ContractAddress) (AccountAddress, IndexedAccount m) -> m (Address, [ID.AccountCredential])
 mkSenderAddrCredentials sender =
     case sender of
-      Left (ownerAccount, istance) -> do
+      Left (ownerAccount, iaddr) -> do
         credentials <- getAccountCredentials (snd ownerAccount)
-        return (AddressContract (instanceAddress (_instanceVParameters istance)), map snd (OrdMap.toAscList credentials))
+        return (AddressContract iaddr, map snd (OrdMap.toAscList credentials))
       Right (usedAddress, (_, acc)) -> do
         let addr = AddressAccount usedAddress
         credentials <- getAccountCredentials acc
@@ -1087,10 +1098,10 @@ handleTransferAccount accAddr senderInstance transferamount = do
   unless (senderamount >= transferamount) $! rejectTransaction (AmountTooLarge addr transferamount)
 
   -- Check whether target account exists and get it.
-  targetAccount <- getStateAccount accAddr `rejectingWith` InvalidAccountReference accAddr
+  targetAccount <- getAccount accAddr `rejectingWith` InvalidAccountReference accAddr
 
   -- Add the transfer to the current changeset and return the corresponding event.
-  withContractToAccountAmount senderInstance targetAccount transferamount $
+  withContractToAccountAmount (instanceAddress senderInstance) targetAccount transferamount $
       return [Transferred addr transferamount (AddressAccount accAddr)]
 
 -- |Run the interpreter with the remaining amount of energy. If the interpreter
@@ -1151,7 +1162,6 @@ handleAddBaker ::
 handleAddBaker wtc abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyKey abProofSig abProofElection abProofAggregation abBakingStake abRestakeEarnings =
   withDeposit wtc c k
   where senderAccount = wtc ^. wtcSenderAccount
-        txHash = wtc ^. wtcTransactionHash
         meta = wtc ^. wtcTransactionHeader
         senderAddress = thSender meta
         c = do
@@ -1161,7 +1171,7 @@ handleAddBaker wtc abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyK
           getCurrentAccountTotalAmount senderAccount
         k ls accountBalance = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
-          chargeExecutionCost txHash senderAccount energyCost
+          chargeExecutionCost senderAccount energyCost
 
           let challenge = addBakerChallenge senderAddress abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyKey
               electionP = checkElectionKeyProof challenge abElectionVerifyKey abProofElection
@@ -1214,13 +1224,12 @@ handleRemoveBaker ::
 handleRemoveBaker wtc =
   withDeposit wtc c k
   where senderAccount = wtc ^. wtcSenderAccount
-        txHash = wtc ^. wtcTransactionHash
         meta = wtc ^. wtcTransactionHeader
         senderAddress = thSender meta
         c = tickEnergy Cost.removeBakerCost
         k ls () = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
-          chargeExecutionCost txHash senderAccount energyCost
+          chargeExecutionCost senderAccount energyCost
 
           res <- removeBaker (fst senderAccount)
           case res of
@@ -1243,7 +1252,6 @@ handleUpdateBakerStake wtc newStake =
     withDeposit wtc c k
   where
     senderAccount = wtc ^. wtcSenderAccount
-    txHash = wtc ^. wtcTransactionHash
     meta = wtc ^. wtcTransactionHeader
     senderAddress = thSender meta
     c = do
@@ -1253,7 +1261,7 @@ handleUpdateBakerStake wtc newStake =
       getCurrentAccountTotalAmount senderAccount
     k ls accountBalance = do
       (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
-      chargeExecutionCost txHash senderAccount energyCost
+      chargeExecutionCost senderAccount energyCost
       if accountBalance < newStake then
         -- The balance is insufficient.
         return (TxReject InsufficientBalanceForBakerStake, energyCost, usedEnergy)
@@ -1281,13 +1289,12 @@ handleUpdateBakerRestakeEarnings ::
 handleUpdateBakerRestakeEarnings wtc newRestakeEarnings = withDeposit wtc c k
   where
     senderAccount = wtc ^. wtcSenderAccount
-    txHash = wtc ^. wtcTransactionHash
     meta = wtc ^. wtcTransactionHeader
     senderAddress = thSender meta
     c = tickEnergy Cost.updateBakerRestakeCost
     k ls () = do
       (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
-      chargeExecutionCost txHash senderAccount energyCost
+      chargeExecutionCost senderAccount energyCost
 
       res <- updateBakerRestakeEarnings (fst senderAccount) newRestakeEarnings
       case res of
@@ -1322,13 +1329,12 @@ handleUpdateBakerKeys ::
 handleUpdateBakerKeys wtc bkuElectionKey bkuSignKey bkuAggregationKey bkuProofSig bkuProofElection bkuProofAggregation =
   withDeposit wtc c k
   where senderAccount = wtc ^. wtcSenderAccount
-        txHash = wtc ^. wtcTransactionHash
         meta = wtc ^. wtcTransactionHeader
         senderAddress = thSender meta
         c = tickEnergy Cost.updateBakerKeysCost
         k ls _ = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
-          chargeExecutionCost txHash senderAccount energyCost
+          chargeExecutionCost senderAccount energyCost
 
           let challenge = updateBakerKeyChallenge senderAddress bkuElectionKey bkuSignKey bkuAggregationKey
               electionP = checkElectionKeyProof challenge bkuElectionKey bkuProofElection
@@ -1451,7 +1457,6 @@ handleUpdateCredentialKeys wtc cid keys sigs =
   withDeposit wtc c k
   where
     senderAccount = wtc ^. wtcSenderAccount
-    txHash = wtc ^. wtcTransactionHash
     meta = wtc ^. wtcTransactionHeader
 
     c = do
@@ -1473,7 +1478,7 @@ handleUpdateCredentialKeys wtc cid keys sigs =
           return index
     k ls index = do
       (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
-      chargeExecutionCost txHash senderAccount energyCost
+      chargeExecutionCost senderAccount energyCost
       updateCredentialKeys (fst senderAccount) index keys
       return (TxSuccess [CredentialKeysUpdated cid], energyCost, usedEnergy)
 
@@ -1552,7 +1557,6 @@ handleUpdateCredentials wtc cdis removeRegIds threshold =
   withDeposit wtc c k
   where
     senderAccount = wtc ^. wtcSenderAccount
-    txHash = wtc ^. wtcTransactionHash
     meta = wtc ^. wtcTransactionHeader
     senderAddress = thSender meta
 
@@ -1572,7 +1576,7 @@ handleUpdateCredentials wtc cdis removeRegIds threshold =
 
     k ls existingCredentials = do
       (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
-      chargeExecutionCost txHash senderAccount energyCost
+      chargeExecutionCost senderAccount energyCost
       cryptoParams <- getCryptoParams
 
       -- check that all credentials that are to be removed actually exist.

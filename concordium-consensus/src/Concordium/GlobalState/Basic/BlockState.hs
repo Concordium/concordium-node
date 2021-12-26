@@ -352,6 +352,10 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
     getModule bs mref =
         return $ bs ^. blockModules . to (Modules.getSource mref)
 
+    {-# INLINE getModuleInterface #-}
+    getModuleInterface bs mref =
+        return $ bs ^. blockModules . to (Modules.getInterface mref)
+
     {-# INLINE getContractInstance #-}
     getContractInstance bs caddr = return (Instances.getInstance caddr (bs ^. blockInstances))
 

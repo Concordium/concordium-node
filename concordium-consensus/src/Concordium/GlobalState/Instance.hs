@@ -4,6 +4,7 @@
 module Concordium.GlobalState.Instance where
 
 import Data.Aeson
+import Data.Maybe
 import Data.Serialize
 import qualified Data.Set as Set
 import qualified Concordium.Crypto.SHA256 as H
@@ -195,24 +196,25 @@ iaddress (InstanceV1 InstanceV{..}) = _instanceAddress  _instanceVParameters
 
 -- |Update a given smart contract instance.
 -- FIXME: Updates to the state should be done better in the future, we should not just replace it.
-updateInstanceV :: AmountDelta -> Wasm.ContractState -> InstanceV v -> InstanceV v
+updateInstanceV :: AmountDelta -> Maybe Wasm.ContractState -> InstanceV v -> InstanceV v
 updateInstanceV delta val i =  updateInstanceV' amnt val i
   where amnt = applyAmountDelta delta (_instanceVAmount i)
 
-updateInstance :: AmountDelta -> Wasm.ContractState -> Instance -> Instance
+updateInstance :: AmountDelta -> Maybe Wasm.ContractState -> Instance -> Instance
 updateInstance delta val (InstanceV0 i) = InstanceV0 $ updateInstanceV delta val i
 updateInstance delta val (InstanceV1 i) = InstanceV1 $ updateInstanceV delta val i
 
 
 -- |Update a given smart contract instance with exactly the given amount and state.
-updateInstanceV' :: Amount -> Wasm.ContractState -> InstanceV v -> InstanceV v
+updateInstanceV' :: Amount -> Maybe Wasm.ContractState -> InstanceV v -> InstanceV v
 updateInstanceV' amnt val i =  i {
-                                _instanceVModel = val,
+                                _instanceVModel = newVal,
                                 _instanceVAmount = amnt,
-                                _instanceVHash = makeInstanceHash ( _instanceVParameters i) val amnt
+                                _instanceVHash = makeInstanceHash ( _instanceVParameters i) newVal amnt
                             }
+  where newVal = fromMaybe (_instanceVModel i) val
 
-updateInstance' :: Amount -> Wasm.ContractState -> Instance -> Instance
+updateInstance' :: Amount -> Maybe Wasm.ContractState -> Instance -> Instance
 updateInstance' amnt val (InstanceV0 i) = InstanceV0 $ updateInstanceV' amnt val i
 updateInstance' amnt val (InstanceV1 i) = InstanceV1 $ updateInstanceV' amnt val i
 

@@ -190,6 +190,10 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
 class AccountOperations m => BlockStateQuery m where
     -- |Get the module source from the module table as deployed to the chain.
     getModule :: BlockState m -> ModuleRef -> m (Maybe Wasm.WasmModule)
+
+    -- |Get the module source from the module table as deployed to the chain.
+    getModuleInterface :: BlockState m -> ModuleRef -> m (Maybe GSWasm.ModuleInterface)
+
     -- |Get the account state from the account table of the state instance.
     getAccount :: BlockState m -> AccountAddress -> m (Maybe (AccountIndex, Account m))
 
@@ -369,7 +373,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   bsoModifyInstance :: UpdatableBlockState m
                     -> ContractAddress
                     -> AmountDelta
-                    -> Wasm.ContractState
+                    -> Maybe Wasm.ContractState
                     -> m (UpdatableBlockState m)
 
   -- |Notify that some amount was transferred from/to encrypted balance of some account.
@@ -619,6 +623,7 @@ class (BlockStateOperations m, Serialize (BlockStateRef m)) => BlockStateStorage
 
 instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGSTrans t m) where
   getModule s = lift . getModule s
+  getModuleInterface s = lift . getModuleInterface s
   getAccount s = lift . getAccount s
   getAccountByCredId s = lift . getAccountByCredId s
   getBakerAccount s = lift . getBakerAccount s

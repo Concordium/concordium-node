@@ -32,6 +32,8 @@ import Concordium.Types.Queries
 import Concordium.Types.SeedState
 import qualified Concordium.Wasm as Wasm
 
+import qualified Concordium.Scheduler.InvokeContract as InvokeContract
+
 import Concordium.Afgjort.Finalize.Types (FinalizationCommittee (..), PartyInfo (..))
 import Concordium.Afgjort.Monad
 import Concordium.Birk.Bake
@@ -568,6 +570,18 @@ getTransactionStatusInBlock trHash blockHash =
                                     return $ Just $ BTSFinalized outcome
                         else return $ Just BTSNotInBlock
             )
+
+-- * Smart contract invocations
+invokeContract :: BlockHash -> InvokeContract.ContractContext -> MVR gsconf finconf (Maybe InvokeContract.InvokeContractResult)
+invokeContract bh cctx =
+    liftSkovQueryBlockAndVersion
+    (\(_ :: VersionedConfiguration gsconf finconf pv) bp -> do
+        bs <- blockState bp
+        cm <- ChainMetadata <$> getSlotTimestamp (blockSlot bp)
+        InvokeContract.invokeContract (protocolVersion @pv) cctx cm bs)
+    bh
+    
+
 
 -- * Miscellaneous
 

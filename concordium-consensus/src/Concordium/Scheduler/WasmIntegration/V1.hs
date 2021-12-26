@@ -33,12 +33,14 @@ import Foreign.Storable
 import Data.Bits
 import Data.Int
 import Data.Word
+import qualified Data.Aeson as AE
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
 import Data.Serialize
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Base16 as BS16
 import qualified Data.ByteString.Short as BSS
 import qualified Data.ByteString.Unsafe as BSU
 import System.IO.Unsafe
@@ -75,6 +77,10 @@ returnValueToByteString rv = unsafePerformIO $
     rp <- return_value_to_byte_array p outputLenPtr
     len <- peek outputLenPtr
     BSU.unsafePackCStringFinalizer rp (fromIntegral len) (rs_free_array_len rp (fromIntegral len))
+
+-- json instance based on hex
+instance AE.ToJSON ReturnValue where
+  toJSON = AE.String . Text.decodeUtf8 . BS16.encode . returnValueToByteString
 
 -- |State of the Wasm module when a host operation is invoked (a host operation
 -- is either a transfer to an account, or a contract call, at present). This can

@@ -41,12 +41,12 @@ getInstance addr (Instances iss) = iss ^? ix addr
 
 -- |Update the instance at the specified address with an amount delta and value.
 -- If there is no instance with the given address, this does nothing.
-updateInstanceAt :: ContractAddress -> AmountDelta -> Wasm.ContractState -> Instances -> Instances
+updateInstanceAt :: ContractAddress -> AmountDelta -> Maybe Wasm.ContractState -> Instances -> Instances
 updateInstanceAt ca amt val (Instances iss) = Instances (iss & ix ca %~ updateInstance amt val)
 
 -- |Update the instance at the specified address with a __new amount__ and value.
 -- If there is no instance with the given address, this does nothing.
-updateInstanceAt' :: ContractAddress -> Amount -> Wasm.ContractState -> Instances -> Instances
+updateInstanceAt' :: ContractAddress -> Amount -> Maybe Wasm.ContractState -> Instances -> Instances
 updateInstanceAt' ca amt val (Instances iss) = Instances (iss & ix ca %~ updateInstance' amt val)
 
 -- |Create a new smart contract instance.

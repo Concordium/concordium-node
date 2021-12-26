@@ -122,6 +122,13 @@ instance (MonadReader ContextState m,
   {-# INLINE getAccountCreationLimit #-}
   getAccountCreationLimit = view accountCreationLimit
 
+  {-# INLINE getContractInstance #-}
+  getContractInstance addr = lift . flip bsoGetInstance addr =<< use schedulerBlockState
+
+  {-# INLINE getAccount #-}
+  getAccount !addr = lift . flip bsoGetAccount addr =<< use schedulerBlockState
+
+
 instance (MonadReader ContextState m,
           SS state ~ UpdatableBlockState m,
           HasSchedulerState state,
@@ -151,12 +158,6 @@ instance (MonadReader ContextState m,
 
   {-# INLINE bumpTransactionIndex #-}
   bumpTransactionIndex = nextIndex <<%= (+1)
-
-  {-# INLINE getContractInstance #-}
-  getContractInstance addr = lift . flip bsoGetInstance addr =<< use schedulerBlockState
-
-  {-# INLINE getAccount #-}
-  getAccount !addr = lift . flip bsoGetAccount addr =<< use schedulerBlockState
 
   {-# INLINE getAccountIndex #-}
   getAccountIndex addr = lift  . flip bsoGetAccountIndex addr =<< use schedulerBlockState

@@ -278,7 +278,7 @@ testUpdates n0 = if n0 <= 0 then return (property True) else tu n0 emptyInstance
                     InstanceData v a <- arbitrary
                     let
                         ca = ContractAddress ci csi
-                        insts' = updateInstanceAt' ca a v insts
+                        insts' = updateInstanceAt' ca a (Just v) insts
                         model' = modelUpdateInstanceAt ca a v model
                     tu (n-1) insts' model'
                 updateExisting = do
@@ -287,7 +287,7 @@ testUpdates n0 = if n0 <= 0 then return (property True) else tu n0 emptyInstance
                     InstanceData v a <- arbitrary
                     let
                         ca = ContractAddress ci csi
-                        insts' = updateInstanceAt' ca a v insts
+                        insts' = updateInstanceAt' ca a (Just v) insts
                         model' = modelUpdateInstanceAt ca a v model
                     tu (n-1) insts' model'
                 deleteExisting = do
@@ -304,7 +304,7 @@ testUpdates n0 = if n0 <= 0 then return (property True) else tu n0 emptyInstance
                     InstanceData v a <- arbitrary
                     let
                         ca = ContractAddress ci csi
-                        insts' = updateInstanceAt' ca a v insts
+                        insts' = updateInstanceAt' ca a (Just v) insts
                         model' = modelUpdateInstanceAt ca a v model
                     tu (n-1) insts' model'
                 deleteFree = do

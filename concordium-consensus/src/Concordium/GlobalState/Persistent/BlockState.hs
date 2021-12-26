@@ -1020,7 +1020,7 @@ doPutNewInstance pbs fnew = do
                   pinstanceHash = _instanceVHash
                   })
 
-doModifyInstance :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> ContractAddress -> AmountDelta -> Wasm.ContractState -> m (PersistentBlockState pv)
+doModifyInstance :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> ContractAddress -> AmountDelta -> Maybe Wasm.ContractState -> m (PersistentBlockState pv)
 doModifyInstance pbs caddr deltaAmnt val = do
         bsp <- loadPBS pbs
         -- Update the instance
@@ -1032,15 +1032,23 @@ doModifyInstance pbs caddr deltaAmnt val = do
         upd (PersistentInstanceV0 oldInst) = do
             (piParams, newParamsRef) <- cacheBufferedRef (pinstanceParameters oldInst)
             if deltaAmnt == 0 then
-                return ((), PersistentInstanceV0 $ rehash (pinstanceParameterHash piParams) (oldInst {pinstanceParameters = newParamsRef, pinstanceModel = val}))
+                case val of
+                    Nothing -> return ((), PersistentInstanceV0 $ rehash (pinstanceParameterHash piParams) (oldInst {pinstanceParameters = newParamsRef}))
+                    Just newVal -> return ((), PersistentInstanceV0 $ rehash (pinstanceParameterHash piParams) (oldInst {pinstanceParameters = newParamsRef, pinstanceModel = newVal}))
             else
-                return ((), PersistentInstanceV0 $ rehash (pinstanceParameterHash piParams) $ oldInst {pinstanceParameters = newParamsRef, pinstanceAmount = applyAmountDelta deltaAmnt (pinstanceAmount oldInst), pinstanceModel = val})
+                case val of
+                    Nothing -> return ((), PersistentInstanceV0 $ rehash (pinstanceParameterHash piParams) $ oldInst {pinstanceParameters = newParamsRef, pinstanceAmount = applyAmountDelta deltaAmnt (pinstanceAmount oldInst)})
+                    Just newVal -> return ((), PersistentInstanceV0 $ rehash (pinstanceParameterHash piParams) $ oldInst {pinstanceParameters = newParamsRef, pinstanceAmount = applyAmountDelta deltaAmnt (pinstanceAmount oldInst), pinstanceModel = newVal})
         upd (PersistentInstanceV1 oldInst) = do
             (piParams, newParamsRef) <- cacheBufferedRef (pinstanceParameters oldInst)
             if deltaAmnt == 0 then
-                return ((), PersistentInstanceV1 $ rehash (pinstanceParameterHash piParams) (oldInst {pinstanceParameters = newParamsRef, pinstanceModel = val}))
+                case val of
+                    Nothing -> return ((), PersistentInstanceV1 $ rehash (pinstanceParameterHash piParams) (oldInst {pinstanceParameters = newParamsRef}))
+                    Just newVal -> return ((), PersistentInstanceV1 $ rehash (pinstanceParameterHash piParams) (oldInst {pinstanceParameters = newParamsRef, pinstanceModel = newVal}))
             else
-                return ((), PersistentInstanceV1 $ rehash (pinstanceParameterHash piParams) $ oldInst {pinstanceParameters = newParamsRef, pinstanceAmount = applyAmountDelta deltaAmnt (pinstanceAmount oldInst), pinstanceModel = val})
+                case val of
+                    Nothing -> return ((), PersistentInstanceV1 $ rehash (pinstanceParameterHash piParams) $ oldInst {pinstanceParameters = newParamsRef, pinstanceAmount = applyAmountDelta deltaAmnt (pinstanceAmount oldInst)})
+                    Just newVal -> return ((), PersistentInstanceV1 $ rehash (pinstanceParameterHash piParams) $ oldInst {pinstanceParameters = newParamsRef, pinstanceAmount = applyAmountDelta deltaAmnt (pinstanceAmount oldInst), pinstanceModel = newVal})
         rehash iph inst@PersistentInstanceV {..} = inst {pinstanceHash = makeInstanceHash' iph pinstanceModel pinstanceAmount}
 
 doGetIdentityProvider :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> ID.IdentityProviderIdentity -> m (Maybe IPS.IpInfo)
@@ -1259,6 +1267,7 @@ instance BlockStateTypes (PersistentBlockStateMonad pv r m) where
 
 instance (IsProtocolVersion pv, PersistentState r m) => BlockStateQuery (PersistentBlockStateMonad pv r m) where
     getModule = doGetModuleSource . hpbsPointers
+    getModuleInterface pbs mref = doGetModule (hpbsPointers pbs) mref
     getAccount = doGetAccount . hpbsPointers
     getAccountByCredId = doGetAccountByCredId . hpbsPointers
     getContractInstance = doGetInstance . hpbsPointers
