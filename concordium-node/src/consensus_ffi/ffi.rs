@@ -452,8 +452,6 @@ pub fn get_consensus_ptr(
 ) -> anyhow::Result<*mut consensus_runner> {
     let genesis_data_len = genesis_data.len();
 
-    let c_string_genesis = unsafe { CString::from_vec_unchecked(genesis_data) };
-
     let mut runner_ptr = std::ptr::null_mut();
     let runner_ptr_ptr = &mut runner_ptr;
     let ret_code = match private_data {
@@ -461,8 +459,6 @@ pub fn get_consensus_ptr(
             let private_data_len = private_data_bytes.len();
             let appdata_buf = appdata_dir.to_str().unwrap();
             unsafe {
-                let c_string_private_data =
-                    CString::from_vec_unchecked(private_data_bytes.to_owned());
                 startConsensus(
                     max_block_size,
                     block_construction_timeout,
@@ -470,9 +466,9 @@ pub fn get_consensus_ptr(
                     insertions_before_purging,
                     transaction_keep_alive,
                     transactions_purging_delay,
-                    c_string_genesis.as_ptr() as *const u8,
+                    genesis_data.as_ptr(),
                     genesis_data_len as i64,
-                    c_string_private_data.as_ptr() as *const u8,
+                    private_data_bytes.as_ptr(),
                     private_data_len as i64,
                     broadcast_callback,
                     catchup_status_callback,
@@ -500,7 +496,7 @@ pub fn get_consensus_ptr(
                         insertions_before_purging,
                         transaction_keep_alive,
                         transactions_purging_delay,
-                        c_string_genesis.as_ptr() as *const u8,
+                        genesis_data.as_ptr(),
                         genesis_data_len as i64,
                         catchup_status_callback,
                         Arc::into_raw(regenesis_arc),
@@ -554,13 +550,7 @@ impl ConsensusContainer {
         let consensus = self.consensus.load(Ordering::SeqCst);
         let len = data.len();
 
-        let result = unsafe {
-            receiveTransaction(
-                consensus,
-                CString::from_vec_unchecked(data.to_vec()).as_ptr() as *const u8,
-                len as i64,
-            )
-        };
+        let result = unsafe { receiveTransaction(consensus, data.as_ptr(), len as i64) };
 
         let return_code = ConsensusFfiResponse::try_from(result);
 
@@ -830,13 +820,7 @@ impl ConsensusContainer {
         let consensus = self.consensus.load(Ordering::SeqCst);
         let len = import_file_path.len();
 
-        unsafe {
-            importBlocks(
-                consensus,
-                CString::from_vec_unchecked(import_file_path.to_vec()).as_ptr() as *const u8,
-                len as i64,
-            )
-        }
+        unsafe { importBlocks(consensus, import_file_path.as_ptr(), len as i64) }
     }
 }
 

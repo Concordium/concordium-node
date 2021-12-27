@@ -17,14 +17,7 @@ macro_rules! wrap_send_data_to_c {
         let consensus = $self.consensus.load(Ordering::SeqCst);
         let len = $data.len();
 
-        let result = unsafe {
-            $c_call(
-                consensus,
-                $genesis_index,
-                CString::from_vec_unchecked($data.to_vec()).as_ptr() as *const u8,
-                len as i64,
-            )
-        };
+        let result = unsafe { $c_call(consensus, $genesis_index, $data.as_ptr(), len as i64) };
 
         ConsensusFfiResponse::try_from(result)
             .unwrap_or_else(|code| panic!("Unknown FFI return code: {}", code))
