@@ -66,6 +66,7 @@ testAccountCreation = do
             dummyChainMeta { slotTime = 250 } -- we set slot time to non-zero so that the deployment of the last credential fails due to message expiry
             maxBound
             maxBound
+            slotDuration
             initialBlockState
     let state = finState ^. Types.ssBlockState
     let accounts = state ^. blockAccounts

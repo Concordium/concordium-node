@@ -26,7 +26,7 @@ import qualified Data.ByteString as BS
 import Data.Either
 import qualified Data.Map.Strict as Map
 
-import Concordium.Types (AccountAddress, BakerId(..), AccountIndex(..), ModuleRef(..))
+import Concordium.Types (AccountAddress, BakerId(..), DelegatorId(..), AccountIndex(..), ModuleRef(..))
 import Concordium.Utils
 import qualified Concordium.Crypto.SHA256 as SHA256
 import qualified Concordium.Crypto.BlsSignature as Bls
@@ -60,6 +60,7 @@ instance FixedTrieKey SHA256.Hash
 deriving via SHA256.Hash instance FixedTrieKey ModuleRef
 instance FixedTrieKey AccountAddress
 deriving via Word64 instance FixedTrieKey BakerId
+deriving via Word64 instance FixedTrieKey DelegatorId
 instance FixedTrieKey Bls.PublicKey -- FIXME: This is a bad instance. Serialization of these is expensive.
 instance FixedTrieKey IDTypes.CredentialRegistrationID -- FIXME: this is not the best instance, serialization is expensive.
 

@@ -266,6 +266,7 @@ testGroups groups = do
             dummyChainMeta
             maxBlockEnergy
             maxBound
+            slotDuration
             initialBlockState
     let gstate = finState ^. Types.ssBlockState
     case invariantBlockState gstate (finState ^. Types.schedulerExecutionCosts) of

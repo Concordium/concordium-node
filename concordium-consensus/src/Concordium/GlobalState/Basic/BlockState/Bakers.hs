@@ -88,10 +88,3 @@ data ActiveBakers = ActiveBakers {
 } deriving (Eq, Show)
 
 makeLenses ''ActiveBakers
-
--- |The set of accounts that are currently registered as delegators.
-data ActiveDelegators = ActiveDelegators {
-    _activeDelegators :: !(Set DelegatorId)
-} deriving (Eq, Show)
-
-makeLenses ''ActiveDelegators

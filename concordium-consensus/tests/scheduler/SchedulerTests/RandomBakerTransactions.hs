@@ -245,6 +245,7 @@ testTransactions = forAll makeTransactions (ioProperty . tt)
                     dummyChainMeta
                     maxBound
                     maxBound
+                    slotDuration
                     initialBlockState
             let gs = finState ^. EI.ssBlockState
             let rejs = [(z, decodePayload SP1 (thPayloadSize . atrHeader $ z) (atrPayload z), rr) | (WithMetadata{wmdData=NormalTransaction z}, TxReject rr) <- getResults ftAdded]

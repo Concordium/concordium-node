@@ -1,8 +1,10 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -135,11 +137,11 @@ instance (MonadBlobStore m, IsProtocolVersion pv) => BlobStorable m (PersistentB
 
 instance (MonadBlobStore m, IsProtocolVersion pv) => Cacheable m (PersistentBirkParameters pv) where
     cache PersistentBirkParameters{..} = do
-        active <- cache _birkActiveBakers
+        activeBaks <- cache _birkActiveBakers
         next <- cache _birkNextEpochBakers
         cur <- cache _birkCurrentEpochBakers
         return PersistentBirkParameters{
-            _birkActiveBakers = active,
+            _birkActiveBakers = activeBaks,
             _birkNextEpochBakers = next,
             _birkCurrentEpochBakers = cur,
             ..
@@ -797,13 +799,13 @@ doConfigureBaker pbs ai BakerConfigureAdd{..} = do
                                 bspBirkParameters = newBirkParams,
                                 bspAccounts = newAccounts
                             }
-
 doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
         origBSP <- loadPBS pbs
         cp <- doGetChainParameters pbs
         let rewardPeriodLength = fromIntegral $ cp ^. cpTimeParameters . tpRewardPeriodLength
+            cooldown = fromIntegral $ cp ^. cpCooldownParameters . cpPoolOwnerCooldown
             msInEpoch = fromIntegral (epochLength $ _birkSeedState . bspBirkParameters $ origBSP) * bcuSlotDuration
-            cooldownTimestamp = addDuration bcuTimestamp (rewardPeriodLength * msInEpoch)
+            cooldownTimestamp = addDuration bcuTimestamp (cooldown * rewardPeriodLength * msInEpoch)
         res <- MTL.runExceptT $ MTL.runWriterT $ flip MTL.execStateT origBSP $ do
                 updateKeys
                 updateRestakeEarnings
@@ -949,7 +951,139 @@ doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
                 GT -> do
                     modifyAccount $ updAcc $ stakedAmount .~ capital
                     MTL.tell [BakerConfigureStakeIncreased capital]
-doConfigureBaker _ _ _ = undefined
+doConfigureBaker pbs ai BakerConfigureRemove{..} = do
+        bsp <- loadPBS pbs
+        cp <- doGetChainParameters pbs
+        let rewardPeriodLength = fromIntegral $ cp ^. cpTimeParameters . tpRewardPeriodLength
+            cooldown = fromIntegral $ cp ^. cpCooldownParameters . cpPoolOwnerCooldown
+            msInEpoch = fromIntegral (epochLength $ _birkSeedState . bspBirkParameters $ bsp) * bcrSlotDuration
+            cooldownTimestamp = addDuration bcrTimestamp (cooldown * rewardPeriodLength * msInEpoch)
+        Accounts.indexedAccount ai (bspAccounts bsp) >>= \case
+            -- The account is valid and has a baker
+            Just PersistentAccount{_accountStake = PersistentAccountStakeBaker pab} -> do
+                ab <- refLoad pab
+                if _bakerPendingChange ab /= NoChange then
+                    -- A change is already pending
+                    return (BCChangePending, pbs)
+                else do
+                    let updAcc acc = do
+                            newPAB <- refMake ab{_bakerPendingChange = RemoveStake (PendingChangeEffectiveV1 cooldownTimestamp)}
+                            acc' <- setPersistentAccountStake acc (PersistentAccountStakeBaker newPAB)
+                            return ((), acc')
+                    (_, newAccounts) <- Accounts.updateAccountsAtIndex updAcc ai (bspAccounts bsp)
+                    (BCSuccess [] (BakerId ai),) <$> storePBS pbs bsp{bspAccounts = newAccounts}
+            -- The account is not valid or has no baker
+            _ -> return (BCInvalidBaker, pbs)
+
+doConfigureDelegation
+    :: (IsProtocolVersion pv, MonadBlobStore m, AccountVersionFor pv ~ 'AccountV1, ChainParametersVersionFor pv ~ 'ChainParametersV1)
+    => PersistentBlockState pv
+    -> AccountIndex
+    -> DelegationConfigure
+    -> m (DelegationConfigureResult, PersistentBlockState pv)
+doConfigureDelegation pbs ai DelegationConfigureAdd{..} = do
+        -- TODO: Disallow overdelegation.
+        -- It is assumed here that this account is NOT a baker and NOT a delegator.
+        bsp <- loadPBS pbs
+        Accounts.indexedAccount ai (bspAccounts bsp) >>= \case
+            -- Cannot resolve the account
+            Nothing -> return (DCInvalidAccount, pbs)
+            Just PersistentAccount{} -> do
+                let did = DelegatorId ai
+                let updAcc acc = do
+                        newPAD <- refMake BaseAccounts.AccountDelegationV1{
+                            BaseAccounts._delegationIdentity = did,
+                            BaseAccounts._delegationStakedAmount = dcaCapital,
+                            BaseAccounts._delegationStakeEarnings = dcaRestakeEarnings,
+                            BaseAccounts._delegationTarget = dcaDelegationTarget,
+                            BaseAccounts._delegationPendingChange = NoChange
+                        }
+                        acc' <- setPersistentAccountStake acc (PersistentAccountStakeDelegate newPAD)
+                        return ((), acc')
+                -- This cannot fail to update the account, since we already looked up the account.
+                (_, newAccounts) <- Accounts.updateAccountsAtIndex updAcc ai (bspAccounts bsp)
+                (DCSuccess [] did,) <$> storePBS pbs bsp{bspAccounts = newAccounts}
+doConfigureDelegation pbs ai DelegationConfigureUpdate{..} = do
+        origBSP <- loadPBS pbs
+        cp <- doGetChainParameters pbs
+        let rewardPeriodLength = fromIntegral $ cp ^. cpTimeParameters . tpRewardPeriodLength
+            cooldown = fromIntegral $ cp ^. cpCooldownParameters . cpDelegatorCooldown
+            msInEpoch = fromIntegral (epochLength $ _birkSeedState . bspBirkParameters $ origBSP) * dcuSlotDuration
+            cooldownTimestamp = addDuration dcuTimestamp (cooldown * rewardPeriodLength * msInEpoch)
+        res <- MTL.runExceptT $ MTL.runWriterT $ flip MTL.execStateT origBSP $ do
+                updateRestakeEarnings
+                updateCapital cooldownTimestamp cp
+        case res of
+            Left errorRes -> return (errorRes, pbs)
+            Right (newBSP, changes) -> (DCSuccess changes did,) <$> storePBS pbs newBSP
+      where
+        liftBSO = lift . lift . lift
+        did = DelegatorId ai
+        getAccountOrFail = do
+            bsp <- MTL.get
+            liftBSO (Accounts.indexedAccount ai (bspAccounts bsp)) >>= \case
+                Nothing -> MTL.throwError DCInvalidAccount
+                Just PersistentAccount{_accountStake = PersistentAccountStakeDelegate ad} -> liftBSO $ refLoad ad
+                Just PersistentAccount{} -> MTL.throwError DCInvalidDelegator
+        modifyAccount updAcc = do
+            bsp <- MTL.get
+            (_, newAccounts) <- liftBSO $ Accounts.updateAccountsAtIndex updAcc ai (bspAccounts bsp)
+            MTL.put bsp{
+                bspAccounts = newAccounts
+            }
+        requireNoPendingChange = do
+            ad <- getAccountOrFail
+            when (BaseAccounts._delegationPendingChange ad /= NoChange) (MTL.throwError DCChangePending)
+        updateRestakeEarnings = forM_ dcuRestakeEarnings $ \restakeEarnings -> do
+            acctBkr <- getAccountOrFail
+            unless (acctBkr ^. BaseAccounts.delegationStakeEarnings == restakeEarnings) $ do
+                let updAcc acc = do
+                        newPAD <- refMake (acctBkr & BaseAccounts.delegationStakeEarnings .~ restakeEarnings)
+                        ((), ) <$> setPersistentAccountStake acc (PersistentAccountStakeDelegate newPAD)
+                modifyAccount updAcc
+            MTL.tell [DelegationConfigureRestakeEarnings restakeEarnings]
+        updateCapital cooldownTimestamp _cp = forM_ dcuCapital $ \capital -> do
+            -- TODO: Disallow overdelegation.
+            requireNoPendingChange
+            ad <- getAccountOrFail
+            let updAcc updateStake acc = do
+                    newPAD <- refMake $ updateStake ad
+                    acc' <- setPersistentAccountStake acc (PersistentAccountStakeDelegate newPAD)
+                    return ((), acc')
+            case compare capital (BaseAccounts._delegationStakedAmount ad) of
+                LT -> do
+                    let dpc = ReduceStake capital (PendingChangeEffectiveV1 cooldownTimestamp)
+                    modifyAccount $ updAcc $ BaseAccounts.delegationPendingChange .~ dpc
+                    MTL.tell [DelegationConfigureStakeReduced capital]
+                EQ ->
+                    return ()
+                GT -> do
+                    modifyAccount $ updAcc $ BaseAccounts.delegationStakedAmount .~ capital
+                    MTL.tell [DelegationConfigureStakeIncreased capital]
+doConfigureDelegation pbs ai DelegationConfigureRemove{..} = do
+        bsp <- loadPBS pbs
+        cp <- doGetChainParameters pbs
+        let rewardPeriodLength = fromIntegral $ cp ^. cpTimeParameters . tpRewardPeriodLength
+            cooldown = fromIntegral $ cp ^. cpCooldownParameters . cpDelegatorCooldown
+            msInEpoch = fromIntegral (epochLength $ _birkSeedState . bspBirkParameters $ bsp) * dcrSlotDuration
+            cooldownTimestamp = addDuration dcrTimestamp (cooldown * rewardPeriodLength * msInEpoch)
+        Accounts.indexedAccount ai (bspAccounts bsp) >>= \case
+            -- The account is valid and has a baker
+            Just PersistentAccount{_accountStake = PersistentAccountStakeDelegate pad} -> do
+                ad <- refLoad pad
+                if BaseAccounts._delegationPendingChange ad /= NoChange then
+                    -- A change is already pending
+                    return (DCChangePending, pbs)
+                else do
+                    let updAcc acc = do
+                            let rs = RemoveStake (PendingChangeEffectiveV1 cooldownTimestamp)
+                            newPAD <- refMake ad{BaseAccounts._delegationPendingChange = rs}
+                            acc' <- setPersistentAccountStake acc (PersistentAccountStakeDelegate newPAD)
+                            return ((), acc')
+                    (_, newAccounts) <- Accounts.updateAccountsAtIndex updAcc ai (bspAccounts bsp)
+                    (DCSuccess [] (DelegatorId ai),) <$> storePBS pbs bsp{bspAccounts = newAccounts}
+            -- The account is not valid or has no delegation
+            _ -> return (DCInvalidDelegator, pbs)
 
 doUpdateBakerKeys ::(IsProtocolVersion pv, MonadBlobStore m, AccountVersionFor pv ~ 'AccountV0)
     => PersistentBlockState pv
@@ -1593,8 +1727,8 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateOperations (Pe
     bsoSetSeedState = doSetSeedState
     bsoTransitionEpochBakers = doTransitionEpochBakers
     bsoAddBaker = doAddBaker
-    bsoConfigureBaker = undefined -- TODO implement this.
-    bsoConfigureDelegation = undefined -- TODO implement this.
+    bsoConfigureBaker = doConfigureBaker
+    bsoConfigureDelegation = doConfigureDelegation
     bsoUpdateBakerKeys = doUpdateBakerKeys
     bsoUpdateBakerStake = doUpdateBakerStake
     bsoUpdateBakerRestakeEarnings = doUpdateBakerRestakeEarnings

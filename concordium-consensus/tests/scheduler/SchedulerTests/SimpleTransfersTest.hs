@@ -164,6 +164,7 @@ testSimpleTransfer initialBs tInput = do
             dummyChainMeta
             maxBound
             maxBound
+            slotDuration
             initialBs
     let gstate = finState ^. Types.ssBlockState
     case invariantBlockState gstate (finState ^. Types.schedulerExecutionCosts) of

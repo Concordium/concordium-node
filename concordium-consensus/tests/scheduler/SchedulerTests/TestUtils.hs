@@ -14,7 +14,8 @@ NOTE: This processes each transaction individually - for testing grouped transac
       'SchedulerTests.TransactionGroupingSpec' and 'SchedulerTests.TransactionGroupingSpec2'.
 -}
 module SchedulerTests.TestUtils(PV1, PV2, PV3, ResultSpec,TResultSpec(..),emptySpec,emptyExpect,TestCase(..),
-                                TestParameters(..),defaultParams, mkSpec,mkSpecs, createAlias) where
+                                TestParameters(..),defaultParams, mkSpec,mkSpecs, createAlias,
+                                slotDuration) where
 
 import Test.Hspec
 
@@ -111,6 +112,11 @@ data ProcessResult
   deriving (Eq, Show)
 
 
+-- | The slot duration used for schedular tests
+slotDuration :: Duration
+slotDuration = 1
+
+
 -- | Execute the given transactions in sequence (ungrouped) with 'Sch.filterTransactions',
 -- with the given parameters. Returns a list of result and block state after each transaction.
 runWithIntermediateStates ::
@@ -129,6 +135,7 @@ runWithIntermediateStates TestParameters{..} transactions = do
                                     tpChainMeta
                                     tpEnergyLimit
                                     tpMaxCredentials
+                                    slotDuration
                                     st
                             in if length ftAdded + length ftFailed + length ftUnprocessed == 1
                                   && (length ftFailedCredentials + length ftUnprocessedCredentials == 0)

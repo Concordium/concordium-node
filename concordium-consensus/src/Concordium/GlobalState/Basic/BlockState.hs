@@ -65,8 +65,6 @@ data BasicBirkParameters = BasicBirkParameters {
     _birkNextEpochBakers :: !(Hashed EpochBakers),
     -- |The bakers for the current epoch.
     _birkCurrentEpochBakers :: !(Hashed EpochBakers),
-    -- |The currently-registered delegators.
-    _birkActiveDelegators :: !ActiveDelegators,
     -- |The seed state used to derive the leadership election nonce.
     _birkSeedState :: !SeedState
 } deriving (Eq, Show)
@@ -97,7 +95,6 @@ getBirkParameters = do
     _birkNextEpochBakers <- makeHashed <$> getEpochBakers
     _birkCurrentEpochBakers <- makeHashed <$> getEpochBakers
     let _birkActiveBakers = ActiveBakers Set.empty Set.empty
-    let _birkActiveDelegators = ActiveDelegators Set.empty
     return BasicBirkParameters{..}
 
 -- | Create a BasicBirkParameters value from the components
@@ -105,10 +102,9 @@ makeBirkParameters ::
   ActiveBakers -- ^ Set of currently-registered bakers
   -> EpochBakers -- ^ Set of bakers for the next epoch
   -> EpochBakers -- ^ Set of bakers for the current epoch
-  -> ActiveDelegators -- ^ Set of currently-registered delegators
   -> SeedState
   -> BasicBirkParameters
-makeBirkParameters _birkActiveBakers nextEpochBakers currentEpochBakers _birkActiveDelegators _birkSeedState = BasicBirkParameters {..}
+makeBirkParameters _birkActiveBakers nextEpochBakers currentEpochBakers _birkSeedState = BasicBirkParameters {..}
   where
     _birkNextEpochBakers = makeHashed nextEpochBakers
     _birkCurrentEpochBakers = makeHashed currentEpochBakers
@@ -119,7 +115,7 @@ initialBirkParameters ::
   -> SeedState
   -- ^The seed state
   -> BasicBirkParameters
-initialBirkParameters accounts = makeBirkParameters activeBkrs eBkrs eBkrs activeDels
+initialBirkParameters accounts = makeBirkParameters activeBkrs eBkrs eBkrs
   where
     abi (AccountStakeBaker AccountBaker{..}) = Just (_accountBakerInfo ^. bakerInfo, _stakedAmount)
     abi _ = Nothing
@@ -128,14 +124,6 @@ initialBirkParameters accounts = makeBirkParameters activeBkrs eBkrs eBkrs activ
     activeBkrs = ActiveBakers {
       _activeBakers = Set.fromList (_bakerIdentity . fst <$> bkrs),
       _aggregationKeys = Set.fromList (_bakerAggregationVerifyKey . fst <$> bkrs)
-    }
-    adi :: AccountStake av -> Maybe DelegatorId
-    adi (AccountStakeDelegate AccountDelegationV1{..}) = Just _delegationIdentity
-    adi _ = Nothing
-    del acct = adi $ acct ^. accountStaking
-    dels = catMaybes $ del <$> accounts
-    activeDels = ActiveDelegators {
-      _activeDelegators = Set.fromList dels
     }
     stakes = Vec.fromList (snd <$> bkrs)
     eBkrs = EpochBakers {
@@ -717,9 +705,11 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
           | _bakerPendingChange /= NoChange -> (BCChangePending, bs)
           -- We can make the change
           | otherwise ->
-              let rewardPeriodLength = fromIntegral $ bs ^. blockUpdates . currentParameters . cpTimeParameters . tpRewardPeriodLength
+              let cp = bs ^. blockUpdates . currentParameters
+                  rewardPeriodLength = fromIntegral $ cp ^. cpTimeParameters . tpRewardPeriodLength
+                  cooldown = fromIntegral $ cp ^. cpCooldownParameters . cpPoolOwnerCooldown
                   msInEpoch = fromIntegral (epochLength $ bs ^. blockBirkParameters . birkSeedState) * bcrSlotDuration
-                  timestamp = addDuration bcrTimestamp (rewardPeriodLength * msInEpoch)
+                  timestamp = addDuration bcrTimestamp (cooldown * rewardPeriodLength * msInEpoch)
               in (BCSuccess [] (BakerId ai),
                   bs & blockAccounts . Accounts.indexedAccount ai . accountStaking .~ AccountStakeBaker (ab & bakerPendingChange .~ RemoveStake (PendingChangeEffectiveV1 timestamp)))
         -- The account is not valid or has no baker
@@ -740,9 +730,11 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
       where
         bid = BakerId ai
         cooldownTimestamp =
-            let rewardPeriodLength = fromIntegral $ origBS ^. blockUpdates . currentParameters . cpTimeParameters . tpRewardPeriodLength
+            let cp = origBS ^. blockUpdates . currentParameters
+                rewardPeriodLength = fromIntegral $ cp ^. cpTimeParameters . tpRewardPeriodLength
+                cooldown = fromIntegral $ cp ^. cpCooldownParameters . cpPoolOwnerCooldown
                 msInEpoch = fromIntegral (epochLength $ origBS ^. blockBirkParameters . birkSeedState) * bcuSlotDuration
-            in addDuration bcuTimestamp (rewardPeriodLength * msInEpoch)
+            in addDuration bcuTimestamp (cooldown * rewardPeriodLength * msInEpoch)
         getAccount = do
             s <- MTL.get
             case s ^? blockAccounts . Accounts.indexedAccount ai of
@@ -834,9 +826,8 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                     MTL.tell [BakerConfigureStakeIncreased capital]
 
     bsoConfigureDelegation bs ai DelegationConfigureAdd{..} = do
+        -- TODO: Disallow overdelegation.
         -- It is assumed here that this account is NOT a baker and NOT a delegator.
-        -- TODO: Sum the pool's capitals, of the baker and all existing delegators.
-        -- If this sum plus the new 'dcaCapital' is too high, then fail.
         return $! case bs ^? blockAccounts . Accounts.indexedAccount ai of
             -- Cannot resolve the account
             Nothing -> (DCInvalidAccount, bs)
@@ -849,22 +840,23 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                       _delegationTarget = dcaDelegationTarget,
                       _delegationPendingChange = NoChange
                   }
-                  newBlockState = bs
-                      & blockAccounts . Accounts.indexedAccount ai . accountStaking .~ ad
-                      & blockBirkParameters . birkActiveDelegators . activeDelegators %~ Set.insert did
+                  newBlockState = bs & blockAccounts . Accounts.indexedAccount ai . accountStaking .~ ad
               in (DCSuccess [] did, newBlockState)
     bsoConfigureDelegation bs ai DelegationConfigureRemove{..} =
         return $! case bs ^? blockAccounts . Accounts.indexedAccount ai of
             Just Account{_accountStaking = AccountStakeDelegate ad@AccountDelegationV1{..}}
               | _delegationPendingChange /= NoChange -> (DCChangePending, bs)
               | otherwise ->
-                  let rewardPeriodLength = fromIntegral $ bs ^. blockUpdates . currentParameters . cpTimeParameters . tpRewardPeriodLength
+                  let cp = bs ^. blockUpdates . currentParameters
+                      rewardPeriodLength = fromIntegral $ cp ^. cpTimeParameters . tpRewardPeriodLength
+                      cooldown = fromIntegral $ cp ^. cpCooldownParameters . cpDelegatorCooldown
                       msInEpoch = fromIntegral (epochLength $ bs ^. blockBirkParameters . birkSeedState) * dcrSlotDuration
-                      timestamp = addDuration dcrTimestamp (rewardPeriodLength * msInEpoch)
+                      timestamp = addDuration dcrTimestamp (cooldown * rewardPeriodLength * msInEpoch)
                   in (DCSuccess [] (DelegatorId ai),
                       bs & blockAccounts . Accounts.indexedAccount ai . accountStaking .~ AccountStakeDelegate (ad & delegationPendingChange .~ RemoveStake (PendingChangeEffectiveV1 timestamp)))
             _ -> (DCInvalidDelegator, bs)
     bsoConfigureDelegation origBS ai DelegationConfigureUpdate{..} = do
+        -- TODO: Disallow overdelegation.
         let res = MTL.runExcept $ MTL.runWriterT $ flip MTL.execStateT origBS $ do
                 updateCapital
                 updateRestakeEarnings
@@ -875,9 +867,11 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
       where
         did = DelegatorId ai
         cooldownTimestamp =
-            let rewardPeriodLength = fromIntegral $ origBS ^. blockUpdates . currentParameters . cpTimeParameters . tpRewardPeriodLength
+            let cp = origBS ^. blockUpdates . currentParameters
+                rewardPeriodLength = fromIntegral $ cp ^. cpTimeParameters . tpRewardPeriodLength
+                cooldown = fromIntegral $ cp ^. cpCooldownParameters . cpDelegatorCooldown
                 msInEpoch = fromIntegral (epochLength $ origBS ^. blockBirkParameters . birkSeedState) * dcuSlotDuration
-            in addDuration dcuTimestamp (rewardPeriodLength * msInEpoch)
+            in addDuration dcuTimestamp (cooldown * rewardPeriodLength * msInEpoch)
         getAccount = do
             s <- MTL.get
             case s ^? blockAccounts . Accounts.indexedAccount ai of

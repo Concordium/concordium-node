@@ -53,6 +53,7 @@ testAccountCreation = do
             dummyChainMeta
             maxBound
             maxBound
+            slotDuration
             initialBlockState
     let state = finState ^. Types.ssBlockState
     let accounts = state ^. blockAccounts

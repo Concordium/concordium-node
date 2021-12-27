@@ -37,6 +37,8 @@ import Concordium.GlobalState.DummyData
 import Concordium.Types.DummyData
 import Concordium.Crypto.DummyData
 
+import SchedulerTests.TestUtils (slotDuration)
+
 -- |Protocol version
 type PV1 = 'Types.P1
 
@@ -89,6 +91,7 @@ runTransactions = do
           dummyChainMeta
           maxBound
           maxBound
+          slotDuration
           initialBlockState
   return (ftAdded, ftFailed)
 
