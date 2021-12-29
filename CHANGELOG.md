@@ -1,5 +1,9 @@
 # Changelog
 
+## concordium-node 3.0.1
+
+- Fix a starvation bug in some cases of parallel node queries.
+
 ## concordium-node 3.0.0
 - Fix a bug due to incorrect use of LMDB database environments where a node
   would crash if queried at specific times.
