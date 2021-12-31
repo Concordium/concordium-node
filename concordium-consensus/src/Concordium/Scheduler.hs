@@ -1130,7 +1130,7 @@ handleConfigureBaker
                           else configureUpdateBakerArg
             -- XXX: This might not be a good way to compute energy cost:
             if isJust cbKeysWithProofs
-              then tickEnergy Cost.configureBakerCostWithKey
+              then tickEnergy Cost.configureBakerCostWithKeys
               else tickEnergy Cost.configureBakerCostWithoutKeys
             (arg,) <$> getCurrentAccountTotalAmount senderAccount
         kWithAccountBalance ls (ConfigureAddBakerCont{cbcKeysWithProofs=BakerKeysWithProofs{..},..}, accountBalance) = do
@@ -1310,7 +1310,8 @@ handleConfigureDelegation wtc cdCapital cdRestakeEarnings cdDelegationTarget =
                         if cdCapital == Just 0
                           then configureRemoveDelegationArg
                           else configureUpdateDelegationArg
-            -- TODO: Compute costs
+            -- XXX: This might not be a good solution:
+            tickEnergy Cost.configureDelegationCost
             (arg,) <$> getCurrentAccountTotalAmount senderAccount
         kWithAccountBalance ls (ConfigureAddDelegationCont{..}, accountBalance) = do
             (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
