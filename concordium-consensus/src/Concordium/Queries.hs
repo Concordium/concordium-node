@@ -589,34 +589,38 @@ invokeContract bh cctx =
 checkIsCurrentFinalizer :: MVR gsconf finconf Bool
 checkIsCurrentFinalizer = liftSkovQueryLatest isFinalizationCommitteeMember
 
+-- |Check whether consensus has been shut down
+checkIsShutDown :: MVR gsconf finconf Bool
+checkIsShutDown = liftSkovQueryLatest isShutDown
+
 -- |Result of a baker status query.
 data BakerStatus
     = -- |The baker is a member of the current committee
-      ActiveBaker !BakerId
+      ActiveInComittee
     | -- |The account has a baker, but it is not yet in the committee
-      InactiveBaker !BakerId
+      AddedButNotActiveInCommittee
     | -- |The baker id does not correspond with a current baker
-      NoBaker
+      NotInCommittee
     | -- |The baker may exist, but the keys do not match
-      BadKeys !BakerId
+      AddedButWrongKeys
     deriving (Eq, Ord, Show)
 
 -- |Determine the status of the baker with respect to the current best block.
-getBakerStatusBestBlock :: MVR gsconf finconf BakerStatus
+getBakerStatusBestBlock :: MVR gsconf finconf (BakerStatus, Maybe BakerId)
 getBakerStatusBestBlock =
     asks mvBaker >>= \case
-        Nothing -> return NoBaker
+        Nothing -> return (NotInCommittee, Nothing)
         Just Baker{bakerIdentity = bakerIdent} -> liftSkovQueryLatest $ do
             bb <- bestBlock
             bs <- queryBlockState bb
             bakers <- BS.getCurrentEpochBakers bs
-            case fullBaker bakers (bakerId bakerIdent) of
+            bakerStatus <- case fullBaker bakers (bakerId bakerIdent) of
                 Just fbinfo
                     -- Current baker with valid keys
                     | validateBakerKeys (fbinfo ^. bakerInfo) bakerIdent ->
-                        return $ ActiveBaker (bakerId bakerIdent)
+                        return ActiveInComittee
                     -- Current baker, but invalid keys
-                    | otherwise -> return $ BadKeys (bakerId bakerIdent)
+                    | otherwise -> return AddedButWrongKeys
                 Nothing ->
                     -- Not a current baker
                     BS.getBakerAccount bs (bakerId bakerIdent) >>= \case
@@ -624,11 +628,12 @@ getBakerStatusBestBlock =
                             -- Account is valid
                             BS.getAccountBaker acc >>= \case
                                 -- Account has no registered baker
-                                Nothing -> return NoBaker
+                                Nothing -> return NotInCommittee
                                 Just ab
                                     -- Registered baker with valid keys
                                     | validateBakerKeys (ab ^. accountBakerInfo) bakerIdent ->
-                                        return $ InactiveBaker (bakerId bakerIdent)
+                                        return AddedButNotActiveInCommittee
                                     -- Registered baker with invalid keys
-                                    | otherwise -> return $ BadKeys (bakerId bakerIdent)
-                        Nothing -> return NoBaker
+                                    | otherwise -> return AddedButWrongKeys
+                        Nothing -> return NotInCommittee
+            return (bakerStatus, Just $ bakerId bakerIdent)

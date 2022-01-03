@@ -386,8 +386,13 @@ extern "C" {
         object_limit: i64,
         direct_callback: DirectMessageCallback,
     ) -> i64;
-    pub fn bakerIdBestBlock(consensus: *mut consensus_runner) -> i64;
+    pub fn bakerStatusBestBlock(
+        consensus: *mut consensus_runner,
+        baker_id: *mut u64,
+        has_baker_id: *mut u8,
+    ) -> u8;
     pub fn checkIfWeAreFinalizer(consensus: *mut consensus_runner) -> u8;
+    pub fn checkIfRunning(consensus: *mut consensus_runner) -> u8;
     pub fn getAccountNonFinalizedTransactions(
         consensus: *mut consensus_runner,
         account_address: *const u8,
@@ -724,12 +729,36 @@ impl ConsensusContainer {
         ))
     }
 
-    pub fn in_baking_committee(&self) -> ConsensusIsInBakingCommitteeResponse {
-        wrap_c_committee_call!(self, |consensus| bakerIdBestBlock(consensus))
+    /// Gets baker status of the node along with the baker ID registered in the
+    /// baker credentials used, if available.
+    pub fn in_baking_committee(&self) -> (ConsensusIsInBakingCommitteeResponse, Option<u64>) {
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut baker_id: u64 = 0;
+        let mut has_baker_id: u8 = 0;
+
+        let result = unsafe { bakerStatusBestBlock(consensus, &mut baker_id, &mut has_baker_id) };
+
+        let status = ConsensusIsInBakingCommitteeResponse::try_from(result).unwrap_or_else(|err| {
+            unreachable!("An error occured when trying to convert FFI return code: {}", err)
+        });
+
+        let baker_id_option = match has_baker_id {
+            0 => None,
+            1 => Some(baker_id),
+            code => unreachable!("Expected value from FFI to be either 0 or 1, received {}", code),
+        };
+
+        (status, baker_id_option)
     }
 
     pub fn in_finalization_committee(&self) -> bool {
         wrap_c_bool_call!(self, |consensus| checkIfWeAreFinalizer(consensus))
+    }
+
+    /// Checks if consensus is running, i.e. if consensus has been shut down,
+    /// this will return false.
+    pub fn is_consensus_running(&self) -> bool {
+        wrap_c_bool_call!(self, |consensus| checkIfRunning(consensus))
     }
 
     pub fn get_account_non_finalized_transactions(&self, account_address: &str) -> String {
