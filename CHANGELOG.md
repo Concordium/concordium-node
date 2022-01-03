@@ -8,6 +8,10 @@
 - The macOS installer no longer overwrites the service files when reinstalling.
 - Cache smart contract modules on startup from existing state to improve smart
   contract execution.
+- Make consensus queries more robust, by validating input more extensively.
+  This affects all queries whose input was a block or transaction hash.
+  These queries now return `InvalidArgument` error, as opposed to `Unknown`
+  which they returned previously.
   
 ## concordium-node 3.0.1
 
