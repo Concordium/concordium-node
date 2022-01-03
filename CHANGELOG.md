@@ -8,6 +8,9 @@
 - The macOS installer no longer overwrites the service files when reinstalling.
 - Cache smart contract modules on startup from existing state to improve smart
   contract execution.
+  
+## concordium-node 3.0.1
+
 - Fix a starvation bug in some cases of parallel node queries.
 
 ## concordium-node 3.0.0
