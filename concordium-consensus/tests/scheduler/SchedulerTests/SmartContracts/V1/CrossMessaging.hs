@@ -96,7 +96,7 @@ testCases =
           putWord64le 0 -- index of the counter
           putWord64le 0 -- subindex of the counter contract
           putWord16le (fromIntegral (BSS.length "counter.inc"))
-          putByteString "counter.inc"
+          putByteString "counter.inc" -- receive name, actions for V0 contracts must still use the full name
           putWord16le 0 -- length of parameter
           
         callArgs = BSS.toShort $ runPut $ do
@@ -104,8 +104,8 @@ testCases =
           putWord64le 0 -- contract subindex
           putWord16le (fromIntegral (BS.length forwardParameter)) -- length of parameter
           putByteString forwardParameter
-          putWord16le (fromIntegral (BSS.length "proxy.forward"))
-          putByteString "proxy.forward"
+          putWord16le (fromIntegral (BSS.length "forward"))
+          putByteString "forward" -- entrypoint name, calls for V1 contracts use just the entrypoint name
           putWord64le 0 -- amount
 
         -- ensure the transaction is successful

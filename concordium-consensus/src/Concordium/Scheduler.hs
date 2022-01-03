@@ -891,7 +891,8 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                    getCurrentContractInstanceTicking' imcTo >>= \case
                      Nothing -> go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState (WasmV1.Error (WasmV1.EnvFailure (WasmV1.MissingContract imcTo))) Nothing)
                      Just (InstanceV0 targetInstance) -> do
-                       let runSuccess = Right <$> handleContractUpdateV0 originAddr targetInstance (checkAndGetBalanceInstance ownerAccount istance) imcAmount imcName imcParam
+                       let rName = Wasm.makeReceiveName (instanceInitName (_instanceVParameters targetInstance)) imcName
+                           runSuccess = Right <$> handleContractUpdateV0 originAddr targetInstance (checkAndGetBalanceInstance ownerAccount istance) imcAmount rName imcParam
                        (runSuccess `orElseWith` (return . Left)) >>= \case
                           Left rr -> -- execution failed.
                             go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState (WasmV1.Error (WasmV1.EnvFailure (WasmV1.MessageFailed rr))) Nothing)
@@ -899,7 +900,8 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                             newState <- getCurrentContractInstanceState istance
                             go (evs ++ events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig newState WasmV1.Success Nothing)
                      Just (InstanceV1 targetInstance) -> do
-                       withRollback (handleContractUpdateV1 originAddr targetInstance (checkAndGetBalanceInstance ownerAccount istance) imcAmount imcName imcParam) >>= \case
+                       let rName = Wasm.makeReceiveName (instanceInitName (_instanceVParameters targetInstance)) imcName
+                       withRollback (handleContractUpdateV1 originAddr targetInstance (checkAndGetBalanceInstance ownerAccount istance) imcAmount rName imcParam) >>= \case
                           Left cer ->
                             go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState (WasmV1.Error cer) (WasmV1.ccfToReturnValue cer))
                           Right (rVal, callEvents) -> do

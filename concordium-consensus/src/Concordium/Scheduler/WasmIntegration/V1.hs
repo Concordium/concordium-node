@@ -250,7 +250,7 @@ data InvokeMethod =
   | Call {
     imcTo :: !ContractAddress,
     imcParam :: !Parameter,
-    imcName :: !ReceiveName, -- FIXME: Should be entrypoint name, but that requires changes elsewhere to maintain consistency.
+    imcName :: !EntrypointName,
     imcAmount :: !Amount
     }
 

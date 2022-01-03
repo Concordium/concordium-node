@@ -91,8 +91,8 @@ testCases =
           putWord64le 0 -- contract index
           putWord64le 0 -- contract subindex
           putWord16le 0 -- length of parameter
-          putWord16le (fromIntegral (BSS.length "counter.inc"))
-          putByteString "counter.inc"
+          putWord16le (fromIntegral (BSS.length "inc"))
+          putByteString "inc" -- entrypoint name
           putWord64le 0 -- amount
         deploymentCostCheck :: Types.BlockItem -> Types.TransactionSummary -> Expectation
         deploymentCostCheck _ Types.TransactionSummary{..} = do
