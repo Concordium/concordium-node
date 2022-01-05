@@ -279,6 +279,7 @@ data ReceiveResultData =
   ReceiveInterrupt {
     rrdCurrentState :: !ContractState,
     rrdMethod :: !InvokeMethod,
+    rrdLogs :: ![ContractEvent],
     rrdInterruptedConfig :: !ReceiveInterruptedState
   }
 
@@ -378,9 +379,10 @@ processReceiveResult result returnValuePtr eitherInterruptedStatePtr = case BS.u
       3 -> let parser = do -- interrupt
                 remainingEnergy <- label "Interrupt.remainingEnergy" getWord64be
                 currentState <- label "Interrupt.currentState" get
+                logs <- label "Interrupt.logs" getLogs
                 method <- label "Interrupt.method" getInvokeMethod
-                return (remainingEnergy, currentState, method)
-          in let (remainingEnergy, rrdCurrentState, rrdMethod)= parseResult parser
+                return (remainingEnergy, currentState, logs, method)
+          in let (remainingEnergy, rrdCurrentState, rrdLogs, rrdMethod)= parseResult parser
              in do rrdInterruptedConfig <- case eitherInterruptedStatePtr of
                      Left rrid -> return rrid
                      Right interruptedStatePtr -> newReceiveInterruptedState interruptedStatePtr
