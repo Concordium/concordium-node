@@ -369,14 +369,18 @@ processReceiveResult result returnValuePtr eitherInterruptedStatePtr = case BS.u
   Just (tag, payload) ->
     case tag of
       0 -> return Nothing
-      1 -> let parser = do -- reject
+      1 -> let parser = -- runtime failure
+                label "Reject.remainingEnergy" getWord64be
+          in let remainingEnergy = parseResult parser
+             in do return (Just (Left Trap, fromIntegral remainingEnergy))
+      2 -> let parser = do -- reject
                 rejectReason <- label "Reject.rejectReason" getInt32be
                 remainingEnergy <- label "Reject.remainingEnergy" getWord64be
                 return (rejectReason, remainingEnergy)
           in let (cerRejectReason, remainingEnergy) = parseResult parser
              in do cerReturnValue <- ReturnValue <$> newForeignPtr freeReturnValue returnValuePtr
                    return (Just (Left LogicReject{..}, fromIntegral remainingEnergy))
-      3 -> let parser = do -- interrupt
+      4 -> let parser = do -- interrupt
                 remainingEnergy <- label "Interrupt.remainingEnergy" getWord64be
                 currentState <- label "Interrupt.currentState" get
                 logs <- label "Interrupt.logs" getLogs
@@ -387,7 +391,7 @@ processReceiveResult result returnValuePtr eitherInterruptedStatePtr = case BS.u
                      Left rrid -> return rrid
                      Right interruptedStatePtr -> newReceiveInterruptedState interruptedStatePtr
                    return (Just (Right ReceiveInterrupt{..}, fromIntegral remainingEnergy))
-      2 -> -- done
+      3 -> -- done
         let parser = do
               newState <- label "Done.newState" get
               logs <- label "Done.logs" getLogs
