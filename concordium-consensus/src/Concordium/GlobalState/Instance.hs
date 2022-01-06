@@ -100,7 +100,6 @@ instance HashableTo H.Hash Instance where
 -- |Helper function for JSON encoding an 'Instance'.
 instancePairs :: KeyValue kv => Instance -> [kv]
 {-# INLINE instancePairs #-}
--- TODO: Get the version from the module instead.
 instancePairs (InstanceV0 InstanceV{..}) =
     [ "model" .= _instanceVModel,
       "owner" .= instanceOwner  _instanceVParameters,
@@ -111,8 +110,7 @@ instancePairs (InstanceV0 InstanceV{..}) =
       "version" .= (0 :: Word32)
     ]
 instancePairs (InstanceV1 InstanceV{..}) =
-    [ "model" .= _instanceVModel,
-      "owner" .= instanceOwner  _instanceVParameters,
+    [ "owner" .= instanceOwner  _instanceVParameters,
       "amount" .= _instanceVAmount,
       "methods" .= instanceReceiveFuns  _instanceVParameters,
       "name" .= instanceInitName  _instanceVParameters,
