@@ -40,6 +40,7 @@ import Concordium.Afgjort.Finalize.Types
 import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.Skov.Statistics
+import qualified Concordium.Skov.Monad as SkovMonad
 
 
 -- |Determine if one block is an ancestor of another.
@@ -342,7 +343,8 @@ addBlock block = do
                 -- block's state in order that the current block is valid
                 parentState <- blockState parentP
                 -- Determine the baker and its lottery power
-                bakers <- getSlotBakers parentState (blockSlot block)
+                gd <- SkovMonad.getGenesisData
+                bakers <- getSlotBakers parentState (gdGenesisTime gd) (gdSlotDuration gd) (blockSlot block)
                 let baker = lotteryBaker bakers (blockBaker block)
                 -- Determine the leadership election nonce
                 parentSeedState <- getSeedState parentState

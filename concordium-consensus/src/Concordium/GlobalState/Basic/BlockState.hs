@@ -397,7 +397,8 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
 
     getCurrentEpochBakers = return . epochToFullBakers . view (blockBirkParameters . birkCurrentEpochBakers . unhashed)
 
-    getSlotBakers hbs slot = return $ case compare slotEpoch (epoch + 1) of
+    -- TODO use genesis time and slot duration for V1 case.
+    getSlotBakers hbs _genesisTime _slotDuration slot = return $ case compare slotEpoch (epoch + 1) of
         -- LT should mean it's the current epoch, since the slot should be at least the slot of this block.
         LT -> epochToFullBakers (_unhashed (_birkCurrentEpochBakers bps))
         -- EQ means the next epoch.
@@ -577,7 +578,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
     {-# INLINE bsoSetSeedState #-}
     bsoSetSeedState bs ss = return $! bs & blockBirkParameters . birkSeedState .~ ss
 
-    bsoTransitionEpochBakers bs newEpoch = return $! newbs
+    bsoTransitionEpochBakers bs genesisTime slotDuration newEpoch = return $! newbs
         where
             oldBPs = bs ^. blockBirkParameters
             curActiveBIDs = Set.toDescList (oldBPs ^. birkActiveBakers . activeBakers)

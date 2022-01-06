@@ -1076,7 +1076,7 @@ handleConfigureBaker
   cbTransactionFeeCommission
   cbBakingRewardCommission
   cbFinalizationRewardCommission =
-    withDeposit wtc tickAndGetAccountBalance kWithAccountBalance
+    withDeposit wtc tickGetArgAndBalance chargeAndExecute
       where
         senderAccount = wtc ^. wtcSenderAccount
         txHash = wtc ^. wtcTransactionHash
@@ -1118,7 +1118,13 @@ handleConfigureBaker
                     rejectTransaction UnexpectedBakerRemoveParameters
         configureUpdateBakerArg =
             return ConfigureUpdateBakerCont
-        tickAndGetAccountBalance = do
+        areKeysOK BakerKeysWithProofs{..} =
+            let challenge = configureBakerKeyChallenge senderAddress bkwpElectionVerifyKey bkwpSignatureVerifyKey bkwpAggregationVerifyKey
+                electionP = checkElectionKeyProof challenge bkwpElectionVerifyKey bkwpProofElection
+                signP = checkSignatureVerifyKeyProof challenge bkwpSignatureVerifyKey bkwpProofSig
+                aggregationP = Bls.checkProofOfKnowledgeSK challenge bkwpProofAggregation bkwpAggregationVerifyKey
+            in electionP && signP && aggregationP
+        tickGetArgAndBalance = do
             -- Check consistency of parameters before charging energy cost:
             accountStake <- getAccountStake (snd senderAccount)
             arg <- case accountStake of
@@ -1133,24 +1139,22 @@ handleConfigureBaker
               then tickEnergy Cost.configureBakerCostWithKeys
               else tickEnergy Cost.configureBakerCostWithoutKeys
             (arg,) <$> getCurrentAccountTotalAmount senderAccount
-        kWithAccountBalance ls (ConfigureAddBakerCont{cbcKeysWithProofs=BakerKeysWithProofs{..},..}, accountBalance) = do
+        chargeAndExecute ls argAndBalance = do
             (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
             chargeExecutionCost txHash senderAccount energyCost
-            let challenge = addBakerChallenge senderAddress bkwpElectionVerifyKey bkwpSignatureVerifyKey bkwpAggregationVerifyKey
-                electionP = checkElectionKeyProof challenge bkwpElectionVerifyKey bkwpProofElection
-                signP = checkSignatureVerifyKeyProof challenge bkwpSignatureVerifyKey bkwpProofSig
-                aggregationP = Bls.checkProofOfKnowledgeSK challenge bkwpProofAggregation bkwpAggregationVerifyKey
+            executeConfigure energyCost usedEnergy argAndBalance
+        executeConfigure energyCost usedEnergy (ConfigureAddBakerCont{..}, accountBalance) = do
             if accountBalance < cbcCapital then
                 -- The balance is insufficient.
                 return (TxReject InsufficientBalanceForBakerStake, energyCost, usedEnergy)
-            else if electionP && signP && aggregationP then do
+            else if areKeysOK cbcKeysWithProofs then do
                 -- The proof validates that the baker owns all the private keys,
                 -- thus we can try to create the baker.
-                let bca =  BI.BakerConfigureAdd {
+                let bca = BI.BakerConfigureAdd {
                       bcaKeys = BI.BakerKeyUpdate {
-                          bkuSignKey = bkwpSignatureVerifyKey,
-                          bkuAggregationKey = bkwpAggregationVerifyKey,
-                          bkuElectionKey = bkwpElectionVerifyKey
+                          bkuSignKey = bkwpSignatureVerifyKey cbcKeysWithProofs,
+                          bkuAggregationKey = bkwpAggregationVerifyKey cbcKeysWithProofs,
+                          bkuElectionKey = bkwpElectionVerifyKey cbcKeysWithProofs
                       },
                       bcaCapital = cbcCapital,
                       bcaRestakeEarnings = cbcRestakeEarnings,
@@ -1163,28 +1167,16 @@ handleConfigureBaker
                 res <- configureBaker (fst senderAccount) bca
                 kResult energyCost usedEnergy bca res
               else return (TxReject InvalidProof, energyCost, usedEnergy)
-        kWithAccountBalance ls (ConfigureRemoveBakerCont, _) = do
-            (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
-            chargeExecutionCost txHash senderAccount energyCost
+        executeConfigure energyCost usedEnergy (ConfigureRemoveBakerCont, _) = do
             cm <- getChainMetadata
             sd <- getSlotDuration
             let bcr = BI.BakerConfigureRemove (slotTime cm) sd
             res <- configureBaker (fst senderAccount) bcr
             kResult energyCost usedEnergy bcr res
-        kWithAccountBalance ls (ConfigureUpdateBakerCont, accountBalance) = do
-            (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
-            chargeExecutionCost txHash senderAccount energyCost
-            let keysOK = case cbKeysWithProofs of
-                  Just BakerKeysWithProofs{..} ->
-                    let challenge = addBakerChallenge senderAddress bkwpElectionVerifyKey bkwpSignatureVerifyKey bkwpAggregationVerifyKey
-                        electionP = checkElectionKeyProof challenge bkwpElectionVerifyKey bkwpProofElection
-                        signP = checkSignatureVerifyKeyProof challenge bkwpSignatureVerifyKey bkwpProofSig
-                        aggregationP = Bls.checkProofOfKnowledgeSK challenge bkwpProofAggregation bkwpAggregationVerifyKey
-                    in electionP && signP && aggregationP
-                  Nothing -> True
+        executeConfigure energyCost usedEnergy (ConfigureUpdateBakerCont, accountBalance) = do
             if maybe False (accountBalance <) cbCapital then
                 return (TxReject InsufficientBalanceForBakerStake, energyCost, usedEnergy)
-            else if keysOK then do
+            else if maybe True areKeysOK cbKeysWithProofs then do
                 -- The proof validates that the baker owns all the private keys,
                 -- thus we can try to create the baker.
                 let bku = cbKeysWithProofs <&> \BakerKeysWithProofs{..} -> BI.BakerKeyUpdate {
@@ -1385,6 +1377,8 @@ handleConfigureDelegation wtc cdCapital cdRestakeEarnings cdDelegationTarget =
             return (TxReject DelegatorInCooldown, energyCost, usedEnergy)
         kResult energyCost usedEnergy _ BI.DCInvalidDelegator =
             return (TxReject (NotADelegator senderAddress), energyCost, usedEnergy)
+        kResult energyCost usedEnergy _ (BI.DCInvalidDelegationTarget bid) =
+            return (TxReject (DelegationTargetNotABaker bid), energyCost, usedEnergy)
 
 -- |Remove the baker for an account. The logic is as follows:
 --

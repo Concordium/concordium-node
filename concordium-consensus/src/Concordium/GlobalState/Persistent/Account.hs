@@ -38,6 +38,7 @@ import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule 
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule
 import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToSelfEncryptedAmount)
+import qualified Concordium.GlobalState.Persistent.Trie as Trie
 
 -- | The persistent version of the encrypted amount structure per account.
 data PersistentAccountEncryptedAmount = PersistentAccountEncryptedAmount {
@@ -168,47 +169,91 @@ instance (MonadBlobStore m) => Cacheable m PersistentAccountEncryptedAmount wher
       ..
     }
 
+data PersistentAccountBakerDelegators (av :: AccountVersion) where
+    PersistentAccountBakerDelegatorsForAccountV0 :: PersistentAccountBakerDelegators 'AccountV0
+    PersistentAccountBakerDelegatorsForAccountV1
+        :: !(Trie.TrieN (BufferedBlobbed BlobRef) DelegatorId ())
+        -> PersistentAccountBakerDelegators 'AccountV1
+
+persistentAccountBakerDelegatorsForAccountV1
+    :: PersistentAccountBakerDelegators 'AccountV1
+    -> Trie.TrieN (BufferedBlobbed BlobRef) DelegatorId ()
+persistentAccountBakerDelegatorsForAccountV1 (PersistentAccountBakerDelegatorsForAccountV1 ds) = ds
+
+deriving instance Show (PersistentAccountBakerDelegators av)
+
+instance (IsAccountVersion av, MonadBlobStore m) => BlobStorable m (PersistentAccountBakerDelegators av) where
+  storeUpdate PersistentAccountBakerDelegatorsForAccountV0 =
+    return (return (), PersistentAccountBakerDelegatorsForAccountV0)
+  storeUpdate (PersistentAccountBakerDelegatorsForAccountV1 ds) = do
+    (pDas, newDs) <- storeUpdate ds
+    return (pDas, PersistentAccountBakerDelegatorsForAccountV1 newDs)
+  store a = fst <$> storeUpdate a
+  load =
+    case accountVersion @av of
+        SAccountV0 -> return (return PersistentAccountBakerDelegatorsForAccountV0)
+        SAccountV1 -> fmap (fmap PersistentAccountBakerDelegatorsForAccountV1) load
+
 data PersistentAccountBaker (av :: AccountVersion) = PersistentAccountBaker
   { _stakedAmount :: !Amount
   , _stakeEarnings :: !Bool
   , _accountBakerInfo :: !(BufferedRef (BakerInfoEx av))
   , _bakerPendingChange :: !(StakePendingChange av)
+  , _accountBakerDelegators :: PersistentAccountBakerDelegators av
   }
   deriving (Show)
 
 makeLenses ''PersistentAccountBaker
 
 -- |Load a 'PersistentAccountBaker' to an 'AccountBaker'.
-loadPersistentAccountBaker :: (IsAccountVersion av, MonadBlobStore m)
+loadPersistentAccountBaker :: forall av m. (IsAccountVersion av, MonadBlobStore m)
   => PersistentAccountBaker av
   -> m (AccountBaker av)
 loadPersistentAccountBaker PersistentAccountBaker{..} = do
   abi' <- refLoad _accountBakerInfo
-  return AccountBaker{_accountBakerInfo = abi', ..}
+  case accountVersion @av of
+    SAccountV0 ->
+      return AccountBaker{_accountBakerInfo = abi', ..}
+    SAccountV1 ->
+        undefined -- TODO
 
-makePersistentAccountBaker :: (IsAccountVersion av, MonadBlobStore m)
+makePersistentAccountBaker :: forall av m. (IsAccountVersion av, MonadBlobStore m)
   => AccountBaker av
   -> m (PersistentAccountBaker av)
 makePersistentAccountBaker AccountBaker{..} = do
-  _accountBakerInfo <- refMake _accountBakerInfo
-  return PersistentAccountBaker{..}
+  case accountVersion @av of
+    SAccountV0 -> do
+      _accountBakerInfo <- refMake _accountBakerInfo
+      return PersistentAccountBaker{_accountBakerDelegators = PersistentAccountBakerDelegatorsForAccountV0, ..}
+    SAccountV1 -> do
+      _accountBakerInfo <- refMake _accountBakerInfo
+      -- TODO fix _accountBakerDelegators
+      return PersistentAccountBaker{_accountBakerDelegators = PersistentAccountBakerDelegatorsForAccountV1 Trie.empty, ..}
 
 instance (IsAccountVersion av, MonadBlobStore m) => BlobStorable m (PersistentAccountBaker av) where
   storeUpdate PersistentAccountBaker{..} = do
     (pBakerInfo, newBakerInfo) <- storeUpdate _accountBakerInfo
-    return . (, PersistentAccountBaker{_accountBakerInfo = newBakerInfo,..}) $ do
+    (pDelegatedAmounts, newDelegators) <- storeUpdate _accountBakerDelegators
+    let pab = PersistentAccountBaker{
+            _accountBakerInfo = newBakerInfo,
+            _accountBakerDelegators = newDelegators,
+            ..}
+    return . (, pab) $ do
       put _stakedAmount
       put _stakeEarnings
       pBakerInfo
       put _bakerPendingChange
+      pDelegatedAmounts
   store a = fst <$> storeUpdate a
   load = do
     _stakedAmount <- get
     _stakeEarnings <- get
     rBakerInfo <- load
     _bakerPendingChange <- get
+    rDelegators <- load
     return $ do
       _accountBakerInfo <- rBakerInfo
+      _accountBakerDelegators <- rDelegators
       return PersistentAccountBaker{..}
 
 instance (IsAccountVersion av, MonadBlobStore m) => Cacheable m (PersistentAccountBaker av) where
@@ -329,6 +374,12 @@ accountBaker :: SimpleGetter (PersistentAccount av) (Nullable (BufferedRef (Pers
 accountBaker = to g
   where
     g PersistentAccount{_accountStake = PersistentAccountStakeBaker bkr} = Some bkr
+    g _ = Null
+
+accountDelegator :: SimpleGetter (PersistentAccount av) (Nullable (BufferedRef (AccountDelegation av)))
+accountDelegator = to g
+  where
+    g PersistentAccount{_accountStake = PersistentAccountStakeDelegate del} = Some del
     g _ = Null
 
 deriving instance (IsAccountVersion av) => Show (PersistentAccount av)

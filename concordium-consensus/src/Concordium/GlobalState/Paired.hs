@@ -238,9 +238,9 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
         b1 <- coerceBSML (getCurrentEpochBakers ls)
         b2 <- coerceBSMR (getCurrentEpochBakers rs)
         assert (b1 == b2) $ return b1
-    getSlotBakers (ls, rs) s = do
-        b1 <- coerceBSML (getSlotBakers ls s)
-        b2 <- coerceBSMR (getSlotBakers rs s)
+    getSlotBakers (ls, rs) t d s = do
+        b1 <- coerceBSML (getSlotBakers ls t d s)
+        b2 <- coerceBSMR (getSlotBakers rs t d s)
         assert (b1 == b2) $ return b1
     getRewardStatus (ls, rs) = do
         a1 <- coerceBSML (getRewardStatus ls)
@@ -442,9 +442,9 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         bs1' <- coerceBSML $ bsoSetSeedState bs1 ss
         bs2' <- coerceBSMR $ bsoSetSeedState bs2 ss
         return (bs1', bs2')
-    bsoTransitionEpochBakers (bs1, bs2) epoch = do
-        bs1' <- coerceBSML $ bsoTransitionEpochBakers bs1 epoch
-        bs2' <- coerceBSMR $ bsoTransitionEpochBakers bs2 epoch
+    bsoTransitionEpochBakers (bs1, bs2) t d epoch = do
+        bs1' <- coerceBSML $ bsoTransitionEpochBakers bs1 t d epoch
+        bs2' <- coerceBSMR $ bsoTransitionEpochBakers bs2 t d epoch
         return (bs1', bs2')
     bsoAddBaker (bs1, bs2) addr bkrAdd = do
         (r1, bs1') <- coerceBSML $ bsoAddBaker bs1 addr bkrAdd

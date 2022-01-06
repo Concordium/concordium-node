@@ -410,7 +410,7 @@ mintAndReward bshandle blockParent slotNumber bid isNewEpoch mfinInfo transFees 
 -- sufficient because the bakers will not change in the intervening epochs.
 --
 -- The return value is @True@ if the block is the first in a new epoch.
-updateBirkParameters :: forall m. (BlockStateOperations m, MonadProtocolVersion m)
+updateBirkParameters :: forall m. (BlockStateOperations m, TreeStateMonad m, MonadProtocolVersion m)
   => SeedState
   -- ^New seed state
   -> UpdatableBlockState m
@@ -420,12 +420,14 @@ updateBirkParameters newSeedState bs0 = case accountVersionFor (protocolVersion 
   SAccountV0 -> do
     oldSeedState <- bsoGetSeedState bs0
     let isNewEpoch = epoch oldSeedState /= epoch newSeedState
+    genData <- getGenesisData
     bs1 <- if isNewEpoch
       then do
         upToLast <- if epoch oldSeedState /= epoch newSeedState - 1
-          then bsoTransitionEpochBakers bs0 (epoch newSeedState - 1)
+          then do
+            bsoTransitionEpochBakers bs0 (gdGenesisTime genData) (gdSlotDuration genData) (epoch newSeedState - 1)
           else return bs0
-        bsoTransitionEpochBakers upToLast (epoch newSeedState)
+        bsoTransitionEpochBakers upToLast (gdGenesisTime genData) (gdSlotDuration genData) (epoch newSeedState)
       else
         return bs0
     (isNewEpoch,) <$> bsoSetSeedState bs1 newSeedState

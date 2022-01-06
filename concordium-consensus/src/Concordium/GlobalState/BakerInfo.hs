@@ -247,4 +247,6 @@ data DelegationConfigureResult
   -- ^A change is already pending on this delegator.
   | DCInvalidDelegator
   -- ^This is not a valid delegator.
+  | DCInvalidDelegationTarget !BakerId
+  -- ^Delegation target is not a valid baker.
   deriving (Eq, Show)

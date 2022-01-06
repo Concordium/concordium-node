@@ -222,8 +222,8 @@ class AccountOperations m => BlockStateQuery m where
     -- |Get the bakers for the epoch in which the block was baked.
     getCurrentEpochBakers :: BlockState m -> m FullBakers
 
-    -- |Get the bakers for a particular (future) slot.
-    getSlotBakers :: BlockState m -> Slot -> m FullBakers
+    -- |Get the bakers for a particular (future) slot, provided genesis timestamp and slot duration.
+    getSlotBakers :: BlockState m -> Timestamp -> Duration -> Slot -> m FullBakers
 
     -- |Get the account of a baker. This may return an account even
     -- if the account is not (currently) a baker, since a 'BakerId'
@@ -407,6 +407,10 @@ class (BlockStateQuery m) => BlockStateOperations m where
   bsoTransitionEpochBakers
     :: (AccountVersionFor (MPV m) ~ 'AccountV0)
     => UpdatableBlockState m
+    -> Timestamp
+    -- ^Genesis time
+    -> Duration
+    -- ^The slot duration
     -> Epoch
     -- ^The new epoch
     -> m (UpdatableBlockState m)
@@ -676,7 +680,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   getContractInstanceList = lift . getContractInstanceList
   getSeedState = lift . getSeedState
   getCurrentEpochBakers = lift . getCurrentEpochBakers
-  getSlotBakers s = lift . getSlotBakers s
+  getSlotBakers s t d = lift . getSlotBakers s t d
   getRewardStatus = lift . getRewardStatus
   getTransactionOutcome s = lift . getTransactionOutcome s
   getTransactionOutcomesHash = lift . getTransactionOutcomesHash
@@ -758,7 +762,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoNotifyEncryptedBalanceChange s = lift . bsoNotifyEncryptedBalanceChange s
   bsoGetSeedState = lift . bsoGetSeedState
   bsoSetSeedState s ss = lift $ bsoSetSeedState s ss
-  bsoTransitionEpochBakers s e = lift $ bsoTransitionEpochBakers s e
+  bsoTransitionEpochBakers s t d e = lift $ bsoTransitionEpochBakers s t d e
   bsoAddBaker s addr a = lift $ bsoAddBaker s addr a
   bsoConfigureBaker s aconfig a = lift $ bsoConfigureBaker s aconfig a
   bsoConfigureDelegation s aconfig a = lift $ bsoConfigureDelegation s aconfig a
