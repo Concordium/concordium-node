@@ -303,7 +303,6 @@ impl P2PNode {
         let handshake_request = netmsg!(
             NetworkRequest,
             NetworkRequest::Handshake(Handshake {
-                remote_id:      self.self_peer.id,
                 remote_port:    self.self_peer.port(),
                 networks:       read_or_die!(self.networks()).iter().copied().collect(),
                 node_version:   Version::parse(env!("CARGO_PKG_VERSION"))?,

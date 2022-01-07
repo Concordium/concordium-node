@@ -140,14 +140,19 @@ table IpAddr {
 
 enum PeerVariant: uint8 { Node, Bootstrapper }
 
+struct PeerId {
+    id: [uint8:32];
+}
+
 /// A P2PPeer value contains the id, addr, port and variant of the peer. It is
 /// sent by PeerList to provide new peers to the node that sent a GetPeers
 /// request.
 table P2PPeer {
-    id: uint64;
+    id: uint64 (deprecated);
     addr: IpAddr;
     port: uint16;
     variant: PeerVariant;
+    peer_id: PeerId;
 }
 
 /// A list of peers.

@@ -40,14 +40,11 @@ fn main() -> anyhow::Result<()> {
         "Bootstrapper can't run without specifying genesis hashes."
     );
 
-    let (node, server, poll) = P2PNode::new(
-        conf.common.id,
-        &conf,
-        PeerType::Bootstrapper,
-        stats_export_service,
-        regenesis_arc,
-    )
-    .context("Failed to create the network node.")?;
+    // todo: decide how to manage the private key
+    let kp = ed25519_dalek::Keypair::generate(&mut rand::rngs::OsRng);
+    let (node, server, poll) =
+        P2PNode::new(kp, &conf, PeerType::Bootstrapper, stats_export_service, regenesis_arc)
+            .context("Failed to create the network node.")?;
 
     #[cfg(feature = "instrumentation")]
     start_push_gateway(&conf.prometheus, &node.stats, node.id());

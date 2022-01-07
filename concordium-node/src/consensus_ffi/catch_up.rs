@@ -1,5 +1,4 @@
-use crate::common::{p2p_node_id::PeerId, p2p_peer::RemotePeerId};
-use nohash_hasher::BuildNoHashHasher;
+use crate::common::p2p_peer::RemotePeerId;
 use std::{
     cmp::Ordering,
     collections::{HashMap, VecDeque},
@@ -47,7 +46,7 @@ pub enum PeerStatus {
 #[derive(Default)]
 pub struct PeerList {
     /// The state of each peer.
-    pub peer_states:    HashMap<RemotePeerId, PeerStatus, BuildNoHashHasher<PeerId>>,
+    pub peer_states:    HashMap<RemotePeerId, PeerStatus>,
     /// The timestamp at which we last tried to catch up with a peer.
     pub catch_up_stamp: u64,
     /// The peer that we are currently catching up with (if any).

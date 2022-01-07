@@ -1,7 +1,8 @@
+use rand::{thread_rng, Rng};
 use semver::Version;
 
 use crate::{
-    common::{get_current_stamp, p2p_peer::P2PPeer, P2PNodeId, PeerType},
+    common::{get_current_stamp, p2p_peer::P2PPeer, P2PNodeId, PeerId, PeerType},
     network::{
         Handshake, NetworkId, NetworkMessage, NetworkPayload, NetworkRequest, NetworkResponse,
     },
@@ -41,7 +42,6 @@ test_s11n!(
 test_s11n!(
     s11n_req_handshake,
     NetworkPayload::NetworkRequest(NetworkRequest::Handshake(Handshake {
-        remote_id:      P2PNodeId(77),
         remote_port:    1234,
         networks:       [100u16, 1000, 1234, 9999].iter().copied().map(NetworkId::from).collect(),
         node_version:   Version::parse(env!("CARGO_PKG_VERSION")).unwrap(),
@@ -66,12 +66,12 @@ test_s11n!(
     NetworkPayload::NetworkResponse(NetworkResponse::PeerList(
         [
             P2PPeer {
-                id:        P2PNodeId(1234567890123),
+                id:        P2PNodeId(PeerId(thread_rng().gen::<[u8; 32]>())),
                 addr:      SocketAddr::new(IpAddr::from([1, 2, 3, 4]), 80),
                 peer_type: PeerType::Bootstrapper,
             },
             P2PPeer {
-                id:        P2PNodeId(1),
+                id:        P2PNodeId(PeerId(thread_rng().gen::<[u8; 32]>())),
                 addr:      SocketAddr::new(IpAddr::from([8, 7, 6, 5, 4, 3, 2, 1]), 8080),
                 peer_type: PeerType::Node,
             },

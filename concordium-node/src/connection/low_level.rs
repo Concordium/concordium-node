@@ -5,10 +5,13 @@ use mio::net::TcpStream;
 use noiseexplorer_xx::{
     consts::{DHLEN, MAC_LENGTH},
     noisesession::NoiseSession,
-    types::Keypair,
 };
 
-use crate::{configuration::PROTOCOL_MAX_MESSAGE_SIZE, p2p::maintenance::P2PNode};
+use crate::{
+    common::p2p_node_id::{P2PNodeId, PeerId},
+    configuration::PROTOCOL_MAX_MESSAGE_SIZE,
+    p2p::maintenance::P2PNode,
+};
 
 use std::{
     cmp,
@@ -161,7 +164,14 @@ impl ConnectionLowLevel {
         is_initiator: bool,
         read_size: usize,
         write_size: usize,
-    ) -> Self {
+    ) -> anyhow::Result<Self> {
+        let sk =
+            noiseexplorer_xx::types::PrivateKey::from_bytes(handler.key_pair.secret.to_bytes());
+        let noise_key_pair = match noiseexplorer_xx::types::Keypair::from_private_key(sk) {
+            Err(e) => anyhow::bail!("Cannot create noise keypair from provided key: {}", e),
+            Ok(kp) => kp,
+        };
+
         let so_linger = if is_initiator {
             handler.config.socket_so_linger
         } else {
@@ -177,10 +187,10 @@ impl ConnectionLowLevel {
             }
         );
 
-        ConnectionLowLevel {
+        Ok(ConnectionLowLevel {
             handler: Arc::downgrade(handler),
             socket,
-            noise_session: NoiseSession::init_session(is_initiator, PROLOGUE, Keypair::default()),
+            noise_session: NoiseSession::init_session(is_initiator, PROLOGUE, noise_key_pair),
             noise_buffer: vec![0u8; NOISE_MAX_MESSAGE_LEN].into_boxed_slice(),
             socket_buffer: SocketBuffer::new(read_size),
             incoming_msg: IncomingMessage::default(),
@@ -189,7 +199,7 @@ impl ConnectionLowLevel {
             is_writable: false,
             is_initialized: false,
             so_linger,
-        }
+        })
     }
 
     #[cfg(unix)]
@@ -314,12 +324,8 @@ impl ConnectionLowLevel {
 
     #[inline]
     /// Checks whether the low-level noise handshake is complete.
-    fn is_post_handshake(&self) -> bool {
-        if self.noise_session.is_initiator() {
-            self.noise_session.get_message_count() > 1
-        } else {
-            self.noise_session.get_message_count() > 2
-        }
+    pub(crate) fn is_post_handshake(&self) -> Option<P2PNodeId> {
+        self.noise_session.get_remote_static_public_key().map(|pk| P2PNodeId(PeerId(pk.as_bytes())))
     }
 
     // input
@@ -381,7 +387,7 @@ impl ConnectionLowLevel {
                 bail!("I got a zero-sized message");
             }
 
-            if !self.is_post_handshake() && expected_size >= HANDSHAKE_SIZE_LIMIT as u32 {
+            if self.is_post_handshake().is_none() && expected_size >= HANDSHAKE_SIZE_LIMIT as u32 {
                 bail!(
                     "expected message size ({}) exceeds the handshake size limit ({})",
                     ByteSize(expected_size as u64).to_string_as(true),
@@ -416,14 +422,14 @@ impl ConnectionLowLevel {
         self.incoming_msg.message.write_all(self.socket_buffer.slice(to_read))?;
         self.incoming_msg.pending_bytes -= to_read;
 
-        if self.is_post_handshake() {
+        if self.is_post_handshake().is_some() {
             self.socket_buffer.shift(to_read);
         }
 
         if self.incoming_msg.pending_bytes == 0 {
             trace!("The message was fully read");
 
-            if !self.is_post_handshake() {
+            if self.is_post_handshake().is_none() {
                 let payload = match self.noise_session.get_message_count() {
                     0 if !self.noise_session.is_initiator() => self.process_msg_a(to_read),
                     1 if self.noise_session.is_initiator() => self.process_msg_b(to_read),
@@ -541,7 +547,7 @@ impl ConnectionLowLevel {
         // Always ignore max write buffer when we're handshaking, as we need to ensure
         // we won't chunk the handshake messages, which can cause issues for the
         // noise protocol
-        let write_size = if !self.is_post_handshake() {
+        let write_size = if self.is_post_handshake().is_none() {
             cmp::min(4_096, self.output_queue.len())
         } else {
             cmp::min(self.write_size(), self.output_queue.len())

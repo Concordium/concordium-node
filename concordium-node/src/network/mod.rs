@@ -9,10 +9,7 @@ use semver::Version;
 pub use self::buckets::Buckets;
 
 use crate::{
-    common::{
-        p2p_peer::{P2PPeer, RemotePeerId},
-        P2PNodeId,
-    },
+    common::p2p_peer::{P2PPeer, RemotePeerId},
     consensus_ffi::blockchain_types::BlockHash,
 };
 
@@ -83,7 +80,6 @@ pub enum NetworkPayload {
 /// The "high-level" network handshake.
 #[derive(Debug, PartialEq)]
 pub struct Handshake {
-    pub remote_id:      P2PNodeId,
     pub remote_port:    u16,
     pub networks:       Networks,
     pub node_version:   Version,

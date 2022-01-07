@@ -3,6 +3,7 @@
 use crate::{
     common::{
         get_current_stamp,
+        p2p_node_id::PeerId,
         p2p_peer::{P2PPeer, PeerType},
         P2PNodeId,
     },
@@ -168,7 +169,6 @@ fn deserialize_request(root: &network::NetworkMessage) -> anyhow::Result<Network
                         HANDSHAKE_MESSAGE_VERSION
                     );
                 }
-                let remote_id = P2PNodeId(handshake.node_id());
                 let remote_port = handshake.port();
                 let networks = if let Some(networks) = handshake.network_ids() {
                     networks.safe_slice().iter().copied().map(NetworkId::from).collect()
@@ -203,7 +203,6 @@ fn deserialize_request(root: &network::NetworkMessage) -> anyhow::Result<Network
                 };
 
                 Ok(NetworkPayload::NetworkRequest(NetworkRequest::Handshake(Handshake {
-                    remote_id,
                     remote_port,
                     networks,
                     node_version,
@@ -279,13 +278,17 @@ fn deserialize_response(root: &network::NetworkMessage) -> anyhow::Result<Networ
                         var => bail!("Unsupported peer variant {:?}", var),
                     };
 
-                    let peer = P2PPeer {
-                        id: P2PNodeId(peer.id()),
-                        addr,
-                        peer_type,
-                    };
-
-                    list.push(peer);
+                    match peer.peer_id() {
+                        None => bail!("missing peer id in a PeerList response"),
+                        Some(peer_id) => {
+                            let peer = P2PPeer {
+                                id: P2PNodeId(PeerId(peer_id.id().into())),
+                                addr,
+                                peer_type,
+                            };
+                            list.push(peer);
+                        }
+                    }
                 }
 
                 Ok(NetworkPayload::NetworkResponse(NetworkResponse::PeerList(list)))
@@ -399,7 +402,7 @@ fn serialize_request(
 
             let offset = network::Handshake::create(builder, &network::HandshakeArgs {
                 version:        0,
-                node_id:        handshake.remote_id.as_raw(),
+                node_id:        0u64, // for backwards compatibility
                 port:           handshake.remote_port,
                 network_ids:    nets_offset,
                 node_version:   Some(node_version_offset),
@@ -449,52 +452,49 @@ fn serialize_response(
     builder: &mut FlatBufferBuilder,
     response: &NetworkResponse,
 ) -> io::Result<flatbuffers::WIPOffset<flatbuffers::UnionWIPOffset>> {
-    let (variant, payload_type, payload) = match response {
-        NetworkResponse::Pong => {
-            (network::ResponseVariant::Pong, network::ResponsePayload::NONE, None)
-        }
-        NetworkResponse::PeerList(peerlist) => {
-            let mut peers = Vec::with_capacity(peerlist.len());
-            for peer in peerlist.iter() {
-                let (variant, octets) = match peer.addr.ip() {
-                    IpAddr::V4(ip) => (network::IpVariant::V4, ip.octets().to_vec()),
-                    IpAddr::V6(ip) => (network::IpVariant::V6, ip.octets().to_vec()),
-                };
-                let octets_len = octets.len();
-                builder.start_vector::<u8>(octets_len);
-                for byte in octets.into_iter().rev() {
-                    builder.push(byte);
-                }
-                let octets = Some(builder.end_vector(octets_len));
-
-                let ip_offset = network::IpAddr::create(builder, &network::IpAddrArgs {
-                    variant,
-                    octets,
-                });
-
-                let peer_type = match peer.peer_type {
-                    PeerType::Node => network::PeerVariant::Node,
-                    PeerType::Bootstrapper => network::PeerVariant::Bootstrapper,
-                };
-
-                let peer = network::P2PPeer::create(builder, &network::P2PPeerArgs {
-                    id:      peer.id.as_raw(),
-                    addr:    Some(ip_offset),
-                    port:    peer.addr.port(),
-                    variant: peer_type,
-                });
-                peers.push(peer);
+    let (variant, payload_type, payload) = if let NetworkResponse::PeerList(peerlist) = response {
+        let mut peers = Vec::with_capacity(peerlist.len());
+        for peer in peerlist.iter() {
+            let (variant, octets) = match peer.addr.ip() {
+                IpAddr::V4(ip) => (network::IpVariant::V4, ip.octets().to_vec()),
+                IpAddr::V6(ip) => (network::IpVariant::V6, ip.octets().to_vec()),
+            };
+            let octets_len = octets.len();
+            builder.start_vector::<u8>(octets_len);
+            for byte in octets.into_iter().rev() {
+                builder.push(byte);
             }
-            let peers_offset = Some(builder.create_vector(&peers));
-            let offset = Some(
-                network::PeerList::create(builder, &network::PeerListArgs {
-                    peers: peers_offset,
-                })
-                .as_union_value(),
-            );
+            let octets = Some(builder.end_vector(octets_len));
 
-            (network::ResponseVariant::PeerList, network::ResponsePayload::PeerList, offset)
+            let ip_offset = network::IpAddr::create(builder, &network::IpAddrArgs {
+                variant,
+                octets,
+            });
+
+            let peer_type = match peer.peer_type {
+                PeerType::Node => network::PeerVariant::Node,
+                PeerType::Bootstrapper => network::PeerVariant::Bootstrapper,
+            };
+
+            let peer = network::P2PPeer::create(builder, &network::P2PPeerArgs {
+                addr:    Some(ip_offset),
+                port:    peer.addr.port(),
+                variant: peer_type,
+                peer_id: Some(&network::PeerId(peer.id.0 .0)),
+            });
+            peers.push(peer);
         }
+        let peers_offset = Some(builder.create_vector(&peers));
+        let offset = Some(
+            network::PeerList::create(builder, &network::PeerListArgs {
+                peers: peers_offset,
+            })
+            .as_union_value(),
+        );
+
+        (network::ResponseVariant::PeerList, network::ResponsePayload::PeerList, offset)
+    } else {
+        (network::ResponseVariant::Pong, network::ResponsePayload::NONE, None)
     };
 
     let response_offset =

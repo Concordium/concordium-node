@@ -119,7 +119,8 @@ pub fn make_node_and_sync(
     let regenesis_arc = Arc::new(Regenesis::from_blocks(regenesis_blocks));
 
     let stats = Arc::new(StatsExportService::new().unwrap());
-    let (node, server, poll) = P2PNode::new(None, &config, node_type, stats, regenesis_arc)?;
+    let kp = ed25519_dalek::Keypair::generate(&mut rand::rngs::OsRng);
+    let (node, server, poll) = P2PNode::new(kp, &config, node_type, stats, regenesis_arc)?;
 
     spawn(&node, server, poll, None);
     Ok((node, DeletePermission {

@@ -262,6 +262,8 @@ fn instantiate_node(
     stats_export_service: Arc<StatsExportService>,
     regenesis_arc: Arc<Regenesis>,
 ) -> anyhow::Result<(Arc<P2PNode>, TcpListener, Poll)> {
+    // todo: decide how to manage the private key
+    let kp = ed25519_dalek::Keypair::generate(&mut rand::rngs::OsRng);
     // If the node id is supplied on the command line (in the conf argument) use it.
     // Otherwise try to look it up from the persistent config.
     let node_id = match conf.common.id {
@@ -285,7 +287,7 @@ fn instantiate_node(
         error!("Failed to persist own node id.");
     };
 
-    P2PNode::new(Some(node_id), &conf, PeerType::Node, stats_export_service, regenesis_arc)
+    P2PNode::new(kp, &conf, PeerType::Node, stats_export_service, regenesis_arc)
 }
 
 fn establish_connections(conf: &config::Config, node: &Arc<P2PNode>) -> anyhow::Result<()> {
