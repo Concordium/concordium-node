@@ -817,7 +817,7 @@ handleContractUpdateV1 :: forall pv m.
   (TransactionMonad pv m, AccountOperations m)
   => AccountAddress -- ^The address that was used to send the top-level transaction.
   -> InstanceV GSWasm.V1 -- ^The current state of the target contract of the transaction, which must exist.
-  -> (Amount -> m (Address, [ID.AccountCredential], (Either ContractAddress IndexedAccountAddress)))
+  -> (Amount -> m (Address, [ID.AccountCredential], Either ContractAddress IndexedAccountAddress))
   -- ^Check that the sender has sufficient amount to cover the given amount and return a triple of
   -- - used address
   -- - credentials of the address, either account or owner of the contract
@@ -868,7 +868,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
         case rrData of
           WasmV1.ReceiveSuccess{..} -> do
             -- execution terminated, commit the new state
-            withInstanceStateV1 istance rrdNewState $
+            withInstanceStateV1 istance rrdNewState $ \_modifiedIndex ->
               let event = Updated{euAddress=instanceAddress istance,
                                   euInstigator=senderAddr,
                                   euAmount=transferAmount,
@@ -890,31 +890,33 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
               WasmV1.Transfer{..} ->
                 runExceptT (transferAccountSync imtTo istance imtAmount) >>= \case
                   Left errCode -> do
-                    go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState (WasmV1.Error (WasmV1.EnvFailure errCode)) Nothing)
-                  Right transferEvents -> go (resumeEvent True:transferEvents ++ interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState WasmV1.Success Nothing)
+                    go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig Nothing (WasmV1.Error (WasmV1.EnvFailure errCode)) Nothing)
+                  Right transferEvents -> go (resumeEvent True:transferEvents ++ interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig Nothing WasmV1.Success Nothing)
               WasmV1.Call{..} ->
                 -- commit the current state of the contract.
-                withInstanceStateV1 istance rrdCurrentState $ do
+                withInstanceStateV1 istance rrdCurrentState $ \modificationIndex -> do
                    -- lookup the instance
                    getCurrentContractInstanceTicking' imcTo >>= \case
-                     Nothing -> go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState (WasmV1.Error (WasmV1.EnvFailure (WasmV1.MissingContract imcTo))) Nothing)
+                     Nothing -> go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig Nothing (WasmV1.Error (WasmV1.EnvFailure (WasmV1.MissingContract imcTo))) Nothing)
                      Just (InstanceV0 targetInstance) -> do
                        let rName = Wasm.makeReceiveName (instanceInitName (_instanceVParameters targetInstance)) imcName
                            runSuccess = Right <$> handleContractUpdateV0 originAddr targetInstance (checkAndGetBalanceInstance ownerAccount istance) imcAmount rName imcParam
                        (runSuccess `orElseWith` (return . Left)) >>= \case
                           Left rr -> -- execution failed.
-                            go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState (WasmV1.Error (WasmV1.EnvFailure (WasmV1.MessageFailed rr))) Nothing)
+                            go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig Nothing (WasmV1.Error (WasmV1.EnvFailure (WasmV1.MessageFailed rr))) Nothing)
                           Right evs -> do
-                            newState <- getCurrentContractInstanceState istance
-                            go (resumeEvent True:evs ++ interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig newState WasmV1.Success Nothing)
+                            (lastModifiedIndex, newState) <- getCurrentContractInstanceState istance
+                            let resumeState = if lastModifiedIndex == modificationIndex then Nothing else Just newState
+                            go (resumeEvent True:evs ++ interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig resumeState WasmV1.Success Nothing)
                      Just (InstanceV1 targetInstance) -> do
                        let rName = Wasm.makeReceiveName (instanceInitName (_instanceVParameters targetInstance)) imcName
                        withRollback (handleContractUpdateV1 originAddr targetInstance (checkAndGetBalanceInstance ownerAccount istance) imcAmount rName imcParam) >>= \case
                           Left cer ->
-                            go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState (WasmV1.Error cer) (WasmV1.ccfToReturnValue cer))
+                            go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig Nothing (WasmV1.Error cer) (WasmV1.ccfToReturnValue cer))
                           Right (rVal, callEvents) -> do
-                            newState <- getCurrentContractInstanceState istance
-                            go (resumeEvent True:callEvents ++ interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig newState WasmV1.Success (Just rVal))
+                            (lastModifiedIndex, newState) <- getCurrentContractInstanceState istance
+                            let resumeState = if lastModifiedIndex == modificationIndex then Nothing else Just newState
+                            go (resumeEvent True:callEvents ++ interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig resumeState WasmV1.Success (Just rVal))
 
   -- start contract execution.
   -- transfer the amount from the sender to the contract at the start. This is so that the contract may immediately use it

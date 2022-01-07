@@ -300,7 +300,7 @@ class (StaticInformation m, IsProtocolVersion pv) => TransactionMonad pv m | m -
   -- keep track of changes locally first, and only commit them at the end.
   -- Instance keeps track of its own address hence we need not provide it
   -- separately.
-  withInstanceStateV1 :: InstanceV GSWasm.V1 -> Wasm.ContractState -> m a -> m a
+  withInstanceStateV1 :: InstanceV GSWasm.V1 -> Wasm.ContractState -> (ModificationIndex -> m a) -> m a
 
   -- |Transfer amount from the first address to the second and run the
   -- computation in the modified environment.
@@ -374,7 +374,9 @@ class (StaticInformation m, IsProtocolVersion pv) => TransactionMonad pv m | m -
   -- |Same as above, but for contracts.
   getCurrentContractAmount :: (HasInstanceParameters a, HasInstanceFields a) => a -> m Amount
 
-  getCurrentContractInstanceState :: (HasInstanceParameters a, HasInstanceFields a) => a -> m Wasm.ContractState
+  -- |Get the current contract instance state, together with the modification
+  -- index of the last modification.
+  getCurrentContractInstanceState :: (HasInstanceParameters a, HasInstanceFields a) => a -> m (ModificationIndex, Wasm.ContractState)
 
   -- |Get the amount of energy remaining for the transaction.
   getEnergy :: m (Energy, EnergyLimitReason)
@@ -427,11 +429,15 @@ class (StaticInformation m, IsProtocolVersion pv) => TransactionMonad pv m | m -
   rejectingWith' !c reason = c >>= \case Right b -> return b
                                          Left a -> rejectTransaction (reason a)
 
+-- |Index that keeps track of modifications of smart contracts inside a single
+-- transaction. This is used to cheaply detect whether a contract state has
+-- changed or not when a contract calls another.
+type ModificationIndex = Word
 
 -- |The set of changes to be commited on a successful transaction.
 data ChangeSet = ChangeSet
     {_accountUpdates :: !(HMap.HashMap AccountIndex AccountUpdate) -- ^Accounts whose states changed.
-    ,_instanceUpdates :: !(HMap.HashMap ContractAddress (AmountDelta, Maybe Wasm.ContractState)) -- ^Contracts whose states changed.
+    ,_instanceUpdates :: !(HMap.HashMap ContractAddress (ModificationIndex, AmountDelta, Maybe Wasm.ContractState)) -- ^Contracts whose states changed.
     ,_instanceInits :: !(HSet.HashSet ContractAddress) -- ^Contracts that were initialized.
     ,_encryptedChange :: !AmountDelta -- ^Change in the encrypted balance of the system as a result of this contract's execution.
     ,_addedReleaseSchedules :: !(Map.Map AccountAddress Timestamp) -- ^The release schedules added to accounts on this block, to be added on the per block map.
@@ -491,10 +497,10 @@ modifyAmountCS ai !amnt !cs = cs & (accountUpdates . ix ai . auAmount ) %~
 -- |Add or update the contract state in the changeset with the given value.
 -- |NB: If the instance is not yet in the changeset we assume that its balance is
 -- as listed in the given instance structure.
-addContractStatesToCS :: HasInstanceParameters a => a -> Wasm.ContractState -> ChangeSet -> ChangeSet
-addContractStatesToCS istance newState =
-  instanceUpdates . at addr %~ \case Just (amnt, _) -> Just (amnt, Just newState)
-                                     Nothing -> Just (0, Just newState)
+addContractStatesToCS :: HasInstanceParameters a => a -> ModificationIndex -> Wasm.ContractState -> ChangeSet -> ChangeSet
+addContractStatesToCS istance curIdx newState =
+  instanceUpdates . at addr %~ \case Just (_, amnt, _) -> Just (curIdx, amnt, Just newState)
+                                     Nothing -> Just (curIdx, 0, Just newState)
   where addr = instanceAddress istance
 
 -- |Add the given delta to the change set for the given contract instance.
@@ -502,8 +508,9 @@ addContractStatesToCS istance newState =
 -- model as given in the first argument to be current model (local state)
 addContractAmountToCS :: ContractAddress -> AmountDelta -> ChangeSet -> ChangeSet
 addContractAmountToCS addr amnt cs =
-    cs & instanceUpdates . at addr %~ \case Just (d, v) -> Just (d + amnt, v)
-                                            Nothing -> Just (amnt, Nothing)
+    -- updating amounts does not update the modification index. Only state updates do.
+    cs & instanceUpdates . at addr %~ \case Just (idx, d, v) -> Just (idx, d + amnt, v)
+                                            Nothing -> Just (0, amnt, Nothing)
 
 -- |Add the given contract address to the set of initialized contract instances.
 -- As the changes on the blockstate are already performed in the handler for this operation,
@@ -524,6 +531,8 @@ data LocalState = LocalState{
   _energyLeft :: !Energy,
   -- |Changes accumulated thus far.
   _changeSet :: !ChangeSet,
+  -- |Maximum number of modified contract instances.
+  _nextContractModificationIndex :: !ModificationIndex,
   _blockEnergyLeft :: !Energy
   }
 
@@ -561,7 +570,7 @@ runLocalT :: forall pv m a . Monad m
           -> Energy -- remaining block energy
           -> m (Either (Maybe RejectReason) a, LocalState)
 runLocalT (LocalT st) _tcDepositedAmount _tcTxSender _energyLeft _blockEnergyLeft = do
-  let s = LocalState{_changeSet = emptyCS,..}
+  let s = LocalState{_changeSet = emptyCS,_nextContractModificationIndex = 0,..}
   (a, s') <- runRST (runContT st (return . Right)) ctx s
   return (a, s')
 
@@ -743,13 +752,17 @@ deriving via (MGSTrans (LocalT pv r) m) instance AccountOperations m => AccountO
 instance (IsProtocolVersion pv, StaticInformation m, AccountOperations m, Monad m) => TransactionMonad pv (LocalT pv r m) where
   {-# INLINE withInstanceStateV0 #-}
   withInstanceStateV0 istance val cont = do
-    changeSet %= addContractStatesToCS istance val
-    cont
+    nextModificationIndex <- use nextContractModificationIndex
+    nextContractModificationIndex += 1
+    changeSet %= addContractStatesToCS istance nextModificationIndex val
+    cont 
 
   {-# INLINE withInstanceStateV1 #-}
   withInstanceStateV1 istance val cont = do
-    changeSet %= addContractStatesToCS istance val
-    cont
+    nextModificationIndex <- use nextContractModificationIndex
+    nextContractModificationIndex += 1
+    changeSet %= addContractStatesToCS istance nextModificationIndex val
+    cont nextModificationIndex
 
   {-# INLINE withAccountToAccountAmount #-}
   withAccountToAccountAmount fromAcc toAcc amount cont = do
@@ -816,15 +829,15 @@ instance (IsProtocolVersion pv, StaticInformation m, AccountOperations m, Monad 
        Just i ->
          case newStates ^. at addr of
            Nothing -> return $ Just i
-           Just (delta, newmodel) ->
+           Just (_, delta, newmodel) ->
              let !updated = updateInstance delta newmodel i
              in return (Just updated)
 
   getCurrentContractInstanceState istance = do
     newStates <- use (changeSet . instanceUpdates)
     case newStates ^. at (instanceAddress istance) of
-      Just (_, (Just s)) -> return s
-      _ -> return (instanceModel istance)
+      Just (idx, _, (Just s)) -> return (idx, s)
+      _ -> return (0, instanceModel istance)
 
   getCurrentAccountTotalAmount (ai, acc) = do
     oldTotal <- getAccountAmount acc
@@ -869,7 +882,7 @@ instance (IsProtocolVersion pv, StaticInformation m, AccountOperations m, Monad 
     let amnt = instanceAmount inst
     let addr = instanceAddress inst
     use (changeSet . instanceUpdates . at addr) >>= \case
-      Just (delta, _) -> return $! applyAmountDelta delta amnt
+      Just (_, delta, _) -> return $! applyAmountDelta delta amnt
       Nothing -> return amnt
 
   {-# INLINE getEnergy #-}
@@ -897,22 +910,26 @@ instance (IsProtocolVersion pv, StaticInformation m, AccountOperations m, Monad 
   {-# INLINE orElse #-}
   orElse (LocalT l) (LocalT r) = LocalT $ ContT $ \k -> do
      initChangeSet <- use changeSet
+     initModificationIndex <- use nextContractModificationIndex
      runContT l k >>= \case
        Left (Just reason) | reason /= OutOfEnergy -> do
          -- reset changeSet, the left computation will have no effect at all other than
          -- energy use.
          changeSet .= initChangeSet
+         nextContractModificationIndex .= initModificationIndex
          runContT r k
        x -> return x
 
   {-# INLINE orElseWith #-}
   orElseWith (LocalT l) r = LocalT $ ContT $ \k -> do
      initChangeSet <- use changeSet
+     initModificationIndex <- use nextContractModificationIndex
      runContT l k >>= \case
        (Left (Just reason)) | reason /= OutOfEnergy -> do
          -- reset changeSet, the left computation will have no effect at all other than
          -- energy use.
          changeSet .= initChangeSet
+         nextContractModificationIndex .= initModificationIndex
          runContT (_runLocalT (r reason)) k
        x -> return x
 
@@ -920,8 +937,10 @@ instance (IsProtocolVersion pv, StaticInformation m, AccountOperations m, Monad 
   {-# INLINE withRollback #-}
   withRollback (LocalT l) = LocalT $ ContT $ \k -> do
      initChangeSet <- use changeSet
+     initModificationIndex <- use nextContractModificationIndex
      let kNew x@(Left _) = do
            changeSet .= initChangeSet
+           nextContractModificationIndex .= initModificationIndex
            k x
          kNew x = k x
      runContT l kNew

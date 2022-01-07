@@ -209,7 +209,7 @@ instance (MonadReader ContextState m,
     -- ASSUMPTION: the property which should hold at this point is that any
     -- changed instance must exist in the global state and moreover all instances
     -- are distinct by the virtue of a HashMap being a function
-    s' <- lift (foldM (\s' (addr, (amnt, val)) -> do
+    s' <- lift (foldM (\s' (addr, (_, amnt, val)) -> do
                          tell (logContract addr)
                          bsoModifyInstance s' addr amnt val)
                       s

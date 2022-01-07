@@ -188,6 +188,8 @@ foreign import ccall "call_receive_v1"
 
 foreign import ccall "resume_receive_v1"
    resume_receive ::  Ptr (Ptr ReceiveInterruptedState) -- ^Location where the pointer to interrupted config will be stored.
+             -> Word8 -- ^Tag of whether the state has been updated or not. If this is 0 then the next two values are not used.
+                     -- If it is non-zero then they are.
              -> Ptr Word8 -- ^Pointer to the current state of the smart contracts. This will not be modified.
              -> CSize -- ^Length of the state.
              -> Word64 -- ^Return status from the interrupt.
@@ -456,7 +458,7 @@ applyReceiveFun miface cm receiveCtx rName param amnt cs initialEnergy = unsafeP
 -- |Resume execution after processing the interrupt. This can only be called once on a single 'ReceiveInterruptedState'.
 resumeReceiveFun ::
     ReceiveInterruptedState
-    -> ContractState -- ^State of the contract to start in.
+    -> Maybe ContractState -- ^State of the contract to start in.
     -> InvokeResponseCode
     -> Maybe ReturnValue
     -> InterpreterEnergy  -- ^Amount of energy available for execution.
@@ -465,10 +467,11 @@ resumeReceiveFun ::
     -- of execution with the amount of energy remaining.
 resumeReceiveFun is cs statusCode rVal remainingEnergy = unsafePerformIO $ do
               withReceiveInterruptedState is $ \isPtr ->
-                BSU.unsafeUseAsCStringLen stateBytes $ \(stateBytesPtr, stateBytesLen) ->
+                withStateBytes $ \(stateBytesPtr, stateBytesLen) ->
                   withMaybeReturnValue rVal $ \rValPtr ->
                     alloca $ \outputLenPtr -> alloca $ \outputReturnValuePtrPtr -> do
                       outPtr <- resume_receive isPtr
+                                              newStateTag
                                               (castPtr stateBytesPtr) (fromIntegral stateBytesLen)
                                               (invokeResponseToWord64 statusCode)
                                               rValPtr
@@ -482,7 +485,9 @@ resumeReceiveFun is cs statusCode rVal remainingEnergy = unsafePerformIO $ do
                         returnValuePtr <- peek outputReturnValuePtrPtr
                         processReceiveResult bs returnValuePtr (Left is)
     where
-        stateBytes = contractState cs
+        (withStateBytes, newStateTag) = case cs of
+           Just stateBytes -> (BSU.unsafeUseAsCStringLen (contractState stateBytes), 1::Word8)
+           Nothing -> (\f -> f (nullPtr, 0), 0::Word8)
         energy = fromIntegral remainingEnergy
 
 

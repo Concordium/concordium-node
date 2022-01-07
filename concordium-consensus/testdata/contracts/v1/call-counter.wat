@@ -85,7 +85,8 @@
     (loop $loop
       (local.set $rv (call $invoke (i32.const 1) (i32.const 0) (local.get $size)))
       ;; get the index of the response
-      (local.set $index (i32.wrap_i64 (i64.shr_u (local.get $rv) (i64.const 40))))
+      ;; the numeric value 8388607 is the mask 0b0111_1111_1111_1111_1111_1111
+      (local.set $index (i32.and (i32.const 8388607) (i32.wrap_i64 (i64.shr_u (local.get $rv) (i64.const 40)))))
       ;; and get the parameter size, check it that it is the value of the counter
       ;; first check that the size is correct
       (call $assert_eq (call $get_parameter_size (local.get $index)) (i32.const 8))
