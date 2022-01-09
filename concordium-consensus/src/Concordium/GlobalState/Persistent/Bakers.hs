@@ -3,19 +3,26 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 module Concordium.GlobalState.Persistent.Bakers where
 
 import Control.Exception
+import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.Vector as Vec
 import Lens.Micro.Platform
 import Data.Serialize
+import Data.Foldable (foldlM)
 
 import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.Basic.BlockState.Bakers as Basic
+import qualified Concordium.GlobalState.Persistent.Account as PersistentAccount
+import qualified Concordium.GlobalState.Persistent.Accounts as PersistentAccounts
 import qualified Concordium.Types.Accounts as BaseAccounts
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.Types
@@ -138,14 +145,45 @@ makePersistentEpochBakers ebs = do
     let _bakerTotalStake = Basic._bakerTotalStake ebs
     return PersistentEpochBakers{..}
 
-data PersistentActiveBakers = PersistentActiveBakers {
-    _activeBakers ::  !(Trie.TrieN (BufferedBlobbed BlobRef) BakerId ()),
+type DelegatorIdTrieSet = Trie.TrieN (BufferedBlobbed BlobRef) DelegatorId ()
+
+data PersistentActiveDelegators (av :: AccountVersion) where
+    PersistentActiveDelegatorsV0 :: PersistentActiveDelegators 'AccountV0
+    PersistentActiveDelegatorsV1 :: !DelegatorIdTrieSet -> PersistentActiveDelegators 'AccountV1
+
+persistentActiveDelegatorsForAccountV1 :: PersistentActiveDelegators 'AccountV1 -> DelegatorIdTrieSet
+persistentActiveDelegatorsForAccountV1 (PersistentActiveDelegatorsV1 ds) = ds
+
+emptyPersistentAccountDelegators :: forall av. IsAccountVersion av => PersistentActiveDelegators av
+emptyPersistentAccountDelegators =
+    case accountVersion @av of
+        SAccountV0 -> PersistentActiveDelegatorsV0
+        SAccountV1 -> PersistentActiveDelegatorsV1 Trie.empty
+
+deriving instance Show (PersistentActiveDelegators av)
+
+instance (IsAccountVersion av, MonadBlobStore m) => BlobStorable m (PersistentActiveDelegators av) where
+  storeUpdate PersistentActiveDelegatorsV0 =
+    return (return (), PersistentActiveDelegatorsV0)
+  storeUpdate (PersistentActiveDelegatorsV1 ds) = do
+    (pDas, newDs) <- storeUpdate ds
+    return (pDas, PersistentActiveDelegatorsV1 newDs)
+  store a = fst <$> storeUpdate a
+  load =
+    case accountVersion @av of
+        SAccountV0 -> return (return PersistentActiveDelegatorsV0)
+        SAccountV1 -> fmap (fmap PersistentActiveDelegatorsV1) load
+
+data PersistentActiveBakers (av :: AccountVersion) = PersistentActiveBakers {
+    _activeBakers :: !(Trie.TrieN (BufferedBlobbed BlobRef) BakerId (PersistentActiveDelegators av)),
     _aggregationKeys :: !(Trie.TrieN (BufferedBlobbed BlobRef) BakerAggregationVerifyKey ())
 } deriving (Show)
 
 makeLenses ''PersistentActiveBakers
 
-instance MonadBlobStore m => BlobStorable m PersistentActiveBakers where
+instance
+        (IsAccountVersion av, MonadBlobStore m) =>
+        BlobStorable m (PersistentActiveBakers av) where
     storeUpdate PersistentActiveBakers{..} = do
         (pActiveBakers, newActiveBakers) <- storeUpdate _activeBakers
         (pAggregationKeys, newAggregationKeys) <- storeUpdate _aggregationKeys
@@ -164,10 +202,42 @@ instance MonadBlobStore m => BlobStorable m PersistentActiveBakers where
             _aggregationKeys <- mAggregationKeys
             return PersistentActiveBakers{..}
 
-instance Applicative m => Cacheable m PersistentActiveBakers
+instance (IsAccountVersion av, Applicative m) => Cacheable m (PersistentActiveBakers av)
 
-makePersistentActiveBakers :: (MonadBlobStore m) => Basic.ActiveBakers -> m PersistentActiveBakers
+makePersistentActiveBakers
+    :: forall av m
+     . (IsAccountVersion av, MonadBlobStore m)
+    => Basic.ActiveBakers ->
+    m (PersistentActiveBakers av)
 makePersistentActiveBakers ab = do
-    _activeBakers <- Trie.fromList $ (, ()) <$> Set.toList (Basic._activeBakers ab)
+    let update acc (bid, dels) = case accountVersion @av of
+            SAccountV0 ->
+                Trie.insert bid PersistentActiveDelegatorsV0 acc
+            SAccountV1 -> do
+                pDels <- Trie.fromList $ (, ()) <$> (Set.toList dels)
+                Trie.insert bid (PersistentActiveDelegatorsV1 pDels) acc
+    _activeBakers <- foldlM update Trie.empty (Map.toList (Basic._activeBakers ab))
     _aggregationKeys <- Trie.fromList $ (, ()) <$> Set.toList (Basic._aggregationKeys ab)
     return PersistentActiveBakers{..}
+
+activeBakerFoldlDelegators
+    :: (IsProtocolVersion pv, MonadBlobStore m)
+    => PersistentAccounts.Accounts pv
+    -> PersistentActiveBakers (AccountVersionFor pv)
+    -> (a -> DelegatorId -> BaseAccounts.AccountDelegation (AccountVersionFor pv) -> m a)
+    -> a
+    -> BakerId
+    -> m a
+activeBakerFoldlDelegators accounts pab f a0 bid = do
+    mDset <- Trie.lookup bid (pab ^. activeBakers)
+    case mDset of
+        Just (PersistentActiveDelegatorsV1 dset) -> foldlM faccount a0 =<< Trie.keys dset
+        _ -> return a0
+    where
+      faccount a did@(DelegatorId aid) = do
+        PersistentAccounts.indexedAccount aid accounts >>= \case
+            Just PersistentAccount.PersistentAccount{
+                    _accountStake = PersistentAccount.PersistentAccountStakeDelegate acctDelRef} ->
+                f a did =<< refLoad acctDelRef
+            _ ->
+                error "Invariant violation: active delegator account not a valid delegator"

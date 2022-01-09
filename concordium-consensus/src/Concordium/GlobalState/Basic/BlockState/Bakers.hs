@@ -1,12 +1,16 @@
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module Concordium.GlobalState.Basic.BlockState.Bakers where
 
 import Control.Exception
-import Data.Set(Set)
+import Data.Map.Strict (Map)
+import Data.Set (Set)
 import qualified Data.Vector as Vec
 import Data.Serialize
 import Lens.Micro.Platform
@@ -83,7 +87,7 @@ epochToFullBakers EpochBakers{..} = FullBakers{
 
 -- |The set of accounts that are currently registered as bakers.
 data ActiveBakers = ActiveBakers {
-    _activeBakers :: !(Set BakerId),
+    _activeBakers :: !(Map BakerId (Set DelegatorId)),
     _aggregationKeys :: !(Set BakerAggregationVerifyKey)
 } deriving (Eq, Show)
 

@@ -136,10 +136,16 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
   getAccountAvailableAmount acc = do
     total <- getAccountAmount acc
     lockedUp <- _totalLockedUpBalance <$> getAccountReleaseSchedule acc
-    staked <- getAccountBaker acc <&> \case
+    stakedBkr <- getAccountBaker acc <&> \case
       Nothing -> 0
       Just bkr -> _stakedAmount bkr
-    return $ total - max lockedUp staked
+    let stakedDel = undefined -- TODO: implement getAccountDelegator:
+    {-
+    stakedDel <- getAccountDelegator acc <&> \case
+      Nothing -> 0
+      Just del -> _delegationStakedAmount del
+    -}
+    return $ total - max lockedUp (max stakedBkr stakedDel)
 
   -- |Get the next available nonce for this account
   getAccountNonce :: Account m -> m Nonce

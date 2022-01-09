@@ -30,6 +30,7 @@ import Concordium.Types
 import Concordium.Types.Accounts
 import Concordium.Types.Updates
 import Concordium.Types.UpdateQueues
+import Concordium.Types.Execution
 import qualified Concordium.Genesis.Data as GenesisData
 import qualified Concordium.Genesis.Data.P1 as P1
 import qualified Concordium.Genesis.Data.P2 as P2
@@ -94,7 +95,7 @@ getBirkParameters = do
     _birkSeedState <- get
     _birkNextEpochBakers <- makeHashed <$> getEpochBakers
     _birkCurrentEpochBakers <- makeHashed <$> getEpochBakers
-    let _birkActiveBakers = ActiveBakers Set.empty Set.empty
+    let _birkActiveBakers = ActiveBakers Map.empty Set.empty
     return BasicBirkParameters{..}
 
 -- | Create a BasicBirkParameters value from the components
@@ -122,7 +123,7 @@ initialBirkParameters accounts = makeBirkParameters activeBkrs eBkrs eBkrs
     bkr acct = abi $ acct ^. accountStaking
     bkrs = catMaybes $ bkr <$> accounts
     activeBkrs = ActiveBakers {
-      _activeBakers = Set.fromList (_bakerIdentity . fst <$> bkrs),
+      _activeBakers = Map.fromList $ bkrs <&> \(b, _) -> (b ^. bakerIdentity, Set.empty),
       _aggregationKeys = Set.fromList (_bakerAggregationVerifyKey . fst <$> bkrs)
     }
     stakes = Vec.fromList (snd <$> bkrs)
@@ -318,7 +319,7 @@ getBlockState migration = do
     _blockUpdates <- getUpdatesV0
     _blockEpochBlocksBaked <- getHashedEpochBlocksV0
     -- Construct the release schedule and active bakers from the accounts
-    let processAccount (rs,bkrs) account = do
+    let processBakerAccount (rs,bkrs) account = do
           let rs' = case Map.minViewWithKey (account ^. accountReleaseSchedule . pendingReleases) of
                   Nothing -> rs
                   Just ((ts, _), _) -> Map.insert (account ^. accountAddress) ts rs
@@ -326,17 +327,30 @@ getBlockState migration = do
             AccountStakeBaker AccountBaker {_accountBakerInfo = abi} -> do
                 when ((abi ^. bakerAggregationVerifyKey) `Set.member` _aggregationKeys bkrs) $
                   fail "Duplicate baker aggregation key"
-                return $! bkrs & activeBakers %~ Set.insert (abi ^. bakerIdentity)
+                return $! bkrs & activeBakers %~ Map.insert (abi ^. bakerIdentity) Set.empty
                           & aggregationKeys %~ Set.insert (abi ^. bakerAggregationVerifyKey)
             _ -> return bkrs
           return (rs', bkrs')
-    (_blockReleaseSchedule, actBkrs) <- foldM processAccount (Map.empty, _birkActiveBakers preBirkParameters) (Accounts.accountList _blockAccounts)
+    let processDelegatorAccount :: ActiveBakers -> Account (AccountVersionFor pv) -> Get ActiveBakers
+        processDelegatorAccount bkrs account =
+          case account ^. accountStaking of
+            AccountStakeDelegate AccountDelegationV1{..} -> do
+              case _delegationTarget of
+                DelegateToLPool ->
+                  let todo = undefined in -- TODO: check whether this is correct after L-pool has been implemented:
+                  return bkrs
+                DelegateToBaker bid ->
+                  case Map.lookup bid (bkrs ^. activeBakers)  of
+                    Nothing -> fail "Missing delegation target baker"
+                    Just dels -> do
+                      let newDels = Set.insert _delegationIdentity dels
+                      return $! bkrs & activeBakers %~ Map.insert bid newDels
+            _ -> return bkrs
+    (_blockReleaseSchedule, preActBkrs) <- foldM processBakerAccount (Map.empty, _birkActiveBakers preBirkParameters) (Accounts.accountList _blockAccounts)
+    actBkrs <- foldM processDelegatorAccount preActBkrs (Accounts.accountList _blockAccounts)
     let _blockBirkParameters = preBirkParameters {_birkActiveBakers = actBkrs}
     let _blockTransactionOutcomes = Transactions.emptyTransactionOutcomes
     return BlockState{..}
-
-
-
 
 newtype PureBlockStateMonad (pv :: ProtocolVersion) m a = PureBlockStateMonad {runPureBlockStateMonad :: m a}
     deriving (Functor, Applicative, Monad)
@@ -397,8 +411,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
 
     getCurrentEpochBakers = return . epochToFullBakers . view (blockBirkParameters . birkCurrentEpochBakers . unhashed)
 
-    -- TODO use genesis time and slot duration for V1 case.
-    getSlotBakers hbs _genesisTime _slotDuration slot = return $ case compare slotEpoch (epoch + 1) of
+    getSlotBakers hbs genesisTime slotDuration slot = return $ case compare slotEpoch (epoch + 1) of
         -- LT should mean it's the current epoch, since the slot should be at least the slot of this block.
         LT -> epochToFullBakers (_unhashed (_birkCurrentEpochBakers bps))
         -- EQ means the next epoch.
@@ -414,16 +427,19 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
         bps = bs ^. blockBirkParameters
         SeedState{..} = _birkSeedState bps
         slotEpoch = fromIntegral $ slot `quot` epochLength
-        futureBakers = Vec.fromList $ foldr resolveBaker [] (Set.toAscList (_activeBakers (_birkActiveBakers bps)))
+        slotTime = addDuration genesisTime (fromIntegral slot * slotDuration)
+        futureBakers = Vec.fromList $ foldr resolveBaker [] (Map.keys (_activeBakers (_birkActiveBakers bps)))
         resolveBaker (BakerId aid) l = case bs ^? blockAccounts . Accounts.indexedAccount aid of
             Just acct -> case acct ^. accountBaker of
               Just AccountBaker{..} -> case _bakerPendingChange of
                 RemoveStake (PendingChangeEffectiveV0 remEpoch)
                   | remEpoch < slotEpoch -> l
-                RemoveStake (PendingChangeEffectiveV1 _) -> undefined -- TODO: Implement
+                RemoveStake (PendingChangeEffectiveV1 remTime)
+                  | remTime < slotTime -> l
                 ReduceStake newAmt (PendingChangeEffectiveV0 redEpoch)
                   | redEpoch < slotEpoch -> (FullBakerInfo (_accountBakerInfo ^. bakerInfo) newAmt) : l
-                ReduceStake _ (PendingChangeEffectiveV1 _) -> undefined -- TODO: Implement
+                ReduceStake newAmt (PendingChangeEffectiveV1 redTime)
+                  | redTime < slotTime -> (FullBakerInfo (_accountBakerInfo ^. bakerInfo) newAmt) : l
                 _ -> (FullBakerInfo (_accountBakerInfo ^. bakerInfo) _stakedAmount) : l
               Nothing -> error "Basic.getSlotBakers invariant violation: active baker account not a baker"
             Nothing -> error "Basic.getSlotBakers invariant violation: active baker account not valid"
@@ -581,38 +597,43 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
     bsoTransitionEpochBakers bs genesisTime slotDuration newEpoch = return $! newbs
         where
             oldBPs = bs ^. blockBirkParameters
-            curActiveBIDs = Set.toDescList (oldBPs ^. birkActiveBakers . activeBakers)
+            epochSlots = fromIntegral (epochLength (oldBPs ^. birkSeedState))
+            newEpochSlot = fromIntegral newEpoch * epochSlots
+            newEpochTime = addDuration genesisTime (newEpochSlot * slotDuration)
+            nextEpochTime = addDuration newEpochTime (epochSlots * slotDuration)
+            curActiveBkrs = Map.toDescList (oldBPs ^. birkActiveBakers . activeBakers)
             -- Add a baker to the accumulated set of bakers for the new next bakers
-            accumBakers (bs0, bkrs0) bkr@(BakerId bid) = case bs ^? blockAccounts . Accounts.indexedAccount bid of
+            accumBakers (bs0, bkrs0) (bkr@(BakerId bid), dels) = case bs ^? blockAccounts . Accounts.indexedAccount bid of
                 Just acct -> case acct ^. accountBaker of
-                  Just abkr@AccountBaker{..} -> case _bakerPendingChange of
-                    RemoveStake (PendingChangeEffectiveV0 remEpoch)
-                      -- The baker will be removed in the next epoch, so do not add it to the list
-                      | remEpoch == newEpoch + 1 -> (bs0, bkrs0)
-                      -- The baker is now removed, so do not add it to the list and remove it as an active baker
-                      | remEpoch <= newEpoch -> (
-                              bs0
-                                -- remove baker id and aggregation key from active bakers
-                                & blockBirkParameters . birkActiveBakers . activeBakers %~ Set.delete bkr
-                                & blockBirkParameters . birkActiveBakers . aggregationKeys %~ Set.delete (_accountBakerInfo ^. bakerAggregationVerifyKey)
-                                -- remove the account's baker record
-                                & blockAccounts . Accounts.indexedAccount bid %~ (accountStaking .~ AccountStakeNone),
-                              bkrs0
-                              )
-                    ReduceStake newAmt (PendingChangeEffectiveV0 redEpoch)
-                      -- Reduction takes effect in the next epoch
-                      | redEpoch == newEpoch + 1 -> (bs0, (abkr ^. bakerInfo, newAmt) : bkrs0)
-                      -- Reduction is complete, so update the account accordingly.
-                      | redEpoch <= newEpoch -> (
-                              bs0
-                                & blockAccounts . Accounts.indexedAccount bid %~
-                                  (accountStaking .~ AccountStakeBaker abkr{_stakedAmount = newAmt, _bakerPendingChange = NoChange}),
-                              (abkr ^. bakerInfo, newAmt) : bkrs0
-                              )
-                    _ -> (bs0, (abkr ^. bakerInfo, _stakedAmount) : bkrs0)
+                  Just abkr@AccountBaker{..} ->
+                    let bs1 = transitionDelegatorsFromActiveBaker bs0 (_birkActiveBakers oldBPs) newEpochTime bkr dels in
+                    case _bakerPendingChange of
+                      RemoveStake (PendingChangeEffectiveV0 remEpoch)
+                        -- The baker will be removed in the next epoch, so do not add it to the list
+                        | remEpoch == newEpoch + 1 -> (bs1, bkrs0)
+                        -- The baker is now removed, so do not add it to the list and remove it as an active baker
+                        | remEpoch <= newEpoch -> removeActiveBaker bs1 bkrs0 bkr abkr
+                      ReduceStake newAmt (PendingChangeEffectiveV0 redEpoch)
+                        -- Reduction takes effect in the next epoch
+                        | redEpoch == newEpoch + 1 -> (bs1, (abkr ^. bakerInfo, newAmt) : bkrs0)
+                        -- Reduction is complete, so update the account accordingly.
+                        | redEpoch <= newEpoch -> reduceStakeActiveBaker bs1 bkrs0 bkr abkr newAmt
+                      RemoveStake (PendingChangeEffectiveV1 remTime)
+                        -- The baker is now removed, so do not add it to the list and remove it as an active baker
+                        | remTime <= newEpochTime ->
+                            let bs2 = moveDelegatorsToLPool bs1 abkr
+                            in removeActiveBaker bs2 bkrs0 bkr abkr
+                        -- The baker will be removed in the next epoch, so do not add it to the list
+                        | remTime <= nextEpochTime -> (bs1, bkrs0)
+                      ReduceStake newAmt (PendingChangeEffectiveV1 redTime)
+                        -- Reduction is complete, so update the account accordingly.
+                        | redTime <= newEpochTime -> reduceStakeActiveBaker bs1 bkrs0 bkr abkr newAmt
+                        -- Reduction takes effect in the next epoch
+                        | redTime <= nextEpochTime -> (bs1, (abkr ^. bakerInfo, newAmt) : bkrs0)
+                      _ -> (bs1, (abkr ^. bakerInfo, _stakedAmount) : bkrs0)
                   Nothing -> error "Basic.bsoTransitionEpochBakers invariant violation: active baker account not a baker"
                 Nothing -> error "Basic.bsoTransitionEpochBakers invariant violation: active baker account not valid"
-            (bs', bkrs) = foldl' accumBakers (bs, []) curActiveBIDs
+            (bs', bkrs) = foldl' accumBakers (bs, []) curActiveBkrs
             newNextBakers = makeHashed $ EpochBakers {
               _bakerInfos = Vec.fromList (fst <$> bkrs),
               _bakerStakes = Vec.fromList (snd <$> bkrs),
@@ -622,6 +643,55 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                         _birkCurrentEpochBakers = _birkNextEpochBakers bp,
                         _birkNextEpochBakers = newNextBakers
                     }
+            transitionDelegatorsFromActiveBaker bs bakers newEpochTime bid dels =
+                let ff = updateDelegatorSetAndAccounts bs newEpochTime
+                    (newDset, newAccounts) = foldl ff (Set.empty, bs ^. blockAccounts) dels
+                    pab = bs ^. blockBirkParameters . birkActiveBakers
+                    newBirkBakers = Map.insert bid newDset (pab ^. activeBakers)
+                    newpab = pab{_activeBakers = newBirkBakers}
+                    newBirkParams = bs ^. blockBirkParameters & birkActiveBakers .~ newpab
+                in bs{_blockBirkParameters = newBirkParams, _blockAccounts = newAccounts}
+            removeActiveBaker bs bkrs bid@(BakerId aid) acctBkr =
+              let newBS = bs
+                    -- remove baker id and aggregation key from active bakers
+                    & blockBirkParameters . birkActiveBakers . activeBakers %~ Map.delete bid
+                    & blockBirkParameters . birkActiveBakers . aggregationKeys %~ Set.delete (acctBkr ^. accountBakerInfo . bakerAggregationVerifyKey)
+                    -- remove the account's baker record
+                    & blockAccounts . Accounts.indexedAccount aid %~ (accountStaking .~ AccountStakeNone)
+              in (newBS, bkrs)
+            updateDelegatorSetAndAccounts
+              :: BlockState pv
+              -> Timestamp
+              -> (Set.Set DelegatorId, Accounts.Accounts pv)
+              -> DelegatorId
+              -> (Set.Set DelegatorId, Accounts.Accounts pv)
+            updateDelegatorSetAndAccounts bs newEpochTime (dset, accounts) did@(DelegatorId aid) =
+              case bs ^? blockAccounts . Accounts.indexedAccount aid of
+                Just acct -> case acct ^. accountDelegator of
+                  Just acctDel@AccountDelegationV1{..} -> case _delegationPendingChange of
+                    RemoveStake (PendingChangeEffectiveV1 remTime)
+                      | remTime <= newEpochTime -> removeDelegator did dset accounts
+                    ReduceStake newAmt (PendingChangeEffectiveV1 redTime)
+                      | redTime <= newEpochTime -> newStakeDelegator aid acctDel dset accounts newAmt
+                    _ -> (dset, accounts)
+                  _ -> error "Invariant violation: active delegator is not a delegation account"
+                _ -> error "Invariant violation: active delegator account was not found"
+            removeDelegator did@(DelegatorId aid) dset accounts =
+              let newDset = Set.delete did dset
+                  aupdate = accountStaking .~ AccountStakeNone
+                  newAccounts = accounts & Accounts.indexedAccount aid %~ aupdate
+              in (newDset, newAccounts)
+            newStakeDelegator aid acctDel dset accounts newAmt =
+              let aupdate = accountStaking .~ AccountStakeDelegate acctDel{_delegationStakedAmount = newAmt}
+                  newAccounts = accounts & Accounts.indexedAccount aid %~ aupdate
+               in (dset, newAccounts)
+            reduceStakeActiveBaker bs bkrs (BakerId aid) acctBkr newAmt =
+              let newAcctBkr = acctBkr{_stakedAmount = newAmt, _bakerPendingChange = NoChange}
+                  newBS = bs
+                    & blockAccounts . Accounts.indexedAccount aid %~
+                      (accountStaking .~ AccountStakeBaker newAcctBkr)
+              in (newBS, (acctBkr ^. bakerInfo, newAmt) : bkrs)
+            moveDelegatorsToLPool bs acctBkr = undefined -- TODO: implement
 
     bsoAddBaker bs ai BakerAdd{..} = do
       bakerStakeThreshold <- BS.bsoGetChainParameters bs <&> (^. cpPoolParameters . ppBakerStakeThreshold)
@@ -645,7 +715,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                   _bakerPendingChange = NoChange
                 }
                 & blockBirkParameters . birkActiveBakers . aggregationKeys %~ Set.insert (bkuAggregationKey baKeys)
-                & blockBirkParameters . birkActiveBakers . activeBakers %~ Set.insert bid
+                & blockBirkParameters . birkActiveBakers . activeBakers %~ Map.insert bid Set.empty
                 )
 
     bsoConfigureBaker bs ai BakerConfigureAdd{..} = do
@@ -697,7 +767,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                 newBlockState = bs
                     & blockAccounts . Accounts.indexedAccount ai . accountStaking .~ ab
                     & blockBirkParameters . birkActiveBakers . aggregationKeys %~ Set.insert (bkuAggregationKey bcaKeys)
-                    & blockBirkParameters . birkActiveBakers . activeBakers %~ Set.insert bid
+                    & blockBirkParameters . birkActiveBakers . activeBakers %~ Map.insert bid Set.empty
             in (BCSuccess [] bid, newBlockState)
     bsoConfigureBaker bs ai BakerConfigureRemove{..} = return $! case bs ^? blockAccounts . Accounts.indexedAccount ai of
         -- The account is valid and has a baker

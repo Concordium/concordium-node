@@ -72,6 +72,12 @@ accountBaker = to $ g
     g Account{_accountStaking = AccountStakeBaker bkr} = Just bkr
     g _ = Nothing
 
+accountDelegator :: SimpleGetter (Account av) (Maybe (AccountDelegation av))
+accountDelegator = to $ g
+  where
+    g Account{_accountStaking = AccountStakeDelegate del} = Just del
+    g _ = Nothing
+
 instance HasPersistingAccountData (Account av) where
   persistingAccountData = accountPersisting . unhashed
 
