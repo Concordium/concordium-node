@@ -52,7 +52,6 @@ import Control.Monad.RWS.Strict
 import Lens.Micro.Platform
 
 import qualified Concordium.Scheduler as Sch
-import Concordium.GlobalState.Types (MonadProtocolVersion)
 
 newtype BlockStateMonad w state m a = BSM { _runBSM :: RWST ContextState w state m a}
     deriving (Functor, Applicative, Monad, MonadState state, MonadReader ContextState, MonadTrans, MonadWriter w, MonadLogger, TimeMonad)

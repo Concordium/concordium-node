@@ -411,8 +411,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- Note that instead of iteratively calling this for a succession of epochs,
   -- it should always be sufficient to just call it for the last two of them.
   bsoTransitionEpochBakers
-    :: (AccountVersionFor (MPV m) ~ 'AccountV0)
-    => UpdatableBlockState m
+    :: UpdatableBlockState m
     -> Timestamp
     -- ^Genesis time
     -> Duration

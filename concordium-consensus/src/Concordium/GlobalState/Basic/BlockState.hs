@@ -594,19 +594,19 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
     {-# INLINE bsoSetSeedState #-}
     bsoSetSeedState bs ss = return $! bs & blockBirkParameters . birkSeedState .~ ss
 
-    bsoTransitionEpochBakers bs genesisTime slotDuration newEpoch = return $! newbs
+    bsoTransitionEpochBakers origBS genesisTime slotDuration newEpoch = return $! newbs
         where
-            oldBPs = bs ^. blockBirkParameters
+            oldBPs = origBS ^. blockBirkParameters
             epochSlots = fromIntegral (epochLength (oldBPs ^. birkSeedState))
             newEpochSlot = fromIntegral newEpoch * epochSlots
             newEpochTime = addDuration genesisTime (newEpochSlot * slotDuration)
             nextEpochTime = addDuration newEpochTime (epochSlots * slotDuration)
             curActiveBkrs = Map.toDescList (oldBPs ^. birkActiveBakers . activeBakers)
             -- Add a baker to the accumulated set of bakers for the new next bakers
-            accumBakers (bs0, bkrs0) (bkr@(BakerId bid), dels) = case bs ^? blockAccounts . Accounts.indexedAccount bid of
+            accumBakers (bs0, bkrs0) (bkr@(BakerId bid), dels) = case origBS ^? blockAccounts . Accounts.indexedAccount bid of
                 Just acct -> case acct ^. accountBaker of
                   Just abkr@AccountBaker{..} ->
-                    let bs1 = transitionDelegatorsFromActiveBaker bs0 (_birkActiveBakers oldBPs) newEpochTime bkr dels in
+                    let bs1 = transitionDelegatorsFromActiveBaker bs0 bkr dels in
                     case _bakerPendingChange of
                       RemoveStake (PendingChangeEffectiveV0 remEpoch)
                         -- The baker will be removed in the next epoch, so do not add it to the list
@@ -633,18 +633,18 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                       _ -> (bs1, (abkr ^. bakerInfo, _stakedAmount) : bkrs0)
                   Nothing -> error "Basic.bsoTransitionEpochBakers invariant violation: active baker account not a baker"
                 Nothing -> error "Basic.bsoTransitionEpochBakers invariant violation: active baker account not valid"
-            (bs', bkrs) = foldl' accumBakers (bs, []) curActiveBkrs
+            (bs', bkrs') = foldl' accumBakers (origBS, []) curActiveBkrs
             newNextBakers = makeHashed $ EpochBakers {
-              _bakerInfos = Vec.fromList (fst <$> bkrs),
-              _bakerStakes = Vec.fromList (snd <$> bkrs),
-              _bakerTotalStake = foldl' (+) 0 (snd <$> bkrs)
+              _bakerInfos = Vec.fromList (fst <$> bkrs'),
+              _bakerStakes = Vec.fromList (snd <$> bkrs'),
+              _bakerTotalStake = foldl' (+) 0 (snd <$> bkrs')
             }
             newbs = bs' & blockBirkParameters %~ \bp -> bp {
                         _birkCurrentEpochBakers = _birkNextEpochBakers bp,
                         _birkNextEpochBakers = newNextBakers
                     }
-            transitionDelegatorsFromActiveBaker bs bakers newEpochTime bid dels =
-                let ff = updateDelegatorSetAndAccounts bs newEpochTime
+            transitionDelegatorsFromActiveBaker bs bid dels =
+                let ff = updateDelegatorSetAndAccounts bs
                     (newDset, newAccounts) = foldl ff (Set.empty, bs ^. blockAccounts) dels
                     pab = bs ^. blockBirkParameters . birkActiveBakers
                     newBirkBakers = Map.insert bid newDset (pab ^. activeBakers)
@@ -661,11 +661,10 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
               in (newBS, bkrs)
             updateDelegatorSetAndAccounts
               :: BlockState pv
-              -> Timestamp
               -> (Set.Set DelegatorId, Accounts.Accounts pv)
               -> DelegatorId
               -> (Set.Set DelegatorId, Accounts.Accounts pv)
-            updateDelegatorSetAndAccounts bs newEpochTime (dset, accounts) did@(DelegatorId aid) =
+            updateDelegatorSetAndAccounts bs (dset, accounts) did@(DelegatorId aid) =
               case bs ^? blockAccounts . Accounts.indexedAccount aid of
                 Just acct -> case acct ^. accountDelegator of
                   Just acctDel@AccountDelegationV1{..} -> case _delegationPendingChange of
