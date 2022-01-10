@@ -148,7 +148,7 @@ struct PeerId {
 /// sent by PeerList to provide new peers to the node that sent a GetPeers
 /// request.
 table P2PPeer {
-    id: uint64 (deprecated);
+    id: uint64; // deprecated see `peer_id`
     addr: IpAddr;
     port: uint16;
     variant: PeerVariant;

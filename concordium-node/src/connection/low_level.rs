@@ -8,8 +8,7 @@ use noiseexplorer_xx::{
 };
 
 use crate::{
-    common::p2p_node_id::{P2PNodeId, PeerId},
-    configuration::PROTOCOL_MAX_MESSAGE_SIZE,
+    common::p2p_node_id::P2PNodeId, configuration::PROTOCOL_MAX_MESSAGE_SIZE,
     p2p::maintenance::P2PNode,
 };
 
@@ -165,8 +164,7 @@ impl ConnectionLowLevel {
         read_size: usize,
         write_size: usize,
     ) -> anyhow::Result<Self> {
-        let sk =
-            noiseexplorer_xx::types::PrivateKey::from_bytes(handler.key_pair.secret.to_bytes());
+        let sk = noiseexplorer_xx::types::PrivateKey::from_bytes(handler.secret_key_bytes);
         let noise_key_pair = match noiseexplorer_xx::types::Keypair::from_private_key(sk) {
             Err(e) => anyhow::bail!("Cannot create noise keypair from provided key: {}", e),
             Ok(kp) => kp,
@@ -325,7 +323,9 @@ impl ConnectionLowLevel {
     #[inline]
     /// Checks whether the low-level noise handshake is complete.
     pub(crate) fn is_post_handshake(&self) -> Option<P2PNodeId> {
-        self.noise_session.get_remote_static_public_key().map(|pk| P2PNodeId(PeerId(pk.as_bytes())))
+        self.noise_session
+            .get_remote_static_public_key()
+            .map(|pk| P2PNodeId::AUTHENTICATED(pk.as_bytes()))
     }
 
     // input

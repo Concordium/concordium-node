@@ -3,7 +3,6 @@
 use crate::{
     common::{
         get_current_stamp,
-        p2p_node_id::PeerId,
         p2p_peer::{P2PPeer, PeerType},
         P2PNodeId,
     },
@@ -16,6 +15,7 @@ use crate::{
 };
 use anyhow::{bail, Error};
 use flatbuffers::FlatBufferBuilder;
+use rand::{thread_rng, Rng};
 use semver::Version;
 use std::{
     io::{self, Read, Write},
@@ -27,7 +27,7 @@ use std::{
 /// need to version the message itself. Higher versions are assumed to append
 /// new fields at the end of the message so it should be still deserializable
 /// even if the new fields are not understood, but a warning will be emitted.
-pub const HANDSHAKE_MESSAGE_VERSION: u8 = 0;
+pub const HANDSHAKE_MESSAGE_VERSION: u8 = 1;
 
 impl NetworkMessage {
     // FIXME: remove the unwind once the verifier is available
@@ -163,7 +163,7 @@ fn deserialize_request(root: &network::NetworkMessage) -> anyhow::Result<Network
             if let Some(handshake) = request.payload().map(network::Handshake::init_from_table) {
                 if handshake.version() != HANDSHAKE_MESSAGE_VERSION {
                     warn!(
-                        "Received handshake version ({}) is higher than our version ({}). \
+                        "Received handshake version ({}) is different from our version ({}). \
                          Attempting to parse.",
                         handshake.version(),
                         HANDSHAKE_MESSAGE_VERSION
@@ -203,6 +203,7 @@ fn deserialize_request(root: &network::NetworkMessage) -> anyhow::Result<Network
                 };
 
                 Ok(NetworkPayload::NetworkRequest(NetworkRequest::Handshake(Handshake {
+                    node_id: handshake.node_id(),
                     remote_port,
                     networks,
                     node_version,
@@ -278,16 +279,20 @@ fn deserialize_response(root: &network::NetworkMessage) -> anyhow::Result<Networ
                         var => bail!("Unsupported peer variant {:?}", var),
                     };
 
+                    let mut add_peer = |id| {
+                        let peer = P2PPeer {
+                            id,
+                            addr,
+                            peer_type,
+                        };
+                        list.push(peer);
+                    };
+
                     match peer.peer_id() {
-                        None => bail!("missing peer id in a PeerList response"),
-                        Some(peer_id) => {
-                            let peer = P2PPeer {
-                                id: P2PNodeId(PeerId(peer_id.id().into())),
-                                addr,
-                                peer_type,
-                            };
-                            list.push(peer);
-                        }
+                        // fallback to deprecated id if the authenticated one is not part of the
+                        // `PeerList` response.
+                        None => add_peer(P2PNodeId::DEPRECATED(peer.id().into())),
+                        Some(peer_id) => add_peer(P2PNodeId::AUTHENTICATED(peer_id.id().into())),
                     }
                 }
 
@@ -476,13 +481,42 @@ fn serialize_response(
                 PeerType::Bootstrapper => network::PeerVariant::Bootstrapper,
             };
 
-            let peer = network::P2PPeer::create(builder, &network::P2PPeerArgs {
-                addr:    Some(ip_offset),
-                port:    peer.addr.port(),
-                variant: peer_type,
-                peer_id: Some(&network::PeerId(peer.id.0 .0)),
-            });
-            peers.push(peer);
+            match peer.id {
+                P2PNodeId::DEPRECATED(id) => {
+                    let peer = network::P2PPeer::create(builder, &network::P2PPeerArgs {
+                        id,
+                        addr: Some(ip_offset),
+                        port: peer.addr.port(),
+                        variant: peer_type,
+                        peer_id: None,
+                    });
+                    peers.push(peer);
+                }
+                P2PNodeId::AUTHENTICATED(id) => {
+                    let peer = network::P2PPeer::create(builder, &network::P2PPeerArgs {
+                        // todo: figure out if this is OK.
+                        // So this requires a little explanation.
+                        // As `P2PNodeid` is implemented as a sum type we don't store the
+                        // `P2PNodeId::DEPRECATED` id when we
+                        // know the `P2PNodeId::AUTHENTICATED` id and as such we cannot forward it.
+                        // But as the `P2PNodeID::DEPRECATED` has no authentication or what so, it
+                        // is in practice fine to just send a random `u64` here.
+                        // The only draw back to this approach as opposed to implement the
+                        // `P2PNodeId` as a product type is that one cannot
+                        // rely on the node id when inspecting several node logs. But in practice
+                        // this is less of a problem and one could not do
+                        // it reliable either before. On the other hand, implementing it via a
+                        // `sum` should result in a smaller effort required
+                        // when the `P2PNodeId::DEPRECATED` is to be removed.
+                        id:      thread_rng().gen(),
+                        addr:    Some(ip_offset),
+                        port:    peer.addr.port(),
+                        variant: peer_type,
+                        peer_id: Some(&network::PeerId(id)),
+                    });
+                    peers.push(peer);
+                }
+            }
         }
         let peers_offset = Some(builder.create_vector(&peers));
         let offset = Some(

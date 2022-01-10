@@ -885,7 +885,7 @@ impl P2p for RpcServerImpl {
 #[cfg(test)]
 mod tests {
     use crate::{
-        common::{grpc_api, P2PNodeId, PeerId, PeerType},
+        common::{grpc_api, P2PNodeId, PeerType},
         p2p::P2PNode,
         rpc::RpcServerImpl,
         test_utils::{
@@ -1126,8 +1126,12 @@ mod tests {
         assert_eq!(node2.get_peer_stats(None).len(), 1);
         assert_eq!(rcv.len(), 1);
         let elem = rcv[0].clone();
+        let node2_public_key_bytes =
+            noiseexplorer_xx::types::PrivateKey::from_bytes(node2.secret_key_bytes)
+                .generate_public_key()?
+                .as_bytes();
         assert_eq!(
-            P2PNodeId(PeerId(node2.key_pair.public.to_bytes())).to_string(),
+            P2PNodeId::AUTHENTICATED(node2_public_key_bytes).to_string(),
             node2.id().to_string()
         );
         assert_eq!(elem.ip.unwrap(), node2.internal_addr().ip().to_string());

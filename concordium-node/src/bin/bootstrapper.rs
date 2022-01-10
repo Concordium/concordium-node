@@ -16,6 +16,7 @@ use concordium_node::{
 
 #[cfg(feature = "instrumentation")]
 use concordium_node::stats_export_service::start_push_gateway;
+use rand::Rng;
 
 fn main() -> anyhow::Result<()> {
     let (mut conf, app_prefs) = get_config_and_logging_setup()?;
@@ -41,10 +42,16 @@ fn main() -> anyhow::Result<()> {
     );
 
     // todo: decide how to manage the private key
-    let kp = ed25519_dalek::Keypair::generate(&mut rand::rngs::OsRng);
-    let (node, server, poll) =
-        P2PNode::new(kp, &conf, PeerType::Bootstrapper, stats_export_service, regenesis_arc)
-            .context("Failed to create the network node.")?;
+    let csprng = &mut rand::rngs::OsRng;
+    let secret_key = csprng.gen::<[u8; noiseexplorer_xx::consts::DHLEN]>();
+    let (node, server, poll) = P2PNode::new(
+        secret_key,
+        &conf,
+        PeerType::Bootstrapper,
+        stats_export_service,
+        regenesis_arc,
+    )
+    .context("Failed to create the network node.")?;
 
     #[cfg(feature = "instrumentation")]
     start_push_gateway(&conf.prometheus, &node.stats, node.id());

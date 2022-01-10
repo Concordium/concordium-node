@@ -80,6 +80,7 @@ pub enum NetworkPayload {
 /// The "high-level" network handshake.
 #[derive(Debug, PartialEq)]
 pub struct Handshake {
+    pub node_id:        u64,
     pub remote_port:    u16,
     pub networks:       Networks,
     pub node_version:   Version,

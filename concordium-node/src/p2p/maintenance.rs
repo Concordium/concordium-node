@@ -14,7 +14,7 @@ use rkv::{
 #[cfg(feature = "network_dump")]
 use crate::dumper::{create_dump_thread, DumpItem};
 use crate::{
-    common::{get_current_stamp, p2p_peer::RemotePeerId, P2PNodeId, P2PPeer, PeerId, PeerType},
+    common::{get_current_stamp, p2p_peer::RemotePeerId, P2PNodeId, P2PPeer, PeerType},
     configuration::{self as config, Config},
     connection::{ConnChange, Connection, DeduplicationHashAlgorithm, DeduplicationQueues},
     consensus_ffi::{
@@ -235,7 +235,7 @@ impl BadEvents {
 /// The central object belonging to a node in the network; it handles
 /// connectivity and contains the metadata, statistics etc.
 pub struct P2PNode {
-    pub key_pair:           ed25519_dalek::Keypair,
+    pub secret_key_bytes:   [u8; 32],
     pub self_peer:          P2PPeer,
     /// Holds the handles to threads spawned by the node.
     pub threads:            RwLock<Vec<JoinHandle<()>>>,
@@ -264,7 +264,7 @@ impl P2PNode {
     /// the node is listening for incoming connections, and the mio poll
     /// that can be used to notify/poll for incoming connections.
     pub fn new(
-        key_pair: ed25519_dalek::Keypair,
+        secret_key: [u8; 32],
         conf: &Config,
         peer_type: PeerType,
         stats: Arc<StatsExportService>,
@@ -289,7 +289,9 @@ impl P2PNode {
                 .context("Could not compute my own ip. Use `--listen-address` to specify it.")?
         };
 
-        let id = P2PNodeId(PeerId(key_pair.public.to_bytes()));
+        let public_key =
+            noiseexplorer_xx::types::PrivateKey::from_bytes(secret_key).generate_public_key()?;
+        let id = P2PNodeId::AUTHENTICATED(public_key.as_bytes());
 
         info!("My Node ID is {}", id);
         info!("Listening on {}:{}", ip, conf.common.listen_port);
@@ -385,7 +387,7 @@ impl P2PNode {
             .context("Could not create or obtain the ban database.")?;
 
         let node = Arc::new(P2PNode {
-            key_pair,
+            secret_key_bytes: secret_key,
             poll_registry,
             start_time: Utc::now(),
             threads: Default::default(),

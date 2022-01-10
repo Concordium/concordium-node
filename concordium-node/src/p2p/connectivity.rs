@@ -18,7 +18,7 @@ use crate::{
 };
 use anyhow::bail;
 use mio::{event::Event, net::TcpStream, Events, Token};
-use rand::seq::IteratorRandom;
+use rand::{seq::IteratorRandom, Rng};
 use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 use semver::Version;
 use std::{
@@ -303,6 +303,8 @@ impl P2PNode {
         let handshake_request = netmsg!(
             NetworkRequest,
             NetworkRequest::Handshake(Handshake {
+                // The `node_id` is added here for backwards compatibility
+                node_id:        rand::thread_rng().gen::<u64>(),
                 remote_port:    self.self_peer.port(),
                 networks:       read_or_die!(self.networks()).iter().copied().collect(),
                 node_version:   Version::parse(env!("CARGO_PKG_VERSION"))?,
