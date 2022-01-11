@@ -669,6 +669,7 @@ doTransitionEpochBakers pbs genesisTime slotDuration newEpoch = do
         -- so why not?
         _bakerStakes <- secondIfEqual newBakerStakes (_bakerStakes neb)
         let _bakerTotalStake = sum stakesVec
+        -- TODO: update epoch bakers below to use pool total capital somehow:
         newNextBakers <- refMake PersistentEpochBakers{..}
         storePBS pbs bsp'{bspBirkParameters = (bspBirkParameters bsp') {
             _birkCurrentEpochBakers = _birkNextEpochBakers oldBPs,
@@ -1084,7 +1085,7 @@ doConfigureDelegation pbs ai DelegationConfigureAdd{..} = do
         diacc <- Accounts.indexedAccount ai (bspAccounts bsp)
         let did = DelegatorId ai
         eNewBirkParams <- case dcaDelegationTarget of
-            Transactions.DelegateToLPool -> let todo = undefined in undefined -- TODO: implement
+            Transactions.DelegateToLPool -> undefined -- TODO: implement delegate to L-pool here.
             Transactions.DelegateToBaker bid -> do
                 pab <- refLoad (bspBirkParameters bsp ^. birkActiveBakers)
                 mDels <- Trie.lookup bid (pab ^. activeBakers)
@@ -1815,7 +1816,11 @@ instance (PersistentState r m, IsProtocolVersion pv) => AccountOperations (Persi
             PersistentAccountBaker{..} <- refLoad bref
             abi <- refLoad _accountBakerInfo
             return $ Just BaseAccounts.AccountBaker{_accountBakerInfo = abi, ..}
-    
+
+  getAccountDelegator acc = case acc ^. accountDelegator of
+        Null -> return Nothing
+        Some dref -> Just <$> refLoad dref
+
   getAccountStake acc = loadAccountStake (acc ^. accountStake)
 
 instance (IsProtocolVersion pv, PersistentState r m) => BlockStateOperations (PersistentBlockStateMonad pv r m) where

@@ -354,6 +354,11 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, AccountOpera
         ab2 <- coerceBSMR (getAccountBaker acc2)
         assert (ab1 == ab2) $ return ab1
 
+    getAccountDelegator (acc1, acc2) = do
+        ad1 <- coerceBSML (getAccountDelegator acc1)
+        ad2 <- coerceBSMR (getAccountDelegator acc2)
+        assert (ad1 == ad2) $ return ad1
+
     getAccountStake (acc1, acc2) = do
         ab1 <- coerceBSML (getAccountStake acc1)
         ab2 <- coerceBSMR (getAccountStake acc2)

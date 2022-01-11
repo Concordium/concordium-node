@@ -849,7 +849,11 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
     oldTotal <- getAccountAmount acc
     oldLockedUp <- ARS._totalLockedUpBalance <$> getAccountReleaseSchedule acc
     bkr <- getAccountBaker acc
-    let staked = maybe 0 (^. stakedAmount) bkr
+    let bstaked = maybe 0 (^. stakedAmount) bkr
+    del <- getAccountDelegator acc
+    let dstaked = maybe 0 (\AccountDelegationV1{..} -> _delegationStakedAmount) del
+    let !() = assert (bstaked == 0 || dstaked == 0) ()
+    let staked = bstaked + dstaked
     !txCtx <- ask
     -- If the account is the sender, subtract the deposit
     let netDeposit = if txCtx ^. tcTxSender == ai

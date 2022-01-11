@@ -139,12 +139,9 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
     stakedBkr <- getAccountBaker acc <&> \case
       Nothing -> 0
       Just bkr -> _stakedAmount bkr
-    let stakedDel = undefined -- TODO: implement getAccountDelegator:
-    {-
     stakedDel <- getAccountDelegator acc <&> \case
       Nothing -> 0
-      Just del -> _delegationStakedAmount del
-    -}
+      Just AccountDelegationV1{..} -> _delegationStakedAmount
     return $ total - max lockedUp (max stakedBkr stakedDel)
 
   -- |Get the next available nonce for this account
@@ -194,6 +191,9 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
 
   -- |Get the baker info (if any) attached to an account.
   getAccountBaker :: Account m -> m (Maybe (AccountBaker (AccountVersionFor (MPV m))))
+
+  -- |Get the delegator info (if any) attached to an account.
+  getAccountDelegator :: Account m -> m (Maybe (AccountDelegation (AccountVersionFor (MPV m))))
 
   -- |Get the baker or stake delegation information attached to an account.
   getAccountStake :: Account m -> m (AccountStake (AccountVersionFor (MPV m)))
@@ -737,6 +737,7 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
   getAccountEncryptionKey = lift . getAccountEncryptionKey
   getAccountReleaseSchedule = lift . getAccountReleaseSchedule
   getAccountBaker = lift . getAccountBaker
+  getAccountDelegator = lift . getAccountDelegator
   getAccountStake = lift . getAccountStake
   {-# INLINE getAccountCanonicalAddress #-}
   {-# INLINE getAccountAmount #-}

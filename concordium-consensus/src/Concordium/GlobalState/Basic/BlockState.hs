@@ -8,7 +8,7 @@
 {-# LANGUAGE TypeFamilies #-}
 module Concordium.GlobalState.Basic.BlockState where
 
-import Data.Map (Map)
+import qualified Data.Map as LazyMap
 import Lens.Micro.Platform
 import Data.Maybe
 import Data.Semigroup
@@ -118,12 +118,28 @@ initialBirkParameters ::
   -> BasicBirkParameters
 initialBirkParameters accounts = makeBirkParameters activeBkrs eBkrs eBkrs
   where
+    -- TODO: Decide what to do about L-pool here.
+    alterDel del Nothing = Just $ Set.singleton del
+    alterDel del (Just dels) = Just $ Set.insert del dels
+    addBakerDel :: Map.Map BakerId (Set.Set DelegatorId) -> Account av -> Map.Map BakerId (Set.Set DelegatorId)
+    addBakerDel bdmap acct =
+        case acct ^. accountStaking of
+            AccountStakeDelegate AccountDelegationV1{..} ->
+                case _delegationTarget of
+                    DelegateToLPool -> bdmap
+                    DelegateToBaker bid -> Map.alter (alterDel _delegationIdentity) bid bdmap
+            _ -> bdmap
+    bakerDelsMap = foldl addBakerDel Map.empty accounts
+    lookupBakerDels bid =
+        case Map.lookup bid bakerDelsMap of
+            Nothing -> error "Invariant violation: baker without delegator set"
+            Just dels -> dels
     abi (AccountStakeBaker AccountBaker{..}) = Just (_accountBakerInfo ^. bakerInfo, _stakedAmount)
     abi _ = Nothing
     bkr acct = abi $ acct ^. accountStaking
     bkrs = catMaybes $ bkr <$> accounts
     activeBkrs = ActiveBakers {
-      _activeBakers = Map.fromList $ bkrs <&> \(b, _) -> (b ^. bakerIdentity, Set.empty),
+      _activeBakers = Map.fromList $ bkrs <&> \(BakerInfo{_bakerIdentity = bi}, _) -> (bi, lookupBakerDels bi),
       _aggregationKeys = Set.fromList (_bakerAggregationVerifyKey . fst <$> bkrs)
     }
     stakes = Vec.fromList (snd <$> bkrs)
@@ -181,7 +197,7 @@ data BlockState (pv :: ProtocolVersion) = BlockState {
     _blockBirkParameters :: !BasicBirkParameters,
     _blockCryptographicParameters :: !(Hashed CryptographicParameters),
     _blockUpdates :: !(Updates pv),
-    _blockReleaseSchedule :: !(Map AccountAddress Timestamp), -- ^Contains an entry for each account that has pending releases and the first timestamp for said account
+    _blockReleaseSchedule :: !(LazyMap.Map AccountAddress Timestamp), -- ^Contains an entry for each account that has pending releases and the first timestamp for said account
     _blockTransactionOutcomes :: !Transactions.TransactionOutcomes,
     _blockEpochBlocksBaked :: !HashedEpochBlocks
 } deriving (Show)
@@ -337,7 +353,7 @@ getBlockState migration = do
             AccountStakeDelegate AccountDelegationV1{..} -> do
               case _delegationTarget of
                 DelegateToLPool ->
-                  let todo = undefined in -- TODO: check whether this is correct after L-pool has been implemented:
+                  -- TODO: check whether this is correct after L-pool has been implemented:
                   return bkrs
                 DelegateToBaker bid ->
                   case Map.lookup bid (bkrs ^. activeBakers)  of
@@ -513,6 +529,8 @@ instance (Monad m, IsProtocolVersion pv) => BS.AccountOperations (PureBlockState
   getAccountReleaseSchedule acc = return $ acc ^. accountReleaseSchedule
 
   getAccountBaker acc = return $ acc ^. accountBaker
+
+  getAccountDelegator acc = return $ acc ^. accountDelegator
 
   getAccountStake acc = return $ acc ^. accountStaking
 
