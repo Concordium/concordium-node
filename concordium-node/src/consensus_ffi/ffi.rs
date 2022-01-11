@@ -330,41 +330,52 @@ extern "C" {
 
     // Consensus queries
     pub fn getConsensusStatus(consensus: *mut consensus_runner) -> *const c_char;
-    pub fn getBlockInfo(consensus: *mut consensus_runner, block_hash: *const u8) -> *const c_char;
+    pub fn getBlockInfo(
+        consensus: *mut consensus_runner,
+        block_hash: *const c_char,
+    ) -> *const c_char;
     pub fn getAncestors(
         consensus: *mut consensus_runner,
-        block_hash: *const u8,
+        block_hash: *const c_char,
         amount: u64,
     ) -> *const c_char;
     pub fn getBranches(consensus: *mut consensus_runner) -> *const c_char;
 
     // State queries
-    pub fn getAccountList(consensus: *mut consensus_runner, block_hash: *const u8)
-        -> *const c_char;
-    pub fn getInstances(consensus: *mut consensus_runner, block_hash: *const u8) -> *const c_char;
+    pub fn getAccountList(
+        consensus: *mut consensus_runner,
+        block_hash: *const c_char,
+    ) -> *const c_char;
+    pub fn getInstances(
+        consensus: *mut consensus_runner,
+        block_hash: *const c_char,
+    ) -> *const c_char;
     pub fn getAccountInfo(
         consensus: *mut consensus_runner,
-        block_hash: *const u8,
-        account_address: *const u8,
+        block_hash: *const c_char,
+        account_address: *const c_char,
     ) -> *const c_char;
     pub fn getInstanceInfo(
         consensus: *mut consensus_runner,
-        block_hash: *const u8,
-        contract_address: *const u8,
+        block_hash: *const c_char,
+        contract_address: *const c_char,
     ) -> *const c_char;
     pub fn getRewardStatus(
         consensus: *mut consensus_runner,
-        block_hash: *const u8,
+        block_hash: *const c_char,
     ) -> *const c_char;
     pub fn getBirkParameters(
         consensus: *mut consensus_runner,
-        block_hash: *const u8,
+        block_hash: *const c_char,
     ) -> *const c_char;
-    pub fn getModuleList(consensus: *mut consensus_runner, block_hash: *const u8) -> *const c_char;
+    pub fn getModuleList(
+        consensus: *mut consensus_runner,
+        block_hash: *const c_char,
+    ) -> *const c_char;
     pub fn getModuleSource(
         consensus: *mut consensus_runner,
-        block_hash: *const u8,
-        module_ref: *const u8,
+        block_hash: *const c_char,
+        module_ref: *const c_char,
     ) -> *const u8;
     pub fn freeCStr(hstring: *const c_char);
     pub fn getCatchUpStatus(
@@ -390,11 +401,11 @@ extern "C" {
     pub fn checkIfRunning(consensus: *mut consensus_runner) -> u8;
     pub fn getAccountNonFinalizedTransactions(
         consensus: *mut consensus_runner,
-        account_address: *const u8,
+        account_address: *const c_char,
     ) -> *const c_char;
     pub fn getBlockSummary(
         consensus: *mut consensus_runner,
-        block_hash: *const u8,
+        block_hash: *const c_char,
     ) -> *const c_char;
     pub fn getBlocksAtHeight(
         consensus: *mut consensus_runner,
@@ -404,28 +415,28 @@ extern "C" {
     ) -> *const c_char;
     pub fn getTransactionStatus(
         consensus: *mut consensus_runner,
-        transaction_hash: *const u8,
+        transaction_hash: *const c_char,
     ) -> *const c_char;
     pub fn getTransactionStatusInBlock(
         consensus: *mut consensus_runner,
-        transaction_hash: *const u8,
-        block_hash: *const u8,
+        transaction_hash: *const c_char,
+        block_hash: *const c_char,
     ) -> *const c_char;
     pub fn getNextAccountNonce(
         consensus: *mut consensus_runner,
-        account_address: *const u8,
+        account_address: *const c_char,
     ) -> *const c_char;
     pub fn getAllIdentityProviders(
         consensus: *mut consensus_runner,
-        block_hash: *const u8,
+        block_hash: *const c_char,
     ) -> *const c_char;
     pub fn getAllAnonymityRevokers(
         consensus: *mut consensus_runner,
-        block_hash: *const u8,
+        block_hash: *const c_char,
     ) -> *const c_char;
     pub fn getCryptographicParameters(
         consensus: *mut consensus_runner,
-        block_hash: *const u8,
+        block_hash: *const c_char,
     ) -> *const c_char;
     pub fn importBlocks(
         consensus: *mut consensus_runner,
@@ -479,7 +490,7 @@ pub fn get_consensus_ptr(
                     on_log_emited,
                     appdata_buf.as_ptr() as *const u8,
                     appdata_buf.len() as i64,
-                    database_connection_url.as_ptr() as *const u8,
+                    database_connection_url.as_ptr(),
                     database_connection_url.len() as i64,
                     runner_ptr_ptr,
                 )
@@ -506,7 +517,7 @@ pub fn get_consensus_ptr(
                         on_log_emited,
                         appdata_buf.as_ptr() as *const u8,
                         appdata_buf.len() as i64,
-                        database_connection_url.as_ptr() as *const u8,
+                        database_connection_url.as_ptr(),
                         database_connection_url.len() as i64,
                         runner_ptr_ptr,
                     )
@@ -565,7 +576,7 @@ impl ConsensusContainer {
         let c_str = CString::new(block_hash)?;
         Ok(wrap_c_call_string!(self, consensus, |consensus| getBlockInfo(
             consensus,
-            c_str.as_ptr() as *const u8
+            c_str.as_ptr()
         )))
     }
 
@@ -587,7 +598,7 @@ impl ConsensusContainer {
         let c_str = CString::new(block_hash)?;
         Ok(wrap_c_call_string!(self, consensus, |consensus| getAncestors(
             consensus,
-            c_str.as_ptr() as *const u8,
+            c_str.as_ptr(),
             amount
         )))
     }
@@ -600,7 +611,7 @@ impl ConsensusContainer {
         let block_hash = CString::new(block_hash)?;
         Ok(wrap_c_call_string!(self, consensus, |consensus| getAccountList(
             consensus,
-            block_hash.as_ptr() as *const u8
+            block_hash.as_ptr()
         )))
     }
 
@@ -608,7 +619,7 @@ impl ConsensusContainer {
         let block_hash = CString::new(block_hash)?;
         Ok(wrap_c_call_string!(self, consensus, |consensus| getInstances(
             consensus,
-            block_hash.as_ptr() as *const u8
+            block_hash.as_ptr()
         )))
     }
 
@@ -621,8 +632,8 @@ impl ConsensusContainer {
         let account_address = CString::new(account_address)?;
         Ok(wrap_c_call_string!(self, consensus, |consensus| getAccountInfo(
             consensus,
-            block_hash.as_ptr() as *const u8,
-            account_address.as_ptr() as *const u8
+            block_hash.as_ptr(),
+            account_address.as_ptr()
         )))
     }
 
@@ -635,8 +646,8 @@ impl ConsensusContainer {
         let contract_address = CString::new(contract_address)?;
         Ok(wrap_c_call_string!(self, consensus, |consensus| getInstanceInfo(
             consensus,
-            block_hash.as_ptr() as *const u8,
-            contract_address.as_ptr() as *const u8
+            block_hash.as_ptr(),
+            contract_address.as_ptr()
         )))
     }
 
@@ -644,7 +655,7 @@ impl ConsensusContainer {
         let block_hash = CString::new(block_hash)?;
         Ok(wrap_c_call_string!(self, consensus, |consensus| getRewardStatus(
             consensus,
-            block_hash.as_ptr() as *const u8
+            block_hash.as_ptr()
         )))
     }
 
@@ -652,7 +663,7 @@ impl ConsensusContainer {
         let block_hash = CString::new(block_hash)?;
         Ok(wrap_c_call_string!(self, consensus, |consensus| getBirkParameters(
             consensus,
-            block_hash.as_ptr() as *const u8
+            block_hash.as_ptr()
         )))
     }
 
@@ -660,7 +671,7 @@ impl ConsensusContainer {
         let block_hash = CString::new(block_hash)?;
         Ok(wrap_c_call_string!(self, consensus, |consensus| getModuleList(
             consensus,
-            block_hash.as_ptr() as *const u8
+            block_hash.as_ptr()
         )))
     }
 
@@ -669,8 +680,8 @@ impl ConsensusContainer {
         let module_ref = CString::new(module_ref)?;
         Ok(wrap_c_call_bytes!(self, |consensus| getModuleSource(
             consensus,
-            block_hash.as_ptr() as *const u8,
-            module_ref.as_ptr() as *const u8
+            block_hash.as_ptr(),
+            module_ref.as_ptr()
         )))
     }
 
@@ -750,7 +761,7 @@ impl ConsensusContainer {
     ) -> anyhow::Result<String> {
         let account_address = CString::new(account_address)?;
         Ok(wrap_c_call_string!(self, consensus, |consensus| {
-            getAccountNonFinalizedTransactions(consensus, account_address.as_ptr() as *const u8)
+            getAccountNonFinalizedTransactions(consensus, account_address.as_ptr())
         }))
     }
 
@@ -758,7 +769,7 @@ impl ConsensusContainer {
         let block_hash = CString::new(block_hash)?;
         Ok(wrap_c_call_string!(self, consensus, |consensus| getBlockSummary(
             consensus,
-            block_hash.as_ptr() as *const u8
+            block_hash.as_ptr()
         )))
     }
 
@@ -766,7 +777,7 @@ impl ConsensusContainer {
         let transaction_hash = CString::new(transaction_hash)?;
         Ok(wrap_c_call_string!(self, consensus, |consensus| getTransactionStatus(
             consensus,
-            transaction_hash.as_ptr() as *const u8
+            transaction_hash.as_ptr()
         )))
     }
 
@@ -779,8 +790,8 @@ impl ConsensusContainer {
         let block_hash = CString::new(block_hash)?;
         Ok(wrap_c_call_string!(self, consensus, |consensus| getTransactionStatusInBlock(
             consensus,
-            transaction_hash.as_ptr() as *const u8,
-            block_hash.as_ptr() as *const u8
+            transaction_hash.as_ptr(),
+            block_hash.as_ptr()
         )))
     }
 
@@ -788,7 +799,7 @@ impl ConsensusContainer {
         let account_address = CString::new(account_address)?;
         Ok(wrap_c_call_string!(self, consensus, |consensus| getNextAccountNonce(
             consensus,
-            account_address.as_ptr() as *const u8
+            account_address.as_ptr(),
         )))
     }
 
@@ -796,7 +807,7 @@ impl ConsensusContainer {
         let block_hash = CString::new(block_hash)?;
         Ok(wrap_c_call_string!(self, consensus, |consensus| getAllIdentityProviders(
             consensus,
-            block_hash.as_ptr() as *const u8
+            block_hash.as_ptr(),
         )))
     }
 
@@ -804,7 +815,7 @@ impl ConsensusContainer {
         let block_hash = CString::new(block_hash)?;
         Ok(wrap_c_call_string!(self, consensus, |consensus| getAllAnonymityRevokers(
             consensus,
-            block_hash.as_ptr() as *const u8
+            block_hash.as_ptr(),
         )))
     }
 
@@ -812,7 +823,7 @@ impl ConsensusContainer {
         let block_hash = CString::new(block_hash)?;
         Ok(wrap_c_call_string!(self, consensus, |consensus| getCryptographicParameters(
             consensus,
-            block_hash.as_ptr() as *const u8
+            block_hash.as_ptr(),
         )))
     }
 
