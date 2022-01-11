@@ -8,6 +8,8 @@ import Test.Hspec
 import Test.HUnit(assertFailure, assertEqual, Assertion)
 
 import Control.Monad.Reader
+import Data.Serialize
+import qualified Data.ByteString.Short as BSS
 import qualified Data.ByteString as BS
 import qualified Data.Map.Strict as OrdMap
 import qualified Data.Set as Set
@@ -86,8 +88,9 @@ initContract (bs, miv, _) = do
       (addr, instState) <- bsoPutNewInstance bs mkInstance
       (addr,) <$> freezeBlockState instState
 
-invokeContract :: Types.ContractAddress -> HashedPersistentBlockState PV4 -> ContextM InvokeContract.InvokeContractResult
-invokeContract ccContract bs = do
+-- |Invoke the contract without an invoker expecting success.
+invokeContract1 :: Types.ContractAddress -> HashedPersistentBlockState PV4 -> ContextM InvokeContract.InvokeContractResult
+invokeContract1 ccContract bs = do
   let cm = Types.ChainMetadata 0
   let ctx = InvokeContract.ContractContext{
         ccInvoker = Nothing,
@@ -99,18 +102,95 @@ invokeContract ccContract bs = do
         }
   InvokeContract.invokeContract Types.SP4 ctx cm bs
 
+-- |Invoke an entrypoint that calls other entrypoints, and expects a parameter.
+-- This entrypoint does not return anything, meaning the return value is an empty byte array.
+invokeContract2 :: Types.ContractAddress -> HashedPersistentBlockState PV4 -> ContextM InvokeContract.InvokeContractResult
+invokeContract2 ccContract bs = do
+  let cm = Types.ChainMetadata 0
+  let ccParameter = Parameter $ BSS.toShort $ runPut $ do
+          putWord64le 0 -- contract index
+          putWord64le 0 -- contract subindex
+          putWord16le 0 -- length of parameter
+          putWord16le (fromIntegral (BSS.length "inc"))
+          putByteString "inc" -- entrypoint name
+          putWord64le 0 -- amount
+  let ctx = InvokeContract.ContractContext{
+        ccInvoker = Nothing,
+        ccAmount = 0,
+        ccMethod = ReceiveName "counter.inc10",
+        ccEnergy = 1_000_000_000,
+        ..
+        }
+  InvokeContract.invokeContract Types.SP4 ctx cm bs
+
+
+-- |Same as 2, but a wrong parameter is passed.
+-- Expects runtime failure
+invokeContract3 :: Types.ContractAddress -> HashedPersistentBlockState PV4 -> ContextM InvokeContract.InvokeContractResult
+invokeContract3 ccContract bs = do
+  let cm = Types.ChainMetadata 0
+  let ctx = InvokeContract.ContractContext{
+        ccInvoker = Nothing,
+        ccAmount = 0,
+        ccMethod = ReceiveName "counter.inc10",
+        ccEnergy = 1_000_000_000,
+        ccParameter = emptyParameter,
+        ..
+        }
+  InvokeContract.invokeContract Types.SP4 ctx cm bs
+
+
+-- |Same as 2, but with an invoker.
+invokeContract4 :: Types.ContractAddress -> HashedPersistentBlockState PV4 -> ContextM InvokeContract.InvokeContractResult
+invokeContract4 ccContract bs = do
+  let cm = Types.ChainMetadata 0
+  let ccParameter = Parameter $ BSS.toShort $ runPut $ do
+          putWord64le 0 -- contract index
+          putWord64le 0 -- contract subindex
+          putWord16le 0 -- length of parameter
+          putWord16le (fromIntegral (BSS.length "inc"))
+          putByteString "inc" -- entrypoint name
+          putWord64le 0 -- amount
+  let ctx = InvokeContract.ContractContext{
+        ccInvoker = Just (Types.AddressContract (Types.ContractAddress 0 0)),
+        ccAmount = 0,
+        ccMethod = ReceiveName "counter.inc10",
+        ccEnergy = 1_000_000_000,
+        ..
+        }
+  InvokeContract.invokeContract Types.SP4 ctx cm bs
+
+
 runCounterTests :: Assertion
 runCounterTests = do
-  invokeResult <- runBlobStoreTemp "." . runPersistentBlockStateMonad $ do
+  runBlobStoreTemp "." . runPersistentBlockStateMonad $ do
     bsWithMod <- deployModule
     (addr, stateWithContract) <- initContract bsWithMod
-    invokeContract addr stateWithContract
-  case invokeResult of
-    InvokeContract.Failure{..} -> assertFailure $ "Invocation failed: " ++ show rcrReason
-    InvokeContract.Success{..} ->
-      case rcrReturnValue of
-        Nothing -> assertFailure $ "Invoking a V1 contract must produce a return value."
-        Just rv -> assertEqual "Invoking a counter in initial state should return 1" (BS.unpack (WasmV1.returnValueToByteString rv)) [1,0,0,0,0,0,0,0]
+    invokeContract1 addr stateWithContract >>= \case
+      InvokeContract.Failure{..} -> liftIO $ assertFailure $ "Invocation failed: " ++ show rcrReason
+      InvokeContract.Success{..} ->
+        case rcrReturnValue of
+          Nothing -> liftIO $ assertFailure $ "Invoking a V1 contract must produce a return value."
+          Just rv -> liftIO $ assertEqual "Invoking a counter in initial state should return 1" [1,0,0,0,0,0,0,0] (BS.unpack (WasmV1.returnValueToByteString rv))
+
+    invokeContract2 addr stateWithContract >>= \case
+      InvokeContract.Failure{..} -> liftIO $ assertFailure $ "Invocation failed: " ++ show rcrReason
+      InvokeContract.Success{..} ->
+        case rcrReturnValue of
+          Nothing -> liftIO $ assertFailure $ "Invoking a V1 contract must produce a return value."
+          Just rv -> liftIO $ assertEqual "Invoking a counter in initial state should return nothing" [] (BS.unpack (WasmV1.returnValueToByteString rv))
+
+    invokeContract3 addr stateWithContract >>= \case
+      InvokeContract.Failure{..} -> liftIO $ assertEqual "Invocation should fail: " Types.RuntimeFailure rcrReason
+      InvokeContract.Success{} -> liftIO $ assertFailure $ "Invocation succeeded, but should fail."
+
+    invokeContract4 addr stateWithContract >>= \case
+      InvokeContract.Failure{..} -> liftIO $ assertFailure $ "Invocation failed: " ++ show rcrReason
+      InvokeContract.Success{..} ->
+        case rcrReturnValue of
+          Nothing -> liftIO $ assertFailure $ "Invoking a V1 contract must produce a return value."
+          Just rv -> liftIO $ assertEqual "Invoking a counter in initial state should return nothing." [] (BS.unpack (WasmV1.returnValueToByteString rv))
+
 
 tests :: Spec
 tests = describe "Invoke contract" $ do
