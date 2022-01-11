@@ -33,12 +33,10 @@ import qualified Concordium.GlobalState.Persistent.Trie as Trie
 import Concordium.Types.HashableTo
 import Concordium.Utils.Serialization.Put
 
--- |A list of 'BakerInfoEx's, ordered by increasing 'BakerId'.
--- Note that we only really need the 'BakerInfo', but we use a 'BufferedRef' to a
--- 'BaseAccounts.BakerInfoEx' since this is already stored in an account.
-newtype BakerInfos (av :: AccountVersion) = BakerInfos (Vec.Vector (BufferedRef (BaseAccounts.BakerInfoEx av))) deriving (Show)
+-- |A list of references to 'BakerInfo's, ordered by increasing 'BakerId'.
+newtype BakerInfos = BakerInfos (Vec.Vector (BufferedRef BaseAccounts.BakerInfo)) deriving (Show)
 
-instance (MonadBlobStore m, IsAccountVersion av) => BlobStorable m (BakerInfos av) where
+instance (MonadBlobStore m) => BlobStorable m BakerInfos where
     storeUpdate (BakerInfos v) = do
       v' <- mapM storeUpdate v
       let pv = do
@@ -51,49 +49,49 @@ instance (MonadBlobStore m, IsAccountVersion av) => BlobStorable m (BakerInfos a
       v <- Vec.replicateM len load
       return $ BakerInfos <$> sequence v
 
-instance (MonadBlobStore m, IsAccountVersion av) => MHashableTo m H.Hash (BakerInfos av) where
+instance (MonadBlobStore m) => MHashableTo m H.Hash BakerInfos where
     getHashM (BakerInfos v) = do
       v' <- mapM loadBufferedRef v
       return $ H.hashLazy $ runPutLazy $ mapM_ put v'
 
-instance (MonadBlobStore m, IsAccountVersion av) => Cacheable m (BakerInfos av) where
+instance (MonadBlobStore m) => Cacheable m BakerInfos where
     cache (BakerInfos v) = BakerInfos <$> mapM cache v
 
 -- |A list of stakes for bakers.
-newtype BakerStakes = BakerStakes (Vec.Vector Amount) deriving (Show)
+newtype BakerStakes (av :: AccountVersion) = BakerStakes (Vec.Vector (BakerStake av)) deriving (Show)
 
-instance HashableTo H.Hash BakerStakes where
-    getHash (BakerStakes v) = H.hashLazy $ runPutLazy $ mapM_ put v
-instance Monad m => MHashableTo m H.Hash BakerStakes
-instance Serialize BakerStakes where
-    put (BakerStakes v) = putLength (Vec.length v) >> mapM_ put v
+instance HashableTo H.Hash (BakerStakes av) where
+    getHash (BakerStakes v) = H.hashLazy $ runPutLazy $ mapM_ putBakerStake v
+instance Monad m => MHashableTo m H.Hash (BakerStakes av)
+instance forall av. (IsAccountVersion av) => Serialize (BakerStakes av) where
+    put (BakerStakes v) = putLength (Vec.length v) >> mapM_ putBakerStake v
     get = do
         len <- getLength
-        BakerStakes <$> Vec.replicateM len get
-instance MonadBlobStore m => BlobStorable m BakerStakes
-instance (Applicative m) => Cacheable m BakerStakes
+        BakerStakes <$> Vec.replicateM len (getBakerStake (accountVersion @av))
+instance (MonadBlobStore m, IsAccountVersion av) => BlobStorable m (BakerStakes av)
+instance (Applicative m) => Cacheable m (BakerStakes av)
 
 -- |The set of bakers that are eligible to bake in a particular epoch.
 --
 -- The hashing scheme separately hashes the baker info and baker stakes.
 data PersistentEpochBakers (av :: AccountVersion) = PersistentEpochBakers {
-    _bakerInfos :: !(HashedBufferedRef (BakerInfos av)),
-    _bakerStakes :: !(HashedBufferedRef BakerStakes),
+    _bakerInfos :: !(HashedBufferedRef BakerInfos),
+    _bakerStakes :: !(HashedBufferedRef (BakerStakes av)),
     _bakerTotalStake :: !Amount
 } deriving (Show)
 
 makeLenses ''PersistentEpochBakers
 
--- |Serialize 'PersistentEpochBakers' in V0 format.
-putEpochBakersV0 :: (MonadBlobStore m, MonadPut m, IsAccountVersion av) => PersistentEpochBakers av -> m ()
-putEpochBakersV0 peb = do
+-- |Serialize 'PersistentEpochBakers'.
+putEpochBakers :: (MonadBlobStore m, MonadPut m, IsAccountVersion av) => PersistentEpochBakers av -> m ()
+putEpochBakers peb = do
         BakerInfos bi <- refLoad (peb ^. bakerInfos)
         bInfos <- mapM (fmap (^. BaseAccounts.bakerInfo) . refLoad) bi
         BakerStakes bStakes <- refLoad (peb ^. bakerStakes)
         assert (Vec.length bInfos == Vec.length bStakes) $
             liftPut $ putLength (Vec.length bInfos)
         mapM_ sPut bInfos
-        mapM_ sPut bStakes
+        mapM_ (liftPut . putBakerStake) bStakes
 
 instance (MonadBlobStore m, IsAccountVersion av) => MHashableTo m H.Hash (PersistentEpochBakers av) where
     getHashM PersistentEpochBakers{..} = do
@@ -133,14 +131,16 @@ epochToFullBakers PersistentEpochBakers{..} = do
     infos <- mapM (fmap (^. BaseAccounts.bakerInfo) . refLoad) infoRefs
     BakerStakes stakes <- refLoad _bakerStakes
     return FullBakers{
-            fullBakerInfos = Vec.zipWith FullBakerInfo infos stakes,
+            fullBakerInfos = Vec.zipWith mkFullBakerInfo infos stakes,
             bakerTotalStake = _bakerTotalStake
         }
+    where
+        mkFullBakerInfo info stake = FullBakerInfo info (bakerStakeAmount stake)
 
 -- |Derive a 'PersistentEpochBakers' from a 'Basic.EpochBakers'.
-makePersistentEpochBakers :: (MonadBlobStore m) => Basic.EpochBakers -> m (PersistentEpochBakers 'AccountV0)
+makePersistentEpochBakers :: (MonadBlobStore m, IsAccountVersion av) => Basic.EpochBakers av -> m (PersistentEpochBakers av)
 makePersistentEpochBakers ebs = do
-    _bakerInfos <- refMake . BakerInfos =<< mapM refMake (BaseAccounts.BakerInfoExV0 <$> Basic._bakerInfos ebs)
+    _bakerInfos <- refMake . BakerInfos =<< mapM refMake (Basic._bakerInfos ebs)
     _bakerStakes <- refMake $ BakerStakes (Basic._bakerStakes ebs)
     let _bakerTotalStake = Basic._bakerTotalStake ebs
     return PersistentEpochBakers{..}

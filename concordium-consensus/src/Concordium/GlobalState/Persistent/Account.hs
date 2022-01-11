@@ -44,8 +44,8 @@ data PersistentAccountEncryptedAmount = PersistentAccountEncryptedAmount {
   -- | Encrypted amount that is a result of this accounts' actions.
   -- In particular this list includes the aggregate of
   --
-  -- - remaining amounts that result when transfering to public balance
-  -- - remaining amounts when transfering to another account
+  -- - remaining amounts that result when transferring to public balance
+  -- - remaining amounts when transferring to another account
   -- - encrypted amounts that are transferred from public balance
   --
   -- When a transfer is made all of these must always be used.
@@ -168,64 +168,112 @@ instance (MonadBlobStore m) => Cacheable m PersistentAccountEncryptedAmount wher
       ..
     }
 
+type family PersistentExtraBakerInfo' (av :: AccountVersion) where
+    PersistentExtraBakerInfo' 'AccountV0 = ()
+    PersistentExtraBakerInfo' 'AccountV1 = BufferedRef BakerPoolInfo
+
+newtype PersistentExtraBakerInfo (av :: AccountVersion) = PersistentExtraBakerInfo
+    { theExtraBakerInfo :: PersistentExtraBakerInfo' av
+    }
+
+instance forall av. IsAccountVersion av => Show (PersistentExtraBakerInfo av) where
+    show = case (accountVersion @av) of
+        SAccountV0 -> show
+        SAccountV1 -> show
+
 data PersistentAccountBaker (av :: AccountVersion) = PersistentAccountBaker
   { _stakedAmount :: !Amount
   , _stakeEarnings :: !Bool
-  , _accountBakerInfo :: !(BufferedRef (BakerInfoEx av))
+  , _accountBakerInfo :: !(BufferedRef BakerInfo)
+  , _extraBakerInfo :: !(PersistentExtraBakerInfo av)
   , _bakerPendingChange :: !(StakePendingChange av)
   }
-  deriving (Show)
+
+deriving instance (Show (PersistentExtraBakerInfo av)) => Show (PersistentAccountBaker av)
 
 makeLenses ''PersistentAccountBaker
 
 -- |Load a 'PersistentAccountBaker' to an 'AccountBaker'.
-loadPersistentAccountBaker :: (IsAccountVersion av, MonadBlobStore m)
+loadPersistentAccountBaker :: forall av m. (IsAccountVersion av, MonadBlobStore m)
   => PersistentAccountBaker av
   -> m (AccountBaker av)
 loadPersistentAccountBaker PersistentAccountBaker{..} = do
   abi' <- refLoad _accountBakerInfo
-  return AccountBaker{_accountBakerInfo = abi', ..}
+  case accountVersion @av of
+    SAccountV0 ->
+      return AccountBaker{_accountBakerInfo = BakerInfoExV0 abi', ..}
+    SAccountV1 -> do
+      _bieBakerPoolInfo <- refLoad (theExtraBakerInfo _extraBakerInfo)
+      return AccountBaker{_accountBakerInfo = BakerInfoExV1{_bieBakerInfo = abi', ..}, ..}
 
-makePersistentAccountBaker :: (IsAccountVersion av, MonadBlobStore m)
+makePersistentAccountBaker :: forall av m. (IsAccountVersion av, MonadBlobStore m)
   => AccountBaker av
   -> m (PersistentAccountBaker av)
 makePersistentAccountBaker AccountBaker{..} = do
-  _accountBakerInfo <- refMake _accountBakerInfo
-  return PersistentAccountBaker{..}
+  case accountVersion @av of
+    SAccountV0 -> do
+      _accountBakerInfo <- refMake (_accountBakerInfo ^. bakerInfo)
+      let _extraBakerInfo = PersistentExtraBakerInfo ()
+      return PersistentAccountBaker{..}
+    SAccountV1 -> do
+      abi <- refMake (_accountBakerInfo ^. bakerInfo)
+      ebi <- refMake (_bieBakerPoolInfo _accountBakerInfo)
+      return PersistentAccountBaker{
+          _accountBakerInfo = abi,
+          _extraBakerInfo = PersistentExtraBakerInfo ebi,
+          ..}
 
-instance (IsAccountVersion av, MonadBlobStore m) => BlobStorable m (PersistentAccountBaker av) where
+instance forall m av. (IsAccountVersion av, MonadBlobStore m) => BlobStorable m (PersistentAccountBaker av) where
   storeUpdate PersistentAccountBaker{..} = do
     (pBakerInfo, newBakerInfo) <- storeUpdate _accountBakerInfo
-    return . (, PersistentAccountBaker{_accountBakerInfo = newBakerInfo,..}) $ do
+    (pExtraBakerInfo :: Put, newExtraBakerInfo) <- (case accountVersion @av of
+        SAccountV0 -> storeUpdate
+        SAccountV1 -> storeUpdate)
+        $ theExtraBakerInfo _extraBakerInfo
+    let pab = PersistentAccountBaker{
+            _accountBakerInfo = newBakerInfo,
+            _extraBakerInfo = PersistentExtraBakerInfo newExtraBakerInfo,
+            ..}
+    return . (, pab) $ do
       put _stakedAmount
       put _stakeEarnings
       pBakerInfo
+      pExtraBakerInfo
       put _bakerPendingChange
   store a = fst <$> storeUpdate a
   load = do
     _stakedAmount <- get
     _stakeEarnings <- get
     rBakerInfo <- load
+    rExtraBakerInfo <- case accountVersion @av of
+        SAccountV0 -> load
+        SAccountV1 -> load
     _bakerPendingChange <- get
     return $ do
       _accountBakerInfo <- rBakerInfo
+      _extraBakerInfo <- PersistentExtraBakerInfo <$> rExtraBakerInfo
       return PersistentAccountBaker{..}
 
-instance (IsAccountVersion av, MonadBlobStore m) => Cacheable m (PersistentAccountBaker av) where
+instance (MonadBlobStore m) => Cacheable m (PersistentAccountBaker av) where
   cache pab = do
     cachedBaker <- cache (_accountBakerInfo pab)
     return pab{_accountBakerInfo = cachedBaker}
 
 -- |Serialize a 'PersistentAccountBaker'.
-putAccountBaker :: (IsAccountVersion av, MonadBlobStore m, MonadPut m)
+putAccountBaker :: forall m av. (IsAccountVersion av, MonadBlobStore m, MonadPut m)
     => PersistentAccountBaker av
     -> m ()
 putAccountBaker PersistentAccountBaker{..} = do
     abi <- refLoad _accountBakerInfo
+    (abie :: BakerInfoEx av) <- case accountVersion @av of
+        SAccountV0 -> return (BakerInfoExV0 abi)
+        SAccountV1 -> do
+            bpi <- refLoad $ theExtraBakerInfo _extraBakerInfo
+            return (BakerInfoExV1 abi bpi)
     liftPut $ do
       put _stakedAmount
       put _stakeEarnings
-      put abi
+      put abie
       put _bakerPendingChange
 
 data PersistentAccountDelegation (av :: AccountVersion) where
@@ -243,7 +291,7 @@ data PersistentAccountStake (av :: AccountVersion) where
     PersistentAccountStakeBaker :: !(BufferedRef (PersistentAccountBaker av)) -> PersistentAccountStake av
     PersistentAccountStakeDelegate :: !(BufferedRef (AccountDelegation av)) -> PersistentAccountStake av
 
-deriving instance Show (PersistentAccountStake av)
+deriving instance (Show (PersistentExtraBakerInfo av)) => Show (PersistentAccountStake av)
 
 instance forall m av. (MonadBlobStore m, IsAccountVersion av) => BlobStorable m (PersistentAccountStake av) where
     storeUpdate = case accountVersion @av of
@@ -337,7 +385,7 @@ accountDelegator = to g
     g PersistentAccount{_accountStake = PersistentAccountStakeDelegate del} = Some del
     g _ = Null
 
-deriving instance (IsAccountVersion av) => Show (PersistentAccount av)
+deriving instance (IsAccountVersion av, Show (PersistentExtraBakerInfo av)) => Show (PersistentAccount av)
 
 instance (MonadBlobStore m, IsAccountVersion av) => BlobStorable m (PersistentAccount av) where
     storeUpdate PersistentAccount{..} = do

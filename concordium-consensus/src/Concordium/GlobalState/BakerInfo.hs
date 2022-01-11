@@ -1,8 +1,12 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 module Concordium.GlobalState.BakerInfo where
 
+import Data.Map(Map)
 import Data.Ratio
 import Data.Serialize
 import qualified Data.Vector as Vec
@@ -13,7 +17,48 @@ import Concordium.Types.Accounts
 
 import Concordium.Types
 import Concordium.Types.Execution (OpenStatus, DelegationTarget)
+import Concordium.Utils.Serialization
 
+
+-- |The stake information associated with a baker.
+data BakerStake (av :: AccountVersion) where
+    -- |Simple stake of a baker.
+    BakerStakeV0 :: !Amount -> BakerStake 'AccountV0
+    -- |Stake of a baking pool.
+    BakerStakeV1 ::
+        { -- |The stake of the pool, adjusted for leverage and relative stake limits.
+          adjustedStake :: !Amount,
+          -- |The equity capital of the pool owner.
+          ownerEquityCapital :: !Amount,
+          -- |The delegated capital of each delegator to this pool.
+          delegatorsCapital :: !(Map AccountIndex Amount)
+        } ->
+        BakerStake 'AccountV1
+
+deriving instance Eq (BakerStake av)
+deriving instance Show (BakerStake av)
+
+-- |Serialize a 'BakerStake'.
+putBakerStake :: Putter (BakerStake av)
+putBakerStake (BakerStakeV0 amt) = put amt
+putBakerStake BakerStakeV1{..} = do
+    put adjustedStake
+    put ownerEquityCapital
+    putSafeMapOf put put delegatorsCapital
+
+-- |Deserialize a 'BakerStake'.
+getBakerStake :: SAccountVersion av -> Get (BakerStake av)
+getBakerStake SAccountV0 = BakerStakeV0 <$> get
+getBakerStake SAccountV1 = do
+    adjustedStake <- get
+    ownerEquityCapital <- get
+    delegatorsCapital <- getSafeMapOf get get
+    return BakerStakeV1{..}
+
+-- |The stake used to compute the relative weight of a baker.
+bakerStakeAmount :: BakerStake av -> Amount
+bakerStakeAmount (BakerStakeV0 amt) = amt
+bakerStakeAmount BakerStakeV1{..} = adjustedStake
 
 data FullBakerInfo = FullBakerInfo {
     _theBakerInfo :: !BakerInfo,

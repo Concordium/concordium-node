@@ -17,7 +17,6 @@ module Concordium.GlobalState.Persistent.BlockState (
     PersistentBirkParameters(..),
     makePersistentBirkParameters,
     makePersistent,
-    initialPersistentState,
     emptyBlockState,
     PersistentBlockStateContext(..),
     PersistentState,
@@ -80,13 +79,22 @@ import Concordium.Utils.Serialization
 
 -- * Birk parameters
 
-data PersistentBirkParameters (pv :: ProtocolVersion) = PersistentBirkParameters {
+data PersistentNextEpochBakers (av :: AccountVersion) where
+    -- |The 'EpochBakers' for the next epoch.
+    PersistentNextEpochBakers :: !(HashedBufferedRef (PersistentEpochBakers av)) -> PersistentNextEpochBakers av
+    -- |The next epoch does not require a change in the 'EpochBakers'.
+    UnchangedPersistentNextEpochBakers :: PersistentNextEpochBakers 'AccountV1
+
+deriving instance Eq (PersistentNextEpochBakers av)
+deriving instance Show (PersistentNextEpochBakers av)
+
+data PersistentBirkParameters (av :: AccountVersion) = PersistentBirkParameters {
     -- |The currently-registered bakers.
     _birkActiveBakers :: !(BufferedRef (PersistentActiveBakers (AccountVersionFor pv))),
     -- |The bakers that will be used for the next epoch.
-    _birkNextEpochBakers :: !(HashedBufferedRef (PersistentEpochBakers (AccountVersionFor pv))),
+    _birkNextEpochBakers :: !(PersistentNextEpochBakers av),
     -- |The bakers for the current epoch.
-    _birkCurrentEpochBakers :: !(HashedBufferedRef (PersistentEpochBakers (AccountVersionFor pv))),
+    _birkCurrentEpochBakers :: !(HashedBufferedRef (PersistentEpochBakers av)),
     -- |The seed state used to derive the leadership election nonce.
     _birkSeedState :: !SeedState
 } deriving (Show)
@@ -94,13 +102,20 @@ data PersistentBirkParameters (pv :: ProtocolVersion) = PersistentBirkParameters
 makeLenses ''PersistentBirkParameters
 
 -- |Serialize 'PersistentBirkParameters' in V0 format.
-putBirkParametersV0 :: (MonadBlobStore m, MonadPut m, IsProtocolVersion pv) => PersistentBirkParameters pv -> m ()
+putBirkParametersV0 :: forall m av. (MonadBlobStore m, MonadPut m, IsAccountVersion av) => PersistentBirkParameters av -> m ()
 putBirkParametersV0 PersistentBirkParameters{..} = do
         sPut _birkSeedState
-        putEpochBakersV0 =<< refLoad _birkNextEpochBakers
-        putEpochBakersV0 =<< refLoad _birkCurrentEpochBakers
+        (_ :: ()) <- case accountVersion @av of
+            SAccountV0 -> case _birkNextEpochBakers of
+                PersistentNextEpochBakers neb -> putEpochBakers =<< refLoad neb
+            SAccountV1 -> case _birkNextEpochBakers of
+                PersistentNextEpochBakers neb -> do
+                    liftPut $ putWord8 1
+                    putEpochBakers =<< refLoad neb
+                UnchangedPersistentNextEpochBakers -> liftPut $ putWord8 0
+        putEpochBakers =<< refLoad _birkCurrentEpochBakers
 
-instance (MonadBlobStore m, IsProtocolVersion pv) => MHashableTo m H.Hash (PersistentBirkParameters pv) where
+instance (MonadBlobStore m, IsAccountVersion av) => MHashableTo m H.Hash (PersistentBirkParameters av) where
   getHashM PersistentBirkParameters {..} = do
     nextHash <- getHashM _birkNextEpochBakers
     currentHash <- getHashM _birkCurrentEpochBakers
@@ -108,7 +123,7 @@ instance (MonadBlobStore m, IsProtocolVersion pv) => MHashableTo m H.Hash (Persi
         bpH1 = H.hashOfHashes nextHash currentHash
     return $ H.hashOfHashes bpH0 bpH1
 
-instance (MonadBlobStore m, IsProtocolVersion pv) => BlobStorable m (PersistentBirkParameters pv) where
+instance (MonadBlobStore m, IsAccountVersion av) => BlobStorable m (PersistentBirkParameters av) where
     storeUpdate bps@PersistentBirkParameters{..} = do
         (pabs, actBakers) <- storeUpdate _birkActiveBakers
         (pnebs, nextBakers) <- storeUpdate _birkNextEpochBakers
@@ -135,7 +150,7 @@ instance (MonadBlobStore m, IsProtocolVersion pv) => BlobStorable m (PersistentB
             _birkCurrentEpochBakers <- mcebs
             return PersistentBirkParameters{..}
 
-instance (MonadBlobStore m, IsProtocolVersion pv) => Cacheable m (PersistentBirkParameters pv) where
+instance (MonadBlobStore m, IsAccountVersion av) => Cacheable m (PersistentBirkParameters av) where
     cache PersistentBirkParameters{..} = do
         activeBaks <- cache _birkActiveBakers
         next <- cache _birkNextEpochBakers
@@ -147,11 +162,12 @@ instance (MonadBlobStore m, IsProtocolVersion pv) => Cacheable m (PersistentBirk
             ..
         }
 
-makePersistentBirkParameters :: (AccountVersionFor pv ~ 'AccountV0)
-    => MonadBlobStore m => Basic.BasicBirkParameters -> m (PersistentBirkParameters pv)
+makePersistentBirkParameters ::
+    MonadBlobStore m => Basic.BasicBirkParameters 'AccountV0 -> m (PersistentBirkParameters 'AccountV0)
 makePersistentBirkParameters bbps = do
     _birkActiveBakers <- refMake =<< makePersistentActiveBakers (Basic._birkActiveBakers bbps)
-    _birkNextEpochBakers <- refMake =<< makePersistentEpochBakers (_unhashed (Basic._birkNextEpochBakers bbps))
+    _birkNextEpochBakers <- case Basic._birkNextEpochBakers bbps of
+        Basic.NextEpochBakers neb -> PersistentNextEpochBakers <$> (refMake =<< makePersistentEpochBakers (_unhashed neb))
     _birkCurrentEpochBakers <- refMake =<< makePersistentEpochBakers (_unhashed (Basic._birkCurrentEpochBakers bbps))
     let _birkSeedState = Basic._birkSeedState bbps
     return $ PersistentBirkParameters{..}
@@ -279,7 +295,7 @@ data BlockStatePointers (pv :: ProtocolVersion) = BlockStatePointers {
     bspBank :: !(Hashed Rewards.BankStatus),
     bspIdentityProviders :: !(HashedBufferedRef IPS.IdentityProviders),
     bspAnonymityRevokers :: !(HashedBufferedRef ARS.AnonymityRevokers),
-    bspBirkParameters :: !(PersistentBirkParameters pv),
+    bspBirkParameters :: !(PersistentBirkParameters (AccountVersionFor pv)),
     bspCryptographicParameters :: !(HashedBufferedRef CryptographicParameters),
     bspUpdates :: !(BufferedRef (Updates pv)),
     bspReleaseSchedule :: !(BufferedRef (Map.Map AccountAddress Timestamp)),
@@ -451,23 +467,11 @@ makePersistent Basic.BlockState{..} = do
   bps <- liftIO $ newIORef $! bsp
   hashBlockState bps
 
--- |An initial 'HashedPersistentBlockState', which may be used for testing purposes.
-initialPersistentState :: (IsProtocolVersion pv, MonadBlobStore m)
-             => SeedState
-             -> CryptographicParameters
-             -> [TransientAccount.Account (AccountVersionFor pv)]
-             -> IPS.IdentityProviders
-             -> ARS.AnonymityRevokers
-             -> UpdateKeysCollection (ChainParametersVersionFor pv)
-             -> ChainParameters pv
-             -> m (HashedPersistentBlockState pv)
-initialPersistentState ss cps accts ips ars keysCollection chainParams = makePersistent $ Basic.initialState ss cps accts ips ars keysCollection chainParams
-
 -- |A mostly empty block state, but with the given birk parameters, 
 -- cryptographic parameters, update authorizations and chain parameters.
 emptyBlockState
     :: (IsProtocolVersion pv, MonadBlobStore m)
-    => PersistentBirkParameters pv
+    => PersistentBirkParameters (AccountVersionFor pv)
     -> CryptographicParameters
     -> UpdateKeysCollection (ChainParametersVersionFor pv)
     -> ChainParameters pv
@@ -583,7 +587,9 @@ doGetSlotBakers pbs genesisTime slotDuration slot = do
             slotTime = addDuration genesisTime (fromIntegral slot * slotDuration)
         case compare slotEpoch (epoch + 1) of
             LT -> epochToFullBakers =<< refLoad (bps ^. birkCurrentEpochBakers)
-            EQ -> epochToFullBakers =<< refLoad (bps ^. birkNextEpochBakers)
+            EQ -> case bps ^. birkNextEpochBakers of
+                UnchangedPersistentNextEpochBakers -> epochToFullBakers =<< refLoad (bps ^. birkCurrentEpochBakers)
+                PersistentNextEpochBakers neb -> epochToFullBakers =<< refLoad neb
             GT -> do
                 activeBids <- Trie.keysAsc . _activeBakers =<< refLoad (bps ^. birkActiveBakers)
                 let resolveBaker (BakerId aid) = Accounts.indexedAccount aid (bspAccounts bs) >>= \case
@@ -810,12 +816,13 @@ doAddBaker pbs ai BakerAdd{..} = do
                                 }
                             let newBirkParams = bspBirkParameters bsp & birkActiveBakers .~ newpabref
                             let updAcc acc = do
-                                    newBakerInfo <- refMake $ BaseAccounts.BakerInfoExV0 $
+                                    newBakerInfo <- refMake $
                                         bakerKeyUpdateToInfo bid baKeys
                                     newPAB <- refMake PersistentAccountBaker{
                                         _stakedAmount = baStake,
                                         _stakeEarnings = baStakeEarnings,
                                         _accountBakerInfo = newBakerInfo,
+                                        _extraBakerInfo = (),
                                         _bakerPendingChange = NoChange
                                     }
                                     acc' <- setPersistentAccountStake acc (PersistentAccountStakeBaker newPAB)
@@ -872,20 +879,17 @@ doConfigureBaker pbs ai BakerConfigureAdd{..} = do
                                             _bakingCommission = bcaBakingRewardCommission,
                                             _transactionCommission = bcaTransactionFeeCommission
                                         }
-                                        bpi = BaseAccounts.BakerPoolInfo {
+                                    bpi <- refMake BaseAccounts.BakerPoolInfo {
                                             _poolOpenStatus = bcaOpenForDelegation,
                                             _poolMetadataUrl = bcaMetadataURL,
                                             _poolCommissionRates = cr
                                         }
-                                        bi = BaseAccounts.BakerInfoExV1 {
-                                            _bieBakerInfo = bakerKeyUpdateToInfo bid bcaKeys,
-                                            _bieBakerPoolInfo = bpi
-                                        }
-                                    newBakerInfo <- refMake bi
+                                    newBakerInfo <- refMake $ bakerKeyUpdateToInfo bid bcaKeys
                                     newPAB <- refMake PersistentAccountBaker{
                                         _stakedAmount = bcaCapital,
                                         _stakeEarnings = bcaRestakeEarnings,
                                         _accountBakerInfo = newBakerInfo,
+                                        _extraBakerInfo = PersistentExtraBakerInfo bpi,
                                         _bakerPendingChange = NoChange
                                     }
                                     acc' <- setPersistentAccountStake acc (PersistentAccountStakeBaker newPAB)
