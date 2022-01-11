@@ -80,6 +80,10 @@ import Concordium.ID.Parameters(GlobalContext)
 import Concordium.ID.Types (AccountCredential, CredentialRegistrationID)
 import Concordium.Crypto.EncryptedTransfers
 
+-- |Hash associated with birk parameters.
+newtype BirkParametersHash (pv :: ProtocolVersion) = BirkParametersHash {birkParamHash :: H.Hash}
+  deriving newtype (Eq, Ord, Show, Serialize)
+
 -- |The hashes of the block state components, which are combined
 -- to produce a 'StateHash'.
 data BlockStateHashInputs = BlockStateHashInputs {

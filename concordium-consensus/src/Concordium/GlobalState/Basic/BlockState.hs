@@ -1,8 +1,10 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -39,6 +41,7 @@ import qualified Concordium.GlobalState.Types as GT
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.AccountTransactionIndex
+--import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Basic.BlockState.Bakers
 import qualified Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.Basic.BlockState.Account
@@ -59,13 +62,22 @@ import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types.HashableTo
 import Concordium.Utils.Serialization
 
-data BasicBirkParameters = BasicBirkParameters {
+data NextEpochBakers (av :: AccountVersion) where
+    -- |The 'EpochBakers' for the next epoch.
+    NextEpochBakers :: !(Hashed (EpochBakers av)) -> NextEpochBakers av
+    -- |The next epoch does not require a change in the 'EpochBakers'.
+    UnchangedNextEpochBakers :: NextEpochBakers 'AccountV1
+
+deriving instance Eq (NextEpochBakers av)
+deriving instance Show (NextEpochBakers av)
+
+data BasicBirkParameters (av :: AccountVersion) = BasicBirkParameters {
     -- |The currently-registered bakers.
     _birkActiveBakers :: !ActiveBakers,
     -- |The bakers that will be used for the next epoch.
-    _birkNextEpochBakers :: !(Hashed EpochBakers),
+    _birkNextEpochBakers :: !(NextEpochBakers av),
     -- |The bakers for the current epoch.
-    _birkCurrentEpochBakers :: !(Hashed EpochBakers),
+    _birkCurrentEpochBakers :: !(Hashed (EpochBakers av)),
     -- |The seed state used to derive the leadership election nonce.
     _birkSeedState :: !SeedState
 } deriving (Eq, Show)
@@ -73,65 +85,74 @@ data BasicBirkParameters = BasicBirkParameters {
 -- |The hash of the birk parameters derives from the seed state
 -- and the bakers for the current and next epochs.  The active
 -- bakers are not included, because they derive from the accounts.
-instance HashableTo H.Hash BasicBirkParameters where
+--
+-- From protocol version 'P4' onwards, it is possible for there to be no next epoch bakers, in which
+-- case, the hash of the empty string is used for the hash of the next epoch bakers. (This should
+-- not collide with the hash of an actual 'EpochBakers'.)
+instance HashableTo H.Hash (BasicBirkParameters av) where
     getHash BasicBirkParameters {..} = H.hashOfHashes bpH0 bpH1
       where
         bpH0 = H.hash $ "SeedState" <> encode _birkSeedState
-        bpH1 = H.hashOfHashes (getHash _birkNextEpochBakers) (getHash _birkCurrentEpochBakers)
+        bpH1 = H.hashOfHashes nebHash cebHash
+        nebHash = case _birkNextEpochBakers of
+            NextEpochBakers heb -> getHash heb
+            UnchangedNextEpochBakers -> H.hash ""
+        cebHash = getHash _birkCurrentEpochBakers
 
 -- |Serialize 'BasicBirkParameters' in V0 format.
-putBirkParameters :: Putter BasicBirkParameters
+putBirkParameters :: forall av. (IsAccountVersion av) => Putter (BasicBirkParameters av)
 putBirkParameters BasicBirkParameters{..} = do
     put _birkSeedState
-    putEpochBakers (_unhashed _birkNextEpochBakers)
+    (_ :: ()) <- case accountVersion @av of
+        SAccountV0 -> case _birkNextEpochBakers :: NextEpochBakers 'AccountV0 of
+            NextEpochBakers neb -> putEpochBakers (_unhashed neb)
+        SAccountV1 -> case _birkNextEpochBakers :: NextEpochBakers 'AccountV1 of
+            NextEpochBakers neb -> putWord8 1 >> putEpochBakers (_unhashed neb)
+            UnchangedNextEpochBakers -> putWord8 0
     putEpochBakers (_unhashed _birkCurrentEpochBakers)
 
 -- |Deserialize 'BasicBirkParameters' in V0 format.
 -- Since the active bakers are not stored in the serialization,
 -- the 'BasicBirkParameters' will have empty 'ActiveBakers',
 -- which should be corrected by processing the accounts table.
-getBirkParameters :: Get BasicBirkParameters
+getBirkParameters :: forall av. (IsAccountVersion av) => Get (BasicBirkParameters av)
 getBirkParameters = do
+    let accVer = accountVersion @av
     _birkSeedState <- get
-    _birkNextEpochBakers <- makeHashed <$> getEpochBakers
-    _birkCurrentEpochBakers <- makeHashed <$> getEpochBakers
+    _birkNextEpochBakers <- case accVer of
+        SAccountV0 -> NextEpochBakers . makeHashed <$> getEpochBakers accVer
+        SAccountV1 -> getWord8 >>= \case
+            0 -> return UnchangedNextEpochBakers
+            1 -> NextEpochBakers . makeHashed <$> getEpochBakers accVer
+            _ -> fail "Unsupported next epoch bakers"
+    _birkCurrentEpochBakers <- makeHashed <$> getEpochBakers accVer
     let _birkActiveBakers = ActiveBakers Map.empty Set.empty
     return BasicBirkParameters{..}
 
--- | Create a BasicBirkParameters value from the components
-makeBirkParameters ::
-  ActiveBakers -- ^ Set of currently-registered bakers
-  -> EpochBakers -- ^ Set of bakers for the next epoch
-  -> EpochBakers -- ^ Set of bakers for the current epoch
-  -> SeedState
-  -> BasicBirkParameters
-makeBirkParameters _birkActiveBakers nextEpochBakers currentEpochBakers _birkSeedState = BasicBirkParameters {..}
-  where
-    _birkNextEpochBakers = makeHashed nextEpochBakers
-    _birkCurrentEpochBakers = makeHashed currentEpochBakers
-
+-- |Generate initial birk parameters from genesis accounts and seed state.
 initialBirkParameters ::
-  [Account av]
+  [Account 'AccountV0]
   -- ^The accounts at genesis, in order
   -> SeedState
   -- ^The seed state
-  -> BasicBirkParameters
-initialBirkParameters accounts = makeBirkParameters activeBkrs eBkrs eBkrs
+  -> BasicBirkParameters 'AccountV0
+initialBirkParameters accounts _birkSeedState = BasicBirkParameters{..}
   where
     abi (AccountStakeBaker AccountBaker{..}) = Just (_accountBakerInfo ^. bakerInfo, _stakedAmount)
     abi _ = Nothing
     bkr acct = abi $ acct ^. accountStaking
     bkrs = catMaybes $ bkr <$> accounts
-    activeBkrs = ActiveBakers {
+    _birkActiveBakers = ActiveBakers {
       _activeBakers = Map.fromList $ bkrs <&> \(b, _) -> (b ^. bakerIdentity, Set.empty),
       _aggregationKeys = Set.fromList (_bakerAggregationVerifyKey . fst <$> bkrs)
     }
     stakes = Vec.fromList (snd <$> bkrs)
-    eBkrs = EpochBakers {
+    _birkCurrentEpochBakers = makeHashed $ EpochBakers {
       _bakerInfos = Vec.fromList (fst <$> bkrs),
-      _bakerStakes = stakes,
+      _bakerStakes = BakerStakeV0 <$> stakes,
       _bakerTotalStake = sum stakes
     }
+    _birkNextEpochBakers = NextEpochBakers _birkCurrentEpochBakers
 
 -- |List of bakers of blocks baked in the current epoch, used for 
 -- rewarding the bakers at the end of the epoch.  This maintains
@@ -178,7 +199,7 @@ data BlockState (pv :: ProtocolVersion) = BlockState {
     _blockBank :: !(Hashed Rewards.BankStatus),
     _blockIdentityProviders :: !(Hashed IPS.IdentityProviders),
     _blockAnonymityRevokers :: !(Hashed ARS.AnonymityRevokers),
-    _blockBirkParameters :: !BasicBirkParameters,
+    _blockBirkParameters :: !(BasicBirkParameters (AccountVersionFor pv)),
     _blockCryptographicParameters :: !(Hashed CryptographicParameters),
     _blockUpdates :: !(Updates pv),
     _blockReleaseSchedule :: !(Map AccountAddress Timestamp), -- ^Contains an entry for each account that has pending releases and the first timestamp for said account
@@ -205,7 +226,7 @@ instance HashableTo StateHash (HashedBlockState pv) where
 -- 'CryptographicParameters', 'Authorizations' and 'ChainParameters'.
 emptyBlockState
     :: IsProtocolVersion pv =>
-    BasicBirkParameters ->
+    BasicBirkParameters (AccountVersionFor pv) ->
     CryptographicParameters ->
     UpdateKeysCollection (ChainParametersVersionFor pv) ->
     ChainParameters pv ->
@@ -415,7 +436,10 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
         -- LT should mean it's the current epoch, since the slot should be at least the slot of this block.
         LT -> epochToFullBakers (_unhashed (_birkCurrentEpochBakers bps))
         -- EQ means the next epoch.
-        EQ -> epochToFullBakers (_unhashed (_birkNextEpochBakers bps))
+        EQ -> epochToFullBakers (_unhashed (case _birkNextEpochBakers bps of
+                UnchangedNextEpochBakers -> _birkCurrentEpochBakers bps
+                NextEpochBakers neb -> neb
+                ))
         -- GT means a future epoch, so consider everything in the active bakers,
         -- applying any adjustments that occur in an epoch < slotEpoch.
         GT -> FullBakers {
@@ -636,12 +660,13 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             (bs', bkrs') = foldl' accumBakers (origBS, []) curActiveBkrs
             newNextBakers = makeHashed $ EpochBakers {
               _bakerInfos = Vec.fromList (fst <$> bkrs'),
-              _bakerStakes = Vec.fromList (snd <$> bkrs'),
+              _bakerStakes = Vec.fromList (BakerStakeV0 . snd <$> bkrs'),
               _bakerTotalStake = foldl' (+) 0 (snd <$> bkrs')
             }
             newbs = bs' & blockBirkParameters %~ \bp -> bp {
-                        _birkCurrentEpochBakers = _birkNextEpochBakers bp,
-                        _birkNextEpochBakers = newNextBakers
+                        _birkCurrentEpochBakers = case _birkNextEpochBakers bp of
+                            NextEpochBakers newCurrentBakers -> newCurrentBakers,
+                        _birkNextEpochBakers = NextEpochBakers newNextBakers
                     }
             transitionDelegatorsFromActiveBaker bs bid dels =
                 let ff = updateDelegatorSetAndAccounts bs
@@ -1201,7 +1226,8 @@ instance (IsProtocolVersion pv, MonadIO m) => BS.BlockStateStorage (PureBlockSta
     writeBlockState h = PureBlockStateMonad . liftIO . hPutBuilder h . snd . runPutMBuilder . putBlockState . _unhashedBlockState
 
 -- |Initial block state.
-initialState :: (IsProtocolVersion pv)
+-- TODO: Remove constraint AccountVersionFor pv ~ 'AccountV0
+initialState :: (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV0)
              => SeedState
              -> CryptographicParameters
              -> [Account (AccountVersionFor pv)]
