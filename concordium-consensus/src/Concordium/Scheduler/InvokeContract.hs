@@ -1,3 +1,4 @@
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -93,7 +94,7 @@ instance AE.FromJSON ContractContext where
     ccAmount <- obj AE..:? "amount" AE..!= 0
     ccMethod <- obj AE..: "method"
     ccParameter <- obj AE..:? "parameter" AE..!= Wasm.emptyParameter
-    ccEnergy <- obj AE..:? "energy" AE..!= maxBound
+    ccEnergy <- obj AE..:? "energy" AE..!= 10_000_000
     return ContractContext{..}
 
 data InvokeContractResult =

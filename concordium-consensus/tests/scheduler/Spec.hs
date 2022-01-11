@@ -28,7 +28,7 @@ import qualified SchedulerTests.RejectReasonsRustContract(tests)
 import qualified SchedulerTests.SmartContracts.V1.Counter(tests)
 import qualified SchedulerTests.SmartContracts.V1.Transfer(tests)
 import qualified SchedulerTests.SmartContracts.V1.CrossMessaging(tests)
-
+import qualified SchedulerTests.SmartContracts.Invoke (tests)
 
 import Test.Hspec
 
@@ -61,3 +61,4 @@ main = hspec $ do
          SchedulerTests.SmartContracts.V1.Counter.tests
          SchedulerTests.SmartContracts.V1.Transfer.tests
          SchedulerTests.SmartContracts.V1.CrossMessaging.tests
+         SchedulerTests.SmartContracts.Invoke.tests

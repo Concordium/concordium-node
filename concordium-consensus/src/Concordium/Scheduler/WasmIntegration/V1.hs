@@ -40,6 +40,7 @@ import Data.Serialize
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Base16 as BS16
 import qualified Data.ByteString.Short as BSS
 import qualified Data.ByteString.Unsafe as BSU
@@ -81,6 +82,9 @@ returnValueToByteString rv = unsafePerformIO $
 -- json instance based on hex
 instance AE.ToJSON ReturnValue where
   toJSON = AE.String . Text.decodeUtf8 . BS16.encode . returnValueToByteString
+
+instance Show ReturnValue where
+  show = BS8.unpack . BS16.encode . returnValueToByteString
 
 -- |State of the Wasm module when a host operation is invoked (a host operation
 -- is either a transfer to an account, or a contract call, at present). This can
@@ -297,6 +301,7 @@ data ContractExecutionReject =
                 cerReturnValue :: !ReturnValue
               } -- ^Contract decided to terminate execution.
   | Trap -- ^A trap was triggered.
+  deriving (Show)
 
 cerToRejectReasonInit :: ContractExecutionReject -> Exec.RejectReason
 cerToRejectReasonInit LogicReject{..} = Exec.RejectedInit cerRejectReason
