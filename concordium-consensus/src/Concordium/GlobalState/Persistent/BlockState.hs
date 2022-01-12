@@ -623,11 +623,14 @@ doTransitionEpochBakers pbs genesisTime slotDuration newEpoch = do
         let newEpochTime = addDuration genesisTime (newEpochSlot * slotDuration)
         let nextEpochTime = addDuration newEpochTime (epochSlots * slotDuration)
         bakers <- refLoad (_birkActiveBakers oldBPs)
-        curActiveBIDs <- Trie.keysAsc (bakers ^. activeBakers)
+        curActiveBakerDels <- Trie.toAscList (bakers ^. activeBakers)
         -- Retrieve/update the baker info
-        let accumBakers (bs0, bkrs0) bkr@(BakerId aid) = Accounts.indexedAccount aid (bspAccounts origBSP) >>= \case
+        let accumBakers (bs0, bkrs0) (bkr@(BakerId aid), pdels) = Accounts.indexedAccount aid (bspAccounts origBSP) >>= \case
                 Just PersistentAccount{_accountStake = PersistentAccountStakeBaker acctBkrRef} -> do
-                    bsp <- transitionDelegatorsFromActiveBaker bs0 bakers newEpochTime bkr
+                    dels <- case pdels of
+                        PersistentActiveDelegatorsV0 -> return []
+                        PersistentActiveDelegatorsV1 t -> Trie.keys t
+                    bsp <- transitionDelegatorsFromActiveBaker bs0 newEpochTime bkr dels
                     acctBkr <- refLoad acctBkrRef
                     case _bakerPendingChange acctBkr of
                         RemoveStake (PendingChangeEffectiveV0 remEpoch)
@@ -657,7 +660,7 @@ doTransitionEpochBakers pbs genesisTime slotDuration newEpoch = do
         -- Get the baker info. The list of baker ids is reversed in the input so the accumulated list
         -- is in ascending order.
         bsp <- loadPBS pbs
-        (bsp', bkrs) <- foldM accumBakers (bsp, []) (reverse curActiveBIDs)
+        (bsp', bkrs) <- foldM accumBakers (bsp, []) (reverse curActiveBakerDels)
         newBakerInfos <- refMake . BakerInfos . Vec.fromList $ fst <$> bkrs
         let stakesVec = Vec.fromList $ snd <$> bkrs
         newBakerStakes <- refMake (BakerStakes stakesVec)
@@ -679,17 +682,13 @@ doTransitionEpochBakers pbs genesisTime slotDuration newEpoch = do
     where
         transitionDelegatorsFromActiveBaker
             :: BlockStatePointers pv
-            -> PersistentActiveBakers (AccountVersionFor pv)
             -> Timestamp
             -> BakerId
+            -> [DelegatorId]
             -> m (BlockStatePointers pv)
-        transitionDelegatorsFromActiveBaker bsp bakers newEpochTime bid = do
-            (newDset, newAccounts) <- activeBakerFoldlDelegators
-                    (bspAccounts bsp)
-                    bakers
-                    (updateDelegatorSetAndAccounts newEpochTime)
-                    (Trie.empty, bspAccounts bsp)
-                    bid
+        transitionDelegatorsFromActiveBaker bsp newEpochTime bid dels = do
+            let ff = updateDelegatorSetAndAccounts bsp newEpochTime
+            (newDset, newAccounts) <- foldlM ff (Trie.empty, bspAccounts bsp) dels
             pab <- refLoad (bspBirkParameters bsp ^. birkActiveBakers)
             newBirkBakers <- case accountVersion @(AccountVersionFor pv) of
                                 SAccountV0 ->
@@ -702,44 +701,42 @@ doTransitionEpochBakers pbs genesisTime slotDuration newEpoch = do
             return bsp{bspBirkParameters = newBirkParams, bspAccounts = newAccounts}
 
         updateDelegatorSetAndAccounts
-            :: Timestamp
+            :: BlockStatePointers pv
+            -> Timestamp
             -> (DelegatorIdTrieSet, Accounts.Accounts pv)
             -> DelegatorId
-            -> BaseAccounts.AccountDelegation (AccountVersionFor pv)
             -> m (DelegatorIdTrieSet, Accounts.Accounts pv)
-        updateDelegatorSetAndAccounts newEpochTime (dset, accounts) d@(DelegatorId aid) acctDel = do
-            let BaseAccounts.AccountDelegationV1{_delegationPendingChange = dpc} = acctDel
-            (keep, newAccounts) <- tryUpdateDelegatorAccount newEpochTime aid acctDel dpc accounts
-            if keep
-                then (,newAccounts) <$> Trie.insert d () dset
-                else return (dset, newAccounts)
+        updateDelegatorSetAndAccounts bsp newEpochTime (dset, accounts) did@(DelegatorId aid) = do
+            Accounts.indexedAccount aid (bspAccounts bsp) >>= \case
+                Just acct -> case acct ^. accountDelegator of
+                    Some pAcctDel -> do
+                        acctDel@BaseAccounts.AccountDelegationV1{..} <- refLoad pAcctDel
+                        case _delegationPendingChange of
+                            RemoveStake (PendingChangeEffectiveV1 remTime)
+                                | remTime <= newEpochTime ->
+                                    removeDelegator did dset accounts
+                            ReduceStake newAmt (PendingChangeEffectiveV1 redTime)
+                                | redTime <= newEpochTime ->
+                                    newStakeDelegator did acctDel dset accounts newAmt
+                            _ -> return (dset, accounts)
+                    Null -> error "Invariant violation: active delegator is not a delegation account"
+                _ -> error "Invariant violation: active delegator account was not found"
 
-        tryUpdateDelegatorAccount
-            :: Timestamp
-            -> AccountIndex
-            -> BaseAccounts.AccountDelegation (AccountVersionFor pv)
-            -> BaseAccounts.StakePendingChange (AccountVersionFor pv)
-            -> Accounts.Accounts pv
-            -> m (Bool, Accounts.Accounts pv)
-        tryUpdateDelegatorAccount newEpochTime aid _ (RemoveStake (PendingChangeEffectiveV1 remTime)) accounts
-            | remTime <= newEpochTime = removeDelegator aid accounts
-        tryUpdateDelegatorAccount newEpochTime aid acctDel (ReduceStake newAmt (PendingChangeEffectiveV1 redTime)) accounts
-            | redTime <= newEpochTime = newStakeDelegator aid acctDel accounts newAmt
-        tryUpdateDelegatorAccount _ _ _ _ accounts =
-            return (True, accounts)
-
-        removeDelegator aid accounts = do
+        removeDelegator :: DelegatorId -> DelegatorIdTrieSet -> Accounts.Accounts pv -> m (DelegatorIdTrieSet, Accounts.Accounts pv)
+        removeDelegator (DelegatorId aid) dset accounts = do
             let updAcc acc = ((),) <$> setPersistentAccountStake acc PersistentAccountStakeNone
             (_, newAccounts) <- Accounts.updateAccountsAtIndex updAcc aid accounts
-            return (False, newAccounts)
+            return (dset, newAccounts)
 
-        newStakeDelegator aid acctDel accounts newAmt = do
+        newStakeDelegator :: DelegatorId -> BaseAccounts.AccountDelegation (AccountVersionFor pv) -> DelegatorIdTrieSet -> Accounts.Accounts pv -> Amount -> m (DelegatorIdTrieSet, Accounts.Accounts pv)
+        newStakeDelegator did@(DelegatorId aid) acctDel dset accounts newAmt = do
             newDel <- refMake acctDel{
                 BaseAccounts._delegationStakedAmount = newAmt,
                 BaseAccounts._delegationPendingChange = NoChange}
             let updAcc acc = ((),) <$> setPersistentAccountStake acc (PersistentAccountStakeDelegate newDel)
             (_, newAccounts) <- Accounts.updateAccountsAtIndex updAcc aid accounts
-            return (True, newAccounts)
+            newDset <- Trie.insert did () dset
+            return (newDset, newAccounts)
 
         removeActiveBaker bs bkrs bkr@(BakerId aid) acctBkr = do
             curABs <- refLoad (_birkActiveBakers (bspBirkParameters bs))

@@ -689,19 +689,19 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                     RemoveStake (PendingChangeEffectiveV1 remTime)
                       | remTime <= newEpochTime -> removeDelegator did dset accounts
                     ReduceStake newAmt (PendingChangeEffectiveV1 redTime)
-                      | redTime <= newEpochTime -> newStakeDelegator aid acctDel dset accounts newAmt
+                      | redTime <= newEpochTime -> newStakeDelegator did acctDel dset accounts newAmt
                     _ -> (dset, accounts)
                   _ -> error "Invariant violation: active delegator is not a delegation account"
                 _ -> error "Invariant violation: active delegator account was not found"
-            removeDelegator did@(DelegatorId aid) dset accounts =
-              let newDset = Set.delete did dset
-                  aupdate = accountStaking .~ AccountStakeNone
+            removeDelegator (DelegatorId aid) dset accounts =
+              let aupdate = accountStaking .~ AccountStakeNone
                   newAccounts = accounts & Accounts.indexedAccount aid %~ aupdate
-              in (newDset, newAccounts)
-            newStakeDelegator aid acctDel dset accounts newAmt =
-              let aupdate = accountStaking .~ AccountStakeDelegate acctDel{_delegationStakedAmount = newAmt}
+              in (dset, newAccounts)
+            newStakeDelegator did@(DelegatorId aid) acctDel dset accounts newAmt =
+              let newDset = Set.insert did dset
+                  aupdate = accountStaking .~ AccountStakeDelegate acctDel{_delegationStakedAmount = newAmt}
                   newAccounts = accounts & Accounts.indexedAccount aid %~ aupdate
-               in (dset, newAccounts)
+               in (newDset, newAccounts)
             reduceStakeActiveBaker bs bkrs (BakerId aid) acctBkr newAmt =
               let newAcctBkr = acctBkr{_stakedAmount = newAmt, _bakerPendingChange = NoChange}
                   newBS = bs
@@ -916,6 +916,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
     bsoConfigureDelegation bs ai DelegationConfigureAdd{..} = do
         -- TODO: Disallow overdelegation.
         -- It is assumed here that this account is NOT a baker and NOT a delegator.
+        chainParams <- BS.bsoGetChainParameters bs
         return $! case bs ^? blockAccounts . Accounts.indexedAccount ai of
             -- Cannot resolve the account
             Nothing -> (DCInvalidAccount, bs)
