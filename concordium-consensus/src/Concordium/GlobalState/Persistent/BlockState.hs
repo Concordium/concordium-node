@@ -1389,6 +1389,13 @@ doGetAccount pbs addr = do
         bsp <- loadPBS pbs
         Accounts.getAccountWithIndex addr (bspAccounts bsp)
 
+doGetActiveBakers :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m [BakerId]
+doGetActiveBakers pbs = do
+    bsp <- loadPBS pbs
+    ab <- refLoad $ bspBirkParameters bsp ^. birkActiveBakers
+    Trie.keysAsc (ab ^. activeBakers)
+
+
 doGetAccountByCredId :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> ID.CredentialRegistrationID -> m (Maybe (AccountIndex, PersistentAccount (AccountVersionFor pv)))
 doGetAccountByCredId pbs cid = do
         bsp <- loadPBS pbs
@@ -1756,6 +1763,7 @@ instance BlockStateTypes (PersistentBlockStateMonad pv r m) where
 instance (IsProtocolVersion pv, PersistentState r m) => BlockStateQuery (PersistentBlockStateMonad pv r m) where
     getModule = doGetModuleSource . hpbsPointers
     getAccount = doGetAccount . hpbsPointers
+    getActiveBakers = doGetActiveBakers . hpbsPointers
     getAccountByCredId = doGetAccountByCredId . hpbsPointers
     getContractInstance = doGetInstance . hpbsPointers
     getModuleList = doGetModuleList . hpbsPointers

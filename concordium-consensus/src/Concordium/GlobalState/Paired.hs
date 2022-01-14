@@ -192,6 +192,10 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
             return Nothing
           (Nothing, _) -> error $ "Cannot get account with address " ++ show addr ++ " in left implementation"
           (_, Nothing) -> error $ "Cannot get account with address " ++ show addr ++ " in right implementation"
+    getActiveBakers (ls, rs) = do
+        ab1 <- coerceBSML (getActiveBakers ls)
+        ab2 <- coerceBSMR (getActiveBakers rs)
+        assert (ab1 == ab2) $ return ab1
     getAccountByCredId (ls, rs) cid = do
         a1 <- coerceBSML (getAccountByCredId ls cid)
         a2 <- coerceBSMR (getAccountByCredId rs cid)

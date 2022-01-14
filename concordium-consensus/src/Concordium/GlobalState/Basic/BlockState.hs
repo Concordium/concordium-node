@@ -402,6 +402,8 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
           Nothing -> Nothing
           Just ai -> (ai, ) <$> (bs ^? blockAccounts . Accounts.indexedAccount ai)
 
+    getActiveBakers bs = return $ Map.keys $ bs ^. blockBirkParameters . birkActiveBakers . activeBakers
+
     {-# INLINE getAccountByCredId #-}
     getAccountByCredId bs cid =
       let mai = bs ^? blockAccounts . to Accounts.accountRegIds . ix cid

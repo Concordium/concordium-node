@@ -207,6 +207,9 @@ class AccountOperations m => BlockStateQuery m where
     -- |Get the account state from the account table of the state instance.
     getAccount :: BlockState m -> AccountAddress -> m (Maybe (AccountIndex, Account m))
 
+    -- |Get all the current active bakers.
+    getActiveBakers :: BlockState m -> m [BakerId]
+
     -- |Query an account by the id of the credential that belonged to it.
     getAccountByCredId :: BlockState m -> CredentialRegistrationID -> m (Maybe (AccountIndex, Account m))
 
@@ -677,6 +680,7 @@ class (BlockStateOperations m, Serialize (BlockStateRef m)) => BlockStateStorage
 instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGSTrans t m) where
   getModule s = lift . getModule s
   getAccount s = lift . getAccount s
+  getActiveBakers = lift . getActiveBakers
   getAccountByCredId s = lift . getAccountByCredId s
   getBakerAccount s = lift . getBakerAccount s
   getContractInstance s = lift . getContractInstance s
