@@ -129,9 +129,9 @@ data EnvFailure =
   AmountTooLarge !Address !Amount
   | MissingAccount !AccountAddress
   | MissingContract !ContractAddress
+  | InvalidEntrypoint !ModuleRef !ReceiveName -- Attempting to invoke a non-existing entrypoint.
   | MessageFailed !Exec.RejectReason -- message to a V0 contract failed. No further information is available.
   deriving (Show)
--- TODO: In principle we could extract a more precise reason than MessageFailed.
 
 -- |Encode the response into 64 bits. This is necessary since Wasm only allows
 -- us to pass simple scalars as parameters. Everything else requires passing
@@ -149,8 +149,9 @@ invokeResponseToWord64 (Error (EnvFailure e)) =
     AmountTooLarge _ _ -> 0xffff_ff01_0000_0000
     MissingAccount _ -> 0xffff_ff02_0000_0000
     MissingContract _ -> 0xffff_ff03_0000_0000
-    MessageFailed _ -> 0xffff_ff04_0000_0000
-invokeResponseToWord64 (Error (ExecutionReject Trap)) = 0xffff_ff05_0000_0000
+    InvalidEntrypoint _ _ -> 0xffff_ff04_0000_0000
+    MessageFailed _ -> 0xffff_ff05_0000_0000
+invokeResponseToWord64 (Error (ExecutionReject Trap)) = 0xffff_ff06_0000_0000
 invokeResponseToWord64 (Error (ExecutionReject LogicReject{..})) =
   -- make the last 32 bits the value of the rejection reason
   let unsigned = fromIntegral cerRejectReason :: Word32 -- reinterpret the bits
@@ -359,8 +360,8 @@ cerToRejectReasonReceive _ _ _ (EnvFailure e) = case e of
   AmountTooLarge ad am -> Exec.AmountTooLarge ad am
   MissingAccount aref -> Exec.InvalidAccountReference aref
   MissingContract cref -> Exec.InvalidContractAddress cref
+  InvalidEntrypoint mref rn -> Exec.InvalidReceiveMethod mref rn
   MessageFailed rr -> rr
-
 
 
 processReceiveResult ::

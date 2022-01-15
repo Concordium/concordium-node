@@ -26,7 +26,7 @@ import Concordium.Scheduler.Environment
 import Concordium.Scheduler.Types
 import Concordium.Scheduler.EnvironmentImplementation (ContextState(..), maxBlockEnergy, chainMetadata, accountCreationLimit)
 import qualified Concordium.Scheduler.WasmIntegration.V1 as WasmV1
-import Concordium.Scheduler (handleContractUpdateV0, handleContractUpdateV1, checkAndGetBalanceInstance, checkAndGetBalanceAccount)
+import Concordium.Scheduler
 
 newtype InvokeContractMonad (pv :: ProtocolVersion) m a = InvokeContractMonad {_runInvokeContract :: ReaderT (ContextState, BlockState m) m a}
     deriving (Functor,
@@ -144,19 +144,19 @@ invokeContract _ ContractContext{..} cm bs = do
             in return (Right (const (return (AddressAccount zeroAddress, [], Right (maxIndex, zeroAddress))), zeroAddress, maxIndex))
           Just (AddressAccount accInvoker) -> getAccount accInvoker >>= \case
             Nothing -> return (Left (Just (InvalidAccountReference accInvoker)))
-            Just acc -> return (Right (checkAndGetBalanceAccount accInvoker acc, accInvoker, (fst acc)))
+            Just acc -> return (Right (checkAndGetBalanceAccountV0 accInvoker acc, accInvoker, (fst acc)))
           Just (AddressContract contractInvoker) -> getContractInstance contractInvoker >>= \case
             Nothing -> return (Left (Just (InvalidContractAddress contractInvoker)))
             Just (Instance.InstanceV0 i@Instance.InstanceV{..}) -> do
               let ownerAccountAddress = instanceOwner _instanceVParameters
               getAccount ownerAccountAddress >>= \case
                 Nothing -> return (Left (Just $ InvalidAccountReference ownerAccountAddress))
-                Just acc -> return (Right (checkAndGetBalanceInstance acc i, ownerAccountAddress, (fst acc)))
+                Just acc -> return (Right (checkAndGetBalanceInstanceV0 acc i, ownerAccountAddress, (fst acc)))
             Just (Instance.InstanceV1 i@Instance.InstanceV{..}) -> do
               let ownerAccountAddress = instanceOwner _instanceVParameters
               getAccount ownerAccountAddress >>= \case
                 Nothing -> return (Left (Just $ InvalidAccountReference ownerAccountAddress))
-                Just acc -> return (Right (checkAndGetBalanceInstance acc i, ownerAccountAddress, (fst acc)))
+                Just acc -> return (Right (checkAndGetBalanceInstanceV0 acc i, ownerAccountAddress, (fst acc)))
   let runContractComp = 
         getInvoker >>= \case
           Left err -> return (Left err, ccEnergy)
@@ -165,7 +165,7 @@ invokeContract _ ContractContext{..} cm bs = do
                   istance <- getContractInstance ccContract `rejectingWith` InvalidContractAddress ccContract
                   case istance of
                     InstanceV0 i -> Left <$> handleContractUpdateV0 addr i invoker ccAmount ccMethod ccParameter
-                    InstanceV1 i -> Right <$> handleContractUpdateV1 addr i invoker ccAmount ccMethod ccParameter
+                    InstanceV1 i -> Right <$> handleContractUpdateV1 addr i (fmap Right . invoker) ccAmount ccMethod ccParameter
             (r, cs) <- runLocalT @pv comp ccAmount ai ccEnergy ccEnergy
             return (r, _energyLeft cs)
       contextState = ContextState{_maxBlockEnergy = ccEnergy, _accountCreationLimit = 0, _chainMetadata = cm}

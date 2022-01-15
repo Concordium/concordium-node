@@ -194,4 +194,4 @@ runCounterTests = do
 
 tests :: Spec
 tests = describe "Invoke contract" $ do
-  specify "Counter contract" $ runCounterTests
+  specify "V1: Counter contract" $ runCounterTests
