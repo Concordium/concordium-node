@@ -901,7 +901,9 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
       tickEnergy $ Cost.lookupModule (GSWasm.miModuleSize iface)
     
       -- we've covered basic administrative costs now. Now iterate until the end of execution, handling any interrupts.
-      let go :: [Event] -> Either WasmV1.ContractExecutionReject WasmV1.ReceiveResultData -> m (Either WasmV1.ContractCallFailure (WasmV1.ReturnValue, [Event]))
+      let go :: [Event]
+              -> Either WasmV1.ContractExecutionReject WasmV1.ReceiveResultData
+              -> m (Either WasmV1.ContractCallFailure (WasmV1.ReturnValue, [Event]))
           go _ (Left cer) = return (Left (WasmV1.ExecutionReject cer))
           go events (Right rrData) =
             case rrData of
@@ -941,8 +943,8 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                            let rName = Wasm.makeReceiveName (instanceInitName (_instanceVParameters targetInstance)) imcName
                                runSuccess = Right <$> handleContractUpdateV0 originAddr targetInstance (checkAndGetBalanceInstanceV0 ownerAccount istance) imcAmount rName imcParam
                            (runSuccess `orElseWith` (return . Left)) >>= \case
-                              Left rr -> -- execution failed.
-                                go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig Nothing (WasmV1.Error (WasmV1.EnvFailure (WasmV1.MessageFailed rr))) Nothing)
+                              Left _ -> -- execution failed, ignore the reject reason since V0 contract cannot return useful information
+                                go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig Nothing WasmV1.MessageSendFailed Nothing)
                               Right evs -> do
                                 (lastModifiedIndex, newState) <- getCurrentContractInstanceState istance
                                 let resumeState = if lastModifiedIndex == modificationIndex then Nothing else Just newState

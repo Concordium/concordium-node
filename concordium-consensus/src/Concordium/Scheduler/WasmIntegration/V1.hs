@@ -104,11 +104,11 @@ withMaybeReturnValue (Just rv) k = withReturnValue rv k
 withReceiveInterruptedState :: ReceiveInterruptedState -> (Ptr (Ptr ReceiveInterruptedState) -> IO a) -> IO a
 withReceiveInterruptedState = withForeignPtr . risPtr
 
--- |Possible reasons why a contract call failed.
+-- |Possible reasons why a contract call of a V1 contract failed.
 data ContractCallFailure =
   -- |The contract call failed because the contract rejected execution for its own reason, or execution trapped.
   ExecutionReject !ContractExecutionReject
-  -- |Contract call failed due to other, environment reasons, such as the intended contract not existing.
+  -- |Contract call of a V1 contract failed due to other, environment reasons, such as the intended contract not existing.
   | EnvFailure !EnvFailure
 
 -- |Convert a contract call failure to a return value. If a contract call fails
@@ -123,6 +123,7 @@ ccfToReturnValue (EnvFailure _) = Nothing
 data InvokeResponseCode =
   Success
   | Error !ContractCallFailure
+  | MessageSendFailed
 
 -- |Possible reasons why invocation failed that are not directly logic failure of a V1 call.
 data EnvFailure =
@@ -130,7 +131,6 @@ data EnvFailure =
   | MissingAccount !AccountAddress
   | MissingContract !ContractAddress
   | InvalidEntrypoint !ModuleRef !ReceiveName -- Attempting to invoke a non-existing entrypoint.
-  | MessageFailed !Exec.RejectReason -- message to a V0 contract failed. No further information is available.
   deriving (Show)
 
 -- |Encode the response into 64 bits. This is necessary since Wasm only allows
@@ -150,7 +150,7 @@ invokeResponseToWord64 (Error (EnvFailure e)) =
     MissingAccount _ -> 0xffff_ff02_0000_0000
     MissingContract _ -> 0xffff_ff03_0000_0000
     InvalidEntrypoint _ _ -> 0xffff_ff04_0000_0000
-    MessageFailed _ -> 0xffff_ff05_0000_0000
+invokeResponseToWord64 MessageSendFailed = 0xffff_ff05_0000_0000
 invokeResponseToWord64 (Error (ExecutionReject Trap)) = 0xffff_ff06_0000_0000
 invokeResponseToWord64 (Error (ExecutionReject LogicReject{..})) =
   -- make the last 32 bits the value of the rejection reason
@@ -361,7 +361,6 @@ cerToRejectReasonReceive _ _ _ (EnvFailure e) = case e of
   MissingAccount aref -> Exec.InvalidAccountReference aref
   MissingContract cref -> Exec.InvalidContractAddress cref
   InvalidEntrypoint mref rn -> Exec.InvalidReceiveMethod mref rn
-  MessageFailed rr -> rr
 
 
 processReceiveResult ::
