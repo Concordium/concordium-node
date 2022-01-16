@@ -1,4 +1,6 @@
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE GADTs #-}
 module Concordium.GlobalState.Persistent.BlockState.Modules
   ( Module(..),
@@ -30,7 +32,6 @@ import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Utils.Serialization.Put
 import Concordium.Wasm
-import Control.Monad
 import Data.Coerce
 import Data.Foldable
 import Data.Map.Strict (Map)
@@ -53,7 +54,7 @@ data ModuleV v = ModuleV {
   moduleVInterface :: !(GSWasm.ModuleInterfaceV v),
   -- | A plain reference to the raw module binary source. This is generally not needed by consensus, so
   -- it is almost always simply kept on disk.
-  moduleVSource :: !(BlobRef WasmModule)
+  moduleVSource :: !(BlobRef (WasmModuleV v))
   }
     deriving(Show)
 
@@ -63,10 +64,11 @@ data ModuleV v = ModuleV {
 makeFields ''ModuleV
 
 -- |Helper to convert from an interface to a module.
-toModule :: GSWasm.ModuleInterface -> BlobRef WasmModule -> Module
-toModule (GSWasm.ModuleInterfaceV0 moduleVInterface) moduleVSource = ModuleV0 ModuleV{..}
-toModule (GSWasm.ModuleInterfaceV1 moduleVInterface) moduleVSource = ModuleV1 ModuleV{..}
-
+toModule :: forall v . IsWasmVersion v => GSWasm.ModuleInterfaceV v -> BlobRef (WasmModuleV v) -> Module
+toModule moduleVInterface moduleVSource =
+  case getWasmVersion @v of
+    SV0 -> ModuleV0 ModuleV{..}
+    SV1 -> ModuleV1 ModuleV{..}
 
 -- |A module, either of version 0 or 1. This is only used when storing a module
 -- independently, e.g., in the module table. When a module is referenced from a
@@ -76,10 +78,6 @@ data Module where
   ModuleV0 :: ModuleV GSWasm.V0 -> Module
   ModuleV1 :: ModuleV GSWasm.V1 -> Module
   deriving (Show)
-
-instance HasSource Module (BlobRef WasmModule) where
-  source f (ModuleV0 m) = ModuleV0 <$> source f m
-  source f (ModuleV1 m) = ModuleV1 <$> source f m
 
 getModuleInterface :: Module -> GSWasm.ModuleInterface
 getModuleInterface (ModuleV0 m) = GSWasm.ModuleInterfaceV0 (moduleVInterface m)
@@ -101,12 +99,18 @@ instance Monad m => MHashableTo m Hash Module
 instance Serialize Module where
   get = do
     -- interface is versioned
-    moduleVInterface <- get
-    moduleVSource <- get
-    return $! toModule moduleVInterface moduleVSource
+    get >>= \case
+      GSWasm.ModuleInterfaceV0 moduleVInterface -> do
+        moduleVSource <- get
+        return $! toModule moduleVInterface moduleVSource
+      GSWasm.ModuleInterfaceV1 moduleVInterface -> do
+        moduleVSource <- get
+        return $! toModule moduleVInterface moduleVSource
   put m  = do
     put (getModuleInterface m)
-    put (m ^. source)
+    case m of
+      ModuleV0 ModuleV{..} -> put moduleVSource
+      ModuleV1 ModuleV{..} -> put moduleVSource
 
 -- |This serialization is used for storing the module in the BlobStore.
 -- It should not be used for other purposes.
@@ -137,7 +141,8 @@ instance MonadBlobStore m => Cacheable m Module where
 -- |Serialize a module in V0 format.
 -- This only serializes the source.
 putModuleV0 :: (MonadBlobStore m, MonadPut m) => Module -> m ()
-putModuleV0 = sPut <=< loadRef . (^. source)
+putModuleV0 (ModuleV0 ModuleV{..}) = sPut =<< loadRef moduleVSource
+putModuleV0 (ModuleV1 ModuleV{..}) = sPut =<< loadRef moduleVSource
 
 --------------------------------------------------------------------------------
 
@@ -181,8 +186,8 @@ emptyModules = Modules LFMB.empty Map.empty
 
 -- |Try to add interfaces to the module table. If a module with the given
 -- reference exists returns @Nothing@.
-putInterface :: MonadBlobStore m
-             => (GSWasm.ModuleInterface, WasmModule)
+putInterface :: (IsWasmVersion v, MonadBlobStore m)
+             => (GSWasm.ModuleInterfaceV v, WasmModuleV v)
              -> Modules
              -> m (Maybe Modules)
 putInterface (modul, src) m =
@@ -236,7 +241,8 @@ getSource ref mods = do
   m <- getModule ref mods
   case m of
     Nothing -> return Nothing
-    Just modul -> Just <$> loadRef (modul ^. source)
+    Just (ModuleV0 ModuleV{..}) -> Just . WasmModuleV0 <$> loadRef moduleVSource
+    Just (ModuleV1 ModuleV{..}) -> Just . WasmModuleV1 <$> loadRef moduleVSource
 
 -- |Get the list of all currently deployed modules.
 -- The order of the list is not specified.

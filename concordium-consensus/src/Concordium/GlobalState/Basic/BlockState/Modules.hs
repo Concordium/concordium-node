@@ -1,5 +1,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module Concordium.GlobalState.Basic.BlockState.Modules
   ( Module(..),
     ModuleV(..),
@@ -48,7 +50,7 @@ data ModuleV v = ModuleV {
   -- | The instrumented module, ready to be instantiated.
   moduleVInterface :: !(GSWasm.ModuleInterfaceV v),
   -- | The raw module binary source.
-  moduleVSource :: !WasmModule
+  moduleVSource :: !(WasmModuleV v)
   } deriving (Show)
 
 -- Create the class HasSource a with functions
@@ -70,13 +72,10 @@ fromModule (ModuleV0 v) = GSWasm.ModuleInterfaceV0 (moduleVInterface v)
 fromModule (ModuleV1 v) = GSWasm.ModuleInterfaceV1 (moduleVInterface v)
 
 -- |Helper to convert from an interface to a module.
-toModule :: GSWasm.ModuleInterface -> WasmModule -> Module
-toModule (GSWasm.ModuleInterfaceV0 moduleVInterface) moduleVSource = ModuleV0 ModuleV{..}
-toModule (GSWasm.ModuleInterfaceV1 moduleVInterface) moduleVSource = ModuleV1 ModuleV{..}
-
-instance HasSource Module WasmModule where
-  source f (ModuleV0 m) = ModuleV0 <$> source f m
-  source f (ModuleV1 m) = ModuleV1 <$> source f m
+toModule :: forall v . IsWasmVersion v => GSWasm.ModuleInterfaceV v -> WasmModuleV v -> Module
+toModule moduleVInterface moduleVSource = case getWasmVersion @v of
+  SV0 -> ModuleV0 ModuleV{..}
+  SV1 -> ModuleV1 ModuleV{..}
 
 instance GSWasm.HasModuleRef Module where
   {-# INLINE moduleReference #-}
@@ -87,17 +86,19 @@ instance HashableTo Hash Module where
   getHash = coerce . GSWasm.moduleReference
 
 instance Serialize Module where
-  put = put . (^. source)
+  put (ModuleV0 ModuleV{..}) = put moduleVSource
+  put (ModuleV1 ModuleV{..}) = put moduleVSource
   get = do
-    moduleVSource <- get
-    case wasmVersion moduleVSource of
-      0 -> case V0.processModule moduleVSource of
-            Nothing -> fail "Invalid V0 module"
-            Just moduleVInterface -> return (ModuleV0 ModuleV {..})
-      1 -> case V1.processModule moduleVSource of
-            Nothing -> fail "Invalid V1 module"
-            Just moduleVInterface -> return (ModuleV1 ModuleV{..})
-      v -> fail $ "Unsupported module version: " ++ show v
+    wasmModule <- get
+    case wasmModule of
+      WasmModuleV0 moduleVSource ->
+        case V0.processModule moduleVSource of
+          Nothing -> fail "Invalid V0 module"
+          Just moduleVInterface -> return (ModuleV0 ModuleV {..})
+      WasmModuleV1 moduleVSource ->
+        case V1.processModule moduleVSource of
+          Nothing -> fail "Invalid V1 module"
+          Just moduleVInterface -> return (ModuleV1 ModuleV {..})
 
 --------------------------------------------------------------------------------
 
@@ -123,7 +124,7 @@ emptyModules = Modules LFMB.empty Map.empty
 
 -- |Try to add interfaces to the module table. If a module with the given
 -- reference exists returns @Nothing@.
-putInterface :: (GSWasm.ModuleInterface, WasmModule) -> Modules -> Maybe Modules
+putInterface :: IsWasmVersion v => (GSWasm.ModuleInterfaceV v, WasmModuleV v) -> Modules -> Maybe Modules
 putInterface (iface, mSource) m =
   if Map.member mref (m ^. modulesMap)
   then Nothing
@@ -142,7 +143,9 @@ getInterface ref mods = fromModule <$> getModule ref mods
 
 -- |Get the source of a module by module reference.
 getSource :: ModuleRef -> Modules -> Maybe WasmModule
-getSource ref mods = (^. source) <$> getModule ref mods
+getSource ref mods = mp <$> getModule ref mods
+  where mp (ModuleV0 ModuleV{..}) = WasmModuleV0 moduleVSource
+        mp (ModuleV1 ModuleV{..}) = WasmModuleV1 moduleVSource
 
 moduleRefList :: Modules -> [ModuleRef]
 moduleRefList mods = Map.keys (mods ^. modulesMap)

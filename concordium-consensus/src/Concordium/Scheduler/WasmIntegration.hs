@@ -177,19 +177,18 @@ applyReceiveFun miface cm receiveCtx rName param amnt cs initialEnergy = process
 -- compilation or instrumentation) that is needed to apply the exported
 -- functions from it in an efficient way.
 {-# NOINLINE processModule #-}
-processModule :: WasmModule -> Maybe (ModuleInterfaceV V0)
+processModule :: WasmModuleV V0 -> Maybe (ModuleInterfaceV V0)
 processModule modl = do
-  guard (wasmVersion modl == 0)
   (bs, imWasmArtifactV0) <- ffiResult
   case getExports bs of
     Left _ -> Nothing
     Right (miExposedInit, miExposedReceive) ->
       let miModuleRef = getModuleRef modl
           miModule = InstrumentedWasmModuleV0{..}
-      in Just ModuleInterface{miModuleSize = moduleSourceLength $ wasmSource modl,..}
+      in Just ModuleInterface{miModuleSize = moduleSourceLength (wmvSource modl),..}
 
   where ffiResult = unsafePerformIO $ do
-          unsafeUseModuleSourceAsCStringLen (wasmSource modl) $ \(wasmBytesPtr, wasmBytesLen) ->
+          unsafeUseModuleSourceAsCStringLen (wmvSource modl) $ \(wasmBytesPtr, wasmBytesLen) ->
               alloca $ \outputLenPtr -> 
                 alloca $ \outputModuleArtifactPtr -> do
                   outPtr <- validate_and_process (castPtr wasmBytesPtr) (fromIntegral wasmBytesLen) outputLenPtr outputModuleArtifactPtr

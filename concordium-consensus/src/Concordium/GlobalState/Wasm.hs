@@ -57,24 +57,6 @@ foreign import ccall unsafe "artifact_v1_from_bytes" fromBytesArtifactV1 :: Ptr 
 newtype ModuleArtifact (v :: WasmVersion) = ModuleArtifact { maArtifact :: ForeignPtr (ModuleArtifact v) }
   deriving(Eq, Show) -- the Eq and Show instances are only for debugging and compare and show pointers.
 
--- |Supported versions of Wasm modules. This version defines available host
--- functions, their semantics, and limitations of contracts.
-data WasmVersion = V0 | V1
-
-instance Serialize WasmVersion where
-  put V0 = putWord32be 0
-  put V1 = putWord32be 1
-
-  get = getWord32be >>= \case
-    0 -> return V0
-    1 -> return V1
-    n -> fail $ "Unrecognized Wasm version " ++ show n
-
--- These type aliases are provided for convenience to avoid having to enable
--- DataKinds everywhere we need wasm version.
-type V0 = 'V0
-type V1 = 'V1
-
 type ModuleArtifactV0 = ModuleArtifact V0
 type ModuleArtifactV1 = ModuleArtifact V1
 

@@ -534,9 +534,9 @@ doGetModuleSource s modRef = do
     mods <- refLoad (bspModules bsp)
     Modules.getSource modRef mods
 
-doPutNewModule :: (IsProtocolVersion pv, MonadBlobStore m)
+doPutNewModule :: (IsProtocolVersion pv, Wasm.IsWasmVersion v, MonadBlobStore m)
     => PersistentBlockState pv
-    -> (GSWasm.ModuleInterface, Wasm.WasmModule)
+    -> (GSWasm.ModuleInterfaceV v, Wasm.WasmModuleV v)
     -> m (Bool, PersistentBlockState pv)
 doPutNewModule pbs (pmInterface, pmSource) = do
         bsp <- loadPBS pbs

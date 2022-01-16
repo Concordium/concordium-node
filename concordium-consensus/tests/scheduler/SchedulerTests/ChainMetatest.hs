@@ -8,6 +8,7 @@ import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Concordium.Scheduler as Sch
 import Concordium.Scheduler.Runner
+import Concordium.Wasm(WasmVersion(..))
 
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Invariants
@@ -36,12 +37,12 @@ transactionInputs :: [TransactionJSON]
 transactionInputs = [
   TJSON{
       metadata = makeDummyHeader alesAccount 1 100000,
-      payload = DeployModule 0 "./testdata/contracts/chain-meta-test.wasm",
+      payload = DeployModule V0 "./testdata/contracts/chain-meta-test.wasm",
       keys = [(0,[(0, alesKP)])]
       },
   TJSON{
       metadata = makeDummyHeader alesAccount 2 100000,
-      payload = InitContract 9 0 "./testdata/contracts/chain-meta-test.wasm" "init_check_slot_time" "",
+      payload = InitContract 9 V0 "./testdata/contracts/chain-meta-test.wasm" "init_check_slot_time" "",
       keys = [(0,[(0, alesKP)])]
       }
   ]

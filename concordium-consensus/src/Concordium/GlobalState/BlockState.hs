@@ -1,4 +1,5 @@
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
 {-|
  Definition of the API of every BlockState implementation.
@@ -322,7 +323,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   bsoPutNewInstance :: UpdatableBlockState m -> (ContractAddress -> Instance) -> m (ContractAddress, UpdatableBlockState m)
   -- |Add the module to the global state. If a module with the given address
   -- already exists return @False@.
-  bsoPutNewModule :: UpdatableBlockState m -> (GSWasm.ModuleInterface, Wasm.WasmModule) -> m (Bool, UpdatableBlockState m)
+  bsoPutNewModule :: Wasm.IsWasmVersion v => UpdatableBlockState m -> (GSWasm.ModuleInterfaceV v, Wasm.WasmModuleV v) -> m (Bool, UpdatableBlockState m)
 
   -- |Modify an existing account with given data (which includes the address of the account).
   -- This method is only called when an account exists and can thus assume this.

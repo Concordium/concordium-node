@@ -99,8 +99,9 @@ import Concordium.Scheduler.WasmIntegration.V1 (ReceiveResultData(rrdCurrentStat
 -- header and @Just fk@ if any of the checks fails, with the respective 'FailureKind'.
 --
 -- Returns the sender account and the cost to be charged for checking the header.
-checkHeader :: (TransactionData msg, SchedulerMonad pv m) => msg -> ExceptT (Maybe FailureKind) m (IndexedAccount m, Energy)
+checkHeader :: forall pv msg m . (TransactionData msg, SchedulerMonad pv m) => msg -> ExceptT (Maybe FailureKind) m (IndexedAccount m, Energy)
 checkHeader meta = do
+  unless (validatePayloadSize (protocolVersion @pv) (thPayloadSize (transactionHeader meta))) $ throwError $ Just InvalidPayloadSize
   -- Before even checking the header we calculate the cost that will be charged for this
   -- and check that at least that much energy is deposited and remaining from the maximum block energy.
   let cost = Cost.baseCost (getTransactionHeaderPayloadSize $ transactionHeader meta) (getTransactionNumSigs (transactionSignature meta))
@@ -535,35 +536,36 @@ handleDeployModule wtc mod =
     senderAccount = wtc ^. wtcSenderAccount
     meta = wtc ^. wtcTransactionHeader
 
-    -- Size of the module source
-    psize = Wasm.moduleSourceLength . Wasm.wasmSource $ mod
-
     c = do
-      tickEnergy (Cost.deployModuleCost psize)
-      case Wasm.wasmVersion mod of
-        0 -> case WasmV0.processModule mod of
+      case mod of
+        Wasm.WasmModuleV0 moduleV0 -> do
+          tickEnergy (Cost.deployModuleCost (Wasm.moduleSourceLength (Wasm.wmvSource moduleV0)))
+          case WasmV0.processModule moduleV0 of
               Nothing -> rejectTransaction ModuleNotWF
               Just iface -> do
                 let mhash = GSWasm.moduleReference iface
                 exists <- isJust <$> getModuleInterfaces mhash
                 when exists $ rejectTransaction (ModuleHashAlreadyExists mhash)
-                return (GSWasm.ModuleInterfaceV0 iface, mhash)
-        1 | demoteProtocolVersion (protocolVersion @pv) >= P4 ->
-            case WasmV1.processModule mod of
+                return (Left (iface, moduleV0), mhash)
+        Wasm.WasmModuleV1 moduleV1 | demoteProtocolVersion (protocolVersion @pv) >= P4 -> do
+          tickEnergy (Cost.deployModuleCost (Wasm.moduleSourceLength (Wasm.wmvSource moduleV1)))
+          case WasmV1.processModule moduleV1 of
               Nothing -> rejectTransaction ModuleNotWF
               Just iface -> do
                 let mhash = GSWasm.moduleReference iface
                 exists <- isJust <$> getModuleInterfaces mhash
                 when exists $ rejectTransaction (ModuleHashAlreadyExists mhash)
-                return (GSWasm.ModuleInterfaceV1 iface, mhash)
+                return (Right (iface, moduleV1), mhash)
         _ -> rejectTransaction ModuleNotWF
 
-    k ls (iface, mhash) = do
+    k ls (toCommit, mhash) = do
       (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
       chargeExecutionCost senderAccount energyCost
       -- Add the module to the global state (module interface, value interface and module itself).
       -- We know the module does not exist at this point, so we can ignore the return value.
-      _ <- commitModule (iface, mod)
+      case toCommit of
+        Left v0 -> () <$ commitModule v0
+        Right v1 -> () <$ commitModule v1
       return (TxSuccess [ModuleDeployed mhash], energyCost, usedEnergy)
 
 -- | Tick energy for storing the given contract state.

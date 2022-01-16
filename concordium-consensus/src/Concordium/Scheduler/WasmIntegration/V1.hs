@@ -502,7 +502,7 @@ resumeReceiveFun is cs statusCode rVal remainingEnergy = unsafePerformIO $ do
 -- - checks the module is well-formed, and has the right imports and exports for a V1 module.
 -- - makes a module artifact and allocates it on the Rust side, returning a pointer and a finalizer.
 {-# NOINLINE processModule #-}
-processModule :: WasmModule -> Maybe (ModuleInterfaceV V1)
+processModule :: WasmModuleV V1 -> Maybe (ModuleInterfaceV V1)
 processModule modl = do
   (bs, imWasmArtifactV1) <- ffiResult
   case getExports bs of
@@ -510,10 +510,10 @@ processModule modl = do
     Right (miExposedInit, miExposedReceive) ->
       let miModuleRef = getModuleRef modl
           miModule = InstrumentedWasmModuleV1{..}
-      in Just ModuleInterface{miModuleSize = moduleSourceLength $ wasmSource modl,..}
+      in Just ModuleInterface{miModuleSize = moduleSourceLength (wmvSource modl),..}
 
   where ffiResult = unsafePerformIO $ do
-          unsafeUseModuleSourceAsCStringLen (wasmSource modl) $ \(wasmBytesPtr, wasmBytesLen) ->
+          unsafeUseModuleSourceAsCStringLen (wmvSource modl) $ \(wasmBytesPtr, wasmBytesLen) ->
               alloca $ \outputLenPtr ->
                 alloca $ \outputModuleArtifactPtr -> do
                   outPtr <- validate_and_process (castPtr wasmBytesPtr) (fromIntegral wasmBytesLen) outputLenPtr outputModuleArtifactPtr

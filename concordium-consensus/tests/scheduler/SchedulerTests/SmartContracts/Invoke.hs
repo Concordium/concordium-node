@@ -13,7 +13,6 @@ import qualified Data.ByteString.Short as BSS
 import qualified Data.ByteString as BS
 import qualified Data.Map.Strict as OrdMap
 import qualified Data.Set as Set
-import Data.Word
 
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Crypto.SHA256 as Hash
@@ -50,22 +49,17 @@ initialBlockState = initialPersistentState
 counterSourceFile :: FilePath
 counterSourceFile = "./testdata/contracts/v1/call-counter.wasm"
 
--- Tests in this module use version 1, creating V1 instances.
-wasmModVersion :: Word32
-wasmModVersion = 1
-
-deployModule :: ContextM (PersistentBlockState PV4, GSWasm.ModuleInterfaceV GSWasm.V1, WasmModule)
+deployModule :: ContextM (PersistentBlockState PV4, GSWasm.ModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1)
 deployModule = do
   wasmSource <- liftIO $ BS.readFile counterSourceFile
-  let wm = WasmModule wasmModVersion (ModuleSource wasmSource)
+  let wm = WasmModuleV (ModuleSource wasmSource)
   case WasmV1.processModule wm of
     Nothing -> liftIO $ assertFailure "Invalid counter module."
     Just miv -> do
-      let mi = GSWasm.ModuleInterfaceV1 miv
-      (_, modState) <- flip bsoPutNewModule (mi, wm) . hpbsPointers =<< initialBlockState
+      (_, modState) <- flip bsoPutNewModule (miv, wm) . hpbsPointers =<< initialBlockState
       return (modState, miv, wm)
 
-initContract :: (PersistentBlockState PV4, GSWasm.ModuleInterfaceV GSWasm.V1, WasmModule) -> ContextM (Types.ContractAddress, HashedPersistentBlockState PV4)
+initContract :: (PersistentBlockState PV4, GSWasm.ModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1) -> ContextM (Types.ContractAddress, HashedPersistentBlockState PV4)
 initContract (bs, miv, _) = do
   let cm = Types.ChainMetadata 0
   let senderAddress = alesAccount

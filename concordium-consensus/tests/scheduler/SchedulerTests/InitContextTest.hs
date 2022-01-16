@@ -48,12 +48,12 @@ transactionInputs :: forall pv . IsProtocolVersion pv => Proxy pv -> [Transactio
 transactionInputs proxy = [
   TJSON{
       metadata = makeDummyHeader (senderAccount proxy) 1 100000,
-      payload = DeployModule 0 "./testdata/contracts/chain-meta-test.wasm",
+      payload = DeployModule V0 "./testdata/contracts/chain-meta-test.wasm",
       keys = [(0,[(0, alesKP)])]
       },
   TJSON{
       metadata = makeDummyHeader (senderAccount proxy) 2 100000,
-      payload = InitContract 9 0 "./testdata/contracts/chain-meta-test.wasm" "init_origin" "",
+      payload = InitContract 9 V0 "./testdata/contracts/chain-meta-test.wasm" "init_origin" "",
       keys = [(0,[(0, alesKP)])]
       }
   ]

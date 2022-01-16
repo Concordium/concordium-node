@@ -11,7 +11,6 @@ import Test.HUnit(assertFailure, assertEqual)
 import qualified Data.ByteString.Short as BSS
 import qualified Data.ByteString as BS
 import Data.Serialize(runPut, putWord64le, putByteString, putWord16le)
-import Data.Word
 import Lens.Micro.Platform
 import Control.Monad
 
@@ -43,8 +42,8 @@ counterSourceFile :: FilePath
 counterSourceFile = "./testdata/contracts/v1/call-counter.wasm"
 
 -- Tests in this module use version 1, creating V1 instances.
-wasmModVersion :: Word32
-wasmModVersion = 1
+wasmModVersion :: WasmVersion
+wasmModVersion = V1
 
 testCases :: [TestCase PV4]
 testCases =
@@ -100,7 +99,7 @@ testCases =
           moduleSource <- BS.readFile counterSourceFile
           let len = fromIntegral $ BS.length moduleSource
               -- size of the module deploy payload
-              payloadSize = Types.payloadSize (Types.encodePayload (Types.DeployModule (WasmModule wasmModVersion ModuleSource{..})))
+              payloadSize = Types.payloadSize (Types.encodePayload (Types.DeployModule (WasmModuleV0 (WasmModuleV ModuleSource{..}))))
               -- size of the transaction minus the signatures.
               txSize = Types.transactionHeaderSize + fromIntegral payloadSize
               -- transaction is signed with 1 signature

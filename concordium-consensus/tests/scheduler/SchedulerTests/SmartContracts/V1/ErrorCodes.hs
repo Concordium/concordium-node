@@ -55,26 +55,17 @@ callerSourceFile = "./testdata/contracts/v1/caller.wasm"
 emptyContractSourceFile :: FilePath
 emptyContractSourceFile = "./testdata/contracts/empty.wasm"
 
-wasmModVersion1 :: Word32
-wasmModVersion1 = 1
-
-wasmModVersion0 :: Word32
-wasmModVersion0 = 0
-
-
-
-deployModule1 :: PersistentBlockState PV4 -> ContextM ((GSWasm.ModuleInterfaceV GSWasm.V1, WasmModule), PersistentBlockState PV4)
+deployModule1 :: PersistentBlockState PV4 -> ContextM ((GSWasm.ModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1), PersistentBlockState PV4)
 deployModule1 bs = do
   wasmSource <- liftIO $ BS.readFile callerSourceFile
-  let wm = WasmModule wasmModVersion1 (ModuleSource wasmSource)
+  let wm = WasmModuleV (ModuleSource wasmSource)
   case WasmV1.processModule wm of
     Nothing -> liftIO $ assertFailure "Invalid caller module."
     Just miv -> do
-      let mi = GSWasm.ModuleInterfaceV1 miv
-      (_, modState) <- bsoPutNewModule bs (mi, wm)
+      (_, modState) <- bsoPutNewModule bs (miv, wm)
       return ((miv, wm), modState)
 
-initContract1 :: PersistentBlockState PV4 -> (GSWasm.ModuleInterfaceV GSWasm.V1, WasmModule) -> ContextM (Types.ContractAddress, PersistentBlockState PV4)
+initContract1 :: PersistentBlockState PV4 -> (GSWasm.ModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1) -> ContextM (Types.ContractAddress, PersistentBlockState PV4)
 initContract1 bs (miv, _) = do
   let cm = Types.ChainMetadata 0
   let senderAddress = alesAccount
@@ -96,18 +87,17 @@ initContract1 bs (miv, _) = do
       let mkInstance = makeInstance initName receiveMethods miv irdNewState initAmount senderAddress
       bsoPutNewInstance bs mkInstance
 
-deployModule0 :: PersistentBlockState PV4 -> ContextM ((GSWasm.ModuleInterfaceV GSWasm.V0, WasmModule), PersistentBlockState PV4)
+deployModule0 :: PersistentBlockState PV4 -> ContextM ((GSWasm.ModuleInterfaceV GSWasm.V0, WasmModuleV GSWasm.V0), PersistentBlockState PV4)
 deployModule0 bs = do
   wasmSource <- liftIO $ BS.readFile emptyContractSourceFile
-  let wm = WasmModule wasmModVersion0 (ModuleSource wasmSource)
+  let wm = WasmModuleV (ModuleSource wasmSource)
   case WasmV0.processModule wm of
     Nothing -> liftIO $ assertFailure "Invalid caller module."
     Just miv -> do
-      let mi = GSWasm.ModuleInterfaceV0 miv
-      (_, modState) <- bsoPutNewModule bs (mi, wm)
+      (_, modState) <- bsoPutNewModule bs (miv, wm)
       return ((miv, wm), modState)
 
-initContract0 :: PersistentBlockState PV4 -> (GSWasm.ModuleInterfaceV GSWasm.V0, WasmModule) -> ContextM (Types.ContractAddress, PersistentBlockState PV4)
+initContract0 :: PersistentBlockState PV4 -> (GSWasm.ModuleInterfaceV GSWasm.V0, WasmModuleV GSWasm.V0) -> ContextM (Types.ContractAddress, PersistentBlockState PV4)
 initContract0 bs (miv, _) = do
   let cm = Types.ChainMetadata 0
   let senderAddress = alesAccount

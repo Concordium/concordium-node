@@ -9,7 +9,6 @@ import Test.HUnit(assertFailure, assertEqual)
 import qualified Data.ByteString.Short as BSS
 import qualified Data.ByteString as BS
 import Data.Serialize(runPut, putWord64le, putByteString, putWord16le)
-import Data.Word
 import Lens.Micro.Platform
 
 import qualified Concordium.Scheduler.Types as Types
@@ -37,14 +36,14 @@ initialBlockState = blockStateWithAlesAccount
 counterSourceFile :: FilePath
 counterSourceFile = "./testdata/contracts/v1/call-counter.wasm"
 
-version1 :: Word32
-version1 = 1
+version1 :: WasmVersion
+version1 = V1
 
 proxySourceFile :: FilePath
 proxySourceFile = "./testdata/contracts/v1/send-message-v1.wasm"
 
-version0 :: Word32
-version0 = 0
+version0 :: WasmVersion
+version0 = V0
 
 -- This test sets up two contracts. The counter contract on address 0,0 and the
 -- proxy contract on address 1,0. Then it invokes a single method on the counter

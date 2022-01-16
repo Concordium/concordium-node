@@ -746,6 +746,7 @@ instance MonadBlobStore m => BlobStorable m TransactionFeeDistribution
 instance MonadBlobStore m => BlobStorable m GASRewards
 instance MonadBlobStore m => BlobStorable m (Map AccountAddress Timestamp)
 instance MonadBlobStore m => BlobStorable m WasmModule
+instance (IsWasmVersion v, MonadBlobStore m) => BlobStorable m (WasmModuleV v)
 
 newtype StoreSerialized a = StoreSerialized { unStoreSerialized :: a }
     deriving newtype (Serialize)

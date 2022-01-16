@@ -9,7 +9,6 @@ import Test.Hspec
 import Test.HUnit(assertFailure, assertEqual, Assertion)
 
 import qualified Data.ByteString as BS
-import Data.Word
 import qualified Data.Set as Set
 import qualified Data.Map.Strict as Map
 
@@ -18,24 +17,18 @@ import qualified Concordium.GlobalState.Wasm as GSWasm
 import qualified Concordium.Scheduler.WasmIntegration.V1 as WasmV1
 import qualified Concordium.Scheduler.WasmIntegration as WasmV0
 
-wasmModVersion1 :: Word32
-wasmModVersion1 = 1
-
-wasmModVersion0 :: Word32
-wasmModVersion0 = 0
-
 -- |A V1 module with extra exports.
 testModule1 :: Assertion
 testModule1 = do
   wasmSource <- BS.readFile "./testdata/contracts/v1/extra-exports.wasm"
-  let wm1 = WasmModule wasmModVersion1 (ModuleSource wasmSource)
+  let wm1 = WasmModuleV (ModuleSource wasmSource)
   case WasmV1.processModule wm1 of
     Nothing -> assertFailure "Invalid caller module."
     Just GSWasm.ModuleInterface{..} -> do
       assertEqual "Only valid init functions should be exposed" (Set.singleton (InitName "init_contract")) miExposedInit
       let expectedReceive = Map.singleton (InitName "init_contract") (Set.singleton (ReceiveName "contract.call"))
       assertEqual "Only valid receive functions should be exposed" expectedReceive miExposedReceive
-  let wm0 = WasmModule wasmModVersion0 (ModuleSource wasmSource)
+  let wm0 = WasmModuleV (ModuleSource wasmSource)
   case WasmV0.processModule wm0 of
     Nothing -> return ()
     Just _ -> assertFailure "Extra exports are not allowed for V0 modules."

@@ -24,7 +24,7 @@ import Concordium.Scheduler.DummyData
 setup :: String -> IO (ModuleInterfaceV V0)
 setup errString = do
   source <- BS.readFile "./testdata/contracts/context_test.wasm"
-  let wasmMod = WasmModule 0 $ ModuleSource source
+  let wasmMod = WasmModuleV (ModuleSource source)
   let miface = processModule wasmMod
   assertBool ("Module not valid " ++ errString) (isJust miface)
   return (fromJust miface)
