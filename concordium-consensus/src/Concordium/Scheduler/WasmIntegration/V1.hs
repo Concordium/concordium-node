@@ -135,7 +135,7 @@ data EnvFailure =
 
 -- |Encode the response into 64 bits. This is necessary since Wasm only allows
 -- us to pass simple scalars as parameters. Everything else requires passing
--- data in memory, or via host functions, both of which are difficult..
+-- data in memory, or via host functions, both of which are difficult.
 -- The response is encoded as follows.
 -- - success is encoded as 0
 -- - every failure has all bits of the first 3 bytes set
@@ -155,7 +155,7 @@ invokeResponseToWord64 (Error (ExecutionReject Trap)) = 0xffff_ff06_0000_0000
 invokeResponseToWord64 (Error (ExecutionReject LogicReject{..})) =
   -- make the last 32 bits the value of the rejection reason
   let unsigned = fromIntegral cerRejectReason :: Word32 -- reinterpret the bits
-  in 0xffff_ff00_0000_0000 .|. fromIntegral unsigned
+  in 0xffff_ff00_0000_0000 .|. fromIntegral unsigned -- and cut away the upper 32 bits
 
 
 foreign import ccall "call_init_v1"
@@ -290,7 +290,8 @@ data ReceiveResultData =
     rrdInterruptedConfig :: !ReceiveInterruptedState
   }
 
-
+-- |Parse the logs that were produced. This must match serialization of logs on the other end of the ffi,
+-- in smart-contracts/wasm-chain-integration/src/v1/ffi.rs
 getLogs :: Get [ContractEvent]
 getLogs = do
   len <- fromIntegral <$> getWord32be
@@ -343,7 +344,8 @@ processInitResult result returnValuePtr = case BS.uncons result of
               Left err -> error $ "Internal error: Could not interpret output from interpreter: " ++ err
 
 -- The input was allocated with alloca. We allocate a fresh one with malloc (via 'new') and register
--- a finalizer for it.
+-- a finalizer for it. The reason for doing this is that we don't want to pre-emptively use malloc
+-- when it is very likely that there will be no interrupt of the contract.
 newReceiveInterruptedState :: Ptr (Ptr ReceiveInterruptedState) -> IO ReceiveInterruptedState
 newReceiveInterruptedState interruptedStatePtr = do
   fp <- newForeignPtr finalizerFree =<< new =<< peek interruptedStatePtr -- allocate a new persistent location and register it for freeing.
@@ -364,8 +366,7 @@ cerToRejectReasonReceive _ _ _ (EnvFailure e) = case e of
 
 
 processReceiveResult ::
-  -- |Serialized output.
-  BS.ByteString
+  BS.ByteString -- ^Serialized output.
   -> Ptr ReturnValue -- ^Location where the pointer to the return value is (potentially) stored.
   -> Either ReceiveInterruptedState (Ptr (Ptr ReceiveInterruptedState)) -- ^Location where the pointer to interrupted config is (potentially) stored.
   -- |Result, and remaining energy. Returns 'Nothing' if and only if
@@ -496,11 +497,10 @@ resumeReceiveFun is cs statusCode rVal remainingEnergy = unsafePerformIO $ do
         energy = fromIntegral remainingEnergy
 
 
--- |Process a module as received and make a module interface. This should
--- check the module is well-formed, and has the right imports and exports. It
--- should also do any pre-processing of the module (such as partial
--- compilation or instrumentation) that is needed to apply the exported
--- functions from it in an efficient way.
+-- |Process a module as received and make a module interface.
+-- This
+-- - checks the module is well-formed, and has the right imports and exports for a V1 module.
+-- - makes a module artifact and allocates it on the Rust side, returning a pointer and a finalizer.
 {-# NOINLINE processModule #-}
 processModule :: WasmModule -> Maybe (ModuleInterfaceV V1)
 processModule modl = do
@@ -535,7 +535,10 @@ processModule modl = do
                                            | isValidReceiveName nameText ->
                                                let cname = "init_" <> Text.takeWhile (/= '.') nameText
                                                in return (inits, Map.insertWith Set.union (InitName cname) (Set.singleton (ReceiveName nameText)) receives)
-                                           | otherwise -> Nothing
+                                           -- ignore any other exported functions.
+                                           -- This is different from V0 contracts, which disallow any extra function exports.
+                                           -- This feature was requested by some users.
+                                           | otherwise -> return (inits, receives)
                           ) (Set.empty, Map.empty) namesByteStrings
             case names of
               Nothing -> fail "Incorrect response from FFI call."
