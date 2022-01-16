@@ -15,6 +15,7 @@ import Lens.Micro.Platform
 import Control.Monad.Reader
 
 import qualified Data.FixedByteString as FBS
+import qualified Concordium.ID.Types as ID
 import qualified Concordium.Wasm as Wasm
 import Concordium.Logger
 import Concordium.GlobalState.Types
@@ -130,33 +131,45 @@ instance AE.ToJSON InvokeContractResult where
 
 -- |Invoke the contract in the given context.
 invokeContract :: forall pv m . (IsProtocolVersion pv, BS.BlockStateQuery m) =>
-    SProtocolVersion pv -- An argument to fix the protocol version, to make the type non-ambiguous.
+    SProtocolVersion pv -- ^An argument to fix the protocol version, to make the type non-ambiguous.
     -> ContractContext -- ^Context in which to invoke the contract.
     -> ChainMetadata -- ^Chain metadata corresponding to the block state.
     -> BlockState m -- ^The block state in which to invoke the contract.
     -> m InvokeContractResult
 invokeContract _ ContractContext{..} cm bs = do
-  let getInvoker =
+  -- construct an invoker. Since execution of a contract might depend on this
+  -- it is necessary to provide some value. However since many contract entrypoints will
+  -- not depend on this it is useful to default to a dummy value if the value is not provided.
+  let getInvoker :: InvokeContractMonad pv m
+                   (Either
+                     (Maybe RejectReason) -- Invocation failed because the relevant contract/account does not exist.
+                     ( -- Check that the requested account or contract has enough balance.
+                       Amount -> LocalT pv r (InvokeContractMonad pv m) (Address, [ID.AccountCredential], Either ContractAddress IndexedAccountAddress),
+                       AccountAddress, -- Address of the invoker account, or of its owner if the invoker is a contract.
+                       AccountIndex -- And its index.
+                     ))
+      getInvoker =
         case ccInvoker of
-          Nothing -> -- if the invoker is not supplied create a dummy one
+          Nothing -> -- if the invoker is not supplied create a dummy one with no credentials
             let zeroAddress = AccountAddress . FBS.pack . replicate 32 $ 0
                 maxIndex = maxBound
             in return (Right (const (return (AddressAccount zeroAddress, [], Right (maxIndex, zeroAddress))), zeroAddress, maxIndex))
+          -- if the invoker is an address make sure it exists
           Just (AddressAccount accInvoker) -> getAccount accInvoker >>= \case
             Nothing -> return (Left (Just (InvalidAccountReference accInvoker)))
-            Just acc -> return (Right (checkAndGetBalanceAccountV0 accInvoker acc, accInvoker, (fst acc)))
+            Just acc -> return (Right (checkAndGetBalanceAccountV0 accInvoker acc, accInvoker, fst acc))
           Just (AddressContract contractInvoker) -> getContractInstance contractInvoker >>= \case
             Nothing -> return (Left (Just (InvalidContractAddress contractInvoker)))
             Just (Instance.InstanceV0 i@Instance.InstanceV{..}) -> do
               let ownerAccountAddress = instanceOwner _instanceVParameters
               getAccount ownerAccountAddress >>= \case
                 Nothing -> return (Left (Just $ InvalidAccountReference ownerAccountAddress))
-                Just acc -> return (Right (checkAndGetBalanceInstanceV0 acc i, ownerAccountAddress, (fst acc)))
+                Just acc -> return (Right (checkAndGetBalanceInstanceV0 acc i, ownerAccountAddress, fst acc))
             Just (Instance.InstanceV1 i@Instance.InstanceV{..}) -> do
               let ownerAccountAddress = instanceOwner _instanceVParameters
               getAccount ownerAccountAddress >>= \case
                 Nothing -> return (Left (Just $ InvalidAccountReference ownerAccountAddress))
-                Just acc -> return (Right (checkAndGetBalanceInstanceV0 acc i, ownerAccountAddress, (fst acc)))
+                Just acc -> return (Right (checkAndGetBalanceInstanceV0 acc i, ownerAccountAddress, fst acc))
   let runContractComp = 
         getInvoker >>= \case
           Left err -> return (Left err, ccEnergy)
@@ -170,7 +183,7 @@ invokeContract _ ContractContext{..} cm bs = do
             return (r, _energyLeft cs)
       contextState = ContextState{_maxBlockEnergy = ccEnergy, _accountCreationLimit = 0, _chainMetadata = cm}
   runReaderT (_runInvokeContract runContractComp) (contextState, bs) >>= \case
-    (Left Nothing, re) -> -- cannot happen, but this is safe to do and not wrong
+    (Left Nothing, re) -> -- cannot happen (this would mean out of block energy), but this is safe to do and not wrong
         return Failure{rcrReason = OutOfEnergy, rcrUsedEnergy = ccEnergy - re}
     (Left (Just rcrReason), re) ->
       return Failure{rcrUsedEnergy = ccEnergy - re,..}

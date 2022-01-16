@@ -793,6 +793,7 @@ handleUpdateContract wtc uAmount uAddress uReceiveName uMessage =
                 Left cer -> rejectTransaction (WasmV1.cerToRejectReasonReceive uAddress uReceiveName uMessage cer)
                 Right (_, events) -> return events
 
+-- |Check that the account has sufficient balance, and construct credentials of the account.
 checkAndGetBalanceAccountV1 :: (TransactionMonad pv m, AccountOperations m)
     => AccountAddress -- ^Used address
     -> IndexedAccount m
@@ -807,6 +808,9 @@ checkAndGetBalanceAccountV1 usedAddress senderAccount transferAmount = do
   else
     return (Left (WasmV1.EnvFailure (WasmV1.AmountTooLarge senderAddr transferAmount)))
 
+-- |Check that the account has sufficient balance, and construct credentials of the account.
+-- In contrast to the V1 version above this one uses the TransactionMonad's error handling
+-- to raise an error, instead of returning it.
 checkAndGetBalanceAccountV0 :: (TransactionMonad pv m, AccountOperations m)
     => AccountAddress -- ^Used address
     -> IndexedAccount m
@@ -822,6 +826,7 @@ checkAndGetBalanceAccountV0 usedAddress senderAccount transferAmount = do
     rejectTransaction (AmountTooLarge senderAddr transferAmount)
 
 
+-- |Check that the instance has sufficient balance, and construct credentials of the owner account.
 checkAndGetBalanceInstanceV1 :: (TransactionMonad pv m, AccountOperations m)
     => IndexedAccount m
     -> InstanceV vOrigin
@@ -835,7 +840,9 @@ checkAndGetBalanceInstanceV1 ownerAccount istance transferAmount = do
   else
     return (Left (WasmV1.EnvFailure (WasmV1.AmountTooLarge senderAddr transferAmount)))
 
-
+-- |Check that the instance has sufficient balance, and construct credentials of the owner account.
+-- In contrast to the V1 version above this one uses the TransactionMonad's error handling
+-- to raise an error, instead of returning it.
 checkAndGetBalanceInstanceV0 :: (TransactionMonad pv m, AccountOperations m)
     => IndexedAccount m
     -> InstanceV vOrigin
@@ -849,7 +856,11 @@ checkAndGetBalanceInstanceV0 ownerAccount istance transferAmount = do
   else
     rejectTransaction (AmountTooLarge senderAddr transferAmount)
 
-
+-- |Handle updating a V1 contract.
+-- In contrast to most other methods in this file this one does not use the
+-- error handling facilities of the transaction monad. Instead it explicitly returns an Either type.
+-- The reason for this is the possible errors are exposed back to the smart contract in case
+-- a contract A invokes contract B's entrypoint.
 handleContractUpdateV1 :: forall pv m.
   (TransactionMonad pv m, AccountOperations m)
   => AccountAddress -- ^The address that was used to send the top-level transaction.
@@ -900,11 +911,14 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
       -- charge for looking up the module
       tickEnergy $ Cost.lookupModule (GSWasm.miModuleSize iface)
     
-      -- we've covered basic administrative costs now. Now iterate until the end of execution, handling any interrupts.
+      -- we've covered basic administrative costs now.
+      -- The @go@ function iterates until the end of execution, handling any interrupts by dispatching
+      -- to appropriate handlers.
       let go :: [Event]
               -> Either WasmV1.ContractExecutionReject WasmV1.ReceiveResultData
+              -- ^Result of invoking an operation
               -> m (Either WasmV1.ContractCallFailure (WasmV1.ReturnValue, [Event]))
-          go _ (Left cer) = return (Left (WasmV1.ExecutionReject cer))
+          go _ (Left cer) = return (Left (WasmV1.ExecutionReject cer)) -- contract execution failed.
           go events (Right rrData) =
             case rrData of
               WasmV1.ReceiveSuccess{..} -> do
@@ -919,6 +933,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                      }
                   in return (Right (rrdReturnValue, event:events))
               WasmV1.ReceiveInterrupt{..} -> do
+                -- execution invoked an operation. Dispatch and continue.
                 let interruptEvent = Interrupted{
                       iAddress = instanceAddress istance,
                       iEvents = rrdLogs
@@ -928,28 +943,44 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                       ..
                       }
                 case rrdMethod of
+                  -- the operation is an account transfer, so we handle it.
                   WasmV1.Transfer{..} ->
                     runExceptT (transferAccountSync imtTo istance imtAmount) >>= \case
                       Left errCode -> do
                         go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig Nothing (WasmV1.Error (WasmV1.EnvFailure errCode)) Nothing)
                       Right transferEvents -> go (resumeEvent True:transferEvents ++ interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig Nothing WasmV1.Success Nothing)
                   WasmV1.Call{..} ->
-                    -- commit the current state of the contract.
+                    -- the operation is a call to another contract. There is a bit of complication because the contract could be a V0
+                    -- or V1 one, and the behaviour is different depending on which one it is.
+                    -- First, commit the current state of the contract.
+                    -- TODO: With the new state, only do this if the state has actually changed.
                     withInstanceStateV1 istance rrdCurrentState $ \modificationIndex -> do
-                       -- lookup the instance
+                       -- lookup the instance to invoke
                        getCurrentContractInstanceTicking' imcTo >>= \case
+                         -- we could not find the instance, return this to the caller and continue
                          Nothing -> go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig Nothing (WasmV1.Error (WasmV1.EnvFailure (WasmV1.MissingContract imcTo))) Nothing)
                          Just (InstanceV0 targetInstance) -> do
+                           -- we are invoking a V0 instance.
+                           -- in this case we essentially treat this as a top-level transaction invoking that contract.
+                           -- That is, we execute the entire tree that is potentially generated.
                            let rName = Wasm.makeReceiveName (instanceInitName (_instanceVParameters targetInstance)) imcName
                                runSuccess = Right <$> handleContractUpdateV0 originAddr targetInstance (checkAndGetBalanceInstanceV0 ownerAccount istance) imcAmount rName imcParam
+                           -- If execution of the contract succeeds resume.
+                           -- Otherwise rollback the state and report that to the caller.
                            (runSuccess `orElseWith` (return . Left)) >>= \case
                               Left _ -> -- execution failed, ignore the reject reason since V0 contract cannot return useful information
                                 go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig Nothing WasmV1.MessageSendFailed Nothing)
                               Right evs -> do
+                                -- Execution of the contract might have changed our own state. If so, we need to resume in the new state, otherwise
+                                -- we can keep the old one.
                                 (lastModifiedIndex, newState) <- getCurrentContractInstanceState istance
                                 let resumeState = if lastModifiedIndex == modificationIndex then Nothing else Just newState
                                 go (resumeEvent True:evs ++ interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig resumeState WasmV1.Success Nothing)
                          Just (InstanceV1 targetInstance) -> do
+                           -- invoking a V1 instance is easier we recurse on the update function.
+                           -- If this returns Right _ it is successful, and we pass this, and the returned return value
+                           -- to the caller.
+                           -- Otherwise we roll back all the changes and return the return value, and the error code to the caller.
                            let rName = Wasm.makeReceiveName (instanceInitName (_instanceVParameters targetInstance)) imcName
                            withRollback (handleContractUpdateV1 originAddr targetInstance (checkAndGetBalanceInstanceV1 ownerAccount istance) imcAmount rName imcParam) >>= \case
                               Left cer ->
