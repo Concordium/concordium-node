@@ -128,7 +128,7 @@ instance Serialize (InstrumentedModuleV V0) where
 
   get = get >>= \case
     V0 -> InstrumentedWasmModuleV0 <$> get
-    _ -> fail "Unsupported Wasm module version."
+    _ -> fail "Expected Wasm version 0, got 1."
 
 
 instance Serialize (InstrumentedModuleV V1) where
@@ -138,7 +138,7 @@ instance Serialize (InstrumentedModuleV V1) where
 
   get = get >>= \case
     V1 -> InstrumentedWasmModuleV1 <$> get
-    _ -> fail "Unsupported Wasm module version."
+    _ -> fail "ExpectedWasm version 0, got 1."
 
 --------------------------------------------------------------------------------
 

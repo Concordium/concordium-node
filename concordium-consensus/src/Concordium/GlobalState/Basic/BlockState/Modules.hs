@@ -5,8 +5,6 @@
 module Concordium.GlobalState.Basic.BlockState.Modules
   ( Module(..),
     ModuleV(..),
-    interface,
-    source,
     Modules,
     emptyModules,
     putInterface,
@@ -52,10 +50,6 @@ data ModuleV v = ModuleV {
   -- | The raw module binary source.
   moduleVSource :: !(WasmModuleV v)
   } deriving (Show)
-
--- Create the class HasSource a with functions
--- source :: Lens a WasmModule and interface :: Lens (ModuleV v) (GSWasm.ModuleInterfaceV v)
-makeFields ''ModuleV
 
 -- |A module, either of version 0 or 1. This is only used when storing a module
 -- independently, e.g., in the module table. When a module is referenced from a

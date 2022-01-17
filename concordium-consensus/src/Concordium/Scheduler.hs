@@ -590,6 +590,7 @@ getCurrentContractInstanceTicking cref = getCurrentContractInstanceTicking' cref
 -- | Get the current contract state and charge for its lookup.
 -- NB: In principle we should look up the state size, then charge, and only then lookup the full state
 -- But since state size is limited to be small it is acceptable to look it up and then charge for it.
+-- TODO: This function will be replaced once the state changes for V1 are in. Then it will only handle V0 instances.
 getCurrentContractInstanceTicking' ::
   TransactionMonad pv m
   => ContractAddress

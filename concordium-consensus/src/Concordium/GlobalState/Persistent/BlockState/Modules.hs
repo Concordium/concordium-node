@@ -7,8 +7,6 @@ module Concordium.GlobalState.Persistent.BlockState.Modules
     ModuleV(..),
     Modules,
     getModuleInterface,
-    source,
-    interface,
     emptyModules,
     getInterface,
     getSource,
@@ -57,11 +55,6 @@ data ModuleV v = ModuleV {
   moduleVSource :: !(BlobRef (WasmModuleV v))
   }
     deriving(Show)
-
--- Create two typeclasses HasInterface a _ and HasSource a _
--- with methods source :: Lens' a (BlobRef WasmModule) and
--- interface :: Lens' (ModuleV v) (GSWasm.ModuleInterfaceV v)
-makeFields ''ModuleV
 
 -- |Helper to convert from an interface to a module.
 toModule :: forall v . IsWasmVersion v => GSWasm.ModuleInterfaceV v -> BlobRef (WasmModuleV v) -> Module
@@ -220,12 +213,12 @@ getModuleReference ref mods =
 unsafeGetModuleReferenceV0 :: MonadBlobStore m => ModuleRef -> Modules -> m (Maybe (BufferedRef (ModuleV GSWasm.V0)))
 unsafeGetModuleReferenceV0 ref mods = fmap (unsafeCoerceBufferedRef extract) <$> getModuleReference ref mods 
     where extract (ModuleV0 m) = m
-          extract _ = error "Precondition violation."
+          extract _ = error "Precondition violation. Expected module version 0, got 1."
 -- |Gets the buffered reference to a module as stored in the module table assuming it is version 1.
 unsafeGetModuleReferenceV1 :: MonadBlobStore m => ModuleRef -> Modules -> m (Maybe (BufferedRef (ModuleV GSWasm.V1)))
 unsafeGetModuleReferenceV1 ref mods = fmap (unsafeCoerceBufferedRef extract) <$> getModuleReference ref mods 
     where extract (ModuleV1 m) = m
-          extract _ = error "Precondition violation."
+          extract _ = error "Precondition violation. Expected module version 1, got 0."
 
 
 -- |Get an interface by module reference.
