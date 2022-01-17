@@ -12,7 +12,6 @@ import Concordium.Types
 import Concordium.Types.HashableTo
 import qualified Concordium.Wasm as Wasm
 import qualified Concordium.GlobalState.Wasm as GSWasm
-import Data.Word
 
 -- |The fixed parameters associated with a smart contract instance
 data InstanceParameters v = InstanceParameters {
@@ -107,7 +106,7 @@ instancePairs (InstanceV0 InstanceV{..}) =
       "methods" .= instanceReceiveFuns  _instanceVParameters,
       "name" .= instanceInitName  _instanceVParameters,
       "sourceModule" .= GSWasm.miModuleRef (instanceModuleInterface  _instanceVParameters),
-      "version" .= (0 :: Word32)
+      "version" .= Wasm.V0
     ]
 instancePairs (InstanceV1 InstanceV{..}) =
     [ "owner" .= instanceOwner  _instanceVParameters,
@@ -115,7 +114,7 @@ instancePairs (InstanceV1 InstanceV{..}) =
       "methods" .= instanceReceiveFuns  _instanceVParameters,
       "name" .= instanceInitName  _instanceVParameters,
       "sourceModule" .= GSWasm.miModuleRef (instanceModuleInterface  _instanceVParameters),
-      "version" .= (1 :: Word32)
+      "version" .= Wasm.V1
     ]
     
 
