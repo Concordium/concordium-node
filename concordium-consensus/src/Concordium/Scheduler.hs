@@ -1257,6 +1257,8 @@ handleConfigureBaker
             return (TxReject (DuplicateAggregationKey key), energyCost, usedEnergy)
         kResult energyCost usedEnergy _ BI.BCStakeUnderThreshold =
             return (TxReject StakeUnderMinimumThresholdForBaking, energyCost, usedEnergy)
+        kResult energyCost usedEnergy _ BI.BCStakeOverThreshold =
+            return (TxReject StakeOverMaximumThresholdForBaking, energyCost, usedEnergy)
         kResult energyCost usedEnergy _ BI.BCCommissionNotInRange =
             return (TxReject CommissionsNotInRangeForBaking, energyCost, usedEnergy)
         kResult energyCost usedEnergy _ BI.BCChangePending =
@@ -1379,6 +1381,10 @@ handleConfigureDelegation wtc cdCapital cdRestakeEarnings cdDelegationTarget =
             return (TxReject (NotADelegator senderAddress), energyCost, usedEnergy)
         kResult energyCost usedEnergy _ (BI.DCInvalidDelegationTarget bid) =
             return (TxReject (DelegationTargetNotABaker bid), energyCost, usedEnergy)
+        kResult energyCost usedEnergy _ BI.DCPoolStakeOverThreshold =
+            return (TxReject StakeOverMaximumThresholdForBaking, energyCost, usedEnergy)
+        kResult energyCost usedEnergy _ BI.DCPoolOverDelegated =
+            return (TxReject PoolWouldBecomeOverDelegated, energyCost, usedEnergy)
 
 -- |Remove the baker for an account. The logic is as follows:
 --
