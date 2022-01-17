@@ -34,22 +34,22 @@ contractSourcesV0 = $(makeRelativeToProject "testdata/contracts/" >>= embedDir)
 
 -- Read all the files in testdata/contracts and get any valid contract interfaces.
 -- This assumes there is at least one, otherwise the tests will fail.
-validContractArtifactsV0 :: [(Wasm.ModuleSource, GSWasm.ModuleInterfaceV GSWasm.V0)]
+validContractArtifactsV0 :: [(Wasm.ModuleSource GSWasm.V0, GSWasm.ModuleInterfaceV GSWasm.V0)]
 validContractArtifactsV0 = mapMaybe packModule contractSourcesV0
     where packModule (_, sourceBytes) =
             let source = Wasm.ModuleSource sourceBytes
-            in (source,) <$> WasmV0.processModule (Wasm.WasmModule 0 source)
+            in (source,) <$> WasmV0.processModule (Wasm.WasmModuleV source)
 
 contractSourcesV1 :: [(FilePath, BS.ByteString)]
 contractSourcesV1 = $(makeRelativeToProject "testdata/contracts/v1" >>= embedDir)
 
 -- Read all the files in testdata/contracts/v1 and get any valid contract interfaces.
 -- This assumes there is at least one, otherwise the tests will fail.
-validContractArtifactsV1 :: [(Wasm.ModuleSource, GSWasm.ModuleInterfaceV GSWasm.V1)]
+validContractArtifactsV1 :: [(Wasm.ModuleSource GSWasm.V1, GSWasm.ModuleInterfaceV GSWasm.V1)]
 validContractArtifactsV1 = mapMaybe packModule contractSourcesV1
     where packModule (_, sourceBytes) =
             let source = Wasm.ModuleSource sourceBytes
-            in (source,) <$> WasmV1.processModule (Wasm.WasmModule 1 source)
+            in (source,) <$> WasmV1.processModule (Wasm.WasmModuleV source)
 
 checkBinary :: Show a => (a -> a -> Bool) -> a -> a -> String -> String -> String -> Either String ()
 checkBinary bop x y sbop sx sy = unless (bop x y) $ Left $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ sy ++ " (" ++ show y ++ ")"
