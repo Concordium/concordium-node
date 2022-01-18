@@ -33,6 +33,7 @@ import Concordium.Types.SeedState
 import qualified Concordium.Wasm as Wasm
 
 import qualified Concordium.Scheduler.InvokeContract as InvokeContract
+import qualified Concordium.Types.InvokeContract as InvokeContract
 
 import Concordium.Afgjort.Finalize.Types (FinalizationCommittee (..), PartyInfo (..))
 import Concordium.Afgjort.Monad

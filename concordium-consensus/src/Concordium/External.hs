@@ -33,7 +33,7 @@ import Concordium.Crypto.ByteStringHelpers
 import Concordium.GlobalState
 import Concordium.GlobalState.Persistent.LMDB (addDatabaseVersion)
 import Concordium.GlobalState.Persistent.TreeState (InitException (..))
-import qualified Concordium.Scheduler.InvokeContract as InvokeContract
+import qualified Concordium.Types.InvokeContract as InvokeContract
 import Concordium.MultiVersion (
     Callbacks (..),
     CatchUpConfiguration (..),
