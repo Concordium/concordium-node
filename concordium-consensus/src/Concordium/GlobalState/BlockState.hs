@@ -2,6 +2,7 @@
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TypeFamilies #-}
 -- FIXME: This is to suppress compiler warnings for derived instances of BlockStateOperations.
 -- This may be fixed in GHC 9.0.1.
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
@@ -116,6 +117,12 @@ makeBlockStateHash BlockStateHashInputs{..} = StateHashV0 $
     (H.hashOfHashes
       bshUpdates
       (ebHash bshEpochBlocks))
+
+-- TODO: Details
+class (BlockStateTypes m, Monad m) => MonadBakerInfo m where
+    type BakerInfoRef m
+
+    derefBakerInfo :: BakerInfoRef m -> m BakerInfo
 
 -- |An auxiliary data type to express restrictions on an account.
 -- Currently an account that has more than one credential is not allowed to handle encrypted transfers,
@@ -404,6 +411,15 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- epoch length.  Any change would throw off this calculation.
   bsoSetSeedState :: UpdatableBlockState m -> SeedState -> m (UpdatableBlockState m)
 
+  -- |Replace the current epoch bakers with the next epoch bakers.
+  -- If there are no next epoch bakers (possible in P3 onwards), the current epoch bakers are
+  -- unchanged.
+  -- This does not change the next epoch bakers.
+  bsoRotateCurrentEpochBakers :: UpdatableBlockState m -> m (UpdatableBlockState m)
+
+  bsoClearNextEpochBakers :: (AccountVersionFor (MPV m) ~ 'AccountV1) => UpdatableBlockState m -> m (UpdatableBlockState m)
+
+{-
   -- |Update the bakers for the next epoch.
   --
   -- 1. The current epoch bakers are replaced with the next epoch bakers.
@@ -423,6 +439,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
     -> Epoch
     -- ^The new epoch
     -> m (UpdatableBlockState m)
+-}
 
   -- |Register this account as a baker.
   -- The following results are possible:
@@ -531,6 +548,21 @@ class (BlockStateQuery m) => BlockStateOperations m where
     => UpdatableBlockState m
     -> AccountIndex
     -> m (BakerRemoveResult, UpdatableBlockState m)
+
+  -- |Process a pending change on an account's stake.
+  -- This only has an effect if there is a pending change on the account and the guard on the
+  -- effective time passes.
+  -- For bakers pending removal, this removes the baker record and removes the baker from the active
+  -- bakers (transferring any delegators to the L-pool).
+  -- For bakers pending stake reduction, this reduces the stake.
+  -- For delegators pending removal, this removes the delegation record and removes the record of
+  -- the delegation from the active bakers index.
+  -- For delegators pending stake reduction, this reduces the stake.
+  bsoProcessPendingChange
+    :: UpdatableBlockState m
+    -> (PendingChangeEffective (AccountVersionFor (MPV m)) -> Bool)
+    -> AccountIndex
+    -> m (UpdatableBlockState m)
 
   -- |Add an amount to a baker's account as a reward. The baker's stake is increased
   -- correspondingly if the baker is set to restake rewards.
@@ -772,7 +804,10 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoNotifyEncryptedBalanceChange s = lift . bsoNotifyEncryptedBalanceChange s
   bsoGetSeedState = lift . bsoGetSeedState
   bsoSetSeedState s ss = lift $ bsoSetSeedState s ss
-  bsoTransitionEpochBakers s t d e = lift $ bsoTransitionEpochBakers s t d e
+  bsoRotateCurrentEpochBakers = lift . bsoRotateCurrentEpochBakers
+  bsoClearNextEpochBakers = lift . bsoClearNextEpochBakers
+  bsoProcessPendingChange s g = lift . bsoProcessPendingChange s g
+  -- bsoTransitionEpochBakers s t d e = lift $ bsoTransitionEpochBakers s t d e
   bsoAddBaker s addr a = lift $ bsoAddBaker s addr a
   bsoConfigureBaker s aconfig a = lift $ bsoConfigureBaker s aconfig a
   bsoConfigureDelegation s aconfig a = lift $ bsoConfigureDelegation s aconfig a
@@ -820,7 +855,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoNotifyEncryptedBalanceChange #-}
   {-# INLINE bsoGetSeedState #-}
   {-# INLINE bsoSetSeedState #-}
-  {-# INLINE bsoTransitionEpochBakers #-}
+  -- {-# INLINE bsoTransitionEpochBakers #-}
   {-# INLINE bsoAddBaker #-}
   {-# INLINE bsoConfigureBaker #-}
   {-# INLINE bsoUpdateBakerKeys #-}

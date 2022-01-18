@@ -90,7 +90,7 @@ deriving instance Show (PersistentNextEpochBakers av)
 
 data PersistentBirkParameters (av :: AccountVersion) = PersistentBirkParameters {
     -- |The currently-registered bakers.
-    _birkActiveBakers :: !(BufferedRef (PersistentActiveBakers (AccountVersionFor pv))),
+    _birkActiveBakers :: !(BufferedRef (PersistentActiveBakers av)),
     -- |The bakers that will be used for the next epoch.
     _birkNextEpochBakers :: !(PersistentNextEpochBakers av),
     -- |The bakers for the current epoch.

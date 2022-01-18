@@ -23,6 +23,7 @@ import Data.Foldable
 import Data.Serialize
 import qualified Data.Sequence as Seq
 import Data.ByteString.Builder (hPutBuilder)
+import Control.Exception (assert)
 import Control.Monad.IO.Class
 import qualified Control.Monad.State.Strict as MTL
 import qualified Control.Monad.Except as MTL
@@ -160,7 +161,8 @@ initialBirkParameters accounts _birkSeedState = BasicBirkParameters{..}
     bkrs = catMaybes $ bkr <$> accounts
     _birkActiveBakers = ActiveBakers {
       _activeBakers = Map.fromList $ bkrs <&> \(BakerInfo{_bakerIdentity = bi}, _) -> (bi, lookupBakerDels bi),
-      _aggregationKeys = Set.fromList (_bakerAggregationVerifyKey . fst <$> bkrs)
+      _aggregationKeys = Set.fromList (_bakerAggregationVerifyKey . fst <$> bkrs),
+      _lPoolDelegators = Set.empty
     }
     stakes = Vec.fromList (snd <$> bkrs)
     _birkCurrentEpochBakers = makeHashed $ EpochBakers {
@@ -636,6 +638,79 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
     {-# INLINE bsoSetSeedState #-}
     bsoSetSeedState bs ss = return $! bs & blockBirkParameters . birkSeedState .~ ss
 
+    bsoRotateCurrentEpochBakers bs = return $! newbs
+        where
+            newbs = case bs ^. blockBirkParameters . birkNextEpochBakers of
+                NextEpochBakers newCurrentBakers ->
+                    bs & blockBirkParameters . birkCurrentEpochBakers .~ newCurrentBakers
+                UnchangedNextEpochBakers -> bs
+
+    bsoClearNextEpochBakers bs = return $! bs &
+        blockBirkParameters . birkNextEpochBakers .~ UnchangedNextEpochBakers
+
+    bsoProcessPendingChange bs isEffective accIndex = return $! case bs ^? blockAccounts . Accounts.indexedAccount accIndex of
+        Nothing -> bs :: BlockState pv
+        Just acc -> case acc ^. accountStaking of
+            AccountStakeNone -> bs
+            AccountStakeBaker bkr -> case bkr ^. bakerPendingChange of
+                ReduceStake newStake et | isEffective et ->
+                    bs & blockAccounts . Accounts.indexedAccount accIndex %~ 
+                            (accountStaking .~ AccountStakeBaker newBaker)
+                    where 
+                        newBaker = bkr {_stakedAmount = newStake, _bakerPendingChange = NoChange}
+                RemoveStake et | isEffective et -> bs
+
+                    -- remove baker id and aggregation key from active bakers
+                    & blockBirkParameters . birkActiveBakers . activeBakers %~ Map.delete bakerId
+                    & blockBirkParameters . birkActiveBakers . aggregationKeys %~
+                        Set.delete (bkr ^. accountBakerInfo . bakerAggregationVerifyKey)
+                    -- remove the account's baker record
+                    & blockAccounts . Accounts.indexedAccount accIndex %~
+                        (accountStaking .~ AccountStakeNone)                    
+                    -- transfer all delegators to the L-pool (P4 onwards)
+                    & reassignDelegators
+                    where
+                        -- It should always be that there is an entry for 'bakerId' in the active bakers.
+                        oldDelegators = bs ^. blockBirkParameters . birkActiveBakers . activeBakers . at bakerId . non Set.empty
+                        reassignDelegators = case accountVersion @(AccountVersionFor pv) of
+                            SAccountV0 -> id
+                            SAccountV1 -> reassignDelegatorsV1
+                        reassignDelegatorsV1 :: AccountVersionFor pv ~ 'AccountV1 => BlockState pv -> BlockState pv
+                        reassignDelegatorsV1 = (blockBirkParameters . birkActiveBakers . lPoolDelegators %~ Set.union oldDelegators)
+                                        . flip (foldl' reassignDelegator) oldDelegators
+                        reassignDelegator :: AccountVersionFor pv ~ 'AccountV1 => BlockState pv -> DelegatorId -> BlockState pv
+                        reassignDelegator bs' (DelegatorId delegatorId) = bs' &
+                            blockAccounts . Accounts.indexedAccount delegatorId %~
+                                (accountStaking %~ \case
+                                    AccountStakeDelegate dlg ->
+                                        assert (dlg ^. delegationTarget == DelegateToBaker bakerId) $
+                                            AccountStakeDelegate (dlg & delegationTarget .~ DelegateToLPool)
+                                    -- This case should not happen, since it would violate the 
+                                    -- integrity of the active bakers index.
+                                    s -> assert False s
+                                )
+                _ -> bs
+            AccountStakeDelegate dlg@AccountDelegationV1{..} -> case _delegationPendingChange of
+                ReduceStake newStake et | isEffective et -> bs
+                    & blockAccounts . Accounts.indexedAccount accIndex %~
+                        (accountStaking .~ AccountStakeDelegate newDelegation)
+                    where
+                        newDelegation = dlg {
+                                _delegationStakedAmount = newStake,
+                                _delegationPendingChange = NoChange
+                            }
+                RemoveStake et | isEffective et -> bs
+                    & blockAccounts . Accounts.indexedAccount accIndex %~
+                        (accountStaking .~ AccountStakeNone)
+                    & blockBirkParameters . birkActiveBakers %~ removeDelegator _delegationTarget
+                    where
+                        removeDelgator (DelegateToBaker bid) = activeBakers . ix bid %~ Set.delete accIndex
+                _ -> bs
+        where
+            bakerId = BakerId accIndex
+
+
+{-
     bsoTransitionEpochBakers origBS genesisTime slotDuration newEpoch = return $! newbs
         where
             oldBPs = origBS ^. blockBirkParameters
@@ -734,6 +809,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                       (accountStaking .~ AccountStakeBaker newAcctBkr)
               in (newBS, (acctBkr ^. bakerInfo, newAmt) : bkrs)
             moveDelegatorsToLPool bs acctBkr = undefined -- TODO: implement
+-}
 
     bsoAddBaker bs ai BakerAdd{..} = do
       bakerStakeThreshold <- BS.bsoGetChainParameters bs <&> (^. cpPoolParameters . ppBakerStakeThreshold)

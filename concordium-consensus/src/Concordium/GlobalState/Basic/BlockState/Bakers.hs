@@ -95,7 +95,8 @@ epochToFullBakers EpochBakers{..} = FullBakers{
 -- |The set of accounts that are currently registered as bakers.
 data ActiveBakers = ActiveBakers {
     _activeBakers :: !(Map BakerId (Set DelegatorId)),
-    _aggregationKeys :: !(Set BakerAggregationVerifyKey)
+    _aggregationKeys :: !(Set BakerAggregationVerifyKey),
+    _lPoolDelegators :: !(Set DelegatorId)
 } deriving (Eq, Show)
 
 makeLenses ''ActiveBakers
