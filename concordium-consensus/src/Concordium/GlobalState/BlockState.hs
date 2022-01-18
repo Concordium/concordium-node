@@ -420,7 +420,11 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- This does not change the next epoch bakers.
   bsoRotateCurrentEpochBakers :: UpdatableBlockState m -> m (UpdatableBlockState m)
 
+  -- TODO: document
   bsoClearNextEpochBakers :: (AccountVersionFor (MPV m) ~ 'AccountV1) => UpdatableBlockState m -> m (UpdatableBlockState m)
+
+  -- TODO: document and implement:
+  --bsoSetNextEpochBakers :: (AccountVersionFor (MPV m) ~ 'AccountV1) => UpdatableBlockState m -> EpochBakers -> m (UpdatableBlockState m)
 
   -- |Update the bakers for the next epoch.
   --
@@ -435,10 +439,6 @@ class (BlockStateQuery m) => BlockStateOperations m where
   bsoTransitionEpochBakers
     :: (AccountVersionFor (MPV m) ~ 'AccountV0)
     => UpdatableBlockState m
-    -> Timestamp
-    -- ^Genesis time
-    -> Duration
-    -- ^The slot duration
     -> Epoch
     -- ^The new epoch
     -> m (UpdatableBlockState m)
@@ -454,7 +454,8 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- the delegation from the active bakers index.
   -- For delegators pending stake reduction, this reduces the stake.
   bsoProcessPendingChanges
-    :: UpdatableBlockState m
+    :: (AccountVersionFor (MPV m) ~ 'AccountV1)
+    => UpdatableBlockState m
     -> (PendingChangeEffective (AccountVersionFor (MPV m)) -> Bool)
     -- ^Guard determining if a change is effective
     -> m (UpdatableBlockState m)
@@ -812,7 +813,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoRotateCurrentEpochBakers = lift . bsoRotateCurrentEpochBakers
   bsoClearNextEpochBakers = lift . bsoClearNextEpochBakers
   bsoProcessPendingChanges s g = lift $ bsoProcessPendingChanges s g
-  bsoTransitionEpochBakers s t d e = lift $ bsoTransitionEpochBakers s t d e
+  bsoTransitionEpochBakers s e = lift $ bsoTransitionEpochBakers s e
   bsoAddBaker s addr a = lift $ bsoAddBaker s addr a
   bsoConfigureBaker s aconfig a = lift $ bsoConfigureBaker s aconfig a
   bsoConfigureDelegation s aconfig a = lift $ bsoConfigureDelegation s aconfig a
