@@ -82,7 +82,7 @@ import Concordium.Utils.Serialization
 
 data PersistentNextEpochBakers (av :: AccountVersion) where
     -- |The 'EpochBakers' for the next epoch.
-    PersistentNextEpochBakers :: !(HashedBufferedRef (PersistentEpochBakers av)) -> PersistentNextEpochBakers av
+    PersistentNextEpochBakers :: !(HashedBufferedRef PersistentEpochBakers) -> PersistentNextEpochBakers av
     -- |The next epoch does not require a change in the 'EpochBakers'.
     UnchangedPersistentNextEpochBakers :: PersistentNextEpochBakers 'AccountV1
 
@@ -95,7 +95,7 @@ data PersistentBirkParameters (av :: AccountVersion) = PersistentBirkParameters 
     -- |The bakers that will be used for the next epoch.
     _birkNextEpochBakers :: !(PersistentNextEpochBakers av),
     -- |The bakers for the current epoch.
-    _birkCurrentEpochBakers :: !(HashedBufferedRef (PersistentEpochBakers av)),
+    _birkCurrentEpochBakers :: !(HashedBufferedRef PersistentEpochBakers),
     -- |The seed state used to derive the leadership election nonce.
     _birkSeedState :: !SeedState
 } deriving (Show)
@@ -898,14 +898,14 @@ doConfigureBaker pbs ai BakerConfigureAdd{..} = do
             -- Cannot resolve the account
             Nothing -> return (BCInvalidAccount, pbs)
             Just PersistentAccount{} -> do
-                  chainParams <- doGetChainParameters pbs
-                  let poolParams = chainParams ^. cpPoolParameters
+                chainParams <- doGetChainParameters pbs
+                let poolParams = chainParams ^. cpPoolParameters
                 let capitalMin = poolParams ^. ppMinimumEquityCapital
                 let epochBakersBR = bspBirkParameters bsp ^. birkCurrentEpochBakers
                 epochBakers <- refLoad $ bufferedReference epochBakersBR
                 let capitalMax = takeFraction (poolParams ^. ppCapitalBound) (_bakerTotalStake epochBakers)
-                  let ranges = poolParams ^. ppCommissionBounds
-                  let keysInRange = isInRange bcaFinalizationRewardCommission (ranges ^. finalizationCommissionRange)
+                let ranges = poolParams ^. ppCommissionBounds
+                let keysInRange = isInRange bcaFinalizationRewardCommission (ranges ^. finalizationCommissionRange)
                         && isInRange bcaBakingRewardCommission (ranges ^. bakingCommissionRange)
                         && isInRange bcaTransactionFeeCommission (ranges ^. transactionCommissionRange)
                 if bcaCapital < capitalMin then

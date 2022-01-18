@@ -35,7 +35,9 @@ invariantBlockState bs extraBalance = do
         unless (Set.null remainingKeys) $ Left $ "Unaccounted for baker aggregation keys: " ++ show (Set.toList remainingKeys)
         instancesBalance <- foldM checkInstance 0 (bs ^.. blockInstances . foldInstances)
         checkEpochBakers (bs ^. blockBirkParameters . birkCurrentEpochBakers . unhashed)
-        checkEpochBakers (bs ^. blockBirkParameters . birkNextEpochBakers . unhashed)
+        case bs ^. blockBirkParameters . birkNextEpochBakers of
+            UnchangedNextEpochBakers -> return ()
+            NextEpochBakers neb -> checkEpochBakers (neb ^. unhashed)
         checkCredentialResults creds (bs ^. blockAccounts . to Account.accountRegIds)
         let
             bank = bs ^. blockBank . unhashed

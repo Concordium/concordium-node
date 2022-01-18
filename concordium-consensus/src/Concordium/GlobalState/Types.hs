@@ -23,6 +23,7 @@ class BlockStateTypes (m :: Type -> Type) where
     type BlockState m :: Type
     type UpdatableBlockState m :: Type
     type Account m :: Type
+    type BakerInfoRef m :: Type
 
 -- |Account together with its index in the account map.
 type IndexedAccount m = (AccountIndex, Account m)

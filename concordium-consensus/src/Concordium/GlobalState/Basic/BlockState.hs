@@ -459,6 +459,7 @@ instance GT.BlockStateTypes (PureBlockStateMonad pv m) where
     type BlockState (PureBlockStateMonad pv m) = HashedBlockState pv
     type UpdatableBlockState (PureBlockStateMonad pv m) = BlockState pv
     type Account (PureBlockStateMonad pv m) = Account (AccountVersionFor pv)
+    type BakerInfoRef (PureBlockStateMonad pv m) = BakerInfo
 
 instance ATITypes (PureBlockStateMonad pv m) where
   type ATIStorage (PureBlockStateMonad pv m) = ()
@@ -613,9 +614,13 @@ instance (Monad m, IsProtocolVersion pv) => BS.AccountOperations (PureBlockState
 
   getAccountBaker acc = return $ acc ^. accountBaker
 
+  getAccountBakerInfoRef acc = return $ (acc ^. accountBaker) <&> (^. bakerInfo)
+
   getAccountDelegator acc = return $ acc ^. accountDelegator
 
   getAccountStake acc = return $ acc ^. accountStaking
+
+  derefBakerInfo = return
 
 delegationConfigureDisallowOverdelegation
     :: (IsProtocolVersion pv, MTL.MonadError DelegationConfigureResult m)
@@ -728,6 +733,15 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
 
     bsoClearNextEpochBakers bs = return $! bs &
         blockBirkParameters . birkNextEpochBakers .~ UnchangedNextEpochBakers
+
+    bsoSetNextEpochBakers bs bakers = return $! bs &
+        blockBirkParameters . birkNextEpochBakers .~ NextEpochBakers newNextEpochBakers
+        where
+            newNextEpochBakers = makeHashed EpochBakers{..}
+            bakers' = Vec.fromList bakers
+            _bakerInfos = fst <$> bakers'
+            _bakerStakes = snd <$> bakers'
+            _bakerTotalStake = sum _bakerStakes
 
     -- This function handles removing bakers and delegators and reducing their stakes.
     bsoProcessPendingChanges oldBlockState isEffective = return $! newBlockState

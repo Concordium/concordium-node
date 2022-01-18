@@ -118,12 +118,6 @@ makeBlockStateHash BlockStateHashInputs{..} = StateHashV0 $
       bshUpdates
       (ebHash bshEpochBlocks))
 
--- TODO: Details
-class (BlockStateTypes m, Monad m) => MonadBakerInfo m where
-    type BakerInfoRef m
-
-    derefBakerInfo :: BakerInfoRef m -> m BakerInfo
-
 -- |An auxiliary data type to express restrictions on an account.
 -- Currently an account that has more than one credential is not allowed to handle encrypted transfers,
 -- and an account that has a non-zero encrypted balance cannot add new credentials.
@@ -203,11 +197,17 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
   -- |Get the baker info (if any) attached to an account.
   getAccountBaker :: Account m -> m (Maybe (AccountBaker (AccountVersionFor (MPV m))))
 
+  -- |Get a reference to the baker info (if any) attached to an account.
+  getAccountBakerInfoRef :: Account m -> m (Maybe (BakerInfoRef m))
+
   -- |Get the delegator info (if any) attached to an account.
   getAccountDelegator :: Account m -> m (Maybe (AccountDelegation (AccountVersionFor (MPV m))))
 
   -- |Get the baker or stake delegation information attached to an account.
   getAccountStake :: Account m -> m (AccountStake (AccountVersionFor (MPV m)))
+
+  -- |Dereference a 'BakerInfoRef' to a 'BakerInfo'.
+  derefBakerInfo :: BakerInfoRef m -> m BakerInfo
 
 -- |The block query methods can query block state. They are needed by
 -- consensus itself to compute stake, get a list of and information about
@@ -424,7 +424,8 @@ class (BlockStateQuery m) => BlockStateOperations m where
   bsoClearNextEpochBakers :: (AccountVersionFor (MPV m) ~ 'AccountV1) => UpdatableBlockState m -> m (UpdatableBlockState m)
 
   -- TODO: document and implement:
-  --bsoSetNextEpochBakers :: (AccountVersionFor (MPV m) ~ 'AccountV1) => UpdatableBlockState m -> EpochBakers -> m (UpdatableBlockState m)
+  bsoSetNextEpochBakers :: (AccountVersionFor (MPV m) ~ 'AccountV1) => UpdatableBlockState m -> 
+      [(BakerInfoRef m, Amount)] -> m (UpdatableBlockState m)
 
   -- |Update the bakers for the next epoch.
   --
