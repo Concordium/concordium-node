@@ -28,8 +28,19 @@ import Concordium.TimeMonad
 import Data.Time
 
 import Concordium.Types
+import qualified Concordium.Types.Accounts as Types
+import qualified Concordium.Types.Parameters as Types
 import Concordium.Logger
 import Concordium.GlobalState.TreeState
+    ( BlockStateTypes(BlockState, UpdatableBlockState),
+      MGSTrans(..),
+      GlobalStateTypes(..),
+      BlockData(blockSlot),
+      MonadProtocolVersion(..),
+      TreeStateMonad(commitTransaction, getPendingTransactions,
+                     getCredential, getAccountNonFinalized, getNonFinalizedChainUpdates,
+                     getRuntimeParameters, getGenesisData) )
+import qualified Concordium.GlobalState.BakerInfo as BI
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.Rewards
@@ -467,7 +478,8 @@ executeFrom :: forall m.
 executeFrom blockHash slotNumber slotTime blockParent blockBaker mfinInfo newSeedState txs =
   let cm = ChainMetadata{..}
   in do
-    bshandle0 <- thawBlockState =<< blockState blockParent
+    origBS <- blockState blockParent
+    bshandle0 <- thawBlockState origBS
     chainParams <- bsoGetChainParameters bshandle0
     let counts = countFreeTransactions txs (isJust mfinInfo)
     if (countAccountCreation counts > chainParams ^. cpAccountCreationLimit)
@@ -476,12 +488,16 @@ executeFrom blockHash slotNumber slotTime blockParent blockBaker mfinInfo newSee
       else do
         -- process the update queues
         (updates, bshandle0a) <- bsoProcessUpdateQueues bshandle0 slotTime
+        sd <- gdSlotDuration <$> getGenesisData
+        ab <- getActiveBakers origBS
+        bshandle0a' <- case chainParams ^. cpPoolParameters of
+          PoolParametersV0{} -> return bshandle0a
+          PoolParametersV1{..} -> foldM (putBakerCommissionsInRange _ppCommissionBounds sd origBS) bshandle0a ab
         -- unlock the amounts that have expired
-        bshandle0b <- bsoProcessReleaseSchedule bshandle0a slotTime
+        bshandle0b <- bsoProcessReleaseSchedule bshandle0a' slotTime
         -- update the bakers and seed state
         (isNewEpoch, bshandle1) <- updateBirkParameters newSeedState bshandle0b
         maxBlockEnergy <- gdMaxBlockEnergy <$> getGenesisData
-        sd <- gdSlotDuration <$> getGenesisData
         let context = ContextState{
               _chainMetadata = cm,
               _maxBlockEnergy = maxBlockEnergy,
@@ -510,6 +526,35 @@ executeFrom blockHash slotNumber slotTime blockParent blockBaker mfinInfo newSee
                 return (Right (ExecutionResult{_energyUsed = usedEnergy,
                                               _finalState = finalbsHandle,
                                               _transactionLog = finState ^. schedulerTransactionLog}))
+  where
+    putBakerCommissionsInRange :: ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1 => CommissionRanges -> Duration -> BlockState m -> UpdatableBlockState m -> BakerId -> m (UpdatableBlockState m)
+    putBakerCommissionsInRange ranges sd origBS bs bid@(BakerId ai) = getBakerAccount origBS bid >>= \case
+      Nothing -> error "Invariant violation: Active baker is not a baker."
+      Just acc -> getAccountBaker acc >>= \case
+        Nothing -> error "Invariant violation: Active baker is not a baker."
+        Just ab -> case ab ^. Types.accountBakerInfo of
+          Types.BakerInfoExV0 _ -> return bs
+          Types.BakerInfoExV1 _ bpi -> do
+            let fc = bpi ^. Types.poolCommissionRates . finalizationCommission
+            let cfc = Types.closestInRange fc (ranges ^. finalizationCommissionRange)
+            let bc = bpi ^. Types.poolCommissionRates . bakingCommission
+            let cbc = Types.closestInRange fc (ranges ^. bakingCommissionRange)
+            let tc = bpi ^. Types.poolCommissionRates . transactionCommission
+            let ctc = Types.closestInRange fc (ranges ^. transactionCommissionRange)
+            (result, newBS) <- bsoConfigureBaker bs ai BI.BakerConfigureUpdate{
+              bcuTimestamp = slotTime,
+              bcuSlotDuration = sd,
+              bcuKeys = Nothing,
+              bcuCapital = Nothing,
+              bcuRestakeEarnings = Nothing,
+              bcuOpenForDelegation = Nothing,
+              bcuMetadataURL = Nothing,
+              bcuTransactionFeeCommission = if fc == cfc then Nothing else Just cfc,
+              bcuBakingRewardCommission = if bc == cbc then Nothing else Just cbc,
+              bcuFinalizationRewardCommission = if tc == ctc then Nothing else Just ctc}
+            case result of
+              BI.BCSuccess _ _ -> return newBS
+              _ -> error "Failed to configure baker with new rates within ranges." -- this should never happen
 
 -- |PRECONDITION: Focus block is the parent block of the block we wish to make,
 -- hence the pending transaction table is correct for the new block.

@@ -21,8 +21,6 @@ import Data.Foldable (foldlM)
 
 import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.Basic.BlockState.Bakers as Basic
-import qualified Concordium.GlobalState.Persistent.Account as PersistentAccount
-import qualified Concordium.GlobalState.Persistent.Accounts as PersistentAccounts
 import qualified Concordium.Types.Accounts as BaseAccounts
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.Types
@@ -219,25 +217,3 @@ makePersistentActiveBakers ab = do
     _activeBakers <- foldlM update Trie.empty (Map.toList (Basic._activeBakers ab))
     _aggregationKeys <- Trie.fromList $ (, ()) <$> Set.toList (Basic._aggregationKeys ab)
     return PersistentActiveBakers{..}
-
-activeBakerFoldlDelegators
-    :: (IsProtocolVersion pv, MonadBlobStore m)
-    => PersistentAccounts.Accounts pv
-    -> PersistentActiveBakers (AccountVersionFor pv)
-    -> (a -> DelegatorId -> BaseAccounts.AccountDelegation (AccountVersionFor pv) -> m a)
-    -> a
-    -> BakerId
-    -> m a
-activeBakerFoldlDelegators accounts pab f a0 bid = do
-    mDset <- Trie.lookup bid (pab ^. activeBakers)
-    case mDset of
-        Just (PersistentActiveDelegatorsV1 dset) -> foldlM faccount a0 =<< Trie.keys dset
-        _ -> return a0
-    where
-      faccount a did@(DelegatorId aid) = do
-        PersistentAccounts.indexedAccount aid accounts >>= \case
-            Just PersistentAccount.PersistentAccount{
-                    _accountStake = PersistentAccount.PersistentAccountStakeDelegate acctDelRef} ->
-                f a did =<< refLoad acctDelRef
-            _ ->
-                error "Invariant violation: active delegator account not a valid delegator"

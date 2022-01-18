@@ -236,6 +236,8 @@ data BakerConfigureResult
   -- ^The aggregation key already exists.
   | BCStakeUnderThreshold
   -- ^The stake is below the required threshold dictated by current chain parameters.
+  | BCStakeOverThreshold
+  -- ^The stake is above the required threshold dictated by current chain parameters.
   | BCCommissionNotInRange
   -- ^The commission is not in the allowed range.
   | BCChangePending
@@ -294,4 +296,8 @@ data DelegationConfigureResult
   -- ^This is not a valid delegator.
   | DCInvalidDelegationTarget !BakerId
   -- ^Delegation target is not a valid baker.
+  | DCPoolStakeOverThreshold
+  -- ^The pool's total capital would become too large.
+  | DCPoolOverDelegated
+  -- ^The delegated capital would become too large in comparison with pool owner's equity capital.
   deriving (Eq, Show)
