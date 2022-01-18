@@ -422,7 +422,6 @@ class (BlockStateQuery m) => BlockStateOperations m where
 
   bsoClearNextEpochBakers :: (AccountVersionFor (MPV m) ~ 'AccountV1) => UpdatableBlockState m -> m (UpdatableBlockState m)
 
-{-
   -- |Update the bakers for the next epoch.
   --
   -- 1. The current epoch bakers are replaced with the next epoch bakers.
@@ -434,7 +433,8 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- Note that instead of iteratively calling this for a succession of epochs,
   -- it should always be sufficient to just call it for the last two of them.
   bsoTransitionEpochBakers
-    :: UpdatableBlockState m
+    :: (AccountVersionFor (MPV m) ~ 'AccountV0)
+    => UpdatableBlockState m
     -> Timestamp
     -- ^Genesis time
     -> Duration
@@ -442,7 +442,23 @@ class (BlockStateQuery m) => BlockStateOperations m where
     -> Epoch
     -- ^The new epoch
     -> m (UpdatableBlockState m)
--}
+
+
+  -- |Process a pending changes on all bakers and delegators.
+  -- Pending changes are only applied if they are effective according to the supplied guard
+  -- function.
+  -- For bakers pending removal, this removes the baker record and removes the baker from the active
+  -- bakers (transferring any delegators to the L-pool).
+  -- For bakers pending stake reduction, this reduces the stake.
+  -- For delegators pending removal, this removes the delegation record and removes the record of
+  -- the delegation from the active bakers index.
+  -- For delegators pending stake reduction, this reduces the stake.
+  bsoProcessPendingChanges
+    :: UpdatableBlockState m
+    -> (PendingChangeEffective (AccountVersionFor (MPV m)) -> Bool)
+    -- ^Guard determining if a change is effective
+    -> m (UpdatableBlockState m)
+
 
   -- |Register this account as a baker.
   -- The following results are possible:
@@ -551,21 +567,6 @@ class (BlockStateQuery m) => BlockStateOperations m where
     => UpdatableBlockState m
     -> AccountIndex
     -> m (BakerRemoveResult, UpdatableBlockState m)
-
-  -- |Process a pending change on an account's stake.
-  -- This only has an effect if there is a pending change on the account and the guard on the
-  -- effective time passes.
-  -- For bakers pending removal, this removes the baker record and removes the baker from the active
-  -- bakers (transferring any delegators to the L-pool).
-  -- For bakers pending stake reduction, this reduces the stake.
-  -- For delegators pending removal, this removes the delegation record and removes the record of
-  -- the delegation from the active bakers index.
-  -- For delegators pending stake reduction, this reduces the stake.
-  bsoProcessPendingChange
-    :: UpdatableBlockState m
-    -> (PendingChangeEffective (AccountVersionFor (MPV m)) -> Bool)
-    -> AccountIndex
-    -> m (UpdatableBlockState m)
 
   -- |Add an amount to a baker's account as a reward. The baker's stake is increased
   -- correspondingly if the baker is set to restake rewards.
@@ -810,8 +811,8 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoSetSeedState s ss = lift $ bsoSetSeedState s ss
   bsoRotateCurrentEpochBakers = lift . bsoRotateCurrentEpochBakers
   bsoClearNextEpochBakers = lift . bsoClearNextEpochBakers
-  bsoProcessPendingChange s g = lift . bsoProcessPendingChange s g
-  -- bsoTransitionEpochBakers s t d e = lift $ bsoTransitionEpochBakers s t d e
+  bsoProcessPendingChanges s g = lift $ bsoProcessPendingChanges s g
+  bsoTransitionEpochBakers s t d e = lift $ bsoTransitionEpochBakers s t d e
   bsoAddBaker s addr a = lift $ bsoAddBaker s addr a
   bsoConfigureBaker s aconfig a = lift $ bsoConfigureBaker s aconfig a
   bsoConfigureDelegation s aconfig a = lift $ bsoConfigureDelegation s aconfig a
@@ -859,7 +860,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoNotifyEncryptedBalanceChange #-}
   {-# INLINE bsoGetSeedState #-}
   {-# INLINE bsoSetSeedState #-}
-  -- {-# INLINE bsoTransitionEpochBakers #-}
+  {-# INLINE bsoTransitionEpochBakers #-}
   {-# INLINE bsoAddBaker #-}
   {-# INLINE bsoConfigureBaker #-}
   {-# INLINE bsoUpdateBakerKeys #-}
