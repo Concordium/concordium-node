@@ -782,6 +782,8 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
   getAccountBaker = lift . getAccountBaker
   getAccountDelegator = lift . getAccountDelegator
   getAccountStake = lift . getAccountStake
+  getAccountBakerInfoRef = lift . getAccountBakerInfoRef
+  derefBakerInfo = lift . derefBakerInfo
   {-# INLINE getAccountCanonicalAddress #-}
   {-# INLINE getAccountAmount #-}
   {-# INLINE getAccountAvailableAmount #-}
@@ -793,6 +795,8 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
   {-# INLINE getAccountReleaseSchedule #-}
   {-# INLINE getAccountBaker #-}
   {-# INLINE getAccountStake #-}
+  {-# INLINE getAccountBakerInfoRef #-}
+  {-# INLINE derefBakerInfo #-}
 
 instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperations (MGSTrans t m) where
   bsoGetModule s = lift . bsoGetModule s
@@ -844,6 +848,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoGetEpochBlocksBaked = lift . bsoGetEpochBlocksBaked
   bsoNotifyBlockBaked s = lift . bsoNotifyBlockBaked s
   bsoClearEpochBlocksBaked = lift . bsoClearEpochBlocksBaked
+  bsoSetNextEpochBakers s = lift . bsoSetNextEpochBakers s
   bsoGetBankStatus = lift . bsoGetBankStatus
   bsoSetRewardAccounts s = lift . bsoSetRewardAccounts s
   {-# INLINE bsoGetModule #-}
@@ -891,6 +896,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoGetEpochBlocksBaked #-}
   {-# INLINE bsoNotifyBlockBaked #-}
   {-# INLINE bsoClearEpochBlocksBaked #-}
+  {-# INLINE bsoSetNextEpochBakers #-}
   {-# INLINE bsoGetBankStatus #-}
   {-# INLINE bsoSetRewardAccounts #-}
 instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (MGSTrans t m) where
