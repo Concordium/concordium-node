@@ -74,6 +74,11 @@ deriving instance Show (NextEpochBakers av)
 
 data BasicBirkParameters (av :: AccountVersion) = BasicBirkParameters {
     -- |The currently-registered bakers.
+    -- For AccountV0, bakers remain active while they are current epoch bakers (or waiting to become
+    -- current). From AccountV1 onwards, bakers may remain current epoch bakers after they have been
+    -- removed from the active bakers.
+    -- Invariant: the active bakers correspond exactly to the accounts that have baker records.
+    -- (And delegators likewise.)
     _birkActiveBakers :: !ActiveBakers,
     -- |The bakers that will be used for the next epoch.
     _birkNextEpochBakers :: !(NextEpochBakers av),
@@ -391,55 +396,6 @@ getBlockState migration = do
     let _blockTransactionOutcomes = Transactions.emptyTransactionOutcomes
     return BlockState{..}
 
--- | Fold left over delegators for a given baker
--- 'activeBakerFoldlDelegators' @accounts@ @ab@ @f@ @a@ @bid@, where
--- * @bs@ is used to lookup the delegator accounts and active bakers,
--- * @f@ is accumulation function,
--- * @a@ is the initial value,
--- * @bid@ is the baker.
--- If @bid@ is not an active baker in @bs@, then the initial value @a@ is returned. It is assumed
--- that all delegators to the baker @bid@ are delegator accounts in @bs@.
-activeBakerFoldlDelegators
-    :: IsProtocolVersion pv
-    => BlockState pv
-    -> (a -> DelegatorId -> AccountDelegation (AccountVersionFor pv) -> a)
-    -> a
-    -> BakerId
-    -> a
-activeBakerFoldlDelegators bs f a0 bid = do
-    case Map.lookup bid (bs ^. blockBirkParameters . birkActiveBakers . activeBakers) of
-        Just dset -> foldl faccount a0 dset
-        _ -> a0
-    where
-      faccount a did@(DelegatorId aid) =
-        case bs ^? blockAccounts . Accounts.indexedAccount aid of
-            Just Account{_accountStaking = AccountStakeDelegate acctDel} ->
-                f a did acctDel
-            _ ->
-                error "Invariant violation: active delegator account not a valid delegator"
-
--- | Get total pool capital, sum of baker and delegator stakes,
--- 'totalPoolCapital' @accounts@ @ab@ @bid@, where
--- * @bs@ is used to lookup accounts and active bakers,
--- * @bid@ is the baker.
--- If @bid@ is not a baker in @accounts@, then @0@ is returned.
--- If @bid@ is not an active baker in @ab@, then the baker's equity capital (stake) is returned.
--- It is assumed that all delegators to the baker @bid@ are delegator accounts in @accounts@.
-totalPoolCapital
-    :: IsProtocolVersion pv
-    => BlockState pv
-    -> BakerId
-    -> Amount
-totalPoolCapital bs bid@(BakerId aid) = do
-    case bs ^? blockAccounts . Accounts.indexedAccount aid of
-        Just Account{_accountStaking = AccountStakeBaker acctBkr} ->
-            activeBakerFoldlDelegators bs addDelStake (acctBkr ^. stakedAmount) bid
-        _ ->
-            0
-    where
-      addDelStake :: Amount -> DelegatorId -> AccountDelegation av -> Amount
-      addDelStake a _ AccountDelegationV1{..} = a + _delegationStakedAmount
-
 newtype PureBlockStateMonad (pv :: ProtocolVersion) m a = PureBlockStateMonad {runPureBlockStateMonad :: m a}
     deriving (Functor, Applicative, Monad)
 
@@ -473,8 +429,6 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
         case Accounts.getAccountIndex aaddr (bs ^. blockAccounts) of
           Nothing -> Nothing
           Just ai -> (ai, ) <$> (bs ^? blockAccounts . Accounts.indexedAccount ai)
-
-    getActiveBakers bs = return $ Map.keys $ bs ^. blockBirkParameters . birkActiveBakers . activeBakers
 
     {-# INLINE getAccountByCredId #-}
     getAccountByCredId bs cid =
@@ -611,30 +565,6 @@ instance (Monad m, IsProtocolVersion pv) => BS.AccountOperations (PureBlockState
 
   getAccountStake acc = return $ acc ^. accountStaking
 
-delegationConfigureDisallowOverdelegation
-    :: (IsProtocolVersion pv, MTL.MonadError DelegationConfigureResult m)
-    => BlockState pv
-    -> PoolParameters 'ChainParametersV1
-    -> DelegationTarget
-    -> m ()
-delegationConfigureDisallowOverdelegation bs poolParams target = case target of
-  DelegateToLPool -> return ()
-  DelegateToBaker bid@(BakerId baid) -> do
-    let capitalBound = poolParams ^. ppCapitalBound
-        leverageBound = poolParams ^. ppLeverageBound
-        poolCapital = totalPoolCapital bs bid
-    bakerEquityCapital <- case bs ^? blockAccounts . Accounts.indexedAccount baid of
-      Just Account{_accountStaking = AccountStakeBaker ab} ->
-          return (ab ^. stakedAmount)
-      _ ->
-          MTL.throwError (DCInvalidDelegationTarget bid)
-    when (fromIntegral poolCapital > fromIntegral bakerEquityCapital * leverageBound) $
-      MTL.throwError DCPoolStakeOverThreshold
-    let epochBakers = bs ^. blockBirkParameters . birkCurrentEpochBakers . unhashed
-        allCCD = _bakerTotalStake epochBakers
-    when (poolCapital > takeFraction capitalBound allCCD) $
-      MTL.throwError DCPoolOverDelegated
-
 instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockStateMonad pv m) where
 
     {-# INLINE bsoGetModule #-}
@@ -723,7 +653,86 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
     bsoClearNextEpochBakers bs = return $! bs &
         blockBirkParameters . birkNextEpochBakers .~ UnchangedNextEpochBakers
 
-    bsoProcessPendingChange bs isEffective accIndex = return $! case bs ^? blockAccounts . Accounts.indexedAccount accIndex of
+    -- This function handles removing bakers and delegators and reducing their stakes.
+    bsoProcessPendingChanges oldBlockState isEffective = return $! newBlockState
+        where
+            newBlockState = MTL.execState processPendingChanges oldBlockState
+            processPendingChanges = do
+                -- Process the L-Pool
+                oldDelegators <- use (blockBirkParameters . birkActiveBakers . lPoolDelegators)
+                newDelegators <- processDelegators oldDelegators
+                blockBirkParameters . birkActiveBakers . lPoolDelegators .= newDelegators
+                -- Process the bakers (this may also modify the L-Pool)
+                oldBakers <- use (blockBirkParameters . birkActiveBakers . activeBakers)
+                newBakers <- processBakers oldBakers
+                blockBirkParameters . birkActiveBakers . activeBakers .= newBakers
+
+
+            -- For a set of delegators, process any pending changes on the account and return the
+            -- new set of delegators. (A delegator is removed from the set if its pending change
+            -- removes it.) This _only_ changes the accounts of delegators, and does not affect the
+            -- active bakers record.
+            processDelegators :: Set.Set DelegatorId -> MTL.State (BlockState pv) (Set.Set DelegatorId)
+            processDelegators = Set.fromDistinctAscList . filterM processDelegator . Set.toAscList
+            processDelegator :: DelegatorId -> MTL.State (BlockState pv) Bool
+            processDelegator accumulatedDelegators dlg@(DelegatorId accId) =
+                preuse (^. blockAccounts . Accounts.indexedAccount accId) >>= \case
+                    Just acct -> case acct ^. accountDelegator of
+                        Just acctDel@AccountDelegationV1{..} -> case _delegationPendingChange of
+                            RemoveStake pet | isEffective pet -> removeDelegatorStake accId
+                            ReduceStake newAmt pet | isEffective pet -> reduceDelegatorStake accId acctDel newAmt
+                            _ -> return True
+                        Nothing -> error "Invariant violation: active delegator is not a delegation account"
+                    Nothing -> error "Invariant violation: active delegator account was not found"
+            removeDelegatorStake accId = do
+                blockAccounts . Accounts.indexedAccount accId %=!
+                    (accountStaking .~ AccountStakeNone)
+                return False
+            reduceDelegatorStake accId acctDel newAmt = do
+                blockAccounts . Accounts.indexedAccount accId %=!
+                    (accountStaking .~ AccountStakeDelegate acctDel{
+                            _delegationStakedAmount = newAmt
+                        })
+                return True
+
+            -- 
+            processBakers :: Map.Map BakerId (Set.Set DelegatorId) -> MTL.State (BlockState pv) (Map.Map BakerId (Set.Set DelegatorId))
+            processBakers = foldM processBaker Map.empty . Map.toAscList
+            processBaker
+                :: (Map.Map BakerId (Set.Set DelegatorId))
+                -> (BakerId, Set.Set DelegatorId)
+                -> MTL.State (BlockState pv) (Map.Map BakerId (Set.Set DelegatorId))
+            processBaker accumBakers (bid@(BakerId accId), oldDelegators) = do
+                newDelegators <- processDelegators oldDelegators
+                preuse (^. blockAccounts . Accounts.indexedAccount accId) >>= \case
+                    Just acct -> case acct ^. accountBaker of
+                        Just acctBkr@AccountBaker{..} -> case _bakerPendingChange of
+                            RemoveStake pet | isEffective pet ->
+                                removeBakerStake accumBakers accId newDelegators
+                            ReduceStake newAmt pet | isEffecitve pet ->
+                                reduceBakerStake accId newAmt newDelegators
+                            _ -> return $! Map.insert bid newDelegators
+                        Nothing -> error "Basic.bsoProcessPendingChanges invariant violation: active baker account not a baker"
+                    Nothing -> error "Basic.bsoProcessPendingChanges invariant violation: active baker account not valid"
+            removeBakerStake accumBakers accId newDelegators = do
+                blockAccounts . Accounts.indexedAccount accId %=! (accountStaking .~ AccountStakeNone)
+                forM_ newDelegators moveDelegationFromBaker
+                blockBirkParameters . birkActiveBakers . lPoolDelegators %=
+                    Set.insert newDelegators
+                return $! accumBakers
+            moveDelegationFromBaker (DelegatorId accId) =
+                blockAccounts . Accounts.indexedAccount accId %=!
+                    (accountStaking %~ \case
+                        AccountStakeDelegate asd@AccountDelegationV1{} -> AccountStakeDelegate (asd{_delegationTarget = DelegateToLPool})
+                        _ -> error "Invariant violation: active delegator is not a delegation account"
+                        )
+            reduceBakerStake = undefined
+
+        
+        
+        
+        
+        return $! case bs ^? blockAccounts . Accounts.indexedAccount accIndex of
         Nothing -> bs :: BlockState pv
         Just acc -> case acc ^. accountStaking of
             AccountStakeNone -> bs
@@ -785,7 +794,6 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             bakerId = BakerId accIndex
 
 
-{-
     bsoTransitionEpochBakers origBS genesisTime slotDuration newEpoch = return $! newbs
         where
             oldBPs = origBS ^. blockBirkParameters
@@ -884,7 +892,6 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                       (accountStaking .~ AccountStakeBaker newAcctBkr)
               in (newBS, (acctBkr ^. bakerInfo, newAmt) : bkrs)
             moveDelegatorsToLPool bs acctBkr = undefined -- TODO: implement
--}
 
     bsoAddBaker bs ai BakerAdd{..} = do
       bakerStakeThreshold <- BS.bsoGetChainParameters bs <&> (^. cpPoolParameters . ppBakerStakeThreshold)
@@ -915,9 +922,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
       -- It is assumed here that this account is NOT a baker and NOT a delegator.
       chainParams <- BS.bsoGetChainParameters bs
       let poolParams = chainParams ^. cpPoolParameters
-      let capitalMin = poolParams ^. ppMinimumEquityCapital
-      let epochBakers = bs ^. blockBirkParameters . birkCurrentEpochBakers . unhashed
-      let capitalMax = takeFraction (poolParams ^. ppCapitalBound) (_bakerTotalStake epochBakers)
+      let bakerStakeThreshold = poolParams ^. ppMinimumEquityCapital
       let ranges = poolParams ^. ppCommissionBounds
       return $! case bs ^? blockAccounts . Accounts.indexedAccount ai of
         -- Cannot resolve the account
@@ -927,10 +932,8 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
           | bkuAggregationKey bcaKeys `Set.member` (bs ^. blockBirkParameters . birkActiveBakers . aggregationKeys) ->
                 (BCDuplicateAggregationKey (bkuAggregationKey bcaKeys), bs)
           -- Provided stake is under threshold
-          | bcaCapital < capitalMin ->
+          | bcaCapital < bakerStakeThreshold ->
                 (BCStakeUnderThreshold, bs)
-          | bcaCapital > capitalMax ->
-                (BCStakeOverThreshold, bs)
           -- Check that commissions are within the valid ranges
           | not (isInRange bcaFinalizationRewardCommission (ranges ^. finalizationCommissionRange)) ->
                 (BCCommissionNotInRange, bs)
@@ -1078,12 +1081,8 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             ab <- getAccount
             bs <- MTL.get
             let cp = bs ^. blockUpdates . currentParameters
-            let capitalMin = cp ^. cpPoolParameters . ppMinimumEquityCapital
-            when (capital < capitalMin) (MTL.throwError BCStakeUnderThreshold)
-            let poolParams = cp ^. cpPoolParameters
-            let epochBakers = bs ^. blockBirkParameters . birkCurrentEpochBakers . unhashed
-            let capitalMax = takeFraction (poolParams ^. ppCapitalBound) (_bakerTotalStake epochBakers)
-            when (capital > capitalMax) (MTL.throwError BCStakeOverThreshold)
+            let threshold = cp ^. cpPoolParameters . ppMinimumEquityCapital
+            when (capital < threshold) (MTL.throwError BCStakeUnderThreshold)
             case compare capital (_stakedAmount ab) of
                 LT -> do
                     let bpc = ReduceStake capital (PendingChangeEffectiveV1 cooldownTimestamp)
@@ -1098,43 +1097,22 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                     MTL.tell [BakerConfigureStakeIncreased capital]
 
     bsoConfigureDelegation bs ai DelegationConfigureAdd{..} = do
+        -- TODO: Disallow overdelegation.
         -- It is assumed here that this account is NOT a baker and NOT a delegator.
-        poolParams <- _cpPoolParameters <$> BS.bsoGetChainParameters bs
-        let result = MTL.runExcept $ do
-                newBS <- updateBlockState
-                delegationConfigureDisallowOverdelegation newBS poolParams dcaDelegationTarget
-                return newBS
-        return $! case result of
-            Left e -> (e, bs)
-            Right newBlockState -> (DCSuccess [] did, newBlockState)
-        where
-          did = DelegatorId ai
-          updateBlockState = case bs ^? blockAccounts . Accounts.indexedAccount ai of
-            Nothing -> MTL.throwError DCInvalidAccount
-            Just Account{} -> do
-              newBirkParams <- updateBirk dcaDelegationTarget
-              let ad = AccountStakeDelegate AccountDelegationV1{
+        return $! case bs ^? blockAccounts . Accounts.indexedAccount ai of
+            -- Cannot resolve the account
+            Nothing -> (DCInvalidAccount, bs)
+            Just Account{} ->
+              let did = DelegatorId ai
+                  ad = AccountStakeDelegate AccountDelegationV1{
                       _delegationIdentity = did,
                       _delegationStakedAmount = dcaCapital,
                       _delegationStakeEarnings = dcaRestakeEarnings,
                       _delegationTarget = dcaDelegationTarget,
                       _delegationPendingChange = NoChange
                   }
-                  newBlockState = bs
-                    & blockAccounts . Accounts.indexedAccount ai . accountStaking .~ ad
-                    & blockBirkParameters .~ newBirkParams
-              return newBlockState
-          updateBirk DelegateToLPool = undefined -- TODO: implement delegate to L-pool here.
-          updateBirk (DelegateToBaker bid) =
-            let ab = bs ^. blockBirkParameters . birkActiveBakers
-                mDels = Map.lookup bid (ab ^. activeBakers)
-            in case mDels of
-                Nothing -> MTL.throwError (DCInvalidDelegationTarget bid)
-                Just dels -> do
-                    let newDels = Set.insert did dels
-                        newActiveBakers = Map.insert bid newDels (ab ^. activeBakers)
-                        newAB = ab{_activeBakers = newActiveBakers}
-                    return $ _blockBirkParameters bs & birkActiveBakers .~ newAB
+                  newBlockState = bs & blockAccounts . Accounts.indexedAccount ai . accountStaking .~ ad
+              in (DCSuccess [] did, newBlockState)
     bsoConfigureDelegation bs ai DelegationConfigureRemove{..} =
         return $! case bs ^? blockAccounts . Accounts.indexedAccount ai of
             Just Account{_accountStaking = AccountStakeDelegate ad@AccountDelegationV1{..}}
@@ -1145,25 +1123,15 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                       cooldown = fromIntegral $ cp ^. cpCooldownParameters . cpDelegatorCooldown
                       msInEpoch = fromIntegral (epochLength $ bs ^. blockBirkParameters . birkSeedState) * dcrSlotDuration
                       timestamp = addDuration dcrTimestamp (cooldown * rewardPeriodLength * msInEpoch)
-                      newBirkParams = updateBirk _delegationTarget
                   in (DCSuccess [] (DelegatorId ai),
-                      bs
-                        & blockAccounts . Accounts.indexedAccount ai . accountStaking .~ AccountStakeDelegate (ad & delegationPendingChange .~ RemoveStake (PendingChangeEffectiveV1 timestamp))
-                        & blockBirkParameters .~ newBirkParams)
+                      bs & blockAccounts . Accounts.indexedAccount ai . accountStaking .~ AccountStakeDelegate (ad & delegationPendingChange .~ RemoveStake (PendingChangeEffectiveV1 timestamp)))
             _ -> (DCInvalidDelegator, bs)
-        where
-          updateBirk DelegateToLPool = undefined -- TODO: implement delegate to L-pool here.
-          updateBirk (DelegateToBaker bid) =
-            let ab = bs ^. blockBirkParameters . birkActiveBakers
-                newBakers = Map.delete bid (ab ^. activeBakers)
-                newAB = ab{_activeBakers = newBakers}
-            in _blockBirkParameters bs & birkActiveBakers .~ newAB
     bsoConfigureDelegation origBS ai DelegationConfigureUpdate{..} = do
-        poolParams <- _cpPoolParameters <$> BS.bsoGetChainParameters origBS
+        -- TODO: Disallow overdelegation.
         let res = MTL.runExcept $ MTL.runWriterT $ flip MTL.execStateT origBS $ do
-                updateDelegationTarget
+                updateCapital
                 updateRestakeEarnings
-                updateCapital poolParams
+                updateDelegationTarget
         return $! case res of
             Left errorRes -> (errorRes, origBS)
             Right (newBS, changes) -> (DCSuccess changes did, newBS)
@@ -1189,7 +1157,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
         requireNoPendingChange = do
             ad <- getAccount
             when (_delegationPendingChange ad /= NoChange) (MTL.throwError DCChangePending)
-        updateCapital poolParams = forM_ dcuCapital $ \capital -> do
+        updateCapital = forM_ dcuCapital $ \capital -> do
             requireNoPendingChange
             ad <- getAccount
             case compare capital (ad ^. delegationStakedAmount) of
@@ -1198,15 +1166,11 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                     modifyAccount (delegationPendingChange .~ dpc)
                     MTL.tell [DelegationConfigureStakeReduced capital]
                 EQ ->
-                    -- We could tell "DelegationConfigureStakeUnchanged", but currently it is not
-                    -- handled in the Scheduler.
+                    -- We could tell a "DelegationConfigureStakeUnchanged", but currently it is not handled
+                    -- in the Scheduler.
                     return ()
                 GT -> do
                     modifyAccount (delegationStakedAmount .~ capital)
-                    bs <- MTL.get
-                    -- The delegation target may be updated by 'updateDelegationTarget', hence it
-                    -- is important that 'updateDelegationTarget' is invoked before 'updateCapital'.
-                    delegationConfigureDisallowOverdelegation bs poolParams (ad ^. delegationTarget)
                     MTL.tell [DelegationConfigureStakeIncreased capital]
         updateRestakeEarnings = forM_ dcuRestakeEarnings $ \restakeEarnings -> do
             ad <- getAccount
