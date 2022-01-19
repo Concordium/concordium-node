@@ -490,9 +490,16 @@ executeFrom blockHash slotNumber slotTime blockParent blockBaker mfinInfo newSee
         (updates, bshandle0a) <- bsoProcessUpdateQueues bshandle0 slotTime
         sd <- gdSlotDuration <$> getGenesisData
         ab <- getActiveBakers origBS
-        bshandle0a' <- case chainParams ^. cpPoolParameters of
-          PoolParametersV0{} -> return bshandle0a
-          PoolParametersV1{..} -> foldM (putBakerCommissionsInRange _ppCommissionBounds sd origBS) bshandle0a ab
+        let isPoolParameterUpdate = \case
+              UVPoolParameters _ -> True
+              _ -> False
+        -- take out pool parameter updates, ordered by timestamp
+        let poolParameterUpdates = filter isPoolParameterUpdate $ Map.elems updates
+        -- for each pool parameter update, go over all bakers and put their commissions inside
+        -- the new commission ranges.
+        bshandle0a' <- foldM (\bs uv -> case uv of
+          UVPoolParameters PoolParametersV1{..} -> foldM (putBakerCommissionsInRange _ppCommissionBounds sd origBS) bs ab
+          _ -> return bs) bshandle0a poolParameterUpdates
         -- unlock the amounts that have expired
         bshandle0b <- bsoProcessReleaseSchedule bshandle0a' slotTime
         -- update the bakers and seed state
