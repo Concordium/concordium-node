@@ -28,6 +28,7 @@ import Concordium.Wasm
 import qualified Concordium.Scheduler.WasmIntegration as WasmV0
 import qualified Concordium.Scheduler.WasmIntegration.V1 as WasmV1
 import qualified Concordium.GlobalState.Wasm as GSWasm
+import qualified Concordium.Types.InvokeContract as InvokeContract
 import qualified Concordium.Scheduler.InvokeContract as InvokeContract
 
 import Concordium.Types.DummyData
@@ -315,10 +316,10 @@ checkSuccess msg targetValue icr = liftIO $
     InvokeContract.Failure{..} -> assertFailure $ "Invocation failed ( " ++ show msg ++ "): " ++ show rcrReason
     InvokeContract.Success{..} ->
       case rcrReturnValue of
-        Nothing -> assertFailure $ "Invoking a V1 contract must produce a return value."
+        Nothing -> assertFailure "Invoking a V1 contract must produce a return value."
         Just rv -> assertEqual msg
                   (BS.unpack (runPut (putWord64le targetValue)))
-                  (BS.unpack (WasmV1.returnValueToByteString rv))
+                  (BS.unpack rv)
 
 runCallerTests :: Assertion
 runCallerTests = do
@@ -348,4 +349,4 @@ runCallerTests = do
 
 tests :: Spec
 tests = describe "V1: Invoke contract" $ do
-  specify "Caller contract" $ runCallerTests
+  specify "Caller contract" runCallerTests

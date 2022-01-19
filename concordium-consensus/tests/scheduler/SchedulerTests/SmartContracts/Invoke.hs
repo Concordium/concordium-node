@@ -25,6 +25,7 @@ import Concordium.GlobalState.Instance
 import Concordium.Wasm
 import qualified Concordium.Scheduler.WasmIntegration.V1 as WasmV1
 import qualified Concordium.GlobalState.Wasm as GSWasm
+import qualified Concordium.Types.InvokeContract as InvokeContract
 import qualified Concordium.Scheduler.InvokeContract as InvokeContract
 
 import Concordium.Types.DummyData
@@ -164,28 +165,28 @@ runCounterTests = do
       InvokeContract.Failure{..} -> liftIO $ assertFailure $ "Invocation failed: " ++ show rcrReason
       InvokeContract.Success{..} ->
         case rcrReturnValue of
-          Nothing -> liftIO $ assertFailure $ "Invoking a V1 contract must produce a return value."
-          Just rv -> liftIO $ assertEqual "Invoking a counter in initial state should return 1" [1,0,0,0,0,0,0,0] (BS.unpack (WasmV1.returnValueToByteString rv))
+          Nothing -> liftIO $ assertFailure "Invoking a V1 contract must produce a return value."
+          Just rv -> liftIO $ assertEqual "Invoking a counter in initial state should return 1" [1,0,0,0,0,0,0,0] (BS.unpack rv)
 
     invokeContract2 addr stateWithContract >>= \case
       InvokeContract.Failure{..} -> liftIO $ assertFailure $ "Invocation failed: " ++ show rcrReason
       InvokeContract.Success{..} ->
         case rcrReturnValue of
-          Nothing -> liftIO $ assertFailure $ "Invoking a V1 contract must produce a return value."
-          Just rv -> liftIO $ assertEqual "Invoking a counter in initial state should return nothing" [] (BS.unpack (WasmV1.returnValueToByteString rv))
+          Nothing -> liftIO $ assertFailure "Invoking a V1 contract must produce a return value."
+          Just rv -> liftIO $ assertEqual "Invoking a counter in initial state should return nothing" [] (BS.unpack rv)
 
     invokeContract3 addr stateWithContract >>= \case
       InvokeContract.Failure{..} -> liftIO $ assertEqual "Invocation should fail: " Types.RuntimeFailure rcrReason
-      InvokeContract.Success{} -> liftIO $ assertFailure $ "Invocation succeeded, but should fail."
+      InvokeContract.Success{} -> liftIO $ assertFailure "Invocation succeeded, but should fail."
 
     invokeContract4 addr stateWithContract >>= \case
       InvokeContract.Failure{..} -> liftIO $ assertFailure $ "Invocation failed: " ++ show rcrReason
       InvokeContract.Success{..} ->
         case rcrReturnValue of
-          Nothing -> liftIO $ assertFailure $ "Invoking a V1 contract must produce a return value."
-          Just rv -> liftIO $ assertEqual "Invoking a counter in initial state should return nothing." [] (BS.unpack (WasmV1.returnValueToByteString rv))
+          Nothing -> liftIO $ assertFailure "Invoking a V1 contract must produce a return value."
+          Just rv -> liftIO $ assertEqual "Invoking a counter in initial state should return nothing." [] (BS.unpack rv)
 
 
 tests :: Spec
 tests = describe "Invoke contract" $ do
-  specify "V1: Counter contract" $ runCounterTests
+  specify "V1: Counter contract" runCounterTests
