@@ -1,4 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 module Concordium.GlobalState.BakerInfo where
@@ -13,7 +16,6 @@ import Concordium.Types.Accounts
 
 import Concordium.Types
 import Concordium.Types.Execution (OpenStatus, DelegationTarget)
-
 
 data FullBakerInfo = FullBakerInfo {
     _theBakerInfo :: !BakerInfo,

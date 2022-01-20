@@ -27,7 +27,7 @@ import Concordium.Types.HashableTo
 --
 -- The hashing scheme separately hashes the baker info and baker stakes.
 --
--- Since this in memory implementation is indended more to serve as a specification
+-- Since this in memory implementation is intended more to serve as a specification
 -- than to be used in practice, it is not optimised for time and space usage.
 data EpochBakers = EpochBakers {
     -- |The 'BakerInfo' for each baker, ordered by the 'BakerId'.
@@ -53,15 +53,20 @@ epochBaker bid EpochBakers{..} = binSearch 0 (Vec.length _bakerInfos - 1)
                   EQ -> Just (bi, _bakerStakes Vec.! midIndex)
                   GT -> binSearch (midIndex + 1) highIndex      
           EQ -> let bi = _bakerInfos Vec.! lowIndex in
-                if _bakerIdentity bi == bid then Just (bi, _bakerStakes Vec.! lowIndex) else Nothing
+                if _bakerIdentity bi == bid
+                    then Just (bi, _bakerStakes Vec.! lowIndex)
+                    else Nothing
           GT -> Nothing
 
 instance HashableTo H.Hash EpochBakers where
-    getHash EpochBakers{..} = H.hashOfHashes (hashVec _bakerInfos) (hashVec _bakerStakes)
+    getHash EpochBakers{..} =
+        H.hashOfHashes
+            (hashVec put _bakerInfos)
+            (hashVec put _bakerStakes)
       where
-        hashVec v = H.hash $ runPut $ mapM_ put v
+        hashVec p v = H.hash $ runPut $ mapM_ p v
 
--- |Serialize 'EpochBakers' in V0 format.
+-- |Serialize 'EpochBakers'.
 putEpochBakers :: Putter EpochBakers
 putEpochBakers EpochBakers{..} = do
     assert (Vec.length _bakerInfos == Vec.length _bakerStakes) $
@@ -69,7 +74,7 @@ putEpochBakers EpochBakers{..} = do
     mapM_ put _bakerInfos
     mapM_ put _bakerStakes
 
--- |Deserialize 'EpochBakers' in V0 format.
+-- |Deserialize 'EpochBakers'.
 getEpochBakers :: Get EpochBakers
 getEpochBakers = do
     bakers <- getLength
@@ -81,14 +86,17 @@ getEpochBakers = do
 -- |Convert an 'EpochBakers' to a 'FullBakers'.
 epochToFullBakers :: EpochBakers -> FullBakers
 epochToFullBakers EpochBakers{..} = FullBakers{
-        fullBakerInfos = Vec.zipWith FullBakerInfo _bakerInfos _bakerStakes,
+        fullBakerInfos = Vec.zipWith mkFullBakerInfo _bakerInfos _bakerStakes,
         bakerTotalStake = _bakerTotalStake
     }
+    where
+        mkFullBakerInfo bi bs = FullBakerInfo bi bs
 
 -- |The set of accounts that are currently registered as bakers.
 data ActiveBakers = ActiveBakers {
     _activeBakers :: !(Map BakerId (Set DelegatorId)),
-    _aggregationKeys :: !(Set BakerAggregationVerifyKey)
+    _aggregationKeys :: !(Set BakerAggregationVerifyKey),
+    _lPoolDelegators :: !(Set DelegatorId)
 } deriving (Eq, Show)
 
 makeLenses ''ActiveBakers

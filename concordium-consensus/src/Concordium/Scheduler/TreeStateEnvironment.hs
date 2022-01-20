@@ -430,14 +430,13 @@ updateBirkParameters newSeedState bs0 = case accountVersionFor (protocolVersion 
   SAccountV0 -> do
     oldSeedState <- bsoGetSeedState bs0
     let isNewEpoch = epoch oldSeedState /= epoch newSeedState
-    genData <- getGenesisData
     bs1 <- if isNewEpoch
       then do
         upToLast <- if epoch oldSeedState /= epoch newSeedState - 1
           then do
-            bsoTransitionEpochBakers bs0 (gdGenesisTime genData) (gdSlotDuration genData) (epoch newSeedState - 1)
+            bsoTransitionEpochBakers bs0 (epoch newSeedState - 1)
           else return bs0
-        bsoTransitionEpochBakers upToLast (gdGenesisTime genData) (gdSlotDuration genData) (epoch newSeedState)
+        bsoTransitionEpochBakers upToLast (epoch newSeedState)
       else
         return bs0
     (isNewEpoch,) <$> bsoSetSeedState bs1 newSeedState

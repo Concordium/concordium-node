@@ -23,6 +23,7 @@ class BlockStateTypes (m :: Type -> Type) where
     type BlockState m :: Type
     type UpdatableBlockState m :: Type
     type Account m :: Type
+    type BakerInfoRef m :: Type
 
 -- |Account together with its index in the account map.
 type IndexedAccount m = (AccountIndex, Account m)
@@ -44,6 +45,7 @@ instance BlockStateTypes (MGSTrans t m) where
     type BlockState (MGSTrans t m) = BlockState m
     type UpdatableBlockState (MGSTrans t m) = UpdatableBlockState m
     type Account (MGSTrans t m) = Account m
+    type BakerInfoRef (MGSTrans t m) = BakerInfoRef m
 
 deriving via MGSTrans MaybeT m instance BlockStateTypes (MaybeT m)
 deriving via MGSTrans (ExceptT e) m instance BlockStateTypes (ExceptT e m)

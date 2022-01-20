@@ -582,6 +582,7 @@ instance BlockStateTypes (LocalT r m) where
     type BlockState (LocalT r m) = BlockState m
     type UpdatableBlockState (LocalT r m) = UpdatableBlockState m
     type Account (LocalT r m) = Account m
+    type BakerInfoRef (LocalT r m) = BakerInfoRef m
 
 {-# INLINE energyUsed #-}
 -- |Compute how much energy was used from the upper bound in the header of a
