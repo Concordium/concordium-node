@@ -90,6 +90,9 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r)
     type Account (BlockStateM pv (PairGSContext lc rc) r (PairGState lg rg) s m)
             = (Account (BSML pv lc r lg s m),
                 Account (BSMR pv rc r rg s m))
+    type BakerInfoRef (BlockStateM pv (PairGSContext lc rc) r (PairGState lg rg) s m)
+            = (BakerInfoRef (BSML pv lc r lg s m),
+                BakerInfoRef (BSMR pv rc r rg s m))
 
 instance C.HasGlobalState (PairGState ls rs) s => C.HasGlobalState ls (FocusLeft s) where
     globalState = lens unFocusLeft (const FocusLeft) . C.globalState . pairStateLeft
@@ -358,6 +361,16 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, AccountOpera
         ab2 <- coerceBSMR (getAccountBaker acc2)
         assert (ab1 == ab2) $ return ab1
 
+    getAccountBakerInfoRef (acc1, acc2) =
+        liftM2 (liftM2 (,))
+            (coerceBSML (getAccountBakerInfoRef acc1))
+            (coerceBSMR (getAccountBakerInfoRef acc2))
+
+    derefBakerInfo (bir1, bir2) = do
+        bi1 <- coerceBSML (derefBakerInfo bir1)
+        bi2 <- coerceBSMR (derefBakerInfo bir2)
+        assert (bi1 == bi2) $ return bi1
+
     getAccountDelegator (acc1, acc2) = do
         ad1 <- coerceBSML (getAccountDelegator acc1)
         ad2 <- coerceBSMR (getAccountDelegator acc2)
@@ -451,9 +464,9 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         bs1' <- coerceBSML $ bsoSetSeedState bs1 ss
         bs2' <- coerceBSMR $ bsoSetSeedState bs2 ss
         return (bs1', bs2')
-    bsoTransitionEpochBakers (bs1, bs2) t d epoch = do
-        bs1' <- coerceBSML $ bsoTransitionEpochBakers bs1 t d epoch
-        bs2' <- coerceBSMR $ bsoTransitionEpochBakers bs2 t d epoch
+    bsoTransitionEpochBakers (bs1, bs2) epoch = do
+        bs1' <- coerceBSML $ bsoTransitionEpochBakers bs1 epoch
+        bs2' <- coerceBSMR $ bsoTransitionEpochBakers bs2 epoch
         return (bs1', bs2')
     bsoAddBaker (bs1, bs2) addr bkrAdd = do
         (r1, bs1') <- coerceBSML $ bsoAddBaker bs1 addr bkrAdd
@@ -547,6 +560,24 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         bs1' <- coerceBSML $ bsoClearProtocolUpdate bs1
         bs2' <- coerceBSMR $ bsoClearProtocolUpdate bs2
         return (bs1', bs2')
+    bsoRotateCurrentEpochBakers (bs1, bs2) =
+        liftM2 (,)
+            (coerceBSML $ bsoRotateCurrentEpochBakers bs1)
+            (coerceBSMR $ bsoRotateCurrentEpochBakers bs2)
+    bsoClearNextEpochBakers (bs1, bs2) = do
+        liftM2 (,)
+            (coerceBSML $ bsoClearNextEpochBakers bs1)
+            (coerceBSMR $ bsoClearNextEpochBakers bs2)
+    bsoSetNextEpochBakers (bs1, bs2) ne = do
+        let ne1 = ne <&> \(r, a) -> (fst r, a)
+        let ne2 = ne <&> \(r, a) -> (snd r, a)
+        liftM2 (,)
+            (coerceBSML $ bsoSetNextEpochBakers bs1 ne1)
+            (coerceBSMR $ bsoSetNextEpochBakers bs2 ne2)
+    bsoProcessPendingChanges (bs1, bs2) ch =
+        liftM2 (,)
+            (coerceBSML $ bsoProcessPendingChanges bs1 ch)
+            (coerceBSMR $ bsoProcessPendingChanges bs2 ch)
     bsoAddReleaseSchedule (bs1, bs2) tt = do
         bs1' <- coerceBSML $ bsoAddReleaseSchedule bs1 tt
         bs2' <- coerceBSMR $ bsoAddReleaseSchedule bs2 tt
