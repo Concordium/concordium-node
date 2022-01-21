@@ -1187,7 +1187,7 @@ handleConfigureBaker
                 cm <- getChainMetadata
                 sd <- getSlotDuration
                 let bcu = BI.BakerConfigureUpdate {
-                      bcuTimestamp = slotTime cm,
+                      bcuSlotTimestamp = slotTime cm,
                       bcuSlotDuration = sd,
                       bcuKeys = bku,
                       bcuCapital = cbCapital,
@@ -1340,7 +1340,7 @@ handleConfigureDelegation wtc cdCapital cdRestakeEarnings cdDelegationTarget =
                 cm <- getChainMetadata
                 sd <- getSlotDuration
                 let dcu = BI.DelegationConfigureUpdate {
-                      dcuTimestamp = slotTime cm,
+                      dcuSlotTimestamp = slotTime cm,
                       dcuSlotDuration = sd,
                       dcuCapital = cdCapital,
                       dcuRestakeEarnings = cdRestakeEarnings,

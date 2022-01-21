@@ -137,15 +137,15 @@ getBirkParameters = do
     return BasicBirkParameters{..}
 
 -- |Generate initial birk parameters from genesis accounts and seed state.
-initialBirkParameters ::
-  [Account 'AccountV0]
+initialBirkParameters
+  :: forall av
+   . [Account av]
   -- ^The accounts at genesis, in order
   -> SeedState
   -- ^The seed state
-  -> BasicBirkParameters 'AccountV0
+  -> BasicBirkParameters av
 initialBirkParameters accounts _birkSeedState = BasicBirkParameters{..}
   where
-    -- TODO: Decide what to do about L-pool here.
     alterDel del Nothing = Just $ Set.singleton del
     alterDel del (Just dels) = Just $ Set.insert del dels
     addBakerDel :: Map.Map BakerId (Set.Set DelegatorId) -> Account av -> Map.Map BakerId (Set.Set DelegatorId)
@@ -156,6 +156,14 @@ initialBirkParameters accounts _birkSeedState = BasicBirkParameters{..}
                     DelegateToLPool -> bdmap
                     DelegateToBaker bid -> Map.alter (alterDel _delegationIdentity) bid bdmap
             _ -> bdmap
+    addLPoolDel :: Set.Set DelegatorId -> Account av -> Set.Set DelegatorId
+    addLPoolDel dels acct =
+        case acct ^. accountStaking of
+            AccountStakeDelegate AccountDelegationV1{..} ->
+                case _delegationTarget of
+                    DelegateToLPool -> Set.insert _delegationIdentity dels
+                    DelegateToBaker _ -> dels
+            _ -> dels
     bakerDelsMap = foldl addBakerDel Map.empty accounts
     lookupBakerDels bid =
         case Map.lookup bid bakerDelsMap of
@@ -168,7 +176,7 @@ initialBirkParameters accounts _birkSeedState = BasicBirkParameters{..}
     _birkActiveBakers = ActiveBakers {
       _activeBakers = Map.fromList $ bkrs <&> \(BakerInfo{_bakerIdentity = bi}, _) -> (bi, lookupBakerDels bi),
       _aggregationKeys = Set.fromList (_bakerAggregationVerifyKey . fst <$> bkrs),
-      _lPoolDelegators = Set.empty
+      _lPoolDelegators = foldl addLPoolDel Set.empty accounts
     }
     stakes = Vec.fromList (snd <$> bkrs)
     _birkCurrentEpochBakers = makeHashed $ EpochBakers {
@@ -382,8 +390,7 @@ getBlockState migration = do
             AccountStakeDelegate AccountDelegationV1{..} -> do
               case _delegationTarget of
                 DelegateToLPool ->
-                  -- TODO: check whether this is correct after L-pool has been implemented:
-                  return bkrs
+                  return $! bkrs & lPoolDelegators %~ Set.insert _delegationIdentity
                 DelegateToBaker bid ->
                   case Map.lookup bid (bkrs ^. activeBakers)  of
                     Nothing -> fail "Missing delegation target baker"
@@ -962,7 +969,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                   rewardPeriodLength = fromIntegral $ cp ^. cpTimeParameters . tpRewardPeriodLength
                   cooldown = fromIntegral $ cp ^. cpCooldownParameters . cpPoolOwnerCooldown
                   msInEpoch = fromIntegral (epochLength $ bs ^. blockBirkParameters . birkSeedState) * bcrSlotDuration
-                  timestamp = addDuration bcrTimestamp (cooldown * rewardPeriodLength * msInEpoch)
+                  timestamp = addDuration bcrSlotTimestamp (cooldown * rewardPeriodLength * msInEpoch)
               in (BCSuccess [] (BakerId ai),
                   bs & blockAccounts . Accounts.indexedAccount ai . accountStaking .~ AccountStakeBaker (ab & bakerPendingChange .~ RemoveStake (PendingChangeEffectiveV1 timestamp)))
         -- The account is not valid or has no baker
@@ -987,7 +994,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                 rewardPeriodLength = fromIntegral $ cp ^. cpTimeParameters . tpRewardPeriodLength
                 cooldown = fromIntegral $ cp ^. cpCooldownParameters . cpPoolOwnerCooldown
                 msInEpoch = fromIntegral (epochLength $ origBS ^. blockBirkParameters . birkSeedState) * bcuSlotDuration
-            in addDuration bcuTimestamp (cooldown * rewardPeriodLength * msInEpoch)
+            in addDuration bcuSlotTimestamp (cooldown * rewardPeriodLength * msInEpoch)
         getAccount = do
             s <- MTL.get
             case s ^? blockAccounts . Accounts.indexedAccount ai of
@@ -1109,7 +1116,9 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                     & blockAccounts . Accounts.indexedAccount ai . accountStaking .~ ad
                     & blockBirkParameters .~ newBirkParams
               return newBlockState
-          updateBirk DelegateToLPool = undefined -- TODO: implement delegate to L-pool here.
+          updateBirk DelegateToLPool =
+            return $! bs ^. blockBirkParameters
+                & birkActiveBakers . lPoolDelegators %~ Set.insert did
           updateBirk (DelegateToBaker bid) =
             let ab = bs ^. blockBirkParameters . birkActiveBakers
                 mDels = Map.lookup bid (ab ^. activeBakers)
@@ -1119,7 +1128,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                     let newDels = Set.insert did dels
                         newActiveBakers = Map.insert bid newDels (ab ^. activeBakers)
                         newAB = ab{_activeBakers = newActiveBakers}
-                    return $ _blockBirkParameters bs & birkActiveBakers .~ newAB
+                    return $! _blockBirkParameters bs & birkActiveBakers .~ newAB
     bsoConfigureDelegation bs ai DelegationConfigureRemove{..} =
         return $! case bs ^? blockAccounts . Accounts.indexedAccount ai of
             Just Account{_accountStaking = AccountStakeDelegate ad@AccountDelegationV1{..}}
@@ -1129,7 +1138,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                       rewardPeriodLength = fromIntegral $ cp ^. cpTimeParameters . tpRewardPeriodLength
                       cooldown = fromIntegral $ cp ^. cpCooldownParameters . cpDelegatorCooldown
                       msInEpoch = fromIntegral (epochLength $ bs ^. blockBirkParameters . birkSeedState) * dcrSlotDuration
-                      timestamp = addDuration dcrTimestamp (cooldown * rewardPeriodLength * msInEpoch)
+                      timestamp = addDuration dcrSlotTimestamp (cooldown * rewardPeriodLength * msInEpoch)
                       newBirkParams = updateBirk _delegationTarget
                   in (DCSuccess [] (DelegatorId ai),
                       bs
@@ -1137,7 +1146,9 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                         & blockBirkParameters .~ newBirkParams)
             _ -> (DCInvalidDelegator, bs)
         where
-          updateBirk DelegateToLPool = undefined -- TODO: implement delegate to L-pool here.
+          updateBirk DelegateToLPool =
+            bs ^. blockBirkParameters
+                & birkActiveBakers . lPoolDelegators %~ Set.insert (DelegatorId ai)
           updateBirk (DelegateToBaker bid) =
             let ab = bs ^. blockBirkParameters . birkActiveBakers
                 newBakers = Map.delete bid (ab ^. activeBakers)
@@ -1159,7 +1170,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                 rewardPeriodLength = fromIntegral $ cp ^. cpTimeParameters . tpRewardPeriodLength
                 cooldown = fromIntegral $ cp ^. cpCooldownParameters . cpDelegatorCooldown
                 msInEpoch = fromIntegral (epochLength $ origBS ^. blockBirkParameters . birkSeedState) * dcuSlotDuration
-            in addDuration dcuTimestamp (cooldown * rewardPeriodLength * msInEpoch)
+            in addDuration dcuSlotTimestamp (cooldown * rewardPeriodLength * msInEpoch)
         getAccount = do
             s <- MTL.get
             case s ^? blockAccounts . Accounts.indexedAccount ai of
@@ -1423,8 +1434,7 @@ instance (IsProtocolVersion pv, MonadIO m) => BS.BlockStateStorage (PureBlockSta
     writeBlockState h = PureBlockStateMonad . liftIO . hPutBuilder h . snd . runPutMBuilder . putBlockState . _unhashedBlockState
 
 -- |Initial block state.
--- TODO: Remove constraint AccountVersionFor pv ~ 'AccountV0
-initialState :: (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV0)
+initialState :: (IsProtocolVersion pv)
              => SeedState
              -> CryptographicParameters
              -> [Account (AccountVersionFor pv)]

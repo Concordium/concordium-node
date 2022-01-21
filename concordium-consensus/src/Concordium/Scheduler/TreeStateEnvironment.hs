@@ -548,7 +548,7 @@ executeFrom blockHash slotNumber slotTime blockParent blockBaker mfinInfo newSee
             let tc = bpi ^. Types.poolCommissionRates . transactionCommission
             let ctc = Types.closestInRange fc (ranges ^. transactionCommissionRange)
             (result, newBS) <- bsoConfigureBaker bs ai BI.BakerConfigureUpdate{
-              bcuTimestamp = slotTime,
+              bcuSlotTimestamp = slotTime,
               bcuSlotDuration = sd,
               bcuKeys = Nothing,
               bcuCapital = Nothing,

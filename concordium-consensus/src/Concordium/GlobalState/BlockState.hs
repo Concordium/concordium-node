@@ -420,10 +420,10 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- This does not change the next epoch bakers.
   bsoRotateCurrentEpochBakers :: UpdatableBlockState m -> m (UpdatableBlockState m)
 
-  -- TODO: document
+  -- |Clear/empty the set containing the next epoch bakers, to use for next epoch.
   bsoClearNextEpochBakers :: (AccountVersionFor (MPV m) ~ 'AccountV1) => UpdatableBlockState m -> m (UpdatableBlockState m)
 
-  -- TODO: document and implement:
+  -- |Update the set containing the next epoch bakers, to use for next epoch.
   bsoSetNextEpochBakers :: (AccountVersionFor (MPV m) ~ 'AccountV1) => UpdatableBlockState m -> 
       [(BakerInfoRef m, Amount)] -> m (UpdatableBlockState m)
 
@@ -485,7 +485,8 @@ class (BlockStateQuery m) => BlockStateOperations m where
     -> BakerAdd
     -> m (BakerAddResult, UpdatableBlockState m)
 
-  -- TODO: Document
+  -- |From chain paramaters version >= 1, this operation is used to add/remove/update a baker.
+  -- When adding baker, it is assumed that 'AccountIndex' account is NOT a baker and NOT a delegator.
   bsoConfigureBaker
     :: (AccountVersionFor (MPV m) ~ 'AccountV1, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1)
     => UpdatableBlockState m
@@ -493,7 +494,8 @@ class (BlockStateQuery m) => BlockStateOperations m where
     -> BakerConfigure
     -> m (BakerConfigureResult, UpdatableBlockState m)
 
-  -- TODO: Document
+  -- |From chain paramaters version >= 1, this operation is used to add/remove/update a delegator.
+  -- When adding delegator, it is assumed that 'AccountIndex' account is NOT a baker and NOT a delegator.
   bsoConfigureDelegation
     :: (AccountVersionFor (MPV m) ~ 'AccountV1, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1)
     => UpdatableBlockState m

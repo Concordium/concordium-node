@@ -140,8 +140,9 @@ data BakerAddResult
   -- ^The stake is below the required threshold dictated by current chain parameters.
   deriving (Eq, Ord, Show)
 
--- TODO: Fix and Document
+-- |Data structure used to add/remove/update baker.
 data BakerConfigure =
+    -- |Add a baker, all fields are requied.
     BakerConfigureAdd {
         bcaKeys :: !BakerKeyUpdate,
         bcaCapital :: !Amount,
@@ -152,12 +153,18 @@ data BakerConfigure =
         bcaBakingRewardCommission :: !RewardFraction,
         bcaFinalizationRewardCommission :: !RewardFraction
     }
+    -- |Remove a baker.
   | BakerConfigureRemove {
-    bcrTimestamp :: !Timestamp,
-    bcrSlotDuration :: !Duration
+        -- |The timestamp of the current slot (slot time).
+        bcrSlotTimestamp :: !Timestamp,
+        -- |The duration of a slot (slot duration).
+        bcrSlotDuration :: !Duration
   }
+    -- |Update baker with optional fields.
   | BakerConfigureUpdate {
-        bcuTimestamp :: !Timestamp,
+        -- |The timestamp of the current slot (slot time).
+        bcuSlotTimestamp :: !Timestamp,
+        -- |The duration of a slot (slot duration).
         bcuSlotDuration :: !Duration,
         bcuKeys :: !(Maybe BakerKeyUpdate),
         bcuCapital :: !(Maybe Amount),
@@ -183,7 +190,7 @@ data BakerConfigureUpdateChange =
   | BakerConfigureFinalizationRewardCommission !RewardFraction
   deriving (Eq, Show)
 
--- TODO: Document
+-- |Result of configure baker.
 data BakerConfigureResult
   = BCSuccess ![BakerConfigureUpdateChange] !BakerId
     -- ^Configure baker successful.
@@ -203,6 +210,7 @@ data BakerConfigureResult
   -- ^This is not a valid baker.
   deriving (Eq, Show)
 
+-- |Result of remove baker.
 data BakerRemoveResult
   = BRRemoved !BakerId !Epoch
   -- ^The baker was removed, effective from the given epoch.
@@ -212,22 +220,29 @@ data BakerRemoveResult
   -- ^A change is already pending on this baker.
   deriving (Eq, Ord, Show)
 
--- TODO: Fix and Document
+-- |Data structure used to add/remove/update delegator.
 data DelegationConfigure =
+    -- |Add a delegatror, all fields are requied.
     DelegationConfigureAdd {
       dcaCapital :: !Amount,
       dcaRestakeEarnings :: !Bool,
       dcaDelegationTarget :: !DelegationTarget
     }
+    -- |Update delegator with optional fields.
   | DelegationConfigureUpdate {
-      dcuTimestamp :: !Timestamp,
+      -- |The timestamp of the current slot (slot time).
+      dcuSlotTimestamp :: !Timestamp,
+      -- |The duration of a slot (slot duration).
       dcuSlotDuration :: !Duration,
       dcuCapital :: !(Maybe Amount),
       dcuRestakeEarnings :: !(Maybe Bool),
       dcuDelegationTarget :: !(Maybe DelegationTarget)
   }
+    -- |Remove a delegator.
   | DelegationConfigureRemove {
-      dcrTimestamp :: !Timestamp,
+      -- |The timestamp of the current slot (slot time).
+      dcrSlotTimestamp :: !Timestamp,
+      -- |The duration of a slot (slot duration).
       dcrSlotDuration :: !Duration
   }
   deriving (Eq, Show)
@@ -241,7 +256,7 @@ data DelegationConfigureUpdateChange =
   | DelegationConfigureDelegationTarget !DelegationTarget
   deriving (Eq, Show)
 
--- TODO: Fix and Document
+-- |Result of configure delegator.
 data DelegationConfigureResult
   = DCSuccess ![DelegationConfigureUpdateChange] !DelegatorId
     -- ^Configure delegation successful.

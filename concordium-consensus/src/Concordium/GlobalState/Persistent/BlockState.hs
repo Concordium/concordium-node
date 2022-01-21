@@ -790,171 +790,6 @@ doTransitionEpochBakers pbs newEpoch = do
             h2 <- getHashM b
             return $ if (h1 :: H.Hash) == h2 then b else a
 
-{-
-doTransitionEpochBakers :: forall pv m. (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> Timestamp -> Duration -> Epoch -> m (PersistentBlockState pv)
-doTransitionEpochBakers pbs genesisTime slotDuration newEpoch = do
-        origBSP <- loadPBS pbs
-        let oldBPs = bspBirkParameters origBSP
-        let epochSlots = fromIntegral (epochLength (oldBPs ^. birkSeedState))
-        let newEpochSlot = fromIntegral newEpoch * epochSlots
-        let newEpochTime = addDuration genesisTime (newEpochSlot * slotDuration)
-        let nextEpochTime = addDuration newEpochTime (epochSlots * slotDuration)
-        bakers <- refLoad (_birkActiveBakers oldBPs)
-        curActiveBakerDels <- Trie.toAscList (bakers ^. activeBakers)
-        -- Retrieve/update the baker info
-        let accumBakers (bs0, bkrs0) (bkr@(BakerId aid), pdels) = Accounts.indexedAccount aid (bspAccounts origBSP) >>= \case
-                Just PersistentAccount{_accountStake = PersistentAccountStakeBaker acctBkrRef} -> do
-                    dels <- case pdels of
-                        PersistentActiveDelegatorsV0 -> return []
-                        PersistentActiveDelegatorsV1 t -> Trie.keys t
-                    bsp <- transitionDelegatorsFromActiveBaker bs0 newEpochTime bkr dels
-                    acctBkr <- refLoad acctBkrRef
-                    case _bakerPendingChange acctBkr of
-                        RemoveStake (PendingChangeEffectiveV0 remEpoch)
-                            -- Removal takes effect next epoch, so exclude it from the list of bakers
-                            | remEpoch == newEpoch + 1 -> return (bsp, bkrs0)
-                            -- Removal complete, so update the active bakers and account as well
-                            | remEpoch <= newEpoch -> removeActiveBaker bsp bkrs0 bkr acctBkr
-                        ReduceStake newAmt (PendingChangeEffectiveV0 redEpoch)
-                            -- Reduction takes effect next epoch, so apply it in the generated list
-                            | redEpoch == newEpoch + 1 -> return (bsp, (_accountBakerInfo acctBkr, newAmt) : bkrs0)
-                            -- Reduction complete, so update the account as well
-                            | redEpoch <= newEpoch -> reduceStakeActiveBaker bsp bkrs0 bkr acctBkr newAmt
-                        RemoveStake (PendingChangeEffectiveV1 remTime)
-                            -- Removal complete, so update the active bakers and account as well
-                            | remTime <= newEpochTime -> do
-                                newBsp <- moveDelegatorsToLPool bsp acctBkr
-                                removeActiveBaker newBsp bkrs0 bkr acctBkr
-                            -- Removal takes effect next epoch, so exclude it from the list of bakers
-                            | remTime <= nextEpochTime -> return (bsp, bkrs0)
-                        ReduceStake newAmt (PendingChangeEffectiveV1 redTime)
-                            -- Reduction complete, so update the account as well
-                            | redTime <= newEpochTime -> reduceStakeActiveBaker bsp bkrs0 bkr acctBkr newAmt
-                            -- Reduction takes effect next epoch, so apply it in the generated list
-                            | redTime <= nextEpochTime -> return (bsp, (_accountBakerInfo acctBkr, newAmt) : bkrs0)
-                        _ -> return (bsp, (_accountBakerInfo acctBkr, _stakedAmount acctBkr) : bkrs0)
-                _ -> error "Persistent.bsoTransitionEpochBakers invariant violation: active baker account not a valid baker"
-        -- Get the baker info. The list of baker ids is reversed in the input so the accumulated list
-        -- is in ascending order.
-        bsp <- loadPBS pbs
-        (bsp', bkrs) <- foldM accumBakers (bsp, []) (reverse curActiveBakerDels)
-        (newCurrentBakers, newNextBakers) <- case _birkNextEpochBakers oldBPs of
-            UnchangedPersistentNextEpochBakers ->
-                return $ (_birkCurrentEpochBakers oldBPs, _birkNextEpochBakers oldBPs)
-            PersistentNextEpochBakers nebRef -> do
-                newBakerInfos <- refMake . BakerInfos . Vec.fromList $ fst <$> bkrs
-                let stakesVec = Vec.fromList $ snd <$> bkrs
-                newBakerStakes <- refMake (BakerStakes stakesVec)
-                neb <- refLoad nebRef
-                -- If the baker infos structure has the same hash as the previous one,
-                -- use that to avoid duplicate storage.
-                _bakerInfos <- secondIfEqual newBakerInfos (_bakerInfos neb)
-                -- Also for stakes. This is less likely to be useful, but it's pretty cheap to check,
-                -- so why not?
-                _bakerStakes <- secondIfEqual newBakerStakes (_bakerStakes neb)
-                let _bakerTotalStake = sum stakesVec
-                (nebRef,) . PersistentNextEpochBakers <$> refMake PersistentEpochBakers{..}
-        storePBS pbs bsp'{bspBirkParameters = (bspBirkParameters bsp') {
-            _birkCurrentEpochBakers = newCurrentBakers,
-            _birkNextEpochBakers = newNextBakers
-          }
-        }
-    where
-        transitionDelegatorsFromActiveBaker
-            :: BlockStatePointers pv
-            -> Timestamp
-            -> BakerId
-            -> [DelegatorId]
-            -> m (BlockStatePointers pv)
-        transitionDelegatorsFromActiveBaker bsp newEpochTime bid dels = do
-            let ff = updateDelegatorSetAndAccounts bsp newEpochTime
-            (newDset, newAccounts) <- foldlM ff (Trie.empty, bspAccounts bsp) dels
-            pab <- refLoad (bspBirkParameters bsp ^. birkActiveBakers)
-            newBirkBakers <- case accountVersion @(AccountVersionFor pv) of
-                                SAccountV0 ->
-                                    return (pab ^. activeBakers)
-                                SAccountV1 -> do
-                                    let ds = PersistentActiveDelegatorsV1 newDset
-                                    Trie.insert bid ds (pab ^. activeBakers)
-            newpab <- refMake pab{_activeBakers = newBirkBakers}
-            let newBirkParams = bspBirkParameters bsp & birkActiveBakers .~ newpab
-            return bsp{bspBirkParameters = newBirkParams, bspAccounts = newAccounts}
-
-        updateDelegatorSetAndAccounts
-            :: BlockStatePointers pv
-            -> Timestamp
-            -> (DelegatorIdTrieSet, Accounts.Accounts pv)
-            -> DelegatorId
-            -> m (DelegatorIdTrieSet, Accounts.Accounts pv)
-        updateDelegatorSetAndAccounts bsp newEpochTime (dset, accounts) did@(DelegatorId aid) = do
-            Accounts.indexedAccount aid (bspAccounts bsp) >>= \case
-                Just acct -> case acct ^. accountDelegator of
-                    Some pAcctDel -> do
-                        acctDel@BaseAccounts.AccountDelegationV1{..} <- refLoad pAcctDel
-                        case _delegationPendingChange of
-                            RemoveStake (PendingChangeEffectiveV1 remTime)
-                                | remTime <= newEpochTime ->
-                                    removeDelegator did dset accounts
-                            ReduceStake newAmt (PendingChangeEffectiveV1 redTime)
-                                | redTime <= newEpochTime ->
-                                    newStakeDelegator did acctDel dset accounts newAmt
-                            _ -> return (dset, accounts)
-                    Null -> error "Invariant violation: active delegator is not a delegation account"
-                _ -> error "Invariant violation: active delegator account was not found"
-
-        removeDelegator :: DelegatorId -> DelegatorIdTrieSet -> Accounts.Accounts pv -> m (DelegatorIdTrieSet, Accounts.Accounts pv)
-        removeDelegator (DelegatorId aid) dset accounts = do
-            let updAcc acc = ((),) <$> setPersistentAccountStake acc PersistentAccountStakeNone
-            (_, newAccounts) <- Accounts.updateAccountsAtIndex updAcc aid accounts
-            return (dset, newAccounts)
-
-        newStakeDelegator :: DelegatorId -> BaseAccounts.AccountDelegation (AccountVersionFor pv) -> DelegatorIdTrieSet -> Accounts.Accounts pv -> Amount -> m (DelegatorIdTrieSet, Accounts.Accounts pv)
-        newStakeDelegator did@(DelegatorId aid) acctDel dset accounts newAmt = do
-            newDel <- refMake acctDel{
-                BaseAccounts._delegationStakedAmount = newAmt,
-                BaseAccounts._delegationPendingChange = NoChange}
-            let updAcc acc = ((),) <$> setPersistentAccountStake acc (PersistentAccountStakeDelegate newDel)
-            (_, newAccounts) <- Accounts.updateAccountsAtIndex updAcc aid accounts
-            newDset <- Trie.insert did () dset
-            return (newDset, newAccounts)
-
-        removeActiveBaker bs bkrs bkr@(BakerId aid) acctBkr = do
-            curABs <- refLoad (_birkActiveBakers (bspBirkParameters bs))
-            newAB <- Trie.delete bkr (_activeBakers curABs)
-            abi <- refLoad (_accountBakerInfo acctBkr)
-            newAK <- Trie.delete (abi ^. bakerAggregationVerifyKey) (_aggregationKeys curABs)
-            newABs <- refMake $ PersistentActiveBakers {
-                    _activeBakers = newAB,
-                    _aggregationKeys = newAK
-                }
-            -- Remove the baker from the account
-            let updAcc acc = ((),) <$> setPersistentAccountStake acc PersistentAccountStakeNone
-            (_, newAccounts) <- Accounts.updateAccountsAtIndex updAcc aid (bspAccounts bs)
-            -- The baker is not included for this epoch
-            return (bs {
-                    bspBirkParameters = (bspBirkParameters bs) {_birkActiveBakers = newABs},
-                    bspAccounts = newAccounts
-                }, bkrs)
-
-        reduceStakeActiveBaker bs bkrs (BakerId aid) acctBkr newAmt = do
-            newBaker <- refMake acctBkr{_stakedAmount = newAmt, _bakerPendingChange = NoChange}
-            let updAcc acc = ((),) <$> setPersistentAccountStake acc (PersistentAccountStakeBaker newBaker)
-            (_, newAccounts) <- Accounts.updateAccountsAtIndex updAcc aid (bspAccounts bs)
-            -- The baker is included with the revised stake
-            return (bs {bspAccounts = newAccounts}, (_accountBakerInfo acctBkr, newAmt) : bkrs)
-
-        moveDelegatorsToLPool
-            :: BlockStatePointers pv
-            -> PersistentAccountBaker 'AccountV1
-            -> m (BlockStatePointers pv)
-        moveDelegatorsToLPool bsp acctBkr = undefined -- TODO: implement
-
-        secondIfEqual a b = do
-            h1 <- getHashM a
-            h2 <- getHashM b
-            return $ if (h1 :: H.Hash) == h2 then b else a
--}
-
 doAddBaker
     :: (IsProtocolVersion pv, MonadBlobStore m, AccountVersionFor pv ~ 'AccountV0, ChainParametersVersionFor pv ~ 'ChainParametersV0)
     => PersistentBlockState pv
@@ -1085,7 +920,7 @@ doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
         let rewardPeriodLength = fromIntegral $ cp ^. cpTimeParameters . tpRewardPeriodLength
             cooldown = fromIntegral $ cp ^. cpCooldownParameters . cpPoolOwnerCooldown
             msInEpoch = fromIntegral (epochLength $ _birkSeedState . bspBirkParameters $ origBSP) * bcuSlotDuration
-            cooldownTimestamp = addDuration bcuTimestamp (cooldown * rewardPeriodLength * msInEpoch)
+            cooldownTimestamp = addDuration bcuSlotTimestamp (cooldown * rewardPeriodLength * msInEpoch)
         res <- MTL.runExceptT $ MTL.runWriterT $ flip MTL.execStateT origBSP $ do
                 updateKeys
                 updateRestakeEarnings
@@ -1239,7 +1074,7 @@ doConfigureBaker pbs ai BakerConfigureRemove{..} = do
         let rewardPeriodLength = fromIntegral $ cp ^. cpTimeParameters . tpRewardPeriodLength
             cooldown = fromIntegral $ cp ^. cpCooldownParameters . cpPoolOwnerCooldown
             msInEpoch = fromIntegral (epochLength $ _birkSeedState . bspBirkParameters $ bsp) * bcrSlotDuration
-            cooldownTimestamp = addDuration bcrTimestamp (cooldown * rewardPeriodLength * msInEpoch)
+            cooldownTimestamp = addDuration bcrSlotTimestamp (cooldown * rewardPeriodLength * msInEpoch)
         Accounts.indexedAccount ai (bspAccounts bsp) >>= \case
             -- The account is valid and has a baker
             Just PersistentAccount{_accountStake = PersistentAccountStakeBaker pab} -> do
@@ -1318,7 +1153,12 @@ doConfigureDelegation pbs ai DelegationConfigureAdd{..} = do
                 -- This cannot fail to update the accounts, since we already looked up the accounts:
                 (_, newAccounts) <- lift $ Accounts.updateAccountsAtIndex updAcc ai (bspAccounts bsp)
                 return bsp{bspBirkParameters = newBirkParams, bspAccounts = newAccounts}
-          updateBirk bsp Transactions.DelegateToLPool = undefined -- TODO: implement delegate to L-pool here.
+          updateBirk bsp Transactions.DelegateToLPool = lift $ do
+            ab <- refLoad (bspBirkParameters bsp ^. birkActiveBakers)
+            let PersistentActiveDelegatorsV1 dset = ab ^. lPoolDelegators
+            newDset <- Trie.insert did () dset
+            newAB <- refMake ab{_lPoolDelegators = PersistentActiveDelegatorsV1 newDset}
+            return $! bspBirkParameters bsp & birkActiveBakers .~ newAB
           updateBirk bsp (Transactions.DelegateToBaker bid) = do
             pab <- lift $ refLoad (bspBirkParameters bsp ^. birkActiveBakers)
             mDels <- lift $ Trie.lookup bid (pab ^. activeBakers)
@@ -1328,14 +1168,14 @@ doConfigureDelegation pbs ai DelegationConfigureAdd{..} = do
                     newDels <- lift $ PersistentActiveDelegatorsV1 <$> Trie.insert did () dels
                     newActiveBakers <- lift $ Trie.insert bid newDels (pab ^. activeBakers)
                     newpabref <- lift $ refMake pab{_activeBakers = newActiveBakers}
-                    return $ bspBirkParameters bsp & birkActiveBakers .~ newpabref
+                    return $! bspBirkParameters bsp & birkActiveBakers .~ newpabref
 doConfigureDelegation pbs ai DelegationConfigureUpdate{..} = do
         origBSP <- loadPBS pbs
         cp <- doGetChainParameters pbs
         let rewardPeriodLength = fromIntegral $ cp ^. cpTimeParameters . tpRewardPeriodLength
             cooldown = fromIntegral $ cp ^. cpCooldownParameters . cpDelegatorCooldown
             msInEpoch = fromIntegral (epochLength $ _birkSeedState . bspBirkParameters $ origBSP) * dcuSlotDuration
-            cooldownTimestamp = addDuration dcuTimestamp (cooldown * rewardPeriodLength * msInEpoch)
+            cooldownTimestamp = addDuration dcuSlotTimestamp (cooldown * rewardPeriodLength * msInEpoch)
         res <- MTL.runExceptT $ MTL.runWriterT $ flip MTL.execStateT origBSP $ do
                 updateDelegationTarget
                 updateRestakeEarnings
@@ -1406,7 +1246,7 @@ doConfigureDelegation pbs ai DelegationConfigureRemove{..} = do
         let rewardPeriodLength = fromIntegral $ cp ^. cpTimeParameters . tpRewardPeriodLength
             cooldown = fromIntegral $ cp ^. cpCooldownParameters . cpDelegatorCooldown
             msInEpoch = fromIntegral (epochLength $ _birkSeedState . bspBirkParameters $ bsp) * dcrSlotDuration
-            cooldownTimestamp = addDuration dcrTimestamp (cooldown * rewardPeriodLength * msInEpoch)
+            cooldownTimestamp = addDuration dcrSlotTimestamp (cooldown * rewardPeriodLength * msInEpoch)
         Accounts.indexedAccount ai (bspAccounts bsp) >>= \case
             Just PersistentAccount{_accountStake = PersistentAccountStakeDelegate pad} -> do
                 ad <- refLoad pad
@@ -1425,7 +1265,12 @@ doConfigureDelegation pbs ai DelegationConfigureRemove{..} = do
                         bspBirkParameters = newBirkParams}
             _ -> return (DCInvalidDelegator, pbs)
         where
-          updateBirk bsp Transactions.DelegateToLPool = undefined -- TODO: implement delegate to L-pool here.
+          updateBirk bsp Transactions.DelegateToLPool = do
+            ab <- refLoad (bspBirkParameters bsp ^. birkActiveBakers)
+            let PersistentActiveDelegatorsV1 dset = ab ^. lPoolDelegators
+            newDset <- Trie.delete (DelegatorId ai) dset
+            newAB <- refMake ab{_lPoolDelegators = PersistentActiveDelegatorsV1 newDset}
+            return $! bspBirkParameters bsp & birkActiveBakers .~ newAB
           updateBirk bsp (Transactions.DelegateToBaker bid) = do
             pab <- refLoad (bspBirkParameters bsp ^. birkActiveBakers)
             newBakers <- Trie.delete bid (pab ^. activeBakers)
@@ -1961,6 +1806,46 @@ doClearEpochBlocksBaked pbs = do
         bsp <- loadPBS pbs
         storePBS pbs bsp{bspEpochBlocks = emptyHashedEpochBlocks}
 
+doRotateCurrentEpochBakers
+    :: (IsProtocolVersion pv, MonadBlobStore m)
+    => PersistentBlockState pv
+    -> m (PersistentBlockState pv)
+doRotateCurrentEpochBakers pbs = do
+    bsp <- loadPBS pbs
+    case bspBirkParameters bsp ^. birkNextEpochBakers of
+        PersistentNextEpochBakers newCurrentBakers -> do
+            let newBirkParams = (bspBirkParameters bsp){_birkCurrentEpochBakers = newCurrentBakers}
+            storePBS pbs bsp{bspBirkParameters = newBirkParams}
+        UnchangedPersistentNextEpochBakers ->
+            return pbs
+
+doClearNextEpochBakers
+    :: (IsProtocolVersion pv, MonadBlobStore m, AccountVersionFor pv ~ 'AccountV1)
+    => PersistentBlockState pv
+    -> m (PersistentBlockState pv)
+doClearNextEpochBakers pbs = do
+    bsp <- loadPBS pbs
+    let newBirkParams = (bspBirkParameters bsp){_birkNextEpochBakers = UnchangedPersistentNextEpochBakers}
+    storePBS pbs bsp{bspBirkParameters = newBirkParams}
+
+doSetNextEpochBakers
+    :: (IsProtocolVersion pv, MonadBlobStore m)
+    => PersistentBlockState pv
+    -> [(BufferedRef BaseAccounts.BakerInfo, Amount)]
+    -> m (PersistentBlockState pv)
+doSetNextEpochBakers pbs bakers = do
+    bsp <- loadPBS pbs
+    _bakerInfos <- refMake (BakerInfos preBakerInfos)
+    _bakerStakes <- refMake (BakerStakes preBakerStakes)
+    let _bakerTotalStake = sum preBakerStakes
+    pebRef <- refMake PersistentEpochBakers{..}
+    let newBirkParams = (bspBirkParameters bsp){_birkNextEpochBakers = PersistentNextEpochBakers pebRef}
+    storePBS pbs bsp{bspBirkParameters = newBirkParams}
+      where
+        bakers' = Vec.fromList bakers
+        preBakerInfos = fst <$> bakers'
+        preBakerStakes = snd <$> bakers'
+
 doProcessPendingChanges
     :: forall pv m
      . (IsProtocolVersion pv, MonadBlobStore m, AccountVersionFor pv ~ 'AccountV1)
@@ -2301,9 +2186,9 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateOperations (Pe
     bsoGetEpochBlocksBaked = doGetEpochBlocksBaked
     bsoNotifyBlockBaked = doNotifyBlockBaked
     bsoClearEpochBlocksBaked = doClearEpochBlocksBaked
-    bsoRotateCurrentEpochBakers = undefined -- TODO: implement
-    bsoClearNextEpochBakers = undefined -- TODO: implement
-    bsoSetNextEpochBakers = undefined -- TODO: implement
+    bsoRotateCurrentEpochBakers = doRotateCurrentEpochBakers
+    bsoClearNextEpochBakers = doClearNextEpochBakers
+    bsoSetNextEpochBakers = doSetNextEpochBakers
     bsoProcessPendingChanges = doProcessPendingChanges
     bsoGetBankStatus = doGetBankStatus
     bsoSetRewardAccounts = doSetRewardAccounts
