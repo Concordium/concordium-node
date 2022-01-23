@@ -122,6 +122,26 @@ are written as type signature in Rust syntax. The mapping of types is
 fn invoke(tag: u32, start: *const u8, length: u32) -> u64;
 ```
 
+When a contract invokes another two things might happen to the contract itself
+as a result of the call
+- its state can change. This can happen due to reentrancy.
+- its own balance can change. This can happen either because the contract is
+  transferring some of its tokens or, again, because of reentrancy.
+
+When an invocation fails none of these are changed, and any accrued changes are
+rolled back.
+
+If an invocation succeeds, then in the return value there is an indication on
+whether the state might have changed or not. "Might have changed" is currently
+defined as any of contract's entrypoints being executed successfully in the
+middle of handling the interrupt.
+
+TODO: The semantics of this will change with new state.
+
+There is no direct indication of whether the balance has changed. However
+**after** the invoke call, the host function `get_receive_self_balance` returns
+the **new** self balance.
+
 ## Returning from a contract
 
 A contract can produce a return value, in addition to the return code. The
