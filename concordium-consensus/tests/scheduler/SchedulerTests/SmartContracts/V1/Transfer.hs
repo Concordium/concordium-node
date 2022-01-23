@@ -106,7 +106,7 @@ testCases =
 
         -- ensure the transaction is successful
         ensureSucces :: Types.BlockItem -> Types.TransactionSummary -> Expectation
-        ensureSucces _ Types.TransactionSummary{..} = checkSuccess "Update failed" tsResult
+        ensureSucces _ Types.TransactionSummary{..} = checkSuccess "Update failed: " tsResult
 
         checkSuccess msg Types.TxReject{..} = assertFailure $ msg ++ show vrRejectReason
         checkSuccess _ _ = return ()
