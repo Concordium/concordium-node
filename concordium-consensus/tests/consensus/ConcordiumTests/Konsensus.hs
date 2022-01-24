@@ -254,8 +254,10 @@ invariantSkovData TS.SkovData{..} = addContext $ do
                             "/=" ("Epoch " ++ show currentEpoch ++ " seed: " ) ("Epoch " ++ show parentEpoch ++ " seed: " )
             when (currentEpoch == parentEpoch + 1) $
                 -- The current epoch bakers should be the next epoch bakers of the parent
-                checkBinary (==) (BState._birkCurrentEpochBakers params) (BState._birkNextEpochBakers parentParams)
-                    "==" ("Epoch " ++ show currentEpoch ++ " current bakers") ("Epoch " ++ show parentEpoch ++ " next bakers")
+                case BState._birkNextEpochBakers parentParams of
+                    BState.NextEpochBakers neb ->
+                        checkBinary (==) (BState._birkCurrentEpochBakers params) neb
+                            "==" ("Epoch " ++ show currentEpoch ++ " current bakers") ("Epoch " ++ show parentEpoch ++ " next bakers")
         addContext (Left err) = Left $ "Blocks: " ++ show _blockTable ++ "\n\n" ++ err
         addContext r = r
 

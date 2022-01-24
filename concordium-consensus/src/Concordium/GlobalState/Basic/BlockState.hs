@@ -167,7 +167,7 @@ initialBirkParameters accounts _birkSeedState = BasicBirkParameters{..}
     bakerDelsMap = foldl addBakerDel Map.empty accounts
     lookupBakerDels bid =
         case Map.lookup bid bakerDelsMap of
-            Nothing -> error "Invariant violation: baker without delegator set"
+            Nothing -> Set.empty
             Just dels -> dels
     abi (AccountStakeBaker AccountBaker{..}) = Just (_accountBakerInfo ^. bakerInfo, _stakedAmount)
     abi _ = Nothing

@@ -79,7 +79,7 @@ data TestParameters pv = TestParameters
   , tpBlockTimeout :: UTCTime
   }
 
-defaultParams :: forall pv. (IsProtocolVersion pv, ChainParametersVersionFor pv ~ 'ChainParametersV0) => TestParameters pv
+defaultParams :: forall pv. (IsProtocolVersion pv, ChainParametersVersionFor pv ~ 'ChainParametersV0, AccountVersionFor pv ~ 'AccountV0) => TestParameters pv
 defaultParams = TestParameters
   { tpChainMeta = dummyChainMeta
   , tpInitialBlockState = createBlockState @pv Acc.emptyAccounts

@@ -33,7 +33,7 @@ import Concordium.Crypto.DummyData
 import SchedulerTests.Helpers
 import SchedulerTests.TestUtils
 
-initialBlockState :: (IsProtocolVersion pv, ChainParametersVersionFor pv ~ 'ChainParametersV0) => BlockState pv
+initialBlockState :: (IsProtocolVersion pv, ChainParametersVersionFor pv ~ 'ChainParametersV0, AccountVersionFor pv ~ 'AccountV0) => BlockState pv
 initialBlockState = blockStateWithAlesAccount 1000000000 emptyAccounts
 
 chainMeta :: Types.ChainMetadata
@@ -62,7 +62,7 @@ type TestResult = ([(Types.BlockItem, Types.ValidResult)],
                    [(Types.Transaction, Types.FailureKind)],
                    [(Types.ContractAddress, Instance)])
 
-testInit :: forall pv . (IsProtocolVersion pv, ChainParametersVersionFor pv ~ 'ChainParametersV0) => Proxy pv -> IO TestResult
+testInit :: forall pv . (IsProtocolVersion pv, ChainParametersVersionFor pv ~ 'ChainParametersV0, AccountVersionFor pv ~ 'AccountV0) => Proxy pv -> IO TestResult
 testInit proxy = do
     transactions <- processUngroupedTransactions (transactionInputs proxy)
     let (Sch.FilteredTransactions{..}, finState) =
