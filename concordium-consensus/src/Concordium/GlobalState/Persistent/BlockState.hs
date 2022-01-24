@@ -858,17 +858,12 @@ doConfigureBaker pbs ai BakerConfigureAdd{..} = do
                 chainParams <- doGetChainParameters pbs
                 let poolParams = chainParams ^. cpPoolParameters
                 let capitalMin = poolParams ^. ppMinimumEquityCapital
-                let epochBakersBR = bspBirkParameters bsp ^. birkCurrentEpochBakers
-                epochBakers <- refLoad $ bufferedReference epochBakersBR
-                let capitalMax = takeFraction (poolParams ^. ppCapitalBound) (_bakerTotalStake epochBakers)
                 let ranges = poolParams ^. ppCommissionBounds
                 let keysInRange = isInRange bcaFinalizationRewardCommission (ranges ^. finalizationCommissionRange)
                         && isInRange bcaBakingRewardCommission (ranges ^. bakingCommissionRange)
                         && isInRange bcaTransactionFeeCommission (ranges ^. transactionCommissionRange)
                 if bcaCapital < capitalMin then
                       return (BCStakeUnderThreshold, pbs)
-                else if bcaCapital > capitalMax then
-                    return (BCStakeOverThreshold, pbs)
                   else if not keysInRange then
                       return (BCCommissionNotInRange, pbs)
                   else do
@@ -1048,12 +1043,6 @@ doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
             ab <- getAccountOrFail
             let capitalMin = cp ^. cpPoolParameters . ppMinimumEquityCapital
             when (capital < capitalMin) (MTL.throwError BCStakeUnderThreshold)
-            bsp <- MTL.get
-            let epochBakersBR = bspBirkParameters bsp ^. birkCurrentEpochBakers
-            epochBakers <- liftBSO $ refLoad $ bufferedReference epochBakersBR
-            let pp = cp ^. cpPoolParameters
-            let capitalMax = takeFraction (pp ^. ppCapitalBound) (_bakerTotalStake epochBakers)
-            when (capital > capitalMax) (MTL.throwError BCStakeOverThreshold)
             let updAcc updateStake acc = do
                     newPAB <- refMake $ updateStake ab
                     acc' <- setPersistentAccountStake acc (PersistentAccountStakeBaker newPAB)

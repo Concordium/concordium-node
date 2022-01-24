@@ -200,8 +200,6 @@ data BakerConfigureResult
   -- ^The aggregation key already exists.
   | BCStakeUnderThreshold
   -- ^The stake is below the required threshold dictated by current chain parameters.
-  | BCStakeOverThreshold
-  -- ^The stake is above the required threshold dictated by current chain parameters.
   | BCCommissionNotInRange
   -- ^The commission is not in the allowed range.
   | BCChangePending

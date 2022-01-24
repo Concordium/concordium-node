@@ -908,8 +908,6 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
       chainParams <- BS.bsoGetChainParameters bs
       let poolParams = chainParams ^. cpPoolParameters
       let capitalMin = poolParams ^. ppMinimumEquityCapital
-      let epochBakers = bs ^. blockBirkParameters . birkCurrentEpochBakers . unhashed
-      let capitalMax = takeFraction (poolParams ^. ppCapitalBound) (_bakerTotalStake epochBakers)
       let ranges = poolParams ^. ppCommissionBounds
       return $! case bs ^? blockAccounts . Accounts.indexedAccount ai of
         -- Cannot resolve the account
@@ -921,8 +919,6 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
           -- Provided stake is under threshold
           | bcaCapital < capitalMin ->
                 (BCStakeUnderThreshold, bs)
-          | bcaCapital > capitalMax ->
-                (BCStakeOverThreshold, bs)
           -- Check that commissions are within the valid ranges
           | not (isInRange bcaFinalizationRewardCommission (ranges ^. finalizationCommissionRange)) ->
                 (BCCommissionNotInRange, bs)
@@ -1072,10 +1068,6 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             let cp = bs ^. blockUpdates . currentParameters
             let capitalMin = cp ^. cpPoolParameters . ppMinimumEquityCapital
             when (capital < capitalMin) (MTL.throwError BCStakeUnderThreshold)
-            let poolParams = cp ^. cpPoolParameters
-            let epochBakers = bs ^. blockBirkParameters . birkCurrentEpochBakers . unhashed
-            let capitalMax = takeFraction (poolParams ^. ppCapitalBound) (_bakerTotalStake epochBakers)
-            when (capital > capitalMax) (MTL.throwError BCStakeOverThreshold)
             case compare capital (_stakedAmount ab) of
                 LT -> do
                     let bpc = ReduceStake capital (PendingChangeEffectiveV1 cooldownTimestamp)
