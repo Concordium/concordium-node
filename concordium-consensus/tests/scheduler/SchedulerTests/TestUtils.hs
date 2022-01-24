@@ -18,7 +18,6 @@ import Test.Hspec
 import Lens.Micro.Platform
 import Control.Monad
 import Data.List (foldl')
-import Data.Bits
 
 import Concordium.Scheduler.Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types

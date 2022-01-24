@@ -15,6 +15,7 @@ module Concordium.GlobalState.Basic.BlockState.Modules
   ) where
 
 import Concordium.Crypto.SHA256
+import Concordium.GlobalState.Wasm
 import Concordium.GlobalState.Basic.BlockState.LFMBTree (LFMBTree)
 import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as LFMB
 import Concordium.Types

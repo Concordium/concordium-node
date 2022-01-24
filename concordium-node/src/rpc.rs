@@ -89,9 +89,12 @@ macro_rules! call_consensus {
     ($self:ident, $req_name:expr, $resp_type:ident, $consensus_call:expr) => {
         if let Some(ref container) = $self.consensus {
             if !container.consensus.load(Ordering::Relaxed).is_null() {
-                Ok(Response::new($resp_type {
-                    value: $consensus_call(container),
-                }))
+                match $consensus_call(container) {
+                    Ok(value) => Ok(Response::new($resp_type {
+                        value,
+                    })),
+                    Err(e) => Err(Status::new(Code::InvalidArgument, e.to_string())),
+                }
             } else {
                 warn!("Can't respond to a {} request due to uninitialized Consensus", $req_name);
                 Err(Status::new(Code::Internal, "The consensus layer has not been initialized!"))
@@ -428,16 +431,20 @@ impl P2p for RpcServerImpl {
             SystemTime::now().duration_since(UNIX_EPOCH).expect("Time went backwards").as_secs();
         Ok(Response::new(match self.consensus {
             Some(ref consensus) => {
-                let consensus_baking_committee_status = consensus.in_baking_committee();
+                let (consensus_baking_committee_status, consensus_baker_id) =
+                    consensus.in_baking_committee();
+                let consensus_running = consensus.is_consensus_running();
+                let consensus_baker_running = consensus_running && consensus.is_baking();
+
                 NodeInfoResponse {
                     node_id,
                     current_localtime,
                     peer_type,
-                    consensus_baker_running: consensus.is_baking(),
-                    consensus_running: true,
+                    consensus_baker_running,
+                    consensus_running,
                     consensus_type: consensus.consensus_type.to_string(),
                     consensus_baker_committee: match consensus_baking_committee_status {
-                        ConsensusIsInBakingCommitteeResponse::ActiveInCommittee(_) => {
+                        ConsensusIsInBakingCommitteeResponse::ActiveInCommittee => {
                             node_info_response::IsInBakingCommittee::ActiveInCommittee.into()
                         }
                         ConsensusIsInBakingCommitteeResponse::AddedButNotActiveInCommittee => {
@@ -452,12 +459,7 @@ impl P2p for RpcServerImpl {
                         }
                     },
                     consensus_finalizer_committee: consensus.in_finalization_committee(),
-                    consensus_baker_id: match consensus_baking_committee_status {
-                        ConsensusIsInBakingCommitteeResponse::ActiveInCommittee(baker_id) => {
-                            Some(baker_id)
-                        }
-                        _ => None,
-                    },
+                    consensus_baker_id,
                     staging_net_username: None,
                 }
             }
@@ -552,28 +554,28 @@ impl P2p for RpcServerImpl {
     ) -> Result<Response<JsonResponse>, Status> {
         authenticate!(req, self.access_token);
         call_consensus!(self, "GetConsensusStatus", JsonResponse, |cc: &ConsensusContainer| {
-            cc.get_consensus_status()
+            Ok::<_, anyhow::Error>(cc.get_consensus_status())
         })
     }
 
     async fn start_baker(&self, req: Request<Empty>) -> Result<Response<BoolResponse>, Status> {
         authenticate!(req, self.access_token);
         call_consensus!(self, "StartBaker", BoolResponse, |cc: &ConsensusContainer| {
-            cc.start_baker()
+            Ok::<_, anyhow::Error>(cc.start_baker())
         })
     }
 
     async fn stop_baker(&self, req: Request<Empty>) -> Result<Response<BoolResponse>, Status> {
         authenticate!(req, self.access_token);
         call_consensus!(self, "StopBaker", BoolResponse, |cc: &ConsensusContainer| {
-            cc.stop_baker()
+            Ok::<_, anyhow::Error>(cc.stop_baker())
         })
     }
 
     async fn get_branches(&self, req: Request<Empty>) -> Result<Response<JsonResponse>, Status> {
         authenticate!(req, self.access_token);
         call_consensus!(self, "GetBranches", JsonResponse, |cc: &ConsensusContainer| {
-            cc.get_branches()
+            Ok::<_, anyhow::Error>(cc.get_branches())
         })
     }
 
@@ -606,11 +608,11 @@ impl P2p for RpcServerImpl {
         // restrict_to_genesis_index are 0 and false respectively. This means the
         // default behaviour will be to query with the absolute block height.
         call_consensus!(self, "GetBlocksAtHeight", JsonResponse, |cc: &ConsensusContainer| {
-            cc.get_blocks_at_height(
+            Ok::<_, anyhow::Error>(cc.get_blocks_at_height(
                 req.get_ref().block_height,
                 req.get_ref().from_genesis_index,
                 req.get_ref().restrict_to_genesis_index,
-            )
+            ))
         })
     }
 

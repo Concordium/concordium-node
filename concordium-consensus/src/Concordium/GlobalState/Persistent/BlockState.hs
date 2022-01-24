@@ -24,9 +24,7 @@ module Concordium.GlobalState.Persistent.BlockState (
 
 import Data.Serialize
 import Data.IORef
-import Control.Monad.Reader.Class
-import Control.Monad.Trans
-import Control.Monad
+import Control.Monad.Reader
 import Data.Foldable
 import Data.Maybe
 import Data.Word
@@ -39,6 +37,7 @@ import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types
 import Concordium.Types.Execution ( TransactionSummary )
 import qualified Concordium.Wasm as Wasm
+import qualified Concordium.GlobalState.Wasm as GSWasm
 import qualified Concordium.ID.Types as ID
 import qualified Concordium.ID.Parameters as ID
 import Concordium.Crypto.EncryptedTransfers (isZeroEncryptedAmount)
@@ -59,7 +58,7 @@ import qualified Concordium.GlobalState.Persistent.Instances as Instances
 import qualified Concordium.Types.Transactions as Transactions
 import qualified Concordium.Types.Execution as Transactions
 import Concordium.GlobalState.Persistent.Instances(PersistentInstance(..), PersistentInstanceParameters(..))
-import Concordium.Types.Instance (Instance(..),InstanceParameters(..),makeInstanceHash')
+import Concordium.GlobalState.Instance (Instance(..),InstanceParameters(..),makeInstanceHash')
 import Concordium.GlobalState.Persistent.Account
 import Concordium.GlobalState.Persistent.BlockState.Updates
 import qualified Concordium.GlobalState.Basic.BlockState.Account as TransientAccount
@@ -383,8 +382,12 @@ instance (IsProtocolVersion pv, MonadBlobStore m) => BlobStorable m (BlockStateP
 instance (MonadBlobStore m, IsProtocolVersion pv) => Cacheable m (BlockStatePointers pv) where
     cache BlockStatePointers{..} = do
         accts <- cache bspAccounts
-        insts <- cache bspInstances
+        -- first cache the modules
         mods <- cache bspModules
+        -- then cache the instances, but don't cache the modules again. Instead
+        -- share the references in memory we have already constructed by caching
+        -- modules above. Loading the modules here is cheap since we cached them.
+        insts <- runReaderT (cache bspInstances) =<< refLoad mods
         ips <- cache bspIdentityProviders
         ars <- cache bspAnonymityRevokers
         birkParams <- cache bspBirkParameters
@@ -513,7 +516,7 @@ storePBS pbs bsp = liftIO $ do
     return pbs
 {-# INLINE storePBS #-}
 
-doGetModule :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> ModuleRef -> m (Maybe Wasm.ModuleInterface)
+doGetModule :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> ModuleRef -> m (Maybe GSWasm.ModuleInterface)
 doGetModule s modRef = do
     bsp <- loadPBS s
     mods <- refLoad (bspModules bsp)
@@ -533,7 +536,7 @@ doGetModuleSource s modRef = do
 
 doPutNewModule :: (IsProtocolVersion pv, MonadBlobStore m)
     => PersistentBlockState pv
-    -> (Wasm.ModuleInterface, Wasm.WasmModule)
+    -> (GSWasm.ModuleInterface, Wasm.WasmModule)
     -> m (Bool, PersistentBlockState pv)
 doPutNewModule pbs (pmInterface, pmSource) = do
         bsp <- loadPBS pbs
@@ -978,14 +981,14 @@ doPutNewInstance pbs fnew = do
             params <- makeBufferedRef $ PersistentInstanceParameters {
                                             pinstanceAddress = instanceAddress,
                                             pinstanceOwner = instanceOwner,
-                                            pinstanceContractModule = instanceContractModule,
+                                            pinstanceContractModule = GSWasm.miModuleRef instanceModuleInterface,
                                             pinstanceReceiveFuns = instanceReceiveFuns,
                                             pinstanceInitName = instanceInitName,
                                             pinstanceParameterHash = instanceParameterHash
                                         }
             -- This in an irrefutable pattern because otherwise it would have failed in previous stages
             -- as it would be trying to create an instance of a module that doesn't exist.
-            ~(Just modRef) <- Modules.getModuleReference (Wasm.miModuleRef instanceModuleInterface) mods
+            ~(Just modRef) <- Modules.getModuleReference (GSWasm.miModuleRef instanceModuleInterface) mods
             return (inst, PersistentInstance{
                 pinstanceParameters = params,
                 pinstanceModuleInterface = modRef,

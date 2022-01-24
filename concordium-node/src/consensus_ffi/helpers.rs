@@ -304,22 +304,22 @@ pub enum ConsensusIsInBakingCommitteeResponse {
     NotInCommittee,
     AddedButNotActiveInCommittee,
     AddedButWrongKeys,
-    ActiveInCommittee(u64),
+    ActiveInCommittee,
 }
 
-impl TryFrom<i64> for ConsensusIsInBakingCommitteeResponse {
+impl TryFrom<u8> for ConsensusIsInBakingCommitteeResponse {
     type Error = anyhow::Error;
 
     #[inline]
-    fn try_from(value: i64) -> anyhow::Result<ConsensusIsInBakingCommitteeResponse> {
+    fn try_from(value: u8) -> anyhow::Result<ConsensusIsInBakingCommitteeResponse> {
         use ConsensusIsInBakingCommitteeResponse::*;
 
         match value {
-            -1 => Ok(NotInCommittee),
-            -2 => Ok(AddedButNotActiveInCommittee),
-            -3 => Ok(AddedButWrongKeys),
-            baker_id if baker_id >= 0 => Ok(ActiveInCommittee(baker_id as u64)),
-            _ => Err(anyhow!("Unsupported FFI return code for committee status ({})", value)),
+            0 => Ok(ActiveInCommittee),
+            1 => Ok(NotInCommittee),
+            2 => Ok(AddedButNotActiveInCommittee),
+            3 => Ok(AddedButWrongKeys),
+            _ => Err(anyhow!("Unsupported FFI return code ({}) for committee status", value)),
         }
     }
 }

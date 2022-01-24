@@ -8,7 +8,7 @@ module Concordium.GlobalState.Persistent.Instances where
 import Data.Word
 import Data.Functor.Foldable hiding (Nil)
 import Control.Monad
-import Control.Monad.IO.Class
+import Control.Monad.Reader
 import Data.Serialize
 import Data.Bits
 import qualified Data.Set as Set
@@ -20,9 +20,10 @@ import Concordium.Types.HashableTo
 import qualified Concordium.Wasm as Wasm
 import Concordium.Utils.Serialization.Put
 
+import qualified Concordium.GlobalState.Wasm as GSWasm
 import Concordium.GlobalState.Persistent.MonadicRecursive
 import Concordium.GlobalState.Persistent.BlobStore
-import qualified Concordium.Types.Instance as Transient
+import qualified Concordium.GlobalState.Instance as Transient
 import qualified Concordium.GlobalState.Basic.BlockState.InstanceTable as Transient
 import Concordium.GlobalState.Persistent.BlockState.Modules
 import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Modules
@@ -117,12 +118,23 @@ instance MonadBlobStore m => BlobStorable m PersistentInstance where
             let pinstanceHash = makeInstanceHash pip pinstanceModel pinstanceAmount
             return PersistentInstance{..}
 
-instance MonadBlobStore m => Cacheable m PersistentInstance where
+-- This cacheable instance is a bit unusual. Caching instances requires us to have access
+-- to the modules so that we can share the module interfaces from different instances.
+instance MonadBlobStore m => Cacheable (ReaderT Modules m) PersistentInstance where
     cache p@PersistentInstance{..} = do
-        -- TODO: We do not currently cache the pinstanceCachedParameters.
-        -- This behaviour is probably fine.
-        ips <- cache pinstanceParameters
-        return p{pinstanceParameters = ips}
+        modules <- ask
+        lift $! do
+            -- we only cache parameters and get the interface from the modules
+            -- table. The rest is already in memory at this point since the
+            -- fields are flat, i.e., without indirection via BufferedRef or
+            -- similar reference wrappers.
+            ips <- cache pinstanceParameters
+            params <- loadBufferedRef ips
+            let modref = pinstanceContractModule params
+            miface <- Modules.getModuleReference modref modules
+            case miface of
+              Nothing -> return p{pinstanceParameters = ips} -- this case should never happen, but it is safe to do this.
+              Just iface -> return p{pinstanceModuleInterface = iface, pinstanceParameters = ips}
 
 fromPersistentInstance ::  MonadBlobStore m => PersistentInstance -> m Transient.Instance
 fromPersistentInstance PersistentInstance{..} = do
@@ -131,7 +143,6 @@ fromPersistentInstance PersistentInstance{..} = do
     let instanceParameters = Transient.InstanceParameters {
             instanceAddress = pinstanceAddress,
             instanceOwner = pinstanceOwner,
-            instanceContractModule = pinstanceContractModule,
             instanceInitName = pinstanceInitName,
             instanceReceiveFuns = pinstanceReceiveFuns,
             instanceModuleInterface = instanceModuleInterface,
@@ -343,12 +354,15 @@ instance (MonadBlobStore m) => BlobStorable m Instances where
             s <- get
             fmap (InstancesTree s) <$> load
 
-instance (MonadBlobStore m) => Cacheable m Instances where
+instance (MonadBlobStore m) => Cacheable (ReaderT Modules m) Instances where
     cache i@InstancesEmpty = return i
-    cache (InstancesTree s r) = InstancesTree s <$> cacheBufferedBlobbed cacheIT r
-        where
-            cacheIT (Leaf l) = Leaf <$> cache l
+    cache (InstancesTree s r) = do
+        modules <- ask
+        let cacheIT :: IT r -> m (IT r)
+            cacheIT (Leaf l) = Leaf <$> runReaderT (cache l) modules
             cacheIT it = return it
+        lift (InstancesTree s <$> cacheBufferedBlobbed cacheIT r)
+            
 
 emptyInstances :: Instances
 emptyInstances = InstancesEmpty
@@ -457,14 +471,14 @@ makePersistent mods (Transient.Instances (Transient.Tree s t)) = InstancesTree s
             pIParams <- makeBufferedRef $ PersistentInstanceParameters{
                 pinstanceAddress = instanceAddress,
                 pinstanceOwner = instanceOwner,
-                pinstanceContractModule = instanceContractModule,
+                pinstanceContractModule = GSWasm.miModuleRef instanceModuleInterface,
                 pinstanceInitName = instanceInitName,
                 pinstanceParameterHash = instanceParameterHash,
                 pinstanceReceiveFuns = instanceReceiveFuns
             }
             -- This pattern is irrefutable because if the instance exists in the Basic version,
             -- then the module must be present in the persistent implementation.
-            ~(Just pIModuleInterface) <- Modules.getModuleReference (Wasm.miModuleRef instanceModuleInterface) mods
+            ~(Just pIModuleInterface) <- Modules.getModuleReference (GSWasm.miModuleRef instanceModuleInterface) mods
             return $ PersistentInstance {
                 pinstanceParameters = pIParams,
                 pinstanceModuleInterface = pIModuleInterface,
