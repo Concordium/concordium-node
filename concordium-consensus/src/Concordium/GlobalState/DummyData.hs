@@ -210,18 +210,18 @@ dummyRewardParameters :: RewardParameters 'ChainParametersV0
 dummyRewardParameters = RewardParameters {
     _rpMintDistribution = MintDistribution {
       _mdMintPerSlot = MintPerSlotForCPV0Some $ MintRate 1 12,
-      _mdBakingReward = RewardFraction 60000, -- 60%
-      _mdFinalizationReward = RewardFraction 30000 -- 30%
+      _mdBakingReward = AmountFraction 60000, -- 60%
+      _mdFinalizationReward = AmountFraction 30000 -- 30%
     },
     _rpTransactionFeeDistribution = TransactionFeeDistribution {
-      _tfdBaker = RewardFraction 45000, -- 45%
-      _tfdGASAccount = RewardFraction 45000 -- 45%
+      _tfdBaker = AmountFraction 45000, -- 45%
+      _tfdGASAccount = AmountFraction 45000 -- 45%
     },
     _rpGASRewards = GASRewards {
-      _gasBaker = RewardFraction 25000, -- 25%
-      _gasFinalizationProof = RewardFraction 50, -- 0.05%
-      _gasAccountCreation = RewardFraction 200, -- 0.2%
-      _gasChainUpdate = RewardFraction 50 -- 0.05%
+      _gasBaker = AmountFraction 25000, -- 25%
+      _gasFinalizationProof = AmountFraction 50, -- 0.05%
+      _gasAccountCreation = AmountFraction 200, -- 0.2%
+      _gasChainUpdate = AmountFraction 50 -- 0.05%
     }
 }
 

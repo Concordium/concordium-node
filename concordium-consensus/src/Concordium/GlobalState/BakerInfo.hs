@@ -149,9 +149,9 @@ data BakerConfigure =
         bcaRestakeEarnings :: !Bool,
         bcaOpenForDelegation :: !OpenStatus,
         bcaMetadataURL :: !UrlText,
-        bcaTransactionFeeCommission :: !RewardFraction,
-        bcaBakingRewardCommission :: !RewardFraction,
-        bcaFinalizationRewardCommission :: !RewardFraction
+        bcaTransactionFeeCommission :: !AmountFraction,
+        bcaBakingRewardCommission :: !AmountFraction,
+        bcaFinalizationRewardCommission :: !AmountFraction
     }
     -- |Remove a baker.
   | BakerConfigureRemove {
@@ -171,9 +171,9 @@ data BakerConfigure =
         bcuRestakeEarnings :: !(Maybe Bool),
         bcuOpenForDelegation :: !(Maybe OpenStatus),
         bcuMetadataURL :: !(Maybe UrlText),
-        bcuTransactionFeeCommission :: !(Maybe RewardFraction),
-        bcuBakingRewardCommission :: !(Maybe RewardFraction),
-        bcuFinalizationRewardCommission :: !(Maybe RewardFraction)
+        bcuTransactionFeeCommission :: !(Maybe AmountFraction),
+        bcuBakingRewardCommission :: !(Maybe AmountFraction),
+        bcuFinalizationRewardCommission :: !(Maybe AmountFraction)
     }
 
 -- |A baker update change result from configure baker. Used to indicate whether the configure will cause
@@ -185,9 +185,9 @@ data BakerConfigureUpdateChange =
   | BakerConfigureOpenForDelegation !OpenStatus
   | BakerConfigureUpdateKeys !BakerKeyUpdate
   | BakerConfigureMetadataURL !UrlText
-  | BakerConfigureTransactionFeeCommission !RewardFraction
-  | BakerConfigureBakingRewardCommission !RewardFraction
-  | BakerConfigureFinalizationRewardCommission !RewardFraction
+  | BakerConfigureTransactionFeeCommission !AmountFraction
+  | BakerConfigureBakingRewardCommission !AmountFraction
+  | BakerConfigureFinalizationRewardCommission !AmountFraction
   deriving (Eq, Show)
 
 -- |Result of configure baker.

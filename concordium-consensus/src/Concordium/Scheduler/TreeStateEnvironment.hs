@@ -316,10 +316,10 @@ doBlockReward transFees FreeTransactionCounts{..} bid foundationAddr bs0 = do
         -- Compute the GAS carried over. This is done at full precision and then
         -- rounded up (so that the payment to the baker is rounded up).
         gasGAS = ceiling $ toRational gasIn
-                    * (fractionToRational . complementRewardFraction $ rewardParams ^. gasBaker)
-                    * (fractionToRational . complementRewardFraction $ rewardParams ^. gasAccountCreation)^countAccountCreation
-                    * (fractionToRational . complementRewardFraction $ rewardParams ^. gasChainUpdate)^countUpdate
-                    * (fractionToRational . complementRewardFraction $ rewardParams ^. gasFinalizationProof)^countFinRecs
+                    * (fractionToRational . complementAmountFraction $ rewardParams ^. gasBaker)
+                    * (fractionToRational . complementAmountFraction $ rewardParams ^. gasAccountCreation)^countAccountCreation
+                    * (fractionToRational . complementAmountFraction $ rewardParams ^. gasChainUpdate)^countUpdate
+                    * (fractionToRational . complementAmountFraction $ rewardParams ^. gasFinalizationProof)^countFinRecs
         bakerGAS = gasIn - gasGAS
         gasOut = gasFees + gasGAS
         bakerOut = bakerFees + bakerGAS

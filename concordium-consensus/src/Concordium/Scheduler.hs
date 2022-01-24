@@ -1028,9 +1028,9 @@ data ConfigureBakerCont =
         cbcOpenForDelegation :: !OpenStatus,
         cbcKeysWithProofs :: !BakerKeysWithProofs,
         cbcMetadataURL :: !UrlText,
-        cbcTransactionFeeCommission :: !RewardFraction,
-        cbcBakingRewardCommission :: !RewardFraction,
-        cbcFinalizationRewardCommission :: !RewardFraction
+        cbcTransactionFeeCommission :: !AmountFraction,
+        cbcBakingRewardCommission :: !AmountFraction,
+        cbcFinalizationRewardCommission :: !AmountFraction
     }
   | ConfigureRemoveBakerCont
   | ConfigureUpdateBakerCont
@@ -1060,11 +1060,11 @@ handleConfigureBaker
     -- |The URL referencing the baker's metadata.
     -> Maybe UrlText
     -- |The commission the pool owner takes on transaction fees.
-    -> Maybe RewardFraction
+    -> Maybe AmountFraction
     -- |The commission the pool owner takes on baking rewards.
-    -> Maybe RewardFraction
+    -> Maybe AmountFraction
     -- |The commission the pool owner takes on finalization rewards.
-    -> Maybe RewardFraction
+    -> Maybe AmountFraction
     -> m (Maybe TransactionSummary)
 handleConfigureBaker
   wtc
