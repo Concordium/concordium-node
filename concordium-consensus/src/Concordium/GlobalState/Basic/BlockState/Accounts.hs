@@ -6,6 +6,7 @@ module Concordium.GlobalState.Basic.BlockState.Accounts where
 
 import Data.Serialize
 import qualified Data.Map.Strict as Map
+import GHC.Stack (HasCallStack)
 import Lens.Micro.Platform
 import Lens.Micro.Internal (Ixed,Index,IxValue)
 import Concordium.Types
@@ -119,6 +120,11 @@ getAccountWithIndex addr Accounts{..} = case AccountMap.lookupPure addr accountM
 -- |Traversal for accessing the account at a given index.
 indexedAccount :: IsProtocolVersion pv => AccountIndex -> Traversal' (Accounts pv) (Account (AccountVersionFor pv))
 indexedAccount ai = lens accountTable (\a v-> a{accountTable = v}) . ix ai
+
+-- |Lens for accessing the account at a given index, assuming the account exists.
+-- If the account does not exist, this throws an error.
+unsafeIndexedAccount :: (HasCallStack, IsProtocolVersion pv) => AccountIndex -> Lens' (Accounts pv) (Account (AccountVersionFor pv))
+unsafeIndexedAccount ai = singular (indexedAccount ai)
 
 -- |Apply account updates to an account. It is assumed that the address in
 -- account updates and account are the same.

@@ -70,7 +70,6 @@ import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import qualified Concordium.Types.UpdateQueues as UQ
 import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Modules
 import qualified Concordium.Types.Accounts as BaseAccounts
-import Concordium.Types.Accounts (StakePendingChange'(..), BakerInfo(_bakerAggregationVerifyKey), PendingChangeEffective(..), HasBakerInfo(..))
 import Concordium.Types.SeedState
 import Concordium.Logger (MonadLogger)
 import Concordium.Types.HashableTo
@@ -517,6 +516,7 @@ emptyBlockState
     -> UpdateKeysCollection (ChainParametersVersionFor pv)
     -> ChainParameters pv
     -> m (PersistentBlockState pv)
+{-# WARNING emptyBlockState "should only be used for testing" #-}
 emptyBlockState bspBirkParameters cryptParams keysCollection chainParams = do
   modules <- refMake Modules.emptyModules
   identityProviders <- refMake IPS.emptyIdentityProviders
@@ -1965,7 +1965,7 @@ doProcessPendingChanges
     :: forall pv m
      . (IsProtocolVersion pv, MonadBlobStore m, AccountVersionFor pv ~ 'AccountV1)
     => PersistentBlockState pv
-    -> (PendingChangeEffective (AccountVersionFor pv) -> Bool)
+    -> (BaseAccounts.PendingChangeEffective (AccountVersionFor pv) -> Bool)
     -- ^Guard determining if a change is effective
     -> m (PersistentBlockState pv)
 doProcessPendingChanges persistentBS isEffective = do

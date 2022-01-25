@@ -242,6 +242,9 @@ class AccountOperations m => BlockStateQuery m where
     -- |Get the bakers for the epoch in which the block was baked.
     getCurrentEpochBakers :: BlockState m -> m FullBakers
 
+    -- |Get the bakers for the next epoch.
+    getNextEpochBakers :: BlockState m -> m FullBakers
+
     -- |Get the bakers for a particular (future) slot, provided genesis timestamp and slot duration.
     getSlotBakers :: BlockState m -> Timestamp -> Duration -> Slot -> m FullBakers
 
@@ -291,6 +294,9 @@ class AccountOperations m => BlockStateQuery m where
     -- |Get the current cryptographic parameters of the chain.
     getCryptographicParameters :: BlockState m -> m CryptographicParameters
 
+    -- |Get the epoch time of the next scheduled payday.
+    getPaydayEpoch :: (AccountVersionFor (MPV m) ~ 'AccountV1) => BlockState m -> m Epoch
+
 -- |Distribution of newly-minted GTU.
 data MintAmounts = MintAmounts {
     -- |Minted amount allocated to the BakingRewardAccount
@@ -314,6 +320,32 @@ instance Monoid MintAmounts where
 
 mintTotal :: MintAmounts -> Amount
 mintTotal MintAmounts{..} = mintBakingReward + mintFinalizationReward + mintDevelopmentCharge
+
+-- |Information about a delegator.
+data ActiveDelegatorInfo = ActiveDelegatorInfo {
+    -- |ID of the delegator.
+    activeDelegatorId :: !DelegatorId,
+    -- |Amount delegated to the target pool.
+    activeDelegatorStake :: !Amount,
+    -- |Any pending change to delegator.
+    activeDelegatorPendingChange :: !(StakePendingChange 'AccountV1)
+  }
+
+-- |Information about a baker, including its delegators.
+data ActiveBakerInfo' bakerInfoRef = ActiveBakerInfo {
+    -- |A reference to the baker info for the baker.
+    activeBakerInfoRef :: !bakerInfoRef,
+    -- |The equity capital of the active baker.
+    activeBakerEquityCapital :: !Amount,
+    -- |Any pending change to the baker's stake.
+    activeBakerPendingChange :: !(StakePendingChange 'AccountV1),
+    -- |Information about the delegators to the baker in ascending order of 'DelegatorId'.
+    -- (There must be no duplicate 'DelegatorId's.)
+    activeBakerDelegators :: ![ActiveDelegatorInfo]
+  }
+
+-- |Information about a baker, including its delegators.
+type ActiveBakerInfo m = ActiveBakerInfo' (BakerInfoRef m)
 
 -- |Block state update operations parametrized by a monad. The operations which
 -- mutate the state all also return an 'UpdatableBlockState' handle. This is to
@@ -420,9 +452,6 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- This does not change the next epoch bakers.
   bsoRotateCurrentEpochBakers :: UpdatableBlockState m -> m (UpdatableBlockState m)
 
-  -- TODO: document
-  bsoClearNextEpochBakers :: (AccountVersionFor (MPV m) ~ 'AccountV1) => UpdatableBlockState m -> m (UpdatableBlockState m)
-
   -- TODO: document and implement:
   bsoSetNextEpochBakers :: (AccountVersionFor (MPV m) ~ 'AccountV1) => UpdatableBlockState m -> 
       [(BakerInfoRef m, Amount)] -> m (UpdatableBlockState m)
@@ -461,6 +490,13 @@ class (BlockStateQuery m) => BlockStateOperations m where
     -- ^Guard determining if a change is effective
     -> m (UpdatableBlockState m)
 
+  -- |Get the currently-registered (i.e. active) bakers with their delegators, as well as the
+  -- set of delegators to the L-pool. In each case, the lists are ordered in ascending Id order,
+  -- with no duplicates.
+  bsoGetActiveBakersAndDelegators
+    :: (AccountVersionFor (MPV m) ~ 'AccountV1)
+    => UpdatableBlockState m
+    -> m ([ActiveBakerInfo m], [ActiveDelegatorInfo])
 
   -- |Register this account as a baker.
   -- The following results are possible:
@@ -651,6 +687,8 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- |Get the current chain parameters.
   bsoGetChainParameters :: UpdatableBlockState m -> m (ChainParameters (MPV m))
 
+  -- * Reward details
+
   -- |Get the number of blocks baked in this epoch, both in total and
   -- per baker.
   bsoGetEpochBlocksBaked :: UpdatableBlockState m -> m (Word64, [(BakerId, Word64)])
@@ -660,7 +698,21 @@ class (BlockStateQuery m) => BlockStateOperations m where
 
   -- |Clear the tracking of baked blocks in the current epoch.
   -- Should be called whenever a new epoch is entered.
-  bsoClearEpochBlocksBaked :: UpdatableBlockState m -> m (UpdatableBlockState m)
+  -- (Only used prior to protocol P4.)
+  bsoClearEpochBlocksBaked :: (AccountVersionFor (MPV m) ~ 'AccountV0) => UpdatableBlockState m -> m (UpdatableBlockState m)
+
+  -- |Set the next capital distribution.
+  bsoSetNextCapitalDistribution ::
+    UpdatableBlockState m ->
+    -- |Capital of bakers and their delegators
+    [(BakerId, Amount, [(DelegatorId, Amount)])] ->
+    -- |Capital of L-pool delegators
+    [(DelegatorId, Amount)] ->
+    m (UpdatableBlockState m)
+
+  -- |Set the current capital distribution to the current value of the next capital distribution.
+  -- The next capital distribution is unchanged.
+  bsoRotateCurrentCapitalDistribution :: UpdatableBlockState m -> m (UpdatableBlockState m)
 
   -- |Get the current status of the various accounts.
   bsoGetBankStatus :: UpdatableBlockState m -> m BankStatus
@@ -728,6 +780,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   getContractInstanceList = lift . getContractInstanceList
   getSeedState = lift . getSeedState
   getCurrentEpochBakers = lift . getCurrentEpochBakers
+  getNextEpochBakers = lift . getNextEpochBakers
   getSlotBakers s t d = lift . getSlotBakers s t d
   getRewardStatus = lift . getRewardStatus
   getTransactionOutcome s = lift . getTransactionOutcome s
@@ -743,6 +796,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   getUpdates = lift . getUpdates
   getProtocolUpdateStatus = lift . getProtocolUpdateStatus
   getCryptographicParameters = lift . getCryptographicParameters
+  getPaydayEpoch = lift . getPaydayEpoch
   {-# INLINE getModule #-}
   {-# INLINE getAccount #-}
   {-# INLINE getAccountByCredId #-}
@@ -816,9 +870,9 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoGetSeedState = lift . bsoGetSeedState
   bsoSetSeedState s ss = lift $ bsoSetSeedState s ss
   bsoRotateCurrentEpochBakers = lift . bsoRotateCurrentEpochBakers
-  bsoClearNextEpochBakers = lift . bsoClearNextEpochBakers
   bsoProcessPendingChanges s g = lift $ bsoProcessPendingChanges s g
   bsoTransitionEpochBakers s e = lift $ bsoTransitionEpochBakers s e
+  bsoGetActiveBakersAndDelegators = lift . bsoGetActiveBakersAndDelegators
   bsoAddBaker s addr a = lift $ bsoAddBaker s addr a
   bsoConfigureBaker s aconfig a = lift $ bsoConfigureBaker s aconfig a
   bsoConfigureDelegation s aconfig a = lift $ bsoConfigureDelegation s aconfig a
@@ -848,6 +902,8 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoGetEpochBlocksBaked = lift . bsoGetEpochBlocksBaked
   bsoNotifyBlockBaked s = lift . bsoNotifyBlockBaked s
   bsoClearEpochBlocksBaked = lift . bsoClearEpochBlocksBaked
+  bsoSetNextCapitalDistribution s cb cl = lift $ bsoSetNextCapitalDistribution s cb cl
+  bsoRotateCurrentCapitalDistribution = lift . bsoRotateCurrentCapitalDistribution
   bsoSetNextEpochBakers s = lift . bsoSetNextEpochBakers s
   bsoGetBankStatus = lift . bsoGetBankStatus
   bsoSetRewardAccounts s = lift . bsoSetRewardAccounts s
