@@ -130,7 +130,8 @@ invokeContract _ ContractContext{..} cm bs = do
       return (Failure{
                  rcrReason = WasmV1.cerToRejectReasonReceive ccContract ccMethod ccParameter cf,
                  rcrUsedEnergy = ccEnergy - re})
-    (Right (Right (Right (rv, rcrEvents))), re) ->
+    (Right (Right (Right (rv, reversedEvents))), re) -> -- handleUpdateContractV1 returns events in reverse order
       return Success{rcrReturnValue=Just (WasmV1.returnValueToByteString rv),
                      rcrUsedEnergy = ccEnergy - re,
+                     rcrEvents = reverse reversedEvents,
                      ..}

@@ -51,7 +51,6 @@ import Concordium.Scheduler.Types
 import Concordium.Scheduler.Environment
 import Data.Time
 import Concordium.TimeMonad
-
 import qualified Data.Serialize as S
 import qualified Data.ByteString as BS
 
@@ -96,7 +95,7 @@ import Concordium.Scheduler.WasmIntegration.V1 (ReceiveResultData(rrdCurrentStat
 -- the cost that will be charged for checking the header.
 --
 -- Throws 'Nothing' if the remaining block energy is not sufficient to cover the cost of checking the
--- header and @Just fk@ if any of the checks fails, with the respective 'FailureKind'.
+-- header and @Just fk@ if any of the checks fail, with the respective 'FailureKind'.
 --
 -- Returns the sender account and the cost to be charged for checking the header.
 checkHeader :: forall pv msg m . (TransactionData msg, SchedulerMonad pv m) => msg -> ExceptT (Maybe FailureKind) m (IndexedAccount m, Energy)
@@ -794,7 +793,7 @@ handleUpdateContract wtc uAmount uAddress uReceiveName uMessage =
             InstanceV1 ins -> do
               handleContractUpdateV1 senderAddress ins checkAndGetBalanceV1 uAmount uReceiveName uMessage >>= \case
                 Left cer -> rejectTransaction (WasmV1.cerToRejectReasonReceive uAddress uReceiveName uMessage cer)
-                Right (_, events) -> return events
+                Right (_, events) -> return (reverse events)
 
 -- |Check that the account has sufficient balance, and construct credentials of the account.
 checkAndGetBalanceAccountV1 :: (TransactionMonad pv m, AccountOperations m)
@@ -804,7 +803,7 @@ checkAndGetBalanceAccountV1 :: (TransactionMonad pv m, AccountOperations m)
     -> m (Either WasmV1.ContractCallFailure (Address, [ID.AccountCredential], (Either ContractAddress IndexedAccountAddress)))
 checkAndGetBalanceAccountV1 usedAddress senderAccount transferAmount = do
   (senderAddr, senderCredentials) <- mkSenderAddrCredentials (Right (usedAddress, senderAccount))
-  senderamount <- getAccountAvailableAmount (snd senderAccount)
+  senderamount <- getCurrentAccountAvailableAmount senderAccount
   if senderamount >= transferAmount then do
     canonicalAddr <- getAccountCanonicalAddress (snd senderAccount)
     return (Right (senderAddr, senderCredentials, Right (fst senderAccount, canonicalAddr)))
@@ -821,7 +820,7 @@ checkAndGetBalanceAccountV0 :: (TransactionMonad pv m, AccountOperations m)
     -> m (Address, [ID.AccountCredential], (Either ContractAddress IndexedAccountAddress))
 checkAndGetBalanceAccountV0 usedAddress senderAccount transferAmount = do
   (senderAddr, senderCredentials) <- mkSenderAddrCredentials (Right (usedAddress, senderAccount))
-  senderamount <- getAccountAvailableAmount (snd senderAccount)
+  senderamount <- getCurrentAccountAvailableAmount senderAccount
   if senderamount >= transferAmount then do
     canonicalAddr <- getAccountCanonicalAddress (snd senderAccount)
     return (senderAddr, senderCredentials, Right (fst senderAccount, canonicalAddr))
@@ -878,7 +877,9 @@ handleContractUpdateV1 :: forall pv m.
   -> Amount -- ^The amount to be transferred from the sender of the message to the contract upon success.
   -> Wasm.ReceiveName -- ^Name of the contract to invoke.
   -> Wasm.Parameter -- ^Message to invoke the receive method with.
-  -> m (Either WasmV1.ContractCallFailure (WasmV1.ReturnValue, [Event])) -- ^The events resulting from processing the message and all recursively processed messages.
+  -> m (Either WasmV1.ContractCallFailure (WasmV1.ReturnValue, [Event]))
+  -- ^The events resulting from processing the message and all recursively processed messages. For efficiency
+  -- reasons the events are in **reverse order** of the actual effects.
 handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount receiveName parameter = do
   -- Cover administrative costs.
   tickEnergy Cost.updateContractInstanceBaseCost
