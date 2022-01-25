@@ -20,6 +20,7 @@ import Data.Coerce
 import Data.Maybe
 import qualified Data.Serialize as S
 import qualified Data.Map.Strict as Map
+import GHC.Stack (HasCallStack)
 import Lens.Micro.Platform
 
 import qualified Concordium.Crypto.SHA256 as Hash
@@ -67,16 +68,23 @@ data Account (av :: AccountVersion) = Account {
 makeLenses ''Account
 
 accountBaker :: SimpleGetter (Account av) (Maybe (AccountBaker av))
-accountBaker = to $ g
+accountBaker = to g
   where
     g Account{_accountStaking = AccountStakeBaker bkr} = Just bkr
     g _ = Nothing
 
+-- |Get the baker from an account, on the basis that it is known to be a baker
+unsafeAccountBaker :: HasCallStack => SimpleGetter (Account av) (AccountBaker av)
+unsafeAccountBaker = accountBaker . non (error "Invariant violation: account was expected to be a baker")
+
 accountDelegator :: SimpleGetter (Account av) (Maybe (AccountDelegation av))
-accountDelegator = to $ g
+accountDelegator = to g
   where
     g Account{_accountStaking = AccountStakeDelegate del} = Just del
     g _ = Nothing
+
+unsafeAccountDelegator :: HasCallStack => SimpleGetter (Account av) (AccountDelegation av)
+unsafeAccountDelegator = accountDelegator . non (error "Invariant violation: account was expected to be a delegator")
 
 instance HasPersistingAccountData (Account av) where
   persistingAccountData = accountPersisting . unhashed

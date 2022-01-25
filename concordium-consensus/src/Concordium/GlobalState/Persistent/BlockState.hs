@@ -477,6 +477,7 @@ emptyBlockState
     -> UpdateKeysCollection (ChainParametersVersionFor pv)
     -> ChainParameters pv
     -> m (PersistentBlockState pv)
+{-# WARNING emptyBlockState "should only be used for testing" #-}
 emptyBlockState bspBirkParameters cryptParams keysCollection chainParams = do
   modules <- refMake Modules.emptyModules
   identityProviders <- refMake IPS.emptyIdentityProviders
@@ -1877,6 +1878,7 @@ instance BlockStateTypes (PersistentBlockStateMonad pv r m) where
     type BlockState (PersistentBlockStateMonad pv r m) = HashedPersistentBlockState pv
     type UpdatableBlockState (PersistentBlockStateMonad pv r m) = PersistentBlockState pv
     type Account (PersistentBlockStateMonad pv r m) = PersistentAccount (AccountVersionFor pv)
+    type BakerInfoRef (PersistentBlockStateMonad pv r m) = BufferedRef BakerInfo
 
 instance (IsProtocolVersion pv, PersistentState r m) => BlockStateQuery (PersistentBlockStateMonad pv r m) where
     getModule = doGetModuleSource . hpbsPointers
