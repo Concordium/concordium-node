@@ -125,8 +125,8 @@ instance (MonadReader ContextState m,
   {-# INLINE getContractInstance #-}
   getContractInstance addr = lift . flip bsoGetInstance addr =<< use schedulerBlockState
 
-  {-# INLINE getAccount #-}
-  getAccount !addr = lift . flip bsoGetAccount addr =<< use schedulerBlockState
+  {-# INLINE getStateAccount #-}
+  getStateAccount !addr = lift . flip bsoGetAccount addr =<< use schedulerBlockState
 
 
 instance (MonadReader ContextState m,

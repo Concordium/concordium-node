@@ -110,7 +110,7 @@ checkHeader meta = do
   unless (remainingBlockEnergy >= cost) $ throwError Nothing
 
   -- Now check whether the specified sender exists, and only then do all remaining checks.
-  macc <- lift (getAccount (transactionSender meta))
+  macc <- lift (getStateAccount (transactionSender meta))
   case macc of
     Nothing -> throwError . Just $ (UnknownAccount (transactionSender meta))
     Just iacc@(_, acc) -> do
@@ -308,7 +308,7 @@ handleTransferWithSchedule wtc twsTo twsSchedule maybeMemo = withDeposit wtc c k
               unless (senderAmount >= transferAmount) $! rejectTransaction (AmountTooLarge (AddressAccount senderAddress) transferAmount)
 
               -- check the target account
-              targetAccount <- getAccount twsTo `rejectingWith` InvalidAccountReference twsTo
+              targetAccount <- getStateAccount twsTo `rejectingWith` InvalidAccountReference twsTo
               -- In protocol version P3 account addresses are no longer in 1-1
               -- correspondence with accounts. Thus to check that a scheduled
               -- transfer is not a self transfer we need to check canonical
@@ -466,7 +466,7 @@ handleEncryptedAmountTransfer wtc toAddress transferData@EncryptedAmountTransfer
 
           -- Look up the receiver account first, and don't charge if it does not exist
           -- and does not have a valid credential.
-          targetAccount <- getAccount toAddress `rejectingWith` InvalidAccountReference toAddress
+          targetAccount <- getStateAccount toAddress `rejectingWith` InvalidAccountReference toAddress
           -- Check that the account is not transferring to itself since that
           -- causes technical complications. In protocol versions 1 and 2
           -- account addresses and accounts were in 1-1 correspondence. In
@@ -759,7 +759,7 @@ handleSimpleTransfer wtc toAddr transferamount maybeMemo =
             unless (senderamount >= transferamount) $! rejectTransaction (AmountTooLarge (AddressAccount senderAddress) transferamount)
             
             -- Check whether target account exists and get it.
-            targetAccount <- getAccount toAddr `rejectingWith` InvalidAccountReference toAddr
+            targetAccount <- getStateAccount toAddr `rejectingWith` InvalidAccountReference toAddr
             
             -- Add the transfer to the current changeset and return the corresponding event.
             withAccountToAccountAmount senderAccount targetAccount transferamount $
@@ -889,7 +889,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
   let ownerAccountAddress = instanceOwner iParams
   -- The invariants maintained by global state should ensure that an owner account always exists.
   -- However we are defensive here and reject the transaction instead of panicking in case it does not.
-  ownerCheck <- getAccount ownerAccountAddress
+  ownerCheck <- getStateAccount ownerAccountAddress
   senderCheck <- checkAndGetSender transferAmount
 
   case (Set.member receiveName receivefuns, ownerCheck, senderCheck) of
@@ -1020,7 +1020,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
             let addr = AddressContract (instanceAddress senderInstance)
             unless (senderamount >= tAmount) $! throwError (WasmV1.AmountTooLarge addr tAmount)
             -- Check whether target account exists and get it.
-            lift (getAccount accAddr) >>=  \case
+            lift (getStateAccount accAddr) >>=  \case
               Nothing -> throwError (WasmV1.MissingAccount accAddr)
               Just targetAccount -> 
                 -- Add the transfer to the current changeset and return the corresponding event.
@@ -1070,7 +1070,7 @@ handleContractUpdateV0 originAddr istance checkAndGetSender transferAmount recei
   let ownerAccountAddress = instanceOwner iParams
   -- The invariants maintained by global state should ensure that an owner account always exists.
   -- However we are defensive here and reject the transaction instead of panicking in case it does not.
-  ownerAccount <- getAccount ownerAccountAddress `rejectingWith` InvalidAccountReference ownerAccountAddress
+  ownerAccount <- getStateAccount ownerAccountAddress `rejectingWith` InvalidAccountReference ownerAccountAddress
   cm <- getChainMetadata
 
   -- We have established that the owner account of the receiver instance has at least one valid credential.
@@ -1193,7 +1193,7 @@ handleTransferAccount accAddr senderInstance transferamount = do
   unless (senderamount >= transferamount) $! rejectTransaction (AmountTooLarge addr transferamount)
 
   -- Check whether target account exists and get it.
-  targetAccount <- getAccount accAddr `rejectingWith` InvalidAccountReference accAddr
+  targetAccount <- getStateAccount accAddr `rejectingWith` InvalidAccountReference accAddr
 
   -- Add the transfer to the current changeset and return the corresponding event.
   withContractToAccountAmount (instanceAddress senderInstance) targetAccount transferamount $

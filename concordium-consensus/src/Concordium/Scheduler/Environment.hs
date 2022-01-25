@@ -71,9 +71,9 @@ class (Monad m) => StaticInformation m where
   -- |Return a contract instance if it exists at the given address.
   getContractInstance :: ContractAddress -> m (Maybe Instance)
  
-  -- |Get the amount of funds at the particular account address.
+  -- |Get the amount of funds at the particular account address at the start of a transaction.
   -- To get the amount of funds for a contract instance use getInstance and lookup amount there.
-  getAccount :: AccountAddress -> m (Maybe (IndexedAccount m))
+  getStateAccount :: AccountAddress -> m (Maybe (IndexedAccount m))
 
 -- |Information needed to execute transactions in the form that is easy to use.
 class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m)), AccountOperations m, MonadLogger m, IsProtocolVersion pv)
@@ -745,8 +745,8 @@ instance StaticInformation m => StaticInformation (LocalT pv r m) where
   {-# INLINE getContractInstance #-}
   getContractInstance = liftLocal . getContractInstance
  
-  {-# INLINE getAccount #-}
-  getAccount = liftLocal . getAccount
+  {-# INLINE getStateAccount #-}
+  getStateAccount = liftLocal . getStateAccount
 
 deriving via (MGSTrans (LocalT pv r) m) instance AccountOperations m => AccountOperations (LocalT pv r m)
 

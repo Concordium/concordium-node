@@ -61,8 +61,8 @@ instance (Monad m, BS.BlockStateQuery m) => StaticInformation (InvokeContractMon
   {-# INLINE getContractInstance #-}
   getContractInstance addr = lift . flip BS.getContractInstance addr =<< view _2
 
-  {-# INLINE getAccount #-}
-  getAccount !addr = lift . flip BS.getAccount addr =<< view _2
+  {-# INLINE getStateAccount #-}
+  getStateAccount !addr = lift . flip BS.getAccount addr =<< view _2
 
 -- |Invoke the contract in the given context.
 invokeContract :: forall pv m . (IsProtocolVersion pv, BS.BlockStateQuery m) =>
@@ -90,19 +90,19 @@ invokeContract _ ContractContext{..} cm bs = do
                 maxIndex = maxBound
             in return (Right (const (return (AddressAccount zeroAddress, [], Right (maxIndex, zeroAddress))), zeroAddress, maxIndex))
           -- if the invoker is an address make sure it exists
-          Just (AddressAccount accInvoker) -> getAccount accInvoker >>= \case
+          Just (AddressAccount accInvoker) -> getStateAccount accInvoker >>= \case
             Nothing -> return (Left (Just (InvalidAccountReference accInvoker)))
             Just acc -> return (Right (checkAndGetBalanceAccountV0 accInvoker acc, accInvoker, fst acc))
           Just (AddressContract contractInvoker) -> getContractInstance contractInvoker >>= \case
             Nothing -> return (Left (Just (InvalidContractAddress contractInvoker)))
             Just (Instance.InstanceV0 i@Instance.InstanceV{..}) -> do
               let ownerAccountAddress = instanceOwner _instanceVParameters
-              getAccount ownerAccountAddress >>= \case
+              getStateAccount ownerAccountAddress >>= \case
                 Nothing -> return (Left (Just $ InvalidAccountReference ownerAccountAddress))
                 Just acc -> return (Right (checkAndGetBalanceInstanceV0 acc i, ownerAccountAddress, fst acc))
             Just (Instance.InstanceV1 i@Instance.InstanceV{..}) -> do
               let ownerAccountAddress = instanceOwner _instanceVParameters
-              getAccount ownerAccountAddress >>= \case
+              getStateAccount ownerAccountAddress >>= \case
                 Nothing -> return (Left (Just $ InvalidAccountReference ownerAccountAddress))
                 Just acc -> return (Right (checkAndGetBalanceInstanceV0 acc i, ownerAccountAddress, fst acc))
   let runContractComp = 
