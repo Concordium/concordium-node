@@ -11,6 +11,7 @@ import Lens.Micro.Platform
 
 import Concordium.Types
 import Concordium.Types.Accounts
+import Concordium.Types.UpdateQueues
 
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.BlockState
@@ -32,7 +33,6 @@ transitionEpochBakersP4 bs0 prePayday payday = do
     undefined
 
 -- |Generate and set the next epoch bakers and next capital based on the current active bakers.
--- TODO: Also account for pending changes.
 generateNextBakers ::
     ( BlockStateOperations m,
       AccountVersionFor (MPV m) ~ 'AccountV1,
@@ -41,7 +41,10 @@ generateNextBakers ::
     UpdatableBlockState m ->
     m (UpdatableBlockState m)
 generateNextBakers bs0 = do
+    --(currentActiveBakers, currentLPoolDelegators) <- bsoGetActiveBakersAndDelegators bs0
     (activeBakers, lpoolDelegators) <- bsoGetActiveBakersAndDelegators bs0
+    --(activeBakers, lpoolDelegators) <- ...
+    -- TODO: create function(s) to modify currentActiveBakers, currentLPoolDelegators, according to next pending changes in ActiveBakerInfo and ActiveDelegatorInfo.
     cps <- bsoGetChainParameters bs0
     let leverage = cps ^. cpPoolParameters . ppLeverageBound
         capitalBound = cps ^. cpPoolParameters . ppCapitalBound
@@ -85,8 +88,8 @@ getSlotBakersV1 bs slot = do
     if slotEpoch < nextPayday
         then getCurrentEpochBakers bs
         else do
-            chainParams <- getChainParameters bs
-            let paydayLength = chainParams ^. cpTimeParameters . tpRewardPeriodLength
+            chainParams <- _currentParameters <$> getUpdates bs
+            let paydayLength = rewardPeriodEpochs $ chainParams ^. cpTimeParameters . tpRewardPeriodLength
             if blockEpoch + 1 == nextPayday && slotEpoch < nextPayday + paydayLength then
                 getNextEpochBakers bs
             else do

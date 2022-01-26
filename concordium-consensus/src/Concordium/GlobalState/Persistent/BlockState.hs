@@ -206,8 +206,8 @@ makePersistentBirkParameters ::
     MonadBlobStore m => Basic.BasicBirkParameters 'AccountV0 -> m (PersistentBirkParameters 'AccountV0)
 makePersistentBirkParameters bbps = do
     _birkActiveBakers <- refMake =<< makePersistentActiveBakers (Basic._birkActiveBakers bbps)
-    _birkNextEpochBakers <- case Basic._birkNextEpochBakers bbps of
-        Basic.NextEpochBakers neb -> PersistentNextEpochBakers <$> (refMake =<< makePersistentEpochBakers (_unhashed neb))
+    _birkNextEpochBakers <- PersistentNextEpochBakers <$>
+        (refMake =<< makePersistentEpochBakers (_unhashed $ Basic._birkNextEpochBakers bbps))
     _birkCurrentEpochBakers <- refMake =<< makePersistentEpochBakers (_unhashed (Basic._birkCurrentEpochBakers bbps))
     let _birkSeedState = Basic._birkSeedState bbps
     return $ PersistentBirkParameters{..}
@@ -313,6 +313,10 @@ putHashedEpochBlocksV0 HashedEpochBlocks{..} = do
             EpochBlock{..} <- refLoad ebref
             loadEB (s Seq.|> ebBakerId) ebPrevious
 
+data BlockRewardDetails (av : AccountVersion) where
+    BlockRewardDetailsV0 :: !HashedEpochBlocks -> BlockRewardDetails 'AccountV0
+    BlockRewardDetailsV1 :: !(Hashed PoolRewards.PoolRewards) -> BlockRewardDetails 'AccountV1
+
 -- * Block state
 
 -- |Type representing a persistent block state. This is a 'BufferedRef' inside an 'IORef',
@@ -341,9 +345,9 @@ data BlockStatePointers (pv :: ProtocolVersion) = BlockStatePointers {
     bspReleaseSchedule :: !(BufferedRef (Map.Map AccountAddress Timestamp)),
     -- FIXME: Store transaction outcomes in a way that allows for individual indexing.
     bspTransactionOutcomes :: !Transactions.TransactionOutcomes,
-    -- |Identities of bakers that baked blocks in the current epoch. This is
+    -- |Details of bakers that baked blocks in the current epoch. This is
     -- used for rewarding bakers at the end of epochs.
-    bspEpochBlocks :: !HashedEpochBlocks
+    bspRewardDetails :: !(BlockRewardDetails (AccountVersionFor pv))
 }
 
 -- |A hashed version of 'PersistingBlockState'.  This is used when the block state
@@ -692,13 +696,13 @@ doGetSlotBakers pbs genesisTime slotDuration slot = do
                                 pab <- refLoad bkr
                                 abi <- refLoad (pab ^. accountBakerInfo)
                                 return $ case _bakerPendingChange pab of
-                                    RemoveStake (PendingChangeEffectiveV0 remEpoch)
+                                    BaseAccounts.RemoveStake (BaseAccounts.PendingChangeEffectiveV0 remEpoch)
                                         | remEpoch < slotEpoch -> Nothing
-                                    ReduceStake newAmt (PendingChangeEffectiveV0 redEpoch)
+                                    BaseAccounts.ReduceStake newAmt (BaseAccounts.PendingChangeEffectiveV0 redEpoch)
                                         | redEpoch < slotEpoch -> Just (FullBakerInfo (abi ^. bakerInfo) newAmt)
-                                    RemoveStake (PendingChangeEffectiveV1 remTime)
+                                    BaseAccounts.RemoveStake (BaseAccounts.PendingChangeEffectiveV1 remTime)
                                         | remTime < slotTime -> Nothing
-                                    ReduceStake newAmt (PendingChangeEffectiveV1 redTime)
+                                    BaseAccounts.ReduceStake newAmt (BaseAccounts.PendingChangeEffectiveV1 redTime)
                                         | redTime < slotTime -> Just (FullBakerInfo (abi ^. bakerInfo) newAmt)
                                     _ -> Just (FullBakerInfo (abi ^. bakerInfo) (pab ^. stakedAmount))
                             Null -> error "Persistent.getSlotBakers invariant violation: active baker account not a baker"
@@ -724,7 +728,7 @@ doTransitionEpochBakers pbs newEpoch = do
                 Just PersistentAccount{_accountStake = PersistentAccountStakeBaker acctBkrRef} -> do
                     acctBkr <- refLoad acctBkrRef
                     case _bakerPendingChange acctBkr of
-                        RemoveStake (PendingChangeEffectiveV0 remEpoch)
+                        BaseAccounts.RemoveStake (BaseAccounts.PendingChangeEffectiveV0 remEpoch)
                             -- Removal takes effect next epoch, so exclude it from the list of bakers
                             | remEpoch == newEpoch + 1 -> return (bs0, bkrs0)
                             -- Removal complete, so update the active bakers and account as well
@@ -747,7 +751,7 @@ doTransitionEpochBakers pbs newEpoch = do
                                         bspBirkParameters = (bspBirkParameters bs0) {_birkActiveBakers = newABs},
                                         bspAccounts = newAccounts
                                     }, bkrs0)
-                        ReduceStake newAmt (PendingChangeEffectiveV0 redEpoch)
+                        BaseAccounts.ReduceStake newAmt (BaseAccounts.PendingChangeEffectiveV0 redEpoch)
                             -- Reduction takes effect next epoch, so apply it in the generated list
                             | redEpoch == newEpoch + 1 -> return (bs0, (_accountBakerInfo acctBkr, newAmt) : bkrs0)
                             -- Reduction complete, so update the account as well
@@ -2017,9 +2021,9 @@ doProcessPendingChanges persistentBS isEffective = do
         Some acctDelRef -> do
             acctDel@BaseAccounts.AccountDelegationV1{..} <- lift (refLoad acctDelRef)
             case _delegationPendingChange of
-                RemoveStake pet | isEffective pet ->
+                BaseAccounts.RemoveStake pet | isEffective pet ->
                     removeDelegatorStake accId
-                ReduceStake newAmt pet | isEffective pet ->
+                BaseAccounts.ReduceStake newAmt pet | isEffective pet ->
                     reduceDelegatorStake accId acctDel newAmt
                 _ -> return True
         Null ->
@@ -2065,9 +2069,9 @@ doProcessPendingChanges persistentBS isEffective = do
                 Some acctBkrRef -> do
                     acctBkr@PersistentAccountBaker{..} <- lift (refLoad acctBkrRef)
                     case _bakerPendingChange of
-                        RemoveStake pet | isEffective pet ->
+                        BaseAccounts.RemoveStake pet | isEffective pet ->
                             removeBaker accumBakers bid acctBkr newDelegators
-                        ReduceStake newAmt pet | isEffective pet ->
+                        BaseAccounts.ReduceStake newAmt pet | isEffective pet ->
                             reduceBakerStake accumBakers bid newAmt acctBkr newDelegators
                         _ ->
                             lift (Trie.insert bid newDelegators accumBakers)
@@ -2302,7 +2306,6 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateOperations (Pe
     bsoNotifyBlockBaked = doNotifyBlockBaked
     bsoClearEpochBlocksBaked = doClearEpochBlocksBaked
     bsoRotateCurrentEpochBakers = undefined -- TODO: implement
-    bsoClearNextEpochBakers = undefined -- TODO: implement
     bsoSetNextEpochBakers = undefined -- TODO: implement
     bsoProcessPendingChanges = doProcessPendingChanges
     bsoGetBankStatus = doGetBankStatus

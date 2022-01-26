@@ -212,8 +212,6 @@ getBlockRewardDetails StateMigrationParametersTrivial = case accountVersion @(Ac
     SAccountV0 -> BlockRewardDetailsV0 <$> getHashedEpochBlocksV0
 -- TODO: V1 case; migration P3->P4 case.
 
-
-
 data BlockState (pv :: ProtocolVersion) = BlockState {
     _blockAccounts :: !(Accounts.Accounts pv),
     _blockInstances :: !Instances.Instances,
@@ -1399,6 +1397,10 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
 
     {-# INLINE bsoClearProtocolUpdate #-}
     bsoClearProtocolUpdate bs = return $! bs & blockUpdates %~ clearProtocolUpdate
+
+    bsoSetNextCapitalDistribution = undefined -- TODO: implement
+
+    bsoRotateCurrentCapitalDistribution = undefined -- TODO: implement
 
     {-# INLINE bsoAddReleaseSchedule #-}
     bsoAddReleaseSchedule bs rel = do
