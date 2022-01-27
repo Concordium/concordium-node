@@ -70,6 +70,7 @@ class (Ord a, FixedTrieKey a) => OrdFixedTrieKey a
 instance OrdFixedTrieKey Word64
 instance OrdFixedTrieKey Word32
 deriving via Word64 instance OrdFixedTrieKey BakerId
+deriving via Word64 instance OrdFixedTrieKey DelegatorId
 
 -- |Trie with keys all of same fixed length treated as lists of bytes.
 -- The first parameter of 'TrieF' is the type of keys, which should

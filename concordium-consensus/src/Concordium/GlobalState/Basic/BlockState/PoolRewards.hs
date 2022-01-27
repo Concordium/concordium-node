@@ -1,3 +1,5 @@
+{-# LANGUAGE TypeApplications #-}
+
 module Concordium.GlobalState.Basic.BlockState.PoolRewards where
 
 import Data.Serialize
@@ -20,12 +22,21 @@ data BakerPoolRewardDetails = BakerPoolRewardDetails
       -- |Whether the pool contributed to a finalization proof in the reward period
       finalizationAwake :: !Bool
     }
+    deriving Show
+
+instance HashableTo Hash.Hash BakerPoolRewardDetails where
+    getHash BakerPoolRewardDetails{..} = Hash.hash $ runPut $ do
+        put blockCount
+        put transactionFeesAccrued
+        put finalizationAwake
+
 data DelegatorCapital = DelegatorCapital
     { -- |'DelegatorId' of the delegator
       dcDelegatorId :: !DelegatorId,
       -- |'Amount' staked by the delegator
       dcDelegatorCapital :: !Amount
     }
+    deriving Show
 
 instance Serialize DelegatorCapital where
     put DelegatorCapital{..} = do
@@ -47,6 +58,13 @@ data BakerCapital = BakerCapital
       -- |Capital of each baker delegated to this pool
       bcDelegatorCapital :: !(Vec.Vector DelegatorCapital)
     }
+    deriving Show
+
+instance HashableTo Hash.Hash BakerCapital where
+    getHash BakerCapital{..} = Hash.hash $ runPut $ do
+        put bcBakerId
+        put bcBakerEquityCapital
+        put $ getHash $ LFMBT.fromFoldable @Word64 bcDelegatorCapital
 
 data CapitalDistribution = CapitalDistribution
     { -- |Capital associated with baker pools
@@ -54,6 +72,13 @@ data CapitalDistribution = CapitalDistribution
       -- |Capital associated with the L-pool
       lPoolCapital :: !(Vec.Vector DelegatorCapital)
     }
+    deriving Show
+
+instance HashableTo Hash.Hash CapitalDistribution where
+    getHash CapitalDistribution{..} = 
+        Hash.hashOfHashes
+            (getHash (LFMBT.fromFoldable @Word64 bakerPoolCapital))
+            (getHash (LFMBT.fromFoldable @Word64 lPoolCapital))
 
 -- |Details of rewards accruing over the course of a reward period, and details about the capital
 -- distribution for this reward period and (possibly) the next.
@@ -77,6 +102,18 @@ data PoolRewards = PoolRewards
       -- |The rate at which tokens are minted for the current reward period.
       nextPaydayMintRate :: !MintRate
     }
+    deriving Show
+
+instance HashableTo Hash.Hash PoolRewards where
+    getHash PoolRewards{..} =
+        Hash.hashOfHashes (getHash nextCapital) $
+        Hash.hashOfHashes (getHash currentCapital) $
+        Hash.hashOfHashes (getHash bakerPoolRewardDetails) $
+        getHash $ runPut $
+            put lPoolTransactionRewards <>
+            put foundationTransactionRewards <>
+            put nextPaydayEpoch <>
+            put nextPaydayMintRate
 
 bakerBlockCounts :: PoolRewards -> [(BakerId, Word64)]
 bakerBlockCounts PoolRewards{..} = zipWith bc (Vec.toList (bakerPoolCapital currentCapital)) (LFMBT.toAscPairList bakerPoolRewardDetails)

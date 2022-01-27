@@ -25,6 +25,7 @@ module Concordium.GlobalState.Basic.BlockState.LFMBTree
     update,
 
     -- * Conversion
+    fromFoldable,
     fromList,
     toAscPairList,
     fromListChoosingFirst,
@@ -269,10 +270,16 @@ toAscPairList = zip (map coerce [0 :: Word64 ..]) . toList
 toAscPairListMaybes :: Coercible k Word64 => LFMBTree k (Maybe v) -> [(k, v)]
 toAscPairListMaybes l = [(i, v) | (i, Just v) <- toAscPairList l]
 
+-- | Create a tree from a 'Foldable'. The items will be inserted sequentially
+-- starting on the index 0.
+fromFoldable :: (Num k, Coercible k Word64, Foldable f) => f v -> LFMBTree k v
+fromFoldable = foldl' (\acc e -> snd $ append e acc) empty
+
 -- | Create a tree from a list of items. The items will be inserted sequentially
 -- starting on the index 0.
 fromList :: (Num k, Coercible k Word64) => [v] -> LFMBTree k v
-fromList = foldl' (\acc e -> snd $ append e acc) empty
+fromList = fromFoldable
+{-# INLINE fromList #-}
 
 -- | Create a tree from a list of items choosing the first item seen when getting duplicates. The given function extracts the equatable field of the value that will be compared when checking for duplicates.
 fromListChoosingFirst :: (Num k, Eq a, Coercible k Word64) => (v -> a) -> [v] -> LFMBTree k v

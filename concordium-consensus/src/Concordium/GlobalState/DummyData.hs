@@ -203,7 +203,7 @@ makeTestingGenesisDataP1
 
 
 {-# WARNING emptyBirkParameters "Do not use in production." #-}
-emptyBirkParameters :: Accounts pv -> BasicBirkParameters
+emptyBirkParameters :: AccountVersionFor pv ~ 'AccountV0 => Accounts pv -> BasicBirkParameters 'AccountV0
 emptyBirkParameters accounts = initialBirkParameters (snd <$> AT.toList (accountTable accounts)) (SeedState.initialSeedState (Hash.hash "NONCE") 360)
 
 dummyRewardParameters :: RewardParameters 'ChainParametersV0
@@ -230,7 +230,7 @@ dummyChainParameters = makeChainParametersV0 (makeElectionDifficulty 50000) 0.00
 
 -- FIXME: Generalise this to work for both chain parameters versions and remove LANGUAGE TypeFamilies.
 {-# WARNING createBlockState "Do not use in production" #-}
-createBlockState :: (IsProtocolVersion pv, ChainParametersVersionFor pv ~ 'ChainParametersV0) => Accounts pv -> BlockState pv
+createBlockState :: (IsProtocolVersion pv, ChainParametersVersionFor pv ~ 'ChainParametersV0, AccountVersionFor pv ~ 'AccountV0) => Accounts pv -> BlockState pv
 createBlockState accounts =
     emptyBlockState (emptyBirkParameters accounts) dummyCryptographicParameters dummyKeyCollection dummyChainParameters &
       (blockAccounts .~ accounts) .
@@ -239,7 +239,7 @@ createBlockState accounts =
       (blockAnonymityRevokers . unhashed .~ dummyArs)
 
 {-# WARNING blockStateWithAlesAccount "Do not use in production" #-}
-blockStateWithAlesAccount :: (IsProtocolVersion pv, ChainParametersVersionFor pv ~ 'ChainParametersV0) => Amount -> Accounts pv -> BlockState pv
+blockStateWithAlesAccount :: (IsProtocolVersion pv, ChainParametersVersionFor pv ~ 'ChainParametersV0, AccountVersionFor pv ~ 'AccountV0) => Amount -> Accounts pv -> BlockState pv
 blockStateWithAlesAccount alesAmount otherAccounts =
     createBlockState $ putAccountWithRegIds (mkAccount alesVK alesAccount alesAmount) otherAccounts
 

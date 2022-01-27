@@ -149,6 +149,8 @@ makePersistentEpochBakers ebs = do
 
 type DelegatorIdTrieSet = Trie.TrieN (BufferedBlobbed BlobRef) DelegatorId ()
 
+type BakerIdTrieMap av = Trie.TrieN (BufferedBlobbed BlobRef) BakerId (PersistentActiveDelegators av)
+
 data PersistentActiveDelegators (av :: AccountVersion) where
     PersistentActiveDelegatorsV0 :: PersistentActiveDelegators 'AccountV0
     PersistentActiveDelegatorsV1 :: !DelegatorIdTrieSet -> PersistentActiveDelegators 'AccountV1
@@ -177,8 +179,9 @@ instance (IsAccountVersion av, MonadBlobStore m) => BlobStorable m (PersistentAc
         SAccountV1 -> fmap (fmap PersistentActiveDelegatorsV1) load
 
 data PersistentActiveBakers (av :: AccountVersion) = PersistentActiveBakers {
-    _activeBakers :: !(Trie.TrieN (BufferedBlobbed BlobRef) BakerId (PersistentActiveDelegators av)),
-    _aggregationKeys :: !(Trie.TrieN (BufferedBlobbed BlobRef) BakerAggregationVerifyKey ())
+    _activeBakers :: !(BakerIdTrieMap av),
+    _aggregationKeys :: !(Trie.TrieN (BufferedBlobbed BlobRef) BakerAggregationVerifyKey ()),
+    _lPoolDelegators :: !(PersistentActiveDelegators av)
 } deriving (Show)
 
 makeLenses ''PersistentActiveBakers
@@ -189,19 +192,23 @@ instance
     storeUpdate PersistentActiveBakers{..} = do
         (pActiveBakers, newActiveBakers) <- storeUpdate _activeBakers
         (pAggregationKeys, newAggregationKeys) <- storeUpdate _aggregationKeys
-        let pPAB = pActiveBakers >> pAggregationKeys
+        (pLPoolDelegators, newLPoolDelegators) <- storeUpdate _lPoolDelegators
+        let pPAB = pActiveBakers >> pAggregationKeys >> pLPoolDelegators
         let newPAB = PersistentActiveBakers{
           _activeBakers = newActiveBakers,
-          _aggregationKeys = newAggregationKeys
+          _aggregationKeys = newAggregationKeys,
+          _lPoolDelegators = newLPoolDelegators
         }
         return (pPAB, newPAB)
     store pab = fst <$> storeUpdate pab
     load = do
         mActiveBakers <- load
         mAggregationKeys <- load
+        mLPoolDelegators <- load
         return $ do
             _activeBakers <- mActiveBakers
             _aggregationKeys <- mAggregationKeys
+            _lPoolDelegators <- mLPoolDelegators
             return PersistentActiveBakers{..}
 
 instance (IsAccountVersion av, Applicative m) => Cacheable m (PersistentActiveBakers av)
@@ -212,12 +219,18 @@ makePersistentActiveBakers
     => Basic.ActiveBakers ->
     m (PersistentActiveBakers av)
 makePersistentActiveBakers ab = do
-    let update acc (bid, dels) = case accountVersion @av of
+    let addActiveBaker acc (bid, dels) = case accountVersion @av of
             SAccountV0 ->
                 Trie.insert bid PersistentActiveDelegatorsV0 acc
             SAccountV1 -> do
                 pDels <- Trie.fromList $ (, ()) <$> (Set.toList dels)
                 Trie.insert bid (PersistentActiveDelegatorsV1 pDels) acc
-    _activeBakers <- foldlM update Trie.empty (Map.toList (Basic._activeBakers ab))
+    _activeBakers <- foldlM addActiveBaker Trie.empty (Map.toList (Basic._activeBakers ab))
     _aggregationKeys <- Trie.fromList $ (, ()) <$> Set.toList (Basic._aggregationKeys ab)
+    _lPoolDelegators <- case accountVersion @av of
+        SAccountV0 ->
+            return PersistentActiveDelegatorsV0
+        SAccountV1 ->
+            PersistentActiveDelegatorsV1 <$>
+                Trie.fromList ((, ()) <$> Set.toList (Basic._lPoolDelegators ab))
     return PersistentActiveBakers{..}
