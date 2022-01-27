@@ -64,7 +64,7 @@ instance HashableTo Hash.Hash BakerCapital where
     getHash BakerCapital{..} = Hash.hash $ runPut $ do
         put bcBakerId
         put bcBakerEquityCapital
-        put $ getHash $ LFMBT.fromFoldable @Word64 bcDelegatorCapital
+        put $ getHash @Hash.Hash $ LFMBT.fromFoldable @Word64 bcDelegatorCapital
 
 data CapitalDistribution = CapitalDistribution
     { -- |Capital associated with baker pools

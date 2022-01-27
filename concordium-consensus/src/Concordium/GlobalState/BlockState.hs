@@ -221,6 +221,11 @@ class AccountOperations m => BlockStateQuery m where
     -- |Get all the current active bakers.
     getActiveBakers :: BlockState m -> m [BakerId]
 
+    -- |Get the currently-registered (i.e. active) bakers with their delegators, as well as the
+    -- set of delegators to the L-pool. In each case, the lists are ordered in ascending Id order,
+    -- with no duplicates.
+    getActiveBakersAndDelegators :: (AccountVersionFor (MPV m) ~ 'AccountV1) => BlockState m -> m ([ActiveBakerInfo m], [ActiveDelegatorInfo])
+
     -- |Query an account by the id of the credential that belonged to it.
     getAccountByCredId :: BlockState m -> CredentialRegistrationID -> m (Maybe (AccountIndex, Account m))
 
@@ -285,6 +290,10 @@ class AccountOperations m => BlockStateQuery m where
     getCurrentElectionDifficulty :: BlockState m -> m ElectionDifficulty
     -- |Get the current chain parameters and pending updates.
     getUpdates :: BlockState m -> m (UQ.Updates (MPV m))
+    -- |Get pending changes to the time parameters.
+    getPendingTimeParameters :: BlockState m -> m [(Timestamp, TimeParameters (ChainParametersVersionFor (MPV m)))]
+    -- |Get pending changes to the pool parameters.
+    getPendingPoolParameters :: BlockState m -> m [(Timestamp, PoolParameters (ChainParametersVersionFor (MPV m)))]
     -- |Get the protocol update status. If a protocol update has taken effect,
     -- returns @Left protocolUpdate@. Otherwise, returns @Right pendingProtocolUpdates@.
     -- The @pendingProtocolUpdates@ is a (possibly-empty) list of timestamps and protocol
@@ -636,6 +645,9 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- periodically updated and so they must be part of the block state.
   bsoGetCryptoParams :: UpdatableBlockState m -> m CryptographicParameters
 
+  -- |Get the epoch time of the next scheduled payday.
+  bsoGetPaydayEpoch :: (AccountVersionFor (MPV m) ~ 'AccountV1) => UpdatableBlockState m -> m Epoch
+
   -- |Set the list of transaction outcomes for the block.
   bsoSetTransactionOutcomes :: UpdatableBlockState m -> [TransactionSummary] -> m (UpdatableBlockState m)
 
@@ -686,6 +698,9 @@ class (BlockStateQuery m) => BlockStateOperations m where
 
   -- |Get the current chain parameters.
   bsoGetChainParameters :: UpdatableBlockState m -> m (ChainParameters (MPV m))
+
+  -- |Get all pending changes to the time parameters.
+  bsoGetPendingTimeParameters :: UpdatableBlockState m -> m [(Timestamp, TimeParameters (ChainParametersVersionFor (MPV m)))]
 
   -- * Reward details
 
@@ -887,6 +902,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoGetIdentityProvider s ipId = lift $ bsoGetIdentityProvider s ipId
   bsoGetAnonymityRevokers s arId = lift $ bsoGetAnonymityRevokers s arId
   bsoGetCryptoParams s = lift $ bsoGetCryptoParams s
+  bsoGetPaydayEpoch s = lift $ bsoGetPaydayEpoch s
   bsoSetTransactionOutcomes s = lift . bsoSetTransactionOutcomes s
   bsoAddSpecialTransactionOutcome s = lift . bsoAddSpecialTransactionOutcome s
   bsoProcessUpdateQueues s = lift . bsoProcessUpdateQueues s

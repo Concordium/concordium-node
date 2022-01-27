@@ -244,7 +244,7 @@ blockEpochBlocksBaked =
             (\(BlockRewardDetailsV0 a) -> a)
             (\_ b -> BlockRewardDetailsV0 b)
 
-blockPoolRewards :: (AccountVersionFor pv ~ 'AccountV1) => Lens' (BlockState pv) PoolRewards.PoolRewards
+blockPoolRewards :: (AccountVersionFor pv ~ 'AccountV1, HasBlockState c pv) => Lens' c PoolRewards.PoolRewards
 blockPoolRewards =
     blockRewardDetails
         . lens
@@ -609,7 +609,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
 
     {-# INLINE getPaydayEpoch #-}
     getPaydayEpoch bs =
-        return $! bs ^. undefined
+        return $! bs ^. blockPoolRewards . to PoolRewards.nextPaydayEpoch
 
 instance (Monad m, IsProtocolVersion pv) => BS.AccountOperations (PureBlockStateMonad pv m) where
 
@@ -1345,6 +1345,10 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
     {-# INLINE bsoGetCryptoParams #-}
     bsoGetCryptoParams bs =
       return $! bs ^. blockCryptographicParameters . unhashed
+
+    {-# INLINE bsoGetPaydayEpoch #-}
+    bsoGetPaydayEpoch bs =
+        return $! bs ^. blockPoolRewards . to PoolRewards.nextPaydayEpoch
 
     bsoSetTransactionOutcomes bs l =
       return $! bs & blockTransactionOutcomes .~ Transactions.transactionOutcomesFromList l
