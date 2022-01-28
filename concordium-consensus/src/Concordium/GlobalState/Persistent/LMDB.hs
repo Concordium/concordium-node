@@ -42,6 +42,7 @@ module Concordium.GlobalState.Persistent.LMDB (
   , writeFinalizationRecord
   , writeTransactionStatus
   , writeTransactionStatuses
+  , writeFinalizationComposite
   ) where
 
 import Concordium.GlobalState.LMDB.Helpers
@@ -62,6 +63,8 @@ import Control.Monad.State
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Serialize as S
+import Data.Maybe (catMaybes)
+import Control.Arrow ((&&&))
 import Database.LMDB.Raw
 import Lens.Micro.Platform
 import System.Directory
@@ -375,7 +378,7 @@ addDatabaseVersion treeStateDir = do
   handlers :: DatabaseHandlers 'P1 () <- liftIO $ makeDatabaseHandlers treeStateDir False dbInitSize
   handlers' <- execStateT
     (resizeOnFull 4096 $ -- This size is mostly arbitrary, but should be enough to store the serialized metadata
-      \h -> transaction (_storeEnv h) False $ \txn -> 
+      \h -> transaction (_storeEnv h) False $ \txn ->
         storeRecord txn (_metadataStore h) versionMetadata
           (S.encode VersionMetadata {
             vmDatabaseVersion = 0,
@@ -600,3 +603,25 @@ writeTransactionStatuses tss = resizeOnFull tssSize
     $ \txn -> forM_ tss (\(tHash, tStatus) -> storeReplaceRecord txn (dbh ^. transactionStatusStore) tHash tStatus)
   where
     tssSize = (Prelude.length tss) * (2 * digestSize + 16)
+
+-- |Write a finalization record, a collection of blocks and a collection of transaction statuses to
+-- the database. This is a combination of `writeFinalizationRecord`, `writeTransactionStatuses` and
+-- an arbitrary number of `writeBlock`s in a single transaction.
+writeFinalizationComposite :: (MonadLogger m, MonadIO m, MonadState s m,
+                               HasDatabaseHandlers pv st s, IsProtocolVersion pv, S.Serialize st)
+  => FinalizationRecord -> [Maybe (StoredBlock pv st)] -> [(TransactionHash, FinalizedTransactionStatus)] -> m ()
+writeFinalizationComposite finRec blocks tss = resizeOnFull (finRecSize + blocksSize + tssSize)
+    $ \dbh -> transaction (dbh ^. storeEnv) False
+    $ \txn -> do
+       storeReplaceRecord txn (dbh ^. finalizationRecordStore) (finalizationIndex finRec) finRec
+       forM_ serializedBlocks (\(block, b) -> do
+                          storeReplaceRecord txn (dbh ^. finalizedByHeightStore) (_bpHeight b) (_bpHash b)
+                          storeReplaceBytes txn (dbh ^. blockStore) (_bpHash b) block)
+       forM_ tss (uncurry (storeReplaceRecord txn (dbh ^. transactionStatusStore)))
+  where
+    finRecSize = let FinalizationProof vs _ = finalizationProof finRec in
+          -- key + finIndex + finBlockPointer + finProof (list of Word32s + BlsSignature.signatureSize) + finDelay
+          digestSize + 64 + digestSize + (32 * Prelude.length vs) + 48 + 64
+    serializedBlocks = map (S.encodeLazy &&& sbInfo) . catMaybes $ blocks
+    blocksSize = sum . map (\b -> 2*digestSize + fromIntegral (LBS.length . fst $ b)) $ serializedBlocks
+    tssSize = Prelude.length tss * (2 * digestSize + 16)

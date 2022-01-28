@@ -712,9 +712,12 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
     markDead bh = do
         coerceGSML $ markDead bh
         coerceGSMR $ markDead bh
+    type MarkFin (TreeStateBlockStateM pv (PairGState ls rs) (PairGSContext lc rc) r s m) =
+      (MarkFin (GSML pv lc r ls s m), MarkFin (GSMR pv rc r rs s m))
     markFinalized bh fr = do
-        coerceGSML $ markFinalized bh fr
-        coerceGSMR $ markFinalized bh fr
+        mf1 <- coerceGSML $ markFinalized bh fr
+        mf2 <- coerceGSMR $ markFinalized bh fr
+        return (mf1, mf2)
     markPending pb = do
         coerceGSML $ markPending pb
         coerceGSMR $ markPending pb
@@ -766,6 +769,9 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
               assert (rec1 == rec2) $ -- TODO: Perhaps they don't have to be the same
                 return $ Just rec1
             _ -> error $ "getRecordAtindex (Paired): no match " ++ show r1 ++ ", " ++ show r2
+    wrapupFinalization mfs fts = do
+      coerceGSML (wrapupFinalization (fst <$> mfs) (fst <$> fts))
+      coerceGSMR (wrapupFinalization (snd <$> mfs) (snd <$> fts))
     getBranches = do
         r1 <- coerceGSML getBranches
         r2 <- coerceGSMR getBranches
@@ -819,9 +825,12 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
         r1 <- coerceGSML $ getNonFinalizedChainUpdates uty sn
         r2 <- coerceGSMR $ getNonFinalizedChainUpdates uty sn
         assert (r1 == r2) $ return r1
+    type FinTrans (TreeStateBlockStateM pv (PairGState ls rs) (PairGSContext lc rc) r s m) =
+      (FinTrans (GSML pv lc r ls s m), FinTrans (GSMR pv rc r rs s m))
     finalizeTransactions bh slot trs = do
-        coerceGSML $ finalizeTransactions bh slot trs
-        coerceGSMR $ finalizeTransactions bh slot trs
+        ft1 <- coerceGSML $ finalizeTransactions bh slot trs
+        ft2 <- coerceGSMR $ finalizeTransactions bh slot trs
+        return (ft1, ft2)
     commitTransaction slot bh transaction res = do
         coerceGSML $ commitTransaction slot bh transaction res
         coerceGSMR $ commitTransaction slot bh transaction res

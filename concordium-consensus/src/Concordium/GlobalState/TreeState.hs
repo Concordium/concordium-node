@@ -144,10 +144,14 @@ class (Eq (BlockPointerType m),
       -- and remove the status of all transactions in this block
       mapM_ (markDeadTransaction bh) (blockTransactions bp)
 
+    -- | Depending on the implementation, `markFinalized` may return a value of this type. The
+    -- primary intent is to allow the persistent implementation to pass a serialized block to
+    -- `wrapupFinalization` which will write it to disk, without relying on monadic state.
+    type MarkFin m
     -- |Mark a block as finalized (by a particular 'FinalizationRecord').
     --
     -- Precondition: The block must be alive.
-    markFinalized :: BlockHash -> FinalizationRecord -> m ()
+    markFinalized :: BlockHash -> FinalizationRecord -> m (MarkFin m)
     -- |Mark a block as pending (i.e. awaiting parent)
     markPending :: PendingBlock -> m ()
     -- |Mark every live or pending block as dead.
@@ -181,6 +185,9 @@ class (Eq (BlockPointerType m),
 
     -- |Get the block that is finalized at the given height, if any.
     getFinalizedAtHeight :: BlockHeight -> m (Maybe (BlockPointerType m))
+
+    -- |Persist finalization, if the tree state implementation supports it
+    wrapupFinalization :: [MarkFin m] -> [FinTrans m] -> m ()
 
     -- * Operations on branches
     -- |Get the branches.
@@ -254,10 +261,16 @@ class (Eq (BlockPointerType m),
       -> UpdateSequenceNumber
       -> m [(UpdateSequenceNumber, Map.Map (WithMetadata UpdateInstruction) TVer.VerificationResult)]
 
+    -- | Depending on the implementation, `finalizeTransactions` may return a value of this
+    -- type. The primary intent is to allow the persistent implementation to pass a list of
+    -- transaction hashes and statuses to `wrapupFinalization` which will write them to disk,
+    -- without relying on monadic state.
+    type FinTrans m
+
     -- |Finalize a list of transactions on a given block. Per account, the transactions must be in
     -- continuous sequence by nonce, starting from the next available non-finalized
     -- nonce.
-    finalizeTransactions :: BlockHash -> Slot -> [BlockItem] -> m ()
+    finalizeTransactions :: BlockHash -> Slot -> [BlockItem] -> m (FinTrans m)
     -- |Mark a transaction as committed on a block with the given slot number,
     -- as well as add any additional outcomes for the given block (outcomes are given
     -- as the index of the transaction in the given block).
@@ -350,6 +363,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad pv m) => TreeStateMonad pv (
     getBlockStatus = lift . getBlockStatus
     makeLiveBlock b parent lastFin st ati time = lift . makeLiveBlock b parent lastFin st ati time
     markDead = lift . markDead
+    type MarkFin (MGSTrans t m) = MarkFin m
     markFinalized bh = lift . markFinalized bh
     markPending = lift . markPending
     markAllNonFinalizedDead = lift markAllNonFinalizedDead
@@ -363,6 +377,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad pv m) => TreeStateMonad pv (
     getFinalizedAtIndex = lift . getFinalizedAtIndex
     getRecordAtIndex = lift . getRecordAtIndex
     getFinalizedAtHeight = lift . getFinalizedAtHeight
+    wrapupFinalization mfs = lift . wrapupFinalization mfs
     getBranches = lift getBranches
     putBranches = lift . putBranches
     takePendingChildren = lift . takePendingChildren
@@ -377,6 +392,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad pv m) => TreeStateMonad pv (
     getNextAccountNonce = lift . getNextAccountNonce
     getCredential = lift . getCredential
     getNonFinalizedChainUpdates uty = lift . getNonFinalizedChainUpdates uty
+    type FinTrans (MGSTrans t m) = FinTrans m
     finalizeTransactions bh slot = lift . finalizeTransactions bh slot
     commitTransaction slot bh tr = lift . commitTransaction slot bh tr
     addCommitTransaction tr ctx ts slot = lift $ addCommitTransaction tr ctx ts slot
