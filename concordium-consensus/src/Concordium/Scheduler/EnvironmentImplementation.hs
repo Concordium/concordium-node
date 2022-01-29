@@ -209,25 +209,31 @@ instance (MonadReader ContextState m,
     -- ASSUMPTION: the property which should hold at this point is that any
     -- changed instance must exist in the global state and moreover all instances
     -- are distinct by the virtue of a HashMap being a function
-    s' <- lift (foldM (\s' (addr, (_, amnt, val)) -> do
-                         tell (logContract addr)
-                         bsoModifyInstance s' addr amnt val)
+    s1 <- lift (foldM (\s' (addr, (_, amnt, val)) -> do
+                          tell (logContract addr)
+                          bsoModifyInstance s' addr amnt val)
                       s
-                      (Map.toList (cs ^. instanceUpdates)))
+                      (Map.toList (cs ^. instanceV0Updates)))
+    -- since V0 and V1 instances are disjoint, the order in which we do updates does not matter.
+    s2 <- lift (foldM (\s' (addr, (_, amnt, val)) -> do
+                          tell (logContract addr)
+                          bsoModifyInstance s' addr amnt val)
+                      s1
+                      (Map.toList (cs ^. instanceV1Updates)))
     -- log the initialized instances too
     lift (mapM_ (tell . logContract)
                       (Set.toList (cs ^. instanceInits)))
     -- Notify account transfers, but also log the affected accounts. Since the
     -- changeset is meant to contain the canonical address of the account we
     -- always log affected accounts by the canonical address.
-    s'' <- lift (foldM (\curState accUpdate -> do
+    s3 <- lift (foldM (\curState accUpdate -> do
                            tell (logAccount (accUpdate ^. auAddress))
                            bsoModifyAccount curState accUpdate
                        )
-                  s'
+                  s2
                   (cs ^. accountUpdates))
-    s''' <- lift (bsoAddReleaseSchedule s'' (OrdMap.toList $ cs ^. addedReleaseSchedules))
-    schedulerBlockState .= s'''
+    s4 <- lift (bsoAddReleaseSchedule s3 (OrdMap.toList $ cs ^. addedReleaseSchedules))
+    schedulerBlockState .= s4
 
   -- Observe a single transaction footprint.
   {-# INLINE observeTransactionFootprint #-}
@@ -320,6 +326,7 @@ instance (MonadReader ContextState m,
 deriving instance GS.BlockStateTypes (BSOMonadWrapper pv r w state m)
 
 deriving instance AccountOperations m => AccountOperations (BSOMonadWrapper pv r w state m)
+deriving instance ContractStateOperations m => ContractStateOperations (BSOMonadWrapper pv r w state m)
 
 -- Pure block state scheduler state
 type PBSSS pv = NoLogSchedulerState (PureBlockStateMonad pv Identity)
@@ -335,7 +342,7 @@ instance Monad m => MonadWriter () (RWSTBS pv m) where
 -- |Basic implementation of the scheduler that does no transaction logging.
 newtype SchedulerImplementation pv a = SchedulerImplementation { _runScheduler :: RWSTBS pv (PureBlockStateMonad pv Identity) a }
     deriving (Functor, Applicative, Monad, MonadReader ContextState, MonadState (PBSSS pv))
-    deriving (StaticInformation, AccountOperations, MonadLogger)
+    deriving (StaticInformation, AccountOperations, ContractStateOperations, MonadLogger)
       via (BSOMonadWrapper pv ContextState () (PBSSS pv) (MGSTrans (RWSTBS pv) (PureBlockStateMonad pv Identity)))
 
 --Dummy implementation of TimeMonad, for testing. 

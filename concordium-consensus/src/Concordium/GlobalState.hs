@@ -128,6 +128,10 @@ deriving via PureBlockStateMonad pv m
              => AccountOperations (MemoryBlockStateM pv r g s m)
 
 deriving via PureBlockStateMonad pv m
+    instance (Monad m, IsProtocolVersion pv)
+             => ContractStateOperations (MemoryBlockStateM pv r g s m)
+
+deriving via PureBlockStateMonad pv m
     instance (Monad m,
               IsProtocolVersion pv,
               BlockStateQuery (MemoryBlockStateM pv r g s m))
@@ -165,6 +169,16 @@ deriving via PersistentBlockStateMonad pv
               PersistentBlockStateContext
               (FocusGlobalStateM PersistentBlockStateContext g m)
     instance (MonadIO m,
+              ContractStateOperations (PersistentBlockStateMonad pv
+                                        PersistentBlockStateContext
+                                        (FocusGlobalStateM PersistentBlockStateContext g m)))
+             => ContractStateOperations (PersistentBlockStateM pv r g s m)
+
+
+deriving via PersistentBlockStateMonad pv
+              PersistentBlockStateContext
+              (FocusGlobalStateM PersistentBlockStateContext g m)
+    instance (MonadIO m,
               BlockStateOperations (PersistentBlockStateMonad pv
                                      PersistentBlockStateContext
                                      (FocusGlobalStateM PersistentBlockStateContext g m)))
@@ -191,7 +205,7 @@ deriving via PersistentBlockStateMonad pv
 -- * If @s@ is 'SkovData pv bs', then the in-memory, Haskell tree state is used.
 -- * If @s@ is 'SkovPersistentData pv ati bs', then the persistent Haskell tree state is used.
 newtype TreeStateM s m a = TreeStateM {runTreeStateM :: m a}
-    deriving (Functor, Applicative, Monad, MonadState s, MonadIO, BlockStateTypes, BlockStateQuery, AccountOperations, BlockStateOperations, BlockStateStorage)
+    deriving (Functor, Applicative, Monad, MonadState s, MonadIO, BlockStateTypes, BlockStateQuery, AccountOperations, BlockStateOperations, BlockStateStorage, ContractStateOperations)
 
 -- * Specializations
 type MemoryTreeStateM pv bs m = TreeStateM (SkovData pv bs) m
@@ -268,6 +282,11 @@ deriving via BlockStateM pv c r g s m
     instance (Monad m,
               AccountOperations (BlockStateM pv c r g s m))
              => AccountOperations (GlobalStateM pv db c r g s m)
+
+deriving via BlockStateM pv c r g s m
+    instance (Monad m,
+              ContractStateOperations (BlockStateM pv c r g s m))
+             => ContractStateOperations (GlobalStateM pv db c r g s m)
 
 deriving via BlockStateM pv c r g s m
     instance (BlockStateQuery (GlobalStateM pv db c r g s m),

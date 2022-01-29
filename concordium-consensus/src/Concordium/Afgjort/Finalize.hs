@@ -1059,7 +1059,7 @@ nextFinalizationRecord parentBlock = do
 -- |'ActiveFinalizationM' provides an implementation of 'FinalizationMonad' that
 -- actively participates in finalization.
 newtype ActiveFinalizationM (pv :: ProtocolVersion) r s m a = ActiveFinalizationM {runActiveFinalizationM :: m a}
-    deriving (Functor, Applicative, Monad, MonadState s, MonadReader r, TimerMonad, BlockStateTypes, BlockStateQuery, AccountOperations, BlockStateOperations, BlockStateStorage, BlockPointerMonad, PerAccountDBOperations, TreeStateMonad pv, SkovMonad pv, TimeMonad, MonadLogger, MonadIO, FinalizationOutputMonad, SkovQueryMonad pv)
+    deriving (Functor, Applicative, Monad, MonadState s, MonadReader r, TimerMonad, BlockStateTypes, BlockStateQuery, AccountOperations, ContractStateOperations, BlockStateOperations, BlockStateStorage, BlockPointerMonad, PerAccountDBOperations, TreeStateMonad pv, SkovMonad pv, TimeMonad, MonadLogger, MonadIO, FinalizationOutputMonad, SkovQueryMonad pv)
 
 deriving instance (BlockPointerData (BlockPointerType m)) => GlobalStateTypes (ActiveFinalizationM pv r s m)
 deriving instance (CanExtend (ATIStorage m), CanRecordFootprint (Footprint (ATIStorage m))) => ATITypes (ActiveFinalizationM pv r s m)

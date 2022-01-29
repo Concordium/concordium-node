@@ -1,6 +1,9 @@
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-|
  Definition of the API of every BlockState implementation.
 
@@ -75,6 +78,9 @@ import qualified Concordium.ID.Types as ID
 import Concordium.ID.Parameters(GlobalContext)
 import Concordium.ID.Types (AccountCredential, CredentialRegistrationID)
 import Concordium.Crypto.EncryptedTransfers
+import Concordium.GlobalState.Persistent.BlobStore (LoadCallback)
+import qualified Concordium.GlobalState.ContractStateV1 as StateV1
+import qualified Data.Set as Set
 
 -- |The hashes of the block state components, which are combined
 -- to produce a 'StateHash'.
@@ -185,10 +191,67 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
   -- |Get the baker info (if any) attached to an account.
   getAccountBaker :: Account m -> m (Maybe AccountBaker)
 
+class (BlockStateTypes m, Monad m) => ContractStateOperations m where
+    -- |Convert a persistent state to a mutable one that can be updated by the scheduler.
+    thawContractState :: ContractState m v -> m (UpdatableContractState m v)
+    -- |Since contract execution is not in Haskell we need some concrete types
+    -- to pass through the FFI boundary. What is needed for V0 and V1 contracts
+    -- is very different, so we have two functions with concrete types.
+    toForeignReprV0 :: UpdatableContractState m GSWasm.V0 -> m Wasm.ContractState
+    toForeignReprV1 :: UpdatableContractState m GSWasm.V1 -> m StateV1.MutableState
+    fromForeignReprV0 :: Wasm.ContractState -> m (UpdatableContractState m GSWasm.V0)
+    fromForeignReprV1 :: StateV1.MutableState -> m (UpdatableContractState m GSWasm.V1)
+
+    -- |Get the callbacks to allow loading using the state (both mutable and
+    -- immutable). Contracts are executed on the other end of FFI, and state is
+    -- managed by Haskell, this gives access to state across the FFI boundary.
+    getV1StateContext :: m LoadCallback
+
+    -- |Size of the V0 state for both variants of the state.
+    stateSizeV0 :: ContractState m GSWasm.V0 -> m Wasm.ByteSize
+    mutableStateSizeV0 :: UpdatableContractState m GSWasm.V0 -> m Wasm.ByteSize 
+
+-- |Static information about an instance returned by block state queries.
+-- The fields of this record are not strict because this is just an intermediate
+-- type that is quickly deconstructed.
+-- The @contractState@ parameter is given in this way, as opposed to passing m directly,
+-- so that type unification sees that if @ContractState m ~ ContractState n@ then
+-- @InstanceInfo m v ~  InstanceInfo n v@
+data InstanceInfoTypeV contractState v = InstanceInfoV {
+    -- |Immutable parameters that do not change after the instance is created.
+    iiParameters :: InstanceParameters v,
+    -- |The state that will be modified during execution.
+    iiState :: contractState v,
+    -- |The current balance of the contract.
+    iiBalance :: Amount
+    }
+
+instance HasInstanceParameters (InstanceInfoTypeV contractState v) where
+  {-# INLINE instanceAddress #-}
+  instanceAddress = instanceAddress . iiParameters
+
+data InstanceInfoType contractState =
+  InstanceInfoV0 (InstanceInfoTypeV contractState GSWasm.V0)
+  | InstanceInfoV1 (InstanceInfoTypeV contractState GSWasm.V1)
+
+type InstanceInfoV m = InstanceInfoTypeV (ContractState m)
+type InstanceInfo m = InstanceInfoType (ContractState m)
+
+updateInstanceInfoV :: Monad m => AmountDelta -> Maybe (contractState v) -> InstanceInfoTypeV contractState v -> m (InstanceInfoTypeV contractState v)
+updateInstanceInfoV delta mNewState i = case mNewState of
+    Nothing -> return i { iiBalance = amnt }
+    Just newState -> return i { iiBalance = amnt, iiState = newState}
+  where amnt = applyAmountDelta delta (iiBalance i)
+
+updateInstanceAmountV :: Monad m => AmountDelta -> InstanceInfoTypeV contractState v -> m (InstanceInfoTypeV contractState v)
+updateInstanceAmountV delta i = return i { iiBalance = amnt }
+  where amnt = applyAmountDelta delta (iiBalance i)
+
+
 -- |The block query methods can query block state. They are needed by
 -- consensus itself to compute stake, get a list of and information about
 -- bakers, finalization committee, etc.
-class AccountOperations m => BlockStateQuery m where
+class (ContractStateOperations m, AccountOperations m) => BlockStateQuery m where
     -- |Get the module source from the module table as deployed to the chain.
     getModule :: BlockState m -> ModuleRef -> m (Maybe Wasm.WasmModule)
 
@@ -202,7 +265,7 @@ class AccountOperations m => BlockStateQuery m where
     getAccountByCredId :: BlockState m -> CredentialRegistrationID -> m (Maybe (AccountIndex, Account m))
 
     -- |Get the contract state from the contract table of the state instance.
-    getContractInstance :: BlockState m -> ContractAddress -> m (Maybe Instance)
+    getContractInstance :: BlockState m -> ContractAddress -> m (Maybe (InstanceInfo m))
 
     -- |Get the list of addresses of modules existing in the given block state.
     getModuleList :: BlockState m -> m [ModuleRef]
@@ -210,7 +273,8 @@ class AccountOperations m => BlockStateQuery m where
     -- This returns the canonical addresses.
     getAccountList :: BlockState m -> m [AccountAddress]
     -- |Get the list of contract instances existing in the given block state.
-    getContractInstanceList :: BlockState m -> m [Instance]
+    -- The list should be returned in ascending order of addresses.
+    getContractInstanceList :: BlockState m -> m [ContractAddress]
 
     -- |Get the seed state, from which the leadership election nonce
     -- is derived.
@@ -292,6 +356,25 @@ instance Monoid MintAmounts where
 mintTotal :: MintAmounts -> Amount
 mintTotal MintAmounts{..} = mintBakingReward + mintFinalizationReward + mintDevelopmentCharge
 
+-- |Data needed by blockstate to create a new instance. This contains all data
+-- except the instance address and the derived instance hashes. The address is
+-- determined when the instance is inserted in the instance table. The hashes
+-- are computed on insertion.
+data NewInstanceData state v = NewInstanceData {
+  -- |Name of the init method used to initialize the contract.
+  nidInitName :: Wasm.InitName,
+  -- |Receive functions suitable for this instance.
+  nidEntrypoints :: Set.Set Wasm.ReceiveName,
+  -- |Module interface that contains the code of the contract.
+  nidInterface :: GSWasm.ModuleInterfaceV v,
+  -- |Initial state of the instance.
+  nidInitialState :: state v,
+  -- ^Initial balance
+  nidInitialAmount :: Amount,
+  -- |Owner/creator of the instance.
+  nidOwner :: AccountAddress
+  }
+
 -- |Block state update operations parametrized by a monad. The operations which
 -- mutate the state all also return an 'UpdatableBlockState' handle. This is to
 -- support different implementations, from pure ones to stateful ones.
@@ -303,7 +386,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- |Get the index of an account.
   bsoGetAccountIndex :: UpdatableBlockState m -> AccountAddress -> m (Maybe AccountIndex)
   -- |Get the contract state from the contract table of the state instance.
-  bsoGetInstance :: UpdatableBlockState m -> ContractAddress -> m (Maybe Instance)
+  bsoGetInstance :: UpdatableBlockState m -> ContractAddress -> m (Maybe (InstanceInfo m))
 
   -- |Check whether the given account address would clash with any existing address.
   bsoAddressWouldClash :: UpdatableBlockState m -> ID.AccountAddress -> m Bool
@@ -320,7 +403,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   bsoCreateAccount :: UpdatableBlockState m -> GlobalContext -> AccountAddress -> AccountCredential -> m (Maybe (Account m), UpdatableBlockState m)
 
   -- |Add a new smart contract instance to the state.
-  bsoPutNewInstance :: UpdatableBlockState m -> (ContractAddress -> Instance) -> m (ContractAddress, UpdatableBlockState m)
+  bsoPutNewInstance :: forall v . Wasm.IsWasmVersion v => UpdatableBlockState m -> NewInstanceData (UpdatableContractState m) v -> m (ContractAddress, UpdatableBlockState m)
   -- |Add the module to the global state. If a module with the given address
   -- already exists return @False@.
   bsoPutNewModule :: Wasm.IsWasmVersion v => UpdatableBlockState m -> (GSWasm.ModuleInterfaceV v, Wasm.WasmModuleV v) -> m (Bool, UpdatableBlockState m)
@@ -369,12 +452,15 @@ class (BlockStateQuery m) => BlockStateOperations m where
     -- ^New account threshold
     -> m (UpdatableBlockState m)
 
-  -- |Replace the instance with given data. The rest of the instance data (instance parameters) stays the same.
-  -- This method is only called when it is known the instance exists, and can thus assume it.
-  bsoModifyInstance :: UpdatableBlockState m
+  -- |Replace the instance with given data. The rest of the instance data
+  -- (instance parameters) stays the same. This method is only called when it is
+  -- known the instance exists, and is of the version specified by the type
+  -- parameter v. These preconditions can thus be assumed by any implementor.
+  bsoModifyInstance :: forall v. Wasm.IsWasmVersion v =>
+                      UpdatableBlockState m
                     -> ContractAddress
                     -> AmountDelta
-                    -> Maybe Wasm.ContractState
+                    -> Maybe (UpdatableContractState m v)
                     -> m (UpdatableBlockState m)
 
   -- |Notify that some amount was transferred from/to encrypted balance of some account.
@@ -621,6 +707,9 @@ class (BlockStateOperations m, Serialize (BlockStateRef m)) => BlockStateStorage
     -- This serialization does not include transaction outcomes.
     writeBlockState :: Handle -> BlockState m -> m ()
 
+    -- |Retrieve the callback that is needed to read state that is not in
+    -- memory, if any such state exists.
+    blockStateLoadCallback :: m LoadCallback
 
 instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGSTrans t m) where
   getModule s = lift . getModule s
@@ -696,6 +785,24 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
   {-# INLINE getAccountEncryptedAmount #-}
   {-# INLINE getAccountReleaseSchedule #-}
   {-# INLINE getAccountBaker #-}
+
+instance (Monad (t m), MonadTrans t, ContractStateOperations m) => ContractStateOperations (MGSTrans t m) where
+  thawContractState = lift . thawContractState
+  {-# INLINE thawContractState #-}
+  toForeignReprV0 = lift . toForeignReprV0
+  {-# INLINE toForeignReprV0 #-}
+  toForeignReprV1 = lift . toForeignReprV1
+  {-# INLINE toForeignReprV1 #-}
+  fromForeignReprV0 = lift . fromForeignReprV0
+  {-# INLINE fromForeignReprV0 #-}
+  fromForeignReprV1 = lift . fromForeignReprV1
+  {-# INLINE fromForeignReprV1 #-}
+  stateSizeV0 = lift . stateSizeV0
+  {-# INLINE stateSizeV0 #-}
+  mutableStateSizeV0 = lift . mutableStateSizeV0
+  {-# INLINE mutableStateSizeV0 #-}
+  getV1StateContext = lift getV1StateContext
+  {-# INLINE getV1StateContext #-}
 
 instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperations (MGSTrans t m) where
   bsoGetModule s = lift . bsoGetModule s
@@ -801,6 +908,7 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
     cacheBlockState = lift . cacheBlockState
     serializeBlockState = lift . serializeBlockState
     writeBlockState fh bs = lift $ writeBlockState fh bs
+    blockStateLoadCallback = lift blockStateLoadCallback
     {-# INLINE thawBlockState #-}
     {-# INLINE freezeBlockState #-}
     {-# INLINE dropUpdatableBlockState #-}
@@ -811,13 +919,16 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
     {-# INLINE cacheBlockState #-}
     {-# INLINE serializeBlockState #-}
     {-# INLINE writeBlockState #-}
+    {-# INLINE blockStateLoadCallback #-}
 
 deriving via (MGSTrans MaybeT m) instance BlockStateQuery m => BlockStateQuery (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance AccountOperations m => AccountOperations (MaybeT m)
+deriving via (MGSTrans MaybeT m) instance ContractStateOperations m => ContractStateOperations (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance BlockStateOperations m => BlockStateOperations (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance BlockStateStorage m => BlockStateStorage (MaybeT m)
 
 deriving via (MGSTrans (ExceptT e) m) instance BlockStateQuery m => BlockStateQuery (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance AccountOperations m => AccountOperations (ExceptT e m)
+deriving via (MGSTrans (ExceptT e) m) instance ContractStateOperations m => ContractStateOperations (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance BlockStateOperations m => BlockStateOperations (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance BlockStateStorage m => BlockStateStorage (ExceptT e m)

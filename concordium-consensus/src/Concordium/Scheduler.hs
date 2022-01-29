@@ -57,9 +57,8 @@ import qualified Data.ByteString as BS
 import qualified Concordium.ID.Account as AH
 import qualified Concordium.ID.Types as ID
 
-import Concordium.GlobalState.BlockState (AccountOperations(..), AccountAllowance (..))
+import Concordium.GlobalState.BlockState (AccountOperations(..), AccountAllowance (..), NewInstanceData (..), InstanceInfoType (..), InstanceInfoTypeV(..), ContractStateOperations (..))
 import qualified Concordium.GlobalState.BakerInfo as BI
-import qualified Concordium.GlobalState.Instance as Ins
 import Concordium.GlobalState.Types
 import qualified Concordium.Cost as Cost
 import Concordium.Crypto.EncryptedTransfers
@@ -71,6 +70,7 @@ import Data.Function (on)
 import Data.List (find, foldl')
 import qualified Data.Map.Strict as OrdMap
 import Data.Maybe
+import Data.Proxy
 import Data.Ord
 import qualified Data.Set as Set
 
@@ -81,6 +81,8 @@ import Lens.Micro.Platform
 
 import Prelude hiding (exp, mod)
 import Concordium.Scheduler.WasmIntegration.V1 (ReceiveResultData(rrdCurrentState))
+import Concordium.Wasm (IsWasmVersion)
+import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 
 -- |Check that
 --  * the transaction has a valid sender,
@@ -568,14 +570,25 @@ handleDeployModule wtc mod =
       return (TxSuccess [ModuleDeployed mhash], energyCost, usedEnergy)
 
 -- | Tick energy for storing the given contract state.
-tickEnergyStoreState ::
+tickEnergyStoreStateV0 ::
   TransactionMonad pv m
   => Wasm.ContractState
   -> m ()
-tickEnergyStoreState cs =
+tickEnergyStoreStateV0 cs =
   -- Compute the size of the value and charge for storing based on this size.
   -- This uses the 'ResourceMeasure' instance for 'ByteSize' to determine the cost for storage.
   tickEnergy (Cost.toEnergy (Wasm.contractStateSize cs))
+
+-- | Tick energy for storing the given amount of additional data.
+tickEnergyStoreStateV1 ::
+  TransactionMonad pv m
+  => Wasm.ByteSize -- ^Size of additional state that needs to be stored.
+  -> m ()
+tickEnergyStoreStateV1 size =
+  -- Compute the size of the value and charge for storing based on this size.
+  -- This uses the 'ResourceMeasure' instance for 'ByteSize' to determine the cost for storage.
+  tickEnergy (Cost.toEnergy size)
+
 
 -- | Get the current contract state and charge for its lookup.
 -- NB: In principle we should look up the state size, then charge, and only then lookup the full state
@@ -583,7 +596,7 @@ tickEnergyStoreState cs =
 getCurrentContractInstanceTicking ::
   TransactionMonad pv m
   => ContractAddress
-  -> m Instance
+  -> m (UInstanceInfo m)
 getCurrentContractInstanceTicking cref = getCurrentContractInstanceTicking' cref `rejectingWith` InvalidContractAddress cref
 
 -- | Get the current contract state and charge for its lookup.
@@ -593,7 +606,7 @@ getCurrentContractInstanceTicking cref = getCurrentContractInstanceTicking' cref
 getCurrentContractInstanceTicking' ::
   TransactionMonad pv m
   => ContractAddress
-  -> m (Maybe Instance)
+  -> m (Maybe (UInstanceInfo m))
 getCurrentContractInstanceTicking' cref = do
   getCurrentContractInstance cref >>= \case
     Nothing -> return Nothing
@@ -601,13 +614,14 @@ getCurrentContractInstanceTicking' cref = do
       -- Compute the size of the contract state value and charge for the lookup based on this size.
       -- This uses the 'ResourceMeasure' instance for 'Cost.LookupByteSize' to determine the cost for lookup.
       case inst of
-        InstanceV0 iv -> tickEnergy (Cost.lookupContractState $ Wasm.contractStateSize (Ins._instanceVModel iv))
-        InstanceV1 iv -> tickEnergy (Cost.lookupContractState $ Wasm.contractStateSize (Ins._instanceVModel iv)) -- FIXME: This will be revised
+        InstanceInfoV0 iv -> tickEnergy . Cost.lookupContractState =<< getStateSizeV0 (iiState iv)
+        InstanceInfoV1 iv -> -- FIXME: Revise based on measurements. We might have to charge something here.
+          return ()
       return (Just inst)
 
 
 -- | Handle the initialization of a contract instance.
-handleInitContract ::
+handleInitContract :: forall m pv .
   SchedulerMonad pv m
     => WithDepositContext m
     -> Amount   -- ^The amount to initialize the contract instance with.
@@ -658,7 +672,7 @@ handleInitContract wtc initAmount modref initName param =
                            `rejectingWith'` wasmRejectToRejectReasonInit
     
                 -- Charge for storing the contract state.
-                tickEnergyStoreState (Wasm.newState result)
+                tickEnergyStoreStateV0 (Wasm.newState result)
                 -- And for storing the instance.
                 tickEnergy Cost.initializeContractInstanceCreateCost
     
@@ -685,9 +699,9 @@ handleInitContract wtc initAmount modref initName param =
                    }
                 result <- runInterpreter (return . WasmV1.applyInitFun iface cm initCtx initName param initAmount)
                            `rejectingWith'` WasmV1.cerToRejectReasonInit
-    
+
                 -- Charge for storing the contract state.
-                tickEnergyStoreState (WasmV1.irdNewState result)
+                tickEnergyStoreStateV1 (Wasm.ByteSize (StateV1.getNewStateSize (WasmV1.irdNewState result)))
                 -- And for storing the instance.
                 tickEnergy Cost.initializeContractInstanceCreateCost
     
@@ -702,14 +716,22 @@ handleInitContract wtc initAmount modref initName param =
             cs' <- addAmountToCS senderAccount (amountDiff 0 initAmount) (ls ^. changeSet)
 
             let receiveMethods = OrdMap.findWithDefault Set.empty initName (GSWasm.miExposedReceive iface)
-            let ins = makeInstance initName receiveMethods iface model initAmount senderAddress
-            addr <- putNewInstance ins
+            internalModel <- fromForeignReprV0 model
+            let ins = NewInstanceData{
+                   nidInitName = initName,
+                   nidEntrypoints = receiveMethods,
+                   nidInterface = iface,
+                   nidInitialState = internalModel,
+                   nidInitialAmount = initAmount,
+                   nidOwner = senderAddress
+                } 
+            newInstanceAddr <- putNewInstance ins
 
             -- add the contract initialization to the change set and commit the changes
-            commitChanges $ addContractInitToCS (ins addr) cs'
+            commitChanges $ addContractInitToCS (Proxy @m) newInstanceAddr cs'
 
             return (TxSuccess [ContractInitialized{ecRef=modref,
-                                                   ecAddress=addr,
+                                                   ecAddress=newInstanceAddr,
                                                    ecAmount=initAmount,
                                                    ecInitName=initName,
                                                    ecEvents=Wasm.logs result
@@ -724,14 +746,22 @@ handleInitContract wtc initAmount modref initName param =
             cs' <- addAmountToCS senderAccount (amountDiff 0 initAmount) (ls ^. changeSet)
 
             let receiveMethods = OrdMap.findWithDefault Set.empty initName (GSWasm.miExposedReceive iface)
-            let ins = makeInstance initName receiveMethods iface model initAmount senderAddress
-            addr <- putNewInstance ins
+            internalModel <- fromForeignReprV1 model
+            let ins = NewInstanceData{
+                   nidInitName = initName,
+                   nidEntrypoints = receiveMethods,
+                   nidInterface = iface,
+                   nidInitialState = internalModel,
+                   nidInitialAmount = initAmount,
+                   nidOwner = senderAddress
+                } 
+            newInstanceAddr <- putNewInstance ins
 
             -- add the contract initialization to the change set and commit the changes
-            commitChanges $ addContractInitToCS (ins addr) cs'
+            commitChanges $ addContractInitToCS (Proxy @m) newInstanceAddr cs'
 
             return (TxSuccess [ContractInitialized{ecRef=modref,
-                                                   ecAddress=addr,
+                                                   ecAddress=newInstanceAddr,
                                                    ecAmount=initAmount,
                                                    ecInitName=initName,
                                                    ecEvents=WasmV1.irdLogs result
@@ -782,7 +812,7 @@ handleUpdateContract wtc uAmount uAddress uReceiveName uMessage =
         checkAndGetBalanceV0 = checkAndGetBalanceAccountV0 senderAddress senderAccount
         c = do
           getCurrentContractInstanceTicking uAddress >>= \case
-            InstanceV0 ins -> 
+            InstanceInfoV0 ins -> 
                 -- Now invoke the general handler for contract messages.
                 handleContractUpdateV0 senderAddress
                               ins
@@ -790,7 +820,7 @@ handleUpdateContract wtc uAmount uAddress uReceiveName uMessage =
                               uAmount
                               uReceiveName
                               uMessage
-            InstanceV1 ins -> do
+            InstanceInfoV1 ins -> do
               handleContractUpdateV1 senderAddress ins checkAndGetBalanceV1 uAmount uReceiveName uMessage >>= \case
                 Left cer -> rejectTransaction (WasmV1.cerToRejectReasonReceive uAddress uReceiveName uMessage cer)
                 Right (_, events) -> return (reverse events)
@@ -829,14 +859,14 @@ checkAndGetBalanceAccountV0 usedAddress senderAccount transferAmount = do
 
 
 -- |Check that the instance has sufficient balance, and construct credentials of the owner account.
-checkAndGetBalanceInstanceV1 :: (TransactionMonad pv m, AccountOperations m)
+checkAndGetBalanceInstanceV1 :: forall pv m vOrigin . (TransactionMonad pv m, AccountOperations m, IsWasmVersion vOrigin)
     => IndexedAccount m
-    -> InstanceV vOrigin
+    -> UInstanceInfoV m vOrigin
     -> Amount
     -> m (Either WasmV1.ContractCallFailure (Address, [ID.AccountCredential], (Either ContractAddress IndexedAccountAddress)))
 checkAndGetBalanceInstanceV1 ownerAccount istance transferAmount = do
   (senderAddr, senderCredentials) <- mkSenderAddrCredentials (Left (ownerAccount, instanceAddress istance))
-  senderamount <- getCurrentContractAmount istance
+  senderamount <- getCurrentContractAmount (Wasm.getWasmVersion @vOrigin) istance
   if senderamount >= transferAmount then
     return (Right (senderAddr, senderCredentials, (Left (instanceAddress istance))))
   else
@@ -845,14 +875,14 @@ checkAndGetBalanceInstanceV1 ownerAccount istance transferAmount = do
 -- |Check that the instance has sufficient balance, and construct credentials of the owner account.
 -- In contrast to the V1 version above this one uses the TransactionMonad's error handling
 -- to raise an error, instead of returning it.
-checkAndGetBalanceInstanceV0 :: (TransactionMonad pv m, AccountOperations m)
+checkAndGetBalanceInstanceV0 :: forall pv m vOrigin . (TransactionMonad pv m, AccountOperations m, IsWasmVersion vOrigin)
     => IndexedAccount m
-    -> InstanceV vOrigin
+    -> UInstanceInfoV m vOrigin
     -> Amount
     -> m (Address, [ID.AccountCredential], Either ContractAddress IndexedAccountAddress)
 checkAndGetBalanceInstanceV0 ownerAccount istance transferAmount = do
   (senderAddr, senderCredentials) <- mkSenderAddrCredentials (Left (ownerAccount, instanceAddress istance))
-  senderamount <- getCurrentContractAmount istance
+  senderamount <- getCurrentContractAmount (Wasm.getWasmVersion @vOrigin) istance
   if senderamount >= transferAmount then
     return (senderAddr, senderCredentials, Left (instanceAddress istance))
   else
@@ -866,7 +896,7 @@ checkAndGetBalanceInstanceV0 ownerAccount istance transferAmount = do
 handleContractUpdateV1 :: forall pv m.
   (TransactionMonad pv m, AccountOperations m)
   => AccountAddress -- ^The address that was used to send the top-level transaction.
-  -> InstanceV GSWasm.V1 -- ^The current state of the target contract of the transaction, which must exist.
+  -> UInstanceInfoV m GSWasm.V1 -- ^The current state of the target contract of the transaction, which must exist.
   -> (Amount -> m (Either WasmV1.ContractCallFailure (Address, [ID.AccountCredential], Either ContractAddress IndexedAccountAddress)))
   -- ^Check that the sender has sufficient amount to cover the given amount and return a triple of
   -- - used address
@@ -883,16 +913,16 @@ handleContractUpdateV1 :: forall pv m.
 handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount receiveName parameter = do
   -- Cover administrative costs.
   tickEnergy Cost.updateContractInstanceBaseCost
-  let model = _instanceVModel istance
-  let iParams = _instanceVParameters istance
+  let model = iiState istance
+  let iParams = iiParameters istance
   let cref = instanceAddress iParams
-  let receivefuns = instanceReceiveFuns . _instanceVParameters $ istance
+  let receivefuns = instanceReceiveFuns iParams
   let ownerAccountAddress = instanceOwner iParams
   -- The invariants maintained by global state should ensure that an owner account always exists.
   -- However we are defensive here and reject the transaction instead of panicking in case it does not.
   ownerCheck <- getStateAccount ownerAccountAddress
   senderCheck <- checkAndGetSender transferAmount
-
+  stateContext <- getV1StateContext
   case (Set.member receiveName receivefuns, ownerCheck, senderCheck) of
     (False, _, _) -> return (Left (WasmV1.EnvFailure (WasmV1.InvalidEntrypoint (GSWasm.miModuleRef . instanceModuleInterface $ iParams) receiveName)))
     (_, Nothing, _) -> return (Left (WasmV1.EnvFailure (WasmV1.MissingAccount ownerAccountAddress)))
@@ -907,7 +937,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
             -- in V1 contracts, since they execute in one go, it is necessary for some uses to
             -- make the incoming amount immediately available. Otherwise the contract cannot, for example,
             -- forward the incoming amount. Since that is necessary, the updated semantics is the most natural one.
-            selfBalance = _instanceVAmount istance + transferAmount,
+            selfBalance = iiBalance istance + transferAmount,
             sender = senderAddr,
             owner = instanceOwner iParams,
             rcSenderPolicies = map Wasm.mkSenderPolicy senderCredentials
@@ -927,11 +957,12 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
           go _ (Left cer) = return (Left (WasmV1.ExecutionReject cer)) -- contract execution failed.
           go events (Right rrData) = do
             -- balance at present before handling out calls or transfers.
-            entryBalance <- getCurrentContractAmount istance
+            entryBalance <- getCurrentContractAmount Wasm.SV1 istance
             case rrData of
               WasmV1.ReceiveSuccess{..} -> do
                 -- execution terminated, commit the new state
-                withInstanceStateV1 istance rrdNewState $ \_modifiedIndex ->
+                newState <- fromForeignReprV1 rrdNewState
+                withInstanceStateV1 istance newState $ \_modifiedIndex ->
                   let event = Updated{euAddress=instanceAddress istance,
                                       euInstigator=senderAddr,
                                       euAmount=transferAmount,
@@ -955,61 +986,66 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                   WasmV1.Transfer{..} ->
                     runExceptT (transferAccountSync imtTo istance imtAmount) >>= \case
                       Left errCode -> do
-                        go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig Nothing entryBalance (WasmV1.Error (WasmV1.EnvFailure errCode)) Nothing)
+                        go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig stateContext Nothing entryBalance (WasmV1.Error (WasmV1.EnvFailure errCode)) Nothing)
                       Right transferEvents -> do
-                        newBalance <- getCurrentContractAmount istance
-                        go (resumeEvent True:transferEvents ++ interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig Nothing newBalance WasmV1.Success Nothing)
-                  WasmV1.Call{..} ->
+                        newBalance <- getCurrentContractAmount Wasm.SV1 istance
+                        go (resumeEvent True:transferEvents ++ interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig stateContext Nothing newBalance WasmV1.Success Nothing)
+                  WasmV1.Call{..} -> do
                     -- the operation is a call to another contract. There is a bit of complication because the contract could be a V0
                     -- or V1 one, and the behaviour is different depending on which one it is.
                     -- First, commit the current state of the contract.
                     -- TODO: With the new state, only do this if the state has actually changed.
-                    withInstanceStateV1 istance rrdCurrentState $ \modificationIndex -> do
+                    stateAtInvoke <- fromForeignReprV1 rrdCurrentState
+                    withInstanceStateV1 istance stateAtInvoke $ \modificationIndex -> do
                        -- lookup the instance to invoke
                        getCurrentContractInstanceTicking' imcTo >>= \case
                          -- we could not find the instance, return this to the caller and continue
-                         Nothing -> go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig Nothing entryBalance (WasmV1.Error (WasmV1.EnvFailure (WasmV1.MissingContract imcTo))) Nothing)
-                         Just (InstanceV0 targetInstance) -> do
+                         Nothing -> go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig stateContext Nothing entryBalance (WasmV1.Error (WasmV1.EnvFailure (WasmV1.MissingContract imcTo))) Nothing)
+                         Just (InstanceInfoV0 targetInstance) -> do
                            -- we are invoking a V0 instance.
                            -- in this case we essentially treat this as a top-level transaction invoking that contract.
                            -- That is, we execute the entire tree that is potentially generated.
-                           let rName = Wasm.makeReceiveName (instanceInitName (_instanceVParameters targetInstance)) imcName
+                           let rName = Wasm.makeReceiveName (instanceInitName (iiParameters targetInstance)) imcName
                                runSuccess = Right <$> handleContractUpdateV0 originAddr targetInstance (checkAndGetBalanceInstanceV0 ownerAccount istance) imcAmount rName imcParam
                            -- If execution of the contract succeeds resume.
                            -- Otherwise rollback the state and report that to the caller.
                            (runSuccess `orElseWith` (return . Left)) >>= \case
                               Left _ -> -- execution failed, ignore the reject reason since V0 contract cannot return useful information
-                                go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig Nothing entryBalance WasmV1.MessageSendFailed Nothing)
+                                go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig stateContext Nothing entryBalance WasmV1.MessageSendFailed Nothing)
                               Right evs -> do
                                 -- Execution of the contract might have changed our own state. If so, we need to resume in the new state, otherwise
                                 -- we can keep the old one.
                                 (lastModifiedIndex, newState) <- getCurrentContractInstanceState istance
-                                let resumeState = if lastModifiedIndex == modificationIndex then Nothing else Just newState
-                                newBalance <- getCurrentContractAmount istance
-                                go (resumeEvent True:evs ++ interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig resumeState newBalance WasmV1.Success Nothing)
-                         Just (InstanceV1 targetInstance) -> do
+                                resumeState <-
+                                      if lastModifiedIndex == modificationIndex then return Nothing
+                                      else  Just <$> getForeignReprV1 newState
+                                newBalance <- getCurrentContractAmount Wasm.SV1 istance
+                                go (resumeEvent True:evs ++ interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig stateContext resumeState newBalance WasmV1.Success Nothing)
+                         Just (InstanceInfoV1 targetInstance) -> do
                            -- invoking a V1 instance is easier we recurse on the update function.
                            -- If this returns Right _ it is successful, and we pass this, and the returned return value
                            -- to the caller.
                            -- Otherwise we roll back all the changes and return the return value, and the error code to the caller.
-                           let rName = Wasm.makeReceiveName (instanceInitName (_instanceVParameters targetInstance)) imcName
+                           let rName = Wasm.makeReceiveName (instanceInitName (iiParameters targetInstance)) imcName
                            withRollback (handleContractUpdateV1 originAddr targetInstance (checkAndGetBalanceInstanceV1 ownerAccount istance) imcAmount rName imcParam) >>= \case
                               Left cer ->
-                                go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig Nothing entryBalance (WasmV1.Error cer) (WasmV1.ccfToReturnValue cer))
+                                go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig stateContext Nothing entryBalance (WasmV1.Error cer) (WasmV1.ccfToReturnValue cer))
                               Right (rVal, callEvents) -> do
                                 (lastModifiedIndex, newState) <- getCurrentContractInstanceState istance
-                                let resumeState = if lastModifiedIndex == modificationIndex then Nothing else Just newState
-                                newBalance <- getCurrentContractAmount istance
-                                go (resumeEvent True:callEvents ++ interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig resumeState newBalance WasmV1.Success (Just rVal))
+                                resumeState <-
+                                      if lastModifiedIndex == modificationIndex then return Nothing
+                                      else  Just <$> getForeignReprV1 newState
+                                newBalance <- getCurrentContractAmount Wasm.SV1 istance
+                                go (resumeEvent True:callEvents ++ interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig stateContext resumeState newBalance WasmV1.Success (Just rVal))
 
       -- start contract execution.
       -- transfer the amount from the sender to the contract at the start. This is so that the contract may immediately use it
       -- for, e.g., forwarding.
-      withToContractAmount sender istance transferAmount $
-        go [] =<< runInterpreter (return . WasmV1.applyReceiveFun iface cm receiveCtx receiveName parameter transferAmount model)
-          
+      withToContractAmount sender istance transferAmount $ do
+        foreignModel <- getForeignReprV1 model
+        go [] =<< runInterpreter (return . WasmV1.applyReceiveFun iface cm receiveCtx receiveName parameter transferAmount stateContext foreignModel)
    where  transferAccountSync :: AccountAddress -- ^The target account address.
-                              -> InstanceV GSWasm.V1 -- ^The sender of this transfer.
+                              -> UInstanceInfoV m GSWasm.V1 -- ^The sender of this transfer.
                               -> Amount -- ^The amount to transfer.
                               -> ExceptT WasmV1.EnvFailure m [Event] -- ^The events resulting from the transfer.
           transferAccountSync accAddr senderInstance tAmount = do
@@ -1017,7 +1053,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
             -- Check whether the sender has the amount to be transferred and reject the transaction if not.
             senderamount <- lift $ do
               tickEnergy Cost.simpleTransferCost
-              getCurrentContractAmount senderInstance
+              getCurrentContractAmount Wasm.SV1 senderInstance
             let addr = AddressContract (instanceAddress senderInstance)
             unless (senderamount >= tAmount) $! throwError (WasmV1.AmountTooLarge addr tAmount)
             -- Check whether target account exists and get it.
@@ -1036,7 +1072,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
 handleContractUpdateV0 :: forall pv m.
   (TransactionMonad pv m, AccountOperations m)
   => AccountAddress -- ^The address that was used to send the top-level transaction.
-  -> InstanceV GSWasm.V0 -- ^The current state of the target contract of the transaction, which must exist.
+  -> UInstanceInfoV m GSWasm.V0 -- ^The current state of the target contract of the transaction, which must exist.
   -> (Amount -> m (Address, [ID.AccountCredential], (Either ContractAddress IndexedAccountAddress)))
   -- ^The sender of the message (contract instance or account). In case this is
   -- a contract the first parameter is the owner account of the instance. In case this is an account
@@ -1053,7 +1089,6 @@ handleContractUpdateV0 originAddr istance checkAndGetSender transferAmount recei
   -- Cover administrative costs.
   tickEnergy Cost.updateContractInstanceBaseCost
 
-  let model = _instanceVModel istance
   -- Check whether the sender of the message has enough on its account/instance for the transfer.
   -- If the amount is not sufficient, the top-level transaction is rejected.
   -- Note that this returns the address that was used in the top-level transaction, or the contract address.
@@ -1061,9 +1096,9 @@ handleContractUpdateV0 originAddr istance checkAndGetSender transferAmount recei
   -- latter they are credentials of the owner account.
   (senderAddr, senderCredentials, sender) <- checkAndGetSender transferAmount
 
-  let iParams = _instanceVParameters istance
+  let iParams = iiParameters istance
   let cref = instanceAddress iParams
-  let receivefuns = instanceReceiveFuns . _instanceVParameters $ istance
+  let receivefuns = instanceReceiveFuns iParams
   unless (Set.member receiveName receivefuns) $ rejectTransaction $
       InvalidReceiveMethod (GSWasm.miModuleRef . instanceModuleInterface $ iParams) receiveName
   -- Now we also check that the owner account of the receiver instance has at least one valid credential
@@ -1078,7 +1113,7 @@ handleContractUpdateV0 originAddr istance checkAndGetSender transferAmount recei
   let receiveCtx = Wasm.ReceiveContext {
         invoker = originAddr,
         selfAddress = cref,
-        selfBalance = _instanceVAmount istance,
+        selfBalance = iiBalance istance,
         sender = senderAddr,
         owner = instanceOwner iParams,
         rcSenderPolicies = map Wasm.mkSenderPolicy senderCredentials
@@ -1089,6 +1124,7 @@ handleContractUpdateV0 originAddr istance checkAndGetSender transferAmount recei
   -- charge for looking up the module
   tickEnergy $ Cost.lookupModule (GSWasm.miModuleSize iface)
 
+  model <- getForeignReprV0 (iiState istance)
   result <- runInterpreter (return . WasmV0.applyReceiveFun iface cm receiveCtx receiveName parameter transferAmount model)
              `rejectingWith'` wasmRejectToRejectReasonReceive cref receiveName parameter
 
@@ -1101,12 +1137,12 @@ handleContractUpdateV0 originAddr istance checkAndGetSender transferAmount recei
   -- increases complexity and makes tracking of energy even less local than it
   -- is now.
   -- TODO We might want to change this behaviour to prevent charging for storage that is not done.
-  tickEnergyStoreState newModel
-
+  tickEnergyStoreStateV0 newModel
+  newModelInternal <- fromForeignReprV0 newModel
   -- Process the generated messages in the new context (transferred amount, updated state) in
   -- sequence from left to right, depth first.
   withToContractAmount sender istance transferAmount $
-    withInstanceStateV0 istance newModel $ do
+    withInstanceStateV0 istance newModelInternal $ do
       let initEvent = Updated{euAddress=cref,
                               euInstigator=senderAddr,
                               euAmount=transferAmount,
@@ -1129,20 +1165,21 @@ traversalStepCost = 10
 
 foldEvents :: (TransactionMonad pv m, AccountOperations m)
            => AccountAddress -- ^Address that was used in the top-level transaction.
-           -> (IndexedAccount m, InstanceV GSWasm.V0) -- ^Instance that generated the events.
+           -> (IndexedAccount m, UInstanceInfoV m GSWasm.V0) -- ^Instance that generated the events.
            -> Event -- ^Event generated by the invocation of the instance.
            -> Wasm.ActionsTree -- ^Actions to perform
            -> m [Event] -- ^List of events in order that transactions were traversed.
 foldEvents originAddr istance initEvent = fmap (initEvent:) . go
   where go Wasm.TSend{..} = do
           getCurrentContractInstanceTicking erAddr >>= \case
-            InstanceV0 cinstance -> handleContractUpdateV0 originAddr
+            InstanceInfoV0 cinstance ->
+              handleContractUpdateV0 originAddr
                                    cinstance
                                    (uncurry checkAndGetBalanceInstanceV0 istance)
                                    erAmount
                                    erName
                                    erParameter
-            InstanceV1 cinstance ->
+            InstanceInfoV1 cinstance ->
               let c = handleContractUpdateV1
                       originAddr
                       cinstance
@@ -1179,17 +1216,17 @@ mkSenderAddrCredentials sender =
 
 
 -- | Handle the transfer of an amount from a contract instance to an account.
-handleTransferAccount ::
-  (TransactionMonad pv m, HasInstanceParameters a, HasInstanceFields a)
+handleTransferAccount :: forall m pv v .
+  (TransactionMonad pv m, IsWasmVersion v)
   => AccountAddress -- ^The target account address.
-  -> a -- ^The sender of this transfer.
+  -> UInstanceInfoV m v -- ^The sender of this transfer.
   -> Amount -- ^The amount to transfer.
   -> m [Event] -- ^The events resulting from the transfer.
 handleTransferAccount accAddr senderInstance transferamount = do
   -- charge at the beginning, successful and failed transfers will have the same cost.
   tickEnergy Cost.simpleTransferCost
   -- Check whether the sender has the amount to be transferred and reject the transaction if not.
-  senderamount <- getCurrentContractAmount senderInstance
+  senderamount <- getCurrentContractAmount (Wasm.getWasmVersion @v) senderInstance
   let addr = AddressContract (instanceAddress senderInstance)
   unless (senderamount >= transferamount) $! rejectTransaction (AmountTooLarge addr transferamount)
 

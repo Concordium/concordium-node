@@ -76,6 +76,16 @@ instance C.HasGlobalStateContext (PairGSContext lc rc) a => C.HasGlobalStateCont
 type BSML pv lc r ls s m = BlockStateM pv lc (FocusLeft r) ls (FocusLeft s) (ReviseRSM (FocusLeft r) (FocusLeft s) m)
 type BSMR pv rc r rs s m = BlockStateM pv rc (FocusRight r) rs (FocusRight s) (ReviseRSM (FocusRight r) (FocusRight s) m)
 
+data PairedContractState pv lc rc r lg rg s m v = PairedContractState {
+  pcsLeft :: ContractState (BSML pv lc r lg s m) v,
+  pcsRight :: ContractState (BSMR pv rc r rg s m) v
+  }
+
+data PairedUpdatableContractState pv lc rc r lg rg s m v = PairedUpdatableContractState {
+  pucsLeft :: ContractState (BSML pv lc r lg s m) v,
+  pucsRight :: ContractState (BSMR pv rc r rg s m) v
+  }
+
 instance (C.HasGlobalStateContext (PairGSContext lc rc) r)
         => BlockStateTypes (BlockStateM pv (PairGSContext lc rc) r (PairGState lg rg) s m) where
     type BlockState (BlockStateM pv (PairGSContext lc rc) r (PairGState lg rg) s m)
@@ -87,6 +97,10 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r)
     type Account (BlockStateM pv (PairGSContext lc rc) r (PairGState lg rg) s m)
             = (Account (BSML pv lc r lg s m),
                 Account (BSMR pv rc r rg s m))
+    type ContractState (BlockStateM pv (PairGSContext lc rc) r (PairGState lg rg) s m)
+            = PairedContractState pv lc rc r lg rg s m
+    type UpdatableContractState (BlockStateM pv (PairGSContext lc rc) r (PairGState lg rg) s m)
+            = PairedUpdatableContractState pv lc rc r lg rg s m
 
 instance C.HasGlobalState (PairGState ls rs) s => C.HasGlobalState ls (FocusLeft s) where
     globalState = lens unFocusLeft (const FocusLeft) . C.globalState . pairStateLeft
@@ -215,10 +229,10 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
             return Nothing
           (Nothing, _) -> error $ "Cannot get account for baker " ++ show bid ++ " in left implementation"
           (_, Nothing) -> error $ "Cannot get account for baker " ++ show bid ++ " in right implementation"
-    getContractInstance (ls, rs) caddr = do
-        c1 <- coerceBSML (getContractInstance ls caddr)
-        c2 <- coerceBSMR (getContractInstance rs caddr)
-        assert (((==) `on` fmap instanceHash) c1 c2) $ return c1
+    getContractInstance (ls, rs) caddr = error "TODO"
+        -- c1 <- coerceBSML (getContractInstance ls caddr)
+        -- c2 <- coerceBSMR (getContractInstance rs caddr)
+        -- assert (((==) `on` fmap instanceHash) c1 c2) $ return c1
     getModuleList (ls, rs) = do
         m1 <- coerceBSML (getModuleList ls)
         m2 <- coerceBSMR (getModuleList rs)
@@ -230,7 +244,7 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
     getContractInstanceList (ls, rs) = do
         a1 <- coerceBSML (getContractInstanceList ls)
         a2 <- coerceBSMR (getContractInstanceList rs)
-        assert (((==) `on` fmap instanceHash) a1 a2) $ return a1
+        assert (a1 == a2) $ return a1
     getSeedState (ls, rs) = do
         ss1 <- coerceBSML (getSeedState ls)
         ss2 <- coerceBSMR (getSeedState rs)
@@ -301,6 +315,17 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
         u1 <- coerceBSML (getCryptographicParameters bps1)
         u2 <- coerceBSMR (getCryptographicParameters bps2)
         assert (u1 == u2) $ return u1
+
+instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, ContractStateOperations (BSML pv lc r ls s m), ContractStateOperations (BSMR pv rc r rs s m), HashableTo H.Hash (Account (BSML pv lc r ls s m)))
+  => ContractStateOperations (BlockStateM pv (PairGSContext lc rc) r (PairGState ls rs) s m) where
+  thawContractState = error "TODO"
+  toForeignReprV0 = error "TODO"
+  toForeignReprV1 = error "TODO"
+  fromForeignReprV0 = error "TODO"
+  fromForeignReprV1 = error "TODO"
+  stateSizeV0 = error "TODO"
+  mutableStateSizeV0 = error "TODO"
+  getV1StateContext = error "TODO"
 
 instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, AccountOperations (BSML pv lc r ls s m), AccountOperations (BSMR pv rc r rs s m), HashableTo H.Hash (Account (BSML pv lc r ls s m)), HashableTo H.Hash (Account (BSMR pv rc r rs s m)))
   => AccountOperations (BlockStateM pv (PairGSContext lc rc) r (PairGState ls rs) s m) where
@@ -379,10 +404,10 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         r1 <- coerceBSML $ bsoGetAccountIndex bs1 aref
         r2 <- coerceBSMR $ bsoGetAccountIndex bs2 aref
         assert (r1 == r2) $ return r1
-    bsoGetInstance (bs1, bs2) iref = do
-        r1 <- coerceBSML $ bsoGetInstance bs1 iref
-        r2 <- coerceBSMR $ bsoGetInstance bs2 iref
-        assert (((==) `on` fmap instanceHash) r1 r2) $ return r1
+    bsoGetInstance (bs1, bs2) iref = error "TODO"
+        -- r1 <- coerceBSML $ bsoGetInstance bs1 iref
+        -- r2 <- coerceBSMR $ bsoGetInstance bs2 iref
+        -- assert (((==) `on` fmap instanceHash) r1 r2) $ return r1
     bsoAddressWouldClash (bs1, bs2) addr = do
         r1 <- coerceBSML $ bsoAddressWouldClash bs1 addr
         r2 <- coerceBSMR $ bsoAddressWouldClash bs2 addr
@@ -402,10 +427,10 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
                 error "Account creation failed in left implementation but not right"
             (_, Nothing) ->
                 error "Account creation failed in right implementation but not left"
-    bsoPutNewInstance (bs1, bs2) f = do
-        (r1, bs1') <- coerceBSML $ bsoPutNewInstance bs1 f
-        (r2, bs2') <- coerceBSMR $ bsoPutNewInstance bs2 f
-        assert (r1 == r2) $ return (r1, (bs1', bs2'))
+    bsoPutNewInstance (bs1, bs2) f = error "TODO"
+        -- (r1, bs1') <- coerceBSML $ bsoPutNewInstance bs1 f
+        -- (r2, bs2') <- coerceBSMR $ bsoPutNewInstance bs2 f
+        -- assert (r1 == r2) $ return (r1, (bs1', bs2'))
     bsoPutNewModule (bs1, bs2) iface = do
         (r1, bs1') <- coerceBSML $ bsoPutNewModule bs1 iface
         (r2, bs2') <- coerceBSMR $ bsoPutNewModule bs2 iface
@@ -422,10 +447,10 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         bs1' <- coerceBSML $ bsoUpdateAccountCredentials bs1 aaddr remove add thrsh
         bs2' <- coerceBSMR $ bsoUpdateAccountCredentials bs2 aaddr remove add thrsh
         return (bs1', bs2')
-    bsoModifyInstance (bs1, bs2) caddr delta model = do
-        bs1' <- coerceBSML $ bsoModifyInstance bs1 caddr delta model
-        bs2' <- coerceBSMR $ bsoModifyInstance bs2 caddr delta model
-        return (bs1', bs2')
+    bsoModifyInstance (bs1, bs2) caddr delta model = error "TODO"
+        -- bs1' <- coerceBSML $ bsoModifyInstance bs1 caddr delta model
+        -- bs2' <- coerceBSMR $ bsoModifyInstance bs2 caddr delta model
+        -- return (bs1', bs2')
     bsoNotifyEncryptedBalanceChange (bs1, bs2) amt = do
         bs1' <- coerceBSML $ bsoNotifyEncryptedBalanceChange bs1 amt
         bs2' <- coerceBSMR $ bsoNotifyEncryptedBalanceChange bs2 amt
@@ -606,6 +631,7 @@ instance (MonadLogger m,
         assert (s1 == s2) $ return s2
     -- We only write out 
     writeBlockState h (bps1, _) = coerceBSML (writeBlockState h bps1)
+    blockStateLoadCallback = coerceBSMR blockStateLoadCallback
 
 {-# INLINE coerceGSML #-}
 coerceGSML :: GSML pv lc r ls s m a -> TreeStateBlockStateM pv (PairGState ls rs) (PairGSContext lc rc) r s m a

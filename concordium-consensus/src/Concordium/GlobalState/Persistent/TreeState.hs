@@ -388,7 +388,7 @@ closeSkovPersistentData = closeDatabase . _db
 -- type used in the implementation.
 newtype PersistentTreeStateMonad (pv :: ProtocolVersion) ati bs m a = PersistentTreeStateMonad { runPersistentTreeStateMonad :: m a }
   deriving (Functor, Applicative, Monad, MonadIO, BlockStateTypes, MonadLogger, MonadError e,
-            BlockStateQuery, AccountOperations, BlockStateOperations, BlockStateStorage)
+            BlockStateQuery, AccountOperations, BlockStateOperations, BlockStateStorage, ContractStateOperations)
 
 deriving instance (Monad m, MonadState (SkovPersistentData pv ati bs) m)
          => MonadState (SkovPersistentData pv ati bs) (PersistentTreeStateMonad pv ati bs m)

@@ -110,6 +110,9 @@ deriving via (MGSTrans (RWST ContextState w state) m)
 deriving via (MGSTrans (RWST ContextState w state) m)
     instance (Monoid w, AccountOperations m) => AccountOperations (BlockStateMonad pv w state m)
 
+deriving via (MGSTrans (RWST ContextState w state) m)
+    instance (Monoid w, ContractStateOperations m) => ContractStateOperations (BlockStateMonad pv w state m)
+
 deriving via (BSOMonadWrapper pv ContextState w state (MGSTrans (RWST ContextState w state) m))
     instance (
               SS state ~ UpdatableBlockState m,

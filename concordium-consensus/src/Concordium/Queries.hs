@@ -57,6 +57,8 @@ import Concordium.Skov as Skov (
     SkovQueryMonad (getBlocksAtHeight),
     evalSkovT,
  )
+import qualified Concordium.GlobalState.Wasm as GSWasm
+import Concordium.GlobalState.BlockState (InstanceInfoTypeV(iiParameters))
 
 -- |Run a query against a specific skov version.
 liftSkovQuery ::
@@ -452,7 +454,7 @@ getAccountList = liftSkovQueryBlock $ BS.getAccountList <=< blockState
 getInstanceList :: BlockHash -> MVR gsconf finconf (Maybe [ContractAddress])
 getInstanceList =
     liftSkovQueryBlock $
-        fmap (fmap iaddress) . BS.getContractInstanceList <=< blockState
+        BS.getContractInstanceList <=< blockState
 
 -- |Get the list of modules present as of a given block.
 getModuleList :: BlockHash -> MVR gsconf finconf (Maybe [ModuleRef])
@@ -487,15 +489,34 @@ getAccountInfo blockHash acct =
             blockHash
 
 -- |Get the details of a smart contract instance in the block state.
-getInstanceInfo :: BlockHash -> ContractAddress -> MVR gsconf finconf (Maybe Instance)
+getInstanceInfo :: BlockHash -> ContractAddress -> MVR gsconf finconf (Maybe Wasm.InstanceInfo)
 getInstanceInfo blockHash caddr =
     join
         <$> liftSkovQueryBlock
             ( \bp -> do
                 bs <- blockState bp
-                BS.getContractInstance bs caddr
+                mkII =<< BS.getContractInstance bs caddr
             )
             blockHash
+    where mkII Nothing = return Nothing
+          mkII (Just (BS.InstanceInfoV0 BS.InstanceInfoV{..})) = do
+            iiModel <- BS.toForeignReprV0 =<< BS.thawContractState iiState
+            return (Just (Wasm.InstanceInfoV0{
+              Wasm.iiOwner = instanceOwner iiParameters,
+              Wasm.iiAmount = iiBalance,
+              Wasm.iiMethods = instanceReceiveFuns iiParameters,
+              Wasm.iiName = instanceInitName iiParameters,
+              Wasm.iiSourceModule = GSWasm.miModuleRef (instanceModuleInterface iiParameters),
+              ..
+              }))
+          mkII (Just (BS.InstanceInfoV1 BS.InstanceInfoV{..})) = do
+            return (Just (Wasm.InstanceInfoV1{
+              Wasm.iiOwner = instanceOwner iiParameters,
+              Wasm.iiAmount = iiBalance,
+              Wasm.iiMethods = instanceReceiveFuns iiParameters,
+              Wasm.iiName = instanceInitName iiParameters,
+              Wasm.iiSourceModule = GSWasm.miModuleRef (instanceModuleInterface iiParameters)
+              }))
 
 -- |Get the source of a module as it was deployed to the chain.
 getModuleSource :: BlockHash -> ModuleRef -> MVR gsconf finconf (Maybe Wasm.WasmModule)

@@ -16,7 +16,6 @@ import qualified Data.FixedByteString as FBS
 import qualified Concordium.ID.Types as ID
 import Concordium.Logger
 import Concordium.GlobalState.Types
-import qualified Concordium.GlobalState.Instance as Instance
 import qualified Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.TreeState (MGSTrans(..))
 import Concordium.Types.InvokeContract (ContractContext(..), InvokeContractResult(..))
@@ -26,6 +25,7 @@ import Concordium.Scheduler.Types
 import Concordium.Scheduler.EnvironmentImplementation (ContextState(..), maxBlockEnergy, chainMetadata, accountCreationLimit)
 import qualified Concordium.Scheduler.WasmIntegration.V1 as WasmV1
 import Concordium.Scheduler
+import Concordium.GlobalState.BlockState (InstanceInfoTypeV(..))
 
 newtype InvokeContractMonad (pv :: ProtocolVersion) m a = InvokeContractMonad {_runInvokeContract :: ReaderT (ContextState, BlockState m) m a}
     deriving (Functor,
@@ -41,6 +41,7 @@ instance MonadTrans (InvokeContractMonad pv) where
 
 deriving via (MGSTrans (InvokeContractMonad pv) m) instance BlockStateTypes (InvokeContractMonad pv m)
 deriving via (MGSTrans (InvokeContractMonad pv) m) instance BS.AccountOperations m => BS.AccountOperations (InvokeContractMonad pv m)
+deriving via (MGSTrans (InvokeContractMonad pv) m) instance BS.ContractStateOperations m => BS.ContractStateOperations (InvokeContractMonad pv m)
 
 instance (Monad m, BS.BlockStateQuery m) => StaticInformation (InvokeContractMonad pv m) where
 
@@ -95,16 +96,16 @@ invokeContract _ ContractContext{..} cm bs = do
             Just acc -> return (Right (checkAndGetBalanceAccountV0 accInvoker acc, accInvoker, fst acc))
           Just (AddressContract contractInvoker) -> getContractInstance contractInvoker >>= \case
             Nothing -> return (Left (Just (InvalidContractAddress contractInvoker)))
-            Just (Instance.InstanceV0 i@Instance.InstanceV{..}) -> do
-              let ownerAccountAddress = instanceOwner _instanceVParameters
+            Just (BS.InstanceInfoV0 i) -> do
+              let ownerAccountAddress = instanceOwner (iiParameters i)
               getStateAccount ownerAccountAddress >>= \case
                 Nothing -> return (Left (Just $ InvalidAccountReference ownerAccountAddress))
-                Just acc -> return (Right (checkAndGetBalanceInstanceV0 acc i, ownerAccountAddress, fst acc))
-            Just (Instance.InstanceV1 i@Instance.InstanceV{..}) -> do
-              let ownerAccountAddress = instanceOwner _instanceVParameters
+                Just acc -> return (Right (checkAndGetBalanceInstanceV0 acc i {iiState = Frozen (iiState i)}, ownerAccountAddress, fst acc))
+            Just (BS.InstanceInfoV1 i) -> do
+              let ownerAccountAddress = instanceOwner (iiParameters i)
               getStateAccount ownerAccountAddress >>= \case
                 Nothing -> return (Left (Just $ InvalidAccountReference ownerAccountAddress))
-                Just acc -> return (Right (checkAndGetBalanceInstanceV0 acc i, ownerAccountAddress, fst acc))
+                Just acc -> return (Right (checkAndGetBalanceInstanceV0 acc i {iiState = Frozen (iiState i)}, ownerAccountAddress, fst acc))
   let runContractComp = 
         getInvoker >>= \case
           Left err -> return (Left err, ccEnergy)
@@ -112,8 +113,8 @@ invokeContract _ ContractContext{..} cm bs = do
             let comp = do
                   istance <- getContractInstance ccContract `rejectingWith` InvalidContractAddress ccContract
                   case istance of
-                    InstanceV0 i -> Left <$> handleContractUpdateV0 addr i invoker ccAmount ccMethod ccParameter
-                    InstanceV1 i -> Right <$> handleContractUpdateV1 addr i (fmap Right . invoker) ccAmount ccMethod ccParameter
+                    BS.InstanceInfoV0 i -> Left <$> handleContractUpdateV0 addr i {iiState = Frozen (iiState i)} invoker ccAmount ccMethod ccParameter
+                    BS.InstanceInfoV1 i -> Right <$> handleContractUpdateV1 addr i {iiState = Frozen (iiState i)} (fmap Right . invoker) ccAmount ccMethod ccParameter
             (r, cs) <- runLocalT @pv comp ccAmount ai ccEnergy ccEnergy
             return (r, _energyLeft cs)
       contextState = ContextState{_maxBlockEnergy = ccEnergy, _accountCreationLimit = 0, _chainMetadata = cm}

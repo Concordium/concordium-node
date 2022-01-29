@@ -22,6 +22,7 @@ import Concordium.Types
 import Concordium.Types.HashableTo
 import qualified Concordium.Wasm as Wasm
 import Concordium.Utils.Serialization.Put
+import Concordium.Utils.Serialization (putByteStringLen)
 
 import qualified Concordium.GlobalState.Wasm as GSWasm
 import Concordium.GlobalState.Persistent.MonadicRecursive
@@ -30,8 +31,14 @@ import qualified Concordium.GlobalState.Instance as Transient
 import qualified Concordium.GlobalState.Basic.BlockState.InstanceTable as Transient
 import Concordium.GlobalState.Persistent.BlockState.Modules
 import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Modules
+import qualified Concordium.GlobalState.ContractStateV1 as StateV1
+import Concordium.GlobalState.BlockState (InstanceInfoTypeV(..), InstanceInfoType(..))
 
 ----------------------------------------------------------------------------------------------------
+
+data InstanceStateV (v :: Wasm.WasmVersion) where
+  InstanceStateV0 :: Wasm.ContractState -> InstanceStateV GSWasm.V0
+  InstanceStateV1 :: StateV1.PersistentState -> InstanceStateV GSWasm.V1
 
 -- |The fixed parameters associated with a smart contract instance
 data PersistentInstanceParameters = PersistentInstanceParameters {
@@ -88,7 +95,7 @@ data PersistentInstanceV v = PersistentInstanceV {
     -- but that reference should never be consulted in the scope of Instance operations.
     pinstanceModuleInterface :: !(BufferedRef (Modules.ModuleV v)),
     -- |The current local state of the instance
-    pinstanceModel :: !Wasm.ContractState,
+    pinstanceModel :: !(InstanceStateV v),
     -- |The current amount of GTU owned by the instance
     pinstanceAmount :: !Amount,
     -- |Hash of the smart contract instance
@@ -100,8 +107,8 @@ data PersistentInstance (pv :: ProtocolVersion) where
   PersistentInstanceV1 :: PersistentInstanceV GSWasm.V1 -> PersistentInstance pv
 
 instance Show (PersistentInstance pv) where
-    show (PersistentInstanceV0 PersistentInstanceV {..}) = show pinstanceParameters ++ " {balance=" ++ show pinstanceAmount ++ ", model=" ++ show pinstanceModel ++ "}"
-    show (PersistentInstanceV1 PersistentInstanceV {..}) = show pinstanceParameters ++ " {balance=" ++ show pinstanceAmount ++ ", model=" ++ show pinstanceModel ++ "}"
+    show (PersistentInstanceV0 PersistentInstanceV {pinstanceModel = InstanceStateV0 model,..}) = show pinstanceParameters ++ " {balance=" ++ show pinstanceAmount ++ ", model=" ++ show model ++ "}"
+    show (PersistentInstanceV1 PersistentInstanceV {..}) = show pinstanceParameters ++ " {balance=" ++ show pinstanceAmount ++ "}"
 
 loadInstanceParameters :: MonadBlobStore m => PersistentInstance pv -> m PersistentInstanceParameters
 loadInstanceParameters (PersistentInstanceV0 PersistentInstanceV {..}) = loadBufferedRef pinstanceParameters
@@ -128,20 +135,37 @@ instance (IsProtocolVersion pv, MonadBlobStore m) => BlobStorable m (PersistentI
     storeUpdate inst = do
         if demoteProtocolVersion (protocolVersion @pv) <= P3 then
           case inst of
-            PersistentInstanceV0 i -> second PersistentInstanceV0 <$> storeUnversioned i
+            PersistentInstanceV0 i -> second PersistentInstanceV0 <$> storeUnversionedV0 i
             PersistentInstanceV1 _i -> error "Precondition violation. V1 instances do not exist in protocol versions <= 3."
         else case inst of
-            PersistentInstanceV0 i -> addVersion 0 PersistentInstanceV0 <$> storeUnversioned i
-            PersistentInstanceV1 i -> addVersion 1 PersistentInstanceV1 <$> storeUnversioned i
-     where storeUnversioned PersistentInstanceV{..} = do
+            PersistentInstanceV0 i -> addVersion 0 PersistentInstanceV0 <$> storeUnversionedV0 i
+            PersistentInstanceV1 i -> storeV1 i
+     where storeUnversionedV0 :: PersistentInstanceV GSWasm.V0 -> m (Put, PersistentInstanceV GSWasm.V0)
+           storeUnversionedV0 PersistentInstanceV{pinstanceModel=InstanceStateV0 model,..} = do
              (pparams, newParameters) <- storeUpdate pinstanceParameters
              (pinterface, newpInterface) <- storeUpdate pinstanceModuleInterface
              let putInst = do
                    pparams
                    pinterface
-                   put pinstanceModel
+                   put model
                    put pinstanceAmount
-             return (putInst, PersistentInstanceV{pinstanceParameters = newParameters, pinstanceModuleInterface = newpInterface, ..})
+             return (putInst, PersistentInstanceV{pinstanceParameters = newParameters, pinstanceModuleInterface = newpInterface,
+                              pinstanceModel=InstanceStateV0 model,..})
+           storeV1 :: PersistentInstanceV GSWasm.V1 -> m (Put, PersistentInstance pv)
+           storeV1 PersistentInstanceV{pinstanceModel=InstanceStateV1 model,..} = do
+             (pparams, newParameters) <- storeUpdate pinstanceParameters
+             (pinterface, newpInterface) <- storeUpdate pinstanceModuleInterface
+             (pstate, newpstate) <- storeUpdate model
+             let putInst = do
+                   putWord8 1 -- version tag
+                   pparams
+                   pinterface
+                   pstate
+                   put pinstanceAmount
+             return (putInst, PersistentInstanceV1 PersistentInstanceV{pinstanceParameters = newParameters,
+                                                  pinstanceModuleInterface = newpInterface,
+                                                  pinstanceModel = InstanceStateV1 newpstate,..})
+
            addVersion v f (s, inst') = (putWord8 v <> s, f inst')
 
     store pinst = fst <$> storeUpdate pinst
@@ -157,24 +181,26 @@ instance (IsProtocolVersion pv, MonadBlobStore m) => BlobStorable m (PersistentI
         loadIV0 = do
           rparams <- load
           rInterface <- load
-          pinstanceModel <- get
+          model <- get
           pinstanceAmount <- get
           return $ do
               pinstanceParameters <- rparams
               pinstanceModuleInterface <- rInterface
               pip <- loadBufferedRef pinstanceParameters
-              let pinstanceHash = makeInstanceHash pip pinstanceModel pinstanceAmount
+              let pinstanceModel = InstanceStateV0 model
+              let pinstanceHash = makeInstanceHashV0State (pinstanceParameterHash pip) pinstanceModel pinstanceAmount
               return $! PersistentInstanceV0 (PersistentInstanceV {..})
         loadIV1 = do
           rparams <- load
           rInterface <- load
-          pinstanceModel <- get
+          model <- load
           pinstanceAmount <- get
           return $ do
               pinstanceParameters <- rparams
               pinstanceModuleInterface <- rInterface
+              pinstanceModel <- InstanceStateV1 <$> model
               pip <- loadBufferedRef pinstanceParameters
-              let pinstanceHash = makeInstanceHash pip pinstanceModel pinstanceAmount
+              pinstanceHash <- makeInstanceHashV1State (pinstanceParameterHash pip) pinstanceModel pinstanceAmount
               return $! PersistentInstanceV1 (PersistentInstanceV {..})
 
 -- This cacheable instance is a bit unusual. Caching instances requires us to have access
@@ -209,39 +235,30 @@ instance MonadBlobStore m => Cacheable (ReaderT Modules m) (PersistentInstance p
               Nothing -> return (PersistentInstanceV1 p{pinstanceParameters = ips}) -- this case should never happen, but it is safe to do this.
               Just iface -> return (PersistentInstanceV1 p{pinstanceModuleInterface = iface, pinstanceParameters = ips})
 
-fromPersistentInstance ::  MonadBlobStore m => PersistentInstance pv -> m Transient.Instance
-fromPersistentInstance pinst = do
-    PersistentInstanceParameters{..} <- loadInstanceParameters pinst
-    instanceModuleInterface <- getModuleInterface <$> loadInstanceModule pinst
-    let mkParams :: GSWasm.ModuleInterfaceV v -> Transient.InstanceParameters v
-        mkParams miface = Transient.InstanceParameters {
-            _instanceAddress = pinstanceAddress,
-            instanceOwner = pinstanceOwner,
-            instanceInitName = pinstanceInitName,
-            instanceReceiveFuns = pinstanceReceiveFuns,
-            instanceModuleInterface = miface,
-            instanceParameterHash = pinstanceParameterHash
+mkInstanceInfo :: MonadBlobStore m => PersistentInstance pv -> m (InstanceInfoType InstanceStateV)
+mkInstanceInfo (PersistentInstanceV0 inst) = InstanceInfoV0 <$> mkInstanceInfoV inst
+mkInstanceInfo (PersistentInstanceV1 inst) = InstanceInfoV1 <$> mkInstanceInfoV inst
+mkInstanceInfoV :: BlobStorable m (ModuleV v) => PersistentInstanceV v -> m (InstanceInfoTypeV InstanceStateV v)
+mkInstanceInfoV PersistentInstanceV{..} = do
+  PersistentInstanceParameters{..} <- loadBufferedRef pinstanceParameters
+  instanceModuleInterface <- moduleVInterface <$> loadBufferedRef pinstanceModuleInterface
+  let iiParameters = Transient.InstanceParameters {
+        _instanceAddress = pinstanceAddress,
+        instanceOwner = pinstanceOwner,
+        instanceInitName = pinstanceInitName,
+        instanceReceiveFuns = pinstanceReceiveFuns,
+        instanceModuleInterface = instanceModuleInterface,
+        instanceParameterHash = pinstanceParameterHash
         }
-    let (instanceModel, instanceAmount, instanceHash) = case pinst of
-          PersistentInstanceV0 PersistentInstanceV{..} -> (pinstanceModel, pinstanceAmount, pinstanceHash)
-          PersistentInstanceV1 PersistentInstanceV{..} -> (pinstanceModel, pinstanceAmount, pinstanceHash)
-    case instanceModuleInterface of
-      GSWasm.ModuleInterfaceV0 iface -> 
-        return $ Transient.InstanceV0 (Transient.InstanceV { _instanceVModel = instanceModel,
-                                                             _instanceVAmount = instanceAmount,
-                                                             _instanceVHash = instanceHash,
-                                                             _instanceVParameters = mkParams iface
-                                                         })
-      GSWasm.ModuleInterfaceV1 iface -> 
-        return $ Transient.InstanceV1 (Transient.InstanceV { _instanceVModel = instanceModel,
-                                                             _instanceVAmount = instanceAmount,
-                                                             _instanceVHash = instanceHash,
-                                                             _instanceVParameters = mkParams iface
-                                                           })
+  return InstanceInfoV{
+    iiState = pinstanceModel,
+    iiBalance = pinstanceAmount,
+    ..
+  }
 
 -- |Serialize a V0 smart contract instance in V0 format.
 putV0InstanceV0 :: (MonadBlobStore m, MonadPut m) => PersistentInstanceV GSWasm.V0 -> m ()
-putV0InstanceV0 PersistentInstanceV {..} = do
+putV0InstanceV0 PersistentInstanceV {pinstanceModel = InstanceStateV0 model,..} = do
         -- Instance parameters
         PersistentInstanceParameters{..} <- refLoad pinstanceParameters
         liftPut $ do
@@ -250,37 +267,61 @@ putV0InstanceV0 PersistentInstanceV {..} = do
             put pinstanceOwner
             put pinstanceContractModule
             put pinstanceInitName
-            put pinstanceModel
+            put model
             put pinstanceAmount
 
 -- |Serialize a V1 smart contract instance in V0 format.
 putV1InstanceV0 :: (MonadBlobStore m, MonadPut m) => PersistentInstanceV GSWasm.V1 -> m ()
-putV1InstanceV0 PersistentInstanceV {..} = do
+putV1InstanceV0 PersistentInstanceV {pinstanceModel = InstanceStateV1 model,..} = do
         -- Instance parameters
         PersistentInstanceParameters{..} <- refLoad pinstanceParameters
+        stateString <- StateV1.toByteString model
         liftPut $ do
             -- only put the subindex part of the address
             put (contractSubindex pinstanceAddress)
             put pinstanceOwner
             put pinstanceContractModule
             put pinstanceInitName
-            put pinstanceModel
+            putByteStringLen stateString -- serialize with explicit length to enable serialization via FFI.
             put pinstanceAmount
 
 
 ----------------------------------------------------------------------------------------------------
 
-makeInstanceParameterHash :: ContractAddress -> AccountAddress -> ModuleRef -> Wasm.InitName -> H.Hash
+-- |An alias to document when a hash is intended to be the parameter hash.
+type InstanceParametersHash = H.Hash
+-- |An alias to document when a hash is intended to be the instance state hash.
+type InstanceStateHash = H.Hash
+-- |An alias to document when a hash is intended to be the instance hash.
+type InstanceHash = H.Hash
+
+makeInstanceParameterHash :: ContractAddress -> AccountAddress -> ModuleRef -> Wasm.InitName -> InstanceParametersHash
 makeInstanceParameterHash ca aa modRef conName = H.hashLazy $ runPutLazy $ do
         put ca
         put aa
         put modRef
         put conName
 
-makeInstanceHash :: PersistentInstanceParameters -> Wasm.ContractState -> Amount -> H.Hash
-makeInstanceHash params conState a = H.hashLazy $ runPutLazy $ do
-        put (pinstanceParameterHash params)
-        putByteString (H.hashToByteString (getHash conState))
+makeInstanceHashV0State :: InstanceParametersHash -> InstanceStateV GSWasm.V0 -> Amount -> InstanceHash
+makeInstanceHashV0State paramsHash (InstanceStateV0 conState) = makeInstanceHashV0 paramsHash (getHash conState)
+
+makeInstanceHashV0 :: InstanceParametersHash -> InstanceStateHash -> Amount -> InstanceHash
+makeInstanceHashV0 paramsHash csHash a = H.hash $ runPut $ do
+        put paramsHash
+        put csHash
+        put a
+
+makeInstanceHashV1State :: MonadBlobStore m => InstanceParametersHash -> InstanceStateV GSWasm.V1 -> Amount -> m InstanceHash
+makeInstanceHashV1State paramsHash (InstanceStateV1 conState) a = do
+    csHash <- getHashM conState
+    makeInstanceHashV1 paramsHash csHash a
+
+makeInstanceHashV1 :: MonadBlobStore m => InstanceParametersHash -> H.Hash -> Amount -> m InstanceHash
+makeInstanceHashV1 paramsHash csHash a =
+    return $ H.hash $ runPut $ do
+        put Wasm.V1
+        put paramsHash
+        put csHash
         put a
 
 makeBranchHash :: H.Hash -> H.Hash -> H.Hash
@@ -372,6 +413,10 @@ instance (IsProtocolVersion pv, BlobStorable m r, MonadIO m) => BlobStorable m (
         else -- tag == 9
             return . VacantLeaf <$> get
 
+-- |Fold the instance table using the provided accumulator function. The tree is left to right and the accumulator is called
+-- on each leaf.
+-- The accumulator is called with @Left addr@ when the leaf is vacant, i.e. the instance on that address was deleted.
+-- It is called with @Right inst@ when there is an instance in the spot.
 mapReduceIT :: forall a m pv t. (Monoid a, MRecursive m t, Base t ~ IT pv) => (Either ContractAddress (PersistentInstance pv) -> m a) -> t -> m a
 mapReduceIT mfun = mr 0 <=< mproject
     where
@@ -549,12 +594,13 @@ updateContractInstance fupd addr (InstancesTree s it0) = upd baseSuccess (contra
                 in upd newCont (i - 2^h) =<< mproject r
             | otherwise = return Nothing
 
-allInstances :: forall m pv. (IsProtocolVersion pv, MonadBlobStore m) => Instances pv -> m [PersistentInstance pv]
+-- |Retrieve the list of all instance addresses. The addresses are returned in increasing order.
+allInstances :: forall m pv. (IsProtocolVersion pv, MonadBlobStore m) => Instances pv -> m [ContractAddress]
 allInstances InstancesEmpty = return []
 allInstances (InstancesTree _ it) = mapReduceIT mfun it
     where
         mfun (Left _) = return mempty
-        mfun (Right inst) = return [inst]
+        mfun (Right inst) = (:[]) . pinstanceAddress <$> loadInstanceParameters inst
 
 makePersistent :: forall m pv. MonadBlobStore m => Modules.Modules -> Transient.Instances -> m (Instances pv)
 makePersistent _ (Transient.Instances Transient.Empty) = return InstancesEmpty
@@ -567,7 +613,8 @@ makePersistent mods (Transient.Instances (Transient.Tree s t)) = InstancesTree s
             makeBufferedBlobbed (Branch lvl fll vac hsh l' r')
         conv (Transient.Leaf i) = convInst i >>= makeBufferedBlobbed . Leaf
         conv (Transient.VacantLeaf si) = makeBufferedBlobbed (VacantLeaf si)
-        convInst (Transient.InstanceV0 Transient.InstanceV {_instanceVParameters=Transient.InstanceParameters{..}, ..}) = do
+        convInst (Transient.InstanceV0 Transient.InstanceV {_instanceVParameters=Transient.InstanceParameters{..},
+                                                            _instanceVModel=Transient.InstanceStateV0 transientModel,..}) = do
             pIParams <- makeBufferedRef $ PersistentInstanceParameters{
                 pinstanceAddress = _instanceAddress,
                 pinstanceOwner = instanceOwner,
@@ -582,11 +629,12 @@ makePersistent mods (Transient.Instances (Transient.Tree s t)) = InstancesTree s
             return $ PersistentInstanceV0 PersistentInstanceV {
                 pinstanceParameters = pIParams,
                 pinstanceModuleInterface = pIModuleInterface,
-                pinstanceModel = _instanceVModel,
+                pinstanceModel = InstanceStateV0 transientModel,
                 pinstanceAmount = _instanceVAmount,
                 pinstanceHash = _instanceVHash
             }
-        convInst (Transient.InstanceV1 Transient.InstanceV {_instanceVParameters=Transient.InstanceParameters{..}, ..}) = do
+        convInst (Transient.InstanceV1 Transient.InstanceV {_instanceVParameters=Transient.InstanceParameters{..}, 
+                                                            _instanceVModel=Transient.InstanceStateV1 transientModel,..}) = do
             pIParams <- makeBufferedRef $ PersistentInstanceParameters{
                 pinstanceAddress = _instanceAddress,
                 pinstanceOwner = instanceOwner,
@@ -601,7 +649,7 @@ makePersistent mods (Transient.Instances (Transient.Tree s t)) = InstancesTree s
             return $ PersistentInstanceV1 PersistentInstanceV {
                 pinstanceParameters = pIParams,
                 pinstanceModuleInterface = pIModuleInterface,
-                pinstanceModel = _instanceVModel,
+                pinstanceModel = InstanceStateV1 (StateV1.makePersistent transientModel),
                 pinstanceAmount = _instanceVAmount,
                 pinstanceHash = _instanceVHash
             }
