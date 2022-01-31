@@ -49,6 +49,8 @@ import qualified Concordium.GlobalState.Wasm as GSWasm
 import qualified Concordium.GlobalState.Basic.BlockState.Accounts as Accounts
 import qualified Concordium.GlobalState.Basic.BlockState.Modules as Modules
 import qualified Concordium.GlobalState.Basic.BlockState.Instances as Instances
+import qualified Concordium.GlobalState.Basic.BlockState.PoolRewards as PoolRewards
+
 import qualified Concordium.GlobalState.AccountMap as AccountMap
 import qualified Concordium.GlobalState.Rewards as Rewards
 import qualified Concordium.Types.IdentityProviders as IPS
@@ -64,14 +66,6 @@ import Concordium.Types.HashableTo
 import Concordium.Utils
 import Concordium.Utils.Serialization
 
-data NextEpochBakers (av :: AccountVersion) where
-    -- |The 'EpochBakers' for the next epoch.
-    NextEpochBakers :: !(Hashed EpochBakers) -> NextEpochBakers av
-    -- |The next epoch does not require a change in the 'EpochBakers'.
-    UnchangedNextEpochBakers :: NextEpochBakers 'AccountV1
-
-deriving instance Eq (NextEpochBakers av)
-deriving instance Show (NextEpochBakers av)
 
 data BasicBirkParameters (av :: AccountVersion) = BasicBirkParameters {
     -- |The currently-registered bakers.
@@ -82,7 +76,7 @@ data BasicBirkParameters (av :: AccountVersion) = BasicBirkParameters {
     -- (And delegators likewise.)
     _birkActiveBakers :: !ActiveBakers,
     -- |The bakers that will be used for the next epoch.
-    _birkNextEpochBakers :: !(NextEpochBakers av),
+    _birkNextEpochBakers :: !(Hashed EpochBakers),
     -- |The bakers for the current epoch.
     _birkCurrentEpochBakers :: !(Hashed EpochBakers),
     -- |The seed state used to derive the leadership election nonce.
@@ -101,37 +95,24 @@ instance HashableTo H.Hash (BasicBirkParameters av) where
       where
         bpH0 = H.hash $ "SeedState" <> encode _birkSeedState
         bpH1 = H.hashOfHashes nebHash cebHash
-        nebHash = case _birkNextEpochBakers of
-            NextEpochBakers heb -> getHash heb
-            UnchangedNextEpochBakers -> H.hash ""
+        nebHash = getHash _birkNextEpochBakers
         cebHash = getHash _birkCurrentEpochBakers
 
 -- |Serialize 'BasicBirkParameters' in V0 format.
-putBirkParameters :: forall av. (IsAccountVersion av) => Putter (BasicBirkParameters av)
+putBirkParameters :: Putter (BasicBirkParameters av)
 putBirkParameters BasicBirkParameters{..} = do
     put _birkSeedState
-    (_ :: ()) <- case accountVersion @av of
-        SAccountV0 -> case _birkNextEpochBakers :: NextEpochBakers 'AccountV0 of
-            NextEpochBakers neb -> putEpochBakers (_unhashed neb)
-        SAccountV1 -> case _birkNextEpochBakers :: NextEpochBakers 'AccountV1 of
-            NextEpochBakers neb -> putWord8 1 >> putEpochBakers (_unhashed neb)
-            UnchangedNextEpochBakers -> putWord8 0
+    putEpochBakers (_unhashed _birkNextEpochBakers)
     putEpochBakers (_unhashed _birkCurrentEpochBakers)
 
 -- |Deserialize 'BasicBirkParameters' in V0 format.
 -- Since the active bakers are not stored in the serialization,
 -- the 'BasicBirkParameters' will have empty 'ActiveBakers',
 -- which should be corrected by processing the accounts table.
-getBirkParameters :: forall av. (IsAccountVersion av) => Get (BasicBirkParameters av)
+getBirkParameters :: Get (BasicBirkParameters av)
 getBirkParameters = do
-    let accVer = accountVersion @av
     _birkSeedState <- get
-    _birkNextEpochBakers <- case accVer of
-        SAccountV0 -> NextEpochBakers . makeHashed <$> getEpochBakers
-        SAccountV1 -> getWord8 >>= \case
-            0 -> return UnchangedNextEpochBakers
-            1 -> NextEpochBakers . makeHashed <$> getEpochBakers
-            _ -> fail "Unsupported next epoch bakers"
+    _birkNextEpochBakers <- makeHashed <$> getEpochBakers
     _birkCurrentEpochBakers <- makeHashed <$> getEpochBakers
     let _birkActiveBakers = ActiveBakers Map.empty Set.empty Set.empty
     return BasicBirkParameters{..}
@@ -184,7 +165,7 @@ initialBirkParameters accounts _birkSeedState = BasicBirkParameters{..}
       _bakerStakes = stakes,
       _bakerTotalStake = sum stakes
     }
-    _birkNextEpochBakers = NextEpochBakers _birkCurrentEpochBakers
+    _birkNextEpochBakers = _birkCurrentEpochBakers
 
 -- |List of bakers of blocks baked in the current epoch, used for 
 -- rewarding the bakers at the end of the epoch.  This maintains
@@ -197,6 +178,7 @@ data HashedEpochBlocks = HashedEpochBlocks {
     -- |Hash of the list.
     hebHash :: !Rewards.EpochBlocksHash
   } deriving (Eq, Show)
+
 instance HashableTo Rewards.EpochBlocksHash HashedEpochBlocks where
     getHash = hebHash
 
@@ -224,6 +206,41 @@ getHashedEpochBlocksV0 = do
     blocks <- replicateM numBlocks get
     return $! foldr' consEpochBlock emptyHashedEpochBlocks blocks
 
+data BlockRewardDetails (av :: AccountVersion) where
+    BlockRewardDetailsV0 :: !HashedEpochBlocks -> BlockRewardDetails 'AccountV0
+    BlockRewardDetailsV1 :: !(Hashed PoolRewards.PoolRewards) -> BlockRewardDetails 'AccountV1
+
+deriving instance Show (BlockRewardDetails av)
+
+instance HashableTo (Rewards.BlockRewardDetailsHash av) (BlockRewardDetails av) where
+    getHash (BlockRewardDetailsV0 heb) = Rewards.BlockRewardDetailsHashV0 (hebHash heb)
+    getHash (BlockRewardDetailsV1 pr) = Rewards.BlockRewardDetailsHashV1 (getHash pr)
+
+-- |The blocks of 'BlockRewardDetails' ''AccountV0'.
+brdBlocks :: BlockRewardDetails 'AccountV0 -> [BakerId]
+brdBlocks (BlockRewardDetailsV0 heb) = hebBlocks heb
+
+-- |Extend a 'BlockRewardDetails' ''AccountV0' with an additional baker.
+consBlockRewardDetails :: BakerId -> BlockRewardDetails 'AccountV0 -> BlockRewardDetails 'AccountV0
+consBlockRewardDetails bid (BlockRewardDetailsV0 heb) =
+    BlockRewardDetailsV0 $ consEpochBlock bid heb
+
+-- |The empty 'BlockRewardDetails'.
+emptyBlockRewardDetails :: forall av. IsAccountVersion av => BlockRewardDetails av
+emptyBlockRewardDetails =
+    case accountVersion @av of
+        SAccountV0 -> BlockRewardDetailsV0 emptyHashedEpochBlocks
+        SAccountV1 -> BlockRewardDetailsV1 (makeHashed PoolRewards.emptyPoolRewards)
+
+putBlockRewardDetails :: Putter (BlockRewardDetails av)
+putBlockRewardDetails (BlockRewardDetailsV0 heb) = putHashedEpochBlocksV0 heb
+-- TODO: V1 case
+
+getBlockRewardDetails :: forall oldpv pv. (IsProtocolVersion pv) => StateMigrationParameters oldpv pv -> Get (BlockRewardDetails (AccountVersionFor pv))
+getBlockRewardDetails StateMigrationParametersTrivial = case accountVersion @(AccountVersionFor pv) of
+    SAccountV0 -> BlockRewardDetailsV0 <$> getHashedEpochBlocksV0
+-- TODO: V1 case; migration P3->P4 case.
+
 data BlockState (pv :: ProtocolVersion) = BlockState {
     _blockAccounts :: !(Accounts.Accounts pv),
     _blockInstances :: !Instances.Instances,
@@ -236,7 +253,7 @@ data BlockState (pv :: ProtocolVersion) = BlockState {
     _blockUpdates :: !(Updates pv),
     _blockReleaseSchedule :: !(LazyMap.Map AccountAddress Timestamp), -- ^Contains an entry for each account that has pending releases and the first timestamp for said account
     _blockTransactionOutcomes :: !Transactions.TransactionOutcomes,
-    _blockEpochBlocksBaked :: !HashedEpochBlocks
+    _blockRewardDetails :: !(BlockRewardDetails (AccountVersionFor pv))
 } deriving (Show)
 
 data HashedBlockState pv = HashedBlockState {
@@ -247,6 +264,17 @@ data HashedBlockState pv = HashedBlockState {
 makeLenses ''BasicBirkParameters
 makeClassy ''BlockState
 makeLenses ''HashedBlockState
+
+blockEpochBlocksBaked :: (AccountVersionFor pv ~ 'AccountV0) => Lens' (BlockState pv) (BlockRewardDetails 'AccountV0)
+blockEpochBlocksBaked = blockRewardDetails . lens id (const id)
+
+blockPoolRewards :: (AccountVersionFor pv ~ 'AccountV1) => Lens' (BlockState pv) PoolRewards.PoolRewards
+blockPoolRewards =
+    blockRewardDetails
+        . lens
+            (\(BlockRewardDetailsV1 a) -> a)
+            (\_ b -> BlockRewardDetailsV1 b)
+        . unhashed
 
 instance IsProtocolVersion pv => HasBlockState (HashedBlockState pv) pv where
     blockState = unhashedBlockState
@@ -259,11 +287,13 @@ instance HashableTo StateHash (HashedBlockState pv) where
 emptyBlockState
     :: IsProtocolVersion pv =>
     BasicBirkParameters (AccountVersionFor pv) ->
+    BlockRewardDetails (AccountVersionFor pv) ->
     CryptographicParameters ->
     UpdateKeysCollection (ChainParametersVersionFor pv) ->
     ChainParameters pv ->
     BlockState pv
-emptyBlockState _blockBirkParameters cryptographicParameters keysCollection chainParams = BlockState
+{-# WARNING emptyBlockState "should only be used for testing" #-}
+emptyBlockState _blockBirkParameters _blockRewardDetails cryptographicParameters keysCollection chainParams = BlockState
           { _blockTransactionOutcomes = Transactions.emptyTransactionOutcomes,
             ..
           }
@@ -277,7 +307,6 @@ emptyBlockState _blockBirkParameters cryptographicParameters keysCollection chai
       _blockAnonymityRevokers = makeHashed ARS.emptyAnonymityRevokers
       _blockUpdates = initialUpdates keysCollection chainParams
       _blockReleaseSchedule = Map.empty
-      _blockEpochBlocksBaked = emptyHashedEpochBlocks
 
 
 hashBlockState :: forall pv. IsProtocolVersion pv => BlockState pv -> HashedBlockState pv
@@ -294,7 +323,7 @@ hashBlockState = case protocolVersion :: SProtocolVersion pv of
           _blockStateHash = h
           }
           where
-            h = BS.makeBlockStateHash BS.BlockStateHashInputs {
+            h = BS.makeBlockStateHash @'P1 BS.BlockStateHashInputs {
                   bshBirkParameters = getHash _blockBirkParameters,
                   bshCryptographicParameters = getHash _blockCryptographicParameters,
                   bshIdentityProviders = getHash _blockIdentityProviders,
@@ -304,7 +333,7 @@ hashBlockState = case protocolVersion :: SProtocolVersion pv of
                   bshAccounts = getHash _blockAccounts,
                   bshInstances = getHash _blockInstances,
                   bshUpdates = getHash _blockUpdates,
-                  bshEpochBlocks = getHash _blockEpochBlocksBaked
+                  bshBlockRewardDetails = getHash (bs ^. blockEpochBlocksBaked)
                   }
 
 
@@ -313,7 +342,7 @@ instance IsProtocolVersion pv => HashableTo StateHash (BlockState pv) where
 
 
 -- |Serialize 'BlockState'. The format may depend on the protocol version.
-putBlockState :: IsProtocolVersion pv => Putter (BlockState pv)
+putBlockState :: (IsProtocolVersion pv) => Putter (BlockState pv)
 putBlockState bs = do
     -- BirkParameters
     putBirkParameters (bs ^. blockBirkParameters)
@@ -334,8 +363,8 @@ putBlockState bs = do
     Instances.putInstancesV0 (bs ^. blockInstances)
     -- Updates
     putUpdatesV0 (bs ^. blockUpdates)
-    -- Epoch blocks
-    putHashedEpochBlocksV0 (bs ^. blockEpochBlocksBaked)
+    -- Reward details. (Formerly epoch blocks (P1-P3).)
+    putBlockRewardDetails (bs ^. blockRewardDetails)
 
 -- |Deserialize 'BlockState'. The format may depend on the protocol version.
 -- This checks the following invariants:
@@ -369,8 +398,12 @@ getBlockState migration = do
             mi <- Modules.getInterface modRef _blockModules
             return (GSWasm.miExposedReceive mi ^. at initName . non Set.empty, mi)
     _blockInstances <- Instances.getInstancesV0 resolveModule
+    -- FIXME: This does not correctly handle migration.
+    -- We need to get the updates in the oldpv format and (as necessary) migrate to the new pv
+    -- format, since P4 introduces new update types.
     _blockUpdates <- getUpdatesV0
-    _blockEpochBlocksBaked <- getHashedEpochBlocksV0
+    _blockRewardDetails <- getBlockRewardDetails migration
+    -- _blockEpochBlocksBaked <- getHashedEpochBlocksV0
     -- Construct the release schedule and active bakers from the accounts
     let processBakerAccount (rs,bkrs) account = do
           let rs' = case Map.minViewWithKey (account ^. accountReleaseSchedule . pendingReleases) of
@@ -515,14 +548,13 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
 
     getCurrentEpochBakers = return . epochToFullBakers . view (blockBirkParameters . birkCurrentEpochBakers . unhashed)
 
+    getNextEpochBakers = return . epochToFullBakers . view (blockBirkParameters . birkNextEpochBakers . unhashed)
+
     getSlotBakers hbs genesisTime slotDuration slot = return $ case compare slotEpoch (epoch + 1) of
         -- LT should mean it's the current epoch, since the slot should be at least the slot of this block.
         LT -> epochToFullBakers (_unhashed (_birkCurrentEpochBakers bps))
         -- EQ means the next epoch.
-        EQ -> epochToFullBakers (_unhashed (case _birkNextEpochBakers bps of
-                UnchangedNextEpochBakers -> _birkCurrentEpochBakers bps
-                NextEpochBakers neb -> neb
-                ))
+        EQ -> epochToFullBakers (_unhashed (_birkNextEpochBakers bps))
         -- GT means a future epoch, so consider everything in the active bakers,
         -- applying any adjustments that occur in an epoch < slotEpoch.
         GT -> FullBakers {
@@ -597,6 +629,10 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
     {-# INLINE getCryptographicParameters #-}
     getCryptographicParameters bs =
       return $! bs ^. blockCryptographicParameters . unhashed
+
+    {-# INLINE getPaydayEpoch #-}
+    getPaydayEpoch bs =
+        return $! bs ^. undefined
 
 instance (Monad m, IsProtocolVersion pv) => BS.AccountOperations (PureBlockStateMonad pv m) where
 
@@ -733,16 +769,11 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
 
     bsoRotateCurrentEpochBakers bs = return $! newbs
         where
-            newbs = case bs ^. blockBirkParameters . birkNextEpochBakers of
-                NextEpochBakers newCurrentBakers ->
-                    bs & blockBirkParameters . birkCurrentEpochBakers .~ newCurrentBakers
-                UnchangedNextEpochBakers -> bs
-
-    bsoClearNextEpochBakers bs = return $! bs &
-        blockBirkParameters . birkNextEpochBakers .~ UnchangedNextEpochBakers
+            newCurrentBakers = bs ^. blockBirkParameters . birkNextEpochBakers
+            newbs = bs & blockBirkParameters . birkCurrentEpochBakers .~ newCurrentBakers
 
     bsoSetNextEpochBakers bs bakers = return $! bs &
-        blockBirkParameters . birkNextEpochBakers .~ NextEpochBakers newNextEpochBakers
+        blockBirkParameters . birkNextEpochBakers .~ newNextEpochBakers
         where
             newNextEpochBakers = makeHashed EpochBakers{..}
             bakers' = Vec.fromList bakers
@@ -871,12 +902,32 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
               _bakerStakes = Vec.fromList (snd <$> bkrs),
               _bakerTotalStake = foldl' (+) 0 (snd <$> bkrs)
             }
-            newCurrentEpochBakers :: BasicBirkParameters 'AccountV0 -> Hashed EpochBakers
-            newCurrentEpochBakers bp = case _birkNextEpochBakers bp of NextEpochBakers n -> n
             newbs = bs' & blockBirkParameters %~ \bp -> bp {
-                        _birkCurrentEpochBakers = newCurrentEpochBakers bp,
-                        _birkNextEpochBakers = NextEpochBakers newNextBakers
+                        _birkCurrentEpochBakers = _birkNextEpochBakers bp,
+                        _birkNextEpochBakers = newNextBakers
                     }
+
+    bsoGetActiveBakersAndDelegators bs = return (bakers, lpdelegators)
+        where
+            bkrs = Map.toAscList $ bs ^. blockBirkParameters . birkActiveBakers . activeBakers
+            !bakers = mkActiveBakerInfo <$> bkrs
+            mkActiveBakerInfo (BakerId acct, dlgs) = BS.ActiveBakerInfo {
+                    activeBakerInfoRef = theBaker ^. bakerInfo,
+                    activeBakerEquityCapital = theBaker ^. stakedAmount,
+                    activeBakerPendingChange = theBaker ^. bakerPendingChange,
+                    activeBakerDelegators = mkActiveDelegatorInfo <$> Set.toAscList dlgs
+                }
+                where
+                    !theBaker = bs ^. blockAccounts . Accounts.unsafeIndexedAccount acct . unsafeAccountBaker
+            mkActiveDelegatorInfo activeDelegatorId@(DelegatorId acct) = BS.ActiveDelegatorInfo {
+                    activeDelegatorStake = theDelegator ^. delegationStakedAmount,
+                    activeDelegatorPendingChange = theDelegator ^. delegationPendingChange,
+                    ..
+                }
+                where
+                    !theDelegator = bs ^. blockAccounts . Accounts.unsafeIndexedAccount acct . unsafeAccountDelegator
+            lpool = Set.toAscList $ bs ^. blockBirkParameters . birkActiveBakers . lPoolDelegators
+            !lpdelegators = mkActiveDelegatorInfo <$> lpool
 
     bsoAddBaker bs ai BakerAdd{..} = do
       bakerStakeThreshold <- BS.bsoGetChainParameters bs <&> (^. cpPoolParameters . ppBakerStakeThreshold)
@@ -1366,6 +1417,10 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
     {-# INLINE bsoClearProtocolUpdate #-}
     bsoClearProtocolUpdate bs = return $! bs & blockUpdates %~ clearProtocolUpdate
 
+    bsoSetNextCapitalDistribution = undefined -- TODO: implement
+
+    bsoRotateCurrentCapitalDistribution = undefined -- TODO: implement
+
     {-# INLINE bsoAddReleaseSchedule #-}
     bsoAddReleaseSchedule bs rel = do
       let f relSchedule (addr, t) = Map.alter (\case
@@ -1379,16 +1434,21 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
 
     bsoGetChainParameters bs = return $! bs ^. blockUpdates . currentParameters
 
-    bsoGetEpochBlocksBaked bs = return $! (_2 %~ Map.toList) (foldl' accumBakers (0, Map.empty) (bs ^. blockEpochBlocksBaked . to hebBlocks))
-      where
-        accumBakers (t, m) b =
-          let !t' = t + 1
-              !m' = m & at b . non 0 +~ 1
-          in (t', m' )
+    bsoGetEpochBlocksBaked bs = return $! case accountVersion @(AccountVersionFor pv) of
+        SAccountV0 -> (_2 %~ Map.toList) (foldl' accumBakers (0, Map.empty) (bs ^. blockEpochBlocksBaked . to brdBlocks))
+            where
+                accumBakers (t, m) b =
+                    let !t' = t + 1
+                        !m' = m & at b . non 0 +~ 1
+                    in (t', m' )
+        SAccountV1 -> let bcs = bs ^. blockPoolRewards . to PoolRewards.bakerBlockCounts in
+            (sum (snd <$> bcs), bcs)
 
-    bsoNotifyBlockBaked bs bid = return $! bs & blockEpochBlocksBaked %~ consEpochBlock bid
+    bsoNotifyBlockBaked = case accountVersion @(AccountVersionFor pv) of
+        SAccountV0 -> \(bs :: BlockState pv) bid -> return $! bs & blockEpochBlocksBaked %~ consBlockRewardDetails bid
+        SAccountV1 -> \bs bid -> undefined -- FIXME: Implement, or constrain/replace
 
-    bsoClearEpochBlocksBaked bs = return $! bs & blockEpochBlocksBaked .~ emptyHashedEpochBlocks
+    bsoClearEpochBlocksBaked bs = return $! bs & blockEpochBlocksBaked .~ emptyBlockRewardDetails
 
     bsoGetBankStatus bs = return $! bs ^. blockBank . unhashed
 
@@ -1426,7 +1486,8 @@ instance (IsProtocolVersion pv, MonadIO m) => BS.BlockStateStorage (PureBlockSta
     writeBlockState h = PureBlockStateMonad . liftIO . hPutBuilder h . snd . runPutMBuilder . putBlockState . _unhashedBlockState
 
 -- |Initial block state.
-initialState :: (IsProtocolVersion pv)
+initialState :: forall pv
+              . IsProtocolVersion pv
              => SeedState
              -> CryptographicParameters
              -> [Account (AccountVersionFor pv)]
@@ -1450,8 +1511,8 @@ initialState seedState cryptoParams genesisAccounts ips anonymityRevokers keysCo
     _blockTransactionOutcomes = Transactions.emptyTransactionOutcomes
     _blockUpdates = initialUpdates keysCollection chainParams
     _blockReleaseSchedule = Map.empty
-    _blockEpochBlocksBaked = emptyHashedEpochBlocks
-    _blockStateHash = BS.makeBlockStateHash BS.BlockStateHashInputs {
+    _blockRewardDetails = emptyBlockRewardDetails
+    _blockStateHash = BS.makeBlockStateHash @pv BS.BlockStateHashInputs {
               bshBirkParameters = getHash _blockBirkParameters,
               bshCryptographicParameters = getHash _blockCryptographicParameters,
               bshIdentityProviders = getHash _blockIdentityProviders,
@@ -1461,7 +1522,7 @@ initialState seedState cryptoParams genesisAccounts ips anonymityRevokers keysCo
               bshAccounts = getHash _blockAccounts,
               bshInstances = getHash _blockInstances,
               bshUpdates = getHash _blockUpdates,
-              bshEpochBlocks = getHash _blockEpochBlocksBaked
+              bshBlockRewardDetails = getHash _blockRewardDetails
             }
 
 -- |Initial block state based on 'GenesisData', for a given protocol version.
@@ -1514,7 +1575,7 @@ genesisState gd = case protocolVersion @pv of
                   _blockTransactionOutcomes = Transactions.emptyTransactionOutcomes
                   _blockUpdates = initialUpdates genesisUpdateKeys genesisChainParameters
                   _blockReleaseSchedule = Map.empty
-                  _blockEpochBlocksBaked = emptyHashedEpochBlocks
+                  _blockRewardDetails = BlockRewardDetailsV0 emptyHashedEpochBlocks
 
         mkGenesisStateRegenesis migration GenesisData.RegenesisData{..} = do
             case runGet (getBlockState migration) genesisNewState of

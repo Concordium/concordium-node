@@ -146,7 +146,8 @@ runBSM m cm s = do
 rewardLastEpochBakers :: (BlockStateOperations m)
   => UpdatableBlockState m
   -> m (UpdatableBlockState m)
-rewardLastEpochBakers bs0 = do
+rewardLastEpochBakers bs0 = do -- TODO: implement
+  undefined {-
   rewards <- _bankRewardAccounts <$> bsoGetBankStatus bs0
   (totalBlocks, bakerShares) <- bsoGetEpochBlocksBaked bs0
   if totalBlocks == 0 then
@@ -166,6 +167,7 @@ rewardLastEpochBakers bs0 = do
             Just acct -> return (Map.insert acct brew m, bs')
     (m, bs3) <- foldM rewardBaker (Map.empty, bs2) bakerShares
     bsoAddSpecialTransactionOutcome bs3 BakingRewards{stoBakerRewards = AccountAmounts m, stoRemainder = braRem}
+    -}
 
 -- |Determine the amount and distribution of minting.
 --

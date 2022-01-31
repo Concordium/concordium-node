@@ -302,11 +302,18 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
         us1 <- coerceBSML (getProtocolUpdateStatus bps1)
         us2 <- coerceBSMR (getProtocolUpdateStatus bps2)
         assert (us1 == us2) $ return us1
-
     getCryptographicParameters (bps1, bps2) = do
         u1 <- coerceBSML (getCryptographicParameters bps1)
         u2 <- coerceBSMR (getCryptographicParameters bps2)
         assert (u1 == u2) $ return u1
+    getNextEpochBakers (bps1, bps2) = do
+        n1 <- coerceBSML (getNextEpochBakers bps1)
+        n2 <- coerceBSMR (getNextEpochBakers bps2)
+        assert (n1 == n2) $ return n1
+    getPaydayEpoch (bps1, bps2) = do
+        e1 <- coerceBSML (getPaydayEpoch bps1)
+        e2 <- coerceBSMR (getPaydayEpoch bps2)
+        assert (e1 == e2) $ return e1
 
 instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, AccountOperations (BSML pv lc r ls s m), AccountOperations (BSMR pv rc r rs s m), HashableTo H.Hash (Account (BSML pv lc r ls s m)), HashableTo H.Hash (Account (BSMR pv rc r rs s m)))
   => AccountOperations (BlockStateM pv (PairGSContext lc rc) r (PairGState ls rs) s m) where
@@ -564,10 +571,6 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         liftM2 (,)
             (coerceBSML $ bsoRotateCurrentEpochBakers bs1)
             (coerceBSMR $ bsoRotateCurrentEpochBakers bs2)
-    bsoClearNextEpochBakers (bs1, bs2) = do
-        liftM2 (,)
-            (coerceBSML $ bsoClearNextEpochBakers bs1)
-            (coerceBSMR $ bsoClearNextEpochBakers bs2)
     bsoSetNextEpochBakers (bs1, bs2) ne = do
         let ne1 = ne <&> \(r, a) -> (fst r, a)
         let ne2 = ne <&> \(r, a) -> (snd r, a)
@@ -610,7 +613,32 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         bs1' <- coerceBSML $ bsoSetRewardAccounts bs1 rew
         bs2' <- coerceBSMR $ bsoSetRewardAccounts bs2 rew
         return (bs1', bs2')
-
+    bsoGetActiveBakersAndDelegators (bs1, bs2) = do
+        (b1, d1) <- coerceBSML $ bsoGetActiveBakersAndDelegators bs1
+        (b2, d2) <- coerceBSMR $ bsoGetActiveBakersAndDelegators bs2
+        assert (d1 == d2) $ assert (length b1 == length b2) $ return (zipActiveBakerInfo b1 b2, d1)
+        where
+            zipActiveBakerInfo (i1 : b1) (i2 : b2) =
+                assert (activeBakerEquityCapital i1 == activeBakerEquityCapital i2) $
+                assert (activeBakerPendingChange i1 == activeBakerPendingChange i2) $
+                assert (activeBakerDelegators i1 == activeBakerDelegators i2) $
+                let i = ActiveBakerInfo{
+                            activeBakerInfoRef = (activeBakerInfoRef i1, activeBakerInfoRef i2),
+                            activeBakerEquityCapital = activeBakerEquityCapital i1,
+                            activeBakerPendingChange = activeBakerPendingChange i1,
+                            activeBakerDelegators = activeBakerDelegators i1
+                        } 
+                    b = zipActiveBakerInfo b1 b2
+                in i : b
+            zipActiveBakerInfo _ _ = []
+    bsoSetNextCapitalDistribution (bs1, bs2) bdc ldc = do
+        bs1' <- coerceBSML $ bsoSetNextCapitalDistribution bs1 bdc ldc
+        bs2' <- coerceBSMR $ bsoSetNextCapitalDistribution bs2 bdc ldc
+        return (bs1', bs2')
+    bsoRotateCurrentCapitalDistribution (bs1, bs2) = do
+        bs1' <- coerceBSML $ bsoRotateCurrentCapitalDistribution bs1
+        bs2' <- coerceBSMR $ bsoRotateCurrentCapitalDistribution bs2
+        return (bs1', bs2')
 
 type instance BlockStatePointer (a, b) = (BlockStatePointer a, BlockStatePointer b)
 

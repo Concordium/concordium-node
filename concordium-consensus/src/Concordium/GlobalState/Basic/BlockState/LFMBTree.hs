@@ -25,6 +25,7 @@ module Concordium.GlobalState.Basic.BlockState.LFMBTree
     update,
 
     -- * Conversion
+    fromFoldable,
     fromList,
     toAscPairList,
     fromListChoosingFirst,
@@ -32,6 +33,7 @@ module Concordium.GlobalState.Basic.BlockState.LFMBTree
     -- * Specialized functions for @Maybe@
     lookupMaybe,
     delete,
+    toAscList,
     toAscPairListMaybes,
     fromAscListMaybes,
 
@@ -249,15 +251,15 @@ update f k (NonEmpty s t) =
 delete :: (Ord k, Bits k, Coercible k Word64) => k -> LFMBTree k (Maybe v) -> Maybe (LFMBTree k (Maybe v))
 delete k t = snd <$> update (const ((), Nothing)) k t
 
--- -- | Return the elements sorted by their keys. As there is no operation
--- -- for deleting elements, this list will contain all the elements starting
--- -- on the index 0 up to the size of the tree.
--- toList :: LFMBTree k v -> [v]
--- toList Empty = []
--- toList (NonEmpty _ t) = toListT t
---   where
---     toListT (Leaf v) = [v]
---     toListT (Node _ l r) = toListT l ++ toListT r
+-- | Return the elements sorted by their keys. As there is no operation
+-- for deleting elements, this list will contain all the elements starting
+-- on the index 0 up to the size of the tree.
+toAscList :: LFMBTree k v -> [v]
+toAscList Empty = []
+toAscList (NonEmpty _ t) = toListT t
+    where
+        toListT (Leaf v) = [v]
+        toListT (Node _ l r) = toListT l ++ toListT r
 
 -- | Return the pairs (key, value) sorted by their keys. This list will contain
 -- all the elements starting on the index 0.
@@ -269,10 +271,16 @@ toAscPairList = zip (map coerce [0 :: Word64 ..]) . toList
 toAscPairListMaybes :: Coercible k Word64 => LFMBTree k (Maybe v) -> [(k, v)]
 toAscPairListMaybes l = [(i, v) | (i, Just v) <- toAscPairList l]
 
+-- | Create a tree from a 'Foldable'. The items will be inserted sequentially
+-- starting on the index 0.
+fromFoldable :: (Num k, Coercible k Word64, Foldable f) => f v -> LFMBTree k v
+fromFoldable = foldl' (\acc e -> snd $ append e acc) empty
+
 -- | Create a tree from a list of items. The items will be inserted sequentially
 -- starting on the index 0.
 fromList :: (Num k, Coercible k Word64) => [v] -> LFMBTree k v
-fromList = foldl' (\acc e -> snd $ append e acc) empty
+fromList = fromFoldable
+{-# INLINE fromList #-}
 
 -- | Create a tree from a list of items choosing the first item seen when getting duplicates. The given function extracts the equatable field of the value that will be compared when checking for duplicates.
 fromListChoosingFirst :: (Num k, Eq a, Coercible k Word64) => (v -> a) -> [v] -> LFMBTree k v
