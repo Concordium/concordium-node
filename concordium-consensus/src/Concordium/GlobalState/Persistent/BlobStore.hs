@@ -56,6 +56,7 @@ import qualified Concordium.Types.IdentityProviders as IPS
 import qualified Concordium.Types.AnonymityRevokers as ARS
 import qualified Concordium.GlobalState.Parameters as Parameters
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
+import Concordium.GlobalState.Basic.BlockState.PoolRewards
 import Concordium.Types
 import Concordium.Types.Accounts
 import Concordium.Types.Updates
@@ -746,6 +747,10 @@ instance (MonadBlobStore m, IsChainParametersVersion cpv) => BlobStorable m (Par
 instance (MonadBlobStore m, IsChainParametersVersion cpv) => BlobStorable m (Parameters.TimeParameters cpv)
 instance MonadBlobStore m => BlobStorable m (Map AccountAddress Timestamp)
 instance MonadBlobStore m => BlobStorable m WasmModule
+instance MonadBlobStore m => BlobStorable m BakerPoolRewardDetails
+instance MonadBlobStore m => BlobStorable m DelegatorCapital
+instance MonadBlobStore m => BlobStorable m BakerCapital
+instance MonadBlobStore m => BlobStorable m CapitalDistribution
 
 newtype StoreSerialized a = StoreSerialized { unStoreSerialized :: a }
     deriving newtype (Serialize)
@@ -910,3 +915,7 @@ instance (Applicative m) => Cacheable m (StoreSerialized a)
 instance (Applicative m) => Cacheable m (Parameters.PoolParameters cpv)
 instance (Applicative m) => Cacheable m (Parameters.CooldownParameters cpv)
 instance (Applicative m) => Cacheable m (Parameters.TimeParameters cpv)
+instance (Applicative m) => Cacheable m BakerPoolRewardDetails
+instance (Applicative m) => Cacheable m DelegatorCapital
+instance (Applicative m) => Cacheable m BakerCapital
+instance (Applicative m) => Cacheable m CapitalDistribution

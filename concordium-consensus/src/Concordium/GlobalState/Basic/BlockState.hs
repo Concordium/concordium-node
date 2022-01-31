@@ -170,6 +170,7 @@ data HashedEpochBlocks = HashedEpochBlocks {
     -- |Hash of the list.
     hebHash :: !Rewards.EpochBlocksHash
   } deriving (Eq, Show)
+
 instance HashableTo Rewards.EpochBlocksHash HashedEpochBlocks where
     getHash = hebHash
 
@@ -203,6 +204,26 @@ data BlockRewardDetails (av :: AccountVersion) where
 
 deriving instance Show (BlockRewardDetails av)
 
+instance HashableTo (Rewards.BlockRewardDetailsHash av) (BlockRewardDetails av) where
+    getHash (BlockRewardDetailsV0 heb) = Rewards.BlockRewardDetailsHashV0 (hebHash heb)
+    getHash (BlockRewardDetailsV1 pr) = Rewards.BlockRewardDetailsHashV1 (getHash pr)
+
+-- |The blocks of 'BlockRewardDetails' ''AccountV0'.
+brdBlocks :: BlockRewardDetails 'AccountV0 -> [BakerId]
+brdBlocks (BlockRewardDetailsV0 heb) = hebBlocks heb
+
+-- |Extend a 'BlockRewardDetails' ''AccountV0' with an additional baker.
+consBlockRewardDetails :: BakerId -> BlockRewardDetails 'AccountV0 -> BlockRewardDetails 'AccountV0
+consBlockRewardDetails bid (BlockRewardDetailsV0 heb) =
+    BlockRewardDetailsV0 $ consEpochBlock bid heb
+
+-- |The empty 'BlockRewardDetails'.
+emptyBlockRewardDetails :: forall av. IsAccountVersion av => BlockRewardDetails av
+emptyBlockRewardDetails =
+    case accountVersion @av of
+        SAccountV0 -> BlockRewardDetailsV0 emptyHashedEpochBlocks
+        SAccountV1 -> BlockRewardDetailsV1 (makeHashed PoolRewards.emptyPoolRewards)
+
 putBlockRewardDetails :: Putter (BlockRewardDetails av)
 putBlockRewardDetails (BlockRewardDetailsV0 heb) = putHashedEpochBlocksV0 heb
 -- TODO: V1 case
@@ -225,7 +246,6 @@ data BlockState (pv :: ProtocolVersion) = BlockState {
     _blockReleaseSchedule :: !(LazyMap.Map AccountAddress Timestamp), -- ^Contains an entry for each account that has pending releases and the first timestamp for said account
     _blockTransactionOutcomes :: !Transactions.TransactionOutcomes,
     _blockRewardDetails :: !(BlockRewardDetails (AccountVersionFor pv))
-    -- _blockEpochBlocksBaked :: !HashedEpochBlocks
 } deriving (Show)
 
 data HashedBlockState pv = HashedBlockState {
@@ -237,12 +257,8 @@ makeLenses ''BasicBirkParameters
 makeClassy ''BlockState
 makeLenses ''HashedBlockState
 
-blockEpochBlocksBaked :: (AccountVersionFor pv ~ 'AccountV0) => Lens' (BlockState pv) HashedEpochBlocks
-blockEpochBlocksBaked =
-    blockRewardDetails
-        . lens
-            (\(BlockRewardDetailsV0 a) -> a)
-            (\_ b -> BlockRewardDetailsV0 b)
+blockEpochBlocksBaked :: (AccountVersionFor pv ~ 'AccountV0) => Lens' (BlockState pv) (BlockRewardDetails 'AccountV0)
+blockEpochBlocksBaked = blockRewardDetails . lens id (const id)
 
 blockPoolRewards :: (AccountVersionFor pv ~ 'AccountV1) => Lens' (BlockState pv) PoolRewards.PoolRewards
 blockPoolRewards =
@@ -299,7 +315,7 @@ hashBlockState = case protocolVersion :: SProtocolVersion pv of
           _blockStateHash = h
           }
           where
-            h = BS.makeBlockStateHash BS.BlockStateHashInputs {
+            h = BS.makeBlockStateHash @'P1 BS.BlockStateHashInputs {
                   bshBirkParameters = getHash _blockBirkParameters,
                   bshCryptographicParameters = getHash _blockCryptographicParameters,
                   bshIdentityProviders = getHash _blockIdentityProviders,
@@ -309,7 +325,7 @@ hashBlockState = case protocolVersion :: SProtocolVersion pv of
                   bshAccounts = getHash _blockAccounts,
                   bshInstances = getHash _blockInstances,
                   bshUpdates = getHash _blockUpdates,
-                  bshEpochBlocks = getHash (bs ^. blockEpochBlocksBaked)
+                  bshBlockRewardDetails = getHash (bs ^. blockEpochBlocksBaked)
                   }
 
 
@@ -1416,7 +1432,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
     bsoGetChainParameters bs = return $! bs ^. blockUpdates . currentParameters
 
     bsoGetEpochBlocksBaked bs = return $! case accountVersion @(AccountVersionFor pv) of
-        SAccountV0 -> (_2 %~ Map.toList) (foldl' accumBakers (0, Map.empty) (bs ^. blockEpochBlocksBaked . to hebBlocks))
+        SAccountV0 -> (_2 %~ Map.toList) (foldl' accumBakers (0, Map.empty) (bs ^. blockEpochBlocksBaked . to brdBlocks))
             where
                 accumBakers (t, m) b =
                     let !t' = t + 1
@@ -1426,10 +1442,10 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             (sum (snd <$> bcs), bcs)
 
     bsoNotifyBlockBaked = case accountVersion @(AccountVersionFor pv) of
-        SAccountV0 -> \(bs :: BlockState pv) bid -> return $! bs & blockEpochBlocksBaked %~ consEpochBlock bid
+        SAccountV0 -> \(bs :: BlockState pv) bid -> return $! bs & blockEpochBlocksBaked %~ consBlockRewardDetails bid
         SAccountV1 -> \bs bid -> undefined -- FIXME: Implement, or constrain/replace
 
-    bsoClearEpochBlocksBaked bs = return $! bs & blockEpochBlocksBaked .~ emptyHashedEpochBlocks
+    bsoClearEpochBlocksBaked bs = return $! bs & blockEpochBlocksBaked .~ emptyBlockRewardDetails
 
     bsoGetBankStatus bs = return $! bs ^. blockBank . unhashed
 
@@ -1468,7 +1484,8 @@ instance (IsProtocolVersion pv, MonadIO m) => BS.BlockStateStorage (PureBlockSta
 
 -- |Initial block state.
 -- TODO: Remove constraint AccountVersionFor pv ~ 'AccountV0
-initialState :: (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV0)
+initialState :: forall pv
+              . (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV0)
              => SeedState
              -> CryptographicParameters
              -> [Account (AccountVersionFor pv)]
@@ -1493,7 +1510,7 @@ initialState seedState cryptoParams genesisAccounts ips anonymityRevokers keysCo
     _blockUpdates = initialUpdates keysCollection chainParams
     _blockReleaseSchedule = Map.empty
     _blockRewardDetails = BlockRewardDetailsV0 emptyHashedEpochBlocks
-    _blockStateHash = BS.makeBlockStateHash BS.BlockStateHashInputs {
+    _blockStateHash = BS.makeBlockStateHash @pv BS.BlockStateHashInputs {
               bshBirkParameters = getHash _blockBirkParameters,
               bshCryptographicParameters = getHash _blockCryptographicParameters,
               bshIdentityProviders = getHash _blockIdentityProviders,
@@ -1503,7 +1520,7 @@ initialState seedState cryptoParams genesisAccounts ips anonymityRevokers keysCo
               bshAccounts = getHash _blockAccounts,
               bshInstances = getHash _blockInstances,
               bshUpdates = getHash _blockUpdates,
-              bshEpochBlocks = getHash emptyHashedEpochBlocks
+              bshBlockRewardDetails = getHash _blockRewardDetails
             }
 
 -- |Initial block state based on 'GenesisData', for a given protocol version.

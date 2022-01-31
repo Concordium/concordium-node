@@ -87,7 +87,7 @@ newtype BirkParametersHash (pv :: ProtocolVersion) = BirkParametersHash {birkPar
 
 -- |The hashes of the block state components, which are combined
 -- to produce a 'StateHash'.
-data BlockStateHashInputs = BlockStateHashInputs {
+data BlockStateHashInputs (pv :: ProtocolVersion) = BlockStateHashInputs {
     bshBirkParameters :: H.Hash,
     bshCryptographicParameters :: H.Hash,
     bshIdentityProviders :: H.Hash,
@@ -97,11 +97,11 @@ data BlockStateHashInputs = BlockStateHashInputs {
     bshAccounts :: H.Hash,
     bshInstances :: H.Hash,
     bshUpdates :: H.Hash,
-    bshEpochBlocks :: EpochBlocksHash
+    bshBlockRewardDetails :: BlockRewardDetailsHash (AccountVersionFor pv)
 } deriving (Show)
 
 -- |Construct a 'StateHash' from the component hashes.
-makeBlockStateHash :: BlockStateHashInputs -> StateHash
+makeBlockStateHash :: BlockStateHashInputs pv -> StateHash
 makeBlockStateHash BlockStateHashInputs{..} = StateHashV0 $
   H.hashOfHashes
     (H.hashOfHashes
@@ -116,7 +116,7 @@ makeBlockStateHash BlockStateHashInputs{..} = StateHashV0 $
     )
     (H.hashOfHashes
       bshUpdates
-      (ebHash bshEpochBlocks))
+      (brdHash bshBlockRewardDetails))
 
 -- |An auxiliary data type to express restrictions on an account.
 -- Currently an account that has more than one credential is not allowed to handle encrypted transfers,
@@ -330,6 +330,7 @@ data ActiveDelegatorInfo = ActiveDelegatorInfo {
     -- |Any pending change to delegator.
     activeDelegatorPendingChange :: !(StakePendingChange 'AccountV1)
   }
+  deriving (Eq)
 
 -- |Information about a baker, including its delegators.
 data ActiveBakerInfo' bakerInfoRef = ActiveBakerInfo {

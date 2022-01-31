@@ -232,7 +232,7 @@ dummyChainParameters = makeChainParametersV0 (makeElectionDifficulty 50000) 0.00
 {-# WARNING createBlockState "Do not use in production" #-}
 createBlockState :: (IsProtocolVersion pv, ChainParametersVersionFor pv ~ 'ChainParametersV0, AccountVersionFor pv ~ 'AccountV0) => Accounts pv -> BlockState pv
 createBlockState accounts =
-    emptyBlockState (emptyBirkParameters accounts) dummyCryptographicParameters dummyKeyCollection dummyChainParameters &
+    emptyBlockState (emptyBirkParameters accounts) emptyBlockRewardDetails dummyCryptographicParameters dummyKeyCollection dummyChainParameters &
       (blockAccounts .~ accounts) .
       (blockBank . unhashed . Rewards.totalGTU .~ sum (map (_accountAmount . snd) (toList (accountTable accounts)))) .
       (blockIdentityProviders . unhashed .~ dummyIdentityProviders) .
