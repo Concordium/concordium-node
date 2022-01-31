@@ -706,6 +706,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
 
   -- |Set the next capital distribution.
   bsoSetNextCapitalDistribution ::
+    (AccountVersionFor (MPV m) ~ 'AccountV1) =>
     UpdatableBlockState m ->
     -- |Capital of bakers and their delegators
     [(BakerId, Amount, [(DelegatorId, Amount)])] ->
@@ -715,7 +716,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
 
   -- |Set the current capital distribution to the current value of the next capital distribution.
   -- The next capital distribution is unchanged.
-  bsoRotateCurrentCapitalDistribution :: UpdatableBlockState m -> m (UpdatableBlockState m)
+  bsoRotateCurrentCapitalDistribution :: (AccountVersionFor (MPV m) ~ 'AccountV1) => UpdatableBlockState m -> m (UpdatableBlockState m)
 
   -- |Get the current status of the various accounts.
   bsoGetBankStatus :: UpdatableBlockState m -> m BankStatus

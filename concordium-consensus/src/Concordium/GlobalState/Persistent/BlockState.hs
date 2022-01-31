@@ -724,6 +724,13 @@ doSetSeedState pbs ss = do
 doGetCurrentEpochBakers :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m FullBakers
 doGetCurrentEpochBakers pbs = epochToFullBakers =<< refLoad . _birkCurrentEpochBakers . bspBirkParameters =<< loadPBS pbs
 
+doGetNextEpochBakers :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m FullBakers
+doGetNextEpochBakers pbs = do
+    bsp <- loadPBS pbs
+    case _birkNextEpochBakers (bspBirkParameters bsp) of
+        PersistentNextEpochBakers hpeb -> epochToFullBakers =<< refLoad hpeb
+        UnchangedPersistentNextEpochBakers -> doGetCurrentEpochBakers pbs
+
 doGetSlotBakers :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> Timestamp -> Duration -> Slot -> m FullBakers
 doGetSlotBakers pbs genesisTime slotDuration slot = do
         bs <- loadPBS pbs
@@ -842,6 +849,47 @@ doTransitionEpochBakers pbs newEpoch = do
             h1 <- getHashM a
             h2 <- getHashM b
             return $ if (h1 :: H.Hash) == h2 then b else a
+
+doGetActiveBakersAndDelegators
+    :: forall pv m
+     . (IsProtocolVersion pv,
+        MonadBlobStore m,
+        AccountVersionFor pv ~ 'AccountV1,
+        BakerInfoRef m ~ BufferedRef BakerInfo)
+    => PersistentBlockState pv -> m ([ActiveBakerInfo m], [ActiveDelegatorInfo])
+doGetActiveBakersAndDelegators pbs = do
+    bsp <- loadPBS pbs
+    ab <- refLoad $ bspBirkParameters bsp ^. birkActiveBakers
+    abis <- Trie.toAscList (ab ^. activeBakers) >>= mapM (mkActiveBakerInfo bsp)
+    let PersistentActiveDelegatorsV1 dset = ab ^. lPoolDelegators
+    lps <- Trie.keys dset >>= mapM (mkActiveDelegatorInfo bsp)
+    return (abis, lps)
+      where
+            mkActiveBakerInfo bsp (BakerId acct, PersistentActiveDelegatorsV1 dlgs) = do
+                theBaker <- Accounts.indexedAccount acct (bspAccounts bsp) >>= \case
+                    Just PersistentAccount{_accountStake = PersistentAccountStakeBaker pab} ->
+                        refLoad pab
+                    _ -> error "Invariant violation: active baker is not a baker account"
+                dlglist <- Trie.keysAsc dlgs
+                abd <- mapM (mkActiveDelegatorInfo bsp) dlglist
+                return ActiveBakerInfo {
+                    activeBakerInfoRef = theBaker ^. accountBakerInfo,
+                    activeBakerEquityCapital = theBaker ^. stakedAmount,
+                    activeBakerPendingChange = theBaker ^. bakerPendingChange,
+                    activeBakerDelegators = abd
+                }
+            mkActiveDelegatorInfo :: BlockStatePointers pv -> DelegatorId -> m ActiveDelegatorInfo
+            mkActiveDelegatorInfo bsp activeDelegatorId@(DelegatorId acct) = do
+                theDelegator@BaseAccounts.AccountDelegationV1{} <-
+                    Accounts.indexedAccount acct (bspAccounts bsp) >>= \case
+                        Just PersistentAccount{_accountStake = PersistentAccountStakeDelegate pad} ->
+                            refLoad pad
+                        _ -> error "Invariant violation: active baker is not a baker account"
+                return ActiveDelegatorInfo{
+                    activeDelegatorStake = theDelegator ^. BaseAccounts.delegationStakedAmount,
+                    activeDelegatorPendingChange = theDelegator ^. BaseAccounts.delegationPendingChange,
+                    ..
+                }
 
 doAddBaker
     :: (IsProtocolVersion pv, MonadBlobStore m, AccountVersionFor pv ~ 'AccountV0, ChainParametersVersionFor pv ~ 'ChainParametersV0)
@@ -1686,6 +1734,9 @@ doGetCryptoParams pbs = do
         bsp <- loadPBS pbs
         refLoad (bspCryptographicParameters bsp)
 
+doGetPaydayEpoch :: (IsProtocolVersion pv, MonadBlobStore m, AccountVersionFor pv ~ 'AccountV1) => PersistentBlockState pv -> m Epoch
+doGetPaydayEpoch pbs = undefined -- TODO: implement
+
 doGetTransactionOutcome :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> Transactions.TransactionIndex -> m (Maybe TransactionSummary)
 doGetTransactionOutcome pbs transHash = do
         bsp <- loadPBS pbs
@@ -1805,6 +1856,42 @@ doClearProtocolUpdate pbs = do
         u' <- clearProtocolUpdate (bspUpdates bsp)
         storePBS pbs bsp{bspUpdates = u'}
 
+doSetNextCapitalDistribution
+    :: forall pv m
+     . (IsProtocolVersion pv, MonadBlobStore m, AccountVersionFor pv ~ 'AccountV1)
+    => PersistentBlockState pv
+    -> [(BakerId, Amount, [(DelegatorId, Amount)])]
+    -> [(DelegatorId, Amount)]
+    -> m (PersistentBlockState pv)
+doSetNextCapitalDistribution pbs bakers lpool = do
+    bsp <- loadPBS pbs
+    let bakerPoolCapital = Vec.fromList $ map mkBakCap bakers
+    let lPoolCapital = Vec.fromList $ map mkDelCap lpool
+    capDist <- refMake $ CapitalDistribution{..}
+    newRewardDetails <- case bspRewardDetails bsp of
+        BlockRewardDetailsV1 hpr -> do
+            pr <- refLoad hpr
+            BlockRewardDetailsV1 <$> refMake (pr {nextCapital = capDist})
+    storePBS pbs bsp{bspRewardDetails = newRewardDetails}
+          where
+            mkBakCap (bcBakerId, bcBakerEquityCapital, dels) =
+                let bcDelegatorCapital = Vec.fromList $ map mkDelCap dels
+                in BakerCapital{..}
+            mkDelCap (dcDelegatorId, dcDelegatorCapital) =
+                DelegatorCapital{..}
+
+doRotateCurrentCapitalDistribution
+    :: (IsProtocolVersion pv, MonadBlobStore m, AccountVersionFor pv ~ 'AccountV1)
+    => PersistentBlockState pv
+    -> m (PersistentBlockState pv)
+doRotateCurrentCapitalDistribution pbs = do
+    bsp <- loadPBS pbs
+    newRewardDetails <- case bspRewardDetails bsp of
+        BlockRewardDetailsV1 hpr -> do
+            pr <- refLoad hpr
+            BlockRewardDetailsV1 <$> refMake (pr {currentCapital = nextCapital pr})
+    storePBS pbs bsp{bspRewardDetails = newRewardDetails}
+
 doAddReleaseSchedule :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> [(AccountAddress, Timestamp)] -> m (PersistentBlockState pv)
 doAddReleaseSchedule pbs rel = do
         bsp <- loadPBS pbs
@@ -1833,8 +1920,8 @@ doGetEpochBlocksBaked pbs = do
                 accumBakersFromEpochBlocks (hebBlocks heb) 0 Map.empty
             BlockRewardDetailsV1 hpr -> do
                 pr <- refLoad hpr
-                cap <- refLoad $ currentCapital pr
-                return $ Map.toList <$> foldl' addBakerCapital (0, Map.empty) (bakerPoolCapital cap)
+                bcs <- bakerBlockCounts pr
+                return $! (sum (snd <$> bcs), bcs)
     where
         accumBakersFromEpochBlocks Null t m = return (t, Map.toList m)
         accumBakersFromEpochBlocks (Some ref) t m = do
@@ -1842,14 +1929,13 @@ doGetEpochBlocksBaked pbs = do
             let !t' = t + 1
                 !m' = m & at ebBakerId . non 0 +~ 1
             accumBakersFromEpochBlocks ebPrevious t' m'
-        addBakerCapital (t, m) bc = (t + 1, m & at (bcBakerId bc) . non 0 +~ 1)
 
 doNotifyBlockBaked :: forall pv m. (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> BakerId -> m (PersistentBlockState pv)
 doNotifyBlockBaked pbs bid = do
     bsp <- loadPBS pbs
     newBlockRewardDetails <- case accountVersionFor (protocolVersion @pv) of
         SAccountV0 -> consBlockRewardDetails bid (bspRewardDetails bsp)
-        SAccountV1 -> undefined -- TODO: implement
+        SAccountV1 -> undefined -- TODO: Implement, or constrain/replace
     storePBS pbs bsp{bspRewardDetails = newBlockRewardDetails}
 
 doClearEpochBlocksBaked :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m (PersistentBlockState pv)
@@ -1870,15 +1956,6 @@ doRotateCurrentEpochBakers pbs = do
             storePBS pbs bsp{bspBirkParameters = newBirkParams}
         UnchangedPersistentNextEpochBakers ->
             return pbs
-
-doClearNextEpochBakers
-    :: (IsProtocolVersion pv, MonadBlobStore m, AccountVersionFor pv ~ 'AccountV1)
-    => PersistentBlockState pv
-    -> m (PersistentBlockState pv)
-doClearNextEpochBakers pbs = do
-    bsp <- loadPBS pbs
-    let newBirkParams = (bspBirkParameters bsp){_birkNextEpochBakers = UnchangedPersistentNextEpochBakers}
-    storePBS pbs bsp{bspBirkParameters = newBirkParams}
 
 doSetNextEpochBakers
     :: (IsProtocolVersion pv, MonadBlobStore m)
@@ -2119,6 +2196,7 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateQuery (Persist
     getContractInstanceList = doContractInstanceList . hpbsPointers
     getSeedState = doGetSeedState . hpbsPointers
     getCurrentEpochBakers = doGetCurrentEpochBakers . hpbsPointers
+    getNextEpochBakers = doGetNextEpochBakers . hpbsPointers
     getSlotBakers = doGetSlotBakers . hpbsPointers
     getBakerAccount = doGetBakerAccount . hpbsPointers
     getRewardStatus = doGetRewardStatus . hpbsPointers
@@ -2135,8 +2213,7 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateQuery (Persist
     getUpdates = doGetUpdates . hpbsPointers
     getProtocolUpdateStatus = doGetProtocolUpdateStatus . hpbsPointers
     getCryptographicParameters = doGetCryptoParams . hpbsPointers
-    getNextEpochBakers = undefined -- TODO: implement
-    getPaydayEpoch = undefined -- TODO: implement
+    getPaydayEpoch = doGetPaydayEpoch . hpbsPointers
 
 instance (PersistentState r m, IsProtocolVersion pv) => AccountOperations (PersistentBlockStateMonad pv r m) where
 
@@ -2211,6 +2288,7 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateOperations (Pe
     bsoGetSeedState = doGetSeedState
     bsoSetSeedState = doSetSeedState
     bsoTransitionEpochBakers = doTransitionEpochBakers
+    bsoGetActiveBakersAndDelegators = doGetActiveBakersAndDelegators
     bsoAddBaker = doAddBaker
     bsoConfigureBaker = doConfigureBaker
     bsoConfigureDelegation = doConfigureDelegation
@@ -2234,6 +2312,8 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateOperations (Pe
     bsoEnqueueUpdate = doEnqueueUpdate
     bsoOverwriteElectionDifficulty = doOverwriteElectionDifficulty
     bsoClearProtocolUpdate = doClearProtocolUpdate
+    bsoSetNextCapitalDistribution = doSetNextCapitalDistribution
+    bsoRotateCurrentCapitalDistribution = doRotateCurrentCapitalDistribution
     bsoAddReleaseSchedule = doAddReleaseSchedule
     bsoGetEnergyRate = doGetEnergyRate
     bsoGetChainParameters = doGetChainParameters
@@ -2245,9 +2325,6 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateOperations (Pe
     bsoProcessPendingChanges = doProcessPendingChanges
     bsoGetBankStatus = doGetBankStatus
     bsoSetRewardAccounts = doSetRewardAccounts
-    bsoGetActiveBakersAndDelegators = undefined -- TODO: implement
-    bsoSetNextCapitalDistribution = undefined -- TODO: implement
-    bsoRotateCurrentCapitalDistribution = undefined -- TODO: implement
 
 instance (IsProtocolVersion pv, PersistentState r m) => BlockStateStorage (PersistentBlockStateMonad pv r m) where
     thawBlockState HashedPersistentBlockState{..} =

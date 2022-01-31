@@ -164,6 +164,18 @@ emptyPoolRewards = PoolRewards{
     nextPaydayMintRate = MintRate 0 0
 }
 
+-- |A 'Putter' for 'PoolRewards'.
+putPoolRewards :: Putter PoolRewards
+putPoolRewards PoolRewards{..} = do
+    put (_unhashed nextCapital)
+    put (_unhashed currentCapital) 
+    put bakerPoolRewardDetails
+    put lPoolTransactionRewards
+    put foundationTransactionRewards
+    put nextPaydayEpoch
+    put nextPaydayMintRate
+
+-- |List of baker and number of blocks baked by this baker in the reward period.
 bakerBlockCounts :: PoolRewards -> [(BakerId, Word64)]
 bakerBlockCounts PoolRewards{..} = zipWith bc (Vec.toList (bakerPoolCapital (_unhashed currentCapital))) (LFMBT.toAscPairList bakerPoolRewardDetails)
     where

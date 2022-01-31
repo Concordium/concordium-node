@@ -3,7 +3,8 @@ module Concordium.GlobalState.Persistent.PoolRewards
       PoolRewards (..),
       emptyPoolRewards,
       makePoolRewards,
-      putPoolRewards
+      putPoolRewards,
+      bakerBlockCounts
     ) where
 
 import Data.Word
@@ -136,3 +137,14 @@ makePoolRewards bpr = do
 -- |The empty 'PoolRewards'.
 emptyPoolRewards :: MonadBlobStore m => m (PoolRewards)
 emptyPoolRewards = makePoolRewards BasicPoolRewards.emptyPoolRewards
+
+-- |List of baker and number of blocks baked by this baker in the reward period.
+bakerBlockCounts :: MonadBlobStore m => PoolRewards -> m [(BakerId, Word64)]
+bakerBlockCounts PoolRewards{..} = do
+    cc <- refLoad currentCapital
+    rds <- LFMBT.toAscPairList bakerPoolRewardDetails
+    return $! zipToBlockCounts (bakerPoolCapital cc) rds
+    where
+        zipToBlockCounts _ [] = []
+        zipToBlockCounts bpc ((_, BakerPoolRewardDetails{..}) : rds) =
+            foldr (\BakerCapital{..} -> ((bcBakerId, blockCount) :)) [] bpc

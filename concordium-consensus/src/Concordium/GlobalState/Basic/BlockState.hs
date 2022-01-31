@@ -234,7 +234,7 @@ emptyBlockRewardDetails =
 
 putBlockRewardDetails :: Putter (BlockRewardDetails av)
 putBlockRewardDetails (BlockRewardDetailsV0 heb) = putHashedEpochBlocksV0 heb
--- TODO: V1 case
+putBlockRewardDetails (BlockRewardDetailsV1 hpr) = PoolRewards.putPoolRewards (_unhashed hpr)
 
 getBlockRewardDetails :: forall oldpv pv. (IsProtocolVersion pv) => StateMigrationParameters oldpv pv -> Get (BlockRewardDetails (AccountVersionFor pv))
 getBlockRewardDetails StateMigrationParametersTrivial = case accountVersion @(AccountVersionFor pv) of
@@ -632,7 +632,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
 
     {-# INLINE getPaydayEpoch #-}
     getPaydayEpoch bs =
-        return $! bs ^. undefined
+        return $! bs ^. undefined -- TODO: implement
 
 instance (Monad m, IsProtocolVersion pv) => BS.AccountOperations (PureBlockStateMonad pv m) where
 
@@ -1417,9 +1417,27 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
     {-# INLINE bsoClearProtocolUpdate #-}
     bsoClearProtocolUpdate bs = return $! bs & blockUpdates %~ clearProtocolUpdate
 
-    bsoSetNextCapitalDistribution = undefined -- TODO: implement
+    bsoSetNextCapitalDistribution bs bakers lpool =
+        let bakerPoolCapital = Vec.fromList $ map mkBakCap bakers
+            lPoolCapital = Vec.fromList $ map mkDelCap lpool
+            capDist = makeHashed $ PoolRewards.CapitalDistribution{..}
+        in return $! bs & blockRewardDetails %~ \case
+            BlockRewardDetailsV1 hpr ->
+                BlockRewardDetailsV1 $ makeHashed $
+                    (_unhashed hpr) {PoolRewards.nextCapital = capDist}
+          where
+            mkBakCap (bcBakerId, bcBakerEquityCapital, dels) =
+                let bcDelegatorCapital = Vec.fromList $ map mkDelCap dels
+                in PoolRewards.BakerCapital{..}
+            mkDelCap (dcDelegatorId, dcDelegatorCapital) =
+                PoolRewards.DelegatorCapital{..}
 
-    bsoRotateCurrentCapitalDistribution = undefined -- TODO: implement
+    bsoRotateCurrentCapitalDistribution bs =
+        return $! bs & blockRewardDetails %~ \case
+            BlockRewardDetailsV1 hpr ->
+                let pr = _unhashed hpr
+                in BlockRewardDetailsV1 $ makeHashed $
+                    pr {PoolRewards.currentCapital = PoolRewards.nextCapital pr}
 
     {-# INLINE bsoAddReleaseSchedule #-}
     bsoAddReleaseSchedule bs rel = do
