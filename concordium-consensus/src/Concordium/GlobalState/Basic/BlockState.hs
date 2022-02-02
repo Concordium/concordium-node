@@ -50,6 +50,7 @@ import qualified Concordium.GlobalState.Basic.BlockState.Accounts as Accounts
 import qualified Concordium.GlobalState.Basic.BlockState.Modules as Modules
 import qualified Concordium.GlobalState.Basic.BlockState.Instances as Instances
 import qualified Concordium.GlobalState.Basic.BlockState.PoolRewards as PoolRewards
+import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as LFMBT
 
 import qualified Concordium.GlobalState.AccountMap as AccountMap
 import qualified Concordium.GlobalState.Rewards as Rewards
@@ -632,7 +633,8 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
 
     {-# INLINE getPaydayEpoch #-}
     getPaydayEpoch bs =
-        return $! bs ^. undefined -- TODO: implement
+        case bs ^. blockRewardDetails of
+            BlockRewardDetailsV1 pr -> return $! PoolRewards.nextPaydayEpoch $ pr ^. unhashed
 
 instance (Monad m, IsProtocolVersion pv) => BS.AccountOperations (PureBlockStateMonad pv m) where
 
@@ -1464,7 +1466,22 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
 
     bsoNotifyBlockBaked = case accountVersion @(AccountVersionFor pv) of
         SAccountV0 -> \(bs :: BlockState pv) bid -> return $! bs & blockEpochBlocksBaked %~ consBlockRewardDetails bid
-        SAccountV1 -> \bs bid -> undefined -- FIXME: Implement, or constrain/replace
+        SAccountV1 -> \bs bid -> do
+            let bprs = PoolRewards.bakerPoolRewardDetails (bs ^. blockPoolRewards)
+            let bpc = PoolRewards.bakerPoolCapital $ _unhashed (PoolRewards.currentCapital $ bs ^. blockPoolRewards)
+            case Vec.findIndex (\bc -> PoolRewards.bcBakerId bc == bid) bpc of
+                Nothing ->
+                    error "Invariant violation: unable to find baker in baker pool capital vector"
+                Just i ->
+                    updateBPRs bs i bprs
+          where
+            incBPR bpr = ((), bpr{PoolRewards.blockCount = PoolRewards.blockCount bpr + 1})
+            updateBPRs bs i bprs =
+                case LFMBT.update incBPR (fromIntegral i) bprs of
+                    Nothing ->
+                        error "Invariant violation: unable to find baker in baker pool reward details tree"
+                    Just ((), newBPRs) ->
+                        return $! bs & blockPoolRewards %~ \pr -> pr{PoolRewards.bakerPoolRewardDetails = newBPRs}
 
     bsoClearEpochBlocksBaked bs = return $! bs & blockEpochBlocksBaked .~ emptyBlockRewardDetails
 

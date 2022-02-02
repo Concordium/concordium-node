@@ -67,6 +67,7 @@ import Concordium.GlobalState.Instance (Instance(..),InstanceParameters(..),make
 import Concordium.GlobalState.Persistent.Account
 import Concordium.GlobalState.Persistent.BlockState.Updates
 import Concordium.GlobalState.Persistent.PoolRewards
+import qualified Concordium.GlobalState.Persistent.LFMBTree as LFMBT
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import qualified Concordium.Types.UpdateQueues as UQ
 import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Modules
@@ -1734,8 +1735,11 @@ doGetCryptoParams pbs = do
         bsp <- loadPBS pbs
         refLoad (bspCryptographicParameters bsp)
 
-doGetPaydayEpoch :: (IsProtocolVersion pv, MonadBlobStore m, AccountVersionFor pv ~ 'AccountV1) => PersistentBlockState pv -> m Epoch
-doGetPaydayEpoch pbs = undefined -- TODO: implement
+doGetPaydayEpoch :: forall pv m. (IsProtocolVersion pv, MonadBlobStore m, AccountVersionFor pv ~ 'AccountV1) => PersistentBlockState pv -> m Epoch
+doGetPaydayEpoch pbs = do
+        bsp <- loadPBS pbs
+        case bspRewardDetails bsp :: BlockRewardDetails 'AccountV1 of
+            BlockRewardDetailsV1 hpr -> nextPaydayEpoch <$> refLoad hpr
 
 doGetTransactionOutcome :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> Transactions.TransactionIndex -> m (Maybe TransactionSummary)
 doGetTransactionOutcome pbs transHash = do
@@ -1935,8 +1939,27 @@ doNotifyBlockBaked pbs bid = do
     bsp <- loadPBS pbs
     newBlockRewardDetails <- case accountVersionFor (protocolVersion @pv) of
         SAccountV0 -> consBlockRewardDetails bid (bspRewardDetails bsp)
-        SAccountV1 -> undefined -- TODO: Implement, or constrain/replace
+        SAccountV1 -> do
+            let hpr = case bspRewardDetails bsp of BlockRewardDetailsV1 hp -> hp
+            pr <- refLoad hpr
+            let bprs = bakerPoolRewardDetails pr
+            bpc <- bakerPoolCapital <$> refLoad (currentCapital pr)
+            case Vec.findIndex (\bc -> bcBakerId bc == bid) bpc of
+                Nothing ->
+                    error "Invariant violation: unable to find baker in baker pool capital vector"
+                Just i -> do
+                    newBPRs <- projNewBPRs i bprs
+                    BlockRewardDetailsV1 <$> refMake pr{bakerPoolRewardDetails = newBPRs}
     storePBS pbs bsp{bspRewardDetails = newBlockRewardDetails}
+      where
+        incBPR bpr = return ((), bpr{blockCount = blockCount bpr + 1})
+        projNewBPRs i bprs = do
+            mBPRs <- LFMBT.update incBPR (fromIntegral i) bprs
+            case mBPRs of
+                Nothing ->
+                    error "Invariant violation: unable to find baker in baker pool reward details tree"
+                Just ((), newBPRs) ->
+                    return newBPRs
 
 doClearEpochBlocksBaked :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m (PersistentBlockState pv)
 doClearEpochBlocksBaked pbs = do
