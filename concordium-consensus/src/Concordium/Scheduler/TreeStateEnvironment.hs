@@ -143,11 +143,10 @@ runBSM m cm s = do
 -- |Distribute the baking rewards for the last epoch to the bakers of
 -- blocks in that epoch. This should be called in the first block of
 -- a new epoch. This resets the list of blocks baked in the epoch.
-rewardLastEpochBakers :: (BlockStateOperations m)
+rewardLastEpochBakers :: (BlockStateOperations m, AccountVersionFor (MPV m) ~ 'AccountV0)
   => UpdatableBlockState m
   -> m (UpdatableBlockState m)
-rewardLastEpochBakers bs0 = do -- TODO: implement
-  undefined {-
+rewardLastEpochBakers bs0 = do
   rewards <- _bankRewardAccounts <$> bsoGetBankStatus bs0
   (totalBlocks, bakerShares) <- bsoGetEpochBlocksBaked bs0
   if totalBlocks == 0 then
@@ -167,7 +166,6 @@ rewardLastEpochBakers bs0 = do -- TODO: implement
             Just acct -> return (Map.insert acct brew m, bs')
     (m, bs3) <- foldM rewardBaker (Map.empty, bs2) bakerShares
     bsoAddSpecialTransactionOutcome bs3 BakingRewards{stoBakerRewards = AccountAmounts m, stoRemainder = braRem}
-    -}
 
 -- |Determine the amount and distribution of minting.
 --
@@ -389,8 +387,16 @@ mintAndReward :: forall m. (BlockStateOperations m, BlockPointerMonad m, MonadPr
     -- ^Ordered chain updates since the last block
     -> m (UpdatableBlockState m)
 mintAndReward bshandle blockParent slotNumber bid isNewEpoch mfinInfo transFees freeCounts updates =
-  case chainParametersVersionFor $ protocolVersion @(MPV m) of
-    SCPV0 -> do
+  case protocolVersion @(MPV m) of
+    SP1 -> mintAndRewardCPV0AccountV0
+    SP2 -> mintAndRewardCPV0AccountV0
+    SP3 -> mintAndRewardCPV0AccountV0
+  where
+    mintAndRewardCPV0AccountV0
+        :: (AccountVersionFor (MPV m) ~ 'AccountV0,
+            ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0)
+        => m (UpdatableBlockState m)
+    mintAndRewardCPV0AccountV0 = do
       -- First, reward bakers from previous epoch, if we are starting a new one.
       bshandleEpoch <- (if isNewEpoch then rewardLastEpochBakers else return) bshandle
         -- Add the block to the list of blocks baked in this epoch

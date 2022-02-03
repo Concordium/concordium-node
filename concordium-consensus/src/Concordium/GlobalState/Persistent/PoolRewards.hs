@@ -9,6 +9,7 @@ module Concordium.GlobalState.Persistent.PoolRewards
 
 import Data.Word
 import Data.Serialize
+import qualified Data.Vector as Vec
 
 import Concordium.Crypto.SHA256 as Hash
 
@@ -93,7 +94,15 @@ instance MonadBlobStore m => BlobStorable m PoolRewards where
             return $! PoolRewards{..}
 
 putPoolRewards :: (MonadBlobStore m, MonadPut m) => PoolRewards -> m ()
-putPoolRewards = undefined -- TODO: implement
+putPoolRewards PoolRewards{..} = do
+    liftPut . put =<< refLoad nextCapital
+    liftPut . put =<< refLoad currentCapital
+    liftPut =<< store bakerPoolRewardDetails
+    liftPut $ do
+        put lPoolTransactionRewards
+        put foundationTransactionRewards
+        put nextPaydayEpoch
+        put nextPaydayMintRate
         
 instance MonadBlobStore m => MHashableTo m Hash.Hash PoolRewards where
     getHashM PoolRewards{..} = do
@@ -147,4 +156,6 @@ bakerBlockCounts PoolRewards{..} = do
     where
         zipToBlockCounts _ [] = []
         zipToBlockCounts bpc ((_, BakerPoolRewardDetails{..}) : rds) =
-            foldr (\BakerCapital{..} -> ((bcBakerId, blockCount) :)) [] bpc
+            if Vec.null bpc
+            then []
+            else (bcBakerId (Vec.head bpc), blockCount) : zipToBlockCounts (Vec.tail bpc) rds
