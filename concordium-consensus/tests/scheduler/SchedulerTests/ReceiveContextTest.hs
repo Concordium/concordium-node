@@ -17,6 +17,7 @@ import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Concordium.Scheduler as Sch
 import Concordium.Scheduler.Runner
 import Concordium.Types.ProtocolVersion
+import Concordium.TransactionVerification
 
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Invariants
@@ -91,8 +92,8 @@ transactionInputs = [
         }
   ]
 
-type TestResult = ([(Types.BlockItem, Types.ValidResult)],
-                   [(Types.Transaction, Types.FailureKind)],
+type TestResult = ([(BlockItemWithStatus, Types.ValidResult)],
+                   [(TransactionWithStatus, Types.FailureKind)],
                    [(Types.ContractAddress, Instance)])
 
 testReceive :: forall pv . IsProtocolVersion pv => Proxy pv -> IO TestResult

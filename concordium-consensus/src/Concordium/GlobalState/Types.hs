@@ -7,6 +7,7 @@ module Concordium.GlobalState.Types where
 import Concordium.GlobalState.Classes
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Except
+import Control.Monad.Trans.Reader
 import Data.Kind
 
 import Concordium.Types
@@ -33,6 +34,7 @@ instance BlockStateTypes (MGSTrans t m) where
 
 deriving via MGSTrans MaybeT m instance BlockStateTypes (MaybeT m)
 deriving via MGSTrans (ExceptT e) m instance BlockStateTypes (ExceptT e m)
+deriving via MGSTrans (ReaderT r) m instance BlockStateTypes (ReaderT r m)
 
 -- |The basic types associated with a monad providing an
 -- implementation of the global state.

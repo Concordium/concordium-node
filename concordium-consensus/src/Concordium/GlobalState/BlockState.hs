@@ -143,7 +143,7 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
   -- recently deployed.  The list should be non-empty.
   getAccountCredentials :: Account m -> m (Map.Map ID.CredentialIndex AccountCredential)
 
-  -- -- |Get the key used to verify transaction signatures, it records the signature scheme used as well
+  -- |Get the key used to verify transaction signatures, it records the signature scheme used as well
   getAccountVerificationKeys :: Account m -> m ID.AccountInformation
 
   -- |Get the current encrypted amount on the account.
@@ -192,6 +192,8 @@ class AccountOperations m => BlockStateQuery m where
     getModule :: BlockState m -> ModuleRef -> m (Maybe Wasm.WasmModule)
     -- |Get the account state from the account table of the state instance.
     getAccount :: BlockState m -> AccountAddress -> m (Maybe (AccountIndex, Account m))
+    -- |Check whether an account exists for the given account address.
+    accountExists :: BlockState m -> AccountAddress -> m Bool
 
     -- |Query an account by the id of the credential that belonged to it.
     getAccountByCredId :: BlockState m -> CredentialRegistrationID -> m (Maybe (AccountIndex, Account m))
@@ -241,7 +243,15 @@ class AccountOperations m => BlockStateQuery m where
     -- They should be returned in the order that they were emitted.
     getSpecialOutcomes :: BlockState m -> m (Seq.Seq SpecialTransactionOutcome)
 
+    -- |Get the identity provider info for a given block given by its id.
+    getIdentityProvider :: BlockState m -> ID.IdentityProviderIdentity -> m (Maybe IpInfo)
+
+    -- |Get all identity providers for a given block.
     getAllIdentityProviders :: BlockState m -> m [IpInfo]
+
+    -- |Get the anonymity revokers with given ids. Returns 'Nothing' if any of the
+    -- anonymity revokers are not found.
+    getAnonymityRevokers :: BlockState m -> [ID.ArIdentity] -> m (Maybe [ArInfo])
 
     getAllAnonymityRevokers :: BlockState m -> m [ArInfo]
 
@@ -262,6 +272,12 @@ class AccountOperations m => BlockStateQuery m where
 
     -- |Get the current cryptographic parameters of the chain.
     getCryptographicParameters :: BlockState m -> m CryptographicParameters
+
+    -- |Get the block's UpdateKeysCollection
+    getUpdateKeysCollection :: BlockState m -> m UpdateKeysCollection
+    
+    -- |Get the current energy to microCCD exchange rate
+    getEnergyRate :: BlockState m -> m EnergyRate
 
 -- |Distribution of newly-minted GTU.
 data MintAmounts = MintAmounts {
@@ -303,9 +319,8 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- |Check whether the given account address would clash with any existing address.
   bsoAddressWouldClash :: UpdatableBlockState m -> ID.AccountAddress -> m Bool
 
-  -- |Check whether an the given credential registration ID exists, and return
-  -- the account index of the account it is or was associated with.
-  bsoRegIdExists :: UpdatableBlockState m -> ID.CredentialRegistrationID -> m (Maybe AccountIndex)
+  -- |Check whether the given credential registration ID exists.
+  bsoRegIdExists :: UpdatableBlockState m -> ID.CredentialRegistrationID -> m Bool
 
   -- |Create and add an empty account with the given public key, address and credential.
   -- If an account with the given address already exists, @Nothing@ is returned.
@@ -524,7 +539,6 @@ class (BlockStateQuery m) => BlockStateOperations m where
 
   -- |Get the current 'Authorizations' for validating updates.
   bsoGetUpdateKeyCollection :: UpdatableBlockState m -> m UpdateKeysCollection
-
   -- |Get the next 'UpdateSequenceNumber' for a given update type.
   bsoGetNextUpdateSequenceNumber :: UpdatableBlockState m -> UpdateType -> m UpdateSequenceNumber
 
@@ -620,6 +634,7 @@ class (BlockStateOperations m, Serialize (BlockStateRef m)) => BlockStateStorage
 instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGSTrans t m) where
   getModule s = lift . getModule s
   getAccount s = lift . getAccount s
+  accountExists s = lift . accountExists s
   getAccountByCredId s = lift . getAccountByCredId s
   getBakerAccount s = lift . getBakerAccount s
   getContractInstance s = lift . getContractInstance s
@@ -643,8 +658,13 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   getUpdates = lift . getUpdates
   getProtocolUpdateStatus = lift . getProtocolUpdateStatus
   getCryptographicParameters = lift . getCryptographicParameters
+  getIdentityProvider s = lift . getIdentityProvider s
+  getAnonymityRevokers s = lift . getAnonymityRevokers s
+  getUpdateKeysCollection s = lift $ getUpdateKeysCollection s
+  getEnergyRate s = lift $ getEnergyRate s
   {-# INLINE getModule #-}
   {-# INLINE getAccount #-}
+  {-# INLINE accountExists #-}
   {-# INLINE getAccountByCredId #-}
   {-# INLINE getBakerAccount #-}
   {-# INLINE getContractInstance #-}
@@ -667,6 +687,10 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   {-# INLINE getUpdates #-}
   {-# INLINE getProtocolUpdateStatus #-}
   {-# INLINE getCryptographicParameters #-}
+  {-# INLINE getIdentityProvider #-}
+  {-# INLINE getAnonymityRevokers #-}
+  {-# INLINE getUpdateKeysCollection #-}
+  {-# INLINE getEnergyRate #-}
 
 instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (MGSTrans t m) where
   getAccountCanonicalAddress = lift . getAccountCanonicalAddress
@@ -815,3 +839,5 @@ deriving via (MGSTrans (ExceptT e) m) instance BlockStateQuery m => BlockStateQu
 deriving via (MGSTrans (ExceptT e) m) instance AccountOperations m => AccountOperations (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance BlockStateOperations m => BlockStateOperations (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance BlockStateStorage m => BlockStateStorage (ExceptT e m)
+
+deriving via (MGSTrans (ReaderT r) m) instance AccountOperations m => AccountOperations (ReaderT r m)

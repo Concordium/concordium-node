@@ -264,25 +264,21 @@ impl P2p for RpcServerImpl {
                     None,
                 ))
             } else {
-                Ok(())
+                Err(consensus_result.into())
             };
-            // make the successful response. If the transaction was added
-            // and retransmitted then the response is true, otherwise
-            // we respond with false
+
             let mk_response = |value| {
                 Response::new(BoolResponse {
                     value,
                 })
             };
+
+            let mk_err_response = |code, error| Err(Status::new(code, error));
+            let mk_err_invalid_argument_response =
+                |error| mk_err_response(Code::InvalidArgument, error);
+
             match (result, consensus_result) {
                 (Ok(_), Success) => Ok(mk_response(true)),
-                (Ok(_), DuplicateEntry) => Ok(mk_response(false)),
-                (Ok(_), DeserializationError) => Ok(mk_response(false)),
-                (Ok(_), Stale) => Ok(mk_response(false)),
-                (Ok(_), InvalidResult) => Ok(mk_response(false)),
-                (Ok(_), TooLowEnergy) => Ok(mk_response(false)),
-                (Ok(_), ExpiryTooLate) => Ok(mk_response(false)),
-                (Ok(_), NonexistingSenderAccount) => Ok(mk_response(false)),
                 (Err(e), Success) => {
                     warn!("Couldn't put a transaction in the outbound queue due to {:?}", e);
                     Err(Status::new(
@@ -290,12 +286,20 @@ impl P2p for RpcServerImpl {
                         format!("Couldn't put a transaction in the outbound queue due to {:?}", e),
                     ))
                 }
-                (_, e) => {
-                    warn!("Consensus didn't accept a transaction via RPC due to {:?}", e);
-                    Err(Status::new(
-                        Code::Internal,
-                        format!("Consensus didn't accept a transaction via RPC due to {:?}", e),
-                    ))
+                // the wildcard is always Err as only 'Success' responses from the consensus are
+                // being retransmitted. In other words Ok(_) implies consensus_result == Success
+                (_, DuplicateEntry) => {
+                    mk_err_response(Code::AlreadyExists, DuplicateEntry.to_string())
+                }
+                (_, ConsensusShutDown) => {
+                    warn!(
+                        "Consensus didn't accept a transaction via RPC due to {:?}",
+                        ConsensusShutDown.to_string()
+                    );
+                    mk_err_invalid_argument_response(ConsensusShutDown.to_string())
+                }
+                (_, consensus_error) => {
+                    mk_err_invalid_argument_response(consensus_error.to_string())
                 }
             }
         } else {

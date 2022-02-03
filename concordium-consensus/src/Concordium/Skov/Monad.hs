@@ -12,11 +12,10 @@ import Control.Monad.Trans.Class
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Except
 import Data.Time
-import Data.Set(toList)
 import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import Data.ByteString (ByteString)
 import Control.Monad.IO.Class
-
+import qualified Data.Map.Strict as Map
 import Concordium.Skov.Query
 
 import Concordium.Types
@@ -83,6 +82,24 @@ data UpdateResult
     -- ^The message was not processed because consensus has been shut down
     | ResultInvalidGenesisIndex
     -- ^The message is for an unknown genesis index
+    | ResultDuplicateAccountRegistrationID
+    -- ^An account already exists to the corresponding registration id of the 'CredentialDeployment'.
+    | ResultCredentialDeploymentInvalidIP
+    -- ^The identity provider was not valid
+    | ResultCredentialDeploymentInvalidAR
+    -- ^The anonymity revokers was not valid
+    | ResultCredentialDeploymentInvalidSignatures
+    -- ^The 'CredentialDeployment' contained invalid identity provider signatures.
+    | ResultCredentialDeploymentExpired
+    -- ^The 'CredentialDeployment' contained an expired 'validTo'.
+    | ResultChainUpdateSequenceNumberTooOld
+    -- ^The 'ChainUpdate' contained an invalid nonce
+    | ResultChainUpdateInvalidEffectiveTime
+    -- ^The 'ChainUpdate' contained an invalid effective time.
+    | ResultChainUpdateInvalidSignatures
+    -- ^The 'ChainUpdate' contained invalid signatures.
+    | ResultEnergyExceeded
+    -- ^The stated energy of the 'Transaction' exceeds the maximum allowed.
     deriving (Eq, Show)
 
 class (Monad m, Eq (BlockPointerType m), HashableTo BlockHash (BlockPointerType m), BlockPointerData (BlockPointerType m), BlockPointerMonad m, EncodeBlock pv (BlockPointerType m), BlockStateQuery m, IsProtocolVersion pv)
@@ -150,7 +167,7 @@ data MessageType
     | MessageFinalizationRecord
     | MessageCatchUpStatus
     deriving (Eq, Show)
-    
+
 class (SkovQueryMonad pv m, TimeMonad m, MonadLogger m) => SkovMonad pv m | m -> pv where
     -- |Store a block in the block table and add it to the tree
     -- if possible. This also checks that the block is not early in the sense that its received
@@ -279,6 +296,7 @@ deriving via (MGSTrans SkovQueryMonadT m) instance TS.TreeStateMonad pv m => TS.
 deriving via (MGSTrans SkovQueryMonadT m) instance BlockStateStorage m => BlockStateStorage (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance PerAccountDBOperations m => PerAccountDBOperations (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance BlockStateOperations m => BlockStateOperations (SkovQueryMonadT m)
+deriving via (MGSTrans SkovQueryMonadT m) instance TimeMonad m => TimeMonad (SkovQueryMonadT m)
 
 instance (TS.TreeStateMonad pv m)
           => SkovQueryMonad pv (SkovQueryMonadT m) where
@@ -317,14 +335,13 @@ instance (TS.TreeStateMonad pv m)
     {- - INLINE queryNonFinalizedTransactions - -}
     queryNonFinalizedTransactions addr = lift $ do
       txs <- TS.getAccountNonFinalized addr minNonce
-      return $! map getHash . concatMap (toList . snd) $ txs
+      return $! map getHash (concatMap (Map.keys . snd) txs)
 
     {- - INLINE queryNextAccountNonce - -}
     queryNextAccountNonce = lift . TS.getNextAccountNonce
 
     isShutDown = lift doIsShutDown
     getProtocolUpdateStatus = lift doGetProtocolUpdateStatus
-
 
 deriving via SkovQueryMonadT (GlobalStateM pv db c r g s m)
       instance (Monad m,
