@@ -115,7 +115,6 @@ cdi11keys = readSigningKeys . BSL.fromStrict $ $(makeRelativeToProject "testdata
 -- cdi13 :: CredentialDeploymentInformation
 -- cdi13 = readCredential . BSL.fromStrict $ $(makeRelativeToProject "testdata/credential-12.json" >>= embedFile)
 
-
 {-# WARNING icdi1 "Do not use in production." #-}
 icdi1 :: AccountCreation
 icdi1 = readAccountCreation . BSL.fromStrict $ $(makeRelativeToProject "testdata/initial-credential-1.json" >>= embedFile)

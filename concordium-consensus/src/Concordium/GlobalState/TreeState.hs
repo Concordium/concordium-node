@@ -1,6 +1,9 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE TypeFamilies #-}
 module Concordium.GlobalState.TreeState(
     module Concordium.GlobalState.Classes,
     module Concordium.GlobalState.Types,
@@ -10,11 +13,14 @@ module Concordium.GlobalState.TreeState(
 
 import qualified Data.Sequence as Seq
 import Data.Time
-import qualified Data.Set as Set
+import qualified Data.Map.Strict as Map
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Except
 import System.IO
+import Lens.Micro.Platform
+import Control.Monad.Reader
+import Data.Maybe (isJust)
 
 import Concordium.GlobalState.Block (BlockData(..), BlockPendingData (..), PendingBlock(..))
 import Concordium.GlobalState.BlockPointer (BlockPointerData(..))
@@ -39,6 +45,7 @@ import Data.Serialize as S
 import Concordium.Common.Version (Version)
 import qualified Concordium.GlobalState.Block as B
 import Data.Bits
+import qualified Concordium.TransactionVerification as TVer
 
 data BlockStatus bp pb =
     BlockAlive !bp
@@ -65,10 +72,13 @@ data AddTransactionResult =
   -- |Transaction is a duplicate of the given transaction.
   Duplicate !BlockItem |
   -- |The transaction was newly added.
-  Added !BlockItem |
+  Added !BlockItem !TVer.VerificationResult |
   -- |The nonce of the transaction is not later than the last finalized transaction for the sender.
   -- The transaction is not added to the table.
-  ObsoleteNonce
+  ObsoleteNonce |
+  -- |The transaction was not added as it could not be deemed verifiable.
+  -- The `NotAdded` contains the `VerificationResult`
+  NotAdded !TVer.VerificationResult
   deriving(Eq, Show)
 
 -- |Monad that provides operations for working with the low-level tree state.
@@ -225,8 +235,7 @@ class (Eq (BlockPointerType m),
     getAccountNonFinalized ::
       AccountAddressEq
       -> Nonce
-      -> m [(Nonce, Set.Set Transaction)]
-
+      -> m [(Nonce, Map.Map Transaction TVer.VerificationResult)]
     -- |Get the successor of the largest known account for the given account
     -- The function should return 'True' in the second component if and only if
     -- all (known) transactions from this account are finalized.
@@ -234,7 +243,7 @@ class (Eq (BlockPointerType m),
 
     -- |Get a credential which has not yet been finalized, i.e., it is correct for this function
     -- to return 'Nothing' if the requested credential has already been finalized.
-    getCredential :: TransactionHash -> m (Maybe CredentialDeploymentWithMeta)
+    getCredential :: TransactionHash -> m (Maybe (CredentialDeploymentWithMeta, TVer.VerificationResult))
 
     -- |Get non-finalized chain updates of a given type starting at the given sequence number
     -- (inclusive). This are returned as an ordered list of pairs of sequence number and
@@ -243,21 +252,8 @@ class (Eq (BlockPointerType m),
     getNonFinalizedChainUpdates ::
       UpdateType
       -> UpdateSequenceNumber
-      -> m [(UpdateSequenceNumber, Set.Set (WithMetadata UpdateInstruction))]
+      -> m [(UpdateSequenceNumber, Map.Map (WithMetadata UpdateInstruction) TVer.VerificationResult)]
 
-    -- |Add a transaction to the transaction table.
-    -- Does nothing if the transaction's nonce precedes the next available nonce
-    -- for the account at the last finalized block, or if a transaction with the same
-    -- hash is already in the table.
-    -- Otherwise, adds the transaction to the table and the non-finalized transactions
-    -- for its account.
-    -- A return value of @True@ indicates that the transaction was added (and not already
-    -- present).  A return value of @False@ indicates that the transaction was not added,
-    -- either because it was already present or the nonce has already been finalized.
-    addTransaction :: BlockItem -> m Bool
-    addTransaction tr = process <$> addCommitTransaction tr 0
-      where process (Added _) = True
-            process _ = False
     -- |Finalize a list of transactions on a given block. Per account, the transactions must be in
     -- continuous sequence by nonce, starting from the next available non-finalized
     -- nonce.
@@ -267,19 +263,29 @@ class (Eq (BlockPointerType m),
     -- as the index of the transaction in the given block).
     -- This will prevent it from being purged while the slot number exceeds
     -- that of the last finalized block.
-    commitTransaction :: Slot -> BlockHash -> BlockItem -> TransactionIndex -> m ()
-    -- |@addCommitTransaction tr slot@ adds a transaction and marks it committed
-    -- for the given slot number. By default the transaction is created in the 'Received' state,
+    commitTransaction :: Slot -> BlockHash -> BlockItem -> TransactionIndex -> m () 
+    -- |@addCommitTransaction tr verResCtx timestamp slot@ verifies a transaction within the
+    -- given context and adds the transaction and marks it committed
+    -- for the given slot number. If the transaction was deemed verifiable in the future.
+    -- By default the transaction is created in the 'Received' state,
     -- but if the transaction is already in the table the outcomes are retained.
     -- See documentation of 'AddTransactionResult' for meaning of the return value.
     -- The time is indicative of the receive time of the transaction. It is used to prioritize transactions
     -- when constructing a block.
-    addCommitTransaction :: BlockItem -> Slot -> m AddTransactionResult
+    -- Before the transaction is added the transaction will be verified. If it is not ok then it will return
+    -- `NotAdded` together with the verification result.
+    -- The scheduler will need to consult the resulting `VerificationResult` and based on that carry out the correct
+    -- verification before executing the transaction.
+    addCommitTransaction :: BlockItem -> Context (BlockState m) -> Timestamp -> Slot -> m AddTransactionResult
     -- |Purge a transaction from the transaction table if its last committed slot
     -- number does not exceed the slot number of the last finalized block.
     -- (A transaction that has been committed to a finalized block should not be purged.)
     -- Returns @True@ if and only if the transaction is purged.
     purgeTransaction :: BlockItem -> m Bool
+    -- |Get the `VerificationResult` for a `BlockItem` if such one exist.
+    -- A `VerificationResult` exists for `Received` and `Committed` transactions while 
+    -- finalized transactions will yield a `Nothing`.
+    getNonFinalizedTransactionVerificationResult :: BlockItem -> m (Maybe TVer.VerificationResult)
 
     -- |Purge transactions from the transaction table and pending transactions.
     -- Transactions are purged only if they are not included in a live block, and
@@ -371,10 +377,9 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad pv m) => TreeStateMonad pv (
     getNextAccountNonce = lift . getNextAccountNonce
     getCredential = lift . getCredential
     getNonFinalizedChainUpdates uty = lift . getNonFinalizedChainUpdates uty
-    addTransaction tr = lift $ addTransaction tr
     finalizeTransactions bh slot = lift . finalizeTransactions bh slot
     commitTransaction slot bh tr = lift . commitTransaction slot bh tr
-    addCommitTransaction tr slot = lift $ addCommitTransaction tr slot
+    addCommitTransaction tr ctx ts slot = lift $ addCommitTransaction tr ctx ts slot
     purgeTransaction = lift . purgeTransaction
     wipeNonFinalizedTransactions = lift wipeNonFinalizedTransactions
     markDeadTransaction bh = lift . markDeadTransaction bh
@@ -383,6 +388,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad pv m) => TreeStateMonad pv (
     putConsensusStatistics = lift . putConsensusStatistics
     getRuntimeParameters = lift getRuntimeParameters
     purgeTransactionTable tm = lift . (purgeTransactionTable tm)
+    getNonFinalizedTransactionVerificationResult = lift . getNonFinalizedTransactionVerificationResult
     {-# INLINE makePendingBlock #-}
     {-# INLINE getBlockStatus #-}
     {-# INLINE makeLiveBlock #-}
@@ -414,7 +420,6 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad pv m) => TreeStateMonad pv (
     {-# INLINE getNextAccountNonce #-}
     {-# INLINE getCredential #-}
     {-# INLINE getNonFinalizedChainUpdates #-}
-    {-# INLINE addTransaction #-}
     {-# INLINE finalizeTransactions #-}
     {-# INLINE commitTransaction #-}
     {-# INLINE addCommitTransaction #-}
@@ -426,6 +431,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad pv m) => TreeStateMonad pv (
     {-# INLINE putConsensusStatistics #-}
     {-# INLINE getRuntimeParameters #-}
     {-# INLINE purgeTransactionTable #-}
+    {-# INLINE getNonFinalizedTransactionVerificationResult #-}
 
 deriving via (MGSTrans MaybeT m) instance TreeStateMonad pv m => TreeStateMonad pv (MaybeT m)
 deriving via (MGSTrans (ExceptT e) m) instance TreeStateMonad pv m => TreeStateMonad pv (ExceptT e m)
@@ -499,3 +505,94 @@ importBlockV2 blockBS tm logm logLvl continuation =
       logm logLvl LLError $ "Can't deserialize block: " ++ show err
       return SerializationFail
     Right block -> continuation block
+
+-- | Exists so we can have the `ProtocolVersion` in the `Reader` computation ctx. 
+newtype ProtocolVersionedReaderT (pv :: ProtocolVersion) r m a = ProtocolVersionedReaderT {runProtocolVersionedReaderT :: ReaderT r m a}
+  deriving (Functor, Applicative, Monad, MonadReader r, MonadTrans)
+
+instance BlockStateTypes (ProtocolVersionedReaderT pv r m) where
+    type BlockState (ProtocolVersionedReaderT pv r m) = BlockState m
+    type UpdatableBlockState (ProtocolVersionedReaderT pv r m) = UpdatableBlockState m
+    type Account (ProtocolVersionedReaderT pv r m) = Account m
+
+-- |The Context of which a transaction is verified within 
+-- in the reader based instance.
+-- The `Context` contains the `BlockState`, the maximum energy of a block and
+-- also whether the transaction was received individually or as part of a block.
+--
+-- The `Context` is used for verifying the transaction in a deferred manner.
+-- That is, the verification process will only take place if the transaction is not already contained
+-- in the `TransactionTable`.
+-- Note. The `Context` is created when the transaction is received by `doReceiveTransactionInternal` and
+-- the actual verification is carried out within `addCommitTransaction` when it has been checked
+-- that the transaction does not already exist in the `TransactionTable`.
+data Context t = Context {
+  _ctxBs :: t,
+  _ctxMaxBlockEnergy :: !Energy,
+  -- |Whether the transaction was received from a block or individually.
+  _isTransactionFromBlock :: Bool
+  }
+makeLenses ''Context
+
+instance (Monad m,
+          BlockStateQuery m,
+          AccountOperations m,
+          TreeStateMonad pv m,
+          r ~ Context (BlockState m)) => TVer.TransactionVerifier pv (ProtocolVersionedReaderT pv r m) where
+  {-# INLINE getIdentityProvider #-}
+  getIdentityProvider ipId = do
+    ctx <- ask
+    lift (getIdentityProvider (ctx ^. ctxBs) ipId)
+  {-# INLINE getAnonymityRevokers #-}
+  getAnonymityRevokers arrIds = do
+    ctx <- ask
+    lift (getAnonymityRevokers (ctx ^. ctxBs) arrIds)
+  {-# INLINE getCryptographicParameters #-}
+  getCryptographicParameters = do
+    ctx <- ask
+    lift (getCryptographicParameters (ctx ^. ctxBs))
+  {-# INLINE registrationIdExists #-}
+  registrationIdExists regId = do
+    ctx <- ask
+    lift $ isJust <$> getAccountByCredId (ctx ^. ctxBs) regId
+  {-# INLINE getAccount #-}
+  getAccount aaddr = do
+    ctx <- ask
+    fmap snd <$> lift (getAccount (ctx ^. ctxBs) aaddr)
+  {-# INLINE getNextUpdateSequenceNumber #-}
+  getNextUpdateSequenceNumber uType = do
+     ctx <- ask
+     lift (getNextUpdateSequenceNumber (ctx ^. ctxBs) uType)
+  {-# INLINE getUpdateKeysCollection #-}
+  getUpdateKeysCollection = do
+    ctx <- ask
+    lift (getUpdateKeysCollection (ctx ^. ctxBs))
+  {-# INLINE getAccountAvailableAmount #-}
+  getAccountAvailableAmount = lift . getAccountAvailableAmount
+  {-# INLINE getNextAccountNonce #-}
+  getNextAccountNonce acc = do
+    ctx <- ask
+    -- If the transaction was received as part of a block
+    -- then we check the account nonce from the `BlockState` in the context
+    -- Otherwise if the transaction was received individually then we
+    -- check the transaction table for the nonce.
+    if ctx ^. isTransactionFromBlock
+    then lift (getAccountNonce acc)
+    else do
+      aaddr <- lift (getAccountCanonicalAddress acc)
+      lift (fst <$> getNextAccountNonce (accountAddressEmbed aaddr))
+  {-# INLINE getAccountVerificationKeys #-}
+  getAccountVerificationKeys = lift . getAccountVerificationKeys
+  {-# INLINE energyToCcd #-}
+  energyToCcd v = do
+    ctx <- ask
+    rate <- lift (getEnergyRate (ctx ^. ctxBs))
+    return (computeCost rate v)
+  {-# INLINE getMaxBlockEnergy #-}
+  getMaxBlockEnergy = do
+    ctx <- ask
+    return (ctx ^. ctxMaxBlockEnergy)
+  {-# INLINE checkExactNonce #-}
+  checkExactNonce = do
+    ctx <- ask
+    pure $ not (ctx ^. isTransactionFromBlock)

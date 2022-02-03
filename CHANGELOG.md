@@ -1,7 +1,17 @@
 # Changelog
 
 ## Unrelease changes
-
+- The `SendTransaction` function exposed via the gRPC interface now provides the caller with detailed error messages if the 
+  transaction was rejected instead of just `False`. The function still returns `True` if 
+  the transaction was accepted.
+  The following gRPC error codes can be returned.
+  - 'SUCCESS' The transaction was succesfully relayed to consensus.
+  - 'INVALID_ARGUMENT' The transaction was deemed invalid or exceeds the maximum size allowed (the raw size of the transaction).
+     In addition the error message contains information as to why the transaction was deemed invalid.
+  - 'FAILED_PRECONDITION' The network was stopped due to an unrecognized protocol update.
+  - 'DUPLICATE_ENTRY' The transaction was a duplicate.
+  - 'INTERNAL' An internal error happened and as such the transaction could not be processed.
+  The server will return a gRPC status if the transaction was deemed invalid. 
 - Support for wire-protocol version 0 is dropped, meaning that the node cannot
   connect to peers that do not support wire-protocol version 1, which is supported
   since version 1.1.0.

@@ -17,6 +17,7 @@ import Concordium.Types.Accounts (
     bakerElectionVerifyKey,
     bakerSignatureVerifyKey,
  )
+import Concordium.TransactionVerification
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Basic.BlockState.Bakers
 import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
@@ -227,8 +228,8 @@ transactionsInput =
            }
     ]
 
-type TestResult = ([([(Types.BlockItem, Types.ValidResult)],
-                     [(Types.Transaction, Types.FailureKind)],
+type TestResult = ([([(BlockItemWithStatus, Types.ValidResult)],
+                     [(TransactionWithStatus, Types.FailureKind)],
                      BasicBirkParameters)],
                     BlockState PV1,
                     Types.Amount)

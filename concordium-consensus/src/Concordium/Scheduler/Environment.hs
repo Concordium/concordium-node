@@ -38,6 +38,8 @@ import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.AccountTransactionIndex
 import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as ARS
 
+import qualified Concordium.TransactionVerification as TVer
+
 import Control.Exception(assert)
 
 import qualified Concordium.ID.Types as ID
@@ -62,7 +64,7 @@ class (Monad m) => StaticInformation m where
   getAccountCreationLimit :: m CredentialsPerBlockLimit
 
 -- |Information needed to execute transactions in the form that is easy to use.
-class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m)), AccountOperations m, MonadLogger m, IsProtocolVersion pv)
+class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m)), AccountOperations m, MonadLogger m, IsProtocolVersion pv, (TVer.TransactionVerifier pv m))
     => SchedulerMonad pv m | m -> pv where
 
   -- |Notify the transaction log that a transaction had the given footprint. The
@@ -84,9 +86,6 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
   -- account's address. The behaviour of this will generally depend on the
   -- protocol version.
   addressWouldClash :: AccountAddress -> m Bool
-
-  -- |Check whether a given registration id exists in the global state.
-  accountRegIdExists :: ID.CredentialRegistrationID -> m Bool
 
   -- |Commit to global state all the updates to local state that have
   -- accumulated through the execution. This method is also in charge of
@@ -248,17 +247,6 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
   -- * The account exists
   -- * The account has keys defined at the specified indices
   updateCredentialKeys :: AccountIndex -> ID.CredentialIndex -> ID.CredentialPublicKeys -> m ()
-
-  -- *Other metadata.
-
-  -- |Retrieve the identity provider with given id, if possible.
-  getIPInfo :: IdentityProviderIdentity -> m (Maybe IpInfo)
-
-  -- |Retrieve the identity provider with given id, if possible.
-  getArInfos :: [ID.ArIdentity] -> m (Maybe [ArInfo])
-
-  -- |Get cryptographic parameters for the current state.
-  getCryptoParams :: m CryptographicParameters
 
   -- * Chain updates
 
@@ -913,14 +901,14 @@ logInvalidBlockItem WithMetadata{wmdData=ChainUpdate{},..} fk =
   logEvent Scheduler LLWarning $ "Chain update with hash " ++ show wmdHash ++ " was invalid with reason: " ++ show fk
 
 {-# INLINE logInvalidTransaction #-}
-logInvalidTransaction :: SchedulerMonad pv m => Transaction -> FailureKind -> m ()
-logInvalidTransaction WithMetadata{..} fk =
+logInvalidTransaction :: SchedulerMonad pv m => TVer.TransactionWithStatus -> FailureKind -> m ()
+logInvalidTransaction (WithMetadata{..},_) fk =
   logEvent Scheduler LLWarning $ "Transaction with hash " ++ show wmdHash ++ " was invalid with reason: " ++ show fk
 
-logInvalidCredential :: SchedulerMonad pv m => CredentialDeploymentWithMeta -> FailureKind -> m ()
-logInvalidCredential WithMetadata{..} fk =
+logInvalidCredential :: SchedulerMonad pv m => TVer.CredentialDeploymentWithStatus -> FailureKind -> m ()
+logInvalidCredential (WithMetadata{..},_) fk =
   logEvent Scheduler LLWarning $ "Credential with registration id " ++ (show . ID.credId . credential $ wmdData) ++ " was invalid with reason " ++ show fk
 
-logInvalidChainUpdate :: SchedulerMonad pv m => WithMetadata UpdateInstruction -> FailureKind -> m ()
-logInvalidChainUpdate WithMetadata{..} fk =
+logInvalidChainUpdate :: SchedulerMonad pv m => TVer.ChainUpdateWithStatus -> FailureKind -> m ()
+logInvalidChainUpdate (WithMetadata{..},_) fk =
   logEvent Scheduler LLWarning $ "Chain update with hash " ++ show wmdHash ++ " was invalid with reason: " ++ show fk

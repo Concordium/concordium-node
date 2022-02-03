@@ -1,0 +1,14 @@
+{
+  "v": 0,
+  "value": {
+    "1": {
+      "arIdentity": 1,
+      "arDescription": {
+        "name": "AR-1",
+        "url": "",
+        "description": ""
+      },
+      "arPublicKey": "b14cbfe44a02c6b1f78711176d5f437295367aa4f2a8c2551ee10d25a03adc69d61a332a058971919dad7312e1fc94c58c22c11e35afce71b1fedc33825b22cbf3898c79105c00b176d45be52b72fbdf212903942b4fce357da5700a126d4a54"
+    }
+  }
+}

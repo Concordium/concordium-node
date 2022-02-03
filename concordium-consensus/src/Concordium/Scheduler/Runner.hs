@@ -125,7 +125,8 @@ processUngroupedTransactions ::
   m Types.GroupedTransactions
 processUngroupedTransactions inpt = do
   txs <- processTransactions inpt
-  return (Types.fromTransactions (map ((:[]) . Types.fromAccountTransaction 0) txs))
+  -- We just attach a `Nothing` to the transaction such that it will be verified by the scheduler.
+  return (map (\x -> Types.TGAccountTransactions [(Types.fromAccountTransaction 0 x, Nothing)]) txs)
 
 -- |For testing purposes: process transactions in the groups in which they came
 -- The arrival time of all transactions is taken to be 0.
@@ -133,7 +134,8 @@ processGroupedTransactions ::
   (MonadFail m, MonadIO m) =>
   [[TransactionJSON]] ->
   m Types.GroupedTransactions
-processGroupedTransactions = fmap (Types.fromTransactions . map (map (Types.fromAccountTransaction 0)))
+-- We just attach a `Nothing` to the transaction such that it will be verified by the scheduler.  
+processGroupedTransactions = fmap (Types.fromTransactions . map (map (\x -> (Types.fromAccountTransaction 0 x, Nothing))))
                              . mapM processTransactions
 
 data PayloadJSON = DeployModule { version :: Word32, moduleName :: FilePath }
