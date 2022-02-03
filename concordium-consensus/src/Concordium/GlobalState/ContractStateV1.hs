@@ -46,9 +46,8 @@ foreign import ccall "load_persistent_tree_v1" loadPersistentTree :: LoadCallbac
 foreign import ccall unsafe "&free_persistent_state_v1" freePersistentState :: FunPtr (Ptr PersistentState -> IO ())
 foreign import ccall unsafe "&free_mutable_state_v1" freeMutableState :: FunPtr (Ptr MutableState -> IO ())
 
--- |Write out the tree using the provided callback, and return a pointer to the
--- header.
-foreign import ccall "write_persistent_tree_v1" writePersistentTree :: StoreCallback -> Ptr PersistentState -> Ptr CSize -> IO (Ptr Word8)
+-- |Write out the tree using the provided callback, and return a BlobRef to the root.
+foreign import ccall "write_persistent_tree_v1" writePersistentTree :: StoreCallback -> Ptr PersistentState -> IO (BlobRef PersistentState)
 
 -- |Freeze the mutable state and compute the root hash. This deallocates the
 -- mutable state and writes the hash to the provided pointer, which should be
@@ -121,11 +120,9 @@ instance (MonadBlobStore m) => BlobStorable m PersistentState where
 
   storeUpdate ps = do
     storeCallback <- snd <$> getCallBacks
-    liftIO $ alloca $ \sizePtr -> do
-      bytePtr <- withPersistentState ps (\psPtr -> writePersistentTree storeCallback psPtr sizePtr)
-      len <- peek sizePtr
-      bs <- unsafePackCStringFinalizer (castPtr bytePtr) (fromIntegral len) (rs_free_array_len bytePtr (fromIntegral len))
-      return (putByteString bs, ps)
+    liftIO $ do
+      bRef <- withPersistentState ps $ writePersistentTree storeCallback
+      return (put bRef, ps)
 
 instance MonadBlobStore m => Cacheable m PersistentState where
   cache ps = do
