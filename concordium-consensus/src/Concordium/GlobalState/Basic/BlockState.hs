@@ -10,7 +10,6 @@
 {-# LANGUAGE InstanceSigs #-}
 module Concordium.GlobalState.Basic.BlockState where
 
-import Foreign.Ptr (nullFunPtr)
 import Data.Map (Map)
 import Lens.Micro.Platform
 import Data.Maybe
@@ -39,6 +38,7 @@ import qualified Concordium.GlobalState.Types as GT
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.AccountTransactionIndex
+import Concordium.GlobalState.ContractStateFFIHelpers
 import Concordium.GlobalState.Basic.BlockState.Bakers
 import qualified Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.Basic.BlockState.Account
@@ -64,6 +64,7 @@ import qualified Concordium.Wasm as Wasm
 import Concordium.GlobalState.Types (BlockStateTypes(UpdatableContractState))
 import Concordium.GlobalState.BlockState (InstanceInfoTypeV(iiParameters))
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
+import Concordium.GlobalState.ContractStateFFIHelpers (errorLoadCallBack)
 
 data BasicBirkParameters = BasicBirkParameters {
     -- |The currently-registered bakers.
@@ -184,7 +185,7 @@ data UInstanceStateV (v :: Wasm.WasmVersion) where
 freeze :: UInstanceStateV v -> (H.Hash, InstanceStateV v)
 freeze (UInstanceStateV0 cs) = (getHash cs, Instance.InstanceStateV0 cs)
 freeze (UInstanceStateV1 cs) =
-  let (hsh, persistent) = StateV1.freezeTransient nullFunPtr cs
+  let (hsh, persistent) = StateV1.freezeTransient cs
   in (hsh, Instance.InstanceStateV1 persistent)
 
 data BlockState (pv :: ProtocolVersion) = BlockState {
@@ -531,7 +532,7 @@ instance Monad m => BS.ContractStateOperations (PureBlockStateMonad pv m) where
   fromForeignReprV1 = return . UInstanceStateV1 . StateV1.unsafeFromForeign
   stateSizeV0 (Instance.InstanceStateV0 cs) = return (Wasm.contractStateSize cs)
   mutableStateSizeV0 (UInstanceStateV0 cs) = return (Wasm.contractStateSize cs)
-  getV1StateContext = return nullFunPtr
+  getV1StateContext = return errorLoadCallBack
   {-# INLINE thawContractState #-}
   {-# INLINE toForeignReprV0 #-}
   {-# INLINE toForeignReprV1 #-}
@@ -938,7 +939,7 @@ instance (IsProtocolVersion pv, MonadIO m) => BS.BlockStateStorage (PureBlockSta
     writeBlockState h = PureBlockStateMonad . liftIO . hPutBuilder h . snd . runPutMBuilder . putBlockState . _unhashedBlockState
 
     {-# INLINE blockStateLoadCallback #-}
-    blockStateLoadCallback = return nullFunPtr -- basic block state is not written, so it never has to be loaded.
+    blockStateLoadCallback = return errorLoadCallBack -- basic block state is not written, so it never has to be loaded.
 
 -- |Initial block state.
 initialState :: (IsProtocolVersion pv)

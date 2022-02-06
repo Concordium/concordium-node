@@ -46,10 +46,10 @@ import Data.IORef
 import Concordium.Crypto.EncryptedTransfers
 import Data.Map (Map)
 import Foreign.Ptr
-import Foreign.C.Types
 import System.IO.MMap
 
 import Concordium.GlobalState.Persistent.MonadicRecursive
+import Concordium.GlobalState.ContractStateFFIHelpers
 
 -- Imports for providing instances
 import Concordium.GlobalState.Account
@@ -94,22 +94,6 @@ data BlobStore = BlobStore {
     -- parts. It will always map from the start of the file.
     blobStoreMMap :: !(IORef BS.ByteString)
 }
-
--- |Callback for reading from the blob store into the provided buffer.
--- The arguments are (in order) the amount of data to read, a buffer to write it to, and the location to read it from.
-data Vec
-type LoadCallbackType = Word64 -> IO (Ptr Vec)
-type LoadCallback = FunPtr LoadCallbackType
--- |Callback for writing to the blob store from the provided buffer.
--- The arguments are (in order) the amounf data to write, the buffer where the data is. The return value is
--- the location where data was written.
-type StoreCallbackType = Ptr Word8 -> CSize -> IO Word64
-type StoreCallback = FunPtr StoreCallbackType
-
-foreign import ccall "wrapper" createLoadCallback :: LoadCallbackType -> IO LoadCallback
-foreign import ccall "wrapper" createStoreCallback :: StoreCallbackType -> IO StoreCallback
-
-foreign import ccall "copy_to_vec_ffi" copyToRustVec :: Ptr Word8 -> CSize -> IO (Ptr Vec)
 
 class HasBlobStore a where
     blobStore :: a -> BlobStore

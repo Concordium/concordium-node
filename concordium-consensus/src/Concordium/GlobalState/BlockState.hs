@@ -78,7 +78,7 @@ import qualified Concordium.ID.Types as ID
 import Concordium.ID.Parameters(GlobalContext)
 import Concordium.ID.Types (AccountCredential, CredentialRegistrationID)
 import Concordium.Crypto.EncryptedTransfers
-import Concordium.GlobalState.Persistent.BlobStore (LoadCallback)
+import Concordium.GlobalState.ContractStateFFIHelpers (LoadCallback)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import qualified Data.Set as Set
 

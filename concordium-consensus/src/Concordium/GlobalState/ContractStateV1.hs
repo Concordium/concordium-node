@@ -13,6 +13,7 @@ import Foreign (Storable(peek))
 import Foreign.Marshal (alloca)
 import System.IO.Unsafe
 
+import Concordium.GlobalState.ContractStateFFIHelpers (StoreCallback, LoadCallback, errorLoadCallBack)
 import Concordium.GlobalState.Persistent.BlobStore
 import qualified Data.FixedByteString as FBS
 import Concordium.Types.HashableTo (MHashableTo(..), HashableTo (getHash))
@@ -99,9 +100,9 @@ thaw ms = do
   MutableState <$> newForeignPtr freeMutableState msPtr
 
 {-# NOINLINE freezeTransient #-}
-freezeTransient :: LoadCallback -> TransientMutableState -> (SHA256.Hash, TransientState)
-freezeTransient cbk (TransientMutableState tms) = unsafePerformIO $ do
-  (h, s) <- freeze cbk tms
+freezeTransient :: TransientMutableState -> (SHA256.Hash, TransientState)
+freezeTransient (TransientMutableState tms) = unsafePerformIO $ do
+  (h, s) <- freeze errorLoadCallBack tms
   return (h, TransientState s)
 
 {-# NOINLINE thawTransient #-}
@@ -164,6 +165,6 @@ instance Serialize TransientState where
   {-# NOINLINE put #-}
   put (TransientState ps) = unsafePerformIO $ do
     withPersistentState ps $ \psPtr -> alloca $ \sizePtr -> do
-      bytePtr <- serializePersistentState nullFunPtr psPtr sizePtr
+      bytePtr <- serializePersistentState errorLoadCallBack psPtr sizePtr
       len <- peek sizePtr
       putByteStringLen <$> unsafePackCStringFinalizer (castPtr bytePtr) (fromIntegral len) (rs_free_array_len bytePtr (fromIntegral len))

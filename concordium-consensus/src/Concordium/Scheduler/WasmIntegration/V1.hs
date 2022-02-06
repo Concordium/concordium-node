@@ -54,8 +54,8 @@ import qualified Concordium.Types.Execution as Exec
 import Concordium.Wasm
 import Concordium.GlobalState.Wasm
 import Concordium.Utils.Serialization
+import Concordium.GlobalState.ContractStateFFIHelpers (LoadCallback)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
-import Concordium.GlobalState.Persistent.BlobStore (LoadCallback)
 
 foreign import ccall unsafe "return_value_to_byte_array" return_value_to_byte_array :: Ptr ReturnValue -> Ptr CSize -> IO (Ptr Word8)
 foreign import ccall unsafe "&box_vec_u8_free" freeReturnValue :: FunPtr (Ptr ReturnValue -> IO ())
