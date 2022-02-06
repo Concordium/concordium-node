@@ -167,7 +167,7 @@ destroyBlobStore bs@BlobStoreContext{..} = do
 -- The given FilePath is a directory where the temporary blob
 -- store will be created.
 -- The blob store file is deleted afterwards.
-runBlobStoreTemp :: FilePath -> ReaderT BlobStore IO a -> IO a
+runBlobStoreTemp :: FilePath -> ReaderT BlobStoreContext IO a -> IO a
 runBlobStoreTemp dir a = bracket openf closef usef
     where
         openf = openBinaryTempFile dir "blb.dat"
@@ -177,8 +177,11 @@ runBlobStoreTemp dir a = bracket openf closef usef
         usef (fp, h) = do
             mv <- newMVar (BlobHandle h True 0)
             mmap <- newIORef BS.empty
-            res <- runReaderT a (BlobStore mv fp mmap)
+            let bscBlobStore = BlobStore mv fp mmap
+            (bscLoadCallback, bscStoreCallback) <- mkCallbacksFromBlobStore bscBlobStore
+            res <- runReaderT a BlobStoreContext{..}
             _ <- takeMVar mv
+            freeCallbacks bscLoadCallback bscStoreCallback
             return res
 
 -- | Read a bytestring from the blob store at the given offset using the file handle.

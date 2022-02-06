@@ -256,13 +256,13 @@ runAccountAction (RecordRegId rid ai) (ba, pa) = do
   pa' <- P.recordRegId rid ai pa
   return (ba', pa')
 
-emptyTest :: SpecWith BlobStore
+emptyTest :: SpecWith BlobStoreContext
 emptyTest =
   it "empty" $
     runReaderT
-      (checkEquivalent B.emptyAccounts P.emptyAccounts :: ReaderT BlobStore IO ())
+      (checkEquivalent B.emptyAccounts P.emptyAccounts :: ReaderT BlobStoreContext IO ())
 
-actionTest :: Word -> SpecWith BlobStore
+actionTest :: Word -> SpecWith BlobStoreContext
 actionTest lvl = it "account actions" $ \bs -> withMaxSuccess (100 * fromIntegral lvl) $ property $ do
   acts <- randomActions
   return $ ioProperty $ flip runReaderT bs $ do

@@ -64,7 +64,6 @@ import qualified Concordium.Wasm as Wasm
 import Concordium.GlobalState.Types (BlockStateTypes(UpdatableContractState))
 import Concordium.GlobalState.BlockState (InstanceInfoTypeV(iiParameters))
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
-import Concordium.GlobalState.ContractStateFFIHelpers (errorLoadCallBack)
 
 data BasicBirkParameters = BasicBirkParameters {
     -- |The currently-registered bakers.

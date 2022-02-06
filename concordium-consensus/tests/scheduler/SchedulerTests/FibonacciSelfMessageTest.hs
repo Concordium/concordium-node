@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE GADTs #-}
 {-| This tests sending messages to contracts. Concretely it invokes
     A fibonacci contract that adds the n-th Fibonacci number to its state,
     by repeatedly sending itself messages.
@@ -143,7 +144,10 @@ testCases =
         fibSpec n bs = specify "Contract state" $
           case getInstance (Types.ContractAddress 0 0) (bs ^. blockInstances) of
             Nothing -> assertFailure "Instnace at <0,0> does not exist."
-            Just istance -> assertEqual "State contains the n-th Fibonacci number." (fibNBytes n) (instanceModel istance)
+            Just (InstanceV0 InstanceV{_instanceVModel = InstanceStateV0 s}) ->
+              assertEqual "State contains the n-th Fibonacci number." (fibNBytes n) s
+            _ -> assertFailure "Expected instance version 0"
+
 
         fib n = let go = 1:1:zipWith (+) go (tail go)
                 in go !! n

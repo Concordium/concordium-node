@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE DataKinds #-}
 {-| Test that the init context of a contract is passed correctly by the scheduler. -}
 module SchedulerTests.InitContextTest where
@@ -82,7 +83,9 @@ checkInitResult proxy (suc, fails, instances) = do
   assertEqual "There should be no failed transactions." [] fails
   assertEqual "There should be no rejected transactions." [] reject
   assertEqual "There should be 1 instance." 1 (length instances)
-  let model = contractState . instanceModel . snd . head $ instances
+  model <- case snd . head $ instances of
+        InstanceV0 InstanceV{_instanceVModel = InstanceStateV0 s} -> return (contractState s)
+        _ -> assertFailure "Expected instance version 0"
   assertEqual "Instance model is the sender address of the account which inialized it." model (encode (senderAccount proxy))
   where
     reject = filter (\case (_, Types.TxSuccess{}) -> False

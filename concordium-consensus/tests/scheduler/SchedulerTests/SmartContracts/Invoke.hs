@@ -21,7 +21,6 @@ import Concordium.Types.SeedState (initialSeedState)
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Persistent.BlockState
-import Concordium.GlobalState.Instance
 import Concordium.Wasm
 import qualified Concordium.Scheduler.WasmIntegration.V1 as WasmV1
 import qualified Concordium.GlobalState.Wasm as GSWasm
@@ -34,7 +33,7 @@ import Concordium.GlobalState.DummyData
 
 import SchedulerTests.TestUtils
 
-type ContextM = PersistentBlockStateMonad PV4 BlobStore (ReaderT BlobStore IO)
+type ContextM = PersistentBlockStateMonad PV4 BlobStoreContext (ReaderT BlobStoreContext IO)
 
 -- empty state, no accounts, no modules, no instances
 initialBlockState :: ContextM (HashedPersistentBlockState PV4)
@@ -72,15 +71,24 @@ initContract (bs, miv, _) = do
   let initParam = emptyParameter
   let initAmount = 0
   let initInterpreterEnergy = 1_000_000_000
-  case WasmV1.applyInitFun miv cm initContext initName initParam initAmount initInterpreterEnergy of
+  (cbk, _) <- getCallBacks
+  case WasmV1.applyInitFun cbk miv cm initContext initName initParam initAmount initInterpreterEnergy of
     Nothing -> -- out of energy
       liftIO $ assertFailure "Initialization ran out of energy."
     Just (Left failure, _) ->
       liftIO $ assertFailure $ "Initialization failed: " ++ show failure
     Just (Right WasmV1.InitSuccess{..}, _) -> do
       let receiveMethods = OrdMap.findWithDefault Set.empty initName (GSWasm.miExposedReceive miv)
-      let mkInstance = makeInstance initName receiveMethods miv irdNewState initAmount senderAddress
-      (addr, instState) <- bsoPutNewInstance bs mkInstance
+      initialState <- fromForeignReprV1 irdNewState
+      let ins = NewInstanceData{
+            nidInitName = initName,
+            nidEntrypoints = receiveMethods,
+            nidInterface = miv,
+            nidInitialState = initialState,
+            nidInitialAmount = initAmount,
+            nidOwner = senderAddress
+            }
+      (addr, instState) <- bsoPutNewInstance bs ins
       (addr,) <$> freezeBlockState instState
 
 -- |Invoke the contract without an invoker expecting success.

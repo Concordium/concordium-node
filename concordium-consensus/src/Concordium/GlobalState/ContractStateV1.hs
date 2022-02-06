@@ -48,7 +48,7 @@ foreign import ccall unsafe "&free_persistent_state_v1" freePersistentState :: F
 foreign import ccall unsafe "&free_mutable_state_v1" freeMutableState :: FunPtr (Ptr MutableState -> IO ())
 
 -- |Write out the tree using the provided callback, and return a BlobRef to the root.
-foreign import ccall "write_persistent_tree_v1" writePersistentTree :: StoreCallback -> Ptr PersistentState -> IO (BlobRef PersistentState)
+foreign import ccall "store_persistent_tree_v1" storePersistentTree :: StoreCallback -> Ptr PersistentState -> IO (BlobRef PersistentState)
 
 -- |Freeze the mutable state and compute the root hash. This deallocates the
 -- mutable state and writes the hash to the provided pointer, which should be
@@ -122,7 +122,7 @@ instance (MonadBlobStore m) => BlobStorable m PersistentState where
   storeUpdate ps = do
     storeCallback <- snd <$> getCallBacks
     liftIO $ do
-      bRef <- withPersistentState ps $ writePersistentTree storeCallback
+      bRef <- withPersistentState ps $ storePersistentTree storeCallback
       return (put bRef, ps)
 
 instance MonadBlobStore m => Cacheable m PersistentState where
