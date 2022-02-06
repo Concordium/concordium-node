@@ -184,7 +184,7 @@ data UInstanceStateV (v :: Wasm.WasmVersion) where
 freeze :: UInstanceStateV v -> (H.Hash, InstanceStateV v)
 freeze (UInstanceStateV0 cs) = (getHash cs, Instance.InstanceStateV0 cs)
 freeze (UInstanceStateV1 cs) =
-  let (hsh, persistent) = StateV1.freezeTransient cs
+  let (hsh, persistent) = StateV1.freezeTransient nullFunPtr cs
   in (hsh, Instance.InstanceStateV1 persistent)
 
 data BlockState (pv :: ProtocolVersion) = BlockState {

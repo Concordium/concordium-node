@@ -96,10 +96,11 @@ data UInstanceStateV (v :: Wasm.WasmVersion) where
   UInstanceStateV0 :: Wasm.ContractState -> UInstanceStateV GSWasm.V0
   UInstanceStateV1 :: StateV1.MutableState -> UInstanceStateV GSWasm.V1
 
-freeze :: MonadIO m => UInstanceStateV v -> m (SHA256.Hash, Instances.InstanceStateV v)
+freeze :: MonadBlobStore m => UInstanceStateV v -> m (SHA256.Hash, Instances.InstanceStateV v)
 freeze (UInstanceStateV0 cs) = return (getHash cs, Instances.InstanceStateV0 cs)
 freeze (UInstanceStateV1 cs) = do
-  (hsh, persistent) <- liftIO (StateV1.freeze cs)
+  (cbk, _) <- getCallBacks
+  (hsh, persistent) <- liftIO (StateV1.freeze cbk cs)
   return (hsh, Instances.InstanceStateV1 persistent)
 
 

@@ -65,7 +65,6 @@ import Concordium.Wasm
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types.HashableTo
 import Control.Monad
-import Foreign.Marshal (copyBytes)
 
 
 -- | A @BlobRef a@ represents an offset on a file, at
@@ -98,16 +97,19 @@ data BlobStore = BlobStore {
 
 -- |Callback for reading from the blob store into the provided buffer.
 -- The arguments are (in order) the amount of data to read, a buffer to write it to, and the location to read it from.
-type LoadCallbackType = CSize -> Ptr Word8 -> Word64 -> IO ()
+data Vec
+type LoadCallbackType = Word64 -> IO (Ptr Vec)
 type LoadCallback = FunPtr LoadCallbackType
 -- |Callback for writing to the blob store from the provided buffer.
 -- The arguments are (in order) the amounf data to write, the buffer where the data is. The return value is
 -- the location where data was written.
-type StoreCallbackType = CSize -> Ptr Word8 -> IO Word64
+type StoreCallbackType = Ptr Word8 -> CSize -> IO Word64
 type StoreCallback = FunPtr StoreCallbackType
 
 foreign import ccall "wrapper" createLoadCallback :: LoadCallbackType -> IO LoadCallback
 foreign import ccall "wrapper" createStoreCallback :: StoreCallbackType -> IO StoreCallback
+
+foreign import ccall "copy_to_vec_ffi" copyToRustVec :: Ptr Word8 -> CSize -> IO (Ptr Vec)
 
 class HasBlobStore a where
     blobStore :: a -> BlobStore
@@ -118,11 +120,11 @@ class HasBlobStore a where
 -- These callbacks must be freed in order that memory is not leaked.
 mkCallbacksFromBlobStore :: BlobStore -> IO (LoadCallback, StoreCallback)
 mkCallbacksFromBlobStore bstore = do
-    storeCallback <- createStoreCallback (\size ptr -> theBlobRef <$> (writeBlobBS bstore =<< BSUnsafe.unsafePackCStringLen (castPtr ptr, fromIntegral size)))
-    loadCallback <- createLoadCallback $ \size ptr location -> do
+    storeCallback <- createStoreCallback (\ptr size -> theBlobRef <$> (writeBlobBS bstore =<< BSUnsafe.unsafePackCStringLen (castPtr ptr, fromIntegral size)))
+    loadCallback <- createLoadCallback $ \location -> do
         bs <- readBlobBS bstore (BlobRef location)
-        BSUnsafe.unsafeUseAsCString bs $ \sourcePtr -> do
-            copyBytes (castPtr ptr) sourcePtr (fromIntegral size)
+        BSUnsafe.unsafeUseAsCStringLen bs $ \(sourcePtr, len) -> 
+          copyToRustVec (castPtr sourcePtr) (fromIntegral len)
     return (loadCallback, storeCallback)
 
 -- |Free callbacks constructed with 'mkCallbacksFromBlobStore'. This can only be

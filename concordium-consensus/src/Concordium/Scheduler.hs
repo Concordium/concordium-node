@@ -697,7 +697,8 @@ handleInitContract wtc initAmount modref initName param =
                       initOrigin = senderAddress,
                       icSenderPolicies = map (Wasm.mkSenderPolicy . snd) (OrdMap.toAscList senderCredentials)
                    }
-                result <- runInterpreter (return . WasmV1.applyInitFun iface cm initCtx initName param initAmount)
+                stateContext <- getV1StateContext
+                result <- runInterpreter (return . WasmV1.applyInitFun stateContext iface cm initCtx initName param initAmount)
                            `rejectingWith'` WasmV1.cerToRejectReasonInit
 
                 -- Charge for storing the contract state.

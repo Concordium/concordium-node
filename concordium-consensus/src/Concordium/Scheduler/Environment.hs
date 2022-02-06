@@ -44,9 +44,7 @@ import Control.Exception(assert)
 
 import qualified Concordium.ID.Types as ID
 import Concordium.Wasm (IsWasmVersion)
-import Concordium.GlobalState.Persistent.BlobStore (LoadCallback)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
-
 
 -- |An account index togehter with the canonical address. Sometimes it is
 -- difficult to pass an IndexedAccount and we only need the addresses. That is

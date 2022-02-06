@@ -52,7 +52,7 @@ foreign import ccall "write_persistent_tree_v1" writePersistentTree :: StoreCall
 -- |Freeze the mutable state and compute the root hash. This deallocates the
 -- mutable state and writes the hash to the provided pointer, which should be
 -- able to hold 32 bytes.
-foreign import ccall "freeze_mutable_state_v1" freezePersistentTree :: Ptr MutableState -> Ptr Word8 -> IO (Ptr PersistentState)
+foreign import ccall "freeze_mutable_state_v1" freezePersistentTree :: LoadCallback -> Ptr MutableState -> Ptr Word8 -> IO (Ptr PersistentState)
 
 -- |Make a fresh mutable state from the persistent one.
 foreign import ccall "thaw_persistent_state_v1" thawPersistentTree :: Ptr PersistentState -> IO (Ptr MutableState)
@@ -63,7 +63,7 @@ foreign import ccall "get_new_state_size_v1" getNewStateSizeFFI :: Ptr MutableSt
 
 -- |Cache the persistent state, loading all parts of the tree that are purely on
 -- disk.
-foreign import ccall "cache_persistent_state_v1" cachePersistentState :: Ptr PersistentState -> IO ()
+foreign import ccall "cache_persistent_state_v1" cachePersistentState :: LoadCallback -> Ptr PersistentState -> IO ()
 
 -- |Compute and retrieve the hash of the persistent state. The function is given
 -- a buffer to write the hash into.
@@ -87,9 +87,9 @@ unsafeMkForeign (TransientMutableState ms) = ms
 unsafeFromForeign :: MutableState -> TransientMutableState
 unsafeFromForeign = TransientMutableState
 
-freeze :: MutableState -> IO (SHA256.Hash, PersistentState)
-freeze ms = do
-  (psPtr, hashBytes) <- withMutableState ms $ \msPtr -> FBS.createWith (freezePersistentTree msPtr)
+freeze :: LoadCallback -> MutableState -> IO (SHA256.Hash, PersistentState)
+freeze callbacks ms = do
+  (psPtr, hashBytes) <- withMutableState ms $ \msPtr -> FBS.createWith (freezePersistentTree callbacks msPtr)
   ps <- newForeignPtr freePersistentState psPtr
   return (SHA256.Hash hashBytes, PersistentState ps)
 
@@ -99,9 +99,9 @@ thaw ms = do
   MutableState <$> newForeignPtr freeMutableState msPtr
 
 {-# NOINLINE freezeTransient #-}
-freezeTransient :: TransientMutableState -> (SHA256.Hash, TransientState)
-freezeTransient (TransientMutableState tms) = unsafePerformIO $ do
-  (h, s) <- freeze tms
+freezeTransient :: LoadCallback -> TransientMutableState -> (SHA256.Hash, TransientState)
+freezeTransient cbk (TransientMutableState tms) = unsafePerformIO $ do
+  (h, s) <- freeze cbk tms
   return (h, TransientState s)
 
 {-# NOINLINE thawTransient #-}
@@ -126,7 +126,8 @@ instance (MonadBlobStore m) => BlobStorable m PersistentState where
 
 instance MonadBlobStore m => Cacheable m PersistentState where
   cache ps = do
-    liftIO (withPersistentState ps cachePersistentState)
+    (cbk, _) <- getCallBacks
+    liftIO (withPersistentState ps (cachePersistentState cbk))
     return ps
 
 instance MonadBlobStore m => MHashableTo m SHA256.Hash PersistentState where

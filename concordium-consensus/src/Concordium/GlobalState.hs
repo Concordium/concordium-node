@@ -128,7 +128,7 @@ deriving via PureBlockStateMonad pv m
              => AccountOperations (MemoryBlockStateM pv r g s m)
 
 deriving via PureBlockStateMonad pv m
-    instance (Monad m, IsProtocolVersion pv)
+    instance Monad m
              => ContractStateOperations (MemoryBlockStateM pv r g s m)
 
 deriving via PureBlockStateMonad pv m
