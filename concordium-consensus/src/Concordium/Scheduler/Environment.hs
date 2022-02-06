@@ -45,6 +45,7 @@ import Control.Exception(assert)
 import qualified Concordium.ID.Types as ID
 import Concordium.Wasm (IsWasmVersion)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
+import qualified Concordium.Wasm as GSWasm
 
 -- |An account index togehter with the canonical address. Sometimes it is
 -- difficult to pass an IndexedAccount and we only need the addresses. That is
@@ -332,7 +333,11 @@ class (StaticInformation m, ContractStateOperations m, IsProtocolVersion pv) => 
 
   -- |Transfer amount from the first address to the second and run the
   -- computation in the modified environment.
-  withAccountToContractAmount :: IndexedAccountAddress -> UInstanceInfoV m v -> Amount -> m a -> m a
+  withAccountToContractAmountV0 :: IndexedAccountAddress -> UInstanceInfoV m GSWasm.V0 -> Amount -> m a -> m a
+
+  -- |Transfer amount from the first address to the second and run the
+  -- computation in the modified environment.
+  withAccountToContractAmountV1 :: IndexedAccountAddress -> UInstanceInfoV m GSWasm.V1 -> Amount -> m a -> m a
 
   -- |Transfer an amount from the first account to the second and run the
   -- computation in the modified environment.
@@ -340,11 +345,19 @@ class (StaticInformation m, ContractStateOperations m, IsProtocolVersion pv) => 
 
   -- |Transfer an amount from the given instance to the given account and run the
   -- computation in the modified environment.
-  withContractToAccountAmount :: ContractAddress -> IndexedAccount m -> Amount -> m c -> m c
+  withContractToAccountAmountV0 :: ContractAddress -> IndexedAccount m -> Amount -> m c -> m c
+
+  -- |Transfer an amount from the given instance to the given account and run the
+  -- computation in the modified environment.
+  withContractToAccountAmountV1 :: ContractAddress -> IndexedAccount m -> Amount -> m c -> m c
 
   -- |Transfer an amount from the first instance to the second and run the
   -- computation in the modified environment.
-  withContractToContractAmount :: ContractAddress -> UInstanceInfoV m v2 -> Amount -> m a -> m a
+  withContractToContractAmountV0 :: (GSWasm.WasmVersion, ContractAddress) -> UInstanceInfoV m GSWasm.V0 -> Amount -> m a -> m a
+
+  -- |Transfer an amount from the first instance to the second and run the
+  -- computation in the modified environment.
+  withContractToContractAmountV1 :: (GSWasm.WasmVersion, ContractAddress) -> UInstanceInfoV m GSWasm.V1 -> Amount -> m a -> m a
 
   -- |Transfer a scheduled amount from the first address to the second and run
   -- the computation in the modified environment.
@@ -376,10 +389,15 @@ class (StaticInformation m, ContractStateOperations m, IsProtocolVersion pv) => 
 
   -- |Transfer an amount from the first given instance or account to the instance in the second
   -- parameter and run the computation in the modified environment.
-  {-# INLINE withToContractAmount #-}
-  withToContractAmount :: Either ContractAddress IndexedAccountAddress -> UInstanceInfoV m v2 -> Amount -> m a -> m a
-  withToContractAmount (Left i) = withContractToContractAmount i
-  withToContractAmount (Right a) = withAccountToContractAmount a
+  {-# INLINE withToContractAmountV0 #-}
+  withToContractAmountV0 :: Either (Wasm.WasmVersion, ContractAddress) IndexedAccountAddress -> UInstanceInfoV m GSWasm.V0 -> Amount -> m a -> m a
+  withToContractAmountV0 (Left i) = withContractToContractAmountV0 i
+  withToContractAmountV0 (Right a) = withAccountToContractAmountV0 a
+
+  {-# INLINE withToContractAmountV1 #-}
+  withToContractAmountV1 :: Either (Wasm.WasmVersion, ContractAddress) IndexedAccountAddress -> UInstanceInfoV m GSWasm.V1 -> Amount -> m a -> m a
+  withToContractAmountV1 (Left i) = withContractToContractAmountV1 i
+  withToContractAmountV1 (Right a) = withAccountToContractAmountV1 a
 
   getCurrentContractInstance :: ContractAddress -> m (Maybe (UInstanceInfo m))
 
@@ -550,10 +568,19 @@ addContractStatesToCSV1 _ istance curIdx newState =
 -- |Add the given delta to the change set for the given contract instance.
 -- NB: If the contract is not yet in the changeset it is added, taking the
 -- model as given in the first argument to be current model (local state)
-addContractAmountToCS :: Proxy m -> ContractAddress -> AmountDelta -> ChangeSet m -> ChangeSet m
-addContractAmountToCS _ addr amnt cs =
+addContractAmountToCSV0 :: Proxy m -> ContractAddress -> AmountDelta -> ChangeSet m -> ChangeSet m
+addContractAmountToCSV0 _ addr amnt cs =
     -- updating amounts does not update the modification index. Only state updates do.
     cs & instanceV0Updates . at addr %~ \case Just (idx, d, v) -> Just (idx, d + amnt, v)
+                                              Nothing -> Just (0, amnt, Nothing)
+
+-- |Add the given delta to the change set for the given contract instance.
+-- NB: If the contract is not yet in the changeset it is added, taking the
+-- model as given in the first argument to be current model (local state)
+addContractAmountToCSV1 :: Proxy m -> ContractAddress -> AmountDelta -> ChangeSet m -> ChangeSet m
+addContractAmountToCSV1 _ addr amnt cs =
+    -- updating amounts does not update the modification index. Only state updates do.
+    cs & instanceV1Updates . at addr %~ \case Just (idx, d, v) -> Just (idx, d + amnt, v)
                                               Nothing -> Just (0, amnt, Nothing)
 
 -- |Add the given contract address to the set of initialized contract instances.
@@ -812,23 +839,46 @@ instance (IsProtocolVersion pv, StaticInformation m, AccountOperations m, Contra
                   addAmountToCS fromAcc (amountDiff 0 amount))
     cont
 
-  {-# INLINE withAccountToContractAmount #-}
-  withAccountToContractAmount fromAcc toAcc amount cont = do
-    cs <- changeSet <%= addContractAmountToCS (Proxy @m) (instanceAddress toAcc) (amountToDelta amount)
+  {-# INLINE withAccountToContractAmountV0 #-}
+  withAccountToContractAmountV0 fromAcc toAcc amount cont = do
+    cs <- changeSet <%= addContractAmountToCSV0 (Proxy @m) (instanceAddress toAcc) (amountToDelta amount)
     changeSet <~ addAmountToCS' fromAcc (amountDiff 0 amount) cs
     cont
 
-  {-# INLINE withContractToAccountAmount #-}
-  withContractToAccountAmount fromAcc toAcc amount cont = do
-    cs <- use changeSet
-    cs' <- addAmountToCS toAcc (amountToDelta amount) cs
-    changeSet .= addContractAmountToCS (Proxy @m) fromAcc (amountDiff 0 amount) cs'
+  {-# INLINE withAccountToContractAmountV1 #-}
+  withAccountToContractAmountV1 fromAcc toAcc amount cont = do
+    cs <- changeSet <%= addContractAmountToCSV1 (Proxy @m) (instanceAddress toAcc) (amountToDelta amount)
+    changeSet <~ addAmountToCS' fromAcc (amountDiff 0 amount) cs
     cont
 
-  {-# INLINE withContractToContractAmount #-}
-  withContractToContractAmount fromAcc toAcc amount cont = do
-    changeSet %= addContractAmountToCS (Proxy @m) (instanceAddress toAcc) (amountToDelta amount)
-    changeSet %= addContractAmountToCS (Proxy @m) fromAcc (amountDiff 0 amount)
+  {-# INLINE withContractToAccountAmountV0 #-}
+  withContractToAccountAmountV0 fromAcc toAcc amount cont = do
+    cs <- use changeSet
+    cs' <- addAmountToCS toAcc (amountToDelta amount) cs
+    changeSet .= addContractAmountToCSV0 (Proxy @m) fromAcc (amountDiff 0 amount) cs'
+    cont
+
+  {-# INLINE withContractToAccountAmountV1 #-}
+  withContractToAccountAmountV1 fromAcc toAcc amount cont = do
+    cs <- use changeSet
+    cs' <- addAmountToCS toAcc (amountToDelta amount) cs
+    changeSet .= addContractAmountToCSV1 (Proxy @m) fromAcc (amountDiff 0 amount) cs'
+    cont
+
+  {-# INLINE withContractToContractAmountV0 #-}
+  withContractToContractAmountV0 (wv, fromAcc) toAcc amount cont = do
+    changeSet %= addContractAmountToCSV0 (Proxy @m) (instanceAddress toAcc) (amountToDelta amount)
+    case wv of
+      GSWasm.V0 -> changeSet %= addContractAmountToCSV0 (Proxy @m) fromAcc (amountDiff 0 amount)
+      GSWasm.V1 -> changeSet %= addContractAmountToCSV1 (Proxy @m) fromAcc (amountDiff 0 amount)
+    cont
+
+  {-# INLINE withContractToContractAmountV1 #-}
+  withContractToContractAmountV1 (wv, fromAcc) toAcc amount cont = do
+    changeSet %= addContractAmountToCSV1 (Proxy @m) (instanceAddress toAcc) (amountToDelta amount)
+    case wv of
+      GSWasm.V0 -> changeSet %= addContractAmountToCSV0 (Proxy @m) fromAcc (amountDiff 0 amount)
+      GSWasm.V1 -> changeSet %= addContractAmountToCSV1 (Proxy @m) fromAcc (amountDiff 0 amount)
     cont
 
   {-# INLINE withScheduledAmount #-}

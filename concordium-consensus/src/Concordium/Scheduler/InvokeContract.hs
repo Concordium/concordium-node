@@ -15,6 +15,7 @@ import Control.Monad.Reader
 import qualified Data.FixedByteString as FBS
 import qualified Concordium.ID.Types as ID
 import Concordium.Logger
+import qualified Concordium.Wasm as Wasm
 import Concordium.GlobalState.Types
 import qualified Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.TreeState (MGSTrans(..))
@@ -80,7 +81,7 @@ invokeContract _ ContractContext{..} cm bs = do
                    (Either
                      (Maybe RejectReason) -- Invocation failed because the relevant contract/account does not exist.
                      ( -- Check that the requested account or contract has enough balance.
-                       Amount -> LocalT pv r (InvokeContractMonad pv m) (Address, [ID.AccountCredential], Either ContractAddress IndexedAccountAddress),
+                       Amount -> LocalT pv r (InvokeContractMonad pv m) (Address, [ID.AccountCredential], Either (Wasm.WasmVersion, ContractAddress) IndexedAccountAddress),
                        AccountAddress, -- Address of the invoker account, or of its owner if the invoker is a contract.
                        AccountIndex -- And its index.
                      ))

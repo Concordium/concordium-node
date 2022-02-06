@@ -172,8 +172,8 @@ foreign import ccall "call_init_v1"
              -> CSize -- ^Length of the parameter bytes.
              -> Word64 -- ^Available energy.
              -> Ptr (Ptr ReturnValue) -- ^Location where the pointer to the return value will be written.
-             -> Ptr (Ptr StateV1.MutableState) -- ^Location where the pointer to the mutable state will be written.
              -> Ptr CSize -- ^Length of the output byte array, if non-null.
+             -> Ptr (Ptr StateV1.MutableState) -- ^Location where the pointer to the mutable state will be written.
              -> IO (Ptr Word8) -- ^New state and logs, if applicable, or null, signaling out-of-energy.
 
 
@@ -239,8 +239,8 @@ applyInitFun cbk miface cm initCtx iName param amnt iEnergy = unsafePerformIO $ 
                                            (castPtr paramBytesPtr) (fromIntegral paramBytesLen)
                                            energy
                                            returnValuePtrPtr
-                                           statePtrPtr
                                            outputLenPtr
+                                           statePtrPtr
                         if outPtr == nullPtr then return (Just (Left Trap, 0)) -- This case should not happen.
                         else do
                           len <- peek outputLenPtr
@@ -480,7 +480,8 @@ applyReceiveFun miface cm receiveCtx rName param amnt callbacks cs initialEnergy
 resumeReceiveFun ::
     ReceiveInterruptedState
     -> LoadCallback
-    -> Maybe StateV1.MutableState -- ^State of the contract to resume in, if it changed.
+    -> StateV1.MutableState -- ^State of the contract to resume in.
+    -> Bool -- ^Whether the state has changed in the call.
     -> Amount -- ^Current balance of the contract, if it changed.
     -> InvokeResponseCode
     -> Maybe ReturnValue
@@ -488,9 +489,9 @@ resumeReceiveFun ::
     -> Maybe (Either ContractExecutionReject ReceiveResultData, InterpreterEnergy)
     -- ^Nothing if execution used up all the energy, and otherwise the result
     -- of execution with the amount of energy remaining.
-resumeReceiveFun is callback cs amnt statusCode rVal remainingEnergy = unsafePerformIO $ do
+resumeReceiveFun is callback cs stateChanged amnt statusCode rVal remainingEnergy = unsafePerformIO $ do
               withReceiveInterruptedState is $ \isPtr ->
-                withStatePtr $ \curStatePtr -> alloca $ \statePtrPtr -> do
+                StateV1.withMutableState cs $ \curStatePtr -> alloca $ \statePtrPtr -> do
                   poke statePtrPtr curStatePtr
                   withMaybeReturnValue rVal $ \rValPtr ->
                     alloca $ \outputLenPtr -> alloca $ \outputReturnValuePtrPtr -> do
@@ -512,9 +513,7 @@ resumeReceiveFun is callback cs amnt statusCode rVal remainingEnergy = unsafePer
                         statePtr <- peek statePtrPtr
                         processReceiveResult bs returnValuePtr statePtr (Left is)
     where
-        (withStatePtr, newStateTag) = case cs of
-           Just curState -> (StateV1.withMutableState curState, 1::Word8)
-           Nothing -> (\f -> f nullPtr, 0::Word8)
+        newStateTag = if stateChanged then 1 else 0
         energy = fromIntegral remainingEnergy
         amountWord = _amount amnt
 
