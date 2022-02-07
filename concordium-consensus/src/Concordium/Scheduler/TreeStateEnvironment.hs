@@ -143,7 +143,7 @@ runBSM m cm s = do
 -- |Distribute the baking rewards for the last epoch to the bakers of
 -- blocks in that epoch. This should be called in the first block of
 -- a new epoch. This resets the list of blocks baked in the epoch.
-rewardLastEpochBakers :: (BlockStateOperations m)
+rewardLastEpochBakers :: (BlockStateOperations m, AccountVersionFor (MPV m) ~ 'AccountV0)
   => UpdatableBlockState m
   -> m (UpdatableBlockState m)
 rewardLastEpochBakers bs0 = do
@@ -316,10 +316,10 @@ doBlockReward transFees FreeTransactionCounts{..} bid foundationAddr bs0 = do
         -- Compute the GAS carried over. This is done at full precision and then
         -- rounded up (so that the payment to the baker is rounded up).
         gasGAS = ceiling $ toRational gasIn
-                    * (fractionToRational . complementRewardFraction $ rewardParams ^. gasBaker)
-                    * (fractionToRational . complementRewardFraction $ rewardParams ^. gasAccountCreation)^countAccountCreation
-                    * (fractionToRational . complementRewardFraction $ rewardParams ^. gasChainUpdate)^countUpdate
-                    * (fractionToRational . complementRewardFraction $ rewardParams ^. gasFinalizationProof)^countFinRecs
+                    * (fractionToRational . complementAmountFraction $ rewardParams ^. gasBaker)
+                    * (fractionToRational . complementAmountFraction $ rewardParams ^. gasAccountCreation)^countAccountCreation
+                    * (fractionToRational . complementAmountFraction $ rewardParams ^. gasChainUpdate)^countUpdate
+                    * (fractionToRational . complementAmountFraction $ rewardParams ^. gasFinalizationProof)^countFinRecs
         bakerGAS = gasIn - gasGAS
         gasOut = gasFees + gasGAS
         bakerOut = bakerFees + bakerGAS
@@ -387,8 +387,16 @@ mintAndReward :: forall m. (BlockStateOperations m, BlockPointerMonad m, MonadPr
     -- ^Ordered chain updates since the last block
     -> m (UpdatableBlockState m)
 mintAndReward bshandle blockParent slotNumber bid isNewEpoch mfinInfo transFees freeCounts updates =
-  case chainParametersVersionFor $ protocolVersion @(MPV m) of
-    SCPV0 -> do
+  case protocolVersion @(MPV m) of
+    SP1 -> mintAndRewardCPV0AccountV0
+    SP2 -> mintAndRewardCPV0AccountV0
+    SP3 -> mintAndRewardCPV0AccountV0
+  where
+    mintAndRewardCPV0AccountV0
+        :: (AccountVersionFor (MPV m) ~ 'AccountV0,
+            ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0)
+        => m (UpdatableBlockState m)
+    mintAndRewardCPV0AccountV0 = do
       -- First, reward bakers from previous epoch, if we are starting a new one.
       bshandleEpoch <- (if isNewEpoch then rewardLastEpochBakers else return) bshandle
         -- Add the block to the list of blocks baked in this epoch
@@ -489,9 +497,16 @@ executeFrom blockHash slotNumber slotTime blockParent blockBaker mfinInfo newSee
         (updates, bshandle0a) <- bsoProcessUpdateQueues bshandle0 slotTime
         sd <- gdSlotDuration <$> getGenesisData
         ab <- getActiveBakers origBS
-        bshandle0a' <- case chainParams ^. cpPoolParameters of
-          PoolParametersV0{} -> return bshandle0a
-          PoolParametersV1{..} -> foldM (putBakerCommissionsInRange _ppCommissionBounds sd origBS) bshandle0a ab
+        let isPoolParameterUpdate = \case
+              UVPoolParameters _ -> True
+              _ -> False
+        -- take out pool parameter updates, ordered by timestamp
+        let poolParameterUpdates = filter isPoolParameterUpdate $ Map.elems updates
+        -- for each pool parameter update, go over all bakers and put their commissions inside
+        -- the new commission ranges.
+        bshandle0a' <- foldM (\bs uv -> case uv of
+          UVPoolParameters PoolParametersV1{..} -> foldM (putBakerCommissionsInRange _ppCommissionBounds sd origBS) bs ab
+          _ -> return bs) bshandle0a poolParameterUpdates
         -- unlock the amounts that have expired
         bshandle0b <- bsoProcessReleaseSchedule bshandle0a' slotTime
         -- update the bakers and seed state
@@ -541,7 +556,7 @@ executeFrom blockHash slotNumber slotTime blockParent blockBaker mfinInfo newSee
             let tc = bpi ^. Types.poolCommissionRates . transactionCommission
             let ctc = Types.closestInRange fc (ranges ^. transactionCommissionRange)
             (result, newBS) <- bsoConfigureBaker bs ai BI.BakerConfigureUpdate{
-              bcuTimestamp = slotTime,
+              bcuSlotTimestamp = slotTime,
               bcuSlotDuration = sd,
               bcuKeys = Nothing,
               bcuCapital = Nothing,

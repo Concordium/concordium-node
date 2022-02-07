@@ -50,6 +50,7 @@ import qualified Concordium.GlobalState.Basic.BlockState.Accounts as Accounts
 import qualified Concordium.GlobalState.Basic.BlockState.Modules as Modules
 import qualified Concordium.GlobalState.Basic.BlockState.Instances as Instances
 import qualified Concordium.GlobalState.Basic.BlockState.PoolRewards as PoolRewards
+import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as LFMBT
 
 import qualified Concordium.GlobalState.AccountMap as AccountMap
 import qualified Concordium.GlobalState.Rewards as Rewards
@@ -118,15 +119,15 @@ getBirkParameters = do
     return BasicBirkParameters{..}
 
 -- |Generate initial birk parameters from genesis accounts and seed state.
-initialBirkParameters ::
-  [Account 'AccountV0]
+initialBirkParameters
+  :: forall av
+   . [Account av]
   -- ^The accounts at genesis, in order
   -> SeedState
   -- ^The seed state
-  -> BasicBirkParameters 'AccountV0
+  -> BasicBirkParameters av
 initialBirkParameters accounts _birkSeedState = BasicBirkParameters{..}
   where
-    -- TODO: Decide what to do about L-pool here.
     alterDel del Nothing = Just $ Set.singleton del
     alterDel del (Just dels) = Just $ Set.insert del dels
     addBakerDel :: Map.Map BakerId (Set.Set DelegatorId) -> Account av -> Map.Map BakerId (Set.Set DelegatorId)
@@ -137,10 +138,18 @@ initialBirkParameters accounts _birkSeedState = BasicBirkParameters{..}
                     DelegateToLPool -> bdmap
                     DelegateToBaker bid -> Map.alter (alterDel _delegationIdentity) bid bdmap
             _ -> bdmap
+    addLPoolDel :: Set.Set DelegatorId -> Account av -> Set.Set DelegatorId
+    addLPoolDel dels acct =
+        case acct ^. accountStaking of
+            AccountStakeDelegate AccountDelegationV1{..} ->
+                case _delegationTarget of
+                    DelegateToLPool -> Set.insert _delegationIdentity dels
+                    DelegateToBaker _ -> dels
+            _ -> dels
     bakerDelsMap = foldl addBakerDel Map.empty accounts
     lookupBakerDels bid =
         case Map.lookup bid bakerDelsMap of
-            Nothing -> error "Invariant violation: baker without delegator set"
+            Nothing -> Set.empty
             Just dels -> dels
     abi (AccountStakeBaker AccountBaker{..}) = Just (_accountBakerInfo ^. bakerInfo, _stakedAmount)
     abi _ = Nothing
@@ -149,7 +158,7 @@ initialBirkParameters accounts _birkSeedState = BasicBirkParameters{..}
     _birkActiveBakers = ActiveBakers {
       _activeBakers = Map.fromList $ bkrs <&> \(BakerInfo{_bakerIdentity = bi}, _) -> (bi, lookupBakerDels bi),
       _aggregationKeys = Set.fromList (_bakerAggregationVerifyKey . fst <$> bkrs),
-      _lPoolDelegators = Set.empty
+      _lPoolDelegators = foldl addLPoolDel Set.empty accounts
     }
     stakes = Vec.fromList (snd <$> bkrs)
     _birkCurrentEpochBakers = makeHashed $ EpochBakers {
@@ -170,6 +179,7 @@ data HashedEpochBlocks = HashedEpochBlocks {
     -- |Hash of the list.
     hebHash :: !Rewards.EpochBlocksHash
   } deriving (Eq, Show)
+
 instance HashableTo Rewards.EpochBlocksHash HashedEpochBlocks where
     getHash = hebHash
 
@@ -203,9 +213,29 @@ data BlockRewardDetails (av :: AccountVersion) where
 
 deriving instance Show (BlockRewardDetails av)
 
+instance HashableTo (Rewards.BlockRewardDetailsHash av) (BlockRewardDetails av) where
+    getHash (BlockRewardDetailsV0 heb) = Rewards.BlockRewardDetailsHashV0 (hebHash heb)
+    getHash (BlockRewardDetailsV1 pr) = Rewards.BlockRewardDetailsHashV1 (getHash pr)
+
+-- |The blocks of 'BlockRewardDetails' ''AccountV0'.
+brdBlocks :: BlockRewardDetails 'AccountV0 -> [BakerId]
+brdBlocks (BlockRewardDetailsV0 heb) = hebBlocks heb
+
+-- |Extend a 'BlockRewardDetails' ''AccountV0' with an additional baker.
+consBlockRewardDetails :: BakerId -> BlockRewardDetails 'AccountV0 -> BlockRewardDetails 'AccountV0
+consBlockRewardDetails bid (BlockRewardDetailsV0 heb) =
+    BlockRewardDetailsV0 $ consEpochBlock bid heb
+
+-- |The empty 'BlockRewardDetails'.
+emptyBlockRewardDetails :: forall av. IsAccountVersion av => BlockRewardDetails av
+emptyBlockRewardDetails =
+    case accountVersion @av of
+        SAccountV0 -> BlockRewardDetailsV0 emptyHashedEpochBlocks
+        SAccountV1 -> BlockRewardDetailsV1 (makeHashed PoolRewards.emptyPoolRewards)
+
 putBlockRewardDetails :: Putter (BlockRewardDetails av)
 putBlockRewardDetails (BlockRewardDetailsV0 heb) = putHashedEpochBlocksV0 heb
--- TODO: V1 case
+putBlockRewardDetails (BlockRewardDetailsV1 hpr) = PoolRewards.putPoolRewards (_unhashed hpr)
 
 getBlockRewardDetails :: forall oldpv pv. (IsProtocolVersion pv) => StateMigrationParameters oldpv pv -> Get (BlockRewardDetails (AccountVersionFor pv))
 getBlockRewardDetails StateMigrationParametersTrivial = case accountVersion @(AccountVersionFor pv) of
@@ -225,7 +255,6 @@ data BlockState (pv :: ProtocolVersion) = BlockState {
     _blockReleaseSchedule :: !(LazyMap.Map AccountAddress Timestamp), -- ^Contains an entry for each account that has pending releases and the first timestamp for said account
     _blockTransactionOutcomes :: !Transactions.TransactionOutcomes,
     _blockRewardDetails :: !(BlockRewardDetails (AccountVersionFor pv))
-    -- _blockEpochBlocksBaked :: !HashedEpochBlocks
 } deriving (Show)
 
 data HashedBlockState pv = HashedBlockState {
@@ -237,12 +266,8 @@ makeLenses ''BasicBirkParameters
 makeClassy ''BlockState
 makeLenses ''HashedBlockState
 
-blockEpochBlocksBaked :: (AccountVersionFor pv ~ 'AccountV0) => Lens' (BlockState pv) HashedEpochBlocks
-blockEpochBlocksBaked =
-    blockRewardDetails
-        . lens
-            (\(BlockRewardDetailsV0 a) -> a)
-            (\_ b -> BlockRewardDetailsV0 b)
+blockEpochBlocksBaked :: (AccountVersionFor pv ~ 'AccountV0) => Lens' (BlockState pv) (BlockRewardDetails 'AccountV0)
+blockEpochBlocksBaked = blockRewardDetails . lens id (const id)
 
 blockPoolRewards :: (AccountVersionFor pv ~ 'AccountV1, HasBlockState c pv) => Lens' c PoolRewards.PoolRewards
 blockPoolRewards =
@@ -299,7 +324,7 @@ hashBlockState = case protocolVersion :: SProtocolVersion pv of
           _blockStateHash = h
           }
           where
-            h = BS.makeBlockStateHash BS.BlockStateHashInputs {
+            h = BS.makeBlockStateHash @'P1 BS.BlockStateHashInputs {
                   bshBirkParameters = getHash _blockBirkParameters,
                   bshCryptographicParameters = getHash _blockCryptographicParameters,
                   bshIdentityProviders = getHash _blockIdentityProviders,
@@ -309,7 +334,7 @@ hashBlockState = case protocolVersion :: SProtocolVersion pv of
                   bshAccounts = getHash _blockAccounts,
                   bshInstances = getHash _blockInstances,
                   bshUpdates = getHash _blockUpdates,
-                  bshEpochBlocks = getHash (bs ^. blockEpochBlocksBaked)
+                  bshBlockRewardDetails = getHash (bs ^. blockEpochBlocksBaked)
                   }
 
 
@@ -399,8 +424,7 @@ getBlockState migration = do
             AccountStakeDelegate AccountDelegationV1{..} -> do
               case _delegationTarget of
                 DelegateToLPool ->
-                  -- TODO: check whether this is correct after L-pool has been implemented:
-                  return bkrs
+                  return $! bkrs & lPoolDelegators %~ Set.insert _delegationIdentity
                 DelegateToBaker bid ->
                   case Map.lookup bid (bkrs ^. activeBakers)  of
                     Nothing -> fail "Missing delegation target baker"
@@ -936,8 +960,6 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
       chainParams <- BS.bsoGetChainParameters bs
       let poolParams = chainParams ^. cpPoolParameters
       let capitalMin = poolParams ^. ppMinimumEquityCapital
-      let epochBakers = bs ^. blockBirkParameters . birkCurrentEpochBakers . unhashed
-      let capitalMax = takeFraction (poolParams ^. ppCapitalBound) (_bakerTotalStake epochBakers)
       let ranges = poolParams ^. ppCommissionBounds
       return $! case bs ^? blockAccounts . Accounts.indexedAccount ai of
         -- Cannot resolve the account
@@ -949,8 +971,6 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
           -- Provided stake is under threshold
           | bcaCapital < capitalMin ->
                 (BCStakeUnderThreshold, bs)
-          | bcaCapital > capitalMax ->
-                (BCStakeOverThreshold, bs)
           -- Check that commissions are within the valid ranges
           | not (isInRange bcaFinalizationRewardCommission (ranges ^. finalizationCommissionRange)) ->
                 (BCCommissionNotInRange, bs)
@@ -997,7 +1017,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                   rewardPeriodLength = fromIntegral $ cp ^. cpTimeParameters . tpRewardPeriodLength
                   cooldown = fromIntegral $ cp ^. cpCooldownParameters . cpPoolOwnerCooldown
                   msInEpoch = fromIntegral (epochLength $ bs ^. blockBirkParameters . birkSeedState) * bcrSlotDuration
-                  timestamp = addDuration bcrTimestamp (cooldown * rewardPeriodLength * msInEpoch)
+                  timestamp = addDuration bcrSlotTimestamp (cooldown * rewardPeriodLength * msInEpoch)
               in (BCSuccess [] (BakerId ai),
                   bs & blockAccounts . Accounts.indexedAccount ai . accountStaking .~ AccountStakeBaker (ab & bakerPendingChange .~ RemoveStake (PendingChangeEffectiveV1 timestamp)))
         -- The account is not valid or has no baker
@@ -1022,7 +1042,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                 rewardPeriodLength = fromIntegral $ cp ^. cpTimeParameters . tpRewardPeriodLength
                 cooldown = fromIntegral $ cp ^. cpCooldownParameters . cpPoolOwnerCooldown
                 msInEpoch = fromIntegral (epochLength $ origBS ^. blockBirkParameters . birkSeedState) * bcuSlotDuration
-            in addDuration bcuTimestamp (cooldown * rewardPeriodLength * msInEpoch)
+            in addDuration bcuSlotTimestamp (cooldown * rewardPeriodLength * msInEpoch)
         getAccount = do
             s <- MTL.get
             case s ^? blockAccounts . Accounts.indexedAccount ai of
@@ -1100,10 +1120,6 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             let cp = bs ^. blockUpdates . currentParameters
             let capitalMin = cp ^. cpPoolParameters . ppMinimumEquityCapital
             when (capital < capitalMin) (MTL.throwError BCStakeUnderThreshold)
-            let poolParams = cp ^. cpPoolParameters
-            let epochBakers = bs ^. blockBirkParameters . birkCurrentEpochBakers . unhashed
-            let capitalMax = takeFraction (poolParams ^. ppCapitalBound) (_bakerTotalStake epochBakers)
-            when (capital > capitalMax) (MTL.throwError BCStakeOverThreshold)
             case compare capital (_stakedAmount ab) of
                 LT -> do
                     let bpc = ReduceStake capital (PendingChangeEffectiveV1 cooldownTimestamp)
@@ -1144,7 +1160,9 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                     & blockAccounts . Accounts.indexedAccount ai . accountStaking .~ ad
                     & blockBirkParameters .~ newBirkParams
               return newBlockState
-          updateBirk DelegateToLPool = undefined -- TODO: implement delegate to L-pool here.
+          updateBirk DelegateToLPool =
+            return $! bs ^. blockBirkParameters
+                & birkActiveBakers . lPoolDelegators %~ Set.insert did
           updateBirk (DelegateToBaker bid) =
             let ab = bs ^. blockBirkParameters . birkActiveBakers
                 mDels = Map.lookup bid (ab ^. activeBakers)
@@ -1154,7 +1172,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                     let newDels = Set.insert did dels
                         newActiveBakers = Map.insert bid newDels (ab ^. activeBakers)
                         newAB = ab{_activeBakers = newActiveBakers}
-                    return $ _blockBirkParameters bs & birkActiveBakers .~ newAB
+                    return $! _blockBirkParameters bs & birkActiveBakers .~ newAB
     bsoConfigureDelegation bs ai DelegationConfigureRemove{..} =
         return $! case bs ^? blockAccounts . Accounts.indexedAccount ai of
             Just Account{_accountStaking = AccountStakeDelegate ad@AccountDelegationV1{..}}
@@ -1164,7 +1182,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                       rewardPeriodLength = fromIntegral $ cp ^. cpTimeParameters . tpRewardPeriodLength
                       cooldown = fromIntegral $ cp ^. cpCooldownParameters . cpDelegatorCooldown
                       msInEpoch = fromIntegral (epochLength $ bs ^. blockBirkParameters . birkSeedState) * dcrSlotDuration
-                      timestamp = addDuration dcrTimestamp (cooldown * rewardPeriodLength * msInEpoch)
+                      timestamp = addDuration dcrSlotTimestamp (cooldown * rewardPeriodLength * msInEpoch)
                       newBirkParams = updateBirk _delegationTarget
                   in (DCSuccess [] (DelegatorId ai),
                       bs
@@ -1172,7 +1190,9 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                         & blockBirkParameters .~ newBirkParams)
             _ -> (DCInvalidDelegator, bs)
         where
-          updateBirk DelegateToLPool = undefined -- TODO: implement delegate to L-pool here.
+          updateBirk DelegateToLPool =
+            bs ^. blockBirkParameters
+                & birkActiveBakers . lPoolDelegators %~ Set.insert (DelegatorId ai)
           updateBirk (DelegateToBaker bid) =
             let ab = bs ^. blockBirkParameters . birkActiveBakers
                 newBakers = Map.delete bid (ab ^. activeBakers)
@@ -1194,7 +1214,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                 rewardPeriodLength = fromIntegral $ cp ^. cpTimeParameters . tpRewardPeriodLength
                 cooldown = fromIntegral $ cp ^. cpCooldownParameters . cpDelegatorCooldown
                 msInEpoch = fromIntegral (epochLength $ origBS ^. blockBirkParameters . birkSeedState) * dcuSlotDuration
-            in addDuration dcuTimestamp (cooldown * rewardPeriodLength * msInEpoch)
+            in addDuration dcuSlotTimestamp (cooldown * rewardPeriodLength * msInEpoch)
         getAccount = do
             s <- MTL.get
             case s ^? blockAccounts . Accounts.indexedAccount ai of
@@ -1402,9 +1422,27 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
     {-# INLINE bsoClearProtocolUpdate #-}
     bsoClearProtocolUpdate bs = return $! bs & blockUpdates %~ clearProtocolUpdate
 
-    bsoSetNextCapitalDistribution = undefined -- TODO: implement
+    bsoSetNextCapitalDistribution bs bakers lpool =
+        let bakerPoolCapital = Vec.fromList $ map mkBakCap bakers
+            lPoolCapital = Vec.fromList $ map mkDelCap lpool
+            capDist = makeHashed $ PoolRewards.CapitalDistribution{..}
+        in return $! bs & blockRewardDetails %~ \case
+            BlockRewardDetailsV1 hpr ->
+                BlockRewardDetailsV1 $ makeHashed $
+                    (_unhashed hpr) {PoolRewards.nextCapital = capDist}
+          where
+            mkBakCap (bcBakerId, bcBakerEquityCapital, dels) =
+                let bcDelegatorCapital = Vec.fromList $ map mkDelCap dels
+                in PoolRewards.BakerCapital{..}
+            mkDelCap (dcDelegatorId, dcDelegatorCapital) =
+                PoolRewards.DelegatorCapital{..}
 
-    bsoRotateCurrentCapitalDistribution = undefined -- TODO: implement
+    bsoRotateCurrentCapitalDistribution bs =
+        return $! bs & blockRewardDetails %~ \case
+            BlockRewardDetailsV1 hpr ->
+                let pr = _unhashed hpr
+                in BlockRewardDetailsV1 $ makeHashed $
+                    pr {PoolRewards.currentCapital = PoolRewards.nextCapital pr}
 
     {-# INLINE bsoAddReleaseSchedule #-}
     bsoAddReleaseSchedule bs rel = do
@@ -1420,7 +1458,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
     bsoGetChainParameters bs = return $! bs ^. blockUpdates . currentParameters
 
     bsoGetEpochBlocksBaked bs = return $! case accountVersion @(AccountVersionFor pv) of
-        SAccountV0 -> (_2 %~ Map.toList) (foldl' accumBakers (0, Map.empty) (bs ^. blockEpochBlocksBaked . to hebBlocks))
+        SAccountV0 -> (_2 %~ Map.toList) (foldl' accumBakers (0, Map.empty) (bs ^. blockEpochBlocksBaked . to brdBlocks))
             where
                 accumBakers (t, m) b =
                     let !t' = t + 1
@@ -1430,10 +1468,25 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             (sum (snd <$> bcs), bcs)
 
     bsoNotifyBlockBaked = case accountVersion @(AccountVersionFor pv) of
-        SAccountV0 -> \(bs :: BlockState pv) bid -> return $! bs & blockEpochBlocksBaked %~ consEpochBlock bid
-        SAccountV1 -> \bs bid -> undefined -- FIXME: Implement, or constrain/replace
+        SAccountV0 -> \(bs :: BlockState pv) bid -> return $! bs & blockEpochBlocksBaked %~ consBlockRewardDetails bid
+        SAccountV1 -> \bs bid -> do
+            let bprs = PoolRewards.bakerPoolRewardDetails (bs ^. blockPoolRewards)
+            let bpc = PoolRewards.bakerPoolCapital $ _unhashed (PoolRewards.currentCapital $ bs ^. blockPoolRewards)
+            case Vec.findIndex (\bc -> PoolRewards.bcBakerId bc == bid) bpc of
+                Nothing ->
+                    error "Invariant violation: unable to find baker in baker pool capital vector"
+                Just i ->
+                    updateBPRs bs i bprs
+          where
+            incBPR bpr = ((), bpr{PoolRewards.blockCount = PoolRewards.blockCount bpr + 1})
+            updateBPRs bs i bprs =
+                case LFMBT.update incBPR (fromIntegral i) bprs of
+                    Nothing ->
+                        error "Invariant violation: unable to find baker in baker pool reward details tree"
+                    Just ((), newBPRs) ->
+                        return $! bs & blockPoolRewards %~ \pr -> pr{PoolRewards.bakerPoolRewardDetails = newBPRs}
 
-    bsoClearEpochBlocksBaked bs = return $! bs & blockEpochBlocksBaked .~ emptyHashedEpochBlocks
+    bsoClearEpochBlocksBaked bs = return $! bs & blockEpochBlocksBaked .~ emptyBlockRewardDetails
 
     bsoGetBankStatus bs = return $! bs ^. blockBank . unhashed
 
@@ -1471,8 +1524,8 @@ instance (IsProtocolVersion pv, MonadIO m) => BS.BlockStateStorage (PureBlockSta
     writeBlockState h = PureBlockStateMonad . liftIO . hPutBuilder h . snd . runPutMBuilder . putBlockState . _unhashedBlockState
 
 -- |Initial block state.
--- TODO: Remove constraint AccountVersionFor pv ~ 'AccountV0
-initialState :: (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV0)
+initialState :: forall pv
+              . IsProtocolVersion pv
              => SeedState
              -> CryptographicParameters
              -> [Account (AccountVersionFor pv)]
@@ -1496,8 +1549,8 @@ initialState seedState cryptoParams genesisAccounts ips anonymityRevokers keysCo
     _blockTransactionOutcomes = Transactions.emptyTransactionOutcomes
     _blockUpdates = initialUpdates keysCollection chainParams
     _blockReleaseSchedule = Map.empty
-    _blockRewardDetails = BlockRewardDetailsV0 emptyHashedEpochBlocks
-    _blockStateHash = BS.makeBlockStateHash BS.BlockStateHashInputs {
+    _blockRewardDetails = emptyBlockRewardDetails
+    _blockStateHash = BS.makeBlockStateHash @pv BS.BlockStateHashInputs {
               bshBirkParameters = getHash _blockBirkParameters,
               bshCryptographicParameters = getHash _blockCryptographicParameters,
               bshIdentityProviders = getHash _blockIdentityProviders,
@@ -1507,7 +1560,7 @@ initialState seedState cryptoParams genesisAccounts ips anonymityRevokers keysCo
               bshAccounts = getHash _blockAccounts,
               bshInstances = getHash _blockInstances,
               bshUpdates = getHash _blockUpdates,
-              bshEpochBlocks = getHash emptyHashedEpochBlocks
+              bshBlockRewardDetails = getHash _blockRewardDetails
             }
 
 -- |Initial block state based on 'GenesisData', for a given protocol version.

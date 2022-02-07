@@ -140,33 +140,40 @@ data BakerAddResult
   -- ^The stake is below the required threshold dictated by current chain parameters.
   deriving (Eq, Ord, Show)
 
--- TODO: Fix and Document
+-- |Data structure used to add/remove/update baker.
 data BakerConfigure =
+    -- |Add a baker, all fields are requied.
     BakerConfigureAdd {
         bcaKeys :: !BakerKeyUpdate,
         bcaCapital :: !Amount,
         bcaRestakeEarnings :: !Bool,
         bcaOpenForDelegation :: !OpenStatus,
         bcaMetadataURL :: !UrlText,
-        bcaTransactionFeeCommission :: !RewardFraction,
-        bcaBakingRewardCommission :: !RewardFraction,
-        bcaFinalizationRewardCommission :: !RewardFraction
+        bcaTransactionFeeCommission :: !AmountFraction,
+        bcaBakingRewardCommission :: !AmountFraction,
+        bcaFinalizationRewardCommission :: !AmountFraction
     }
+    -- |Remove a baker.
   | BakerConfigureRemove {
-    bcrTimestamp :: !Timestamp,
-    bcrSlotDuration :: !Duration
+        -- |The timestamp of the current slot (slot time).
+        bcrSlotTimestamp :: !Timestamp,
+        -- |The duration of a slot (slot duration).
+        bcrSlotDuration :: !Duration
   }
+    -- |Update baker with optional fields.
   | BakerConfigureUpdate {
-        bcuTimestamp :: !Timestamp,
+        -- |The timestamp of the current slot (slot time).
+        bcuSlotTimestamp :: !Timestamp,
+        -- |The duration of a slot (slot duration).
         bcuSlotDuration :: !Duration,
         bcuKeys :: !(Maybe BakerKeyUpdate),
         bcuCapital :: !(Maybe Amount),
         bcuRestakeEarnings :: !(Maybe Bool),
         bcuOpenForDelegation :: !(Maybe OpenStatus),
         bcuMetadataURL :: !(Maybe UrlText),
-        bcuTransactionFeeCommission :: !(Maybe RewardFraction),
-        bcuBakingRewardCommission :: !(Maybe RewardFraction),
-        bcuFinalizationRewardCommission :: !(Maybe RewardFraction)
+        bcuTransactionFeeCommission :: !(Maybe AmountFraction),
+        bcuBakingRewardCommission :: !(Maybe AmountFraction),
+        bcuFinalizationRewardCommission :: !(Maybe AmountFraction)
     }
 
 -- |A baker update change result from configure baker. Used to indicate whether the configure will cause
@@ -178,12 +185,12 @@ data BakerConfigureUpdateChange =
   | BakerConfigureOpenForDelegation !OpenStatus
   | BakerConfigureUpdateKeys !BakerKeyUpdate
   | BakerConfigureMetadataURL !UrlText
-  | BakerConfigureTransactionFeeCommission !RewardFraction
-  | BakerConfigureBakingRewardCommission !RewardFraction
-  | BakerConfigureFinalizationRewardCommission !RewardFraction
+  | BakerConfigureTransactionFeeCommission !AmountFraction
+  | BakerConfigureBakingRewardCommission !AmountFraction
+  | BakerConfigureFinalizationRewardCommission !AmountFraction
   deriving (Eq, Show)
 
--- TODO: Document
+-- |Result of configure baker.
 data BakerConfigureResult
   = BCSuccess ![BakerConfigureUpdateChange] !BakerId
     -- ^Configure baker successful.
@@ -193,8 +200,6 @@ data BakerConfigureResult
   -- ^The aggregation key already exists.
   | BCStakeUnderThreshold
   -- ^The stake is below the required threshold dictated by current chain parameters.
-  | BCStakeOverThreshold
-  -- ^The stake is above the required threshold dictated by current chain parameters.
   | BCCommissionNotInRange
   -- ^The commission is not in the allowed range.
   | BCChangePending
@@ -203,6 +208,7 @@ data BakerConfigureResult
   -- ^This is not a valid baker.
   deriving (Eq, Show)
 
+-- |Result of remove baker.
 data BakerRemoveResult
   = BRRemoved !BakerId !Epoch
   -- ^The baker was removed, effective from the given epoch.
@@ -212,22 +218,29 @@ data BakerRemoveResult
   -- ^A change is already pending on this baker.
   deriving (Eq, Ord, Show)
 
--- TODO: Fix and Document
+-- |Data structure used to add/remove/update delegator.
 data DelegationConfigure =
+    -- |Add a delegatror, all fields are requied.
     DelegationConfigureAdd {
       dcaCapital :: !Amount,
       dcaRestakeEarnings :: !Bool,
       dcaDelegationTarget :: !DelegationTarget
     }
+    -- |Update delegator with optional fields.
   | DelegationConfigureUpdate {
-      dcuTimestamp :: !Timestamp,
+      -- |The timestamp of the current slot (slot time).
+      dcuSlotTimestamp :: !Timestamp,
+      -- |The duration of a slot (slot duration).
       dcuSlotDuration :: !Duration,
       dcuCapital :: !(Maybe Amount),
       dcuRestakeEarnings :: !(Maybe Bool),
       dcuDelegationTarget :: !(Maybe DelegationTarget)
   }
+    -- |Remove a delegator.
   | DelegationConfigureRemove {
-      dcrTimestamp :: !Timestamp,
+      -- |The timestamp of the current slot (slot time).
+      dcrSlotTimestamp :: !Timestamp,
+      -- |The duration of a slot (slot duration).
       dcrSlotDuration :: !Duration
   }
   deriving (Eq, Show)
@@ -241,7 +254,7 @@ data DelegationConfigureUpdateChange =
   | DelegationConfigureDelegationTarget !DelegationTarget
   deriving (Eq, Show)
 
--- TODO: Fix and Document
+-- |Result of configure delegator.
 data DelegationConfigureResult
   = DCSuccess ![DelegationConfigureUpdateChange] !DelegatorId
     -- ^Configure delegation successful.

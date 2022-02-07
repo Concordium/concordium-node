@@ -87,7 +87,7 @@ newtype BirkParametersHash (pv :: ProtocolVersion) = BirkParametersHash {birkPar
 
 -- |The hashes of the block state components, which are combined
 -- to produce a 'StateHash'.
-data BlockStateHashInputs = BlockStateHashInputs {
+data BlockStateHashInputs (pv :: ProtocolVersion) = BlockStateHashInputs {
     bshBirkParameters :: H.Hash,
     bshCryptographicParameters :: H.Hash,
     bshIdentityProviders :: H.Hash,
@@ -97,11 +97,11 @@ data BlockStateHashInputs = BlockStateHashInputs {
     bshAccounts :: H.Hash,
     bshInstances :: H.Hash,
     bshUpdates :: H.Hash,
-    bshEpochBlocks :: EpochBlocksHash
+    bshBlockRewardDetails :: BlockRewardDetailsHash (AccountVersionFor pv)
 } deriving (Show)
 
 -- |Construct a 'StateHash' from the component hashes.
-makeBlockStateHash :: BlockStateHashInputs -> StateHash
+makeBlockStateHash :: BlockStateHashInputs pv -> StateHash
 makeBlockStateHash BlockStateHashInputs{..} = StateHashV0 $
   H.hashOfHashes
     (H.hashOfHashes
@@ -116,7 +116,7 @@ makeBlockStateHash BlockStateHashInputs{..} = StateHashV0 $
     )
     (H.hashOfHashes
       bshUpdates
-      (ebHash bshEpochBlocks))
+      (brdHash bshBlockRewardDetails))
 
 -- |An auxiliary data type to express restrictions on an account.
 -- Currently an account that has more than one credential is not allowed to handle encrypted transfers,
@@ -339,6 +339,7 @@ data ActiveDelegatorInfo = ActiveDelegatorInfo {
     -- |Any pending change to delegator.
     activeDelegatorPendingChange :: !(StakePendingChange 'AccountV1)
   }
+  deriving (Eq)
 
 -- |Information about a baker, including its delegators.
 data ActiveBakerInfo' bakerInfoRef = ActiveBakerInfo {
@@ -461,7 +462,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- This does not change the next epoch bakers.
   bsoRotateCurrentEpochBakers :: UpdatableBlockState m -> m (UpdatableBlockState m)
 
-  -- TODO: document and implement:
+  -- |Update the set containing the next epoch bakers, to use for next epoch.
   bsoSetNextEpochBakers :: (AccountVersionFor (MPV m) ~ 'AccountV1) => UpdatableBlockState m -> 
       [(BakerInfoRef m, Amount)] -> m (UpdatableBlockState m)
 
@@ -530,7 +531,8 @@ class (BlockStateQuery m) => BlockStateOperations m where
     -> BakerAdd
     -> m (BakerAddResult, UpdatableBlockState m)
 
-  -- TODO: Document
+  -- |From chain paramaters version >= 1, this operation is used to add/remove/update a baker.
+  -- When adding baker, it is assumed that 'AccountIndex' account is NOT a baker and NOT a delegator.
   bsoConfigureBaker
     :: (AccountVersionFor (MPV m) ~ 'AccountV1, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1)
     => UpdatableBlockState m
@@ -538,7 +540,8 @@ class (BlockStateQuery m) => BlockStateOperations m where
     -> BakerConfigure
     -> m (BakerConfigureResult, UpdatableBlockState m)
 
-  -- TODO: Document
+  -- |From chain paramaters version >= 1, this operation is used to add/remove/update a delegator.
+  -- When adding delegator, it is assumed that 'AccountIndex' account is NOT a baker and NOT a delegator.
   bsoConfigureDelegation
     :: (AccountVersionFor (MPV m) ~ 'AccountV1, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1)
     => UpdatableBlockState m
@@ -718,6 +721,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
 
   -- |Set the next capital distribution.
   bsoSetNextCapitalDistribution ::
+    (AccountVersionFor (MPV m) ~ 'AccountV1) =>
     UpdatableBlockState m ->
     -- |Capital of bakers and their delegators
     [(BakerId, Amount, [(DelegatorId, Amount)])] ->
@@ -727,7 +731,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
 
   -- |Set the current capital distribution to the current value of the next capital distribution.
   -- The next capital distribution is unchanged.
-  bsoRotateCurrentCapitalDistribution :: UpdatableBlockState m -> m (UpdatableBlockState m)
+  bsoRotateCurrentCapitalDistribution :: (AccountVersionFor (MPV m) ~ 'AccountV1) => UpdatableBlockState m -> m (UpdatableBlockState m)
 
   -- |Get the current status of the various accounts.
   bsoGetBankStatus :: UpdatableBlockState m -> m BankStatus

@@ -190,14 +190,14 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
     -> BakerAdd
     -> m BakerAddResult
 
-  -- TODO: Documentation
+  -- |From chain paramaters version >= 1, this operation is used to add/remove/update a baker.
   configureBaker
     :: (AccountVersionFor (MPV m) ~ 'AccountV1, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1)
     => AccountIndex
     -> BakerConfigure
     -> m BakerConfigureResult
 
-  -- TODO: Documentation
+  -- |From chain paramaters version >= 1, this operation is used to add/remove/update a delegator.
   configureDelegation
     :: (AccountVersionFor (MPV m) ~ 'AccountV1, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1)
     => AccountIndex

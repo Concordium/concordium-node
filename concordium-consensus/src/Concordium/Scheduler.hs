@@ -1028,9 +1028,9 @@ data ConfigureBakerCont =
         cbcOpenForDelegation :: !OpenStatus,
         cbcKeysWithProofs :: !BakerKeysWithProofs,
         cbcMetadataURL :: !UrlText,
-        cbcTransactionFeeCommission :: !RewardFraction,
-        cbcBakingRewardCommission :: !RewardFraction,
-        cbcFinalizationRewardCommission :: !RewardFraction
+        cbcTransactionFeeCommission :: !AmountFraction,
+        cbcBakingRewardCommission :: !AmountFraction,
+        cbcFinalizationRewardCommission :: !AmountFraction
     }
   | ConfigureRemoveBakerCont
   | ConfigureUpdateBakerCont
@@ -1060,11 +1060,11 @@ handleConfigureBaker
     -- |The URL referencing the baker's metadata.
     -> Maybe UrlText
     -- |The commission the pool owner takes on transaction fees.
-    -> Maybe RewardFraction
+    -> Maybe AmountFraction
     -- |The commission the pool owner takes on baking rewards.
-    -> Maybe RewardFraction
+    -> Maybe AmountFraction
     -- |The commission the pool owner takes on finalization rewards.
-    -> Maybe RewardFraction
+    -> Maybe AmountFraction
     -> m (Maybe TransactionSummary)
 handleConfigureBaker
   wtc
@@ -1187,7 +1187,7 @@ handleConfigureBaker
                 cm <- getChainMetadata
                 sd <- getSlotDuration
                 let bcu = BI.BakerConfigureUpdate {
-                      bcuTimestamp = slotTime cm,
+                      bcuSlotTimestamp = slotTime cm,
                       bcuSlotDuration = sd,
                       bcuKeys = bku,
                       bcuCapital = cbCapital,
@@ -1257,8 +1257,6 @@ handleConfigureBaker
             return (TxReject (DuplicateAggregationKey key), energyCost, usedEnergy)
         kResult energyCost usedEnergy _ BI.BCStakeUnderThreshold =
             return (TxReject StakeUnderMinimumThresholdForBaking, energyCost, usedEnergy)
-        kResult energyCost usedEnergy _ BI.BCStakeOverThreshold =
-            return (TxReject StakeOverMaximumThresholdForBaking, energyCost, usedEnergy)
         kResult energyCost usedEnergy _ BI.BCCommissionNotInRange =
             return (TxReject CommissionsNotInRangeForBaking, energyCost, usedEnergy)
         kResult energyCost usedEnergy _ BI.BCChangePending =
@@ -1340,7 +1338,7 @@ handleConfigureDelegation wtc cdCapital cdRestakeEarnings cdDelegationTarget =
                 cm <- getChainMetadata
                 sd <- getSlotDuration
                 let dcu = BI.DelegationConfigureUpdate {
-                      dcuTimestamp = slotTime cm,
+                      dcuSlotTimestamp = slotTime cm,
                       dcuSlotDuration = sd,
                       dcuCapital = cdCapital,
                       dcuRestakeEarnings = cdRestakeEarnings,
@@ -1382,7 +1380,7 @@ handleConfigureDelegation wtc cdCapital cdRestakeEarnings cdDelegationTarget =
         kResult energyCost usedEnergy _ (BI.DCInvalidDelegationTarget bid) =
             return (TxReject (DelegationTargetNotABaker bid), energyCost, usedEnergy)
         kResult energyCost usedEnergy _ BI.DCPoolStakeOverThreshold =
-            return (TxReject StakeOverMaximumThresholdForBaking, energyCost, usedEnergy)
+            return (TxReject StakeOverMaximumThresholdForPool, energyCost, usedEnergy)
         kResult energyCost usedEnergy _ BI.DCPoolOverDelegated =
             return (TxReject PoolWouldBecomeOverDelegated, energyCost, usedEnergy)
 

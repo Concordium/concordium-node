@@ -33,6 +33,7 @@ module Concordium.GlobalState.Basic.BlockState.LFMBTree
     -- * Specialized functions for @Maybe@
     lookupMaybe,
     delete,
+    toAscList,
     toAscPairListMaybes,
     fromAscListMaybes,
 
@@ -250,15 +251,15 @@ update f k (NonEmpty s t) =
 delete :: (Ord k, Bits k, Coercible k Word64) => k -> LFMBTree k (Maybe v) -> Maybe (LFMBTree k (Maybe v))
 delete k t = snd <$> update (const ((), Nothing)) k t
 
--- -- | Return the elements sorted by their keys. As there is no operation
--- -- for deleting elements, this list will contain all the elements starting
--- -- on the index 0 up to the size of the tree.
--- toList :: LFMBTree k v -> [v]
--- toList Empty = []
--- toList (NonEmpty _ t) = toListT t
---   where
---     toListT (Leaf v) = [v]
---     toListT (Node _ l r) = toListT l ++ toListT r
+-- | Return the elements sorted by their keys. As there is no operation
+-- for deleting elements, this list will contain all the elements starting
+-- on the index 0 up to the size of the tree.
+toAscList :: LFMBTree k v -> [v]
+toAscList Empty = []
+toAscList (NonEmpty _ t) = toListT t
+    where
+        toListT (Leaf v) = [v]
+        toListT (Node _ l r) = toListT l ++ toListT r
 
 -- | Return the pairs (key, value) sorted by their keys. This list will contain
 -- all the elements starting on the index 0.
