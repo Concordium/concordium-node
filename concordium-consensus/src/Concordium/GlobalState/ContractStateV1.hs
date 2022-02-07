@@ -60,7 +60,7 @@ foreign import ccall "thaw_persistent_state_v1" thawPersistentTree :: Ptr Persis
 
 -- |Get the amount of additional space that will be needed to store the new
 -- entries.
-foreign import ccall "get_new_state_size_v1" getNewStateSizeFFI :: Ptr MutableState -> IO Word64
+foreign import ccall "get_new_state_size_v1" getNewStateSizeFFI :: LoadCallback -> Ptr MutableState -> IO Word64
 
 -- |Cache the persistent state, loading all parts of the tree that are purely on
 -- disk.
@@ -79,8 +79,8 @@ foreign import ccall "serialize_persistent_state_v1" serializePersistentState ::
 foreign import ccall "deserialize_persistent_state_v1" deserializePersistentState :: Ptr Word8 -> CSize -> IO (Ptr PersistentState)
 
 {-# NOINLINE getNewStateSize #-}
-getNewStateSize :: MutableState -> Word64
-getNewStateSize ms = unsafePerformIO (withMutableState ms getNewStateSizeFFI)
+getNewStateSize :: LoadCallback -> MutableState -> Word64
+getNewStateSize cbk ms = unsafePerformIO (withMutableState ms (getNewStateSizeFFI cbk))
 
 unsafeMkForeign :: TransientMutableState -> MutableState
 unsafeMkForeign (TransientMutableState ms) = ms

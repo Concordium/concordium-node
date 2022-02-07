@@ -702,7 +702,7 @@ handleInitContract wtc initAmount modref initName param =
                            `rejectingWith'` WasmV1.cerToRejectReasonInit
 
                 -- Charge for storing the contract state.
-                tickEnergyStoreStateV1 (Wasm.ByteSize (StateV1.getNewStateSize (WasmV1.irdNewState result)))
+                tickEnergyStoreStateV1 (Wasm.ByteSize (StateV1.getNewStateSize stateContext (WasmV1.irdNewState result)))
                 -- And for storing the instance.
                 tickEnergy Cost.initializeContractInstanceCreateCost
     
