@@ -55,8 +55,8 @@ deployModuleV1 :: FilePath -- ^Source file.
               -> PersistentBlockState PV4 -- ^State to add the module to.
               -> ContextM ((GSWasm.ModuleInterfaceV V1, WasmModuleV V1), PersistentBlockState PV4)
 deployModuleV1 sourceFile bs = do
-  wasmSource <- liftIO $ BS.readFile sourceFile
-  let wm = WasmModuleV (ModuleSource wasmSource)
+  ws <- liftIO $ BS.readFile sourceFile
+  let wm = WasmModuleV (ModuleSource ws)
   case WasmV1.processModule wm of
     Nothing -> liftIO $ assertFailure "Invalid module."
     Just miv -> do
@@ -70,8 +70,8 @@ deployModuleV0 :: FilePath -- ^Source file.
               -> PersistentBlockState PV4 -- ^State to add the module to.
               -> ContextM ((GSWasm.ModuleInterfaceV V0, WasmModuleV V0), PersistentBlockState PV4)
 deployModuleV0 sourceFile bs = do
-  wasmSource <- liftIO $ BS.readFile sourceFile
-  let wm = WasmModuleV (ModuleSource wasmSource)
+  ws <- liftIO $ BS.readFile sourceFile
+  let wm = WasmModuleV (ModuleSource ws)
   case WasmV0.processModule wm of
     Nothing -> liftIO $ assertFailure "Invalid module."
     Just miv -> do

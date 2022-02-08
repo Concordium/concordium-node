@@ -712,6 +712,7 @@ handleInitContract wtc initAmount modref initName param =
                                                    ecAddress=addr,
                                                    ecAmount=initAmount,
                                                    ecInitName=initName,
+                                                   ecContractVersion=Wasm.V0,
                                                    ecEvents=Wasm.logs result
                                                    }], energyCost, usedEnergy
                                                    )
@@ -734,6 +735,7 @@ handleInitContract wtc initAmount modref initName param =
                                                    ecAddress=addr,
                                                    ecAmount=initAmount,
                                                    ecInitName=initName,
+                                                   ecContractVersion=Wasm.V1,
                                                    ecEvents=WasmV1.irdLogs result
                                                    }], energyCost, usedEnergy
                                                    )
@@ -937,6 +939,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                       euAmount=transferAmount,
                                       euMessage=parameter,
                                       euReceiveName=receiveName,
+                                      euContractVersion=Wasm.V1,
                                       euEvents = rrdLogs
                                      }
                   in return (Right (rrdReturnValue, event:events))
@@ -973,7 +976,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                            -- we are invoking a V0 instance.
                            -- in this case we essentially treat this as a top-level transaction invoking that contract.
                            -- That is, we execute the entire tree that is potentially generated.
-                           let rName = Wasm.makeReceiveName (instanceInitName (_instanceVParameters targetInstance)) imcName
+                           let rName = Wasm.uncheckedMakeReceiveName (instanceInitName (_instanceVParameters targetInstance)) imcName
                                runSuccess = Right <$> handleContractUpdateV0 originAddr targetInstance (checkAndGetBalanceInstanceV0 ownerAccount istance) imcAmount rName imcParam
                            -- If execution of the contract succeeds resume.
                            -- Otherwise rollback the state and report that to the caller.
@@ -992,7 +995,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                            -- If this returns Right _ it is successful, and we pass this, and the returned return value
                            -- to the caller.
                            -- Otherwise we roll back all the changes and return the return value, and the error code to the caller.
-                           let rName = Wasm.makeReceiveName (instanceInitName (_instanceVParameters targetInstance)) imcName
+                           let rName = Wasm.uncheckedMakeReceiveName (instanceInitName (_instanceVParameters targetInstance)) imcName
                            withRollback (handleContractUpdateV1 originAddr targetInstance (checkAndGetBalanceInstanceV1 ownerAccount istance) imcAmount rName imcParam) >>= \case
                               Left cer ->
                                 go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig Nothing entryBalance (WasmV1.Error cer) (WasmV1.ccfToReturnValue cer))
@@ -1112,6 +1115,7 @@ handleContractUpdateV0 originAddr istance checkAndGetSender transferAmount recei
                               euAmount=transferAmount,
                               euMessage=parameter,
                               euReceiveName=receiveName,
+                              euContractVersion=Wasm.V0,
                               euEvents = Wasm.logs result
                                }
       foldEvents originAddr (ownerAccount, istance) initEvent txOut

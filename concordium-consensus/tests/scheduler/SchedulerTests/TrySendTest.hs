@@ -64,6 +64,7 @@ testCases =
                                    , euAmount = 11
                                    , euMessage = Parameter toAddr
                                    , euReceiveName = ReceiveName "try.receive"
+                                   , euContractVersion = V0
                                    , euEvents = []
                                    },
                     Types.Transferred {
@@ -82,6 +83,7 @@ testCases =
                                    , euAmount = 11
                                    , euMessage = Parameter (BSS.pack (replicate 32 0))
                                    , euReceiveName = ReceiveName "try.receive"
+                                   , euContractVersion = V0
                                    , euEvents = []
                                    }], emptySpec)
         )
