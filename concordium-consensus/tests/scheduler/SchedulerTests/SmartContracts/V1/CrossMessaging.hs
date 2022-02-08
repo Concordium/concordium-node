@@ -13,6 +13,7 @@ import Lens.Micro.Platform
 
 import qualified Concordium.Scheduler.Types as Types
 import Concordium.Scheduler.Runner
+import qualified Concordium.TransactionVerification as TVer
 
 import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
@@ -108,7 +109,7 @@ testCases =
           putWord64le 0 -- amount
 
         -- ensure the transaction is successful
-        ensureSuccess :: Types.BlockItem -> Types.TransactionSummary -> Expectation
+        ensureSuccess :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
         ensureSuccess _ Types.TransactionSummary{..} = checkSuccess "Update failed" tsResult
 
         checkSuccess msg Types.TxReject{..} = assertFailure $ msg ++ show vrRejectReason

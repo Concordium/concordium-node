@@ -52,8 +52,8 @@ counterSourceFile = "./testdata/contracts/v1/call-counter.wasm"
 
 deployModule :: ContextM (PersistentBlockState PV4, GSWasm.ModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1)
 deployModule = do
-  wasmSource <- liftIO $ BS.readFile counterSourceFile
-  let wm = WasmModuleV (ModuleSource wasmSource)
+  ws <- liftIO $ BS.readFile counterSourceFile
+  let wm = WasmModuleV (ModuleSource ws)
   case WasmV1.processModule wm of
     Nothing -> liftIO $ assertFailure "Invalid counter module."
     Just miv -> do

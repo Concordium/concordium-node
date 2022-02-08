@@ -12,6 +12,7 @@ import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import Concordium.Scheduler.Runner
 import qualified Concordium.Scheduler as Sch
+import Concordium.TransactionVerification
 
 import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
@@ -150,8 +151,8 @@ transactionsInput2Memo =
          }
   ]
 
-type TestResult = ([(Types.BlockItem, Types.ValidResult)],
-                   [(Types.Transaction, Types.FailureKind)],
+type TestResult = ([(BlockItemWithStatus , Types.ValidResult)],
+                   [(TransactionWithStatus, Types.FailureKind)],
                    Types.Amount,
                    Types.Amount)
 

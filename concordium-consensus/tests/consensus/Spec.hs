@@ -16,6 +16,7 @@ import qualified ConcordiumTests.CatchUp (tests)
 import qualified ConcordiumTests.PassiveFinalization (test)
 import qualified ConcordiumTests.FinalizationRecover(test)
 import qualified ConcordiumTests.Update(test)
+import qualified ConcordiumTests.ReceiveTransactionsTest(test)
 
 atLevel :: (Word -> IO ()) -> IO ()
 atLevel a = do
@@ -41,3 +42,4 @@ main = atLevel $ \lvl -> hspec $ do
     ConcordiumTests.CatchUp.tests lvl
     ConcordiumTests.FinalizationRecover.test
     ConcordiumTests.PassiveFinalization.test
+    ConcordiumTests.ReceiveTransactionsTest.test

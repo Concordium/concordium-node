@@ -879,6 +879,11 @@ doGetAccount pbs addr = do
         bsp <- loadPBS pbs
         Accounts.getAccountWithIndex addr (bspAccounts bsp)
 
+doGetAccountExists :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> AccountAddress -> m Bool
+doGetAccountExists pbs aaddr = do
+       bsp <- loadPBS pbs
+       Accounts.exists aaddr (bspAccounts bsp)
+             
 doGetAccountByCredId :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> ID.CredentialRegistrationID -> m (Maybe (AccountIndex, PersistentAccount pv))
 doGetAccountByCredId pbs cid = do
         bsp <- loadPBS pbs
@@ -900,10 +905,11 @@ doAddressWouldClash pbs addr = do
         bsp <- loadPBS pbs
         Accounts.addressWouldClash addr (bspAccounts bsp)
 
-doRegIdExists :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> ID.CredentialRegistrationID -> m (Maybe AccountIndex)
+doRegIdExists :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> ID.CredentialRegistrationID -> m Bool
+
 doRegIdExists pbs regid = do
         bsp <- loadPBS pbs
-        fst <$> Accounts.regIdExists regid (bspAccounts bsp)
+        isJust . fst <$> Accounts.regIdExists regid (bspAccounts bsp)
 
 doCreateAccount :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> ID.GlobalContext -> AccountAddress -> ID.AccountCredential ->  m (Maybe (PersistentAccount pv), PersistentBlockState pv)
 doCreateAccount pbs cryptoParams acctAddr credential = do
@@ -975,7 +981,6 @@ doPutNewInstance pbs fnew = do
         (inst, insts) <- Instances.newContractInstance (fnew' mods) (bspInstances bsp)
         let ca = instanceAddress inst
         (ca,) <$> storePBS pbs bsp{bspInstances = insts}
-        
     where
         fnew' mods ca =
           case fnew ca of
@@ -1269,6 +1274,7 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateQuery (Persist
     getModule = doGetModuleSource . hpbsPointers
     getModuleInterface pbs mref = doGetModule (hpbsPointers pbs) mref
     getAccount = doGetAccount . hpbsPointers
+    accountExists = doGetAccountExists . hpbsPointers
     getAccountByCredId = doGetAccountByCredId . hpbsPointers
     getContractInstance = doGetInstance . hpbsPointers
     getModuleList = doGetModuleList . hpbsPointers
@@ -1292,7 +1298,10 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateQuery (Persist
     getUpdates = doGetUpdates . hpbsPointers
     getProtocolUpdateStatus = doGetProtocolUpdateStatus . hpbsPointers
     getCryptographicParameters = doGetCryptoParams . hpbsPointers
-
+    getIdentityProvider = doGetIdentityProvider . hpbsPointers
+    getAnonymityRevokers =  doGetAnonymityRevokers . hpbsPointers
+    getUpdateKeysCollection = doGetUpdateKeyCollection . hpbsPointers
+    getEnergyRate = doGetEnergyRate . hpbsPointers
 instance (PersistentState r m, IsProtocolVersion pv) => AccountOperations (PersistentBlockStateMonad pv r m) where
 
   getAccountCanonicalAddress acc = acc ^^. accountAddress

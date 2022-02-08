@@ -21,23 +21,24 @@ import Concordium.Types.IdentityProviders
 import Concordium.Types.AnonymityRevokers
 
 import Concordium.ID.Types(IdentityProviderIdentity)
+import qualified Concordium.TransactionVerification as TVer
 
 -- |Result of constructing a block from 'GroupedTransactions'.
 data FilteredTransactions = FilteredTransactions {
   -- |Transactions which have been added to the block, in the order added, with results.
-  ftAdded :: [(BlockItem, TransactionSummary)],
+  ftAdded :: [(TVer.BlockItemWithStatus, TransactionSummary)],
   -- |Transactions which failed. No order is guaranteed.
-  ftFailed :: [(Transaction, FailureKind)],
+  ftFailed :: [(TVer.TransactionWithStatus, FailureKind)],
   -- |Credential deployments which failed. No order is guaranteed.
-  ftFailedCredentials :: [(CredentialDeploymentWithMeta, FailureKind)],
+  ftFailedCredentials :: [(TVer.CredentialDeploymentWithStatus, FailureKind)],
   -- |Update instructions which failed. No order is guaranteed.
-  ftFailedUpdates :: [(WithMetadata UpdateInstruction, FailureKind)],
+  ftFailedUpdates :: [(TVer.ChainUpdateWithStatus, FailureKind)],
   -- |Transactions which were not processed. No order is guaranteed.
-  ftUnprocessed :: [Transaction],
+  ftUnprocessed :: [TVer.TransactionWithStatus],
   -- |Credentials which were not processed. No order is guaranteed.
-  ftUnprocessedCredentials :: [CredentialDeploymentWithMeta],
+  ftUnprocessedCredentials :: [TVer.CredentialDeploymentWithStatus],
   -- |Update instructions which were not processed. No order is guaranteed.
-  ftUnprocessedUpdates :: [WithMetadata UpdateInstruction]
+  ftUnprocessedUpdates :: [TVer.ChainUpdateWithStatus]
   }
   deriving (Show)
 
@@ -46,11 +47,11 @@ emptyFilteredTransactions = FilteredTransactions [] [] [] [] [] [] []
 
 -- |A group of one or more block items with sequential dependencies.
 data TransactionGroup
-  = TGAccountTransactions [Transaction]
+  = TGAccountTransactions [TVer.TransactionWithStatus]
   -- ^A collection of transactions for a single account, ordered with non-decreasing nonce.
-  | TGCredentialDeployment CredentialDeploymentWithMeta
+  | TGCredentialDeployment TVer.CredentialDeploymentWithStatus
   -- ^A single credential deployment.
-  | TGUpdateInstructions [WithMetadata UpdateInstruction]
+  | TGUpdateInstructions [TVer.ChainUpdateWithStatus]
   -- ^A collection of update instructions of a single type, ordered with non-decreasing sequence number.
 
 type GroupedTransactions = [TransactionGroup]
@@ -58,11 +59,11 @@ type GroupedTransactions = [TransactionGroup]
 emptyGroupedTransactions :: GroupedTransactions
 emptyGroupedTransactions = []
 
-fromTransactions :: [[Transaction]] -> GroupedTransactions
+fromTransactions :: [[TVer.TransactionWithStatus]] -> GroupedTransactions
 fromTransactions = fmap TGAccountTransactions
 
-perAccountTransactions :: GroupedTransactions -> [[Transaction]]
+perAccountTransactions :: GroupedTransactions -> [[TVer.TransactionWithStatus]]
 perAccountTransactions gts = [ats | TGAccountTransactions ats <- gts]
 
-credentialDeployments :: GroupedTransactions -> [CredentialDeploymentWithMeta]
+credentialDeployments :: GroupedTransactions -> [TVer.CredentialDeploymentWithStatus]
 credentialDeployments gts = [cd | TGCredentialDeployment cd <- gts]
