@@ -22,7 +22,7 @@ EXPORTS
  getInstances
  getAccountInfo
  getInstanceInfo
- InvokeContract
+ invokeContract
  getRewardStatus
  getBirkParameters
  getModuleList

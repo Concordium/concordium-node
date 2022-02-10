@@ -54,7 +54,7 @@ version0 = V0
 testCases :: [TestCase PV4]
 testCases =
   [ TestCase
-    { tcName = ""
+    { tcName = "CrossMessaging via a proxy"
     , tcParameters = defaultParams {tpInitialBlockState=initialBlockState}
     , tcTransactions =
       [ ( TJSON { payload = DeployModule version1 counterSourceFile
@@ -81,6 +81,8 @@ testCases =
                 }
         , (SuccessWithSummary ensureSuccess, emptySpec)
         )
+        -- run the nocheck entrypoint since the @inc10@ one checks the return value, and since
+        -- we are invoking a V0 contract there is no return value.
       , ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "counter.inc10nocheck" callArgs
                 , metadata = makeDummyHeader alesAccount 5 700000
                 , keys = [(0,[(0, alesKP)])]

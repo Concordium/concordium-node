@@ -76,8 +76,9 @@ invokeContract1 ccContract bs = do
         }
   InvokeContract.invokeContract Types.SP4 ctx cm bs
 
--- |Invoke an entrypoint and transfer to another instance.
--- The before and after self-balances are different.
+-- |Invoke an entrypoint and transfer to another instance. The before and after
+-- self-balances are different. The key difference from invokeContract1 test is
+-- that the address (the contract index) in the parameter is different.
 invokeContract2 :: Types.ContractAddress -> HashedPersistentBlockState PV4 -> ContextM InvokeContract.InvokeContractResult
 invokeContract2 ccContract bs = do
   let cm = Types.ChainMetadata 0

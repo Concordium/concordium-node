@@ -452,7 +452,7 @@ getAccountList = liftSkovQueryBlock $ BS.getAccountList <=< blockState
 getInstanceList :: BlockHash -> MVR gsconf finconf (Maybe [ContractAddress])
 getInstanceList =
     liftSkovQueryBlock $
-        fmap (fmap iaddress) . BS.getContractInstanceList <=< blockState
+        fmap (fmap instanceAddress) . BS.getContractInstanceList <=< blockState
 
 -- |Get the list of modules present as of a given block.
 getModuleList :: BlockHash -> MVR gsconf finconf (Maybe [ModuleRef])

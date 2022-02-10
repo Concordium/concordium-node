@@ -66,7 +66,7 @@ testCases =
                 , metadata = makeDummyHeader alesAccount 3 700000
                 , keys = [(0,[(0, alesKP)])]
                 }
-        , (SuccessWithSummary ensureSucces , transferSpec)
+        , (SuccessWithSummary ensureSuccess , transferSpec)
         )
       ]
      }
@@ -106,18 +106,18 @@ testCases =
             assertFailure $ "Actual initialization cost " ++ show tsEnergyCost ++ " not more than lower bound " ++ show costLowerBound
 
         -- ensure the transaction is successful
-        ensureSucces :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
-        ensureSucces _ Types.TransactionSummary{..} = checkSuccess "Update failed: " tsResult
+        ensureSuccess :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
+        ensureSuccess _ Types.TransactionSummary{..} = checkSuccess "Update failed: " tsResult
 
         checkSuccess msg Types.TxReject{..} = assertFailure $ msg ++ show vrRejectReason
         checkSuccess _ _ = return ()
 
-        -- Check that the contract state contains n.
+        -- Check that the contract state is empty.
         transferSpec bs = specify "Contract state" $
           case getInstance (Types.ContractAddress 0 0) (bs ^. blockInstances) of
             Nothing -> assertFailure "Instance at <0,0> does not exist."
             Just istance -> do
-              assertEqual ("State contains.") (ContractState "") (instanceModel istance)
+              assertEqual ("State is empty.") (ContractState "") (instanceModel istance)
               assertEqual ("Contract has 0 CCD.") (Types.Amount 0) (instanceAmount istance)
 
 tests :: Spec

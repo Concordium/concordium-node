@@ -993,9 +993,9 @@ doPutNewInstance pbs fnew = do
                 pinstanceInitName = instanceInitName,
                 pinstanceParameterHash = instanceParameterHash
                 }
-              -- This in an irrefutable pattern because otherwise it would have failed in previous stages
-              -- as it would be trying to create an instance of a module that doesn't exist.
-              -- TODO: FIX signature of putnewinstance 
+              -- We use an irrefutable pattern here. This cannot fail since if it failed it would mean we are trying
+              -- to create an instance of a module that does not exist. The Scheduler should not allow this, and the
+              -- state implementation relies on this property.
               ~(Just modRef) <- Modules.unsafeGetModuleReferenceV0 (GSWasm.miModuleRef instanceModuleInterface) mods
               return (inst, PersistentInstanceV0 Instances.PersistentInstanceV{
                   pinstanceParameters = params,
@@ -1013,9 +1013,9 @@ doPutNewInstance pbs fnew = do
                 pinstanceInitName = instanceInitName,
                 pinstanceParameterHash = instanceParameterHash
                 }
-              -- This in an irrefutable pattern because otherwise it would have failed in previous stages
-              -- as it would be trying to create an instance of a module that doesn't exist.
-              -- TODO: FIX signature of putnewinstance 
+              -- We use an irrefutable pattern here. This cannot fail since if it failed it would mean we are trying
+              -- to create an instance of a module that does not exist. The Scheduler should not allow this, and the
+              -- state implementation relies on this property.
               ~(Just modRef) <- Modules.unsafeGetModuleReferenceV1 (GSWasm.miModuleRef instanceModuleInterface) mods
               return (inst, PersistentInstanceV1 Instances.PersistentInstanceV{
                   pinstanceParameters = params,
@@ -1038,7 +1038,7 @@ doModifyInstance pbs caddr deltaAmnt val = do
             (piParams, newParamsRef) <- cacheBufferedRef (pinstanceParameters oldInst)
             if deltaAmnt == 0 then
                 case val of
-                    Nothing -> return ((), PersistentInstanceV0 $ rehash (pinstanceParameterHash piParams) (oldInst {pinstanceParameters = newParamsRef}))
+                    Nothing -> return ((), PersistentInstanceV0 $ oldInst {pinstanceParameters = newParamsRef})
                     Just newVal -> return ((), PersistentInstanceV0 $ rehash (pinstanceParameterHash piParams) (oldInst {pinstanceParameters = newParamsRef, pinstanceModel = newVal}))
             else
                 case val of
@@ -1048,7 +1048,7 @@ doModifyInstance pbs caddr deltaAmnt val = do
             (piParams, newParamsRef) <- cacheBufferedRef (pinstanceParameters oldInst)
             if deltaAmnt == 0 then
                 case val of
-                    Nothing -> return ((), PersistentInstanceV1 $ rehash (pinstanceParameterHash piParams) (oldInst {pinstanceParameters = newParamsRef}))
+                    Nothing -> return ((), PersistentInstanceV1 $ oldInst {pinstanceParameters = newParamsRef})
                     Just newVal -> return ((), PersistentInstanceV1 $ rehash (pinstanceParameterHash piParams) (oldInst {pinstanceParameters = newParamsRef, pinstanceModel = newVal}))
             else
                 case val of

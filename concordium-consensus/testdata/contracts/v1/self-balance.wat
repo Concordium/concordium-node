@@ -36,7 +36,7 @@
     (local.set $start_balance (call $get_receive_self_balance))
     ;; invoke, interpret the first 4 bytes as the instruction, the remaining bytes as the parameter
     (call $invoke (i32.load (i32.const 0)) (i32.const 4) (i32.sub (local.get $size) (i32.const 4)))
-    ;; store the return value, balance before and after the call
+    ;; store the return value and balances before and after the call
     (i64.store (i32.const 0) (local.get $start_balance))
     (i64.store (i32.const 8) (call $get_receive_self_balance))
     (call $write_output (i32.const 0) (i32.const 16) (i32.const 0))

@@ -20,7 +20,6 @@ module Concordium.GlobalState.Wasm (
   newModuleArtifactV1,
   withModuleArtifact,
   InstrumentedModuleV(..),
-  imWasmVersion,
   imWasmArtifact,
   -- *** Module interface
   ModuleInterface(..),
@@ -117,10 +116,6 @@ data InstrumentedModuleV v where
 deriving instance Eq (InstrumentedModuleV v)
 deriving instance Show (InstrumentedModuleV v)
 
-imWasmVersion :: InstrumentedModuleV v -> Word32
-imWasmVersion (InstrumentedWasmModuleV0 _) = 0
-imWasmVersion (InstrumentedWasmModuleV1 _) = 1
-
 instance Serialize (InstrumentedModuleV V0) where
   put InstrumentedWasmModuleV0{..} = do
     putWord32be 0
@@ -128,7 +123,7 @@ instance Serialize (InstrumentedModuleV V0) where
 
   get = get >>= \case
     V0 -> InstrumentedWasmModuleV0 <$> get
-    _ -> fail "Expected Wasm version 0, got 1."
+    V1 -> fail "Expected Wasm version 0, got 1."
 
 
 instance Serialize (InstrumentedModuleV V1) where
@@ -137,8 +132,8 @@ instance Serialize (InstrumentedModuleV V1) where
     put imWasmArtifactV1
 
   get = get >>= \case
+    V0 -> fail "Expected Wasm version 1, got 0."
     V1 -> InstrumentedWasmModuleV1 <$> get
-    _ -> fail "ExpectedWasm version 0, got 1."
 
 --------------------------------------------------------------------------------
 
@@ -152,8 +147,8 @@ data ModuleInterfaceV v = ModuleInterface {
   -- |Receive methods exposed by this module, indexed by contract name.
   -- They should each be exposed with a type Amount -> Word32
   miExposedReceive :: !(Map.Map InitName (Set.Set ReceiveName)),
-  -- |Module source in binary format, instrumented with whatever it needs to be
-  -- instrumented with to be able to run efficiently.
+  -- |Module source processed into an efficiently executable format.
+  -- For details see "Artifact" in smart-contracts/wasm-chain-integration
   miModule :: !(InstrumentedModuleV v),
   -- |Size of the module as deployed in the transaction.
   miModuleSize :: !Word64

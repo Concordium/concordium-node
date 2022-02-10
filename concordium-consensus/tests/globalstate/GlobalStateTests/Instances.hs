@@ -56,7 +56,7 @@ checkBinary bop x y sbop sx sy = unless (bop x y) $ Left $ "Not satisfied: " ++ 
 
 invariantIT :: ContractIndex -> IT -> Either String (Word8, Bool, Bool, ContractIndex, H.Hash, Word64)
 invariantIT offset (Leaf inst) = do
-        checkBinary (==) (contractIndex $ iaddress inst) offset "==" "account index" "expected value"
+        checkBinary (==) (contractIndex $ instanceAddress inst) offset "==" "account index" "expected value"
         return (0, True, False, succ offset, getHash inst, 1)
 invariantIT offset (VacantLeaf si) = return (0, True, True, succ offset, H.hash $ runPut $ put si, 0)
 invariantIT offset (Branch h f v hsh l r) = do

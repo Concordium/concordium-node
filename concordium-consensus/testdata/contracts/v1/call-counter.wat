@@ -1,7 +1,7 @@
 ;; Test for one contract calling itself.
-;; There are two entrypoints, one which just increments the counter, and another
-;; which repeatedly calls the former endpoint to increase the counter by 10.
-;; This latter endpoint checks the return value.
+;; There are three entrypoints, one which just increments the counter, another
+;; which repeatedly calls the former entrypoint to increase the counter by 10,
+;; and a version of the latter that does not check the return value.
 
 (module
 
@@ -74,7 +74,10 @@
     (i32.const 0)
   )
 
-   ;; call the counter.inc method 10 times. Check returns each time.
+   ;; Invoke the contract provided as a parameter a given number of times.
+   ;; The intent is that the provided method is counter.inc, otherwise this will
+   ;; almost certainly fail. Check returns each time, making sure that they are
+   ;; consistent with the state.
   (func $inc_counter_10 (export "counter.inc10") (param i64) (result i32)
     (local $n i32)
     (local $size i32)
@@ -87,7 +90,7 @@
       ;; get the index of the response
       ;; the numeric value 8388607 is the mask 0b0111_1111_1111_1111_1111_1111
       (local.set $index (i32.and (i32.const 8388607) (i32.wrap_i64 (i64.shr_u (local.get $rv) (i64.const 40)))))
-      ;; and get the parameter size, check it that it is the value of the counter
+      ;; and get the parameter size, check that it is the value of the counter
       ;; first check that the size is correct
       (call $assert_eq (call $get_parameter_size (local.get $index)) (i32.const 8))
       ;; next check that the return value is the same as the current contract state (state after the call)

@@ -46,7 +46,7 @@ import Control.Exception(assert)
 import qualified Concordium.ID.Types as ID
 import Concordium.Wasm (IsWasmVersion)
 
--- |An account index togehter with the canonical address. Sometimes it is
+-- |An account index together with the canonical address. Sometimes it is
 -- difficult to pass an IndexedAccount and we only need the addresses. That is
 -- when this type is useful.
 type IndexedAccountAddress = (AccountIndex, AccountAddress)
@@ -74,7 +74,6 @@ class (Monad m) => StaticInformation m where
   getContractInstance :: ContractAddress -> m (Maybe Instance)
  
   -- |Get the amount of funds at the particular account address at the start of a transaction.
-  -- To get the amount of funds for a contract instance use getInstance and lookup amount there.
   getStateAccount :: AccountAddress -> m (Maybe (IndexedAccount m))
 
 -- |Information needed to execute transactions in the form that is easy to use.
@@ -305,7 +304,7 @@ class (StaticInformation m, IsProtocolVersion pv) => TransactionMonad pv m | m -
 
   -- |Transfer an amount from the first instance to the second and run the
   -- computation in the modified environment.
-  withContractToContractAmount :: ContractAddress -> InstanceV v2 -> Amount -> m a -> m a
+  withContractToContractAmount :: ContractAddress -> InstanceV v -> Amount -> m a -> m a
 
   -- |Transfer a scheduled amount from the first address to the second and run
   -- the computation in the modified environment.
@@ -338,16 +337,11 @@ class (StaticInformation m, IsProtocolVersion pv) => TransactionMonad pv m | m -
   -- |Transfer an amount from the first given instance or account to the instance in the second
   -- parameter and run the computation in the modified environment.
   {-# INLINE withToContractAmount #-}
-  withToContractAmount :: Either ContractAddress IndexedAccountAddress -> InstanceV v2 -> Amount -> m a -> m a
+  withToContractAmount :: Either ContractAddress IndexedAccountAddress -> InstanceV v -> Amount -> m a -> m a
   withToContractAmount (Left i) = withContractToContractAmount i
   withToContractAmount (Right a) = withAccountToContractAmount a
 
   getCurrentContractInstance :: ContractAddress -> m (Maybe Instance)
-
-  {-# INLINE getCurrentAvailableAmount #-}
-  getCurrentAvailableAmount :: Either (IndexedAccount m, InstanceV v) (AccountAddress, IndexedAccount m) -> m Amount
-  getCurrentAvailableAmount (Left (_, i)) = getCurrentContractAmount i
-  getCurrentAvailableAmount (Right (_, a)) = getCurrentAccountAvailableAmount a
 
   -- |Get the current total public balance of an account.
   -- This accounts for any pending changes in the course of execution of the transaction.
@@ -361,11 +355,11 @@ class (StaticInformation m, IsProtocolVersion pv) => TransactionMonad pv m | m -
   getCurrentAccountAvailableAmount :: IndexedAccount m -> m Amount
 
   -- |Same as above, but for contracts.
-  getCurrentContractAmount :: (HasInstanceParameters a, HasInstanceFields a) => a -> m Amount
+  getCurrentContractAmount :: (HasInstanceAddress a, HasInstanceFields a) => a -> m Amount
 
   -- |Get the current contract instance state, together with the modification
   -- index of the last modification.
-  getCurrentContractInstanceState :: (HasInstanceParameters a, HasInstanceFields a) => a -> m (ModificationIndex, Wasm.ContractState)
+  getCurrentContractInstanceState :: (HasInstanceAddress a, HasInstanceFields a) => a -> m (ModificationIndex, Wasm.ContractState)
 
   -- |Get the amount of energy remaining for the transaction.
   getEnergy :: m (Energy, EnergyLimitReason)
@@ -385,12 +379,6 @@ class (StaticInformation m, IsProtocolVersion pv) => TransactionMonad pv m | m -
   -- try the second computation. If the left computation fails with out of energy then the
   -- entire computation is aborted.
   orElse :: m a -> m a -> m a
-
-  -- |Try to run the first computation. If it leads to `reject` for a logic
-  -- reason then try the second computation. If the left computation fails with
-  -- out of energy then the entire computation is aborted. Compared to 'orElse'
-  -- above, here the right computation gets access to the rejection reason of the left one.
-  orElseWith :: m a -> (RejectReason -> m a) -> m a
 
   -- |Try to run the first computation. If it leads to `Left err` then abort and revert all the changes
   -- apart from consumed energy.
@@ -484,17 +472,13 @@ modifyAmountCS ai !amnt !cs = cs & (accountUpdates . ix ai . auAmount ) %~
 
 
 -- |Add or update the contract state in the changeset with the given value.
--- |NB: If the instance is not yet in the changeset we assume that its balance is
--- as listed in the given instance structure.
-addContractStatesToCS :: HasInstanceParameters a => a -> ModificationIndex -> Wasm.ContractState -> ChangeSet -> ChangeSet
+addContractStatesToCS :: HasInstanceAddress a => a -> ModificationIndex -> Wasm.ContractState -> ChangeSet -> ChangeSet
 addContractStatesToCS istance curIdx newState =
   instanceUpdates . at addr %~ \case Just (_, amnt, _) -> Just (curIdx, amnt, Just newState)
                                      Nothing -> Just (curIdx, 0, Just newState)
   where addr = instanceAddress istance
 
 -- |Add the given delta to the change set for the given contract instance.
--- NB: If the contract is not yet in the changeset it is added, taking the
--- model as given in the first argument to be current model (local state)
 addContractAmountToCS :: ContractAddress -> AmountDelta -> ChangeSet -> ChangeSet
 addContractAmountToCS addr amnt cs =
     -- updating amounts does not update the modification index. Only state updates do.
@@ -520,7 +504,12 @@ data LocalState = LocalState{
   _energyLeft :: !Energy,
   -- |Changes accumulated thus far.
   _changeSet :: !ChangeSet,
-  -- |Maximum number of modified contract instances.
+  -- |The next available modification index. When a contract state is modified
+  -- this is used to keep track of "when" it was modified. In the scheduler we
+  -- then remember the modification index before a contract invokes another
+  -- contract, and look it up just before contract execution resumes. Comparing
+  -- them gives information on whether the contract state has definitely not
+  -- changed, or whether there were writes to the state.
   _nextContractModificationIndex :: !ModificationIndex,
   _blockEnergyLeft :: !Energy
   }
@@ -738,6 +727,26 @@ instance StaticInformation m => StaticInformation (LocalT pv r m) where
 
 deriving via (MGSTrans (LocalT pv r) m) instance AccountOperations m => AccountOperations (LocalT pv r m)
 
+-- |Execute an inner transaction, reifying it into the return value. This
+-- behaves as the given computation in case it does not exit early, and resets
+-- the state of execution to the beginning in case of an error. In this case the
+-- error is also returned in the return value.
+runInnerTransaction :: Monad m => LocalT pv a m a -> LocalT pv r m (Either RejectReason a)
+runInnerTransaction (LocalT kOrig) = LocalT $ ContT $ \k -> do
+  initChangeSet <- use changeSet
+  initModificationIndex <- use nextContractModificationIndex
+  -- Run the given computation to the end by giving it a fresh continuation that
+  -- just returns, as if this was a top-level transaction.
+  comp <- runContT kOrig (return . Right)
+  case comp of
+    Left Nothing -> return (Left Nothing)
+    Left (Just err) | err == OutOfEnergy -> energyLeft .= 0 >> return (Left (Just OutOfEnergy))
+    Left (Just err) -> do
+         changeSet .= initChangeSet
+         nextContractModificationIndex .= initModificationIndex
+         k (Left err)
+    Right x -> k (Right x)
+
 instance (IsProtocolVersion pv, StaticInformation m, AccountOperations m, Monad m) => TransactionMonad pv (LocalT pv r m) where
   {-# INLINE withInstanceStateV0 #-}
   withInstanceStateV0 istance val cont = do
@@ -908,20 +917,6 @@ instance (IsProtocolVersion pv, StaticInformation m, AccountOperations m, Monad 
          nextContractModificationIndex .= initModificationIndex
          runContT r k
        x -> return x
-
-  {-# INLINE orElseWith #-}
-  orElseWith (LocalT l) r = LocalT $ ContT $ \k -> do
-     initChangeSet <- use changeSet
-     initModificationIndex <- use nextContractModificationIndex
-     runContT l k >>= \case
-       (Left (Just reason)) | reason /= OutOfEnergy -> do
-         -- reset changeSet, the left computation will have no effect at all other than
-         -- energy use.
-         changeSet .= initChangeSet
-         nextContractModificationIndex .= initModificationIndex
-         runContT (_runLocalT (r reason)) k
-       x -> return x
-
 
   {-# INLINE withRollback #-}
   withRollback (LocalT l) = LocalT $ ContT $ \k -> do

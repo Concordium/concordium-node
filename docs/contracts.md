@@ -60,7 +60,7 @@ The general design at present is that all the runtime structures are maintained
 in the Rust heap and the Haskell runtime maintains pointers to these structures.
 It also manages their lifetime and deallocates them when needed. This includes
 - module artifacts. This is a processed Wasm module that is easier and quicker
-  to execute. It is design to be cheap to look up and deserialize from
+  to execute. It is designed to be cheap to look up and deserialize from
   persistent storage.
 - for V1 contracts a suspended state of the execution. When a contract invokes
   an operation we must suspend its execution and store the state so it can be
@@ -199,7 +199,10 @@ fn get_policy_section(policy_bytes: *mut u8, length: u32, offset: u32) -> u32;
 ## Logging
 
 Contracts can output a small amount of data during execution. This data is
-available in a transaction status and can be queried.
+available in a transaction status and can be queried. Concretely contracts can
+output up to 64 items, each of at most 512 bytes (this is controlled by
+constants `MAX_LOG_SIZE` and `MAX_NUM_LOGS` in the `constants.rs` module in the
+`wasm-chain-integration` package)
 
 ```rust
 /// Add a log item. Return values are

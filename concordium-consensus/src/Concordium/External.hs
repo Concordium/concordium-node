@@ -1090,7 +1090,8 @@ getInstanceInfo cptr blockcstr instcstr = do
         (Just bh, Just inst) -> jsonQuery cptr (Q.getInstanceInfo bh inst)
         _ -> jsonCString AE.Null
 
--- |Run the smart contract entrypoint in a given context and the state at the end of the given block.
+-- |Run the smart contract entrypoint in a given context and in the state at the
+-- end of the given block.
 -- The block must be given as a null-terminated base16 encoding of the block
 -- hash and the context (second CString) must be given as a null-terminated
 -- JSON-encoded value.

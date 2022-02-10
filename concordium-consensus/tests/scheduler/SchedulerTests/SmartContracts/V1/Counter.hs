@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-| This module tests calling a contract from a contract and inspecting the return
-    message. Concretely it invokes a counter countract that maintains a 64-bit
+    message. Concretely it invokes a counter contract that maintains a 64-bit
     counter in its state.
 -}
 module SchedulerTests.SmartContracts.V1.Counter (tests) where
@@ -68,19 +68,19 @@ testCases =
                 , metadata = makeDummyHeader alesAccount 3 700000
                 , keys = [(0,[(0, alesKP)])]
                 }
-        , (SuccessWithSummary ensureSucces , counterSpec 1)
+        , (SuccessWithSummary ensureSuccess , counterSpec 1)
         )
       , ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "counter.inc" BSS.empty
                 , metadata = makeDummyHeader alesAccount 4 700000
                 , keys = [(0,[(0, alesKP)])]
                 }
-        , (SuccessWithSummary ensureSucces , counterSpec 2)
+        , (SuccessWithSummary ensureSuccess , counterSpec 2)
         )
       , ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "counter.inc10" callArgs
                 , metadata = makeDummyHeader alesAccount 5 700000
                 , keys = [(0,[(0, alesKP)])]
                 }
-        , (SuccessWithSummary ensureSucces , counterSpec 12)
+        , (SuccessWithSummary ensureSuccess , counterSpec 12)
         )
       ]
      }
@@ -127,8 +127,8 @@ testCases =
             assertFailure $ "Actual initialization cost " ++ show tsEnergyCost ++ " not more than lower bound " ++ show costLowerBound
 
         -- ensure the transaction is successful
-        ensureSucces :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
-        ensureSucces _ Types.TransactionSummary{..} = checkSuccess "Update failed" tsResult
+        ensureSuccess :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
+        ensureSuccess _ Types.TransactionSummary{..} = checkSuccess "Update failed" tsResult
 
         checkSuccess msg Types.TxReject{..} = assertFailure $ msg ++ show vrRejectReason
         checkSuccess _ _ = return ()

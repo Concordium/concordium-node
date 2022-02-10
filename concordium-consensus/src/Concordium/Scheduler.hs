@@ -916,13 +916,13 @@ checkAndGetBalanceInstanceV0 ownerAccount istance transferAmount = do
 -- |Handle updating a V1 contract.
 -- In contrast to most other methods in this file this one does not use the
 -- error handling facilities of the transaction monad. Instead it explicitly returns an Either type.
--- The reason for this is the possible errors are exposed back to the smart contract in case
--- a contract A invokes contract B's entrypoint.
-handleContractUpdateV1 :: forall pv m.
-  (TransactionMonad pv m, AccountOperations m)
+-- The reason for this is that the possible errors are exposed back to the smart
+-- contract in case a contract A invokes contract B's entrypoint.
+handleContractUpdateV1 :: forall pv r m.
+  (IsProtocolVersion pv, StaticInformation m, AccountOperations m)
   => AccountAddress -- ^The address that was used to send the top-level transaction.
   -> InstanceV GSWasm.V1 -- ^The current state of the target contract of the transaction, which must exist.
-  -> (Amount -> m (Either WasmV1.ContractCallFailure (Address, [ID.AccountCredential], Either ContractAddress IndexedAccountAddress)))
+  -> (Amount -> LocalT pv r m (Either WasmV1.ContractCallFailure (Address, [ID.AccountCredential], Either ContractAddress IndexedAccountAddress)))
   -- ^Check that the sender has sufficient amount to cover the given amount and return a triple of
   -- - used address
   -- - credentials of the address, either account or owner of the contract
@@ -932,7 +932,7 @@ handleContractUpdateV1 :: forall pv m.
   -> Amount -- ^The amount to be transferred from the sender of the message to the contract upon success.
   -> Wasm.ReceiveName -- ^Name of the contract to invoke.
   -> Wasm.Parameter -- ^Message to invoke the receive method with.
-  -> m (Either WasmV1.ContractCallFailure (WasmV1.ReturnValue, [Event]))
+  -> LocalT pv r m (Either WasmV1.ContractCallFailure (WasmV1.ReturnValue, [Event]))
   -- ^The events resulting from processing the message and all recursively processed messages. For efficiency
   -- reasons the events are in **reverse order** of the actual effects.
 handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount receiveName parameter = do
@@ -978,7 +978,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
       let go :: [Event]
               -> Either WasmV1.ContractExecutionReject WasmV1.ReceiveResultData
               -- ^Result of invoking an operation
-              -> m (Either WasmV1.ContractCallFailure (WasmV1.ReturnValue, [Event]))
+              -> LocalT pv r m (Either WasmV1.ContractCallFailure (WasmV1.ReturnValue, [Event]))
           go _ (Left cer) = return (Left (WasmV1.ExecutionReject cer)) -- contract execution failed.
           go events (Right rrData) = do
             -- balance at present before handling out calls or transfers.
@@ -1030,11 +1030,11 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                            -- in this case we essentially treat this as a top-level transaction invoking that contract.
                            -- That is, we execute the entire tree that is potentially generated.
                            let rName = Wasm.uncheckedMakeReceiveName (instanceInitName (_instanceVParameters targetInstance)) imcName
-                               runSuccess = Right <$> handleContractUpdateV0 originAddr targetInstance (checkAndGetBalanceInstanceV0 ownerAccount istance) imcAmount rName imcParam
+                               runSuccess = handleContractUpdateV0 originAddr targetInstance (checkAndGetBalanceInstanceV0 ownerAccount istance) imcAmount rName imcParam
                            -- If execution of the contract succeeds resume.
                            -- Otherwise rollback the state and report that to the caller.
-                           (runSuccess `orElseWith` (return . Left)) >>= \case
-                              Left _ -> -- execution failed, ignore the reject reason since V0 contract cannot return useful information
+                           runInnerTransaction runSuccess >>= \case
+                              Left err -> do -- execution failed, ignore the reject reason since V0 contract cannot return useful information
                                 go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig Nothing entryBalance WasmV1.MessageSendFailed Nothing)
                               Right evs -> do
                                 -- Execution of the contract might have changed our own state. If so, we need to resume in the new state, otherwise
@@ -1044,13 +1044,13 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                 newBalance <- getCurrentContractAmount istance
                                 go (resumeEvent True:evs ++ interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig resumeState newBalance WasmV1.Success Nothing)
                          Just (InstanceV1 targetInstance) -> do
-                           -- invoking a V1 instance is easier we recurse on the update function.
+                           -- invoking a V1 instance is easier. We recurse on the update function.
                            -- If this returns Right _ it is successful, and we pass this, and the returned return value
                            -- to the caller.
                            -- Otherwise we roll back all the changes and return the return value, and the error code to the caller.
                            let rName = Wasm.uncheckedMakeReceiveName (instanceInitName (_instanceVParameters targetInstance)) imcName
                            withRollback (handleContractUpdateV1 originAddr targetInstance (checkAndGetBalanceInstanceV1 ownerAccount istance) imcAmount rName imcParam) >>= \case
-                              Left cer ->
+                              Left cer -> do
                                 go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig Nothing entryBalance (WasmV1.Error cer) (WasmV1.ccfToReturnValue cer))
                               Right (rVal, callEvents) -> do
                                 (lastModifiedIndex, newState) <- getCurrentContractInstanceState istance
@@ -1067,7 +1067,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
    where  transferAccountSync :: AccountAddress -- ^The target account address.
                               -> InstanceV GSWasm.V1 -- ^The sender of this transfer.
                               -> Amount -- ^The amount to transfer.
-                              -> ExceptT WasmV1.EnvFailure m [Event] -- ^The events resulting from the transfer.
+                              -> ExceptT WasmV1.EnvFailure (LocalT pv r m) [Event] -- ^The events resulting from the transfer.
           transferAccountSync accAddr senderInstance tAmount = do
             -- charge at the beginning, successful and failed transfers will have the same cost.
             -- Check whether the sender has the amount to be transferred and reject the transaction if not.
@@ -1085,26 +1085,25 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                       return [Transferred addr transferAmount (AddressAccount accAddr)])
            
 
--- | Process a message to a contract.
+-- | Invoke a V0 contract and process any generated messages.
 -- This includes the transfer of an amount from the sending account or instance.
 -- Recursively do the same for new messages created by contracts (from left to right, depth first).
 -- The target contract must exist, so that its state can be looked up.
-handleContractUpdateV0 :: forall pv m.
-  (TransactionMonad pv m, AccountOperations m)
+handleContractUpdateV0 :: forall pv r m.
+  (IsProtocolVersion pv, StaticInformation m, AccountOperations m)
   => AccountAddress -- ^The address that was used to send the top-level transaction.
   -> InstanceV GSWasm.V0 -- ^The current state of the target contract of the transaction, which must exist.
-  -> (Amount -> m (Address, [ID.AccountCredential], (Either ContractAddress IndexedAccountAddress)))
-  -- ^The sender of the message (contract instance or account). In case this is
-  -- a contract the first parameter is the owner account of the instance. In case this is an account
+  -> (Amount -> LocalT pv r m (Address, [ID.AccountCredential], (Either ContractAddress IndexedAccountAddress)))
+  -- ^Check that the sender has sufficient amount to cover the given amount and return a triple of
+  -- - used address
+  -- - credentials of the address, either account or owner of the contract
+  -- - resolved address. In case this is an account
   -- (i.e., this is called from a top-level transaction) the value is a pair of the address that was used
   -- as the sender address of the transaction, and the account to which it points.
-  -- On the first invocation of this function this will be the sender of the
-  -- top-level transaction, and in recursive calls the respective contract
-  -- instance that produced the message.
   -> Amount -- ^The amount to be transferred from the sender of the message to the receiver.
   -> Wasm.ReceiveName -- ^Name of the contract to invoke.
   -> Wasm.Parameter -- ^Message to invoke the receive method with.
-  -> m [Event] -- ^The events resulting from processing the message and all recursively processed messages.
+  -> LocalT pv r m [Event] -- ^The events resulting from processing the message and all recursively processed messages.
 handleContractUpdateV0 originAddr istance checkAndGetSender transferAmount receiveName parameter = do
   -- Cover administrative costs.
   tickEnergy Cost.updateContractInstanceBaseCost
@@ -1184,12 +1183,12 @@ handleContractUpdateV0 originAddr istance checkAndGetSender transferAmount recei
 traversalStepCost :: Energy
 traversalStepCost = 10
 
-foldEvents :: (TransactionMonad pv m, AccountOperations m)
+foldEvents :: (IsProtocolVersion pv, StaticInformation m, AccountOperations m)
            => AccountAddress -- ^Address that was used in the top-level transaction.
            -> (IndexedAccount m, InstanceV GSWasm.V0) -- ^Instance that generated the events.
            -> Event -- ^Event generated by the invocation of the instance.
            -> Wasm.ActionsTree -- ^Actions to perform
-           -> m [Event] -- ^List of events in order that transactions were traversed.
+           -> LocalT pv r m [Event] -- ^List of events in order that transactions were traversed.
 foldEvents originAddr istance initEvent = fmap (initEvent:) . go
   where go Wasm.TSend{..} = do
           getCurrentContractInstanceTicking erAddr >>= \case
@@ -1223,7 +1222,14 @@ foldEvents originAddr istance initEvent = fmap (initEvent:) . go
           go l `orElse` go r
         go Wasm.Accept = return []
 
-mkSenderAddrCredentials :: AccountOperations m => Either (IndexedAccount m, ContractAddress) (AccountAddress, IndexedAccount m) -> m (Address, [ID.AccountCredential])
+-- |Construct the address and a list of credentials of the sender. If the sender
+-- is an account, this is the address of the account that was used in the
+-- transaction, together with the list of credentials of that account, ordered
+-- by credential index. If the sender is a smart contract the returned address
+-- will be a contract address, and the credentials will be of the owner account.
+mkSenderAddrCredentials :: AccountOperations m
+    => Either (IndexedAccount m, ContractAddress) (AccountAddress, IndexedAccount m)
+    -> m (Address, [ID.AccountCredential])
 mkSenderAddrCredentials sender =
     case sender of
       Left (ownerAccount, iaddr) -> do
@@ -1237,7 +1243,7 @@ mkSenderAddrCredentials sender =
 
 -- | Handle the transfer of an amount from a contract instance to an account.
 handleTransferAccount ::
-  (TransactionMonad pv m, HasInstanceParameters a, HasInstanceFields a)
+  (TransactionMonad pv m, HasInstanceAddress a, HasInstanceFields a)
   => AccountAddress -- ^The target account address.
   -> a -- ^The sender of this transfer.
   -> Amount -- ^The amount to transfer.

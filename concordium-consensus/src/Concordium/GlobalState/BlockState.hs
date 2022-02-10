@@ -384,8 +384,10 @@ class (BlockStateQuery m) => BlockStateOperations m where
     -- ^New account threshold
     -> m (UpdatableBlockState m)
 
-  -- |Replace the instance with given data. The rest of the instance data (instance parameters) stays the same.
-  -- This method is only called when it is known the instance exists, and can thus assume it.
+  -- |Replace the instance with given change in owned amount, and potentially
+  -- new state. The rest of the instance data (instance parameters) stays the
+  -- same. This method is only called when it is known the instance exists, and
+  -- can thus assume it.
   bsoModifyInstance :: UpdatableBlockState m
                     -> ContractAddress
                     -> AmountDelta
