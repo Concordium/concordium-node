@@ -150,10 +150,10 @@ invokeContract _ ContractContext{..} cm bs = do
     -- cannot happen (this would mean out of block energy, and we set block energy no lower than energy),
     -- but this is safe to do and not wrong
     (Left Nothing, re) -> 
-      return Failure{rcrReason = OutOfEnergy, rcrUsedEnergy = ccEnergy - re}
+      return Failure{rcrReason = OutOfEnergy, rcrReturnValue=Nothing, rcrUsedEnergy = ccEnergy - re}
     -- Contract execution of a V0 contract failed with the given reason.
     (Left (Just rcrReason), re) ->
-      return Failure{rcrUsedEnergy = ccEnergy - re,..}
+      return Failure{rcrUsedEnergy = ccEnergy - re,rcrReturnValue=Nothing,..}
     -- Contract execution of a V0 contract succeeded with the given list of events
     (Right (Left rcrEvents), re) ->
       return Success{rcrReturnValue=Nothing,
@@ -163,6 +163,7 @@ invokeContract _ ContractContext{..} cm bs = do
     (Right (Right (Left cf)), re) ->
       return (Failure{
                  rcrReason = WasmV1.cerToRejectReasonReceive ccContract ccMethod ccParameter cf,
+                 rcrReturnValue = WasmV1.returnValueToByteString <$> WasmV1.ccfToReturnValue cf,
                  rcrUsedEnergy = ccEnergy - re})
     -- Contract execution of a V1 contract succeeded with the given return value.
     (Right (Right (Right (rv, reversedEvents))), re) -> -- handleUpdateContractV1 returns events in reverse order

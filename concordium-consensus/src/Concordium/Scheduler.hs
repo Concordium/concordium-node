@@ -1034,7 +1034,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                            -- If execution of the contract succeeds resume.
                            -- Otherwise rollback the state and report that to the caller.
                            runInnerTransaction runSuccess >>= \case
-                              Left err -> do -- execution failed, ignore the reject reason since V0 contract cannot return useful information
+                              Left _ -> -- execution failed, ignore the reject reason since V0 contract cannot return useful information
                                 go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig Nothing entryBalance WasmV1.MessageSendFailed Nothing)
                               Right evs -> do
                                 -- Execution of the contract might have changed our own state. If so, we need to resume in the new state, otherwise
