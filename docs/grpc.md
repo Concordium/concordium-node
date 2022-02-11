@@ -255,8 +255,10 @@ This is a record with fields
 - `usedEnergy: Number` &mdash; the amount of NRG that was used during
   execution
 - `returnValue: ?String` &mdash; if invoking a V1 contract this is the return
-  value that was produced, if any (in case of runtime failure or out of energy
-  there is no return value). If invoking a V0 contract this field is not present.
+  value that was produced, if any. The return value is only produced if the
+  contract terminates normally. If it runs out of energy or triggers a runtime
+  error there is no return value. If invoking a V0 contract this field is not
+  present.
 - if `tag` is `"success"` the following fields are present
   - `events: [Event]` &mdash; list of events generated as part of execution of
     the contract
