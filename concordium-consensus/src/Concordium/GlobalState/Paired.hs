@@ -199,6 +199,24 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
         ab1 <- coerceBSML (getActiveBakers ls)
         ab2 <- coerceBSMR (getActiveBakers rs)
         assert (ab1 == ab2) $ return ab1
+    getActiveBakersAndDelegators (ls, rs) = do
+        (b1, d1) <- coerceBSML $ getActiveBakersAndDelegators ls
+        (b2, d2) <- coerceBSMR $ getActiveBakersAndDelegators rs
+        assert (d1 == d2) $ assert (length b1 == length b2) $ return (zipActiveBakerInfo b1 b2, d1)
+        where
+            zipActiveBakerInfo (i1 : b1) (i2 : b2) =
+                assert (activeBakerEquityCapital i1 == activeBakerEquityCapital i2) $
+                assert (activeBakerPendingChange i1 == activeBakerPendingChange i2) $
+                assert (activeBakerDelegators i1 == activeBakerDelegators i2) $
+                let i = ActiveBakerInfo{
+                            activeBakerInfoRef = (activeBakerInfoRef i1, activeBakerInfoRef i2),
+                            activeBakerEquityCapital = activeBakerEquityCapital i1,
+                            activeBakerPendingChange = activeBakerPendingChange i1,
+                            activeBakerDelegators = activeBakerDelegators i1
+                        } 
+                    b = zipActiveBakerInfo b1 b2
+                in i : b
+            zipActiveBakerInfo _ _ = []
     getAccountByCredId (ls, rs) cid = do
         a1 <- coerceBSML (getAccountByCredId ls cid)
         a2 <- coerceBSMR (getAccountByCredId rs cid)
@@ -297,6 +315,14 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
     getUpdates (bps1, bps2) = do
         u1 <- coerceBSML (getUpdates bps1)
         u2 <- coerceBSMR (getUpdates bps2)
+        assert (u1 == u2) $ return u1
+    getPendingTimeParameters (bps1, bps2) = do
+        u1 <- coerceBSML (getPendingTimeParameters bps1)
+        u2 <- coerceBSMR (getPendingTimeParameters bps2)
+        assert (u1 == u2) $ return u1
+    getPendingPoolParameters (bps1, bps2) = do
+        u1 <- coerceBSML (getPendingPoolParameters bps1)
+        u2 <- coerceBSMR (getPendingPoolParameters bps2)
         assert (u1 == u2) $ return u1
     getProtocolUpdateStatus (bps1, bps2) = do
         us1 <- coerceBSML (getProtocolUpdateStatus bps1)
@@ -531,6 +557,10 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         r1 <- coerceBSML $ bsoGetCryptoParams bs1
         r2 <- coerceBSMR $ bsoGetCryptoParams bs2
         assert (r1 == r2) $ return r1
+    bsoGetPaydayEpoch (bs1, bs2) = do
+        r1 <- coerceBSML $ bsoGetPaydayEpoch bs1
+        r2 <- coerceBSMR $ bsoGetPaydayEpoch bs2
+        assert (r1 == r2) $ return r1
     bsoSetTransactionOutcomes (bs1, bs2) tos = do
         bs1' <- coerceBSML $ bsoSetTransactionOutcomes bs1 tos
         bs2' <- coerceBSMR $ bsoSetTransactionOutcomes bs2 tos
@@ -592,6 +622,10 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
     bsoGetChainParameters (bs1, bs2) = do
         r1 <- coerceBSML $ bsoGetChainParameters bs1
         r2 <- coerceBSMR $ bsoGetChainParameters bs2
+        assert (r1 == r2) $ return r1
+    bsoGetPendingTimeParameters (bs1, bs2) = do
+        r1 <- coerceBSML $ bsoGetPendingTimeParameters bs1
+        r2 <- coerceBSMR $ bsoGetPendingTimeParameters bs2
         assert (r1 == r2) $ return r1
     bsoGetEpochBlocksBaked (bs1, bs2) = do
         r1 <- coerceBSML $ bsoGetEpochBlocksBaked bs1

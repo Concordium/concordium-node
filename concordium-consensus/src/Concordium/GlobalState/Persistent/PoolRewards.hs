@@ -4,7 +4,8 @@ module Concordium.GlobalState.Persistent.PoolRewards
       emptyPoolRewards,
       makePoolRewards,
       putPoolRewards,
-      bakerBlockCounts
+      bakerBlockCounts,
+      setNextCapitalDistribution
     ) where
 
 import Data.Word
@@ -159,3 +160,23 @@ bakerBlockCounts PoolRewards{..} = do
             if Vec.null bpc
             then []
             else (bcBakerId (Vec.head bpc), blockCount) : zipToBlockCounts (Vec.tail bpc) rds
+
+
+setNextCapitalDistribution ::
+     (MonadBlobStore m, Reference m ref PoolRewards)
+    => [(BakerId, Amount, [(DelegatorId, Amount)])]
+    -> [(DelegatorId, Amount)]
+    -> ref PoolRewards
+    -> m (ref PoolRewards)
+setNextCapitalDistribution bakers lpool oldPoolRewards = do
+    let bakerPoolCapital = Vec.fromList $ map mkBakCap bakers
+    let lPoolCapital = Vec.fromList $ map mkDelCap lpool
+    capDist <- refMake $ CapitalDistribution{..}
+    pr <- refLoad oldPoolRewards
+    refMake $ (pr {nextCapital = capDist})
+          where
+            mkBakCap (bcBakerId, bcBakerEquityCapital, dels) =
+                let bcDelegatorCapital = Vec.fromList $ map mkDelCap dels
+                in BakerCapital{..}
+            mkDelCap (dcDelegatorId, dcDelegatorCapital) =
+                DelegatorCapital{..}

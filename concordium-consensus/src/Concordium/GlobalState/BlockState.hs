@@ -731,6 +731,8 @@ class (BlockStateQuery m) => BlockStateOperations m where
 
   -- |Set the current capital distribution to the current value of the next capital distribution.
   -- The next capital distribution is unchanged.
+  -- This also clears transaction rewards and block counts accruing to baker pools.
+  -- The L-Pool and foundation transaction rewards are not affected.
   bsoRotateCurrentCapitalDistribution :: (AccountVersionFor (MPV m) ~ 'AccountV1) => UpdatableBlockState m -> m (UpdatableBlockState m)
 
   -- |Get the current status of the various accounts.
@@ -791,6 +793,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   getModule s = lift . getModule s
   getAccount s = lift . getAccount s
   getActiveBakers = lift . getActiveBakers
+  getActiveBakersAndDelegators = lift . getActiveBakersAndDelegators
   getAccountByCredId s = lift . getAccountByCredId s
   getBakerAccount s = lift . getBakerAccount s
   getContractInstance s = lift . getContractInstance s
@@ -813,6 +816,8 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   getNextUpdateSequenceNumber s = lift . getNextUpdateSequenceNumber s
   getCurrentElectionDifficulty = lift . getCurrentElectionDifficulty
   getUpdates = lift . getUpdates
+  getPendingTimeParameters = lift . getPendingTimeParameters
+  getPendingPoolParameters = lift . getPendingPoolParameters
   getProtocolUpdateStatus = lift . getProtocolUpdateStatus
   getCryptographicParameters = lift . getCryptographicParameters
   getPaydayEpoch = lift . getPaydayEpoch
@@ -919,6 +924,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoAddReleaseSchedule s l = lift $ bsoAddReleaseSchedule s l
   bsoGetEnergyRate = lift . bsoGetEnergyRate
   bsoGetChainParameters = lift . bsoGetChainParameters
+  bsoGetPendingTimeParameters = lift . bsoGetPendingTimeParameters
   bsoGetEpochBlocksBaked = lift . bsoGetEpochBlocksBaked
   bsoNotifyBlockBaked s = lift . bsoNotifyBlockBaked s
   bsoClearEpochBlocksBaked = lift . bsoClearEpochBlocksBaked

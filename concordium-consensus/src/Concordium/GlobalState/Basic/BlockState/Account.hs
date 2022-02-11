@@ -131,7 +131,7 @@ serializeAccount cryptoParams acct@Account{..} = do
 
 -- |Deserialize an account.
 -- The serialization format may depend on the protocol version.
-deserializeAccount :: forall oldpv pv. IsProtocolVersion pv
+deserializeAccount :: forall oldpv pv. IsProtocolVersion oldpv
     => StateMigrationParameters oldpv pv
     -> GlobalContext
     -> S.Get (Account (AccountVersionFor pv))

@@ -1884,6 +1884,7 @@ doSetNextCapitalDistribution pbs bakers lpool = do
             mkDelCap (dcDelegatorId, dcDelegatorCapital) =
                 DelegatorCapital{..}
 
+-- FIXME: This should also clear the baker pool reward details!
 doRotateCurrentCapitalDistribution
     :: (IsProtocolVersion pv, MonadBlobStore m, AccountVersionFor pv ~ 'AccountV1)
     => PersistentBlockState pv
@@ -1915,6 +1916,16 @@ doGetChainParameters :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBl
 doGetChainParameters pbs = do
         bsp <- loadPBS pbs
         lookupCurrentParameters (bspUpdates bsp)
+
+doGetPendingTimeParameters :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m [(Timestamp, TimeParameters (ChainParametersVersionFor pv))]
+doGetPendingTimeParameters pbs = do
+        bsp <- loadPBS pbs
+        fmap (_1 %~ transactionTimeToTimestamp) <$> lookupPendingTimeParameters (bspUpdates bsp)
+
+doGetPendingPoolParameters :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m [(Timestamp, PoolParameters (ChainParametersVersionFor pv))]
+doGetPendingPoolParameters pbs = do
+        bsp <- loadPBS pbs
+        fmap (_1 %~ transactionTimeToTimestamp) <$> lookupPendingPoolParameters (bspUpdates bsp)
 
 doGetEpochBlocksBaked :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m (Word64, [(BakerId, Word64)])
 doGetEpochBlocksBaked pbs = do
@@ -2212,6 +2223,7 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateQuery (Persist
     getModule = doGetModuleSource . hpbsPointers
     getAccount = doGetAccount . hpbsPointers
     getActiveBakers = doGetActiveBakers . hpbsPointers
+    getActiveBakersAndDelegators = doGetActiveBakersAndDelegators . hpbsPointers
     getAccountByCredId = doGetAccountByCredId . hpbsPointers
     getContractInstance = doGetInstance . hpbsPointers
     getModuleList = doGetModuleList . hpbsPointers
@@ -2234,6 +2246,8 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateQuery (Persist
     getNextUpdateSequenceNumber = doGetNextUpdateSequenceNumber . hpbsPointers
     getCurrentElectionDifficulty = doGetCurrentElectionDifficulty . hpbsPointers
     getUpdates = doGetUpdates . hpbsPointers
+    getPendingTimeParameters = doGetPendingTimeParameters . hpbsPointers
+    getPendingPoolParameters = doGetPendingPoolParameters . hpbsPointers
     getProtocolUpdateStatus = doGetProtocolUpdateStatus . hpbsPointers
     getCryptographicParameters = doGetCryptoParams . hpbsPointers
     getPaydayEpoch = doGetPaydayEpoch . hpbsPointers
@@ -2326,6 +2340,7 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateOperations (Pe
     bsoGetIdentityProvider = doGetIdentityProvider
     bsoGetAnonymityRevokers = doGetAnonymityRevokers
     bsoGetCryptoParams = doGetCryptoParams
+    bsoGetPaydayEpoch = doGetPaydayEpoch
     bsoSetTransactionOutcomes = doSetTransactionOutcomes
     bsoAddSpecialTransactionOutcome = doAddSpecialTransactionOutcome
     bsoProcessUpdateQueues = doProcessUpdateQueues
@@ -2340,6 +2355,7 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateOperations (Pe
     bsoAddReleaseSchedule = doAddReleaseSchedule
     bsoGetEnergyRate = doGetEnergyRate
     bsoGetChainParameters = doGetChainParameters
+    bsoGetPendingTimeParameters = doGetPendingTimeParameters
     bsoGetEpochBlocksBaked = doGetEpochBlocksBaked
     bsoNotifyBlockBaked = doNotifyBlockBaked
     bsoClearEpochBlocksBaked = doClearEpochBlocksBaked

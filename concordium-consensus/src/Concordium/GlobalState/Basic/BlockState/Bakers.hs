@@ -83,6 +83,16 @@ getEpochBakers = do
     let _bakerTotalStake = Vec.sum _bakerStakes
     return EpochBakers{..}
 
+-- |Construct an 'EpochBakers' from a list of pairs of 'BakerInfo' and the baker stake 'Amount'.
+-- The list must be in ascending order by 'BakerId', with no duplicates.
+makeHashedEpochBakers :: [(BakerInfo, Amount)] -> Hashed EpochBakers
+makeHashedEpochBakers bakers = makeHashed EpochBakers{..}
+    where
+        bkrs = Vec.fromList bakers
+        _bakerInfos = fst <$> bkrs
+        _bakerStakes = snd <$> bkrs
+        _bakerTotalStake = Vec.sum _bakerStakes
+
 -- |Convert an 'EpochBakers' to a 'FullBakers'.
 epochToFullBakers :: EpochBakers -> FullBakers
 epochToFullBakers EpochBakers{..} = FullBakers{
@@ -91,6 +101,13 @@ epochToFullBakers EpochBakers{..} = FullBakers{
     }
     where
         mkFullBakerInfo bi bs = FullBakerInfo bi bs
+
+-- |Covert an 'EpochBakers' to a list of pairs of 'BakerId' and stake 'Amount'.
+-- The list is in ascending order of 'BakerId'.
+epochToBakerStakes :: EpochBakers -> Vec.Vector (BakerId, Amount)
+epochToBakerStakes EpochBakers{..} = Vec.zipWith mkBakerStake _bakerInfos _bakerStakes
+    where
+        mkBakerStake bi bs = (_bakerIdentity bi, bs)
 
 -- |The set of accounts that are currently registered as bakers.
 data ActiveBakers = ActiveBakers {

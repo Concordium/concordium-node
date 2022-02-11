@@ -146,6 +146,14 @@ clearQueue q = do
                 uqQueue = Seq.empty
             }
 
+-- |Load the all pending updates from a queue.
+loadQueue :: (Reference m ref (UpdateQueue t), MonadBlobStore m, Serialize t, MHashableTo m H.Hash t)
+    => ref (UpdateQueue t)
+    -> m [(TransactionTime, t)]
+loadQueue q = do
+        UpdateQueue{..} <- refLoad q
+        mapM (\(a,b) -> (a,) . unStoreSerialized <$> refLoad b) (toList uqQueue)
+
 -- |Update queues for all on-chain update types.
 data PendingUpdates (cpv :: ChainParametersVersion) = PendingUpdates {
         -- |Updates to the root keys.
@@ -351,8 +359,8 @@ putPendingUpdatesV0 PendingUpdates{..} = do
         putUpdateQueueV0 =<< refLoad pPoolParametersQueue
         putUpdateQueueV0 =<< refLoad pAddAnonymityRevokerQueue
         putUpdateQueueV0 =<< refLoad pAddIdentityProviderQueue
-        mapM_ ((putUpdateQueueV0 =<<) . refLoad) pCooldownParametersQueue
-        mapM_ ((putUpdateQueueV0 =<<) . refLoad) pTimeParametersQueue
+        mapM_ (putUpdateQueueV0 <=< refLoad) pCooldownParametersQueue
+        mapM_ (putUpdateQueueV0 <=< refLoad) pTimeParametersQueue
 
 -- |Initial pending updates with empty queues.
 emptyPendingUpdates
@@ -1083,3 +1091,21 @@ putUpdatesV0 Updates{..} = do
                 sPut . unStoreSerialized =<< refLoad pu
         sPut . unStoreSerialized =<< refLoad currentParameters
         putPendingUpdatesV0 pendingUpdates
+
+-- |Look up the pending changes to the time parameters.
+lookupPendingTimeParameters :: (MonadBlobStore m, IsChainParametersVersion cpv)
+    => BufferedRef (Updates' cpv)
+    -> m [(TransactionTime, TimeParameters cpv)]
+lookupPendingTimeParameters uref = do
+        Updates{..} <- refLoad uref
+        case pTimeParametersQueue pendingUpdates of
+            NothingForCPV1  -> return []
+            JustForCPV1 tpq -> loadQueue tpq
+
+-- |Look up the pending changes to the pool parameters.
+lookupPendingPoolParameters :: (MonadBlobStore m, IsChainParametersVersion cpv)
+    => BufferedRef (Updates' cpv)
+    -> m [(TransactionTime, PoolParameters cpv)]
+lookupPendingPoolParameters uref = do
+        Updates{..} <- refLoad uref
+        loadQueue (pPoolParametersQueue pendingUpdates)
