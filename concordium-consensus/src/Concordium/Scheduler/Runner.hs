@@ -1,11 +1,10 @@
-{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveGeneric, TypeApplications #-}
 module Concordium.Scheduler.Runner where
 
 import GHC.Generics(Generic)
 
 import Data.Maybe
 import Data.Text(Text)
-import Data.Word
 
 import Control.Monad.Except
 
@@ -18,7 +17,6 @@ import qualified Concordium.Crypto.BlsSignature as Bls
 
 import Concordium.ID.Types
 import Concordium.Types
-import Concordium.Wasm(WasmModule(..))
 import qualified Concordium.Wasm as Wasm
 import qualified Concordium.Scheduler.Types as Types
 
@@ -43,13 +41,16 @@ transactionHelper t =
   case t of
     (TJSON meta (DeployModule version mnameText) keys) -> liftIO $ do
       BS.readFile mnameText >>= \wasmMod ->
-        let modl = WasmModule version $ Wasm.ModuleSource wasmMod
+        let modl = case version of
+              Wasm.V0 -> Wasm.WasmModuleV0 . Wasm.WasmModuleV . Wasm.ModuleSource $ wasmMod
+              Wasm.V1 -> Wasm.WasmModuleV1 . Wasm.WasmModuleV . Wasm.ModuleSource $ wasmMod
         in return $ signTx keys meta . Types.encodePayload . Types.DeployModule $ modl
     (TJSON meta (InitContract icAmount version mnameText cNameText paramExpr) keys) -> liftIO $ do
       BS.readFile mnameText >>= \wasmMod ->
-        let modl = WasmModule version $ Wasm.ModuleSource wasmMod
+        let icModRef = case version of
+              Wasm.V0 -> Wasm.getModuleRef @Wasm.V0 . Wasm.WasmModuleV . Wasm.ModuleSource $ wasmMod
+              Wasm.V1 -> Wasm.getModuleRef @Wasm.V1 . Wasm.WasmModuleV . Wasm.ModuleSource $ wasmMod
             payload = Types.InitContract{
-              icModRef = Wasm.getModuleRef modl,
               icInitName = Wasm.InitName cNameText,
               icParam = Wasm.Parameter paramExpr,
               ..
@@ -138,9 +139,9 @@ processGroupedTransactions ::
 processGroupedTransactions = fmap (Types.fromTransactions . map (map (\x -> (Types.fromAccountTransaction 0 x, Nothing))))
                              . mapM processTransactions
 
-data PayloadJSON = DeployModule { version :: Word32, moduleName :: FilePath }
+data PayloadJSON = DeployModule { wasmVersion :: Wasm.WasmVersion, moduleName :: FilePath }
                  | InitContract { amount :: Amount
-                                , version :: Word32
+                                , version :: Wasm.WasmVersion
                                 , moduleName :: FilePath
                                 , initFunctionName :: Text
                                 , parameter :: BSS.ShortByteString }

@@ -122,6 +122,12 @@ instance (MonadReader ContextState m,
   {-# INLINE getAccountCreationLimit #-}
   getAccountCreationLimit = view accountCreationLimit
 
+  {-# INLINE getContractInstance #-}
+  getContractInstance addr = lift . flip bsoGetInstance addr =<< use schedulerBlockState
+
+  {-# INLINE getStateAccount #-}
+  getStateAccount !addr = lift . flip bsoGetAccount addr =<< use schedulerBlockState
+
 instance (SS state ~ UpdatableBlockState m,
           HasSchedulerState state,
           MonadState state m,
@@ -200,12 +206,6 @@ instance (MonadReader ContextState m,
   {-# INLINE bumpTransactionIndex #-}
   bumpTransactionIndex = nextIndex <<%= (+1)
 
-  {-# INLINE getContractInstance #-}
-  getContractInstance addr = lift . flip bsoGetInstance addr =<< use schedulerBlockState
-
-  {-# INLINE getAccount #-}
-  getAccount !addr = lift . flip bsoGetAccount addr =<< use schedulerBlockState
-
   {-# INLINE getAccountIndex #-}
   getAccountIndex addr = lift  . flip bsoGetAccountIndex addr =<< use schedulerBlockState
 
@@ -252,7 +252,7 @@ instance (MonadReader ContextState m,
     -- ASSUMPTION: the property which should hold at this point is that any
     -- changed instance must exist in the global state and moreover all instances
     -- are distinct by the virtue of a HashMap being a function
-    s' <- lift (foldM (\s' (addr, (amnt, val)) -> do
+    s' <- lift (foldM (\s' (addr, (_, amnt, val)) -> do
                          tell (logContract addr)
                          bsoModifyInstance s' addr amnt val)
                       s

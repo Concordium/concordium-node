@@ -1,3 +1,5 @@
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module Concordium.TransactionVerification where
 
 import Control.Monad.Trans
@@ -123,6 +125,8 @@ data NotOkResult
   -- ^The 'NormalTransaction' contained an already used nonce.
   | Expired
   -- ^The transaction was expired
+  | InvalidPayloadSize
+  -- ^Transaction payload size exceeds protocol limit.
   deriving (Eq, Show, Ord)
 
 -- |Type which can verify transactions in a monadic context. 
@@ -229,9 +233,11 @@ verifyCredentialDeployment now accountCreation@Tx.AccountCreation{..} =
 -- * Checks that the effective time is no later than the timeout of the chain update.
 -- * Checks that provided sequence number is sequential.
 -- * Checks that the 'ChainUpdate' is correctly signed.
-verifyChainUpdate :: TransactionVerifier pv m => Updates.UpdateInstruction -> m VerificationResult
+verifyChainUpdate :: forall pv m . TransactionVerifier pv m => Updates.UpdateInstruction -> m VerificationResult
 verifyChainUpdate ui@Updates.UpdateInstruction{..} =
   either id id <$> runExceptT (do
+    unless (Types.validatePayloadSize (Types.protocolVersion @pv) (Updates.updatePayloadSize uiHeader)) $
+        throwError $ NotOk InvalidPayloadSize
     -- Check that the timeout is no later than the effective time,
     -- or the update is immediate
     when (Updates.updateTimeout uiHeader >= Updates.updateEffectiveTime uiHeader && Updates.updateEffectiveTime uiHeader /= 0) $
@@ -255,11 +261,13 @@ verifyChainUpdate ui@Updates.UpdateInstruction{..} =
 -- * Checks that the sender is a valid account.
 -- * Checks that the nonce is correct.
 -- * Checks that the 'NormalTransaction' is correctly signed.
-verifyNormalTransaction :: (TransactionVerifier pv m, Tx.TransactionData msg)
-                        =>  msg
+verifyNormalTransaction :: forall pv m msg . (TransactionVerifier pv m, Tx.TransactionData msg)
+                        => msg
                         -> m VerificationResult
 verifyNormalTransaction meta =
   either id id <$> runExceptT (do
+    unless (Types.validatePayloadSize (Types.protocolVersion @pv) (Tx.thPayloadSize (Tx.transactionHeader meta))) $
+        throwError $ NotOk InvalidPayloadSize
     -- Check that enough energy is supplied
     let cost = Cost.baseCost (Tx.getTransactionHeaderPayloadSize $ Tx.transactionHeader meta) (Tx.getTransactionNumSigs (Tx.transactionSignature meta))
     unless (Tx.transactionGasAmount meta >= cost) $ throwError $ NotOk NormalTransactionDepositInsufficient

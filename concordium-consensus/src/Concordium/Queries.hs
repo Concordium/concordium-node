@@ -32,6 +32,9 @@ import Concordium.Types.Queries
 import Concordium.Types.SeedState
 import qualified Concordium.Wasm as Wasm
 
+import qualified Concordium.Scheduler.InvokeContract as InvokeContract
+import qualified Concordium.Types.InvokeContract as InvokeContract
+
 import Concordium.Afgjort.Finalize.Types (FinalizationCommittee (..), PartyInfo (..))
 import Concordium.Afgjort.Monad
 import Concordium.Birk.Bake
@@ -449,7 +452,7 @@ getAccountList = liftSkovQueryBlock $ BS.getAccountList <=< blockState
 getInstanceList :: BlockHash -> MVR gsconf finconf (Maybe [ContractAddress])
 getInstanceList =
     liftSkovQueryBlock $
-        fmap (fmap iaddress) . BS.getContractInstanceList <=< blockState
+        fmap (fmap instanceAddress) . BS.getContractInstanceList <=< blockState
 
 -- |Get the list of modules present as of a given block.
 getModuleList :: BlockHash -> MVR gsconf finconf (Maybe [ModuleRef])
@@ -568,6 +571,18 @@ getTransactionStatusInBlock trHash blockHash =
                                     return $ Just $ BTSFinalized outcome
                         else return $ Just BTSNotInBlock
             )
+
+-- * Smart contract invocations
+invokeContract :: BlockHash -> InvokeContract.ContractContext -> MVR gsconf finconf (Maybe InvokeContract.InvokeContractResult)
+invokeContract bh cctx =
+    liftSkovQueryBlockAndVersion
+    (\(_ :: VersionedConfiguration gsconf finconf pv) bp -> do
+        bs <- blockState bp
+        cm <- ChainMetadata <$> getSlotTimestamp (blockSlot bp)
+        InvokeContract.invokeContract (protocolVersion @pv) cctx cm bs)
+    bh
+    
+
 
 -- * Miscellaneous
 

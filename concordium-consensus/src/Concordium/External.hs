@@ -33,6 +33,7 @@ import Concordium.Crypto.ByteStringHelpers
 import Concordium.GlobalState
 import Concordium.GlobalState.Persistent.LMDB (addDatabaseVersion)
 import Concordium.GlobalState.Persistent.TreeState (InitException (..))
+import qualified Concordium.Types.InvokeContract as InvokeContract
 import Concordium.MultiVersion (
     Callbacks (..),
     CatchUpConfiguration (..),
@@ -907,6 +908,10 @@ decodeInstanceAddress inststr = AE.decodeStrict <$> BS.packCString inststr
 decodeModuleRef :: CString -> IO (Maybe ModuleRef)
 decodeModuleRef modstr = readMaybe <$> peekCString modstr
 
+-- |Decode the context passed to the @invokeContract@ method.
+decodeContractContext :: CString -> IO (Maybe InvokeContract.ContractContext)
+decodeContractContext ctxStr = AE.decodeStrict <$> BS.packCString ctxStr
+
 -- |Decode a transaction hash from a null-terminated base-16 string.
 decodeTransactionHash :: CString -> IO (Maybe TransactionHash)
 decodeTransactionHash trHashStr = readMaybe <$> peekCString trHashStr
@@ -1084,6 +1089,24 @@ getInstanceInfo cptr blockcstr instcstr = do
     case (mblock, minst) of
         (Just bh, Just inst) -> jsonQuery cptr (Q.getInstanceInfo bh inst)
         _ -> jsonCString AE.Null
+
+-- |Run the smart contract entrypoint in a given context and in the state at the
+-- end of the given block.
+-- The block must be given as a null-terminated base16 encoding of the block
+-- hash and the context (second CString) must be given as a null-terminated
+-- JSON-encoded value.
+-- The return value is a null-terminated, json encoded information. It is either null
+-- in case the input cannot be decoded, or the block does not exist,
+-- or the JSON encoding of InvokeContract.InvokeContractResult.
+-- The returned string should be freed by calling 'freeCStr'.
+invokeContract :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
+invokeContract cptr blockcstr ctxcstr = do
+    mblock <- decodeBlockHash blockcstr
+    mctx <- decodeContractContext ctxcstr
+    case (mblock, mctx) of
+        (Just bh, Just ctx) -> jsonQuery cptr (Q.invokeContract bh ctx)
+        _ -> jsonCString AE.Null
+
 
 -- |Get the source code of a module as deployed on the chain at a particular block.
 -- The block must be given as a null-terminated base16 encoding of the block hash.
@@ -1319,6 +1342,7 @@ foreign export ccall getAccountList :: StablePtr ConsensusRunner -> CString -> I
 foreign export ccall getInstances :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getAccountInfo :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
 foreign export ccall getInstanceInfo :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
+foreign export ccall invokeContract :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
 foreign export ccall getRewardStatus :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getBirkParameters :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getModuleList :: StablePtr ConsensusRunner -> CString -> IO CString

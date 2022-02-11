@@ -24,7 +24,7 @@ import Concordium.Scheduler.DummyData
 import Concordium.GlobalState.DummyData
 import Concordium.Types.DummyData
 import Concordium.Crypto.DummyData
-import Concordium.Wasm (ReceiveName(..))
+import Concordium.Wasm (ReceiveName(..), WasmVersion(..))
 
 import SchedulerTests.Helpers
 import SchedulerTests.TestUtils
@@ -46,7 +46,7 @@ transaction payload n = TJSON {
 }
 
 initWithAmount :: Types.Amount -> Types.Nonce -> TransactionJSON
-initWithAmount amount = transaction (InitContract amount 0 wasmPath "init_error_codes" "")
+initWithAmount amount = transaction (InitContract amount V0 wasmPath "init_error_codes" "")
 
 updateWithAmount :: Types.Amount -> Text -> Types.Nonce -> TransactionJSON
 updateWithAmount amount fun = transaction (Update amount firstAddress fun "")
@@ -56,7 +56,7 @@ firstAddress = Types.ContractAddress 0 0
 
 transactionInputs :: [TransactionJSON]
 transactionInputs = zipWith ($) transactionFunctionList [1..]
-                    where transactionFunctionList = [ transaction (DeployModule 0 wasmPath),
+                    where transactionFunctionList = [ transaction (DeployModule V0 wasmPath),
 
                                                       -- returns InitError::VeryBadError
                                                       -- error code: -1
@@ -136,7 +136,7 @@ testRejectReasons = do
     case invariantBlockState gs (finState ^. Types.schedulerExecutionCosts) of
         Left f -> liftIO $ assertFailure $ f ++ " " ++ show gs
         _ -> return ()
-    return (getResults ftAdded, ftFailed, gs ^.. blockInstances . foldInstances . to (\i -> (iaddress i, i)))
+    return (getResults ftAdded, ftFailed, gs ^.. blockInstances . foldInstances . to (\i -> (instanceAddress i, i)))
 
 checkTransactionResults :: TestResult -> Assertion
 checkTransactionResults (suc, fails, instances) = do

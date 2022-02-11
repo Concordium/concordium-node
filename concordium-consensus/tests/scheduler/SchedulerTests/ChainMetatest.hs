@@ -8,6 +8,7 @@ import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Concordium.Scheduler as Sch
 import Concordium.Scheduler.Runner
+import Concordium.Wasm(WasmVersion(..))
 import Concordium.TransactionVerification
 
 import Concordium.GlobalState.Basic.BlockState
@@ -37,12 +38,12 @@ transactionInputs :: [TransactionJSON]
 transactionInputs = [
   TJSON{
       metadata = makeDummyHeader alesAccount 1 100000,
-      payload = DeployModule 0 "./testdata/contracts/chain-meta-test.wasm",
+      payload = DeployModule V0 "./testdata/contracts/chain-meta-test.wasm",
       keys = [(0,[(0, alesKP)])]
       },
   TJSON{
       metadata = makeDummyHeader alesAccount 2 100000,
-      payload = InitContract 9 0 "./testdata/contracts/chain-meta-test.wasm" "init_check_slot_time" "",
+      payload = InitContract 9 V0 "./testdata/contracts/chain-meta-test.wasm" "init_check_slot_time" "",
       keys = [(0,[(0, alesKP)])]
       }
   ]
@@ -64,7 +65,7 @@ testChainMeta = do
     case invariantBlockState gs (finState ^. Types.schedulerExecutionCosts) of
         Left f -> liftIO $ assertFailure $ f ++ " " ++ show gs
         _ -> return ()
-    return (getResults ftAdded, ftFailed, gs ^.. blockInstances . foldInstances . to (\i -> (iaddress i, i)))
+    return (getResults ftAdded, ftFailed, gs ^.. blockInstances . foldInstances . to (\i -> (instanceAddress i, i)))
 
 checkChainMetaResult :: TestResult -> Assertion
 checkChainMetaResult (suc, fails, instances) = do

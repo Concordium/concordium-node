@@ -1,4 +1,5 @@
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
 {-|
  Definition of the API of every BlockState implementation.
@@ -190,6 +191,10 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
 class AccountOperations m => BlockStateQuery m where
     -- |Get the module source from the module table as deployed to the chain.
     getModule :: BlockState m -> ModuleRef -> m (Maybe Wasm.WasmModule)
+
+    -- |Get the module source from the module table as deployed to the chain.
+    getModuleInterface :: BlockState m -> ModuleRef -> m (Maybe GSWasm.ModuleInterface)
+
     -- |Get the account state from the account table of the state instance.
     getAccount :: BlockState m -> AccountAddress -> m (Maybe (AccountIndex, Account m))
     -- |Check whether an account exists for the given account address.
@@ -333,7 +338,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   bsoPutNewInstance :: UpdatableBlockState m -> (ContractAddress -> Instance) -> m (ContractAddress, UpdatableBlockState m)
   -- |Add the module to the global state. If a module with the given address
   -- already exists return @False@.
-  bsoPutNewModule :: UpdatableBlockState m -> (GSWasm.ModuleInterface, Wasm.WasmModule) -> m (Bool, UpdatableBlockState m)
+  bsoPutNewModule :: Wasm.IsWasmVersion v => UpdatableBlockState m -> (GSWasm.ModuleInterfaceV v, Wasm.WasmModuleV v) -> m (Bool, UpdatableBlockState m)
 
   -- |Modify an existing account with given data (which includes the address of the account).
   -- This method is only called when an account exists and can thus assume this.
@@ -379,12 +384,14 @@ class (BlockStateQuery m) => BlockStateOperations m where
     -- ^New account threshold
     -> m (UpdatableBlockState m)
 
-  -- |Replace the instance with given data. The rest of the instance data (instance parameters) stays the same.
-  -- This method is only called when it is known the instance exists, and can thus assume it.
+  -- |Replace the instance with given change in owned amount, and potentially
+  -- new state. The rest of the instance data (instance parameters) stays the
+  -- same. This method is only called when it is known the instance exists, and
+  -- can thus assume it.
   bsoModifyInstance :: UpdatableBlockState m
                     -> ContractAddress
                     -> AmountDelta
-                    -> Wasm.ContractState
+                    -> Maybe Wasm.ContractState
                     -> m (UpdatableBlockState m)
 
   -- |Notify that some amount was transferred from/to encrypted balance of some account.
@@ -633,6 +640,7 @@ class (BlockStateOperations m, Serialize (BlockStateRef m)) => BlockStateStorage
 
 instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGSTrans t m) where
   getModule s = lift . getModule s
+  getModuleInterface s = lift . getModuleInterface s
   getAccount s = lift . getAccount s
   accountExists s = lift . accountExists s
   getAccountByCredId s = lift . getAccountByCredId s

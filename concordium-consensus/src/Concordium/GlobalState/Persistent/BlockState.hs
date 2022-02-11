@@ -57,8 +57,8 @@ import Concordium.GlobalState.Persistent.Bakers
 import qualified Concordium.GlobalState.Persistent.Instances as Instances
 import qualified Concordium.Types.Transactions as Transactions
 import qualified Concordium.Types.Execution as Transactions
-import Concordium.GlobalState.Persistent.Instances(PersistentInstance(..), PersistentInstanceParameters(..))
-import Concordium.GlobalState.Instance (Instance(..),InstanceParameters(..),makeInstanceHash')
+import Concordium.GlobalState.Persistent.Instances(PersistentInstance(..), PersistentInstanceV(..), PersistentInstanceParameters(..))
+import Concordium.GlobalState.Instance (Instance(..), InstanceV(..), InstanceParameters(..),makeInstanceHash', instanceAddress)
 import Concordium.GlobalState.Persistent.Account
 import Concordium.GlobalState.Persistent.BlockState.Updates
 import qualified Concordium.GlobalState.Basic.BlockState.Account as TransientAccount
@@ -269,7 +269,7 @@ type PersistentBlockState (pv :: ProtocolVersion) = IORef (BufferedRef (BlockSta
 -- version.
 data BlockStatePointers (pv :: ProtocolVersion) = BlockStatePointers {
     bspAccounts :: !(Accounts.Accounts pv),
-    bspInstances :: !Instances.Instances,
+    bspInstances :: !(Instances.Instances pv),
     bspModules :: !(HashedBufferedRef Modules.Modules),
     bspBank :: !(Hashed Rewards.BankStatus),
     bspIdentityProviders :: !(HashedBufferedRef IPS.IdentityProviders),
@@ -534,9 +534,9 @@ doGetModuleSource s modRef = do
     mods <- refLoad (bspModules bsp)
     Modules.getSource modRef mods
 
-doPutNewModule :: (IsProtocolVersion pv, MonadBlobStore m)
+doPutNewModule :: (IsProtocolVersion pv, Wasm.IsWasmVersion v, MonadBlobStore m)
     => PersistentBlockState pv
-    -> (GSWasm.ModuleInterface, Wasm.WasmModule)
+    -> (GSWasm.ModuleInterfaceV v, Wasm.WasmModuleV v)
     -> m (Bool, PersistentBlockState pv)
 doPutNewModule pbs (pmInterface, pmSource) = do
         bsp <- loadPBS pbs
@@ -979,30 +979,53 @@ doPutNewInstance pbs fnew = do
         mods <- refLoad (bspModules bsp)
         -- Create the instance
         (inst, insts) <- Instances.newContractInstance (fnew' mods) (bspInstances bsp)
-        let ca = instanceAddress (instanceParameters inst)
+        let ca = instanceAddress inst
         (ca,) <$> storePBS pbs bsp{bspInstances = insts}
     where
-        fnew' mods ca = let inst@Instance{instanceParameters = InstanceParameters{..}, ..} = fnew ca in do
-            params <- makeBufferedRef $ PersistentInstanceParameters {
-                                            pinstanceAddress = instanceAddress,
-                                            pinstanceOwner = instanceOwner,
-                                            pinstanceContractModule = GSWasm.miModuleRef instanceModuleInterface,
-                                            pinstanceReceiveFuns = instanceReceiveFuns,
-                                            pinstanceInitName = instanceInitName,
-                                            pinstanceParameterHash = instanceParameterHash
-                                        }
-            -- This in an irrefutable pattern because otherwise it would have failed in previous stages
-            -- as it would be trying to create an instance of a module that doesn't exist.
-            ~(Just modRef) <- Modules.getModuleReference (GSWasm.miModuleRef instanceModuleInterface) mods
-            return (inst, PersistentInstance{
-                pinstanceParameters = params,
-                pinstanceModuleInterface = modRef,
-                pinstanceModel = instanceModel,
-                pinstanceAmount = instanceAmount,
-                pinstanceHash = instanceHash
-            })
+        fnew' mods ca =
+          case fnew ca of
+            inst@(InstanceV0 InstanceV{_instanceVParameters = InstanceParameters{..}, ..}) -> do
+              params <- makeBufferedRef $ PersistentInstanceParameters {
+                pinstanceAddress = _instanceAddress,
+                pinstanceOwner = instanceOwner,
+                pinstanceContractModule = GSWasm.miModuleRef instanceModuleInterface,
+                pinstanceReceiveFuns = instanceReceiveFuns,
+                pinstanceInitName = instanceInitName,
+                pinstanceParameterHash = instanceParameterHash
+                }
+              -- We use an irrefutable pattern here. This cannot fail since if it failed it would mean we are trying
+              -- to create an instance of a module that does not exist. The Scheduler should not allow this, and the
+              -- state implementation relies on this property.
+              ~(Just modRef) <- Modules.unsafeGetModuleReferenceV0 (GSWasm.miModuleRef instanceModuleInterface) mods
+              return (inst, PersistentInstanceV0 Instances.PersistentInstanceV{
+                  pinstanceParameters = params,
+                  pinstanceModuleInterface = modRef,
+                  pinstanceModel = _instanceVModel,
+                  pinstanceAmount = _instanceVAmount,
+                  pinstanceHash = _instanceVHash
+                  })
+            inst@(InstanceV1 InstanceV{_instanceVParameters = InstanceParameters{..}, ..}) -> do
+              params <- makeBufferedRef $ PersistentInstanceParameters {
+                pinstanceAddress = _instanceAddress,
+                pinstanceOwner = instanceOwner,
+                pinstanceContractModule = GSWasm.miModuleRef instanceModuleInterface,
+                pinstanceReceiveFuns = instanceReceiveFuns,
+                pinstanceInitName = instanceInitName,
+                pinstanceParameterHash = instanceParameterHash
+                }
+              -- We use an irrefutable pattern here. This cannot fail since if it failed it would mean we are trying
+              -- to create an instance of a module that does not exist. The Scheduler should not allow this, and the
+              -- state implementation relies on this property.
+              ~(Just modRef) <- Modules.unsafeGetModuleReferenceV1 (GSWasm.miModuleRef instanceModuleInterface) mods
+              return (inst, PersistentInstanceV1 Instances.PersistentInstanceV{
+                  pinstanceParameters = params,
+                  pinstanceModuleInterface = modRef,
+                  pinstanceModel = _instanceVModel,
+                  pinstanceAmount = _instanceVAmount,
+                  pinstanceHash = _instanceVHash
+                  })
 
-doModifyInstance :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> ContractAddress -> AmountDelta -> Wasm.ContractState -> m (PersistentBlockState pv)
+doModifyInstance :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> ContractAddress -> AmountDelta -> Maybe Wasm.ContractState -> m (PersistentBlockState pv)
 doModifyInstance pbs caddr deltaAmnt val = do
         bsp <- loadPBS pbs
         -- Update the instance
@@ -1011,13 +1034,27 @@ doModifyInstance pbs caddr deltaAmnt val = do
             Just (_, insts) ->
                 storePBS pbs bsp{bspInstances = insts}
     where
-        upd oldInst = do
+        upd (PersistentInstanceV0 oldInst) = do
             (piParams, newParamsRef) <- cacheBufferedRef (pinstanceParameters oldInst)
             if deltaAmnt == 0 then
-                return ((), rehash (pinstanceParameterHash piParams) $ oldInst {pinstanceParameters = newParamsRef, pinstanceModel = val})
+                case val of
+                    Nothing -> return ((), PersistentInstanceV0 $ oldInst {pinstanceParameters = newParamsRef})
+                    Just newVal -> return ((), PersistentInstanceV0 $ rehash (pinstanceParameterHash piParams) (oldInst {pinstanceParameters = newParamsRef, pinstanceModel = newVal}))
             else
-                return ((), rehash (pinstanceParameterHash piParams) $ oldInst {pinstanceParameters = newParamsRef, pinstanceAmount = applyAmountDelta deltaAmnt (pinstanceAmount oldInst), pinstanceModel = val})
-        rehash iph inst@PersistentInstance {..} = inst {pinstanceHash = makeInstanceHash' iph pinstanceModel pinstanceAmount}
+                case val of
+                    Nothing -> return ((), PersistentInstanceV0 $ rehash (pinstanceParameterHash piParams) $ oldInst {pinstanceParameters = newParamsRef, pinstanceAmount = applyAmountDelta deltaAmnt (pinstanceAmount oldInst)})
+                    Just newVal -> return ((), PersistentInstanceV0 $ rehash (pinstanceParameterHash piParams) $ oldInst {pinstanceParameters = newParamsRef, pinstanceAmount = applyAmountDelta deltaAmnt (pinstanceAmount oldInst), pinstanceModel = newVal})
+        upd (PersistentInstanceV1 oldInst) = do
+            (piParams, newParamsRef) <- cacheBufferedRef (pinstanceParameters oldInst)
+            if deltaAmnt == 0 then
+                case val of
+                    Nothing -> return ((), PersistentInstanceV1 $ oldInst {pinstanceParameters = newParamsRef})
+                    Just newVal -> return ((), PersistentInstanceV1 $ rehash (pinstanceParameterHash piParams) (oldInst {pinstanceParameters = newParamsRef, pinstanceModel = newVal}))
+            else
+                case val of
+                    Nothing -> return ((), PersistentInstanceV1 $ rehash (pinstanceParameterHash piParams) $ oldInst {pinstanceParameters = newParamsRef, pinstanceAmount = applyAmountDelta deltaAmnt (pinstanceAmount oldInst)})
+                    Just newVal -> return ((), PersistentInstanceV1 $ rehash (pinstanceParameterHash piParams) $ oldInst {pinstanceParameters = newParamsRef, pinstanceAmount = applyAmountDelta deltaAmnt (pinstanceAmount oldInst), pinstanceModel = newVal})
+        rehash iph inst@PersistentInstanceV {..} = inst {pinstanceHash = makeInstanceHash' iph pinstanceModel pinstanceAmount}
 
 doGetIdentityProvider :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> ID.IdentityProviderIdentity -> m (Maybe IPS.IpInfo)
 doGetIdentityProvider pbs ipId = do
@@ -1235,6 +1272,7 @@ instance BlockStateTypes (PersistentBlockStateMonad pv r m) where
 
 instance (IsProtocolVersion pv, PersistentState r m) => BlockStateQuery (PersistentBlockStateMonad pv r m) where
     getModule = doGetModuleSource . hpbsPointers
+    getModuleInterface pbs mref = doGetModule (hpbsPointers pbs) mref
     getAccount = doGetAccount . hpbsPointers
     accountExists = doGetAccountExists . hpbsPointers
     getAccountByCredId = doGetAccountByCredId . hpbsPointers

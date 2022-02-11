@@ -117,7 +117,7 @@ Returns a JSON object representing the branches of the tree from the last finali
 | `BlockHash` | base-16 encoded hash of a block (64 characters) |
 | `TransactionHash` | base-16 encoded hash of a transaction (64 characters) |
 | `ModuleRef` | base-16 encoded module reference (64 characters) |
-| `Int` | integer | 
+| `Int` | integer |
 | `EncryptionKey` | base-16 encoded string (192 characters) |
 | `EncryptedAmount` | base-16 encoded string (384 characters) |
 | `UTCTime` | UTC time. `yyyy-mm-ddThh:mm:ss[.sss]Z` (ISO 8601:2004(E) sec. 4.3.2 extended format) |
@@ -227,3 +227,40 @@ does not exist.
 
 Get the source of the module as it was deployed on the chain. The response is a
 byte array.
+
+## InvokeContract : `BlockHash -> ContractContext -> ?InvokeContractResult`
+
+Invoke a smart contract, returning any results. The contract is invoked in the
+state at the end of a given block.
+
+`ContractContext` is a record with fields
+- `invoker: ?Address` &mdash; address of the invoker. If not supplied it
+  defaults to the zero account address
+- `contract: ContractAddress` &mdash; address of the contract to invoke
+- `amount: ?Amount` &mdash; an amount to invoke with. Defaults to 0 if not
+  supplied.
+- `method: String` &mdash; name of the entrypoint to invoke. This needs to be
+  fully qualified in the format `contract.method`.
+- `parameter: ?String` &mdash; parameter to invoke the method with, encoded in
+  hex. Defaults to empty if not provided.
+- `energy: ?Number` &mdash; maximum amount of energy allowed for execution.
+  Defaults to 10_000_000 if not provided.
+
+The return value is either `null` if either the block does not exist, or parsing
+of any of the inputs failed. Otherwise it is a JSON encoded
+`InvokeContractResult`.
+
+This is a record with fields
+- `tag: String` &mdash; eiether `"success"` or `"failure"`.
+- `usedEnergy: Number` &mdash; the amount of NRG that was used during
+  execution
+- `returnValue: ?String` &mdash; if invoking a V1 contract this is the return
+  value that was produced, if any. The return value is only produced if the
+  contract terminates normally. If it runs out of energy or triggers a runtime
+  error there is no return value. If invoking a V0 contract this field is not
+  present.
+- if `tag` is `"success"` the following fields are present
+  - `events: [Event]` &mdash; list of events generated as part of execution of
+    the contract
+- if `tag` is `"failure"` then the following fields are present
+  - `reason: RejectReason` &mdash; encoding of a rejection reason

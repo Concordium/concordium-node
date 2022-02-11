@@ -30,6 +30,7 @@ checkUpdate = case protocolVersion @pv of
     SP1 -> fmap UpdateP1 . P1.checkUpdate
     SP2 -> fmap UpdateP2 . P2.checkUpdate
     SP3 -> const $ Left "Unsupported update."
+    SP4 -> const $ Left "Unsupported update."
 
 -- |Construct the genesis data for a P1 update.
 -- It is assumed that the last finalized block is the terminal block of the old chain:

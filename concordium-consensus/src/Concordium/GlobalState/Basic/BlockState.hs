@@ -33,6 +33,7 @@ import qualified Concordium.Genesis.Data as GenesisData
 import qualified Concordium.Genesis.Data.P1 as P1
 import qualified Concordium.Genesis.Data.P2 as P2
 import qualified Concordium.Genesis.Data.P3 as P3
+import qualified Concordium.Genesis.Data.P4 as P4
 import qualified Concordium.GlobalState.Types as GT
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Parameters
@@ -223,6 +224,7 @@ hashBlockState = case protocolVersion :: SProtocolVersion pv of
   SP1 -> hashBlockStateP1
   SP2 -> hashBlockStateP1
   SP3 -> hashBlockStateP1
+  SP4 -> hashBlockStateP1
     -- For protocol versions P1, P2, and P3, convert a @BlockState pv@ to a
     -- @HashedBlockState pv@ by computing the state hash. The state and hashing
     -- is the same. This function was introduced in protocol version 1 which is
@@ -305,7 +307,7 @@ getBlockState = do
     (_blockAccounts :: Accounts.Accounts pv) <- Accounts.deserializeAccounts cryptoParams
     let resolveModule modRef initName = do
             mi <- Modules.getInterface modRef _blockModules
-            return (GSWasm.miExposedReceive mi ^. at initName . non Set.empty, mi)
+            return (GSWasm.exposedReceive mi ^. at initName . non Set.empty, mi)
     _blockInstances <- Instances.getInstancesV0 resolveModule
     _blockUpdates <- getUpdatesV0
     _blockEpochBlocksBaked <- getHashedEpochBlocksV0
@@ -374,6 +376,10 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
     {-# INLINE getModule #-}
     getModule bs mref =
         return $ bs ^. blockModules . to (Modules.getSource mref)
+
+    {-# INLINE getModuleInterface #-}
+    getModuleInterface bs mref =
+        return $ bs ^. blockModules . to (Modules.getInterface mref)
 
     {-# INLINE getContractInstance #-}
     getContractInstance bs caddr = return (Instances.getInstance caddr (bs ^. blockInstances))
@@ -551,10 +557,9 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             accounts = bs ^. blockAccounts
             newAccounts = Accounts.putAccountWithRegIds acct accounts
 
-    bsoPutNewInstance bs mkInstance = return (instanceAddress, bs')
+    bsoPutNewInstance bs mkInstance = return (Instances.instanceAddress inst, bs')
         where
             (inst, instances') = Instances.createInstance mkInstance (bs ^. blockInstances)
-            Instances.InstanceParameters{..} = Instances.instanceParameters inst
             bs' = bs
                 -- Add the instance
                 & blockInstances .~ instances'
@@ -932,6 +937,9 @@ genesisState gd = case protocolVersion @pv of
                     SP3 -> case gd of
                       GDP3 P3.GDP3Initial{..} -> mkGenesisStateInitial genesisCore genesisInitialState
                       GDP3 P3.GDP3Regenesis{..} -> mkGenesisStateRegenesis genesisRegenesis
+                    SP4 -> case gd of
+                      GDP4 P4.GDP4Initial{..} -> mkGenesisStateInitial genesisCore genesisInitialState
+                      GDP4 P4.GDP4Regenesis{..} -> mkGenesisStateRegenesis genesisRegenesis
     where
         mkGenesisStateInitial GenesisData.CoreGenesisParameters{..} GenesisData.GenesisState{..} = do
             accounts <- mapM mkAccount (zip [0..] (toList genesisAccounts))

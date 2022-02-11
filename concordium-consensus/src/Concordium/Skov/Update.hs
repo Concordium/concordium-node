@@ -633,4 +633,5 @@ transactionVerificationResultToUpdateResult (TV.NotOk TV.NormalTransactionDeposi
 transactionVerificationResultToUpdateResult (TV.NotOk TV.NormalTransactionEnergyExceeded) = ResultEnergyExceeded
 transactionVerificationResultToUpdateResult (TV.NotOk (TV.NormalTransactionDuplicateNonce _)) = ResultDuplicateNonce
 transactionVerificationResultToUpdateResult (TV.NotOk TV.Expired) = ResultStale
+transactionVerificationResultToUpdateResult (TV.NotOk TV.InvalidPayloadSize) = ResultSerializationFail
 

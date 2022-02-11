@@ -32,6 +32,7 @@ import Concordium.Scheduler.Runner (PayloadJSON (..), TransactionJSON (..))
 import Concordium.Scheduler.Types (Amount, ContractAddress (..), Event, RejectReason (..))
 import qualified Concordium.Scheduler.Types as Types
 import Concordium.Types.DummyData
+import Concordium.Wasm (WasmVersion(..))
 import Data.ByteString.Short as BSS
 import Data.Serialize as S
 import Data.Text (Text)
@@ -51,14 +52,14 @@ runInitTestsFromFile testFile = map f
           tcParameters = defaultParams {tpInitialBlockState = initialBlockState},
           tcTransactions =
             [ ( TJSON
-                  { payload = DeployModule 0 testFile,
+                  { payload = DeployModule V0 testFile,
                     metadata = makeDummyHeader alesAccount 1 100000,
                     keys = [(0, [(0, alesKP)])]
                   },
                 (Success emptyExpect, emptySpec)
               ),
               ( TJSON
-                  { payload = InitContract 0 0 testFile testName initParam,
+                  { payload = InitContract 0 V0 testFile testName initParam,
                     metadata = makeDummyHeader alesAccount 2 100000,
                     keys = [(0, [(0, alesKP)])]
                   },
@@ -80,14 +81,14 @@ runReceiveTestsFromFile testFile = map f
           tcParameters = defaultParams {tpInitialBlockState = initialBlockState},
           tcTransactions =
             [ ( TJSON
-                  { payload = DeployModule 0 testFile,
+                  { payload = DeployModule V0 testFile,
                     metadata = makeDummyHeader alesAccount 1 100000,
                     keys = [(0, [(0, alesKP)])]
                   },
                 (Success emptyExpect, emptySpec)
               ),
               ( TJSON
-                  { payload = InitContract 10000 0 testFile "init_test" "",
+                  { payload = InitContract 10000 V0 testFile "init_test" "",
                     metadata = makeDummyHeader alesAccount 2 100000,
                     keys = [(0, [(0, alesKP)])]
                   },

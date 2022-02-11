@@ -359,6 +359,9 @@ makeAccountHash SP2 n a eas ars pd abh = do
 makeAccountHash SP3 n a eas ars pd abh = do
   pdHash <- getHashM pd
   return $ makeAccountHashP1 n a eas ars pdHash abh
+makeAccountHash SP4 n a eas ars pd abh = do
+  pdHash <- getHashM pd
+  return $ makeAccountHashP1 n a eas ars pdHash abh
 
 
 -- |Recompute the hash of an account.

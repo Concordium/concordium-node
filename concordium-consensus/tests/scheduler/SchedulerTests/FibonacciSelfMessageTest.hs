@@ -22,6 +22,7 @@ import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Scheduler.Runner
 import Concordium.TransactionVerification
 
+import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
 import Concordium.GlobalState.Basic.BlockState.Instances
 import Concordium.GlobalState.Basic.BlockState
@@ -55,13 +56,13 @@ testCases =
     { tcName = "Error handling in contracts."
     , tcParameters = defaultParams {tpInitialBlockState=initialBlockState}
     , tcTransactions =
-      [ ( TJSON { payload = DeployModule 0 fibSourceFile
+      [ ( TJSON { payload = DeployModule V0 fibSourceFile
                 , metadata = makeDummyHeader alesAccount 1 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
         , (SuccessWithSummary deploymentCostCheck, emptySpec)
         )
-      , ( TJSON { payload = InitContract 0 0 "./testdata/contracts/fib.wasm" "init_fib" ""
+      , ( TJSON { payload = InitContract 0 V0 "./testdata/contracts/fib.wasm" "init_fib" ""
                 , metadata = makeDummyHeader alesAccount 2 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
@@ -84,7 +85,7 @@ testCases =
           moduleSource <- BS.readFile fibSourceFile
           let len = fromIntegral $ BS.length moduleSource
               -- size of the module deploy payload
-              payloadSize = Types.payloadSize (Types.encodePayload (Types.DeployModule (WasmModule 0 ModuleSource{..})))
+              payloadSize = Types.payloadSize (Types.encodePayload (Types.DeployModule (WasmModuleV0 (WasmModuleV ModuleSource{..}))))
               -- size of the transaction minus the signatures.
               txSize = Types.transactionHeaderSize + fromIntegral payloadSize
               -- transaction is signed with 1 signature

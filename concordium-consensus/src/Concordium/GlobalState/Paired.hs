@@ -178,6 +178,10 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
         m1 <- coerceBSML (getModule ls modRef)
         m2 <- coerceBSMR (getModule rs modRef)
         assert (m1 == m2) $ return m1
+    getModuleInterface (bs1, bs2) mref = do
+        r1 <- coerceBSML $ getModuleInterface bs1 mref
+        r2 <- coerceBSMR $ getModuleInterface bs2 mref
+        assert (r1 == r2) $ return r1
     getAccount (ls, rs) addr = do
         a1 <- coerceBSML (getAccount ls addr)
         a2 <- coerceBSMR (getAccount rs addr)

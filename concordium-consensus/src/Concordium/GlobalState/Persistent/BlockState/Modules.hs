@@ -1,11 +1,18 @@
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE GADTs #-}
 module Concordium.GlobalState.Persistent.BlockState.Modules
   ( Module(..),
+    ModuleV(..),
     Modules,
+    getModuleInterface,
     emptyModules,
     getInterface,
     getSource,
     getModuleReference,
+    unsafeGetModuleReferenceV0,
+    unsafeGetModuleReferenceV1,
     putInterface,
     moduleRefList,
     makePersistentModules,
@@ -15,7 +22,7 @@ module Concordium.GlobalState.Persistent.BlockState.Modules
 
 import Concordium.Crypto.SHA256
 import qualified Concordium.GlobalState.Basic.BlockState.Modules as TransientModules
-import Concordium.GlobalState.Wasm
+import qualified Concordium.GlobalState.Wasm as GSWasm
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.LFMBTree (LFMBTree)
 import qualified Concordium.GlobalState.Persistent.LFMBTree as LFMB
@@ -23,7 +30,6 @@ import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Utils.Serialization.Put
 import Concordium.Wasm
-import Control.Monad
 import Data.Coerce
 import Data.Foldable
 import Data.Map.Strict (Map)
@@ -38,37 +44,98 @@ type ModuleIndex = Word64
 
 --------------------------------------------------------------------------------
 
--- |A module contains both the module interface and a plain reference to where
--- the raw source code of the module is stored in the blobstore.
-data Module = Module {
+-- |A module contains both the module interface and the raw source code of the
+-- module. The module is parameterized by the wasm version, which determines the shape
+-- of the module interface.
+data ModuleV v = ModuleV {
   -- | The instrumented module, ready to be instantiated.
-  interface :: !ModuleInterface,
-  -- | A plain reference to the raw module binary source.
-  source :: !(BlobRef WasmModule)
+  moduleVInterface :: !(GSWasm.ModuleInterfaceV v),
+  -- | A plain reference to the raw module binary source. This is generally not needed by consensus, so
+  -- it is almost always simply kept on disk.
+  moduleVSource :: !(BlobRef (WasmModuleV v))
   }
+    deriving(Show)
 
+-- |Helper to convert from an interface to a module.
+toModule :: forall v . IsWasmVersion v => GSWasm.ModuleInterfaceV v -> BlobRef (WasmModuleV v) -> Module
+toModule moduleVInterface moduleVSource =
+  case getWasmVersion @v of
+    SV0 -> ModuleV0 ModuleV{..}
+    SV1 -> ModuleV1 ModuleV{..}
+
+-- |A module, either of version 0 or 1. This is only used when storing a module
+-- independently, e.g., in the module table. When a module is referenced from a
+-- contract instance we use the ModuleV type directly so we may tie the version
+-- of the module to the version of the instance.
+data Module where
+  ModuleV0 :: ModuleV GSWasm.V0 -> Module
+  ModuleV1 :: ModuleV GSWasm.V1 -> Module
+  deriving (Show)
+
+getModuleInterface :: Module -> GSWasm.ModuleInterface
+getModuleInterface (ModuleV0 m) = GSWasm.ModuleInterfaceV0 (moduleVInterface m)
+getModuleInterface (ModuleV1 m) = GSWasm.ModuleInterfaceV1 (moduleVInterface m)
+
+
+instance GSWasm.HasModuleRef Module where
+  moduleReference (ModuleV0 m) = GSWasm.moduleReference (moduleVInterface m)
+  moduleReference (ModuleV1 m) = GSWasm.moduleReference (moduleVInterface m)
+
+-- The module reference already takes versioning into account, so this instance is reasonable.
 instance HashableTo Hash Module where
-  getHash = coerce . miModuleRef . interface
-instance MonadBlobStore m => MHashableTo m Hash Module
+  getHash = coerce . GSWasm.moduleReference
+
+instance Monad m => MHashableTo m Hash Module
 
 -- |This serialization is used for storing the module in the BlobStore.
 -- It should not be used for other purposes.
 instance Serialize Module where
   get = do
-    interface <- get
-    source <- get
-    return Module{..}
-  put Module{..} = do
-    put interface
-    put source
+    -- interface is versioned
+    get >>= \case
+      GSWasm.ModuleInterfaceV0 moduleVInterface -> do
+        moduleVSource <- get
+        return $! toModule moduleVInterface moduleVSource
+      GSWasm.ModuleInterfaceV1 moduleVInterface -> do
+        moduleVSource <- get
+        return $! toModule moduleVInterface moduleVSource
+  put m  = do
+    put (getModuleInterface m)
+    case m of
+      ModuleV0 ModuleV{..} -> put moduleVSource
+      ModuleV1 ModuleV{..} -> put moduleVSource
 
+-- |This serialization is used for storing the module in the BlobStore.
+-- It should not be used for other purposes.
+instance Serialize (ModuleV GSWasm.V0) where
+  get = do
+    -- interface is versioned
+    moduleVInterface <- get
+    moduleVSource <- get
+    return $! ModuleV {..}
+  put ModuleV{..} = put moduleVInterface <> put moduleVSource
+
+-- |This serialization is used for storing the module in the BlobStore.
+-- It should not be used for other purposes.
+instance Serialize (ModuleV GSWasm.V1) where
+  get = do
+    -- interface is versioned
+    moduleVInterface <- get
+    moduleVSource <- get
+    return $! ModuleV {..}
+  put ModuleV{..} = put moduleVInterface <> put moduleVSource
+
+
+instance MonadBlobStore m => BlobStorable m (ModuleV GSWasm.V0) where
+instance MonadBlobStore m => BlobStorable m (ModuleV GSWasm.V1) where
 instance MonadBlobStore m => BlobStorable m Module where
 instance MonadBlobStore m => Cacheable m Module where
 
 -- |Serialize a module in V0 format.
 -- This only serializes the source.
 putModuleV0 :: (MonadBlobStore m, MonadPut m) => Module -> m ()
-putModuleV0 = sPut <=< loadRef . source
+putModuleV0 (ModuleV0 ModuleV{..}) = sPut =<< loadRef moduleVSource
+putModuleV0 (ModuleV1 ModuleV{..}) = sPut =<< loadRef moduleVSource
 
 --------------------------------------------------------------------------------
 
@@ -91,7 +158,7 @@ instance MonadBlobStore m => BlobStorable m Modules where
     return $ do
       _modulesTable <- table
       _modulesMap <- foldl' (\m (idx, aModule) ->
-                             Map.insert (miModuleRef $ interface aModule) idx m)
+                             Map.insert (GSWasm.moduleReference aModule) idx m)
                                Map.empty <$> LFMB.toAscPairList _modulesTable
       return Modules{..}
   store = fmap fst . storeUpdate
@@ -112,8 +179,8 @@ emptyModules = Modules LFMB.empty Map.empty
 
 -- |Try to add interfaces to the module table. If a module with the given
 -- reference exists returns @Nothing@.
-putInterface :: MonadBlobStore m
-             => (ModuleInterface, WasmModule)
+putInterface :: (IsWasmVersion v, MonadBlobStore m)
+             => (GSWasm.ModuleInterfaceV v, WasmModuleV v)
              -> Modules
              -> m (Maybe Modules)
 putInterface (modul, src) m =
@@ -121,10 +188,10 @@ putInterface (modul, src) m =
   then return Nothing
   else do
     src' <- storeRef src
-    (idx, modulesTable') <- LFMB.append (Module modul src') $ m ^. modulesTable
+    (idx, modulesTable') <- LFMB.append (toModule modul src') $ m ^. modulesTable
     return $ Just $ m & modulesTable .~ modulesTable'
                       & modulesMap %~ Map.insert mref idx
- where mref = miModuleRef modul
+ where mref = GSWasm.moduleReference modul
 
 getModule :: MonadBlobStore m => ModuleRef -> Modules -> m (Maybe Module)
 getModule ref mods =
@@ -142,12 +209,24 @@ getModuleReference ref mods =
     Nothing -> return Nothing
     Just idx -> fmap bufferedReference <$> LFMB.lookupRef idx (mods ^. modulesTable)
 
+-- |Gets the buffered reference to a module as stored in the module table assuming it is version 0.
+unsafeGetModuleReferenceV0 :: MonadBlobStore m => ModuleRef -> Modules -> m (Maybe (BufferedRef (ModuleV GSWasm.V0)))
+unsafeGetModuleReferenceV0 ref mods = fmap (unsafeCoerceBufferedRef extract) <$> getModuleReference ref mods 
+    where extract (ModuleV0 m) = m
+          extract _ = error "Precondition violation. Expected module version 0, got 1."
+-- |Gets the buffered reference to a module as stored in the module table assuming it is version 1.
+unsafeGetModuleReferenceV1 :: MonadBlobStore m => ModuleRef -> Modules -> m (Maybe (BufferedRef (ModuleV GSWasm.V1)))
+unsafeGetModuleReferenceV1 ref mods = fmap (unsafeCoerceBufferedRef extract) <$> getModuleReference ref mods 
+    where extract (ModuleV1 m) = m
+          extract _ = error "Precondition violation. Expected module version 1, got 0."
+
+
 -- |Get an interface by module reference.
 getInterface :: MonadBlobStore m
              => ModuleRef
              -> Modules
-             -> m (Maybe ModuleInterface)
-getInterface ref mods = fmap interface <$> getModule ref mods
+             -> m (Maybe GSWasm.ModuleInterface)
+getInterface ref mods = fmap getModuleInterface <$> getModule ref mods
 
 -- |Get the source of a module by module reference.
 getSource :: MonadBlobStore m => ModuleRef -> Modules -> m (Maybe WasmModule)
@@ -155,7 +234,8 @@ getSource ref mods = do
   m <- getModule ref mods
   case m of
     Nothing -> return Nothing
-    Just modul -> Just <$> loadRef (source modul)
+    Just (ModuleV0 ModuleV{..}) -> Just . WasmModuleV0 <$> loadRef moduleVSource
+    Just (ModuleV1 ModuleV{..}) -> Just . WasmModuleV1 <$> loadRef moduleVSource
 
 -- |Get the list of all currently deployed modules.
 -- The order of the list is not specified.
@@ -167,9 +247,12 @@ moduleRefList mods = Map.keys (mods ^. modulesMap)
 storePersistentModule :: MonadBlobStore m
                       => TransientModules.Module
                       -> m Module
-storePersistentModule TransientModules.Module{..} = do
-  source' <- storeRef source
-  return Module{ source = source', ..}
+storePersistentModule (TransientModules.ModuleV0 TransientModules.ModuleV{..}) = do
+  moduleVSource' <- storeRef moduleVSource
+  return (ModuleV0 (ModuleV { moduleVSource = moduleVSource', ..}))
+storePersistentModule (TransientModules.ModuleV1 TransientModules.ModuleV{..}) = do
+  moduleVSource' <- storeRef moduleVSource
+  return (ModuleV1 (ModuleV { moduleVSource = moduleVSource', ..}))
 
 makePersistentModules :: MonadBlobStore m
                        => TransientModules.Modules

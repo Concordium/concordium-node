@@ -19,6 +19,7 @@ import qualified Concordium.Scheduler as Sch
 import Concordium.Scheduler.Runner
 import Concordium.TransactionVerification
 
+import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Invariants
 import Concordium.GlobalState.Basic.BlockState.Instances
@@ -48,12 +49,12 @@ transactionInputs :: forall pv . IsProtocolVersion pv => Proxy pv -> [Transactio
 transactionInputs proxy = [
   TJSON{
       metadata = makeDummyHeader (senderAccount proxy) 1 100000,
-      payload = DeployModule 0 "./testdata/contracts/chain-meta-test.wasm",
+      payload = DeployModule V0 "./testdata/contracts/chain-meta-test.wasm",
       keys = [(0,[(0, alesKP)])]
       },
   TJSON{
       metadata = makeDummyHeader (senderAccount proxy) 2 100000,
-      payload = InitContract 9 0 "./testdata/contracts/chain-meta-test.wasm" "init_origin" "",
+      payload = InitContract 9 V0 "./testdata/contracts/chain-meta-test.wasm" "init_origin" "",
       keys = [(0,[(0, alesKP)])]
       }
   ]
@@ -75,7 +76,7 @@ testInit proxy = do
     case invariantBlockState @pv gs (finState ^. Types.schedulerExecutionCosts)of
         Left f -> liftIO $ assertFailure $ f ++ " " ++ show gs
         _ -> return ()
-    return (getResults ftAdded, ftFailed, gs ^.. blockInstances . foldInstances . to (\i -> (iaddress i, i)))
+    return (getResults ftAdded, ftFailed, gs ^.. blockInstances . foldInstances . to (\i -> (instanceAddress i, i)))
 
 checkInitResult :: forall pv . IsProtocolVersion pv => Proxy pv -> TestResult -> Assertion
 checkInitResult proxy (suc, fails, instances) = do
@@ -99,3 +100,5 @@ tests =
       testInit (Proxy @'P2) >>= checkInitResult (Proxy @'P2)
     specify "Passing init context to contract P3" $
       testInit (Proxy @'P3) >>= checkInitResult (Proxy @'P3)
+    specify "Passing init context to contract P4" $
+      testInit (Proxy @'P4) >>= checkInitResult (Proxy @'P4)

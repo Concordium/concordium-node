@@ -660,6 +660,16 @@ impl P2p for RpcServerImpl {
         })
     }
 
+    async fn invoke_contract(
+        &self,
+        req: Request<InvokeContractRequest>,
+    ) -> Result<Response<JsonResponse>, Status> {
+        authenticate!(req, self.access_token);
+        call_consensus!(self, "InvokeContract", JsonResponse, |cc: &ConsensusContainer| {
+            cc.invoke_contract(&req.get_ref().block_hash, &req.get_ref().context)
+        })
+    }
+
     async fn get_reward_status(
         &self,
         req: Request<BlockHash>,
