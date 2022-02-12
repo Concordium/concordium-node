@@ -56,7 +56,7 @@ module GlobalStateTests.Instances where
 
 -- invariantIT :: ContractIndex -> IT -> Either String (Word8, Bool, Bool, ContractIndex, H.Hash, Word64)
 -- invariantIT offset (Leaf inst) = do
---         checkBinary (==) (contractIndex $ iaddress inst) offset "==" "account index" "expected value"
+--         checkBinary (==) (contractIndex $ instanceAddress inst) offset "==" "account index" "expected value"
 --         return (0, True, False, succ offset, getHash inst, 1)
 -- invariantIT offset (VacantLeaf si) = return (0, True, True, succ offset, H.hash $ runPut $ put si, 0)
 -- invariantIT offset (Branch h f v hsh l r) = do
@@ -352,5 +352,4 @@ module GlobalStateTests.Instances where
 --     it "50000 create/delete - check at end" $ withMaxSuccess 10 $ testCreateDelete 50000
 --     it "500 instance updates - check every step" $ withMaxSuccess (100 * fromIntegral lvl) $ testUpdates 500
 
-tests :: Monad m => Word -> m ()
 tests = const (return ())

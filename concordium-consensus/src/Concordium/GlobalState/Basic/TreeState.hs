@@ -12,13 +12,14 @@ import Data.Foldable
 import Control.Monad.State
 import Control.Exception
 import Data.Functor.Identity
+import Control.Monad.Reader
 
 import qualified Data.Map.Strict as Map
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Sequence as Seq
 import qualified Data.PQueue.Prio.Min as MPQ
-import qualified Data.Set as Set
 
+import Concordium.TimeMonad (TimeMonad)
 import Concordium.GlobalState.Types
 import Concordium.GlobalState.Basic.BlockPointer
 import Concordium.GlobalState.Block
@@ -36,6 +37,7 @@ import Concordium.Types.HashableTo
 import Concordium.Types.Transactions
 import Concordium.Types.Updates
 import Concordium.GlobalState.AccountTransactionIndex
+import qualified Concordium.TransactionVerification as TVer
 
 -- |Datatype representing an in-memory tree state.
 -- The first type parameter, @pv@, is the protocol version.
@@ -126,7 +128,7 @@ initialSkovData rp gd genState = do
 -- type used in the implementation.
 newtype PureTreeStateMonad (pv :: ProtocolVersion) bs m a = PureTreeStateMonad { runPureTreeStateMonad :: m a }
   deriving (Functor, Applicative, Monad, MonadIO, BlockStateTypes,
-            BS.BlockStateQuery, BS.AccountOperations, BS.BlockStateOperations, BS.BlockStateStorage, BS.ContractStateOperations)
+            BS.BlockStateQuery, BS.AccountOperations, BS.BlockStateOperations, BS.BlockStateStorage, BS.ContractStateOperations, TimeMonad)
 
 deriving instance (Monad m, MonadState (SkovData pv bs) m) => MonadState (SkovData pv bs) (PureTreeStateMonad pv bs m)
 
@@ -200,6 +202,7 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
                 Nothing -> do
                     possiblyPendingQueue .= ppq
                     return Nothing
+                    
     wipePendingBlocks = do
         possiblyPendingTable .= HM.empty
         possiblyPendingQueue .= MPQ.empty
@@ -226,7 +229,11 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
 
     getCredential txHash =
       preuse (transactionTable . ttHashMap . ix txHash) >>= \case
-        Just (WithMetadata{wmdData=CredentialDeployment{..},..}, _) -> return $ Just WithMetadata{wmdData=biCred,..}
+        Just (WithMetadata{wmdData=CredentialDeployment{..},..}, status) ->
+          case status of
+            Received _ verRes -> return $ Just (WithMetadata{wmdData=biCred,..}, verRes)
+            Committed _ verRes _ -> return $ Just (WithMetadata{wmdData=biCred,..}, verRes)
+            _ -> return Nothing
         _ -> return Nothing
     
     getNonFinalizedChainUpdates uty sn =
@@ -238,38 +245,46 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
             Nothing -> Map.toAscList beyond
             Just s -> (sn, s) : Map.toAscList beyond
 
-    addCommitTransaction bi@WithMetadata{..} slot = do
+    addCommitTransaction bi@WithMetadata{..} verResCtx ts slot = do
       let trHash = wmdHash
       tt <- use transactionTable
       case tt ^. ttHashMap . at' trHash of
-          Nothing ->
-            case wmdData of
-              NormalTransaction tr -> do
-                let sender = accountAddressEmbed (transactionSender tr)
-                    nonce = transactionNonce tr
-                if (tt ^. ttNonFinalizedTransactions . at' sender . non emptyANFT . anftNextNonce) <= nonce then do
-                  transactionTablePurgeCounter += 1
-                  let wmdtr = WithMetadata{wmdData=tr,..}
-                  transactionTable .= (tt & (ttNonFinalizedTransactions . at' sender . non emptyANFT . anftMap . at' nonce . non Set.empty %~ Set.insert wmdtr)
-                                          & (ttHashMap . at' trHash ?~ (bi, Received slot)))
-                  return (TS.Added bi)
-                else return TS.ObsoleteNonce
-              CredentialDeployment{} -> do
-                transactionTable . ttHashMap . at' trHash ?= (bi, Received slot)
-                return (TS.Added bi)
-              ChainUpdate cu -> do
-                let uty = updateType (uiPayload cu)
-                    sn = updateSeqNumber (uiHeader cu)
-                if (tt ^. ttNonFinalizedChainUpdates . at' uty . non emptyNFCU . nfcuNextSequenceNumber) <= sn then do
-                  transactionTablePurgeCounter += 1
-                  let wmdcu = WithMetadata{wmdData=cu,..}
-                  transactionTable .= (tt
-                          & (ttNonFinalizedChainUpdates . at' uty . non emptyNFCU . nfcuMap . at' sn . non Set.empty %~ Set.insert wmdcu)
-                          & (ttHashMap . at' trHash ?~ (bi, Received slot)))
-                  return (TS.Added bi)
-                else return TS.ObsoleteNonce
-          Just (_, Finalized{}) ->
-            return TS.ObsoleteNonce
+          Nothing -> do
+            -- If the transaction was not present in the `TransactionTable` then we verify it now
+            -- and add it based on the verification result.
+            -- Only transactions which can possibly be valid at the stage of execution are being added
+            -- to the `TransactionTable`.
+            -- Verifying the transaction here as opposed to `doReceiveTransactionInternal` avoids
+            -- verifying a transaction that is both received individually and as part of a block twice.
+            verRes <- runReaderT (TS.runProtocolVersionedReaderT (TVer.verify ts bi)) verResCtx
+            if TVer.definitelyNotValid verRes (verResCtx ^. TS.isTransactionFromBlock) then return $ TS.NotAdded verRes
+            else 
+              case wmdData of
+                NormalTransaction tr -> do
+                  let sender = accountAddressEmbed (transactionSender tr)
+                      nonce = transactionNonce tr
+                  if (tt ^. ttNonFinalizedTransactions . at' sender . non emptyANFT . anftNextNonce) <= nonce then do
+                    transactionTablePurgeCounter += 1
+                    let wmdtr = WithMetadata{wmdData=tr,..}
+                    transactionTable .= (tt & (ttNonFinalizedTransactions . at' sender . non emptyANFT . anftMap . at' nonce . non Map.empty . at' wmdtr ?~ verRes)
+                                            & (ttHashMap . at' trHash ?~ (bi, Received slot verRes)))
+                    return (TS.Added bi verRes)
+                  else return TS.ObsoleteNonce
+                CredentialDeployment{} -> do
+                  transactionTable . ttHashMap . at' trHash ?= (bi, Received slot verRes)
+                  return (TS.Added bi verRes)
+                ChainUpdate cu -> do
+                  let uty = updateType (uiPayload cu)
+                      sn = updateSeqNumber (uiHeader cu)
+                  if (tt ^. ttNonFinalizedChainUpdates . at' uty . non emptyNFCU . nfcuNextSequenceNumber) <= sn then do
+                    transactionTablePurgeCounter += 1
+                    let wmdcu = WithMetadata{wmdData=cu,..}
+                    transactionTable .= (tt
+                            & (ttNonFinalizedChainUpdates . at' uty . non emptyNFCU . nfcuMap . at' sn . non Map.empty . at' wmdcu ?~ verRes)
+                            & (ttHashMap . at' trHash ?~ (bi, Received slot verRes)))
+                    return (TS.Added bi verRes)
+                  else return TS.ObsoleteNonce
+          Just (_, Finalized{}) -> return TS.ObsoleteNonce
           Just (tr', results) -> do
             when (slot > results ^. tsSlot) $ transactionTable . ttHashMap . at' trHash . mapped . _2 %= updateSlot slot
             return $ TS.Duplicate tr'
@@ -281,12 +296,12 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
                     sender = accountAddressEmbed (transactionSender tr)
                 anft <- use (transactionTable . ttNonFinalizedTransactions . at' sender . non emptyANFT)
                 assert (anft ^. anftNextNonce == nonce) $ do
-                    let nfn = anft ^. anftMap . at' nonce . non Set.empty
+                    let nfn = anft ^. anftMap . at' nonce . non Map.empty
                     let wmdtr = WithMetadata{wmdData=tr,..}
-                    assert (Set.member wmdtr nfn) $ do
+                    assert (Map.member wmdtr nfn) $ do
                         -- Remove any other transactions with this nonce from the transaction table.
                         -- They can never be part of any other block after this point.
-                        forM_ (Set.delete wmdtr nfn) $
+                        forM_ (Map.keys (Map.delete wmdtr nfn)) $
                           \deadTransaction -> transactionTable . ttHashMap . at' (getHash deadTransaction) .= Nothing
                         -- Mark the status of the transaction as finalized.
                         -- Singular here is safe due to the precondition (and assertion) that all transactions
@@ -305,11 +320,11 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
                     uty = updateType (uiPayload cu)
                 nfcu <- use (transactionTable . ttNonFinalizedChainUpdates . at' uty . non emptyNFCU)
                 assert (nfcu ^. nfcuNextSequenceNumber == sn) $ do
-                    let nfsn = nfcu ^. nfcuMap . at' sn . non Set.empty
+                    let nfsn = nfcu ^. nfcuMap . at' sn . non Map.empty
                     let wmdcu = WithMetadata{wmdData = cu,..}
-                    assert (Set.member wmdcu nfsn) $ do
+                    assert (Map.member wmdcu nfsn) $ do
                         -- Remove any other updates with the same sequence number, since they weren't finalized
-                        forM_ (Set.delete wmdcu nfsn) $ 
+                        forM_ (Map.keys (Map.delete  wmdcu nfsn)) $ 
                           \deadUpdate -> transactionTable . ttHashMap . at' (getHash deadUpdate) .= Nothing
                         -- Mark this update as finalized.
                         transactionTable . ttHashMap . singular (ix wmdHash) . _2 %=
@@ -342,7 +357,7 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
                           . non emptyANFT
                           . anftMap
                           . at' nonce
-                          . non Set.empty %= Set.delete WithMetadata{wmdData=tr,..}
+                          . non Map.empty %= Map.delete WithMetadata{wmdData=tr,..}
                       _ -> return () -- do nothing.
                     return True
                 else return False
@@ -391,3 +406,6 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
                 . (ttNonFinalizedTransactions %~ fmap (anftMap .~ Map.empty))
                 . (ttNonFinalizedChainUpdates %~ fmap (nfcuMap .~ Map.empty))
         return oldTransactions
+    getNonFinalizedTransactionVerificationResult bi = do
+      table <- use transactionTable
+      return $ getNonFinalizedVerificationResult bi table

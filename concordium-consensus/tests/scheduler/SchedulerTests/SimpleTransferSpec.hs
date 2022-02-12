@@ -55,6 +55,7 @@ testCases =
                                    , euAmount = 11
                                    , euMessage = Parameter ""
                                    , euReceiveName = ReceiveName "send.receive"
+                                   , euContractVersion = V0
                                    , euEvents = []
                                    },
                     Types.Transferred {

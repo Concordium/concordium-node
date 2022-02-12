@@ -4,6 +4,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE DataKinds #-}
 module Concordium.GlobalState.Instance where
 
 import Data.Maybe
@@ -31,8 +32,9 @@ instance Serialize (InstanceStateV GSWasm.V1) where
   put (InstanceStateV1 model) = put model
   get = InstanceStateV1 <$> get
 
--- |The fixed parameters associated with a smart contract instance
-data InstanceParameters v = InstanceParameters {
+-- |The fixed parameters associated with a smart contract instance, parametrized
+-- the version of the Wasm module that contains its code.
+data InstanceParameters (v :: Wasm.WasmVersion) = InstanceParameters {
     -- |Address of the instance
     _instanceAddress :: !ContractAddress,
     -- |Address of this contract instance owner, i.e., the creator account.
@@ -48,10 +50,10 @@ data InstanceParameters v = InstanceParameters {
     instanceParameterHash :: !H.Hash
 }
 
-class HasInstanceParameters a where
+class HasInstanceAddress a where
   instanceAddress :: a -> ContractAddress
 
-instance HasInstanceParameters (InstanceParameters v) where
+instance HasInstanceAddress (InstanceParameters v) where
   instanceAddress InstanceParameters{..} = _instanceAddress
 
 instance Show (InstanceParameters v) where
@@ -62,7 +64,9 @@ instance Show (InstanceParameters v) where
 instance HashableTo H.Hash (InstanceParameters v) where
     getHash = instanceParameterHash
 
-data InstanceV v = InstanceV {
+-- |A versioned basic in-memory instance, parametrized by the version of the
+-- Wasm module that is associated with it.
+data InstanceV (v :: Wasm.WasmVersion) = InstanceV {
   -- |The fixed parameters of the instance
   _instanceVParameters :: !(InstanceParameters v),
   -- |The current local state of the instance
@@ -89,10 +93,10 @@ instance HasInstanceFields Instance where
   instanceHash (InstanceV0 i) = instanceHash i
   instanceHash (InstanceV1 i) = instanceHash i
 
-instance HasInstanceParameters (InstanceV v) where
+instance HasInstanceAddress (InstanceV v) where
   instanceAddress = instanceAddress . _instanceVParameters
 
-instance HasInstanceParameters Instance where
+instance HasInstanceAddress Instance where
   instanceAddress (InstanceV0 i) = instanceAddress i
   instanceAddress (InstanceV1 i) = instanceAddress i
 
@@ -188,13 +192,9 @@ makeInstance ::
     -> Instance
 makeInstance instanceInitName instanceReceiveFuns instanceModuleInterface _instanceVModel _instanceVAmount instanceOwner _instanceAddress
         = case GSWasm.miModule instanceModuleInterface of
-            GSWasm.InstrumentedWasmModuleV0 {} -> InstanceV0 (makeInstanceV instanceInitName instanceReceiveFuns instanceModuleInterface _instanceVModel _instanceVAmount instanceOwner _instanceAddress)
-            GSWasm.InstrumentedWasmModuleV1 {} -> InstanceV1 (makeInstanceV instanceInitName instanceReceiveFuns instanceModuleInterface _instanceVModel _instanceVAmount instanceOwner _instanceAddress)
-
--- |The address of a smart contract instance.
-iaddress :: Instance -> ContractAddress
-iaddress (InstanceV0 InstanceV{..}) = _instanceAddress  _instanceVParameters
-iaddress (InstanceV1 InstanceV{..}) = _instanceAddress  _instanceVParameters
+            GSWasm.InstrumentedWasmModuleV0 {} -> InstanceV0 instanceV
+            GSWasm.InstrumentedWasmModuleV1 {} -> InstanceV1 instanceV
+    where instanceV = makeInstanceV instanceInitName instanceReceiveFuns instanceModuleInterface _instanceVModel _instanceVAmount instanceOwner _instanceAddress
 
 -- |Update a given smart contract instance.
 updateInstanceV :: Wasm.IsWasmVersion v => AmountDelta -> Maybe (InstanceStateV v) -> InstanceV v -> InstanceV v

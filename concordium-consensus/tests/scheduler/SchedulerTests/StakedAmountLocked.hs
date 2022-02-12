@@ -27,7 +27,9 @@ import qualified Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.BlsSignature as Bls
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.Crypto.SHA256 as Hash
-import Concordium.Types(TransactionHashV0(..))
+import Concordium.Types
+import Concordium.Scheduler.Types hiding (Transfer)
+import Concordium.TransactionVerification
 
 import Lens.Micro.Platform
 
@@ -77,7 +79,7 @@ transactionsInput =
            }
     ]
 
-type TestResult = ([(Types.BlockItem, Types.TransactionSummary)], [(Types.Transaction, Types.FailureKind)])
+type TestResult = ([(BlockItemWithStatus, Types.TransactionSummary)], [(TransactionWithStatus, FailureKind)])
 
 runTransactions :: IO TestResult
 runTransactions = do

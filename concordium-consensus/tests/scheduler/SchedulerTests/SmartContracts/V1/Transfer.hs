@@ -15,6 +15,7 @@ import Control.Monad
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Scheduler.Runner
+import qualified Concordium.TransactionVerification as TVer
 
 import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
@@ -65,14 +66,14 @@ testCases =
                 , metadata = makeDummyHeader alesAccount 3 700000
                 , keys = [(0,[(0, alesKP)])]
                 }
-        , (SuccessWithSummary ensureSucces , transferSpec)
+        , (SuccessWithSummary ensureSuccess , transferSpec)
         )
       ]
      }
   ]
 
   where
-        deploymentCostCheck :: Types.BlockItem -> Types.TransactionSummary -> Expectation
+        deploymentCostCheck :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
         deploymentCostCheck _ Types.TransactionSummary{..} = do
           checkSuccess "Module deployment failed: " tsResult
           moduleSource <- BS.readFile transferSourceFile
@@ -87,7 +88,7 @@ testCases =
         -- check that the initialization cost was at least the administrative cost.
         -- It is not practical to check the exact cost because the execution cost of the init function is hard to
         -- have an independent number for, other than executing.
-        initializationCostCheck :: Types.BlockItem -> Types.TransactionSummary -> Expectation
+        initializationCostCheck :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
         initializationCostCheck _ Types.TransactionSummary{..} = do
           checkSuccess "Contract initialization failed: " tsResult
           moduleSource <- BS.readFile transferSourceFile
@@ -105,13 +106,13 @@ testCases =
             assertFailure $ "Actual initialization cost " ++ show tsEnergyCost ++ " not more than lower bound " ++ show costLowerBound
 
         -- ensure the transaction is successful
-        ensureSucces :: Types.BlockItem -> Types.TransactionSummary -> Expectation
-        ensureSucces _ Types.TransactionSummary{..} = checkSuccess "Update failed: " tsResult
+        ensureSuccess :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
+        ensureSuccess _ Types.TransactionSummary{..} = checkSuccess "Update failed: " tsResult
 
         checkSuccess msg Types.TxReject{..} = assertFailure $ msg ++ show vrRejectReason
         checkSuccess _ _ = return ()
 
-        -- Check that the contract state contains n.
+        -- Check that the contract state is empty.
         transferSpec bs = specify "Contract state" $
           case getInstance (Types.ContractAddress 0 0) (bs ^. blockInstances) of
             Nothing -> assertFailure "Instance at <0,0> does not exist."

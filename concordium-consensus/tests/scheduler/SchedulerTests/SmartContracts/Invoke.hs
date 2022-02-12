@@ -11,8 +11,6 @@ import Control.Monad.Reader
 import Data.Serialize
 import qualified Data.ByteString.Short as BSS
 import qualified Data.ByteString as BS
-import qualified Data.Map.Strict as OrdMap
-import qualified Data.Set as Set
 
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Crypto.SHA256 as Hash
@@ -22,7 +20,6 @@ import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Persistent.BlockState
 import Concordium.Wasm
-import qualified Concordium.Scheduler.WasmIntegration.V1 as WasmV1
 import qualified Concordium.GlobalState.Wasm as GSWasm
 import qualified Concordium.Types.InvokeContract as InvokeContract
 import qualified Concordium.Scheduler.InvokeContract as InvokeContract
@@ -32,6 +29,7 @@ import Concordium.Crypto.DummyData
 import Concordium.GlobalState.DummyData
 
 import SchedulerTests.TestUtils
+import qualified SchedulerTests.SmartContracts.V1.InvokeHelpers as InvokeHelpers
 
 type ContextM = PersistentBlockStateMonad PV4 BlobStoreContext (ReaderT BlobStoreContext IO)
 
@@ -51,45 +49,13 @@ counterSourceFile = "./testdata/contracts/v1/call-counter.wasm"
 
 deployModule :: ContextM (PersistentBlockState PV4, GSWasm.ModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1)
 deployModule = do
-  wasmSource <- liftIO $ BS.readFile counterSourceFile
-  let wm = WasmModuleV (ModuleSource wasmSource)
-  case WasmV1.processModule wm of
-    Nothing -> liftIO $ assertFailure "Invalid counter module."
-    Just miv -> do
-      (_, modState) <- flip bsoPutNewModule (miv, wm) . hpbsPointers =<< initialBlockState
-      return (modState, miv, wm)
+  ((x, y), z) <- InvokeHelpers.deployModuleV1 counterSourceFile . hpbsPointers =<< initialBlockState
+  return (z, x, y)
 
 initContract :: (PersistentBlockState PV4, GSWasm.ModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1) -> ContextM (Types.ContractAddress, HashedPersistentBlockState PV4)
-initContract (bs, miv, _) = do
-  let cm = Types.ChainMetadata 0
-  let senderAddress = alesAccount
-  let initContext = InitContext{
-        initOrigin = senderAddress,
-        icSenderPolicies = []
-        }
-  let initName = InitName "init_counter"
-  let initParam = emptyParameter
-  let initAmount = 0
-  let initInterpreterEnergy = 1_000_000_000
-  (cbk, _) <- getCallBacks
-  case WasmV1.applyInitFun cbk miv cm initContext initName initParam initAmount initInterpreterEnergy of
-    Nothing -> -- out of energy
-      liftIO $ assertFailure "Initialization ran out of energy."
-    Just (Left failure, _) ->
-      liftIO $ assertFailure $ "Initialization failed: " ++ show failure
-    Just (Right WasmV1.InitSuccess{..}, _) -> do
-      let receiveMethods = OrdMap.findWithDefault Set.empty initName (GSWasm.miExposedReceive miv)
-      initialState <- fromForeignReprV1 irdNewState
-      let ins = NewInstanceData{
-            nidInitName = initName,
-            nidEntrypoints = receiveMethods,
-            nidInterface = miv,
-            nidInitialState = initialState,
-            nidInitialAmount = initAmount,
-            nidOwner = senderAddress
-            }
-      (addr, instState) <- bsoPutNewInstance bs ins
-      (addr,) <$> freezeBlockState instState
+initContract (bs, miv, wm) = do
+  (ca, pbs) <- InvokeHelpers.initContractV1 alesAccount (InitName "init_counter") emptyParameter (0 :: Types.Amount) bs (miv, wm)
+  (ca,) <$> freezeBlockState pbs
 
 -- |Invoke the contract without an invoker expecting success.
 invokeContract1 :: Types.ContractAddress -> HashedPersistentBlockState PV4 -> ContextM InvokeContract.InvokeContractResult
@@ -181,7 +147,7 @@ runCounterTests = do
       InvokeContract.Success{..} ->
         case rcrReturnValue of
           Nothing -> liftIO $ assertFailure "Invoking a V1 contract must produce a return value."
-          Just rv -> liftIO $ assertEqual "Invoking a counter in initial state should return nothing" [] (BS.unpack rv)
+          Just rv -> liftIO $ assertEqual "Invoking a counter in initial state should return an empty array." [] (BS.unpack rv)
 
     invokeContract3 addr stateWithContract >>= \case
       InvokeContract.Failure{..} -> liftIO $ assertEqual "Invocation should fail: " Types.RuntimeFailure rcrReason
@@ -192,7 +158,7 @@ runCounterTests = do
       InvokeContract.Success{..} ->
         case rcrReturnValue of
           Nothing -> liftIO $ assertFailure "Invoking a V1 contract must produce a return value."
-          Just rv -> liftIO $ assertEqual "Invoking a counter in initial state should return nothing." [] (BS.unpack rv)
+          Just rv -> liftIO $ assertEqual "Invoking a counter in initial state should return an empty array." [] (BS.unpack rv)
 
 
 tests :: Spec

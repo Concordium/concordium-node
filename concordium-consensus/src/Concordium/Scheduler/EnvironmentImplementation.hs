@@ -10,7 +10,6 @@ module Concordium.Scheduler.EnvironmentImplementation where
 import Concordium.Scheduler.Environment
 
 import qualified Data.Kind as DK
-import Data.Maybe (isJust)
 import Data.HashMap.Strict as Map
 import qualified Data.Map.Strict as OrdMap
 import Data.HashSet as Set
@@ -31,8 +30,9 @@ import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.Basic.BlockState (PureBlockStateMonad(..), BlockState)
 import Concordium.GlobalState.TreeState
-    ( BlockStateTypes(UpdatableBlockState), MGSTrans(..) )
+    ( BlockStateTypes(UpdatableBlockState), MGSTrans(..))
 import qualified Concordium.GlobalState.Types as GS
+import qualified Concordium.TransactionVerification as TVer
 
 -- |Chain metadata together with the maximum allowed block energy.
 data ContextState = ContextState{
@@ -56,7 +56,7 @@ class CanExtend (TransactionLog a) => HasSchedulerState a where
   schedulerTransactionLog :: Lens' a (TransactionLog a)
   nextIndex :: Lens' a TransactionIndex
 
-data NoLogSchedulerState (m :: DK.Type -> DK.Type)= NoLogSchedulerState {
+data NoLogSchedulerState (m :: DK.Type -> DK.Type) = NoLogSchedulerState {
   _ssBlockState :: !(UpdatableBlockState m),
   _ssSchedulerEnergyUsed :: !Energy,
   _ssSchedulerExecutionCosts :: !Amount,
@@ -128,12 +128,59 @@ instance (MonadReader ContextState m,
   {-# INLINE getStateAccount #-}
   getStateAccount !addr = lift . flip bsoGetAccount addr =<< use schedulerBlockState
 
-
+instance (SS state ~ UpdatableBlockState m,
+          HasSchedulerState state,
+          MonadState state m,
+          BlockStateOperations m,
+          MonadReader ContextState m,
+          IsProtocolVersion pv
+         )
+         => TVer.TransactionVerifier pv (BSOMonadWrapper pv ContextState w state m) where
+  {-# INLINE registrationIdExists #-}
+  registrationIdExists !regid =
+    lift . flip bsoRegIdExists regid =<< use schedulerBlockState
+  {-# INLINE getIdentityProvider #-}
+  getIdentityProvider !ipId = do
+    s <- use schedulerBlockState
+    lift (bsoGetIdentityProvider s ipId)
+  {-# INLINE getAnonymityRevokers #-}
+  getAnonymityRevokers !arIds = do
+    s <- use schedulerBlockState
+    lift (bsoGetAnonymityRevokers s arIds)
+  {-# INLINE getCryptographicParameters #-}
+  getCryptographicParameters = lift . bsoGetCryptoParams =<< use schedulerBlockState
+  {-# INLINE getAccount #-}
+  getAccount !aaddr = do
+    s <- use schedulerBlockState
+    lift (fmap snd <$> bsoGetAccount s aaddr)
+  {-# INLINE getNextUpdateSequenceNumber #-}
+  getNextUpdateSequenceNumber uType = lift . flip bsoGetNextUpdateSequenceNumber uType =<< use schedulerBlockState
+  {-# INLINE getUpdateKeysCollection #-}
+  getUpdateKeysCollection = lift . bsoGetUpdateKeyCollection =<< use schedulerBlockState
+  {-# INLINE getAccountAvailableAmount #-}
+  getAccountAvailableAmount = lift . getAccountAvailableAmount
+  {-# INLINE getNextAccountNonce #-}
+  getNextAccountNonce = lift . getAccountNonce
+  {-# INLINE getAccountVerificationKeys #-}
+  getAccountVerificationKeys = lift . getAccountVerificationKeys
+  {-# INLINE energyToCcd #-}
+  energyToCcd v =  do
+    s <- use schedulerBlockState
+    rate <- lift (bsoGetEnergyRate s)
+    return (computeCost rate v)
+  {-# INLINE getMaxBlockEnergy #-}
+  getMaxBlockEnergy = do
+    ctx <- ask
+    let maxEnergy = ctx ^. maxBlockEnergy
+    return maxEnergy
+  {-# INLINE checkExactNonce #-}
+  checkExactNonce = pure True
+  
 instance (MonadReader ContextState m,
           SS state ~ UpdatableBlockState m,
           HasSchedulerState state,
           MonadState state m,
-          BS.BlockStateOperations m,
+          BlockStateOperations m,
           CanRecordFootprint w,
           CanExtend (ATIStorage m),
           Footprint (ATIStorage m) ~ w,
@@ -178,10 +225,6 @@ instance (MonadReader ContextState m,
   {-# INLINE addressWouldClash #-}
   addressWouldClash !addr =
     lift . flip bsoAddressWouldClash addr =<< use schedulerBlockState
-
-  {-# INLINE accountRegIdExists #-}
-  accountRegIdExists !regid =
-    lift . fmap isJust . flip bsoRegIdExists regid =<< use schedulerBlockState
 
   {-# INLINE commitModule #-}
   commitModule !iface = do
@@ -296,19 +339,6 @@ instance (MonadReader ContextState m,
     s' <- lift (bsoSetAccountCredentialKeys s accIndex credIndex newKeys)
     schedulerBlockState .= s'
 
-  {-# INLINE getIPInfo #-}
-  getIPInfo ipId = do
-    s <- use schedulerBlockState
-    lift (bsoGetIdentityProvider s ipId)
-
-  {-# INLINE getArInfos #-}
-  getArInfos arIds = do
-    s <- use schedulerBlockState
-    lift (bsoGetAnonymityRevokers s arIds)
-
-  {-# INLINE getCryptoParams #-}
-  getCryptoParams = lift . bsoGetCryptoParams =<< use schedulerBlockState
-
   {-# INLINE getUpdateKeyCollection #-}
   getUpdateKeyCollection = lift . bsoGetUpdateKeyCollection =<< use schedulerBlockState
 
@@ -353,6 +383,9 @@ instance Monad m => MonadLogger (RWSTBS pv m) where
   logEvent source level event = RWSTBS (RWST (\_ s -> return ((), s, [(source, level, event)])))
 
 deriving via (PureBlockStateMonad pv Identity) instance GS.BlockStateTypes (SchedulerImplementation pv)
+
+deriving via (BSOMonadWrapper pv ContextState () (PBSSS pv) (MGSTrans (RWSTBS pv) (PureBlockStateMonad pv Identity))) instance
+  (IsProtocolVersion pv) => TVer.TransactionVerifier pv (SchedulerImplementation pv)
 
 deriving via (BSOMonadWrapper pv ContextState () (PBSSS pv) (MGSTrans (RWSTBS pv) (PureBlockStateMonad pv Identity))) instance
   (IsProtocolVersion pv) => SchedulerMonad pv (SchedulerImplementation pv)

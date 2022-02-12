@@ -5,9 +5,8 @@ module Concordium.GlobalState.Basic.BlockState.Instances(
     InstanceParameters(..),
     Instance(..),
     InstanceV(..),
-    HasInstanceParameters(..),
+    HasInstanceAddress(..),
     makeInstance,
-    iaddress,
     Instances,
     emptyInstances,
     getInstance,
@@ -42,6 +41,9 @@ getInstance :: ContractAddress -> Instances -> Maybe Instance
 getInstance addr (Instances iss) = iss ^? ix addr
 
 -- |Update the instance at the specified address with an amount delta and value.
+-- If new state is not provided the state of the
+-- instance is not changed. If there is no instance with the given address, this
+-- does nothing.
 -- If there is no instance with the given address, this does nothing.
 updateInstanceAt :: forall v .Wasm.IsWasmVersion v => ContractAddress -> AmountDelta -> Maybe (InstanceStateV v) -> Instances -> Instances
 updateInstanceAt ca amt val (Instances iss) = Instances (iss & ix ca %~ updateOnlyV)
@@ -56,6 +58,8 @@ updateInstanceAt ca amt val (Instances iss) = Instances (iss & ix ca %~ updateOn
                             InstanceV1 i -> InstanceV1 $ updateInstanceV amt val i
 
 -- |Update the instance at the specified address with a __new amount__ and value.
+-- If new state is not provided the state of the instance is not changed. If
+-- there is no instance with the given address, this does nothing.
 -- If there is no instance with the given address, this does nothing.
 updateInstanceAt' :: forall v . Wasm.IsWasmVersion v => ContractAddress -> Amount -> Maybe (InstanceStateV v) -> Instances -> Instances
 updateInstanceAt' ca amt val (Instances iss) = Instances (iss & ix ca %~ updateOnlyV)

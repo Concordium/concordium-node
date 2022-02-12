@@ -281,7 +281,7 @@ runCallerTests = do
     let targetValue4 = 0x0004_0000_0000
     invokeContract4 addr1 stateWithContracts >>= checkSuccess "Invoking non-existing entrypoint" targetValue4
     let targetValue6 = 0x0006_0000_0000
-    invokeContract6 addr1 stateWithContracts >>= checkSuccess "Invoking non-existing entrypoint" targetValue6
+    invokeContract6 addr1 stateWithContracts >>= checkSuccess "Invoking an entrypoint that traps" targetValue6
     let targetValue2 = 0x0002_0000_0000
     invokeContract2 addr1 stateWithContracts >>= checkSuccess "Transferring to missing account" targetValue2
 

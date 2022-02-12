@@ -87,7 +87,7 @@ instance Applicative m => Cacheable m PersistentInstanceParameters
 -- `v` that is used to tie the instance version to the module version. At
 -- present the version only appears in the module, but with the state changes it
 -- will also appear in the contract state.
-data PersistentInstanceV v = PersistentInstanceV {
+data PersistentInstanceV (v :: Wasm.WasmVersion) = PersistentInstanceV {
     -- |The fixed parameters of the instance.
     pinstanceParameters :: !(BufferedRef PersistentInstanceParameters),
     -- |The interface of 'pinstanceContractModule'. Note this is a BufferedRef to a Module as this
@@ -102,6 +102,13 @@ data PersistentInstanceV v = PersistentInstanceV {
     pinstanceHash :: H.Hash
 }
 
+-- |Either a V0 or V1 instance. V1 instance is only allowed in protocol versions
+-- P4 and up, however this is not explicit here since it needlessly complicates
+-- code. The Scheduler ensures that no V1 instances can be constructed prior to
+-- P4 version. This type exists since we need to store all versions of instances
+-- in the instance table, as opposed to having multiple instance tables for
+-- different instance versions. This is necessary because there is a single
+-- address space for all contract instances.
 data PersistentInstance (pv :: ProtocolVersion) where
   PersistentInstanceV0 :: PersistentInstanceV GSWasm.V0 -> PersistentInstance pv
   PersistentInstanceV1 :: PersistentInstanceV GSWasm.V1 -> PersistentInstance pv
@@ -284,7 +291,6 @@ putV1InstanceV0 PersistentInstanceV {pinstanceModel = InstanceStateV1 model,..} 
             put pinstanceInitName
             putByteStringLen stateString -- serialize with explicit length to enable serialization via FFI.
             put pinstanceAmount
-
 
 ----------------------------------------------------------------------------------------------------
 

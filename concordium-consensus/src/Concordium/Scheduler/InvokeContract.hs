@@ -1,3 +1,19 @@
+{-| This module provides a way to invoke contract entrypoints directly, without
+going through a transaction and the scheduler.
+
+The main function is 'invokeContract' which executes the required contract
+entrypoint in the desired context. Currently it is only possible to execute a
+contract in the state at the end of a given block, this might be relaxed in the
+future.
+
+The main use-case of this functionality are "view-functions", which is a way to
+inspect the state of a contract off-chain to enable integrations of off-chain
+services with smart contracts. 'invokeContract' is exposed via the
+InvokeContract API entrypoint.
+
+In the future this should be expanded to allow "dry-run" execution of every
+transaction, and to allow execution in a more precise state context. 
+-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -7,7 +23,7 @@
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE UndecidableInstances #-}
-module Concordium.Scheduler.InvokeContract where
+module Concordium.Scheduler.InvokeContract (invokeContract) where
 
 import Lens.Micro.Platform
 import Control.Monad.Reader
@@ -28,6 +44,17 @@ import qualified Concordium.Scheduler.WasmIntegration.V1 as WasmV1
 import Concordium.Scheduler
 import Concordium.GlobalState.BlockState (InstanceInfoTypeV(..))
 
+-- |A wrapper that provides enough instances so that transactions can be executed. In particular
+-- this is aimed towards execution of `handleContractUpdate`.
+-- This type is equipped with (in particular)
+-- 
+-- - BlockStateTypes
+-- - AccountOperations
+-- - StaticInformation
+-- 
+-- It is then used together with the LocalT transformer to be able to execute
+-- transactions without the context of the scheduler. This is achieved via (the
+-- only) instance of TransactionMonad for the LocalT transformer.
 newtype InvokeContractMonad (pv :: ProtocolVersion) m a = InvokeContractMonad {_runInvokeContract :: ReaderT (ContextState, BlockState m) m a}
     deriving (Functor,
               Applicative,
@@ -100,11 +127,13 @@ invokeContract _ ContractContext{..} cm bs = do
             Just (BS.InstanceInfoV0 i) -> do
               let ownerAccountAddress = instanceOwner (iiParameters i)
               getStateAccount ownerAccountAddress >>= \case
+                -- the first case should really never happen, since a valid instance should always have a valid account.
                 Nothing -> return (Left (Just $ InvalidAccountReference ownerAccountAddress))
                 Just acc -> return (Right (checkAndGetBalanceInstanceV0 acc i {iiState = Frozen (iiState i)}, ownerAccountAddress, fst acc))
             Just (BS.InstanceInfoV1 i) -> do
               let ownerAccountAddress = instanceOwner (iiParameters i)
               getStateAccount ownerAccountAddress >>= \case
+                -- the first case should really never happen, since a valid instance should always have a valid account.
                 Nothing -> return (Left (Just $ InvalidAccountReference ownerAccountAddress))
                 Just acc -> return (Right (checkAndGetBalanceInstanceV0 acc i {iiState = Frozen (iiState i)}, ownerAccountAddress, fst acc))
   let runContractComp = 
@@ -120,18 +149,25 @@ invokeContract _ ContractContext{..} cm bs = do
             return (r, _energyLeft cs)
       contextState = ContextState{_maxBlockEnergy = ccEnergy, _accountCreationLimit = 0, _chainMetadata = cm}
   runReaderT (_runInvokeContract runContractComp) (contextState, bs) >>= \case
-    (Left Nothing, re) -> -- cannot happen (this would mean out of block energy), but this is safe to do and not wrong
-        return Failure{rcrReason = OutOfEnergy, rcrUsedEnergy = ccEnergy - re}
+    -- cannot happen (this would mean out of block energy, and we set block energy no lower than energy),
+    -- but this is safe to do and not wrong
+    (Left Nothing, re) -> 
+      return Failure{rcrReason = OutOfEnergy, rcrReturnValue=Nothing, rcrUsedEnergy = ccEnergy - re}
+    -- Contract execution of a V0 contract failed with the given reason.
     (Left (Just rcrReason), re) ->
-      return Failure{rcrUsedEnergy = ccEnergy - re,..}
+      return Failure{rcrUsedEnergy = ccEnergy - re,rcrReturnValue=Nothing,..}
+    -- Contract execution of a V0 contract succeeded with the given list of events
     (Right (Left rcrEvents), re) ->
       return Success{rcrReturnValue=Nothing,
                      rcrUsedEnergy = ccEnergy - re,
                      ..}
+    -- Contract execution of a V1 contract failed with the given reason and potentially a return value 
     (Right (Right (Left cf)), re) ->
       return (Failure{
                  rcrReason = WasmV1.cerToRejectReasonReceive ccContract ccMethod ccParameter cf,
+                 rcrReturnValue = WasmV1.returnValueToByteString <$> WasmV1.ccfToReturnValue cf,
                  rcrUsedEnergy = ccEnergy - re})
+    -- Contract execution of a V1 contract succeeded with the given return value.
     (Right (Right (Right (rv, reversedEvents))), re) -> -- handleUpdateContractV1 returns events in reverse order
       return Success{rcrReturnValue=Just (WasmV1.returnValueToByteString rv),
                      rcrUsedEnergy = ccEnergy - re,

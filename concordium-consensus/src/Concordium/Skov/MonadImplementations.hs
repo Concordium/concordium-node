@@ -427,7 +427,7 @@ instance (
     {- - INLINE storeBlock - -}
     storeBlock = doStoreBlock
     {- - INLINE receiveTransaction - -}
-    receiveTransaction tr = doReceiveTransaction tr 0
+    receiveTransaction tr = doReceiveTransaction tr
     {- - INLINE trustedFinalize - -}
     trustedFinalize = doTrustedFinalize
     {- - INLINE handleCatchUpStatus - -}

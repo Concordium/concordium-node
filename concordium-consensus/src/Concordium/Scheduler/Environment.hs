@@ -40,6 +40,8 @@ import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.AccountTransactionIndex
 import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as ARS
 
+import qualified Concordium.TransactionVerification as TVer
+
 import Control.Exception(assert)
 
 import qualified Concordium.ID.Types as ID
@@ -47,7 +49,7 @@ import Concordium.Wasm (IsWasmVersion)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import qualified Concordium.Wasm as GSWasm
 
--- |An account index togehter with the canonical address. Sometimes it is
+-- |An account index together with the canonical address. Sometimes it is
 -- difficult to pass an IndexedAccount and we only need the addresses. That is
 -- when this type is useful.
 type IndexedAccountAddress = (AccountIndex, AccountAddress)
@@ -75,11 +77,10 @@ class (Monad m) => StaticInformation m where
   getContractInstance :: ContractAddress -> m (Maybe (InstanceInfo m))
  
   -- |Get the amount of funds at the particular account address at the start of a transaction.
-  -- To get the amount of funds for a contract instance use getInstance and lookup amount there.
   getStateAccount :: AccountAddress -> m (Maybe (IndexedAccount m))
 
 -- |Information needed to execute transactions in the form that is easy to use.
-class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m)), AccountOperations m, ContractStateOperations m, MonadLogger m, IsProtocolVersion pv)
+class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m)), AccountOperations m, ContractStateOperations m, MonadLogger m, IsProtocolVersion pv, TVer.TransactionVerifier pv m)
     => SchedulerMonad pv m | m -> pv where
 
   -- |Notify the transaction log that a transaction had the given footprint. The
@@ -94,9 +95,6 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
   -- account's address. The behaviour of this will generally depend on the
   -- protocol version.
   addressWouldClash :: AccountAddress -> m Bool
-
-  -- |Check whether a given registration id exists in the global state.
-  accountRegIdExists :: ID.CredentialRegistrationID -> m Bool
 
   -- |Commit to global state all the updates to local state that have
   -- accumulated through the execution. This method is also in charge of
@@ -259,17 +257,6 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
   -- * The account has keys defined at the specified indices
   updateCredentialKeys :: AccountIndex -> ID.CredentialIndex -> ID.CredentialPublicKeys -> m ()
 
-  -- *Other metadata.
-
-  -- |Retrieve the identity provider with given id, if possible.
-  getIPInfo :: IdentityProviderIdentity -> m (Maybe IpInfo)
-
-  -- |Retrieve the identity provider with given id, if possible.
-  getArInfos :: [ID.ArIdentity] -> m (Maybe [ArInfo])
-
-  -- |Get cryptographic parameters for the current state.
-  getCryptoParams :: m CryptographicParameters
-
   -- * Chain updates
 
   -- |Get the current authorized keys for updates.
@@ -401,11 +388,6 @@ class (StaticInformation m, ContractStateOperations m, IsProtocolVersion pv) => 
 
   getCurrentContractInstance :: ContractAddress -> m (Maybe (UInstanceInfo m))
 
-  {-# INLINE getCurrentAvailableAmount #-}
-  getCurrentAvailableAmount :: Wasm.SWasmVersion v -> Either (IndexedAccount m, UInstanceInfoV m v) (AccountAddress, IndexedAccount m) -> m Amount
-  getCurrentAvailableAmount sv (Left (_, i)) = getCurrentContractAmount sv i
-  getCurrentAvailableAmount _ (Right (_, a)) = getCurrentAccountAvailableAmount a
-
   -- |Get the current total public balance of an account.
   -- This accounts for any pending changes in the course of execution of the transaction.
   -- This includes any funds that cannot be spent due to lock-up or baking.
@@ -442,12 +424,6 @@ class (StaticInformation m, ContractStateOperations m, IsProtocolVersion pv) => 
   -- try the second computation. If the left computation fails with out of energy then the
   -- entire computation is aborted.
   orElse :: m a -> m a -> m a
-
-  -- |Try to run the first computation. If it leads to `reject` for a logic
-  -- reason then try the second computation. If the left computation fails with
-  -- out of energy then the entire computation is aborted. Compared to 'orElse'
-  -- above, here the right computation gets access to the rejection reason of the left one.
-  orElseWith :: m a -> (RejectReason -> m a) -> m a
 
   -- |Try to run the first computation. If it leads to `Left err` then abort and revert all the changes
   -- apart from consumed energy.
@@ -550,7 +526,7 @@ modifyAmountCS _ ai !amnt !cs = cs & (accountUpdates . ix ai . auAmount ) %~
 -- |Add or update the contract state in the changeset with the given value.
 -- |NB: If the instance is not yet in the changeset we assume that its balance is
 -- as listed in the given instance structure.
-addContractStatesToCSV0 :: HasInstanceParameters a => Proxy m -> a -> ModificationIndex -> UpdatableContractState m GSWasm.V0 -> ChangeSet m -> ChangeSet m
+addContractStatesToCSV0 :: HasInstanceAddress a => Proxy m -> a -> ModificationIndex -> UpdatableContractState m GSWasm.V0 -> ChangeSet m -> ChangeSet m
 addContractStatesToCSV0 _ istance curIdx newState =
   instanceV0Updates . at addr %~ \case Just (_, amnt, _) -> Just (curIdx, amnt, Just newState)
                                        Nothing -> Just (curIdx, 0, Just newState)
@@ -559,7 +535,7 @@ addContractStatesToCSV0 _ istance curIdx newState =
 -- |Add or update the contract state in the changeset with the given value.
 -- |NB: If the instance is not yet in the changeset we assume that its balance is
 -- as listed in the given instance structure.
-addContractStatesToCSV1 :: HasInstanceParameters a => Proxy m -> a -> ModificationIndex -> UpdatableContractState m GSWasm.V1 -> ChangeSet m -> ChangeSet m
+addContractStatesToCSV1 :: HasInstanceAddress a => Proxy m -> a -> ModificationIndex -> UpdatableContractState m GSWasm.V1 -> ChangeSet m -> ChangeSet m
 addContractStatesToCSV1 _ istance curIdx newState =
   instanceV1Updates . at addr %~ \case Just (_, amnt, _) -> Just (curIdx, amnt, Just newState)
                                        Nothing -> Just (curIdx, 0, Just newState)
@@ -602,6 +578,12 @@ data LocalStateType contractState = LocalState{
   -- |Changes accumulated thus far.
   _changeSet :: !(ChangeSetType contractState),
   -- |Maximum number of modified contract instances.
+  -- |The next available modification index. When a contract state is modified
+  -- this is used to keep track of "when" it was modified. In the scheduler we
+  -- then remember the modification index before a contract invokes another
+  -- contract, and look it up just before contract execution resumes. Comparing
+  -- them gives information on whether the contract state has definitely not
+  -- changed, or whether there were writes to the state.
   _nextContractModificationIndex :: !ModificationIndex,
   _blockEnergyLeft :: !Energy
   }
@@ -817,6 +799,26 @@ instance StaticInformation m => StaticInformation (LocalT pv r m) where
 deriving via (MGSTrans (LocalT pv r) m) instance AccountOperations m => AccountOperations (LocalT pv r m)
 deriving via (MGSTrans (LocalT pv r) m) instance ContractStateOperations m => ContractStateOperations (LocalT pv r m)
 
+-- |Execute an inner transaction, reifying it into the return value. This
+-- behaves as the given computation in case it does not exit early, and resets
+-- the state of execution to the beginning in case of an error. In this case the
+-- error is also returned in the return value.
+runInnerTransaction :: Monad m => LocalT pv a m a -> LocalT pv r m (Either RejectReason a)
+runInnerTransaction (LocalT kOrig) = LocalT $ ContT $ \k -> do
+  initChangeSet <- use changeSet
+  initModificationIndex <- use nextContractModificationIndex
+  -- Run the given computation to the end by giving it a fresh continuation that
+  -- just returns, as if this was a top-level transaction.
+  comp <- runContT kOrig (return . Right)
+  case comp of
+    Left Nothing -> return (Left Nothing)
+    Left (Just err) | err == OutOfEnergy -> energyLeft .= 0 >> return (Left (Just OutOfEnergy))
+    Left (Just err) -> do
+         changeSet .= initChangeSet
+         nextContractModificationIndex .= initModificationIndex
+         k (Left err)
+    Right x -> k (Right x)
+
 instance (IsProtocolVersion pv, StaticInformation m, AccountOperations m, ContractStateOperations m) => TransactionMonad pv (LocalT pv r m) where
   {-# INLINE withInstanceStateV0 #-}
   withInstanceStateV0 istance val cont = do
@@ -1025,20 +1027,6 @@ instance (IsProtocolVersion pv, StaticInformation m, AccountOperations m, Contra
          runContT r k
        x -> return x
 
-  {-# INLINE orElseWith #-}
-  orElseWith (LocalT l) r = LocalT $ ContT $ \k -> do
-     initChangeSet <- use changeSet
-     initModificationIndex <- use nextContractModificationIndex
-     runContT l k >>= \case
-       (Left (Just reason)) | reason /= OutOfEnergy -> do
-         -- reset changeSet, the left computation will have no effect at all other than
-         -- energy use.
-         changeSet .= initChangeSet
-         nextContractModificationIndex .= initModificationIndex
-         runContT (_runLocalT (r reason)) k
-       x -> return x
-
-
   {-# INLINE withRollback #-}
   withRollback (LocalT l) = LocalT $ ContT $ \k -> do
      initChangeSet <- use changeSet
@@ -1096,14 +1084,14 @@ logInvalidBlockItem WithMetadata{wmdData=ChainUpdate{},..} fk =
   logEvent Scheduler LLWarning $ "Chain update with hash " ++ show wmdHash ++ " was invalid with reason: " ++ show fk
 
 {-# INLINE logInvalidTransaction #-}
-logInvalidTransaction :: SchedulerMonad pv m => Transaction -> FailureKind -> m ()
-logInvalidTransaction WithMetadata{..} fk =
+logInvalidTransaction :: SchedulerMonad pv m => TVer.TransactionWithStatus -> FailureKind -> m ()
+logInvalidTransaction (WithMetadata{..},_) fk =
   logEvent Scheduler LLWarning $ "Transaction with hash " ++ show wmdHash ++ " was invalid with reason: " ++ show fk
 
-logInvalidCredential :: SchedulerMonad pv m => CredentialDeploymentWithMeta -> FailureKind -> m ()
-logInvalidCredential WithMetadata{..} fk =
+logInvalidCredential :: SchedulerMonad pv m => TVer.CredentialDeploymentWithStatus -> FailureKind -> m ()
+logInvalidCredential (WithMetadata{..},_) fk =
   logEvent Scheduler LLWarning $ "Credential with registration id " ++ (show . ID.credId . credential $ wmdData) ++ " was invalid with reason " ++ show fk
 
-logInvalidChainUpdate :: SchedulerMonad pv m => WithMetadata UpdateInstruction -> FailureKind -> m ()
-logInvalidChainUpdate WithMetadata{..} fk =
+logInvalidChainUpdate :: SchedulerMonad pv m => TVer.ChainUpdateWithStatus -> FailureKind -> m ()
+logInvalidChainUpdate (WithMetadata{..},_) fk =
   logEvent Scheduler LLWarning $ "Chain update with hash " ++ show wmdHash ++ " was invalid with reason: " ++ show fk

@@ -34,7 +34,6 @@ import Data.Bits
 import Data.Int
 import Data.Word
 import qualified Data.Aeson as AE
-import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
 import Data.Serialize
 import qualified Data.Map.Strict as Map
@@ -140,7 +139,7 @@ data EnvFailure =
 -- data in memory, or via host functions, both of which are difficult.
 -- The response is encoded as follows.
 -- - success is encoded as 0
--- - every failure has all bits of the first 3 bytes set
+-- - every failure has all bits of the first (most significant) 3 bytes set
 -- - in case of failure
 --   - if the 4th byte is 0 then the remaining 4 bytes encode the rejection reason from the contract
 --   - otherwise only the 4th byte is used, and encodes the enviroment failure.
@@ -212,6 +211,7 @@ foreign import ccall "resume_receive_v1"
 
 
 -- |Apply an init function which is assumed to be a part of the module.
+{-# NOINLINE applyInitFun #-}
 applyInitFun
     :: LoadCallback
     -> ModuleInterfaceV V1
@@ -241,7 +241,8 @@ applyInitFun cbk miface cm initCtx iName param amnt iEnergy = unsafePerformIO $ 
                                            returnValuePtrPtr
                                            outputLenPtr
                                            statePtrPtr
-                        if outPtr == nullPtr then return (Just (Left Trap, 0)) -- This case should not happen.
+                        -- This case should not happen, it means a mismatch between two sides of FFI.
+                        if outPtr == nullPtr then return (Just (Left Trap, 0))
                         else do
                           len <- peek outputLenPtr
                           bs <- BSU.unsafePackCStringFinalizer outPtr (fromIntegral len) (rs_free_array_len outPtr (fromIntegral len))
@@ -319,6 +320,10 @@ cerToRejectReasonInit :: ContractExecutionReject -> Exec.RejectReason
 cerToRejectReasonInit LogicReject{..} = Exec.RejectedInit cerRejectReason
 cerToRejectReasonInit Trap = Exec.RuntimeFailure
 
+-- |Parse the response from invoking a @call_init_v1@ method. This attempts to
+-- parse the returned byte array and depending on its contents it will also
+-- update the given pointers. See documentation of the above mentioned imported
+-- function for the specification of the return value.
 processInitResult ::
   -- |Serialized output.
   BS.ByteString
@@ -332,14 +337,18 @@ processInitResult result returnValuePtr newStatePtr = case BS.uncons result of
   Just (tag, payload) ->
     case tag of
       0 -> return Nothing
-      1 -> let parser = do -- reject
+      1 -> let parser = -- runtime failure
+                label "Init.remainingEnergy" getWord64be
+          in let remainingEnergy = parseResult parser
+             in do return (Just (Left Trap, fromIntegral remainingEnergy))
+      2 -> let parser = do -- reject
                 rejectReason <- label "Reject.rejectReason" getInt32be
                 remainingEnergy <- label "Reject.remainingEnergy" getWord64be
                 return (rejectReason, remainingEnergy)
           in let (cerRejectReason, remainingEnergy) = parseResult parser
              in do cerReturnValue <- ReturnValue <$> newForeignPtr freeReturnValue returnValuePtr
                    return (Just (Left LogicReject{..}, fromIntegral remainingEnergy))
-      2 -> -- done
+      3 -> -- done
         let parser = do
               logs <- label "Done.logs" getLogs
               remainingEnergy <- label "Done.remainingEnergy" getWord64be
@@ -375,7 +384,11 @@ cerToRejectReasonReceive _ _ _ (EnvFailure e) = case e of
   MissingContract cref -> Exec.InvalidContractAddress cref
   InvalidEntrypoint mref rn -> Exec.InvalidReceiveMethod mref rn
 
-
+-- |Parse the response from invoking either a @call_receive_v1@ or
+-- @resume_receive_v1@ method. This attempts to parse the returned byte array
+-- and depending on its contents it will also update the given pointers. See
+-- documentation of the above mentioned imported functions for the specification
+-- of the return value.
 processReceiveResult ::
   BS.ByteString -- ^Serialized output.
   -> Ptr ReturnValue -- ^Location where the pointer to the return value is (potentially) stored.
@@ -392,7 +405,7 @@ processReceiveResult result returnValuePtr statePtr eitherInterruptedStatePtr = 
       1 -> let parser = -- runtime failure
                 label "Reject.remainingEnergy" getWord64be
           in let remainingEnergy = parseResult parser
-             in do return (Just (Left Trap, fromIntegral remainingEnergy))
+             in return (Just (Left Trap, fromIntegral remainingEnergy))
       2 -> let parser = do -- reject
                 rejectReason <- label "Reject.rejectReason" getInt32be
                 remainingEnergy <- label "Reject.remainingEnergy" getWord64be
@@ -428,6 +441,7 @@ processReceiveResult result returnValuePtr statePtr eitherInterruptedStatePtr = 
 
 
 -- |Apply a receive function which is assumed to be part of the given module.
+{-# NOINLINE applyReceiveFun #-}
 applyReceiveFun
     :: ModuleInterfaceV V1
     -> ChainMetadata -- ^Metadata available to the contract.
@@ -477,6 +491,7 @@ applyReceiveFun miface cm receiveCtx rName param amnt callbacks cs initialEnergy
         nameBytes = Text.encodeUtf8 (receiveName rName)
 
 -- |Resume execution after processing the interrupt. This can only be called once on a single 'ReceiveInterruptedState'.
+{-# NOINLINE resumeReceiveFun #-}
 resumeReceiveFun ::
     ReceiveInterruptedState
     -> LoadCallback
@@ -551,10 +566,9 @@ processModule modl = do
             let names = foldM (\(inits, receives) name -> do
                           case Text.decodeUtf8' name of
                             Left _ -> Nothing
-                            Right nameText | isValidInitName nameText -> return (Set.insert (InitName nameText) inits, receives)
-                                           | isValidReceiveName nameText ->
-                                               let cname = "init_" <> Text.takeWhile (/= '.') nameText
-                                               in return (inits, Map.insertWith Set.union (InitName cname) (Set.singleton (ReceiveName nameText)) receives)
+                            Right nameText | Just initName <- extractInitName nameText -> return (Set.insert initName inits, receives)
+                                           | Just (initName, receiveName) <- extractInitReceiveNames nameText ->
+                                               return (inits, Map.insertWith Set.union initName (Set.singleton receiveName) receives)
                                            -- ignore any other exported functions.
                                            -- This is different from V0 contracts, which disallow any extra function exports.
                                            -- This feature was requested by some users.

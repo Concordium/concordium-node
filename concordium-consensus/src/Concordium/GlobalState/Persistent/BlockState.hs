@@ -894,6 +894,11 @@ doGetAccount pbs addr = do
         bsp <- loadPBS pbs
         Accounts.getAccountWithIndex addr (bspAccounts bsp)
 
+doGetAccountExists :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> AccountAddress -> m Bool
+doGetAccountExists pbs aaddr = do
+       bsp <- loadPBS pbs
+       Accounts.exists aaddr (bspAccounts bsp)
+             
 doGetAccountByCredId :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> ID.CredentialRegistrationID -> m (Maybe (AccountIndex, PersistentAccount pv))
 doGetAccountByCredId pbs cid = do
         bsp <- loadPBS pbs
@@ -915,10 +920,11 @@ doAddressWouldClash pbs addr = do
         bsp <- loadPBS pbs
         Accounts.addressWouldClash addr (bspAccounts bsp)
 
-doRegIdExists :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> ID.CredentialRegistrationID -> m (Maybe AccountIndex)
+doRegIdExists :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> ID.CredentialRegistrationID -> m Bool
+
 doRegIdExists pbs regid = do
         bsp <- loadPBS pbs
-        fst <$> Accounts.regIdExists regid (bspAccounts bsp)
+        isJust . fst <$> Accounts.regIdExists regid (bspAccounts bsp)
 
 doCreateAccount :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> ID.GlobalContext -> AccountAddress -> ID.AccountCredential ->  m (Maybe (PersistentAccount pv), PersistentBlockState pv)
 doCreateAccount pbs cryptoParams acctAddr credential = do
@@ -991,7 +997,6 @@ doPutNewInstance pbs NewInstanceData{..} = do
         -- Create the instance
         (ca, insts) <- Instances.newContractInstance (fnew mods) (bspInstances bsp)
         (ca,) <$> storePBS pbs bsp{bspInstances = insts}
-
     where
         fnew mods ca =
           case Wasm.getWasmVersion @v of
@@ -1055,7 +1060,7 @@ doModifyInstance pbs caddr deltaAmnt val = do
               (piParams, newParamsRef) <- cacheBufferedRef (pinstanceParameters oldInst)
               if deltaAmnt == 0 then
                   case val of
-                      Nothing -> return ((), PersistentInstanceV0 $ rehashV0 Nothing (pinstanceParameterHash piParams) (oldInst {pinstanceParameters = newParamsRef}))
+                      Nothing -> return ((), PersistentInstanceV0 oldInst {pinstanceParameters = newParamsRef})
                       Just newVal -> do
                         (csHash, newModel) <- freeze newVal
                         return ((), PersistentInstanceV0 $ rehashV0 (Just csHash) (pinstanceParameterHash piParams) (oldInst {pinstanceParameters = newParamsRef, pinstanceModel = newModel}))
@@ -1072,7 +1077,7 @@ doModifyInstance pbs caddr deltaAmnt val = do
                 (piParams, newParamsRef) <- cacheBufferedRef (pinstanceParameters oldInst)
                 if deltaAmnt == 0 then
                     case val of
-                        Nothing -> rehashV1 Nothing (pinstanceParameterHash piParams) (oldInst {pinstanceParameters = newParamsRef})
+                        Nothing -> return ((), PersistentInstanceV1 oldInst {pinstanceParameters = newParamsRef})
                         Just newVal -> do
                               (csHash, newModel) <- freeze newVal
                               rehashV1 (Just csHash) (pinstanceParameterHash piParams) (oldInst {pinstanceParameters = newParamsRef, pinstanceModel = newModel})
@@ -1310,6 +1315,7 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateQuery (Persist
     getModule = doGetModuleSource . hpbsPointers
     getModuleInterface pbs mref = doGetModule (hpbsPointers pbs) mref
     getAccount = doGetAccount . hpbsPointers
+    accountExists = doGetAccountExists . hpbsPointers
     getAccountByCredId = doGetAccountByCredId . hpbsPointers
     getContractInstance = doGetInstance . hpbsPointers
     getModuleList = doGetModuleList . hpbsPointers
@@ -1333,6 +1339,10 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateQuery (Persist
     getUpdates = doGetUpdates . hpbsPointers
     getProtocolUpdateStatus = doGetProtocolUpdateStatus . hpbsPointers
     getCryptographicParameters = doGetCryptoParams . hpbsPointers
+    getIdentityProvider = doGetIdentityProvider . hpbsPointers
+    getAnonymityRevokers =  doGetAnonymityRevokers . hpbsPointers
+    getUpdateKeysCollection = doGetUpdateKeyCollection . hpbsPointers
+    getEnergyRate = doGetEnergyRate . hpbsPointers
 
 instance (MonadIO m, PersistentState r m) => ContractStateOperations (PersistentBlockStateMonad pv r m) where
   thawContractState (Instances.InstanceStateV0 inst) = return (UInstanceStateV0 inst)
@@ -1352,7 +1362,6 @@ instance (MonadIO m, PersistentState r m) => ContractStateOperations (Persistent
   {-# INLINE stateSizeV0 #-}
   {-# INLINE mutableStateSizeV0 #-}
   {-# INLINE getV1StateContext #-}
-
 
 instance (PersistentState r m, IsProtocolVersion pv) => AccountOperations (PersistentBlockStateMonad pv r m) where
 

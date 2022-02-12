@@ -1,7 +1,6 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
-
 {-|
 The scheduler executes transactions (including credential deployment), updating the current block state.
 It can
@@ -76,6 +75,7 @@ import qualified Data.Set as Set
 
 import qualified Concordium.Crypto.Proofs as Proofs
 import qualified Concordium.Crypto.BlsSignature as Bls
+import qualified Concordium.TransactionVerification as TVer
 
 import Lens.Micro.Platform
 
@@ -84,7 +84,8 @@ import Concordium.Scheduler.WasmIntegration.V1 (ReceiveResultData(rrdCurrentStat
 import Concordium.Wasm (IsWasmVersion)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 
--- |Check that
+
+-- |The function asserts the following
 --  * the transaction has a valid sender,
 --  * the amount corresponding to the deposited energy is on the sender account,
 --  * the transaction is not expired,
@@ -93,65 +94,117 @@ import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 -- "Valid sender" means that the sender account exists and has at least one valid credential,
 -- where currently valid means non-expired.
 --
--- Before any other checks this checks whether the amount deposited is enough to cover
--- the cost that will be charged for checking the header.
---
 -- Throws 'Nothing' if the remaining block energy is not sufficient to cover the cost of checking the
 -- header and @Just fk@ if any of the checks fail, with the respective 'FailureKind'.
 --
+-- Important! If @mVerRes@ is `Just VerificationResult` then it MUST be the `VerificationResult` matching the provided transaction.
+--
 -- Returns the sender account and the cost to be charged for checking the header.
-checkHeader :: forall pv msg m . (TransactionData msg, SchedulerMonad pv m) => msg -> ExceptT (Maybe FailureKind) m (IndexedAccount m, Energy)
-checkHeader meta = do
+checkHeader :: forall pv msg m . (TransactionData msg, SchedulerMonad pv m) => msg -> Maybe TVer.VerificationResult -> ExceptT (Maybe FailureKind) m (IndexedAccount m, Energy)
+checkHeader meta mVerRes = do
   unless (validatePayloadSize (protocolVersion @pv) (thPayloadSize (transactionHeader meta))) $ throwError $ Just InvalidPayloadSize
   -- Before even checking the header we calculate the cost that will be charged for this
   -- and check that at least that much energy is deposited and remaining from the maximum block energy.
   let cost = Cost.baseCost (getTransactionHeaderPayloadSize $ transactionHeader meta) (getTransactionNumSigs (transactionSignature meta))
-  unless (transactionGasAmount meta >= cost) $ throwError (Just DepositInsufficient)
   remainingBlockEnergy <- lift getRemainingEnergy
+  -- check that enough energy is remaining for the block.
   unless (remainingBlockEnergy >= cost) $ throwError Nothing
+  
+  -- check that the transaction is not expired
+  cm <- lift getChainMetadata
+  when (transactionExpired (thExpiry $ transactionHeader meta) $ slotTime cm) $ throwError . Just $ ExpiredTransaction
+  
+  let addr = transactionSender meta
+  miacc <- lift (getStateAccount addr)
+  case miacc of
+    -- check if the sender is present on the chain.
+    Nothing -> throwError (Just $ UnknownAccount addr)
+    Just iacc -> do
+      -- The sender exists and thus we continue verifying the transaction.
+      
+      -- We check if we previously have deemed the transaction valid and check if the
+      -- current account information matches with one at the point of verification.
+      -- Also we check that the nonce is valid and that the sender has enough funds to cover his transfer.
+      let acc = snd iacc
+      case mVerRes of
+        Just (TVer.Ok (TVer.NormalTransactionSuccess keysHash _)) -> do
+          currentKeys <- lift (TVer.getAccountVerificationKeys acc)
+          -- Check that the keys match from initial verification.
+          -- If they match we skip checking the signature as it has already been verified.
+          if ID.matchesAccountInformation currentKeys keysHash then do
+            checkNonceAndFunds acc
+            return (iacc, cost)
+            -- the account information has changed, so we re-verify the signature.
+          else do
+            unless (verifyTransaction currentKeys meta) (throwError $ Just IncorrectSignature)
+            checkNonceAndFunds acc
+            return (iacc, cost)
+        -- An invalid verification result or `Nothing` was supplied to this function.
+        -- In either case we verify the transaction now.
+        _ -> do 
+              newVerRes <- lift (TVer.verifyNormalTransaction meta)
+              case checkTransactionVerificationResult newVerRes of
+                Left failure -> throwError . Just $ failure
+                Right _ -> return (iacc, cost)
+  where
+    -- check that the nonce is ok and that the sender has enough funds to cover the transaction fee deposit.
+    checkNonceAndFunds acc = do
+      -- Check that the nonce is still 'Ok'.
+      nextNonce <- lift (TVer.getNextAccountNonce acc)
+      let nonce = transactionNonce meta
+      unless (nonce == nextNonce) $ throwError (Just $ NonSequentialNonce nonce)
+      -- Check that the account still has enough funds to cover the deposit
+      amnt <- lift (TVer.getAccountAvailableAmount acc)
+      depositedAmount <- lift (TVer.energyToCcd (transactionGasAmount meta))
+      unless (depositedAmount <= amnt) $ throwError $ Just InsufficientFunds
 
-  -- Now check whether the specified sender exists, and only then do all remaining checks.
-  macc <- lift (getStateAccount (transactionSender meta))
-  case macc of
-    Nothing -> throwError . Just $ (UnknownAccount (transactionSender meta))
-    Just iacc@(_, acc) -> do
-      amnt <- getAccountAvailableAmount acc
-      nextNonce <- getAccountNonce acc
-      let txnonce = transactionNonce meta
-      let expiry = thExpiry $ transactionHeader meta
+-- |Maps transaction verification results into Either `FailureKind`s. or `OkResult`s
+checkTransactionVerificationResult :: TVer.VerificationResult -> Either FailureKind TVer.OkResult
+-- 'Ok' mappings
+checkTransactionVerificationResult (TVer.Ok res) = Right res
+-- 'MaybeOK' mappings
+checkTransactionVerificationResult (TVer.MaybeOk (TVer.CredentialDeploymentInvalidIdentityProvider ipid)) = Left $ NonExistentIdentityProvider ipid
+checkTransactionVerificationResult (TVer.MaybeOk TVer.CredentialDeploymentInvalidAnonymityRevokers) = Left UnsupportedAnonymityRevokers
+checkTransactionVerificationResult (TVer.MaybeOk (TVer.ChainUpdateInvalidNonce expectedSequenceNumber)) = Left $ NonSequentialNonce expectedSequenceNumber
+checkTransactionVerificationResult (TVer.MaybeOk TVer.ChainUpdateInvalidSignatures) = Left IncorrectSignature
+checkTransactionVerificationResult (TVer.MaybeOk (TVer.NormalTransactionInvalidSender aaddr)) = Left $ UnknownAccount aaddr
+checkTransactionVerificationResult (TVer.MaybeOk (TVer.NormalTransactionInvalidNonce nonce)) = Left $ NonSequentialNonce nonce
+checkTransactionVerificationResult (TVer.MaybeOk TVer.NormalTransactionInvalidSignatures) = Left IncorrectSignature
+checkTransactionVerificationResult (TVer.MaybeOk TVer.NormalTransactionInsufficientFunds) = Left InsufficientFunds
+-- 'NotOk' mappings
+checkTransactionVerificationResult (TVer.NotOk (TVer.CredentialDeploymentDuplicateAccountRegistrationID regId)) = Left $ DuplicateAccountRegistrationID regId
+checkTransactionVerificationResult (TVer.NotOk TVer.CredentialDeploymentInvalidSignatures) = Left AccountCredentialInvalid
+checkTransactionVerificationResult (TVer.NotOk TVer.CredentialDeploymentExpired) = Left AccountCredentialInvalid
+checkTransactionVerificationResult (TVer.NotOk (TVer.ChainUpdateSequenceNumberTooOld nonce)) = Left $ NonSequentialNonce nonce
+checkTransactionVerificationResult (TVer.NotOk TVer.ChainUpdateEffectiveTimeBeforeTimeout) = Left InvalidUpdateTime
+checkTransactionVerificationResult (TVer.NotOk TVer.NormalTransactionDepositInsufficient) = Left DepositInsufficient
+checkTransactionVerificationResult (TVer.NotOk TVer.NormalTransactionEnergyExceeded) = Left ExceedsMaxBlockEnergy
+checkTransactionVerificationResult (TVer.NotOk (TVer.NormalTransactionDuplicateNonce nonce)) = Left $ NonSequentialNonce nonce
+checkTransactionVerificationResult (TVer.NotOk TVer.Expired) = Left ExpiredTransaction
+checkTransactionVerificationResult (TVer.NotOk TVer.InvalidPayloadSize) = Left InvalidPayloadSize
 
-      cm <- lift getChainMetadata
-      when (transactionExpired expiry $ slotTime cm) $ throwError . Just $ ExpiredTransaction
-
-      -- After the successful credential check we check that the sender account
-      -- has enough GTU to cover the deposited energy.
-      depositedAmount <- lift (energyToGtu (transactionGasAmount meta))
-      unless (depositedAmount <= amnt) (throwError . Just $ InsufficientFunds)
-
-      unless (txnonce == nextNonce) (throwError . Just $ (NonSequentialNonce nextNonce))
-
-      -- Finally do the signature verification, the computationally most expensive part.
-      keys <- getAccountVerificationKeys acc
-      let sigCheck = verifyTransaction keys meta
-      unless sigCheck (throwError . Just $ IncorrectSignature)
-
-      return (iacc, cost)
 
 -- | Execute a transaction on the current block state, charging valid accounts
 -- for the resulting energy cost.
 --
 -- First checks the meta data in the header of the transaction, then decodes the
 -- payload and lets the respective handler execute the actual transaction.
---
+-- 
+-- The payload is accompanied by its `VerificationResult` from when the transaction was received.
+-- As per above the transaction is verified prior to execution.
+-- This verification process is leveraged by this accompanying `VerificationResult`.
+-- Hence if the transaction has been successfully verified already then some verification steps
+-- can be skipped.
+-- 
 -- Returns
 --
 -- * @Nothing@ if the transaction would exceed the remaining block energy.
 -- * @Just result@ if the transaction failed ('TxInvalid') or was successfully committed
 --  ('TxValid', with either 'TxSuccess' or 'TxReject').
-dispatch :: forall msg pv m. (TransactionData msg, SchedulerMonad pv m) => msg -> m (Maybe TxResult)
-dispatch msg = do
+dispatch :: forall msg pv m. (TransactionData msg, SchedulerMonad pv m) => (msg, Maybe TVer.VerificationResult) -> m (Maybe TxResult)
+dispatch (msg, mVerRes) = do
   let meta = transactionHeader msg
-  validMeta <- runExceptT (checkHeader msg)
+  validMeta <- runExceptT (checkHeader msg mVerRes)
   case validMeta of
     Left (Just fk) -> return $ Just (TxInvalid fk)
     Left Nothing -> return Nothing
@@ -255,7 +308,7 @@ dispatch msg = do
 
                    TransferWithScheduleAndMemo{..} ->
                      handleTransferWithSchedule (mkWTC TTTransferWithScheduleAndMemo) twswmTo twswmSchedule $ Just twswmMemo
-                     
+
           case res of
             -- The remaining block energy is not sufficient for the handler to execute the transaction.
             Nothing -> return Nothing
@@ -341,7 +394,7 @@ handleTransferToPublic ::
   -> SecToPubAmountTransferData
   -> m (Maybe TransactionSummary)
 handleTransferToPublic wtc transferData@SecToPubAmountTransferData{..} = do
-  cryptoParams <- getCryptoParams
+  cryptoParams <- TVer.getCryptographicParameters
   withDeposit wtc (c cryptoParams) k
   where senderAccount = wtc ^. wtcSenderAccount
         meta = wtc ^. wtcTransactionHeader
@@ -395,7 +448,7 @@ handleTransferToEncrypted ::
   -> Amount
   -> m (Maybe TransactionSummary)
 handleTransferToEncrypted wtc toEncrypted = do
-  cryptoParams <- getCryptoParams
+  cryptoParams <- TVer.getCryptographicParameters
   withDeposit wtc (c cryptoParams) k
   where senderAccount = wtc ^. wtcSenderAccount
         meta = wtc ^. wtcTransactionHeader
@@ -442,7 +495,7 @@ handleEncryptedAmountTransfer :: forall pv m .
   -> Maybe Memo -- ^Nothing in case of an EncryptedAmountTransfer and Just in case of an EncryptedAmountTransferWithMemo
   -> m (Maybe TransactionSummary)
 handleEncryptedAmountTransfer wtc toAddress transferData@EncryptedAmountTransferData{..} maybeMemo = do
-  cryptoParams <- getCryptoParams
+  cryptoParams <- TVer.getCryptographicParameters
   withDeposit wtc (c cryptoParams) k
   where senderAccount = wtc ^. wtcSenderAccount
         meta = wtc ^. wtcTransactionHeader
@@ -735,6 +788,7 @@ handleInitContract wtc initAmount modref initName param =
                                                    ecAddress=newInstanceAddr,
                                                    ecAmount=initAmount,
                                                    ecInitName=initName,
+                                                   ecContractVersion=Wasm.V0,
                                                    ecEvents=Wasm.logs result
                                                    }], energyCost, usedEnergy
                                                    )
@@ -765,6 +819,7 @@ handleInitContract wtc initAmount modref initName param =
                                                    ecAddress=newInstanceAddr,
                                                    ecAmount=initAmount,
                                                    ecInitName=initName,
+                                                   ecContractVersion=Wasm.V1,
                                                    ecEvents=WasmV1.irdLogs result
                                                    }], energyCost, usedEnergy
                                                    )
@@ -787,10 +842,10 @@ handleSimpleTransfer wtc toAddr transferamount maybeMemo =
             -- Check whether the sender has the amount to be transferred and reject the transaction if not.
             senderamount <- getCurrentAccountAvailableAmount senderAccount
             unless (senderamount >= transferamount) $! rejectTransaction (AmountTooLarge (AddressAccount senderAddress) transferamount)
-            
+
             -- Check whether target account exists and get it.
             targetAccount <- getStateAccount toAddr `rejectingWith` InvalidAccountReference toAddr
-            
+
             -- Add the transfer to the current changeset and return the corresponding event.
             withAccountToAccountAmount senderAccount targetAccount transferamount $
                 return $ Transferred (AddressAccount senderAddress) transferamount (AddressAccount toAddr) : (TransferMemo <$> maybeToList maybeMemo)
@@ -892,13 +947,13 @@ checkAndGetBalanceInstanceV0 ownerAccount istance transferAmount = do
 -- |Handle updating a V1 contract.
 -- In contrast to most other methods in this file this one does not use the
 -- error handling facilities of the transaction monad. Instead it explicitly returns an Either type.
--- The reason for this is the possible errors are exposed back to the smart contract in case
--- a contract A invokes contract B's entrypoint.
-handleContractUpdateV1 :: forall pv m.
-  (TransactionMonad pv m, AccountOperations m)
+-- The reason for this is that the possible errors are exposed back to the smart
+-- contract in case a contract A invokes contract B's entrypoint.
+handleContractUpdateV1 :: forall pv r m.
+  (IsProtocolVersion pv, StaticInformation m, AccountOperations m, ContractStateOperations m)
   => AccountAddress -- ^The address that was used to send the top-level transaction.
   -> UInstanceInfoV m GSWasm.V1 -- ^The current state of the target contract of the transaction, which must exist.
-  -> (Amount -> m (Either WasmV1.ContractCallFailure (Address, [ID.AccountCredential], Either (Wasm.WasmVersion, ContractAddress) IndexedAccountAddress)))
+  -> (Amount -> LocalT pv r m (Either WasmV1.ContractCallFailure (Address, [ID.AccountCredential], Either (Wasm.WasmVersion, ContractAddress) IndexedAccountAddress)))
   -- ^Check that the sender has sufficient amount to cover the given amount and return a triple of
   -- - used address
   -- - credentials of the address, either account or owner of the contract
@@ -908,7 +963,7 @@ handleContractUpdateV1 :: forall pv m.
   -> Amount -- ^The amount to be transferred from the sender of the message to the contract upon success.
   -> Wasm.ReceiveName -- ^Name of the contract to invoke.
   -> Wasm.Parameter -- ^Message to invoke the receive method with.
-  -> m (Either WasmV1.ContractCallFailure (WasmV1.ReturnValue, [Event]))
+  -> LocalT pv r m (Either WasmV1.ContractCallFailure (WasmV1.ReturnValue, [Event]))
   -- ^The events resulting from processing the message and all recursively processed messages. For efficiency
   -- reasons the events are in **reverse order** of the actual effects.
 handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount receiveName parameter = do
@@ -954,7 +1009,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
       let go :: [Event]
               -> Either WasmV1.ContractExecutionReject WasmV1.ReceiveResultData
               -- ^Result of invoking an operation
-              -> m (Either WasmV1.ContractCallFailure (WasmV1.ReturnValue, [Event]))
+              -> LocalT pv r m (Either WasmV1.ContractCallFailure (WasmV1.ReturnValue, [Event]))
           go _ (Left cer) = return (Left (WasmV1.ExecutionReject cer)) -- contract execution failed.
           go events (Right rrData) = do
             -- balance at present before handling out calls or transfers.
@@ -969,6 +1024,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                       euAmount=transferAmount,
                                       euMessage=parameter,
                                       euReceiveName=receiveName,
+                                      euContractVersion=Wasm.V1,
                                       euEvents = rrdLogs
                                      }
                   in return (Right (rrdReturnValue, event:events))
@@ -1006,11 +1062,11 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                            -- we are invoking a V0 instance.
                            -- in this case we essentially treat this as a top-level transaction invoking that contract.
                            -- That is, we execute the entire tree that is potentially generated.
-                           let rName = Wasm.makeReceiveName (instanceInitName (iiParameters targetInstance)) imcName
-                               runSuccess = Right <$> handleContractUpdateV0 originAddr targetInstance (checkAndGetBalanceInstanceV0 ownerAccount istance) imcAmount rName imcParam
+                           let rName = Wasm.uncheckedMakeReceiveName (instanceInitName (iiParameters targetInstance)) imcName
+                               runSuccess = handleContractUpdateV0 originAddr targetInstance (checkAndGetBalanceInstanceV0 ownerAccount istance) imcAmount rName imcParam
                            -- If execution of the contract succeeds resume.
                            -- Otherwise rollback the state and report that to the caller.
-                           (runSuccess `orElseWith` (return . Left)) >>= \case
+                           runInnerTransaction runSuccess >>= \case
                               Left _ -> -- execution failed, ignore the reject reason since V0 contract cannot return useful information
                                 go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig stateContext rrdCurrentState False entryBalance WasmV1.MessageSendFailed Nothing)
                               Right evs -> do
@@ -1021,11 +1077,10 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                 newBalance <- getCurrentContractAmount Wasm.SV1 istance
                                 go (resumeEvent True:evs ++ interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig stateContext resumeState stateChanged newBalance WasmV1.Success Nothing)
                          Just (InstanceInfoV1 targetInstance) -> do
-                           -- invoking a V1 instance is easier we recurse on the update function.
                            -- If this returns Right _ it is successful, and we pass this, and the returned return value
                            -- to the caller.
                            -- Otherwise we roll back all the changes and return the return value, and the error code to the caller.
-                           let rName = Wasm.makeReceiveName (instanceInitName (iiParameters targetInstance)) imcName
+                           let rName = Wasm.uncheckedMakeReceiveName (instanceInitName (iiParameters targetInstance)) imcName
                            withRollback (handleContractUpdateV1 originAddr targetInstance (checkAndGetBalanceInstanceV1 ownerAccount istance) imcAmount rName imcParam) >>= \case
                               Left cer ->
                                 go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig stateContext rrdCurrentState False entryBalance (WasmV1.Error cer) (WasmV1.ccfToReturnValue cer))
@@ -1044,7 +1099,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
    where  transferAccountSync :: AccountAddress -- ^The target account address.
                               -> UInstanceInfoV m GSWasm.V1 -- ^The sender of this transfer.
                               -> Amount -- ^The amount to transfer.
-                              -> ExceptT WasmV1.EnvFailure m [Event] -- ^The events resulting from the transfer.
+                              -> ExceptT WasmV1.EnvFailure (LocalT pv r m) [Event] -- ^The events resulting from the transfer.
           transferAccountSync accAddr senderInstance tAmount = do
             -- charge at the beginning, successful and failed transfers will have the same cost.
             -- Check whether the sender has the amount to be transferred and reject the transaction if not.
@@ -1062,26 +1117,23 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                       return [Transferred addr transferAmount (AddressAccount accAddr)])
            
 
--- | Process a message to a contract.
+-- | Invoke a V0 contract and process any generated messages.
 -- This includes the transfer of an amount from the sending account or instance.
 -- Recursively do the same for new messages created by contracts (from left to right, depth first).
 -- The target contract must exist, so that its state can be looked up.
-handleContractUpdateV0 :: forall pv m.
-  (TransactionMonad pv m, AccountOperations m)
+handleContractUpdateV0 :: forall pv r m.
+  (IsProtocolVersion pv, StaticInformation m, AccountOperations m, ContractStateOperations m)
   => AccountAddress -- ^The address that was used to send the top-level transaction.
   -> UInstanceInfoV m GSWasm.V0 -- ^The current state of the target contract of the transaction, which must exist.
-  -> (Amount -> m (Address, [ID.AccountCredential], (Either (Wasm.WasmVersion, ContractAddress) IndexedAccountAddress)))
+  -> (Amount -> LocalT pv r m (Address, [ID.AccountCredential], (Either (Wasm.WasmVersion, ContractAddress) IndexedAccountAddress)))
   -- ^The sender of the message (contract instance or account). In case this is
   -- a contract the first parameter is the owner account of the instance. In case this is an account
   -- (i.e., this is called from a top-level transaction) the value is a pair of the address that was used
   -- as the sender address of the transaction, and the account to which it points.
-  -- On the first invocation of this function this will be the sender of the
-  -- top-level transaction, and in recursive calls the respective contract
-  -- instance that produced the message.
   -> Amount -- ^The amount to be transferred from the sender of the message to the receiver.
   -> Wasm.ReceiveName -- ^Name of the contract to invoke.
   -> Wasm.Parameter -- ^Message to invoke the receive method with.
-  -> m [Event] -- ^The events resulting from processing the message and all recursively processed messages.
+  -> LocalT pv r m [Event] -- ^The events resulting from processing the message and all recursively processed messages.
 handleContractUpdateV0 originAddr istance checkAndGetSender transferAmount receiveName parameter = do
   -- Cover administrative costs.
   tickEnergy Cost.updateContractInstanceBaseCost
@@ -1145,6 +1197,7 @@ handleContractUpdateV0 originAddr istance checkAndGetSender transferAmount recei
                               euAmount=transferAmount,
                               euMessage=parameter,
                               euReceiveName=receiveName,
+                              euContractVersion=Wasm.V0,
                               euEvents = Wasm.logs result
                                }
       foldEvents originAddr (ownerAccount, istance) initEvent txOut
@@ -1160,12 +1213,12 @@ handleContractUpdateV0 originAddr istance checkAndGetSender transferAmount recei
 traversalStepCost :: Energy
 traversalStepCost = 10
 
-foldEvents :: (TransactionMonad pv m, AccountOperations m)
+foldEvents :: (IsProtocolVersion pv, StaticInformation m, AccountOperations m, ContractStateOperations m)
            => AccountAddress -- ^Address that was used in the top-level transaction.
            -> (IndexedAccount m, UInstanceInfoV m GSWasm.V0) -- ^Instance that generated the events.
            -> Event -- ^Event generated by the invocation of the instance.
            -> Wasm.ActionsTree -- ^Actions to perform
-           -> m [Event] -- ^List of events in order that transactions were traversed.
+           -> LocalT pv r m [Event] -- ^List of events in order that transactions were traversed.
 foldEvents originAddr istance initEvent = fmap (initEvent:) . go
   where go Wasm.TSend{..} = do
           getCurrentContractInstanceTicking erAddr >>= \case
@@ -1200,7 +1253,14 @@ foldEvents originAddr istance initEvent = fmap (initEvent:) . go
           go l `orElse` go r
         go Wasm.Accept = return []
 
-mkSenderAddrCredentials :: AccountOperations m => Either (IndexedAccount m, ContractAddress) (AccountAddress, IndexedAccount m) -> m (Address, [ID.AccountCredential])
+-- |Construct the address and a list of credentials of the sender. If the sender
+-- is an account, this is the address of the account that was used in the
+-- transaction, together with the list of credentials of that account, ordered
+-- by credential index. If the sender is a smart contract the returned address
+-- will be a contract address, and the credentials will be of the owner account.
+mkSenderAddrCredentials :: AccountOperations m
+    => Either (IndexedAccount m, ContractAddress) (AccountAddress, IndexedAccount m)
+    -> m (Address, [ID.AccountCredential])
 mkSenderAddrCredentials sender =
     case sender of
       Left (ownerAccount, iaddr) -> do
@@ -1211,10 +1271,9 @@ mkSenderAddrCredentials sender =
         credentials <- getAccountCredentials acc
         return (addr, map snd (OrdMap.toAscList credentials))
 
-
 -- | Handle the transfer of an amount from a **V0 contract instance** to an account.
-handleTransferAccount :: forall m pv .
-  (TransactionMonad pv m)
+handleTransferAccount :: forall m pv.
+  TransactionMonad pv m
   => AccountAddress -- ^The target account address.
   -> UInstanceInfoV m GSWasm.V0 -- ^The sender of this transfer.
   -> Amount -- ^The amount to transfer.
@@ -1490,86 +1549,83 @@ handleUpdateBakerKeys wtc bkuElectionKey bkuSignKey bkuAggregationKey bkuProofSi
               BI.BKUDuplicateAggregationKey -> return (TxReject (DuplicateAggregationKey bkuAggregationKey), energyCost, usedEnergy)
           else return (TxReject InvalidProof, energyCost, usedEnergy)
 
--- *Transactions without a sender
+-- |Credential deployments (transactions without a sender)
+-- The logic is as follows:
+-- * The transaction fails ('ExpiredTransaction') if the transaction was expired.
+-- * The transaction fails ('Nothing') if the block ran out of energy.
+--   Note this function returns `Nothing` iff. the block ran out of energy.
+-- * The transaction fails ('DuplicateAccountRegistrationID') if the regid already exists on chain.
+-- * The transaction fails ('AccountCredentialInvalid') if the credential deployment was expired.
+-- * The transaction fails ('AccountCredentialInvalid') if the account already exists on chain.
+-- * The transaction fails ('AccountCredentialInvalid') if the credential deployment was malformed (the commitments could not be extracted).
+--   Note this can only happen for 'normal' account creations.
+-- * The transactions fails ('NonExistentIdentityProvider') if an invalid identity provider id was contained in the credential deployment.
+-- * The transaction fails ('UnsupportedAnonymityRevokers') if invalid anonymity revokers were contained in the credential deployment.
+-- * The transaction fails ('AccountCredentialInvalid') if the signatures could not be verified.
+--
+-- If the `CredentialDeployment` was valid then return `Just TxSuccess`
+-- 
+-- Note that the function only fails with `TxInvalid` and thus failed transactions are not committed to chain.
 handleDeployCredential ::
   SchedulerMonad pv m =>
-  -- |Credentials to deploy.
-  AccountCreation ->
+  -- |Credentials to deploy with the current verification status.
+  TVer.CredentialDeploymentWithStatus ->
   TransactionHash ->
   m (Maybe TxResult)
-handleDeployCredential AccountCreation{messageExpiry=messageExpiry, credential=cdi} cdiHash = do
-  res <- runExceptT $ do
-    cm <- lift getChainMetadata
-    when (transactionExpired messageExpiry $ slotTime cm) $ throwError (Just ExpiredTransaction)
-
-    remainingEnergy <- lift getRemainingEnergy
-    let cost = Cost.deployCredential (ID.credentialType cdi) (ID.credNumKeys . ID.credPubKeys $ cdi)
-    when (remainingEnergy < cost) $ throwError Nothing
-    let mkSummary tsResult = do
-          tsIndex <- lift bumpTransactionIndex
-          return $ TxValid $ TransactionSummary{
-            tsSender = Nothing,
-            tsHash = cdiHash,
-            tsCost = 0,
-            tsEnergyCost = cost,
-            tsType = TSTCredentialDeploymentTransaction (ID.credentialType cdi),
-            ..
-            }
-
-    let expiry = ID.validTo cdi
-
-    -- check that a registration id does not yet exist
-    let regId = ID.credId cdi
-    regIdEx <- lift (accountRegIdExists regId)
-    unless (isTimestampBefore (slotTime cm) expiry) $ throwError $ Just AccountCredentialInvalid
-    when regIdEx $ throwError $ Just (DuplicateAccountRegistrationID (ID.credId cdi))
-    -- We now look up the identity provider this credential is derived from.
-    -- Of course if it does not exist we reject the transaction.
-    let credentialIP = ID.ipId cdi
-    lift (getIPInfo credentialIP) >>= \case
-      Nothing -> throwError $ Just (NonExistentIdentityProvider (ID.ipId cdi))
-      Just ipInfo -> do
-        case cdi of
-          ID.InitialACWP icdi -> do
-               let aaddr = ID.addressFromRegId regId
-               accExistsAlready <- lift (addressWouldClash aaddr)
-               when accExistsAlready $ throwError $ Just AccountCredentialInvalid
-               unless (AH.verifyInitialAccountCreation ipInfo messageExpiry (S.encode icdi)) $ throwError $ Just AccountCredentialInvalid
-               -- Create the account with the credential, but don't yet add it to the state
-               cryptoParams <- lift getCryptoParams
-               -- Creation is guaranteed to succeed since an account with the address
-               -- does not already exist.
-               _ <- lift (createAccount cryptoParams aaddr (ID.InitialAC (ID.icdiValues icdi)))
-               mkSummary (TxSuccess [AccountCreated aaddr, CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}])
-
-          ID.NormalACWP ncdi -> do
-            let cdiBytes = S.encode ncdi
-            let ncdv = ID.cdiValues ncdi
-            lift (getArInfos (OrdMap.keys (ID.cdvArData ncdv))) >>= \case
-              Nothing -> throwError $ Just UnsupportedAnonymityRevokers
-              Just arsInfos -> do
-                cryptoParams <- lift getCryptoParams
-                -- we have two options. One is that we are deploying a credential on an existing account.
-                case ID.cdvPublicKeys ncdv of
-                  ID.CredentialPublicKeys keys _ -> do
-                    -- account does not yet exist, so create it, but we need to be careful
-                    when (null keys || length keys > 255) $ throwError $ Just AccountCredentialInvalid
-                    let aaddr = ID.addressFromRegId regId
-                    case ID.values cdi of
-                      Nothing -> throwError $ Just AccountCredentialInvalid
-                      Just cdv -> do
-                        -- this check is extremely unlikely to fail (it would amount to a hash collision since
-                        -- we checked regIdEx above already).
-                        accExistsAlready <- lift (addressWouldClash aaddr)
-                        let check = AH.verifyCredential cryptoParams ipInfo arsInfos cdiBytes (Left messageExpiry)
-                        unless (not accExistsAlready && check) $ throwError $ Just AccountCredentialInvalid
-                        -- Add the account to the state, but only if the credential was valid and the account does not exist
-                        _ <- lift (createAccount cryptoParams aaddr cdv)
-                        mkSummary (TxSuccess [AccountCreated aaddr, CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}])
-  case res of
-    Left err -> return (TxInvalid <$> err)
-    Right ts -> return (Just ts)
-
+handleDeployCredential (WithMetadata{wmdData=cred@AccountCreation{messageExpiry=messageExpiry, credential=cdi}}, mVerRes) cdiHash = do
+    res <- runExceptT $ do
+     cm <- lift getChainMetadata
+     let ts = slotTime cm
+     -- check that the transaction is not expired
+     when (transactionExpired messageExpiry ts) $ throwError (Just ExpiredTransaction)
+     remainingEnergy <- lift getRemainingEnergy
+     when (remainingEnergy < theCost) $ throwError Nothing
+     case mVerRes of
+       Just (TVer.Ok _) -> do
+         -- check that the credential deployment has not expired since we last verified it.
+         unless (isTimestampBefore ts (ID.validTo cdi)) $ throwError (Just AccountCredentialInvalid)
+         -- We always need to make sure that the account was not created in between
+         -- the transaction was received and the actual execution.
+         -- Check that the registration id does not exist
+         regIdEx <- lift (TVer.registrationIdExists regId)
+         when regIdEx $ throwError $ Just (DuplicateAccountRegistrationID regId)
+         -- Create the account
+         newAccount
+       -- An invalid verification result or `Nothing` was supplied to this function.
+       -- In either case we verify the transaction now.
+       _ -> do
+         newVerRes <- lift (TVer.verifyCredentialDeployment ts cred)
+         case checkTransactionVerificationResult newVerRes of
+           Left failure -> throwError . Just $ failure
+           Right _ -> newAccount
+    case res of
+      Left err -> return (TxInvalid <$> err)
+      Right ts -> return (Just ts)
+  where
+    regId = ID.credId cdi
+    aaddr = ID.addressFromRegId regId
+    newAccount = do
+      -- Check that the address would not clash with an existing one.
+      accExistsAlready <- lift (addressWouldClash aaddr)
+      when accExistsAlready $ throwError $ Just AccountCredentialInvalid
+      cryptoParams <- lift TVer.getCryptographicParameters
+      cdv <- case cdi of
+        ID.InitialACWP icdi -> return (ID.InitialAC (ID.icdiValues icdi))
+        ID.NormalACWP _ -> case ID.values cdi of
+            Just cdv -> return cdv
+            Nothing -> throwError $ Just AccountCredentialInvalid
+      _ <- lift (createAccount cryptoParams aaddr cdv)
+      tsIndex <- lift bumpTransactionIndex
+      let tsResult = TxSuccess [AccountCreated aaddr, CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}]
+      return $ TxValid $ TransactionSummary{
+              tsSender = Nothing,
+              tsHash = cdiHash,
+              tsCost = 0,
+              tsEnergyCost = theCost,
+              tsType = TSTCredentialDeploymentTransaction (ID.credentialType cdi),
+              ..
+              }
+    theCost = Cost.deployCredential (ID.credentialType cdi) (ID.credNumKeys . ID.credPubKeys $ cdi)
 
 -- |Updates the credential keys in the credential with the given Credential ID.
 -- It rejects if there is no credential with the given Credential ID.
@@ -1616,55 +1672,67 @@ handleUpdateCredentialKeys wtc cid keys sigs =
 -- * Chain updates
 
 -- |Handle a chain update message
-handleChainUpdate ::
+handleChainUpdate :: forall pv m .
   SchedulerMonad pv m
-  => WithMetadata UpdateInstruction
+  => TVer.ChainUpdateWithStatus
   -> m TxResult
-handleChainUpdate WithMetadata{wmdData = ui@UpdateInstruction{..}, ..} = do
-  -- Check that the timeout is not in the past
+handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, mVerRes) = do
   cm <- getChainMetadata
-  if transactionExpired (updateTimeout uiHeader) (slotTime cm) then
+  -- check that payload si
+  if not (validatePayloadSize (protocolVersion @pv) (updatePayloadSize uiHeader)) then
+    return (TxInvalid InvalidPayloadSize)
+  -- check that the transaction is not expired
+  else if transactionExpired (updateTimeout uiHeader) (slotTime cm) then
     return (TxInvalid ExpiredTransaction)
   else do
-    -- Check that the timeout is no later than the effective time,
-    -- or the update is immediate
-    if updateTimeout uiHeader >= updateEffectiveTime uiHeader && updateEffectiveTime uiHeader /= 0 then
-      return (TxInvalid InvalidUpdateTime)
+    -- Check that the sequence number is correct
+    expectedSequenceNumber <- getNextUpdateSequenceNumber (updateType uiPayload)
+    if updateSeqNumber uiHeader /= expectedSequenceNumber then
+      return (TxInvalid (NonSequentialNonce expectedSequenceNumber))
     else do
-      -- Check that the sequence number is correct
-      expectedSequenceNumber <- getNextUpdateSequenceNumber (updateType uiPayload)
-      if updateSeqNumber uiHeader /= expectedSequenceNumber then
-        return (TxInvalid (NonSequentialNonce expectedSequenceNumber))
-      else do
-        -- Convert the payload to an update
-        case uiPayload of
-          ProtocolUpdatePayload u -> checkSigAndUpdate $ UVProtocol u
-          ElectionDifficultyUpdatePayload u -> checkSigAndUpdate $ UVElectionDifficulty u
-          EuroPerEnergyUpdatePayload u -> checkSigAndUpdate $ UVEuroPerEnergy u
-          MicroGTUPerEuroUpdatePayload u -> checkSigAndUpdate $ UVMicroGTUPerEuro u
-          FoundationAccountUpdatePayload u -> getAccountIndex u >>= \case
-            Just ai -> checkSigAndUpdate $ UVFoundationAccount ai
-            Nothing -> return (TxInvalid (UnknownAccount u))
-          MintDistributionUpdatePayload u -> checkSigAndUpdate $ UVMintDistribution u
-          TransactionFeeDistributionUpdatePayload u -> checkSigAndUpdate $ UVTransactionFeeDistribution u
-          GASRewardsUpdatePayload u -> checkSigAndUpdate $ UVGASRewards u
-          BakerStakeThresholdUpdatePayload u -> checkSigAndUpdate $ UVBakerStakeThreshold u
-          AddAnonymityRevokerUpdatePayload u -> checkSigAndUpdate $ UVAddAnonymityRevoker u
-          AddIdentityProviderUpdatePayload u -> checkSigAndUpdate $ UVAddIdentityProvider u
-          RootUpdatePayload (RootKeysRootUpdate u) -> checkSigAndUpdate $ UVRootKeys u
-          RootUpdatePayload (Level1KeysRootUpdate u) -> checkSigAndUpdate $ UVLevel1Keys u
-          RootUpdatePayload (Level2KeysRootUpdate u) -> checkSigAndUpdate $ UVLevel2Keys u
-          Level1UpdatePayload (Level1KeysLevel1Update u) -> checkSigAndUpdate $ UVLevel1Keys u
-          Level1UpdatePayload (Level2KeysLevel1Update u) -> checkSigAndUpdate $ UVLevel2Keys u
-
+      -- Convert the payload to an update
+      case uiPayload of
+        ProtocolUpdatePayload u -> checkSigAndEnqueue $ UVProtocol u
+        ElectionDifficultyUpdatePayload u -> checkSigAndEnqueue $ UVElectionDifficulty u
+        EuroPerEnergyUpdatePayload u -> checkSigAndEnqueue $ UVEuroPerEnergy u
+        MicroGTUPerEuroUpdatePayload u -> checkSigAndEnqueue $ UVMicroGTUPerEuro u
+        FoundationAccountUpdatePayload u -> getAccountIndex u >>= \case
+          Just ai -> checkSigAndEnqueue $ UVFoundationAccount ai
+          Nothing -> return (TxInvalid (UnknownAccount u))
+        MintDistributionUpdatePayload u -> checkSigAndEnqueue $ UVMintDistribution u
+        TransactionFeeDistributionUpdatePayload u -> checkSigAndEnqueue $ UVTransactionFeeDistribution u
+        GASRewardsUpdatePayload u -> checkSigAndEnqueue $ UVGASRewards u
+        BakerStakeThresholdUpdatePayload u -> checkSigAndEnqueue $ UVBakerStakeThreshold u
+        AddAnonymityRevokerUpdatePayload u -> checkSigAndEnqueue $ UVAddAnonymityRevoker u
+        AddIdentityProviderUpdatePayload u -> checkSigAndEnqueue $ UVAddIdentityProvider u
+        RootUpdatePayload (RootKeysRootUpdate u) -> checkSigAndEnqueue $ UVRootKeys u
+        RootUpdatePayload (Level1KeysRootUpdate u) -> checkSigAndEnqueue $ UVLevel1Keys u
+        RootUpdatePayload (Level2KeysRootUpdate u) -> checkSigAndEnqueue $ UVLevel2Keys u
+        Level1UpdatePayload (Level1KeysLevel1Update u) -> checkSigAndEnqueue $ UVLevel1Keys u
+        Level1UpdatePayload (Level2KeysLevel1Update u) -> checkSigAndEnqueue $ UVLevel2Keys u
   where
-    checkSigAndUpdate change = do
-      -- Check that the signatures use the appropriate keys and are valid.
-      keyCollection <- getUpdateKeyCollection
-      if checkAuthorizedUpdate keyCollection ui then do
-        enqueueUpdate (updateEffectiveTime uiHeader) change
-        tsIndex <- bumpTransactionIndex
-        return $ TxValid TransactionSummary {
+    checkSigAndEnqueue change = do
+      case mVerRes of
+        Just (TVer.Ok (TVer.ChainUpdateSuccess keysHash _)) -> do
+          currentKeys <- getUpdateKeyCollection
+          -- If the keys have not changed then the signature remains valid.
+          if matchesUpdateKeysCollection currentKeys keysHash then do
+            enqueue change
+          else do
+            -- keys might have changed and as such we try to verify the signature again.
+            if not (checkAuthorizedUpdate currentKeys ui) then return $ TxInvalid IncorrectSignature
+            else enqueue change
+        -- An invalid verification result or `Nothing` was supplied to this function.
+        -- In either case we verify the transaction now.
+        _ -> do
+          newVerRes <- TVer.verifyChainUpdate ui
+          case checkTransactionVerificationResult newVerRes of
+            Left failure -> return $ TxInvalid failure
+            Right _ -> enqueue change
+    enqueue change = do
+      enqueueUpdate (updateEffectiveTime uiHeader) change
+      tsIndex <- bumpTransactionIndex
+      return $ TxValid TransactionSummary {
             tsSender = Nothing,
             tsHash = wmdHash,
             tsCost = 0,
@@ -1673,8 +1741,6 @@ handleChainUpdate WithMetadata{wmdData = ui@UpdateInstruction{..}, ..} = do
             tsResult = TxSuccess [UpdateEnqueued (updateEffectiveTime uiHeader) uiPayload],
             ..
           }
-      else
-        return (TxInvalid IncorrectSignature)
 
 handleUpdateCredentials ::
   SchedulerMonad pv m
@@ -1685,7 +1751,7 @@ handleUpdateCredentials ::
     -> m (Maybe TransactionSummary)
 handleUpdateCredentials wtc cdis removeRegIds threshold =
   withDeposit wtc c k
-  where
+   where
     senderAccount = wtc ^. wtcSenderAccount
     meta = wtc ^. wtcTransactionHeader
     senderAddress = thSender meta
@@ -1707,7 +1773,7 @@ handleUpdateCredentials wtc cdis removeRegIds threshold =
     k ls existingCredentials = do
       (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
       chargeExecutionCost senderAccount energyCost
-      cryptoParams <- getCryptoParams
+      cryptoParams <- TVer.getCryptographicParameters
 
       -- check that all credentials that are to be removed actually exist.
       -- This produces:
@@ -1745,14 +1811,14 @@ handleUpdateCredentials wtc cdis removeRegIds threshold =
       -- reporting.
       (existingCredIds, newCredIds) <- foldM (\(acc, newRids) cdi -> do
                                        let rid = ID.cdvCredId . ID.cdiValues $ cdi
-                                       exists <- accountRegIdExists rid
+                                       exists <- TVer.registrationIdExists rid
                                        if exists || Set.member rid newRids then
                                          return (rid:acc, rid `Set.insert` newRids)
                                        else return (acc, rid `Set.insert` newRids)
                                     ) ([], Set.empty) cdis
 
-      let getIP cdi = getIPInfo $ ID.ipId $ ID.NormalACWP cdi
-          getAR cdi = getArInfos $ OrdMap.keys $ ID.cdvArData $ ID.cdiValues cdi
+      let getIP cdi = TVer.getIdentityProvider $ ID.ipId $ ID.NormalACWP cdi
+          getAR cdi = TVer.getAnonymityRevokers $ OrdMap.keys $ ID.cdvArData $ ID.cdiValues cdi
           -- verify the cryptographic proofs
           checkCDI cdi = do
               ip <- getIP cdi
@@ -1927,7 +1993,7 @@ filterTransactions maxSize timeout groups0 = do
             runUpdateInstructions currentSize currentFts [] = runNext maxEnergy currentSize credLimit False currentFts groups
             runUpdateInstructions currentSize currentFts (ui : uis) = do
               -- Update instructions use no energy, so we only consider size
-              let csize = currentSize + fromIntegral (wmdSize ui)
+              let csize = currentSize + fromIntegral (wmdSize (fst ui))
               now <- currentTime
               if now >= timeout then do -- Time is up. Mark this and all subsequent groups as unprocessed.
                 logEvent Scheduler LLWarning "Timeout reached for block construction."
@@ -1937,7 +2003,7 @@ filterTransactions maxSize timeout groups0 = do
                 -- Chain updates have no account footprint
                 handleChainUpdate ui >>= \case
                   TxInvalid reason -> case uis of
-                    (nui : _) | ((==) `on` (updateSeqNumber . uiHeader . wmdData)) ui nui ->
+                    (nui : _) | ((==) `on` (updateSeqNumber . uiHeader . wmdData)) (fst ui) (fst nui) ->
                       -- If there is another update with the same sequence number, we want to try that
                       runUpdateInstructions currentSize currentFts{ftFailedUpdates = (ui, reason) : ftFailedUpdates currentFts} uis
                     _ -> do
@@ -1948,16 +2014,16 @@ filterTransactions maxSize timeout groups0 = do
                             }
                       runNext maxEnergy currentSize credLimit False newFts groups
                   TxValid summary -> do
-                    let (invalid, rest) = span (((==) `on` (updateSeqNumber . uiHeader . wmdData)) ui) uis
-                        curSN = updateSeqNumber $ uiHeader $ wmdData ui
+                    let (invalid, rest) = span (((==) `on` (updateSeqNumber . uiHeader . wmdData . fst)) ui) uis
+                        curSN = updateSeqNumber $ uiHeader $ wmdData (fst ui)
                         newFts = currentFts{
                             ftFailedUpdates = ((, NonSequentialNonce (curSN + 1)) <$> invalid) ++ ftFailedUpdates currentFts,
-                            ftAdded = (chainUpdate ui, summary) : ftAdded currentFts
+                            ftAdded = (ui & _1 %~ chainUpdate, summary) : ftAdded currentFts
                           }
                     runUpdateInstructions csize newFts rest
               else -- The cumulative block size with this update is too high.
                 case uis of
-                  (nui : _) | ((==) `on` (updateSeqNumber . uiHeader . wmdData)) ui nui ->
+                  (nui : _) | ((==) `on` (updateSeqNumber . uiHeader . wmdData . fst)) ui nui ->
                     -- There is another update with the same sequence number, so try that
                     let newFts = currentFts{ftUnprocessedUpdates = ui : ftUnprocessedUpdates currentFts}
                     in runUpdateInstructions currentSize newFts uis
@@ -1967,7 +2033,8 @@ filterTransactions maxSize timeout groups0 = do
                     in runNext maxEnergy currentSize credLimit False newFts groups
 
             -- Run a single credential and continue with 'runNext'.
-            runCredential c@WithMetadata{..} = do
+            runCredential :: TVer.CredentialDeploymentWithStatus -> m FilteredTransactions
+            runCredential cws@(c@WithMetadata{..}, verRes) = do
               totalEnergyUsed <- getUsedEnergy
               let csize = size + fromIntegral wmdSize
                   energyCost = Cost.deployCredential (ID.credentialType c) (ID.credNumKeys . ID.credPubKeys $ c)
@@ -1975,38 +2042,38 @@ filterTransactions maxSize timeout groups0 = do
               now <- currentTime
               if now >= timeout then do -- Time is up. Mark this and all subsequent groups as unprocessed.
                 logEvent Scheduler LLWarning "Timeout reached for block construction."
-                let newFts = fts { ftUnprocessedCredentials = c : ftUnprocessedCredentials fts}
+                let newFts = fts { ftUnprocessedCredentials = cws : ftUnprocessedCredentials fts}
                 runNext maxEnergy size credLimit True newFts groups
               -- NB: be aware that credLimit is of an unsigned type, so it is crucial that we never wrap around
               else if credLimit > 0 && csize <= maxSize && cenergy <= maxEnergy then
-                observeTransactionFootprint (handleDeployCredential wmdData wmdHash) >>= \case
+                observeTransactionFootprint (handleDeployCredential cws wmdHash) >>= \case
                     (Just (TxInvalid reason), _) -> do
-                      let newFts = fts { ftFailedCredentials = (c, reason) : ftFailedCredentials fts}
+                      let newFts = fts { ftFailedCredentials = (cws, reason) : ftFailedCredentials fts}
                       runNext maxEnergy size (credLimit - 1) False newFts groups -- NB: We keep the old size
                     (Just (TxValid summary), fp) -> do
                       markEnergyUsed (tsEnergyCost summary)
                       tlNotifyAccountEffect fp summary
-                      let newFts = fts { ftAdded = (credentialDeployment c, summary) : ftAdded fts}
+                      let newFts = fts { ftAdded = ((credentialDeployment c, verRes), summary) : ftAdded fts}
                       runNext maxEnergy csize (credLimit - 1) False newFts groups
                     (Nothing, _) -> error "Unreachable due to cenergy <= maxEnergy check."
               else if Cost.deployCredential (ID.credentialType c) (ID.credNumKeys . ID.credPubKeys $ c) > maxEnergy then
                 -- this case should not happen (it would mean we set the parameters of the chain wrong),
                 -- but we keep it just in case.
-                 let newFts = fts { ftFailedCredentials = (c, ExceedsMaxBlockEnergy) : ftFailedCredentials fts}
+                 let newFts = fts { ftFailedCredentials = (cws, ExceedsMaxBlockEnergy) : ftFailedCredentials fts}
                  in runNext maxEnergy size credLimit False newFts groups
               else
-                 let newFts = fts { ftUnprocessedCredentials = c : ftUnprocessedCredentials fts}
+                 let newFts = fts { ftUnprocessedCredentials = cws : ftUnprocessedCredentials fts}
                  in runNext maxEnergy size credLimit False newFts groups
 
             -- Run all transactions in a group and continue with 'runNext'.
             runTransactionGroup :: Integer -- ^Current size of transactions in the block.
                                 -> FilteredTransactions
-                                -> [Transaction] -- ^Current group to process.
+                                -> [TVer.TransactionWithStatus] -- ^Current group to process.
                                 -> m FilteredTransactions
             runTransactionGroup currentSize currentFts (t:ts) = do
               totalEnergyUsed <- getUsedEnergy
-              let csize = currentSize + fromIntegral (transactionSize t)
-                  tenergy = transactionGasAmount t
+              let csize = currentSize + fromIntegral (transactionSize (fst t))
+                  tenergy = transactionGasAmount $ fst t
                   cenergy = totalEnergyUsed + tenergy
               now <- currentTime
               if now >= timeout then do -- Time is up. Mark this and all subsequent groups as unprocessed.
@@ -2036,7 +2103,7 @@ filterTransactions maxSize timeout groups0 = do
               else -- otherwise still try the remaining transactions in the group to avoid deadlocks from
                    -- one single too-big transaction (with same nonce).
                 case ts of
-                  (nt : _) | transactionNonce nt == transactionNonce t ->
+                  (nt : _) | transactionNonce (fst nt) == transactionNonce (fst t) ->
                     let newFts = currentFts { ftUnprocessed = t : ftUnprocessed currentFts }
                     in runTransactionGroup currentSize newFts ts
                   _ ->
@@ -2058,12 +2125,12 @@ filterTransactions maxSize timeout groups0 = do
             validTs t summary fp currentFts ts = do
               markEnergyUsed (tsEnergyCost summary)
               tlNotifyAccountEffect fp summary
-              let (invalid, rest) = span ((== transactionNonce t) . transactionNonce) ts
-              let nextNonce = transactionNonce t + 1
+              let (invalid, rest) = span ((== transactionNonce (fst t)) . transactionNonce . fst) ts
+              let nextNonce = transactionNonce (fst t) + 1
               let newFts =
                     currentFts { ftFailed = map (, NonSequentialNonce nextNonce) invalid
                                             ++ ftFailed currentFts
-                               , ftAdded = (normalTransaction t, summary) : ftAdded currentFts
+                               , ftAdded = ((normalTransaction (fst t), snd t), summary) : ftAdded currentFts
                                }
               return (newFts, rest)
 
@@ -2077,7 +2144,7 @@ filterTransactions maxSize timeout groups0 = do
                 -- NOTE: Following transactions with the same nonce could be valid. Therefore,
                 -- if the next transaction has the same nonce as the failed, we continue with 'runNext'.
                 -- Note that we rely on the precondition of transactions being ordered by nonce.
-                if not (null ts) && transactionNonce (head ts) > transactionNonce t
+                if not (null ts) && transactionNonce (fst (head ts)) > transactionNonce (fst t)
                 then let failedSuccessors = map (, SuccessorOfInvalidTransaction) ts in
                        (currentFts { ftFailed = newFailedEntry : failedSuccessors ++ ftFailed currentFts }
                      , [])
@@ -2092,7 +2159,7 @@ filterTransactions maxSize timeout groups0 = do
 -- * @Left (Just fk)@ if a transaction failed, with the failure kind of the first failed transaction.
 -- * @Right outcomes@ if all transactions are successful, with the given outcomes.
 runTransactions :: forall m pv. (SchedulerMonad pv m)
-                => [BlockItem]
+                => [TVer.BlockItemWithStatus]
                 -> m (Either (Maybe FailureKind) [(BlockItem, TransactionSummary)])
 runTransactions = go []
     where go valid (bi:ts) =
@@ -2102,16 +2169,16 @@ runTransactions = go []
                 tlNotifyAccountEffect fp summary
                 go ((bi, summary):valid) ts
               (Just (TxInvalid reason), _) -> do
-                logInvalidBlockItem bi reason
+                logInvalidBlockItem (fst bi) reason
                 return (Left (Just reason))
               (Nothing, _) -> return (Left Nothing)
 
-          go valid [] = return (Right (reverse valid))
+          go valid [] = return (Right (reverse $ map (\(x,y) -> (fst x, y)) valid))
 
-          predispatch :: BlockItem -> m (Maybe TxResult)
-          predispatch WithMetadata{wmdData=NormalTransaction tr,..} = dispatch WithMetadata{wmdData=tr,..}
-          predispatch WithMetadata{wmdData=CredentialDeployment cred,..} = handleDeployCredential cred wmdHash
-          predispatch WithMetadata{wmdData=ChainUpdate cu,..} = Just <$> handleChainUpdate WithMetadata{wmdData=cu,..}
+          predispatch :: TVer.BlockItemWithStatus -> m (Maybe TxResult)
+          predispatch (WithMetadata{wmdData=NormalTransaction tr,..}, verRes) = dispatch (WithMetadata{wmdData=tr,..}, verRes)
+          predispatch (WithMetadata{wmdData=CredentialDeployment cred,..}, verRes) = handleDeployCredential (WithMetadata{wmdData=cred,..}, verRes) wmdHash
+          predispatch (WithMetadata{wmdData=ChainUpdate cu,..}, verRes) = Just <$> handleChainUpdate (WithMetadata{wmdData=cu,..}, verRes)
 
 -- |Execute transactions in sequence. Like 'runTransactions' but only for side-effects on global state.
 --
@@ -2124,7 +2191,7 @@ runTransactions = go []
 -- This is more efficient than 'runTransactions' since it does not have to build a list
 -- of results.
 execTransactions :: forall m pv. (SchedulerMonad pv m)
-                 => [BlockItem]
+                 => [TVer.BlockItemWithStatus]
                  -> m (Either (Maybe FailureKind) ())
 execTransactions = go
   -- Same implementation as 'runTransactions', just that valid block items
@@ -2137,11 +2204,11 @@ execTransactions = go
               tlNotifyAccountEffect fp summary
               go ts
             (Just (TxInvalid reason), _) -> do
-              logInvalidBlockItem bi reason
+              logInvalidBlockItem (fst bi) reason
               return (Left (Just reason))
         go [] = return (Right ())
 
-        predispatch :: BlockItem -> m (Maybe TxResult)
-        predispatch WithMetadata{wmdData=NormalTransaction tr,..} = dispatch WithMetadata{wmdData=tr,..}
-        predispatch WithMetadata{wmdData=CredentialDeployment cred,..} = handleDeployCredential cred wmdHash
-        predispatch WithMetadata{wmdData=ChainUpdate cu,..} = Just <$> handleChainUpdate WithMetadata{wmdData=cu,..}
+        predispatch :: TVer.BlockItemWithStatus -> m (Maybe TxResult)
+        predispatch (WithMetadata{wmdData=NormalTransaction tr,..}, verRes) = dispatch (WithMetadata{wmdData=tr,..}, verRes)
+        predispatch (WithMetadata{wmdData=CredentialDeployment cred,..}, verRes) = handleDeployCredential (WithMetadata{wmdData=cred,..}, verRes) wmdHash
+        predispatch (WithMetadata{wmdData=ChainUpdate cu,..}, verRes) = Just <$> handleChainUpdate (WithMetadata{wmdData=cu,..}, verRes)

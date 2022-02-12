@@ -207,6 +207,10 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
             return Nothing
           (Nothing, _) -> error $ "Cannot get account with address " ++ show addr ++ " in left implementation"
           (_, Nothing) -> error $ "Cannot get account with address " ++ show addr ++ " in right implementation"
+    accountExists (ls, rs) aaddr = do
+      a1 <- coerceBSML (accountExists ls aaddr)
+      a2 <- coerceBSMR (accountExists rs aaddr)
+      assert (a1 == a2) $ return a1
     getAccountByCredId (ls, rs) cid = do
         a1 <- coerceBSML (getAccountByCredId ls cid)
         a2 <- coerceBSMR (getAccountByCredId rs cid)
@@ -310,11 +314,26 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
         us1 <- coerceBSML (getProtocolUpdateStatus bps1)
         us2 <- coerceBSMR (getProtocolUpdateStatus bps2)
         assert (us1 == us2) $ return us1
-
     getCryptographicParameters (bps1, bps2) = do
         u1 <- coerceBSML (getCryptographicParameters bps1)
         u2 <- coerceBSMR (getCryptographicParameters bps2)
         assert (u1 == u2) $ return u1
+    getIdentityProvider (bs1, bs2) ipid = do
+        r1 <- coerceBSML $ getIdentityProvider bs1 ipid
+        r2 <- coerceBSMR $ getIdentityProvider bs2 ipid
+        assert (r1 == r2) $ return r1
+    getAnonymityRevokers (bs1, bs2) arIds = do
+        r1 <- coerceBSML $ getAnonymityRevokers bs1 arIds
+        r2 <- coerceBSMR $ getAnonymityRevokers bs2 arIds
+        assert (r1 == r2) $ return r1
+    getUpdateKeysCollection (bs1, bs2) = do
+        r1 <- coerceBSML $ getUpdateKeysCollection bs1
+        r2 <- coerceBSMR $ getUpdateKeysCollection bs2
+        assert (r1 == r2) $ return r1
+    getEnergyRate (bs1, bs2) = do
+        r1 <- coerceBSML $ getEnergyRate bs1
+        r2 <- coerceBSMR $ getEnergyRate bs2
+        assert (r1 == r2) $ return r1
 
 instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, ContractStateOperations (BSML pv lc r ls s m), ContractStateOperations (BSMR pv rc r rs s m), HashableTo H.Hash (Account (BSML pv lc r ls s m)))
   => ContractStateOperations (BlockStateM pv (PairGSContext lc rc) r (PairGState ls rs) s m) where
@@ -826,19 +845,15 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
         r1 <- coerceGSML $ getNonFinalizedChainUpdates uty sn
         r2 <- coerceGSMR $ getNonFinalizedChainUpdates uty sn
         assert (r1 == r2) $ return r1
-    addTransaction tr = do
-        r1 <- coerceGSML $ addTransaction tr
-        r2 <- coerceGSMR $ addTransaction tr
-        assert (r1 == r2) $ return r1
     finalizeTransactions bh slot trs = do
         coerceGSML $ finalizeTransactions bh slot trs
         coerceGSMR $ finalizeTransactions bh slot trs
     commitTransaction slot bh transaction res = do
         coerceGSML $ commitTransaction slot bh transaction res
         coerceGSMR $ commitTransaction slot bh transaction res
-    addCommitTransaction tr sl = do
-        r1 <- coerceGSML $ addCommitTransaction tr sl
-        r2 <- coerceGSMR $ addCommitTransaction tr sl
+    addCommitTransaction tr (TS.Context (bsl, bsr) x y) ts sl = do
+        r1 <- coerceGSML $ addCommitTransaction tr (TS.Context bsl x y) ts sl
+        r2 <- coerceGSMR $ addCommitTransaction tr (TS.Context bsr x y) ts sl
         assert (r1 == r2) $ return r1
     purgeTransaction tr = do
         r1 <- coerceGSML $ purgeTransaction tr
@@ -870,7 +885,11 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
         -- between implementations, which may not in general be a
         -- reasonable assumption.
         assert (l1 == l2) $ return l1
-
+        
+    getNonFinalizedTransactionVerificationResult tx = do
+      r1 <- coerceGSML $ getNonFinalizedTransactionVerificationResult tx
+      r2 <- coerceGSMR $ getNonFinalizedTransactionVerificationResult tx
+      assert (r1 == r2) $ return r1
 newtype PairGSConfig c1 c2 (pv :: ProtocolVersion) = PairGSConfig (c1 pv, c2 pv)
 
 instance (GlobalStateConfig c1, GlobalStateConfig c2) => GlobalStateConfig (PairGSConfig c1 c2) where

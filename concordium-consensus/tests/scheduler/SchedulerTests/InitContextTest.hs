@@ -18,6 +18,7 @@ import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Concordium.Scheduler as Sch
 import Concordium.Scheduler.Runner
+import Concordium.TransactionVerification
 
 import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Basic.BlockState
@@ -59,8 +60,8 @@ transactionInputs proxy = [
       }
   ]
 
-type TestResult = ([(Types.BlockItem, Types.ValidResult)],
-                   [(Types.Transaction, Types.FailureKind)],
+type TestResult = ([(BlockItemWithStatus, Types.ValidResult)],
+                   [(TransactionWithStatus, Types.FailureKind)],
                    [(Types.ContractAddress, Instance)])
 
 testInit :: forall pv . IsProtocolVersion pv => Proxy pv -> IO TestResult
@@ -76,7 +77,7 @@ testInit proxy = do
     case invariantBlockState @pv gs (finState ^. Types.schedulerExecutionCosts)of
         Left f -> liftIO $ assertFailure $ f ++ " " ++ show gs
         _ -> return ()
-    return (getResults ftAdded, ftFailed, gs ^.. blockInstances . foldInstances . to (\i -> (iaddress i, i)))
+    return (getResults ftAdded, ftFailed, gs ^.. blockInstances . foldInstances . to (\i -> (instanceAddress i, i)))
 
 checkInitResult :: forall pv . IsProtocolVersion pv => Proxy pv -> TestResult -> Assertion
 checkInitResult proxy (suc, fails, instances) = do
