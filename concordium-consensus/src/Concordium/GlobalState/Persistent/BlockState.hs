@@ -725,6 +725,14 @@ doSetSeedState pbs ss = do
 doGetCurrentEpochBakers :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m FullBakers
 doGetCurrentEpochBakers pbs = epochToFullBakers =<< refLoad . _birkCurrentEpochBakers . bspBirkParameters =<< loadPBS pbs
 
+doGetCurrentCapitalDistribution :: (IsProtocolVersion pv, MonadBlobStore m, AccountVersionFor pv ~ 'AccountV1) => PersistentBlockState pv -> m CapitalDistribution
+doGetCurrentCapitalDistribution pbs = do
+    bsp <- loadPBS pbs
+    case bspRewardDetails bsp of
+        BlockRewardDetailsV1 hpr -> do
+            poolRewards <- refLoad hpr
+            refLoad $ currentCapital poolRewards
+
 doGetNextEpochBakers :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m FullBakers
 doGetNextEpochBakers pbs = do
     bsp <- loadPBS pbs
@@ -1580,6 +1588,11 @@ doGetAccountIndex pbs addr = do
         bsp <- loadPBS pbs
         Accounts.getAccountIndex addr (bspAccounts bsp)
 
+doGetAccountByIndex :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> AccountIndex -> m (Maybe (PersistentAccount (AccountVersionFor pv)))
+doGetAccountByIndex pbs aid = do
+        bsp <- loadPBS pbs
+        Accounts.indexedAccount aid (bspAccounts bsp)
+
 doAccountList :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m [AccountAddress]
 doAccountList pbs = do
         bsp <- loadPBS pbs
@@ -1934,32 +1947,46 @@ doGetEpochBlocksBaked pbs = do
                 !m' = m & at ebBakerId . non 0 +~ 1
             accumBakersFromEpochBlocks ebPrevious t' m'
 
-doNotifyBlockBaked :: forall pv m. (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> BakerId -> m (PersistentBlockState pv)
-doNotifyBlockBaked pbs bid = do
-    bsp <- loadPBS pbs
-    newBlockRewardDetails <- case accountVersionFor (protocolVersion @pv) of
-        SAccountV0 -> consBlockRewardDetails bid (bspRewardDetails bsp)
-        SAccountV1 -> do
-            let hpr = case bspRewardDetails bsp of BlockRewardDetailsV1 hp -> hp
-            pr <- refLoad hpr
-            let bprs = bakerPoolRewardDetails pr
-            bpc <- bakerPoolCapital <$> refLoad (currentCapital pr)
-            case Vec.findIndex (\bc -> bcBakerId bc == bid) bpc of
-                Nothing ->
-                    error "Invariant violation: unable to find baker in baker pool capital vector"
-                Just i -> do
-                    newBPRs <- projNewBPRs i bprs
-                    BlockRewardDetailsV1 <$> refMake pr{bakerPoolRewardDetails = newBPRs}
-    storePBS pbs bsp{bspRewardDetails = newBlockRewardDetails}
+-- |This function updates the baker pool rewards details of a baker. It is a precondition that
+-- the given baker is active.
+modifyBakerPoolRewardDetailsInPoolRewards :: (MonadBlobStore m, AccountVersionFor pv ~ 'AccountV1) => BlockStatePointers pv -> BakerId -> (BakerPoolRewardDetails -> BakerPoolRewardDetails) -> m (BlockStatePointers pv)
+modifyBakerPoolRewardDetailsInPoolRewards bsp bid f = do
+    let hpr = case bspRewardDetails bsp of BlockRewardDetailsV1 hp -> hp
+    pr <- refLoad hpr
+    let bprs = bakerPoolRewardDetails pr
+    bpc <- bakerPoolCapital <$> refLoad (currentCapital pr)
+    case Vec.findIndex (\bc -> bcBakerId bc == bid) bpc of
+        Nothing ->
+            error "Invariant violation: unable to find baker in baker pool capital vector"
+        Just i -> do
+            newBPRs <- updateBPRs i bprs
+            newBlockRewardDetails <- BlockRewardDetailsV1 <$> refMake pr{bakerPoolRewardDetails = newBPRs}
+            return bsp{bspRewardDetails = newBlockRewardDetails}
       where
-        incBPR bpr = return ((), bpr{blockCount = blockCount bpr + 1})
-        projNewBPRs i bprs = do
-            mBPRs <- LFMBT.update incBPR (fromIntegral i) bprs
+        updateBPRs i bprs = do
+            mBPRs <- LFMBT.update (return . (,) () . f) (fromIntegral i) bprs
             case mBPRs of
                 Nothing ->
                     error "Invariant violation: unable to find baker in baker pool reward details tree"
                 Just ((), newBPRs) ->
                     return newBPRs
+
+doNotifyBlockBaked :: forall pv m. (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> BakerId -> m (PersistentBlockState pv)
+doNotifyBlockBaked pbs bid = do
+    bsp <- loadPBS pbs
+    case accountVersionFor (protocolVersion @pv) of
+        SAccountV0 -> do
+            newBlockRewardDetails <- consBlockRewardDetails bid (bspRewardDetails bsp)
+            storePBS pbs bsp{bspRewardDetails = newBlockRewardDetails}
+        SAccountV1 ->
+            let incBPR bpr = bpr{blockCount = blockCount bpr + 1}
+            in storePBS pbs =<< modifyBakerPoolRewardDetailsInPoolRewards bsp bid incBPR
+
+doAccrueAmountBaker :: forall pv m. (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1, MonadBlobStore m) => PersistentBlockState pv -> BakerId -> Amount -> m (PersistentBlockState pv)
+doAccrueAmountBaker pbs bid amount = do
+    bsp <- loadPBS pbs
+    let accrueAmountBPR bpr = bpr{transactionFeesAccrued = transactionFeesAccrued bpr + amount}
+    storePBS pbs =<< modifyBakerPoolRewardDetailsInPoolRewards bsp bid accrueAmountBPR
 
 doClearEpochBlocksBaked :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m (PersistentBlockState pv)
 doClearEpochBlocksBaked pbs = do
@@ -2297,6 +2324,7 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateOperations (Pe
     bsoGetModule pbs mref = doGetModule pbs mref
     bsoGetAccount bs = doGetAccount bs
     bsoGetAccountIndex = doGetAccountIndex
+    bsoGetAccountByIndex = doGetAccountByIndex
     bsoGetInstance = doGetInstance
     bsoAddressWouldClash = doAddressWouldClash
     bsoRegIdExists = doRegIdExists
@@ -2312,6 +2340,8 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateOperations (Pe
     bsoSetSeedState = doSetSeedState
     bsoTransitionEpochBakers = doTransitionEpochBakers
     bsoGetActiveBakersAndDelegators = doGetActiveBakersAndDelegators
+    bsoGetCurrentEpochBakers = doGetCurrentEpochBakers
+    bsoGetCurrentCapitalDistribution = doGetCurrentCapitalDistribution
     bsoAddBaker = doAddBaker
     bsoConfigureBaker = doConfigureBaker
     bsoConfigureDelegation = doConfigureDelegation
@@ -2326,6 +2356,7 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateOperations (Pe
     bsoGetIdentityProvider = doGetIdentityProvider
     bsoGetAnonymityRevokers = doGetAnonymityRevokers
     bsoGetCryptoParams = doGetCryptoParams
+    bsoGetPaydayEpoch = doGetPaydayEpoch
     bsoSetTransactionOutcomes = doSetTransactionOutcomes
     bsoAddSpecialTransactionOutcome = doAddSpecialTransactionOutcome
     bsoProcessUpdateQueues = doProcessUpdateQueues
@@ -2342,6 +2373,7 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateOperations (Pe
     bsoGetChainParameters = doGetChainParameters
     bsoGetEpochBlocksBaked = doGetEpochBlocksBaked
     bsoNotifyBlockBaked = doNotifyBlockBaked
+    bsoAccrueAmountBaker = doAccrueAmountBaker
     bsoClearEpochBlocksBaked = doClearEpochBlocksBaked
     bsoRotateCurrentEpochBakers = doRotateCurrentEpochBakers
     bsoSetNextEpochBakers = doSetNextEpochBakers

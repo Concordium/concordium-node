@@ -412,6 +412,19 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         r1 <- coerceBSML $ bsoGetAccountIndex bs1 aref
         r2 <- coerceBSMR $ bsoGetAccountIndex bs2 aref
         assert (r1 == r2) $ return r1
+    bsoGetAccountByIndex (bs1, bs2) ai = do
+        r1 <- coerceBSML $ bsoGetAccountByIndex bs1 ai
+        r2 <- coerceBSMR $ bsoGetAccountByIndex bs2 ai
+        case (r1, r2) of
+          (Just r1', Just r2') ->
+            assert ((getHash r1' :: H.Hash) == getHash r2') $
+                return $ Just (r1', r2')
+          (Nothing, Nothing) ->
+            return Nothing
+          (Nothing, _) ->
+            error $ "Cannot get account with index " ++ show ai ++ " in left implementation"
+          (_, Nothing) ->
+            error $ "Cannot get account with index " ++ show ai ++ " in right implementation"
     bsoGetInstance (bs1, bs2) iref = do
         r1 <- coerceBSML $ bsoGetInstance bs1 iref
         r2 <- coerceBSMR $ bsoGetInstance bs2 iref
@@ -531,6 +544,14 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         r1 <- coerceBSML $ bsoGetCryptoParams bs1
         r2 <- coerceBSMR $ bsoGetCryptoParams bs2
         assert (r1 == r2) $ return r1
+    bsoGetPaydayEpoch (bs1, bs2) = do
+        r1 <- coerceBSML $ bsoGetPaydayEpoch bs1
+        r2 <- coerceBSMR $ bsoGetPaydayEpoch bs2
+        assert (r1 == r2) $ return r1
+    bsoAccrueAmountBaker (bs1, bs2) bid amt = do
+        bs1' <- coerceBSML $ bsoAccrueAmountBaker bs1 bid amt
+        bs2' <- coerceBSMR $ bsoAccrueAmountBaker bs2 bid amt
+        return (bs1', bs2')
     bsoSetTransactionOutcomes (bs1, bs2) tos = do
         bs1' <- coerceBSML $ bsoSetTransactionOutcomes bs1 tos
         bs2' <- coerceBSMR $ bsoSetTransactionOutcomes bs2 tos
@@ -627,10 +648,18 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
                             activeBakerEquityCapital = activeBakerEquityCapital i1,
                             activeBakerPendingChange = activeBakerPendingChange i1,
                             activeBakerDelegators = activeBakerDelegators i1
-                        } 
+                        }
                     b = zipActiveBakerInfo b1 b2
                 in i : b
             zipActiveBakerInfo _ _ = []
+    bsoGetCurrentEpochBakers (ls, rs) = do
+        b1 <- coerceBSML (bsoGetCurrentEpochBakers ls)
+        b2 <- coerceBSMR (bsoGetCurrentEpochBakers rs)
+        assert (b1 == b2) $ return b1
+    bsoGetCurrentCapitalDistribution (ls, rs) = do
+        b1 <- coerceBSML (bsoGetCurrentCapitalDistribution ls)
+        b2 <- coerceBSMR (bsoGetCurrentCapitalDistribution rs)
+        assert (b1 == b2) $ return b1
     bsoSetNextCapitalDistribution (bs1, bs2) bdc ldc = do
         bs1' <- coerceBSML $ bsoSetNextCapitalDistribution bs1 bdc ldc
         bs2' <- coerceBSMR $ bsoSetNextCapitalDistribution bs2 bdc ldc

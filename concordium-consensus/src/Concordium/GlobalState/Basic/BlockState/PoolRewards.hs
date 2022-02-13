@@ -41,7 +41,7 @@ data DelegatorCapital = DelegatorCapital
       -- |'Amount' staked by the delegator
       dcDelegatorCapital :: !Amount
     }
-    deriving Show
+    deriving (Show, Eq)
 
 instance Serialize DelegatorCapital where
     put DelegatorCapital{..} = do
@@ -65,7 +65,7 @@ data BakerCapital = BakerCapital
       -- |Capital of each baker delegated to this pool
       bcDelegatorCapital :: !(Vec.Vector DelegatorCapital)
     }
-    deriving Show
+    deriving (Show, Eq)
 
 instance Serialize BakerCapital where
     put BakerCapital{..} = do
@@ -93,7 +93,7 @@ data CapitalDistribution = CapitalDistribution
       -- |Capital associated with the L-pool
       lPoolCapital :: !(Vec.Vector DelegatorCapital)
     }
-    deriving Show
+    deriving (Show, Eq)
 
 instance Serialize CapitalDistribution where
     put CapitalDistribution{..} = do

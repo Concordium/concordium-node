@@ -32,10 +32,10 @@ import Concordium.Types.HashableTo
 data EpochBakers = EpochBakers {
     -- |The 'BakerInfo' for each baker, ordered by the 'BakerId'.
     _bakerInfos :: !(Vec.Vector BakerInfo),
-    -- |The stake associated with each baker. This vector corresponds
+    -- |The stake associated with each baker pool. This vector corresponds
     -- with the '_bakerInfos' vector.
     _bakerStakes :: !(Vec.Vector Amount),
-    -- |Total stake of all bakers.
+    -- |Total stake of all baker pools.
     _bakerTotalStake :: !Amount
 } deriving (Eq, Show)
 

@@ -64,6 +64,7 @@ import Concordium.GlobalState.Classes
 import Concordium.GlobalState.Account
 
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
+import Concordium.GlobalState.Basic.BlockState.PoolRewards
 import Concordium.GlobalState.BakerInfo
 import qualified Concordium.Types.UpdateQueues as UQ
 import Concordium.Types.Accounts hiding (getAccountBaker, getAccountStake)
@@ -358,6 +359,8 @@ class (BlockStateQuery m) => BlockStateOperations m where
   bsoGetAccount :: UpdatableBlockState m -> AccountAddress -> m (Maybe (IndexedAccount m))
   -- |Get the index of an account.
   bsoGetAccountIndex :: UpdatableBlockState m -> AccountAddress -> m (Maybe AccountIndex)
+  -- | Get account by the index.
+  bsoGetAccountByIndex :: UpdatableBlockState m -> AccountIndex -> m (Maybe (Account m))
   -- |Get the contract state from the contract table of the state instance.
   bsoGetInstance :: UpdatableBlockState m -> ContractAddress -> m (Maybe Instance)
 
@@ -499,6 +502,15 @@ class (BlockStateQuery m) => BlockStateOperations m where
     => UpdatableBlockState m
     -> m ([ActiveBakerInfo m], [ActiveDelegatorInfo])
 
+  -- |Get the bakers for the epoch in which the block was baked.
+  bsoGetCurrentEpochBakers :: UpdatableBlockState m -> m FullBakers
+
+  -- |Get the bakers for the epoch in which the block was baked.
+  bsoGetCurrentCapitalDistribution
+    :: (AccountVersionFor (MPV m) ~ 'AccountV1)
+    => UpdatableBlockState m
+    -> m CapitalDistribution
+
   -- |Register this account as a baker.
   -- The following results are possible:
   --
@@ -616,6 +628,10 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- then no change is made and @Nothing@ is returned.
   bsoRewardBaker :: UpdatableBlockState m -> BakerId -> Amount -> m (Maybe AccountAddress, UpdatableBlockState m)
 
+  -- |Accrue an amount, to be distributed to given baker's account at payday. If baker is not active, the function does not
+  -- change the blockstate. It is a precondition that the given baker is active.
+  bsoAccrueAmountBaker :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> BakerId -> Amount -> m (UpdatableBlockState m)
+
   -- |Add an amount to the foundation account.
   bsoRewardFoundationAccount :: UpdatableBlockState m -> Amount -> m (UpdatableBlockState m)
 
@@ -638,6 +654,9 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- |Get the current cryptographic parameters. The idea is that these will be
   -- periodically updated and so they must be part of the block state.
   bsoGetCryptoParams :: UpdatableBlockState m -> m CryptographicParameters
+
+  -- |Get the epoch time of the next scheduled payday.
+  bsoGetPaydayEpoch :: (AccountVersionFor (MPV m) ~ 'AccountV1) => UpdatableBlockState m -> m Epoch
 
   -- |Set the list of transaction outcomes for the block.
   bsoSetTransactionOutcomes :: UpdatableBlockState m -> [TransactionSummary] -> m (UpdatableBlockState m)
@@ -696,7 +715,8 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- per baker.
   bsoGetEpochBlocksBaked :: UpdatableBlockState m -> m (Word64, [(BakerId, Word64)])
 
-  -- |Record that the given baker has baked a block in the current epoch.
+  -- |Record that the given baker has baked a block in the current epoch. It is a precondition that
+  -- the given baker is active.
   bsoNotifyBlockBaked :: UpdatableBlockState m -> BakerId -> m (UpdatableBlockState m)
 
   -- |Clear the tracking of baked blocks in the current epoch.
@@ -860,6 +880,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoGetModule s = lift . bsoGetModule s
   bsoGetAccount s = lift . bsoGetAccount s
   bsoGetAccountIndex s = lift . bsoGetAccountIndex s
+  bsoGetAccountByIndex s = lift . bsoGetAccountByIndex s
   bsoGetInstance s = lift . bsoGetInstance s
   bsoAddressWouldClash s = lift . bsoAddressWouldClash s
   bsoRegIdExists s = lift . bsoRegIdExists s
@@ -877,6 +898,8 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoProcessPendingChanges s g = lift $ bsoProcessPendingChanges s g
   bsoTransitionEpochBakers s e = lift $ bsoTransitionEpochBakers s e
   bsoGetActiveBakersAndDelegators = lift . bsoGetActiveBakersAndDelegators
+  bsoGetCurrentEpochBakers = lift . bsoGetCurrentEpochBakers
+  bsoGetCurrentCapitalDistribution = lift . bsoGetCurrentCapitalDistribution
   bsoAddBaker s addr a = lift $ bsoAddBaker s addr a
   bsoConfigureBaker s aconfig a = lift $ bsoConfigureBaker s aconfig a
   bsoConfigureDelegation s aconfig a = lift $ bsoConfigureDelegation s aconfig a
@@ -891,6 +914,8 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoGetIdentityProvider s ipId = lift $ bsoGetIdentityProvider s ipId
   bsoGetAnonymityRevokers s arId = lift $ bsoGetAnonymityRevokers s arId
   bsoGetCryptoParams s = lift $ bsoGetCryptoParams s
+  bsoGetPaydayEpoch s = lift $ bsoGetPaydayEpoch s
+  bsoAccrueAmountBaker s bid amt = lift $ bsoAccrueAmountBaker s bid amt
   bsoSetTransactionOutcomes s = lift . bsoSetTransactionOutcomes s
   bsoAddSpecialTransactionOutcome s = lift . bsoAddSpecialTransactionOutcome s
   bsoProcessUpdateQueues s = lift . bsoProcessUpdateQueues s
@@ -959,6 +984,8 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoSetNextEpochBakers #-}
   {-# INLINE bsoGetBankStatus #-}
   {-# INLINE bsoSetRewardAccounts #-}
+  {-# INLINE bsoGetCurrentEpochBakers #-}
+
 instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (MGSTrans t m) where
     thawBlockState = lift . thawBlockState
     freezeBlockState = lift . freezeBlockState
