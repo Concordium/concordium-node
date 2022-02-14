@@ -77,6 +77,7 @@ import Concordium.Scheduler.EnvironmentImplementation
      HasSchedulerState(..),
      schedulerBlockState, schedulerEnergyUsed
      )
+import Concordium.Afgjort.Finalize.Types
 
 import Control.Monad.RWS.Strict
 
@@ -434,7 +435,7 @@ doBlockReward transFees FreeTransactionCounts{..} bid foundationAddr bs0 = do
       stoFoundationAccount = foundationAddr
     }
 
-doBlockRewardV1 :: forall m. (BlockStateOperations m, MonadProtocolVersion m, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1, AccountVersionFor (MPV m) ~ 'AccountV1)
+doBlockRewardP4 :: forall m. (BlockStateOperations m, MonadProtocolVersion m, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1, AccountVersionFor (MPV m) ~ 'AccountV1)
   => Amount
   -- ^Transaction fees paid
   -> FreeTransactionCounts
@@ -446,42 +447,136 @@ doBlockRewardV1 :: forall m. (BlockStateOperations m, MonadProtocolVersion m, Ch
   -> UpdatableBlockState m
   -- ^Block state
   -> m (UpdatableBlockState m)
-doBlockRewardV1 transFees FreeTransactionCounts{..} bid foundationAddr bs0 = do
+doBlockRewardP4 transFees FreeTransactionCounts{..} bid foundationAddr bs0 = do
     chainParameters <- bsoGetChainParameters bs0
     capitalDistribution <- bsoGetCurrentCapitalDistribution bs0
     bakers <- bsoGetCurrentEpochBakers bs0
     let rewardParams = chainParameters ^. rewardParameters
-        lPoolTransactionFee = chainParameters ^. cpPoolParameters . ppLPoolCommissions . transactionCommission
+        lPoolTransCommission = chainParameters ^. cpPoolParameters . ppLPoolCommissions . transactionCommission
     oldRewardAccts <- (^. rewardAccounts) <$> bsoGetBankStatus bs0
     let gasIn = oldRewardAccts ^. gasAccount
         poolsAndLpoolFees = takeFraction (rewardParams ^. tfdBaker) transFees
         gasFees = takeFraction (rewardParams ^. tfdGASAccount) transFees
         lPoolStake = sum $ dcDelegatorCapital <$> lPoolCapital capitalDistribution
         lPoolRelativeStake = lPoolStake % (BI.bakerTotalStake bakers + lPoolStake)
-        lPoolOut = floor $ toRational (poolsAndLpoolFees + gasFees)
-                      * (fractionToRational $ complementAmountFraction lPoolTransactionFee)
-                      * toRational lPoolRelativeStake
+        lPoolFraction = fractionToRational (complementAmountFraction lPoolTransCommission) * toRational lPoolRelativeStake
+        lPoolGASFees = floor $ toRational gasFees * lPoolFraction
+        lPoolTransFees = floor $ toRational poolsAndLpoolFees * lPoolFraction
+        lPoolOut = lPoolGASFees + lPoolTransFees
         poolFees = poolsAndLpoolFees - lPoolOut
-
         platformFees = transFees - (poolsAndLpoolFees + gasFees)
-        -- Compute the GAS carried over. This is done at full precision and then
-        -- rounded up (so that the payment to the baker is rounded up).
         gasGAS = ceiling $ toRational gasIn
                     * (fractionToRational . complementAmountFraction $ rewardParams ^. gasBaker)
                     * (fractionToRational . complementAmountFraction $ rewardParams ^. gasAccountCreation)^countAccountCreation
                     * (fractionToRational . complementAmountFraction $ rewardParams ^. gasChainUpdate)^countUpdate
                     * (fractionToRational . complementAmountFraction $ rewardParams ^. gasFinalizationProof)^countFinRecs
         bakerGAS = gasIn - gasGAS
-        gasOut = gasFees + gasGAS
-        -- bakerOut = bakerFees + bakerGAS
+        gasOut = gasFees - lPoolGASFees + gasGAS
         poolOut = poolFees + bakerGAS
     bs1 <- bsoSetRewardAccounts bs0 (oldRewardAccts & gasAccount .~ gasOut)
-    -- bs2 <- bsoAccrueFoundationAccount bs1 platformFees
-    bs3 <- bsoAccrueLPool bs2 lPoolOut
-    bsoAccrueAmountBaker bs1 bid poolOut
+    bs2 <- bsoAccrueFoundationAccount bs1 platformFees
+    bs3 <- bsoUpdateAmountLPool bs2 (+ lPoolOut)
+    bsoUpdateAmountBaker bs1 bid (+ poolOut)
 
-distributePoolRewards :: forall m. BlockStateOperations m => ActiveBakerInfo m -> Types.BakerPoolInfo -> UpdatableBlockState m -> m (UpdatableBlockState m)
-distributePoolRewards abi bpi bs = do
+distributeRewards
+  :: forall m
+   . (AccountVersionFor (MPV m) ~ 'AccountV1,
+      ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1,
+      BlockStateOperations m,
+      TreeStateMonad m)
+  => UpdatableBlockState m
+  -> m (UpdatableBlockState m)
+distributeRewards bs0 = do
+  chainParameters <- bsoGetChainParameters bs0
+  bankStatus <- bsoGetBankStatus bs0
+  let rewardAccts = bankStatus ^. bankRewardAccounts
+  lPoolAccrued <- bsoGetAmountLPool bs0
+  capitalDistribution <- bsoGetCurrentCapitalDistribution bs0
+  bakers <- bsoGetCurrentEpochBakers bs0
+  let lPoolStake = sum $ dcDelegatorCapital <$> lPoolCapital capitalDistribution
+      lPoolRelativeStake = lPoolStake % (BI.bakerTotalStake bakers + lPoolStake)
+      lPoolFinalizationCommission = chainParameters ^. cpPoolParameters . ppLPoolCommissions . finalizationCommission
+      lPoolFinalizationFraction = fractionToRational (complementAmountFraction lPoolFinalizationCommission) * toRational lPoolRelativeStake
+      lPoolBakingCommission = chainParameters ^. cpPoolParameters . ppLPoolCommissions . bakingCommission
+      lPoolBakingFraction = fractionToRational (complementAmountFraction lPoolBakingCommission) * toRational lPoolRelativeStake
+      lPoolFinalizationReward = floor $ fromIntegral (rewardAccts ^. finalizationRewardAccount) * lPoolFinalizationFraction
+      lPoolBakingReward = floor $ fromIntegral (rewardAccts ^. bakingRewardAccount) * lPoolBakingFraction
+      lPoolTotalReward = lPoolFinalizationReward + lPoolBakingReward + lPoolAccrued
+      lPoolTotalStake = Vec.foldl (\a dc -> a + dcDelegatorCapital dc) 0 (lPoolCapital capitalDistribution)
+  (lPoolAccumReward, bs1) <- rewardDelegators bs0 lPoolTotalReward lPoolTotalStake (lPoolCapital capitalDistribution)
+  let lPoolRemainder = lPoolTotalReward - lPoolAccumReward
+  bs2 <- bsoUpdateAmountLPool bs1 (const lPoolRemainder)
+  let bakerBakingRewardFactor = rewardAccts ^. bakingRewardAccount - lPoolBakingReward
+  let bakerFinalizationFactor = rewardAccts ^. finalizationRewardAccount - lPoolFinalizationReward
+  bs3 <- rewardBakers bs2 (bankStatus ^. totalGTU) bakers bakerBakingRewardFactor bakerFinalizationFactor (BI.bakerTotalStake bakers) (bakerPoolCapital capitalDistribution)
+  -- TODO transaction outcome?
+  undefined
+    where
+      rewardDelegators
+        :: UpdatableBlockState m
+        -> Amount
+        -> Amount
+        -> Vec.Vector DelegatorCapital
+        -> m (Amount, UpdatableBlockState m)
+      rewardDelegators bs totalReward totalStake dcs =
+        foldM
+          (\(accumReward, bs1) dc -> do
+            let delegatorCapital = dcDelegatorCapital dc
+                relativeStake = delegatorCapital % totalStake
+                reward = floor $ relativeStake * fromIntegral totalReward
+            -- It is an invariant that the delegator is a delegation account,
+            -- so we ignore the "error part" of 'bsoRewardDelegator'.
+            (_, bs2) <- bsoRewardDelegator bs1 (dcDelegatorId dc) reward
+            -- TODO transaction outcome here?
+            return (accumReward + reward, bs2)
+          ) (0, bs) dcs
+
+      rewardBakers
+        :: UpdatableBlockState m
+        -> Amount
+        -> BI.FullBakers
+        -> Amount
+        -> Amount
+        -> Amount
+        -> Vec.Vector BakerCapital
+        -> m (UpdatableBlockState m)
+      rewardBakers bs gtuTotal bakers bakerBakingRewardFactor bakerFinalizationFactor totalStake bcs = do
+        let bakerStakesMap =
+              foldl
+                (\m bi -> Map.insert (bi ^. BI.theBakerInfo . Types.bakerIdentity) (bi ^. BI.bakerStake) m)
+                Map.empty
+                (BI.fullBakerInfos bakers)
+        paydayBlockCount <- bsoGetTotalRewardPeriodBlockCount bs
+        finParams <- gdFinalizationParameters <$> getGenesisData
+        let committee = makeFinalizationCommittee finParams gtuTotal bakers
+        fst <$> foldM
+          (\(bsIn, idx) bc -> do
+            bprd <- bsoGetBakerPoolRewardDetails bsIn idx
+            let accruedReward = transactionFeesAccrued bprd
+                bakerBlockCount = blockCount bprd
+                bakerBlockFraction = bakerBlockCount % paydayBlockCount
+                bakerBakingReward = floor $ fromIntegral bakerBakingRewardFactor * bakerBlockFraction
+                finalized = finalizationAwake bprd
+                relativeStake = case Map.lookup (bcBakerId bc) bakerStakesMap of
+                  Nothing ->
+                    error "Invariant violation: baker from capital distribution is not an epoch baker"
+                  Just s ->
+                    if finalized
+                    then s % fromIntegral (totalWeight committee)
+                    else 0
+                bakerFinalizationReward = floor $ fromIntegral bakerFinalizationFactor * relativeStake
+                totalCapital = foldl (\a dc -> a + dcDelegatorCapital dc) (bcBakerEquityCapital bc) (bcDelegatorCapital bc)
+                -- TODO: implement this (see paper):
+                totalDelegatorReward = undefined
+            (delegationReward, bsDel) <- rewardDelegators bsIn totalDelegatorReward totalCapital (bcDelegatorCapital bc)
+            let bakerReward = accruedReward + bakerBakingReward + bakerFinalizationReward - delegationReward
+            -- It is an invariant that the baker is a baker account,
+            -- so we ignore the "error part" of 'bsoRewardBaker'.
+            (_, bsBak) <- bsoRewardBaker bsDel (bcBakerId bc) bakerReward
+            -- TODO transaction outcome here?
+            return (bsBak, idx + 1)
+          ) (bs, 0) bcs
+  -- TODO: remove this:
   -- bi <- derefBakerInfo $ activeBakerInfoRef abi
   -- cO,P(i)=capitalO,P(i) /capitalP(i)
   -- We need R_{F,P}^i, R_{B,P}^i, R_{T,P}^i and µ_{F,P}, µ_{B,P}, µ_{T,P}
@@ -497,26 +592,6 @@ distributePoolRewards abi bpi bs = do
   -- - fs_P^i = fstake_P^i / fstake^i where fstake_P^i = stake_P^i = min(capital_P^i, beta_{P,max}*capital^i, lambda_P*capital_{O,P}^i) = _bakerStake = partyWeight in PartyInfo
   -- - fstake^i = \sum_P fstake_P^i = totalWeight from Finalization commitee
   -- getCurrentEpochBakers -> FullBakers -> FullBakerInfo -> _bakerStake
-
-  return bs
-
-distributeRewards :: forall m. (BlockStateOperations m, AccountVersionFor (MPV m) ~ 'AccountV1) => UpdatableBlockState m -> m (UpdatableBlockState m)
-distributeRewards bs = do
-  -- map over all pools where we reward for each pool
-  (pools, lPool) <- bsoGetActiveBakersAndDelegators bs
-  poolsRewarded <- foldM distribute bs pools
-  allPoolsRewarded <- return ()
-  return bs
-    where
-      distribute :: UpdatableBlockState m -> ActiveBakerInfo m -> m (UpdatableBlockState m)
-      distribute bs' abi = do
-        bi <- derefBakerInfo $ activeBakerInfoRef abi
-        let BakerId ai = bi ^. Types.bakerIdentity
-        bsoGetAccountByIndex bs ai >>= \case
-          Nothing -> error "Invariant violation: Active baker does not have an account"
-          Just acc -> getAccountBaker acc >>= \case
-            Nothing -> error "Invariant violation: Active baker account is not a baker account"
-            Just ab -> distributePoolRewards abi (ab ^. Types.accountBakerInfo . Types.bieBakerPoolInfo) bs'
 
 -- |Mint new tokens and distribute rewards to bakers, finalizers and the foundation.
 -- The process consists of the following four steps:
@@ -544,7 +619,7 @@ distributeRewards bs = do
 --    account.  Additionally, a fraction of the old GAS account is paid to the baker,
 --    including incentives for including the 'free' transaction types.  (Rounding of
 --    the fee distribution favours the foundation.  The GAS reward is rounded down.)
-mintAndReward :: forall m. (BlockStateOperations m, BlockPointerMonad m, MonadProtocolVersion m)
+mintAndReward :: forall m. (BlockStateOperations m, TreeStateMonad m, MonadProtocolVersion m)
     => UpdatableBlockState m
     -- ^Block state
     -> BlockPointerType m
@@ -617,7 +692,7 @@ mintAndReward bshandle blockParent slotNumber bid newEpoch isNewEpoch mfinInfo t
           return bshandle
 
       -- accumulate fee
-      doBlockRewardV1 transFees freeCounts bid foundationAccount bshandleFinRew
+      doBlockRewardP4 transFees freeCounts bid foundationAccount bshandleFinRew
 
 -- |Update the bakers and seed state of the block state.
 -- The epoch for the new seed state must be at least the epoch of

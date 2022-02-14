@@ -379,7 +379,7 @@ putBlockState bs = do
 --    timestamp for every account with a scheduled release.
 --
 -- Note that the transaction outcomes will always be empty.
-getBlockState :: forall oldpv pv. IsProtocolVersion pv => StateMigrationParameters oldpv pv -> Get (BlockState pv)
+getBlockState :: forall oldpv pv. (IsProtocolVersion oldpv, IsProtocolVersion pv) => StateMigrationParameters oldpv pv -> Get (BlockState pv)
 getBlockState migration = do
     -- BirkParameters
     preBirkParameters <- getBirkParameters
@@ -402,7 +402,7 @@ getBlockState migration = do
     -- FIXME: This does not correctly handle migration.
     -- We need to get the updates in the oldpv format and (as necessary) migrate to the new pv
     -- format, since P4 introduces new update types.
-    _blockUpdates <- getUpdatesV0
+    _blockUpdates <- getUpdatesV0 migration
     _blockRewardDetails <- getBlockRewardDetails migration
     -- _blockEpochBlocksBaked <- getHashedEpochBlocksV0
     -- Construct the release schedule and active bakers from the accounts
@@ -1357,6 +1357,25 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
           | _stakeEarnings bkr = AccountStakeBaker $ bkr & stakedAmount +~ reward
         updateBaker stk = stk
 
+    bsoGetTotalRewardPeriodBlockCount bs =
+      let bprds = PoolRewards.bakerPoolRewardDetails $ bs ^. blockPoolRewards
+      in return $! foldl (\c bprd -> c + PoolRewards.blockCount bprd) 0 bprds
+
+    bsoGetBakerPoolRewardDetails bs idx =
+      let bprds = PoolRewards.bakerPoolRewardDetails $ bs ^. blockPoolRewards
+          mBPRD = LFMBT.lookup idx bprds
+      in return $! case mBPRD of
+          Nothing -> error "Invariant violation: Basic.bsoGetBakerPoolRewardDetails: invalid index"
+          Just bprd -> bprd
+
+    bsoRewardDelegator bs (DelegatorId ai) !reward = return (getFirst <$> mfaddr, bs')
+      where
+        (mfaddr, !bs') = bs & (blockAccounts . Accounts.indexedAccount ai) payReward
+        payReward acct = (Just . First $! acct ^. accountAddress, acct & accountAmount +~ reward & accountStaking %~ updateDel)
+        updateDel (AccountStakeDelegate del)
+          | _delegationStakeEarnings del = AccountStakeDelegate $ del & delegationStakedAmount +~ reward
+        updateDel stk = stk
+
     bsoRewardFoundationAccount bs !reward = return $ bs & blockAccounts . Accounts.indexedAccount foundationAccount . accountAmount +~ reward
       where
         foundationAccount = bs ^. blockUpdates . currentParameters . cpFoundationAccount
@@ -1394,11 +1413,15 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
     bsoGetPaydayEpoch bs =
         return $! bs ^. blockPoolRewards . to PoolRewards.nextPaydayEpoch
 
-    bsoAccrueAmountBaker bs bid amount =
-      let accrueAmountBPR bpr = bpr{PoolRewards.transactionFeesAccrued = PoolRewards.transactionFeesAccrued bpr + amount}
+    bsoUpdateAmountBaker bs bid f =
+      let accrueAmountBPR bpr = bpr{PoolRewards.transactionFeesAccrued = f (PoolRewards.transactionFeesAccrued bpr)}
       in modifyBakerPoolRewardDetailsInPoolRewards bs bid accrueAmountBPR
 
-    bsoAccrueLPool bs amount = return $! bs & blockPoolRewards %~ \pr -> pr{PoolRewards.lPoolTransactionRewards = PoolRewards.lPoolTransactionRewards pr + amount}
+    bsoUpdateAmountLPool bs f = return $! bs & blockPoolRewards %~ \pr -> pr{PoolRewards.lPoolTransactionRewards = f (PoolRewards.lPoolTransactionRewards pr)}
+
+    bsoGetAmountLPool bs = return $! PoolRewards.lPoolTransactionRewards $ bs ^. blockPoolRewards
+
+    bsoAccrueFoundationAccount bs amount = return $! bs & blockPoolRewards %~ \pr -> pr{PoolRewards.foundationTransactionRewards = PoolRewards.foundationTransactionRewards pr + amount}
 
     bsoSetTransactionOutcomes bs l =
       return $! bs & blockTransactionOutcomes .~ Transactions.transactionOutcomesFromList l

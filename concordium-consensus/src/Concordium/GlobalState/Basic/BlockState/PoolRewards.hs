@@ -20,7 +20,7 @@ data BakerPoolRewardDetails = BakerPoolRewardDetails
       -- |Whether the pool contributed to a finalization proof in the reward period
       finalizationAwake :: !Bool
     }
-    deriving Show
+    deriving (Eq, Show)
 
 instance Serialize BakerPoolRewardDetails where
     put BakerPoolRewardDetails{..} = do

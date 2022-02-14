@@ -520,6 +520,18 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         (r1, bs1') <- coerceBSML $ bsoRewardBaker bs1 bid reward
         (r2, bs2') <- coerceBSMR $ bsoRewardBaker bs2 bid reward
         assert (r1 == r2) $ return (r1, (bs1', bs2'))
+    bsoGetTotalRewardPeriodBlockCount (bs1, bs2) = do
+        r1 <- coerceBSML $ bsoGetTotalRewardPeriodBlockCount bs1
+        r2 <- coerceBSMR $ bsoGetTotalRewardPeriodBlockCount bs2
+        assert (r1 == r2) $ return r1
+    bsoGetBakerPoolRewardDetails (bs1, bs2) idx = do
+        r1 <- coerceBSML $ bsoGetBakerPoolRewardDetails bs1 idx
+        r2 <- coerceBSMR $ bsoGetBakerPoolRewardDetails bs2 idx
+        assert (r1 == r2) $ return r1
+    bsoRewardDelegator (bs1, bs2) bid reward = do
+        (r1, bs1') <- coerceBSML $ bsoRewardDelegator bs1 bid reward
+        (r2, bs2') <- coerceBSMR $ bsoRewardDelegator bs2 bid reward
+        assert (r1 == r2) $ return (r1, (bs1', bs2'))
     bsoRewardFoundationAccount (bs1, bs2) reward = do
         bs1' <- coerceBSML $ bsoRewardFoundationAccount bs1 reward
         bs2' <- coerceBSMR $ bsoRewardFoundationAccount bs2 reward
@@ -548,13 +560,21 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         r1 <- coerceBSML $ bsoGetPaydayEpoch bs1
         r2 <- coerceBSMR $ bsoGetPaydayEpoch bs2
         assert (r1 == r2) $ return r1
-    bsoAccrueAmountBaker (bs1, bs2) bid amt = do
-        bs1' <- coerceBSML $ bsoAccrueAmountBaker bs1 bid amt
-        bs2' <- coerceBSMR $ bsoAccrueAmountBaker bs2 bid amt
+    bsoUpdateAmountBaker (bs1, bs2) bid f = do
+        bs1' <- coerceBSML $ bsoUpdateAmountBaker bs1 bid f
+        bs2' <- coerceBSMR $ bsoUpdateAmountBaker bs2 bid f
         return (bs1', bs2')
-    bsoAccrueLPool (bs1, bs2) amt = do
-        bs1' <- coerceBSML $ bsoAccrueLPool bs1 amt
-        bs2' <- coerceBSMR $ bsoAccrueLPool bs2 amt
+    bsoUpdateAmountLPool (bs1, bs2) f = do
+        bs1' <- coerceBSML $ bsoUpdateAmountLPool bs1 f
+        bs2' <- coerceBSMR $ bsoUpdateAmountLPool bs2 f
+        return (bs1', bs2')
+    bsoGetAmountLPool (bs1, bs2) = do
+        a1 <- coerceBSML $ bsoGetAmountLPool bs1
+        a2 <- coerceBSMR $ bsoGetAmountLPool bs2
+        assert (a1 == a2) $ return a1
+    bsoAccrueFoundationAccount (bs1, bs2) amt = do
+        bs1' <- coerceBSML $ bsoAccrueFoundationAccount bs1 amt
+        bs2' <- coerceBSMR $ bsoAccrueFoundationAccount bs2 amt
         return (bs1', bs2')
     bsoSetTransactionOutcomes (bs1, bs2) tos = do
         bs1' <- coerceBSML $ bsoSetTransactionOutcomes bs1 tos
