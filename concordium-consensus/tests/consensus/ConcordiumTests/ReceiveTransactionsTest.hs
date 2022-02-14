@@ -161,6 +161,20 @@ test = do
           resultingState = snd s
       check resultingState results 0 ResultSuccess True
       check resultingState results 1 ResultSuccess True
+    specify "receive transactions via blocks out of order preserves invariant of ptt" $ do
+      theTime <- currentTime
+      let now = utcTimeToTransactionTime theTime
+          genesis = testGenesisData theTime dummyIdentityProviders dummyArs dummyCryptographicParameters
+          txs = [toBlockItem now $ mkAccountTransaction (now+1) True 2 True TheCost,
+                 toBlockItem now $ mkAccountTransaction (now+1) True 1 True TheCost]
+      s <- runTransactions testDoReceiveTransactionInternal txs theTime genesis
+      let results = fst s
+          resultingState = snd s
+      check resultingState results 0 ResultSuccess True
+      check resultingState results 1 ResultSuccess True
+      let ptt = resultingState ^. (pendingTransactions . pttWithSender)
+      let aaddr = accountAddressEmbed (dummyAccountAddress 1)
+      fst <$> (HM.lookup aaddr ptt) `shouldBe` Just 1
   where
     check resultingState results idx expectedVerRes expectedInTransactionTable = do
       let result = results !! idx
@@ -275,8 +289,6 @@ chainUpdates now =
     getValidSequenceNumber = minUpdateSequenceNumber + 1
     getTooOldSequenceNumber = minUpdateSequenceNumber
     getTooLargeSequenceNumber = minUpdateSequenceNumber + 2
-
-
 
 -- The isSingle flag determines if the transaction should be perceived
 -- as it has been received individually or as part of a block.
