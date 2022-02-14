@@ -408,8 +408,11 @@ getBlockState migration = do
                     (epochToBakerStakes (preBirkParameters ^. birkCurrentEpochBakers . unhashed))
                     (epochToBakerStakes (preBirkParameters ^. birkNextEpochBakers . unhashed))
                     (brdBlocks prePoolRewardDetails)
-                    (rewardPeriodEpochs $ _tpRewardPeriodLength $ P4.migrationTimeParameters migrationParams)
-                    (_tpMintPerPayday $ P4.migrationTimeParameters migrationParams)
+                    (rewardPeriodEpochs _tpRewardPeriodLength)
+                    _tpMintPerPayday
+                where
+                    TimeParametersV1{..} =
+                        P4.updateTimeParameters (P4.migrationProtocolUpdateData migrationParams)
 
     _blockRewardDetails <- getBlockRewardDetails
     -- Construct the release schedule and active bakers from the accounts

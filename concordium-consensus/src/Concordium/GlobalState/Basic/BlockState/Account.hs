@@ -33,8 +33,8 @@ import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 
 import Concordium.Types
 import Concordium.Types.Accounts
+import Concordium.Types.Migration
 import Concordium.Genesis.Data
-import qualified Concordium.Genesis.Data.P4 as P4
 
 -- |Type for how a 'PersistingAccountData' value is stored as part of
 -- an account. This is stored with its hash.
@@ -160,10 +160,7 @@ deserializeAccount migration cryptoParams = do
     _accountReleaseSchedule <- if asfExplicitReleaseSchedule then S.get else return emptyAccountReleaseSchedule
     _accountStaking <- if asfHasBakerOrDelegation
       then
-        case migration of
-          StateMigrationParametersTrivial -> getAccountStake
-          StateMigrationParametersP3ToP4 mp ->
-            P4.migrateAccountStakeV0toV1 mp <$> getAccountStake
+        migrateAccountStake migration <$> getAccountStake
       else
         return AccountStakeNone
     let _accountPersisting = makeAccountPersisting PersistingAccountData {..}
