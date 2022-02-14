@@ -632,6 +632,9 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- change the blockstate. It is a precondition that the given baker is active.
   bsoAccrueAmountBaker :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> BakerId -> Amount -> m (UpdatableBlockState m)
 
+  -- |Accrue an amount to distributed to the L-pool delegators.
+  bsoAccrueLPool :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> Amount -> m (UpdatableBlockState m)
+
   -- |Add an amount to the foundation account.
   bsoRewardFoundationAccount :: UpdatableBlockState m -> Amount -> m (UpdatableBlockState m)
 

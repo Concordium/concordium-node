@@ -1398,6 +1398,8 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
       let accrueAmountBPR bpr = bpr{PoolRewards.transactionFeesAccrued = PoolRewards.transactionFeesAccrued bpr + amount}
       in modifyBakerPoolRewardDetailsInPoolRewards bs bid accrueAmountBPR
 
+    bsoAccrueLPool bs amount = return $! bs & blockPoolRewards %~ \pr -> pr{PoolRewards.lPoolTransactionRewards = PoolRewards.lPoolTransactionRewards pr + amount}
+
     bsoSetTransactionOutcomes bs l =
       return $! bs & blockTransactionOutcomes .~ Transactions.transactionOutcomesFromList l
 

@@ -552,6 +552,10 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         bs1' <- coerceBSML $ bsoAccrueAmountBaker bs1 bid amt
         bs2' <- coerceBSMR $ bsoAccrueAmountBaker bs2 bid amt
         return (bs1', bs2')
+    bsoAccrueLPool (bs1, bs2) amt = do
+        bs1' <- coerceBSML $ bsoAccrueLPool bs1 amt
+        bs2' <- coerceBSMR $ bsoAccrueLPool bs2 amt
+        return (bs1', bs2')
     bsoSetTransactionOutcomes (bs1, bs2) tos = do
         bs1' <- coerceBSML $ bsoSetTransactionOutcomes bs1 tos
         bs2' <- coerceBSMR $ bsoSetTransactionOutcomes bs2 tos

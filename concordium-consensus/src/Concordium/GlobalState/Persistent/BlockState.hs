@@ -1988,6 +1988,14 @@ doAccrueAmountBaker pbs bid amount = do
     let accrueAmountBPR bpr = bpr{transactionFeesAccrued = transactionFeesAccrued bpr + amount}
     storePBS pbs =<< modifyBakerPoolRewardDetailsInPoolRewards bsp bid accrueAmountBPR
 
+doAccrueLPool :: forall pv m. (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1, MonadBlobStore m) => PersistentBlockState pv -> Amount -> m (PersistentBlockState pv)
+doAccrueLPool pbs amount = do
+    bsp <- loadPBS pbs
+    let hpr = case bspRewardDetails bsp of BlockRewardDetailsV1 hp -> hp
+    pr <- refLoad hpr
+    newBlockRewardDetails <- BlockRewardDetailsV1 <$> refMake pr{lPoolTransactionRewards = lPoolTransactionRewards pr + amount}
+    storePBS pbs $ bsp{bspRewardDetails = newBlockRewardDetails}
+
 doClearEpochBlocksBaked :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m (PersistentBlockState pv)
 doClearEpochBlocksBaked pbs = do
         bsp <- loadPBS pbs
@@ -2374,6 +2382,7 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateOperations (Pe
     bsoGetEpochBlocksBaked = doGetEpochBlocksBaked
     bsoNotifyBlockBaked = doNotifyBlockBaked
     bsoAccrueAmountBaker = doAccrueAmountBaker
+    bsoAccrueLPool = doAccrueLPool
     bsoClearEpochBlocksBaked = doClearEpochBlocksBaked
     bsoRotateCurrentEpochBakers = doRotateCurrentEpochBakers
     bsoSetNextEpochBakers = doSetNextEpochBakers

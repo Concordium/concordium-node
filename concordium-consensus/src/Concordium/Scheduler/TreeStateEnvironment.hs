@@ -458,7 +458,7 @@ doBlockRewardV1 transFees FreeTransactionCounts{..} bid foundationAddr bs0 = do
         gasFees = takeFraction (rewardParams ^. tfdGASAccount) transFees
         lPoolStake = sum $ dcDelegatorCapital <$> lPoolCapital capitalDistribution
         lPoolRelativeStake = lPoolStake % (BI.bakerTotalStake bakers + lPoolStake)
-        lPoolOut = floor $ toRational (poolsAndLpoolFees)
+        lPoolOut = floor $ toRational (poolsAndLpoolFees + gasFees)
                       * (fractionToRational $ complementAmountFraction lPoolTransactionFee)
                       * toRational lPoolRelativeStake
         poolFees = poolsAndLpoolFees - lPoolOut
@@ -477,7 +477,7 @@ doBlockRewardV1 transFees FreeTransactionCounts{..} bid foundationAddr bs0 = do
         poolOut = poolFees + bakerGAS
     bs1 <- bsoSetRewardAccounts bs0 (oldRewardAccts & gasAccount .~ gasOut)
     -- bs2 <- bsoAccrueFoundationAccount bs1 platformFees
-    -- bs3 <- bsoAccrueLPool bs2
+    bs3 <- bsoAccrueLPool bs2 lPoolOut
     bsoAccrueAmountBaker bs1 bid poolOut
 
 distributePoolRewards :: forall m. BlockStateOperations m => ActiveBakerInfo m -> Types.BakerPoolInfo -> UpdatableBlockState m -> m (UpdatableBlockState m)
@@ -486,11 +486,12 @@ distributePoolRewards abi bpi bs = do
   -- cO,P(i)=capitalO,P(i) /capitalP(i)
   -- We need R_{F,P}^i, R_{B,P}^i, R_{T,P}^i and µ_{F,P}, µ_{B,P}, µ_{T,P}
   -- R_{T,P}^i is the transactionFeesAccrued from BakerPoolRewardDetails
-  -- R_{F,L}^i = R_F^i*(1-µ_{F,L}) * s_L^i where
+  -- R_{T,L}^i is the lPoolTransactionRewards in PoolRewards
+  -- R_{F,L}^i = R_F^i*(1-µ_{F,L}) * s_L^i where 
   -- - s_L^i = stake_L^i / (stake^i + stake_L^i)
   -- - stake_L^i = 
   -- - stake^i = sum_P stake_P^i = _bakerTotalStake
-  -- - µ_{F,L} = 
+  -- - µ_{F,L} = chain parameter
   -- R_{F,P}^i is (R_F^i - R_{F,L}^i) * fs_P^i, where
   -- - R_F^i is _finalizationRewardAccount from RewardAccounts
   -- - fs_P^i = fstake_P^i / fstake^i where fstake_P^i = stake_P^i = min(capital_P^i, beta_{P,max}*capital^i, lambda_P*capital_{O,P}^i) = _bakerStake = partyWeight in PartyInfo
