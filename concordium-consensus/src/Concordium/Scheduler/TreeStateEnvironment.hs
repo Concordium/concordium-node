@@ -501,14 +501,16 @@ distributeRewards bs0 = do
       lPoolBakingFraction = fractionToRational (complementAmountFraction lPoolBakingCommission) * toRational lPoolRelativeStake
       lPoolFinalizationReward = floor $ fromIntegral (rewardAccts ^. finalizationRewardAccount) * lPoolFinalizationFraction
       lPoolBakingReward = floor $ fromIntegral (rewardAccts ^. bakingRewardAccount) * lPoolBakingFraction
-      lPoolTotalReward = lPoolFinalizationReward + lPoolBakingReward + lPoolAccrued
       lPoolTotalStake = Vec.foldl (\a dc -> a + dcDelegatorCapital dc) 0 (lPoolCapital capitalDistribution)
-  (lPoolAccumReward, bs1) <- rewardDelegators bs0 lPoolTotalReward lPoolTotalStake (lPoolCapital capitalDistribution)
-  let lPoolRemainder = lPoolTotalReward - lPoolAccumReward
-  bs2 <- bsoUpdateAmountLPool bs1 (const lPoolRemainder)
+  (lPoolAccumFinalization, lPoolAccumBaking, lPoolAccumTransaction, bs1) <- rewardDelegators bs0 lPoolFinalizationReward lPoolBakingReward lPoolAccrued lPoolTotalStake (lPoolCapital capitalDistribution)
+  bs2 <- bsoUpdateAmountLPool bs1 (subtract lPoolAccumTransaction)
   let bakerBakingRewardFactor = rewardAccts ^. bakingRewardAccount - lPoolBakingReward
   let bakerFinalizationFactor = rewardAccts ^. finalizationRewardAccount - lPoolFinalizationReward
-  bs3 <- rewardBakers bs2 (bankStatus ^. totalGTU) bakers bakerBakingRewardFactor bakerFinalizationFactor (BI.bakerTotalStake bakers) (bakerPoolCapital capitalDistribution)
+  (bakerAccumFinalization, bakerAccumBaking, bs3) <- rewardBakers bs2 (bankStatus ^. totalGTU) bakers bakerBakingRewardFactor bakerFinalizationFactor (BI.bakerTotalStake bakers) (bakerPoolCapital capitalDistribution)
+  let newRewardAccts = rewardAccts
+        & finalizationRewardAccount %~ subtract (lPoolAccumFinalization + bakerAccumFinalization)
+        & bakingRewardAccount %~ subtract (lPoolAccumBaking + bakerAccumBaking)
+  bs4 <- bsoSetRewardAccounts bs3 newRewardAccts
   -- TODO transaction outcome?
   undefined
     where
@@ -516,20 +518,25 @@ distributeRewards bs0 = do
         :: UpdatableBlockState m
         -> Amount
         -> Amount
+        -> Amount
+        -> Amount
         -> Vec.Vector DelegatorCapital
-        -> m (Amount, UpdatableBlockState m)
-      rewardDelegators bs totalReward totalStake dcs =
+        -> m (Amount, Amount, Amount, UpdatableBlockState m)
+      rewardDelegators bs totalFinalizationReward totalBakingReward totalTransactionReward totalStake dcs =
         foldM
-          (\(accumReward, bs1) dc -> do
+          (\(accumFinalization, accumBaking, accumTransaction, bs1) dc -> do
             let delegatorCapital = dcDelegatorCapital dc
                 relativeStake = delegatorCapital % totalStake
-                reward = floor $ relativeStake * fromIntegral totalReward
+                finalizationReward = floor $ relativeStake * fromIntegral totalFinalizationReward
+                bakingReward = floor $ relativeStake * fromIntegral totalBakingReward
+                transactionReward = floor $ relativeStake * fromIntegral totalTransactionReward
+                reward = finalizationReward + bakingReward + transactionReward
             -- It is an invariant that the delegator is a delegation account,
             -- so we ignore the "error part" of 'bsoRewardDelegator'.
             (_, bs2) <- bsoRewardDelegator bs1 (dcDelegatorId dc) reward
             -- TODO transaction outcome here?
-            return (accumReward + reward, bs2)
-          ) (0, bs) dcs
+            return (accumFinalization + finalizationReward, accumBaking + bakingReward, accumTransaction + transactionReward, bs2)
+          ) (0, 0, 0, bs) dcs
 
       rewardBakers
         :: UpdatableBlockState m
@@ -539,7 +546,7 @@ distributeRewards bs0 = do
         -> Amount
         -> Amount
         -> Vec.Vector BakerCapital
-        -> m (UpdatableBlockState m)
+        -> m (Amount, Amount, UpdatableBlockState m)
       rewardBakers bs gtuTotal bakers bakerBakingRewardFactor bakerFinalizationFactor totalStake bcs = do
         let bakerStakesMap =
               foldl
@@ -549,8 +556,8 @@ distributeRewards bs0 = do
         paydayBlockCount <- bsoGetTotalRewardPeriodBlockCount bs
         finParams <- gdFinalizationParameters <$> getGenesisData
         let committee = makeFinalizationCommittee finParams gtuTotal bakers
-        fst <$> foldM
-          (\(bsIn, idx) bc -> do
+        (af, ab, bsOut, _) <- foldM
+          (\(accumFinalization, accumBaking, bsIn, idx) bc -> do
             bprd <- bsoGetBakerPoolRewardDetails bsIn idx
             let accruedReward = transactionFeesAccrued bprd
                 bakerBlockCount = blockCount bprd
@@ -566,16 +573,30 @@ distributeRewards bs0 = do
                     else 0
                 bakerFinalizationReward = floor $ fromIntegral bakerFinalizationFactor * relativeStake
                 totalCapital = foldl (\a dc -> a + dcDelegatorCapital dc) (bcBakerEquityCapital bc) (bcDelegatorCapital bc)
-                -- TODO: implement this (see paper):
-                totalDelegatorReward = undefined
-            (delegationReward, bsDel) <- rewardDelegators bsIn totalDelegatorReward totalCapital (bcDelegatorCapital bc)
-            let bakerReward = accruedReward + bakerBakingReward + bakerFinalizationReward - delegationReward
+            poolInfo <- bakerPoolInfo bsIn (bcBakerId bc)
+            let finalizationFraction = complementAmountFraction (poolInfo ^. Types.poolCommissionRates . finalizationCommission)
+            let bakingFraction = complementAmountFraction (poolInfo ^. Types.poolCommissionRates . bakingCommission)
+            let transactionFraction = complementAmountFraction (poolInfo ^. Types.poolCommissionRates . transactionCommission)
+            let totalDelegationFinalization = takeFraction finalizationFraction bakerFinalizationReward
+            let totalDelegationBaking = takeFraction bakingFraction bakerBakingReward
+            let totalDelegationTransaction = takeFraction transactionFraction accruedReward
+            (delegationFinalization, delegationBaking, delegationTransaction, bsDel) <- rewardDelegators bsIn totalDelegationFinalization totalDelegationBaking totalDelegationTransaction totalCapital (bcDelegatorCapital bc)
+            let bakerReward = (accruedReward - delegationTransaction) + (bakerBakingReward - delegationBaking) + (bakerFinalizationReward - delegationFinalization)
             -- It is an invariant that the baker is a baker account,
             -- so we ignore the "error part" of 'bsoRewardBaker'.
             (_, bsBak) <- bsoRewardBaker bsDel (bcBakerId bc) bakerReward
+            bsUpdate <- bsoUpdateAmountBaker bsBak (bcBakerId bc) (subtract accruedReward)
             -- TODO transaction outcome here?
-            return (bsBak, idx + 1)
-          ) (bs, 0) bcs
+            return (accumFinalization + bakerFinalizationReward, accumBaking + bakerBakingReward, bsUpdate, idx + 1)
+          ) (0, 0, bs, 0) bcs
+        return (af, ab, bsOut)
+
+      bakerPoolInfo bs (BakerId ai) = do
+        bsoGetAccountByIndex bs ai >>= \case
+          Nothing -> error "Invariant violation: Active baker does not have an account"
+          Just acc -> getAccountBaker acc >>= \case
+            Nothing -> error "Invariant violation: Active baker account is not a baker account"
+            Just ab -> return (ab ^. Types.accountBakerInfo . Types.bieBakerPoolInfo)
   -- TODO: remove this:
   -- bi <- derefBakerInfo $ activeBakerInfoRef abi
   -- cO,P(i)=capitalO,P(i) /capitalP(i)
