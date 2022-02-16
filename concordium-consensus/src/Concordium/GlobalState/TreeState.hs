@@ -60,11 +60,11 @@ instance Show (BlockStatus bp pb) where
     show (BlockFinalized _ _) = "Finalized"
     show (BlockPending _) = "Pending"
 
--- |Branches of a tree represented as a sequence, ordered by height above the last
--- finalized block, of lists of block pointers.  The blocks in the branches should
--- be exactly the live blocks.  If a block is in the branches, then either it is at
--- the lowest level and its parent is the last finalized block, or its parent is also
--- in the branches at the level below.
+-- |Branches of a tree represented as a sequence of lists of block pointers. All pointers within a
+-- list point to blocks of equal height above the last finalized block. The sequence is ordered by
+-- the block height. The blocks in the branches should be exactly the live blocks.  If a block is in
+-- the branches, then either it is at the lowest level and its parent is the last finalized block,
+-- or its parent is also in the branches at the level below.
 type Branches m = Seq.Seq [BlockPointerType m]
 
 -- |Result of trying to add a transaction to the transaction table.

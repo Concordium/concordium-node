@@ -159,22 +159,24 @@ processFinalization newFinBlock finRec@FinalizationRecord{..} = do
         -- We proceed backwards from the new finalized block, collecting blocks
         -- to mark as dead. When we exhaust the branches we then mark blocks as finalized
         -- by increasing height.
-        -- Instead of marking blocks dead immediately we accumulate them
-        -- and a return a list. The reason for doing this is that we never
-        -- have to look up a parent block that is already marked dead.
+        -- 
+        -- Instead of marking blocks dead immediately, we accumulate them in a list by decreasing
+        -- height. The reason for doing this is that we never have to look up a parent block that is
+        -- already marked dead.
         let pruneTrunk :: [BlockPointerType m] -- ^List of blocks to remove.
-                       -> BlockPointerType m -- ^The block that was finalized.
+                       -> [BlockPointerType m] -- ^List of finalized blocks.
                        -> Branches m
                        -> m ([BlockPointerType m], [BlockPointerType m])
-                       -- ^ The return value is a list of blocks to mark dead, ordered
-                       -- by increasing height.
-            pruneTrunk toRemove _ Seq.Empty = return ([], toRemove)
-            pruneTrunk toRemove keeper (brs Seq.:|> l) = do
-                parent <- bpParent keeper
-                let toRemove1 = filter (/= keeper) l ++ toRemove
-                (toFinalize, toRemove2) <- pruneTrunk toRemove1 parent brs
-                return (keeper : toFinalize, toRemove2)
-        (toFinalize, toRemoveFromTrunk) <- pruneTrunk [] newFinBlock (Seq.take pruneHeight oldBranches)
+                       -- ^ The return value is a list of blocks to mark dead (ordered by decreasing
+                       -- height) and a list of blocks to mark finalized (ordered by increasing
+                       -- height).
+            pruneTrunk toRemove toFinalize Seq.Empty = return (toRemove, toFinalize)
+            pruneTrunk toRemove toFinalize (brs Seq.:|> l) = do
+              let keeper = head toFinalize
+                  toRemove1 = toRemove ++ filter (/= keeper) l
+              parent <- bpParent keeper
+              pruneTrunk toRemove1 (parent : toFinalize) brs
+        (toRemoveFromTrunk, toFinalize) <- pruneTrunk [] [newFinBlock] (Seq.take pruneHeight oldBranches)
         -- Add the finalization to the finalization list
         addFinalization newFinBlock finRec
         -- mark blocks as finalized in the order returned by `pruneTrunk`, so that blocks are marked
@@ -240,7 +242,7 @@ processFinalization newFinBlock finRec@FinalizationRecord{..} = do
         newBranches <- trimBranches unTrimmedBranches
         putBranches newBranches
         -- mark dead blocks by decreasing height
-        forM_ (toRemoveFromBranches ++ reverse toRemoveFromTrunk) $ \bp -> do
+        forM_ (toRemoveFromBranches ++ toRemoveFromTrunk) $ \bp -> do
           markLiveBlockDead bp
           logEvent Skov LLDebug $ "Block " ++ show (bpHash bp) ++ " marked dead"
         -- purge pending blocks with slot numbers predating the last finalized slot
