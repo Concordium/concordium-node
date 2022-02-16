@@ -560,22 +560,26 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         r1 <- coerceBSML $ bsoGetPaydayEpoch bs1
         r2 <- coerceBSMR $ bsoGetPaydayEpoch bs2
         assert (r1 == r2) $ return r1
-    bsoUpdateAmountBaker (bs1, bs2) bid f = do
-        bs1' <- coerceBSML $ bsoUpdateAmountBaker bs1 bid f
-        bs2' <- coerceBSMR $ bsoUpdateAmountBaker bs2 bid f
+    bsoUpdateAccruedTransactionFeesBaker (bs1, bs2) bid f = do
+        bs1' <- coerceBSML $ bsoUpdateAccruedTransactionFeesBaker bs1 bid f
+        bs2' <- coerceBSMR $ bsoUpdateAccruedTransactionFeesBaker bs2 bid f
         return (bs1', bs2')
-    bsoUpdateAmountLPool (bs1, bs2) f = do
-        bs1' <- coerceBSML $ bsoUpdateAmountLPool bs1 f
-        bs2' <- coerceBSMR $ bsoUpdateAmountLPool bs2 f
+    bsoUpdateAccruedTransactionFeesLPool (bs1, bs2) f = do
+        bs1' <- coerceBSML $ bsoUpdateAccruedTransactionFeesLPool bs1 f
+        bs2' <- coerceBSMR $ bsoUpdateAccruedTransactionFeesLPool bs2 f
         return (bs1', bs2')
-    bsoGetAmountLPool (bs1, bs2) = do
-        a1 <- coerceBSML $ bsoGetAmountLPool bs1
-        a2 <- coerceBSMR $ bsoGetAmountLPool bs2
+    bsoGetAccruedTransactionFeesLPool (bs1, bs2) = do
+        a1 <- coerceBSML $ bsoGetAccruedTransactionFeesLPool bs1
+        a2 <- coerceBSMR $ bsoGetAccruedTransactionFeesLPool bs2
         assert (a1 == a2) $ return a1
-    bsoAccrueFoundationAccount (bs1, bs2) amt = do
-        bs1' <- coerceBSML $ bsoAccrueFoundationAccount bs1 amt
-        bs2' <- coerceBSMR $ bsoAccrueFoundationAccount bs2 amt
+    bsoUpdateAccruedTransactionFeesFoundationAccount (bs1, bs2) f = do
+        bs1' <- coerceBSML $ bsoUpdateAccruedTransactionFeesFoundationAccount bs1 f
+        bs2' <- coerceBSMR $ bsoUpdateAccruedTransactionFeesFoundationAccount bs2 f
         return (bs1', bs2')
+    bsoGetAccruedTransactionFeesFoundationAccount (bs1, bs2) = do
+        a1 <- coerceBSML $ bsoGetAccruedTransactionFeesFoundationAccount bs1
+        a2 <- coerceBSMR $ bsoGetAccruedTransactionFeesFoundationAccount bs2
+        assert (a1 == a2) $ return a1
     bsoSetTransactionOutcomes (bs1, bs2) tos = do
         bs1' <- coerceBSML $ bsoSetTransactionOutcomes bs1 tos
         bs2' <- coerceBSMR $ bsoSetTransactionOutcomes bs2 tos

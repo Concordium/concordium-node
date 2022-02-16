@@ -451,8 +451,6 @@ class (BlockStateQuery m) => BlockStateOperations m where
   bsoSetSeedState :: UpdatableBlockState m -> SeedState -> m (UpdatableBlockState m)
 
   -- |Replace the current epoch bakers with the next epoch bakers.
-  -- If there are no next epoch bakers (possible in P3 onwards), the current epoch bakers are
-  -- unchanged.
   -- This does not change the next epoch bakers.
   bsoRotateCurrentEpochBakers :: UpdatableBlockState m -> m (UpdatableBlockState m)
 
@@ -647,16 +645,19 @@ class (BlockStateQuery m) => BlockStateOperations m where
 
   -- |Update the amount to be distributed to the given baker's account at payday. If baker is not active, the function does not
   -- change the blockstate. It is a precondition that the given baker is active.
-  bsoUpdateAmountBaker :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> BakerId -> (Amount -> Amount) -> m (UpdatableBlockState m)
+  bsoUpdateAccruedTransactionFeesBaker :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> BakerId -> (Amount -> Amount) -> m (UpdatableBlockState m)
 
   -- |Update amount to be distributed to the L-pool delegators.
-  bsoUpdateAmountLPool :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> (Amount -> Amount) -> m (UpdatableBlockState m)
+  bsoUpdateAccruedTransactionFeesLPool :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> (Amount -> Amount) -> m (UpdatableBlockState m)
 
   -- |Get the accrued amount to the L-pool delegators.
-  bsoGetAmountLPool :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> m Amount
+  bsoGetAccruedTransactionFeesLPool :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> m Amount
 
-  -- |Accrue an amount to distributed to the foundation account.
-  bsoAccrueFoundationAccount :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> Amount -> m (UpdatableBlockState m)
+  -- |Update the amount to distribute to the foundation account.
+  bsoUpdateAccruedTransactionFeesFoundationAccount :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> (Amount -> Amount) -> m (UpdatableBlockState m)
+
+  -- |Get the amount to distribute to the foundation account.
+  bsoGetAccruedTransactionFeesFoundationAccount :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> m Amount
 
   -- |Add an amount to the foundation account.
   bsoRewardFoundationAccount :: UpdatableBlockState m -> Amount -> m (UpdatableBlockState m)
@@ -944,10 +945,11 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoGetAnonymityRevokers s arId = lift $ bsoGetAnonymityRevokers s arId
   bsoGetCryptoParams s = lift $ bsoGetCryptoParams s
   bsoGetPaydayEpoch s = lift $ bsoGetPaydayEpoch s
-  bsoUpdateAmountBaker s bid f = lift $ bsoUpdateAmountBaker s bid f
-  bsoUpdateAmountLPool s f = lift $ bsoUpdateAmountLPool s f
-  bsoGetAmountLPool = lift . bsoGetAmountLPool
-  bsoAccrueFoundationAccount s amt = lift $ bsoAccrueFoundationAccount s amt
+  bsoUpdateAccruedTransactionFeesBaker s bid f = lift $ bsoUpdateAccruedTransactionFeesBaker s bid f
+  bsoUpdateAccruedTransactionFeesLPool s f = lift $ bsoUpdateAccruedTransactionFeesLPool s f
+  bsoGetAccruedTransactionFeesLPool = lift . bsoGetAccruedTransactionFeesLPool
+  bsoUpdateAccruedTransactionFeesFoundationAccount s f = lift $ bsoUpdateAccruedTransactionFeesFoundationAccount s f
+  bsoGetAccruedTransactionFeesFoundationAccount = lift . bsoGetAccruedTransactionFeesFoundationAccount
   bsoSetTransactionOutcomes s = lift . bsoSetTransactionOutcomes s
   bsoAddSpecialTransactionOutcome s = lift . bsoAddSpecialTransactionOutcome s
   bsoProcessUpdateQueues s = lift . bsoProcessUpdateQueues s

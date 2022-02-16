@@ -2019,33 +2019,39 @@ doNotifyBlockBaked pbs bid = do
             let incBPR bpr = bpr{blockCount = blockCount bpr + 1}
             in storePBS pbs =<< modifyBakerPoolRewardDetailsInPoolRewards bsp bid incBPR
 
-doUpdateAmountBaker :: forall pv m. (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1, MonadBlobStore m) => PersistentBlockState pv -> BakerId -> (Amount -> Amount) -> m (PersistentBlockState pv)
-doUpdateAmountBaker pbs bid f = do
+doUpdateAccruedTransactionFeesBaker :: forall pv m. (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1, MonadBlobStore m) => PersistentBlockState pv -> BakerId -> (Amount -> Amount) -> m (PersistentBlockState pv)
+doUpdateAccruedTransactionFeesBaker pbs bid f = do
     bsp <- loadPBS pbs
     let accrueAmountBPR bpr = bpr{transactionFeesAccrued = f (transactionFeesAccrued bpr)}
     storePBS pbs =<< modifyBakerPoolRewardDetailsInPoolRewards bsp bid accrueAmountBPR
 
-doUpdateAmountLPool :: forall pv m. (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1, MonadBlobStore m) => PersistentBlockState pv -> (Amount -> Amount) -> m (PersistentBlockState pv)
-doUpdateAmountLPool pbs f = do
+doUpdateAccruedTransactionFeesLPool :: forall pv m. (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1, MonadBlobStore m) => PersistentBlockState pv -> (Amount -> Amount) -> m (PersistentBlockState pv)
+doUpdateAccruedTransactionFeesLPool pbs f = do
     bsp <- loadPBS pbs
     let hpr = case bspRewardDetails bsp of BlockRewardDetailsV1 hp -> hp
     pr <- refLoad hpr
     newBlockRewardDetails <- BlockRewardDetailsV1 <$> refMake pr{lPoolTransactionRewards = f (lPoolTransactionRewards pr)}
     storePBS pbs $ bsp{bspRewardDetails = newBlockRewardDetails}
 
-doGetAmountLPool :: forall pv m. (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1, MonadBlobStore m) => PersistentBlockState pv -> m Amount
-doGetAmountLPool pbs = do
+doGetAccruedTransactionFeesLPool :: forall pv m. (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1, MonadBlobStore m) => PersistentBlockState pv -> m Amount
+doGetAccruedTransactionFeesLPool pbs = do
     bsp <- loadPBS pbs
     let hpr = case bspRewardDetails bsp :: BlockRewardDetails 'AccountV1 of BlockRewardDetailsV1 hp -> hp
     lPoolTransactionRewards <$> refLoad hpr
 
-doAccrueFoundationAccount :: forall pv m. (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1, MonadBlobStore m) => PersistentBlockState pv -> Amount -> m (PersistentBlockState pv)
-doAccrueFoundationAccount pbs amount = do
+doUpdateAccruedTransactionFeesFoundationAccount :: forall pv m. (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1, MonadBlobStore m) => PersistentBlockState pv -> (Amount -> Amount) -> m (PersistentBlockState pv)
+doUpdateAccruedTransactionFeesFoundationAccount pbs f = do
     bsp <- loadPBS pbs
     let hpr = case bspRewardDetails bsp of BlockRewardDetailsV1 hp -> hp
     pr <- refLoad hpr
-    newBlockRewardDetails <- BlockRewardDetailsV1 <$> refMake pr{foundationTransactionRewards = foundationTransactionRewards pr + amount}
+    newBlockRewardDetails <- BlockRewardDetailsV1 <$> refMake pr{foundationTransactionRewards = f (foundationTransactionRewards pr)}
     storePBS pbs $ bsp{bspRewardDetails = newBlockRewardDetails}
+
+doGetAccruedTransactionFeesFoundationAccount :: forall pv m. (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1, MonadBlobStore m) => PersistentBlockState pv -> m Amount
+doGetAccruedTransactionFeesFoundationAccount pbs = do
+    bsp <- loadPBS pbs
+    let hpr = case bspRewardDetails bsp :: BlockRewardDetails 'AccountV1 of BlockRewardDetailsV1 hp -> hp
+    foundationTransactionRewards <$> refLoad hpr
 
 doClearEpochBlocksBaked :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m (PersistentBlockState pv)
 doClearEpochBlocksBaked pbs = do
@@ -2435,10 +2441,11 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateOperations (Pe
     bsoGetChainParameters = doGetChainParameters
     bsoGetEpochBlocksBaked = doGetEpochBlocksBaked
     bsoNotifyBlockBaked = doNotifyBlockBaked
-    bsoUpdateAmountBaker = doUpdateAmountBaker
-    bsoUpdateAmountLPool = doUpdateAmountLPool
-    bsoGetAmountLPool = doGetAmountLPool
-    bsoAccrueFoundationAccount = doAccrueFoundationAccount
+    bsoUpdateAccruedTransactionFeesBaker = doUpdateAccruedTransactionFeesBaker
+    bsoUpdateAccruedTransactionFeesLPool = doUpdateAccruedTransactionFeesLPool
+    bsoGetAccruedTransactionFeesLPool = doGetAccruedTransactionFeesLPool
+    bsoUpdateAccruedTransactionFeesFoundationAccount = doUpdateAccruedTransactionFeesFoundationAccount
+    bsoGetAccruedTransactionFeesFoundationAccount = doGetAccruedTransactionFeesFoundationAccount
     bsoClearEpochBlocksBaked = doClearEpochBlocksBaked
     bsoRotateCurrentEpochBakers = doRotateCurrentEpochBakers
     bsoSetNextEpochBakers = doSetNextEpochBakers

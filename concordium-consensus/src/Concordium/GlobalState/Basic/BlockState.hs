@@ -1413,15 +1413,17 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
     bsoGetPaydayEpoch bs =
         return $! bs ^. blockPoolRewards . to PoolRewards.nextPaydayEpoch
 
-    bsoUpdateAmountBaker bs bid f =
+    bsoUpdateAccruedTransactionFeesBaker bs bid f =
       let accrueAmountBPR bpr = bpr{PoolRewards.transactionFeesAccrued = f (PoolRewards.transactionFeesAccrued bpr)}
       in modifyBakerPoolRewardDetailsInPoolRewards bs bid accrueAmountBPR
 
-    bsoUpdateAmountLPool bs f = return $! bs & blockPoolRewards %~ \pr -> pr{PoolRewards.lPoolTransactionRewards = f (PoolRewards.lPoolTransactionRewards pr)}
+    bsoUpdateAccruedTransactionFeesLPool bs f = return $! bs & blockPoolRewards %~ \pr -> pr{PoolRewards.lPoolTransactionRewards = f (PoolRewards.lPoolTransactionRewards pr)}
 
-    bsoGetAmountLPool bs = return $! PoolRewards.lPoolTransactionRewards $ bs ^. blockPoolRewards
+    bsoGetAccruedTransactionFeesLPool bs = return $! PoolRewards.lPoolTransactionRewards $ bs ^. blockPoolRewards
 
-    bsoAccrueFoundationAccount bs amount = return $! bs & blockPoolRewards %~ \pr -> pr{PoolRewards.foundationTransactionRewards = PoolRewards.foundationTransactionRewards pr + amount}
+    bsoUpdateAccruedTransactionFeesFoundationAccount bs f = return $! bs & blockPoolRewards %~ \pr -> pr{PoolRewards.foundationTransactionRewards = f (PoolRewards.foundationTransactionRewards pr)}
+
+    bsoGetAccruedTransactionFeesFoundationAccount bs = return $! PoolRewards.foundationTransactionRewards (bs ^. blockPoolRewards)
 
     bsoSetTransactionOutcomes bs l =
       return $! bs & blockTransactionOutcomes .~ Transactions.transactionOutcomesFromList l

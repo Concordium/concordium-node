@@ -31,6 +31,7 @@ import Data.Ratio
 import Concordium.Types
 import qualified Concordium.Types.Accounts as Types
 import qualified Concordium.Types.Parameters as Types
+import qualified Concordium.Types.Transactions as Types
 import Concordium.Logger
 import Concordium.GlobalState.Basic.BlockState.PoolRewards
 import Concordium.GlobalState.TreeState
@@ -39,31 +40,6 @@ import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Parameters
-    ( MintDistribution,
-      PoolParameters(PoolParametersV1, _ppLeverageBound, _ppCapitalBound,
-                     _ppMinimumFinalizationCapital, _ppMinimumEquityCapital,
-                     _ppCommissionBounds, _ppLPoolCommissions),
-      TimeParameters(_tpMintPerPayday),
-      bakingCommissionRange,
-      cpAccountCreationLimit,
-      cpPoolParameters,
-      cpTimeParameters,
-      finalizationCommissionRange,
-      mpsMintPerSlot,
-      ppLPoolCommissions,
-      tpMintPerPayday,
-      transactionCommissionRange,
-      CommissionRanges,
-      HasGASRewards(gasFinalizationProof, gasBaker, gasAccountCreation,
-                    gasChainUpdate),
-      HasMintDistribution(mdFinalizationReward, mdMintPerSlot,
-                          mdBakingReward),
-      HasRewardParameters(rewardParameters, rpMintDistribution),
-      HasTransactionFeeDistribution(tfdGASAccount, tfdBaker),
-      BasicGenesisData(gdSlotDuration, gdMaxBlockEnergy, gdGenesisTime),
-      UpdateValue(UVPoolParameters, UVTimeParameters,
-                  UVMintDistribution),
-      RuntimeParameters(rpBlockSize, rpBlockTimeout) )
 import Concordium.Types.SeedState
 import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.AccountTransactionIndex
@@ -263,7 +239,8 @@ calculatePaydayMintAmounts ::
   -- ^Total GTU
   -> MintAmounts
 calculatePaydayMintAmounts md mr ps updates amt =
-  let selectMaxSlotMintRate :: (Slot, MintRate) -> (Slot,  UpdateValue 'ChainParametersV1) -> (Slot, MintRate)
+  -- TODO: Do not change the mnint rate mr.
+  let selectMaxSlotMintRate :: (Slot, MintRate) -> (Slot, UpdateValue 'ChainParametersV1) -> (Slot, MintRate)
       selectMaxSlotMintRate (s2, mr2) (s1, UVTimeParameters tp) =
         if s1 <= s2 then (s1, _tpMintPerPayday tp) else (s2, mr2)
       selectMaxSlotMintRate a _ = a
@@ -307,7 +284,7 @@ doMinting blockParent slotNumber foundationAddr mintUpds bs0 = do
 
 -- |Mint for the given payday, recording a
 -- special transaction outcome for the minting.
-doMintingPayday :: (ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1, GlobalStateTypes m, BlockStateOperations m, BlockPointerMonad m)
+doMintingP4 :: (ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1, GlobalStateTypes m, BlockStateOperations m, BlockPointerMonad m)
   => BlockPointerType m
   -- ^Parent block
   -> Epoch
@@ -319,7 +296,9 @@ doMintingPayday :: (ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1, Glob
   -> UpdatableBlockState m
   -- ^Block state
   -> m (UpdatableBlockState m)
-doMintingPayday blockParent paydayEpoch foundationAddr mintUpds bs0 = do
+doMintingP4 blockParent paydayEpoch foundationAddr mintUpds bs0 = do
+  -- TODO: can simply use next payday instead of argument paydayEpoch.
+  -- Need to use nextPaydayMintRate here instead of tpMintPerPayday.
   parentUpdates <- getUpdates =<< blockState blockParent
   totGTU <- (^. totalGTU) <$> bsoGetBankStatus bs0
   seedstate <- bsoGetSeedState bs0
@@ -442,12 +421,10 @@ doBlockRewardP4 :: forall m. (BlockStateOperations m, MonadProtocolVersion m, Ch
   -- ^Counts of unpaid transactions
   -> BakerId
   -- ^Block baker
-  -> AccountAddress
-  -- ^Foundation account
   -> UpdatableBlockState m
   -- ^Block state
   -> m (UpdatableBlockState m)
-doBlockRewardP4 transFees FreeTransactionCounts{..} bid foundationAddr bs0 = do
+doBlockRewardP4 transFees FreeTransactionCounts{..} bid bs0 = do
     chainParameters <- bsoGetChainParameters bs0
     capitalDistribution <- bsoGetCurrentCapitalDistribution bs0
     bakers <- bsoGetCurrentEpochBakers bs0
@@ -474,9 +451,18 @@ doBlockRewardP4 transFees FreeTransactionCounts{..} bid foundationAddr bs0 = do
         gasOut = gasFees - lPoolGASFees + gasGAS
         poolOut = poolFees + bakerGAS
     bs1 <- bsoSetRewardAccounts bs0 (oldRewardAccts & gasAccount .~ gasOut)
-    bs2 <- bsoAccrueFoundationAccount bs1 platformFees
-    bs3 <- bsoUpdateAmountLPool bs2 (+ lPoolOut)
-    bsoUpdateAmountBaker bs1 bid (+ poolOut)
+    bs2 <- bsoUpdateAccruedTransactionFeesFoundationAccount bs1 (+ platformFees)
+    bs3 <- bsoUpdateAccruedTransactionFeesLPool bs2 (+ lPoolOut)
+    bs4 <- bsoUpdateAccruedTransactionFeesBaker bs3 bid (+ poolOut)
+    bsoAddSpecialTransactionOutcome bs4 BlockAccrueReward{
+      stoTransactionFees = transFees,
+      stoOldGASAccount = gasIn,
+      stoNewGASAccount = gasOut,
+      stoBakerReward = poolOut,
+      stoLPoolReward = lPoolOut,
+      stoFoundationCharge = platformFees,
+      stoBakerId = bid
+    }
 
 distributeRewards
   :: forall m
@@ -484,13 +470,14 @@ distributeRewards
       ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1,
       BlockStateOperations m,
       TreeStateMonad m)
-  => UpdatableBlockState m
+  => AccountAddress
+  -> UpdatableBlockState m
   -> m (UpdatableBlockState m)
-distributeRewards bs0 = do
+distributeRewards foundationAddr bs0 = do
   chainParameters <- bsoGetChainParameters bs0
   bankStatus <- bsoGetBankStatus bs0
   let rewardAccts = bankStatus ^. bankRewardAccounts
-  lPoolAccrued <- bsoGetAmountLPool bs0
+  lPoolAccrued <- bsoGetAccruedTransactionFeesLPool bs0
   capitalDistribution <- bsoGetCurrentCapitalDistribution bs0
   bakers <- bsoGetCurrentEpochBakers bs0
   let lPoolStake = sum $ dcDelegatorCapital <$> lPoolCapital capitalDistribution
@@ -502,17 +489,30 @@ distributeRewards bs0 = do
       lPoolFinalizationReward = floor $ fromIntegral (rewardAccts ^. finalizationRewardAccount) * lPoolFinalizationFraction
       lPoolBakingReward = floor $ fromIntegral (rewardAccts ^. bakingRewardAccount) * lPoolBakingFraction
       lPoolTotalStake = Vec.foldl (\a dc -> a + dcDelegatorCapital dc) 0 (lPoolCapital capitalDistribution)
-  (lPoolAccumFinalization, lPoolAccumBaking, lPoolAccumTransaction, bs1) <- rewardDelegators bs0 lPoolFinalizationReward lPoolBakingReward lPoolAccrued lPoolTotalStake (lPoolCapital capitalDistribution)
-  bs2 <- bsoUpdateAmountLPool bs1 (subtract lPoolAccumTransaction)
+  (lPoolAccumFinalization, lPoolAccumBaking, lPoolAccumTransaction, lPoolOutcomes, bs1) <- rewardDelegators bs0 lPoolFinalizationReward lPoolBakingReward lPoolAccrued lPoolTotalStake (lPoolCapital capitalDistribution)
+  bs2 <- bsoUpdateAccruedTransactionFeesLPool bs1 (subtract lPoolAccumTransaction)
   let bakerBakingRewardFactor = rewardAccts ^. bakingRewardAccount - lPoolBakingReward
   let bakerFinalizationFactor = rewardAccts ^. finalizationRewardAccount - lPoolFinalizationReward
-  (bakerAccumFinalization, bakerAccumBaking, bs3) <- rewardBakers bs2 (bankStatus ^. totalGTU) bakers bakerBakingRewardFactor bakerFinalizationFactor (BI.bakerTotalStake bakers) (bakerPoolCapital capitalDistribution)
+  (bakerAccumFinalization, bakerAccumBaking, bakerOutcomes, bs3) <- rewardBakers bs2 (bankStatus ^. totalGTU) bakers bakerBakingRewardFactor bakerFinalizationFactor (bakerPoolCapital capitalDistribution)
   let newRewardAccts = rewardAccts
         & finalizationRewardAccount %~ subtract (lPoolAccumFinalization + bakerAccumFinalization)
         & bakingRewardAccount %~ subtract (lPoolAccumBaking + bakerAccumBaking)
   bs4 <- bsoSetRewardAccounts bs3 newRewardAccts
-  -- TODO transaction outcome?
-  undefined
+  accruedFoundation <- bsoGetAccruedTransactionFeesFoundationAccount bs4
+  bs5 <- bsoRewardFoundationAccount bs4 accruedFoundation
+  bs6 <- bsoUpdateAccruedTransactionFeesFoundationAccount bs5 (const 0)
+  bs7 <- bsoAddSpecialTransactionOutcome bs6 PaydayFoundationReward{
+    stoFoundationAccount = foundationAddr,
+    stoDevelopmentCharge = accruedFoundation
+  }
+  bs8 <- bsoAddSpecialTransactionOutcome bs7 PaydayPoolReward{
+      stoPoolOwner = Nothing,
+      stoTransactionFees = lPoolAccrued,
+      stoBakerReward = lPoolBakingReward,
+      stoFinalizationReward = lPoolFinalizationReward
+    }
+  bs9 <- foldM bsoAddSpecialTransactionOutcome bs8 lPoolOutcomes
+  foldM bsoAddSpecialTransactionOutcome bs9 bakerOutcomes
     where
       rewardDelegators
         :: UpdatableBlockState m
@@ -521,22 +521,40 @@ distributeRewards bs0 = do
         -> Amount
         -> Amount
         -> Vec.Vector DelegatorCapital
-        -> m (Amount, Amount, Amount, UpdatableBlockState m)
-      rewardDelegators bs totalFinalizationReward totalBakingReward totalTransactionReward totalStake dcs =
+        -> m (Amount, Amount, Amount, [Types.SpecialTransactionOutcome], UpdatableBlockState m)
+      rewardDelegators bs totalFinalizationReward totalBakingReward totalTransactionReward totalStake dcs
+        | totalStake == 0 = return (0, 0, 0, [], bs)
+        | otherwise = doRewardDelegators bs totalFinalizationReward totalBakingReward totalTransactionReward totalStake dcs
+
+      doRewardDelegators
+        :: UpdatableBlockState m
+        -> Amount
+        -> Amount
+        -> Amount
+        -> Amount
+        -> Vec.Vector DelegatorCapital
+        -> m (Amount, Amount, Amount, [Types.SpecialTransactionOutcome], UpdatableBlockState m)
+      doRewardDelegators bs totalFinalizationReward totalBakingReward totalTransactionReward totalStake dcs =
         foldM
-          (\(accumFinalization, accumBaking, accumTransaction, bs1) dc -> do
+          (\(accumFinalization, accumBaking, accumTransaction, accumOutcomes, bs1) dc -> do
             let delegatorCapital = dcDelegatorCapital dc
                 relativeStake = delegatorCapital % totalStake
                 finalizationReward = floor $ relativeStake * fromIntegral totalFinalizationReward
                 bakingReward = floor $ relativeStake * fromIntegral totalBakingReward
                 transactionReward = floor $ relativeStake * fromIntegral totalTransactionReward
                 reward = finalizationReward + bakingReward + transactionReward
-            -- It is an invariant that the delegator is a delegation account,
-            -- so we ignore the "error part" of 'bsoRewardDelegator'.
-            (_, bs2) <- bsoRewardDelegator bs1 (dcDelegatorId dc) reward
-            -- TODO transaction outcome here?
-            return (accumFinalization + finalizationReward, accumBaking + bakingReward, accumTransaction + transactionReward, bs2)
-          ) (0, 0, 0, bs) dcs
+            (mAcct, bs2) <- bsoRewardDelegator bs1 (dcDelegatorId dc) reward
+            let acct = case mAcct of
+                  Nothing -> error $ "Invariant violation: delegator accout for " ++ show (dcDelegatorId dc) ++ " does not exist"
+                  Just a -> a
+            let delegatorOutcome = PaydayAccountReward{
+                    stoAccount = acct,
+                    stoTransactionFees = transactionReward,
+                    stoBakerReward = bakingReward,
+                    stoFinalizationReward = finalizationReward
+                  }
+            return (accumFinalization + finalizationReward, accumBaking + bakingReward, accumTransaction + transactionReward, delegatorOutcome : accumOutcomes, bs2)
+          ) (0, 0, 0, [], bs) dcs
 
       rewardBakers
         :: UpdatableBlockState m
@@ -544,20 +562,33 @@ distributeRewards bs0 = do
         -> BI.FullBakers
         -> Amount
         -> Amount
+        -> Vec.Vector BakerCapital
+        -> m (Amount, Amount, [Types.SpecialTransactionOutcome], UpdatableBlockState m)
+      rewardBakers bs gtuTotal bakers bakerBakingRewardFactor bakerFinalizationFactor bcs = do
+        paydayBlockCount <- bsoGetTotalRewardPeriodBlockCount bs
+        if paydayBlockCount == 0
+        then return (0, 0, [], bs)
+        else doRewardBakers bs gtuTotal bakers bakerBakingRewardFactor bakerFinalizationFactor bcs paydayBlockCount
+
+      doRewardBakers
+        :: UpdatableBlockState m
+        -> Amount
+        -> BI.FullBakers
+        -> Amount
         -> Amount
         -> Vec.Vector BakerCapital
-        -> m (Amount, Amount, UpdatableBlockState m)
-      rewardBakers bs gtuTotal bakers bakerBakingRewardFactor bakerFinalizationFactor totalStake bcs = do
+        -> Word64
+        -> m (Amount, Amount, [Types.SpecialTransactionOutcome], UpdatableBlockState m)
+      doRewardBakers bs gtuTotal bakers bakerBakingRewardFactor bakerFinalizationFactor bcs paydayBlockCount = do
         let bakerStakesMap =
               foldl
                 (\m bi -> Map.insert (bi ^. BI.theBakerInfo . Types.bakerIdentity) (bi ^. BI.bakerStake) m)
                 Map.empty
                 (BI.fullBakerInfos bakers)
-        paydayBlockCount <- bsoGetTotalRewardPeriodBlockCount bs
         finParams <- gdFinalizationParameters <$> getGenesisData
         let committee = makeFinalizationCommittee finParams gtuTotal bakers
-        (af, ab, bsOut, _) <- foldM
-          (\(accumFinalization, accumBaking, bsIn, idx) bc -> do
+        (af, ab, outcomes, bsOut, _) <- foldM
+          (\(accumFinalization, accumBaking, accumOutcomes, bsIn, idx) bc -> do
             bprd <- bsoGetBakerPoolRewardDetails bsIn idx
             let accruedReward = transactionFeesAccrued bprd
                 bakerBlockCount = blockCount bprd
@@ -580,16 +611,33 @@ distributeRewards bs0 = do
             let totalDelegationFinalization = takeFraction finalizationFraction bakerFinalizationReward
             let totalDelegationBaking = takeFraction bakingFraction bakerBakingReward
             let totalDelegationTransaction = takeFraction transactionFraction accruedReward
-            (delegationFinalization, delegationBaking, delegationTransaction, bsDel) <- rewardDelegators bsIn totalDelegationFinalization totalDelegationBaking totalDelegationTransaction totalCapital (bcDelegatorCapital bc)
-            let bakerReward = (accruedReward - delegationTransaction) + (bakerBakingReward - delegationBaking) + (bakerFinalizationReward - delegationFinalization)
+            (delegationFinalization, delegationBaking, delegationTransaction, delegatorOutcomes, bsDel) <- rewardDelegators bsIn totalDelegationFinalization totalDelegationBaking totalDelegationTransaction totalCapital (bcDelegatorCapital bc)
+            let transactionRewardToBaker = accruedReward - delegationTransaction
+            let bakingRewardToBaker = bakerBakingReward - delegationBaking
+            let finalizationRewardToBaker = bakerFinalizationReward - delegationFinalization
+            let bakerReward = transactionRewardToBaker + bakingRewardToBaker + finalizationRewardToBaker
             -- It is an invariant that the baker is a baker account,
             -- so we ignore the "error part" of 'bsoRewardBaker'.
-            (_, bsBak) <- bsoRewardBaker bsDel (bcBakerId bc) bakerReward
-            bsUpdate <- bsoUpdateAmountBaker bsBak (bcBakerId bc) (subtract accruedReward)
-            -- TODO transaction outcome here?
-            return (accumFinalization + bakerFinalizationReward, accumBaking + bakerBakingReward, bsUpdate, idx + 1)
-          ) (0, 0, bs, 0) bcs
-        return (af, ab, bsOut)
+            (mAcct, bsBak) <- bsoRewardBaker bsDel (bcBakerId bc) bakerReward
+            let acct = case mAcct of
+                  Nothing -> error $ "Invariant violation: baker accout for " ++ show (bcBakerId bc) ++ " does not exist"
+                  Just a -> a
+            let bakerOutcome = PaydayAccountReward{
+                    stoAccount = acct,
+                    stoTransactionFees = transactionRewardToBaker,
+                    stoBakerReward = bakingRewardToBaker,
+                    stoFinalizationReward = finalizationRewardToBaker
+                  }
+            bsUpdate <- bsoUpdateAccruedTransactionFeesBaker bsBak (bcBakerId bc) (const 0)
+            let poolOutcome = PaydayPoolReward{
+                  stoPoolOwner = Just (bcBakerId bc),
+                  stoTransactionFees = accruedReward,
+                  stoBakerReward = bakerBakingReward,
+                  stoFinalizationReward = bakerFinalizationReward
+                }
+            return (accumFinalization + bakerFinalizationReward, accumBaking + bakerBakingReward, poolOutcome : bakerOutcome : delegatorOutcomes ++ accumOutcomes, bsUpdate, idx + 1)
+          ) (0, 0, [], bs, 0) bcs
+        return (af, ab, outcomes, bsOut)
 
       bakerPoolInfo bs (BakerId ai) = do
         bsoGetAccountByIndex bs ai >>= \case
@@ -597,22 +645,53 @@ distributeRewards bs0 = do
           Just acc -> getAccountBaker acc >>= \case
             Nothing -> error "Invariant violation: Active baker account is not a baker account"
             Just ab -> return (ab ^. Types.accountBakerInfo . Types.bieBakerPoolInfo)
-  -- TODO: remove this:
-  -- bi <- derefBakerInfo $ activeBakerInfoRef abi
-  -- cO,P(i)=capitalO,P(i) /capitalP(i)
-  -- We need R_{F,P}^i, R_{B,P}^i, R_{T,P}^i and µ_{F,P}, µ_{B,P}, µ_{T,P}
-  -- R_{T,P}^i is the transactionFeesAccrued from BakerPoolRewardDetails
-  -- R_{T,L}^i is the lPoolTransactionRewards in PoolRewards
-  -- R_{F,L}^i = R_F^i*(1-µ_{F,L}) * s_L^i where 
-  -- - s_L^i = stake_L^i / (stake^i + stake_L^i)
-  -- - stake_L^i = 
-  -- - stake^i = sum_P stake_P^i = _bakerTotalStake
-  -- - µ_{F,L} = chain parameter
-  -- R_{F,P}^i is (R_F^i - R_{F,L}^i) * fs_P^i, where
-  -- - R_F^i is _finalizationRewardAccount from RewardAccounts
-  -- - fs_P^i = fstake_P^i / fstake^i where fstake_P^i = stake_P^i = min(capital_P^i, beta_{P,max}*capital^i, lambda_P*capital_{O,P}^i) = _bakerStake = partyWeight in PartyInfo
-  -- - fstake^i = \sum_P fstake_P^i = totalWeight from Finalization commitee
-  -- getCurrentEpochBakers -> FullBakers -> FullBakerInfo -> _bakerStake
+
+doMintForRemainingPaydays
+  :: (ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1,
+      GlobalStateTypes m,
+      BlockStateOperations m,
+      BlockPointerMonad m)
+  => Epoch
+  -> Epoch
+  -> RewardPeriodLength
+  -> BlockPointerType m
+  -> AccountAddress
+  -> [(Slot, UpdateValue 'ChainParametersV1)]
+  -> UpdatableBlockState m
+  -> m (Epoch, UpdatableBlockState m)
+doMintForRemainingPaydays newEpoch payday rpl blockParent foundationAccount updates bs0 = do
+  -- HERE: set next payday, and set next payday mint rate based on updates.
+  if newEpoch <= payday
+  then return (payday, bs0)
+  else do
+    bs1 <- doMintingP4 blockParent payday foundationAccount updates bs0
+    seedstate <- bsoGetSeedState bs0
+    let selectMaxSlotRPL :: (Slot, RewardPeriodLength) -> (Slot, UpdateValue 'ChainParametersV1) -> (Slot, RewardPeriodLength)
+        selectMaxSlotRPL (s2, rpl2) (s1, UVTimeParameters tp) =
+          if s1 <= s2 then (s1, _tpRewardPeriodLength tp) else (s2, rpl2)
+        selectMaxSlotRPL a _ = a
+        paydaySlot = epochLength seedstate * fromIntegral payday
+        newRPL = snd $ foldl' selectMaxSlotRPL (paydaySlot, rpl) updates
+        nextPayday = payday + rewardPeriodEpochs newRPL
+    doMintForRemainingPaydays newEpoch nextPayday newRPL blockParent foundationAccount updates bs1
+
+mintForRemainingPaydays
+  :: (ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1,
+      GlobalStateTypes m,
+      BlockStateOperations m,
+      BlockPointerMonad m)
+  => Epoch
+  -> Epoch
+  -> BlockPointerType m
+  -> AccountAddress
+  -> [(Slot, UpdateValue 'ChainParametersV1)]
+  -> UpdatableBlockState m
+  -> m (Epoch, UpdatableBlockState m)
+mintForRemainingPaydays newEpoch payday blockParent foundationAccount updates bs = do
+  chainParams <- bsoGetChainParameters bs
+  let rpl = chainParams ^. cpTimeParameters . tpRewardPeriodLength
+  let nextPayday = payday + rewardPeriodEpochs rpl
+  doMintForRemainingPaydays newEpoch nextPayday rpl blockParent foundationAccount updates bs
 
 -- |Mint new tokens and distribute rewards to bakers, finalizers and the foundation.
 -- The process consists of the following four steps:
@@ -692,28 +771,25 @@ mintAndReward bshandle blockParent slotNumber bid newEpoch isNewEpoch mfinInfo t
 
       -- Finally, reward the block baker.
       doBlockReward transFees freeCounts bid foundationAccount bshandleFinRew
+
     mintAndRewardCPV1AccountV1
         :: (AccountVersionFor (MPV m) ~ 'AccountV1,
             ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1)
         => m (UpdatableBlockState m)
     mintAndRewardCPV1AccountV1 = do
-      -- First, check if next payday is in the future
       foundationAccount <- getAccountCanonicalAddress =<< bsoGetFoundationAccount bshandle
       nextPayday <- bsoGetPaydayEpoch bshandle
       bshandleFinRew <- if newEpoch < nextPayday
         then return bshandle
         else do
-          -- 1. mint for first payday
-          bshandleMint <- doMintingPayday blockParent nextPayday foundationAccount updates bshandle
-          -- 2. distribute rewards
-          bshandleRewards <- distributeRewards bshandleMint
-          -- TODO: consider the case where blockParent is a genesis block
-          -- 3. distributed accrued transaction fees
-          -- 4. Mint for skipped paydays
-          return bshandle
-
-      -- accumulate fee
-      doBlockRewardP4 transFees freeCounts bid foundationAccount bshandleFinRew
+          bshandleMint <- doMintingP4 blockParent nextPayday foundationAccount updates bshandle
+          bshandleRewards <- distributeRewards foundationAccount bshandleMint
+          (newPayday, bshandleMint2) <- mintForRemainingPaydays newEpoch nextPayday blockParent foundationAccount updates bshandleRewards
+          bshandleNewPayday <- bsoSetPaydayEpoch bshandleMint2 newPayday
+          bshandleNewCapital <- bsoRotateCurrentCapitalDistribution bshandleNewPayday
+          bshandleNewBakers <- bsoRotateCurrentEpochBakers bshandleNewCapital
+          undefined
+      doBlockRewardP4 transFees freeCounts bid bshandleFinRew
 
 -- |Update the bakers and seed state of the block state.
 -- The epoch for the new seed state must be at least the epoch of
@@ -848,9 +924,9 @@ executeFrom blockHash slotNumber slotTime blockParent blockBaker mfinInfo newSee
                 genData <- getGenesisData
                 let updates' = (_1 %~ transactionTimeToSlot (gdGenesisTime genData) (gdSlotDuration genData))
                                 <$> Map.toAscList updates
-                bshandle4 <- mintAndReward bshandle3 blockParent slotNumber blockBaker (epoch newSeedState) isNewEpoch mfinInfo (finState ^. schedulerExecutionCosts) counts updates'
-
-                finalbsHandle <- freezeBlockState bshandle4
+                (newPayday, bshandle4) <- mintAndReward bshandle3 blockParent slotNumber blockBaker (epoch newSeedState) isNewEpoch mfinInfo (finState ^. schedulerExecutionCosts) counts updates'
+                bshandle5 <- prepareForNextPayday newPayday bshandle4
+                finalbsHandle <- freezeBlockState bshandle5
                 return (Right (ExecutionResult{_energyUsed = usedEnergy,
                                               _finalState = finalbsHandle,
                                               _transactionLog = finState ^. schedulerTransactionLog}))
