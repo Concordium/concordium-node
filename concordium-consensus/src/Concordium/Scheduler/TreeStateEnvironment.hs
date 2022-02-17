@@ -155,9 +155,9 @@ rewardLastEpochBakers bs0 = do
     -- There are some blocks, so it will be safe to divide.
     let (perBlock, braRem) = (rewards ^. bakingRewardAccount) `divMod` fromIntegral totalBlocks
     bs2 <- bsoSetRewardAccounts bs1 (rewards & bakingRewardAccount .~ braRem)
-    let rewardBaker (m,bs) (bid, blockCount) = do
+    let rewardBaker (m,bs) (bid@(BakerId aid), blockCount) = do
           let brew = fromIntegral (blockCount :: Word64) * perBlock
-          (macct,bs')  <- bsoRewardBaker bs bid brew
+          (macct,bs')  <- bsoRewardAccount bs aid brew
           case macct of
             Nothing -> error $ "rewardLastEpochBakers: invariant violation: baker account (" ++ show bid ++ ") does not exist"
             Just acct -> return (Map.insert acct brew m, bs')
@@ -327,9 +327,9 @@ doFinalizationRewards finInfo bs0
     | otherwise = do
         rewards <- _bankRewardAccounts <$> bsoGetBankStatus bs0
         let finRew = rewards ^. finalizationRewardAccount
-        let awardFinalizer (t, m, bs) (bkr, power) = do
+        let awardFinalizer (t, m, bs) (bkr@(BakerId aid), power) = do
               let amt = fromInteger $ toInteger finRew * toInteger power `div` toInteger totalPower
-              (mbaddr, bs') <- bsoRewardBaker bs bkr amt
+              (mbaddr, bs') <- bsoRewardAccount bs aid amt
               case mbaddr of
                 Nothing -> error $ "doFinalizationRewards: Finalizer BakerId (" ++ show bkr ++ ") is not valid."
                 Just baddr -> return (t + amt, Map.insert baddr amt m, bs') 
@@ -373,7 +373,7 @@ doBlockReward :: forall m. (BlockStateOperations m, MonadProtocolVersion m, Chai
   -> UpdatableBlockState m
   -- ^Block state
   -> m (UpdatableBlockState m)
-doBlockReward transFees FreeTransactionCounts{..} bid foundationAddr bs0 = do
+doBlockReward transFees FreeTransactionCounts{..} bid@(BakerId aid) foundationAddr bs0 = do
     chainParameters <- bsoGetChainParameters bs0
     let rewardParams = chainParameters ^. rewardParameters
     oldRewardAccts <- (^. rewardAccounts) <$> bsoGetBankStatus bs0
@@ -394,7 +394,7 @@ doBlockReward transFees FreeTransactionCounts{..} bid foundationAddr bs0 = do
         bakerOut = bakerFees + bakerGAS
     bs1 <- bsoSetRewardAccounts bs0 (oldRewardAccts & gasAccount .~ gasOut)
     bs2 <- bsoRewardFoundationAccount bs1 platformFees
-    (mbkr, bs3) <- bsoRewardBaker bs2 bid bakerOut
+    (mbkr, bs3) <- bsoRewardAccount bs2 aid bakerOut
     bkr <- case mbkr of
       Nothing -> error "Invalid baker account"
       Just bkr -> return bkr
@@ -537,9 +537,9 @@ distributeRewards foundationAddr bs0 = do
                 bakingReward = floor $ relativeStake * fromIntegral totalBakingReward
                 transactionReward = floor $ relativeStake * fromIntegral totalTransactionReward
                 reward = finalizationReward + bakingReward + transactionReward
-            (mAcct, bs2) <- bsoRewardDelegator bs1 (dcDelegatorId dc) reward
+            (mAcct, bs2) <- bsoRewardAccount bs1 (delegatorAccountIndex $ dcDelegatorId dc) reward
             let acct = case mAcct of
-                  Nothing -> error $ "Invariant violation: delegator accout for " ++ show (dcDelegatorId dc) ++ " does not exist"
+                  Nothing -> error $ "Invariant violation: delegator account for " ++ show (dcDelegatorId dc) ++ " does not exist"
                   Just a -> a
             let delegatorOutcome = PaydayAccountReward{
                     stoAccount = acct,
@@ -610,11 +610,9 @@ distributeRewards foundationAddr bs0 = do
             let bakingRewardToBaker = bakerBakingReward - delegationBaking
             let finalizationRewardToBaker = bakerFinalizationReward - delegationFinalization
             let bakerReward = transactionRewardToBaker + bakingRewardToBaker + finalizationRewardToBaker
-            -- It is an invariant that the baker is a baker account,
-            -- so we ignore the "error part" of 'bsoRewardBaker'.
-            (mAcct, bsBak) <- bsoRewardBaker bsDel (bcBakerId bc) bakerReward
+            (mAcct, bsBak) <- bsoRewardAccount bsDel (bakerAccountIndex $ bcBakerId bc) bakerReward
             let acct = case mAcct of
-                  Nothing -> error $ "Invariant violation: baker accout for " ++ show (bcBakerId bc) ++ " does not exist"
+                  Nothing -> error $ "Invariant violation: baker account for " ++ show (bcBakerId bc) ++ " does not exist"
                   Just a -> a
             let bakerOutcome = PaydayAccountReward{
                     stoAccount = acct,

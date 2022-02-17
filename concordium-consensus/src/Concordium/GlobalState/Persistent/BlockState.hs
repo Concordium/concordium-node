@@ -636,35 +636,6 @@ storePBS pbs bsp = liftIO $ do
     return pbs
 {-# INLINE storePBS #-}
 
--- | Fold left over delegators for a given baker
--- 'activeBakerFoldlDelegators' @bsp@ @f@ @a@ @bid@, where
--- * @bsp@ is used to lookup the delegator accounts and active bakers,
--- * @f@ is accumulation function,
--- * @a@ is the initial value,
--- * @bid@ is the baker.
--- If @bid@ is not an active baker in @bsp@, then the initial value @a@ is returned. It is assumed
--- that all delegators to the baker @bid@ are delegator accounts in @bsp@.
-activeBakerFoldlDelegators
-    :: (IsProtocolVersion pv, MonadBlobStore m)
-    => BlockStatePointers pv
-    -> (a -> DelegatorId -> BaseAccounts.AccountDelegation (AccountVersionFor pv) -> m a)
-    -> a
-    -> BakerId
-    -> m a
-activeBakerFoldlDelegators bsp f a0 bid = do
-    pab <- refLoad (bspBirkParameters bsp ^. birkActiveBakers)
-    mDset <- Trie.lookup bid (pab ^. activeBakers)
-    case mDset of
-        Just (PersistentActiveDelegatorsV1 dset) -> foldlM faccount a0 =<< Trie.keys dset
-        _ -> return a0
-    where
-      faccount a did@(DelegatorId aid) = do
-        Accounts.indexedAccount aid (bspAccounts bsp) >>= \case
-            Just PersistentAccount{_accountStake = PersistentAccountStakeDelegate acctDelRef} ->
-                f a did =<< refLoad acctDelRef
-            _ ->
-                error "Invariant violation: active delegator account not a valid delegator"
-
 -- | Get total pool capital, sum of baker and delegator stakes,
 -- 'totalPoolCapital' @bsp@ @bid@, where
 -- * @bsp@ is used to lookup accounts and active bakers,
@@ -672,24 +643,23 @@ activeBakerFoldlDelegators bsp f a0 bid = do
 -- If @bid@ is not a baker in @bsp@, then @0@ is returned.
 -- If @bid@ is not an active baker in @bsp@, then the baker's equity capital (stake) is returned.
 -- It is assumed that all delegators to the baker @bid@ are delegator accounts in @bsp@.
---
--- TODO: use tracking in active bakers
-totalPoolCapital
-    :: forall pv m
-     . (IsProtocolVersion pv, MonadBlobStore m)
-    => BlockStatePointers pv
-    -> BakerId
-    -> m Amount
+totalPoolCapital ::
+    forall pv m.
+    (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1, MonadBlobStore m) =>
+    BlockStatePointers pv ->
+    BakerId ->
+    m Amount
 totalPoolCapital bsp bid@(BakerId aid) = do
     Accounts.indexedAccount aid (bspAccounts bsp) >>= \case
         Just PersistentAccount{_accountStake = PersistentAccountStakeBaker acctBkrRef} -> do
             equityCapital <- _stakedAmount <$> refLoad acctBkrRef
-            activeBakerFoldlDelegators bsp addDelStake equityCapital bid
+            pab <- refLoad (bspBirkParameters bsp ^. birkActiveBakers)
+            Trie.lookup bid (pab ^. activeBakers) >>= \case
+                Nothing -> error "Invariant violation: active baker account is not in active bakers"
+                Just (PersistentActiveDelegatorsV1 _ delegatorCapital) ->
+                    return $! delegatorCapital + equityCapital
         _ ->
             return 0
-    where
-      addDelStake :: Amount -> DelegatorId -> BaseAccounts.AccountDelegation av -> m Amount
-      addDelStake a _ BaseAccounts.AccountDelegationV1{..} = return (a + _delegationStakedAmount)
 
 -- | Get total delegated pool capital, sum of delegator stakes,
 -- 'poolDelegatorCapital' @bsp@ @bid@, where
@@ -698,33 +668,33 @@ totalPoolCapital bsp bid@(BakerId aid) = do
 -- If @bid@ is not a baker in @accounts@, then @0@ is returned.
 -- If @bid@ is not an active baker in @ab@, then the baker's equity capital (stake) is returned.
 -- It is assumed that all delegators to the baker @bid@ are delegator accounts in @accounts@.
---
--- TODO: use tracking in active bakers
-poolDelegatorCapital
-    :: forall pv m
-     . (IsProtocolVersion pv, MonadBlobStore m)
-    => BlockStatePointers pv
-    -> BakerId
-    -> m Amount
-poolDelegatorCapital bsp bid = activeBakerFoldlDelegators bsp addDelStake 0 bid
-    where
-      addDelStake :: Amount -> DelegatorId -> BaseAccounts.AccountDelegation av -> m Amount
-      addDelStake a _ BaseAccounts.AccountDelegationV1{..} = return (a + _delegationStakedAmount)
+poolDelegatorCapital ::
+    forall pv m.
+    (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1, MonadBlobStore m) =>
+    BlockStatePointers pv ->
+    BakerId ->
+    m Amount
+poolDelegatorCapital bsp bid = do
+    pab <- refLoad (bspBirkParameters bsp ^. birkActiveBakers)
+    Trie.lookup bid (pab ^. activeBakers) >>= \case
+        Nothing -> return 0
+        Just PersistentActiveDelegatorsV1{..} -> return adDelegatorTotalCapital
 
 -- | Get the total delegated L-pool capital.
--- TODO: define!
-lPoolDelegatorCapital :: (IsProtocolVersion pv, MonadBlobStore m)
+lPoolDelegatorCapital :: (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1, MonadBlobStore m)
     => BlockStatePointers pv
     -> m Amount
-lPoolDelegatorCapital = undefined
+lPoolDelegatorCapital bsp = do
+    pab <- refLoad (bspBirkParameters bsp ^. birkActiveBakers)
+    return $! pab ^. lPoolDelegators . adDelegatorTotalCapital
 
 -- | Get the total capital currently staked by bakers and delegators.
 -- Note, this is separate from the stake and capital distribution used for the current payday, as
 -- it reflects the current value of accounts.
--- TODO: define!
 totalCapital :: (IsProtocolVersion pv, MonadBlobStore m) => BlockStatePointers pv -> m Amount
-totalCapital = undefined
-
+totalCapital = do
+    pab <- refLoad (bspBirkParameters bsp ^. birkActiveBakers)
+    return $! pab ^. totalActiveCapitalV1
 
 doGetModule :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> ModuleRef -> m (Maybe GSWasm.ModuleInterface)
 doGetModule s modRef = do
@@ -849,7 +819,8 @@ doTransitionEpochBakers pbs newEpoch = do
                                 newABs <- refMake $ PersistentActiveBakers {
                                         _activeBakers = newAB,
                                         _aggregationKeys = newAK,
-                                        _lPoolDelegators = curABs ^. lPoolDelegators
+                                        _lPoolDelegators = curABs ^. lPoolDelegators,
+                                        _totalActiveCapital = TotalActiveCapitalV0
                                     }
                                 -- Remove the baker from the account
                                 let updAcc acc = ((),) <$> setPersistentAccountStake acc PersistentAccountStakeNone
@@ -913,11 +884,11 @@ doGetActiveBakersAndDelegators pbs = do
     bsp <- loadPBS pbs
     ab <- refLoad $ bspBirkParameters bsp ^. birkActiveBakers
     abis <- Trie.toAscList (ab ^. activeBakers) >>= mapM (mkActiveBakerInfo bsp)
-    let PersistentActiveDelegatorsV1 dset = ab ^. lPoolDelegators
+    let PersistentActiveDelegatorsV1 dset _ = ab ^. lPoolDelegators
     lps <- Trie.keys dset >>= mapM (mkActiveDelegatorInfo bsp)
     return (abis, lps)
       where
-            mkActiveBakerInfo bsp (BakerId acct, PersistentActiveDelegatorsV1 dlgs) = do
+            mkActiveBakerInfo bsp (BakerId acct, PersistentActiveDelegatorsV1 dlgs _) = do
                 theBaker <- Accounts.indexedAccount acct (bspAccounts bsp) >>= \case
                     Just PersistentAccount{_accountStake = PersistentAccountStakeBaker pab} ->
                         refLoad pab
@@ -1556,8 +1527,8 @@ doRemoveBaker pbs ai = do
             _ -> return (BRInvalidBaker, pbs)
 
 
-doRewardBaker :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> BakerId -> Amount -> m (Maybe AccountAddress, PersistentBlockState pv)
-doRewardBaker pbs (BakerId ai) reward = do
+doRewardAccount :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> AccountIndex -> Amount -> m (Maybe AccountAddress, PersistentBlockState pv)
+doRewardAccount pbs ai reward = do
         bsp <- loadPBS pbs
         (maddr, newAccounts) <- Accounts.updateAccountsAtIndex updAcc ai (bspAccounts bsp)
         (maddr,) <$> storePBS pbs bsp{bspAccounts = newAccounts}
@@ -2559,10 +2530,9 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateOperations (Pe
     bsoUpdateBakerStake = doUpdateBakerStake
     bsoUpdateBakerRestakeEarnings = doUpdateBakerRestakeEarnings
     bsoRemoveBaker = doRemoveBaker
-    bsoRewardBaker = doRewardBaker
+    bsoRewardAccount = doRewardAccount
     bsoGetTotalRewardPeriodBlockCount = doGetTotalRewardPeriodBlockCount
     bsoGetBakerPoolRewardDetails = doGetBakerPoolRewardDetails
-    bsoRewardDelegator = doRewardDelegator
     bsoRewardFoundationAccount = doRewardFoundationAccount
     bsoGetFoundationAccount = doGetFoundationAccount
     bsoMint = doMint

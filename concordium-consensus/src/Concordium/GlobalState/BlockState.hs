@@ -632,12 +632,12 @@ class (BlockStateQuery m) => BlockStateOperations m where
     -> AccountIndex
     -> m (BakerRemoveResult, UpdatableBlockState m)
 
-  -- |Add an amount to a baker's account as a reward. The baker's stake is increased
-  -- correspondingly if the baker is set to restake rewards.
-  -- If the baker id refers to an account, the reward is paid to the account, and the
+  -- |Add an amount to a baker or delegator's account as a reward. The accounts's stake is increased
+  -- correspondingly if it is set to restake rewards.
+  -- If the id refers to an account, the reward is paid to the account, and the
   -- address of the account is returned.  If the id does not refer to an account
   -- then no change is made and @Nothing@ is returned.
-  bsoRewardBaker :: UpdatableBlockState m -> BakerId -> Amount -> m (Maybe AccountAddress, UpdatableBlockState m)
+  bsoRewardAccount :: UpdatableBlockState m -> AccountIndex -> Amount -> m (Maybe AccountAddress, UpdatableBlockState m)
 
   -- |Get total number of baked blocks in current reward period.
   bsoGetTotalRewardPeriodBlockCount :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> m Word64
@@ -648,13 +648,6 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- It is required that the index @idx@ is an index of a baker in the
   -- 'CapitalDistribution' returned by 'bsoGetCurrentCapitalDistribution'.
   bsoGetBakerPoolRewardDetails :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> Word64 -> m BakerPoolRewardDetails
-
-  -- |Add an amount to a delegator's account as a reward. The delegators's stake is increased
-  -- correspondingly if the delegator is set to restake rewards.
-  -- If the delegator id refers to an account, the reward is paid to the account, and the
-  -- address of the account is returned.  If the id does not refer to an account
-  -- then no change is made and @Nothing@ is returned.
-  bsoRewardDelegator :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> DelegatorId -> Amount -> m (Maybe AccountAddress, UpdatableBlockState m)
 
   -- |Update the amount to be distributed to the given baker's account at payday. If baker is not active, the function does not
   -- change the blockstate. It is a precondition that the given baker is active.
@@ -965,10 +958,9 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoUpdateBakerStake s addr a = lift $ bsoUpdateBakerStake s addr a
   bsoUpdateBakerRestakeEarnings s addr a = lift $ bsoUpdateBakerRestakeEarnings s addr a
   bsoRemoveBaker s = lift . bsoRemoveBaker s
-  bsoRewardBaker s bid amt = lift $ bsoRewardBaker s bid amt
+  bsoRewardAccount s aid amt = lift $ bsoRewardAccount s aid amt
   bsoGetTotalRewardPeriodBlockCount = lift . bsoGetTotalRewardPeriodBlockCount
   bsoGetBakerPoolRewardDetails s idx = lift $ bsoGetBakerPoolRewardDetails s idx
-  bsoRewardDelegator s bid amt = lift $ bsoRewardDelegator s bid amt
   bsoRewardFoundationAccount s = lift . bsoRewardFoundationAccount s
   bsoGetFoundationAccount = lift . bsoGetFoundationAccount
   bsoMint s = lift . bsoMint s
@@ -1028,7 +1020,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoUpdateBakerStake #-}
   {-# INLINE bsoUpdateBakerRestakeEarnings #-}
   {-# INLINE bsoRemoveBaker #-}
-  {-# INLINE bsoRewardBaker #-}
+  {-# INLINE bsoRewardAccount #-}
   {-# INLINE bsoGetFoundationAccount #-}
   {-# INLINE bsoRewardFoundationAccount #-}
   {-# INLINE bsoMint #-}

@@ -163,48 +163,74 @@ type BakerIdTrieMap av = Trie.TrieN (BufferedBlobbed BlobRef) BakerId (Persisten
 
 data PersistentActiveDelegators (av :: AccountVersion) where
     PersistentActiveDelegatorsV0 :: PersistentActiveDelegators 'AccountV0
-    PersistentActiveDelegatorsV1 :: !DelegatorIdTrieSet -> PersistentActiveDelegators 'AccountV1
-
-persistentActiveDelegatorsForAccountV1 :: PersistentActiveDelegators 'AccountV1 -> DelegatorIdTrieSet
-persistentActiveDelegatorsForAccountV1 (PersistentActiveDelegatorsV1 ds) = ds
+    PersistentActiveDelegatorsV1 ::
+        { adDelegators :: !DelegatorIdTrieSet,
+          adDelegatorTotalCapital :: !Amount
+        } ->
+        PersistentActiveDelegators 'AccountV1
 
 emptyPersistentAccountDelegators :: forall av. IsAccountVersion av => PersistentActiveDelegators av
 emptyPersistentAccountDelegators =
     case accountVersion @av of
         SAccountV0 -> PersistentActiveDelegatorsV0
-        SAccountV1 -> PersistentActiveDelegatorsV1 Trie.empty
+        SAccountV1 -> PersistentActiveDelegatorsV1 Trie.empty 0
 
 deriving instance Show (PersistentActiveDelegators av)
 
 instance (IsAccountVersion av, MonadBlobStore m) => BlobStorable m (PersistentActiveDelegators av) where
-  storeUpdate PersistentActiveDelegatorsV0 =
-    return (return (), PersistentActiveDelegatorsV0)
-  storeUpdate (PersistentActiveDelegatorsV1 ds) = do
-    (pDas, newDs) <- storeUpdate ds
-    return (pDas, PersistentActiveDelegatorsV1 newDs)
-  store a = fst <$> storeUpdate a
-  load =
-    case accountVersion @av of
-        SAccountV0 -> return (return PersistentActiveDelegatorsV0)
-        SAccountV1 -> fmap (fmap PersistentActiveDelegatorsV1) load
+    storeUpdate PersistentActiveDelegatorsV0 =
+        return (return (), PersistentActiveDelegatorsV0)
+    storeUpdate PersistentActiveDelegatorsV1{..} = do
+        (pDas, newDs) <- storeUpdate adDelegators
+        return (pDas <> put adDelegatorTotalCapital, PersistentActiveDelegatorsV1 newDs adDelegatorTotalCapital)
+    store a = fst <$> storeUpdate a
+    load =
+        case accountVersion @av of
+            SAccountV0 -> return (return PersistentActiveDelegatorsV0)
+            SAccountV1 -> do
+                madDelegators <- load
+                adDelegatorTotalCapital <- get
+                return $ do
+                    adDelegators <- madDelegators
+                    return PersistentActiveDelegatorsV1{..}
+
+data TotalActiveCapital (av :: AccountVersion) where
+    TotalActiveCapitalV0 :: TotalActiveCapital 'AccountV0
+    TotalActiveCapitalV1 :: !Amount -> TotalActiveCapital 'AccountV1
+
+deriving instance Show (TotalActiveCapital av)
+
+instance IsAccountVersion av => Serialize (TotalActiveCapital av) where
+    put TotalActiveCapitalV0 = return ()
+    put (TotalActiveCapitalV1 amt) = put amt
+    get = case accountVersion @av of
+        SAccountV0 -> return TotalActiveCapitalV0
+        SAccountV1 -> TotalActiveCapitalV1 <$> get
 
 data PersistentActiveBakers (av :: AccountVersion) = PersistentActiveBakers {
     _activeBakers :: !(BakerIdTrieMap av),
     _aggregationKeys :: !(Trie.TrieN (BufferedBlobbed BlobRef) BakerAggregationVerifyKey ()),
-    _lPoolDelegators :: !(PersistentActiveDelegators av)
+    _lPoolDelegators :: !(PersistentActiveDelegators av),
+    _totalActiveCapital :: !(TotalActiveCapital av)
 } deriving (Show)
 
 makeLenses ''PersistentActiveBakers
 
+totalActiveCapitalV1 :: Lens' (PersistentActiveBakers 'AccountV1) Amount
+totalActiveCapitalV1 = totalActiveCapital . tac
+    where
+        tac :: Lens' (TotalActiveCapital 'AccountV1) Amount
+        tac f (TotalActiveCapitalV1 v) = TotalActiveCapitalV1 <$> f v
+
 instance
         (IsAccountVersion av, MonadBlobStore m) =>
         BlobStorable m (PersistentActiveBakers av) where
-    storeUpdate PersistentActiveBakers{..} = do
+    storeUpdate oldPAB@PersistentActiveBakers{..} = do
         (pActiveBakers, newActiveBakers) <- storeUpdate _activeBakers
         (pAggregationKeys, newAggregationKeys) <- storeUpdate _aggregationKeys
         (pLPoolDelegators, newLPoolDelegators) <- storeUpdate _lPoolDelegators
-        let pPAB = pActiveBakers >> pAggregationKeys >> pLPoolDelegators
-        let newPAB = PersistentActiveBakers{
+        let pPAB = pActiveBakers >> pAggregationKeys >> pLPoolDelegators >> put _totalActiveCapital
+        let newPAB = oldPAB{
           _activeBakers = newActiveBakers,
           _aggregationKeys = newAggregationKeys,
           _lPoolDelegators = newLPoolDelegators
@@ -215,6 +241,7 @@ instance
         mActiveBakers <- load
         mAggregationKeys <- load
         mLPoolDelegators <- load
+        _totalActiveCapital <- get
         return $ do
             _activeBakers <- mActiveBakers
             _aggregationKeys <- mAggregationKeys
@@ -223,24 +250,30 @@ instance
 
 instance (IsAccountVersion av, Applicative m) => Cacheable m (PersistentActiveBakers av)
 
-makePersistentActiveBakers
-    :: forall av m
-     . (IsAccountVersion av, MonadBlobStore m)
-    => Basic.ActiveBakers ->
+makePersistentActiveBakers ::
+    forall av m.
+    (IsAccountVersion av, MonadBlobStore m) =>
+    Basic.ActiveBakers ->
     m (PersistentActiveBakers av)
 makePersistentActiveBakers ab = do
     let addActiveBaker acc (bid, dels) = case accountVersion @av of
             SAccountV0 ->
                 Trie.insert bid PersistentActiveDelegatorsV0 acc
             SAccountV1 -> do
-                pDels <- Trie.fromList $ (, ()) <$> (Set.toList dels)
-                Trie.insert bid (PersistentActiveDelegatorsV1 pDels) acc
+                pDels <- Trie.fromList $ (,()) <$> Set.toList (Basic._apDelegators dels)
+                Trie.insert bid (PersistentActiveDelegatorsV1 pDels (Basic._apDelegatorTotalCapital dels)) acc
     _activeBakers <- foldlM addActiveBaker Trie.empty (Map.toList (Basic._activeBakers ab))
-    _aggregationKeys <- Trie.fromList $ (, ()) <$> Set.toList (Basic._aggregationKeys ab)
+    _aggregationKeys <- Trie.fromList $ (,()) <$> Set.toList (Basic._aggregationKeys ab)
     _lPoolDelegators <- case accountVersion @av of
         SAccountV0 ->
             return PersistentActiveDelegatorsV0
         SAccountV1 ->
-            PersistentActiveDelegatorsV1 <$>
-                Trie.fromList ((, ()) <$> Set.toList (Basic._lPoolDelegators ab))
+            PersistentActiveDelegatorsV1
+                <$> Trie.fromList ((,()) <$> Set.toList (Basic._apDelegators lpool))
+                <*> pure (Basic._apDelegatorTotalCapital lpool)
+          where
+            lpool = Basic._lPoolDelegators ab
+    let _totalActiveCapital = case accountVersion @av of
+            SAccountV0 -> TotalActiveCapitalV0
+            SAccountV1 -> TotalActiveCapitalV1 (Basic._totalActiveCapital ab)
     return PersistentActiveBakers{..}

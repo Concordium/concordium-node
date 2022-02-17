@@ -98,11 +98,36 @@ epochToBakerStakes EpochBakers{..} = Vec.zipWith mkBakerStake _bakerInfos _baker
     where
         mkBakerStake bi bs = (_bakerIdentity bi, bs)
 
+-- |The delegators and total stake of an active pool.
+data ActivePool = ActivePool {
+    -- |The set of delegators to this pool.
+    _apDelegators :: !(Set DelegatorId),
+    -- |The total capital staked by delegators to this pool.
+    _apDelegatorTotalCapital :: !Amount
+} deriving (Eq, Show)
+makeLenses ''ActivePool
+
+-- |Active pool with no delegators.
+emptyActivePool :: ActivePool
+emptyActivePool = ActivePool mempty 0
+
+instance Semigroup ActivePool where
+    ap1 <> ap2 =
+        ActivePool
+            (_apDelegators ap1 <> _apDelegators ap2)
+            (_apDelegatorTotalCapital ap1 + _apDelegatorTotalCapital ap2)
+
 -- |The set of accounts that are currently registered as bakers.
 data ActiveBakers = ActiveBakers {
-    _activeBakers :: !(Map BakerId (Set DelegatorId)),
+    _activeBakers :: !(Map BakerId ActivePool),
     _aggregationKeys :: !(Set BakerAggregationVerifyKey),
-    _lPoolDelegators :: !(Set DelegatorId)
+    _lPoolDelegators :: !ActivePool,
+    -- |The total capital of active bakers and delegators.
+    _totalActiveCapital :: !Amount
 } deriving (Eq, Show)
 
 makeLenses ''ActiveBakers
+
+-- |An empty 'ActiveBakers' structure.
+emptyActiveBakers :: ActiveBakers
+emptyActiveBakers = ActiveBakers mempty mempty emptyActivePool 0

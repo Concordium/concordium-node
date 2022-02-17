@@ -58,7 +58,7 @@ import qualified Concordium.GlobalState.AccountMap as AccountMap
 import qualified Concordium.GlobalState.Rewards as Rewards
 import qualified Concordium.Types.IdentityProviders as IPS
 import qualified Concordium.Types.AnonymityRevokers as ARS
-import Concordium.Types.Queries (PoolStatus(..),CurrentPaydayBakerPoolStatus(..), makePoolPendingChange)
+import Concordium.Types.Queries (PoolStatus(..),CurrentPaydayBakerPoolStatus(..),makePoolPendingChange)
 import Concordium.GlobalState.Basic.BlockState.Updates
 import qualified Concordium.Types.Transactions as Transactions
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
@@ -119,7 +119,7 @@ getBirkParameters = do
     _birkSeedState <- get
     _birkNextEpochBakers <- makeHashed <$> getEpochBakers
     _birkCurrentEpochBakers <- makeHashed <$> getEpochBakers
-    let _birkActiveBakers = ActiveBakers Map.empty Set.empty Set.empty
+    let _birkActiveBakers = emptyActiveBakers
     return BasicBirkParameters{..}
 
 -- |Generate initial birk parameters from genesis accounts and seed state.
@@ -132,34 +132,43 @@ initialBirkParameters
   -> BasicBirkParameters av
 initialBirkParameters accounts _birkSeedState = BasicBirkParameters{..}
   where
-    alterDel del Nothing = Just $ Set.singleton del
-    alterDel del (Just dels) = Just $ Set.insert del dels
-    addBakerDel :: Map.Map BakerId (Set.Set DelegatorId) -> Account av -> Map.Map BakerId (Set.Set DelegatorId)
+    alterDel del amt Nothing = Just $ ActivePool (Set.singleton del) amt
+    alterDel del amt (Just dels) = Just $ dels 
+            & apDelegators %~ Set.insert del
+            & apDelegatorTotalCapital +~ amt
+    addBakerDel :: Map.Map BakerId ActivePool -> Account av -> Map.Map BakerId ActivePool
     addBakerDel bdmap acct =
         case acct ^. accountStaking of
             AccountStakeDelegate AccountDelegationV1{..} ->
                 case _delegationTarget of
                     DelegateToLPool -> bdmap
-                    DelegateToBaker bid -> Map.alter (alterDel _delegationIdentity) bid bdmap
+                    DelegateToBaker bid -> Map.alter (alterDel _delegationIdentity _delegationStakedAmount) bid bdmap
             _ -> bdmap
-    addLPoolDel :: Set.Set DelegatorId -> Account av -> Set.Set DelegatorId
+    addLPoolDel :: ActivePool -> Account av -> ActivePool
     addLPoolDel dels acct =
         case acct ^. accountStaking of
             AccountStakeDelegate AccountDelegationV1{..} ->
                 case _delegationTarget of
-                    DelegateToLPool -> Set.insert _delegationIdentity dels
+                    DelegateToLPool -> dels
+                        & apDelegators %~ Set.insert _delegationIdentity
+                        & apDelegatorTotalCapital +~ _delegationStakedAmount
                     DelegateToBaker _ -> dels
             _ -> dels
     bakerDelsMap = foldl' addBakerDel Map.empty accounts
-    lookupBakerDels bid = Map.findWithDefault Set.empty bid bakerDelsMap
+    lookupBakerDels bid = Map.findWithDefault emptyActivePool bid bakerDelsMap
     abi (AccountStakeBaker AccountBaker{..}) = Just (_accountBakerInfo ^. bakerInfo, _stakedAmount)
     abi _ = Nothing
     bkr acct = abi $ acct ^. accountStaking
     bkrs = catMaybes $ bkr <$> accounts
+    bakerCapital = sum $ snd <$> bkrs
+    delegatorCapital = sum $ _apDelegatorTotalCapital <$> bakerDelsMap
+    _lPoolDelegators = foldl' addLPoolDel emptyActivePool accounts
+    lPoolCapital = _apDelegatorTotalCapital _lPoolDelegators
     _birkActiveBakers = ActiveBakers {
       _activeBakers = Map.fromList $ bkrs <&> \(BakerInfo{_bakerIdentity = bi}, _) -> (bi, lookupBakerDels bi),
       _aggregationKeys = Set.fromList (_bakerAggregationVerifyKey . fst <$> bkrs),
-      _lPoolDelegators = foldl' addLPoolDel Set.empty accounts
+      _totalActiveCapital = bakerCapital + delegatorCapital + lPoolCapital,
+      ..
     }
     _birkCurrentEpochBakers = makeHashedEpochBakers bkrs
     _birkNextEpochBakers = _birkCurrentEpochBakers
@@ -422,11 +431,12 @@ getBlockState migration = do
                   Nothing -> rs
                   Just ((ts, _), _) -> Map.insert (account ^. accountAddress) ts rs
           bkrs' <-case account ^. accountStaking of
-            AccountStakeBaker AccountBaker {_accountBakerInfo = abi} -> do
+            AccountStakeBaker AccountBaker {_accountBakerInfo = abi, _stakedAmount = stake} -> do
                 when ((abi ^. bakerAggregationVerifyKey) `Set.member` _aggregationKeys bkrs) $
                   fail "Duplicate baker aggregation key"
-                return $! bkrs & activeBakers %~ Map.insert (abi ^. bakerIdentity) Set.empty
+                return $! bkrs & activeBakers %~ Map.insert (abi ^. bakerIdentity) emptyActivePool
                           & aggregationKeys %~ Set.insert (abi ^. bakerAggregationVerifyKey)
+                          & totalActiveCapital +~ stake
             _ -> return bkrs
           return (rs', bkrs')
     let processDelegatorAccount :: ActiveBakers -> Account (AccountVersionFor pv) -> Get ActiveBakers
@@ -435,46 +445,25 @@ getBlockState migration = do
             AccountStakeDelegate AccountDelegationV1{..} -> do
               case _delegationTarget of
                 DelegateToLPool ->
-                  return $! bkrs & lPoolDelegators %~ Set.insert _delegationIdentity
+                  return $! bkrs
+                    & lPoolDelegators %~
+                      (apDelegators %~ Set.insert _delegationIdentity) . 
+                      (apDelegatorTotalCapital +~ _delegationStakedAmount)
+                    & totalActiveCapital +~ _delegationStakedAmount
                 DelegateToBaker bid ->
                   case Map.lookup bid (bkrs ^. activeBakers)  of
                     Nothing -> fail "Missing delegation target baker"
                     Just dels -> do
-                      let newDels = Set.insert _delegationIdentity dels
+                      let newDels = dels & apDelegators %~ Set.insert _delegationIdentity
+                            & apDelegatorTotalCapital +~ _delegationStakedAmount
                       return $! bkrs & activeBakers %~ Map.insert bid newDels
+                                    & totalActiveCapital +~ _delegationStakedAmount
             _ -> return bkrs
     (_blockReleaseSchedule, preActBkrs) <- foldM processBakerAccount (Map.empty, _birkActiveBakers preBirkParameters) (Accounts.accountList _blockAccounts)
     actBkrs <- foldM processDelegatorAccount preActBkrs (Accounts.accountList _blockAccounts)
     let _blockBirkParameters = preBirkParameters {_birkActiveBakers = actBkrs}
     let _blockTransactionOutcomes = Transactions.emptyTransactionOutcomes
     return BlockState{..}
-
--- | Fold left over delegators for a given baker
--- 'activeBakerFoldlDelegators' @bs@ @f@ @a@ @bid@, where
--- * @bs@ is used to lookup the delegator accounts and active bakers,
--- * @f@ is accumulation function,
--- * @a@ is the initial value,
--- * @bid@ is the baker.
--- If @bid@ is not an active baker in @bs@, then the initial value @a@ is returned. It is assumed
--- that all delegators to the baker @bid@ are delegator accounts in @bs@.
-activeBakerFoldlDelegators
-    :: (IsProtocolVersion pv, HasBlockState s pv)
-    => s
-    -> (a -> DelegatorId -> AccountDelegation (AccountVersionFor pv) -> a)
-    -> a
-    -> BakerId
-    -> a
-activeBakerFoldlDelegators bs f a0 bid = do
-    case Map.lookup bid (bs ^. blockBirkParameters . birkActiveBakers . activeBakers) of
-        Just dset -> foldl' faccount a0 dset
-        _ -> a0
-    where
-      faccount a did@(DelegatorId aid) =
-        case bs ^? blockAccounts . Accounts.indexedAccount aid of
-            Just Account{_accountStaking = AccountStakeDelegate acctDel} ->
-                f a did acctDel
-            _ ->
-                error "Invariant violation: active delegator account not a valid delegator"
 
 -- | Get total pool capital, sum of baker and delegator stakes,
 -- 'totalPoolCapital' @bs@ @bid@, where
@@ -483,22 +472,18 @@ activeBakerFoldlDelegators bs f a0 bid = do
 -- If @bid@ is not a baker in @accounts@, then @0@ is returned.
 -- If @bid@ is not an active baker in @ab@, then the baker's equity capital (stake) is returned.
 -- It is assumed that all delegators to the baker @bid@ are delegator accounts in @accounts@.
---
--- TODO: use tracking in active bakers
-totalPoolCapital
-    :: IsProtocolVersion pv
-    => BlockState pv
-    -> BakerId
-    -> Amount
+totalPoolCapital ::
+    IsProtocolVersion pv =>
+    BlockState pv ->
+    BakerId ->
+    Amount
 totalPoolCapital bs bid@(BakerId aid) = do
     case bs ^? blockAccounts . Accounts.indexedAccount aid of
         Just Account{_accountStaking = AccountStakeBaker acctBkr} ->
-            activeBakerFoldlDelegators bs addDelStake (acctBkr ^. stakedAmount) bid
+            (acctBkr ^. stakedAmount)
+                + bs ^. blockBirkParameters . birkActiveBakers . activeBakers . singular (ix bid) . apDelegatorTotalCapital
         _ ->
             0
-    where
-      addDelStake :: Amount -> DelegatorId -> AccountDelegation av -> Amount
-      addDelStake a _ AccountDelegationV1{..} = a + _delegationStakedAmount
 
 -- | Get total delegated pool capital, sum of delegator stakes,
 -- 'poolDelegatorCapital' @bs@ @bid@, where
@@ -507,30 +492,35 @@ totalPoolCapital bs bid@(BakerId aid) = do
 -- If @bid@ is not a baker in @accounts@, then @0@ is returned.
 -- If @bid@ is not an active baker in @ab@, then the baker's equity capital (stake) is returned.
 -- It is assumed that all delegators to the baker @bid@ are delegator accounts in @accounts@.
---
--- TODO: use tracking in active bakers
-poolDelegatorCapital
-    :: (IsProtocolVersion pv, HasBlockState s pv)
-    => s
-    -> BakerId
-    -> Amount
-poolDelegatorCapital bs bid = 
-            activeBakerFoldlDelegators bs addDelStake 0 bid
-    where
-      addDelStake :: Amount -> DelegatorId -> AccountDelegation av -> Amount
-      addDelStake a _ AccountDelegationV1{..} = a + _delegationStakedAmount
+poolDelegatorCapital ::
+    (HasBlockState s pv) =>
+    s ->
+    BakerId ->
+    Amount
+poolDelegatorCapital bs bid =
+    bs
+        ^. blockBirkParameters
+            . birkActiveBakers
+            . activeBakers
+            . at bid
+            . non emptyActivePool
+            . apDelegatorTotalCapital
 
 -- | Get the total delegated L-pool capital.
--- TODO: define!
-lPoolDelegatorCapital :: (IsProtocolVersion pv, HasBlockState s pv) => s -> Amount
-lPoolDelegatorCapital = undefined
+lPoolDelegatorCapital :: (HasBlockState s pv) => s -> Amount
+lPoolDelegatorCapital =
+    view
+        ( blockBirkParameters
+            . birkActiveBakers
+            . lPoolDelegators
+            . apDelegatorTotalCapital
+        )
 
 -- | Get the total capital currently staked by bakers and delegators.
 -- Note, this is separate from the stake and capital distribution used for the current payday, as
 -- it reflects the current value of accounts.
--- TODO: define!
-totalCapital :: (IsProtocolVersion pv, HasBlockState s pv) => s -> Amount
-totalCapital = undefined
+totalCapital :: (HasBlockState s pv) => s -> Amount
+totalCapital = view (blockBirkParameters . birkActiveBakers . totalActiveCapital)
 
 doGetActiveBakersAndDelegators ::
     ( HasBlockState s pv,
@@ -549,7 +539,7 @@ doGetActiveBakersAndDelegators bs = return (bakers, lpdelegators)
             { activeBakerInfoRef = theBaker ^. bakerInfo,
               activeBakerEquityCapital = theBaker ^. stakedAmount,
               activeBakerPendingChange = theBaker ^. bakerPendingChange,
-              activeBakerDelegators = mkActiveDelegatorInfo <$> Set.toAscList dlgs
+              activeBakerDelegators = mkActiveDelegatorInfo <$> Set.toAscList (_apDelegators dlgs)
             }
       where
         !theBaker = bs ^. blockAccounts . Accounts.unsafeIndexedAccount acct . unsafeAccountBaker
@@ -561,7 +551,7 @@ doGetActiveBakersAndDelegators bs = return (bakers, lpdelegators)
             }
       where
         !theDelegator = bs ^. blockAccounts . Accounts.unsafeIndexedAccount acct . unsafeAccountDelegator
-    lpool = Set.toAscList $ bs ^. blockBirkParameters . birkActiveBakers . lPoolDelegators
+    lpool = Set.toAscList $ bs ^. blockBirkParameters . birkActiveBakers . lPoolDelegators . apDelegators
     !lpdelegators = mkActiveDelegatorInfo <$> lpool
 
 newtype PureBlockStateMonad (pv :: ProtocolVersion) m a = PureBlockStateMonad {runPureBlockStateMonad :: m a}
@@ -940,26 +930,33 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                 blockBirkParameters . birkActiveBakers . lPoolDelegators .= newDelegators
                 -- Process the bakers (this may also modify the L-Pool)
                 oldBakers <- use (blockBirkParameters . birkActiveBakers . activeBakers)
-                newBakers <- processBakers oldBakers
+                (newBakers, newTotalCapital) <- processBakers oldBakers
                 blockBirkParameters . birkActiveBakers . activeBakers .= newBakers
+                blockBirkParameters . birkActiveBakers . totalActiveCapital .= newTotalCapital
 
             -- For a set of delegators, process any pending changes on the account and return the
             -- new set of delegators. (A delegator is removed from the set if its pending change
             -- removes it.) This _only_ changes the accounts of delegators, and does not affect the
             -- active bakers record.
-            processDelegators :: Set.Set DelegatorId -> MTL.State (BlockState pv) (Set.Set DelegatorId)
-            processDelegators = fmap Set.fromDistinctAscList . filterM processDelegator . Set.toAscList
-            processDelegator :: DelegatorId -> MTL.State (BlockState pv) Bool
+            processDelegators :: ActivePool -> MTL.State (BlockState pv) ActivePool
+            processDelegators pool = do
+                (newDlgs, newAmt) <- MTL.runWriterT (fmap Set.fromDistinctAscList . filterM processDelegator . Set.toAscList . _apDelegators $ pool)
+                return $ ActivePool newDlgs newAmt
+            processDelegator :: DelegatorId -> MTL.WriterT Amount (MTL.State (BlockState pv)) Bool
             processDelegator (DelegatorId accId) =
                 preuse (blockAccounts . Accounts.indexedAccount accId) >>= \case
                     Just acct -> updateAccountDelegator accId acct
                     Nothing -> error "Invariant violation: active delegator account was not found"
-            updateAccountDelegator :: AccountIndex -> Account 'AccountV1 -> MTL.State (BlockState pv) Bool
+            updateAccountDelegator :: AccountIndex -> Account 'AccountV1 -> MTL.WriterT Amount (MTL.State (BlockState pv)) Bool
             updateAccountDelegator accId acct = case acct ^? accountDelegator of
                 Just acctDel@AccountDelegationV1{..} -> case _delegationPendingChange of
-                    RemoveStake pet | isEffective pet -> removeDelegatorStake accId
-                    ReduceStake newAmt pet | isEffective pet -> reduceDelegatorStake accId acctDel newAmt
-                    _ -> return True
+                    RemoveStake pet | isEffective pet -> MTL.lift $ removeDelegatorStake accId
+                    ReduceStake newAmt pet | isEffective pet -> do
+                        MTL.tell newAmt
+                        MTL.lift $ reduceDelegatorStake accId acctDel newAmt
+                    _ -> do
+                        MTL.tell _delegationStakedAmount
+                        return True
                 Nothing -> error "Invariant violation: active delegator is not a delegation account"
             removeDelegatorStake :: AccountIndex -> MTL.State (BlockState pv) Bool
             removeDelegatorStake accId = do
@@ -975,40 +972,48 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                 return True
 
             -- Process the bakers (this may also modify the L-Pool)
-            processBakers :: Map.Map BakerId (Set.Set DelegatorId) -> MTL.State (BlockState pv) (Map.Map BakerId (Set.Set DelegatorId))
-            processBakers = foldM processBaker Map.empty . Map.toAscList
+            processBakers :: Map.Map BakerId ActivePool -> MTL.State (BlockState pv) (Map.Map BakerId ActivePool, Amount)
+            processBakers m = do
+                lPoolStart <- use (blockBirkParameters . birkActiveBakers . lPoolDelegators . apDelegatorTotalCapital)
+                foldM processBaker (Map.empty, lPoolStart) $ Map.toAscList m
             processBaker
-                :: (Map.Map BakerId (Set.Set DelegatorId))
-                -> (BakerId, Set.Set DelegatorId)
-                -> MTL.State (BlockState pv) (Map.Map BakerId (Set.Set DelegatorId))
-            processBaker accumBakers (bid@(BakerId accId), oldDelegators) = do
+                :: (Map.Map BakerId ActivePool, Amount)
+                -> (BakerId, ActivePool)
+                -> MTL.State (BlockState pv) (Map.Map BakerId ActivePool, Amount)
+            processBaker (accumBakers, accumCapital) (bid@(BakerId accId), oldDelegators) = do
                 newDelegators <- processDelegators oldDelegators
                 preuse (blockAccounts . Accounts.indexedAccount accId) >>= \case
                     Just acct -> case acct ^? accountBaker of
                         Just acctBkr@AccountBaker{..} -> case _bakerPendingChange of
                             RemoveStake pet | isEffective pet ->
-                                removeBaker accumBakers accId newDelegators
+                                removeBaker accumBakers accumCapital accId newDelegators
                             ReduceStake newAmt pet | isEffective pet ->
-                                reduceBakerStake accumBakers bid newAmt acctBkr newDelegators
-                            _ -> return $! Map.insert bid newDelegators accumBakers
+                                reduceBakerStake accumBakers accumCapital bid newAmt acctBkr newDelegators
+                            _ -> do
+                                let !accumBakers' = Map.insert bid newDelegators accumBakers
+                                    !accumCapital' = accumCapital + _stakedAmount + (newDelegators ^. apDelegatorTotalCapital)
+                                return (accumBakers', accumCapital')
                         Nothing -> error "Basic.bsoProcessPendingChanges invariant violation: active baker account not a baker"
                     Nothing -> error "Basic.bsoProcessPendingChanges invariant violation: active baker account not valid"
-            removeBaker accumBakers accId delegators = do
+            removeBaker accumBakers accumCapital accId delegators = do
                 blockAccounts . Accounts.indexedAccount accId %=! (accountStaking .~ AccountStakeNone)
-                forM_ delegators moveDelegationFromBaker
-                blockBirkParameters . birkActiveBakers . lPoolDelegators %= Set.union delegators
-                return $! accumBakers
+                forM_ (delegators ^. apDelegators) moveDelegationFromBaker
+                blockBirkParameters . birkActiveBakers . lPoolDelegators %= (delegators <>)
+                let !accumCapital' = accumCapital + delegators ^. apDelegatorTotalCapital
+                return (accumBakers, accumCapital')
             moveDelegationFromBaker (DelegatorId accId) =
                 blockAccounts . Accounts.indexedAccount accId %=!
                     (accountStaking %~ \case
                         AccountStakeDelegate asd@AccountDelegationV1{} -> AccountStakeDelegate (asd{_delegationTarget = DelegateToLPool})
                         _ -> error "Invariant violation: active delegator is not a delegation account"
                         )
-            reduceBakerStake accumBakers bid@(BakerId accId) newAmt acctBkr delegators = do
+            reduceBakerStake accumBakers accumCapital bid@(BakerId accId) newAmt acctBkr delegators = do
                 let newAcctBkr = acctBkr{_stakedAmount = newAmt, _bakerPendingChange = NoChange}
                 blockAccounts . Accounts.indexedAccount accId %=!
                     (accountStaking .~ AccountStakeBaker newAcctBkr)
-                return $ Map.insert bid delegators accumBakers
+                let !accumBakers' = Map.insert bid delegators accumBakers
+                    !accumCapital' = accumCapital + newAmt + (delegators ^. apDelegatorTotalCapital)
+                return (accumBakers', accumCapital')
 
     bsoTransitionEpochBakers bs newEpoch = return $! newbs
         where
@@ -1079,7 +1084,8 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                   _bakerPendingChange = NoChange
                 }
                 & blockBirkParameters . birkActiveBakers . aggregationKeys %~ Set.insert (bkuAggregationKey baKeys)
-                & blockBirkParameters . birkActiveBakers . activeBakers %~ Map.insert bid Set.empty
+                & blockBirkParameters . birkActiveBakers . activeBakers %~ Map.insert bid emptyActivePool
+                & blockBirkParameters . birkActiveBakers . totalActiveCapital +~ baStake
                 )
 
     bsoConfigureBaker bs ai BakerConfigureAdd{..} = do
@@ -1131,7 +1137,8 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                 newBlockState = bs
                     & blockAccounts . Accounts.indexedAccount ai . accountStaking .~ ab
                     & blockBirkParameters . birkActiveBakers . aggregationKeys %~ Set.insert (bkuAggregationKey bcaKeys)
-                    & blockBirkParameters . birkActiveBakers . activeBakers %~ Map.insert bid Set.empty
+                    & blockBirkParameters . birkActiveBakers . activeBakers %~ Map.insert bid emptyActivePool
+                    & blockBirkParameters . birkActiveBakers . totalActiveCapital +~ bcaCapital
             in (BCSuccess [] bid, newBlockState)
     bsoConfigureBaker bs ai BakerConfigureRemove{..} = return $! case bs ^? blockAccounts . Accounts.indexedAccount ai of
         -- The account is valid and has a baker
@@ -1258,6 +1265,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                     return ()
                 GT -> do
                     modifyAccount (stakedAmount .~ capital)
+                    blockBirkParameters . birkActiveBakers . totalActiveCapital += capital - _stakedAmount ab
                     MTL.tell [BakerConfigureStakeIncreased capital]
 
     bsoConfigureDelegation bs ai DelegationConfigureAdd{..} = do
@@ -1289,14 +1297,18 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
               return newBlockState
           updateBirk DelegateToLPool =
             return $! bs ^. blockBirkParameters
-                & birkActiveBakers . lPoolDelegators %~ Set.insert did
+                & birkActiveBakers . lPoolDelegators %~
+                    (apDelegators %~ Set.insert did)
+                    . (apDelegatorTotalCapital +~ dcaCapital)
           updateBirk (DelegateToBaker bid) =
             let ab = bs ^. blockBirkParameters . birkActiveBakers
                 mDels = Map.lookup bid (ab ^. activeBakers)
             in case mDels of
                 Nothing -> MTL.throwError (DCInvalidDelegationTarget bid)
                 Just dels -> do
-                    let newDels = Set.insert did dels
+                    let newDels = dels &
+                            (apDelegators %~ Set.insert did)
+                            . (apDelegatorTotalCapital +~ dcaCapital)
                         newActiveBakers = Map.insert bid newDels (ab ^. activeBakers)
                         newAB = ab{_activeBakers = newActiveBakers}
                     return $! _blockBirkParameters bs & birkActiveBakers .~ newAB
@@ -1310,21 +1322,12 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                       cooldown = fromIntegral $ cp ^. cpCooldownParameters . cpDelegatorCooldown
                       msInEpoch = fromIntegral (epochLength $ bs ^. blockBirkParameters . birkSeedState) * dcrSlotDuration
                       timestamp = addDuration dcrSlotTimestamp (cooldown * rewardPeriodLength * msInEpoch)
-                      newBirkParams = updateBirk _delegationTarget
                   in (DCSuccess [] (DelegatorId ai),
                       bs
-                        & blockAccounts . Accounts.indexedAccount ai . accountStaking .~ AccountStakeDelegate (ad & delegationPendingChange .~ RemoveStake (PendingChangeEffectiveV1 timestamp))
-                        & blockBirkParameters .~ newBirkParams)
+                        & blockAccounts . Accounts.indexedAccount ai . accountStaking .~
+                            AccountStakeDelegate (ad & delegationPendingChange .~ RemoveStake (PendingChangeEffectiveV1 timestamp))
+                        )
             _ -> (DCInvalidDelegator, bs)
-        where
-          updateBirk DelegateToLPool =
-            bs ^. blockBirkParameters
-                & birkActiveBakers . lPoolDelegators %~ Set.insert (DelegatorId ai)
-          updateBirk (DelegateToBaker bid) =
-            let ab = bs ^. blockBirkParameters . birkActiveBakers
-                newBakers = Map.delete bid (ab ^. activeBakers)
-                newAB = ab{_activeBakers = newBakers}
-            in _blockBirkParameters bs & birkActiveBakers .~ newAB
     bsoConfigureDelegation origBS ai DelegationConfigureUpdate{..} = do
         poolParams <- _cpPoolParameters <$> BS.bsoGetChainParameters origBS
         let res = MTL.runExcept $ MTL.runWriterT $ flip MTL.execStateT origBS $ do
@@ -1449,16 +1452,31 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
         -- The account is not valid or has no baker
         _ -> (BRInvalidBaker, bs)
 
-    -- This uses that baker identities are account indexes.  The account with the corresponding
-    -- index (if any) is given the reward.  If the account has a baker (which it presumably should) then
-    -- the stake is increased correspondingly if 'stakeEarnings' is set.
-    bsoRewardBaker bs (BakerId ai) !reward = return (getFirst <$> mfaddr, bs')
-      where
-        (mfaddr, !bs') = bs & (blockAccounts . Accounts.indexedAccount ai) payReward
-        payReward acct = (Just . First $! acct ^. accountAddress, acct & accountAmount +~ reward & accountStaking %~ updateBaker)
-        updateBaker (AccountStakeBaker bkr)
-          | _stakeEarnings bkr = AccountStakeBaker $ bkr & stakedAmount +~ reward
-        updateBaker stk = stk
+    bsoRewardAccount bs ai !reward = case bs ^? blockAccounts . Accounts.indexedAccount ai of
+        Nothing -> return (Nothing, bs)
+        Just account -> do
+            let 
+                (maybeUpdateStake, maybeUpdateTotalCapital) = case account ^. accountStaking of
+                    AccountStakeBaker bkr | _stakeEarnings bkr -> 
+                        (
+                            accountBaker . stakedAmount +~ reward,
+                            blockBirkParameters . birkActiveBakers . totalActiveCapital +~ reward
+                        )
+                    AccountStakeDelegate AccountDelegationV1{..} | _delegationStakeEarnings ->
+                        (
+                            accountDelegator . delegationStakedAmount +~ reward,
+                            blockBirkParameters . birkActiveBakers %~
+                                (totalActiveCapital +~ reward) .
+                                (case _delegationTarget of
+                                    DelegateToLPool -> lPoolDelegators . apDelegatorTotalCapital +~ reward
+                                    DelegateToBaker bid -> activeBakers . singular (ix bid) . apDelegatorTotalCapital +~ reward
+                                )
+                        )
+                    _ -> (id, id)
+                bs' = bs &
+                    blockAccounts . Accounts.indexedAccount ai %~ (accountAmount +~ reward) . maybeUpdateStake
+                    & maybeUpdateTotalCapital
+            return (Just (account ^. accountAddress), bs')
 
     bsoGetTotalRewardPeriodBlockCount bs =
       let bprds = PoolRewards.bakerPoolRewardDetails $ bs ^. blockPoolRewards
@@ -1470,14 +1488,6 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
       in return $! case mBPRD of
           Nothing -> error "Invariant violation: Basic.bsoGetBakerPoolRewardDetails: invalid index"
           Just bprd -> bprd
-
-    bsoRewardDelegator bs (DelegatorId ai) !reward = return (getFirst <$> mfaddr, bs')
-      where
-        (mfaddr, !bs') = bs & (blockAccounts . Accounts.indexedAccount ai) payReward
-        payReward acct = (Just . First $! acct ^. accountAddress, acct & accountAmount +~ reward & accountStaking %~ updateDel)
-        updateDel (AccountStakeDelegate del)
-          | _delegationStakeEarnings del = AccountStakeDelegate $ del & delegationStakedAmount +~ reward
-        updateDel stk = stk
 
     bsoRewardFoundationAccount bs !reward = return $ bs & blockAccounts . Accounts.indexedAccount foundationAccount . accountAmount +~ reward
       where
@@ -1774,15 +1784,21 @@ genesisStakesAndRewardDetails spv = case spv of
                 bsc = computeBakerStakesAndCapital pp bakers lpoolDelegators
             bakerCapitals <- bakerCapitalsM bsc
             let newEpochBakers = makeHashedEpochBakers (bakerStakes bsc)
+                _activeBakers = Map.fromList
+                        [(bid, ActivePool (Set.fromList (fst <$> dlgs)) (sum $ snd <$> dlgs)) | (bid, _, dlgs) <- bakerCapitals]
+                _lPoolDelegators = ActivePool
+                        (Set.fromList (BS.activeDelegatorId <$> lpoolDelegators))
+                        (sum $ BS.activeDelegatorStake <$> lpoolDelegators)
+                bakerCapital = sum $ (^. _2) <$> bakerCapitals
+                delegatorCapital = sum $ _apDelegatorTotalCapital <$> _activeBakers
+                lPoolCapital = _apDelegatorTotalCapital _lPoolDelegators
                 _birkActiveBakers =
                     ActiveBakers
                         { _aggregationKeys =
                             Set.fromList $
                                 (^. _1 . bakerAggregationVerifyKey) <$> bakerStakes bsc,
-                          _activeBakers =
-                            Map.fromList
-                                [(bid, Set.fromList (fst <$> dlgs)) | (bid, _, dlgs) <- bakerCapitals],
-                          _lPoolDelegators = Set.fromList (BS.activeDelegatorId <$> lpoolDelegators)
+                          _totalActiveCapital = bakerCapital + delegatorCapital + lPoolCapital,
+                          ..
                         }
                 birkParams :: BasicBirkParameters 'AccountV1
                 birkParams =

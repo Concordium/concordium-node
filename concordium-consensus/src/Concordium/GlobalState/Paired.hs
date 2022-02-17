@@ -546,9 +546,9 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         (r1, bs1') <- coerceBSML $ bsoRemoveBaker bs1 addr
         (r2, bs2') <- coerceBSMR $ bsoRemoveBaker bs2 addr
         assert (r1 == r2) $ return (r1, (bs1', bs2'))
-    bsoRewardBaker (bs1, bs2) bid reward = do
-        (r1, bs1') <- coerceBSML $ bsoRewardBaker bs1 bid reward
-        (r2, bs2') <- coerceBSMR $ bsoRewardBaker bs2 bid reward
+    bsoRewardAccount (bs1, bs2) aid reward = do
+        (r1, bs1') <- coerceBSML $ bsoRewardAccount bs1 aid reward
+        (r2, bs2') <- coerceBSMR $ bsoRewardAccount bs2 aid reward
         assert (r1 == r2) $ return (r1, (bs1', bs2'))
     bsoGetTotalRewardPeriodBlockCount (bs1, bs2) = do
         r1 <- coerceBSML $ bsoGetTotalRewardPeriodBlockCount bs1
@@ -558,10 +558,6 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         r1 <- coerceBSML $ bsoGetBakerPoolRewardDetails bs1 idx
         r2 <- coerceBSMR $ bsoGetBakerPoolRewardDetails bs2 idx
         assert (r1 == r2) $ return r1
-    bsoRewardDelegator (bs1, bs2) bid reward = do
-        (r1, bs1') <- coerceBSML $ bsoRewardDelegator bs1 bid reward
-        (r2, bs2') <- coerceBSMR $ bsoRewardDelegator bs2 bid reward
-        assert (r1 == r2) $ return (r1, (bs1', bs2'))
     bsoRewardFoundationAccount (bs1, bs2) reward = do
         bs1' <- coerceBSML $ bsoRewardFoundationAccount bs1 reward
         bs2' <- coerceBSMR $ bsoRewardFoundationAccount bs2 reward
