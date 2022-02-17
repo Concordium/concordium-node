@@ -1791,6 +1791,30 @@ doGetPaydayEpoch pbs = do
         case bspRewardDetails bsp :: BlockRewardDetails 'AccountV1 of
             BlockRewardDetailsV1 hpr -> nextPaydayEpoch <$> refLoad hpr
 
+doGetPaydayMintRate :: forall pv m. (IsProtocolVersion pv, MonadBlobStore m, AccountVersionFor pv ~ 'AccountV1) => PersistentBlockState pv -> m MintRate
+doGetPaydayMintRate pbs = do
+        bsp <- loadPBS pbs
+        case bspRewardDetails bsp :: BlockRewardDetails 'AccountV1 of
+            BlockRewardDetailsV1 hpr -> nextPaydayMintRate <$> refLoad hpr
+
+doSetPaydayEpoch :: forall pv m. (IsProtocolVersion pv, MonadBlobStore m, AccountVersionFor pv ~ 'AccountV1) => PersistentBlockState pv -> Epoch -> m (PersistentBlockState pv)
+doSetPaydayEpoch pbs e = do
+        bsp <- loadPBS pbs
+        case bspRewardDetails bsp :: BlockRewardDetails 'AccountV1 of
+            BlockRewardDetailsV1 hpr -> do
+              pr <- refLoad hpr
+              hpr' <- refMake pr{nextPaydayEpoch = e}
+              storePBS pbs bsp{bspRewardDetails = BlockRewardDetailsV1 hpr'}
+
+doSetPaydayMintRate :: forall pv m. (IsProtocolVersion pv, MonadBlobStore m, AccountVersionFor pv ~ 'AccountV1) => PersistentBlockState pv -> MintRate -> m (PersistentBlockState pv)
+doSetPaydayMintRate pbs r = do
+        bsp <- loadPBS pbs
+        case bspRewardDetails bsp :: BlockRewardDetails 'AccountV1 of
+            BlockRewardDetailsV1 hpr -> do
+              pr <- refLoad hpr
+              hpr' <- refMake pr{nextPaydayMintRate = r}
+              storePBS pbs bsp{bspRewardDetails = BlockRewardDetailsV1 hpr'}
+
 doGetTransactionOutcome :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> Transactions.TransactionIndex -> m (Maybe TransactionSummary)
 doGetTransactionOutcome pbs transHash = do
         bsp <- loadPBS pbs
@@ -2425,6 +2449,9 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateOperations (Pe
     bsoGetAnonymityRevokers = doGetAnonymityRevokers
     bsoGetCryptoParams = doGetCryptoParams
     bsoGetPaydayEpoch = doGetPaydayEpoch
+    bsoGetPaydayMintRate = doGetPaydayMintRate
+    bsoSetPaydayEpoch = doSetPaydayEpoch
+    bsoSetPaydayMintRate = doSetPaydayMintRate
     bsoSetTransactionOutcomes = doSetTransactionOutcomes
     bsoAddSpecialTransactionOutcome = doAddSpecialTransactionOutcome
     bsoProcessUpdateQueues = doProcessUpdateQueues

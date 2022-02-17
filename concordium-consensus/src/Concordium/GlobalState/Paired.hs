@@ -560,6 +560,18 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         r1 <- coerceBSML $ bsoGetPaydayEpoch bs1
         r2 <- coerceBSMR $ bsoGetPaydayEpoch bs2
         assert (r1 == r2) $ return r1
+    bsoGetPaydayMintRate (bs1, bs2) = do
+        r1 <- coerceBSML $ bsoGetPaydayMintRate bs1
+        r2 <- coerceBSMR $ bsoGetPaydayMintRate bs2
+        assert (r1 == r2) $ return r1
+    bsoSetPaydayEpoch (bs1, bs2) epoch = do
+        bs1' <- coerceBSML $ bsoSetPaydayEpoch bs1 epoch
+        bs2' <- coerceBSMR $ bsoSetPaydayEpoch bs2 epoch
+        return (bs1', bs2')
+    bsoSetPaydayMintRate (bs1, bs2) epoch = do
+        bs1' <- coerceBSML $ bsoSetPaydayMintRate bs1 epoch
+        bs2' <- coerceBSMR $ bsoSetPaydayMintRate bs2 epoch
+        return (bs1', bs2')
     bsoUpdateAccruedTransactionFeesBaker (bs1, bs2) bid f = do
         bs1' <- coerceBSML $ bsoUpdateAccruedTransactionFeesBaker bs1 bid f
         bs2' <- coerceBSMR $ bsoUpdateAccruedTransactionFeesBaker bs2 bid f

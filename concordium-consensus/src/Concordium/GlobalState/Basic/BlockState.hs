@@ -1413,6 +1413,18 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
     bsoGetPaydayEpoch bs =
         return $! bs ^. blockPoolRewards . to PoolRewards.nextPaydayEpoch
 
+    {-# INLINE bsoGetPaydayMintRate #-}
+    bsoGetPaydayMintRate bs =
+        return $! bs ^. blockPoolRewards . to PoolRewards.nextPaydayMintRate
+
+    {-# INLINE bsoSetPaydayEpoch #-}
+    bsoSetPaydayEpoch bs e =
+        return $! bs & blockPoolRewards %~ \pr -> pr {PoolRewards.nextPaydayEpoch = e}
+
+    {-# INLINE bsoSetPaydayMintRate #-}
+    bsoSetPaydayMintRate bs r =
+        return $! bs & blockPoolRewards %~ \pr -> pr {PoolRewards.nextPaydayMintRate = r}
+
     bsoUpdateAccruedTransactionFeesBaker bs bid f =
       let accrueAmountBPR bpr = bpr{PoolRewards.transactionFeesAccrued = f (PoolRewards.transactionFeesAccrued bpr)}
       in modifyBakerPoolRewardDetailsInPoolRewards bs bid accrueAmountBPR

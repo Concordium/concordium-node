@@ -673,6 +673,7 @@ mintForSkippedPaydays newEpoch payday rpl blockParent foundationAccount updates 
 
 prepareForFollowingPayday
   :: (ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1,
+      AccountVersionFor (MPV m) ~ 'AccountV1,
       GlobalStateTypes m,
       BlockStateOperations m,
       BlockPointerMonad m)
@@ -686,13 +687,11 @@ prepareForFollowingPayday
 prepareForFollowingPayday newEpoch payday blockParent foundationAccount updates bs0 = do
   chainParams <- bsoGetChainParameters bs0
   let rpl = chainParams ^. cpTimeParameters . tpRewardPeriodLength
-  (newPayday, newPaydayMintRate, bs1) <- mintForSkippedPaydays newEpoch payday rpl blockParent foundationAccount updates bs0
-  -- Set blockstate with newPayday and newPaydayMintRate.
-  -- bshandleNewPayday <- bsoSetPaydayEpoch bshandlePrepared newPayday
-  --           TODO: bsoSetPaydayMintRate newPaydayMintRate bshandle
-  -- bshandleNewCapital <- bsoRotateCurrentCapitalDistribution bshandleNewPayday
-  -- bshandleNewBakers <- bsoRotateCurrentEpochBakers bshandleNewCapital
-  undefined
+  (newPayday, newMintRate, bs1) <- mintForSkippedPaydays newEpoch payday rpl blockParent foundationAccount updates bs0
+  bs2 <- bsoSetPaydayEpoch bs1 newPayday
+  bs3 <- bsoSetPaydayMintRate bs2 newMintRate
+  bs4 <- bsoRotateCurrentCapitalDistribution bs3
+  bsoRotateCurrentEpochBakers bs4
 
 -- |Mint new tokens and distribute rewards to bakers, finalizers and the foundation.
 -- The process consists of the following four steps:
@@ -783,7 +782,7 @@ mintAndReward bshandle blockParent slotNumber bid newEpoch isNewEpoch mfinInfo t
       bshandleFinRew <- if newEpoch < nextPayday
         then return bshandle
         else do
-          nextMintRate <- undefined --TODO: bsoGetPaydayMintRate bshandle
+          nextMintRate <- bsoGetPaydayMintRate bshandle
           bshandleMint <- doMintingP4 blockParent nextPayday nextMintRate foundationAccount updates bshandle
           bshandleRewards <- distributeRewards foundationAccount bshandleMint
           prepareForFollowingPayday newEpoch nextPayday blockParent foundationAccount updates bshandleRewards

@@ -685,6 +685,15 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- |Get the epoch time of the next scheduled payday.
   bsoGetPaydayEpoch :: (AccountVersionFor (MPV m) ~ 'AccountV1) => UpdatableBlockState m -> m Epoch
 
+  -- |Get the mint rate of the next scheduled payday.
+  bsoGetPaydayMintRate :: (AccountVersionFor (MPV m) ~ 'AccountV1) => UpdatableBlockState m -> m MintRate
+
+  -- |Set the epoch of the next scheduled payday.
+  bsoSetPaydayEpoch :: (AccountVersionFor (MPV m) ~ 'AccountV1) => UpdatableBlockState m -> Epoch -> m (UpdatableBlockState m)
+
+  -- |Set the mint rate of the next scheduled payday.
+  bsoSetPaydayMintRate :: (AccountVersionFor (MPV m) ~ 'AccountV1) => UpdatableBlockState m -> MintRate -> m (UpdatableBlockState m)
+
   -- |Set the list of transaction outcomes for the block.
   bsoSetTransactionOutcomes :: UpdatableBlockState m -> [TransactionSummary] -> m (UpdatableBlockState m)
 
@@ -945,6 +954,9 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoGetAnonymityRevokers s arId = lift $ bsoGetAnonymityRevokers s arId
   bsoGetCryptoParams s = lift $ bsoGetCryptoParams s
   bsoGetPaydayEpoch s = lift $ bsoGetPaydayEpoch s
+  bsoGetPaydayMintRate s = lift $ bsoGetPaydayMintRate s
+  bsoSetPaydayEpoch s e = lift $ bsoSetPaydayEpoch s e
+  bsoSetPaydayMintRate s r = lift $ bsoSetPaydayMintRate s r
   bsoUpdateAccruedTransactionFeesBaker s bid f = lift $ bsoUpdateAccruedTransactionFeesBaker s bid f
   bsoUpdateAccruedTransactionFeesLPool s f = lift $ bsoUpdateAccruedTransactionFeesLPool s f
   bsoGetAccruedTransactionFeesLPool = lift . bsoGetAccruedTransactionFeesLPool
