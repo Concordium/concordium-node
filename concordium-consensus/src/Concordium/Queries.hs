@@ -20,13 +20,13 @@ import Lens.Micro.Platform
 
 import Concordium.Common.Version
 import Concordium.Genesis.Data
+import Concordium.GlobalState.Instance
 import Concordium.Types
 import Concordium.Types.Accounts
 import Concordium.Types.AnonymityRevokers
 import Concordium.Types.Block (absoluteToLocalBlockHeight, localToAbsoluteBlockHeight)
 import Concordium.Types.HashableTo
 import Concordium.Types.IdentityProviders
-import Concordium.GlobalState.Instance
 import Concordium.Types.Parameters
 import Concordium.Types.Queries
 import Concordium.Types.SeedState
@@ -351,11 +351,11 @@ getBlockInfo bh =
 getBlockSummary :: forall gsconf finconf. BlockHash -> MVR gsconf finconf (Maybe BlockSummary)
 getBlockSummary = liftSkovQueryBlock getBlockSummarySkovM
   where
-    getBlockSummarySkovM
-        :: forall pv
-         . SkovMonad (VersionedSkovM gsconf finconf pv)
-        => BlockPointerType (VersionedSkovM gsconf finconf pv)
-        -> VersionedSkovM gsconf finconf pv BlockSummary
+    getBlockSummarySkovM ::
+        forall pv.
+        SkovMonad (VersionedSkovM gsconf finconf pv) =>
+        BlockPointerType (VersionedSkovM gsconf finconf pv) ->
+        VersionedSkovM gsconf finconf pv BlockSummary
     getBlockSummarySkovM bp = do
         bs <- blockState bp
         bsTransactionSummaries <- BS.getOutcomes bs
@@ -518,6 +518,30 @@ getModuleSource blockHash modRef =
                 BS.getModule bs modRef
             )
             blockHash
+
+-- |Get the status of a particular delegation pool.
+getPoolStatus :: forall gsconf finconf. BlockHash -> Maybe BakerId -> MVR gsconf finconf (Maybe PoolStatus)
+getPoolStatus blockHash mbid =
+    join
+        <$> liftSkovQueryBlock poolStatus blockHash
+  where
+    poolStatus ::
+        forall pv.
+        ( SkovMonad (VersionedSkovM gsconf finconf pv)
+        ) =>
+        BlockPointerType (VersionedSkovM gsconf finconf pv) ->
+        VersionedSkovM gsconf finconf pv (Maybe PoolStatus)
+    poolStatus bp = case protocolVersion @pv of
+        SP1 -> return Nothing
+        SP2 -> return Nothing
+        SP3 -> return Nothing
+        SP4 -> do
+            bs <- blockState bp
+            BS.getPoolStatus bs mbid
+
+-- |Get a list of all registered baker IDs in the specified block.
+getRegisteredBakers :: forall gsconf finconf. BlockHash -> MVR gsconf finconf (Maybe [BakerId])
+getRegisteredBakers = liftSkovQueryBlock (BS.getActiveBakers <=< blockState)
 
 -- ** Transaction indexed
 

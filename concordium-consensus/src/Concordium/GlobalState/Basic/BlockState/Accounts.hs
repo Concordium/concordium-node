@@ -205,7 +205,7 @@ serializeAccounts cryptoParams Accounts{..} = do
 --
 --  * Every baker account's 'BakerId' must match the account index.
 --  * 'CredentialRegistrationID's must not be used on more than one account.
-deserializeAccounts :: IsProtocolVersion pv => StateMigrationParameters oldpv pv -> GlobalContext -> Get (Accounts pv)
+deserializeAccounts :: (IsProtocolVersion oldpv, IsProtocolVersion pv) => StateMigrationParameters oldpv pv -> GlobalContext -> Get (Accounts pv)
 deserializeAccounts migration cryptoParams = do
     nAccounts <- getWord64be
     let loop i accts@Accounts{..}

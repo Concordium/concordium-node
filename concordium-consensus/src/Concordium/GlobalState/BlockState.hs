@@ -74,6 +74,7 @@ import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Types
 import Concordium.Types.IdentityProviders
 import Concordium.Types.AnonymityRevokers
+import Concordium.Types.Queries (PoolStatus)
 import Concordium.Types.SeedState
 import Concordium.Types.Transactions hiding (BareBlockItem(..))
 
@@ -222,6 +223,11 @@ class AccountOperations m => BlockStateQuery m where
     -- |Get all the current active bakers.
     getActiveBakers :: BlockState m -> m [BakerId]
 
+    -- |Get the currently-registered (i.e. active) bakers with their delegators, as well as the
+    -- set of delegators to the L-pool. In each case, the lists are ordered in ascending Id order,
+    -- with no duplicates.
+    getActiveBakersAndDelegators :: (AccountVersionFor (MPV m) ~ 'AccountV1) => BlockState m -> m ([ActiveBakerInfo m], [ActiveDelegatorInfo])
+
     -- |Query an account by the id of the credential that belonged to it.
     getAccountByCredId :: BlockState m -> CredentialRegistrationID -> m (Maybe (AccountIndex, Account m))
 
@@ -286,6 +292,10 @@ class AccountOperations m => BlockStateQuery m where
     getCurrentElectionDifficulty :: BlockState m -> m ElectionDifficulty
     -- |Get the current chain parameters and pending updates.
     getUpdates :: BlockState m -> m (UQ.Updates (MPV m))
+    -- |Get pending changes to the time parameters.
+    getPendingTimeParameters :: BlockState m -> m [(Timestamp, TimeParameters (ChainParametersVersionFor (MPV m)))]
+    -- |Get pending changes to the pool parameters.
+    getPendingPoolParameters :: BlockState m -> m [(Timestamp, PoolParameters (ChainParametersVersionFor (MPV m)))]
     -- |Get the protocol update status. If a protocol update has taken effect,
     -- returns @Left protocolUpdate@. Otherwise, returns @Right pendingProtocolUpdates@.
     -- The @pendingProtocolUpdates@ is a (possibly-empty) list of timestamps and protocol
@@ -297,6 +307,9 @@ class AccountOperations m => BlockStateQuery m where
 
     -- |Get the epoch time of the next scheduled payday.
     getPaydayEpoch :: (AccountVersionFor (MPV m) ~ 'AccountV1) => BlockState m -> m Epoch
+
+    getPoolStatus :: (AccountVersionFor (MPV m) ~ 'AccountV1, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1)
+        => BlockState m -> Maybe BakerId -> m (Maybe PoolStatus)
 
 -- |Distribution of newly-minted GTU.
 data MintAmounts = MintAmounts {
@@ -532,7 +545,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
     -> BakerAdd
     -> m (BakerAddResult, UpdatableBlockState m)
 
-  -- |From chain paramaters version >= 1, this operation is used to add/remove/update a baker.
+  -- |From chain parameters version >= 1, this operation is used to add/remove/update a baker.
   -- When adding baker, it is assumed that 'AccountIndex' account is NOT a baker and NOT a delegator.
   bsoConfigureBaker
     :: (AccountVersionFor (MPV m) ~ 'AccountV1, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1)
@@ -541,7 +554,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
     -> BakerConfigure
     -> m (BakerConfigureResult, UpdatableBlockState m)
 
-  -- |From chain paramaters version >= 1, this operation is used to add/remove/update a delegator.
+  -- |From chain parameters version >= 1, this operation is used to add/remove/update a delegator.
   -- When adding delegator, it is assumed that 'AccountIndex' account is NOT a baker and NOT a delegator.
   bsoConfigureDelegation
     :: (AccountVersionFor (MPV m) ~ 'AccountV1, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1)
@@ -745,6 +758,9 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- |Get the current chain parameters.
   bsoGetChainParameters :: UpdatableBlockState m -> m (ChainParameters (MPV m))
 
+  -- |Get all pending changes to the time parameters.
+  bsoGetPendingTimeParameters :: UpdatableBlockState m -> m [(Timestamp, TimeParameters (ChainParametersVersionFor (MPV m)))]
+
   -- * Reward details
 
   -- |Get the number of blocks baked in this epoch, both in total and
@@ -772,6 +788,8 @@ class (BlockStateQuery m) => BlockStateOperations m where
 
   -- |Set the current capital distribution to the current value of the next capital distribution.
   -- The next capital distribution is unchanged.
+  -- This also clears transaction rewards and block counts accruing to baker pools.
+  -- The L-Pool and foundation transaction rewards are not affected.
   bsoRotateCurrentCapitalDistribution :: (AccountVersionFor (MPV m) ~ 'AccountV1) => UpdatableBlockState m -> m (UpdatableBlockState m)
 
   -- |Get the current status of the various accounts.
@@ -832,6 +850,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   getModule s = lift . getModule s
   getAccount s = lift . getAccount s
   getActiveBakers = lift . getActiveBakers
+  getActiveBakersAndDelegators = lift . getActiveBakersAndDelegators
   getAccountByCredId s = lift . getAccountByCredId s
   getBakerAccount s = lift . getBakerAccount s
   getContractInstance s = lift . getContractInstance s
@@ -854,9 +873,12 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   getNextUpdateSequenceNumber s = lift . getNextUpdateSequenceNumber s
   getCurrentElectionDifficulty = lift . getCurrentElectionDifficulty
   getUpdates = lift . getUpdates
+  getPendingTimeParameters = lift . getPendingTimeParameters
+  getPendingPoolParameters = lift . getPendingPoolParameters
   getProtocolUpdateStatus = lift . getProtocolUpdateStatus
   getCryptographicParameters = lift . getCryptographicParameters
   getPaydayEpoch = lift . getPaydayEpoch
+  getPoolStatus s = lift . getPoolStatus s
   {-# INLINE getModule #-}
   {-# INLINE getAccount #-}
   {-# INLINE getAccountByCredId #-}
@@ -974,6 +996,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoAddReleaseSchedule s l = lift $ bsoAddReleaseSchedule s l
   bsoGetEnergyRate = lift . bsoGetEnergyRate
   bsoGetChainParameters = lift . bsoGetChainParameters
+  bsoGetPendingTimeParameters = lift . bsoGetPendingTimeParameters
   bsoGetEpochBlocksBaked = lift . bsoGetEpochBlocksBaked
   bsoNotifyBlockBaked s = lift . bsoNotifyBlockBaked s
   bsoClearEpochBlocksBaked = lift . bsoClearEpochBlocksBaked

@@ -684,6 +684,30 @@ impl P2p for RpcServerImpl {
         })
     }
 
+    async fn get_baker_list(
+        &self,
+        req: Request<BlockHash>,
+    ) -> Result<Response<JsonResponse>, Status> {
+        authenticate!(req, self.access_token);
+        call_consensus!(self, "GetBakerList", JsonResponse, |cc: &ConsensusContainer| {
+            cc.get_baker_list(&req.get_ref().block_hash)
+        })
+    }
+
+    async fn get_pool_status(
+        &self,
+        req: Request<GetPoolStatusRequest>,
+    ) -> Result<Response<JsonResponse>, Status> {
+        authenticate!(req, self.access_token);
+        call_consensus!(self, "GetPoolStatus", JsonResponse, |cc: &ConsensusContainer| {
+            cc.get_pool_status(
+                &req.get_ref().block_hash,
+                req.get_ref().l_pool,
+                req.get_ref().baker_id,
+            )
+        })
+    }
+
     async fn get_transaction_status(
         &self,
         req: Request<TransactionHash>,

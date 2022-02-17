@@ -66,7 +66,7 @@ invariantBlockState bs extraBalance = do
             let lockedBalance = acct ^. accountReleaseSchedule . totalLockedUpBalance
             -- check that the locked balance is the same as the sum of the pending releases
             unless (lockedBalance == sum [ am | Just (r, _) <- Vec.toList (acct ^. accountReleaseSchedule . values), Release _ am <- r ]) $ Left "Total locked balance doesn't sum up to the pending releases stake"
-            (bakerIds', bakerKeys') <- case acct ^. accountBaker of
+            (bakerIds', bakerKeys') <- case acct ^? accountBaker of
                     Nothing -> return (bakerIds, bakerKeys)
                     Just abkr -> do
                         let binfo = abkr ^. accountBakerInfo

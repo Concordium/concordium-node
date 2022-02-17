@@ -13,6 +13,7 @@ import Lens.Micro.Platform
 import Concordium.Types.HashableTo
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types.Accounts
+import Concordium.Utils.BinarySearch
 
 import Concordium.Types
 import Concordium.Types.Execution (OpenStatus, DelegationTarget)
@@ -48,22 +49,7 @@ data FullBakers = FullBakers {
 -- |Look up a baker by its identifier.
 -- This is implemented with binary search.
 fullBaker :: FullBakers -> BakerId -> Maybe FullBakerInfo
-fullBaker FullBakers{..} bid = binSearch 0 (Vec.length fullBakerInfos - 1)
-    where
-      binSearch lowIndex highIndex = case compare lowIndex highIndex of
-          LT -> let
-                  midIndex = lowIndex + (highIndex - lowIndex) `div` 2
-                  bi = fullBakerInfos Vec.! midIndex
-                in case compare bid (_bakerIdentity (_theBakerInfo bi)) of
-                  LT -> binSearch lowIndex (midIndex - 1)
-                  EQ -> Just bi
-                  GT -> binSearch (midIndex + 1) highIndex
-          EQ -> let bi = fullBakerInfos Vec.! lowIndex in
-                if _bakerIdentity (_theBakerInfo bi) == bid then
-                  Just bi
-                else
-                  Nothing
-          GT -> Nothing
+fullBaker FullBakers{..} = binarySearch (_bakerIdentity . _theBakerInfo) fullBakerInfos
 
 lotteryBaker :: FullBakers -> BakerId -> Maybe (BakerInfo, LotteryPower)
 lotteryBaker fbs bid = lp <$> fullBaker fbs bid
