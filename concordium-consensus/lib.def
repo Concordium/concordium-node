@@ -26,6 +26,8 @@ EXPORTS
  getBirkParameters
  getModuleList
  getModuleSource
+ getBakerList
+ getPoolStatus
  getTransactionStatus
  getTransactionStatusInBlock
  getAccountNonFinalizedTransactions

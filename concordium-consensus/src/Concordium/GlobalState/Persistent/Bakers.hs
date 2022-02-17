@@ -12,6 +12,7 @@
 module Concordium.GlobalState.Persistent.Bakers where
 
 import Control.Exception
+import Control.Monad
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.Vector as Vec
@@ -24,6 +25,7 @@ import qualified Concordium.GlobalState.Basic.BlockState.Bakers as Basic
 import qualified Concordium.Types.Accounts as BaseAccounts
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.Types
+import Concordium.Utils.BinarySearch
 import Concordium.Utils.Serialization
 
 import qualified Concordium.Crypto.SHA256 as H
@@ -83,6 +85,14 @@ data PersistentEpochBakers = PersistentEpochBakers {
 } deriving (Show)
 
 makeLenses ''PersistentEpochBakers
+
+epochBaker :: MonadBlobStore m => BakerId -> PersistentEpochBakers -> m (Maybe (BaseAccounts.BakerInfo, Amount))
+epochBaker bid PersistentEpochBakers{..} = do
+    (BakerInfos infoVec) <- refLoad _bakerInfos
+    minfo <- binarySearchIM refLoad BaseAccounts._bakerIdentity infoVec bid
+    forM minfo $ \(idx, binfo) -> do
+        (BakerStakes stakeVec) <- refLoad _bakerStakes
+        return (binfo, stakeVec Vec.! idx)
 
 -- |Serialize 'PersistentEpochBakers'.
 putEpochBakers :: (MonadBlobStore m, MonadPut m) => PersistentEpochBakers -> m ()

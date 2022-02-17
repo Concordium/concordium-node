@@ -58,6 +58,7 @@ import qualified Concordium.GlobalState.AccountMap as AccountMap
 import qualified Concordium.GlobalState.Rewards as Rewards
 import qualified Concordium.Types.IdentityProviders as IPS
 import qualified Concordium.Types.AnonymityRevokers as ARS
+import Concordium.Types.Queries (PoolStatus(..),CurrentPaydayBakerPoolStatus(..), makePoolPendingChange)
 import Concordium.GlobalState.Basic.BlockState.Updates
 import qualified Concordium.Types.Transactions as Transactions
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
@@ -457,15 +458,15 @@ getBlockState migration = do
 -- If @bid@ is not an active baker in @bs@, then the initial value @a@ is returned. It is assumed
 -- that all delegators to the baker @bid@ are delegator accounts in @bs@.
 activeBakerFoldlDelegators
-    :: IsProtocolVersion pv
-    => BlockState pv
+    :: (IsProtocolVersion pv, HasBlockState s pv)
+    => s
     -> (a -> DelegatorId -> AccountDelegation (AccountVersionFor pv) -> a)
     -> a
     -> BakerId
     -> a
 activeBakerFoldlDelegators bs f a0 bid = do
     case Map.lookup bid (bs ^. blockBirkParameters . birkActiveBakers . activeBakers) of
-        Just dset -> foldl faccount a0 dset
+        Just dset -> foldl' faccount a0 dset
         _ -> a0
     where
       faccount a did@(DelegatorId aid) =
@@ -482,6 +483,8 @@ activeBakerFoldlDelegators bs f a0 bid = do
 -- If @bid@ is not a baker in @accounts@, then @0@ is returned.
 -- If @bid@ is not an active baker in @ab@, then the baker's equity capital (stake) is returned.
 -- It is assumed that all delegators to the baker @bid@ are delegator accounts in @accounts@.
+--
+-- TODO: use tracking in active bakers
 totalPoolCapital
     :: IsProtocolVersion pv
     => BlockState pv
@@ -496,6 +499,38 @@ totalPoolCapital bs bid@(BakerId aid) = do
     where
       addDelStake :: Amount -> DelegatorId -> AccountDelegation av -> Amount
       addDelStake a _ AccountDelegationV1{..} = a + _delegationStakedAmount
+
+-- | Get total delegated pool capital, sum of delegator stakes,
+-- 'poolDelegatorCapital' @bs@ @bid@, where
+-- * @bs@ is used to lookup accounts and active bakers,
+-- * @bid@ is the baker.
+-- If @bid@ is not a baker in @accounts@, then @0@ is returned.
+-- If @bid@ is not an active baker in @ab@, then the baker's equity capital (stake) is returned.
+-- It is assumed that all delegators to the baker @bid@ are delegator accounts in @accounts@.
+--
+-- TODO: use tracking in active bakers
+poolDelegatorCapital
+    :: (IsProtocolVersion pv, HasBlockState s pv)
+    => s
+    -> BakerId
+    -> Amount
+poolDelegatorCapital bs bid = 
+            activeBakerFoldlDelegators bs addDelStake 0 bid
+    where
+      addDelStake :: Amount -> DelegatorId -> AccountDelegation av -> Amount
+      addDelStake a _ AccountDelegationV1{..} = a + _delegationStakedAmount
+
+-- | Get the total delegated L-pool capital.
+-- TODO: define!
+lPoolDelegatorCapital :: (IsProtocolVersion pv, HasBlockState s pv) => s -> Amount
+lPoolDelegatorCapital = undefined
+
+-- | Get the total capital currently staked by bakers and delegators.
+-- Note, this is separate from the stake and capital distribution used for the current payday, as
+-- it reflects the current value of accounts.
+-- TODO: define!
+totalCapital :: (IsProtocolVersion pv, HasBlockState s pv) => s -> Amount
+totalCapital = undefined
 
 doGetActiveBakersAndDelegators ::
     ( HasBlockState s pv,
@@ -614,7 +649,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
         slotTime = addDuration genesisTime (fromIntegral slot * slotDuration)
         futureBakers = Vec.fromList $ foldr resolveBaker [] (Map.keys (_activeBakers (_birkActiveBakers bps)))
         resolveBaker (BakerId aid) l = case bs ^? blockAccounts . Accounts.indexedAccount aid of
-            Just acct -> case acct ^. accountBaker of
+            Just acct -> case acct ^? accountBaker of
               Just AccountBaker{..} -> case _bakerPendingChange of
                 RemoveStake (PendingChangeEffectiveV0 remEpoch)
                   | remEpoch < slotEpoch -> l
@@ -692,6 +727,47 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
     {-# INLINE getPaydayEpoch #-}
     getPaydayEpoch bs =
         return $! bs ^. blockPoolRewards . to PoolRewards.nextPaydayEpoch
+    
+    {-# INLINE getPoolStatus #-}
+    getPoolStatus bs Nothing = return $ Just LPoolStatus {
+            psDelegatedCapital = lPoolDelegatorCapital bs,
+            psCommissionRates = bs ^. blockUpdates . currentParameters . cpPoolParameters . to _ppLPoolCommissions,
+            psCurrentPaydayTransactionFeesEarned = PoolRewards.lPoolTransactionRewards poolRewards, 
+            psCurrentPaydayDelegatedCapital = PoolRewards.currentLPoolDelegatedCapital poolRewards
+        }
+        where
+            poolRewards = bs ^. blockPoolRewards
+    getPoolStatus bs (Just bid@(BakerId aid)) = return $ do
+        account <- bs ^? blockAccounts . Accounts.indexedAccount aid
+        baker <- account ^? accountBaker
+        let psBakerEquityCapital = baker ^. stakedAmount
+            psDelegatedCapital = poolDelegatorCapital bs bid
+            psDelegatedCapitalCap = delegatedCapitalCap
+                (bs ^. blockUpdates . currentParameters . cpPoolParameters)
+                (totalCapital bs)
+                psBakerEquityCapital
+                psDelegatedCapital
+            ceBakers = bs ^. blockBirkParameters . birkCurrentEpochBakers . unhashed
+            psCurrentPaydayStatus = do
+                (_, effectiveStake) <- epochBaker bid ceBakers
+                (bc, PoolRewards.BakerPoolRewardDetails{..})
+                     <- PoolRewards.lookupBakerCapitalAndRewardDetails bid (bs ^. blockPoolRewards)
+                return CurrentPaydayBakerPoolStatus {
+                        bpsBlocksBaked = blockCount,
+                        bpsFinalizationLive = finalizationAwake,
+                        bpsTransactionFeesEarned = transactionFeesAccrued,
+                        bpsEffectiveStake = effectiveStake,
+                        bpsLotteryPower = fromIntegral effectiveStake / fromIntegral (_bakerTotalStake ceBakers),
+                        bpsBakerEquityCapital = PoolRewards.bcBakerEquityCapital bc,
+                        bpsDelegatedCapital = PoolRewards.bcTotalDelegatorCapital bc
+                    }
+        return BakerPoolStatus {
+            psBakerId = bid,
+            psBakerAddress = account ^. accountAddress,
+            psPoolInfo = baker ^. accountBakerInfo . bieBakerPoolInfo,
+            psBakerStakePendingChange = makePoolPendingChange (baker ^. bakerPendingChange),
+            ..
+        }
 
 instance (Monad m, IsProtocolVersion pv) => BS.AccountOperations (PureBlockStateMonad pv m) where
 
@@ -714,11 +790,11 @@ instance (Monad m, IsProtocolVersion pv) => BS.AccountOperations (PureBlockState
 
   getAccountReleaseSchedule acc = return $ acc ^. accountReleaseSchedule
 
-  getAccountBaker acc = return $ acc ^. accountBaker
+  getAccountBaker acc = return $ acc ^? accountBaker
 
-  getAccountBakerInfoRef acc = return $ (acc ^. accountBaker) <&> (^. bakerInfo)
+  getAccountBakerInfoRef acc = return $ acc ^? accountBaker . bakerInfo
 
-  getAccountDelegator acc = return $ acc ^. accountDelegator
+  getAccountDelegator acc = return $ acc ^? accountDelegator
 
   getAccountStake acc = return $ acc ^. accountStaking
 
@@ -860,7 +936,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                     Just acct -> updateAccountDelegator accId acct
                     Nothing -> error "Invariant violation: active delegator account was not found"
             updateAccountDelegator :: AccountIndex -> Account 'AccountV1 -> MTL.State (BlockState pv) Bool
-            updateAccountDelegator accId acct = case acct ^. accountDelegator of
+            updateAccountDelegator accId acct = case acct ^? accountDelegator of
                 Just acctDel@AccountDelegationV1{..} -> case _delegationPendingChange of
                     RemoveStake pet | isEffective pet -> removeDelegatorStake accId
                     ReduceStake newAmt pet | isEffective pet -> reduceDelegatorStake accId acctDel newAmt
@@ -889,7 +965,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             processBaker accumBakers (bid@(BakerId accId), oldDelegators) = do
                 newDelegators <- processDelegators oldDelegators
                 preuse (blockAccounts . Accounts.indexedAccount accId) >>= \case
-                    Just acct -> case acct ^. accountBaker of
+                    Just acct -> case acct ^? accountBaker of
                         Just acctBkr@AccountBaker{..} -> case _bakerPendingChange of
                             RemoveStake pet | isEffective pet ->
                                 removeBaker accumBakers accId newDelegators
@@ -921,7 +997,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             curActiveBIDs = Map.toDescList (oldBPs ^. birkActiveBakers . activeBakers)
             -- Add a baker to the accumulated set of bakers for the new next bakers
             accumBakers (bs0, bkrs0) (bkr@(BakerId bid), _) = case bs ^? blockAccounts . Accounts.indexedAccount bid of
-                Just acct -> case acct ^. accountBaker of
+                Just acct -> case acct ^? accountBaker of
                   Just abkr@AccountBaker{..} -> case _bakerPendingChange of
                     RemoveStake (PendingChangeEffectiveV0 remEpoch)
                       -- The baker will be removed in the next epoch, so do not add it to the list
@@ -1491,6 +1567,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
     bsoNotifyBlockBaked = case accountVersion @(AccountVersionFor pv) of
         SAccountV0 -> \(bs :: BlockState pv) bid -> return $! bs & blockEpochBlocksBaked %~ consBlockRewardDetails bid
         SAccountV1 -> \bs bid -> do
+            -- TODO: refactor to use 'rewardDetails' traversal
             let bprs = PoolRewards.bakerPoolRewardDetails (bs ^. blockPoolRewards)
             let bpc = PoolRewards.bakerPoolCapital $ _unhashed (PoolRewards.currentCapital $ bs ^. blockPoolRewards)
             case Vec.findIndex (\bc -> PoolRewards.bcBakerId bc == bid) bpc of

@@ -47,6 +47,7 @@ import qualified Concordium.ID.Types as ID
 import qualified Concordium.ID.Parameters as ID
 import Concordium.Crypto.EncryptedTransfers (isZeroEncryptedAmount)
 import Concordium.Types.Updates
+import Concordium.Types.Queries (PoolStatus(..),CurrentPaydayBakerPoolStatus(..), makePoolPendingChange)
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Persistent.Trie as Trie
@@ -78,6 +79,7 @@ import Concordium.Types.HashableTo
 import Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule
 import Concordium.Utils.Serialization.Put
 import Concordium.Utils.Serialization
+import Concordium.Kontrol.Bakers
 
 -- * Birk parameters
 
@@ -526,6 +528,11 @@ instance (MonadBlobStore m, IsProtocolVersion pv) => Cacheable m (BlockStatePoin
             bspRewardDetails = red
         }
 
+-- |Accessor for getting the pool rewards when supported by the protocol version.
+bspPoolRewards :: (AccountVersionFor pv ~ 'AccountV1) => BlockStatePointers pv -> HashedBufferedRef PoolRewards
+bspPoolRewards bsp = case bspRewardDetails bsp of
+    BlockRewardDetailsV1 pr -> pr
+
 -- |Convert an in-memory 'Basic.BlockState' to a disk-backed 'HashedPersistentBlockState'.
 makePersistent :: forall pv m. (IsProtocolVersion pv, MonadBlobStore m) => Basic.BlockState pv -> m (HashedPersistentBlockState pv)
 makePersistent Basic.BlockState{..} = do
@@ -665,6 +672,8 @@ activeBakerFoldlDelegators bsp f a0 bid = do
 -- If @bid@ is not a baker in @bsp@, then @0@ is returned.
 -- If @bid@ is not an active baker in @bsp@, then the baker's equity capital (stake) is returned.
 -- It is assumed that all delegators to the baker @bid@ are delegator accounts in @bsp@.
+--
+-- TODO: use tracking in active bakers
 totalPoolCapital
     :: forall pv m
      . (IsProtocolVersion pv, MonadBlobStore m)
@@ -681,6 +690,41 @@ totalPoolCapital bsp bid@(BakerId aid) = do
     where
       addDelStake :: Amount -> DelegatorId -> BaseAccounts.AccountDelegation av -> m Amount
       addDelStake a _ BaseAccounts.AccountDelegationV1{..} = return (a + _delegationStakedAmount)
+
+-- | Get total delegated pool capital, sum of delegator stakes,
+-- 'poolDelegatorCapital' @bsp@ @bid@, where
+-- * @bsp@ is used to lookup accounts and active bakers,
+-- * @bid@ is the baker.
+-- If @bid@ is not a baker in @accounts@, then @0@ is returned.
+-- If @bid@ is not an active baker in @ab@, then the baker's equity capital (stake) is returned.
+-- It is assumed that all delegators to the baker @bid@ are delegator accounts in @accounts@.
+--
+-- TODO: use tracking in active bakers
+poolDelegatorCapital
+    :: forall pv m
+     . (IsProtocolVersion pv, MonadBlobStore m)
+    => BlockStatePointers pv
+    -> BakerId
+    -> m Amount
+poolDelegatorCapital bsp bid = activeBakerFoldlDelegators bsp addDelStake 0 bid
+    where
+      addDelStake :: Amount -> DelegatorId -> BaseAccounts.AccountDelegation av -> m Amount
+      addDelStake a _ BaseAccounts.AccountDelegationV1{..} = return (a + _delegationStakedAmount)
+
+-- | Get the total delegated L-pool capital.
+-- TODO: define!
+lPoolDelegatorCapital :: (IsProtocolVersion pv, MonadBlobStore m)
+    => BlockStatePointers pv
+    -> m Amount
+lPoolDelegatorCapital = undefined
+
+-- | Get the total capital currently staked by bakers and delegators.
+-- Note, this is separate from the stake and capital distribution used for the current payday, as
+-- it reflects the current value of accounts.
+-- TODO: define!
+totalCapital :: (IsProtocolVersion pv, MonadBlobStore m) => BlockStatePointers pv -> m Amount
+totalCapital = undefined
+
 
 doGetModule :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> ModuleRef -> m (Maybe GSWasm.ModuleInterface)
 doGetModule s modRef = do
@@ -1086,7 +1130,7 @@ doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
             MTL.tell [BakerConfigureRestakeEarnings restakeEarnings]
         updateOpenForDelegation = forM_ bcuOpenForDelegation $ \openForDelegation -> do
             acctBkr <- getAccountOrFail
-            ebi <- liftBSO $ refLoad $ theExtraBakerInfo (acctBkr ^. extraBakerInfo)
+            ebi <- liftBSO $ refLoad $ acctBkr ^. bakerPoolInfoRef
             unless (ebi ^. BaseAccounts.poolOpenStatus == openForDelegation) $ do
                 let updAcc acc = do
                         newEbi <- refMake (ebi & BaseAccounts.poolOpenStatus .~ openForDelegation)
@@ -1096,7 +1140,7 @@ doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
             MTL.tell [BakerConfigureOpenForDelegation openForDelegation]
         updateMetadataURL = forM_ bcuMetadataURL $ \metadataURL -> do
             acctBkr <- getAccountOrFail
-            ebi <- liftBSO $ refLoad $ theExtraBakerInfo (acctBkr ^. extraBakerInfo)
+            ebi <- liftBSO $ refLoad $ acctBkr ^. bakerPoolInfoRef
             unless (ebi ^. BaseAccounts.poolMetadataUrl == metadataURL) $ do
                 let updAcc acc = do
                         newEbi <- refMake (ebi & BaseAccounts.poolMetadataUrl .~ metadataURL)
@@ -1108,7 +1152,7 @@ doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
             let range = cp ^. cpPoolParameters . ppCommissionBounds . transactionCommissionRange
             unless (isInRange tfc range) (MTL.throwError BCCommissionNotInRange)
             acctBkr <- getAccountOrFail
-            ebi <- liftBSO $ refLoad $ theExtraBakerInfo (acctBkr ^. extraBakerInfo)
+            ebi <- liftBSO $ refLoad $ acctBkr ^. bakerPoolInfoRef
             unless (ebi ^. BaseAccounts.poolCommissionRates . transactionCommission == tfc) $ do
                 let updAcc acc = do
                         newEbi <- refMake (ebi & BaseAccounts.poolCommissionRates . transactionCommission .~ tfc)
@@ -1120,7 +1164,7 @@ doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
             let range = cp ^. cpPoolParameters . ppCommissionBounds . transactionCommissionRange
             unless (isInRange brc range) (MTL.throwError BCCommissionNotInRange)
             acctBkr <- getAccountOrFail
-            ebi <- liftBSO $ refLoad $ theExtraBakerInfo (acctBkr ^. extraBakerInfo)
+            ebi <- liftBSO $ refLoad $ acctBkr ^. bakerPoolInfoRef
             unless (ebi ^. BaseAccounts.poolCommissionRates . bakingCommission == brc) $ do
                 let updAcc acc = do
                         newEbi <- refMake (ebi & BaseAccounts.poolCommissionRates . bakingCommission .~ brc)
@@ -1132,7 +1176,7 @@ doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
             let range = cp ^. cpPoolParameters . ppCommissionBounds . transactionCommissionRange
             unless (isInRange frc range) (MTL.throwError BCCommissionNotInRange)
             acctBkr <- getAccountOrFail
-            ebi <- liftBSO $ refLoad $ theExtraBakerInfo (acctBkr ^. extraBakerInfo)
+            ebi <- liftBSO $ refLoad $ acctBkr ^. bakerPoolInfoRef
             unless (ebi ^. BaseAccounts.poolCommissionRates . finalizationCommission == frc) $ do
                 let updAcc acc = do
                         newEbi <- refMake (ebi & BaseAccounts.poolCommissionRates . finalizationCommission .~ frc)
@@ -1741,6 +1785,68 @@ doGetPaydayEpoch pbs = do
         case bspRewardDetails bsp :: BlockRewardDetails 'AccountV1 of
             BlockRewardDetailsV1 hpr -> nextPaydayEpoch <$> refLoad hpr
 
+doGetPoolStatus ::
+    forall pv m.
+    ( IsProtocolVersion pv,
+      MonadBlobStore m,
+      AccountVersionFor pv ~ 'AccountV1,
+      ChainParametersVersionFor pv ~ 'ChainParametersV1
+    ) =>
+    PersistentBlockState pv ->
+    Maybe BakerId ->
+    m (Maybe PoolStatus)
+doGetPoolStatus pbs Nothing = do
+        bsp <- loadPBS pbs
+        psDelegatedCapital <- lPoolDelegatorCapital bsp
+        psCommissionRates <- _ppLPoolCommissions . _cpPoolParameters <$> lookupCurrentParameters (bspUpdates bsp)
+        poolRewards <- refLoad (bspPoolRewards bsp)
+        let psCurrentPaydayTransactionFeesEarned = lPoolTransactionRewards poolRewards
+        psCurrentPaydayDelegatedCapital <- currentLPoolDelegatedCapital poolRewards
+        return $ Just LPoolStatus {..}
+doGetPoolStatus pbs (Just psBakerId@(BakerId aid)) = do
+        bsp <- loadPBS pbs
+        Accounts.indexedAccount aid (bspAccounts bsp) >>= \case
+            Nothing -> return Nothing
+            Just acct -> do
+                case acct ^. accountBaker of
+                    Null -> return Nothing
+                    Some bkrRef -> do
+                        baker <- refLoad bkrRef
+                        let psBakerEquityCapital = baker ^. stakedAmount
+                        psDelegatedCapital <- poolDelegatorCapital bsp psBakerId
+                        poolParameters <- _cpPoolParameters <$> lookupCurrentParameters (bspUpdates bsp)
+                        totalCap <- totalCapital bsp
+                        let psDelegatedCapitalCap = delegatedCapitalCap
+                                poolParameters
+                                totalCap
+                                psBakerEquityCapital
+                                psDelegatedCapital
+                        psBakerAddress <- _accountAddress <$> refLoad (acct ^. persistingData)
+                        psPoolInfo <- refLoad (baker ^. bakerPoolInfoRef)
+                        let psBakerStakePendingChange =
+                                makePoolPendingChange (baker ^. bakerPendingChange)
+                        epochBakers <- refLoad (_birkCurrentEpochBakers $ bspBirkParameters bsp)
+                        mepochBaker <- epochBaker psBakerId epochBakers
+                        psCurrentPaydayStatus <- case mepochBaker of 
+                            Nothing -> return Nothing
+                            Just (_, effectiveStake) -> do
+                                poolRewards <- refLoad (bspPoolRewards bsp)
+                                mbcr <- lookupBakerCapitalAndRewardDetails psBakerId poolRewards
+                                case mbcr of
+                                    Nothing -> return Nothing -- This should not happen
+                                    Just (bc, BakerPoolRewardDetails{..}) -> do
+                                        return $ Just CurrentPaydayBakerPoolStatus {
+                                                bpsBlocksBaked = blockCount,
+                                                bpsFinalizationLive = finalizationAwake,
+                                                bpsTransactionFeesEarned = transactionFeesAccrued,
+                                                bpsEffectiveStake = effectiveStake,
+                                                bpsLotteryPower = fromIntegral effectiveStake
+                                                    / fromIntegral (_bakerTotalStake epochBakers),
+                                                bpsBakerEquityCapital = bcBakerEquityCapital bc,
+                                                bpsDelegatedCapital = bcTotalDelegatorCapital bc
+                                            }
+                        return $ Just BakerPoolStatus{..}
+
 doGetTransactionOutcome :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> Transactions.TransactionIndex -> m (Maybe TransactionSummary)
 doGetTransactionOutcome pbs transHash = do
         bsp <- loadPBS pbs
@@ -2251,6 +2357,7 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateQuery (Persist
     getProtocolUpdateStatus = doGetProtocolUpdateStatus . hpbsPointers
     getCryptographicParameters = doGetCryptoParams . hpbsPointers
     getPaydayEpoch = doGetPaydayEpoch . hpbsPointers
+    getPoolStatus = doGetPoolStatus . hpbsPointers
 
 instance (PersistentState r m, IsProtocolVersion pv) => AccountOperations (PersistentBlockStateMonad pv r m) where
 
@@ -2282,14 +2389,14 @@ instance (PersistentState r m, IsProtocolVersion pv) => AccountOperations (Persi
   getAccountBaker acc = case acc ^. accountBaker of
         Null -> return Nothing
         Some bref -> do
-            PersistentAccountBaker{..} <- refLoad bref
-            abi <- refLoad _accountBakerInfo
+            pab@PersistentAccountBaker{..} <- refLoad bref
+            abi <- refLoad (pab ^. accountBakerInfo)
             case accountVersion @(AccountVersionFor pv) of
                 SAccountV0 ->
                     return $ Just BaseAccounts.AccountBaker{
                         _accountBakerInfo = BaseAccounts.BakerInfoExV0 abi, ..}
                 SAccountV1 -> do
-                    ebi <- refLoad (theExtraBakerInfo _extraBakerInfo)
+                    ebi <- refLoad (pab ^. bakerPoolInfoRef)
                     return $ Just BaseAccounts.AccountBaker{
                         _accountBakerInfo = BaseAccounts.BakerInfoExV1 abi ebi, ..}
 

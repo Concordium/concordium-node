@@ -23,6 +23,32 @@ import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.TreeState
 import Concordium.Types.SeedState
 
+-- |Compute the cap on the amount that may be delegated to a baker.
+-- It is assumed that the total capital is at least the baker equity capital plus the baker
+-- delegated capital.
+delegatedCapitalCap ::
+    -- |Pool parameters
+    PoolParameters 'ChainParametersV1 ->
+    -- |Current total capital
+    Amount ->
+    -- |Baker equity capital
+    Amount ->
+    -- |Baker delegated capital
+    Amount ->
+    Amount
+delegatedCapitalCap poolParams totalCap bakerCap delCap = min leverageCap boundCap
+  where
+    capBound = poolParams ^. ppCapitalBound
+    leverageFactor = poolParams ^. ppLeverageBound
+    leverageCap
+        | leverageFactor >= 1 = applyLeverageFactor leverageFactor bakerCap - bakerCap
+        | otherwise = 0
+    capBoundR = fractionToRational capBound
+    preBoundCap = capBoundR * toRational (totalCap - delCap) - toRational bakerCap
+    boundCap
+        | preBoundCap > 0 = truncate (preBoundCap / (1 - capBoundR))
+        | otherwise = 0
+
 -- |Transition the bakers
 transitionEpochBakersP4 ::
     (BlockStateOperations m, AccountVersionFor (MPV m) ~ 'AccountV1) =>

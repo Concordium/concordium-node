@@ -1,31 +1,35 @@
-module Concordium.GlobalState.Persistent.PoolRewards 
-    ( module Concordium.GlobalState.Basic.BlockState.PoolRewards,
-      PoolRewards (..),
-      emptyPoolRewards,
-      makePoolRewards,
-      putPoolRewards,
-      bakerBlockCounts,
-      setNextCapitalDistribution
-    ) where
+module Concordium.GlobalState.Persistent.PoolRewards (
+    module Concordium.GlobalState.Basic.BlockState.PoolRewards,
+    PoolRewards (..),
+    emptyPoolRewards,
+    makePoolRewards,
+    putPoolRewards,
+    bakerBlockCounts,
+    setNextCapitalDistribution,
+    currentLPoolDelegatedCapital,
+    lookupBakerCapitalAndRewardDetails,
+) where
 
-import Data.Word
 import Data.Serialize
 import qualified Data.Vector as Vec
+import Data.Word
 
 import Concordium.Crypto.SHA256 as Hash
 
 import Concordium.Types
 import Concordium.Types.HashableTo
+import Concordium.Utils.BinarySearch
 
 import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as BasicLFMBT
 
-import Concordium.GlobalState.Basic.BlockState.PoolRewards
-    ( BakerPoolRewardDetails (..),
-      DelegatorCapital (..),
-      BakerCapital (..),
-      CapitalDistribution (..),
-      emptyCapitalDistribution
-    )
+import Concordium.GlobalState.Basic.BlockState.PoolRewards (
+    BakerCapital (..),
+    bcTotalDelegatorCapital,
+    BakerPoolRewardDetails (..),
+    CapitalDistribution (..),
+    DelegatorCapital (..),
+    emptyCapitalDistribution,
+ )
 import qualified Concordium.GlobalState.Basic.BlockState.PoolRewards as BasicPoolRewards
 
 import Concordium.GlobalState.Persistent.BlobStore
@@ -39,10 +43,8 @@ data PoolRewards = PoolRewards
     { -- |The capital distribution for the next reward period.
       -- This is updated the epoch before a payday.
       nextCapital :: !(HashedBufferedRef CapitalDistribution),
-
       -- |The capital distribution for the current reward period.
       currentCapital :: !(HashedBufferedRef CapitalDistribution),
-
       -- |The details of rewards accruing to baker pools.
       -- These are indexed by the index of the baker in the capital distribution (_not_ the BakerId).
       bakerPoolRewardDetails :: !(LFMBT.LFMBTree Word64 BufferedRef BakerPoolRewardDetails),
@@ -55,7 +57,20 @@ data PoolRewards = PoolRewards
       -- |The rate at which tokens are minted for the current reward period.
       nextPaydayMintRate :: !MintRate
     }
-    deriving Show
+    deriving (Show)
+
+-- |Look up the baker capital and reward details for a baker ID.
+lookupBakerCapitalAndRewardDetails ::
+    (MonadBlobStore m) =>
+    BakerId ->
+    PoolRewards ->
+    m (Maybe (BakerCapital, BakerPoolRewardDetails))
+lookupBakerCapitalAndRewardDetails bid PoolRewards{..} = do
+    cdistr <- refLoad currentCapital
+    case binarySearchI bcBakerId (bakerPoolCapital cdistr) bid of
+        Nothing -> return Nothing
+        Just (index, capital) ->
+            fmap (capital,) <$> LFMBT.lookup (fromIntegral index) bakerPoolRewardDetails
 
 instance MonadBlobStore m => BlobStorable m PoolRewards where
     storeUpdate pr0 = do
@@ -104,21 +119,22 @@ putPoolRewards PoolRewards{..} = do
         put foundationTransactionRewards
         put nextPaydayEpoch
         put nextPaydayMintRate
-        
+
 instance MonadBlobStore m => MHashableTo m Hash.Hash PoolRewards where
     getHashM PoolRewards{..} = do
         hNextCapital <- getHashM nextCapital
         hCurrentCapital <- getHashM currentCapital
         hBakerPoolRewardDetails <- getHashM bakerPoolRewardDetails
-        return $!
-            Hash.hashOfHashes hNextCapital $
-            Hash.hashOfHashes hCurrentCapital $
-            Hash.hashOfHashes hBakerPoolRewardDetails $
-            getHash $ runPut $
-                put lPoolTransactionRewards <>
-                put foundationTransactionRewards <>
-                put nextPaydayEpoch <>
-                put nextPaydayMintRate
+        return
+            $! Hash.hashOfHashes hNextCapital
+            $ Hash.hashOfHashes hCurrentCapital $
+                Hash.hashOfHashes hBakerPoolRewardDetails $
+                    getHash $
+                        runPut $
+                            put lPoolTransactionRewards
+                                <> put foundationTransactionRewards
+                                <> put nextPaydayEpoch
+                                <> put nextPaydayMintRate
 
 instance MonadBlobStore m => Cacheable m PoolRewards where
     cache pr@PoolRewards{nextPaydayEpoch = nextPaydayEpoch, nextPaydayMintRate = nextPaydayMintRate} = do
@@ -134,15 +150,16 @@ makePoolRewards bpr = do
     nc <- refMake (_unhashed (BasicPoolRewards.nextCapital bpr))
     cc <- refMake (_unhashed (BasicPoolRewards.currentCapital bpr))
     bprd <- LFMBT.fromAscList $ BasicLFMBT.toAscList $ BasicPoolRewards.bakerPoolRewardDetails bpr
-    return PoolRewards{
-        nextCapital = nc,
-        currentCapital = cc,
-        bakerPoolRewardDetails = bprd,
-        lPoolTransactionRewards = BasicPoolRewards.lPoolTransactionRewards bpr,
-        foundationTransactionRewards = BasicPoolRewards.foundationTransactionRewards bpr,
-        nextPaydayEpoch = BasicPoolRewards.nextPaydayEpoch bpr,
-        nextPaydayMintRate = BasicPoolRewards.nextPaydayMintRate bpr
-    }
+    return
+        PoolRewards
+            { nextCapital = nc,
+              currentCapital = cc,
+              bakerPoolRewardDetails = bprd,
+              lPoolTransactionRewards = BasicPoolRewards.lPoolTransactionRewards bpr,
+              foundationTransactionRewards = BasicPoolRewards.foundationTransactionRewards bpr,
+              nextPaydayEpoch = BasicPoolRewards.nextPaydayEpoch bpr,
+              nextPaydayMintRate = BasicPoolRewards.nextPaydayMintRate bpr
+            }
 
 -- |The empty 'PoolRewards'.
 emptyPoolRewards :: MonadBlobStore m => m (PoolRewards)
@@ -154,29 +171,36 @@ bakerBlockCounts PoolRewards{..} = do
     cc <- refLoad currentCapital
     rds <- LFMBT.toAscPairList bakerPoolRewardDetails
     return $! zipToBlockCounts (bakerPoolCapital cc) rds
-    where
-        zipToBlockCounts _ [] = []
-        zipToBlockCounts bpc ((_, BakerPoolRewardDetails{..}) : rds) =
-            if Vec.null bpc
+  where
+    zipToBlockCounts _ [] = []
+    zipToBlockCounts bpc ((_, BakerPoolRewardDetails{..}) : rds) =
+        if Vec.null bpc
             then []
             else (bcBakerId (Vec.head bpc), blockCount) : zipToBlockCounts (Vec.tail bpc) rds
 
-
 setNextCapitalDistribution ::
-     (MonadBlobStore m, Reference m ref PoolRewards)
-    => [(BakerId, Amount, [(DelegatorId, Amount)])]
-    -> [(DelegatorId, Amount)]
-    -> ref PoolRewards
-    -> m (ref PoolRewards)
+    (MonadBlobStore m, Reference m ref PoolRewards) =>
+    [(BakerId, Amount, [(DelegatorId, Amount)])] ->
+    [(DelegatorId, Amount)] ->
+    ref PoolRewards ->
+    m (ref PoolRewards)
 setNextCapitalDistribution bakers lpool oldPoolRewards = do
     let bakerPoolCapital = Vec.fromList $ map mkBakCap bakers
     let lPoolCapital = Vec.fromList $ map mkDelCap lpool
     capDist <- refMake $ CapitalDistribution{..}
     pr <- refLoad oldPoolRewards
-    refMake $ (pr {nextCapital = capDist})
-          where
-            mkBakCap (bcBakerId, bcBakerEquityCapital, dels) =
-                let bcDelegatorCapital = Vec.fromList $ map mkDelCap dels
-                in BakerCapital{..}
-            mkDelCap (dcDelegatorId, dcDelegatorCapital) =
-                DelegatorCapital{..}
+    refMake $ (pr{nextCapital = capDist})
+  where
+    mkBakCap (bcBakerId, bcBakerEquityCapital, dels) =
+        let bcDelegatorCapital = Vec.fromList $ map mkDelCap dels
+         in BakerCapital{..}
+    mkDelCap (dcDelegatorId, dcDelegatorCapital) =
+        DelegatorCapital{..}
+
+-- |The total capital delegated to the L-Pool in the current reward period capital distribution.
+currentLPoolDelegatedCapital ::
+    (MonadBlobStore m) =>
+    PoolRewards ->
+    m Amount
+currentLPoolDelegatedCapital PoolRewards{..} =
+    Vec.sum . fmap dcDelegatorCapital . lPoolCapital <$> refLoad currentCapital

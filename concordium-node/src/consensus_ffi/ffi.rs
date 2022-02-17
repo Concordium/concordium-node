@@ -366,6 +366,13 @@ extern "C" {
         block_hash: *const u8,
         module_ref: *const u8,
     ) -> *const u8;
+    pub fn getBakerList(consensus: *mut consensus_runner, block_hash: *const u8) -> *const c_char;
+    pub fn getPoolStatus(
+        consensus: *mut consensus_runner,
+        block_hash: *const u8,
+        l_pool: bool,
+        baker_id: u64,
+    ) -> *const c_char;
     pub fn freeCStr(hstring: *const c_char);
     pub fn getCatchUpStatus(
         consensus: *mut consensus_runner,
@@ -668,6 +675,24 @@ impl ConsensusContainer {
             consensus,
             block_hash.as_ptr() as *const u8,
             module_ref.as_ptr() as *const u8
+        ))
+    }
+
+    pub fn get_baker_list(&self, block_hash: &str) -> String {
+        let block_hash = CString::new(block_hash).unwrap();
+        wrap_c_call_string!(self, consensus, |consensus| getBakerList(
+            consensus,
+            block_hash.as_ptr() as *const u8
+        ))
+    }
+
+    pub fn get_pool_status(&self, block_hash: &str, l_pool: bool, baker_id: u64) -> String {
+        let block_hash = CString::new(block_hash).unwrap();
+        wrap_c_call_string!(self, consensus, |consensus| getPoolStatus(
+            consensus,
+            block_hash.as_ptr() as *const u8,
+            l_pool,
+            baker_id,
         ))
     }
 

@@ -73,6 +73,7 @@ import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Types
 import Concordium.Types.IdentityProviders
 import Concordium.Types.AnonymityRevokers
+import Concordium.Types.Queries (PoolStatus)
 import Concordium.Types.SeedState
 import Concordium.Types.Transactions hiding (BareBlockItem(..))
 
@@ -306,6 +307,9 @@ class AccountOperations m => BlockStateQuery m where
     -- |Get the epoch time of the next scheduled payday.
     getPaydayEpoch :: (AccountVersionFor (MPV m) ~ 'AccountV1) => BlockState m -> m Epoch
 
+    getPoolStatus :: (AccountVersionFor (MPV m) ~ 'AccountV1, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1)
+        => BlockState m -> Maybe BakerId -> m (Maybe PoolStatus)
+
 -- |Distribution of newly-minted GTU.
 data MintAmounts = MintAmounts {
     -- |Minted amount allocated to the BakingRewardAccount
@@ -531,7 +535,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
     -> BakerAdd
     -> m (BakerAddResult, UpdatableBlockState m)
 
-  -- |From chain paramaters version >= 1, this operation is used to add/remove/update a baker.
+  -- |From chain parameters version >= 1, this operation is used to add/remove/update a baker.
   -- When adding baker, it is assumed that 'AccountIndex' account is NOT a baker and NOT a delegator.
   bsoConfigureBaker
     :: (AccountVersionFor (MPV m) ~ 'AccountV1, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1)
@@ -540,7 +544,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
     -> BakerConfigure
     -> m (BakerConfigureResult, UpdatableBlockState m)
 
-  -- |From chain paramaters version >= 1, this operation is used to add/remove/update a delegator.
+  -- |From chain parameters version >= 1, this operation is used to add/remove/update a delegator.
   -- When adding delegator, it is assumed that 'AccountIndex' account is NOT a baker and NOT a delegator.
   bsoConfigureDelegation
     :: (AccountVersionFor (MPV m) ~ 'AccountV1, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1)
@@ -821,6 +825,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   getProtocolUpdateStatus = lift . getProtocolUpdateStatus
   getCryptographicParameters = lift . getCryptographicParameters
   getPaydayEpoch = lift . getPaydayEpoch
+  getPoolStatus s = lift . getPoolStatus s
   {-# INLINE getModule #-}
   {-# INLINE getAccount #-}
   {-# INLINE getAccountByCredId #-}

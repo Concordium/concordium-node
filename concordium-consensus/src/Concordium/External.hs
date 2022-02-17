@@ -1070,6 +1070,40 @@ getModuleSource cptr blockcstr modcstr = do
             byteStringToCString $ maybe BS.empty S.encode msrc
         _ -> byteStringToCString BS.empty
 
+-- |Get the list of bakers registered at the given block. The block must be given as a
+-- null-terminated base16 encoding of the block hash.
+-- The return value is a null-terminated JSON-encoded list.
+-- The returned string should be freed by calling 'freeCStr'.
+getBakerList :: StablePtr ConsensusRunner -> CString -> IO CString
+getBakerList cptr blockcstr = do
+    decodeBlockHash blockcstr >>= \case
+        Nothing -> jsonCString AE.Null
+        Just bh -> jsonQuery cptr (Q.getRegisteredBakers bh)
+
+-- |Get the status of a baker pool or the L-pool with respect to a particular block.
+-- The block must be given as a null-terminated base16 encoding of the block hash.
+-- The third argument indicates if the status for the L-pool is to be returned (indicated by
+-- a true (non-zero) value). The fourth argument indicates which baker to get the status for
+-- in the case that the L-pool status is not requested. (This argument is ignored if the L-pool
+-- status is requested.)
+-- The return value is a null-terminated JSON-encoded object.
+-- The returned string should be freed by calling 'freeCStr'.
+getPoolStatus ::
+    StablePtr ConsensusRunner ->
+    -- |Block hash (null-terminated base16)
+    CString ->
+    -- |Whether to get the L-pool status
+    CBool ->
+    -- |Baker ID to get status for (if not L-pool)
+    Word64 ->
+    IO CString
+getPoolStatus cptr blockcstr lpool bid = do
+    decodeBlockHash blockcstr >>= \case
+        Nothing -> jsonCString AE.Null
+        Just bh -> jsonQuery cptr (Q.getPoolStatus bh mbid)
+  where
+    mbid = if lpool == 0 then Nothing else Just (BakerId (AccountIndex bid))
+
 -- ** Transaction-indexed queries
 
 -- |Get the status of a transaction. The input is a base16-encoded null-terminated string
@@ -1273,6 +1307,8 @@ foreign export ccall getRewardStatus :: StablePtr ConsensusRunner -> CString -> 
 foreign export ccall getBirkParameters :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getModuleList :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getModuleSource :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
+foreign export ccall getBakerList :: StablePtr ConsensusRunner -> CString -> IO CString
+foreign export ccall getPoolStatus :: StablePtr ConsensusRunner -> CString -> CBool -> Word64 -> IO CString
 foreign export ccall getTransactionStatus :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getTransactionStatusInBlock :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
 foreign export ccall getAccountNonFinalizedTransactions :: StablePtr ConsensusRunner -> CString -> IO CString

@@ -67,24 +67,26 @@ data Account (av :: AccountVersion) = Account {
 
 makeLenses ''Account
 
-accountBaker :: SimpleGetter (Account av) (Maybe (AccountBaker av))
-accountBaker = to g
+accountBaker :: Traversal' (Account av) (AccountBaker av)
+accountBaker f = g
   where
-    g Account{_accountStaking = AccountStakeBaker bkr} = Just bkr
-    g _ = Nothing
+    g acct@Account{_accountStaking = AccountStakeBaker bkr} =
+        (\bkr' -> acct{_accountStaking = AccountStakeBaker bkr'}) <$> f bkr
+    g acct = pure acct
 
 -- |Get the baker from an account, on the basis that it is known to be a baker
 unsafeAccountBaker :: HasCallStack => SimpleGetter (Account av) (AccountBaker av)
-unsafeAccountBaker = accountBaker . non (error "Invariant violation: account was expected to be a baker")
+unsafeAccountBaker = singular accountBaker
 
-accountDelegator :: SimpleGetter (Account av) (Maybe (AccountDelegation av))
-accountDelegator = to g
+accountDelegator :: Traversal' (Account av) (AccountDelegation av)
+accountDelegator f = g
   where
-    g Account{_accountStaking = AccountStakeDelegate del} = Just del
-    g _ = Nothing
+    g acct@Account{_accountStaking = AccountStakeDelegate del} =
+        (\del' -> acct{_accountStaking = AccountStakeDelegate del'}) <$> f del
+    g acct = pure acct
 
 unsafeAccountDelegator :: HasCallStack => SimpleGetter (Account av) (AccountDelegation av)
-unsafeAccountDelegator = accountDelegator . non (error "Invariant violation: account was expected to be a delegator")
+unsafeAccountDelegator = singular accountDelegator
 
 instance HasPersistingAccountData (Account av) where
   persistingAccountData = accountPersisting . unhashed

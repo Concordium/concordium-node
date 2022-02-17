@@ -1,3 +1,4 @@
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeApplications #-}
 
 module Concordium.GlobalState.Basic.BlockState.PoolRewards where
@@ -10,6 +11,7 @@ import Data.Word
 import Concordium.Crypto.SHA256 as Hash
 import Concordium.Types
 import Concordium.Types.HashableTo
+import Concordium.Utils.BinarySearch
 
 import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as LFMBT
 import Concordium.Utils
@@ -100,6 +102,10 @@ instance HashableTo Hash.Hash BakerCapital where
 
 instance Monad m => MHashableTo m Hash.Hash BakerCapital
 
+-- |The total capital delegated to the baker.
+bcTotalDelegatorCapital :: BakerCapital -> Amount
+bcTotalDelegatorCapital = sum . fmap dcDelegatorCapital . bcDelegatorCapital
+
 data CapitalDistribution = CapitalDistribution
     { -- |Capital associated with baker pools
       bakerPoolCapital :: !(Vec.Vector BakerCapital),
@@ -165,6 +171,23 @@ data PoolRewards = PoolRewards
       nextPaydayMintRate :: !MintRate
     }
     deriving (Show)
+
+-- |Traversal for accessing the reward details for a particular baker ID.
+rewardDetails :: BakerId -> Traversal' PoolRewards BakerPoolRewardDetails
+rewardDetails bid f pr
+    | Just (index, _) <- mindex =
+        (\bprd -> pr{bakerPoolRewardDetails = bprd})
+            <$> ix (fromIntegral index) f (bakerPoolRewardDetails pr)
+    | otherwise = pure pr
+  where
+    mindex = binarySearchI bcBakerId (bakerPoolCapital $ _unhashed $ currentCapital pr) bid
+
+-- |Look up the baker capital and reward details for a baker ID.
+lookupBakerCapitalAndRewardDetails :: BakerId -> PoolRewards -> Maybe (BakerCapital, BakerPoolRewardDetails)
+lookupBakerCapitalAndRewardDetails bid PoolRewards{..} = do
+    (index, capital) <- binarySearchI bcBakerId (bakerPoolCapital $ _unhashed currentCapital) bid
+    rds <- bakerPoolRewardDetails ^? ix (fromIntegral index)
+    return (capital, rds)
 
 instance HashableTo Hash.Hash PoolRewards where
     getHash PoolRewards{..} =
@@ -306,3 +329,8 @@ makeInitialPoolRewards bakers lpool npEpoch npMintRate =
         }
   where
     initCD = makeHashed $ makeCapitalDistribution bakers lpool
+
+-- |The total capital delegated to the L-Pool in the current reward period capital distribution.
+currentLPoolDelegatedCapital :: PoolRewards -> Amount
+currentLPoolDelegatedCapital =
+    Vec.sum . fmap dcDelegatorCapital . lPoolCapital . _unhashed . currentCapital

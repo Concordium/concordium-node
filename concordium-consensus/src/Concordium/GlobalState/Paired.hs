@@ -340,6 +340,10 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
         e1 <- coerceBSML (getPaydayEpoch bps1)
         e2 <- coerceBSMR (getPaydayEpoch bps2)
         assert (e1 == e2) $ return e1
+    getPoolStatus (bps1, bps2) mbid = do
+        ps1 <- coerceBSML (getPoolStatus bps1 mbid)
+        ps2 <- coerceBSMR (getPoolStatus bps2 mbid)
+        assert (ps1 == ps2) $ return ps1
 
 instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, AccountOperations (BSML pv lc r ls s m), AccountOperations (BSMR pv rc r rs s m), HashableTo H.Hash (Account (BSML pv lc r ls s m)), HashableTo H.Hash (Account (BSMR pv rc r rs s m)))
   => AccountOperations (BlockStateM pv (PairGSContext lc rc) r (PairGState ls rs) s m) where

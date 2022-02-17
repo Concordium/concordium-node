@@ -19,6 +19,7 @@ import Concordium.Types.Accounts
 import Concordium.GlobalState.BakerInfo
 import Concordium.Types
 import Concordium.Utils.Serialization
+import Concordium.Utils.BinarySearch
 
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types.HashableTo
@@ -42,21 +43,9 @@ data EpochBakers = EpochBakers {
 -- |Look up a baker by its identifier.
 -- This is implemented as a binary search.
 epochBaker :: BakerId -> EpochBakers -> Maybe (BakerInfo, Amount)
-epochBaker bid EpochBakers{..} = binSearch 0 (Vec.length _bakerInfos - 1)
-    where
-      binSearch lowIndex highIndex = case compare lowIndex highIndex of
-          LT -> let
-                  midIndex = lowIndex + (highIndex - lowIndex) `div` 2
-                  bi = _bakerInfos Vec.! midIndex 
-                in case compare bid (_bakerIdentity bi) of                
-                  LT -> binSearch lowIndex (midIndex - 1)
-                  EQ -> Just (bi, _bakerStakes Vec.! midIndex)
-                  GT -> binSearch (midIndex + 1) highIndex      
-          EQ -> let bi = _bakerInfos Vec.! lowIndex in
-                if _bakerIdentity bi == bid
-                    then Just (bi, _bakerStakes Vec.! lowIndex)
-                    else Nothing
-          GT -> Nothing
+epochBaker bid EpochBakers{..} = do
+    (idx, binfo) <- binarySearchI _bakerIdentity _bakerInfos bid
+    return (binfo, _bakerStakes Vec.! idx)
 
 instance HashableTo H.Hash EpochBakers where
     getHash EpochBakers{..} =

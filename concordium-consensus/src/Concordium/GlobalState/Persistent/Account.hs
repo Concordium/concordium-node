@@ -173,8 +173,9 @@ type family PersistentExtraBakerInfo' (av :: AccountVersion) where
     PersistentExtraBakerInfo' 'AccountV1 = BufferedRef BakerPoolInfo
 
 newtype PersistentExtraBakerInfo (av :: AccountVersion) = PersistentExtraBakerInfo
-    { theExtraBakerInfo :: PersistentExtraBakerInfo' av
+    { _theExtraBakerInfo :: PersistentExtraBakerInfo' av
     }
+makeLenses ''PersistentExtraBakerInfo
 
 instance forall av. IsAccountVersion av => Show (PersistentExtraBakerInfo av) where
     show = case (accountVersion @av) of
@@ -193,6 +194,9 @@ deriving instance (Show (PersistentExtraBakerInfo av)) => Show (PersistentAccoun
 
 makeLenses ''PersistentAccountBaker
 
+bakerPoolInfoRef :: Lens' (PersistentAccountBaker 'AccountV1) (BufferedRef BakerPoolInfo)
+bakerPoolInfoRef = extraBakerInfo . theExtraBakerInfo
+
 -- |Load a 'PersistentAccountBaker' to an 'AccountBaker'.
 loadPersistentAccountBaker :: forall av m. (IsAccountVersion av, MonadBlobStore m)
   => PersistentAccountBaker av
@@ -203,7 +207,7 @@ loadPersistentAccountBaker PersistentAccountBaker{..} = do
     SAccountV0 ->
       return AccountBaker{_accountBakerInfo = BakerInfoExV0 abi', ..}
     SAccountV1 -> do
-      _bieBakerPoolInfo <- refLoad (theExtraBakerInfo _extraBakerInfo)
+      _bieBakerPoolInfo <- refLoad (_theExtraBakerInfo _extraBakerInfo)
       return AccountBaker{_accountBakerInfo = BakerInfoExV1{_bieBakerInfo = abi', ..}, ..}
 
 makePersistentAccountBaker :: forall av m. (IsAccountVersion av, MonadBlobStore m)
@@ -229,7 +233,7 @@ instance forall m av. (IsAccountVersion av, MonadBlobStore m) => BlobStorable m 
     (pExtraBakerInfo :: Put, newExtraBakerInfo) <- (case accountVersion @av of
         SAccountV0 -> storeUpdate
         SAccountV1 -> storeUpdate)
-        $ theExtraBakerInfo _extraBakerInfo
+        $ _theExtraBakerInfo _extraBakerInfo
     let pab = PersistentAccountBaker{
             _accountBakerInfo = newBakerInfo,
             _extraBakerInfo = PersistentExtraBakerInfo newExtraBakerInfo,
@@ -268,7 +272,7 @@ putAccountBaker PersistentAccountBaker{..} = do
     (abie :: BakerInfoEx av) <- case accountVersion @av of
         SAccountV0 -> return (BakerInfoExV0 abi)
         SAccountV1 -> do
-            bpi <- refLoad $ theExtraBakerInfo _extraBakerInfo
+            bpi <- refLoad $ _theExtraBakerInfo _extraBakerInfo
             return (BakerInfoExV1 abi bpi)
     liftPut $ do
       put _stakedAmount
