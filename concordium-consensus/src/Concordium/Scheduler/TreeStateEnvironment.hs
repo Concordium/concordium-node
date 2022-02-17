@@ -239,17 +239,11 @@ calculatePaydayMintAmounts ::
   -- ^Total GTU
   -> MintAmounts
 calculatePaydayMintAmounts md mr ps updates amt =
-  -- TODO: Do not change the mnint rate mr.
-  let selectMaxSlotMintRate :: (Slot, MintRate) -> (Slot, UpdateValue 'ChainParametersV1) -> (Slot, MintRate)
-      selectMaxSlotMintRate (s2, mr2) (s1, UVTimeParameters tp) =
-        if s1 <= s2 then (s1, _tpMintPerPayday tp) else (s2, mr2)
-      selectMaxSlotMintRate a _ = a
-      selectMaxSlotMintDistribution (s2, md2) (s1, UVMintDistribution md1) =
-        if s1 <= s2 then (s1, md1) else (s2, md2)
-      selectMaxSlotMintDistribution a _ = a
-      newMintRate = snd $ foldl' selectMaxSlotMintRate (ps, mr) updates
-      newMintDistribution = snd $ foldl' selectMaxSlotMintDistribution (ps, md) updates
-  in doCalculatePaydayMintAmounts newMintDistribution newMintRate amt
+  let selectBestSlotMintDistribution (s2, md2) (s1, UVMintDistribution md1) =
+        if s1 >= s2 && s1 <= ps then (s1, md1) else (s2, md2)
+      selectBestSlotMintDistribution a _ = a
+      newMintDistribution = snd $ foldl' selectBestSlotMintDistribution (0, md) updates
+  in doCalculatePaydayMintAmounts newMintDistribution mr amt
 
 -- |Mint for all slots since the last block, recording a
 -- special transaction outcome for the minting.
@@ -289,6 +283,8 @@ doMintingP4 :: (ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1, GlobalSt
   -- ^Parent block
   -> Epoch
   -- ^Payday epoch to mint for
+  -> MintRate
+  -- ^Payday mint rate
   -> AccountAddress
   -- ^Current foundation account
   -> [(Slot, UpdateValue 'ChainParametersV1)]
@@ -296,15 +292,13 @@ doMintingP4 :: (ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1, GlobalSt
   -> UpdatableBlockState m
   -- ^Block state
   -> m (UpdatableBlockState m)
-doMintingP4 blockParent paydayEpoch foundationAddr mintUpds bs0 = do
-  -- TODO: can simply use next payday instead of argument paydayEpoch.
-  -- Need to use nextPaydayMintRate here instead of tpMintPerPayday.
+doMintingP4 blockParent paydayEpoch paydayMintRate foundationAddr mintUpds bs0 = do
   parentUpdates <- getUpdates =<< blockState blockParent
   totGTU <- (^. totalGTU) <$> bsoGetBankStatus bs0
   seedstate <- bsoGetSeedState bs0
   let mint = calculatePaydayMintAmounts
               (parentUpdates ^. currentParameters . rpMintDistribution)
-              (parentUpdates ^. currentParameters . cpTimeParameters . tpMintPerPayday)
+              paydayMintRate
               (epochLength seedstate * fromIntegral paydayEpoch)
               mintUpds
               totGTU
@@ -646,7 +640,7 @@ distributeRewards foundationAddr bs0 = do
             Nothing -> error "Invariant violation: Active baker account is not a baker account"
             Just ab -> return (ab ^. Types.accountBakerInfo . Types.bieBakerPoolInfo)
 
-doMintForRemainingPaydays
+mintForSkippedPaydays
   :: (ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1,
       GlobalStateTypes m,
       BlockStateOperations m,
@@ -658,24 +652,26 @@ doMintForRemainingPaydays
   -> AccountAddress
   -> [(Slot, UpdateValue 'ChainParametersV1)]
   -> UpdatableBlockState m
-  -> m (Epoch, UpdatableBlockState m)
-doMintForRemainingPaydays newEpoch payday rpl blockParent foundationAccount updates bs0 = do
-  -- HERE: set next payday, and set next payday mint rate based on updates.
-  if newEpoch <= payday
-  then return (payday, bs0)
+  -> m (Epoch, MintRate, UpdatableBlockState m)
+mintForSkippedPaydays newEpoch payday rpl blockParent foundationAccount updates bs0 = do
+  seedstate <- bsoGetSeedState bs0
+  parentUpdates <- getUpdates =<< blockState blockParent
+  let mintRateParent = parentUpdates ^. currentParameters . cpTimeParameters . tpMintPerPayday
+      paydaySlot = epochLength seedstate * fromIntegral payday
+      selectBestTP (s2, curr) (s1, UVTimeParameters tp) =
+        if s1 >= s2 && s1 <= paydaySlot
+        then (s1, (tp ^. tpMintPerPayday, tp ^. tpRewardPeriodLength))
+        else (s2, curr)
+      selectBestTP a _ = a
+      (nextMintRate, nextRPL) = snd $ foldl' selectBestTP (0, (mintRateParent, rpl)) updates
+      nextPayday = payday + rewardPeriodEpochs nextRPL
+  if newEpoch <= nextPayday
+  then return (nextPayday, nextMintRate, bs0)
   else do
-    bs1 <- doMintingP4 blockParent payday foundationAccount updates bs0
-    seedstate <- bsoGetSeedState bs0
-    let selectMaxSlotRPL :: (Slot, RewardPeriodLength) -> (Slot, UpdateValue 'ChainParametersV1) -> (Slot, RewardPeriodLength)
-        selectMaxSlotRPL (s2, rpl2) (s1, UVTimeParameters tp) =
-          if s1 <= s2 then (s1, _tpRewardPeriodLength tp) else (s2, rpl2)
-        selectMaxSlotRPL a _ = a
-        paydaySlot = epochLength seedstate * fromIntegral payday
-        newRPL = snd $ foldl' selectMaxSlotRPL (paydaySlot, rpl) updates
-        nextPayday = payday + rewardPeriodEpochs newRPL
-    doMintForRemainingPaydays newEpoch nextPayday newRPL blockParent foundationAccount updates bs1
+    bs1 <- doMintingP4 blockParent nextPayday nextMintRate foundationAccount updates bs0
+    mintForSkippedPaydays newEpoch nextPayday nextRPL blockParent foundationAccount updates bs1
 
-mintForRemainingPaydays
+prepareForFollowingPayday
   :: (ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1,
       GlobalStateTypes m,
       BlockStateOperations m,
@@ -686,12 +682,17 @@ mintForRemainingPaydays
   -> AccountAddress
   -> [(Slot, UpdateValue 'ChainParametersV1)]
   -> UpdatableBlockState m
-  -> m (Epoch, UpdatableBlockState m)
-mintForRemainingPaydays newEpoch payday blockParent foundationAccount updates bs = do
-  chainParams <- bsoGetChainParameters bs
+  -> m (UpdatableBlockState m)
+prepareForFollowingPayday newEpoch payday blockParent foundationAccount updates bs0 = do
+  chainParams <- bsoGetChainParameters bs0
   let rpl = chainParams ^. cpTimeParameters . tpRewardPeriodLength
-  let nextPayday = payday + rewardPeriodEpochs rpl
-  doMintForRemainingPaydays newEpoch nextPayday rpl blockParent foundationAccount updates bs
+  (newPayday, newPaydayMintRate, bs1) <- mintForSkippedPaydays newEpoch payday rpl blockParent foundationAccount updates bs0
+  -- Set blockstate with newPayday and newPaydayMintRate.
+  -- bshandleNewPayday <- bsoSetPaydayEpoch bshandlePrepared newPayday
+  --           TODO: bsoSetPaydayMintRate newPaydayMintRate bshandle
+  -- bshandleNewCapital <- bsoRotateCurrentCapitalDistribution bshandleNewPayday
+  -- bshandleNewBakers <- bsoRotateCurrentEpochBakers bshandleNewCapital
+  undefined
 
 -- |Mint new tokens and distribute rewards to bakers, finalizers and the foundation.
 -- The process consists of the following four steps:
@@ -782,13 +783,10 @@ mintAndReward bshandle blockParent slotNumber bid newEpoch isNewEpoch mfinInfo t
       bshandleFinRew <- if newEpoch < nextPayday
         then return bshandle
         else do
-          bshandleMint <- doMintingP4 blockParent nextPayday foundationAccount updates bshandle
+          nextMintRate <- undefined --TODO: bsoGetPaydayMintRate bshandle
+          bshandleMint <- doMintingP4 blockParent nextPayday nextMintRate foundationAccount updates bshandle
           bshandleRewards <- distributeRewards foundationAccount bshandleMint
-          (newPayday, bshandleMint2) <- mintForRemainingPaydays newEpoch nextPayday blockParent foundationAccount updates bshandleRewards
-          bshandleNewPayday <- bsoSetPaydayEpoch bshandleMint2 newPayday
-          bshandleNewCapital <- bsoRotateCurrentCapitalDistribution bshandleNewPayday
-          bshandleNewBakers <- bsoRotateCurrentEpochBakers bshandleNewCapital
-          undefined
+          prepareForFollowingPayday newEpoch nextPayday blockParent foundationAccount updates bshandleRewards
       doBlockRewardP4 transFees freeCounts bid bshandleFinRew
 
 -- |Update the bakers and seed state of the block state.
@@ -924,9 +922,8 @@ executeFrom blockHash slotNumber slotTime blockParent blockBaker mfinInfo newSee
                 genData <- getGenesisData
                 let updates' = (_1 %~ transactionTimeToSlot (gdGenesisTime genData) (gdSlotDuration genData))
                                 <$> Map.toAscList updates
-                (newPayday, bshandle4) <- mintAndReward bshandle3 blockParent slotNumber blockBaker (epoch newSeedState) isNewEpoch mfinInfo (finState ^. schedulerExecutionCosts) counts updates'
-                bshandle5 <- prepareForNextPayday newPayday bshandle4
-                finalbsHandle <- freezeBlockState bshandle5
+                bshandle4 <- mintAndReward bshandle3 blockParent slotNumber blockBaker (epoch newSeedState) isNewEpoch mfinInfo (finState ^. schedulerExecutionCosts) counts updates'
+                finalbsHandle <- freezeBlockState bshandle4
                 return (Right (ExecutionResult{_energyUsed = usedEnergy,
                                               _finalState = finalbsHandle,
                                               _transactionLog = finState ^. schedulerTransactionLog}))
