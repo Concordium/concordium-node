@@ -207,6 +207,17 @@ instance IsAccountVersion av => Serialize (TotalActiveCapital av) where
         SAccountV0 -> return TotalActiveCapitalV0
         SAccountV1 -> TotalActiveCapitalV1 <$> get
 
+-- |Add an amount to a 'TotalActiveCapital'.
+addActiveCapital :: Amount -> TotalActiveCapital 'AccountV1 -> TotalActiveCapital 'AccountV1
+addActiveCapital amt0 (TotalActiveCapitalV1 amt1) = TotalActiveCapitalV1 $ amt0 + amt1
+
+-- |Subtract a given 'Amount' from a 'TotalActiveCapital'.
+subtractActiveCapital :: Amount -> TotalActiveCapital 'AccountV1 -> TotalActiveCapital 'AccountV1
+subtractActiveCapital amt0 (TotalActiveCapitalV1 amt1) = TotalActiveCapitalV1 $ amt1 - amt0
+
+tacAmount :: Lens' (TotalActiveCapital 'AccountV1) Amount
+tacAmount f (TotalActiveCapitalV1 amt) = TotalActiveCapitalV1 <$> f amt
+
 data PersistentActiveBakers (av :: AccountVersion) = PersistentActiveBakers {
     _activeBakers :: !(BakerIdTrieMap av),
     _aggregationKeys :: !(Trie.TrieN (BufferedBlobbed BlobRef) BakerAggregationVerifyKey ()),

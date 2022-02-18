@@ -252,7 +252,7 @@ lookupPrefixF ks = lu [] ks <=< mproject
 
 -- |Traverse the trie, applying a function to each key value pair and concatenating the
 -- results monoidally.  Keys are traversed from lowest to highest in their byte-wise
--- resepresation.
+-- representation.
 mapReduceF :: (MRecursive m t, Base t ~ TrieF k v, FixedTrieKey k, Monoid a) => (k -> v -> m a) -> t -> m a
 mapReduceF mfun = mr [] <=< mproject
     where
@@ -461,6 +461,26 @@ adjust adj k (TrieN s t) = do
     case mt' of
         Just t' -> return (res, TrieN s' t')
         Nothing -> return (res, EmptyTrieN)
+
+-- |Apply a monadic filter on a Trie.
+-- TODO: This could be made more performant.
+filterKeysM :: (MRecursive m (fix (TrieF k v)), MCorecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, FixedTrieKey k) =>
+    (k -> m Bool) -> TrieN fix k v -> m (TrieN fix k v)
+filterKeysM f t = do
+    k <- keys t
+    keysToDelete <- filterM (fmap not . f) k
+    foldM (flip delete) t keysToDelete
+
+-- |Apply a monadic alteration to each element of a Trie.
+alterMapM :: (MRecursive m (fix (TrieF k v)), MCorecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, FixedTrieKey k) =>
+    (k -> v -> m (Alteration v)) -> TrieN fix k v -> m (TrieN fix k v)
+alterMapM upd t0 = do
+    let makeAlteration (k, v) = (k,) <$> upd k v
+    alterations <- mapM makeAlteration =<< toList t0
+    let doAlteration t (_, NoChange) = return t
+        doAlteration t (k, Remove) = delete k t
+        doAlteration t (k, Insert v) = insert k v t
+    foldM doAlteration t0 alterations
 
 -- |Get the list of keys of a trie.
 keys :: (MRecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, FixedTrieKey k) => TrieN fix k v -> m [k]
