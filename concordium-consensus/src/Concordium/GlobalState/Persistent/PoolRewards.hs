@@ -21,13 +21,14 @@ import Concordium.Types.HashableTo
 import Concordium.Utils.BinarySearch
 
 import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as BasicLFMBT
+import Concordium.GlobalState.Rewards
 
 import Concordium.GlobalState.Basic.BlockState.PoolRewards (
     BakerCapital (..),
-    bcTotalDelegatorCapital,
     BakerPoolRewardDetails (..),
     CapitalDistribution (..),
     DelegatorCapital (..),
+    bcTotalDelegatorCapital,
     emptyCapitalDistribution,
  )
 import qualified Concordium.GlobalState.Basic.BlockState.PoolRewards as BasicPoolRewards
@@ -120,13 +121,13 @@ putPoolRewards PoolRewards{..} = do
         put nextPaydayEpoch
         put nextPaydayMintRate
 
-instance MonadBlobStore m => MHashableTo m Hash.Hash PoolRewards where
+instance MonadBlobStore m => MHashableTo m PoolRewardsHash PoolRewards where
     getHashM PoolRewards{..} = do
         hNextCapital <- getHashM nextCapital
         hCurrentCapital <- getHashM currentCapital
         hBakerPoolRewardDetails <- getHashM bakerPoolRewardDetails
         return
-            $! Hash.hashOfHashes hNextCapital
+            $! PoolRewardsHash . Hash.hashOfHashes hNextCapital
             $ Hash.hashOfHashes hCurrentCapital $
                 Hash.hashOfHashes hBakerPoolRewardDetails $
                     getHash $
@@ -162,7 +163,7 @@ makePoolRewards bpr = do
             }
 
 -- |The empty 'PoolRewards'.
-emptyPoolRewards :: MonadBlobStore m => m (PoolRewards)
+emptyPoolRewards :: MonadBlobStore m => m PoolRewards
 emptyPoolRewards = makePoolRewards BasicPoolRewards.emptyPoolRewards
 
 -- |List of baker and number of blocks baked by this baker in the reward period.

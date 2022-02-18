@@ -13,7 +13,6 @@ module Concordium.GlobalState.Basic.BlockState where
 import qualified Data.Map as LazyMap
 import Lens.Micro.Platform
 import Data.Maybe
-import Data.Semigroup
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.List as List
@@ -214,7 +213,7 @@ getHashedEpochBlocksV0 = do
 
 data BlockRewardDetails (av :: AccountVersion) where
     BlockRewardDetailsV0 :: !HashedEpochBlocks -> BlockRewardDetails 'AccountV0
-    BlockRewardDetailsV1 :: !(Hashed PoolRewards.PoolRewards) -> BlockRewardDetails 'AccountV1
+    BlockRewardDetailsV1 :: !(Hashed' Rewards.PoolRewardsHash PoolRewards.PoolRewards) -> BlockRewardDetails 'AccountV1
 
 deriving instance Show (BlockRewardDetails av)
 
@@ -319,21 +318,16 @@ emptyBlockState _blockBirkParameters _blockRewardDetails cryptographicParameters
 
 
 hashBlockState :: forall pv. IsProtocolVersion pv => BlockState pv -> HashedBlockState pv
-hashBlockState = case protocolVersion :: SProtocolVersion pv of
-  SP1 -> hashBlockStateP1
-  SP2 -> hashBlockStateP1
-  SP3 -> hashBlockStateP1
-    -- For protocol versions P1, P2, and P3, convert a @BlockState pv@ to a
-    -- @HashedBlockState pv@ by computing the state hash. The state and hashing
-    -- is the same. This function was introduced in protocol version 1 which is
-    -- reflected in its name.
-  where hashBlockStateP1 bs@BlockState{..} = HashedBlockState {
-          _unhashedBlockState = bs,
+hashBlockState bs@BlockState{..} =
+    HashedBlockState
+        { _unhashedBlockState = bs,
           _blockStateHash = h
-          }
-          where
-            h = BS.makeBlockStateHash @'P1 BS.BlockStateHashInputs {
-                  bshBirkParameters = getHash _blockBirkParameters,
+        }
+  where
+    h =
+        BS.makeBlockStateHash @pv
+            BS.BlockStateHashInputs
+                { bshBirkParameters = getHash _blockBirkParameters,
                   bshCryptographicParameters = getHash _blockCryptographicParameters,
                   bshIdentityProviders = getHash _blockIdentityProviders,
                   bshAnonymityRevokers = getHash _blockAnonymityRevokers,
@@ -342,9 +336,8 @@ hashBlockState = case protocolVersion :: SProtocolVersion pv of
                   bshAccounts = getHash _blockAccounts,
                   bshInstances = getHash _blockInstances,
                   bshUpdates = getHash _blockUpdates,
-                  bshBlockRewardDetails = getHash (bs ^. blockEpochBlocksBaked)
-                  }
-
+                  bshBlockRewardDetails = getHash _blockRewardDetails
+                }
 
 instance IsProtocolVersion pv => HashableTo StateHash (BlockState pv) where
     getHash = _blockStateHash . hashBlockState

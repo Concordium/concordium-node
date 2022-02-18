@@ -7,6 +7,7 @@ import qualified Data.Map.Strict as Map
 import Data.Serialize
 import qualified Data.Vector as Vec
 import Data.Word
+import Lens.Micro.Platform
 
 import Concordium.Crypto.SHA256 as Hash
 import Concordium.Types
@@ -14,8 +15,8 @@ import Concordium.Types.HashableTo
 import Concordium.Utils.BinarySearch
 
 import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as LFMBT
+import Concordium.GlobalState.Rewards
 import Concordium.Utils
-import Lens.Micro.Platform
 
 data BakerPoolRewardDetails = BakerPoolRewardDetails
     { -- |The number of blocks baked by this baker in the reward period
@@ -189,9 +190,9 @@ lookupBakerCapitalAndRewardDetails bid PoolRewards{..} = do
     rds <- bakerPoolRewardDetails ^? ix (fromIntegral index)
     return (capital, rds)
 
-instance HashableTo Hash.Hash PoolRewards where
+instance HashableTo PoolRewardsHash PoolRewards where
     getHash PoolRewards{..} =
-        Hash.hashOfHashes (getHash nextCapital) $
+        PoolRewardsHash . Hash.hashOfHashes (getHash nextCapital) $
             Hash.hashOfHashes (getHash currentCapital) $
                 Hash.hashOfHashes (getHash bakerPoolRewardDetails) $
                     getHash $

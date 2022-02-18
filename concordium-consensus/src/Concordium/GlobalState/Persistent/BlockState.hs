@@ -319,7 +319,7 @@ putHashedEpochBlocksV0 HashedEpochBlocks{..} = do
 
 data BlockRewardDetails (av :: AccountVersion) where
     BlockRewardDetailsV0 :: !HashedEpochBlocks -> BlockRewardDetails 'AccountV0
-    BlockRewardDetailsV1 :: !(HashedBufferedRef PoolRewards) -> BlockRewardDetails 'AccountV1
+    BlockRewardDetailsV1 :: !(HashedBufferedRef' Rewards.PoolRewardsHash PoolRewards) -> BlockRewardDetails 'AccountV1
 
 instance MonadBlobStore m => MHashableTo m (Rewards.BlockRewardDetailsHash av) (BlockRewardDetails av) where
     getHashM (BlockRewardDetailsV0 heb) = return $ Rewards.BlockRewardDetailsHashV0 (getHash heb)
