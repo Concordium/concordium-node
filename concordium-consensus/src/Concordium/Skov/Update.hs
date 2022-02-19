@@ -8,6 +8,7 @@ import qualified Data.Sequence as Seq
 import Lens.Micro.Platform
 import Data.Foldable
 import GHC.Stack
+import Data.Maybe (fromMaybe)
 
 import Concordium.Types
 import Concordium.Types.Accounts
@@ -36,8 +37,9 @@ import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.Skov.Statistics
 import qualified Concordium.TransactionVerification as TV
-import Concordium.Types.Updates (uiHeader)
+import Concordium.Types.Updates (uiHeader, updateType, uiPayload)
 import Concordium.Scheduler.Types (updateSeqNumber)
+import Concordium.GlobalState.TransactionTable (pttDeployCredential)
 
 -- |Determine if one block is an ancestor of another.
 -- A block is considered to be an ancestor of itself.
@@ -554,12 +556,44 @@ doReceiveTransactionInternal origin tr ts slot = do
         Added bi@WithMetadata{..} verRes -> do
           ptrs <- getPendingTransactions
           case wmdData of
-            NormalTransaction tx -> do
-              putPendingTransactions $! addPendingTransaction (transactionNonce tx) WithMetadata{wmdData=tx,..} ptrs
+            NormalTransaction tx -> do              
+              -- Transactions received individually should always be added to the ptt.
+              -- If the transaction was received as part of a block we only add it to the ptt if
+              -- the transaction nonce is at least the `nextNonce` recorded for sender account.
+              -- 
+              -- The pending transaction table records transactions that are pending from the perspective of the focus block (which is always above the last finalized block).
+              -- It is an invariant of the pending table and focus block that the next recorded nonce for any sender in the pending table is
+              -- the same as the next account nonce from the perspective of the focus block.
+              -- 
+              -- When receiving transactions individually, the pre-validation done in addCommitTransaction already checks that the transaction nonce is the next available one.
+              -- This is always at least the nonce that is recorded in the focus block for the account.
+              -- The invariant then ensures that the next nonce for the sender in the pending table is the same as that in the focus block for the account.
+              --
+              -- However when receiving transactions as part of a block pre-validation only ensures that the nonce is at least the last finalized one
+              -- (or at least the one in the parent block, depending on whether the parent block exists or not).
+              -- In the case the parent block is above the focus block, or the parent block does not exist,
+              -- this nonce would in general be above the nonce recorded in the focus block for the account.
+              -- Hence to maintain the invariant we have to inform the pending table what the next available nonce is in the focus block.
+              let add nextNonce = putPendingTransactions $! addPendingTransaction nextNonce WithMetadata{wmdData=tx,..} ptrs
+              case origin of
+                TV.Single -> add $ transactionNonce tx
+                TV.Block _ -> do 
+                  focus <- getFocusBlock
+                  st <- blockState focus
+                  macct <- getAccount st $! transactionSender tx
+                  nextNonce <- fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
+                  -- If a transaction with this nonce has already been run by
+                  -- the focus block, then we do not need to add it to the
+                  -- pending transactions. Otherwise, we do.
+                  when (nextNonce <= transactionNonce tx) $ add nextNonce
             CredentialDeployment _ -> do
               putPendingTransactions $! addPendingDeployCredential wmdHash ptrs
             ChainUpdate cu -> do
-              putPendingTransactions $! addPendingUpdate (updateSeqNumber (uiHeader cu)) cu ptrs
+              focus <- getFocusBlock
+              st <- blockState focus
+              nextSN <- getNextUpdateSequenceNumber st (updateType (uiPayload cu))
+              when (nextSN <= updateSeqNumber (uiHeader cu)) $
+                  putPendingTransactions $! addPendingUpdate nextSN cu ptrs
           -- The actual verification result here is only used if the transaction was received individually.
           -- If the transaction was received as part of a block we don't use the result for anything.
           return (Just (bi, Just verRes), transactionVerificationResultToUpdateResult verRes)
