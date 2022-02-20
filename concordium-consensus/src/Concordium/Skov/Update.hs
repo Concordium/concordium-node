@@ -165,18 +165,19 @@ processFinalization newFinBlock finRec@FinalizationRecord{..} = do
         -- already marked dead.
         let pruneTrunk :: [BlockPointerType m] -- ^List of blocks to remove.
                        -> [BlockPointerType m] -- ^List of finalized blocks.
+                       -> BlockPointerType m -- ^Finalized block to consider now.
+                                            -- At the same height as the latest branch in the next argument
                        -> Branches m
                        -> m ([BlockPointerType m], [BlockPointerType m])
                        -- ^ The return value is a list of blocks to mark dead (ordered by decreasing
                        -- height) and a list of blocks to mark finalized (ordered by increasing
                        -- height).
-            pruneTrunk toRemove toFinalize Seq.Empty = return (toRemove, toFinalize)
-            pruneTrunk toRemove toFinalize (brs Seq.:|> l) = do
-              let keeper = head toFinalize
-                  toRemove1 = toRemove ++ filter (/= keeper) l
+            pruneTrunk toRemove toFinalize _ Seq.Empty = return (toRemove, toFinalize)
+            pruneTrunk toRemove toFinalize keeper (brs Seq.:|> l) = do
+              let toRemove1 = toRemove ++ filter (/= keeper) l
               parent <- bpParent keeper
-              pruneTrunk toRemove1 (parent : toFinalize) brs
-        (toRemoveFromTrunk, toFinalize) <- pruneTrunk [] [newFinBlock] (Seq.take pruneHeight oldBranches)
+              pruneTrunk toRemove1 (keeper : toFinalize) parent brs
+        (toRemoveFromTrunk, toFinalize) <- pruneTrunk [] [] newFinBlock (Seq.take pruneHeight oldBranches)
         -- Add the finalization to the finalization list
         addFinalization newFinBlock finRec
         -- mark blocks as finalized in the order returned by `pruneTrunk`, so that blocks are marked
