@@ -10,6 +10,7 @@ import Data.Foldable
 import Data.List (intercalate)
 import GHC.Stack
 import Data.Maybe (fromMaybe)
+import Data.Time (diffUTCTime)
 
 import Concordium.Types
 import Concordium.Types.Accounts
@@ -139,6 +140,7 @@ processFinalization :: forall pv m. (TreeStateMonad pv m, SkovMonad pv m, OnSkov
 processFinalization newFinBlock finRec@FinalizationRecord{..} = do
     nextFinIx <- getNextFinalizationIndex
     when (nextFinIx == finalizationIndex) $ do
+        startTime <- currentTime
         -- We actually have a new block to finalize.
         logEvent Skov LLInfo $ "Block " ++ show (bpHash newFinBlock) ++ " is finalized at height " ++ show (theBlockHeight $ bpHeight newFinBlock) ++ " with finalization delta=" ++ show finalizationDelay
         updateFinalizationStatistics
@@ -249,6 +251,8 @@ processFinalization newFinBlock finRec@FinalizationRecord{..} = do
         -- purge pending blocks with slot numbers predating the last finalized slot
         purgePending
         onFinalize finRec newFinBlock
+        endTime <- currentTime
+        logEvent Skov LLDebug $ "Processed finalization in " ++ show (diffUTCTime endTime startTime)
 
 -- |Try to add a block to the tree.  
 -- Besides taking the `PendingBlock` this function takes a list
