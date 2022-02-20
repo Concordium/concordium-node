@@ -1,5 +1,25 @@
 {-# LANGUAGE ScopedTypeVariables #-}
-module Concordium.GlobalState.ContractStateV1 where
+module Concordium.GlobalState.ContractStateV1
+ (
+   PersistentState,
+   TransientState,
+   MutableState,
+   TransientMutableState,
+   newMutableState,
+   makePersistent,
+   unsafeMkForeign,
+   unsafeFromForeign,
+   withMutableState,
+   getNewStateSize,
+   freeze,
+   thaw,
+   freezeTransient,
+   thawTransient,
+   toByteString,
+   -- * Testing
+   lookupKey
+ )
+where
 
 import Foreign.ForeignPtr (ForeignPtr, newForeignPtr, withForeignPtr)
 import Data.Serialize
@@ -77,6 +97,28 @@ foreign import ccall "serialize_persistent_state_v1" serializePersistentState ::
 
 -- |Deserialize state from a byte buffer.
 foreign import ccall "deserialize_persistent_state_v1" deserializePersistentState :: Ptr Word8 -> CSize -> IO (Ptr PersistentState)
+
+-- |Functions that exist only for testing.
+{-# WARNING persistentStateV1Lookup "Not efficient. DO NOT USE IN PRODUCTION." #-}
+foreign import ccall "persistent_state_v1_lookup" persistentStateV1Lookup
+   :: LoadCallback
+   -> Ptr Word8
+   -> CSize -- ^ Pointer to the beginning of the key and its length.
+   -> Ptr PersistentState
+   -> Ptr CSize -- ^Length of the output data, if the output pointer is not null.
+   -> IO (Ptr Word8)
+
+{-# WARNING lookupKey "Not efficient. DO NOT USE IN PRODUCTION." #-}
+lookupKey :: TransientState -> ByteString -> IO (Maybe ByteString)
+lookupKey (TransientState ps) k =
+  withPersistentState ps $ \psPtr ->
+    unsafeUseAsCStringLen k $ \(keyPtr, keyLen) ->
+      alloca $ \outPtr -> do
+        res <- persistentStateV1Lookup errorLoadCallBack (castPtr keyPtr) (fromIntegral keyLen) psPtr outPtr
+        if res == nullPtr then return Nothing
+        else do
+          len <- peek outPtr
+          Just <$> unsafePackCStringFinalizer (castPtr res) (fromIntegral len) (rs_free_array_len res (fromIntegral len))
 
 {-# NOINLINE getNewStateSize #-}
 getNewStateSize :: LoadCallback -> MutableState -> Word64
