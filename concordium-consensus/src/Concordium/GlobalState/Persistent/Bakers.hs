@@ -208,11 +208,13 @@ instance IsAccountVersion av => Serialize (TotalActiveCapital av) where
         SAccountV1 -> TotalActiveCapitalV1 <$> get
 
 -- |Add an amount to a 'TotalActiveCapital'.
-addActiveCapital :: Amount -> TotalActiveCapital 'AccountV1 -> TotalActiveCapital 'AccountV1
+addActiveCapital :: Amount -> TotalActiveCapital av -> TotalActiveCapital av
+addActiveCapital _ TotalActiveCapitalV0 = TotalActiveCapitalV0
 addActiveCapital amt0 (TotalActiveCapitalV1 amt1) = TotalActiveCapitalV1 $ amt0 + amt1
 
 -- |Subtract a given 'Amount' from a 'TotalActiveCapital'.
-subtractActiveCapital :: Amount -> TotalActiveCapital 'AccountV1 -> TotalActiveCapital 'AccountV1
+subtractActiveCapital :: Amount -> TotalActiveCapital av -> TotalActiveCapital av
+subtractActiveCapital _ TotalActiveCapitalV0 = TotalActiveCapitalV0
 subtractActiveCapital amt0 (TotalActiveCapitalV1 amt1) = TotalActiveCapitalV1 $ amt1 - amt0
 
 tacAmount :: Lens' (TotalActiveCapital 'AccountV1) Amount

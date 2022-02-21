@@ -39,8 +39,10 @@ import qualified Data.ByteString as BS
 import Control.Exception
 import Data.Functor.Foldable
 import Control.Monad.Reader.Class
+import Control.Monad.Trans.Writer.Strict (WriterT)
+import Control.Monad.Trans.State.Strict (StateT)
 import Control.Monad.Trans.Reader (ReaderT, runReaderT)
-import Control.Monad.IO.Class
+import Control.Monad.Trans
 import System.Directory
 import GHC.Stack
 import Data.IORef
@@ -257,6 +259,22 @@ class MonadIO m => MonadBlobStore m where
     {-# INLINE flushStore #-}
 
 instance MonadBlobStore (ReaderT BlobStore IO)
+
+instance (Monoid w, MonadBlobStore m) => MonadBlobStore (WriterT w m) where
+    storeRaw = lift . storeRaw
+    {-# INLINE storeRaw #-}
+    loadRaw = lift . loadRaw
+    {-# INLINE loadRaw #-}
+    flushStore = lift flushStore
+    {-# INLINE flushStore #-}
+
+instance MonadBlobStore m => MonadBlobStore (StateT s m) where
+    storeRaw = lift . storeRaw
+    {-# INLINE storeRaw #-}
+    loadRaw = lift . loadRaw
+    {-# INLINE loadRaw #-}
+    flushStore = lift flushStore
+    {-# INLINE flushStore #-}
 
 -- |The @BlobStorable m a@ class defines how a value
 -- of type @a@ may be stored in monad @m@.

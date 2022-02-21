@@ -1365,11 +1365,15 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                     -- handled in the Scheduler.
                     return ()
                 GT -> do
+                    bs1 <- MTL.get
+                    let ab = bs1 ^. blockBirkParameters . birkActiveBakers
+                    let newAB = addTotalsInActiveBakers ab ad (capital - _delegationStakedAmount ad)
+                    MTL.modify' $ blockBirkParameters . birkActiveBakers .~ newAB
                     modifyAccount (delegationStakedAmount .~ capital)
-                    bs <- MTL.get
+                    bs2 <- MTL.get
                     -- The delegation target may be updated by 'updateDelegationTarget', hence it
                     -- is important that 'updateDelegationTarget' is invoked before 'updateCapital'.
-                    delegationConfigureDisallowOverdelegation bs poolParams (ad ^. delegationTarget)
+                    delegationConfigureDisallowOverdelegation bs2 poolParams (ad ^. delegationTarget)
                     MTL.tell [DelegationConfigureStakeIncreased capital]
         updateRestakeEarnings = forM_ dcuRestakeEarnings $ \restakeEarnings -> do
             ad <- getAccount
@@ -1381,6 +1385,18 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             unless (target == ad ^. delegationTarget) $
               modifyAccount (delegationTarget .~ target)
             MTL.tell [DelegationConfigureDelegationTarget target]
+        addTotalsInActiveBakers ab0 ad delta =
+            let ab1 = ab0 & totalActiveCapital +~ delta in
+            case ad ^. delegationTarget of
+                DelegateToLPool ->
+                    let ActivePool dset dtot = ab1 ^. lPoolDelegators
+                    in ab1 & lPoolDelegators .~ ActivePool dset (dtot + delta)
+                DelegateToBaker bid ->
+                    case Map.lookup bid (ab1 ^. activeBakers) of
+                        Nothing -> error "Invariant violation: delegation target is not an active baker"
+                        Just (ActivePool dset dtot) ->
+                            let newActiveMap = Map.insert bid (ActivePool dset (dtot + delta)) (ab1 ^. activeBakers)
+                            in ab1 & activeBakers .~ newActiveMap
 
     bsoUpdateBakerKeys bs ai bku@BakerKeyUpdate{..} = return $! case bs ^? blockAccounts . Accounts.indexedAccount ai of
         -- The account is valid and has a baker
