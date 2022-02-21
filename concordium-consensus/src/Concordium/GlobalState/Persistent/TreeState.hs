@@ -571,7 +571,7 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
         msb <- readFinalizedBlockAtHeight bHeight
         mapM constructBlock msb
 
-    wrapupFinalization mfs fts = use lastFinalizationRecord >>= \lfr -> writeFinalizationComposite lfr mfs (concat fts)
+    wrapupFinalization = writeFinalizationComposite
 
     getBranches = use branches
     putBranches brs = branches .= brs

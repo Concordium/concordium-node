@@ -41,7 +41,6 @@ import Concordium.Skov.Statistics
 import qualified Concordium.TransactionVerification as TV
 import Concordium.Types.Updates (uiHeader, updateType, uiPayload)
 import Concordium.Scheduler.Types (updateSeqNumber)
-import Concordium.GlobalState.TransactionTable (pttDeployCredential)
 
 -- |Determine if one block is an ancestor of another.
 -- A block is considered to be an ancestor of itself.
@@ -182,14 +181,12 @@ processFinalization newFinBlock finRec@FinalizationRecord{..} = do
         (toRemoveFromTrunk, toFinalize) <- pruneTrunk [] [] newFinBlock (Seq.take pruneHeight oldBranches)
         -- Add the finalization to the finalization list
         addFinalization newFinBlock finRec
-        -- mark blocks as finalized in the order returned by `pruneTrunk`, so that blocks are marked
-        -- finalized by increasing height
-        mfs <- forM toFinalize $ \block -> do
-          markFinalized (getHash block) finRec
-        -- Finalize the transactions of surviving blocks in the order of their finalization.
-        fts <- forM toFinalize $ \block -> do
-          finalizeTransactions (getHash block) (blockSlot block) (blockTransactions block)
-        forM_ toFinalize $ \block -> do
+        mffts <- forM toFinalize $ \block -> do
+          -- mark blocks as finalized in the order returned by `pruneTrunk`, so that blocks are marked
+          -- finalized by increasing height          
+          mf <- markFinalized (getHash block) finRec
+          -- Finalize the transactions of surviving blocks in the order of their finalization.
+          ft <- finalizeTransactions (getHash block) (blockSlot block) (blockTransactions block)
           ati <- bpTransactionAffectSummaries block
           bcTime <- getSlotTimestamp (blockSlot block)
           let ctx = BlockContext{
@@ -197,9 +194,10 @@ processFinalization newFinBlock finRec@FinalizationRecord{..} = do
                 bcHeight = bpHeight block,
                 ..}
           flushBlockSummaries ctx ati =<< getSpecialOutcomes =<< blockState block
+          return (mf, ft)
         -- block states and transaction statuses need to be added into the same LMDB transaction
         -- with the finalization record, if persistent tree state is used
-        wrapupFinalization mfs fts
+        wrapupFinalization finRec mffts
         logEvent Skov LLDebug $ "Blocks " ++ intercalate ", " (map show toFinalize) ++ " marked finalized"
         -- Archive the states of blocks up to but not including the new finalized block
         let doArchive b = case compare (bpHeight b) lastFinHeight of

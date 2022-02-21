@@ -63,7 +63,7 @@ import Control.Monad.State
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Serialize as S
-import Data.Maybe (catMaybes)
+import Data.Maybe (fromJust, isJust)
 import Control.Arrow ((&&&))
 import Database.LMDB.Raw
 import Lens.Micro.Platform
@@ -609,19 +609,19 @@ writeTransactionStatuses tss = resizeOnFull tssSize
 -- an arbitrary number of `writeBlock`s in a single transaction.
 writeFinalizationComposite :: (MonadLogger m, MonadIO m, MonadState s m,
                                HasDatabaseHandlers pv st s, IsProtocolVersion pv, S.Serialize st)
-  => FinalizationRecord -> [Maybe (StoredBlock pv st)] -> [(TransactionHash, FinalizedTransactionStatus)] -> m ()
-writeFinalizationComposite finRec blocks tss = resizeOnFull (finRecSize + blocksSize + tssSize)
+  => FinalizationRecord -> [(Maybe (StoredBlock pv st), [(TransactionHash, FinalizedTransactionStatus)])] -> m ()
+writeFinalizationComposite finRec blocktss = resizeOnFull (finRecSize + blocksSize + tssSize)
     $ \dbh -> transaction (dbh ^. storeEnv) False
     $ \txn -> do
        storeReplaceRecord txn (dbh ^. finalizationRecordStore) (finalizationIndex finRec) finRec
-       forM_ serializedBlocks (\(block, b) -> do
+       forM_ serializedBlocksTss (\((block, b), tss) -> do
                           storeReplaceRecord txn (dbh ^. finalizedByHeightStore) (_bpHeight b) (_bpHash b)
-                          storeReplaceBytes txn (dbh ^. blockStore) (_bpHash b) block)
-       forM_ tss (uncurry (storeReplaceRecord txn (dbh ^. transactionStatusStore)))
+                          storeReplaceBytes txn (dbh ^. blockStore) (_bpHash b) block
+                          forM_ tss (uncurry (storeReplaceRecord txn (dbh ^. transactionStatusStore))))
   where
+    serializedBlocksTss = (((S.encodeLazy &&& sbInfo) . fromJust . fst) &&& snd) <$> filter (isJust . fst) blocktss
     finRecSize = let FinalizationProof vs _ = finalizationProof finRec in
           -- key + finIndex + finBlockPointer + finProof (list of Word32s + BlsSignature.signatureSize) + finDelay
           digestSize + 64 + digestSize + (32 * Prelude.length vs) + 48 + 64
-    serializedBlocks = map (S.encodeLazy &&& sbInfo) . catMaybes $ blocks
-    blocksSize = sum . map (\b -> 2*digestSize + fromIntegral (LBS.length . fst $ b)) $ serializedBlocks
-    tssSize = Prelude.length tss * (2 * digestSize + 16)
+    blocksSize = sum . map (\b -> 2*digestSize + fromIntegral (LBS.length . fst . fst $ b)) $ serializedBlocksTss
+    tssSize = (* (2 * digestSize + 16)) . sum . map (Prelude.length . snd) $ blocktss

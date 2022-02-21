@@ -35,6 +35,7 @@ import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.TreeState as TS
 import Concordium.GlobalState
 import Concordium.Logger (MonadLogger(..))
+import Control.Arrow ((&&&))
 
 -- |Monad for coercing reader and state types.
 newtype ReviseRSM r s m a = ReviseRSM (m a)
@@ -769,9 +770,9 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
               assert (rec1 == rec2) $ -- TODO: Perhaps they don't have to be the same
                 return $ Just rec1
             _ -> error $ "getRecordAtindex (Paired): no match " ++ show r1 ++ ", " ++ show r2
-    wrapupFinalization mfs fts = do
-      coerceGSML (wrapupFinalization (fst <$> mfs) (fst <$> fts))
-      coerceGSMR (wrapupFinalization (snd <$> mfs) (snd <$> fts))
+    wrapupFinalization finRec mffts = do
+      coerceGSML (wrapupFinalization finRec ((fst . fst &&& fst . snd) <$> mffts))
+      coerceGSMR (wrapupFinalization finRec ((snd . fst &&& snd . snd) <$> mffts))
     getBranches = do
         r1 <- coerceGSML getBranches
         r2 <- coerceGSMR getBranches

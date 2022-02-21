@@ -102,7 +102,7 @@ testFinalizeABlock = do
   -- Add the finalization to the tree state
   mf <- markFinalized (bpHash blockPtr) frec
   addFinalization blockPtr frec
-  wrapupFinalization [mf] []
+  wrapupFinalization frec [(mf, [])]
   -- Was updated as the last finalized?
   (b, fr) <- getLastFinalized
   liftIO $ do
@@ -143,7 +143,7 @@ testFinalizeABlock = do
   -- Add the finalization to the tree state
   mf2 <- markFinalized (bpHash blockPtr2) frec2
   addFinalization blockPtr2 frec2
-  wrapupFinalization [mf2] []
+  wrapupFinalization frec2 [(mf2, [])]
   --- The database should now contain 3 items, check them
   theDB <- use db
   (storedBlocks, finRecs) <- liftIO $ do

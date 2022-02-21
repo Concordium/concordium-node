@@ -187,7 +187,7 @@ class (Eq (BlockPointerType m),
     getFinalizedAtHeight :: BlockHeight -> m (Maybe (BlockPointerType m))
 
     -- |Persist finalization, if the tree state implementation supports it
-    wrapupFinalization :: [MarkFin m] -> [FinTrans m] -> m ()
+    wrapupFinalization :: FinalizationRecord -> [(MarkFin m, FinTrans m)] -> m ()
 
     -- * Operations on branches
     -- |Get the branches.
@@ -377,7 +377,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad pv m) => TreeStateMonad pv (
     getFinalizedAtIndex = lift . getFinalizedAtIndex
     getRecordAtIndex = lift . getRecordAtIndex
     getFinalizedAtHeight = lift . getFinalizedAtHeight
-    wrapupFinalization mfs = lift . wrapupFinalization mfs
+    wrapupFinalization finRec = lift . wrapupFinalization finRec
     getBranches = lift getBranches
     putBranches = lift . putBranches
     takePendingChildren = lift . takePendingChildren
