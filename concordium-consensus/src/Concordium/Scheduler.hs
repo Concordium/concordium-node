@@ -1699,18 +1699,28 @@ handleChainUpdate WithMetadata{wmdData = ui@UpdateInstruction{..}, ..} = do
           BakerStakeThresholdUpdatePayload u -> checkSigAndUpdateOnlyCPV0 $ UVPoolParameters u
           AddAnonymityRevokerUpdatePayload u -> checkSigAndUpdate $ UVAddAnonymityRevoker u
           AddIdentityProviderUpdatePayload u -> checkSigAndUpdate $ UVAddIdentityProvider u
+          CooldownParametersCPV1UpdatePayload u -> checkSigAndUpdateOnlyCPV1 $ UVCooldownParameters u
+          PoolParametersCPV1UpdatePayload u -> checkSigAndUpdateOnlyCPV1 $ UVPoolParameters u
+          TimeParametersCPV1UpdatePayload u -> checkSigAndUpdateOnlyCPV1 $ UVTimeParameters u
+          MintDistributionCPV1UpdatePayload u -> checkSigAndUpdateOnlyCPV1 $ UVMintDistribution u
           RootUpdatePayload (RootKeysRootUpdate u) -> checkSigAndUpdate $ UVRootKeys u
           RootUpdatePayload (Level1KeysRootUpdate u) -> checkSigAndUpdate $ UVLevel1Keys u
           RootUpdatePayload (Level2KeysRootUpdate u) -> checkSigAndUpdateOnlyCPV0 $ UVLevel2Keys u
+          RootUpdatePayload (Level2KeysRootUpdateV1 u) -> checkSigAndUpdateOnlyCPV1 $ UVLevel2Keys u
           Level1UpdatePayload (Level1KeysLevel1Update u) -> checkSigAndUpdate $ UVLevel1Keys u
           Level1UpdatePayload (Level2KeysLevel1Update u) -> checkSigAndUpdateOnlyCPV0 $ UVLevel2Keys u
-
+          Level1UpdatePayload (Level2KeysLevel1UpdateV1 u) -> checkSigAndUpdateOnlyCPV1 $ UVLevel2Keys u
   where
     checkSigAndUpdateOnlyCPV0 :: UpdateValue 'ChainParametersV0 -> m TxResult
     checkSigAndUpdateOnlyCPV0 = do
         case chainParametersVersion @(ChainParametersVersionFor (MPV m)) of
             SCPV0 -> checkSigAndUpdate
-            SCPV1 -> error "unexpected update for chain parameters version which is not V0"
+            SCPV1 -> const $ return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+    checkSigAndUpdateOnlyCPV1 :: UpdateValue 'ChainParametersV1 -> m TxResult
+    checkSigAndUpdateOnlyCPV1 = do
+        case chainParametersVersion @(ChainParametersVersionFor (MPV m)) of
+            SCPV0 -> const $ return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+            SCPV1 -> checkSigAndUpdate
     checkSigAndUpdate :: UpdateValue (ChainParametersVersionFor (MPV m)) -> m TxResult
     checkSigAndUpdate change = do
       -- Check that the signatures use the appropriate keys and are valid.
