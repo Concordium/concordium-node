@@ -91,18 +91,13 @@ data PersistentBirkParameters = PersistentBirkParameters {
 
 makeLenses ''PersistentBirkParameters
 
--- |Updatable instances state.
-data UInstanceStateV (v :: Wasm.WasmVersion) where
-  UInstanceStateV0 :: Wasm.ContractState -> UInstanceStateV GSWasm.V0
-  UInstanceStateV1 :: StateV1.MutableState -> UInstanceStateV GSWasm.V1
-
-freeze :: MonadBlobStore m => UInstanceStateV v -> m (SHA256.Hash, Instances.InstanceStateV v)
-freeze (UInstanceStateV0 cs) = return (getHash cs, Instances.InstanceStateV0 cs)
-freeze (UInstanceStateV1 cs) = do
-  (cbk, _) <- getCallBacks
-  (hsh, persistent) <- liftIO (StateV1.freeze cbk cs)
-  return (hsh, Instances.InstanceStateV1 persistent)
-
+freeze :: forall v m . (Wasm.IsWasmVersion v, MonadBlobStore m) => UpdatableContractState v -> m (SHA256.Hash, Instances.InstanceStateV v)
+freeze cs = case Wasm.getWasmVersion @v of
+  Wasm.SV0 -> return (getHash cs, Instances.InstanceStateV0 cs)
+  Wasm.SV1 -> do
+    (cbk, _) <- getCallBacks
+    (hsh, persistent) <- liftIO (StateV1.freeze cbk cs)
+    return (hsh, Instances.InstanceStateV1 persistent)
 
 -- |Serialize 'PersistentBirkParameters' in V0 format.
 putBirkParametersV0 :: (MonadBlobStore m, MonadPut m) => PersistentBirkParameters -> m ()
@@ -989,7 +984,7 @@ doContractInstanceList pbs = do
 
 doPutNewInstance :: forall m pv v. (IsProtocolVersion pv, MonadBlobStore m, Wasm.IsWasmVersion v)
                  => PersistentBlockState pv
-                 -> NewInstanceData UInstanceStateV v
+                 -> NewInstanceData v
                  -> m (ContractAddress, PersistentBlockState pv)
 doPutNewInstance pbs NewInstanceData{..} = do
         bsp <- loadPBS pbs
@@ -1045,7 +1040,7 @@ doPutNewInstance pbs NewInstanceData{..} = do
                   ..
                   })
 
-doModifyInstance :: forall pv m v . (IsProtocolVersion pv, MonadBlobStore m, Wasm.IsWasmVersion v) => PersistentBlockState pv -> ContractAddress -> AmountDelta -> Maybe (UInstanceStateV v) -> m (PersistentBlockState pv)
+doModifyInstance :: forall pv m v . (IsProtocolVersion pv, MonadBlobStore m, Wasm.IsWasmVersion v) => PersistentBlockState pv -> ContractAddress -> AmountDelta -> Maybe (UpdatableContractState v) -> m (PersistentBlockState pv)
 doModifyInstance pbs caddr deltaAmnt val = do
         bsp <- loadPBS pbs
         -- Update the instance
@@ -1309,7 +1304,6 @@ instance BlockStateTypes (PersistentBlockStateMonad pv r m) where
     type UpdatableBlockState (PersistentBlockStateMonad pv r m) = PersistentBlockState pv
     type Account (PersistentBlockStateMonad pv r m) = PersistentAccount pv
     type ContractState (PersistentBlockStateMonad pv r m) = Instances.InstanceStateV
-    type UpdatableContractState (PersistentBlockStateMonad pv r m) = UInstanceStateV
 
 instance (IsProtocolVersion pv, PersistentState r m) => BlockStateQuery (PersistentBlockStateMonad pv r m) where
     getModule = doGetModuleSource . hpbsPointers
@@ -1345,23 +1339,18 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateQuery (Persist
     getEnergyRate = doGetEnergyRate . hpbsPointers
 
 instance (MonadIO m, PersistentState r m) => ContractStateOperations (PersistentBlockStateMonad pv r m) where
-  thawContractState (Instances.InstanceStateV0 inst) = return (UInstanceStateV0 inst)
-  thawContractState (Instances.InstanceStateV1 inst) = liftIO (UInstanceStateV1 <$> StateV1.thaw inst)
-  toForeignReprV0 (UInstanceStateV0 cs) = return cs
-  toForeignReprV1 (UInstanceStateV1 cs) = return cs
-  fromForeignReprV0 = return . UInstanceStateV0
-  fromForeignReprV1 = return . UInstanceStateV1
+  thawContractState (Instances.InstanceStateV0 inst) = return inst
+  thawContractState (Instances.InstanceStateV1 inst) = liftIO . flip StateV1.thaw inst . fst =<< getCallBacks
   stateSizeV0 (Instances.InstanceStateV0 inst) = return (Wasm.contractStateSize inst)
-  mutableStateSizeV0 (UInstanceStateV0 inst) = return (Wasm.contractStateSize inst)
+  mutableStateSizeV0 inst = return (Wasm.contractStateSize inst)
   getV1StateContext = asks blobLoadCallback
+  contractStateToByteString (Instances.InstanceStateV0 st) = return (Wasm.contractState st)
+  contractStateToByteString (Instances.InstanceStateV1 st) = StateV1.toByteString st
   {-# INLINE thawContractState #-}
-  {-# INLINE toForeignReprV0 #-}
-  {-# INLINE toForeignReprV1 #-}
-  {-# INLINE fromForeignReprV0 #-}
-  {-# INLINE fromForeignReprV1 #-}
   {-# INLINE stateSizeV0 #-}
   {-# INLINE mutableStateSizeV0 #-}
   {-# INLINE getV1StateContext #-}
+  {-# INLINE contractStateToByteString #-}
 
 instance (PersistentState r m, IsProtocolVersion pv) => AccountOperations (PersistentBlockStateMonad pv r m) where
 

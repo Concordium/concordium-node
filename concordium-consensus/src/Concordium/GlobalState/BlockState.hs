@@ -4,6 +4,8 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeFamilyDependencies #-}
 {-|
  Definition of the API of every BlockState implementation.
 
@@ -81,6 +83,8 @@ import Concordium.Crypto.EncryptedTransfers
 import Concordium.GlobalState.ContractStateFFIHelpers (LoadCallback)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import qualified Data.Set as Set
+import Data.ByteString (ByteString)
+
 
 -- |The hashes of the block state components, which are combined
 -- to produce a 'StateHash'.
@@ -191,16 +195,13 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
   -- |Get the baker info (if any) attached to an account.
   getAccountBaker :: Account m -> m (Maybe AccountBaker)
 
+type family UpdatableContractState (v :: Wasm.WasmVersion) = ty | ty -> v where
+  UpdatableContractState GSWasm.V0 = Wasm.ContractState
+  UpdatableContractState GSWasm.V1 = StateV1.MutableState
+
 class (BlockStateTypes m, Monad m) => ContractStateOperations m where
     -- |Convert a persistent state to a mutable one that can be updated by the scheduler.
-    thawContractState :: ContractState m v -> m (UpdatableContractState m v)
-    -- |Since contract execution is not in Haskell we need some concrete types
-    -- to pass through the FFI boundary. What is needed for V0 and V1 contracts
-    -- is very different, so we have two functions with concrete types.
-    toForeignReprV0 :: UpdatableContractState m GSWasm.V0 -> m Wasm.ContractState
-    toForeignReprV1 :: UpdatableContractState m GSWasm.V1 -> m StateV1.MutableState
-    fromForeignReprV0 :: Wasm.ContractState -> m (UpdatableContractState m GSWasm.V0)
-    fromForeignReprV1 :: StateV1.MutableState -> m (UpdatableContractState m GSWasm.V1)
+    thawContractState :: ContractState m v -> m (UpdatableContractState v)
 
     -- |Get the callbacks to allow loading using the state (both mutable and
     -- immutable). Contracts are executed on the other end of FFI, and state is
@@ -209,7 +210,11 @@ class (BlockStateTypes m, Monad m) => ContractStateOperations m where
 
     -- |Size of the V0 state for both variants of the state.
     stateSizeV0 :: ContractState m GSWasm.V0 -> m Wasm.ByteSize
-    mutableStateSizeV0 :: UpdatableContractState m GSWasm.V0 -> m Wasm.ByteSize 
+    mutableStateSizeV0 :: UpdatableContractState GSWasm.V0 -> m Wasm.ByteSize
+
+    -- |Convert the entire contract state to a byte array. This should generally only be used
+    -- for testing.
+    contractStateToByteString :: ContractState m v -> m ByteString
 
 -- |Static information about an instance returned by block state queries.
 -- The fields of this record are not strict because this is just an intermediate
@@ -376,7 +381,7 @@ mintTotal MintAmounts{..} = mintBakingReward + mintFinalizationReward + mintDeve
 -- except the instance address and the derived instance hashes. The address is
 -- determined when the instance is inserted in the instance table. The hashes
 -- are computed on insertion.
-data NewInstanceData state v = NewInstanceData {
+data NewInstanceData v = NewInstanceData {
   -- |Name of the init method used to initialize the contract.
   nidInitName :: Wasm.InitName,
   -- |Receive functions suitable for this instance.
@@ -384,7 +389,7 @@ data NewInstanceData state v = NewInstanceData {
   -- |Module interface that contains the code of the contract.
   nidInterface :: GSWasm.ModuleInterfaceV v,
   -- |Initial state of the instance.
-  nidInitialState :: state v,
+  nidInitialState :: UpdatableContractState v,
   -- ^Initial balance
   nidInitialAmount :: Amount,
   -- |Owner/creator of the instance.
@@ -418,7 +423,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   bsoCreateAccount :: UpdatableBlockState m -> GlobalContext -> AccountAddress -> AccountCredential -> m (Maybe (Account m), UpdatableBlockState m)
 
   -- |Add a new smart contract instance to the state.
-  bsoPutNewInstance :: forall v . Wasm.IsWasmVersion v => UpdatableBlockState m -> NewInstanceData (UpdatableContractState m) v -> m (ContractAddress, UpdatableBlockState m)
+  bsoPutNewInstance :: forall v . Wasm.IsWasmVersion v => UpdatableBlockState m -> NewInstanceData v -> m (ContractAddress, UpdatableBlockState m)
   -- |Add the module to the global state. If a module with the given address
   -- already exists return @False@.
   bsoPutNewModule :: Wasm.IsWasmVersion v => UpdatableBlockState m -> (GSWasm.ModuleInterfaceV v, Wasm.WasmModuleV v) -> m (Bool, UpdatableBlockState m)
@@ -476,7 +481,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
                       UpdatableBlockState m
                     -> ContractAddress
                     -> AmountDelta
-                    -> Maybe (UpdatableContractState m v)
+                    -> Maybe (UpdatableContractState v)
                     -> m (UpdatableBlockState m)
 
   -- |Notify that some amount was transferred from/to encrypted balance of some account.
@@ -814,19 +819,13 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
 instance (Monad (t m), MonadTrans t, ContractStateOperations m) => ContractStateOperations (MGSTrans t m) where
   thawContractState = lift . thawContractState
   {-# INLINE thawContractState #-}
-  toForeignReprV0 = lift . toForeignReprV0
-  {-# INLINE toForeignReprV0 #-}
-  toForeignReprV1 = lift . toForeignReprV1
-  {-# INLINE toForeignReprV1 #-}
-  fromForeignReprV0 = lift . fromForeignReprV0
-  {-# INLINE fromForeignReprV0 #-}
-  fromForeignReprV1 = lift . fromForeignReprV1
-  {-# INLINE fromForeignReprV1 #-}
   stateSizeV0 = lift . stateSizeV0
   {-# INLINE stateSizeV0 #-}
   mutableStateSizeV0 = lift . mutableStateSizeV0
   {-# INLINE mutableStateSizeV0 #-}
   getV1StateContext = lift getV1StateContext
+  {-# INLINE contractStateToByteString #-}
+  contractStateToByteString = lift . contractStateToByteString
   {-# INLINE getV1StateContext #-}
 
 instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperations (MGSTrans t m) where

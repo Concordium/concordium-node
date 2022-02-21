@@ -63,8 +63,7 @@ import Concordium.Types.HashableTo
 import Concordium.Utils.Serialization
 import Concordium.GlobalState.Instance (InstanceStateV)
 import qualified Concordium.Wasm as Wasm
-import Concordium.GlobalState.Types (BlockStateTypes(UpdatableContractState))
-import Concordium.GlobalState.BlockState (InstanceInfoTypeV(iiParameters))
+import Concordium.GlobalState.BlockState (InstanceInfoTypeV(iiParameters), UpdatableContractState)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 
 data BasicBirkParameters = BasicBirkParameters {
@@ -178,16 +177,11 @@ getHashedEpochBlocksV0 = do
     blocks <- replicateM numBlocks get
     return $! foldr' consEpochBlock emptyHashedEpochBlocks blocks
 
--- |Updatable instances state.
-data UInstanceStateV (v :: Wasm.WasmVersion) where
-  UInstanceStateV0 :: Wasm.ContractState -> UInstanceStateV GSWasm.V0
-  UInstanceStateV1 :: StateV1.TransientMutableState -> UInstanceStateV GSWasm.V1
-
-freeze :: UInstanceStateV v -> (H.Hash, InstanceStateV v)
-freeze (UInstanceStateV0 cs) = (getHash cs, Instance.InstanceStateV0 cs)
-freeze (UInstanceStateV1 cs) =
-  let (hsh, persistent) = StateV1.freezeTransient cs
-  in (hsh, Instance.InstanceStateV1 persistent)
+freeze :: forall v . Wasm.IsWasmVersion v => UpdatableContractState v -> (H.Hash, InstanceStateV v)
+freeze cs = case Wasm.getWasmVersion @v of
+  Wasm.SV0 -> (getHash cs, Instance.InstanceStateV0 cs)
+  Wasm.SV1 -> let (hsh, persistent) = StateV1.freezeInMemoryPersistent cs
+             in (hsh, Instance.InstanceStateV1 persistent)
 
 data BlockState (pv :: ProtocolVersion) = BlockState {
     _blockAccounts :: !(Accounts.Accounts pv),
@@ -363,7 +357,6 @@ instance GT.BlockStateTypes (PureBlockStateMonad pv m) where
     type UpdatableBlockState (PureBlockStateMonad pv m) = BlockState pv
     type Account (PureBlockStateMonad pv m) = Account pv
     type ContractState (PureBlockStateMonad pv m) = InstanceStateV
-    type UpdatableContractState (PureBlockStateMonad pv m) = UInstanceStateV
 
 instance ATITypes (PureBlockStateMonad pv m) where
   type ATIStorage (PureBlockStateMonad pv m) = ()
@@ -560,23 +553,18 @@ instance (Monad m, IsProtocolVersion pv) => BS.AccountOperations (PureBlockState
   getAccountBaker acc = return $ acc ^. accountBaker
 
 instance Monad m => BS.ContractStateOperations (PureBlockStateMonad pv m) where
-  thawContractState (Instance.InstanceStateV0 st) = return (UInstanceStateV0 st)
-  thawContractState (Instance.InstanceStateV1 st) = return (UInstanceStateV1 (StateV1.thawTransient st))
-  toForeignReprV0 (UInstanceStateV0 cs) = return cs
-  toForeignReprV1 (UInstanceStateV1 cs) = return $ StateV1.unsafeMkForeign cs
-  fromForeignReprV0 = return . UInstanceStateV0
-  fromForeignReprV1 = return . UInstanceStateV1 . StateV1.unsafeFromForeign
+  thawContractState (Instance.InstanceStateV0 st) = return st
+  thawContractState (Instance.InstanceStateV1 st) = return (StateV1.thawInMemoryPersistent st)
   stateSizeV0 (Instance.InstanceStateV0 cs) = return (Wasm.contractStateSize cs)
-  mutableStateSizeV0 (UInstanceStateV0 cs) = return (Wasm.contractStateSize cs)
+  mutableStateSizeV0 cs = return (Wasm.contractStateSize cs)
   getV1StateContext = return errorLoadCallBack
+  contractStateToByteString (Instance.InstanceStateV0 st) = return (Wasm.contractState st)
+  contractStateToByteString (Instance.InstanceStateV1 st) = return (encode st)
   {-# INLINE thawContractState #-}
-  {-# INLINE toForeignReprV0 #-}
-  {-# INLINE toForeignReprV1 #-}
-  {-# INLINE fromForeignReprV0 #-}
-  {-# INLINE fromForeignReprV1 #-}
   {-# INLINE stateSizeV0 #-}
   {-# INLINE mutableStateSizeV0 #-}
   {-# INLINE getV1StateContext #-}
+  {-# INLINE contractStateToByteString #-}
 
 instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockStateMonad pv m) where
 
@@ -612,7 +600,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
 
     bsoPutNewInstance :: forall v . Wasm.IsWasmVersion v
                       => BlockState pv
-                      -> BS.NewInstanceData (UpdatableContractState (PureBlockStateMonad pv m)) v
+                      -> BS.NewInstanceData v
                       -> PureBlockStateMonad pv m (ContractAddress, BlockState pv)
     bsoPutNewInstance bs BS.NewInstanceData{..} = return (Instances.instanceAddress inst, bs')
         where

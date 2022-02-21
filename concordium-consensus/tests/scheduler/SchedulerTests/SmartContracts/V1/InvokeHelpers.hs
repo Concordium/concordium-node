@@ -101,12 +101,11 @@ initContractV1 senderAddress initName initParam initAmount bs (miv, _) = do
       liftIO $ assertFailure $ "Initialization failed: " ++ show failure
     Just (Right WasmV1.InitSuccess{..}, _) -> do
       let receiveMethods = OrdMap.findWithDefault Set.empty initName (GSWasm.miExposedReceive miv)
-      initialState <- fromForeignReprV1 irdNewState
       let ins = NewInstanceData{
             nidInitName = initName,
             nidEntrypoints = receiveMethods,
             nidInterface = miv,
-            nidInitialState = initialState,
+            nidInitialState = irdNewState,
             nidInitialAmount = initAmount,
             nidOwner = senderAddress
             }
@@ -135,12 +134,11 @@ initContractV0 senderAddress initName initParam initAmount bs (miv, _) = do
       liftIO $ assertFailure $ "Initialization failed: " ++ show failure
     Just (Right SuccessfulResultData{..}, _) -> do
       let receiveMethods = OrdMap.findWithDefault Set.empty initName (GSWasm.miExposedReceive miv)
-      initialState <- fromForeignReprV0 newState
       let ins = NewInstanceData{
             nidInitName = initName,
             nidEntrypoints = receiveMethods,
             nidInterface = miv,
-            nidInitialState = initialState,
+            nidInitialState = newState,
             nidInitialAmount = initAmount,
             nidOwner = senderAddress
             }

@@ -2,19 +2,17 @@
 module Concordium.GlobalState.ContractStateV1
  (
    PersistentState,
-   TransientState,
-   MutableState,
-   TransientMutableState,
+   InMemoryPersistentState,
+   MutableState(..),
+   MutableStateInner,
    newMutableState,
    makePersistent,
-   unsafeMkForeign,
-   unsafeFromForeign,
    withMutableState,
    getNewStateSize,
    freeze,
    thaw,
-   freezeTransient,
-   thawTransient,
+   freezeInMemoryPersistent,
+   thawInMemoryPersistent,
    toByteString,
    -- * Testing
    lookupKey
@@ -41,22 +39,31 @@ import qualified Concordium.Crypto.SHA256 as SHA256
 import Data.ByteString.Char8 (ByteString)
 import Concordium.Utils.Serialization (putByteStringLen, getByteStringLen)
 
-newtype MutableState = MutableState (ForeignPtr MutableState)
+newtype MutableStateInner = MutableStateInner (ForeignPtr MutableStateInner)
 
-newMutableState :: Ptr MutableState -> IO MutableState
-newMutableState ptr = MutableState <$> newForeignPtr freeMutableState ptr
+type MutableStateContext = LoadCallback
 
-withMutableState :: MutableState -> (Ptr MutableState -> IO a) -> IO a
-withMutableState (MutableState fp) = withForeignPtr fp
+-- |Mutable state together with the context that determines how to access any
+-- pointers into a persistent part of the state.
+data MutableState = MutableState {
+  msInner :: !MutableStateInner,
+  msContext :: !MutableStateContext
+ }
 
-makePersistent :: TransientState -> PersistentState
-makePersistent (TransientState st) = st
+newMutableState :: MutableStateContext -> Ptr MutableStateInner -> IO MutableState
+newMutableState msContext ptr = do
+  msInner <- MutableStateInner <$> newForeignPtr freeMutableState ptr
+  return MutableState{..}
+
+withMutableState :: MutableState -> (Ptr MutableStateInner -> IO a) -> IO a
+withMutableState MutableState{msInner=MutableStateInner fp} = withForeignPtr fp
+
+makePersistent :: InMemoryPersistentState -> PersistentState
+makePersistent (InMemoryPersistentState st) = st
 
 newtype PersistentState = PersistentState (ForeignPtr PersistentState)
 
-newtype TransientState = TransientState PersistentState
-
-newtype TransientMutableState = TransientMutableState MutableState
+newtype InMemoryPersistentState = InMemoryPersistentState PersistentState
 
 withPersistentState :: PersistentState -> (Ptr PersistentState -> IO a) -> IO a
 withPersistentState (PersistentState fp) = withForeignPtr fp
@@ -65,7 +72,7 @@ withPersistentState (PersistentState fp) = withForeignPtr fp
 -- write into the provided buffer.
 foreign import ccall "load_persistent_tree_v1" loadPersistentTree :: LoadCallback -> BlobRef PersistentState -> IO (Ptr PersistentState)
 foreign import ccall unsafe "&free_persistent_state_v1" freePersistentState :: FunPtr (Ptr PersistentState -> IO ())
-foreign import ccall unsafe "&free_mutable_state_v1" freeMutableState :: FunPtr (Ptr MutableState -> IO ())
+foreign import ccall unsafe "&free_mutable_state_v1" freeMutableState :: FunPtr (Ptr MutableStateInner -> IO ())
 
 -- |Write out the tree using the provided callback, and return a BlobRef to the root.
 foreign import ccall "store_persistent_tree_v1" storePersistentTree :: StoreCallback -> Ptr PersistentState -> IO (BlobRef PersistentState)
@@ -73,14 +80,14 @@ foreign import ccall "store_persistent_tree_v1" storePersistentTree :: StoreCall
 -- |Freeze the mutable state and compute the root hash. This deallocates the
 -- mutable state and writes the hash to the provided pointer, which should be
 -- able to hold 32 bytes.
-foreign import ccall "freeze_mutable_state_v1" freezePersistentTree :: LoadCallback -> Ptr MutableState -> Ptr Word8 -> IO (Ptr PersistentState)
+foreign import ccall "freeze_mutable_state_v1" freezePersistentTree :: LoadCallback -> Ptr MutableStateInner -> Ptr Word8 -> IO (Ptr PersistentState)
 
 -- |Make a fresh mutable state from the persistent one.
-foreign import ccall "thaw_persistent_state_v1" thawPersistentTree :: Ptr PersistentState -> IO (Ptr MutableState)
+foreign import ccall "thaw_persistent_state_v1" thawPersistentTree :: Ptr PersistentState -> IO (Ptr MutableStateInner)
 
 -- |Get the amount of additional space that will be needed to store the new
 -- entries.
-foreign import ccall "get_new_state_size_v1" getNewStateSizeFFI :: LoadCallback -> Ptr MutableState -> IO Word64
+foreign import ccall "get_new_state_size_v1" getNewStateSizeFFI :: LoadCallback -> Ptr MutableStateInner -> IO Word64
 
 -- |Cache the persistent state, loading all parts of the tree that are purely on
 -- disk.
@@ -109,8 +116,8 @@ foreign import ccall "persistent_state_v1_lookup" persistentStateV1Lookup
    -> IO (Ptr Word8)
 
 {-# WARNING lookupKey "Not efficient. DO NOT USE IN PRODUCTION." #-}
-lookupKey :: TransientState -> ByteString -> IO (Maybe ByteString)
-lookupKey (TransientState ps) k =
+lookupKey :: InMemoryPersistentState -> ByteString -> IO (Maybe ByteString)
+lookupKey (InMemoryPersistentState ps) k =
   withPersistentState ps $ \psPtr ->
     unsafeUseAsCStringLen k $ \(keyPtr, keyLen) ->
       alloca $ \outPtr -> do
@@ -124,32 +131,27 @@ lookupKey (TransientState ps) k =
 getNewStateSize :: LoadCallback -> MutableState -> Word64
 getNewStateSize cbk ms = unsafePerformIO (withMutableState ms (getNewStateSizeFFI cbk))
 
-unsafeMkForeign :: TransientMutableState -> MutableState
-unsafeMkForeign (TransientMutableState ms) = ms
-
-unsafeFromForeign :: MutableState -> TransientMutableState
-unsafeFromForeign = TransientMutableState
-
 freeze :: LoadCallback -> MutableState -> IO (SHA256.Hash, PersistentState)
 freeze callbacks ms = do
   (psPtr, hashBytes) <- withMutableState ms $ \msPtr -> FBS.createWith (freezePersistentTree callbacks msPtr)
   ps <- newForeignPtr freePersistentState psPtr
   return (SHA256.Hash hashBytes, PersistentState ps)
 
-thaw :: PersistentState -> IO MutableState
-thaw ms = do
+thaw :: MutableStateContext -> PersistentState -> IO MutableState
+thaw msContext ms = do
   msPtr <- withPersistentState ms thawPersistentTree
-  MutableState <$> newForeignPtr freeMutableState msPtr
+  msInner <- MutableStateInner <$> newForeignPtr freeMutableState msPtr
+  return MutableState{..}
 
-{-# NOINLINE freezeTransient #-}
-freezeTransient :: TransientMutableState -> (SHA256.Hash, TransientState)
-freezeTransient (TransientMutableState tms) = unsafePerformIO $ do
-  (h, s) <- freeze errorLoadCallBack tms
-  return (h, TransientState s)
+{-# NOINLINE freezeInMemoryPersistent #-}
+freezeInMemoryPersistent :: MutableState -> (SHA256.Hash, InMemoryPersistentState)
+freezeInMemoryPersistent ms =
+  let (hsh, s) = unsafePerformIO $ freeze errorLoadCallBack ms
+  in (hsh, InMemoryPersistentState s)
 
-{-# NOINLINE thawTransient #-}
-thawTransient :: TransientState -> TransientMutableState
-thawTransient (TransientState ts) = TransientMutableState . unsafePerformIO $ thaw ts
+{-# NOINLINE thawInMemoryPersistent #-}
+thawInMemoryPersistent :: InMemoryPersistentState -> MutableState
+thawInMemoryPersistent (InMemoryPersistentState ts) = unsafePerformIO $ thaw errorLoadCallBack ts
 
 instance (MonadBlobStore m) => BlobStorable m PersistentState where
   store = fmap fst . storeUpdate
@@ -186,15 +188,15 @@ toByteString ps = do
     len <- peek sizePtr
     unsafePackCStringFinalizer (castPtr bytePtr) (fromIntegral len) (rs_free_array_len bytePtr (fromIntegral len))
 
-instance HashableTo SHA256.Hash TransientState where
+instance HashableTo SHA256.Hash InMemoryPersistentState where
   {-# NOINLINE getHash #-}
-  getHash (TransientState ps) = unsafePerformIO $ do
+  getHash (InMemoryPersistentState ps) = unsafePerformIO $ do
     ((), hsh) <- liftIO (withPersistentState ps $ FBS.createWith . hashPersistentState)
     return (SHA256.Hash hsh)
 
 -- TODO: Make sure to serialize in a way that allows passing the bytestring back to be deserialized,
 -- so length + data
-instance Serialize TransientState where
+instance Serialize InMemoryPersistentState where
   {-# NOINLINE get #-}
   get = do
     bs <- getByteStringLen
@@ -203,9 +205,9 @@ instance Serialize TransientState where
       if res == nullPtr then
         return (fail "Could not deserialize state")
       else do
-        return . TransientState . PersistentState <$> newForeignPtr freePersistentState res
+        return . InMemoryPersistentState . PersistentState <$> newForeignPtr freePersistentState res
   {-# NOINLINE put #-}
-  put (TransientState ps) = unsafePerformIO $ do
+  put (InMemoryPersistentState ps) = unsafePerformIO $ do
     withPersistentState ps $ \psPtr -> alloca $ \sizePtr -> do
       bytePtr <- serializePersistentState errorLoadCallBack psPtr sizePtr
       len <- peek sizePtr

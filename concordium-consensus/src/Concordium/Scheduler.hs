@@ -69,7 +69,6 @@ import Data.Function (on)
 import Data.List (find, foldl')
 import qualified Data.Map.Strict as OrdMap
 import Data.Maybe
-import Data.Proxy
 import Data.Ord
 import qualified Data.Set as Set
 
@@ -770,19 +769,18 @@ handleInitContract wtc initAmount modref initName param =
             cs' <- addAmountToCS senderAccount (amountDiff 0 initAmount) (ls ^. changeSet)
 
             let receiveMethods = OrdMap.findWithDefault Set.empty initName (GSWasm.miExposedReceive iface)
-            internalModel <- fromForeignReprV0 model
             let ins = NewInstanceData{
                    nidInitName = initName,
                    nidEntrypoints = receiveMethods,
                    nidInterface = iface,
-                   nidInitialState = internalModel,
+                   nidInitialState = model,
                    nidInitialAmount = initAmount,
                    nidOwner = senderAddress
                 } 
             newInstanceAddr <- putNewInstance ins
 
             -- add the contract initialization to the change set and commit the changes
-            commitChanges $ addContractInitToCS (Proxy @m) newInstanceAddr cs'
+            commitChanges $ addContractInitToCS newInstanceAddr cs'
 
             return (TxSuccess [ContractInitialized{ecRef=modref,
                                                    ecAddress=newInstanceAddr,
@@ -801,19 +799,18 @@ handleInitContract wtc initAmount modref initName param =
             cs' <- addAmountToCS senderAccount (amountDiff 0 initAmount) (ls ^. changeSet)
 
             let receiveMethods = OrdMap.findWithDefault Set.empty initName (GSWasm.miExposedReceive iface)
-            internalModel <- fromForeignReprV1 model
             let ins = NewInstanceData{
                    nidInitName = initName,
                    nidEntrypoints = receiveMethods,
                    nidInterface = iface,
-                   nidInitialState = internalModel,
+                   nidInitialState = model,
                    nidInitialAmount = initAmount,
                    nidOwner = senderAddress
                 } 
             newInstanceAddr <- putNewInstance ins
 
             -- add the contract initialization to the change set and commit the changes
-            commitChanges $ addContractInitToCS (Proxy @m) newInstanceAddr cs'
+            commitChanges $ addContractInitToCS newInstanceAddr cs'
 
             return (TxSuccess [ContractInitialized{ecRef=modref,
                                                    ecAddress=newInstanceAddr,
@@ -978,7 +975,6 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
   -- However we are defensive here and reject the transaction instead of panicking in case it does not.
   ownerCheck <- getStateAccount ownerAccountAddress
   senderCheck <- checkAndGetSender transferAmount
-  stateContext <- getV1StateContext
   case (Set.member receiveName receivefuns, ownerCheck, senderCheck) of
     (False, _, _) -> return (Left (WasmV1.EnvFailure (WasmV1.InvalidEntrypoint (GSWasm.miModuleRef . instanceModuleInterface $ iParams) receiveName)))
     (_, Nothing, _) -> return (Left (WasmV1.EnvFailure (WasmV1.MissingAccount ownerAccountAddress)))
@@ -1017,8 +1013,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
             case rrData of
               WasmV1.ReceiveSuccess{..} -> do
                 -- execution terminated, commit the new state
-                newState <- fromForeignReprV1 rrdNewState
-                withInstanceStateV1 istance newState $ \_modifiedIndex ->
+                withInstanceStateV1 istance rrdNewState $ \_modifiedIndex ->
                   let event = Updated{euAddress=instanceAddress istance,
                                       euInstigator=senderAddr,
                                       euAmount=transferAmount,
@@ -1043,21 +1038,20 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                   WasmV1.Transfer{..} ->
                     runExceptT (transferAccountSync imtTo istance imtAmount) >>= \case
                       Left errCode -> do
-                        go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig stateContext rrdCurrentState False entryBalance (WasmV1.Error (WasmV1.EnvFailure errCode)) Nothing)
+                        go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.Error (WasmV1.EnvFailure errCode)) Nothing)
                       Right transferEvents -> do
                         newBalance <- getCurrentContractAmount Wasm.SV1 istance
-                        go (resumeEvent True:transferEvents ++ interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig stateContext rrdCurrentState False newBalance WasmV1.Success Nothing)
+                        go (resumeEvent True:transferEvents ++ interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False newBalance WasmV1.Success Nothing)
                   WasmV1.Call{..} -> do
                     -- the operation is a call to another contract. There is a bit of complication because the contract could be a V0
                     -- or V1 one, and the behaviour is different depending on which one it is.
                     -- First, commit the current state of the contract.
                     -- TODO: With the new state, only do this if the state has actually changed.
-                    stateAtInvoke <- fromForeignReprV1 rrdCurrentState
-                    withInstanceStateV1 istance stateAtInvoke $ \modificationIndex -> do
+                    withInstanceStateV1 istance rrdCurrentState $ \modificationIndex -> do
                        -- lookup the instance to invoke
                        getCurrentContractInstanceTicking' imcTo >>= \case
                          -- we could not find the instance, return this to the caller and continue
-                         Nothing -> go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig stateContext rrdCurrentState False entryBalance (WasmV1.Error (WasmV1.EnvFailure (WasmV1.MissingContract imcTo))) Nothing)
+                         Nothing -> go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.Error (WasmV1.EnvFailure (WasmV1.MissingContract imcTo))) Nothing)
                          Just (InstanceInfoV0 targetInstance) -> do
                            -- we are invoking a V0 instance.
                            -- in this case we essentially treat this as a top-level transaction invoking that contract.
@@ -1068,14 +1062,14 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                            -- Otherwise rollback the state and report that to the caller.
                            runInnerTransaction runSuccess >>= \case
                               Left _ -> -- execution failed, ignore the reject reason since V0 contract cannot return useful information
-                                go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig stateContext rrdCurrentState False entryBalance WasmV1.MessageSendFailed Nothing)
+                                go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance WasmV1.MessageSendFailed Nothing)
                               Right evs -> do
                                 -- Execution of the contract might have changed our own state. If so, we need to resume in the new state, otherwise
                                 -- we can keep the old one.
                                 (lastModifiedIndex, newState) <- getCurrentContractInstanceState istance
                                 (stateChanged, resumeState) <- (lastModifiedIndex /= modificationIndex,) <$> getForeignReprV1 newState
                                 newBalance <- getCurrentContractAmount Wasm.SV1 istance
-                                go (resumeEvent True:evs ++ interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig stateContext resumeState stateChanged newBalance WasmV1.Success Nothing)
+                                go (resumeEvent True:evs ++ interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig resumeState stateChanged newBalance WasmV1.Success Nothing)
                          Just (InstanceInfoV1 targetInstance) -> do
                            -- If this returns Right _ it is successful, and we pass this, and the returned return value
                            -- to the caller.
@@ -1083,19 +1077,19 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                            let rName = Wasm.uncheckedMakeReceiveName (instanceInitName (iiParameters targetInstance)) imcName
                            withRollback (handleContractUpdateV1 originAddr targetInstance (checkAndGetBalanceInstanceV1 ownerAccount istance) imcAmount rName imcParam) >>= \case
                               Left cer ->
-                                go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig stateContext rrdCurrentState False entryBalance (WasmV1.Error cer) (WasmV1.ccfToReturnValue cer))
+                                go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.Error cer) (WasmV1.ccfToReturnValue cer))
                               Right (rVal, callEvents) -> do
                                 (lastModifiedIndex, newState) <- getCurrentContractInstanceState istance
                                 (stateChanged, resumeState) <- (lastModifiedIndex /= modificationIndex,) <$> getForeignReprV1 newState
                                 newBalance <- getCurrentContractAmount Wasm.SV1 istance
-                                go (resumeEvent True:callEvents ++ interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig stateContext resumeState stateChanged newBalance WasmV1.Success (Just rVal))
+                                go (resumeEvent True:callEvents ++ interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig resumeState stateChanged newBalance WasmV1.Success (Just rVal))
 
       -- start contract execution.
       -- transfer the amount from the sender to the contract at the start. This is so that the contract may immediately use it
       -- for, e.g., forwarding.
       withToContractAmountV1 sender istance transferAmount $ do
         foreignModel <- getForeignReprV1 model
-        go [] =<< runInterpreter (return . WasmV1.applyReceiveFun iface cm receiveCtx receiveName parameter transferAmount stateContext foreignModel)
+        go [] =<< runInterpreter (return . WasmV1.applyReceiveFun iface cm receiveCtx receiveName parameter transferAmount foreignModel)
    where  transferAccountSync :: AccountAddress -- ^The target account address.
                               -> UInstanceInfoV m GSWasm.V1 -- ^The sender of this transfer.
                               -> Amount -- ^The amount to transfer.
@@ -1187,11 +1181,10 @@ handleContractUpdateV0 originAddr istance checkAndGetSender transferAmount recei
   -- is now.
   -- TODO We might want to change this behaviour to prevent charging for storage that is not done.
   tickEnergyStoreStateV0 newModel
-  newModelInternal <- fromForeignReprV0 newModel
   -- Process the generated messages in the new context (transferred amount, updated state) in
   -- sequence from left to right, depth first.
   withToContractAmountV0 sender istance transferAmount $
-    withInstanceStateV0 istance newModelInternal $ do
+    withInstanceStateV0 istance newModel $ do
       let initEvent = Updated{euAddress=cref,
                               euInstigator=senderAddr,
                               euAmount=transferAmount,

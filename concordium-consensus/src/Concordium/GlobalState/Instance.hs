@@ -1,6 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -20,7 +18,7 @@ import qualified Concordium.Crypto.SHA256 as SHA256
 
 data InstanceStateV (v :: Wasm.WasmVersion) where
   InstanceStateV0 :: Wasm.ContractState -> InstanceStateV GSWasm.V0
-  InstanceStateV1 :: StateV1.TransientState -> InstanceStateV GSWasm.V1
+  InstanceStateV1 :: StateV1.InMemoryPersistentState -> InstanceStateV GSWasm.V1
 
 -- There is no versioning added to this. Contract state is always serialized in
 -- the context of an instance, which gives it a version.
@@ -48,7 +46,7 @@ data InstanceParameters (v :: Wasm.WasmVersion) = InstanceParameters {
     instanceModuleInterface :: !(GSWasm.ModuleInterfaceV v),
     -- |Hash of the fixed parameters
     instanceParameterHash :: !H.Hash
-}
+} deriving(Eq)
 
 class HasInstanceAddress a where
   instanceAddress :: a -> ContractAddress

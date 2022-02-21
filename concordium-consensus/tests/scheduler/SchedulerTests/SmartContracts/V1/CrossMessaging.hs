@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE GADTs #-}
 {-| This module tests calling a V0 contract from a V1 contract and sending a message from a V0 to V1 contract.
 -}
 module SchedulerTests.SmartContracts.V1.CrossMessaging (tests) where
@@ -19,6 +20,7 @@ import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
 import Concordium.GlobalState.Basic.BlockState.Instances
 import Concordium.GlobalState.Basic.BlockState
+import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import Concordium.Wasm
 
 import Concordium.Scheduler.DummyData
@@ -117,13 +119,18 @@ testCases =
         checkSuccess msg Types.TxReject{..} = assertFailure $ msg ++ show vrRejectReason
         checkSuccess _ _ = return ()
 
-        -- FIXME: This needs to be done via querying an entrypoint
-        counterSpec _ _ = return ()
-        -- -- Check that the contract state contains n.
-        -- counterSpec n bs = specify "Contract state" $
-        --   case getInstance (Types.ContractAddress 0 0) (bs ^. blockInstances) of
-        --     Nothing -> assertFailure "Instance at <0,0> does not exist."
-        --     Just istance -> assertEqual ("State contains " ++ show n ++ ".") (ContractState (runPut (putWord64le n))) (instanceModel istance)
+        -- Check that the contract state contains n.
+        counterSpec n bs = specify "Contract state" $
+          case getInstance (Types.ContractAddress 0 0) (bs ^. blockInstances) of
+            Nothing -> assertFailure "Instance at <0,0> does not exist."
+            Just istance -> do
+              case istance of
+                InstanceV0 _ -> assertFailure "Expecte V1 instance since a V1 module is deployed, but V0 encountered."
+                InstanceV1 InstanceV{_instanceVModel=InstanceStateV1 s} -> do
+                  -- the contract stores the state at key = [0u8; 8]
+                  StateV1.lookupKey s (runPut (putWord64le 0)) >>= \case
+                    Nothing -> assertFailure "Failed to find key [0,0,0,0,0,0,0,0]"
+                    Just bs -> assertEqual ("State contains " ++ show n ++ ".") (runPut (putWord64le n)) bs
 
 tests :: Spec
 tests = describe "V1: Counter with cross-messaging." $

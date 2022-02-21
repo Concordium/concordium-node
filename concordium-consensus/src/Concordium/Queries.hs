@@ -500,7 +500,7 @@ getInstanceInfo blockHash caddr =
             blockHash
     where mkII Nothing = return Nothing
           mkII (Just (BS.InstanceInfoV0 BS.InstanceInfoV{..})) = do
-            iiModel <- BS.toForeignReprV0 =<< BS.thawContractState iiState
+            iiModel <- BS.thawContractState iiState
             return (Just (Wasm.InstanceInfoV0{
               Wasm.iiOwner = instanceOwner iiParameters,
               Wasm.iiAmount = iiBalance,

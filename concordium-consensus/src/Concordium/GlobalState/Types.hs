@@ -25,10 +25,6 @@ class BlockStateTypes (m :: Type -> Type) where
     -- |The type of contract state, parametrized both by the monad m, as well as
     -- the contract version.
     type ContractState m :: WasmVersion -> Type
-    -- |The type of updatable contract state, parametrized both by the monad m,
-    -- as well as the contract version. This is the state that exists during
-    -- contract execution, handles rollbacks in case of failed calls, etc.
-    type UpdatableContractState m :: WasmVersion -> Type
 
 -- |Account together with its index in the account map.
 type IndexedAccount m = (AccountIndex, Account m)
@@ -42,7 +38,6 @@ instance BlockStateTypes (MGSTrans t m) where
     type UpdatableBlockState (MGSTrans t m) = UpdatableBlockState m
     type Account (MGSTrans t m) = Account m
     type ContractState (MGSTrans t m) = ContractState m
-    type UpdatableContractState (MGSTrans t m) = UpdatableContractState m
 
 deriving via MGSTrans MaybeT m instance BlockStateTypes (MaybeT m)
 deriving via MGSTrans (ExceptT e) m instance BlockStateTypes (ExceptT e m)

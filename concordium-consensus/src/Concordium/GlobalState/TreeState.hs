@@ -515,7 +515,6 @@ instance BlockStateTypes (ProtocolVersionedReaderT pv r m) where
     type UpdatableBlockState (ProtocolVersionedReaderT pv r m) = UpdatableBlockState m
     type Account (ProtocolVersionedReaderT pv r m) = Account m
     type ContractState (ProtocolVersionedReaderT pv r m) = ContractState m
-    type UpdatableContractState (ProtocolVersionedReaderT pv r m) = UpdatableContractState m
 
 -- |The Context of which a transaction is verified within 
 -- in the reader based instance.
