@@ -15,7 +15,8 @@ module Concordium.GlobalState.ContractStateV1
    thawInMemoryPersistent,
    toByteString,
    -- * Testing
-   lookupKey
+   lookupKey,
+   generatePersistentTree
  )
 where
 
@@ -73,6 +74,9 @@ withPersistentState (PersistentState fp) = withForeignPtr fp
 foreign import ccall "load_persistent_tree_v1" loadPersistentTree :: LoadCallback -> BlobRef PersistentState -> IO (Ptr PersistentState)
 foreign import ccall unsafe "&free_persistent_state_v1" freePersistentState :: FunPtr (Ptr PersistentState -> IO ())
 foreign import ccall unsafe "&free_mutable_state_v1" freeMutableState :: FunPtr (Ptr MutableStateInner -> IO ())
+
+{-# WARNING generatePersistentTreeFFI "Only for testing. DO NOT USE IN PRODUCTION." #-}
+foreign import ccall "generate_persistent_state_from_seed" generatePersistentTreeFFI :: Word64 -> Word64 -> IO (Ptr PersistentState)
 
 -- |Write out the tree using the provided callback, and return a BlobRef to the root.
 foreign import ccall "store_persistent_tree_v1" storePersistentTree :: StoreCallback -> Ptr PersistentState -> IO (BlobRef PersistentState)
@@ -212,3 +216,17 @@ instance Serialize InMemoryPersistentState where
       bytePtr <- serializePersistentState errorLoadCallBack psPtr sizePtr
       len <- peek sizePtr
       putByteStringLen <$> unsafePackCStringFinalizer (castPtr bytePtr) (fromIntegral len) (rs_free_array_len bytePtr (fromIntegral len))
+
+
+{-# WARNING generatePersistentTree "Only for testing. DO NOT USE IN PRODUCTION." #-}
+{-# NOINLINE generatePersistentTree #-}
+generatePersistentTree ::
+  Word64 -- ^Seed.
+  -> Word64 -- ^Number of values.
+  -> InMemoryPersistentState
+generatePersistentTree seed len = unsafePerformIO $ do
+  res <- generatePersistentTreeFFI seed len
+  if res == nullPtr then
+    error "Could not generate tree."
+  else
+    InMemoryPersistentState . PersistentState <$> newForeignPtr freePersistentState res

@@ -39,7 +39,6 @@ import Concordium.Skov.Statistics
 import qualified Concordium.TransactionVerification as TV
 import Concordium.Types.Updates (uiHeader, updateType, uiPayload)
 import Concordium.Scheduler.Types (updateSeqNumber)
-import Concordium.GlobalState.TransactionTable (pttDeployCredential)
 
 -- |Determine if one block is an ancestor of another.
 -- A block is considered to be an ancestor of itself.
