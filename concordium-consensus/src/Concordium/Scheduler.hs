@@ -1012,17 +1012,21 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
             entryBalance <- getCurrentContractAmount Wasm.SV1 istance
             case rrData of
               WasmV1.ReceiveSuccess{..} -> do
-                -- execution terminated, commit the new state
-                withInstanceStateV1 istance rrdNewState $ \_modifiedIndex ->
-                  let event = Updated{euAddress=instanceAddress istance,
-                                      euInstigator=senderAddr,
-                                      euAmount=transferAmount,
-                                      euMessage=parameter,
-                                      euReceiveName=receiveName,
-                                      euContractVersion=Wasm.V1,
-                                      euEvents = rrdLogs
-                                     }
-                  in return (Right (rrdReturnValue, event:events))
+                let result =
+                      let event = Updated{
+                            euAddress=instanceAddress istance,
+                            euInstigator=senderAddr,
+                            euAmount=transferAmount,
+                            euMessage=parameter,
+                            euReceiveName=receiveName,
+                            euContractVersion=Wasm.V1,
+                            euEvents = rrdLogs
+                            }
+                      in Right (rrdReturnValue, event:events)
+                -- execution terminated, commit the new state if it changed
+                if rrdStateChanged then
+                   withInstanceStateV1 istance rrdNewState $ \_modifiedIndex -> return result
+                else return result
               WasmV1.ReceiveInterrupt{..} -> do
                 -- execution invoked an operation. Dispatch and continue.
                 let interruptEvent = Interrupted{
@@ -1046,8 +1050,13 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                     -- the operation is a call to another contract. There is a bit of complication because the contract could be a V0
                     -- or V1 one, and the behaviour is different depending on which one it is.
                     -- First, commit the current state of the contract.
-                    -- TODO: With the new state, only do this if the state has actually changed.
-                    withInstanceStateV1 istance rrdCurrentState $ \modificationIndex -> do
+                    let maybeCommitState :: (ModificationIndex -> LocalT pv r m a) -> LocalT pv r m a
+                        maybeCommitState f =
+                         if rrdStateChanged then withInstanceStateV1 istance rrdCurrentState f
+                         else do
+                           mi <- getCurrentModificationIndex istance
+                           f mi
+                    maybeCommitState $ \modificationIndex -> do
                        -- lookup the instance to invoke
                        getCurrentContractInstanceTicking' imcTo >>= \case
                          -- we could not find the instance, return this to the caller and continue

@@ -291,11 +291,13 @@ data ReceiveResultData =
   ReceiveSuccess {
     rrdReturnValue :: !ReturnValue,
     rrdNewState :: !StateV1.MutableState,
+    rrdStateChanged :: !Bool,
     rrdLogs :: ![ContractEvent]
   } |
   -- |Execution invoked a method. The current state is returned.
   ReceiveInterrupt {
     rrdCurrentState :: !StateV1.MutableState,
+    rrdStateChanged :: !Bool,
     rrdMethod :: !InvokeMethod,
     rrdLogs :: ![ContractEvent],
     rrdInterruptedConfig :: !ReceiveInterruptedState
@@ -391,6 +393,7 @@ cerToRejectReasonReceive _ _ _ (EnvFailure e) = case e of
 -- of the return value.
 processReceiveResult ::
   LoadCallback -- ^State context.
+  -> StateV1.MutableState -- ^State execution started in.
   -> BS.ByteString -- ^Serialized output.
   -> Ptr ReturnValue -- ^Location where the pointer to the return value is (potentially) stored.
   -> Ptr StateV1.MutableStateInner -- ^Pointer to the state of the contract at the time of termination.
@@ -398,7 +401,7 @@ processReceiveResult ::
   -- |Result, and remaining energy. Returns 'Nothing' if and only if
   -- execution ran out of energy.
   -> IO (Maybe (Either ContractExecutionReject ReceiveResultData, InterpreterEnergy))
-processReceiveResult callbacks result returnValuePtr statePtr eitherInterruptedStatePtr = case BS.uncons result of
+processReceiveResult callbacks initialState result returnValuePtr statePtr eitherInterruptedStatePtr = case BS.uncons result of
   Nothing -> error "Internal error: Could not parse the result from the interpreter."
   Just (tag, payload) ->
     case tag of
@@ -423,8 +426,14 @@ processReceiveResult callbacks result returnValuePtr statePtr eitherInterruptedS
              in do rrdInterruptedConfig <- case eitherInterruptedStatePtr of
                      Left rrid -> return rrid
                      Right interruptedStatePtr -> newReceiveInterruptedState interruptedStatePtr
-                   rrdCurrentState <- StateV1.newMutableState callbacks statePtr
-                   return (Just (Right ReceiveInterrupt{..}, fromIntegral remainingEnergy))
+                   if statePtr == nullPtr then
+                     let rrdCurrentState = initialState
+                         rrdStateChanged = False
+                     in return (Just (Right ReceiveInterrupt{..}, fromIntegral remainingEnergy))
+                   else do
+                     let rrdStateChanged = True
+                     rrdCurrentState <- StateV1.newMutableState callbacks statePtr
+                     return (Just (Right ReceiveInterrupt{..}, fromIntegral remainingEnergy))
       3 -> -- done
         let parser = do
               logs <- label "Done.logs" getLogs
@@ -432,8 +441,15 @@ processReceiveResult callbacks result returnValuePtr statePtr eitherInterruptedS
               return (logs, remainingEnergy)
         in let (rrdLogs, remainingEnergy) = parseResult parser
            in do rrdReturnValue <- ReturnValue <$> newForeignPtr freeReturnValue returnValuePtr
-                 rrdNewState <- StateV1.newMutableState callbacks statePtr
-                 return (Just (Right ReceiveSuccess{..}, fromIntegral remainingEnergy))
+                 if statePtr == nullPtr then
+                   let rrdNewState = initialState
+                       rrdStateChanged = False
+                   in return (Just (Right ReceiveSuccess{..}, fromIntegral remainingEnergy))
+                 else do
+                   let rrdStateChanged = True
+                   rrdNewState <- StateV1.newMutableState callbacks statePtr
+                   return (Just (Right ReceiveSuccess{..}, fromIntegral remainingEnergy))
+
       _ -> fail $ "Invalid tag: " ++ show tag
     where parseResult parser =
             case runGet parser payload of
@@ -456,11 +472,11 @@ applyReceiveFun
     -> Maybe (Either ContractExecutionReject ReceiveResultData, InterpreterEnergy)
     -- ^Nothing if execution used up all the energy, and otherwise the result
     -- of execution with the amount of energy remaining.
-applyReceiveFun miface cm receiveCtx rName param amnt mutableState initialEnergy = unsafePerformIO $ do
+applyReceiveFun miface cm receiveCtx rName param amnt initialState initialEnergy = unsafePerformIO $ do
               withModuleArtifact wasmArtifact $ \wasmArtifactPtr ->
                 BSU.unsafeUseAsCStringLen initCtxBytes $ \(initCtxBytesPtr, initCtxBytesLen) ->
                   BSU.unsafeUseAsCStringLen nameBytes $ \(nameBytesPtr, nameBytesLen) ->
-                    StateV1.withMutableState mutableState $ \curStatePtr -> alloca $ \statePtrPtr -> do
+                    StateV1.withMutableState initialState $ \curStatePtr -> alloca $ \statePtrPtr -> do
                       poke statePtrPtr curStatePtr
                       BSU.unsafeUseAsCStringLen paramBytes $ \(paramBytesPtr, paramBytesLen) ->
                         alloca $ \outputLenPtr -> alloca $ \outputReturnValuePtrPtr -> alloca $ \outputInterruptedConfigPtrPtr -> do
@@ -481,7 +497,7 @@ applyReceiveFun miface cm receiveCtx rName param amnt mutableState initialEnergy
                             bs <- BSU.unsafePackCStringFinalizer outPtr (fromIntegral len) (rs_free_array_len outPtr (fromIntegral len))
                             returnValuePtr <- peek outputReturnValuePtrPtr
                             statePtr <- peek statePtrPtr
-                            processReceiveResult callbacks bs returnValuePtr statePtr (Right outputInterruptedConfigPtrPtr)
+                            processReceiveResult callbacks initialState bs returnValuePtr statePtr (Right outputInterruptedConfigPtrPtr)
     where
         wasmArtifact = imWasmArtifact miface
         initCtxBytes = encodeChainMeta cm <> encodeReceiveContext receiveCtx
@@ -489,7 +505,7 @@ applyReceiveFun miface cm receiveCtx rName param amnt mutableState initialEnergy
         energy = fromIntegral initialEnergy
         paramBytes = BSS.fromShort (parameter param)
         nameBytes = Text.encodeUtf8 (receiveName rName)
-        callbacks = StateV1.msContext mutableState
+        callbacks = StateV1.msContext initialState
 -- |Resume execution after processing the interrupt. This can only be called once on a single 'ReceiveInterruptedState'.
 {-# NOINLINE resumeReceiveFun #-}
 resumeReceiveFun ::
@@ -503,9 +519,9 @@ resumeReceiveFun ::
     -> Maybe (Either ContractExecutionReject ReceiveResultData, InterpreterEnergy)
     -- ^Nothing if execution used up all the energy, and otherwise the result
     -- of execution with the amount of energy remaining.
-resumeReceiveFun is mutableState stateChanged amnt statusCode rVal remainingEnergy = unsafePerformIO $ do
+resumeReceiveFun is currentState stateChanged amnt statusCode rVal remainingEnergy = unsafePerformIO $ do
               withReceiveInterruptedState is $ \isPtr ->
-                StateV1.withMutableState mutableState $ \curStatePtr -> alloca $ \statePtrPtr -> do
+                StateV1.withMutableState currentState $ \curStatePtr -> alloca $ \statePtrPtr -> do
                   poke statePtrPtr curStatePtr
                   withMaybeReturnValue rVal $ \rValPtr ->
                     alloca $ \outputLenPtr -> alloca $ \outputReturnValuePtrPtr -> do
@@ -525,12 +541,12 @@ resumeReceiveFun is mutableState stateChanged amnt statusCode rVal remainingEner
                         bs <- BSU.unsafePackCStringFinalizer outPtr (fromIntegral len) (rs_free_array_len outPtr (fromIntegral len))
                         returnValuePtr <- peek outputReturnValuePtrPtr
                         statePtr <- peek statePtrPtr
-                        processReceiveResult callbacks bs returnValuePtr statePtr (Left is)
+                        processReceiveResult callbacks currentState bs returnValuePtr statePtr (Left is)
     where
         newStateTag = if stateChanged then 1 else 0
         energy = fromIntegral remainingEnergy
         amountWord = _amount amnt
-        callbacks = StateV1.msContext mutableState
+        callbacks = StateV1.msContext currentState
 
 -- |Process a module as received and make a module interface.
 -- This

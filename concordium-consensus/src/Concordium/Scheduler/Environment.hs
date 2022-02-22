@@ -407,6 +407,8 @@ class (StaticInformation m, ContractStateOperations m, IsProtocolVersion pv) => 
   -- index of the last modification.
   getCurrentContractInstanceState :: UInstanceInfoV m GSWasm.V1 -> m (ModificationIndex, TemporaryContractState (ContractState m) GSWasm.V1)
 
+  getCurrentModificationIndex :: UInstanceInfoV m GSWasm.V1 -> m ModificationIndex
+
   -- |Get the amount of energy remaining for the transaction.
   getEnergy :: m (Energy, EnergyLimitReason)
 
@@ -936,6 +938,13 @@ instance (IsProtocolVersion pv, StaticInformation m, AccountOperations m, Contra
       Just (idx, _, Just s) -> return (idx, Thawed s)
       _ -> do
         return (0, iiState istance)
+
+  getCurrentModificationIndex istance = do
+    newStates <- use (changeSet . instanceV1Updates)
+    case newStates ^. at (instanceAddress (iiParameters istance)) of
+      Just (idx, _, Just _) -> return idx
+      _ -> do
+        return 0
 
   getCurrentAccountTotalAmount (ai, acc) = do
     oldTotal <- getAccountAmount acc

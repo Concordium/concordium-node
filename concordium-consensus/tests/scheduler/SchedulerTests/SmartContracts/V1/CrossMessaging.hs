@@ -130,7 +130,7 @@ testCases =
                   -- the contract stores the state at key = [0u8; 8]
                   StateV1.lookupKey s (runPut (putWord64le 0)) >>= \case
                     Nothing -> assertFailure "Failed to find key [0,0,0,0,0,0,0,0]"
-                    Just bs -> assertEqual ("State contains " ++ show n ++ ".") (runPut (putWord64le n)) bs
+                    Just stateContents -> assertEqual ("State contains " ++ show n ++ ".") (runPut (putWord64le n)) stateContents
 
 tests :: Spec
 tests = describe "V1: Counter with cross-messaging." $
