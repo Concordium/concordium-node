@@ -1212,6 +1212,12 @@ doConfigureBaker pbs ai BakerConfigureRemove{..} = do
             -- The account is not valid or has no baker
             _ -> return (BCInvalidBaker, pbs)
 
+-- |Checks that the delegation target is not over-delegated.
+-- This can throw one of the following 'DelegationConfigureResult's, in order:
+--
+--   * 'DCInvalidDelegationTarget' if the target baker is not a baker.
+--   * 'DCPoolStakeOverThreshold' if the delegated amount puts the pool over the leverage bound.
+--   * 'DCPoolOverDelegated' if the delegated amount puts the pool over the capital bound.
 delegationConfigureDisallowOverdelegation
     :: (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1, MTL.MonadError DelegationConfigureResult m, MonadBlobStore n)
     => (forall a. n a -> m a)
@@ -1222,21 +1228,16 @@ delegationConfigureDisallowOverdelegation
 delegationConfigureDisallowOverdelegation liftMBS bsp poolParams target = case target of
   Transactions.DelegateToLPool -> return ()
   Transactions.DelegateToBaker bid@(BakerId baid) -> do
-    let capitalBound = poolParams ^. ppCapitalBound
-        leverageBound = poolParams ^. ppLeverageBound
-    poolCapital <- liftMBS $ totalPoolCapital bsp bid
     bakerEquityCapital <- liftMBS (Accounts.indexedAccount baid (bspAccounts bsp)) >>= \case
       Just PersistentAccount{_accountStake = PersistentAccountStakeBaker abr} ->
           liftMBS $ _stakedAmount <$> refLoad abr
       _ ->
           MTL.throwError (DCInvalidDelegationTarget bid)
-    when (fromIntegral poolCapital > fromIntegral bakerEquityCapital * leverageBound) $
-      MTL.throwError DCPoolStakeOverThreshold
-    let epochBakersBR = bspBirkParameters bsp ^. birkCurrentEpochBakers
-    epochBakers <- liftMBS $ refLoad $ bufferedReference epochBakersBR
-    let allCCD = _bakerTotalStake epochBakers
-    when (poolCapital > takeFraction capitalBound allCCD) $
-      MTL.throwError DCPoolOverDelegated
+    capitalTotal <- liftMBS $ totalCapital bsp
+    bakerDelegatedCapital <- liftMBS $ poolDelegatorCapital bsp bid
+    let PoolCaps{..} = delegatedCapitalCaps poolParams capitalTotal bakerEquityCapital bakerDelegatedCapital
+    when (bakerDelegatedCapital > leverageCap) $ MTL.throwError DCPoolStakeOverThreshold
+    when (bakerDelegatedCapital > boundCap) $ MTL.throwError DCPoolOverDelegated
 
 doConfigureDelegation
     :: forall pv m
