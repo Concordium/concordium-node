@@ -38,6 +38,7 @@ import qualified Concordium.Genesis.Data as GenesisData
 import qualified Concordium.Genesis.Data.P1 as P1
 import qualified Concordium.Genesis.Data.P2 as P2
 import qualified Concordium.Genesis.Data.P3 as P3
+import qualified Concordium.Genesis.Data.P4 as P4
 
 makeBakersByStake :: [Amount] -> [(BakerIdentity, FullBakerInfo, GenesisAccount, SigScheme.KeyPair)]
 makeBakersByStake = mbs 0
@@ -115,7 +116,7 @@ makeGenesisData :: forall pv.
     (IsProtocolVersion pv)
     => Timestamp -- ^Genesis time
     -> Word  -- ^Initial number of bakers.
-    -> Duration  -- ^Slot duration (miliseconds).
+    -> Duration  -- ^Slot duration (milliseconds).
     -> FinalizationParameters -- ^Finalization parameters
     -> CryptographicParameters -- ^Initial cryptographic parameters.
     -> IdentityProviders   -- ^List of initial identity providers.
@@ -160,3 +161,7 @@ makeGenesisData
               genesisCore=GenesisData.CoreGenesisParameters{..},
               genesisInitialState=GenesisData.GenesisState{genesisAccounts = Vec.fromList genesisAccounts, ..}
               }
+            SP4 -> GDP4 P4.GDP4Initial{
+              genesisCore=GenesisData.CoreGenesisParameters{..},
+              genesisInitialState=GenesisData.GenesisState{genesisAccounts = Vec.fromList genesisAccounts, ..}
+            }

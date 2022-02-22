@@ -23,6 +23,40 @@ import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.TreeState
 import Concordium.Types.SeedState
 
+-- |Caps on the the stake that may be delegated to a baking pool.
+data PoolCaps = PoolCaps
+    { -- |The (leverage bound minus 1) times the equity capital of the baker.
+      leverageCap :: Amount,
+      -- |The capital bound minus the baker's capital.
+      boundCap :: Amount
+    }
+
+-- |Compute the caps on the amount that may be delegated to a baker.
+-- It is assumed that the total capital is at least the baker equity capital plus the baker
+-- delegated capital.
+delegatedCapitalCaps ::
+    -- |Pool parameters
+    PoolParameters 'ChainParametersV1 ->
+    -- |Current total capital
+    Amount ->
+    -- |Baker equity capital
+    Amount ->
+    -- |Baker delegated capital
+    Amount ->
+    PoolCaps
+delegatedCapitalCaps poolParams totalCap bakerCap delCap = PoolCaps{..}
+  where
+    capBound = poolParams ^. ppCapitalBound
+    leverageFactor = poolParams ^. ppLeverageBound
+    leverageCap
+        | leverageFactor >= 1 = applyLeverageFactor leverageFactor bakerCap - bakerCap
+        | otherwise = 0
+    capBoundR = fractionToRational capBound
+    preBoundCap = capBoundR * toRational (totalCap - delCap) - toRational bakerCap
+    boundCap
+        | preBoundCap > 0 = truncate (preBoundCap / (1 - capBoundR))
+        | otherwise = 0
+
 -- |Compute the cap on the amount that may be delegated to a baker.
 -- It is assumed that the total capital is at least the baker equity capital plus the baker
 -- delegated capital.
@@ -38,29 +72,7 @@ delegatedCapitalCap ::
     Amount
 delegatedCapitalCap poolParams totalCap bakerCap delCap = min leverageCap boundCap
   where
-    capBound = poolParams ^. ppCapitalBound
-    leverageFactor = poolParams ^. ppLeverageBound
-    leverageCap
-        | leverageFactor >= 1 = applyLeverageFactor leverageFactor bakerCap - bakerCap
-        | otherwise = 0
-    capBoundR = fractionToRational capBound
-    preBoundCap = capBoundR * toRational (totalCap - delCap) - toRational bakerCap
-    boundCap
-        | preBoundCap > 0 = truncate (preBoundCap / (1 - capBoundR))
-        | otherwise = 0
-
--- |Transition the bakers
-transitionEpochBakersP4 ::
-    (BlockStateOperations m, AccountVersionFor (MPV m) ~ 'AccountV1) =>
-    UpdatableBlockState m ->
-    -- |Whether we have transitioned over the pre-payday epoch boundary
-    Bool ->
-    -- |Whether we have transitioned over the payday epoch boundary
-    Bool ->
-    m (UpdatableBlockState m)
-transitionEpochBakersP4 bs0 prePayday payday = do
-    bs1 <- bsoRotateCurrentEpochBakers bs0
-    undefined
+    PoolCaps{..} = delegatedCapitalCaps poolParams totalCap bakerCap delCap
 
 -- |Process a set of bakers and delegators to apply pending changes that are effective.
 applyPendingChanges ::
