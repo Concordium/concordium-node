@@ -373,7 +373,7 @@ doBlockReward :: forall m. (BlockStateOperations m, MonadProtocolVersion m, Chai
   -> UpdatableBlockState m
   -- ^Block state
   -> m (UpdatableBlockState m)
-doBlockReward transFees FreeTransactionCounts{..} bid@(BakerId aid) foundationAddr bs0 = do
+doBlockReward transFees FreeTransactionCounts{..} (BakerId aid) foundationAddr bs0 = do
     chainParameters <- bsoGetChainParameters bs0
     let rewardParams = chainParameters ^. rewardParameters
     oldRewardAccts <- (^. rewardAccounts) <$> bsoGetBankStatus bs0
@@ -483,7 +483,8 @@ distributeRewards foundationAddr bs0 = do
       lPoolFinalizationReward = floor $ fromIntegral (rewardAccts ^. finalizationRewardAccount) * lPoolFinalizationFraction
       lPoolBakingReward = floor $ fromIntegral (rewardAccts ^. bakingRewardAccount) * lPoolBakingFraction
       lPoolTotalStake = Vec.foldl (\a dc -> a + dcDelegatorCapital dc) 0 (lPoolCapital capitalDistribution)
-  (lPoolAccumFinalization, lPoolAccumBaking, lPoolAccumTransaction, lPoolOutcomes, bs1) <- rewardDelegators bs0 lPoolFinalizationReward lPoolBakingReward lPoolAccrued lPoolTotalStake (lPoolCapital capitalDistribution)
+  (lPoolAccumFinalization, lPoolAccumBaking, lPoolAccumTransaction, lPoolOutcomes, bs1) <-
+    rewardDelegators bs0 lPoolFinalizationReward lPoolBakingReward lPoolAccrued lPoolTotalStake (lPoolCapital capitalDistribution)
   bs2 <- bsoUpdateAccruedTransactionFeesLPool bs1 (subtract lPoolAccumTransaction)
   let bakerBakingRewardFactor = rewardAccts ^. bakingRewardAccount - lPoolBakingReward
   let bakerFinalizationFactor = rewardAccts ^. finalizationRewardAccount - lPoolFinalizationReward
@@ -529,26 +530,31 @@ distributeRewards foundationAddr bs0 = do
         -> Vec.Vector DelegatorCapital
         -> m (Amount, Amount, Amount, [Types.SpecialTransactionOutcome], UpdatableBlockState m)
       doRewardDelegators bs totalFinalizationReward totalBakingReward totalTransactionReward totalStake dcs =
-        foldM
-          (\(accumFinalization, accumBaking, accumTransaction, accumOutcomes, bs1) dc -> do
-            let delegatorCapital = dcDelegatorCapital dc
-                relativeStake = delegatorCapital % totalStake
-                finalizationReward = floor $ relativeStake * fromIntegral totalFinalizationReward
-                bakingReward = floor $ relativeStake * fromIntegral totalBakingReward
-                transactionReward = floor $ relativeStake * fromIntegral totalTransactionReward
-                reward = finalizationReward + bakingReward + transactionReward
-            (mAcct, bs2) <- bsoRewardAccount bs1 (delegatorAccountIndex $ dcDelegatorId dc) reward
-            let acct = case mAcct of
-                  Nothing -> error $ "Invariant violation: delegator account for " ++ show (dcDelegatorId dc) ++ " does not exist"
-                  Just a -> a
-            let delegatorOutcome = PaydayAccountReward{
-                    stoAccount = acct,
-                    stoTransactionFees = transactionReward,
-                    stoBakerReward = bakingReward,
-                    stoFinalizationReward = finalizationReward
-                  }
-            return (accumFinalization + finalizationReward, accumBaking + bakingReward, accumTransaction + transactionReward, delegatorOutcome : accumOutcomes, bs2)
-          ) (0, 0, 0, [], bs) dcs
+        foldM rewardDelegator (0, 0, 0, [], bs) dcs
+          where
+            rewardDelegator (accumFinalization, accumBaking, accumTransaction, accumOutcomes, bs1) dc = do
+                let delegatorCapital = dcDelegatorCapital dc
+                    relativeStake = delegatorCapital % totalStake
+                    finalizationReward = floor $ relativeStake * fromIntegral totalFinalizationReward
+                    bakingReward = floor $ relativeStake * fromIntegral totalBakingReward
+                    transactionReward = floor $ relativeStake * fromIntegral totalTransactionReward
+                    reward = finalizationReward + bakingReward + transactionReward
+                (mAcct, bs2) <- bsoRewardAccount bs1 (delegatorAccountIndex $ dcDelegatorId dc) reward
+                let acct = case mAcct of
+                      Nothing -> error $ "Invariant violation: delegator account for " ++ show (dcDelegatorId dc) ++ " does not exist"
+                      Just a -> a
+                let delegatorOutcome = PaydayAccountReward{
+                        stoAccount = acct,
+                        stoTransactionFees = transactionReward,
+                        stoBakerReward = bakingReward,
+                        stoFinalizationReward = finalizationReward
+                      }
+                return
+                    (accumFinalization + finalizationReward,
+                     accumBaking + bakingReward,
+                     accumTransaction + transactionReward,
+                     delegatorOutcome : accumOutcomes,
+                     bs2)
 
       rewardBakers
         :: UpdatableBlockState m
@@ -574,62 +580,69 @@ distributeRewards foundationAddr bs0 = do
         -> Word64
         -> m (Amount, Amount, [Types.SpecialTransactionOutcome], UpdatableBlockState m)
       doRewardBakers bs gtuTotal bakers bakerBakingRewardFactor bakerFinalizationFactor bcs paydayBlockCount = do
-        let bakerStakesMap =
-              foldl
-                (\m bi -> Map.insert (bi ^. BI.theBakerInfo . Types.bakerIdentity) (bi ^. BI.bakerStake) m)
-                Map.empty
-                (BI.fullBakerInfos bakers)
         finParams <- gdFinalizationParameters <$> getGenesisData
         let committee = makeFinalizationCommittee finParams gtuTotal bakers
-        (af, ab, outcomes, bsOut, _) <- foldM
-          (\(accumFinalization, accumBaking, accumOutcomes, bsIn, idx) bc -> do
-            bprd <- bsoGetBakerPoolRewardDetails bsIn idx
-            let accruedReward = transactionFeesAccrued bprd
-                bakerBlockCount = blockCount bprd
-                bakerBlockFraction = bakerBlockCount % paydayBlockCount
-                bakerBakingReward = floor $ fromIntegral bakerBakingRewardFactor * bakerBlockFraction
-                finalized = finalizationAwake bprd
-                relativeStake = case Map.lookup (bcBakerId bc) bakerStakesMap of
-                  Nothing ->
-                    error "Invariant violation: baker from capital distribution is not an epoch baker"
-                  Just s ->
-                    if finalized
-                    then s % fromIntegral (totalWeight committee)
-                    else 0
-                bakerFinalizationReward = floor $ fromIntegral bakerFinalizationFactor * relativeStake
-                totalCapital = foldl (\a dc -> a + dcDelegatorCapital dc) (bcBakerEquityCapital bc) (bcDelegatorCapital bc)
-            poolInfo <- bakerPoolInfo bsIn (bcBakerId bc)
-            let finalizationFraction = complementAmountFraction (poolInfo ^. Types.poolCommissionRates . finalizationCommission)
-            let bakingFraction = complementAmountFraction (poolInfo ^. Types.poolCommissionRates . bakingCommission)
-            let transactionFraction = complementAmountFraction (poolInfo ^. Types.poolCommissionRates . transactionCommission)
-            let totalDelegationFinalization = takeFraction finalizationFraction bakerFinalizationReward
-            let totalDelegationBaking = takeFraction bakingFraction bakerBakingReward
-            let totalDelegationTransaction = takeFraction transactionFraction accruedReward
-            (delegationFinalization, delegationBaking, delegationTransaction, delegatorOutcomes, bsDel) <- rewardDelegators bsIn totalDelegationFinalization totalDelegationBaking totalDelegationTransaction totalCapital (bcDelegatorCapital bc)
-            let transactionRewardToBaker = accruedReward - delegationTransaction
-            let bakingRewardToBaker = bakerBakingReward - delegationBaking
-            let finalizationRewardToBaker = bakerFinalizationReward - delegationFinalization
-            let bakerReward = transactionRewardToBaker + bakingRewardToBaker + finalizationRewardToBaker
-            (mAcct, bsBak) <- bsoRewardAccount bsDel (bakerAccountIndex $ bcBakerId bc) bakerReward
-            let acct = case mAcct of
-                  Nothing -> error $ "Invariant violation: baker account for " ++ show (bcBakerId bc) ++ " does not exist"
-                  Just a -> a
-            let bakerOutcome = PaydayAccountReward{
-                    stoAccount = acct,
-                    stoTransactionFees = transactionRewardToBaker,
-                    stoBakerReward = bakingRewardToBaker,
-                    stoFinalizationReward = finalizationRewardToBaker
-                  }
-            bsUpdate <- bsoUpdateAccruedTransactionFeesBaker bsBak (bcBakerId bc) (const 0)
-            let poolOutcome = PaydayPoolReward{
-                  stoPoolOwner = Just (bcBakerId bc),
-                  stoTransactionFees = accruedReward,
-                  stoBakerReward = bakerBakingReward,
-                  stoFinalizationReward = bakerFinalizationReward
-                }
-            return (accumFinalization + bakerFinalizationReward, accumBaking + bakerBakingReward, poolOutcome : bakerOutcome : delegatorOutcomes ++ accumOutcomes, bsUpdate, idx + 1)
-          ) (0, 0, [], bs, 0) bcs
+        (af, ab, outcomes, bsOut, _) <- foldM (rewardBaker committee) (0, 0, [], bs, 0) bcs
         return (af, ab, outcomes, bsOut)
+          where
+            bakerStakesMap =
+                foldl
+                    (\m bi -> Map.insert (bi ^. BI.theBakerInfo . Types.bakerIdentity) (bi ^. BI.bakerStake) m)
+                    Map.empty
+                    (BI.fullBakerInfos bakers)
+
+            rewardBaker committee (accumFinalization, accumBaking, accumOutcomes, bsIn, idx) bc = do
+                bprd <- bsoGetBakerPoolRewardDetails bsIn idx
+                let accruedReward = transactionFeesAccrued bprd
+                    bakerBlockCount = blockCount bprd
+                    bakerBlockFraction = bakerBlockCount % paydayBlockCount
+                    bakerBakingReward = floor $ fromIntegral bakerBakingRewardFactor * bakerBlockFraction
+                    finalized = finalizationAwake bprd
+                    relativeStake = case Map.lookup (bcBakerId bc) bakerStakesMap of
+                      Nothing ->
+                        error "Invariant violation: baker from capital distribution is not an epoch baker"
+                      Just s ->
+                        if finalized
+                        then s % fromIntegral (totalWeight committee)
+                        else 0
+                    bakerFinalizationReward = floor $ fromIntegral bakerFinalizationFactor * relativeStake
+                    totalCapital = foldl (\a dc -> a + dcDelegatorCapital dc) (bcBakerEquityCapital bc) (bcDelegatorCapital bc)
+                poolInfo <- bakerPoolInfo bsIn (bcBakerId bc)
+                let finalizationFraction = complementAmountFraction (poolInfo ^. Types.poolCommissionRates . finalizationCommission)
+                    bakingFraction = complementAmountFraction (poolInfo ^. Types.poolCommissionRates . bakingCommission)
+                    transactionFraction = complementAmountFraction (poolInfo ^. Types.poolCommissionRates . transactionCommission)
+                    totalDelegationFinalization = takeFraction finalizationFraction bakerFinalizationReward
+                    totalDelegationBaking = takeFraction bakingFraction bakerBakingReward
+                    totalDelegationTransaction = takeFraction transactionFraction accruedReward
+                (delegationFinalization, delegationBaking, delegationTransaction, delegatorOutcomes, bsDel) <-
+                    rewardDelegators bsIn totalDelegationFinalization totalDelegationBaking totalDelegationTransaction totalCapital (bcDelegatorCapital bc)
+                let transactionRewardToBaker = accruedReward - delegationTransaction
+                    bakingRewardToBaker = bakerBakingReward - delegationBaking
+                    finalizationRewardToBaker = bakerFinalizationReward - delegationFinalization
+                    bakerReward = transactionRewardToBaker + bakingRewardToBaker + finalizationRewardToBaker
+                (mAcct, bsBak) <- bsoRewardAccount bsDel (bakerAccountIndex $ bcBakerId bc) bakerReward
+                let acct = case mAcct of
+                      Nothing -> error $ "Invariant violation: baker account for " ++ show (bcBakerId bc) ++ " does not exist"
+                      Just a -> a
+                    bakerOutcome = PaydayAccountReward{
+                        stoAccount = acct,
+                        stoTransactionFees = transactionRewardToBaker,
+                        stoBakerReward = bakingRewardToBaker,
+                        stoFinalizationReward = finalizationRewardToBaker
+                      }
+                bsUpdate <- bsoUpdateAccruedTransactionFeesBaker bsBak (bcBakerId bc) (const 0)
+                let poolOutcome = PaydayPoolReward{
+                      stoPoolOwner = Just (bcBakerId bc),
+                      stoTransactionFees = accruedReward,
+                      stoBakerReward = bakerBakingReward,
+                      stoFinalizationReward = bakerFinalizationReward
+                    }
+                return
+                    (accumFinalization + bakerFinalizationReward,
+                     accumBaking + bakerBakingReward,
+                     poolOutcome : bakerOutcome : delegatorOutcomes ++ accumOutcomes,
+                     bsUpdate,
+                     idx + 1)
 
       bakerPoolInfo bs (BakerId ai) = do
         bsoGetAccountByIndex bs ai >>= \case
