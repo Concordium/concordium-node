@@ -373,7 +373,7 @@ doBlockReward :: forall m. (BlockStateOperations m, MonadProtocolVersion m, Chai
   -> UpdatableBlockState m
   -- ^Block state
   -> m (UpdatableBlockState m)
-doBlockReward transFees FreeTransactionCounts{..} bid@(BakerId aid) foundationAddr bs0 = do
+doBlockReward transFees FreeTransactionCounts{..} (BakerId aid) foundationAddr bs0 = do
     chainParameters <- bsoGetChainParameters bs0
     let rewardParams = chainParameters ^. rewardParameters
     oldRewardAccts <- (^. rewardAccounts) <$> bsoGetBankStatus bs0

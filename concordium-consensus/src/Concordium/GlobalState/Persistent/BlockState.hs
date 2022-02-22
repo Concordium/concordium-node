@@ -636,31 +636,6 @@ storePBS pbs bsp = liftIO $ do
     return pbs
 {-# INLINE storePBS #-}
 
--- | Get total pool capital, sum of baker and delegator stakes,
--- 'totalPoolCapital' @bsp@ @bid@, where
--- * @bsp@ is used to lookup accounts and active bakers,
--- * @bid@ is the baker.
--- If @bid@ is not a baker in @bsp@, then @0@ is returned.
--- If @bid@ is not an active baker in @bsp@, then the baker's equity capital (stake) is returned.
--- It is assumed that all delegators to the baker @bid@ are delegator accounts in @bsp@.
-totalPoolCapital ::
-    forall pv m.
-    (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1, MonadBlobStore m) =>
-    BlockStatePointers pv ->
-    BakerId ->
-    m Amount
-totalPoolCapital bsp bid@(BakerId aid) = do
-    Accounts.indexedAccount aid (bspAccounts bsp) >>= \case
-        Just PersistentAccount{_accountStake = PersistentAccountStakeBaker acctBkrRef} -> do
-            equityCapital <- _stakedAmount <$> refLoad acctBkrRef
-            pab <- refLoad (bspBirkParameters bsp ^. birkActiveBakers)
-            Trie.lookup bid (pab ^. activeBakers) >>= \case
-                Nothing -> error "Invariant violation: active baker account is not in active bakers"
-                Just (PersistentActiveDelegatorsV1 _ delegatorCapital) ->
-                    return $! delegatorCapital + equityCapital
-        _ ->
-            return 0
-
 -- | Get total delegated pool capital, sum of delegator stakes,
 -- 'poolDelegatorCapital' @bsp@ @bid@, where
 -- * @bsp@ is used to lookup accounts and active bakers,

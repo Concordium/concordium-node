@@ -1046,26 +1046,29 @@ data ConfigureDelegationCont =
   | ConfigureRemoveDelegationCont
   | ConfigureUpdateDelegationCont
 
-handleConfigureBaker
-    :: (AccountVersionFor (MPV m) ~ 'AccountV1, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1, SchedulerMonad m)
-    => WithDepositContext m
+handleConfigureBaker ::
+    ( AccountVersionFor (MPV m) ~ 'AccountV1,
+      ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1,
+      SchedulerMonad m
+    ) =>
+    WithDepositContext m ->
     -- |The equity capital of the baker
-    -> Maybe Amount
+    Maybe Amount ->
     -- |Whether the baker's earnings are restaked
-    -> Maybe Bool
+    Maybe Bool ->
     -- |Whether the pool is open for delegators
-    -> Maybe OpenStatus
+    Maybe OpenStatus ->
     -- |The key/proof pairs to verify baker.
-    -> Maybe BakerKeysWithProofs
+    Maybe BakerKeysWithProofs ->
     -- |The URL referencing the baker's metadata.
-    -> Maybe UrlText
+    Maybe UrlText ->
     -- |The commission the pool owner takes on transaction fees.
-    -> Maybe AmountFraction
+    Maybe AmountFraction ->
     -- |The commission the pool owner takes on baking rewards.
-    -> Maybe AmountFraction
+    Maybe AmountFraction ->
     -- |The commission the pool owner takes on finalization rewards.
-    -> Maybe AmountFraction
-    -> m (Maybe TransactionSummary)
+    Maybe AmountFraction ->
+    m (Maybe TransactionSummary)
 handleConfigureBaker
   wtc
   cbCapital

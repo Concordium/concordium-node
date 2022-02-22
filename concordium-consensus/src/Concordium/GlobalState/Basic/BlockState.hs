@@ -458,26 +458,6 @@ getBlockState migration = do
     let _blockTransactionOutcomes = Transactions.emptyTransactionOutcomes
     return BlockState{..}
 
--- | Get total pool capital, sum of baker and delegator stakes,
--- 'totalPoolCapital' @bs@ @bid@, where
--- * @bs@ is used to lookup accounts and active bakers,
--- * @bid@ is the baker.
--- If @bid@ is not a baker in @accounts@, then @0@ is returned.
--- If @bid@ is not an active baker in @ab@, then the baker's equity capital (stake) is returned.
--- It is assumed that all delegators to the baker @bid@ are delegator accounts in @accounts@.
-totalPoolCapital ::
-    IsProtocolVersion pv =>
-    BlockState pv ->
-    BakerId ->
-    Amount
-totalPoolCapital bs bid@(BakerId aid) = do
-    case bs ^? blockAccounts . Accounts.indexedAccount aid of
-        Just Account{_accountStaking = AccountStakeBaker acctBkr} ->
-            (acctBkr ^. stakedAmount)
-                + bs ^. blockBirkParameters . birkActiveBakers . activeBakers . singular (ix bid) . apDelegatorTotalCapital
-        _ ->
-            0
-
 -- | Get total delegated pool capital, sum of delegator stakes,
 -- 'poolDelegatorCapital' @bs@ @bid@, where
 -- * @bs@ is used to lookup accounts and active bakers,
