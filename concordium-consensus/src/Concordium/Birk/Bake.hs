@@ -110,7 +110,7 @@ maintainTransactions bp FilteredTransactions{..} = do
     -- We first commit all valid transactions to the current block slot to prevent them being purged.
     let bh = getHash bp
     let slot = blockSlot bp
-    zipWithM_ (\tx -> commitTransaction slot bh (fst tx)) ftAdded [0..]
+    zipWithM_ (\tx -> commitTransaction slot bh (fst tx)) (map (\(a,b) -> (fst a, b)) ftAdded) [0..]
 
     -- lookup the maximum block size as mandated by the tree state
     maxSize <- rpBlockSize <$> TS.getRuntimeParameters
@@ -128,7 +128,7 @@ maintainTransactions bp FilteredTransactions{..} = do
             Nothing -> return minNonce
             Just (_, acc) -> getAccountNonce acc
     -- construct a new pending transaction table adding back some failed transactions.
-    let purgeFailed cpt tx = do
+    let purgeFailed cpt (tx, _) = do
           b <- purgeTransaction (normalTransaction tx)
           if b then return cpt  -- if the transaction was purged don't put it back into the pending table
           else do
@@ -143,14 +143,14 @@ maintainTransactions bp FilteredTransactions{..} = do
     -- and therefore that is block dependent, and we should perhaps not remove the credential.
     -- However modulo crypto breaking, this can only happen if the user has tried to deploy duplicate
     -- credentials (with high probability), so it is likely fine to remove it.
-    let purgeCredential cpt cred = do
+    let purgeCredential cpt (cred, _) = do
           b <- purgeTransaction (credentialDeployment cred)
           if b then return cpt
           else return $! addPendingDeployCredential (wmdHash cred) cpt
 
     newpt' <- foldM purgeCredential newpt (map fst ftFailedCredentials)
 
-    let purgeUpdate cpt ui = do
+    let purgeUpdate cpt (ui, _) = do
           b <- purgeTransaction (chainUpdate ui)
           if b then return cpt
           else do
@@ -159,7 +159,7 @@ maintainTransactions bp FilteredTransactions{..} = do
     newpt'' <- foldM purgeUpdate newpt' (map fst ftFailedUpdates)
 
     -- additionally add in the unprocessed transactions which are sufficiently small (here meaning < maxSize)
-    let purgeTooBig cpt tx =
+    let purgeTooBig cpt (tx, _) =
           if transactionSize tx < maxSize then do
             nonce <- nextNonceFor (transactionSender tx)
             return $! checkedAddPendingTransaction nonce tx cpt
@@ -180,14 +180,14 @@ maintainTransactions bp FilteredTransactions{..} = do
     -- Put back in all the unprocessed credentials
     -- We assume here that chain parameters are such that credentials always fit on a block
     -- and processing of one credential does not exceed maximum block energy.
-    let ptWithUnprocessedCreds = foldl' (\cpt cdiwm -> addPendingDeployCredential (wmdHash cdiwm) cpt) ptWithUnprocessed ftUnprocessedCredentials
+    let ptWithUnprocessedCreds = foldl' (\cpt cdiwm -> addPendingDeployCredential (wmdHash cdiwm) cpt) ptWithUnprocessed (map fst ftUnprocessedCredentials)
 
-    let purgeUnprocessedUpdates cpt ui =
+    let purgeUnprocessedUpdates cpt (ui, verRes) =
           if wmdSize ui < maxSize then do
             sn <- getNextUpdateSequenceNumber stateHandle (updateType (uiPayload (wmdData ui)))
             return $! checkedAddPendingUpdate sn (wmdData ui) cpt
-          else purgeUpdate cpt ui
-    ptWithAllUnprocessed <- foldM purgeUnprocessedUpdates ptWithUnprocessedCreds ftUnprocessedUpdates 
+          else purgeUpdate cpt (ui, verRes)
+    ptWithAllUnprocessed <- foldM purgeUnprocessedUpdates ptWithUnprocessedCreds ftUnprocessedUpdates
 
     -- commit the new pending transactions to the tree state
     putPendingTransactions ptWithAllUnprocessed
@@ -244,7 +244,7 @@ doBakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     receiveTime <- currentTime
     transactionOutcomesHash <- getTransactionOutcomesHash (_finalState result)
     stateHash <- getStateHash (_finalState result)
-    pb <- makePendingBlock bakerSignKey slot (bpHash bb) bakerId electionProof nonce finData (map fst (ftAdded filteredTxs)) stateHash transactionOutcomesHash receiveTime
+    pb <- makePendingBlock bakerSignKey slot (bpHash bb) bakerId electionProof nonce finData (map (fst . fst) (ftAdded filteredTxs)) stateHash transactionOutcomesHash receiveTime
     -- Add the baked block to the tree.
     newbp <- blockArrive pb bb lastFinal result
     -- re-establish invariants in the transaction table/pending table/anf table.

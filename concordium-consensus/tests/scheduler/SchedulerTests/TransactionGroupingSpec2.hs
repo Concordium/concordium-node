@@ -25,6 +25,7 @@ import qualified Concordium.Scheduler.Types as Types
 import Concordium.Scheduler.Types(Energy,Amount,Nonce,FailureKind(..))
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Concordium.Scheduler as Sch
+import Concordium.TransactionVerification
 
 import Concordium.Scheduler.DummyData
 import Concordium.GlobalState.DummyData
@@ -251,10 +252,10 @@ testCases =
 
 
 
-type TestResult = ([(Types.BlockItem, Types.ValidResult)],
-                   [(Types.Transaction, Types.FailureKind)],
-                   [Types.Transaction],
-                   [Types.Transaction])
+type TestResult = ([(BlockItemWithStatus, Types.ValidResult)],
+                   [(TransactionWithStatus, Types.FailureKind)],
+                   [TransactionWithStatus],
+                   [TransactionWithStatus])
 
 testGroups :: [[TransactionJSON]] -> IO TestResult
 testGroups groups = do
@@ -288,7 +289,7 @@ tests =
               -- Create expected lists of added, invalid and unprocessed transactions
               -- (here in order of the input, even if the actual assertion might not check that).
               let (eValid, _, _) =
-                    mkExpected (zipWith (\(_, expectedRes) t -> (t, expectedRes)) tsjson input) [] [] []
+                    mkExpected (zipWith (\(_, expectedRes) t -> (fst t, expectedRes)) tsjson input) [] [] []
                     where mkExpected [] ev ei eu = (reverse ev, reverse ei, reverse eu)
                           mkExpected ((t, expectedRes):rest) ev ei eu =
                             case expectedRes of
@@ -303,7 +304,7 @@ tests =
               -- NOTE: For the valid transactions, also the order is guaranteed (TODO the specification
               -- does not guarantee this; check whether other properties should be checked or whether
               -- just the membership in `ftAdded` is sufficient).
-              specify "List of valid transactions correct, including order" $ validTs `shouldBe` eValid
+              specify "List of valid transactions correct, including order" $ map fst validTs `shouldBe` eValid
 
               -- NOTE: This only tests whether all transactions appear in the result if
               -- all transactions are unique. Therefore the above number check is good to have.
@@ -314,8 +315,8 @@ tests =
                               case expectedRes of
                                 -- NOTE: With a custom expectation could print list of
                                 -- invalid/unproc in case of failure.
-                                Added -> (Types.normalTransaction t) `elem` validTs
-                                Failed fk -> (t, fk) `elem` invalid
-                                Unprocessed -> t `elem` unproc
+                                Added -> (Types.normalTransaction t) `elem` map fst validTs
+                                Failed fk -> (t, fk) `elem` map (\(x,y) -> (fst x, y))  invalid
+                                Unprocessed -> t `elem` map fst unproc
                           ) $
-                  zipWith3 (\n (_, expectedRes) t -> (n, t, expectedRes)) ([1..] :: [Int]) tsjson input
+                  zipWith3 (\n (_, expectedRes) t -> (n, fst t, expectedRes)) ([1..] :: [Int]) tsjson input

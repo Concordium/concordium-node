@@ -25,6 +25,14 @@ import qualified SchedulerTests.StakedAmountLocked(tests)
 import qualified SchedulerTests.RejectReasons(tests)
 import qualified SchedulerTests.RejectReasonsRustContract(tests)
 
+import qualified SchedulerTests.SmartContracts.V1.Counter(tests)
+import qualified SchedulerTests.SmartContracts.V1.Transfer(tests)
+import qualified SchedulerTests.SmartContracts.V1.CrossMessaging(tests)
+import qualified SchedulerTests.SmartContracts.Invoke (tests)
+import qualified SchedulerTests.SmartContracts.V1.ErrorCodes (tests)
+import qualified SchedulerTests.SmartContracts.V1.ValidInvalidModules (tests)
+import qualified SchedulerTests.SmartContracts.V1.SelfBalance (tests)
+
 import Test.Hspec
 
 main :: IO ()
@@ -53,3 +61,10 @@ main = hspec $ do
          SchedulerTests.StakedAmountLocked.tests
          SchedulerTests.RejectReasons.tests
          SchedulerTests.RejectReasonsRustContract.tests
+         SchedulerTests.SmartContracts.V1.Counter.tests
+         SchedulerTests.SmartContracts.V1.Transfer.tests
+         SchedulerTests.SmartContracts.V1.CrossMessaging.tests
+         SchedulerTests.SmartContracts.Invoke.tests
+         SchedulerTests.SmartContracts.V1.ErrorCodes.tests
+         SchedulerTests.SmartContracts.V1.ValidInvalidModules.tests
+         SchedulerTests.SmartContracts.V1.SelfBalance.tests

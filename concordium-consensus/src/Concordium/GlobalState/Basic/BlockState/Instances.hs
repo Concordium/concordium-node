@@ -1,8 +1,9 @@
 module Concordium.GlobalState.Basic.BlockState.Instances(
     InstanceParameters(..),
     Instance(..),
+    InstanceV(..),
+    HasInstanceAddress(..),
     makeInstance,
-    iaddress,
     Instances,
     emptyInstances,
     getInstance,
@@ -37,14 +38,17 @@ emptyInstances = Instances Empty
 getInstance :: ContractAddress -> Instances -> Maybe Instance
 getInstance addr (Instances iss) = iss ^? ix addr
 
--- |Update the instance at the specified address with an amount delta and value.
--- If there is no instance with the given address, this does nothing.
-updateInstanceAt :: ContractAddress -> AmountDelta -> Wasm.ContractState -> Instances -> Instances
+-- |Update the instance at the specified address with an amount delta and
+-- potentially a new state. If new state is not provided the state of the
+-- instance is not changed. If there is no instance with the given address, this
+-- does nothing.
+updateInstanceAt :: ContractAddress -> AmountDelta -> Maybe Wasm.ContractState -> Instances -> Instances
 updateInstanceAt ca amt val (Instances iss) = Instances (iss & ix ca %~ updateInstance amt val)
 
--- |Update the instance at the specified address with a __new amount__ and value.
--- If there is no instance with the given address, this does nothing.
-updateInstanceAt' :: ContractAddress -> Amount -> Wasm.ContractState -> Instances -> Instances
+-- |Update the instance at the specified address with a __new amount__ and
+-- potentially a new state. If new state is not provided the state of the instance is not changed. If
+-- there is no instance with the given address, this does nothing.
+updateInstanceAt' :: ContractAddress -> Amount -> Maybe Wasm.ContractState -> Instances -> Instances
 updateInstanceAt' ca amt val (Instances iss) = Instances (iss & ix ca %~ updateInstance' amt val)
 
 -- |Create a new smart contract instance.
@@ -76,8 +80,13 @@ putInstancesV0 (Instances (Tree _ t)) = do
             putWord8 1
             put si
         putOptInstance (Right inst) = do
-            putWord8 2
-            putInstanceV0 inst
+            case inst of
+              InstanceV0 i -> do
+                putWord8 2
+                putV0InstanceV0 i
+              InstanceV1 i -> do
+                putWord8 3
+                putV1InstanceV0 i
 
 -- |Deserialize 'Instances' in V0 format.
 getInstancesV0
@@ -88,5 +97,6 @@ getInstancesV0 resolve = Instances <$> constructM buildInstance
         buildInstance idx = getWord8 >>= \case
             0 -> return Nothing
             1 -> Just . Left <$> get
-            2 -> Just . Right <$> getInstanceV0 resolve idx
+            2 -> Just . Right . InstanceV0 <$> getV0InstanceV0 resolve idx
+            3 -> Just . Right . InstanceV1 <$> getV1InstanceV0 resolve idx
             _ -> fail "Bad instance list"

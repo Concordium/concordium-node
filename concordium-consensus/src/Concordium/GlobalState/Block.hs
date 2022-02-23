@@ -40,14 +40,14 @@ generateBlockHash :: Slot         -- ^Block slot (must be non-zero)
     -> StateHash                  -- ^Statehash of the block.
     -> TransactionOutcomesHash     -- ^TransactionOutcomesHash of block.
     -> BlockHash
-generateBlockHash slot parent baker bakerKey proof bnonce finData transactions stateHash transactionOutcomesHash 
+generateBlockHash slot parent baker bakerKey proof bnonce finData transactions stateHash transactionOutcomesHash
     = BlockHash topHash
     where
         topHash = Hash.hashOfHashes transactionOutcomes h1
         transactionOutcomes = v0TransactionOutcomesHash transactionOutcomesHash
         statehash = v0StateHash stateHash
         h1 = Hash.hashOfHashes statehash h2
-        h2 = Hash.hashOfHashes h3 h4 
+        h2 = Hash.hashOfHashes h3 h4
         h3 = Hash.hashLazy . runPutLazy $ put finData
         h4 = Hash.hashLazy . runPutLazy $ do
             put slot
@@ -57,7 +57,7 @@ generateBlockHash slot parent baker bakerKey proof bnonce finData transactions s
             put proof
             put bnonce
             putWord64be (fromIntegral (length transactions))
-            mapM_ putBlockItemV0 $ transactions
+            mapM_ putBlockItemV0 transactions
 
 instance IsProtocolVersion pv => HashableTo BlockHash (Block pv) where
     getHash (GenesisBlock genData) = genesisBlockHash genData
@@ -247,7 +247,7 @@ putBakedBlockV2 b = do
         put (blockStateHash b)
         put (blockTransactionOutcomesHash b)
         putWord64be (fromIntegral (length (blockTransactions b)))
-        mapM_ putBlockItemV0 $ blockTransactions b
+        mapM_ putBlockItemV0 (blockTransactions b)
         put (bbSignature b)
 
 instance (IsProtocolVersion pv) => EncodeBlock pv BakedBlock where

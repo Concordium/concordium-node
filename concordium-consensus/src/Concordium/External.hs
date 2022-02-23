@@ -33,6 +33,7 @@ import Concordium.Crypto.ByteStringHelpers
 import Concordium.GlobalState
 import Concordium.GlobalState.Persistent.LMDB (addDatabaseVersion)
 import Concordium.GlobalState.Persistent.TreeState (InitException (..))
+import qualified Concordium.Types.InvokeContract as InvokeContract
 import Concordium.MultiVersion (
     Callbacks (..),
     CatchUpConfiguration (..),
@@ -597,51 +598,70 @@ stopBaker cptr = mask_ $ do
 
 -- | Result values for receive functions.
 --
--- +=======+====================================+========================================================================================+==========+
--- | Value |                Name                |                                      Description                                       | Forward? |
--- +=======+====================================+========================================================================================+==========+
--- |     0 | ResultSuccess                      | Message received, validated and processed                                              | Yes      |
--- +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
--- |     1 | ResultSerializationFail            | Message deserialization failed                                                         | No       |
--- +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
--- |     2 | ResultInvalid                      | The message was determined to be invalid                                               | No       |
--- +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
--- |     3 | ResultPendingBlock                 | The message was received, but is awaiting a block to complete processing               | Yes      |
--- +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
--- |     4 | ResultPendingFinalization          | The message was received, but is awaiting a finalization record to complete processing | Yes      |
--- +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
--- |     5 | ResultAsync                        | The message was received, but is being processed asynchronously                        | Yes      |
--- +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
--- |     6 | ResultDuplicate                    | The message duplicates a previously received message                                   | No       |
--- +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
--- |     7 | ResultStale                        | The message may have been valid in the past, but is no longer relevant                 | No       |
--- +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
--- |     8 | ResultIncorrectFinalizationSession | The message refers to a different/unknown finalization session                         | No(?)    |
--- +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
--- |     9 | ResultUnverifiable                 | The message could not be verified in the current state (initiate catch-up with peer)   | No       |
--- +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
--- |    10 | ResultContinueCatchUp              | The peer should be marked pending catch-up if it is currently up-to-date               | N/A      |
--- +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
--- |    11 | ResultEarlyBlock                   | The block has a slot number exceeding our current + the early block threshold          | No       |
--- +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
--- |    12 | ResultMissingImportFile            | The file provided for importing doesn't exist                                          | N/A      |
--- +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
--- |    13 | ResultConsensusShutDown            | Consensus has been shut down and the message was ignored                               | No       |
--- +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
--- |    14 | ResultExpiryTooLate                | The transaction expiry time is too far in the future                                   | No       |
--- +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
--- |    15 | ResultVerificationFailed           | The transaction signature verification failed                                          | No       |
--- +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
--- |    16 | ResultNonexistingSenderAccount     | The transaction's sender account does not exist according to the focus block           | No       |
--- +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
--- |    17 | ResultDuplicateNonce               | The sequence number for this account or udpate type was already used                   | No       |
--- +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
--- |    18 | ResultNonceTooLarge                | The transaction seq. number is larger than the next one for this account/update type   | No       |
--- +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
--- |    19 | ResultTooLowEnergy                 | The stated transaction energy is lower than the minimum amount necessary to execute it | No       |
--- +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
--- |    20 | ResultInvalidGenesisIndex          | The message is for an unknown genesis index                                            | No       |
--- +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
+-- +=======+=============================================+===============================================================================================+==========+
+-- | Value |                Name                         |                                              Description                                      | Forward? |
+-- +=======+=============================================+===============================================================================================+==========+
+-- |     0 | ResultSuccess                               | Message received, validated and processed                                                     | Yes      |
+-- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
+-- |     1 | ResultSerializationFail                     | Message deserialization failed                                                                | No       |
+-- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
+-- |     2 | ResultInvalid                               | The message was determined to be invalid                                                      | No       |
+-- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
+-- |     3 | ResultPendingBlock                          | The message was received, but is awaiting a block to complete processing                      | Yes      |
+-- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
+-- |     4 | ResultPendingFinalization                   | The message was received, but is awaiting a finalization record to complete processing        | Yes      |
+-- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
+-- |     5 | ResultAsync                                 | The message was received, but is being processed asynchronously                               | Yes      |
+-- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
+-- |     6 | ResultDuplicate                             | The message duplicates a previously received message                                          | No       |
+-- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
+-- |     7 | ResultStale                                 | The message may have been valid in the past, but is no longer relevant                        | No       |
+-- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
+-- |     8 | ResultIncorrectFinalizationSession          | The message refers to a different/unknown finalization session                                | No(?)    |
+-- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
+-- |     9 | ResultUnverifiable                          | The message could not be verified in the current state (initiate catch-up with peer)          | No       |
+-- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
+-- |    10 | ResultContinueCatchUp                       | The peer should be marked pending catch-up if it is currently up-to-date                      | N/A      |
+-- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
+-- |    11 | ResultEarlyBlock                            | The block has a slot number exceeding our current + the early block threshold                 | No       |
+-- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
+-- |    12 | ResultMissingImportFile                     | The file provided for importing doesn't exist                                                 | N/A      |
+-- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
+-- |    13 | ResultConsensusShutDown                     | Consensus has been shut down and the message was ignored                                      | No       |
+-- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
+-- |    14 | ResultExpiryTooLate                         | The transaction expiry time is too far in the future                                          | No       |
+-- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
+-- |    15 | ResultVerificationFailed                    | The transaction signature verification failed                                                 | No       |
+-- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
+-- |    16 | ResultNonexistingSenderAccount              | The transaction's sender account does not exist according to the focus block                  | No       |
+-- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
+-- |    17 | ResultDuplicateNonce                        | The sequence number for this account or update type was already used                          | No       |
+-- i+-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
+-- |    18 | ResultNonceTooLarge                         | The transaction seq. number is larger than the next one for this account/update type          | No       |
+-- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
+-- |    19 | ResultTooLowEnergy                          | The stated transaction energy is lower than the minimum amount necessary to execute it        | No       |
+-- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
+-- |    20 | ResultInvalidGenesisIndex                   | The message is for an unknown genesis index                                                   | No       |
+-- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
+-- |    21 | ResultDuplicateAccountRegistrationID        | The 'CredentialDeployment' contained a duplicate registration id                              | No       |
+-- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
+-- |    22 | ResultCredentialDeploymentInvalidSignatures | The CredentialDeployment contained invalid identity provider signatures                       | No       |
+-- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
+-- |    23 | ResultCredentialDeploymentInvalidIP         | The CredentialDeployment contained an invalid Identity Provider                               | No       |
+-- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
+-- |    24 | ResultCredentialDeploymentInvalidAR         | The CredentialDeployment contained an invalid Anonymity Revoker                               | No       |
+-- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
+-- |    25 | ResultCredentialDeploymentExpired           | The CredentialDeployment contained an expired 'validTo'                                       | No       |
+-- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
+-- |    26 | ResultChainUpdateInvalidEffectiveTime       | The ChainUpdate contained an invalid effective time                                           | No       |
+-- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
+-- |    27 | ChainUpdateSequenceNumberTooOld             | The ChainUpdate contained an old nonce                                                        | No       |
+-- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
+-- |    28 | ResultChainUpdateInvalidSignatures          | The ChainUpdate contained an invalid signature                                                | No       |
+-- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
+-- |    29 | ResultEnergyExceeded                        | The stated energy of the transaction exceeds the maximum allowed                              | No       |
+-- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
+
 type ReceiveResult = Int64
 
 -- |Convert an 'UpdateResult' to the corresponding 'ReceiveResult' value.
@@ -667,6 +687,15 @@ toReceiveResult ResultDuplicateNonce = 17
 toReceiveResult ResultNonceTooLarge = 18
 toReceiveResult ResultTooLowEnergy = 19
 toReceiveResult ResultInvalidGenesisIndex = 20
+toReceiveResult ResultDuplicateAccountRegistrationID = 21
+toReceiveResult ResultCredentialDeploymentInvalidSignatures = 22
+toReceiveResult ResultCredentialDeploymentInvalidIP = 23
+toReceiveResult ResultCredentialDeploymentInvalidAR = 24
+toReceiveResult ResultCredentialDeploymentExpired = 25
+toReceiveResult ResultChainUpdateInvalidEffectiveTime = 26
+toReceiveResult ResultChainUpdateSequenceNumberTooOld = 27
+toReceiveResult ResultChainUpdateInvalidSignatures = 28
+toReceiveResult ResultEnergyExceeded = 29
 
 -- |Handle receipt of a block.
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,
@@ -717,7 +746,13 @@ receiveFinalizationRecord bptr genIndex msg msgLen = do
 -- |Handle receipt of a transaction.
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultDuplicate@,
 -- @ResultStale@, @ResultInvalid@, @ResultConsensusShutDown@, @ResultExpiryTooLate@, @ResultVerificationFailed@,
--- @ResultNonexistingSenderAccount@, @ResultDuplicateNonce@, @ResultNonceTooLarge@, @ResultTooLowEnergy@.
+-- @ResultNonexistingSenderAccount@, @ResultDuplicateNonce@, @ResultNonceTooLarge@, @ResultTooLowEnergy@,
+-- @ResultDuplicateAccountRegistrationID@,
+-- @ResultCredentialDeploymentInvalidSignatures@,
+-- @ResultCredentialDeploymentInvalidIP@, @ResultCredentialDeploymentInvalidAR@,
+-- @ResultCredentialDeploymentExpired@, @ResultChainUpdateInvalidSequenceNumber@,
+-- @ResultChainUpdateInvalidEffectiveTime@, @ResultChainUpdateInvalidSignatures@,
+-- @ResultEnergyExceeded@
 receiveTransaction :: StablePtr ConsensusRunner -> CString -> Int64 -> IO ReceiveResult
 receiveTransaction bptr transactionData transactionLen = do
     (ConsensusRunner mvr) <- deRefStablePtr bptr
@@ -872,6 +907,10 @@ decodeInstanceAddress inststr = AE.decodeStrict <$> BS.packCString inststr
 -- |Decode a module reference from a null-terminated base-16 string.
 decodeModuleRef :: CString -> IO (Maybe ModuleRef)
 decodeModuleRef modstr = readMaybe <$> peekCString modstr
+
+-- |Decode the context passed to the @invokeContract@ method.
+decodeContractContext :: CString -> IO (Maybe InvokeContract.ContractContext)
+decodeContractContext ctxStr = AE.decodeStrict <$> BS.packCString ctxStr
 
 -- |Decode a transaction hash from a null-terminated base-16 string.
 decodeTransactionHash :: CString -> IO (Maybe TransactionHash)
@@ -1051,6 +1090,24 @@ getInstanceInfo cptr blockcstr instcstr = do
         (Just bh, Just inst) -> jsonQuery cptr (Q.getInstanceInfo bh inst)
         _ -> jsonCString AE.Null
 
+-- |Run the smart contract entrypoint in a given context and in the state at the
+-- end of the given block.
+-- The block must be given as a null-terminated base16 encoding of the block
+-- hash and the context (second CString) must be given as a null-terminated
+-- JSON-encoded value.
+-- The return value is a null-terminated, json encoded information. It is either null
+-- in case the input cannot be decoded, or the block does not exist,
+-- or the JSON encoding of InvokeContract.InvokeContractResult.
+-- The returned string should be freed by calling 'freeCStr'.
+invokeContract :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
+invokeContract cptr blockcstr ctxcstr = do
+    mblock <- decodeBlockHash blockcstr
+    mctx <- decodeContractContext ctxcstr
+    case (mblock, mctx) of
+        (Just bh, Just ctx) -> jsonQuery cptr (Q.invokeContract bh ctx)
+        _ -> jsonCString AE.Null
+
+
 -- |Get the source code of a module as deployed on the chain at a particular block.
 -- The block must be given as a null-terminated base16 encoding of the block hash.
 -- The module is referenced by a null-terminated base16 encoding of the module hash.
@@ -1165,23 +1222,42 @@ checkIfWeAreFinalizer cptr = do
     res <- runMVR Q.checkIsCurrentFinalizer mvr
     return $! if res then 1 else 0
 
--- |Check whether we are a baker from the perspective of the best block.
--- Returns -1 if we are not added as a baker.
--- Returns -2 if we are added as a baker, but not part of the baking committee yet.
--- Returns -3 if we have keys that do not match the baker's public keys on the chain.
--- Returns >= 0 if we are part of the baking committee. The return value is the
--- baker id as appearing in blocks.
-bakerIdBestBlock :: StablePtr ConsensusRunner -> IO Int64
-bakerIdBestBlock cptr = do
+-- |Check if consensus is running.
+-- Returns 0 for 'False' and 1 for 'True'.
+checkIfRunning :: StablePtr ConsensusRunner -> IO Word8
+checkIfRunning cptr = do
     (ConsensusRunner mvr) <- deRefStablePtr cptr
-    res <- runMVR Q.getBakerStatusBestBlock mvr
-    return $! case res of
-        NoBaker -> -1
-        InactiveBaker _ -> -2
-        BadKeys _ -> -3
-        ActiveBaker bid -> fromIntegral bid
+    res <- runMVR Q.checkIsShutDown mvr
+    return $! if res then 0 else 1
+
+-- |Check whether we are a baker from the perspective of the best block.
+-- bakerIdPtr expects to receive the baker ID (optional).
+-- hasBakerIdPtr expects to receive either 0 (representing false) or 1 (representing true) if a baker ID is not found or found respectively.
+-- Returns 1 if we are not added as a baker.
+-- Returns 2 if we are added as a baker, but not part of the baking committee yet.
+-- Returns 3 if we have keys that do not match the baker's public keys on the chain.
+-- Returns 0 if we are part of the baking committee. 
+bakerStatusBestBlock :: StablePtr ConsensusRunner -> Ptr Word64 -> Ptr Word8 -> IO Word8
+bakerStatusBestBlock cptr bakerIdPtr hasBakerIdPtr = do
+    (ConsensusRunner mvr) <- deRefStablePtr cptr
+    (bs, mBid) <- runMVR Q.getBakerStatusBestBlock mvr
+    case mBid of
+        Nothing -> poke hasBakerIdPtr 0 >> (return $! getBakerStatusCode bs)
+        Just bid -> do
+            poke hasBakerIdPtr 1
+            poke bakerIdPtr $ fromIntegral bid
+            return $! getBakerStatusCode bs
+    where
+        getBakerStatusCode :: BakerStatus -> Word8
+        getBakerStatusCode bs = case bs of
+            ActiveInComittee -> 0
+            NotInCommittee -> 1
+            AddedButNotActiveInCommittee -> 2
+            AddedButWrongKeys -> 3
 
 -- FFI exports
+-- Note: Exports must be listed in the lib.def file in order for the symbols to be correctly
+-- exposed from the library on Windows.
 
 foreign export ccall
     startConsensus ::
@@ -1303,6 +1379,7 @@ foreign export ccall getAccountList :: StablePtr ConsensusRunner -> CString -> I
 foreign export ccall getInstances :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getAccountInfo :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
 foreign export ccall getInstanceInfo :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
+foreign export ccall invokeContract :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
 foreign export ccall getRewardStatus :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getBirkParameters :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getModuleList :: StablePtr ConsensusRunner -> CString -> IO CString
@@ -1320,8 +1397,9 @@ foreign export ccall getAllAnonymityRevokers :: StablePtr ConsensusRunner -> CSt
 foreign export ccall getCryptographicParameters :: StablePtr ConsensusRunner -> CString -> IO CString
 
 -- baker status checking
-foreign export ccall bakerIdBestBlock :: StablePtr ConsensusRunner -> IO Int64
+foreign export ccall bakerStatusBestBlock :: StablePtr ConsensusRunner -> Ptr Word64 -> Ptr Word8 -> IO Word8
 foreign export ccall checkIfWeAreFinalizer :: StablePtr ConsensusRunner -> IO Word8
+foreign export ccall checkIfRunning :: StablePtr ConsensusRunner -> IO Word8
 
 -- maintenance
 foreign export ccall freeCStr :: CString -> IO ()

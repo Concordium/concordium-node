@@ -21,7 +21,9 @@ import Control.Monad
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Scheduler.Runner
+import Concordium.TransactionVerification
 
+import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
 import Concordium.GlobalState.Basic.BlockState.Instances
 import Concordium.GlobalState.Basic.BlockState
@@ -55,13 +57,13 @@ testCases =
     { tcName = "Error handling in contracts."
     , tcParameters = (defaultParams @PV1){tpInitialBlockState=initialBlockState}
     , tcTransactions =
-      [ ( TJSON { payload = DeployModule 0 fibSourceFile
+      [ ( TJSON { payload = DeployModule V0 fibSourceFile
                 , metadata = makeDummyHeader alesAccount 1 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
         , (SuccessWithSummary deploymentCostCheck, emptySpec)
         )
-      , ( TJSON { payload = InitContract 0 0 "./testdata/contracts/fib.wasm" "init_fib" ""
+      , ( TJSON { payload = InitContract 0 V0 "./testdata/contracts/fib.wasm" "init_fib" ""
                 , metadata = makeDummyHeader alesAccount 2 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
@@ -79,12 +81,12 @@ testCases =
   ]
 
   where
-        deploymentCostCheck :: Types.BlockItem -> Types.TransactionSummary -> Expectation
+        deploymentCostCheck :: BlockItemWithStatus -> Types.TransactionSummary -> Expectation
         deploymentCostCheck _ Types.TransactionSummary{..} = do
           moduleSource <- BS.readFile fibSourceFile
           let len = fromIntegral $ BS.length moduleSource
               -- size of the module deploy payload
-              payloadSize = Types.payloadSize (Types.encodePayload (Types.DeployModule (WasmModule 0 ModuleSource{..})))
+              payloadSize = Types.payloadSize (Types.encodePayload (Types.DeployModule (WasmModuleV0 (WasmModuleV ModuleSource{..}))))
               -- size of the transaction minus the signatures.
               txSize = Types.transactionHeaderSize + fromIntegral payloadSize
               -- transaction is signed with 1 signature
@@ -93,7 +95,7 @@ testCases =
         -- check that the initialization cost was at least the administrative cost.
         -- It is not practical to check the exact cost because the execution cost of the init function is hard to
         -- have an independent number for, other than executing.
-        initializationCostCheck :: Types.BlockItem -> Types.TransactionSummary -> Expectation
+        initializationCostCheck :: BlockItemWithStatus -> Types.TransactionSummary -> Expectation
         initializationCostCheck _ Types.TransactionSummary{..} = do
           moduleSource <- BS.readFile fibSourceFile
           let modLen = fromIntegral $ BS.length moduleSource
@@ -109,7 +111,7 @@ testCases =
           unless (tsEnergyCost >= costLowerBound) $
             assertFailure $ "Actual initialization cost " ++ show tsEnergyCost ++ " not more than lower bound " ++ show costLowerBound
 
-        ensureAllUpdates :: Types.BlockItem -> Types.TransactionSummary -> Expectation
+        ensureAllUpdates :: BlockItemWithStatus -> Types.TransactionSummary -> Expectation
         ensureAllUpdates _ Types.TransactionSummary{..} =
           case tsResult of
             Types.TxSuccess evs -> do
