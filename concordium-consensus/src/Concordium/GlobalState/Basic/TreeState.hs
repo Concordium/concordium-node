@@ -156,6 +156,7 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
             blockTable . at' (getHash block) ?= TS.BlockAlive blockP
             return blockP
     markDead bh = blockTable . at' bh ?= TS.BlockDead
+    type MarkFin (PureTreeStateMonad pv bs m) = ()
     markFinalized bh fr = use (blockTable . at' bh) >>= \case
             Just (TS.BlockAlive bp) -> do
               blockTable . at' bh ?= TS.BlockFinalized bp fr
@@ -177,6 +178,7 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
     getFinalizedAtIndex finIndex = fmap snd . Seq.lookup (fromIntegral finIndex) <$> use finalizationList
     getRecordAtIndex finIndex = fmap fst . Seq.lookup (fromIntegral finIndex) <$> use finalizationList
     getFinalizedAtHeight bHeight = preuse (finalizedByHeightTable . ix bHeight)
+    wrapupFinalization _ _ = return ()
     getBranches = use branches
     putBranches brs = branches .= brs
     takePendingChildren bh = possiblyPendingTable . at' bh . non [] <<.= []
@@ -289,6 +291,7 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
             when (slot > results ^. tsSlot) $ transactionTable . ttHashMap . at' trHash . mapped . _2 %= updateSlot slot
             return $ TS.Duplicate tr'
 
+    type FinTrans (PureTreeStateMonad pv bs m) = ()
     finalizeTransactions bh slot = mapM_ finTrans
         where
             finTrans WithMetadata{wmdData=NormalTransaction tr,..} = do
