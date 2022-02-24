@@ -202,7 +202,7 @@ checkTransactionVerificationResult (TVer.NotOk TVer.InvalidPayloadSize) = Left I
 -- * @Nothing@ if the transaction would exceed the remaining block energy.
 -- * @Just result@ if the transaction failed ('TxInvalid') or was successfully committed
 --  ('TxValid', with either 'TxSuccess' or 'TxReject').
-dispatch :: forall msg pv m. (TransactionData msg, SchedulerMonad m) => (msg, Maybe TVer.VerificationResult) -> m (Maybe TxResult)
+dispatch :: forall msg m. (TransactionData msg, SchedulerMonad m) => (msg, Maybe TVer.VerificationResult) -> m (Maybe TxResult)
 dispatch (msg, mVerRes) = do
   let meta = transactionHeader msg
   validMeta <- runExceptT (checkHeader msg mVerRes)
@@ -1473,7 +1473,6 @@ handleConfigureBaker
     withDeposit wtc tickGetArgAndBalance chargeAndExecute
       where
         senderAccount = wtc ^. wtcSenderAccount
-        txHash = wtc ^. wtcTransactionHash
         meta = wtc ^. wtcTransactionHeader
         senderAddress = thSender meta
         configureAddBakerArg =
@@ -1563,8 +1562,7 @@ handleConfigureBaker
               else return (TxReject InvalidProof, energyCost, usedEnergy)
         executeConfigure energyCost usedEnergy (ConfigureRemoveBakerCont, _) = do
             cm <- getChainMetadata
-            sd <- getSlotDuration
-            let bcr = BI.BakerConfigureRemove (slotTime cm) sd
+            let bcr = BI.BakerConfigureRemove (slotTime cm)
             res <- configureBaker (fst senderAccount) bcr
             kResult energyCost usedEnergy bcr res
         executeConfigure energyCost usedEnergy (ConfigureUpdateBakerCont, accountBalance) = do
@@ -1579,10 +1577,8 @@ handleConfigureBaker
                           bkuElectionKey = bkwpElectionVerifyKey
                       }
                 cm <- getChainMetadata
-                sd <- getSlotDuration
                 let bcu = BI.BakerConfigureUpdate {
                       bcuSlotTimestamp = slotTime cm,
-                      bcuSlotDuration = sd,
                       bcuKeys = bku,
                       bcuCapital = cbCapital,
                       bcuRestakeEarnings = cbRestakeEarnings,
@@ -1669,7 +1665,6 @@ handleConfigureDelegation wtc cdCapital cdRestakeEarnings cdDelegationTarget =
     withDeposit wtc tickAndGetAccountBalance kWithAccountBalance
       where
         senderAccount = wtc ^. wtcSenderAccount
-        txHash = wtc ^. wtcTransactionHash
         meta = wtc ^. wtcTransactionHeader
         senderAddress = thSender meta
 
@@ -1719,8 +1714,7 @@ handleConfigureDelegation wtc cdCapital cdRestakeEarnings cdDelegationTarget =
             (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
             chargeExecutionCost senderAccount energyCost
             cm <- getChainMetadata
-            sd <- getSlotDuration
-            let dcr = BI.DelegationConfigureRemove (slotTime cm) sd
+            let dcr = BI.DelegationConfigureRemove (slotTime cm)
             res <- configureDelegation (fst senderAccount) dcr
             kResult energyCost usedEnergy dcr res
         kWithAccountBalance ls (ConfigureUpdateDelegationCont, accountBalance) = do
@@ -1730,10 +1724,8 @@ handleConfigureDelegation wtc cdCapital cdRestakeEarnings cdDelegationTarget =
                 return (TxReject InsufficientBalanceForDelegationStake, energyCost, usedEnergy)
             else do
                 cm <- getChainMetadata
-                sd <- getSlotDuration
                 let dcu = BI.DelegationConfigureUpdate {
                       dcuSlotTimestamp = slotTime cm,
-                      dcuSlotDuration = sd,
                       dcuCapital = cdCapital,
                       dcuRestakeEarnings = cdRestakeEarnings,
                       dcuDelegationTarget = cdDelegationTarget

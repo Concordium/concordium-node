@@ -39,7 +39,7 @@ import Concordium.Types.InvokeContract (ContractContext(..), InvokeContractResul
 
 import Concordium.Scheduler.Environment
 import Concordium.Scheduler.Types
-import Concordium.Scheduler.EnvironmentImplementation (ContextState(..), maxBlockEnergy, chainMetadata, accountCreationLimit, slotDuration)
+import Concordium.Scheduler.EnvironmentImplementation (ContextState(..), maxBlockEnergy, chainMetadata, accountCreationLimit)
 import qualified Concordium.Scheduler.WasmIntegration.V1 as WasmV1
 import Concordium.Scheduler
 
@@ -91,9 +91,6 @@ instance (Monad m, BS.BlockStateQuery m) => StaticInformation (InvokeContractMon
 
   {-# INLINE getStateAccount #-}
   getStateAccount !addr = lift . flip BS.getAccount addr =<< view _2
-
-  {-# INLINE getSlotDuration #-}
-  getSlotDuration = view (_1 . slotDuration)
 
 -- |Invoke the contract in the given context.
 invokeContract :: forall m . (MonadProtocolVersion m, BS.BlockStateQuery m)
@@ -149,8 +146,7 @@ invokeContract ContractContext{..} cm bs = do
             (r, cs) <- runLocalT comp ccAmount ai ccEnergy ccEnergy
             return (r, _energyLeft cs)
       contextState = ContextState{
-          _maxBlockEnergy = ccEnergy, _accountCreationLimit = 0, _chainMetadata = cm,
-          _slotDuration = 0 -- FIXME: This is not a great idea, but contract execution should not depend on the slot duration.
+          _maxBlockEnergy = ccEnergy, _accountCreationLimit = 0, _chainMetadata = cm
           }
   runReaderT (_runInvokeContract runContractComp) (contextState, bs) >>= \case
     -- cannot happen (this would mean out of block energy, and we set block energy no lower than energy),

@@ -888,7 +888,6 @@ executeFrom blockHash slotNumber slotTime blockParent blockBaker mfinInfo newSee
       else do
         -- process the update queues
         (updates, bshandle0a) <- bsoProcessUpdateQueues bshandle0 slotTime
-        sd <- gdSlotDuration <$> getGenesisData
         ab <- getActiveBakers origBS
         let isPoolParameterUpdate = \case
               UVPoolParameters _ -> True
@@ -898,7 +897,7 @@ executeFrom blockHash slotNumber slotTime blockParent blockBaker mfinInfo newSee
         -- for each pool parameter update, go over all bakers and put their commissions inside
         -- the new commission ranges.
         bshandle0a' <- foldM (\bs uv -> case uv of
-          UVPoolParameters PoolParametersV1{..} -> foldM (putBakerCommissionsInRange _ppCommissionBounds sd origBS) bs ab
+          UVPoolParameters PoolParametersV1{..} -> foldM (putBakerCommissionsInRange _ppCommissionBounds origBS) bs ab
           _ -> return bs) bshandle0a poolParameterUpdates
         -- unlock the amounts that have expired
         bshandle0b <- bsoProcessReleaseSchedule bshandle0a' slotTime
@@ -908,8 +907,7 @@ executeFrom blockHash slotNumber slotTime blockParent blockBaker mfinInfo newSee
         let context = ContextState{
               _chainMetadata = cm,
               _maxBlockEnergy = maxBlockEnergy,
-              _accountCreationLimit = chainParams ^. cpAccountCreationLimit,
-              _slotDuration = sd
+              _accountCreationLimit = chainParams ^. cpAccountCreationLimit
               }
         (res, finState) <- runBSM (Sch.runTransactions txs) context (mkInitialSS bshandle1 :: LogSchedulerState m)
         let usedEnergy = finState ^. schedulerEnergyUsed
@@ -932,8 +930,8 @@ executeFrom blockHash slotNumber slotTime blockParent blockBaker mfinInfo newSee
                                               _finalState = finalbsHandle,
                                               _transactionLog = finState ^. schedulerTransactionLog}))
   where
-    putBakerCommissionsInRange :: ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1 => CommissionRanges -> Duration -> BlockState m -> UpdatableBlockState m -> BakerId -> m (UpdatableBlockState m)
-    putBakerCommissionsInRange ranges sd origBS bs bid@(BakerId ai) = getBakerAccount origBS bid >>= \case
+    putBakerCommissionsInRange :: ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1 => CommissionRanges -> BlockState m -> UpdatableBlockState m -> BakerId -> m (UpdatableBlockState m)
+    putBakerCommissionsInRange ranges origBS bs bid@(BakerId ai) = getBakerAccount origBS bid >>= \case
       Nothing -> error "Invariant violation: Active baker is not a baker."
       Just acc -> getAccountBaker acc >>= \case
         Nothing -> error "Invariant violation: Active baker is not a baker."
@@ -948,7 +946,6 @@ executeFrom blockHash slotNumber slotTime blockParent blockBaker mfinInfo newSee
             let ctc = Types.closestInRange fc (ranges ^. transactionCommissionRange)
             (result, newBS) <- bsoConfigureBaker bs ai BI.BakerConfigureUpdate{
               bcuSlotTimestamp = slotTime,
-              bcuSlotDuration = sd,
               bcuKeys = Nothing,
               bcuCapital = Nothing,
               bcuRestakeEarnings = Nothing,
@@ -1028,8 +1025,7 @@ constructBlock slotNumber slotTime blockParent blockBaker mfinInfo newSeedState 
     let context = ContextState{
           _chainMetadata = cm,
           _maxBlockEnergy = maxBlockEnergy,
-          _accountCreationLimit = chainParams ^. cpAccountCreationLimit,
-          _slotDuration = gdSlotDuration genData
+          _accountCreationLimit = chainParams ^. cpAccountCreationLimit
           }
     (ft@Sch.FilteredTransactions{..}, finState) <-
         runBSM (Sch.filterTransactions (fromIntegral maxSize) timeout transactionGroups) context (mkInitialSS bshandle1 :: LogSchedulerState m)

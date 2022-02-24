@@ -1013,10 +1013,6 @@ doConfigureBaker pbs ai BakerConfigureAdd{..} = do
 doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
         origBSP <- loadPBS pbs
         cp <- doGetChainParameters pbs
-        let rewardPeriodLength = fromIntegral $ cp ^. cpTimeParameters . tpRewardPeriodLength
-            cooldown = fromIntegral $ cp ^. cpCooldownParameters . cpPoolOwnerCooldown
-            msInEpoch = fromIntegral (epochLength $ _birkSeedState . bspBirkParameters $ origBSP) * bcuSlotDuration
-            cooldownTimestamp = addDuration bcuSlotTimestamp (cooldown * rewardPeriodLength * msInEpoch)
         res <- MTL.runExceptT $ MTL.runWriterT $ flip MTL.execStateT origBSP $ do
                 updateKeys
                 updateRestakeEarnings
@@ -1025,7 +1021,7 @@ doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
                 updateTransactionFeeCommission cp
                 updateBakingRewardCommission cp
                 updateFinalizationRewardCommission cp
-                updateCapital cooldownTimestamp cp
+                updateCapital cp
         case res of
             Left errorRes -> return (errorRes, pbs)
             Right (newBSP, changes) -> (BCSuccess changes bid,) <$> storePBS pbs newBSP
@@ -1139,7 +1135,7 @@ doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
                         ((), ) <$> setPersistentAccountStake acc (PersistentAccountStakeBaker newPAB)
                 modifyAccount updAcc
             MTL.tell [BakerConfigureFinalizationRewardCommission frc]
-        updateCapital cooldownTimestamp cp = forM_ bcuCapital $ \capital -> do
+        updateCapital cp = forM_ bcuCapital $ \capital -> do
             requireNoPendingChange
             acctBkr <- getAccountOrFail
             let capitalMin = cp ^. cpPoolParameters . ppMinimumEquityCapital
@@ -1150,7 +1146,9 @@ doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
                     return ((), acc')
             case compare capital (_stakedAmount acctBkr) of
                 LT -> do
-                    let bpc = BaseAccounts.ReduceStake capital (BaseAccounts.PendingChangeEffectiveV1 cooldownTimestamp)
+                    let cooldownDuration = cp ^. cpCooldownParameters . cpPoolOwnerCooldown
+                        cooldownElapsed = addDurationSeconds bcuSlotTimestamp cooldownDuration
+                        bpc = BaseAccounts.ReduceStake capital (BaseAccounts.PendingChangeEffectiveV1 cooldownElapsed)
                     modifyAccount $ updAcc $ bakerPendingChange .~ bpc
                     MTL.tell [BakerConfigureStakeReduced capital]
                 EQ ->
@@ -1165,11 +1163,6 @@ doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
                     MTL.tell [BakerConfigureStakeIncreased capital]
 doConfigureBaker pbs ai BakerConfigureRemove{..} = do
         bsp <- loadPBS pbs
-        cp <- doGetChainParameters pbs
-        let rewardPeriodLength = fromIntegral $ cp ^. cpTimeParameters . tpRewardPeriodLength
-            cooldown = fromIntegral $ cp ^. cpCooldownParameters . cpPoolOwnerCooldown
-            msInEpoch = fromIntegral (epochLength $ _birkSeedState . bspBirkParameters $ bsp) * bcrSlotDuration
-            cooldownTimestamp = addDuration bcrSlotTimestamp (cooldown * rewardPeriodLength * msInEpoch)
         Accounts.indexedAccount ai (bspAccounts bsp) >>= \case
             -- The account is valid and has a baker
             Just PersistentAccount{_accountStake = PersistentAccountStakeBaker pab} -> do
@@ -1178,8 +1171,11 @@ doConfigureBaker pbs ai BakerConfigureRemove{..} = do
                     -- A change is already pending
                     return (BCChangePending, pbs)
                 else do
+                    cp <- lookupCurrentParameters (bspUpdates bsp)
+                    let cooldownDuration = cp ^. cpCooldownParameters . cpPoolOwnerCooldown
+                        cooldownElapsed = addDurationSeconds bcrSlotTimestamp cooldownDuration
                     let updAcc acc = do
-                            newPAB <- refMake ab{_bakerPendingChange = BaseAccounts.RemoveStake (BaseAccounts.PendingChangeEffectiveV1 cooldownTimestamp)}
+                            newPAB <- refMake ab{_bakerPendingChange = BaseAccounts.RemoveStake (BaseAccounts.PendingChangeEffectiveV1 cooldownElapsed)}
                             acc' <- setPersistentAccountStake acc (PersistentAccountStakeBaker newPAB)
                             return ((), acc')
                     (_, newAccounts) <- Accounts.updateAccountsAtIndex updAcc ai (bspAccounts bsp)
@@ -1224,7 +1220,7 @@ doConfigureDelegation
 doConfigureDelegation pbs ai DelegationConfigureAdd{..} = do
         -- It is assumed here that this account is NOT a baker and NOT a delegator.
         bsp <- loadPBS pbs
-        poolParams <- _cpPoolParameters <$> doGetChainParameters pbs
+        poolParams <- _cpPoolParameters <$> lookupCurrentParameters (bspUpdates bsp)
         result <- MTL.runExceptT $ do
             newBSP <- updateBlockState bsp
             delegationConfigureDisallowOverdelegation lift newBSP poolParams dcaDelegationTarget
@@ -1268,15 +1264,11 @@ doConfigureDelegation pbs ai DelegationConfigureAdd{..} = do
                     return $! bspBirkParameters bsp & birkActiveBakers .~ newpabref
 doConfigureDelegation pbs ai DelegationConfigureUpdate{..} = do
         origBSP <- loadPBS pbs
-        cp <- doGetChainParameters pbs
-        let rewardPeriodLength = fromIntegral $ cp ^. cpTimeParameters . tpRewardPeriodLength
-            cooldown = fromIntegral $ cp ^. cpCooldownParameters . cpDelegatorCooldown
-            msInEpoch = fromIntegral (epochLength $ _birkSeedState . bspBirkParameters $ origBSP) * dcuSlotDuration
-            cooldownTimestamp = addDuration dcuSlotTimestamp (cooldown * rewardPeriodLength * msInEpoch)
+        cp <- lookupCurrentParameters (bspUpdates origBSP)
         res <- MTL.runExceptT $ MTL.runWriterT $ flip MTL.execStateT origBSP $ do
                 updateDelegationTarget
                 updateRestakeEarnings
-                updateCapital cooldownTimestamp cp
+                updateCapital cp
         case res of
             Left errorRes -> return (errorRes, pbs)
             Right (newBSP, changes) -> (DCSuccess changes did,) <$> storePBS pbs newBSP
@@ -1314,7 +1306,7 @@ doConfigureDelegation pbs ai DelegationConfigureUpdate{..} = do
                         ((), ) <$> setPersistentAccountStake acc (PersistentAccountStakeDelegate newPAD)
                 modifyAccount updAcc
             MTL.tell [DelegationConfigureRestakeEarnings restakeEarnings]
-        updateCapital cooldownTimestamp cp = forM_ dcuCapital $ \capital -> do
+        updateCapital cp = forM_ dcuCapital $ \capital -> do
             requireNoPendingChange
             ad <- getAccountOrFail
             let updAcc updateStake acc = do
@@ -1323,7 +1315,9 @@ doConfigureDelegation pbs ai DelegationConfigureUpdate{..} = do
                     return ((), acc')
             case compare capital (BaseAccounts._delegationStakedAmount ad) of
                 LT -> do
-                    let dpc = BaseAccounts.ReduceStake capital (BaseAccounts.PendingChangeEffectiveV1 cooldownTimestamp)
+                    let cooldownDuration = cp ^. cpCooldownParameters . cpDelegatorCooldown
+                        cooldownTimestamp = addDurationSeconds dcuSlotTimestamp cooldownDuration
+                        dpc = BaseAccounts.ReduceStake capital (BaseAccounts.PendingChangeEffectiveV1 cooldownTimestamp)
                     modifyAccount $ updAcc $ BaseAccounts.delegationPendingChange .~ dpc
                     MTL.tell [DelegationConfigureStakeReduced capital]
                 EQ ->
@@ -1355,19 +1349,17 @@ doConfigureDelegation pbs ai DelegationConfigureUpdate{..} = do
                             refMake $! ab1 & activeBakers .~ newActiveMap
 doConfigureDelegation pbs ai DelegationConfigureRemove{..} = do
         bsp <- loadPBS pbs
-        cp <- doGetChainParameters pbs
-        let rewardPeriodLength = fromIntegral $ cp ^. cpTimeParameters . tpRewardPeriodLength
-            cooldown = fromIntegral $ cp ^. cpCooldownParameters . cpDelegatorCooldown
-            msInEpoch = fromIntegral (epochLength $ _birkSeedState . bspBirkParameters $ bsp) * dcrSlotDuration
-            cooldownTimestamp = addDuration dcrSlotTimestamp (cooldown * rewardPeriodLength * msInEpoch)
         Accounts.indexedAccount ai (bspAccounts bsp) >>= \case
             Just PersistentAccount{_accountStake = PersistentAccountStakeDelegate pad} -> do
                 ad <- refLoad pad
                 if BaseAccounts._delegationPendingChange ad /= BaseAccounts.NoChange then
                     return (DCChangePending, pbs)
                 else do
+                    cp <- lookupCurrentParameters (bspUpdates bsp)
+                    let cooldownDuration = cp ^. cpCooldownParameters . cpDelegatorCooldown
+                        cooldownElapsed = addDurationSeconds dcrSlotTimestamp cooldownDuration
                     let updAcc acc = do
-                            let rs = BaseAccounts.RemoveStake (BaseAccounts.PendingChangeEffectiveV1 cooldownTimestamp)
+                            let rs = BaseAccounts.RemoveStake (BaseAccounts.PendingChangeEffectiveV1 cooldownElapsed)
                             newPAD <- refMake ad{BaseAccounts._delegationPendingChange = rs}
                             acc' <- setPersistentAccountStake acc (PersistentAccountStakeDelegate newPAD)
                             return ((), acc')

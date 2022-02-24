@@ -22,7 +22,6 @@ import Concordium.GlobalState.Block hiding (PendingBlock)
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
 import Concordium.Types.Transactions
-import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.AccountTransactionIndex
 
@@ -39,7 +38,7 @@ import Concordium.Skov.Statistics
 import qualified Concordium.TransactionVerification as TV
 import Concordium.Types.Updates (uiHeader, updateType, uiPayload)
 import Concordium.Scheduler.Types (updateSeqNumber)
-import Concordium.GlobalState.TransactionTable (pttDeployCredential)
+import Concordium.GlobalState.TransactionTable
 import qualified Concordium.Skov.Monad as SkovMonad
 
 -- |Determine if one block is an ancestor of another.

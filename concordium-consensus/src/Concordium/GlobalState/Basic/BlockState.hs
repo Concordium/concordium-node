@@ -1166,13 +1166,10 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
           | _bakerPendingChange /= NoChange -> (BCChangePending, bs)
           -- We can make the change
           | otherwise ->
-              let cp = bs ^. blockUpdates . currentParameters
-                  rewardPeriodLength = fromIntegral $ cp ^. cpTimeParameters . tpRewardPeriodLength
-                  cooldown = fromIntegral $ cp ^. cpCooldownParameters . cpPoolOwnerCooldown
-                  msInEpoch = fromIntegral (epochLength $ bs ^. blockBirkParameters . birkSeedState) * bcrSlotDuration
-                  timestamp = addDuration bcrSlotTimestamp (cooldown * rewardPeriodLength * msInEpoch)
+              let cooldownDuration = bs ^. blockUpdates . currentParameters . cpCooldownParameters  . cpPoolOwnerCooldown
+                  cooldownElapsed = addDurationSeconds bcrSlotTimestamp cooldownDuration
               in (BCSuccess [] (BakerId ai),
-                  bs & blockAccounts . Accounts.indexedAccount ai . accountStaking .~ AccountStakeBaker (ab & bakerPendingChange .~ RemoveStake (PendingChangeEffectiveV1 timestamp)))
+                  bs & blockAccounts . Accounts.indexedAccount ai . accountStaking .~ AccountStakeBaker (ab & bakerPendingChange .~ RemoveStake (PendingChangeEffectiveV1 cooldownElapsed)))
         -- The account is not valid or has no baker
         _ -> (BCInvalidBaker, bs)
     bsoConfigureBaker origBS ai BakerConfigureUpdate{..} = do
@@ -1190,12 +1187,6 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             Right (newBS, changes) -> (BCSuccess changes bid, newBS)
       where
         bid = BakerId ai
-        cooldownTimestamp =
-            let cp = origBS ^. blockUpdates . currentParameters
-                rewardPeriodLength = fromIntegral $ cp ^. cpTimeParameters . tpRewardPeriodLength
-                cooldown = fromIntegral $ cp ^. cpCooldownParameters . cpPoolOwnerCooldown
-                msInEpoch = fromIntegral (epochLength $ origBS ^. blockBirkParameters . birkSeedState) * bcuSlotDuration
-            in addDuration bcuSlotTimestamp (cooldown * rewardPeriodLength * msInEpoch)
         getAccount = do
             s <- MTL.get
             case s ^? blockAccounts . Accounts.indexedAccount ai of
@@ -1275,7 +1266,9 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             when (capital < capitalMin) (MTL.throwError BCStakeUnderThreshold)
             case compare capital (_stakedAmount ab) of
                 LT -> do
-                    let bpc = ReduceStake capital (PendingChangeEffectiveV1 cooldownTimestamp)
+                    let cooldownDuration = origBS ^. blockUpdates . currentParameters . cpCooldownParameters . cpPoolOwnerCooldown
+                        cooldownElapsed = addDurationSeconds bcuSlotTimestamp cooldownDuration
+                    let bpc = ReduceStake capital (PendingChangeEffectiveV1 cooldownElapsed)
                     modifyAccount (bakerPendingChange .~ bpc)
                     MTL.tell [BakerConfigureStakeReduced capital]
                 EQ -> do
@@ -1336,15 +1329,12 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             Just Account{_accountStaking = AccountStakeDelegate ad@AccountDelegationV1{..}}
               | _delegationPendingChange /= NoChange -> (DCChangePending, bs)
               | otherwise ->
-                  let cp = bs ^. blockUpdates . currentParameters
-                      rewardPeriodLength = fromIntegral $ cp ^. cpTimeParameters . tpRewardPeriodLength
-                      cooldown = fromIntegral $ cp ^. cpCooldownParameters . cpDelegatorCooldown
-                      msInEpoch = fromIntegral (epochLength $ bs ^. blockBirkParameters . birkSeedState) * dcrSlotDuration
-                      timestamp = addDuration dcrSlotTimestamp (cooldown * rewardPeriodLength * msInEpoch)
+                  let cooldownDuration = bs ^. blockUpdates . currentParameters . cpCooldownParameters . cpDelegatorCooldown
+                      cooldownElapsed = addDurationSeconds dcrSlotTimestamp cooldownDuration
                   in (DCSuccess [] (DelegatorId ai),
                       bs
                         & blockAccounts . Accounts.indexedAccount ai . accountStaking .~
-                            AccountStakeDelegate (ad & delegationPendingChange .~ RemoveStake (PendingChangeEffectiveV1 timestamp))
+                            AccountStakeDelegate (ad & delegationPendingChange .~ RemoveStake (PendingChangeEffectiveV1 cooldownElapsed))
                         )
             _ -> (DCInvalidDelegator, bs)
     bsoConfigureDelegation origBS ai DelegationConfigureUpdate{..} = do
@@ -1358,12 +1348,6 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             Right (newBS, changes) -> (DCSuccess changes did, newBS)
       where
         did = DelegatorId ai
-        cooldownTimestamp =
-            let cp = origBS ^. blockUpdates . currentParameters
-                rewardPeriodLength = fromIntegral $ cp ^. cpTimeParameters . tpRewardPeriodLength
-                cooldown = fromIntegral $ cp ^. cpCooldownParameters . cpDelegatorCooldown
-                msInEpoch = fromIntegral (epochLength $ origBS ^. blockBirkParameters . birkSeedState) * dcuSlotDuration
-            in addDuration dcuSlotTimestamp (cooldown * rewardPeriodLength * msInEpoch)
         getAccount = do
             s <- MTL.get
             case s ^? blockAccounts . Accounts.indexedAccount ai of
@@ -1383,7 +1367,9 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             ad <- getAccount
             case compare capital (ad ^. delegationStakedAmount) of
                 LT -> do
-                    let dpc = ReduceStake capital (PendingChangeEffectiveV1 cooldownTimestamp)
+                    let cooldownDuration = origBS ^. blockUpdates . currentParameters . cpCooldownParameters . cpDelegatorCooldown
+                        cooldownElapsed = addDurationSeconds dcuSlotTimestamp cooldownDuration
+                    let dpc = ReduceStake capital (PendingChangeEffectiveV1 cooldownElapsed)
                     modifyAccount (delegationPendingChange .~ dpc)
                     MTL.tell [DelegationConfigureStakeReduced capital]
                 EQ ->
