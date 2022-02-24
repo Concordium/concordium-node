@@ -184,6 +184,7 @@ foreign import ccall "call_receive_v1"
              -> Word64 -- ^Amount
              -> Ptr Word8 -- ^Pointer to the name of the function to invoke.
              -> CSize -- ^Length of the name.
+             -> Word8 -- ^Whether to invoke the default/fallback method instead.
              -> Ptr (Ptr StateV1.MutableStateInner)
              -- ^Pointer to the current state of the smart contracts. If
              -- successful, pointer to the new state will be written here.
@@ -464,7 +465,8 @@ applyReceiveFun
     -> ChainMetadata -- ^Metadata available to the contract.
     -> ReceiveContext -- ^Additional parameter supplied by the chain and
                      -- available to the receive method.
-    -> ReceiveName  -- ^Which method to invoke.
+    -> ReceiveName  -- ^The method that was named
+    -> Bool -- ^Whether to invoke the default method instead of the named one.
     -> Parameter -- ^Parameters available to the method.
     -> Amount  -- ^Amount the contract is initialized with.
     -> StateV1.MutableState -- ^State of the contract to start in, and a way to use it.
@@ -472,7 +474,7 @@ applyReceiveFun
     -> Maybe (Either ContractExecutionReject ReceiveResultData, InterpreterEnergy)
     -- ^Nothing if execution used up all the energy, and otherwise the result
     -- of execution with the amount of energy remaining.
-applyReceiveFun miface cm receiveCtx rName param amnt initialState initialEnergy = unsafePerformIO $ do
+applyReceiveFun miface cm receiveCtx rName useFallback param amnt initialState initialEnergy = unsafePerformIO $ do
               withModuleArtifact wasmArtifact $ \wasmArtifactPtr ->
                 BSU.unsafeUseAsCStringLen initCtxBytes $ \(initCtxBytesPtr, initCtxBytesLen) ->
                   BSU.unsafeUseAsCStringLen nameBytes $ \(nameBytesPtr, nameBytesLen) ->
@@ -485,6 +487,7 @@ applyReceiveFun miface cm receiveCtx rName param amnt initialState initialEnergy
                                                 (castPtr initCtxBytesPtr) (fromIntegral initCtxBytesLen)
                                                 amountWord
                                                 (castPtr nameBytesPtr) (fromIntegral nameBytesLen)
+                                                (if useFallback then 1 else 0)
                                                 statePtrPtr
                                                 (castPtr paramBytesPtr) (fromIntegral paramBytesLen)
                                                 energy

@@ -969,13 +969,19 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
   let model = iiState istance
   let iParams = iiParameters istance
   let cref = instanceAddress iParams
-  let receivefuns = instanceReceiveFuns iParams
+  let receiveFuns = instanceReceiveFuns iParams
+  let (checkValidEntrypoint, useFallback) =
+        if Set.member receiveName receiveFuns then
+          (True, False)
+        else if Set.member (Wasm.makeFallbackReceiveName receiveName) receiveFuns then
+          (False, True)
+        else (False, False)
   let ownerAccountAddress = instanceOwner iParams
   -- The invariants maintained by global state should ensure that an owner account always exists.
   -- However we are defensive here and reject the transaction instead of panicking in case it does not.
   ownerCheck <- getStateAccount ownerAccountAddress
   senderCheck <- checkAndGetSender transferAmount
-  case (Set.member receiveName receivefuns, ownerCheck, senderCheck) of
+  case (checkValidEntrypoint || useFallback, ownerCheck, senderCheck) of
     (False, _, _) -> return (Left (WasmV1.EnvFailure (WasmV1.InvalidEntrypoint (GSWasm.miModuleRef . instanceModuleInterface $ iParams) receiveName)))
     (_, Nothing, _) -> return (Left (WasmV1.EnvFailure (WasmV1.MissingAccount ownerAccountAddress)))
     (_, _, Left err) -> return (Left err)
@@ -1098,7 +1104,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
       -- for, e.g., forwarding.
       withToContractAmountV1 sender istance transferAmount $ do
         foreignModel <- getForeignReprV1 model
-        go [] =<< runInterpreter (return . WasmV1.applyReceiveFun iface cm receiveCtx receiveName parameter transferAmount foreignModel)
+        go [] =<< runInterpreter (return . WasmV1.applyReceiveFun iface cm receiveCtx receiveName useFallback parameter transferAmount foreignModel)
    where  transferAccountSync :: AccountAddress -- ^The target account address.
                               -> UInstanceInfoV m GSWasm.V1 -- ^The sender of this transfer.
                               -> Amount -- ^The amount to transfer.
