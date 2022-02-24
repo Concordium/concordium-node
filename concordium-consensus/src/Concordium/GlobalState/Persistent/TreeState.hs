@@ -519,17 +519,18 @@ instance (MonadLogger (PersistentTreeStateMonad ati bs m),
             blockTable . at' (getHash block) ?=! BlockAlive blockP
             return blockP
     markDead bh = blockTable . at' bh ?= BlockDead
+    type MarkFin (PersistentTreeStateMonad ati bs m) = Maybe (StoredBlock (MPV m) (BlockStatePointer bs))
     markFinalized bh fr = use (blockTable . at' bh) >>= \case
             Just (BlockAlive bp) -> do
               st <- saveBlockState (_bpState bp)
-              writeBlock StoredBlock{
+              blockTable . at' bh ?=! BlockFinalized (finalizationIndex fr)
+              return $ Just StoredBlock{
                   sbFinalizationIndex = finalizationIndex fr,
                   sbInfo = _bpInfo bp,
                   sbBlock = _bpBlock bp,
                   sbState = st
                 }
-              blockTable . at' bh ?=! BlockFinalized (finalizationIndex fr)
-            _ -> return ()
+            _ -> return Nothing
     markPending pb = blockTable . at' (getHash pb) ?=! BlockPending pb
     markAllNonFinalizedDead = blockTable %=! fmap nonFinDead
         where
@@ -546,7 +547,6 @@ instance (MonadLogger (PersistentTreeStateMonad ati bs m),
     getLastFinalizedHeight = bpHeight <$> use lastFinalized
     getNextFinalizationIndex = (+1) . finalizationIndex <$!> use lastFinalizationRecord
     addFinalization newFinBlock finRec = do
-      writeFinalizationRecord finRec
       lastFinalized .=! newFinBlock
       lastFinalizationRecord .=! finRec
     getFinalizedAtIndex finIndex = do
@@ -575,6 +575,8 @@ instance (MonadLogger (PersistentTreeStateMonad ati bs m),
       else do
         msb <- readFinalizedBlockAtHeight bHeight
         mapM constructBlock msb
+
+    wrapupFinalization = writeFinalizationComposite
 
     getBranches = use branches
     putBranches brs = branches .= brs
@@ -704,7 +706,8 @@ instance (MonadLogger (PersistentTreeStateMonad ati bs m),
             when (slot > results ^. tsSlot) $ transactionTable . ttHashMap . at' trHash . mapped . _2 %= updateSlot slot
             return $ TS.Duplicate bi'
 
-    finalizeTransactions bh slot txs = mapM finTrans txs >>= writeTransactionStatuses
+    type FinTrans (PersistentTreeStateMonad ati bs m) = [(TransactionHash, FinalizedTransactionStatus)]
+    finalizeTransactions bh slot txs = mapM finTrans txs
         where
             finTrans WithMetadata{wmdData=NormalTransaction tr,..} = do
                 let nonce = transactionNonce tr
