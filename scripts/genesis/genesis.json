@@ -21,13 +21,11 @@
       "electionDifficulty": 0.025,
       "euroPerEnergy": 0.000001,
       "microGTUPerEuro": 100000000,
-      "bakerCooldownEpochs": 1,
+      "poolOwnerCooldown": 1,
+      "delegatorCooldown": 1,
       "accountCreationLimit": 10,
-      "foundationAccount": "4NyqjcJwKAckGE3gMGDJeqcyLZQxtfnDFTdvg74xYUU8myQTrB",
-      "minimumThresholdForBaking": "300000000000",
       "rewardParameters": {
         "mintDistribution": {
-          "mintPerSlot": 0.0000000007555665,
           "bakingReward": 0.6,
           "finalizationReward": 0.3
         },
@@ -38,10 +36,31 @@
         "gASRewards": {
           "baker": 0.25,
           "finalizationProof": 0.005,
-          "accountCreation": 0.002,
+          "accountCreation": 0.02,
           "chainUpdate": 0.005
         }
-      }
+      },
+      "foundationAccount": "4NyqjcJwKAckGE3gMGDJeqcyLZQxtfnDFTdvg74xYUU8myQTrB",
+      "finalizationCommissionLPool" : 1,
+      "bakingCommissionLPool" : 0.1,
+      "transactionCommissionLPool" : 0.1,
+      "finalizationCommissionRange" : {
+          "min" : 0.5,
+          "max" : 1
+      },
+      "bakingCommissionRange" : {
+          "min" : 0.05,
+          "max" : 0.1
+      },
+      "transactionCommissionRange" : {
+          "min" : 0.05,
+          "max" : 0.2
+      },
+      "minimumEquityCapital" : "100",
+      "capitalBound" : 0.25,
+      "leverageBound" : 3,
+      "rewardPeriodLength" : 4,
+      "mintPerPayday": 0.0002611578781
     }
   }
 }
