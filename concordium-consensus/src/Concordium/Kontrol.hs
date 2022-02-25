@@ -8,8 +8,8 @@ import Data.Time
 import Data.Fixed
 
 import Concordium.Types
+import Concordium.Types.Queries (rsTotalAmount)
 import Concordium.GlobalState.BlockState
-import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Types
 import Concordium.GlobalState.Parameters
 import Concordium.Skov.Monad
@@ -45,5 +45,5 @@ getFinalizationCommittee :: (SkovQueryMonad m) => BlockPointerType m -> m Finali
 getFinalizationCommittee bp = do
        finParams <- getFinalizationParameters
        blockState <- queryBlockState bp
-       gtu <- _totalGTU <$> getRewardStatus blockState
+       gtu <- rsTotalAmount <$> getRewardStatus blockState
        makeFinalizationCommittee finParams gtu <$> getCurrentEpochBakers blockState

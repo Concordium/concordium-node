@@ -47,7 +47,7 @@ import qualified Concordium.ID.Types as ID
 import qualified Concordium.ID.Parameters as ID
 import Concordium.Crypto.EncryptedTransfers (isZeroEncryptedAmount)
 import Concordium.Types.Updates
-import Concordium.Types.Queries (PoolStatus(..),CurrentPaydayBakerPoolStatus(..), makePoolPendingChange)
+import Concordium.Types.Queries (PoolStatus(..),CurrentPaydayBakerPoolStatus(..), makePoolPendingChange, RewardStatus'(..))
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Persistent.Trie as Trie
@@ -1579,8 +1579,39 @@ doGetBakerPoolRewardDetails pbs idx = do
       Nothing -> error "Invariant violation: Persistent.bsoGetBakerPoolRewardDetails: invalid index"
       Just bprd -> return bprd
 
-doGetRewardStatus :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m Rewards.BankStatus
-doGetRewardStatus pbs = _unhashed . bspBank <$> loadPBS pbs
+doGetRewardStatus :: forall pv m. (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m (RewardStatus' Epoch)
+doGetRewardStatus pbs = do
+        bsp <- loadPBS pbs
+        let bankStatus = _unhashed $ bspBank bsp
+        let rewardsV0 :: RewardStatus' Epoch
+            rewardsV0 = RewardStatusV0 {
+                    rsTotalAmount = bankStatus ^. Rewards.totalGTU,
+                    rsTotalEncryptedAmount = bankStatus ^. Rewards.totalEncryptedGTU,
+                    rsBakingRewardAccount = bankStatus ^. Rewards.bakingRewardAccount,
+                    rsFinalizationRewardAccount = bankStatus ^. Rewards.finalizationRewardAccount,
+                    rsGasAccount = bankStatus ^. Rewards.gasAccount
+                }
+            rewardsV1 :: (AccountVersionFor pv ~ 'AccountV1) => m (RewardStatus' Epoch)
+            rewardsV1 = do
+                poolRewards <- refLoad (bspPoolRewards bsp)
+                tc <- totalCapital bsp
+                return RewardStatusV1 {
+                    rsTotalAmount = bankStatus ^. Rewards.totalGTU,
+                    rsTotalEncryptedAmount = bankStatus ^. Rewards.totalEncryptedGTU,
+                    rsBakingRewardAccount = bankStatus ^. Rewards.bakingRewardAccount,
+                    rsFinalizationRewardAccount = bankStatus ^. Rewards.finalizationRewardAccount,
+                    rsGasAccount = bankStatus ^. Rewards.gasAccount,
+                    rsFoundationTransactionRewards = foundationTransactionRewards poolRewards,
+                    rsNextPaydayTime = nextPaydayEpoch poolRewards,
+                    rsNextPaydayMintRate = nextPaydayMintRate poolRewards,
+                    rsTotalStakedCapital = tc,
+                    rsProtocolVersion = demoteProtocolVersion (protocolVersion @pv)
+                }
+        case protocolVersion @pv of
+            SP1 -> return rewardsV0
+            SP2 -> return rewardsV0
+            SP3 -> return rewardsV0
+            SP4 -> rewardsV1
 
 doRewardFoundationAccount :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> Amount -> m (PersistentBlockState pv)
 doRewardFoundationAccount pbs reward = do

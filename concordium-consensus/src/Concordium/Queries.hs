@@ -45,7 +45,6 @@ import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer
 import qualified Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.Finalization
-import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Statistics
 import qualified Concordium.GlobalState.TransactionTable as TT
 import Concordium.GlobalState.Types
@@ -392,14 +391,10 @@ getBlockSummary = liftSkovQueryBlock getBlockSummarySkovM
 getRewardStatus :: BlockHash -> MVR gsconf finconf (Maybe RewardStatus)
 getRewardStatus = liftSkovQueryBlock $ \bp -> do
     reward <- BS.getRewardStatus =<< blockState bp
-    return $
-        RewardStatus
-            { rsTotalAmount = reward ^. totalGTU,
-              rsTotalEncryptedAmount = reward ^. totalEncryptedGTU,
-              rsBakingRewardAccount = reward ^. bakingRewardAccount,
-              rsFinalizationRewardAccount = reward ^. finalizationRewardAccount,
-              rsGasAccount = reward ^. gasAccount
-            }
+    gd <- getGenesisData
+    let epochToUTC e = timestampToUTCTime $ 
+            addDuration (gdGenesisTime gd) (fromIntegral e * fromIntegral (gdEpochLength gd) * gdSlotDuration gd)
+    return $ epochToUTC <$> reward
 
 -- |Get the birk parameters that applied when a given block was baked.
 getBlockBirkParameters :: BlockHash -> MVR gsconf finconf (Maybe BlockBirkParameters)
