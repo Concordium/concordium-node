@@ -504,6 +504,7 @@ distributeRewards foundationAddr bs0 = do
   accruedFoundation <- bsoGetAccruedTransactionFeesFoundationAccount bs4
   bs5 <- bsoRewardFoundationAccount bs4 accruedFoundation
   bs6 <- bsoUpdateAccruedTransactionFeesFoundationAccount bs5 (const 0)
+  -- TODO: Reset baker block count and finalization awake (see PoolRewards.hs in Basic).
   bs7 <- bsoAddSpecialTransactionOutcome bs6 PaydayFoundationReward{
     stoFoundationAccount = foundationAddr,
     stoDevelopmentCharge = accruedFoundation
@@ -589,8 +590,8 @@ distributeRewards foundationAddr bs0 = do
         -> m (Amount, Amount, [Types.SpecialTransactionOutcome], UpdatableBlockState m)
       doRewardBakers bs gtuTotal bakers bakerBakingRewardFactor bakerFinalizationFactor bcs paydayBlockCount = do
         finParams <- gdFinalizationParameters <$> getGenesisData
-        let committee = makeFinalizationCommittee finParams gtuTotal bakers
-        (af, ab, outcomes, bsOut, _) <- foldM (rewardBaker committee) (0, 0, [], bs, 0) bcs
+        (totalFinCapital, _) <- foldM addFinalizationCapital (0, 0) bcs
+        (af, ab, outcomes, bsOut, _) <- foldM (rewardBaker totalFinCapital) (0, 0, [], bs, 0) bcs
         return (af, ab, outcomes, bsOut)
           where
             bakerStakesMap =
@@ -599,7 +600,17 @@ distributeRewards foundationAddr bs0 = do
                     Map.empty
                     (BI.fullBakerInfos bakers)
 
-            rewardBaker committee (accumFinalization, accumBaking, accumOutcomes, bsIn, idx) bc = do
+            addFinalizationCapital (a, idx) bc = do
+                bprd <- bsoGetBakerPoolRewardDetails bsIn idx
+                if finalizationAwake bprd
+                then case Map.lookup (bcBakerId bc) bakerStakesMap of
+                    Nothing ->
+                        error "Invariant violation: baker from capital distribution is not an epoch baker"
+                    Just s ->
+                        return (a + s, idx + 1)
+                else return (a, idx + 1)
+
+            rewardBaker totalFinCapital (accumFinalization, accumBaking, accumOutcomes, bsIn, idx) bc = do
                 bprd <- bsoGetBakerPoolRewardDetails bsIn idx
                 let accruedReward = transactionFeesAccrued bprd
                     bakerBlockCount = blockCount bprd
@@ -611,7 +622,7 @@ distributeRewards foundationAddr bs0 = do
                         error "Invariant violation: baker from capital distribution is not an epoch baker"
                       Just s ->
                         if finalized
-                        then s % fromIntegral (totalWeight committee)
+                        then s % totalFinCapital
                         else 0
                     bakerFinalizationReward = floor $ fromIntegral bakerFinalizationFactor * relativeStake
                     totalCapital = foldl (\a dc -> a + dcDelegatorCapital dc) (bcBakerEquityCapital bc) (bcDelegatorCapital bc)
@@ -805,7 +816,7 @@ mintAndReward bshandle blockParent slotNumber bid newEpoch isNewEpoch mfinInfo t
           bshandleMint <- doMintingP4 blockParent nextPayday nextMintRate foundationAccount updates bshandle
           bshandleRewards <- distributeRewards foundationAccount bshandleMint
           prepareForFollowingPayday newEpoch nextPayday blockParent foundationAccount updates bshandleRewards
-      doBlockRewardP4 transFees freeCounts bid bshandleFinRew
+      doBlockRewardP4 transFees freeCounts bid =<< bsoNotifyBlockBaked bid bshandleFinRew
 
 -- |Update the bakers and seed state of the block state.
 -- The epoch for the new seed state must be at least the epoch of

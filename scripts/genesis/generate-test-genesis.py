@@ -5,8 +5,6 @@ import os
 import subprocess
 import shutil
 
-os.system("env")
-
 # The docker runner is designed to work with the image built by the
 # ../../concordium-base/scripts/genesis-tools.Dockerfile script.
 class DockerRunner:
