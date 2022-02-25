@@ -17,6 +17,7 @@ import Concordium.Scheduler.Runner
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Concordium.Scheduler as Sch
+import Concordium.TransactionVerification
 
 import Concordium.Scheduler.DummyData
 import Concordium.GlobalState.DummyData
@@ -60,18 +61,18 @@ transactions = [-- valid transaction: energy not over max limit
                       }
                ]
 
-type TestResult = ([(Types.BlockItem, Types.TransactionSummary)],
-                   [(Types.Transaction, Types.FailureKind)],
-                   [(Types.CredentialDeploymentWithMeta, Types.FailureKind)],
-                   [Types.Transaction],
-                   [Types.Transaction])
+type TestResult = ([(BlockItemWithStatus, Types.TransactionSummary)],
+                   [(TransactionWithStatus, Types.FailureKind)],
+                   [(CredentialDeploymentWithStatus, Types.FailureKind)],
+                   [TransactionWithStatus],
+                   [TransactionWithStatus])
 
 testMaxBlockEnergy :: IO TestResult
 testMaxBlockEnergy = do
     ts' <- processUngroupedTransactions transactions
     -- invalid transaction: its used and stated energy of 10000 exceeds the maximum
     -- block energy limit
-    let ts = Types.TGCredentialDeployment (Types.addMetadata Types.CredentialDeployment 0 cdi1) : ts' -- dummy arrival time of 0
+    let ts = Types.TGCredentialDeployment (Types.addMetadata Types.CredentialDeployment 0 cdi1, Nothing) : ts' -- dummy arrival time of 0
 
     let (Sch.FilteredTransactions{..}, finState) =
           Types.runSI (Sch.filterTransactions dummyBlockSize dummyBlockTimeout ts)
@@ -91,14 +92,14 @@ checkResult (valid, invalid, invalidCred, unproc, [t1, t3, t4]) =
     where
         validCheck = case valid of
             [(t, Types.TransactionSummary{tsResult = Types.TxSuccess{vrEvents = [Types.Transferred{}]}, tsEnergyCost = energyCost})] -> do
-                 assertEqual "The first transaction should be valid:" (Types.normalTransaction t1) t
+                 assertEqual "The first transaction should be valid:" (Types.normalTransaction $ fst t1) $ fst t
                  assertEqual "Correct energy cost: " simpleTransferCost energyCost
             _ -> assertFailure "There should be one valid transaction with a TxSuccess result."
         invalidCheck = do
             let (invalidTs, failures) = unzip invalid
             let (invalidCreds, credFailures) = unzip invalidCred
             assertEqual "The second transaction is invalid because it would exceed max block energy:" [t3] invalidTs
-            assertEqual "The credential deployment is invalid." [Types.addMetadata Types.CredentialDeployment 0 cdi1] invalidCreds
+            assertEqual "The credential deployment is invalid." [Types.addMetadata Types.CredentialDeployment 0 cdi1] $ map fst invalidCreds
             assertEqual "There is one normal transaction whose energy exceeds the block energy limit, and one with non-sequential nonce:"
                 [Types.ExceedsMaxBlockEnergy] failures
             assertEqual "There is one credential deployment whose energy exceeds the block energy limit:"

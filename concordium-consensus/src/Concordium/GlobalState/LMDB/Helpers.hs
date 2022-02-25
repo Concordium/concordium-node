@@ -23,6 +23,7 @@ module Concordium.GlobalState.LMDB.Helpers (
   isRecordPresent,
   storeRecord,
   storeReplaceRecord,
+  storeReplaceBytes,
   loadRecord,
   databaseSize,
 
@@ -42,7 +43,7 @@ module Concordium.GlobalState.LMDB.Helpers (
                                            )
 where
 
-import Control.Concurrent (runInBoundThread)
+import Control.Concurrent (runInBoundThread, yield)
 import Control.Concurrent.MVar
 import Control.Exception
 import Control.Monad
@@ -164,6 +165,13 @@ acquireRead RWLock{..} = mask_ go
             -- Due to fairness of MVars next time another thread will make progress
             -- so we are going to end up after a finite number of iterations, in a WriteLocked state.
             putMVar rwlState st
+            -- Since this branch seems to be compiled into a loop without
+            -- allocations by GHC with -O2 we need to explicitly yield to allow others
+            -- to make progress. Otherwise with sufficient contention this loop ends up
+            -- starving other threads since they are never scheduled. This then also means
+            -- the loop never terminates since no other thread transitions from the Free
+            -- to WriteLocked state.
+            yield
             go
       st@(ReadLocked n waitingWriters)
           | waitingWriters == 0 ->
@@ -487,8 +495,25 @@ storeReplaceRecord :: forall db. (MDBDatabase db)
   -> DBValue db
   -- ^Value
    -> IO ()
-storeReplaceRecord txn dbi key val = withMDB_val (encodeKey prox key) $ \keyv -> do
+storeReplaceRecord txn dbi key val = do
     let encVal = encodeValue prox val
+    storeReplaceBytes txn dbi key encVal
+  where
+    prox :: Proxy db
+    prox = Proxy
+
+-- |Store a serialized record. Replace any existing record at the same key.
+storeReplaceBytes :: forall db. (MDBDatabase db)
+  => MDB_txn
+  -- ^Transaction
+  -> db
+  -- ^Table
+  -> DBKey db
+  -- ^Key
+  -> LBS.ByteString
+  -- ^Value
+   -> IO ()
+storeReplaceBytes txn dbi key encVal = withMDB_val (encodeKey prox key) $ \keyv -> do
     valv <- mdb_reserve' writeFlags txn (mdbDatabase dbi) keyv (fromIntegral $ LBS.length encVal)
     writeMDB_val encVal valv
   where

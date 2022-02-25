@@ -16,7 +16,6 @@ module Concordium.Scheduler.TreeStateEnvironment where
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HashSet
 import qualified Data.Map as Map
-import qualified Data.Set as Set
 import qualified Data.Kind as DK
 import qualified Data.PQueue.Prio.Min as MinPQ
 import qualified Data.Vector as Vec
@@ -53,6 +52,7 @@ import Concordium.Scheduler.EnvironmentImplementation
      HasSchedulerState(..),
      schedulerBlockState, schedulerEnergyUsed
      )
+import qualified Concordium.TransactionVerification as TVer
 import Concordium.Afgjort.Finalize.Types
 
 import Control.Monad.RWS.Strict
@@ -105,7 +105,6 @@ instance TreeStateMonad m => HasSchedulerState (LogSchedulerState m) where
   nextIndex = lssNextIndex
   schedulerTransactionLog = lssSchedulerTransactionLog
 
-
 mkInitialSS :: CanExtend (ATIStorage m) => UpdatableBlockState m -> LogSchedulerState m
 mkInitialSS _lssBlockState =
   LogSchedulerState{_lssSchedulerEnergyUsed = 0,
@@ -131,6 +130,15 @@ deriving via (BSOMonadWrapper ContextState w state (MGSTrans (RWST ContextState 
               TreeStateMonad m,
               MonadLogger m,
               BlockStateOperations m) => SchedulerMonad (BlockStateMonad w state m)
+
+deriving via (BSOMonadWrapper ContextState w state (MGSTrans (RWST ContextState w state) m))
+    instance (
+              SS state ~ UpdatableBlockState m,
+              Footprint (ATIStorage m) ~ w,
+              HasSchedulerState state,
+              TreeStateMonad m,
+              MonadLogger m,
+              BlockStateOperations m) => TVer.TransactionVerifier (BlockStateMonad w state m)
 
 runBSM :: Monad m => BlockStateMonad w b m a -> ContextState -> b -> m (a, b)
 runBSM m cm s = do
@@ -332,7 +340,7 @@ doFinalizationRewards finInfo bs0
               (mbaddr, bs') <- bsoRewardAccount bs aid amt
               case mbaddr of
                 Nothing -> error $ "doFinalizationRewards: Finalizer BakerId (" ++ show bkr ++ ") is not valid."
-                Just baddr -> return (t + amt, Map.insert baddr amt m, bs') 
+                Just baddr -> return (t + amt, Map.insert baddr amt m, bs')
         (totalAward, awardMap, bs1) <- foldM awardFinalizer (0, Map.empty, bs0) finInfo
         let remainder = finRew - totalAward
         bs2 <- bsoSetRewardAccounts bs1 (rewards & finalizationRewardAccount .~ remainder)
@@ -878,7 +886,7 @@ executeFrom :: forall m.
   -> BakerId -- ^Identity of the baker who should be rewarded.
   -> Maybe FinalizerInfo -- ^Parties to the finalization record in this block, if any
   -> SeedState -- ^New seed state
-  -> [BlockItem] -- ^Transactions on this block.
+  -> [TVer.BlockItemWithStatus] -- ^Transactions on this block with their associated verification result.
   -> m (Either (Maybe FailureKind) (ExecutionResult m))
 executeFrom blockHash slotNumber slotTime blockParent blockBaker mfinInfo newSeedState txs =
   let cm = ChainMetadata{..}
@@ -886,14 +894,13 @@ executeFrom blockHash slotNumber slotTime blockParent blockBaker mfinInfo newSee
     origBS <- blockState blockParent
     bshandle0 <- thawBlockState origBS
     chainParams <- bsoGetChainParameters bshandle0
-    let counts = countFreeTransactions txs (isJust mfinInfo)
+    let counts = countFreeTransactions (map fst txs) (isJust mfinInfo)
     if (countAccountCreation counts > chainParams ^. cpAccountCreationLimit)
       then
           return $ Left (Just ExceedsMaxCredentialDeployments)
       else do
         -- process the update queues
         (updates, bshandle0a) <- bsoProcessUpdateQueues bshandle0 slotTime
-        sd <- gdSlotDuration <$> getGenesisData
         ab <- getActiveBakers origBS
         let isPoolParameterUpdate = \case
               UVPoolParameters _ -> True
@@ -903,7 +910,7 @@ executeFrom blockHash slotNumber slotTime blockParent blockBaker mfinInfo newSee
         -- for each pool parameter update, go over all bakers and put their commissions inside
         -- the new commission ranges.
         bshandle0a' <- foldM (\bs uv -> case uv of
-          UVPoolParameters PoolParametersV1{..} -> foldM (putBakerCommissionsInRange _ppCommissionBounds sd origBS) bs ab
+          UVPoolParameters PoolParametersV1{..} -> foldM (putBakerCommissionsInRange _ppCommissionBounds origBS) bs ab
           _ -> return bs) bshandle0a poolParameterUpdates
         -- unlock the amounts that have expired
         bshandle0b <- bsoProcessReleaseSchedule bshandle0a' slotTime
@@ -913,8 +920,7 @@ executeFrom blockHash slotNumber slotTime blockParent blockBaker mfinInfo newSee
         let context = ContextState{
               _chainMetadata = cm,
               _maxBlockEnergy = maxBlockEnergy,
-              _accountCreationLimit = chainParams ^. cpAccountCreationLimit,
-              _slotDuration = sd
+              _accountCreationLimit = chainParams ^. cpAccountCreationLimit
               }
         (res, finState) <- runBSM (Sch.runTransactions txs) context (mkInitialSS bshandle1 :: LogSchedulerState m)
         let usedEnergy = finState ^. schedulerEnergyUsed
@@ -922,11 +928,10 @@ executeFrom blockHash slotNumber slotTime blockParent blockBaker mfinInfo newSee
         case res of
             Left fk -> Left fk <$ dropUpdatableBlockState bshandle2
             Right outcomes -> do
-
                 -- Record the transaction outcomes
                 bshandle3 <- bsoSetTransactionOutcomes bshandle2 (map snd outcomes)
                 -- Record transaction outcomes in the transaction table as well.
-                zipWithM_ (commitTransaction slotNumber blockHash) txs [0..]
+                zipWithM_ (commitTransaction slotNumber blockHash . fst) txs [0..]
                 -- the main execution is now done. At this point we must mint new currency
                 -- and reward the baker and other parties.
                 genData <- getGenesisData
@@ -938,8 +943,8 @@ executeFrom blockHash slotNumber slotTime blockParent blockBaker mfinInfo newSee
                                               _finalState = finalbsHandle,
                                               _transactionLog = finState ^. schedulerTransactionLog}))
   where
-    putBakerCommissionsInRange :: ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1 => CommissionRanges -> Duration -> BlockState m -> UpdatableBlockState m -> BakerId -> m (UpdatableBlockState m)
-    putBakerCommissionsInRange ranges sd origBS bs bid@(BakerId ai) = getBakerAccount origBS bid >>= \case
+    putBakerCommissionsInRange :: ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1 => CommissionRanges -> BlockState m -> UpdatableBlockState m -> BakerId -> m (UpdatableBlockState m)
+    putBakerCommissionsInRange ranges origBS bs bid@(BakerId ai) = getBakerAccount origBS bid >>= \case
       Nothing -> error "Invariant violation: Active baker is not a baker."
       Just acc -> getAccountBaker acc >>= \case
         Nothing -> error "Invariant violation: Active baker is not a baker."
@@ -954,7 +959,6 @@ executeFrom blockHash slotNumber slotTime blockParent blockBaker mfinInfo newSee
             let ctc = Types.closestInRange fc (ranges ^. transactionCommissionRange)
             (result, newBS) <- bsoConfigureBaker bs ai BI.BakerConfigureUpdate{
               bcuSlotTimestamp = slotTime,
-              bcuSlotDuration = sd,
               bcuKeys = Nothing,
               bcuCapital = Nothing,
               bcuRestakeEarnings = Nothing,
@@ -1007,21 +1011,21 @@ constructBlock slotNumber slotTime blockParent blockBaker mfinInfo newSeedState 
 
     -- getCredential shouldn't return Nothing based on the transaction table invariants
     credentials <- mapM getCredential (HashSet.toList (pt ^. pttDeployCredential))
-    let grouped0 = MinPQ.fromList [(wmdArrivalTime c, TGCredentialDeployment c) | Just c <- credentials]
+    let grouped0 = MinPQ.fromList [(wmdArrivalTime c, TGCredentialDeployment (c, Just verRes)) | Just (c, verRes) <- credentials]
     let groupAcctTxs groups (acc, (l, _)) = getAccountNonFinalized acc l <&> \case
           accTxs@((_, firstNonceTxs) : _) ->
-            let txsList = concatMap (Set.toList . snd) accTxs
-                minTime = minimum $ wmdArrivalTime <$> Set.toList firstNonceTxs
-            in MinPQ.insert minTime (TGAccountTransactions txsList) groups
+            let txsList = concatMap (Map.toList . snd) accTxs
+                minTime = minimum $ wmdArrivalTime <$> Map.keys firstNonceTxs
+            in MinPQ.insert minTime (TGAccountTransactions $ map (_2 %~ Just) txsList) groups
           -- This should not happen since the pending transaction table should
           -- only have entries where there are actually transactions.
           [] -> groups
     grouped1 <- foldM groupAcctTxs grouped0 (HM.toList (pt ^. pttWithSender))
     let groupUpdates groups (uty, (l, _)) = getNonFinalizedChainUpdates uty l <&> \case
           uds@((_, firstSNUs) : _) ->
-            let udsList = concatMap (Set.toList . snd) uds
-                minTime = minimum $ wmdArrivalTime <$> Set.toList firstSNUs
-            in MinPQ.insert minTime (TGUpdateInstructions udsList) groups
+            let udsList = concatMap (Map.toList . snd) uds
+                minTime = minimum $ wmdArrivalTime <$> Map.keys firstSNUs
+            in MinPQ.insert minTime (TGUpdateInstructions $ map (_2 %~ Just) udsList) groups
           [] -> groups
     transactionGroups <- MinPQ.elems <$> foldM groupUpdates grouped1 (Map.toList (pt ^. pttUpdates))
 
@@ -1034,18 +1038,18 @@ constructBlock slotNumber slotTime blockParent blockBaker mfinInfo newSeedState 
     let context = ContextState{
           _chainMetadata = cm,
           _maxBlockEnergy = maxBlockEnergy,
-          _accountCreationLimit = chainParams ^. cpAccountCreationLimit,
-          _slotDuration = gdSlotDuration genData
+          _accountCreationLimit = chainParams ^. cpAccountCreationLimit
           }
     (ft@Sch.FilteredTransactions{..}, finState) <-
         runBSM (Sch.filterTransactions (fromIntegral maxSize) timeout transactionGroups) context (mkInitialSS bshandle1 :: LogSchedulerState m)
+
     -- FIXME: At some point we should log things here using the same logging infrastructure as in consensus.
 
     let usedEnergy = finState ^. schedulerEnergyUsed
     let bshandle2 = finState ^. schedulerBlockState
 
     bshandle3 <- bsoSetTransactionOutcomes bshandle2 (map snd ftAdded)
-    let counts = countFreeTransactions (map fst ftAdded) (isJust mfinInfo)
+    let counts = countFreeTransactions (map (fst . fst) ftAdded) (isJust mfinInfo)
     let updates' = (_1 %~ transactionTimeToSlot (gdGenesisTime genData) (gdSlotDuration genData))
                     <$> Map.toAscList updates
     bshandle4 <- mintAndReward bshandle3 blockParent slotNumber blockBaker (epoch newSeedState) isNewEpoch mfinInfo (finState ^. schedulerExecutionCosts) counts updates'

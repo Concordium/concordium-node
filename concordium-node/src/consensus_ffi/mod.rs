@@ -17,14 +17,7 @@ macro_rules! wrap_send_data_to_c {
         let consensus = $self.consensus.load(Ordering::SeqCst);
         let len = $data.len();
 
-        let result = unsafe {
-            $c_call(
-                consensus,
-                $genesis_index,
-                CString::from_vec_unchecked($data.to_vec()).as_ptr() as *const u8,
-                len as i64,
-            )
-        };
+        let result = unsafe { $c_call(consensus, $genesis_index, $data.as_ptr(), len as i64) };
 
         ConsensusFfiResponse::try_from(result)
             .unwrap_or_else(|code| panic!("Unknown FFI return code: {}", code))
@@ -67,16 +60,6 @@ macro_rules! wrap_c_bool_call {
             1u8 => true,
             code => panic!("FFI call didn't return 0 or 1 but {}", code),
         }
-    }};
-}
-
-macro_rules! wrap_c_committee_call {
-    ($self:ident, $c_call:expr) => {{
-        let consensus = $self.consensus.load(Ordering::SeqCst);
-        let result = unsafe { $c_call(consensus) };
-        ConsensusIsInBakingCommitteeResponse::try_from(result).unwrap_or_else(|code| {
-            panic!("Unknown Consensus Baking Committee FFI return code: {}", code)
-        })
     }};
 }
 

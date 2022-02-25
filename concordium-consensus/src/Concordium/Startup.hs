@@ -164,4 +164,4 @@ makeGenesisData
             SP4 -> GDP4 P4.GDP4Initial{
               genesisCore=GenesisData.CoreGenesisParameters{..},
               genesisInitialState=GenesisData.GenesisState{genesisAccounts = Vec.fromList genesisAccounts, ..}
-            }
+              }

@@ -5,18 +5,15 @@ module Concordium.GlobalState.TransactionTable where
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import qualified Data.Map.Strict as Map
-import qualified Data.Set as Set
 import Lens.Micro.Platform
-import qualified Data.Serialize as S
-import Control.Monad
 import Control.Exception
 import Data.Foldable
-
 import Concordium.Utils
 import Concordium.Types
 import Concordium.Types.Execution
 import Concordium.Types.Transactions
 import Concordium.Types.Updates
+import qualified Concordium.TransactionVerification as TVer
 
 -- * Transaction status
 
@@ -25,7 +22,12 @@ data TransactionStatus =
   -- |Transaction is received, but no outcomes from any blocks are known
   -- although the transaction might be known to be in some blocks. The Slot is the
   -- largest slot of a block the transaction is in.
-  Received { _tsSlot :: !Slot }
+  -- A transaction verification result is attached to the transaction which is used by
+  -- the 'Scheduler' to verify the transaction and possibly short-circuit some of the verification required
+  -- before executing the transaction. 
+  Received { _tsSlot :: !Slot,
+             _tsVerRes :: !TVer.VerificationResult
+           }
   -- |Transaction is committed in a number of blocks. '_tsSlot' is the maximal slot.
   -- 'tsResults' is always a non-empty map and global state must maintain the invariant
   -- that if a block hash @bh@ is in the 'tsResults' map then
@@ -34,8 +36,12 @@ data TransactionStatus =
   -- * we have blockState for the block available
   -- * if @tsResults(bh) = i@ then the transaction is the relevant transaction is the i-th transaction in the block
   --   (where we start counting from 0)
-  | Committed {_tsSlot :: !Slot,
-               tsResults :: !(HM.HashMap BlockHash TransactionIndex)
+  -- A transaction verification result is attached to the transaction which is used by
+  -- the 'Scheduler' to verify the transaction and possibly short-circuit some of the verification required
+  -- before executing the transaction. 
+  | Committed { _tsSlot :: !Slot,
+                _tsVerRes :: !TVer.VerificationResult,
+                tsResults :: !(HM.HashMap BlockHash TransactionIndex)
               }
   -- |Transaction is finalized in a given block with a specific outcome.
   -- NB: With the current implementation a transaction can appear in at most one finalized block.
@@ -48,48 +54,21 @@ data TransactionStatus =
   deriving(Eq, Show)
 makeLenses ''TransactionStatus
 
-instance S.Serialize TransactionStatus where
-  put Received{..} = do
-    S.putWord8 0
-    S.put _tsSlot
-  put Committed{..} = do
-    S.putWord8 1
-    S.put _tsSlot
-    S.putWord32be $ fromIntegral (HM.size tsResults)
-    forM_ (HM.toList tsResults) $ \(h, i) -> S.put h <> S.put i
-  put Finalized{..} = do
-    S.putWord8 2
-    S.put _tsSlot
-    S.put tsBlockHash
-    S.put tsFinResult
-
-  get = do
-    tag <- S.getWord8
-    case tag of
-      0 -> do
-        _tsSlot <- S.get
-        return Received{..}
-      1 -> do
-        _tsSlot <- S.get
-        len <- S.getWord32be
-        tsResults <- HM.fromList <$> replicateM (fromIntegral len) (do
-                                           k <- S.get
-                                           v <- S.get
-                                           return (k, v))
-        return $ Committed{..}
-      2 -> do
-        _tsSlot <- S.get
-        tsBlockHash <- S.get
-        tsFinResult <- S.get
-        return $ Finalized{..}
-      _ -> fail $ "Unknown transaction status variant: " ++ show tag
 
 -- |Add a transaction result. This function assumes the transaction is not finalized yet.
 -- If the transaction is already finalized the function will return the original status.
 addResult :: BlockHash -> Slot -> TransactionIndex -> TransactionStatus -> TransactionStatus
 addResult bh slot vr = \case
-  Committed{_tsSlot=currentSlot, tsResults=currentResults} -> Committed{_tsSlot = max slot currentSlot, tsResults = HM.insert bh vr currentResults}
-  Received{_tsSlot=currentSlot} -> Committed{_tsSlot = max slot currentSlot, tsResults = HM.singleton bh vr}
+  Committed{_tsSlot=currentSlot, tsResults=currentResults, ..} -> Committed {
+    _tsSlot = max slot currentSlot,
+    tsResults = HM.insert bh vr currentResults,
+    _tsVerRes = _tsVerRes
+    }
+  Received{_tsSlot=currentSlot, ..} -> Committed {
+    _tsSlot = max slot currentSlot,
+    tsResults = HM.singleton bh vr,
+    _tsVerRes = _tsVerRes
+    }
   s@Finalized{} -> s
 
 -- |Remove a transaction result for a given block. This can happen when a block
@@ -107,9 +86,6 @@ updateSlot :: Slot -> TransactionStatus -> TransactionStatus
 updateSlot _ ts@Finalized{} = ts
 updateSlot s ts = ts { _tsSlot = s}
 
-initialStatus :: Slot -> TransactionStatus
-initialStatus = Received
-
 {-# INLINE getTransactionIndex #-}
 -- |Get the outcome of the transaction in a particular block, and whether it is finalized.
 getTransactionIndex :: BlockHash -> TransactionStatus -> Maybe (Bool, TransactionIndex)
@@ -122,8 +98,8 @@ getTransactionIndex bh = \case
 
 -- |The non-finalized transactions for a particular account.
 data AccountNonFinalizedTransactions = AccountNonFinalizedTransactions {
-    -- |Non-finalized transactions (for an account) indexed by nonce.
-    _anftMap :: Map.Map Nonce (Set.Set Transaction),
+    -- |Non-finalized transactions (for an account) and their verification results indexed by nonce.
+    _anftMap :: Map.Map Nonce (Map.Map Transaction TVer.VerificationResult),
     -- |The next available nonce at the last finalized block.
     -- 'anftMap' should only contain nonces that are at least 'anftNextNonce'.
     _anftNextNonce :: Nonce
@@ -142,7 +118,7 @@ emptyANFTWithNonce = AccountNonFinalizedTransactions Map.empty
 
 -- |The non-finalized chain updates of a particular type.
 data NonFinalizedChainUpdates = NonFinalizedChainUpdates {
-    _nfcuMap :: Map.Map UpdateSequenceNumber (Set.Set (WithMetadata UpdateInstruction)),
+    _nfcuMap :: Map.Map UpdateSequenceNumber (Map.Map (WithMetadata UpdateInstruction) TVer.VerificationResult),
     _nfcuNextSequenceNumber :: UpdateSequenceNumber
 } deriving (Eq)
 makeLenses ''NonFinalizedChainUpdates
@@ -208,6 +184,17 @@ data TransactionTable = TransactionTable {
     _ttNonFinalizedChainUpdates :: !(Map.Map UpdateType NonFinalizedChainUpdates)
 }
 makeLenses ''TransactionTable
+
+-- |Get the verification result for a non finalized transaction given by its hash.
+getNonFinalizedVerificationResult :: WithMetadata a -> TransactionTable -> Maybe TVer.VerificationResult
+getNonFinalizedVerificationResult bi table =
+  case snd <$> table ^. ttHashMap . at' (wmdHash bi) of
+    Just status ->
+      case status of
+        Received _ verRes -> Just verRes
+        Committed _ verRes _ -> Just verRes
+        Finalized {} -> Nothing
+    Nothing -> Nothing
 
 emptyTransactionTable :: TransactionTable
 emptyTransactionTable = TransactionTable {

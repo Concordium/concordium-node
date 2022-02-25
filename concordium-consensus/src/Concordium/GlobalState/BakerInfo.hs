@@ -128,7 +128,7 @@ data BakerAddResult
 
 -- |Data structure used to add/remove/update baker.
 data BakerConfigure =
-    -- |Add a baker, all fields are requied.
+    -- |Add a baker, all fields are required.
     BakerConfigureAdd {
         bcaKeys :: !BakerKeyUpdate,
         bcaCapital :: !Amount,
@@ -142,16 +142,12 @@ data BakerConfigure =
     -- |Remove a baker.
   | BakerConfigureRemove {
         -- |The timestamp of the current slot (slot time).
-        bcrSlotTimestamp :: !Timestamp,
-        -- |The duration of a slot (slot duration).
-        bcrSlotDuration :: !Duration
+        bcrSlotTimestamp :: !Timestamp
   }
     -- |Update baker with optional fields.
   | BakerConfigureUpdate {
         -- |The timestamp of the current slot (slot time).
         bcuSlotTimestamp :: !Timestamp,
-        -- |The duration of a slot (slot duration).
-        bcuSlotDuration :: !Duration,
         bcuKeys :: !(Maybe BakerKeyUpdate),
         bcuCapital :: !(Maybe Amount),
         bcuRestakeEarnings :: !(Maybe Bool),
@@ -206,7 +202,7 @@ data BakerRemoveResult
 
 -- |Data structure used to add/remove/update delegator.
 data DelegationConfigure =
-    -- |Add a delegatror, all fields are requied.
+    -- |Add a delegator, all fields are required.
     DelegationConfigureAdd {
       dcaCapital :: !Amount,
       dcaRestakeEarnings :: !Bool,
@@ -216,8 +212,6 @@ data DelegationConfigure =
   | DelegationConfigureUpdate {
       -- |The timestamp of the current slot (slot time).
       dcuSlotTimestamp :: !Timestamp,
-      -- |The duration of a slot (slot duration).
-      dcuSlotDuration :: !Duration,
       dcuCapital :: !(Maybe Amount),
       dcuRestakeEarnings :: !(Maybe Bool),
       dcuDelegationTarget :: !(Maybe DelegationTarget)
@@ -225,9 +219,7 @@ data DelegationConfigure =
     -- |Remove a delegator.
   | DelegationConfigureRemove {
       -- |The timestamp of the current slot (slot time).
-      dcrSlotTimestamp :: !Timestamp,
-      -- |The duration of a slot (slot duration).
-      dcrSlotDuration :: !Duration
+      dcrSlotTimestamp :: !Timestamp
   }
   deriving (Eq, Show)
 

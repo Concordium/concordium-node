@@ -1,0 +1,175 @@
+{-| This module provides a way to invoke contract entrypoints directly, without
+going through a transaction and the scheduler.
+
+The main function is 'invokeContract' which executes the required contract
+entrypoint in the desired context. Currently it is only possible to execute a
+contract in the state at the end of a given block, this might be relaxed in the
+future.
+
+The main use-case of this functionality are "view-functions", which is a way to
+inspect the state of a contract off-chain to enable integrations of off-chain
+services with smart contracts. 'invokeContract' is exposed via the
+InvokeContract API entrypoint.
+
+In the future this should be expanded to allow "dry-run" execution of every
+transaction, and to allow execution in a more precise state context. 
+-}
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE UndecidableInstances #-}
+module Concordium.Scheduler.InvokeContract (invokeContract) where
+
+import Lens.Micro.Platform
+import Control.Monad.Reader
+
+import qualified Data.FixedByteString as FBS
+import qualified Concordium.ID.Types as ID
+import Concordium.Logger
+import Concordium.GlobalState.Types
+import qualified Concordium.GlobalState.Instance as Instance
+import qualified Concordium.GlobalState.BlockState as BS
+import Concordium.GlobalState.TreeState (MGSTrans(..))
+import Concordium.Types.InvokeContract (ContractContext(..), InvokeContractResult(..))
+
+import Concordium.Scheduler.Environment
+import Concordium.Scheduler.Types
+import Concordium.Scheduler.EnvironmentImplementation (ContextState(..), maxBlockEnergy, chainMetadata, accountCreationLimit)
+import qualified Concordium.Scheduler.WasmIntegration.V1 as WasmV1
+import Concordium.Scheduler
+
+-- |A wrapper that provides enough instances so that transactions can be executed. In particular
+-- this is aimed towards execution of `handleContractUpdate`.
+-- This type is equipped with (in particular)
+-- 
+-- - BlockStateTypes
+-- - AccountOperations
+-- - StaticInformation
+-- 
+-- It is then used together with the LocalT transformer to be able to execute
+-- transactions without the context of the scheduler. This is achieved via (the
+-- only) instance of TransactionMonad for the LocalT transformer.
+newtype InvokeContractMonad (pv :: ProtocolVersion) m a = InvokeContractMonad {_runInvokeContract :: ReaderT (ContextState, BlockState m) m a}
+    deriving (Functor,
+              Applicative,
+              Monad,
+              MonadLogger)
+
+deriving instance (Monad m, r ~ BlockState m) => MonadReader (ContextState, r) (InvokeContractMonad pv m)
+
+instance MonadTrans (InvokeContractMonad pv) where
+    {-# INLINE lift #-}
+    lift = InvokeContractMonad . lift
+
+deriving via (MGSTrans (InvokeContractMonad pv) m) instance MonadProtocolVersion m => MonadProtocolVersion (InvokeContractMonad pv m)
+deriving via (MGSTrans (InvokeContractMonad pv) m) instance BlockStateTypes (InvokeContractMonad pv m)
+deriving via (MGSTrans (InvokeContractMonad pv) m) instance BS.AccountOperations m => BS.AccountOperations (InvokeContractMonad pv m)
+
+instance (Monad m, BS.BlockStateQuery m) => StaticInformation (InvokeContractMonad pv m) where
+
+  {-# INLINE getMaxBlockEnergy #-}
+  getMaxBlockEnergy = view (_1 . maxBlockEnergy)
+
+  {-# INLINE getChainMetadata #-}
+  getChainMetadata = view (_1 . chainMetadata)
+
+  {-# INLINE getModuleInterfaces #-}
+  getModuleInterfaces mref = do
+    s <- view _2
+    lift (BS.getModuleInterface s mref)
+
+  {-# INLINE getAccountCreationLimit #-}
+  getAccountCreationLimit = view (_1 . accountCreationLimit)
+
+  {-# INLINE getContractInstance #-}
+  getContractInstance addr = lift . flip BS.getContractInstance addr =<< view _2
+
+  {-# INLINE getStateAccount #-}
+  getStateAccount !addr = lift . flip BS.getAccount addr =<< view _2
+
+-- |Invoke the contract in the given context.
+invokeContract :: forall m . (MonadProtocolVersion m, BS.BlockStateQuery m)
+    => ContractContext -- ^Context in which to invoke the contract.
+    -> ChainMetadata -- ^Chain metadata corresponding to the block state.
+    -> BlockState m -- ^The block state in which to invoke the contract.
+    -> m InvokeContractResult
+invokeContract ContractContext{..} cm bs = do
+  -- construct an invoker. Since execution of a contract might depend on this
+  -- it is necessary to provide some value. However since many contract entrypoints will
+  -- not depend on this it is useful to default to a dummy value if the value is not provided.
+  let getInvoker :: InvokeContractMonad pv m
+                   (Either
+                     (Maybe RejectReason) -- Invocation failed because the relevant contract/account does not exist.
+                     ( -- Check that the requested account or contract has enough balance.
+                       Amount -> LocalT r (InvokeContractMonad pv m) (Address, [ID.AccountCredential], Either ContractAddress IndexedAccountAddress),
+                       AccountAddress, -- Address of the invoker account, or of its owner if the invoker is a contract.
+                       AccountIndex -- And its index.
+                     ))
+      getInvoker =
+        case ccInvoker of
+          Nothing -> -- if the invoker is not supplied create a dummy one with no credentials
+            let zeroAddress = AccountAddress . FBS.pack . replicate 32 $ 0
+                maxIndex = maxBound
+            in return (Right (const (return (AddressAccount zeroAddress, [], Right (maxIndex, zeroAddress))), zeroAddress, maxIndex))
+          -- if the invoker is an address make sure it exists
+          Just (AddressAccount accInvoker) -> getStateAccount accInvoker >>= \case
+            Nothing -> return (Left (Just (InvalidAccountReference accInvoker)))
+            Just acc -> return (Right (checkAndGetBalanceAccountV0 accInvoker acc, accInvoker, fst acc))
+          Just (AddressContract contractInvoker) -> getContractInstance contractInvoker >>= \case
+            Nothing -> return (Left (Just (InvalidContractAddress contractInvoker)))
+            Just (Instance.InstanceV0 i@Instance.InstanceV{..}) -> do
+              let ownerAccountAddress = instanceOwner _instanceVParameters
+              getStateAccount ownerAccountAddress >>= \case
+                -- the first case should really never happen, since a valid instance should always have a valid account.
+                Nothing -> return (Left (Just $ InvalidAccountReference ownerAccountAddress))
+                Just acc -> return (Right (checkAndGetBalanceInstanceV0 acc i, ownerAccountAddress, fst acc))
+            Just (Instance.InstanceV1 i@Instance.InstanceV{..}) -> do
+              let ownerAccountAddress = instanceOwner _instanceVParameters
+              getStateAccount ownerAccountAddress >>= \case
+                -- the first case should really never happen, since a valid instance should always have a valid account.
+                Nothing -> return (Left (Just $ InvalidAccountReference ownerAccountAddress))
+                Just acc -> return (Right (checkAndGetBalanceInstanceV0 acc i, ownerAccountAddress, fst acc))
+  let runContractComp = 
+        getInvoker >>= \case
+          Left err -> return (Left err, ccEnergy)
+          Right (invoker, addr, ai) -> do
+            let comp = do
+                  istance <- getContractInstance ccContract `rejectingWith` InvalidContractAddress ccContract
+                  case istance of
+                    InstanceV0 i -> Left <$> handleContractUpdateV0 addr i invoker ccAmount ccMethod ccParameter
+                    InstanceV1 i -> Right <$> handleContractUpdateV1 addr i (fmap Right . invoker) ccAmount ccMethod ccParameter
+            (r, cs) <- runLocalT comp ccAmount ai ccEnergy ccEnergy
+            return (r, _energyLeft cs)
+      contextState = ContextState{
+          _maxBlockEnergy = ccEnergy, _accountCreationLimit = 0, _chainMetadata = cm
+          }
+  runReaderT (_runInvokeContract runContractComp) (contextState, bs) >>= \case
+    -- cannot happen (this would mean out of block energy, and we set block energy no lower than energy),
+    -- but this is safe to do and not wrong
+    (Left Nothing, re) -> 
+      return Failure{rcrReason = OutOfEnergy, rcrReturnValue=Nothing, rcrUsedEnergy = ccEnergy - re}
+    -- Contract execution of a V0 contract failed with the given reason.
+    (Left (Just rcrReason), re) ->
+      return Failure{rcrUsedEnergy = ccEnergy - re,rcrReturnValue=Nothing,..}
+    -- Contract execution of a V0 contract succeeded with the given list of events
+    (Right (Left rcrEvents), re) ->
+      return Success{rcrReturnValue=Nothing,
+                     rcrUsedEnergy = ccEnergy - re,
+                     ..}
+    -- Contract execution of a V1 contract failed with the given reason and potentially a return value 
+    (Right (Right (Left cf)), re) ->
+      return (Failure{
+                 rcrReason = WasmV1.cerToRejectReasonReceive ccContract ccMethod ccParameter cf,
+                 rcrReturnValue = WasmV1.returnValueToByteString <$> WasmV1.ccfToReturnValue cf,
+                 rcrUsedEnergy = ccEnergy - re})
+    -- Contract execution of a V1 contract succeeded with the given return value.
+    (Right (Right (Right (rv, reversedEvents))), re) -> -- handleUpdateContractV1 returns events in reverse order
+      return Success{rcrReturnValue=Just (WasmV1.returnValueToByteString rv),
+                     rcrUsedEnergy = ccEnergy - re,
+                     rcrEvents = reverse reversedEvents,
+                     ..}

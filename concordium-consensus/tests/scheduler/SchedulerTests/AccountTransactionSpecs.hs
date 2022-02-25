@@ -8,6 +8,7 @@ import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.ID.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Concordium.Scheduler as Sch
+import Concordium.TransactionVerification
 
 import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
@@ -40,8 +41,8 @@ cdi7' = Types.AccountCreation{
   credential = Types.credential cdi7
   }
 
-transactionsInput :: [Types.CredentialDeploymentWithMeta]
-transactionsInput = map (Types.addMetadata Types.CredentialDeployment 0) $ [
+transactionsInput :: [CredentialDeploymentWithStatus]
+transactionsInput = map ((\x -> (x, Nothing)) . Types.addMetadata Types.CredentialDeployment 0) $ [
   cdi1,
   cdi2,
   cdi3,
@@ -54,8 +55,8 @@ transactionsInput = map (Types.addMetadata Types.CredentialDeployment 0) $ [
 
 testAccountCreation ::
     IO
-    ([(Types.BlockItem, Types.ValidResult)],
-     [(Types.CredentialDeploymentWithMeta, Types.FailureKind)],
+    ([(BlockItemWithStatus, Types.ValidResult)],
+     [(CredentialDeploymentWithStatus, Types.FailureKind)],
      [Maybe (Account (AccountVersionFor PV1))],
      Account (AccountVersionFor PV1),
      Amount)
@@ -79,8 +80,8 @@ testAccountCreation = do
             finState ^. Types.schedulerExecutionCosts)
 
 checkAccountCreationResult ::
-  ([(Types.BlockItem, Types.ValidResult)],
-     [(Types.CredentialDeploymentWithMeta, Types.FailureKind)],
+  ([(BlockItemWithStatus, Types.ValidResult)],
+     [(CredentialDeploymentWithStatus, Types.FailureKind)],
      [Maybe (Account (AccountVersionFor PV1))],
      Account (AccountVersionFor PV1),
      Amount)

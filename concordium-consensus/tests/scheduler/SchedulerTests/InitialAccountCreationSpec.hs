@@ -7,6 +7,7 @@ import Test.HUnit
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Concordium.Scheduler as Sch
+import Concordium.TransactionVerification
 
 import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
@@ -32,18 +33,18 @@ initialAmount = 0
 initialBlockState :: BlockState PV1
 initialBlockState = blockStateWithAlesAccount initialAmount Acc.emptyAccounts
 
-transactionsInput :: [Types.CredentialDeploymentWithMeta]
-transactionsInput = map (Types.addMetadata Types.CredentialDeployment 0) $ [
+-- We just put a dummy verification result such that it will be verified by the scheduler.
+transactionsInput :: [CredentialDeploymentWithStatus]
+transactionsInput = map ((\x -> (x, Nothing)) . Types.addMetadata Types.CredentialDeployment 0) [
   icdi1,
   icdi2,
-  icdi3, -- should fail because reuse of prf key
-  icdi4 -- should fail because incorrect signature
+  icdi3 -- should fail because reuse of prf key
   ]
 
 testAccountCreation ::
     IO
-    ([(Types.BlockItem, Types.ValidResult)],
-     [(Types.CredentialDeploymentWithMeta, Types.FailureKind)],
+    ([(BlockItemWithStatus, Types.ValidResult)],
+     [(CredentialDeploymentWithStatus, Types.FailureKind)],
      [Maybe (Account (AccountVersionFor PV1))],
      Amount)
 testAccountCreation = do
@@ -66,13 +67,13 @@ testAccountCreation = do
             finState ^. Types.schedulerExecutionCosts)
 
 checkAccountCreationResult ::
-  ([(Types.BlockItem, Types.ValidResult)],
-     [(Types.CredentialDeploymentWithMeta, Types.FailureKind)],
+  ([(BlockItemWithStatus, Types.ValidResult)],
+     [(CredentialDeploymentWithStatus, Types.FailureKind)],
      [Maybe (Account (AccountVersionFor PV1))],
      Amount)
   -> Assertion
 checkAccountCreationResult (suc, fails, stateAccs, executionCost) = do
-  assertEqual "The first but the 4th transactions should fail." 2 (length fails)
+  assertEqual "The third transaction should fail." 1 (length fails)
   assertEqual "Execution cost should be 0." 0 executionCost
 
   -- FIXME: Make these more fine-grained so that failures are understandable.
@@ -80,7 +81,7 @@ checkAccountCreationResult (suc, fails, stateAccs, executionCost) = do
   let addr1 = accountAddressFromCredential . Types.credential $ icdi1
   let addr2 = accountAddressFromCredential . Types.credential $ icdi2
   assertEqual "Accounts created" [Just addr1, Just addr2, Nothing] (map (fmap (^. accountAddress)) stateAccs)
-  
+
 
   where txsuc = case suc of
           [(_, a11), (_, a12)] |

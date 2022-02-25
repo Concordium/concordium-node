@@ -33,6 +33,7 @@ import Concordium.Types.Accounts
 import Concordium.Types.Updates
 import Concordium.Types.UpdateQueues
 import Concordium.Types.Execution
+import Concordium.TimeMonad
 import qualified Concordium.Genesis.Data as GenesisData
 import qualified Concordium.Genesis.Data.P1 as P1
 import qualified Concordium.Genesis.Data.P2 as P2
@@ -62,7 +63,7 @@ import Concordium.GlobalState.Basic.BlockState.Updates
 import qualified Concordium.Types.Transactions as Transactions
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 import Concordium.Types.SeedState
-import Concordium.ID.Types (credId)
+import Concordium.ID.Types (credId, ArIdentity, IdentityProviderIdentity)
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types.HashableTo
 import Concordium.Kontrol.Bakers
@@ -399,7 +400,7 @@ getBlockState migration = do
     (_blockAccounts :: Accounts.Accounts pv) <- Accounts.deserializeAccounts migration cryptoParams
     let resolveModule modRef initName = do
             mi <- Modules.getInterface modRef _blockModules
-            return (GSWasm.miExposedReceive mi ^. at initName . non Set.empty, mi)
+            return (GSWasm.exposedReceive mi ^. at initName . non Set.empty, mi)
     _blockInstances <- Instances.getInstancesV0 resolveModule
     _blockUpdates <- getUpdatesV0 migration
 
@@ -528,7 +529,7 @@ doGetActiveBakersAndDelegators bs = return (bakers, lpdelegators)
     !lpdelegators = mkActiveDelegatorInfo <$> lpool
 
 newtype PureBlockStateMonad (pv :: ProtocolVersion) m a = PureBlockStateMonad {runPureBlockStateMonad :: m a}
-    deriving (Functor, Applicative, Monad)
+    deriving (Functor, Applicative, Monad, MonadIO, MTL.MonadState s, TimeMonad)
 
 type instance GT.BlockStatePointer (BlockState pv) = ()
 type instance GT.BlockStatePointer (HashedBlockState pv) = ()
@@ -548,19 +549,50 @@ instance ATITypes (PureBlockStateMonad pv m) where
 instance Monad m => PerAccountDBOperations (PureBlockStateMonad pv m)
   -- default implementation
 
+doGetIndexedAccount ::
+    (Monad m, HasBlockState s pv, IsProtocolVersion pv) =>
+    s ->
+    AccountAddress ->
+    m (Maybe (AccountIndex, Account (AccountVersionFor pv)))
+doGetIndexedAccount bs aaddr = return $! Accounts.getAccountWithIndex aaddr (bs ^. blockAccounts)
+
+doGetNextUpdateSequenceNumber :: (Monad m, HasBlockState s pv, IsProtocolVersion pv) => s -> UpdateType -> m UpdateSequenceNumber
+doGetNextUpdateSequenceNumber bs uty = return $! lookupNextUpdateSequenceNumber (bs ^. blockUpdates) uty
+
+doGetCryptographicParameters :: (Monad m, HasBlockState s pv) => s -> m CryptographicParameters
+doGetCryptographicParameters bs = return $! bs ^. blockCryptographicParameters . unhashed
+
+doGetIdentityProvider :: (Monad m, HasBlockState s pv) => s -> IdentityProviderIdentity -> m (Maybe IPS.IpInfo)
+doGetIdentityProvider bs ipId = return $! bs ^? blockIdentityProviders . unhashed . to IPS.idProviders . ix ipId
+
+doGetAnonymityRevokers :: (Monad m, HasBlockState s pv, Traversable t) => s -> t ArIdentity -> m (Maybe (t ARS.ArInfo))
+doGetAnonymityRevokers bs arIds = return $!
+      let ars = bs ^. blockAnonymityRevokers . unhashed . to ARS.arRevokers
+      in forM arIds (`Map.lookup` ars)
+
+doGetUpdateKeysCollection :: (Monad m, HasBlockState s pv, IsProtocolVersion pv) => s -> m (UpdateKeysCollection (ChainParametersVersionFor pv))
+doGetUpdateKeysCollection bs = return $! bs ^. blockUpdates . currentKeyCollection . unhashed
+
+doGetEnergyRate :: (Monad m, HasBlockState s pv) => s -> m EnergyRate
+doGetEnergyRate bs = return $! bs ^. blockUpdates . currentParameters . energyRate  
+
 instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMonad pv m) where
     {-# INLINE getModule #-}
     getModule bs mref =
         return $ bs ^. blockModules . to (Modules.getSource mref)
 
+    {-# INLINE getModuleInterface #-}
+    getModuleInterface bs mref =
+        return $ bs ^. blockModules . to (Modules.getInterface mref)
+
     {-# INLINE getContractInstance #-}
     getContractInstance bs caddr = return (Instances.getInstance caddr (bs ^. blockInstances))
 
     {-# INLINE getAccount #-}
-    getAccount bs aaddr = return $!
-        case Accounts.getAccountIndex aaddr (bs ^. blockAccounts) of
-          Nothing -> Nothing
-          Just ai -> (ai, ) <$> (bs ^? blockAccounts . Accounts.indexedAccount ai)
+    getAccount = doGetIndexedAccount
+
+    {-# INLINE accountExists #-}
+    accountExists bs aaddr = return $! Accounts.exists aaddr (bs ^. blockAccounts)
 
     getActiveBakers bs = return $ Map.keys $ bs ^. blockBirkParameters . birkActiveBakers . activeBakers
 
@@ -658,7 +690,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
     getElectionDifficulty bs ts = return (futureElectionDifficulty (bs ^. blockUpdates) ts)
 
     {-# INLINE getNextUpdateSequenceNumber #-}
-    getNextUpdateSequenceNumber bs uty = return (lookupNextUpdateSequenceNumber (bs ^. blockUpdates) uty)
+    getNextUpdateSequenceNumber = doGetNextUpdateSequenceNumber
 
     {-# INLINE getCurrentElectionDifficulty #-}
     getCurrentElectionDifficulty bs = return (bs ^. blockUpdates . currentParameters . cpElectionDifficulty)
@@ -684,8 +716,20 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
     getProtocolUpdateStatus bs = return (bs ^. blockUpdates . to protocolUpdateStatus)
 
     {-# INLINE getCryptographicParameters #-}
-    getCryptographicParameters bs =
-      return $! bs ^. blockCryptographicParameters . unhashed
+    getCryptographicParameters = doGetCryptographicParameters
+
+    {-# INLINE getIdentityProvider #-}
+    getIdentityProvider = doGetIdentityProvider
+
+    {-# INLINE getAnonymityRevokers #-}
+    getAnonymityRevokers = doGetAnonymityRevokers
+
+    {-# INLINE getUpdateKeysCollection #-}
+    getUpdateKeysCollection = doGetUpdateKeysCollection
+
+    {-# INLINE getEnergyRate #-}
+    getEnergyRate = doGetEnergyRate
+
 
     {-# INLINE getPaydayEpoch #-}
     getPaydayEpoch bs =
@@ -814,8 +858,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
     bsoGetInstance bs caddr = return (Instances.getInstance caddr (bs ^. blockInstances))
 
     {-# INLINE bsoGetAccount #-}
-    bsoGetAccount bs aaddr =
-      return $ Accounts.getAccountWithIndex aaddr (bs ^. blockAccounts)
+    bsoGetAccount = doGetIndexedAccount
 
     {-# INLINE bsoGetAccountIndex #-}
     bsoGetAccountIndex bs aaddr = return $! Accounts.getAccountIndex aaddr (bs ^. blockAccounts)
@@ -827,7 +870,9 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
     bsoAddressWouldClash bs addr = return (Accounts.addressWouldClash addr (bs ^. blockAccounts))
 
     {-# INLINE bsoRegIdExists #-}
-    bsoRegIdExists bs regid = return (Accounts.regIdExists regid (bs ^. blockAccounts))
+    bsoRegIdExists bs regid = do
+      let res = Accounts.regIdExists regid (bs ^. blockAccounts)
+      return $! isJust res
 
     bsoCreateAccount bs gc addr cred = return $
             if Accounts.exists addr accounts then
@@ -839,10 +884,9 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             accounts = bs ^. blockAccounts
             newAccounts = Accounts.putAccountWithRegIds acct accounts
 
-    bsoPutNewInstance bs mkInstance = return (instanceAddress, bs')
+    bsoPutNewInstance bs mkInstance = return (Instances.instanceAddress inst, bs')
         where
             (inst, instances') = Instances.createInstance mkInstance (bs ^. blockInstances)
-            Instances.InstanceParameters{..} = Instances.instanceParameters inst
             bs' = bs
                 -- Add the instance
                 & blockInstances .~ instances'
@@ -1122,13 +1166,10 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
           | _bakerPendingChange /= NoChange -> (BCChangePending, bs)
           -- We can make the change
           | otherwise ->
-              let cp = bs ^. blockUpdates . currentParameters
-                  rewardPeriodLength = fromIntegral $ cp ^. cpTimeParameters . tpRewardPeriodLength
-                  cooldown = fromIntegral $ cp ^. cpCooldownParameters . cpPoolOwnerCooldown
-                  msInEpoch = fromIntegral (epochLength $ bs ^. blockBirkParameters . birkSeedState) * bcrSlotDuration
-                  timestamp = addDuration bcrSlotTimestamp (cooldown * rewardPeriodLength * msInEpoch)
+              let cooldownDuration = bs ^. blockUpdates . currentParameters . cpCooldownParameters  . cpPoolOwnerCooldown
+                  cooldownElapsed = addDurationSeconds bcrSlotTimestamp cooldownDuration
               in (BCSuccess [] (BakerId ai),
-                  bs & blockAccounts . Accounts.indexedAccount ai . accountStaking .~ AccountStakeBaker (ab & bakerPendingChange .~ RemoveStake (PendingChangeEffectiveV1 timestamp)))
+                  bs & blockAccounts . Accounts.indexedAccount ai . accountStaking .~ AccountStakeBaker (ab & bakerPendingChange .~ RemoveStake (PendingChangeEffectiveV1 cooldownElapsed)))
         -- The account is not valid or has no baker
         _ -> (BCInvalidBaker, bs)
     bsoConfigureBaker origBS ai BakerConfigureUpdate{..} = do
@@ -1146,12 +1187,6 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             Right (newBS, changes) -> (BCSuccess changes bid, newBS)
       where
         bid = BakerId ai
-        cooldownTimestamp =
-            let cp = origBS ^. blockUpdates . currentParameters
-                rewardPeriodLength = fromIntegral $ cp ^. cpTimeParameters . tpRewardPeriodLength
-                cooldown = fromIntegral $ cp ^. cpCooldownParameters . cpPoolOwnerCooldown
-                msInEpoch = fromIntegral (epochLength $ origBS ^. blockBirkParameters . birkSeedState) * bcuSlotDuration
-            in addDuration bcuSlotTimestamp (cooldown * rewardPeriodLength * msInEpoch)
         getAccount = do
             s <- MTL.get
             case s ^? blockAccounts . Accounts.indexedAccount ai of
@@ -1231,7 +1266,9 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             when (capital < capitalMin) (MTL.throwError BCStakeUnderThreshold)
             case compare capital (_stakedAmount ab) of
                 LT -> do
-                    let bpc = ReduceStake capital (PendingChangeEffectiveV1 cooldownTimestamp)
+                    let cooldownDuration = origBS ^. blockUpdates . currentParameters . cpCooldownParameters . cpPoolOwnerCooldown
+                        cooldownElapsed = addDurationSeconds bcuSlotTimestamp cooldownDuration
+                    let bpc = ReduceStake capital (PendingChangeEffectiveV1 cooldownElapsed)
                     modifyAccount (bakerPendingChange .~ bpc)
                     MTL.tell [BakerConfigureStakeReduced capital]
                 EQ -> do
@@ -1292,15 +1329,12 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             Just Account{_accountStaking = AccountStakeDelegate ad@AccountDelegationV1{..}}
               | _delegationPendingChange /= NoChange -> (DCChangePending, bs)
               | otherwise ->
-                  let cp = bs ^. blockUpdates . currentParameters
-                      rewardPeriodLength = fromIntegral $ cp ^. cpTimeParameters . tpRewardPeriodLength
-                      cooldown = fromIntegral $ cp ^. cpCooldownParameters . cpDelegatorCooldown
-                      msInEpoch = fromIntegral (epochLength $ bs ^. blockBirkParameters . birkSeedState) * dcrSlotDuration
-                      timestamp = addDuration dcrSlotTimestamp (cooldown * rewardPeriodLength * msInEpoch)
+                  let cooldownDuration = bs ^. blockUpdates . currentParameters . cpCooldownParameters . cpDelegatorCooldown
+                      cooldownElapsed = addDurationSeconds dcrSlotTimestamp cooldownDuration
                   in (DCSuccess [] (DelegatorId ai),
                       bs
                         & blockAccounts . Accounts.indexedAccount ai . accountStaking .~
-                            AccountStakeDelegate (ad & delegationPendingChange .~ RemoveStake (PendingChangeEffectiveV1 timestamp))
+                            AccountStakeDelegate (ad & delegationPendingChange .~ RemoveStake (PendingChangeEffectiveV1 cooldownElapsed))
                         )
             _ -> (DCInvalidDelegator, bs)
     bsoConfigureDelegation origBS ai DelegationConfigureUpdate{..} = do
@@ -1314,12 +1348,6 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             Right (newBS, changes) -> (DCSuccess changes did, newBS)
       where
         did = DelegatorId ai
-        cooldownTimestamp =
-            let cp = origBS ^. blockUpdates . currentParameters
-                rewardPeriodLength = fromIntegral $ cp ^. cpTimeParameters . tpRewardPeriodLength
-                cooldown = fromIntegral $ cp ^. cpCooldownParameters . cpDelegatorCooldown
-                msInEpoch = fromIntegral (epochLength $ origBS ^. blockBirkParameters . birkSeedState) * dcuSlotDuration
-            in addDuration dcuSlotTimestamp (cooldown * rewardPeriodLength * msInEpoch)
         getAccount = do
             s <- MTL.get
             case s ^? blockAccounts . Accounts.indexedAccount ai of
@@ -1339,7 +1367,9 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             ad <- getAccount
             case compare capital (ad ^. delegationStakedAmount) of
                 LT -> do
-                    let dpc = ReduceStake capital (PendingChangeEffectiveV1 cooldownTimestamp)
+                    let cooldownDuration = origBS ^. blockUpdates . currentParameters . cpCooldownParameters . cpDelegatorCooldown
+                        cooldownElapsed = addDurationSeconds dcuSlotTimestamp cooldownDuration
+                    let dpc = ReduceStake capital (PendingChangeEffectiveV1 cooldownElapsed)
                     modifyAccount (delegationPendingChange .~ dpc)
                     MTL.tell [DelegationConfigureStakeReduced capital]
                 EQ ->
@@ -1501,17 +1531,13 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
         foundationAccount = bs ^. blockUpdates . currentParameters . cpFoundationAccount
 
     {-# INLINE bsoGetIdentityProvider #-}
-    bsoGetIdentityProvider bs ipId =
-      return $! bs ^? blockIdentityProviders . unhashed . to IPS.idProviders . ix ipId
+    bsoGetIdentityProvider = doGetIdentityProvider
 
     {-# INLINE bsoGetAnonymityRevokers #-}
-    bsoGetAnonymityRevokers bs arIds = return $!
-      let ars = bs ^. blockAnonymityRevokers . unhashed . to ARS.arRevokers
-      in forM arIds (flip Map.lookup ars)
+    bsoGetAnonymityRevokers = doGetAnonymityRevokers
 
     {-# INLINE bsoGetCryptoParams #-}
-    bsoGetCryptoParams bs =
-      return $! bs ^. blockCryptographicParameters . unhashed
+    bsoGetCryptoParams = doGetCryptographicParameters
 
     {-# INLINE bsoGetPaydayEpoch #-}
     bsoGetPaydayEpoch bs =
@@ -1579,14 +1605,13 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
 
 
     {-# INLINE bsoGetUpdateKeyCollection #-}
-    bsoGetUpdateKeyCollection bs = return $! bs ^. blockUpdates . currentKeyCollection . unhashed
+    bsoGetUpdateKeyCollection = doGetUpdateKeysCollection
 
     {-# INLINE bsoGetNextUpdateSequenceNumber #-}
-    bsoGetNextUpdateSequenceNumber bs uty = return $! lookupNextUpdateSequenceNumber (bs ^. blockUpdates) uty
+    bsoGetNextUpdateSequenceNumber = doGetNextUpdateSequenceNumber
 
     {-# INLINE bsoEnqueueUpdate #-}
     bsoEnqueueUpdate bs effectiveTime payload = return $! bs & blockUpdates %~ enqueueUpdate effectiveTime payload
-
     {-# INLINE bsoOverwriteElectionDifficulty #-}
     bsoOverwriteElectionDifficulty bs newDifficulty = return $! bs & blockUpdates %~ overwriteElectionDifficulty newDifficulty
 
@@ -1608,7 +1633,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
       return $! bs & blockReleaseSchedule %~ updateBRS
 
     {-# INLINE bsoGetEnergyRate #-}
-    bsoGetEnergyRate bs = return $! bs ^. blockUpdates . currentParameters . energyRate
+    bsoGetEnergyRate = doGetEnergyRate
 
     bsoGetChainParameters bs = return $! bs ^. blockUpdates . currentParameters
 

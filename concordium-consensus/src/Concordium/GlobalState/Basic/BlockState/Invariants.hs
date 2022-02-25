@@ -81,7 +81,8 @@ invariantBlockState bs extraBalance = do
         checkEpochBakers EpochBakers{..} = do
             checkBinary (==) (Vec.length _bakerInfos) (Vec.length _bakerStakes) "==" "#baker infos" "#baker stakes"
             checkBinary (==) _bakerTotalStake (sum _bakerStakes) "==" "baker total stake" "sum of baker stakes"
-        checkInstance amount Instance{..} = return $! (amount + instanceAmount)
+        checkInstance amount (InstanceV0 InstanceV{..}) = return $! (amount + _instanceVAmount)
+        checkInstance amount (InstanceV1 InstanceV{..}) = return $! (amount + _instanceVAmount)
 
         -- check that the two credential maps are the same, the one recorded in block state and the model one.
         checkCredentialResults modelCreds actualCreds = do

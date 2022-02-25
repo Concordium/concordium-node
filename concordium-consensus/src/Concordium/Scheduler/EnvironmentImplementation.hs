@@ -13,7 +13,6 @@ module Concordium.Scheduler.EnvironmentImplementation where
 import Concordium.Scheduler.Environment
 
 import qualified Data.Kind as DK
-import Data.Maybe (isJust)
 import Data.HashMap.Strict as Map
 import qualified Data.Map.Strict as OrdMap
 import Data.HashSet as Set
@@ -34,15 +33,15 @@ import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.Basic.BlockState (PureBlockStateMonad(..), BlockState)
 import Concordium.GlobalState.TreeState
-    ( BlockStateTypes(UpdatableBlockState), MGSTrans(..) )
+    ( BlockStateTypes(UpdatableBlockState), MGSTrans(..))
 import qualified Concordium.GlobalState.Types as GS
+import qualified Concordium.TransactionVerification as TVer
 
 -- |Chain metadata together with the maximum allowed block energy.
 data ContextState = ContextState{
   _chainMetadata :: !ChainMetadata,
   _maxBlockEnergy :: !Energy,
-  _accountCreationLimit :: !CredentialsPerBlockLimit,
-  _slotDuration :: !Duration
+  _accountCreationLimit :: !CredentialsPerBlockLimit
   }
 
 makeLenses ''ContextState
@@ -60,7 +59,7 @@ class CanExtend (TransactionLog a) => HasSchedulerState a where
   schedulerTransactionLog :: Lens' a (TransactionLog a)
   nextIndex :: Lens' a TransactionIndex
 
-data NoLogSchedulerState (m :: DK.Type -> DK.Type)= NoLogSchedulerState {
+data NoLogSchedulerState (m :: DK.Type -> DK.Type) = NoLogSchedulerState {
   _ssBlockState :: !(UpdatableBlockState m),
   _ssSchedulerEnergyUsed :: !Energy,
   _ssSchedulerExecutionCosts :: !Amount,
@@ -128,14 +127,65 @@ instance (MonadReader ContextState m,
   {-# INLINE getAccountCreationLimit #-}
   getAccountCreationLimit = view accountCreationLimit
 
-  {-# INLINE getSlotDuration #-}
-  getSlotDuration = view slotDuration
+  {-# INLINE getContractInstance #-}
+  getContractInstance addr = lift . flip bsoGetInstance addr =<< use schedulerBlockState
 
+  {-# INLINE getStateAccount #-}
+  getStateAccount !addr = lift . flip bsoGetAccount addr =<< use schedulerBlockState
+
+instance (SS state ~ UpdatableBlockState m,
+          HasSchedulerState state,
+          MonadState state m,
+          BlockStateOperations m,
+          MonadReader ContextState m,
+          GS.MonadProtocolVersion m
+         )
+         => TVer.TransactionVerifier (BSOMonadWrapper ContextState w state m) where
+  {-# INLINE registrationIdExists #-}
+  registrationIdExists !regid =
+    lift . flip bsoRegIdExists regid =<< use schedulerBlockState
+  {-# INLINE getIdentityProvider #-}
+  getIdentityProvider !ipId = do
+    s <- use schedulerBlockState
+    lift (bsoGetIdentityProvider s ipId)
+  {-# INLINE getAnonymityRevokers #-}
+  getAnonymityRevokers !arIds = do
+    s <- use schedulerBlockState
+    lift (bsoGetAnonymityRevokers s arIds)
+  {-# INLINE getCryptographicParameters #-}
+  getCryptographicParameters = lift . bsoGetCryptoParams =<< use schedulerBlockState
+  {-# INLINE getAccount #-}
+  getAccount !aaddr = do
+    s <- use schedulerBlockState
+    lift (fmap snd <$> bsoGetAccount s aaddr)
+  {-# INLINE getNextUpdateSequenceNumber #-}
+  getNextUpdateSequenceNumber uType = lift . flip bsoGetNextUpdateSequenceNumber uType =<< use schedulerBlockState
+  {-# INLINE getUpdateKeysCollection #-}
+  getUpdateKeysCollection = lift . bsoGetUpdateKeyCollection =<< use schedulerBlockState
+  {-# INLINE getAccountAvailableAmount #-}
+  getAccountAvailableAmount = lift . getAccountAvailableAmount
+  {-# INLINE getNextAccountNonce #-}
+  getNextAccountNonce = lift . getAccountNonce
+  {-# INLINE getAccountVerificationKeys #-}
+  getAccountVerificationKeys = lift . getAccountVerificationKeys
+  {-# INLINE energyToCcd #-}
+  energyToCcd v =  do
+    s <- use schedulerBlockState
+    rate <- lift (bsoGetEnergyRate s)
+    return (computeCost rate v)
+  {-# INLINE getMaxBlockEnergy #-}
+  getMaxBlockEnergy = do
+    ctx <- ask
+    let maxEnergy = ctx ^. maxBlockEnergy
+    return maxEnergy
+  {-# INLINE checkExactNonce #-}
+  checkExactNonce = pure True
+  
 instance (MonadReader ContextState m,
           SS state ~ UpdatableBlockState m,
           HasSchedulerState state,
           MonadState state m,
-          BS.BlockStateOperations m,
+          BlockStateOperations m,
           CanRecordFootprint w,
           CanExtend (ATIStorage m),
           Footprint (ATIStorage m) ~ w,
@@ -161,12 +211,6 @@ instance (MonadReader ContextState m,
   {-# INLINE bumpTransactionIndex #-}
   bumpTransactionIndex = nextIndex <<%= (+1)
 
-  {-# INLINE getContractInstance #-}
-  getContractInstance addr = lift . flip bsoGetInstance addr =<< use schedulerBlockState
-
-  {-# INLINE getAccount #-}
-  getAccount !addr = lift . flip bsoGetAccount addr =<< use schedulerBlockState
-
   {-# INLINE getAccountIndex #-}
   getAccountIndex addr = lift  . flip bsoGetAccountIndex addr =<< use schedulerBlockState
 
@@ -186,10 +230,6 @@ instance (MonadReader ContextState m,
   {-# INLINE addressWouldClash #-}
   addressWouldClash !addr =
     lift . flip bsoAddressWouldClash addr =<< use schedulerBlockState
-
-  {-# INLINE accountRegIdExists #-}
-  accountRegIdExists !regid =
-    lift . fmap isJust . flip bsoRegIdExists regid =<< use schedulerBlockState
 
   {-# INLINE commitModule #-}
   commitModule !iface = do
@@ -217,7 +257,7 @@ instance (MonadReader ContextState m,
     -- ASSUMPTION: the property which should hold at this point is that any
     -- changed instance must exist in the global state and moreover all instances
     -- are distinct by the virtue of a HashMap being a function
-    s' <- lift (foldM (\s' (addr, (amnt, val)) -> do
+    s' <- lift (foldM (\s' (addr, (_, amnt, val)) -> do
                          tell (logContract addr)
                          bsoModifyInstance s' addr amnt val)
                       s
@@ -312,19 +352,6 @@ instance (MonadReader ContextState m,
     s' <- lift (bsoSetAccountCredentialKeys s accIndex credIndex newKeys)
     schedulerBlockState .= s'
 
-  {-# INLINE getIPInfo #-}
-  getIPInfo ipId = do
-    s <- use schedulerBlockState
-    lift (bsoGetIdentityProvider s ipId)
-
-  {-# INLINE getArInfos #-}
-  getArInfos arIds = do
-    s <- use schedulerBlockState
-    lift (bsoGetAnonymityRevokers s arIds)
-
-  {-# INLINE getCryptoParams #-}
-  getCryptoParams = lift . bsoGetCryptoParams =<< use schedulerBlockState
-
   {-# INLINE getUpdateKeyCollection #-}
   getUpdateKeyCollection = lift . bsoGetUpdateKeyCollection =<< use schedulerBlockState
 
@@ -374,34 +401,36 @@ deriving via (PureBlockStateMonad pv Identity) instance GS.BlockStateTypes (Sche
 
 deriving via (BSOMonadWrapper ContextState () (PBSSS pv) (MGSTrans (RWSTBS pv) (PureBlockStateMonad pv Identity))) instance
   (IsProtocolVersion pv) => SchedulerMonad (SchedulerImplementation pv)
+deriving via (BSOMonadWrapper ContextState () (PBSSS pv) (MGSTrans (RWSTBS pv) (PureBlockStateMonad pv Identity))) instance
+  (IsProtocolVersion pv) => TVer.TransactionVerifier (SchedulerImplementation pv)
 
 instance ATITypes (SchedulerImplementation pv) where
   type ATIStorage (SchedulerImplementation pv) = ()
 
-runSI :: SchedulerImplementation pv a -> ChainMetadata -> Energy -> CredentialsPerBlockLimit -> Duration -> BlockState pv -> (a, PBSSS pv)
-runSI sc cd energy maxCreds sd gs =
+runSI :: SchedulerImplementation pv a -> ChainMetadata -> Energy -> CredentialsPerBlockLimit -> BlockState pv -> (a, PBSSS pv)
+runSI sc cd energy maxCreds gs =
   let (a, s, !_) =
         runIdentity $
         runPureBlockStateMonad $
-        runRWST (_runRWSTBS . _runScheduler $ sc) (ContextState cd energy maxCreds sd) (mkInitialSS gs)
+        runRWST (_runRWSTBS . _runScheduler $ sc) (ContextState cd energy maxCreds) (mkInitialSS gs)
   in (a, s)
 
 -- |Same as the previous method, but retain the logs of the run.
-runSIWithLogs :: SchedulerImplementation pv a -> ChainMetadata -> Energy -> CredentialsPerBlockLimit -> Duration -> BlockState pv -> (a, PBSSS pv, [(LogSource, LogLevel, String)])
-runSIWithLogs sc cd energy maxCreds sd gs =
+runSIWithLogs :: SchedulerImplementation pv a -> ChainMetadata -> Energy -> CredentialsPerBlockLimit -> BlockState pv -> (a, PBSSS pv, [(LogSource, LogLevel, String)])
+runSIWithLogs sc cd energy maxCreds gs =
   runIdentity $
   runPureBlockStateMonad $
-  runRWST (_runRWSTBS . _runScheduler $ sc) (ContextState cd energy maxCreds sd) (mkInitialSS gs)
+  runRWST (_runRWSTBS . _runScheduler $ sc) (ContextState cd energy maxCreds) (mkInitialSS gs)
 
 
-execSI :: SchedulerImplementation pv a -> ChainMetadata -> Energy -> CredentialsPerBlockLimit -> Duration -> BlockState pv -> PBSSS pv
-execSI sc cd energy maxCreds sd gs =
+execSI :: SchedulerImplementation pv a -> ChainMetadata -> Energy -> CredentialsPerBlockLimit ->  BlockState pv -> PBSSS pv
+execSI sc cd energy maxCreds gs =
   fst (runIdentity $
        runPureBlockStateMonad $
-       execRWST (_runRWSTBS . _runScheduler $ sc) (ContextState cd energy maxCreds sd) (mkInitialSS gs))
+       execRWST (_runRWSTBS . _runScheduler $ sc) (ContextState cd energy maxCreds) (mkInitialSS gs))
 
-evalSI :: SchedulerImplementation pv a -> ChainMetadata -> Energy -> CredentialsPerBlockLimit -> Duration -> BlockState pv -> a
-evalSI sc cd energy maxCreds sd gs =
+evalSI :: SchedulerImplementation pv a -> ChainMetadata -> Energy -> CredentialsPerBlockLimit -> BlockState pv -> a
+evalSI sc cd energy maxCreds gs =
   fst (runIdentity $
        runPureBlockStateMonad $
-       evalRWST (_runRWSTBS . _runScheduler $ sc) (ContextState cd energy maxCreds sd) (mkInitialSS gs))
+       evalRWST (_runRWSTBS . _runScheduler $ sc) (ContextState cd energy maxCreds) (mkInitialSS gs))

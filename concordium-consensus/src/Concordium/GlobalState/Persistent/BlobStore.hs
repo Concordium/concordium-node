@@ -34,6 +34,7 @@ module Concordium.GlobalState.Persistent.BlobStore where
 import Control.Concurrent.MVar
 import System.IO
 import Data.Serialize
+import Data.Coerce
 import Data.Word
 import qualified Data.ByteString as BS
 import Control.Exception
@@ -407,6 +408,12 @@ data BufferedRef a
     -- that inherited its parent's state) we can store the pointer to the 'brValue' data rather than
     -- storing all of the data again.
 
+-- |Coerce one buffered ref to another. This is unsafe unless a and b have compatible
+-- blobstorable instances.
+unsafeCoerceBufferedRef :: (a -> b) -> BufferedRef a -> BufferedRef b
+unsafeCoerceBufferedRef _ (BRBlobbed br) = BRBlobbed (coerce br)
+unsafeCoerceBufferedRef f (BRMemory ioref val) = BRMemory (coerce ioref) (f val)
+
 -- | Create a @BRMemory@ value in a @MonadIO@ context with the provided values
 makeBRMemory :: MonadIO m => (BlobRef a) -> a -> m (BufferedRef a)
 makeBRMemory r a = liftIO $ do
@@ -765,6 +772,7 @@ instance (MonadBlobStore m, IsChainParametersVersion cpv) => BlobStorable m (Par
 instance (MonadBlobStore m, IsChainParametersVersion cpv) => BlobStorable m (Parameters.TimeParameters cpv)
 instance MonadBlobStore m => BlobStorable m (Map AccountAddress Timestamp)
 instance MonadBlobStore m => BlobStorable m WasmModule
+instance (IsWasmVersion v, MonadBlobStore m) => BlobStorable m (WasmModuleV v)
 instance MonadBlobStore m => BlobStorable m BakerPoolRewardDetails
 instance MonadBlobStore m => BlobStorable m DelegatorCapital
 instance MonadBlobStore m => BlobStorable m BakerCapital
