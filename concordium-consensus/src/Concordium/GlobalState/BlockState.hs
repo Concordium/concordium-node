@@ -74,7 +74,7 @@ import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Types
 import Concordium.Types.IdentityProviders
 import Concordium.Types.AnonymityRevokers
-import Concordium.Types.Queries (PoolStatus)
+import Concordium.Types.Queries (PoolStatus, RewardStatus')
 import Concordium.Types.SeedState
 import Concordium.Types.Transactions hiding (BareBlockItem(..))
 
@@ -267,7 +267,7 @@ class AccountOperations m => BlockStateQuery m where
     getBakerAccount :: BlockState m -> BakerId -> m (Maybe (Account m))
 
     -- |Get reward summary for this block.
-    getRewardStatus :: BlockState m -> m BankStatus
+    getRewardStatus :: BlockState m -> m (RewardStatus' Epoch)
 
     -- |Get the outcome of a transaction in the given block.
     getTransactionOutcome :: BlockState m -> TransactionIndex -> m (Maybe TransactionSummary)

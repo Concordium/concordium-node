@@ -58,7 +58,7 @@ import qualified Concordium.GlobalState.AccountMap as AccountMap
 import qualified Concordium.GlobalState.Rewards as Rewards
 import qualified Concordium.Types.IdentityProviders as IPS
 import qualified Concordium.Types.AnonymityRevokers as ARS
-import Concordium.Types.Queries (PoolStatus(..),CurrentPaydayBakerPoolStatus(..),makePoolPendingChange)
+import Concordium.Types.Queries (PoolStatus(..),CurrentPaydayBakerPoolStatus(..),makePoolPendingChange, RewardStatus'(..))
 import Concordium.GlobalState.Basic.BlockState.Updates
 import qualified Concordium.Types.Transactions as Transactions
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
@@ -659,7 +659,34 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
             Nothing -> error "Basic.getSlotBakers invariant violation: active baker account not valid"
 
     {-# INLINE getRewardStatus #-}
-    getRewardStatus = return . view (blockBank . unhashed)
+    getRewardStatus bs = return $ case protocolVersion @pv of
+            SP1 -> rewardsV0
+            SP2 -> rewardsV0
+            SP3 -> rewardsV0
+            SP4 -> rewardsV1
+        where
+            bankStatus = bs ^. blockBank . unhashed
+            rewardsV0 :: RewardStatus' Epoch
+            rewardsV0 = RewardStatusV0 {
+                    rsTotalAmount = bankStatus ^. Rewards.totalGTU,
+                    rsTotalEncryptedAmount = bankStatus ^. Rewards.totalEncryptedGTU,
+                    rsBakingRewardAccount = bankStatus ^. Rewards.bakingRewardAccount,
+                    rsFinalizationRewardAccount = bankStatus ^. Rewards.finalizationRewardAccount,
+                    rsGasAccount = bankStatus ^. Rewards.gasAccount
+                }
+            rewardsV1 :: (AccountVersionFor pv ~ 'AccountV1) => RewardStatus' Epoch
+            rewardsV1 = RewardStatusV1 {
+                    rsTotalAmount = bankStatus ^. Rewards.totalGTU,
+                    rsTotalEncryptedAmount = bankStatus ^. Rewards.totalEncryptedGTU,
+                    rsBakingRewardAccount = bankStatus ^. Rewards.bakingRewardAccount,
+                    rsFinalizationRewardAccount = bankStatus ^. Rewards.finalizationRewardAccount,
+                    rsGasAccount = bankStatus ^. Rewards.gasAccount,
+                    rsFoundationTransactionRewards = bs ^. blockPoolRewards . to PoolRewards.foundationTransactionRewards,
+                    rsNextPaydayTime = bs ^. blockPoolRewards . to PoolRewards.nextPaydayEpoch,
+                    rsNextPaydayMintRate = bs ^. blockPoolRewards . to PoolRewards.nextPaydayMintRate,
+                    rsTotalStakedCapital = totalCapital bs,
+                    rsProtocolVersion = demoteProtocolVersion (protocolVersion @pv)
+                }
 
     {-# INLINE getTransactionOutcome #-}
     getTransactionOutcome bs trh =
