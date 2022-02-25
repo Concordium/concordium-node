@@ -207,7 +207,7 @@ instance (MonadBlobStore m, IsAccountVersion av) => Cacheable m (PersistentBirkP
         }
 
 makePersistentBirkParameters ::
-    MonadBlobStore m => Basic.BasicBirkParameters 'AccountV0 -> m (PersistentBirkParameters 'AccountV0)
+    (IsAccountVersion av, MonadBlobStore m) => Basic.BasicBirkParameters av -> m (PersistentBirkParameters av)
 makePersistentBirkParameters bbps = do
     _birkActiveBakers <- refMake =<< makePersistentActiveBakers (Basic._birkActiveBakers bbps)
     _birkNextEpochBakers <- PersistentNextEpochBakers <$>
@@ -536,9 +536,7 @@ bspPoolRewards bsp = case bspRewardDetails bsp :: BlockRewardDetails 'AccountV1 
 -- |Convert an in-memory 'Basic.BlockState' to a disk-backed 'HashedPersistentBlockState'.
 makePersistent :: forall pv m. (IsProtocolVersion pv, MonadBlobStore m) => Basic.BlockState pv -> m (HashedPersistentBlockState pv)
 makePersistent Basic.BlockState{..} = do
-  persistentBirkParameters <- case accountVersionFor (protocolVersion @pv) of
-      SAccountV0 -> makePersistentBirkParameters _blockBirkParameters
-      SAccountV1 -> undefined -- FIXME: Handle this
+  persistentBirkParameters <- makePersistentBirkParameters _blockBirkParameters
   persistentMods <- Modules.makePersistentModules _blockModules
   persistentBlockInstances <- Instances.makePersistent persistentMods _blockInstances
   modules <- refMake persistentMods
