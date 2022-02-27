@@ -242,6 +242,8 @@ instance MonadBlobStore m => Cacheable (ReaderT Modules m) (PersistentInstance p
               Nothing -> return (PersistentInstanceV1 p{pinstanceParameters = ips}) -- this case should never happen, but it is safe to do this.
               Just iface -> return (PersistentInstanceV1 p{pinstanceModuleInterface = iface, pinstanceParameters = ips})
 
+-- |Construct instance information from a persistent instance, loading as much
+-- data as necessary from persistent storage.
 mkInstanceInfo :: MonadBlobStore m => PersistentInstance pv -> m (InstanceInfoType InstanceStateV)
 mkInstanceInfo (PersistentInstanceV0 inst) = InstanceInfoV0 <$> mkInstanceInfoV inst
 mkInstanceInfo (PersistentInstanceV1 inst) = InstanceInfoV1 <$> mkInstanceInfoV inst
@@ -419,10 +421,11 @@ instance (IsProtocolVersion pv, BlobStorable m r, MonadIO m) => BlobStorable m (
         else -- tag == 9
             return . VacantLeaf <$> get
 
--- |Fold the instance table using the provided accumulator function. The tree is left to right and the accumulator is called
--- on each leaf.
--- The accumulator is called with @Left addr@ when the leaf is vacant, i.e. the instance on that address was deleted.
--- It is called with @Right inst@ when there is an instance in the spot.
+-- |Fold the instance table using the provided accumulator function. The tree is
+-- traversed in-order from left to right and the accumulator is called on each
+-- leaf. The accumulator is called with @Left addr@ when the leaf is vacant,
+-- i.e. the instance on that address was deleted. It is called with @Right inst@
+-- when there is an instance in the spot.
 mapReduceIT :: forall a m pv t. (Monoid a, MRecursive m t, Base t ~ IT pv) => (Either ContractAddress (PersistentInstance pv) -> m a) -> t -> m a
 mapReduceIT mfun = mr 0 <=< mproject
     where

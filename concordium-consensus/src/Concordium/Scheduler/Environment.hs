@@ -278,15 +278,15 @@ data TemporaryContractState contractState (v :: Wasm.WasmVersion) =
   Frozen (contractState v)
   | Thawed (UpdatableContractState v)
 
-{-# INLINE getForeignReprV0 #-}
-getForeignReprV0 :: ContractStateOperations m => TemporaryContractState (ContractState m) GSWasm.V0 -> m Wasm.ContractState
-getForeignReprV0 (Frozen cs) = thawContractState cs
-getForeignReprV0 (Thawed cs) = return cs
+{-# INLINE getRuntimeReprV0 #-}
+getRuntimeReprV0 :: ContractStateOperations m => TemporaryContractState (ContractState m) GSWasm.V0 -> m Wasm.ContractState
+getRuntimeReprV0 (Frozen cs) = thawContractState cs
+getRuntimeReprV0 (Thawed cs) = return cs
 
-{-# INLINE getForeignReprV1 #-}
-getForeignReprV1 :: ContractStateOperations m => TemporaryContractState (ContractState m) GSWasm.V1 -> m StateV1.MutableState
-getForeignReprV1 (Frozen cs) = thawContractState cs
-getForeignReprV1 (Thawed cs) = return cs
+{-# INLINE getRuntimeReprV1 #-}
+getRuntimeReprV1 :: ContractStateOperations m => TemporaryContractState (ContractState m) GSWasm.V1 -> m StateV1.MutableState
+getRuntimeReprV1 (Frozen cs) = thawContractState cs
+getRuntimeReprV1 (Thawed cs) = return cs
 
 getStateSizeV0 :: ContractStateOperations m => TemporaryContractState (ContractState m) GSWasm.V0 -> m Wasm.ByteSize
 getStateSizeV0 (Frozen cs) = stateSizeV0 cs
@@ -460,9 +460,6 @@ class (StaticInformation m, ContractStateOperations m, IsProtocolVersion pv) => 
 type ModificationIndex = Word
 
 -- |The set of changes to be commited on a successful transaction.
--- The type parameter is the updatable contract state. It is this instead of just m so that
--- we get type unification to realize that if @UpdatableContractState m ~ UpdatableContractState n@ then
--- @ChangeSet ~ ChangeSet n@ (see definition of ChangeSet below)
 data ChangeSet = ChangeSet
     {_accountUpdates :: !(HMap.HashMap AccountIndex AccountUpdate) -- ^Accounts whose states changed.
     -- |V0 contracts whose states changed. Any time we are updating a contract we know which version it is.

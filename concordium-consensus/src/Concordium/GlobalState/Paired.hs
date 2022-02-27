@@ -254,7 +254,7 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
                     iiParameters = iiParameters iv1,
                     iiBalance = iiBalance iv1,
                     iiState = case S.decode statebs of
-                        Left err -> error $"Could not decode left state: " ++ err
+                        Left err -> error $ "Could not decode left V0 state: " ++ err
                         Right x -> x
                     }
               (InstanceInfoV1 iv1, InstanceInfoV1 iv2) ->
@@ -265,12 +265,11 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
                     iiParameters = iiParameters iv1,
                     iiBalance = iiBalance iv1,
                     iiState = case S.decode statebs of
-                        Left err -> error $"Could not decode left state: " ++ err
+                        Left err -> error $ "Could not decode left V1 state: " ++ err
                         Right x -> x
                     }
               (InstanceInfoV0 _, InstanceInfoV1 _) -> error $ "Left state returns V0 instance, but right state V1 for address " ++ show caddr
               (InstanceInfoV1 _, InstanceInfoV0 _) -> error $ "Left state returns V1 instance, but right state V0 for address " ++ show caddr
-        -- assert (cInfo1 == cInfo2) $ return cInfo1
     getModuleList (ls, rs) = do
         m1 <- coerceBSML (getModuleList ls)
         m2 <- coerceBSMR (getModuleList rs)
@@ -472,7 +471,7 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
                     iiParameters = iiParameters iv1,
                     iiBalance = iiBalance iv1,
                     iiState = case S.decode statebs of
-                        Left err -> error $"Could not decode left state: " ++ err
+                        Left err -> error $"Could not decode left V0 state: " ++ err
                         Right x -> x
                     }
               (InstanceInfoV1 iv1, InstanceInfoV1 iv2) ->
@@ -483,7 +482,7 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
                     iiParameters = iiParameters iv1,
                     iiBalance = iiBalance iv1,
                     iiState = case S.decode statebs of
-                        Left err -> error $"Could not decode left state: " ++ err
+                        Left err -> error $"Could not decode left V1 state: " ++ err
                         Right x -> x
                     }
               (InstanceInfoV0 _, InstanceInfoV1 _) -> error $ "Left state returns V0 instance, but right state V1 for address " ++ show caddr
@@ -711,7 +710,7 @@ instance (MonadLogger m,
         assert (s1 == s2) $ return s2
     -- We only write out 
     writeBlockState h (bps1, _) = coerceBSML (writeBlockState h bps1)
-    blockStateLoadCallback = coerceBSMR blockStateLoadCallback
+    blockStateLoadCallback = coerceBSML blockStateLoadCallback
 
 {-# INLINE coerceGSML #-}
 coerceGSML :: GSML pv lc r ls s m a -> TreeStateBlockStateM pv (PairGState ls rs) (PairGSContext lc rc) r s m a

@@ -112,13 +112,11 @@ testCases =
         checkSuccess msg Types.TxReject{..} = assertFailure $ msg ++ show vrRejectReason
         checkSuccess _ _ = return ()
 
-        -- Check that the contract state is empty.
+        -- Check that the contract has 0 CCD on its account.
         transferSpec bs = specify "Contract state" $
           case getInstance (Types.ContractAddress 0 0) (bs ^. blockInstances) of
             Nothing -> assertFailure "Instance at <0,0> does not exist."
             Just istance -> do
-              -- FIXME: We can't check this for V1, we should instead check the return value
-              -- assertEqual ("State contains.") (ContractState "") (instanceModel istance)
               assertEqual ("Contract has 0 CCD.") (Types.Amount 0) (instanceAmount istance)
 
 tests :: Spec

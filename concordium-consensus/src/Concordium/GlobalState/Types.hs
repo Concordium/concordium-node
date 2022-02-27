@@ -23,7 +23,10 @@ class BlockStateTypes (m :: Type -> Type) where
     -- |The type of accounts supported by the block state.
     type Account m :: Type
     -- |The type of contract state, parametrized both by the monad m, as well as
-    -- the contract version.
+    -- the contract version. The reason that the kind of @ContractState m@ is
+    -- @WasmVersion -> Type@ as opposed to parametrizing the type by both @m@
+    -- and @WasmVersion@ is that this way we can "partially apply"
+    -- @ContractState@, something that would otherwise not be possible.
     type ContractState m :: WasmVersion -> Type
 
 -- |Account together with its index in the account map.

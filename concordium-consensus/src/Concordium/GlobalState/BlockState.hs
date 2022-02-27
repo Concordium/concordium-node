@@ -53,6 +53,7 @@ import Data.Foldable (foldl')
 import qualified Data.ByteString as BS
 import Data.Word
 import System.IO (Handle)
+import Data.Kind (Type)
 
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types
@@ -84,7 +85,6 @@ import Concordium.GlobalState.ContractStateFFIHelpers (LoadCallback)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import qualified Data.Set as Set
 import Data.ByteString (ByteString)
-
 
 -- |The hashes of the block state components, which are combined
 -- to produce a 'StateHash'.
@@ -216,13 +216,15 @@ class (BlockStateTypes m, Monad m) => ContractStateOperations m where
     -- for testing.
     contractStateToByteString :: ContractState m v -> m ByteString
 
--- |Static information about an instance returned by block state queries.
--- The fields of this record are not strict because this is just an intermediate
--- type that is quickly deconstructed.
--- The @contractState@ parameter is given in this way, as opposed to passing m directly,
--- so that type unification sees that if @ContractState m ~ ContractState n@ then
--- @InstanceInfo m v ~  InstanceInfo n v@
-data InstanceInfoTypeV contractState v = InstanceInfoV {
+-- |Information about an instance returned by block state queries. The type
+-- parameter @contractState@ determines the concrete representation of the
+-- contract state, and @v@ determines the instance version. The fields of this
+-- record are not strict because this is just an intermediate type that is
+-- quickly deconstructed. The @contractState@ parameter is given in this way, as
+-- opposed to passing m directly, so that type unification sees that if
+-- @ContractState m ~ ContractState n@ then @InstanceInfo m v ~ InstanceInfo n
+-- v@
+data InstanceInfoTypeV (contractState :: Wasm.WasmVersion -> Type) (v :: Wasm.WasmVersion) = InstanceInfoV {
     -- |Immutable parameters that do not change after the instance is created.
     iiParameters :: InstanceParameters v,
     -- |The state that will be modified during execution.
@@ -235,10 +237,17 @@ instance HasInstanceAddress (InstanceInfoTypeV contractState v) where
   {-# INLINE instanceAddress #-}
   instanceAddress = instanceAddress . iiParameters
 
-data InstanceInfoType contractState =
+-- |Information about either V0 or V1 instance. The type parameter defines the
+-- concrete representation of the contract state. The @contractState@ parameter
+-- is given in this way, as opposed to passing m directly and using
+-- @ContractState m@, so that type unification sees that if @ContractState m ~
+-- ContractState n@ then @InstanceInfo m v ~ InstanceInfo n v@
+data InstanceInfoType (contractState :: Wasm.WasmVersion -> Type) =
   InstanceInfoV0 (InstanceInfoTypeV contractState GSWasm.V0)
   | InstanceInfoV1 (InstanceInfoTypeV contractState GSWasm.V1)
 
+-- |An alias for the most common part of the instance information, parametrized
+-- by the context monad @m@.
 type InstanceInfoV m = InstanceInfoTypeV (ContractState m)
 type InstanceInfo m = InstanceInfoType (ContractState m)
 

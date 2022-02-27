@@ -91,8 +91,8 @@ data PersistentBirkParameters = PersistentBirkParameters {
 
 makeLenses ''PersistentBirkParameters
 
-freeze :: forall v m . (Wasm.IsWasmVersion v, MonadBlobStore m) => UpdatableContractState v -> m (SHA256.Hash, Instances.InstanceStateV v)
-freeze cs = case Wasm.getWasmVersion @v of
+freezeContractState :: forall v m . (Wasm.IsWasmVersion v, MonadBlobStore m) => UpdatableContractState v -> m (SHA256.Hash, Instances.InstanceStateV v)
+freezeContractState cs = case Wasm.getWasmVersion @v of
   Wasm.SV0 -> return (getHash cs, Instances.InstanceStateV0 cs)
   Wasm.SV1 -> do
     (cbk, _) <- getCallBacks
@@ -1009,7 +1009,7 @@ doPutNewInstance pbs NewInstanceData{..} = do
               -- all instances created from the same module share a reference to the module.
               -- Seeing that we know that the instance is V0, and that the module exists, this cannot fail.
               ~(Just modRef) <- Modules.unsafeGetModuleReferenceV0 (GSWasm.miModuleRef nidInterface) mods
-              (csHash, initialState) <- freeze nidInitialState
+              (csHash, initialState) <- freezeContractState nidInitialState
               return (ca, PersistentInstanceV0 Instances.PersistentInstanceV{
                   pinstanceModuleInterface = modRef,
                   pinstanceModel = initialState,
@@ -1031,7 +1031,7 @@ doPutNewInstance pbs NewInstanceData{..} = do
               -- all instances created from the same module share a reference to the module.
               -- Seeing that we know that the instance is V1, and that the module exists, this cannot fail.
               ~(Just modRef) <- Modules.unsafeGetModuleReferenceV1 (GSWasm.miModuleRef nidInterface) mods
-              (csHash, initialState) <- freeze nidInitialState
+              (csHash, initialState) <- freezeContractState nidInitialState
               pinstanceHash <- Instances.makeInstanceHashV1 (pinstanceParameterHash params) csHash nidInitialAmount
               return (ca, PersistentInstanceV1 Instances.PersistentInstanceV{
                   pinstanceModuleInterface = modRef,
@@ -1057,13 +1057,13 @@ doModifyInstance pbs caddr deltaAmnt val = do
                   case val of
                       Nothing -> return ((), PersistentInstanceV0 oldInst {pinstanceParameters = newParamsRef})
                       Just newVal -> do
-                        (csHash, newModel) <- freeze newVal
+                        (csHash, newModel) <- freezeContractState newVal
                         return ((), PersistentInstanceV0 $ rehashV0 (Just csHash) (pinstanceParameterHash piParams) (oldInst {pinstanceParameters = newParamsRef, pinstanceModel = newModel}))
               else
                   case val of
                       Nothing -> return ((), PersistentInstanceV0 $ rehashV0 Nothing (pinstanceParameterHash piParams) $ oldInst {pinstanceParameters = newParamsRef, pinstanceAmount = applyAmountDelta deltaAmnt (pinstanceAmount oldInst)})
                       Just newVal -> do
-                          (csHash, newModel) <- freeze newVal
+                          (csHash, newModel) <- freezeContractState newVal
                           return ((), PersistentInstanceV0 $ rehashV0 (Just csHash) (pinstanceParameterHash piParams) $ oldInst {pinstanceParameters = newParamsRef, pinstanceAmount = applyAmountDelta deltaAmnt (pinstanceAmount oldInst), pinstanceModel = newModel})
             Wasm.SV1 -> error "Expected instance version V0, got V1."
         upd (PersistentInstanceV1 oldInst) = case Wasm.getWasmVersion @v of
@@ -1074,13 +1074,13 @@ doModifyInstance pbs caddr deltaAmnt val = do
                     case val of
                         Nothing -> return ((), PersistentInstanceV1 oldInst {pinstanceParameters = newParamsRef})
                         Just newVal -> do
-                              (csHash, newModel) <- freeze newVal
+                              (csHash, newModel) <- freezeContractState newVal
                               rehashV1 (Just csHash) (pinstanceParameterHash piParams) (oldInst {pinstanceParameters = newParamsRef, pinstanceModel = newModel})
                 else
                     case val of
                         Nothing -> rehashV1 Nothing (pinstanceParameterHash piParams) $ oldInst {pinstanceParameters = newParamsRef, pinstanceAmount = applyAmountDelta deltaAmnt (pinstanceAmount oldInst)}
                         Just newVal -> do
-                              (csHash, newModel) <- freeze newVal
+                              (csHash, newModel) <- freezeContractState newVal
                               rehashV1 (Just csHash) (pinstanceParameterHash piParams) $ oldInst {pinstanceParameters = newParamsRef, pinstanceAmount = applyAmountDelta deltaAmnt (pinstanceAmount oldInst), pinstanceModel = newModel}
         rehashV0 (Just csHash) iph inst@PersistentInstanceV {..} = inst {pinstanceHash = Instances.makeInstanceHashV0 iph csHash pinstanceAmount}
         rehashV0 Nothing iph inst@PersistentInstanceV {..} = inst {pinstanceHash = Instances.makeInstanceHashV0State iph pinstanceModel pinstanceAmount}

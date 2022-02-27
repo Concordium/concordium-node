@@ -1082,7 +1082,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                 -- Execution of the contract might have changed our own state. If so, we need to resume in the new state, otherwise
                                 -- we can keep the old one.
                                 (lastModifiedIndex, newState) <- getCurrentContractInstanceState istance
-                                (stateChanged, resumeState) <- (lastModifiedIndex /= modificationIndex,) <$> getForeignReprV1 newState
+                                (stateChanged, resumeState) <- (lastModifiedIndex /= modificationIndex,) <$> getRuntimeReprV1 newState
                                 newBalance <- getCurrentContractAmount Wasm.SV1 istance
                                 go (resumeEvent True:evs ++ interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig resumeState stateChanged newBalance WasmV1.Success Nothing)
                          Just (InstanceInfoV1 targetInstance) -> do
@@ -1095,7 +1095,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                 go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.Error cer) (WasmV1.ccfToReturnValue cer))
                               Right (rVal, callEvents) -> do
                                 (lastModifiedIndex, newState) <- getCurrentContractInstanceState istance
-                                (stateChanged, resumeState) <- (lastModifiedIndex /= modificationIndex,) <$> getForeignReprV1 newState
+                                (stateChanged, resumeState) <- (lastModifiedIndex /= modificationIndex,) <$> getRuntimeReprV1 newState
                                 newBalance <- getCurrentContractAmount Wasm.SV1 istance
                                 go (resumeEvent True:callEvents ++ interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig resumeState stateChanged newBalance WasmV1.Success (Just rVal))
 
@@ -1103,7 +1103,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
       -- transfer the amount from the sender to the contract at the start. This is so that the contract may immediately use it
       -- for, e.g., forwarding.
       withToContractAmountV1 sender istance transferAmount $ do
-        foreignModel <- getForeignReprV1 model
+        foreignModel <- getRuntimeReprV1 model
         go [] =<< runInterpreter (return . WasmV1.applyReceiveFun iface cm receiveCtx receiveName useFallback parameter transferAmount foreignModel)
    where  transferAccountSync :: AccountAddress -- ^The target account address.
                               -> UInstanceInfoV m GSWasm.V1 -- ^The sender of this transfer.
@@ -1182,7 +1182,7 @@ handleContractUpdateV0 originAddr istance checkAndGetSender transferAmount recei
   -- charge for looking up the module
   tickEnergy $ Cost.lookupModule (GSWasm.miModuleSize iface)
 
-  model <- getForeignReprV0 (iiState istance)
+  model <- getRuntimeReprV0 (iiState istance)
   result <- runInterpreter (return . WasmV0.applyReceiveFun iface cm receiveCtx receiveName parameter transferAmount model)
              `rejectingWith'` wasmRejectToRejectReasonReceive cref receiveName parameter
 
