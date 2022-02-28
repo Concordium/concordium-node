@@ -5,6 +5,7 @@ module Concordium.Skov.Update where
 
 import Control.Monad
 import qualified Data.Sequence as Seq
+import qualified Data.Vector as Vec
 import Lens.Micro.Platform
 import Data.Foldable
 import Data.List (intercalate)
@@ -27,7 +28,7 @@ import Concordium.Types.Transactions
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.AccountTransactionIndex
 
-import Concordium.Scheduler.TreeStateEnvironment(executeFrom, ExecutionResult'(..), ExecutionResult, FinalizerInfo)
+import Concordium.Scheduler.TreeStateEnvironment
 
 import Concordium.Kontrol hiding (getRuntimeParameters, getGenesisData)
 import Concordium.Birk.LeaderElection
@@ -77,10 +78,17 @@ updateFocusBlockTo newBB = do
                   parent <- bpParent oBB
                   updatePTs parent nBB forw (reversePTT (blockTransactions oBB) pts)
 
-makeFinalizerInfo :: FinalizationCommittee -> FinalizerInfo
-makeFinalizerInfo = fmap finfo . parties
+-- |Make a 'FinalizerInfo' from a 'FinalizationCommittee' and 'FinalizationProof'. It is assumed
+-- that the 'FinalizationProof' is valid with respect to the 'FinalizationCommittee'.
+makeFinalizerInfo :: FinalizationCommittee -> FinalizationProof -> FinalizerInfo
+makeFinalizerInfo committee finProof =
+    FinalizerInfo {
+        committeeVoterPower = finPower <$> parties committee,
+        committeeSigners = finSigner <$> finalizationProofParties finProof
+    }
     where
-        finfo p = (partyBakerId p, partyWeight p)
+        finPower p = (partyBakerId p, partyWeight p)
+        finSigner i = partyBakerId $ parties committee Vec.! fromIntegral i
 
 -- |A monad implementing 'OnSkov' provides functions for responding to
 -- a block being added to the tree, and a finalization record being verified.
@@ -346,7 +354,7 @@ addBlock block txvers = do
                                 -- is actually the one named in the finalization record.
                                 blockAtFinIndex finalizationIndex >>= \case
                                     Just fbp -> check "finalization inconsistency" (bpHash fbp == finBP) $
-                                                    tryAddParentLastFin parentP (Just (makeFinalizerInfo committee)) fbp
+                                                    tryAddParentLastFin parentP (Just (makeFinalizerInfo committee finalizationProof)) fbp
                                     Nothing -> invalidBlock $ "no finalized block at index " ++ show finalizationIndex
         tryAddParentLastFin :: BlockPointerType m -> Maybe FinalizerInfo -> BlockPointerType m -> m UpdateResult
         tryAddParentLastFin parentP mfinInfo lfBlockP =

@@ -53,7 +53,6 @@ import Concordium.Scheduler.EnvironmentImplementation
      schedulerBlockState, schedulerEnergyUsed
      )
 import qualified Concordium.TransactionVerification as TVer
-import Concordium.Afgjort.Finalize.Types
 
 import Control.Monad.RWS.Strict
 
@@ -318,10 +317,15 @@ doMintingP4 blockParent paydayEpoch paydayMintRate foundationAddr mintUpds bs0 =
     stoFoundationAccount = foundationAddr
   }
 
--- |List of the parties in the finalization committee,
--- with their relative voting power.  Finalization rewards
--- are distributed in proportion to their power.
-type FinalizerInfo = Vec.Vector (BakerId, VoterPower)
+-- |Info about finalizers used for distributing rewards.
+data FinalizerInfo = FinalizerInfo {
+        -- |List of the parties in the finalization committee, with their relative voting power.
+        -- Finalization rewards are distributed in proportion to their power for protocol
+        -- version <= 3.
+        committeeVoterPower :: Vec.Vector (BakerId, VoterPower),
+        -- |List of bakers who signed finalization proof. This is used for protocol version >= 4.
+        committeeSigners :: [BakerId]
+    }
 
 -- |Distribute the finalization rewards to the finalizers
 -- in proportion to their voting weight. This also adds a
@@ -341,7 +345,7 @@ doFinalizationRewards finInfo bs0
               case mbaddr of
                 Nothing -> error $ "doFinalizationRewards: Finalizer BakerId (" ++ show bkr ++ ") is not valid."
                 Just baddr -> return (t + amt, Map.insert baddr amt m, bs')
-        (totalAward, awardMap, bs1) <- foldM awardFinalizer (0, Map.empty, bs0) finInfo
+        (totalAward, awardMap, bs1) <- foldM awardFinalizer (0, Map.empty, bs0) (committeeVoterPower finInfo)
         let remainder = finRew - totalAward
         bs2 <- bsoSetRewardAccounts bs1 (rewards & finalizationRewardAccount .~ remainder)
         bsoAddSpecialTransactionOutcome bs2 FinalizationRewards{
@@ -349,7 +353,7 @@ doFinalizationRewards finInfo bs0
           stoRemainder = remainder
         }
   where
-    totalPower = sum (snd <$> finInfo)
+    totalPower = sum (snd <$> committeeVoterPower finInfo)
 
 -- |The counts of the various 'free' transactions for the
 -- purposes of determining the block reward.
@@ -496,7 +500,8 @@ distributeRewards foundationAddr bs0 = do
   bs2 <- bsoUpdateAccruedTransactionFeesLPool bs1 (subtract lPoolAccumTransaction)
   let bakerBakingRewardFactor = rewardAccts ^. bakingRewardAccount - lPoolBakingReward
   let bakerFinalizationFactor = rewardAccts ^. finalizationRewardAccount - lPoolFinalizationReward
-  (bakerAccumFinalization, bakerAccumBaking, bakerOutcomes, bs3) <- rewardBakers bs2 (bankStatus ^. totalGTU) bakers bakerBakingRewardFactor bakerFinalizationFactor (bakerPoolCapital capitalDistribution)
+  (bakerAccumFinalization, bakerAccumBaking, bakerOutcomes, bs3) <-
+    rewardBakers bs2 bakers bakerBakingRewardFactor bakerFinalizationFactor (bakerPoolCapital capitalDistribution)
   let newRewardAccts = rewardAccts
         & finalizationRewardAccount %~ subtract (lPoolAccumFinalization + bakerAccumFinalization)
         & bakingRewardAccount %~ subtract (lPoolAccumBaking + bakerAccumBaking)
@@ -504,7 +509,6 @@ distributeRewards foundationAddr bs0 = do
   accruedFoundation <- bsoGetAccruedTransactionFeesFoundationAccount bs4
   bs5 <- bsoRewardFoundationAccount bs4 accruedFoundation
   bs6 <- bsoUpdateAccruedTransactionFeesFoundationAccount bs5 (const 0)
-  -- TODO: Reset baker block count and finalization awake (see PoolRewards.hs in Basic).
   bs7 <- bsoAddSpecialTransactionOutcome bs6 PaydayFoundationReward{
     stoFoundationAccount = foundationAddr,
     stoDevelopmentCharge = accruedFoundation
@@ -567,31 +571,28 @@ distributeRewards foundationAddr bs0 = do
 
       rewardBakers
         :: UpdatableBlockState m
-        -> Amount
         -> BI.FullBakers
         -> Amount
         -> Amount
         -> Vec.Vector BakerCapital
         -> m (Amount, Amount, [Types.SpecialTransactionOutcome], UpdatableBlockState m)
-      rewardBakers bs gtuTotal bakers bakerBakingRewardFactor bakerFinalizationFactor bcs = do
+      rewardBakers bs bakers bakerBakingRewardFactor bakerFinalizationFactor bcs = do
         paydayBlockCount <- bsoGetTotalRewardPeriodBlockCount bs
         if paydayBlockCount == 0
         then return (0, 0, [], bs)
-        else doRewardBakers bs gtuTotal bakers bakerBakingRewardFactor bakerFinalizationFactor bcs paydayBlockCount
+        else doRewardBakers bs bakers bakerBakingRewardFactor bakerFinalizationFactor bcs paydayBlockCount
 
       doRewardBakers
         :: UpdatableBlockState m
-        -> Amount
         -> BI.FullBakers
         -> Amount
         -> Amount
         -> Vec.Vector BakerCapital
         -> Word64
         -> m (Amount, Amount, [Types.SpecialTransactionOutcome], UpdatableBlockState m)
-      doRewardBakers bs gtuTotal bakers bakerBakingRewardFactor bakerFinalizationFactor bcs paydayBlockCount = do
-        finParams <- gdFinalizationParameters <$> getGenesisData
-        (totalFinCapital, _) <- foldM addFinalizationCapital (0, 0) bcs
-        (af, ab, outcomes, bsOut, _) <- foldM (rewardBaker totalFinCapital) (0, 0, [], bs, 0) bcs
+      doRewardBakers bs bakers bakerBakingRewardFactor bakerFinalizationFactor bcs paydayBlockCount = do
+        totalFinCapital <- foldM addFinalizationCapital 0 bcs
+        (af, ab, outcomes, bsOut) <- foldM (rewardBaker totalFinCapital) (0, 0, [], bs) bcs
         return (af, ab, outcomes, bsOut)
           where
             bakerStakesMap =
@@ -600,18 +601,18 @@ distributeRewards foundationAddr bs0 = do
                     Map.empty
                     (BI.fullBakerInfos bakers)
 
-            addFinalizationCapital (a, idx) bc = do
-                bprd <- bsoGetBakerPoolRewardDetails bsIn idx
+            addFinalizationCapital a bc = do
+                bprd <- bsoGetBakerPoolRewardDetails bs (bcBakerId bc)
                 if finalizationAwake bprd
                 then case Map.lookup (bcBakerId bc) bakerStakesMap of
                     Nothing ->
                         error "Invariant violation: baker from capital distribution is not an epoch baker"
                     Just s ->
-                        return (a + s, idx + 1)
-                else return (a, idx + 1)
+                        return (a + s)
+                else return a
 
-            rewardBaker totalFinCapital (accumFinalization, accumBaking, accumOutcomes, bsIn, idx) bc = do
-                bprd <- bsoGetBakerPoolRewardDetails bsIn idx
+            rewardBaker totalFinCapital (accumFinalization, accumBaking, accumOutcomes, bsIn) bc = do
+                bprd <- bsoGetBakerPoolRewardDetails bsIn (bcBakerId bc)
                 let accruedReward = transactionFeesAccrued bprd
                     bakerBlockCount = blockCount bprd
                     bakerBlockFraction = bakerBlockCount % paydayBlockCount
@@ -649,19 +650,20 @@ distributeRewards foundationAddr bs0 = do
                         stoBakerReward = bakingRewardToBaker,
                         stoFinalizationReward = finalizationRewardToBaker
                       }
-                bsUpdate <- bsoUpdateAccruedTransactionFeesBaker bsBak (bcBakerId bc) (const 0)
+                bsResetAccrued <- bsoUpdateAccruedTransactionFeesBaker bsBak (bcBakerId bc) (const 0)
                 let poolOutcome = PaydayPoolReward{
                       stoPoolOwner = Just (bcBakerId bc),
                       stoTransactionFees = accruedReward,
                       stoBakerReward = bakerBakingReward,
                       stoFinalizationReward = bakerFinalizationReward
                     }
+                bsResetAwake <- bsoSetFinalizationAwakeBaker bsResetAccrued (bcBakerId bc) False
+                bsClearBlockCount <- bsoClearBlockCountBaker bsResetAwake (bcBakerId bc)
                 return
                     (accumFinalization + bakerFinalizationReward,
                      accumBaking + bakerBakingReward,
                      poolOutcome : bakerOutcome : delegatorOutcomes ++ accumOutcomes,
-                     bsUpdate,
-                     idx + 1)
+                     bsClearBlockCount)
 
       bakerPoolInfo bs (BakerId ai) = do
         bsoGetAccountByIndex bs ai >>= \case
@@ -722,6 +724,16 @@ prepareForFollowingPayday newEpoch payday blockParent foundationAccount updates 
   bs3 <- bsoSetPaydayMintRate bs2 newMintRate
   bs4 <- bsoRotateCurrentCapitalDistribution bs3
   bsoRotateCurrentEpochBakers bs4
+
+-- |Find committee signers in 'FinalizerInfo' and mark them as awake finalizers.
+addAwakeFinalizers
+    :: (BlockStateOperations m, AccountVersionFor (MPV m) ~ 'AccountV1)
+    => Maybe FinalizerInfo
+    -> UpdatableBlockState m
+    -> m (UpdatableBlockState m)
+addAwakeFinalizers Nothing bs = return bs
+addAwakeFinalizers (Just FinalizerInfo{..}) bs0 =
+    foldM (\bs bid -> bsoSetFinalizationAwakeBaker bs bid True) bs0 committeeSigners
 
 -- |Mint new tokens and distribute rewards to bakers, finalizers and the foundation.
 -- The process consists of the following four steps:
@@ -816,7 +828,9 @@ mintAndReward bshandle blockParent slotNumber bid newEpoch isNewEpoch mfinInfo t
           bshandleMint <- doMintingP4 blockParent nextPayday nextMintRate foundationAccount updates bshandle
           bshandleRewards <- distributeRewards foundationAccount bshandleMint
           prepareForFollowingPayday newEpoch nextPayday blockParent foundationAccount updates bshandleRewards
-      doBlockRewardP4 transFees freeCounts bid =<< bsoNotifyBlockBaked bid bshandleFinRew
+      bshandleFinAwake <- addAwakeFinalizers mfinInfo bshandleFinRew
+      bshandleNotify <- bsoNotifyBlockBaked bshandleFinAwake bid
+      doBlockRewardP4 transFees freeCounts bid bshandleNotify
 
 -- |Update the bakers and seed state of the block state.
 -- The epoch for the new seed state must be at least the epoch of

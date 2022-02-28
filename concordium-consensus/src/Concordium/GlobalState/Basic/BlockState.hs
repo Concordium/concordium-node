@@ -69,6 +69,7 @@ import Concordium.Types.HashableTo
 import Concordium.Kontrol.Bakers
 
 import Concordium.Utils
+import Concordium.Utils.BinarySearch
 import Concordium.Utils.Serialization
 
 
@@ -866,10 +867,10 @@ modifyBakerPoolRewardDetailsInPoolRewards :: (Monad m, AccountVersionFor pv ~ 'A
 modifyBakerPoolRewardDetailsInPoolRewards bs bid f = do
   let bprs = PoolRewards.bakerPoolRewardDetails (bs ^. blockPoolRewards)
   let bpc = PoolRewards.bakerPoolCapital $ _unhashed (PoolRewards.currentCapital $ bs ^. blockPoolRewards)
-  case Vec.findIndex (\bc -> PoolRewards.bcBakerId bc == bid) bpc of
+  case binarySearchI PoolRewards.bcBakerId bpc bid of
       Nothing ->
           error "Invalid baker id: unable to find baker in baker pool capital vector"
-      Just i ->
+      Just (i, _) ->
           case LFMBT.update ((,) () . f) (fromIntegral i) bprs of
             Nothing ->
                 error "Invariant violation: unable to find baker in baker pool reward details tree"
@@ -1530,11 +1531,22 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
       let bprds = PoolRewards.bakerPoolRewardDetails $ bs ^. blockPoolRewards
       in return $! foldl (\c bprd -> c + PoolRewards.blockCount bprd) 0 bprds
 
-    bsoGetBakerPoolRewardDetails bs idx =
+    bsoGetBakerPoolRewardDetails bs bid =
       let bprds = PoolRewards.bakerPoolRewardDetails $ bs ^. blockPoolRewards
+          capitals = PoolRewards.currentCapital (bs ^. blockPoolRewards) ^. unhashed
+          idx = case binarySearchI PoolRewards.bcBakerId (PoolRewards.bakerPoolCapital capitals) bid of
+            Nothing ->
+              error $
+                  "Invariant violation: Basic.bsoGetBakerPoolRewardDetails: baker ID "
+                  ++ show bid ++ " is not in bakerPoolRewardDetails"
+            Just (i, _) ->
+              fromIntegral i
           mBPRD = LFMBT.lookup idx bprds
       in return $! case mBPRD of
-          Nothing -> error "Invariant violation: Basic.bsoGetBakerPoolRewardDetails: invalid index"
+          Nothing ->
+            error $
+                "Invariant violation: Basic.bsoGetBakerPoolRewardDetails: invalid index "
+                ++ show idx ++ " from baker ID " ++ show bid
           Just bprd -> bprd
 
     bsoRewardFoundationAccount bs !reward = return $ bs & blockAccounts . Accounts.indexedAccount foundationAccount . accountAmount +~ reward
@@ -1585,6 +1597,14 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
     bsoUpdateAccruedTransactionFeesBaker bs bid f =
       let accrueAmountBPR bpr = bpr{PoolRewards.transactionFeesAccrued = f (PoolRewards.transactionFeesAccrued bpr)}
       in modifyBakerPoolRewardDetailsInPoolRewards bs bid accrueAmountBPR
+
+    bsoSetFinalizationAwakeBaker bs bid b =
+      let setAwake bpr = bpr{PoolRewards.finalizationAwake = b}
+      in modifyBakerPoolRewardDetailsInPoolRewards bs bid setAwake
+
+    bsoClearBlockCountBaker bs bid =
+      let doClear bpr = bpr{PoolRewards.blockCount = 0}
+      in modifyBakerPoolRewardDetailsInPoolRewards bs bid doClear
 
     bsoUpdateAccruedTransactionFeesLPool bs f = return $! bs & blockPoolRewards %~ \pr -> pr{PoolRewards.lPoolTransactionRewards = f (PoolRewards.lPoolTransactionRewards pr)}
 

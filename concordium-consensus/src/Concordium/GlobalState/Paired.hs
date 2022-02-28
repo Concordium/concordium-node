@@ -579,9 +579,9 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         r1 <- coerceBSML $ bsoGetTotalRewardPeriodBlockCount bs1
         r2 <- coerceBSMR $ bsoGetTotalRewardPeriodBlockCount bs2
         assert (r1 == r2) $ return r1
-    bsoGetBakerPoolRewardDetails (bs1, bs2) idx = do
-        r1 <- coerceBSML $ bsoGetBakerPoolRewardDetails bs1 idx
-        r2 <- coerceBSMR $ bsoGetBakerPoolRewardDetails bs2 idx
+    bsoGetBakerPoolRewardDetails (bs1, bs2) bid = do
+        r1 <- coerceBSML $ bsoGetBakerPoolRewardDetails bs1 bid
+        r2 <- coerceBSMR $ bsoGetBakerPoolRewardDetails bs2 bid
         assert (r1 == r2) $ return r1
     bsoRewardFoundationAccount (bs1, bs2) reward = do
         bs1' <- coerceBSML $ bsoRewardFoundationAccount bs1 reward
@@ -626,6 +626,14 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
     bsoUpdateAccruedTransactionFeesBaker (bs1, bs2) bid f = do
         bs1' <- coerceBSML $ bsoUpdateAccruedTransactionFeesBaker bs1 bid f
         bs2' <- coerceBSMR $ bsoUpdateAccruedTransactionFeesBaker bs2 bid f
+        return (bs1', bs2')
+    bsoSetFinalizationAwakeBaker (bs1, bs2) bid b = do
+        bs1' <- coerceBSML $ bsoSetFinalizationAwakeBaker bs1 bid b
+        bs2' <- coerceBSMR $ bsoSetFinalizationAwakeBaker bs2 bid b
+        return (bs1', bs2')
+    bsoClearBlockCountBaker (bs1, bs2) bid = do
+        bs1' <- coerceBSML $ bsoClearBlockCountBaker bs1 bid
+        bs2' <- coerceBSMR $ bsoClearBlockCountBaker bs2 bid
         return (bs1', bs2')
     bsoUpdateAccruedTransactionFeesLPool (bs1, bs2) f = do
         bs1' <- coerceBSML $ bsoUpdateAccruedTransactionFeesLPool bs1 f

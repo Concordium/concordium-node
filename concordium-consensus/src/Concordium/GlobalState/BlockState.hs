@@ -663,16 +663,22 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- |Get total number of baked blocks in current reward period.
   bsoGetTotalRewardPeriodBlockCount :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> m Word64
 
-  -- |Function 'bsoGetBakerPoolRewardDetails' @bs@ @idx@ returns the 'BakerPoolRewardDetails'
-  -- related to the baker at index @idx@ in the 'CapitalDistribution' returned by
-  -- 'bsoGetCurrentCapitalDistribution'.
-  -- It is required that the index @idx@ is an index of a baker in the
-  -- 'CapitalDistribution' returned by 'bsoGetCurrentCapitalDistribution'.
-  bsoGetBakerPoolRewardDetails :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> Word64 -> m BakerPoolRewardDetails
+  -- |Function 'bsoGetBakerPoolRewardDetails' @bs@ @bid@ returns the 'BakerPoolRewardDetails'
+  -- related to the given baker. It is required that @bid@ is an an active baker
+  -- (in the 'CapitalDistribution' returned by 'bsoGetCurrentCapitalDistribution').
+  bsoGetBakerPoolRewardDetails :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> BakerId -> m BakerPoolRewardDetails
 
-  -- |Update the amount to be distributed to the given baker's account at payday. If baker is not active, the function does not
-  -- change the blockstate. It is a precondition that the given baker is active.
+  -- |Update the amount to be distributed to the given baker's account at payday. It is a
+  -- precondition that the given baker is active.
   bsoUpdateAccruedTransactionFeesBaker :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> BakerId -> (Amount -> Amount) -> m (UpdatableBlockState m)
+
+  -- |Set whether the given baker has signed a finalization proof included in a block during the
+  -- reward period. It is a precondition that the given baker is active.
+  bsoSetFinalizationAwakeBaker :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> BakerId -> Bool -> m (UpdatableBlockState m)
+
+  -- |Reset the given baker's count of baked blocks to zero. It is a precondition that the given
+  -- baker is active.
+  bsoClearBlockCountBaker :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> BakerId -> m (UpdatableBlockState m)
 
   -- |Update amount to be distributed to the L-pool delegators.
   bsoUpdateAccruedTransactionFeesLPool :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> (Amount -> Amount) -> m (UpdatableBlockState m)
@@ -991,7 +997,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoRemoveBaker s = lift . bsoRemoveBaker s
   bsoRewardAccount s aid amt = lift $ bsoRewardAccount s aid amt
   bsoGetTotalRewardPeriodBlockCount = lift . bsoGetTotalRewardPeriodBlockCount
-  bsoGetBakerPoolRewardDetails s idx = lift $ bsoGetBakerPoolRewardDetails s idx
+  bsoGetBakerPoolRewardDetails s bid = lift $ bsoGetBakerPoolRewardDetails s bid
   bsoRewardFoundationAccount s = lift . bsoRewardFoundationAccount s
   bsoGetFoundationAccount = lift . bsoGetFoundationAccount
   bsoMint s = lift . bsoMint s
@@ -1003,6 +1009,8 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoSetPaydayEpoch s e = lift $ bsoSetPaydayEpoch s e
   bsoSetPaydayMintRate s r = lift $ bsoSetPaydayMintRate s r
   bsoUpdateAccruedTransactionFeesBaker s bid f = lift $ bsoUpdateAccruedTransactionFeesBaker s bid f
+  bsoSetFinalizationAwakeBaker s bid b = lift $ bsoSetFinalizationAwakeBaker s bid b
+  bsoClearBlockCountBaker s bid = lift $ bsoClearBlockCountBaker s bid
   bsoUpdateAccruedTransactionFeesLPool s f = lift $ bsoUpdateAccruedTransactionFeesLPool s f
   bsoGetAccruedTransactionFeesLPool = lift . bsoGetAccruedTransactionFeesLPool
   bsoUpdateAccruedTransactionFeesFoundationAccount s f = lift $ bsoUpdateAccruedTransactionFeesFoundationAccount s f

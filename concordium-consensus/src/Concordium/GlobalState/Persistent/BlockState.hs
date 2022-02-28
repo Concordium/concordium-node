@@ -79,6 +79,7 @@ import Concordium.Types.HashableTo
 import Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule
 import Concordium.Utils.Serialization.Put
 import Concordium.Utils.Serialization
+import Concordium.Utils.BinarySearch
 import Concordium.Kontrol.Bakers
 
 -- * Birk parameters
@@ -1566,16 +1567,25 @@ doGetTotalRewardPeriodBlockCount pbs = do
     let bprds = bakerPoolRewardDetails poolRewards
     LFMBT.mfold (\c bprd -> return (c + blockCount bprd)) 0 bprds
 
-doGetBakerPoolRewardDetails :: (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1, MonadBlobStore m) => PersistentBlockState pv -> Word64 -> m BakerPoolRewardDetails
-doGetBakerPoolRewardDetails pbs idx = do
+doGetBakerPoolRewardDetails :: (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1, MonadBlobStore m) => PersistentBlockState pv -> BakerId -> m BakerPoolRewardDetails
+doGetBakerPoolRewardDetails pbs bid = do
     bsp <- loadPBS pbs
     let hpr = case bspRewardDetails bsp :: BlockRewardDetails 'AccountV1 of BlockRewardDetailsV1 hp -> hp
     poolRewards <- refLoad hpr
-    let bprds = bakerPoolRewardDetails poolRewards
-    mBPRD <- LFMBT.lookup idx bprds
-    case mBPRD of
-      Nothing -> error "Invariant violation: Persistent.bsoGetBakerPoolRewardDetails: invalid index"
-      Just bprd -> return bprd
+    capitals <- refLoad $ currentCapital poolRewards
+    case binarySearchI bcBakerId (bakerPoolCapital capitals) bid of
+        Nothing ->
+            error $
+                "Invariant violation: Persistent.bsoGetBakerPoolRewardDetails: baker ID "
+                ++ show bid ++ " is not in bakerPoolRewardDetails"
+        Just (idx, _) -> do
+            mBPRD <- LFMBT.lookup (fromIntegral idx) (bakerPoolRewardDetails poolRewards)
+            case mBPRD of
+              Nothing ->
+                error $
+                    "Invariant violation: Persistent.bsoGetBakerPoolRewardDetails: invalid index "
+                    ++ show idx ++ " from baker ID " ++ show bid
+              Just bprd -> return bprd
 
 doGetRewardStatus :: forall pv m. (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m (RewardStatus' Epoch)
 doGetRewardStatus pbs = do
@@ -2169,10 +2179,10 @@ modifyBakerPoolRewardDetailsInPoolRewards bsp bid f = do
     pr <- refLoad hpr
     let bprs = bakerPoolRewardDetails pr
     bpc <- bakerPoolCapital <$> refLoad (currentCapital pr)
-    case Vec.findIndex (\bc -> bcBakerId bc == bid) bpc of
+    case binarySearchI bcBakerId bpc bid of
         Nothing ->
             error "Invariant violation: unable to find baker in baker pool capital vector"
-        Just i -> do
+        Just (i, _) -> do
             newBPRs <- updateBPRs i bprs
             newBlockRewardDetails <- BlockRewardDetailsV1 <$> refMake pr{bakerPoolRewardDetails = newBPRs}
             return bsp{bspRewardDetails = newBlockRewardDetails}
@@ -2201,6 +2211,18 @@ doUpdateAccruedTransactionFeesBaker pbs bid f = do
     bsp <- loadPBS pbs
     let accrueAmountBPR bpr = bpr{transactionFeesAccrued = f (transactionFeesAccrued bpr)}
     storePBS pbs =<< modifyBakerPoolRewardDetailsInPoolRewards bsp bid accrueAmountBPR
+
+doSetFinalizationAwakeBaker :: forall pv m. (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1, MonadBlobStore m) => PersistentBlockState pv -> BakerId -> Bool -> m (PersistentBlockState pv)
+doSetFinalizationAwakeBaker pbs bid b = do
+    bsp <- loadPBS pbs
+    let setAwake bpr = bpr{finalizationAwake = b}
+    storePBS pbs =<< modifyBakerPoolRewardDetailsInPoolRewards bsp bid setAwake
+
+doClearBlockCountBaker :: forall pv m. (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1, MonadBlobStore m) => PersistentBlockState pv -> BakerId -> m (PersistentBlockState pv)
+doClearBlockCountBaker pbs bid = do
+    bsp <- loadPBS pbs
+    let doClear bpr = bpr{blockCount = 0}
+    storePBS pbs =<< modifyBakerPoolRewardDetailsInPoolRewards bsp bid doClear
 
 doUpdateAccruedTransactionFeesLPool :: forall pv m. (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1, MonadBlobStore m) => PersistentBlockState pv -> (Amount -> Amount) -> m (PersistentBlockState pv)
 doUpdateAccruedTransactionFeesLPool pbs f = do
@@ -2653,6 +2675,8 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateOperations (Pe
     bsoGetEpochBlocksBaked = doGetEpochBlocksBaked
     bsoNotifyBlockBaked = doNotifyBlockBaked
     bsoUpdateAccruedTransactionFeesBaker = doUpdateAccruedTransactionFeesBaker
+    bsoSetFinalizationAwakeBaker = doSetFinalizationAwakeBaker
+    bsoClearBlockCountBaker = doClearBlockCountBaker
     bsoUpdateAccruedTransactionFeesLPool = doUpdateAccruedTransactionFeesLPool
     bsoGetAccruedTransactionFeesLPool = doGetAccruedTransactionFeesLPool
     bsoUpdateAccruedTransactionFeesFoundationAccount = doUpdateAccruedTransactionFeesFoundationAccount

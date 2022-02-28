@@ -235,7 +235,7 @@ doBakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
                 -- don't actually have the block that was finalized.
                 -- Possibly we should not even bake in this situation.
                 Nothing -> (, Nothing, NoFinalizationData) <$> bpLastFinalized bb
-                Just finBlock -> return (finBlock, Just (makeFinalizerInfo finCom), BlockFinalizationData finRec)
+                Just finBlock -> return (finBlock, Just (makeFinalizerInfo finCom $ finalizationProof finRec), BlockFinalizationData finRec)
     -- possibly add the block nonce in the seed state
     let newSeedState = updateSeedState slot nonce oldSeedState
     -- Results = {_energyUsed, _finalState, _transactionLog}
