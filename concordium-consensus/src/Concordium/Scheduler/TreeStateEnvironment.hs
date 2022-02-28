@@ -591,17 +591,17 @@ distributeRewards foundationAddr bs0 = do
         -> Word64
         -> m (Amount, Amount, [Types.SpecialTransactionOutcome], UpdatableBlockState m)
       doRewardBakers bs bakers bakerBakingRewardFactor bakerFinalizationFactor bcs paydayBlockCount = do
-        totalFinCapital <- foldM addFinalizationCapital 0 bcs
-        (af, ab, outcomes, bsOut) <- foldM (rewardBaker totalFinCapital) (0, 0, [], bs) bcs
+        totalFinStake <- foldM addFinalizationStake 0 bcs
+        (af, ab, outcomes, bsOut) <- foldM (rewardBaker totalFinStake) (0, 0, [], bs) bcs
         return (af, ab, outcomes, bsOut)
           where
             bakerStakesMap =
-                foldl
+                foldl'
                     (\m bi -> Map.insert (bi ^. BI.theBakerInfo . Types.bakerIdentity) (bi ^. BI.bakerStake) m)
                     Map.empty
                     (BI.fullBakerInfos bakers)
 
-            addFinalizationCapital a bc = do
+            addFinalizationStake a bc = do
                 bprd <- bsoGetBakerPoolRewardDetails bs (bcBakerId bc)
                 if finalizationAwake bprd
                 then case Map.lookup (bcBakerId bc) bakerStakesMap of
@@ -611,7 +611,7 @@ distributeRewards foundationAddr bs0 = do
                         return (a + s)
                 else return a
 
-            rewardBaker totalFinCapital (accumFinalization, accumBaking, accumOutcomes, bsIn) bc = do
+            rewardBaker totalFinStake (accumFinalization, accumBaking, accumOutcomes, bsIn) bc = do
                 bprd <- bsoGetBakerPoolRewardDetails bsIn (bcBakerId bc)
                 let accruedReward = transactionFeesAccrued bprd
                     bakerBlockCount = blockCount bprd
@@ -623,7 +623,7 @@ distributeRewards foundationAddr bs0 = do
                         error "Invariant violation: baker from capital distribution is not an epoch baker"
                       Just s ->
                         if finalized
-                        then s % totalFinCapital
+                        then s % totalFinStake
                         else 0
                     bakerFinalizationReward = floor $ fromIntegral bakerFinalizationFactor * relativeStake
                     totalCapital = foldl (\a dc -> a + dcDelegatorCapital dc) (bcBakerEquityCapital bc) (bcDelegatorCapital bc)

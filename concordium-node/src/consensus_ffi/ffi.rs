@@ -707,22 +707,22 @@ impl ConsensusContainer {
         )))
     }
 
-    pub fn get_baker_list(&self, block_hash: &str) -> String {
+    pub fn get_baker_list(&self, block_hash: &str) -> anyhow::Result<String> {
         let block_hash = CString::new(block_hash).unwrap();
-        wrap_c_call_string!(self, consensus, |consensus| getBakerList(
+        Ok(wrap_c_call_string!(self, consensus, |consensus| getBakerList(
             consensus,
             block_hash.as_ptr() as *const u8
-        ))
+        )))
     }
 
-    pub fn get_pool_status(&self, block_hash: &str, l_pool: bool, baker_id: u64) -> String {
+    pub fn get_pool_status(&self, block_hash: &str, l_pool: bool, baker_id: u64) -> anyhow::Result<String> {
         let block_hash = CString::new(block_hash).unwrap();
-        wrap_c_call_string!(self, consensus, |consensus| getPoolStatus(
+        Ok(wrap_c_call_string!(self, consensus, |consensus| getPoolStatus(
             consensus,
             block_hash.as_ptr() as *const u8,
             l_pool,
             baker_id,
-        ))
+        )))
     }
 
     /// Construct a catch-up request message. The message includes the packet
