@@ -21,7 +21,7 @@ cd /build
 #############################################################################################################################
 ## Build the project
 
-cargo update --manifest-path /build/concordium-base/rust-src/Cargo.toml
+# cargo update --manifest-path /build/concordium-base/rust-src/Cargo.toml
 cargo check --manifest-path /build/concordium-base/rust-src/Cargo.toml
 
 stack build --profile --flag "concordium-consensus:-dynamic" --stack-yaml /build/concordium-consensus/stack.static.yaml
