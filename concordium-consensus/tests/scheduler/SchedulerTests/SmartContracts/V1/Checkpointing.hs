@@ -1,10 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-| This module tests calling a contract which makes use of an iterator.
-    The checks are being performed in the contract itself so if invoking the
-    contract completes successfully then this implies that the tests have done so as well.
-    Note. as per above no checks are being performed in this file wrt. the state etc. after execution etc.  
+{-| todo doc
 -}
-module SchedulerTests.SmartContracts.V1.Iterator (tests) where
+module SchedulerTests.SmartContracts.V1.Checkpointing (tests) where
 
 import Test.Hspec
 import Test.HUnit(assertFailure, assertEqual)
@@ -12,6 +9,7 @@ import Test.HUnit(assertFailure, assertEqual)
 import qualified Data.ByteString.Short as BSS
 import qualified Data.ByteString as BS
 import Control.Monad
+import Data.Serialize(runPut, putWord64le, putByteString, putWord16le)
 
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Crypto.SHA256 as Hash
@@ -30,14 +28,13 @@ import Concordium.Crypto.DummyData
 
 import SchedulerTests.TestUtils
 
-
 initialBlockState :: BlockState PV4
 initialBlockState = blockStateWithAlesAccount
     100000000
     (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 100000000) Acc.emptyAccounts)
 
-iteratorSourceFile :: FilePath
-iteratorSourceFile = "./testdata/contracts/v1/iterator.wasm"
+checkpointingSourceFile :: FilePath
+checkpointingSourceFile = "./testdata/contracts/v1/checkpointing.wasm"
 
 -- Tests in this module use version 1, creating V1 instances.
 wasmModVersion :: WasmVersion
@@ -46,44 +43,58 @@ wasmModVersion = V1
 testCases :: [TestCase PV4]
 testCases =
   [ TestCase
-    { tcName = "Iterator"
+    { tcName = "Checkpointing"
     , tcParameters = defaultParams {tpInitialBlockState=initialBlockState}
     , tcTransactions =
-      [ ( TJSON { payload = DeployModule wasmModVersion iteratorSourceFile
+      [ ( TJSON { payload = DeployModule wasmModVersion checkpointingSourceFile
                 , metadata = makeDummyHeader alesAccount 1 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
         , (SuccessWithSummary deploymentCostCheck, emptySpec)
-        )
-      , ( TJSON { payload = InitContract 0 wasmModVersion iteratorSourceFile "init_iterator" ""
+        )       
+      , ( TJSON { payload = InitContract 0 wasmModVersion checkpointingSourceFile "init_a" ""
                 , metadata = makeDummyHeader alesAccount 2 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
-        , (SuccessWithSummary initializationCostCheck, iteratorSpec 0)
+        , (SuccessWithSummary initializationCostCheck, checkpointingSpec 0)
         )
       ,
-        ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "iterator.iteratetest" BSS.empty
+        ( TJSON { payload = InitContract 0 wasmModVersion checkpointingSourceFile "init_b" ""
                 , metadata = makeDummyHeader alesAccount 3 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
-        , (SuccessWithSummary ensureSuccess, iteratorSpec 0)
+        , (SuccessWithSummary initializationCostCheck, checkpointingSpec 0)
         )
       ,
-        ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "iterator.lockingtest" BSS.empty
+        ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "a.test_one" testOneArgs
                 , metadata = makeDummyHeader alesAccount 4 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
-        , (SuccessWithSummary ensureSuccess, iteratorSpec 0)
+        , (SuccessWithSummary ensureSuccess, checkpointingSpec 0)
         )
       ]
     }
   ]
   where
-    iteratorSpec _ _ = return ()
+    testOneArgs = BSS.toShort $ runPut $ do
+          putWord64le 1 -- contract index of contract B
+          putWord64le 0 -- contract subindex
+          putWord16le (fromIntegral (BS.length forwardParameter)) -- length of parameter
+          putByteString forwardParameter
+          putWord16le (fromIntegral (BSS.length "b_test_one")) -- contract b's receive function.
+          putByteString "b_test_one" -- entrypoint name
+          putWord64le 0 -- amount
+    forwardParameter = runPut $ do
+          putWord64le 0 -- index of contract A
+          putWord64le 0 -- subindex of the counter contract
+          putWord16le (fromIntegral (BSS.length "a_test_one_modify"))
+          putByteString "a_test_one_modify" -- entrypoint name
+          putWord16le 0 -- length of parameter
+    checkpointingSpec _ _ = return ()
     deploymentCostCheck :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
     deploymentCostCheck _ Types.TransactionSummary{..} = do
       checkSuccess "Module deployment failed: " tsResult
-      moduleSource <- BS.readFile iteratorSourceFile
+      moduleSource <- BS.readFile checkpointingSourceFile
       let len = fromIntegral $ BS.length moduleSource
           -- size of the module deploy payload
           payloadSize = Types.payloadSize (Types.encodePayload (Types.DeployModule (WasmModuleV0 (WasmModuleV ModuleSource{..}))))
@@ -96,17 +107,17 @@ testCases =
     initializationCostCheck :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
     initializationCostCheck _ Types.TransactionSummary{..} = do
           checkSuccess "Contract initialization failed: " tsResult
-          moduleSource <- BS.readFile iteratorSourceFile
+          moduleSource <- BS.readFile checkpointingSourceFile
           let modLen = fromIntegral $ BS.length moduleSource
               modRef = Types.ModuleRef (Hash.hash moduleSource)
-              payloadSize = Types.payloadSize (Types.encodePayload (Types.InitContract 0 modRef (InitName "init_iterator") (Parameter "")))
+              payloadSize = Types.payloadSize (Types.encodePayload (Types.InitContract 0 modRef (InitName "init_a") (Parameter "")))
               -- size of the transaction minus the signatures.
               txSize = Types.transactionHeaderSize + fromIntegral payloadSize
               -- transaction is signed with 1 signature
               baseTxCost = Cost.baseCost txSize 1
               -- lower bound on the cost of the transaction, assuming no interpreter energy
-              -- we know the size of the state should be 8 bytes
-              costLowerBound = baseTxCost + Cost.initializeContractInstanceCost 0 modLen (Just 8)          
+              -- The state size of A is 0 and larger for B. We put the lower bound at A's size.
+              costLowerBound = baseTxCost + Cost.initializeContractInstanceCost 0 modLen (Just 0)
           unless (tsEnergyCost >= costLowerBound) $
             assertFailure $ "Actual initialization cost " ++ show tsEnergyCost ++ " not more than lower bound " ++ show costLowerBound
     -- ensure the transaction is successful
@@ -116,6 +127,5 @@ testCases =
     checkSuccess _ _ = return ()
 
 tests :: Spec
-tests = describe "V1: Iterator." $
+tests = describe "V1: Checkpointing." $
   mkSpecs testCases
-

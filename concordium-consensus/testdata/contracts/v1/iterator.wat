@@ -89,7 +89,7 @@
     (call $assert_eq_64 (i64.const 0) (i64.shr_u (local.get $iter_next_res) (i64.const 7)))
     ;; Get the key size at the current node.
     (local.set $key_size (call $state_iterator_key_size (local.get $iter)))
-    (call $assert_eq (local.get $key_size) (i32.const 3))
+    (call $assert_eq (local.get $key_size) (i32.const 4))
     ;; Read the key 
     (local.set $key_read_res (call $state_iterator_key_read (local.get $iter) (i32.const 0) (i32.const 3) (i32.const 0)))
     (call $assert_eq (local.get $key_read_res) (i32.const 3))
@@ -99,7 +99,7 @@
     ;; Read the key size and key again as above.
     ;; These operations should yield the same results as the iterator is exausted at this point.
     (local.set $key_size (call $state_iterator_key_size (local.get $iter)))
-    (call $assert_eq (local.get $key_size) (i32.const 3))
+    (call $assert_eq (local.get $key_size) (i32.const 4))
     ;; Read the key 
     (local.set $key_read_res (call $state_iterator_key_read (local.get $iter) (i32.const 0) (i32.const 3) (i32.const 0)))
     (call $assert_eq (local.get $key_read_res) (i32.const 3))
