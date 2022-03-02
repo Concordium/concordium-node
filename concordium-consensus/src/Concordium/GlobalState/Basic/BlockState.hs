@@ -386,40 +386,39 @@ getBlockState :: forall oldpv pv. (IsProtocolVersion oldpv, IsProtocolVersion pv
     => StateMigrationParameters oldpv pv -> Get (BlockState pv)
 getBlockState migration = do
     -- BirkParameters
-    preBirkParameters <- getBirkParameters
+    preBirkParameters <- label "birk parameters" $ getBirkParameters
     -- CryptographicParameters
-    cryptoParams <- get
+    cryptoParams <- label "cryptographic parameters" $ get
     let _blockCryptographicParameters = makeHashed cryptoParams
     -- IdentityProviders
-    _blockIdentityProviders <- makeHashed <$> get
+    _blockIdentityProviders <- makeHashed <$> label "identity providers" get
     -- AnonymityRevokers
-    _blockAnonymityRevokers <- makeHashed <$> get
+    _blockAnonymityRevokers <- makeHashed <$> label "identity providers" get
     -- Modules
-    _blockModules <- Modules.getModulesV0
+    _blockModules <- label "modules" Modules.getModulesV0
     -- BankStatus
-    _blockBank <- makeHashed <$> get
-    (_blockAccounts :: Accounts.Accounts pv) <- Accounts.deserializeAccounts migration cryptoParams
+    _blockBank <- makeHashed <$> label "bank status" get
+    (_blockAccounts :: Accounts.Accounts pv) <- label "accounts" $ Accounts.deserializeAccounts migration cryptoParams
     let resolveModule modRef initName = do
             mi <- Modules.getInterface modRef _blockModules
             return (GSWasm.exposedReceive mi ^. at initName . non Set.empty, mi)
-    _blockInstances <- Instances.getInstancesV0 resolveModule
-    _blockUpdates <- getUpdatesV0 migration
+    _blockInstances <- label "instances" $ Instances.getInstancesV0 resolveModule
+    _blockUpdates <- label "updates" $ getUpdatesV0 migration
 
-    prePoolRewardDetails <- getBlockRewardDetails @(AccountVersionFor oldpv)
-    let _blockRewardDetails :: BlockRewardDetails (AccountVersionFor pv) = case migration of
-            StateMigrationParametersTrivial -> prePoolRewardDetails
+    preBlockRewardDetails <- label "reward details" $ getBlockRewardDetails @(AccountVersionFor oldpv)
+    let _blockRewardDetails = case migration of
+            StateMigrationParametersTrivial -> preBlockRewardDetails
             StateMigrationParametersP3ToP4 migrationParams ->
                 BlockRewardDetailsV1 . makeHashed $ PoolRewards.makePoolRewardsForMigration
                     (epochToBakerStakes (preBirkParameters ^. birkCurrentEpochBakers . unhashed))
                     (epochToBakerStakes (preBirkParameters ^. birkNextEpochBakers . unhashed))
-                    (brdBlocks prePoolRewardDetails)
+                    (brdBlocks preBlockRewardDetails)
                     (rewardPeriodEpochs _tpRewardPeriodLength)
                     _tpMintPerPayday
                 where
                     TimeParametersV1{..} =
                         P4.updateTimeParameters (P4.migrationProtocolUpdateData migrationParams)
 
-    _blockRewardDetails <- getBlockRewardDetails
     -- Construct the release schedule and active bakers from the accounts
     let processBakerAccount (rs,bkrs) account = do
           let rs' = case Map.minViewWithKey (account ^. accountReleaseSchedule . pendingReleases) of

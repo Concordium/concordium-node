@@ -33,7 +33,6 @@ import qualified Control.Monad.Writer.Strict as MTL
 import Data.Foldable
 import Data.Maybe
 import Data.Word
-import Data.ByteString (ByteString)
 import Lens.Micro.Platform
 import qualified Data.Vector as Vec
 import qualified Data.Map.Strict as Map
@@ -84,60 +83,11 @@ import Concordium.Kontrol.Bakers
 
 -- * Birk parameters
 
-data PersistentNextEpochBakers (av :: AccountVersion) where
-    -- |The 'EpochBakers' for the next epoch.
-    PersistentNextEpochBakers :: !(HashedBufferedRef PersistentEpochBakers) -> PersistentNextEpochBakers av
-    -- |The next epoch does not require a change in the 'EpochBakers'.
-    UnchangedPersistentNextEpochBakers :: PersistentNextEpochBakers 'AccountV1
-
-deriving instance Show (PersistentNextEpochBakers av)
-
-instance MonadBlobStore m => MHashableTo m H.Hash (PersistentNextEpochBakers av) where
-  getHashM (PersistentNextEpochBakers hpeb) = getHashM hpeb
-  getHashM UnchangedPersistentNextEpochBakers = getHashM ("UnchangedPersistentNextEpochBakers" :: ByteString)
-
-instance (MonadBlobStore m, IsAccountVersion av) => BlobStorable m (PersistentNextEpochBakers av) where
-    storeUpdate (PersistentNextEpochBakers hpeb) = withAV (accountVersion @av)
-        where
-          withAV SAccountV0 = do
-            (peb, newHPEB) <- storeUpdate hpeb
-            return (peb, PersistentNextEpochBakers newHPEB)
-          withAV SAccountV1 = do
-            (peb, nullableHPEB) <- storeUpdate (Some hpeb)
-            case nullableHPEB of
-                Null -> return (peb, UnchangedPersistentNextEpochBakers)
-                Some newHPEB -> return (peb, PersistentNextEpochBakers newHPEB)
-    storeUpdate UnchangedPersistentNextEpochBakers = do
-        (peb, nullableHPEB) <- storeUpdate Null
-        case nullableHPEB of
-            Null -> return (peb, UnchangedPersistentNextEpochBakers)
-            Some newHPEB -> return (peb, PersistentNextEpochBakers newHPEB)
-    store bps = fst <$> storeUpdate bps
-    load = withAV (accountVersion @av)
-      where
-        withAV :: SAccountVersion av -> Get (m (PersistentNextEpochBakers av))
-        withAV SAccountV0 = do
-            mpeb <- label "Next epoch bakers" load
-            return $! do
-                hpeb <- mpeb
-                return (PersistentNextEpochBakers hpeb)
-        withAV SAccountV1 = do
-            mNullablePEB <- label "Next epoch bakers" load
-            return $! do
-                nullableHPEB <- mNullablePEB
-                case nullableHPEB of
-                    Null -> return UnchangedPersistentNextEpochBakers
-                    Some newHPEB -> return (PersistentNextEpochBakers newHPEB)
-
-instance MonadBlobStore m => Cacheable m (PersistentNextEpochBakers av) where
-    cache (PersistentNextEpochBakers hpeb) = PersistentNextEpochBakers <$> cache hpeb
-    cache UnchangedPersistentNextEpochBakers = return UnchangedPersistentNextEpochBakers
-
 data PersistentBirkParameters (av :: AccountVersion) = PersistentBirkParameters {
     -- |The currently-registered bakers.
     _birkActiveBakers :: !(BufferedRef (PersistentActiveBakers av)),
     -- |The bakers that will be used for the next epoch.
-    _birkNextEpochBakers :: !(PersistentNextEpochBakers av),
+    _birkNextEpochBakers :: !(HashedBufferedRef PersistentEpochBakers),
     -- |The bakers for the current epoch.
     _birkCurrentEpochBakers :: !(HashedBufferedRef PersistentEpochBakers),
     -- |The seed state used to derive the leadership election nonce.
@@ -147,17 +97,10 @@ data PersistentBirkParameters (av :: AccountVersion) = PersistentBirkParameters 
 makeLenses ''PersistentBirkParameters
 
 -- |Serialize 'PersistentBirkParameters' in V0 format.
-putBirkParametersV0 :: forall m av. (MonadBlobStore m, MonadPut m, IsAccountVersion av) => PersistentBirkParameters av -> m ()
+putBirkParametersV0 :: forall m av. (MonadBlobStore m, MonadPut m) => PersistentBirkParameters av -> m ()
 putBirkParametersV0 PersistentBirkParameters{..} = do
         sPut _birkSeedState
-        (_ :: ()) <- case accountVersion @av of
-            SAccountV0 -> case _birkNextEpochBakers of
-                PersistentNextEpochBakers neb -> putEpochBakers =<< refLoad neb
-            SAccountV1 -> case _birkNextEpochBakers of
-                PersistentNextEpochBakers neb -> do
-                    liftPut $ putWord8 1
-                    putEpochBakers =<< refLoad neb
-                UnchangedPersistentNextEpochBakers -> liftPut $ putWord8 0
+        putEpochBakers =<< refLoad _birkNextEpochBakers
         putEpochBakers =<< refLoad _birkCurrentEpochBakers
 
 instance MonadBlobStore m => MHashableTo m H.Hash (PersistentBirkParameters av) where
@@ -211,8 +154,8 @@ makePersistentBirkParameters ::
     (IsAccountVersion av, MonadBlobStore m) => Basic.BasicBirkParameters av -> m (PersistentBirkParameters av)
 makePersistentBirkParameters bbps = do
     _birkActiveBakers <- refMake =<< makePersistentActiveBakers (Basic._birkActiveBakers bbps)
-    _birkNextEpochBakers <- PersistentNextEpochBakers <$>
-        (refMake =<< makePersistentEpochBakers (_unhashed $ Basic._birkNextEpochBakers bbps))
+    _birkNextEpochBakers <-
+        refMake =<< makePersistentEpochBakers (_unhashed $ Basic._birkNextEpochBakers bbps)
     _birkCurrentEpochBakers <- refMake =<< makePersistentEpochBakers (_unhashed (Basic._birkCurrentEpochBakers bbps))
     let _birkSeedState = Basic._birkSeedState bbps
     return $ PersistentBirkParameters{..}
@@ -723,9 +666,7 @@ doGetCurrentCapitalDistribution pbs = do
 doGetNextEpochBakers :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m FullBakers
 doGetNextEpochBakers pbs = do
     bsp <- loadPBS pbs
-    case _birkNextEpochBakers (bspBirkParameters bsp) of
-        PersistentNextEpochBakers hpeb -> epochToFullBakers =<< refLoad hpeb
-        UnchangedPersistentNextEpochBakers -> doGetCurrentEpochBakers pbs
+    epochToFullBakers =<< refLoad (bspBirkParameters bsp ^. birkNextEpochBakers)
 
 doGetSlotBakers :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> Timestamp -> Duration -> Slot -> m FullBakers
 doGetSlotBakers pbs genesisTime slotDuration slot = do
@@ -737,9 +678,7 @@ doGetSlotBakers pbs genesisTime slotDuration slot = do
             slotTime = addDuration genesisTime (fromIntegral slot * slotDuration)
         case compare slotEpoch (epoch + 1) of
             LT -> epochToFullBakers =<< refLoad (bps ^. birkCurrentEpochBakers)
-            EQ -> case bps ^. birkNextEpochBakers of
-                UnchangedPersistentNextEpochBakers -> epochToFullBakers =<< refLoad (bps ^. birkCurrentEpochBakers)
-                PersistentNextEpochBakers neb -> epochToFullBakers =<< refLoad neb
+            EQ -> epochToFullBakers =<< refLoad (bps ^. birkNextEpochBakers)
             GT -> do
                 activeBids <- Trie.keysAsc . _activeBakers =<< refLoad (bps ^. birkActiveBakers)
                 let resolveBaker (BakerId aid) = Accounts.indexedAccount aid (bspAccounts bs) >>= \case
@@ -820,22 +759,19 @@ doTransitionEpochBakers pbs newEpoch = do
         -- Get the baker info. The list of baker ids is reversed in the input so the accumulated list
         -- is in ascending order.
         (bsp', bkrs) <- foldM accumBakers (bsp, []) (reverse curActiveBIDs)
-        (newCurrentBakers, newNextBakers) <- case _birkNextEpochBakers oldBPs of
-            UnchangedPersistentNextEpochBakers ->
-                return $ (_birkCurrentEpochBakers oldBPs, _birkNextEpochBakers oldBPs)
-            PersistentNextEpochBakers nebRef -> do
-                newBakerInfos <- refMake . BakerInfos . Vec.fromList $ fst <$> bkrs
-                let stakesVec = Vec.fromList $ snd <$> bkrs
-                newBakerStakes <- refMake (BakerStakes stakesVec)
-                neb <- refLoad nebRef
-                -- If the baker infos structure has the same hash as the previous one,
-                -- use that to avoid duplicate storage.
-                _bakerInfos <- secondIfEqual newBakerInfos (_bakerInfos neb)
-                -- Also for stakes. This is less likely to be useful, but it's pretty cheap to check,
-                -- so why not?
-                _bakerStakes <- secondIfEqual newBakerStakes (_bakerStakes neb)
-                let _bakerTotalStake = sum stakesVec
-                (nebRef,) . PersistentNextEpochBakers <$> refMake PersistentEpochBakers{..}
+        newBakerInfos <- refMake . BakerInfos . Vec.fromList $ fst <$> bkrs
+        let stakesVec = Vec.fromList $ snd <$> bkrs
+        newBakerStakes <- refMake (BakerStakes stakesVec)
+        let newCurrentBakers = oldBPs ^. birkNextEpochBakers
+        neb <- refLoad newCurrentBakers
+        -- If the baker infos structure has the same hash as the previous one,
+        -- use that to avoid duplicate storage.
+        _bakerInfos <- secondIfEqual newBakerInfos (_bakerInfos neb)
+        -- Also for stakes. This is less likely to be useful, but it's pretty cheap to check,
+        -- so why not?
+        _bakerStakes <- secondIfEqual newBakerStakes (_bakerStakes neb)
+        let _bakerTotalStake = sum stakesVec
+        newNextBakers <- refMake PersistentEpochBakers{..}
         storePBS pbs bsp'{bspBirkParameters = (bspBirkParameters bsp') {
             _birkCurrentEpochBakers = newCurrentBakers,
             _birkNextEpochBakers = newNextBakers
@@ -2264,12 +2200,9 @@ doRotateCurrentEpochBakers
     -> m (PersistentBlockState pv)
 doRotateCurrentEpochBakers pbs = do
     bsp <- loadPBS pbs
-    case bspBirkParameters bsp ^. birkNextEpochBakers of
-        PersistentNextEpochBakers newCurrentBakers -> do
-            let newBirkParams = (bspBirkParameters bsp){_birkCurrentEpochBakers = newCurrentBakers}
-            storePBS pbs bsp{bspBirkParameters = newBirkParams}
-        UnchangedPersistentNextEpochBakers ->
-            return pbs
+    let oldBirkParams = bspBirkParameters bsp
+        newBirkParams = oldBirkParams & birkCurrentEpochBakers .~ (oldBirkParams ^. birkNextEpochBakers)
+    storePBS pbs bsp{bspBirkParameters = newBirkParams}
 
 doSetNextEpochBakers
     :: (IsProtocolVersion pv, MonadBlobStore m)
@@ -2282,7 +2215,7 @@ doSetNextEpochBakers pbs bakers = do
     _bakerStakes <- refMake (BakerStakes preBakerStakes)
     let _bakerTotalStake = sum preBakerStakes
     pebRef <- refMake PersistentEpochBakers{..}
-    let newBirkParams = (bspBirkParameters bsp){_birkNextEpochBakers = PersistentNextEpochBakers pebRef}
+    let newBirkParams = (bspBirkParameters bsp){_birkNextEpochBakers = pebRef}
     storePBS pbs bsp{bspBirkParameters = newBirkParams}
       where
         bakers' = Vec.fromList bakers
