@@ -33,6 +33,7 @@ import qualified SchedulerTests.SmartContracts.V1.ErrorCodes (tests)
 import qualified SchedulerTests.SmartContracts.V1.ValidInvalidModules (tests)
 import qualified SchedulerTests.SmartContracts.V1.SelfBalance (tests)
 import qualified SchedulerTests.SmartContracts.V1.Recorder (tests)
+import qualified SchedulerTests.SmartContracts.V1.Iterator (tests)
 import qualified SchedulerTests.SmartContracts.V1.Fallback (tests)
 
 import Test.Hspec
@@ -71,4 +72,5 @@ main = hspec $ do
          SchedulerTests.SmartContracts.V1.ValidInvalidModules.tests
          SchedulerTests.SmartContracts.V1.SelfBalance.tests
          SchedulerTests.SmartContracts.V1.Recorder.tests
+         SchedulerTests.SmartContracts.V1.Iterator.tests
          SchedulerTests.SmartContracts.V1.Fallback.tests
