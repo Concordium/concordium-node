@@ -99,7 +99,7 @@ testCases =
           moduleSource <- BS.readFile iteratorSourceFile
           let modLen = fromIntegral $ BS.length moduleSource
               modRef = Types.ModuleRef (Hash.hash moduleSource)
-              payloadSize = Types.payloadSize (Types.encodePayload (Types.InitContract 0 modRef (InitName "init_counter") (Parameter "")))
+              payloadSize = Types.payloadSize (Types.encodePayload (Types.InitContract 0 modRef (InitName "init_iterator") (Parameter "")))
               -- size of the transaction minus the signatures.
               txSize = Types.transactionHeaderSize + fromIntegral payloadSize
               -- transaction is signed with 1 signature
