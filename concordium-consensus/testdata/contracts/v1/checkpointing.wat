@@ -111,34 +111,29 @@
     (local.set $rv (call $invoke (i32.const 1) (i32.const 0) (local.get $pos)))
     ;; todo: assert that the invocation has failed
     ;; todo: Now check that all state above the invocation is still present and remains the same as before.
+    ;; Check that entry at [00] does not exist i.e. it starts with a set bit.
+    (call $assert_eq_64 (i64.const 0) (i64.clz (call $state_lookup_entry (i32.const 0) (i32.const 2))))
+    ;; Check that no iterator exits. Note. we check here by the id 0 which is the id that the iterator
+    ;; was created with.
+    
     (return (i32.const 0))
   )
 
   ;; This function modifies the following state of contract A.
-  ;; First it writes 8 more bytes to [0].
-  ;; Secondly it creates a new entry at [00] and writes 8 bytes to that entry.
+  ;; First it creates a new entry at [00] and writes 8 bytes to that entry.
   ;; Create an iterator at [0] and advance it by one.
   ;; Finally it returns ok. 
   (func $a_test_one_modify (export "a.test_one_modify") (param i64) (result i32)
-    ;; Declare a local for entry [0].
-    (local $entry i64)
     ;; Declare a local for entry [00].
-    (local $entry_snd i64)
+    (local $entry i64)
     ;; Declare local for storing the iter.
     (local $iter i64) 
     ;; Declaring locals for storing both write results.
     (local $entry_write i32)
-    (local $entry_write_snd i32)
-    ;; Lookup the first entry
-    (local.set $entry (call $state_lookup_entry (i32.const 0) (i32.const 1)))
-    ;; Check that the first bit is unset which indicates that the entry was valid.
-    (call $assert_eq_64 (i64.const 0) (i64.shr_u (local.get $entry) (i64.const 1)))
-    ;; Append 8 more bytes to the entry
-    (local.set $entry_write (call $state_entry_write (local.get $entry) (i32.const 0) (i32.const 8) (i32.const 7)))
     ;; Create new entry at [00].
-    (local.set $entry_snd (call $state_create_entry (i32.const 0) (i32.const 0)))
-    ;; Write 8 zero bytes to entry_snd.
-    (local.set $entry_write_snd (call $state_entry_write (local.get $entry_snd) (i32.const 0) (i32.const 8) (i32.const 0)))
+    (local.set $entry (call $state_create_entry (i32.const 0) (i32.const 0)))
+    ;; Write 8 zero bytes to entry.
+    (local.set $entry_write (call $state_entry_write (local.get $entry) (i32.const 0) (i32.const 8) (i32.const 0)))
     ;; Create an iterator at [0].
     (local.set $iter (call $state_iterate_prefix (i32.const 0) (i32.const 1)))
     ;; Advance the iterator by one.
