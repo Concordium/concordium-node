@@ -1961,8 +1961,11 @@ genesisState gd = case protocolVersion @pv of
             case runGet (getBlockState migration) genesisNewState of
                 Left err -> Left $ "Could not deserialize genesis state: " ++ err
                 Right bs
-                    | hbs ^. blockStateHash /= genesisStateHash -> Left "Could not deserialize genesis state: state hash is incorrect"
+                    | hashShouldMatch && hbs ^. blockStateHash /= genesisStateHash -> Left "Could not deserialize genesis state: state hash is incorrect"
                     | epochLength (bs ^. blockBirkParameters . birkSeedState) /= GenesisData.genesisEpochLength genesisCore -> Left "Could not deserialize genesis state: epoch length mismatch"
                     | otherwise -> Right bs
                     where
                         hbs = hashBlockState bs
+                        hashShouldMatch = case migration of
+                            StateMigrationParametersTrivial{} -> True
+                            StateMigrationParametersP3ToP4{} -> False
