@@ -109,20 +109,21 @@
     (local.set $pos (i32.add (local.get $pos) (i32.const 8)))
     ;; invoke with the amount we were given, and the parameter we were called with.
     (local.set $rv (call $invoke (i32.const 1) (i32.const 0) (local.get $pos)))
-    ;; todo: assert that the invocation has failed
-    ;; todo: Now check that all state above the invocation is still present and remains the same as before.
+    ;; Check that the invocation resulted in TRAP i.e., '0x0006_0000_0000'
+    (call $assert_eq_64 (local.get $rv) (i64.const 25769803776)) ;; ????????
+    ;; now check that all state above the invocation of B is still present and remains the same as before.
     ;; Check that entry at [00] does not exist i.e. it starts with a set bit.
     (call $assert_eq_64 (i64.const 0) (i64.clz (call $state_lookup_entry (i32.const 0) (i32.const 2))))
     ;; Check that no iterator exits. Note. we check here by the id 0 which is the id that the iterator
     ;; was created with.
     
-    (return (i32.const 0))
+    (return (i32.const 0)) ;; return success
   )
 
   ;; This function modifies the following state of contract A.
   ;; First it creates a new entry at [00] and writes 8 bytes to that entry.
   ;; Create an iterator at [0] and advance it by one.
-  ;; Finally it returns ok. 
+  ;; Finally it returns 42.
   (func $a_test_one_modify (export "a.test_one_modify") (param i64) (result i32)
     ;; Declare a local for entry [00].
     (local $entry i64)
@@ -139,7 +140,7 @@
     ;; Advance the iterator by one.
     (call $state_iterator_next (local.get $iter))
     (drop)
-    (return (i32.const 0)) ;; return success. 
+    (return (i32.const 42)) ;; return 42
   )    
 
   ;; Contract B
@@ -191,7 +192,8 @@
     (local.set $pos (i32.add (local.get $pos) (i32.const 8)))
     ;; invoke with the amount we were given, and the parameter we were called with.
     (local.set $rv (call $invoke (i32.const 1) (i32.const 0) (local.get $pos)))
-    ;; todo; check that A returned success
+    ;; Check that contract A 'a.a_test_one_modify' returned '42'
+    (call $assert_eq_64 (i64.const 42) (local.get $rv))
     ;; Finally we impose a runtime failure letting dropping the call stack back to the initial call
     ;; from Contract A's "a_test_one" function.
     unreachable
