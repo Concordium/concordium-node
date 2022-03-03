@@ -715,7 +715,12 @@ impl ConsensusContainer {
         )))
     }
 
-    pub fn get_pool_status(&self, block_hash: &str, l_pool: bool, baker_id: u64) -> anyhow::Result<String> {
+    pub fn get_pool_status(
+        &self,
+        block_hash: &str,
+        l_pool: bool,
+        baker_id: u64,
+    ) -> anyhow::Result<String> {
         let block_hash = CString::new(block_hash).unwrap();
         Ok(wrap_c_call_string!(self, consensus, |consensus| getPoolStatus(
             consensus,
