@@ -57,7 +57,7 @@
 
   ;; First store the address and entrypoint to invoke of contract B at [], then
   ;; modify state and invoke B where we forward the parameters for calling "a.a_test_one_modify"..
-  (func $a_test_one (export "a.test_one") (param $amount i64) (result i32)
+  (func $a_test_one (export "a.a_test_one") (param $amount i64) (result i32)
     ;; Declare a local for storing the entry we're about to write to.
     (local $entry i64)
     ;; Declare a local for storing the write result
@@ -65,6 +65,15 @@
     ;; Declare locals for invoking contract B together with the return value.
     (local $pos i32)
     (local $rv i64)
+
+    ;; Set some initial state
+    ;; Create an entry at [0] and write some bytes to it.
+    (local.set $entry (call $state_create_entry (i32.const 0) (i32.const 1)))
+    ;; Write 8 zero bytes to the entry.
+    (local.set $entry_write (call $state_entry_write (local.get $entry) (i32.const 0) (i32.const 8) (i32.const 0)))
+    ;; Check that all 8 zero bytes were written to the entry.
+    (call $assert_eq (i32.const 8) (local.get $entry_write))
+    
     ;; store the address and entrypoint "b.test_one" of contract B
     (call $get_parameter_section
           (i32.const 0)
@@ -76,12 +85,6 @@
           (i32.const 0)
           (i32.const 16)
           (i32.const 0))
-    ;; Create an entry at [0] and write some bytes to it.
-    (local.set $entry (call $state_create_entry (i32.const 0) (i32.const 1)))
-    ;; Write 8 zero bytes to the entry.
-    (local.set $entry_write (call $state_entry_write (local.get $entry) (i32.const 0) (i32.const 8) (i32.const 0)))
-    ;; Check that all 8 zero bytes were written to the entry.
-    (call $assert_eq (i32.const 8) (local.get $entry_write))
     ;; Call contract B's "test_one" receive method which will lead to failure.
     ;; Read contract B's address. Assume 16 bytes are stored in the entry.
     (call $state_entry_read
@@ -100,17 +103,21 @@
           (i32.const 0))
     (local.set $pos (i32.add (local.get $pos) (call $get_parameter_size (i32.const 0))))
     ;; write length of the entrypoint
-    (i32.store16 (local.get $pos) (call $get_ep_size))
+    (i32.store16 (local.get $pos) (i32.const 10)) ;; 10 is the length of 'b_test_one' in bytes.
     (local.set $pos (i32.add (local.get $pos) (i32.const 2)))
-    (call $get_ep (local.get $pos))
-    (local.set $pos (i32.add (local.get $pos) (call $get_ep_size)))
+    (call $get_parameter_section
+          (i32.const 0)
+          (local.get $pos)
+          (i32.const 10)
+          (i32.const 57)) ;; the offset in the parameters for the actual 'b_test_one'
+    (local.set $pos (i32.add (local.get $pos) (i32.const 10)))
     ;; write amount
     (i64.store (local.get $pos) (local.get $amount))
     (local.set $pos (i32.add (local.get $pos) (i32.const 8)))
     ;; invoke with the amount we were given, and the parameter we were called with.
     (local.set $rv (call $invoke (i32.const 1) (i32.const 0) (local.get $pos)))
     ;; Check that the invocation resulted in TRAP i.e., '0x0006_0000_0000'
-    (call $assert_eq_64 (local.get $rv) (i64.const 25769803776)) ;; ????????
+    (call $assert_eq_64 (local.get $rv) (i64.const 25769803776))
     ;; now check that all state above the invocation of B is still present and remains the same as before.
     ;; Check that entry at [00] does not exist i.e. it starts with a set bit.
     (call $assert_eq_64 (i64.const 0) (i64.clz (call $state_lookup_entry (i32.const 0) (i32.const 2))))
@@ -124,7 +131,7 @@
   ;; First it creates a new entry at [00] and writes 8 bytes to that entry.
   ;; Create an iterator at [0] and advance it by one.
   ;; Finally it returns 42.
-  (func $a_test_one_modify (export "a.test_one_modify") (param i64) (result i32)
+  (func $a_test_one_modify (export "a.a_test_one_modify") (param i64) (result i32)
     ;; Declare a local for entry [00].
     (local $entry i64)
     ;; Declare local for storing the iter.
@@ -146,22 +153,11 @@
   ;; Contract B
     
   (func $init_b (export "init_b") (param i64) (result i32)    
-    ;; store the address of contract A at [].
-    (call $get_parameter_section
-          (i32.const 0)
-          (i32.const 0)
-          (i32.const 16)
-          (i32.const 0))
-    (call $state_entry_write
-          (call $state_create_entry (i32.const 0) (i32.const 0))
-          (i32.const 0)
-          (i32.const 16)
-          (i32.const 0))
     (return (i32.const 0)) ;; Successful init
   )
 
   ;; Receive method of contract B.
-  ;; This function calls Contract A's receive method "a.test_one_modify" and upon completion of
+  ;; This function calls Contract A's receive method "a.a_test_one_modify" and upon completion of
   ;; that call this function will produce an runtime error.
   (func $b_test_one (export "b.b_test_one") (param $amount i64) (result i32)
     (local $pos i32)
@@ -183,10 +179,14 @@
           (i32.const 0))
     (local.set $pos (i32.add (local.get $pos) (call $get_parameter_size (i32.const 0))))
     ;; write length of the entrypoint
-    (i32.store16 (local.get $pos) (call $get_ep_size))
+    (i32.store16 (local.get $pos) (i32.const 17)) ;; length of 'a_test_one_modify'
+    ;; Bump the pointer.
     (local.set $pos (i32.add (local.get $pos) (i32.const 2)))
-    (call $get_ep (local.get $pos))
-    (local.set $pos (i32.add (local.get $pos) (call $get_ep_size)))
+    (call $get_parameter_section
+          (i32.const 1)
+          (local.get $pos)
+          (i32.const 17)
+          (i32.const 18)) ;; offset into the parameters receive method.
     ;; write amount
     (i64.store (local.get $pos) (local.get $amount))
     (local.set $pos (i32.add (local.get $pos) (i32.const 8)))

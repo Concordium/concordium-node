@@ -66,7 +66,7 @@ testCases =
         , (SuccessWithSummary initializationCostCheck, checkpointingSpec 0)
         )
       ,
-        ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "a.test_one" testOneArgs
+        ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "a.a_test_one" testOneArgs
                 , metadata = makeDummyHeader alesAccount 4 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
