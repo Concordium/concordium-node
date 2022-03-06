@@ -93,7 +93,6 @@ runTransactions = do
           dummyChainMeta
           maxBound
           maxBound
-          slotDuration
           initialBlockState
   return (ftAdded, ftFailed)
 

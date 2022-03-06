@@ -72,7 +72,6 @@ testInit proxy = do
             chainMeta
             maxBound
             maxBound
-            slotDuration
             initialBlockState
     let gs = finState ^. Types.ssBlockState
     case invariantBlockState @pv gs (finState ^. Types.schedulerExecutionCosts)of

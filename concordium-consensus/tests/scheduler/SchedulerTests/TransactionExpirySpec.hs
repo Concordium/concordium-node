@@ -109,7 +109,6 @@ testExpiryTime expiry = do
             dummyChainMeta { Types.slotTime = slotTime }
             maxBound
             maxBound
-            slotDuration
             initialBlockState
     let gstate = finState ^. Types.ssBlockState
     case invariantBlockState gstate (finState ^. Types.schedulerExecutionCosts) of

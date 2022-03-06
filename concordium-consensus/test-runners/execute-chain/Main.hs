@@ -41,6 +41,7 @@ main = do
             hFlush logFile
     let dataDir = "data" </> ("db" ++ show now)
     createDirectoryIfMissing True dataDir
+    {-
     let config ::
             MultiVersionConfiguration
                 (PairGSConfig DiskTreeDiskBlockConfig MemoryTreeMemoryBlockConfig)
@@ -52,6 +53,19 @@ main = do
                   mvcFinalizationConfig = NoFinalization,
                   mvcRuntimeParameters = defaultRuntimeParameters{rpTransactionsPurgingDelay = 0}
                 }
+    -}
+    let config ::
+            MultiVersionConfiguration
+                DiskTreeDiskBlockConfig
+                (NoFinalization ThreadTimer)
+        config =
+            MultiVersionConfiguration
+                { mvcStateConfig = DiskStateConfig dataDir,
+                  mvcTXLogConfig = (),
+                  mvcFinalizationConfig = NoFinalization,
+                  mvcRuntimeParameters = defaultRuntimeParameters{rpTransactionsPurgingDelay = 0}
+                }
+
     let callbacks =
             Callbacks
                 { broadcastBlock = \_ _ -> return (),

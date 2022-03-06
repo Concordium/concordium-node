@@ -137,7 +137,6 @@ runWithIntermediateStates TestParameters{..} transactions = do
                                     tpChainMeta
                                     tpEnergyLimit
                                     tpMaxCredentials
-                                    slotDuration
                                     st
                             in if length ftAdded + length ftFailed + length ftUnprocessed == 1
                                   && (length ftFailedCredentials + length ftUnprocessedCredentials == 0)

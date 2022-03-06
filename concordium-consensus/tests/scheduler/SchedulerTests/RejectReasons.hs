@@ -103,7 +103,6 @@ testRejectReasons = do
             chainMeta
             maxBound
             maxBound
-            slotDuration
             initialBlockState
     let gs = finState ^. Types.ssBlockState
     case invariantBlockState gs (finState ^. Types.schedulerExecutionCosts) of

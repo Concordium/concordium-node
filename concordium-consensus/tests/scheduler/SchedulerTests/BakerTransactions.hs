@@ -245,7 +245,6 @@ runWithIntermediateStates = do
                                     dummyChainMeta
                                     maxBound
                                     maxBound
-                                    slotDuration
                                     st
                             in (acc ++ [(getResults ftAdded, ftFailed, st' ^. Types.ssBlockState . blockBirkParameters)], st' ^. Types.schedulerBlockState, fees + st' ^. Types.schedulerExecutionCosts))
                          ([], initialBlockState, 0)
