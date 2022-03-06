@@ -12,7 +12,7 @@
   (import "concordium" "state_entry_read" (func $state_entry_read (param $entry i64) (param $write_location i32) (param $length i32) (param $offset i32) (result i32)))
   (import "concordium" "state_lookup_entry" (func $state_lookup_entry (param $key_start i32) (param $key_length i32) (result i64)))
   (import "concordium" "state_entry_write" (func $state_entry_write (param $entry i64) (param $read_location i32) (param $length i32) (param $offset i32) (result i32)))
-  (import "concordium" "state_delete_entry" (func $state_delete_entry (param $entry i64) (result i32)))
+  (import "concordium" "state_delete_entry" (func $state_delete_entry (param $key_start i32) (param $key_length i32) (result i32)))
   (import "concordium" "state_delete_prefix" (func $state_delete_prefix (param $key_start i32) (param $key_length i32) (result i32)))
     
   ;; Iterator functions
@@ -48,7 +48,8 @@
     ;; Branch once
     (call $state_create_entry (i32.const 0) (i32.const 3))
     ;; Branch twice
-    (call $state_create_entry (i32.const 1) (i32.const 1))
+    (i32.store (i32.const 0) (i32.const 1))
+    (call $state_create_entry (i32.const 0) (i32.const 1))
     ;; pop the stack
     (drop)
     (drop)
@@ -129,7 +130,7 @@
     (local.set $iter (call $state_iterate_prefix (i32.const 0) (i32.const 2)))
     ;; Try delete [000] which should be locked
     (local.set $entry_locked (call $state_lookup_entry (i32.const 0) (i32.const 3)))
-    (call $assert_eq (call $state_delete_entry (local.get $entry_locked)) (i32.xor (i32.const 2147483647) (i32.shl (i32.const 1) (i32.const 31))))
+    (call $assert_eq (call $state_delete_entry (i32.const 0) (i32.const 3)) (i32.const 0))
     ;; Try add [0000] which should be locked.
     (call $assert_eq_64 (call $state_create_entry (i32.const 0) (i32.const 4)) (i64.xor (i64.const 9223372036854775807) (i64.shl (i64.const 1) (i64.const 63))))
     ;; Try delete [0] which should not be ok.
@@ -137,7 +138,7 @@
     (call $assert_eq (i32.const 0) (call $state_delete_prefix (i32.const 0) (i32.const 0)))
     ;; Try delete [1] which should be ok.
     (local.set $entry (call $state_lookup_entry (i32.const 1) (i32.const 1)))
-    (call $assert_eq (call $state_delete_entry (local.get $entry)) (i32.const 1))
+    (call $assert_eq (call $state_delete_entry (i32.const 1) (i32.const 1)) (i32.const 1))
     ;; Try add [1] again which should be ok.
     ;; It suffices to check that the result is positive here since an 'ok' result is comprised by a 0 byte and then the entry id.
     (call $assert_positive_64 (call $state_create_entry (i32.const 1) (i32.const 1)))
