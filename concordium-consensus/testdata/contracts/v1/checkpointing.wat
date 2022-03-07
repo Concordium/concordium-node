@@ -167,7 +167,7 @@
         (i32.const 0))
     ;; bump the pointer
     (local.set $pos (i32.add (local.get $pos) (i32.const 16)))
-    ;; read the empty param
+    ;; write the length of the parameters (0)
     (call $get_parameter_section
         (i32.const 0)
         (local.get $pos)
@@ -177,6 +177,14 @@
     (local.set $pos (i32.add (local.get $pos) (i32.const 2)))
     ;; we assume the length is '0' so we do not have to read it.
     ;; read the length of 'a_test_one_modify' assumed length is (17)
+    (call $get_parameter_section
+        (i32.const 0)
+        (local.get $pos)
+        (i32.const 2)
+        (local.get $pos))
+    ;; bump the pointer
+    (local.set $pos (i32.add (local.get $pos) (i32.const 2)))
+    ;; read the receive method
     (call $get_parameter_section
         (i32.const 0)
         (local.get $pos)
