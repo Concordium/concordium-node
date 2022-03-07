@@ -74,49 +74,17 @@
     ;; Check that all 8 zero bytes were written to the entry.
     (call $assert_eq (i32.const 8) (local.get $entry_write))
     
-    ;; store the address and entrypoint "b.test_one" of contract B
-    (call $get_parameter_section
-          (i32.const 0)
-          (i32.const 0)
-          (i32.const 16)
-          (i32.const 0))
     (call $state_entry_write
           (call $state_create_entry (i32.const 0) (i32.const 0))
           (i32.const 0)
           (i32.const 16)
           (i32.const 0))
-    ;; Read contract B's address. Assume 16 bytes are stored in the entry.
-    (call $state_entry_read
-          (call $state_lookup_entry (i32.const 0) (i32.const 0))
-          (local.get $pos)
-          (i32.const 16)
-          (i32.const 0))
-    (local.set $pos (i32.add (local.get $pos) (i32.const 16)))
-    (i32.store16 (local.get $pos) (call $get_parameter_size (i32.const 0)))
-    (local.set $pos (i32.add (local.get $pos) (i32.const 2)))
-    ;; write the parameter
     (call $get_parameter_section
           (i32.const 0)
-          (local.get $pos)
+          (i32.const 0)
           (call $get_parameter_size (i32.const 0))
           (i32.const 0))
-    (local.set $pos (i32.add (local.get $pos) (call $get_parameter_size (i32.const 0))))
-    ;; write length of the entrypoint
-    (i32.store16 (local.get $pos) (i32.const 10)) ;; 10 is the length of 'b_test_one' in bytes.
-    (local.set $pos (i32.add (local.get $pos) (i32.const 2)))
-    ;; write the entrypoint
-    (call $get_parameter_section
-          (i32.const 0)
-          (local.get $pos)
-          (i32.const 10)
-          (i32.const 57)) ;; the offset in the parameters for the actual 'b_test_one'
-    ;; bump pointer
-    (local.set $pos (i32.add (local.get $pos) (i32.const 10)))
-    ;; write amount
-    (i64.store (local.get $pos) (local.get $amount))
-    (local.set $pos (i32.add (local.get $pos) (i32.const 8)))
-    ;; invoke with the amount we were given, and the parameter we were called with.
-    (local.set $rv (call $invoke (i32.const 1) (i32.const 0) (local.get $pos)))
+    (local.set $rv (call $invoke (i32.const 1) (i32.const 0) (call $get_parameter_size (i32.const 0))))
     ;; Check that the invocation resulted in TRAP i.e., '0x0006_0000_0000'
     (call $assert_eq_64 (local.get $rv) (i64.const 25769803776))
     ;; now check that all state above the invocation of B is still present and remains the same as before.
@@ -159,45 +127,13 @@
   (func $b_test_one (export "b.b_test_one") (param $amount i64) (result i32)
     (local $pos i32)
     (local $rv i64)
-    ;; Read contract A's address.
     (call $get_parameter_section
         (i32.const 0)
         (i32.const 0)
-        (i32.const 16)
+        (call $get_parameter_size (i32.const 0))
         (i32.const 0))
-    ;; bump the pointer
-    (local.set $pos (i32.add (local.get $pos) (i32.const 16)))
-    ;; write the length of the parameters (0)
-    (call $get_parameter_section
-        (i32.const 0)
-        (local.get $pos)
-        (i32.const 2)
-        (local.get $pos))
-    ;; bump the pointer
-    (local.set $pos (i32.add (local.get $pos) (i32.const 2)))
-    ;; we assume the length is '0' so we do not have to read it.
-    ;; read the length of 'a_test_one_modify' assumed length is (17)
-    (call $get_parameter_section
-        (i32.const 0)
-        (local.get $pos)
-        (i32.const 2)
-        (local.get $pos))
-    ;; bump the pointer
-    (local.set $pos (i32.add (local.get $pos) (i32.const 2)))
-    ;; read the receive method
-    (call $get_parameter_section
-        (i32.const 0)
-        (local.get $pos)
-        (i32.const 17)
-        (local.get $pos))
-    ;; bump the pointer
-    (local.set $pos (i32.add (local.get $pos) (i32.const 17)))
-    ;; store the amount
-    (i64.store (local.get $pos) (local.get $amount))
-    ;; bump the pointer
-    (local.set $pos (i32.add (local.get $pos) (i32.const 8)))   
     ;; invoke with the amount we were given, and the parameter we were called with.
-    (local.set $rv (call $invoke (i32.const 1) (i32.const 0) (local.get $pos)))
+    (local.set $rv (call $invoke (i32.const 1) (i32.const 0) (call $get_parameter_size (i32.const 0))))
     ;; Finally we impose a runtime failure here.
     unreachable
   )

@@ -91,7 +91,7 @@ testCases =
           putWord16le 0 -- length of the empty parameter
           putWord16le (fromIntegral (BSS.length "a_test_one_modify"))
           putByteString "a_test_one_modify" -- entrypoint name
---          putWord64le 0 -- amount
+          putWord64le 0 -- amount
     checkpointingSpec _ _ = return ()
     deploymentCostCheck :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
     deploymentCostCheck _ Types.TransactionSummary{..} = do
