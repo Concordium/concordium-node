@@ -389,6 +389,10 @@ class (StaticInformation m, ContractStateOperations m, IsProtocolVersion pv) => 
 
   getCurrentContractInstance :: ContractAddress -> m (Maybe (UInstanceInfo m))
 
+  -- |Execute the given function on the state of a V1 smart contract, if the state is changed
+  -- up to this point in the transaction. Returns Nothing if the instance was not in the changeset.
+  onV1StateIfChanged :: ContractAddress -> (UpdatableContractState GSWasm.V1 -> m a) -> m (Maybe a)
+
   -- |Get the current total public balance of an account.
   -- This accounts for any pending changes in the course of execution of the transaction.
   -- This includes any funds that cannot be spent due to lock-up or baking.
@@ -928,6 +932,11 @@ instance (IsProtocolVersion pv, StaticInformation m, AccountOperations m, Contra
            Just (_, delta, newmodel) ->
              let amnt = applyAmountDelta delta (iiBalance inst)
              in return (Just . InstanceInfoV1 $ inst {iiBalance = amnt, iiState = maybe (Frozen (iiState inst)) Thawed newmodel})
+
+  onV1StateIfChanged addr f =
+    use (changeSet . instanceV1Updates . at' addr) >>= \case
+      Just (_, _, Just x) -> Just <$> f x
+      _ -> return Nothing
 
   getCurrentContractInstanceState istance = do
     newStates <- use (changeSet . instanceV1Updates)

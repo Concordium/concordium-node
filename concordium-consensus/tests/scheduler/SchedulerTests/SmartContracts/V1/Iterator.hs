@@ -59,27 +59,27 @@ testCases =
                 , metadata = makeDummyHeader alesAccount 2 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
-        , (SuccessWithSummary initializationCostCheck, iteratorSpec 0)
+        , (SuccessWithSummary initializationCostCheck, iteratorSpec)
         )
       ,
         ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "iterator.iteratetest" BSS.empty
                 , metadata = makeDummyHeader alesAccount 3 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
-        , (SuccessWithSummary ensureSuccess, iteratorSpec 0)
+        , (SuccessWithSummary ensureSuccess, iteratorSpec)
         )
       ,
         ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "iterator.lockingtest" BSS.empty
                 , metadata = makeDummyHeader alesAccount 4 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
-        , (SuccessWithSummary ensureSuccess, iteratorSpec 0)
+        , (SuccessWithSummary ensureSuccess, iteratorSpec)
         )
       ]
     }
   ]
   where
-    iteratorSpec _ _ = return ()
+    iteratorSpec _ = return ()
     deploymentCostCheck :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
     deploymentCostCheck _ Types.TransactionSummary{..} = do
       checkSuccess "Module deployment failed: " tsResult
