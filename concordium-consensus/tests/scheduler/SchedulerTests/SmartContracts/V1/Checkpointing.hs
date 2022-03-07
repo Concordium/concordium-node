@@ -27,6 +27,7 @@ import Concordium.Types.DummyData
 import Concordium.Crypto.DummyData
 
 import SchedulerTests.TestUtils
+import Debug.Trace
 
 initialBlockState :: BlockState PV4
 initialBlockState = blockStateWithAlesAccount
@@ -87,9 +88,10 @@ testCases =
     forwardParameter = runPut $ do
           putWord64le 0 -- index of contract A
           putWord64le 0 -- subindex of the counter contract
+          putWord16le 0 -- length of the empty parameter
           putWord16le (fromIntegral (BSS.length "a_test_one_modify"))
           putByteString "a_test_one_modify" -- entrypoint name
-          putWord16le 0 -- length of parameter
+--          putWord64le 0 -- amount
     checkpointingSpec _ _ = return ()
     deploymentCostCheck :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
     deploymentCostCheck _ Types.TransactionSummary{..} = do
@@ -124,7 +126,10 @@ testCases =
     ensureSuccess :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
     ensureSuccess _ Types.TransactionSummary{..} = checkSuccess "Update failed" tsResult
     checkSuccess msg Types.TxReject{..} = assertFailure $ msg ++ show vrRejectReason
-    checkSuccess _ _ = return ()
+    checkSuccess msg Types.TxSuccess{..} = if (length vrEvents) == 2 then return ()
+      else do
+        traverse (\event -> traceM ("Event: " ++ show event)) vrEvents
+        assertFailure $ "Actual length of events " ++ show (length vrEvents) ++ " was not as expected."
 
 tests :: Spec
 tests = describe "V1: Checkpointing." $

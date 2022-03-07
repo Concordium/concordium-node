@@ -85,7 +85,6 @@
           (i32.const 0)
           (i32.const 16)
           (i32.const 0))
-    ;; Call contract B's "test_one" receive method which will lead to failure.
     ;; Read contract B's address. Assume 16 bytes are stored in the entry.
     (call $state_entry_read
           (call $state_lookup_entry (i32.const 0) (i32.const 0))
@@ -105,11 +104,13 @@
     ;; write length of the entrypoint
     (i32.store16 (local.get $pos) (i32.const 10)) ;; 10 is the length of 'b_test_one' in bytes.
     (local.set $pos (i32.add (local.get $pos) (i32.const 2)))
+    ;; write the entrypoint
     (call $get_parameter_section
           (i32.const 0)
           (local.get $pos)
           (i32.const 10)
           (i32.const 57)) ;; the offset in the parameters for the actual 'b_test_one'
+    ;; bump pointer
     (local.set $pos (i32.add (local.get $pos) (i32.const 10)))
     ;; write amount
     (i64.store (local.get $pos) (local.get $amount))
@@ -121,16 +122,12 @@
     ;; now check that all state above the invocation of B is still present and remains the same as before.
     ;; Check that entry at [00] does not exist i.e. it starts with a set bit.
     (call $assert_eq_64 (i64.const 0) (i64.clz (call $state_lookup_entry (i32.const 0) (i32.const 2))))
-    ;; Check that no iterator exits. Note. we check here by the id 0 which is the id that the iterator
-    ;; was created with.
-    
     (return (i32.const 0)) ;; return success
   )
 
   ;; This function modifies the following state of contract A.
   ;; First it creates a new entry at [00] and writes 8 bytes to that entry.
   ;; Create an iterator at [0] and advance it by one.
-  ;; Finally it returns 42.
   (func $a_test_one_modify (export "a.a_test_one_modify") (param i64) (result i32)
     ;; Declare a local for entry [00].
     (local $entry i64)
@@ -147,7 +144,7 @@
     ;; Advance the iterator by one.
     (call $state_iterator_next (local.get $iter))
     (drop)
-    (return (i32.const 42)) ;; return 42
+    (return (i32.const 0)) ;; return success.
   )    
 
   ;; Contract B
@@ -162,40 +159,38 @@
   (func $b_test_one (export "b.b_test_one") (param $amount i64) (result i32)
     (local $pos i32)
     (local $rv i64)
-    ;; Read contract A's address. Assume 16 bytes are stored in the entry.
-    (call $state_entry_read
-          (call $state_lookup_entry (i32.const 0) (i32.const 0))
-          (local.get $pos)
-          (i32.const 16)
-          (i32.const 0))
+    ;; Read contract A's address.
+    (call $get_parameter_section
+        (i32.const 0)
+        (i32.const 0)
+        (i32.const 16)
+        (i32.const 0))
+    ;; bump the pointer
     (local.set $pos (i32.add (local.get $pos) (i32.const 16)))
-    (i32.store16 (local.get $pos) (call $get_parameter_size (i32.const 0)))
-    (local.set $pos (i32.add (local.get $pos) (i32.const 2)))
-    ;; write the parameter
+    ;; read the empty param
     (call $get_parameter_section
-          (i32.const 0)
-          (local.get $pos)
-          (call $get_parameter_size (i32.const 0))
-          (i32.const 0))
-    (local.set $pos (i32.add (local.get $pos) (call $get_parameter_size (i32.const 0))))
-    ;; write length of the entrypoint
-    (i32.store16 (local.get $pos) (i32.const 17)) ;; length of 'a_test_one_modify'
-    ;; Bump the pointer.
+        (i32.const 0)
+        (local.get $pos)
+        (i32.const 2)
+        (local.get $pos))
+    ;; bump the pointer
     (local.set $pos (i32.add (local.get $pos) (i32.const 2)))
+    ;; we assume the length is '0' so we do not have to read it.
+    ;; read the length of 'a_test_one_modify' assumed length is (17)
     (call $get_parameter_section
-          (i32.const 1)
-          (local.get $pos)
-          (i32.const 17)
-          (i32.const 18)) ;; offset into the parameters receive method.
-    ;; write amount
+        (i32.const 0)
+        (local.get $pos)
+        (i32.const 17)
+        (local.get $pos))
+    ;; bump the pointer
+    (local.set $pos (i32.add (local.get $pos) (i32.const 17)))
+    ;; store the amount
     (i64.store (local.get $pos) (local.get $amount))
-    (local.set $pos (i32.add (local.get $pos) (i32.const 8)))
+    ;; bump the pointer
+    (local.set $pos (i32.add (local.get $pos) (i32.const 8)))   
     ;; invoke with the amount we were given, and the parameter we were called with.
     (local.set $rv (call $invoke (i32.const 1) (i32.const 0) (local.get $pos)))
-    ;; Check that contract A 'a.a_test_one_modify' returned '42'
-    (call $assert_eq_64 (i64.const 42) (local.get $rv))
-    ;; Finally we impose a runtime failure letting dropping the call stack back to the initial call
-    ;; from Contract A's "a_test_one" function.
+    ;; Finally we impose a runtime failure here.
     unreachable
   )
 
