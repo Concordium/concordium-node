@@ -1159,7 +1159,7 @@ getPoolStatus cptr blockcstr lpool bid = do
         Nothing -> jsonCString AE.Null
         Just bh -> jsonQuery cptr (Q.getPoolStatus bh mbid)
   where
-    mbid = if lpool == 0 then Nothing else Just (BakerId (AccountIndex bid))
+    mbid = if lpool /= 0 then Nothing else Just (BakerId (AccountIndex bid))
 
 -- ** Transaction-indexed queries
 

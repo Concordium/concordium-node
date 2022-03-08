@@ -286,7 +286,7 @@ doMinting blockParent slotNumber foundationAddr mintUpds bs0 = do
 -- |Mint for the given payday, recording a
 -- special transaction outcome for the minting.
 doMintingP4 :: (ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1, GlobalStateTypes m, BlockStateOperations m, BlockPointerMonad m)
-  => BlockPointerType m
+  => ChainParameters (MPV m)
   -- ^Parent block
   -> Epoch
   -- ^Payday epoch to mint for
@@ -299,12 +299,11 @@ doMintingP4 :: (ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1, GlobalSt
   -> UpdatableBlockState m
   -- ^Block state
   -> m (UpdatableBlockState m)
-doMintingP4 blockParent paydayEpoch paydayMintRate foundationAddr mintUpds bs0 = do
-  parentUpdates <- getUpdates =<< blockState blockParent
+doMintingP4 oldChainParameters paydayEpoch paydayMintRate foundationAddr mintUpds bs0 = do
   totGTU <- (^. totalGTU) <$> bsoGetBankStatus bs0
   seedstate <- bsoGetSeedState bs0
   let mint = calculatePaydayMintAmounts
-              (parentUpdates ^. currentParameters . rpMintDistribution)
+              (oldChainParameters ^. rpMintDistribution)
               paydayMintRate
               (epochLength seedstate * fromIntegral paydayEpoch)
               mintUpds
@@ -678,17 +677,23 @@ mintForSkippedPaydays
       BlockStateOperations m,
       BlockPointerMonad m)
   => Epoch
+  -- ^Epoch of the block
   -> Epoch
+  -- ^Epoch of the next payday (before this block)
   -> RewardPeriodLength
-  -> BlockPointerType m
+  -- ^Length of the reward period
+  -> ChainParameters (MPV m)
+  -- ^Chain parameters at the parent block
   -> AccountAddress
+  -- ^Foundation account address
   -> [(Slot, UpdateValue 'ChainParametersV1)]
+  -- ^Updates processed in this block
   -> UpdatableBlockState m
+  -- ^Block state
   -> m (Epoch, MintRate, UpdatableBlockState m)
-mintForSkippedPaydays newEpoch payday rpl blockParent foundationAccount updates bs0 = do
+mintForSkippedPaydays newEpoch payday rpl oldChainParameters foundationAccount updates bs0 = do
   seedstate <- bsoGetSeedState bs0
-  parentUpdates <- getUpdates =<< blockState blockParent
-  let mintRateParent = parentUpdates ^. currentParameters . cpTimeParameters . tpMintPerPayday
+  let mintRateParent = oldChainParameters ^. cpTimeParameters . tpMintPerPayday
       paydaySlot = epochLength seedstate * fromIntegral payday
       selectBestTP (s2, curr) (s1, UVTimeParameters tp) =
         if s1 >= s2 && s1 <= paydaySlot
@@ -700,8 +705,8 @@ mintForSkippedPaydays newEpoch payday rpl blockParent foundationAccount updates 
   if newEpoch <= nextPayday
   then return (nextPayday, nextMintRate, bs0)
   else do
-    bs1 <- doMintingP4 blockParent nextPayday nextMintRate foundationAccount updates bs0
-    mintForSkippedPaydays newEpoch nextPayday nextRPL blockParent foundationAccount updates bs1
+    bs1 <- doMintingP4 oldChainParameters nextPayday nextMintRate foundationAccount updates bs0
+    mintForSkippedPaydays newEpoch nextPayday nextRPL oldChainParameters foundationAccount updates bs1
 
 prepareForFollowingPayday
   :: (ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1,
@@ -710,16 +715,22 @@ prepareForFollowingPayday
       BlockStateOperations m,
       BlockPointerMonad m)
   => Epoch
+  -- ^Epoch of the block
   -> Epoch
-  -> BlockPointerType m
+  -- ^Epoch of the next payday
+  -> ChainParameters (MPV m)
+  -- ^Chain parameters at the parent block
   -> AccountAddress
+  -- ^Foundation account address
   -> [(Slot, UpdateValue 'ChainParametersV1)]
+  -- ^Ordered chain updates since the last block
   -> UpdatableBlockState m
+  -- ^Block state
   -> m (UpdatableBlockState m)
-prepareForFollowingPayday newEpoch payday blockParent foundationAccount updates bs0 = do
+prepareForFollowingPayday newEpoch payday oldChainParameters foundationAccount updates bs0 = do
   chainParams <- bsoGetChainParameters bs0
   let rpl = chainParams ^. cpTimeParameters . tpRewardPeriodLength
-  (newPayday, newMintRate, bs1) <- mintForSkippedPaydays newEpoch payday rpl blockParent foundationAccount updates bs0
+  (newPayday, newMintRate, bs1) <- mintForSkippedPaydays newEpoch payday rpl oldChainParameters foundationAccount updates bs0
   bs2 <- bsoSetPaydayEpoch bs1 newPayday
   bs3 <- bsoSetPaydayMintRate bs2 newMintRate
   bs4 <- bsoRotateCurrentCapitalDistribution bs3
@@ -771,7 +782,7 @@ mintAndReward :: forall m. (BlockStateOperations m, TreeStateMonad m, MonadProto
     -> BakerId
     -- ^Baker ID
     -> Epoch
-    -- ^New epoch
+    -- ^Epoch of the new block
     -> Bool
     -- ^Is a new epoch
     -> Maybe FinalizerInfo
@@ -825,9 +836,10 @@ mintAndReward bshandle blockParent slotNumber bid newEpoch isNewEpoch mfinInfo t
         then return bshandle
         else do
           nextMintRate <- bsoGetPaydayMintRate bshandle
-          bshandleMint <- doMintingP4 blockParent nextPayday nextMintRate foundationAccount updates bshandle
+          oldChainParameters <- (^. currentParameters) <$> (getUpdates =<< blockState blockParent)
+          bshandleMint <- doMintingP4 oldChainParameters nextPayday nextMintRate foundationAccount updates bshandle
           bshandleRewards <- distributeRewards foundationAccount bshandleMint
-          prepareForFollowingPayday newEpoch nextPayday blockParent foundationAccount updates bshandleRewards
+          prepareForFollowingPayday newEpoch nextPayday oldChainParameters foundationAccount updates bshandleRewards
       bshandleFinAwake <- addAwakeFinalizers mfinInfo bshandleFinRew
       bshandleNotify <- bsoNotifyBlockBaked bshandleFinAwake bid
       doBlockRewardP4 transFees freeCounts bid bshandleNotify
@@ -875,7 +887,8 @@ updateBirkParameters newSeedState bs0 = case protocolVersion @(MPV m) of
       oldSeedState <- bsoGetSeedState bs0
       let isNewEpoch = epoch oldSeedState /= epoch newSeedState
       nextPayday <- bsoGetPaydayEpoch bs0
-      bs1 <- if isNewEpoch && epoch oldSeedState + 1 < nextPayday && epoch newSeedState + 1 > nextPayday
+      -- We generate the bakers for the next reward period based on the epoch before the payday.
+      bs1 <- if isNewEpoch && epoch oldSeedState + 1 < nextPayday && epoch newSeedState + 1 >= nextPayday
         then generateNextBakers bs0
         else
           return bs0
