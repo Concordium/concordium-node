@@ -31,6 +31,7 @@
   (import "concordium" "state_delete_entry" (func $state_delete_entry (param $entry i64) (result i32)))
   (import "concordium" "state_entry_read" (func $state_entry_read (param $entry i64) (param $write_location i32) (param $length i32) (param $offset i32) (result i32)))
   (import "concordium" "state_entry_write" (func $state_entry_write (param $entry i64) (param $read_location i32) (param $length i32) (param $offset i32) (result i32)))
+  (import "concordium" "state_delete_prefix" (func $state_delete_prefix (param $key_start i32) (param $key_length i32) (result i32)))
   (import "concordium" "state_iterate_prefix" (func $state_iterate_prefix (param $key_start i32) (param $key_length i32) (result i64)))
   (import "concordium" "state_iterator_next" (func $state_iterator_next (param $iter i64) (result i64)))
   (import "concordium" "state_iterator_delete" (func $state_iterator_delete (param $iter i64) (result i32)))
@@ -65,7 +66,7 @@
 
   ;; First store the address and entrypoint to invoke of contract B at [], then
   ;; modify state and invoke B where we forward the parameters for calling "a.a_test_one_modify"..
-  (func $a_test_one (export "a.a_test_one") (param $amount i64) (result i32)
+  (func $a_modify_proxy (export "a.a_modify_proxy") (param $amount i64) (result i32)
     ;; Declare a local for storing the entry we're about to write to.
     (local $entry i64)
     ;; Declare a local for storing the write result
@@ -97,12 +98,22 @@
     (call $assert_entry (call $state_create_entry (i32.const 0) (i32.const 3)))
     ;; create an entry at [0000]
     (call $assert_entry (call $state_create_entry (i32.const 0) (i32.const 4)))
+    ;; create an entry at [00000]
+    (call $assert_entry (call $state_create_entry (i32.const 0) (i32.const 5)))
     ;; create an iterator at [0000]
     (local.set $iter (call $state_iterate_prefix (i32.const 0) (i32.const 4)))
     (call $assert_eq_64 (i64.const 0) (local.get $iter)) ;; the first iter will have id 0.
-    (local.set $rv (call $invoke (i32.const 1) (i32.const 0) (call $get_parameter_size (i32.const 0))))
-    ;; Check that the invocation resulted in TRAP i.e., '0x0006_0000_0000'
-    (call $assert_eq_64 (local.get $rv) (i64.const 25769803776))
+
+    ;; we do a transfer if we were invoked with an amount of 1234.
+    (if (i64.eq (i64.const 1234) (local.get $amount))
+        (then (local.set $rv (call $invoke (i32.const 0) (i32.const 0) (i32.const 40))))
+        (else (local.set $rv (call $invoke (i32.const 1) (i32.const 0) (call $get_parameter_size (i32.const 0))))))
+        
+    (if (i64.eq (i64.const 1) (local.get $amount))
+      ;; Check that the invocation resulted in TRAP i.e., '0x0006_0000_0000'
+      (then (call $assert_eq_64 (local.get $rv) (i64.const 25769803776)))
+      (else (call $assert_eq_64 (i64.shl (local.get $rv) (i64.const 24)) (i64.const 0)))) ;; last 5 bytes are 0 if success
+    
     ;; now check that all state above the invocation of B is still present and remains the same as before.
     ;; check that the size of [0] has not changed.    
     (call $assert_eq
@@ -115,13 +126,20 @@
     ;; check that the key size is still 4 for the iter.
     (call $assert_eq
         (i32.const 4)
-        (call $state_iterator_key_size (local.get $iter)));;(call $state_iterator_next (local.get $iter))))
+        (call $state_iterator_key_size (local.get $iter)))
     
+    ;; delete the state again
+    ;; first we check that we cannot delete because of the iterator lingering
+    (call $assert_eq (i32.const 0) (call $state_delete_prefix (i32.const 0) (i32.const 0)))
+    ;; delete the iterator
+    (call $state_iterator_delete (local.get $iter))
+    ;; now delete the whole state.
+    (call $assert_eq (i32.const 2) (call $state_delete_prefix (i32.const 0) (i32.const 0)))
     (return (i32.const 0)) ;; return success
   )
 
   ;; This function modifies the following state of contract A.
-  (func $a_test_one_modify (export "a.a_test_one_modify") (param i64) (result i32)
+  (func $a_modify (export "a.a_modify") (param i64) (result i32)
     ;; Declare a local for entry [00].
     (local $entry i64)
     ;; Declaring locals for storing both write results.
@@ -136,20 +154,32 @@
         (i32.const 0))
     ;; delete [000]
     (call $state_delete_entry (call $state_lookup_entry (i32.const 0) (i32.const 3)))    
-    ;; delete the iter at [0000]
+    ;; delete the iter
     (call $state_iterator_delete (i64.const 0)) ;; the iter created in the first receive function.
     (return (i32.const 0)) ;; return success.
-  )    
+  )
 
+  ;; This function only looks up state but does not modify.
+  (func $a_no_modify (export "a.a_no_modify") (param i64) (result i32)
+    ;; lookup [0] and check it has a size of 8.
+    (call $assert_eq
+        (i32.const 8)
+        (call $state_entry_size 
+            (call $state_lookup_entry (i32.const 0) (i32.const 1))))
+    (call $state_iterator_next (i64.const 0)) ;; only one iterator has been created and it has id 0.
+    ;; the iterator should now be at [00000]
+    (call $assert_eq (i32.const 5) (call $state_iterator_key_size (i64.const 0)))
+    (return (i32.const 0)) ;; return success
+  )
+    
   ;; Contract B
   (func $init_b (export "init_b") (param i64) (result i32)    
     (return (i32.const 0)) ;; Successful init
   )
 
-  ;; Receive method of contract B.
   ;; This function calls Contract A's receive method "a.a_test_one_modify" and upon completion of
   ;; that call this function will produce an runtime error.
-  (func $b_test_one (export "b.b_test_one") (param $amount i64) (result i32)
+  (func $b_forward_crash (export "b.b_forward_crash") (param $amount i64) (result i32)
     (local $rv i64)
     (call $get_parameter_section
         (i32.const 0)
@@ -160,6 +190,21 @@
     (local.set $rv (call $invoke (i32.const 1) (i32.const 0) (call $get_parameter_size (i32.const 0))))
     ;; Finally we impose a runtime failure here.
     unreachable
+  )
+
+  ;; This function calls Contract A's receive method "a.a_test_one_modify" and upon completion of
+  ;; that call this function will produce an runtime error.
+  (func $b_forward (export "b.b_forward") (param $amount i64) (result i32)
+    (local $rv i64)
+    (call $get_parameter_section
+        (i32.const 0)
+        (i32.const 0)
+        (call $get_parameter_size (i32.const 0))
+        (i32.const 0))
+    ;; invoke with the amount we were given, and the parameter we were called with.
+    (local.set $rv (call $invoke (i32.const 1) (i32.const 0) (call $get_parameter_size (i32.const 0))))
+    ;; Finally we impose a runtime failure here.
+    (return (i32.const 0))
   )
 
   (memory 1)
