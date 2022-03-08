@@ -21,9 +21,6 @@ cd /build
 #############################################################################################################################
 ## Build the project
 
-# cargo update --manifest-path /build/concordium-base/rust-src/Cargo.toml
-cargo check --manifest-path /build/concordium-base/rust-src/Cargo.toml
-
 stack build --profile --flag "concordium-consensus:-dynamic" --stack-yaml /build/concordium-consensus/stack.static.yaml
 
 for lib in $(find /build/concordium-consensus/.stack-work -type f -name "*.a" ! -name "*_p.a"); do

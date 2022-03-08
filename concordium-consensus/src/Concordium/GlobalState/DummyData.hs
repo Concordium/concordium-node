@@ -2,6 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 
@@ -31,8 +32,10 @@ import Concordium.Types.Accounts
 
 import qualified Concordium.Types.SeedState as SeedState
 import Concordium.GlobalState.Basic.BlockState.AccountTable(toList)
+import qualified Concordium.GlobalState.Basic.BlockState.PoolRewards as PoolRewards
 
 import Concordium.Types
+import Concordium.Types.Execution
 import System.Random
 import Data.FileEmbed
 import qualified Data.ByteString.Lazy.Char8 as BSL
@@ -203,11 +206,11 @@ makeTestingGenesisDataP1
 
 
 {-# WARNING emptyBirkParameters "Do not use in production." #-}
-emptyBirkParameters :: AccountVersionFor pv ~ 'AccountV0 => Accounts pv -> BasicBirkParameters 'AccountV0
+emptyBirkParameters :: Accounts pv -> BasicBirkParameters (AccountVersionFor pv)
 emptyBirkParameters accounts = initialBirkParameters (snd <$> AT.toList (accountTable accounts)) (SeedState.initialSeedState (Hash.hash "NONCE") 360)
 
-dummyRewardParameters :: RewardParameters 'ChainParametersV0
-dummyRewardParameters = RewardParameters {
+dummyRewardParametersV0 :: RewardParameters 'ChainParametersV0
+dummyRewardParametersV0 = RewardParameters {
     _rpMintDistribution = MintDistribution {
       _mdMintPerSlot = MintPerSlotForCPV0Some $ MintRate 1 12,
       _mdBakingReward = AmountFraction 60000, -- 60%
@@ -225,21 +228,72 @@ dummyRewardParameters = RewardParameters {
     }
 }
 
-dummyChainParameters :: ChainParameters' 'ChainParametersV0
-dummyChainParameters = makeChainParametersV0 (makeElectionDifficulty 50000) 0.0001 1000000 168 10 dummyRewardParameters 0 300000000000
+dummyRewardParametersV1 :: RewardParameters 'ChainParametersV1
+dummyRewardParametersV1 = RewardParameters {
+    _rpMintDistribution = MintDistribution {
+      _mdMintPerSlot = MintPerSlotForCPV0None,
+      _mdBakingReward = AmountFraction 60000, -- 60%
+      _mdFinalizationReward = AmountFraction 30000 -- 30%
+    },
+    _rpTransactionFeeDistribution = TransactionFeeDistribution {
+      _tfdBaker = AmountFraction 45000, -- 45%
+      _tfdGASAccount = AmountFraction 45000 -- 45%
+    },
+    _rpGASRewards = GASRewards {
+      _gasBaker = AmountFraction 25000, -- 25%
+      _gasFinalizationProof = AmountFraction 50, -- 0.05%
+      _gasAccountCreation = AmountFraction 200, -- 0.2%
+      _gasChainUpdate = AmountFraction 50 -- 0.05%
+    }
+}
+
+
+dummyChainParameters :: forall cpv. IsChainParametersVersion cpv => ChainParameters' cpv
+dummyChainParameters = case chainParametersVersion @cpv of
+  SCPV0 -> makeChainParametersV0 (makeElectionDifficulty 50000) 0.0001 1000000 168 10 dummyRewardParametersV0 0 300000000000
+  SCPV1 -> makeChainParametersV1 (makeElectionDifficulty 50000) 0.0001 1000000 cooldown cooldown 10 dummyRewardParametersV1 0 
+    (makeAmountFraction 100000) (makeAmountFraction 5000) (makeAmountFraction 5000)
+    fullRange fullRange fullRange
+    300000000000
+    (makeAmountFraction 100000)
+    5 -- leverage factor
+    2 -- Reward period length
+    (MintRate 1 8)
+    where
+      fullRange = InclusiveRange (makeAmountFraction 0) (makeAmountFraction 100000)
+      cooldown = DurationSeconds (24 * 60 * 60)
+
+createPoolRewards :: (AccountVersionFor pv ~ 'AccountV1) => Accounts pv -> PoolRewards.PoolRewards
+createPoolRewards accounts = PoolRewards.makeInitialPoolRewards bakers lPool 1 (MintRate 1 10)
+  where
+    (bakersMap, lPool) = foldr accumDelegations (Map.empty, []) (AT.toList (accountTable accounts))
+    bakers = [(bid, amt, dlgs) | (bid, (amt, dlgs)) <- Map.toList bakersMap]
+    accumDelegations (ai, acct) acc@(bm, lp) = case acct ^. accountStaking of
+      AccountStakeNone -> acc
+      AccountStakeBaker bkr -> (bm & at (BakerId ai) . non (0, []) . _1 .~ bkr ^. stakedAmount, lp)
+      AccountStakeDelegate dlg -> case dlg ^. delegationTarget of
+        DelegateToLPool -> (bm, d : lp)
+        DelegateToBaker bkrid -> (bm & at bkrid . non (0, []) . _2 %~ (d:), lp)
+        where
+          d = (dlg ^. delegationIdentity, dlg ^. delegationStakedAmount)
+
+createRewardDetails :: forall pv. (IsProtocolVersion pv) => Accounts pv -> BlockRewardDetails (AccountVersionFor pv)
+createRewardDetails accounts = case accountVersion @(AccountVersionFor pv) of
+  SAccountV0 -> emptyBlockRewardDetails
+  SAccountV1 -> BlockRewardDetailsV1 $ makeHashed $ createPoolRewards accounts
 
 -- FIXME: Generalise this to work for both chain parameters versions and remove LANGUAGE TypeFamilies.
 {-# WARNING createBlockState "Do not use in production" #-}
-createBlockState :: (IsProtocolVersion pv, ChainParametersVersionFor pv ~ 'ChainParametersV0, AccountVersionFor pv ~ 'AccountV0) => Accounts pv -> BlockState pv
+createBlockState :: (IsProtocolVersion pv) => Accounts pv -> BlockState pv
 createBlockState accounts =
-    emptyBlockState (emptyBirkParameters accounts) emptyBlockRewardDetails dummyCryptographicParameters dummyKeyCollection dummyChainParameters &
+    emptyBlockState (emptyBirkParameters accounts) (createRewardDetails accounts) dummyCryptographicParameters dummyKeyCollection dummyChainParameters &
       (blockAccounts .~ accounts) .
       (blockBank . unhashed . Rewards.totalGTU .~ sum (map (_accountAmount . snd) (toList (accountTable accounts)))) .
       (blockIdentityProviders . unhashed .~ dummyIdentityProviders) .
       (blockAnonymityRevokers . unhashed .~ dummyArs)
 
 {-# WARNING blockStateWithAlesAccount "Do not use in production" #-}
-blockStateWithAlesAccount :: (IsProtocolVersion pv, ChainParametersVersionFor pv ~ 'ChainParametersV0, AccountVersionFor pv ~ 'AccountV0) => Amount -> Accounts pv -> BlockState pv
+blockStateWithAlesAccount :: (IsProtocolVersion pv) => Amount -> Accounts pv -> BlockState pv
 blockStateWithAlesAccount alesAmount otherAccounts =
     createBlockState $ putAccountWithRegIds (mkAccount alesVK alesAccount alesAmount) otherAccounts
 

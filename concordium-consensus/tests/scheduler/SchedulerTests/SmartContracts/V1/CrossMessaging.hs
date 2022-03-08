@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 {-| This module tests calling a V0 contract from a V1 contract and sending a message from a V0 to V1 contract.
 -}
 module SchedulerTests.SmartContracts.V1.CrossMessaging (tests) where
@@ -55,7 +56,7 @@ testCases :: [TestCase PV4]
 testCases =
   [ TestCase
     { tcName = "CrossMessaging via a proxy"
-    , tcParameters = defaultParams {tpInitialBlockState=initialBlockState}
+    , tcParameters = (defaultParams @PV4) {tpInitialBlockState=initialBlockState}
     , tcTransactions =
       [ ( TJSON { payload = DeployModule version1 counterSourceFile
                 , metadata = makeDummyHeader alesAccount 1 100000

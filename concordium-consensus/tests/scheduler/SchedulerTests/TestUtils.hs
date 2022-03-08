@@ -14,8 +14,7 @@ NOTE: This processes each transaction individually - for testing grouped transac
       'SchedulerTests.TransactionGroupingSpec' and 'SchedulerTests.TransactionGroupingSpec2'.
 -}
 module SchedulerTests.TestUtils(PV1, PV2, PV3, PV4, ResultSpec,TResultSpec(..),emptySpec,emptyExpect,TestCase(..),
-                                TestParameters(..),defaultParams, mkSpec,mkSpecs, createAlias,
-                                slotDuration) where
+                                TestParameters(..),defaultParams, mkSpec,mkSpecs, createAlias) where
 
 import Test.Hspec
 
@@ -81,13 +80,13 @@ data TestParameters pv = TestParameters
   , tpBlockTimeout :: UTCTime
   }
 
-defaultParams :: forall pv. (IsProtocolVersion pv, ChainParametersVersionFor pv ~ 'ChainParametersV0, AccountVersionFor pv ~ 'AccountV0) => TestParameters pv
+defaultParams :: forall pv. (IsProtocolVersion pv) => TestParameters pv
 defaultParams = TestParameters
   { tpChainMeta = dummyChainMeta
   , tpInitialBlockState = createBlockState @pv Acc.emptyAccounts
   , tpEnergyLimit = maxBound
   , tpMaxCredentials = maxBound
-  , tpSizeLimit = fromIntegral $ (maxBound :: Int)
+  , tpSizeLimit = fromIntegral (maxBound :: Int)
   , tpBlockTimeout = dummyBlockTimeout
   }
 
@@ -112,12 +111,6 @@ data ProcessResult
   | Failed FailureKind
   | Unprocessed
   deriving (Eq, Show)
-
-
--- | The slot duration used for schedular tests
-slotDuration :: Duration
-slotDuration = 1
-
 
 -- | Execute the given transactions in sequence (ungrouped) with 'Sch.filterTransactions',
 -- with the given parameters. Returns a list of result and block state after each transaction.

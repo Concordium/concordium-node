@@ -18,6 +18,7 @@ module Concordium.GlobalState.Persistent.BlockState (
     PersistentBirkParameters(..),
     makePersistentBirkParameters,
     makePersistent,
+    initialPersistentState,
     emptyBlockState,
     PersistentBlockStateContext(..),
     PersistentState,
@@ -69,6 +70,7 @@ import Concordium.GlobalState.Persistent.BlockState.Updates
 import Concordium.GlobalState.Persistent.PoolRewards
 import qualified Concordium.GlobalState.Persistent.LFMBTree as LFMBT
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
+import qualified Concordium.GlobalState.Basic.BlockState.Account as TransientAccount
 import qualified Concordium.Types.UpdateQueues as UQ
 import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Modules
 import qualified Concordium.Types.Accounts as BaseAccounts
@@ -509,6 +511,18 @@ makePersistent Basic.BlockState{..} = do
         }
   bps <- liftIO $ newIORef $! bsp
   hashBlockState bps
+
+-- |An initial 'HashedPersistentBlockState', which may be used for testing purposes.
+initialPersistentState :: (IsProtocolVersion pv, MonadBlobStore m)
+             => SeedState
+             -> CryptographicParameters
+             -> [TransientAccount.Account (AccountVersionFor pv)]
+             -> IPS.IdentityProviders
+             -> ARS.AnonymityRevokers
+             -> UpdateKeysCollection (ChainParametersVersionFor pv)
+             -> ChainParameters pv
+             -> m (HashedPersistentBlockState pv)
+initialPersistentState ss cps accts ips ars keysCollection chainParams = makePersistent $ Basic.initialState ss cps accts ips ars keysCollection chainParams
 
 -- |A mostly empty block state, but with the given birk parameters, 
 -- cryptographic parameters, update authorizations and chain parameters.
@@ -1491,7 +1505,7 @@ doRewardAccount pbs ai reward = do
                 adj Nothing = error "Invariant violation: active baker account is not in active bakers map"
                 adj (Just dlgs) = do
                     let tot = adDelegatorTotalCapital dlgs
-                    return $! ((), Trie.Insert $ dlgs{adDelegatorTotalCapital = tot + reward})
+                    return ((), Trie.Insert $ dlgs{adDelegatorTotalCapital = tot + reward})
             (_, newActiveBkrsMap) <- Trie.adjust adj bid activeBkrsMap
             return $! activeBkrs & activeBakers .~ newActiveBkrsMap
 

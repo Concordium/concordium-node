@@ -74,7 +74,7 @@ invokeContract1 ccContract bs = do
         ccEnergy = 1_000_000_000,
         ..
         }
-  InvokeContract.invokeContract Types.SP4 ctx cm bs
+  InvokeContract.invokeContract ctx cm bs
 
 -- |Invoke an entrypoint and transfer to another instance. The before and after
 -- self-balances are different. The key difference from invokeContract1 test is
@@ -97,7 +97,7 @@ invokeContract2 ccContract bs = do
         ccEnergy = 1_000_000_000,
         ..
         }
-  InvokeContract.invokeContract Types.SP4 ctx cm bs
+  InvokeContract.invokeContract ctx cm bs
 
 
 -- |Invoke an entrypoint and transfer to an account.
@@ -116,7 +116,7 @@ invokeContract3 ccContract bs = do
         ccEnergy = 1_000_000_000,
         ..
         }
-  InvokeContract.invokeContract Types.SP4 ctx cm bs
+  InvokeContract.invokeContract ctx cm bs
 
 
 checkSuccess :: MonadIO m
