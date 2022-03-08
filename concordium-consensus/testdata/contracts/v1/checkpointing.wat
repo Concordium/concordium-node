@@ -28,6 +28,7 @@
 
   (import "concordium" "state_lookup_entry" (func $state_lookup_entry (param $key_start i32) (param $key_length i32) (result i64)))
   (import "concordium" "state_create_entry" (func $state_create_entry (param $key_start i32) (param $key_length i32) (result i64)))
+  (import "concordium" "state_delete_entry" (func $state_delete_entry (param $entry i64) (result i32)))
   (import "concordium" "state_entry_read" (func $state_entry_read (param $entry i64) (param $write_location i32) (param $length i32) (param $offset i32) (result i32)))
   (import "concordium" "state_entry_write" (func $state_entry_write (param $entry i64) (param $read_location i32) (param $length i32) (param $offset i32) (result i32)))
   (import "concordium" "state_iterate_prefix" (func $state_iterate_prefix (param $key_start i32) (param $key_length i32) (result i64)))
@@ -35,6 +36,8 @@
   (import "concordium" "state_iterator_delete" (func $state_iterator_delete (param $iter i64) (result i32)))
   (import "concordium" "state_iterator_key_size" (func $state_iterator_key_size (param $iter i64) (result i32)))
   (import "concordium" "state_iterator_key_read" (func $state_iterator_key_read (param $iter i64) (param $write_location i32) (param $length i32) (param $offset i32) (result i32)))
+  (import "concordium" "state_entry_size" (func $state_entry_size (param $entry i64) (result i32)))
+  (import "concordium" "state_entry_resize" (func $state_entry_resize (param $entry i64) (param $new_size i32) (result i32)))
 
   ;; Helper functions
 
@@ -48,6 +51,11 @@
       (then nop)
       (else unreachable)))
 
+  (func $assert_entry (param $entry i64)
+    (if (i64.eq (i64.const 9223372036854775807) (local.get $entry))
+      (then unreachable)
+      (else nop)))
+    
   ;; Contract A
 
   ;; Initialize contract A.
@@ -65,6 +73,7 @@
     ;; Declare locals for invoking contract B together with the return value.
     (local $pos i32)
     (local $rv i64)
+    (local $iter i64)
 
     ;; Set some initial state
     ;; Create an entry at [0] and write some bytes to it.
@@ -84,39 +93,55 @@
           (i32.const 0)
           (call $get_parameter_size (i32.const 0))
           (i32.const 0))
+    ;; create an empty entry at [000]
+    (call $assert_entry (call $state_create_entry (i32.const 0) (i32.const 3)))
+    ;; create an entry at [0000]
+    (call $assert_entry (call $state_create_entry (i32.const 0) (i32.const 4)))
+    ;; create an iterator at [0000]
+    (local.set $iter (call $state_iterate_prefix (i32.const 0) (i32.const 4)))
+    (call $assert_eq_64 (i64.const 0) (local.get $iter)) ;; the first iter will have id 0.
     (local.set $rv (call $invoke (i32.const 1) (i32.const 0) (call $get_parameter_size (i32.const 0))))
     ;; Check that the invocation resulted in TRAP i.e., '0x0006_0000_0000'
     (call $assert_eq_64 (local.get $rv) (i64.const 25769803776))
     ;; now check that all state above the invocation of B is still present and remains the same as before.
+    ;; check that the size of [0] has not changed.    
+    (call $assert_eq
+        (i32.const 8)
+        (call $state_entry_size (local.get $entry)))
     ;; Check that entry at [00] does not exist i.e. it starts with a set bit.
     (call $assert_eq_64 (i64.const 0) (i64.clz (call $state_lookup_entry (i32.const 0) (i32.const 2))))
+    ;; check that we can lookup [000]
+    (call $assert_entry (call $state_lookup_entry (i32.const 0) (i32.const 3)))
+    ;; check that the key size is still 4 for the iter.
+    (call $assert_eq
+        (i32.const 4)
+        (call $state_iterator_key_size (local.get $iter)));;(call $state_iterator_next (local.get $iter))))
+    
     (return (i32.const 0)) ;; return success
   )
 
   ;; This function modifies the following state of contract A.
-  ;; First it creates a new entry at [00] and writes 8 bytes to that entry.
-  ;; Create an iterator at [0] and advance it by one.
   (func $a_test_one_modify (export "a.a_test_one_modify") (param i64) (result i32)
     ;; Declare a local for entry [00].
     (local $entry i64)
-    ;; Declare local for storing the iter.
-    (local $iter i64) 
     ;; Declaring locals for storing both write results.
     (local $entry_write i32)
     ;; Create new entry at [00].
-    (local.set $entry (call $state_create_entry (i32.const 0) (i32.const 0)))
+    (local.set $entry (call $state_create_entry (i32.const 0) (i32.const 2)))
     ;; Write 8 zero bytes to entry.
     (local.set $entry_write (call $state_entry_write (local.get $entry) (i32.const 0) (i32.const 8) (i32.const 0)))
-    ;; Create an iterator at [0].
-    (local.set $iter (call $state_iterate_prefix (i32.const 0) (i32.const 1)))
-    ;; Advance the iterator by one.
-    (call $state_iterator_next (local.get $iter))
-    (drop)
+    ;; Resize the entry [0] to 0
+    (call $state_entry_resize
+        (call $state_create_entry (i32.const 0) (i32.const 1))
+        (i32.const 0))
+    ;; delete [000]
+    (call $state_delete_entry (call $state_lookup_entry (i32.const 0) (i32.const 3)))    
+    ;; delete the iter at [0000]
+    (call $state_iterator_delete (i64.const 0)) ;; the iter created in the first receive function.
     (return (i32.const 0)) ;; return success.
   )    
 
   ;; Contract B
-    
   (func $init_b (export "init_b") (param i64) (result i32)    
     (return (i32.const 0)) ;; Successful init
   )
@@ -125,7 +150,6 @@
   ;; This function calls Contract A's receive method "a.a_test_one_modify" and upon completion of
   ;; that call this function will produce an runtime error.
   (func $b_test_one (export "b.b_test_one") (param $amount i64) (result i32)
-    (local $pos i32)
     (local $rv i64)
     (call $get_parameter_section
         (i32.const 0)

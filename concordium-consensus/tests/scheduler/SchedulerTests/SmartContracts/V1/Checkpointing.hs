@@ -126,10 +126,9 @@ testCases =
     ensureSuccess :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
     ensureSuccess _ Types.TransactionSummary{..} = checkSuccess "Update failed" tsResult
     checkSuccess msg Types.TxReject{..} = assertFailure $ msg ++ show vrRejectReason
-    checkSuccess msg Types.TxSuccess{..} = if (length vrEvents) == 2 then return ()
-      else do
-        traverse (\event -> traceM ("Event: " ++ show event)) vrEvents
-        assertFailure $ "Actual length of events " ++ show (length vrEvents) ++ " was not as expected."
+    checkSuccess msg Types.TxSuccess{..} = if (length vrEvents) == 3
+      then return ()
+      else assertFailure $ "Unexepcted no. of events " ++ show (length vrEvents) ++ " expected 3."
 
 tests :: Spec
 tests = describe "V1: Checkpointing." $
