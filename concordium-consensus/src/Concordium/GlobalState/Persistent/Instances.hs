@@ -210,6 +210,9 @@ instance (IsProtocolVersion pv, MonadBlobStore m) => BlobStorable m (PersistentI
               pinstanceHash <- makeInstanceHashV1State (pinstanceParameterHash pip) pinstanceModel pinstanceAmount
               return $! PersistentInstanceV1 (PersistentInstanceV {..})
 
+instance MonadBlobStore m => Cacheable m (InstanceStateV GSWasm.V1) where
+  cache (InstanceStateV1 model) = InstanceStateV1 <$> cache model
+
 -- This cacheable instance is a bit unusual. Caching instances requires us to have access
 -- to the modules so that we can share the module interfaces from different instances.
 instance MonadBlobStore m => Cacheable (ReaderT Modules m) (PersistentInstance pv) where
@@ -236,11 +239,12 @@ instance MonadBlobStore m => Cacheable (ReaderT Modules m) (PersistentInstance p
             -- similar reference wrappers.
             ips <- cache pinstanceParameters
             params <- loadBufferedRef ips
+            imodel <- cache pinstanceModel
             let modref = pinstanceContractModule params
             miface <- Modules.unsafeGetModuleReferenceV1 modref modules
             case miface of
-              Nothing -> return (PersistentInstanceV1 p{pinstanceParameters = ips}) -- this case should never happen, but it is safe to do this.
-              Just iface -> return (PersistentInstanceV1 p{pinstanceModuleInterface = iface, pinstanceParameters = ips})
+              Nothing -> return (PersistentInstanceV1 p{pinstanceParameters = ips, pinstanceModel = imodel}) -- this case should never happen, but it is safe to do this.
+              Just iface -> return (PersistentInstanceV1 p{pinstanceModuleInterface = iface, pinstanceParameters = ips, pinstanceModel = imodel})
 
 -- |Construct instance information from a persistent instance, loading as much
 -- data as necessary from persistent storage.
