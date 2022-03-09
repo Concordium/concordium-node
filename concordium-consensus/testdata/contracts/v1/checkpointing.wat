@@ -28,7 +28,7 @@
 
   (import "concordium" "state_lookup_entry" (func $state_lookup_entry (param $key_start i32) (param $key_length i32) (result i64)))
   (import "concordium" "state_create_entry" (func $state_create_entry (param $key_start i32) (param $key_length i32) (result i64)))
-  (import "concordium" "state_delete_entry" (func $state_delete_entry (param $entry i64) (result i32)))
+  (import "concordium" "state_delete_entry" (func $state_delete_entry (param $key_start i32) (param $key_length i32) (result i32)))
   (import "concordium" "state_entry_read" (func $state_entry_read (param $entry i64) (param $write_location i32) (param $length i32) (param $offset i32) (result i32)))
   (import "concordium" "state_entry_write" (func $state_entry_write (param $entry i64) (param $read_location i32) (param $length i32) (param $offset i32) (result i32)))
   (import "concordium" "state_delete_prefix" (func $state_delete_prefix (param $key_start i32) (param $key_length i32) (result i32)))
@@ -109,7 +109,7 @@
         (then (local.set $rv (call $invoke (i32.const 0) (i32.const 0) (i32.const 40))))
         (else (local.set $rv (call $invoke (i32.const 1) (i32.const 0) (call $get_parameter_size (i32.const 0))))))
         
-    (if (i64.eq (i64.const 1) (local.get $amount))
+    (if (i64.eq (i64.const 10000000) (local.get $amount))
       ;; Check that the invocation resulted in TRAP i.e., '0x0006_0000_0000'
       (then (call $assert_eq_64 (local.get $rv) (i64.const 25769803776)))
       (else (call $assert_eq_64 (i64.shl (local.get $rv) (i64.const 24)) (i64.const 0)))) ;; last 5 bytes are 0 if success
@@ -129,7 +129,7 @@
         (call $state_iterator_key_size (local.get $iter)))
     
     ;; delete the state again
-    ;; first we check that we cannot delete because of the iterator lingering
+    ;; first we check that we cannot delete because of the iterator lingering at [0].
     (call $assert_eq (i32.const 0) (call $state_delete_prefix (i32.const 0) (i32.const 0)))
     ;; delete the iterator
     (call $state_iterator_delete (local.get $iter))
@@ -153,7 +153,7 @@
         (call $state_create_entry (i32.const 0) (i32.const 1))
         (i32.const 0))
     ;; delete [000]
-    (call $state_delete_entry (call $state_lookup_entry (i32.const 0) (i32.const 3)))    
+    (call $state_delete_entry (i32.const 0) (i32.const 3))
     ;; delete the iter
     (call $state_iterator_delete (i64.const 0)) ;; the iter created in the first receive function.
     (return (i32.const 0)) ;; return success.

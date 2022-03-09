@@ -83,7 +83,7 @@ testCases1 =
         , (SuccessWithSummary initializationCostCheck, emptySpec)
         )
       ,
-        ( TJSON { payload = Update 1 (Types.ContractAddress 0 0) "a.a_modify_proxy" parameters
+        ( TJSON { payload = Update 10000000 (Types.ContractAddress 0 0) "a.a_modify_proxy" parameters
                 , metadata = makeDummyHeader alesAccount 4 100000
                 , keys = [(0,[(0, alesKP)])]
                 }

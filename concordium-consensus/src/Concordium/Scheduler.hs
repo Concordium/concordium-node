@@ -754,7 +754,7 @@ handleInitContract wtc initAmount modref initName param =
                            `rejectingWith'` WasmV1.cerToRejectReasonInit
 
                 -- Charge for storing the contract state.
-                tickEnergyStoreStateV1 (Wasm.ByteSize (StateV1.getNewStateSize stateContext (WasmV1.irdNewState result)))
+                tickEnergyStoreStateV1 (Wasm.ByteSize (StateV1.getNewStateSize (WasmV1.irdNewState result)))
                 -- And for storing the instance.
                 tickEnergy Cost.initializeContractInstanceCreateCost
     
@@ -1030,9 +1030,14 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                             }
                       in Right (rrdReturnValue, event:events)
                 -- execution terminated, commit the new state if it changed
-                if rrdStateChanged then
+                if rrdStateChanged then do
+                   -- charge for storing the new state of the contract
+                   tickEnergyStoreStateV1 (Wasm.ByteSize (StateV1.getNewStateSize rrdNewState))
                    withInstanceStateV1 istance rrdNewState $ \_modifiedIndex -> return result
-                else return result
+                else do
+                  _ <- onV1StateIfChanged (instanceAddress istance) $ \newState ->
+                        tickEnergyStoreStateV1 (Wasm.ByteSize (StateV1.getNewStateSize newState))
+                  return result
               WasmV1.ReceiveInterrupt{..} -> do
                 -- execution invoked an operation. Dispatch and continue.
                 let interruptEvent = Interrupted{

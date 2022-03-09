@@ -134,8 +134,8 @@ foreign import ccall "deserialize_persistent_state_v1" deserializePersistentStat
 -- mutable state. This function is only called at the end of a transaction and
 -- may mutate the mutable state so that further operations, in particular
 -- @freeze@ are more efficient.
-getNewStateSize :: LoadCallback -> MutableState -> Word64
-getNewStateSize cbk ms = unsafePerformIO (withMutableState ms (getNewStateSizeFFI cbk))
+getNewStateSize :: MutableState -> Word64
+getNewStateSize ms = unsafePerformIO (withMutableState ms (getNewStateSizeFFI (msContext ms)))
 
 -- |Freeze the mutable state into a persistent state, computing its hash on the
 -- way.
