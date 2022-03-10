@@ -119,7 +119,7 @@ foreign import ccall "cache_persistent_state_v1" cachePersistentState :: LoadCal
 
 -- |Compute and retrieve the hash of the persistent state. The function is given
 -- a buffer to write the hash into.
-foreign import ccall "hash_persistent_state_v1" hashPersistentState :: Ptr PersistentState -> Ptr Word8 -> IO ()
+foreign import ccall "hash_persistent_state_v1" hashPersistentState :: LoadCallback -> Ptr PersistentState -> Ptr Word8 -> IO ()
 
 -- |Serialize the persistent state into a byte buffer. The return value is a
 -- pointer to the beginning of the buffer, and the last argument is where the
@@ -188,13 +188,14 @@ instance MonadBlobStore m => Cacheable m PersistentState where
 
 instance MonadBlobStore m => MHashableTo m SHA256.Hash PersistentState where
   getHashM ps = do
-    ((), hsh) <- liftIO (withPersistentState ps $ FBS.createWith . hashPersistentState)
+    (cbk, _) <- getCallBacks
+    ((), hsh) <- liftIO (withPersistentState ps $ FBS.createWith . hashPersistentState cbk)
     return (SHA256.Hash hsh)
 
 instance HashableTo SHA256.Hash InMemoryPersistentState where
   {-# NOINLINE getHash #-}
   getHash (InMemoryPersistentState ps) = unsafePerformIO $ do
-    ((), hsh) <- liftIO (withPersistentState ps $ FBS.createWith . hashPersistentState)
+    ((), hsh) <- liftIO (withPersistentState ps $ FBS.createWith . hashPersistentState errorLoadCallBack)
     return (SHA256.Hash hsh)
 
 instance Serialize InMemoryPersistentState where
