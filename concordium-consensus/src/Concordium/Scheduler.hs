@@ -857,7 +857,7 @@ handleUpdateContract ::
     -> Wasm.Parameter -- ^Message to send to the receive method.
     -> m (Maybe TransactionSummary)
 handleUpdateContract wtc uAmount uAddress uReceiveName uMessage =
-  withDeposit wtc c (defaultSuccess wtc)
+  withDeposit wtc computeAndCharge (defaultSuccess wtc)
   where senderAccount = wtc ^. wtcSenderAccount
         meta = wtc ^. wtcTransactionHeader
         senderAddress = thSender meta
@@ -877,6 +877,11 @@ handleUpdateContract wtc uAmount uAddress uReceiveName uMessage =
               handleContractUpdateV1 senderAddress ins checkAndGetBalanceV1 uAmount uReceiveName uMessage >>= \case
                 Left cer -> rejectTransaction (WasmV1.cerToRejectReasonReceive uAddress uReceiveName uMessage cer)
                 Right (_, events) -> return (reverse events)
+        computeAndCharge = do
+          r <- c
+          tickEnergyStoreStateV1 =<< newV1StateSize
+          return r
+
 
 -- |Check that the account has sufficient balance, and construct credentials of the account.
 checkAndGetBalanceAccountV1 :: (TransactionMonad pv m, AccountOperations m)
@@ -1032,11 +1037,8 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                 -- execution terminated, commit the new state if it changed
                 if rrdStateChanged then do
                    -- charge for storing the new state of the contract
-                   tickEnergyStoreStateV1 (Wasm.ByteSize (StateV1.getNewStateSize rrdNewState))
                    withInstanceStateV1 istance rrdNewState $ \_modifiedIndex -> return result
                 else do
-                  _ <- onV1StateIfChanged (instanceAddress istance) $ \newState ->
-                        tickEnergyStoreStateV1 (Wasm.ByteSize (StateV1.getNewStateSize newState))
                   return result
               WasmV1.ReceiveInterrupt{..} -> do
                 -- execution invoked an operation. Dispatch and continue.
