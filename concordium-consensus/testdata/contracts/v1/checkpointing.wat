@@ -53,7 +53,12 @@
       (else unreachable)))
 
   (func $assert_entry (param $entry i64)
-    (if (i64.eq (i64.const 9223372036854775807) (local.get $entry))
+    (if (i64.eq (i64.xor (i64.const 9223372036854775807) (i64.shl (i64.const 1) (i64.const 63))) (local.get $entry))
+      (then unreachable)
+      (else nop)))
+
+  (func $assert_entry_absent (param $entry i64)
+    (if (i64.ne (i64.xor (i64.const 9223372036854775807) (i64.shl (i64.const 1) (i64.const 63))) (local.get $entry))
       (then unreachable)
       (else nop)))
     
@@ -71,9 +76,11 @@
     (local $entry i64)
     ;; Declare a local for storing the write result
     (local $entry_write i32)
-    ;; Declare locals for invoking contract B together with the return value.
-    (local $pos i32)
+    ;; the offset in memory
+    (local $offset i32)
+    ;; a local for storing the return value of an invocation.
     (local $rv i64)
+    ;; a local for an iterator.
     (local $iter i64)
 
     ;; Set some initial state
@@ -94,6 +101,7 @@
           (i32.const 0)
           (call $get_parameter_size (i32.const 0))
           (i32.const 0))
+    (local.set $offset (call $get_parameter_size (i32.const 0)))
     ;; create an empty entry at [000]
     (call $assert_entry (call $state_create_entry (i32.const 0) (i32.const 3)))
     ;; create an entry at [0000]
@@ -120,7 +128,15 @@
     (if (i64.eq (i64.const 4242) (local.get $amount))
       ;; state should be modified in this case.
       (then
-        (call $assert_eq (i32.const 1) (call $state_entry_size (call $state_lookup_entry (i32.add (i32.const 1) (call $get_parameter_size (i32.const 0))) (i32.const 1)))))
+        ;; a_modify resizes [0] to 1.
+        (call $assert_eq (i32.const 1) (call $state_entry_size (call $state_lookup_entry (local.get $offset) (i32.const 1))))
+        ;; a_modify writes 8 bytes to [000]
+        (call $assert_eq (i32.const 8) (call $state_entry_size (call $state_lookup_entry (local.get $offset) (i32.const 2))))
+        ;; a_modifies deletes [000]
+        (call $assert_entry_absent (call $state_lookup_entry (local.get $offset) (i32.const 3)))
+        ;; a_modifies deletes the iterator, so a double delete will return in u32::max.
+        (call $assert_eq (i32.xor (i32.const 2147483647) (i32.shl (i32.const 1) (i32.const 31))) (call $state_iterator_delete (local.get $iter)))
+      )
       ;; state should not be modified in this case.
       (else
         ;; check that the size of [0] has not changed.
