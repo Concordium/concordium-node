@@ -120,7 +120,7 @@
     (if (i64.eq (i64.const 4242) (local.get $amount))
       ;; state should be modified in this case.
       (then
-        (call $assert_eq (i32.const 0) (call $state_entry_size (local.get $entry))))
+        (call $assert_eq (i32.const 1) (call $state_entry_size (call $state_lookup_entry (i32.add (i32.const 1) (call $get_parameter_size (i32.const 0))) (i32.const 1)))))
       ;; state should not be modified in this case.
       (else
         ;; check that the size of [0] has not changed.
@@ -157,10 +157,10 @@
     (local.set $entry (call $state_create_entry (i32.const 0) (i32.const 2)))
     ;; Write 8 zero bytes to entry [00].
     (local.set $entry_write (call $state_entry_write (local.get $entry) (i32.const 0) (i32.const 8) (i32.const 0)))
-    ;; Resize the entry [0] to 0 bytes.
+    ;; Resize the entry [0] to 1 byte.
     (call $state_entry_resize
         (call $state_lookup_entry (i32.const 0) (i32.const 1))
-        (i32.const 0))
+        (i32.const 1))
     ;; delete [000]
     (call $state_delete_entry (i32.const 0) (i32.const 3))
     ;; delete the iter
