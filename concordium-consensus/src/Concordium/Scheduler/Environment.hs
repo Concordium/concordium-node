@@ -393,9 +393,10 @@ class (StaticInformation m, ContractStateOperations m, IsProtocolVersion pv) => 
   -- up to this point in the transaction. Returns Nothing if the instance was not in the changeset.
   onV1StateIfChanged :: ContractAddress -> (UpdatableContractState GSWasm.V1 -> m a) -> m (Maybe a)
 
-  -- |Get the amount of additional storage that is needed to store V1 instances.
-  -- **This should only be called at the very end of a transaction**.
-  newV1StateSize :: m Wasm.ByteSize
+  -- |Charge for additional state that will be needed to store the additional
+  -- state for V1 contracts affected by the transaction. **This should only be
+  -- called at the end of the transaction.**
+  chargeV1Storage :: m ()
 
   -- |Get the current total public balance of an account.
   -- This accounts for any pending changes in the course of execution of the transaction.
@@ -942,10 +943,12 @@ instance (IsProtocolVersion pv, StaticInformation m, AccountOperations m, Contra
       Just (_, _, Just x) -> Just <$> f x
       _ -> return Nothing
 
-  newV1StateSize = do
+  chargeV1Storage = do
     xs <- use (changeSet . instanceV1Updates)
-    let response = foldl' (\acc (_, _, mms) -> maybe acc ((acc +) . StateV1.getNewStateSize) mms) 0 xs
-    return (Wasm.ByteSize response)
+    forM_ xs $ \(_, _, mms) ->
+      case mms of
+        Nothing -> return ()
+        Just ms -> tickEnergy (Cost.toEnergy (Wasm.ByteSize (StateV1.getNewStateSize ms)))
 
   getCurrentContractInstanceState istance = do
     newStates <- use (changeSet . instanceV1Updates)
