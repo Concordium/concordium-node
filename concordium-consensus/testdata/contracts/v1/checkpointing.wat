@@ -113,32 +113,41 @@
       ;; Check that the invocation resulted in TRAP i.e., '0x0006_0000_0000'
       (then (call $assert_eq_64 (local.get $rv) (i64.const 25769803776)))
       (else (call $assert_eq_64 (i64.shl (local.get $rv) (i64.const 24)) (i64.const 0)))) ;; last 5 bytes are 0 if success
-    
-    ;; now check that all state above the invocation of B is still present and remains the same as before.
-    ;; check that the size of [0] has not changed.    
-    (call $assert_eq
-        (i32.const 8)
-        (call $state_entry_size (local.get $entry)))
-    ;; Check that entry at [00] does not exist i.e. it starts with a set bit.
-    (call $assert_eq_64 (i64.const 0) (i64.clz (call $state_lookup_entry (i32.const 0) (i32.const 2))))
-    ;; check that we can lookup [000]
-    (call $assert_entry (call $state_lookup_entry (i32.const 0) (i32.const 3)))
-    ;; check that the key size is still 4 for the iter.
-    (call $assert_eq
-        (i32.const 4)
-        (call $state_iterator_key_size (local.get $iter)))
-    
-    ;; delete the state again
-    ;; first we check that we cannot delete because of the iterator lingering at [0].
-    (call $assert_eq (i32.const 0) (call $state_delete_prefix (i32.const 0) (i32.const 0)))
-    ;; delete the iterator
-    (call $state_iterator_delete (local.get $iter))
-    ;; now delete the whole state.
-    (call $assert_eq (i32.const 2) (call $state_delete_prefix (i32.const 0) (i32.const 0)))
+
+    ;; if we we're called with an amount of '4242' then we
+    ;; expect changes from subsequent calls to be reflected now,
+    ;; otherwise we don't. 
+    (if (i64.eq (i64.const 4242) (local.get $amount))
+      ;; state should be modified in this case.
+      (then
+        (call $assert_eq (i32.const 0) (call $state_entry_size (local.get $entry))))
+      ;; state should not be modified in this case.
+      (else
+        ;; check that the size of [0] has not changed.
+        (call $assert_eq
+          (i32.const 8)
+          (call $state_entry_size (local.get $entry)))
+        ;; Check that entry at [00] does not exist i.e. it starts with a set bit.
+        (call $assert_eq_64 (i64.const 0) (i64.clz (call $state_lookup_entry (i32.const 0) (i32.const 2))))
+        ;; check that we can lookup [000]
+        (call $assert_entry (call $state_lookup_entry (i32.const 0) (i32.const 3)))
+        ;; check that the key size is still 4 for the iter.
+        (call $assert_eq
+          (i32.const 4)
+          (call $state_iterator_key_size (local.get $iter)))    
+        ;; delete the state again
+        ;; first we check that we cannot delete because of the iterator lingering at [0].
+        (call $assert_eq (i32.const 0) (call $state_delete_prefix (i32.const 0) (i32.const 0)))
+        ;; delete the iterator
+        (call $state_iterator_delete (local.get $iter))
+        ;; now delete the whole state.
+        (call $assert_eq (i32.const 2) (call $state_delete_prefix (i32.const 0) (i32.const 0)))
+        (drop)))
     (return (i32.const 0)) ;; return success
   )
 
   ;; This function modifies the following state of contract A.
+  ;; precondition: 'a_modify_proxy' must be called before this one.
   (func $a_modify (export "a.a_modify") (param i64) (result i32)
     ;; Declare a local for entry [00].
     (local $entry i64)
@@ -146,11 +155,11 @@
     (local $entry_write i32)
     ;; Create new entry at [00].
     (local.set $entry (call $state_create_entry (i32.const 0) (i32.const 2)))
-    ;; Write 8 zero bytes to entry.
+    ;; Write 8 zero bytes to entry [00].
     (local.set $entry_write (call $state_entry_write (local.get $entry) (i32.const 0) (i32.const 8) (i32.const 0)))
-    ;; Resize the entry [0] to 0
+    ;; Resize the entry [0] to 0 bytes.
     (call $state_entry_resize
-        (call $state_create_entry (i32.const 0) (i32.const 1))
+        (call $state_lookup_entry (i32.const 0) (i32.const 1))
         (i32.const 0))
     ;; delete [000]
     (call $state_delete_entry (i32.const 0) (i32.const 3))
@@ -203,8 +212,7 @@
         (i32.const 0))
     ;; invoke with the amount we were given, and the parameter we were called with.
     (local.set $rv (call $invoke (i32.const 1) (i32.const 0) (call $get_parameter_size (i32.const 0))))
-    ;; Finally we impose a runtime failure here.
-    (return (i32.const 0))
+    (return (i32.const 0)) ;; return success.
   )
 
   (memory 1)

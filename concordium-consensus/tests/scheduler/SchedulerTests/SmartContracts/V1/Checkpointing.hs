@@ -238,6 +238,74 @@ testCases3 =
       then return ()
       else assertFailure $ msg ++  " unexepcted no. of events " ++ show (length vrEvents) ++ " expected 4."
 
+-- | This test has the following call pattern:
+-- A 
+--   -->  B
+--          --> A modify
+--          <-- 
+--       B
+-- A <--
+--
+-- The state at A should have changed according to the 'inner' invocation on contract A.
+testCases4 :: [TestCase PV4]
+testCases4 =
+  [ TestCase
+    { tcName = "Checkpointing 4"
+    , tcParameters = defaultParams {tpInitialBlockState=initialBlockState}
+    , tcTransactions =
+      [ ( TJSON { payload = DeployModule wasmModVersion checkpointingSourceFile
+                , metadata = makeDummyHeader alesAccount 1 100000
+                , keys = [(0,[(0, alesKP)])]
+                }
+        , (SuccessWithSummary deploymentCostCheck, emptySpec)
+        )       
+      , ( TJSON { payload = InitContract 0 wasmModVersion checkpointingSourceFile "init_a" ""
+                , metadata = makeDummyHeader alesAccount 2 100000
+                , keys = [(0,[(0, alesKP)])]
+                }
+        , (SuccessWithSummary initializationCostCheck, emptySpec)
+        )
+      ,
+        ( TJSON { payload = InitContract 0 wasmModVersion checkpointingSourceFile "init_b" ""
+                , metadata = makeDummyHeader alesAccount 3 100000
+                , keys = [(0,[(0, alesKP)])]
+                }
+        , (SuccessWithSummary initializationCostCheck, emptySpec)
+        )
+      ,
+        ( TJSON { payload = Update 4242 (Types.ContractAddress 0 0) "a.a_modify_proxy" parameters
+                , metadata = makeDummyHeader alesAccount 4 100000
+                , keys = [(0,[(0, alesKP)])]
+                }
+        , (SuccessWithSummary ensureSuccess, emptySpec)
+        )
+      ]
+    }
+  ]
+  where
+    parameters = BSS.toShort $ runPut $ do
+          putWord64le 1 -- contract index of contract B
+          putWord64le 0 -- contract subindex
+          putWord16le (fromIntegral (BS.length forwardParameter)) -- length of parameter
+          putByteString forwardParameter
+          putWord16le (fromIntegral (BSS.length "b_forward")) -- contract b's receive function.
+          putByteString "b_forward" -- entrypoint name
+          putWord64le 0 -- amount
+    forwardParameter = runPut $ do
+          putWord64le 0 -- index of contract A
+          putWord64le 0 -- subindex of the counter contract
+          putWord16le 0 -- length of the empty parameter
+          putWord16le (fromIntegral (BSS.length "a_modify"))
+          putByteString "a_modify" -- entrypoint name
+          putWord64le 0 -- amount
+    -- ensure the test case is successful
+    ensureSuccess :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
+    ensureSuccess _ Types.TransactionSummary{..} = checkSuccess "Update failed" tsResult
+    checkSuccess msg Types.TxReject{..} = assertFailure $ msg ++ show vrRejectReason
+    checkSuccess msg Types.TxSuccess{..} = if (length vrEvents) == 7
+      then return ()
+      else assertFailure $ msg ++ " unexepcted no. of events " ++ show (length vrEvents) ++ " expected 3."      
+
 -- This only checks that the cost of initialization is correct.
 -- If the state was not set up correctly the latter tests in the suite will fail.
 initializationCostCheck :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
@@ -278,4 +346,4 @@ deploymentCostCheck _ Types.TransactionSummary{..} = do
     
 tests :: Spec
 tests = describe "V1: Checkpointing." $
-  mkSpecs $ testCases1 ++ testCases2 ++ testCases3
+  mkSpecs $ testCases1 ++ testCases2 ++ testCases3 ++ testCases4
