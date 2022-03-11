@@ -943,19 +943,12 @@ instance (IsProtocolVersion pv, StaticInformation m, AccountOperations m, Contra
       Just (_, _, Just x) -> Just <$> f x
       _ -> return Nothing
 
-<<<<<<< HEAD
-  newV1StateSize = do
-    xs <- use (changeSet . instanceV1Updates)
-    let response = foldl' (\acc (_, _, mms) -> maybe acc ((acc +) . StateV1.getNewStateSize) mms) 0 xs
-    return (Wasm.ByteSize response)
-=======
   chargeV1Storage = do
     xs <- use (changeSet . instanceV1Updates)
     forM_ xs $ \(_, _, mms) ->
       case mms of
         Nothing -> return ()
         Just ms -> tickEnergy (Cost.toEnergy (Wasm.ByteSize (StateV1.getNewStateSize ms)))
->>>>>>> v1-contract-state
 
   getCurrentContractInstanceState istance = do
     newStates <- use (changeSet . instanceV1Updates)
