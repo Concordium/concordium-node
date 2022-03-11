@@ -631,17 +631,6 @@ tickEnergyStoreStateV0 cs =
   -- This uses the 'ResourceMeasure' instance for 'ByteSize' to determine the cost for storage.
   tickEnergy (Cost.toEnergy (Wasm.contractStateSize cs))
 
--- | Tick energy for storing the given amount of additional data.
-tickEnergyStoreStateV1 ::
-  TransactionMonad pv m
-  => Wasm.ByteSize -- ^Size of additional state that needs to be stored.
-  -> m ()
-tickEnergyStoreStateV1 size =
-  -- Compute the size of the value and charge for storing based on this size.
-  -- This uses the 'ResourceMeasure' instance for 'ByteSize' to determine the cost for storage.
-  tickEnergy (Cost.toEnergy size)
-
-
 -- | Get the current contract state and charge for its lookup.
 -- NB: In principle we should look up the state size, then charge, and only then lookup the full state
 -- But since state size is limited to be small it is acceptable to look it up and then charge for it.
@@ -754,7 +743,7 @@ handleInitContract wtc initAmount modref initName param =
                            `rejectingWith'` WasmV1.cerToRejectReasonInit
 
                 -- Charge for storing the contract state.
-                tickEnergyStoreStateV1 (Wasm.ByteSize (StateV1.getNewStateSize (WasmV1.irdNewState result)))
+                tickEnergy (Cost.toEnergy (Wasm.ByteSize (StateV1.getNewStateSize (WasmV1.irdNewState result))))
                 -- And for storing the instance.
                 tickEnergy Cost.initializeContractInstanceCreateCost
     
@@ -879,7 +868,7 @@ handleUpdateContract wtc uAmount uAddress uReceiveName uMessage =
                 Right (_, events) -> return (reverse events)
         computeAndCharge = do
           r <- c
-          tickEnergyStoreStateV1 =<< newV1StateSize
+          chargeV1Storage -- charge for storing the new state of all V1 contracts. V0 state is already charged.
           return r
 
 
