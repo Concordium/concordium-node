@@ -124,6 +124,7 @@ makeBlockStateHash BlockStateHashInputs{..} = StateHashV0 $
 -- Currently an account that has more than one credential is not allowed to handle encrypted transfers,
 -- and an account that has a non-zero encrypted balance cannot add new credentials.
 data AccountAllowance = AllowedEncryptedTransfers | AllowedMultipleCredentials
+  deriving (Eq, Show)
 
 class (BlockStateTypes m, Monad m) => AccountOperations m where
 
@@ -364,7 +365,7 @@ data ActiveDelegatorInfo = ActiveDelegatorInfo {
     -- |Any pending change to delegator.
     activeDelegatorPendingChange :: !(StakePendingChange 'AccountV1)
   }
-  deriving (Eq)
+  deriving (Eq, Show)
 
 -- |Information about a baker, including its delegators.
 data ActiveBakerInfo' bakerInfoRef = ActiveBakerInfo {
@@ -378,6 +379,7 @@ data ActiveBakerInfo' bakerInfoRef = ActiveBakerInfo {
     -- (There must be no duplicate 'DelegatorId's.)
     activeBakerDelegators :: ![ActiveDelegatorInfo]
   }
+  deriving (Eq, Show)
 
 -- |Information about a baker, including its delegators.
 type ActiveBakerInfo m = ActiveBakerInfo' (BakerInfoRef m)
@@ -525,6 +527,9 @@ class (BlockStateQuery m) => BlockStateOperations m where
     -> (PendingChangeEffective (AccountVersionFor (MPV m)) -> Bool)
     -- ^Guard determining if a change is effective
     -> m (UpdatableBlockState m)
+
+  -- |Get the list of all active bakers.
+  bsoGetActiveBakers :: UpdatableBlockState m -> m [BakerId]
 
   -- |Get the currently-registered (i.e. active) bakers with their delegators, as well as the
   -- set of delegators to the L-pool. In each case, the lists are ordered in ascending Id order,
@@ -985,6 +990,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoRotateCurrentEpochBakers = lift . bsoRotateCurrentEpochBakers
   bsoProcessPendingChanges s g = lift $ bsoProcessPendingChanges s g
   bsoTransitionEpochBakers s e = lift $ bsoTransitionEpochBakers s e
+  bsoGetActiveBakers = lift . bsoGetActiveBakers
   bsoGetActiveBakersAndDelegators = lift . bsoGetActiveBakersAndDelegators
   bsoGetCurrentEpochBakers = lift . bsoGetCurrentEpochBakers
   bsoGetCurrentCapitalDistribution = lift . bsoGetCurrentCapitalDistribution

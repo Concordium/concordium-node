@@ -29,7 +29,6 @@ import Data.Ratio
 
 import Concordium.Types
 import qualified Concordium.Types.Accounts as Types
-import qualified Concordium.Types.Parameters as Types
 import qualified Concordium.Types.Transactions as Types
 import Concordium.Logger
 import Concordium.GlobalState.Basic.BlockState.PoolRewards
@@ -254,7 +253,7 @@ calculatePaydayMintAmounts md mr ps updates amt =
 
 -- |Mint for all slots since the last block, recording a
 -- special transaction outcome for the minting.
-doMinting :: (ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0, GlobalStateTypes m, BlockStateOperations m, BlockPointerMonad m)
+doMinting :: (ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0, BlockStateOperations m, BlockPointerMonad m)
   => BlockPointerType m
   -- ^Parent block
   -> Slot
@@ -285,9 +284,9 @@ doMinting blockParent slotNumber foundationAddr mintUpds bs0 = do
 
 -- |Mint for the given payday, recording a
 -- special transaction outcome for the minting.
-doMintingP4 :: (ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1, GlobalStateTypes m, BlockStateOperations m, BlockPointerMonad m)
+doMintingP4 :: (ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1, BlockStateOperations m)
   => ChainParameters (MPV m)
-  -- ^Parent block
+  -- ^Chain parameters
   -> Epoch
   -- ^Payday epoch to mint for
   -> MintRate
@@ -673,13 +672,11 @@ distributeRewards foundationAddr bs0 = do
 
 mintForSkippedPaydays
   :: (ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1,
-      GlobalStateTypes m,
-      BlockStateOperations m,
-      BlockPointerMonad m)
+      BlockStateOperations m)
   => Epoch
   -- ^Epoch of the block
   -> Epoch
-  -- ^Epoch of the next payday (before this block)
+  -- ^Epoch of the current payday (before this block)
   -> RewardPeriodLength
   -- ^Length of the reward period
   -> ChainParameters (MPV m)
@@ -717,7 +714,7 @@ prepareForFollowingPayday
   => Epoch
   -- ^Epoch of the block
   -> Epoch
-  -- ^Epoch of the next payday
+  -- ^Epoch of the current payday
   -> ChainParameters (MPV m)
   -- ^Chain parameters at the parent block
   -> AccountAddress
@@ -889,7 +886,7 @@ updateBirkParameters newSeedState bs0 = case protocolVersion @(MPV m) of
       nextPayday <- bsoGetPaydayEpoch bs0
       -- We generate the bakers for the next reward period based on the epoch before the payday.
       bs1 <- if isNewEpoch && epoch oldSeedState + 1 < nextPayday && epoch newSeedState + 1 >= nextPayday
-        then generateNextBakers bs0
+        then generateNextBakers nextPayday bs0
         else
           return bs0
       (isNewEpoch,) <$> bsoSetSeedState bs1 newSeedState
@@ -908,6 +905,20 @@ countFreeTransactions bis hasFinRec = foldl' cft f0 bis
       CredentialDeployment{} -> let !c = countAccountCreation f + 1 in f {countAccountCreation = c}
       ChainUpdate{} -> let !c = countUpdate f + 1 in f {countUpdate = c}
       _ -> f
+
+-- |Given 'CommissionRanges' and a 'BakerId', update the baker's commission rates to fall within
+-- the ranges (at the closest rate to the existing rate).
+putBakerCommissionsInRange ::
+    (ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1,
+    AccountVersionFor (MPV m) ~ 'AccountV1,
+    BlockStateOperations m) =>
+    CommissionRanges ->
+    UpdatableBlockState m ->
+    BakerId ->
+    m (UpdatableBlockState m)
+putBakerCommissionsInRange ranges bs (BakerId ai) = do
+  (_, newBS) <- bsoConfigureBaker bs ai (BI.BakerConfigureToCommissionRanges ranges)
+  return newBS
 
 -- |Execute a block from a given starting state.
 -- Fail if any of the transactions fails, otherwise return the new 'BlockState' and the amount of energy used
@@ -929,27 +940,22 @@ executeFrom :: forall m.
 executeFrom blockHash slotNumber slotTime blockParent blockBaker mfinInfo newSeedState txs =
   let cm = ChainMetadata{..}
   in do
-    origBS <- blockState blockParent
-    bshandle0 <- thawBlockState origBS
-    chainParams <- bsoGetChainParameters bshandle0
+    bshandle0 <- thawBlockState =<< blockState blockParent
+    accountCreationLim <- bsoGetChainParameters bshandle0 <&> (^. cpAccountCreationLimit)
     let counts = countFreeTransactions (map fst txs) (isJust mfinInfo)
-    if (countAccountCreation counts > chainParams ^. cpAccountCreationLimit)
+    if countAccountCreation counts > accountCreationLim
       then
           return $ Left (Just ExceedsMaxCredentialDeployments)
       else do
         -- process the update queues
         (updates, bshandle0a) <- bsoProcessUpdateQueues bshandle0 slotTime
-        ab <- getActiveBakers origBS
-        let isPoolParameterUpdate = \case
-              UVPoolParameters _ -> True
-              _ -> False
-        -- take out pool parameter updates, ordered by timestamp
-        let poolParameterUpdates = filter isPoolParameterUpdate $ Map.elems updates
+        ab <- bsoGetActiveBakers bshandle0a
         -- for each pool parameter update, go over all bakers and put their commissions inside
         -- the new commission ranges.
         bshandle0a' <- foldM (\bs uv -> case uv of
-          UVPoolParameters PoolParametersV1{..} -> foldM (putBakerCommissionsInRange _ppCommissionBounds origBS) bs ab
-          _ -> return bs) bshandle0a poolParameterUpdates
+          UVPoolParameters PoolParametersV1{..} -> case protocolVersion @(MPV m) of
+              SP4 -> foldM (putBakerCommissionsInRange _ppCommissionBounds) bs ab
+          _ -> return bs) bshandle0a (Map.elems updates)
         -- unlock the amounts that have expired
         bshandle0b <- bsoProcessReleaseSchedule bshandle0a' slotTime
         -- update the bakers and seed state
@@ -958,7 +964,7 @@ executeFrom blockHash slotNumber slotTime blockParent blockBaker mfinInfo newSee
         let context = ContextState{
               _chainMetadata = cm,
               _maxBlockEnergy = maxBlockEnergy,
-              _accountCreationLimit = chainParams ^. cpAccountCreationLimit
+              _accountCreationLimit = accountCreationLim
               }
         (res, finState) <- runBSM (Sch.runTransactions txs) context (mkInitialSS bshandle1 :: LogSchedulerState m)
         let usedEnergy = finState ^. schedulerEnergyUsed
@@ -980,34 +986,6 @@ executeFrom blockHash slotNumber slotTime blockParent blockBaker mfinInfo newSee
                 return (Right (ExecutionResult{_energyUsed = usedEnergy,
                                               _finalState = finalbsHandle,
                                               _transactionLog = finState ^. schedulerTransactionLog}))
-  where
-    putBakerCommissionsInRange :: ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1 => CommissionRanges -> BlockState m -> UpdatableBlockState m -> BakerId -> m (UpdatableBlockState m)
-    putBakerCommissionsInRange ranges origBS bs bid@(BakerId ai) = getBakerAccount origBS bid >>= \case
-      Nothing -> error "Invariant violation: Active baker is not a baker."
-      Just acc -> getAccountBaker acc >>= \case
-        Nothing -> error "Invariant violation: Active baker is not a baker."
-        Just ab -> case ab ^. Types.accountBakerInfo of
-          Types.BakerInfoExV0 _ -> return bs
-          Types.BakerInfoExV1 _ bpi -> do
-            let fc = bpi ^. Types.poolCommissionRates . finalizationCommission
-            let cfc = Types.closestInRange fc (ranges ^. finalizationCommissionRange)
-            let bc = bpi ^. Types.poolCommissionRates . bakingCommission
-            let cbc = Types.closestInRange fc (ranges ^. bakingCommissionRange)
-            let tc = bpi ^. Types.poolCommissionRates . transactionCommission
-            let ctc = Types.closestInRange fc (ranges ^. transactionCommissionRange)
-            (result, newBS) <- bsoConfigureBaker bs ai BI.BakerConfigureUpdate{
-              bcuSlotTimestamp = slotTime,
-              bcuKeys = Nothing,
-              bcuCapital = Nothing,
-              bcuRestakeEarnings = Nothing,
-              bcuOpenForDelegation = Nothing,
-              bcuMetadataURL = Nothing,
-              bcuTransactionFeeCommission = if fc == cfc then Nothing else Just cfc,
-              bcuBakingRewardCommission = if bc == cbc then Nothing else Just cbc,
-              bcuFinalizationRewardCommission = if tc == ctc then Nothing else Just ctc}
-            case result of
-              BI.BCSuccess _ _ -> return newBS
-              _ -> error "Failed to configure baker with new rates within ranges." -- this should never happen
 
 -- |PRECONDITION: Focus block is the parent block of the block we wish to make,
 -- hence the pending transaction table is correct for the new block.
@@ -1029,11 +1007,18 @@ constructBlock slotNumber slotTime blockParent blockBaker mfinInfo newSeedState 
     -- when we start constructing the block
     startTime <- currentTime
     bshandle0 <- thawBlockState =<< blockState blockParent
-    chainParams <- bsoGetChainParameters bshandle0
+    accountCreationLim <- bsoGetChainParameters bshandle0 <&> (^. cpAccountCreationLimit)
     -- process the update queues
     (updates, bshandle0a) <- bsoProcessUpdateQueues bshandle0 slotTime
+    ab <- bsoGetActiveBakers bshandle0a
+    -- for each pool parameter update, go over all bakers and put their commissions inside
+    -- the new commission ranges.
+    bshandle0a' <- foldM (\bs uv -> case uv of
+      UVPoolParameters PoolParametersV1{..} -> case protocolVersion @(MPV m) of
+          SP4 -> foldM (putBakerCommissionsInRange _ppCommissionBounds) bs ab
+      _ -> return bs) bshandle0a (Map.elems updates)
     -- unlock the amounts that have expired
-    bshandle0b <- bsoProcessReleaseSchedule bshandle0a slotTime
+    bshandle0b <- bsoProcessReleaseSchedule bshandle0a' slotTime
     -- update the bakers and seed state
     (isNewEpoch, bshandle1) <- updateBirkParameters newSeedState bshandle0b
     pt <- getPendingTransactions
@@ -1076,7 +1061,7 @@ constructBlock slotNumber slotTime blockParent blockBaker mfinInfo newSeedState 
     let context = ContextState{
           _chainMetadata = cm,
           _maxBlockEnergy = maxBlockEnergy,
-          _accountCreationLimit = chainParams ^. cpAccountCreationLimit
+          _accountCreationLimit = accountCreationLim
           }
     (ft@Sch.FilteredTransactions{..}, finState) <-
         runBSM (Sch.filterTransactions (fromIntegral maxSize) timeout transactionGroups) context (mkInitialSS bshandle1 :: LogSchedulerState m)

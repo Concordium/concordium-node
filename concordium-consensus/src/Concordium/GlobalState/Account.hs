@@ -254,7 +254,7 @@ data AccountUpdate = AccountUpdate {
   ,_auEncrypted :: !(Maybe EncryptedAmountUpdate)
   -- |Optionally update the locked stake on the account.
   ,_auReleaseSchedule :: !(Maybe [([(Timestamp, Amount)], TransactionHash)])
-} deriving(Eq)
+} deriving (Eq, Show)
 makeLenses ''AccountUpdate
 
 emptyAccountUpdate :: AccountIndex -> AccountAddress -> AccountUpdate

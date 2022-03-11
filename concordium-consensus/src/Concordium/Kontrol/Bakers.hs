@@ -10,12 +10,10 @@
 module Concordium.Kontrol.Bakers where
 
 import Control.Arrow
-import qualified Data.Vector as Vec
 import Lens.Micro.Platform
 
 import Concordium.Types
 import Concordium.Types.Accounts
-import Concordium.Types.UpdateQueues
 
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.BlockState
@@ -101,7 +99,7 @@ applyPendingChanges isEffective (bakers0, lpool0) =
         | activeDelegatorId d1 <= activeDelegatorId d2 = d1 : mergeDelegators ds1 (d2 : ds2)
         | otherwise = d2 : mergeDelegators (d1 : ds1) ds2
     -- Process a baker, adding it to the list of bakers if it is still a baker, and otherwise
-    -- adding its delegators to the lpool.
+    -- adding its delegators to the L-pool.
     processBaker baker@ActiveBakerInfo{..} (bakers, lpool) = case activeBakerPendingChange of
         RemoveStake et | isEffective et -> (bakers, mergeDelegators pDelegators lpool)
         ReduceStake amt et
@@ -114,7 +112,7 @@ applyPendingChanges isEffective (bakers0, lpool0) =
                   bakers,
                   lpool
                 )
-        _ -> (baker : bakers, lpool)
+        _ -> (baker{activeBakerDelegators = pDelegators} : bakers, lpool)
       where
         pDelegators = processDelegators activeBakerDelegators
 
@@ -144,7 +142,7 @@ data BakerStakesAndCapital m = BakerStakesAndCapital
     { -- |The baker info and stake for each baker.
       bakerStakes :: [(BakerInfoRef m, Amount)],
       -- |Determine the capital distribution for bakers.
-      bakerCapitalsM :: (AccountOperations m) => m [(BakerId, Amount, [(DelegatorId, Amount)])],
+      bakerCapitalsM :: m [(BakerId, Amount, [(DelegatorId, Amount)])],
       -- |The capital distribution for the L-pool.
       lpoolCapital :: [(DelegatorId, Amount)]
     }
@@ -152,6 +150,7 @@ data BakerStakesAndCapital m = BakerStakesAndCapital
 -- |Compute the baker stakes and capital distribution.
 computeBakerStakesAndCapital ::
     forall m.
+    (AccountOperations m) =>
     PoolParameters 'ChainParametersV1 ->
     [ActiveBakerInfo m] ->
     [ActiveDelegatorInfo] ->
@@ -177,7 +176,6 @@ computeBakerStakesAndCapital poolParams activeBakers lpoolDelegators = BakerStak
     bakerCapital ActiveBakerInfo{..} = do
         bid <- _bakerIdentity <$> derefBakerInfo activeBakerInfoRef
         return (bid, activeBakerEquityCapital, delegatorCapital <$> activeBakerDelegators)
-    bakerCapitalsM :: AccountOperations m => m [(BakerId, Amount, [(DelegatorId, Amount)])]
     bakerCapitalsM = mapM bakerCapital activeBakers
     lpoolCapital = (activeDelegatorId &&& activeDelegatorStake) <$> lpoolDelegators
 
@@ -187,10 +185,11 @@ generateNextBakers ::
       AccountVersionFor (MPV m) ~ 'AccountV1,
       ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1
     ) =>
+    -- |The payday epoch
+    Epoch ->
     UpdatableBlockState m ->
     m (UpdatableBlockState m)
-generateNextBakers bs0 = do
-    paydayEpoch <- bsoGetPaydayEpoch bs0
+generateNextBakers paydayEpoch bs0 = do
     isEffective <- effectiveTest paydayEpoch
     -- Determine the bakers and delegators for the next reward period, accounting for any
     -- stake reductions that are currently pending on active bakers with effective time at
@@ -198,6 +197,12 @@ generateNextBakers bs0 = do
     (activeBakers, lpoolDelegators) <-
         applyPendingChanges isEffective
             <$> bsoGetActiveBakersAndDelegators bs0
+    -- Note that we use the current value of the pool parameters as of this block.
+    -- This should account for any updates that are effective at or before this block.
+    -- However, this can include updates that are effective AFTER the epoch boundary but BEFORE
+    -- the block. Thus the timing of the first block in the epoch before a payday can make a
+    -- difference to the stake calculation for the next reward period. (Note also that if there
+    -- are no blocks in this epoch, 'getSlotBakersV1' does not apply any updates.)
     cps <- bsoGetChainParameters bs0
     let BakerStakesAndCapital{..} =
             computeBakerStakesAndCapital
@@ -208,102 +213,33 @@ generateNextBakers bs0 = do
     bakerCapitals <- bakerCapitalsM
     bsoSetNextCapitalDistribution bs1 bakerCapitals lpoolCapital
 
--- |Compute the epoch of the last payday at or before the given epoch.
--- This accounts for changes to the reward period.
+-- |Determine the bakers that apply to a future slot, given the state at a particular block.
+-- The assumption is that there are no blocks between the block and the future slot; i.e. this
+-- is used to determine the lottery participants that will try to bake a block with the block as the
+-- parent.
 --
--- PRECONDITION: The target epoch must be at least the next payday epoch.
--- TODO: Add tests
-paydayEpochBefore ::
-    -- |Current length of a reward period
-    RewardPeriodLength ->
-    -- |Pending updates to the reward period length
-    [(Timestamp, RewardPeriodLength)] ->
-    -- |Genesis timestamp
-    Timestamp ->
-    -- |Epoch duration
-    Duration ->
-    -- |Next payday epoch
-    Epoch ->
-    -- |The epoch to compute the last payday before
-    Epoch ->
-    Epoch
-paydayEpochBefore rewardLength pendingLengths genesis epochDuration nextPayday targetEpoch = lastPayday
-  where
-    epochToTimestamp epoch = addDuration genesis (fromIntegral epoch * epochDuration)
-    targetTime = epochToTimestamp targetEpoch
-    -- Find the first payday (starting from startEpoch) that is no sooner than the given timestamp.
-    -- This is a very naive implementation that is easy to see is correct, and is likely fast
-    -- enough in practice. TODO: improve this
-    paydayAfterTimestamp startEpoch pdLen ts
-        | epochToTimestamp startEpoch >= ts = startEpoch
-        | otherwise = paydayAfterTimestamp (startEpoch + pdLen) pdLen ts
-    go fromEpoch curPLen ((changeTime, nextPLen) : changes)
-        | changeTime < targetTime,
-          let pac = paydayAfterTimestamp fromEpoch (rewardPeriodEpochs curPLen) changeTime,
-          pac < targetEpoch =
-            go pac nextPLen changes
-    go fromEpoch curPLen _ = targetEpoch - ((targetEpoch - fromEpoch) `mod` rewardPeriodEpochs curPLen)
-    lastPayday = go nextPayday rewardLength pendingLengths
-
+-- If the slot is in the same epoch as the previous block, use the current epoch bakers.
+-- Otherwise, use the next epoch bakers.
+--
+-- Note, the next epoch bakers are updated in the first block in the epoch before a payday.
+-- (Or, if there is no block in that epoch, the first block later than the epoch before the payday.)
+-- This means that if an entire epoch is skipped, the computed bakers may not be the same as if
+-- a block had existed in that epoch.  This state of affairs is not particularly bad, as it just
+-- means that potential changes affecting the bakers (such as stake changes) are not accounted for
+-- in the first block after at least one epoch has elapsed with no blocks (already an unlikely
+-- circumstance).
 getSlotBakersV1 ::
     forall m.
-    ( BlockStateOperations m,
-      AccountVersionFor (MPV m) ~ 'AccountV1,
-      ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1,
-      TreeStateMonad m
+    ( BlockStateOperations m
     ) =>
+    -- |State of parent block
     BlockState m ->
+    -- |Slot to compute bakers for
     Slot ->
     m FullBakers
 getSlotBakersV1 bs slot = do
-    SeedState{epochLength, epoch = blockEpoch} <- getSeedState bs
+    SeedState{epochLength, epoch=oldEpoch} <- getSeedState bs
     let slotEpoch = fromIntegral $ slot `quot` epochLength
-    nextPayday <- getPaydayEpoch bs
-
-    if slotEpoch < nextPayday
+    if oldEpoch == slotEpoch
         then getCurrentEpochBakers bs
-        else do
-            chainParams <- _currentParameters <$> getUpdates bs
-            let rewardPeriodLen = chainParams ^. cpTimeParameters . tpRewardPeriodLength
-            let paydayLength = rewardPeriodEpochs rewardPeriodLen
-            if blockEpoch + 1 == nextPayday && slotEpoch < nextPayday + paydayLength
-                then getNextEpochBakers bs
-                else do
-                    -- The slot time is at least the next payday
-                    -- First we compute the epoch of last payday that is no later than the given slot.
-                    pendingLengths <- (each . _2 %~ _tpRewardPeriodLength) <$> getPendingTimeParameters bs
-                    gd <- getGenesisData
-                    let epochDuration = gdSlotDuration gd * fromIntegral (gdEpochLength gd)
-                        latestPayday =
-                            paydayEpochBefore
-                                rewardPeriodLen
-                                pendingLengths
-                                (gdGenesisTime gd)
-                                epochDuration
-                                nextPayday
-                                blockEpoch
-
-                    -- From this we can determine which cooldowns have elapsed.
-                    isEffective <- effectiveTest latestPayday
-
-                    -- Determine the bakers and delegators for the next reward period, accounting for any
-                    -- stake reductions that are currently pending on active bakers with effective time at
-                    -- or before the next payday.
-                    (activeBakers, lpoolDelegators) <-
-                        applyPendingChanges isEffective
-                            <$> getActiveBakersAndDelegators bs
-                    -- Determine the pool parameters that would be effective the epoch before the payday
-                    pendingPoolParams <- getPendingPoolParameters bs
-                    let latestPaydayTime = epochTimestamp gd latestPayday
-                        ePoolParams _ ((et, pp') : updates)
-                            | addDuration et epochDuration <= latestPaydayTime =
-                                ePoolParams pp' updates
-                        ePoolParams pp _ = pp
-                        effectivePoolParameters = ePoolParams (chainParams ^. cpPoolParameters) pendingPoolParams
-                        bsc = computeBakerStakesAndCapital @m effectivePoolParameters activeBakers lpoolDelegators
-                    let mkFullBaker (biRef, _bakerStake) = do
-                            _theBakerInfo <- derefBakerInfo biRef
-                            return FullBakerInfo{..}
-                    fullBakerInfos <- mapM mkFullBaker (Vec.fromList $ bakerStakes bsc)
-                    let bakerTotalStake = sum $ _bakerStake <$> fullBakerInfos
-                    return FullBakers{..}
+        else getNextEpochBakers bs

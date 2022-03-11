@@ -363,7 +363,7 @@ main = do
                 [Dummy.createCustomAccount 1000000000000 Dummy.mateuszKP Dummy.mateuszAccount]
                 (Energy maxBound)
                 Dummy.dummyKeyCollection
-                (makeChainParametersV0 (makeElectionDifficulty 20000) 1 1 4 10 Dummy.dummyRewardParameters numberOfBakers 300000000000)
+                (makeChainParametersV0 (makeElectionDifficulty 20000) 1 1 4 10 Dummy.dummyRewardParametersV0 numberOfBakers 300000000000)
     peersRef <- newIORef Map.empty
     monitorChan <- newChan
     peers <-

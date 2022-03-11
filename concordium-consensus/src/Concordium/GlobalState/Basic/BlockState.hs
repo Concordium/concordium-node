@@ -1106,6 +1106,8 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
 
     bsoGetCurrentCapitalDistribution bs = return $ _unhashed . PoolRewards.currentCapital $ bs ^. blockPoolRewards
 
+    bsoGetActiveBakers bs = return $ Map.keys $ bs ^. blockBirkParameters . birkActiveBakers . activeBakers
+
     bsoGetActiveBakersAndDelegators = doGetActiveBakersAndDelegators
 
     bsoAddBaker bs ai BakerAdd{..} = do
@@ -1306,6 +1308,20 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                     modifyAccount (stakedAmount .~ capital)
                     blockBirkParameters . birkActiveBakers . totalActiveCapital += capital - _stakedAmount ab
                     MTL.tell [BakerConfigureStakeIncreased capital]
+    bsoConfigureBaker origBS ai BakerConfigureToCommissionRanges{..} = case origBS ^? blockAccounts . Accounts.indexedAccount ai of
+        Nothing -> return (BCInvalidAccount, origBS)
+        Just Account{_accountStaking = AccountStakeBaker ab} -> do
+            let ab' = ab & accountBakerInfo . bieBakerPoolInfo . poolCommissionRates %~ updateRates
+            return (BCSuccess [] (BakerId ai), origBS & blockAccounts . Accounts.indexedAccount ai . accountStaking .~ AccountStakeBaker ab')
+        Just Account{} -> return (BCInvalidBaker, origBS)
+      where
+        updateRates = updateTransactionFeeCommission . updateBakingRewardCommission . updateFinalizationRewardCommission
+        updateTransactionFeeCommission =
+            transactionCommission %~ (`closestInRange` (bccrCommissionRanges ^. transactionCommissionRange))
+        updateBakingRewardCommission =
+            bakingCommission %~ (`closestInRange` (bccrCommissionRanges ^. bakingCommissionRange))
+        updateFinalizationRewardCommission =
+            finalizationCommission %~ (`closestInRange` (bccrCommissionRanges ^. finalizationCommissionRange))
 
     bsoConfigureDelegation bs ai DelegationConfigureAdd{..} = do
         -- It is assumed here that this account is NOT a baker and NOT a delegator.

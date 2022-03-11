@@ -737,6 +737,10 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         bs1' <- coerceBSML $ bsoSetRewardAccounts bs1 rew
         bs2' <- coerceBSMR $ bsoSetRewardAccounts bs2 rew
         return (bs1', bs2')
+    bsoGetActiveBakers (bs1, bs2) = do
+        r1 <- coerceBSML $ bsoGetActiveBakers bs1
+        r2 <- coerceBSMR $ bsoGetActiveBakers bs2
+        assert (r1 == r2) $ return r1
     bsoGetActiveBakersAndDelegators (bs1, bs2) = do
         (b1, d1) <- coerceBSML $ bsoGetActiveBakersAndDelegators bs1
         (b2, d2) <- coerceBSMR $ bsoGetActiveBakersAndDelegators bs2

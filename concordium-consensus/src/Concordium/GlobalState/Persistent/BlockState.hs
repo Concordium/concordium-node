@@ -1131,6 +1131,35 @@ doConfigureBaker pbs ai BakerConfigureRemove{..} = do
                     (BCSuccess [] (BakerId ai),) <$> storePBS pbs bsp{bspAccounts = newAccounts}
             -- The account is not valid or has no baker
             _ -> return (BCInvalidBaker, pbs)
+doConfigureBaker pbs ai BakerConfigureToCommissionRanges{..} = do
+        bsp <- loadPBS pbs
+        Accounts.indexedAccount ai (bspAccounts bsp) >>= \case
+            Nothing -> return (BCInvalidAccount, pbs)
+            -- The account is valid and has a baker
+            Just PersistentAccount{_accountStake = PersistentAccountStakeBaker pab} -> do
+                ab <- refLoad pab
+                ebi <- refLoad $ ab ^. bakerPoolInfoRef
+                let oldRates = ebi ^. BaseAccounts.poolCommissionRates
+                let newRates = updateRates oldRates
+                if oldRates == newRates then
+                    return (BCSuccess [] (BakerId ai), pbs)
+                else do
+                    let updAcc acc = do
+                            pebi' <- refMake $ ebi & BaseAccounts.poolCommissionRates .~ newRates
+                            pab' <- refMake $ ab & bakerPoolInfoRef .~ pebi'
+                            acc' <- setPersistentAccountStake acc (PersistentAccountStakeBaker pab')
+                            return ((), acc')
+                    (_, newAccounts) <- Accounts.updateAccountsAtIndex updAcc ai (bspAccounts bsp)
+                    (BCSuccess [] (BakerId ai),) <$> storePBS pbs bsp{bspAccounts = newAccounts}
+            _ -> return (BCInvalidBaker, pbs)
+    where
+        updateRates = updateTransactionFeeCommission . updateBakingRewardCommission . updateFinalizationRewardCommission        
+        updateTransactionFeeCommission =
+            transactionCommission %~ (`closestInRange` (bccrCommissionRanges ^. transactionCommissionRange))
+        updateBakingRewardCommission =
+            bakingCommission %~ (`closestInRange` (bccrCommissionRanges ^. bakingCommissionRange))
+        updateFinalizationRewardCommission =
+            finalizationCommission %~ (`closestInRange` (bccrCommissionRanges ^. finalizationCommissionRange))
 
 -- |Checks that the delegation target is not over-delegated.
 -- This can throw one of the following 'DelegationConfigureResult's, in order:
@@ -2581,6 +2610,7 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateOperations (Pe
     bsoGetSeedState = doGetSeedState
     bsoSetSeedState = doSetSeedState
     bsoTransitionEpochBakers = doTransitionEpochBakers
+    bsoGetActiveBakers = doGetActiveBakers
     bsoGetActiveBakersAndDelegators = doGetActiveBakersAndDelegators
     bsoGetCurrentEpochBakers = doGetCurrentEpochBakers
     bsoGetCurrentCapitalDistribution = doGetCurrentCapitalDistribution

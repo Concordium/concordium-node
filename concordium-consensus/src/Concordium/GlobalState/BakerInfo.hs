@@ -17,6 +17,7 @@ import Concordium.Utils.BinarySearch
 
 import Concordium.Types
 import Concordium.Types.Execution (OpenStatus, DelegationTarget)
+import Concordium.GlobalState.Parameters
 
 data FullBakerInfo = FullBakerInfo {
     _theBakerInfo :: !BakerInfo,
@@ -44,7 +45,7 @@ data FullBakers = FullBakers {
     fullBakerInfos :: !(Vec.Vector FullBakerInfo),
     -- |The total stake of all bakers.
     bakerTotalStake :: !Amount
-} deriving Eq
+} deriving (Eq, Show)
 
 -- |Look up a baker by its identifier.
 -- This is implemented with binary search.
@@ -157,6 +158,11 @@ data BakerConfigure =
         bcuBakingRewardCommission :: !(Maybe AmountFraction),
         bcuFinalizationRewardCommission :: !(Maybe AmountFraction)
     }
+    -- |Update a baker's commission rates to fall in the given range.
+    | BakerConfigureToCommissionRanges {
+        bccrCommissionRanges :: CommissionRanges
+    }
+    deriving (Eq, Show)
 
 -- |A baker update change result from configure baker. Used to indicate whether the configure will cause
 -- any changes to the baker's stake, keys, etc.
