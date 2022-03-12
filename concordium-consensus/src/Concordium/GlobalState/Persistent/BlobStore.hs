@@ -96,8 +96,13 @@ data BlobStore = BlobStore {
 }
 
 class HasBlobStore a where
+    -- |A handle to the underlying storage.
     blobStore :: a -> BlobStore
+    -- |Callbacks for loading parts of the state. This is needed by V1 contract
+    -- state implementation, but should otherwise not be used by Haskell code directly.
     blobLoadCallback :: a -> LoadCallback
+    -- |Callbacks for storing new state. This is needed by V1 contract state
+    -- implementation
     blobStoreCallback :: a -> StoreCallback
 
 -- |Construct callbacks for accessing the blob store.
@@ -287,9 +292,15 @@ class MonadIO m => MonadBlobStore m where
     {-# INLINE loadRaw #-}
     {-# INLINE flushStore #-}
 
+-- |Context needed to operate on the blob store.
 data BlobStoreContext = BlobStoreContext {
+  -- |A handle to the underlying storage.
   bscBlobStore :: !BlobStore,
+  -- |Callbacks for loading parts of the state. This is needed by V1 contract
+  -- state implementation.
   bscLoadCallback :: !LoadCallback,
+  -- |Callbacks for storing new state. This is needed by V1 contract state
+  -- implementation.
   bscStoreCallback :: !StoreCallback
   }
 
@@ -299,7 +310,6 @@ instance HasBlobStore BlobStoreContext where
   blobStoreCallback = bscStoreCallback
 
 instance MonadBlobStore (ReaderT BlobStoreContext IO)
-
 
 -- |The @BlobStorable m a@ class defines how a value
 -- of type @a@ may be stored in monad @m@.

@@ -1,3 +1,9 @@
+{-|
+  The "basic" implementation of contract state, which keeps the state in memory.
+  This module contains both some common abstractions (e.g., HasInstanceAddress)
+  as well as the basic implementation which should ideally be in Concordium.GlobalState.Basic.Instance.
+  At some future point we should consider splitting this module into two as outlined above.
+-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -16,6 +22,9 @@ import qualified Concordium.GlobalState.Wasm as GSWasm
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import qualified Concordium.Crypto.SHA256 as SHA256
 
+-- |State of a smart contract parametrized by the contract version. This is the
+-- "basic" version which keeps the state in memory. The persistent version is
+-- defined in Concordium.GlobalState.Persistent.Instance.
 data InstanceStateV (v :: Wasm.WasmVersion) where
   InstanceStateV0 :: Wasm.ContractState -> InstanceStateV GSWasm.V0
   InstanceStateV1 :: StateV1.InMemoryPersistentState -> InstanceStateV GSWasm.V1
@@ -100,7 +109,7 @@ instance HasInstanceAddress Instance where
 
 -- |An instance of a smart contract.
 data Instance = InstanceV0 (InstanceV GSWasm.V0)
-              | InstanceV1 (InstanceV GSWasm.V1)
+    | InstanceV1 (InstanceV GSWasm.V1)
 
 instance Show Instance where
     show (InstanceV0 InstanceV{..}) = show  _instanceVParameters ++ " {balance=" ++ show _instanceVAmount ++ ", hash = " ++ show _instanceVHash ++ "}"
@@ -110,6 +119,7 @@ instance HashableTo H.Hash Instance where
     getHash (InstanceV0 InstanceV{..}) = _instanceVHash
     getHash (InstanceV1 InstanceV{..}) = _instanceVHash
 
+-- |Compute the hash of the instance parameters.
 makeInstanceParameterHash :: ContractAddress -> AccountAddress -> ModuleRef -> Wasm.InitName -> H.Hash
 makeInstanceParameterHash ca aa modRef conName = H.hashLazy $ runPutLazy $ do
         put ca
@@ -117,33 +127,40 @@ makeInstanceParameterHash ca aa modRef conName = H.hashLazy $ runPutLazy $ do
         put modRef
         put conName
 
+-- |Construct the hash of a basic instance from the __hash of the parameters__, the state, and amount for a V0 instance.
 makeInstanceHashV0' :: H.Hash -> InstanceStateV GSWasm.V0 -> Amount -> H.Hash
 makeInstanceHashV0' paramHash (InstanceStateV0 conState) a = H.hashLazy $ runPutLazy $ do
         put paramHash
         putByteString (H.hashToByteString (getHash conState))
         put a
 
+-- |Construct the hash of a basic instance from the instance parameters, the state, and amount for a V0 instance.
 makeInstanceHashV0 :: InstanceParameters v -> InstanceStateV GSWasm.V0 -> Amount -> H.Hash
-makeInstanceHashV0 params = makeInstanceHashV0' (instanceParameterHash params)
+makeInstanceHashV0 = makeInstanceHashV0' . instanceParameterHash
 
+-- |Construct the hash of a basic instance from the __hash of the parameters__, the state, and amount for a V1 instance.
 makeInstanceHashV1' :: H.Hash -> InstanceStateV GSWasm.V1 -> Amount -> H.Hash
 makeInstanceHashV1' paramHash (InstanceStateV1 conState) a = H.hashLazy $ runPutLazy $ do
+        -- We put an explicit version for V1. This is not present in V0 for legacy reasons, and we cannot change it now,
+        -- but it would be best if it was present.
         put Wasm.V1
         put paramHash
         put (getHash conState :: SHA256.Hash)
         put a
 
+-- |Construct the hash of a basic instance from the instance parameters, the state, and amount for a V1 instance.
 makeInstanceHashV1 :: InstanceParameters v -> InstanceStateV GSWasm.V1 -> Amount -> H.Hash
-makeInstanceHashV1 params = makeInstanceHashV1' (instanceParameterHash params)
+makeInstanceHashV1 = makeInstanceHashV1' . instanceParameterHash
 
+-- |Compute the hash of either a V0 or V1 instance. The version is determined by the type parameter.
 makeInstanceHash :: forall v .Wasm.IsWasmVersion v => InstanceParameters v -> InstanceStateV v -> Amount -> H.Hash
 makeInstanceHash params =
     case Wasm.getWasmVersion @v of
         Wasm.SV0 -> makeInstanceHashV0' (instanceParameterHash params)
         Wasm.SV1 -> makeInstanceHashV1' (instanceParameterHash params)
 
-makeInstanceV ::
-    Wasm.InitName
+makeInstanceV :: Wasm.IsWasmVersion v
+    => Wasm.InitName
     -- ^Name of the init method used to initialize the contract.
     -> Set.Set Wasm.ReceiveName
     -- ^Receive functions suitable for this instance.
@@ -159,21 +176,17 @@ makeInstanceV ::
     -- ^Address for the instance
     -> InstanceV v
 makeInstanceV instanceInitName instanceReceiveFuns instanceModuleInterface _instanceVModel _instanceVAmount instanceOwner _instanceAddress
-        = case GSWasm.miModule instanceModuleInterface of
-            GSWasm.InstrumentedWasmModuleV0 {} -> InstanceV{
-              _instanceVHash = makeInstanceHashV0  _instanceVParameters _instanceVModel _instanceVAmount,
-              ..
-              }
-            GSWasm.InstrumentedWasmModuleV1 {} -> InstanceV{
-              _instanceVHash = makeInstanceHashV1  _instanceVParameters _instanceVModel _instanceVAmount,
-              ..}
+        = InstanceV{
+            _instanceVHash = makeInstanceHash  _instanceVParameters _instanceVModel _instanceVAmount,
+            ..
+          }
     where
         instanceContractModule = GSWasm.miModuleRef instanceModuleInterface
         instanceParameterHash = makeInstanceParameterHash _instanceAddress instanceOwner instanceContractModule instanceInitName
         _instanceVParameters = InstanceParameters {..}
 
-makeInstance ::
-    Wasm.InitName
+makeInstance :: Wasm.IsWasmVersion v
+    => Wasm.InitName
     -- ^Name of the init method used to initialize the contract.
     -> Set.Set Wasm.ReceiveName
     -- ^Receive functions suitable for this instance.

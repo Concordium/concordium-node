@@ -48,6 +48,7 @@ import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Statistics
 import qualified Concordium.GlobalState.TransactionTable as TT
+import qualified Concordium.GlobalState.Wasm as GSWasm
 import Concordium.GlobalState.Types
 import Concordium.ID.Types
 import Concordium.Kontrol
@@ -57,8 +58,6 @@ import Concordium.Skov as Skov (
     SkovQueryMonad (getBlocksAtHeight),
     evalSkovT,
  )
-import qualified Concordium.GlobalState.Wasm as GSWasm
-import Concordium.GlobalState.BlockState (InstanceInfoTypeV(iiParameters))
 
 -- |Run a query against a specific skov version.
 liftSkovQuery ::

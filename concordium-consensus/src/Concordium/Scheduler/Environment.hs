@@ -290,7 +290,7 @@ getRuntimeReprV1 (Thawed cs) = return cs
 
 getStateSizeV0 :: ContractStateOperations m => TemporaryContractState (ContractState m) GSWasm.V0 -> m Wasm.ByteSize
 getStateSizeV0 (Frozen cs) = stateSizeV0 cs
-getStateSizeV0 (Thawed cs) = mutableStateSizeV0 cs
+getStateSizeV0 (Thawed cs) = return $ Wasm.contractStateSize cs
 
 -- |Updatable instance information. This is used in the scheduler to efficiently
 -- update contract states.
@@ -524,23 +524,19 @@ addScheduledAmountToCS (ai, acc) rel@(((fstRel, _):_), _) !cs = do
 -- is already affected (the auAmount field is set).
 {-# INLINE modifyAmountCS #-}
 modifyAmountCS :: AccountIndex -> AmountDelta -> ChangeSet -> ChangeSet
-modifyAmountCS ai !amnt !cs = cs & (accountUpdates . ix ai . auAmount ) %~
-                                   (\case Just a -> Just (a + amnt)
-                                          Nothing -> error "modifyAmountCS precondition violated.")
+modifyAmountCS ai !amnt !cs = cs & (accountUpdates . ix ai . auAmount ) %~ upd
+  where upd (Just a) = Just (a + amnt)
+        upd Nothing = error "modifyAmountCS precondition violated."
 
 
--- |Add or update the contract state in the changeset with the given value.
--- |NB: If the instance is not yet in the changeset we assume that its balance is
--- as listed in the given instance structure.
+-- |Add or update the contract state in the changeset with the new state.
 addContractStatesToCSV0 :: HasInstanceAddress a => a -> ModificationIndex -> UpdatableContractState GSWasm.V0 -> ChangeSet -> ChangeSet
 addContractStatesToCSV0 istance curIdx newState =
   instanceV0Updates . at addr %~ \case Just (_, amnt, _) -> Just (curIdx, amnt, Just newState)
                                        Nothing -> Just (curIdx, 0, Just newState)
   where addr = instanceAddress istance
 
--- |Add or update the contract state in the changeset with the given value.
--- |NB: If the instance is not yet in the changeset we assume that its balance is
--- as listed in the given instance structure.
+-- |Add or update the contract state in the changeset with the new state.
 addContractStatesToCSV1 :: HasInstanceAddress a => a -> ModificationIndex -> UpdatableContractState GSWasm.V1 -> ChangeSet -> ChangeSet
 addContractStatesToCSV1 istance curIdx newState =
   instanceV1Updates . at addr %~ \case Just (_, amnt, _) -> Just (curIdx, amnt, Just newState)
@@ -548,8 +544,7 @@ addContractStatesToCSV1 istance curIdx newState =
   where addr = instanceAddress istance
 
 -- |Add the given delta to the change set for the given contract instance.
--- NB: If the contract is not yet in the changeset it is added, taking the
--- model as given in the first argument to be current model (local state)
+-- NB: If the contract is not yet in the changeset it is added.
 addContractAmountToCSV0 :: ContractAddress -> AmountDelta -> ChangeSet -> ChangeSet
 addContractAmountToCSV0 addr amnt cs =
     -- updating amounts does not update the modification index. Only state updates do.
@@ -557,8 +552,6 @@ addContractAmountToCSV0 addr amnt cs =
                                               Nothing -> Just (0, amnt, Nothing)
 
 -- |Add the given delta to the change set for the given contract instance.
--- NB: If the contract is not yet in the changeset it is added, taking the
--- model as given in the first argument to be current model (local state)
 addContractAmountToCSV1 :: ContractAddress -> AmountDelta -> ChangeSet -> ChangeSet
 addContractAmountToCSV1 addr amnt cs =
     -- updating amounts does not update the modification index. Only state updates do.
@@ -583,13 +576,23 @@ data LocalState = LocalState{
   _energyLeft :: !Energy,
   -- |Changes accumulated thus far.
   _changeSet :: !ChangeSet,
-  -- |Maximum number of modified contract instances.
-  -- |The next available modification index. When a contract state is modified
-  -- this is used to keep track of "when" it was modified. In the scheduler we
-  -- then remember the modification index before a contract invokes another
-  -- contract, and look it up just before contract execution resumes. Comparing
-  -- them gives information on whether the contract state has definitely not
-  -- changed, or whether there were writes to the state.
+  -- |Maximum number of modified contract instances. This is an implementation
+  -- detail and is not directly exposed to contracts, or anywhere else. What
+  -- this supports is keeping track of whether a V1 contract has been modified
+  -- in a given period. A V1 contract execution reports back whether each
+  -- segment of execution (that is, between interrupts) has called any state
+  -- modification functions. If that is so a new checkpoint is made and the
+  -- contract state is recorded with the current modification index. During
+  -- handling of the interrupt the state of the contract that initiated it might
+  -- be changed. If that is so then the modification index of a specific
+  -- contract is incremented. When we get to resuming execution at the point the
+  -- interrupt we check the current modification index of the contract. If it
+  -- has changed since the start we signal that the contract's state has
+  -- changed.
+  --
+  -- This index is only ever incremented, and it is incremented on each
+  -- modification of smart contract instance state by the scheduler. It is
+  -- unaffected by updates to the balance of the contract.
   _nextContractModificationIndex :: !ModificationIndex,
   _blockEnergyLeft :: !Energy
   }
@@ -618,9 +621,7 @@ runRST rst r s = flip runStateT s . flip runReaderT r $ rst
 -- expensive because it needs to check at each step whether the result is @Left@
 -- or @Right@.
 newtype LocalT (pv :: ProtocolVersion) r m a = LocalT { _runLocalT :: ContT (Either (Maybe RejectReason) r) (RST TransactionContext LocalState m) a }
-  deriving(Functor, Applicative, Monad, MonadReader TransactionContext)
-
-deriving instance (Monad m, s ~ LocalState) => MonadState s (LocalT pv r m)
+  deriving(Functor, Applicative, Monad, MonadState LocalState, MonadReader TransactionContext)
 
 runLocalT :: forall pv m a . Monad m
           => LocalT pv a m a

@@ -971,7 +971,10 @@ doUpdateAccountCredentials pbs accIndex remove add thrsh = do
     where
         upd oldAccount = ((), ) <$> setPAD (updateCredentials remove add thrsh) oldAccount
 
-doGetInstance :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> ContractAddress -> m (Maybe (InstanceInfoType Instances.InstanceStateV))
+doGetInstance :: (IsProtocolVersion pv, MonadBlobStore m)
+              => PersistentBlockState pv
+              -> ContractAddress
+              -> m (Maybe (InstanceInfoType Instances.InstanceStateV))
 doGetInstance pbs caddr = do
         bsp <- loadPBS pbs
         minst <- Instances.lookupContractInstance caddr (bspInstances bsp)
@@ -1342,13 +1345,11 @@ instance (MonadIO m, PersistentState r m) => ContractStateOperations (Persistent
   thawContractState (Instances.InstanceStateV0 inst) = return inst
   thawContractState (Instances.InstanceStateV1 inst) = liftIO . flip StateV1.thaw inst . fst =<< getCallBacks
   stateSizeV0 (Instances.InstanceStateV0 inst) = return (Wasm.contractStateSize inst)
-  mutableStateSizeV0 inst = return (Wasm.contractStateSize inst)
   getV1StateContext = asks blobLoadCallback
   contractStateToByteString (Instances.InstanceStateV0 st) = return (Wasm.contractState st)
   contractStateToByteString (Instances.InstanceStateV1 st) = StateV1.toByteString st
   {-# INLINE thawContractState #-}
   {-# INLINE stateSizeV0 #-}
-  {-# INLINE mutableStateSizeV0 #-}
   {-# INLINE getV1StateContext #-}
   {-# INLINE contractStateToByteString #-}
 

@@ -1,10 +1,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeFamilyDependencies #-}
 {-|
  Definition of the API of every BlockState implementation.
@@ -48,6 +45,7 @@ import Data.Functor
 import qualified Data.Vector as Vec
 import Data.Serialize(Serialize)
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 import qualified Data.Sequence as Seq
 import Data.Foldable (foldl')
 import qualified Data.ByteString as BS
@@ -83,8 +81,6 @@ import Concordium.ID.Types (AccountCredential, CredentialRegistrationID)
 import Concordium.Crypto.EncryptedTransfers
 import Concordium.GlobalState.ContractStateFFIHelpers (LoadCallback)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
-import qualified Data.Set as Set
-import Data.ByteString (ByteString)
 
 -- |The hashes of the block state components, which are combined
 -- to produce a 'StateHash'.
@@ -195,26 +191,52 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
   -- |Get the baker info (if any) attached to an account.
   getAccountBaker :: Account m -> m (Maybe AccountBaker)
 
+-- |A type family grouping mutable contract states, parametrized by the contract
+-- version. This is deliberately a __closed__ and __injective__ type family. The
+-- latter allows makes it convenient to use in arguments to functions since the
+-- version is determined from the state type. The former makes sense since there
+-- are is only a fixed amount of contract versions supported at any given time.
+--
+-- As to the purpose of updatable contract state. Contract state (at least in V1
+-- contracts) exists in two quite different formats. The "persistent" one
+-- (persistent in the sense of persistent data structures) that is designed for
+-- efficient sharing and storage, and an "updatable" one which exists only
+-- during transaction execution. A persistent state is "thawed" to conver it to
+-- mutable state. This state is lazily constructed from the persistent one
+-- during contract execution, and supports efficient in-place updates to the
+-- state. At the end of contract execution the mutable state is "frozen", which
+-- converts it to the persistent version, retaining as much sharing as possible
+-- with the previous version.
 type family UpdatableContractState (v :: Wasm.WasmVersion) = ty | ty -> v where
   UpdatableContractState GSWasm.V0 = Wasm.ContractState
   UpdatableContractState GSWasm.V1 = StateV1.MutableState
 
 class (BlockStateTypes m, Monad m) => ContractStateOperations m where
-    -- |Convert a persistent state to a mutable one that can be updated by the scheduler.
+    -- |Convert a persistent state to a mutable one that can be updated by the
+    -- scheduler. This function must generate independent mutable states for
+    -- each invocation, where independent means that updates to different
+    -- versions are __not__ reflected in others.
     thawContractState :: ContractState m v -> m (UpdatableContractState v)
 
     -- |Get the callbacks to allow loading using the state (both mutable and
     -- immutable). Contracts are executed on the other end of FFI, and state is
     -- managed by Haskell, this gives access to state across the FFI boundary.
+    --
+    -- V0 state is a simple byte-array which is copied over the FFI boundary, so
+    -- it does not require an analogous construct.
     getV1StateContext :: m LoadCallback
 
-    -- |Size of the V0 state for both variants of the state.
+    -- |Size of the V0 state for both variants of the state. The way charging is
+    -- done for V0 contracts requires us to get this information when loading
+    -- the state __at a specific time__. The latter matters since different
+    -- failures of a transaction lead to different outcomes hashes. Thus to
+    -- retain semantics of V0 contracts we need to look up contract state size
+    -- for the "persistent" contract state.
     stateSizeV0 :: ContractState m GSWasm.V0 -> m Wasm.ByteSize
-    mutableStateSizeV0 :: UpdatableContractState GSWasm.V0 -> m Wasm.ByteSize
 
     -- |Convert the entire contract state to a byte array. This should generally only be used
     -- for testing.
-    contractStateToByteString :: ContractState m v -> m ByteString
+    contractStateToByteString :: ContractState m v -> m BS.ByteString
 
 -- |Information about an instance returned by block state queries. The type
 -- parameter @contractState@ determines the concrete representation of the
@@ -250,17 +272,6 @@ data InstanceInfoType (contractState :: Wasm.WasmVersion -> Type) =
 -- by the context monad @m@.
 type InstanceInfoV m = InstanceInfoTypeV (ContractState m)
 type InstanceInfo m = InstanceInfoType (ContractState m)
-
-updateInstanceInfoV :: Monad m => AmountDelta -> Maybe (contractState v) -> InstanceInfoTypeV contractState v -> m (InstanceInfoTypeV contractState v)
-updateInstanceInfoV delta mNewState i = case mNewState of
-    Nothing -> return i { iiBalance = amnt }
-    Just newState -> return i { iiBalance = amnt, iiState = newState}
-  where amnt = applyAmountDelta delta (iiBalance i)
-
-updateInstanceAmountV :: Monad m => AmountDelta -> InstanceInfoTypeV contractState v -> m (InstanceInfoTypeV contractState v)
-updateInstanceAmountV delta i = return i { iiBalance = amnt }
-  where amnt = applyAmountDelta delta (iiBalance i)
-
 
 -- |The block query methods can query block state. They are needed by
 -- consensus itself to compute stake, get a list of and information about
@@ -390,6 +401,9 @@ mintTotal MintAmounts{..} = mintBakingReward + mintFinalizationReward + mintDeve
 -- except the instance address and the derived instance hashes. The address is
 -- determined when the instance is inserted in the instance table. The hashes
 -- are computed on insertion.
+--
+-- The fields of this type are deliberately not strict since this is just an intermediate type
+-- to simplify function API. Thus values are immediately deconstructed.
 data NewInstanceData v = NewInstanceData {
   -- |Name of the init method used to initialize the contract.
   nidInitName :: Wasm.InitName,
@@ -737,7 +751,7 @@ class (BlockStateOperations m, Serialize (BlockStateRef m)) => BlockStateStorage
     writeBlockState :: Handle -> BlockState m -> m ()
 
     -- |Retrieve the callback that is needed to read state that is not in
-    -- memory, if any such state exists.
+    -- memory. This is needed for using V1 contract state.
     blockStateLoadCallback :: m LoadCallback
 
 instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGSTrans t m) where
@@ -830,8 +844,6 @@ instance (Monad (t m), MonadTrans t, ContractStateOperations m) => ContractState
   {-# INLINE thawContractState #-}
   stateSizeV0 = lift . stateSizeV0
   {-# INLINE stateSizeV0 #-}
-  mutableStateSizeV0 = lift . mutableStateSizeV0
-  {-# INLINE mutableStateSizeV0 #-}
   getV1StateContext = lift getV1StateContext
   {-# INLINE contractStateToByteString #-}
   contractStateToByteString = lift . contractStateToByteString

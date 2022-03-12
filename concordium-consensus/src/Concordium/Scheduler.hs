@@ -56,7 +56,13 @@ import qualified Data.ByteString as BS
 import qualified Concordium.ID.Account as AH
 import qualified Concordium.ID.Types as ID
 
-import Concordium.GlobalState.BlockState (AccountOperations(..), AccountAllowance (..), NewInstanceData (..), InstanceInfoType (..), InstanceInfoTypeV(..), ContractStateOperations (..))
+import Concordium.GlobalState.BlockState (
+  AccountOperations(..),
+  AccountAllowance(..),
+  NewInstanceData(..),
+  InstanceInfoType(..),
+  InstanceInfoTypeV(..),
+  ContractStateOperations (..))
 import qualified Concordium.GlobalState.BakerInfo as BI
 import Concordium.GlobalState.Types
 import qualified Concordium.Cost as Cost
@@ -656,7 +662,9 @@ getCurrentContractInstanceTicking' cref = do
       -- This uses the 'ResourceMeasure' instance for 'Cost.LookupByteSize' to determine the cost for lookup.
       case inst of
         InstanceInfoV0 iv -> tickEnergy . Cost.lookupContractState =<< getStateSizeV0 (iiState iv)
-        InstanceInfoV1 iv -> -- FIXME: Revise based on measurements. We might have to charge something here.
+        InstanceInfoV1 _ -> -- We do not need to charge here since loading V1
+                           -- state only loads the pointer to the root of the
+                           -- tree.
           return ()
       return (Just inst)
 
@@ -964,12 +972,10 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
   let iParams = iiParameters istance
   let cref = instanceAddress iParams
   let receiveFuns = instanceReceiveFuns iParams
-  let (checkValidEntrypoint, useFallback) =
-        if Set.member receiveName receiveFuns then
-          (True, False)
-        else if Set.member (Wasm.makeFallbackReceiveName receiveName) receiveFuns then
-          (False, True)
-        else (False, False)
+  let (checkValidEntrypoint, useFallback)
+        | Set.member receiveName receiveFuns = (True, False)
+        | Set.member (Wasm.makeFallbackReceiveName receiveName) receiveFuns = (False, True)
+        | otherwise = (False, False)
   let ownerAccountAddress = instanceOwner iParams
   -- The invariants maintained by global state should ensure that an owner account always exists.
   -- However we are defensive here and reject the transaction instead of panicking in case it does not.

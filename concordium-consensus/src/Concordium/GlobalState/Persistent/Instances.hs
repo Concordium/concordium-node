@@ -36,6 +36,9 @@ import Concordium.GlobalState.BlockState (InstanceInfoTypeV(..), InstanceInfoTyp
 
 ----------------------------------------------------------------------------------------------------
 
+-- |State of a smart contract parametrized by the contract version. This is the
+-- persistent version which supports storing and loading the state from a blob
+-- store.
 data InstanceStateV (v :: Wasm.WasmVersion) where
   InstanceStateV0 :: Wasm.ContractState -> InstanceStateV GSWasm.V0
   InstanceStateV1 :: StateV1.PersistentState -> InstanceStateV GSWasm.V1

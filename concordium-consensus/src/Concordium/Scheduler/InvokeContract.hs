@@ -42,7 +42,6 @@ import Concordium.Scheduler.Types
 import Concordium.Scheduler.EnvironmentImplementation (ContextState(..), maxBlockEnergy, chainMetadata, accountCreationLimit)
 import qualified Concordium.Scheduler.WasmIntegration.V1 as WasmV1
 import Concordium.Scheduler
-import Concordium.GlobalState.BlockState (InstanceInfoTypeV(..))
 
 -- |A wrapper that provides enough instances so that transactions can be executed. In particular
 -- this is aimed towards execution of `handleContractUpdate`.
@@ -125,17 +124,17 @@ invokeContract _ ContractContext{..} cm bs = do
           Just (AddressContract contractInvoker) -> getContractInstance contractInvoker >>= \case
             Nothing -> return (Left (Just (InvalidContractAddress contractInvoker)))
             Just (BS.InstanceInfoV0 i) -> do
-              let ownerAccountAddress = instanceOwner (iiParameters i)
+              let ownerAccountAddress = instanceOwner (BS.iiParameters i)
               getStateAccount ownerAccountAddress >>= \case
                 -- the first case should really never happen, since a valid instance should always have a valid account.
                 Nothing -> return (Left (Just $ InvalidAccountReference ownerAccountAddress))
-                Just acc -> return (Right (checkAndGetBalanceInstanceV0 acc i {iiState = Frozen (iiState i)}, ownerAccountAddress, fst acc))
+                Just acc -> return (Right (checkAndGetBalanceInstanceV0 acc i {BS.iiState = Frozen (BS.iiState i)}, ownerAccountAddress, fst acc))
             Just (BS.InstanceInfoV1 i) -> do
-              let ownerAccountAddress = instanceOwner (iiParameters i)
+              let ownerAccountAddress = instanceOwner (BS.iiParameters i)
               getStateAccount ownerAccountAddress >>= \case
                 -- the first case should really never happen, since a valid instance should always have a valid account.
                 Nothing -> return (Left (Just $ InvalidAccountReference ownerAccountAddress))
-                Just acc -> return (Right (checkAndGetBalanceInstanceV0 acc i {iiState = Frozen (iiState i)}, ownerAccountAddress, fst acc))
+                Just acc -> return (Right (checkAndGetBalanceInstanceV0 acc i {BS.iiState = Frozen (BS.iiState i)}, ownerAccountAddress, fst acc))
   let runContractComp = 
         getInvoker >>= \case
           Left err -> return (Left err, ccEnergy)
@@ -143,8 +142,8 @@ invokeContract _ ContractContext{..} cm bs = do
             let comp = do
                   istance <- getContractInstance ccContract `rejectingWith` InvalidContractAddress ccContract
                   case istance of
-                    BS.InstanceInfoV0 i -> Left <$> handleContractUpdateV0 addr i {iiState = Frozen (iiState i)} invoker ccAmount ccMethod ccParameter
-                    BS.InstanceInfoV1 i -> Right <$> handleContractUpdateV1 addr i {iiState = Frozen (iiState i)} (fmap Right . invoker) ccAmount ccMethod ccParameter
+                    BS.InstanceInfoV0 i -> Left <$> handleContractUpdateV0 addr i {BS.iiState = Frozen (BS.iiState i)} invoker ccAmount ccMethod ccParameter
+                    BS.InstanceInfoV1 i -> Right <$> handleContractUpdateV1 addr i {BS.iiState = Frozen (BS.iiState i)} (fmap Right . invoker) ccAmount ccMethod ccParameter
             (r, cs) <- runLocalT @pv comp ccAmount ai ccEnergy ccEnergy
             return (r, _energyLeft cs)
       contextState = ContextState{_maxBlockEnergy = ccEnergy, _accountCreationLimit = 0, _chainMetadata = cm}

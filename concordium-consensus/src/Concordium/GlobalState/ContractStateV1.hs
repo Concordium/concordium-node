@@ -25,25 +25,23 @@ module Concordium.GlobalState.ContractStateV1
  )
 where
 
-import Foreign.ForeignPtr (ForeignPtr, newForeignPtr, withForeignPtr)
 import Data.Serialize
 import Control.Monad.Reader
-import Foreign.Ptr
-import Foreign.C.Types
 import Data.Word
-import Data.ByteString.Unsafe (unsafePackCStringFinalizer, unsafeUseAsCStringLen)
-import Concordium.Crypto.FFIHelpers (rs_free_array_len)
-import Foreign (Storable(peek))
-import Foreign.Marshal (alloca)
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Unsafe as BSU
+import Foreign
+import Foreign.C.Types
 import System.IO.Unsafe
+
+import qualified Data.FixedByteString as FBS
+import Concordium.Types.HashableTo (MHashableTo(..), HashableTo (..))
+import Concordium.Crypto.FFIHelpers (rs_free_array_len)
+import qualified Concordium.Crypto.SHA256 as SHA256
+import Concordium.Utils.Serialization (putByteStringLen, getByteStringLen)
 
 import Concordium.GlobalState.ContractStateFFIHelpers (StoreCallback, LoadCallback, errorLoadCallBack)
 import Concordium.GlobalState.Persistent.BlobStore
-import qualified Data.FixedByteString as FBS
-import Concordium.Types.HashableTo (MHashableTo(..), HashableTo (getHash))
-import qualified Concordium.Crypto.SHA256 as SHA256
-import Data.ByteString.Char8 (ByteString)
-import Concordium.Utils.Serialization (putByteStringLen, getByteStringLen)
 
 -- |Opaque pointer to the mutable state. This state exists only for the duration
 -- of a transaction and is then deallocated by running a finalizer.
@@ -51,8 +49,8 @@ newtype MutableStateInner = MutableStateInner (ForeignPtr MutableStateInner)
 
 type MutableStateContext = LoadCallback
 
--- |Mutable state together with the context that determines how to access any
--- pointers into a persistent part of the state.
+-- |Mutable state together with the context that determines how to load any data
+-- that is not in-memory.
 data MutableState = MutableState {
   msInner :: !MutableStateInner,
   msContext :: !MutableStateContext
@@ -66,11 +64,14 @@ newMutableState msContext ptr = do
   msInner <- MutableStateInner <$> newForeignPtr freeMutableState ptr
   return MutableState{..}
 
--- |Get temporary access to the mutable state pointer.
+-- |Get temporary access to the mutable state pointer. The pointer should not be
+-- leaked from the computation.
 withMutableState :: MutableState -> (Ptr MutableStateInner -> IO a) -> IO a
 withMutableState MutableState{msInner=MutableStateInner fp} = withForeignPtr fp
 
--- |Convert an in-memory persistent state to a normal persistent state.
+-- |Convert an in-memory persistent state to a normal persistent state. Note
+-- that this does not store anything on disk. That has to be done separately by
+-- using the 'BlobStorable' implementation for PersistentState.
 makePersistent :: InMemoryPersistentState -> PersistentState
 makePersistent (InMemoryPersistentState st) = st
 
@@ -87,7 +88,8 @@ newtype PersistentState = PersistentState (ForeignPtr PersistentState)
 -- in-memory.
 newtype InMemoryPersistentState = InMemoryPersistentState PersistentState
 
--- |Gain temporary access to a pointer to the persistent state.
+-- |Gain temporary access to a pointer to the persistent state. The pointer
+-- should not be leaked from the computation.
 withPersistentState :: PersistentState -> (Ptr PersistentState -> IO a) -> IO a
 withPersistentState (PersistentState fp) = withForeignPtr fp
 
@@ -145,7 +147,8 @@ freeze callbacks ms = do
   ps <- newForeignPtr freePersistentState psPtr
   return (SHA256.Hash hashBytes, PersistentState ps)
 
--- |Convert the persistent state to a mutable one.
+-- |Convert the persistent state to a mutable one. This creates independent
+-- instances of mutable state for each call.
 thaw :: MutableStateContext -> PersistentState -> IO MutableState
 thaw msContext ms = do
   msPtr <- withPersistentState ms thawPersistentTree
@@ -166,6 +169,7 @@ thawInMemoryPersistent (InMemoryPersistentState ts) = unsafePerformIO $ thaw err
 
 instance (MonadBlobStore m) => BlobStorable m PersistentState where
   store = fmap fst . storeUpdate
+  {-# INLINE store #-}
 
   load = do
     br :: BlobRef PersistentState <- get
@@ -202,7 +206,7 @@ instance Serialize InMemoryPersistentState where
   {-# NOINLINE get #-}
   get = do
     bs <- getByteStringLen
-    unsafePerformIO $ unsafeUseAsCStringLen bs $ \(bytePtr, len) -> do
+    unsafePerformIO $ BSU.unsafeUseAsCStringLen bs $ \(bytePtr, len) -> do
       res <- deserializePersistentState (castPtr bytePtr) (fromIntegral len)
       if res == nullPtr then
         return (fail "Could not deserialize state")
@@ -213,7 +217,7 @@ instance Serialize InMemoryPersistentState where
     withPersistentState ps $ \psPtr -> alloca $ \sizePtr -> do
       bytePtr <- serializePersistentState errorLoadCallBack psPtr sizePtr
       len <- peek sizePtr
-      putByteStringLen <$> unsafePackCStringFinalizer (castPtr bytePtr) (fromIntegral len) (rs_free_array_len bytePtr (fromIntegral len))
+      putByteStringLen <$> BSU.unsafePackCStringFinalizer (castPtr bytePtr) (fromIntegral len) (rs_free_array_len bytePtr (fromIntegral len))
 
 {-# WARNING generatePersistentTreeFFI "Only for testing. DO NOT USE IN PRODUCTION." #-}
 foreign import ccall "generate_persistent_state_from_seed" generatePersistentTreeFFI :: Word64 -> Word64 -> IO (Ptr PersistentState)
@@ -232,16 +236,16 @@ foreign import ccall "persistent_state_v1_lookup" persistentStateV1Lookup
 -- |Lookup a value in the persistent in-memory state. This function is subject
 -- to stack overflow for maliciously constructed states, so must not be used in
 -- production.
-lookupKey :: InMemoryPersistentState -> ByteString -> IO (Maybe ByteString)
+lookupKey :: InMemoryPersistentState -> BS.ByteString -> IO (Maybe BS.ByteString)
 lookupKey (InMemoryPersistentState ps) k =
   withPersistentState ps $ \psPtr ->
-    unsafeUseAsCStringLen k $ \(keyPtr, keyLen) ->
+    BSU.unsafeUseAsCStringLen k $ \(keyPtr, keyLen) ->
       alloca $ \outPtr -> do
         res <- persistentStateV1Lookup errorLoadCallBack (castPtr keyPtr) (fromIntegral keyLen) psPtr outPtr
         if res == nullPtr then return Nothing
         else do
           len <- peek outPtr
-          Just <$> unsafePackCStringFinalizer (castPtr res) (fromIntegral len) (rs_free_array_len res (fromIntegral len))
+          Just <$> BSU.unsafePackCStringFinalizer (castPtr res) (fromIntegral len) (rs_free_array_len res (fromIntegral len))
 
 {-# WARNING generatePersistentTree "Only for testing. DO NOT USE IN PRODUCTION." #-}
 {-# NOINLINE generatePersistentTree #-}
@@ -263,10 +267,10 @@ generatePersistentTree seed len = unsafePerformIO $ do
 -- update to construct the new genesis block. This method must be compatible
 -- with the @get@ method of the serialization instance of
 -- 'InMemoryPersistentState'.
-toByteString :: MonadBlobStore m => PersistentState -> m ByteString
+toByteString :: MonadBlobStore m => PersistentState -> m BS.ByteString
 toByteString ps = do
   loadCallback <- fst <$> getCallBacks
   liftIO $ withPersistentState ps $ \psPtr -> alloca $ \sizePtr -> do
     bytePtr <- serializePersistentState loadCallback psPtr sizePtr
     len <- peek sizePtr
-    unsafePackCStringFinalizer (castPtr bytePtr) (fromIntegral len) (rs_free_array_len bytePtr (fromIntegral len))
+    BSU.unsafePackCStringFinalizer (castPtr bytePtr) (fromIntegral len) (rs_free_array_len bytePtr (fromIntegral len))

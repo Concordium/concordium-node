@@ -2,12 +2,12 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE InstanceSigs #-}
 module Concordium.GlobalState.Basic.BlockState where
 
 import Data.Map (Map)
@@ -44,6 +44,7 @@ import Concordium.GlobalState.ContractStateFFIHelpers
 import Concordium.GlobalState.Basic.BlockState.Bakers
 import qualified Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.Basic.BlockState.Account
+import qualified Concordium.Wasm as Wasm
 import qualified Concordium.GlobalState.Wasm as GSWasm
 import qualified Concordium.GlobalState.Basic.BlockState.Accounts as Accounts
 import qualified Concordium.GlobalState.Basic.BlockState.Modules as Modules
@@ -61,8 +62,6 @@ import Concordium.ID.Types (credId, ArIdentity, IdentityProviderIdentity)
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types.HashableTo
 import Concordium.Utils.Serialization
-import Concordium.GlobalState.Instance (InstanceStateV)
-import qualified Concordium.Wasm as Wasm
 import Concordium.GlobalState.BlockState (InstanceInfoTypeV(iiParameters), UpdatableContractState)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 
@@ -177,7 +176,8 @@ getHashedEpochBlocksV0 = do
     blocks <- replicateM numBlocks get
     return $! foldr' consEpochBlock emptyHashedEpochBlocks blocks
 
-freeze :: forall v . Wasm.IsWasmVersion v => UpdatableContractState v -> (H.Hash, InstanceStateV v)
+-- |Freeze the contract state and compute its hash.
+freeze :: forall v . Wasm.IsWasmVersion v => UpdatableContractState v -> (H.Hash, Instance.InstanceStateV v)
 freeze cs = case Wasm.getWasmVersion @v of
   Wasm.SV0 -> (getHash cs, Instance.InstanceStateV0 cs)
   Wasm.SV1 -> let (hsh, persistent) = StateV1.freezeInMemoryPersistent cs
@@ -356,7 +356,7 @@ instance GT.BlockStateTypes (PureBlockStateMonad pv m) where
     type BlockState (PureBlockStateMonad pv m) = HashedBlockState pv
     type UpdatableBlockState (PureBlockStateMonad pv m) = BlockState pv
     type Account (PureBlockStateMonad pv m) = Account pv
-    type ContractState (PureBlockStateMonad pv m) = InstanceStateV
+    type ContractState (PureBlockStateMonad pv m) = Instance.InstanceStateV
 
 instance ATITypes (PureBlockStateMonad pv m) where
   type ATIStorage (PureBlockStateMonad pv m) = ()
@@ -364,16 +364,16 @@ instance ATITypes (PureBlockStateMonad pv m) where
 instance Monad m => PerAccountDBOperations (PureBlockStateMonad pv m)
   -- default implementation
 
-mkInstanceInfo :: Instance.Instance -> BS.InstanceInfoType InstanceStateV
-mkInstanceInfo (Instance.InstanceV0 inst) = BS.InstanceInfoV0 (mkInstanceInfoV inst)
-mkInstanceInfo (Instance.InstanceV1 inst) = BS.InstanceInfoV1 (mkInstanceInfoV inst)
-
-mkInstanceInfoV :: Instance.InstanceV v -> BS.InstanceInfoTypeV Instance.InstanceStateV v
-mkInstanceInfoV Instance.InstanceV{..} = BS.InstanceInfoV{
-  iiParameters = _instanceVParameters,
-  iiState = _instanceVModel,
-  iiBalance = _instanceVAmount
-  }
+-- |Retrieve instance information from a basic instance.
+mkInstanceInfo :: Instance.Instance -> BS.InstanceInfoType Instance.InstanceStateV
+mkInstanceInfo = \case (Instance.InstanceV0 inst) -> BS.InstanceInfoV0 (mkInstanceInfoV inst)
+                       (Instance.InstanceV1 inst) -> BS.InstanceInfoV1 (mkInstanceInfoV inst)
+    where mkInstanceInfoV :: Instance.InstanceV v -> BS.InstanceInfoTypeV Instance.InstanceStateV v
+          mkInstanceInfoV Instance.InstanceV{..} = BS.InstanceInfoV{
+            iiParameters = _instanceVParameters,
+            iiState = _instanceVModel,
+            iiBalance = _instanceVAmount
+            }
 
 doGetIndexedAccount :: (Monad m, HasBlockState s pv, IsProtocolVersion pv) => s -> AccountAddress -> m (Maybe (AccountIndex, Account pv))
 doGetIndexedAccount bs aaddr = return $! Accounts.getAccountWithIndex aaddr (bs ^. blockAccounts)
@@ -556,13 +556,11 @@ instance Monad m => BS.ContractStateOperations (PureBlockStateMonad pv m) where
   thawContractState (Instance.InstanceStateV0 st) = return st
   thawContractState (Instance.InstanceStateV1 st) = return (StateV1.thawInMemoryPersistent st)
   stateSizeV0 (Instance.InstanceStateV0 cs) = return (Wasm.contractStateSize cs)
-  mutableStateSizeV0 cs = return (Wasm.contractStateSize cs)
   getV1StateContext = return errorLoadCallBack
   contractStateToByteString (Instance.InstanceStateV0 st) = return (Wasm.contractState st)
   contractStateToByteString (Instance.InstanceStateV1 st) = return (encode st)
   {-# INLINE thawContractState #-}
   {-# INLINE stateSizeV0 #-}
-  {-# INLINE mutableStateSizeV0 #-}
   {-# INLINE getV1StateContext #-}
   {-# INLINE contractStateToByteString #-}
 

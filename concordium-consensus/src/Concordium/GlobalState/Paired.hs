@@ -80,11 +80,6 @@ instance C.HasGlobalStateContext (PairGSContext lc rc) a => C.HasGlobalStateCont
 type BSML pv lc r ls s m = BlockStateM pv lc (FocusLeft r) ls (FocusLeft s) (ReviseRSM (FocusLeft r) (FocusLeft s) m)
 type BSMR pv rc r rs s m = BlockStateM pv rc (FocusRight r) rs (FocusRight s) (ReviseRSM (FocusRight r) (FocusRight s) m)
 
-data PairedContractState pv lc rc r lg rg s m v = PairedContractState {
-  pcsLeft :: ContractState (BSML pv lc r lg s m) v,
-  pcsRight :: ContractState (BSMR pv rc r rg s m) v
-  }
-
 instance (C.HasGlobalStateContext (PairGSContext lc rc) r)
         => BlockStateTypes (BlockStateM pv (PairGSContext lc rc) r (PairGState lg rg) s m) where
     type BlockState (BlockStateM pv (PairGSContext lc rc) r (PairGState lg rg) s m)
@@ -372,7 +367,6 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r) => ContractS
   thawContractState (InstanceStateV0 st) = return st
   thawContractState (InstanceStateV1 st) = return (StateV1.thawInMemoryPersistent st)
   stateSizeV0 (InstanceStateV0 cs) = return (Wasm.contractStateSize cs)
-  mutableStateSizeV0 cs = return (Wasm.contractStateSize cs)
   getV1StateContext = return errorLoadCallBack
   contractStateToByteString (InstanceStateV0 st) = return (Wasm.contractState st)
   contractStateToByteString (InstanceStateV1 st) = return (S.encode st)
