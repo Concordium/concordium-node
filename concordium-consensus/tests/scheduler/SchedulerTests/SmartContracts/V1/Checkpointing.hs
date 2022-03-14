@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-| This file contains three test cases.
-    The details are outlined in 'checkpointing.wasm'
+    The details are outlined in 'checkpointing.wat'
 
     Most checks are being carried out in the smart contracts.
     However some checks are also being carried out here in this file.
