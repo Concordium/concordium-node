@@ -3,6 +3,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeFamilies #-}
 {-|
 The ReceiveTransactionsTest is testing verification of transactions received
 either individualy or via a block.
@@ -206,7 +207,7 @@ instance TimeMonad FixedTime where
     currentTime = FixedTime ask
 
 -- |A composition that implements TreeStateMonad, TimeMonad (via FixedTime) and SkovQueryMonadT.
-type MyMonad = SkovQueryMonadT (PureTreeStateMonad PV MyBlockState (PureBlockStateMonad PV (StateT MyState FixedTime)))
+type MyMonad = SkovQueryMonadT (PureTreeStateMonad MyBlockState (PureBlockStateMonad PV (StateT MyState FixedTime)))
 
 -- |Run the computation in the given initial state. All queries to
 -- 'currentTimeStamp' will return the given time. The IO is unfortunate, but it
@@ -574,10 +575,10 @@ getExactVersionedCryptographicParameters bs = do
    guard (vVersion v == 0)
    return (vValue v)
 
-dummyAccount :: Account PV
+dummyAccount :: Account (AccountVersionFor PV)
 dummyAccount = mkDummyAccount 1
 
-mkDummyAccount :: Int -> Account PV
+mkDummyAccount :: Int -> Account (AccountVersionFor PV)
 mkDummyAccount seed =
   let publicKey = SigScheme.correspondingVerifyKey (dummyKeyPair seed)
       aaddr = dummyAccountAddress seed
