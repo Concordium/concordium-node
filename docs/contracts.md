@@ -38,7 +38,7 @@ These operations are triggered by transactions, and orchestrated by the
 scheduler component of the node. The execution of these operations, e.g.,
 validation, execution of the contract code, is done by a custom validator and
 interpreter. These are implemented in Rust in the
-[smart-contracts](../concordium-consensus/smart-contracts/) repository.
+[smart-contracts](https://github.com/Concordium/concordium-wasm-smart-contracts/) repository.
 
 ## NRG
 
