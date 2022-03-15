@@ -21,6 +21,7 @@ import qualified Data.PQueue.Prio.Min as MinPQ
 import qualified Data.Vector as Vec
 import Data.Foldable
 import Data.Maybe
+import Data.Monoid
 import Data.Word
 import Control.Monad
 import Concordium.TimeMonad
@@ -670,15 +671,39 @@ distributeRewards foundationAddr bs0 = do
             Nothing -> error "Invariant violation: Active baker account is not a baker account"
             Just ab -> return (ab ^. Types.accountBakerInfo . Types.bieBakerPoolInfo)
 
+-- |Get the updated value of the time parameters at a given slot, given the original time
+-- parameters and the elapsed updates.
+bestTimeParameters ::
+  -- |Target slot
+  Slot ->
+  -- |Original time parameters
+  TimeParameters cpv ->
+  -- |Updates
+  [(Slot, UpdateValue cpv)] ->
+  TimeParameters cpv
+bestTimeParameters targetSlot tp0 upds =
+    fromMaybe tp0 $
+        getLast $
+            mconcat
+                [Last (Just tp) | (slot, UVTimeParameters tp) <- upds, slot <= targetSlot]
+
+-- |Mint for any skipped paydays, returning the epoch of the next future payday, the mint rate
+-- for that payday, and the updated block state.  This does not mint for the first payday after
+-- the previous block, which is assumed to have already been minted.  This is only invoked in the
+-- first block after a payday.
+--
+-- This function does the following:
+--   - Compute the first payday after the most recently minted payday, accounting for any changes
+--     in payday length and mint rate that occurred prior to the most recently minted payday.
+--   - If this payday has elapsed, mint for it, and continue recursively.
+--   - Otherwise, return the payday and mint rate.
 mintForSkippedPaydays
   :: (ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1,
       BlockStateOperations m)
   => Epoch
-  -- ^Epoch of the block
+  -- ^Epoch of the current block
   -> Epoch
-  -- ^Epoch of the current payday (before this block)
-  -> RewardPeriodLength
-  -- ^Length of the reward period
+  -- ^Epoch of the most recently minted payday
   -> ChainParameters (MPV m)
   -- ^Chain parameters at the parent block
   -> AccountAddress
@@ -688,22 +713,18 @@ mintForSkippedPaydays
   -> UpdatableBlockState m
   -- ^Block state
   -> m (Epoch, MintRate, UpdatableBlockState m)
-mintForSkippedPaydays newEpoch payday rpl oldChainParameters foundationAccount updates bs0 = do
+mintForSkippedPaydays newEpoch payday oldChainParameters foundationAccount updates bs0 = do
   seedstate <- bsoGetSeedState bs0
-  let mintRateParent = oldChainParameters ^. cpTimeParameters . tpMintPerPayday
-      paydaySlot = epochLength seedstate * fromIntegral payday
-      selectBestTP (s2, curr) (s1, UVTimeParameters tp) =
-        if s1 >= s2 && s1 <= paydaySlot
-        then (s1, (tp ^. tpMintPerPayday, tp ^. tpRewardPeriodLength))
-        else (s2, curr)
-      selectBestTP a _ = a
-      (nextMintRate, nextRPL) = snd $ foldl' selectBestTP (0, (mintRateParent, rpl)) updates
+  let paydaySlot = epochLength seedstate * fromIntegral payday
+      bestTP = bestTimeParameters paydaySlot (oldChainParameters ^. cpTimeParameters) updates
+      nextMintRate = bestTP ^. tpMintPerPayday
+      nextRPL = bestTP ^. tpRewardPeriodLength
       nextPayday = payday + rewardPeriodEpochs nextRPL
-  if newEpoch <= nextPayday
+  if newEpoch < nextPayday
   then return (nextPayday, nextMintRate, bs0)
   else do
     bs1 <- doMintingP4 oldChainParameters nextPayday nextMintRate foundationAccount updates bs0
-    mintForSkippedPaydays newEpoch nextPayday nextRPL oldChainParameters foundationAccount updates bs1
+    mintForSkippedPaydays newEpoch nextPayday oldChainParameters foundationAccount updates bs1
 
 prepareForFollowingPayday
   :: (ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1,
@@ -712,7 +733,7 @@ prepareForFollowingPayday
       BlockStateOperations m,
       BlockPointerMonad m)
   => Epoch
-  -- ^Epoch of the block
+  -- ^Epoch of the current block
   -> Epoch
   -- ^Epoch of the current payday
   -> ChainParameters (MPV m)
@@ -725,9 +746,7 @@ prepareForFollowingPayday
   -- ^Block state
   -> m (UpdatableBlockState m)
 prepareForFollowingPayday newEpoch payday oldChainParameters foundationAccount updates bs0 = do
-  chainParams <- bsoGetChainParameters bs0
-  let rpl = chainParams ^. cpTimeParameters . tpRewardPeriodLength
-  (newPayday, newMintRate, bs1) <- mintForSkippedPaydays newEpoch payday rpl oldChainParameters foundationAccount updates bs0
+  (newPayday, newMintRate, bs1) <- mintForSkippedPaydays newEpoch payday oldChainParameters foundationAccount updates bs0
   bs2 <- bsoSetPaydayEpoch bs1 newPayday
   bs3 <- bsoSetPaydayMintRate bs2 newMintRate
   bs4 <- bsoRotateCurrentCapitalDistribution bs3
@@ -858,8 +877,12 @@ updateBirkParameters :: forall m. (BlockStateOperations m, TreeStateMonad m, Mon
   -- ^New seed state
   -> UpdatableBlockState m
   -- ^Block state
+  -> ChainParameters (MPV m)
+  -- ^Chain parameters at the previous block
+  -> [(Slot, UpdateValue (ChainParametersVersionFor (MPV m)))]
+  -- ^Chain updates since the previous block
   -> m (Bool, UpdatableBlockState m)
-updateBirkParameters newSeedState bs0 = case protocolVersion @(MPV m) of
+updateBirkParameters newSeedState bs0 oldChainParameters updates = case protocolVersion @(MPV m) of
   SP1 -> updateCPV0AccountV0
   SP2 -> updateCPV0AccountV0
   SP3 -> updateCPV0AccountV0
@@ -882,14 +905,43 @@ updateBirkParameters newSeedState bs0 = case protocolVersion @(MPV m) of
     updateCPV1AccountV1 :: (AccountVersionFor (MPV m) ~ 'AccountV1, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1) => m (Bool, UpdatableBlockState m)
     updateCPV1AccountV1 = do
       oldSeedState <- bsoGetSeedState bs0
-      let isNewEpoch = epoch oldSeedState /= epoch newSeedState
-      nextPayday <- bsoGetPaydayEpoch bs0
-      -- We generate the bakers for the next reward period based on the epoch before the payday.
-      bs1 <- if isNewEpoch && epoch oldSeedState + 1 < nextPayday && epoch newSeedState + 1 >= nextPayday
-        then generateNextBakers nextPayday bs0
-        else
-          return bs0
-      (isNewEpoch,) <$> bsoSetSeedState bs1 newSeedState
+      if epoch oldSeedState == epoch newSeedState then
+        return (False, bs0)
+      else do
+        -- This is the start of a new epoch.
+        -- Assume: epoch oldSeedState < epoch newSeedState
+        payday <- bsoGetPaydayEpoch bs0
+        let oldTPs = oldChainParameters ^. cpTimeParameters
+            computePaydays lastPayday fromPayday
+              | epoch newSeedState < fromPayday = (lastPayday, fromPayday)
+              | otherwise = computePaydays (Just fromPayday) nextPayday
+                  where
+                    nextPayday = fromPayday +
+                      bestTimeParameters (slotFor fromPayday) oldTPs updates
+                        ^. tpRewardPeriodLength . to rewardPeriodEpochs
+                    slotFor = (epochLength oldSeedState *) . fromIntegral
+            (mLastElapsedPayday, futurePayday) = computePaydays Nothing payday
+        -- Here: epoch newSeedState < futurePayday, payday =< futurePayday
+        -- If there will be a payday at the start of next epoch, we need to compute the next bakers
+        -- now.
+        bs1 <- if epoch newSeedState + 1 >= payday
+          then
+            -- We generate the bakers for the next reward period based on the epoch before the payday.
+            -- First, compute what the most recent payday will be in one epoch from now.
+            let bakersUpdatePayday
+                  | epoch newSeedState + 1 == futurePayday = futurePayday
+                  | (Just lastElapsed) <- mLastElapsedPayday = lastElapsed
+                  | otherwise = payday
+            in generateNextBakers bakersUpdatePayday bs0
+          else return bs0
+        -- If this is the first block after a payday, we process the pending changes on bakers and
+        -- delegators (i.e. unlock stake that exits cooldown).
+        bs2 <- case mLastElapsedPayday of
+          Nothing -> return bs1
+          Just lastElapsed -> do
+            et <- effectiveTest lastElapsed
+            bsoProcessPendingChanges bs1 et
+        (True,) <$> bsoSetSeedState bs2 newSeedState
 
 -- |Count the free transactions of each kind in a list.
 -- The second argument indicates if the block contains a finalization record.
@@ -941,7 +993,8 @@ executeFrom blockHash slotNumber slotTime blockParent blockBaker mfinInfo newSee
   let cm = ChainMetadata{..}
   in do
     bshandle0 <- thawBlockState =<< blockState blockParent
-    accountCreationLim <- bsoGetChainParameters bshandle0 <&> (^. cpAccountCreationLimit)
+    oldChainParameters <- bsoGetChainParameters bshandle0
+    let accountCreationLim = oldChainParameters ^. cpAccountCreationLimit
     let counts = countFreeTransactions (map fst txs) (isJust mfinInfo)
     if countAccountCreation counts > accountCreationLim
       then
@@ -949,6 +1002,9 @@ executeFrom blockHash slotNumber slotTime blockParent blockBaker mfinInfo newSee
       else do
         -- process the update queues
         (updates, bshandle0a) <- bsoProcessUpdateQueues bshandle0 slotTime
+        genData <- getGenesisData
+        let updates' = (_1 %~ transactionTimeToSlot (gdGenesisTime genData) (gdSlotDuration genData))
+                        <$> Map.toAscList updates
         ab <- bsoGetActiveBakers bshandle0a
         -- for each pool parameter update, go over all bakers and put their commissions inside
         -- the new commission ranges.
@@ -959,7 +1015,7 @@ executeFrom blockHash slotNumber slotTime blockParent blockBaker mfinInfo newSee
         -- unlock the amounts that have expired
         bshandle0b <- bsoProcessReleaseSchedule bshandle0a' slotTime
         -- update the bakers and seed state
-        (isNewEpoch, bshandle1) <- updateBirkParameters newSeedState bshandle0b
+        (isNewEpoch, bshandle1) <- updateBirkParameters newSeedState bshandle0b oldChainParameters updates'
         maxBlockEnergy <- gdMaxBlockEnergy <$> getGenesisData
         let context = ContextState{
               _chainMetadata = cm,
@@ -978,9 +1034,6 @@ executeFrom blockHash slotNumber slotTime blockParent blockBaker mfinInfo newSee
                 zipWithM_ (commitTransaction slotNumber blockHash . fst) txs [0..]
                 -- the main execution is now done. At this point we must mint new currency
                 -- and reward the baker and other parties.
-                genData <- getGenesisData
-                let updates' = (_1 %~ transactionTimeToSlot (gdGenesisTime genData) (gdSlotDuration genData))
-                                <$> Map.toAscList updates
                 bshandle4 <- mintAndReward bshandle3 blockParent slotNumber blockBaker (epoch newSeedState) isNewEpoch mfinInfo (finState ^. schedulerExecutionCosts) counts updates'
                 finalbsHandle <- freezeBlockState bshandle4
                 return (Right (ExecutionResult{_energyUsed = usedEnergy,
@@ -1007,9 +1060,13 @@ constructBlock slotNumber slotTime blockParent blockBaker mfinInfo newSeedState 
     -- when we start constructing the block
     startTime <- currentTime
     bshandle0 <- thawBlockState =<< blockState blockParent
-    accountCreationLim <- bsoGetChainParameters bshandle0 <&> (^. cpAccountCreationLimit)
+    oldChainParameters <- bsoGetChainParameters bshandle0
+    let accountCreationLim = oldChainParameters ^. cpAccountCreationLimit
     -- process the update queues
     (updates, bshandle0a) <- bsoProcessUpdateQueues bshandle0 slotTime
+    genData <- getGenesisData
+    let updates' = (_1 %~ transactionTimeToSlot (gdGenesisTime genData) (gdSlotDuration genData))
+                    <$> Map.toAscList updates
     ab <- bsoGetActiveBakers bshandle0a
     -- for each pool parameter update, go over all bakers and put their commissions inside
     -- the new commission ranges.
@@ -1020,7 +1077,7 @@ constructBlock slotNumber slotTime blockParent blockBaker mfinInfo newSeedState 
     -- unlock the amounts that have expired
     bshandle0b <- bsoProcessReleaseSchedule bshandle0a' slotTime
     -- update the bakers and seed state
-    (isNewEpoch, bshandle1) <- updateBirkParameters newSeedState bshandle0b
+    (isNewEpoch, bshandle1) <- updateBirkParameters newSeedState bshandle0b oldChainParameters updates'
     pt <- getPendingTransactions
 
     -- Prioritise the block items for inclusion in a block.
@@ -1056,7 +1113,6 @@ constructBlock slotNumber slotTime blockParent blockBaker mfinInfo newSeedState 
     maxSize <- rpBlockSize <$> getRuntimeParameters
     timeoutDuration <- rpBlockTimeout <$> getRuntimeParameters
     let timeout = addUTCTime (durationToNominalDiffTime timeoutDuration) startTime
-    genData <- getGenesisData
     let maxBlockEnergy = gdMaxBlockEnergy genData
     let context = ContextState{
           _chainMetadata = cm,
@@ -1073,8 +1129,6 @@ constructBlock slotNumber slotTime blockParent blockBaker mfinInfo newSeedState 
 
     bshandle3 <- bsoSetTransactionOutcomes bshandle2 (map snd ftAdded)
     let counts = countFreeTransactions (map (fst . fst) ftAdded) (isJust mfinInfo)
-    let updates' = (_1 %~ transactionTimeToSlot (gdGenesisTime genData) (gdSlotDuration genData))
-                    <$> Map.toAscList updates
     bshandle4 <- mintAndReward bshandle3 blockParent slotNumber blockBaker (epoch newSeedState) isNewEpoch mfinInfo (finState ^. schedulerExecutionCosts) counts updates'
 
     bshandleFinal <- freezeBlockState bshandle4

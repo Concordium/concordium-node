@@ -962,7 +962,7 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
         case (r1, r2) of
             (Nothing, Nothing) -> return Nothing
             (Just rec1, Just rec2) ->
-              assert (rec1 == rec2) $ -- TODO: Perhaps they don't have to be the same
+              assert (rec1 == rec2) $
                 return $ Just rec1
             _ -> error $ "getRecordAtindex (Paired): no match " ++ show r1 ++ ", " ++ show r2
     wrapupFinalization finRec mffts = do

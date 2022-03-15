@@ -5,6 +5,7 @@ module Concordium.GlobalState.Persistent.PoolRewards (
     makePoolRewards,
     putPoolRewards,
     bakerBlockCounts,
+    rotateCapitalDistribution,
     setNextCapitalDistribution,
     currentLPoolDelegatedCapital,
     lookupBakerCapitalAndRewardDetails,
@@ -178,6 +179,25 @@ bakerBlockCounts PoolRewards{..} = do
         if Vec.null bpc
             then []
             else (bcBakerId (Vec.head bpc), blockCount) : zipToBlockCounts (Vec.tail bpc) rds
+
+-- |Rotate the capital distribution and set up empty pool rewards.
+rotateCapitalDistribution ::
+    (MonadBlobStore m, Reference m ref PoolRewards) =>
+    ref PoolRewards ->
+    m (ref PoolRewards)
+rotateCapitalDistribution oldPoolRewards = do
+    pr <- refLoad oldPoolRewards
+    nextCap <- refLoad (nextCapital pr)
+    rewardDetails <-
+        LFMBT.fromAscList $
+            replicate
+                (Vec.length (bakerPoolCapital nextCap))
+                BasicPoolRewards.emptyBakerPoolRewardDetails
+    refMake $
+        pr
+            { currentCapital = nextCapital pr,
+              bakerPoolRewardDetails = rewardDetails
+            }
 
 setNextCapitalDistribution ::
     (MonadBlobStore m, Reference m ref PoolRewards) =>

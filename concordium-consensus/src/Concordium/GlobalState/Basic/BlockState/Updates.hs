@@ -52,8 +52,6 @@ processValueUpdatesForCPV1 t a0 uq =
 
 -- |Process the protocol update queue.  Unlike other queues, once a protocol update occurs, it is not
 -- overridden by later ones.
--- FIXME: We may just want to keep unused protocol updates in the queue, even if their timestamps have
--- elapsed.
 processProtocolUpdates ::
   Timestamp ->
   Maybe ProtocolUpdate ->

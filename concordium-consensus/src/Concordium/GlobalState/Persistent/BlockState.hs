@@ -2089,7 +2089,6 @@ doSetNextCapitalDistribution pbs bakers lpool = do
             mkDelCap (dcDelegatorId, dcDelegatorCapital) =
                 DelegatorCapital{..}
 
--- FIXME: This should also clear the baker pool reward details!
 doRotateCurrentCapitalDistribution
     :: (IsProtocolVersion pv, MonadBlobStore m, AccountVersionFor pv ~ 'AccountV1)
     => PersistentBlockState pv
@@ -2097,9 +2096,7 @@ doRotateCurrentCapitalDistribution
 doRotateCurrentCapitalDistribution pbs = do
     bsp <- loadPBS pbs
     newRewardDetails <- case bspRewardDetails bsp of
-        BlockRewardDetailsV1 hpr -> do
-            pr <- refLoad hpr
-            BlockRewardDetailsV1 <$> refMake (pr {currentCapital = nextCapital pr})
+        BlockRewardDetailsV1 hpr -> BlockRewardDetailsV1 <$> rotateCapitalDistribution hpr
     storePBS pbs bsp{bspRewardDetails = newRewardDetails}
 
 doAddReleaseSchedule :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> [(AccountAddress, Timestamp)] -> m (PersistentBlockState pv)

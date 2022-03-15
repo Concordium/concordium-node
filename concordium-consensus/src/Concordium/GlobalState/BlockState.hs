@@ -669,7 +669,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   bsoGetTotalRewardPeriodBlockCount :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> m Word64
 
   -- |Function 'bsoGetBakerPoolRewardDetails' @bs@ @bid@ returns the 'BakerPoolRewardDetails'
-  -- related to the given baker. It is required that @bid@ is an an active baker
+  -- related to the given baker. It is required that @bid@ is a current-epoch baker
   -- (in the 'CapitalDistribution' returned by 'bsoGetCurrentCapitalDistribution').
   bsoGetBakerPoolRewardDetails :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> BakerId -> m BakerPoolRewardDetails
 

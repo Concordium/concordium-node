@@ -1527,7 +1527,6 @@ handleConfigureBaker
                         if cbCapital == Just 0
                           then configureRemoveBakerArg
                           else configureUpdateBakerArg
-            -- XXX: This might not be a good way to compute energy cost:
             if isJust cbKeysWithProofs
               then tickEnergy Cost.configureBakerCostWithKeys
               else tickEnergy Cost.configureBakerCostWithoutKeys
@@ -1693,7 +1692,6 @@ handleConfigureDelegation wtc cdCapital cdRestakeEarnings cdDelegationTarget =
                         if cdCapital == Just 0
                           then configureRemoveDelegationArg
                           else configureUpdateDelegationArg
-            -- XXX: This might not be a good solution:
             tickEnergy Cost.configureDelegationCost
             (arg,) <$> getCurrentAccountTotalAmount senderAccount
         kWithAccountBalance ls (ConfigureAddDelegationCont{..}, accountBalance) = do

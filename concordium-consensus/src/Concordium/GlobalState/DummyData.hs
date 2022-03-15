@@ -282,7 +282,6 @@ createRewardDetails accounts = case accountVersion @(AccountVersionFor pv) of
   SAccountV0 -> emptyBlockRewardDetails
   SAccountV1 -> BlockRewardDetailsV1 $ makeHashed $ createPoolRewards accounts
 
--- FIXME: Generalise this to work for both chain parameters versions and remove LANGUAGE TypeFamilies.
 {-# WARNING createBlockState "Do not use in production" #-}
 createBlockState :: (IsProtocolVersion pv) => Accounts pv -> BlockState pv
 createBlockState accounts =

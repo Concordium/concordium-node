@@ -1897,7 +1897,6 @@ genesisStakesAndRewardDetails spv = case spv of
 -- |Construct an 'AccountBaker' from a 'GenesisBaker'.
 -- For 'P4', this creates the baker with the initial pool status being open for all, the
 -- empty metadata URL and the maximum commission rates allowable under the chain parameters.
--- TODO: This could be revised if in future the 'GenesisBaker' contains this information.
 genesisBakerInfo :: forall pv. SProtocolVersion pv -> ChainParameters pv -> GenesisBaker -> AccountBaker (AccountVersionFor pv)
 genesisBakerInfo spv cp GenesisBaker{..} = AccountBaker{..}
   where
