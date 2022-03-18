@@ -631,7 +631,9 @@ runLocalT :: forall pv m a . Monad m
           -> Energy -- remaining block energy
           -> m (Either (Maybe RejectReason) a, LocalState)
 runLocalT (LocalT st) _tcDepositedAmount _tcTxSender _energyLeft _blockEnergyLeft = do
-  let s = LocalState{_changeSet = emptyCS,_nextContractModificationIndex = 0,..}
+  -- The initial contract modification index must start at 1 since 0 is the
+  -- "initial state" of all contracts (as recorded in the changeset).
+  let s = LocalState{_changeSet = emptyCS,_nextContractModificationIndex = 1,..}
   (a, s') <- runRST (runContT st (return . Right)) ctx s
   return (a, s')
 
