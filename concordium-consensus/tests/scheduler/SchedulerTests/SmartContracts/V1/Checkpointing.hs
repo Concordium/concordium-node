@@ -369,7 +369,7 @@ testCase5 =
         , (SuccessWithSummary initializationCostCheckV0, emptySpec)
         )
       ,
-        ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "a.a_modify_proxy" parameters
+        ( TJSON { payload = Update 4242 (Types.ContractAddress 0 0) "a.a_modify_proxy" parameters
                 , metadata = makeDummyHeader alesAccount 6 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
@@ -387,13 +387,15 @@ testCase5 =
           putWord16le (fromIntegral (BSS.length "forward")) -- contract b's receive function.
           putByteString "forward" -- entrypoint name
           putWord64le 0 -- amount
+    -- This is invoked by a v0 contract so the parameter and receive adddress + method are swapped.
+    -- Also V0 contracts invoke others by their fully qualified name i.e. contract-name.receive-name
     forwardParameter0 = runPut $ do
           putWord64le 1 -- contract index of contract B
           putWord64le 0 -- contract subindex
+          putWord16le (fromIntegral (BSS.length "b.b_forward")) -- contract b's receive function. 
+          putByteString "b.b_forward" -- entrypoint name
           putWord16le (fromIntegral (BS.length forwardParameter1)) -- length of parameter
           putByteString forwardParameter1
-          putWord16le (fromIntegral (BSS.length "b_forward")) -- contract b's receive function.
-          putByteString "b_forward" -- entrypoint name
           putWord64le 0 -- amount
     forwardParameter1 = runPut $ do
           putWord64le 0 -- index of contract A
@@ -406,9 +408,9 @@ testCase5 =
     ensureSuccess :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
     ensureSuccess _ Types.TransactionSummary{..} = checkSuccess "Update failed" tsResult
     checkSuccess msg Types.TxReject{..} = assertFailure $ msg ++ show vrRejectReason
-    checkSuccess msg Types.TxSuccess{..} = if length vrEvents == 7
+    checkSuccess msg Types.TxSuccess{..} = if length vrEvents == 8
       then return ()
-      else assertFailure $ msg ++ " unexepcted no. of events " ++ show (length vrEvents) ++ " expected 3."
+      else assertFailure $ msg ++ " unexepcted no. of events " ++ show (length vrEvents) ++ " expected 8."
 
 -- This only checks that the cost of initialization is correct.
 -- If the state was not set up correctly the latter tests in the suite will fail.
@@ -487,7 +489,8 @@ deploymentCostCheckV0 _ Types.TransactionSummary{..} = do
   where
     checkSuccess msg Types.TxReject{..} = assertFailure $ msg ++ show vrRejectReason
     checkSuccess _ _ = return ()
-    
+
+-- todo add the other tests back
 tests :: Spec
 tests = describe "V1: Checkpointing." $
   mkSpecs $ testCase5
