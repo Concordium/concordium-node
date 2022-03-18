@@ -49,7 +49,7 @@ delegatedCapitalCaps poolParams totalCap bakerCap delCap = PoolCaps{..}
     leverageCap
         | leverageFactor >= 1 = applyLeverageFactor leverageFactor bakerCap - bakerCap
         | otherwise = 0
-    capBoundR = fractionToRational capBound
+    capBoundR = fractionToRational (theCapitalBound capBound)
     preBoundCap = capBoundR * toRational (totalCap - delCap) - toRational bakerCap
     boundCap
         | preBoundCap > 0 = truncate (preBoundCap / (1 - capBoundR))
@@ -162,7 +162,7 @@ computeBakerStakesAndCapital poolParams activeBakers lpoolDelegators = BakerStak
     poolCapital ActiveBakerInfo{..} = activeBakerEquityCapital + sum (activeDelegatorStake <$> activeBakerDelegators)
     poolCapitals = poolCapital <$> activeBakers
     totalCapital = sum poolCapitals + sum (activeDelegatorStake <$> lpoolDelegators)
-    capLimit = takeFraction capitalBound totalCapital
+    capLimit = takeFraction (theCapitalBound capitalBound) totalCapital
     makeBakerStake ActiveBakerInfo{..} poolCap =
         ( activeBakerInfoRef,
           minimum

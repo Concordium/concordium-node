@@ -255,7 +255,7 @@ dummyChainParameters = case chainParametersVersion @cpv of
     (makeAmountFraction 100000) (makeAmountFraction 5000) (makeAmountFraction 5000)
     fullRange fullRange fullRange
     300000000000
-    (makeAmountFraction 100000)
+    (CapitalBound $ makeAmountFraction 100000)
     5 -- leverage factor
     2 -- Reward period length
     (MintRate 1 8)
