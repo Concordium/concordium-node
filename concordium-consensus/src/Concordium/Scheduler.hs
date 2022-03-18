@@ -1098,6 +1098,8 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                               Right (rVal, callEvents) -> do
                                 (lastModifiedIndex, newState) <- getCurrentContractInstanceState istance
                                 (stateChanged, resumeState) <- (lastModifiedIndex /= modificationIndex,) <$> getRuntimeReprV1 newState
+                                let stateChanged = lastModifiedIndex /= modificationIndex
+                                resumeState <- getRuntimeReprV1 newState
                                 newBalance <- getCurrentContractAmount Wasm.SV1 istance
                                 go (resumeEvent True:callEvents ++ interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig resumeState stateChanged newBalance WasmV1.Success (Just rVal))
 
