@@ -17,7 +17,6 @@ import Concordium.Utils.BinarySearch
 
 import Concordium.Types
 import Concordium.Types.Execution (OpenStatus, DelegationTarget)
-import Concordium.GlobalState.Parameters
 
 data FullBakerInfo = FullBakerInfo {
     _theBakerInfo :: !BakerInfo,
@@ -33,7 +32,7 @@ instance Serialize FullBakerInfo where
     _bakerStake <- get
     return FullBakerInfo{..}
 
-makeLenses ''FullBakerInfo
+makeClassy ''FullBakerInfo
 
 instance HasBakerInfo FullBakerInfo where
   bakerInfo = theBakerInfo
@@ -56,6 +55,29 @@ lotteryBaker :: FullBakers -> BakerId -> Maybe (BakerInfo, LotteryPower)
 lotteryBaker fbs bid = lp <$> fullBaker fbs bid
     where
       lp fb = (fb ^. bakerInfo, fb ^. bakerStake % bakerTotalStake fbs)
+
+-- |'FullBakerInfo' plus the baker's 'CommissionRates'.
+data FullBakerInfoEx = FullBakerInfoEx {
+    _exFullBakerInfo :: !FullBakerInfo,
+    _bakerPoolCommissionRates :: !CommissionRates
+  } deriving (Eq, Show)
+
+makeLenses ''FullBakerInfoEx
+
+instance HasFullBakerInfo FullBakerInfoEx where
+  fullBakerInfo = exFullBakerInfo
+
+instance HasBakerInfo FullBakerInfoEx where
+  bakerInfo = exFullBakerInfo . theBakerInfo
+
+-- |An extended version of 'FullBakers' that includes commission rates.
+-- This is used for handling rewards in P4 onwards.
+data FullBakersEx = FullBakersEx {
+  -- |All bakers in ascending order of BakerId.
+  bakerInfoExs :: !(Vec.Vector FullBakerInfoEx),
+  -- |The total stake of all bakers.
+  bakerPoolTotalStake :: !Amount
+} deriving (Eq, Show)
 
 data BakerKeyUpdate = BakerKeyUpdate {
   -- |New public sign key
@@ -157,10 +179,6 @@ data BakerConfigure =
         bcuTransactionFeeCommission :: !(Maybe AmountFraction),
         bcuBakingRewardCommission :: !(Maybe AmountFraction),
         bcuFinalizationRewardCommission :: !(Maybe AmountFraction)
-    }
-    -- |Update a baker's commission rates to fall in the given range.
-    | BakerConfigureToCommissionRanges {
-        bccrCommissionRanges :: CommissionRanges
     }
     deriving (Eq, Show)
 

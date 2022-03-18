@@ -551,6 +551,10 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         (r1, bs1') <- coerceBSML $ bsoConfigureBaker bs1 aconfig bkrConfig
         (r2, bs2') <- coerceBSMR $ bsoConfigureBaker bs2 aconfig bkrConfig
         assert (r1 == r2) $ return (r1, (bs1', bs2'))
+    bsoConstrainBakerCommission (bs1, bs2) aconfig ranges = do
+        bs1' <- coerceBSML $ bsoConstrainBakerCommission bs1 aconfig ranges
+        bs2' <- coerceBSMR $ bsoConstrainBakerCommission bs2 aconfig ranges
+        return (bs1', bs2')
     bsoConfigureDelegation (bs1, bs2) aconfig delConfig = do
         (r1, bs1') <- coerceBSML $ bsoConfigureDelegation bs1 aconfig delConfig
         (r2, bs2') <- coerceBSMR $ bsoConfigureDelegation bs2 aconfig delConfig
@@ -762,6 +766,10 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
     bsoGetCurrentEpochBakers (ls, rs) = do
         b1 <- coerceBSML (bsoGetCurrentEpochBakers ls)
         b2 <- coerceBSMR (bsoGetCurrentEpochBakers rs)
+        assert (b1 == b2) $ return b1
+    bsoGetCurrentEpochFullBakersEx (ls, rs) = do
+        b1 <- coerceBSML (bsoGetCurrentEpochFullBakersEx ls)
+        b2 <- coerceBSMR (bsoGetCurrentEpochFullBakersEx rs)
         assert (b1 == b2) $ return b1
     bsoGetCurrentCapitalDistribution (ls, rs) = do
         b1 <- coerceBSML (bsoGetCurrentCapitalDistribution ls)

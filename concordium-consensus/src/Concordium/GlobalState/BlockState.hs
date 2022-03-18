@@ -542,6 +542,9 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- |Get the bakers for the epoch in which the block was baked.
   bsoGetCurrentEpochBakers :: UpdatableBlockState m -> m FullBakers
 
+  -- |Get the bakers for the epoch in which the block was baked, together with their commission rates.
+  bsoGetCurrentEpochFullBakersEx :: (AccountVersionFor (MPV m) ~ 'AccountV1) => UpdatableBlockState m -> m FullBakersEx
+
   -- |Get the bakers for the epoch in which the block was baked.
   bsoGetCurrentCapitalDistribution
     :: (AccountVersionFor (MPV m) ~ 'AccountV1)
@@ -579,6 +582,15 @@ class (BlockStateQuery m) => BlockStateOperations m where
     -> AccountIndex
     -> BakerConfigure
     -> m (BakerConfigureResult, UpdatableBlockState m)
+  
+  -- |Constrain the baker's commission rates to fall in the given ranges.
+  -- If the account is invalid or not a baker, this does nothing.
+  bsoConstrainBakerCommission
+    :: (AccountVersionFor (MPV m) ~ 'AccountV1, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1)
+    => UpdatableBlockState m
+    -> AccountIndex
+    -> CommissionRanges
+    -> m (UpdatableBlockState m)
 
   -- |From chain parameters version >= 1, this operation is used to add/remove/update a delegator.
   -- When adding delegator, it is assumed that 'AccountIndex' account is NOT a baker and NOT a delegator.
@@ -993,9 +1005,11 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoGetActiveBakers = lift . bsoGetActiveBakers
   bsoGetActiveBakersAndDelegators = lift . bsoGetActiveBakersAndDelegators
   bsoGetCurrentEpochBakers = lift . bsoGetCurrentEpochBakers
+  bsoGetCurrentEpochFullBakersEx = lift . bsoGetCurrentEpochFullBakersEx
   bsoGetCurrentCapitalDistribution = lift . bsoGetCurrentCapitalDistribution
   bsoAddBaker s addr a = lift $ bsoAddBaker s addr a
   bsoConfigureBaker s aconfig a = lift $ bsoConfigureBaker s aconfig a
+  bsoConstrainBakerCommission s acct ranges = lift $ bsoConstrainBakerCommission s acct ranges
   bsoConfigureDelegation s aconfig a = lift $ bsoConfigureDelegation s aconfig a
   bsoUpdateBakerKeys s addr a = lift $ bsoUpdateBakerKeys s addr a
   bsoUpdateBakerStake s addr a = lift $ bsoUpdateBakerStake s addr a

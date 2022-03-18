@@ -419,6 +419,7 @@ doBlockReward transFees FreeTransactionCounts{..} (BakerId aid) foundationAddr b
       stoFoundationAccount = foundationAddr
     }
 
+-- |Accrue the rewards for a block to the relevant pool, the L-pool, and the foundation.
 doBlockRewardP4 :: forall m. (BlockStateOperations m, MonadProtocolVersion m, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1, AccountVersionFor (MPV m) ~ 'AccountV1)
   => Amount
   -- ^Transaction fees paid
@@ -469,6 +470,7 @@ doBlockRewardP4 transFees FreeTransactionCounts{..} bid bs0 = do
       stoBakerId = bid
     }
 
+-- |Distribute the rewards that have accrued as part of a payday.
 distributeRewards
   :: forall m
    . (AccountVersionFor (MPV m) ~ 'AccountV1,
@@ -484,9 +486,9 @@ distributeRewards foundationAddr bs0 = do
   let rewardAccts = bankStatus ^. bankRewardAccounts
   lPoolAccrued <- bsoGetAccruedTransactionFeesLPool bs0
   capitalDistribution <- bsoGetCurrentCapitalDistribution bs0
-  bakers <- bsoGetCurrentEpochBakers bs0
+  bakers <- bsoGetCurrentEpochFullBakersEx bs0
   let lPoolStake = sum $ dcDelegatorCapital <$> lPoolCapital capitalDistribution
-      lPoolRelativeStake = lPoolStake % (BI.bakerTotalStake bakers + lPoolStake)
+      lPoolRelativeStake = lPoolStake % (BI.bakerPoolTotalStake bakers + lPoolStake)
       lPoolFinalizationCommission = chainParameters ^. cpPoolParameters . ppLPoolCommissions . finalizationCommission
       lPoolFinalizationFraction = fractionToRational (complementAmountFraction lPoolFinalizationCommission) * toRational lPoolRelativeStake
       lPoolBakingCommission = chainParameters ^. cpPoolParameters . ppLPoolCommissions . bakingCommission
@@ -570,7 +572,7 @@ distributeRewards foundationAddr bs0 = do
 
       rewardBakers
         :: UpdatableBlockState m
-        -> BI.FullBakers
+        -> BI.FullBakersEx
         -> Amount
         -> Amount
         -> Vec.Vector BakerCapital
@@ -583,7 +585,7 @@ distributeRewards foundationAddr bs0 = do
 
       doRewardBakers
         :: UpdatableBlockState m
-        -> BI.FullBakers
+        -> BI.FullBakersEx
         -> Amount
         -> Amount
         -> Vec.Vector BakerCapital
@@ -594,19 +596,22 @@ distributeRewards foundationAddr bs0 = do
         (af, ab, outcomes, bsOut) <- foldM (rewardBaker totalFinStake) (0, 0, [], bs) bcs
         return (af, ab, outcomes, bsOut)
           where
-            bakerStakesMap =
+            bakerStakesAndRatesMap =
                 foldl'
-                    (\m bi -> Map.insert (bi ^. BI.theBakerInfo . Types.bakerIdentity) (bi ^. BI.bakerStake) m)
+                    (\m bi -> Map.insert
+                      (bi ^. BI.theBakerInfo . Types.bakerIdentity)
+                      (bi ^. BI.bakerStake, bi ^. BI.bakerPoolCommissionRates)
+                      m)
                     Map.empty
-                    (BI.fullBakerInfos bakers)
+                    (BI.bakerInfoExs bakers)
 
             addFinalizationStake a bc = do
                 bprd <- bsoGetBakerPoolRewardDetails bs (bcBakerId bc)
                 if finalizationAwake bprd
-                then case Map.lookup (bcBakerId bc) bakerStakesMap of
+                then case Map.lookup (bcBakerId bc) bakerStakesAndRatesMap of
                     Nothing ->
                         error "Invariant violation: baker from capital distribution is not an epoch baker"
-                    Just s ->
+                    Just (s, _) ->
                         return (a + s)
                 else return a
 
@@ -617,19 +622,20 @@ distributeRewards foundationAddr bs0 = do
                     bakerBlockFraction = bakerBlockCount % paydayBlockCount
                     bakerBakingReward = floor $ fromIntegral bakerBakingRewardFactor * bakerBlockFraction
                     finalized = finalizationAwake bprd
-                    relativeStake = case Map.lookup (bcBakerId bc) bakerStakesMap of
+                    (relativeStake, commissionRates) = case Map.lookup (bcBakerId bc) bakerStakesAndRatesMap of
                       Nothing ->
                         error "Invariant violation: baker from capital distribution is not an epoch baker"
-                      Just s ->
-                        if finalized
-                        then s % totalFinStake
-                        else 0
+                      Just (s, commRates) ->
+                        (if finalized
+                          then s % totalFinStake
+                          else 0,
+                        commRates)
                     bakerFinalizationReward = floor $ fromIntegral bakerFinalizationFactor * relativeStake
                     totalCapital = foldl (\a dc -> a + dcDelegatorCapital dc) (bcBakerEquityCapital bc) (bcDelegatorCapital bc)
-                poolInfo <- bakerPoolInfo bsIn (bcBakerId bc)
-                let finalizationFraction = complementAmountFraction (poolInfo ^. Types.poolCommissionRates . finalizationCommission)
-                    bakingFraction = complementAmountFraction (poolInfo ^. Types.poolCommissionRates . bakingCommission)
-                    transactionFraction = complementAmountFraction (poolInfo ^. Types.poolCommissionRates . transactionCommission)
+                
+                let finalizationFraction = complementAmountFraction (commissionRates ^. finalizationCommission)
+                    bakingFraction = complementAmountFraction (commissionRates ^. bakingCommission)
+                    transactionFraction = complementAmountFraction (commissionRates ^. transactionCommission)
                     totalDelegationFinalization = takeFraction finalizationFraction bakerFinalizationReward
                     totalDelegationBaking = takeFraction bakingFraction bakerBakingReward
                     totalDelegationTransaction = takeFraction transactionFraction accruedReward
@@ -663,13 +669,6 @@ distributeRewards foundationAddr bs0 = do
                      accumBaking + bakerBakingReward,
                      poolOutcome : bakerOutcome : delegatorOutcomes ++ accumOutcomes,
                      bsClearBlockCount)
-
-      bakerPoolInfo bs (BakerId ai) = do
-        bsoGetAccountByIndex bs ai >>= \case
-          Nothing -> error "Invariant violation: Active baker does not have an account"
-          Just acc -> getAccountBaker acc >>= \case
-            Nothing -> error "Invariant violation: Active baker account is not a baker account"
-            Just ab -> return (ab ^. Types.accountBakerInfo . Types.bieBakerPoolInfo)
 
 -- |Get the updated value of the time parameters at a given slot, given the original time
 -- parameters and the elapsed updates.
@@ -749,6 +748,7 @@ prepareForFollowingPayday newEpoch payday oldChainParameters foundationAccount u
   (newPayday, newMintRate, bs1) <- mintForSkippedPaydays newEpoch payday oldChainParameters foundationAccount updates bs0
   bs2 <- bsoSetPaydayEpoch bs1 newPayday
   bs3 <- bsoSetPaydayMintRate bs2 newMintRate
+  --- 
   bs4 <- bsoRotateCurrentCapitalDistribution bs3
   bsoRotateCurrentEpochBakers bs4
 
@@ -924,7 +924,7 @@ updateBirkParameters newSeedState bs0 oldChainParameters updates = case protocol
         -- Here: epoch newSeedState < futurePayday, payday =< futurePayday
         -- If there will be a payday at the start of next epoch, we need to compute the next bakers
         -- now.
-        bs1 <- if epoch newSeedState + 1 >= payday
+        bs1 <- if epoch oldSeedState + 1 < payday && epoch newSeedState + 1 >= payday
           then
             -- We generate the bakers for the next reward period based on the epoch before the payday.
             -- First, compute what the most recent payday will be in one epoch from now.
@@ -968,9 +968,7 @@ putBakerCommissionsInRange ::
     UpdatableBlockState m ->
     BakerId ->
     m (UpdatableBlockState m)
-putBakerCommissionsInRange ranges bs (BakerId ai) = do
-  (_, newBS) <- bsoConfigureBaker bs ai (BI.BakerConfigureToCommissionRanges ranges)
-  return newBS
+putBakerCommissionsInRange ranges bs (BakerId ai) = bsoConstrainBakerCommission bs ai ranges
 
 -- |Execute a block from a given starting state.
 -- Fail if any of the transactions fails, otherwise return the new 'BlockState' and the amount of energy used

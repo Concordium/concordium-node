@@ -182,6 +182,68 @@ instance forall av. IsAccountVersion av => Show (PersistentExtraBakerInfo av) wh
         SAccountV0 -> show
         SAccountV1 -> show
 
+instance forall av m. (IsAccountVersion av, MonadBlobStore m) => Cacheable m (PersistentExtraBakerInfo av) where
+  cache = case accountVersion @av of
+    SAccountV0 -> pure
+    SAccountV1 -> theExtraBakerInfo cache
+
+-- |A persistent version of 'BakerInfoEx'.
+
+data PersistentBakerInfoEx av = PersistentBakerInfoEx {
+    bakerInfoRef :: !(BufferedRef BakerInfo),
+    bakerInfoExtra :: !(PersistentExtraBakerInfo av)
+} deriving (Show)
+
+-- |Load a 'BakerInfoEx' from a 'PersistentBakerInfoEx'.
+loadPersistentBakerInfoEx :: forall av m. (IsAccountVersion av, MonadBlobStore m)
+  => PersistentBakerInfoEx av -> m (BakerInfoEx av)
+loadPersistentBakerInfoEx PersistentBakerInfoEx{..} = do
+    bkrInfo <- refLoad bakerInfoRef
+    case accountVersion @av of
+      SAccountV0 -> return $ BakerInfoExV0 bkrInfo
+      SAccountV1 -> do
+        bkrInfoEx <- refLoad (bakerInfoExtra ^. theExtraBakerInfo)
+        return $ BakerInfoExV1 bkrInfo bkrInfoEx
+
+-- |Construct a 'PersistentBakerInfoEx' from a 'BakerInfoEx'.
+makePersistentBakerInfoEx :: (MonadBlobStore m) => BakerInfoEx av -> m (PersistentBakerInfoEx av)
+makePersistentBakerInfoEx (BakerInfoExV0 bi) = do
+    bakerInfoRef <- refMake bi
+    return PersistentBakerInfoEx{bakerInfoExtra = PersistentExtraBakerInfo (), ..}
+makePersistentBakerInfoEx (BakerInfoExV1 bi ebi) = do
+    bakerInfoRef <- refMake bi
+    bakerInfoExtra <- PersistentExtraBakerInfo <$> refMake ebi
+    return PersistentBakerInfoEx{..}
+
+instance forall m av. (IsAccountVersion av, MonadBlobStore m) => BlobStorable m (PersistentBakerInfoEx av) where
+  storeUpdate PersistentBakerInfoEx{..} = do
+    (pBakerInfo, newBakerInfo) <- storeUpdate bakerInfoRef
+    (pExtraBakerInfo :: Put, newExtraBakerInfo) <- (case accountVersion @av of
+        SAccountV0 -> storeUpdate
+        SAccountV1 -> storeUpdate)
+        $ _theExtraBakerInfo bakerInfoExtra
+    let pab = PersistentBakerInfoEx{
+            bakerInfoRef = newBakerInfo,
+            bakerInfoExtra = PersistentExtraBakerInfo newExtraBakerInfo,
+            ..}
+    return . (, pab) $ do
+      pBakerInfo
+      pExtraBakerInfo
+  store a = fst <$> storeUpdate a
+  load = do
+    rBakerInfo <- load
+    rExtraBakerInfo <- case accountVersion @av of
+        SAccountV0 -> load
+        SAccountV1 -> load
+    return $ do
+      bakerInfoRef <- rBakerInfo
+      bakerInfoExtra <- PersistentExtraBakerInfo <$> rExtraBakerInfo
+      return PersistentBakerInfoEx{..}
+
+instance (IsAccountVersion av, MonadBlobStore m) => Cacheable m (PersistentBakerInfoEx av) where
+  cache PersistentBakerInfoEx{..} = 
+    PersistentBakerInfoEx <$> cache bakerInfoRef <*> cache bakerInfoExtra
+
 data PersistentAccountBaker (av :: AccountVersion) = PersistentAccountBaker
   { _stakedAmount :: !Amount
   , _stakeEarnings :: !Bool
@@ -193,6 +255,9 @@ data PersistentAccountBaker (av :: AccountVersion) = PersistentAccountBaker
 deriving instance (Show (PersistentExtraBakerInfo av)) => Show (PersistentAccountBaker av)
 
 makeLenses ''PersistentAccountBaker
+
+accountBakerInfoEx :: Getting r (PersistentAccountBaker av) (PersistentBakerInfoEx av)
+accountBakerInfoEx = to (\PersistentAccountBaker{..} -> PersistentBakerInfoEx _accountBakerInfo _extraBakerInfo)
 
 bakerPoolInfoRef :: Lens' (PersistentAccountBaker 'AccountV1) (BufferedRef BakerPoolInfo)
 bakerPoolInfoRef = extraBakerInfo . theExtraBakerInfo

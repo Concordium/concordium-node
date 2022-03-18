@@ -2,6 +2,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -16,6 +17,7 @@ import Data.Serialize
 import Lens.Micro.Platform
 import Concordium.Types.Accounts
 
+import Concordium.Genesis.Data (StateMigrationParameters(..))
 import Concordium.GlobalState.BakerInfo
 import Concordium.Types
 import Concordium.Utils.Serialization
@@ -23,6 +25,7 @@ import Concordium.Utils.BinarySearch
 
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types.HashableTo
+import qualified Concordium.Genesis.Data.P4 as P4
 
 -- |The set of bakers that are eligible to bake in a particular epoch.
 --
@@ -30,9 +33,9 @@ import Concordium.Types.HashableTo
 --
 -- Since this in memory implementation is intended more to serve as a specification
 -- than to be used in practice, it is not optimised for time and space usage.
-data EpochBakers = EpochBakers {
+data EpochBakers (av :: AccountVersion) = EpochBakers {
     -- |The 'BakerInfo' for each baker, ordered by the 'BakerId'.
-    _bakerInfos :: !(Vec.Vector BakerInfo),
+    _bakerInfos :: !(Vec.Vector (BakerInfoEx av)),
     -- |The stake associated with each baker pool. This vector corresponds
     -- with the '_bakerInfos' vector.
     _bakerStakes :: !(Vec.Vector Amount),
@@ -42,12 +45,12 @@ data EpochBakers = EpochBakers {
 
 -- |Look up a baker by its identifier.
 -- This is implemented as a binary search.
-epochBaker :: BakerId -> EpochBakers -> Maybe (BakerInfo, Amount)
+epochBaker :: BakerId -> EpochBakers av -> Maybe (BakerInfo, Amount)
 epochBaker bid EpochBakers{..} = do
-    (idx, binfo) <- binarySearchI _bakerIdentity _bakerInfos bid
+    (idx, binfo) <- binarySearchI _bakerIdentity (view bakerInfo <$> _bakerInfos) bid
     return (binfo, _bakerStakes Vec.! idx)
 
-instance HashableTo H.Hash EpochBakers where
+instance IsAccountVersion av => HashableTo H.Hash (EpochBakers av) where
     getHash EpochBakers{..} =
         H.hashOfHashes
             (hashVec put _bakerInfos)
@@ -56,7 +59,7 @@ instance HashableTo H.Hash EpochBakers where
         hashVec p v = H.hash $ runPut $ mapM_ p v
 
 -- |Serialize 'EpochBakers'.
-putEpochBakers :: Putter EpochBakers
+putEpochBakers :: IsAccountVersion av => Putter (EpochBakers av)
 putEpochBakers EpochBakers{..} = do
     assert (Vec.length _bakerInfos == Vec.length _bakerStakes) $
         putLength (Vec.length _bakerInfos)
@@ -64,7 +67,7 @@ putEpochBakers EpochBakers{..} = do
     mapM_ put _bakerStakes
 
 -- |Deserialize 'EpochBakers'.
-getEpochBakers :: Get EpochBakers
+getEpochBakers :: IsAccountVersion av => Get (EpochBakers av)
 getEpochBakers = do
     bakers <- getLength
     _bakerInfos <- Vec.replicateM bakers get
@@ -74,7 +77,7 @@ getEpochBakers = do
 
 -- |Construct an 'EpochBakers' from a list of pairs of 'BakerInfo' and the baker stake 'Amount'.
 -- The list must be in ascending order by 'BakerId', with no duplicates.
-makeHashedEpochBakers :: [(BakerInfo, Amount)] -> Hashed EpochBakers
+makeHashedEpochBakers :: IsAccountVersion av => [(BakerInfoEx av, Amount)] -> Hashed (EpochBakers av)
 makeHashedEpochBakers bakers = makeHashed EpochBakers{..}
     where
         bkrs = Vec.fromList bakers
@@ -83,20 +86,49 @@ makeHashedEpochBakers bakers = makeHashed EpochBakers{..}
         _bakerTotalStake = Vec.sum _bakerStakes
 
 -- |Convert an 'EpochBakers' to a 'FullBakers'.
-epochToFullBakers :: EpochBakers -> FullBakers
+epochToFullBakers :: EpochBakers av -> FullBakers
 epochToFullBakers EpochBakers{..} = FullBakers{
         fullBakerInfos = Vec.zipWith mkFullBakerInfo _bakerInfos _bakerStakes,
         bakerTotalStake = _bakerTotalStake
     }
     where
-        mkFullBakerInfo bi bs = FullBakerInfo bi bs
+        mkFullBakerInfo bi bs = FullBakerInfo (bi ^. bakerInfo) bs
+
+-- |Convert an 'EpochBakers' to a 'FullBakersEx'.
+epochToFullBakersEx :: (av ~ 'AccountV1) => EpochBakers av -> FullBakersEx
+epochToFullBakersEx EpochBakers{..} = FullBakersEx {
+        bakerInfoExs = Vec.zipWith mkFullBakerInfoEx _bakerInfos _bakerStakes,
+        bakerPoolTotalStake = _bakerTotalStake
+    }
+    where
+        mkFullBakerInfoEx bi bs =
+            FullBakerInfoEx
+                (FullBakerInfo (bi ^. bakerInfo) bs)
+                (bi ^. poolCommissionRates)
 
 -- |Covert an 'EpochBakers' to a list of pairs of 'BakerId' and stake 'Amount'.
 -- The list is in ascending order of 'BakerId'.
-epochToBakerStakes :: EpochBakers -> Vec.Vector (BakerId, Amount)
+epochToBakerStakes :: EpochBakers av -> Vec.Vector (BakerId, Amount)
 epochToBakerStakes EpochBakers{..} = Vec.zipWith mkBakerStake _bakerInfos _bakerStakes
     where
-        mkBakerStake bi bs = (_bakerIdentity bi, bs)
+        mkBakerStake bi bs = (bi ^. bakerIdentity, bs)
+
+-- |Migrate 'EpochBakers' from one version to another.
+-- For 'StateMigrationParametersTrivial', no conversion is performed.
+-- For 'StateMigrationParametersP3ToP4', the bakers are extended using 'P4.defaultBakerPoolInfo'.
+migrateEpochBakers ::
+    StateMigrationParameters oldpv pv ->
+    EpochBakers (AccountVersionFor oldpv) ->
+    EpochBakers (AccountVersionFor pv)
+migrateEpochBakers StateMigrationParametersTrivial eb = eb
+migrateEpochBakers (StateMigrationParametersP3ToP4 migration) EpochBakers{..} =
+    EpochBakers
+        { _bakerInfos = migrateBakerInfo <$> _bakerInfos,
+          ..
+        }
+    where
+        migrateBakerInfo (BakerInfoExV0 bi) = BakerInfoExV1 bi (P4.defaultBakerPoolInfo migration)
+
 
 -- |The delegators and total stake of an active pool.
 data ActivePool = ActivePool {

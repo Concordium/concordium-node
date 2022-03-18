@@ -28,7 +28,7 @@ import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 checkBinary :: (Show a, Show b) => (a -> b -> Bool) -> a -> b -> String -> String -> String -> Either String ()
 checkBinary bop x y sbop sx sy = unless (bop x y) $ Left $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ sy ++ " (" ++ show y ++ ")"
 
-invariantBlockState :: BlockState pv -> Amount -> Either String ()
+invariantBlockState :: IsProtocolVersion pv => BlockState pv -> Amount -> Either String ()
 invariantBlockState bs extraBalance = do
         (creds, amp, totalBalance, remainingIds, remainingKeys) <- foldM checkAccount (Map.empty, Map.empty, 0, bs ^. blockBirkParameters . birkActiveBakers . activeBakers, bs ^. blockBirkParameters . birkActiveBakers . aggregationKeys) (AT.toList $ Account.accountTable $ bs ^. blockAccounts)
         unless (StrictMap.null remainingIds) $ Left $ "Active bakers with no baker record: " ++ show (StrictMap.keys remainingIds)

@@ -935,6 +935,7 @@ instance (Applicative m) => Cacheable m ARS.AnonymityRevokers
 instance (Applicative m) => Cacheable m Parameters.CryptographicParameters
 -- Required for caching Bakers
 instance (Applicative m) => Cacheable m BakerInfo
+instance (Applicative m) => Cacheable m BakerPoolInfo
 instance (Applicative m) => Cacheable m Amount
 -- Required for caching Updates
 instance (Applicative m) => Cacheable m (StoreSerialized a)

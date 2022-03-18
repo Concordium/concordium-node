@@ -1640,8 +1640,6 @@ handleConfigureBaker
                     ebrAccount = senderAddress
                   }
             return (TxSuccess [brEvt], energyCost, usedEnergy)
-        kResult _ _ BI.BakerConfigureToCommissionRanges{} _ =
-          error "Impossible baker configuration occurred" -- Really cannot happen
         kResult energyCost usedEnergy _ BI.BCInvalidAccount =
             return (TxReject (InvalidAccountReference senderAddress), energyCost, usedEnergy)
         kResult energyCost usedEnergy _ (BI.BCDuplicateAggregationKey key) =

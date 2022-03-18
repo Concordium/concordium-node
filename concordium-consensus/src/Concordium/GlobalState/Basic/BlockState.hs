@@ -8,6 +8,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE ViewPatterns #-}
 module Concordium.GlobalState.Basic.BlockState where
 
 import qualified Data.Map as LazyMap
@@ -82,9 +83,9 @@ data BasicBirkParameters (av :: AccountVersion) = BasicBirkParameters {
     -- (And delegators likewise.)
     _birkActiveBakers :: !ActiveBakers,
     -- |The bakers that will be used for the next epoch.
-    _birkNextEpochBakers :: !(Hashed EpochBakers),
+    _birkNextEpochBakers :: !(Hashed (EpochBakers av)),
     -- |The bakers for the current epoch.
-    _birkCurrentEpochBakers :: !(Hashed EpochBakers),
+    _birkCurrentEpochBakers :: !(Hashed (EpochBakers av)),
     -- |The seed state used to derive the leadership election nonce.
     _birkSeedState :: !SeedState
 } deriving (Eq, Show)
@@ -105,7 +106,7 @@ instance HashableTo H.Hash (BasicBirkParameters av) where
         cebHash = getHash _birkCurrentEpochBakers
 
 -- |Serialize 'BasicBirkParameters' in V0 format.
-putBirkParameters :: Putter (BasicBirkParameters av)
+putBirkParameters :: IsAccountVersion av => Putter (BasicBirkParameters av)
 putBirkParameters BasicBirkParameters{..} = do
     put _birkSeedState
     putEpochBakers (_unhashed _birkNextEpochBakers)
@@ -115,7 +116,7 @@ putBirkParameters BasicBirkParameters{..} = do
 -- Since the active bakers are not stored in the serialization,
 -- the 'BasicBirkParameters' will have empty 'ActiveBakers',
 -- which should be corrected by processing the accounts table.
-getBirkParameters :: Get (BasicBirkParameters av)
+getBirkParameters :: IsAccountVersion av => Get (BasicBirkParameters av)
 getBirkParameters = do
     _birkSeedState <- get
     _birkNextEpochBakers <- makeHashed <$> getEpochBakers
@@ -123,10 +124,23 @@ getBirkParameters = do
     let _birkActiveBakers = emptyActiveBakers
     return BasicBirkParameters{..}
 
+-- |Migrate 'BasicBirkParameters' from one version to another.
+migrateBirkParameters :: forall oldpv pv. (IsProtocolVersion pv)
+    => StateMigrationParameters oldpv pv
+    -> BasicBirkParameters (AccountVersionFor oldpv)
+    -> BasicBirkParameters (AccountVersionFor pv)
+migrateBirkParameters migration BasicBirkParameters{..} = 
+    BasicBirkParameters{
+        _birkNextEpochBakers = migrate _birkNextEpochBakers,
+        _birkCurrentEpochBakers = migrate _birkCurrentEpochBakers,
+        ..}
+    where
+        migrate = makeHashed . migrateEpochBakers migration . _unhashed
+
 -- |Generate initial birk parameters from genesis accounts and seed state.
 initialBirkParameters
-  :: forall av
-   . [Account av]
+  :: forall av. IsAccountVersion av
+  => [Account av]
   -- ^The accounts at genesis, in order
   -> SeedState
   -- ^The seed state
@@ -157,7 +171,7 @@ initialBirkParameters accounts _birkSeedState = BasicBirkParameters{..}
             _ -> dels
     bakerDelsMap = foldl' addBakerDel Map.empty accounts
     lookupBakerDels bid = Map.findWithDefault emptyActivePool bid bakerDelsMap
-    abi (AccountStakeBaker AccountBaker{..}) = Just (_accountBakerInfo ^. bakerInfo, _stakedAmount)
+    abi (AccountStakeBaker AccountBaker{..}) = Just (_accountBakerInfo, _stakedAmount)
     abi _ = Nothing
     bkr acct = abi $ acct ^. accountStaking
     bkrs = catMaybes $ bkr <$> accounts
@@ -166,8 +180,8 @@ initialBirkParameters accounts _birkSeedState = BasicBirkParameters{..}
     _lPoolDelegators = foldl' addLPoolDel emptyActivePool accounts
     lPoolCapital = _apDelegatorTotalCapital _lPoolDelegators
     _birkActiveBakers = ActiveBakers {
-      _activeBakers = Map.fromList $ bkrs <&> \(BakerInfo{_bakerIdentity = bi}, _) -> (bi, lookupBakerDels bi),
-      _aggregationKeys = Set.fromList (_bakerAggregationVerifyKey . fst <$> bkrs),
+      _activeBakers = Map.fromList $ bkrs <&> \(view bakerIdentity -> bi, _) -> (bi, lookupBakerDels bi),
+      _aggregationKeys = Set.fromList (view bakerAggregationVerifyKey . fst <$> bkrs),
       _totalActiveCapital = bakerCapital + delegatorCapital + lPoolCapital,
       ..
     }
@@ -386,9 +400,9 @@ getBlockState :: forall oldpv pv. (IsProtocolVersion oldpv, IsProtocolVersion pv
     => StateMigrationParameters oldpv pv -> Get (BlockState pv)
 getBlockState migration = do
     -- BirkParameters
-    preBirkParameters <- label "birk parameters" $ getBirkParameters
+    preBirkParameters <- migrateBirkParameters migration <$> label "birk parameters" getBirkParameters
     -- CryptographicParameters
-    cryptoParams <- label "cryptographic parameters" $ get
+    cryptoParams <- label "cryptographic parameters" get
     let _blockCryptographicParameters = makeHashed cryptoParams
     -- IdentityProviders
     _blockIdentityProviders <- makeHashed <$> label "identity providers" get
@@ -503,14 +517,14 @@ doGetActiveBakersAndDelegators ::
       AccountVersionFor pv ~ 'AccountV1
     ) =>
     s ->
-    m ([BS.ActiveBakerInfo' BakerInfo], [BS.ActiveDelegatorInfo])
+    m ([BS.ActiveBakerInfo' (BakerInfoEx (AccountVersionFor pv))], [BS.ActiveDelegatorInfo])
 doGetActiveBakersAndDelegators bs = return (bakers, lpdelegators)
   where
     bkrs = Map.toAscList $ bs ^. blockBirkParameters . birkActiveBakers . activeBakers
     !bakers = mkActiveBakerInfo <$> bkrs
     mkActiveBakerInfo (BakerId acct, dlgs) =
         BS.ActiveBakerInfo
-            { activeBakerInfoRef = theBaker ^. bakerInfo,
+            { activeBakerInfoRef = theBaker ^. accountBakerInfo,
               activeBakerEquityCapital = theBaker ^. stakedAmount,
               activeBakerPendingChange = theBaker ^. bakerPendingChange,
               activeBakerDelegators = mkActiveDelegatorInfo <$> Set.toAscList (_apDelegators dlgs)
@@ -541,7 +555,7 @@ instance GT.BlockStateTypes (PureBlockStateMonad pv m) where
     type BlockState (PureBlockStateMonad pv m) = HashedBlockState pv
     type UpdatableBlockState (PureBlockStateMonad pv m) = BlockState pv
     type Account (PureBlockStateMonad pv m) = Account (AccountVersionFor pv)
-    type BakerInfoRef (PureBlockStateMonad pv m) = BakerInfo
+    type BakerInfoRef (PureBlockStateMonad pv m) = BakerInfoEx (AccountVersionFor pv)
 
 instance ATITypes (PureBlockStateMonad pv m) where
   type ATIStorage (PureBlockStateMonad pv m) = ()
@@ -826,13 +840,13 @@ instance (Monad m, IsProtocolVersion pv) => BS.AccountOperations (PureBlockState
 
   getAccountBaker acc = return $ acc ^? accountBaker
 
-  getAccountBakerInfoRef acc = return $ acc ^? accountBaker . bakerInfo
+  getAccountBakerInfoRef acc = return $ acc ^? accountBaker . accountBakerInfo
 
   getAccountDelegator acc = return $ acc ^? accountDelegator
 
   getAccountStake acc = return $ acc ^. accountStaking
 
-  derefBakerInfo = return
+  derefBakerInfo = return . view bakerInfo
 
 -- |Checks that the delegation target is not over-delegated.
 -- This can throw one of the following 'DelegationConfigureResult's, in order:
@@ -1084,15 +1098,15 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                               )
                     ReduceStake newAmt (PendingChangeEffectiveV0 redEpoch)
                       -- Reduction takes effect in the next epoch
-                      | redEpoch == newEpoch + 1 -> (bs0, (abkr ^. bakerInfo, newAmt) : bkrs0)
+                      | redEpoch == newEpoch + 1 -> (bs0, (abkr ^. accountBakerInfo, newAmt) : bkrs0)
                       -- Reduction is complete, so update the account accordingly.
                       | redEpoch <= newEpoch -> (
                               bs0
                                 & blockAccounts . Accounts.indexedAccount bid %~
                                   (accountStaking .~ AccountStakeBaker abkr{_stakedAmount = newAmt, _bakerPendingChange = NoChange}),
-                              (abkr ^. bakerInfo, newAmt) : bkrs0
+                              (abkr ^. accountBakerInfo, newAmt) : bkrs0
                               )
-                    _ -> (bs0, (abkr ^. bakerInfo, _stakedAmount) : bkrs0)
+                    _ -> (bs0, (abkr ^. accountBakerInfo, _stakedAmount) : bkrs0)
                   Nothing -> error "Basic.bsoTransitionEpochBakers invariant violation: active baker account not a baker"
                 Nothing -> error "Basic.bsoTransitionEpochBakers invariant violation: active baker account not valid"
             (bs', bkrs) = foldl' accumBakers (bs, []) curActiveBIDs
@@ -1103,6 +1117,8 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                     }
 
     bsoGetCurrentEpochBakers = return . epochToFullBakers . view (blockBirkParameters . birkCurrentEpochBakers . unhashed)
+
+    bsoGetCurrentEpochFullBakersEx = return . epochToFullBakersEx . view (blockBirkParameters . birkCurrentEpochBakers . unhashed)
 
     bsoGetCurrentCapitalDistribution bs = return $ _unhashed . PoolRewards.currentCapital $ bs ^. blockPoolRewards
 
@@ -1308,20 +1324,21 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                     modifyAccount (stakedAmount .~ capital)
                     blockBirkParameters . birkActiveBakers . totalActiveCapital += capital - _stakedAmount ab
                     MTL.tell [BakerConfigureStakeIncreased capital]
-    bsoConfigureBaker origBS ai BakerConfigureToCommissionRanges{..} = case origBS ^? blockAccounts . Accounts.indexedAccount ai of
-        Nothing -> return (BCInvalidAccount, origBS)
+
+    bsoConstrainBakerCommission origBS ai ranges = case origBS ^? blockAccounts . Accounts.indexedAccount ai of
+        Nothing -> return origBS
         Just Account{_accountStaking = AccountStakeBaker ab} -> do
             let ab' = ab & accountBakerInfo . bieBakerPoolInfo . poolCommissionRates %~ updateRates
-            return (BCSuccess [] (BakerId ai), origBS & blockAccounts . Accounts.indexedAccount ai . accountStaking .~ AccountStakeBaker ab')
-        Just Account{} -> return (BCInvalidBaker, origBS)
+            return (origBS & blockAccounts . Accounts.indexedAccount ai . accountStaking .~ AccountStakeBaker ab')
+        Just Account{} -> return origBS
       where
         updateRates = updateTransactionFeeCommission . updateBakingRewardCommission . updateFinalizationRewardCommission
         updateTransactionFeeCommission =
-            transactionCommission %~ (`closestInRange` (bccrCommissionRanges ^. transactionCommissionRange))
+            transactionCommission %~ (`closestInRange` (ranges ^. transactionCommissionRange))
         updateBakingRewardCommission =
-            bakingCommission %~ (`closestInRange` (bccrCommissionRanges ^. bakingCommissionRange))
+            bakingCommission %~ (`closestInRange` (ranges ^. bakingCommissionRange))
         updateFinalizationRewardCommission =
-            finalizationCommission %~ (`closestInRange` (bccrCommissionRanges ^. finalizationCommissionRange))
+            finalizationCommission %~ (`closestInRange` (ranges ^. finalizationCommissionRange))
 
     bsoConfigureDelegation bs ai DelegationConfigureAdd{..} = do
         -- It is assumed here that this account is NOT a baker and NOT a delegator.
@@ -1806,7 +1823,7 @@ initialState seedState cryptoParams genesisAccounts ips anonymityRevokers keysCo
 -- The resulting bakers and delegators will also be in ascending order.
 collateBakersAndDelegators ::
     [Account 'AccountV1] ->
-    ([BS.ActiveBakerInfo' BakerInfo], [BS.ActiveDelegatorInfo])
+    ([BS.ActiveBakerInfo' (BakerInfoEx 'AccountV1)], [BS.ActiveDelegatorInfo])
 collateBakersAndDelegators accounts = (bakers, lpoolDelegators)
   where
     (preActiveBakers, preDelegators, lpoolDelegators) =
@@ -1818,7 +1835,7 @@ collateBakersAndDelegators accounts = (bakers, lpoolDelegators)
         let bid = bkr ^. bakerIdentity
             abi =
                 BS.ActiveBakerInfo
-                    { activeBakerInfoRef = bkr ^. bakerInfo,
+                    { activeBakerInfoRef = bkr ^. accountBakerInfo,
                       activeBakerEquityCapital = bkr ^. stakedAmount,
                       activeBakerPendingChange = bkr ^. bakerPendingChange,
                       activeBakerDelegators = []
@@ -1856,6 +1873,12 @@ genesisStakesAndRewardDetails spv = case spv of
         ( initialBirkParameters accounts seedState,
           BlockRewardDetailsV0 emptyHashedEpochBlocks
         )
+    gsc4 :: (AccountVersionFor pv ~ 'AccountV1)
+        => [Account 'AccountV1]
+        -> SeedState
+        -> PoolParameters 'ChainParametersV1
+        -> TimeParameters 'ChainParametersV1
+        -> (BasicBirkParameters 'AccountV1, BlockRewardDetails 'AccountV1)
     gsc4 accounts _birkSeedState pp tp = runIdentity $
         runPureBlockStateMonad @pv $ do
             let (bakers, lpoolDelegators) = collateBakersAndDelegators accounts

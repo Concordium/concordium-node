@@ -206,7 +206,7 @@ makeTestingGenesisDataP1
 
 
 {-# WARNING emptyBirkParameters "Do not use in production." #-}
-emptyBirkParameters :: Accounts pv -> BasicBirkParameters (AccountVersionFor pv)
+emptyBirkParameters :: IsProtocolVersion pv => Accounts pv -> BasicBirkParameters (AccountVersionFor pv)
 emptyBirkParameters accounts = initialBirkParameters (snd <$> AT.toList (accountTable accounts)) (SeedState.initialSeedState (Hash.hash "NONCE") 360)
 
 dummyRewardParametersV0 :: RewardParameters 'ChainParametersV0

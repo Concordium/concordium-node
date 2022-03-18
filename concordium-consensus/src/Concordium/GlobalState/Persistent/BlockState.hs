@@ -89,9 +89,9 @@ data PersistentBirkParameters (av :: AccountVersion) = PersistentBirkParameters 
     -- |The currently-registered bakers.
     _birkActiveBakers :: !(BufferedRef (PersistentActiveBakers av)),
     -- |The bakers that will be used for the next epoch.
-    _birkNextEpochBakers :: !(HashedBufferedRef PersistentEpochBakers),
+    _birkNextEpochBakers :: !(HashedBufferedRef (PersistentEpochBakers av)),
     -- |The bakers for the current epoch.
-    _birkCurrentEpochBakers :: !(HashedBufferedRef PersistentEpochBakers),
+    _birkCurrentEpochBakers :: !(HashedBufferedRef (PersistentEpochBakers av)),
     -- |The seed state used to derive the leadership election nonce.
     _birkSeedState :: !SeedState
 } deriving (Show)
@@ -99,13 +99,13 @@ data PersistentBirkParameters (av :: AccountVersion) = PersistentBirkParameters 
 makeLenses ''PersistentBirkParameters
 
 -- |Serialize 'PersistentBirkParameters' in V0 format.
-putBirkParametersV0 :: forall m av. (MonadBlobStore m, MonadPut m) => PersistentBirkParameters av -> m ()
+putBirkParametersV0 :: forall m av. (IsAccountVersion av, MonadBlobStore m, MonadPut m) => PersistentBirkParameters av -> m ()
 putBirkParametersV0 PersistentBirkParameters{..} = do
         sPut _birkSeedState
         putEpochBakers =<< refLoad _birkNextEpochBakers
         putEpochBakers =<< refLoad _birkCurrentEpochBakers
 
-instance MonadBlobStore m => MHashableTo m H.Hash (PersistentBirkParameters av) where
+instance (IsAccountVersion av, MonadBlobStore m) => MHashableTo m H.Hash (PersistentBirkParameters av) where
   getHashM PersistentBirkParameters {..} = do
     nextHash <- getHashM _birkNextEpochBakers
     currentHash <- getHashM _birkCurrentEpochBakers
@@ -670,6 +670,9 @@ doSetSeedState pbs ss = do
 doGetCurrentEpochBakers :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m FullBakers
 doGetCurrentEpochBakers pbs = epochToFullBakers =<< refLoad . _birkCurrentEpochBakers . bspBirkParameters =<< loadPBS pbs
 
+doGetCurrentEpochFullBakersEx :: (IsProtocolVersion pv, MonadBlobStore m, AccountVersionFor pv ~ 'AccountV1) => PersistentBlockState pv -> m FullBakersEx
+doGetCurrentEpochFullBakersEx pbs = epochToFullBakersEx =<< refLoad . _birkCurrentEpochBakers . bspBirkParameters =<< loadPBS pbs
+
 doGetCurrentCapitalDistribution :: forall pv m. (IsProtocolVersion pv, MonadBlobStore m, AccountVersionFor pv ~ 'AccountV1) => PersistentBlockState pv -> m CapitalDistribution
 doGetCurrentCapitalDistribution pbs = do
     bsp <- loadPBS pbs
@@ -759,7 +762,7 @@ doTransitionEpochBakers pbs newEpoch = do
                                     }, bkrs0)
                         BaseAccounts.ReduceStake newAmt (BaseAccounts.PendingChangeEffectiveV0 redEpoch)
                             -- Reduction takes effect next epoch, so apply it in the generated list
-                            | redEpoch == newEpoch + 1 -> return (bs0, (_accountBakerInfo acctBkr, newAmt) : bkrs0)
+                            | redEpoch == newEpoch + 1 -> return (bs0, (acctBkr ^. accountBakerInfoEx, newAmt) : bkrs0)
                             -- Reduction complete, so update the account as well
                             | redEpoch <= newEpoch -> do
                                 -- Reduce the baker's stake on the account
@@ -767,8 +770,8 @@ doTransitionEpochBakers pbs newEpoch = do
                                 let updAcc acc = ((),) <$> setPersistentAccountStake acc (PersistentAccountStakeBaker newBaker)
                                 (_, newAccounts) <- Accounts.updateAccountsAtIndex updAcc aid (bspAccounts bs0)
                                 -- The baker is included with the revised stake
-                                return (bs0 {bspAccounts = newAccounts}, (_accountBakerInfo acctBkr, newAmt) : bkrs0)
-                        _ -> return (bs0, (_accountBakerInfo acctBkr, _stakedAmount acctBkr) : bkrs0)
+                                return (bs0 {bspAccounts = newAccounts}, (acctBkr ^. accountBakerInfoEx, newAmt) : bkrs0)
+                        _ -> return (bs0, (acctBkr ^. accountBakerInfoEx, _stakedAmount acctBkr) : bkrs0)
                 _ -> error "Persistent.bsoTransitionEpochBakers invariant violation: active baker account not a valid baker"
         -- Get the baker info. The list of baker ids is reversed in the input so the accumulated list
         -- is in ascending order.
@@ -802,7 +805,7 @@ doGetActiveBakersAndDelegators
      . (IsProtocolVersion pv,
         MonadBlobStore m,
         AccountVersionFor pv ~ 'AccountV1,
-        BakerInfoRef m ~ BufferedRef BakerInfo)
+        BakerInfoRef m ~ PersistentBakerInfoEx 'AccountV1)
     => PersistentBlockState pv -> m ([ActiveBakerInfo m], [ActiveDelegatorInfo])
 doGetActiveBakersAndDelegators pbs = do
     bsp <- loadPBS pbs
@@ -820,7 +823,7 @@ doGetActiveBakersAndDelegators pbs = do
                 dlglist <- Trie.keysAsc dlgs
                 abd <- mapM (mkActiveDelegatorInfo bsp) dlglist
                 return ActiveBakerInfo {
-                    activeBakerInfoRef = theBaker ^. accountBakerInfo,
+                    activeBakerInfoRef = theBaker ^. accountBakerInfoEx,
                     activeBakerEquityCapital = theBaker ^. stakedAmount,
                     activeBakerPendingChange = theBaker ^. bakerPendingChange,
                     activeBakerDelegators = abd
@@ -1131,10 +1134,13 @@ doConfigureBaker pbs ai BakerConfigureRemove{..} = do
                     (BCSuccess [] (BakerId ai),) <$> storePBS pbs bsp{bspAccounts = newAccounts}
             -- The account is not valid or has no baker
             _ -> return (BCInvalidBaker, pbs)
-doConfigureBaker pbs ai BakerConfigureToCommissionRanges{..} = do
+
+doConstrainBakerCommission :: (IsProtocolVersion pv, MonadBlobStore m, AccountVersionFor pv ~ 'AccountV1)
+    => PersistentBlockState pv -> AccountIndex -> CommissionRanges -> m (PersistentBlockState pv)
+doConstrainBakerCommission pbs ai ranges = do
         bsp <- loadPBS pbs
         Accounts.indexedAccount ai (bspAccounts bsp) >>= \case
-            Nothing -> return (BCInvalidAccount, pbs)
+            Nothing -> return pbs
             -- The account is valid and has a baker
             Just PersistentAccount{_accountStake = PersistentAccountStakeBaker pab} -> do
                 ab <- refLoad pab
@@ -1142,7 +1148,7 @@ doConfigureBaker pbs ai BakerConfigureToCommissionRanges{..} = do
                 let oldRates = ebi ^. BaseAccounts.poolCommissionRates
                 let newRates = updateRates oldRates
                 if oldRates == newRates then
-                    return (BCSuccess [] (BakerId ai), pbs)
+                    return pbs
                 else do
                     let updAcc acc = do
                             pebi' <- refMake $ ebi & BaseAccounts.poolCommissionRates .~ newRates
@@ -1150,16 +1156,16 @@ doConfigureBaker pbs ai BakerConfigureToCommissionRanges{..} = do
                             acc' <- setPersistentAccountStake acc (PersistentAccountStakeBaker pab')
                             return ((), acc')
                     (_, newAccounts) <- Accounts.updateAccountsAtIndex updAcc ai (bspAccounts bsp)
-                    (BCSuccess [] (BakerId ai),) <$> storePBS pbs bsp{bspAccounts = newAccounts}
-            _ -> return (BCInvalidBaker, pbs)
+                    storePBS pbs bsp{bspAccounts = newAccounts}
+            _ -> return pbs
     where
         updateRates = updateTransactionFeeCommission . updateBakingRewardCommission . updateFinalizationRewardCommission        
         updateTransactionFeeCommission =
-            transactionCommission %~ (`closestInRange` (bccrCommissionRanges ^. transactionCommissionRange))
+            transactionCommission %~ (`closestInRange` (ranges ^. transactionCommissionRange))
         updateBakingRewardCommission =
-            bakingCommission %~ (`closestInRange` (bccrCommissionRanges ^. bakingCommissionRange))
+            bakingCommission %~ (`closestInRange` (ranges ^. bakingCommissionRange))
         updateFinalizationRewardCommission =
-            finalizationCommission %~ (`closestInRange` (bccrCommissionRanges ^. finalizationCommissionRange))
+            finalizationCommission %~ (`closestInRange` (ranges ^. finalizationCommissionRange))
 
 -- |Checks that the delegation target is not over-delegated.
 -- This can throw one of the following 'DelegationConfigureResult's, in order:
@@ -2138,7 +2144,7 @@ doGetEpochBlocksBaked pbs = do
             BlockRewardDetailsV1 hpr -> do
                 pr <- refLoad hpr
                 bcs <- bakerBlockCounts pr
-                return $! (sum (snd <$> bcs), bcs)
+                return (sum (snd <$> bcs), bcs)
     where
         accumBakersFromEpochBlocks Null t m = return (t, Map.toList m)
         accumBakersFromEpochBlocks (Some ref) t m = do
@@ -2247,7 +2253,7 @@ doRotateCurrentEpochBakers pbs = do
 doSetNextEpochBakers
     :: (IsProtocolVersion pv, MonadBlobStore m)
     => PersistentBlockState pv
-    -> [(BufferedRef BaseAccounts.BakerInfo, Amount)]
+    -> [(PersistentBakerInfoEx (AccountVersionFor pv), Amount)]
     -> m (PersistentBlockState pv)
 doSetNextEpochBakers pbs bakers = do
     bsp <- loadPBS pbs
@@ -2491,7 +2497,7 @@ instance BlockStateTypes (PersistentBlockStateMonad pv r m) where
     type BlockState (PersistentBlockStateMonad pv r m) = HashedPersistentBlockState pv
     type UpdatableBlockState (PersistentBlockStateMonad pv r m) = PersistentBlockState pv
     type Account (PersistentBlockStateMonad pv r m) = PersistentAccount (AccountVersionFor pv)
-    type BakerInfoRef (PersistentBlockStateMonad pv r m) = BufferedRef BaseAccounts.BakerInfo
+    type BakerInfoRef (PersistentBlockStateMonad pv r m) = PersistentBakerInfoEx (AccountVersionFor pv)
 
 instance (IsProtocolVersion pv, PersistentState r m) => BlockStateQuery (PersistentBlockStateMonad pv r m) where
     getModule = doGetModuleSource . hpbsPointers
@@ -2583,10 +2589,10 @@ instance (PersistentState r m, IsProtocolVersion pv) => AccountOperations (Persi
   getAccountBakerInfoRef acc = case acc ^. accountBaker of
         Null -> return Nothing
         Some bref -> do
-            PersistentAccountBaker{..} <- refLoad bref
-            return (Just _accountBakerInfo)
+            pab <- refLoad bref
+            return (Just (pab ^. accountBakerInfoEx))
 
-  derefBakerInfo = refLoad
+  derefBakerInfo = refLoad . bakerInfoRef
 
 instance (IsProtocolVersion pv, PersistentState r m) => BlockStateOperations (PersistentBlockStateMonad pv r m) where
     bsoGetModule pbs mref = doGetModule pbs mref
@@ -2610,9 +2616,11 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateOperations (Pe
     bsoGetActiveBakers = doGetActiveBakers
     bsoGetActiveBakersAndDelegators = doGetActiveBakersAndDelegators
     bsoGetCurrentEpochBakers = doGetCurrentEpochBakers
+    bsoGetCurrentEpochFullBakersEx = doGetCurrentEpochFullBakersEx
     bsoGetCurrentCapitalDistribution = doGetCurrentCapitalDistribution
     bsoAddBaker = doAddBaker
     bsoConfigureBaker = doConfigureBaker
+    bsoConstrainBakerCommission = doConstrainBakerCommission
     bsoConfigureDelegation = doConfigureDelegation
     bsoUpdateBakerKeys = doUpdateBakerKeys
     bsoUpdateBakerStake = doUpdateBakerStake
