@@ -43,40 +43,46 @@ initialBlockState = blockStateWithAlesAccount
 checkpointingSourceFile :: FilePath
 checkpointingSourceFile = "./testdata/contracts/v1/checkpointing.wasm"
 
--- Tests in this module use version 1, creating V1 instances.
-wasmModVersion :: WasmVersion
-wasmModVersion = V1
+v0ProxySourceFile :: FilePath
+v0ProxySourceFile = "./testdata/contracts/v1/send-message-v1.wasm"
+
+wasmModVersion0 :: WasmVersion
+wasmModVersion0 = V0
+
+wasmModVersion1 :: WasmVersion
+wasmModVersion1 = V1
 
 -- | This test has the following call pattern:
 -- A 
 --   -->  B
 --          --> A 
 --          <-- 
---       B(trap)
+--        B(trap)
 -- A <--
 --
 -- The state at A should be left unchanged by the changes of the 'inner' invocation on contract A.
 -- A correctly perceives B's trapping signal.
-testCases1 :: [TestCase PV4]
-testCases1 =
+-- Only V1 contracts are being used.
+testCase1 :: [TestCase PV4]
+testCase1 =
   [ TestCase
     { tcName = "Checkpointing 1"
     , tcParameters = defaultParams {tpInitialBlockState=initialBlockState}
     , tcTransactions =
-      [ ( TJSON { payload = DeployModule wasmModVersion checkpointingSourceFile
+      [ ( TJSON { payload = DeployModule wasmModVersion1 checkpointingSourceFile
                 , metadata = makeDummyHeader alesAccount 1 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
         , (SuccessWithSummary deploymentCostCheck, emptySpec)
         )       
-      , ( TJSON { payload = InitContract 0 wasmModVersion checkpointingSourceFile "init_a" ""
+      , ( TJSON { payload = InitContract 0 wasmModVersion1 checkpointingSourceFile "init_a" ""
                 , metadata = makeDummyHeader alesAccount 2 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
         , (SuccessWithSummary initializationCostCheck, emptySpec)
         )
       ,
-        ( TJSON { payload = InitContract 0 wasmModVersion checkpointingSourceFile "init_b" ""
+        ( TJSON { payload = InitContract 0 wasmModVersion1 checkpointingSourceFile "init_b" ""
                 , metadata = makeDummyHeader alesAccount 3 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
@@ -126,27 +132,28 @@ testCases1 =
 --
 -- The state at A should be left unchanged.
 -- The iterator initialized at A should point to the same entry at the point of initialization.
-testCases2 :: [TestCase PV4]
-testCases2 =
+-- Only V1 contracts are being used.
+testCase2 :: [TestCase PV4]
+testCase2 =
   [ TestCase
     { tcName = "Checkpointing 2"
     , tcParameters = defaultParams {tpInitialBlockState=initialBlockState}
     , tcTransactions =
       [
-        ( TJSON { payload = DeployModule wasmModVersion checkpointingSourceFile
+        ( TJSON { payload = DeployModule wasmModVersion1 checkpointingSourceFile
                 , metadata = makeDummyHeader alesAccount 1 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
         , (SuccessWithSummary deploymentCostCheck, emptySpec)
         )       
-      , ( TJSON { payload = InitContract 0 wasmModVersion checkpointingSourceFile "init_a" ""
+      , ( TJSON { payload = InitContract 0 wasmModVersion1 checkpointingSourceFile "init_a" ""
                 , metadata = makeDummyHeader alesAccount 2 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
         , (SuccessWithSummary initializationCostCheck, emptySpec)
         )
       ,
-        ( TJSON { payload = InitContract 0 wasmModVersion checkpointingSourceFile "init_b" ""
+        ( TJSON { payload = InitContract 0 wasmModVersion1 checkpointingSourceFile "init_b" ""
                 , metadata = makeDummyHeader alesAccount 3 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
@@ -193,27 +200,28 @@ testCases2 =
 --
 -- The state at A should be left unchanged.
 -- The iterator initialized at A should point to the same entry at the point of initialization.
-testCases3 :: [TestCase PV4]
-testCases3 =
+-- Only V1 contracts are being used.
+testCase3 :: [TestCase PV4]
+testCase3 =
   [ TestCase
     { tcName = "Checkpointing 3"
     , tcParameters = defaultParams {tpInitialBlockState=initialBlockState}
     , tcTransactions =
       [
-        ( TJSON { payload = DeployModule wasmModVersion checkpointingSourceFile
+        ( TJSON { payload = DeployModule wasmModVersion1 checkpointingSourceFile
                 , metadata = makeDummyHeader alesAccount 1 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
         , (SuccessWithSummary deploymentCostCheck, emptySpec)
         )       
-      , ( TJSON { payload = InitContract 0 wasmModVersion checkpointingSourceFile "init_a" ""
+      , ( TJSON { payload = InitContract 0 wasmModVersion1 checkpointingSourceFile "init_a" ""
                 , metadata = makeDummyHeader alesAccount 2 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
         , (SuccessWithSummary initializationCostCheck, emptySpec)
         )
       ,
-        ( TJSON { payload = InitContract 0 wasmModVersion checkpointingSourceFile "init_b" ""
+        ( TJSON { payload = InitContract 0 wasmModVersion1 checkpointingSourceFile "init_b" ""
                 , metadata = makeDummyHeader alesAccount 3 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
@@ -243,30 +251,31 @@ testCases3 =
 --   -->  B
 --          --> A modify
 --          <-- 
---       B
+--        B
 -- A <--
 --
 -- The state at A should have changed according to the 'inner' invocation on contract A.
-testCases4 :: [TestCase PV4]
-testCases4 =
+-- Only V1 contracts are being used.
+testCase4 :: [TestCase PV4]
+testCase4 =
   [ TestCase
     { tcName = "Checkpointing 4"
     , tcParameters = defaultParams {tpInitialBlockState=initialBlockState}
     , tcTransactions =
-      [ ( TJSON { payload = DeployModule wasmModVersion checkpointingSourceFile
+      [ ( TJSON { payload = DeployModule wasmModVersion1 checkpointingSourceFile
                 , metadata = makeDummyHeader alesAccount 1 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
         , (SuccessWithSummary deploymentCostCheck, emptySpec)
         )       
-      , ( TJSON { payload = InitContract 0 wasmModVersion checkpointingSourceFile "init_a" ""
+      , ( TJSON { payload = InitContract 0 wasmModVersion1 checkpointingSourceFile "init_a" ""
                 , metadata = makeDummyHeader alesAccount 2 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
         , (SuccessWithSummary initializationCostCheck, emptySpec)
         )
       ,
-        ( TJSON { payload = InitContract 0 wasmModVersion checkpointingSourceFile "init_b" ""
+        ( TJSON { payload = InitContract 0 wasmModVersion1 checkpointingSourceFile "init_b" ""
                 , metadata = makeDummyHeader alesAccount 3 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
@@ -304,7 +313,102 @@ testCases4 =
     checkSuccess msg Types.TxReject{..} = assertFailure $ msg ++ show vrRejectReason
     checkSuccess msg Types.TxSuccess{..} = if (length vrEvents) == 7
       then return ()
-      else assertFailure $ msg ++ " unexepcted no. of events " ++ show (length vrEvents) ++ " expected 3."      
+      else assertFailure $ msg ++ " unexepcted no. of events " ++ show (length vrEvents) ++ " expected 3."
+
+
+-- | This test has the following call pattern:
+-- A 
+--      -->  V0Proxy
+--                --> B
+--                      --> A 
+--                      <--
+--                    B
+--                <--
+--           V0Proxy
+-- A    <--
+--
+-- The state at A should have changed according to the 'inner' invocation on contract A.
+-- A mix of V0 and V1 contracts are used.
+testCase5 :: [TestCase PV4]
+testCase5 =
+  [ TestCase
+    { tcName = "Cross Checkpointing 1"
+    , tcParameters = defaultParams {tpInitialBlockState=initialBlockState}
+    , tcTransactions =
+      [ ( TJSON { payload = DeployModule wasmModVersion1 checkpointingSourceFile
+                , metadata = makeDummyHeader alesAccount 1 100000
+                , keys = [(0,[(0, alesKP)])]
+                }
+        , (SuccessWithSummary deploymentCostCheck, emptySpec)
+        )
+      ,
+        ( TJSON { payload = DeployModule wasmModVersion0 v0ProxySourceFile
+                , metadata = makeDummyHeader alesAccount 2 100000
+                , keys = [(0,[(0, alesKP)])]
+                }
+        , (SuccessWithSummary deploymentCostCheckV0, emptySpec)
+        )       
+      , ( TJSON { payload = InitContract 0 wasmModVersion1 checkpointingSourceFile "init_a" ""
+                , metadata = makeDummyHeader alesAccount 3 100000
+                , keys = [(0,[(0, alesKP)])]
+                }
+        , (SuccessWithSummary initializationCostCheck, emptySpec)
+        )
+      ,
+        ( TJSON { payload = InitContract 0 wasmModVersion1 checkpointingSourceFile "init_b" ""
+                , metadata = makeDummyHeader alesAccount 4 100000
+                , keys = [(0,[(0, alesKP)])]
+                }
+        , (SuccessWithSummary initializationCostCheck, emptySpec)
+        )
+      ,
+        ( TJSON { payload = InitContract 0 wasmModVersion0 v0ProxySourceFile "init_proxy" ""
+                , metadata = makeDummyHeader alesAccount 5 100000
+                , keys = [(0,[(0, alesKP)])]
+                }
+        , (SuccessWithSummary initializationCostCheckV0, emptySpec)
+        )
+      ,
+        ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "a.a_modify_proxy" parameters
+                , metadata = makeDummyHeader alesAccount 6 100000
+                , keys = [(0,[(0, alesKP)])]
+                }
+        , (SuccessWithSummary ensureSuccess, emptySpec)
+        )
+      ]
+    }
+  ]
+  where
+    parameters = BSS.toShort $ runPut $ do
+          putWord64le 2 -- contract index of proxy contract
+          putWord64le 0 -- contract subindex
+          putWord16le (fromIntegral (BS.length forwardParameter0)) -- length of parameter
+          putByteString forwardParameter0
+          putWord16le (fromIntegral (BSS.length "forward")) -- contract b's receive function.
+          putByteString "forward" -- entrypoint name
+          putWord64le 0 -- amount
+    forwardParameter0 = runPut $ do
+          putWord64le 1 -- contract index of contract B
+          putWord64le 0 -- contract subindex
+          putWord16le (fromIntegral (BS.length forwardParameter1)) -- length of parameter
+          putByteString forwardParameter1
+          putWord16le (fromIntegral (BSS.length "b_forward")) -- contract b's receive function.
+          putByteString "b_forward" -- entrypoint name
+          putWord64le 0 -- amount
+    forwardParameter1 = runPut $ do
+          putWord64le 0 -- index of contract A
+          putWord64le 0 -- subindex of the counter contract
+          putWord16le 0 -- length of the empty parameter
+          putWord16le (fromIntegral (BSS.length "a_modify"))
+          putByteString "a_modify" -- entrypoint name
+          putWord64le 0 -- amount
+    -- ensure the test case is successful
+    ensureSuccess :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
+    ensureSuccess _ Types.TransactionSummary{..} = checkSuccess "Update failed" tsResult
+    checkSuccess msg Types.TxReject{..} = assertFailure $ msg ++ show vrRejectReason
+    checkSuccess msg Types.TxSuccess{..} = if length vrEvents == 7
+      then return ()
+      else assertFailure $ msg ++ " unexepcted no. of events " ++ show (length vrEvents) ++ " expected 3."
 
 -- This only checks that the cost of initialization is correct.
 -- If the state was not set up correctly the latter tests in the suite will fail.
@@ -315,6 +419,31 @@ initializationCostCheck _ Types.TransactionSummary{..} = do
   let modLen = fromIntegral $ BS.length moduleSource
       modRef = Types.ModuleRef (Hash.hash moduleSource)
       payloadSize = Types.payloadSize (Types.encodePayload (Types.InitContract 0 modRef (InitName "init_a") (Parameter "")))
+      -- size of the transaction minus the signatures.
+      txSize = Types.transactionHeaderSize + fromIntegral payloadSize
+      -- transaction is signed with 1 signature
+      baseTxCost = Cost.baseCost txSize 1
+      -- lower bound on the cost of the transaction, assuming no interpreter energy
+      -- The state size of A is 0 and larger for B. We put the lower bound at A's size.
+      costLowerBound = baseTxCost + Cost.initializeContractInstanceCost 0 modLen (Just 0)
+      
+  unless (tsEnergyCost >= costLowerBound) $
+    assertFailure $ "Actual initialization cost " ++ show tsEnergyCost ++ " not more than lower bound " ++ show costLowerBound
+  where
+    checkSuccess msg Types.TxReject{..} = assertFailure $ msg ++ show vrRejectReason
+    checkSuccess _ _ = return ()
+    
+-- | todo: refactor the below functions
+
+-- This only checks that the cost of initialization is correct.
+-- If the state was not set up correctly the latter tests in the suite will fail.
+initializationCostCheckV0 :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
+initializationCostCheckV0 _ Types.TransactionSummary{..} = do
+  checkSuccess "Contract initialization failed: " tsResult
+  moduleSource <- BS.readFile v0ProxySourceFile
+  let modLen = fromIntegral $ BS.length moduleSource
+      modRef = Types.ModuleRef (Hash.hash moduleSource)
+      payloadSize = Types.payloadSize (Types.encodePayload (Types.InitContract 0 modRef (InitName "init_proxy") (Parameter "")))
       -- size of the transaction minus the signatures.
       txSize = Types.transactionHeaderSize + fromIntegral payloadSize
       -- transaction is signed with 1 signature
@@ -343,7 +472,22 @@ deploymentCostCheck _ Types.TransactionSummary{..} = do
   where
     checkSuccess msg Types.TxReject{..} = assertFailure $ msg ++ show vrRejectReason
     checkSuccess _ _ = return ()
+
+deploymentCostCheckV0 :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
+deploymentCostCheckV0 _ Types.TransactionSummary{..} = do
+  checkSuccess "Module deployment failed: " tsResult
+  moduleSource <- BS.readFile v0ProxySourceFile
+  let len = fromIntegral $ BS.length moduleSource
+      -- size of the module deploy payload
+      payloadSize = Types.payloadSize (Types.encodePayload (Types.DeployModule (WasmModuleV0 (WasmModuleV ModuleSource{..}))))
+      -- size of the transaction minus the signatures.
+      txSize = Types.transactionHeaderSize + fromIntegral payloadSize
+      -- transaction is signed with 1 signature
+  assertEqual "Deployment has correct cost " (Cost.baseCost txSize 1 + Cost.deployModuleCost len) tsEnergyCost            
+  where
+    checkSuccess msg Types.TxReject{..} = assertFailure $ msg ++ show vrRejectReason
+    checkSuccess _ _ = return ()
     
 tests :: Spec
 tests = describe "V1: Checkpointing." $
-  mkSpecs $ testCases1 ++ testCases2 ++ testCases3 ++ testCases4
+  mkSpecs $ testCase5
