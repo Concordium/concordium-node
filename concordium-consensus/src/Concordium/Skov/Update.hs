@@ -7,8 +7,10 @@ import Control.Monad
 import qualified Data.Sequence as Seq
 import Lens.Micro.Platform
 import Data.Foldable
+import Data.List (intercalate)
 import GHC.Stack
 import Data.Maybe (fromMaybe)
+import Data.Time (diffUTCTime)
 
 import Concordium.Types
 import Concordium.Types.Accounts
@@ -137,6 +139,7 @@ processFinalization :: forall pv m. (TreeStateMonad pv m, SkovMonad pv m, OnSkov
 processFinalization newFinBlock finRec@FinalizationRecord{..} = do
     nextFinIx <- getNextFinalizationIndex
     when (nextFinIx == finalizationIndex) $ do
+        startTime <- currentTime
         -- We actually have a new block to finalize.
         logEvent Skov LLInfo $ "Block " ++ show (bpHash newFinBlock) ++ " is finalized at height " ++ show (theBlockHeight $ bpHeight newFinBlock) ++ " with finalization delta=" ++ show finalizationDelay
         updateFinalizationStatistics
@@ -146,9 +149,6 @@ processFinalization newFinBlock finRec@FinalizationRecord{..} = do
         -- This is to ensure that the focus block is always a live (or finalized) block.
         unless focusBlockSurvives $ updateFocusBlockTo newFinBlock
         lastFinHeight <- getLastFinalizedHeight
-        -- Add the finalization to the finalization list
-        -- TODO: The way this is stored will probably change.
-        addFinalization newFinBlock finRec
         -- Prune the branches, which consist of all the non-finalized blocks
         -- grouped by block height.
         oldBranches <- getBranches
@@ -160,37 +160,45 @@ processFinalization newFinBlock finRec@FinalizationRecord{..} = do
         -- We proceed backwards from the new finalized block, collecting blocks
         -- to mark as dead. When we exhaust the branches we then mark blocks as finalized
         -- by increasing height.
-        -- Instead of marking blocks dead immediately we accumulate them
-        -- and a return a list. The reason for doing this is that we never
-        -- have to look up a parent block that is already marked dead.
-        let
-            pruneTrunk :: [BlockPointerType m] -- ^List of blocks to remove.
-                       -> BlockPointerType m -- ^The block that was finalized.
+        -- 
+        -- Instead of marking blocks dead immediately, we accumulate them in a list by decreasing
+        -- height. The reason for doing this is that we never have to look up a parent block that is
+        -- already marked dead.
+        let pruneTrunk :: [BlockPointerType m] -- ^List of blocks to remove.
+                       -> [BlockPointerType m] -- ^List of finalized blocks.
+                       -> BlockPointerType m -- ^Finalized block to consider now.
+                                            -- At the same height as the latest branch in the next argument
                        -> Branches m
-                       -> m [BlockPointerType m]
-                       -- ^ The return value is a list of blocks to mark dead, ordered
-                       -- by increasing height.
-            pruneTrunk toRemove _ Seq.Empty = return toRemove
-            pruneTrunk toRemove keeper (brs Seq.:|> l) = do
-                parent <- bpParent keeper
-                let toRemove1 = filter (/= keeper) l ++ toRemove
-                toRemove2 <- pruneTrunk toRemove1 parent brs
-                -- mark blocks as finalized now, so that blocks are marked finalized by increasing height
-                markFinalized (getHash keeper) finRec
-                logEvent Skov LLDebug $ "Block " ++ show keeper ++ " marked finalized"
-                -- Finalize the transactions of the surviving block.
-                -- (This is handled in order of finalization.)
-                finalizeTransactions (getHash keeper) (blockSlot keeper) (blockTransactions keeper)
-                ati <- bpTransactionAffectSummaries keeper
-                bcTime <- getSlotTimestamp (blockSlot keeper)
-                let ctx = BlockContext{
-                        bcHash = getHash keeper,
-                        bcHeight = bpHeight keeper,
-                        ..}
-                flushBlockSummaries ctx ati =<< getSpecialOutcomes =<< blockState keeper
-                return toRemove2
-
-        toRemoveFromTrunk <- pruneTrunk [] newFinBlock (Seq.take pruneHeight oldBranches)
+                       -> m ([BlockPointerType m], [BlockPointerType m])
+                       -- ^ The return value is a list of blocks to mark dead (ordered by decreasing
+                       -- height) and a list of blocks to mark finalized (ordered by increasing
+                       -- height).
+            pruneTrunk toRemove toFinalize _ Seq.Empty = return (toRemove, toFinalize)
+            pruneTrunk toRemove toFinalize keeper (brs Seq.:|> l) = do
+              let toRemove1 = toRemove ++ filter (/= keeper) l
+              parent <- bpParent keeper
+              pruneTrunk toRemove1 (keeper : toFinalize) parent brs
+        (toRemoveFromTrunk, toFinalize) <- pruneTrunk [] [] newFinBlock (Seq.take pruneHeight oldBranches)
+        -- Add the finalization to the finalization list
+        addFinalization newFinBlock finRec
+        mffts <- forM toFinalize $ \block -> do
+          -- mark blocks as finalized in the order returned by `pruneTrunk`, so that blocks are marked
+          -- finalized by increasing height          
+          mf <- markFinalized (getHash block) finRec
+          -- Finalize the transactions of surviving blocks in the order of their finalization.
+          ft <- finalizeTransactions (getHash block) (blockSlot block) (blockTransactions block)
+          ati <- bpTransactionAffectSummaries block
+          bcTime <- getSlotTimestamp (blockSlot block)
+          let ctx = BlockContext{
+                bcHash = getHash block,
+                bcHeight = bpHeight block,
+                ..}
+          flushBlockSummaries ctx ati =<< getSpecialOutcomes =<< blockState block
+          return (mf, ft)
+        -- block states and transaction statuses need to be added into the same LMDB transaction
+        -- with the finalization record, if persistent tree state is used
+        wrapupFinalization finRec mffts
+        logEvent Skov LLDebug $ "Blocks " ++ intercalate ", " (map show toFinalize) ++ " marked finalized"
         -- Archive the states of blocks up to but not including the new finalized block
         let doArchive b = case compare (bpHeight b) lastFinHeight of
                 LT -> return ()
@@ -235,12 +243,14 @@ processFinalization newFinBlock finRec@FinalizationRecord{..} = do
         newBranches <- trimBranches unTrimmedBranches
         putBranches newBranches
         -- mark dead blocks by decreasing height
-        forM_ (toRemoveFromBranches ++ reverse toRemoveFromTrunk) $ \bp -> do
+        forM_ (toRemoveFromBranches ++ toRemoveFromTrunk) $ \bp -> do
           markLiveBlockDead bp
           logEvent Skov LLDebug $ "Block " ++ show (bpHash bp) ++ " marked dead"
         -- purge pending blocks with slot numbers predating the last finalized slot
         purgePending
         onFinalize finRec newFinBlock
+        endTime <- currentTime
+        logEvent Skov LLDebug $ "Processed finalization in " ++ show (diffUTCTime endTime startTime)
 
 -- |Try to add a block to the tree.  
 -- Besides taking the `PendingBlock` this function takes a list

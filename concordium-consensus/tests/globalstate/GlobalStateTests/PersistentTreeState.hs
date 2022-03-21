@@ -100,8 +100,9 @@ testFinalizeABlock = do
   blockPtr :: BlockPointerType TestM <- makeLiveBlock pb genesisBlock genesisBlock state () now' 0
   let frec = FinalizationRecord 1 (bpHash blockPtr) (FinalizationProof [1] (sign "Hello" sk)) 0
   -- Add the finalization to the tree state
-  markFinalized (bpHash blockPtr) frec
+  mf <- markFinalized (bpHash blockPtr) frec
   addFinalization blockPtr frec
+  wrapupFinalization frec [(mf, [])]
   -- Was updated as the last finalized?
   (b, fr) <- getLastFinalized
   liftIO $ do
@@ -140,8 +141,9 @@ testFinalizeABlock = do
   blockPtr2 :: BlockPointerType TestM <- makeLiveBlock pb2 blockPtr genesisBlock state () now''' 0
   let frec2 = FinalizationRecord 2 (bpHash blockPtr2) (FinalizationProof [1] (sign "Hello" sk)) 0
   -- Add the finalization to the tree state
-  markFinalized (bpHash blockPtr2) frec2
+  mf2 <- markFinalized (bpHash blockPtr2) frec2
   addFinalization blockPtr2 frec2
+  wrapupFinalization frec2 [(mf2, [])]
   --- The database should now contain 3 items, check them
   theDB <- use db
   (storedBlocks, finRecs) <- liftIO $ do
