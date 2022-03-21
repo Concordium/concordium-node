@@ -315,6 +315,102 @@ testCase4 =
       then return ()
       else assertFailure $ msg ++ " unexepcted no. of events " ++ show (length vrEvents) ++ " expected 3."
 
+-- | This test has the following call pattern:
+-- A 
+--      -->  V0Proxy
+--                --> B
+--                      --> A 
+--                      <--
+--                    B(trap)
+--                <--
+--           V0Proxy
+-- A    <--
+--
+-- The state at A should have changed according to the 'inner' invocation on contract A.
+-- A mix of V0 and V1 contracts are used.
+testCase5 :: [TestCase PV4]
+testCase5 =
+  [ TestCase
+    { tcName = "Cross Checkpointing 1"
+    , tcParameters = defaultParams {tpInitialBlockState=initialBlockState}
+    , tcTransactions =
+      [ ( TJSON { payload = DeployModule wasmModVersion1 checkpointingSourceFile
+                , metadata = makeDummyHeader alesAccount 1 100000
+                , keys = [(0,[(0, alesKP)])]
+                }
+        , (SuccessWithSummary deploymentCostCheck, emptySpec)
+        )
+      ,
+        ( TJSON { payload = DeployModule wasmModVersion0 v0ProxySourceFile
+                , metadata = makeDummyHeader alesAccount 2 100000
+                , keys = [(0,[(0, alesKP)])]
+                }
+        , (SuccessWithSummary deploymentCostCheckV0, emptySpec)
+        )       
+      , ( TJSON { payload = InitContract 0 wasmModVersion1 checkpointingSourceFile "init_a" ""
+                , metadata = makeDummyHeader alesAccount 3 100000
+                , keys = [(0,[(0, alesKP)])]
+                }
+        , (SuccessWithSummary initializationCostCheck, emptySpec)
+        )
+      ,
+        ( TJSON { payload = InitContract 0 wasmModVersion1 checkpointingSourceFile "init_b" ""
+                , metadata = makeDummyHeader alesAccount 4 100000
+                , keys = [(0,[(0, alesKP)])]
+                }
+        , (SuccessWithSummary initializationCostCheck, emptySpec)
+        )
+      ,
+        ( TJSON { payload = InitContract 0 wasmModVersion0 v0ProxySourceFile "init_proxy" ""
+                , metadata = makeDummyHeader alesAccount 5 100000
+                , keys = [(0,[(0, alesKP)])]
+                }
+        , (SuccessWithSummary initializationCostCheckV0, emptySpec)
+        )
+      ,
+        ( TJSON { payload = Update 10000000 (Types.ContractAddress 0 0) "a.a_modify_proxy" parameters
+                , metadata = makeDummyHeader alesAccount 6 100000
+                , keys = [(0,[(0, alesKP)])]
+                }
+        , (SuccessWithSummary ensureSuccess, emptySpec)
+        )
+      ]
+    }
+  ]
+  where
+    parameters = BSS.toShort $ runPut $ do
+          putWord64le 2 -- contract index of proxy contract
+          putWord64le 0 -- contract subindex
+          putWord16le (fromIntegral (BS.length forwardParameter0)) -- length of parameter
+          putByteString forwardParameter0
+          putWord16le (fromIntegral (BSS.length "forward")) -- contract b's receive function.
+          putByteString "forward" -- entrypoint name
+          putWord64le 0 -- amount
+    -- This is invoked by a v0 contract so the parameter and receive adddress + method are swapped.
+    -- Also V0 contracts invoke others by their fully qualified name i.e. contract-name.receive-name
+    forwardParameter0 = runPut $ do
+          putWord64le 1 -- contract index of contract B
+          putWord64le 0 -- contract subindex
+          putWord16le (fromIntegral (BSS.length "b.b_forward_crash")) -- contract b's receive function. 
+          putByteString "b.b_forward_crash" -- entrypoint name
+          putWord16le (fromIntegral (BS.length forwardParameter1)) -- length of parameter
+          putByteString forwardParameter1
+          putWord64le 0 -- amount
+    forwardParameter1 = runPut $ do
+          putWord64le 0 -- index of contract A
+          putWord64le 0 -- subindex of the counter contract
+          putWord16le 0 -- length of the empty parameter
+          putWord16le (fromIntegral (BSS.length "a_modify"))
+          putByteString "a_modify" -- entrypoint name
+          putWord64le 0 -- amount
+    -- ensure the test case is successful
+    ensureSuccess :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
+    ensureSuccess _ Types.TransactionSummary{..} = checkSuccess "Update failed" tsResult
+    checkSuccess msg Types.TxReject{..} = assertFailure $ msg ++ show vrRejectReason
+    checkSuccess msg Types.TxSuccess{..} = if length vrEvents == 3
+      then return ()
+      else assertFailure $ msg ++ " unexepcted no. of events " ++ show (length vrEvents) ++ " expected 3."
+
 
 -- | This test has the following call pattern:
 -- A 
@@ -329,10 +425,10 @@ testCase4 =
 --
 -- The state at A should have changed according to the 'inner' invocation on contract A.
 -- A mix of V0 and V1 contracts are used.
-testCase5 :: [TestCase PV4]
-testCase5 =
+testCase6 :: [TestCase PV4]
+testCase6 =
   [ TestCase
-    { tcName = "Cross Checkpointing 1"
+    { tcName = "Cross Checkpointing 2"
     , tcParameters = defaultParams {tpInitialBlockState=initialBlockState}
     , tcTransactions =
       [ ( TJSON { payload = DeployModule wasmModVersion1 checkpointingSourceFile
