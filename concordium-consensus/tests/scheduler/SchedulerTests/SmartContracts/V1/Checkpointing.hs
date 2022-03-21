@@ -547,7 +547,6 @@ deploymentCostCheck sourceFile _ Types.TransactionSummary{..} = do
     checkSuccess msg Types.TxReject{..} = assertFailure $ msg ++ show vrRejectReason
     checkSuccess _ _ = return ()
 
--- todo add the other tests back
 tests :: Spec
 tests = describe "V1: Checkpointing." $
   mkSpecs $ testCase1 ++ testCase2 ++ testCase3 ++ testCase4 ++ testCase5 ++ testCase6
