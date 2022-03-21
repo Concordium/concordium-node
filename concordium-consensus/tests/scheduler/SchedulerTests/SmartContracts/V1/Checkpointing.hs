@@ -17,6 +17,7 @@ import qualified Data.ByteString.Short as BSS
 import qualified Data.ByteString as BS
 import Control.Monad
 import Data.Serialize(runPut, putWord64le, putByteString, putWord16le, encode)
+import qualified Data.Text as T
 
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Crypto.SHA256 as Hash
@@ -73,20 +74,20 @@ testCase1 =
                 , metadata = makeDummyHeader alesAccount 1 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
-        , (SuccessWithSummary deploymentCostCheck, emptySpec)
+        , (SuccessWithSummary (deploymentCostCheck checkpointingSourceFile), emptySpec)
         )       
       , ( TJSON { payload = InitContract 0 wasmModVersion1 checkpointingSourceFile "init_a" ""
                 , metadata = makeDummyHeader alesAccount 2 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
-        , (SuccessWithSummary initializationCostCheck, emptySpec)
+        , (SuccessWithSummary (initializationCostCheck checkpointingSourceFile "init_a"), emptySpec)
         )
       ,
         ( TJSON { payload = InitContract 0 wasmModVersion1 checkpointingSourceFile "init_b" ""
                 , metadata = makeDummyHeader alesAccount 3 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
-        , (SuccessWithSummary initializationCostCheck, emptySpec)
+        , (SuccessWithSummary (initializationCostCheck checkpointingSourceFile "init_b"), emptySpec)
         )
       ,
         ( TJSON { payload = Update 10000000 (Types.ContractAddress 0 0) "a.a_modify_proxy" parameters
@@ -144,20 +145,20 @@ testCase2 =
                 , metadata = makeDummyHeader alesAccount 1 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
-        , (SuccessWithSummary deploymentCostCheck, emptySpec)
+        , (SuccessWithSummary (deploymentCostCheck checkpointingSourceFile), emptySpec)
         )       
       , ( TJSON { payload = InitContract 0 wasmModVersion1 checkpointingSourceFile "init_a" ""
                 , metadata = makeDummyHeader alesAccount 2 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
-        , (SuccessWithSummary initializationCostCheck, emptySpec)
+        , (SuccessWithSummary (initializationCostCheck checkpointingSourceFile "init_a"), emptySpec)
         )
       ,
         ( TJSON { payload = InitContract 0 wasmModVersion1 checkpointingSourceFile "init_b" ""
                 , metadata = makeDummyHeader alesAccount 3 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
-        , (SuccessWithSummary initializationCostCheck, emptySpec)
+        , (SuccessWithSummary (initializationCostCheck checkpointingSourceFile "init_b"), emptySpec)
         )
       ,
         (TJSON { payload = Update 0 (Types.ContractAddress 0 0) "a.a_modify_proxy" parameters
@@ -212,20 +213,20 @@ testCase3 =
                 , metadata = makeDummyHeader alesAccount 1 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
-        , (SuccessWithSummary deploymentCostCheck, emptySpec)
+        , (SuccessWithSummary (deploymentCostCheck checkpointingSourceFile), emptySpec)
         )       
       , ( TJSON { payload = InitContract 0 wasmModVersion1 checkpointingSourceFile "init_a" ""
                 , metadata = makeDummyHeader alesAccount 2 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
-        , (SuccessWithSummary initializationCostCheck, emptySpec)
+        , (SuccessWithSummary (initializationCostCheck checkpointingSourceFile "init_a"), emptySpec)
         )
       ,
         ( TJSON { payload = InitContract 0 wasmModVersion1 checkpointingSourceFile "init_b" ""
                 , metadata = makeDummyHeader alesAccount 3 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
-        , (SuccessWithSummary initializationCostCheck, emptySpec)
+        , (SuccessWithSummary (initializationCostCheck checkpointingSourceFile "init_b"), emptySpec)
         )
       ,
         (TJSON { payload = Update 1234 (Types.ContractAddress 0 0) "a.a_modify_proxy" (BSS.toShort (encode thomasAccount))
@@ -266,20 +267,20 @@ testCase4 =
                 , metadata = makeDummyHeader alesAccount 1 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
-        , (SuccessWithSummary deploymentCostCheck, emptySpec)
+        , (SuccessWithSummary (deploymentCostCheck checkpointingSourceFile), emptySpec)
         )       
       , ( TJSON { payload = InitContract 0 wasmModVersion1 checkpointingSourceFile "init_a" ""
                 , metadata = makeDummyHeader alesAccount 2 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
-        , (SuccessWithSummary initializationCostCheck, emptySpec)
+        , (SuccessWithSummary (initializationCostCheck checkpointingSourceFile "init_a"), emptySpec)
         )
       ,
         ( TJSON { payload = InitContract 0 wasmModVersion1 checkpointingSourceFile "init_b" ""
                 , metadata = makeDummyHeader alesAccount 3 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
-        , (SuccessWithSummary initializationCostCheck, emptySpec)
+        , (SuccessWithSummary (initializationCostCheck checkpointingSourceFile "init_b"), emptySpec)
         )
       ,
         ( TJSON { payload = Update 4242 (Types.ContractAddress 0 0) "a.a_modify_proxy" parameters
@@ -338,34 +339,34 @@ testCase5 =
                 , metadata = makeDummyHeader alesAccount 1 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
-        , (SuccessWithSummary deploymentCostCheck, emptySpec)
+        , (SuccessWithSummary (deploymentCostCheck checkpointingSourceFile), emptySpec)
         )
       ,
         ( TJSON { payload = DeployModule wasmModVersion0 v0ProxySourceFile
                 , metadata = makeDummyHeader alesAccount 2 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
-        , (SuccessWithSummary deploymentCostCheckV0, emptySpec)
+        , (SuccessWithSummary (deploymentCostCheck v0ProxySourceFile), emptySpec)
         )       
       , ( TJSON { payload = InitContract 0 wasmModVersion1 checkpointingSourceFile "init_a" ""
                 , metadata = makeDummyHeader alesAccount 3 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
-        , (SuccessWithSummary initializationCostCheck, emptySpec)
+        , (SuccessWithSummary (initializationCostCheck checkpointingSourceFile "init_a"), emptySpec)
         )
       ,
         ( TJSON { payload = InitContract 0 wasmModVersion1 checkpointingSourceFile "init_b" ""
                 , metadata = makeDummyHeader alesAccount 4 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
-        , (SuccessWithSummary initializationCostCheck, emptySpec)
+        , (SuccessWithSummary (initializationCostCheck checkpointingSourceFile "init_b"), emptySpec)
         )
       ,
         ( TJSON { payload = InitContract 0 wasmModVersion0 v0ProxySourceFile "init_proxy" ""
                 , metadata = makeDummyHeader alesAccount 5 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
-        , (SuccessWithSummary initializationCostCheckV0, emptySpec)
+        , (SuccessWithSummary (initializationCostCheck v0ProxySourceFile "init_proxy"), emptySpec)
         )
       ,
         ( TJSON { payload = Update 10000001 (Types.ContractAddress 0 0) "a.a_modify_proxy" parameters
@@ -435,34 +436,34 @@ testCase6 =
                 , metadata = makeDummyHeader alesAccount 1 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
-        , (SuccessWithSummary deploymentCostCheck, emptySpec)
+        , (SuccessWithSummary (deploymentCostCheck checkpointingSourceFile), emptySpec)
         )
       ,
         ( TJSON { payload = DeployModule wasmModVersion0 v0ProxySourceFile
                 , metadata = makeDummyHeader alesAccount 2 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
-        , (SuccessWithSummary deploymentCostCheckV0, emptySpec)
+        , (SuccessWithSummary (deploymentCostCheck v0ProxySourceFile), emptySpec)
         )       
       , ( TJSON { payload = InitContract 0 wasmModVersion1 checkpointingSourceFile "init_a" ""
                 , metadata = makeDummyHeader alesAccount 3 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
-        , (SuccessWithSummary initializationCostCheck, emptySpec)
+        , (SuccessWithSummary (initializationCostCheck checkpointingSourceFile "init_a"), emptySpec)
         )
       ,
         ( TJSON { payload = InitContract 0 wasmModVersion1 checkpointingSourceFile "init_b" ""
                 , metadata = makeDummyHeader alesAccount 4 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
-        , (SuccessWithSummary initializationCostCheck, emptySpec)
+        , (SuccessWithSummary (initializationCostCheck checkpointingSourceFile "init_b"), emptySpec)
         )
       ,
         ( TJSON { payload = InitContract 0 wasmModVersion0 v0ProxySourceFile "init_proxy" ""
                 , metadata = makeDummyHeader alesAccount 5 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
-        , (SuccessWithSummary initializationCostCheckV0, emptySpec)
+        , (SuccessWithSummary (initializationCostCheck v0ProxySourceFile "init_proxy"), emptySpec)
         )
       ,
         ( TJSON { payload = Update 4242 (Types.ContractAddress 0 0) "a.a_modify_proxy" parameters
@@ -510,13 +511,13 @@ testCase6 =
 
 -- This only checks that the cost of initialization is correct.
 -- If the state was not set up correctly the latter tests in the suite will fail.
-initializationCostCheck :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
-initializationCostCheck _ Types.TransactionSummary{..} = do
+initializationCostCheck :: FilePath -> T.Text -> (TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation)
+initializationCostCheck sourceFile initName _ Types.TransactionSummary{..} = do
   checkSuccess "Contract initialization failed: " tsResult
-  moduleSource <- BS.readFile checkpointingSourceFile
+  moduleSource <- BS.readFile sourceFile
   let modLen = fromIntegral $ BS.length moduleSource
       modRef = Types.ModuleRef (Hash.hash moduleSource)
-      payloadSize = Types.payloadSize (Types.encodePayload (Types.InitContract 0 modRef (InitName "init_a") (Parameter "")))
+      payloadSize = Types.payloadSize (Types.encodePayload (Types.InitContract 0 modRef (InitName initName) (Parameter "")))
       -- size of the transaction minus the signatures.
       txSize = Types.transactionHeaderSize + fromIntegral payloadSize
       -- transaction is signed with 1 signature
@@ -531,50 +532,10 @@ initializationCostCheck _ Types.TransactionSummary{..} = do
     checkSuccess msg Types.TxReject{..} = assertFailure $ msg ++ show vrRejectReason
     checkSuccess _ _ = return ()
     
--- | todo: refactor the below functions
-
--- This only checks that the cost of initialization is correct.
--- If the state was not set up correctly the latter tests in the suite will fail.
-initializationCostCheckV0 :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
-initializationCostCheckV0 _ Types.TransactionSummary{..} = do
-  checkSuccess "Contract initialization failed: " tsResult
-  moduleSource <- BS.readFile v0ProxySourceFile
-  let modLen = fromIntegral $ BS.length moduleSource
-      modRef = Types.ModuleRef (Hash.hash moduleSource)
-      payloadSize = Types.payloadSize (Types.encodePayload (Types.InitContract 0 modRef (InitName "init_proxy") (Parameter "")))
-      -- size of the transaction minus the signatures.
-      txSize = Types.transactionHeaderSize + fromIntegral payloadSize
-      -- transaction is signed with 1 signature
-      baseTxCost = Cost.baseCost txSize 1
-      -- lower bound on the cost of the transaction, assuming no interpreter energy
-      -- The state size of A is 0 and larger for B. We put the lower bound at A's size.
-      costLowerBound = baseTxCost + Cost.initializeContractInstanceCost 0 modLen (Just 0)
-      
-  unless (tsEnergyCost >= costLowerBound) $
-    assertFailure $ "Actual initialization cost " ++ show tsEnergyCost ++ " not more than lower bound " ++ show costLowerBound
-  where
-    checkSuccess msg Types.TxReject{..} = assertFailure $ msg ++ show vrRejectReason
-    checkSuccess _ _ = return ()
-    
-deploymentCostCheck :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
-deploymentCostCheck _ Types.TransactionSummary{..} = do
+deploymentCostCheck :: FilePath -> (TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation)
+deploymentCostCheck sourceFile _ Types.TransactionSummary{..} = do
   checkSuccess "Module deployment failed: " tsResult
-  moduleSource <- BS.readFile checkpointingSourceFile
-  let len = fromIntegral $ BS.length moduleSource
-      -- size of the module deploy payload
-      payloadSize = Types.payloadSize (Types.encodePayload (Types.DeployModule (WasmModuleV0 (WasmModuleV ModuleSource{..}))))
-      -- size of the transaction minus the signatures.
-      txSize = Types.transactionHeaderSize + fromIntegral payloadSize
-      -- transaction is signed with 1 signature
-  assertEqual "Deployment has correct cost " (Cost.baseCost txSize 1 + Cost.deployModuleCost len) tsEnergyCost            
-  where
-    checkSuccess msg Types.TxReject{..} = assertFailure $ msg ++ show vrRejectReason
-    checkSuccess _ _ = return ()
-
-deploymentCostCheckV0 :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
-deploymentCostCheckV0 _ Types.TransactionSummary{..} = do
-  checkSuccess "Module deployment failed: " tsResult
-  moduleSource <- BS.readFile v0ProxySourceFile
+  moduleSource <- BS.readFile sourceFile
   let len = fromIntegral $ BS.length moduleSource
       -- size of the module deploy payload
       payloadSize = Types.payloadSize (Types.encodePayload (Types.DeployModule (WasmModuleV0 (WasmModuleV ModuleSource{..}))))
