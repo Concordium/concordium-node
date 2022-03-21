@@ -118,7 +118,7 @@ testCase1 =
     ensureSuccess :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
     ensureSuccess _ Types.TransactionSummary{..} = checkSuccess "Update failed" tsResult
     checkSuccess msg Types.TxReject{..} = assertFailure $ msg ++ show vrRejectReason
-    checkSuccess msg Types.TxSuccess{..} = if (length vrEvents) == 3
+    checkSuccess msg Types.TxSuccess{..} = if length vrEvents == 3
       then return ()
       else assertFailure $ msg ++ " unexepcted no. of events " ++ show (length vrEvents) ++ " expected 3."
 
@@ -189,7 +189,7 @@ testCase2 =
     ensureSuccess :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
     ensureSuccess _ Types.TransactionSummary{..} = checkSuccess "Update failed" tsResult
     checkSuccess msg Types.TxReject{..} = assertFailure $ msg ++ show vrRejectReason
-    checkSuccess msg Types.TxSuccess{..} = if (length vrEvents) == 6
+    checkSuccess msg Types.TxSuccess{..} = if length vrEvents == 6
       then return ()
       else assertFailure $ msg ++  " unexepcted no. of events " ++ show (length vrEvents) ++ " expected 6."
 
@@ -242,7 +242,7 @@ testCase3 =
     ensureSuccess :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
     ensureSuccess _ Types.TransactionSummary{..} = checkSuccess "Update failed" tsResult
     checkSuccess msg Types.TxReject{..} = assertFailure $ msg ++ show vrRejectReason
-    checkSuccess msg Types.TxSuccess{..} = if (length vrEvents) == 4
+    checkSuccess msg Types.TxSuccess{..} = if length vrEvents == 4
       then return ()
       else assertFailure $ msg ++  " unexepcted no. of events " ++ show (length vrEvents) ++ " expected 4."
 
@@ -311,7 +311,7 @@ testCase4 =
     ensureSuccess :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
     ensureSuccess _ Types.TransactionSummary{..} = checkSuccess "Update failed" tsResult
     checkSuccess msg Types.TxReject{..} = assertFailure $ msg ++ show vrRejectReason
-    checkSuccess msg Types.TxSuccess{..} = if (length vrEvents) == 7
+    checkSuccess msg Types.TxSuccess{..} = if length vrEvents == 7
       then return ()
       else assertFailure $ msg ++ " unexepcted no. of events " ++ show (length vrEvents) ++ " expected 3."
 
@@ -323,7 +323,7 @@ testCase4 =
 --                      <--
 --                    B(trap)
 --                <--
---           V0Proxy
+--          
 -- A    <--
 --
 -- The state at A should have changed according to the 'inner' invocation on contract A.
@@ -368,7 +368,7 @@ testCase5 =
         , (SuccessWithSummary initializationCostCheckV0, emptySpec)
         )
       ,
-        ( TJSON { payload = Update 10000000 (Types.ContractAddress 0 0) "a.a_modify_proxy" parameters
+        ( TJSON { payload = Update 10000001 (Types.ContractAddress 0 0) "a.a_modify_proxy" parameters
                 , metadata = makeDummyHeader alesAccount 6 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
@@ -420,7 +420,7 @@ testCase5 =
 --                      <--
 --                    B
 --                <--
---           V0Proxy
+--           
 -- A    <--
 --
 -- The state at A should have changed according to the 'inner' invocation on contract A.
@@ -589,4 +589,4 @@ deploymentCostCheckV0 _ Types.TransactionSummary{..} = do
 -- todo add the other tests back
 tests :: Spec
 tests = describe "V1: Checkpointing." $
-  mkSpecs $ testCase5
+  mkSpecs $ testCase1 ++ testCase2 ++ testCase3 ++ testCase4 ++ testCase5 ++ testCase6
