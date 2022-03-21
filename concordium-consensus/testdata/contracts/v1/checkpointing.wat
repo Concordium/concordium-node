@@ -112,20 +112,35 @@
     (local.set $iter (call $state_iterate_prefix (i32.const 0) (i32.const 4)))
     (call $assert_eq_64 (i64.const 0) (local.get $iter)) ;; the first iter will have id 0.
 
-    ;; we do a transfer if we were invoked with an amount of 1234.
-    (if (i64.eq (i64.const 1234) (local.get $amount))
+    ;; We carry out a transfer if this contract is invoked with an amount of '3'.
+    (if (i64.eq (i64.const 3) (local.get $amount))
         (then (local.set $rv (call $invoke (i32.const 0) (i32.const 0) (i32.const 40))))
         (else (local.set $rv (call $invoke (i32.const 1) (i32.const 0) (call $get_parameter_size (i32.const 0))))))
-        
-    (if (i64.eq (i64.const 10000000) (local.get $amount))
+
+    ;; Otherwise we do a contract invocation.
+    ;; If this contract was invoked with '1' then it is expected that the contract invocation is:
+    ;; 1. Invoking a v1 contract and
+    ;; 2. A subsequent invocation will trap.
+    ;; If this contract was invoked with '2' then it is expected that the contract invocation is:
+    ;; 1. Invoking a v0 contract and
+    ;; 2. a subsequent invocation will trap.
+    ;; Common for both cases above is that it is expected that this contract does not have an altered state after invocation.
+    ;; Otherwise it is expected that the invocations are successfully and thus any changes related to the state
+    ;; of this contract are reflected after the invocation.
+    (if (i64.eq (i64.const 1) (local.get $amount))
       ;; Check that the invocation resulted in TRAP i.e., '0x0006_0000_0000'
       (then (call $assert_eq_64 (local.get $rv) (i64.const 25769803776)))
-      (else (call $assert_eq_64 (i64.shl (local.get $rv) (i64.const 24)) (i64.const 0)))) ;; last 5 bytes are 0 if success
+      (else (if (i64.eq (i64.const 2) (local.get $amount))
+        ;; When a v0 fails execution then it returns '0x0005_0000_0000' back to the calling v1 contract.
+        (then (call $assert_eq_64 (local.get $rv) (i64.const 21474836480)))
+        ;; last 5 bytes are 0 if success
+        (else (call $assert_eq_64 (i64.shl (local.get $rv) (i64.const 24)) (i64.const 0))))))
 
-    ;; if we we're called with an amount of '4242' then we
+
+    ;; if we we're called with an amount of '4' then we
     ;; expect changes from subsequent calls to be reflected now,
     ;; otherwise we don't. 
-    (if (i64.eq (i64.const 4242) (local.get $amount))
+    (if (i64.eq (i64.const 4) (local.get $amount))
       ;; state should be modified in this case.
       (then
         ;; a_modify resizes [0] to 1.
