@@ -64,9 +64,9 @@ wasmModVersion1 = V1
 -- The state at A should be left unchanged by the changes of the 'inner' invocation on contract A.
 -- A correctly perceives B's trapping signal.
 -- Only V1 contracts are being used.
-testCase1 :: [TestCase PV4]
+testCase1 :: TestCase PV4
 testCase1 =
-  [ TestCase
+  TestCase
     { tcName = "Checkpointing 1"
     , tcParameters = defaultParams {tpInitialBlockState=initialBlockState}
     , tcTransactions =
@@ -90,15 +90,16 @@ testCase1 =
         , (SuccessWithSummary (initializationCostCheck checkpointingSourceFile "init_b"), emptySpec)
         )
       ,
-        ( TJSON { payload = Update 10000000 (Types.ContractAddress 0 0) "a.a_modify_proxy" parameters
+        -- We supply one micro CCD as we expect a trap from a v1 contract.
+        -- See the contract for details.
+        ( TJSON { payload = Update 1 (Types.ContractAddress 0 0) "a.a_modify_proxy" parameters
                 , metadata = makeDummyHeader alesAccount 4 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
         , (SuccessWithSummary ensureSuccess, emptySpec)
         )
       ]
-    }
-  ]
+    }  
   where
     parameters = BSS.toShort $ runPut $ do
           putWord64le 1 -- contract index of contract B
@@ -134,9 +135,9 @@ testCase1 =
 -- The state at A should be left unchanged.
 -- The iterator initialized at A should point to the same entry at the point of initialization.
 -- Only V1 contracts are being used.
-testCase2 :: [TestCase PV4]
+testCase2 :: TestCase PV4
 testCase2 =
-  [ TestCase
+  TestCase
     { tcName = "Checkpointing 2"
     , tcParameters = defaultParams {tpInitialBlockState=initialBlockState}
     , tcTransactions =
@@ -161,6 +162,10 @@ testCase2 =
         , (SuccessWithSummary (initializationCostCheck checkpointingSourceFile "init_b"), emptySpec)
         )
       ,
+        -- We supply zero micro CCDs as we're instructing the contract to not expect state modifications also the contract
+        -- does not expect errors i.e. a trap signal from underlying invocations.
+        -- The 'inner' call to contract A does not modify the state. 
+        -- See the contract for details. 
         (TJSON { payload = Update 0 (Types.ContractAddress 0 0) "a.a_modify_proxy" parameters
                 , metadata = makeDummyHeader alesAccount 4 100000
                 , keys = [(0,[(0, alesKP)])]
@@ -169,7 +174,6 @@ testCase2 =
         )
       ]
     }
-  ]
   where
     parameters = BSS.toShort $ runPut $ do
           putWord64le 1 -- contract index of contract B
@@ -202,9 +206,9 @@ testCase2 =
 -- The state at A should be left unchanged.
 -- The iterator initialized at A should point to the same entry at the point of initialization.
 -- Only V1 contracts are being used.
-testCase3 :: [TestCase PV4]
+testCase3 :: TestCase PV4
 testCase3 =
-  [ TestCase
+  TestCase
     { tcName = "Checkpointing 3"
     , tcParameters = defaultParams {tpInitialBlockState=initialBlockState}
     , tcTransactions =
@@ -229,7 +233,9 @@ testCase3 =
         , (SuccessWithSummary (initializationCostCheck checkpointingSourceFile "init_b"), emptySpec)
         )
       ,
-        (TJSON { payload = Update 1234 (Types.ContractAddress 0 0) "a.a_modify_proxy" (BSS.toShort (encode thomasAccount))
+        -- We supply three micro CCDs as we're instructing the contract to carry out a transfer instead of a call.
+        -- See the contract for details.
+        (TJSON { payload = Update 3 (Types.ContractAddress 0 0) "a.a_modify_proxy" (BSS.toShort (encode thomasAccount))
                 , metadata = makeDummyHeader alesAccount 4 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
@@ -237,7 +243,6 @@ testCase3 =
         )
       ]
     }
-  ]
   where
     -- ensure the test case is successful
     ensureSuccess :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
@@ -257,9 +262,9 @@ testCase3 =
 --
 -- The state at A should have changed according to the 'inner' invocation on contract A.
 -- Only V1 contracts are being used.
-testCase4 :: [TestCase PV4]
+testCase4 :: TestCase PV4
 testCase4 =
-  [ TestCase
+  TestCase
     { tcName = "Checkpointing 4"
     , tcParameters = defaultParams {tpInitialBlockState=initialBlockState}
     , tcTransactions =
@@ -283,7 +288,10 @@ testCase4 =
         , (SuccessWithSummary (initializationCostCheck checkpointingSourceFile "init_b"), emptySpec)
         )
       ,
-        ( TJSON { payload = Update 4242 (Types.ContractAddress 0 0) "a.a_modify_proxy" parameters
+        -- We supply four micro CCDs as we're instructing the contract to expect state modifications
+        -- being made from the 'inner' contract A call to be in effect when returned to the caller (a.a_modify_proxy)
+        -- See the contract for details.
+        ( TJSON { payload = Update 4 (Types.ContractAddress 0 0) "a.a_modify_proxy" parameters
                 , metadata = makeDummyHeader alesAccount 4 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
@@ -291,7 +299,6 @@ testCase4 =
         )
       ]
     }
-  ]
   where
     parameters = BSS.toShort $ runPut $ do
           putWord64le 1 -- contract index of contract B
@@ -329,9 +336,9 @@ testCase4 =
 --
 -- The state at A should have changed according to the 'inner' invocation on contract A.
 -- A mix of V0 and V1 contracts are used.
-testCase5 :: [TestCase PV4]
+testCase5 :: TestCase PV4
 testCase5 =
-  [ TestCase
+  TestCase
     { tcName = "Cross Checkpointing 1"
     , tcParameters = defaultParams {tpInitialBlockState=initialBlockState}
     , tcTransactions =
@@ -369,7 +376,9 @@ testCase5 =
         , (SuccessWithSummary (initializationCostCheck v0ProxySourceFile "init_proxy"), emptySpec)
         )
       ,
-        ( TJSON { payload = Update 10000001 (Types.ContractAddress 0 0) "a.a_modify_proxy" parameters
+        -- We supply two micro CCDs as we expect a trap from a v0 contract.
+        -- See the contract for details.
+        ( TJSON { payload = Update 2 (Types.ContractAddress 0 0) "a.a_modify_proxy" parameters
                 , metadata = makeDummyHeader alesAccount 6 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
@@ -377,7 +386,6 @@ testCase5 =
         )
       ]
     }
-  ]
   where
     parameters = BSS.toShort $ runPut $ do
           putWord64le 2 -- contract index of proxy contract
@@ -426,9 +434,9 @@ testCase5 =
 --
 -- The state at A should have changed according to the 'inner' invocation on contract A.
 -- A mix of V0 and V1 contracts are used.
-testCase6 :: [TestCase PV4]
+testCase6 :: TestCase PV4
 testCase6 =
-  [ TestCase
+  TestCase
     { tcName = "Cross Checkpointing 2"
     , tcParameters = defaultParams {tpInitialBlockState=initialBlockState}
     , tcTransactions =
@@ -466,7 +474,10 @@ testCase6 =
         , (SuccessWithSummary (initializationCostCheck v0ProxySourceFile "init_proxy"), emptySpec)
         )
       ,
-        ( TJSON { payload = Update 4242 (Types.ContractAddress 0 0) "a.a_modify_proxy" parameters
+        -- We supply four micro CCDs as we're instructing the contract to expect state modifications
+        -- being made from the 'inner' contract A call to be in effect when returned to the caller (a.a_modify_proxy)
+        -- See the contract for details.
+        ( TJSON { payload = Update 4 (Types.ContractAddress 0 0) "a.a_modify_proxy" parameters
                 , metadata = makeDummyHeader alesAccount 6 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
@@ -474,7 +485,6 @@ testCase6 =
         )
       ]
     }
-  ]
   where
     parameters = BSS.toShort $ runPut $ do
           putWord64le 2 -- contract index of proxy contract
@@ -549,4 +559,4 @@ deploymentCostCheck sourceFile _ Types.TransactionSummary{..} = do
 
 tests :: Spec
 tests = describe "V1: Checkpointing." $
-  mkSpecs $ testCase1 ++ testCase2 ++ testCase3 ++ testCase4 ++ testCase5 ++ testCase6
+  mkSpecs [testCase1, testCase2, testCase3, testCase4, testCase5, testCase6]
