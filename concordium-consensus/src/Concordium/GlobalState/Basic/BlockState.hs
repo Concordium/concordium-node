@@ -1380,6 +1380,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                 updateDelegationTarget
                 updateRestakeEarnings
                 updateCapital poolParams
+                checkOverdelegation poolParams
         return $! case res of
             Left errorRes -> (errorRes, origBS)
             Right (newBS, changes) -> (DCSuccess changes did, newBS)
@@ -1422,10 +1423,6 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                     let newAB = addTotalsInActiveBakers ab ad (capital - _delegationStakedAmount ad)
                     MTL.modify' $ blockBirkParameters . birkActiveBakers .~ newAB
                     modifyAccount (delegationStakedAmount .~ capital)
-                    bs2 <- MTL.get
-                    -- The delegation target may be updated by 'updateDelegationTarget', hence it
-                    -- is important that 'updateDelegationTarget' is invoked before 'updateCapital'.
-                    delegationConfigureDisallowOverdelegation bs2 poolParams (ad ^. delegationTarget)
                     MTL.tell [DelegationConfigureStakeIncreased capital]
         updateRestakeEarnings = forM_ dcuRestakeEarnings $ \restakeEarnings -> do
             ad <- getAccount
@@ -1458,6 +1455,10 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                         Just (ActivePool dset dtot) ->
                             let newActiveMap = Map.insert bid (ActivePool dset (dtot + delta)) (ab1 ^. activeBakers)
                             in ab1 & activeBakers .~ newActiveMap
+        checkOverdelegation poolParams = when (isJust dcuCapital || isJust dcuDelegationTarget) $ do
+            ad <- getAccount
+            bs <- MTL.get
+            delegationConfigureDisallowOverdelegation bs poolParams (ad ^. delegationTarget)
 
     bsoUpdateBakerKeys bs ai bku@BakerKeyUpdate{..} = return $! case bs ^? blockAccounts . Accounts.indexedAccount ai of
         -- The account is valid and has a baker

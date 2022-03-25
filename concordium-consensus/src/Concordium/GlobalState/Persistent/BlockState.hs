@@ -1235,6 +1235,7 @@ doConfigureDelegation pbs ai DelegationConfigureUpdate{..} = do
                 updateDelegationTarget
                 updateRestakeEarnings
                 updateCapital cp
+                checkOverdelegation cp
         case res of
             Left errorRes -> return (errorRes, pbs)
             Right (newBSP, changes) -> (DCSuccess changes did,) <$> storePBS pbs newBSP
@@ -1309,12 +1310,6 @@ doConfigureDelegation pbs ai DelegationConfigureUpdate{..} = do
                     newActiveBakers <- liftBSO $ addTotalsInActiveBakers ab ad (capital - BaseAccounts._delegationStakedAmount ad)
                     MTL.modify' $ \bsp -> bsp{bspBirkParameters = bspBirkParameters bsp1 & birkActiveBakers .~ newActiveBakers}
                     modifyAccount $ updAcc $ BaseAccounts.delegationStakedAmount .~ capital
-                    let pp = cp ^. cpPoolParameters
-                    let target = ad ^. BaseAccounts.delegationTarget
-                    bsp2 <- MTL.get
-                    -- The delegation target may be updated by 'updateDelegationTarget', hence it
-                    -- is important that 'updateDelegationTarget' is invoked before 'updateCapital'.
-                    delegationConfigureDisallowOverdelegation liftBSO bsp2 pp target
                     MTL.tell [DelegationConfigureStakeIncreased capital]
         addTotalsInActiveBakers ab0 ad delta = do
             let ab1 = ab0 & totalActiveCapital %~ addActiveCapital delta
@@ -1328,6 +1323,12 @@ doConfigureDelegation pbs ai DelegationConfigureUpdate{..} = do
                         Just (PersistentActiveDelegatorsV1 dset dtot) -> do
                             newActiveMap <- Trie.insert bid (PersistentActiveDelegatorsV1 dset (dtot + delta)) (ab1 ^. activeBakers)
                             refMake $! ab1 & activeBakers .~ newActiveMap
+        checkOverdelegation cp = when (isJust dcuCapital || isJust dcuDelegationTarget) $ do
+            ad <- getAccountOrFail
+            let pp = cp ^. cpPoolParameters
+            let target = ad ^. BaseAccounts.delegationTarget
+            bsp <- MTL.get
+            delegationConfigureDisallowOverdelegation liftBSO bsp pp target
 
 doUpdateBakerKeys ::(IsProtocolVersion pv, MonadBlobStore m, AccountVersionFor pv ~ 'AccountV0)
     => PersistentBlockState pv

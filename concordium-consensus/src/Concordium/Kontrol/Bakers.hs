@@ -51,6 +51,7 @@ delegatedCapitalCaps poolParams totalCap bakerCap delCap = PoolCaps{..}
     capBoundR = fractionToRational (theCapitalBound capBound)
     preBoundCap = capBoundR * toRational (totalCap - delCap) - toRational bakerCap
     boundCap
+        | capBoundR >= 1 = maxBound
         | preBoundCap > 0 = truncate (preBoundCap / (1 - capBoundR))
         | otherwise = 0
 
