@@ -25,7 +25,6 @@ import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Crypto.EncryptedTransfers
 import Concordium.Types.HashableTo
 import Concordium.Types hiding (_incomingEncryptedAmounts, _startIndex, _selfAmount, _aggregatedAmount)
-import Concordium.Types.Execution
 import Concordium.Constants
 import qualified Concordium.Types as TY
 import Concordium.ID.Types
@@ -344,16 +343,6 @@ putAccountBaker PersistentAccountBaker{..} = do
       put _stakeEarnings
       put abie
       put _bakerPendingChange
-
-data PersistentAccountDelegation (av :: AccountVersion) where
-    PersistentAccountDelegationV1 ::
-        { _delegationStakedAmount :: !Amount,
-          _delegationStakeEarnings :: !Bool,
-          _delegationTarget :: !DelegationTarget
-        } ->
-        PersistentAccountDelegation 'AccountV1
-
-deriving instance Show (PersistentAccountDelegation av)
 
 data PersistentAccountStake (av :: AccountVersion) where
     PersistentAccountStakeNone :: PersistentAccountStake av

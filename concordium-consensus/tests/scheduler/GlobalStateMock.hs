@@ -24,6 +24,7 @@ import Concordium.Crypto.EncryptedTransfers
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.CapitalDistribution
 import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Types
 import qualified Concordium.GlobalState.Wasm as GSWasm
@@ -153,9 +154,11 @@ data BlockStateOperationsAction pv a where
     BsoGetActiveBakers :: MockUpdatableBlockState -> BlockStateOperationsAction pv [BakerId]
     BsoGetActiveBakersAndDelegators :: (AccountVersionFor pv ~ 'AccountV1) => MockUpdatableBlockState -> BlockStateOperationsAction pv ([ActiveBakerInfo' MockBakerInfoRef], [ActiveDelegatorInfo])
     BsoGetCurrentEpochBakers :: MockUpdatableBlockState -> BlockStateOperationsAction pv FullBakers
+    BsoGetCurrentEpochFullBakersEx :: (AccountVersionFor pv ~ 'AccountV1) => MockUpdatableBlockState -> BlockStateOperationsAction pv FullBakersEx
     BsoGetCurrentCapitalDistribution :: (AccountVersionFor pv ~ 'AccountV1) => MockUpdatableBlockState -> BlockStateOperationsAction pv CapitalDistribution
     BsoAddBaker :: (AccountVersionFor pv ~ 'AccountV0, ChainParametersVersionFor pv ~ 'ChainParametersV0) => MockUpdatableBlockState -> AccountIndex -> BakerAdd -> BlockStateOperationsAction pv (BakerAddResult, MockUpdatableBlockState)
     BsoConfigureBaker :: (AccountVersionFor pv ~ 'AccountV1, ChainParametersVersionFor pv ~ 'ChainParametersV1) => MockUpdatableBlockState -> AccountIndex -> BakerConfigure -> BlockStateOperationsAction pv (BakerConfigureResult, MockUpdatableBlockState)
+    BsoConstrainBakerCommission :: (AccountVersionFor pv ~ 'AccountV1, ChainParametersVersionFor pv ~ 'ChainParametersV1) => MockUpdatableBlockState -> AccountIndex -> CommissionRanges -> BlockStateOperationsAction pv MockUpdatableBlockState
     BsoConfigureDelegation :: (AccountVersionFor pv ~ 'AccountV1, ChainParametersVersionFor pv ~ 'ChainParametersV1) => MockUpdatableBlockState -> AccountIndex -> DelegationConfigure -> BlockStateOperationsAction pv (DelegationConfigureResult, MockUpdatableBlockState)
     BsoUpdateBakerKeys :: (AccountVersionFor pv ~ 'AccountV0) => MockUpdatableBlockState -> AccountIndex -> BakerKeyUpdate -> BlockStateOperationsAction pv (BakerKeyUpdateResult, MockUpdatableBlockState)
     BsoUpdateBakerStake :: (AccountVersionFor pv ~ 'AccountV0, ChainParametersVersionFor pv ~ 'ChainParametersV0) => MockUpdatableBlockState -> AccountIndex -> Amount -> BlockStateOperationsAction pv (BakerStakeUpdateResult, MockUpdatableBlockState)
@@ -187,7 +190,7 @@ data BlockStateOperationsAction pv a where
     BsoProcessReleaseSchedule :: MockUpdatableBlockState -> Timestamp -> BlockStateOperationsAction pv MockUpdatableBlockState
     BsoGetUpdateKeyCollection :: MockUpdatableBlockState -> BlockStateOperationsAction pv (UpdateKeysCollection (ChainParametersVersionFor pv))
     BsoGetNextUpdateSequenceNumber :: MockUpdatableBlockState -> UpdateType -> BlockStateOperationsAction pv UpdateSequenceNumber
-    BsoEnqueueUpdate :: MockUpdatableBlockState -> TransactionTime -> (UpdateValue (ChainParametersVersionFor pv)) -> BlockStateOperationsAction pv MockUpdatableBlockState
+    BsoEnqueueUpdate :: MockUpdatableBlockState -> TransactionTime -> UpdateValue (ChainParametersVersionFor pv) -> BlockStateOperationsAction pv MockUpdatableBlockState
     BsoOverwriteElectionDifficulty :: MockUpdatableBlockState -> ElectionDifficulty -> BlockStateOperationsAction pv MockUpdatableBlockState
     BsoClearProtocolUpdate :: MockUpdatableBlockState -> BlockStateOperationsAction pv MockUpdatableBlockState
     BsoAddReleaseSchedule :: MockUpdatableBlockState -> [(AccountAddress, Timestamp)] -> BlockStateOperationsAction pv MockUpdatableBlockState
@@ -197,7 +200,7 @@ data BlockStateOperationsAction pv a where
     BsoGetEpochBlocksBaked :: MockUpdatableBlockState -> BlockStateOperationsAction pv (Word64, [(BakerId, Word64)])
     BsoNotifyBlockBaked :: MockUpdatableBlockState -> BakerId -> BlockStateOperationsAction pv MockUpdatableBlockState
     BsoClearEpochBlocksBaked :: (AccountVersionFor pv ~ 'AccountV0) => MockUpdatableBlockState -> BlockStateOperationsAction pv MockUpdatableBlockState
-    BsoSetNextCapitalDistribution :: (AccountVersionFor pv ~ 'AccountV1) => MockUpdatableBlockState -> [(BakerId, Amount, [(DelegatorId, Amount)])] -> [(DelegatorId, Amount)] -> BlockStateOperationsAction pv MockUpdatableBlockState
+    BsoSetNextCapitalDistribution :: (AccountVersionFor pv ~ 'AccountV1) => MockUpdatableBlockState -> CapitalDistribution -> BlockStateOperationsAction pv MockUpdatableBlockState
     BsoRotateCurrentCapitalDistribution :: (AccountVersionFor pv ~ 'AccountV1) => MockUpdatableBlockState -> BlockStateOperationsAction pv MockUpdatableBlockState
     BsoGetBankStatus :: MockUpdatableBlockState -> BlockStateOperationsAction pv BankStatus
     BsoSetRewardAccounts :: MockUpdatableBlockState -> RewardAccounts -> BlockStateOperationsAction pv MockUpdatableBlockState

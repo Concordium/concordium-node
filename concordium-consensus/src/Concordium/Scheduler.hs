@@ -1423,7 +1423,6 @@ data ConfigureBakerCont =
         cbcBakingRewardCommission :: !AmountFraction,
         cbcFinalizationRewardCommission :: !AmountFraction
     }
-  | ConfigureRemoveBakerCont
   | ConfigureUpdateBakerCont
 
 -- |Argument to configure delegation 'withDeposit' continuation.
@@ -1434,7 +1433,6 @@ data ConfigureDelegationCont =
         cdcRestakeEarnings :: !Bool,
         cdcDelegationTarget :: !DelegationTarget
     }
-  | ConfigureRemoveDelegationCont
   | ConfigureUpdateDelegationCont
 
 handleConfigureBaker ::
@@ -1496,19 +1494,6 @@ handleConfigureBaker
                     return ConfigureAddBakerCont{..}
                 _ ->
                     rejectTransaction MissingBakerAddParameters
-        configureRemoveBakerArg =
-            case
-              (cbRestakeEarnings,
-               cbOpenForDelegation,
-               cbKeysWithProofs,
-               cbMetadataURL,
-               cbTransactionFeeCommission,
-               cbBakingRewardCommission,
-               cbFinalizationRewardCommission) of
-                (Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing) ->
-                    return ConfigureRemoveBakerCont
-                _ ->
-                    rejectTransaction UnexpectedBakerRemoveParameters
         configureUpdateBakerArg =
             return ConfigureUpdateBakerCont
         areKeysOK BakerKeysWithProofs{..} =
@@ -1524,9 +1509,7 @@ handleConfigureBaker
                     AccountStakeNone -> configureAddBakerArg
                     AccountStakeDelegate _ -> rejectTransaction AlreadyADelegator
                     AccountStakeBaker _ ->
-                        if cbCapital == Just 0
-                          then configureRemoveBakerArg
-                          else configureUpdateBakerArg
+                        configureUpdateBakerArg
             if isJust cbKeysWithProofs
               then tickEnergy Cost.configureBakerCostWithKeys
               else tickEnergy Cost.configureBakerCostWithoutKeys
@@ -1559,11 +1542,6 @@ handleConfigureBaker
                 res <- configureBaker (fst senderAccount) bca
                 kResult energyCost usedEnergy bca res
               else return (TxReject InvalidProof, energyCost, usedEnergy)
-        executeConfigure energyCost usedEnergy (ConfigureRemoveBakerCont, _) = do
-            cm <- getChainMetadata
-            let bcr = BI.BakerConfigureRemove (slotTime cm)
-            res <- configureBaker (fst senderAccount) bcr
-            kResult energyCost usedEnergy bcr res
         executeConfigure energyCost usedEnergy (ConfigureUpdateBakerCont, accountBalance) = do
             if maybe False (accountBalance <) cbCapital then
                 return (TxReject InsufficientBalanceForBakerStake, energyCost, usedEnergy)
@@ -1592,8 +1570,9 @@ handleConfigureBaker
               else return (TxReject InvalidProof, energyCost, usedEnergy)
         kResult energyCost usedEnergy BI.BakerConfigureUpdate{} (BI.BCSuccess changes bid) = do
             let events = changes <&> \case
-                  BI.BakerConfigureStakeIncreased newStake ->
-                    BakerStakeIncreased bid senderAddress newStake
+                  BI.BakerConfigureStakeIncreased newStake
+                    | newStake == 0 -> BakerRemoved bid senderAddress
+                    | otherwise -> BakerStakeIncreased bid senderAddress newStake
                   BI.BakerConfigureStakeReduced newStake ->
                     BakerStakeDecreased bid senderAddress newStake
                   BI.BakerConfigureRestakeEarnings newRestakeEarnings ->
@@ -1633,13 +1612,6 @@ handleConfigureBaker
                   BakerSetOpenStatus bid senderAddress bcaOpenForDelegation,
                   BakerSetRestakeEarnings bid senderAddress bcaRestakeEarnings]
             return (TxSuccess events, energyCost, usedEnergy)
-        kResult energyCost usedEnergy BI.BakerConfigureRemove{} (BI.BCSuccess _ bid) = do
-            let brEvt =
-                  BakerRemoved {
-                    ebrBakerId = bid,
-                    ebrAccount = senderAddress
-                  }
-            return (TxSuccess [brEvt], energyCost, usedEnergy)
         kResult energyCost usedEnergy _ BI.BCInvalidAccount =
             return (TxReject (InvalidAccountReference senderAddress), energyCost, usedEnergy)
         kResult energyCost usedEnergy _ (BI.BCDuplicateAggregationKey key) =
@@ -1669,14 +1641,13 @@ handleConfigureDelegation wtc cdCapital cdRestakeEarnings cdDelegationTarget =
 
         configureAddDelegationArg =
             case (cdCapital, cdRestakeEarnings, cdDelegationTarget) of
+                (Just cdcCapital, _, _)
+                  | cdcCapital == 0 ->
+                    rejectTransaction InsufficientDelegationStake
                 (Just cdcCapital, Just cdcRestakeEarnings, Just cdcDelegationTarget) ->
                     return ConfigureAddDelegationCont{..}
                 _ ->
                     rejectTransaction MissingDelegationAddParameters
-        configureRemoveDelegationArg =
-            case (cdRestakeEarnings, cdDelegationTarget) of
-                (Nothing, Nothing) -> return ConfigureRemoveDelegationCont
-                _ -> rejectTransaction UnexpectedDelegationRemoveParameters
         configureUpdateDelegationArg = return ConfigureUpdateDelegationCont
 
         tickAndGetAccountBalance = do
@@ -1687,9 +1658,7 @@ handleConfigureDelegation wtc cdCapital cdRestakeEarnings cdDelegationTarget =
                     AccountStakeBaker ab -> rejectTransaction $ AlreadyABaker $
                       ab ^. accountBakerInfo . bieBakerInfo . bakerIdentity
                     AccountStakeDelegate _ ->
-                        if cdCapital == Just 0
-                          then configureRemoveDelegationArg
-                          else configureUpdateDelegationArg
+                        configureUpdateDelegationArg
             tickEnergy Cost.configureDelegationCost
             (arg,) <$> getCurrentAccountTotalAmount senderAccount
         kWithAccountBalance ls (ConfigureAddDelegationCont{..}, accountBalance) = do
@@ -1708,13 +1677,6 @@ handleConfigureDelegation wtc cdCapital cdRestakeEarnings cdDelegationTarget =
                     }
                 res <- configureDelegation (fst senderAccount) dca
                 kResult energyCost usedEnergy dca res
-        kWithAccountBalance ls (ConfigureRemoveDelegationCont, _) = do
-            (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
-            chargeExecutionCost senderAccount energyCost
-            cm <- getChainMetadata
-            let dcr = BI.DelegationConfigureRemove (slotTime cm)
-            res <- configureDelegation (fst senderAccount) dcr
-            kResult energyCost usedEnergy dcr res
         kWithAccountBalance ls (ConfigureUpdateDelegationCont, accountBalance) = do
             (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
             chargeExecutionCost senderAccount energyCost
@@ -1734,8 +1696,9 @@ handleConfigureDelegation wtc cdCapital cdRestakeEarnings cdDelegationTarget =
             let events = changes <&> \case
                   BI.DelegationConfigureStakeIncreased newStake ->
                     DelegationStakeIncreased did senderAddress newStake
-                  BI.DelegationConfigureStakeReduced newStake ->
-                    DelegationStakeDecreased did senderAddress newStake
+                  BI.DelegationConfigureStakeReduced newStake
+                    | newStake == 0 -> DelegationRemoved did senderAddress
+                    | otherwise -> DelegationStakeDecreased did senderAddress newStake
                   BI.DelegationConfigureRestakeEarnings newRestakeEarnings ->
                      DelegationSetRestakeEarnings did senderAddress newRestakeEarnings
                   BI.DelegationConfigureDelegationTarget newDelegationTarget ->
@@ -1748,13 +1711,6 @@ handleConfigureDelegation wtc cdCapital cdRestakeEarnings cdDelegationTarget =
                     DelegationSetDelegationTarget did senderAddress dcaDelegationTarget
                     ]
             return (TxSuccess events, energyCost, usedEnergy)
-        kResult energyCost usedEnergy BI.DelegationConfigureRemove{} (BI.DCSuccess _ did) = do
-            let evt =
-                  DelegationRemoved {
-                    edrDelegatorId = did,
-                    edrAccount = senderAddress
-                  }
-            return (TxSuccess [evt], energyCost, usedEnergy)
         kResult energyCost usedEnergy _ BI.DCInvalidAccount =
             return (TxReject (InvalidAccountReference senderAddress), energyCost, usedEnergy)
         kResult energyCost usedEnergy _ BI.DCChangePending =

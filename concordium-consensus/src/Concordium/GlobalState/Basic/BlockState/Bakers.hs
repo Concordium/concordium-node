@@ -2,6 +2,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -12,6 +13,7 @@ module Concordium.GlobalState.Basic.BlockState.Bakers where
 import Control.Exception
 import Data.Map.Strict (Map)
 import Data.Set (Set)
+import qualified Data.Set as Set
 import qualified Data.Vector as Vec
 import Data.Serialize
 import Lens.Micro.Platform
@@ -20,12 +22,14 @@ import Concordium.Types.Accounts
 import Concordium.Genesis.Data (StateMigrationParameters(..))
 import Concordium.GlobalState.BakerInfo
 import Concordium.Types
+import Concordium.Types.Execution
 import Concordium.Utils.Serialization
 import Concordium.Utils.BinarySearch
 
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types.HashableTo
 import qualified Concordium.Genesis.Data.P4 as P4
+import Concordium.GlobalState.CapitalDistribution
 
 -- |The set of bakers that are eligible to bake in a particular epoch.
 --
@@ -143,11 +147,32 @@ makeLenses ''ActivePool
 emptyActivePool :: ActivePool
 emptyActivePool = ActivePool mempty 0
 
+-- |Make an active pool from a vector of the 'DelegatorCapital's.
+makeActivePool :: Vec.Vector DelegatorCapital -> ActivePool
+makeActivePool = Vec.foldr' accum emptyActivePool
+  where
+    accum DelegatorCapital{..} =
+        (apDelegators %~ Set.insert dcDelegatorId)
+            . (apDelegatorTotalCapital +~ dcDelegatorCapital)
 instance Semigroup ActivePool where
     ap1 <> ap2 =
         ActivePool
             (_apDelegators ap1 <> _apDelegators ap2)
             (_apDelegatorTotalCapital ap1 + _apDelegatorTotalCapital ap2)
+
+-- |Remove a delegator from an 'ActivePool'. It is assumed that the delegator
+-- belongs to the pool, and the 'Amount' correctly represents the delegator's contribution.
+removeDelegator :: DelegatorId -> Amount -> ActivePool -> ActivePool
+removeDelegator delId delAmt =
+    (apDelegators %~ Set.delete delId)
+        . (apDelegatorTotalCapital -~ delAmt)
+
+-- |Add a delegator to an 'ActivePool'. It is assumed that the delegator does not
+-- already belong to the pool.
+addDelegator :: DelegatorId -> Amount -> ActivePool -> ActivePool
+addDelegator delId delAmt =
+    (apDelegators %~ Set.insert delId)
+        . (apDelegatorTotalCapital +~ delAmt)
 
 -- |The set of accounts that are currently registered as bakers.
 data ActiveBakers = ActiveBakers {
@@ -159,6 +184,11 @@ data ActiveBakers = ActiveBakers {
 } deriving (Eq, Show)
 
 makeLenses ''ActiveBakers
+
+-- |The pool for a specific delegation target.
+pool :: DelegationTarget -> Traversal' ActiveBakers ActivePool
+pool DelegateToLPool = lPoolDelegators
+pool (DelegateToBaker bid) = activeBakers . ix bid
 
 -- |An empty 'ActiveBakers' structure.
 emptyActiveBakers :: ActiveBakers

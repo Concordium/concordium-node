@@ -775,9 +775,9 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         b1 <- coerceBSML (bsoGetCurrentCapitalDistribution ls)
         b2 <- coerceBSMR (bsoGetCurrentCapitalDistribution rs)
         assert (b1 == b2) $ return b1
-    bsoSetNextCapitalDistribution (bs1, bs2) bdc ldc = do
-        bs1' <- coerceBSML $ bsoSetNextCapitalDistribution bs1 bdc ldc
-        bs2' <- coerceBSMR $ bsoSetNextCapitalDistribution bs2 bdc ldc
+    bsoSetNextCapitalDistribution (bs1, bs2) cd = do
+        bs1' <- coerceBSML $ bsoSetNextCapitalDistribution bs1 cd
+        bs2' <- coerceBSMR $ bsoSetNextCapitalDistribution bs2 cd
         return (bs1', bs2')
     bsoRotateCurrentCapitalDistribution (bs1, bs2) = do
         bs1' <- coerceBSML $ bsoRotateCurrentCapitalDistribution bs1

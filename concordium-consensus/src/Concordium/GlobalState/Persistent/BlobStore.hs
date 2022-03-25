@@ -6,7 +6,7 @@
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE DeriveTraversable #-}
-{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE RankNTypes #-}
@@ -33,6 +33,7 @@ module Concordium.GlobalState.Persistent.BlobStore where
 
 import Control.Concurrent.MVar
 import System.IO
+import Data.Kind (Type)
 import Data.Serialize
 import Data.Coerce
 import Data.Word
@@ -43,6 +44,7 @@ import Control.Monad.Reader.Class
 import Control.Monad.Trans.Writer.Strict (WriterT)
 import Control.Monad.Trans.State.Strict (StateT)
 import Control.Monad.Trans.Reader (ReaderT, runReaderT)
+import Control.Monad.Trans.Except (ExceptT)
 import Control.Monad.Trans
 import System.Directory
 import GHC.Stack
@@ -60,6 +62,7 @@ import qualified Concordium.Types.AnonymityRevokers as ARS
 import qualified Concordium.GlobalState.Parameters as Parameters
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 import Concordium.GlobalState.Basic.BlockState.PoolRewards
+import Concordium.GlobalState.CapitalDistribution
 import Concordium.Types
 import Concordium.Types.Accounts
 import Concordium.Types.Updates
@@ -135,13 +138,17 @@ flushBlobStore BlobStore{..} =
 closeBlobStore :: BlobStore -> IO ()
 closeBlobStore BlobStore{..} = do
     BlobHandle{..} <- takeMVar blobStoreFile
+    writeIORef blobStoreMMap BS.empty
     hClose bhHandle
 
 -- |Close all references to the blob store and delete the backing file.
 destroyBlobStore :: BlobStore -> IO ()
 destroyBlobStore bs@BlobStore{..} = do
     closeBlobStore bs
-    removeFile blobStoreFilePath
+    -- Removing the file may fail (e.g. on Windows) if the handle is kept open.
+    -- This could be due to the finalizer on the memory map not being run, but my attempts
+    -- to force it have not proved successful.
+    removeFile blobStoreFilePath `catch` (\(_ :: IOException) -> return ())
 
 -- |Run a computation with temporary access to the blob store.
 -- The given FilePath is a directory where the temporary blob
@@ -261,7 +268,13 @@ class MonadIO m => MonadBlobStore m where
 
 instance MonadBlobStore (ReaderT BlobStore IO)
 
-instance (Monoid w, MonadBlobStore m) => MonadBlobStore (WriterT w m) where
+-- |A wrapper type for lifting 'MonadBlobStore' instances over monad transformers.
+-- Lifted instances are provided for 'WriterT', 'StateT' and 'ExceptT', which are used for
+-- conveniently implementing some block state operations.
+newtype LiftMonadBlobStore t (m :: Type -> Type) a = LiftMonadBlobStore (t m a)
+    deriving (MonadTrans, Functor, Applicative, Monad, MonadIO)
+
+instance (MonadTrans t, MonadBlobStore m, MonadIO (t m)) => MonadBlobStore (LiftMonadBlobStore t m) where
     storeRaw = lift . storeRaw
     {-# INLINE storeRaw #-}
     loadRaw = lift . loadRaw
@@ -269,13 +282,14 @@ instance (Monoid w, MonadBlobStore m) => MonadBlobStore (WriterT w m) where
     flushStore = lift flushStore
     {-# INLINE flushStore #-}
 
-instance MonadBlobStore m => MonadBlobStore (StateT s m) where
-    storeRaw = lift . storeRaw
-    {-# INLINE storeRaw #-}
-    loadRaw = lift . loadRaw
-    {-# INLINE loadRaw #-}
-    flushStore = lift flushStore
-    {-# INLINE flushStore #-}
+deriving via (LiftMonadBlobStore (WriterT w) m)
+    instance (Monoid w, MonadBlobStore m) => MonadBlobStore (WriterT w m)
+
+deriving via (LiftMonadBlobStore (StateT s) m)
+    instance MonadBlobStore m => MonadBlobStore (StateT s m)
+
+deriving via (LiftMonadBlobStore (ExceptT e) m)
+    instance MonadBlobStore m => MonadBlobStore (ExceptT e m)
 
 -- |The @BlobStorable m a@ class defines how a value
 -- of type @a@ may be stored in monad @m@.

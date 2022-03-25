@@ -162,11 +162,6 @@ data BakerConfigure =
         bcaBakingRewardCommission :: !AmountFraction,
         bcaFinalizationRewardCommission :: !AmountFraction
     }
-    -- |Remove a baker.
-  | BakerConfigureRemove {
-        -- |The timestamp of the current slot (slot time).
-        bcrSlotTimestamp :: !Timestamp
-  }
     -- |Update baker with optional fields.
   | BakerConfigureUpdate {
         -- |The timestamp of the current slot (slot time).
@@ -239,11 +234,6 @@ data DelegationConfigure =
       dcuCapital :: !(Maybe Amount),
       dcuRestakeEarnings :: !(Maybe Bool),
       dcuDelegationTarget :: !(Maybe DelegationTarget)
-  }
-    -- |Remove a delegator.
-  | DelegationConfigureRemove {
-      -- |The timestamp of the current slot (slot time).
-      dcrSlotTimestamp :: !Timestamp
   }
   deriving (Eq, Show)
 

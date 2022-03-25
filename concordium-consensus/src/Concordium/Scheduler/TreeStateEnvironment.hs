@@ -33,6 +33,7 @@ import qualified Concordium.Types.Accounts as Types
 import qualified Concordium.Types.Transactions as Types
 import Concordium.Logger
 import Concordium.GlobalState.Basic.BlockState.PoolRewards
+import Concordium.GlobalState.CapitalDistribution
 import Concordium.GlobalState.TreeState
 import qualified Concordium.GlobalState.BakerInfo as BI
 import Concordium.GlobalState.BlockState
@@ -895,8 +896,7 @@ updateBirkParameters newSeedState bs0 oldChainParameters updates = case protocol
       bs1 <- if isNewEpoch
         then do
           upToLast <- if epoch oldSeedState /= epoch newSeedState - 1
-            then do
-              bsoTransitionEpochBakers bs0 (epoch newSeedState - 1)
+            then bsoTransitionEpochBakers bs0 (epoch newSeedState - 1)
             else return bs0
           bsoTransitionEpochBakers upToLast (epoch newSeedState)
         else
@@ -906,31 +906,36 @@ updateBirkParameters newSeedState bs0 oldChainParameters updates = case protocol
     updateCPV1AccountV1 = do
       oldSeedState <- bsoGetSeedState bs0
       if epoch oldSeedState == epoch newSeedState then
-        return (False, bs0)
+        (False,) <$> bsoSetSeedState bs0 newSeedState
       else do
         -- This is the start of a new epoch.
         -- Assume: epoch oldSeedState < epoch newSeedState
         payday <- bsoGetPaydayEpoch bs0
         let oldTPs = oldChainParameters ^. cpTimeParameters
-            computePaydays lastPayday fromPayday
-              | epoch newSeedState < fromPayday = (lastPayday, fromPayday)
-              | otherwise = computePaydays (Just fromPayday) nextPayday
+            computePaydays lastPayday fromPayday hitEpochBeforePayday0
+              | epoch newSeedState < fromPayday = (lastPayday, fromPayday, hitEpochBeforePayday1)
+              | otherwise = computePaydays (Just fromPayday) nextPayday hitEpochBeforePayday1
                   where
-                    nextPayday = fromPayday +
+                    !nextPayday = fromPayday +
                       bestTimeParameters (slotFor fromPayday) oldTPs updates
                         ^. tpRewardPeriodLength . to rewardPeriodEpochs
                     slotFor = (epochLength oldSeedState *) . fromIntegral
-            (mLastElapsedPayday, futurePayday) = computePaydays Nothing payday
+                    !hitEpochBeforePayday1 = hitEpochBeforePayday0 ||
+                      (epoch oldSeedState + 1 < fromPayday && epoch newSeedState + 1 >= fromPayday)
+            (mLastElapsedPayday, futurePayday, hitEpochBeforePayday) = computePaydays Nothing payday False
         -- Here: epoch newSeedState < futurePayday, payday =< futurePayday
-        -- If there will be a payday at the start of next epoch, we need to compute the next bakers
-        -- now.
-        bs1 <- if epoch oldSeedState + 1 < payday && epoch newSeedState + 1 >= payday
+       -- 'hitEpochBeforePayday' checks if (old block epoch, new block epoch] contains an epoch
+        -- that is one before a payday. In such a case, we need to compute the next bakers.
+        bs1 <- if hitEpochBeforePayday
           then
             -- We generate the bakers for the next reward period based on the epoch before the payday.
             -- First, compute what the most recent payday will be in one epoch from now.
             let bakersUpdatePayday
                   | epoch newSeedState + 1 == futurePayday = futurePayday
                   | (Just lastElapsed) <- mLastElapsedPayday = lastElapsed
+                    -- This last case cannot happen because if @mLastElapsedPayday == Nothing@ then
+                    -- it must be that @epoch newSeedState < payday@, @epoch newSeedState + 1 >= payday@
+                    -- and @futurePayday == payday@.
                   | otherwise = payday
             in generateNextBakers bakersUpdatePayday bs0
           else return bs0

@@ -54,6 +54,7 @@ import qualified Concordium.GlobalState.Basic.BlockState.Modules as Modules
 import qualified Concordium.GlobalState.Basic.BlockState.Instances as Instances
 import qualified Concordium.GlobalState.Basic.BlockState.PoolRewards as PoolRewards
 import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as LFMBT
+import Concordium.GlobalState.CapitalDistribution
 
 import qualified Concordium.GlobalState.AccountMap as AccountMap
 import qualified Concordium.GlobalState.Rewards as Rewards
@@ -806,8 +807,8 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
                         bpsTransactionFeesEarned = transactionFeesAccrued,
                         bpsEffectiveStake = effectiveStake,
                         bpsLotteryPower = fromIntegral effectiveStake / fromIntegral (_bakerTotalStake ceBakers),
-                        bpsBakerEquityCapital = PoolRewards.bcBakerEquityCapital bc,
-                        bpsDelegatedCapital = PoolRewards.bcTotalDelegatorCapital bc
+                        bpsBakerEquityCapital = bcBakerEquityCapital bc,
+                        bpsDelegatedCapital = bcTotalDelegatorCapital bc
                     }
         return BakerPoolStatus {
             psBakerId = bid,
@@ -879,8 +880,8 @@ delegationConfigureDisallowOverdelegation bs poolParams target = case target of
 modifyBakerPoolRewardDetailsInPoolRewards :: (Monad m, AccountVersionFor pv ~ 'AccountV1) => BlockState pv -> BakerId -> (PoolRewards.BakerPoolRewardDetails -> PoolRewards.BakerPoolRewardDetails) -> PureBlockStateMonad pv m (BlockState pv)
 modifyBakerPoolRewardDetailsInPoolRewards bs bid f = do
   let bprs = PoolRewards.bakerPoolRewardDetails (bs ^. blockPoolRewards)
-  let bpc = PoolRewards.bakerPoolCapital $ _unhashed (PoolRewards.currentCapital $ bs ^. blockPoolRewards)
-  case binarySearchI PoolRewards.bcBakerId bpc bid of
+  let bpc = bakerPoolCapital $ _unhashed (PoolRewards.currentCapital $ bs ^. blockPoolRewards)
+  case binarySearchI bcBakerId bpc bid of
       Nothing ->
           error "Invalid baker id: unable to find baker in baker pool capital vector"
       Just (i, _) ->
@@ -999,8 +1000,8 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             -- removes it.) This _only_ changes the accounts of delegators, and does not affect the
             -- active bakers record.
             processDelegators :: ActivePool -> MTL.State (BlockState pv) ActivePool
-            processDelegators pool = do
-                (newDlgs, newAmt) <- MTL.runWriterT (fmap Set.fromDistinctAscList . filterM processDelegator . Set.toAscList . _apDelegators $ pool)
+            processDelegators actPool = do
+                (newDlgs, newAmt) <- MTL.runWriterT (fmap Set.fromDistinctAscList . filterM processDelegator . Set.toAscList . _apDelegators $ actPool)
                 return $ ActivePool newDlgs newAmt
             processDelegator :: DelegatorId -> MTL.WriterT Amount (MTL.State (BlockState pv)) Bool
             processDelegator (DelegatorId accId) =
@@ -1204,19 +1205,6 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                     & blockBirkParameters . birkActiveBakers . activeBakers %~ Map.insert bid emptyActivePool
                     & blockBirkParameters . birkActiveBakers . totalActiveCapital +~ bcaCapital
             in (BCSuccess [] bid, newBlockState)
-    bsoConfigureBaker bs ai BakerConfigureRemove{..} = return $! case bs ^? blockAccounts . Accounts.indexedAccount ai of
-        -- The account is valid and has a baker
-        Just Account{_accountStaking = AccountStakeBaker ab@AccountBaker{..}}
-          -- A change is already pending
-          | _bakerPendingChange /= NoChange -> (BCChangePending, bs)
-          -- We can make the change
-          | otherwise ->
-              let cooldownDuration = bs ^. blockUpdates . currentParameters . cpCooldownParameters  . cpPoolOwnerCooldown
-                  cooldownElapsed = addDurationSeconds bcrSlotTimestamp cooldownDuration
-              in (BCSuccess [] (BakerId ai),
-                  bs & blockAccounts . Accounts.indexedAccount ai . accountStaking .~ AccountStakeBaker (ab & bakerPendingChange .~ RemoveStake (PendingChangeEffectiveV1 cooldownElapsed)))
-        -- The account is not valid or has no baker
-        _ -> (BCInvalidBaker, bs)
     bsoConfigureBaker origBS ai BakerConfigureUpdate{..} = do
         let res = MTL.runExcept $ MTL.runWriterT $ flip MTL.execStateT origBS $ do
                 updateKeys
@@ -1243,9 +1231,6 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
         modifyAccount f = do
             ab <- getAccount
             putAccount $! f ab
-        requireNoPendingChange = do
-            ab <- getAccount
-            when (_bakerPendingChange ab /= NoChange) (MTL.throwError BCChangePending)
         updateKeys = forM_ bcuKeys $ \keys -> do
             bs <- MTL.get
             ab <- getAccount
@@ -1303,27 +1288,32 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
               modifyAccount (accountBakerInfo . bieBakerPoolInfo . poolCommissionRates . finalizationCommission .~ frc)
             MTL.tell [BakerConfigureFinalizationRewardCommission frc]
         updateCapital = forM_ bcuCapital $ \capital -> do
-            requireNoPendingChange
             ab <- getAccount
+            when (_bakerPendingChange ab /= NoChange) (MTL.throwError BCChangePending)
             bs <- MTL.get
             let cp = bs ^. blockUpdates . currentParameters
             let capitalMin = cp ^. cpPoolParameters . ppMinimumEquityCapital
-            when (capital < capitalMin) (MTL.throwError BCStakeUnderThreshold)
-            case compare capital (_stakedAmount ab) of
-                LT -> do
-                    let cooldownDuration = origBS ^. blockUpdates . currentParameters . cpCooldownParameters . cpPoolOwnerCooldown
-                        cooldownElapsed = addDurationSeconds bcuSlotTimestamp cooldownDuration
-                    let bpc = ReduceStake capital (PendingChangeEffectiveV1 cooldownElapsed)
-                    modifyAccount (bakerPendingChange .~ bpc)
-                    MTL.tell [BakerConfigureStakeReduced capital]
-                EQ -> do
-                    -- We could tell a "BakerConfigureStakeUnchanged", but currently it is not handled
-                    -- in the Scheduler.
-                    return ()
-                GT -> do
-                    modifyAccount (stakedAmount .~ capital)
-                    blockBirkParameters . birkActiveBakers . totalActiveCapital += capital - _stakedAmount ab
-                    MTL.tell [BakerConfigureStakeIncreased capital]
+            let cooldownDuration = origBS ^. blockUpdates . currentParameters . cpCooldownParameters . cpPoolOwnerCooldown
+                cooldownElapsed = addDurationSeconds bcuSlotTimestamp cooldownDuration
+            if capital == 0 then do
+                let bpc = RemoveStake (PendingChangeEffectiveV1 cooldownElapsed)
+                modifyAccount (bakerPendingChange .~ bpc)
+                MTL.tell [BakerConfigureStakeReduced capital]
+            else do 
+                when (capital < capitalMin) (MTL.throwError BCStakeUnderThreshold)
+                case compare capital (_stakedAmount ab) of
+                    LT -> do
+                        let bpc = ReduceStake capital (PendingChangeEffectiveV1 cooldownElapsed)
+                        modifyAccount (bakerPendingChange .~ bpc)
+                        MTL.tell [BakerConfigureStakeReduced capital]
+                    EQ -> do
+                        -- We could tell a "BakerConfigureStakeUnchanged", but currently it is not handled
+                        -- in the Scheduler.
+                        return ()
+                    GT -> do
+                        modifyAccount (stakedAmount .~ capital)
+                        blockBirkParameters . birkActiveBakers . totalActiveCapital += capital - _stakedAmount ab
+                        MTL.tell [BakerConfigureStakeIncreased capital]
 
     bsoConstrainBakerCommission origBS ai ranges = case origBS ^? blockAccounts . Accounts.indexedAccount ai of
         Nothing -> return origBS
@@ -1384,19 +1374,6 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                         newActiveBakers = Map.insert bid newDels (ab ^. activeBakers)
                         newAB = ab{_activeBakers = newActiveBakers}
                     return $! _blockBirkParameters bs & birkActiveBakers .~ newAB
-    bsoConfigureDelegation bs ai DelegationConfigureRemove{..} =
-        return $! case bs ^? blockAccounts . Accounts.indexedAccount ai of
-            Just Account{_accountStaking = AccountStakeDelegate ad@AccountDelegationV1{..}}
-              | _delegationPendingChange /= NoChange -> (DCChangePending, bs)
-              | otherwise ->
-                  let cooldownDuration = bs ^. blockUpdates . currentParameters . cpCooldownParameters . cpDelegatorCooldown
-                      cooldownElapsed = addDurationSeconds dcrSlotTimestamp cooldownDuration
-                  in (DCSuccess [] (DelegatorId ai),
-                      bs
-                        & blockAccounts . Accounts.indexedAccount ai . accountStaking .~
-                            AccountStakeDelegate (ad & delegationPendingChange .~ RemoveStake (PendingChangeEffectiveV1 cooldownElapsed))
-                        )
-            _ -> (DCInvalidDelegator, bs)
     bsoConfigureDelegation origBS ai DelegationConfigureUpdate{..} = do
         poolParams <- _cpPoolParameters <$> BS.bsoGetChainParameters origBS
         let res = MTL.runExcept $ MTL.runWriterT $ flip MTL.execStateT origBS $ do
@@ -1419,13 +1396,16 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
         modifyAccount f = do
             ad <- getAccount
             putAccount $! f ad
-        requireNoPendingChange = do
+        updateCapital poolParams = forM_ dcuCapital $ \capital -> do
             ad <- getAccount
             when (_delegationPendingChange ad /= NoChange) (MTL.throwError DCChangePending)
-        updateCapital poolParams = forM_ dcuCapital $ \capital -> do
-            requireNoPendingChange
-            ad <- getAccount
-            case compare capital (ad ^. delegationStakedAmount) of
+            if capital == 0 then do
+                let cooldownDuration = origBS ^. blockUpdates . currentParameters . cpCooldownParameters . cpDelegatorCooldown
+                    cooldownElapsed = addDurationSeconds dcuSlotTimestamp cooldownDuration
+                    dpc = RemoveStake (PendingChangeEffectiveV1 cooldownElapsed)
+                modifyAccount (delegationPendingChange .~ dpc)
+                MTL.tell [DelegationConfigureStakeReduced capital]
+            else case compare capital (ad ^. delegationStakedAmount) of
                 LT -> do
                     let cooldownDuration = origBS ^. blockUpdates . currentParameters . cpCooldownParameters . cpDelegatorCooldown
                         cooldownElapsed = addDurationSeconds dcuSlotTimestamp cooldownDuration
@@ -1454,8 +1434,17 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             MTL.tell [DelegationConfigureRestakeEarnings restakeEarnings]
         updateDelegationTarget = forM_ dcuDelegationTarget $ \target -> do
             ad <- getAccount
-            unless (target == ad ^. delegationTarget) $
-              modifyAccount (delegationTarget .~ target)
+            unless (target == ad ^. delegationTarget) $ do
+                ab <- use $ blockBirkParameters . birkActiveBakers
+                when (isNothing $ ab ^? pool target) $ case target of
+                        DelegateToBaker targetBaker -> MTL.throwError (DCInvalidDelegationTarget targetBaker)
+                        DelegateToLPool -> error "L-Pool should always be a valid delegation target"
+                blockBirkParameters . birkActiveBakers %=
+                    (
+                        (pool (ad ^. delegationTarget) %~ removeDelegator did (ad ^. delegationStakedAmount))
+                        . (pool target %~ addDelegator did (ad ^. delegationStakedAmount))
+                    )
+                modifyAccount (delegationTarget .~ target)
             MTL.tell [DelegationConfigureDelegationTarget target]
         addTotalsInActiveBakers ab0 ad delta =
             let ab1 = ab0 & totalActiveCapital +~ delta in
@@ -1566,7 +1555,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
     bsoGetBakerPoolRewardDetails bs bid =
       let bprds = PoolRewards.bakerPoolRewardDetails $ bs ^. blockPoolRewards
           capitals = PoolRewards.currentCapital (bs ^. blockPoolRewards) ^. unhashed
-          idx = case binarySearchI PoolRewards.bcBakerId (PoolRewards.bakerPoolCapital capitals) bid of
+          idx = case binarySearchI bcBakerId (bakerPoolCapital capitals) bid of
             Nothing ->
               error $
                   "Invariant violation: Basic.bsoGetBakerPoolRewardDetails: baker ID "
@@ -1697,8 +1686,8 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
     {-# INLINE bsoClearProtocolUpdate #-}
     bsoClearProtocolUpdate bs = return $! bs & blockUpdates %~ clearProtocolUpdate
 
-    bsoSetNextCapitalDistribution bs bakers lpool =
-        return $! bs & blockPoolRewards %~ PoolRewards.setNextCapitalDistribution bakers lpool
+    bsoSetNextCapitalDistribution bs cd =
+        return $! bs & blockPoolRewards %~ PoolRewards.setNextCapitalDistribution cd
 
     bsoRotateCurrentCapitalDistribution bs =
         return $! bs & blockPoolRewards %~ PoolRewards.rotateCapitalDistribution
@@ -1883,24 +1872,23 @@ genesisStakesAndRewardDetails spv = case spv of
         runPureBlockStateMonad @pv $ do
             let (bakers, lpoolDelegators) = collateBakersAndDelegators accounts
                 bsc = computeBakerStakesAndCapital pp bakers lpoolDelegators
-            bakerCapitals <- bakerCapitalsM bsc
+            capDist <- capitalDistributionM bsc
             let newEpochBakers = makeHashedEpochBakers (bakerStakes bsc)
-                _activeBakers = Map.fromList
-                        [(bid, ActivePool (Set.fromList (fst <$> dlgs)) (sum $ snd <$> dlgs)) | (bid, _, dlgs) <- bakerCapitals]
                 _lPoolDelegators = ActivePool
                         (Set.fromList (BS.activeDelegatorId <$> lpoolDelegators))
                         (sum $ BS.activeDelegatorStake <$> lpoolDelegators)
-                bakerCapital = sum $ (^. _2) <$> bakerCapitals
-                delegatorCapital = sum $ _apDelegatorTotalCapital <$> _activeBakers
-                lPoolCapital = _apDelegatorTotalCapital _lPoolDelegators
-                _birkActiveBakers =
-                    ActiveBakers
-                        { _aggregationKeys =
-                            Set.fromList $
-                                (^. _1 . bakerAggregationVerifyKey) <$> bakerStakes bsc,
-                          _totalActiveCapital = bakerCapital + delegatorCapital + lPoolCapital,
-                          ..
-                        }
+                activeBakers0 = ActiveBakers{
+                        _activeBakers = Map.empty,
+                        _aggregationKeys = Set.fromList ((^. _1 . bakerAggregationVerifyKey) <$> bakerStakes bsc),
+                        _totalActiveCapital = _apDelegatorTotalCapital _lPoolDelegators,
+                        ..
+                    }
+                accumBaker ab BakerCapital{..} = ab
+                    & activeBakers %~ Map.insert bcBakerId actPool
+                    & totalActiveCapital +~ bcBakerEquityCapital + _apDelegatorTotalCapital actPool
+                    where
+                        actPool = makeActivePool bcDelegatorCapital
+                _birkActiveBakers = foldl' accumBaker activeBakers0 (bakerPoolCapital capDist)
                 birkParams :: BasicBirkParameters 'AccountV1
                 birkParams =
                     BasicBirkParameters
@@ -1911,8 +1899,7 @@ genesisStakesAndRewardDetails spv = case spv of
                 rewardDetails =
                     BlockRewardDetailsV1 . makeHashed $
                         PoolRewards.makeInitialPoolRewards
-                            bakerCapitals
-                            (lpoolCapital bsc)
+                            capDist
                             (rewardPeriodEpochs $ _tpRewardPeriodLength tp)
                             (_tpMintPerPayday tp)
             return (birkParams, rewardDetails)

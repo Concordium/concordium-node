@@ -1,15 +1,13 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |Functionality for handling baker changes based on epoch boundaries.
 module Concordium.Kontrol.Bakers where
 
-import Control.Arrow
+import qualified Data.Vector as Vec
 import Lens.Micro.Platform
 
 import Concordium.Types
@@ -17,6 +15,7 @@ import Concordium.Types.Accounts
 
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.CapitalDistribution
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.TreeState
 import Concordium.Types.SeedState
@@ -141,10 +140,8 @@ effectiveTest paydayEpoch = do
 data BakerStakesAndCapital m = BakerStakesAndCapital
     { -- |The baker info and stake for each baker.
       bakerStakes :: [(BakerInfoRef m, Amount)],
-      -- |Determine the capital distribution for bakers.
-      bakerCapitalsM :: m [(BakerId, Amount, [(DelegatorId, Amount)])],
-      -- |The capital distribution for the L-pool.
-      lpoolCapital :: [(DelegatorId, Amount)]
+      -- |Determine the capital distribution.
+      capitalDistributionM :: m CapitalDistribution
     }
 
 -- |Compute the baker stakes and capital distribution.
@@ -172,12 +169,19 @@ computeBakerStakesAndCapital poolParams activeBakers lpoolDelegators = BakerStak
             ]
         )
     bakerStakes = zipWith makeBakerStake activeBakers poolCapitals
-    delegatorCapital ActiveDelegatorInfo{..} = (activeDelegatorId, activeDelegatorStake)
+    delegatorCapital ActiveDelegatorInfo{..} = DelegatorCapital activeDelegatorId activeDelegatorStake
     bakerCapital ActiveBakerInfo{..} = do
         bid <- _bakerIdentity <$> derefBakerInfo activeBakerInfoRef
-        return (bid, activeBakerEquityCapital, delegatorCapital <$> activeBakerDelegators)
-    bakerCapitalsM = mapM bakerCapital activeBakers
-    lpoolCapital = (activeDelegatorId &&& activeDelegatorStake) <$> lpoolDelegators
+        return
+            BakerCapital
+                { bcBakerId = bid,
+                  bcBakerEquityCapital = activeBakerEquityCapital,
+                  bcDelegatorCapital = Vec.fromList $ delegatorCapital <$> activeBakerDelegators
+                }
+    capitalDistributionM = do
+        bakerPoolCapital <- Vec.fromList <$> mapM bakerCapital activeBakers
+        let lPoolCapital = Vec.fromList $ delegatorCapital <$> lpoolDelegators
+        return CapitalDistribution{..}
 
 -- |Generate and set the next epoch bakers and next capital based on the current active bakers.
 generateNextBakers ::
@@ -210,8 +214,8 @@ generateNextBakers paydayEpoch bs0 = do
                 activeBakers
                 lpoolDelegators
     bs1 <- bsoSetNextEpochBakers bs0 bakerStakes
-    bakerCapitals <- bakerCapitalsM
-    bsoSetNextCapitalDistribution bs1 bakerCapitals lpoolCapital
+    capDist <- capitalDistributionM
+    bsoSetNextCapitalDistribution bs1 capDist
 
 -- |Determine the bakers that apply to a future slot, given the state at a particular block.
 -- The assumption is that there are no blocks between the block and the future slot; i.e. this
@@ -230,7 +234,7 @@ generateNextBakers paydayEpoch bs0 = do
 -- circumstance).
 getSlotBakersV1 ::
     forall m.
-    ( BlockStateOperations m
+    ( BlockStateQuery m
     ) =>
     -- |State of parent block
     BlockState m ->
@@ -238,7 +242,7 @@ getSlotBakersV1 ::
     Slot ->
     m FullBakers
 getSlotBakersV1 bs slot = do
-    SeedState{epochLength, epoch=oldEpoch} <- getSeedState bs
+    SeedState{epochLength, epoch = oldEpoch} <- getSeedState bs
     let slotEpoch = fromIntegral $ slot `quot` epochLength
     if oldEpoch == slotEpoch
         then getCurrentEpochBakers bs

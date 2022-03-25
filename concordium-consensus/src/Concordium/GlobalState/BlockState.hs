@@ -68,6 +68,7 @@ import Concordium.GlobalState.Basic.BlockState.PoolRewards
 import Concordium.GlobalState.BakerInfo
 import qualified Concordium.Types.UpdateQueues as UQ
 import Concordium.Types.Accounts hiding (getAccountBaker, getAccountStake)
+import Concordium.GlobalState.CapitalDistribution
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Instance
@@ -816,10 +817,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   bsoSetNextCapitalDistribution ::
     (AccountVersionFor (MPV m) ~ 'AccountV1) =>
     UpdatableBlockState m ->
-    -- |Capital of bakers and their delegators
-    [(BakerId, Amount, [(DelegatorId, Amount)])] ->
-    -- |Capital of L-pool delegators
-    [(DelegatorId, Amount)] ->
+    CapitalDistribution ->
     m (UpdatableBlockState m)
 
   -- |Set the current capital distribution to the current value of the next capital distribution.
@@ -1051,7 +1049,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoGetEpochBlocksBaked = lift . bsoGetEpochBlocksBaked
   bsoNotifyBlockBaked s = lift . bsoNotifyBlockBaked s
   bsoClearEpochBlocksBaked = lift . bsoClearEpochBlocksBaked
-  bsoSetNextCapitalDistribution s cb cl = lift $ bsoSetNextCapitalDistribution s cb cl
+  bsoSetNextCapitalDistribution s cd = lift $ bsoSetNextCapitalDistribution s cd
   bsoRotateCurrentCapitalDistribution = lift . bsoRotateCurrentCapitalDistribution
   bsoSetNextEpochBakers s = lift . bsoSetNextEpochBakers s
   bsoGetBankStatus = lift . bsoGetBankStatus

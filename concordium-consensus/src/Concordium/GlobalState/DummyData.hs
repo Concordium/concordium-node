@@ -23,6 +23,7 @@ import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Accounts
 import qualified Concordium.GlobalState.Basic.BlockState.AccountTable as AT
+import Concordium.GlobalState.CapitalDistribution
 import Concordium.Types.IdentityProviders
 import Concordium.Types.AnonymityRevokers
 import Concordium.GlobalState.Parameters
@@ -264,10 +265,11 @@ dummyChainParameters = case chainParametersVersion @cpv of
       cooldown = DurationSeconds (24 * 60 * 60)
 
 createPoolRewards :: (AccountVersionFor pv ~ 'AccountV1) => Accounts pv -> PoolRewards.PoolRewards
-createPoolRewards accounts = PoolRewards.makeInitialPoolRewards bakers lPool 1 (MintRate 1 10)
+createPoolRewards accounts = PoolRewards.makeInitialPoolRewards capDist 1 (MintRate 1 10)
   where
     (bakersMap, lPool) = foldr accumDelegations (Map.empty, []) (AT.toList (accountTable accounts))
     bakers = [(bid, amt, dlgs) | (bid, (amt, dlgs)) <- Map.toList bakersMap]
+    capDist = makeCapitalDistribution bakers lPool
     accumDelegations (ai, acct) acc@(bm, lp) = case acct ^. accountStaking of
       AccountStakeNone -> acc
       AccountStakeBaker bkr -> (bm & at (BakerId ai) . non (0, []) . _1 .~ bkr ^. stakedAmount, lp)

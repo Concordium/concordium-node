@@ -26,6 +26,7 @@ import qualified Concordium.Types.Accounts as BaseAccounts
 import Concordium.GlobalState.Persistent.Account
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.Types
+import Concordium.Types.Execution (DelegationTarget(..))
 import Concordium.Utils.BinarySearch
 import Concordium.Utils.Serialization
 
@@ -255,6 +256,64 @@ totalActiveCapitalV1 = totalActiveCapital . tac
     where
         tac :: Lens' (TotalActiveCapital 'AccountV1) Amount
         tac f (TotalActiveCapitalV1 v) = TotalActiveCapitalV1 <$> f v
+
+-- |A helper function that adds a delegator to a 'PersistentActiveDelegators'.
+-- It is assumed that the delegator is not already in the delegators.
+addDelegatorHelper :: (MonadBlobStore m) => DelegatorId -> Amount -> PersistentActiveDelegators 'AccountV1 -> m (PersistentActiveDelegators 'AccountV1)
+addDelegatorHelper did amt (PersistentActiveDelegatorsV1 dset tot) = do
+    newDset <- Trie.insert did () dset
+    return $ PersistentActiveDelegatorsV1 newDset (tot + amt)
+
+-- |Add a delegator to the persistent active bakers at a particular target.
+-- It is assumed that the delegator is not already delegated to this target.
+-- If the target is not valid (i.e. it is a baker, but not in the active bakers) then the result
+-- is @Left bid@, where @bid@ is the id of the target baker.  Otherwise, the return value is
+-- @Right pab'@ where @pab'@ is the updated 'PersistentActiveBakers'.
+--
+-- IMPORTANT: This does not update the total active capital!
+addDelegator ::
+    (MonadBlobStore m) =>
+    DelegationTarget ->
+    DelegatorId ->
+    Amount ->
+    PersistentActiveBakers 'AccountV1 ->
+    m (Either BakerId (PersistentActiveBakers 'AccountV1))
+addDelegator DelegateToLPool did amt pab =
+    Right <$> lPoolDelegators (addDelegatorHelper did amt) pab
+addDelegator (DelegateToBaker bid) did amt pab =
+    Trie.lookup bid (pab ^. activeBakers) >>= \case
+        Nothing -> return $ Left bid
+        Just pad -> do
+            pad' <- addDelegatorHelper did amt pad
+            newActiveBakers <- Trie.insert bid pad' (pab ^. activeBakers)
+            return $ Right $ pab & activeBakers .~ newActiveBakers
+
+-- |A helper function that removes a delegator from a 'PersistentActiveDelegators'.
+-- It is assumed that the delegator is in the delegators with the specified amount.
+removeDelegatorHelper :: (MonadBlobStore m) => DelegatorId -> Amount -> PersistentActiveDelegators 'AccountV1 -> m (PersistentActiveDelegators 'AccountV1)
+removeDelegatorHelper did amt (PersistentActiveDelegatorsV1 dset tot) = do
+    newDset <- Trie.delete did dset
+    return $ PersistentActiveDelegatorsV1 newDset (tot - amt)
+
+-- |Remove a delegator from 'PersistentActiveBakers'. It is assumed that the delegator
+-- belongs to the pool, and the 'Amount' correctly represents the delegator's contribution.
+--
+-- IMPORTANT: This does not update the total active capital!
+removeDelegator ::
+    (MonadBlobStore m) =>
+    DelegationTarget ->
+    DelegatorId ->
+    Amount ->
+    PersistentActiveBakers 'AccountV1 ->
+    m (PersistentActiveBakers 'AccountV1)
+removeDelegator DelegateToLPool did amt pab = lPoolDelegators (removeDelegatorHelper did amt) pab
+removeDelegator (DelegateToBaker bid) did amt pab = do
+    let rdh Nothing = return ((), Trie.NoChange)
+        rdh (Just pad) = do
+            pad' <- removeDelegatorHelper did amt pad
+            return ((), Trie.Insert pad')
+    newActiveBakers <- snd <$> Trie.adjust rdh bid (pab ^. activeBakers)
+    return $ pab & activeBakers .~ newActiveBakers
 
 instance
         (IsAccountVersion av, MonadBlobStore m) =>

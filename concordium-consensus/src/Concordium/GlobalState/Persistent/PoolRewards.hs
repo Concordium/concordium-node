@@ -25,14 +25,10 @@ import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as BasicLFMBT
 import Concordium.GlobalState.Rewards
 
 import Concordium.GlobalState.Basic.BlockState.PoolRewards (
-    BakerCapital (..),
     BakerPoolRewardDetails (..),
-    CapitalDistribution (..),
-    DelegatorCapital (..),
-    bcTotalDelegatorCapital,
-    emptyCapitalDistribution,
  )
 import qualified Concordium.GlobalState.Basic.BlockState.PoolRewards as BasicPoolRewards
+import Concordium.GlobalState.CapitalDistribution
 
 import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Persistent.LFMBTree as LFMBT
@@ -210,7 +206,7 @@ setNextCapitalDistribution bakers lpool oldPoolRewards = do
     let lPoolCapital = Vec.fromList $ map mkDelCap lpool
     capDist <- refMake $ CapitalDistribution{..}
     pr <- refLoad oldPoolRewards
-    refMake $ (pr{nextCapital = capDist})
+    refMake pr{nextCapital = capDist}
   where
     mkBakCap (bcBakerId, bcBakerEquityCapital, dels) =
         let bcDelegatorCapital = Vec.fromList $ map mkDelCap dels
