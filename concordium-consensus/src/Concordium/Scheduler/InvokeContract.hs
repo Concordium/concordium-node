@@ -140,10 +140,17 @@ invokeContract _ ContractContext{..} cm bs = do
           Left err -> return (Left err, ccEnergy)
           Right (invoker, addr, ai) -> do
             let comp = do
-                  istance <- getContractInstance ccContract `rejectingWith` InvalidContractAddress ccContract
-                  case istance of
-                    BS.InstanceInfoV0 i -> Left <$> handleContractUpdateV0 addr i {BS.iiState = Frozen (BS.iiState i)} invoker ccAmount ccMethod ccParameter
-                    BS.InstanceInfoV1 i -> Right <$> handleContractUpdateV1 addr i {BS.iiState = Frozen (BS.iiState i)} (fmap Right . invoker) ccAmount ccMethod ccParameter
+                  let onV0 i = handleContractUpdateV0 addr i invoker ccAmount ccMethod ccParameter
+                  let onV1 i = handleContractUpdateV1 addr i (fmap Right . invoker) ccAmount ccMethod ccParameter
+                  istance <- getCurrentContractInstanceTicking ccContract
+                  result <- case istance of
+                             BS.InstanceInfoV0 i -> Left <$> onV0 i
+                             BS.InstanceInfoV1 i -> Right <$> onV1 i
+                  -- charge for storage of V1 contracts, so that the cost that
+                  -- will be returned matches the cost that will be charged by
+                  -- the transaction (minus the signature checking cost)
+                  chargeV1Storage
+                  return result
             (r, cs) <- runLocalT @pv comp ccAmount ai ccEnergy ccEnergy
             return (r, _energyLeft cs)
       contextState = ContextState{_maxBlockEnergy = ccEnergy, _accountCreationLimit = 0, _chainMetadata = cm}

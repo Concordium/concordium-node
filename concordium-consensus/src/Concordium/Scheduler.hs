@@ -40,6 +40,7 @@ module Concordium.Scheduler
   ,checkAndGetBalanceInstanceV0
   ,checkAndGetBalanceAccountV1
   ,checkAndGetBalanceAccountV0
+  ,getCurrentContractInstanceTicking
   ,FilteredTransactions(..)
   ) where
 import qualified Concordium.GlobalState.Wasm as GSWasm
@@ -1097,7 +1098,6 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                 go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.Error cer) (WasmV1.ccfToReturnValue cer))
                               Right (rVal, callEvents) -> do
                                 (lastModifiedIndex, newState) <- getCurrentContractInstanceState istance
-                                (stateChanged, resumeState) <- (lastModifiedIndex /= modificationIndex,) <$> getRuntimeReprV1 newState
                                 let stateChanged = lastModifiedIndex /= modificationIndex
                                 resumeState <- getRuntimeReprV1 newState
                                 newBalance <- getCurrentContractAmount Wasm.SV1 istance
