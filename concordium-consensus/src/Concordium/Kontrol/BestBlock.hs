@@ -21,7 +21,7 @@ import Concordium.Skov.Monad
 import Concordium.Birk.LeaderElection
 import Concordium.GlobalState.TreeState(Branches, BlockPointerType)
 import Concordium.Kontrol
-import Concordium.Genesis.Data
+import Concordium.Kontrol.Bakers
 
 blockLuck :: (SkovQueryMonad m) => BlockPointerType m -> m BlockLuck
 blockLuck block = case blockFields block of
@@ -32,8 +32,7 @@ blockLuck block = case blockFields block of
             -- that determine the luck of the block itself.
             parent <- bpParent block
             parentState <- blockState parent
-            gd <- getGenesisData
-            bakers <- getSlotBakers parentState (gdGenesisTime gd) (gdSlotDuration gd) (blockSlot block)
+            bakers <- getSlotBakers parentState (blockSlot block)
             let baker = lotteryBaker bakers (blockBaker bf)
             ts <- getSlotTimestamp (blockSlot block)
             elDiff <- getElectionDifficulty parentState ts

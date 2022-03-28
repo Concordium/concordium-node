@@ -640,7 +640,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
 
     getNextEpochBakers = return . epochToFullBakers . view (blockBirkParameters . birkNextEpochBakers . unhashed)
 
-    getSlotBakers hbs genesisTime slotDuration slot = return $ case compare slotEpoch (epoch + 1) of
+    getSlotBakersP1 hbs slot = return $ case compare slotEpoch (epoch + 1) of
         -- LT should mean it's the current epoch, since the slot should be at least the slot of this block.
         LT -> epochToFullBakers (_unhashed (_birkCurrentEpochBakers bps))
         -- EQ means the next epoch.
@@ -656,19 +656,14 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
         bps = bs ^. blockBirkParameters
         SeedState{..} = _birkSeedState bps
         slotEpoch = fromIntegral $ slot `quot` epochLength
-        slotTime = addDuration genesisTime (fromIntegral slot * slotDuration)
         futureBakers = Vec.fromList $ foldr resolveBaker [] (Map.keys (_activeBakers (_birkActiveBakers bps)))
         resolveBaker (BakerId aid) l = case bs ^? blockAccounts . Accounts.indexedAccount aid of
             Just acct -> case acct ^? accountBaker of
               Just AccountBaker{..} -> case _bakerPendingChange of
                 RemoveStake (PendingChangeEffectiveV0 remEpoch)
                   | remEpoch < slotEpoch -> l
-                RemoveStake (PendingChangeEffectiveV1 remTime)
-                  | remTime < slotTime -> l
                 ReduceStake newAmt (PendingChangeEffectiveV0 redEpoch)
                   | redEpoch < slotEpoch -> (FullBakerInfo (_accountBakerInfo ^. bakerInfo) newAmt) : l
-                ReduceStake newAmt (PendingChangeEffectiveV1 redTime)
-                  | redTime < slotTime -> (FullBakerInfo (_accountBakerInfo ^. bakerInfo) newAmt) : l
                 _ -> (FullBakerInfo (_accountBakerInfo ^. bakerInfo) _stakedAmount) : l
               Nothing -> error "Basic.getSlotBakers invariant violation: active baker account not a baker"
             Nothing -> error "Basic.getSlotBakers invariant violation: active baker account not valid"
@@ -1379,7 +1374,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
         let res = MTL.runExcept $ MTL.runWriterT $ flip MTL.execStateT origBS $ do
                 updateDelegationTarget
                 updateRestakeEarnings
-                updateCapital poolParams
+                updateCapital
                 checkOverdelegation poolParams
         return $! case res of
             Left errorRes -> (errorRes, origBS)
@@ -1397,7 +1392,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
         modifyAccount f = do
             ad <- getAccount
             putAccount $! f ad
-        updateCapital poolParams = forM_ dcuCapital $ \capital -> do
+        updateCapital = forM_ dcuCapital $ \capital -> do
             ad <- getAccount
             when (_delegationPendingChange ad /= NoChange) (MTL.throwError DCChangePending)
             if capital == 0 then do

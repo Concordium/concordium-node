@@ -31,6 +31,7 @@ import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.Scheduler.TreeStateEnvironment
 
 import Concordium.Kontrol hiding (getRuntimeParameters, getGenesisData)
+import Concordium.Kontrol.Bakers
 import Concordium.Birk.LeaderElection
 import Concordium.Kontrol.UpdateLeaderElectionParameters
 import Concordium.Afgjort.Finalize
@@ -42,7 +43,6 @@ import qualified Concordium.TransactionVerification as TV
 import Concordium.Types.Updates (uiHeader, updateType, uiPayload)
 import Concordium.Scheduler.Types (updateSeqNumber)
 import Concordium.GlobalState.TransactionTable
-import qualified Concordium.Skov.Monad as SkovMonad
 
 -- |Determine if one block is an ancestor of another.
 -- A block is considered to be an ancestor of itself.
@@ -364,8 +364,7 @@ addBlock block txvers = do
                 -- block's state in order that the current block is valid
                 parentState <- blockState parentP
                 -- Determine the baker and its lottery power
-                gd <- SkovMonad.getGenesisData
-                bakers <- getSlotBakers parentState (gdGenesisTime gd) (gdSlotDuration gd) (blockSlot block)
+                bakers <- getSlotBakers parentState (blockSlot block)
                 let baker = lotteryBaker bakers (blockBaker block)
                 -- Determine the leadership election nonce
                 parentSeedState <- getSeedState parentState

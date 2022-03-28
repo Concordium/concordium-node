@@ -272,9 +272,9 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
         b1 <- coerceBSML (getCurrentEpochBakers ls)
         b2 <- coerceBSMR (getCurrentEpochBakers rs)
         assert (b1 == b2) $ return b1
-    getSlotBakers (ls, rs) t d s = do
-        b1 <- coerceBSML (getSlotBakers ls t d s)
-        b2 <- coerceBSMR (getSlotBakers rs t d s)
+    getSlotBakersP1 (ls, rs) s = do
+        b1 <- coerceBSML (getSlotBakersP1 ls s)
+        b2 <- coerceBSMR (getSlotBakersP1 rs s)
         assert (b1 == b2) $ return b1
     getRewardStatus (ls, rs) = do
         a1 <- coerceBSML (getRewardStatus ls)

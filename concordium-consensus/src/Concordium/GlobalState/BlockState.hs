@@ -261,7 +261,8 @@ class AccountOperations m => BlockStateQuery m where
     getNextEpochBakers :: BlockState m -> m FullBakers
 
     -- |Get the bakers for a particular (future) slot, provided genesis timestamp and slot duration.
-    getSlotBakers :: BlockState m -> Timestamp -> Duration -> Slot -> m FullBakers
+    -- This is used for protocol version P1 to P3.
+    getSlotBakersP1 :: (AccountVersionFor (MPV m) ~ 'AccountV0) => BlockState m -> Slot -> m FullBakers
 
     -- |Get the account of a baker. This may return an account even
     -- if the account is not (currently) a baker, since a 'BakerId'
@@ -896,7 +897,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   getSeedState = lift . getSeedState
   getCurrentEpochBakers = lift . getCurrentEpochBakers
   getNextEpochBakers = lift . getNextEpochBakers
-  getSlotBakers s t d = lift . getSlotBakers s t d
+  getSlotBakersP1 d = lift . getSlotBakersP1 d
   getRewardStatus = lift . getRewardStatus
   getTransactionOutcome s = lift . getTransactionOutcome s
   getTransactionOutcomesHash = lift . getTransactionOutcomesHash
@@ -930,7 +931,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   {-# INLINE getContractInstanceList #-}
   {-# INLINE getSeedState #-}
   {-# INLINE getCurrentEpochBakers #-}
-  {-# INLINE getSlotBakers #-}
+  {-# INLINE getSlotBakersP1 #-}
   {-# INLINE getRewardStatus #-}
   {-# INLINE getOutcomes #-}
   {-# INLINE getTransactionOutcome #-}

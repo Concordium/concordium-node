@@ -38,13 +38,13 @@ import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
 import Concordium.Types.SeedState
 
 import Concordium.Kontrol
+import Concordium.Kontrol.Bakers
 import Concordium.Birk.LeaderElection
 import Concordium.Kontrol.BestBlock
 import Concordium.Kontrol.UpdateLeaderElectionParameters
 import Concordium.Afgjort.Finalize
 import Concordium.Skov
 import Concordium.Skov.Update (blockArrive, onBlock, updateFocusBlockTo, OnSkov, makeFinalizerInfo)
-import qualified Concordium.Skov.Monad as SkovMonad
 
 import Concordium.Scheduler.TreeStateEnvironment(constructBlock, ExecutionResult, ExecutionResult'(..), FinalizerInfo)
 import Concordium.Scheduler.Types(FilteredTransactions(..))
@@ -207,8 +207,7 @@ doBakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     bb <- bestBlockBefore slot
     guard (blockSlot bb < slot)
     bbState <- blockState bb
-    gd <- SkovMonad.getGenesisData
-    bakers <- getSlotBakers bbState (gdGenesisTime gd) (gdSlotDuration gd) slot
+    bakers <- getSlotBakers bbState slot
     (binfo, lotteryPower) <- MaybeT . return $ lotteryBaker bakers bakerId
     unless (validateBakerKeys binfo ident) $ do
       logEvent Baker LLWarning "Baker keys are incorrect."

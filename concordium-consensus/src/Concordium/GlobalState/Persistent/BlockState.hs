@@ -686,14 +686,13 @@ doGetNextEpochBakers pbs = do
     bsp <- loadPBS pbs
     epochToFullBakers =<< refLoad (bspBirkParameters bsp ^. birkNextEpochBakers)
 
-doGetSlotBakers :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> Timestamp -> Duration -> Slot -> m FullBakers
-doGetSlotBakers pbs genesisTime slotDuration slot = do
+doGetSlotBakersP1 :: (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV0, MonadBlobStore m) => PersistentBlockState pv -> Slot -> m FullBakers
+doGetSlotBakersP1 pbs slot = do
         bs <- loadPBS pbs
         let
             bps = bspBirkParameters bs
             SeedState{..} = bps ^. birkSeedState
             slotEpoch = fromIntegral $ slot `quot` epochLength
-            slotTime = addDuration genesisTime (fromIntegral slot * slotDuration)
         case compare slotEpoch (epoch + 1) of
             LT -> epochToFullBakers =<< refLoad (bps ^. birkCurrentEpochBakers)
             EQ -> epochToFullBakers =<< refLoad (bps ^. birkNextEpochBakers)
@@ -709,10 +708,6 @@ doGetSlotBakers pbs genesisTime slotDuration slot = do
                                         | remEpoch < slotEpoch -> Nothing
                                     BaseAccounts.ReduceStake newAmt (BaseAccounts.PendingChangeEffectiveV0 redEpoch)
                                         | redEpoch < slotEpoch -> Just (FullBakerInfo (abi ^. BaseAccounts.bakerInfo) newAmt)
-                                    BaseAccounts.RemoveStake (BaseAccounts.PendingChangeEffectiveV1 remTime)
-                                        | remTime < slotTime -> Nothing
-                                    BaseAccounts.ReduceStake newAmt (BaseAccounts.PendingChangeEffectiveV1 redTime)
-                                        | redTime < slotTime -> Just (FullBakerInfo (abi ^. BaseAccounts.bakerInfo) newAmt)
                                     _ -> Just (FullBakerInfo (abi ^. BaseAccounts.bakerInfo) (pab ^. stakedAmount))
                             Null -> error "Persistent.getSlotBakers invariant violation: active baker account not a baker"
                         Nothing -> error "Persistent.getSlotBakers invariant violation: active baker account not valid"
@@ -2484,7 +2479,7 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateQuery (Persist
     getSeedState = doGetSeedState . hpbsPointers
     getCurrentEpochBakers = doGetCurrentEpochBakers . hpbsPointers
     getNextEpochBakers = doGetNextEpochBakers . hpbsPointers
-    getSlotBakers = doGetSlotBakers . hpbsPointers
+    getSlotBakersP1 = doGetSlotBakersP1 . hpbsPointers
     getBakerAccount = doGetBakerAccount . hpbsPointers
     getRewardStatus = doGetRewardStatus . hpbsPointers
     getTransactionOutcome = doGetTransactionOutcome . hpbsPointers

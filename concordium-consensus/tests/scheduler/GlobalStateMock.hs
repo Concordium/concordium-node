@@ -99,7 +99,7 @@ data BlockStateQueryAction (pv :: ProtocolVersion) a where
     GetSeedState :: MockBlockState -> BlockStateQueryAction pv SeedState
     GetCurrentEpochBakers :: MockBlockState -> BlockStateQueryAction pv FullBakers
     GetNextEpochBakers :: MockBlockState -> BlockStateQueryAction pv FullBakers
-    GetSlotBakers :: MockBlockState -> Timestamp -> Duration -> Slot -> BlockStateQueryAction pv FullBakers
+    GetSlotBakersP1 :: MockBlockState -> Slot -> BlockStateQueryAction pv FullBakers
     GetBakerAccount :: MockBlockState -> BakerId -> BlockStateQueryAction pv (Maybe MockAccount)
     GetRewardStatus :: MockBlockState -> BlockStateQueryAction pv (RewardStatus' Epoch)
     GetTransactionOutcome :: MockBlockState -> TransactionIndex -> BlockStateQueryAction pv (Maybe TransactionSummary)

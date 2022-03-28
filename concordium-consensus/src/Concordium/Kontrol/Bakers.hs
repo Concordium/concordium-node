@@ -2,6 +2,7 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |Functionality for handling baker changes based on epoch boundaries.
@@ -207,7 +208,7 @@ generateNextBakers paydayEpoch bs0 = do
     -- However, this can include updates that are effective AFTER the epoch boundary but BEFORE
     -- the block. Thus the timing of the first block in the epoch before a payday can make a
     -- difference to the stake calculation for the next reward period. (Note also that if there
-    -- are no blocks in this epoch, 'getSlotBakersV1' does not apply any updates.)
+    -- are no blocks in this epoch, 'getSlotBakersP4' does not apply any updates.)
     cps <- bsoGetChainParameters bs0
     let BakerStakesAndCapital{..} =
             computeBakerStakesAndCapital
@@ -219,12 +220,15 @@ generateNextBakers paydayEpoch bs0 = do
     bsoSetNextCapitalDistribution bs1 capDist
 
 -- |Determine the bakers that apply to a future slot, given the state at a particular block.
+-- This implementation is used for protocol version P4 and later.
 -- The assumption is that there are no blocks between the block and the future slot; i.e. this
 -- is used to determine the lottery participants that will try to bake a block with the block as the
 -- parent.
 --
--- If the slot is in the same epoch as the previous block, use the current epoch bakers.
--- Otherwise, use the next epoch bakers.
+-- If the slot is in the same epoch as the given block, use the current epoch bakers.
+-- If the slot is in a later epoch, use the next epoch bakers.
+-- (This should not be called with a slot earlier than the block's slot. However, if it is,
+-- it will return the current epoch bakers.)
 --
 -- Note, the next epoch bakers are updated in the first block in the epoch before a payday.
 -- (Or, if there is no block in that epoch, the first block later than the epoch before the payday.)
@@ -233,7 +237,7 @@ generateNextBakers paydayEpoch bs0 = do
 -- means that potential changes affecting the bakers (such as stake changes) are not accounted for
 -- in the first block after at least one epoch has elapsed with no blocks (already an unlikely
 -- circumstance).
-getSlotBakersV1 ::
+getSlotBakersP4 ::
     forall m.
     ( BlockStateQuery m
     ) =>
@@ -242,9 +246,31 @@ getSlotBakersV1 ::
     -- |Slot to compute bakers for
     Slot ->
     m FullBakers
-getSlotBakersV1 bs slot = do
+getSlotBakersP4 bs slot = do
     SeedState{epochLength, epoch = oldEpoch} <- getSeedState bs
     let slotEpoch = fromIntegral $ slot `quot` epochLength
-    if oldEpoch == slotEpoch
+    if slotEpoch <= oldEpoch
         then getCurrentEpochBakers bs
         else getNextEpochBakers bs
+
+-- |Determine the bakers that apply to a future slot, given the state at a particular block.
+-- The assumption is that there are no blocks between the block and the future slot; i.e. this
+-- is used to determine the lottery participants that will try to bake a block with the block as the
+-- parent. (Therefore, it is expected that the given slot will be later than the
+-- slot of the given block.)
+--
+-- Prior to P4, if this function was called on an epoch beyond the next one, the bakers would be
+-- derived from the active bakers under, with cooldowns applied. However, from P4 the next epoch
+-- bakers will be returned instead. (This change in the protocol was made because it is even more
+-- complex to compute the bakers, but it does not add security.)
+getSlotBakers ::
+    forall m.
+    (MonadProtocolVersion m, BlockStateQuery m) =>
+    BlockState m ->
+    Slot ->
+    m FullBakers
+getSlotBakers = case protocolVersion @(MPV m) of
+    SP1 -> getSlotBakersP1
+    SP2 -> getSlotBakersP1
+    SP3 -> getSlotBakersP1
+    SP4 -> getSlotBakersP4
