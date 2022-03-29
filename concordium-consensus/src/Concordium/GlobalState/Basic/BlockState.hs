@@ -1158,19 +1158,19 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
         -- Cannot resolve the account
         Nothing -> (BCInvalidAccount, bs)
         Just Account{}
-          -- Aggregation key is a duplicate
-          | bkuAggregationKey bcaKeys `Set.member` (bs ^. blockBirkParameters . birkActiveBakers . aggregationKeys) ->
-                (BCDuplicateAggregationKey (bkuAggregationKey bcaKeys), bs)
           -- Provided stake is under threshold
           | bcaCapital < capitalMin ->
                 (BCStakeUnderThreshold, bs)
           -- Check that commissions are within the valid ranges
-          | not (isInRange bcaFinalizationRewardCommission (ranges ^. finalizationCommissionRange)) ->
-                (BCCommissionNotInRange, bs)
-          | not (isInRange bcaBakingRewardCommission (ranges ^. bakingCommissionRange)) ->
-                (BCCommissionNotInRange, bs)
           | not (isInRange bcaTransactionFeeCommission (ranges ^. transactionCommissionRange)) ->
-                (BCCommissionNotInRange, bs)
+                (BCTransactionFeeCommissionNotInRange, bs)
+          | not (isInRange bcaBakingRewardCommission (ranges ^. bakingCommissionRange)) ->
+                (BCBakingRewardCommissionNotInRange, bs)
+          | not (isInRange bcaFinalizationRewardCommission (ranges ^. finalizationCommissionRange)) ->
+                (BCFinalizationRewardCommissionNotInRange, bs)
+          -- Aggregation key is a duplicate
+          | bkuAggregationKey bcaKeys `Set.member` (bs ^. blockBirkParameters . birkActiveBakers . aggregationKeys) ->
+                (BCDuplicateAggregationKey (bkuAggregationKey bcaKeys), bs)
           -- All checks pass, add the baker
           | otherwise ->
             let bid = BakerId ai
@@ -1259,7 +1259,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             bs <- MTL.get
             let cp = bs ^. blockUpdates . currentParameters
             let range = cp ^. cpPoolParameters . ppCommissionBounds . transactionCommissionRange
-            unless (isInRange tfc range) (MTL.throwError BCCommissionNotInRange)
+            unless (isInRange tfc range) (MTL.throwError BCTransactionFeeCommissionNotInRange)
             ab <- getAccount
             unless (ab ^. accountBakerInfo . bieBakerPoolInfo . poolCommissionRates . transactionCommission == tfc) $
               modifyAccount (accountBakerInfo . bieBakerPoolInfo . poolCommissionRates . transactionCommission .~ tfc)
@@ -1268,7 +1268,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             bs <- MTL.get
             let cp = bs ^. blockUpdates . currentParameters
             let range = cp ^. cpPoolParameters . ppCommissionBounds . bakingCommissionRange
-            unless (isInRange brc range) (MTL.throwError BCCommissionNotInRange)
+            unless (isInRange brc range) (MTL.throwError BCBakingRewardCommissionNotInRange)
             ab <- getAccount
             unless (ab ^. accountBakerInfo . bieBakerPoolInfo . poolCommissionRates . bakingCommission == brc) $
               modifyAccount (accountBakerInfo . bieBakerPoolInfo . poolCommissionRates . bakingCommission .~ brc)
@@ -1277,7 +1277,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             bs <- MTL.get
             let cp = bs ^. blockUpdates . currentParameters
             let range = cp ^. cpPoolParameters . ppCommissionBounds . finalizationCommissionRange
-            unless (isInRange frc range) (MTL.throwError BCCommissionNotInRange)
+            unless (isInRange frc range) (MTL.throwError BCFinalizationRewardCommissionNotInRange)
             ab <- getAccount
             unless (ab ^. accountBakerInfo . bieBakerPoolInfo . poolCommissionRates . finalizationCommission == frc) $
               modifyAccount (accountBakerInfo . bieBakerPoolInfo . poolCommissionRates . finalizationCommission .~ frc)

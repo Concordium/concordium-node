@@ -1618,8 +1618,12 @@ handleConfigureBaker
             return (TxReject (DuplicateAggregationKey key), energyCost, usedEnergy)
         kResult energyCost usedEnergy _ BI.BCStakeUnderThreshold =
             return (TxReject StakeUnderMinimumThresholdForBaking, energyCost, usedEnergy)
-        kResult energyCost usedEnergy _ BI.BCCommissionNotInRange =
-            return (TxReject CommissionsNotInRangeForBaking, energyCost, usedEnergy)
+        kResult energyCost usedEnergy _ BI.BCTransactionFeeCommissionNotInRange =
+            return (TxReject TransactionFeeCommissionNotInRange, energyCost, usedEnergy)
+        kResult energyCost usedEnergy _ BI.BCBakingRewardCommissionNotInRange =
+            return (TxReject BakingRewardCommissionNotInRange, energyCost, usedEnergy)
+        kResult energyCost usedEnergy _ BI.BCFinalizationRewardCommissionNotInRange =
+            return (TxReject FinalizationRewardCommissionNotInRange, energyCost, usedEnergy)
         kResult energyCost usedEnergy _ BI.BCChangePending =
             return (TxReject BakerInCooldown, energyCost, usedEnergy)
         kResult energyCost usedEnergy _ BI.BCInvalidBaker =
@@ -1723,6 +1727,8 @@ handleConfigureDelegation wtc cdCapital cdRestakeEarnings cdDelegationTarget =
             return (TxReject StakeOverMaximumThresholdForPool, energyCost, usedEnergy)
         kResult energyCost usedEnergy _ BI.DCPoolOverDelegated =
             return (TxReject PoolWouldBecomeOverDelegated, energyCost, usedEnergy)
+        kResult energyCost usedEnergy _ BI.DCPoolClosed =
+            return (TxReject PoolClosed, energyCost, usedEnergy)
 
 -- |Remove the baker for an account. The logic is as follows:
 --

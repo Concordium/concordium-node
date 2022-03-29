@@ -2,6 +2,7 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -907,14 +908,15 @@ doConfigureBaker pbs ai BakerConfigureAdd{..} = do
                 let poolParams = chainParams ^. cpPoolParameters
                 let capitalMin = poolParams ^. ppMinimumEquityCapital
                 let ranges = poolParams ^. ppCommissionBounds
-                let keysInRange = isInRange bcaFinalizationRewardCommission (ranges ^. finalizationCommissionRange)
-                        && isInRange bcaBakingRewardCommission (ranges ^. bakingCommissionRange)
-                        && isInRange bcaTransactionFeeCommission (ranges ^. transactionCommissionRange)
-                if bcaCapital < capitalMin then
-                      return (BCStakeUnderThreshold, pbs)
-                  else if not keysInRange then
-                      return (BCCommissionNotInRange, pbs)
-                  else do
+                if
+                  | bcaCapital < capitalMin -> return (BCStakeUnderThreshold, pbs)
+                  | not (isInRange bcaTransactionFeeCommission (ranges ^. transactionCommissionRange)) ->
+                            return (BCTransactionFeeCommissionNotInRange, pbs)
+                  | not (isInRange bcaBakingRewardCommission (ranges ^. bakingCommissionRange)) ->
+                            return (BCBakingRewardCommissionNotInRange, pbs)
+                  | not (isInRange bcaFinalizationRewardCommission (ranges ^. finalizationCommissionRange)) ->
+                            return (BCFinalizationRewardCommissionNotInRange, pbs)
+                  | otherwise -> do
                     let bid = BakerId ai
                     pab <- refLoad (_birkActiveBakers (bspBirkParameters bsp))
                     let updAgg Nothing = return (True, Trie.Insert ())
@@ -1046,7 +1048,7 @@ doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
             MTL.tell [BakerConfigureMetadataURL metadataURL]
         updateTransactionFeeCommission cp = forM_ bcuTransactionFeeCommission $ \tfc -> do
             let range = cp ^. cpPoolParameters . ppCommissionBounds . transactionCommissionRange
-            unless (isInRange tfc range) (MTL.throwError BCCommissionNotInRange)
+            unless (isInRange tfc range) (MTL.throwError BCTransactionFeeCommissionNotInRange)
             acctBkr <- getAccountOrFail
             ebi <- liftBSO $ refLoad $ acctBkr ^. bakerPoolInfoRef
             unless (ebi ^. BaseAccounts.poolCommissionRates . transactionCommission == tfc) $ do
@@ -1058,7 +1060,7 @@ doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
             MTL.tell [BakerConfigureTransactionFeeCommission tfc]
         updateBakingRewardCommission cp = forM_ bcuBakingRewardCommission $ \brc -> do
             let range = cp ^. cpPoolParameters . ppCommissionBounds . bakingCommissionRange
-            unless (isInRange brc range) (MTL.throwError BCCommissionNotInRange)
+            unless (isInRange brc range) (MTL.throwError BCBakingRewardCommissionNotInRange)
             acctBkr <- getAccountOrFail
             ebi <- liftBSO $ refLoad $ acctBkr ^. bakerPoolInfoRef
             unless (ebi ^. BaseAccounts.poolCommissionRates . bakingCommission == brc) $ do
@@ -1070,7 +1072,7 @@ doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
             MTL.tell [BakerConfigureBakingRewardCommission brc]
         updateFinalizationRewardCommission cp = forM_ bcuFinalizationRewardCommission $ \frc -> do
             let range = cp ^. cpPoolParameters . ppCommissionBounds . finalizationCommissionRange
-            unless (isInRange frc range) (MTL.throwError BCCommissionNotInRange)
+            unless (isInRange frc range) (MTL.throwError BCFinalizationRewardCommissionNotInRange)
             acctBkr <- getAccountOrFail
             ebi <- liftBSO $ refLoad $ acctBkr ^. bakerPoolInfoRef
             unless (ebi ^. BaseAccounts.poolCommissionRates . finalizationCommission == frc) $ do

@@ -201,8 +201,12 @@ data BakerConfigureResult
   -- ^The aggregation key already exists.
   | BCStakeUnderThreshold
   -- ^The stake is below the required threshold dictated by current chain parameters.
-  | BCCommissionNotInRange
-  -- ^The commission is not in the allowed range.
+  | BCFinalizationRewardCommissionNotInRange
+  -- ^The finalization reward commission is not in the allowed range.
+  | BCBakingRewardCommissionNotInRange
+  -- ^The baking reward commission is not in the allowed range.
+  | BCTransactionFeeCommissionNotInRange
+  -- ^The transaction fee commission is not in the allowed range.
   | BCChangePending
   -- ^A change is already pending on this baker.
   | BCInvalidBaker
