@@ -1340,6 +1340,13 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
           updateBlockState = case bs ^? blockAccounts . Accounts.indexedAccount ai of
             Nothing -> MTL.throwError DCInvalidAccount
             Just Account{} -> do
+              case dcaDelegationTarget of
+                DelegateToBaker targetBaker@(BakerId targetAcct) -> do
+                    case bs ^? blockAccounts . Accounts.indexedAccount targetAcct . accountBaker . poolOpenStatus of
+                        Just OpenForAll -> return ()
+                        Just _ -> MTL.throwError DCPoolClosed
+                        Nothing -> MTL.throwError (DCInvalidDelegationTarget targetBaker)
+                DelegateToLPool -> return ()
               newBirkParams <- updateBirk dcaDelegationTarget
               let ad = AccountStakeDelegate AccountDelegationV1{
                       _delegationIdentity = did,
@@ -1427,10 +1434,15 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
         updateDelegationTarget = forM_ dcuDelegationTarget $ \target -> do
             ad <- getAccount
             unless (target == ad ^. delegationTarget) $ do
-                ab <- use $ blockBirkParameters . birkActiveBakers
-                when (isNothing $ ab ^? pool target) $ case target of
-                        DelegateToBaker targetBaker -> MTL.throwError (DCInvalidDelegationTarget targetBaker)
-                        DelegateToLPool -> error "L-Pool should always be a valid delegation target"
+                -- Check that the pool is open for delegation
+                case target of
+                    DelegateToBaker targetBaker@(BakerId targetAcct) -> do
+                        targetOpenStatus <- preuse $ blockAccounts . Accounts.indexedAccount targetAcct . accountBaker . poolOpenStatus
+                        case targetOpenStatus of
+                            Just OpenForAll -> return ()
+                            Just _ -> MTL.throwError DCPoolClosed
+                            Nothing -> MTL.throwError (DCInvalidDelegationTarget targetBaker)
+                    DelegateToLPool -> return ()
                 blockBirkParameters . birkActiveBakers %=
                     (
                         (pool (ad ^. delegationTarget) %~ removeDelegator did (ad ^. delegationStakedAmount))

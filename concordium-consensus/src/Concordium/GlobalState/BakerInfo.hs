@@ -258,6 +258,8 @@ data DelegationConfigureResult
   -- ^This is not a valid delegator.
   | DCInvalidDelegationTarget !BakerId
   -- ^Delegation target is not a valid baker.
+  | DCPoolClosed
+  -- ^The pool is not open for delegators.
   | DCPoolStakeOverThreshold
   -- ^The pool's total capital would become too large.
   | DCPoolOverDelegated

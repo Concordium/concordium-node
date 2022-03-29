@@ -1151,25 +1151,43 @@ doConstrainBakerCommission pbs ai ranges = do
 --   * 'DCPoolStakeOverThreshold' if the delegated amount puts the pool over the leverage bound.
 --   * 'DCPoolOverDelegated' if the delegated amount puts the pool over the capital bound.
 delegationConfigureDisallowOverdelegation
-    :: (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1, MTL.MonadError DelegationConfigureResult m, MonadBlobStore n)
-    => (forall a. n a -> m a)
-    -> BlockStatePointers pv
+    :: (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1, MTL.MonadError DelegationConfigureResult m, MonadBlobStore m)
+    => BlockStatePointers pv
     -> PoolParameters 'ChainParametersV1
     -> DelegationTarget
     -> m ()
-delegationConfigureDisallowOverdelegation liftMBS bsp poolParams target = case target of
+delegationConfigureDisallowOverdelegation bsp poolParams target = case target of
   Transactions.DelegateToLPool -> return ()
   Transactions.DelegateToBaker bid@(BakerId baid) -> do
-    bakerEquityCapital <- liftMBS (Accounts.indexedAccount baid (bspAccounts bsp)) >>= \case
+    bakerEquityCapital <- Accounts.indexedAccount baid (bspAccounts bsp) >>= \case
       Just PersistentAccount{_accountStake = PersistentAccountStakeBaker abr} ->
-          liftMBS $ _stakedAmount <$> refLoad abr
+          _stakedAmount <$> refLoad abr
       _ ->
           MTL.throwError (DCInvalidDelegationTarget bid)
-    capitalTotal <- liftMBS $ totalCapital bsp
-    bakerDelegatedCapital <- liftMBS $ poolDelegatorCapital bsp bid
+    capitalTotal <- totalCapital bsp
+    bakerDelegatedCapital <- poolDelegatorCapital bsp bid
     let PoolCaps{..} = delegatedCapitalCaps poolParams capitalTotal bakerEquityCapital bakerDelegatedCapital
     when (bakerDelegatedCapital > leverageCap) $ MTL.throwError DCPoolStakeOverThreshold
     when (bakerDelegatedCapital > boundCap) $ MTL.throwError DCPoolOverDelegated
+
+-- |Check that a delegation target is open for delegation.
+-- If the target is not a baker, this throws 'DCInvalidDelegationTarget'.
+-- If the target is not open for all, this throws 'DCPoolClosed'.
+delegationCheckTargetOpen
+    :: (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1, MTL.MonadError DelegationConfigureResult m, MonadBlobStore m)
+    => BlockStatePointers pv
+    -> DelegationTarget
+    -> m ()
+delegationCheckTargetOpen _ Transactions.DelegateToLPool = return ()
+delegationCheckTargetOpen bsp (Transactions.DelegateToBaker bid@(BakerId baid)) = do
+    Accounts.indexedAccount baid (bspAccounts bsp) >>= \case
+        Just PersistentAccount{_accountStake = PersistentAccountStakeBaker abr} -> do
+            baker <- refLoad abr
+            poolInfo <- refLoad (baker ^. bakerPoolInfoRef)
+            case poolInfo ^. BaseAccounts.poolOpenStatus of
+                Transactions.OpenForAll -> return ()
+                _ -> MTL.throwError DCPoolClosed
+        _ -> MTL.throwError (DCInvalidDelegationTarget bid)
 
 doConfigureDelegation
     :: forall pv m
@@ -1184,7 +1202,7 @@ doConfigureDelegation pbs ai DelegationConfigureAdd{..} = do
         poolParams <- _cpPoolParameters <$> lookupCurrentParameters (bspUpdates bsp)
         result <- MTL.runExceptT $ do
             newBSP <- updateBlockState bsp
-            delegationConfigureDisallowOverdelegation lift newBSP poolParams dcaDelegationTarget
+            delegationConfigureDisallowOverdelegation newBSP poolParams dcaDelegationTarget
             return newBSP
         case result of
             Left e -> return (e, pbs)
@@ -1194,6 +1212,7 @@ doConfigureDelegation pbs ai DelegationConfigureAdd{..} = do
           updateBlockState bsp = lift (Accounts.indexedAccount ai (bspAccounts bsp)) >>= \case
             Nothing -> MTL.throwError DCInvalidAccount
             Just PersistentAccount{} -> do
+                delegationCheckTargetOpen bsp dcaDelegationTarget
                 newBirkParams <- updateBirk bsp dcaDelegationTarget
                 let updAcc acc = do
                         newPAD <- refMake BaseAccounts.AccountDelegationV1{
@@ -1235,17 +1254,16 @@ doConfigureDelegation pbs ai DelegationConfigureUpdate{..} = do
             Left errorRes -> return (errorRes, pbs)
             Right (newBSP, changes) -> (DCSuccess changes did,) <$> storePBS pbs newBSP
       where
-        liftBSO = lift . lift . lift
         did = DelegatorId ai
         getAccountOrFail = do
             bsp <- MTL.get
-            liftBSO (Accounts.indexedAccount ai (bspAccounts bsp)) >>= \case
+            Accounts.indexedAccount ai (bspAccounts bsp) >>= \case
                 Nothing -> MTL.throwError DCInvalidAccount
-                Just PersistentAccount{_accountStake = PersistentAccountStakeDelegate ad} -> liftBSO $ refLoad ad
+                Just PersistentAccount{_accountStake = PersistentAccountStakeDelegate ad} -> refLoad ad
                 Just PersistentAccount{} -> MTL.throwError DCInvalidDelegator
         modifyAccount updAcc = do
             bsp <- MTL.get
-            (_, newAccounts) <- liftBSO $ Accounts.updateAccountsAtIndex updAcc ai (bspAccounts bsp)
+            (_, newAccounts) <- Accounts.updateAccountsAtIndex updAcc ai (bspAccounts bsp)
             MTL.put bsp{
                 bspAccounts = newAccounts
             }
@@ -1253,6 +1271,9 @@ doConfigureDelegation pbs ai DelegationConfigureUpdate{..} = do
             acctDlg <- getAccountOrFail
             let oldTarget = acctDlg ^. BaseAccounts.delegationTarget
             unless (oldTarget == target) $ do
+                -- Check that the target pool is open for delegation
+                bsp0 <- MTL.get
+                delegationCheckTargetOpen bsp0 target
                 ab <- refLoad =<< use (to bspBirkParameters . birkActiveBakers)
                 let stakedAmt = acctDlg ^. BaseAccounts.delegationStakedAmount
                 -- Transfer the delegator in the active bakers from the old target to the new one.
@@ -1301,8 +1322,8 @@ doConfigureDelegation pbs ai DelegationConfigureUpdate{..} = do
                     return ()
                 GT -> do
                     bsp1 <- MTL.get
-                    ab <- liftBSO $ refLoad (bspBirkParameters bsp1 ^. birkActiveBakers)
-                    newActiveBakers <- liftBSO $ addTotalsInActiveBakers ab ad (capital - BaseAccounts._delegationStakedAmount ad)
+                    ab <- refLoad (bspBirkParameters bsp1 ^. birkActiveBakers)
+                    newActiveBakers <- addTotalsInActiveBakers ab ad (capital - BaseAccounts._delegationStakedAmount ad)
                     MTL.modify' $ \bsp -> bsp{bspBirkParameters = bspBirkParameters bsp1 & birkActiveBakers .~ newActiveBakers}
                     modifyAccount $ updAcc $ BaseAccounts.delegationStakedAmount .~ capital
                     MTL.tell [DelegationConfigureStakeIncreased capital]
@@ -1323,7 +1344,7 @@ doConfigureDelegation pbs ai DelegationConfigureUpdate{..} = do
             let pp = cp ^. cpPoolParameters
             let target = ad ^. BaseAccounts.delegationTarget
             bsp <- MTL.get
-            delegationConfigureDisallowOverdelegation liftBSO bsp pp target
+            delegationConfigureDisallowOverdelegation bsp pp target
 
 doUpdateBakerKeys ::(IsProtocolVersion pv, MonadBlobStore m, AccountVersionFor pv ~ 'AccountV0)
     => PersistentBlockState pv
