@@ -167,12 +167,11 @@ data BlockStateOperationsAction pv a where
     BsoRewardAccount :: MockUpdatableBlockState -> AccountIndex -> Amount -> BlockStateOperationsAction pv (Maybe AccountAddress, MockUpdatableBlockState)
     BsoGetTotalRewardPeriodBlockCount :: AccountVersionFor pv ~ 'AccountV1 => MockUpdatableBlockState -> BlockStateOperationsAction pv Word64
     BsoGetBakerPoolRewardDetails :: AccountVersionFor pv ~ 'AccountV1 => MockUpdatableBlockState -> BakerId -> BlockStateOperationsAction pv BakerPoolRewardDetails
-    --BsoUpdateAccruedTransactionFeesBaker :: AccountVersionFor pv ~ 'AccountV1 => MockUpdatableBlockState -> BakerId -> (Amount :~> Amount) -> BlockStateOperationsAction pv MockUpdatableBlockState
-    BsoSetFinalizationAwakeBaker :: AccountVersionFor pv ~ 'AccountV1 => MockUpdatableBlockState -> BakerId -> Bool -> BlockStateOperationsAction pv MockUpdatableBlockState
-    BsoClearBlockCountBaker :: AccountVersionFor pv ~ 'AccountV1 => MockUpdatableBlockState -> BakerId -> BlockStateOperationsAction pv MockUpdatableBlockState
-    --BsoUpdateAccruedTransactionFeesLPool :: AccountVersionFor pv ~ 'AccountV1 => MockUpdatableBlockState -> (Amount :~> Amount) -> BlockStateOperationsAction pv MockUpdatableBlockState
+    BsoUpdateAccruedTransactionFeesBaker :: AccountVersionFor pv ~ 'AccountV1 => MockUpdatableBlockState -> BakerId -> AmountDelta -> BlockStateOperationsAction pv MockUpdatableBlockState
+    BsoMarkFinalizationAwakeBaker :: AccountVersionFor pv ~ 'AccountV1 => MockUpdatableBlockState -> BakerId -> BlockStateOperationsAction pv MockUpdatableBlockState
+    BsoUpdateAccruedTransactionFeesLPool :: AccountVersionFor pv ~ 'AccountV1 => MockUpdatableBlockState -> AmountDelta -> BlockStateOperationsAction pv MockUpdatableBlockState
     BsoGetAccruedTransactionFeesLPool :: AccountVersionFor pv ~ 'AccountV1 => MockUpdatableBlockState -> BlockStateOperationsAction pv Amount
-    --BsoUpdateAccruedTransactionFeesFoundationAccount :: AccountVersionFor pv ~ 'AccountV1 => MockUpdatableBlockState -> (Amount :~> Amount) -> BlockStateOperationsAction pv MockUpdatableBlockState
+    BsoUpdateAccruedTransactionFeesFoundationAccount :: AccountVersionFor pv ~ 'AccountV1 => MockUpdatableBlockState -> AmountDelta -> BlockStateOperationsAction pv MockUpdatableBlockState
     BsoGetAccruedTransactionFeesFoundationAccount :: AccountVersionFor pv ~ 'AccountV1 => MockUpdatableBlockState -> BlockStateOperationsAction pv Amount
     BsoRewardFoundationAccount :: MockUpdatableBlockState -> Amount -> BlockStateOperationsAction pv MockUpdatableBlockState
     BsoGetFoundationAccount :: MockUpdatableBlockState -> BlockStateOperationsAction pv MockAccount
@@ -286,9 +285,6 @@ mockOperations
         bsoPutNewInstance = error "Unsupported operation"
         bsoPutNewModule = error "Unsupported operation"
         bsoProcessPendingChanges = error "Unsupported operation"
-        bsoUpdateAccruedTransactionFeesBaker = error "Unsupported operation"
-        bsoUpdateAccruedTransactionFeesLPool = error "Unsupported operation"
-        bsoUpdateAccruedTransactionFeesFoundationAccount = error "Unsupported operation"
         |]
     ''BlockStateOperationsAction
     [|mockAction . BSO|]

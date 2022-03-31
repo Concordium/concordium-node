@@ -688,25 +688,21 @@ class (BlockStateQuery m) => BlockStateOperations m where
   bsoGetBakerPoolRewardDetails :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> BakerId -> m BakerPoolRewardDetails
 
   -- |Update the amount to be distributed to the given baker's account at payday. It is a
-  -- precondition that the given baker is active.
-  bsoUpdateAccruedTransactionFeesBaker :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> BakerId -> (Amount -> Amount) -> m (UpdatableBlockState m)
+  -- precondition that the given baker is current-epoch baker.
+  bsoUpdateAccruedTransactionFeesBaker :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> BakerId -> AmountDelta -> m (UpdatableBlockState m)
 
-  -- |Set whether the given baker has signed a finalization proof included in a block during the
-  -- reward period. It is a precondition that the given baker is active.
-  bsoSetFinalizationAwakeBaker :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> BakerId -> Bool -> m (UpdatableBlockState m)
-
-  -- |Reset the given baker's count of baked blocks to zero. It is a precondition that the given
-  -- baker is active.
-  bsoClearBlockCountBaker :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> BakerId -> m (UpdatableBlockState m)
+  -- |Mark that the given baker has signed a finalization proof included in a block during the
+  -- reward period. It is a precondition that the given baker is a current-epoch baker.
+  bsoMarkFinalizationAwakeBaker :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> BakerId -> m (UpdatableBlockState m)
 
   -- |Update amount to be distributed to the L-pool delegators.
-  bsoUpdateAccruedTransactionFeesLPool :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> (Amount -> Amount) -> m (UpdatableBlockState m)
+  bsoUpdateAccruedTransactionFeesLPool :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> AmountDelta -> m (UpdatableBlockState m)
 
   -- |Get the accrued amount to the L-pool delegators.
   bsoGetAccruedTransactionFeesLPool :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> m Amount
 
   -- |Update the amount to distribute to the foundation account.
-  bsoUpdateAccruedTransactionFeesFoundationAccount :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> (Amount -> Amount) -> m (UpdatableBlockState m)
+  bsoUpdateAccruedTransactionFeesFoundationAccount :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> AmountDelta -> m (UpdatableBlockState m)
 
   -- |Get the amount to distribute to the foundation account.
   bsoGetAccruedTransactionFeesFoundationAccount :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> m Amount
@@ -1028,8 +1024,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoSetPaydayEpoch s e = lift $ bsoSetPaydayEpoch s e
   bsoSetPaydayMintRate s r = lift $ bsoSetPaydayMintRate s r
   bsoUpdateAccruedTransactionFeesBaker s bid f = lift $ bsoUpdateAccruedTransactionFeesBaker s bid f
-  bsoSetFinalizationAwakeBaker s bid b = lift $ bsoSetFinalizationAwakeBaker s bid b
-  bsoClearBlockCountBaker s bid = lift $ bsoClearBlockCountBaker s bid
+  bsoMarkFinalizationAwakeBaker s bid = lift $ bsoMarkFinalizationAwakeBaker s bid
   bsoUpdateAccruedTransactionFeesLPool s f = lift $ bsoUpdateAccruedTransactionFeesLPool s f
   bsoGetAccruedTransactionFeesLPool = lift . bsoGetAccruedTransactionFeesLPool
   bsoUpdateAccruedTransactionFeesFoundationAccount s f = lift $ bsoUpdateAccruedTransactionFeesFoundationAccount s f

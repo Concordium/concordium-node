@@ -2176,30 +2176,27 @@ doNotifyBlockBaked pbs bid = do
             let incBPR bpr = bpr{blockCount = blockCount bpr + 1}
             in storePBS pbs =<< modifyBakerPoolRewardDetailsInPoolRewards bsp bid incBPR
 
-doUpdateAccruedTransactionFeesBaker :: forall pv m. (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1, MonadBlobStore m) => PersistentBlockState pv -> BakerId -> (Amount -> Amount) -> m (PersistentBlockState pv)
-doUpdateAccruedTransactionFeesBaker pbs bid f = do
+doUpdateAccruedTransactionFeesBaker :: forall pv m. (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1, MonadBlobStore m) => PersistentBlockState pv -> BakerId -> AmountDelta -> m (PersistentBlockState pv)
+doUpdateAccruedTransactionFeesBaker pbs bid delta = do
     bsp <- loadPBS pbs
-    let accrueAmountBPR bpr = bpr{transactionFeesAccrued = f (transactionFeesAccrued bpr)}
+    let accrueAmountBPR bpr = bpr{transactionFeesAccrued = applyAmountDelta delta (transactionFeesAccrued bpr)}
     storePBS pbs =<< modifyBakerPoolRewardDetailsInPoolRewards bsp bid accrueAmountBPR
 
-doSetFinalizationAwakeBaker :: forall pv m. (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1, MonadBlobStore m) => PersistentBlockState pv -> BakerId -> Bool -> m (PersistentBlockState pv)
-doSetFinalizationAwakeBaker pbs bid b = do
+doMarkFinalizationAwakeBaker :: forall pv m. (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1, MonadBlobStore m) => PersistentBlockState pv -> BakerId -> m (PersistentBlockState pv)
+doMarkFinalizationAwakeBaker pbs bid = do
     bsp <- loadPBS pbs
-    let setAwake bpr = bpr{finalizationAwake = b}
+    -- TODO: This could be simplified when the baker is already awake, to avoid rewriting the storage.
+    let setAwake bpr = bpr{finalizationAwake = True}
     storePBS pbs =<< modifyBakerPoolRewardDetailsInPoolRewards bsp bid setAwake
 
-doClearBlockCountBaker :: forall pv m. (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1, MonadBlobStore m) => PersistentBlockState pv -> BakerId -> m (PersistentBlockState pv)
-doClearBlockCountBaker pbs bid = do
-    bsp <- loadPBS pbs
-    let doClear bpr = bpr{blockCount = 0}
-    storePBS pbs =<< modifyBakerPoolRewardDetailsInPoolRewards bsp bid doClear
-
-doUpdateAccruedTransactionFeesLPool :: forall pv m. (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1, MonadBlobStore m) => PersistentBlockState pv -> (Amount -> Amount) -> m (PersistentBlockState pv)
-doUpdateAccruedTransactionFeesLPool pbs f = do
+doUpdateAccruedTransactionFeesLPool :: forall pv m. (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1, MonadBlobStore m) => PersistentBlockState pv -> AmountDelta -> m (PersistentBlockState pv)
+doUpdateAccruedTransactionFeesLPool pbs delta = do
     bsp <- loadPBS pbs
     let hpr = case bspRewardDetails bsp of BlockRewardDetailsV1 hp -> hp
     pr <- refLoad hpr
-    newBlockRewardDetails <- BlockRewardDetailsV1 <$> refMake pr{lPoolTransactionRewards = f (lPoolTransactionRewards pr)}
+    newBlockRewardDetails <- BlockRewardDetailsV1 <$> refMake pr{
+            lPoolTransactionRewards = applyAmountDelta delta (lPoolTransactionRewards pr)
+        }
     storePBS pbs $ bsp{bspRewardDetails = newBlockRewardDetails}
 
 doGetAccruedTransactionFeesLPool :: forall pv m. (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1, MonadBlobStore m) => PersistentBlockState pv -> m Amount
@@ -2208,12 +2205,14 @@ doGetAccruedTransactionFeesLPool pbs = do
     let hpr = case bspRewardDetails bsp :: BlockRewardDetails 'AccountV1 of BlockRewardDetailsV1 hp -> hp
     lPoolTransactionRewards <$> refLoad hpr
 
-doUpdateAccruedTransactionFeesFoundationAccount :: forall pv m. (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1, MonadBlobStore m) => PersistentBlockState pv -> (Amount -> Amount) -> m (PersistentBlockState pv)
-doUpdateAccruedTransactionFeesFoundationAccount pbs f = do
+doUpdateAccruedTransactionFeesFoundationAccount :: forall pv m. (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1, MonadBlobStore m) => PersistentBlockState pv -> AmountDelta -> m (PersistentBlockState pv)
+doUpdateAccruedTransactionFeesFoundationAccount pbs delta = do
     bsp <- loadPBS pbs
     let hpr = case bspRewardDetails bsp of BlockRewardDetailsV1 hp -> hp
     pr <- refLoad hpr
-    newBlockRewardDetails <- BlockRewardDetailsV1 <$> refMake pr{foundationTransactionRewards = f (foundationTransactionRewards pr)}
+    newBlockRewardDetails <- BlockRewardDetailsV1 <$> refMake pr{
+            foundationTransactionRewards = applyAmountDelta delta (foundationTransactionRewards pr)
+        }
     storePBS pbs $ bsp{bspRewardDetails = newBlockRewardDetails}
 
 doGetAccruedTransactionFeesFoundationAccount :: forall pv m. (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1, MonadBlobStore m) => PersistentBlockState pv -> m Amount
@@ -2645,8 +2644,7 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateOperations (Pe
     bsoGetEpochBlocksBaked = doGetEpochBlocksBaked
     bsoNotifyBlockBaked = doNotifyBlockBaked
     bsoUpdateAccruedTransactionFeesBaker = doUpdateAccruedTransactionFeesBaker
-    bsoSetFinalizationAwakeBaker = doSetFinalizationAwakeBaker
-    bsoClearBlockCountBaker = doClearBlockCountBaker
+    bsoMarkFinalizationAwakeBaker = doMarkFinalizationAwakeBaker
     bsoUpdateAccruedTransactionFeesLPool = doUpdateAccruedTransactionFeesLPool
     bsoGetAccruedTransactionFeesLPool = doGetAccruedTransactionFeesLPool
     bsoUpdateAccruedTransactionFeesFoundationAccount = doUpdateAccruedTransactionFeesFoundationAccount

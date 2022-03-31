@@ -1558,7 +1558,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
 
     bsoGetTotalRewardPeriodBlockCount bs =
       let bprds = PoolRewards.bakerPoolRewardDetails $ bs ^. blockPoolRewards
-      in return $! foldl (\c bprd -> c + PoolRewards.blockCount bprd) 0 bprds
+      in return $! foldl' (\c bprd -> c + PoolRewards.blockCount bprd) 0 bprds
 
     bsoGetBakerPoolRewardDetails bs bid =
       let bprds = PoolRewards.bakerPoolRewardDetails $ bs ^. blockPoolRewards
@@ -1623,23 +1623,21 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
     bsoSetPaydayMintRate bs r =
         return $! bs & blockPoolRewards %~ \pr -> pr {PoolRewards.nextPaydayMintRate = r}
 
-    bsoUpdateAccruedTransactionFeesBaker bs bid f =
-      let accrueAmountBPR bpr = bpr{PoolRewards.transactionFeesAccrued = f (PoolRewards.transactionFeesAccrued bpr)}
+    bsoUpdateAccruedTransactionFeesBaker bs bid delta =
+      let accrueAmountBPR bpr = bpr{PoolRewards.transactionFeesAccrued = applyAmountDelta delta (PoolRewards.transactionFeesAccrued bpr)}
       in modifyBakerPoolRewardDetailsInPoolRewards bs bid accrueAmountBPR
 
-    bsoSetFinalizationAwakeBaker bs bid b =
-      let setAwake bpr = bpr{PoolRewards.finalizationAwake = b}
+    bsoMarkFinalizationAwakeBaker bs bid =
+      let setAwake bpr = bpr{PoolRewards.finalizationAwake = True}
       in modifyBakerPoolRewardDetailsInPoolRewards bs bid setAwake
 
-    bsoClearBlockCountBaker bs bid =
-      let doClear bpr = bpr{PoolRewards.blockCount = 0}
-      in modifyBakerPoolRewardDetailsInPoolRewards bs bid doClear
-
-    bsoUpdateAccruedTransactionFeesLPool bs f = return $! bs & blockPoolRewards %~ \pr -> pr{PoolRewards.lPoolTransactionRewards = f (PoolRewards.lPoolTransactionRewards pr)}
+    bsoUpdateAccruedTransactionFeesLPool bs delta =
+        return $! bs & blockPoolRewards %~ \pr -> pr{PoolRewards.lPoolTransactionRewards = applyAmountDelta delta (PoolRewards.lPoolTransactionRewards pr)}
 
     bsoGetAccruedTransactionFeesLPool bs = return $! PoolRewards.lPoolTransactionRewards $ bs ^. blockPoolRewards
 
-    bsoUpdateAccruedTransactionFeesFoundationAccount bs f = return $! bs & blockPoolRewards %~ \pr -> pr{PoolRewards.foundationTransactionRewards = f (PoolRewards.foundationTransactionRewards pr)}
+    bsoUpdateAccruedTransactionFeesFoundationAccount bs delta =
+        return $! bs & blockPoolRewards %~ \pr -> pr{PoolRewards.foundationTransactionRewards = applyAmountDelta delta (PoolRewards.foundationTransactionRewards pr)}
 
     bsoGetAccruedTransactionFeesFoundationAccount bs = return $! PoolRewards.foundationTransactionRewards (bs ^. blockPoolRewards)
 
