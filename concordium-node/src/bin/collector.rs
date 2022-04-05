@@ -107,7 +107,7 @@ struct ConfigCli {
         default_value = "30",
         env = "CONCORDIUM_NODE_COLLECTOR_GRPC_TIMEOUT"
     )]
-    pub grpc_timeout: u64,
+    pub grpc_timeout:           u64,
     #[cfg(target_os = "macos")]
     #[structopt(
         long = "use-mac-log",
