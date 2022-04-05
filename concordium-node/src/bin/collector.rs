@@ -3,7 +3,7 @@ use collector_backend::{IsInBakingCommittee, NodeInfo};
 use concordium_node::utils::setup_macos_logger;
 use concordium_node::{common::grpc_api, req_with_auth, utils::setup_logger};
 use serde_json::Value;
-use std::{borrow::ToOwned, fmt, process::exit, str::FromStr, thread, time::Duration};
+use std::{borrow::ToOwned, fmt, process::exit, str::FromStr, time::Duration};
 use structopt::StructOpt;
 use tonic::{metadata::MetadataValue, transport::channel::Channel, Request};
 #[macro_use]
@@ -150,9 +150,10 @@ async fn main() {
 
     if conf.artificial_start_delay > 0 {
         info!("Delaying first collection from the node for {} ms", conf.artificial_start_delay);
-        thread::sleep(Duration::from_millis(conf.artificial_start_delay));
+        tokio::time::sleep(Duration::from_millis(conf.artificial_start_delay)).await;
     }
 
+    let mut interval = tokio::time::interval(Duration::from_millis(conf.collector_interval));
     #[allow(unreachable_code)]
     loop {
         for (node_name, grpc_host) in conf.node_names.iter().zip(conf.grpc_hosts.iter()) {
@@ -183,7 +184,7 @@ async fn main() {
             }
         }
         trace!("Sleeping for {} ms", conf.collector_interval);
-        thread::sleep(Duration::from_millis(conf.collector_interval));
+        interval.tick().await;
     }
 }
 
