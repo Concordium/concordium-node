@@ -3,16 +3,7 @@ use collector_backend::{IsInBakingCommittee, NodeInfo};
 use concordium_node::utils::setup_macos_logger;
 use concordium_node::{common::grpc_api, req_with_auth, utils::setup_logger};
 use serde_json::Value;
-use std::{
-    borrow::ToOwned,
-    default::Default,
-    fmt,
-    process::exit,
-    str::FromStr,
-    sync::atomic::{AtomicUsize, Ordering as AtomicOrdering},
-    thread,
-    time::Duration,
-};
+use std::{borrow::ToOwned, fmt, process::exit, str::FromStr, time::Duration};
 use structopt::StructOpt;
 use tonic::{metadata::MetadataValue, transport::channel::Channel, Request};
 #[macro_use]
@@ -50,7 +41,7 @@ struct ConfigCli {
         env = "CONCORDIUM_NODE_COLLECTOR_GRPC_AUTHENTICATION_TOKEN",
         hide_env_values = true
     )]
-    pub grpc_auth_token: String,
+    pub grpc_auth_token:        String,
     #[structopt(
         long = "grpc-host",
         help = "gRPC host to collect from",
@@ -58,51 +49,51 @@ struct ConfigCli {
         env = "CONCORDIUM_NODE_COLLECTOR_GRPC_HOST",
         use_delimiter = true // default delimiter is a comma
     )]
-    pub grpc_hosts: Vec<String>,
+    pub grpc_hosts:             Vec<String>,
     #[structopt(
         long = "node-name",
         help = "Node name",
         env = "CONCORDIUM_NODE_COLLECTOR_NODE_NAME",
         use_delimiter = true // default delimiter is a comma
     )]
-    pub node_names: Vec<NodeName>,
+    pub node_names:             Vec<NodeName>,
     #[structopt(
         long = "collector-url",
         help = "Alias submitted of the node collected from",
         default_value = "http://localhost:3000/post/nodes",
         env = "CONCORDIUM_NODE_COLLECTOR_URL"
     )]
-    pub collector_url: String,
+    pub collector_url:          String,
     #[structopt(
         long = "print-config",
         help = "Print out config struct",
         env = "CONCORDIUM_NODE_COLLECTOR_PRINT_CONFIG"
     )]
-    pub print_config: bool,
+    pub print_config:           bool,
     #[structopt(
         long = "debug",
         short = "d",
         help = "Debug mode",
         env = "CONCORDIUM_NODE_COLLECTOR_DEBUG"
     )]
-    pub debug: bool,
+    pub debug:                  bool,
     #[structopt(long = "trace", help = "Trace mode", env = "CONCORDIUM_NODE_COLLECTOR_TRACE")]
-    pub trace: bool,
+    pub trace:                  bool,
     #[structopt(long = "info", help = "Info mode", env = "CONCORDIUM_NODE_COLLECTOR_INFO")]
-    pub info: bool,
+    pub info:                   bool,
     #[structopt(
         long = "no-log-timestamp",
         help = "Do not output timestamp in log output",
         env = "CONCORDIUM_NODE_COLLECTOR_NO_LOG_TIMESTAMP"
     )]
-    pub no_log_timestamp: bool,
+    pub no_log_timestamp:       bool,
     #[structopt(
         long = "collect-interval",
         help = "Interval in miliseconds to sleep between runs of the collector",
         default_value = "5000",
         env = "CONCORDIUM_NODE_COLLECTOR_COLLECT_INTERVAL"
     )]
-    pub collector_interval: u64,
+    pub collector_interval:     u64,
     #[structopt(
         long = "artificial-start-delay",
         help = "Time (in ms) to delay when the first gRPC request is sent to the node",
@@ -116,14 +107,7 @@ struct ConfigCli {
         default_value = "30",
         env = "CONCORDIUM_NODE_COLLECTOR_GRPC_TIMEOUT"
     )]
-    pub grpc_timeout: u64,
-    #[structopt(
-        long = "max-grpc-failures-allowed",
-        help = "Maximum allowed times a gRPC call can fail before terminating the program",
-        default_value = "50",
-        env = "CONCORDIUM_NODE_COLLECTOR_MAX_GRPC_FAILURES_ALLOWED"
-    )]
-    pub max_grpc_failures_allowed: u64,
+    pub grpc_timeout:           u64,
     #[cfg(target_os = "macos")]
     #[structopt(
         long = "use-mac-log",
@@ -134,7 +118,7 @@ struct ConfigCli {
         env = "CONCORDIUM_NODE_COLLECTOR_USE_MAC_LOG",
         conflicts_with = "log-config"
     )]
-    pub use_mac_log: Option<String>,
+    pub use_mac_log:            Option<String>,
 }
 
 #[tokio::main]
@@ -166,14 +150,12 @@ async fn main() {
 
     if conf.artificial_start_delay > 0 {
         info!("Delaying first collection from the node for {} ms", conf.artificial_start_delay);
-        thread::sleep(Duration::from_millis(conf.artificial_start_delay));
+        tokio::time::sleep(Duration::from_millis(conf.artificial_start_delay)).await;
     }
 
-    let atomic_counter: AtomicUsize = Default::default();
+    let mut interval = tokio::time::interval(Duration::from_millis(conf.collector_interval));
     #[allow(unreachable_code)]
     loop {
-        let grpc_failure_count = atomic_counter.load(AtomicOrdering::Relaxed);
-        trace!("Failure count is {}/{}", grpc_failure_count, conf.max_grpc_failures_allowed);
         for (node_name, grpc_host) in conf.node_names.iter().zip(conf.grpc_hosts.iter()) {
             trace!("Processing node {}/{}", node_name, grpc_host);
             match collect_data(node_name.clone(), grpc_host.to_owned(), &conf).await {
@@ -194,21 +176,15 @@ async fn main() {
                     }
                 }
                 Err(e) => {
-                    let _ = atomic_counter.fetch_add(1, AtomicOrdering::SeqCst);
                     error!(
                         "gRPC failed with \"{}\" for {}, sleeping for {} ms",
                         e, &grpc_host, conf.collector_interval
                     );
                 }
             }
-
-            if grpc_failure_count + 1 >= conf.max_grpc_failures_allowed as usize {
-                error!("Too many gRPC failures, exiting!");
-                exit(1);
-            }
         }
         trace!("Sleeping for {} ms", conf.collector_interval);
-        thread::sleep(Duration::from_millis(conf.collector_interval));
+        interval.tick().await;
     }
 }
 
