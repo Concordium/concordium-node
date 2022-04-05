@@ -3,14 +3,7 @@ use collector_backend::{IsInBakingCommittee, NodeInfo};
 use concordium_node::utils::setup_macos_logger;
 use concordium_node::{common::grpc_api, req_with_auth, utils::setup_logger};
 use serde_json::Value;
-use std::{
-    borrow::ToOwned,
-    fmt,
-    process::exit,
-    str::FromStr,
-    thread,
-    time::Duration,
-};
+use std::{borrow::ToOwned, fmt, process::exit, str::FromStr, thread, time::Duration};
 use structopt::StructOpt;
 use tonic::{metadata::MetadataValue, transport::channel::Channel, Request};
 #[macro_use]
@@ -48,7 +41,7 @@ struct ConfigCli {
         env = "CONCORDIUM_NODE_COLLECTOR_GRPC_AUTHENTICATION_TOKEN",
         hide_env_values = true
     )]
-    pub grpc_auth_token: String,
+    pub grpc_auth_token:        String,
     #[structopt(
         long = "grpc-host",
         help = "gRPC host to collect from",
@@ -56,51 +49,51 @@ struct ConfigCli {
         env = "CONCORDIUM_NODE_COLLECTOR_GRPC_HOST",
         use_delimiter = true // default delimiter is a comma
     )]
-    pub grpc_hosts: Vec<String>,
+    pub grpc_hosts:             Vec<String>,
     #[structopt(
         long = "node-name",
         help = "Node name",
         env = "CONCORDIUM_NODE_COLLECTOR_NODE_NAME",
         use_delimiter = true // default delimiter is a comma
     )]
-    pub node_names: Vec<NodeName>,
+    pub node_names:             Vec<NodeName>,
     #[structopt(
         long = "collector-url",
         help = "Alias submitted of the node collected from",
         default_value = "http://localhost:3000/post/nodes",
         env = "CONCORDIUM_NODE_COLLECTOR_URL"
     )]
-    pub collector_url: String,
+    pub collector_url:          String,
     #[structopt(
         long = "print-config",
         help = "Print out config struct",
         env = "CONCORDIUM_NODE_COLLECTOR_PRINT_CONFIG"
     )]
-    pub print_config: bool,
+    pub print_config:           bool,
     #[structopt(
         long = "debug",
         short = "d",
         help = "Debug mode",
         env = "CONCORDIUM_NODE_COLLECTOR_DEBUG"
     )]
-    pub debug: bool,
+    pub debug:                  bool,
     #[structopt(long = "trace", help = "Trace mode", env = "CONCORDIUM_NODE_COLLECTOR_TRACE")]
-    pub trace: bool,
+    pub trace:                  bool,
     #[structopt(long = "info", help = "Info mode", env = "CONCORDIUM_NODE_COLLECTOR_INFO")]
-    pub info: bool,
+    pub info:                   bool,
     #[structopt(
         long = "no-log-timestamp",
         help = "Do not output timestamp in log output",
         env = "CONCORDIUM_NODE_COLLECTOR_NO_LOG_TIMESTAMP"
     )]
-    pub no_log_timestamp: bool,
+    pub no_log_timestamp:       bool,
     #[structopt(
         long = "collect-interval",
         help = "Interval in miliseconds to sleep between runs of the collector",
         default_value = "5000",
         env = "CONCORDIUM_NODE_COLLECTOR_COLLECT_INTERVAL"
     )]
-    pub collector_interval: u64,
+    pub collector_interval:     u64,
     #[structopt(
         long = "artificial-start-delay",
         help = "Time (in ms) to delay when the first gRPC request is sent to the node",
@@ -125,7 +118,7 @@ struct ConfigCli {
         env = "CONCORDIUM_NODE_COLLECTOR_USE_MAC_LOG",
         conflicts_with = "log-config"
     )]
-    pub use_mac_log: Option<String>,
+    pub use_mac_log:            Option<String>,
 }
 
 #[tokio::main]
