@@ -5,11 +5,9 @@ use concordium_node::{common::grpc_api, req_with_auth, utils::setup_logger};
 use serde_json::Value;
 use std::{
     borrow::ToOwned,
-    default::Default,
     fmt,
     process::exit,
     str::FromStr,
-    sync::atomic::{AtomicUsize, Ordering as AtomicOrdering},
     thread,
     time::Duration,
 };
@@ -117,13 +115,6 @@ struct ConfigCli {
         env = "CONCORDIUM_NODE_COLLECTOR_GRPC_TIMEOUT"
     )]
     pub grpc_timeout: u64,
-    #[structopt(
-        long = "max-grpc-failures-allowed",
-        help = "Maximum allowed times a gRPC call can fail before terminating the program",
-        default_value = "50",
-        env = "CONCORDIUM_NODE_COLLECTOR_MAX_GRPC_FAILURES_ALLOWED"
-    )]
-    pub max_grpc_failures_allowed: u64,
     #[cfg(target_os = "macos")]
     #[structopt(
         long = "use-mac-log",
@@ -169,11 +160,8 @@ async fn main() {
         thread::sleep(Duration::from_millis(conf.artificial_start_delay));
     }
 
-    let atomic_counter: AtomicUsize = Default::default();
     #[allow(unreachable_code)]
     loop {
-        let grpc_failure_count = atomic_counter.load(AtomicOrdering::Relaxed);
-        trace!("Failure count is {}/{}", grpc_failure_count, conf.max_grpc_failures_allowed);
         for (node_name, grpc_host) in conf.node_names.iter().zip(conf.grpc_hosts.iter()) {
             trace!("Processing node {}/{}", node_name, grpc_host);
             match collect_data(node_name.clone(), grpc_host.to_owned(), &conf).await {
@@ -194,17 +182,11 @@ async fn main() {
                     }
                 }
                 Err(e) => {
-                    let _ = atomic_counter.fetch_add(1, AtomicOrdering::SeqCst);
                     error!(
                         "gRPC failed with \"{}\" for {}, sleeping for {} ms",
                         e, &grpc_host, conf.collector_interval
                     );
                 }
-            }
-
-            if grpc_failure_count + 1 >= conf.max_grpc_failures_allowed as usize {
-                error!("Too many gRPC failures, exiting!");
-                exit(1);
             }
         }
         trace!("Sleeping for {} ms", conf.collector_interval);
