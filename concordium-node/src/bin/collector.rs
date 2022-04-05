@@ -111,6 +111,13 @@ struct ConfigCli {
     )]
     pub artificial_start_delay: u64,
     #[structopt(
+        long = "grpc-timeout",
+        help = "Time (in seconds) for gRPC request timeouts",
+        default_value = "30",
+        env = "CONCORDIUM_NODE_COLLECTOR_GRPC_TIMEOUT"
+    )]
+    pub grpc_timeout: u64,
+    #[structopt(
         long = "max-grpc-failures-allowed",
         help = "Maximum allowed times a gRPC call can fail before terminating the program",
         default_value = "50",
@@ -169,8 +176,7 @@ async fn main() {
         trace!("Failure count is {}/{}", grpc_failure_count, conf.max_grpc_failures_allowed);
         for (node_name, grpc_host) in conf.node_names.iter().zip(conf.grpc_hosts.iter()) {
             trace!("Processing node {}/{}", node_name, grpc_host);
-            match collect_data(node_name.clone(), grpc_host.to_owned(), &conf.grpc_auth_token).await
-            {
+            match collect_data(node_name.clone(), grpc_host.to_owned(), &conf).await {
                 Ok(node_info) => {
                     trace!("Node data collected successfully from {}/{}", node_name, grpc_host);
                     match rmp_serde::encode::to_vec(&node_info) {
@@ -210,14 +216,19 @@ async fn main() {
 async fn collect_data<'a>(
     node_name: NodeName,
     grpc_host: String,
-    grpc_auth_token: &str,
+    conf: &ConfigCli,
 ) -> anyhow::Result<NodeInfo> {
+    let grpc_auth_token = &conf.grpc_auth_token;
+    let grpc_timeout = conf.grpc_timeout;
     info!(
         "Collecting node information via gRPC from {}/{}/{}",
         node_name, grpc_host, grpc_auth_token
     );
-
-    let channel = Channel::from_shared(grpc_host).unwrap().connect().await?;
+    let channel = Channel::from_shared(grpc_host)
+        .unwrap()
+        .timeout(Duration::from_secs(grpc_timeout))
+        .connect()
+        .await?;
     let mut client = grpc_api::p2p_client::P2pClient::new(channel);
 
     let empty_req = || req_with_auth!(grpc_api::Empty {}, grpc_auth_token);
