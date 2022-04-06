@@ -1888,6 +1888,7 @@ doGetPoolStatus pbs Nothing = do
         poolRewards <- refLoad (bspPoolRewards bsp)
         let psCurrentPaydayTransactionFeesEarned = lPoolTransactionRewards poolRewards
         psCurrentPaydayDelegatedCapital <- currentLPoolDelegatedCapital poolRewards
+        psAllPoolTotalCapital <- totalCapital bsp
         return $ Just LPoolStatus {..}
 doGetPoolStatus pbs (Just psBakerId@(BakerId aid)) = do
         bsp <- loadPBS pbs
@@ -1901,10 +1902,10 @@ doGetPoolStatus pbs (Just psBakerId@(BakerId aid)) = do
                         let psBakerEquityCapital = baker ^. stakedAmount
                         psDelegatedCapital <- poolDelegatorCapital bsp psBakerId
                         poolParameters <- _cpPoolParameters <$> lookupCurrentParameters (bspUpdates bsp)
-                        totalCap <- totalCapital bsp
+                        psAllPoolTotalCapital <- totalCapital bsp
                         let psDelegatedCapitalCap = delegatedCapitalCap
                                 poolParameters
-                                totalCap
+                                psAllPoolTotalCapital
                                 psBakerEquityCapital
                                 psDelegatedCapital
                         psBakerAddress <- _accountAddress <$> refLoad (acct ^. persistingData)

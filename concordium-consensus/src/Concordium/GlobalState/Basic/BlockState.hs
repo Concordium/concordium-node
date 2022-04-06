@@ -774,7 +774,8 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
             psDelegatedCapital = lPoolDelegatorCapital bs,
             psCommissionRates = bs ^. blockUpdates . currentParameters . cpPoolParameters . to _ppLPoolCommissions,
             psCurrentPaydayTransactionFeesEarned = PoolRewards.lPoolTransactionRewards poolRewards, 
-            psCurrentPaydayDelegatedCapital = PoolRewards.currentLPoolDelegatedCapital poolRewards
+            psCurrentPaydayDelegatedCapital = PoolRewards.currentLPoolDelegatedCapital poolRewards,
+            psAllPoolTotalCapital = totalCapital bs
         }
         where
             poolRewards = bs ^. blockPoolRewards
@@ -807,6 +808,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
             psBakerAddress = account ^. accountAddress,
             psPoolInfo = baker ^. accountBakerInfo . bieBakerPoolInfo,
             psBakerStakePendingChange = makePoolPendingChange (baker ^. bakerPendingChange),
+            psAllPoolTotalCapital = totalCapital bs,
             ..
         }
 
