@@ -115,8 +115,8 @@ data BlockStateQueryAction (pv :: ProtocolVersion) a where
     GetNextUpdateSequenceNumber :: MockBlockState -> UpdateType -> BlockStateQueryAction pv UpdateSequenceNumber
     GetCurrentElectionDifficulty :: MockBlockState -> BlockStateQueryAction pv ElectionDifficulty
     GetUpdates :: MockBlockState -> BlockStateQueryAction pv (UQ.Updates pv)
-    GetPendingTimeParameters :: MockBlockState -> BlockStateQueryAction pv [(Timestamp, TimeParameters (ChainParametersVersionFor pv))]
-    GetPendingPoolParameters :: MockBlockState -> BlockStateQueryAction pv [(Timestamp, PoolParameters (ChainParametersVersionFor pv))]
+    GetPendingTimeParameters :: MockBlockState -> BlockStateQueryAction pv [(TransactionTime, TimeParameters (ChainParametersVersionFor pv))]
+    GetPendingPoolParameters :: MockBlockState -> BlockStateQueryAction pv [(TransactionTime, PoolParameters (ChainParametersVersionFor pv))]
     GetProtocolUpdateStatus :: MockBlockState -> BlockStateQueryAction pv UQ.ProtocolUpdateStatus
     GetCryptographicParameters :: MockBlockState -> BlockStateQueryAction pv CryptographicParameters
     GetUpdateKeysCollection :: MockBlockState -> BlockStateQueryAction pv (UpdateKeysCollection (ChainParametersVersionFor pv))
@@ -165,8 +165,7 @@ data BlockStateOperationsAction pv a where
     BsoUpdateBakerRestakeEarnings :: (AccountVersionFor pv ~ 'AccountV0) => MockUpdatableBlockState -> AccountIndex -> Bool -> BlockStateOperationsAction pv (BakerRestakeEarningsUpdateResult, MockUpdatableBlockState)
     BsoRemoveBaker :: (AccountVersionFor pv ~ 'AccountV0, ChainParametersVersionFor pv ~ 'ChainParametersV0) => MockUpdatableBlockState -> AccountIndex -> BlockStateOperationsAction pv (BakerRemoveResult, MockUpdatableBlockState)
     BsoRewardAccount :: MockUpdatableBlockState -> AccountIndex -> Amount -> BlockStateOperationsAction pv (Maybe AccountAddress, MockUpdatableBlockState)
-    BsoGetTotalRewardPeriodBlockCount :: AccountVersionFor pv ~ 'AccountV1 => MockUpdatableBlockState -> BlockStateOperationsAction pv Word64
-    BsoGetBakerPoolRewardDetails :: AccountVersionFor pv ~ 'AccountV1 => MockUpdatableBlockState -> BakerId -> BlockStateOperationsAction pv BakerPoolRewardDetails
+    BsoGetBakerPoolRewardDetails :: AccountVersionFor pv ~ 'AccountV1 => MockUpdatableBlockState -> BlockStateOperationsAction pv (Map.Map BakerId BakerPoolRewardDetails)
     BsoUpdateAccruedTransactionFeesBaker :: AccountVersionFor pv ~ 'AccountV1 => MockUpdatableBlockState -> BakerId -> AmountDelta -> BlockStateOperationsAction pv MockUpdatableBlockState
     BsoMarkFinalizationAwakeBaker :: AccountVersionFor pv ~ 'AccountV1 => MockUpdatableBlockState -> BakerId -> BlockStateOperationsAction pv MockUpdatableBlockState
     BsoUpdateAccruedTransactionFeesLPool :: AccountVersionFor pv ~ 'AccountV1 => MockUpdatableBlockState -> AmountDelta -> BlockStateOperationsAction pv MockUpdatableBlockState
@@ -195,7 +194,6 @@ data BlockStateOperationsAction pv a where
     BsoAddReleaseSchedule :: MockUpdatableBlockState -> [(AccountAddress, Timestamp)] -> BlockStateOperationsAction pv MockUpdatableBlockState
     BsoGetEnergyRate :: MockUpdatableBlockState -> BlockStateOperationsAction pv EnergyRate
     BsoGetChainParameters :: MockUpdatableBlockState -> BlockStateOperationsAction pv (ChainParameters pv)
-    BsoGetPendingTimeParameters :: MockUpdatableBlockState -> BlockStateOperationsAction pv [(Timestamp, TimeParameters (ChainParametersVersionFor pv))]
     BsoGetEpochBlocksBaked :: MockUpdatableBlockState -> BlockStateOperationsAction pv (Word64, [(BakerId, Word64)])
     BsoNotifyBlockBaked :: MockUpdatableBlockState -> BakerId -> BlockStateOperationsAction pv MockUpdatableBlockState
     BsoClearEpochBlocksBaked :: (AccountVersionFor pv ~ 'AccountV0) => MockUpdatableBlockState -> BlockStateOperationsAction pv MockUpdatableBlockState
