@@ -27,13 +27,13 @@ module Concordium.GlobalState.Basic.BlockState.LFMBTree
     -- * Conversion
     fromFoldable,
     fromList,
+    toAscList,
     toAscPairList,
     fromListChoosingFirst,
 
     -- * Specialized functions for @Maybe@
     lookupMaybe,
     delete,
-    toAscList,
     toAscPairListMaybes,
     fromAscListMaybes,
 

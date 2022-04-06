@@ -739,15 +739,12 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
     getPendingTimeParameters = case chainParametersVersion @(ChainParametersVersionFor pv) of
         SCPV0 -> const $ return []
         SCPV1 -> \bs ->
-            return $
-                (_1 %~ transactionTimeToTimestamp)
-                    <$> (bs ^. blockUpdates . pendingUpdates . pTimeParametersQueue . to unJustForCPV1 . uqQueue)
+            return
+                (bs ^. blockUpdates . pendingUpdates . pTimeParametersQueue . to unJustForCPV1 . uqQueue)
     
     {-# INLINE getPendingPoolParameters #-}
     getPendingPoolParameters bs =
-        return $
-            (_1 %~ transactionTimeToTimestamp)
-                <$> (bs ^. blockUpdates . pendingUpdates . pPoolParametersQueue . uqQueue)
+        return (bs ^. blockUpdates . pendingUpdates . pPoolParametersQueue . uqQueue)
 
     {-# INLINE getProtocolUpdateStatus #-}
     getProtocolUpdateStatus bs = return (bs ^. blockUpdates . to protocolUpdateStatus)
@@ -1556,27 +1553,13 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                     & maybeUpdateTotalCapital
             return (Just (account ^. accountAddress), bs')
 
-    bsoGetTotalRewardPeriodBlockCount bs =
-      let bprds = PoolRewards.bakerPoolRewardDetails $ bs ^. blockPoolRewards
-      in return $! foldl' (\c bprd -> c + PoolRewards.blockCount bprd) 0 bprds
-
-    bsoGetBakerPoolRewardDetails bs bid =
+    bsoGetBakerPoolRewardDetails bs =
       let bprds = PoolRewards.bakerPoolRewardDetails $ bs ^. blockPoolRewards
           capitals = PoolRewards.currentCapital (bs ^. blockPoolRewards) ^. unhashed
-          idx = case binarySearchI bcBakerId (bakerPoolCapital capitals) bid of
-            Nothing ->
-              error $
-                  "Invariant violation: Basic.bsoGetBakerPoolRewardDetails: baker ID "
-                  ++ show bid ++ " is not in bakerPoolRewardDetails"
-            Just (i, _) ->
-              fromIntegral i
-          mBPRD = LFMBT.lookup idx bprds
-      in return $! case mBPRD of
-          Nothing ->
-            error $
-                "Invariant violation: Basic.bsoGetBakerPoolRewardDetails: invalid index "
-                ++ show idx ++ " from baker ID " ++ show bid
-          Just bprd -> bprd
+          toKV bc prd = (bcBakerId bc, prd)
+          -- Note that the lists will be the same length, since the bakerPoolRewardDetails are reset
+          -- when the currentCapital changes.
+      in return $! Map.fromList (zipWith toKV (Vec.toList $ bakerPoolCapital capitals) (LFMBT.toAscList bprds))
 
     bsoRewardFoundationAccount bs !reward = return $ bs & blockAccounts . Accounts.indexedAccount foundationAccount . accountAmount +~ reward
       where
@@ -1710,15 +1693,6 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
     bsoGetEnergyRate = doGetEnergyRate
 
     bsoGetChainParameters bs = return $! bs ^. blockUpdates . currentParameters
-
-    {-# INLINE bsoGetPendingTimeParameters #-}
-    bsoGetPendingTimeParameters = case chainParametersVersion @(ChainParametersVersionFor pv) of
-        SCPV0 -> const $ return []
-        SCPV1 -> \bs ->
-            return $
-                (_1 %~ transactionTimeToTimestamp)
-                    <$> (bs ^. blockUpdates . pendingUpdates . pTimeParametersQueue . to unJustForCPV1 . uqQueue)
-
 
     bsoGetEpochBlocksBaked bs = return $! case accountVersion @(AccountVersionFor pv) of
         SAccountV0 -> (_2 %~ Map.toList) (foldl' accumBakers (0, Map.empty) (bs ^. blockEpochBlocksBaked . to brdBlocks))

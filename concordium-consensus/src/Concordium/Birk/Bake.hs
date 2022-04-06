@@ -207,7 +207,8 @@ doBakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     bb <- bestBlockBefore slot
     guard (blockSlot bb < slot)
     bbState <- blockState bb
-    bakers <- getSlotBakers bbState slot
+    gd <- TS.getGenesisData
+    bakers <- getSlotBakers gd bbState slot
     (binfo, lotteryPower) <- MaybeT . return $ lotteryBaker bakers bakerId
     unless (validateBakerKeys binfo ident) $ do
       logEvent Baker LLWarning "Baker keys are incorrect."

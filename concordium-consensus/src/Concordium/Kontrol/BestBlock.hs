@@ -32,7 +32,8 @@ blockLuck block = case blockFields block of
             -- that determine the luck of the block itself.
             parent <- bpParent block
             parentState <- blockState parent
-            bakers <- getSlotBakers parentState (blockSlot block)
+            genData <- getGenesisData
+            bakers <- getSlotBakers genData parentState (blockSlot block)
             let baker = lotteryBaker bakers (blockBaker bf)
             ts <- getSlotTimestamp (blockSlot block)
             elDiff <- getElectionDifficulty parentState ts
@@ -47,7 +48,7 @@ compareBlocks :: (SkovQueryMonad m)
               -> m (BlockPointerType m, Maybe BlockLuck)
 compareBlocks contender best@(bestb, mbestLuck) =
     case compare (blockSlot bestb) (blockSlot contender) of
-        LT -> return best -- if bestb has the smaller slot it is to be prefered 
+        LT -> return best -- if bestb has the smaller slot it is to be preferred 
         GT -> return (contender, Nothing)
         EQ -> do
             luck <- blockLuck contender

@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -22,7 +23,6 @@ import qualified Data.Sequence as Seq
 import qualified Data.Vector as Vec
 import Data.Foldable
 import Data.Maybe
-import Data.Monoid
 import Data.Word
 import Control.Monad
 import Concordium.TimeMonad
@@ -573,17 +573,16 @@ rewardBakers ::
     Amount ->
     -- |The capital of bakers and delegators in the reward period
     Vec.Vector BakerCapital ->
-    -- |The total number of blocks baked in the reward period
-    Word64 ->
+    -- |The details of rewards earned by each baker pool
+    Map.Map BakerId BakerPoolRewardDetails ->
     m (BakerRewardOutcomes, UpdatableBlockState m)
-rewardBakers bs bakers bakerTotalBakingRewards bakerTotalFinalizationRewards bcs paydayBlockCount
+rewardBakers bs bakers bakerTotalBakingRewards bakerTotalFinalizationRewards bcs poolRewardDetails
     | paydayBlockCount == 0 = return (emptyRewardOutcomes, bs)
     | otherwise = do
-        -- Compute the total finalization stake.
-        -- This is used for distributing finalization rewards in proportion to stake.
-        totalFinStake <- foldM addFinalizationStake 0 bcs
-        foldM (rewardBaker totalFinStake) (emptyRewardOutcomes, bs) bcs
+        foldM rewardBaker (emptyRewardOutcomes, bs) bcs
   where
+    -- B - the total number of blocks baked by all bakers
+    paydayBlockCount = sum $ blockCount <$> poolRewardDetails
     emptyRewardOutcomes = BakerRewardOutcomes 0 0 Seq.empty
     -- Map from baker IDs to the pool stake and commission rates.
     -- These are taken from the 'FullBakersEx', which was frozen prior to the reward period.
@@ -597,22 +596,22 @@ rewardBakers bs bakers bakerTotalBakingRewards bakerTotalFinalizationRewards bcs
             )
             Map.empty
             (BI.bakerInfoExs bakers)
-
-    -- Accumulate the finalization stake for a baker.
-    addFinalizationStake a bc = do
-        bprd <- bsoGetBakerPoolRewardDetails bs (bcBakerId bc)
-        -- The finalization stake is just the stake if the pool is awake, and 0 otherwise.
-        if finalizationAwake bprd
-            then case Map.lookup (bcBakerId bc) bakerStakesAndRatesMap of
+    finStake (bid, bprd)
+      | finalizationAwake bprd = case Map.lookup bid bakerStakesAndRatesMap of
                 Nothing ->
-                    error "Invariant violation: baker from capital distribution is not an epoch baker"
+                    error "Invariant violation: baker from pool reward details is not an epoch baker"
                 Just (s, _) ->
-                    return (a + s)
-            else return a
+                    s
+      | otherwise = 0
+    -- The total finalization stake.
+    -- This is used for distributing finalization rewards in proportion to stake.
+    totalFinStake = sum $ finStake <$> Map.toList poolRewardDetails
 
     -- Reward a baker pool, accumulating the baking and finalization reward totals and reward outcomes.
-    rewardBaker totalFinStake (accumRewards, bsIn) bc = do
-        bprd <- bsoGetBakerPoolRewardDetails bsIn (bcBakerId bc)
+    rewardBaker (accumRewards, bsIn) bc = do
+        let bprd = case Map.lookup (bcBakerId bc) poolRewardDetails of
+              Nothing -> error "Invariant violation: baker from capital distribution does not have pool reward details"
+              Just prd -> prd
         let poolTransactionReward = transactionFeesAccrued bprd
             bakerBlockCount = blockCount bprd
             bakerBlockFraction = bakerBlockCount % paydayBlockCount
@@ -703,16 +702,17 @@ distributeRewards
       BlockStateOperations m,
       TreeStateMonad m)
   => AccountAddress -- ^Foundation account address
+  -> CapitalDistribution
+  -> BI.FullBakersEx
+  -> Map.Map BakerId BakerPoolRewardDetails
   -> UpdatableBlockState m
   -> m (UpdatableBlockState m)
-distributeRewards foundationAddr bs0 = do
+distributeRewards foundationAddr capitalDistribution bakers poolRewardDetails bs0 = do
   -- The chain parameters are used to determine the L-pool finalization and baking commission rates.
   -- Note: unlike baker pool commission rates, these are not frozen at the prior to the reward period.
   lPoolCommissions <- (^. cpPoolParameters . ppLPoolCommissions) <$> bsoGetChainParameters bs0
   rewardAccts <- (^. bankRewardAccounts) <$> bsoGetBankStatus bs0
   lPoolAccrued <- bsoGetAccruedTransactionFeesLPool bs0
-  capitalDistribution <- bsoGetCurrentCapitalDistribution bs0
-  bakers <- bsoGetCurrentEpochFullBakersEx bs0
   let -- stake_L -- The L-pool stake is the total capital delegated to the L-pool
       lPoolStake = sum $ dcDelegatorCapital <$> lPoolCapital capitalDistribution
       -- s_L -- The relative stake of the L-pool; s_L = stake_L / (stake + stake_L)
@@ -739,13 +739,11 @@ distributeRewards foundationAddr bs0 = do
   let bakerTotalBakingRewards = rewardAccts ^. bakingRewardAccount - lPoolBakingReward
   -- (R_F - R_{F,L}) -- Total finalization rewards due to baking pools
   let bakerTotalFinalizationRewards = rewardAccts ^. finalizationRewardAccount - lPoolFinalizationReward
-  -- B -- the total number of blocks produced in the reward period
-  paydayBlocks <- bsoGetTotalRewardPeriodBlockCount bs2
   -- Reward each baking pool, including the pool owner and delegators.
   -- This accumulates the total baking and finalization reward payout to baking pools, as well
   -- as outcomes for each (non-zero) reward.
   (BakerRewardOutcomes{..}, bs3) <-
-    rewardBakers bs2 bakers bakerTotalBakingRewards bakerTotalFinalizationRewards (bakerPoolCapital capitalDistribution) paydayBlocks
+    rewardBakers bs2 bakers bakerTotalBakingRewards bakerTotalFinalizationRewards (bakerPoolCapital capitalDistribution) poolRewardDetails
   -- To update the finalization reward account and the baking reward account, we subtract the amounts
   -- paid out from each.
   let newRewardAccts = rewardAccts
@@ -763,11 +761,13 @@ distributeRewards foundationAddr bs0 = do
     stoFoundationAccount = foundationAddr,
     stoDevelopmentCharge = accruedFoundation
   }
+  -- We record the actual totals paid to the L-pool, which may be smaller than the amounts
+  -- accrued to the L-pool due to rounding. The remainders are carried over till the next payday.
   bs8 <- bsoAddSpecialTransactionOutcome bs7 PaydayPoolReward{
       stoPoolOwner = Nothing,
-      stoTransactionFees = lPoolAccrued,
-      stoBakerReward = lPoolBakingReward,
-      stoFinalizationReward = lPoolFinalizationReward
+      stoTransactionFees = lpoolRes ^. delegatorAccumTransaction,
+      stoBakerReward = lpoolRes ^. delegatorAccumBaking,
+      stoFinalizationReward = lpoolRes ^. delegatorAccumFinalization
     }
   bs9 <- foldM bsoAddSpecialTransactionOutcome bs8 (lpoolRes ^. delegatorOutcomes)
   foldM bsoAddSpecialTransactionOutcome bs9 _bakerOutcomes
@@ -783,10 +783,10 @@ bestTimeParameters ::
   [(Slot, UpdateValue cpv)] ->
   TimeParameters cpv
 bestTimeParameters targetSlot tp0 upds =
-    fromMaybe tp0 $
-        getLast $
-            mconcat
-                [Last (Just tp) | (slot, UVTimeParameters tp) <- upds, slot <= targetSlot]
+    timeParametersAtSlot
+        targetSlot
+        tp0
+        [(slot, tp) | (slot, UVTimeParameters tp) <- upds]
 
 -- |Mint for any skipped paydays, returning the epoch of the next future payday, the mint rate
 -- for that payday, and the updated block state.  This does not mint for the first payday after
@@ -827,36 +827,6 @@ mintForSkippedPaydays newEpoch payday oldChainParameters foundationAccount updat
     bs1 <- doMintingP4 oldChainParameters nextPayday nextMintRate foundationAccount updates bs0
     mintForSkippedPaydays newEpoch nextPayday oldChainParameters foundationAccount updates bs1
 
-prepareForFollowingPayday
-  :: (ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1,
-      AccountVersionFor (MPV m) ~ 'AccountV1,
-      GlobalStateTypes m,
-      BlockStateOperations m,
-      BlockPointerMonad m)
-  => Epoch
-  -- ^Epoch of the current block
-  -> Epoch
-  -- ^Epoch of the current payday
-  -> ChainParameters (MPV m)
-  -- ^Chain parameters at the parent block
-  -> AccountAddress
-  -- ^Foundation account address
-  -> [(Slot, UpdateValue 'ChainParametersV1)]
-  -- ^Ordered chain updates since the last block
-  -> UpdatableBlockState m
-  -- ^Block state
-  -> m (UpdatableBlockState m)
-prepareForFollowingPayday newEpoch payday oldChainParameters foundationAccount updates bs0 = do
-  (newPayday, newMintRate, bs1) <- mintForSkippedPaydays newEpoch payday oldChainParameters foundationAccount updates bs0
-  bs2 <- bsoSetPaydayEpoch bs1 newPayday
-  bs3 <- bsoSetPaydayMintRate bs2 newMintRate
-  -- Update the current capital distribution based on the next capital distribution.
-  -- This also resets the accumulated rewards for each pool.
-  bs4 <- bsoRotateCurrentCapitalDistribution bs3
-  -- Update the current bakers based on the next bakers.
-  -- This is always kept in sync with the capital distribution.
-  bsoRotateCurrentEpochBakers bs4
-
 -- |Find committee signers in 'FinalizerInfo' and mark them as awake finalizers.
 addAwakeFinalizers
     :: (BlockStateOperations m, AccountVersionFor (MPV m) ~ 'AccountV1)
@@ -865,10 +835,35 @@ addAwakeFinalizers
     -> m (UpdatableBlockState m)
 addAwakeFinalizers Nothing bs = return bs
 addAwakeFinalizers (Just FinalizerInfo{..}) bs0 =
-    foldM (\bs bid -> bsoMarkFinalizationAwakeBaker bs bid) bs0 committeeSigners
+    foldM bsoMarkFinalizationAwakeBaker bs0 committeeSigners
+
+-- |Parameters used by 'mintAndReward' that are determined by 'updateBirkParameters'.
+-- 'updateBirkParameters' determines these, since it makes state changes that would make them
+-- inaccessible in 'mintAndReward'.
+data MintRewardParams (cpv :: ChainParametersVersion) where
+    MintRewardParamsV0 ::
+        { -- |Whether the block is in a different epoch to its parent.
+          isNewEpoch :: !Bool
+        } ->
+        MintRewardParams 'ChainParametersV0
+    -- |Indicates that no payday has elapsed since the parent block.
+    MintRewardParamsV1NoPayday :: MintRewardParams 'ChainParametersV1
+    -- |Indicates that at least one payday has elapsed since the parent block.
+    MintRewardParamsV1Payday ::
+        { -- |The distribution of the capital at the first elapsed payday.
+          paydayCapitalDistribution :: !CapitalDistribution,
+          -- |The baker stakes at the first elapsed payday.
+          paydayBakers :: !BI.FullBakersEx,
+          -- |The reward details for each baker pool at the first payday.
+          paydayBakerPoolRewards :: !(Map.Map BakerId BakerPoolRewardDetails),
+          -- |The epoch of the latest elapsed payday.
+          lastElapsedPayday :: !Epoch
+        } ->
+        MintRewardParams 'ChainParametersV1
 
 -- |Mint new tokens and distribute rewards to bakers, finalizers and the foundation.
--- The process consists of the following four steps:
+--
+-- For P1 to P3, the process consists of the following four steps:
 --
 -- 1. If the block is the first in a new epoch, distribute the baking reward account
 --    to the bakers of the previous epoch in proportion to the number of blocks they
@@ -893,6 +888,35 @@ addAwakeFinalizers (Just FinalizerInfo{..}) bs0 =
 --    account.  Additionally, a fraction of the old GAS account is paid to the baker,
 --    including incentives for including the 'free' transaction types.  (Rounding of
 --    the fee distribution favours the foundation.  The GAS reward is rounded down.)
+--
+-- For P4 onwards, the process is as follows:
+--
+-- 1. If a payday has elapsed then:
+--
+--    (1) Mint for the (first) elapsed payday. Minting is distributed to the foundation account,
+--        finalization reward account and baking reward account.  The amount is determined by the
+--        mint rate set at the last payday.  The distribution is determined by the state of the
+--        chain parameters as of the first slot of the payday.
+--
+--    (2) Distribute the rewards earned over the reward period to the bakers and delegators.
+--        Note that the stakes, capital and accrued rewards are determined in 'updateBirkParameters'.
+--        This is important, because that function rotates the stakes and capital, and clears the
+--        accrued rewards.
+--
+--    (3) Mint for any additional paydays. THe amount is determined by the mint rate
+--
+--    (4) Set the mint rate and payday epoch for the next payday based on the time parameters
+--        at the most recent payday.
+--
+-- 2. If the block contains a finalization record, mark all finalizers in that record as being
+--    awake.
+--
+-- 3. Record that the baker has baked a block in the current reward period.
+--
+-- 4. The transaction fees are distributed between the GAS account, foundation accrued transaction
+--    rewards, baker pool accrued transaction rewards and L-pool accrued transaction rewards.
+--    Additionally, a fraction of the old GAS account accrues to the baker pool transaction rewards,
+--    including incentives for including the 'free' transaction types.
 mintAndReward :: forall m. (BlockStateOperations m, TreeStateMonad m, MonadProtocolVersion m)
     => UpdatableBlockState m
     -- ^Block state
@@ -904,8 +928,8 @@ mintAndReward :: forall m. (BlockStateOperations m, TreeStateMonad m, MonadProto
     -- ^Baker ID
     -> Epoch
     -- ^Epoch of the new block
-    -> Bool
-    -- ^Is a new epoch
+    -> MintRewardParams (ChainParametersVersionFor (MPV m))
+    -- ^Parameters determined by 'updateBirkParameters'
     -> Maybe FinalizerInfo
     -- ^Info on finalization committee for included record, if any
     -> Amount
@@ -915,7 +939,7 @@ mintAndReward :: forall m. (BlockStateOperations m, TreeStateMonad m, MonadProto
     -> [(Slot, UpdateValue (ChainParametersVersionFor (MPV m)))]
     -- ^Ordered chain updates since the last block
     -> m (UpdatableBlockState m)
-mintAndReward bshandle blockParent slotNumber bid newEpoch isNewEpoch mfinInfo transFees freeCounts updates =
+mintAndReward bshandle blockParent slotNumber bid newEpoch mintParams mfinInfo transFees freeCounts updates =
   case protocolVersion @(MPV m) of
     SP1 -> mintAndRewardCPV0AccountV0
     SP2 -> mintAndRewardCPV0AccountV0
@@ -928,7 +952,7 @@ mintAndReward bshandle blockParent slotNumber bid newEpoch isNewEpoch mfinInfo t
         => m (UpdatableBlockState m)
     mintAndRewardCPV0AccountV0 = do
       -- First, reward bakers from previous epoch, if we are starting a new one.
-      bshandleEpoch <- (if isNewEpoch then rewardLastEpochBakers else return) bshandle
+      bshandleEpoch <- (if isNewEpoch mintParams then rewardLastEpochBakers else return) bshandle
         -- Add the block to the list of blocks baked in this epoch
         >>= flip bsoNotifyBlockBaked bid
 
@@ -951,17 +975,27 @@ mintAndReward bshandle blockParent slotNumber bid newEpoch isNewEpoch mfinInfo t
             ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1)
         => m (UpdatableBlockState m)
     mintAndRewardCPV1AccountV1 = do
-      foundationAccount <- getAccountCanonicalAddress =<< bsoGetFoundationAccount bshandle
-      nextPayday <- bsoGetPaydayEpoch bshandle
-      bshandleFinRew <- if newEpoch < nextPayday
-        then return bshandle
-        else do
+      -- If a payday has elapsed, distribute the accrued rewards.
+      bshandlePayday <- case mintParams of
+        MintRewardParamsV1NoPayday -> return bshandle
+        MintRewardParamsV1Payday{..} -> do
+          foundationAccount <- getAccountCanonicalAddress =<< bsoGetFoundationAccount bshandle
+          nextPayday <- bsoGetPaydayEpoch bshandle
           nextMintRate <- bsoGetPaydayMintRate bshandle
           oldChainParameters <- (^. currentParameters) <$> (getUpdates =<< blockState blockParent)
           bshandleMint <- doMintingP4 oldChainParameters nextPayday nextMintRate foundationAccount updates bshandle
-          bshandleRewards <- distributeRewards foundationAccount bshandleMint
-          prepareForFollowingPayday newEpoch nextPayday oldChainParameters foundationAccount updates bshandleRewards
-      bshandleFinAwake <- addAwakeFinalizers mfinInfo bshandleFinRew
+          bshandleRewards <-
+              distributeRewards
+                foundationAccount
+                paydayCapitalDistribution
+                paydayBakers
+                paydayBakerPoolRewards
+                bshandleMint
+          (newPayday, newMintRate, bshandleSkipped) <-
+            mintForSkippedPaydays newEpoch nextPayday oldChainParameters foundationAccount updates bshandleRewards
+          bshandleSetPayday <- bsoSetPaydayEpoch bshandleSkipped newPayday
+          bsoSetPaydayMintRate bshandleSetPayday newMintRate
+      bshandleFinAwake <- addAwakeFinalizers mfinInfo bshandlePayday
       bshandleNotify <- bsoNotifyBlockBaked bshandleFinAwake bid
       doBlockRewardP4 transFees freeCounts bid bshandleNotify
 
@@ -986,14 +1020,15 @@ updateBirkParameters :: forall m. (BlockStateOperations m, TreeStateMonad m, Mon
   -- ^Chain parameters at the previous block
   -> [(Slot, UpdateValue (ChainParametersVersionFor (MPV m)))]
   -- ^Chain updates since the previous block
-  -> m (Bool, UpdatableBlockState m)
+  -> m (MintRewardParams (ChainParametersVersionFor (MPV m)), UpdatableBlockState m)
 updateBirkParameters newSeedState bs0 oldChainParameters updates = case protocolVersion @(MPV m) of
   SP1 -> updateCPV0AccountV0
   SP2 -> updateCPV0AccountV0
   SP3 -> updateCPV0AccountV0
   SP4 -> updateCPV1AccountV1
   where
-    updateCPV0AccountV0 :: AccountVersionFor (MPV m) ~ 'AccountV0 => m (Bool, UpdatableBlockState m)
+    updateCPV0AccountV0 :: AccountVersionFor (MPV m) ~ 'AccountV0
+        => m (MintRewardParams 'ChainParametersV0, UpdatableBlockState m)
     updateCPV0AccountV0 = do
       oldSeedState <- bsoGetSeedState bs0
       let isNewEpoch = epoch oldSeedState /= epoch newSeedState
@@ -1005,52 +1040,64 @@ updateBirkParameters newSeedState bs0 oldChainParameters updates = case protocol
           bsoTransitionEpochBakers upToLast (epoch newSeedState)
         else
           return bs0
-      (isNewEpoch,) <$> bsoSetSeedState bs1 newSeedState
-    updateCPV1AccountV1 :: (AccountVersionFor (MPV m) ~ 'AccountV1, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1) => m (Bool, UpdatableBlockState m)
+      (MintRewardParamsV0 isNewEpoch,) <$> bsoSetSeedState bs1 newSeedState
+    updateCPV1AccountV1 :: (AccountVersionFor (MPV m) ~ 'AccountV1, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1)
+        => m (MintRewardParams 'ChainParametersV1, UpdatableBlockState m)
     updateCPV1AccountV1 = do
       oldSeedState <- bsoGetSeedState bs0
       if epoch oldSeedState == epoch newSeedState then
-        (False,) <$> bsoSetSeedState bs0 newSeedState
+        (MintRewardParamsV1NoPayday,) <$> bsoSetSeedState bs0 newSeedState
       else do
         -- This is the start of a new epoch.
         -- Assume: epoch oldSeedState < epoch newSeedState
         payday <- bsoGetPaydayEpoch bs0
-        let oldTPs = oldChainParameters ^. cpTimeParameters
-            computePaydays lastPayday fromPayday hitEpochBeforePayday0
-              | epoch newSeedState < fromPayday = (lastPayday, fromPayday, hitEpochBeforePayday1)
-              | otherwise = computePaydays (Just fromPayday) nextPayday hitEpochBeforePayday1
-                  where
-                    !nextPayday = fromPayday +
-                      bestTimeParameters (slotFor fromPayday) oldTPs updates
-                        ^. tpRewardPeriodLength . to rewardPeriodEpochs
-                    slotFor = (epochLength oldSeedState *) . fromIntegral
-                    !hitEpochBeforePayday1 = hitEpochBeforePayday0 ||
-                      (epoch oldSeedState + 1 < fromPayday && epoch newSeedState + 1 >= fromPayday)
-            (mLastElapsedPayday, futurePayday, hitEpochBeforePayday) = computePaydays Nothing payday False
-        -- Here: epoch newSeedState < futurePayday, payday =< futurePayday
-       -- 'hitEpochBeforePayday' checks if (old block epoch, new block epoch] contains an epoch
-        -- that is one before a payday. In such a case, we need to compute the next bakers.
-        bs1 <- if hitEpochBeforePayday
-          then
-            -- We generate the bakers for the next reward period based on the epoch before the payday.
-            -- First, compute what the most recent payday will be in one epoch from now.
-            let bakersUpdatePayday
-                  | epoch newSeedState + 1 == futurePayday = futurePayday
-                  | (Just lastElapsed) <- mLastElapsedPayday = lastElapsed
-                    -- This last case cannot happen because if @mLastElapsedPayday == Nothing@ then
-                    -- it must be that @epoch newSeedState < payday@, @epoch newSeedState + 1 >= payday@
-                    -- and @futurePayday == payday@.
-                  | otherwise = payday
-            in generateNextBakers bakersUpdatePayday bs0
-          else return bs0
+        let oldTimeParameters = oldChainParameters ^. cpTimeParameters
+            -- Convert an Epoch to a Slot.
+            slotFor = (epochLength oldSeedState *) . fromIntegral
+            -- For each payday after the parent block:
+            --   - If the epoch before the payday is elapsed, generate the next bakers for the
+            --     reward period that starts from that payday.
+            --   - If the payday is elapsed, rotate the next epoch bakers and capital distribution
+            --     to become the current epoch bakers and capital distribution.
+            processPaydays pd mrps0 bspp0 = do
+              bspp1 <- if epoch oldSeedState < pd - 1 && pd - 1 <= epoch newSeedState then
+                  generateNextBakers pd bspp0
+                else
+                  return bspp0
+              if pd <= epoch newSeedState then do
+                -- Calculate the next payday by adding the reward period length given by the
+                -- time parameters as of the payday.
+                let effectiveTPs = bestTimeParameters (slotFor pd) oldTimeParameters updates
+                    nextPd = pd + rewardPeriodEpochs (effectiveTPs ^. tpRewardPeriodLength)
+                mrps1 <- case mrps0 of
+                  MintRewardParamsV1NoPayday -> do
+                    paydayCapitalDistribution <- bsoGetCurrentCapitalDistribution bspp1
+                    paydayBakers <- bsoGetCurrentEpochFullBakersEx bspp1
+                    paydayBakerPoolRewards <- bsoGetBakerPoolRewardDetails bspp1
+                    return MintRewardParamsV1Payday{
+                        lastElapsedPayday = pd,
+                        ..
+                      }
+                  MintRewardParamsV1Payday{..} -> return
+                    MintRewardParamsV1Payday{
+                        lastElapsedPayday = pd,
+                        ..
+                      }
+                bspp2 <- bsoRotateCurrentCapitalDistribution bspp1
+                bspp3 <- bsoRotateCurrentEpochBakers bspp2
+                processPaydays nextPd mrps1 bspp3
+              else
+                -- The payday has not elapsed, so we are done.
+                return (mrps0, bspp1)
+        (res, bs1) <- processPaydays payday MintRewardParamsV1NoPayday bs0
         -- If this is the first block after a payday, we process the pending changes on bakers and
         -- delegators (i.e. unlock stake that exits cooldown).
-        bs2 <- case mLastElapsedPayday of
-          Nothing -> return bs1
-          Just lastElapsed -> do
-            et <- effectiveTest lastElapsed
+        bs2 <- case res of
+          MintRewardParamsV1NoPayday -> return bs1
+          MintRewardParamsV1Payday{..} -> do
+            et <- effectiveTest lastElapsedPayday
             bsoProcessPendingChanges bs1 et
-        (True,) <$> bsoSetSeedState bs2 newSeedState
+        (res,) <$> bsoSetSeedState bs2 newSeedState
 
 -- |Count the free transactions of each kind in a list.
 -- The second argument indicates if the block contains a finalization record.

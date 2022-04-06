@@ -1541,33 +1541,17 @@ doRewardAccount pbs ai reward = do
             (_, newActiveBkrsMap) <- Trie.adjust adj bid activeBkrsMap
             return $! activeBkrs & activeBakers .~ newActiveBkrsMap
 
-doGetTotalRewardPeriodBlockCount :: (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1, MonadBlobStore m) => PersistentBlockState pv -> m Word64
-doGetTotalRewardPeriodBlockCount pbs = do
+doGetBakerPoolRewardDetails :: (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1, MonadBlobStore m) => PersistentBlockState pv -> m (Map.Map BakerId BakerPoolRewardDetails)
+doGetBakerPoolRewardDetails pbs = do
     bsp <- loadPBS pbs
     let hpr = case bspRewardDetails bsp :: BlockRewardDetails 'AccountV1 of BlockRewardDetailsV1 hp -> hp
     poolRewards <- refLoad hpr
-    let bprds = bakerPoolRewardDetails poolRewards
-    LFMBT.mfold (\c bprd -> return (c + blockCount bprd)) 0 bprds
-
-doGetBakerPoolRewardDetails :: (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1, MonadBlobStore m) => PersistentBlockState pv -> BakerId -> m BakerPoolRewardDetails
-doGetBakerPoolRewardDetails pbs bid = do
-    bsp <- loadPBS pbs
-    let hpr = case bspRewardDetails bsp :: BlockRewardDetails 'AccountV1 of BlockRewardDetailsV1 hp -> hp
-    poolRewards <- refLoad hpr
+    rewardsList <- LFMBT.toAscList (bakerPoolRewardDetails poolRewards)
     capitals <- refLoad $ currentCapital poolRewards
-    case binarySearchI bcBakerId (bakerPoolCapital capitals) bid of
-        Nothing ->
-            error $
-                "Invariant violation: Persistent.bsoGetBakerPoolRewardDetails: baker ID "
-                ++ show bid ++ " is not in bakerPoolRewardDetails"
-        Just (idx, _) -> do
-            mBPRD <- LFMBT.lookup (fromIntegral idx) (bakerPoolRewardDetails poolRewards)
-            case mBPRD of
-              Nothing ->
-                error $
-                    "Invariant violation: Persistent.bsoGetBakerPoolRewardDetails: invalid index "
-                    ++ show idx ++ " from baker ID " ++ show bid
-              Just bprd -> return bprd
+    let bakerIdList = bcBakerId <$> Vec.toList (bakerPoolCapital capitals)
+    -- The lists must be the same length since the rewards are reset when the current capital
+    -- distribution is updated.
+    return $! Map.fromList (zip bakerIdList rewardsList)
 
 doGetRewardStatus :: forall pv m. (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m (RewardStatus' Epoch)
 doGetRewardStatus pbs = do
@@ -2113,15 +2097,15 @@ doGetChainParameters pbs = do
         bsp <- loadPBS pbs
         lookupCurrentParameters (bspUpdates bsp)
 
-doGetPendingTimeParameters :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m [(Timestamp, TimeParameters (ChainParametersVersionFor pv))]
+doGetPendingTimeParameters :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m [(TransactionTime, TimeParameters (ChainParametersVersionFor pv))]
 doGetPendingTimeParameters pbs = do
         bsp <- loadPBS pbs
-        fmap (_1 %~ transactionTimeToTimestamp) <$> lookupPendingTimeParameters (bspUpdates bsp)
+        lookupPendingTimeParameters (bspUpdates bsp)
 
-doGetPendingPoolParameters :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m [(Timestamp, PoolParameters (ChainParametersVersionFor pv))]
+doGetPendingPoolParameters :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m [(TransactionTime, PoolParameters (ChainParametersVersionFor pv))]
 doGetPendingPoolParameters pbs = do
         bsp <- loadPBS pbs
-        fmap (_1 %~ transactionTimeToTimestamp) <$> lookupPendingPoolParameters (bspUpdates bsp)
+        lookupPendingPoolParameters (bspUpdates bsp)
 
 doGetEpochBlocksBaked :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m (Word64, [(BakerId, Word64)])
 doGetEpochBlocksBaked pbs = do
@@ -2614,7 +2598,6 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateOperations (Pe
     bsoUpdateBakerRestakeEarnings = doUpdateBakerRestakeEarnings
     bsoRemoveBaker = doRemoveBaker
     bsoRewardAccount = doRewardAccount
-    bsoGetTotalRewardPeriodBlockCount = doGetTotalRewardPeriodBlockCount
     bsoGetBakerPoolRewardDetails = doGetBakerPoolRewardDetails
     bsoRewardFoundationAccount = doRewardFoundationAccount
     bsoGetFoundationAccount = doGetFoundationAccount
@@ -2640,7 +2623,6 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateOperations (Pe
     bsoAddReleaseSchedule = doAddReleaseSchedule
     bsoGetEnergyRate = doGetEnergyRate
     bsoGetChainParameters = doGetChainParameters
-    bsoGetPendingTimeParameters = doGetPendingTimeParameters
     bsoGetEpochBlocksBaked = doGetEpochBlocksBaked
     bsoNotifyBlockBaked = doNotifyBlockBaked
     bsoUpdateAccruedTransactionFeesBaker = doUpdateAccruedTransactionFeesBaker

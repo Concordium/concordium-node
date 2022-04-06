@@ -364,7 +364,8 @@ addBlock block txvers = do
                 -- block's state in order that the current block is valid
                 parentState <- blockState parentP
                 -- Determine the baker and its lottery power
-                bakers <- getSlotBakers parentState (blockSlot block)
+                gd <- getGenesisData
+                bakers <- getSlotBakers gd parentState (blockSlot block)
                 let baker = lotteryBaker bakers (blockBaker block)
                 -- Determine the leadership election nonce
                 parentSeedState <- getSeedState parentState

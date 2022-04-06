@@ -579,13 +579,9 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         (r1, bs1') <- coerceBSML $ bsoRewardAccount bs1 aid reward
         (r2, bs2') <- coerceBSMR $ bsoRewardAccount bs2 aid reward
         assert (r1 == r2) $ return (r1, (bs1', bs2'))
-    bsoGetTotalRewardPeriodBlockCount (bs1, bs2) = do
-        r1 <- coerceBSML $ bsoGetTotalRewardPeriodBlockCount bs1
-        r2 <- coerceBSMR $ bsoGetTotalRewardPeriodBlockCount bs2
-        assert (r1 == r2) $ return r1
-    bsoGetBakerPoolRewardDetails (bs1, bs2) bid = do
-        r1 <- coerceBSML $ bsoGetBakerPoolRewardDetails bs1 bid
-        r2 <- coerceBSMR $ bsoGetBakerPoolRewardDetails bs2 bid
+    bsoGetBakerPoolRewardDetails (bs1, bs2) = do
+        r1 <- coerceBSML $ bsoGetBakerPoolRewardDetails bs1
+        r2 <- coerceBSMR $ bsoGetBakerPoolRewardDetails bs2
         assert (r1 == r2) $ return r1
     bsoRewardFoundationAccount (bs1, bs2) reward = do
         bs1' <- coerceBSML $ bsoRewardFoundationAccount bs1 reward
@@ -712,10 +708,6 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
     bsoGetChainParameters (bs1, bs2) = do
         r1 <- coerceBSML $ bsoGetChainParameters bs1
         r2 <- coerceBSMR $ bsoGetChainParameters bs2
-        assert (r1 == r2) $ return r1
-    bsoGetPendingTimeParameters (bs1, bs2) = do
-        r1 <- coerceBSML $ bsoGetPendingTimeParameters bs1
-        r2 <- coerceBSMR $ bsoGetPendingTimeParameters bs2
         assert (r1 == r2) $ return r1
     bsoGetEpochBlocksBaked (bs1, bs2) = do
         r1 <- coerceBSML $ bsoGetEpochBlocksBaked bs1

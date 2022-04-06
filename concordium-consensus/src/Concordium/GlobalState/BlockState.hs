@@ -310,9 +310,9 @@ class AccountOperations m => BlockStateQuery m where
     -- |Get the current chain parameters and pending updates.
     getUpdates :: BlockState m -> m (UQ.Updates (MPV m))
     -- |Get pending changes to the time parameters.
-    getPendingTimeParameters :: BlockState m -> m [(Timestamp, TimeParameters (ChainParametersVersionFor (MPV m)))]
+    getPendingTimeParameters :: BlockState m -> m [(TransactionTime, TimeParameters (ChainParametersVersionFor (MPV m)))]
     -- |Get pending changes to the pool parameters.
-    getPendingPoolParameters :: BlockState m -> m [(Timestamp, PoolParameters (ChainParametersVersionFor (MPV m)))]
+    getPendingPoolParameters :: BlockState m -> m [(TransactionTime, PoolParameters (ChainParametersVersionFor (MPV m)))]
     -- |Get the protocol update status. If a protocol update has taken effect,
     -- returns @Left protocolUpdate@. Otherwise, returns @Right pendingProtocolUpdates@.
     -- The @pendingProtocolUpdates@ is a (possibly-empty) list of timestamps and protocol
@@ -679,13 +679,9 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- then no change is made and @Nothing@ is returned.
   bsoRewardAccount :: UpdatableBlockState m -> AccountIndex -> Amount -> m (Maybe AccountAddress, UpdatableBlockState m)
 
-  -- |Get total number of baked blocks in current reward period.
-  bsoGetTotalRewardPeriodBlockCount :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> m Word64
-
-  -- |Function 'bsoGetBakerPoolRewardDetails' @bs@ @bid@ returns the 'BakerPoolRewardDetails'
-  -- related to the given baker. It is required that @bid@ is a current-epoch baker
-  -- (in the 'CapitalDistribution' returned by 'bsoGetCurrentCapitalDistribution').
-  bsoGetBakerPoolRewardDetails :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> BakerId -> m BakerPoolRewardDetails
+  -- |Function 'bsoGetBakerPoolRewardDetails' returns a map with the 'BakerPoolRewardDetails' for each
+  -- current-epoch baker (in the 'CapitalDistribution' returned by 'bsoGetCurrentCapitalDistribution').
+  bsoGetBakerPoolRewardDetails :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> m (Map.Map BakerId BakerPoolRewardDetails)
 
   -- |Update the amount to be distributed to the given baker's account at payday. It is a
   -- precondition that the given baker is current-epoch baker.
@@ -791,9 +787,6 @@ class (BlockStateQuery m) => BlockStateOperations m where
 
   -- |Get the current chain parameters.
   bsoGetChainParameters :: UpdatableBlockState m -> m (ChainParameters (MPV m))
-
-  -- |Get all pending changes to the time parameters.
-  bsoGetPendingTimeParameters :: UpdatableBlockState m -> m [(Timestamp, TimeParameters (ChainParametersVersionFor (MPV m)))]
 
   -- * Reward details
 
@@ -1011,8 +1004,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoUpdateBakerRestakeEarnings s addr a = lift $ bsoUpdateBakerRestakeEarnings s addr a
   bsoRemoveBaker s = lift . bsoRemoveBaker s
   bsoRewardAccount s aid amt = lift $ bsoRewardAccount s aid amt
-  bsoGetTotalRewardPeriodBlockCount = lift . bsoGetTotalRewardPeriodBlockCount
-  bsoGetBakerPoolRewardDetails s bid = lift $ bsoGetBakerPoolRewardDetails s bid
+  bsoGetBakerPoolRewardDetails s = lift $ bsoGetBakerPoolRewardDetails s
   bsoRewardFoundationAccount s = lift . bsoRewardFoundationAccount s
   bsoGetFoundationAccount = lift . bsoGetFoundationAccount
   bsoMint s = lift . bsoMint s
@@ -1041,7 +1033,6 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoAddReleaseSchedule s l = lift $ bsoAddReleaseSchedule s l
   bsoGetEnergyRate = lift . bsoGetEnergyRate
   bsoGetChainParameters = lift . bsoGetChainParameters
-  bsoGetPendingTimeParameters = lift . bsoGetPendingTimeParameters
   bsoGetEpochBlocksBaked = lift . bsoGetEpochBlocksBaked
   bsoNotifyBlockBaked s = lift . bsoNotifyBlockBaked s
   bsoClearEpochBlocksBaked = lift . bsoClearEpochBlocksBaked
