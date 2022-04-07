@@ -233,6 +233,16 @@ creation and deletion) costs are based on the length of the key, but further
 operations on the entry do not depend on the length of the key, but only on the
 data that is being written or read.
 
+There is a non-trivial interaction between entries and contract calls. When a
+contract A invokes contract B, that might lead to contract A's state being
+modified (e.g., B = A, or B further calls C, ...). This means that if an entry
+is given out before the call, it might no longer be valid after the call (e.g.,
+the value at the key might have been deleted). For this reason if as a result of
+a contract call contract A's state was modified (which is defined as any of the
+state modification functions being called) then all the entries that were given
+out are invalidated and attempting to use them will lead to an error return
+value.
+
 ### Lookup, creation, and deletion
 ```rust
     /// Lookup an entry with the given key. The return value is either
