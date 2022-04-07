@@ -471,9 +471,10 @@ getAccountInfo blockHash acct =
         <$> liftSkovQueryBlock
             ( \bp -> do
                 bs <- blockState bp
-                macc <- case acct of AA addr -> BS.getAccount bs addr
-                                     AI idx -> BS.getAccountByIndex bs idx
-                                     CID crid -> BS.getAccountByCredId bs crid
+                macc <- case acct of 
+                                AA addr -> BS.getAccount bs addr
+                                AI idx -> BS.getAccountByIndex bs idx
+                                CID crid -> BS.getAccountByCredId bs crid
                 forM macc $ \(aiAccountIndex, acc) -> do
                     aiAccountNonce <- BS.getAccountNonce acc
                     aiAccountAmount <- BS.getAccountAmount acc
