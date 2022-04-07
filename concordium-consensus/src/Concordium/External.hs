@@ -891,16 +891,16 @@ decodeBlockHash blockcstr = readMaybe <$> peekCString blockcstr
 decodeAccountAddress :: CString -> IO (Either String AccountAddress)
 decodeAccountAddress acctstr = addressFromBytes <$> BS.packCString acctstr
 
--- |Decode a null-terminated string as either an account address (base-58), account index (Int) or a
+-- |Decode a null-terminated string as either an account address (base-58), account index (AccountIndex) or a
 -- credential registration ID (base-16).
 decodeAccountAddressOrCredId :: CString -> IO (Maybe AccountIdentifier)
 decodeAccountAddressOrCredId str = do
     bs <- BS.packCString str
     return $ case addressFromBytes bs of
-        Left _ -> Just $ 
+        Left _ ->
             case bsDeserializeBase16 bs of
-                Nothing -> AI $ read (BS.unpack bs)
-                Just cid -> CID cid
+                Nothing -> AI <$> readMaybe (BS.unpack bs)
+                Just cid -> Just $ CID cid
         Right acc -> Just $ AA acc
 
 -- |Decode an instance address from a null-terminated JSON-encoded string.
