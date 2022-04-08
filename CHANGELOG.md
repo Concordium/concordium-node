@@ -24,6 +24,7 @@
   which they returned previously.
 - Fix issue #244: Collector to keep querying. Remove the parameter for maximum allowed
   times a gRPC call can fail and keeps `node-collector` querying forever.
+- `GetAccountInfo` endpoint supports querying the account via the account index.
 
 ## concordium-node 3.0.1
 

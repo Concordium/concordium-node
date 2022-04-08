@@ -459,19 +459,22 @@ getModuleList :: BlockHash -> MVR gsconf finconf (Maybe [ModuleRef])
 getModuleList = liftSkovQueryBlock $ BS.getModuleList <=< blockState
 
 -- |Get the details of an account in the block state.
--- The account can be given either via an address, or via a credential registration id.
+-- The account can be given via an address, an account index or a credential registration id.
 -- In the latter case we lookup the account the credential is associated with, even if it was
 -- removed from the account.
 getAccountInfo ::
     BlockHash ->
-    Either CredentialRegistrationID AccountAddress ->
+    AccountIdentifier ->
     MVR gsconf finconf (Maybe AccountInfo)
 getAccountInfo blockHash acct =
     join
         <$> liftSkovQueryBlock
             ( \bp -> do
                 bs <- blockState bp
-                macc <- either (BS.getAccountByCredId bs) (BS.getAccount bs) acct
+                macc <- case acct of 
+                                AccAddress addr -> BS.getAccount bs addr
+                                AccIndex idx -> BS.getAccountByIndex bs idx
+                                CredRegID crid -> BS.getAccountByCredId bs crid
                 forM macc $ \(aiAccountIndex, acc) -> do
                     aiAccountNonce <- BS.getAccountNonce acc
                     aiAccountAmount <- BS.getAccountAmount acc
