@@ -29,7 +29,6 @@ import qualified Data.FixedByteString as FBS
 import Concordium.Afgjort.Finalize.Types (FinalizationInstance (FinalizationInstance))
 import Concordium.Birk.Bake
 import Concordium.Constants.Time (defaultEarlyBlockThreshold, defaultMaxBakingDelay)
-import Concordium.Crypto.ByteStringHelpers
 import Concordium.GlobalState
 import Concordium.GlobalState.Persistent.LMDB (addDatabaseVersion)
 import Concordium.GlobalState.Persistent.TreeState (InitException (..))
@@ -891,18 +890,6 @@ decodeBlockHash blockcstr = readMaybe <$> peekCString blockcstr
 decodeAccountAddress :: CString -> IO (Either String AccountAddress)
 decodeAccountAddress acctstr = addressFromBytes <$> BS.packCString acctstr
 
--- |Decode a null-terminated string as either an account address (base-58), account index (AccountIndex) or a
--- credential registration ID (base-16).
-decodeAccountAddressOrCredId :: CString -> IO (Maybe AccountIdentifier)
-decodeAccountAddressOrCredId str = do
-    bs <- BS.packCString str
-    return $ case addressFromBytes bs of
-        Left _ ->
-            case bsDeserializeBase16 bs of
-                Nothing -> AI <$> readMaybe (BS.unpack bs)
-                Just cid -> Just $ CID cid
-        Right acc -> Just $ AA acc
-
 -- |Decode an instance address from a null-terminated JSON-encoded string.
 decodeInstanceAddress :: CString -> IO (Maybe ContractAddress)
 decodeInstanceAddress inststr = AE.decodeStrict <$> BS.packCString inststr
@@ -1074,8 +1061,9 @@ getModuleList cptr blockcstr = do
 getAccountInfo :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
 getAccountInfo cptr blockcstr acctcstr = do
     mblock <- decodeBlockHash blockcstr
-    maccount <- decodeAccountAddressOrCredId acctcstr
-    case (mblock, maccount) of
+    acctbs <- BS.packCString acctcstr
+    let account = decodeAccountIdentifier acctbs
+    case (mblock, account) of
         (Just bh, Just acct) -> jsonQuery cptr (Q.getAccountInfo bh acct)
         _ -> jsonCString AE.Null
 

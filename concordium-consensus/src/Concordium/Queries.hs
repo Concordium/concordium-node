@@ -472,9 +472,9 @@ getAccountInfo blockHash acct =
             ( \bp -> do
                 bs <- blockState bp
                 macc <- case acct of 
-                                AA addr -> BS.getAccount bs addr
-                                AI idx -> BS.getAccountByIndex bs idx
-                                CID crid -> BS.getAccountByCredId bs crid
+                                AccAddress addr -> BS.getAccount bs addr
+                                AccIndex idx -> BS.getAccountByIndex bs idx
+                                CredRegID crid -> BS.getAccountByCredId bs crid
                 forM macc $ \(aiAccountIndex, acc) -> do
                     aiAccountNonce <- BS.getAccountNonce acc
                     aiAccountAmount <- BS.getAccountAmount acc
