@@ -418,7 +418,7 @@ getBlockState migration = do
             mi <- Modules.getInterface modRef _blockModules
             return (GSWasm.exposedReceive mi ^. at initName . non Set.empty, mi)
     _blockInstances <- label "instances" $ Instances.getInstancesV0 resolveModule
-    _blockUpdates <- label "updates" $ getUpdatesV0 migration
+    _blockUpdates <- label "updates" $ getUpdates migration
 
     preBlockRewardDetails <- label "reward details" $ getBlockRewardDetails @(AccountVersionFor oldpv)
     let _blockRewardDetails = case migration of
@@ -885,6 +885,17 @@ modifyBakerPoolRewardDetailsInPoolRewards bs bid f = do
             Just ((), newBPRs) ->
                 return $! bs & blockPoolRewards %~ \pr -> pr{PoolRewards.bakerPoolRewardDetails = newBPRs}
 
+-- |Update an account's delegation to point to the L-pool. This only updates the account table,
+-- and does not update the active baker index, which must be handled separately.
+-- The account __must__ be an active delegator.
+redelegateToLPool :: (MTL.MonadState (BlockState pv) m, IsProtocolVersion pv) => DelegatorId -> m ()
+redelegateToLPool (DelegatorId accId) =
+    blockAccounts . Accounts.indexedAccount accId
+        %=! ( accountStaking %~ \case
+                AccountStakeDelegate asd@AccountDelegationV1{} -> AccountStakeDelegate (asd{_delegationTarget = DelegateToLPool})
+                _ -> error "Invariant violation: active delegator is not a delegation account"
+            )
+
 instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockStateMonad pv m) where
 
     {-# INLINE bsoGetModule #-}
@@ -1052,16 +1063,10 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                     Nothing -> error "Basic.bsoProcessPendingChanges invariant violation: active baker account not valid"
             removeBaker accumBakers accumCapital accId delegators = do
                 blockAccounts . Accounts.indexedAccount accId %=! (accountStaking .~ AccountStakeNone)
-                forM_ (delegators ^. apDelegators) moveDelegationFromBaker
+                forM_ (delegators ^. apDelegators) redelegateToLPool
                 blockBirkParameters . birkActiveBakers . lPoolDelegators %= (delegators <>)
                 let !accumCapital' = accumCapital + delegators ^. apDelegatorTotalCapital
                 return (accumBakers, accumCapital')
-            moveDelegationFromBaker (DelegatorId accId) =
-                blockAccounts . Accounts.indexedAccount accId %=!
-                    (accountStaking %~ \case
-                        AccountStakeDelegate asd@AccountDelegationV1{} -> AccountStakeDelegate (asd{_delegationTarget = DelegateToLPool})
-                        _ -> error "Invariant violation: active delegator is not a delegation account"
-                        )
             reduceBakerStake accumBakers accumCapital bid@(BakerId accId) newAmt acctBkr delegators = do
                 let newAcctBkr = acctBkr{_stakedAmount = newAmt, _bakerPendingChange = NoChange}
                 blockAccounts . Accounts.indexedAccount accId %=!
@@ -1246,8 +1251,13 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             MTL.tell [BakerConfigureRestakeEarnings restakeEarnings]
         updateOpenForDelegation = forM_ bcuOpenForDelegation $ \openForDelegation -> do
             ab <- getAccount
-            unless (ab ^. accountBakerInfo . bieBakerPoolInfo . poolOpenStatus == openForDelegation) $
+            unless (ab ^. accountBakerInfo . bieBakerPoolInfo . poolOpenStatus == openForDelegation) $ do
               modifyAccount (accountBakerInfo . bieBakerPoolInfo . poolOpenStatus .~ openForDelegation)
+              when (openForDelegation == ClosedForAll) $ do
+                -- Transfer bid's delegators to the L-pool in the active bakers index.
+                trans <- blockBirkParameters . birkActiveBakers %%=! transferDelegatorsToLPool bid
+                -- Update transferred delegator accounts to delegate to the L-pool.
+                forM_ trans redelegateToLPool
             MTL.tell [BakerConfigureOpenForDelegation openForDelegation]
         updateMetadataURL = forM_ bcuMetadataURL $ \metadataURL -> do
             ab <- getAccount

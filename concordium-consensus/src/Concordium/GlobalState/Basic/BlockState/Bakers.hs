@@ -193,3 +193,20 @@ pool (DelegateToBaker bid) = activeBakers . ix bid
 -- |An empty 'ActiveBakers' structure.
 emptyActiveBakers :: ActiveBakers
 emptyActiveBakers = ActiveBakers mempty mempty emptyActivePool 0
+
+-- |Transfer all delegators from a baker to the L-pool in the 'ActiveBakers'. This does
+-- not affect the total stake, and does not remove the baker itself. This returns the list of
+-- affected delegators.  (This will have no effect if the baker is not actually a baker, although
+-- this function should not be used in that case.)
+transferDelegatorsToLPool :: BakerId -> ActiveBakers -> ([DelegatorId], ActiveBakers)
+transferDelegatorsToLPool bid ab = case ab ^? activeBakers . ix bid of
+    Nothing -> ([], ab)
+    Just oldPool ->
+        ( oldPool ^. apDelegators . to Set.toAscList,
+          ab
+            & activeBakers . ix bid .~ emptyActivePool
+            & lPoolDelegators
+                %~ ( (apDelegators %~ Set.union (oldPool ^. apDelegators))
+                        . (apDelegatorTotalCapital +~ (oldPool ^. apDelegatorTotalCapital))
+                   )
+        )

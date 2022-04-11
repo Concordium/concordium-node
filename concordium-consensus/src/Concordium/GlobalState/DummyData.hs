@@ -251,15 +251,50 @@ dummyRewardParametersV1 = RewardParameters {
 
 dummyChainParameters :: forall cpv. IsChainParametersVersion cpv => ChainParameters' cpv
 dummyChainParameters = case chainParametersVersion @cpv of
-  SCPV0 -> makeChainParametersV0 (makeElectionDifficulty 50000) 0.0001 1000000 168 10 dummyRewardParametersV0 0 300000000000
-  SCPV1 -> makeChainParametersV1 (makeElectionDifficulty 50000) 0.0001 1000000 cooldown cooldown 10 dummyRewardParametersV1 0 
-    (makeAmountFraction 100000) (makeAmountFraction 5000) (makeAmountFraction 5000)
-    fullRange fullRange fullRange
-    300000000000
-    (CapitalBound $ makeAmountFraction 100000)
-    5 -- leverage factor
-    2 -- Reward period length
-    (MintRate 1 8)
+  SCPV0 -> ChainParameters {
+      _cpElectionDifficulty = makeElectionDifficulty 50000,
+      _cpExchangeRates = makeExchangeRates 0.0001 1000000,
+      _cpCooldownParameters = CooldownParametersV0 {
+          _cpBakerExtraCooldownEpochs = 168
+        },
+      _cpTimeParameters = TimeParametersV0,
+      _cpAccountCreationLimit = 10,
+      _cpRewardParameters = dummyRewardParametersV0,
+      _cpFoundationAccount = 0,
+      _cpPoolParameters = PoolParametersV0 {
+          _ppBakerStakeThreshold =  300000000000
+        }
+    }
+  SCPV1 -> ChainParameters{
+      _cpElectionDifficulty = makeElectionDifficulty 50000,
+      _cpExchangeRates = makeExchangeRates 0.0001 1000000,
+      _cpCooldownParameters = CooldownParametersV1 {
+          _cpPoolOwnerCooldown = cooldown,
+          _cpDelegatorCooldown = cooldown
+        },
+      _cpTimeParameters = TimeParametersV1 {
+        _tpRewardPeriodLength = 2,
+        _tpMintPerPayday = MintRate 1 8
+      },
+      _cpAccountCreationLimit = 10,
+      _cpRewardParameters = dummyRewardParametersV1,
+      _cpFoundationAccount = 0,
+      _cpPoolParameters = PoolParametersV1 {
+          _ppMinimumEquityCapital = 300000000000,
+          _ppCapitalBound = CapitalBound (makeAmountFraction 100000),
+          _ppLeverageBound = 5,
+          _ppLPoolCommissions = CommissionRates {
+            _finalizationCommission = makeAmountFraction 100000,
+            _bakingCommission = makeAmountFraction 5000,
+            _transactionCommission = makeAmountFraction 5000
+          },
+          _ppCommissionBounds = CommissionRanges {
+            _finalizationCommissionRange = fullRange,
+            _bakingCommissionRange = fullRange,
+            _transactionCommissionRange = fullRange
+          }
+        }
+    }
     where
       fullRange = InclusiveRange (makeAmountFraction 0) (makeAmountFraction 100000)
       cooldown = DurationSeconds (24 * 60 * 60)

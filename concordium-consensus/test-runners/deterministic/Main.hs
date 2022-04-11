@@ -245,6 +245,20 @@ initialState = do
     _ssBakers <- Vec.fromList <$> mapM (mkBakerState now) (zip [0..] bakers)
     return SimState {..}
     where
+        chainParams = ChainParameters {
+            _cpElectionDifficulty = makeElectionDifficulty 20000,
+            _cpExchangeRates = makeExchangeRates 1 1,
+            _cpCooldownParameters = CooldownParametersV0 {
+                _cpBakerExtraCooldownEpochs = 4
+                },
+            _cpTimeParameters = TimeParametersV0,
+            _cpAccountCreationLimit = 10,
+            _cpRewardParameters = Dummy.dummyRewardParametersV0,
+            _cpFoundationAccount = maxBakerId + 1,
+            _cpPoolParameters = PoolParametersV0 {
+                _ppBakerStakeThreshold =  300000000000
+                }
+            }
         -- The genesis parameters could be changed.
         -- The slot duration is set to 1 second (1000 ms), since the deterministic time is also
         -- set to increase in 1 second intervals.
@@ -259,7 +273,7 @@ initialState = do
                                 [Dummy.createCustomAccount 1000000000000 Dummy.mateuszKP Dummy.mateuszAccount]
                                 (Energy maxBound)
                                 dummyKeyCollection
-                                (makeChainParametersV0 (makeElectionDifficulty 20000) 1 1 4 10 Dummy.dummyRewardParametersV0 (maxBakerId + 1) 300000000000)
+                                chainParams
         mkBakerState :: Timestamp -> (BakerId, (BakerIdentity, FullBakerInfo)) -> IO BakerState
         mkBakerState now (bakerId, (_bsIdentity, _bsInfo)) = do
             createDirectoryIfMissing True "data"

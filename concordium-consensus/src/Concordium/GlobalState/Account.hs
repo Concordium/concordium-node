@@ -187,9 +187,12 @@ instance Serialize PersistingAccountData where
     _accountRemovedCredentials <- makeHashed <$> get
     return PersistingAccountData{..}
 
+-- |The hash of an account.  The type is parametrised by the account version as the structure of
+-- accounts (and hence the hashing scheme) depend on the account version.
 newtype AccountHash (av :: AccountVersion) = AccountHash {theAccountHash :: Hash.Hash}
   deriving newtype (Eq, Ord, Show, Serialize)
 
+-- |Inputs for computing the hash of an account.
 data AccountHashInputs (av :: AccountVersion) where
   AccountHashInputs :: {
     ahiNextNonce :: !Nonce,
@@ -200,6 +203,7 @@ data AccountHashInputs (av :: AccountVersion) where
     ahiAccountStakeHash :: !(AccountStakeHash av)
   } -> AccountHashInputs av
 
+-- |Generate the 'AccountHash' for an account, given the 'AccountHashInputs'.
 makeAccountHash :: AccountHashInputs av -> AccountHash av
 makeAccountHash AccountHashInputs{..} = AccountHash $ Hash.hashLazy $ runPutLazy $ do
   put ahiNextNonce
@@ -208,16 +212,6 @@ makeAccountHash AccountHashInputs{..} = AccountHash $ Hash.hashLazy $ runPutLazy
   put ahiAccountReleaseScheduleHash
   put ahiPersistingAccountDataHash
   put ahiAccountStakeHash
-
--- |Function for computing the hash of an account for protocol version P1.
-makeAccountHashP1 :: Nonce -> Amount -> AccountEncryptedAmount -> AccountReleaseScheduleHash -> PersistingAccountDataHash -> AccountStakeHash 'AccountV0 -> Hash.Hash
-makeAccountHashP1 n a eas arsh padh abh = Hash.hashLazy $ runPutLazy $ do
-  put n
-  put a
-  put eas
-  put arsh
-  put padh
-  put abh
 
 data EncryptedAmountUpdate =
   -- |Replace encrypted amounts less than the given index,

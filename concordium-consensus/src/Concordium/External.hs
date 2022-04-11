@@ -1129,7 +1129,8 @@ getModuleSource cptr blockcstr modcstr = do
 
 -- |Get the list of bakers registered at the given block. The block must be given as a
 -- null-terminated base16 encoding of the block hash.
--- The return value is a null-terminated JSON-encoded list.
+-- The return value is a null-terminated JSON-encoded list if the block is valid, and "null"
+-- otherwise.
 -- The returned string should be freed by calling 'freeCStr'.
 getBakerList :: StablePtr ConsensusRunner -> CString -> IO CString
 getBakerList cptr blockcstr = do
@@ -1143,7 +1144,8 @@ getBakerList cptr blockcstr = do
 -- a true (non-zero) value). The fourth argument indicates which baker to get the status for
 -- in the case that the L-pool status is not requested. (This argument is ignored if the L-pool
 -- status is requested.)
--- The return value is a null-terminated JSON-encoded object.
+-- The return value is a null-terminated JSON-encoded object, or "null" if the block or pool
+-- are invalid.
 -- The returned string should be freed by calling 'freeCStr'.
 getPoolStatus ::
     StablePtr ConsensusRunner ->

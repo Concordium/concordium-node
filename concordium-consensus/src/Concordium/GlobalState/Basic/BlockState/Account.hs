@@ -67,6 +67,9 @@ data Account (av :: AccountVersion) = Account {
 
 makeLenses ''Account
 
+-- |A traversal for accessing the 'AccountBaker' record of an account if it has one.
+-- This can be used for getting the baker (e.g. with '(^?)') or updating it (if it already exists)
+-- but not for setting it unless the account already has a baker.
 accountBaker :: Traversal' (Account av) (AccountBaker av)
 accountBaker f = g
   where
@@ -78,6 +81,9 @@ accountBaker f = g
 unsafeAccountBaker :: HasCallStack => SimpleGetter (Account av) (AccountBaker av)
 unsafeAccountBaker = singular accountBaker
 
+-- |A traversal for accessing the 'AccountDelegation' record of an account if it has one.
+-- This can be used for getting the delegation (e.g. with '(^?)') or updating it (if it already
+-- exists) but not for setting it unless the account already has a baker.
 accountDelegator :: Traversal' (Account av) (AccountDelegation av)
 accountDelegator f = g
   where
@@ -85,6 +91,7 @@ accountDelegator f = g
         (\del' -> acct{_accountStaking = AccountStakeDelegate del'}) <$> f del
     g acct = pure acct
 
+-- |Get the delegator on an account, on the basis that it is known to be a delegator.
 unsafeAccountDelegator :: HasCallStack => SimpleGetter (Account av) (AccountDelegation av)
 unsafeAccountDelegator = singular accountDelegator
 
@@ -125,14 +132,13 @@ serializeAccount cryptoParams acct@Account{..} = do
       _ -> (True, putSafeMapOf S.put S.put _accountCredentials)
     asfExplicitEncryptedAmount = _accountEncryptedAmount /= initialAccountEncryptedAmount
     asfExplicitReleaseSchedule = _accountReleaseSchedule /= emptyAccountReleaseSchedule
-    asfHasBakerOrDelegation = case _accountStaking of
-        AccountStakeNone -> False
-        _ -> True
+    asfHasBakerOrDelegation = _accountStaking /= AccountStakeNone
     asfThresholdIsOne = aiThreshold _accountVerificationKeys == 1
     asfHasRemovedCredentials = _accountRemovedCredentials ^. unhashed /= EmptyRemovedCredentials
 
 -- |Deserialize an account.
--- The serialization format may depend on the protocol version.
+-- The serialization format may depend on the protocol version, and maybe migrated from one version
+-- to another, using the 'StateMigrationParameters' provided.
 deserializeAccount :: forall oldpv pv. IsProtocolVersion oldpv
     => StateMigrationParameters oldpv pv
     -> GlobalContext
@@ -170,9 +176,9 @@ deserializeAccount migration cryptoParams = do
 
 instance IsAccountVersion av => HashableTo (AccountHash av) (Account av) where
   getHash Account{..} = makeAccountHash $ AccountHashInputs {
-      ahiNextNonce = _accountNonce ,
-      ahiAccountAmount = _accountAmount ,
-      ahiAccountEncryptedAmount = _accountEncryptedAmount ,
+      ahiNextNonce = _accountNonce,
+      ahiAccountAmount = _accountAmount,
+      ahiAccountEncryptedAmount = _accountEncryptedAmount,
       ahiAccountReleaseScheduleHash = getHash _accountReleaseSchedule,
       ahiPersistingAccountDataHash = getHash _accountPersisting,
       ahiAccountStakeHash = getAccountStakeHash _accountStaking

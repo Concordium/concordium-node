@@ -578,6 +578,70 @@ class (BlockStateQuery m) => BlockStateOperations m where
 
   -- |From chain parameters version >= 1, this operation is used to add/remove/update a baker.
   -- When adding baker, it is assumed that 'AccountIndex' account is NOT a baker and NOT a delegator.
+  --
+  -- When the argument is 'BakerConfigureAdd', the caller __must ensure that the account is valid
+  -- and not already a baker or delegator__. The function behaves as follows:
+  --
+  -- 1. If the account index is not valid, return 'BCInvalidAccount'.
+  -- 2. If the baker's capital is less than the minimum threshold, return 'BCStakeUnderThreshold'.
+  -- 3. If the transaction fee commission is not in the acceptable range, return
+  --    'BCTransactionFeeCommissionNotInRange'.
+  -- 4. If the baking reward commission is not in the acceptable range, return
+  --    'BCBakingRewardCommissionNotInRange'.
+  -- 5. If the finalization reward commission is not in the acceptable range, return
+  --    'BCFinalizationRewardCommissionNotInRange'.
+  -- 6. If the aggregation key is a duplicate, return 'BCDuplicateAggregationKey'.
+  -- 7. Add the baker to the account, updating the indexes as necessary.
+  -- 8. Return @BCSuccess []@.
+  --
+  -- When the argument is 'BakerConfigureUpdate', the caller __must ensure that the account is valid
+  -- and currently a baker__. The function behaves as follows, building a list @events@:
+  --
+  -- 1. If keys are supplied: if the aggregation key duplicates an existing aggregation key @key@
+  --    (except this baker's current aggregation key), return @BCDuplicateAggregationKey key@;
+  --    otherwise, update the keys with the supplied @keys@ and append @BakerConfigureUpdateKeys keys@
+  --    to @events@.
+  -- 2. If the restake earnings flag is supplied: update the account's flag to the supplied value
+  --    @restakeEarnings@ and append @BakerConfigureRestakeEarnings restakeEarnings@ to @events@.
+  -- 3. If the open-for-delegation configuration is supplied:
+  --    (1) update the account's configuration to the supplied value @openForDelegation@;
+  --    (2) if @openForDelegation == ClosedForAll@, transfer all delegators in the baker's pool to
+  --        the L-pool; and
+  --    (3) append @BakerConfigureOpenForDelegation openForDelegation@ to @events@.
+  -- 4. If the metadata URL is supplied: update the account's metadata URL to the supplied value
+  --    @metadataURL@ and append @BakerConfigureMetadataURL metadataURL@ to @events@.
+  -- 5. If the transaction fee commission is supplied:
+  --    (1) if the commission does not fall within the current range according to the chain
+  --        parameters, return @BCTransactionFeeCommissionNotInRange@; otherwise,
+  --    (2) update the account's transaction fee commission rate to the the supplied value @tfc@;
+  --    (3) append @BakerConfigureTransactionFeeCommission tfc@ to @events@.
+  -- 6. If the baking reward commission is supplied:
+  --    (1) if the commission does not fall within the current range according to the chain
+  --        parameters, return @BCBakingRewardCommissionNotInRange@; otherwise,
+  --    (2) update the account's baking reward commission rate to the the supplied value @brc@;
+  --    (3) append @BakerConfigureBakingRewardCommission brc@ to @events@.
+  -- 6. If the finalization reward commission is supplied:
+  --    (1) if the commission does not fall within the current range according to the chain
+  --        parameters, return @BCFinalizationRewardCommissionNotInRange@; otherwise,
+  --    (2) update the account's finalization reward commission rate to the the supplied value @frc@;
+  --    (3) append @BakerConfigureFinalizationRewardCommission frc@ to @events@.
+  -- 7. If the capital is supplied: if there is a pending change to the baker's capital, return
+  --    @BCChangePending@; otherwise:
+  --    * if the capital is 0, mark the baker as pending removal at @bcuSlotTimestamp@ plus the
+  --      the current baker cooldown period according to the chain parameters, and return
+  --      @BakerConfigureStakeReduced 0@;
+  --    * if the capital is less than the current minimum equity capital, return @BCStakeUnderThreshold@;
+  --    * if the capital is (otherwise) less than the current equity capital of the baker, mark the
+  --      baker as pending stake reduction to the new capital at @bcuSlotTimestamp@ plus the
+  --      current baker cooldown period according to the chain parameters and return
+  --      @BakerConfigureStakeReduced capital@;
+  --    * if the capital is equal to the baker's current equity capital, do nothing;
+  --    * if the capital is greater than the baker's current equity capital, increase the baker's
+  --      equity capital to the new capital (updating the active baker index) and return
+  --      @BakerConfigureStakeIncreased capital@.
+  -- 8. return @BCSuccess events bid@, where @bid@ is the baker's ID.
+  --
+  -- Note: in the case of an early return (i.e. not @BCSuccess@), the state is not updated.
   bsoConfigureBaker
     :: (AccountVersionFor (MPV m) ~ 'AccountV1, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1)
     => UpdatableBlockState m

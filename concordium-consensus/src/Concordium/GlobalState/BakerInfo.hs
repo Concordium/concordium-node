@@ -233,7 +233,7 @@ data DelegationConfigure =
     }
     -- |Update delegator with optional fields.
   | DelegationConfigureUpdate {
-      -- |The timestamp of the current slot (slot time).
+      -- |The timestamp of the current slot (slot time of the block in which the update occurs).
       dcuSlotTimestamp :: !Timestamp,
       dcuCapital :: !(Maybe Amount),
       dcuRestakeEarnings :: !(Maybe Bool),

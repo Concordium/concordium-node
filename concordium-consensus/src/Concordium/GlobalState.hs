@@ -279,13 +279,13 @@ type TreeStateBlockStateM pv g c r s m = TreeStateM g (BlockStateM pv c r g s m)
 
 deriving via BlockStateM pv c r g s m
     instance (Monad m,
-              AccountOperations (BlockStateM pv c r g s m))
-             => AccountOperations (GlobalStateM pv db c r g s m)
+              BlockStateQuery (BlockStateM pv c r g s m))
+             => BlockStateQuery (GlobalStateM pv db c r g s m)
 
 deriving via BlockStateM pv c r g s m
     instance (Monad m,
-              BlockStateQuery (BlockStateM pv c r g s m))
-             => BlockStateQuery (GlobalStateM pv db c r g s m)
+              AccountOperations (BlockStateM pv c r g s m))
+             => AccountOperations (GlobalStateM pv db c r g s m)
 
 deriving via BlockStateM pv c r g s m
     instance (BlockStateQuery (GlobalStateM pv db c r g s m),

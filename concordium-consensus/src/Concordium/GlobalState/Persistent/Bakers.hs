@@ -191,8 +191,8 @@ data PersistentActiveDelegators (av :: AccountVersion) where
         } ->
         PersistentActiveDelegators 'AccountV1
 
-emptyPersistentAccountDelegators :: forall av. IsAccountVersion av => PersistentActiveDelegators av
-emptyPersistentAccountDelegators =
+emptyPersistentActiveDelegators :: forall av. IsAccountVersion av => PersistentActiveDelegators av
+emptyPersistentActiveDelegators =
     case accountVersion @av of
         SAccountV0 -> PersistentActiveDelegatorsV0
         SAccountV1 -> PersistentActiveDelegatorsV1 Trie.empty 0
@@ -314,6 +314,31 @@ removeDelegator (DelegateToBaker bid) did amt pab = do
             return ((), Trie.Insert pad')
     newActiveBakers <- snd <$> Trie.adjust rdh bid (pab ^. activeBakers)
     return $ pab & activeBakers .~ newActiveBakers
+
+-- |Transfer all delegators from a baker to the L-pool in the 'PersistentActiveBakers'. This does
+-- not affect the total stake, and does not remove the baker itself. This returns the list of
+-- affected delegators.  (This will have no effect if the baker is not actually a baker, although
+-- this function should not be used in that case.)
+transferDelegatorsToLPool ::
+    (MonadBlobStore m) =>
+    BakerId ->
+    PersistentActiveBakers 'AccountV1 ->
+    m ([DelegatorId], PersistentActiveBakers 'AccountV1)
+transferDelegatorsToLPool bid pab = do
+    (transferred, newAB) <- Trie.adjust extract bid (pab ^. activeBakers)
+    transList <- Trie.keysAsc (adDelegators transferred)
+    let oldLPD = pab ^. lPoolDelegators . to adDelegators
+    newLPD <- foldM (\a d -> Trie.insert d () a) oldLPD transList
+    let pab' =
+            pab & activeBakers .~ newAB
+                & lPoolDelegators
+                    %~ ( \(PersistentActiveDelegatorsV1 _ tot) ->
+                            PersistentActiveDelegatorsV1 newLPD (tot + adDelegatorTotalCapital transferred)
+                       )
+    return (transList, pab')
+  where
+    extract Nothing = return (emptyPersistentActiveDelegators, Trie.NoChange)
+    extract (Just t) = return (t, Trie.Insert emptyPersistentActiveDelegators)
 
 instance
         (IsAccountVersion av, MonadBlobStore m) =>

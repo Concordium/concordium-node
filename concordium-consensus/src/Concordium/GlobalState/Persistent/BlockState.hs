@@ -864,7 +864,7 @@ doAddBaker pbs ai BakerAdd{..} = do
                         -- Aggregation key is a duplicate
                         (False, _) -> return (BADuplicateAggregationKey, pbs)
                         (True, newAggregationKeys) -> do
-                            newActiveBakers <- Trie.insert bid emptyPersistentAccountDelegators (_activeBakers pab)
+                            newActiveBakers <- Trie.insert bid emptyPersistentActiveDelegators (_activeBakers pab)
                             newpabref <- refMake PersistentActiveBakers{
                                     _aggregationKeys = newAggregationKeys,
                                     _activeBakers = newActiveBakers,
@@ -925,7 +925,7 @@ doConfigureBaker pbs ai BakerConfigureAdd{..} = do
                         -- Aggregation key is a duplicate
                         (False, _) -> return (BCDuplicateAggregationKey (bkuAggregationKey bcaKeys), pbs)
                         (True, newAggregationKeys) -> do
-                            newActiveBakers <- Trie.insert bid emptyPersistentAccountDelegators (_activeBakers pab)
+                            newActiveBakers <- Trie.insert bid emptyPersistentActiveDelegators (_activeBakers pab)
                             newpabref <- refMake PersistentActiveBakers{
                                     _aggregationKeys = newAggregationKeys,
                                     _activeBakers = newActiveBakers,
@@ -1035,6 +1035,16 @@ doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
                         newPAB <- refMake (acctBkr & extraBakerInfo .~ PersistentExtraBakerInfo newEbi)
                         ((), ) <$> setPersistentAccountStake acc (PersistentAccountStakeBaker newPAB)
                 modifyAccount updAcc
+                when (openForDelegation == Transactions.ClosedForAll) $ do
+                    -- Transfer all existing delegators to the L-pool.
+                    birkParams <- MTL.gets bspBirkParameters
+                    activeBkrs <- liftBSO $ refLoad (birkParams ^. birkActiveBakers)
+                    -- Update the active bakers
+                    (delegators, newActiveBkrs) <- transferDelegatorsToLPool bid activeBkrs
+                    newActiveBkrsRef <- refMake newActiveBkrs
+                    MTL.modify $ \bsp -> bsp{bspBirkParameters = birkParams & birkActiveBakers .~ newActiveBkrsRef}
+                    -- Update each baker account
+                    forM_ delegators redelegateToLPool
             MTL.tell [BakerConfigureOpenForDelegation openForDelegation]
         updateMetadataURL = forM_ bcuMetadataURL $ \metadataURL -> do
             acctBkr <- getAccountOrFail
@@ -2240,6 +2250,23 @@ doSetNextEpochBakers pbs bakers = do
         preBakerInfos = fst <$> bakers'
         preBakerStakes = snd <$> bakers'
 
+-- |Update an account's delegation to point to the L-pool. This only updates the account table,
+-- and does not update the active baker index, which must be handled separately.
+-- The account __must__ be an active delegator.
+redelegateToLPool :: (MonadBlobStore m, MTL.MonadState (BlockStatePointers pv) m, IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1) => DelegatorId -> m ()
+redelegateToLPool (DelegatorId accId) = do
+    accounts <- bspAccounts <$> MTL.get
+    (_, newAccounts) <- Accounts.updateAccountsAtIndex updAcc accId accounts
+    MTL.modify $ \bsp -> bsp{bspAccounts = newAccounts}
+  where
+    updAcc pa@PersistentAccount{_accountStake = PersistentAccountStakeDelegate acctDelRef} = do
+        acctDel <- refLoad acctDelRef
+        let newAcctDel = acctDel{BaseAccounts._delegationTarget = Transactions.DelegateToLPool}
+        newAcctDelRef <- refMake newAcctDel
+        let newPA = pa{_accountStake = PersistentAccountStakeDelegate newAcctDelRef}
+        ((),) <$> setPersistentAccountStake newPA PersistentAccountStakeNone
+    updAcc _ = error "Invariant violation: active delegator is not a delegation account"
+
 doProcessPendingChanges
     :: forall pv m
      . (IsProtocolVersion pv, MonadBlobStore m, AccountVersionFor pv ~ 'AccountV1)
@@ -2370,14 +2397,14 @@ doProcessPendingChanges persistentBS isEffective = do
                         BaseAccounts.ReduceStake newAmt pet | isEffective pet -> do
                             MTL.tell newAmt
                             lift $ reduceBakerStake bid newAmt acctBkr
-                            lift $ lift $ trieInsert
+                            lift $ lift trieInsert
                         _ -> do
                             MTL.tell (acctBkr ^. stakedAmount)
-                            lift $ lift $ trieInsert
+                            lift $ lift trieInsert
                 Null ->
-                    error "Basic.bsoProcessPendingChanges invariant violation: active baker account not a baker"
+                    error "Persistent.bsoProcessPendingChanges invariant violation: active baker account not a baker"
             Nothing ->
-                error "Basic.bsoProcessPendingChanges invariant violation: active baker account not valid"
+                error "Persistent.bsoProcessPendingChanges invariant violation: active baker account not valid"
 
       removeBaker
         :: BakerId
@@ -2391,7 +2418,7 @@ doProcessPendingChanges persistentBS isEffective = do
         MTL.modify $ \bsp -> bsp{bspAccounts = newAccounts}
 
         dlist <- lift (Trie.keysAsc dset)
-        forM_ dlist moveDelegationFromBaker
+        forM_ dlist redelegateToLPool
 
         birkParams <- bspBirkParameters <$> MTL.get
         bab <- lift $ refLoad $ birkParams ^. birkActiveBakers
@@ -2408,19 +2435,6 @@ doProcessPendingChanges persistentBS isEffective = do
                 _totalActiveCapital = bab ^. totalActiveCapital
             }
         MTL.modify $ \bsp -> bsp{bspBirkParameters = birkParams {_birkActiveBakers = newBAB}}
-
-      moveDelegationFromBaker (DelegatorId accId) = do
-        accounts <- bspAccounts <$> MTL.get
-        (_, newAccounts) <- lift $ Accounts.updateAccountsAtIndex updAcc accId accounts
-        MTL.modify $ \bsp -> bsp{bspAccounts = newAccounts}
-        where
-          updAcc pa@PersistentAccount{_accountStake = PersistentAccountStakeDelegate acctDelRef} = do
-            acctDel <- refLoad acctDelRef
-            let newAcctDel = acctDel{BaseAccounts._delegationTarget = Transactions.DelegateToLPool}
-            newAcctDelRef <- refMake newAcctDel
-            let newPA = pa{_accountStake = PersistentAccountStakeDelegate newAcctDelRef}
-            ((),) <$> setPersistentAccountStake newPA PersistentAccountStakeNone
-          updAcc _ = error "Invariant violation: active delegator is not a delegation account"
 
       reduceBakerStake
         :: BakerId
