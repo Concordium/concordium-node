@@ -201,6 +201,8 @@ serializeAccounts cryptoParams Accounts{..} = do
     forM_ (AT.toList accountTable) $ \(_, acct) -> serializeAccount cryptoParams acct
 
 -- |Deserialize 'Accounts'. The serialization format may depend on the protocol version.
+-- The state migration determines how do construct an 'Accounts' at a new protocol version 'pv'
+-- from the serialization format of another protocol version 'oldpv'.
 -- This validates the following invariants:
 --
 --  * Every baker account's 'BakerId' must match the account index.

@@ -103,7 +103,8 @@ instance HashableTo PoolRewardsHash PoolRewards where
                                 <> put nextPaydayEpoch
                                 <> put nextPaydayMintRate
 
--- |The empty 'PoolRewards'.
+-- |The empty 'PoolRewards', where there are no bakers, delegators or rewards.
+-- This is generally not used except as a dummy value for testing.
 emptyPoolRewards :: PoolRewards
 emptyPoolRewards =
     PoolRewards
@@ -148,7 +149,8 @@ bakerBlockCounts PoolRewards{..} =
   where
     bc BakerCapital{..} (_, BakerPoolRewardDetails{..}) = (bcBakerId, blockCount)
 
--- |Rotate the capital distribution and set up empty pool rewards.
+-- |Rotate the capital distribution, so that the current capital distribution is replaced by the
+-- next one, and set up empty pool rewards.
 rotateCapitalDistribution :: PoolRewards -> PoolRewards
 rotateCapitalDistribution pr =
     pr
@@ -168,6 +170,8 @@ setNextCapitalDistribution ::
 setNextCapitalDistribution cd pr =
     pr{nextCapital = makeHashed cd}
 
+-- |Construct 'PoolRewards' for migrating from 'P3' to 'P4'.
+-- This is used to construct the state of the genesis block.
 makePoolRewardsForMigration ::
     -- |Current epoch bakers and stakes, in ascending order of 'BakerId'.
     Vec.Vector (BakerId, Amount) ->
@@ -229,7 +233,7 @@ makeInitialPoolRewards cdist npEpoch npMintRate =
     initCD = makeHashed cdist
     bprd = LFMBT.fromList (replicate (length (bakerPoolCapital cdist)) emptyBakerPoolRewardDetails)
 
--- |The total capital delegated to the L-Pool in the current reward period capital distribution.
+-- |The total capital delegated to the L-Pool in the current reward period's capital distribution.
 currentLPoolDelegatedCapital :: PoolRewards -> Amount
 currentLPoolDelegatedCapital =
     Vec.sum . fmap dcDelegatorCapital . lPoolCapital . _unhashed . currentCapital

@@ -57,10 +57,10 @@ epochBaker bid EpochBakers{..} = do
 instance IsAccountVersion av => HashableTo H.Hash (EpochBakers av) where
     getHash EpochBakers{..} =
         H.hashOfHashes
-            (hashVec put _bakerInfos)
-            (hashVec put _bakerStakes)
+            (hashVec _bakerInfos)
+            (hashVec _bakerStakes)
       where
-        hashVec p v = H.hash $ runPut $ mapM_ p v
+        hashVec v = H.hash $ runPut $ mapM_ put v
 
 -- |Serialize 'EpochBakers'.
 putEpochBakers :: IsAccountVersion av => Putter (EpochBakers av)
@@ -110,8 +110,8 @@ epochToFullBakersEx EpochBakers{..} = FullBakersEx {
                 (FullBakerInfo (bi ^. bakerInfo) bs)
                 (bi ^. poolCommissionRates)
 
--- |Covert an 'EpochBakers' to a list of pairs of 'BakerId' and stake 'Amount'.
--- The list is in ascending order of 'BakerId'.
+-- |Covert an 'EpochBakers' to a vector of pairs of 'BakerId' and stake 'Amount'.
+-- The vector is in ascending order of 'BakerId'.
 epochToBakerStakes :: EpochBakers av -> Vec.Vector (BakerId, Amount)
 epochToBakerStakes EpochBakers{..} = Vec.zipWith mkBakerStake _bakerInfos _bakerStakes
     where
@@ -154,6 +154,9 @@ makeActivePool = Vec.foldr' accum emptyActivePool
     accum DelegatorCapital{..} =
         (apDelegators %~ Set.insert dcDelegatorId)
             . (apDelegatorTotalCapital +~ dcDelegatorCapital)
+
+-- |The semigroup on 'ActivePool' takes the union of delegators and sum of capitals.
+-- If the delegators are not disjoint, the result may not be the desired one.
 instance Semigroup ActivePool where
     ap1 <> ap2 =
         ActivePool
@@ -174,10 +177,15 @@ addDelegator delId delAmt =
     (apDelegators %~ Set.insert delId)
         . (apDelegatorTotalCapital +~ delAmt)
 
--- |The set of accounts that are currently registered as bakers.
+-- |An index of the baker and delegator accounts.  Every account that has a baker or delegator
+-- record on it should have a corresponding entry here.
+-- (See $Concordium.GlobalState.BlockState.ActiveCurrentNext.)
 data ActiveBakers = ActiveBakers {
+    -- |A map from each baker to its pool of delegators.
     _activeBakers :: !(Map BakerId ActivePool),
+    -- |The set of public aggregation keys used by bakers.
     _aggregationKeys :: !(Set BakerAggregationVerifyKey),
+    -- |The pool of L-pool delegators.
     _lPoolDelegators :: !ActivePool,
     -- |The total capital of active bakers and delegators.
     _totalActiveCapital :: !Amount

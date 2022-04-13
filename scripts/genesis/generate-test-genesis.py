@@ -208,7 +208,8 @@ def generate_update_keys():
                           "--add-anonymity-revoker", "3:37,38,39,40,41",
                           "--add-identity-provider", "3:42,43,44,45,46",
                           "--cooldown", "3:47,48,49,50,51",
-                          "--time", "3:52,53,54,55,56"
+                          "--time", "3:52,53,54,55,56",
+                          "--gdver=6"
                           )
     if res != 0:
         raise Exception(f"Could not generate update keys.")

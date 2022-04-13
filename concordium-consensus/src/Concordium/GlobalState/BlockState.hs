@@ -213,6 +213,43 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
   -- |Dereference a 'BakerInfoRef' to a 'BakerInfo'.
   derefBakerInfo :: BakerInfoRef m -> m BakerInfo
 
+-- * Active, current and next bakers/delegators
+--
+-- $ActiveCurrentNext
+-- When referring to bakers and delegators, their stakes and capital distribution, from the
+-- perspective of a block's state, we have three different views: active, current and next.
+--
+-- __Active__ bakers and delegators are accounts that have a staking record (baker or delegator) on
+-- the account itself. The active bakers and delegators are also indexed by the active bakers
+-- structure.  An active baker/delegator may or may not be current and/or next. However, generally
+-- a current or next baker/delegator will be active.
+--
+-- __Current__ (epoch) bakers and delegators represent a snapshot of the stake that is used for calculating
+-- the lottery power and reward distribution for the current epoch ('P1'-'P3') or payday ('P4'-).
+-- These are captured by two structures: the /current epoch bakers/, and the /current capital
+-- distribution/ ('P4'-). The former captures the effective stake of each baker, and from 'P4' the
+-- pool commission rates (see 'bsoGetCurrentEpochFullBakersEx'). The current capital distribution
+-- captures the equity and delegated capital of each baker and delegator, which is used for
+-- reward distribution.
+--
+-- __Next__ (epoch) bakers and delegators, like the current bakers and delegators, represent a snapshot
+-- of the stake and capital distribution, but for the next epoch or reward period. As with the
+-- current bakers, they are captured by two structures: the /next epoch bakers/ and the /next
+-- capital distribution/.
+--
+-- The active bakers and delegators are updated directly by operations that modify the
+-- bakers/delegators on an account.  Additionally, 'bsoTransitionEpochBakers' ('P1'-'P3') and
+-- 'bsoProcessPendingChanges' ('P3'-) handle cooldowns to baker and delegator stakes.
+--
+-- The next bakers and delegators are updated based on the active bakers at a particular point
+-- in time.  Prior to 'P4', this is done each epoch as part of 'bsoTransitionEpochBakers'.
+-- From 'P4' onwards, this is done with 'bsoSetNextEpochBakers' and 'bsoSetNextCapitalDistribution'
+-- the epoch before a payday. (The burden of computing the stakes and capital is shifted to
+-- 'Concordium.Kontrol.Bakers.generateNextBakers'.)
+--
+-- The current bakers and delegators are updated from the next bakers and delegators at epoch
+-- ('P1'-'P3') or payday ('P4'-) boundaries.
+
 -- |The block query methods can query block state. They are needed by
 -- consensus itself to compute stake, get a list of and information about
 -- bakers, finalization committee, etc.
@@ -257,11 +294,12 @@ class AccountOperations m => BlockStateQuery m where
     -- |Get the bakers for the epoch in which the block was baked.
     getCurrentEpochBakers :: BlockState m -> m FullBakers
 
-    -- |Get the bakers for the next epoch.
+    -- |Get the bakers for the next epoch. (See $ActiveCurrentNext.)
     getNextEpochBakers :: BlockState m -> m FullBakers
 
     -- |Get the bakers for a particular (future) slot, provided genesis timestamp and slot duration.
-    -- This is used for protocol version P1 to P3.
+    -- This is used for protocol version 'P1' to 'P3'.
+    -- This should not be used for a slot less than the slot of the block.
     getSlotBakersP1 :: (AccountVersionFor (MPV m) ~ 'AccountV0) => BlockState m -> Slot -> m FullBakers
 
     -- |Get the account of a baker. This may return an account even

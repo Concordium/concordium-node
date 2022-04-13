@@ -44,7 +44,6 @@ import qualified Concordium.GlobalState.Types as GT
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.AccountTransactionIndex
---import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Basic.BlockState.Bakers
 import qualified Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.Basic.BlockState.Account
@@ -385,7 +384,10 @@ putBlockState bs = do
     -- Reward details. (Formerly epoch blocks (P1-P3).)
     putBlockRewardDetails (bs ^. blockRewardDetails)
 
--- |Deserialize 'BlockState'. The format may depend on the protocol version.
+-- |Deserialize 'BlockState'. The format may depend on the protocol version and may include
+-- a migration from one protocol version to another. The migration parameters specify how to
+-- deserialize the block state from one protocol version into the block state for another by
+-- using the migration to fill in any missing data.
 -- This checks the following invariants:
 --
 --  * Bakers cannot have duplicate aggregation keys.
@@ -505,7 +507,7 @@ lPoolDelegatorCapital =
             . apDelegatorTotalCapital
         )
 
--- | Get the total capital currently staked by bakers and delegators.
+-- | Get the total capital actively staked by bakers and delegators.
 -- Note, this is separate from the stake and capital distribution used for the current payday, as
 -- it reflects the current value of accounts.
 totalCapital :: (HasBlockState s pv) => s -> Amount
@@ -849,6 +851,8 @@ instance (Monad m, IsProtocolVersion pv) => BS.AccountOperations (PureBlockState
 --   * 'DCInvalidDelegationTarget' if the target baker is not a baker.
 --   * 'DCPoolStakeOverThreshold' if the delegated amount puts the pool over the leverage bound.
 --   * 'DCPoolOverDelegated' if the delegated amount puts the pool over the capital bound.
+--
+-- The delegation target must be an active baker or the L-pool.
 delegationConfigureDisallowOverdelegation
     :: (IsProtocolVersion pv, MTL.MonadError DelegationConfigureResult m)
     => BlockState pv
@@ -879,7 +883,7 @@ modifyBakerPoolRewardDetailsInPoolRewards bs bid f = do
       Nothing ->
           error "Invalid baker id: unable to find baker in baker pool capital vector"
       Just (i, _) ->
-          case LFMBT.update ((,) () . f) (fromIntegral i) bprs of
+          case LFMBT.update (((),) . f) (fromIntegral i) bprs of
             Nothing ->
                 error "Invariant violation: unable to find baker in baker pool reward details tree"
             Just ((), newBPRs) ->

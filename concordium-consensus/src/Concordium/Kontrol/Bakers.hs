@@ -379,13 +379,9 @@ getSlotBakersP4 genData bs slot = do
 -- |Determine the bakers that apply to a future slot, given the state at a particular block.
 -- The assumption is that there are no blocks between the block and the future slot; i.e. this
 -- is used to determine the lottery participants that will try to bake a block with the block as the
--- parent. (Therefore, it is expected that the given slot will be later than the
--- slot of the given block.)
+-- parent.
 --
--- Prior to P4, if this function was called on an epoch beyond the next one, the bakers would be
--- derived from the active bakers under, with cooldowns applied. However, from P4 the next epoch
--- bakers will be returned instead. (This change in the protocol was made because it is even more
--- complex to compute the bakers, but it does not add security.)
+-- The given slot should never be earlier than the slot of the given block.
 getSlotBakers ::
     forall m.
     (IsProtocolVersion (MPV m), BlockStateQuery m) =>
