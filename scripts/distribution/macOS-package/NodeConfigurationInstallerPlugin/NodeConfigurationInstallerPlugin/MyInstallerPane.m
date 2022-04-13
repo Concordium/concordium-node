@@ -139,11 +139,11 @@
     }
 }
 
-// Checks that both the mainnet and testnet node names:
-// - have length > 0 and <= 100
-// - only contain characters in [a-zA-Z0-9-_ ]
+// Checks that a node name:
+// - has length > 0 and <= 100 if at least one of `run on startup`, `run after install`, or `report to network dashboard` is checked
+// - only contains characters in [a-zA-Z0-9-_ ]
 // - cannot start or end with spaces
-- (BOOL) nodeNamesAreValid
+- (BOOL) nodeNameIsValid:(NSString*)nodeName :(BOOL)runOnStartup :(BOOL)runAfterInstall :(BOOL)reportToNetworkDashboard
 {
     // NB: This character set must be accepted by the service file XML parser.
     // This naturally excludes '<', '>', etc., but the service won't start with a sequence of ',.' in the node name either.
@@ -152,24 +152,40 @@
     // Default maximum node name length that the collector-backend will accept. Measured in UTF-8 encoded bytes.
     int maxLen = 100;
 
+    // NB: Get the actual length in bytes if allowedChars is changed to contain non-ascii characters.
+    NSUInteger nodeNameLen = [nodeName length];
+
+    if (nodeNameLen == 0 && !(runOnStartup || runAfterInstall || reportToNetworkDashboard)) {
+        return TRUE;
+    }
+
+    return      nodeNameLen > 0
+            &&  nodeNameLen <= maxLen
+            &&  ![nodeName hasPrefix:@" "]
+            &&  ![nodeName hasSuffix:@" "]
+            && !([nodeName rangeOfCharacterFromSet:allowedChars].location != NSNotFound);
+}
+
+// Checks that both the mainnet and testnet node names are valid.
+- (BOOL) nodeNamesAreValid
+{
     NSString *mainnetName = [_oMainnetNodeName stringValue];
     NSString *testnetName = [_oTestnetNodeName stringValue];
 
-    // NB: Get the actual length in bytes if allowedChars is changed to contain non-ascii characters.
-    NSUInteger mainnetNameLen = [mainnetName length];
-    NSUInteger testnetNameLen = [mainnetName length];
+    BOOL mainnetNameIsValid =
+        [self nodeNameIsValid
+            :mainnetName
+            :[_oMainnetRunOnStartup state] == NSControlStateValueOn
+            :[_oMainnetRunAfterInstall state] == NSControlStateValueOn
+            :[_oMainnetReportToNetworkDashboard state] == NSControlStateValueOn];
+    BOOL testnetNameIsValid =
+        [self nodeNameIsValid
+            :testnetName
+            :[_oTestnetRunOnStartup state] == NSControlStateValueOn
+            :[_oTestnetRunAfterInstall state] == NSControlStateValueOn
+            :[_oTestnetReportToNetworkDashboard state] == NSControlStateValueOn];
 
-    return      mainnetNameLen > 0
-            &&  mainnetNameLen <= maxLen
-            &&  testnetNameLen > 0
-            &&  testnetNameLen <= maxLen
-            &&  ![mainnetName hasPrefix:@" "]
-            &&  ![mainnetName hasSuffix:@" "]
-            && !([mainnetName rangeOfCharacterFromSet:allowedChars].location != NSNotFound)
-            && !([testnetName rangeOfCharacterFromSet:allowedChars].location != NSNotFound);
+    return mainnetNameIsValid && testnetNameIsValid;
 }
 
 @end
-
-
-
