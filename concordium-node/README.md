@@ -20,7 +20,6 @@
 * static - build against static haskell libraries (Linux only)
 * profiling - build against haskell libraries with profiling support enabled (Linux only)
 * collector - enables the build of the node-collector and backend
-* database_emitter - enables building the database emitter binary to inject a database exported to a set of nodes
 * dedup_benchmarks - enable support in the benchmarks for deduplication queues
 
 ## Building the node
