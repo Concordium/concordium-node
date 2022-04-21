@@ -25,6 +25,8 @@
 - Fix issue #244: Collector to keep querying. Remove the parameter for maximum allowed
   times a gRPC call can fail and keeps `node-collector` querying forever.
 - `GetAccountInfo` endpoint supports querying the account via the account index.
+- Mac installer: Users now can leave one of the (but not both) net configurations empty
+  when they don't want to configure e node for it.
 
 ## concordium-node 3.0.1
 
