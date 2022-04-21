@@ -204,7 +204,7 @@ def generate_update_keys():
                           "--mint-distribution", "3:17,18,19,20,21",
                           "--fee-distribution", "3:22,23,24,25,26",
                           "--gas-rewards", "3:27,28,29,30,31",
-                          "--baker-minimum-threshold", "3:32,33,34,35,36",
+                          "--pool-parameters", "3:32,33,34,35,36",
                           "--add-anonymity-revoker", "3:37,38,39,40,41",
                           "--add-identity-provider", "3:42,43,44,45,46",
                           "--cooldown", "3:47,48,49,50,51",
