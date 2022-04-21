@@ -1242,7 +1242,10 @@ doConfigureDelegation pbs ai DelegationConfigureAdd{..} = do
             ab <- refLoad (bspBirkParameters bsp ^. birkActiveBakers)
             let PersistentActiveDelegatorsV1 dset tot = ab ^. lPoolDelegators
             newDset <- Trie.insert did () dset
-            newAB <- refMake ab{_lPoolDelegators = PersistentActiveDelegatorsV1 newDset (tot + dcaCapital), _totalActiveCapital = addActiveCapital dcaCapital (_totalActiveCapital ab)}
+            newAB <- refMake ab{
+                    _lPoolDelegators = PersistentActiveDelegatorsV1 newDset (tot + dcaCapital),
+                    _totalActiveCapital = addActiveCapital dcaCapital (_totalActiveCapital ab)
+                }
             return $! bspBirkParameters bsp & birkActiveBakers .~ newAB
           updateBirk bsp (Transactions.DelegateToBaker bid) = do
             pab <- lift $ refLoad (bspBirkParameters bsp ^. birkActiveBakers)

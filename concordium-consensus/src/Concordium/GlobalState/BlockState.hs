@@ -617,8 +617,13 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- |From chain parameters version >= 1, this operation is used to add/remove/update a baker.
   -- When adding baker, it is assumed that 'AccountIndex' account is NOT a baker and NOT a delegator.
   --
-  -- When the argument is 'BakerConfigureAdd', the caller __must ensure that the account is valid
-  -- and not already a baker or delegator__. The function behaves as follows:
+  -- When the argument is 'BakerConfigureAdd', the caller __must ensure__ that:
+  -- * the account is valid;
+  -- * the account is not a baker;
+  -- * the account is not a delegator;
+  -- * the account has sufficient balance to cover the stake.
+  --
+  -- The function behaves as follows:
   --
   -- 1. If the account index is not valid, return 'BCInvalidAccount'.
   -- 2. If the baker's capital is less than the minimum threshold, return 'BCStakeUnderThreshold'.
@@ -629,15 +634,23 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- 5. If the finalization reward commission is not in the acceptable range, return
   --    'BCFinalizationRewardCommissionNotInRange'.
   -- 6. If the aggregation key is a duplicate, return 'BCDuplicateAggregationKey'.
-  -- 7. Add the baker to the account, updating the indexes as necessary.
+  -- 7. Add the baker to the account, updating the indexes as follows:
+  --    * add an empty pool for the baker in the active bakers;
+  --    * add the baker's equity capital to the total active capital;
+  --    * add the baker's aggregation key to the aggregation key set.
   -- 8. Return @BCSuccess []@.
   --
-  -- When the argument is 'BakerConfigureUpdate', the caller __must ensure that the account is valid
-  -- and currently a baker__. The function behaves as follows, building a list @events@:
+  -- When the argument is 'BakerConfigureUpdate', the caller __must ensure__ that:
+  -- * the account is valid;
+  -- * the account is a baker;
+  -- * if the stake is being updated, then the account balance exceeds the new stake.
+  --
+  -- The function behaves as follows, building a list @events@:
   --
   -- 1. If keys are supplied: if the aggregation key duplicates an existing aggregation key @key@
   --    (except this baker's current aggregation key), return @BCDuplicateAggregationKey key@;
-  --    otherwise, update the keys with the supplied @keys@ and append @BakerConfigureUpdateKeys keys@
+  --    otherwise, update the keys with the supplied @keys@, update the aggregation key index
+  --    (removing the old key and adding the new one), and append @BakerConfigureUpdateKeys keys@
   --    to @events@.
   -- 2. If the restake earnings flag is supplied: update the account's flag to the supplied value
   --    @restakeEarnings@ and append @BakerConfigureRestakeEarnings restakeEarnings@ to @events@.
@@ -675,7 +688,8 @@ class (BlockStateQuery m) => BlockStateOperations m where
   --      @BakerConfigureStakeReduced capital@;
   --    * if the capital is equal to the baker's current equity capital, do nothing;
   --    * if the capital is greater than the baker's current equity capital, increase the baker's
-  --      equity capital to the new capital (updating the active baker index) and return
+  --      equity capital to the new capital (updating the total active capital in the active baker
+  --      index by adding the difference between the new and old capital) and return
   --      @BakerConfigureStakeIncreased capital@.
   -- 8. return @BCSuccess events bid@, where @bid@ is the baker's ID.
   --
@@ -698,6 +712,77 @@ class (BlockStateQuery m) => BlockStateOperations m where
 
   -- |From chain parameters version >= 1, this operation is used to add/remove/update a delegator.
   -- When adding delegator, it is assumed that 'AccountIndex' account is NOT a baker and NOT a delegator.
+  --
+  -- When the argument is 'DelegationConfigureAdd', the caller __must ensure__ that:
+  -- * the account is valid;
+  -- * the account is not a baker;
+  -- * the account is not a delegator;
+  -- * the delegated amount does not exceed the account's balance.
+  --
+  -- The function behaves as follows:
+  --
+  -- 1. If the delegation target is a valid baker that is not 'OpenForAll', return 'DCPoolClosed'.
+  -- 2. If the delegation target is baker id @bid@, but the baker does not exist, return
+  --    @DCInvalidDelegationTarget bid@.
+  -- 3. Update the active bakers index to record:
+  --    * the delegator delegates to the target pool;
+  --    * the target pool's delegated capital is increased by the delegated amount;
+  --    * the total active capital is increased by the delegated amount.
+  -- 4. Update the account to record the specified delegation.
+  -- 5. If the amount delegated to the delegation target exceeds the leverage bound, return
+  --    'DCPoolStakeOverThreshold' and revert any changes.
+  -- 6. If the amount delegated to the delegation target exceed the capital bound, return
+  --    'DCPoolOverDelegated' and revert any changes.
+  -- 7. Return @DCSuccess []@ with the updated state.
+  --
+  -- When the argument is 'DelegationConfigureUpdate', the caller __must ensure__ that:
+  -- * the account is valid;
+  -- * the account is a delegator;
+  -- * if the delegated amount is updated, it does not exceed the account's balance.
+  --
+  -- The function behaves as follows, building a list @events@:
+  --
+  -- 1. If the delegation target is specified as @target@:
+  --    (1) If the delegation target is a valid baker that is not 'OpenForAll', return 'DCPoolClosed'.
+  --    (2) If the delegation target is baker id @bid@, but the baker does not exist, return
+  --        @DCInvalidDelegationTarget bid@.
+  --    (3) Update the active bakers index to: remove the delegator and delegated amount from the
+  --        old baker pool, and add the delegator and delegated amount to the new baker pool.
+  --        (Note, the total delegated amount is unchanged at this point.)
+  --    (4) Update the account to record the new delegation target.
+  --    (5) Append @DelegationConfigureDelegationTarget target@ to @events@. [N.B. if the target is
+  --        pool is the same as the previous value, steps (1)-(4) will do nothing and may be skipped
+  --        by the implementation. This relies on the invariant that delegators delegate only to
+  --        valid pools.]
+  -- 2. If the "restake earnings" flag is specified as @restakeEarnings@:
+  --    (1) Update the restake earnings flag on the account to match @restakeEarnings@.
+  --    (2) Append @DelegationConfigureRestakeEarnings restakeEarnings@ to @events@.
+  -- 3. If the delegated capital is specified as @capital@: if there is a pending change to the
+  --    delegator's stake, return 'DCChangePending'; otherwise:
+  --    * If the new capital is 0, mark the delegator as pending removal at the slot timestamp
+  --      plus the delegator cooldown chain parameter, and append
+  --      @DelegationConfigureStakeReduced capital@ to @events@; otherwise
+  --    * If the the new capital is less than the current staked capital (but not 0), mark the
+  --      delegator as pending stake reduction to @capital@ at the slot timestamp plus the
+  --      delegator cooldown chain parameter, and append @DelegationConfigureStakeReduced capital@
+  --      to @events@;
+  --    * If the new capital is equal to the current staked capital, do nothing;
+  --    * If the new capital is greater than the current staked capital by @delta > 0@:
+  --      * increase the total active capital by @delta@,
+  --      * increase the delegator's target pool delegated capital by @delta@,
+  --      * set the baker's delegated capital to @capital@, and
+  --      * append @DelegationConfigureStakeIncreased capital@ to @events@.
+  -- 4. If the amount delegated to the delegation target exceeds the leverage bound, return
+  --    'DCPoolStakeOverThreshold' and revert any changes.
+  -- 5. If the amount delegated to the delegation target exceed the capital bound, return
+  --    'DCPoolOverDelegated' and revert any changes.
+  -- 6. Return @DCSuccess events@ with the updated state.
+  --
+  -- Note, if the return code is anything other than 'DCSuccess', the original state is returned.
+  -- If the preconditions are violated, the function may return 'DCInvalidAccount' (if the account
+  -- is not valid) or 'DCInvalidDelegator' (when updating, if the account is not a delegator).
+  -- However, this behaviour is not guaranteed, and could result in violations of the state
+  -- invariants.
   bsoConfigureDelegation
     :: (AccountVersionFor (MPV m) ~ 'AccountV1, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1)
     => UpdatableBlockState m

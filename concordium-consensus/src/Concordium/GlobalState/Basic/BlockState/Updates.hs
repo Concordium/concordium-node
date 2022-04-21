@@ -38,6 +38,9 @@ processValueUpdates t a0 uq = (getLast (sconcat (Last <$> a0 :| (snd <$> ql))), 
     where
         (ql, qr) = span ((<= t) . transactionTimeToTimestamp . fst) (uq ^. uqQueue)
 
+-- |Process the update queue to determine the new value of a parameter for a parameter introduced
+-- in 'ChainParametersV1'.  The return value is the current value of the parameter, the new queue,
+-- and a map of updates to the parameter by time.
 processValueUpdatesForCPV1 ::
     Timestamp
     -- ^Current timestamp
@@ -84,7 +87,8 @@ processARsAndIPsUpdates oldValMap getKey t uq = (updatedValMap, uq {_uqQueue = q
                 changesMap' = Map.insert tt v changesMap
                 valMap' = Map.insert k v valMap
 
-type UpdatesWithARsAndIPs cpv = (Updates' cpv, ARS.AnonymityRevokers, IPS.IdentityProviders)
+type UpdatesWithARsAndIPs (cpv :: ChainParametersVersion) =
+    (Updates' cpv, ARS.AnonymityRevokers, IPS.IdentityProviders)
 
 -- |Process the update queues to determine the current state of updates for chain parameters version 0.
 processUpdateQueues

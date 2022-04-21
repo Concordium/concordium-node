@@ -69,7 +69,7 @@ instance HashableTo Hash.Hash BakerCapital where
         runPut $ do
             put bcBakerId
             put bcBakerEquityCapital
-            put $ getHash @Hash.Hash $ LFMBT.fromFoldable @Word64 bcDelegatorCapital
+            put $ LFMBT.hashFromFoldable bcDelegatorCapital
 
 instance Monad m => MHashableTo m Hash.Hash BakerCapital
 
@@ -99,8 +99,8 @@ instance Serialize CapitalDistribution where
 instance HashableTo Hash.Hash CapitalDistribution where
     getHash CapitalDistribution{..} =
         Hash.hashOfHashes
-            (getHash (LFMBT.fromFoldable @Word64 bakerPoolCapital))
-            (getHash (LFMBT.fromFoldable @Word64 lPoolCapital))
+            (LFMBT.hashFromFoldable bakerPoolCapital)
+            (LFMBT.hashFromFoldable lPoolCapital)
 
 instance Monad m => MHashableTo m Hash.Hash CapitalDistribution
 

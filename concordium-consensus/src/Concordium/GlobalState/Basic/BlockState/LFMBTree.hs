@@ -1,6 +1,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 --    Module      : Concordium.GlobalState.LFMBTree
@@ -30,6 +31,7 @@ module Concordium.GlobalState.Basic.BlockState.LFMBTree
     toAscList,
     toAscPairList,
     fromListChoosingFirst,
+    hashFromFoldable,
 
     -- * Specialized functions for @Maybe@
     lookupMaybe,
@@ -298,6 +300,15 @@ fromAscListMaybes l = fromList $ go l 0
          | i == idx = Just v : go xs (i + 1)
          | otherwise = (replicate (fromIntegral $ i - idx) Nothing) ++ go z i
         go [] _ = []
+
+-- | Get the hash of an LFMBTree constructed from a 'Foldable' by inserting each item sequentially
+-- from index 0.
+-- prop> hashFromFoldable l == getHash (fromFoldable @Word64 l)
+--
+-- TODO: Optimise this implementation.
+hashFromFoldable :: (Foldable f, HashableTo H.Hash v) => f v -> H.Hash
+hashFromFoldable = getHash . fromFoldable @Word64
+
 {-
 -------------------------------------------------------------------------------
                                 Specification

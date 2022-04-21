@@ -1387,7 +1387,8 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                             (apDelegators %~ Set.insert did)
                             . (apDelegatorTotalCapital +~ dcaCapital)
                         newActiveBakers = Map.insert bid newDels (ab ^. activeBakers)
-                        newAB = ab{_activeBakers = newActiveBakers}
+                        newAB = ab & activeBakers .~ newActiveBakers
+                                & totalActiveCapital +~ dcaCapital
                     return $! _blockBirkParameters bs & birkActiveBakers .~ newAB
     bsoConfigureDelegation origBS ai DelegationConfigureUpdate{..} = do
         poolParams <- _cpPoolParameters <$> BS.bsoGetChainParameters origBS
