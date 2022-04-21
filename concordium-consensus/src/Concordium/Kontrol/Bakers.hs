@@ -81,10 +81,10 @@ applyPendingChanges ::
     (PendingChangeEffective 'AccountV1 -> Bool) ->
     ([ActiveBakerInfo' bakerInfoRef], [ActiveDelegatorInfo]) ->
     ([ActiveBakerInfo' bakerInfoRef], [ActiveDelegatorInfo])
-applyPendingChanges isEffective (bakers0, lpool0) =
+applyPendingChanges isEffective (bakers0, passive0) =
     foldr
         processBaker
-        ([], processDelegators lpool0)
+        ([], processDelegators passive0)
         bakers0
   where
     -- Apply effective pending changes to a list of delegators
@@ -103,9 +103,9 @@ applyPendingChanges isEffective (bakers0, lpool0) =
         | activeDelegatorId d1 <= activeDelegatorId d2 = d1 : mergeDelegators ds1 (d2 : ds2)
         | otherwise = d2 : mergeDelegators (d1 : ds1) ds2
     -- Process a baker, adding it to the list of bakers if it is still a baker, and otherwise
-    -- adding its delegators to the L-pool.
-    processBaker baker@ActiveBakerInfo{..} (bakers, lpool) = case activeBakerPendingChange of
-        RemoveStake et | isEffective et -> (bakers, mergeDelegators pDelegators lpool)
+    -- adding its delegators to passive delegation.
+    processBaker baker@ActiveBakerInfo{..} (bakers, passive) = case activeBakerPendingChange of
+        RemoveStake et | isEffective et -> (bakers, mergeDelegators pDelegators passive)
         ReduceStake amt et
             | isEffective et ->
                 ( baker
@@ -114,9 +114,9 @@ applyPendingChanges isEffective (bakers0, lpool0) =
                       activeBakerDelegators = pDelegators
                     } :
                   bakers,
-                  lpool
+                  passive
                 )
-        _ -> (baker{activeBakerDelegators = pDelegators} : bakers, lpool)
+        _ -> (baker{activeBakerDelegators = pDelegators} : bakers, passive)
       where
         pDelegators = processDelegators activeBakerDelegators
 

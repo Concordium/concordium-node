@@ -684,7 +684,8 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
                     rsTotalEncryptedAmount = bankStatus ^. Rewards.totalEncryptedGTU,
                     rsBakingRewardAccount = bankStatus ^. Rewards.bakingRewardAccount,
                     rsFinalizationRewardAccount = bankStatus ^. Rewards.finalizationRewardAccount,
-                    rsGasAccount = bankStatus ^. Rewards.gasAccount
+                    rsGasAccount = bankStatus ^. Rewards.gasAccount,
+                    rsProtocolVersion = demoteProtocolVersion (protocolVersion @pv)
                 }
             rewardsV1 :: (AccountVersionFor pv ~ 'AccountV1) => RewardStatus' Epoch
             rewardsV1 = RewardStatusV1 {

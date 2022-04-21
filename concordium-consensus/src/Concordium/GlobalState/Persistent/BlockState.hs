@@ -1576,7 +1576,8 @@ doGetRewardStatus pbs = do
                     rsTotalEncryptedAmount = bankStatus ^. Rewards.totalEncryptedGTU,
                     rsBakingRewardAccount = bankStatus ^. Rewards.bakingRewardAccount,
                     rsFinalizationRewardAccount = bankStatus ^. Rewards.finalizationRewardAccount,
-                    rsGasAccount = bankStatus ^. Rewards.gasAccount
+                    rsGasAccount = bankStatus ^. Rewards.gasAccount,
+                    rsProtocolVersion = demoteProtocolVersion (protocolVersion @pv)
                 }
             rewardsV1 :: (AccountVersionFor pv ~ 'AccountV1) => m (RewardStatus' Epoch)
             rewardsV1 = do
