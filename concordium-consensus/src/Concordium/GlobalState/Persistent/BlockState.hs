@@ -613,13 +613,13 @@ poolDelegatorCapital bsp bid = do
         Nothing -> return 0
         Just PersistentActiveDelegatorsV1{..} -> return adDelegatorTotalCapital
 
--- | Get the total delegated L-pool capital.
-lPoolDelegatorCapital :: (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1, MonadBlobStore m)
+-- | Get the total passively-delegated capital.
+passiveDelegationCapital :: (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1, MonadBlobStore m)
     => BlockStatePointers pv
     -> m Amount
-lPoolDelegatorCapital bsp = do
+passiveDelegationCapital bsp = do
     pab <- refLoad (bspBirkParameters bsp ^. birkActiveBakers)
-    return $! adDelegatorTotalCapital (pab ^. lPoolDelegators)
+    return $! adDelegatorTotalCapital (pab ^. passiveDelegators)
 
 -- | Get the total capital currently staked by bakers and delegators.
 -- Note, this is separate from the stake and capital distribution used for the current payday, as
@@ -746,7 +746,7 @@ doTransitionEpochBakers pbs newEpoch = do
                                 newABs <- refMake $ PersistentActiveBakers {
                                         _activeBakers = newAB,
                                         _aggregationKeys = newAK,
-                                        _lPoolDelegators = curABs ^. lPoolDelegators,
+                                        _passiveDelegators = curABs ^. passiveDelegators,
                                         _totalActiveCapital = TotalActiveCapitalV0
                                     }
                                 -- Remove the baker from the account
@@ -808,7 +808,7 @@ doGetActiveBakersAndDelegators pbs = do
     bsp <- loadPBS pbs
     ab <- refLoad $ bspBirkParameters bsp ^. birkActiveBakers
     abis <- Trie.toAscList (ab ^. activeBakers) >>= mapM (mkActiveBakerInfo bsp)
-    let PersistentActiveDelegatorsV1 dset _ = ab ^. lPoolDelegators
+    let PersistentActiveDelegatorsV1 dset _ = ab ^. passiveDelegators
     lps <- Trie.keys dset >>= mapM (mkActiveDelegatorInfo bsp)
     return (abis, lps)
       where
@@ -868,7 +868,7 @@ doAddBaker pbs ai BakerAdd{..} = do
                             newpabref <- refMake PersistentActiveBakers{
                                     _aggregationKeys = newAggregationKeys,
                                     _activeBakers = newActiveBakers,
-                                    _lPoolDelegators = pab ^. lPoolDelegators,
+                                    _passiveDelegators = pab ^. passiveDelegators,
                                     _totalActiveCapital = TotalActiveCapitalV0
                                 }
                             let newBirkParams = bspBirkParameters bsp & birkActiveBakers .~ newpabref
@@ -929,7 +929,7 @@ doConfigureBaker pbs ai BakerConfigureAdd{..} = do
                             newpabref <- refMake PersistentActiveBakers{
                                     _aggregationKeys = newAggregationKeys,
                                     _activeBakers = newActiveBakers,
-                                    _lPoolDelegators = pab ^. lPoolDelegators,
+                                    _passiveDelegators = pab ^. passiveDelegators,
                                     _totalActiveCapital = addActiveCapital bcaCapital (_totalActiveCapital pab)
                                 }
                             let newBirkParams = bspBirkParameters bsp & birkActiveBakers .~ newpabref
@@ -1036,15 +1036,15 @@ doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
                         ((), ) <$> setPersistentAccountStake acc (PersistentAccountStakeBaker newPAB)
                 modifyAccount updAcc
                 when (openForDelegation == Transactions.ClosedForAll) $ do
-                    -- Transfer all existing delegators to the L-pool.
+                    -- Transfer all existing delegators to passive delegation.
                     birkParams <- MTL.gets bspBirkParameters
                     activeBkrs <- liftBSO $ refLoad (birkParams ^. birkActiveBakers)
                     -- Update the active bakers
-                    (delegators, newActiveBkrs) <- transferDelegatorsToLPool bid activeBkrs
+                    (delegators, newActiveBkrs) <- transferDelegatorsToPassive bid activeBkrs
                     newActiveBkrsRef <- refMake newActiveBkrs
                     MTL.modify $ \bsp -> bsp{bspBirkParameters = birkParams & birkActiveBakers .~ newActiveBkrsRef}
                     -- Update each baker account
-                    forM_ delegators redelegateToLPool
+                    forM_ delegators redelegatePassive
             MTL.tell [BakerConfigureOpenForDelegation openForDelegation]
         updateMetadataURL = forM_ bcuMetadataURL $ \metadataURL -> do
             acctBkr <- getAccountOrFail
@@ -1169,7 +1169,7 @@ delegationConfigureDisallowOverdelegation
     -> DelegationTarget
     -> m ()
 delegationConfigureDisallowOverdelegation bsp poolParams target = case target of
-  Transactions.DelegateToLPool -> return ()
+  Transactions.DelegatePassive -> return ()
   Transactions.DelegateToBaker bid@(BakerId baid) -> do
     bakerEquityCapital <- Accounts.indexedAccount baid (bspAccounts bsp) >>= \case
       Just PersistentAccount{_accountStake = PersistentAccountStakeBaker abr} ->
@@ -1190,7 +1190,7 @@ delegationCheckTargetOpen
     => BlockStatePointers pv
     -> DelegationTarget
     -> m ()
-delegationCheckTargetOpen _ Transactions.DelegateToLPool = return ()
+delegationCheckTargetOpen _ Transactions.DelegatePassive = return ()
 delegationCheckTargetOpen bsp (Transactions.DelegateToBaker bid@(BakerId baid)) = do
     Accounts.indexedAccount baid (bspAccounts bsp) >>= \case
         Just PersistentAccount{_accountStake = PersistentAccountStakeBaker abr} -> do
@@ -1238,12 +1238,12 @@ doConfigureDelegation pbs ai DelegationConfigureAdd{..} = do
                 -- This cannot fail to update the accounts, since we already looked up the accounts:
                 (_, newAccounts) <- lift $ Accounts.updateAccountsAtIndex updAcc ai (bspAccounts bsp)
                 return bsp{bspBirkParameters = newBirkParams, bspAccounts = newAccounts}
-          updateBirk bsp Transactions.DelegateToLPool = lift $ do
+          updateBirk bsp Transactions.DelegatePassive = lift $ do
             ab <- refLoad (bspBirkParameters bsp ^. birkActiveBakers)
-            let PersistentActiveDelegatorsV1 dset tot = ab ^. lPoolDelegators
+            let PersistentActiveDelegatorsV1 dset tot = ab ^. passiveDelegators
             newDset <- Trie.insert did () dset
             newAB <- refMake ab{
-                    _lPoolDelegators = PersistentActiveDelegatorsV1 newDset (tot + dcaCapital),
+                    _passiveDelegators = PersistentActiveDelegatorsV1 newDset (tot + dcaCapital),
                     _totalActiveCapital = addActiveCapital dcaCapital (_totalActiveCapital ab)
                 }
             return $! bspBirkParameters bsp & birkActiveBakers .~ newAB
@@ -1345,9 +1345,9 @@ doConfigureDelegation pbs ai DelegationConfigureUpdate{..} = do
         addTotalsInActiveBakers ab0 ad delta = do
             let ab1 = ab0 & totalActiveCapital %~ addActiveCapital delta
             case ad ^. BaseAccounts.delegationTarget of
-                Transactions.DelegateToLPool -> do
-                    let PersistentActiveDelegatorsV1 dset dtot = ab1 ^. lPoolDelegators
-                    refMake $! ab1 & lPoolDelegators .~ PersistentActiveDelegatorsV1 dset (dtot + delta)
+                Transactions.DelegatePassive -> do
+                    let PersistentActiveDelegatorsV1 dset dtot = ab1 ^. passiveDelegators
+                    refMake $! ab1 & passiveDelegators .~ PersistentActiveDelegatorsV1 dset (dtot + delta)
                 Transactions.DelegateToBaker bid -> do
                     Trie.lookup bid (ab1 ^. activeBakers) >>= \case
                         Nothing -> error "Invariant violation: delegation target is not an active baker"
@@ -1541,9 +1541,9 @@ doRewardAccount pbs ai reward = do
             :: PersistentActiveBakers 'AccountV1
             -> Transactions.DelegationTarget
             -> m (PersistentActiveBakers 'AccountV1)
-        updateDelegationPoolCapital activeBkrs Transactions.DelegateToLPool = do
-            let tot = adDelegatorTotalCapital $ activeBkrs ^. lPoolDelegators
-            return $! activeBkrs & lPoolDelegators %~ \dlgs ->
+        updateDelegationPoolCapital activeBkrs Transactions.DelegatePassive = do
+            let tot = adDelegatorTotalCapital $ activeBkrs ^. passiveDelegators
+            return $! activeBkrs & passiveDelegators %~ \dlgs ->
                 dlgs{adDelegatorTotalCapital = tot + reward}
         updateDelegationPoolCapital activeBkrs (Transactions.DelegateToBaker bid) = do
             let activeBkrsMap = activeBkrs ^. activeBakers
@@ -1896,13 +1896,13 @@ doGetPoolStatus ::
     m (Maybe PoolStatus)
 doGetPoolStatus pbs Nothing = do
         bsp <- loadPBS pbs
-        psDelegatedCapital <- lPoolDelegatorCapital bsp
-        psCommissionRates <- _ppLPoolCommissions . _cpPoolParameters <$> lookupCurrentParameters (bspUpdates bsp)
+        psDelegatedCapital <- passiveDelegationCapital bsp
+        psCommissionRates <- _ppPassiveCommissions . _cpPoolParameters <$> lookupCurrentParameters (bspUpdates bsp)
         poolRewards <- refLoad (bspPoolRewards bsp)
-        let psCurrentPaydayTransactionFeesEarned = lPoolTransactionRewards poolRewards
-        psCurrentPaydayDelegatedCapital <- currentLPoolDelegatedCapital poolRewards
+        let psCurrentPaydayTransactionFeesEarned = passiveDelegationTransactionRewards poolRewards
+        psCurrentPaydayDelegatedCapital <- currentPassiveDelegationCapital poolRewards
         psAllPoolTotalCapital <- totalCapital bsp
-        return $ Just LPoolStatus {..}
+        return $ Just PassiveDelegationStatus {..}
 doGetPoolStatus pbs (Just psBakerId@(BakerId aid)) = do
         bsp <- loadPBS pbs
         Accounts.indexedAccount aid (bspAccounts bsp) >>= \case
@@ -2187,21 +2187,21 @@ doMarkFinalizationAwakeBaker pbs bid = do
     let setAwake bpr = bpr{finalizationAwake = True}
     storePBS pbs =<< modifyBakerPoolRewardDetailsInPoolRewards bsp bid setAwake
 
-doUpdateAccruedTransactionFeesLPool :: forall pv m. (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1, MonadBlobStore m) => PersistentBlockState pv -> AmountDelta -> m (PersistentBlockState pv)
-doUpdateAccruedTransactionFeesLPool pbs delta = do
+doUpdateAccruedTransactionFeesPassive :: forall pv m. (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1, MonadBlobStore m) => PersistentBlockState pv -> AmountDelta -> m (PersistentBlockState pv)
+doUpdateAccruedTransactionFeesPassive pbs delta = do
     bsp <- loadPBS pbs
     let hpr = case bspRewardDetails bsp of BlockRewardDetailsV1 hp -> hp
     pr <- refLoad hpr
     newBlockRewardDetails <- BlockRewardDetailsV1 <$> refMake pr{
-            lPoolTransactionRewards = applyAmountDelta delta (lPoolTransactionRewards pr)
+            passiveDelegationTransactionRewards = applyAmountDelta delta (passiveDelegationTransactionRewards pr)
         }
     storePBS pbs $ bsp{bspRewardDetails = newBlockRewardDetails}
 
-doGetAccruedTransactionFeesLPool :: forall pv m. (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1, MonadBlobStore m) => PersistentBlockState pv -> m Amount
-doGetAccruedTransactionFeesLPool pbs = do
+doGetAccruedTransactionFeesPassive :: forall pv m. (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1, MonadBlobStore m) => PersistentBlockState pv -> m Amount
+doGetAccruedTransactionFeesPassive pbs = do
     bsp <- loadPBS pbs
     let hpr = case bspRewardDetails bsp :: BlockRewardDetails 'AccountV1 of BlockRewardDetailsV1 hp -> hp
-    lPoolTransactionRewards <$> refLoad hpr
+    passiveDelegationTransactionRewards <$> refLoad hpr
 
 doUpdateAccruedTransactionFeesFoundationAccount :: forall pv m. (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1, MonadBlobStore m) => PersistentBlockState pv -> AmountDelta -> m (PersistentBlockState pv)
 doUpdateAccruedTransactionFeesFoundationAccount pbs delta = do
@@ -2253,18 +2253,18 @@ doSetNextEpochBakers pbs bakers = do
         preBakerInfos = fst <$> bakers'
         preBakerStakes = snd <$> bakers'
 
--- |Update an account's delegation to point to the L-pool. This only updates the account table,
+-- |Update an account's delegation to passive delegation. This only updates the account table,
 -- and does not update the active baker index, which must be handled separately.
 -- The account __must__ be an active delegator.
-redelegateToLPool :: (MonadBlobStore m, MTL.MonadState (BlockStatePointers pv) m, IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1) => DelegatorId -> m ()
-redelegateToLPool (DelegatorId accId) = do
+redelegatePassive :: (MonadBlobStore m, MTL.MonadState (BlockStatePointers pv) m, IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1) => DelegatorId -> m ()
+redelegatePassive (DelegatorId accId) = do
     accounts <- bspAccounts <$> MTL.get
     (_, newAccounts) <- Accounts.updateAccountsAtIndex updAcc accId accounts
     MTL.modify $ \bsp -> bsp{bspAccounts = newAccounts}
   where
     updAcc pa@PersistentAccount{_accountStake = PersistentAccountStakeDelegate acctDelRef} = do
         acctDel <- refLoad acctDelRef
-        let newAcctDel = acctDel{BaseAccounts._delegationTarget = Transactions.DelegateToLPool}
+        let newAcctDel = acctDel{BaseAccounts._delegationTarget = Transactions.DelegatePassive}
         newAcctDelRef <- refMake newAcctDel
         let newPA = pa{_accountStake = PersistentAccountStakeDelegate newAcctDelRef}
         ((),) <$> setPersistentAccountStake newPA PersistentAccountStakeNone
@@ -2285,7 +2285,7 @@ doProcessPendingChanges persistentBS isEffective = do
       newBlockState = MTL.execStateT processPendingChanges
 
       processPendingChanges = do
-        a1 <- modifyLPool
+        a1 <- modifyPassiveDelegation
         a2 <- modifyBakers
         bsp0 <- MTL.get
         ab <- lift $ refLoad $ bspBirkParameters bsp0 ^. birkActiveBakers
@@ -2293,12 +2293,12 @@ doProcessPendingChanges persistentBS isEffective = do
         MTL.modify $ \bsp ->
             bsp{bspBirkParameters = (bspBirkParameters bsp){_birkActiveBakers = newAB}}
 
-      modifyLPool = do
+      modifyPassiveDelegation = do
         bsp0 <- MTL.get
         ab <- lift $ refLoad $ bspBirkParameters bsp0 ^. birkActiveBakers
-        let oldDelegators = ab ^. lPoolDelegators
+        let oldDelegators = ab ^. passiveDelegators
         newDelegators <- processDelegators oldDelegators
-        newAB <- lift $ refMake ab{_lPoolDelegators = newDelegators}
+        newAB <- lift $ refMake ab{_passiveDelegators = newDelegators}
         MTL.modify $ \bsp ->
             bsp{bspBirkParameters = (bspBirkParameters bsp){_birkActiveBakers = newAB}}
         return $ adDelegatorTotalCapital newDelegators
@@ -2421,19 +2421,19 @@ doProcessPendingChanges persistentBS isEffective = do
         MTL.modify $ \bsp -> bsp{bspAccounts = newAccounts}
 
         dlist <- lift (Trie.keysAsc dset)
-        forM_ dlist redelegateToLPool
+        forM_ dlist redelegatePassive
 
         birkParams <- bspBirkParameters <$> MTL.get
         bab <- lift $ refLoad $ birkParams ^. birkActiveBakers
         newAB <- lift $ Trie.delete bid (bab ^. activeBakers)
         abi <- lift $ refLoad (acctBkr ^. accountBakerInfo)
         newAggKeys <- lift $ Trie.delete (abi ^. BaseAccounts.bakerAggregationVerifyKey) (bab ^. aggregationKeys)
-        let PersistentActiveDelegatorsV1 oldDset oldLPoolCapital = bab ^. lPoolDelegators
+        let PersistentActiveDelegatorsV1 oldDset oldpassiveDelegatorsCapital = bab ^. passiveDelegators
         newDset <- lift $ foldM (\t d -> Trie.insert d () t) oldDset dlist
         newBAB <- lift $ refMake $ PersistentActiveBakers{
                 _activeBakers = newAB,
                 _aggregationKeys = newAggKeys,
-                _lPoolDelegators = PersistentActiveDelegatorsV1 newDset (oldLPoolCapital + dcapital),
+                _passiveDelegators = PersistentActiveDelegatorsV1 newDset (oldpassiveDelegatorsCapital + dcapital),
 
                 _totalActiveCapital = bab ^. totalActiveCapital
             }
@@ -2645,8 +2645,8 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateOperations (Pe
     bsoNotifyBlockBaked = doNotifyBlockBaked
     bsoUpdateAccruedTransactionFeesBaker = doUpdateAccruedTransactionFeesBaker
     bsoMarkFinalizationAwakeBaker = doMarkFinalizationAwakeBaker
-    bsoUpdateAccruedTransactionFeesLPool = doUpdateAccruedTransactionFeesLPool
-    bsoGetAccruedTransactionFeesLPool = doGetAccruedTransactionFeesLPool
+    bsoUpdateAccruedTransactionFeesPassive = doUpdateAccruedTransactionFeesPassive
+    bsoGetAccruedTransactionFeesPassive = doGetAccruedTransactionFeesPassive
     bsoUpdateAccruedTransactionFeesFoundationAccount = doUpdateAccruedTransactionFeesFoundationAccount
     bsoGetAccruedTransactionFeesFoundationAccount = doGetAccruedTransactionFeesFoundationAccount
     bsoClearEpochBlocksBaked = doClearEpochBlocksBaked

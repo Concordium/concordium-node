@@ -222,7 +222,7 @@ Get the state of an account in the given block.
   - `stakedAmount : Amount` &mdash; the capital delegated to the pool.
   - `restakeEarnings : bool` &mdash; whether earnings are added to the delegated stake or not.
   - `delegationTarget : DelegationTarget` &mdash; the target of the delegation. An object with fields:
-    - `delegateType : String` &mdash; either `"L-Pool"` or `"Baker"`.
+    - `delegateType : String` &mdash; either `"Passive"` or `"Baker"`.
     - `bakerId : ?BakerId` &mdash; if the type is `Baker`, then the ID of the baker being delegated to.
   - `pendingChange : ?PendingChange` &mdash; the pending change to the delegator's stake, if any.
     This is a JSON object with the following fields:
@@ -239,12 +239,12 @@ Otherwise, `null`.
 ## GetPoolStatus : `BlockHash -> bool -> BakerId -> ?PoolStatus`
 
 Get the status of a pool.
-If the boolean argument is `true`, this returns the status for the L-pool.
+If the boolean argument is `true`, this returns the status for the passive delegators.
 Otherwise, it returns the status for the baker with the specified ID (if it exists).
 
 The result is a JSON object with the fields:
-- `poolType : String` &mdash; either `"BakerPool"` or `"LPool"`.
-- `poolStatus : BakerPoolStatus | LPoolStatus` &mdash; the pool status object of the appropriate type.
+- `poolType : String` &mdash; either `"BakerPool"` or `"PassiveDelegation"`.
+- `poolStatus : BakerPoolStatus | PassiveDelegationStatus` &mdash; the pool status object of the appropriate type.
 
 A `BakerPoolStatus` object consists of:
 - `bakerId : BakerId` &mdash; ID of the baker
@@ -273,11 +273,11 @@ A `BakerPoolStatus` object consists of:
   - `bakerEquityCapital : Amount` &mdash; the equity capital of the baker when frozen for the current payday.
   - `delegatedCapital : Amount` &mdash; the total delegated capital when frozen for the current payday.
 
-An `LPoolStatus` object consists of
-- `delegatedCapital : Amount` &mdash; total capital staked by delegators to the L-pool
-- `commissionRates : CommissionRates` &mdash; the commission rates that apply to the L-pool
-- `currentPaydayTransactionFeesEarned : Amount` &mdash; the transaction fees accrued to the L-pool in this payday
-- `currentPaydayDelegatedCapital : Amount` &mdash; the total effective capital delegated to the L-pool for the current payday.
+A `PassiveDelegationStatus` object consists of
+- `delegatedCapital : Amount` &mdash; total capital staked by passive delegators
+- `commissionRates : CommissionRates` &mdash; the commission rates that apply to passive delegators
+- `currentPaydayTransactionFeesEarned : Amount` &mdash; the transaction fees accrued to the passive delegators in this payday
+- `currentPaydayDelegatedCapital : Amount` &mdash; the total effective capital passively-delegated for the current payday.
 
 ## GetInstanceInfo : `BlockHash -> ContractAddress -> ?ContractInfo`
 

@@ -7,7 +7,7 @@ module Concordium.GlobalState.Persistent.PoolRewards (
     bakerBlockCounts,
     rotateCapitalDistribution,
     setNextCapitalDistribution,
-    currentLPoolDelegatedCapital,
+    currentPassiveDelegationCapital,
     lookupBakerCapitalAndRewardDetails,
 ) where
 
@@ -46,8 +46,8 @@ data PoolRewards = PoolRewards
       -- |The details of rewards accruing to baker pools.
       -- These are indexed by the index of the baker in the capital distribution (_not_ the BakerId).
       bakerPoolRewardDetails :: !(LFMBT.LFMBTree Word64 BufferedRef BakerPoolRewardDetails),
-      -- |The transaction reward amount accruing to the L-pool.
-      lPoolTransactionRewards :: !Amount,
+      -- |The transaction reward amount accruing to the passive delegators.
+      passiveDelegationTransactionRewards :: !Amount,
       -- |The transaction reward fraction accruing to the foundation.
       foundationTransactionRewards :: !Amount,
       -- |The next payday occurs at the start of this epoch.
@@ -74,16 +74,19 @@ instance MonadBlobStore m => BlobStorable m PoolRewards where
     storeUpdate pr0 = do
         (pNextCapital, nextCapital) <- storeUpdate (nextCapital pr0)
         (pCurrentCapital, currentCapital) <- storeUpdate (currentCapital pr0)
-        (pBakerPoolRewardDetails, bakerPoolRewardDetails) <- storeUpdate (bakerPoolRewardDetails pr0)
-        (pLPoolTransactionRewards, lPoolTransactionRewards) <- storeUpdate (lPoolTransactionRewards pr0)
-        (pFoundationTransactionRewards, foundationTransactionRewards) <- storeUpdate (foundationTransactionRewards pr0)
+        (pBakerPoolRewardDetails, bakerPoolRewardDetails)
+            <- storeUpdate (bakerPoolRewardDetails pr0)
+        (pPassiveDelegationTransactionRewards, passiveDelegationTransactionRewards)
+            <- storeUpdate (passiveDelegationTransactionRewards pr0)
+        (pFoundationTransactionRewards, foundationTransactionRewards)
+            <- storeUpdate (foundationTransactionRewards pr0)
         (pNextPaydayEpoch, nextPaydayEpoch) <- storeUpdate (nextPaydayEpoch pr0)
         (pNextPaydayMintRate, nextPaydayMintRate) <- storeUpdate (nextPaydayMintRate pr0)
         let p = do
                 pNextCapital
                 pCurrentCapital
                 pBakerPoolRewardDetails
-                pLPoolTransactionRewards
+                pPassiveDelegationTransactionRewards
                 pFoundationTransactionRewards
                 pNextPaydayEpoch
                 pNextPaydayMintRate
@@ -93,7 +96,7 @@ instance MonadBlobStore m => BlobStorable m PoolRewards where
         mNextCapital <- label "Next Capital" load
         mCurrentCapital <- label "Current Capital" load
         mBakerPoolRewardDetails <- label "Baker Pool Reward Details" load
-        mLPoolTransactionRewards <- label "L-Pool Transaction Rewards" load
+        mPassiveDelegationTransactionRewards <- label "Passive Delegation Transaction Rewards" load
         mFoundationTransactionRewards <- label "Foundation Transaction Rewards" load
         mNextPaydayEpoch <- label "Next Payday Epoch" load
         mNextPaydayMintRate <- label "Next Payday Mint Rate" load
@@ -101,7 +104,7 @@ instance MonadBlobStore m => BlobStorable m PoolRewards where
             nextCapital <- mNextCapital
             currentCapital <- mCurrentCapital
             bakerPoolRewardDetails <- mBakerPoolRewardDetails
-            lPoolTransactionRewards <- mLPoolTransactionRewards
+            passiveDelegationTransactionRewards <- mPassiveDelegationTransactionRewards
             foundationTransactionRewards <- mFoundationTransactionRewards
             nextPaydayEpoch <- mNextPaydayEpoch
             nextPaydayMintRate <- mNextPaydayMintRate
@@ -113,7 +116,7 @@ putPoolRewards PoolRewards{..} = do
     liftPut . put =<< refLoad currentCapital
     liftPut =<< store bakerPoolRewardDetails
     liftPut $ do
-        put lPoolTransactionRewards
+        put passiveDelegationTransactionRewards
         put foundationTransactionRewards
         put nextPaydayEpoch
         put nextPaydayMintRate
@@ -129,7 +132,7 @@ instance MonadBlobStore m => MHashableTo m PoolRewardsHash PoolRewards where
                 Hash.hashOfHashes hBakerPoolRewardDetails $
                     getHash $
                         runPut $
-                            put lPoolTransactionRewards
+                            put passiveDelegationTransactionRewards
                                 <> put foundationTransactionRewards
                                 <> put nextPaydayEpoch
                                 <> put nextPaydayMintRate
@@ -139,7 +142,7 @@ instance MonadBlobStore m => Cacheable m PoolRewards where
         nextCapital <- cache (nextCapital pr)
         currentCapital <- cache (currentCapital pr)
         bakerPoolRewardDetails <- cache (bakerPoolRewardDetails pr)
-        lPoolTransactionRewards <- cache (lPoolTransactionRewards pr)
+        passiveDelegationTransactionRewards <- cache (passiveDelegationTransactionRewards pr)
         foundationTransactionRewards <- cache (foundationTransactionRewards pr)
         return PoolRewards{..}
 
@@ -153,7 +156,7 @@ makePoolRewards bpr = do
             { nextCapital = nc,
               currentCapital = cc,
               bakerPoolRewardDetails = bprd,
-              lPoolTransactionRewards = BasicPoolRewards.lPoolTransactionRewards bpr,
+              passiveDelegationTransactionRewards = BasicPoolRewards.passiveDelegationTransactionRewards bpr,
               foundationTransactionRewards = BasicPoolRewards.foundationTransactionRewards bpr,
               nextPaydayEpoch = BasicPoolRewards.nextPaydayEpoch bpr,
               nextPaydayMintRate = BasicPoolRewards.nextPaydayMintRate bpr
@@ -201,9 +204,9 @@ setNextCapitalDistribution ::
     [(DelegatorId, Amount)] ->
     ref PoolRewards ->
     m (ref PoolRewards)
-setNextCapitalDistribution bakers lpool oldPoolRewards = do
+setNextCapitalDistribution bakers passive oldPoolRewards = do
     let bakerPoolCapital = Vec.fromList $ map mkBakCap bakers
-    let lPoolCapital = Vec.fromList $ map mkDelCap lpool
+    let passiveDelegatorsCapital = Vec.fromList $ map mkDelCap passive
     capDist <- refMake $ CapitalDistribution{..}
     pr <- refLoad oldPoolRewards
     refMake pr{nextCapital = capDist}
@@ -214,10 +217,10 @@ setNextCapitalDistribution bakers lpool oldPoolRewards = do
     mkDelCap (dcDelegatorId, dcDelegatorCapital) =
         DelegatorCapital{..}
 
--- |The total capital delegated to the L-Pool in the current reward period capital distribution.
-currentLPoolDelegatedCapital ::
+-- |The total capital passively delegated in the current reward period capital distribution.
+currentPassiveDelegationCapital ::
     (MonadBlobStore m) =>
     PoolRewards ->
     m Amount
-currentLPoolDelegatedCapital PoolRewards{..} =
-    Vec.sum . fmap dcDelegatorCapital . lPoolCapital <$> refLoad currentCapital
+currentPassiveDelegationCapital PoolRewards{..} =
+    Vec.sum . fmap dcDelegatorCapital . passiveDelegatorsCapital <$> refLoad currentCapital

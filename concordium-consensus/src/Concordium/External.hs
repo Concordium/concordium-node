@@ -1138,12 +1138,12 @@ getBakerList cptr blockcstr = do
         Nothing -> jsonCString AE.Null
         Just bh -> jsonQuery cptr (Q.getRegisteredBakers bh)
 
--- |Get the status of a baker pool or the L-pool with respect to a particular block.
+-- |Get the status of a baker pool or the passive delegators with respect to a particular block.
 -- The block must be given as a null-terminated base16 encoding of the block hash.
--- The third argument indicates if the status for the L-pool is to be returned (indicated by
+-- The third argument indicates if the status for the passive delegators is to be returned (indicated by
 -- a true (non-zero) value). The fourth argument indicates which baker to get the status for
--- in the case that the L-pool status is not requested. (This argument is ignored if the L-pool
--- status is requested.)
+-- in the case that the passive delegator status is not requested. (This argument is ignored if the
+-- passive delegator status is requested.)
 -- The return value is a null-terminated JSON-encoded object, or "null" if the block or pool
 -- are invalid.
 -- The returned string should be freed by calling 'freeCStr'.
@@ -1151,17 +1151,17 @@ getPoolStatus ::
     StablePtr ConsensusRunner ->
     -- |Block hash (null-terminated base16)
     CString ->
-    -- |Whether to get the L-pool status
+    -- |Whether to get the passive delegator status
     CBool ->
-    -- |Baker ID to get status for (if not L-pool)
+    -- |Baker ID to get status for (if not passive delegators)
     Word64 ->
     IO CString
-getPoolStatus cptr blockcstr lpool bid = do
+getPoolStatus cptr blockcstr passive bid = do
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
         Just bh -> jsonQuery cptr (Q.getPoolStatus bh mbid)
   where
-    mbid = if lpool /= 0 then Nothing else Just (BakerId (AccountIndex bid))
+    mbid = if passive /= 0 then Nothing else Just (BakerId (AccountIndex bid))
 
 -- ** Transaction-indexed queries
 

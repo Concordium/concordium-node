@@ -245,7 +245,7 @@ tacAmount f (TotalActiveCapitalV1 amt) = TotalActiveCapitalV1 <$> f amt
 data PersistentActiveBakers (av :: AccountVersion) = PersistentActiveBakers {
     _activeBakers :: !(BakerIdTrieMap av),
     _aggregationKeys :: !(Trie.TrieN (BufferedBlobbed BlobRef) BakerAggregationVerifyKey ()),
-    _lPoolDelegators :: !(PersistentActiveDelegators av),
+    _passiveDelegators :: !(PersistentActiveDelegators av),
     _totalActiveCapital :: !(TotalActiveCapital av)
 } deriving (Show)
 
@@ -278,8 +278,8 @@ addDelegator ::
     Amount ->
     PersistentActiveBakers 'AccountV1 ->
     m (Either BakerId (PersistentActiveBakers 'AccountV1))
-addDelegator DelegateToLPool did amt pab =
-    Right <$> lPoolDelegators (addDelegatorHelper did amt) pab
+addDelegator DelegatePassive did amt pab =
+    Right <$> passiveDelegators (addDelegatorHelper did amt) pab
 addDelegator (DelegateToBaker bid) did amt pab =
     Trie.lookup bid (pab ^. activeBakers) >>= \case
         Nothing -> return $ Left bid
@@ -306,7 +306,7 @@ removeDelegator ::
     Amount ->
     PersistentActiveBakers 'AccountV1 ->
     m (PersistentActiveBakers 'AccountV1)
-removeDelegator DelegateToLPool did amt pab = lPoolDelegators (removeDelegatorHelper did amt) pab
+removeDelegator DelegatePassive did amt pab = passiveDelegators (removeDelegatorHelper did amt) pab
 removeDelegator (DelegateToBaker bid) did amt pab = do
     let rdh Nothing = return ((), Trie.NoChange)
         rdh (Just pad) = do
@@ -315,23 +315,23 @@ removeDelegator (DelegateToBaker bid) did amt pab = do
     newActiveBakers <- snd <$> Trie.adjust rdh bid (pab ^. activeBakers)
     return $ pab & activeBakers .~ newActiveBakers
 
--- |Transfer all delegators from a baker to the L-pool in the 'PersistentActiveBakers'. This does
+-- |Transfer all delegators from a baker to passive delegation in the 'PersistentActiveBakers'. This does
 -- not affect the total stake, and does not remove the baker itself. This returns the list of
 -- affected delegators.  (This will have no effect if the baker is not actually a baker, although
 -- this function should not be used in that case.)
-transferDelegatorsToLPool ::
+transferDelegatorsToPassive ::
     (MonadBlobStore m) =>
     BakerId ->
     PersistentActiveBakers 'AccountV1 ->
     m ([DelegatorId], PersistentActiveBakers 'AccountV1)
-transferDelegatorsToLPool bid pab = do
+transferDelegatorsToPassive bid pab = do
     (transferred, newAB) <- Trie.adjust extract bid (pab ^. activeBakers)
     transList <- Trie.keysAsc (adDelegators transferred)
-    let oldLPD = pab ^. lPoolDelegators . to adDelegators
+    let oldLPD = pab ^. passiveDelegators . to adDelegators
     newLPD <- foldM (\a d -> Trie.insert d () a) oldLPD transList
     let pab' =
             pab & activeBakers .~ newAB
-                & lPoolDelegators
+                & passiveDelegators
                     %~ ( \(PersistentActiveDelegatorsV1 _ tot) ->
                             PersistentActiveDelegatorsV1 newLPD (tot + adDelegatorTotalCapital transferred)
                        )
@@ -346,24 +346,24 @@ instance
     storeUpdate oldPAB@PersistentActiveBakers{..} = do
         (pActiveBakers, newActiveBakers) <- storeUpdate _activeBakers
         (pAggregationKeys, newAggregationKeys) <- storeUpdate _aggregationKeys
-        (pLPoolDelegators, newLPoolDelegators) <- storeUpdate _lPoolDelegators
-        let pPAB = pActiveBakers >> pAggregationKeys >> pLPoolDelegators >> put _totalActiveCapital
+        (ppassiveDelegators, newpassiveDelegators) <- storeUpdate _passiveDelegators
+        let pPAB = pActiveBakers >> pAggregationKeys >> ppassiveDelegators >> put _totalActiveCapital
         let newPAB = oldPAB{
           _activeBakers = newActiveBakers,
           _aggregationKeys = newAggregationKeys,
-          _lPoolDelegators = newLPoolDelegators
+          _passiveDelegators = newpassiveDelegators
         }
         return (pPAB, newPAB)
     store pab = fst <$> storeUpdate pab
     load = do
         mActiveBakers <- load
         mAggregationKeys <- load
-        mLPoolDelegators <- load
+        mpassiveDelegators <- load
         _totalActiveCapital <- get
         return $ do
             _activeBakers <- mActiveBakers
             _aggregationKeys <- mAggregationKeys
-            _lPoolDelegators <- mLPoolDelegators
+            _passiveDelegators <- mpassiveDelegators
             return PersistentActiveBakers{..}
 
 instance (IsAccountVersion av, Applicative m) => Cacheable m (PersistentActiveBakers av)
@@ -382,15 +382,15 @@ makePersistentActiveBakers ab = do
                 Trie.insert bid (PersistentActiveDelegatorsV1 pDels (Basic._apDelegatorTotalCapital dels)) acc
     _activeBakers <- foldlM addActiveBaker Trie.empty (Map.toList (Basic._activeBakers ab))
     _aggregationKeys <- Trie.fromList $ (,()) <$> Set.toList (Basic._aggregationKeys ab)
-    _lPoolDelegators <- case accountVersion @av of
+    _passiveDelegators <- case accountVersion @av of
         SAccountV0 ->
             return PersistentActiveDelegatorsV0
         SAccountV1 ->
             PersistentActiveDelegatorsV1
-                <$> Trie.fromList ((,()) <$> Set.toList (Basic._apDelegators lpool))
-                <*> pure (Basic._apDelegatorTotalCapital lpool)
+                <$> Trie.fromList ((,()) <$> Set.toList (Basic._apDelegators passive))
+                <*> pure (Basic._apDelegatorTotalCapital passive)
           where
-            lpool = Basic._lPoolDelegators ab
+            passive = Basic._passiveDelegators ab
     let _totalActiveCapital = case accountVersion @av of
             SAccountV0 -> TotalActiveCapitalV0
             SAccountV1 -> TotalActiveCapitalV1 (Basic._totalActiveCapital ab)

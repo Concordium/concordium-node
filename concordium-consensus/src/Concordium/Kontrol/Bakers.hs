@@ -163,13 +163,13 @@ computeBakerStakesAndCapital ::
     [ActiveBakerInfo m] ->
     [ActiveDelegatorInfo] ->
     BakerStakesAndCapital m
-computeBakerStakesAndCapital poolParams activeBakers lpoolDelegators = BakerStakesAndCapital{..}
+computeBakerStakesAndCapital poolParams activeBakers passiveDelegators = BakerStakesAndCapital{..}
   where
     leverage = poolParams ^. ppLeverageBound
     capitalBound = poolParams ^. ppCapitalBound
     poolCapital ActiveBakerInfo{..} = activeBakerEquityCapital + sum (activeDelegatorStake <$> activeBakerDelegators)
     poolCapitals = poolCapital <$> activeBakers
-    totalCapital = sum poolCapitals + sum (activeDelegatorStake <$> lpoolDelegators)
+    totalCapital = sum poolCapitals + sum (activeDelegatorStake <$> passiveDelegators)
     capLimit = takeFraction (theCapitalBound capitalBound) totalCapital
     makeBakerStake ActiveBakerInfo{..} poolCap =
         ( activeBakerInfoRef,
@@ -191,7 +191,7 @@ computeBakerStakesAndCapital poolParams activeBakers lpoolDelegators = BakerStak
                 }
     capitalDistributionM = do
         bakerPoolCapital <- Vec.fromList <$> mapM bakerCapital activeBakers
-        let lPoolCapital = Vec.fromList $ delegatorCapital <$> lpoolDelegators
+        let passiveDelegatorsCapital = Vec.fromList $ delegatorCapital <$> passiveDelegators
         return CapitalDistribution{..}
 
 -- |Generate and set the next epoch bakers and next capital based on the current active bakers.
@@ -209,7 +209,7 @@ generateNextBakers paydayEpoch bs0 = do
     -- Determine the bakers and delegators for the next reward period, accounting for any
     -- stake reductions that are currently pending on active bakers with effective time at
     -- or before the next payday.
-    (activeBakers, lpoolDelegators) <-
+    (activeBakers, passiveDelegators) <-
         applyPendingChanges isEffective
             <$> bsoGetActiveBakersAndDelegators bs0
     -- Note that we use the current value of the pool parameters as of this block.
@@ -223,7 +223,7 @@ generateNextBakers paydayEpoch bs0 = do
             computeBakerStakesAndCapital
                 (cps ^. cpPoolParameters)
                 activeBakers
-                lpoolDelegators
+                passiveDelegators
     bs1 <- bsoSetNextEpochBakers bs0 bakerStakes
     capDist <- capitalDistributionM
     bsoSetNextCapitalDistribution bs1 capDist
@@ -356,7 +356,7 @@ getSlotBakersP4 genData bs slot = do
                     -- Determine the bakers and delegators for the next reward period, accounting for any
                     -- stake reductions that are currently pending on active bakers with effective time at
                     -- or before the next payday.
-                    (activeBakers, lpoolDelegators) <-
+                    (activeBakers, passiveDelegators) <-
                         applyPendingChanges isEffective
                             <$> getActiveBakersAndDelegators bs
                     -- Determine the pool parameters that would be effective the epoch before the payday
@@ -368,7 +368,7 @@ getSlotBakersP4 genData bs slot = do
                                 ePoolParams pp' updates
                         ePoolParams pp _ = pp
                         effectivePoolParameters = ePoolParams (chainParams ^. cpPoolParameters) pendingPoolParams
-                        bsc = computeBakerStakesAndCapital @m effectivePoolParameters activeBakers lpoolDelegators
+                        bsc = computeBakerStakesAndCapital @m effectivePoolParameters activeBakers passiveDelegators
                     let mkFullBaker (biRef, _bakerStake) = do
                             _theBakerInfo <- derefBakerInfo biRef
                             return FullBakerInfo{..}

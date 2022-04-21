@@ -41,9 +41,9 @@
         }
       },
       "foundationAccount": "4NyqjcJwKAckGE3gMGDJeqcyLZQxtfnDFTdvg74xYUU8myQTrB",
-      "finalizationCommissionLPool" : 1,
-      "bakingCommissionLPool" : 0.1,
-      "transactionCommissionLPool" : 0.1,
+      "passiveFinalizationCommission" : 1,
+      "passiveBakingCommission" : 0.1,
+      "passiveTransactionCommission" : 0.1,
       "finalizationCommissionRange" : {
           "min" : 0.5,
           "max" : 1

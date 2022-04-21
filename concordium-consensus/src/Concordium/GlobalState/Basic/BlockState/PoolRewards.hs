@@ -63,8 +63,8 @@ data PoolRewards = PoolRewards
       -- |The details of rewards accruing to baker pools.
       -- These are indexed by the index of the baker in the capital distribution (_not_ the BakerId).
       bakerPoolRewardDetails :: !(LFMBT.LFMBTree Word64 BakerPoolRewardDetails),
-      -- |The transaction reward amount accruing to the L-pool.
-      lPoolTransactionRewards :: !Amount,
+      -- |The transaction reward amount accruing to the passive delegators.
+      passiveDelegationTransactionRewards :: !Amount,
       -- |The transaction reward fraction accruing to the foundation.
       foundationTransactionRewards :: !Amount,
       -- |The next payday occurs at the start of this epoch.
@@ -98,7 +98,7 @@ instance HashableTo PoolRewardsHash PoolRewards where
                 Hash.hashOfHashes (getHash bakerPoolRewardDetails) $
                     getHash $
                         runPut $
-                            put lPoolTransactionRewards
+                            put passiveDelegationTransactionRewards
                                 <> put foundationTransactionRewards
                                 <> put nextPaydayEpoch
                                 <> put nextPaydayMintRate
@@ -111,7 +111,7 @@ emptyPoolRewards =
         { nextCapital = makeHashed emptyCapitalDistribution,
           currentCapital = makeHashed emptyCapitalDistribution,
           bakerPoolRewardDetails = LFMBT.empty,
-          lPoolTransactionRewards = 0,
+          passiveDelegationTransactionRewards = 0,
           foundationTransactionRewards = 0,
           nextPaydayEpoch = 0,
           nextPaydayMintRate = MintRate 0 0
@@ -123,7 +123,7 @@ putPoolRewards PoolRewards{..} = do
     put (_unhashed nextCapital)
     put (_unhashed currentCapital)
     put bakerPoolRewardDetails
-    put lPoolTransactionRewards
+    put passiveDelegationTransactionRewards
     put foundationTransactionRewards
     put nextPaydayEpoch
     put nextPaydayMintRate
@@ -133,7 +133,7 @@ getPoolRewards = do
     nextCapital <- makeHashed <$> get
     currentCapital <- makeHashed <$> get
     bakerPoolRewardDetails <- get
-    lPoolTransactionRewards <- get
+    passiveDelegationTransactionRewards <- get
     foundationTransactionRewards <- get
     nextPaydayEpoch <- get
     nextPaydayMintRate <- get
@@ -189,7 +189,7 @@ makePoolRewardsForMigration curBakers nextBakers bakedBlocks npEpoch npMintRate 
         { nextCapital = makeCD nextBakers,
           currentCapital = makeCD curBakers,
           bakerPoolRewardDetails = LFMBT.fromFoldable (makePRD <$> curBakers),
-          lPoolTransactionRewards = 0,
+          passiveDelegationTransactionRewards = 0,
           foundationTransactionRewards = 0,
           nextPaydayEpoch = npEpoch,
           nextPaydayMintRate = npMintRate
@@ -199,7 +199,7 @@ makePoolRewardsForMigration curBakers nextBakers bakedBlocks npEpoch npMintRate 
         makeHashed $
             CapitalDistribution
                 { bakerPoolCapital = makeBakerCapital <$> bkrs,
-                  lPoolCapital = Vec.empty
+                  passiveDelegatorsCapital = Vec.empty
                 }
     makeBakerCapital (bid, amt) = BakerCapital bid amt Vec.empty
     blockCounts = foldr (\bid -> at' bid . non 0 %~ (+ 1)) Map.empty bakedBlocks
@@ -224,7 +224,7 @@ makeInitialPoolRewards cdist npEpoch npMintRate =
         { nextCapital = initCD,
           currentCapital = initCD,
           bakerPoolRewardDetails = bprd,
-          lPoolTransactionRewards = 0,
+          passiveDelegationTransactionRewards = 0,
           foundationTransactionRewards = 0,
           nextPaydayEpoch = npEpoch,
           nextPaydayMintRate = npMintRate
@@ -233,7 +233,7 @@ makeInitialPoolRewards cdist npEpoch npMintRate =
     initCD = makeHashed cdist
     bprd = LFMBT.fromList (replicate (length (bakerPoolCapital cdist)) emptyBakerPoolRewardDetails)
 
--- |The total capital delegated to the L-Pool in the current reward period's capital distribution.
-currentLPoolDelegatedCapital :: PoolRewards -> Amount
-currentLPoolDelegatedCapital =
-    Vec.sum . fmap dcDelegatorCapital . lPoolCapital . _unhashed . currentCapital
+-- |The total capital passively delegated in the current reward period's capital distribution.
+currentPassiveDelegationCapital :: PoolRewards -> Amount
+currentPassiveDelegationCapital =
+    Vec.sum . fmap dcDelegatorCapital . passiveDelegatorsCapital . _unhashed . currentCapital

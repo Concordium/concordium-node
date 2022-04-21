@@ -185,8 +185,8 @@ data ActiveBakers = ActiveBakers {
     _activeBakers :: !(Map BakerId ActivePool),
     -- |The set of public aggregation keys used by bakers.
     _aggregationKeys :: !(Set BakerAggregationVerifyKey),
-    -- |The pool of L-pool delegators.
-    _lPoolDelegators :: !ActivePool,
+    -- |The pool of passive delegators.
+    _passiveDelegators :: !ActivePool,
     -- |The total capital of active bakers and delegators.
     _totalActiveCapital :: !Amount
 } deriving (Eq, Show)
@@ -195,25 +195,25 @@ makeLenses ''ActiveBakers
 
 -- |The pool for a specific delegation target.
 pool :: DelegationTarget -> Traversal' ActiveBakers ActivePool
-pool DelegateToLPool = lPoolDelegators
+pool DelegatePassive = passiveDelegators
 pool (DelegateToBaker bid) = activeBakers . ix bid
 
 -- |An empty 'ActiveBakers' structure.
 emptyActiveBakers :: ActiveBakers
 emptyActiveBakers = ActiveBakers mempty mempty emptyActivePool 0
 
--- |Transfer all delegators from a baker to the L-pool in the 'ActiveBakers'. This does
+-- |Transfer all delegators from a baker to passive delegation in the 'ActiveBakers'. This does
 -- not affect the total stake, and does not remove the baker itself. This returns the list of
 -- affected delegators.  (This will have no effect if the baker is not actually a baker, although
 -- this function should not be used in that case.)
-transferDelegatorsToLPool :: BakerId -> ActiveBakers -> ([DelegatorId], ActiveBakers)
-transferDelegatorsToLPool bid ab = case ab ^? activeBakers . ix bid of
+transferDelegatorsToPassive :: BakerId -> ActiveBakers -> ([DelegatorId], ActiveBakers)
+transferDelegatorsToPassive bid ab = case ab ^? activeBakers . ix bid of
     Nothing -> ([], ab)
     Just oldPool ->
         ( oldPool ^. apDelegators . to Set.toAscList,
           ab
             & activeBakers . ix bid .~ emptyActivePool
-            & lPoolDelegators
+            & passiveDelegators
                 %~ ( (apDelegators %~ Set.union (oldPool ^. apDelegators))
                         . (apDelegatorTotalCapital +~ (oldPool ^. apDelegatorTotalCapital))
                    )

@@ -222,7 +222,10 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
 -- __Active__ bakers and delegators are accounts that have a staking record (baker or delegator) on
 -- the account itself. The active bakers and delegators are also indexed by the active bakers
 -- structure.  An active baker/delegator may or may not be current and/or next. However, generally
--- a current or next baker/delegator will be active.
+-- a current or next baker/delegator will be active. (Note: this concept of "active" is not
+-- connected to the concept of "passive" delegation. A passive delegator does not delegate to a
+-- specific baker, but, in a sense, to all bakers. As such, a passive delegator would still be
+-- considered active in the present sense.)
 --
 -- __Current__ (epoch) bakers and delegators represent a snapshot of the stake that is used for calculating
 -- the lottery power and reward distribution for the current epoch ('P1'-'P3') or payday ('P4'-).
@@ -269,7 +272,7 @@ class AccountOperations m => BlockStateQuery m where
     getActiveBakers :: BlockState m -> m [BakerId]
 
     -- |Get the currently-registered (i.e. active) bakers with their delegators, as well as the
-    -- set of delegators to the L-pool. In each case, the lists are ordered in ascending Id order,
+    -- set of passive delegators. In each case, the lists are ordered in ascending Id order,
     -- with no duplicates.
     getActiveBakersAndDelegators :: (AccountVersionFor (MPV m) ~ 'AccountV1) => BlockState m -> m ([ActiveBakerInfo m], [ActiveDelegatorInfo])
 
@@ -556,7 +559,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- Pending changes are only applied if they are effective according to the supplied guard
   -- function.
   -- For bakers pending removal, this removes the baker record and removes the baker from the active
-  -- bakers (transferring any delegators to the L-pool).
+  -- bakers (transferring any delegators to passive delegation).
   -- For bakers pending stake reduction, this reduces the stake.
   -- For delegators pending removal, this removes the delegation record and removes the record of
   -- the delegation from the active bakers index.
@@ -572,7 +575,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   bsoGetActiveBakers :: UpdatableBlockState m -> m [BakerId]
 
   -- |Get the currently-registered (i.e. active) bakers with their delegators, as well as the
-  -- set of delegators to the L-pool. In each case, the lists are ordered in ascending Id order,
+  -- set of passive delegators. In each case, the lists are ordered in ascending Id order,
   -- with no duplicates.
   bsoGetActiveBakersAndDelegators
     :: (AccountVersionFor (MPV m) ~ 'AccountV1)
@@ -657,7 +660,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- 3. If the open-for-delegation configuration is supplied:
   --    (1) update the account's configuration to the supplied value @openForDelegation@;
   --    (2) if @openForDelegation == ClosedForAll@, transfer all delegators in the baker's pool to
-  --        the L-pool; and
+  --        passive delegation; and
   --    (3) append @BakerConfigureOpenForDelegation openForDelegation@ to @events@.
   -- 4. If the metadata URL is supplied: update the account's metadata URL to the supplied value
   --    @metadataURL@ and append @BakerConfigureMetadataURL metadataURL@ to @events@.
@@ -878,11 +881,11 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- reward period. It is a precondition that the given baker is a current-epoch baker.
   bsoMarkFinalizationAwakeBaker :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> BakerId -> m (UpdatableBlockState m)
 
-  -- |Update amount to be distributed to the L-pool delegators.
-  bsoUpdateAccruedTransactionFeesLPool :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> AmountDelta -> m (UpdatableBlockState m)
+  -- |Update amount to be distributed to the passive delegators.
+  bsoUpdateAccruedTransactionFeesPassive :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> AmountDelta -> m (UpdatableBlockState m)
 
-  -- |Get the accrued amount to the L-pool delegators.
-  bsoGetAccruedTransactionFeesLPool :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> m Amount
+  -- |Get the accrued amount to the passive delegators.
+  bsoGetAccruedTransactionFeesPassive :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> m Amount
 
   -- |Update the amount to distribute to the foundation account.
   bsoUpdateAccruedTransactionFeesFoundationAccount :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> AmountDelta -> m (UpdatableBlockState m)
@@ -1000,7 +1003,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- |Set the current capital distribution to the current value of the next capital distribution.
   -- The next capital distribution is unchanged.
   -- This also clears transaction rewards and block counts accruing to baker pools.
-  -- The L-Pool and foundation transaction rewards are not affected.
+  -- The passive delegator and foundation transaction rewards are not affected.
   bsoRotateCurrentCapitalDistribution :: (AccountVersionFor (MPV m) ~ 'AccountV1) => UpdatableBlockState m -> m (UpdatableBlockState m)
 
   -- |Get the current status of the various accounts.
@@ -1204,8 +1207,8 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoSetPaydayMintRate s r = lift $ bsoSetPaydayMintRate s r
   bsoUpdateAccruedTransactionFeesBaker s bid f = lift $ bsoUpdateAccruedTransactionFeesBaker s bid f
   bsoMarkFinalizationAwakeBaker s bid = lift $ bsoMarkFinalizationAwakeBaker s bid
-  bsoUpdateAccruedTransactionFeesLPool s f = lift $ bsoUpdateAccruedTransactionFeesLPool s f
-  bsoGetAccruedTransactionFeesLPool = lift . bsoGetAccruedTransactionFeesLPool
+  bsoUpdateAccruedTransactionFeesPassive s f = lift $ bsoUpdateAccruedTransactionFeesPassive s f
+  bsoGetAccruedTransactionFeesPassive = lift . bsoGetAccruedTransactionFeesPassive
   bsoUpdateAccruedTransactionFeesFoundationAccount s f = lift $ bsoUpdateAccruedTransactionFeesFoundationAccount s f
   bsoGetAccruedTransactionFeesFoundationAccount = lift . bsoGetAccruedTransactionFeesFoundationAccount
   bsoSetTransactionOutcomes s = lift . bsoSetTransactionOutcomes s

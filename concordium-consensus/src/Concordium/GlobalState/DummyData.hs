@@ -283,7 +283,7 @@ dummyChainParameters = case chainParametersVersion @cpv of
           _ppMinimumEquityCapital = 300000000000,
           _ppCapitalBound = CapitalBound (makeAmountFraction 100000),
           _ppLeverageBound = 5,
-          _ppLPoolCommissions = CommissionRates {
+          _ppPassiveCommissions = CommissionRates {
             _finalizationCommission = makeAmountFraction 100000,
             _bakingCommission = makeAmountFraction 5000,
             _transactionCommission = makeAmountFraction 5000
@@ -302,14 +302,14 @@ dummyChainParameters = case chainParametersVersion @cpv of
 createPoolRewards :: (AccountVersionFor pv ~ 'AccountV1) => Accounts pv -> PoolRewards.PoolRewards
 createPoolRewards accounts = PoolRewards.makeInitialPoolRewards capDist 1 (MintRate 1 10)
   where
-    (bakersMap, lPool) = foldr accumDelegations (Map.empty, []) (AT.toList (accountTable accounts))
+    (bakersMap, passive) = foldr accumDelegations (Map.empty, []) (AT.toList (accountTable accounts))
     bakers = [(bid, amt, dlgs) | (bid, (amt, dlgs)) <- Map.toList bakersMap]
-    capDist = makeCapitalDistribution bakers lPool
+    capDist = makeCapitalDistribution bakers passive
     accumDelegations (ai, acct) acc@(bm, lp) = case acct ^. accountStaking of
       AccountStakeNone -> acc
       AccountStakeBaker bkr -> (bm & at (BakerId ai) . non (0, []) . _1 .~ bkr ^. stakedAmount, lp)
       AccountStakeDelegate dlg -> case dlg ^. delegationTarget of
-        DelegateToLPool -> (bm, d : lp)
+        DelegatePassive -> (bm, d : lp)
         DelegateToBaker bkrid -> (bm & at bkrid . non (0, []) . _2 %~ (d:), lp)
         where
           d = (dlg ^. delegationIdentity, dlg ^. delegationStakedAmount)

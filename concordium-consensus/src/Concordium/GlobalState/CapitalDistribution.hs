@@ -77,30 +77,30 @@ instance Monad m => MHashableTo m Hash.Hash BakerCapital
 bcTotalDelegatorCapital :: BakerCapital -> Amount
 bcTotalDelegatorCapital = sum . fmap dcDelegatorCapital . bcDelegatorCapital
 
--- |The distribution of the staked capital among the baker pools and L-pool.
+-- |The distribution of the staked capital among the baker pools and passive delegators.
 data CapitalDistribution = CapitalDistribution
     { -- |Capital associated with baker pools in ascending order of baker ID
       bakerPoolCapital :: !(Vec.Vector BakerCapital),
-      -- |Capital associated with the L-pool in ascending order of delegator ID
-      lPoolCapital :: !(Vec.Vector DelegatorCapital)
+      -- |Capital of passive delegators in ascending order of delegator ID
+      passiveDelegatorsCapital :: !(Vec.Vector DelegatorCapital)
     }
     deriving (Show, Eq)
 
 instance Serialize CapitalDistribution where
     put CapitalDistribution{..} = do
         putLength (Vec.length bakerPoolCapital) <> mapM_ put bakerPoolCapital
-        putLength (Vec.length lPoolCapital) <> mapM_ put lPoolCapital
+        putLength (Vec.length passiveDelegatorsCapital) <> mapM_ put passiveDelegatorsCapital
 
     get = do
         bakerPoolCapital <- flip Vec.generateM (const get) =<< getLength
-        lPoolCapital <- flip Vec.generateM (const get) =<< getLength
+        passiveDelegatorsCapital <- flip Vec.generateM (const get) =<< getLength
         return CapitalDistribution{..}
 
 instance HashableTo Hash.Hash CapitalDistribution where
     getHash CapitalDistribution{..} =
         Hash.hashOfHashes
             (LFMBT.hashFromFoldable bakerPoolCapital)
-            (LFMBT.hashFromFoldable lPoolCapital)
+            (LFMBT.hashFromFoldable passiveDelegatorsCapital)
 
 instance Monad m => MHashableTo m Hash.Hash CapitalDistribution
 
@@ -109,13 +109,13 @@ emptyCapitalDistribution :: CapitalDistribution
 emptyCapitalDistribution = CapitalDistribution Vec.empty Vec.empty
 
 -- |Construct a 'CapitalDistribution' from a sorted list of bakers, with their equity capital and
--- delegator capitals, and the L-Pool delegator capitals.  All lists are assumed to be in
+-- delegator capitals, and the passive delegator capitals.  All lists are assumed to be in
 -- ascending order of the 'BakerId' or 'DelegatorId', as appropriate.
 makeCapitalDistribution :: [(BakerId, Amount, [(DelegatorId, Amount)])] -> [(DelegatorId, Amount)] -> CapitalDistribution
-makeCapitalDistribution bakers lpool =
+makeCapitalDistribution bakers passive =
     CapitalDistribution
         { bakerPoolCapital = Vec.fromList $ mkBakerCapital <$> bakers,
-          lPoolCapital = Vec.fromList $ mkDelegatorCapital <$> lpool
+          passiveDelegatorsCapital = Vec.fromList $ mkDelegatorCapital <$> passive
         }
   where
     mkBakerCapital (bcBakerId, bcBakerEquityCapital, dels) =
