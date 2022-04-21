@@ -202,10 +202,14 @@
 // Handles the changes in the Mainnet options
 - (IBAction)onChangeInMainnetOptions:(id)sender {
     [self enableOrDisableMainnetNodeNameField];
+    // Disable 'Continue' button if both net configurations are empty.
+    [self setNextEnabled:(self.oMainnetNodeName.isEnabled || self.oTestnetNodeName.isEnabled)];
 }
 
 // Handles the changes in the Testnet options
 - (IBAction)onChangeInTestnetOptions:(id)sender {
     [self enableOrDisableTestnetNodeNameField];
+    // Disable 'Continue' button if both net configurations are empty.
+    [self setNextEnabled:(self.oMainnetNodeName.isEnabled || self.oTestnetNodeName.isEnabled)];
 }
 @end
