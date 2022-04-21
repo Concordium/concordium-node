@@ -291,6 +291,9 @@ class (ContractStateOperations m, AccountOperations m) => BlockStateQuery m wher
     -- |Query an account by the id of the credential that belonged to it.
     getAccountByCredId :: BlockState m -> CredentialRegistrationID -> m (Maybe (AccountIndex, Account m))
 
+    -- |Query an account by the account index that belonged to it.
+    getAccountByIndex :: BlockState m -> AccountIndex -> m (Maybe (AccountIndex, Account m))
+
     -- |Get the contract state from the contract table of the state instance.
     getContractInstance :: BlockState m -> ContractAddress -> m (Maybe (InstanceInfo m))
 
@@ -760,6 +763,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   getAccount s = lift . getAccount s
   accountExists s = lift . accountExists s
   getAccountByCredId s = lift . getAccountByCredId s
+  getAccountByIndex s = lift . getAccountByIndex s
   getBakerAccount s = lift . getBakerAccount s
   getContractInstance s = lift . getContractInstance s
   getModuleList = lift . getModuleList
@@ -790,6 +794,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   {-# INLINE getAccount #-}
   {-# INLINE accountExists #-}
   {-# INLINE getAccountByCredId #-}
+  {-# INLINE getAccountByIndex #-}
   {-# INLINE getBakerAccount #-}
   {-# INLINE getContractInstance #-}
   {-# INLINE getModuleList #-}

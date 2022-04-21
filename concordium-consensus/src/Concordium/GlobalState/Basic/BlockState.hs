@@ -424,6 +424,10 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
            Nothing -> return Nothing
            Just ai -> return $ (ai, ) <$> bs ^? blockAccounts . Accounts.indexedAccount ai
 
+    {-# INLINE getAccountByIndex #-}
+    getAccountByIndex bs ai =
+      return $ (ai, ) <$> bs ^? blockAccounts . Accounts.indexedAccount ai
+
     {-# INLINE getBakerAccount #-}
     getBakerAccount bs (BakerId ai) =
       return $ bs ^? blockAccounts . Accounts.indexedAccount ai

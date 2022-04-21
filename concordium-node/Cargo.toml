@@ -19,8 +19,6 @@ network_dump = []
 static = [ ]
 profiling = [ "static" ]
 collector = [ "reqwest/default-tls", "serde/derive", "rmp-serde", "collector-backend" ]
-database_emitter = []
-genesis_tester = [ "tempfile" ]
 
 [profile.release]
 codegen-units = 1
@@ -130,23 +128,8 @@ path = "src/bin/collector.rs"
 required-features = [ "collector" ]
 
 [[bin]]
-name = "network_stress_test"
-path = "src/bin/network_stress_test.rs"
-required-features = [ "test_utils" ]
-
-[[bin]]
 name = "bootstrap_checker"
 path = "src/bin/bootstrap_checker.rs"
-
-[[bin]]
-name = "database_emitter"
-path = "src/bin/database_emitter.rs"
-required-features = [ "database_emitter" ]
-
-[[bin]]
-name = "genesis_tester"
-path = "src/bin/genesis_tester.rs"
-required-features = [ "genesis_tester" ]
 
 [[bench]]
 name = "p2p_lib_benchmark"
