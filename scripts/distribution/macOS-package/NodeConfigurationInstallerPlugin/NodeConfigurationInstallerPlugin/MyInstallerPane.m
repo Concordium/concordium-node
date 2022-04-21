@@ -148,7 +148,7 @@
 // - cannot start or end with spaces
 - (BOOL) nodeNameIsValid:(NSTextField*)nodeNameField
 {
-    // If the node name field is disabled no  need to check the name validity
+    // If the node name field is disabled there's no need to check the name validity.
     if (!nodeNameField.isEnabled) {
         return TRUE;
     }
