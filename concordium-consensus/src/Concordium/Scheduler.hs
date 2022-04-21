@@ -1711,8 +1711,9 @@ handleConfigureDelegation wtc cdCapital cdRestakeEarnings cdDelegationTarget =
         kResult energyCost usedEnergy BI.DelegationConfigureAdd{..} (BI.DCSuccess _ did) = do
             let events = [
                     DelegationAdded {edaDelegatorId = did, edaAccount = senderAddress},
+                    DelegationSetDelegationTarget did senderAddress dcaDelegationTarget,
                     DelegationSetRestakeEarnings did senderAddress dcaRestakeEarnings,
-                    DelegationSetDelegationTarget did senderAddress dcaDelegationTarget
+                    DelegationStakeIncreased did senderAddress dcaCapital
                     ]
             return (TxSuccess events, energyCost, usedEnergy)
         kResult energyCost usedEnergy _ BI.DCInvalidAccount =
