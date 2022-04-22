@@ -184,10 +184,14 @@ type DelegatorIdTrieSet = Trie.TrieN (BufferedBlobbed BlobRef) DelegatorId ()
 
 type BakerIdTrieMap av = Trie.TrieN (BufferedBlobbed BlobRef) BakerId (PersistentActiveDelegators av)
 
+-- |The set of delegators to a particular pool.
+-- For 'AccountV0', delegation is not supported, and this is essentially the unit type.
 data PersistentActiveDelegators (av :: AccountVersion) where
     PersistentActiveDelegatorsV0 :: PersistentActiveDelegators 'AccountV0
     PersistentActiveDelegatorsV1 ::
-        { adDelegators :: !DelegatorIdTrieSet,
+        { -- |The set of delegators to this pool.
+          adDelegators :: !DelegatorIdTrieSet,
+          -- |The total capital of the delegators to this pool.
           adDelegatorTotalCapital :: !Amount
         } ->
         PersistentActiveDelegators 'AccountV1
@@ -200,6 +204,8 @@ emptyPersistentActiveDelegators =
 
 deriving instance Show (PersistentActiveDelegators av)
 
+-- |This instance cases on the account version (hence the @IsAccountVersion av@ constraint).
+-- The storage for each version is thus essentially independent.
 instance (IsAccountVersion av, MonadBlobStore m) => BlobStorable m (PersistentActiveDelegators av) where
     storeUpdate PersistentActiveDelegatorsV0 =
         return (return (), PersistentActiveDelegatorsV0)
@@ -217,6 +223,8 @@ instance (IsAccountVersion av, MonadBlobStore m) => BlobStorable m (PersistentAc
                     adDelegators <- madDelegators
                     return PersistentActiveDelegatorsV1{..}
 
+-- |The total active capital as stored as part of the 'PersistentActiveBakers' structure.
+-- This is not stored for 'AccountV0', so behaves as the unit type in that case.
 data TotalActiveCapital (av :: AccountVersion) where
     TotalActiveCapitalV0 :: TotalActiveCapital 'AccountV0
     TotalActiveCapitalV1 :: !Amount -> TotalActiveCapital 'AccountV1
@@ -236,6 +244,8 @@ addActiveCapital _ TotalActiveCapitalV0 = TotalActiveCapitalV0
 addActiveCapital amt0 (TotalActiveCapitalV1 amt1) = TotalActiveCapitalV1 $ amt0 + amt1
 
 -- |Subtract a given 'Amount' from a 'TotalActiveCapital'.
+-- The amount to subtract should not exceed the total active capital.
+-- This is not checked, and could cause an underflow if violated.
 subtractActiveCapital :: Amount -> TotalActiveCapital av -> TotalActiveCapital av
 subtractActiveCapital _ TotalActiveCapitalV0 = TotalActiveCapitalV0
 subtractActiveCapital amt0 (TotalActiveCapitalV1 amt1) = TotalActiveCapitalV1 $ amt1 - amt0

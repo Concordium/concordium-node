@@ -289,13 +289,13 @@ putBlockRewardDetails :: (MonadBlobStore m, MonadPut m) => BlockRewardDetails av
 putBlockRewardDetails (BlockRewardDetailsV0 heb) = putHashedEpochBlocksV0 heb
 putBlockRewardDetails (BlockRewardDetailsV1 hpr) = refLoad hpr >>= putPoolRewards
 
-makeBlockRewardDetails
+makePersistentBlockRewardDetails
     :: MonadBlobStore m
     => Basic.BlockRewardDetails av
     -> m (BlockRewardDetails av)
-makeBlockRewardDetails (Basic.BlockRewardDetailsV0 heb) =
+makePersistentBlockRewardDetails (Basic.BlockRewardDetailsV0 heb) =
     BlockRewardDetailsV0 <$> makeHashedEpochBlocks (Basic.hebBlocks heb)
-makeBlockRewardDetails (Basic.BlockRewardDetailsV1 pre) =
+makePersistentBlockRewardDetails (Basic.BlockRewardDetailsV1 pre) =
     BlockRewardDetailsV1 <$> (makePoolRewards (_unhashed pre) >>= refMake)
 
 -- |Extend a 'BlockRewardDetails' ''AccountV0' with an additional baker.
@@ -494,7 +494,7 @@ makePersistent Basic.BlockState{..} = do
   blockAccounts <- Accounts.makePersistent _blockAccounts
   updates <- makeBufferedRef =<< makePersistentUpdates _blockUpdates
   rels <- makeBufferedRef _blockReleaseSchedule
-  red <- makeBlockRewardDetails _blockRewardDetails
+  red <- makePersistentBlockRewardDetails _blockRewardDetails
   bsp <-
     makeBufferedRef $
       BlockStatePointers
@@ -1753,25 +1753,25 @@ doPutNewInstance pbs fnew = do
         fnew' mods ca =
           case fnew ca of
             inst@(InstanceV0 InstanceV{_instanceVParameters = InstanceParameters{..}, ..}) -> do
-                params <- makeBufferedRef $ PersistentInstanceParameters {
-                                            pinstanceAddress = _instanceAddress,
-                                            pinstanceOwner = instanceOwner,
-                                            pinstanceContractModule = GSWasm.miModuleRef instanceModuleInterface,
-                                            pinstanceReceiveFuns = instanceReceiveFuns,
-                                            pinstanceInitName = instanceInitName,
-                                            pinstanceParameterHash = instanceParameterHash
-                                        }
-                -- We use an irrefutable pattern here. This cannot fail since if it failed it would mean we are trying
-                -- to create an instance of a module that does not exist. The Scheduler should not allow this, and the
-                -- state implementation relies on this property.
-                ~(Just modRef) <- Modules.unsafeGetModuleReferenceV0 (GSWasm.miModuleRef instanceModuleInterface) mods
-                return (inst, PersistentInstanceV0 Instances.PersistentInstanceV{
-                    pinstanceParameters = params,
-                    pinstanceModuleInterface = modRef,
-                    pinstanceModel = _instanceVModel,
-                    pinstanceAmount = _instanceVAmount,
-                    pinstanceHash = _instanceVHash
-                })
+              params <- makeBufferedRef $ PersistentInstanceParameters {
+                pinstanceAddress = _instanceAddress,
+                pinstanceOwner = instanceOwner,
+                pinstanceContractModule = GSWasm.miModuleRef instanceModuleInterface,
+                pinstanceReceiveFuns = instanceReceiveFuns,
+                pinstanceInitName = instanceInitName,
+                pinstanceParameterHash = instanceParameterHash
+                }
+              -- We use an irrefutable pattern here. This cannot fail since if it failed it would mean we are trying
+              -- to create an instance of a module that does not exist. The Scheduler should not allow this, and the
+              -- state implementation relies on this property.
+              ~(Just modRef) <- Modules.unsafeGetModuleReferenceV0 (GSWasm.miModuleRef instanceModuleInterface) mods
+              return (inst, PersistentInstanceV0 Instances.PersistentInstanceV{
+                  pinstanceParameters = params,
+                  pinstanceModuleInterface = modRef,
+                  pinstanceModel = _instanceVModel,
+                  pinstanceAmount = _instanceVAmount,
+                  pinstanceHash = _instanceVHash
+                  })
             inst@(InstanceV1 InstanceV{_instanceVParameters = InstanceParameters{..}, ..}) -> do
               params <- makeBufferedRef $ PersistentInstanceParameters {
                 pinstanceAddress = _instanceAddress,
@@ -2157,7 +2157,7 @@ modifyBakerPoolRewardDetailsInPoolRewards bsp bid f = do
             return bsp{bspRewardDetails = newBlockRewardDetails}
       where
         updateBPRs i bprs = do
-            mBPRs <- LFMBT.update (return . (,) () . f) (fromIntegral i) bprs
+            mBPRs <- LFMBT.update (return . ((),) . f) (fromIntegral i) bprs
             case mBPRs of
                 Nothing ->
                     error "Invariant violation: unable to find baker in baker pool reward details tree"
