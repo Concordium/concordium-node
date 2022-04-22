@@ -177,7 +177,7 @@ newtype PersistentExtraBakerInfo (av :: AccountVersion) = PersistentExtraBakerIn
 makeLenses ''PersistentExtraBakerInfo
 
 instance forall av. IsAccountVersion av => Show (PersistentExtraBakerInfo av) where
-    show = case (accountVersion @av) of
+    show = case accountVersion @av of
         SAccountV0 -> show
         SAccountV1 -> show
 
@@ -361,7 +361,7 @@ instance forall m av. (MonadBlobStore m, IsAccountVersion av) => BlobStorable m 
         su0 (PersistentAccountStakeBaker bkrref) = do
           (r, bkrref') <- storeUpdate bkrref
           return (r, PersistentAccountStakeBaker bkrref')
-        su0 pas = return (mempty, pas) -- Impossible case
+        su0 (PersistentAccountStakeDelegate _) = error "Account cannot delegate in AccountV0 state"
         su1 :: PersistentAccountStake 'AccountV1 -> m (Put, PersistentAccountStake 'AccountV1)
         su1 pas@PersistentAccountStakeNone = return (putWord8 0, pas)
         su1 (PersistentAccountStakeBaker bkrref) = do
@@ -377,16 +377,14 @@ instance forall m av. (MonadBlobStore m, IsAccountVersion av) => BlobStorable m 
       where
         l0 :: Get (m (PersistentAccountStake av))
         l0 = do
-          r <- get
-          if isNull r then
-            return (pure PersistentAccountStakeNone)
-          else
-            return $ pure $ PersistentAccountStakeBaker $ BRBlobbed r
+          let toPASB Null = PersistentAccountStakeNone
+              toPASB (Some br) = PersistentAccountStakeBaker br
+          fmap toPASB <$> load
         l1 :: Get (m (PersistentAccountStake av))
         l1 = getWord8 >>= \case
           0 -> return (pure PersistentAccountStakeNone)
-          1 -> pure . PersistentAccountStakeBaker . BRBlobbed <$> get
-          2 -> pure . PersistentAccountStakeDelegate . BRBlobbed <$> get
+          1 -> fmap PersistentAccountStakeBaker <$> load
+          2 -> fmap PersistentAccountStakeDelegate <$> load
           _ -> fail "Invalid staking type"
 
 loadAccountStake :: (MonadBlobStore m, IsAccountVersion av) => PersistentAccountStake av -> m (AccountStake av)

@@ -1,5 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE DataKinds #-}
@@ -64,7 +63,7 @@ type TestResult = ([(BlockItemWithStatus, Types.ValidResult)],
                    [(TransactionWithStatus, Types.FailureKind)],
                    [(Types.ContractAddress, Instance)])
 
-testInit :: forall pv . (IsProtocolVersion pv) => Proxy pv -> IO TestResult
+testInit :: forall pv . IsProtocolVersion pv => Proxy pv -> IO TestResult
 testInit proxy = do
     transactions <- processUngroupedTransactions (transactionInputs proxy)
     let (Sch.FilteredTransactions{..}, finState) =

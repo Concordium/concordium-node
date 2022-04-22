@@ -24,6 +24,8 @@ class BlockStateTypes (m :: Type -> Type) where
     type BlockState m :: Type
     type UpdatableBlockState m :: Type
     type Account m :: Type
+    -- |A reference type for 'BakerInfo'. This is used to avoid duplicating 'BakerInfo' in the
+    -- state where possible.
     type BakerInfoRef m :: Type
 
 -- |Account together with its index in the account map.

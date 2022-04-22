@@ -1,5 +1,3 @@
-{-# LANGUAGE TypeApplications #-}
-
 -- |This module contains common types for representing the capital distribution of bakers and
 -- delegators.  A snapshot of the capital distribution is taken when the bakers for a payday are
 -- calculated.  This is then used to determine how rewards are distributed among the bakers and
@@ -8,7 +6,6 @@ module Concordium.GlobalState.CapitalDistribution where
 
 import Data.Serialize
 import qualified Data.Vector as Vec
-import Data.Word
 
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Types
@@ -104,7 +101,7 @@ instance HashableTo Hash.Hash CapitalDistribution where
 
 instance Monad m => MHashableTo m Hash.Hash CapitalDistribution
 
--- |The empty 'CapitalDistribution'.
+-- |The empty 'CapitalDistribution', with no bakers or passive delegators.
 emptyCapitalDistribution :: CapitalDistribution
 emptyCapitalDistribution = CapitalDistribution Vec.empty Vec.empty
 

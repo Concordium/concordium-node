@@ -92,6 +92,7 @@ data PersistentEpochBakers (av :: AccountVersion) = PersistentEpochBakers {
 
 makeLenses ''PersistentEpochBakers
 
+-- |Look up a baker and its stake in a 'PersistentEpochBakers'.
 epochBaker :: forall m av. (IsAccountVersion av, MonadBlobStore m) => BakerId -> PersistentEpochBakers av -> m (Maybe (BaseAccounts.BakerInfo, Amount))
 epochBaker bid PersistentEpochBakers{..} = do
     (BakerInfos infoVec) <- refLoad _bakerInfos

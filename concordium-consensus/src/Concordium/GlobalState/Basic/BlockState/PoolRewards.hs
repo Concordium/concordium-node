@@ -12,6 +12,7 @@ import Concordium.Crypto.SHA256 as Hash
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Utils.BinarySearch
+import Concordium.Utils.Serialization
 
 import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as LFMBT
 import Concordium.GlobalState.CapitalDistribution
@@ -34,9 +35,9 @@ instance Serialize BakerPoolRewardDetails where
     put BakerPoolRewardDetails{..} = do
         putWord64be blockCount
         put transactionFeesAccrued
-        put finalizationAwake
+        putBool finalizationAwake
 
-    get = BakerPoolRewardDetails <$> getWord64be <*> get <*> get
+    get = BakerPoolRewardDetails <$> getWord64be <*> get <*> getBool
 
 instance HashableTo Hash.Hash BakerPoolRewardDetails where
     getHash = Hash.hash . encode

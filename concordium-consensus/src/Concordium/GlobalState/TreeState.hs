@@ -542,6 +542,9 @@ data Context t = Context {
   }
 makeLenses ''Context
 
+-- |Helper type for defining 'TransactionVerifierT'. While we only instantiate @r@ with
+-- @Context (BlockState m)@, it is simpler to derive the 'MonadTrans' instance using the present
+-- definition.
 newtype TransactionVerifierT' r m a = TransactionVerifierT {runTransactionVerifierT :: r -> m a}
     deriving (Functor, Applicative, Monad, MonadReader r) via (ReaderT r m)
     deriving (MonadTrans) via (ReaderT r)

@@ -125,7 +125,7 @@ Returns a JSON object representing the branches of the tree from the last finali
 | `TransactionHash` | base-16 encoded hash of a transaction (64 characters) |
 | `ModuleRef` | base-16 encoded module reference (64 characters) |
 | `Int` | integer |
-| `Amount` | an amount represented as a string |
+| `Amount` | an amount of microCCD represented as a string |
 | `BakerId` | an integer representing a baker ID |
 | `EncryptionKey` | base-16 encoded string (192 characters) |
 | `EncryptedAmount` | base-16 encoded string (384 characters) |

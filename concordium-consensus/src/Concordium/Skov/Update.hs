@@ -551,7 +551,6 @@ doReceiveTransaction :: (TreeStateMonad m,
                          TimeMonad m,
                          SkovQueryMonad m) => BlockItem -> m UpdateResult
 doReceiveTransaction tr = unlessShutDown $ do
-    -- Don't accept the transaction if its expiry time is too far in the future
     now <- currentTime
     ur <- snd <$> doReceiveTransactionInternal TV.Single tr (utcTimeToTimestamp now) 0
     when (ur == ResultSuccess) $ purgeTransactionTable False =<< currentTime
@@ -602,7 +601,7 @@ doReceiveTransactionInternal origin tr ts slot = do
                   nextNonce <- fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
                   -- If a transaction with this nonce has already been run by
                   -- the focus block, then we do not need to add it to the
-                  -- pending transactions.  Otherwise, we do.
+                  -- pending transactions. Otherwise, we do.
                   when (nextNonce <= transactionNonce tx) $ add nextNonce
             CredentialDeployment _ -> do
                   putPendingTransactions $! addPendingDeployCredential wmdHash ptrs

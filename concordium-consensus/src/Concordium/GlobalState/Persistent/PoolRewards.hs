@@ -179,7 +179,8 @@ bakerBlockCounts PoolRewards{..} = do
             then []
             else (bcBakerId (Vec.head bpc), blockCount) : zipToBlockCounts (Vec.tail bpc) rds
 
--- |Rotate the capital distribution and set up empty pool rewards.
+-- |Rotate the capital distribution, so that the current capital distribution is replaced by the
+-- next one, and set up empty pool rewards.
 rotateCapitalDistribution ::
     (MonadBlobStore m, Reference m ref PoolRewards) =>
     ref PoolRewards ->

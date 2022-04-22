@@ -323,9 +323,9 @@ data FinalizerInfo = FinalizerInfo {
         -- |List of the parties in the finalization committee, with their relative voting power.
         -- Finalization rewards are distributed in proportion to their power for protocol
         -- version <= 3.
-        committeeVoterPower :: Vec.Vector (BakerId, VoterPower),
+        committeeVoterPower :: !(Vec.Vector (BakerId, VoterPower)),
         -- |List of bakers who signed finalization proof. This is used for protocol version >= 4.
-        committeeSigners :: [BakerId]
+        committeeSigners :: ![BakerId]
     }
 
 -- |Distribute the finalization rewards to the finalizers

@@ -73,12 +73,9 @@ import Concordium.Utils
 import Concordium.Utils.BinarySearch
 import Concordium.Utils.Serialization
 
-
 data BasicBirkParameters (av :: AccountVersion) = BasicBirkParameters {
-    -- |The currently-registered bakers.
-    -- For AccountV0, bakers remain active while they are current epoch bakers (or waiting to become
-    -- current). From AccountV1 onwards, bakers may remain current epoch bakers after they have been
-    -- removed from the active bakers.
+    -- |The active (i.e. currently-registered) bakers.
+    -- (See $Concordium.GlobalState.BlockState.ActiveCurrentNext.)
     -- Invariant: the active bakers correspond exactly to the accounts that have baker records.
     -- (And delegators likewise.)
     _birkActiveBakers :: !ActiveBakers,

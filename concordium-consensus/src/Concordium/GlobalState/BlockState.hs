@@ -268,7 +268,7 @@ class AccountOperations m => BlockStateQuery m where
     -- |Check whether an account exists for the given account address.
     accountExists :: BlockState m -> AccountAddress -> m Bool
 
-    -- |Get all the current active bakers.
+    -- |Get all the active bakers in ascending order.
     getActiveBakers :: BlockState m -> m [BakerId]
 
     -- |Get the currently-registered (i.e. active) bakers with their delegators, as well as the
@@ -372,6 +372,9 @@ class AccountOperations m => BlockStateQuery m where
     -- |Get the epoch time of the next scheduled payday.
     getPaydayEpoch :: (AccountVersionFor (MPV m) ~ 'AccountV1) => BlockState m -> m Epoch
 
+    -- |Get a 'PoolStatus' record describing the status of a baker pool (when the 'BakerId' is
+    -- provided) or the passive delegators (when 'Nothing' is provided). The result is 'Nothing'
+    -- if the 'BakerId' is not currently a baker.
     getPoolStatus :: (AccountVersionFor (MPV m) ~ 'AccountV1, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1)
         => BlockState m -> Maybe BakerId -> m (Maybe PoolStatus)
 
@@ -571,7 +574,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
     -- ^Guard determining if a change is effective
     -> m (UpdatableBlockState m)
 
-  -- |Get the list of all active bakers.
+  -- |Get the list of all active bakers in ascending order.
   bsoGetActiveBakers :: UpdatableBlockState m -> m [BakerId]
 
   -- |Get the currently-registered (i.e. active) bakers with their delegators, as well as the

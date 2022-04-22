@@ -902,7 +902,7 @@ processProtocolUpdates t bu = do
             v <- UVProtocol . unStoreSerialized <$> refLoad r
             return $! Map.insert tt v m
 
-type UpdatesWithARsAndIPs cpv =
+type UpdatesWithARsAndIPs (cpv :: ChainParametersVersion) =
     (BufferedRef (Updates' cpv), HashedBufferedRef ARS.AnonymityRevokers, HashedBufferedRef IPS.IdentityProviders)
 
 -- |Process all update queues.

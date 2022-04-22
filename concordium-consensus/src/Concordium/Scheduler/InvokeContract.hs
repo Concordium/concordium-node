@@ -54,23 +54,23 @@ import Concordium.Scheduler
 -- It is then used together with the LocalT transformer to be able to execute
 -- transactions without the context of the scheduler. This is achieved via (the
 -- only) instance of TransactionMonad for the LocalT transformer.
-newtype InvokeContractMonad (pv :: ProtocolVersion) m a = InvokeContractMonad {_runInvokeContract :: ReaderT (ContextState, BlockState m) m a}
+newtype InvokeContractMonad m a = InvokeContractMonad {_runInvokeContract :: ReaderT (ContextState, BlockState m) m a}
     deriving (Functor,
               Applicative,
               Monad,
               MonadLogger)
 
-deriving instance (Monad m, r ~ BlockState m) => MonadReader (ContextState, r) (InvokeContractMonad pv m)
+deriving instance (Monad m, r ~ BlockState m) => MonadReader (ContextState, r) (InvokeContractMonad m)
 
-instance MonadTrans (InvokeContractMonad pv) where
+instance MonadTrans InvokeContractMonad where
     {-# INLINE lift #-}
     lift = InvokeContractMonad . lift
 
-deriving via (MGSTrans (InvokeContractMonad pv) m) instance MonadProtocolVersion m => MonadProtocolVersion (InvokeContractMonad pv m)
-deriving via (MGSTrans (InvokeContractMonad pv) m) instance BlockStateTypes (InvokeContractMonad pv m)
-deriving via (MGSTrans (InvokeContractMonad pv) m) instance BS.AccountOperations m => BS.AccountOperations (InvokeContractMonad pv m)
+deriving via (MGSTrans InvokeContractMonad m) instance MonadProtocolVersion m => MonadProtocolVersion (InvokeContractMonad m)
+deriving via (MGSTrans InvokeContractMonad m) instance BlockStateTypes (InvokeContractMonad m)
+deriving via (MGSTrans InvokeContractMonad m) instance BS.AccountOperations m => BS.AccountOperations (InvokeContractMonad m)
 
-instance (Monad m, BS.BlockStateQuery m) => StaticInformation (InvokeContractMonad pv m) where
+instance (Monad m, BS.BlockStateQuery m) => StaticInformation (InvokeContractMonad m) where
 
   {-# INLINE getMaxBlockEnergy #-}
   getMaxBlockEnergy = view (_1 . maxBlockEnergy)
@@ -102,11 +102,11 @@ invokeContract ContractContext{..} cm bs = do
   -- construct an invoker. Since execution of a contract might depend on this
   -- it is necessary to provide some value. However since many contract entrypoints will
   -- not depend on this it is useful to default to a dummy value if the value is not provided.
-  let getInvoker :: InvokeContractMonad pv m
+  let getInvoker :: InvokeContractMonad m
                    (Either
                      (Maybe RejectReason) -- Invocation failed because the relevant contract/account does not exist.
                      ( -- Check that the requested account or contract has enough balance.
-                       Amount -> LocalT r (InvokeContractMonad pv m) (Address, [ID.AccountCredential], Either ContractAddress IndexedAccountAddress),
+                       Amount -> LocalT r (InvokeContractMonad m) (Address, [ID.AccountCredential], Either ContractAddress IndexedAccountAddress),
                        AccountAddress, -- Address of the invoker account, or of its owner if the invoker is a contract.
                        AccountIndex -- And its index.
                      ))
