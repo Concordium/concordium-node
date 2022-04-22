@@ -1114,7 +1114,7 @@ doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
                         modifyAccount $ updAcc $ bakerPendingChange .~ bpc
                         MTL.tell [BakerConfigureStakeReduced capital]
                     EQ ->
-                        return ()
+                        MTL.tell [BakerConfigureStakeIncreased capital]
                     GT -> do
                         modifyAccount $ updAcc $ stakedAmount .~ capital
                         birkParams <- MTL.gets bspBirkParameters
@@ -1334,7 +1334,7 @@ doConfigureDelegation pbs ai DelegationConfigureUpdate{..} = do
                     modifyAccount $ updAcc $ BaseAccounts.delegationPendingChange .~ dpc
                     MTL.tell [DelegationConfigureStakeReduced capital]
                 EQ ->
-                    return ()
+                    MTL.tell [DelegationConfigureStakeIncreased capital]
                 GT -> do
                     bsp1 <- MTL.get
                     ab <- refLoad (bspBirkParameters bsp1 ^. birkActiveBakers)

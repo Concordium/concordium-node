@@ -1316,9 +1316,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                         modifyAccount (bakerPendingChange .~ bpc)
                         MTL.tell [BakerConfigureStakeReduced capital]
                     EQ -> do
-                        -- We could tell a "BakerConfigureStakeUnchanged", but currently it is not handled
-                        -- in the Scheduler.
-                        return ()
+                        MTL.tell [BakerConfigureStakeIncreased capital]
                     GT -> do
                         modifyAccount (stakedAmount .~ capital)
                         blockBirkParameters . birkActiveBakers . totalActiveCapital += capital - _stakedAmount ab
@@ -1431,9 +1429,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                     modifyAccount (delegationPendingChange .~ dpc)
                     MTL.tell [DelegationConfigureStakeReduced capital]
                 EQ ->
-                    -- We could tell "DelegationConfigureStakeUnchanged", but currently it is not
-                    -- handled in the Scheduler.
-                    return ()
+                    MTL.tell [DelegationConfigureStakeIncreased capital]
                 GT -> do
                     bs1 <- MTL.get
                     let ab = bs1 ^. blockBirkParameters . birkActiveBakers

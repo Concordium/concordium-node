@@ -682,18 +682,19 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- 7. If the capital is supplied: if there is a pending change to the baker's capital, return
   --    @BCChangePending@; otherwise:
   --    * if the capital is 0, mark the baker as pending removal at @bcuSlotTimestamp@ plus the
-  --      the current baker cooldown period according to the chain parameters, and return
-  --      @BakerConfigureStakeReduced 0@;
+  --      the current baker cooldown period according to the chain parameters, and append
+  --      @BakerConfigureStakeReduced 0@ to @events@;
   --    * if the capital is less than the current minimum equity capital, return @BCStakeUnderThreshold@;
   --    * if the capital is (otherwise) less than the current equity capital of the baker, mark the
   --      baker as pending stake reduction to the new capital at @bcuSlotTimestamp@ plus the
-  --      current baker cooldown period according to the chain parameters and return
-  --      @BakerConfigureStakeReduced capital@;
-  --    * if the capital is equal to the baker's current equity capital, do nothing;
+  --      current baker cooldown period according to the chain parameters and append
+  --      @BakerConfigureStakeReduced capital@ to @events@;
+  --    * if the capital is equal to the baker's current equity capital, do nothing, append
+  --      @BakerConfigureStakeIncreased capital@ to @events@;
   --    * if the capital is greater than the baker's current equity capital, increase the baker's
   --      equity capital to the new capital (updating the total active capital in the active baker
-  --      index by adding the difference between the new and old capital) and return
-  --      @BakerConfigureStakeIncreased capital@.
+  --      index by adding the difference between the new and old capital) and append
+  --      @BakerConfigureStakeIncreased capital@ to @events@.
   -- 8. return @BCSuccess events bid@, where @bid@ is the baker's ID.
   --
   -- Note: in the case of an early return (i.e. not @BCSuccess@), the state is not updated.
@@ -769,7 +770,8 @@ class (BlockStateQuery m) => BlockStateOperations m where
   --      delegator as pending stake reduction to @capital@ at the slot timestamp plus the
   --      delegator cooldown chain parameter, and append @DelegationConfigureStakeReduced capital@
   --      to @events@;
-  --    * If the new capital is equal to the current staked capital, do nothing;
+  --    * If the new capital is equal to the current staked capital, append
+  --      @DelegationConfigureStakeIncreased capital@ to @events@.
   --    * If the new capital is greater than the current staked capital by @delta > 0@:
   --      * increase the total active capital by @delta@,
   --      * increase the delegator's target pool delegated capital by @delta@,
