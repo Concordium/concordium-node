@@ -21,4 +21,8 @@
 @property IBOutlet NSTextField *oTestnetNodeNameDescriptor;
 @property IBOutlet NSTextField *oTestnetNodeName;
 
+// Event handlers
+- (IBAction)onChangeInMainnetOptions:(id)sender;
+- (IBAction)onChangeInTestnetOptions:(id)sender;
+
 @end

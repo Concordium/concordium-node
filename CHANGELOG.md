@@ -22,7 +22,14 @@
   This affects all queries whose input was a block or transaction hash.
   These queries now return `InvalidArgument` error, as opposed to `Unknown`
   which they returned previously.
-  
+- Fix issue #244: Collector to keep querying. Remove the parameter for maximum allowed
+  times a gRPC call can fail and keeps `node-collector` querying forever.
+- `GetAccountInfo` endpoint supports querying the account via the account index.
+- Mac installer: Users now can leave one (but not both) of the net configurations empty
+  when they don't want to configure a node for it. 
+  - On the initial installation, leaving a net configuration empty means that
+    the start/stop app shortcuts and the application support folder for that net won't be installed.
+
 ## concordium-node 3.0.1
 
 - Fix a starvation bug in some cases of parallel node queries.

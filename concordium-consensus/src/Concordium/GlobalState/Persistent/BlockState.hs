@@ -1652,6 +1652,10 @@ doGetAccountByCredId pbs cid = do
         bsp <- loadPBS pbs
         Accounts.getAccountByCredId cid (bspAccounts bsp)
 
+doGetAccountByIndex :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> AccountIndex -> m (Maybe (AccountIndex, PersistentAccount pv))
+doGetAccountByIndex pbs idx = do
+        bsp <- loadPBS pbs
+        fmap (idx, ) <$> Accounts.indexedAccount idx (bspAccounts bsp)
 
 doGetAccountIndex :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> AccountAddress -> m (Maybe AccountIndex)
 doGetAccountIndex pbs addr = do
@@ -2497,6 +2501,7 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateQuery (Persist
     getActiveBakers = doGetActiveBakers . hpbsPointers
     getActiveBakersAndDelegators = doGetActiveBakersAndDelegators . hpbsPointers
     getAccountByCredId = doGetAccountByCredId . hpbsPointers
+    getAccountByIndex = doGetAccountByIndex . hpbsPointers
     getContractInstance = doGetInstance . hpbsPointers
     getModuleList = doGetModuleList . hpbsPointers
     getAccountList = doAccountList . hpbsPointers

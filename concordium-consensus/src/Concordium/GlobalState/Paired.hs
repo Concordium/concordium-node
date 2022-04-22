@@ -237,6 +237,17 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
             return Nothing
           (Nothing, _) -> error $ "Cannot get account with credid " ++ show cid ++ " in left implementation"
           (_, Nothing) -> error $ "Cannot get account with credid " ++ show cid ++ " in right implementation"
+    getAccountByIndex (ls, rs) idx = do
+        a1 <- coerceBSML (getAccountByIndex ls idx)
+        a2 <- coerceBSMR (getAccountByIndex rs idx)
+        case (a1, a2) of
+          (Just (ai1, a1'), Just (ai2, a2')) ->
+            assert ((getHash a1' :: H.Hash) == getHash a2' && ai1 == ai2) $
+              return $ Just (ai1, (a1', a2'))
+          (Nothing, Nothing) ->
+            return Nothing
+          (Nothing, _) -> error $ "Cannot get account by index " ++ show idx ++ " in left implementation"
+          (_, Nothing) -> error $ "Cannot get account by index " ++ show idx ++ " in right implementation"
     getBakerAccount (ls, rs) bid = do
         a1 <- coerceBSML (getBakerAccount ls bid)
         a2 <- coerceBSMR (getBakerAccount rs bid)
