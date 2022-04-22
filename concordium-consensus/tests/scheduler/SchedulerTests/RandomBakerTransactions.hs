@@ -13,7 +13,6 @@ import qualified Concordium.Scheduler.EnvironmentImplementation as EI
 import Concordium.Scheduler.Runner
 import qualified Concordium.Scheduler as Sch
 
-import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Invariants
 import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
@@ -25,6 +24,7 @@ import Concordium.Types.Accounts (
     bakerAggregationVerifyKey,
     bakerElectionVerifyKey,
     bakerSignatureVerifyKey,
+    bakerInfo,
  )
 
 import Concordium.Scheduler.Types hiding (Payload(..))

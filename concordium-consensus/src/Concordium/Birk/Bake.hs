@@ -38,6 +38,7 @@ import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
 import Concordium.Types.SeedState
 
 import Concordium.Kontrol
+import Concordium.Kontrol.Bakers
 import Concordium.Birk.LeaderElection
 import Concordium.Kontrol.BestBlock
 import Concordium.Kontrol.UpdateLeaderElectionParameters
@@ -80,8 +81,8 @@ instance FromJSON BakerIdentity where
     return BakerIdentity{..}
 
 processTransactions
-    :: (TreeStateMonad pv m,
-        SkovMonad pv m)
+    :: (TreeStateMonad m,
+        SkovMonad m)
     => Slot
     -> SeedState
     -> BlockPointerType m
@@ -101,7 +102,7 @@ processTransactions slot ss bh mfinInfo bid = do
 -- |Re-establish all the invariants among the transaction table, pending table,
 -- account non-finalized table
 maintainTransactions ::
-  (TreeStateMonad pv m)
+  (TreeStateMonad m)
   => BlockPointerType m
   -> FilteredTransactions
   -> m ()
@@ -198,7 +199,7 @@ validateBakerKeys BakerInfo{..} ident =
   && _bakerSignatureVerifyKey == bakerSignPublicKey ident
   && _bakerAggregationVerifyKey == bakerAggregationPublicKey ident
 
-doBakeForSlot :: forall pv m. (FinalizationMonad m, SkovMonad pv m, TreeStateMonad pv m, MonadIO m, OnSkov m) => BakerIdentity -> Slot -> m (Maybe (BlockPointerType m))
+doBakeForSlot :: forall m. (FinalizationMonad m, SkovMonad m, TreeStateMonad m, MonadIO m, OnSkov m) => BakerIdentity -> Slot -> m (Maybe (BlockPointerType m))
 doBakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     -- Do not bake if consensus is shut down
     shutdown <- isShutDown
@@ -206,7 +207,8 @@ doBakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     bb <- bestBlockBefore slot
     guard (blockSlot bb < slot)
     bbState <- blockState bb
-    bakers <- getSlotBakers bbState slot
+    gd <- TS.getGenesisData
+    bakers <- getSlotBakers gd bbState slot
     (binfo, lotteryPower) <- MaybeT . return $ lotteryBaker bakers bakerId
     unless (validateBakerKeys binfo ident) $ do
       logEvent Baker LLWarning "Baker keys are incorrect."
@@ -233,7 +235,7 @@ doBakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
                 -- don't actually have the block that was finalized.
                 -- Possibly we should not even bake in this situation.
                 Nothing -> (, Nothing, NoFinalizationData) <$> bpLastFinalized bb
-                Just finBlock -> return (finBlock, Just (makeFinalizerInfo finCom), BlockFinalizationData finRec)
+                Just finBlock -> return (finBlock, Just (makeFinalizerInfo finCom $ finalizationProof finRec), BlockFinalizationData finRec)
     -- possibly add the block nonce in the seed state
     let newSeedState = updateSeedState slot nonce oldSeedState
     -- Results = {_energyUsed, _finalState, _transactionLog}
@@ -268,8 +270,8 @@ data BakeResult
       BakeShutdown
 
 -- |Try to bake for a slot later than the given slot, up to the current slot.
-doTryBake :: forall pv m.
-    (FinalizationMonad m, SkovMonad pv m, TreeStateMonad pv m, MonadIO m, OnSkov m) =>
+doTryBake :: forall m.
+    (FinalizationMonad m, SkovMonad m, TreeStateMonad m, MonadIO m, OnSkov m) =>
     -- |Baker identity
     BakerIdentity ->
     -- |Last slot that we attempted to bake for
@@ -297,7 +299,7 @@ doTryBake bid lastSlot = unlessShutdown $ do
                 doBakeForSlot bid candidate >>= \case
                     Nothing -> bakeLoop (candidate + 1)
                     Just block -> return $ BakeSuccess candidate $ runPut $
-                      putVersionedBlock (protocolVersion @pv) block
+                      putVersionedBlock (protocolVersion @(MPV m)) block
     bakeLoop startSlot
   where
     unlessShutdown a =
@@ -305,7 +307,7 @@ doTryBake bid lastSlot = unlessShutdown $ do
             True -> return BakeShutdown
             False -> a
 
-class (SkovMonad pv m, FinalizationMonad m) => BakerMonad pv m where
+class (SkovMonad m, FinalizationMonad m) => BakerMonad m where
     -- |Create a block pointer for the given slot.
     -- This function is in charge of accumulating the pending transactions and
     -- credential deployments, construct the block and update the transaction table,
@@ -317,7 +319,7 @@ class (SkovMonad pv m, FinalizationMonad m) => BakerMonad pv m where
     -- the current slot by more than the 'rpMaxBakingDelay' runtime parameter.
     tryBake :: BakerIdentity -> Slot -> m BakeResult
 
-instance (FinalizationMonad (SkovT pv h c m), MonadIO m, SkovMonad pv (SkovT pv h c m), TreeStateMonad pv (SkovT pv h c m), OnSkov (SkovT pv h c m)) =>
-        BakerMonad pv (SkovT pv h c m) where
+instance (FinalizationMonad (SkovT pv h c m), MonadIO m, SkovMonad (SkovT pv h c m), TreeStateMonad (SkovT pv h c m), OnSkov (SkovT pv h c m)) =>
+        BakerMonad (SkovT pv h c m) where
     bakeForSlot = doBakeForSlot
     tryBake = doTryBake

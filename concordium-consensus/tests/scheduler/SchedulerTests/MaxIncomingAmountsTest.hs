@@ -1,3 +1,5 @@
+{-# LANGUAGE TypeApplications #-}
+
 module SchedulerTests.MaxIncomingAmountsTest where
 
 {-
@@ -179,7 +181,7 @@ testCases :: [(Runner.TransactionJSON, (TResultSpec, BlockState PV1 -> Spec))] -
 testCases transactions =
   [ TestCase
     { tcName = "Makes an encrypted transfer"
-    , tcParameters = defaultParams { tpInitialBlockState = initialBlockState }
+    , tcParameters = (defaultParams @PV1){ tpInitialBlockState = initialBlockState }
     , tcTransactions =
         -- First transfer some money to Ales' private balance
         ( Runner.TJSON { payload = Runner.TransferToEncrypted 1000

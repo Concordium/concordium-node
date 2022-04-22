@@ -1,4 +1,7 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 {-|
 Small test framework for transactions.
 Allows to specify test cases consisting of a list of transactions to be executed in order
@@ -77,13 +80,13 @@ data TestParameters pv = TestParameters
   , tpBlockTimeout :: UTCTime
   }
 
-defaultParams :: TestParameters pv
+defaultParams :: forall pv. (IsProtocolVersion pv) => TestParameters pv
 defaultParams = TestParameters
   { tpChainMeta = dummyChainMeta
-  , tpInitialBlockState = createBlockState Acc.emptyAccounts
+  , tpInitialBlockState = createBlockState @pv Acc.emptyAccounts
   , tpEnergyLimit = maxBound
   , tpMaxCredentials = maxBound
-  , tpSizeLimit = fromIntegral $ (maxBound :: Int)
+  , tpSizeLimit = fromIntegral (maxBound :: Int)
   , tpBlockTimeout = dummyBlockTimeout
   }
 
@@ -108,7 +111,6 @@ data ProcessResult
   | Failed FailureKind
   | Unprocessed
   deriving (Eq, Show)
-
 
 -- | Execute the given transactions in sequence (ungrouped) with 'Sch.filterTransactions',
 -- with the given parameters. Returns a list of result and block state after each transaction.

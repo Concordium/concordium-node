@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 {-| This tests a minimal example of error handling in returns of smart contracts.
   We do two invocations of the receive method, one with a valid account to send
   to, and one with invalid.
@@ -40,7 +41,7 @@ testCases =
     -- the block state invariant at least tests that the total amount is preserved.
     TestCase
     { tcName = "Error handling in contracts."
-    , tcParameters = defaultParams {tpInitialBlockState=initialBlockState}
+    , tcParameters = (defaultParams @PV1){tpInitialBlockState=initialBlockState}
     , tcTransactions =
       [ ( TJSON { payload = DeployModule V0 "./testdata/contracts/try-send-test.wasm"
                 , metadata = makeDummyHeader alesAccount 1 100000

@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -36,7 +37,7 @@ import Concordium.Types.Execution(TransactionIndex)
 import Concordium.GlobalState.Statistics
 import Concordium.Types.HashableTo
 import Concordium.Types
-import Concordium.Types.Updates
+import Concordium.Types.Updates hiding (getUpdateKeysCollection)
 import Concordium.GlobalState.AccountTransactionIndex
 
 import Data.ByteString
@@ -91,11 +92,11 @@ class (Eq (BlockPointerType m),
        BlockPointerData (BlockPointerType m),
        BlockStateStorage m,
        BlockPointerMonad m,
-       B.EncodeBlock pv (BlockPointerType m),
+       B.EncodeBlock (MPV m) (BlockPointerType m),
        PerAccountDBOperations m,
        Monad m,
-       IsProtocolVersion pv)
-      => TreeStateMonad pv m | m -> pv where
+       MonadProtocolVersion m)
+      => TreeStateMonad m where
 
     -- * 'PendingBlock' operations
     -- |Create and sign a 'PendingBlock`.
@@ -160,7 +161,7 @@ class (Eq (BlockPointerType m),
     -- |Get the genesis 'BlockPointer'.
     getGenesisBlockPointer :: m (BlockPointerType m)
     -- |Get the 'GenesisData'.
-    getGenesisData :: m (GenesisData pv)
+    getGenesisData :: m (GenesisData (MPV m))
     -- * Operations on the finalization list
     -- |Get the last finalized block.
     getLastFinalized :: m (BlockPointerType m, FinalizationRecord)
@@ -358,7 +359,7 @@ class (Eq (BlockPointerType m),
     -- not belong to genesis data.
     getRuntimeParameters :: m RuntimeParameters
 
-instance (Monad (t m), MonadTrans t, TreeStateMonad pv m) => TreeStateMonad pv (MGSTrans t m) where
+instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTrans t m) where
     makePendingBlock key slot parent bid pf n lastFin trs statehash transactionOutcomesHash = lift . makePendingBlock key slot parent bid pf n lastFin trs statehash transactionOutcomesHash
     getBlockStatus = lift . getBlockStatus
     makeLiveBlock b parent lastFin st ati time = lift . makeLiveBlock b parent lastFin st ati time
@@ -449,8 +450,8 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad pv m) => TreeStateMonad pv (
     {-# INLINE purgeTransactionTable #-}
     {-# INLINE getNonFinalizedTransactionVerificationResult #-}
 
-deriving via (MGSTrans MaybeT m) instance TreeStateMonad pv m => TreeStateMonad pv (MaybeT m)
-deriving via (MGSTrans (ExceptT e) m) instance TreeStateMonad pv m => TreeStateMonad pv (ExceptT e m)
+deriving via (MGSTrans MaybeT m) instance TreeStateMonad m => TreeStateMonad (MaybeT m)
+deriving via (MGSTrans (ExceptT e) m) instance TreeStateMonad m => TreeStateMonad (ExceptT e m)
 
 data ImportingResult a = SerializationFail | Success | OtherError a deriving (Show)
 
@@ -522,16 +523,7 @@ importBlockV2 blockBS tm logm logLvl continuation =
       return SerializationFail
     Right block -> continuation block
 
--- | Exists so we can have the `ProtocolVersion` in the `Reader` computation ctx. 
-newtype ProtocolVersionedReaderT (pv :: ProtocolVersion) r m a = ProtocolVersionedReaderT {runProtocolVersionedReaderT :: ReaderT r m a}
-  deriving (Functor, Applicative, Monad, MonadReader r, MonadTrans)
-
-instance BlockStateTypes (ProtocolVersionedReaderT pv r m) where
-    type BlockState (ProtocolVersionedReaderT pv r m) = BlockState m
-    type UpdatableBlockState (ProtocolVersionedReaderT pv r m) = UpdatableBlockState m
-    type Account (ProtocolVersionedReaderT pv r m) = Account m
-
--- |The Context of which a transaction is verified within 
+-- |The Context that a transaction is verified within 
 -- in the reader based instance.
 -- The `Context` contains the `BlockState`, the maximum energy of a block and
 -- also whether the transaction was received individually or as part of a block.
@@ -550,11 +542,23 @@ data Context t = Context {
   }
 makeLenses ''Context
 
+-- |Helper type for defining 'TransactionVerifierT'. While we only instantiate @r@ with
+-- @Context (BlockState m)@, it is simpler to derive the 'MonadTrans' instance using the present
+-- definition.
+newtype TransactionVerifierT' r m a = TransactionVerifierT {runTransactionVerifierT :: r -> m a}
+    deriving (Functor, Applicative, Monad, MonadReader r) via (ReaderT r m)
+    deriving (MonadTrans) via (ReaderT r)
+
+deriving via (ReaderT r) m instance (MonadProtocolVersion m) => MonadProtocolVersion (TransactionVerifierT' r m)
+deriving via (ReaderT r) m instance BlockStateTypes (TransactionVerifierT' r m)
+
+type TransactionVerifierT m = TransactionVerifierT' (Context (BlockState m)) m
+
 instance (Monad m,
           BlockStateQuery m,
           AccountOperations m,
-          TreeStateMonad pv m,
-          r ~ Context (BlockState m)) => TVer.TransactionVerifier pv (ProtocolVersionedReaderT pv r m) where
+          TreeStateMonad m,
+          r ~ Context (BlockState m)) => TVer.TransactionVerifier (TransactionVerifierT' r m) where
   {-# INLINE getIdentityProvider #-}
   getIdentityProvider ipId = do
     ctx <- ask

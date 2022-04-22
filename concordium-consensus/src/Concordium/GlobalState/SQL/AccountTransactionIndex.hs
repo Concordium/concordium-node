@@ -138,6 +138,10 @@ writeEntries SQLTransactionLogContext{..} BlockContext{..} ati stos = do
         stoAccounts Mint{..} = [stoFoundationAccount]
         stoAccounts FinalizationRewards{..} = Map.keys . accountAmounts $ stoFinalizationRewards
         stoAccounts BlockReward{..} = [stoBaker, stoFoundationAccount]
+        stoAccounts PaydayFoundationReward{..} = [stoFoundationAccount]
+        stoAccounts PaydayAccountReward{..} = [stoAccount]
+        stoAccounts BlockAccrueReward{} = []
+        stoAccounts PaydayPoolReward{} = []
         createSummary :: PersistentTransactionOutcome -> Summary
         createSummary v = Summary {
           summaryBlock = ByteStringSerialized bcHash,

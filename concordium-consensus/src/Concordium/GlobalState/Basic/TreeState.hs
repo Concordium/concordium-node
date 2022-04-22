@@ -3,6 +3,9 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
+-- FIXME: This is to suppress compiler warnings for derived instances of BlockStateOperations.
+-- This may be fixed in GHC 9.0.1.
+{-# OPTIONS_GHC -Wno-redundant-constraints #-}
 module Concordium.GlobalState.Basic.TreeState where
 
 import Lens.Micro.Platform
@@ -12,7 +15,6 @@ import Data.Foldable
 import Control.Monad.State
 import Control.Exception
 import Data.Functor.Identity
-import Control.Monad.Reader
 
 import qualified Data.Map.Strict as Map
 import qualified Data.HashMap.Strict as HM
@@ -126,28 +128,30 @@ initialSkovData rp gd genState = do
 --
 -- This newtype establishes types for the @GlobalStateTypes@. The type variable @bs@ stands for the BlockState
 -- type used in the implementation.
-newtype PureTreeStateMonad (pv :: ProtocolVersion) bs m a = PureTreeStateMonad { runPureTreeStateMonad :: m a }
-  deriving (Functor, Applicative, Monad, MonadIO, BlockStateTypes,
-            BS.BlockStateQuery, BS.AccountOperations, BS.BlockStateOperations, BS.BlockStateStorage, TimeMonad)
+newtype PureTreeStateMonad bs m a = PureTreeStateMonad { runPureTreeStateMonad :: m a }
+  deriving (Functor, Applicative, Monad, MonadIO, BlockStateTypes, BS.AccountOperations,
+            BS.BlockStateQuery, BS.BlockStateOperations, BS.BlockStateStorage, TimeMonad)
 
-deriving instance (Monad m, MonadState (SkovData pv bs) m) => MonadState (SkovData pv bs) (PureTreeStateMonad pv bs m)
+deriving instance (MonadProtocolVersion m) => MonadProtocolVersion (PureTreeStateMonad bs m)
 
-instance (bs ~ BlockState m) => GlobalStateTypes (PureTreeStateMonad pv bs m) where
-    type BlockPointerType (PureTreeStateMonad pv bs m) = BasicBlockPointer pv bs
+deriving instance (Monad m, MonadState (SkovData pv bs) m) => MonadState (SkovData pv bs) (PureTreeStateMonad bs m)
 
-instance (bs ~ BlockState m, Monad m, MonadState (SkovData pv bs) m, IsProtocolVersion pv) => BlockPointerMonad (PureTreeStateMonad pv bs m) where
+instance (bs ~ BlockState m) => GlobalStateTypes (PureTreeStateMonad bs m) where
+    type BlockPointerType (PureTreeStateMonad bs m) = BasicBlockPointer (MPV m) bs
+
+instance (bs ~ BlockState m, BlockStateTypes m, Monad m, MonadState (SkovData pv bs) m, IsProtocolVersion pv) => BlockPointerMonad (PureTreeStateMonad bs m) where
     blockState = return . _bpState
     bpParent = return . runIdentity . _bpParent
     bpLastFinalized = return . runIdentity . _bpLastFinalized
 
-instance ATITypes (PureTreeStateMonad pv bs m) where
-  type ATIStorage (PureTreeStateMonad pv bs m) = ()
+instance ATITypes (PureTreeStateMonad bs m) where
+  type ATIStorage (PureTreeStateMonad bs m) = ()
 
-instance (Monad m) => PerAccountDBOperations (PureTreeStateMonad pv bs m) where
+instance (Monad m) => PerAccountDBOperations (PureTreeStateMonad bs m) where
   -- default instance because ati = ()
 
-instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadState (SkovData pv bs) m, IsProtocolVersion pv)
-          => TS.TreeStateMonad pv (PureTreeStateMonad pv bs m) where
+instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadState (SkovData (MPV m) bs) m, MonadProtocolVersion m)
+          => TS.TreeStateMonad (PureTreeStateMonad bs m) where
     makePendingBlock key slot parent bid pf n lastFin trs statehash transactionOutcomesHash time = do
         return $ makePendingBlock (signBlock key slot parent bid pf n lastFin trs statehash transactionOutcomesHash) time
     getBlockStatus bh = use (blockTable . at' bh)
@@ -156,7 +160,7 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
             blockTable . at' (getHash block) ?= TS.BlockAlive blockP
             return blockP
     markDead bh = blockTable . at' bh ?= TS.BlockDead
-    type MarkFin (PureTreeStateMonad pv bs m) = ()
+    type MarkFin (PureTreeStateMonad bs m) = ()
     markFinalized bh fr = use (blockTable . at' bh) >>= \case
             Just (TS.BlockAlive bp) -> do
               blockTable . at' bh ?= TS.BlockFinalized bp fr
@@ -258,7 +262,7 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
             -- to the `TransactionTable`.
             -- Verifying the transaction here as opposed to `doReceiveTransactionInternal` avoids
             -- verifying a transaction that is both received individually and as part of a block twice.
-            verRes <- runReaderT (TS.runProtocolVersionedReaderT (TVer.verify ts bi)) verResCtx
+            verRes <- TS.runTransactionVerifierT (TVer.verify ts bi) verResCtx
             if TVer.definitelyNotValid verRes (verResCtx ^. TS.isTransactionFromBlock) then return $ TS.NotAdded verRes
             else 
               case wmdData of
@@ -291,7 +295,7 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
             when (slot > results ^. tsSlot) $ transactionTable . ttHashMap . at' trHash . mapped . _2 %= updateSlot slot
             return $ TS.Duplicate tr'
 
-    type FinTrans (PureTreeStateMonad pv bs m) = ()
+    type FinTrans (PureTreeStateMonad bs m) = ()
     finalizeTransactions bh slot = mapM_ finTrans
         where
             finTrans WithMetadata{wmdData=NormalTransaction tr,..} = do

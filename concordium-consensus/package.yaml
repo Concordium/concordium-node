@@ -326,4 +326,5 @@ tests:
     - microlens-platform >= 0.3
     - aeson >= 1.4.2
     - filepath >= 1.4.2
+    - template-haskell
 

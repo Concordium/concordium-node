@@ -6,6 +6,7 @@ module Concordium.GlobalState.Basic.BlockState.Accounts where
 
 import Data.Serialize
 import qualified Data.Map.Strict as Map
+import GHC.Stack (HasCallStack)
 import Lens.Micro.Platform
 import Lens.Micro.Internal (Ixed,Index,IxValue)
 import Concordium.Types
@@ -20,6 +21,7 @@ import qualified Concordium.ID.Types as ID
 import Data.Foldable
 import Concordium.ID.Parameters
 import Control.Monad
+import Concordium.Genesis.Data
 
 -- |Representation of the set of accounts on the chain.
 -- Each account has an 'AccountIndex' which is the order
@@ -42,7 +44,7 @@ data Accounts (pv :: ProtocolVersion) = Accounts {
     -- |Unique index of accounts by 'AccountAddress'
     accountMap :: !(AccountMap.PureAccountMap pv),
     -- |Hashed Merkle-tree of the accounts.
-    accountTable :: !(AT.AccountTable pv),
+    accountTable :: !(AT.AccountTable (AccountVersionFor pv)),
     -- |A mapping of 'ID.CredentialRegistrationID's to accounts on which they are used.
     accountRegIds :: !(Map.Map ID.CredentialRegistrationID AccountIndex)
 }
@@ -62,7 +64,7 @@ emptyAccounts = Accounts AccountMap.empty AT.Empty Map.empty
 -- and recording it in 'accountMap'.
 -- If an account with the address already exists, 'accountTable' is updated
 -- to reflect the new state of the account.
-putAccount :: IsProtocolVersion pv => Account pv -> Accounts pv -> Accounts pv
+putAccount :: IsProtocolVersion pv => Account (AccountVersionFor pv) -> Accounts pv -> Accounts pv
 putAccount !acct = snd . putAccountWithIndex acct
 
 -- |Add or modify a given account.
@@ -71,7 +73,7 @@ putAccount !acct = snd . putAccountWithIndex acct
 -- recording it in 'accountMap', and returning it.
 -- If an account with the address already exists, 'accountTable' is updated
 -- to reflect the new state of the account, and the index of the account is returned.
-putAccountWithIndex :: IsProtocolVersion pv => Account pv -> Accounts pv -> (AccountIndex, Accounts pv)
+putAccountWithIndex :: IsProtocolVersion pv => Account (AccountVersionFor pv) -> Accounts pv -> (AccountIndex, Accounts pv)
 putAccountWithIndex !acct Accounts{..} =
   case AccountMap.lookupPure addr accountMap of
     Nothing -> let (i, newAccountTable) = AT.append acct accountTable
@@ -82,14 +84,14 @@ putAccountWithIndex !acct Accounts{..} =
 
 -- |Add a new account. Returns @Just idx@ if the new account is fresh, i.e., the address does not exist,
 -- or @Nothing@ in case the account already exists. In the latter case there is no change to the accounts structure.
-putNewAccount :: IsProtocolVersion pv => Account pv -> Accounts pv -> (Maybe AccountIndex, Accounts pv)
+putNewAccount :: IsProtocolVersion pv => Account (AccountVersionFor pv) -> Accounts pv -> (Maybe AccountIndex, Accounts pv)
 putNewAccount acct accts = 
   case AccountMap.lookupPure (acct ^. accountAddress) (accountMap accts) of
     Just _ -> (Nothing, putAccount acct accts)
     Nothing -> let (ai, accts') = putAccountWithIndex acct accts in (Just ai, accts')
 
 -- |Equivalent to calling putAccount and recordRegId in sequence.
-putAccountWithRegIds :: IsProtocolVersion pv => Account pv -> Accounts pv -> Accounts pv
+putAccountWithRegIds :: IsProtocolVersion pv => Account (AccountVersionFor pv) -> Accounts pv -> Accounts pv
 putAccountWithRegIds !acct accts =
   foldl' (\accs currentCred -> recordRegId (ID.credId currentCred) idx accs) initialAccts (acct ^. accountCredentials)
   where (idx, initialAccts) = putAccountWithIndex acct accts
@@ -100,7 +102,7 @@ exists addr Accounts{..} = AccountMap.isAddressAssignedPure addr accountMap
 
 -- |Retrieve an account with the given address.
 -- Returns @Nothing@ if no such account exists.
-getAccount :: IsProtocolVersion pv => AccountAddress -> Accounts pv -> Maybe (Account pv)
+getAccount :: IsProtocolVersion pv => AccountAddress -> Accounts pv -> Maybe (Account (AccountVersionFor pv))
 getAccount addr Accounts{..} = case AccountMap.lookupPure addr accountMap of
                                  Nothing -> Nothing
                                  Just i -> accountTable ^? ix i
@@ -110,18 +112,23 @@ getAccountIndex addr Accounts{..} = AccountMap.lookupPure addr accountMap
 
 -- |Retrieve an account and its index with the given address.
 -- Returns @Nothing@ if no such account exists.
-getAccountWithIndex :: IsProtocolVersion pv => AccountAddress -> Accounts pv -> Maybe (AccountIndex, Account pv)
+getAccountWithIndex :: IsProtocolVersion pv => AccountAddress -> Accounts pv -> Maybe (AccountIndex, Account (AccountVersionFor pv))
 getAccountWithIndex addr Accounts{..} = case AccountMap.lookupPure addr accountMap of
                                  Nothing -> Nothing
                                  Just i -> (i, ) <$> accountTable ^? ix i
 
 -- |Traversal for accessing the account at a given index.
-indexedAccount :: IsProtocolVersion pv => AccountIndex -> Traversal' (Accounts pv) (Account pv)
+indexedAccount :: IsProtocolVersion pv => AccountIndex -> Traversal' (Accounts pv) (Account (AccountVersionFor pv))
 indexedAccount ai = lens accountTable (\a v-> a{accountTable = v}) . ix ai
+
+-- |Lens for accessing the account at a given index, assuming the account exists.
+-- If the account does not exist, this throws an error.
+unsafeIndexedAccount :: (HasCallStack, IsProtocolVersion pv) => AccountIndex -> Lens' (Accounts pv) (Account (AccountVersionFor pv))
+unsafeIndexedAccount ai = singular (indexedAccount ai)
 
 -- |Apply account updates to an account. It is assumed that the address in
 -- account updates and account are the same.
-updateAccount :: AccountUpdate -> Account pv -> Account pv
+updateAccount :: AccountUpdate -> Account av -> Account av
 updateAccount !upd
     = updateNonce
       . updateReleaseSchedule
@@ -143,7 +150,7 @@ updateAccount !upd
 
 -- |Retrieve an account with the given address.
 -- An account with the address is required to exist.
-unsafeGetAccount :: IsProtocolVersion pv => AccountAddress -> Accounts pv -> Account pv
+unsafeGetAccount :: IsProtocolVersion pv => AccountAddress -> Accounts pv -> Account (AccountVersionFor pv)
 unsafeGetAccount addr Accounts{..} = case AccountMap.lookupPure addr accountMap of
                                        Nothing -> error $ "unsafeGetAccount: Account " ++ show addr ++ " does not exist."
                                        Just i -> accountTable ^?! ix i
@@ -175,16 +182,16 @@ instance HashableTo H.Hash (Accounts pv) where
     getHash Accounts{..} = getHash accountTable
 
 type instance Index (Accounts pv) = AccountAddress
-type instance IxValue (Accounts pv) = (Account pv)
+type instance IxValue (Accounts pv) = (Account (AccountVersionFor pv))
 
 instance IsProtocolVersion pv => Ixed (Accounts pv) where
-  ix addr f acc@(Accounts{..}) =
+  ix addr f acc@Accounts{..} =
      case AccountMap.lookupPure addr accountMap of
        Nothing -> pure acc
        Just i -> (\atable -> acc { accountTable = atable }) <$> ix i f accountTable
 
 -- |Convert an 'Accounts' to a list of 'Account's.
-accountList :: Accounts pv -> [Account pv]
+accountList :: Accounts pv -> [Account (AccountVersionFor pv)]
 accountList = fmap snd . AT.toList . accountTable
 
 -- |Serialize 'Accounts' in V0 format.
@@ -194,20 +201,24 @@ serializeAccounts cryptoParams Accounts{..} = do
     forM_ (AT.toList accountTable) $ \(_, acct) -> serializeAccount cryptoParams acct
 
 -- |Deserialize 'Accounts'. The serialization format may depend on the protocol version.
+-- The state migration determines how do construct an 'Accounts' at a new protocol version 'pv'
+-- from the serialization format of another protocol version 'oldpv'.
 -- This validates the following invariants:
 --
 --  * Every baker account's 'BakerId' must match the account index.
 --  * 'CredentialRegistrationID's must not be used on more than one account.
-deserializeAccounts :: IsProtocolVersion pv => GlobalContext -> Get (Accounts pv)
-deserializeAccounts cryptoParams = do
+deserializeAccounts :: (IsProtocolVersion oldpv, IsProtocolVersion pv) => StateMigrationParameters oldpv pv -> GlobalContext -> Get (Accounts pv)
+deserializeAccounts migration cryptoParams = do
     nAccounts <- getWord64be
     let loop i accts@Accounts{..}
           | i < nAccounts = do
-            acct <- deserializeAccount cryptoParams
+            acct <- deserializeAccount migration cryptoParams
             let acctId = AccountIndex i
-            forM_ (_accountBaker acct) $ \bkr ->
-              unless (_bakerIdentity (_accountBakerInfo bkr) == BakerId acctId) $
-                fail "BakerID does not match account index"
+            case _accountStaking acct of
+              AccountStakeBaker bkr ->
+                unless (bkr ^. accountBakerInfo . bakerIdentity == BakerId acctId) $
+                  fail "BakerID does not match account index"
+              _ -> return ()              
             let addRegId regids cred
                   | cred `Map.member` regids = fail "Duplicate credential"
                   | otherwise = return $ Map.insert cred acctId regids

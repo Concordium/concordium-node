@@ -79,7 +79,7 @@ makeFinalizationCommittee FinalizationParameters {..} totalGTU bakers = Finaliza
         parties = Vec.imap makeParty $ Vec.filter isInCommittee $ fullBakerInfos bakers
         minStake = totalGTU `div` fromIntegral finalizationCommitteeMaxSize
         isInCommittee FullBakerInfo{..} = _bakerStake >= minStake
-        makeParty party FullBakerInfo {_bakerInfo = BakerInfo {..}, ..} = PartyInfo {
+        makeParty party FullBakerInfo {_theBakerInfo = BakerInfo {..}, ..} = PartyInfo {
                     partyBakerId = _bakerIdentity,
                     partyWeight = VoterPower $ fromIntegral _bakerStake,
                     partySignKey = _bakerSignatureVerifyKey,

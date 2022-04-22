@@ -48,7 +48,7 @@ makeBakersByStake = mbs 0
             where
                 (account, kp, ident) = makeBakerAccountKeys bid s
                 binfo = FullBakerInfo {
-                    _bakerInfo = BakerInfo {
+                    _theBakerInfo = BakerInfo {
                         _bakerIdentity = bakerId ident,
                         _bakerElectionVerifyKey = bakerElectionPublicKey ident,
                         _bakerSignatureVerifyKey = bakerSignPublicKey ident,
@@ -116,15 +116,15 @@ makeGenesisData :: forall pv.
     (IsProtocolVersion pv)
     => Timestamp -- ^Genesis time
     -> Word  -- ^Initial number of bakers.
-    -> Duration  -- ^Slot duration (miliseconds).
+    -> Duration  -- ^Slot duration (milliseconds).
     -> FinalizationParameters -- ^Finalization parameters
     -> CryptographicParameters -- ^Initial cryptographic parameters.
     -> IdentityProviders   -- ^List of initial identity providers.
     -> AnonymityRevokers -- ^Initial anonymity revokers.
     -> [GenesisAccount] -- ^Additional accounts.
     -> Energy -- ^Maximum energy allowed to be consumed by the transactions in a block
-    -> UpdateKeysCollection -- ^Authorized keys for chain updates
-    -> ChainParameters -- ^Initial chain parameters
+    -> UpdateKeysCollection (ChainParametersVersionFor pv) -- ^Authorized keys for chain updates
+    -> ChainParameters pv -- ^Initial chain parameters
     -> (GenesisData pv, [(BakerIdentity, FullBakerInfo)], Amount)
 makeGenesisData
         genesisTime

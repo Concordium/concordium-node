@@ -54,22 +54,23 @@ import Concordium.Scheduler
 -- It is then used together with the LocalT transformer to be able to execute
 -- transactions without the context of the scheduler. This is achieved via (the
 -- only) instance of TransactionMonad for the LocalT transformer.
-newtype InvokeContractMonad (pv :: ProtocolVersion) m a = InvokeContractMonad {_runInvokeContract :: ReaderT (ContextState, BlockState m) m a}
+newtype InvokeContractMonad m a = InvokeContractMonad {_runInvokeContract :: ReaderT (ContextState, BlockState m) m a}
     deriving (Functor,
               Applicative,
               Monad,
               MonadLogger)
 
-deriving instance (Monad m, r ~ BlockState m) => MonadReader (ContextState, r) (InvokeContractMonad pv m)
+deriving instance (Monad m, r ~ BlockState m) => MonadReader (ContextState, r) (InvokeContractMonad m)
 
-instance MonadTrans (InvokeContractMonad pv) where
+instance MonadTrans InvokeContractMonad where
     {-# INLINE lift #-}
     lift = InvokeContractMonad . lift
 
-deriving via (MGSTrans (InvokeContractMonad pv) m) instance BlockStateTypes (InvokeContractMonad pv m)
-deriving via (MGSTrans (InvokeContractMonad pv) m) instance BS.AccountOperations m => BS.AccountOperations (InvokeContractMonad pv m)
+deriving via (MGSTrans InvokeContractMonad m) instance MonadProtocolVersion m => MonadProtocolVersion (InvokeContractMonad m)
+deriving via (MGSTrans InvokeContractMonad m) instance BlockStateTypes (InvokeContractMonad m)
+deriving via (MGSTrans InvokeContractMonad m) instance BS.AccountOperations m => BS.AccountOperations (InvokeContractMonad m)
 
-instance (Monad m, BS.BlockStateQuery m) => StaticInformation (InvokeContractMonad pv m) where
+instance (Monad m, BS.BlockStateQuery m) => StaticInformation (InvokeContractMonad m) where
 
   {-# INLINE getMaxBlockEnergy #-}
   getMaxBlockEnergy = view (_1 . maxBlockEnergy)
@@ -92,21 +93,20 @@ instance (Monad m, BS.BlockStateQuery m) => StaticInformation (InvokeContractMon
   getStateAccount !addr = lift . flip BS.getAccount addr =<< view _2
 
 -- |Invoke the contract in the given context.
-invokeContract :: forall pv m . (IsProtocolVersion pv, BS.BlockStateQuery m) =>
-    SProtocolVersion pv -- ^An argument to fix the protocol version, to make the type non-ambiguous.
-    -> ContractContext -- ^Context in which to invoke the contract.
+invokeContract :: forall m . (MonadProtocolVersion m, BS.BlockStateQuery m)
+    => ContractContext -- ^Context in which to invoke the contract.
     -> ChainMetadata -- ^Chain metadata corresponding to the block state.
     -> BlockState m -- ^The block state in which to invoke the contract.
     -> m InvokeContractResult
-invokeContract _ ContractContext{..} cm bs = do
+invokeContract ContractContext{..} cm bs = do
   -- construct an invoker. Since execution of a contract might depend on this
   -- it is necessary to provide some value. However since many contract entrypoints will
   -- not depend on this it is useful to default to a dummy value if the value is not provided.
-  let getInvoker :: InvokeContractMonad pv m
+  let getInvoker :: InvokeContractMonad m
                    (Either
                      (Maybe RejectReason) -- Invocation failed because the relevant contract/account does not exist.
                      ( -- Check that the requested account or contract has enough balance.
-                       Amount -> LocalT pv r (InvokeContractMonad pv m) (Address, [ID.AccountCredential], Either ContractAddress IndexedAccountAddress),
+                       Amount -> LocalT r (InvokeContractMonad m) (Address, [ID.AccountCredential], Either ContractAddress IndexedAccountAddress),
                        AccountAddress, -- Address of the invoker account, or of its owner if the invoker is a contract.
                        AccountIndex -- And its index.
                      ))
@@ -143,9 +143,11 @@ invokeContract _ ContractContext{..} cm bs = do
                   case istance of
                     InstanceV0 i -> Left <$> handleContractUpdateV0 addr i invoker ccAmount ccMethod ccParameter
                     InstanceV1 i -> Right <$> handleContractUpdateV1 addr i (fmap Right . invoker) ccAmount ccMethod ccParameter
-            (r, cs) <- runLocalT @pv comp ccAmount ai ccEnergy ccEnergy
+            (r, cs) <- runLocalT comp ccAmount ai ccEnergy ccEnergy
             return (r, _energyLeft cs)
-      contextState = ContextState{_maxBlockEnergy = ccEnergy, _accountCreationLimit = 0, _chainMetadata = cm}
+      contextState = ContextState{
+          _maxBlockEnergy = ccEnergy, _accountCreationLimit = 0, _chainMetadata = cm
+          }
   runReaderT (_runInvokeContract runContractComp) (contextState, bs) >>= \case
     -- cannot happen (this would mean out of block energy, and we set block energy no lower than energy),
     -- but this is safe to do and not wrong

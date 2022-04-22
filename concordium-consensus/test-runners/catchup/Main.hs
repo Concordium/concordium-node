@@ -351,6 +351,20 @@ main :: IO ()
 main = do
     -- Set genesis at the next whole second
     now <- (\(Timestamp t) -> Timestamp $ ((t `div` 1000) + 1) * 1000) <$> currentTimestamp
+    let chainParams = ChainParameters {
+            _cpElectionDifficulty = makeElectionDifficulty 20000,
+            _cpExchangeRates = makeExchangeRates 1 1,
+            _cpCooldownParameters = CooldownParametersV0 {
+                _cpBakerExtraCooldownEpochs = 4
+                },
+            _cpTimeParameters = TimeParametersV0,
+            _cpAccountCreationLimit = 10,
+            _cpRewardParameters = Dummy.dummyRewardParametersV0,
+            _cpFoundationAccount = numberOfBakers,
+            _cpPoolParameters = PoolParametersV0 {
+                _ppBakerStakeThreshold =  300000000000
+                }
+            }
     let (genesisData, bakerIdentities, _) =
             makeGenesisData @PV
                 now
@@ -363,7 +377,7 @@ main = do
                 [Dummy.createCustomAccount 1000000000000 Dummy.mateuszKP Dummy.mateuszAccount]
                 (Energy maxBound)
                 Dummy.dummyKeyCollection
-                (makeChainParameters (makeElectionDifficulty 20000) 1 1 4 10 Dummy.dummyRewardParameters numberOfBakers 300000000000)
+                chainParams
     peersRef <- newIORef Map.empty
     monitorChan <- newChan
     peers <-

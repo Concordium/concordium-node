@@ -88,7 +88,7 @@ invokeContract0 ccContract bs = do
         ccEnergy = 1_000_000_000,
         ..
         }
-  InvokeContract.invokeContract Types.SP4 ctx cm bs
+  InvokeContract.invokeContract ctx cm bs
 
 -- |Invoke an entrypoint that tries to transfer an amount that it does not have via contract invoke.
 -- The expected return code is
@@ -115,7 +115,7 @@ invokeContract1 ccContract bs = do
         ccEnergy = 1_000_000_000,
         ..
         }
-  InvokeContract.invokeContract Types.SP4 ctx cm bs
+  InvokeContract.invokeContract ctx cm bs
 
 -- |Invoke an entrypoint that tries to invoke a non-existing contract.
 -- The expected return code is
@@ -142,7 +142,7 @@ invokeContract3 ccContract bs = do
         ccEnergy = 1_000_000_000,
         ..
         }
-  InvokeContract.invokeContract Types.SP4 ctx cm bs
+  InvokeContract.invokeContract ctx cm bs
 
 -- |Invoke an entrypoint that tries to invoke a non-existing entrypoint.
 -- The expected return code is
@@ -169,7 +169,7 @@ invokeContract4 ccContract bs = do
         ccEnergy = 1_000_000_000,
         ..
         }
-  InvokeContract.invokeContract Types.SP4 ctx cm bs
+  InvokeContract.invokeContract ctx cm bs
 
 
 -- |Invoke an entrypoint that traps
@@ -197,7 +197,7 @@ invokeContract6 ccContract bs = do
         ccEnergy = 1_000_000_000,
         ..
         }
-  InvokeContract.invokeContract Types.SP4 ctx cm bs
+  InvokeContract.invokeContract ctx cm bs
 
 
 -- |Invoke an entrypoint that traps
@@ -221,7 +221,7 @@ invokeContract2 ccContract bs = do
         ccEnergy = 1_000_000_000,
         ..
         }
-  InvokeContract.invokeContract Types.SP4 ctx cm bs
+  InvokeContract.invokeContract ctx cm bs
 
 
 -- |Invoke a V0 contract such that the invocation fails.
@@ -249,7 +249,7 @@ invokeContract5 ccContract targetContract bs = do
         ccEnergy = 1_000_000_000,
         ..
         }
-  InvokeContract.invokeContract Types.SP4 ctx cm bs
+  InvokeContract.invokeContract ctx cm bs
 
 
 checkSuccess :: MonadIO m => String -> Word64 -> InvokeContract.InvokeContractResult -> m ()

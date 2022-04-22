@@ -15,7 +15,6 @@ EXPORTS
  getBlockInfo
  getAncestors
  getBranches
- freeCStr
  getCatchUpStatus
  receiveCatchUpStatus
  getAccountList
@@ -27,15 +26,19 @@ EXPORTS
  getBirkParameters
  getModuleList
  getModuleSource
+ getBakerList
+ getPoolStatus
  getTransactionStatus
  getTransactionStatusInBlock
  getAccountNonFinalizedTransactions
- getNextAccountNonce
  getBlockSummary
+ getNextAccountNonce
  getBlocksAtHeight
- bakerIdBestBlock
- checkIfWeAreFinalizer
- importBlocks
  getAllIdentityProviders
  getAllAnonymityRevokers
  getCryptographicParameters
+ bakerStatusBestBlock
+ checkIfWeAreFinalizer
+ checkIfRunning
+ freeCStr
+ importBlocks

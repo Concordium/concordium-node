@@ -1,6 +1,6 @@
 [package]
 name = "concordium_node"
-version = "3.0.2" # must be kept in sync with 'is_compatible_version' in 'src/configuration.rs'
+version = "4.0.6" # must be kept in sync with 'is_compatible_version' in 'src/configuration.rs'
 description = "Concordium Node"
 authors = ["Concordium <developers@concordium.com>"]
 exclude = [".gitignore", ".gitlab-ci.yml", "test/**/*","**/**/.gitignore","**/**/.gitlab-ci.yml"]
