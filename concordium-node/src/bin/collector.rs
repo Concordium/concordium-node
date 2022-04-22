@@ -154,6 +154,12 @@ async fn main() {
     }
 
     let mut interval = tokio::time::interval(Duration::from_millis(conf.collector_interval));
+    // If for some reason we cannot submit the statistics for a given period, we
+    // skip it. This also handles cases such as when a computer goes to sleep. By
+    // default the behaviour is [MissedTickBehaviour::Burst] which would,
+    // in such a case, try to make up the missed ticks by submitting statistics as
+    // quickly as possible.
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     #[allow(unreachable_code)]
     loop {
         for (node_name, grpc_host) in conf.node_names.iter().zip(conf.grpc_hosts.iter()) {
