@@ -718,7 +718,7 @@ impl P2p for RpcServerImpl {
         call_consensus!(self, "GetPoolStatus", JsonResponse, |cc: &ConsensusContainer| {
             cc.get_pool_status(
                 &req.get_ref().block_hash,
-                req.get_ref().l_pool,
+                req.get_ref().passive_delegation,
                 req.get_ref().baker_id,
             )
         })
