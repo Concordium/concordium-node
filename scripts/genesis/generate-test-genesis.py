@@ -208,8 +208,7 @@ def generate_update_keys():
                           "--add-anonymity-revoker", "3:37,38,39,40,41",
                           "--add-identity-provider", "3:42,43,44,45,46",
                           "--cooldown", "3:47,48,49,50,51",
-                          "--time", "3:52,53,54,55,56",
-                          "--gdver=6"
+                          "--time", "3:52,53,54,55,56"
                           )
     if res != 0:
         raise Exception(f"Could not generate update keys.")
@@ -252,6 +251,7 @@ def combine(foundation_account, extra = None):
                           f"--crypto-params={GLOBAL_FILE}",
                           f"--accounts={accounts}",
                           f"--update-keys={authorizations}",
+                          "--gdver=6",
                           "genesis-tmp.json",
                           out_genesis)
     if res != 0:
