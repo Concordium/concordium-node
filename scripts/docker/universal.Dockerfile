@@ -20,14 +20,5 @@ RUN tar -C /tmp -xf /tmp/static-consensus.tar.gz && \
     mkdir -p /build/concordium-node/deps/static-libs && \
     mv /tmp/target /build/concordium-node/deps/static-libs/linux && \
     rm /tmp/static-consensus.tar.gz
-# Build in both release and debug mode.
-ARG consensus_profiling=false
-RUN CONSENSUS_PROFILING="${consensus_profiling}" /build/scripts/build-binaries.sh "instrumentation,collector" "release" && \
-    CONSENSUS_PROFILING="${consensus_profiling}" /build/scripts/build-binaries.sh "instrumentation,collector"
-# Evaluate the following RUN command in Bash to allow brace expansion.
-SHELL ["/bin/bash", "-c"]
-WORKDIR /target
-RUN for build_profile in release debug; do \
-        mkdir -p "./${build_profile}" && \
-        cp "/build/concordium-node/target/${build_profile}"/{concordium-node,p2p_bootstrapper-cli,node-collector} "./${build_profile}/"; \
-    done
+# Build in release mode.
+RUN cargo build --manifest-path=./concordium-node/Cargo.toml --features=instrumentation,collector --release

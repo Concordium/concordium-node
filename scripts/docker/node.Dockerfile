@@ -11,6 +11,5 @@ EXPOSE 10000
 RUN apt-get update && \
     apt-get install -y libpq-dev && \
     rm -rf /var/lib/apt/lists/*
-ARG build_profile
-COPY --from=build "/target/${build_profile}/concordium-node" /concordium-node
+COPY --from=build /build/concordium-node/target/concordium-node /concordium-node
 ENTRYPOINT ["/concordium-node"]

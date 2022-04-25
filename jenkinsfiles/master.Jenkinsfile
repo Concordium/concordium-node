@@ -5,7 +5,6 @@ pipeline {
         ecr_repo_domain = '192549843005.dkr.ecr.eu-west-1.amazonaws.com'
         universal_image_repo = 'concordium/universal'
         universal_image_name = "${universal_image_repo}:${image_tag}"
-        build_profile = 'release'
     }
     stages {
         stage('ecr-login') {
@@ -40,9 +39,7 @@ pipeline {
                 sh '''\
                     docker build \
                       --build-arg=universal_image_name="${universal_image_name}" \
-                      --build-arg=build_profile="${build_profile}" \
                       --label=universal_image_name="${universal_image_name}" \
-                      --label=build_profile="${build_profile}" \
                       -t "${image_name}" \
                       -f scripts/docker/bootstrapper.Dockerfile \
                       .
@@ -59,9 +56,7 @@ pipeline {
                 sh '''\
                     docker build \
                       --build-arg=universal_image_name="${universal_image_name}" \
-                      --build-arg=build_profile="${build_profile}" \
                       --label=universal_image_name="${universal_image_name}" \
-                      --label=build_profile="${build_profile}" \
                       -t "${image_name}" \
                       -f scripts/docker/node.Dockerfile \
                       .
@@ -78,9 +73,7 @@ pipeline {
                 sh '''\
                     docker build \
                       --build-arg=universal_image_name="${universal_image_name}" \
-                      --build-arg=build_profile="${build_profile}" \
                       --label=universal_image_name="${universal_image_name}" \
-                      --label=build_profile="${build_profile}" \
                       -t "${image_name}" \
                       -f scripts/docker/node-collector.Dockerfile \
                       .
