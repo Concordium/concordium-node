@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -30,7 +31,7 @@ import qualified Concordium.Wasm as Wasm
 import qualified Concordium.GlobalState.Wasm as GSWasm
 import Concordium.Scheduler.Types
 import qualified Concordium.Cost as Cost
-import Concordium.Types.Accounts
+import Concordium.Types.Accounts hiding (getAccountBaker)
 import Concordium.GlobalState.Types
 import Concordium.GlobalState.Classes (MGSTrans(..))
 import Concordium.GlobalState.Account (EncryptedAmountUpdate(..), AccountUpdate(..), auAmount, auEncrypted, auReleaseSchedule, emptyAccountUpdate)
@@ -79,8 +80,8 @@ class (Monad m) => StaticInformation m where
   getStateAccount :: AccountAddress -> m (Maybe (IndexedAccount m))
 
 -- |Information needed to execute transactions in the form that is easy to use.
-class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m)), AccountOperations m, ContractStateOperations m, MonadLogger m, IsProtocolVersion pv, TVer.TransactionVerifier pv m)
-    => SchedulerMonad pv m | m -> pv where
+class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m)), AccountOperations m, ContractStateOperations m, MonadLogger m, MonadProtocolVersion m, TVer.TransactionVerifier m)
+    => SchedulerMonad m where
 
   -- |Notify the transaction log that a transaction had the given footprint. The
   -- nature of the footprint will depend on the configuration, e.g., it could be
@@ -187,7 +188,25 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
   -- * @BADuplicateAggregationKey@: the aggregation key is already in use.
   --
   -- Note that if two results could apply, the first in this list takes precedence.  
-  addBaker :: AccountIndex -> BakerAdd -> m BakerAddResult
+  addBaker
+    :: (AccountVersionFor (MPV m) ~ 'AccountV0, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0)
+    => AccountIndex
+    -> BakerAdd
+    -> m BakerAddResult
+
+  -- |From chain parameters version >= 1, this operation is used to add/remove/update a baker.
+  configureBaker
+    :: (AccountVersionFor (MPV m) ~ 'AccountV1, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1)
+    => AccountIndex
+    -> BakerConfigure
+    -> m BakerConfigureResult
+
+  -- |From chain parameters version >= 1, this operation is used to add/remove/update a delegator.
+  configureDelegation
+    :: (AccountVersionFor (MPV m) ~ 'AccountV1, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1)
+    => AccountIndex
+    -> DelegationConfigure
+    -> m DelegationConfigureResult
 
   -- |Remove the baker associated with an account.
   -- The removal takes effect after a cooling-off period.
@@ -201,7 +220,10 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
   -- * @BRInvalidBaker@: the account address is not valid, or the account is not a baker.
   --
   -- * @BRChangePending@: the baker is currently in a cooling-off period and so cannot be removed.
-  removeBaker :: AccountIndex -> m BakerRemoveResult
+  removeBaker
+    :: (AccountVersionFor (MPV m) ~ 'AccountV0, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0)
+    => AccountIndex
+    -> m BakerRemoveResult
 
   -- |Update the keys associated with an account.
   -- It is assumed that the keys have already been checked for validity/ownership as
@@ -215,7 +237,11 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
   -- * @BKUInvalidBaker@: the account does not exist or is not currently a baker.
   --
   -- * @BKUDuplicateAggregationKey@: the aggregation key is a duplicate.
-  updateBakerKeys :: AccountIndex -> BakerKeyUpdate -> m BakerKeyUpdateResult
+  updateBakerKeys
+    :: (AccountVersionFor (MPV m) ~ 'AccountV0, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0)
+    => AccountIndex
+    -> BakerKeyUpdate
+    -> m BakerKeyUpdateResult
 
   -- |Update the stake associated with an account.
   -- A reduction in stake will be delayed by the current cool-off period.
@@ -237,7 +263,11 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
   -- * @BSUChangePending@: the change could not be made since the account is already in a cooling-off period.
   --
   -- * @BSUInsufficientBalance@: the account does not have sufficient balance to cover the staked amount.
-  updateBakerStake :: AccountIndex -> Amount -> m BakerStakeUpdateResult
+  updateBakerStake
+    :: (AccountVersionFor (MPV m) ~ 'AccountV0, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0)
+    => AccountIndex
+    -> Amount
+    -> m BakerStakeUpdateResult
 
   -- |Update whether the baker automatically restakes the rewards it earns.
   --
@@ -246,7 +276,7 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
   -- * @BREUUpdated id@: the flag was updated.
   --
   -- * @BREUInvalidBaker@: the account does not exists, or is not currently a baker.
-  updateBakerRestakeEarnings :: AccountIndex -> Bool -> m BakerRestakeEarningsUpdateResult
+  updateBakerRestakeEarnings :: (AccountVersionFor (MPV m) ~ 'AccountV0) => AccountIndex -> Bool -> m BakerRestakeEarningsUpdateResult
 
   -- *Operations on account keys
 
@@ -259,7 +289,7 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
   -- * Chain updates
 
   -- |Get the current authorized keys for updates.
-  getUpdateKeyCollection :: m UpdateKeysCollection
+  getUpdateKeyCollection :: m (UpdateKeysCollection (ChainParametersVersionFor (MPV m)))
 
   -- |Get the next sequence number of updates of a given type.
   getNextUpdateSequenceNumber :: UpdateType -> m UpdateSequenceNumber
@@ -269,7 +299,7 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
   -- The next sequence number will be correspondingly incremented,
   -- and any queued updates of the given type with a later effective
   -- time are cancelled.
-  enqueueUpdate :: TransactionTime -> UpdateValue -> m ()
+  enqueueUpdate :: TransactionTime -> UpdateValue (ChainParametersVersionFor (MPV m)) -> m ()
 
 -- |Contract state that is lazily thawed. This is used in the scheduler when
 -- looking up contracts. When looking them up first time we don't convert the
@@ -304,7 +334,7 @@ type UInstanceInfoV m = InstanceInfoTypeV (TemporaryContractState (ContractState
 -- the state of the world during execution. Local state of contracts and amounts
 -- on contracts might need to be rolled back for various reasons, so we do not
 -- want to commit it to global state.
-class (StaticInformation m, ContractStateOperations m, IsProtocolVersion pv) => TransactionMonad pv m | m -> pv where
+class (StaticInformation m, ContractStateOperations m, MonadProtocolVersion m) => TransactionMonad m where
   -- |Execute the code in a temporarily modified environment. This is needed in
   -- nested calls to transactions which might end up failing at the end. Thus we
   -- keep track of changes locally first, and only commit them at the end.
@@ -468,7 +498,7 @@ class (StaticInformation m, ContractStateOperations m, IsProtocolVersion pv) => 
 -- changed or not when a contract calls another.
 type ModificationIndex = Word
 
--- |The set of changes to be commited on a successful transaction.
+-- |The set of changes to be committed on a successful transaction.
 data ChangeSet = ChangeSet
     {_accountUpdates :: !(HMap.HashMap AccountIndex AccountUpdate) -- ^Accounts whose states changed.
     -- |V0 contracts whose states changed. Any time we are updating a contract we know which version it is.
@@ -620,11 +650,11 @@ runRST rst r s = flip runStateT s . flip runReaderT r $ rst
 -- order to avoid expensive bind operation of the latter. The bind operation is
 -- expensive because it needs to check at each step whether the result is @Left@
 -- or @Right@.
-newtype LocalT (pv :: ProtocolVersion) r m a = LocalT { _runLocalT :: ContT (Either (Maybe RejectReason) r) (RST TransactionContext LocalState m) a }
+newtype LocalT r m a = LocalT { _runLocalT :: ContT (Either (Maybe RejectReason) r) (RST TransactionContext LocalState m) a }
   deriving(Functor, Applicative, Monad, MonadState LocalState, MonadReader TransactionContext)
 
-runLocalT :: forall pv m a . Monad m
-          => LocalT pv a m a
+runLocalT :: Monad m
+          => LocalT a m a
           -> Amount
           -> AccountIndex
           -> Energy -- Energy limit by the transaction header.
@@ -639,11 +669,15 @@ runLocalT (LocalT st) _tcDepositedAmount _tcTxSender _energyLeft _blockEnergyLef
 
   where !ctx = TransactionContext{..}
 
-instance BlockStateTypes (LocalT pv r m) where
-    type BlockState (LocalT pv r m) = BlockState m
-    type UpdatableBlockState (LocalT pv r m) = UpdatableBlockState m
-    type Account (LocalT pv r m) = Account m
-    type ContractState (LocalT pv r m) = ContractState m
+instance (MonadProtocolVersion m) => MonadProtocolVersion (LocalT r m) where
+  type MPV (LocalT r m) = MPV m
+
+instance BlockStateTypes (LocalT r m) where
+    type BlockState (LocalT r m) = BlockState m
+    type UpdatableBlockState (LocalT r m) = UpdatableBlockState m
+    type Account (LocalT r m) = Account m
+    type ContractState (LocalT r m) = ContractState m
+    type BakerInfoRef (LocalT r m) = BakerInfoRef m
 
 {-# INLINE energyUsed #-}
 -- |Compute how much energy was used from the upper bound in the header of a
@@ -655,7 +689,7 @@ energyUsed meta energy = thEnergyAmount meta - energy
 -- the sender of the transaction should be charged, as well as how much energy was used
 -- for execution.
 -- This function assumes that the deposited energy is not less than the used energy.
-computeExecutionCharge :: SchedulerMonad pv m => TransactionHeader -> Energy -> m (Energy, Amount)
+computeExecutionCharge :: SchedulerMonad m => TransactionHeader -> Energy -> m (Energy, Amount)
 computeExecutionCharge meta energy =
   let used = energyUsed meta energy
   in (used, ) <$> energyToGtu used
@@ -669,7 +703,7 @@ computeExecutionCharge meta energy =
 -- is the only one affected by the transaction, either because a transaction was
 -- rejected, or because it was a transaction which only affects one account's
 -- balance such as DeployCredential, or DeployModule.
-chargeExecutionCost :: forall m pv . AccountOperations m => SchedulerMonad pv m => IndexedAccount m -> Amount -> m ()
+chargeExecutionCost :: forall m . (AccountOperations m) => SchedulerMonad m => IndexedAccount m -> Amount -> m ()
 chargeExecutionCost (ai, acc) amnt = do
     balance <- getAccountAmount acc
     addr <- getAccountCanonicalAddress acc
@@ -708,9 +742,9 @@ makeLenses ''WithDepositContext
 --   * The deposited amount exists in the public account value.
 --   * The deposited amount is __at least__ Cost.checkHeader applied to the respective parameters (i.e., minimum transaction cost).
 withDeposit ::
-  SchedulerMonad pv m
+  SchedulerMonad m
   => WithDepositContext m
-  -> LocalT pv a m a
+  -> LocalT a m a
   -- ^The computation to run in the modified environment with reduced amount on the initial account.
   -> (LocalState -> a -> m (ValidResult, Amount, Energy))
   -- ^Continuation for the successful branch of the computation.
@@ -764,7 +798,7 @@ withDeposit wtc comp k = do
 -- from the current changeset and returns the recorded events, the amount corresponding to the
 -- used energy and the used energy.
 defaultSuccess ::
-  SchedulerMonad pv m => WithDepositContext m -> LocalState -> [Event] -> m (ValidResult, Amount, Energy)
+  SchedulerMonad m => WithDepositContext m -> LocalState -> [Event] -> m (ValidResult, Amount, Energy)
 defaultSuccess wtc = \ls events -> do
   let meta = wtc ^. wtcTransactionHeader
       senderAccount = wtc ^. wtcSenderAccount
@@ -775,15 +809,15 @@ defaultSuccess wtc = \ls events -> do
 
 
 {-# INLINE liftLocal #-}
-liftLocal :: Monad m => m a -> LocalT pv r m a
+liftLocal :: Monad m => m a -> LocalT r m a
 liftLocal m = LocalT (ContT (\k -> ReaderT (\r -> StateT (\s -> m >>= \f -> runRST (k f) r s))))
 
 
-instance MonadTrans (LocalT pv r) where
+instance MonadTrans (LocalT r) where
   {-# INLINE lift #-}
   lift = liftLocal
 
-instance StaticInformation m => StaticInformation (LocalT pv r m) where
+instance StaticInformation m => StaticInformation (LocalT r m) where
   {-# INLINE getMaxBlockEnergy #-}
   getMaxBlockEnergy = liftLocal getMaxBlockEnergy
 
@@ -802,14 +836,14 @@ instance StaticInformation m => StaticInformation (LocalT pv r m) where
   {-# INLINE getStateAccount #-}
   getStateAccount = liftLocal . getStateAccount
 
-deriving via (MGSTrans (LocalT pv r) m) instance AccountOperations m => AccountOperations (LocalT pv r m)
-deriving via (MGSTrans (LocalT pv r) m) instance ContractStateOperations m => ContractStateOperations (LocalT pv r m)
+deriving via (MGSTrans (LocalT r) m) instance AccountOperations m => AccountOperations (LocalT r m)
+deriving via (MGSTrans (LocalT r) m) instance ContractStateOperations m => ContractStateOperations (LocalT r m)
 
 -- |Execute an inner transaction, reifying it into the return value. This
 -- behaves as the given computation in case it does not exit early, and resets
 -- the state of execution to the beginning in case of an error. In this case the
 -- error is also returned in the return value.
-runInnerTransaction :: Monad m => LocalT pv a m a -> LocalT pv r m (Either RejectReason a)
+runInnerTransaction :: Monad m => LocalT a m a -> LocalT r m (Either RejectReason a)
 runInnerTransaction (LocalT kOrig) = LocalT $ ContT $ \k -> do
   initChangeSet <- use changeSet
   initModificationIndex <- use nextContractModificationIndex
@@ -825,7 +859,7 @@ runInnerTransaction (LocalT kOrig) = LocalT $ ContT $ \k -> do
          k (Left err)
     Right x -> k (Right x)
 
-instance (IsProtocolVersion pv, StaticInformation m, AccountOperations m, ContractStateOperations m) => TransactionMonad pv (LocalT pv r m) where
+instance (MonadProtocolVersion m, StaticInformation m, AccountOperations m, ContractStateOperations m) => TransactionMonad (LocalT r m) where
   {-# INLINE withInstanceStateV0 #-}
   withInstanceStateV0 istance val cont = do
     nextModificationIndex <- use nextContractModificationIndex
@@ -988,7 +1022,11 @@ instance (IsProtocolVersion pv, StaticInformation m, AccountOperations m, Contra
     oldTotal <- getAccountAmount acc
     oldLockedUp <- ARS._totalLockedUpBalance <$> getAccountReleaseSchedule acc
     bkr <- getAccountBaker acc
-    let staked = maybe 0 (^. stakedAmount) bkr
+    let bstaked = maybe 0 (^. stakedAmount) bkr
+    del <- getAccountDelegator acc
+    let dstaked = maybe 0 (\AccountDelegationV1{..} -> _delegationStakedAmount) del
+    let !() = assert (bstaked == 0 || dstaked == 0) ()
+    let staked = bstaked + dstaked
     !txCtx <- ask
     -- If the account is the sender, subtract the deposit
     let netDeposit = if txCtx ^. tcTxSender == ai
@@ -1080,7 +1118,7 @@ instance (IsProtocolVersion pv, StaticInformation m, AccountOperations m, Contra
 --   this is not necessary for the correctness of this function. In the case
 --   where the returned energy exceeds remaining energy this function will
 --   return either with 'OutOfEnergy' or 'outOfBlockEnergy'.
-withExternal :: (Cost.ResourceMeasure r, TransactionMonad pv m) => (r ->  m (Maybe (a, r))) -> m a
+withExternal :: (Cost.ResourceMeasure r, TransactionMonad m) => (r ->  m (Maybe (a, r))) -> m a
 withExternal f = do
   (availableEnergy, reason) <- getEnergy
   f (Cost.fromEnergy availableEnergy) >>= \case
@@ -1094,13 +1132,13 @@ withExternal f = do
 
 -- |Like 'withExternal' but takes a pure action that only transforms energy and does
 -- not return a value. This is a convenience wrapper only.
-withExternalPure_ :: (Cost.ResourceMeasure r, TransactionMonad pv m) => (r -> Maybe r) -> m ()
+withExternalPure_ :: (Cost.ResourceMeasure r, TransactionMonad m) => (r -> Maybe r) -> m ()
 withExternalPure_ f = withExternal (return . fmap ((),) . f)
 
 
 -- |Helper function to log when a transaction was invalid.
 {-# INLINE logInvalidBlockItem #-}
-logInvalidBlockItem :: SchedulerMonad pv m => BlockItem -> FailureKind -> m ()
+logInvalidBlockItem :: SchedulerMonad m => BlockItem -> FailureKind -> m ()
 logInvalidBlockItem WithMetadata{wmdData=NormalTransaction{},..} fk =
   logEvent Scheduler LLWarning $ "Transaction with hash " ++ show wmdHash ++ " was invalid with reason: " ++ show fk
 logInvalidBlockItem WithMetadata{wmdData=CredentialDeployment cred} fk =
@@ -1109,14 +1147,14 @@ logInvalidBlockItem WithMetadata{wmdData=ChainUpdate{},..} fk =
   logEvent Scheduler LLWarning $ "Chain update with hash " ++ show wmdHash ++ " was invalid with reason: " ++ show fk
 
 {-# INLINE logInvalidTransaction #-}
-logInvalidTransaction :: SchedulerMonad pv m => TVer.TransactionWithStatus -> FailureKind -> m ()
+logInvalidTransaction :: SchedulerMonad m => TVer.TransactionWithStatus -> FailureKind -> m ()
 logInvalidTransaction (WithMetadata{..},_) fk =
   logEvent Scheduler LLWarning $ "Transaction with hash " ++ show wmdHash ++ " was invalid with reason: " ++ show fk
 
-logInvalidCredential :: SchedulerMonad pv m => TVer.CredentialDeploymentWithStatus -> FailureKind -> m ()
+logInvalidCredential :: SchedulerMonad m => TVer.CredentialDeploymentWithStatus -> FailureKind -> m ()
 logInvalidCredential (WithMetadata{..},_) fk =
   logEvent Scheduler LLWarning $ "Credential with registration id " ++ (show . ID.credId . credential $ wmdData) ++ " was invalid with reason " ++ show fk
 
-logInvalidChainUpdate :: SchedulerMonad pv m => TVer.ChainUpdateWithStatus -> FailureKind -> m ()
+logInvalidChainUpdate :: SchedulerMonad m => TVer.ChainUpdateWithStatus -> FailureKind -> m ()
 logInvalidChainUpdate (WithMetadata{..},_) fk =
   logEvent Scheduler LLWarning $ "Chain update with hash " ++ show wmdHash ++ " was invalid with reason: " ++ show fk

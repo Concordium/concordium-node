@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE TypeApplications #-}
 {-| This module tests calling a contract from a contract and inspecting the return
     message. Concretely it invokes a counter contract that maintains a 64-bit
     counter in its state.
@@ -52,7 +53,7 @@ testCases :: [TestCase PV4]
 testCases =
   [ TestCase
     { tcName = "Counter updates and returns."
-    , tcParameters = defaultParams {tpInitialBlockState=initialBlockState}
+    , tcParameters = (defaultParams @PV4) {tpInitialBlockState=initialBlockState}
     , tcTransactions =
       [ ( TJSON { payload = DeployModule wasmModVersion counterSourceFile
                 , metadata = makeDummyHeader alesAccount 1 100000

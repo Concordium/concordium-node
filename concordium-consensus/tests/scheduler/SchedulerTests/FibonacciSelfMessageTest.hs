@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE TypeApplications #-}
 {-| This tests sending messages to contracts. Concretely it invokes
     A fibonacci contract that adds the n-th Fibonacci number to its state,
     by repeatedly sending itself messages.
@@ -55,7 +56,7 @@ testCases =
     -- the block state invariant at least tests that the total amount is preserved.
     TestCase
     { tcName = "Error handling in contracts."
-    , tcParameters = defaultParams {tpInitialBlockState=initialBlockState}
+    , tcParameters = (defaultParams @PV1){tpInitialBlockState=initialBlockState}
     , tcTransactions =
       [ ( TJSON { payload = DeployModule V0 fibSourceFile
                 , metadata = makeDummyHeader alesAccount 1 100000

@@ -133,7 +133,7 @@ data NotOkResult
 -- The type is responsible for retrieving the necessary information
 -- in order to deem a transaction `Ok`, `MaybeOk` or `NotOk`.
 -- See above for explanations of the distinction between these types.
-class (Monad m, Types.IsProtocolVersion pv) => TransactionVerifier pv m | m -> pv where
+class (Monad m, GSTypes.MonadProtocolVersion m) => TransactionVerifier m where
   -- |Get the provider identity data for the given identity provider, or Nothing if
   -- the identity provider with given ID does not exist.
   getIdentityProvider :: ID.IdentityProviderIdentity -> m (Maybe IP.IpInfo)
@@ -150,7 +150,7 @@ class (Monad m, Types.IsProtocolVersion pv) => TransactionVerifier pv m | m -> p
   -- |Get the next 'SequenceNumber' given the 'UpdateType'.
   getNextUpdateSequenceNumber :: Updates.UpdateType -> m Updates.UpdateSequenceNumber
   -- |Get the UpdateKeysCollection
-  getUpdateKeysCollection :: m Updates.UpdateKeysCollection
+  getUpdateKeysCollection :: m (Updates.UpdateKeysCollection (Types.ChainParametersVersionFor (GSTypes.MPV m)))
   -- |Get the current available amount for the specified account.
   getAccountAvailableAmount :: GSTypes.Account m -> m Types.Amount
   -- |Get the next account nonce.
@@ -175,7 +175,7 @@ class (Monad m, Types.IsProtocolVersion pv) => TransactionVerifier pv m | m -> p
 -- Otherwise if the transaction was received as part of a block then @now@ refers the timestamp of the `Slot` associated with the `Block`.
 -- 
 -- See @verifyCredentialDeployment@, @verifyChainUpdate@ and @verifyNormalTransaction@.
-verify :: TransactionVerifier pv m => Types.Timestamp -> Tx.BlockItem ->  m VerificationResult
+verify :: TransactionVerifier m => Types.Timestamp -> Tx.BlockItem ->  m VerificationResult
 verify now bi = do
   if Types.transactionExpired (Tx.msgExpiry bi) now then return (NotOk Expired)
   else
@@ -195,7 +195,7 @@ verify now bi = do
 --   The `Scheduler` ensures that an account address doesn't clash with an existing one on the chain.
 -- * Validity of the 'IdentityProvider' and 'AnonymityRevokers' provided.
 -- * That the 'CredentialDeployment' contains valid signatures.
-verifyCredentialDeployment :: TransactionVerifier pv m => Types.Timestamp -> Tx.AccountCreation -> m VerificationResult
+verifyCredentialDeployment :: TransactionVerifier m => Types.Timestamp -> Tx.AccountCreation -> m VerificationResult
 verifyCredentialDeployment now accountCreation@Tx.AccountCreation{..} =
   either id id <$> runExceptT (do
     -- check that the credential deployment is not yet expired
@@ -233,10 +233,10 @@ verifyCredentialDeployment now accountCreation@Tx.AccountCreation{..} =
 -- * Checks that the effective time is no later than the timeout of the chain update.
 -- * Checks that provided sequence number is sequential.
 -- * Checks that the 'ChainUpdate' is correctly signed.
-verifyChainUpdate :: forall pv m . TransactionVerifier pv m => Updates.UpdateInstruction -> m VerificationResult
+verifyChainUpdate :: forall m . TransactionVerifier m => Updates.UpdateInstruction -> m VerificationResult
 verifyChainUpdate ui@Updates.UpdateInstruction{..} =
   either id id <$> runExceptT (do
-    unless (Types.validatePayloadSize (Types.protocolVersion @pv) (Updates.updatePayloadSize uiHeader)) $
+    unless (Types.validatePayloadSize (Types.protocolVersion @(GSTypes.MPV m)) (Updates.updatePayloadSize uiHeader)) $
         throwError $ NotOk InvalidPayloadSize
     -- Check that the timeout is no later than the effective time,
     -- or the update is immediate
@@ -261,12 +261,12 @@ verifyChainUpdate ui@Updates.UpdateInstruction{..} =
 -- * Checks that the sender is a valid account.
 -- * Checks that the nonce is correct.
 -- * Checks that the 'NormalTransaction' is correctly signed.
-verifyNormalTransaction :: forall pv m msg . (TransactionVerifier pv m, Tx.TransactionData msg)
+verifyNormalTransaction :: forall m msg . (TransactionVerifier m, Tx.TransactionData msg)
                         => msg
                         -> m VerificationResult
 verifyNormalTransaction meta =
   either id id <$> runExceptT (do
-    unless (Types.validatePayloadSize (Types.protocolVersion @pv) (Tx.thPayloadSize (Tx.transactionHeader meta))) $
+    unless (Types.validatePayloadSize (Types.protocolVersion @(GSTypes.MPV m)) (Tx.thPayloadSize (Tx.transactionHeader meta))) $
         throwError $ NotOk InvalidPayloadSize
     -- Check that enough energy is supplied
     let cost = Cost.baseCost (Tx.getTransactionHeaderPayloadSize $ Tx.transactionHeader meta) (Tx.getTransactionNumSigs (Tx.transactionSignature meta))

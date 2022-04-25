@@ -24,6 +24,7 @@ import qualified SchedulerTests.MaxIncomingAmountsTest(tests)
 import qualified SchedulerTests.StakedAmountLocked(tests)
 import qualified SchedulerTests.RejectReasons(tests)
 import qualified SchedulerTests.RejectReasonsRustContract(tests)
+import qualified SchedulerTests.Payday(tests)
 
 import qualified SchedulerTests.SmartContracts.V1.Counter(tests)
 import qualified SchedulerTests.SmartContracts.V1.Transfer(tests)
@@ -76,3 +77,4 @@ main = hspec $ do
          SchedulerTests.SmartContracts.V1.Iterator.tests
          SchedulerTests.SmartContracts.V1.Fallback.tests
          SchedulerTests.SmartContracts.V1.Checkpointing.tests
+         SchedulerTests.Payday.tests

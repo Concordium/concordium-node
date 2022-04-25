@@ -26,7 +26,7 @@ import qualified Data.ByteString as BS
 import Data.Either
 import qualified Data.Map.Strict as Map
 
-import Concordium.Types (AccountAddress, BakerId(..), AccountIndex(..), ModuleRef(..))
+import Concordium.Types (AccountAddress, BakerId(..), DelegatorId(..), AccountIndex(..), ModuleRef(..))
 import Concordium.Utils
 import qualified Concordium.Crypto.SHA256 as SHA256
 import qualified Concordium.Crypto.BlsSignature as Bls
@@ -60,6 +60,7 @@ instance FixedTrieKey SHA256.Hash
 deriving via SHA256.Hash instance FixedTrieKey ModuleRef
 instance FixedTrieKey AccountAddress
 deriving via Word64 instance FixedTrieKey BakerId
+deriving via Word64 instance FixedTrieKey DelegatorId
 instance FixedTrieKey Bls.PublicKey -- FIXME: This is a bad instance. Serialization of these is expensive.
 instance FixedTrieKey IDTypes.CredentialRegistrationID -- FIXME: this is not the best instance, serialization is expensive.
 
@@ -69,6 +70,7 @@ class (Ord a, FixedTrieKey a) => OrdFixedTrieKey a
 instance OrdFixedTrieKey Word64
 instance OrdFixedTrieKey Word32
 deriving via Word64 instance OrdFixedTrieKey BakerId
+deriving via Word64 instance OrdFixedTrieKey DelegatorId
 
 -- |Trie with keys all of same fixed length treated as lists of bytes.
 -- The first parameter of 'TrieF' is the type of keys, which should
@@ -250,7 +252,7 @@ lookupPrefixF ks = lu [] ks <=< mproject
 
 -- |Traverse the trie, applying a function to each key value pair and concatenating the
 -- results monoidally.  Keys are traversed from lowest to highest in their byte-wise
--- resepresation.
+-- representation.
 mapReduceF :: (MRecursive m t, Base t ~ TrieF k v, FixedTrieKey k, Monoid a) => (k -> v -> m a) -> t -> m a
 mapReduceF mfun = mr [] <=< mproject
     where
@@ -459,6 +461,26 @@ adjust adj k (TrieN s t) = do
     case mt' of
         Just t' -> return (res, TrieN s' t')
         Nothing -> return (res, EmptyTrieN)
+
+-- |Apply a monadic filter on a Trie.
+-- TODO: This could be made more performant.
+filterKeysM :: (MRecursive m (fix (TrieF k v)), MCorecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, FixedTrieKey k) =>
+    (k -> m Bool) -> TrieN fix k v -> m (TrieN fix k v)
+filterKeysM f t = do
+    k <- keys t
+    keysToDelete <- filterM (fmap not . f) k
+    foldM (flip delete) t keysToDelete
+
+-- |Apply a monadic alteration to each element of a Trie.
+alterMapM :: (MRecursive m (fix (TrieF k v)), MCorecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, FixedTrieKey k) =>
+    (k -> v -> m (Alteration v)) -> TrieN fix k v -> m (TrieN fix k v)
+alterMapM upd t0 = do
+    let makeAlteration (k, v) = (k,) <$> upd k v
+    alterations <- mapM makeAlteration =<< toList t0
+    let doAlteration t (_, NoChange) = return t
+        doAlteration t (k, Remove) = delete k t
+        doAlteration t (k, Insert v) = insert k v t
+    foldM doAlteration t0 alterations
 
 -- |Get the list of keys of a trie.
 keys :: (MRecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, FixedTrieKey k) => TrieN fix k v -> m [k]

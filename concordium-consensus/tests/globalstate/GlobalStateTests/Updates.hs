@@ -123,7 +123,7 @@ destroyGS (Identity c, Identity s) =
 --------------------------------------------------------------------------------
 
 limit :: Amount
-limit = dummyChainParameters ^. cpBakerStakeThreshold
+limit = dummyChainParameters ^. cpPoolParameters . ppBakerStakeThreshold
 limitDelta :: AmountDelta
 limitDelta = fromIntegral limit
 
@@ -192,7 +192,7 @@ increaseLimit newLimit ((bs, bs2), ai) = do
         -- load the current parameters
         currentParams <- unStoreSerialized <$> refLoad (PU.currentParameters updates)
         -- store the new parameters
-        newParams <- refMake $ StoreSerialized (currentParams & cpBakerStakeThreshold .~ newLimit)
+        newParams <- refMake $ StoreSerialized (currentParams & cpPoolParameters . ppBakerStakeThreshold .~ newLimit)
         -- store the new updates
         newUpdates <- refMake (updates {PU.currentParameters = newParams })
         -- store the new block in the IORef
@@ -209,7 +209,7 @@ increaseLimit newLimit ((bs, bs2), ai) = do
                         -- requirements.
                         runReaderT (PBS.runPersistentBlockStateMonad f) rc
                         return ((), ps, ())))
-  return ((bs & blockUpdates . UQ.currentParameters . cpBakerStakeThreshold .~ newLimit, bs2), ai)
+  return ((bs & blockUpdates . UQ.currentParameters . cpPoolParameters . ppBakerStakeThreshold .~ newLimit, bs2), ai)
 
 --------------------------------------------------------------------------------
 --                                                                            --

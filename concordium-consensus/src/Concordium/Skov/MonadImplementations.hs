@@ -11,6 +11,9 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE InstanceSigs #-}
+-- FIXME: This is to suppress compiler warnings for derived instances of BlockStateOperations.
+-- This may be fixed in GHC 9.0.1.
+{-# OPTIONS_GHC -Wno-redundant-constraints #-}
 module Concordium.Skov.MonadImplementations where
 
 import Data.Kind
@@ -65,7 +68,7 @@ type TreeStateType pv c = TreeStateBlockStateM
                        (Identity (GSState c pv))
                        (RWSTIO c pv)
 
-type GlobalStateQuery pv c = (BlockStateStorage (BlockStateType pv c), TreeStateMonad pv (TreeStateType pv c))
+type GlobalStateQuery pv c = (BlockStateStorage (BlockStateType pv c), TreeStateMonad (TreeStateType pv c))
 
 -- |This is a convenience wrapper that automatically implements SkovQueryMonad via SkovQueryMonadT
 -- instance.
@@ -112,7 +115,7 @@ class FinalizationConfig finconfig where
     -- |The state type associated with this type of finalization configuration.
     type FCState finconfig
     -- |Generate an initial context and state from a finalization configuration.
-    initialiseFinalization :: (MonadIO m, SkovQueryMonad pv m) => finconfig -> m (FCContext finconfig, FCState finconfig)
+    initialiseFinalization :: (MonadIO m, SkovQueryMonad m) => finconfig -> m (FCContext finconfig, FCState finconfig)
 
 -- |Type of finalization configuration for no active participation in finalization.
 -- The type parameter is the type of timers supported by the 'TimerMonad' in which finalization
@@ -221,7 +224,6 @@ instance
       forall pv c s.
       (IsProtocolVersion pv, c ~ GSContext gsconfig pv, s ~ GSState gsconfig pv) =>
       SkovQueryMonad
-        pv
         ( GlobalStateM
             pv
             NoLogContext
@@ -397,6 +399,9 @@ deriving via SkovTGSM pv h c' m
     instance GlobalStateTypes (SkovTGSM pv h c' m)
              => GlobalStateTypes (SkovT pv h c' m)
 
+instance (IsProtocolVersion pv) => MonadProtocolVersion (SkovT pv h c' m) where
+    type MPV (SkovT pv h c' m) = pv
+
 deriving via SkovTGSM pv h c' m
     instance (Monad m,
               BlockPointerMonad (SkovTGSM pv h c' m))
@@ -405,15 +410,16 @@ deriving via SkovTGSM pv h c' m
 deriving via SkovTGSM pv h c' m
     instance (Monad m,
               IsProtocolVersion pv,
-              TreeStateMonad pv (SkovTGSM pv h c' m))
-              => TreeStateMonad pv (SkovT pv h c' m)
+              TreeStateMonad (SkovTGSM pv h c' m))
+              => TreeStateMonad (SkovT pv h c' m)
 
 deriving via SkovQueryMonadT (SkovT pv h c m) instance (
         IsProtocolVersion pv,
+        Monad m,
         BlockStateQuery (SkovT pv h c m),
         BlockPointerMonad (SkovT pv h c m),
-        TreeStateMonad pv (SkovT pv h c m)
-        ) => SkovQueryMonad pv (SkovT pv h c m)
+        TreeStateMonad (SkovT pv h c m)
+        ) => SkovQueryMonad (SkovT pv h c m)
 
 instance (
         Monad m,
@@ -421,9 +427,9 @@ instance (
         MonadLogger m,
         OnSkov (SkovT pv h c m),
         BlockStateStorage (SkovT pv h c m),
-        TreeStateMonad pv (SkovT pv h c m),
+        TreeStateMonad (SkovT pv h c m),
         FinalizationMonad (SkovT pv h c m))
-        => SkovMonad pv (SkovT pv h c m) where
+        => SkovMonad (SkovT pv h c m) where
     {- - INLINE storeBlock - -}
     storeBlock = doStoreBlock
     {- - INLINE receiveTransaction - -}
@@ -461,7 +467,7 @@ instance HandlerConfig LogUpdateHandler where
     type HCState LogUpdateHandler = ()
     initialiseHandler = \_ -> ((),())
 
-instance (Monad m, SkovMonad pv (SkovT pv h (SkovConfig pv gc fc LogUpdateHandler) m)) => HandlerConfigHandlers LogUpdateHandler (SkovT pv h (SkovConfig pv gc fc LogUpdateHandler) m) where
+instance (SkovMonad (SkovT pv h (SkovConfig pv gc fc LogUpdateHandler) m)) => HandlerConfigHandlers LogUpdateHandler (SkovT pv h (SkovConfig pv gc fc LogUpdateHandler) m) where
     handleBlock = \_ -> return ()
     handleFinalize = \_ _ ->
         Skov.getProtocolUpdateStatus >>= \case
@@ -534,20 +540,17 @@ type ActiveFinalizationMWith pv gc fc hc h m =
         (SkovT pv h (SkovConfig pv gc fc hc) m)
 
 deriving via (ActiveFinalizationMWith pv gc (NoFinalization t) hc h m)
-    instance (t ~ SkovHandlerTimer h, MonadIO m, SkovMonad pv (SkovT pv h (SkovConfig pv gc (NoFinalization t) hc) m),
-        TreeStateMonad pv (SkovT pv h (SkovConfig pv gc (NoFinalization t) hc) m),
+    instance (t ~ SkovHandlerTimer h, MonadIO m, SkovMonad (SkovT pv h (SkovConfig pv gc (NoFinalization t) hc) m),
         SkovTimerHandlers pv h (SkovConfig pv gc (NoFinalization t) hc) m)
         => FinalizationMonad (SkovT pv h (SkovConfig pv gc (NoFinalization t) hc) m)
 
 deriving via (ActiveFinalizationMWith pv gc (ActiveFinalization t) hc h m)
-    instance (t ~ SkovHandlerTimer h, MonadIO m, SkovMonad pv (SkovT pv h (SkovConfig pv gc (ActiveFinalization t) hc) m),
-        TreeStateMonad pv (SkovT pv h (SkovConfig pv gc (ActiveFinalization t) hc) m),
+    instance (t ~ SkovHandlerTimer h, MonadIO m, SkovMonad (SkovT pv h (SkovConfig pv gc (ActiveFinalization t) hc) m),
         SkovTimerHandlers pv h (SkovConfig pv gc (ActiveFinalization t) hc) m, SkovFinalizationHandlers h m)
         => FinalizationMonad (SkovT pv h (SkovConfig pv gc (ActiveFinalization t) hc) m)
 
 deriving via (ActiveFinalizationMWith pv gc (BufferedFinalization t) hc h m)
-    instance (t ~ SkovHandlerTimer h, MonadIO m, TimeMonad m, MonadLogger m, SkovMonad pv (SkovT pv h (SkovConfig pv gc (BufferedFinalization t) hc) m),
-        TreeStateMonad pv (SkovT pv h (SkovConfig pv gc (BufferedFinalization t) hc) m),
+    instance (t ~ SkovHandlerTimer h, MonadIO m, TimeMonad m, MonadLogger m, SkovMonad (SkovT pv h (SkovConfig pv gc (BufferedFinalization t) hc) m),
         SkovTimerHandlers pv h (SkovConfig pv gc (BufferedFinalization t) hc) m, SkovFinalizationHandlers h m)
         => FinalizationMonad (SkovT pv h (SkovConfig pv gc (BufferedFinalization t) hc) m)
 
@@ -587,7 +590,7 @@ type SkovConfigMonad (pv :: ProtocolVersion) (h :: Type) (c :: Type) (m :: Type 
     ( OnSkov (SkovT pv h c m),
       BlockStateStorage (BlockStateConfigM pv h c m),
       GlobalStateTypes (TreeStateConfigM pv h c m),
-      TreeStateMonad pv (TreeStateConfigM pv h c m),
+      TreeStateMonad (TreeStateConfigM pv h c m),
       BlockPointerMonad (TreeStateConfigM pv h c m),
       BlockFields ~ BlockFieldType (BlockPointerType (SkovTGSM pv h c m)),
       BlockPointerType (TreeStateConfigM pv h c m) ~ BlockPointerType (SkovT pv h c m)
@@ -595,7 +598,7 @@ type SkovConfigMonad (pv :: ProtocolVersion) (h :: Type) (c :: Type) (m :: Type 
 
 type SkovQueryConfigMonad pv c m =
     ( BlockFields ~ BlockFieldType (BlockPointerType (TreeStateConfigM pv () c m)),
-      TreeStateMonad pv (SkovTGSM pv () c m),
+      TreeStateMonad (SkovTGSM pv () c m),
       BlockPointerMonad (SkovTGSM pv () c m),
       BlockStateStorage (BlockStateConfigM pv () c m)
     )

@@ -3,6 +3,9 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
+-- FIXME: This is to suppress compiler warnings for derived instances of BlockStateOperations.
+-- This may be fixed in GHC 9.0.1.
+{-# OPTIONS_GHC -Wno-redundant-constraints #-}
 -- |This module lifts the abstractions declared in the globalstate package to an
 -- abstracted new type `GlobalStateM` that inherits all the monad behaviors defined
 -- in this package.
@@ -98,6 +101,9 @@ import Concordium.Types.Block (AbsoluteBlockHeight)
 newtype BlockStateM (pv :: ProtocolVersion) c r g s m a = BlockStateM { runBlockStateM :: m a }
     deriving (Functor, Applicative, Monad, MonadIO, MonadLogger)
 
+instance (IsProtocolVersion pv) => MonadProtocolVersion (BlockStateM pv c r g s m) where
+    type MPV (BlockStateM pv c r g s m) = pv
+
 -- * Specializations
 
 type MemoryBlockStateM pv r g s m = BlockStateM pv () r g s m
@@ -151,6 +157,7 @@ deriving via PersistentBlockStateMonad pv
               PersistentBlockStateContext
               (FocusGlobalStateM PersistentBlockStateContext g m)
     instance (MonadIO m,
+              IsProtocolVersion pv,
               BlockStateQuery (PersistentBlockStateMonad pv
                                 PersistentBlockStateContext
                                 (FocusGlobalStateM PersistentBlockStateContext g m)))
@@ -169,6 +176,7 @@ deriving via PersistentBlockStateMonad pv
               PersistentBlockStateContext
               (FocusGlobalStateM PersistentBlockStateContext g m)
     instance (MonadIO m,
+              IsProtocolVersion pv,
               ContractStateOperations (PersistentBlockStateMonad pv
                                         PersistentBlockStateContext
                                         (FocusGlobalStateM PersistentBlockStateContext g m)))
@@ -179,6 +187,7 @@ deriving via PersistentBlockStateMonad pv
               PersistentBlockStateContext
               (FocusGlobalStateM PersistentBlockStateContext g m)
     instance (MonadIO m,
+              IsProtocolVersion pv,
               BlockStateOperations (PersistentBlockStateMonad pv
                                      PersistentBlockStateContext
                                      (FocusGlobalStateM PersistentBlockStateContext g m)))
@@ -188,6 +197,7 @@ deriving via PersistentBlockStateMonad pv
               PersistentBlockStateContext
               (FocusGlobalStateM PersistentBlockStateContext g m)
     instance (MonadIO m,
+              IsProtocolVersion pv,
               BlockStateStorage (PersistentBlockStateMonad pv
                                   PersistentBlockStateContext
                                   (FocusGlobalStateM PersistentBlockStateContext g m)))
@@ -205,7 +215,10 @@ deriving via PersistentBlockStateMonad pv
 -- * If @s@ is 'SkovData pv bs', then the in-memory, Haskell tree state is used.
 -- * If @s@ is 'SkovPersistentData pv ati bs', then the persistent Haskell tree state is used.
 newtype TreeStateM s m a = TreeStateM {runTreeStateM :: m a}
-    deriving (Functor, Applicative, Monad, MonadState s, MonadIO, BlockStateTypes, BlockStateQuery, AccountOperations, BlockStateOperations, BlockStateStorage, ContractStateOperations)
+    deriving (Functor, Applicative, Monad, MonadState s, MonadIO, BlockStateTypes, BlockStateQuery,
+            AccountOperations, BlockStateOperations, BlockStateStorage, ContractStateOperations)
+
+deriving instance MonadProtocolVersion m => MonadProtocolVersion (TreeStateM s m)
 
 -- * Specializations
 type MemoryTreeStateM pv bs m = TreeStateM (SkovData pv bs) m
@@ -213,49 +226,53 @@ type PersistentTreeStateM pv ati bs m = TreeStateM (SkovPersistentData pv ati bs
 
 -- * Specialized implementations
 -- ** Memory implementations
-deriving via PureTreeStateMonad pv bs m
+deriving via PureTreeStateMonad bs m
     instance ATITypes (MemoryTreeStateM pv bs m)
 
-deriving via PureTreeStateMonad pv bs m
+deriving via PureTreeStateMonad bs m
     instance Monad m => PerAccountDBOperations (MemoryTreeStateM pv bs m)
 
-deriving via PureTreeStateMonad pv bs m
+deriving via PureTreeStateMonad bs m
     instance GlobalStateTypes (MemoryTreeStateM pv bs m)
 
-deriving via PureTreeStateMonad pv bs m
+deriving via PureTreeStateMonad bs m
     instance (Monad m,
-              BlockPointerMonad (PureTreeStateMonad pv bs m))
+              BlockPointerMonad (PureTreeStateMonad bs m))
              => BlockPointerMonad (MemoryTreeStateM pv bs m)
 
-deriving via PureTreeStateMonad pv bs m
+deriving via PureTreeStateMonad bs m
     instance (Monad m,
+              MPV m ~ pv, MonadProtocolVersion m,
               BlockStateStorage m,
-              TreeStateMonad pv (PureTreeStateMonad pv bs m))
-             => TreeStateMonad pv (MemoryTreeStateM pv bs m)
+              TreeStateMonad (PureTreeStateMonad bs m))
+             => TreeStateMonad (MemoryTreeStateM pv bs m)
 
 -- ** Disk implementations
-deriving via PersistentTreeStateMonad pv ati bs m
-    instance ATITypes (PersistentTreeStateMonad pv ati bs m)
+deriving via PersistentTreeStateMonad ati bs m
+    instance ATITypes (PersistentTreeStateMonad ati bs m)
              => ATITypes (PersistentTreeStateM pv ati bs m)
 
-deriving via PersistentTreeStateMonad pv ati bs m
+deriving via PersistentTreeStateMonad ati bs m
     instance (Monad m,
-              PerAccountDBOperations (PersistentTreeStateMonad pv ati bs m))
+              PerAccountDBOperations (PersistentTreeStateMonad ati bs m))
            => PerAccountDBOperations (PersistentTreeStateM pv ati bs m)
 
-deriving via PersistentTreeStateMonad pv ati bs m
+deriving via PersistentTreeStateMonad ati bs m
     instance GlobalStateTypes (PersistentTreeStateM pv ati bs m)
 
-deriving via PersistentTreeStateMonad pv ati bs m
+deriving via PersistentTreeStateMonad ati bs m
     instance (Monad m,
-              BlockPointerMonad (PersistentTreeStateMonad pv ati bs m))
+              BlockPointerMonad (PersistentTreeStateMonad ati bs m),
+              MPV m ~ pv)
              => BlockPointerMonad (PersistentTreeStateM pv ati bs m)
 
-deriving via PersistentTreeStateMonad pv ati bs m
+deriving via PersistentTreeStateMonad ati bs m
     instance (Monad m,
+              MonadProtocolVersion m,
               BlockStateStorage m,
-              TreeStateMonad pv (PersistentTreeStateMonad pv ati bs m))
-             => TreeStateMonad pv (PersistentTreeStateM pv ati bs m)
+              TreeStateMonad (PersistentTreeStateMonad ati bs m),
+              MPV m ~ pv)
+             => TreeStateMonad (PersistentTreeStateM pv ati bs m)
 
 -- |A newtype wrapper for providing instances of global state monad classes.
 -- The block state monad instances are derived directly from 'BlockStateM'.
@@ -266,6 +283,9 @@ deriving via PersistentTreeStateMonad pv ati bs m
 newtype GlobalStateM (pv :: ProtocolVersion) db c r g s m a = GlobalStateM {runGlobalStateM :: m a}
     deriving (Functor, Applicative, Monad, MonadReader r, MonadState s, MonadIO, MonadLogger)
     deriving (BlockStateTypes) via (BlockStateM pv c r g s m)
+
+instance (IsProtocolVersion pv) => MonadProtocolVersion (GlobalStateM pv db c r g s m) where
+    type MPV (GlobalStateM pv db c r g s m) = pv
 
 -- * Specializations
 
@@ -318,10 +338,9 @@ deriving via TreeStateBlockStateM pv g c r s m
 
 deriving via TreeStateBlockStateM pv g c r s m
     instance (Monad m,
-              IsProtocolVersion pv,
               BlockStateStorage (BlockStateM pv c r g s m),
-              TreeStateMonad pv (TreeStateBlockStateM pv g c r s m))
-             => TreeStateMonad pv (GlobalStateM pv db c r g s m)
+              TreeStateMonad (TreeStateBlockStateM pv g c r s m))
+             => TreeStateMonad (GlobalStateM pv db c r g s m)
 
 -----------------------------------------------------------------------------
 
@@ -452,7 +471,7 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
         isd <- runReaderT (runPersistentBlockStateMonad initGS) pbsc
                 `onException` liftIO (destroyBlobStore pbscBlobStore)
         return (pbsc, isd, NoLogContext)
-    shutdownGlobalState _ _ (PersistentBlockStateContext{..}) st _ = do
+    shutdownGlobalState _ _ PersistentBlockStateContext{..} st _ = do
         closeBlobStore pbscBlobStore
         closeSkovPersistentData st
 
@@ -504,3 +523,4 @@ instance GlobalStateConfig DiskTreeDiskBlockWithLogConfig where
         closeBlobStore pbscBlobStore
         destroyAllResources (connectionPool transactionLogContext)
         closeSkovPersistentData st
+--}

@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<document type="com.apple.InterfaceBuilder3.Cocoa.XIB" version="3.0" toolsVersion="19142.2" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none" useAutolayout="YES" customObjectInstantitationMethod="direct">
+<document type="com.apple.InterfaceBuilder3.Cocoa.XIB" version="3.0" toolsVersion="20037" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none" useAutolayout="YES" customObjectInstantitationMethod="direct">
     <dependencies>
         <deployment identifier="macosx"/>
-        <plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="19142.2"/>
+        <plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="20037"/>
         <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
     </dependencies>
     <objects>
@@ -58,6 +58,9 @@
                                             <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
                                             <font key="font" metaFont="cellTitle"/>
                                         </buttonCell>
+                                        <connections>
+                                            <action selector="onChangeInMainnetOptions:" target="Qsn-FY-4qK" id="aMc-ix-wus"/>
+                                        </connections>
                                     </button>
                                     <button verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="LQe-C5-BaQ">
                                         <rect key="frame" x="-2" y="103" width="156" height="30"/>
@@ -67,6 +70,9 @@
 installation is complete</string>
                                             <font key="font" metaFont="cellTitle"/>
                                         </buttonCell>
+                                        <connections>
+                                            <action selector="onChangeInMainnetOptions:" target="Qsn-FY-4qK" id="Fwa-BZ-AxI"/>
+                                        </connections>
                                     </button>
                                     <button verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="eb0-B9-ujV">
                                         <rect key="frame" x="-2" y="55" width="153" height="30"/>
@@ -76,6 +82,9 @@ installation is complete</string>
 dashboard</string>
                                             <font key="font" metaFont="cellTitle"/>
                                         </buttonCell>
+                                        <connections>
+                                            <action selector="onChangeInMainnetOptions:" target="Qsn-FY-4qK" id="O1d-e8-mkV"/>
+                                        </connections>
                                     </button>
                                     <stackView distribution="fill" orientation="vertical" alignment="leading" spacing="1" horizontalStackHuggingPriority="249.99998474121094" verticalStackHuggingPriority="249.99998474121094" ambiguous="YES" detachesHiddenViews="YES" translatesAutoresizingMaskIntoConstraints="NO" id="iBl-6w-lGX">
                                         <rect key="frame" x="0.0" y="0.0" width="173" height="37"/>
@@ -139,6 +148,9 @@ dashboard</string>
                                             <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
                                             <font key="font" metaFont="cellTitle"/>
                                         </buttonCell>
+                                        <connections>
+                                            <action selector="onChangeInTestnetOptions:" target="Qsn-FY-4qK" id="ryM-o2-VYh"/>
+                                        </connections>
                                     </button>
                                     <button verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="hFo-wT-utD">
                                         <rect key="frame" x="-2" y="103" width="156" height="30"/>
@@ -148,6 +160,9 @@ dashboard</string>
 installation is complete</string>
                                             <font key="font" metaFont="cellTitle"/>
                                         </buttonCell>
+                                        <connections>
+                                            <action selector="onChangeInTestnetOptions:" target="Qsn-FY-4qK" id="qWG-rd-DrH"/>
+                                        </connections>
                                     </button>
                                     <button verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="E6D-gA-wdc">
                                         <rect key="frame" x="-2" y="55" width="153" height="30"/>
@@ -157,6 +172,9 @@ installation is complete</string>
 dashboard</string>
                                             <font key="font" metaFont="cellTitle"/>
                                         </buttonCell>
+                                        <connections>
+                                            <action selector="onChangeInTestnetOptions:" target="Qsn-FY-4qK" id="KgP-zL-cll"/>
+                                        </connections>
                                     </button>
                                     <stackView distribution="fill" orientation="vertical" alignment="leading" spacing="1" horizontalStackHuggingPriority="249.99998474121094" verticalStackHuggingPriority="249.99998474121094" ambiguous="YES" detachesHiddenViews="YES" translatesAutoresizingMaskIntoConstraints="NO" id="8yU-7r-OGL">
                                         <rect key="frame" x="0.0" y="0.0" width="173" height="37"/>

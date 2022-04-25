@@ -93,7 +93,7 @@ myRunSkovT a handlers ctx st = liftIO $ flip runLoggerT doLog $ do
         doLog _ _ _ = return () -- traceM $ show src ++ ": " ++ msg
 
 type BakerState = (BakerIdentity, SkovContext (Config DummyTimer), SkovState (Config DummyTimer))
-type BakerInformation = (FullBakerInfo, BakerIdentity, Account PV)
+type BakerInformation = (FullBakerInfo, BakerIdentity, Account (AccountVersionFor PV))
 
 -- |Create initial states for two bakers
 createInitStates :: IO (BakerState, BakerState)
@@ -158,14 +158,14 @@ bake bid n = do
           mb
 
 -- |Attempts to store a block, and throws an error if it fails
-store :: (SkovMonad pv m, MonadFail m) => BakedBlock -> m ()
+store :: (SkovMonad m, MonadFail m) => BakedBlock -> m ()
 store block = storeBlock (makePendingBlock block dummyTime) >>= \case
     ResultSuccess -> return()
     result        -> fail $ "Failed to store un-dirtied block " ++ show block ++ ". Reason: " ++ show result
 
 -- |Attempts to store a block, and throws an error if it succeeds
 -- Used for verifying that dirtied blocks are rejected
-failStore :: (SkovMonad pv m, MonadFail m) => BakedBlock -> m ()
+failStore :: (SkovMonad m, MonadFail m) => BakedBlock -> m ()
 failStore block = storeBlock (makePendingBlock block dummyTime) >>= \case
     ResultSuccess -> fail $ "Successfully stored dirtied block: " ++ show block
     _        -> return()

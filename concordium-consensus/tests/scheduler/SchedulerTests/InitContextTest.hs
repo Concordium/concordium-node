@@ -35,7 +35,7 @@ import Concordium.Crypto.DummyData
 import SchedulerTests.Helpers
 import SchedulerTests.TestUtils
 
-initialBlockState :: IsProtocolVersion pv => BlockState pv
+initialBlockState :: (IsProtocolVersion pv) => BlockState pv
 initialBlockState = blockStateWithAlesAccount 1000000000 emptyAccounts
 
 chainMeta :: Types.ChainMetadata

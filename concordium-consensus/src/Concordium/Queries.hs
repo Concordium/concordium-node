@@ -20,13 +20,13 @@ import Lens.Micro.Platform
 
 import Concordium.Common.Version
 import Concordium.Genesis.Data
+import Concordium.GlobalState.Instance
 import Concordium.Types
 import Concordium.Types.Accounts
 import Concordium.Types.AnonymityRevokers
 import Concordium.Types.Block (absoluteToLocalBlockHeight, localToAbsoluteBlockHeight)
 import Concordium.Types.HashableTo
 import Concordium.Types.IdentityProviders
-import Concordium.GlobalState.Instance
 import Concordium.Types.Parameters
 import Concordium.Types.Queries
 import Concordium.Types.SeedState
@@ -45,7 +45,6 @@ import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer
 import qualified Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.Finalization
-import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Statistics
 import qualified Concordium.GlobalState.TransactionTable as TT
 import qualified Concordium.GlobalState.Wasm as GSWasm
@@ -64,7 +63,7 @@ liftSkovQuery ::
     MultiVersionRunner gsconf finconf ->
     EVersionedConfiguration gsconf finconf ->
     ( forall (pv :: ProtocolVersion).
-      ( SkovMonad pv (VersionedSkovM gsconf finconf pv),
+      ( SkovMonad (VersionedSkovM gsconf finconf pv),
         FinalizationMonad (VersionedSkovM gsconf finconf pv)
       ) =>
       VersionedSkovM gsconf finconf pv a
@@ -77,7 +76,7 @@ liftSkovQuery mvr (EVersionedConfiguration vc) a = do
 -- |Run a query against the latest skov version.
 liftSkovQueryLatest ::
     ( forall (pv :: ProtocolVersion).
-      ( SkovMonad pv (VersionedSkovM gsconf finconf pv),
+      ( SkovMonad (VersionedSkovM gsconf finconf pv),
         FinalizationMonad (VersionedSkovM gsconf finconf pv)
       ) =>
       VersionedSkovM gsconf finconf pv a
@@ -91,7 +90,7 @@ liftSkovQueryLatest a = MVR $ \mvr -> do
 liftSkovQueryAtGenesisIndex ::
     GenesisIndex ->
     ( forall (pv :: ProtocolVersion).
-      ( SkovMonad pv (VersionedSkovM gsconf finconf pv),
+      ( SkovMonad (VersionedSkovM gsconf finconf pv),
         FinalizationMonad (VersionedSkovM gsconf finconf pv)
       ) =>
       VersionedSkovM gsconf finconf pv a
@@ -122,7 +121,7 @@ atLatestSuccessfulVersion a mvr = do
 -- versions to check.
 liftSkovQueryLatestResult ::
     ( forall (pv :: ProtocolVersion).
-      ( SkovMonad pv (VersionedSkovM gsconf finconf pv),
+      ( SkovMonad (VersionedSkovM gsconf finconf pv),
         FinalizationMonad (VersionedSkovM gsconf finconf pv)
       ) =>
       VersionedSkovM gsconf finconf pv (Maybe a)
@@ -136,7 +135,7 @@ liftSkovQueryLatestResult a = MVR $ \mvr ->
 -- versions.
 liftSkovQueryBlock ::
     ( forall (pv :: ProtocolVersion).
-      ( SkovMonad pv (VersionedSkovM gsconf finconf pv),
+      ( SkovMonad (VersionedSkovM gsconf finconf pv),
         FinalizationMonad (VersionedSkovM gsconf finconf pv)
       ) =>
       BlockPointerType (VersionedSkovM gsconf finconf pv) ->
@@ -156,7 +155,7 @@ liftSkovQueryBlock a bh =
 -- to the query function.
 liftSkovQueryBlockAndVersion ::
     ( forall (pv :: ProtocolVersion).
-      ( SkovMonad pv (VersionedSkovM gsconf finconf pv),
+      ( SkovMonad (VersionedSkovM gsconf finconf pv),
         FinalizationMonad (VersionedSkovM gsconf finconf pv)
       ) =>
       VersionedConfiguration gsconf finconf pv ->
@@ -352,47 +351,51 @@ getBlockInfo bh =
 --   * The transaction outcomes in the block (including special transactions)
 --   * Details of any finalization record in the block
 --   * The state of the chain parameters and any pending updates
-getBlockSummary :: BlockHash -> MVR gsconf finconf (Maybe BlockSummary)
-getBlockSummary = liftSkovQueryBlock $ \bp -> do
-    bs <- blockState bp
-    bsTransactionSummaries <- BS.getOutcomes bs
-    bsSpecialEvents <- BS.getSpecialOutcomes bs
-    bsFinalizationData <- case blockFinalizationData <$> blockFields bp of
-        Just (BlockFinalizationData FinalizationRecord{..}) -> do
-            -- Get the finalization committee by examining the previous finalized block
-            fsFinalizers <-
-                blockAtFinIndex (finalizationIndex - 1) >>= \case
-                    Nothing -> return Vec.empty
-                    Just prevFin -> do
-                        com <- getFinalizationCommittee prevFin
-                        let signers = Set.fromList (finalizationProofParties finalizationProof)
-                            fromPartyInfo i PartyInfo{..} =
-                                FinalizationSummaryParty
-                                    { fspBakerId = partyBakerId,
-                                      fspWeight = fromIntegral partyWeight,
-                                      fspSigned = Set.member (fromIntegral i) signers
-                                    }
-                        return $ Vec.imap fromPartyInfo (parties com)
-            let fsFinalizationBlockPointer = finalizationBlockPointer
-                fsFinalizationIndex = finalizationIndex
-                fsFinalizationDelay = finalizationDelay
-            return $ Just FinalizationSummary{..}
-        _ -> return Nothing
-    bsUpdates <- BS.getUpdates bs
-    return BlockSummary{..}
+getBlockSummary :: forall gsconf finconf. BlockHash -> MVR gsconf finconf (Maybe BlockSummary)
+getBlockSummary = liftSkovQueryBlock getBlockSummarySkovM
+  where
+    getBlockSummarySkovM ::
+        forall pv.
+        SkovMonad (VersionedSkovM gsconf finconf pv) =>
+        BlockPointerType (VersionedSkovM gsconf finconf pv) ->
+        VersionedSkovM gsconf finconf pv BlockSummary
+    getBlockSummarySkovM bp = do
+        bs <- blockState bp
+        bsTransactionSummaries <- BS.getOutcomes bs
+        bsSpecialEvents <- BS.getSpecialOutcomes bs
+        bsFinalizationData <- case blockFinalizationData <$> blockFields bp of
+            Just (BlockFinalizationData FinalizationRecord{..}) -> do
+                -- Get the finalization committee by examining the previous finalized block
+                fsFinalizers <-
+                    blockAtFinIndex (finalizationIndex - 1) >>= \case
+                        Nothing -> return Vec.empty
+                        Just prevFin -> do
+                            com <- getFinalizationCommittee prevFin
+                            let signers = Set.fromList (finalizationProofParties finalizationProof)
+                                fromPartyInfo i PartyInfo{..} =
+                                    FinalizationSummaryParty
+                                        { fspBakerId = partyBakerId,
+                                          fspWeight = fromIntegral partyWeight,
+                                          fspSigned = Set.member (fromIntegral i) signers
+                                        }
+                            return $ Vec.imap fromPartyInfo (parties com)
+                let fsFinalizationBlockPointer = finalizationBlockPointer
+                    fsFinalizationIndex = finalizationIndex
+                    fsFinalizationDelay = finalizationDelay
+                return $ Just FinalizationSummary{..}
+            _ -> return Nothing
+        bsUpdates <- BS.getUpdates bs
+        let bsProtocolVersion = protocolVersion @pv
+        return BlockSummary{..}
 
 -- |Get the total amount of GTU in existence and status of the reward accounts.
 getRewardStatus :: BlockHash -> MVR gsconf finconf (Maybe RewardStatus)
 getRewardStatus = liftSkovQueryBlock $ \bp -> do
     reward <- BS.getRewardStatus =<< blockState bp
-    return $
-        RewardStatus
-            { rsTotalAmount = reward ^. totalGTU,
-              rsTotalEncryptedAmount = reward ^. totalEncryptedGTU,
-              rsBakingRewardAccount = reward ^. bakingRewardAccount,
-              rsFinalizationRewardAccount = reward ^. finalizationRewardAccount,
-              rsGasAccount = reward ^. gasAccount
-            }
+    gd <- getGenesisData
+    let epochToUTC e = timestampToUTCTime $ 
+            addDuration (gdGenesisTime gd) (fromIntegral e * fromIntegral (gdEpochLength gd) * gdSlotDuration gd)
+    return $ epochToUTC <$> reward
 
 -- |Get the birk parameters that applied when a given block was baked.
 getBlockBirkParameters :: BlockHash -> MVR gsconf finconf (Maybe BlockBirkParameters)
@@ -401,7 +404,7 @@ getBlockBirkParameters = liftSkovQueryBlock $ \bp -> do
     bbpElectionDifficulty <- BS.getCurrentElectionDifficulty bs
     bbpElectionNonce <- currentLeadershipElectionNonce <$> BS.getSeedState bs
     FullBakers{..} <- BS.getCurrentEpochBakers bs
-    let resolveBaker FullBakerInfo{_bakerInfo = BakerInfo{..}, ..} = do
+    let resolveBaker FullBakerInfo{_theBakerInfo = BakerInfo{..}, ..} = do
             let bsBakerId = _bakerIdentity
             let bsBakerLotteryPower = fromIntegral _bakerStake / fromIntegral bakerTotalStake
             -- This should never return Nothing
@@ -484,7 +487,13 @@ getAccountInfo blockHash acct =
                     aiAccountThreshold <- aiThreshold <$> BS.getAccountVerificationKeys acc
                     aiAccountEncryptedAmount <- BS.getAccountEncryptedAmount acc
                     aiAccountEncryptionKey <- BS.getAccountEncryptionKey acc
-                    aiBaker <- BS.getAccountBaker acc
+                    gd <- getGenesisData
+                    let convEpoch e =
+                            timestampToUTCTime $
+                                addDuration
+                                    (gdGenesisTime gd)
+                                    (fromIntegral e * fromIntegral (gdEpochLength gd) * gdSlotDuration gd)
+                    aiStakingInfo <- toAccountStakingInfo convEpoch <$> BS.getAccountStake acc
                     aiAccountAddress <- BS.getAccountCanonicalAddress acc
                     return AccountInfo{..}
             )
@@ -530,6 +539,30 @@ getModuleSource blockHash modRef =
                 BS.getModule bs modRef
             )
             blockHash
+
+-- |Get the status of a particular delegation pool.
+getPoolStatus :: forall gsconf finconf. BlockHash -> Maybe BakerId -> MVR gsconf finconf (Maybe PoolStatus)
+getPoolStatus blockHash mbid =
+    join
+        <$> liftSkovQueryBlock poolStatus blockHash
+  where
+    poolStatus ::
+        forall pv.
+        ( SkovMonad (VersionedSkovM gsconf finconf pv)
+        ) =>
+        BlockPointerType (VersionedSkovM gsconf finconf pv) ->
+        VersionedSkovM gsconf finconf pv (Maybe PoolStatus)
+    poolStatus bp = case protocolVersion @pv of
+        SP1 -> return Nothing
+        SP2 -> return Nothing
+        SP3 -> return Nothing
+        SP4 -> do
+            bs <- blockState bp
+            BS.getPoolStatus bs mbid
+
+-- |Get a list of all registered baker IDs in the specified block.
+getRegisteredBakers :: forall gsconf finconf. BlockHash -> MVR gsconf finconf (Maybe [BakerId])
+getRegisteredBakers = liftSkovQueryBlock (BS.getActiveBakers <=< blockState)
 
 -- ** Transaction indexed
 
@@ -602,7 +635,7 @@ invokeContract bh cctx =
     (\(_ :: VersionedConfiguration gsconf finconf pv) bp -> do
         bs <- blockState bp
         cm <- ChainMetadata <$> getSlotTimestamp (blockSlot bp)
-        InvokeContract.invokeContract (protocolVersion @pv) cctx cm bs)
+        InvokeContract.invokeContract cctx cm bs)
     bh
     
 
@@ -655,7 +688,7 @@ getBakerStatusBestBlock =
                                 Nothing -> return NotInCommittee
                                 Just ab
                                     -- Registered baker with valid keys
-                                    | validateBakerKeys (ab ^. accountBakerInfo) bakerIdent ->
+                                    | validateBakerKeys (ab ^. accountBakerInfo . bakerInfo) bakerIdent ->
                                         return AddedButNotActiveInCommittee
                                     -- Registered baker with invalid keys
                                     | otherwise -> return AddedButWrongKeys

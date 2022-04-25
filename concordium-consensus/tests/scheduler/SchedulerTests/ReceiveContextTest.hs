@@ -2,6 +2,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 {-| Test that the receive context of a contract is passed correctly by the scheduler. -}
 module SchedulerTests.ReceiveContextTest where
 
@@ -54,7 +55,7 @@ sender2 Proxy
 -- consisting of only 1's. We set up the state with addresses different from
 -- those and use the above-mentioned addresses as alias for the same account.
 -- This only applies to protocol P3 and up.
-initialBlockState :: forall pv . IsProtocolVersion pv => BlockState pv
+initialBlockState :: forall pv. (IsProtocolVersion pv, ChainParametersVersionFor pv ~ 'ChainParametersV0, AccountVersionFor pv ~ 'AccountV0) => BlockState pv
 initialBlockState = createBlockState $ putAccountWithRegIds (mkAccount alesVK (sender1 (Proxy @pv)) 1000000000)
                                      $ putAccountWithRegIds (mkAccount thomasVK (sender2 (Proxy @pv)) 1000000000) emptyAccounts
 
@@ -97,7 +98,7 @@ type TestResult = ([(BlockItemWithStatus, Types.ValidResult)],
                    [(TransactionWithStatus, Types.FailureKind)],
                    [(Types.ContractAddress, Instance)])
 
-testReceive :: forall pv . IsProtocolVersion pv => Proxy pv -> IO TestResult
+testReceive :: forall pv. (IsProtocolVersion pv, ChainParametersVersionFor pv ~ 'ChainParametersV0, AccountVersionFor pv ~ 'AccountV0) => Proxy pv -> IO TestResult
 testReceive Proxy = do
     transactions <- processUngroupedTransactions transactionInputs
     let (Sch.FilteredTransactions{..}, finState) =

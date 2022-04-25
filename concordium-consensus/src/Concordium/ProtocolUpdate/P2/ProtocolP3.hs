@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- |This module implements the P2.ProtocolP3 protocol update that introduces account aliases.
 -- This protocol update is valid at protocol version P2, and updates
@@ -65,6 +66,7 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.Types (MPV)
 import Concordium.Kontrol
 
 -- |The hash that identifies a update from P2 to P3 protocol.
@@ -76,7 +78,9 @@ updateHash = read "ec9f7733e872ed0b8f1f386d12c5c725379fc609ce246ffdce28cfb9163ea
 -- It is assumed that the last finalized block is the terminal block of the old chain:
 -- i.e. it is the first (and only) explicitly-finalized block with timestamp after the
 -- update takes effect.
-updateRegenesis :: (BlockPointerMonad m, BlockStateStorage m, SkovQueryMonad 'P2 m) => m PVGenesisData
+updateRegenesis ::
+    (BlockPointerMonad m, BlockStateStorage m, SkovQueryMonad m, MPV m ~ 'P2) =>
+    m PVGenesisData
 updateRegenesis = do
     lfb <- lastFinalizedBlock
     -- Genesis time is the timestamp of the terminal block
@@ -84,12 +88,12 @@ updateRegenesis = do
     -- Core parameters are derived from the old genesis, apart from genesis time which is set for
     -- the time of the last finalized block.
     gd <- getGenesisData
-    let core = (P2._core $ unGDP2 gd) { GenesisData.genesisTime = regenesisTime }
+    let core = (P2._core $ unGDP2 gd){GenesisData.genesisTime = regenesisTime}
     -- genesisFirstGenesis is the block hash of the previous genesis, if it is initial,
     -- or the genesisFirstGenesis of the previous genesis otherwise.
     let genesisFirstGenesis = case gd of
             GDP2 P2.GDP2Initial{} -> genesisBlockHash gd
-            GDP2 P2.GDP2Regenesis{genesisRegenesis=GenesisData.RegenesisData{genesisFirstGenesis = firstGen}} -> firstGen
+            GDP2 P2.GDP2Regenesis{genesisRegenesis = GenesisData.RegenesisData{genesisFirstGenesis = firstGen}} -> firstGen
     let genesisPreviousGenesis = genesisBlockHash gd
     let genesisTerminalBlock = bpHash lfb
     -- Determine the new state by updating the terminal state.
@@ -106,4 +110,4 @@ updateRegenesis = do
     regenesisState <- freezeBlockState s3
     genesisStateHash <- getStateHash regenesisState
     genesisNewState <- serializeBlockState regenesisState
-    return . PVGenesisData . GDP3 $ P3.GDP3Regenesis{genesisRegenesis = GenesisData.RegenesisData{genesisCore=core,..}}
+    return . PVGenesisData . GDP3 $ P3.GDP3Regenesis{genesisRegenesis = GenesisData.RegenesisData{genesisCore = core, ..}}

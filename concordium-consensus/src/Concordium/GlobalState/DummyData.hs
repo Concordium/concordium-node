@@ -2,6 +2,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 
 module Concordium.GlobalState.DummyData where
@@ -21,6 +23,7 @@ import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Accounts
 import qualified Concordium.GlobalState.Basic.BlockState.AccountTable as AT
+import Concordium.GlobalState.CapitalDistribution
 import Concordium.Types.IdentityProviders
 import Concordium.Types.AnonymityRevokers
 import Concordium.GlobalState.Parameters
@@ -30,8 +33,10 @@ import Concordium.Types.Accounts
 
 import qualified Concordium.Types.SeedState as SeedState
 import Concordium.GlobalState.Basic.BlockState.AccountTable(toList)
+import qualified Concordium.GlobalState.Basic.BlockState.PoolRewards as PoolRewards
 
 import Concordium.Types
+import Concordium.Types.Execution
 import System.Random
 import Data.FileEmbed
 import qualified Data.ByteString.Lazy.Char8 as BSL
@@ -81,7 +86,7 @@ dummyAuthorizationKeyPair = uncurry SigScheme.KeyPairEd25519 . fst $ randomEd255
 
 {-# NOINLINE dummyAuthorizations #-}
 {-# WARNING dummyAuthorizations "Do not use in production." #-}
-dummyAuthorizations :: Authorizations
+dummyAuthorizations :: IsChainParametersVersion cpv => Authorizations cpv
 dummyAuthorizations = Authorizations {
       asKeys = Vec.singleton (correspondingVerifyKey dummyAuthorizationKeyPair),
       asEmergency = theOnly,
@@ -93,9 +98,11 @@ dummyAuthorizations = Authorizations {
       asParamMintDistribution = theOnly,
       asParamTransactionFeeDistribution = theOnly,
       asParamGASRewards = theOnly,
-      asBakerStakeThreshold = theOnly,
+      asPoolParameters = theOnly,
       asAddAnonymityRevoker = theOnly,
-      asAddIdentityProvider = theOnly
+      asAddIdentityProvider = theOnly,
+      asCooldownParameters = justForCPV1 theOnly,
+      asTimeParameters = justForCPV1 theOnly
     }
   where
     theOnly = AccessStructure (Set.singleton 0) 1
@@ -110,7 +117,7 @@ dummyHigherLevelKeys = HigherLevelKeys {
 
 {-# NOINLINE dummyKeyCollection #-}
 {-# WARNING dummyKeyCollection "Do not use in production." #-}
-dummyKeyCollection :: UpdateKeysCollection
+dummyKeyCollection :: IsChainParametersVersion cpv => UpdateKeysCollection cpv
 dummyKeyCollection = UpdateKeysCollection {
   rootKeys = dummyHigherLevelKeys,
   level1Keys = dummyHigherLevelKeys,
@@ -140,7 +147,7 @@ makeFakeBakers nBakers = take (fromIntegral nBakers) $ mbs (mkStdGen 17) 0
 {-# WARNING mkFullBaker "Do not use in production." #-}
 mkFullBaker :: Int -> BakerId -> (FullBakerInfo, VRF.SecretKey, Sig.SignKey, Bls.SecretKey)
 mkFullBaker seed _bakerIdentity = (FullBakerInfo {
-    _bakerInfo = BakerInfo {
+    _theBakerInfo = BakerInfo {
       _bakerElectionVerifyKey = VRF.publicKey electionKey,
       _bakerSignatureVerifyKey = Sig.verifyKey sk,
       _bakerAggregationVerifyKey = Bls.derivePublicKey blssk,
@@ -163,8 +170,8 @@ makeTestingGenesisDataP1 ::
     -> IdentityProviders   -- ^List of initial identity providers.
     -> AnonymityRevokers -- ^Initial anonymity revokers.
     -> Energy  -- ^Maximum limit on the total stated energy of the transactions in a block
-    -> UpdateKeysCollection -- ^Initial update authorizations
-    -> ChainParameters -- ^Initial chain parameters
+    -> UpdateKeysCollection 'ChainParametersV0 -- ^Initial update authorizations
+    -> ChainParameters 'P1 -- ^Initial chain parameters
     -> GenesisData 'P1
 makeTestingGenesisDataP1
   genesisTime
@@ -200,49 +207,136 @@ makeTestingGenesisDataP1
 
 
 {-# WARNING emptyBirkParameters "Do not use in production." #-}
-emptyBirkParameters :: Accounts pv -> BasicBirkParameters
+emptyBirkParameters :: IsProtocolVersion pv => Accounts pv -> BasicBirkParameters (AccountVersionFor pv)
 emptyBirkParameters accounts = initialBirkParameters (snd <$> AT.toList (accountTable accounts)) (SeedState.initialSeedState (Hash.hash "NONCE") 360)
 
-dummyRewardParameters :: RewardParameters
-dummyRewardParameters = RewardParameters {
+dummyRewardParametersV0 :: RewardParameters 'ChainParametersV0
+dummyRewardParametersV0 = RewardParameters {
     _rpMintDistribution = MintDistribution {
-      _mdMintPerSlot = MintRate 1 12,
-      _mdBakingReward = RewardFraction 60000, -- 60%
-      _mdFinalizationReward = RewardFraction 30000 -- 30%
+      _mdMintPerSlot = MintPerSlotForCPV0Some $ MintRate 1 12,
+      _mdBakingReward = AmountFraction 60000, -- 60%
+      _mdFinalizationReward = AmountFraction 30000 -- 30%
     },
     _rpTransactionFeeDistribution = TransactionFeeDistribution {
-      _tfdBaker = RewardFraction 45000, -- 45%
-      _tfdGASAccount = RewardFraction 45000 -- 45%
+      _tfdBaker = AmountFraction 45000, -- 45%
+      _tfdGASAccount = AmountFraction 45000 -- 45%
     },
     _rpGASRewards = GASRewards {
-      _gasBaker = RewardFraction 25000, -- 25%
-      _gasFinalizationProof = RewardFraction 50, -- 0.05%
-      _gasAccountCreation = RewardFraction 200, -- 0.2%
-      _gasChainUpdate = RewardFraction 50 -- 0.05%
+      _gasBaker = AmountFraction 25000, -- 25%
+      _gasFinalizationProof = AmountFraction 50, -- 0.05%
+      _gasAccountCreation = AmountFraction 200, -- 0.2%
+      _gasChainUpdate = AmountFraction 50 -- 0.05%
     }
 }
 
-dummyChainParameters :: ChainParameters
-dummyChainParameters = makeChainParameters (makeElectionDifficulty 50000) 0.0001 1000000 168 10 dummyRewardParameters 0 300000000000
+dummyRewardParametersV1 :: RewardParameters 'ChainParametersV1
+dummyRewardParametersV1 = RewardParameters {
+    _rpMintDistribution = MintDistribution {
+      _mdMintPerSlot = MintPerSlotForCPV0None,
+      _mdBakingReward = AmountFraction 60000, -- 60%
+      _mdFinalizationReward = AmountFraction 30000 -- 30%
+    },
+    _rpTransactionFeeDistribution = TransactionFeeDistribution {
+      _tfdBaker = AmountFraction 45000, -- 45%
+      _tfdGASAccount = AmountFraction 45000 -- 45%
+    },
+    _rpGASRewards = GASRewards {
+      _gasBaker = AmountFraction 25000, -- 25%
+      _gasFinalizationProof = AmountFraction 50, -- 0.05%
+      _gasAccountCreation = AmountFraction 200, -- 0.2%
+      _gasChainUpdate = AmountFraction 50 -- 0.05%
+    }
+}
+
+
+dummyChainParameters :: forall cpv. IsChainParametersVersion cpv => ChainParameters' cpv
+dummyChainParameters = case chainParametersVersion @cpv of
+  SCPV0 -> ChainParameters {
+      _cpElectionDifficulty = makeElectionDifficulty 50000,
+      _cpExchangeRates = makeExchangeRates 0.0001 1000000,
+      _cpCooldownParameters = CooldownParametersV0 {
+          _cpBakerExtraCooldownEpochs = 168
+        },
+      _cpTimeParameters = TimeParametersV0,
+      _cpAccountCreationLimit = 10,
+      _cpRewardParameters = dummyRewardParametersV0,
+      _cpFoundationAccount = 0,
+      _cpPoolParameters = PoolParametersV0 {
+          _ppBakerStakeThreshold =  300000000000
+        }
+    }
+  SCPV1 -> ChainParameters{
+      _cpElectionDifficulty = makeElectionDifficulty 50000,
+      _cpExchangeRates = makeExchangeRates 0.0001 1000000,
+      _cpCooldownParameters = CooldownParametersV1 {
+          _cpPoolOwnerCooldown = cooldown,
+          _cpDelegatorCooldown = cooldown
+        },
+      _cpTimeParameters = TimeParametersV1 {
+        _tpRewardPeriodLength = 2,
+        _tpMintPerPayday = MintRate 1 8
+      },
+      _cpAccountCreationLimit = 10,
+      _cpRewardParameters = dummyRewardParametersV1,
+      _cpFoundationAccount = 0,
+      _cpPoolParameters = PoolParametersV1 {
+          _ppMinimumEquityCapital = 300000000000,
+          _ppCapitalBound = CapitalBound (makeAmountFraction 100000),
+          _ppLeverageBound = 5,
+          _ppPassiveCommissions = CommissionRates {
+            _finalizationCommission = makeAmountFraction 100000,
+            _bakingCommission = makeAmountFraction 5000,
+            _transactionCommission = makeAmountFraction 5000
+          },
+          _ppCommissionBounds = CommissionRanges {
+            _finalizationCommissionRange = fullRange,
+            _bakingCommissionRange = fullRange,
+            _transactionCommissionRange = fullRange
+          }
+        }
+    }
+    where
+      fullRange = InclusiveRange (makeAmountFraction 0) (makeAmountFraction 100000)
+      cooldown = DurationSeconds (24 * 60 * 60)
+
+createPoolRewards :: (AccountVersionFor pv ~ 'AccountV1) => Accounts pv -> PoolRewards.PoolRewards
+createPoolRewards accounts = PoolRewards.makeInitialPoolRewards capDist 1 (MintRate 1 10)
+  where
+    (bakersMap, passive) = foldr accumDelegations (Map.empty, []) (AT.toList (accountTable accounts))
+    bakers = [(bid, amt, dlgs) | (bid, (amt, dlgs)) <- Map.toList bakersMap]
+    capDist = makeCapitalDistribution bakers passive
+    accumDelegations (ai, acct) acc@(bm, lp) = case acct ^. accountStaking of
+      AccountStakeNone -> acc
+      AccountStakeBaker bkr -> (bm & at (BakerId ai) . non (0, []) . _1 .~ bkr ^. stakedAmount, lp)
+      AccountStakeDelegate dlg -> case dlg ^. delegationTarget of
+        DelegatePassive -> (bm, d : lp)
+        DelegateToBaker bkrid -> (bm & at bkrid . non (0, []) . _2 %~ (d:), lp)
+        where
+          d = (dlg ^. delegationIdentity, dlg ^. delegationStakedAmount)
+
+createRewardDetails :: forall pv. (IsProtocolVersion pv) => Accounts pv -> BlockRewardDetails (AccountVersionFor pv)
+createRewardDetails accounts = case accountVersion @(AccountVersionFor pv) of
+  SAccountV0 -> emptyBlockRewardDetails
+  SAccountV1 -> BlockRewardDetailsV1 $ makeHashed $ createPoolRewards accounts
 
 {-# WARNING createBlockState "Do not use in production" #-}
-createBlockState :: Accounts pv -> BlockState pv
+createBlockState :: (IsProtocolVersion pv) => Accounts pv -> BlockState pv
 createBlockState accounts =
-    emptyBlockState (emptyBirkParameters accounts) dummyCryptographicParameters dummyKeyCollection dummyChainParameters &
+    emptyBlockState (emptyBirkParameters accounts) (createRewardDetails accounts) dummyCryptographicParameters dummyKeyCollection dummyChainParameters &
       (blockAccounts .~ accounts) .
       (blockBank . unhashed . Rewards.totalGTU .~ sum (map (_accountAmount . snd) (toList (accountTable accounts)))) .
       (blockIdentityProviders . unhashed .~ dummyIdentityProviders) .
       (blockAnonymityRevokers . unhashed .~ dummyArs)
 
 {-# WARNING blockStateWithAlesAccount "Do not use in production" #-}
-blockStateWithAlesAccount :: IsProtocolVersion pv => Amount -> Accounts pv -> BlockState pv
+blockStateWithAlesAccount :: (IsProtocolVersion pv) => Amount -> Accounts pv -> BlockState pv
 blockStateWithAlesAccount alesAmount otherAccounts =
     createBlockState $ putAccountWithRegIds (mkAccount alesVK alesAccount alesAmount) otherAccounts
 
 -- This generates an account with a single credential and single keypair, which has sufficiently
 -- late expiry date, but is otherwise not well-formed.
 {-# WARNING mkAccount "Do not use in production." #-}
-mkAccount :: IsProtocolVersion pv => SigScheme.VerifyKey -> AccountAddress -> Amount -> Account pv
+mkAccount :: IsAccountVersion av => SigScheme.VerifyKey -> AccountAddress -> Amount -> Account av
 mkAccount key addr amnt = newAccount dummyCryptographicParameters addr cred & accountAmount .~ amnt
   where
     cred = dummyCredential dummyCryptographicParameters addr key dummyMaxValidTo dummyCreatedAt
@@ -251,7 +345,7 @@ mkAccount key addr amnt = newAccount dummyCryptographicParameters addr cred & ac
 -- the credential should already be considered expired. (Its valid-to date will be
 -- Jan 1000, which precedes the earliest expressible timestamp by 970 years.)
 {-# WARNING mkAccountExpiredCredential "Do not use in production." #-}
-mkAccountExpiredCredential :: IsProtocolVersion pv => SigScheme.VerifyKey -> AccountAddress -> Amount -> Account pv
+mkAccountExpiredCredential :: IsAccountVersion av => SigScheme.VerifyKey -> AccountAddress -> Amount -> Account av
 mkAccountExpiredCredential key addr amnt = newAccount dummyCryptographicParameters addr cred & accountAmount .~ amnt
   where
     cred = dummyCredential dummyCryptographicParameters addr key dummyLowValidTo dummyCreatedAt
@@ -261,7 +355,7 @@ mkAccountExpiredCredential key addr amnt = newAccount dummyCryptographicParamete
 -- The keys are indexed in ascending order starting from 0
 -- The list of keys should be non-empty.
 {-# WARNING mkAccountMultipleKeys "Do not use in production." #-}
-mkAccountMultipleKeys :: IsProtocolVersion pv => [SigScheme.VerifyKey] -> SignatureThreshold -> AccountAddress -> Amount -> Account pv
+mkAccountMultipleKeys :: IsAccountVersion av => [SigScheme.VerifyKey] -> SignatureThreshold -> AccountAddress -> Amount -> Account av
 mkAccountMultipleKeys keys threshold addr amount = newAccount dummyCryptographicParameters addr cred & accountAmount .~ amount & accountVerificationKeys .~ ai
 
   where

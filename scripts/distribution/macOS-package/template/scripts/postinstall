@@ -82,35 +82,52 @@ function configureService() {
     fi
 }
 
-function configureServices () {
+# Uninstalls apps and support files related to a net.
+function uninstallNet() {
+    local netName=${1:?"Missing net name to uninstall"}
+    echo "-- Removing $netName node apps and support files"
+    rm -rf "/Applications/Concordium Node/Concordium Node Start $netName.app"
+    rm -rf "/Applications/Concordium Node/Concordium Node Stop $netName.app"
+    rm -rf "/Library/Application Support/Concordium Node/$netName/"
+}
+
+function configureServices() {
 
     # Use data from install configuration
     echo 'Configuring services'
     source "/tmp/software.concordium.node.install.config"
 
-    echo "-- Mainnet:"
-    configureService \
-        "MAINNET" \
-        "/tmp/Concordium Node/LaunchDaemons/software.concordium.mainnet.node.plist" \
-        "/tmp/Concordium Node/LaunchDaemons/software.concordium.mainnet.node-collector.plist" \
-        "/Library/Concordium Node/LaunchDaemons/software.concordium.mainnet.node.plist" \
-        "/Library/Concordium Node/LaunchDaemons/software.concordium.mainnet.node-collector.plist" \
-        "$CONCORDIUM_NODE_INSTALL_MAINNET_RUN_ON_STARTUP" \
-        "$CONCORDIUM_NODE_INSTALL_MAINNET_REPORT_TO_NETWORK_DASHBOARD" \
-        "$CONCORDIUM_NODE_INSTALL_MAINNET_RUN_AFTER_INSTALL" \
-        "$CONCORDIUM_NODE_INSTALL_MAINNET_NODE_NAME"
+    if [ -z "$CONCORDIUM_NODE_INSTALL_MAINNET_NODE_NAME" ]; then
+        uninstallNet "Mainnet"
+    else
+        echo "-- Mainnet:"
+        configureService \
+            "MAINNET" \
+            "/tmp/Concordium Node/LaunchDaemons/software.concordium.mainnet.node.plist" \
+            "/tmp/Concordium Node/LaunchDaemons/software.concordium.mainnet.node-collector.plist" \
+            "/Library/Concordium Node/LaunchDaemons/software.concordium.mainnet.node.plist" \
+            "/Library/Concordium Node/LaunchDaemons/software.concordium.mainnet.node-collector.plist" \
+            "$CONCORDIUM_NODE_INSTALL_MAINNET_RUN_ON_STARTUP" \
+            "$CONCORDIUM_NODE_INSTALL_MAINNET_REPORT_TO_NETWORK_DASHBOARD" \
+            "$CONCORDIUM_NODE_INSTALL_MAINNET_RUN_AFTER_INSTALL" \
+            "$CONCORDIUM_NODE_INSTALL_MAINNET_NODE_NAME"
+    fi
 
-    echo "-- Testnet:"
-    configureService \
-        "TESTNET" \
-        "/tmp/Concordium Node/LaunchDaemons/software.concordium.testnet.node.plist" \
-        "/tmp/Concordium Node/LaunchDaemons/software.concordium.testnet.node-collector.plist" \
-        "/Library/Concordium Node/LaunchDaemons/software.concordium.testnet.node.plist" \
-        "/Library/Concordium Node/LaunchDaemons/software.concordium.testnet.node-collector.plist" \
-        "$CONCORDIUM_NODE_INSTALL_TESTNET_RUN_ON_STARTUP" \
-        "$CONCORDIUM_NODE_INSTALL_TESTNET_REPORT_TO_NETWORK_DASHBOARD" \
-        "$CONCORDIUM_NODE_INSTALL_TESTNET_RUN_AFTER_INSTALL" \
-        "$CONCORDIUM_NODE_INSTALL_TESTNET_NODE_NAME"
+    if [ -z "$CONCORDIUM_NODE_INSTALL_TESTNET_NODE_NAME" ]; then
+        uninstallNet "Testnet"
+    else
+        echo "-- Testnet:"
+        configureService \
+            "TESTNET" \
+            "/tmp/Concordium Node/LaunchDaemons/software.concordium.testnet.node.plist" \
+            "/tmp/Concordium Node/LaunchDaemons/software.concordium.testnet.node-collector.plist" \
+            "/Library/Concordium Node/LaunchDaemons/software.concordium.testnet.node.plist" \
+            "/Library/Concordium Node/LaunchDaemons/software.concordium.testnet.node-collector.plist" \
+            "$CONCORDIUM_NODE_INSTALL_TESTNET_RUN_ON_STARTUP" \
+            "$CONCORDIUM_NODE_INSTALL_TESTNET_REPORT_TO_NETWORK_DASHBOARD" \
+            "$CONCORDIUM_NODE_INSTALL_TESTNET_RUN_AFTER_INSTALL" \
+            "$CONCORDIUM_NODE_INSTALL_TESTNET_NODE_NAME"
+    fi
 }
 
 function main (){

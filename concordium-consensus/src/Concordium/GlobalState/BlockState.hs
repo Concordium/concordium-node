@@ -1,8 +1,13 @@
-{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilyDependencies #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TypeFamilies #-}
+-- FIXME: This is to suppress compiler warnings for derived instances of BlockStateOperations.
+-- This may be fixed in GHC 9.0.1.
+{-# OPTIONS_GHC -Wno-redundant-constraints #-}
 {-|
  Definition of the API of every BlockState implementation.
 
@@ -56,22 +61,25 @@ import Data.Kind (Type)
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types
 import Concordium.Types.Execution
-import Concordium.Types.Updates
+import Concordium.Types.Updates hiding (getUpdateKeysCollection)
 import qualified Concordium.Wasm as Wasm
 import qualified Concordium.GlobalState.Wasm as GSWasm
 import Concordium.GlobalState.Classes
 import Concordium.GlobalState.Account
 
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
+import Concordium.GlobalState.Basic.BlockState.PoolRewards
 import Concordium.GlobalState.BakerInfo
 import qualified Concordium.Types.UpdateQueues as UQ
-import Concordium.Types.Accounts
+import Concordium.Types.Accounts hiding (getAccountBaker, getAccountStake)
+import Concordium.GlobalState.CapitalDistribution
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Types
 import Concordium.Types.IdentityProviders
 import Concordium.Types.AnonymityRevokers
+import Concordium.Types.Queries (PoolStatus, RewardStatus')
 import Concordium.Types.SeedState
 import Concordium.Types.Transactions hiding (BareBlockItem(..))
 
@@ -82,9 +90,13 @@ import Concordium.Crypto.EncryptedTransfers
 import Concordium.GlobalState.ContractStateFFIHelpers (LoadCallback)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 
+-- |Hash associated with birk parameters.
+newtype BirkParametersHash (pv :: ProtocolVersion) = BirkParametersHash {birkParamHash :: H.Hash}
+  deriving newtype (Eq, Ord, Show, Serialize)
+
 -- |The hashes of the block state components, which are combined
 -- to produce a 'StateHash'.
-data BlockStateHashInputs = BlockStateHashInputs {
+data BlockStateHashInputs (pv :: ProtocolVersion) = BlockStateHashInputs {
     bshBirkParameters :: H.Hash,
     bshCryptographicParameters :: H.Hash,
     bshIdentityProviders :: H.Hash,
@@ -94,11 +106,11 @@ data BlockStateHashInputs = BlockStateHashInputs {
     bshAccounts :: H.Hash,
     bshInstances :: H.Hash,
     bshUpdates :: H.Hash,
-    bshEpochBlocks :: EpochBlocksHash
+    bshBlockRewardDetails :: BlockRewardDetailsHash (AccountVersionFor pv)
 } deriving (Show)
 
 -- |Construct a 'StateHash' from the component hashes.
-makeBlockStateHash :: BlockStateHashInputs -> StateHash
+makeBlockStateHash :: BlockStateHashInputs pv -> StateHash
 makeBlockStateHash BlockStateHashInputs{..} = StateHashV0 $
   H.hashOfHashes
     (H.hashOfHashes
@@ -113,12 +125,13 @@ makeBlockStateHash BlockStateHashInputs{..} = StateHashV0 $
     )
     (H.hashOfHashes
       bshUpdates
-      (ebHash bshEpochBlocks))
+      (brdHash bshBlockRewardDetails))
 
 -- |An auxiliary data type to express restrictions on an account.
 -- Currently an account that has more than one credential is not allowed to handle encrypted transfers,
 -- and an account that has a non-zero encrypted balance cannot add new credentials.
 data AccountAllowance = AllowedEncryptedTransfers | AllowedMultipleCredentials
+  deriving (Eq, Show)
 
 class (BlockStateTypes m, Monad m) => AccountOperations m where
 
@@ -138,10 +151,13 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
   getAccountAvailableAmount acc = do
     total <- getAccountAmount acc
     lockedUp <- _totalLockedUpBalance <$> getAccountReleaseSchedule acc
-    staked <- getAccountBaker acc <&> \case
+    stakedBkr <- getAccountBaker acc <&> \case
       Nothing -> 0
       Just bkr -> _stakedAmount bkr
-    return $ total - max lockedUp staked
+    stakedDel <- getAccountDelegator acc <&> \case
+      Nothing -> 0
+      Just AccountDelegationV1{..} -> _delegationStakedAmount
+    return $ total - max lockedUp (max stakedBkr stakedDel)
 
   -- |Get the next available nonce for this account
   getAccountNonce :: Account m -> m Nonce
@@ -189,7 +205,59 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
   getAccountReleaseSchedule :: Account m -> m AccountReleaseSchedule
 
   -- |Get the baker info (if any) attached to an account.
-  getAccountBaker :: Account m -> m (Maybe AccountBaker)
+  getAccountBaker :: Account m -> m (Maybe (AccountBaker (AccountVersionFor (MPV m))))
+
+  -- |Get a reference to the baker info (if any) attached to an account.
+  getAccountBakerInfoRef :: Account m -> m (Maybe (BakerInfoRef m))
+
+  -- |Get the delegator info (if any) attached to an account.
+  getAccountDelegator :: Account m -> m (Maybe (AccountDelegation (AccountVersionFor (MPV m))))
+
+  -- |Get the baker or stake delegation information attached to an account.
+  getAccountStake :: Account m -> m (AccountStake (AccountVersionFor (MPV m)))
+
+  -- |Dereference a 'BakerInfoRef' to a 'BakerInfo'.
+  derefBakerInfo :: BakerInfoRef m -> m BakerInfo
+
+-- * Active, current and next bakers/delegators
+--
+-- $ActiveCurrentNext
+-- When referring to bakers and delegators, their stakes and capital distribution, from the
+-- perspective of a block's state, we have three different views: active, current and next.
+--
+-- __Active__ bakers and delegators are accounts that have a staking record (baker or delegator) on
+-- the account itself. The active bakers and delegators are also indexed by the active bakers
+-- structure.  An active baker/delegator may or may not be current and/or next. However, generally
+-- a current or next baker/delegator will be active. (Note: this concept of "active" is not
+-- connected to the concept of "passive" delegation. A passive delegator does not delegate to a
+-- specific baker, but, in a sense, to all bakers. As such, a passive delegator would still be
+-- considered active in the present sense.)
+--
+-- __Current__ (epoch) bakers and delegators represent a snapshot of the stake that is used for calculating
+-- the lottery power and reward distribution for the current epoch ('P1'-'P3') or payday ('P4'-).
+-- These are captured by two structures: the /current epoch bakers/, and the /current capital
+-- distribution/ ('P4'-). The former captures the effective stake of each baker, and from 'P4' the
+-- pool commission rates (see 'bsoGetCurrentEpochFullBakersEx'). The current capital distribution
+-- captures the equity and delegated capital of each baker and delegator, which is used for
+-- reward distribution.
+--
+-- __Next__ (epoch) bakers and delegators, like the current bakers and delegators, represent a snapshot
+-- of the stake and capital distribution, but for the next epoch or reward period. As with the
+-- current bakers, they are captured by two structures: the /next epoch bakers/ and the /next
+-- capital distribution/.
+--
+-- The active bakers and delegators are updated directly by operations that modify the
+-- bakers/delegators on an account.  Additionally, 'bsoTransitionEpochBakers' ('P1'-'P3') and
+-- 'bsoProcessPendingChanges' ('P3'-) handle cooldowns to baker and delegator stakes.
+--
+-- The next bakers and delegators are updated based on the active bakers at a particular point
+-- in time.  Prior to 'P4', this is done each epoch as part of 'bsoTransitionEpochBakers'.
+-- From 'P4' onwards, this is done with 'bsoSetNextEpochBakers' and 'bsoSetNextCapitalDistribution'
+-- the epoch before a payday. (The burden of computing the stakes and capital is shifted to
+-- 'Concordium.Kontrol.Bakers.generateNextBakers'.)
+--
+-- The current bakers and delegators are updated from the next bakers and delegators at epoch
+-- ('P1'-'P3') or payday ('P4'-) boundaries.
 
 -- |A type family grouping mutable contract states, parametrized by the contract
 -- version. This is deliberately a __closed__ and __injective__ type family. The
@@ -288,6 +356,14 @@ class (ContractStateOperations m, AccountOperations m) => BlockStateQuery m wher
     -- |Check whether an account exists for the given account address.
     accountExists :: BlockState m -> AccountAddress -> m Bool
 
+    -- |Get all the active bakers in ascending order.
+    getActiveBakers :: BlockState m -> m [BakerId]
+
+    -- |Get the currently-registered (i.e. active) bakers with their delegators, as well as the
+    -- set of passive delegators. In each case, the lists are ordered in ascending Id order,
+    -- with no duplicates.
+    getActiveBakersAndDelegators :: (AccountVersionFor (MPV m) ~ 'AccountV1) => BlockState m -> m ([ActiveBakerInfo m], [ActiveDelegatorInfo])
+
     -- |Query an account by the id of the credential that belonged to it.
     getAccountByCredId :: BlockState m -> CredentialRegistrationID -> m (Maybe (AccountIndex, Account m))
 
@@ -313,8 +389,13 @@ class (ContractStateOperations m, AccountOperations m) => BlockStateQuery m wher
     -- |Get the bakers for the epoch in which the block was baked.
     getCurrentEpochBakers :: BlockState m -> m FullBakers
 
-    -- |Get the bakers for a particular (future) slot.
-    getSlotBakers :: BlockState m -> Slot -> m FullBakers
+    -- |Get the bakers for the next epoch. (See $ActiveCurrentNext.)
+    getNextEpochBakers :: BlockState m -> m FullBakers
+
+    -- |Get the bakers for a particular (future) slot, provided genesis timestamp and slot duration.
+    -- This is used for protocol version 'P1' to 'P3'.
+    -- This should not be used for a slot less than the slot of the block.
+    getSlotBakersP1 :: (AccountVersionFor (MPV m) ~ 'AccountV0) => BlockState m -> Slot -> m FullBakers
 
     -- |Get the account of a baker. This may return an account even
     -- if the account is not (currently) a baker, since a 'BakerId'
@@ -322,7 +403,7 @@ class (ContractStateOperations m, AccountOperations m) => BlockStateQuery m wher
     getBakerAccount :: BlockState m -> BakerId -> m (Maybe (Account m))
 
     -- |Get reward summary for this block.
-    getRewardStatus :: BlockState m -> m BankStatus
+    getRewardStatus :: BlockState m -> m (RewardStatus' Epoch)
 
     -- |Get the outcome of a transaction in the given block.
     getTransactionOutcome :: BlockState m -> TransactionIndex -> m (Maybe TransactionSummary)
@@ -360,7 +441,11 @@ class (ContractStateOperations m, AccountOperations m) => BlockStateQuery m wher
     -- |Get the value of the election difficulty that was used to bake this block.
     getCurrentElectionDifficulty :: BlockState m -> m ElectionDifficulty
     -- |Get the current chain parameters and pending updates.
-    getUpdates :: BlockState m -> m UQ.Updates
+    getUpdates :: BlockState m -> m (UQ.Updates (MPV m))
+    -- |Get pending changes to the time parameters.
+    getPendingTimeParameters :: BlockState m -> m [(TransactionTime, TimeParameters (ChainParametersVersionFor (MPV m)))]
+    -- |Get pending changes to the pool parameters.
+    getPendingPoolParameters :: BlockState m -> m [(TransactionTime, PoolParameters (ChainParametersVersionFor (MPV m)))]
     -- |Get the protocol update status. If a protocol update has taken effect,
     -- returns @Left protocolUpdate@. Otherwise, returns @Right pendingProtocolUpdates@.
     -- The @pendingProtocolUpdates@ is a (possibly-empty) list of timestamps and protocol
@@ -371,10 +456,19 @@ class (ContractStateOperations m, AccountOperations m) => BlockStateQuery m wher
     getCryptographicParameters :: BlockState m -> m CryptographicParameters
 
     -- |Get the block's UpdateKeysCollection
-    getUpdateKeysCollection :: BlockState m -> m UpdateKeysCollection
+    getUpdateKeysCollection :: BlockState m -> m (UpdateKeysCollection (ChainParametersVersionFor (MPV m)))
     
     -- |Get the current energy to microCCD exchange rate
     getEnergyRate :: BlockState m -> m EnergyRate
+
+    -- |Get the epoch time of the next scheduled payday.
+    getPaydayEpoch :: (AccountVersionFor (MPV m) ~ 'AccountV1) => BlockState m -> m Epoch
+
+    -- |Get a 'PoolStatus' record describing the status of a baker pool (when the 'BakerId' is
+    -- provided) or the passive delegators (when 'Nothing' is provided). The result is 'Nothing'
+    -- if the 'BakerId' is not currently a baker.
+    getPoolStatus :: (AccountVersionFor (MPV m) ~ 'AccountV1, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1)
+        => BlockState m -> Maybe BakerId -> m (Maybe PoolStatus)
 
 -- |Distribution of newly-minted GTU.
 data MintAmounts = MintAmounts {
@@ -400,6 +494,7 @@ instance Monoid MintAmounts where
 mintTotal :: MintAmounts -> Amount
 mintTotal MintAmounts{..} = mintBakingReward + mintFinalizationReward + mintDevelopmentCharge
 
+
 -- |Data needed by blockstate to create a new instance. This contains all data
 -- except the instance address and the derived instance hashes. The address is
 -- determined when the instance is inserted in the instance table. The hashes
@@ -422,6 +517,34 @@ data NewInstanceData v = NewInstanceData {
   nidOwner :: AccountAddress
   }
 
+-- |Information about a delegator.
+data ActiveDelegatorInfo = ActiveDelegatorInfo {
+    -- |ID of the delegator.
+    activeDelegatorId :: !DelegatorId,
+    -- |Amount delegated to the target pool.
+    activeDelegatorStake :: !Amount,
+    -- |Any pending change to delegator.
+    activeDelegatorPendingChange :: !(StakePendingChange 'AccountV1)
+  }
+  deriving (Eq, Show)
+
+-- |Information about a baker, including its delegators.
+data ActiveBakerInfo' bakerInfoRef = ActiveBakerInfo {
+    -- |A reference to the baker info for the baker.
+    activeBakerInfoRef :: !bakerInfoRef,
+    -- |The equity capital of the active baker.
+    activeBakerEquityCapital :: !Amount,
+    -- |Any pending change to the baker's stake.
+    activeBakerPendingChange :: !(StakePendingChange 'AccountV1),
+    -- |Information about the delegators to the baker in ascending order of 'DelegatorId'.
+    -- (There must be no duplicate 'DelegatorId's.)
+    activeBakerDelegators :: ![ActiveDelegatorInfo]
+  }
+  deriving (Eq, Show)
+
+-- |Information about a baker, including its delegators.
+type ActiveBakerInfo m = ActiveBakerInfo' (BakerInfoRef m)
+
 -- |Block state update operations parametrized by a monad. The operations which
 -- mutate the state all also return an 'UpdatableBlockState' handle. This is to
 -- support different implementations, from pure ones to stateful ones.
@@ -432,6 +555,8 @@ class (BlockStateQuery m) => BlockStateOperations m where
   bsoGetAccount :: UpdatableBlockState m -> AccountAddress -> m (Maybe (IndexedAccount m))
   -- |Get the index of an account.
   bsoGetAccountIndex :: UpdatableBlockState m -> AccountAddress -> m (Maybe AccountIndex)
+  -- | Get account by the index.
+  bsoGetAccountByIndex :: UpdatableBlockState m -> AccountIndex -> m (Maybe (Account m))
   -- |Get the contract state from the contract table of the state instance.
   bsoGetInstance :: UpdatableBlockState m -> ContractAddress -> m (Maybe (InstanceInfo m))
 
@@ -524,6 +649,14 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- epoch length.  Any change would throw off this calculation.
   bsoSetSeedState :: UpdatableBlockState m -> SeedState -> m (UpdatableBlockState m)
 
+  -- |Replace the current epoch bakers with the next epoch bakers.
+  -- This does not change the next epoch bakers.
+  bsoRotateCurrentEpochBakers :: UpdatableBlockState m -> m (UpdatableBlockState m)
+
+  -- |Update the set containing the next epoch bakers, to use for next epoch.
+  bsoSetNextEpochBakers :: (AccountVersionFor (MPV m) ~ 'AccountV1) => UpdatableBlockState m -> 
+      [(BakerInfoRef m, Amount)] -> m (UpdatableBlockState m)
+
   -- |Update the bakers for the next epoch.
   --
   -- 1. The current epoch bakers are replaced with the next epoch bakers.
@@ -535,10 +668,51 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- Note that instead of iteratively calling this for a succession of epochs,
   -- it should always be sufficient to just call it for the last two of them.
   bsoTransitionEpochBakers
-    :: UpdatableBlockState m
+    :: (AccountVersionFor (MPV m) ~ 'AccountV0)
+    => UpdatableBlockState m
     -> Epoch
     -- ^The new epoch
     -> m (UpdatableBlockState m)
+
+
+  -- |Process a pending changes on all bakers and delegators.
+  -- Pending changes are only applied if they are effective according to the supplied guard
+  -- function.
+  -- For bakers pending removal, this removes the baker record and removes the baker from the active
+  -- bakers (transferring any delegators to passive delegation).
+  -- For bakers pending stake reduction, this reduces the stake.
+  -- For delegators pending removal, this removes the delegation record and removes the record of
+  -- the delegation from the active bakers index.
+  -- For delegators pending stake reduction, this reduces the stake.
+  bsoProcessPendingChanges
+    :: (AccountVersionFor (MPV m) ~ 'AccountV1)
+    => UpdatableBlockState m
+    -> (PendingChangeEffective (AccountVersionFor (MPV m)) -> Bool)
+    -- ^Guard determining if a change is effective
+    -> m (UpdatableBlockState m)
+
+  -- |Get the list of all active bakers in ascending order.
+  bsoGetActiveBakers :: UpdatableBlockState m -> m [BakerId]
+
+  -- |Get the currently-registered (i.e. active) bakers with their delegators, as well as the
+  -- set of passive delegators. In each case, the lists are ordered in ascending Id order,
+  -- with no duplicates.
+  bsoGetActiveBakersAndDelegators
+    :: (AccountVersionFor (MPV m) ~ 'AccountV1)
+    => UpdatableBlockState m
+    -> m ([ActiveBakerInfo m], [ActiveDelegatorInfo])
+
+  -- |Get the bakers for the epoch in which the block was baked.
+  bsoGetCurrentEpochBakers :: UpdatableBlockState m -> m FullBakers
+
+  -- |Get the bakers for the epoch in which the block was baked, together with their commission rates.
+  bsoGetCurrentEpochFullBakersEx :: (AccountVersionFor (MPV m) ~ 'AccountV1) => UpdatableBlockState m -> m FullBakersEx
+
+  -- |Get the bakers for the epoch in which the block was baked.
+  bsoGetCurrentCapitalDistribution
+    :: (AccountVersionFor (MPV m) ~ 'AccountV1)
+    => UpdatableBlockState m
+    -> m CapitalDistribution
 
   -- |Register this account as a baker.
   -- The following results are possible:
@@ -556,7 +730,190 @@ class (BlockStateQuery m) => BlockStateOperations m where
   --
   -- The caller MUST ensure that the staked amount does not exceed the total
   -- balance on the account.
-  bsoAddBaker :: UpdatableBlockState m -> AccountIndex -> BakerAdd -> m (BakerAddResult, UpdatableBlockState m)
+  bsoAddBaker
+    :: (AccountVersionFor (MPV m) ~ 'AccountV0, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0)
+    => UpdatableBlockState m
+    -> AccountIndex
+    -> BakerAdd
+    -> m (BakerAddResult, UpdatableBlockState m)
+
+  -- |From chain parameters version >= 1, this operation is used to add/remove/update a baker.
+  -- When adding baker, it is assumed that 'AccountIndex' account is NOT a baker and NOT a delegator.
+  --
+  -- When the argument is 'BakerConfigureAdd', the caller __must ensure__ that:
+  -- * the account is valid;
+  -- * the account is not a baker;
+  -- * the account is not a delegator;
+  -- * the account has sufficient balance to cover the stake.
+  --
+  -- The function behaves as follows:
+  --
+  -- 1. If the account index is not valid, return 'BCInvalidAccount'.
+  -- 2. If the baker's capital is less than the minimum threshold, return 'BCStakeUnderThreshold'.
+  -- 3. If the transaction fee commission is not in the acceptable range, return
+  --    'BCTransactionFeeCommissionNotInRange'.
+  -- 4. If the baking reward commission is not in the acceptable range, return
+  --    'BCBakingRewardCommissionNotInRange'.
+  -- 5. If the finalization reward commission is not in the acceptable range, return
+  --    'BCFinalizationRewardCommissionNotInRange'.
+  -- 6. If the aggregation key is a duplicate, return 'BCDuplicateAggregationKey'.
+  -- 7. Add the baker to the account, updating the indexes as follows:
+  --    * add an empty pool for the baker in the active bakers;
+  --    * add the baker's equity capital to the total active capital;
+  --    * add the baker's aggregation key to the aggregation key set.
+  -- 8. Return @BCSuccess []@.
+  --
+  -- When the argument is 'BakerConfigureUpdate', the caller __must ensure__ that:
+  -- * the account is valid;
+  -- * the account is a baker;
+  -- * if the stake is being updated, then the account balance exceeds the new stake.
+  --
+  -- The function behaves as follows, building a list @events@:
+  --
+  -- 1. If keys are supplied: if the aggregation key duplicates an existing aggregation key @key@
+  --    (except this baker's current aggregation key), return @BCDuplicateAggregationKey key@;
+  --    otherwise, update the keys with the supplied @keys@, update the aggregation key index
+  --    (removing the old key and adding the new one), and append @BakerConfigureUpdateKeys keys@
+  --    to @events@.
+  -- 2. If the restake earnings flag is supplied: update the account's flag to the supplied value
+  --    @restakeEarnings@ and append @BakerConfigureRestakeEarnings restakeEarnings@ to @events@.
+  -- 3. If the open-for-delegation configuration is supplied:
+  --    (1) update the account's configuration to the supplied value @openForDelegation@;
+  --    (2) if @openForDelegation == ClosedForAll@, transfer all delegators in the baker's pool to
+  --        passive delegation; and
+  --    (3) append @BakerConfigureOpenForDelegation openForDelegation@ to @events@.
+  -- 4. If the metadata URL is supplied: update the account's metadata URL to the supplied value
+  --    @metadataURL@ and append @BakerConfigureMetadataURL metadataURL@ to @events@.
+  -- 5. If the transaction fee commission is supplied:
+  --    (1) if the commission does not fall within the current range according to the chain
+  --        parameters, return @BCTransactionFeeCommissionNotInRange@; otherwise,
+  --    (2) update the account's transaction fee commission rate to the the supplied value @tfc@;
+  --    (3) append @BakerConfigureTransactionFeeCommission tfc@ to @events@.
+  -- 6. If the baking reward commission is supplied:
+  --    (1) if the commission does not fall within the current range according to the chain
+  --        parameters, return @BCBakingRewardCommissionNotInRange@; otherwise,
+  --    (2) update the account's baking reward commission rate to the the supplied value @brc@;
+  --    (3) append @BakerConfigureBakingRewardCommission brc@ to @events@.
+  -- 6. If the finalization reward commission is supplied:
+  --    (1) if the commission does not fall within the current range according to the chain
+  --        parameters, return @BCFinalizationRewardCommissionNotInRange@; otherwise,
+  --    (2) update the account's finalization reward commission rate to the the supplied value @frc@;
+  --    (3) append @BakerConfigureFinalizationRewardCommission frc@ to @events@.
+  -- 7. If the capital is supplied: if there is a pending change to the baker's capital, return
+  --    @BCChangePending@; otherwise:
+  --    * if the capital is 0, mark the baker as pending removal at @bcuSlotTimestamp@ plus the
+  --      the current baker cooldown period according to the chain parameters, and append
+  --      @BakerConfigureStakeReduced 0@ to @events@;
+  --    * if the capital is less than the current minimum equity capital, return @BCStakeUnderThreshold@;
+  --    * if the capital is (otherwise) less than the current equity capital of the baker, mark the
+  --      baker as pending stake reduction to the new capital at @bcuSlotTimestamp@ plus the
+  --      current baker cooldown period according to the chain parameters and append
+  --      @BakerConfigureStakeReduced capital@ to @events@;
+  --    * if the capital is equal to the baker's current equity capital, do nothing, append
+  --      @BakerConfigureStakeIncreased capital@ to @events@;
+  --    * if the capital is greater than the baker's current equity capital, increase the baker's
+  --      equity capital to the new capital (updating the total active capital in the active baker
+  --      index by adding the difference between the new and old capital) and append
+  --      @BakerConfigureStakeIncreased capital@ to @events@.
+  -- 8. return @BCSuccess events bid@, where @bid@ is the baker's ID.
+  --
+  -- Note: in the case of an early return (i.e. not @BCSuccess@), the state is not updated.
+  bsoConfigureBaker
+    :: (AccountVersionFor (MPV m) ~ 'AccountV1, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1)
+    => UpdatableBlockState m
+    -> AccountIndex
+    -> BakerConfigure
+    -> m (BakerConfigureResult, UpdatableBlockState m)
+  
+  -- |Constrain the baker's commission rates to fall in the given ranges.
+  -- If the account is invalid or not a baker, this does nothing.
+  bsoConstrainBakerCommission
+    :: (AccountVersionFor (MPV m) ~ 'AccountV1, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1)
+    => UpdatableBlockState m
+    -> AccountIndex
+    -> CommissionRanges
+    -> m (UpdatableBlockState m)
+
+  -- |From chain parameters version >= 1, this operation is used to add/remove/update a delegator.
+  -- When adding delegator, it is assumed that 'AccountIndex' account is NOT a baker and NOT a delegator.
+  --
+  -- When the argument is 'DelegationConfigureAdd', the caller __must ensure__ that:
+  -- * the account is valid;
+  -- * the account is not a baker;
+  -- * the account is not a delegator;
+  -- * the delegated amount does not exceed the account's balance.
+  --
+  -- The function behaves as follows:
+  --
+  -- 1. If the delegation target is a valid baker that is not 'OpenForAll', return 'DCPoolClosed'.
+  -- 2. If the delegation target is baker id @bid@, but the baker does not exist, return
+  --    @DCInvalidDelegationTarget bid@.
+  -- 3. Update the active bakers index to record:
+  --    * the delegator delegates to the target pool;
+  --    * the target pool's delegated capital is increased by the delegated amount;
+  --    * the total active capital is increased by the delegated amount.
+  -- 4. Update the account to record the specified delegation.
+  -- 5. If the amount delegated to the delegation target exceeds the leverage bound, return
+  --    'DCPoolStakeOverThreshold' and revert any changes.
+  -- 6. If the amount delegated to the delegation target exceed the capital bound, return
+  --    'DCPoolOverDelegated' and revert any changes.
+  -- 7. Return @DCSuccess []@ with the updated state.
+  --
+  -- When the argument is 'DelegationConfigureUpdate', the caller __must ensure__ that:
+  -- * the account is valid;
+  -- * the account is a delegator;
+  -- * if the delegated amount is updated, it does not exceed the account's balance.
+  --
+  -- The function behaves as follows, building a list @events@:
+  --
+  -- 1. If the delegation target is specified as @target@:
+  --    (1) If the delegation target is a valid baker that is not 'OpenForAll', return 'DCPoolClosed'.
+  --    (2) If the delegation target is baker id @bid@, but the baker does not exist, return
+  --        @DCInvalidDelegationTarget bid@.
+  --    (3) Update the active bakers index to: remove the delegator and delegated amount from the
+  --        old baker pool, and add the delegator and delegated amount to the new baker pool.
+  --        (Note, the total delegated amount is unchanged at this point.)
+  --    (4) Update the account to record the new delegation target.
+  --    (5) Append @DelegationConfigureDelegationTarget target@ to @events@. [N.B. if the target is
+  --        pool is the same as the previous value, steps (1)-(4) will do nothing and may be skipped
+  --        by the implementation. This relies on the invariant that delegators delegate only to
+  --        valid pools.]
+  -- 2. If the "restake earnings" flag is specified as @restakeEarnings@:
+  --    (1) Update the restake earnings flag on the account to match @restakeEarnings@.
+  --    (2) Append @DelegationConfigureRestakeEarnings restakeEarnings@ to @events@.
+  -- 3. If the delegated capital is specified as @capital@: if there is a pending change to the
+  --    delegator's stake, return 'DCChangePending'; otherwise:
+  --    * If the new capital is 0, mark the delegator as pending removal at the slot timestamp
+  --      plus the delegator cooldown chain parameter, and append
+  --      @DelegationConfigureStakeReduced capital@ to @events@; otherwise
+  --    * If the the new capital is less than the current staked capital (but not 0), mark the
+  --      delegator as pending stake reduction to @capital@ at the slot timestamp plus the
+  --      delegator cooldown chain parameter, and append @DelegationConfigureStakeReduced capital@
+  --      to @events@;
+  --    * If the new capital is equal to the current staked capital, append
+  --      @DelegationConfigureStakeIncreased capital@ to @events@.
+  --    * If the new capital is greater than the current staked capital by @delta > 0@:
+  --      * increase the total active capital by @delta@,
+  --      * increase the delegator's target pool delegated capital by @delta@,
+  --      * set the baker's delegated capital to @capital@, and
+  --      * append @DelegationConfigureStakeIncreased capital@ to @events@.
+  -- 4. If the amount delegated to the delegation target exceeds the leverage bound, return
+  --    'DCPoolStakeOverThreshold' and revert any changes.
+  -- 5. If the amount delegated to the delegation target exceed the capital bound, return
+  --    'DCPoolOverDelegated' and revert any changes.
+  -- 6. Return @DCSuccess events@ with the updated state.
+  --
+  -- Note, if the return code is anything other than 'DCSuccess', the original state is returned.
+  -- If the preconditions are violated, the function may return 'DCInvalidAccount' (if the account
+  -- is not valid) or 'DCInvalidDelegator' (when updating, if the account is not a delegator).
+  -- However, this behaviour is not guaranteed, and could result in violations of the state
+  -- invariants.
+  bsoConfigureDelegation
+    :: (AccountVersionFor (MPV m) ~ 'AccountV1, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1)
+    => UpdatableBlockState m
+    -> AccountIndex
+    -> DelegationConfigure
+    -> m (DelegationConfigureResult, UpdatableBlockState m)
 
   -- |Update the keys associated with an account.
   -- It is assumed that the keys have already been checked for validity/ownership as
@@ -570,7 +927,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- * @BKUInvalidBaker@: the account does not exist or is not currently a baker.
   --
   -- * @BKUDuplicateAggregationKey@: the aggregation key is a duplicate.
-  bsoUpdateBakerKeys :: UpdatableBlockState m -> AccountIndex -> BakerKeyUpdate -> m (BakerKeyUpdateResult, UpdatableBlockState m)
+  bsoUpdateBakerKeys :: (AccountVersionFor (MPV m) ~ 'AccountV0) => UpdatableBlockState m -> AccountIndex -> BakerKeyUpdate -> m (BakerKeyUpdateResult, UpdatableBlockState m)
 
   -- |Update the stake associated with an account.
   -- A reduction in stake will be delayed by the current cool-off period.
@@ -594,7 +951,12 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- * @BSUChangePending id@: the change could not be made since the account is already in a cooling-off period.
   --
   -- The caller MUST ensure that the staked amount does not exceed the total balance on the account.
-  bsoUpdateBakerStake :: UpdatableBlockState m -> AccountIndex -> Amount -> m (BakerStakeUpdateResult, UpdatableBlockState m)
+  bsoUpdateBakerStake
+    :: (AccountVersionFor (MPV m) ~ 'AccountV0, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0)
+    => UpdatableBlockState m
+    -> AccountIndex
+    -> Amount
+    -> m (BakerStakeUpdateResult, UpdatableBlockState m)
 
   -- |Update whether a baker's earnings are automatically restaked.
   --
@@ -603,7 +965,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- * @BREUUpdated id@: the flag was updated.
   --
   -- * @BREUInvalidBaker@: the account does not exists, or is not currently a baker.
-  bsoUpdateBakerRestakeEarnings :: UpdatableBlockState m -> AccountIndex -> Bool -> m (BakerRestakeEarningsUpdateResult, UpdatableBlockState m)
+  bsoUpdateBakerRestakeEarnings :: (AccountVersionFor (MPV m) ~ 'AccountV0) => UpdatableBlockState m -> AccountIndex -> Bool -> m (BakerRestakeEarningsUpdateResult, UpdatableBlockState m)
 
   -- |Remove the baker associated with an account.
   -- The removal takes effect after a cooling-off period.
@@ -616,14 +978,42 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- * @BRInvalidBaker@: the account address is not valid, or the account is not a baker.
   --
   -- * @BRChangePending id@: the baker is currently in a cooling-off period and so cannot be removed.
-  bsoRemoveBaker :: UpdatableBlockState m -> AccountIndex -> m (BakerRemoveResult, UpdatableBlockState m)
+  bsoRemoveBaker
+    :: (AccountVersionFor (MPV m) ~ 'AccountV0, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0)
+    => UpdatableBlockState m
+    -> AccountIndex
+    -> m (BakerRemoveResult, UpdatableBlockState m)
 
-  -- |Add an amount to a baker's account as a reward. The baker's stake is increased
-  -- correspondingly if the baker is set to restake rewards.
-  -- If the baker id refers to an account, the reward is paid to the account, and the
+  -- |Add an amount to a baker or delegator's account as a reward. The accounts's stake is increased
+  -- correspondingly if it is set to restake rewards.
+  -- If the id refers to an account, the reward is paid to the account, and the
   -- address of the account is returned.  If the id does not refer to an account
   -- then no change is made and @Nothing@ is returned.
-  bsoRewardBaker :: UpdatableBlockState m -> BakerId -> Amount -> m (Maybe AccountAddress, UpdatableBlockState m)
+  bsoRewardAccount :: UpdatableBlockState m -> AccountIndex -> Amount -> m (Maybe AccountAddress, UpdatableBlockState m)
+
+  -- |Function 'bsoGetBakerPoolRewardDetails' returns a map with the 'BakerPoolRewardDetails' for each
+  -- current-epoch baker (in the 'CapitalDistribution' returned by 'bsoGetCurrentCapitalDistribution').
+  bsoGetBakerPoolRewardDetails :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> m (Map.Map BakerId BakerPoolRewardDetails)
+
+  -- |Update the amount to be distributed to the given baker's account at payday. It is a
+  -- precondition that the given baker is current-epoch baker.
+  bsoUpdateAccruedTransactionFeesBaker :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> BakerId -> AmountDelta -> m (UpdatableBlockState m)
+
+  -- |Mark that the given baker has signed a finalization proof included in a block during the
+  -- reward period. It is a precondition that the given baker is a current-epoch baker.
+  bsoMarkFinalizationAwakeBaker :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> BakerId -> m (UpdatableBlockState m)
+
+  -- |Update amount to be distributed to the passive delegators.
+  bsoUpdateAccruedTransactionFeesPassive :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> AmountDelta -> m (UpdatableBlockState m)
+
+  -- |Get the accrued amount to the passive delegators.
+  bsoGetAccruedTransactionFeesPassive :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> m Amount
+
+  -- |Update the amount to distribute to the foundation account.
+  bsoUpdateAccruedTransactionFeesFoundationAccount :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> AmountDelta -> m (UpdatableBlockState m)
+
+  -- |Get the amount to distribute to the foundation account.
+  bsoGetAccruedTransactionFeesFoundationAccount :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> m Amount
 
   -- |Add an amount to the foundation account.
   bsoRewardFoundationAccount :: UpdatableBlockState m -> Amount -> m (UpdatableBlockState m)
@@ -648,6 +1038,18 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- periodically updated and so they must be part of the block state.
   bsoGetCryptoParams :: UpdatableBlockState m -> m CryptographicParameters
 
+  -- |Get the epoch time of the next scheduled payday.
+  bsoGetPaydayEpoch :: (AccountVersionFor (MPV m) ~ 'AccountV1) => UpdatableBlockState m -> m Epoch
+
+  -- |Get the mint rate of the next scheduled payday.
+  bsoGetPaydayMintRate :: (AccountVersionFor (MPV m) ~ 'AccountV1) => UpdatableBlockState m -> m MintRate
+
+  -- |Set the epoch of the next scheduled payday.
+  bsoSetPaydayEpoch :: (AccountVersionFor (MPV m) ~ 'AccountV1) => UpdatableBlockState m -> Epoch -> m (UpdatableBlockState m)
+
+  -- |Set the mint rate of the next scheduled payday.
+  bsoSetPaydayMintRate :: (AccountVersionFor (MPV m) ~ 'AccountV1) => UpdatableBlockState m -> MintRate -> m (UpdatableBlockState m)
+
   -- |Set the list of transaction outcomes for the block.
   bsoSetTransactionOutcomes :: UpdatableBlockState m -> [TransactionSummary] -> m (UpdatableBlockState m)
 
@@ -655,18 +1057,27 @@ class (BlockStateQuery m) => BlockStateOperations m where
   bsoAddSpecialTransactionOutcome :: UpdatableBlockState m -> SpecialTransactionOutcome -> m (UpdatableBlockState m)
 
   -- |Process queued updates.
-  bsoProcessUpdateQueues :: UpdatableBlockState m -> Timestamp -> m (Map.Map TransactionTime UpdateValue, UpdatableBlockState m)
+  bsoProcessUpdateQueues
+    :: UpdatableBlockState m
+    -> Timestamp
+    -> m (Map.Map TransactionTime (UpdateValue (ChainParametersVersionFor (MPV m))), UpdatableBlockState m)
 
   -- |Unlock the amounts up to the given timestamp
   bsoProcessReleaseSchedule :: UpdatableBlockState m -> Timestamp -> m (UpdatableBlockState m)
 
   -- |Get the current 'Authorizations' for validating updates.
-  bsoGetUpdateKeyCollection :: UpdatableBlockState m -> m UpdateKeysCollection
+  bsoGetUpdateKeyCollection
+    :: UpdatableBlockState m
+    -> m (UpdateKeysCollection (ChainParametersVersionFor (MPV m)))
   -- |Get the next 'UpdateSequenceNumber' for a given update type.
   bsoGetNextUpdateSequenceNumber :: UpdatableBlockState m -> UpdateType -> m UpdateSequenceNumber
 
   -- |Enqueue an update to take effect at the specified time.
-  bsoEnqueueUpdate :: UpdatableBlockState m -> TransactionTime -> UpdateValue -> m (UpdatableBlockState m)
+  bsoEnqueueUpdate
+    :: UpdatableBlockState m
+    -> TransactionTime
+    -> (UpdateValue (ChainParametersVersionFor (MPV m)))
+    -> m (UpdatableBlockState m)
 
   -- |Overwrite the election difficulty, removing any queued election difficulty updates.
   -- This is intended to be used for protocol updates that affect the election difficulty in
@@ -687,18 +1098,35 @@ class (BlockStateQuery m) => BlockStateOperations m where
   bsoGetEnergyRate :: UpdatableBlockState m -> m EnergyRate
 
   -- |Get the current chain parameters.
-  bsoGetChainParameters :: UpdatableBlockState m -> m ChainParameters
+  bsoGetChainParameters :: UpdatableBlockState m -> m (ChainParameters (MPV m))
+
+  -- * Reward details
 
   -- |Get the number of blocks baked in this epoch, both in total and
   -- per baker.
   bsoGetEpochBlocksBaked :: UpdatableBlockState m -> m (Word64, [(BakerId, Word64)])
 
-  -- |Record that the given baker has baked a block in the current epoch.
+  -- |Record that the given baker has baked a block in the current epoch. It is a precondition that
+  -- the given baker is active.
   bsoNotifyBlockBaked :: UpdatableBlockState m -> BakerId -> m (UpdatableBlockState m)
 
   -- |Clear the tracking of baked blocks in the current epoch.
   -- Should be called whenever a new epoch is entered.
-  bsoClearEpochBlocksBaked :: UpdatableBlockState m -> m (UpdatableBlockState m)
+  -- (Only used prior to protocol P4.)
+  bsoClearEpochBlocksBaked :: (AccountVersionFor (MPV m) ~ 'AccountV0) => UpdatableBlockState m -> m (UpdatableBlockState m)
+
+  -- |Set the next capital distribution.
+  bsoSetNextCapitalDistribution ::
+    (AccountVersionFor (MPV m) ~ 'AccountV1) =>
+    UpdatableBlockState m ->
+    CapitalDistribution ->
+    m (UpdatableBlockState m)
+
+  -- |Set the current capital distribution to the current value of the next capital distribution.
+  -- The next capital distribution is unchanged.
+  -- This also clears transaction rewards and block counts accruing to baker pools.
+  -- The passive delegator and foundation transaction rewards are not affected.
+  bsoRotateCurrentCapitalDistribution :: (AccountVersionFor (MPV m) ~ 'AccountV1) => UpdatableBlockState m -> m (UpdatableBlockState m)
 
   -- |Get the current status of the various accounts.
   bsoGetBankStatus :: UpdatableBlockState m -> m BankStatus
@@ -762,6 +1190,8 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   getModuleInterface s = lift . getModuleInterface s
   getAccount s = lift . getAccount s
   accountExists s = lift . accountExists s
+  getActiveBakers = lift . getActiveBakers
+  getActiveBakersAndDelegators = lift . getActiveBakersAndDelegators
   getAccountByCredId s = lift . getAccountByCredId s
   getAccountByIndex s = lift . getAccountByIndex s
   getBakerAccount s = lift . getBakerAccount s
@@ -771,7 +1201,8 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   getContractInstanceList = lift . getContractInstanceList
   getSeedState = lift . getSeedState
   getCurrentEpochBakers = lift . getCurrentEpochBakers
-  getSlotBakers s = lift . getSlotBakers s
+  getNextEpochBakers = lift . getNextEpochBakers
+  getSlotBakersP1 d = lift . getSlotBakersP1 d
   getRewardStatus = lift . getRewardStatus
   getTransactionOutcome s = lift . getTransactionOutcome s
   getTransactionOutcomesHash = lift . getTransactionOutcomesHash
@@ -784,12 +1215,16 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   getNextUpdateSequenceNumber s = lift . getNextUpdateSequenceNumber s
   getCurrentElectionDifficulty = lift . getCurrentElectionDifficulty
   getUpdates = lift . getUpdates
+  getPendingTimeParameters = lift . getPendingTimeParameters
+  getPendingPoolParameters = lift . getPendingPoolParameters
   getProtocolUpdateStatus = lift . getProtocolUpdateStatus
   getCryptographicParameters = lift . getCryptographicParameters
   getIdentityProvider s = lift . getIdentityProvider s
   getAnonymityRevokers s = lift . getAnonymityRevokers s
   getUpdateKeysCollection s = lift $ getUpdateKeysCollection s
   getEnergyRate s = lift $ getEnergyRate s
+  getPaydayEpoch = lift . getPaydayEpoch
+  getPoolStatus s = lift . getPoolStatus s
   {-# INLINE getModule #-}
   {-# INLINE getAccount #-}
   {-# INLINE accountExists #-}
@@ -802,7 +1237,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   {-# INLINE getContractInstanceList #-}
   {-# INLINE getSeedState #-}
   {-# INLINE getCurrentEpochBakers #-}
-  {-# INLINE getSlotBakers #-}
+  {-# INLINE getSlotBakersP1 #-}
   {-# INLINE getRewardStatus #-}
   {-# INLINE getOutcomes #-}
   {-# INLINE getTransactionOutcome #-}
@@ -833,6 +1268,10 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
   getAccountEncryptionKey = lift . getAccountEncryptionKey
   getAccountReleaseSchedule = lift . getAccountReleaseSchedule
   getAccountBaker = lift . getAccountBaker
+  getAccountDelegator = lift . getAccountDelegator
+  getAccountStake = lift . getAccountStake
+  getAccountBakerInfoRef = lift . getAccountBakerInfoRef
+  derefBakerInfo = lift . derefBakerInfo
   {-# INLINE getAccountCanonicalAddress #-}
   {-# INLINE getAccountAmount #-}
   {-# INLINE getAccountAvailableAmount #-}
@@ -843,6 +1282,9 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
   {-# INLINE getAccountEncryptedAmount #-}
   {-# INLINE getAccountReleaseSchedule #-}
   {-# INLINE getAccountBaker #-}
+  {-# INLINE getAccountStake #-}
+  {-# INLINE getAccountBakerInfoRef #-}
+  {-# INLINE derefBakerInfo #-}
 
 instance (Monad (t m), MonadTrans t, ContractStateOperations m) => ContractStateOperations (MGSTrans t m) where
   thawContractState = lift . thawContractState
@@ -858,6 +1300,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoGetModule s = lift . bsoGetModule s
   bsoGetAccount s = lift . bsoGetAccount s
   bsoGetAccountIndex s = lift . bsoGetAccountIndex s
+  bsoGetAccountByIndex s = lift . bsoGetAccountByIndex s
   bsoGetInstance s = lift . bsoGetInstance s
   bsoAddressWouldClash s = lift . bsoAddressWouldClash s
   bsoRegIdExists s = lift . bsoRegIdExists s
@@ -871,19 +1314,40 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoNotifyEncryptedBalanceChange s = lift . bsoNotifyEncryptedBalanceChange s
   bsoGetSeedState = lift . bsoGetSeedState
   bsoSetSeedState s ss = lift $ bsoSetSeedState s ss
+  bsoRotateCurrentEpochBakers = lift . bsoRotateCurrentEpochBakers
+  bsoProcessPendingChanges s g = lift $ bsoProcessPendingChanges s g
   bsoTransitionEpochBakers s e = lift $ bsoTransitionEpochBakers s e
+  bsoGetActiveBakers = lift . bsoGetActiveBakers
+  bsoGetActiveBakersAndDelegators = lift . bsoGetActiveBakersAndDelegators
+  bsoGetCurrentEpochBakers = lift . bsoGetCurrentEpochBakers
+  bsoGetCurrentEpochFullBakersEx = lift . bsoGetCurrentEpochFullBakersEx
+  bsoGetCurrentCapitalDistribution = lift . bsoGetCurrentCapitalDistribution
   bsoAddBaker s addr a = lift $ bsoAddBaker s addr a
+  bsoConfigureBaker s aconfig a = lift $ bsoConfigureBaker s aconfig a
+  bsoConstrainBakerCommission s acct ranges = lift $ bsoConstrainBakerCommission s acct ranges
+  bsoConfigureDelegation s aconfig a = lift $ bsoConfigureDelegation s aconfig a
   bsoUpdateBakerKeys s addr a = lift $ bsoUpdateBakerKeys s addr a
   bsoUpdateBakerStake s addr a = lift $ bsoUpdateBakerStake s addr a
   bsoUpdateBakerRestakeEarnings s addr a = lift $ bsoUpdateBakerRestakeEarnings s addr a
   bsoRemoveBaker s = lift . bsoRemoveBaker s
-  bsoRewardBaker s bid amt = lift $ bsoRewardBaker s bid amt
+  bsoRewardAccount s aid amt = lift $ bsoRewardAccount s aid amt
+  bsoGetBakerPoolRewardDetails s = lift $ bsoGetBakerPoolRewardDetails s
   bsoRewardFoundationAccount s = lift . bsoRewardFoundationAccount s
   bsoGetFoundationAccount = lift . bsoGetFoundationAccount
   bsoMint s = lift . bsoMint s
   bsoGetIdentityProvider s ipId = lift $ bsoGetIdentityProvider s ipId
   bsoGetAnonymityRevokers s arId = lift $ bsoGetAnonymityRevokers s arId
   bsoGetCryptoParams s = lift $ bsoGetCryptoParams s
+  bsoGetPaydayEpoch s = lift $ bsoGetPaydayEpoch s
+  bsoGetPaydayMintRate s = lift $ bsoGetPaydayMintRate s
+  bsoSetPaydayEpoch s e = lift $ bsoSetPaydayEpoch s e
+  bsoSetPaydayMintRate s r = lift $ bsoSetPaydayMintRate s r
+  bsoUpdateAccruedTransactionFeesBaker s bid f = lift $ bsoUpdateAccruedTransactionFeesBaker s bid f
+  bsoMarkFinalizationAwakeBaker s bid = lift $ bsoMarkFinalizationAwakeBaker s bid
+  bsoUpdateAccruedTransactionFeesPassive s f = lift $ bsoUpdateAccruedTransactionFeesPassive s f
+  bsoGetAccruedTransactionFeesPassive = lift . bsoGetAccruedTransactionFeesPassive
+  bsoUpdateAccruedTransactionFeesFoundationAccount s f = lift $ bsoUpdateAccruedTransactionFeesFoundationAccount s f
+  bsoGetAccruedTransactionFeesFoundationAccount = lift . bsoGetAccruedTransactionFeesFoundationAccount
   bsoSetTransactionOutcomes s = lift . bsoSetTransactionOutcomes s
   bsoAddSpecialTransactionOutcome s = lift . bsoAddSpecialTransactionOutcome s
   bsoProcessUpdateQueues s = lift . bsoProcessUpdateQueues s
@@ -899,6 +1363,9 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoGetEpochBlocksBaked = lift . bsoGetEpochBlocksBaked
   bsoNotifyBlockBaked s = lift . bsoNotifyBlockBaked s
   bsoClearEpochBlocksBaked = lift . bsoClearEpochBlocksBaked
+  bsoSetNextCapitalDistribution s cd = lift $ bsoSetNextCapitalDistribution s cd
+  bsoRotateCurrentCapitalDistribution = lift . bsoRotateCurrentCapitalDistribution
+  bsoSetNextEpochBakers s = lift . bsoSetNextEpochBakers s
   bsoGetBankStatus = lift . bsoGetBankStatus
   bsoSetRewardAccounts s = lift . bsoSetRewardAccounts s
   {-# INLINE bsoGetModule #-}
@@ -919,11 +1386,12 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoSetSeedState #-}
   {-# INLINE bsoTransitionEpochBakers #-}
   {-# INLINE bsoAddBaker #-}
+  {-# INLINE bsoConfigureBaker #-}
   {-# INLINE bsoUpdateBakerKeys #-}
   {-# INLINE bsoUpdateBakerStake #-}
   {-# INLINE bsoUpdateBakerRestakeEarnings #-}
   {-# INLINE bsoRemoveBaker #-}
-  {-# INLINE bsoRewardBaker #-}
+  {-# INLINE bsoRewardAccount #-}
   {-# INLINE bsoGetFoundationAccount #-}
   {-# INLINE bsoRewardFoundationAccount #-}
   {-# INLINE bsoMint #-}
@@ -945,8 +1413,11 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoGetEpochBlocksBaked #-}
   {-# INLINE bsoNotifyBlockBaked #-}
   {-# INLINE bsoClearEpochBlocksBaked #-}
+  {-# INLINE bsoSetNextEpochBakers #-}
   {-# INLINE bsoGetBankStatus #-}
   {-# INLINE bsoSetRewardAccounts #-}
+  {-# INLINE bsoGetCurrentEpochBakers #-}
+
 instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (MGSTrans t m) where
     thawBlockState = lift . thawBlockState
     freezeBlockState = lift . freezeBlockState

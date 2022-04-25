@@ -44,6 +44,9 @@
             _oTestnetRunOnStartup.state = NSControlStateValueOff;
         }
     }
+    // Enable or disable node name text fields depending on the options
+    [self enableOrDisableMainnetNodeNameField];
+    [self enableOrDisableTestnetNodeNameField];
 }
 
 // Replaces the node name field with a message about reconfiguring the node name.
@@ -139,12 +142,19 @@
     }
 }
 
-// Checks that both the mainnet and testnet node names:
-// - have length > 0 and <= 100
-// - only contain characters in [a-zA-Z0-9-_ ]
+// Checks that a node name:
+// - has length > 0 and <= 100 if at least one of `run on startup`, `run after install`, or `report to network dashboard` is checked
+// - only contains characters in [a-zA-Z0-9-_ ]
 // - cannot start or end with spaces
-- (BOOL) nodeNamesAreValid
+- (BOOL) nodeNameIsValid:(NSTextField*)nodeNameField
 {
+    // If the node name field is disabled there's no need to check the name validity.
+    if (!nodeNameField.isEnabled) {
+        return TRUE;
+    }
+
+    NSString *nodeName = [nodeNameField stringValue];
+
     // NB: This character set must be accepted by the service file XML parser.
     // This naturally excludes '<', '>', etc., but the service won't start with a sequence of ',.' in the node name either.
     NSCharacterSet *allowedChars = [[NSCharacterSet characterSetWithCharactersInString:@"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890-_ "] invertedSet];
@@ -152,24 +162,54 @@
     // Default maximum node name length that the collector-backend will accept. Measured in UTF-8 encoded bytes.
     int maxLen = 100;
 
-    NSString *mainnetName = [_oMainnetNodeName stringValue];
-    NSString *testnetName = [_oTestnetNodeName stringValue];
-
     // NB: Get the actual length in bytes if allowedChars is changed to contain non-ascii characters.
-    NSUInteger mainnetNameLen = [mainnetName length];
-    NSUInteger testnetNameLen = [mainnetName length];
+    NSUInteger nodeNameLen = [nodeName length];
 
-    return      mainnetNameLen > 0
-            &&  mainnetNameLen <= maxLen
-            &&  testnetNameLen > 0
-            &&  testnetNameLen <= maxLen
-            &&  ![mainnetName hasPrefix:@" "]
-            &&  ![mainnetName hasSuffix:@" "]
-            && !([mainnetName rangeOfCharacterFromSet:allowedChars].location != NSNotFound)
-            && !([testnetName rangeOfCharacterFromSet:allowedChars].location != NSNotFound);
+    return      nodeNameLen > 0
+            &&  nodeNameLen <= maxLen
+            &&  ![nodeName hasPrefix:@" "]
+            &&  ![nodeName hasSuffix:@" "]
+            && !([nodeName rangeOfCharacterFromSet:allowedChars].location != NSNotFound);
 }
 
+// Checks that both the mainnet and testnet node names are valid.
+- (BOOL) nodeNamesAreValid
+{
+    BOOL mainnetNameIsValid = [self nodeNameIsValid:_oMainnetNodeName];
+    BOOL testnetNameIsValid = [self nodeNameIsValid:_oTestnetNodeName];
+
+    return mainnetNameIsValid && testnetNameIsValid;
+}
+
+// Enables Mainnet node name text field if any of the mainnet options
+// are selected, disables otherwise.
+- (void)enableOrDisableMainnetNodeNameField {
+    self.oMainnetNodeName.enabled =
+        _oMainnetRunOnStartup.state == NSControlStateValueOn
+        || _oMainnetRunAfterInstall.state == NSControlStateValueOn
+        || _oMainnetReportToNetworkDashboard.state == NSControlStateValueOn;
+}
+
+// Enables Testnet node name text field if any of the mainnet options
+// are selected, disables otherwise.
+- (void)enableOrDisableTestnetNodeNameField {
+    self.oTestnetNodeName.enabled =
+        _oTestnetRunOnStartup.state == NSControlStateValueOn
+        || _oTestnetRunAfterInstall.state == NSControlStateValueOn
+        || _oTestnetReportToNetworkDashboard.state == NSControlStateValueOn;
+}
+
+// Handles the changes in the Mainnet options
+- (IBAction)onChangeInMainnetOptions:(id)sender {
+    [self enableOrDisableMainnetNodeNameField];
+    // Disable 'Continue' button if both net configurations are empty.
+    [self setNextEnabled:(self.oMainnetNodeName.isEnabled || self.oTestnetNodeName.isEnabled)];
+}
+
+// Handles the changes in the Testnet options
+- (IBAction)onChangeInTestnetOptions:(id)sender {
+    [self enableOrDisableTestnetNodeNameField];
+    // Disable 'Continue' button if both net configurations are empty.
+    [self setNextEnabled:(self.oMainnetNodeName.isEnabled || self.oTestnetNodeName.isEnabled)];
+}
 @end
-
-
-

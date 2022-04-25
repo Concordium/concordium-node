@@ -154,8 +154,14 @@ async fn main() {
     }
 
     let mut interval = tokio::time::interval(Duration::from_millis(conf.collector_interval));
-    #[allow(unreachable_code)]
+    // If for some reason we cannot submit the statistics for a given period, we
+    // skip it. This also handles cases such as when a computer goes to sleep. By
+    // default the behaviour is [MissedTickBehaviour::Burst] which would,
+    // in such a case, try to make up the missed ticks by submitting statistics as
+    // quickly as possible.
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
+        interval.tick().await;
         for (node_name, grpc_host) in conf.node_names.iter().zip(conf.grpc_hosts.iter()) {
             trace!("Processing node {}/{}", node_name, grpc_host);
             match collect_data(node_name.clone(), grpc_host.to_owned(), &conf).await {
@@ -163,7 +169,16 @@ async fn main() {
                     trace!("Node data collected successfully from {}/{}", node_name, grpc_host);
                     match rmp_serde::encode::to_vec(&node_info) {
                         Ok(msgpack) => {
-                            let client = reqwest::Client::new();
+                            let client_builder = reqwest::Client::builder()
+                                .connect_timeout(Duration::from_millis(conf.collector_interval))
+                                .timeout(Duration::from_millis(conf.collector_interval));
+                            let client = match client_builder.build() {
+                                Ok(client) => client,
+                                Err(e) => {
+                                    error!("Error constructing a network client: {}", e);
+                                    continue;
+                                }
+                            };
                             match client.post(&conf.collector_url).body(msgpack).send().await {
                                 Ok(_) => trace!("Payload sent successfully to collector backend"),
                                 Err(e) => error!(
@@ -183,8 +198,6 @@ async fn main() {
                 }
             }
         }
-        trace!("Sleeping for {} ms", conf.collector_interval);
-        interval.tick().await;
     }
 }
 

@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 {-| This module tests making a transfer from a contract to an account.
 -}
 module SchedulerTests.SmartContracts.V1.Transfer (tests) where
@@ -48,7 +49,7 @@ testCases :: [TestCase PV4]
 testCases =
   [ TestCase
     { tcName = "Transfer from V1 contract to account."
-    , tcParameters = defaultParams {tpInitialBlockState=initialBlockState}
+    , tcParameters = (defaultParams @PV4) {tpInitialBlockState=initialBlockState}
     , tcTransactions =
       [ ( TJSON { payload = DeployModule wasmModVersion transferSourceFile
                 , metadata = makeDummyHeader alesAccount 1 100000

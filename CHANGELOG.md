@@ -25,6 +25,34 @@
 - Fix issue #244: Collector to keep querying. Remove the parameter for maximum allowed
   times a gRPC call can fail and keeps `node-collector` querying forever.
 - `GetAccountInfo` endpoint supports querying the account via the account index.
+- Mac installer: Users now can leave one (but not both) of the net configurations empty
+  when they don't want to configure a node for it.
+  - On the initial installation, leaving a net configuration empty means that
+    the start/stop app shortcuts and the application support folder for that net won't be installed.
+- Implement baker pools and stake delegation for the P4 protocol version.
+  - New gRPC endpoint: `GetBakerList` retrieves a JSON list of the baker IDs of the bakers
+    registered in a known block. (Returns `null` for an unknown block.)
+  - New gRPC endpoint: `GetPoolStatus` retrieves a status record for a baker pool, or for
+    the set of passive delegators.
+  - The `bakerStakeThreshold` level-2 keys are renamed as the `poolParameters` keys; two
+    additional access structures are defined: `cooldownParameters` and `timeParameters`.
+  - The following changes are made to the chain parameters in P4:
+    - The mint distribution no longer includes the mint per slot rate.
+    - Pool parameters are added, governed by the `poolParameters` keys, that determine
+      commission rates and ranges, bounds and other factors affecting baker pools.
+    - Time parameters, governed by `timeParameters`, are added that determine the
+      duration of a payday (in epochs) and the mint rate per payday.
+    - Cooldown parameters, governed by `cooldownParameters`, are added that determine
+      the required cooldown periods when bakers and delegators reduce their stakes.
+  - ConfigureBaker and ConfigureDelegator transactions are added (with the old baker
+    transactions becoming obsolete in P4). These permit adding, modifying and removing bakers
+    and delegators respectively from an account. Delegators can delegate to a baker, or
+    delegate passively (effectively to all bakers).
+  - The reward mechanism is overhauled, with minting and rewarding being done once per
+    'payday' (a number of epochs, nominally one day). Baker rewards are shared with
+    delegators to the baker's pool, with some commission being paid to the baker.
+    Block rewards (i.e. transaction fee rewards), baking rewards and finalization rewards
+    are accumulated over the reward period and paid out at the payday.
 
 ## concordium-node 3.0.1
 
