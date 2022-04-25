@@ -38,6 +38,7 @@ import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
 import Concordium.Types.SeedState
 
 import Concordium.Kontrol
+import Concordium.Kontrol.Bakers
 import Concordium.Birk.LeaderElection
 import Concordium.Kontrol.BestBlock
 import Concordium.Kontrol.UpdateLeaderElectionParameters
@@ -80,8 +81,8 @@ instance FromJSON BakerIdentity where
     return BakerIdentity{..}
 
 processTransactions
-    :: (TreeStateMonad pv m,
-        SkovMonad pv m)
+    :: (TreeStateMonad m,
+        SkovMonad m)
     => Slot
     -> SeedState
     -> BlockPointerType m
@@ -101,7 +102,7 @@ processTransactions slot ss bh mfinInfo bid = do
 -- |Re-establish all the invariants among the transaction table, pending table,
 -- account non-finalized table
 maintainTransactions ::
-  (TreeStateMonad pv m)
+  (TreeStateMonad m)
   => BlockPointerType m
   -> FilteredTransactions
   -> m ()
@@ -109,7 +110,7 @@ maintainTransactions bp FilteredTransactions{..} = do
     -- We first commit all valid transactions to the current block slot to prevent them being purged.
     let bh = getHash bp
     let slot = blockSlot bp
-    zipWithM_ (\tx -> commitTransaction slot bh (fst tx)) ftAdded [0..]
+    zipWithM_ (\tx -> commitTransaction slot bh (fst tx)) (map (\(a,b) -> (fst a, b)) ftAdded) [0..]
 
     -- lookup the maximum block size as mandated by the tree state
     maxSize <- rpBlockSize <$> TS.getRuntimeParameters
@@ -127,7 +128,7 @@ maintainTransactions bp FilteredTransactions{..} = do
             Nothing -> return minNonce
             Just (_, acc) -> getAccountNonce acc
     -- construct a new pending transaction table adding back some failed transactions.
-    let purgeFailed cpt tx = do
+    let purgeFailed cpt (tx, _) = do
           b <- purgeTransaction (normalTransaction tx)
           if b then return cpt  -- if the transaction was purged don't put it back into the pending table
           else do
@@ -142,14 +143,14 @@ maintainTransactions bp FilteredTransactions{..} = do
     -- and therefore that is block dependent, and we should perhaps not remove the credential.
     -- However modulo crypto breaking, this can only happen if the user has tried to deploy duplicate
     -- credentials (with high probability), so it is likely fine to remove it.
-    let purgeCredential cpt cred = do
+    let purgeCredential cpt (cred, _) = do
           b <- purgeTransaction (credentialDeployment cred)
           if b then return cpt
           else return $! addPendingDeployCredential (wmdHash cred) cpt
 
     newpt' <- foldM purgeCredential newpt (map fst ftFailedCredentials)
 
-    let purgeUpdate cpt ui = do
+    let purgeUpdate cpt (ui, _) = do
           b <- purgeTransaction (chainUpdate ui)
           if b then return cpt
           else do
@@ -158,7 +159,7 @@ maintainTransactions bp FilteredTransactions{..} = do
     newpt'' <- foldM purgeUpdate newpt' (map fst ftFailedUpdates)
 
     -- additionally add in the unprocessed transactions which are sufficiently small (here meaning < maxSize)
-    let purgeTooBig cpt tx =
+    let purgeTooBig cpt (tx, _) =
           if transactionSize tx < maxSize then do
             nonce <- nextNonceFor (transactionSender tx)
             return $! checkedAddPendingTransaction nonce tx cpt
@@ -179,14 +180,14 @@ maintainTransactions bp FilteredTransactions{..} = do
     -- Put back in all the unprocessed credentials
     -- We assume here that chain parameters are such that credentials always fit on a block
     -- and processing of one credential does not exceed maximum block energy.
-    let ptWithUnprocessedCreds = foldl' (\cpt cdiwm -> addPendingDeployCredential (wmdHash cdiwm) cpt) ptWithUnprocessed ftUnprocessedCredentials
+    let ptWithUnprocessedCreds = foldl' (\cpt cdiwm -> addPendingDeployCredential (wmdHash cdiwm) cpt) ptWithUnprocessed (map fst ftUnprocessedCredentials)
 
-    let purgeUnprocessedUpdates cpt ui =
+    let purgeUnprocessedUpdates cpt (ui, verRes) =
           if wmdSize ui < maxSize then do
             sn <- getNextUpdateSequenceNumber stateHandle (updateType (uiPayload (wmdData ui)))
             return $! checkedAddPendingUpdate sn (wmdData ui) cpt
-          else purgeUpdate cpt ui
-    ptWithAllUnprocessed <- foldM purgeUnprocessedUpdates ptWithUnprocessedCreds ftUnprocessedUpdates 
+          else purgeUpdate cpt (ui, verRes)
+    ptWithAllUnprocessed <- foldM purgeUnprocessedUpdates ptWithUnprocessedCreds ftUnprocessedUpdates
 
     -- commit the new pending transactions to the tree state
     putPendingTransactions ptWithAllUnprocessed
@@ -198,7 +199,7 @@ validateBakerKeys BakerInfo{..} ident =
   && _bakerSignatureVerifyKey == bakerSignPublicKey ident
   && _bakerAggregationVerifyKey == bakerAggregationPublicKey ident
 
-doBakeForSlot :: forall pv m. (FinalizationMonad m, SkovMonad pv m, TreeStateMonad pv m, MonadIO m, OnSkov m) => BakerIdentity -> Slot -> m (Maybe (BlockPointerType m))
+doBakeForSlot :: forall m. (FinalizationMonad m, SkovMonad m, TreeStateMonad m, MonadIO m, OnSkov m) => BakerIdentity -> Slot -> m (Maybe (BlockPointerType m))
 doBakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     -- Do not bake if consensus is shut down
     shutdown <- isShutDown
@@ -206,7 +207,8 @@ doBakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     bb <- bestBlockBefore slot
     guard (blockSlot bb < slot)
     bbState <- blockState bb
-    bakers <- getSlotBakers bbState slot
+    gd <- TS.getGenesisData
+    bakers <- getSlotBakers gd bbState slot
     (binfo, lotteryPower) <- MaybeT . return $ lotteryBaker bakers bakerId
     unless (validateBakerKeys binfo ident) $ do
       logEvent Baker LLWarning "Baker keys are incorrect."
@@ -233,7 +235,7 @@ doBakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
                 -- don't actually have the block that was finalized.
                 -- Possibly we should not even bake in this situation.
                 Nothing -> (, Nothing, NoFinalizationData) <$> bpLastFinalized bb
-                Just finBlock -> return (finBlock, Just (makeFinalizerInfo finCom), BlockFinalizationData finRec)
+                Just finBlock -> return (finBlock, Just (makeFinalizerInfo finCom $ finalizationProof finRec), BlockFinalizationData finRec)
     -- possibly add the block nonce in the seed state
     let newSeedState = updateSeedState slot nonce oldSeedState
     -- Results = {_energyUsed, _finalState, _transactionLog}
@@ -242,7 +244,7 @@ doBakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     receiveTime <- currentTime
     transactionOutcomesHash <- getTransactionOutcomesHash (_finalState result)
     stateHash <- getStateHash (_finalState result)
-    pb <- makePendingBlock bakerSignKey slot (bpHash bb) bakerId electionProof nonce finData (map fst (ftAdded filteredTxs)) stateHash transactionOutcomesHash receiveTime
+    pb <- makePendingBlock bakerSignKey slot (bpHash bb) bakerId electionProof nonce finData (map (fst . fst) (ftAdded filteredTxs)) stateHash transactionOutcomesHash receiveTime
     -- Add the baked block to the tree.
     newbp <- blockArrive pb bb lastFinal result
     -- re-establish invariants in the transaction table/pending table/anf table.
@@ -268,8 +270,8 @@ data BakeResult
       BakeShutdown
 
 -- |Try to bake for a slot later than the given slot, up to the current slot.
-doTryBake :: forall pv m.
-    (FinalizationMonad m, SkovMonad pv m, TreeStateMonad pv m, MonadIO m, OnSkov m) =>
+doTryBake :: forall m.
+    (FinalizationMonad m, SkovMonad m, TreeStateMonad m, MonadIO m, OnSkov m) =>
     -- |Baker identity
     BakerIdentity ->
     -- |Last slot that we attempted to bake for
@@ -297,7 +299,7 @@ doTryBake bid lastSlot = unlessShutdown $ do
                 doBakeForSlot bid candidate >>= \case
                     Nothing -> bakeLoop (candidate + 1)
                     Just block -> return $ BakeSuccess candidate $ runPut $
-                      putVersionedBlock (protocolVersion @pv) block
+                      putVersionedBlock (protocolVersion @(MPV m)) block
     bakeLoop startSlot
   where
     unlessShutdown a =
@@ -305,7 +307,7 @@ doTryBake bid lastSlot = unlessShutdown $ do
             True -> return BakeShutdown
             False -> a
 
-class (SkovMonad pv m, FinalizationMonad m) => BakerMonad pv m where
+class (SkovMonad m, FinalizationMonad m) => BakerMonad m where
     -- |Create a block pointer for the given slot.
     -- This function is in charge of accumulating the pending transactions and
     -- credential deployments, construct the block and update the transaction table,
@@ -317,7 +319,7 @@ class (SkovMonad pv m, FinalizationMonad m) => BakerMonad pv m where
     -- the current slot by more than the 'rpMaxBakingDelay' runtime parameter.
     tryBake :: BakerIdentity -> Slot -> m BakeResult
 
-instance (FinalizationMonad (SkovT pv h c m), MonadIO m, SkovMonad pv (SkovT pv h c m), TreeStateMonad pv (SkovT pv h c m), OnSkov (SkovT pv h c m)) =>
-        BakerMonad pv (SkovT pv h c m) where
+instance (FinalizationMonad (SkovT pv h c m), MonadIO m, SkovMonad (SkovT pv h c m), TreeStateMonad (SkovT pv h c m), OnSkov (SkovT pv h c m)) =>
+        BakerMonad (SkovT pv h c m) where
     bakeForSlot = doBakeForSlot
     tryBake = doTryBake

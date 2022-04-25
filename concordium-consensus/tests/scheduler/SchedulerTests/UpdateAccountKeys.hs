@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 module SchedulerTests.UpdateAccountKeys where
 
 import Control.Monad
@@ -54,7 +55,7 @@ testCases :: [TestCase PV1]
 testCases =
   [ TestCase
     { tcName = "Credential key updates"
-    , tcParameters = defaultParams {tpInitialBlockState=initialBlockState}
+    , tcParameters = (defaultParams @PV1){tpInitialBlockState=initialBlockState}
     , tcTransactions = [
         -- correctly update a keypair
         ( Runner.TJSON  { payload = Runner.UpdateCredentialKeys alesCid $ makeCredentialPublicKeys [vk kp2, vk kp1] 2,

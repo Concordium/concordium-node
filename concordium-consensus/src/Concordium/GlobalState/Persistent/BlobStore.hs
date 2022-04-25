@@ -6,10 +6,13 @@
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE DeriveTraversable #-}
-{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 --    Module      : Concordium.GlobalState.Persistent.BlobStore
@@ -30,14 +33,19 @@ module Concordium.GlobalState.Persistent.BlobStore where
 
 import Control.Concurrent.MVar
 import System.IO
+import Data.Kind (Type)
 import Data.Serialize
+import Data.Coerce
 import Data.Word
 import qualified Data.ByteString as BS
 import Control.Exception
 import Data.Functor.Foldable
 import Control.Monad.Reader.Class
+import Control.Monad.Trans.Writer.Strict (WriterT)
+import Control.Monad.Trans.State.Strict (StateT)
 import Control.Monad.Trans.Reader (ReaderT, runReaderT)
-import Control.Monad.IO.Class
+import Control.Monad.Trans.Except (ExceptT)
+import Control.Monad.Trans
 import System.Directory
 import GHC.Stack
 import Data.IORef
@@ -53,6 +61,8 @@ import qualified Concordium.Types.IdentityProviders as IPS
 import qualified Concordium.Types.AnonymityRevokers as ARS
 import qualified Concordium.GlobalState.Parameters as Parameters
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
+import Concordium.GlobalState.Basic.BlockState.PoolRewards
+import Concordium.GlobalState.CapitalDistribution
 import Concordium.Types
 import Concordium.Types.Accounts
 import Concordium.Types.Updates
@@ -128,13 +138,17 @@ flushBlobStore BlobStore{..} =
 closeBlobStore :: BlobStore -> IO ()
 closeBlobStore BlobStore{..} = do
     BlobHandle{..} <- takeMVar blobStoreFile
+    writeIORef blobStoreMMap BS.empty
     hClose bhHandle
 
 -- |Close all references to the blob store and delete the backing file.
 destroyBlobStore :: BlobStore -> IO ()
 destroyBlobStore bs@BlobStore{..} = do
     closeBlobStore bs
-    removeFile blobStoreFilePath
+    -- Removing the file may fail (e.g. on Windows) if the handle is kept open.
+    -- This could be due to the finalizer on the memory map not being run, but my attempts
+    -- to force it have not proved successful.
+    removeFile blobStoreFilePath `catch` (\(_ :: IOException) -> return ())
 
 -- |Run a computation with temporary access to the blob store.
 -- The given FilePath is a directory where the temporary blob
@@ -253,6 +267,29 @@ class MonadIO m => MonadBlobStore m where
     {-# INLINE flushStore #-}
 
 instance MonadBlobStore (ReaderT BlobStore IO)
+
+-- |A wrapper type for lifting 'MonadBlobStore' instances over monad transformers.
+-- Lifted instances are provided for 'WriterT', 'StateT' and 'ExceptT', which are used for
+-- conveniently implementing some block state operations.
+newtype LiftMonadBlobStore t (m :: Type -> Type) a = LiftMonadBlobStore (t m a)
+    deriving (MonadTrans, Functor, Applicative, Monad, MonadIO)
+
+instance (MonadTrans t, MonadBlobStore m, MonadIO (t m)) => MonadBlobStore (LiftMonadBlobStore t m) where
+    storeRaw = lift . storeRaw
+    {-# INLINE storeRaw #-}
+    loadRaw = lift . loadRaw
+    {-# INLINE loadRaw #-}
+    flushStore = lift flushStore
+    {-# INLINE flushStore #-}
+
+deriving via (LiftMonadBlobStore (WriterT w) m)
+    instance (Monoid w, MonadBlobStore m) => MonadBlobStore (WriterT w m)
+
+deriving via (LiftMonadBlobStore (StateT s) m)
+    instance MonadBlobStore m => MonadBlobStore (StateT s m)
+
+deriving via (LiftMonadBlobStore (ExceptT e) m)
+    instance MonadBlobStore m => MonadBlobStore (ExceptT e m)
 
 -- |The @BlobStorable m a@ class defines how a value
 -- of type @a@ may be stored in monad @m@.
@@ -384,6 +421,12 @@ data BufferedRef a
     -- That way, when we store the same instance again on disk (this could be, e.g., a child block
     -- that inherited its parent's state) we can store the pointer to the 'brValue' data rather than
     -- storing all of the data again.
+
+-- |Coerce one buffered ref to another. This is unsafe unless a and b have compatible
+-- blobstorable instances.
+unsafeCoerceBufferedRef :: (a -> b) -> BufferedRef a -> BufferedRef b
+unsafeCoerceBufferedRef _ (BRBlobbed br) = BRBlobbed (coerce br)
+unsafeCoerceBufferedRef f (BRMemory ioref val) = BRMemory (coerce ioref) (f val)
 
 -- | Create a @BRMemory@ value in a @MonadIO@ context with the provided values
 makeBRMemory :: MonadIO m => (BlobRef a) -> a -> m (BufferedRef a)
@@ -525,7 +568,6 @@ instance (BlobStorable m a, BlobStorable m b, MHashableTo m H.Hash a) => BlobSto
   storeUpdate (Some v) = do
     (r, v') <- storeUpdate v
     return (r, Some v')
-
 
 -- | Blobbed is a fixed point of the functor `f` wrapped in references of type @ref@
 newtype Blobbed ref f = Blobbed {unblobbed :: ref (f (Blobbed ref f))}
@@ -716,6 +758,7 @@ instance MonadBlobStore m => BlobStorable m Parameters.CryptographicParameters
 instance MonadBlobStore m => BlobStorable m Amount
 instance MonadBlobStore m => BlobStorable m BakerId
 instance MonadBlobStore m => BlobStorable m BakerInfo
+instance MonadBlobStore m => BlobStorable m BakerPoolInfo
 instance MonadBlobStore m => BlobStorable m AccountIndex
 instance MonadBlobStore m => BlobStorable m BS.ByteString
 instance MonadBlobStore m => BlobStorable m EncryptedAmount
@@ -726,19 +769,28 @@ instance MonadBlobStore m => BlobStorable m Word32
 instance MonadBlobStore m => BlobStorable m Word64
 
 instance MonadBlobStore m => BlobStorable m AccountEncryptedAmount
-instance (MonadBlobStore m, Serialize (PersistingAccountData pv)) => BlobStorable m (PersistingAccountData pv)
-instance MonadBlobStore m => BlobStorable m Authorizations
+instance MonadBlobStore m => BlobStorable m PersistingAccountData
+instance (MonadBlobStore m, IsChainParametersVersion cpv) => BlobStorable m (Authorizations cpv)
+instance (MonadBlobStore m, IsAccountVersion av) => BlobStorable m (AccountDelegation av)
 instance MonadBlobStore m => BlobStorable m (HigherLevelKeys a)
 instance MonadBlobStore m => BlobStorable m ProtocolUpdate
 instance MonadBlobStore m => BlobStorable m ExchangeRate
 instance MonadBlobStore m => BlobStorable m ElectionDifficulty
 instance MonadBlobStore m => BlobStorable m AccountReleaseSchedule
 instance MonadBlobStore m => BlobStorable m MintRate
-instance MonadBlobStore m => BlobStorable m MintDistribution
-instance MonadBlobStore m => BlobStorable m TransactionFeeDistribution
-instance MonadBlobStore m => BlobStorable m GASRewards
+instance (MonadBlobStore m, IsChainParametersVersion cpv) => BlobStorable m (Parameters.MintDistribution cpv)
+instance MonadBlobStore m => BlobStorable m Parameters.TransactionFeeDistribution
+instance MonadBlobStore m => BlobStorable m Parameters.GASRewards
+instance (MonadBlobStore m, IsChainParametersVersion cpv) => BlobStorable m (Parameters.PoolParameters cpv)
+instance (MonadBlobStore m, IsChainParametersVersion cpv) => BlobStorable m (Parameters.CooldownParameters cpv)
+instance (MonadBlobStore m, IsChainParametersVersion cpv) => BlobStorable m (Parameters.TimeParameters cpv)
 instance MonadBlobStore m => BlobStorable m (Map AccountAddress Timestamp)
 instance MonadBlobStore m => BlobStorable m WasmModule
+instance (IsWasmVersion v, MonadBlobStore m) => BlobStorable m (WasmModuleV v)
+instance MonadBlobStore m => BlobStorable m BakerPoolRewardDetails
+instance MonadBlobStore m => BlobStorable m DelegatorCapital
+instance MonadBlobStore m => BlobStorable m BakerCapital
+instance MonadBlobStore m => BlobStorable m CapitalDistribution
 
 newtype StoreSerialized a = StoreSerialized { unStoreSerialized :: a }
     deriving newtype (Serialize)
@@ -746,29 +798,32 @@ instance (MonadBlobStore m, Serialize a) => BlobStorable m (StoreSerialized a)
 deriving newtype instance HashableTo h a => HashableTo h (StoreSerialized a)
 deriving newtype instance MHashableTo m h a => MHashableTo m h (StoreSerialized a)
 
-data HashedBufferedRef a
+data HashedBufferedRef' h a
   = HashedBufferedRef
       { bufferedReference :: !(BufferedRef a),
-        bufferedHash :: !(Maybe H.Hash)
+        bufferedHash :: !(Maybe h)
       }
+
+type HashedBufferedRef = HashedBufferedRef' H.Hash
 
 bufferHashed :: MonadIO m => Hashed a -> m (HashedBufferedRef a)
 bufferHashed (Hashed val h) = do
   br <- makeBRMemory refNull val
   return $ HashedBufferedRef br (Just h)
 
-makeHashedBufferedRef :: (MonadIO m, MHashableTo m H.Hash a) => a -> m (HashedBufferedRef a)
+makeHashedBufferedRef :: (MonadIO m, MHashableTo m h a) => a -> m (HashedBufferedRef' h a)
 makeHashedBufferedRef val = do
   h <- getHashM val
-  bufferHashed (Hashed val h)
+  br <- makeBRMemory refNull val
+  return $ HashedBufferedRef br (Just h)
 
-instance (BlobStorable m a, MHashableTo m H.Hash a) => MHashableTo m H.Hash (HashedBufferedRef a) where
+instance (BlobStorable m a, MHashableTo m h a) => MHashableTo m h (HashedBufferedRef' h a) where
   getHashM ref = maybe (getHashM =<< refLoad ref) return (bufferedHash ref)
 
 instance Show a => Show (HashedBufferedRef a) where
   show ref = show (bufferedReference ref) ++ maybe "" (\x -> " with hash: " ++ show x) (bufferedHash ref)
 
-instance (BlobStorable m a, MHashableTo m H.Hash a) => BlobStorable m (HashedBufferedRef a) where
+instance (BlobStorable m a, MHashableTo m h a) => BlobStorable m (HashedBufferedRef' h a) where
   store b =
     -- store the value if needed and then serialize the returned reference.
     getBRRef (bufferedReference b) >>= store
@@ -780,7 +835,7 @@ instance (BlobStorable m a, MHashableTo m H.Hash a) => BlobStorable m (HashedBuf
     h <- getHashM . fst =<< cacheBufferedRef br
     return (pt, HashedBufferedRef br (Just h))
 
-instance (Monad m, BlobStorable m a, MHashableTo m H.Hash a) => Reference m HashedBufferedRef a where
+instance (Monad m, BlobStorable m a, MHashableTo m h a) => Reference m (HashedBufferedRef' h) a where
   refFlush ref = do
     (br, r) <- flushBufferedRef (bufferedReference ref)
     return (HashedBufferedRef br (bufferedHash ref), r)
@@ -809,7 +864,7 @@ instance (Monad m, BlobStorable m a, MHashableTo m H.Hash a) => Reference m Hash
   {-# INLINE refCache #-}
   {-# INLINE refUncache #-}
 
-instance (BlobStorable m a, MHashableTo m H.Hash a) => BlobStorable m (Nullable (HashedBufferedRef a)) where
+instance (BlobStorable m a, MHashableTo m h a) => BlobStorable m (Nullable (HashedBufferedRef' h a)) where
     store Null = return $ put (refNull :: BlobRef a)
     store (Some v) = store v
     load = do
@@ -823,15 +878,36 @@ instance (BlobStorable m a, MHashableTo m H.Hash a) => BlobStorable m (Nullable 
         (r, v') <- storeUpdate v
         return (r, Some v')
 
+type HashedBufferedRefForCPV1 (cpv :: ChainParametersVersion) a =
+    JustForCPV1 cpv (HashedBufferedRef a)
+
+instance
+    (BlobStorable m a, MHashableTo m H.Hash a, IsChainParametersVersion cpv) =>
+    BlobStorable m (HashedBufferedRefForCPV1 cpv a)
+    where
+    store NothingForCPV1 = return (pure ())
+    store (JustForCPV1 v) = store v
+    load = case chainParametersVersion @cpv of
+            SCPV0 -> return (pure NothingForCPV1)
+            SCPV1 -> fmap (fmap JustForCPV1) load
+    storeUpdate NothingForCPV1 = return (pure (), NothingForCPV1)
+    storeUpdate (JustForCPV1 v) = do
+        (r, v') <- storeUpdate v
+        return (r, JustForCPV1 v')
+
 -- |This class abstracts values that can be cached in some monad.
 class Cacheable m a where
     -- |Recursively cache a value of type @a@.
     cache :: a -> m a
     default cache :: (Applicative m) => a -> m a
     cache = pure
+
 instance (Applicative m, Cacheable m a) => Cacheable m (Nullable a) where
     cache Null = pure Null
     cache (Some v) = Some <$> cache v
+
+instance (Applicative m, Cacheable m a) => Cacheable m (JustForCPV1 cpv a) where
+    cache = traverse cache
 
 instance (BlobStorable m a, Cacheable m a) => Cacheable m (BufferedRef a) where
     cache BRBlobbed{..} = do
@@ -842,7 +918,7 @@ instance (BlobStorable m a, Cacheable m a) => Cacheable m (BufferedRef a) where
         cachedVal <- cache brValue
         return br{brValue = cachedVal}
 
-instance (MHashableTo m H.Hash a, BlobStorable m a, Cacheable m a) => Cacheable m (HashedBufferedRef a) where
+instance (MHashableTo m h a, BlobStorable m a, Cacheable m a) => Cacheable m (HashedBufferedRef' h a) where
   cache (HashedBufferedRef ref Nothing) = do
     ref' <- cache ref
     hsh <- getHashM =<< refLoad ref'
@@ -862,7 +938,9 @@ instance (Applicative m) => Cacheable m EncryptedAmount
 instance (Applicative m) => Cacheable m AccountReleaseSchedule
 instance (Applicative m) => Cacheable m (Map AccountAddress Timestamp)
 instance (Applicative m) => Cacheable m WasmModule
-instance (Applicative m) => Cacheable m (PersistingAccountData pv)
+instance (Applicative m) => Cacheable m PersistingAccountData
+instance (IsAccountVersion av, Applicative m) => Cacheable m (BakerInfoEx av)
+instance (IsAccountVersion av, Applicative m) => Cacheable m (AccountDelegation av)
 -- Required for caching AccountIndexes
 instance (Applicative m) => Cacheable m AccountIndex
 -- Required for caching BlockStatePointers
@@ -871,6 +949,14 @@ instance (Applicative m) => Cacheable m ARS.AnonymityRevokers
 instance (Applicative m) => Cacheable m Parameters.CryptographicParameters
 -- Required for caching Bakers
 instance (Applicative m) => Cacheable m BakerInfo
+instance (Applicative m) => Cacheable m BakerPoolInfo
 instance (Applicative m) => Cacheable m Amount
 -- Required for caching Updates
 instance (Applicative m) => Cacheable m (StoreSerialized a)
+instance (Applicative m) => Cacheable m (Parameters.PoolParameters cpv)
+instance (Applicative m) => Cacheable m (Parameters.CooldownParameters cpv)
+instance (Applicative m) => Cacheable m (Parameters.TimeParameters cpv)
+instance (Applicative m) => Cacheable m BakerPoolRewardDetails
+instance (Applicative m) => Cacheable m DelegatorCapital
+instance (Applicative m) => Cacheable m BakerCapital
+instance (Applicative m) => Cacheable m CapitalDistribution

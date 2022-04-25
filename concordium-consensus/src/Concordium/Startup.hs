@@ -38,6 +38,7 @@ import qualified Concordium.Genesis.Data as GenesisData
 import qualified Concordium.Genesis.Data.P1 as P1
 import qualified Concordium.Genesis.Data.P2 as P2
 import qualified Concordium.Genesis.Data.P3 as P3
+import qualified Concordium.Genesis.Data.P4 as P4
 
 makeBakersByStake :: [Amount] -> [(BakerIdentity, FullBakerInfo, GenesisAccount, SigScheme.KeyPair)]
 makeBakersByStake = mbs 0
@@ -47,7 +48,7 @@ makeBakersByStake = mbs 0
             where
                 (account, kp, ident) = makeBakerAccountKeys bid s
                 binfo = FullBakerInfo {
-                    _bakerInfo = BakerInfo {
+                    _theBakerInfo = BakerInfo {
                         _bakerIdentity = bakerId ident,
                         _bakerElectionVerifyKey = bakerElectionPublicKey ident,
                         _bakerSignatureVerifyKey = bakerSignPublicKey ident,
@@ -115,15 +116,15 @@ makeGenesisData :: forall pv.
     (IsProtocolVersion pv)
     => Timestamp -- ^Genesis time
     -> Word  -- ^Initial number of bakers.
-    -> Duration  -- ^Slot duration (miliseconds).
+    -> Duration  -- ^Slot duration (milliseconds).
     -> FinalizationParameters -- ^Finalization parameters
     -> CryptographicParameters -- ^Initial cryptographic parameters.
     -> IdentityProviders   -- ^List of initial identity providers.
     -> AnonymityRevokers -- ^Initial anonymity revokers.
     -> [GenesisAccount] -- ^Additional accounts.
     -> Energy -- ^Maximum energy allowed to be consumed by the transactions in a block
-    -> UpdateKeysCollection -- ^Authorized keys for chain updates
-    -> ChainParameters -- ^Initial chain parameters
+    -> UpdateKeysCollection (ChainParametersVersionFor pv) -- ^Authorized keys for chain updates
+    -> ChainParameters pv -- ^Initial chain parameters
     -> (GenesisData pv, [(BakerIdentity, FullBakerInfo)], Amount)
 makeGenesisData
         genesisTime
@@ -157,6 +158,10 @@ makeGenesisData
               genesisInitialState=GenesisData.GenesisState{genesisAccounts = Vec.fromList genesisAccounts, ..}
               }
             SP3 -> GDP3 P3.GDP3Initial{
+              genesisCore=GenesisData.CoreGenesisParameters{..},
+              genesisInitialState=GenesisData.GenesisState{genesisAccounts = Vec.fromList genesisAccounts, ..}
+              }
+            SP4 -> GDP4 P4.GDP4Initial{
               genesisCore=GenesisData.CoreGenesisParameters{..},
               genesisInitialState=GenesisData.GenesisState{genesisAccounts = Vec.fromList genesisAccounts, ..}
               }

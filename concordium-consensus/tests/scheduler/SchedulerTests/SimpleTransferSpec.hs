@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 
 {- Testing the SimpleTransfer transaction.
 NOTE: See also 'SchedulerTests.SimpleTransfersTest'.
@@ -32,15 +33,15 @@ testCases =
     -- the block state invariant at least tests that the total amount is preserved.
     TestCase
     { tcName = "Transfers from a contract to accounts."
-    , tcParameters = defaultParams {tpInitialBlockState=initialBlockState}
+    , tcParameters = (defaultParams @PV1){tpInitialBlockState=initialBlockState}
     , tcTransactions =
-      [ ( TJSON { payload = DeployModule 0 "./testdata/contracts/send-tokens-test.wasm"
+      [ ( TJSON { payload = DeployModule V0 "./testdata/contracts/send-tokens-test.wasm"
                 , metadata = makeDummyHeader alesAccount 1 100000
                 , keys = [(0, [(0, alesKP)])]
                 }
         , (Success emptyExpect, emptySpec)
         )
-      , ( TJSON { payload = InitContract 0 0 "./testdata/contracts/send-tokens-test.wasm" "init_send" ""
+      , ( TJSON { payload = InitContract 0 V0 "./testdata/contracts/send-tokens-test.wasm" "init_send" ""
                 , metadata = makeDummyHeader alesAccount 2 100000
                 , keys = [(0, [(0, alesKP)])]
                 }
@@ -55,6 +56,7 @@ testCases =
                                    , euAmount = 11
                                    , euMessage = Parameter ""
                                    , euReceiveName = ReceiveName "send.receive"
+                                   , euContractVersion = V0
                                    , euEvents = []
                                    },
                     Types.Transferred {

@@ -360,6 +360,11 @@ extern "C" {
         block_hash: *const c_char,
         contract_address: *const c_char,
     ) -> *const c_char;
+    pub fn invokeContract(
+        consensus: *mut consensus_runner,
+        block_hash: *const c_char,
+        context: *const c_char,
+    ) -> *const c_char;
     pub fn getRewardStatus(
         consensus: *mut consensus_runner,
         block_hash: *const c_char,
@@ -377,6 +382,13 @@ extern "C" {
         block_hash: *const c_char,
         module_ref: *const c_char,
     ) -> *const u8;
+    pub fn getBakerList(consensus: *mut consensus_runner, block_hash: *const u8) -> *const c_char;
+    pub fn getPoolStatus(
+        consensus: *mut consensus_runner,
+        block_hash: *const u8,
+        passive_delegation: bool,
+        baker_id: u64,
+    ) -> *const c_char;
     pub fn freeCStr(hstring: *const c_char);
     pub fn getCatchUpStatus(
         consensus: *mut consensus_runner,
@@ -651,6 +663,16 @@ impl ConsensusContainer {
         )))
     }
 
+    pub fn invoke_contract(&self, block_hash: &str, context: &str) -> anyhow::Result<String> {
+        let block_hash = CString::new(block_hash)?;
+        let context = CString::new(context)?;
+        Ok(wrap_c_call_string!(self, consensus, |consensus| invokeContract(
+            consensus,
+            block_hash.as_ptr(),
+            context.as_ptr()
+        )))
+    }
+
     pub fn get_reward_status(&self, block_hash: &str) -> anyhow::Result<String> {
         let block_hash = CString::new(block_hash)?;
         Ok(wrap_c_call_string!(self, consensus, |consensus| getRewardStatus(
@@ -682,6 +704,29 @@ impl ConsensusContainer {
             consensus,
             block_hash.as_ptr(),
             module_ref.as_ptr()
+        )))
+    }
+
+    pub fn get_baker_list(&self, block_hash: &str) -> anyhow::Result<String> {
+        let block_hash = CString::new(block_hash).unwrap();
+        Ok(wrap_c_call_string!(self, consensus, |consensus| getBakerList(
+            consensus,
+            block_hash.as_ptr() as *const u8
+        )))
+    }
+
+    pub fn get_pool_status(
+        &self,
+        block_hash: &str,
+        passive_delegation: bool,
+        baker_id: u64,
+    ) -> anyhow::Result<String> {
+        let block_hash = CString::new(block_hash).unwrap();
+        Ok(wrap_c_call_string!(self, consensus, |consensus| getPoolStatus(
+            consensus,
+            block_hash.as_ptr() as *const u8,
+            passive_delegation,
+            baker_id,
         )))
     }
 

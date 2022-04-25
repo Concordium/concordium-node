@@ -1,4 +1,7 @@
+{-# LANGUAGE BinaryLiterals #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -37,6 +40,9 @@ removedCredentialsToList :: RemovedCredentials -> [CredentialRegistrationID]
 removedCredentialsToList EmptyRemovedCredentials = []
 removedCredentialsToList (RemovedCredential cred rest) = cred : removedCredentialsToList rest
 
+instance Show RemovedCredentials where
+  show = show . removedCredentialsToList
+
 instance Serialize RemovedCredentials where
   put rc = do
     let l = removedCredentialsToList rc
@@ -70,7 +76,7 @@ emptyHashedRemovedCredentials = makeHashed EmptyRemovedCredentials
 {-# NOINLINE emptyHashedRemovedCredentials #-}
 
 -- |Data about an account that is unlikely to change very frequently.
-data PersistingAccountData (pv :: ProtocolVersion) = PersistingAccountData {
+data PersistingAccountData = PersistingAccountData {
   -- |Address of the account
   _accountAddress :: !AccountAddress
   -- |Account encryption key (for encrypted amounts)
@@ -85,24 +91,9 @@ data PersistingAccountData (pv :: ProtocolVersion) = PersistingAccountData {
   -- |Credential IDs of removed credentials.
   ,_accountRemovedCredentials :: !(Hashed RemovedCredentials)
 }
+  deriving (Eq, Show)
 
 makeClassy ''PersistingAccountData
-
-instance (IsProtocolVersion pv) => Eq (PersistingAccountData pv) where
-  pad1 == pad2 =
-    _accountAddress pad1 == _accountAddress pad2
-    && _accountEncryptionKey pad1 == _accountEncryptionKey pad2
-    && _accountVerificationKeys pad1 == _accountVerificationKeys pad2
-    && _accountCredentials pad1 == _accountCredentials pad2
-    && _accountRemovedCredentials pad1 == _accountRemovedCredentials pad2
-
-instance (IsProtocolVersion pv) => Show (PersistingAccountData pv) where
-  show PersistingAccountData{..} = "PersistingAccountData {" ++
-    "_accountAddress = " ++ show _accountAddress ++ ", " ++
-    "_accountEncryptionKey = " ++ show _accountEncryptionKey ++ ", " ++
-    "_accountVerificationKeys = " ++ show _accountVerificationKeys ++ ", " ++
-    "_accountCredentials = " ++ show _accountCredentials ++ ", " ++
-    "_accountRemovedCredentials = " ++ show (removedCredentialsToList $ _unhashed _accountRemovedCredentials) ++ "}"
 
 type PersistingAccountDataHash = Hash.Hash
 
@@ -111,7 +102,7 @@ type PersistingAccountDataHash = Hash.Hash
 -- * Only the 'aiThreshold' field of '_accountVerificationKeys' is stored, since
 --   this is sufficient to recover it from '_accountCredentials'.
 --
-instance HashableTo PersistingAccountDataHash (PersistingAccountData pv) where
+instance HashableTo PersistingAccountDataHash PersistingAccountData where
   getHash PersistingAccountData{..} = Hash.hashLazy $ runPutLazy $ do
     put _accountAddress
     put _accountEncryptionKey
@@ -119,7 +110,7 @@ instance HashableTo PersistingAccountDataHash (PersistingAccountData pv) where
     putSafeMapOf put put _accountCredentials
     put (_hashed _accountRemovedCredentials)
 
-instance Monad m => MHashableTo m PersistingAccountDataHash (PersistingAccountData pv)
+instance Monad m => MHashableTo m PersistingAccountDataHash PersistingAccountData
 
 -- | Add an encrypted amount to the end of the list.
 -- This is used when an incoming transfer is added to the account. If this would
@@ -180,7 +171,7 @@ addToSelfEncryptedAmount newAmount = selfAmount %~ (<> newAmount)
 -- |Serialization for 'PersistingAccountData'. This is mainly to support
 -- the (derived) 'BlobStorable' instance.
 -- Account serialization does not use this.
-instance IsProtocolVersion pv => Serialize (PersistingAccountData pv) where
+instance Serialize PersistingAccountData where
   put PersistingAccountData{..} = do
     put _accountAddress
     put _accountEncryptionKey
@@ -196,15 +187,31 @@ instance IsProtocolVersion pv => Serialize (PersistingAccountData pv) where
     _accountRemovedCredentials <- makeHashed <$> get
     return PersistingAccountData{..}
 
--- |Function for computing the hash of an account for protocol version P1.
-makeAccountHashP1 :: Nonce -> Amount -> AccountEncryptedAmount -> AccountReleaseScheduleHash -> PersistingAccountDataHash -> AccountBakerHash -> Hash.Hash
-makeAccountHashP1 n a eas arsh padh abh = Hash.hashLazy $ runPutLazy $ do
-  put n
-  put a
-  put eas
-  put arsh
-  put padh
-  put abh
+-- |The hash of an account.  The type is parametrised by the account version as the structure of
+-- accounts (and hence the hashing scheme) depend on the account version.
+newtype AccountHash (av :: AccountVersion) = AccountHash {theAccountHash :: Hash.Hash}
+  deriving newtype (Eq, Ord, Show, Serialize)
+
+-- |Inputs for computing the hash of an account.
+data AccountHashInputs (av :: AccountVersion) where
+  AccountHashInputs :: {
+    ahiNextNonce :: !Nonce,
+    ahiAccountAmount :: !Amount,
+    ahiAccountEncryptedAmount :: !AccountEncryptedAmount,
+    ahiAccountReleaseScheduleHash :: !AccountReleaseScheduleHash,
+    ahiPersistingAccountDataHash :: !PersistingAccountDataHash,
+    ahiAccountStakeHash :: !(AccountStakeHash av)
+  } -> AccountHashInputs av
+
+-- |Generate the 'AccountHash' for an account, given the 'AccountHashInputs'.
+makeAccountHash :: AccountHashInputs av -> AccountHash av
+makeAccountHash AccountHashInputs{..} = AccountHash $ Hash.hashLazy $ runPutLazy $ do
+  put ahiNextNonce
+  put ahiAccountAmount
+  put ahiAccountEncryptedAmount
+  put ahiAccountReleaseScheduleHash
+  put ahiPersistingAccountDataHash
+  put ahiAccountStakeHash
 
 data EncryptedAmountUpdate =
   -- |Replace encrypted amounts less than the given index,
@@ -241,7 +248,7 @@ data AccountUpdate = AccountUpdate {
   ,_auEncrypted :: !(Maybe EncryptedAmountUpdate)
   -- |Optionally update the locked stake on the account.
   ,_auReleaseSchedule :: !(Maybe [([(Timestamp, Amount)], TransactionHash)])
-} deriving(Eq)
+} deriving (Eq, Show)
 makeLenses ''AccountUpdate
 
 emptyAccountUpdate :: AccountIndex -> AccountAddress -> AccountUpdate
@@ -265,7 +272,7 @@ updateAccountInformation threshold addCreds remove (AccountInformation oldCredKe
 -- * Any credential index that is added must not exist after the removals take effect.
 -- * At least one credential remains after all removals and additions.
 -- * Any new threshold is at most the number of accounts remaining (and at least 1).
-updateCredentials :: (HasPersistingAccountData d pv) => [CredentialIndex] -> Map.Map CredentialIndex AccountCredential -> AccountThreshold -> d -> d
+updateCredentials :: (HasPersistingAccountData d) => [CredentialIndex] -> Map.Map CredentialIndex AccountCredential -> AccountThreshold -> d -> d
 updateCredentials cuRemove cuAdd cuAccountThreshold d =
   d & (accountCredentials %~ Map.union cuAdd . removeKeys)
                & (accountVerificationKeys %~ updateAccountInformation cuAccountThreshold cuAdd cuRemove)
@@ -281,7 +288,7 @@ updateCredKeyInAccountCredential (NormalAC cdv comms) keys = NormalAC (cdv{cdvPu
 
 -- |Optionally update the verification keys and signature threshold for an account.
 -- Precondition: The credential with given credential index exists.
-updateCredentialKeys :: (HasPersistingAccountData d pv) => CredentialIndex -> CredentialPublicKeys -> d -> d
+updateCredentialKeys :: (HasPersistingAccountData d) => CredentialIndex -> CredentialPublicKeys -> d -> d
 updateCredentialKeys credIndex credKeys d =
   case (Map.lookup credIndex (d ^. accountCredentials), Map.lookup credIndex (aiCredentials (d ^. accountVerificationKeys))) of
     (Just oldCred, Just _) ->
@@ -317,8 +324,8 @@ data AccountSerializationFlags = AccountSerializationFlags {
     -- |Whether the account's release schedule is serialized
     -- explicitly, or is the default (empty) value.
     asfExplicitReleaseSchedule :: Bool,
-    -- |Whether the account has a baker.
-    asfHasBaker :: Bool,
+    -- |Whether the account has a baker or delegation.
+    asfHasBakerOrDelegation :: Bool,
     -- |Whether the account threshold is 1.
     asfThresholdIsOne :: Bool,
     -- |Whether the account has removed credentials.
@@ -332,7 +339,7 @@ instance Serialize AccountSerializationFlags where
           .|. cbit 2 asfMultipleCredentials
           .|. cbit 3 asfExplicitEncryptedAmount
           .|. cbit 4 asfExplicitReleaseSchedule
-          .|. cbit 5 asfHasBaker
+          .|. cbit 5 asfHasBakerOrDelegation
           .|. cbit 6 asfThresholdIsOne
           .|. cbit 7 asfHasRemovedCredentials
     where
@@ -344,7 +351,7 @@ instance Serialize AccountSerializationFlags where
         asfMultipleCredentials = testBit flags 2
         asfExplicitEncryptedAmount = testBit flags 3
         asfExplicitReleaseSchedule = testBit flags 4
-        asfHasBaker = testBit flags 5
+        asfHasBakerOrDelegation = testBit flags 5
         asfThresholdIsOne = testBit flags 6
         asfHasRemovedCredentials = testBit flags 7
     return AccountSerializationFlags{..}

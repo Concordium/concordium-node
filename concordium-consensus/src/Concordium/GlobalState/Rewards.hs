@@ -1,6 +1,9 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE DerivingStrategies #-}
 module Concordium.GlobalState.Rewards where
 
 import Concordium.Types.HashableTo
@@ -97,3 +100,17 @@ epochBlockHash bid h = EpochBlocksHash $ H.hash $
     encode bid <>
     H.hashToByteString (ebHash h)
 
+newtype PoolRewardsHash = PoolRewardsHash {prHash :: H.Hash}
+  deriving newtype (Eq, Ord, Show, Serialize)
+
+-- |Hash of block reward details.
+data BlockRewardDetailsHash (av :: AccountVersion) where
+    BlockRewardDetailsHashV0 :: !EpochBlocksHash -> BlockRewardDetailsHash 'AccountV0
+    BlockRewardDetailsHashV1 :: !PoolRewardsHash -> BlockRewardDetailsHash 'AccountV1
+
+deriving instance Show (BlockRewardDetailsHash av)
+
+-- |SHA256 hash of 'BlockRewardDetailsHash'.
+brdHash :: BlockRewardDetailsHash av -> H.Hash
+brdHash (BlockRewardDetailsHashV0 eb) = ebHash eb
+brdHash (BlockRewardDetailsHashV1 ha) = prHash ha

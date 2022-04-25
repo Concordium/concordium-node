@@ -23,6 +23,7 @@ module Concordium.GlobalState.LMDB.Helpers (
   isRecordPresent,
   storeRecord,
   storeReplaceRecord,
+  storeReplaceBytes,
   loadRecord,
   databaseSize,
 
@@ -494,8 +495,25 @@ storeReplaceRecord :: forall db. (MDBDatabase db)
   -> DBValue db
   -- ^Value
    -> IO ()
-storeReplaceRecord txn dbi key val = withMDB_val (encodeKey prox key) $ \keyv -> do
+storeReplaceRecord txn dbi key val = do
     let encVal = encodeValue prox val
+    storeReplaceBytes txn dbi key encVal
+  where
+    prox :: Proxy db
+    prox = Proxy
+
+-- |Store a serialized record. Replace any existing record at the same key.
+storeReplaceBytes :: forall db. (MDBDatabase db)
+  => MDB_txn
+  -- ^Transaction
+  -> db
+  -- ^Table
+  -> DBKey db
+  -- ^Key
+  -> LBS.ByteString
+  -- ^Value
+   -> IO ()
+storeReplaceBytes txn dbi key encVal = withMDB_val (encodeKey prox key) $ \keyv -> do
     valv <- mdb_reserve' writeFlags txn (mdbDatabase dbi) keyv (fromIntegral $ LBS.length encVal)
     writeMDB_val encVal valv
   where

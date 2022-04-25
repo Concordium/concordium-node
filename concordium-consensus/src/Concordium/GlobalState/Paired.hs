@@ -1,6 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -35,6 +36,7 @@ import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.TreeState as TS
 import Concordium.GlobalState
 import Concordium.Logger (MonadLogger(..))
+import Control.Arrow ((&&&))
 
 -- |Monad for coercing reader and state types.
 newtype ReviseRSM r s m a = ReviseRSM (m a)
@@ -51,6 +53,8 @@ instance (MonadState s' m, Coercible s' s) =>
     get = ReviseRSM (fmap coerce (get :: m s'))
     put = ReviseRSM . put . coerce
     state f = ReviseRSM (state (coerce f))
+
+deriving instance (MonadProtocolVersion m) => MonadProtocolVersion (ReviseRSM r s m)
 
 data PairGSContext lc rc = PairGSContext {
         _pairContextLeft :: !lc,
@@ -87,6 +91,9 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r)
     type Account (BlockStateM pv (PairGSContext lc rc) r (PairGState lg rg) s m)
             = (Account (BSML pv lc r lg s m),
                 Account (BSMR pv rc r rg s m))
+    type BakerInfoRef (BlockStateM pv (PairGSContext lc rc) r (PairGState lg rg) s m)
+            = (BakerInfoRef (BSML pv lc r lg s m),
+                BakerInfoRef (BSMR pv rc r rg s m))
 
 instance C.HasGlobalState (PairGState ls rs) s => C.HasGlobalState ls (FocusLeft s) where
     globalState = lens unFocusLeft (const FocusLeft) . C.globalState . pairStateLeft
@@ -178,6 +185,10 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
         m1 <- coerceBSML (getModule ls modRef)
         m2 <- coerceBSMR (getModule rs modRef)
         assert (m1 == m2) $ return m1
+    getModuleInterface (bs1, bs2) mref = do
+        r1 <- coerceBSML $ getModuleInterface bs1 mref
+        r2 <- coerceBSMR $ getModuleInterface bs2 mref
+        assert (r1 == r2) $ return r1
     getAccount (ls, rs) addr = do
         a1 <- coerceBSML (getAccount ls addr)
         a2 <- coerceBSMR (getAccount rs addr)
@@ -189,6 +200,32 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
             return Nothing
           (Nothing, _) -> error $ "Cannot get account with address " ++ show addr ++ " in left implementation"
           (_, Nothing) -> error $ "Cannot get account with address " ++ show addr ++ " in right implementation"
+    accountExists (ls, rs) aaddr = do
+      a1 <- coerceBSML (accountExists ls aaddr)
+      a2 <- coerceBSMR (accountExists rs aaddr)
+      assert (a1 == a2) $ return a1
+    getActiveBakers (ls, rs) = do
+        ab1 <- coerceBSML (getActiveBakers ls)
+        ab2 <- coerceBSMR (getActiveBakers rs)
+        assert (ab1 == ab2) $ return ab1
+    getActiveBakersAndDelegators (ls, rs) = do
+        (b1, d1) <- coerceBSML $ getActiveBakersAndDelegators ls
+        (b2, d2) <- coerceBSMR $ getActiveBakersAndDelegators rs
+        assert (d1 == d2) $ assert (length b1 == length b2) $ return (zipActiveBakerInfo b1 b2, d1)
+        where
+            zipActiveBakerInfo (i1 : b1) (i2 : b2) =
+                assert (activeBakerEquityCapital i1 == activeBakerEquityCapital i2) $
+                assert (activeBakerPendingChange i1 == activeBakerPendingChange i2) $
+                assert (activeBakerDelegators i1 == activeBakerDelegators i2) $
+                let i = ActiveBakerInfo{
+                            activeBakerInfoRef = (activeBakerInfoRef i1, activeBakerInfoRef i2),
+                            activeBakerEquityCapital = activeBakerEquityCapital i1,
+                            activeBakerPendingChange = activeBakerPendingChange i1,
+                            activeBakerDelegators = activeBakerDelegators i1
+                        } 
+                    b = zipActiveBakerInfo b1 b2
+                in i : b
+            zipActiveBakerInfo _ _ = []
     getAccountByCredId (ls, rs) cid = do
         a1 <- coerceBSML (getAccountByCredId ls cid)
         a2 <- coerceBSMR (getAccountByCredId rs cid)
@@ -200,6 +237,17 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
             return Nothing
           (Nothing, _) -> error $ "Cannot get account with credid " ++ show cid ++ " in left implementation"
           (_, Nothing) -> error $ "Cannot get account with credid " ++ show cid ++ " in right implementation"
+    getAccountByIndex (ls, rs) idx = do
+        a1 <- coerceBSML (getAccountByIndex ls idx)
+        a2 <- coerceBSMR (getAccountByIndex rs idx)
+        case (a1, a2) of
+          (Just (ai1, a1'), Just (ai2, a2')) ->
+            assert ((getHash a1' :: H.Hash) == getHash a2' && ai1 == ai2) $
+              return $ Just (ai1, (a1', a2'))
+          (Nothing, Nothing) ->
+            return Nothing
+          (Nothing, _) -> error $ "Cannot get account by index " ++ show idx ++ " in left implementation"
+          (_, Nothing) -> error $ "Cannot get account by index " ++ show idx ++ " in right implementation"
     getBakerAccount (ls, rs) bid = do
         a1 <- coerceBSML (getBakerAccount ls bid)
         a2 <- coerceBSMR (getBakerAccount rs bid)
@@ -235,9 +283,9 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
         b1 <- coerceBSML (getCurrentEpochBakers ls)
         b2 <- coerceBSMR (getCurrentEpochBakers rs)
         assert (b1 == b2) $ return b1
-    getSlotBakers (ls, rs) s = do
-        b1 <- coerceBSML (getSlotBakers ls s)
-        b2 <- coerceBSMR (getSlotBakers rs s)
+    getSlotBakersP1 (ls, rs) s = do
+        b1 <- coerceBSML (getSlotBakersP1 ls s)
+        b2 <- coerceBSMR (getSlotBakersP1 rs s)
         assert (b1 == b2) $ return b1
     getRewardStatus (ls, rs) = do
         a1 <- coerceBSML (getRewardStatus ls)
@@ -288,15 +336,50 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
         u1 <- coerceBSML (getUpdates bps1)
         u2 <- coerceBSMR (getUpdates bps2)
         assert (u1 == u2) $ return u1
+    getPendingTimeParameters (bps1, bps2) = do
+        u1 <- coerceBSML (getPendingTimeParameters bps1)
+        u2 <- coerceBSMR (getPendingTimeParameters bps2)
+        assert (u1 == u2) $ return u1
+    getPendingPoolParameters (bps1, bps2) = do
+        u1 <- coerceBSML (getPendingPoolParameters bps1)
+        u2 <- coerceBSMR (getPendingPoolParameters bps2)
+        assert (u1 == u2) $ return u1
     getProtocolUpdateStatus (bps1, bps2) = do
         us1 <- coerceBSML (getProtocolUpdateStatus bps1)
         us2 <- coerceBSMR (getProtocolUpdateStatus bps2)
         assert (us1 == us2) $ return us1
-
     getCryptographicParameters (bps1, bps2) = do
         u1 <- coerceBSML (getCryptographicParameters bps1)
         u2 <- coerceBSMR (getCryptographicParameters bps2)
         assert (u1 == u2) $ return u1
+    getIdentityProvider (bs1, bs2) ipid = do
+        r1 <- coerceBSML $ getIdentityProvider bs1 ipid
+        r2 <- coerceBSMR $ getIdentityProvider bs2 ipid
+        assert (r1 == r2) $ return r1
+    getAnonymityRevokers (bs1, bs2) arIds = do
+        r1 <- coerceBSML $ getAnonymityRevokers bs1 arIds
+        r2 <- coerceBSMR $ getAnonymityRevokers bs2 arIds
+        assert (r1 == r2) $ return r1
+    getUpdateKeysCollection (bs1, bs2) = do
+        r1 <- coerceBSML $ getUpdateKeysCollection bs1
+        r2 <- coerceBSMR $ getUpdateKeysCollection bs2
+        assert (r1 == r2) $ return r1
+    getEnergyRate (bs1, bs2) = do
+        r1 <- coerceBSML $ getEnergyRate bs1
+        r2 <- coerceBSMR $ getEnergyRate bs2
+        assert (r1 == r2) $ return r1
+    getNextEpochBakers (bps1, bps2) = do
+        n1 <- coerceBSML (getNextEpochBakers bps1)
+        n2 <- coerceBSMR (getNextEpochBakers bps2)
+        assert (n1 == n2) $ return n1
+    getPaydayEpoch (bps1, bps2) = do
+        e1 <- coerceBSML (getPaydayEpoch bps1)
+        e2 <- coerceBSMR (getPaydayEpoch bps2)
+        assert (e1 == e2) $ return e1
+    getPoolStatus (bps1, bps2) mbid = do
+        ps1 <- coerceBSML (getPoolStatus bps1 mbid)
+        ps2 <- coerceBSMR (getPoolStatus bps2 mbid)
+        assert (ps1 == ps2) $ return ps1
 
 instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, AccountOperations (BSML pv lc r ls s m), AccountOperations (BSMR pv rc r rs s m), HashableTo H.Hash (Account (BSML pv lc r ls s m)), HashableTo H.Hash (Account (BSMR pv rc r rs s m)))
   => AccountOperations (BlockStateM pv (PairGSContext lc rc) r (PairGState ls rs) s m) where
@@ -351,6 +434,26 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, AccountOpera
         ab2 <- coerceBSMR (getAccountBaker acc2)
         assert (ab1 == ab2) $ return ab1
 
+    getAccountBakerInfoRef (acc1, acc2) =
+        liftM2 (liftM2 (,))
+            (coerceBSML (getAccountBakerInfoRef acc1))
+            (coerceBSMR (getAccountBakerInfoRef acc2))
+
+    derefBakerInfo (bir1, bir2) = do
+        bi1 <- coerceBSML (derefBakerInfo bir1)
+        bi2 <- coerceBSMR (derefBakerInfo bir2)
+        assert (bi1 == bi2) $ return bi1
+
+    getAccountDelegator (acc1, acc2) = do
+        ad1 <- coerceBSML (getAccountDelegator acc1)
+        ad2 <- coerceBSMR (getAccountDelegator acc2)
+        assert (ad1 == ad2) $ return ad1
+
+    getAccountStake (acc1, acc2) = do
+        ab1 <- coerceBSML (getAccountStake acc1)
+        ab2 <- coerceBSMR (getAccountStake acc2)
+        assert (ab1 == ab2) $ return ab1
+
 instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateOperations (BSML pv lc r ls s m), BlockStateOperations (BSMR pv rc r rs s m), HashableTo H.Hash (Account (BSML pv lc r ls s m)), HashableTo H.Hash (Account (BSMR pv rc r rs s m)))
         => BlockStateOperations (BlockStateM pv (PairGSContext lc rc) r (PairGState ls rs) s m) where
     bsoGetModule (bs1, bs2) mref = do
@@ -375,6 +478,19 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         r1 <- coerceBSML $ bsoGetAccountIndex bs1 aref
         r2 <- coerceBSMR $ bsoGetAccountIndex bs2 aref
         assert (r1 == r2) $ return r1
+    bsoGetAccountByIndex (bs1, bs2) ai = do
+        r1 <- coerceBSML $ bsoGetAccountByIndex bs1 ai
+        r2 <- coerceBSMR $ bsoGetAccountByIndex bs2 ai
+        case (r1, r2) of
+          (Just r1', Just r2') ->
+            assert ((getHash r1' :: H.Hash) == getHash r2') $
+                return $ Just (r1', r2')
+          (Nothing, Nothing) ->
+            return Nothing
+          (Nothing, _) ->
+            error $ "Cannot get account with index " ++ show ai ++ " in left implementation"
+          (_, Nothing) ->
+            error $ "Cannot get account with index " ++ show ai ++ " in right implementation"
     bsoGetInstance (bs1, bs2) iref = do
         r1 <- coerceBSML $ bsoGetInstance bs1 iref
         r2 <- coerceBSMR $ bsoGetInstance bs2 iref
@@ -442,6 +558,18 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         (r1, bs1') <- coerceBSML $ bsoAddBaker bs1 addr bkrAdd
         (r2, bs2') <- coerceBSMR $ bsoAddBaker bs2 addr bkrAdd
         assert (r1 == r2) $ return (r1, (bs1', bs2'))
+    bsoConfigureBaker (bs1, bs2) aconfig bkrConfig = do
+        (r1, bs1') <- coerceBSML $ bsoConfigureBaker bs1 aconfig bkrConfig
+        (r2, bs2') <- coerceBSMR $ bsoConfigureBaker bs2 aconfig bkrConfig
+        assert (r1 == r2) $ return (r1, (bs1', bs2'))
+    bsoConstrainBakerCommission (bs1, bs2) aconfig ranges = do
+        bs1' <- coerceBSML $ bsoConstrainBakerCommission bs1 aconfig ranges
+        bs2' <- coerceBSMR $ bsoConstrainBakerCommission bs2 aconfig ranges
+        return (bs1', bs2')
+    bsoConfigureDelegation (bs1, bs2) aconfig delConfig = do
+        (r1, bs1') <- coerceBSML $ bsoConfigureDelegation bs1 aconfig delConfig
+        (r2, bs2') <- coerceBSMR $ bsoConfigureDelegation bs2 aconfig delConfig
+        assert (r1 == r2) $ return (r1, (bs1', bs2'))
     bsoUpdateBakerKeys (bs1, bs2) addr bkrKUpd = do
         (r1, bs1') <- coerceBSML $ bsoUpdateBakerKeys bs1 addr bkrKUpd
         (r2, bs2') <- coerceBSMR $ bsoUpdateBakerKeys bs2 addr bkrKUpd
@@ -458,10 +586,14 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         (r1, bs1') <- coerceBSML $ bsoRemoveBaker bs1 addr
         (r2, bs2') <- coerceBSMR $ bsoRemoveBaker bs2 addr
         assert (r1 == r2) $ return (r1, (bs1', bs2'))
-    bsoRewardBaker (bs1, bs2) bid reward = do
-        (r1, bs1') <- coerceBSML $ bsoRewardBaker bs1 bid reward
-        (r2, bs2') <- coerceBSMR $ bsoRewardBaker bs2 bid reward
+    bsoRewardAccount (bs1, bs2) aid reward = do
+        (r1, bs1') <- coerceBSML $ bsoRewardAccount bs1 aid reward
+        (r2, bs2') <- coerceBSMR $ bsoRewardAccount bs2 aid reward
         assert (r1 == r2) $ return (r1, (bs1', bs2'))
+    bsoGetBakerPoolRewardDetails (bs1, bs2) = do
+        r1 <- coerceBSML $ bsoGetBakerPoolRewardDetails bs1
+        r2 <- coerceBSMR $ bsoGetBakerPoolRewardDetails bs2
+        assert (r1 == r2) $ return r1
     bsoRewardFoundationAccount (bs1, bs2) reward = do
         bs1' <- coerceBSML $ bsoRewardFoundationAccount bs1 reward
         bs2' <- coerceBSMR $ bsoRewardFoundationAccount bs2 reward
@@ -486,6 +618,46 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         r1 <- coerceBSML $ bsoGetCryptoParams bs1
         r2 <- coerceBSMR $ bsoGetCryptoParams bs2
         assert (r1 == r2) $ return r1
+    bsoGetPaydayEpoch (bs1, bs2) = do
+        r1 <- coerceBSML $ bsoGetPaydayEpoch bs1
+        r2 <- coerceBSMR $ bsoGetPaydayEpoch bs2
+        assert (r1 == r2) $ return r1
+    bsoGetPaydayMintRate (bs1, bs2) = do
+        r1 <- coerceBSML $ bsoGetPaydayMintRate bs1
+        r2 <- coerceBSMR $ bsoGetPaydayMintRate bs2
+        assert (r1 == r2) $ return r1
+    bsoSetPaydayEpoch (bs1, bs2) epoch = do
+        bs1' <- coerceBSML $ bsoSetPaydayEpoch bs1 epoch
+        bs2' <- coerceBSMR $ bsoSetPaydayEpoch bs2 epoch
+        return (bs1', bs2')
+    bsoSetPaydayMintRate (bs1, bs2) epoch = do
+        bs1' <- coerceBSML $ bsoSetPaydayMintRate bs1 epoch
+        bs2' <- coerceBSMR $ bsoSetPaydayMintRate bs2 epoch
+        return (bs1', bs2')
+    bsoUpdateAccruedTransactionFeesBaker (bs1, bs2) bid f = do
+        bs1' <- coerceBSML $ bsoUpdateAccruedTransactionFeesBaker bs1 bid f
+        bs2' <- coerceBSMR $ bsoUpdateAccruedTransactionFeesBaker bs2 bid f
+        return (bs1', bs2')
+    bsoMarkFinalizationAwakeBaker (bs1, bs2) bid = do
+        bs1' <- coerceBSML $ bsoMarkFinalizationAwakeBaker bs1 bid
+        bs2' <- coerceBSMR $ bsoMarkFinalizationAwakeBaker bs2 bid
+        return (bs1', bs2')
+    bsoUpdateAccruedTransactionFeesPassive (bs1, bs2) f = do
+        bs1' <- coerceBSML $ bsoUpdateAccruedTransactionFeesPassive bs1 f
+        bs2' <- coerceBSMR $ bsoUpdateAccruedTransactionFeesPassive bs2 f
+        return (bs1', bs2')
+    bsoGetAccruedTransactionFeesPassive (bs1, bs2) = do
+        a1 <- coerceBSML $ bsoGetAccruedTransactionFeesPassive bs1
+        a2 <- coerceBSMR $ bsoGetAccruedTransactionFeesPassive bs2
+        assert (a1 == a2) $ return a1
+    bsoUpdateAccruedTransactionFeesFoundationAccount (bs1, bs2) f = do
+        bs1' <- coerceBSML $ bsoUpdateAccruedTransactionFeesFoundationAccount bs1 f
+        bs2' <- coerceBSMR $ bsoUpdateAccruedTransactionFeesFoundationAccount bs2 f
+        return (bs1', bs2')
+    bsoGetAccruedTransactionFeesFoundationAccount (bs1, bs2) = do
+        a1 <- coerceBSML $ bsoGetAccruedTransactionFeesFoundationAccount bs1
+        a2 <- coerceBSMR $ bsoGetAccruedTransactionFeesFoundationAccount bs2
+        assert (a1 == a2) $ return a1
     bsoSetTransactionOutcomes (bs1, bs2) tos = do
         bs1' <- coerceBSML $ bsoSetTransactionOutcomes bs1 tos
         bs2' <- coerceBSMR $ bsoSetTransactionOutcomes bs2 tos
@@ -522,6 +694,20 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         bs1' <- coerceBSML $ bsoClearProtocolUpdate bs1
         bs2' <- coerceBSMR $ bsoClearProtocolUpdate bs2
         return (bs1', bs2')
+    bsoRotateCurrentEpochBakers (bs1, bs2) =
+        liftM2 (,)
+            (coerceBSML $ bsoRotateCurrentEpochBakers bs1)
+            (coerceBSMR $ bsoRotateCurrentEpochBakers bs2)
+    bsoSetNextEpochBakers (bs1, bs2) ne = do
+        let ne1 = ne <&> \(r, a) -> (fst r, a)
+        let ne2 = ne <&> \(r, a) -> (snd r, a)
+        liftM2 (,)
+            (coerceBSML $ bsoSetNextEpochBakers bs1 ne1)
+            (coerceBSMR $ bsoSetNextEpochBakers bs2 ne2)
+    bsoProcessPendingChanges (bs1, bs2) ch =
+        liftM2 (,)
+            (coerceBSML $ bsoProcessPendingChanges bs1 ch)
+            (coerceBSMR $ bsoProcessPendingChanges bs2 ch)
     bsoAddReleaseSchedule (bs1, bs2) tt = do
         bs1' <- coerceBSML $ bsoAddReleaseSchedule bs1 tt
         bs2' <- coerceBSMR $ bsoAddReleaseSchedule bs2 tt
@@ -554,7 +740,48 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         bs1' <- coerceBSML $ bsoSetRewardAccounts bs1 rew
         bs2' <- coerceBSMR $ bsoSetRewardAccounts bs2 rew
         return (bs1', bs2')
-
+    bsoGetActiveBakers (bs1, bs2) = do
+        r1 <- coerceBSML $ bsoGetActiveBakers bs1
+        r2 <- coerceBSMR $ bsoGetActiveBakers bs2
+        assert (r1 == r2) $ return r1
+    bsoGetActiveBakersAndDelegators (bs1, bs2) = do
+        (b1, d1) <- coerceBSML $ bsoGetActiveBakersAndDelegators bs1
+        (b2, d2) <- coerceBSMR $ bsoGetActiveBakersAndDelegators bs2
+        assert (d1 == d2) $ assert (length b1 == length b2) $ return (zipActiveBakerInfo b1 b2, d1)
+        where
+            zipActiveBakerInfo (i1 : b1) (i2 : b2) =
+                assert (activeBakerEquityCapital i1 == activeBakerEquityCapital i2) $
+                assert (activeBakerPendingChange i1 == activeBakerPendingChange i2) $
+                assert (activeBakerDelegators i1 == activeBakerDelegators i2) $
+                let i = ActiveBakerInfo{
+                            activeBakerInfoRef = (activeBakerInfoRef i1, activeBakerInfoRef i2),
+                            activeBakerEquityCapital = activeBakerEquityCapital i1,
+                            activeBakerPendingChange = activeBakerPendingChange i1,
+                            activeBakerDelegators = activeBakerDelegators i1
+                        }
+                    b = zipActiveBakerInfo b1 b2
+                in i : b
+            zipActiveBakerInfo _ _ = []
+    bsoGetCurrentEpochBakers (ls, rs) = do
+        b1 <- coerceBSML (bsoGetCurrentEpochBakers ls)
+        b2 <- coerceBSMR (bsoGetCurrentEpochBakers rs)
+        assert (b1 == b2) $ return b1
+    bsoGetCurrentEpochFullBakersEx (ls, rs) = do
+        b1 <- coerceBSML (bsoGetCurrentEpochFullBakersEx ls)
+        b2 <- coerceBSMR (bsoGetCurrentEpochFullBakersEx rs)
+        assert (b1 == b2) $ return b1
+    bsoGetCurrentCapitalDistribution (ls, rs) = do
+        b1 <- coerceBSML (bsoGetCurrentCapitalDistribution ls)
+        b2 <- coerceBSMR (bsoGetCurrentCapitalDistribution rs)
+        assert (b1 == b2) $ return b1
+    bsoSetNextCapitalDistribution (bs1, bs2) cd = do
+        bs1' <- coerceBSML $ bsoSetNextCapitalDistribution bs1 cd
+        bs2' <- coerceBSMR $ bsoSetNextCapitalDistribution bs2 cd
+        return (bs1', bs2')
+    bsoRotateCurrentCapitalDistribution (bs1, bs2) = do
+        bs1' <- coerceBSML $ bsoRotateCurrentCapitalDistribution bs1
+        bs2' <- coerceBSMR $ bsoRotateCurrentCapitalDistribution bs2
+        return (bs1', bs2')
 
 type instance BlockStatePointer (a, b) = (BlockStatePointer a, BlockStatePointer b)
 
@@ -640,13 +867,12 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
         C.HasGlobalState (PairGState ls rs) s,
         MonadState s m,
         MonadIO m,
-        IsProtocolVersion pv,
         BlockStateStorage (TreeStateBlockStateM pv (PairGState ls rs) (PairGSContext lc rc) r s m),
-        TreeStateMonad pv (GSML pv lc r ls s m),
+        TreeStateMonad (GSML pv lc r ls s m),
         ATIStorage (GSML pv lc r ls s m) ~ (),
-        TreeStateMonad pv (GSMR pv rc r rs s m),
+        TreeStateMonad (GSMR pv rc r rs s m),
         ATIStorage (GSMR pv rc r rs s m) ~ ())
-        => TreeStateMonad pv (TreeStateBlockStateM pv (PairGState ls rs) (PairGSContext lc rc) r s m) where
+        => TreeStateMonad (TreeStateBlockStateM pv (PairGState ls rs) (PairGSContext lc rc) r s m) where
     makePendingBlock sk sl parent bid bp bn lf trs sthash trouthash brtime = do
       pb1 <- coerceGSML $ TS.makePendingBlock sk sl parent bid bp bn lf trs sthash trouthash brtime
       pb2 <- coerceGSMR $ TS.makePendingBlock sk sl parent bid bp bn lf trs sthash trouthash brtime
@@ -689,9 +915,12 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
     markDead bh = do
         coerceGSML $ markDead bh
         coerceGSMR $ markDead bh
+    type MarkFin (TreeStateBlockStateM pv (PairGState ls rs) (PairGSContext lc rc) r s m) =
+      (MarkFin (GSML pv lc r ls s m), MarkFin (GSMR pv rc r rs s m))
     markFinalized bh fr = do
-        coerceGSML $ markFinalized bh fr
-        coerceGSMR $ markFinalized bh fr
+        mf1 <- coerceGSML $ markFinalized bh fr
+        mf2 <- coerceGSMR $ markFinalized bh fr
+        return (mf1, mf2)
     markPending pb = do
         coerceGSML $ markPending pb
         coerceGSMR $ markPending pb
@@ -740,9 +969,12 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
         case (r1, r2) of
             (Nothing, Nothing) -> return Nothing
             (Just rec1, Just rec2) ->
-              assert (rec1 == rec2) $ -- TODO: Perhaps they don't have to be the same
+              assert (rec1 == rec2) $
                 return $ Just rec1
             _ -> error $ "getRecordAtindex (Paired): no match " ++ show r1 ++ ", " ++ show r2
+    wrapupFinalization finRec mffts = do
+      coerceGSML (wrapupFinalization finRec ((fst . fst &&& fst . snd) <$> mffts))
+      coerceGSMR (wrapupFinalization finRec ((snd . fst &&& snd . snd) <$> mffts))
     getBranches = do
         r1 <- coerceGSML getBranches
         r2 <- coerceGSMR getBranches
@@ -796,19 +1028,18 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
         r1 <- coerceGSML $ getNonFinalizedChainUpdates uty sn
         r2 <- coerceGSMR $ getNonFinalizedChainUpdates uty sn
         assert (r1 == r2) $ return r1
-    addTransaction tr = do
-        r1 <- coerceGSML $ addTransaction tr
-        r2 <- coerceGSMR $ addTransaction tr
-        assert (r1 == r2) $ return r1
+    type FinTrans (TreeStateBlockStateM pv (PairGState ls rs) (PairGSContext lc rc) r s m) =
+      (FinTrans (GSML pv lc r ls s m), FinTrans (GSMR pv rc r rs s m))
     finalizeTransactions bh slot trs = do
-        coerceGSML $ finalizeTransactions bh slot trs
-        coerceGSMR $ finalizeTransactions bh slot trs
+        ft1 <- coerceGSML $ finalizeTransactions bh slot trs
+        ft2 <- coerceGSMR $ finalizeTransactions bh slot trs
+        return (ft1, ft2)
     commitTransaction slot bh transaction res = do
         coerceGSML $ commitTransaction slot bh transaction res
         coerceGSMR $ commitTransaction slot bh transaction res
-    addCommitTransaction tr sl = do
-        r1 <- coerceGSML $ addCommitTransaction tr sl
-        r2 <- coerceGSMR $ addCommitTransaction tr sl
+    addCommitTransaction tr (TS.Context (bsl, bsr) x y) ts sl = do
+        r1 <- coerceGSML $ addCommitTransaction tr (TS.Context bsl x y) ts sl
+        r2 <- coerceGSMR $ addCommitTransaction tr (TS.Context bsr x y) ts sl
         assert (r1 == r2) $ return r1
     purgeTransaction tr = do
         r1 <- coerceGSML $ purgeTransaction tr
@@ -840,7 +1071,11 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
         -- between implementations, which may not in general be a
         -- reasonable assumption.
         assert (l1 == l2) $ return l1
-
+        
+    getNonFinalizedTransactionVerificationResult tx = do
+      r1 <- coerceGSML $ getNonFinalizedTransactionVerificationResult tx
+      r2 <- coerceGSMR $ getNonFinalizedTransactionVerificationResult tx
+      assert (r1 == r2) $ return r1
 newtype PairGSConfig c1 c2 (pv :: ProtocolVersion) = PairGSConfig (c1 pv, c2 pv)
 
 instance (GlobalStateConfig c1, GlobalStateConfig c2) => GlobalStateConfig (PairGSConfig c1 c2) where

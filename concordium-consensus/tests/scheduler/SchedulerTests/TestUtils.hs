@@ -1,4 +1,7 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 {-|
 Small test framework for transactions.
 Allows to specify test cases consisting of a list of transactions to be executed in order
@@ -10,7 +13,7 @@ Also checks invariants on the block state after each processed transaction.
 NOTE: This processes each transaction individually - for testing grouped transactions, see
       'SchedulerTests.TransactionGroupingSpec' and 'SchedulerTests.TransactionGroupingSpec2'.
 -}
-module SchedulerTests.TestUtils(PV1, PV2, PV3, ResultSpec,TResultSpec(..),emptySpec,emptyExpect,TestCase(..),
+module SchedulerTests.TestUtils(PV1, PV2, PV3, PV4, ResultSpec,TResultSpec(..),emptySpec,emptyExpect,TestCase(..),
                                 TestParameters(..),defaultParams, mkSpec,mkSpecs, createAlias) where
 
 import Test.Hspec
@@ -23,6 +26,7 @@ import Concordium.Scheduler.Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import Concordium.Scheduler.Runner
 import qualified Concordium.Scheduler as Sch
+import Concordium.TransactionVerification
 
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
@@ -35,6 +39,7 @@ import Data.Time
 type PV1 = 'P1
 type PV2 = 'P2
 type PV3 = 'P3
+type PV4 = 'P4
 
 
 -- | Specification on the expected result of executing a transaction and the resulting block state.
@@ -47,7 +52,7 @@ data TResultSpec
   -- | Like 'Success' but with exactly the given list of events.
   | SuccessE [Event]
   -- | Like Success but has access to the full transaction summary.
-  | SuccessWithSummary (BlockItem -> TransactionSummary -> Expectation)
+  | SuccessWithSummary (BlockItemWithStatus -> TransactionSummary -> Expectation)
   -- | Expect the transaction to be rejected with the given reason.
   | Reject RejectReason
   -- | Expect the transaction to fail with the given reason.
@@ -75,13 +80,13 @@ data TestParameters pv = TestParameters
   , tpBlockTimeout :: UTCTime
   }
 
-defaultParams :: TestParameters pv
+defaultParams :: forall pv. (IsProtocolVersion pv) => TestParameters pv
 defaultParams = TestParameters
   { tpChainMeta = dummyChainMeta
-  , tpInitialBlockState = createBlockState Acc.emptyAccounts
+  , tpInitialBlockState = createBlockState @pv Acc.emptyAccounts
   , tpEnergyLimit = maxBound
   , tpMaxCredentials = maxBound
-  , tpSizeLimit = fromIntegral $ (maxBound :: Int)
+  , tpSizeLimit = fromIntegral (maxBound :: Int)
   , tpBlockTimeout = dummyBlockTimeout
   }
 
@@ -102,11 +107,10 @@ data TestCase pv = TestCase
 
 -- | Result of processing a single transaction.
 data ProcessResult
-  = Valid (BlockItem, TransactionSummary)
+  = Valid (BlockItemWithStatus, TransactionSummary)
   | Failed FailureKind
   | Unprocessed
   deriving (Eq, Show)
-
 
 -- | Execute the given transactions in sequence (ungrouped) with 'Sch.filterTransactions',
 -- with the given parameters. Returns a list of result and block state after each transaction.

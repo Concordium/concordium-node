@@ -10,6 +10,8 @@ import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Concordium.Scheduler as Sch
 import Concordium.Scheduler.Runner
+import Concordium.Wasm (WasmVersion(..))
+import Concordium.TransactionVerification
 
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Invariants
@@ -39,27 +41,27 @@ transactionInputs :: [TransactionJSON]
 transactionInputs = [
   TJSON{
       metadata = makeDummyHeader alesAccount 1 100000,
-      payload = DeployModule 0 wasmPath,
+      payload = DeployModule V0 wasmPath,
       keys = [(0,[(0, alesKP)])]
       },
   TJSON{
       metadata = makeDummyHeader alesAccount 2 100000,
-      payload = InitContract 0 0 wasmPath "init_success" "",
+      payload = InitContract 0 V0 wasmPath "init_success" "",
       keys = [(0,[(0, alesKP)])]
       },
   TJSON{
       metadata = makeDummyHeader alesAccount 3 100000,
-      payload = InitContract 0 0 wasmPath "init_error_pos" "",
+      payload = InitContract 0 V0 wasmPath "init_error_pos" "",
       keys = [(0,[(0, alesKP)])]
       },
   TJSON{
       metadata = makeDummyHeader alesAccount 4 100000,
-      payload = InitContract 0 0 wasmPath "init_fail_minus2" "",
+      payload = InitContract 0 V0 wasmPath "init_fail_minus2" "",
       keys = [(0,[(0, alesKP)])]
       },
   TJSON{
       metadata = makeDummyHeader alesAccount 5 100000,
-      payload = InitContract 0 0 wasmPath "init_fail_big" "",
+      payload = InitContract 0 V0 wasmPath "init_fail_big" "",
       keys = [(0,[(0, alesKP)])]
       },
   TJSON{
@@ -89,8 +91,8 @@ transactionInputs = [
       }
   ]
 
-type TestResult = ([(Types.BlockItem, Types.ValidResult)],
-                   [(Types.Transaction, Types.FailureKind)],
+type TestResult = ([(BlockItemWithStatus, Types.ValidResult)],
+                   [(TransactionWithStatus, Types.FailureKind)],
                    [(Types.ContractAddress, Instance)])
 
 testRejectReasons :: IO TestResult
@@ -106,7 +108,7 @@ testRejectReasons = do
     case invariantBlockState gs (finState ^. Types.schedulerExecutionCosts) of
         Left f -> liftIO $ assertFailure $ f ++ " " ++ show gs
         _ -> return ()
-    return (getResults ftAdded, ftFailed, gs ^.. blockInstances . foldInstances . to (\i -> (iaddress i, i)))
+    return (getResults ftAdded, ftFailed, gs ^.. blockInstances . foldInstances . to (\i -> (instanceAddress i, i)))
 
 checkTransactionResults :: TestResult -> Assertion
 checkTransactionResults (suc, fails, instances) = do

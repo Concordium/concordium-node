@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, NumericUnderscores #-}
+{-# LANGUAGE OverloadedStrings, NumericUnderscores, DataKinds #-}
 module SchedulerTests.BakerTransactions where
 
 import Test.Hspec
@@ -7,7 +7,7 @@ import Control.Monad
 import System.Random
 import Data.Foldable
 import Data.Maybe
-import qualified Data.Set as Set
+import qualified Data.Map.Strict as Map
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import Concordium.Scheduler.Runner
@@ -16,7 +16,9 @@ import Concordium.Types.Accounts (
     bakerAggregationVerifyKey,
     bakerElectionVerifyKey,
     bakerSignatureVerifyKey,
+    bakerInfo,
  )
+import Concordium.TransactionVerification
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Basic.BlockState.Bakers
 import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
@@ -227,9 +229,9 @@ transactionsInput =
            }
     ]
 
-type TestResult = ([([(Types.BlockItem, Types.ValidResult)],
-                     [(Types.Transaction, Types.FailureKind)],
-                     BasicBirkParameters)],
+type TestResult = ([([(BlockItemWithStatus, Types.ValidResult)],
+                     [(TransactionWithStatus, Types.FailureKind)],
+                     BasicBirkParameters 'Types.AccountV0)],
                     BlockState PV1,
                     Types.Amount)
 
@@ -270,23 +272,23 @@ tests = do
         case take 2 results of
           [([(_,Types.TxSuccess [Types.BakerAdded {ebaBakerId = 0}])],[],bps1),
            ([(_,Types.TxSuccess [Types.BakerAdded {ebaBakerId = 1}])],[],bps2)] -> do
-            Set.toAscList (bps1 ^. birkActiveBakers . activeBakers) `shouldBe` [0]
-            Set.toAscList (bps2 ^. birkActiveBakers . activeBakers) `shouldBe` [0,1]
+            Map.keys (bps1 ^. birkActiveBakers . activeBakers) `shouldBe` [0]
+            Map.keys (bps2 ^. birkActiveBakers . activeBakers) `shouldBe` [0,1]
           _ -> expectationFailure $ show (take 2 results)
     specify "Fail to add baker with duplicate aggregation key" $
       case results !! 2 of
         ([(_, Types.TxReject (Types.DuplicateAggregationKey _))], [], bps) ->
-          Set.toAscList (bps ^. birkActiveBakers . activeBakers) `shouldBe` [0,1]
+          Map.keys (bps ^. birkActiveBakers . activeBakers) `shouldBe` [0,1]
         r -> expectationFailure $ "Unexpected outcome: " ++ show r
     specify "Add baker with duplicate sign and election keys" $
       case results !! 3 of
         ([(_,Types.TxSuccess [Types.BakerAdded {ebaBakerId = 2}])],[],bps) ->
-          Set.toAscList (bps ^. birkActiveBakers . activeBakers) `shouldBe` [0,1,2]
+          Map.keys (bps ^. birkActiveBakers . activeBakers) `shouldBe` [0,1,2]
         r -> expectationFailure $ "Unexpected outcome: " ++ show r
     specify "Update baker 0 with original keys" $
       case results !! 4 of
         ([(_,Types.TxSuccess [Types.BakerKeysUpdated 0 _ _ _ _])],[],bps) ->
-          Set.toAscList (bps ^. birkActiveBakers . activeBakers) `shouldBe` [0,1,2]
+          Map.keys (bps ^. birkActiveBakers . activeBakers) `shouldBe` [0,1,2]
         r -> expectationFailure $ "Unexpected outcome: " ++ show r
     specify "Fail to update baker 0 with baker 1's aggregation key" $
       case results !! 5 of
@@ -307,21 +309,21 @@ tests = do
     specify "Fail to remove non-existent baker" $ 
       case results !! 9 of
         ([(_,Types.TxReject (Types.NotABaker acct))],[],bps) -> do
-          Set.toAscList (bps ^. birkActiveBakers . activeBakers) `shouldBe` [0,1,2]
+          Map.keys (bps ^. birkActiveBakers . activeBakers) `shouldBe` [0,1,2]
           acct `shouldBe` account 3
         r -> expectationFailure $ "Unexpected outcome: " ++ show r
     specify "Remove baker 0" $
       case results !! 10 of
         ([(_,Types.TxSuccess [Types.BakerRemoved 0 acct])],[],bps) -> do
           -- The baker should still be in the active bakers due to cooldown
-          Set.toAscList (bps ^. birkActiveBakers . activeBakers) `shouldBe` [0,1,2]
+          Map.keys (bps ^. birkActiveBakers . activeBakers) `shouldBe` [0,1,2]
           acct `shouldBe` account 0
         r -> expectationFailure $ "Unexpected outcome: " ++ show r
     specify "Fail to add baker with baker 0's keys" $ 
       case results !! 11 of
         ([(_,Types.TxReject (Types.DuplicateAggregationKey _))],[],bps) ->
           -- The baker should still be in the active bakers due to cooldown
-          Set.toAscList (bps ^. birkActiveBakers . activeBakers) `shouldBe` [0,1,2]
+          Map.keys (bps ^. birkActiveBakers . activeBakers) `shouldBe` [0,1,2]
         r -> expectationFailure $ "Unexpected outcome: " ++ show r
     specify "Fail to update baker with bad election key proof" $
       case results !! 12 of

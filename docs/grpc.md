@@ -25,7 +25,12 @@ These fields are updated as they change, which is typically as a result of a blo
   the current era.
 * `slotDuration : Int` &mdash; duration in milliseconds of a slot. This only
   changes on protocol updates.
+* `epochDuration : Int` &mdash; duration in milliseconds of an epoch. This only changes on
+  protocol updates.
 * `genesisIndex : Int` &mdash; the number of protocol updates that have taken effect.
+* `currentEraGenesisBlock : BlockHash` &mdash; hash of the (re)genesis block from the latest
+  protocol update.
+* `currentEraGenesisTime : UTCTime` &mdash; genesis time of the current era.
 
 ### Received block statistics
 These statistics are updated whenever a block is received from the network.
@@ -87,6 +92,8 @@ Given a block hash, returns a JSON object with various details about a particula
 * `finalized : Bool` &mdash; boolean indicating if this block has been finalized yet.
 * `transactionCount : Int` &mdash; the number of transactions in this block
 * `transactionEnergyCost : Int` &mdash; The amount of NRG used to execute this block.
+* `transactionsSize : Int` &mdash; size of the block's transactions.
+* `blockStateHash : StateHash` &mdash; hash of the block's state.
 
 Note that for the genesis block, the `blockParent` and `blockLastFinalized` will have the hash of the genesis block itself, and the `blockBaker` will be `null`.
 `blockReceiveTime` and `blockArriveTime` are subjective, and will vary between nodes.
@@ -117,11 +124,14 @@ Returns a JSON object representing the branches of the tree from the last finali
 | `BlockHash` | base-16 encoded hash of a block (64 characters) |
 | `TransactionHash` | base-16 encoded hash of a transaction (64 characters) |
 | `ModuleRef` | base-16 encoded module reference (64 characters) |
-| `Int` | integer | 
+| `Int` | integer |
+| `Amount` | an amount of microCCD represented as a string |
+| `BakerId` | an integer representing a baker ID |
 | `EncryptionKey` | base-16 encoded string (192 characters) |
 | `EncryptedAmount` | base-16 encoded string (384 characters) |
 | `UTCTime` | UTC time. `yyyy-mm-ddThh:mm:ss[.sss]Z` (ISO 8601:2004(E) sec. 4.3.2 extended format) |
 | `Seconds` | Decimal number of seconds |
+| `Timestamp` | Milliseconds since the UNIX epoch |
 | `Number` | Decimal number |
 | `?a` | either type `a` or `null` |
 | `[a]` | list of values of type `a` |
@@ -147,7 +157,17 @@ Get the state of an account in the given block.
 
 `AccountInfo` is a JSON record with the following fields
 - `accountNonce : Int` &mdash; next available nonce on this account at this block
-- `accountAmount : Int` &mdash; current public account balance
+- `accountAmount : Amount` &mdash; current public account balance
+- `accountReleaseSchedule : AccountReleaseSummary` &mdash; pending releases on the account.
+  This is an object with fields
+    - `total : Amount` &mdash; the total locked amount
+    - `schedule : [ScheduledRelease]` &mdash; a list of the scheduled releases in ascending timestamp order.
+      There should be at most one release at each timestamp, and the total of alll releases should match
+      the above total. Each `ScheduledRelease` is a JSON object with the following fields:
+      - `timestamp : Timestamp` &mdash; time at which this amount is released in milliseconds since the UNIX epoch.
+      - `amount : Amount` &mdash; amount to be released.
+      - `transactions : [TransactioniHash]` &mdash; list of the transaction hashes that contributed
+        to this release.
 - `accountEncryptionKey : EncryptionKey` &mdash; an Elgamal public key used to send encrypted transfers to the account.
 - `accountIndex : Int` &mdash; sequential index of the account (in the order of creation). If the account is a baker this index is used as the `bakerId`.
 - `accountThreshold : Int` &mdash; a non-zero positive integer that specifies how many credentials must sign any transaction from the account.
@@ -168,9 +188,10 @@ Get the state of an account in the given block.
   integers from 0 up to (at most) 255. The object always has a key `0`.
 - `accountBaker : ?AccountBaker` &mdash; if the account is registered as a baker
   this is present and is an object with the following fields
+  - `stakedAmount : Amount` &mdash; the capital staked by the baker.
   - `restakeEarnings : bool` &mdash; whether earnings are added to the baker
     stake or not
-  - `bakerId : Int` &mdash; the same as `accountIndex`. Id used to identify the
+  - `bakerId : BakerId` &mdash; the same as `accountIndex`. Id used to identify the
     baker.
   - `bakerAggregationVerifyKey : AggregationVerifyKey` &mdash; hex encoded
     public key used to check signatures on some finalization messages and on
@@ -179,6 +200,84 @@ Get the state of an account in the given block.
     public key used to check block signatures (64 characters)
   - `bakerElectionVerifyKey : ElectionVerifyKey` &mdash; hex encoded
     public key used to check the proof that the baker won the lottery (192 characters)
+  - `pendingChange : ?PendingChange` &mdash; the pending change to the baker's stake, if any.
+    This is a JSON object with the following fields:
+    - `change : String` &mdash; either `"ReduceStake"` or `"RemoveStake"`.
+    - `newStake : ?Amount` &mdash; for `ReduceStake`, this is the new stake after the change.
+    - `effectiveTime : UTCTime` &mdash; the time at which the change is effective. (N.B.
+      the stake is only actually released at the payday after this in P4.)
+    - Removed as of 4.0.0: `epoch : Int` &mdash; the epoch at which the change is effective.
+  - `bakerPoolInfo : ?BakerPoolInfo` (protocol P4 onwards) &mdash; a JSON object with the following
+    fields:
+    - `openStatus : String` &mdash; one of `"openForAll"`, `"closedForNew"` or `"closedForAll"`,
+      indicating whether the pool accepts delegators.
+    - `metadataUrl : String` &mdash; the URL at which the pool's metadata should be found.
+    - `commissionRates : CommissionRates` &mdash; the commission rates (between 0 and 1) charged by the pool.
+      This is a JSON object with the fileds:
+      - `finalizationCommission : Number` &mdash; commission on finalization rewards
+      - `bakingCommission : Number` &mdash; commission on baking rewards
+      - `transactionCommission : Number` &mdash; commission on transaction fee rewards
+- `accountDelegation : ?AccountDelegation` &mdash; if the account is registered as delegating to a
+  pool, this is present and is an object with the following fields:
+  - `stakedAmount : Amount` &mdash; the capital delegated to the pool.
+  - `restakeEarnings : bool` &mdash; whether earnings are added to the delegated stake or not.
+  - `delegationTarget : DelegationTarget` &mdash; the target of the delegation. An object with fields:
+    - `delegateType : String` &mdash; either `"Passive"` or `"Baker"`.
+    - `bakerId : ?BakerId` &mdash; if the type is `Baker`, then the ID of the baker being delegated to.
+  - `pendingChange : ?PendingChange` &mdash; the pending change to the delegator's stake, if any.
+    This is a JSON object with the following fields:
+    - `change : String` &mdash; either `"ReduceStake"` or `"RemoveStake"`.
+    - `newStake : ?Amount` &mdash; for `ReduceStake`, this is the new stake after the change.
+    - `effectiveTime : UTCTime` &mdash; the time at which the change is effective. (N.B.
+      the stake is only actually released at the payday after this.)
+
+## GetBakerList : `BlockHash -> ?[BakerId]`
+
+If the block is valid, a list of all of the baker IDs registered at that block in ascending order.
+Otherwise, `null`.
+
+## GetPoolStatus : `BlockHash -> bool -> BakerId -> ?PoolStatus`
+
+Get the status of a pool.
+If the boolean argument is `true`, this returns the status for the passive delegators.
+Otherwise, it returns the status for the baker with the specified ID (if it exists).
+
+The result is a JSON object with the fields:
+- `poolType : String` &mdash; either `"BakerPool"` or `"PassiveDelegation"`.
+- `poolStatus : BakerPoolStatus | PassiveDelegationStatus` &mdash; the pool status object of the appropriate type.
+
+A `BakerPoolStatus` object consists of:
+- `bakerId : BakerId` &mdash; ID of the baker
+- `bakerAddress : Address` &mdash; account address of the pool owner
+- `bakerEquityCapital : Amount` &mdash; equity capital staked by the pool owner
+- `delegatedCapital : Amount` &mdash; total capital staked by delegators to the pool
+- `delegatedCapitalCap : Amount` &mdash; the maximum total capital that may be delegated to the
+  pool (before being capped for stake calculation).
+- `poolInfo : BakerPoolInfo` &mdash; information about the pool, with the same structure as in GetAccountInfo.
+- `bakerStakePendingChange : PoolPendingChange` &mdash; the pending change (if any) in the pool
+  owner's stake. This is a JSON object with the fields:
+  - `pendingChangeType : String` &mdash; `"NoChange"`, `"ReduceBakerCapital"` or `"RemovePool"`
+  - `bakerEquityCapital : ?Amount` &mdash; for `ReduceBakerCapital`, the new equity capital of the
+    pool owner.
+  - `effectiveTime : ?UTCTime` &mdash; for `ReduceBakerCapital` or `RemovePool`, the effective time
+    of the change. (N.B. the change only takes effect at the payday after this time.)
+- `currentPaydayStatus : ?CurrentPaydayBakerPoolStatus` &mdash; if the baker is active for the
+  current payday, this is a JSON object with the following fields:
+  - `blocksBaked : Int` &mdash; the number of blocks baked by the baker in the current payday.
+  - `finalizationLive : bool` &mdash; whether the baker has signed a finalization proof included
+    in a block this payday.
+  - `transactionFeesEarned : Amount` &mdash; the transaction fees that have accrued to this pool
+    over the current payday.
+  - `effectiveStake : Amount` &mdash; the effective stake of the baker in the current payday.
+  - `lotteryPower : Number` &mdash; the effective lottery power of the baker in the current payday.
+  - `bakerEquityCapital : Amount` &mdash; the equity capital of the baker when frozen for the current payday.
+  - `delegatedCapital : Amount` &mdash; the total delegated capital when frozen for the current payday.
+
+A `PassiveDelegationStatus` object consists of
+- `delegatedCapital : Amount` &mdash; total capital staked by passive delegators
+- `commissionRates : CommissionRates` &mdash; the commission rates that apply to passive delegators
+- `currentPaydayTransactionFeesEarned : Amount` &mdash; the transaction fees accrued to the passive delegators in this payday
+- `currentPaydayDelegatedCapital : Amount` &mdash; the total effective capital passively-delegated for the current payday.
 
 ## GetInstanceInfo : `BlockHash -> ContractAddress -> ?ContractInfo`
 
@@ -227,3 +326,40 @@ does not exist.
 
 Get the source of the module as it was deployed on the chain. The response is a
 byte array.
+
+## InvokeContract : `BlockHash -> ContractContext -> ?InvokeContractResult`
+
+Invoke a smart contract, returning any results. The contract is invoked in the
+state at the end of a given block.
+
+`ContractContext` is a record with fields
+- `invoker: ?Address` &mdash; address of the invoker. If not supplied it
+  defaults to the zero account address
+- `contract: ContractAddress` &mdash; address of the contract to invoke
+- `amount: ?Amount` &mdash; an amount to invoke with. Defaults to 0 if not
+  supplied.
+- `method: String` &mdash; name of the entrypoint to invoke. This needs to be
+  fully qualified in the format `contract.method`.
+- `parameter: ?String` &mdash; parameter to invoke the method with, encoded in
+  hex. Defaults to empty if not provided.
+- `energy: ?Number` &mdash; maximum amount of energy allowed for execution.
+  Defaults to 10_000_000 if not provided.
+
+The return value is either `null` if either the block does not exist, or parsing
+of any of the inputs failed. Otherwise it is a JSON encoded
+`InvokeContractResult`.
+
+This is a record with fields
+- `tag: String` &mdash; eiether `"success"` or `"failure"`.
+- `usedEnergy: Number` &mdash; the amount of NRG that was used during
+  execution
+- `returnValue: ?String` &mdash; if invoking a V1 contract this is the return
+  value that was produced, if any. The return value is only produced if the
+  contract terminates normally. If it runs out of energy or triggers a runtime
+  error there is no return value. If invoking a V0 contract this field is not
+  present.
+- if `tag` is `"success"` the following fields are present
+  - `events: [Event]` &mdash; list of events generated as part of execution of
+    the contract
+- if `tag` is `"failure"` then the following fields are present
+  - `reason: RejectReason` &mdash; encoding of a rejection reason

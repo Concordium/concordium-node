@@ -11,6 +11,7 @@ import Concordium.Types.Accounts (
     bakerAggregationVerifyKey,
     bakerElectionVerifyKey,
     bakerSignatureVerifyKey,
+    bakerInfo,
  )
 
 import qualified Concordium.Crypto.VRF as VRF
@@ -24,6 +25,7 @@ import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import Concordium.Scheduler.Runner
 import qualified Concordium.Scheduler as Sch
+import Concordium.TransactionVerification
 
 import Concordium.Scheduler.DummyData
 import Concordium.GlobalState.DummyData
@@ -95,9 +97,9 @@ expiryTime = 1
 slotTime :: Types.Timestamp
 slotTime = Types.transactionTimeToTimestamp expiryTime
 
-type TestResult = ([(Types.BlockItem, Types.ValidResult)],
-                   [(Types.Transaction, Types.FailureKind)],
-                   [Types.Transaction])
+type TestResult = ([(BlockItemWithStatus, Types.ValidResult)],
+                   [(TransactionWithStatus, Types.FailureKind)],
+                   [TransactionWithStatus])
 
 testExpiryTime :: Types.TransactionExpiryTime -> IO TestResult
 testExpiryTime expiry = do

@@ -42,7 +42,7 @@ pub(crate) fn is_compatible_wire_version(
 pub const PROTOCOL_MAX_MESSAGE_SIZE: u32 = 20_971_520; // 20 MIB
 
 /// Upper bound on the transaction object size, in bytes.
-pub const PROTOCOL_MAX_TRANSACTION_SIZE: usize = 100 * 1024; // 100 kB.
+pub const PROTOCOL_MAX_TRANSACTION_SIZE: usize = 600 * 1024; // 600 kB.
 
 const APP_PREFERENCES_MAIN: &str = "main.config";
 const APP_PREFERENCES_KEY_VERSION: &str = "VERSION";
@@ -79,42 +79,6 @@ pub const DATABASE_SUB_DIRECTORY_NAME: &str = "database-v4";
 /// "housekeeping_interval" by. Decreasing this increases risk of nodes
 /// being dropped prematurely.
 const KEEP_ALIVE_FACTOR: u8 = 3;
-
-#[cfg(feature = "database_emitter")]
-#[derive(StructOpt, Debug)]
-// Parameters related to the database emitter.
-pub struct DatabaseEmitterConfig {
-    #[structopt(
-        long = "import-file",
-        help = "File to import from",
-        env = "CONCORDIUM_NODE_DB_EMITTER_IMPORT_FILE"
-    )]
-    pub import_file: String,
-
-    #[structopt(
-        long = "batches-delay",
-        help = "Delay between batches in miliseconds",
-        default_value = "2000",
-        env = "CONCORDIUM_NODE_DB_EMITTER_BATCHES_DELAY"
-    )]
-    pub delay_between_batches: u64,
-
-    #[structopt(
-        long = "batch-size",
-        help = "Size of each batch to emit",
-        default_value = "40",
-        env = "CONCORDIUM_NODE_DB_EMITTER_BATCH_SIZES"
-    )]
-    pub batch_sizes: u64,
-
-    #[structopt(
-        long = "skip-first",
-        help = "Amount of the initial blocks to skip",
-        default_value = "0",
-        env = "CONCORDIUM_NODE_DB_EMITTER_SKIP_FIRST"
-    )]
-    pub skip_first: u64,
-}
 
 #[cfg(feature = "instrumentation")]
 #[derive(StructOpt, Debug)]
@@ -778,22 +742,19 @@ pub struct MacOsConfig {
 #[structopt(about = "Concordium P2P node.")]
 pub struct Config {
     #[structopt(flatten)]
-    pub common:           CommonConfig,
+    pub common:       CommonConfig,
     #[cfg(feature = "instrumentation")]
     #[structopt(flatten)]
-    pub prometheus:       PrometheusConfig,
+    pub prometheus:   PrometheusConfig,
     #[structopt(flatten)]
-    pub connection:       ConnectionConfig,
+    pub connection:   ConnectionConfig,
     #[structopt(flatten)]
-    pub cli:              CliConfig,
+    pub cli:          CliConfig,
     #[structopt(flatten)]
-    pub bootstrapper:     BootstrapperConfig,
-    #[cfg(feature = "database_emitter")]
-    #[structopt(flatten)]
-    pub database_emitter: DatabaseEmitterConfig,
+    pub bootstrapper: BootstrapperConfig,
     #[cfg(target_os = "macos")]
     #[structopt(flatten)]
-    pub macos:            MacOsConfig,
+    pub macos:        MacOsConfig,
 }
 
 impl Config {

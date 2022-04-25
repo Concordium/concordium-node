@@ -13,7 +13,6 @@ import qualified Concordium.Scheduler.EnvironmentImplementation as EI
 import Concordium.Scheduler.Runner
 import qualified Concordium.Scheduler as Sch
 
-import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Invariants
 import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
@@ -25,6 +24,7 @@ import Concordium.Types.Accounts (
     bakerAggregationVerifyKey,
     bakerElectionVerifyKey,
     bakerSignatureVerifyKey,
+    bakerInfo,
  )
 
 import Concordium.Scheduler.Types hiding (Payload(..))
@@ -247,7 +247,7 @@ testTransactions = forAll makeTransactions (ioProperty . tt)
                     maxBound
                     initialBlockState
             let gs = finState ^. EI.ssBlockState
-            let rejs = [(z, decodePayload SP1 (thPayloadSize . atrHeader $ z) (atrPayload z), rr) | (WithMetadata{wmdData=NormalTransaction z}, TxReject rr) <- getResults ftAdded]
+            let rejs = [(z, decodePayload SP1 (thPayloadSize . atrHeader $ z) (atrPayload z), rr) | ((WithMetadata{wmdData=NormalTransaction z}, _), TxReject rr) <- getResults ftAdded]
             let checkRejects [] [] = return ()
                 checkRejects [] _ = Left "Expected additional rejected transactions"
                 checkRejects rs [] = Left $ "Unexpected rejected transactions:" ++ show rs

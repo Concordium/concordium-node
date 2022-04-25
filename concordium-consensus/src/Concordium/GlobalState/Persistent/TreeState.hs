@@ -6,6 +6,9 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
+-- FIXME: This is to suppress compiler warnings for derived instances of BlockStateOperations.
+-- This may be fixed in GHC 9.0.1.
+{-# OPTIONS_GHC -Wno-redundant-constraints #-}
 -- |This module provides a monad that is an instance of both `LMDBStoreMonad`, `LMDBQueryMonad`,
 -- and `TreeStateMonad` effectively adding persistence to the tree state.
 module Concordium.GlobalState.Persistent.TreeState where
@@ -39,7 +42,6 @@ import qualified Data.Map.Strict as Map
 import Data.Typeable
 import qualified Data.PQueue.Prio.Min as MPQ
 import qualified Data.Sequence as Seq
-import qualified Data.Set as Set
 import Data.Serialize (Serialize(..))
 import Lens.Micro.Platform
 import Concordium.Utils
@@ -50,6 +52,7 @@ import System.FilePath
 import Concordium.GlobalState.SQL.AccountTransactionIndex
 import Concordium.Logger
 import Control.Monad.Except
+import qualified Concordium.TransactionVerification as TVer
 
 -- * Exceptions
 
@@ -386,42 +389,44 @@ closeSkovPersistentData = closeDatabase . _db
 --
 -- This newtype establishes types for the @GlobalStateTypes@. The type variable @bs@ stands for the BlockState
 -- type used in the implementation.
-newtype PersistentTreeStateMonad (pv :: ProtocolVersion) ati bs m a = PersistentTreeStateMonad { runPersistentTreeStateMonad :: m a }
+newtype PersistentTreeStateMonad ati bs m a = PersistentTreeStateMonad { runPersistentTreeStateMonad :: m a }
   deriving (Functor, Applicative, Monad, MonadIO, BlockStateTypes, MonadLogger, MonadError e,
             BlockStateQuery, AccountOperations, BlockStateOperations, BlockStateStorage)
 
+deriving instance (MonadProtocolVersion m) => MonadProtocolVersion (PersistentTreeStateMonad ati bs m)
+
 deriving instance (Monad m, MonadState (SkovPersistentData pv ati bs) m)
-         => MonadState (SkovPersistentData pv ati bs) (PersistentTreeStateMonad pv ati bs m)
+         => MonadState (SkovPersistentData pv ati bs) (PersistentTreeStateMonad ati bs m)
 
 instance (CanExtend (ATIValues ati),
           CanRecordFootprint (Footprint (ATIValues ati)))
-         => ATITypes (PersistentTreeStateMonad pv ati bs m) where
-  type ATIStorage (PersistentTreeStateMonad pv ati bs m) = ATIValues ati
+         => ATITypes (PersistentTreeStateMonad ati bs m) where
+  type ATIStorage (PersistentTreeStateMonad ati bs m) = ATIValues ati
 
-instance (Monad m) => PerAccountDBOperations (PersistentTreeStateMonad pv () bs m)
+instance (Monad m) => PerAccountDBOperations (PersistentTreeStateMonad () bs m)
 
-instance (MonadIO m, MonadState (SkovPersistentData pv SQLTransactionLog bs) m) => PerAccountDBOperations (PersistentTreeStateMonad pv SQLTransactionLog bs m) where
+instance (MonadIO m, MonadState (SkovPersistentData (MPV m) SQLTransactionLog bs) m) => PerAccountDBOperations (PersistentTreeStateMonad SQLTransactionLog bs m) where
   flushBlockSummaries bh ati sos = do
     context <- use logContext
     liftIO $ writeEntries context bh ati sos
 
-instance GlobalStateTypes (PersistentTreeStateMonad pv ati bs m) where
-    type BlockPointerType (PersistentTreeStateMonad pv ati bs m) = PersistentBlockPointer pv (ATIValues ati) bs
+instance GlobalStateTypes (PersistentTreeStateMonad ati bs m) where
+    type BlockPointerType (PersistentTreeStateMonad ati bs m) = PersistentBlockPointer (MPV m) (ATIValues ati) bs
 
 instance HasLogContext SQLTransactionLogContext (SkovPersistentData pv SQLTransactionLog bs) where
   logContext = atiCtx
 
-getWeakPointer :: (MonadLogger (PersistentTreeStateMonad pv ati bs m),
-                  MonadIO (PersistentTreeStateMonad pv ati bs m),
-                   BlockStateStorage (PersistentTreeStateMonad pv ati bs m),
-                   BlockState (PersistentTreeStateMonad pv ati bs m) ~ bs,
+getWeakPointer :: (MonadLogger (PersistentTreeStateMonad ati bs m),
+                  MonadIO (PersistentTreeStateMonad ati bs m),
+                   BlockStateStorage (PersistentTreeStateMonad ati bs m),
+                   BlockState (PersistentTreeStateMonad ati bs m) ~ bs,
                    CanExtend (ATIValues ati),
-                   MonadState (SkovPersistentData pv ati bs) (PersistentTreeStateMonad pv ati bs m),
-                   IsProtocolVersion pv)
-               => Weak (PersistentBlockPointer pv (ATIValues ati) bs)
+                   MonadState (SkovPersistentData (MPV m) ati bs) (PersistentTreeStateMonad ati bs m),
+                   MonadProtocolVersion m)
+               => Weak (PersistentBlockPointer (MPV m) (ATIValues ati) bs)
                -> BlockHash
                -> String
-               -> PersistentTreeStateMonad pv ati bs m (PersistentBlockPointer pv (ATIValues ati) bs)
+               -> PersistentTreeStateMonad ati bs m (PersistentBlockPointer (MPV m) (ATIValues ati) bs)
 getWeakPointer weakPtr ptrHash name = do
         d <- liftIO $ deRefWeak weakPtr
         case d of
@@ -446,16 +451,16 @@ getWeakPointer weakPtr ptrHash name = do
                        other ->
                          logErrorAndThrowTS ("Could not retrieve " ++ name ++ " block. Block hash: " ++ show ptrHash ++ ", block status " ++ show other)
 
-instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
-          Monad (PersistentTreeStateMonad pv ati bs m),
-          IsProtocolVersion pv,
-          MonadIO (PersistentTreeStateMonad pv ati bs m),
+instance (MonadLogger (PersistentTreeStateMonad ati bs m),
+          Monad (PersistentTreeStateMonad ati bs m),
+          MonadIO (PersistentTreeStateMonad ati bs m),
           TS.BlockState m ~ bs,
-          BlockStateStorage (PersistentTreeStateMonad pv ati bs m),
-          MonadState (SkovPersistentData pv ati bs) (PersistentTreeStateMonad pv ati bs m),
+          BlockStateStorage (PersistentTreeStateMonad ati bs m),
+          MonadState (SkovPersistentData (MPV m) ati bs) (PersistentTreeStateMonad ati bs m),
           CanExtend (ATIValues ati),
-          CanRecordFootprint (Footprint (ATIValues ati)))
-         => BlockPointerMonad (PersistentTreeStateMonad pv ati bs m) where
+          CanRecordFootprint (Footprint (ATIValues ati)),
+          MonadProtocolVersion m)
+         => BlockPointerMonad (PersistentTreeStateMonad ati bs m) where
   blockState = return . _bpState
   bpParent block = case _bpBlock block of
       GenesisBlock{} -> return block
@@ -472,14 +477,14 @@ constructBlock StoredBlock{..} = do
   bstate <- loadBlockState (blockStateHash sbBlock) sbState
   makeBlockPointerFromPersistentBlock sbBlock bstate defaultValue sbInfo
 
-instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
-          MonadIO (PersistentTreeStateMonad pv ati bs m),
-          BlockState (PersistentTreeStateMonad pv ati bs m) ~ bs,
-          BlockStateStorage (PersistentTreeStateMonad pv ati bs m),
-          PerAccountDBOperations (PersistentTreeStateMonad pv ati bs m),
-          MonadState (SkovPersistentData pv ati bs) m,
-          IsProtocolVersion pv)
-         => TS.TreeStateMonad pv (PersistentTreeStateMonad pv ati bs m) where
+instance (MonadLogger (PersistentTreeStateMonad ati bs m),
+          MonadIO (PersistentTreeStateMonad ati bs m),
+          BlockState (PersistentTreeStateMonad ati bs m) ~ bs,
+          BlockStateStorage (PersistentTreeStateMonad ati bs m),
+          PerAccountDBOperations (PersistentTreeStateMonad ati bs m),
+          MonadState (SkovPersistentData (MPV m) ati bs) m,
+          MonadProtocolVersion m)
+         => TS.TreeStateMonad (PersistentTreeStateMonad ati bs m) where
     makePendingBlock key slot parent bid pf n lastFin trs stateHash transactionOutcomesHash time = do
         return $! makePendingBlock (signBlock key slot parent bid pf n lastFin trs stateHash transactionOutcomesHash) time
     getBlockStatus bh = do
@@ -514,17 +519,18 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
             blockTable . at' (getHash block) ?=! BlockAlive blockP
             return blockP
     markDead bh = blockTable . at' bh ?= BlockDead
+    type MarkFin (PersistentTreeStateMonad ati bs m) = Maybe (StoredBlock (MPV m) (BlockStatePointer bs))
     markFinalized bh fr = use (blockTable . at' bh) >>= \case
             Just (BlockAlive bp) -> do
               st <- saveBlockState (_bpState bp)
-              writeBlock StoredBlock{
+              blockTable . at' bh ?=! BlockFinalized (finalizationIndex fr)
+              return $ Just StoredBlock{
                   sbFinalizationIndex = finalizationIndex fr,
                   sbInfo = _bpInfo bp,
                   sbBlock = _bpBlock bp,
                   sbState = st
                 }
-              blockTable . at' bh ?=! BlockFinalized (finalizationIndex fr)
-            _ -> return ()
+            _ -> return Nothing
     markPending pb = blockTable . at' (getHash pb) ?=! BlockPending pb
     markAllNonFinalizedDead = blockTable %=! fmap nonFinDead
         where
@@ -541,7 +547,6 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
     getLastFinalizedHeight = bpHeight <$> use lastFinalized
     getNextFinalizationIndex = (+1) . finalizationIndex <$!> use lastFinalizationRecord
     addFinalization newFinBlock finRec = do
-      writeFinalizationRecord finRec
       lastFinalized .=! newFinBlock
       lastFinalizationRecord .=! finRec
     getFinalizedAtIndex finIndex = do
@@ -571,6 +576,8 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
         msb <- readFinalizedBlockAtHeight bHeight
         mapM constructBlock msb
 
+    wrapupFinalization = writeFinalizationComposite
+
     getBranches = use branches
     putBranches brs = branches .= brs
     takePendingChildren bh = possiblyPendingTable . at' bh . non [] <<.= []
@@ -599,19 +606,20 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
     wipePendingBlocks = do
         possiblyPendingTable .=! HM.empty
         possiblyPendingQueue .=! MPQ.empty
+
     getFocusBlock = use focusBlock
     putFocusBlock bb = focusBlock .= bb
     getPendingTransactions = use pendingTransactions
     putPendingTransactions pts = pendingTransactions .= pts
 
-    getAccountNonFinalized addr nnce =
+    getAccountNonFinalized addr nnce = do
             use (transactionTable . ttNonFinalizedTransactions . at' addr) >>= \case
-                Nothing -> return []
-                Just anfts ->
-                    let (_, atnnce, beyond) = Map.splitLookup nnce (anfts ^. anftMap)
-                    in return $ case atnnce of
-                        Nothing -> Map.toAscList beyond
-                        Just s -> (nnce, s) : Map.toAscList beyond
+              Nothing -> return []
+              Just anfts ->
+                  let (_, atnnce, beyond) = Map.splitLookup nnce (anfts ^. anftMap)
+                  in return $ case atnnce of
+                      Nothing -> Map.toAscList beyond
+                      Just s -> (nnce, s) : Map.toAscList beyond
 
     getNextAccountNonce addr =
         use (transactionTable . ttNonFinalizedTransactions . at' addr) >>= \case
@@ -623,57 +631,73 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
 
     -- only looking up the cached part is OK because the precondition of this method is that the
     -- transaction is not yet finalized
-    getCredential txHash =
+    getCredential txHash = do
       preuse (transactionTable . ttHashMap . ix txHash) >>= \case
-        Just (WithMetadata{wmdData=CredentialDeployment{..},..}, _) -> return $ Just WithMetadata{wmdData=biCred,..}
+        Just (WithMetadata{wmdData=CredentialDeployment{..},..}, status) ->
+          case status of
+            Received _ verRes -> return $ Just (WithMetadata{wmdData=biCred,..}, verRes)
+            Committed _ verRes _ -> return $ Just (WithMetadata{wmdData=biCred,..}, verRes)
+            _ -> return Nothing
         _ -> return Nothing
 
-    getNonFinalizedChainUpdates uty sn =
+    getNonFinalizedChainUpdates uty sn = do
       use (transactionTable . ttNonFinalizedChainUpdates . at' uty) >>= \case
         Nothing -> return []
         Just nfcus ->
           let (_, atsn, beyond) = Map.splitLookup sn (nfcus ^. nfcuMap)
           in return $ case atsn of
             Nothing -> Map.toAscList beyond
-            Just s -> (sn, s) : Map.toAscList beyond
+            Just s ->
+              let first = (sn, s)
+                  rest = Map.toAscList beyond
+              in first : rest
 
-    addCommitTransaction bi@WithMetadata{..} slot = do
+    addCommitTransaction bi@WithMetadata{..} verResCtx ts slot = do
       let trHash = wmdHash
       tt <- use transactionTable
       -- check if the transaction is in the transaction table cache
       case tt ^? ttHashMap . ix trHash of
           Nothing -> do
-            case wmdData of
-              NormalTransaction tr -> do
-                let sender = accountAddressEmbed (transactionSender tr)
-                    nonce = transactionNonce tr
-                if (tt ^. ttNonFinalizedTransactions . at' sender . non emptyANFT . anftNextNonce) <= nonce then do
-                  transactionTablePurgeCounter += 1
-                  let wmdtr = WithMetadata{wmdData=tr,..}
-                  transactionTable .= (tt & (ttNonFinalizedTransactions . at' sender . non emptyANFT . anftMap . at' nonce . non Set.empty %~ Set.insert wmdtr)
-                                          & (ttHashMap . at' trHash ?~ (bi, Received slot)))
-                  return (TS.Added bi)
-                else return TS.ObsoleteNonce
-              CredentialDeployment{} -> do
-                -- because we do not have nonce tracking for these transactions we need to check that
-                -- this transaction does not already exist in the on-disk storage.
-                finalizedP <- memberTransactionTable trHash
-                if finalizedP then
-                  return TS.ObsoleteNonce
-                else do
-                  transactionTable . ttHashMap . at' trHash ?= (bi, Received slot)
-                  return (TS.Added bi)
-              ChainUpdate cu -> do
-                let uty = updateType (uiPayload cu)
-                    sn = updateSeqNumber (uiHeader cu)
-                if (tt ^. ttNonFinalizedChainUpdates . at' uty . non emptyNFCU . nfcuNextSequenceNumber) <= sn then do
-                  transactionTablePurgeCounter += 1
-                  let wmdcu = WithMetadata{wmdData=cu,..}
-                  transactionTable .= (tt
-                      & (ttNonFinalizedChainUpdates . at' uty . non emptyNFCU . nfcuMap . at' sn . non Set.empty %~ Set.insert wmdcu)
-                      & (ttHashMap . at' trHash ?~ (bi, Received slot)))
-                  return (TS.Added bi)
-                else return TS.ObsoleteNonce
+            -- If the transaction was not present in the `TransactionTable` then we verify it now
+            -- adding it based on the verification result.
+            -- Only transactions which can possible be valid at the stage of execution are being added
+            -- to the `TransactionTable`.
+            -- Verifying the transaction here as opposed to `doReceiveTransactionInternal` avoids
+            -- verifying a transaction which have been both received individually and as part of a block twice.
+            verRes <- TS.runTransactionVerifierT (TVer.verify ts bi) verResCtx
+            if TVer.definitelyNotValid verRes (verResCtx ^. TS.isTransactionFromBlock) then return $ TS.NotAdded verRes
+            else 
+              case wmdData of
+                NormalTransaction tr -> do
+                  let sender = accountAddressEmbed (transactionSender tr)
+                      nonce = transactionNonce tr
+                  if (tt ^. ttNonFinalizedTransactions . at' sender . non emptyANFT . anftNextNonce) <= nonce then do
+                    transactionTablePurgeCounter += 1
+                    let wmdtr = WithMetadata{wmdData=tr,..}
+                    transactionTable .= (tt & (ttNonFinalizedTransactions . at' sender . non emptyANFT . anftMap . at' nonce . non Map.empty . at' wmdtr ?~ verRes)
+                                            & (ttHashMap . at' trHash ?~ (bi, Received slot verRes)))
+                    return (TS.Added bi verRes)
+                  else return TS.ObsoleteNonce
+                CredentialDeployment{} -> do
+                  -- because we do not have nonce tracking for these transactions we need to check that
+                  -- this transaction does not already exist in the on-disk storage.
+                  finalizedP <- memberTransactionTable trHash
+                  if finalizedP then
+                    return TS.ObsoleteNonce
+                  else do
+                    transactionTable . ttHashMap . at' trHash ?= (bi, Received slot verRes)
+                    return (TS.Added bi verRes)
+                ChainUpdate cu -> do
+                  let uty = updateType (uiPayload cu)
+                      sn = updateSeqNumber (uiHeader cu)
+                  if (tt ^. ttNonFinalizedChainUpdates . at' uty . non emptyNFCU . nfcuNextSequenceNumber) <= sn then do
+                    transactionTablePurgeCounter += 1
+                    let wmdcu = WithMetadata{wmdData=cu,..}
+                    transactionTable .= (tt
+                        & (ttNonFinalizedChainUpdates . at' uty . non emptyNFCU . nfcuMap . at' sn . non Map.empty . at' wmdcu ?~ verRes)
+                        & (ttHashMap . at' trHash ?~ (bi, Received slot verRes)))
+                    return (TS.Added bi verRes)
+                  else return TS.ObsoleteNonce
           Just (bi', results) -> do
             -- if it is we update the maximum committed slot,
             -- unless the transaction is already finalized (this case is handled by updateSlot)
@@ -682,7 +706,8 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
             when (slot > results ^. tsSlot) $ transactionTable . ttHashMap . at' trHash . mapped . _2 %= updateSlot slot
             return $ TS.Duplicate bi'
 
-    finalizeTransactions bh slot txs = mapM finTrans txs >>= writeTransactionStatuses
+    type FinTrans (PersistentTreeStateMonad ati bs m) = [(TransactionHash, FinalizedTransactionStatus)]
+    finalizeTransactions bh slot txs = mapM finTrans txs
         where
             finTrans WithMetadata{wmdData=NormalTransaction tr,..} = do
                 let nonce = transactionNonce tr
@@ -690,17 +715,16 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
                 anft <- use (transactionTable . ttNonFinalizedTransactions . at' sender . non emptyANFT)
                 if anft ^. anftNextNonce == nonce
                 then do
-                    let nfn = anft ^. anftMap . at' nonce . non Set.empty
+                    let nfn = anft ^. anftMap . at' nonce . non Map.empty
                         wmdtr = WithMetadata{wmdData=tr,..}
-                    if Set.member wmdtr nfn
+                    if Map.member wmdtr nfn
                     then do
                         -- Remove any other transactions with this nonce from the transaction table.
                         -- They can never be part of any other block after this point.
-                        forM_ (Set.delete wmdtr nfn) $
+                        forM_ (Map.keys (Map.delete wmdtr nfn)) $
                           \deadTransaction -> transactionTable . ttHashMap . at' (getHash deadTransaction) .= Nothing
                         -- Mark the status of the transaction as finalized, and remove the data from the in-memory table.
                         ss <- deleteAndFinalizeStatus wmdHash
-
                         -- Update the non-finalized transactions for the sender
                         transactionTable . ttNonFinalizedTransactions . at' sender ?= (anft & (anftMap . at' nonce .~ Nothing)
                                                                                            & (anftNextNonce .~ nonce + 1))
@@ -710,19 +734,20 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
                 else do
                  logErrorAndThrowTS $
                       "The recorded next nonce for the account " ++ show sender ++ " (" ++ show (anft ^. anftNextNonce) ++ ") doesn't match the one that is going to be finalized (" ++ show nonce ++ ")"
-            finTrans WithMetadata{wmdData=CredentialDeployment{},..} = deleteAndFinalizeStatus wmdHash
+            finTrans WithMetadata{wmdData=CredentialDeployment{},..} =
+                deleteAndFinalizeStatus wmdHash
             finTrans WithMetadata{wmdData=ChainUpdate cu,..} = do
                 let sn = updateSeqNumber (uiHeader cu)
                     uty = updateType (uiPayload cu)
                 nfcu <- use (transactionTable . ttNonFinalizedChainUpdates . at' uty . non emptyNFCU)
                 unless (nfcu ^. nfcuNextSequenceNumber == sn) $ logErrorAndThrowTS $
                         "The recorded next sequence number for update type " ++ show uty ++ " (" ++ show (nfcu ^. nfcuNextSequenceNumber) ++ ") doesn't match the one that is going to be finalized (" ++ show sn ++ ")"
-                let nfsn = nfcu ^. nfcuMap . at' sn . non Set.empty
+                let nfsn = nfcu ^. nfcuMap . at' sn . non Map.empty
                     wmdcu = WithMetadata{wmdData=cu,..}
-                unless (Set.member wmdcu nfsn) $ logErrorAndThrowTS $
+                unless (Map.member wmdcu nfsn) $ logErrorAndThrowTS $
                         "Tried to finalize a chain update that is not known to be in the set of non-finalized chain updates of type " ++ show uty
                 -- Remove any other updates with the same sequence number, since they weren't finalized
-                forM_ (Set.delete wmdcu nfsn) $
+                forM_ (Map.keys (Map.delete wmdcu nfsn)) $
                   \deadUpdate -> transactionTable . ttHashMap . at' (getHash deadUpdate) .= Nothing
                 -- Mark the status of the update as finalized, and remove the data from the in-memory table
                 ss <- deleteAndFinalizeStatus wmdHash
@@ -736,7 +761,7 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
               status <- preuse (transactionTable . ttHashMap . ix txHash . _2)
               case status of
                 Just Committed{..} -> do
-                  -- delete the transaction from the cache
+                  -- delete the transaction from the table
                   transactionTable . ttHashMap . at' txHash .= Nothing
                   -- and write the status to disk
                   return (txHash, FinalizedTransactionStatus{ftsSlot=slot,
@@ -751,6 +776,7 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
         -- because transactions are only written to disk on finalization, at' which point their
         -- statuses are no longer updated.
         transactionTable . ttHashMap . at' (getHash tr) %= fmap (_2 %~ addResult bh slot idx)
+
 
     purgeTransaction WithMetadata{..} =
         use (transactionTable . ttHashMap . at' wmdHash) >>= \case
@@ -772,7 +798,7 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
                           . non emptyANFT
                           . anftMap
                           . at' nonce
-                          . non Set.empty %= Set.delete WithMetadata{wmdData=tr,..}
+                          . non Map.empty %= Map.delete WithMetadata{wmdData=tr,..}
                       _ -> return () -- do nothing.
                     return True
                 else return False
@@ -821,3 +847,6 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
             . (ttNonFinalizedTransactions %~ fmap (anftMap .~ Map.empty))
             . (ttNonFinalizedChainUpdates %~ fmap (nfcuMap .~ Map.empty))
         return oldTransactions
+    getNonFinalizedTransactionVerificationResult bi = do
+      table <- use transactionTable
+      return $ getNonFinalizedVerificationResult bi table

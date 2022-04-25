@@ -15,7 +15,6 @@ import Concordium.Types
 import Concordium.Afgjort.Types
 
 
--- TODO (MR) Should the first argument type be [Party] rather than [Word32]?
 data FinalizationProof = FinalizationProof {
     finalizationProofParties :: ![Party],
     finalizationProofSignature :: !Bls.Signature

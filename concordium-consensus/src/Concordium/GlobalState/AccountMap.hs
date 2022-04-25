@@ -116,7 +116,7 @@ lookup addr (AccountMap am) = case protocolVersion @pv of
   -- addresses with the same prefix created in protocol versions 1 and 2 we have
   -- a fallback. If such a situation does occur then those accounts can only be
   -- referred to by the exact address. This is what the logic below implements.
-  SP3 -> Trie.lookupPrefix (mkPrefix addr) am >>= \case
+  _ -> Trie.lookupPrefix (mkPrefix addr) am >>= \case
     [] -> return Nothing
     [(_, v)] -> return (Just v)
     fs -> case filter ((== addr) . fst) fs of
@@ -129,7 +129,7 @@ addressWouldClash :: forall pv fix m . (IsProtocolVersion pv, TrieGetContext fix
 addressWouldClash addr (AccountMap am) = case protocolVersion @pv of
   SP1 -> isJust <$> Trie.lookup addr am
   SP2 -> isJust <$> Trie.lookup addr am
-  SP3 -> not . null <$> Trie.lookupPrefix (mkPrefix addr) am
+  _ -> not . null <$> Trie.lookupPrefix (mkPrefix addr) am
 
 -- |Insert a new key value pair if it is fresh. If the key already exists in the
 -- map no changes are made and the existing 'AccountIndex' is returned.

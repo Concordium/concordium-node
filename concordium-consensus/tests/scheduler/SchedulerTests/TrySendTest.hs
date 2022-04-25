@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 {-| This tests a minimal example of error handling in returns of smart contracts.
   We do two invocations of the receive method, one with a valid account to send
   to, and one with invalid.
@@ -40,15 +41,15 @@ testCases =
     -- the block state invariant at least tests that the total amount is preserved.
     TestCase
     { tcName = "Error handling in contracts."
-    , tcParameters = defaultParams {tpInitialBlockState=initialBlockState}
+    , tcParameters = (defaultParams @PV1){tpInitialBlockState=initialBlockState}
     , tcTransactions =
-      [ ( TJSON { payload = DeployModule 0 "./testdata/contracts/try-send-test.wasm"
+      [ ( TJSON { payload = DeployModule V0 "./testdata/contracts/try-send-test.wasm"
                 , metadata = makeDummyHeader alesAccount 1 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
         , (Success emptyExpect, emptySpec)
         )
-      , ( TJSON { payload = InitContract 0 0 "./testdata/contracts/try-send-test.wasm" "init_try" ""
+      , ( TJSON { payload = InitContract 0 V0 "./testdata/contracts/try-send-test.wasm" "init_try" ""
                 , metadata = makeDummyHeader alesAccount 2 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
@@ -64,6 +65,7 @@ testCases =
                                    , euAmount = 11
                                    , euMessage = Parameter toAddr
                                    , euReceiveName = ReceiveName "try.receive"
+                                   , euContractVersion = V0
                                    , euEvents = []
                                    },
                     Types.Transferred {
@@ -82,6 +84,7 @@ testCases =
                                    , euAmount = 11
                                    , euMessage = Parameter (BSS.pack (replicate 32 0))
                                    , euReceiveName = ReceiveName "try.receive"
+                                   , euContractVersion = V0
                                    , euEvents = []
                                    }], emptySpec)
         )

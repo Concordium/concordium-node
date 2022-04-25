@@ -8,6 +8,9 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
+-- FIXME: This is to suppress compiler warnings for derived instances of BlockStateOperations.
+-- This may be fixed in GHC 9.0.1.
+{-# OPTIONS_GHC -Wno-redundant-constraints #-}
 module Concordium.Afgjort.Finalize (
     FinalizationStateMonad,
     FinalizationMonad(..),
@@ -180,7 +183,7 @@ makeLenses ''FinalizationState
 -- finalization round is constructed.
 -- NB: This function should for now only be used in a tree state that has no branches,
 -- and will raise an exception otherwise.
-recoverFinalizationState :: (MonadIO m, SkovQueryMonad pv m)
+recoverFinalizationState :: (MonadIO m, SkovQueryMonad m)
                          => Maybe FinalizationInstance
                          -> m (FinalizationState timer)
 recoverFinalizationState mfinInstance = do
@@ -369,7 +372,7 @@ type FinalizationStateMonad r s m = (MonadState s m, FinalizationStateLenses s (
 -- Note that access to the global state is limited to via the 'BlockPointerMonad'
 -- and 'SkovMonad' abstractions.  This is intentional, to guarantee that the
 -- finalization code makes no direct changes to the Skov state.
-type FinalizationBaseMonad (pv :: ProtocolVersion) r s m = (BlockPointerMonad m, SkovMonad pv m, FinalizationStateMonad r s m, MonadIO m, TimerMonad m, FinalizationOutputMonad m)
+type FinalizationBaseMonad (pv :: ProtocolVersion) r s m = (BlockPointerMonad m, SkovMonad m, FinalizationStateMonad r s m, MonadIO m, TimerMonad m, FinalizationOutputMonad m)
 
 -- |Reset the finalization catch-up timer.  This is called when progress is
 -- made in finalization (i.e. we produce a message).
@@ -537,7 +540,7 @@ handleWMVBAOutputEvents FinalizationInstance{..} evs = do
 --  * Notify Skov of finalization ('trustedFinalize').
 --  * If the finalized block is known to Skov, handle this new finalization ('finalizationBlockFinal').
 --  * If the block is not known, add the finalization to the queue ('addQueuedFinalization').
-handleFinalizationProof :: (FinalizationMonad m, SkovMonad pv m, MonadState s m, FinalizationQueueLenses s) => FinalizationSessionId -> FinalizationIndex -> BlockHeight -> FinalizationCommittee -> (Val, ([Party], Bls.Signature)) -> m ()
+handleFinalizationProof :: (FinalizationMonad m, SkovMonad m, MonadState s m, FinalizationQueueLenses s) => FinalizationSessionId -> FinalizationIndex -> BlockHeight -> FinalizationCommittee -> (Val, ([Party], Bls.Signature)) -> m ()
 handleFinalizationProof sessId fIndex delta committee (finB, (parties, sig)) = do
         let finRec = FinalizationRecord {
             finalizationIndex = fIndex,
@@ -742,7 +745,7 @@ receiveFinalizationPseudoMessage (FPMCatchUp cu@CatchUpMessage{..}) = do
 --
 -- If the record is for a future finalization index (that is not next), 'ResultUnverifiable' is returned
 -- and the record is discarded.
-receiveFinalizationRecord :: (SkovMonad pv m, MonadState s m, FinalizationQueueLenses s, FinalizationMonad m) => Bool -> FinalizationRecord -> m UpdateResult
+receiveFinalizationRecord :: (SkovMonad m, MonadState s m, FinalizationQueueLenses s, FinalizationMonad m) => Bool -> FinalizationRecord -> m UpdateResult
 receiveFinalizationRecord validateDuplicate finRec@FinalizationRecord{..} = do
         nextFinIx <- nextFinalizationIndex
         case compare finalizationIndex nextFinIx of
@@ -774,7 +777,7 @@ receiveFinalizationRecord validateDuplicate finRec@FinalizationRecord{..} = do
 -- |It is possible to have a validated finalization proof for a block that is
 -- not currently known.  This function detects when such a block arrives and
 -- triggers it to be finalized.
-notifyBlockArrivalForPending :: (SkovMonad pv m, MonadState s m, FinalizationQueueLenses s, BlockPointerData bp, FinalizationMonad m) => bp -> m ()
+notifyBlockArrivalForPending :: (SkovMonad m, MonadState s m, FinalizationQueueLenses s, BlockPointerData bp, FinalizationMonad m) => bp -> m ()
 notifyBlockArrivalForPending b = do
     nfi <- nextFinalizationIndex
     getQueuedFinalizationTrivial nfi >>= \case
@@ -962,7 +965,7 @@ verifyFinalProof sid com@FinalizationCommittee{..} FinalizationRecord{..} =
 -- |Determine the finalization session ID and finalization committee used for finalizing
 -- at the given index i. Note that the finalization committee is determined based on the block state
 -- at index i-1.
-getFinalizationContext :: (SkovQueryMonad pv m) => FinalizationRecord -> m (Maybe (FinalizationSessionId, FinalizationCommittee))
+getFinalizationContext :: (SkovQueryMonad m) => FinalizationRecord -> m (Maybe (FinalizationSessionId, FinalizationCommittee))
 getFinalizationContext FinalizationRecord{..} = do
         genHash <- bpHash <$> genesisBlock
         let finSessId = FinalizationSessionId genHash 0 -- FIXME: Don't hard-code this!
@@ -972,7 +975,7 @@ getFinalizationContext FinalizationRecord{..} = do
 
 -- |Check a finalization proof, returning the session id and finalization committee if
 -- successful.
-checkFinalizationProof :: (MonadState s m, FinalizationQueueLenses s, SkovQueryMonad pv m) => FinalizationRecord -> m (Maybe (FinalizationSessionId, FinalizationCommittee))
+checkFinalizationProof :: (MonadState s m, FinalizationQueueLenses s, SkovQueryMonad m) => FinalizationRecord -> m (Maybe (FinalizationSessionId, FinalizationCommittee))
 checkFinalizationProof finRec =
     getQueuedFinalizationTrivial (finalizationIndex finRec) >>= \case
         Just (finSessId, finCom, altFinRec) -> return $ if finRec == altFinRec || verifyFinalProof finSessId finCom finRec then Just (finSessId, finCom) else Nothing
@@ -1051,7 +1054,7 @@ processFinalizationSummary FinalizationSummary{..} =
 
 -- |Given an existing block, returns a 'FinalizationRecord' that can be included in
 -- a child of that block, if available.
-nextFinalizationRecord :: (FinalizationMonad m, SkovMonad pv m) => BlockPointerType m -> m (Maybe (FinalizationSessionId, FinalizationCommittee, FinalizationRecord))
+nextFinalizationRecord :: (FinalizationMonad m, SkovMonad m) => BlockPointerType m -> m (Maybe (FinalizationSessionId, FinalizationCommittee, FinalizationRecord))
 nextFinalizationRecord parentBlock = do
     lfi <- blockLastFinalizedIndex parentBlock
     finalizationUnsettledRecordAt (lfi + 1)
@@ -1059,8 +1062,9 @@ nextFinalizationRecord parentBlock = do
 -- |'ActiveFinalizationM' provides an implementation of 'FinalizationMonad' that
 -- actively participates in finalization.
 newtype ActiveFinalizationM (pv :: ProtocolVersion) r s m a = ActiveFinalizationM {runActiveFinalizationM :: m a}
-    deriving (Functor, Applicative, Monad, MonadState s, MonadReader r, TimerMonad, BlockStateTypes, BlockStateQuery, AccountOperations, BlockStateOperations, BlockStateStorage, BlockPointerMonad, PerAccountDBOperations, TreeStateMonad pv, SkovMonad pv, TimeMonad, MonadLogger, MonadIO, FinalizationOutputMonad, SkovQueryMonad pv)
+    deriving (Functor, Applicative, Monad, MonadState s, MonadReader r, TimerMonad, BlockStateTypes, BlockStateQuery, AccountOperations, BlockStateOperations, BlockStateStorage, BlockPointerMonad, PerAccountDBOperations, TreeStateMonad, SkovMonad, TimeMonad, MonadLogger, MonadIO, FinalizationOutputMonad, SkovQueryMonad)
 
+deriving instance (MonadProtocolVersion m) => MonadProtocolVersion (ActiveFinalizationM pv r s m)
 deriving instance (BlockPointerData (BlockPointerType m)) => GlobalStateTypes (ActiveFinalizationM pv r s m)
 deriving instance (CanExtend (ATIStorage m), CanRecordFootprint (Footprint (ATIStorage m))) => ATITypes (ActiveFinalizationM pv r s m)
 

@@ -52,6 +52,7 @@ import Concordium.GlobalState.Basic.BlockState.Bakers
 import qualified Concordium.Types.SeedState as SeedState
 import Concordium.GlobalState
 import Concordium.Genesis.Data.P1
+import Concordium.TransactionVerification
 
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
@@ -121,6 +122,7 @@ invariantSkovData TS.SkovData{..} = addContext $ do
         checkBinary Set.isSubsetOf (Set.fromList $ HM.keys $ HM.filter onlyPending _blockTable) allPossiblyPending "is a subset of" "blocks marked pending" "pending queues"
         checkBinary Set.isSubsetOf allPossiblyPending (Set.fromList $ HM.keys _blockTable) "is a subset of" "pending queues" "blocks in block table"
         -- Transactions
+        -- We put a dummy verification result here. The scheduler will verify it.
         (nonFinTrans, anftNonces, nfcuSNs) <- walkTransactions _genesisBlockPointer lastFin (_ttHashMap _transactionTable) HM.empty Map.empty
         let (anft', nfcu') = foldr (\(bi, _) ->
                              case bi of
@@ -130,14 +132,14 @@ invariantSkovData TS.SkovData{..} = addContext $ do
                                  . non emptyANFT
                                  . anftMap
                                  . at (transactionNonce tr)
-                                 . non Set.empty %~ Set.insert WithMetadata{wmdData=tr,..}
+                                 . non Map.empty . at WithMetadata{wmdData=tr,..} ?~ (MaybeOk NormalTransactionInsufficientFunds)
                                WithMetadata{wmdData=ChainUpdate cu,..} ->
                                     _2
                                     . at (updateType (uiPayload cu))
                                     . non emptyNFCU
                                     . nfcuMap
                                     . at (updateSeqNumber (uiHeader cu))
-                                    . non Set.empty %~ Set.insert WithMetadata{wmdData=cu,..}
+                                    . non Map.empty . at WithMetadata{wmdData=cu,..} ?~ (MaybeOk ChainUpdateInvalidSignatures)
                                _ -> id
                           )
                           (anftNonces, nfcuSNs)

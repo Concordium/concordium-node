@@ -87,7 +87,6 @@ instance
     ( MultiVersionStateConfig gc,
       MultiVersion gc fc,
       SkovConfiguration gc fc UpdateHandler,
-      SkovMonad pv (VersionedSkovM gc fc pv),
       IsProtocolVersion pv
     ) =>
     HandlerConfigHandlers UpdateHandler (VersionedSkovM gc fc pv)
@@ -257,9 +256,9 @@ type VersionedSkovM gsconf finconf pv =
 -- the abstracted protocol version.
 data EVersionedConfiguration gsconf finconf
     = forall (pv :: ProtocolVersion).
-        ( SkovMonad pv (VersionedSkovM gsconf finconf pv),
+        ( SkovMonad (VersionedSkovM gsconf finconf pv),
           FinalizationMonad (VersionedSkovM gsconf finconf pv),
-          BakerMonad pv (VersionedSkovM gsconf finconf pv)
+          BakerMonad (VersionedSkovM gsconf finconf pv)
         ) =>
       EVersionedConfiguration (VersionedConfiguration gsconf finconf pv)
 
@@ -282,19 +281,19 @@ class MultiVersion gsconf finconf where
     -- 'TreeStateMonad'.
     liftSkov ::
         IsProtocolVersion pv =>
-        ( ( SkovMonad pv (VersionedSkovM gsconf finconf pv),
+        ( ( SkovMonad (VersionedSkovM gsconf finconf pv),
             FinalizationMonad (VersionedSkovM gsconf finconf pv),
-            TreeStateMonad pv (VersionedSkovM gsconf finconf pv)
+            TreeStateMonad (VersionedSkovM gsconf finconf pv)
           ) =>
           VersionedSkovM gsconf finconf pv a
         ) ->
         VersionedSkovM gsconf finconf pv a
 
 instance
-    ( forall pv. IsProtocolVersion pv => SkovMonad pv (VersionedSkovM gsconf finconf pv),
+    ( forall pv. IsProtocolVersion pv => SkovMonad (VersionedSkovM gsconf finconf pv),
       forall pv. IsProtocolVersion pv => FinalizationMonad (VersionedSkovM gsconf finconf pv),
-      forall pv. IsProtocolVersion pv => BakerMonad pv (VersionedSkovM gsconf finconf pv),
-      forall pv. IsProtocolVersion pv => TreeStateMonad pv (VersionedSkovM gsconf finconf pv)
+      forall pv. IsProtocolVersion pv => BakerMonad (VersionedSkovM gsconf finconf pv),
+      forall pv. IsProtocolVersion pv => TreeStateMonad (VersionedSkovM gsconf finconf pv)
     ) =>
     MultiVersion gsconf finconf
     where
@@ -464,8 +463,8 @@ checkForProtocolUpdate ::
 checkForProtocolUpdate = liftSkov body
   where
     body ::
-        ( SkovMonad pv (VersionedSkovM gc fc pv),
-          TreeStateMonad pv (VersionedSkovM gc fc pv)
+        ( SkovMonad (VersionedSkovM gc fc pv),
+          TreeStateMonad (VersionedSkovM gc fc pv)
         ) =>
         VersionedSkovM gc fc pv ()
     body =
@@ -883,7 +882,7 @@ receiveCatchUpStatus gi catchUpBS CatchUpConfiguration{..} =
                         (mmsgs, res) <-
                             runMVR
                                 ( evalSkovT @_ @pv
-                                    ( handleCatchUpStatus @pv @(VersionedSkovM gsconf finconf pv)
+                                    ( handleCatchUpStatus @(VersionedSkovM gsconf finconf pv)
                                         catchUp
                                         catchUpMessageLimit
                                     )
@@ -926,8 +925,15 @@ getCatchUpRequest = do
     case Vec.last vvec of
         (EVersionedConfiguration (vc :: VersionedConfiguration gsconf finconf pv)) -> do
             st <- liftIO $ readIORef $ vcState vc
-            cus <- evalSkovT (getCatchUpStatus @pv True) (mvrSkovHandlers vc mvr) (vcContext vc) st
+            cus <- evalSkovT (getCatchUpStatus @(VersionedSkovM _ _ pv) True) (mvrSkovHandlers vc mvr) (vcContext vc) st
             return (vcIndex vc, runPutLazy $ putVersionedCatchUpStatus cus)
+
+currentProtocolVersion :: MVR gsconf finconf SomeProtocolVersion
+currentProtocolVersion = do
+    vvec <- liftIO . readIORef =<< asks mvVersions
+    case Vec.last vvec of
+        EVersionedConfiguration (_ :: VersionedConfiguration gsconf finconf pv) ->
+            return $ SomeProtocolVersion $ protocolVersion @pv
 
 -- |Deserialize and receive a transaction.  The transaction is passed to
 -- the current version of the chain.
@@ -939,10 +945,11 @@ getCatchUpRequest = do
 --    of the current genesis index.
 -- 2. Determine the current genesis index before deserializing to ensure
 --    that the correct format is used.
-receiveTransaction :: ByteString -> MVR gsconf finconf UpdateResult
+receiveTransaction :: forall gsconf finconf. ByteString -> MVR gsconf finconf UpdateResult
 receiveTransaction transactionBS = do
     now <- utcTimeToTransactionTime <$> currentTime
-    case runGet (getExactVersionedBlockItem now) transactionBS of
+    SomeProtocolVersion spv <- currentProtocolVersion
+    case runGet (getExactVersionedBlockItem spv now) transactionBS of
         Left err -> do
             logEvent Runner LLDebug err
             return ResultSerializationFail

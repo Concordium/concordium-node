@@ -31,7 +31,7 @@ import Concordium.Afgjort.Finalize
 -- |Handle a catch-up message from a peer. If the message is a catch-up request,
 -- this returns a list of serialized and versioned blocks and finalization records.
 -- The maximum length of this list is specified by the second parameter.
-doHandleCatchUp :: forall pv m. (TreeStateMonad pv m, SkovQueryMonad pv m, FinalizationMonad m, MonadLogger m)
+doHandleCatchUp :: forall m. (TreeStateMonad m, SkovQueryMonad m, FinalizationMonad m, MonadLogger m)
                 => CatchUpStatus
                 -> Int -- ^How many blocks + finalization records should be sent.
                 -> m (Maybe ([(MessageType, ByteString)], CatchUpStatus), UpdateResult)
@@ -169,7 +169,7 @@ doHandleCatchUp peerCUS@CatchUpStatus{} limit = do
                     -- reject this peer.
                     logEvent Skov LLWarning $ "Invalid catch up status: last finalized block not finalized."
                     return (Nothing, ResultInvalid)
-  where encodeBlock b = (MessageBlock, runPut (putVersionedBlock (protocolVersion @pv) b))
+  where encodeBlock b = (MessageBlock, runPut (putVersionedBlock (protocolVersion @(MPV m)) b))
         encodeFinRec fr = (MessageFinalizationRecord, runPut (putVersionedFinalizationRecordV0 fr))
         -- Merge a list of finalization records and blocks, truncating it to a given length.
         -- Finalization records are sent before blocks that have greater height than the block

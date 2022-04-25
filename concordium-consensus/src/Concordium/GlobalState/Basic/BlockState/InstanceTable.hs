@@ -82,7 +82,7 @@ type instance IxValue InstanceTable = Instance
 
 instance Ixed InstanceTable where
     ix _ _ t@Empty = pure t
-    ix i upd (Tree s t) = Tree s <$> (ix (contractIndex i) . filtered ((== i) . instanceAddress . instanceParameters)) upd t
+    ix i upd (Tree s t) = Tree s <$> (ix (contractIndex i) . filtered ((== i) . instanceAddress)) upd t
 
 -- |Determine if an 'IT' is a full binary tree.
 isFull :: IT -> Bool
@@ -127,7 +127,7 @@ deleteContractInstance _ Empty = Empty
 deleteContractInstance i0 (Tree s0 t0) = uncurry Tree $ dci i0 t0
     where
         dci i l@(Leaf inst)
-            | i == 0 = (s0 - 1, VacantLeaf $ contractSubindex $ instanceAddress $ instanceParameters inst)
+            | i == 0 = (s0 - 1, VacantLeaf $ contractSubindex $ instanceAddress inst)
             | otherwise = (s0, l)
         dci _ vl@(VacantLeaf _) = (s0, vl)
         dci i b@(Branch h f _ _ l r)
@@ -143,8 +143,8 @@ deleteContractInstanceExact _ Empty = Empty
 deleteContractInstanceExact addr (Tree s0 t0) = uncurry Tree $ dci (contractIndex addr) t0
     where
         dci i l@(Leaf inst)
-            | i == 0 && addr == instanceAddress (instanceParameters inst)
-                        = (s0 - 1, VacantLeaf $ contractSubindex $ instanceAddress $ instanceParameters inst)
+            | i == 0 && addr == instanceAddress inst
+                        = (s0 - 1, VacantLeaf $ contractSubindex $ instanceAddress inst)
             | otherwise = (s0, l)
         dci _ vl@(VacantLeaf _) = (s0, vl)
         dci i b@(Branch h f _ _ l r)

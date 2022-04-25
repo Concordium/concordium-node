@@ -1,6 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 module SchedulerTests.StakedAmountLocked where
 
 import Test.Hspec
@@ -27,7 +28,9 @@ import qualified Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.BlsSignature as Bls
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.Crypto.SHA256 as Hash
-import Concordium.Types(TransactionHashV0(..))
+import Concordium.Types
+import Concordium.Scheduler.Types hiding (Transfer)
+import Concordium.TransactionVerification
 
 import Lens.Micro.Platform
 
@@ -50,11 +53,11 @@ baker0 = mkFullBaker 0 0
 
 initialBlockState :: BlockState PV1
 initialBlockState = createBlockState $ foldr putAccountWithRegIds Acc.emptyAccounts [acc, accWithLockup]
-  where acc = mkAccount (SigScheme.correspondingVerifyKey (keyPair 0)) (account 0) 10_000_058 & accountBaker ?~ baker
+  where acc = mkAccount @'AccountV0 (SigScheme.correspondingVerifyKey (keyPair 0)) (account 0) 10_000_058 & accountStaking .~ AccountStakeBaker baker
         baker = AccountBaker {
           _stakedAmount = 10_000_000,
           _stakeEarnings = False,
-          _accountBakerInfo = baker0 ^. _1 . bakerInfo,
+          _accountBakerInfo = BakerInfoExV0 $ baker0 ^. _1 . bakerInfo,
           _bakerPendingChange = NoChange
           }
         accWithLockup = mkAccount (SigScheme.correspondingVerifyKey (keyPair 1)) (account 1) 10_000_033 & accountReleaseSchedule .~ lockup
@@ -77,7 +80,7 @@ transactionsInput =
            }
     ]
 
-type TestResult = ([(Types.BlockItem, Types.TransactionSummary)], [(Types.Transaction, Types.FailureKind)])
+type TestResult = ([(BlockItemWithStatus, Types.TransactionSummary)], [(TransactionWithStatus, FailureKind)])
 
 runTransactions :: IO TestResult
 runTransactions = do
