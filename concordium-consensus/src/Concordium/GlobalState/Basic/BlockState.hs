@@ -1057,29 +1057,31 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                 preuse (blockAccounts . Accounts.indexedAccount accId) >>= \case
                     Just acct -> case acct ^? accountBaker of
                         Just acctBkr@AccountBaker{..} -> case _bakerPendingChange of
-                            RemoveStake pet | isEffective pet ->
-                                removeBaker accumBakers accumCapital accId newDelegators
-                            ReduceStake newAmt pet | isEffective pet ->
-                                reduceBakerStake accumBakers accumCapital bid newAmt acctBkr newDelegators
+                            RemoveStake pet | isEffective pet -> do
+                                removeBaker accId _accountBakerInfo newDelegators
+                                let !accumCapital' = accumCapital + newDelegators ^. apDelegatorTotalCapital
+                                return (accumBakers, accumCapital')
+                            ReduceStake newAmt pet | isEffective pet -> do
+                                reduceBakerStake bid newAmt acctBkr
+                                let !accumBakers' = Map.insert bid newDelegators accumBakers
+                                    !accumCapital' = accumCapital + newAmt + (newDelegators ^. apDelegatorTotalCapital)
+                                return (accumBakers', accumCapital')
                             _ -> do
                                 let !accumBakers' = Map.insert bid newDelegators accumBakers
                                     !accumCapital' = accumCapital + _stakedAmount + (newDelegators ^. apDelegatorTotalCapital)
                                 return (accumBakers', accumCapital')
                         Nothing -> error "Basic.bsoProcessPendingChanges invariant violation: active baker account not a baker"
                     Nothing -> error "Basic.bsoProcessPendingChanges invariant violation: active baker account not valid"
-            removeBaker accumBakers accumCapital accId delegators = do
+            removeBaker accId bkrInfo delegators = do
                 blockAccounts . Accounts.indexedAccount accId %=! (accountStaking .~ AccountStakeNone)
                 forM_ (delegators ^. apDelegators) redelegatePassive
-                blockBirkParameters . birkActiveBakers . passiveDelegators %= (delegators <>)
-                let !accumCapital' = accumCapital + delegators ^. apDelegatorTotalCapital
-                return (accumBakers, accumCapital')
-            reduceBakerStake accumBakers accumCapital bid@(BakerId accId) newAmt acctBkr delegators = do
+                blockBirkParameters . birkActiveBakers . passiveDelegators %=! (delegators <>)
+                blockBirkParameters . birkActiveBakers . aggregationKeys %=!
+                    Set.delete (bkrInfo ^. bakerAggregationVerifyKey)
+            reduceBakerStake (BakerId accId) newAmt acctBkr = do
                 let newAcctBkr = acctBkr{_stakedAmount = newAmt, _bakerPendingChange = NoChange}
                 blockAccounts . Accounts.indexedAccount accId %=!
                     (accountStaking .~ AccountStakeBaker newAcctBkr)
-                let !accumBakers' = Map.insert bid delegators accumBakers
-                    !accumCapital' = accumCapital + newAmt + (delegators ^. apDelegatorTotalCapital)
-                return (accumBakers', accumCapital')
 
     bsoTransitionEpochBakers bs newEpoch = return $! newbs
         where
