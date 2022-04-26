@@ -15,7 +15,6 @@ One way to do this is to inject the file as a bind mount as shown in the example
 ## Jenkins Pipelines
 
 The node-related binaries are built by the pipeline `master.Jenkinsfile` in the `jenkinsfiles` top-level folder.
-Genesis images are built with `master-genesis.Jenkinsfile`.
 
 ## Docker Compose
 
