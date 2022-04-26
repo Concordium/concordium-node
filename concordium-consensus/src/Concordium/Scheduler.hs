@@ -1570,11 +1570,11 @@ handleConfigureBaker
               else return (TxReject InvalidProof, energyCost, usedEnergy)
         kResult energyCost usedEnergy BI.BakerConfigureUpdate{} (BI.BCSuccess changes bid) = do
             let events = changes <&> \case
-                  BI.BakerConfigureStakeIncreased newStake
+                  BI.BakerConfigureStakeIncreased newStake ->
+                    BakerStakeIncreased bid senderAddress newStake
+                  BI.BakerConfigureStakeReduced newStake
                     | newStake == 0 -> BakerRemoved bid senderAddress
-                    | otherwise -> BakerStakeIncreased bid senderAddress newStake
-                  BI.BakerConfigureStakeReduced newStake ->
-                    BakerStakeDecreased bid senderAddress newStake
+                    | otherwise -> BakerStakeDecreased bid senderAddress newStake
                   BI.BakerConfigureRestakeEarnings newRestakeEarnings ->
                      BakerSetRestakeEarnings bid senderAddress newRestakeEarnings
                   BI.BakerConfigureOpenForDelegation newOpenStatus ->
