@@ -360,10 +360,10 @@ impl TryFrom<i64> for ConsensusFfiResponse {
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ConsensusIsInBakingCommitteeResponse {
+    ActiveInCommittee,
     NotInCommittee,
     AddedButNotActiveInCommittee,
     AddedButWrongKeys,
-    ActiveInCommittee,
 }
 
 impl TryFrom<u8> for ConsensusIsInBakingCommitteeResponse {
