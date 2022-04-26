@@ -523,4 +523,4 @@ instance GlobalStateConfig DiskTreeDiskBlockWithLogConfig where
         closeBlobStore pbscBlobStore
         destroyAllResources (connectionPool transactionLogContext)
         closeSkovPersistentData st
---}
+

@@ -6,7 +6,7 @@
     Most checks are being carried out in the smart contracts.
     However some checks are also being carried out here in this file.
     The latter checks are geared towards outcome checking while the
-    former checks are checking that host functions behaves as expected and that
+    former checks are checking that host functions behave as expected and that
     the integrity of the smart contracts during rollback are upheld.
 -}
 module SchedulerTests.SmartContracts.V1.Checkpointing (tests) where
@@ -134,7 +134,8 @@ testCase1 =
 -- A <--
 --
 -- The state at A should be left unchanged.
--- The iterator initialized at A should point to the same entry at the point of initialization.
+-- The iterator initialized at the outer A should point to the same entry as before the call.
+-- That is, the iterator should not be affected by the inner iterator.
 -- Only V1 contracts are being used.
 testCase2 :: TestCase PV4
 testCase2 =
@@ -205,7 +206,7 @@ testCase2 =
 -- A <--
 --
 -- The state at A should be left unchanged.
--- The iterator initialized at A should point to the same entry at the point of initialization.
+-- The iterator initialized at A should after the call point to the same entry as before the call.
 -- Only V1 contracts are being used.
 testCase3 :: TestCase PV4
 testCase3 =
@@ -336,7 +337,7 @@ testCase4 =
 -- A    <--
 --
 -- The state at A should have changed according to the 'inner' invocation on contract A.
--- A mix of V0 and V1 contracts are used.
+-- Contract A is V1, contract B is V1, and the proxy contract is V0.
 testCase5 :: TestCase PV4
 testCase5 =
   TestCase
@@ -434,7 +435,7 @@ testCase5 =
 -- A    <--
 --
 -- The state at A should have changed according to the 'inner' invocation on contract A.
--- A mix of V0 and V1 contracts are used.
+-- Contract A is V1, contract B is V1, and the proxy contract is V0.
 testCase6 :: TestCase PV4
 testCase6 =
   TestCase

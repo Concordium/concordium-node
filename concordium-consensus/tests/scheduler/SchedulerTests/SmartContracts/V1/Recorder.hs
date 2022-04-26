@@ -127,7 +127,7 @@ testCases =
             Nothing -> assertFailure "Instance at <0,0> does not exist."
             Just istance -> do
               case istance of
-                InstanceV0 _ -> assertFailure "Expecte V1 instance since a V1 module is deployed, but V0 encountered."
+                InstanceV0 _ -> assertFailure "Expected V1 instance since a V1 module is deployed, but V0 encountered."
                 InstanceV1 InstanceV{_instanceVModel=InstanceStateV1 s} -> do
                   -- since we inserted 60 values we expect to find keys on all those indices
                   forM_ [1..n] $ \idx ->

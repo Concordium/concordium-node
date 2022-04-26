@@ -31,7 +31,7 @@ import Concordium.GlobalState.DummyData
 import SchedulerTests.TestUtils
 import qualified SchedulerTests.SmartContracts.V1.InvokeHelpers as InvokeHelpers
 
-type ContextM = PersistentBlockStateMonad PV4 BlobStoreContext (ReaderT BlobStoreContext IO)
+type ContextM = PersistentBlockStateMonad PV4 BlobStore (ReaderT BlobStore IO)
 
 -- empty state, no accounts, no modules, no instances
 initialBlockState :: ContextM (HashedPersistentBlockState PV4)

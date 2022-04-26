@@ -1,5 +1,5 @@
 ;; This module contains two contracts namely Contract A and Contract B.
-;; The purpose if this test is to make sure that checkpointing/fallback mechanisms
+;; The purpose of this test is to make sure that checkpointing/fallback mechanisms
 ;; functions properly when carrying out inter-contract communication.
 
 ;; In particular the following cases are tested.
@@ -91,11 +91,6 @@
     ;; Check that all 8 zero bytes were written to the entry.
     (call $assert_eq (i32.const 8) (local.get $entry_write))
     
-    (call $state_entry_write
-          (call $state_create_entry (i32.const 0) (i32.const 0))
-          (i32.const 0)
-          (i32.const 16)
-          (i32.const 0))
     (call $get_parameter_section
           (i32.const 0)
           (i32.const 0)

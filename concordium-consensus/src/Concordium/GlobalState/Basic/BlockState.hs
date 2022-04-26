@@ -932,7 +932,7 @@ instance Monad m => BS.ContractStateOperations (PureBlockStateMonad pv m) where
   thawContractState (Instance.InstanceStateV0 st) = return st
   thawContractState (Instance.InstanceStateV1 st) = return (StateV1.thawInMemoryPersistent st)
   stateSizeV0 (Instance.InstanceStateV0 cs) = return (Wasm.contractStateSize cs)
-  getV1StateContext = return errorLoadCallBack
+  getV1StateContext = return errorLoadCallback
   contractStateToByteString (Instance.InstanceStateV0 st) = return (Wasm.contractState st)
   contractStateToByteString (Instance.InstanceStateV1 st) = return (encode st)
   {-# INLINE thawContractState #-}
@@ -1832,7 +1832,7 @@ instance (IsProtocolVersion pv, MonadIO m) => BS.BlockStateStorage (PureBlockSta
     writeBlockState h = PureBlockStateMonad . liftIO . hPutBuilder h . snd . runPutMBuilder . putBlockState . _unhashedBlockState
 
     {-# INLINE blockStateLoadCallback #-}
-    blockStateLoadCallback = return errorLoadCallBack -- basic block state is not written, so it never has to be loaded.
+    blockStateLoadCallback = return errorLoadCallback -- basic block state is not written, so it never has to be loaded.
 
 -- |Initial block state.
 initialState :: forall pv

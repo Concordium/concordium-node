@@ -38,7 +38,7 @@ import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.TreeState as TS
 import Concordium.GlobalState
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
-import Concordium.GlobalState.ContractStateFFIHelpers (errorLoadCallBack)
+import Concordium.GlobalState.ContractStateFFIHelpers (errorLoadCallback)
 import Concordium.Logger (MonadLogger(..))
 import Control.Arrow ((&&&))
 
@@ -285,25 +285,29 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
               (InstanceInfoV0 iv1, InstanceInfoV0 iv2) ->
                 assert (iiParameters iv1 == iiParameters iv2) $
                 assert (iiBalance iv1 == iiBalance iv2) $ do
-                  statebs <- coerceBSML (contractStateToByteString (iiState iv1))
-                  return $ Just $ InstanceInfoV0 InstanceInfoV{
-                    iiParameters = iiParameters iv1,
-                    iiBalance = iiBalance iv1,
-                    iiState = case S.decode statebs of
-                        Left err -> error $ "Could not decode left V0 state: " ++ err
-                        Right x -> x
-                    }
+                  statebs1 <- coerceBSML (contractStateToByteString (iiState iv1))
+                  statebs2 <- coerceBSMR (contractStateToByteString (iiState iv2))
+                  assert (statebs1 == statebs2) $
+                    return $ Just $ InstanceInfoV0 InstanceInfoV{
+                      iiParameters = iiParameters iv1,
+                      iiBalance = iiBalance iv1,
+                      iiState = case S.decode statebs1 of
+                          Left err -> error $ "Could not decode left V0 state: " ++ err
+                          Right x -> x
+                      }
               (InstanceInfoV1 iv1, InstanceInfoV1 iv2) ->
                 assert (iiParameters iv1 == iiParameters iv2) $
                 assert (iiBalance iv1 == iiBalance iv2) $ do
-                  statebs <- coerceBSML (contractStateToByteString (iiState iv1))
-                  return $ Just $ InstanceInfoV1 InstanceInfoV{
-                    iiParameters = iiParameters iv1,
-                    iiBalance = iiBalance iv1,
-                    iiState = case S.decode statebs of
-                        Left err -> error $ "Could not decode left V1 state: " ++ err
-                        Right x -> x
-                    }
+                  statebs1 <- coerceBSML (contractStateToByteString (iiState iv1))
+                  statebs2 <- coerceBSMR (contractStateToByteString (iiState iv2))
+                  assert (statebs1 == statebs2) $
+                    return $ Just $ InstanceInfoV1 InstanceInfoV{
+                      iiParameters = iiParameters iv1,
+                      iiBalance = iiBalance iv1,
+                      iiState = case S.decode statebs1 of
+                          Left err -> error $ "Could not decode left V1 state: " ++ err
+                          Right x -> x
+                      }
               (InstanceInfoV0 _, InstanceInfoV1 _) -> error $ "Left state returns V0 instance, but right state V1 for address " ++ show caddr
               (InstanceInfoV1 _, InstanceInfoV0 _) -> error $ "Left state returns V1 instance, but right state V0 for address " ++ show caddr
     getModuleList (ls, rs) = do
@@ -428,7 +432,7 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r) => ContractS
   thawContractState (InstanceStateV0 st) = return st
   thawContractState (InstanceStateV1 st) = return (StateV1.thawInMemoryPersistent st)
   stateSizeV0 (InstanceStateV0 cs) = return (Wasm.contractStateSize cs)
-  getV1StateContext = return errorLoadCallBack
+  getV1StateContext = return errorLoadCallback
   contractStateToByteString (InstanceStateV0 st) = return (Wasm.contractState st)
   contractStateToByteString (InstanceStateV1 st) = return (S.encode st)
 

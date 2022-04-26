@@ -105,7 +105,7 @@ freezeContractState :: forall v m . (Wasm.IsWasmVersion v, MonadBlobStore m) => 
 freezeContractState cs = case Wasm.getWasmVersion @v of
   Wasm.SV0 -> return (getHash cs, Instances.InstanceStateV0 cs)
   Wasm.SV1 -> do
-    (cbk, _) <- getCallBacks
+    (cbk, _) <- getCallbacks
     (hsh, persistent) <- liftIO (StateV1.freeze cbk cs)
     return (hsh, Instances.InstanceStateV1 persistent)
 
@@ -1804,7 +1804,7 @@ doPutNewInstance pbs NewInstanceData{..} = do
               -- Seeing that we know that the instance is V1, and that the module exists, this cannot fail.
               ~(Just modRef) <- Modules.unsafeGetModuleReferenceV1 (GSWasm.miModuleRef nidInterface) mods
               (csHash, initialState) <- freezeContractState nidInitialState
-              pinstanceHash <- Instances.makeInstanceHashV1 (pinstanceParameterHash params) csHash nidInitialAmount
+              let pinstanceHash = Instances.makeInstanceHashV1 (pinstanceParameterHash params) csHash nidInitialAmount
               return (ca, PersistentInstanceV1 Instances.PersistentInstanceV{
                   pinstanceModuleInterface = modRef,
                   pinstanceModel = initialState,
@@ -1830,13 +1830,28 @@ doModifyInstance pbs caddr deltaAmnt val = do
                       Nothing -> return ((), PersistentInstanceV0 oldInst {pinstanceParameters = newParamsRef})
                       Just newVal -> do
                         (csHash, newModel) <- freezeContractState newVal
-                        return ((), PersistentInstanceV0 $ rehashV0 (Just csHash) (pinstanceParameterHash piParams) (oldInst {pinstanceParameters = newParamsRef, pinstanceModel = newModel}))
+                        return ((), PersistentInstanceV0 $
+                                   rehashV0
+                                   (Just csHash)
+                                   (pinstanceParameterHash piParams)
+                                   (oldInst {pinstanceParameters = newParamsRef, pinstanceModel = newModel}))
               else
                   case val of
-                      Nothing -> return ((), PersistentInstanceV0 $ rehashV0 Nothing (pinstanceParameterHash piParams) $ oldInst {pinstanceParameters = newParamsRef, pinstanceAmount = applyAmountDelta deltaAmnt (pinstanceAmount oldInst)})
+                      Nothing -> return ((), PersistentInstanceV0 $
+                                           rehashV0
+                                           Nothing
+                                           (pinstanceParameterHash piParams)
+                                           oldInst {pinstanceParameters = newParamsRef,
+                                                    pinstanceAmount = applyAmountDelta deltaAmnt (pinstanceAmount oldInst)})
                       Just newVal -> do
                           (csHash, newModel) <- freezeContractState newVal
-                          return ((), PersistentInstanceV0 $ rehashV0 (Just csHash) (pinstanceParameterHash piParams) $ oldInst {pinstanceParameters = newParamsRef, pinstanceAmount = applyAmountDelta deltaAmnt (pinstanceAmount oldInst), pinstanceModel = newModel})
+                          return ((), PersistentInstanceV0 $
+                                     rehashV0
+                                     (Just csHash)
+                                     (pinstanceParameterHash piParams)
+                                     oldInst {pinstanceParameters = newParamsRef,
+                                              pinstanceAmount = applyAmountDelta deltaAmnt (pinstanceAmount oldInst),
+                                              pinstanceModel = newModel})
             Wasm.SV1 -> error "Expected instance version V0, got V1."
         upd (PersistentInstanceV1 oldInst) = case Wasm.getWasmVersion @v of
             Wasm.SV0 -> error "Expected V1 contract instance, got V0."
@@ -1847,17 +1862,29 @@ doModifyInstance pbs caddr deltaAmnt val = do
                         Nothing -> return ((), PersistentInstanceV1 oldInst {pinstanceParameters = newParamsRef})
                         Just newVal -> do
                               (csHash, newModel) <- freezeContractState newVal
-                              rehashV1 (Just csHash) (pinstanceParameterHash piParams) (oldInst {pinstanceParameters = newParamsRef, pinstanceModel = newModel})
+                              rehashV1
+                                (Just csHash)
+                                (pinstanceParameterHash piParams)
+                                (oldInst {pinstanceParameters = newParamsRef,
+                                          pinstanceModel = newModel})
                 else
                     case val of
                         Nothing -> rehashV1 Nothing (pinstanceParameterHash piParams) $ oldInst {pinstanceParameters = newParamsRef, pinstanceAmount = applyAmountDelta deltaAmnt (pinstanceAmount oldInst)}
                         Just newVal -> do
                               (csHash, newModel) <- freezeContractState newVal
-                              rehashV1 (Just csHash) (pinstanceParameterHash piParams) $ oldInst {pinstanceParameters = newParamsRef, pinstanceAmount = applyAmountDelta deltaAmnt (pinstanceAmount oldInst), pinstanceModel = newModel}
+                              rehashV1
+                                (Just csHash)
+                                (pinstanceParameterHash piParams)
+                                oldInst {pinstanceParameters = newParamsRef,
+                                         pinstanceAmount = applyAmountDelta deltaAmnt (pinstanceAmount oldInst),
+                                         pinstanceModel = newModel}
         rehashV0 (Just csHash) iph inst@PersistentInstanceV {..} = inst {pinstanceHash = Instances.makeInstanceHashV0 iph csHash pinstanceAmount}
-        rehashV0 Nothing iph inst@PersistentInstanceV {..} = inst {pinstanceHash = Instances.makeInstanceHashV0State iph pinstanceModel pinstanceAmount}
-        rehashV1 (Just csHash) iph inst@PersistentInstanceV {..} = (\newHash -> ((), PersistentInstanceV1 inst {pinstanceHash = newHash})) <$> Instances.makeInstanceHashV1 iph csHash pinstanceAmount
-        rehashV1 Nothing iph inst@PersistentInstanceV {..} =  (\newHash -> ((), PersistentInstanceV1 inst {pinstanceHash = newHash})) <$> Instances.makeInstanceHashV1State iph pinstanceModel pinstanceAmount
+        rehashV0 Nothing iph inst@PersistentInstanceV {..} =
+            inst {pinstanceHash = Instances.makeInstanceHashV0State iph pinstanceModel pinstanceAmount}
+        rehashV1 (Just csHash) iph inst@PersistentInstanceV {..} =
+            return ((), PersistentInstanceV1 inst {pinstanceHash = Instances.makeInstanceHashV1 iph csHash pinstanceAmount})
+        rehashV1 Nothing iph inst@PersistentInstanceV {..} =
+            (\newHash -> ((), PersistentInstanceV1 inst {pinstanceHash = newHash})) <$> Instances.makeInstanceHashV1State iph pinstanceModel pinstanceAmount
 
 doGetIdentityProvider :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> ID.IdentityProviderIdentity -> m (Maybe IPS.IpInfo)
 doGetIdentityProvider pbs ipId = do
@@ -2497,7 +2524,7 @@ doSetRewardAccounts pbs rewards = do
 
 
 newtype PersistentBlockStateContext = PersistentBlockStateContext {
-    pbscBlobStore :: BlobStoreContext
+    pbscBlobStore :: BlobStore
 }
 
 instance HasBlobStore PersistentBlockStateContext where
@@ -2571,7 +2598,7 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateQuery (Persist
 
 instance (MonadIO m, PersistentState r m) => ContractStateOperations (PersistentBlockStateMonad pv r m) where
   thawContractState (Instances.InstanceStateV0 inst) = return inst
-  thawContractState (Instances.InstanceStateV1 inst) = liftIO . flip StateV1.thaw inst . fst =<< getCallBacks
+  thawContractState (Instances.InstanceStateV1 inst) = liftIO . flip StateV1.thaw inst . fst =<< getCallbacks
   stateSizeV0 (Instances.InstanceStateV0 inst) = return (Wasm.contractStateSize inst)
   getV1StateContext = asks blobLoadCallback
   contractStateToByteString (Instances.InstanceStateV0 st) = return (Wasm.contractState st)

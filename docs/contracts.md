@@ -89,6 +89,11 @@ The following host functions are available to V1 contracts. The host functions
 are written as type signature in Rust syntax. The mapping of types is
 - `u32`/`i32` in Rust are `i32` in Wasm
 - `u64`/`i64` in Rust are `i64` in Wasm
+- `Iterator` in Rust is an alias for `u64`, hence `i64` in Wasm
+- `Entry` in Rust is an alias for `u64`, hence `i64` in Wasm
+- `ResultOptionIterator` in Rust is an alias for `u64`, hence `i64` in Wasm
+- `OptionEntry` in Rust is an alias for `u64`, hence `i64` in Wasm
+- `ResultOptionEntry` in Rust is an alias for `u64`, hence `i64` in Wasm
 - `*const S`/`*mut S` for a sized S are `i32` in Wasm (since Wasm is a 32-bit platform)
 
 ## Invoke an operation
@@ -215,18 +220,16 @@ fn log_event(start: *const u8, length: u32) -> i32;
 ## State operations
 
 The state exposes a key-value store with arbitrary byte arrays as values.
-Internally the tree is implemented as a radix tree with branching on 4 bits, but
-the interface that is exposed is a key-value store. Iteration is supported over
-subtrees anchored at specific prefixes.
+Iteration is supported over subtrees anchored at specific prefixes.
 
-When looking up, or iterating over the tree entries are given out to the
-contract. An entry is essentially a pointer to the tree node. The reason for
-this desing is in major part because in Wasm only primitive (i64 or i32) values
-may be returned by functions. In order to make lookup possible and practical to
-wrap in Rust (and other high-level languages) we return entries, which are
-encoded as 64 bit integers. Then these entries may be used to read and write the
-value at the tree node. In concordium-std the interface that is exposed is the
-Read + Write traits (and Seek).
+When looking up, or iterating over the tree, entries are given out to the
+contract. These entries then support futher operations, e.g., lookup, update.
+The reason for this design is in major part because in Wasm only primitive (i64
+or i32) values may be returned by functions. In order to make lookup possible
+and practical to wrap in Rust (and other high-level languages) we return
+entries, which are encoded as 64 bit integers. Then these entries may be used to
+read and write the value at the given key. In `concordium-std` the interface
+that is exposed is the Read + Write traits (and Seek).
 
 This separation of operations into two steps also affects costs. Lookup (and
 creation and deletion) costs are based on the length of the key, but further
@@ -235,7 +238,7 @@ data that is being written or read.
 
 There is a non-trivial interaction between entries and contract calls. When a
 contract A invokes contract B, that might lead to contract A's state being
-modified (e.g., B = A, or B further calls C, ...). This means that if an entry
+modified (e.g., B = A, or B further calls A, ...). This means that if an entry
 is given out before the call, it might no longer be valid after the call (e.g.,
 the value at the key might have been deleted). For this reason if as a result of
 a contract call contract A's state was modified (which is defined as any of the
@@ -243,20 +246,27 @@ state modification functions being called) then all the entries that were given
 out are invalidated and attempting to use them will lead to an error return
 value.
 
+The state modification functions are
+- `state_create_entry`
+- `state_delete_entry`
+- `state_delete_prefix`
+- `state_entry_write`
+- `state_entry_resize`
+
 ### Lookup, creation, and deletion
 ```rust
     /// Lookup an entry with the given key. The return value is either
     /// u64::MAX if the entry at the given key does not exist, or else
     /// the first bit of the result is 0, and the remaining bits
     /// are an entry identifier that may be used in subsequent calls.
-    pub(crate) fn state_lookup_entry(key_start: *const u8, key_length: u32) -> u64;
+    pub(crate) fn state_lookup_entry(key_start: *const u8, key_length: u32) -> OptionEntry;
 
     /// Create an empty entry with the given key. The return value is either
     /// u64::MAX if creating the entry failed because of an iterator lock on
     /// the part of the tree, or else the first bit is 0, and the remaining
     /// bits are an entry identifier that maybe used in subsequent calls.
     /// If an entry at that key already exists it is set to the empty entry.
-    pub(crate) fn state_create_entry(key_start: *const u8, key_length: u32) -> u64;
+    pub(crate) fn state_create_entry(key_start: *const u8, key_length: u32) -> OptionEntry;
 
     /// Delete the entry. Returns one of
     /// - 0 if the part of the tree this entry was in is locked
@@ -285,7 +295,7 @@ value.
 /// - otherwise the first bit is 0, and the remaining bits are the iterator
 ///   identifier
 /// that may be used in subsequent calls to advance it, or to get its key.
-fn state_iterate_prefix(prefix_start: *const u8, prefix_length: u32) -> u64;
+fn state_iterate_prefix(prefix_start: *const u8, prefix_length: u32) -> ResultOptionIterator;
 
 /// Return the next entry along the iterator, and advance the iterator.
 /// The return value is
@@ -297,19 +307,19 @@ fn state_iterate_prefix(prefix_start: *const u8, prefix_length: u32) -> u64;
 /// is deleted.
 /// - otherwise the first bit is 0, and the remaining bits encode an entry
 ///   identifier that can be passed to any of the entry methods.
-fn state_iterator_next(iterator: u64) -> u64;
+fn state_iterator_next(iterator: Iterator) -> ResultOptionEntry;
 
 /// Delete the iterator, unlocking the subtree. Returns
 /// - u64::MAX if the iterator does not exist.
 /// - 0 if the iterator was already deleted
 /// - 1 if the iterator was successfully deleted as a result of this call.
-fn state_iterator_delete(iterator: u64) -> u32;
+fn state_iterator_delete(iterator: Iterator) -> u32;
 
 /// Get the length of the key that the iterator is currently pointing at.
 /// Returns
 /// - u32::MAX if the iterator does not exist
 /// - otherwise the length of the key in bytes.
-fn state_iterator_key_size(iterator: u64) -> u32;
+fn state_iterator_key_size(iterator: Iterator) -> u32;
 
 /// Read a section of the key the iterator is currently pointing at. Returns
 /// either
@@ -322,14 +332,14 @@ fn state_iterator_key_size(iterator: u64) -> u32;
 /// returns (sections of) the key at the first node returned by the
 /// iterator.
 fn state_iterator_key_read(
-    iterator: u64,
+    iterator: Iterator,
     start: *mut u8,
     length: u32,
     offset: u32,
 ) -> u32;
 ```
 
-### Reading and writing of node values.
+### Reading and writing of entries.
 ```rust
 // Operations on the entry.
 
@@ -342,7 +352,7 @@ fn state_iterator_key_read(
 /// - u32::MAX if the entry does not exist (has been invalidated, or never
 /// existed). In this case no data is written.
 /// - amount of data that was read. This is never more than length.
-fn state_entry_read(entry: u64, start: *mut u8, length: u32, offset: u32) -> u32;
+fn state_entry_read(entry: Entry, start: *mut u8, length: u32, offset: u32) -> u32;
 
 /// Write a part of the entry. The arguments are
 /// entry ... entry id returned by state_iterator_next or state_create_entry
@@ -353,21 +363,21 @@ fn state_entry_read(entry: u64, start: *mut u8, length: u32, offset: u32) -> u32
 /// - u32::MAX if the entry does not exist (has been invalidated, or never
 /// existed). In this case no data is written.
 /// - amount of data that was written. This is never more than length.
-fn state_entry_write(entry: u64, start: *const u8, length: u32, offset: u32) -> u32;
+fn state_entry_write(entry: Entry, start: *const u8, length: u32, offset: u32) -> u32;
 
 /// Return the current size of the entry in bytes.
 /// The return value is either
 /// - u32::MAX if the entry does not exist (has been invalidated, or never
 /// existed). In this case no data is written.
 /// - or the size of the entry.
-fn state_entry_size(entry: u64) -> u32;
+fn state_entry_size(entry: Entry) -> u32;
 
 /// Resize the entry to the given size. Returns
 /// - u32::MAX if the entry has already been invalidated
 /// - 0 if the attempt was unsuccessful because new_size exceeds maximum
 ///   entry size
 /// - 1 if the entry was successfully resized.
-fn state_entry_resize(entry: u64, new_size: u32) -> u32;
+fn state_entry_resize(entry: Entry, new_size: u32) -> u32;
 ```
 
 ## Chain metadata
@@ -422,8 +432,8 @@ that if a method on a contract is invoked, if there is no exact match for an
 entrypoint, then the fallback entrypoint is invoked, if it exists.
 
 Since this means that the executed entrypoint may be different from the one that
-was named in, e.g., transaction, it is useful to expose the named entrypoint in
-the contract. That is the purpose of the following two methods which are only
+was named, e.g., in the transaction, it is useful to expose the named entrypoint
+in the contract. That is the purpose of the following two methods which are only
 allowed for receive methods. Invoking these in an init method will lead to a
 runtime error and contract termination.
 

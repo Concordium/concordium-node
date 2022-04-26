@@ -126,7 +126,7 @@ testCases =
             Nothing -> assertFailure "Instance at <0,0> does not exist."
             Just istance -> do
               case istance of
-                InstanceV0 _ -> assertFailure "Expecte V1 instance since a V1 module is deployed, but V0 encountered."
+                InstanceV0 _ -> assertFailure "Expected V1 instance since a V1 module is deployed, but V0 encountered."
                 InstanceV1 InstanceV{_instanceVModel=InstanceStateV1 s} -> do
                   -- the contract stores the state at key = [0u8; 8]
                   StateV1.lookupKey s (runPut (putWord64le 0)) >>= \case

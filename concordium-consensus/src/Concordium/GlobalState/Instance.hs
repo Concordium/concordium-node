@@ -113,7 +113,7 @@ data Instance = InstanceV0 (InstanceV GSWasm.V0)
 
 instance Show Instance where
     show (InstanceV0 InstanceV{..}) = show  _instanceVParameters ++ " {balance=" ++ show _instanceVAmount ++ ", hash = " ++ show _instanceVHash ++ "}"
-    show (InstanceV1 InstanceV{..}) = show  _instanceVParameters ++ " {balance=" ++ show _instanceVAmount ++ ", hash=" ++ show _instanceVHash ++ "}"
+    show (InstanceV1 InstanceV{..}) = show  _instanceVParameters ++ " {balance=" ++ show _instanceVAmount ++ ", hash =" ++ show _instanceVHash ++ "}"
 
 instance HashableTo H.Hash Instance where
     getHash (InstanceV0 InstanceV{..}) = _instanceVHash
@@ -138,12 +138,13 @@ makeInstanceHashV0' paramHash (InstanceStateV0 conState) a = H.hashLazy $ runPut
 makeInstanceHashV0 :: InstanceParameters v -> InstanceStateV GSWasm.V0 -> Amount -> H.Hash
 makeInstanceHashV0 = makeInstanceHashV0' . instanceParameterHash
 
--- |Construct the hash of a basic instance from the __hash of the parameters__, the state, and amount for a V1 instance.
+-- |Construct the hash of a basic instance from the __hash of the parameters__,
+-- the state, and amount for a V1 instance. Note that V1 and V0 instance hashes
+-- will be different assuming no hash collisions since 'ModuleRef's for V0 and
+-- V1 are distinct (because the version is included in the hash), and
+-- 'ModuleRef' is included in the parameter hash.
 makeInstanceHashV1' :: H.Hash -> InstanceStateV GSWasm.V1 -> Amount -> H.Hash
 makeInstanceHashV1' paramHash (InstanceStateV1 conState) a = H.hashLazy $ runPutLazy $ do
-        -- We put an explicit version for V1. This is not present in V0 for legacy reasons, and we cannot change it now,
-        -- but it would be best if it was present.
-        put Wasm.V1
         put paramHash
         put (getHash conState :: SHA256.Hash)
         put a
@@ -153,14 +154,14 @@ makeInstanceHashV1 :: InstanceParameters v -> InstanceStateV GSWasm.V1 -> Amount
 makeInstanceHashV1 = makeInstanceHashV1' . instanceParameterHash
 
 -- |Compute the hash of either a V0 or V1 instance. The version is determined by the type parameter.
-makeInstanceHash :: forall v .Wasm.IsWasmVersion v => InstanceParameters v -> InstanceStateV v -> Amount -> H.Hash
-makeInstanceHash params =
-    case Wasm.getWasmVersion @v of
-        Wasm.SV0 -> makeInstanceHashV0' (instanceParameterHash params)
-        Wasm.SV1 -> makeInstanceHashV1' (instanceParameterHash params)
+makeInstanceHash :: InstanceParameters v -> InstanceStateV v -> Amount -> H.Hash
+makeInstanceHash params state =
+    case state of
+      InstanceStateV0 _ -> makeInstanceHashV0' (instanceParameterHash params) state
+      InstanceStateV1 _ -> makeInstanceHashV1' (instanceParameterHash params) state
 
-makeInstanceV :: Wasm.IsWasmVersion v
-    => Wasm.InitName
+makeInstanceV :: 
+    Wasm.InitName
     -- ^Name of the init method used to initialize the contract.
     -> Set.Set Wasm.ReceiveName
     -- ^Receive functions suitable for this instance.
@@ -185,8 +186,8 @@ makeInstanceV instanceInitName instanceReceiveFuns instanceModuleInterface _inst
         instanceParameterHash = makeInstanceParameterHash _instanceAddress instanceOwner instanceContractModule instanceInitName
         _instanceVParameters = InstanceParameters {..}
 
-makeInstance :: Wasm.IsWasmVersion v
-    => Wasm.InitName
+makeInstance :: 
+    Wasm.InitName
     -- ^Name of the init method used to initialize the contract.
     -> Set.Set Wasm.ReceiveName
     -- ^Receive functions suitable for this instance.
@@ -208,12 +209,12 @@ makeInstance instanceInitName instanceReceiveFuns instanceModuleInterface _insta
     where instanceV = makeInstanceV instanceInitName instanceReceiveFuns instanceModuleInterface _instanceVModel _instanceVAmount instanceOwner _instanceAddress
 
 -- |Update a given smart contract instance.
-updateInstanceV :: Wasm.IsWasmVersion v => AmountDelta -> Maybe (InstanceStateV v) -> InstanceV v -> InstanceV v
+updateInstanceV :: AmountDelta -> Maybe (InstanceStateV v) -> InstanceV v -> InstanceV v
 updateInstanceV delta val i = updateInstanceV' amnt val i
   where amnt = applyAmountDelta delta (_instanceVAmount i)
 
 -- |Update a given smart contract instance with exactly the given amount and state.
-updateInstanceV' :: forall v . Wasm.IsWasmVersion v => Amount -> Maybe (InstanceStateV v) -> InstanceV v -> InstanceV v
+updateInstanceV' :: Amount -> Maybe (InstanceStateV v) -> InstanceV v -> InstanceV v
 updateInstanceV' amnt val i =  i {
                                 _instanceVModel = newVal,
                                 _instanceVAmount = amnt,

@@ -419,10 +419,6 @@ class (StaticInformation m, ContractStateOperations m, MonadProtocolVersion m) =
 
   getCurrentContractInstance :: ContractAddress -> m (Maybe (UInstanceInfo m))
 
-  -- |Execute the given function on the state of a V1 smart contract, if the state is changed
-  -- up to this point in the transaction. Returns Nothing if the instance was not in the changeset.
-  onV1StateIfChanged :: ContractAddress -> (UpdatableContractState GSWasm.V1 -> m a) -> m (Maybe a)
-
   -- |Charge for additional state that will be needed to store the additional
   -- state for V1 contracts affected by the transaction. **This should only be
   -- called at the end of the transaction.**
@@ -446,6 +442,9 @@ class (StaticInformation m, ContractStateOperations m, MonadProtocolVersion m) =
   -- index of the last modification.
   getCurrentContractInstanceState :: UInstanceInfoV m GSWasm.V1 -> m (ModificationIndex, TemporaryContractState (ContractState m) GSWasm.V1)
 
+  -- |Get the current modification index for the instance. If the instance has
+  -- not yet been modified during execution of the transaction 0 is returned.
+  -- Otherwise the index is at least 1.
   getCurrentModificationIndex :: UInstanceInfoV m GSWasm.V1 -> m ModificationIndex
 
   -- |Get the amount of energy remaining for the transaction.
@@ -974,11 +973,6 @@ instance (MonadProtocolVersion m, StaticInformation m, AccountOperations m, Cont
            Just (_, delta, newmodel) ->
              let amnt = applyAmountDelta delta (iiBalance inst)
              in return (Just . InstanceInfoV1 $ inst {iiBalance = amnt, iiState = maybe (Frozen (iiState inst)) Thawed newmodel})
-
-  onV1StateIfChanged addr f =
-    use (changeSet . instanceV1Updates . at' addr) >>= \case
-      Just (_, _, Just x) -> Just <$> f x
-      _ -> return Nothing
 
   chargeV1Storage = do
     xs <- use (changeSet . instanceV1Updates)

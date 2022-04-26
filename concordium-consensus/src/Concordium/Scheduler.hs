@@ -668,7 +668,9 @@ handleDeployModule wtc mod =
         Right v1 -> () <$ commitModule v1
       return (TxSuccess [ModuleDeployed mhash], energyCost, usedEnergy)
 
--- | Tick energy for storing the given contract state.
+-- | Tick energy for storing the given contract state for V0 contracts. V1
+-- contract storage works differently, we charge based only on the part of the
+-- state that was modified. See 'chargeV1Storage' for details on that.
 tickEnergyStoreStateV0 ::
   TransactionMonad m
   => Wasm.ContractState
@@ -1126,7 +1128,8 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                 -- Execution of the contract might have changed our own state. If so, we need to resume in the new state, otherwise
                                 -- we can keep the old one.
                                 (lastModifiedIndex, newState) <- getCurrentContractInstanceState istance
-                                (stateChanged, resumeState) <- (lastModifiedIndex /= modificationIndex,) <$> getRuntimeReprV1 newState
+                                let stateChanged = lastModifiedIndex /= modificationIndex
+                                resumeState <- getRuntimeReprV1 newState
                                 newBalance <- getCurrentContractAmount Wasm.SV1 istance
                                 go (resumeEvent True:evs ++ interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig resumeState stateChanged newBalance WasmV1.Success Nothing)
                          Just (InstanceInfoV1 targetInstance) -> do

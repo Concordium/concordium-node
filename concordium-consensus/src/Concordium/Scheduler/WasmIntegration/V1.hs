@@ -187,7 +187,8 @@ foreign import ccall "call_receive_v1"
              -> Word8 -- ^Whether to invoke the default/fallback method instead.
              -> Ptr (Ptr StateV1.MutableStateInner)
              -- ^Pointer to the current state of the smart contracts. If
-             -- successful, pointer to the new state will be written here.
+             -- successful, pointer to the new state will be written here if the state has been modified.
+             -- If the state has not been modified then a null pointer is written here.
              -> Ptr Word8 -- ^Pointer to the parameter.
              -> CSize -- ^Length of the parameter bytes.
              -> Word64 -- ^Available energy.
@@ -200,8 +201,11 @@ foreign import ccall "call_receive_v1"
 foreign import ccall "resume_receive_v1"
    resume_receive :: LoadCallback
              -> Ptr (Ptr ReceiveInterruptedState) -- ^Location where the pointer to interrupted config will be stored.
-             -> Word8 -- ^Tag of whether the state  been updated or not. If this is 0 then the state has not been updated, otherwise it has.
-             -> Ptr (Ptr StateV1.MutableStateInner) -- ^Pointer to the current state of the smart contracts.
+             -> Word8 -- ^Tag of whether the state has been updated or not. If this is 0 then the state has not been updated, otherwise, it has.
+             -> Ptr (Ptr StateV1.MutableStateInner)
+             -- ^Pointer to the current state of the smart contracts. If
+             -- successful, pointer to the new state will be written here if the state has been modified.
+             -- If the state has not been modified then a null pointer is written here.
              -> Word64 -- ^New balance of the contract.
              -> Word64 -- ^Return status from the interrupt.
              -> Ptr ReturnValue -- ^Return value from the call, if any. This will be replaced with an empty vector.

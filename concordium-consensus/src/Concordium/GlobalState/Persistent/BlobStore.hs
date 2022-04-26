@@ -95,7 +95,7 @@ data BlobHandle = BlobHandle{
   }
 
 -- | The storage context
-data BlobStore = BlobStore {
+data BlobStoreAccess = BlobStoreAccess {
     blobStoreFile :: !(MVar BlobHandle),
     blobStoreFilePath :: !FilePath,
     -- |The blob store file memory-mapped into a (read-only) 'ByteString'.
@@ -104,19 +104,31 @@ data BlobStore = BlobStore {
     blobStoreMMap :: !(IORef BS.ByteString)
 }
 
+-- |Context needed to operate on the blob store.
+data BlobStore = BlobStore {
+  -- |A handle to the underlying storage.
+  bscBlobStore :: !BlobStoreAccess,
+  -- |Callbacks for loading parts of the state. This is needed by V1 contract
+  -- state implementation.
+  bscLoadCallback :: !LoadCallback,
+  -- |Callbacks for storing new state. This is needed by V1 contract state
+  -- implementation.
+  bscStoreCallback :: !StoreCallback
+  }
+
 class HasBlobStore a where
-    -- |A handle to the underlying storage.
-    blobStore :: a -> BlobStore
+    -- |A handle to access the underlying storage.
+    blobStore :: a -> BlobStoreAccess
     -- |Callbacks for loading parts of the state. This is needed by V1 contract
     -- state implementation, but should otherwise not be used by Haskell code directly.
     blobLoadCallback :: a -> LoadCallback
     -- |Callbacks for storing new state. This is needed by V1 contract state
-    -- implementation
+    -- implementation, but should otherwise not be used by Haskell code directly.
     blobStoreCallback :: a -> StoreCallback
 
 -- |Construct callbacks for accessing the blob store.
 -- These callbacks must be freed in order that memory is not leaked.
-mkCallbacksFromBlobStore :: BlobStore -> IO (LoadCallback, StoreCallback)
+mkCallbacksFromBlobStore :: BlobStoreAccess -> IO (LoadCallback, StoreCallback)
 mkCallbacksFromBlobStore bstore = do
     storeCallback <- createStoreCallback (\ptr size -> theBlobRef <$> (writeBlobBS bstore =<< BSUnsafe.unsafePackCStringLen (castPtr ptr, fromIntegral size)))
     loadCallback <- createLoadCallback $ \location -> do
@@ -134,47 +146,47 @@ freeCallbacks fp1 fp2 = do
 
 -- |Create a new blob store at a given location.
 -- Fails if a file or directory at that location already exists.
-createBlobStore :: FilePath -> IO BlobStoreContext
+createBlobStore :: FilePath -> IO BlobStore
 createBlobStore blobStoreFilePath = do
     pathEx <- doesPathExist blobStoreFilePath
     when pathEx $ throwIO (userError $ "Blob store path already exists: " ++ blobStoreFilePath)
     bhHandle <- openBinaryFile blobStoreFilePath ReadWriteMode
     blobStoreFile <- newMVar BlobHandle{bhSize=0, bhAtEnd=True,..}
     blobStoreMMap <- newIORef BS.empty
-    let bscBlobStore = BlobStore{..}
+    let bscBlobStore = BlobStoreAccess{..}
     (bscLoadCallback, bscStoreCallback) <- mkCallbacksFromBlobStore bscBlobStore
-    return BlobStoreContext{..}
+    return BlobStore{..}
 
 -- |Load an existing blob store from a file.
 -- The file must be readable and writable, but this is not checked here.
-loadBlobStore :: FilePath -> IO BlobStoreContext
+loadBlobStore :: FilePath -> IO BlobStore
 loadBlobStore blobStoreFilePath = do
   bhHandle <- openBinaryFile blobStoreFilePath ReadWriteMode
   bhSize <- fromIntegral <$> hFileSize bhHandle
   blobStoreFile <- newMVar BlobHandle{bhAtEnd=bhSize==0,..}
   blobStoreMMap <- newIORef =<< mmapFileByteString blobStoreFilePath Nothing
-  let bscBlobStore = BlobStore{..}
+  let bscBlobStore = BlobStoreAccess{..}
   (bscLoadCallback, bscStoreCallback) <- mkCallbacksFromBlobStore bscBlobStore
-  return BlobStoreContext{..}
+  return BlobStore{..}
 
 -- |Flush all buffers associated with the blob store,
 -- ensuring all the contents is written out.
-flushBlobStore :: BlobStore -> IO ()
-flushBlobStore BlobStore{..} =
+flushBlobStore :: BlobStoreAccess -> IO ()
+flushBlobStore BlobStoreAccess{..} =
     withMVar blobStoreFile (hFlush . bhHandle)
 
 -- |Close all references to the blob store, flushing it
 -- in the process.
-closeBlobStore :: BlobStoreContext -> IO ()
-closeBlobStore BlobStoreContext{..} = do
+closeBlobStore :: BlobStore -> IO ()
+closeBlobStore BlobStore{..} = do
     BlobHandle{..} <- takeMVar (blobStoreFile bscBlobStore)
     writeIORef (blobStoreMMap bscBlobStore) BS.empty
     hClose bhHandle
     freeCallbacks bscLoadCallback bscStoreCallback
 
 -- |Close all references to the blob store and delete the backing file.
-destroyBlobStore :: BlobStoreContext -> IO ()
-destroyBlobStore bs@BlobStoreContext{..} = do
+destroyBlobStore :: BlobStore -> IO ()
+destroyBlobStore bs@BlobStore{..} = do
     closeBlobStore bs
     -- Removing the file may fail (e.g. on Windows) if the handle is kept open.
     -- This could be due to the finalizer on the memory map not being run, but my attempts
@@ -185,7 +197,7 @@ destroyBlobStore bs@BlobStoreContext{..} = do
 -- The given FilePath is a directory where the temporary blob
 -- store will be created.
 -- The blob store file is deleted afterwards.
-runBlobStoreTemp :: FilePath -> ReaderT BlobStoreContext IO a -> IO a
+runBlobStoreTemp :: FilePath -> ReaderT BlobStore IO a -> IO a
 runBlobStoreTemp dir a = bracket openf closef usef
     where
         openf = openBinaryTempFile dir "blb.dat"
@@ -195,16 +207,16 @@ runBlobStoreTemp dir a = bracket openf closef usef
         usef (fp, h) = do
             mv <- newMVar (BlobHandle h True 0)
             mmap <- newIORef BS.empty
-            let bscBlobStore = BlobStore mv fp mmap
+            let bscBlobStore = BlobStoreAccess mv fp mmap
             (bscLoadCallback, bscStoreCallback) <- mkCallbacksFromBlobStore bscBlobStore
-            res <- runReaderT a BlobStoreContext{..}
+            res <- runReaderT a BlobStore{..}
             _ <- takeMVar mv
             freeCallbacks bscLoadCallback bscStoreCallback
             return res
 
 -- | Read a bytestring from the blob store at the given offset using the file handle.
-readBlobBSFromHandle :: BlobStore -> BlobRef a -> IO BS.ByteString
-readBlobBSFromHandle BlobStore{..} (BlobRef offset) = mask $ \restore -> do
+readBlobBSFromHandle :: BlobStoreAccess -> BlobRef a -> IO BS.ByteString
+readBlobBSFromHandle BlobStoreAccess{..} (BlobRef offset) = mask $ \restore -> do
         bh@BlobHandle{..} <- takeMVar blobStoreFile
         eres <- try $ restore $ do
             hSeek bhHandle AbsoluteSeek (fromIntegral offset)
@@ -220,8 +232,8 @@ readBlobBSFromHandle BlobStore{..} (BlobRef offset) = mask $ \restore -> do
 -- | Read a bytestring from the blob store at the given offset using the memory map.
 -- The file handle is used as a backstop if the data to be read would be outside the memory map
 -- even after re-mapping.
-readBlobBS :: BlobStore -> BlobRef a -> IO BS.ByteString
-readBlobBS bs@BlobStore{..} br@(BlobRef offset) = do
+readBlobBS :: BlobStoreAccess -> BlobRef a -> IO BS.ByteString
+readBlobBS bs@BlobStoreAccess{..} br@(BlobRef offset) = do
         let ioffset = fromIntegral offset
         let dataOffset = ioffset + 8
         mmap0 <- readIORef blobStoreMMap
@@ -247,8 +259,8 @@ readBlobBS bs@BlobStore{..} br@(BlobRef offset) = do
                             $ BS.drop dataOffset mmap
 
 -- | Write a bytestring into the blob store and return the offset
-writeBlobBS :: BlobStore -> BS.ByteString -> IO (BlobRef a)
-writeBlobBS BlobStore{..} bs = mask $ \restore -> do
+writeBlobBS :: BlobStoreAccess -> BS.ByteString -> IO (BlobRef a)
+writeBlobBS BlobStoreAccess{..} bs = mask $ \restore -> do
         bh@BlobHandle{bhHandle=writeHandle,bhAtEnd=atEnd} <- takeMVar blobStoreFile
         eres <- try $ restore $ do
             unless atEnd (hSeek writeHandle SeekFromEnd 0)
@@ -296,33 +308,24 @@ class MonadIO m => MonadBlobStore m where
     flushStore = do
         bs <- blobStore <$> ask
         liftIO $ flushBlobStore bs
-    getCallBacks :: m (LoadCallback, StoreCallback)
-    default getCallBacks :: (MonadReader r m, HasBlobStore r) => m (LoadCallback, StoreCallback)
-    getCallBacks = do
+
+    -- |Get callbacks that can be given to foreign code (i.e., passed via FFI)
+    -- to access the blob store.
+    getCallbacks :: m (LoadCallback, StoreCallback)
+    default getCallbacks :: (MonadReader r m, HasBlobStore r) => m (LoadCallback, StoreCallback)
+    getCallbacks = do
       r <- ask
       return (blobLoadCallback r, blobStoreCallback r)
     {-# INLINE storeRaw #-}
     {-# INLINE loadRaw #-}
     {-# INLINE flushStore #-}
 
--- |Context needed to operate on the blob store.
-data BlobStoreContext = BlobStoreContext {
-  -- |A handle to the underlying storage.
-  bscBlobStore :: !BlobStore,
-  -- |Callbacks for loading parts of the state. This is needed by V1 contract
-  -- state implementation.
-  bscLoadCallback :: !LoadCallback,
-  -- |Callbacks for storing new state. This is needed by V1 contract state
-  -- implementation.
-  bscStoreCallback :: !StoreCallback
-  }
-
-instance HasBlobStore BlobStoreContext where
+instance HasBlobStore BlobStore where
   blobStore = bscBlobStore
   blobLoadCallback = bscLoadCallback
   blobStoreCallback = bscStoreCallback
 
-instance MonadBlobStore (ReaderT BlobStoreContext IO)
+instance MonadBlobStore (ReaderT BlobStore IO)
 
 -- |A wrapper type for lifting 'MonadBlobStore' instances over monad transformers.
 -- Lifted instances are provided for 'WriterT', 'StateT' and 'ExceptT', which are used for
@@ -337,8 +340,8 @@ instance (MonadTrans t, MonadBlobStore m, MonadIO (t m)) => MonadBlobStore (Lift
     {-# INLINE loadRaw #-}
     flushStore = lift flushStore
     {-# INLINE flushStore #-}
-    getCallBacks = lift getCallBacks
-    {-# INLINE getCallBacks #-}
+    getCallbacks = lift getCallbacks
+    {-# INLINE getCallbacks #-}
 
 deriving via (LiftMonadBlobStore (WriterT w) m)
     instance (Monoid w, MonadBlobStore m) => MonadBlobStore (WriterT w m)

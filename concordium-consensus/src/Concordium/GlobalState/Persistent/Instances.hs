@@ -148,7 +148,7 @@ instance (IsProtocolVersion pv, MonadBlobStore m) => BlobStorable m (PersistentI
             PersistentInstanceV0 i -> second PersistentInstanceV0 <$> storeUnversionedV0 i
             PersistentInstanceV1 _i -> error "Precondition violation. V1 instances do not exist in protocol versions <= 3."
         else case inst of
-            PersistentInstanceV0 i -> addVersion 0 PersistentInstanceV0 <$> storeUnversionedV0 i
+            PersistentInstanceV0 i -> addVersion <$> storeUnversionedV0 i
             PersistentInstanceV1 i -> storeV1 i
      where storeUnversionedV0 :: PersistentInstanceV GSWasm.V0 -> m (Put, PersistentInstanceV GSWasm.V0)
            storeUnversionedV0 PersistentInstanceV{pinstanceModel=InstanceStateV0 model,..} = do
@@ -176,7 +176,7 @@ instance (IsProtocolVersion pv, MonadBlobStore m) => BlobStorable m (PersistentI
                                                   pinstanceModuleInterface = newpInterface,
                                                   pinstanceModel = InstanceStateV1 newpstate,..})
 
-           addVersion v f (s, inst') = (putWord8 v <> s, f inst')
+           addVersion (s, inst') = (putWord8 0 <> s,  PersistentInstanceV0 inst')
 
     store pinst = fst <$> storeUpdate pinst
     load = do
@@ -329,12 +329,11 @@ makeInstanceHashV0 paramsHash csHash a = H.hash $ runPut $ do
 makeInstanceHashV1State :: MonadBlobStore m => InstanceParametersHash -> InstanceStateV GSWasm.V1 -> Amount -> m InstanceHash
 makeInstanceHashV1State paramsHash (InstanceStateV1 conState) a = do
     csHash <- getHashM conState
-    makeInstanceHashV1 paramsHash csHash a
+    return $! makeInstanceHashV1 paramsHash csHash a
 
-makeInstanceHashV1 :: MonadBlobStore m => InstanceParametersHash -> H.Hash -> Amount -> m InstanceHash
+makeInstanceHashV1 :: InstanceParametersHash -> H.Hash -> Amount -> InstanceHash
 makeInstanceHashV1 paramsHash csHash a =
-    return $ H.hash $ runPut $ do
-        put Wasm.V1
+    H.hash $ runPut $ do
         put paramsHash
         put csHash
         put a

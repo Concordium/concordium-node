@@ -29,7 +29,7 @@ import Concordium.GlobalState.DummyData
 
 import SchedulerTests.TestUtils
 
-type ContextM = PersistentBlockStateMonad PV4 BlobStoreContext (ReaderT BlobStoreContext IO)
+type ContextM = PersistentBlockStateMonad PV4 BlobStore (ReaderT BlobStore IO)
 
 -- empty state, no accounts, no modules, no instances
 initialBlockState :: ContextM (HashedPersistentBlockState PV4)
@@ -93,7 +93,7 @@ initContractV1 senderAddress initName initParam initAmount bs (miv, _) = do
         icSenderPolicies = []
         }
   let initInterpreterEnergy = 1_000_000_000
-  (cbk, _) <- getCallBacks
+  (cbk, _) <- getCallbacks
   case WasmV1.applyInitFun cbk miv cm initContext initName initParam initAmount initInterpreterEnergy of
     Nothing -> -- out of energy
       liftIO $ assertFailure "Initialization ran out of energy."

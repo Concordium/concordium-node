@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE QuantifiedConstraints #-}
@@ -230,6 +231,7 @@ instance Act (Action pv) where
     eqAct (BSO x) (BSO y) = eqAct x y
     eqAct _ _ = Nothing
     showRes (AO x) r = showRes x r
+    showRes (CO x) _ = case x of
     showRes (BSQ x) r = showRes x r
     showRes (BSO x) r = showRes x r
 

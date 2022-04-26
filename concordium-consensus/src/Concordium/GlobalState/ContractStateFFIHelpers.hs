@@ -34,10 +34,10 @@ foreign import ccall "copy_to_vec_ffi" copyToRustVec :: Ptr Word8 -> CSize -> IO
 -- |A callback that always panics. This is used in the basic state
 -- implementation which never stores any data in the backing store. NOINLINE
 -- here ensures that only a single instance of callbacks is allocated.
-{-# NOINLINE errorLoadCallBack #-}
-errorLoadCallBack :: LoadCallback
-errorLoadCallBack = unsafePerformIO $ createLoadCallback (\_location -> error "Error load callback invoked, and it should not have been.")
+{-# NOINLINE errorLoadCallback #-}
+errorLoadCallback :: LoadCallback
+errorLoadCallback = unsafePerformIO $ createLoadCallback (\_location -> error "Error load callback invoked, and it should not have been.")
 
 -- |Deallocate the callbacks. This should generally be called to not leak memory.
-freeErrorCallBack :: LoadCallback -> IO ()
-freeErrorCallBack = freeHaskellFunPtr
+freeErrorCallback :: LoadCallback -> IO ()
+freeErrorCallback = freeHaskellFunPtr
