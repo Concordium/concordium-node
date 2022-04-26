@@ -3,8 +3,6 @@ pipeline {
     agent any
 
     environment {
-        BUILD_TYPE = 'release'
-
         ecr_repo_domain = '192549843005.dkr.ecr.eu-west-1.amazonaws.com'
         image_repo = "${ecr_repo_domain}/concordium/collector-backend"
         image_name = "${image_repo}:${image_tag}"
@@ -21,13 +19,10 @@ pipeline {
             steps {
                 sh '''\
                     docker build \
-                      --build-arg base_image_tag="${base_image_tag}" \
-                      --build-arg build_type="${BUILD_TYPE}" \
-                      --label base_image_tag="${base_image_tag}" \
-                      --label build_type="${BUILD_TYPE}" \
+                      --build-arg=base_image_tag="${base_image_tag}" \
+                      --label=base_image_tag="${base_image_tag}" \
                       -t "${image_name}" \
-                      -f scripts/testnet-deployments/collector-backend.Dockerfile \
-                      .
+                      ./collector-backend
                     docker push "${image_name}"
                 '''
             }

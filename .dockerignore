@@ -1,3 +1,4 @@
+.*
 *.swo
 *.swp
 **/target
@@ -7,10 +8,7 @@ _rust_rocksdb*
 *rlib
 tags
 path
-.vscode
-concordium.test.key
 win_build
-scripts/local
-.git
 concordium-node/deps/*
 **/.stack-work/*
+**/*Dockerfile

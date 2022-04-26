@@ -43,7 +43,7 @@ pipeline {
                           --label genesis_path="${genesis_path}" \
                           -t "concordium/${image_name}:${image_tag}" \
                           -f scripts/distribution/builder.Dockerfile \
-                          --ssh default\
+                          --ssh default \
                           --no-cache \
                           .
                     '''.stripIndent()

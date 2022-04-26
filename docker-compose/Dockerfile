@@ -106,7 +106,7 @@ COPY --from=build /build/wallet-proxy/deps/concordium-client/deps/concordium-bas
 ENV CONCORDIUM_NODE_DATA_DIR=/var/lib/concordium/data
 ENV CONCORDIUM_NODE_CONFIG_DIR=/var/lib/concordium/config
 RUN mkdir -p "${CONCORDIUM_NODE_CONFIG_DIR}" "${CONCORDIUM_NODE_DATA_DIR}"
-    
+
 # Entrypoints for the various components.
 # No default entrypoint is defined because the image serves multiple purposes.
 COPY ./docker-compose/node-entrypoint.sh /node-entrypoint.sh
