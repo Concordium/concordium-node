@@ -5,6 +5,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
 -- FIXME: This is to suppress compiler warnings for derived instances of BlockStateOperations.
 -- This may be fixed in GHC 9.0.1.
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
@@ -323,6 +324,9 @@ data InstanceInfoTypeV (contractState :: Wasm.WasmVersion -> Type) (v :: Wasm.Wa
     iiBalance :: Amount
     }
 
+deriving instance Eq (contractState v) => Eq (InstanceInfoTypeV contractState v)
+deriving instance Show (contractState v) => Show (InstanceInfoTypeV contractState v)
+
 instance HasInstanceAddress (InstanceInfoTypeV contractState v) where
   {-# INLINE instanceAddress #-}
   instanceAddress = instanceAddress . iiParameters
@@ -335,6 +339,9 @@ instance HasInstanceAddress (InstanceInfoTypeV contractState v) where
 data InstanceInfoType (contractState :: Wasm.WasmVersion -> Type) =
   InstanceInfoV0 (InstanceInfoTypeV contractState GSWasm.V0)
   | InstanceInfoV1 (InstanceInfoTypeV contractState GSWasm.V1)
+
+deriving instance (Eq (contractState GSWasm.V0), Eq (contractState GSWasm.V1)) => Eq (InstanceInfoType contractState)
+deriving instance (Show (contractState GSWasm.V0), Show (contractState GSWasm.V1)) => Show (InstanceInfoType contractState)
 
 -- |An alias for the most common part of the instance information, parametrized
 -- by the context monad @m@.

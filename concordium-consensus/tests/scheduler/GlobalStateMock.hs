@@ -7,6 +7,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 module GlobalStateMock where
@@ -25,7 +26,6 @@ import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.CapitalDistribution
-import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Types
 import qualified Concordium.GlobalState.Wasm as GSWasm
 import qualified Concordium.ID.Types as ID
@@ -56,6 +56,8 @@ newtype MockUpdatableBlockState = MockUpdatableBlockState Integer
     deriving (Eq, Show)
 newtype MockAccount = MockAccount Integer
     deriving (Eq, Show)
+newtype MockContractState (v :: Wasm.WasmVersion) = MockContractState Integer
+    deriving (Eq, Show)
 newtype MockBakerInfoRef = MockBakerInfoRef Integer
     deriving (Eq, Show)
 
@@ -84,18 +86,24 @@ deriving instance Show (AccountOperationsAction pv a)
 
 generateAct ''AccountOperationsAction
 
+data ContractStateOperationsAction a where
+
+deriving instance Eq (ContractStateOperationsAction a)
+deriving instance Show (ContractStateOperationsAction a)
+
 data BlockStateQueryAction (pv :: ProtocolVersion) a where
     GetModule :: MockBlockState -> ModuleRef -> BlockStateQueryAction pv (Maybe Wasm.WasmModule)
     GetModuleInterface :: MockBlockState -> ModuleRef -> BlockStateQueryAction pv (Maybe GSWasm.ModuleInterface)
     GetAccount :: MockBlockState -> AccountAddress -> BlockStateQueryAction pv (Maybe (AccountIndex, MockAccount))
+    GetAccountByIndex :: MockBlockState -> AccountIndex -> BlockStateQueryAction pv (Maybe (AccountIndex, MockAccount))
     AccountExists :: MockBlockState -> AccountAddress -> BlockStateQueryAction pv Bool
     GetActiveBakers :: MockBlockState -> BlockStateQueryAction pv [BakerId]
     GetActiveBakersAndDelegators :: (AccountVersionFor pv ~ 'AccountV1) => MockBlockState -> BlockStateQueryAction pv ([ActiveBakerInfo' MockBakerInfoRef], [ActiveDelegatorInfo])
     GetAccountByCredId :: MockBlockState -> ID.CredentialRegistrationID -> BlockStateQueryAction pv (Maybe (AccountIndex, MockAccount))
-    GetContractInstance :: MockBlockState -> ContractAddress -> BlockStateQueryAction pv (Maybe Instance)
+    GetContractInstance :: MockBlockState -> ContractAddress -> BlockStateQueryAction pv (Maybe (InstanceInfoType MockContractState))
     GetModuleList :: MockBlockState -> BlockStateQueryAction pv [ModuleRef]
     GetAccountList :: MockBlockState -> BlockStateQueryAction pv [AccountAddress]
-    GetContractInstanceList :: MockBlockState -> BlockStateQueryAction pv [Instance]
+    GetContractInstanceList :: MockBlockState -> BlockStateQueryAction pv [ContractAddress]
     GetSeedState :: MockBlockState -> BlockStateQueryAction pv SeedState
     GetCurrentEpochBakers :: MockBlockState -> BlockStateQueryAction pv FullBakers
     GetNextEpochBakers :: MockBlockState -> BlockStateQueryAction pv FullBakers
@@ -134,7 +142,7 @@ data BlockStateOperationsAction pv a where
     BsoGetAccount :: MockUpdatableBlockState -> AccountAddress -> BlockStateOperationsAction pv (Maybe (AccountIndex, MockAccount))
     BsoGetAccountIndex :: MockUpdatableBlockState -> AccountAddress -> BlockStateOperationsAction pv (Maybe AccountIndex)
     BsoGetAccountByIndex :: MockUpdatableBlockState -> AccountIndex -> BlockStateOperationsAction pv (Maybe MockAccount)
-    BsoGetInstance :: MockUpdatableBlockState -> ContractAddress -> BlockStateOperationsAction pv (Maybe Instance)
+    BsoGetInstance :: MockUpdatableBlockState -> ContractAddress -> BlockStateOperationsAction pv (Maybe (InstanceInfoType MockContractState))
     BsoAddressWouldClash :: MockUpdatableBlockState -> ID.AccountAddress -> BlockStateOperationsAction pv Bool
     BsoRegIdExists :: MockUpdatableBlockState -> ID.CredentialRegistrationID -> BlockStateOperationsAction pv Bool
     BsoCreateAccount :: MockUpdatableBlockState -> GlobalContext -> AccountAddress -> ID.AccountCredential -> BlockStateOperationsAction pv (Maybe MockAccount, MockUpdatableBlockState)
@@ -143,7 +151,7 @@ data BlockStateOperationsAction pv a where
     BsoModifyAccount :: MockUpdatableBlockState -> AccountUpdate -> BlockStateOperationsAction pv MockUpdatableBlockState
     BsoSetAccountCredentialKeys :: MockUpdatableBlockState -> AccountIndex -> ID.CredentialIndex -> ID.CredentialPublicKeys -> BlockStateOperationsAction pv MockUpdatableBlockState
     BsoUpdateAccountCredentials :: MockUpdatableBlockState -> AccountIndex -> [ID.CredentialIndex] -> Map.Map ID.CredentialIndex ID.AccountCredential -> ID.AccountThreshold -> BlockStateOperationsAction pv MockUpdatableBlockState
-    BsoModifyInstance :: MockUpdatableBlockState -> ContractAddress -> AmountDelta -> Maybe Wasm.ContractState -> BlockStateOperationsAction pv MockUpdatableBlockState
+    -- BsoModifyInstance :: Wasm.IsWasmVersion v => MockUpdatableBlockState -> ContractAddress -> AmountDelta -> Maybe (UpdatableContractState v) -> BlockStateOperationsAction pv MockUpdatableBlockState
     BsoNotifyEncryptedBalanceChange :: MockUpdatableBlockState -> AmountDelta -> BlockStateOperationsAction pv MockUpdatableBlockState
     BsoGetSeedState :: MockUpdatableBlockState -> BlockStateOperationsAction pv SeedState
     BsoSetSeedState :: MockUpdatableBlockState -> SeedState -> BlockStateOperationsAction pv MockUpdatableBlockState
@@ -207,9 +215,9 @@ deriving instance Show (BlockStateOperationsAction pv a)
 
 generateAct ''BlockStateOperationsAction
 
-
 data Action pv a where
     AO :: AccountOperationsAction pv a -> Action pv a
+    CO :: ContractStateOperationsAction a -> Action pv a
     BSQ :: BlockStateQueryAction pv a -> Action pv a
     BSO :: BlockStateOperationsAction pv a -> Action pv a
 
@@ -266,12 +274,23 @@ instance BlockStateTypes (MockT (Action pv) m) where
     type BlockState (MockT (Action pv) m) = MockBlockState
     type UpdatableBlockState (MockT (Action pv) m) = MockUpdatableBlockState
     type Account (MockT (Action pv) m) = MockAccount
+    type ContractState (MockT (Action pv) m) = MockContractState
     type BakerInfoRef (MockT (Action pv) m) = MockBakerInfoRef
 
 mockOperations
     [d|instance (Monad m) => AccountOperations (MockT (Action pv) m)|]
     ''AccountOperationsAction
     [|mockAction . AO|]
+
+mockOperations
+    [d|instance (Monad m) => ContractStateOperations (MockT (Action pv) m) where
+         thawContractState = error "Unsupported operation."
+         getV1StateContext = error "Unsupported operation."
+         stateSizeV0 = error "Unsupported operation."
+         contractStateToByteString = error "Unsupported operation."
+         |]
+    ''ContractStateOperationsAction
+    [|mockAction . CO|]
 
 mockOperations
     [d|instance (Monad m) => BlockStateQuery (MockT (Action pv) m)|]
@@ -281,6 +300,7 @@ mockOperations
 mockOperations
     [d|instance (Monad m) => BlockStateOperations (MockT (Action pv) m) where
         bsoPutNewInstance = error "Unsupported operation"
+        bsoModifyInstance = error "Unsupported operation"
         bsoPutNewModule = error "Unsupported operation"
         bsoProcessPendingChanges = error "Unsupported operation"
         |]

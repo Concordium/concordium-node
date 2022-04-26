@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 {-| This module tests calling a contract which makes use of an iterator.
     The checks are being performed in the contract itself so if invoking the
     contract completes successfully then this implies that the tests have done so as well.
@@ -47,7 +48,7 @@ testCases :: [TestCase PV4]
 testCases =
   [ TestCase
     { tcName = "Iterator"
-    , tcParameters = defaultParams {tpInitialBlockState=initialBlockState}
+    , tcParameters = (defaultParams @PV4) {tpInitialBlockState=initialBlockState}
     , tcTransactions =
       [ ( TJSON { payload = DeployModule wasmModVersion iteratorSourceFile
                 , metadata = makeDummyHeader alesAccount 1 100000

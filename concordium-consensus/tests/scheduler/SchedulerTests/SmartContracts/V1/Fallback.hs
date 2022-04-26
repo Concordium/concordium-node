@@ -74,7 +74,7 @@ invokeContract1 ccContract bs = do
         ccEnergy = 1_000_000,
         ..
         }
-  InvokeContract.invokeContract Types.SP4 ctx cm bs
+  InvokeContract.invokeContract ctx cm bs
 
 -- |Invoke "two.do" via "one.do" and the fallback.
 invokeContract2 :: Types.ContractAddress -> HashedPersistentBlockState PV4 -> ContextM InvokeContract.InvokeContractResult
@@ -88,7 +88,7 @@ invokeContract2 ccContract bs = do
         ccEnergy = 1_000_000,
         ..
         }
-  InvokeContract.invokeContract Types.SP4 ctx cm bs
+  InvokeContract.invokeContract ctx cm bs
 
 runFallbackTests :: Assertion
 runFallbackTests = do

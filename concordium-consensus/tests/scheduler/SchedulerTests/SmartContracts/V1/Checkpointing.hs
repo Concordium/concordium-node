@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 {-| This file contains three test cases.
     The details are outlined in 'checkpointing.wat'
 
@@ -68,7 +69,7 @@ testCase1 :: TestCase PV4
 testCase1 =
   TestCase
     { tcName = "Checkpointing 1"
-    , tcParameters = defaultParams {tpInitialBlockState=initialBlockState}
+    , tcParameters = (defaultParams @PV4) {tpInitialBlockState=initialBlockState}
     , tcTransactions =
       [ ( TJSON { payload = DeployModule wasmModVersion1 checkpointingSourceFile
                 , metadata = makeDummyHeader alesAccount 1 100000
@@ -139,7 +140,7 @@ testCase2 :: TestCase PV4
 testCase2 =
   TestCase
     { tcName = "Checkpointing 2"
-    , tcParameters = defaultParams {tpInitialBlockState=initialBlockState}
+    , tcParameters = (defaultParams @PV4) {tpInitialBlockState=initialBlockState}
     , tcTransactions =
       [
         ( TJSON { payload = DeployModule wasmModVersion1 checkpointingSourceFile
@@ -210,7 +211,7 @@ testCase3 :: TestCase PV4
 testCase3 =
   TestCase
     { tcName = "Checkpointing 3"
-    , tcParameters = defaultParams {tpInitialBlockState=initialBlockState}
+    , tcParameters = (defaultParams @PV4) {tpInitialBlockState=initialBlockState}
     , tcTransactions =
       [
         ( TJSON { payload = DeployModule wasmModVersion1 checkpointingSourceFile
@@ -266,7 +267,7 @@ testCase4 :: TestCase PV4
 testCase4 =
   TestCase
     { tcName = "Checkpointing 4"
-    , tcParameters = defaultParams {tpInitialBlockState=initialBlockState}
+    , tcParameters = (defaultParams @PV4) {tpInitialBlockState=initialBlockState}
     , tcTransactions =
       [ ( TJSON { payload = DeployModule wasmModVersion1 checkpointingSourceFile
                 , metadata = makeDummyHeader alesAccount 1 100000
@@ -340,7 +341,7 @@ testCase5 :: TestCase PV4
 testCase5 =
   TestCase
     { tcName = "Cross Checkpointing 1"
-    , tcParameters = defaultParams {tpInitialBlockState=initialBlockState}
+    , tcParameters = (defaultParams @PV4) {tpInitialBlockState=initialBlockState}
     , tcTransactions =
       [ ( TJSON { payload = DeployModule wasmModVersion1 checkpointingSourceFile
                 , metadata = makeDummyHeader alesAccount 1 100000
@@ -438,7 +439,7 @@ testCase6 :: TestCase PV4
 testCase6 =
   TestCase
     { tcName = "Cross Checkpointing 2"
-    , tcParameters = defaultParams {tpInitialBlockState=initialBlockState}
+    , tcParameters = (defaultParams @PV4) {tpInitialBlockState=initialBlockState}
     , tcTransactions =
       [ ( TJSON { payload = DeployModule wasmModVersion1 checkpointingSourceFile
                 , metadata = makeDummyHeader alesAccount 1 100000

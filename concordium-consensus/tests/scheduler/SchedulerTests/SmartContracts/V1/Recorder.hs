@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE GADTs #-}
 {-| This module tests basic V1 state operations with the recorder contract.
 -}
@@ -50,7 +51,7 @@ testCases :: [TestCase PV4]
 testCases =
   [ TestCase
     { tcName = "Record data in a contract."
-    , tcParameters = defaultParams {tpInitialBlockState=initialBlockState}
+    , tcParameters = (defaultParams @PV4) {tpInitialBlockState=initialBlockState}
     , tcTransactions =
       [ ( TJSON { payload = DeployModule wasmModVersion recorderSourceFile
                 , metadata = makeDummyHeader alesAccount 1 100000
