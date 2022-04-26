@@ -53,6 +53,11 @@
     delegators to the baker's pool, with some commission being paid to the baker.
     Block rewards (i.e. transaction fee rewards), baking rewards and finalization rewards
     are accumulated over the reward period and paid out at the payday.
+- Implement V1 smart contracts with the following key features
+  - unlimited contract state size
+  - synchronous contract calls
+  - fallback entrypoints
+  - increased smart contract module size limit, 512kB
 
 ## concordium-node 3.0.1
 
