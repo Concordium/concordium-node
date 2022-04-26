@@ -5,5 +5,5 @@ FROM ubuntu:20.04
 RUN apt-get update && \
     apt-get install -y libpq-dev && \
     rm -rf /var/lib/apt/lists/*
-COPY --from=build /build/concordium-node/target/node-collector /node-collector
+COPY --from=build /build/concordium-node/target/release/node-collector /node-collector
 ENTRYPOINT ["/node-collector"]
