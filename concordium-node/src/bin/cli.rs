@@ -55,24 +55,6 @@ async fn main() -> anyhow::Result<()> {
     let stats_export_service = instantiate_stats_export_engine(&conf)?;
     let regenesis_arc: Arc<Regenesis> = Arc::new(Default::default());
 
-    // Setup task with signal handling.
-    let shutdown_signal = {
-        let (tx, rx) = oneshot::channel();
-        tokio::spawn(async move {
-            get_shutdown_signal().await.unwrap();
-            info!("Signal received attempting to shutdown node cleanly");
-            tx.send(()).unwrap();
-            loop {
-                get_shutdown_signal().await.unwrap();
-                info!(
-                    "Signal received to shutdown node cleanly, but an attempt to do so is already \
-                     in progress."
-                );
-            }
-        });
-        rx
-    };
-
     // The P2PNode thread
     let (node, server, poll) =
         instantiate_node(&conf, &mut app_prefs, stats_export_service, regenesis_arc.clone())
@@ -136,6 +118,9 @@ async fn main() -> anyhow::Result<()> {
         regenesis_arc,
     )?;
     info!("Consensus layer started");
+
+    // Setup task with signal handling.
+    let shutdown_signal = setup_shutdown_signal_handling(consensus.clone());
 
     // Start the RPC server with a channel for shutting it down.
     let (shutdown_rpc_sender, shutdown_rpc_signal) = oneshot::channel();
@@ -231,6 +216,27 @@ async fn main() -> anyhow::Result<()> {
     info!("P2PNode gracefully closed.");
 
     Ok(())
+}
+
+// Sets up shutdown signal handling.
+// Returns a receiver that can be used to get the shutdown signal.
+// It also signals the consensus to stop the block import if it is running.
+fn setup_shutdown_signal_handling(consensus: ConsensusContainer) -> oneshot::Receiver<()> {
+    let (tx, rx) = oneshot::channel();
+    tokio::spawn(async move {
+        get_shutdown_signal().await.unwrap();
+        info!("Signal received attempting to shutdown node cleanly");
+        consensus.stop_importing_blocks();
+        tx.send(()).unwrap();
+        loop {
+            get_shutdown_signal().await.unwrap();
+            info!(
+                "Signal received to shutdown node cleanly, but an attempt to do so is already \
+                    in progress."
+            );
+        }
+    });
+    rx
 }
 
 /// Construct a future for shutdown signals (for unix: SIGINT and SIGTERM) (for

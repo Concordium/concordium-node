@@ -660,6 +660,8 @@ stopBaker cptr = mask_ $ do
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 -- |    29 | ResultEnergyExceeded                        | The stated energy of the transaction exceeds the maximum allowed                              | No       |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
+-- |    30 | ResultImportInterrupted                     | The importing of the blocks has been interrupted.                                             | No       |
+-- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 
 type ReceiveResult = Int64
 
@@ -695,6 +697,7 @@ toReceiveResult ResultChainUpdateInvalidEffectiveTime = 26
 toReceiveResult ResultChainUpdateSequenceNumberTooOld = 27
 toReceiveResult ResultChainUpdateInvalidSignatures = 28
 toReceiveResult ResultEnergyExceeded = 29
+toReceiveResult ResultImportInterrupted = 30
 
 -- |Handle receipt of a block.
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,
@@ -830,7 +833,16 @@ importBlocks cptr fname fnameLen =
     toReceiveResult <$> do
         (ConsensusRunner mvr) <- deRefStablePtr cptr
         theFile <- peekCStringLen (fname, fromIntegral fnameLen)
-        runMVR (MV.importBlocks theFile) mvr
+        runMVR (MV.importBlocks theFile $ mvShouldStopImportingBlocks mvr) mvr
+
+-- |Stops importing blocks from a file.
+stopImportingBlocks ::
+    -- |Consensus runner
+    StablePtr ConsensusRunner ->
+    IO ()
+stopImportingBlocks cptr = mask_ $ do
+    ConsensusRunner mvr <- deRefStablePtr cptr
+    MV.stopImportingBlocks mvr
 
 -- * Queries
 
@@ -1398,3 +1410,4 @@ foreign export ccall checkIfRunning :: StablePtr ConsensusRunner -> IO Word8
 foreign export ccall freeCStr :: CString -> IO ()
 
 foreign export ccall importBlocks :: StablePtr ConsensusRunner -> CString -> Int64 -> IO Int64
+foreign export ccall stopImportingBlocks :: StablePtr ConsensusRunner -> IO ()

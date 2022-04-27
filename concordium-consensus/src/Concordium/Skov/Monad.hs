@@ -105,6 +105,8 @@ data UpdateResult
     -- ^The 'ChainUpdate' contained invalid signatures.
     | ResultEnergyExceeded
     -- ^The stated energy of the 'Transaction' exceeds the maximum allowed.
+    | ResultImportInterrupted
+    -- ^The importing of blocks has been interrupted
     deriving (Eq, Show)
 
 class (Monad m, Eq (BlockPointerType m), HashableTo BlockHash (BlockPointerType m), BlockPointerData (BlockPointerType m), BlockPointerMonad m, EncodeBlock (MPV m) (BlockPointerType m), BlockStateQuery m, MonadProtocolVersion m)
