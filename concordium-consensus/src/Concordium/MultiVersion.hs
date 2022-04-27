@@ -335,7 +335,7 @@ data MultiVersionRunner gsconf finconf = MultiVersionRunner
       -- |Global write lock.
       mvWriteLock :: !(MVar ()),
       -- |Flag to stop importing blocks.
-      mvShouldStopImportingBlocks :: !(MVar Bool),
+      mvShouldStopImportingBlocks :: !(IORef Bool),
       -- |State for buffering catch-up status message events.
       mvCatchUpStatusBuffer :: !(MVar CatchUpStatusBufferState),
       -- |Log method.
@@ -554,13 +554,12 @@ makeMultiVersionRunner
             return Baker{..}
         mvVersions <- newIORef Vec.empty
         mvWriteLock <- newEmptyMVar
-        mvShouldStopImportingBlocks <- newEmptyMVar
+        mvShouldStopImportingBlocks <- newIORef False
         mvCatchUpStatusBuffer <- newMVar BufferEmpty
         mvTransactionPurgingThread <- newEmptyMVar
         let mvr = MultiVersionRunner{..}
         runMVR (newGenesis genesis 0) mvr
         putMVar mvWriteLock ()
-        putMVar mvShouldStopImportingBlocks False
         startTransactionPurgingThread mvr
         return mvr
 
@@ -656,8 +655,7 @@ stopBaker MultiVersionRunner{mvBaker = Just Baker{..}, ..} = do
 -- |Set the flag to stop importing the blocks to `True`.
 stopImportingBlocks :: MultiVersionRunner gsconf finconf -> IO ()
 stopImportingBlocks MultiVersionRunner {..} = mask_ $ do
-    _ <- swapMVar mvShouldStopImportingBlocks True
-    return ()
+    writeIORef mvShouldStopImportingBlocks True
 
 shutdownMultiVersionRunner :: MultiVersionRunner gsconf finconf -> IO ()
 shutdownMultiVersionRunner MultiVersionRunner{..} = mask_ $ do
@@ -970,9 +968,12 @@ receiveTransaction transactionBS = do
                     liftSkovUpdate vc $ Skov.receiveTransaction transaction
 
 -- |Import a block file for out-of-band catch-up.
-importBlocks :: FilePath -> MVar Bool -> MVR gsconf finconf UpdateResult
-importBlocks importFile mvShouldStopImportingBlocks = do
+importBlocks :: FilePath -> MVR gsconf finconf UpdateResult
+importBlocks importFile = do
     vvec <- liftIO . readIORef =<< asks mvVersions
+    -- reset the stop flag to False, in case it was set to True
+    shouldStop <- asks mvShouldStopImportingBlocks
+    liftIO $ writeIORef shouldStop False
     case Vec.last vvec of
         EVersionedConfiguration vc -> do
             -- Import starting from the genesis index of the latest consensus
@@ -984,9 +985,9 @@ importBlocks importFile mvShouldStopImportingBlocks = do
   where
     doImport (ImportBlock _ gi bs) = do
         -- Check if the import should be stopped.
-        x <- liftIO $ readMVar mvShouldStopImportingBlocks
-        if x
-            then return $ Left (ImportOtherError ResultImportInterrupted)
+        shouldStop <- liftIO . readIORef =<< asks mvShouldStopImportingBlocks
+        if shouldStop
+            then return $ Left (ImportOtherError ResultImportStopped)
             else fixResult <$> receiveBlock gi bs
 
     doImport (ImportFinalizationRecord _ gi bs) = fixResult <$> receiveFinalizationRecord gi bs

@@ -62,5 +62,5 @@ main = do
                 }
 
     mvr <- makeMultiVersionRunner config callbacks Nothing logM genesisData
-    result <- runMVR (importBlocks blocks $ mvShouldStopImportingBlocks mvr) mvr
+    result <- runMVR (importBlocks blocks) mvr
     print result
