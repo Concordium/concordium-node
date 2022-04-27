@@ -18,7 +18,6 @@ import Concordium.Types.SeedState (initialSeedState)
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Persistent.BlockState
-import Concordium.GlobalState.Instance
 import Concordium.Wasm
 import qualified Concordium.Scheduler.WasmIntegration as WasmV0
 import qualified Concordium.Scheduler.WasmIntegration.V1 as WasmV1
@@ -94,15 +93,23 @@ initContractV1 senderAddress initName initParam initAmount bs (miv, _) = do
         icSenderPolicies = []
         }
   let initInterpreterEnergy = 1_000_000_000
-  case WasmV1.applyInitFun miv cm initContext initName initParam initAmount initInterpreterEnergy of
+  (cbk, _) <- getCallbacks
+  case WasmV1.applyInitFun cbk miv cm initContext initName initParam initAmount initInterpreterEnergy of
     Nothing -> -- out of energy
       liftIO $ assertFailure "Initialization ran out of energy."
     Just (Left failure, _) ->
       liftIO $ assertFailure $ "Initialization failed: " ++ show failure
     Just (Right WasmV1.InitSuccess{..}, _) -> do
       let receiveMethods = OrdMap.findWithDefault Set.empty initName (GSWasm.miExposedReceive miv)
-      let mkInstance = makeInstance initName receiveMethods miv irdNewState initAmount senderAddress
-      bsoPutNewInstance bs mkInstance
+      let ins = NewInstanceData{
+            nidInitName = initName,
+            nidEntrypoints = receiveMethods,
+            nidInterface = miv,
+            nidInitialState = irdNewState,
+            nidInitialAmount = initAmount,
+            nidOwner = senderAddress
+            }
+      bsoPutNewInstance bs ins
 
 -- |Initialize a contract from the supplied module in the given state, and return its address.
 -- The state is assumed to contain the module.
@@ -127,6 +134,13 @@ initContractV0 senderAddress initName initParam initAmount bs (miv, _) = do
       liftIO $ assertFailure $ "Initialization failed: " ++ show failure
     Just (Right SuccessfulResultData{..}, _) -> do
       let receiveMethods = OrdMap.findWithDefault Set.empty initName (GSWasm.miExposedReceive miv)
-      let mkInstance = makeInstance initName receiveMethods miv newState initAmount senderAddress
-      bsoPutNewInstance bs mkInstance
+      let ins = NewInstanceData{
+            nidInitName = initName,
+            nidEntrypoints = receiveMethods,
+            nidInterface = miv,
+            nidInitialState = newState,
+            nidInitialAmount = initAmount,
+            nidOwner = senderAddress
+            }
+      bsoPutNewInstance bs ins
 

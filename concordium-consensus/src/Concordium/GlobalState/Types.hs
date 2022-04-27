@@ -12,6 +12,7 @@ import Control.Monad.Trans.Reader
 import Data.Kind
 
 import Concordium.GlobalState.BlockPointer (BlockPointerData)
+import Concordium.Wasm (WasmVersion)
 import Concordium.GlobalState.Classes
 import Concordium.Types
 
@@ -23,7 +24,14 @@ class (IsProtocolVersion (MPV m)) => MonadProtocolVersion (m :: Type -> Type) wh
 class BlockStateTypes (m :: Type -> Type) where
     type BlockState m :: Type
     type UpdatableBlockState m :: Type
+    -- |The type of accounts supported by the block state.
     type Account m :: Type
+    -- |The type of contract state, parametrized both by the monad m, as well as
+    -- the contract version. The reason that the kind of @ContractState m@ is
+    -- @WasmVersion -> Type@ as opposed to parametrizing the type by both @m@
+    -- and @WasmVersion@ is that this way we can "partially apply"
+    -- @ContractState@, something that would otherwise not be possible.
+    type ContractState m :: WasmVersion -> Type
     -- |A reference type for 'BakerInfo'. This is used to avoid duplicating 'BakerInfo' in the
     -- state where possible.
     type BakerInfoRef m :: Type
@@ -52,6 +60,7 @@ instance BlockStateTypes (MGSTrans t m) where
     type BlockState (MGSTrans t m) = BlockState m
     type UpdatableBlockState (MGSTrans t m) = UpdatableBlockState m
     type Account (MGSTrans t m) = Account m
+    type ContractState (MGSTrans t m) = ContractState m
     type BakerInfoRef (MGSTrans t m) = BakerInfoRef m
 
 deriving via MGSTrans MaybeT m instance BlockStateTypes (MaybeT m)

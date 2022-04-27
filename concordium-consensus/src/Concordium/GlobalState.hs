@@ -134,6 +134,10 @@ deriving via PureBlockStateMonad pv m
              => AccountOperations (MemoryBlockStateM pv r g s m)
 
 deriving via PureBlockStateMonad pv m
+    instance Monad m
+             => ContractStateOperations (MemoryBlockStateM pv r g s m)
+
+deriving via PureBlockStateMonad pv m
     instance (Monad m,
               IsProtocolVersion pv,
               BlockStateQuery (MemoryBlockStateM pv r g s m))
@@ -153,6 +157,7 @@ deriving via PersistentBlockStateMonad pv
               PersistentBlockStateContext
               (FocusGlobalStateM PersistentBlockStateContext g m)
     instance (MonadIO m,
+              IsProtocolVersion pv,
               BlockStateQuery (PersistentBlockStateMonad pv
                                 PersistentBlockStateContext
                                 (FocusGlobalStateM PersistentBlockStateContext g m)))
@@ -166,6 +171,17 @@ deriving via PersistentBlockStateMonad pv
                                   PersistentBlockStateContext
                                   (FocusGlobalStateM PersistentBlockStateContext g m)))
              => AccountOperations (PersistentBlockStateM pv r g s m)
+
+deriving via PersistentBlockStateMonad pv
+              PersistentBlockStateContext
+              (FocusGlobalStateM PersistentBlockStateContext g m)
+    instance (MonadIO m,
+              IsProtocolVersion pv,
+              ContractStateOperations (PersistentBlockStateMonad pv
+                                        PersistentBlockStateContext
+                                        (FocusGlobalStateM PersistentBlockStateContext g m)))
+             => ContractStateOperations (PersistentBlockStateM pv r g s m)
+
 
 deriving via PersistentBlockStateMonad pv
               PersistentBlockStateContext
@@ -200,7 +216,7 @@ deriving via PersistentBlockStateMonad pv
 -- * If @s@ is 'SkovPersistentData pv ati bs', then the persistent Haskell tree state is used.
 newtype TreeStateM s m a = TreeStateM {runTreeStateM :: m a}
     deriving (Functor, Applicative, Monad, MonadState s, MonadIO, BlockStateTypes, BlockStateQuery,
-            AccountOperations, BlockStateOperations, BlockStateStorage)
+            AccountOperations, BlockStateOperations, BlockStateStorage, ContractStateOperations)
 
 deriving instance MonadProtocolVersion m => MonadProtocolVersion (TreeStateM s m)
 
@@ -286,6 +302,11 @@ deriving via BlockStateM pv c r g s m
     instance (Monad m,
               AccountOperations (BlockStateM pv c r g s m))
              => AccountOperations (GlobalStateM pv db c r g s m)
+
+deriving via BlockStateM pv c r g s m
+    instance (Monad m,
+              ContractStateOperations (BlockStateM pv c r g s m))
+             => ContractStateOperations (GlobalStateM pv db c r g s m)
 
 deriving via BlockStateM pv c r g s m
     instance (BlockStateQuery (GlobalStateM pv db c r g s m),
@@ -502,4 +523,4 @@ instance GlobalStateConfig DiskTreeDiskBlockWithLogConfig where
         closeBlobStore pbscBlobStore
         destroyAllResources (connectionPool transactionLogContext)
         closeSkovPersistentData st
---}
+

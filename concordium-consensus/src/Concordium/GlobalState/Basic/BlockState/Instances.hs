@@ -1,3 +1,6 @@
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE GADTs #-}
 module Concordium.GlobalState.Basic.BlockState.Instances(
     InstanceParameters(..),
     Instance(..),
@@ -7,7 +10,6 @@ module Concordium.GlobalState.Basic.BlockState.Instances(
     Instances,
     emptyInstances,
     getInstance,
-    updateInstance,
     updateInstanceAt,
     updateInstanceAt',
     createInstance,
@@ -39,17 +41,38 @@ getInstance :: ContractAddress -> Instances -> Maybe Instance
 getInstance addr (Instances iss) = iss ^? ix addr
 
 -- |Update the instance at the specified address with an amount delta and
--- potentially a new state. If new state is not provided the state of the
--- instance is not changed. If there is no instance with the given address, this
--- does nothing.
-updateInstanceAt :: ContractAddress -> AmountDelta -> Maybe Wasm.ContractState -> Instances -> Instances
-updateInstanceAt ca amt val (Instances iss) = Instances (iss & ix ca %~ updateInstance amt val)
+-- potentially new state. If new state is not provided the state of the instance
+-- is not changed. If there is no instance with the given address, this does
+-- nothing. If the instance at the given address has a different version than
+-- given this function raises an exception.
+updateInstanceAt :: forall v .Wasm.IsWasmVersion v => ContractAddress -> AmountDelta -> Maybe (InstanceStateV v) -> Instances -> Instances
+updateInstanceAt ca amt val (Instances iss) = Instances (iss & ix ca %~ updateOnlyV)
+    where
+        -- only update if the instance matches the state version. Otherwise raise an exception.
+        updateOnlyV = case Wasm.getWasmVersion @v of
+                          Wasm.SV0 -> \case
+                            InstanceV0 i -> InstanceV0 $ updateInstanceV amt val i
+                            InstanceV1 _ -> error "Expected a V0 instance, but got V1."
+                          Wasm.SV1 -> \case
+                            InstanceV0 _ -> error "Expected a V1 instance, but got V0"
+                            InstanceV1 i -> InstanceV1 $ updateInstanceV amt val i
 
 -- |Update the instance at the specified address with a __new amount__ and
--- potentially a new state. If new state is not provided the state of the instance is not changed. If
--- there is no instance with the given address, this does nothing.
-updateInstanceAt' :: ContractAddress -> Amount -> Maybe Wasm.ContractState -> Instances -> Instances
-updateInstanceAt' ca amt val (Instances iss) = Instances (iss & ix ca %~ updateInstance' amt val)
+-- potentially new state. If new state is not provided the state of the instance
+-- is not changed. If there is no instance with the given address, this does
+-- nothing. If the instance at the given address has a different version than
+-- given this function raises an exception.
+updateInstanceAt' :: forall v . Wasm.IsWasmVersion v => ContractAddress -> Amount -> Maybe (InstanceStateV v) -> Instances -> Instances
+updateInstanceAt' ca amt val (Instances iss) = Instances (iss & ix ca %~ updateOnlyV)
+    where
+        -- only update if the instance matches the state version. Otherwise raise an exception.
+        updateOnlyV = case Wasm.getWasmVersion @v of
+                          Wasm.SV0 -> \case
+                            InstanceV0 i -> InstanceV0 $ updateInstanceV' amt val i
+                            InstanceV1 _ -> error "Expected a V0 instance, but got V1."
+                          Wasm.SV1 -> \case
+                            InstanceV0 _ -> error "Expected a V1 instance, but got V0"
+                            InstanceV1 i -> InstanceV1 $ updateInstanceV' amt val i
 
 -- |Create a new smart contract instance.
 createInstance :: (ContractAddress -> Instance) -> Instances -> (Instance, Instances)

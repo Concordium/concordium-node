@@ -10,11 +10,6 @@
   (import "concordium" "write_output" (func $write_output (param $start i32) (param $length i32) (param $offset i32) (result i32)))
   (import "concordium" "get_receive_self_balance" (func $get_receive_self_balance (result i64)))
 
-  ;; state functions
-  (import "concordium" "load_state" (func $load_state (param $write_location i32) (param $length i32) (param $offset i32) (result i32)))
-  (import "concordium" "write_state" (func $write_state (param $read_location i32) (param $length i32) (param $offset i32) (result i32)))
-
-
    ;; just a an empty contract that only holds its balance.
   (func $init_transfer(export "init_transfer") (param i64) (result i32)
     ;; no state

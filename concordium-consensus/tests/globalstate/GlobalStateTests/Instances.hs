@@ -1,5 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module GlobalStateTests.Instances where
 
 import Data.Word
@@ -18,6 +21,7 @@ import qualified Concordium.Wasm as Wasm
 import qualified Concordium.Scheduler.WasmIntegration as WasmV0
 import qualified Concordium.Scheduler.WasmIntegration.V1 as WasmV1
 import qualified Concordium.GlobalState.Wasm as GSWasm
+import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.Basic.BlockState.InstanceTable
 import Concordium.GlobalState.Basic.BlockState.Instances
@@ -101,37 +105,53 @@ genReceiveNames = do
     return (i, Set.fromList receives)
   return $ Map.fromList ns
 
-genContractState :: Gen Wasm.ContractState
-genContractState = do
+genV0ContractState :: Gen Wasm.ContractState
+genV0ContractState = do
   n <- choose (1,1000)
   Wasm.ContractState . BS.pack <$> vector n
 
+-- This currently always generates the empty state.
+genV1ContractState :: Gen StateV1.InMemoryPersistentState
+genV1ContractState = do
+  seed <- arbitrary
+  len <- choose (0, 10)
+  return $ StateV1.generatePersistentTree seed len
+
 makeDummyInstance :: InstanceData -> Gen (ContractAddress -> Instance)
-makeDummyInstance (InstanceData model amount) = oneof [mkV0, mkV1]
-  where mkV0 = do
-          (_, mInterface@GSWasm.ModuleInterface{..}) <- elements validContractArtifactsV0
-          initName <- if Set.null miExposedInit then return (Wasm.InitName "init_") else elements (Set.toList miExposedInit)
-          let receiveNames = fromMaybe Set.empty $ Map.lookup initName miExposedReceive
-          return $ makeInstance initName receiveNames mInterface model amount owner
+makeDummyInstance (InstanceDataV0 model amount) = do
+  let owner = AccountAddress . FBS.pack . replicate 32 $ 0
+  (_, mInterface@GSWasm.ModuleInterface{..}) <- elements validContractArtifactsV0
+  initName <- if Set.null miExposedInit then return (Wasm.InitName "init_") else elements (Set.toList miExposedInit)
+  let receiveNames = fromMaybe Set.empty $ Map.lookup initName miExposedReceive
+  return $ makeInstance initName receiveNames mInterface model amount owner
+makeDummyInstance (InstanceDataV1 model amount) = do
+  let owner = AccountAddress . FBS.pack . replicate 32 $ 1
+  (_, mInterface@GSWasm.ModuleInterface{..}) <- elements validContractArtifactsV1
+  initName <- if Set.null miExposedInit then return (Wasm.InitName "init_") else elements (Set.toList miExposedInit)
+  let receiveNames = fromMaybe Set.empty $ Map.lookup initName miExposedReceive
+  return $ makeInstance initName receiveNames mInterface model amount owner
 
-        mkV1 = do
-          (_, mInterface@GSWasm.ModuleInterface{..}) <- elements validContractArtifactsV1
-          initName <- if Set.null miExposedInit then return (Wasm.InitName "init_") else elements (Set.toList miExposedInit)
-          let receiveNames = fromMaybe Set.empty $ Map.lookup initName miExposedReceive
-          return $ makeInstance initName receiveNames mInterface model amount owner
-        owner = AccountAddress . FBS.pack . replicate 32 $ 0
+data InstanceData =
+  InstanceDataV0 (InstanceStateV Wasm.V0) Amount
+  | InstanceDataV1 (InstanceStateV Wasm.V1) Amount
 
-data InstanceData = InstanceData Wasm.ContractState Amount
-    deriving (Eq, Show)
+instance Eq InstanceData where
+  (InstanceDataV0 (InstanceStateV0 v1) a1) == (InstanceDataV0 (InstanceStateV0 v2) a2) = v1 == v2 && a1 == a2
+  (InstanceDataV1 v1 a1) == (InstanceDataV1 v2 a2) = encode v1 == encode v2 && a1 == a2
+  _ == _ = False
+
+instance Show InstanceData where
+  show (InstanceDataV0 (InstanceStateV0 v) a) = "V0: " ++ show v ++ ", " ++ show a
+  show (InstanceDataV1 s a) = "V1: " ++ show (encode s) ++ ", " ++ show a
 
 instance Arbitrary InstanceData where
-    arbitrary = do
-        model <- genContractState
-        amount <- Amount <$> arbitrary
-        return $ InstanceData model amount
+  arbitrary = oneof [InstanceDataV0 <$> v0 <*> arbitrary, InstanceDataV1 <$> v1 <*> arbitrary]
+    where v0 = InstanceStateV0 <$> genV0ContractState
+          v1 = InstanceStateV1 <$> genV1ContractState
 
 instanceData :: Instance -> InstanceData
-instanceData inst = InstanceData (instanceModel inst) (instanceAmount inst)
+instanceData (InstanceV0 InstanceV{..}) = InstanceDataV0 _instanceVModel _instanceVAmount
+instanceData (InstanceV1 InstanceV{..}) = InstanceDataV1 _instanceVModel _instanceVAmount
 
 data Model = Model {
     -- Data of instances
@@ -151,11 +171,17 @@ modelGetInstanceData (ContractAddress ci csi) m = do
         guard $ csi == csi'
         return idata
 
-modelUpdateInstanceAt :: ContractAddress -> Amount -> Wasm.ContractState -> Model -> Model
+modelUpdateInstanceAt :: forall v . Wasm.IsWasmVersion v => ContractAddress -> Amount -> InstanceStateV v -> Model -> Model
 modelUpdateInstanceAt (ContractAddress ci csi) amt val m = m {modelInstances = Map.adjust upd ci (modelInstances m)}
     where
-        upd o@(csi', _)
-            | csi == csi' = (csi, InstanceData val amt)
+        upd o@(csi', ex)
+            | csi == csi' = case Wasm.getWasmVersion @v of
+                Wasm.SV0 -> case ex of
+                  InstanceDataV0 _ _ -> (csi, InstanceDataV0 val amt)
+                  _ -> error "Contract version mismatch."
+                Wasm.SV1 -> case ex of
+                  InstanceDataV1 _ _ -> (csi, InstanceDataV1 val amt)
+                  _ -> error "Contract version mismatch."
             | otherwise = o
 
 modelCreateInstance :: (ContractAddress -> Instance) -> Model -> (ContractAddress, Model)
@@ -275,21 +301,39 @@ testUpdates n0 = if n0 <= 0 then return (property True) else tu n0 emptyInstance
                 updateAbsent = do
                     ci <- ContractIndex <$> choose (fromIntegral $ modelBound model, maxBound)
                     csi <- ContractSubindex <$> arbitrary
-                    InstanceData v a <- arbitrary
-                    let
-                        ca = ContractAddress ci csi
-                        insts' = updateInstanceAt' ca a (Just v) insts
-                        model' = modelUpdateInstanceAt ca a v model
-                    tu (n-1) insts' model'
+                    arbitrary >>= \case
+                      InstanceDataV0 v a -> do
+                        let
+                            ca = ContractAddress ci csi
+                            insts' = updateInstanceAt' ca a (Just v) insts
+                            model' = modelUpdateInstanceAt ca a v model
+                        tu (n-1) insts' model'
+                      InstanceDataV1 v a -> do
+                        let
+                            ca = ContractAddress ci csi
+                            insts' = updateInstanceAt' ca a (Just v) insts
+                            model' = modelUpdateInstanceAt ca a v model
+                        tu (n-1) insts' model'
                 updateExisting = do
-                    (ci, (csi0, _)) <- arbitraryMapElement (modelInstances model)
+                    (ci, (csi0, curVer)) <- arbitraryMapElement (modelInstances model)
                     csi <- oneof [return csi0, ContractSubindex <$> arbitrary]
-                    InstanceData v a <- arbitrary
-                    let
-                        ca = ContractAddress ci csi
-                        insts' = updateInstanceAt' ca a (Just v) insts
-                        model' = modelUpdateInstanceAt ca a v model
-                    tu (n-1) insts' model'
+                    case curVer of
+                      InstanceDataV0 _ _ -> do
+                        v <- InstanceStateV0 <$> genV0ContractState
+                        a <- arbitrary
+                        let
+                            ca = ContractAddress ci csi
+                            insts' = updateInstanceAt' ca a (Just v) insts
+                            model' = modelUpdateInstanceAt ca a v model
+                        tu (n-1) insts' model'
+                      InstanceDataV1 _ _ -> do
+                        v <- InstanceStateV1 <$> genV1ContractState
+                        a <- arbitrary
+                        let
+                            ca = ContractAddress ci csi
+                            insts' = updateInstanceAt' ca a (Just v) insts
+                            model' = modelUpdateInstanceAt ca a v model
+                        tu (n-1) insts' model'
                 deleteExisting = do
                     (ci, (csi0, _)) <- arbitraryMapElement (modelInstances model)
                     csi <- oneof [return csi0, ContractSubindex <$> arbitrary]
@@ -301,12 +345,19 @@ testUpdates n0 = if n0 <= 0 then return (property True) else tu n0 emptyInstance
                 updateFree = do
                     (ci, csi0) <- arbitraryMapElement (modelFree model)
                     csi <- ContractSubindex <$> oneof [choose (0, fromIntegral csi0 - 1), choose (fromIntegral csi0, maxBound)]
-                    InstanceData v a <- arbitrary
-                    let
-                        ca = ContractAddress ci csi
-                        insts' = updateInstanceAt' ca a (Just v) insts
-                        model' = modelUpdateInstanceAt ca a v model
-                    tu (n-1) insts' model'
+                    arbitrary >>= \case
+                      InstanceDataV0 v a -> do
+                        let
+                            ca = ContractAddress ci csi
+                            insts' = updateInstanceAt' ca a (Just v) insts
+                            model' = modelUpdateInstanceAt ca a v model
+                        tu (n-1) insts' model'
+                      InstanceDataV1 v a -> do
+                        let
+                            ca = ContractAddress ci csi
+                            insts' = updateInstanceAt' ca a (Just v) insts
+                            model' = modelUpdateInstanceAt ca a v model
+                        tu (n-1) insts' model'
                 deleteFree = do
                     (ci, csi0) <- arbitraryMapElement (modelFree model)
                     csi <- oneof [return csi0, ContractSubindex <$> arbitrary]
@@ -349,5 +400,5 @@ tests lvl = describe "GlobalStateTests.Instances" $ do
     it "getInstance" $ withMaxSuccess (100 * fromIntegral lvl)
         $ forAllBlind (generateFromUpdates 5000) $ \(i,m) -> withMaxSuccess 100 $ testGetInstance i m
     it "foldInstances" $ withMaxSuccess 100 $ forAllBlind (generateFromUpdates 5000) $ uncurry testFoldInstances
-    it "50000 create/delete - check at end" $ withMaxSuccess 10 $ testCreateDelete 50000
+    it "10000 create/delete - check at end" $ withMaxSuccess 10 $ testCreateDelete 10000
     it "500 instance updates - check every step" $ withMaxSuccess (100 * fromIntegral lvl) $ testUpdates 500

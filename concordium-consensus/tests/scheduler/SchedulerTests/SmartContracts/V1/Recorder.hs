@@ -1,15 +1,16 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
-{-| This module tests making a transfer from a contract to an account.
+{-# LANGUAGE GADTs #-}
+{-| This module tests basic V1 state operations with the recorder contract.
 -}
-module SchedulerTests.SmartContracts.V1.Transfer (tests) where
+module SchedulerTests.SmartContracts.V1.Recorder (tests) where
 
 import Test.Hspec
 import Test.HUnit(assertFailure, assertEqual)
 
 import qualified Data.ByteString.Short as BSS
 import qualified Data.ByteString as BS
-import Data.Serialize(encode)
+import Data.Serialize(runPut, putWord64le)
 import Lens.Micro.Platform
 import Control.Monad
 
@@ -18,6 +19,7 @@ import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Scheduler.Runner
 import qualified Concordium.TransactionVerification as TVer
 
+import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
 import Concordium.GlobalState.Basic.BlockState.Instances
@@ -38,8 +40,8 @@ initialBlockState = blockStateWithAlesAccount
     100000000
     (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 100000000) Acc.emptyAccounts)
 
-transferSourceFile :: FilePath
-transferSourceFile = "./testdata/contracts/v1/transfer.wasm"
+recorderSourceFile :: FilePath
+recorderSourceFile = "./testdata/contracts/v1/record-parameters.wasm"
 
 -- Tests in this module use version 1, creating V1 instances.
 wasmModVersion :: WasmVersion
@@ -48,26 +50,33 @@ wasmModVersion = V1
 testCases :: [TestCase PV4]
 testCases =
   [ TestCase
-    { tcName = "Transfer from V1 contract to account."
+    { tcName = "Record data in a contract."
     , tcParameters = (defaultParams @PV4) {tpInitialBlockState=initialBlockState}
     , tcTransactions =
-      [ ( TJSON { payload = DeployModule wasmModVersion transferSourceFile
+      [ ( TJSON { payload = DeployModule wasmModVersion recorderSourceFile
                 , metadata = makeDummyHeader alesAccount 1 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
         , (SuccessWithSummary deploymentCostCheck, emptySpec)
         )
-      , ( TJSON { payload = InitContract 0 wasmModVersion transferSourceFile "init_transfer" ""
+      , ( TJSON { payload = InitContract 0 wasmModVersion recorderSourceFile "init_recorder" ""
                 , metadata = makeDummyHeader alesAccount 2 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
-        , (SuccessWithSummary initializationCostCheck, transferSpec)
+        , (SuccessWithSummary initializationCostCheck, recorderSpec 0)
         )
-      , ( TJSON { payload = Update 123 (Types.ContractAddress 0 0) "transfer.forward" (BSS.toShort (encode alesAccount))
+      , ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "recorder.record_u64" (BSS.toShort (runPut (putWord64le 20)))
                 , metadata = makeDummyHeader alesAccount 3 700000
                 , keys = [(0,[(0, alesKP)])]
                 }
-        , (SuccessWithSummary ensureSuccess , transferSpec)
+        , (SuccessWithSummary ensureSuccess , recorderSpec 20)
+        )
+        -- and then again
+      , ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "recorder.record_u64" (BSS.toShort (runPut (putWord64le 40)))
+                , metadata = makeDummyHeader alesAccount 4 700000
+                , keys = [(0,[(0, alesKP)])]
+                }
+        , (SuccessWithSummary ensureSuccess , recorderSpec 60)
         )
       ]
      }
@@ -77,7 +86,7 @@ testCases =
         deploymentCostCheck :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
         deploymentCostCheck _ Types.TransactionSummary{..} = do
           checkSuccess "Module deployment failed: " tsResult
-          moduleSource <- BS.readFile transferSourceFile
+          moduleSource <- BS.readFile recorderSourceFile
           let len = fromIntegral $ BS.length moduleSource
               -- size of the module deploy payload
               payloadSize = Types.payloadSize (Types.encodePayload (Types.DeployModule (WasmModuleV1 (WasmModuleV ModuleSource{..}))))
@@ -92,10 +101,10 @@ testCases =
         initializationCostCheck :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
         initializationCostCheck _ Types.TransactionSummary{..} = do
           checkSuccess "Contract initialization failed: " tsResult
-          moduleSource <- BS.readFile transferSourceFile
+          moduleSource <- BS.readFile recorderSourceFile
           let modLen = fromIntegral $ BS.length moduleSource
               modRef = Types.ModuleRef (Hash.hash moduleSource)
-              payloadSize = Types.payloadSize (Types.encodePayload (Types.InitContract 0 modRef (InitName "init_transfer") (Parameter "")))
+              payloadSize = Types.payloadSize (Types.encodePayload (Types.InitContract 0 modRef (InitName "init_recorder") (Parameter "")))
               -- size of the transaction minus the signatures.
               txSize = Types.transactionHeaderSize + fromIntegral payloadSize
               -- transaction is signed with 1 signature
@@ -113,13 +122,23 @@ testCases =
         checkSuccess msg Types.TxReject{..} = assertFailure $ msg ++ show vrRejectReason
         checkSuccess _ _ = return ()
 
-        -- Check that the contract has 0 CCD on its account.
-        transferSpec bs = specify "Contract state" $
+        recorderSpec n bs = specify "Contract state" $
           case getInstance (Types.ContractAddress 0 0) (bs ^. blockInstances) of
             Nothing -> assertFailure "Instance at <0,0> does not exist."
             Just istance -> do
-              assertEqual ("Contract has 0 CCD.") (Types.Amount 0) (instanceAmount istance)
+              case istance of
+                InstanceV0 _ -> assertFailure "Expected V1 instance since a V1 module is deployed, but V0 encountered."
+                InstanceV1 InstanceV{_instanceVModel=InstanceStateV1 s} -> do
+                  -- since we inserted 60 values we expect to find keys on all those indices
+                  forM_ [1..n] $ \idx ->
+                    StateV1.lookupKey s (runPut (putWord64le (idx-1))) >>= \case
+                      Nothing -> assertFailure $ "Failed to find key " ++ show (idx-1)
+                      Just _ -> return ()
+                  StateV1.lookupKey s (runPut (putWord64le n)) >>= \case
+                    Nothing -> return ()
+                    Just _ -> assertFailure $ "Found key " ++ show n ++ ", but did not expect to."
+              assertEqual "Contract has 0 CCD." (Types.Amount 0) (instanceAmount istance)
 
 tests :: Spec
-tests = describe "V1: Transfer from contract to account." $
+tests = describe "V1: Record 20 + 40 strings." $
   mkSpecs testCases

@@ -1,8 +1,11 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilyDependencies #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
 -- FIXME: This is to suppress compiler warnings for derived instances of BlockStateOperations.
 -- This may be fixed in GHC 9.0.1.
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
@@ -48,11 +51,13 @@ import Data.Functor
 import qualified Data.Vector as Vec
 import Data.Serialize(Serialize)
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 import qualified Data.Sequence as Seq
 import Data.Foldable (foldl')
 import qualified Data.ByteString as BS
 import Data.Word
 import System.IO (Handle)
+import Data.Kind (Type)
 
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types
@@ -83,6 +88,8 @@ import qualified Concordium.ID.Types as ID
 import Concordium.ID.Parameters(GlobalContext)
 import Concordium.ID.Types (AccountCredential, CredentialRegistrationID)
 import Concordium.Crypto.EncryptedTransfers
+import Concordium.GlobalState.ContractStateFFIHelpers (LoadCallback)
+import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 
 -- |Hash associated with birk parameters.
 newtype BirkParametersHash (pv :: ProtocolVersion) = BirkParametersHash {birkParamHash :: H.Hash}
@@ -253,10 +260,98 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
 -- The current bakers and delegators are updated from the next bakers and delegators at epoch
 -- ('P1'-'P3') or payday ('P4'-) boundaries.
 
+-- |A type family grouping mutable contract states, parametrized by the contract
+-- version. This is deliberately a __closed__ and __injective__ type family. The
+-- latter makes it convenient to use in arguments to functions since the
+-- version is determined from the state type. The former makes sense since there
+-- are only a fixed amount of contract versions supported at any given time.
+--
+-- As to the purpose of updatable contract state. Contract state (at least in V1
+-- contracts) exists in two quite different formats. The "persistent" one
+-- (persistent in the sense of persistent data structures) that is designed for
+-- efficient sharing and storage, and an "updatable" one which exists only
+-- during transaction execution. A persistent state is "thawed" to convert it to
+-- mutable state. This state is lazily constructed from the persistent one
+-- during contract execution, and supports efficient in-place updates to the
+-- state. At the end of contract execution the mutable state is "frozen", which
+-- converts it to the persistent version, retaining as much sharing as possible
+-- with the previous version.
+type family UpdatableContractState (v :: Wasm.WasmVersion) = ty | ty -> v where
+  UpdatableContractState GSWasm.V0 = Wasm.ContractState
+  UpdatableContractState GSWasm.V1 = StateV1.MutableState
+
+class (BlockStateTypes m, Monad m) => ContractStateOperations m where
+    -- |Convert a persistent state to a mutable one that can be updated by the
+    -- scheduler. This function must generate independent mutable states for
+    -- each invocation, where independent means that updates to different
+    -- versions are __not__ reflected in others.
+    thawContractState :: ContractState m v -> m (UpdatableContractState v)
+
+    -- |Get the callback to allow loading the contract state. Contracts are
+    -- executed on the other end of FFI, and state is managed by Haskell, this
+    -- gives access to state across the FFI boundary.
+    --
+    -- V0 state is a simple byte-array which is copied over the FFI boundary, so
+    -- it does not require an analogous construct.
+    getV1StateContext :: m LoadCallback
+
+    -- |Size of the persistent V0 state. The way charging is done for V0
+    -- contracts requires us to get this information when loading the state __at
+    -- a specific point in execution__. The specific point matters since
+    -- different failures of a transaction lead to different outcomes hashes.
+    -- Thus to retain semantics of V0 contracts we need to look up contract
+    -- state size for the "persistent" contract state.
+    stateSizeV0 :: ContractState m GSWasm.V0 -> m Wasm.ByteSize
+
+    -- |Convert the entire contract state to a byte array. This should generally
+    -- only be used for testing.
+    contractStateToByteString :: ContractState m v -> m BS.ByteString
+
+-- |Information about an instance returned by block state queries. The type
+-- parameter @contractState@ determines the concrete representation of the
+-- contract state, and @v@ determines the instance version. The fields of this
+-- record are not strict because this is just an intermediate type that is
+-- quickly deconstructed. The @contractState@ parameter is given in this way, as
+-- opposed to passing m directly, so that type unification sees that if
+-- @ContractState m ~ ContractState n@ then @InstanceInfo m v ~ InstanceInfo n
+-- v@
+data InstanceInfoTypeV (contractState :: Wasm.WasmVersion -> Type) (v :: Wasm.WasmVersion) = InstanceInfoV {
+    -- |Immutable parameters that do not change after the instance is created.
+    iiParameters :: InstanceParameters v,
+    -- |The state that will be modified during execution.
+    iiState :: contractState v,
+    -- |The current balance of the contract.
+    iiBalance :: Amount
+    }
+
+deriving instance Eq (contractState v) => Eq (InstanceInfoTypeV contractState v)
+deriving instance Show (contractState v) => Show (InstanceInfoTypeV contractState v)
+
+instance HasInstanceAddress (InstanceInfoTypeV contractState v) where
+  {-# INLINE instanceAddress #-}
+  instanceAddress = instanceAddress . iiParameters
+
+-- |Information about either V0 or V1 instance. The type parameter defines the
+-- concrete representation of the contract state. The @contractState@ parameter
+-- is given in this way, as opposed to passing m directly and using
+-- @ContractState m@, so that type unification sees that if @ContractState m ~
+-- ContractState n@ then @InstanceInfo m v ~ InstanceInfo n v@
+data InstanceInfoType (contractState :: Wasm.WasmVersion -> Type) =
+  InstanceInfoV0 (InstanceInfoTypeV contractState GSWasm.V0)
+  | InstanceInfoV1 (InstanceInfoTypeV contractState GSWasm.V1)
+
+deriving instance (Eq (contractState GSWasm.V0), Eq (contractState GSWasm.V1)) => Eq (InstanceInfoType contractState)
+deriving instance (Show (contractState GSWasm.V0), Show (contractState GSWasm.V1)) => Show (InstanceInfoType contractState)
+
+-- |An alias for the most common part of the instance information, parametrized
+-- by the context monad @m@.
+type InstanceInfoV m = InstanceInfoTypeV (ContractState m)
+type InstanceInfo m = InstanceInfoType (ContractState m)
+
 -- |The block query methods can query block state. They are needed by
 -- consensus itself to compute stake, get a list of and information about
 -- bakers, finalization committee, etc.
-class AccountOperations m => BlockStateQuery m where
+class (ContractStateOperations m, AccountOperations m) => BlockStateQuery m where
     -- |Get the module source from the module table as deployed to the chain.
     getModule :: BlockState m -> ModuleRef -> m (Maybe Wasm.WasmModule)
 
@@ -283,7 +378,7 @@ class AccountOperations m => BlockStateQuery m where
     getAccountByIndex :: BlockState m -> AccountIndex -> m (Maybe (AccountIndex, Account m))
 
     -- |Get the contract state from the contract table of the state instance.
-    getContractInstance :: BlockState m -> ContractAddress -> m (Maybe Instance)
+    getContractInstance :: BlockState m -> ContractAddress -> m (Maybe (InstanceInfo m))
 
     -- |Get the list of addresses of modules existing in the given block state.
     getModuleList :: BlockState m -> m [ModuleRef]
@@ -291,7 +386,8 @@ class AccountOperations m => BlockStateQuery m where
     -- This returns the canonical addresses.
     getAccountList :: BlockState m -> m [AccountAddress]
     -- |Get the list of contract instances existing in the given block state.
-    getContractInstanceList :: BlockState m -> m [Instance]
+    -- The list should be returned in ascending order of addresses.
+    getContractInstanceList :: BlockState m -> m [ContractAddress]
 
     -- |Get the seed state, from which the leadership election nonce
     -- is derived.
@@ -405,6 +501,29 @@ instance Monoid MintAmounts where
 mintTotal :: MintAmounts -> Amount
 mintTotal MintAmounts{..} = mintBakingReward + mintFinalizationReward + mintDevelopmentCharge
 
+
+-- |Data needed by blockstate to create a new instance. This contains all data
+-- except the instance address and the derived instance hashes. The address is
+-- determined when the instance is inserted in the instance table. The hashes
+-- are computed on insertion.
+--
+-- The fields of this type are deliberately not strict since this is just an intermediate type
+-- to simplify function API. Thus values are immediately deconstructed.
+data NewInstanceData v = NewInstanceData {
+  -- |Name of the init method used to initialize the contract.
+  nidInitName :: Wasm.InitName,
+  -- |Receive functions suitable for this instance.
+  nidEntrypoints :: Set.Set Wasm.ReceiveName,
+  -- |Module interface that contains the code of the contract.
+  nidInterface :: GSWasm.ModuleInterfaceV v,
+  -- |Initial state of the instance.
+  nidInitialState :: UpdatableContractState v,
+  -- |Initial balance.
+  nidInitialAmount :: Amount,
+  -- |Owner/creator of the instance.
+  nidOwner :: AccountAddress
+  }
+
 -- |Information about a delegator.
 data ActiveDelegatorInfo = ActiveDelegatorInfo {
     -- |ID of the delegator.
@@ -446,7 +565,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- | Get account by the index.
   bsoGetAccountByIndex :: UpdatableBlockState m -> AccountIndex -> m (Maybe (Account m))
   -- |Get the contract state from the contract table of the state instance.
-  bsoGetInstance :: UpdatableBlockState m -> ContractAddress -> m (Maybe Instance)
+  bsoGetInstance :: UpdatableBlockState m -> ContractAddress -> m (Maybe (InstanceInfo m))
 
   -- |Check whether the given account address would clash with any existing address.
   bsoAddressWouldClash :: UpdatableBlockState m -> ID.AccountAddress -> m Bool
@@ -462,7 +581,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   bsoCreateAccount :: UpdatableBlockState m -> GlobalContext -> AccountAddress -> AccountCredential -> m (Maybe (Account m), UpdatableBlockState m)
 
   -- |Add a new smart contract instance to the state.
-  bsoPutNewInstance :: UpdatableBlockState m -> (ContractAddress -> Instance) -> m (ContractAddress, UpdatableBlockState m)
+  bsoPutNewInstance :: forall v . Wasm.IsWasmVersion v => UpdatableBlockState m -> NewInstanceData v -> m (ContractAddress, UpdatableBlockState m)
   -- |Add the module to the global state. If a module with the given address
   -- already exists return @False@.
   bsoPutNewModule :: Wasm.IsWasmVersion v => UpdatableBlockState m -> (GSWasm.ModuleInterfaceV v, Wasm.WasmModuleV v) -> m (Bool, UpdatableBlockState m)
@@ -512,13 +631,15 @@ class (BlockStateQuery m) => BlockStateOperations m where
     -> m (UpdatableBlockState m)
 
   -- |Replace the instance with given change in owned amount, and potentially
-  -- new state. The rest of the instance data (instance parameters) stays the
-  -- same. This method is only called when it is known the instance exists, and
-  -- can thus assume it.
-  bsoModifyInstance :: UpdatableBlockState m
+  -- new state. The rest of the instance data
+  -- (instance parameters) stays the same. This method is only called when it is
+  -- known the instance exists, and is of the version specified by the type
+  -- parameter v. These preconditions can thus be assumed by any implementor.
+  bsoModifyInstance :: forall v. Wasm.IsWasmVersion v =>
+                      UpdatableBlockState m
                     -> ContractAddress
                     -> AmountDelta
-                    -> Maybe Wasm.ContractState
+                    -> Maybe (UpdatableContractState v)
                     -> m (UpdatableBlockState m)
 
   -- |Notify that some amount was transferred from/to encrypted balance of some account.
@@ -1067,6 +1188,9 @@ class (BlockStateOperations m, Serialize (BlockStateRef m)) => BlockStateStorage
     -- This serialization does not include transaction outcomes.
     writeBlockState :: Handle -> BlockState m -> m ()
 
+    -- |Retrieve the callback that is needed to read state that is not in
+    -- memory. This is needed for using V1 contract state.
+    blockStateLoadCallback :: m LoadCallback
 
 instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGSTrans t m) where
   getModule s = lift . getModule s
@@ -1168,6 +1292,16 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
   {-# INLINE getAccountStake #-}
   {-# INLINE getAccountBakerInfoRef #-}
   {-# INLINE derefBakerInfo #-}
+
+instance (Monad (t m), MonadTrans t, ContractStateOperations m) => ContractStateOperations (MGSTrans t m) where
+  thawContractState = lift . thawContractState
+  {-# INLINE thawContractState #-}
+  stateSizeV0 = lift . stateSizeV0
+  {-# INLINE stateSizeV0 #-}
+  getV1StateContext = lift getV1StateContext
+  {-# INLINE contractStateToByteString #-}
+  contractStateToByteString = lift . contractStateToByteString
+  {-# INLINE getV1StateContext #-}
 
 instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperations (MGSTrans t m) where
   bsoGetModule s = lift . bsoGetModule s
@@ -1302,6 +1436,7 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
     cacheBlockState = lift . cacheBlockState
     serializeBlockState = lift . serializeBlockState
     writeBlockState fh bs = lift $ writeBlockState fh bs
+    blockStateLoadCallback = lift blockStateLoadCallback
     {-# INLINE thawBlockState #-}
     {-# INLINE freezeBlockState #-}
     {-# INLINE dropUpdatableBlockState #-}
@@ -1312,14 +1447,17 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
     {-# INLINE cacheBlockState #-}
     {-# INLINE serializeBlockState #-}
     {-# INLINE writeBlockState #-}
+    {-# INLINE blockStateLoadCallback #-}
 
 deriving via (MGSTrans MaybeT m) instance BlockStateQuery m => BlockStateQuery (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance AccountOperations m => AccountOperations (MaybeT m)
+deriving via (MGSTrans MaybeT m) instance ContractStateOperations m => ContractStateOperations (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance BlockStateOperations m => BlockStateOperations (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance BlockStateStorage m => BlockStateStorage (MaybeT m)
 
 deriving via (MGSTrans (ExceptT e) m) instance BlockStateQuery m => BlockStateQuery (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance AccountOperations m => AccountOperations (ExceptT e m)
+deriving via (MGSTrans (ExceptT e) m) instance ContractStateOperations m => ContractStateOperations (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance BlockStateOperations m => BlockStateOperations (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance BlockStateStorage m => BlockStateStorage (ExceptT e m)
 

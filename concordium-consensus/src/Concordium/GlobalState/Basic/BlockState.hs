@@ -2,6 +2,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
@@ -44,13 +45,16 @@ import qualified Concordium.GlobalState.Types as GT
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.AccountTransactionIndex
+import Concordium.GlobalState.ContractStateFFIHelpers
 import Concordium.GlobalState.Basic.BlockState.Bakers
 import qualified Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.Basic.BlockState.Account
+import qualified Concordium.Wasm as Wasm
 import qualified Concordium.GlobalState.Wasm as GSWasm
 import qualified Concordium.GlobalState.Basic.BlockState.Accounts as Accounts
 import qualified Concordium.GlobalState.Basic.BlockState.Modules as Modules
 import qualified Concordium.GlobalState.Basic.BlockState.Instances as Instances
+import qualified Concordium.GlobalState.Instance as Instance
 import qualified Concordium.GlobalState.Basic.BlockState.PoolRewards as PoolRewards
 import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as LFMBT
 import Concordium.GlobalState.CapitalDistribution
@@ -72,6 +76,8 @@ import Concordium.Kontrol.Bakers
 import Concordium.Utils
 import Concordium.Utils.BinarySearch
 import Concordium.Utils.Serialization
+import Concordium.GlobalState.BlockState (InstanceInfoTypeV(iiParameters), UpdatableContractState)
+import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 
 data BasicBirkParameters (av :: AccountVersion) = BasicBirkParameters {
     -- |The active (i.e. currently-registered) bakers.
@@ -223,6 +229,13 @@ getHashedEpochBlocksV0 = do
     numBlocks <- getLength
     blocks <- replicateM numBlocks get
     return $! foldr' consEpochBlock emptyHashedEpochBlocks blocks
+
+-- |Freeze the contract state and compute its hash.
+freeze :: forall v . Wasm.IsWasmVersion v => UpdatableContractState v -> (H.Hash, Instance.InstanceStateV v)
+freeze cs = case Wasm.getWasmVersion @v of
+  Wasm.SV0 -> (getHash cs, Instance.InstanceStateV0 cs)
+  Wasm.SV1 -> let (hsh, persistent) = StateV1.freezeInMemoryPersistent cs
+             in (hsh, Instance.InstanceStateV1 persistent)
 
 data BlockRewardDetails (av :: AccountVersion) where
     BlockRewardDetailsV0 :: !HashedEpochBlocks -> BlockRewardDetails 'AccountV0
@@ -556,12 +569,24 @@ instance GT.BlockStateTypes (PureBlockStateMonad pv m) where
     type UpdatableBlockState (PureBlockStateMonad pv m) = BlockState pv
     type Account (PureBlockStateMonad pv m) = Account (AccountVersionFor pv)
     type BakerInfoRef (PureBlockStateMonad pv m) = BakerInfoEx (AccountVersionFor pv)
+    type ContractState (PureBlockStateMonad pv m) = Instance.InstanceStateV
 
 instance ATITypes (PureBlockStateMonad pv m) where
   type ATIStorage (PureBlockStateMonad pv m) = ()
 
 instance Monad m => PerAccountDBOperations (PureBlockStateMonad pv m)
   -- default implementation
+
+-- |Retrieve instance information from a basic instance.
+mkInstanceInfo :: Instance.Instance -> BS.InstanceInfoType Instance.InstanceStateV
+mkInstanceInfo = \case (Instance.InstanceV0 inst) -> BS.InstanceInfoV0 (mkInstanceInfoV inst)
+                       (Instance.InstanceV1 inst) -> BS.InstanceInfoV1 (mkInstanceInfoV inst)
+    where mkInstanceInfoV :: Instance.InstanceV v -> BS.InstanceInfoTypeV Instance.InstanceStateV v
+          mkInstanceInfoV Instance.InstanceV{..} = BS.InstanceInfoV{
+            iiParameters = _instanceVParameters,
+            iiState = _instanceVModel,
+            iiBalance = _instanceVAmount
+            }
 
 doGetIndexedAccount ::
     (Monad m, HasBlockState s pv, IsProtocolVersion pv) =>
@@ -600,7 +625,8 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
         return $ bs ^. blockModules . to (Modules.getInterface mref)
 
     {-# INLINE getContractInstance #-}
-    getContractInstance bs caddr = return (Instances.getInstance caddr (bs ^. blockInstances))
+    getContractInstance bs caddr =
+      return $ mkInstanceInfo <$> Instances.getInstance caddr (bs ^. blockInstances) 
 
     {-# INLINE getAccount #-}
     getAccount = doGetIndexedAccount
@@ -631,7 +657,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
     getModuleList bs = return $ bs ^. blockModules . to Modules.moduleRefList
 
     {-# INLINE getContractInstanceList #-}
-    getContractInstanceList bs = return (bs ^.. blockInstances . Instances.foldInstances)
+    getContractInstanceList bs = return (map Instance.instanceAddress (bs ^.. blockInstances . Instances.foldInstances))
 
     {-# INLINE getAccountList #-}
     getAccountList bs =
@@ -902,13 +928,25 @@ redelegatePassive (DelegatorId accId) =
                 _ -> error "Invariant violation: active delegator is not a delegation account"
             )
 
+instance Monad m => BS.ContractStateOperations (PureBlockStateMonad pv m) where
+  thawContractState (Instance.InstanceStateV0 st) = return st
+  thawContractState (Instance.InstanceStateV1 st) = return (StateV1.thawInMemoryPersistent st)
+  stateSizeV0 (Instance.InstanceStateV0 cs) = return (Wasm.contractStateSize cs)
+  getV1StateContext = return errorLoadCallback
+  contractStateToByteString (Instance.InstanceStateV0 st) = return (Wasm.contractState st)
+  contractStateToByteString (Instance.InstanceStateV1 st) = return (encode st)
+  {-# INLINE thawContractState #-}
+  {-# INLINE stateSizeV0 #-}
+  {-# INLINE getV1StateContext #-}
+  {-# INLINE contractStateToByteString #-}
+
 instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockStateMonad pv m) where
 
     {-# INLINE bsoGetModule #-}
     bsoGetModule bs mref = return $ bs ^. blockModules . to (Modules.getInterface mref)
 
     {-# INLINE bsoGetInstance #-}
-    bsoGetInstance bs caddr = return (Instances.getInstance caddr (bs ^. blockInstances))
+    bsoGetInstance bs caddr = return (mkInstanceInfo <$> Instances.getInstance caddr (bs ^. blockInstances))
 
     {-# INLINE bsoGetAccount #-}
     bsoGetAccount = doGetIndexedAccount
@@ -937,8 +975,39 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             accounts = bs ^. blockAccounts
             newAccounts = Accounts.putAccountWithRegIds acct accounts
 
-    bsoPutNewInstance bs mkInstance = return (Instances.instanceAddress inst, bs')
+    bsoPutNewInstance :: forall v . Wasm.IsWasmVersion v
+                      => BlockState pv
+                      -> BS.NewInstanceData v
+                      -> PureBlockStateMonad pv m (ContractAddress, BlockState pv)
+    bsoPutNewInstance bs BS.NewInstanceData{..} = return (Instances.instanceAddress inst, bs')
         where
+            mkParams addr = Instance.InstanceParameters {
+              _instanceAddress = addr,
+              instanceOwner = nidOwner,
+              instanceInitName = nidInitName,
+              instanceReceiveFuns = nidEntrypoints,
+              instanceModuleInterface = nidInterface,
+              instanceParameterHash = Instance.makeInstanceParameterHash addr nidOwner (GSWasm.miModuleRef nidInterface) nidInitName 
+              }
+            mkInstance addr = case Wasm.getWasmVersion @v of
+                Wasm.SV0 ->
+                  let params = mkParams addr
+                      (_, state) = freeze nidInitialState
+                  in Instance.InstanceV0 Instance.InstanceV{
+                    _instanceVParameters = params,
+                    _instanceVModel = state,
+                    _instanceVAmount = nidInitialAmount,
+                    _instanceVHash = Instance.makeInstanceHashV0 params state nidInitialAmount
+                    }
+                Wasm.SV1 ->
+                  let params = mkParams addr
+                      (_, state) = freeze nidInitialState
+                  in Instance.InstanceV1 Instance.InstanceV{
+                    _instanceVParameters = params,
+                    _instanceVModel = state,
+                    _instanceVAmount = nidInitialAmount,
+                    _instanceVHash = Instance.makeInstanceHashV1 params state nidInitialAmount
+                    }
             (inst, instances') = Instances.createInstance mkInstance (bs ^. blockInstances)
             bs' = bs
                 -- Add the instance
@@ -950,7 +1019,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
           Just mods' -> (True, bs & blockModules .~ mods')
 
     bsoModifyInstance bs caddr delta model = return $!
-        bs & blockInstances %~ Instances.updateInstanceAt caddr delta model
+        bs & blockInstances %~ Instances.updateInstanceAt caddr delta (snd . freeze <$> model)
 
     bsoModifyAccount bs accountUpdates = return $!
         -- Update the account
@@ -1761,6 +1830,9 @@ instance (IsProtocolVersion pv, MonadIO m) => BS.BlockStateStorage (PureBlockSta
 
     {-# INLINE writeBlockState #-}
     writeBlockState h = PureBlockStateMonad . liftIO . hPutBuilder h . snd . runPutMBuilder . putBlockState . _unhashedBlockState
+
+    {-# INLINE blockStateLoadCallback #-}
+    blockStateLoadCallback = return errorLoadCallback -- basic block state is not written, so it never has to be loaded.
 
 -- |Initial block state.
 initialState :: forall pv

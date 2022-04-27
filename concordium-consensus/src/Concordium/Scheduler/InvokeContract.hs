@@ -31,8 +31,8 @@ import Control.Monad.Reader
 import qualified Data.FixedByteString as FBS
 import qualified Concordium.ID.Types as ID
 import Concordium.Logger
+import qualified Concordium.Wasm as Wasm
 import Concordium.GlobalState.Types
-import qualified Concordium.GlobalState.Instance as Instance
 import qualified Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.TreeState (MGSTrans(..))
 import Concordium.Types.InvokeContract (ContractContext(..), InvokeContractResult(..))
@@ -69,6 +69,7 @@ instance MonadTrans InvokeContractMonad where
 deriving via (MGSTrans InvokeContractMonad m) instance MonadProtocolVersion m => MonadProtocolVersion (InvokeContractMonad m)
 deriving via (MGSTrans InvokeContractMonad m) instance BlockStateTypes (InvokeContractMonad m)
 deriving via (MGSTrans InvokeContractMonad m) instance BS.AccountOperations m => BS.AccountOperations (InvokeContractMonad m)
+deriving via (MGSTrans InvokeContractMonad m) instance BS.ContractStateOperations m => BS.ContractStateOperations (InvokeContractMonad m)
 
 instance (Monad m, BS.BlockStateQuery m) => StaticInformation (InvokeContractMonad m) where
 
@@ -106,7 +107,7 @@ invokeContract ContractContext{..} cm bs = do
                    (Either
                      (Maybe RejectReason) -- Invocation failed because the relevant contract/account does not exist.
                      ( -- Check that the requested account or contract has enough balance.
-                       Amount -> LocalT r (InvokeContractMonad m) (Address, [ID.AccountCredential], Either ContractAddress IndexedAccountAddress),
+                       Amount -> LocalT r (InvokeContractMonad m) (Address, [ID.AccountCredential], Either (Wasm.WasmVersion, ContractAddress) IndexedAccountAddress),
                        AccountAddress, -- Address of the invoker account, or of its owner if the invoker is a contract.
                        AccountIndex -- And its index.
                      ))
@@ -122,27 +123,34 @@ invokeContract ContractContext{..} cm bs = do
             Just acc -> return (Right (checkAndGetBalanceAccountV0 accInvoker acc, accInvoker, fst acc))
           Just (AddressContract contractInvoker) -> getContractInstance contractInvoker >>= \case
             Nothing -> return (Left (Just (InvalidContractAddress contractInvoker)))
-            Just (Instance.InstanceV0 i@Instance.InstanceV{..}) -> do
-              let ownerAccountAddress = instanceOwner _instanceVParameters
+            Just (BS.InstanceInfoV0 i) -> do
+              let ownerAccountAddress = instanceOwner (BS.iiParameters i)
               getStateAccount ownerAccountAddress >>= \case
                 -- the first case should really never happen, since a valid instance should always have a valid account.
                 Nothing -> return (Left (Just $ InvalidAccountReference ownerAccountAddress))
-                Just acc -> return (Right (checkAndGetBalanceInstanceV0 acc i, ownerAccountAddress, fst acc))
-            Just (Instance.InstanceV1 i@Instance.InstanceV{..}) -> do
-              let ownerAccountAddress = instanceOwner _instanceVParameters
+                Just acc -> return (Right (checkAndGetBalanceInstanceV0 acc i {BS.iiState = Frozen (BS.iiState i)}, ownerAccountAddress, fst acc))
+            Just (BS.InstanceInfoV1 i) -> do
+              let ownerAccountAddress = instanceOwner (BS.iiParameters i)
               getStateAccount ownerAccountAddress >>= \case
                 -- the first case should really never happen, since a valid instance should always have a valid account.
                 Nothing -> return (Left (Just $ InvalidAccountReference ownerAccountAddress))
-                Just acc -> return (Right (checkAndGetBalanceInstanceV0 acc i, ownerAccountAddress, fst acc))
+                Just acc -> return (Right (checkAndGetBalanceInstanceV0 acc i {BS.iiState = Frozen (BS.iiState i)}, ownerAccountAddress, fst acc))
   let runContractComp = 
         getInvoker >>= \case
           Left err -> return (Left err, ccEnergy)
           Right (invoker, addr, ai) -> do
             let comp = do
-                  istance <- getContractInstance ccContract `rejectingWith` InvalidContractAddress ccContract
-                  case istance of
-                    InstanceV0 i -> Left <$> handleContractUpdateV0 addr i invoker ccAmount ccMethod ccParameter
-                    InstanceV1 i -> Right <$> handleContractUpdateV1 addr i (fmap Right . invoker) ccAmount ccMethod ccParameter
+                  let onV0 i = handleContractUpdateV0 addr i invoker ccAmount ccMethod ccParameter
+                  let onV1 i = handleContractUpdateV1 addr i (fmap Right . invoker) ccAmount ccMethod ccParameter
+                  istance <- getCurrentContractInstanceTicking ccContract
+                  result <- case istance of
+                             BS.InstanceInfoV0 i -> Left <$> onV0 i
+                             BS.InstanceInfoV1 i -> Right <$> onV1 i
+                  -- charge for storage of V1 contracts, so that the cost that
+                  -- will be returned matches the cost that will be charged by
+                  -- the transaction (minus the signature checking cost)
+                  chargeV1Storage
+                  return result
             (r, cs) <- runLocalT comp ccAmount ai ccEnergy ccEnergy
             return (r, _energyLeft cs)
       contextState = ContextState{
