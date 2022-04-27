@@ -231,8 +231,8 @@ fn setup_shutdown_signal_handling(consensus: ConsensusContainer) -> oneshot::Rec
         loop {
             get_shutdown_signal().await.unwrap();
             info!(
-                "Signal received to shutdown node cleanly, but an attempt to do so is already \
-                    in progress."
+                "Signal received to shutdown node cleanly, but an attempt to do so is already in \
+                 progress."
             );
         }
     });

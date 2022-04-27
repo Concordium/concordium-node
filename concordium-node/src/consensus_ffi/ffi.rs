@@ -455,9 +455,7 @@ extern "C" {
         import_file_path: *const u8,
         import_file_path_len: i64,
     ) -> u8;
-    pub fn stopImportingBlocks(
-        consensus: *mut consensus_runner,
-    );
+    pub fn stopImportingBlocks(consensus: *mut consensus_runner);
 }
 
 // TODO : Simplify arguments to function, or group with struct
