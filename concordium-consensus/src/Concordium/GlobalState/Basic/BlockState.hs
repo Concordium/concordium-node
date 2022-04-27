@@ -1070,10 +1070,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                 newDelegators <- processDelegators oldDelegators
                 blockBirkParameters . birkActiveBakers . passiveDelegators .= newDelegators
                 -- Process the bakers (this may also modify the passive delegators)
-                oldBakers <- use (blockBirkParameters . birkActiveBakers . activeBakers)
-                (newBakers, newTotalCapital) <- processBakers oldBakers
-                blockBirkParameters . birkActiveBakers . activeBakers .= newBakers
-                blockBirkParameters . birkActiveBakers . totalActiveCapital .= newTotalCapital
+                processBakers
 
             -- For a set of delegators, process any pending changes on the account and return the
             -- new set of delegators. (A delegator is removed from the set if its pending change
@@ -1113,10 +1110,17 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                 return True
 
             -- Process the bakers (this may also modify the passive delegators)
-            processBakers :: Map.Map BakerId ActivePool -> MTL.State (BlockState pv) (Map.Map BakerId ActivePool, Amount)
-            processBakers m = do
+            processBakers :: MTL.State (BlockState pv) ()
+            processBakers = do
+                oldBakers <- use (blockBirkParameters . birkActiveBakers . activeBakers)
                 passiveStart <- use (blockBirkParameters . birkActiveBakers . passiveDelegators . apDelegatorTotalCapital)
-                foldM processBaker (Map.empty, passiveStart) $ Map.toAscList m
+                -- Build a new map for the active bakers and accumulate the total delegated capital.
+                -- Note that processBaker can touch the passiveDelegators and aggregationKeys
+                -- fields of the birkActiveBakers, but does not touch the activeBakers and
+                -- totalActiveCapital fields.
+                (newBakers, newTotalCapital) <- foldM processBaker (Map.empty, passiveStart) $ Map.toAscList oldBakers
+                blockBirkParameters . birkActiveBakers . activeBakers .= newBakers
+                blockBirkParameters . birkActiveBakers . totalActiveCapital .= newTotalCapital
             processBaker
                 :: (Map.Map BakerId ActivePool, Amount)
                 -> (BakerId, ActivePool)
@@ -1126,29 +1130,31 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                 preuse (blockAccounts . Accounts.indexedAccount accId) >>= \case
                     Just acct -> case acct ^? accountBaker of
                         Just acctBkr@AccountBaker{..} -> case _bakerPendingChange of
-                            RemoveStake pet | isEffective pet ->
-                                removeBaker accumBakers accumCapital accId newDelegators
-                            ReduceStake newAmt pet | isEffective pet ->
-                                reduceBakerStake accumBakers accumCapital bid newAmt acctBkr newDelegators
+                            RemoveStake pet | isEffective pet -> do
+                                removeBaker accId _accountBakerInfo newDelegators
+                                let !accumCapital' = accumCapital + newDelegators ^. apDelegatorTotalCapital
+                                return (accumBakers, accumCapital')
+                            ReduceStake newAmt pet | isEffective pet -> do
+                                reduceBakerStake bid newAmt acctBkr
+                                let !accumBakers' = Map.insert bid newDelegators accumBakers
+                                    !accumCapital' = accumCapital + newAmt + (newDelegators ^. apDelegatorTotalCapital)
+                                return (accumBakers', accumCapital')
                             _ -> do
                                 let !accumBakers' = Map.insert bid newDelegators accumBakers
                                     !accumCapital' = accumCapital + _stakedAmount + (newDelegators ^. apDelegatorTotalCapital)
                                 return (accumBakers', accumCapital')
                         Nothing -> error "Basic.bsoProcessPendingChanges invariant violation: active baker account not a baker"
                     Nothing -> error "Basic.bsoProcessPendingChanges invariant violation: active baker account not valid"
-            removeBaker accumBakers accumCapital accId delegators = do
+            removeBaker accId bkrInfo delegators = do
                 blockAccounts . Accounts.indexedAccount accId %=! (accountStaking .~ AccountStakeNone)
                 forM_ (delegators ^. apDelegators) redelegatePassive
-                blockBirkParameters . birkActiveBakers . passiveDelegators %= (delegators <>)
-                let !accumCapital' = accumCapital + delegators ^. apDelegatorTotalCapital
-                return (accumBakers, accumCapital')
-            reduceBakerStake accumBakers accumCapital bid@(BakerId accId) newAmt acctBkr delegators = do
+                blockBirkParameters . birkActiveBakers . passiveDelegators %=! (delegators <>)
+                blockBirkParameters . birkActiveBakers . aggregationKeys %=!
+                    Set.delete (bkrInfo ^. bakerAggregationVerifyKey)
+            reduceBakerStake (BakerId accId) newAmt acctBkr = do
                 let newAcctBkr = acctBkr{_stakedAmount = newAmt, _bakerPendingChange = NoChange}
                 blockAccounts . Accounts.indexedAccount accId %=!
                     (accountStaking .~ AccountStakeBaker newAcctBkr)
-                let !accumBakers' = Map.insert bid delegators accumBakers
-                    !accumCapital' = accumCapital + newAmt + (delegators ^. apDelegatorTotalCapital)
-                return (accumBakers', accumCapital')
 
     bsoTransitionEpochBakers bs newEpoch = return $! newbs
         where
