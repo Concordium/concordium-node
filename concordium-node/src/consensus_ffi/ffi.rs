@@ -770,7 +770,11 @@ impl ConsensusContainer {
 
     /// Gets baker status of the node along with the baker ID registered in the
     /// baker credentials used, if available.
-    pub fn in_baking_committee(&self) -> (ConsensusIsInBakingCommitteeResponse, Option<u64>) {
+    ///
+    /// Note: the return type does not use an Option<u64>, which would be more
+    /// natural, because a weird issue on Windows caused node_info to
+    /// produce the wrong result.
+    pub fn in_baking_committee(&self) -> (ConsensusIsInBakingCommitteeResponse, bool, u64) {
         let consensus = self.consensus.load(Ordering::SeqCst);
         let mut baker_id: u64 = 0;
         let mut has_baker_id: u8 = 0;
@@ -781,13 +785,7 @@ impl ConsensusContainer {
             unreachable!("An error occured when trying to convert FFI return code: {}", err)
         });
 
-        let baker_id_option = match has_baker_id {
-            0 => None,
-            1 => Some(baker_id),
-            code => unreachable!("Expected value from FFI to be either 0 or 1, received {}", code),
-        };
-
-        (status, baker_id_option)
+        (status, has_baker_id != 0, baker_id)
     }
 
     pub fn in_finalization_committee(&self) -> bool {
