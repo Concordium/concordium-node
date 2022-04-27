@@ -80,6 +80,7 @@ import Concordium.Types.SeedState
 import Concordium.Logger (MonadLogger)
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule
+import Concordium.Utils
 import Concordium.Utils.Serialization.Put
 import Concordium.Utils.Serialization
 import Concordium.Utils.BinarySearch
@@ -2294,7 +2295,7 @@ doProcessPendingChanges persistentBS isEffective = do
         (ps1, a1) <- modifyPassiveDelegation (pab0, bspAccounts bsp0)
         ((pab2, accts2), a2) <- modifyBakers ps1
         -- Update the total active capital to the sum of the new passive delegators and bakers.
-        newAB <- refMake (pab2 & totalActiveCapital .~ TotalActiveCapitalV1 (a1 + a2)) 
+        newAB <- refMake $! (pab2 & totalActiveCapital .~ TotalActiveCapitalV1 (a1 + a2)) 
         return $ bsp0 {bspAccounts = accts2} & (birkParameters . birkActiveBakers .~ newAB)
 
       -- Process the passive delegators, handling any cooldowns.  This updates the active
@@ -2416,7 +2417,7 @@ doProcessPendingChanges persistentBS isEffective = do
       processBaker bid@(BakerId accId) oldDelegators = do
           accts0 <- use _1
           (newDelegators, accts1) <- lift $ lift $ MTL.runStateT (processDelegators oldDelegators) accts0
-          _1 .= accts1
+          _1 .=! accts1
           MTL.tell (adDelegatorTotalCapital newDelegators)
           let trieInsert = do
                 oldKeys <- Trie.keys (adDelegators oldDelegators)
@@ -2464,16 +2465,16 @@ doProcessPendingChanges persistentBS isEffective = do
         -- Update the delegators' accounts to delegate to passive
         dlist <- Trie.keysAsc dset
         accounts2 <- foldM redelegatePassive accounts1 dlist
-        _1 .= accounts2
+        _1 .=! accounts2
 
         -- Remove the baker's aggregation key from the aggregation keys set
         abi <- refLoad (acctBkr ^. accountBakerInfo)
-        (_2 .=) =<< Trie.delete (abi ^. BaseAccounts.bakerAggregationVerifyKey) =<< use _2
+        (_2 .=!) =<< Trie.delete (abi ^. BaseAccounts.bakerAggregationVerifyKey) =<< use _2
 
         -- Add the delegators to the passive delegators
         oldPAD <- use _3
         newDset <- foldM (\t d -> Trie.insert d () t) (adDelegators oldPAD) dlist
-        _3 .= PersistentActiveDelegatorsV1 newDset (adDelegatorTotalCapital oldPAD + dcapital)
+        _3 .=! PersistentActiveDelegatorsV1 newDset (adDelegatorTotalCapital oldPAD + dcapital)
 
       -- Reduce the baker's stake, making the update to the account table.
       reduceBakerStake
@@ -2486,7 +2487,7 @@ doProcessPendingChanges persistentBS isEffective = do
         let updAcc acc = ((),) <$> setPersistentAccountStake acc (PersistentAccountStakeBaker newBaker)
         accounts <- use _1
         (_, newAccounts) <- lift $ Accounts.updateAccountsAtIndex updAcc accId accounts
-        _1 .= newAccounts
+        _1 .=! newAccounts
 
 doGetBankStatus :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m Rewards.BankStatus
 doGetBankStatus pbs = _unhashed . bspBank <$> loadPBS pbs

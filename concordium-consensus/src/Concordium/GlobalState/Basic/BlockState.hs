@@ -1001,10 +1001,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                 newDelegators <- processDelegators oldDelegators
                 blockBirkParameters . birkActiveBakers . passiveDelegators .= newDelegators
                 -- Process the bakers (this may also modify the passive delegators)
-                oldBakers <- use (blockBirkParameters . birkActiveBakers . activeBakers)
-                (newBakers, newTotalCapital) <- processBakers oldBakers
-                blockBirkParameters . birkActiveBakers . activeBakers .= newBakers
-                blockBirkParameters . birkActiveBakers . totalActiveCapital .= newTotalCapital
+                processBakers
 
             -- For a set of delegators, process any pending changes on the account and return the
             -- new set of delegators. (A delegator is removed from the set if its pending change
@@ -1044,10 +1041,17 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                 return True
 
             -- Process the bakers (this may also modify the passive delegators)
-            processBakers :: Map.Map BakerId ActivePool -> MTL.State (BlockState pv) (Map.Map BakerId ActivePool, Amount)
-            processBakers m = do
+            processBakers :: MTL.State (BlockState pv) ()
+            processBakers = do
+                oldBakers <- use (blockBirkParameters . birkActiveBakers . activeBakers)
                 passiveStart <- use (blockBirkParameters . birkActiveBakers . passiveDelegators . apDelegatorTotalCapital)
-                foldM processBaker (Map.empty, passiveStart) $ Map.toAscList m
+                -- Build a new map for the active bakers and accumulate the total delegated capital.
+                -- Note that processBaker can touch the passiveDelegators and aggregationKeys
+                -- fields of the birkActiveBakers, but does not touch the activeBakers and
+                -- totalActiveCapital fields.
+                (newBakers, newTotalCapital) <- foldM processBaker (Map.empty, passiveStart) $ Map.toAscList oldBakers
+                blockBirkParameters . birkActiveBakers . activeBakers .= newBakers
+                blockBirkParameters . birkActiveBakers . totalActiveCapital .= newTotalCapital
             processBaker
                 :: (Map.Map BakerId ActivePool, Amount)
                 -> (BakerId, ActivePool)
