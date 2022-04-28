@@ -18,7 +18,7 @@ The node-related binaries are built by the pipeline `master.Jenkinsfile` in the 
 
 ## Docker Compose
 
-The following example shows a (reasonably) minimal setup of a node and an accompanying collector:
+The following example shows a (reasonably) minimal configuration of a node and an accompanying collector:
 
 ```yaml
 version: '3'
@@ -62,14 +62,14 @@ networks:
   concordium:
 ```
 
-Run the script using `docker-compose`; for example:
+Run the deployment using `docker-compose`; for example:
 
 ```shell
 export NODE_NAME="<name>"
-export NODE_IMAGE="192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/node:<tag>"
-export NODE_COLLECTOR_IMAGE="192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/node-collector:<tag>"
+export NODE_IMAGE="concordium/node:<tag>"
+export NODE_COLLECTOR_IMAGE="concordium/node-collector:<tag>"
 export DOMAIN=mainnet.concordium.software # alternative values: 'stagenet.concordium.com', 'testnet.concordium.com'
-export GENESIS_DATA_FILE="/path/to/genesis.dat"
-export BAKER_CREDENTIALS_FILE="/path/to/baker-credentials.json"
+export GENESIS_DATA_FILE="/absolute/path/to/genesis.dat"
+export BAKER_CREDENTIALS_FILE="/absolute/path/to/baker-credentials.json"
 docker-compose up
 ```
