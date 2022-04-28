@@ -2,14 +2,18 @@
 pipeline {
     agent any
     environment {
-        ecr_repo_domain = '192549843005.dkr.ecr.eu-west-1.amazonaws.com'
         universal_image_repo = 'concordium/universal'
         universal_image_name = "${universal_image_repo}:${image_tag}"
     }
     stages {
-        stage('ecr-login') {
+        stage('dockerhub-login') {
+            environment {
+                // Defines 'CRED_USR' and 'CRED_PSW'
+                // (see 'https://www.jenkins.io/doc/book/pipeline/jenkinsfile/#handling-credentials').
+                CRED = credentials('jenkins-dockerhub')
+            }
             steps {
-                ecrLogin(env.ecr_repo_domain, 'eu-west-1')
+                sh 'docker login --username "${CRED_USR}" --password "${CRED_PSW}"'
             }
         }
         stage('build-universal') {
@@ -32,7 +36,7 @@ pipeline {
         }
         stage('build-bootstrapper') {
             environment {
-                image_repo = "${ecr_repo_domain}/concordium/bootstrapper"
+                image_repo = "concordium/bootstrapper"
                 image_name = "${image_repo}:${image_tag}"
             }
             steps {
@@ -49,7 +53,7 @@ pipeline {
         }
         stage('build-node') {
             environment {
-                image_repo = "${ecr_repo_domain}/concordium/node"
+                image_repo = "concordium/node"
                 image_name = "${image_repo}:${image_tag}"
             }
             steps {
@@ -66,7 +70,7 @@ pipeline {
         }
         stage('build-collector') {
             environment {
-                image_repo = "${ecr_repo_domain}/concordium/node-collector"
+                image_repo = "concordium/node-collector"
                 image_name = "${image_repo}:${image_tag}"
             }
             steps {
