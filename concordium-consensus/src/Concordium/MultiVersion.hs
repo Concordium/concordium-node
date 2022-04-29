@@ -334,7 +334,8 @@ data MultiVersionRunner gsconf finconf = MultiVersionRunner
       mvVersions :: !(IORef (Vec.Vector (EVersionedConfiguration gsconf finconf))),
       -- |Global write lock.
       mvWriteLock :: !(MVar ()),
-      -- |Flag to stop importing blocks.
+      -- |Flag to stop importing blocks. When importing blocks from a file is in progress,
+      -- setting this flag to True will cause the import to stop.
       mvShouldStopImportingBlocks :: !(IORef Bool),
       -- |State for buffering catch-up status message events.
       mvCatchUpStatusBuffer :: !(MVar CatchUpStatusBufferState),
