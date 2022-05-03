@@ -29,6 +29,10 @@ data RewardAccounts = RewardAccounts {
   } deriving (Show, Eq)
 makeClassy ''RewardAccounts
 
+-- |The grand total of undistributed rewards. Comes in handy during testing.
+rewardsTotal :: RewardAccounts -> Amount
+rewardsTotal RewardAccounts{..} = _bakingRewardAccount + _finalizationRewardAccount + _gasAccount
+
 -- |This datastructure contains the various (logical) accounts used for
 -- the chain tokenomics. It also records the total of all GTU in existence,
 -- and the total of all encrypted GTU.
