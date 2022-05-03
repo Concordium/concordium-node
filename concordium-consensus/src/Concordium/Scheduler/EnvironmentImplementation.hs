@@ -430,7 +430,7 @@ runSIWithLogs sc cd energy maxCreds gs =
   runRWST (_runRWSTBS . _runScheduler $ sc) (ContextState cd energy maxCreds) (mkInitialSS gs)
 
 
-execSI :: SchedulerImplementation pv a -> ChainMetadata -> Energy -> CredentialsPerBlockLimit ->  BlockState pv -> PBSSS pv
+execSI :: SchedulerImplementation pv a -> ChainMetadata -> Energy -> CredentialsPerBlockLimit -> BlockState pv -> PBSSS pv
 execSI sc cd energy maxCreds gs =
   fst (runIdentity $
        runPureBlockStateMonad $

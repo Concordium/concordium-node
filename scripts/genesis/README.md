@@ -2,8 +2,10 @@
 
 The following genesis configurations are available in this directory.
 
-## [genesis.json](./genesis.json) for protocol version 4
+* [genesis-p1.json](./genesis-p1.json) for protocol versions 1-3
+* [genesis.json](./genesis.json) for protocol version 4
 
+These have the common configuration of:
    - slot duration 0.25s
    - average block time 10s
    - maximum block energy limit 3_000_000

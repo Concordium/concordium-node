@@ -306,7 +306,7 @@ makePersistentBlockRewardDetails
 makePersistentBlockRewardDetails (Basic.BlockRewardDetailsV0 heb) =
     BlockRewardDetailsV0 <$> makeHashedEpochBlocks (Basic.hebBlocks heb)
 makePersistentBlockRewardDetails (Basic.BlockRewardDetailsV1 pre) =
-    BlockRewardDetailsV1 <$> (makePoolRewards (_unhashed pre) >>= refMake)
+    BlockRewardDetailsV1 <$> (makerPersistentPoolRewards (_unhashed pre) >>= refMake)
 
 -- |Extend a 'BlockRewardDetails' ''AccountV0' with an additional baker.
 consBlockRewardDetails
@@ -990,6 +990,7 @@ doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
             Left errorRes -> return (errorRes, pbs)
             Right (newBSP, changes) -> (BCSuccess changes bid,) <$> storePBS pbs newBSP
       where
+        -- Lift a monadic action over the ExceptT, WriterT and StateT layers.
         liftBSO = lift . lift . lift
         bid = BakerId ai
         getAccountOrFail = do
@@ -2479,14 +2480,15 @@ doProcessPendingChanges persistentBS isEffective = do
           (newDelegators, accts1) <- lift $ lift $ MTL.runStateT (processDelegators oldDelegators) accts0
           _1 .=! accts1
           MTL.tell (adDelegatorTotalCapital newDelegators)
-          let trieInsert = do
-                oldKeys <- Trie.keys (adDelegators oldDelegators)
-                let oldTotal = adDelegatorTotalCapital oldDelegators
-                newKeys <- Trie.keys (adDelegators newDelegators)
-                let newTotal = adDelegatorTotalCapital newDelegators
-                if newKeys == oldKeys && newTotal == oldTotal
-                then return Trie.NoChange
-                else return (Trie.Insert newDelegators)
+          let trieInsert
+                | adDelegatorTotalCapital oldDelegators /= adDelegatorTotalCapital newDelegators =
+                    return (Trie.Insert newDelegators)
+                | otherwise = do
+                    oldKeys <- Trie.keys (adDelegators oldDelegators)
+                    newKeys <- Trie.keys (adDelegators newDelegators)
+                    if newKeys == oldKeys
+                    then return Trie.NoChange
+                    else return (Trie.Insert newDelegators)
           Accounts.indexedAccount accId accts1 >>= \case
             Just acct -> case acct ^. accountBaker of
                 Some acctBkrRef -> do
@@ -2807,9 +2809,6 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateStorage (Persi
     serializeBlockState hpbs = do
         p <- runPutT (putBlockStateV0 (hpbsPointers hpbs))
         return $ runPut p
-
-    writeBlockState h hpbs =
-        runPutH (putBlockStateV0 (hpbsPointers hpbs)) h
 
     blockStateLoadCallback = asks blobLoadCallback
     {-# INLINE blockStateLoadCallback #-}

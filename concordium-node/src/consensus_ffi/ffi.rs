@@ -708,7 +708,7 @@ impl ConsensusContainer {
     }
 
     pub fn get_baker_list(&self, block_hash: &str) -> anyhow::Result<String> {
-        let block_hash = CString::new(block_hash).unwrap();
+        let block_hash = CString::new(block_hash)?;
         Ok(wrap_c_call_string!(self, consensus, |consensus| getBakerList(
             consensus,
             block_hash.as_ptr() as *const u8
@@ -721,7 +721,7 @@ impl ConsensusContainer {
         passive_delegation: bool,
         baker_id: u64,
     ) -> anyhow::Result<String> {
-        let block_hash = CString::new(block_hash).unwrap();
+        let block_hash = CString::new(block_hash)?;
         Ok(wrap_c_call_string!(self, consensus, |consensus| getPoolStatus(
             consensus,
             block_hash.as_ptr() as *const u8,
