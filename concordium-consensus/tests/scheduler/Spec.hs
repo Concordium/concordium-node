@@ -37,6 +37,7 @@ import qualified SchedulerTests.SmartContracts.V1.Recorder (tests)
 import qualified SchedulerTests.SmartContracts.V1.Iterator (tests)
 import qualified SchedulerTests.SmartContracts.V1.Fallback (tests)
 import qualified SchedulerTests.SmartContracts.V1.Checkpointing (tests)
+import qualified SchedulerTests.SmartContracts.V1.AllNewHostFunctions (tests)
 
 import Test.Hspec
 
@@ -77,4 +78,5 @@ main = hspec $ do
          SchedulerTests.SmartContracts.V1.Iterator.tests
          SchedulerTests.SmartContracts.V1.Fallback.tests
          SchedulerTests.SmartContracts.V1.Checkpointing.tests
+         SchedulerTests.SmartContracts.V1.AllNewHostFunctions.tests
          SchedulerTests.Payday.tests
