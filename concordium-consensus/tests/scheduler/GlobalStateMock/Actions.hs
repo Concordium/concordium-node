@@ -14,6 +14,8 @@ import Concordium.Utils
 import Data.Type.Equality
 import Language.Haskell.TH
 
+-- |Typeclass of mocked action types.  An action type is parametrised by the result type.
+-- Action types are implemented as GADTs.
 class (forall a. Show (f a)) => Act f where
     -- |Returns @Just Refl@ if the two actions are equal, and @Nothing@ otherwise.
     eqAct :: f a -> f b -> Maybe (a :~: b)
@@ -61,6 +63,13 @@ generateAct typName = do
             [eqActDec, showResDec]
         ]
 
+-- |Generate an instance of a typeclass from a mocking datatype.
+-- This takes a partial instance as the first argument.
+-- The second argument is the name of the datatype.
+-- The constructed instance takes each constructor of the datatype.
+-- If there is not already a function in the instance corresponding to the constructor (but with
+-- the first character lower-cased), then a function is added by applying the third argument
+-- (a quoted expression) to the fully-applied constructor.
 mockOperations :: Q [Dec] -> Name -> Q Exp -> Q [Dec]
 mockOperations qinst typName expr = do
     [InstanceD olp ctx inst decs0] <- qinst

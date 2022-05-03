@@ -914,8 +914,6 @@ instance (MonadLogger m,
         -- While we check for equality, in future it could be
         -- acceptable for implementations to give different results.
         assert (s1 == s2) $ return s2
-    -- We only write out 
-    writeBlockState h (bps1, _) = coerceBSML (writeBlockState h bps1)
     blockStateLoadCallback = coerceBSML blockStateLoadCallback
 
 {-# INLINE coerceGSML #-}

@@ -25,6 +25,7 @@ import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.TreeState
 
 -- |Caps on the the stake that may be delegated to a baking pool.
+-- N.B. The fields are not strict and should generally not be retained.
 data PoolCaps = PoolCaps
     { -- |The (leverage bound minus 1) times the equity capital of the baker.
       leverageCap :: Amount,
