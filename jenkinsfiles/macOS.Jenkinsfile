@@ -26,7 +26,7 @@ pipeline {
         stage('Publish') {
             steps {
                 unstash 'release'
-                sh ' aws s3 cp ./scripts/distribution/macOS-package/build/packages/concordium-node-${TAG}.pkg $OUTFILE --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers'
+                sh ' aws s3 cp ./scripts/distribution/macOS-package/build/packages/concordium-node-${TAG}-unsigned.pkg $OUTFILE --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers'
             }
         }
     }
