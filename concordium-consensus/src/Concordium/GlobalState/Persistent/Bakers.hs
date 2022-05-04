@@ -253,9 +253,11 @@ subtractActiveCapital amt0 (TotalActiveCapitalV1 amt1) = TotalActiveCapitalV1 $ 
 tacAmount :: Lens' (TotalActiveCapital 'AccountV1) Amount
 tacAmount f (TotalActiveCapitalV1 amt) = TotalActiveCapitalV1 <$> f amt
 
+type AggregationKeySet = Trie.TrieN (BufferedBlobbed BlobRef) BakerAggregationVerifyKey ()
+
 data PersistentActiveBakers (av :: AccountVersion) = PersistentActiveBakers {
     _activeBakers :: !(BakerIdTrieMap av),
-    _aggregationKeys :: !(Trie.TrieN (BufferedBlobbed BlobRef) BakerAggregationVerifyKey ()),
+    _aggregationKeys :: !AggregationKeySet,
     _passiveDelegators :: !(PersistentActiveDelegators av),
     _totalActiveCapital :: !(TotalActiveCapital av)
 } deriving (Show)

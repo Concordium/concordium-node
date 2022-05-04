@@ -947,13 +947,15 @@ currentProtocolVersion = do
 -- |Deserialize and receive a transaction.  The transaction is passed to
 -- the current version of the chain.
 --
--- In future, multiple versions may use/require different deserializations
--- of transactions.  This may be handled in one of two ways:
+-- Currently, the 'BlockItem' type is common among all protocol versions.
+-- We deserialize it using the current protocol version.
+-- In principle, the protocol version could be different when we call 'Skov.receiveTransaction'.
+-- We rely on two principles to ensure this is OK:
 --
--- 1. Deserialize to a common format, which is then converted to the format
---    of the current genesis index.
--- 2. Determine the current genesis index before deserializing to ensure
---    that the correct format is used.
+-- 1. 'Skov.receiveTransaction' must gracefully handle block items from legacy protocol versions.
+--
+-- 2. A transaction cannot be deserialized to two different block items in different protocol
+--    versions.
 receiveTransaction :: forall gsconf finconf. ByteString -> MVR gsconf finconf UpdateResult
 receiveTransaction transactionBS = do
     now <- utcTimeToTransactionTime <$> currentTime

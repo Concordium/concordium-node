@@ -2,7 +2,7 @@ module Concordium.GlobalState.Persistent.PoolRewards (
     module Concordium.GlobalState.Basic.BlockState.PoolRewards,
     PoolRewards (..),
     emptyPoolRewards,
-    makePoolRewards,
+    makerPersistentPoolRewards,
     putPoolRewards,
     bakerBlockCounts,
     rotateCapitalDistribution,
@@ -14,6 +14,7 @@ module Concordium.GlobalState.Persistent.PoolRewards (
 import Data.Serialize
 import qualified Data.Vector as Vec
 import Data.Word
+import Control.Exception (assert)
 
 import Concordium.Crypto.SHA256 as Hash
 
@@ -36,7 +37,9 @@ import qualified Concordium.GlobalState.Persistent.LFMBTree as LFMBT
 import Concordium.Utils.Serialization.Put
 
 -- |Details of rewards accruing over the course of a reward period, and details about the capital
--- distribution for this reward period and (possibly) the next.
+-- distribution for this reward period and (possibly) the next. Note, 'currentCapital' and
+-- 'nextCapital' are the same except in the epoch before a payday, where 'nextCapital' is updated
+-- to record the capital distribution for the next reward period.
 data PoolRewards = PoolRewards
     { -- |The capital distribution for the next reward period.
       -- This is updated the epoch before a payday.
@@ -110,16 +113,23 @@ instance MonadBlobStore m => BlobStorable m PoolRewards where
             nextPaydayMintRate <- mNextPaydayMintRate
             return $! PoolRewards{..}
 
+-- |Serialize 'PoolRewards'.
+-- The 'bakerPoolRewardDetails' is serialized as a flat list, with the length implied by the
+-- length of 'bakerPoolCapital' of 'currentCapital'.
 putPoolRewards :: (MonadBlobStore m, MonadPut m) => PoolRewards -> m ()
 putPoolRewards PoolRewards{..} = do
-    liftPut . put =<< refLoad nextCapital
-    liftPut . put =<< refLoad currentCapital
-    liftPut =<< store bakerPoolRewardDetails
-    liftPut $ do
-        put passiveDelegationTransactionRewards
-        put foundationTransactionRewards
-        put nextPaydayEpoch
-        put nextPaydayMintRate
+    nxtCapital <- refLoad nextCapital
+    curCapital <- refLoad currentCapital
+    bprdList <- LFMBT.toAscList bakerPoolRewardDetails
+    assert (Vec.length (bakerPoolCapital curCapital) == length bprdList) $
+        liftPut $ do
+            put nxtCapital
+            put curCapital
+            mapM_ put bprdList
+            put passiveDelegationTransactionRewards
+            put foundationTransactionRewards
+            put nextPaydayEpoch
+            put nextPaydayMintRate
 
 instance MonadBlobStore m => MHashableTo m PoolRewardsHash PoolRewards where
     getHashM PoolRewards{..} = do
@@ -146,8 +156,8 @@ instance MonadBlobStore m => Cacheable m PoolRewards where
         foundationTransactionRewards <- cache (foundationTransactionRewards pr)
         return PoolRewards{..}
 
-makePoolRewards :: MonadBlobStore m => BasicPoolRewards.PoolRewards -> m PoolRewards
-makePoolRewards bpr = do
+makerPersistentPoolRewards :: MonadBlobStore m => BasicPoolRewards.PoolRewards -> m PoolRewards
+makerPersistentPoolRewards bpr = do
     nc <- refMake (_unhashed (BasicPoolRewards.nextCapital bpr))
     cc <- refMake (_unhashed (BasicPoolRewards.currentCapital bpr))
     bprd <- LFMBT.fromAscList $ BasicLFMBT.toAscList $ BasicPoolRewards.bakerPoolRewardDetails bpr
@@ -164,7 +174,7 @@ makePoolRewards bpr = do
 
 -- |The empty 'PoolRewards'.
 emptyPoolRewards :: MonadBlobStore m => m PoolRewards
-emptyPoolRewards = makePoolRewards BasicPoolRewards.emptyPoolRewards
+emptyPoolRewards = makerPersistentPoolRewards BasicPoolRewards.emptyPoolRewards
 
 -- |List of baker and number of blocks baked by this baker in the reward period.
 bakerBlockCounts :: MonadBlobStore m => PoolRewards -> m [(BakerId, Word64)]

@@ -181,6 +181,7 @@ class (SkovQueryMonad m, TimeMonad m, MonadLogger m) => SkovMonad m where
     -- time predates its slot time by more than the early block threshold.
     storeBlock :: PendingBlock -> m UpdateResult
     -- |Add a transaction to the transaction table.
+    -- This must gracefully handle transactions from other (older) protocol versions.
     receiveTransaction :: BlockItem -> m UpdateResult
     -- |Finalize a block where the finalization record is known to be for the
     -- next finalization index and have a valid finalization proof.  This

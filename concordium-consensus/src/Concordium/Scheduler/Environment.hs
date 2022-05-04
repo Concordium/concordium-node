@@ -195,6 +195,8 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
     -> m BakerAddResult
 
   -- |From chain parameters version >= 1, this operation is used to add/remove/update a baker.
+  -- For details of the behaviour and return values, see
+  -- 'Concordium.GlobalState.BlockState.bsoConfigureBaker'.
   configureBaker
     :: (AccountVersionFor (MPV m) ~ 'AccountV1, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1)
     => AccountIndex
@@ -202,6 +204,8 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
     -> m BakerConfigureResult
 
   -- |From chain parameters version >= 1, this operation is used to add/remove/update a delegator.
+  -- For details of the behaviour and return values, see
+  -- 'Concordium.GlobalState.BlockState.bsoConfigureDelegation'.
   configureDelegation
     :: (AccountVersionFor (MPV m) ~ 'AccountV1, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1)
     => AccountIndex
@@ -1015,12 +1019,13 @@ instance (MonadProtocolVersion m, StaticInformation m, AccountOperations m, Cont
   getCurrentAccountAvailableAmount (ai, acc) = do
     oldTotal <- getAccountAmount acc
     oldLockedUp <- ARS._totalLockedUpBalance <$> getAccountReleaseSchedule acc
-    bkr <- getAccountBaker acc
-    let bstaked = maybe 0 (^. stakedAmount) bkr
-    del <- getAccountDelegator acc
-    let dstaked = maybe 0 (\AccountDelegationV1{..} -> _delegationStakedAmount) del
-    let !() = assert (bstaked == 0 || dstaked == 0) ()
-    let staked = bstaked + dstaked
+    -- An account can have a baker or delegator, but not both.
+    mbkr <- getAccountBaker acc
+    staked <- case mbkr of
+      Just bkr -> return (bkr ^. stakedAmount)
+      Nothing -> do
+        mdel <- getAccountDelegator acc
+        return $ maybe 0 (\AccountDelegationV1{..} -> _delegationStakedAmount) mdel
     !txCtx <- ask
     -- If the account is the sender, subtract the deposit
     let netDeposit = if txCtx ^. tcTxSender == ai

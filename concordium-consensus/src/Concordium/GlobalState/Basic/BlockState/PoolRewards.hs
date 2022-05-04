@@ -2,6 +2,8 @@
 
 module Concordium.GlobalState.Basic.BlockState.PoolRewards where
 
+import Control.Exception
+import Control.Monad
 import qualified Data.Map.Strict as Map
 import Data.Serialize
 import qualified Data.Vector as Vec
@@ -63,6 +65,7 @@ data PoolRewards = PoolRewards
       currentCapital :: !(Hashed CapitalDistribution),
       -- |The details of rewards accruing to baker pools.
       -- These are indexed by the index of the baker in the capital distribution (_not_ the BakerId).
+      -- There must be an entry for each baker in 'currentCapital'.
       bakerPoolRewardDetails :: !(LFMBT.LFMBTree Word64 BakerPoolRewardDetails),
       -- |The transaction reward amount accruing to the passive delegators.
       passiveDelegationTransactionRewards :: !Amount,
@@ -119,21 +122,30 @@ emptyPoolRewards =
         }
 
 -- |A 'Putter' for 'PoolRewards'.
+-- The 'bakerPoolRewardDetails' is serialized as a flat list, with the length implied by the
+-- length of @bakerPoolCapital (_unhashed currentCapital)@.
 putPoolRewards :: Putter PoolRewards
 putPoolRewards PoolRewards{..} = do
     put (_unhashed nextCapital)
     put (_unhashed currentCapital)
-    put bakerPoolRewardDetails
+    let bprdList = LFMBT.toAscList bakerPoolRewardDetails
+    assert (Vec.length (bakerPoolCapital (_unhashed currentCapital)) == length bprdList) $
+        mapM_ put $ LFMBT.toAscList bakerPoolRewardDetails
     put passiveDelegationTransactionRewards
     put foundationTransactionRewards
     put nextPaydayEpoch
     put nextPaydayMintRate
 
+-- |Deserialize 'PoolRewards'.
+-- The 'bakerPoolRewardDetails' is serialized as a flat list, with the length implied by the
+-- length of @bakerPoolCapital (_unhashed currentCapital)@.
 getPoolRewards :: Get PoolRewards
 getPoolRewards = do
     nextCapital <- makeHashed <$> get
     currentCapital <- makeHashed <$> get
-    bakerPoolRewardDetails <- get
+    bakerPoolRewardDetails <- LFMBT.fromList <$> replicateM
+            (Vec.length (bakerPoolCapital (_unhashed currentCapital)))
+            get
     passiveDelegationTransactionRewards <- get
     foundationTransactionRewards <- get
     nextPaydayEpoch <- get
