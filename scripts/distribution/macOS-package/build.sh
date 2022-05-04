@@ -2,13 +2,12 @@
 set -euo pipefail
 
 readonly version=${1:?"Please provide a version number (e.g. '1.0.2')"}
-readonly year="2021" # Used for copyright notices.
+year="$(date +"%Y")" # Used for copyright notices.
+readonly year
 
 readonly teamId="K762RM4LQ3"
 readonly developerIdApplication="Developer ID Application: Concordium Software Aps ($teamId)"
 readonly developerIdInstaller="Developer ID Installer: Concordium Software Aps ($teamId)"
-
-readonly ghcVariant="x86_64-osx-ghc-8.10.4"
 
 # Get the location of this script.
 macPackageDir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
@@ -24,8 +23,13 @@ readonly buildDir="$macPackageDir/build"
 readonly payloadDir="$buildDir/payload"
 
 readonly pkgFile="$buildDir/packages/concordium-node.pkg"
-readonly productFile="$buildDir/packages/concordium-node-$version.pkg"
-readonly signedProductFile="$buildDir/packages/concordium-node-$version-signed.pkg"
+readonly productFile="$buildDir/packages/concordium-node-$version-unsigned.pkg"
+readonly signedProductFile="$buildDir/packages/concordium-node-$version.pkg"
+
+ghcVersion="$(stack --stack-yaml "$consensusDir/stack.yaml" ghc -- --version | cut -d' ' -f8)" # Get the GHC version used in Consensus.
+readonly ghcVersion
+
+readonly ghcVariant="x86_64-osx-ghc-$ghcVersion"
 
 # Log info in green color.
 logInfo () {
@@ -37,6 +41,7 @@ logInfo () {
 function printVersions() {
     logInfo "Printing versions:"
     echo "stack version: $(stack --version)"
+    echo "stack GHC version: $ghcVersion"
     echo "cargo version: $(cargo --version)"
     echo "flatc version: $(flatc --version)"
     echo "protoc version: $(protoc --version)"
