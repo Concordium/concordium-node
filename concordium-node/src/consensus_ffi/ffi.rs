@@ -455,6 +455,7 @@ extern "C" {
         import_file_path: *const u8,
         import_file_path_len: i64,
     ) -> u8;
+    pub fn stopImportingBlocks(consensus: *mut consensus_runner);
 }
 
 // TODO : Simplify arguments to function, or group with struct
@@ -875,6 +876,12 @@ impl ConsensusContainer {
         let len = import_file_path.len();
 
         unsafe { importBlocks(consensus, import_file_path.as_ptr(), len as i64) }
+    }
+
+    pub fn stop_importing_blocks(&self) {
+        let consensus = self.consensus.load(Ordering::SeqCst);
+
+        unsafe { stopImportingBlocks(consensus) }
     }
 }
 

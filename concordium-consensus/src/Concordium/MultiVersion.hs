@@ -334,6 +334,9 @@ data MultiVersionRunner gsconf finconf = MultiVersionRunner
       mvVersions :: !(IORef (Vec.Vector (EVersionedConfiguration gsconf finconf))),
       -- |Global write lock.
       mvWriteLock :: !(MVar ()),
+      -- |Flag to stop importing blocks. When importing blocks from a file is in progress,
+      -- setting this flag to True will cause the import to stop.
+      mvShouldStopImportingBlocks :: !(IORef Bool),
       -- |State for buffering catch-up status message events.
       mvCatchUpStatusBuffer :: !(MVar CatchUpStatusBufferState),
       -- |Log method.
@@ -552,6 +555,7 @@ makeMultiVersionRunner
             return Baker{..}
         mvVersions <- newIORef Vec.empty
         mvWriteLock <- newEmptyMVar
+        mvShouldStopImportingBlocks <- newIORef False
         mvCatchUpStatusBuffer <- newMVar BufferEmpty
         mvTransactionPurgingThread <- newEmptyMVar
         let mvr = MultiVersionRunner{..}
@@ -648,6 +652,11 @@ stopBaker MultiVersionRunner{mvBaker = Just Baker{..}, ..} = do
         tryTakeMVar bakerThread >>= \case
             Nothing -> mvLog Runner LLWarning "Attempted to stop baker thread, but it was not running."
             Just thrd -> killThread thrd
+
+-- |Set the flag to stop importing the blocks to `True`.
+stopImportingBlocks :: MultiVersionRunner gsconf finconf -> IO ()
+stopImportingBlocks MultiVersionRunner {..} = mask_ $ do
+    writeIORef mvShouldStopImportingBlocks True
 
 shutdownMultiVersionRunner :: MultiVersionRunner gsconf finconf -> IO ()
 shutdownMultiVersionRunner MultiVersionRunner{..} = mask_ $ do
@@ -965,6 +974,9 @@ receiveTransaction transactionBS = do
 importBlocks :: FilePath -> MVR gsconf finconf UpdateResult
 importBlocks importFile = do
     vvec <- liftIO . readIORef =<< asks mvVersions
+    -- reset the stop flag to False, in case it was set to True
+    shouldStop <- asks mvShouldStopImportingBlocks
+    liftIO $ writeIORef shouldStop False
     case Vec.last vvec of
         EVersionedConfiguration vc -> do
             -- Import starting from the genesis index of the latest consensus
@@ -974,7 +986,13 @@ importBlocks importFile = do
                 Left (ImportOtherError a) -> return a
                 Right _ -> return ResultSuccess
   where
-    doImport (ImportBlock _ gi bs) = fixResult <$> receiveBlock gi bs
+    doImport (ImportBlock _ gi bs) = do
+        -- Check if the import should be stopped.
+        shouldStop <- liftIO . readIORef =<< asks mvShouldStopImportingBlocks
+        if shouldStop
+            then return $ Left (ImportOtherError ResultImportStopped)
+            else fixResult <$> receiveBlock gi bs
+
     doImport (ImportFinalizationRecord _ gi bs) = fixResult <$> receiveFinalizationRecord gi bs
     fixResult ResultSuccess = Right ()
     fixResult ResultDuplicate = Right ()

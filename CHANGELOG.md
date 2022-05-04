@@ -59,12 +59,14 @@
   - fallback entrypoints
   - increased smart contract module size limit, 512kB
   - a number of cryptographic primitives
+- Node can now be stopped during out of band catchup by using signals, SIGINT and SIGTERM.
 
 ## concordium-node 3.0.1
 
 - Fix a starvation bug in some cases of parallel node queries.
 
 ## concordium-node 3.0.0
+
 - Fix a bug due to incorrect use of LMDB database environments where a node
   would crash if queried at specific times.
 - Faster state queries by avoiding locking the block state file when reading.

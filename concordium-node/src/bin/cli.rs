@@ -41,7 +41,7 @@ use std::{sync::Arc, thread::JoinHandle};
 use tokio::signal::unix as unix_signal;
 #[cfg(windows)]
 use tokio::signal::windows as windows_signal;
-use tokio::sync::oneshot;
+use tokio::sync::{broadcast, oneshot};
 
 #[cfg(feature = "instrumentation")]
 use concordium_node::stats_export_service::start_push_gateway;
@@ -54,24 +54,6 @@ async fn main() -> anyhow::Result<()> {
 
     let stats_export_service = instantiate_stats_export_engine(&conf)?;
     let regenesis_arc: Arc<Regenesis> = Arc::new(Default::default());
-
-    // Setup task with signal handling.
-    let shutdown_signal = {
-        let (tx, rx) = oneshot::channel();
-        tokio::spawn(async move {
-            get_shutdown_signal().await.unwrap();
-            info!("Signal received attempting to shutdown node cleanly");
-            tx.send(()).unwrap();
-            loop {
-                get_shutdown_signal().await.unwrap();
-                info!(
-                    "Signal received to shutdown node cleanly, but an attempt to do so is already \
-                     in progress."
-                );
-            }
-        });
-        rx
-    };
 
     // The P2PNode thread
     let (node, server, poll) =
@@ -110,6 +92,11 @@ async fn main() -> anyhow::Result<()> {
         String::new()
     };
 
+    // Setup task with signal handling before doing any irreversible operations
+    // to avoid being interrupted in the middle of sensitive operations, e.g.,
+    // creating the database.
+    let (mut shutdown_signal_1, mut shutdown_signal_2) = setup_shutdown_signal_handling();
+
     let data_dir_path = app_prefs.get_data_dir();
     let mut database_directory = data_dir_path.to_path_buf();
     database_directory.push(concordium_node::configuration::DATABASE_SUB_DIRECTORY_NAME);
@@ -136,6 +123,17 @@ async fn main() -> anyhow::Result<()> {
         regenesis_arc,
     )?;
     info!("Consensus layer started");
+
+    {
+        // set up the handler for terminating block state import.
+        let consensus = consensus.clone();
+        tokio::spawn(async move {
+            if shutdown_signal_2.recv().await.is_err() {
+                error!("Signal handler dropped. This should not happen.");
+            }
+            consensus.stop_importing_blocks();
+        });
+    }
 
     // Start the RPC server with a channel for shutting it down.
     let (shutdown_rpc_sender, shutdown_rpc_signal) = oneshot::channel();
@@ -175,7 +173,7 @@ async fn main() -> anyhow::Result<()> {
     consensus.start_baker();
 
     // Everything is running, so we wait for a signal to shutdown.
-    if shutdown_signal.await.is_err() {
+    if shutdown_signal_1.recv().await.is_err() {
         error!("Shutdown signal handler was dropped unexpectedly. Shutting down.");
     }
 
@@ -231,6 +229,28 @@ async fn main() -> anyhow::Result<()> {
     info!("P2PNode gracefully closed.");
 
     Ok(())
+}
+
+/// Set up shutdown signal handling.
+/// Return two receivers that will be notified when the handled signals are
+/// triggered. See documentation of [get_shutdown_signal] for details on which
+/// signals are handled.
+fn setup_shutdown_signal_handling() -> (broadcast::Receiver<()>, broadcast::Receiver<()>) {
+    let (sender, receiver1) = broadcast::channel(1);
+    let receiver2 = sender.subscribe();
+    tokio::spawn(async move {
+        get_shutdown_signal().await.unwrap();
+        info!("Signal received attempting to shutdown node cleanly");
+        sender.send(()).unwrap();
+        loop {
+            get_shutdown_signal().await.unwrap();
+            info!(
+                "Signal received to shutdown node cleanly, but an attempt to do so is already in \
+                 progress."
+            );
+        }
+    });
+    (receiver1, receiver2)
 }
 
 /// Construct a future for shutdown signals (for unix: SIGINT and SIGTERM) (for

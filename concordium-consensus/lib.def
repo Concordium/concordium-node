@@ -42,3 +42,4 @@ EXPORTS
  checkIfRunning
  freeCStr
  importBlocks
+ stopImportingBlocks
