@@ -1006,10 +1006,12 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- as 'bsoRotateCurrentCapitalDistribution' resets the rewards to bakers.
   bsoUpdateAccruedTransactionFeesBaker :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> BakerId -> AmountDelta -> m (UpdatableBlockState m)
 
-  -- |Mark that the given baker has signed a finalization proof included in a block during the
-  -- reward period. It is a precondition that the given baker is a current-epoch baker.
+  -- |Mark that the given bakers have signed a finalization proof included in a block during the
+  -- reward period. Any baker ids that are not current-epoch bakers will be ignored.
+  -- (This is significant, as the finalization record in a block may be signed by a finalizer that
+  -- has since been removed as a baker.)
   -- Note, the finalization-awake status is reset by 'bsoRotateCurrentCapitalDistribution'.
-  bsoMarkFinalizationAwakeBaker :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> BakerId -> m (UpdatableBlockState m)
+  bsoMarkFinalizationAwakeBakers :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> [BakerId] -> m (UpdatableBlockState m)
 
   -- |Update the transaction fee rewards accrued to be distributed to the passive delegators.
   -- Note, unlike 'bsoUpdateAccruedTransactionFeesBaker', this is __not__ reset by
@@ -1352,7 +1354,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoSetPaydayEpoch s e = lift $ bsoSetPaydayEpoch s e
   bsoSetPaydayMintRate s r = lift $ bsoSetPaydayMintRate s r
   bsoUpdateAccruedTransactionFeesBaker s bid f = lift $ bsoUpdateAccruedTransactionFeesBaker s bid f
-  bsoMarkFinalizationAwakeBaker s bid = lift $ bsoMarkFinalizationAwakeBaker s bid
+  bsoMarkFinalizationAwakeBakers s bids = lift $ bsoMarkFinalizationAwakeBakers s bids
   bsoUpdateAccruedTransactionFeesPassive s f = lift $ bsoUpdateAccruedTransactionFeesPassive s f
   bsoGetAccruedTransactionFeesPassive = lift . bsoGetAccruedTransactionFeesPassive
   bsoUpdateAccruedTransactionFeesFoundationAccount s f = lift $ bsoUpdateAccruedTransactionFeesFoundationAccount s f

@@ -109,6 +109,7 @@ data BlockRewardDetailsHash (av :: AccountVersion) where
     BlockRewardDetailsHashV1 :: !PoolRewardsHash -> BlockRewardDetailsHash 'AccountV1
 
 deriving instance Show (BlockRewardDetailsHash av)
+deriving instance Eq (BlockRewardDetailsHash av)
 
 -- |SHA256 hash of 'BlockRewardDetailsHash'.
 brdHash :: BlockRewardDetailsHash av -> H.Hash

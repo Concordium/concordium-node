@@ -2251,12 +2251,34 @@ doUpdateAccruedTransactionFeesBaker pbs bid delta = do
     let accrueAmountBPR bpr = bpr{transactionFeesAccrued = applyAmountDelta delta (transactionFeesAccrued bpr)}
     storePBS pbs =<< modifyBakerPoolRewardDetailsInPoolRewards bsp bid accrueAmountBPR
 
-doMarkFinalizationAwakeBaker :: forall pv m. (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1, MonadBlobStore m) => PersistentBlockState pv -> BakerId -> m (PersistentBlockState pv)
-doMarkFinalizationAwakeBaker pbs bid = do
+doMarkFinalizationAwakeBakers :: forall pv m. (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1, MonadBlobStore m) => PersistentBlockState pv -> [BakerId] -> m (PersistentBlockState pv)
+doMarkFinalizationAwakeBakers pbs bids = do
     bsp <- loadPBS pbs
-    -- TODO: This could be simplified when the baker is already awake, to avoid rewriting the storage.
-    let setAwake bpr = bpr{finalizationAwake = True}
-    storePBS pbs =<< modifyBakerPoolRewardDetailsInPoolRewards bsp bid setAwake
+    let hpr = case bspRewardDetails bsp of BlockRewardDetailsV1 hp -> hp
+    pr <- refLoad hpr
+    let bprs = bakerPoolRewardDetails pr
+    bpc <- bakerPoolCapital <$> refLoad (currentCapital pr)
+    newBPRs <- foldM (markFinalizerAwake bpc) bprs bids
+    newBlockRewardDetails <- BlockRewardDetailsV1 <$> refMake pr{bakerPoolRewardDetails = newBPRs}
+    newHash :: (Rewards.BlockRewardDetailsHash (AccountVersionFor pv))
+        <- getHashM newBlockRewardDetails
+    oldHash <- getHashM (bspRewardDetails bsp)
+    if newHash == oldHash then
+        return pbs
+    else
+        storePBS pbs bsp{bspRewardDetails = newBlockRewardDetails}
+  where
+    markFinalizerAwake bpc bprs bid = do
+        case binarySearchI bcBakerId bpc bid of
+            Nothing -> return bprs
+            Just (i, _) -> do
+                mBPRs <- LFMBT.update setAwake (fromIntegral i) bprs
+                case mBPRs of
+                    Nothing ->
+                        error "Invariant violation: unable to find baker in baker pool reward details tree"
+                    Just ((), newBPRs) ->
+                        return newBPRs
+    setAwake bpr = return ((), bpr{finalizationAwake = True})
 
 doUpdateAccruedTransactionFeesPassive :: forall pv m. (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV1, MonadBlobStore m) => PersistentBlockState pv -> AmountDelta -> m (PersistentBlockState pv)
 doUpdateAccruedTransactionFeesPassive pbs delta = do
@@ -2761,7 +2783,7 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateOperations (Pe
     bsoGetEpochBlocksBaked = doGetEpochBlocksBaked
     bsoNotifyBlockBaked = doNotifyBlockBaked
     bsoUpdateAccruedTransactionFeesBaker = doUpdateAccruedTransactionFeesBaker
-    bsoMarkFinalizationAwakeBaker = doMarkFinalizationAwakeBaker
+    bsoMarkFinalizationAwakeBakers = doMarkFinalizationAwakeBakers
     bsoUpdateAccruedTransactionFeesPassive = doUpdateAccruedTransactionFeesPassive
     bsoGetAccruedTransactionFeesPassive = doGetAccruedTransactionFeesPassive
     bsoUpdateAccruedTransactionFeesFoundationAccount = doUpdateAccruedTransactionFeesFoundationAccount
