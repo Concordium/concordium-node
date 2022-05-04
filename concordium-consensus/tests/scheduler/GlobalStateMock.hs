@@ -181,7 +181,7 @@ data BlockStateOperationsAction pv a where
     BsoRewardAccount :: MockUpdatableBlockState -> AccountIndex -> Amount -> BlockStateOperationsAction pv (Maybe AccountAddress, MockUpdatableBlockState)
     BsoGetBakerPoolRewardDetails :: AccountVersionFor pv ~ 'AccountV1 => MockUpdatableBlockState -> BlockStateOperationsAction pv (Map.Map BakerId BakerPoolRewardDetails)
     BsoUpdateAccruedTransactionFeesBaker :: AccountVersionFor pv ~ 'AccountV1 => MockUpdatableBlockState -> BakerId -> AmountDelta -> BlockStateOperationsAction pv MockUpdatableBlockState
-    BsoMarkFinalizationAwakeBaker :: AccountVersionFor pv ~ 'AccountV1 => MockUpdatableBlockState -> BakerId -> BlockStateOperationsAction pv MockUpdatableBlockState
+    BsoMarkFinalizationAwakeBakers :: AccountVersionFor pv ~ 'AccountV1 => MockUpdatableBlockState -> [BakerId] -> BlockStateOperationsAction pv MockUpdatableBlockState
     BsoUpdateAccruedTransactionFeesPassive :: AccountVersionFor pv ~ 'AccountV1 => MockUpdatableBlockState -> AmountDelta -> BlockStateOperationsAction pv MockUpdatableBlockState
     BsoGetAccruedTransactionFeesPassive :: AccountVersionFor pv ~ 'AccountV1 => MockUpdatableBlockState -> BlockStateOperationsAction pv Amount
     BsoUpdateAccruedTransactionFeesFoundationAccount :: AccountVersionFor pv ~ 'AccountV1 => MockUpdatableBlockState -> AmountDelta -> BlockStateOperationsAction pv MockUpdatableBlockState
