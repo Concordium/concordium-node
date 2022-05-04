@@ -725,9 +725,9 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         bs1' <- coerceBSML $ bsoUpdateAccruedTransactionFeesBaker bs1 bid f
         bs2' <- coerceBSMR $ bsoUpdateAccruedTransactionFeesBaker bs2 bid f
         return (bs1', bs2')
-    bsoMarkFinalizationAwakeBaker (bs1, bs2) bid = do
-        bs1' <- coerceBSML $ bsoMarkFinalizationAwakeBaker bs1 bid
-        bs2' <- coerceBSMR $ bsoMarkFinalizationAwakeBaker bs2 bid
+    bsoMarkFinalizationAwakeBakers (bs1, bs2) bids = do
+        bs1' <- coerceBSML $ bsoMarkFinalizationAwakeBakers bs1 bids
+        bs2' <- coerceBSMR $ bsoMarkFinalizationAwakeBakers bs2 bids
         return (bs1', bs2')
     bsoUpdateAccruedTransactionFeesPassive (bs1, bs2) f = do
         bs1' <- coerceBSML $ bsoUpdateAccruedTransactionFeesPassive bs1 f

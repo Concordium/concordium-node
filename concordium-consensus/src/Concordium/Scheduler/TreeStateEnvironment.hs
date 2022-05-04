@@ -835,7 +835,7 @@ addAwakeFinalizers
     -> m (UpdatableBlockState m)
 addAwakeFinalizers Nothing bs = return bs
 addAwakeFinalizers (Just FinalizerInfo{..}) bs0 =
-    foldM bsoMarkFinalizationAwakeBaker bs0 committeeSigners
+    bsoMarkFinalizationAwakeBakers bs0 committeeSigners
 
 -- |Parameters used by 'mintAndReward' that are determined by 'updateBirkParameters'.
 -- 'updateBirkParameters' determines these, since it makes state changes that would make them

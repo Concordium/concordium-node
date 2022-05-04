@@ -54,7 +54,6 @@ import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types.HashableTo
 import Data.Bits
 import Data.Foldable (foldl', toList)
-import Data.Serialize
 import Data.Word
 import Prelude hiding (lookup)
 import Control.Monad (join)

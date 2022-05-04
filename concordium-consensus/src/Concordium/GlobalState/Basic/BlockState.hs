@@ -1699,9 +1699,21 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
       let accrueAmountBPR bpr = bpr{PoolRewards.transactionFeesAccrued = applyAmountDelta delta (PoolRewards.transactionFeesAccrued bpr)}
       in modifyBakerPoolRewardDetailsInPoolRewards bs bid accrueAmountBPR
 
-    bsoMarkFinalizationAwakeBaker bs bid =
-      let setAwake bpr = bpr{PoolRewards.finalizationAwake = True}
-      in modifyBakerPoolRewardDetailsInPoolRewards bs bid setAwake
+    bsoMarkFinalizationAwakeBakers bs bids = do
+        let bprs0 = PoolRewards.bakerPoolRewardDetails (bs ^. blockPoolRewards)
+        let newBPRs = foldl' markFinalizerAwake bprs0 bids
+        return $! bs & blockPoolRewards %~ \pr -> pr{PoolRewards.bakerPoolRewardDetails = newBPRs}
+      where
+        bpc = bakerPoolCapital $ _unhashed (PoolRewards.currentCapital $ bs ^. blockPoolRewards)
+        setAwake bpr = ((), bpr{PoolRewards.finalizationAwake = True})
+        markFinalizerAwake bprs bid =
+            case binarySearchI bcBakerId bpc bid of
+            Nothing -> bprs
+            Just (i, _) ->
+                case LFMBT.update setAwake (fromIntegral i) bprs of
+                    Nothing ->
+                        error "Invariant violation: unable to find baker in baker pool reward details tree"
+                    Just ((), newBPRs) -> newBPRs
 
     bsoUpdateAccruedTransactionFeesPassive bs delta =
         return $! bs & blockPoolRewards %~ \pr -> pr{PoolRewards.passiveDelegationTransactionRewards = applyAmountDelta delta (PoolRewards.passiveDelegationTransactionRewards pr)}
