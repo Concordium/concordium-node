@@ -264,7 +264,7 @@ function signBinaries() {
     # Find and sign all the binaries and dylibs.
     find "$payloadDir/Library" \
         -type f \
-        -execdir sudo codesign -f --options runtime -s "$developerIdApplication" {} \;
+        -execdir sudo codesign -f --entitlement "$buildDir/entitlements.plist" --options runtime -s "$developerIdApplication" {} \;
 
     # Sign the installer plugin.
     sudo codesign -f --options runtime -s "$developerIdApplication" \
