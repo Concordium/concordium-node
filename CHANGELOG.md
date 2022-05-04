@@ -58,6 +58,7 @@
   - synchronous contract calls
   - fallback entrypoints
   - increased smart contract module size limit, 512kB
+  - a number of cryptographic primitives
 
 ## concordium-node 3.0.1
 
