@@ -4,7 +4,6 @@
 {-# LANGUAGE TypeFamilyDependencies #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 -- FIXME: This is to suppress compiler warnings for derived instances of BlockStateOperations.
 -- This may be fixed in GHC 9.0.1.
@@ -56,7 +55,6 @@ import qualified Data.Sequence as Seq
 import Data.Foldable (foldl')
 import qualified Data.ByteString as BS
 import Data.Word
-import System.IO (Handle)
 import Data.Kind (Type)
 
 import qualified Concordium.Crypto.SHA256 as H
@@ -1002,24 +1000,32 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- current-epoch baker (in the 'CapitalDistribution' returned by 'bsoGetCurrentCapitalDistribution').
   bsoGetBakerPoolRewardDetails :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> m (Map.Map BakerId BakerPoolRewardDetails)
 
-  -- |Update the amount to be distributed to the given baker's account at payday. It is a
-  -- precondition that the given baker is current-epoch baker.
+  -- |Update the transaction fee rewards accruing to a baker pool by the specified delta. It is a
+  -- precondition that the given baker is a current-epoch baker.
+  -- Note, in practice, this is only used to increase the amount accrued to a baker
+  -- as 'bsoRotateCurrentCapitalDistribution' resets the rewards to bakers.
   bsoUpdateAccruedTransactionFeesBaker :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> BakerId -> AmountDelta -> m (UpdatableBlockState m)
 
   -- |Mark that the given baker has signed a finalization proof included in a block during the
   -- reward period. It is a precondition that the given baker is a current-epoch baker.
+  -- Note, the finalization-awake status is reset by 'bsoRotateCurrentCapitalDistribution'.
   bsoMarkFinalizationAwakeBaker :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> BakerId -> m (UpdatableBlockState m)
 
-  -- |Update amount to be distributed to the passive delegators.
+  -- |Update the transaction fee rewards accrued to be distributed to the passive delegators.
+  -- Note, unlike 'bsoUpdateAccruedTransactionFeesBaker', this is __not__ reset by
+  -- 'bsoRotateCurrentCapitalDistribution'. When the passive rewards are paid out, this function is
+  -- called to reduce the accrued rewards by the corresponding amount.
   bsoUpdateAccruedTransactionFeesPassive :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> AmountDelta -> m (UpdatableBlockState m)
 
-  -- |Get the accrued amount to the passive delegators.
+  -- |Get the accrued transaction fee rewards to the passive delegators.
   bsoGetAccruedTransactionFeesPassive :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> m Amount
 
-  -- |Update the amount to distribute to the foundation account.
+  -- |Update the transaction fee rewards accruing to the foundation account.
+  -- As with 'bsoUpdateAccruedTransactionFeesPassive', this is used to accrue the rewards and to
+  -- reset the accrued amount when the rewards are paid out.
   bsoUpdateAccruedTransactionFeesFoundationAccount :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> AmountDelta -> m (UpdatableBlockState m)
 
-  -- |Get the amount to distribute to the foundation account.
+  -- |Get the transaction fee rewards accruing to the foundation account.
   bsoGetAccruedTransactionFeesFoundationAccount :: AccountVersionFor (MPV m) ~ 'AccountV1 => UpdatableBlockState m -> m Amount
 
   -- |Add an amount to the foundation account.
@@ -1183,10 +1189,6 @@ class (BlockStateOperations m, Serialize (BlockStateRef m)) => BlockStateStorage
     -- |Serialize the block state to a byte string.
     -- This serialization does not include transaction outcomes.
     serializeBlockState :: BlockState m -> m BS.ByteString
-
-    -- |Serialize the block state to a file handle.
-    -- This serialization does not include transaction outcomes.
-    writeBlockState :: Handle -> BlockState m -> m ()
 
     -- |Retrieve the callback that is needed to read state that is not in
     -- memory. This is needed for using V1 contract state.
@@ -1435,7 +1437,6 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
     loadBlockState hsh = lift . loadBlockState hsh
     cacheBlockState = lift . cacheBlockState
     serializeBlockState = lift . serializeBlockState
-    writeBlockState fh bs = lift $ writeBlockState fh bs
     blockStateLoadCallback = lift blockStateLoadCallback
     {-# INLINE thawBlockState #-}
     {-# INLINE freezeBlockState #-}
@@ -1446,7 +1447,6 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
     {-# INLINE loadBlockState #-}
     {-# INLINE cacheBlockState #-}
     {-# INLINE serializeBlockState #-}
-    {-# INLINE writeBlockState #-}
     {-# INLINE blockStateLoadCallback #-}
 
 deriving via (MGSTrans MaybeT m) instance BlockStateQuery m => BlockStateQuery (MaybeT m)

@@ -472,6 +472,8 @@ filterKeysM f t = do
     foldM (flip delete) t keysToDelete
 
 -- |Apply a monadic alteration to each element of a Trie.
+-- The update function will be called once for each entry in the Trie.
+-- The order is not specified.
 alterMapM :: (MRecursive m (fix (TrieF k v)), MCorecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, FixedTrieKey k) =>
     (k -> v -> m (Alteration v)) -> TrieN fix k v -> m (TrieN fix k v)
 alterMapM upd t0 = do

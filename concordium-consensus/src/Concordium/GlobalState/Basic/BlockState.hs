@@ -24,7 +24,6 @@ import Data.Foldable
 import Data.Functor.Identity
 import Data.Serialize
 import qualified Data.Sequence as Seq
-import Data.ByteString.Builder (hPutBuilder)
 import Control.Monad.IO.Class
 import qualified Control.Monad.State.Strict as MTL
 import qualified Control.Monad.Except as MTL
@@ -1833,9 +1832,6 @@ instance (IsProtocolVersion pv, MonadIO m) => BS.BlockStateStorage (PureBlockSta
 
     {-# INLINE serializeBlockState #-}
     serializeBlockState = return . runPut . putBlockState . _unhashedBlockState
-
-    {-# INLINE writeBlockState #-}
-    writeBlockState h = PureBlockStateMonad . liftIO . hPutBuilder h . snd . runPutMBuilder . putBlockState . _unhashedBlockState
 
     {-# INLINE blockStateLoadCallback #-}
     blockStateLoadCallback = return errorLoadCallback -- basic block state is not written, so it never has to be loaded.

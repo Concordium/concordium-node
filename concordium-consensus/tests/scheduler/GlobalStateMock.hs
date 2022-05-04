@@ -11,6 +11,9 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
 
+-- |This module provides a mocked implementation of the block state-related monads.
+-- This supports writing unit tests that define the sequence of actions that should be taken by
+-- a function.
 module GlobalStateMock where
 
 import Control.Monad.Identity
@@ -43,13 +46,12 @@ import Concordium.ID.Parameters
 import Data.Word
 import GlobalStateMock.Actions
 
+-- |Pair an action that produces a result with the expected result.
 data WithResult f where
     (:->) :: f r -> r -> WithResult f
 
 instance (Act f) => Show (WithResult f) where
     show (act :-> res) = show act ++ " :-> " ++ showRes act res
-
-type (:~>) a b = [(a,b)]
 
 newtype MockBlockState = MockBlockState Integer
     deriving (Eq, Show)
@@ -62,6 +64,7 @@ newtype MockContractState (v :: Wasm.WasmVersion) = MockContractState Integer
 newtype MockBakerInfoRef = MockBakerInfoRef Integer
     deriving (Eq, Show)
 
+-- |Mock type for 'AccountOperations'.
 data AccountOperationsAction (pv :: ProtocolVersion) a where
     GetAccountCanonicalAddress :: MockAccount -> AccountOperationsAction pv AccountAddress
     GetAccountAmount :: MockAccount -> AccountOperationsAction pv Amount
@@ -87,11 +90,14 @@ deriving instance Show (AccountOperationsAction pv a)
 
 generateAct ''AccountOperationsAction
 
+-- |Mock type for 'ContractStateOperations'.
+-- None of the operations are currently implemented.
 data ContractStateOperationsAction a where
 
 deriving instance Eq (ContractStateOperationsAction a)
 deriving instance Show (ContractStateOperationsAction a)
 
+-- |Mock type for 'BlockStateQuery'.
 data BlockStateQueryAction (pv :: ProtocolVersion) a where
     GetModule :: MockBlockState -> ModuleRef -> BlockStateQueryAction pv (Maybe Wasm.WasmModule)
     GetModuleInterface :: MockBlockState -> ModuleRef -> BlockStateQueryAction pv (Maybe GSWasm.ModuleInterface)
@@ -138,6 +144,9 @@ deriving instance Show (BlockStateQueryAction pv a)
 
 generateAct ''BlockStateQueryAction
 
+-- |Mock type for 'BlockStateOperations'.
+-- Note, 'bsoPutNewInstance', 'bsoModifyInstance', 'bsoPutNewModule', and 'bsoProcessPendingChanges'
+-- are not supported as the arguments do not permit equality checks.
 data BlockStateOperationsAction pv a where
     BsoGetModule :: MockUpdatableBlockState -> ModuleRef -> BlockStateOperationsAction pv (Maybe GSWasm.ModuleInterface)
     BsoGetAccount :: MockUpdatableBlockState -> AccountAddress -> BlockStateOperationsAction pv (Maybe (AccountIndex, MockAccount))
@@ -147,19 +156,15 @@ data BlockStateOperationsAction pv a where
     BsoAddressWouldClash :: MockUpdatableBlockState -> ID.AccountAddress -> BlockStateOperationsAction pv Bool
     BsoRegIdExists :: MockUpdatableBlockState -> ID.CredentialRegistrationID -> BlockStateOperationsAction pv Bool
     BsoCreateAccount :: MockUpdatableBlockState -> GlobalContext -> AccountAddress -> ID.AccountCredential -> BlockStateOperationsAction pv (Maybe MockAccount, MockUpdatableBlockState)
-    --BsoPutNewInstance :: MockUpdatableBlockState -> (ContractAddress :~> Instance) -> BlockStateOperationsAction pv (ContractAddress, MockUpdatableBlockState)
-    -- BsoPutNewModule :: Wasm.IsWasmVersion v => MockUpdatableBlockState -> (GSWasm.ModuleInterfaceV v, Wasm.WasmModuleV v) -> BlockStateOperationsAction pv (Bool, MockUpdatableBlockState)
     BsoModifyAccount :: MockUpdatableBlockState -> AccountUpdate -> BlockStateOperationsAction pv MockUpdatableBlockState
     BsoSetAccountCredentialKeys :: MockUpdatableBlockState -> AccountIndex -> ID.CredentialIndex -> ID.CredentialPublicKeys -> BlockStateOperationsAction pv MockUpdatableBlockState
     BsoUpdateAccountCredentials :: MockUpdatableBlockState -> AccountIndex -> [ID.CredentialIndex] -> Map.Map ID.CredentialIndex ID.AccountCredential -> ID.AccountThreshold -> BlockStateOperationsAction pv MockUpdatableBlockState
-    -- BsoModifyInstance :: Wasm.IsWasmVersion v => MockUpdatableBlockState -> ContractAddress -> AmountDelta -> Maybe (UpdatableContractState v) -> BlockStateOperationsAction pv MockUpdatableBlockState
     BsoNotifyEncryptedBalanceChange :: MockUpdatableBlockState -> AmountDelta -> BlockStateOperationsAction pv MockUpdatableBlockState
     BsoGetSeedState :: MockUpdatableBlockState -> BlockStateOperationsAction pv SeedState
     BsoSetSeedState :: MockUpdatableBlockState -> SeedState -> BlockStateOperationsAction pv MockUpdatableBlockState
     BsoRotateCurrentEpochBakers :: MockUpdatableBlockState -> BlockStateOperationsAction pv MockUpdatableBlockState
     BsoSetNextEpochBakers :: (AccountVersionFor pv ~ 'AccountV1) => MockUpdatableBlockState -> [(MockBakerInfoRef, Amount)] -> BlockStateOperationsAction pv MockUpdatableBlockState
     BsoTransitionEpochBakers :: (AccountVersionFor pv ~ 'AccountV0) => MockUpdatableBlockState -> Epoch -> BlockStateOperationsAction pv MockUpdatableBlockState
-    --BsoProcessPendingChanges :: (AccountVersionFor pv ~ 'AccountV1) => MockUpdatableBlockState -> (PendingChangeEffective (AccountVersionFor pv) :~> Bool) -> BlockStateOperationsAction pv MockUpdatableBlockState
     BsoGetActiveBakers :: MockUpdatableBlockState -> BlockStateOperationsAction pv [BakerId]
     BsoGetActiveBakersAndDelegators :: (AccountVersionFor pv ~ 'AccountV1) => MockUpdatableBlockState -> BlockStateOperationsAction pv ([ActiveBakerInfo' MockBakerInfoRef], [ActiveDelegatorInfo])
     BsoGetCurrentEpochBakers :: MockUpdatableBlockState -> BlockStateOperationsAction pv FullBakers
@@ -240,15 +245,20 @@ newtype MockT f m a = MockT {runMockT' :: StateT [WithResult f] m a}
 
 type Mock f a = MockT f Identity a
 
+-- |Given the expected trace of a monadic action, run the action, mocking the results of the monadic
+-- calls, checking that the behaviour matches the expected trace.
 runMockT :: (Act f, Monad m) => [WithResult f] -> MockT f m a -> m a
 runMockT actions (MockT mock) =
     runStateT mock actions >>= \case
         (res, []) -> return res
         (_, a : as) -> error $ "Not all actions were consumed: " ++ show a ++ " (and " ++ show (length as) ++ " more)"
 
+-- |A specialisation of 'runMockT' to the 'Identity' underlying monad.
 runMock :: (Act f) => [WithResult f] -> Mock f a -> a
 runMock actions = runIdentity . runMockT actions
 
+-- |Mock up an action by checking that the arguments are as expected and returning the result
+-- provided by the trace.
 mockAction :: (Act f, Monad m) => f a -> MockT f m a
 mockAction act =
     MockT $

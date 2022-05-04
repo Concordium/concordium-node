@@ -113,32 +113,6 @@ instance HashableTo H.Hash v => HashableTo H.Hash (LFMBTree k v) where
   getHash Empty = H.hash "EmptyLFMBTree"
   getHash (NonEmpty _ v) = getHash v
 
-instance Serialize v => Serialize (LFMBTree k v) where
-  put Empty = putWord64be 0
-  put (NonEmpty h t) = do
-    putWord64be (coerce h)
-    put t
-  get = do
-    tag <- getWord64be
-    case tag of
-      0 -> return Empty
-      h -> NonEmpty (coerce h) <$> get
-
-instance Serialize v => Serialize (T v) where
-  put (Leaf v) = do
-    putWord8 0
-    put v
-  put (Node h l r) = do
-    putWord8 1
-    putWord64be h
-    put l
-    put r
-  get = do
-    tag <- getWord8
-    case tag of
-      0 -> Leaf <$> get
-      _ -> Node <$> getWord64be <*> get <*> get
-
 type instance Index (LFMBTree k v) = k
 type instance IxValue (LFMBTree k v) = v
 instance (Bits k, Ord k, Coercible k Word64) => Ixed (LFMBTree k v) where
