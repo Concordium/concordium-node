@@ -24,6 +24,9 @@ Expected env vars:
 Supported env vars:
 * `EXTRA_ACCOUNTS_TEMPLATE`, `NUM_EXTRA_ACCOUNTS`, `EXTRA_ACCOUNTS_BALANCE`:
   The naming to use for extra accounts (this enables them being generated), how many to create, and with what balance.
+* `DROP_ACCOUNT_BALANCE` will, if set to a CCD amount, generate another extra account in the
+  folder `drop`. Note that if you set this and `EXTRA_ACCOUNTS_TEMPLATE` then
+  the latter is different from `drop`.
 * See the source code of the script for more.
 
 ### Example build command
