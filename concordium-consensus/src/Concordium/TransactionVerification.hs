@@ -273,7 +273,7 @@ verifyNormalTransaction meta =
     unless (Tx.transactionGasAmount meta >= cost) $ throwError $ NotOk NormalTransactionDepositInsufficient
     -- Check that the required energy does not exceed the maximum allowed for a block
     maxEnergy <- lift getMaxBlockEnergy
-    unless (maxEnergy > Tx.transactionGasAmount meta) $ throwError $ NotOk NormalTransactionEnergyExceeded
+    when (Tx.transactionGasAmount meta > maxEnergy) $ throwError $ NotOk NormalTransactionEnergyExceeded
     -- Check that the sender account exists
     let addr = Tx.transactionSender meta
     macc <- lift (getAccount addr)
