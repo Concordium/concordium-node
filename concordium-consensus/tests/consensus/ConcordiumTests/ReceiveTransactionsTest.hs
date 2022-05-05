@@ -103,6 +103,7 @@ test = do
       check resultingState results 20 ResultSuccess True -- here to check that the TransactionVerifier uses the `correct` nonce for checking validity.
       check resultingState results 21 ResultEnergyExceeded False
       check resultingState results 22 ResultDuplicateNonce False
+      check resultingState results 23 ResultSuccess True -- exactly max block energy
     specify "Credential deployments received individually" $ do
       let credentialDeploymentExpiryTime = 1596409020
           now = posixSecondsToUTCTime $ credentialDeploymentExpiryTime - 1
@@ -151,6 +152,7 @@ test = do
       check resultingState results 20 ResultSuccess True
       check resultingState results 21 ResultEnergyExceeded False
       check resultingState results 22 ResultDuplicateNonce False
+      check resultingState results 23 ResultSuccess True -- exactly max block energy
     specify "doReceiveTransactionInternal with valid credential deployment"  $ do
       let credentialDeploymentExpiryTime = 1596409020
           now = posixSecondsToUTCTime $ credentialDeploymentExpiryTime - 1
@@ -231,10 +233,13 @@ runMyMonad' act time gd = runPureBlockStateMonad (initialSkovDataDefault gd (has
       let (_, newAccounts) = putNewAccount dummyAccount (blockstate ^. blockAccounts)
       blockstate & blockAccounts .~ newAccounts
 
+maxBlockEnergy :: Energy
+maxBlockEnergy = 3000000
+
 -- |Construct a genesis state with hardcoded values for parameters that should not affect this test.
 -- Modify as you see fit.
 testGenesisData :: UTCTime -> IdentityProviders -> AnonymityRevokers -> CryptographicParameters -> GenesisData PV
-testGenesisData now ips ars cryptoParams = makeTestingGenesisDataP1 (utcTimeToTimestamp now) 1 1 1 dummyFinalizationCommitteeMaxSize cryptoParams ips ars (maxBound - 1) dummyKeyCollection dummyChainParameters
+testGenesisData now ips ars cryptoParams = makeTestingGenesisDataP1 (utcTimeToTimestamp now) 1 1 1 dummyFinalizationCommitteeMaxSize cryptoParams ips ars maxBlockEnergy dummyKeyCollection dummyChainParameters
 
 -- |Run the doReceiveTransaction function and obtain the results
 testDoReceiveTransaction :: [BlockItem] -> Slot -> MyMonad [(TransactionHash, UpdateResult)]
@@ -305,7 +310,8 @@ normals now isSingle successNonce =
     verifiable successNonce, -- duplicate nonce 
     verifiable $ 1 + successNonce, 
     tooMuchEnergy,
-    verifiable 0 -- duplicate nonce
+    verifiable 0, -- duplicate nonce
+    atMaxBlockEnergy
   ]
   where
     expired = toBlockItem now $ mkAccountTransaction (now-1) True 1 True TheCost
@@ -324,6 +330,8 @@ normals now isSingle successNonce =
     tooMuchEnergy = if isSingle
       then toBlockItem now $ mkAccountTransaction (now+1) True 2 True TooMuch
       else toBlockItem now $ mkAccountTransaction (now+1) True 5 True TooMuch
+    -- transactions which state exactly the max block energy bound should be accepted
+    atMaxBlockEnergy = toBlockItem now $ mkAccountTransaction (now + 1) True (if isSingle then 3 else 6) True MaxBlockEnergy
 
 toBlockItem :: TransactionTime -> BareBlockItem -> BlockItem
 toBlockItem now bbi =
@@ -345,6 +353,8 @@ data TestEnergyParam
   -- ^The tranasction will be provided with a too little amount of energy for
   -- the particular transaction.
   | TooMuch
+  -- ^The tranasction will be provided with exactly maximum block energy amount.
+  | MaxBlockEnergy
   -- ^The energy provided was more than what is allowed in a block,
   -- and as such the transaction will be rejected.
   | TheCost
@@ -377,6 +387,7 @@ mkAccountTransaction expiry validSignature nonce validSender energyAmount =
     theCost = case energyAmount of
       TooLittle -> 0
       TooMuch -> maxBound
+      MaxBlockEnergy -> maxBlockEnergy
       TheCost -> Cost.baseCost (getTransactionHeaderPayloadSize mkHeaderWithoutCost) 1
     mkHeaderWithoutCost = TransactionHeader
       {
@@ -582,7 +593,7 @@ mkDummyAccount :: Int -> Account (AccountVersionFor PV)
 mkDummyAccount seed =
   let publicKey = SigScheme.correspondingVerifyKey (dummyKeyPair seed)
       aaddr = dummyAccountAddress seed
-      balance = 10 ^ (6 :: Int)
+      balance = 10 ^ (10 :: Int)
   in mkAccount publicKey aaddr balance
 
 dummyAccountAddress :: Int -> AccountAddress
