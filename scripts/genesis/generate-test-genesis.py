@@ -122,6 +122,8 @@ EXTRA_ACCOUNTS_TEMPLATE=os.environ.get("EXTRA_ACCOUNTS_TEMPLATE")
 NUM_EXTRA_ACCOUNTS=os.environ.get("NUM_EXTRA_ACCOUNTS")
 # Balance of additional accounts, only used if EXTRA_ACCOUNTS_TEMPLATE is provided.
 EXTRA_ACCOUNTS_BALANCE=os.environ.get("EXTRA_ACCOUNTS_BALANCE")
+# Balance of a special CCD drop account that gets its own balance
+DROP_ACCOUNT_BALANCE=os.environ.get("DROP_ACCOUNT_BALANCE")
 
 # Helper defined constants
 GLOBAL_FILE = os.path.join(GENESIS_DIR, "global.json")
@@ -215,7 +217,7 @@ def generate_update_keys():
 
 
 # Combine all the accounts into a single accounts file to be fed into the genesis tool.
-def combine(foundation_account, extra = None):
+def combine(foundation_account, extra = None, drop = None):
     ips_path = os.path.join(GENESIS_DIR, "identity_providers.json")
     ars_path = os.path.join(GENESIS_DIR, "anonymity_revokers.json")
 
@@ -230,17 +232,27 @@ def combine(foundation_account, extra = None):
 
     accounts = os.path.join(GENESIS_DIR, "initial_accounts.json")
 
+    all_accounts = []
     with open(accounts, "w") as out_file:
         with open(os.path.join(GENESIS_DIR, "bakers", "baker-accounts.json")) as ba:
-            with open(os.path.join(GENESIS_DIR, "foundation-accounts", "foundation-accounts.json")) as fa:
-                bas = json.load(ba)
-                fas = json.load(fa)
-                if extra is not None:
-                    with open(os.path.join(GENESIS_DIR, f"{extra}s", f"{extra}s.json")) as ea:
-                        eas = json.load(ea)
-                        json.dump(bas + fas + eas, out_file)
-                else:
-                    json.dump(bas + fas, out_file)
+            bas = json.load(ba)
+            all_accounts += bas
+
+        with open(os.path.join(GENESIS_DIR, "foundation-accounts", "foundation-accounts.json")) as fa:
+            fas = json.load(fa)
+            all_accounts += fas
+
+        if extra is not None:
+            with open(os.path.join(GENESIS_DIR, f"{extra}s", f"{extra}s.json")) as ea:
+                eas = json.load(ea)
+                all_accounts += eas
+
+        if drop is not None:
+            with open(os.path.join(GENESIS_DIR, "drops", "drops.json")) as da:
+                das = json.load(da)
+                all_accounts += das
+
+        json.dump(all_accounts, out_file)
 
     out_genesis = os.path.join(GENESIS_DIR, "genesis.dat")
 
@@ -276,7 +288,10 @@ create_bakers()
 foundation_account = create_accounts()
 if EXTRA_ACCOUNTS_TEMPLATE is not None:
     create_accounts(template = EXTRA_ACCOUNTS_TEMPLATE, num = NUM_EXTRA_ACCOUNTS, balance = EXTRA_ACCOUNTS_BALANCE)
+# If requested, create a CCD drop account with a special balance
+if DROP_ACCOUNT_BALANCE is not None:
+    create_accounts(template = "drop", num = "1", balance = DROP_ACCOUNT_BALANCE)
 # Generate keys for all the updates.
 generate_update_keys()
 # And finally combine everything and output genesis.dat suitable for starting a baker.
-combine(foundation_account, extra = EXTRA_ACCOUNTS_TEMPLATE)
+combine(foundation_account, extra = EXTRA_ACCOUNTS_TEMPLATE, drop = DROP_ACCOUNT_BALANCE)
