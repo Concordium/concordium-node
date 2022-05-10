@@ -1122,7 +1122,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   bsoGetEpochBlocksBaked :: UpdatableBlockState m -> m (Word64, [(BakerId, Word64)])
 
   -- |Record that the given baker has baked a block in the current epoch. It is a precondition that
-  -- the given baker is active.
+  -- the given baker is a current-epoch baker.
   bsoNotifyBlockBaked :: UpdatableBlockState m -> BakerId -> m (UpdatableBlockState m)
 
   -- |Clear the tracking of baked blocks in the current epoch.

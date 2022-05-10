@@ -932,7 +932,7 @@ instance Monad m => BS.ContractStateOperations (PureBlockStateMonad pv m) where
   thawContractState (Instance.InstanceStateV1 st) = return (StateV1.thawInMemoryPersistent st)
   stateSizeV0 (Instance.InstanceStateV0 cs) = return (Wasm.contractStateSize cs)
   getV1StateContext = return errorLoadCallback
-  contractStateToByteString (Instance.InstanceStateV0 st) = return (Wasm.contractState st)
+  contractStateToByteString (Instance.InstanceStateV0 st) = return (encode st)
   contractStateToByteString (Instance.InstanceStateV1 st) = return (encode st)
   {-# INLINE thawContractState #-}
   {-# INLINE stateSizeV0 #-}
@@ -1104,7 +1104,8 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             reduceDelegatorStake accId acctDel newAmt = do
                 blockAccounts . Accounts.indexedAccount accId %=!
                     (accountStaking .~ AccountStakeDelegate acctDel{
-                            _delegationStakedAmount = newAmt
+                            _delegationStakedAmount = newAmt,
+                            _delegationPendingChange = NoChange
                         })
                 return True
 
@@ -1451,6 +1452,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                 & birkActiveBakers . passiveDelegators %~
                     (apDelegators %~ Set.insert did)
                     . (apDelegatorTotalCapital +~ dcaCapital)
+                & birkActiveBakers . totalActiveCapital +~ dcaCapital
           updateBirk (DelegateToBaker bid) =
             let ab = bs ^. blockBirkParameters . birkActiveBakers
                 mDels = Map.lookup bid (ab ^. activeBakers)

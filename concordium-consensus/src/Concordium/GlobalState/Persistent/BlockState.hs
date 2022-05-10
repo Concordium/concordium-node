@@ -2660,8 +2660,8 @@ instance (MonadIO m, PersistentState r m) => ContractStateOperations (Persistent
   thawContractState (Instances.InstanceStateV1 inst) = liftIO . flip StateV1.thaw inst . fst =<< getCallbacks
   stateSizeV0 (Instances.InstanceStateV0 inst) = return (Wasm.contractStateSize inst)
   getV1StateContext = asks blobLoadCallback
-  contractStateToByteString (Instances.InstanceStateV0 st) = return (Wasm.contractState st)
-  contractStateToByteString (Instances.InstanceStateV1 st) = StateV1.toByteString st
+  contractStateToByteString (Instances.InstanceStateV0 st) = return (encode st)
+  contractStateToByteString (Instances.InstanceStateV1 st) = runPut . putByteStringLen <$> StateV1.toByteString st
   {-# INLINE thawContractState #-}
   {-# INLINE stateSizeV0 #-}
   {-# INLINE getV1StateContext #-}
