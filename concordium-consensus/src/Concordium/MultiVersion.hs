@@ -279,8 +279,7 @@ class MultiVersion gsconf finconf where
 
     -- |Supply a 'VersionedSkovM' action with instances of 'SkovMonad', 'FinalizationMonad' and
     -- 'TreeStateMonad'.
-    liftSkov ::
-        IsProtocolVersion pv =>
+    liftSkov :: IsProtocolVersion pv =>
         ( ( SkovMonad (VersionedSkovM gsconf finconf pv),
             FinalizationMonad (VersionedSkovM gsconf finconf pv),
             TreeStateMonad (VersionedSkovM gsconf finconf pv)
@@ -290,9 +289,7 @@ class MultiVersion gsconf finconf where
         VersionedSkovM gsconf finconf pv a
 
 instance
-    ( forall pv. IsProtocolVersion pv => SkovMonad (VersionedSkovM gsconf finconf pv),
-      forall pv. IsProtocolVersion pv => FinalizationMonad (VersionedSkovM gsconf finconf pv),
-      forall pv. IsProtocolVersion pv => BakerMonad (VersionedSkovM gsconf finconf pv),
+    ( forall pv. IsProtocolVersion pv => BakerMonad (VersionedSkovM gsconf finconf pv),
       forall pv. IsProtocolVersion pv => TreeStateMonad (VersionedSkovM gsconf finconf pv)
     ) =>
     MultiVersion gsconf finconf
