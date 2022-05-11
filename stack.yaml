@@ -1,7 +1,7 @@
 # This should be kept in line with concordium-consensus/stack.yaml and
 # concordium-base/stack.yaml
 
-resolver: lts-17.4
+resolver: lts-19.6
 
 packages:
 - ./concordium-base
@@ -13,3 +13,8 @@ extra-deps:
 extra-lib-dirs:
 - ./concordium-base/lib
 - ./concordium-consensus/smart-contracts/lib
+- /opt/homebrew/lib
+
+extra-include-dirs:
+- /opt/homebrew/include/
+- /Library/Developer/CommandLineTools/SDKs/MacOSX12.3.sdk/usr/include/ffi/

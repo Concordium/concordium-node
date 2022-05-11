@@ -18,7 +18,7 @@
 #
 # resolver: ./custom-snapshot.yaml
 # resolver: https://example.com/snapshots/2018-01-01.yaml
-resolver: lts-17.4
+resolver: lts-19.6
 
 # User packages to be built.
 # Various formats can be used as shown in the example below.
@@ -47,6 +47,11 @@ extra-deps:
 extra-lib-dirs:
 - ../concordium-base/lib
 - ./smart-contracts/lib
+- /opt/homebrew/lib
+
+extra-include-dirs:
+- /opt/homebrew/include/
+- /Library/Developer/CommandLineTools/SDKs/MacOSX12.3.sdk/usr/include/ffi/
 
 # Override default flag values for local packages and extra-deps
 # flags: {}
