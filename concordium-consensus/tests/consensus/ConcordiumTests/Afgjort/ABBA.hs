@@ -66,7 +66,7 @@ selectFromSeq' g s =
     (Seq.index s n, Seq.deleteAt n s, g')
 
 atParty :: Party -> Traversal' (Vec.Vector a) a
-atParty = ix . fromIntegral
+atParty p = ix $ fromIntegral p
 
 runABBATestRG :: RandomGen g => g -> BS.ByteString -> Int -> Int -> Vec.Vector VRF.KeyPair -> Seq.Seq (Party, ABBAInput) -> IO Property
 runABBATestRG g0 baid nparties allparties vrfkeys = go g0 iStates iResults
