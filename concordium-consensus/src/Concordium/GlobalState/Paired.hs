@@ -564,7 +564,7 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
                     iiParameters = iiParameters iv1,
                     iiBalance = iiBalance iv1,
                     iiState = case S.decode statebs of
-                        Left err -> error $"Could not decode left V0 state: " ++ err
+                        Left err -> error $ "Could not decode left V0 state: " ++ err
                         Right x -> x
                     }
               (InstanceInfoV1 iv1, InstanceInfoV1 iv2) ->
@@ -575,7 +575,7 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
                     iiParameters = iiParameters iv1,
                     iiBalance = iiBalance iv1,
                     iiState = case S.decode statebs of
-                        Left err -> error $"Could not decode left V1 state: " ++ err
+                        Left err -> error $ "Could not decode left V1 state: " ++ err
                         Right x -> x
                     }
               (InstanceInfoV0 _, InstanceInfoV1 _) -> error $ "Left state returns V0 instance, but right state V1 for address " ++ show caddr
