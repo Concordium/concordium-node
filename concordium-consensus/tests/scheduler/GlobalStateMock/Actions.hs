@@ -27,8 +27,8 @@ class (forall a. Show (f a)) => Act f where
 generateAct :: Name -> Q [Dec]
 generateAct typName = do
     (TyConI (DataD _ _ bindrs _ constructors _)) <- reify typName
-    let bndName (PlainTV nm) = nm
-        bndName (KindedTV nm _) = nm
+    let bndName (PlainTV nm _) = nm
+        bndName (KindedTV nm _ _) = nm
     let vars = bndName <$> init bindrs
     let accumConstrs (NormalC n l) = ((n, length l) :)
         accumConstrs (RecC n l) = ((n, length l) :)
