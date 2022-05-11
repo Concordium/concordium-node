@@ -3,9 +3,9 @@ use std::{env, path::Path};
 use std::{process::Command, str};
 
 #[cfg(all(not(feature = "static"), target_os = "linux"))]
-const GHC_VARIANT: &str = "x86_64-linux-ghc-8.10.4";
+const GHC_VARIANT: &str = "x86_64-linux-ghc-9.0.2";
 #[cfg(all(not(feature = "static"), target_os = "macos"))]
-const GHC_VARIANT: &str = "x86_64-osx-ghc-8.10.4";
+const GHC_VARIANT: &str = "aarch64-osx-ghc-9.0.2";
 
 #[cfg(not(feature = "static"))]
 fn command_output(cmd: &mut Command) -> String {
@@ -158,6 +158,11 @@ fn link_ghc_libs() -> std::io::Result<std::path::PathBuf> {
         ]))
     });
     let rts_dir = Path::new(&ghc_lib_dir).join("rts");
+    let rts_dir = if rts_dir.exists() {
+        rts_dir
+    } else {
+        Path::new(&ghc_lib_dir).join(GHC_VARIANT)
+    };
     println!("cargo:rustc-link-search=native={}", rts_dir.to_string_lossy());
     for item in std::fs::read_dir(&rts_dir)?.filter_map(Result::ok) {
         let path = item.path();
