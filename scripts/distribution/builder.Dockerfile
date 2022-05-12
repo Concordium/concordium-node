@@ -17,6 +17,11 @@ FROM concordium/static-libraries:${static_libraries_image_tag} as static-builder
 COPY . /build
 ARG ghc_version
 WORKDIR /build
+RUN set -eux && \
+    apt-get update && \
+    apt-get -qy install \
+    make \
+    && rm -rf /var/lib/apt/lists/*
 RUN GHC_VERSION="${ghc_version}" \
       /build/scripts/static-libraries/build-static-libraries.sh
 
