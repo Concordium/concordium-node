@@ -77,7 +77,7 @@ import Concordium.Kontrol
 -- |The hash that identifies a update from P3 to P4 protocol.
 -- This is the hash of the published specification document.
 updateHash :: SHA256.Hash
-updateHash = read "0000000000000000000000000000000000000000000000000000000000000000"
+updateHash = read "20c6f246713e573fb5bfdf1e59c0a6f1a37cded34ff68fda4a60aa2ed9b151aa"
 
 -- |Construct the genesis data for a P3.ProtocolP4 update.
 -- It is assumed that the last finalized block is the terminal block of the old chain:
