@@ -13,8 +13,3 @@ extra-deps:
 extra-lib-dirs:
 - ./concordium-base/lib
 - ./concordium-consensus/smart-contracts/lib
-- /opt/homebrew/lib
-
-extra-include-dirs:
-- /opt/homebrew/include/
-- /Library/Developer/CommandLineTools/SDKs/MacOSX12.3.sdk/usr/include/ffi/

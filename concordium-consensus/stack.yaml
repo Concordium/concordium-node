@@ -47,11 +47,6 @@ extra-deps:
 extra-lib-dirs:
 - ../concordium-base/lib
 - ./smart-contracts/lib
-- /opt/homebrew/lib
-
-extra-include-dirs:
-- /opt/homebrew/include/
-- /Library/Developer/CommandLineTools/SDKs/MacOSX12.3.sdk/usr/include/ffi/
 
 # Override default flag values for local packages and extra-deps
 # flags: {}
