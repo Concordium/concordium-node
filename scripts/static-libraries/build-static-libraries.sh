@@ -1,20 +1,17 @@
 #!/usr/bin/env bash
 
 set -ex
-STACK_VERSION="2.7.1"
 
 #############################################################################################################################
 ## Copy GHC libs
 
 mkdir -p /target/{profiling,vanilla}/{ghc,dependencies,concordium}
 mkdir -p /binaries/{lib,bin}
-for lib in $(find `stack --stack-yaml /build/concordium-consensus/stack.static.yaml ghc -- --print-libdir` -type f -name "*_p.a" ! -name "*_debug_p.a" ! -name "*rts_p.a" ! -name "*ffi_p.a"); do
-    cp $lib /target/profiling/ghc/
-done
 
-for lib in $(find `stack --stack-yaml /build/concordium-consensus/stack.static.yaml ghc -- --print-libdir` -type f -name "*.a" ! -name "*_p.a" ! -name "*_l.a" ! -name "*_debug.a" ! -name "*rts.a" ! -name "*ffi.a"); do
-    cp $lib /target/vanilla/ghc/
-done
+LIB_DIR=$(stack --stack-yaml /build/concordium-consensus/stack.static.yaml ghc -- --print-libdir)
+
+find "$LIB_DIR" -type f -name "*_p.a" ! -name "*_debug_p.a" ! -name "*rts_p.a" ! -name "*ffi_p.a" -exec cp {} /target/profiling/ghc/ \;
+find "$LIB_DIR" -type f -name "*.a" ! -name "*_p.a" ! -name "*_l.a" ! -name "*_debug.a" ! -name "*rts.a" ! -name "*ffi.a" -exec cp {} /target/vanilla/ghc/ \;
 
 cd /build
 
@@ -22,42 +19,29 @@ cd /build
 ## Build the project
 
 stack build --profile --flag "concordium-consensus:-dynamic" --stack-yaml /build/concordium-consensus/stack.static.yaml
-
-for lib in $(find /build/concordium-consensus/.stack-work -type f -name "*.a" ! -name "*_p.a"); do
-    cp $lib /target/vanilla/concordium/;
-done
-
-for lib in $(find /build/concordium-consensus/.stack-work -type f -name "*_p.a"); do
-    cp $lib /target/profiling/concordium/;
-done
+find /build/concordium-consensus/.stack-work -type f -name "*.a" ! -name "*_p.a" -exec cp {} /target/vanilla/concordium/ \;
+find /build/concordium-consensus/.stack-work -type f -name "*_p.a" -exec cp {} /target/profiling/concordium/ \;
 
 #############################################################################################################################
 ## Copy rust binaries
 
-cp $(stack --stack-yaml /build/concordium-consensus/stack.static.yaml path --profile --local-install-root)/bin/{generate-update-keys,genesis,database-exporter} /binaries/bin/
+LOCAL_INSTALL_ROOT=$(stack --stack-yaml /build/concordium-consensus/stack.static.yaml path --profile --local-install-root)
+cp "$LOCAL_INSTALL_ROOT"/bin/{generate-update-keys,genesis,database-exporter} /binaries/bin/
 cp /build/concordium-base/rust-src/target/release/*.so /binaries/lib/
 cp /build/concordium-consensus/smart-contracts/wasm-chain-integration/target/release/*.so /binaries/lib/
 cargo build --release --manifest-path /build/concordium-base/rust-bins/Cargo.toml
 cp /build/concordium-base/rust-bins/target/release/{client,genesis_tool,generate_testdata} /binaries/bin/
 
-
 #############################################################################################################################
 ## Copy dependencies
 
-for lib in $(find ~/.stack/snapshots/x86_64-linux/ -type f -name "*.a" ! -name "*_p.a"); do
-    cp $lib /target/vanilla/dependencies;
-done
-
-for lib in $(find ~/.stack/snapshots/x86_64-linux/ -type f -name "*_p.a"); do
-    cp $lib /target/profiling/dependencies;
-done
+find ~/.stack/snapshots/x86_64-linux/ -type f -name "*.a" ! -name "*_p.a" -exec cp {} /target/vanilla/dependencies \;
+find ~/.stack/snapshots/x86_64-linux/ -type f -name "*_p.a" -exec cp {} /target/profiling/dependencies \;
 
 mkdir -p /target/rust
 cp -r /build/concordium-base/rust-src/target/release/*.a /target/rust/
 
-for f in $(find /target /binaries -type f); do
-    strip --strip-debug $f;
-done
+find /target /binaries -type f -exec strip --strip-debug {} \;
 
 #############################################################################################################################
 ## Remove ruststd symbols from rust libraries

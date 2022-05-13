@@ -1,4 +1,4 @@
-resolver: lts-17.4
+resolver: lts-19.6
 
 packages:
 - .
@@ -12,4 +12,4 @@ extra-lib-dirs:
 - ./smart-contracts/lib
 
 ghc-options:
-    "$everything": -fPIC
+    "$everything": -fPIC -fsimpl-tick-factor=10000
