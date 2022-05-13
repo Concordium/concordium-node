@@ -10,7 +10,7 @@
 
 # ARGs that are used in multiple stages are defined globally in order to set a shared default value.
 # They need to be redeclared in the steps that they are used but retain the default value defined here.
-ARG ghc_version=8.10.4
+ARG ghc_version=9.0.2
 
 # Build genesis packages.
 FROM concordium/genesis-tools:latest as genesis-builder
