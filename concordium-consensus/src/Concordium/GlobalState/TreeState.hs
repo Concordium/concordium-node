@@ -71,7 +71,7 @@ type Branches m = Seq.Seq [BlockPointerType m]
 -- |Result of trying to add a transaction to the transaction table.
 data AddTransactionResult =
   -- |Transaction is a duplicate of the given transaction.
-  Duplicate !BlockItem |
+  Duplicate !BlockItem (Maybe TVer.VerificationResult) |
   -- |The transaction was newly added.
   Added !BlockItem !TVer.VerificationResult |
   -- |The nonce of the transaction is not later than the last finalized transaction for the sender.

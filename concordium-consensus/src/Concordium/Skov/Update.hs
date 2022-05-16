@@ -616,7 +616,7 @@ doReceiveTransactionInternal origin tr ts slot = do
           return (Just (bi, Just verRes), transactionVerificationResultToUpdateResult verRes)
         -- Note we just pass in the `GenericDuplicate` verification result here as we don't want to
         -- lookup the actual verification result for the transaction.
-        Duplicate tx -> return (Just (tx, Nothing), ResultDuplicate)
+        Duplicate tx mVerRes -> return (Just (tx, mVerRes), ResultDuplicate)
         ObsoleteNonce -> return (Nothing, ResultStale)
         NotAdded verRes -> return (Nothing, transactionVerificationResultToUpdateResult verRes)
   where
