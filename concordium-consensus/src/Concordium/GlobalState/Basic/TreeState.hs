@@ -299,7 +299,7 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
         getVerRes status = case status of
           Received _ verRes -> Just verRes
           Committed _ verRes _ -> Just verRes
-          Finalized _ _ _ -> Nothing
+          Finalized {} -> Nothing
 
     type FinTrans (PureTreeStateMonad bs m) = ()
     finalizeTransactions bh slot = mapM_ finTrans

@@ -573,7 +573,7 @@ doReceiveTransactionInternal origin tr ts slot = do
         Added bi@WithMetadata{..} verRes -> do
           ptrs <- getPendingTransactions
           case wmdData of
-            NormalTransaction tx -> do              
+            NormalTransaction tx -> do
               -- Transactions received individually should always be added to the ptt.
               -- If the transaction was received as part of a block we only add it to the ptt if
               -- the transaction nonce is at least the `nextNonce` recorded for sender account.
@@ -594,7 +594,7 @@ doReceiveTransactionInternal origin tr ts slot = do
               let add nextNonce = putPendingTransactions $! addPendingTransaction nextNonce WithMetadata{wmdData=tx,..} ptrs
               case origin of
                 TV.Single -> add $ transactionNonce tx
-                TV.Block _ -> do 
+                TV.Block _ -> do
                   focus <- getFocusBlock
                   st <- blockState focus
                   macct <- getAccount st $! transactionSender tx
@@ -614,8 +614,11 @@ doReceiveTransactionInternal origin tr ts slot = do
           -- The actual verification result here is only used if the transaction was received individually.
           -- If the transaction was received as part of a block we don't use the result for anything.
           return (Just (bi, Just verRes), transactionVerificationResultToUpdateResult verRes)
-        -- Note we just pass in the `GenericDuplicate` verification result here as we don't want to
-        -- lookup the actual verification result for the transaction.
+        -- Return the cached verification result if the transaction was either `Received` or `Committed`.
+        -- The verification result is used by the `Scheduler` if this transaction was part of a block.
+        -- Note. the `Scheduler` will re-verify if required, if any of the keys used for signing changed etc.
+        -- If the transaction was received individually and already seen before `ResultDuplicate` will be returned
+        -- externally. 
         Duplicate tx mVerRes -> return (Just (tx, mVerRes), ResultDuplicate)
         ObsoleteNonce -> return (Nothing, ResultStale)
         NotAdded verRes -> return (Nothing, transactionVerificationResultToUpdateResult verRes)
