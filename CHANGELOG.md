@@ -61,7 +61,6 @@
   - increased smart contract module size limit, 512kB
   - a number of cryptographic primitives
 - Node can now be stopped during out of band catchup by using signals, SIGINT and SIGTERM.
-- Upgrade resolver to version `lts-19.6` and ghc to version `9.0.2`.
 
 ## concordium-node 3.0.1
 

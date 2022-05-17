@@ -47,8 +47,8 @@ genBlsKeys n = do
   vectorOf n genBlsKeyPair
 
 -- TODO: generate random string
-genByteString' :: Gen BS.ByteString
-genByteString' = BS.pack <$> vector 8
+genRandomByteString :: Gen BS.ByteString
+genRandomByteString = BS.pack <$> vector 8
 
 -- Used to build streams of test data
 data WMVBAInput
@@ -137,7 +137,7 @@ testData2 baid v keys corrupted wrongkey = inputs
 runNonCorruptedTest :: Property
 runNonCorruptedTest = monadicIO $ do
   keys <- pick $ genKeys nparties
-  baid <- pick $ genByteString'
+  baid <- pick $ genRandomByteString
   stream <- pick $ shuffle $ testData1 baid blockA keys
   liftIO $ runWMVBATest me baid nparties keys (StartWMVBA blockA : stream)
     where
@@ -147,7 +147,7 @@ runNonCorruptedTest = monadicIO $ do
 runCorruptedTest :: Int -> Property
 runCorruptedTest corrupted = monadicIO $ do
   keys <- pick $ genKeys nparties
-  baid <- pick $ genByteString'
+  baid <- pick $ genRandomByteString
   wrongkey <- pick $ genBlsSecretKey
   stream <- pick $ shuffle $ testData2 baid blockA keys corrupted wrongkey
   liftIO $ runWMVBATest me baid nparties keys (StartWMVBA blockA : stream)
@@ -161,7 +161,7 @@ runCorruptedTest corrupted = monadicIO $ do
 genKeysByteStringCulprits :: Int -> Gen ([(Bls.SecretKey, Bls.PublicKey)], BS.ByteString, [Party])
 genKeysByteStringCulprits n = do
   keys <- genBlsKeys n
-  tosign <- genByteString'
+  tosign <- genRandomByteString
   nculprits <- choose (1, 3)
   culprits <- suchThat (vectorOf nculprits $ choose (0, fromIntegral $ length keys - 1)) noDuplicates
   return (keys, tosign, culprits)

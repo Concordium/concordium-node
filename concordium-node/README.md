@@ -156,7 +156,7 @@ Before building the node, you should install the following dependencies:
 - [protoc](https://github.com/protocolbuffers/protobuf/releases) >= 3.7.1
 - PostGreSQL and LMDB should be installed under `stack`'s `msys2` installation, which can be done with the following commands:
 
-```bash
+```console
 stack exec -- pacman -Syuq --noconfirm
 stack exec -- pacman -Syq mingw-w64-x86_64-postgresql mingw-w64-x86_64-lmdb --noconfirm
 ```
@@ -173,7 +173,7 @@ If you wish to run the node directly, you should copy `HSdll.dll` to the locatio
 The node also depends on a number of DLLs that are part of `stack`'s `msys2` installation.
 To run the node with these DLLs in the path, you can use `stack exec`, as in:
 
-```bash
+```console
 stack exec -- concordium-node.exe --help
 ```
 
