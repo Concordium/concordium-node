@@ -699,18 +699,18 @@ instance (MonadLogger (PersistentTreeStateMonad ati bs m),
                     return (TS.Added bi verRes)
                   else return TS.ObsoleteNonce
           Just (bi', results) -> do
-            -- Get the cached verification result if such one is available.
-            -- That is the case if the transaction has status of either `Received` or `Committed`.
-            let mVerRes = case results of
-                 Received _ verRes -> Just verRes
-                 Committed _ verRes _ -> Just verRes
-                 Finalized {} -> Nothing
             -- if it is we update the maximum committed slot,
             -- unless the transaction is already finalized (this case is handled by updateSlot)
             -- In the current model this latter case should not happen; once a transaction is finalized
             -- it is written to disk (see finalizeTransactions below)
             when (slot > results ^. tsSlot) $ transactionTable . ttHashMap . at' trHash . mapped . _2 %= updateSlot slot
-            return $ TS.Duplicate bi' mVerRes
+            -- Get the cached verification result if such one is available.
+            -- That is the case if the transaction has status of either `Received` or `Committed`.
+            case results of
+                 Received _ verRes -> return $ TS.Duplicate bi' verRes
+                 Committed _ verRes _ -> return $ TS.Duplicate bi' verRes
+                 Finalized {} -> return TS.ObsoleteNonce
+            
 
     type FinTrans (PersistentTreeStateMonad ati bs m) = [(TransactionHash, FinalizedTransactionStatus)]
     finalizeTransactions bh slot txs = mapM finTrans txs
