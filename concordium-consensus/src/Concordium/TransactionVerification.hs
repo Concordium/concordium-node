@@ -315,16 +315,16 @@ verifyNormalTransaction meta =
 -- But to accommodate the above mentioned scenario the verification results are wrapped in a `Maybe`.
 
 -- |A 'BlockItem' with its associated 'VerificationResult'
-type BlockItemWithStatus = (Tx.BlockItem, VerificationResult)
+type BlockItemWithStatus = (Tx.BlockItem, Maybe VerificationResult)
 
 -- |A 'Transaction' with its associated 'VerificationResult'
-type TransactionWithStatus = (Tx.Transaction, VerificationResult)
+type TransactionWithStatus = (Tx.Transaction, Maybe VerificationResult)
 
 -- |A 'CredentialDeployment' with its associated 'VerificationResult'
-type CredentialDeploymentWithStatus = (Tx.CredentialDeploymentWithMeta, VerificationResult)
+type CredentialDeploymentWithStatus = (Tx.CredentialDeploymentWithMeta, Maybe VerificationResult)
 
 -- |A 'ChainUpdate' with its associated 'VerificationResult'
-type ChainUpdateWithStatus = (Tx.WithMetadata Updates.UpdateInstruction, VerificationResult)
+type ChainUpdateWithStatus = (Tx.WithMetadata Updates.UpdateInstruction, Maybe VerificationResult)
 
 -- |Type for describing the origin of the transaction.
 -- The transaction can either arrive at the consensus as a single transaction,

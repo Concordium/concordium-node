@@ -19,7 +19,6 @@ import Concordium.ID.Types
 import Concordium.Types
 import qualified Concordium.Wasm as Wasm
 import qualified Concordium.Scheduler.Types as Types
-import qualified Concordium.TransactionVerification as TVer
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Short as BSS
@@ -128,7 +127,7 @@ processUngroupedTransactions ::
 processUngroupedTransactions inpt = do
   txs <- processTransactions inpt
   -- We just attach a `Nothing` to the transaction such that it will be verified by the scheduler.
-  return (map (\x -> Types.TGAccountTransactions [(Types.fromAccountTransaction 0 x, TVer.NotOk TVer.NormalTransactionEnergyExceeded)]) txs)
+  return (map (\x -> Types.TGAccountTransactions [(Types.fromAccountTransaction 0 x, Nothing)]) txs)
 
 -- |For testing purposes: process transactions in the groups in which they came
 -- The arrival time of all transactions is taken to be 0.
@@ -137,7 +136,7 @@ processGroupedTransactions ::
   [[TransactionJSON]] ->
   m Types.GroupedTransactions
 -- We just attach a `Nothing` to the transaction such that it will be verified by the scheduler.  
-processGroupedTransactions = fmap (Types.fromTransactions . map (map (\x -> (Types.fromAccountTransaction 0 x, TVer.NotOk TVer.NormalTransactionEnergyExceeded))))
+processGroupedTransactions = fmap (Types.fromTransactions . map (map (\x -> (Types.fromAccountTransaction 0 x, Nothing))))
                              . mapM processTransactions
 
 data PayloadJSON = DeployModule { wasmVersion :: Wasm.WasmVersion, moduleName :: FilePath }
