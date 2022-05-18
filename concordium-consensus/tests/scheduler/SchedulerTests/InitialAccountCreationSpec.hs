@@ -35,7 +35,7 @@ initialBlockState = blockStateWithAlesAccount initialAmount Acc.emptyAccounts
 
 -- We just put a dummy verification result such that it will be verified by the scheduler.
 transactionsInput :: [CredentialDeploymentWithStatus]
-transactionsInput = map ((\x -> (x, NotOk Expired)) . Types.addMetadata Types.CredentialDeployment 0) [
+transactionsInput = map ((\x -> (x, Nothing)) . Types.addMetadata Types.CredentialDeployment 0) [
   icdi1,
   icdi2,
   icdi3 -- should fail because reuse of prf key

@@ -41,12 +41,8 @@ cdi7' = Types.AccountCreation{
   credential = Types.credential cdi7
   }
 
--- todo: currently this is just a dummy verification result.
--- figure out if this should be changed.
--- Any verification result /= Ok will result in a fresh verification in the
--- `Scheduler`.
 transactionsInput :: [CredentialDeploymentWithStatus]
-transactionsInput = map ((\x -> (x, NotOk Expired)) . Types.addMetadata Types.CredentialDeployment 0) $ [
+transactionsInput = map ((\x -> (x, Nothing)) . Types.addMetadata Types.CredentialDeployment 0) $ [
   cdi1,
   cdi2,
   cdi3,
