@@ -292,8 +292,8 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
                   else return TS.ObsoleteNonce
           Just (_, Finalized{}) -> return TS.ObsoleteNonce
           Just (tr', results) -> do
-            -- Get the cached verification result if such one is available.
-            -- That is the case if the transaction has status of either `Received` or `Committed`.
+            -- The `Finalized` case is not reachable as the cause would be that a finalized transaction
+            -- is also part of a later block which would be rejected when executing the block.
             let mVerRes = case results of
                  Received _ verRes -> Just verRes
                  Committed _ verRes _ -> Just verRes

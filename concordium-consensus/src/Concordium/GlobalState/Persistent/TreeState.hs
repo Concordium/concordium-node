@@ -699,8 +699,8 @@ instance (MonadLogger (PersistentTreeStateMonad ati bs m),
                     return (TS.Added bi verRes)
                   else return TS.ObsoleteNonce
           Just (bi', results) -> do
-            -- Get the cached verification result if such one is available.
-            -- That is the case if the transaction has status of either `Received` or `Committed`.
+            -- The `Finalized` case is not reachable as the cause would be that a finalized transaction
+            -- is also part of a later block which would be rejected when executing the block.
             let mVerRes = case results of
                  Received _ verRes -> Just verRes
                  Committed _ verRes _ -> Just verRes
