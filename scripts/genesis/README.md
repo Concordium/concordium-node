@@ -27,6 +27,8 @@ Supported env vars:
 * `DROP_ACCOUNT_BALANCE` will, if set to a CCD amount, generate another extra account in the
   folder `drop`. Note that if you set this and `EXTRA_ACCOUNTS_TEMPLATE` then
   the latter is different from `drop`.
+* `GENESIS_VERSION` sets the genesis version to use. This should be 2 more than the protocol version
+  used at genesis, and defaults to 6 (protocol version 4) if not set.
 * See the source code of the script for more.
 
 ### Example build command

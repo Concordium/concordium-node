@@ -128,6 +128,9 @@ DROP_ACCOUNT_BALANCE=os.environ.get("DROP_ACCOUNT_BALANCE")
 # Helper defined constants
 GLOBAL_FILE = os.path.join(GENESIS_DIR, "global.json")
 
+# Genesis data version
+GENESIS_VERSION = os.environ.get("GENESIS_VERSION", default = "6")
+
 # Create cryptographic parameters, identity providers, and anonymity revokers
 def create_base_parameters():
     if os.path.exists(GENESIS_DIR):
@@ -174,6 +177,7 @@ def create_accounts(template = "foundation-account", num = "1", balance = FOUNDA
                           "--ip-info", os.path.join(GENESIS_DIR, "identity_provider-0.pub.json"),
                           "--global", GLOBAL_FILE,
                           "--num", num,
+                          "--num-keys", NUM_KEYS,
                           "--balance", balance,
                           "--template", template,
                           "--out-dir", accounts_dir)
@@ -263,7 +267,7 @@ def combine(foundation_account, extra = None, drop = None):
                           f"--crypto-params={GLOBAL_FILE}",
                           f"--accounts={accounts}",
                           f"--update-keys={authorizations}",
-                          "--gdver=6",
+                          f"--gdver={GENESIS_VERSION}",
                           "genesis-tmp.json",
                           out_genesis)
     if res != 0:
