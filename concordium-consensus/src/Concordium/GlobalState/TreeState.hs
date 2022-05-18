@@ -71,9 +71,8 @@ type Branches m = Seq.Seq [BlockPointerType m]
 -- |Result of trying to add a transaction to the transaction table.
 data AddTransactionResult =
   -- |Transaction is a duplicate of the given transaction.
-  -- Contains the duplicate `BlockItem` and the cached `VerificationResult` iff.
-  -- the transaction has status `Received` or ´Committed´.
-  Duplicate !BlockItem (Maybe TVer.VerificationResult) |
+  -- Contains the duplicate `BlockItem` and the cached `VerificationResult`.
+  Duplicate !BlockItem !TVer.VerificationResult |
   -- |The transaction was newly added.
   -- Contains the `BlockItem` that was added and the cached `VerificationResult`.
   Added !BlockItem !TVer.VerificationResult |

@@ -275,7 +275,7 @@ processFinalization newFinBlock finRec@FinalizationRecord{..} = do
 --    it is added to the appropriate pending queue.  'addBlock'
 --    should be called again when the pending criterion is fulfilled.
 -- 3. The block is determined to be valid and added to the tree.
-addBlock :: forall m. (HasCallStack, TreeStateMonad m, SkovMonad m, FinalizationMonad m, OnSkov m) => PendingBlock -> [Maybe TV.VerificationResult] -> m UpdateResult
+addBlock :: forall m. (HasCallStack, TreeStateMonad m, SkovMonad m, FinalizationMonad m, OnSkov m) => PendingBlock -> [TV.VerificationResult] -> m UpdateResult
 addBlock block txvers = do
         lfs <- getLastFinalizedSlot
         -- The block must be later than the last finalized block
@@ -418,14 +418,18 @@ addBlock block txvers = do
                                             children <- takePendingChildren (getHash block)
                                             forM_ children $ \childpb -> do
                                                 childStatus <- getBlockStatus (getHash childpb)
-                                                verress <- mapM getNonFinalizedTransactionVerificationResult (blockTransactions childpb)
-                                                let
-                                                    isPending Nothing = True
-                                                    isPending (Just (BlockPending _)) = True
-                                                    isPending _ = False
-                                                when (isPending childStatus) $ addBlock childpb verress >>= \case
-                                                    ResultSuccess -> onPendingLive
-                                                    _ -> return ()
+                                                mVerRess <- sequence <$> mapM getNonFinalizedTransactionVerificationResult (blockTransactions childpb)
+                                                case mVerRess of
+                                                    -- The block contained finalized transactions since `mVerRess` contained `Nothing` entries.
+                                                    Nothing -> return ()
+                                                    Just verRess -> do
+                                                        let
+                                                            isPending Nothing = True
+                                                            isPending (Just (BlockPending _)) = True
+                                                            isPending _ = False
+                                                        when (isPending childStatus) $ addBlock childpb verRess >>= \case
+                                                            ResultSuccess -> onPendingLive
+                                                            _ -> return ()
                                             return ResultSuccess
 
 -- |Add a valid, live block to the tree.
@@ -566,7 +570,7 @@ doReceiveTransaction tr = unlessShutDown $ do
 -- The @origin@ parameter means if the transaction was received individually or as part of a block.
 -- The function returns the 'BlockItem' if it was "successfully verified" and added to the transaction table.
 -- Note. "Successfully verified" depends on the 'TransactionOrigin', see 'definitelyNotValid' below for details.
-doReceiveTransactionInternal :: (TreeStateMonad m) => TV.TransactionOrigin m -> BlockItem -> Timestamp -> Slot -> m (Maybe (BlockItem, Maybe TV.VerificationResult), UpdateResult)
+doReceiveTransactionInternal :: (TreeStateMonad m) => TV.TransactionOrigin m -> BlockItem -> Timestamp -> Slot -> m (Maybe TV.BlockItemWithStatus, UpdateResult)
 doReceiveTransactionInternal origin tr ts slot = do
     ctx <- getVerificationCtx =<< getBlockState
     addCommitTransaction tr ctx ts slot >>= \case
@@ -613,15 +617,14 @@ doReceiveTransactionInternal origin tr ts slot = do
                     putPendingTransactions $! addPendingUpdate nextSN cu ptrs
           -- The actual verification result here is only used if the transaction was received individually.
           -- If the transaction was received as part of a block we don't use the result for anything.
-          return (Just (bi, Just verRes), transactionVerificationResultToUpdateResult verRes)
-        -- Return the cached verification result if the transaction was either `Received` or `Committed`.
+          return (Just (bi, verRes), transactionVerificationResultToUpdateResult verRes)
         -- The verification result is used by the `Scheduler` if this transaction was part of a block.
         -- Note. the `Scheduler` will re-verify the transaction if required,
         -- that is if any of the keys used for signing were updated between the transaction was
         -- point of execution.
         -- If the transaction was received individually and it was already verified and stored beforehand
         -- then `ResultDuplicate` will be returned externally.
-        Duplicate tx mVerRes -> return (Just (tx, mVerRes), ResultDuplicate)
+        Duplicate tx verRes -> return (Just (tx, verRes), ResultDuplicate)
         ObsoleteNonce -> return (Nothing, ResultStale)
         NotAdded verRes -> return (Nothing, transactionVerificationResultToUpdateResult verRes)
   where

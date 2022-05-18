@@ -109,7 +109,7 @@ import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 -- Important! If @mVerRes@ is `Just VerificationResult` then it MUST be the `VerificationResult` matching the provided transaction.
 --
 -- Returns the sender account and the cost to be charged for checking the header.
-checkHeader :: forall msg m . (TransactionData msg, SchedulerMonad m) => msg -> Maybe TVer.VerificationResult -> ExceptT (Maybe FailureKind) m (IndexedAccount m, Energy)
+checkHeader :: forall msg m . (TransactionData msg, SchedulerMonad m) => msg -> TVer.VerificationResult -> ExceptT (Maybe FailureKind) m (IndexedAccount m, Energy)
 checkHeader meta mVerRes = do
   unless (validatePayloadSize (protocolVersion @(MPV m)) (thPayloadSize (transactionHeader meta))) $ throwError $ Just InvalidPayloadSize
   -- Before even checking the header we calculate the cost that will be charged for this
@@ -136,7 +136,7 @@ checkHeader meta mVerRes = do
       -- Also we check that the nonce is valid and that the sender has enough funds to cover his transfer.
       let acc = snd iacc
       case mVerRes of
-        Just (TVer.Ok (TVer.NormalTransactionSuccess keysHash _)) -> do
+        TVer.Ok (TVer.NormalTransactionSuccess keysHash _) -> do
           currentKeys <- lift (TVer.getAccountVerificationKeys acc)
           -- Check that the keys match from initial verification.
           -- If they match we skip checking the signature as it has already been verified.
@@ -210,10 +210,10 @@ checkTransactionVerificationResult (TVer.NotOk TVer.InvalidPayloadSize) = Left I
 -- * @Nothing@ if the transaction would exceed the remaining block energy.
 -- * @Just result@ if the transaction failed ('TxInvalid') or was successfully committed
 --  ('TxValid', with either 'TxSuccess' or 'TxReject').
-dispatch :: forall msg m. (TransactionData msg, SchedulerMonad m) => (msg, Maybe TVer.VerificationResult) -> m (Maybe TxResult)
-dispatch (msg, mVerRes) = do
+dispatch :: forall msg m. (TransactionData msg, SchedulerMonad m) => (msg, TVer.VerificationResult) -> m (Maybe TxResult)
+dispatch (msg, verRes) = do
   let meta = transactionHeader msg
-  validMeta <- runExceptT (checkHeader msg mVerRes)
+  validMeta <- runExceptT (checkHeader msg verRes)
   case validMeta of
     Left (Just fk) -> return $ Just (TxInvalid fk)
     Left Nothing -> return Nothing
@@ -1951,7 +1951,7 @@ handleDeployCredential ::
   TVer.CredentialDeploymentWithStatus ->
   TransactionHash ->
   m (Maybe TxResult)
-handleDeployCredential (WithMetadata{wmdData=cred@AccountCreation{messageExpiry=messageExpiry, credential=cdi}}, mVerRes) cdiHash = do
+handleDeployCredential (WithMetadata{wmdData=cred@AccountCreation{messageExpiry=messageExpiry, credential=cdi}}, verRes) cdiHash = do
   res <- runExceptT $ do
     cm <- lift getChainMetadata
     let ts = slotTime cm
@@ -1959,8 +1959,8 @@ handleDeployCredential (WithMetadata{wmdData=cred@AccountCreation{messageExpiry=
     when (transactionExpired messageExpiry ts) $ throwError (Just ExpiredTransaction)
     remainingEnergy <- lift getRemainingEnergy
     when (remainingEnergy < theCost) $ throwError Nothing
-    case mVerRes of
-       Just (TVer.Ok _) -> do
+    case verRes of
+       TVer.Ok _ -> do
          -- check that the credential deployment has not expired since we last verified it.
          unless (isTimestampBefore ts (ID.validTo cdi)) $ throwError (Just AccountCredentialInvalid)
          -- We always need to make sure that the account was not created in between
@@ -2110,7 +2110,7 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, mVerRes
     checkSigAndEnqueue :: UpdateValue (ChainParametersVersionFor (MPV m)) -> m TxResult
     checkSigAndEnqueue change = do
       case mVerRes of
-        Just (TVer.Ok (TVer.ChainUpdateSuccess keysHash _)) -> do
+        TVer.Ok (TVer.ChainUpdateSuccess keysHash _) -> do
           currentKeys <- getUpdateKeyCollection
           -- If the keys have not changed then the signature remains valid.
           if matchesUpdateKeysCollection currentKeys keysHash then do

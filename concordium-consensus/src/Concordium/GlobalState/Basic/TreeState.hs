@@ -290,17 +290,14 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
                             & (ttHashMap . at' trHash ?~ (bi, Received slot verRes)))
                     return (TS.Added bi verRes)
                   else return TS.ObsoleteNonce
-          Just (_, Finalized{}) -> return TS.ObsoleteNonce
           Just (tr', results) -> do
             -- Get the cached verification result if such one is available.
             -- That is the case if the transaction has status of either `Received` or `Committed`.
-            let mVerRes = case results of
-                 Received _ verRes -> Just verRes
-                 Committed _ verRes _ -> Just verRes
-                 Finalized {} -> Nothing
             when (slot > results ^. tsSlot) $ transactionTable . ttHashMap . at' trHash . mapped . _2 %= updateSlot slot
-            return $ TS.Duplicate tr' mVerRes
-
+            case results of
+                 Received _ verRes -> return $ TS.Duplicate tr' verRes
+                 Committed _ verRes _ -> return $ TS.Duplicate tr' verRes
+                 Finalized {} -> return TS.ObsoleteNonce
 
     type FinTrans (PureTreeStateMonad bs m) = ()
     finalizeTransactions bh slot = mapM_ finTrans
