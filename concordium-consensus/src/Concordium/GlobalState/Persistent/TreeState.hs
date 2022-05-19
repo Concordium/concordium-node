@@ -666,7 +666,7 @@ instance (MonadLogger (PersistentTreeStateMonad ati bs m),
             -- verifying a transaction which have been both received individually and as part of a block twice.
             verRes <- TS.runTransactionVerifierT (TVer.verify ts bi) verResCtx
             if TVer.definitelyNotValid verRes (verResCtx ^. TS.isTransactionFromBlock) then return $ TS.NotAdded verRes
-            else 
+            else
               case wmdData of
                 NormalTransaction tr -> do
                   let sender = accountAddressEmbed (transactionSender tr)
@@ -699,12 +699,18 @@ instance (MonadLogger (PersistentTreeStateMonad ati bs m),
                     return (TS.Added bi verRes)
                   else return TS.ObsoleteNonce
           Just (bi', results) -> do
+            -- The `Finalized` case is not reachable as the cause would be that a finalized transaction
+            -- is also part of a later block which would be rejected when executing the block.
+            let mVerRes = case results of
+                 Received _ verRes -> Just verRes
+                 Committed _ verRes _ -> Just verRes
+                 Finalized {} -> Nothing
             -- if it is we update the maximum committed slot,
             -- unless the transaction is already finalized (this case is handled by updateSlot)
             -- In the current model this latter case should not happen; once a transaction is finalized
             -- it is written to disk (see finalizeTransactions below)
             when (slot > results ^. tsSlot) $ transactionTable . ttHashMap . at' trHash . mapped . _2 %= updateSlot slot
-            return $ TS.Duplicate bi'
+            return $ TS.Duplicate bi' mVerRes
 
     type FinTrans (PersistentTreeStateMonad ati bs m) = [(TransactionHash, FinalizedTransactionStatus)]
     finalizeTransactions bh slot txs = mapM finTrans txs
