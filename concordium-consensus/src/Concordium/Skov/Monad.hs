@@ -126,8 +126,8 @@ class (Monad m, Eq (BlockPointerType m), HashableTo BlockHash (BlockPointerType 
     recordAtFinIndex :: FinalizationIndex -> m (Maybe FinalizationRecord)
     -- |Determine the next index for finalization.
     nextFinalizationIndex :: m FinalizationIndex
-    -- |Get the genesis data.
-    getGenesisData :: m (GenesisData (MPV m))
+    -- |Get the genesis configuration.
+    getGenesisData :: m TS.GenesisConfiguration
     -- |Get the genesis block pointer.
     genesisBlock :: m (BlockPointerType m)
     -- |Get the height of the highest blocks in the tree.

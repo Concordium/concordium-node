@@ -1,9 +1,11 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
 -- |This module pairs together two global state implementations
 -- for testing purposes.
@@ -39,7 +41,7 @@ import Concordium.GlobalState.TreeState as TS
 import Concordium.GlobalState
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import Concordium.GlobalState.ContractStateFFIHelpers (errorLoadCallback)
-import Concordium.Logger (MonadLogger(..))
+import Concordium.Logger (MonadLogger(..), LogIO)
 import Control.Arrow ((&&&))
 import GHC.Stack
 
@@ -1185,9 +1187,28 @@ instance (GlobalStateConfig c1, GlobalStateConfig c2) => GlobalStateConfig (Pair
     -- FIXME: The below could also be improved to add pairs.
     type GSLogContext (PairGSConfig c1 c2) pv = (GSLogContext c1 pv, GSLogContext c2 pv)
     initialiseGlobalState (PairGSConfig (conf1, conf2)) = do
-            (ctx1, s1, c1) <- initialiseGlobalState conf1
-            (ctx2, s2, c2) <- initialiseGlobalState conf2
-            return (PairGSContext ctx1 ctx2, PairGState s1 s2, (c1, c2))
+        r1 <- initialiseGlobalState conf1
+        r2 <- initialiseGlobalState conf2
+        case (r1, r2) of
+            (Left (ctx1, s1, c1), Left (ctx2, s2, c2)) -> return $ Left (PairGSContext ctx1 ctx2, PairGState s1 s2, (c1, c2))
+            (Right k1, Right k2) -> return . Right $ \genData -> do
+              (ctx1, s1, c1) <- k1 genData
+              (ctx2, s2, c2) <- k2 genData
+              return (PairGSContext ctx1 ctx2, PairGState s1 s2, (c1, c2))
+            (Left _, Right _) -> error "Left state exists, but the right one does not."
+            (Right _, Left _) -> error "Right state exists, but the left one does not."
+
+    activateGlobalState :: forall pv .
+        IsProtocolVersion pv =>
+        Proxy (PairGSConfig c1 c2 pv) ->
+        PairGSContext (GSContext c1 pv) (GSContext c2 pv) ->
+        PairGState (GSState c1 pv) (GSState c2 pv) ->
+        LogIO (PairGState (GSState c1 pv) (GSState c2 pv))
+    activateGlobalState Proxy (PairGSContext ctx1 ctx2) (PairGState s1 s2) = do
+            s1Active <- activateGlobalState (Proxy @(c1 pv)) ctx1 s1
+            s2Active <- activateGlobalState (Proxy @(c2 pv)) ctx2 s2
+            return (PairGState s1Active s2Active)
+
     shutdownGlobalState spv _ (PairGSContext ctx1 ctx2) (PairGState s1 s2) (c1, c2) = do
             shutdownGlobalState spv (Proxy :: Proxy c1) ctx1 s1 c1
             shutdownGlobalState spv (Proxy :: Proxy c2) ctx2 s2 c2

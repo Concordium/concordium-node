@@ -126,7 +126,7 @@ data SkovPersistentData (pv :: ProtocolVersion) ati bs = SkovPersistentData {
     -- |Branches of the tree by height above the last finalized block
     _branches :: !(Seq.Seq [PersistentBlockPointer pv (ATIValues ati) bs]),
     -- |Genesis data
-    _genesisData :: !(GenesisData pv),
+    _genesisData :: !TS.GenesisConfiguration,
     -- |Block pointer to genesis block
     _genesisBlockPointer :: !(PersistentBlockPointer pv (ATIValues ati) bs),
     -- |Current focus block
@@ -208,7 +208,11 @@ initialSkovPersistentData rp treeStateDir gd genState genATI atiContext serState
             _lastFinalized = gb,
             _lastFinalizationRecord = gbfin,
             _branches = Seq.empty,
-            _genesisData = gd,
+            _genesisData = TS.GenesisConfiguration {
+                _gcCore = coreGenesisParameters gd,
+                _gcCurrentHash = genesisBlockHash gd,
+                _gcFirstGenesis = firstGenesisBlockHash gd
+                },
             _genesisBlockPointer = gb,
             _focusBlock = gb,
             _pendingTransactions = emptyPendingTransactionTable,
@@ -279,18 +283,14 @@ checkExistingDatabase treeStateDir blockStateFile = do
 --   * hash under which the genesis block is stored is not the computed hash of the genesis block
 --   * missing finalization record for the last stored block in the database.
 --   * in the block state, an account which is listed cannot be loaded
---
--- TODO: We should probably use cursors instead of manually traversing the database.
--- however the LMDB.Simple bindings for cursors are essentially unusable, leading to
--- random segmentation faults and similar exceptions.
 loadSkovPersistentData :: forall ati pv. (IsProtocolVersion pv, CanExtend (ATIValues ati))
                        => RuntimeParameters
                        -> FilePath -- ^Tree state directory
-                       -> GenesisData pv
                        -> PBS.PersistentBlockStateContext
                        -> ATIContext ati
                        -> LogIO (SkovPersistentData pv ati (PBS.HashedPersistentBlockState pv))
-loadSkovPersistentData rp _treeStateDirectory _genesisData pbsc atiContext = do
+loadSkovPersistentData rp _treeStateDirectory pbsc atiContext = do
+  logEvent GlobalState LLDebug "Loading persistent state."
   -- we open the environment first.
   -- It might be that the database is bigger than the default environment size.
   -- This seems to not be an issue while we only read from the database,
@@ -298,50 +298,41 @@ loadSkovPersistentData rp _treeStateDirectory _genesisData pbsc atiContext = do
   -- But this behaviour of LMDB is poorly documented, so we might experience issues.
   _db <- either (logExceptionAndThrowTS . DatabaseOpeningError) return =<<
           liftIO (try $ databaseHandlers _treeStateDirectory)
+  logEvent GlobalState LLDebug "Checking database version."
 
   -- Check that the database version matches what we expect.
   liftIO (checkDatabaseVersion _db) >>=
       either (logExceptionAndThrowTS . IncorrectDatabaseVersion) return
+  logEvent GlobalState LLDebug "Checked database version."
 
   -- Get the genesis block and check that its data matches the supplied genesis data.
   genStoredBlock <- maybe (logExceptionAndThrowTS GenesisBlockNotInDataBaseError) return =<<
           liftIO (getFirstBlock _db)
+  logEvent GlobalState LLDebug "Got first block."
   _genesisBlockPointer <- liftIO $ makeBlockPointer genStoredBlock
-  case _bpBlock _genesisBlockPointer of
-    GenesisBlock gd' -> unless (_genesisData == gd') $ logExceptionAndThrowTS (GenesisBlockIncorrect (getHash _genesisBlockPointer))
-    _ -> logExceptionAndThrowTS (DatabaseInvariantViolation "Block at height 0 is not a genesis block.")
+  logEvent GlobalState LLDebug "Loaded genesis block."
+  _genesisData <- case _bpBlock _genesisBlockPointer of
+     GenesisBlock gd' -> return 
+      TS.GenesisConfiguration {
+       _gcCore = coreGenesisParameters gd',
+       _gcCurrentHash = genesisBlockHash gd',
+         _gcFirstGenesis = firstGenesisBlockHash gd'
+       }
+     _ -> logExceptionAndThrowTS (DatabaseInvariantViolation "Block at height 0 is not a genesis block.")
 
+  logEvent GlobalState LLDebug "Populating block table."
   -- Populate the block table.
   _blockTable <- liftIO (loadBlocksFinalizationIndexes _db) >>= \case
       Left s -> logExceptionAndThrowTS $ DatabaseInvariantViolation s
       Right hm -> return $! HM.map BlockFinalized hm
 
+  logEvent GlobalState LLDebug "Getting last finalized block."
   -- Get the last finalized block.
   (_lastFinalizationRecord, lfStoredBlock) <- liftIO (getLastBlock _db) >>= \case
       Left s -> logExceptionAndThrowTS $ DatabaseInvariantViolation s
       Right r -> return r
-  _lastFinalized <- liftIO (makeBlockPointerCached lfStoredBlock)
-  let lastState = _bpState _lastFinalized
-
-  -- The final thing we need to establish is the transaction table invariants.
-  -- This specifically means for each account we need to determine the next available nonce.
-  -- For now we simply load all accounts, but after this table is also moved to
-  -- some sort of a database we should not need to do that.
-
-  let getTransactionTable :: PBS.PersistentBlockStateMonad pv PBS.PersistentBlockStateContext (ReaderT PBS.PersistentBlockStateContext LogIO) TransactionTable
-      getTransactionTable = do
-        accs <- getAccountList lastState
-        tt0 <- foldM (\table addr ->
-                 getAccount lastState addr >>= \case
-                  Nothing -> logExceptionAndThrowTS (DatabaseInvariantViolation $ "Account " ++ show addr ++ " which is in the account list cannot be loaded.")
-                  Just (_, acc) -> return (table & ttNonFinalizedTransactions . at (accountAddressEmbed addr) ?~ emptyANFTWithNonce (acc ^. accountNonce)))
-            emptyTransactionTable
-            accs
-        foldM (\table uty -> do
-            sn <- getNextUpdateSequenceNumber lastState uty
-            return $ table & ttNonFinalizedChainUpdates . at uty ?~ emptyNFCUWithSequenceNumber sn
-          ) tt0 [minBound..]
-  tt <- runReaderT (PBS.runPersistentBlockStateMonad getTransactionTable) pbsc
+  _lastFinalized <- liftIO (makeBlockPointer lfStoredBlock)
+  logEvent GlobalState LLDebug "Done loading persistent state."
 
   return SkovPersistentData {
             _possiblyPendingTable = HM.empty,
@@ -349,7 +340,7 @@ loadSkovPersistentData rp _treeStateDirectory _genesisData pbsc atiContext = do
             _branches = Seq.empty,
             _focusBlock = _lastFinalized,
             _pendingTransactions = emptyPendingTransactionTable,
-            _transactionTable = tt,
+            _transactionTable = emptyTransactionTable,
             _transactionTablePurgeCounter = 0,
             -- The best thing we can probably do is use the initial statistics,
             -- and make the meaning of those with respect to the last time
@@ -365,10 +356,39 @@ loadSkovPersistentData rp _treeStateDirectory _genesisData pbsc atiContext = do
     makeBlockPointer StoredBlock{..} = do
       bstate <- runReaderT (PBS.runPersistentBlockStateMonad (loadBlockState (blockStateHash sbBlock) sbState)) pbsc
       makeBlockPointerFromPersistentBlock sbBlock bstate defaultValue sbInfo
-    makeBlockPointerCached :: StoredBlock pv (TS.BlockStatePointer (PBS.PersistentBlockState pv)) -> IO (PersistentBlockPointer pv (ATIValues ati) (PBS.HashedPersistentBlockState pv))
-    makeBlockPointerCached StoredBlock{..} = do
-      bstate <- runReaderT (PBS.runPersistentBlockStateMonad (cacheBlockState =<< loadBlockState (blockStateHash sbBlock) sbState)) pbsc
-      makeBlockPointerFromPersistentBlock sbBlock bstate defaultValue sbInfo
+
+activateSkovPersistentData :: forall ati pv. (IsProtocolVersion pv, CanExtend (ATIValues ati))
+                           => PBS.PersistentBlockStateContext
+                           -> SkovPersistentData pv ati (PBS.HashedPersistentBlockState pv)
+                           -> LogIO (SkovPersistentData pv ati (PBS.HashedPersistentBlockState pv))
+activateSkovPersistentData pbsc uninitState = do
+  cachedLastFinalized <- liftIO (makeBlockPointerCached (_lastFinalized uninitState))
+  -- The final thing we need to establish is the transaction table invariants.
+  -- This specifically means for each account we need to determine the next available nonce.
+  -- For now we simply load all accounts, but after this table is also moved to
+  -- some sort of a database we should not need to do that.
+  let lastState = _bpState cachedLastFinalized
+  let getTransactionTable :: PBS.PersistentBlockStateMonad pv PBS.PersistentBlockStateContext (ReaderT PBS.PersistentBlockStateContext LogIO) TransactionTable
+      getTransactionTable = do
+        accs <- getAccountList lastState
+        tt0 <- foldM (\table addr ->
+                 getAccount lastState addr >>= \case
+                  Nothing -> logExceptionAndThrowTS (DatabaseInvariantViolation $ "Account " ++ show addr ++ " which is in the account list cannot be loaded.")
+                  Just (_, acc) -> return (table & ttNonFinalizedTransactions . at (accountAddressEmbed addr) ?~ emptyANFTWithNonce (acc ^. accountNonce)))
+            emptyTransactionTable
+            accs
+        foldM (\table uty -> do
+            sn <- getNextUpdateSequenceNumber lastState uty
+            return $ table & ttNonFinalizedChainUpdates . at uty ?~ emptyNFCUWithSequenceNumber sn
+          ) tt0 [minBound..]
+  tt <- runReaderT (PBS.runPersistentBlockStateMonad getTransactionTable) pbsc
+  return (uninitState{_transactionTable = tt, _lastFinalized = cachedLastFinalized})
+  where 
+    makeBlockPointerCached :: PersistentBlockPointer pv (ATIValues ati) (PBS.HashedPersistentBlockState pv) -> IO (PersistentBlockPointer pv (ATIValues ati) (PBS.HashedPersistentBlockState pv))
+    makeBlockPointerCached bp@BlockPointer{..} = do
+      cachedState <- runReaderT (PBS.runPersistentBlockStateMonad (cacheBlockState _bpState)) pbsc
+      return bp {_bpState = cachedState}
+
 
 -- |Close the database associated with a 'SkovPersistentData'.
 -- The database should not be used after this.
@@ -849,9 +869,7 @@ instance (MonadLogger (PersistentTreeStateMonad ati bs m),
         -- The motivation for using foldr here is that the list will be consumed by iteration
         -- almost immediately, so it is reasonable to build it lazily.
         oldTransactions <- HM.foldr ((:) . fst) [] <$> use (transactionTable . ttHashMap)
-        transactionTable %=! (ttHashMap .~ HM.empty)
-            . (ttNonFinalizedTransactions %~ fmap (anftMap .~ Map.empty))
-            . (ttNonFinalizedChainUpdates %~ fmap (nfcuMap .~ Map.empty))
+        transactionTable .=! emptyTransactionTable
         return oldTransactions
     getNonFinalizedTransactionVerificationResult bi = do
       table <- use transactionTable

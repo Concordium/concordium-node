@@ -57,17 +57,15 @@ import Data.Serialize
 import qualified Concordium.Crypto.SHA256 as SHA256
 import Concordium.Genesis.Data
 import qualified Concordium.Genesis.Data as GenesisData
-import qualified Concordium.Genesis.Data.P2 as P2
 import qualified Concordium.Genesis.Data.P3 as P3
-import Concordium.Types
 import Concordium.Types.SeedState
 
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.BlockState
-import Concordium.GlobalState.Types (MPV)
 import Concordium.Kontrol
+import Concordium.GlobalState.TreeState (GenesisConfiguration(..))
 
 -- |The hash that identifies a update from P2 to P3 protocol.
 -- This is the hash of the published specification document.
@@ -79,7 +77,7 @@ updateHash = read "ec9f7733e872ed0b8f1f386d12c5c725379fc609ce246ffdce28cfb9163ea
 -- i.e. it is the first (and only) explicitly-finalized block with timestamp after the
 -- update takes effect.
 updateRegenesis ::
-    (BlockPointerMonad m, BlockStateStorage m, SkovQueryMonad m, MPV m ~ 'P2) =>
+    (BlockPointerMonad m, BlockStateStorage m, SkovQueryMonad m) =>
     m PVGenesisData
 updateRegenesis = do
     lfb <- lastFinalizedBlock
@@ -88,13 +86,11 @@ updateRegenesis = do
     -- Core parameters are derived from the old genesis, apart from genesis time which is set for
     -- the time of the last finalized block.
     gd <- getGenesisData
-    let core = (P2._core $ unGDP2 gd){GenesisData.genesisTime = regenesisTime}
+    let core = (_gcCore gd){GenesisData.genesisTime = regenesisTime}
     -- genesisFirstGenesis is the block hash of the previous genesis, if it is initial,
     -- or the genesisFirstGenesis of the previous genesis otherwise.
-    let genesisFirstGenesis = case gd of
-            GDP2 P2.GDP2Initial{} -> genesisBlockHash gd
-            GDP2 P2.GDP2Regenesis{genesisRegenesis = GenesisData.RegenesisData{genesisFirstGenesis = firstGen}} -> firstGen
-    let genesisPreviousGenesis = genesisBlockHash gd
+    let genesisFirstGenesis = _gcFirstGenesis gd
+    let genesisPreviousGenesis = _gcCurrentHash gd
     let genesisTerminalBlock = bpHash lfb
     -- Determine the new state by updating the terminal state.
     s0 <- thawBlockState =<< blockState lfb

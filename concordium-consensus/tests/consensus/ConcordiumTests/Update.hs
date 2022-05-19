@@ -123,10 +123,10 @@ createInitStates = do
         createState = liftIO . (\(bid, _, _, _) -> do
                                    let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                        config = SkovConfig
-                                           (MTMBConfig defaultRuntimeParameters gen)
+                                           (MTMBConfig defaultRuntimeParameters)
                                            (ActiveFinalization fininst)
                                            NoHandler
-                                   (initCtx, initState) <- runSilentLogger (initialiseSkov config)
+                                   (initCtx, initState) <- runSilentLogger (initialiseSkovWithGenesis gen config)
                                    return (bid, initCtx, initState))
     b1 <- createState baker1
     b2 <- createState baker2

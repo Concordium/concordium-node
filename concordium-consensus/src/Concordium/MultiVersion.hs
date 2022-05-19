@@ -50,7 +50,7 @@ import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Paired
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.TreeState (TreeStateMonad)
+import Concordium.GlobalState.TreeState (TreeStateMonad (getLastFinalizedHeight), GenesisConfiguration(..))
 import Concordium.ImportExport
 import Concordium.ProtocolUpdate
 import Concordium.Skov as Skov
@@ -145,35 +145,32 @@ class
         GenesisIndex ->
         -- |Absolute height of the genesis block.
         AbsoluteBlockHeight ->
-        GenesisData pv ->
         gsconf pv
 
 instance MultiVersionStateConfig MemoryTreeMemoryBlockConfig where
     type StateConfig MemoryTreeMemoryBlockConfig = ()
     type TXLogConfig MemoryTreeMemoryBlockConfig = ()
-    globalStateConfig _ _ rtp _ _ gd = MTMBConfig rtp gd
+    globalStateConfig _ _ rtp _ _ = MTMBConfig rtp
 
 instance MultiVersionStateConfig DiskTreeDiskBlockConfig where
     type StateConfig DiskTreeDiskBlockConfig = DiskStateConfig
     type TXLogConfig DiskTreeDiskBlockConfig = ()
-    globalStateConfig DiskStateConfig{..} _ rtp gi _ gd =
+    globalStateConfig DiskStateConfig{..} _ rtp gi _ =
         ( DTDBConfig
             { dtdbRuntimeParameters = rtp,
               dtdbTreeStateDirectory = stateBasePath </> ("treestate-" ++ show gi),
-              dtdbBlockStateFile = stateBasePath </> ("blockstate-" ++ show gi) <.> "dat",
-              dtdbGenesisData = gd
+              dtdbBlockStateFile = stateBasePath </> ("blockstate-" ++ show gi) <.> "dat"
             }
         )
 
 instance MultiVersionStateConfig DiskTreeDiskBlockWithLogConfig where
     type StateConfig DiskTreeDiskBlockWithLogConfig = DiskStateConfig
     type TXLogConfig DiskTreeDiskBlockWithLogConfig = TransactionDBConfig
-    globalStateConfig DiskStateConfig{..} TransactionDBConfig{..} rtp gi genHeight gd =
+    globalStateConfig DiskStateConfig{..} TransactionDBConfig{..} rtp gi genHeight =
         ( DTDBWLConfig
             { dtdbwlRuntimeParameters = rtp,
               dtdbwlTreeStateDirectory = stateBasePath </> ("treestate-" ++ show gi),
               dtdbwlBlockStateFile = stateBasePath </> ("blockstate-" ++ show gi) <.> "dat",
-              dtdbwlGenesisData = gd,
               dtdbwlTxDBConnectionString = dbConnString,
               dtdbwlGenesisHeight = genHeight
             }
@@ -185,10 +182,10 @@ instance
     where
     type StateConfig (PairGSConfig c1 c2) = (StateConfig c1, StateConfig c2)
     type TXLogConfig (PairGSConfig c1 c2) = (TXLogConfig c1, TXLogConfig c2)
-    globalStateConfig (sc1, sc2) (txc1, txc2) rtp gi gh gd =
+    globalStateConfig (sc1, sc2) (txc1, txc2) rtp gi gh =
         PairGSConfig
-            ( globalStateConfig sc1 txc1 rtp gi gh gd,
-              globalStateConfig sc2 txc2 rtp gi gh gd
+            ( globalStateConfig sc1 txc1 rtp gi gh,
+              globalStateConfig sc2 txc2 rtp gi gh
             )
 
 -- |Callback functions for communicating with the network layer.
@@ -261,6 +258,14 @@ data EVersionedConfiguration gsconf finconf
           BakerMonad (VersionedSkovM gsconf finconf pv)
         ) =>
       EVersionedConfiguration (VersionedConfiguration gsconf finconf pv)
+
+-- |Activate an 'EVersionedConfiguration'. This means caching the state and
+-- establishing state invariants so that the configuration can be used as the
+-- currently active one for processing blocks, transactions, etc.
+activateConfiguration :: SkovConfiguration gsconf finconf UpdateHandler => EVersionedConfiguration gsconf finconf -> LogIO ()
+activateConfiguration (EVersionedConfiguration vc) = do
+  activeState <- activateSkovState (vcContext vc) =<< liftIO (readIORef (vcState vc))
+  liftIO (writeIORef (vcState vc) activeState)
 
 -- |This class makes it possible to use a multi-version configuration at a specific version.
 -- Essentially, this class provides instances of 'SkovMonad', 'FinalizationMonad' and
@@ -391,6 +396,10 @@ mvrLogIO a = MVR $ \mvr -> runLoggerT a (mvLog mvr)
 -- It is assumed that the thread holds the write lock.
 -- This calls 'notifyRegenesis' to alert the P2P layer of the new genesis block and that catch-up
 -- should be invoked.
+--
+-- This should only be used to process a live protocol update, i.e., a protocol
+-- update that will start an additional protocol version that the node does not
+-- yet know about.
 newGenesis ::
     forall gsconf finconf.
     ( MultiVersionStateConfig gsconf,
@@ -411,14 +420,15 @@ newGenesis (PVGenesisData (gd :: GenesisData pv)) vcGenesisHeight =
             } -> do
                 mvLog Runner LLInfo $
                     "Starting new chain with genesis block "
-                        ++ show (genesisBlockHash gd)
+                        -- ++ show (genesisBlockHash gd)
                         ++ " at absolute height "
                         ++ show vcGenesisHeight
                 oldVersions <- readIORef mvVersions
                 let vcIndex = fromIntegral (length oldVersions)
                 (vcContext, st) <-
                     runLoggerT
-                        ( initialiseSkov
+                        ( initialiseSkovWithGenesis
+                            gd
                             ( SkovConfig @pv @gsconf @finconf
                                 ( globalStateConfig
                                     mvcStateConfig
@@ -426,7 +436,6 @@ newGenesis (PVGenesisData (gd :: GenesisData pv)) vcGenesisHeight =
                                     mvcRuntimeParameters
                                     vcIndex
                                     vcGenesisHeight
-                                    gd
                                 )
                                 mvcFinalizationConfig
                                 UpdateHandler
@@ -438,11 +447,11 @@ newGenesis (PVGenesisData (gd :: GenesisData pv)) vcGenesisHeight =
                 let newEConfig :: VersionedConfiguration gsconf finconf pv
                     newEConfig = VersionedConfiguration{..}
                 writeIORef mvVersions (oldVersions `Vec.snoc` newVersion newEConfig)
-                notifyRegenesis (Just (genesisBlockHash gd))
+                (genesisConfiguration, _) <- runMVR (runSkovT (liftSkov getGenesisData) (mvrSkovHandlers newEConfig mvr) vcContext st) mvr
+                notifyRegenesis (Just (_gcCurrentHash genesisConfiguration))
                 -- Because this may be restoring an existing state, it is possible that a protocol
                 -- update has already happened on this chain.  Therefore, we must handle this
                 -- contingency.
-                runMVR (liftSkovUpdate newEConfig checkForProtocolUpdate) mvr
 
 -- |Determine if a protocol update has occurred, and handle it.
 -- When a protocol update first becomes pending, this logs the update that will occur (if it is
@@ -467,7 +476,8 @@ checkForProtocolUpdate = liftSkov body
           TreeStateMonad (VersionedSkovM gc fc pv)
         ) =>
         VersionedSkovM gc fc pv ()
-    body =
+    body = do
+        logEvent Kontrol LLDebug "Checking for protocol update."
         Skov.getProtocolUpdateStatus >>= \case
             ProtocolUpdated pu -> case checkUpdate @pv pu of
                 Left err -> do
@@ -478,7 +488,9 @@ checkForProtocolUpdate = liftSkov body
                       callbacks <- asks mvCallbacks
                       liftIO (notifyRegenesis callbacks Nothing)
                 Right upd -> do
+                    logEvent Kontrol LLDebug "Got protocol update status."
                     regenesis <- updateRegenesis upd
+                    logEvent Kontrol LLDebug "Got regenesis."
                     lfbHeight <- bpHeight <$> lastFinalizedBlock
                     latestEraGenesisHeight <- lift $
                         MVR $ \mvr -> do
@@ -556,10 +568,78 @@ makeMultiVersionRunner
         mvCatchUpStatusBuffer <- newMVar BufferEmpty
         mvTransactionPurgingThread <- newEmptyMVar
         let mvr = MultiVersionRunner{..}
-        runMVR (newGenesis genesis 0) mvr
+        runMVR (startupSkov genesis) mvr
+        runLoggerT (activateConfiguration . Vec.last =<< liftIO (readIORef mvVersions)) mvLog
         putMVar mvWriteLock ()
         startTransactionPurgingThread mvr
         return mvr
+
+
+-- |Start a consensus with a new genesis.
+-- It is assumed that the thread holds the write lock.
+-- This calls 'notifyRegenesis' to alert the P2P layer of the new genesis block and that catch-up
+-- should be invoked.
+startupSkov ::
+    forall gsconf finconf.
+    ( MultiVersionStateConfig gsconf,
+      MultiVersion gsconf finconf,
+      SkovConfiguration gsconf finconf UpdateHandler
+    ) =>
+    -- |Genesis data
+    PVGenesisData ->
+    MVR gsconf finconf ()
+startupSkov genesis@(PVGenesisData (_ :: GenesisData pvOrig)) = do
+    let loop (SomeProtocolVersion (_ :: SProtocolVersion pv)) first vcIndex vcGenesisHeight = do
+            let comp = MVR $
+                    \mvr@MultiVersionRunner
+                        { mvCallbacks = Callbacks{..},
+                          mvConfiguration = MultiVersionConfiguration{..},
+                          ..
+                        } -> do
+                              r <- runLoggerT
+                                      ( initialiseSkov
+                                          ( SkovConfig @pv @gsconf @finconf
+                                              ( globalStateConfig
+                                                  mvcStateConfig
+                                                  mvcTXLogConfig
+                                                  mvcRuntimeParameters
+                                                  vcIndex
+                                                  vcGenesisHeight
+                                              )
+                                              mvcFinalizationConfig
+                                              UpdateHandler
+                                          )
+                                      )
+                                      mvLog
+                              case r of
+                                Left (vcContext, st) -> do
+                                  vcState <- newIORef st
+                                  let vcShutdown = shutdownSkov vcContext =<< liftIO (readIORef vcState)
+                                  let newEConfig :: VersionedConfiguration gsconf finconf pv
+                                      newEConfig = VersionedConfiguration{..}
+                                  oldVersions <- readIORef mvVersions
+                                  writeIORef mvVersions (oldVersions `Vec.snoc` newVersion newEConfig)
+                                  let getCurrentGenesisAndHeight :: VersionedSkovM gsconf finconf pv (BlockHash, BlockHeight, Maybe SomeProtocolVersion)
+                                      getCurrentGenesisAndHeight = liftSkov $ do
+                                        currentGenesis <- getGenesisData
+                                        lfHeight <- getLastFinalizedHeight
+                                        nextPV <- getNextProtocolVersion
+                                        return (_gcCurrentHash currentGenesis, lfHeight, nextPV)
+                                  ((genesisHash, lastFinalizedHeight, nextPV), _) <- runMVR (runSkovT getCurrentGenesisAndHeight (mvrSkovHandlers newEConfig mvr) vcContext st) mvr
+                                  notifyRegenesis (Just genesisHash)
+                                  return (Left (newVersion newEConfig, lastFinalizedHeight, nextPV))
+                                Right k -> 
+                                  case first of
+                                    Nothing -> return (Right Nothing)
+                                    Just newEConfig -> return (Right (Just newEConfig))
+            comp >>= \case
+                Left (newEConfig@(EVersionedConfiguration newEConfig'), lastFinalizedHeight, nextPV) ->
+                    case nextPV of
+                        Nothing -> liftSkovUpdate newEConfig' checkForProtocolUpdate
+                        Just nextSPV -> loop nextSPV (Just newEConfig) (vcIndex + 1) (fromIntegral lastFinalizedHeight + 1)
+                Right Nothing -> newGenesis genesis 0
+                Right (Just (EVersionedConfiguration newEConfig')) -> liftSkovUpdate newEConfig' checkForProtocolUpdate
+    loop (SomeProtocolVersion (protocolVersion @pvOrig)) Nothing 0 0
 
 -- |Start a thread to periodically purge uncommitted transactions.
 -- This is only intended to be called once, during 'makeMultiVersionRunner'.

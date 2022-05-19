@@ -26,6 +26,7 @@ import Lens.Micro.Platform
 import Data.Proxy
 import qualified Data.Text as Text
 
+import Concordium.Genesis.Data
 import Concordium.Types
 import Concordium.Types.UpdateQueues (ProtocolUpdateStatus(..))
 import Concordium.Types.Updates
@@ -208,10 +209,37 @@ type instance SkovGSContext (SkovConfig pv gsconf finconf hconf) = GSContext gsc
 type family SkovLogContext c
 type instance SkovLogContext (SkovConfig pv gsconf finconf hconf) = GSLogContext gsconf pv
 
+-- |A pair of 'SkovContext' and 'SkovState' for a given 'SkovConfig' determined by the type parameters.
+type InitialisedSkov pv gsconfig finconfig handlerconfig = (SkovContext (SkovConfig pv gsconfig finconfig handlerconfig), SkovState (SkovConfig pv gsconfig finconfig handlerconfig))
+
 class SkovConfiguration gsconfig finconfig handlerconfig where
     -- |Create an initial context and state from a given configuration.
+    -- The return value is 'Left' if an existing state was found for the given configuration.
+    -- Otherwise it is @Right k@ where @k@ is a continuation that when given a genesis block
+    -- creates a new instance of the state.
+    --
+    -- To use the state for an active consensus instance use 'activateSkovState'
+    -- after initialising the state.
     initialiseSkov :: IsProtocolVersion pv => SkovConfig pv gsconfig finconfig handlerconfig ->
-        LogIO (SkovContext (SkovConfig pv gsconfig finconfig handlerconfig), SkovState (SkovConfig pv gsconfig finconfig handlerconfig))
+        LogIO (Either (InitialisedSkov pv gsconfig finconfig handlerconfig)
+                      (GenesisData pv -> LogIO (InitialisedSkov pv gsconfig finconfig handlerconfig)))
+
+    -- |A simplified version of 'initialiseSkov' when the genesis data is available.
+    initialiseSkovWithGenesis :: IsProtocolVersion pv
+                              => GenesisData pv
+                              -> SkovConfig pv gsconfig finconfig handlerconfig
+                              -> LogIO (SkovContext (SkovConfig pv gsconfig finconfig handlerconfig), SkovState (SkovConfig pv gsconfig finconfig handlerconfig))
+    initialiseSkovWithGenesis gd cfg = initialiseSkov cfg >>= \case
+        Left x -> return x
+        Right k -> k gd
+
+    -- |Activate an initialised skov instance. Activation is necessary before
+    -- the state can be used by consensus for anything other than queries.
+    activateSkovState :: IsProtocolVersion pv
+                      => SkovContext (SkovConfig pv gsconfig finconfig handlerconfig)
+                      -> SkovState (SkovConfig pv gsconfig finconfig handlerconfig)
+                      -> LogIO (SkovState (SkovConfig pv gsconfig finconfig handlerconfig))
+
     -- |Free any resources when we are done with the context and state.
     shutdownSkov :: IsProtocolVersion pv => SkovContext (SkovConfig pv gsconfig finconfig handlerconfig) -> SkovState (SkovConfig pv gsconfig finconfig handlerconfig) -> LogIO ()
 
@@ -245,14 +273,33 @@ instance
         forall pv.
         IsProtocolVersion pv =>
         SkovConfig pv gsconfig finconfig handlerconfig ->
-        LogIO (SkovContext (SkovConfig pv gsconfig finconfig handlerconfig), SkovState (SkovConfig pv gsconfig finconfig handlerconfig))
+        LogIO (Either (SkovContext (SkovConfig pv gsconfig finconfig handlerconfig), SkovState (SkovConfig pv gsconfig finconfig handlerconfig))
+                      (GenesisData pv -> LogIO (SkovContext (SkovConfig pv gsconfig finconfig handlerconfig), SkovState (SkovConfig pv gsconfig finconfig handlerconfig))))
     initialiseSkov (SkovConfig gsc finconf hconf) = do
-        (c, s, logCtx) <- initialiseGlobalState gsc
-        (finctx, finst) <- evalGlobalState @_ @pv (Proxy @gsconfig) (initialiseFinalization finconf) c s
-        logEvent Baker LLDebug $ "Initializing finalization with context = " ++ show finctx
-        logEvent Baker LLDebug $ "Initializing finalization with initial state = " ++ show finst
-        let (hctx, hst) = initialiseHandler hconf
-        return (SkovContext c finctx hctx, SkovState s finst hst logCtx)
+        logEvent Baker LLDebug "Initializing global state."
+        initialiseGlobalState gsc >>= \case
+          Left (c, s, logCtx) -> do
+            (finctx, finst) <- evalGlobalState @_ @pv (Proxy @gsconfig) (initialiseFinalization finconf) c s
+            logEvent Baker LLDebug $ "Initializing finalization with context = " ++ show finctx
+            logEvent Baker LLDebug $ "Initializing finalization with initial state = " ++ show finst
+            let (hctx, hst) = initialiseHandler hconf
+            return (Left (SkovContext c finctx hctx, SkovState s finst hst logCtx))
+          Right k -> return . Right $ \genData -> do
+            (c, s, logCtx) <- k genData
+            (finctx, finst) <- evalGlobalState @_ @pv (Proxy @gsconfig) (initialiseFinalization finconf) c s
+            logEvent Baker LLDebug $ "Initializing finalization with context = " ++ show finctx
+            logEvent Baker LLDebug $ "Initializing finalization with initial state = " ++ show finst
+            let (hctx, hst) = initialiseHandler hconf
+            return (SkovContext c finctx hctx, SkovState s finst hst logCtx)
+
+    activateSkovState ::
+        forall pv . IsProtocolVersion pv =>
+        SkovContext (SkovConfig pv gsconfig finconfig handlerconfig) ->
+        SkovState (SkovConfig pv gsconfig finconfig handlerconfig) ->
+        LogIO (SkovState (SkovConfig pv gsconfig finconfig handlerconfig))
+    activateSkovState skovContext skovState = do
+        activatedState <- activateGlobalState (Proxy @(gsconfig pv)) (scGSContext skovContext) (ssGSState skovState)
+        return skovState { ssGSState = activatedState }
     shutdownSkov :: forall pv. IsProtocolVersion pv => SkovContext (SkovConfig pv gsconfig finconfig handlerconfig) -> SkovState (SkovConfig pv gsconfig finconfig handlerconfig) -> LogIO ()
     shutdownSkov (SkovContext c _ _) (SkovState s _ _ logCtx) = liftIO $ shutdownGlobalState (protocolVersion @pv) (Proxy :: Proxy gsconfig) c s logCtx
 
@@ -289,6 +336,14 @@ data SkovHandlers pv t c m = SkovHandlers {
     shCancelTimer :: t -> m (),
     shPendingLive :: m ()
 }
+
+emptySkovHandlers :: forall m pv t c . Monad m => SkovHandlers pv t c m
+emptySkovHandlers = SkovHandlers {
+  shBroadcastFinalizationMessage = \_ -> return (),
+  shOnTimeout = \_ _ -> return undefined,
+  shCancelTimer = \ _ -> return (),
+  shPendingLive = return ()
+  }
 
 instance SkovFinalizationHandlers (SkovHandlers pv t c m) m where
     handleBroadcastFinalizationMessage SkovHandlers{..} = shBroadcastFinalizationMessage

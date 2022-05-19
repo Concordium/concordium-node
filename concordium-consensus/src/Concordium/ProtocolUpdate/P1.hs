@@ -5,6 +5,7 @@ module Concordium.ProtocolUpdate.P1 (
     Update (..),
     checkUpdate,
     updateRegenesis,
+    updateNextProtocolVersion,
 ) where
 
 import qualified Data.HashMap.Strict as HM
@@ -16,7 +17,6 @@ import Concordium.Types
 import Concordium.Types.Updates
 
 import Concordium.GlobalState.BlockState
-import Concordium.GlobalState.Types (MPV)
 import Concordium.Kontrol
 import qualified Concordium.ProtocolUpdate.P1.ProtocolP2 as ProtocolP2
 import qualified Concordium.ProtocolUpdate.P1.Reboot as Reboot
@@ -41,6 +41,13 @@ checkUpdate ProtocolUpdate{..} = case HM.lookup puSpecificationHash updates of
 -- It is assumed that the last finalized block is the terminal block of the old chain:
 -- i.e. it is the first (and only) explicitly-finalized block with timestamp after the
 -- update takes effect.
-updateRegenesis :: (BlockStateStorage m, SkovQueryMonad m, MPV m ~ 'P1) => Update -> m PVGenesisData
+updateRegenesis :: (BlockStateStorage m, SkovQueryMonad m) => Update -> m PVGenesisData
 updateRegenesis (Reboot upd) = Reboot.updateRegenesis upd
 updateRegenesis ProtocolP2 = ProtocolP2.updateRegenesis
+
+-- |Determine the protocol version the update will update to.
+updateNextProtocolVersion ::
+    Update ->
+    SomeProtocolVersion
+updateNextProtocolVersion (Reboot _) = SomeProtocolVersion SP1
+updateNextProtocolVersion ProtocolP2 = SomeProtocolVersion SP2
