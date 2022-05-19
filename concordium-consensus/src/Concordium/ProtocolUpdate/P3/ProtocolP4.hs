@@ -70,6 +70,7 @@ import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.BlockState
 import Concordium.Kontrol
+import Concordium.GlobalState.TreeState (GenesisConfiguration(..))
 
 -- |The hash that identifies a update from P3 to P4 protocol.
 -- This is the hash of the published specification document.

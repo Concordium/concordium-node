@@ -300,14 +300,17 @@ loadSkovPersistentData rp _treeStateDirectory pbsc atiContext = do
   -- But this behaviour of LMDB is poorly documented, so we might experience issues.
   _db <- either (logExceptionAndThrowTS . DatabaseOpeningError) return =<<
           liftIO (try $ databaseHandlers _treeStateDirectory)
+  logEvent GlobalState LLDebug "Checking database version."
 
   -- Check that the database version matches what we expect.
   liftIO (checkDatabaseVersion _db) >>=
       either (logExceptionAndThrowTS . IncorrectDatabaseVersion) return
+  logEvent GlobalState LLDebug "Checked database version."
 
   -- Get the genesis block and check that its data matches the supplied genesis data.
   genStoredBlock <- maybe (logExceptionAndThrowTS GenesisBlockNotInDataBaseError) return =<<
           liftIO (getFirstBlock _db)
+  logEvent GlobalState LLDebug "Got first block."
   _genesisBlockPointer <- liftIO $ makeBlockPointer genStoredBlock
   _genesisData <- case _bpBlock _genesisBlockPointer of
     GenesisBlock gd' -> return gd'
@@ -318,6 +321,7 @@ loadSkovPersistentData rp _treeStateDirectory pbsc atiContext = do
       Left s -> logExceptionAndThrowTS $ DatabaseInvariantViolation s
       Right hm -> return $! HM.map BlockFinalized hm
 
+  logEvent GlobalState LLDebug "Getting last finalized block."
   -- Get the last finalized block.
   (_lastFinalizationRecord, lfStoredBlock) <- liftIO (getLastBlock _db) >>= \case
       Left s -> logExceptionAndThrowTS $ DatabaseInvariantViolation s

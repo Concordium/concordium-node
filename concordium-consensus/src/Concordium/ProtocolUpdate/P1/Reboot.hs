@@ -70,6 +70,7 @@ import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.BlockState
 import Concordium.Kontrol
+import Concordium.GlobalState.TreeState (GenesisConfiguration(..))
 
 -- |The data required to perform a P1.Reboot update.
 data UpdateData = UpdateData

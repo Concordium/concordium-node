@@ -85,6 +85,26 @@ data AddTransactionResult =
   NotAdded !TVer.VerificationResult
   deriving(Eq, Show)
 
+-- |Information about the genesis block of the chain. This is not the full
+-- genesis block. It does not include the genesis state. Instead, it is the
+-- minimal information needed by a running consensus.
+data GenesisConfiguration = GenesisConfiguration {
+  -- |Genesis parameters.
+  _gcCore :: !CoreGenesisParameters,
+  -- |Hash of the current genesis block. Each protocol update introduces a new
+  -- genesis block.
+  _gcCurrentHash :: !BlockHash,
+  -- |Hash of the genesis block of the chain.
+  _gcFirstGenesis :: !BlockHash
+  } deriving (Eq, Show)
+
+instance BasicGenesisData GenesisConfiguration where
+  gdGenesisTime = gdGenesisTime . _gcCore
+  gdSlotDuration = gdSlotDuration . _gcCore
+  gdMaxBlockEnergy = gdMaxBlockEnergy . _gcCore
+  gdFinalizationParameters = gdFinalizationParameters . _gcCore
+  gdEpochLength = gdEpochLength . _gcCore
+
 -- |Monad that provides operations for working with the low-level tree state.
 -- These operations are abstracted where possible to allow for a range of implementation
 -- choices.

@@ -353,6 +353,14 @@ data SkovHandlers pv t c m = SkovHandlers {
     shPendingLive :: m ()
 }
 
+emptySkovHandlers :: forall m pv t c . Monad m => SkovHandlers pv t c m
+emptySkovHandlers = SkovHandlers {
+  shBroadcastFinalizationMessage = \_ -> return (),
+  shOnTimeout = \_ _ -> return undefined,
+  shCancelTimer = \ _ -> return (),
+  shPendingLive = return ()
+  }
+
 instance SkovFinalizationHandlers (SkovHandlers pv t c m) m where
     handleBroadcastFinalizationMessage SkovHandlers{..} = shBroadcastFinalizationMessage
 
