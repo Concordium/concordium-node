@@ -475,7 +475,6 @@ checkForProtocolUpdate = liftSkov body
         ) =>
         VersionedSkovM gc fc pv ()
     body = do
-        logEvent Kontrol LLDebug "Checking for protocol update."
         Skov.getProtocolUpdateStatus >>= \case
             ProtocolUpdated pu -> case checkUpdate @pv pu of
                 Left err -> do
@@ -486,9 +485,7 @@ checkForProtocolUpdate = liftSkov body
                       callbacks <- asks mvCallbacks
                       liftIO (notifyRegenesis callbacks Nothing)
                 Right upd -> do
-                    logEvent Kontrol LLDebug "Got protocol update status."
                     regenesis <- updateRegenesis upd
-                    logEvent Kontrol LLDebug "Got regenesis."
                     lfbHeight <- bpHeight <$> lastFinalizedBlock
                     latestEraGenesisHeight <- lift $
                         MVR $ \mvr -> do
