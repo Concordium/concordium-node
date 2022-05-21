@@ -21,7 +21,7 @@ module Concordium.MultiVersion where
 
 import Control.Concurrent
 import Control.Exception
-import Control.Monad.Catch (MonadCatch, MonadMask, MonadThrow)
+import Control.Monad.Catch (MonadCatch, MonadMask, MonadThrow (throwM))
 import Control.Monad.Reader
 import Control.Monad.State
 import Data.ByteString (ByteString)
@@ -477,7 +477,6 @@ checkForProtocolUpdate = liftSkov body
         ) =>
         VersionedSkovM gc fc pv ()
     body = do
-        logEvent Kontrol LLDebug "Checking for protocol update."
         Skov.getProtocolUpdateStatus >>= \case
             ProtocolUpdated pu -> case checkUpdate @pv pu of
                 Left err -> do
@@ -488,9 +487,7 @@ checkForProtocolUpdate = liftSkov body
                       callbacks <- asks mvCallbacks
                       liftIO (notifyRegenesis callbacks Nothing)
                 Right upd -> do
-                    logEvent Kontrol LLDebug "Got protocol update status."
                     regenesis <- updateRegenesis upd
-                    logEvent Kontrol LLDebug "Got regenesis."
                     lfbHeight <- bpHeight <$> lastFinalizedBlock
                     latestEraGenesisHeight <- lift $
                         MVR $ \mvr -> do
@@ -551,7 +548,9 @@ makeMultiVersionRunner ::
     Callbacks ->
     Maybe BakerIdentity ->
     LogMethod IO ->
-    PVGenesisData ->
+    -- |Either encoded or already parsed genesis data. The former is useful
+    -- when genesis data is large and expensive to decode.
+    Either ByteString PVGenesisData ->
     IO (MultiVersionRunner gsconf finconf)
 makeMultiVersionRunner
     mvConfiguration
@@ -569,6 +568,7 @@ makeMultiVersionRunner
         mvTransactionPurgingThread <- newEmptyMVar
         let mvr = MultiVersionRunner{..}
         runMVR (startupSkov genesis) mvr
+        -- Cache accounts, contracts, etc., and establish all invariants for an active consensus.
         runLoggerT (activateConfiguration . Vec.last =<< liftIO (readIORef mvVersions)) mvLog
         putMVar mvWriteLock ()
         startTransactionPurgingThread mvr
@@ -577,18 +577,42 @@ makeMultiVersionRunner
 
 -- |Start a consensus with a new genesis.
 -- It is assumed that the thread holds the write lock.
--- This calls 'notifyRegenesis' to alert the P2P layer of the new genesis block and that catch-up
--- should be invoked.
+-- This calls 'notifyRegenesis' to alert the P2P layer of the new genesis block so that p2p layer
+-- starts up with a correct list of genesis blocks.
+--
+-- Startup works as follows.
+--
+-- 1. Genesis data is partially decoded to determine the protocol version where
+-- the chain is supposed to start.
+-- 2. For each protocol version starting at the initial one we attempt to load
+-- the existing state for the protocol version and genesis index. This loading
+-- is minimal and no state caching is done. Only enough state is loaded so that
+-- queries for old blocks, data in blocks, are supported.
+-- 3. After this process we end up in one of two slightly different options.
+--    - Either there is no state at all. In that case we need to decode the
+--    supplied genesis data fully and start a chain with it. We start a new
+--    chain with 'newGenesis'.
+--    - Or we have loaded at least one state. In this case we must check whether
+--      the state already contains an effective protocol update or not.
+--      'checkForProtocolUpdate' is used for this and it might start a new chain.
 startupSkov ::
     forall gsconf finconf.
     ( MultiVersionStateConfig gsconf,
       MultiVersion gsconf finconf,
       SkovConfiguration gsconf finconf UpdateHandler
     ) =>
-    -- |Genesis data
-    PVGenesisData ->
+    -- |Genesis data, the decoder for it and the byte array representation. The
+    -- reason this does not take the genesis data directly is that it can be
+    -- expensive to deserialize, and if the database already exists then it is
+    -- not needed.
+    Either ByteString PVGenesisData ->
     MVR gsconf finconf ()
-startupSkov genesis@(PVGenesisData (_ :: GenesisData pvOrig)) = do
+startupSkov genesis = do
+    initProtocolVersion <- case genesis of
+        Left genBS -> case runGet getPVGenesisDataPV genBS of
+            Left err -> throwM (InvalidGenesisData err)
+            Right spv -> return spv
+        Right (PVGenesisData (_ :: GenesisData pvOrig)) -> return (SomeProtocolVersion (protocolVersion @pvOrig))
     let loop (SomeProtocolVersion (_ :: SProtocolVersion pv)) first vcIndex vcGenesisHeight = do
             let comp = MVR $
                     \mvr@MultiVersionRunner
@@ -637,9 +661,16 @@ startupSkov genesis@(PVGenesisData (_ :: GenesisData pvOrig)) = do
                     case nextPV of
                         Nothing -> liftSkovUpdate newEConfig' checkForProtocolUpdate
                         Just nextSPV -> loop nextSPV (Just newEConfig) (vcIndex + 1) (fromIntegral lastFinalizedHeight + 1)
-                Right Nothing -> newGenesis genesis 0
+                Right Nothing ->
+                    case genesis of
+                        Left genBS -> case runGet getPVGenesisData genBS of
+                            Left err -> do
+                                logEvent Runner LLError $ "Failed to decode genesis data: " ++ err
+                                throwM (InvalidGenesisData err)
+                            Right gd -> newGenesis gd 0
+                        Right gd -> newGenesis gd 0
                 Right (Just (EVersionedConfiguration newEConfig')) -> liftSkovUpdate newEConfig' checkForProtocolUpdate
-    loop (SomeProtocolVersion (protocolVersion @pvOrig)) Nothing 0 0
+    loop initProtocolVersion Nothing 0 0
 
 -- |Start a thread to periodically purge uncommitted transactions.
 -- This is only intended to be called once, during 'makeMultiVersionRunner'.

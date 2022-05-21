@@ -395,7 +395,7 @@ main = do
                             hPutStrLn logFile $ "[" ++ show timestamp ++ "] " ++ show lvl ++ " - " ++ show src ++ ": " ++ msg
                             hFlush logFile
                     let cbks = callbacks (bakerId bid) peersRef monitorChan
-                    mvr <- makeMultiVersionRunner bconfig cbks (Just bid) blogger (PVGenesisData genesisData)
+                    mvr <- makeMultiVersionRunner bconfig cbks (Just bid) blogger (Right (PVGenesisData genesisData))
                     (bakerId bid,) <$> makePeer (bakerId bid) mvr
                 )
 

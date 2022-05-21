@@ -61,6 +61,6 @@ main = do
                   notifyRegenesis = \_ -> return ()
                 }
 
-    mvr <- makeMultiVersionRunner config callbacks Nothing logM genesisData
+    mvr <- makeMultiVersionRunner config callbacks Nothing logM (Right genesisData)
     result <- runMVR (importBlocks blocks) mvr
     print result
