@@ -58,7 +58,7 @@ data SkovData (pv :: ProtocolVersion) bs = SkovData {
     -- |Branches of the tree by height above the last finalized block
     _branches :: !(Seq.Seq [BasicBlockPointer pv bs]),
     -- |Genesis data
-    _genesisData :: !TS.GenesisConfiguration,
+    _genesisData :: !GenesisConfiguration,
     -- |Block pointer to genesis block
     _genesisBlockPointer :: !(BasicBlockPointer pv bs),
     -- |Current focus block
@@ -104,11 +104,7 @@ initialSkovData rp gd genState = do
             _possiblyPendingQueue = MPQ.empty,
             _finalizationList = Seq.singleton (gbfin, gb),
             _branches = Seq.empty,
-            _genesisData = TS.GenesisConfiguration {
-                _gcCore = coreGenesisParameters gd,
-                _gcCurrentHash = genesisBlockHash gd,
-                _gcFirstGenesis = firstGenesisBlockHash gd
-                },
+            _genesisData = genesisConfiguration gd,
             _genesisBlockPointer = gb,
             _focusBlock = gb,
             _pendingTransactions = emptyPendingTransactionTable,

@@ -42,7 +42,6 @@ import qualified Data.Map.Strict as Map
 import Data.Typeable
 import qualified Data.PQueue.Prio.Min as MPQ
 import qualified Data.Sequence as Seq
-import Data.Serialize (Serialize(..))
 import Lens.Micro.Platform
 import Concordium.Utils
 import System.Mem.Weak
@@ -126,7 +125,7 @@ data SkovPersistentData (pv :: ProtocolVersion) ati bs = SkovPersistentData {
     -- |Branches of the tree by height above the last finalized block
     _branches :: !(Seq.Seq [PersistentBlockPointer pv (ATIValues ati) bs]),
     -- |Genesis data
-    _genesisData :: !TS.GenesisConfiguration,
+    _genesisData :: !GenesisConfiguration,
     -- |Block pointer to genesis block
     _genesisBlockPointer :: !(PersistentBlockPointer pv (ATIValues ati) bs),
     -- |Current focus block
@@ -156,7 +155,7 @@ instance (bsp ~ TS.BlockStatePointer bs)
 
 -- |Initial skov data with default runtime parameters (block size = 10MB).
 initialSkovPersistentDataDefault
-    :: (IsProtocolVersion pv, Serialize (TS.BlockStatePointer bs), BlockStateQuery m, bs ~ BlockState m, MonadIO m)
+    :: (IsProtocolVersion pv, FixedSizeSerialization (TS.BlockStatePointer bs), BlockStateQuery m, bs ~ BlockState m, MonadIO m)
     => FilePath
     -> GenesisData pv
     -> bs
@@ -167,7 +166,7 @@ initialSkovPersistentDataDefault
 initialSkovPersistentDataDefault = initialSkovPersistentData defaultRuntimeParameters
 
 initialSkovPersistentData
-    :: (IsProtocolVersion pv, Serialize (TS.BlockStatePointer bs), BlockStateQuery m, bs ~ BlockState m, MonadIO m)
+    :: (IsProtocolVersion pv, FixedSizeSerialization (TS.BlockStatePointer bs), BlockStateQuery m, bs ~ BlockState m, MonadIO m)
     => RuntimeParameters
     -- ^Runtime parameters
     -> FilePath
@@ -208,11 +207,7 @@ initialSkovPersistentData rp treeStateDir gd genState genATI atiContext serState
             _lastFinalized = gb,
             _lastFinalizationRecord = gbfin,
             _branches = Seq.empty,
-            _genesisData = TS.GenesisConfiguration {
-                _gcCore = coreGenesisParameters gd,
-                _gcCurrentHash = genesisBlockHash gd,
-                _gcFirstGenesis = firstGenesisBlockHash gd
-                },
+            _genesisData = genesisConfiguration gd,
             _genesisBlockPointer = gb,
             _focusBlock = gb,
             _pendingTransactions = emptyPendingTransactionTable,
@@ -290,7 +285,6 @@ loadSkovPersistentData :: forall ati pv. (IsProtocolVersion pv, CanExtend (ATIVa
                        -> ATIContext ati
                        -> LogIO (SkovPersistentData pv ati (PBS.HashedPersistentBlockState pv))
 loadSkovPersistentData rp _treeStateDirectory pbsc atiContext = do
-  logEvent GlobalState LLDebug "Loading persistent state."
   -- we open the environment first.
   -- It might be that the database is bigger than the default environment size.
   -- This seems to not be an issue while we only read from the database,
@@ -298,41 +292,29 @@ loadSkovPersistentData rp _treeStateDirectory pbsc atiContext = do
   -- But this behaviour of LMDB is poorly documented, so we might experience issues.
   _db <- either (logExceptionAndThrowTS . DatabaseOpeningError) return =<<
           liftIO (try $ databaseHandlers _treeStateDirectory)
-  logEvent GlobalState LLDebug "Checking database version."
 
   -- Check that the database version matches what we expect.
   liftIO (checkDatabaseVersion _db) >>=
       either (logExceptionAndThrowTS . IncorrectDatabaseVersion) return
-  logEvent GlobalState LLDebug "Checked database version."
 
   -- Get the genesis block and check that its data matches the supplied genesis data.
   genStoredBlock <- maybe (logExceptionAndThrowTS GenesisBlockNotInDataBaseError) return =<<
           liftIO (getFirstBlock _db)
-  logEvent GlobalState LLDebug "Got first block."
   _genesisBlockPointer <- liftIO $ makeBlockPointer genStoredBlock
-  logEvent GlobalState LLDebug "Loaded genesis block."
   _genesisData <- case _bpBlock _genesisBlockPointer of
-     GenesisBlock gd' -> return 
-      TS.GenesisConfiguration {
-       _gcCore = coreGenesisParameters gd',
-       _gcCurrentHash = genesisBlockHash gd',
-         _gcFirstGenesis = firstGenesisBlockHash gd'
-       }
+     GenesisBlock gd' -> return gd'
      _ -> logExceptionAndThrowTS (DatabaseInvariantViolation "Block at height 0 is not a genesis block.")
 
-  logEvent GlobalState LLDebug "Populating block table."
   -- Populate the block table.
   _blockTable <- liftIO (loadBlocksFinalizationIndexes _db) >>= \case
       Left s -> logExceptionAndThrowTS $ DatabaseInvariantViolation s
       Right hm -> return $! HM.map BlockFinalized hm
 
-  logEvent GlobalState LLDebug "Getting last finalized block."
   -- Get the last finalized block.
   (_lastFinalizationRecord, lfStoredBlock) <- liftIO (getLastBlock _db) >>= \case
       Left s -> logExceptionAndThrowTS $ DatabaseInvariantViolation s
       Right r -> return r
   _lastFinalized <- liftIO (makeBlockPointer lfStoredBlock)
-  logEvent GlobalState LLDebug "Done loading persistent state."
 
   return SkovPersistentData {
             _possiblyPendingTable = HM.empty,

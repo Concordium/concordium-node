@@ -88,6 +88,7 @@ import Concordium.ID.Types (AccountCredential, CredentialRegistrationID)
 import Concordium.Crypto.EncryptedTransfers
 import Concordium.GlobalState.ContractStateFFIHelpers (LoadCallback)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
+import Concordium.GlobalState.Persistent.LMDB (FixedSizeSerialization)
 
 -- |Hash associated with birk parameters.
 newtype BirkParametersHash (pv :: ProtocolVersion) = BirkParametersHash {birkParamHash :: H.Hash}
@@ -1150,7 +1151,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   bsoSetRewardAccounts :: UpdatableBlockState m -> RewardAccounts -> m (UpdatableBlockState m)
 
 -- | Block state storage operations
-class (BlockStateOperations m, Serialize (BlockStateRef m)) => BlockStateStorage m where
+class (BlockStateOperations m, FixedSizeSerialization (BlockStateRef m)) => BlockStateStorage m where
     -- |Derive a mutable state instance from a block state instance. The mutable
     -- state instance supports all the operations needed by the scheduler for
     -- block execution. Semantically the 'UpdatableBlockState' must be a copy,

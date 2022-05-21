@@ -69,13 +69,13 @@ setup nBakers = do
   let initialState inst =
         initialFinalizationState
         inst
-        (getHash (GenesisBlock genData))
+        (getHash (GenesisBlock (genesisConfiguration genData)))
         (gdFinalizationParameters genData)
         fullBakers
         genTotal
   let initialPassiveState =
         initialPassiveFinalizationState
-        (getHash (GenesisBlock genData))
+        (getHash (GenesisBlock (genesisConfiguration genData)))
         (gdFinalizationParameters genData)
         fullBakers
         genTotal

@@ -50,7 +50,7 @@ import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Paired
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.TreeState (TreeStateMonad (getLastFinalizedHeight), GenesisConfiguration(..))
+import Concordium.GlobalState.TreeState (TreeStateMonad (getLastFinalizedHeight))
 import Concordium.ImportExport
 import Concordium.ProtocolUpdate
 import Concordium.Skov as Skov
@@ -447,8 +447,8 @@ newGenesis (PVGenesisData (gd :: GenesisData pv)) vcGenesisHeight =
                 let newEConfig :: VersionedConfiguration gsconf finconf pv
                     newEConfig = VersionedConfiguration{..}
                 writeIORef mvVersions (oldVersions `Vec.snoc` newVersion newEConfig)
-                (genesisConfiguration, _) <- runMVR (runSkovT (liftSkov getGenesisData) (mvrSkovHandlers newEConfig mvr) vcContext st) mvr
-                notifyRegenesis (Just (_gcCurrentHash genesisConfiguration))
+                (genConf, _) <- runMVR (runSkovT (liftSkov getGenesisData) (mvrSkovHandlers newEConfig mvr) vcContext st) mvr
+                notifyRegenesis (Just (_gcCurrentHash genConf))
                 -- Because this may be restoring an existing state, it is possible that a protocol
                 -- update has already happened on this chain.  Therefore, we must handle this
                 -- contingency.
@@ -628,7 +628,7 @@ startupSkov genesis@(PVGenesisData (_ :: GenesisData pvOrig)) = do
                                   ((genesisHash, lastFinalizedHeight, nextPV), _) <- runMVR (runSkovT getCurrentGenesisAndHeight (mvrSkovHandlers newEConfig mvr) vcContext st) mvr
                                   notifyRegenesis (Just genesisHash)
                                   return (Left (newVersion newEConfig, lastFinalizedHeight, nextPV))
-                                Right k -> 
+                                Right _ ->
                                   case first of
                                     Nothing -> return (Right Nothing)
                                     Just newEConfig -> return (Right (Just newEConfig))
