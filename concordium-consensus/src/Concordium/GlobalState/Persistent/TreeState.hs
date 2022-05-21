@@ -302,8 +302,8 @@ loadSkovPersistentData rp _treeStateDirectory pbsc atiContext = do
           liftIO (getFirstBlock _db)
   _genesisBlockPointer <- liftIO $ makeBlockPointer genStoredBlock
   _genesisData <- case _bpBlock _genesisBlockPointer of
-     GenesisBlock gd' -> return gd'
-     _ -> logExceptionAndThrowTS (DatabaseInvariantViolation "Block at height 0 is not a genesis block.")
+    GenesisBlock gd' -> return gd'
+    _ -> logExceptionAndThrowTS (DatabaseInvariantViolation "Block at height 0 is not a genesis block.")
 
   -- Populate the block table.
   _blockTable <- liftIO (loadBlocksFinalizationIndexes _db) >>= \case
@@ -345,10 +345,10 @@ activateSkovPersistentData :: forall ati pv. (IsProtocolVersion pv, CanExtend (A
                            -> LogIO (SkovPersistentData pv ati (PBS.HashedPersistentBlockState pv))
 activateSkovPersistentData pbsc uninitState = do
   cachedLastFinalized <- liftIO (makeBlockPointerCached (_lastFinalized uninitState))
-  -- The final thing we need to establish is the transaction table invariants.
+  -- We need to establish is the transaction table invariants.
   -- This specifically means for each account we need to determine the next available nonce.
-  -- For now we simply load all accounts, but after this table is also moved to
-  -- some sort of a database we should not need to do that.
+  -- 
+  -- Before we establish the invariants we cache the block state.
   let lastState = _bpState cachedLastFinalized
   let getTransactionTable :: PBS.PersistentBlockStateMonad pv PBS.PersistentBlockStateContext (ReaderT PBS.PersistentBlockStateContext LogIO) TransactionTable
       getTransactionTable = do

@@ -541,7 +541,7 @@ loadRecord txn dbi key = do
     case mval of
       Nothing -> return Nothing
       Just bval -> decodeValue prox key bval >>= \case
-        Left err -> error err -- return Nothing
+        Left _ -> return Nothing
         Right val -> return (Just val)
   where
     prox :: Proxy db

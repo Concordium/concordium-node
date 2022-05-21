@@ -94,7 +94,11 @@ putStoredBlock StoredBlock{..} =
 -- indexed by 'BlockHash'.
 newtype BlockStore (pv :: ProtocolVersion) st = BlockStore MDB_dbi'
 
+-- |A refinement of 'Serialize' that indicates that the size (i.e., amount of
+-- bytes used) of the serialized value is independend of the value. This must be
+-- exact, not just an upper bound.
 class S.Serialize a => FixedSizeSerialization a where
+  -- |Return the size of serialized values in bytes.
   serializedSize :: Proxy a -> Int
 
 instance FixedSizeSerialization () where
@@ -103,6 +107,7 @@ instance FixedSizeSerialization () where
 instance FixedSizeSerialization (BlobRef a) where
   serializedSize _ = 8
 
+-- This instance is needed for paired state.
 instance (FixedSizeSerialization a, FixedSizeSerialization b) => FixedSizeSerialization (a, b) where
   serializedSize _ = serializedSize (Proxy @a) + serializedSize (Proxy @b)
 

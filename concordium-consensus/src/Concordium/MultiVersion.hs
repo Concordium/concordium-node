@@ -476,7 +476,7 @@ checkForProtocolUpdate = liftSkov body
           TreeStateMonad (VersionedSkovM gc fc pv)
         ) =>
         VersionedSkovM gc fc pv ()
-    body = do
+    body =
         Skov.getProtocolUpdateStatus >>= \case
             ProtocolUpdated pu -> case checkUpdate @pv pu of
                 Left err -> do
@@ -613,7 +613,17 @@ startupSkov genesis = do
             Left err -> throwM (InvalidGenesisData err)
             Right spv -> return spv
         Right (PVGenesisData (_ :: GenesisData pvOrig)) -> return (SomeProtocolVersion (protocolVersion @pvOrig))
-    let loop (SomeProtocolVersion (_ :: SProtocolVersion pv)) first vcIndex vcGenesisHeight = do
+    let loop :: SomeProtocolVersion
+             -- ^Protocol version at which to attempt to load the state.
+             -> Maybe (EVersionedConfiguration gsconf finconf)
+             -- ^If this is the first iteration of the loop then this will be 'Nothing'. Otherwise it is the
+             -- versioned configuration produced in the previous iteration of the loop.
+             -> GenesisIndex
+             -- ^Genesis index at which to attempt to load the state.
+             -> AbsoluteBlockHeight
+             -- ^Absolute block height of the genesis block of the new chain.
+             -> MVR gsconf finconf ()
+        loop (SomeProtocolVersion (_ :: SProtocolVersion pv)) first vcIndex vcGenesisHeight = do
             let comp = MVR $
                     \mvr@MultiVersionRunner
                         { mvCallbacks = Callbacks{..},
@@ -657,10 +667,16 @@ startupSkov genesis = do
                                     Nothing -> return (Right Nothing)
                                     Just newEConfig -> return (Right (Just newEConfig))
             comp >>= \case
+                -- We successfully loaded a configuration.
                 Left (newEConfig@(EVersionedConfiguration newEConfig'), lastFinalizedHeight, nextPV) ->
+                    -- If there is a next protocol version then we attempt another loop.
+                    -- If there isn't we attempt to start with the last loaded state as the active state.
                     case nextPV of
                         Nothing -> liftSkovUpdate newEConfig' checkForProtocolUpdate
                         Just nextSPV -> loop nextSPV (Just newEConfig) (vcIndex + 1) (fromIntegral lastFinalizedHeight + 1)
+                -- We failed to load anything in the first iteration of the
+                -- loop. Decode the provided genesis and attempt to start the
+                -- chain.
                 Right Nothing ->
                     case genesis of
                         Left genBS -> case runGet getPVGenesisData genBS of
@@ -669,6 +685,8 @@ startupSkov genesis = do
                                 throwM (InvalidGenesisData err)
                             Right gd -> newGenesis gd 0
                         Right gd -> newGenesis gd 0
+                    -- We loaded some protocol versions. Attempt to start in the
+                    -- last one we loaded.
                 Right (Just (EVersionedConfiguration newEConfig')) -> liftSkovUpdate newEConfig' checkForProtocolUpdate
     loop initProtocolVersion Nothing 0 0
 

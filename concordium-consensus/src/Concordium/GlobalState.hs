@@ -489,11 +489,8 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
                 `onException` liftIO (destroyBlobStore pbscBlobStore)
         return (pbsc, isd, NoLogContext)
 
-    activateGlobalState _ pbsc uninitState = do
-      logEvent GlobalState LLDebug "Activating global state."
-      rv <- activateSkovPersistentData pbsc uninitState
-      logEvent GlobalState LLDebug "Global state activated."
-      return rv
+    activateGlobalState _ pbsc uninitState = 
+      activateSkovPersistentData pbsc uninitState
 
     shutdownGlobalState _ _ PersistentBlockStateContext{..} st _ = do
         closeBlobStore pbscBlobStore
@@ -544,7 +541,7 @@ instance GlobalStateConfig DiskTreeDiskBlockWithLogConfig where
                 `onException` liftIO (destroyAllResources dbHandle >> destroyBlobStore pbscBlobStore)
         return (pbsc, isd, transactionLogContext)
 
-    activateGlobalState _ pbsc uninitState = do
+    activateGlobalState _ pbsc uninitState =
       activateSkovPersistentData pbsc uninitState
 
     shutdownGlobalState _ _ PersistentBlockStateContext{..} st transactionLogContext = do

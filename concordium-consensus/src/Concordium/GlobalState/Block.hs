@@ -293,7 +293,7 @@ instance forall pv. (IsProtocolVersion pv) => DecodeBlock pv BakedBlock where
 -- * BlockData
 data Block (pv :: ProtocolVersion)
     = GenesisBlock !GenesisConfiguration
-    -- ^A genesis block with the given hash.
+    -- ^A genesis block with the given configuration.
     | NormalBlock !BakedBlock
     -- ^A baked (i.e. non-genesis) block
 
