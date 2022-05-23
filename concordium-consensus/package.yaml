@@ -327,4 +327,4 @@ tests:
     - aeson >= 1.4.2
     - filepath >= 1.4.2
     - template-haskell
-
+    - temporary >= 1.3
