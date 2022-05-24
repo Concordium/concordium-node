@@ -64,6 +64,10 @@ deriving via Word64 instance FixedTrieKey DelegatorId
 instance FixedTrieKey Bls.PublicKey -- FIXME: This is a bad instance. Serialization of these is expensive.
 instance FixedTrieKey IDTypes.CredentialRegistrationID -- FIXME: this is not the best instance, serialization is expensive.
 
+instance FixedTrieKey BS.ByteString where
+  unpackKey = BS.unpack
+  packKey = BS.pack
+
 -- |Class for Trie keys that respect the 'Ord' instance.
 -- That is, @a `compare` b == unpackKey a `compare` unpackKey b@.
 class (Ord a, FixedTrieKey a) => OrdFixedTrieKey a

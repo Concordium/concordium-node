@@ -639,7 +639,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
 
     {-# INLINE getAccountByCredId #-}
     getAccountByCredId bs cid =
-      let mai = bs ^? blockAccounts . to Accounts.accountRegIds . ix cid
+      let mai = bs ^? blockAccounts . to Accounts.accountRegIds . ix (encode cid)
       in case mai of
            Nothing -> return Nothing
            Just ai -> return $ (ai, ) <$> bs ^? blockAccounts . Accounts.indexedAccount ai

@@ -4,6 +4,7 @@
 -- auditing.
 module Concordium.GlobalState.Basic.BlockState.Invariants where
 
+import Data.Serialize
 import qualified Data.Set as Set
 import qualified Data.Map.Strict as Map
 import qualified Data.Vector as Vec
@@ -74,7 +75,7 @@ invariantBlockState bs extraBalance = do
                         unless (Set.member (binfo ^. bakerAggregationVerifyKey) bakerKeys) $ Left "Baker aggregation key is missing from active bakers"
                         return (Map.delete (BakerId i) bakerIds, Set.delete (binfo ^. bakerAggregationVerifyKey) bakerKeys)
             return (creds', Map.insert addr i amp, bal + (acct ^. accountAmount), bakerIds', bakerKeys')
-        checkCred i creds (ID.credId -> cred)
+        checkCred i creds (encode . ID.credId -> cred)
             | cred `Map.member` creds = Left $ "Duplicate credential: " ++ show cred
             | otherwise = return $ Map.insert cred i creds
         checkEpochBakers EpochBakers{..} = do
