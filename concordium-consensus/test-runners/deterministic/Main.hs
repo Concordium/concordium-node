@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GeneralisedNewtypeDeriving #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
@@ -236,6 +237,14 @@ transactions gen = trs (0 :: Nonce) (randoms gen :: [Word8])
         trs (Nonce n) (amnt:amnts) = (toInteger n `div` 100, Dummy.makeTransferTransaction (Dummy.mateuszKP, Dummy.mateuszAccount) Dummy.mateuszAccount (fromIntegral amnt) (Nonce n)) : trs (Nonce (n+1)) amnts
         trs _ _ = error "Ran out of transaction data"
 
+extraAccountTransactions :: [(Integer, BlockItem)]
+extraAccountTransactions = trs 0
+    where
+        trs (Nonce n) = [(1000000 * toInteger n + toInteger i, Dummy.makeTransferTransaction (Dummy.alesKP, Dummy.accountAddressFrom i) (Dummy.accountAddressFrom i) 0 (Nonce n)) | i <- [1..1000000]] ++ trs (Nonce (n+1))
+
+-- |Genesis accounts. For convenience, these all use the same keys.
+extraAccounts :: [GenesisAccount]
+extraAccounts = [Dummy.createCustomAccount 1000000 Dummy.alesKP (Dummy.accountAddressFrom i) | i <- [1..1000000]]
 
 -- |The initial state of the simulation.
 initialState :: IO SimState
@@ -246,7 +255,7 @@ initialState = do
     return SimState {..}
     where
         chainParams = ChainParameters {
-            _cpElectionDifficulty = makeElectionDifficulty 20000,
+            _cpElectionDifficulty = makeElectionDifficulty 50000,
             _cpExchangeRates = makeExchangeRates 1 1,
             _cpCooldownParameters = CooldownParametersV0 {
                 _cpBakerExtraCooldownEpochs = 4
@@ -270,7 +279,7 @@ initialState = do
                                 Dummy.dummyCryptographicParameters
                                 dummyIdentityProviders
                                 dummyArs
-                                [Dummy.createCustomAccount 1000000000000 Dummy.mateuszKP Dummy.mateuszAccount]
+                                ([Dummy.createCustomAccount 1000000000000 Dummy.mateuszKP Dummy.mateuszAccount] ++ extraAccounts)
                                 (Energy maxBound)
                                 dummyKeyCollection
                                 chainParams
@@ -288,16 +297,16 @@ initialState = do
                 config = SkovConfig gsconfig finconfig hconfig
             (_bsContext, _bsState) <- runLoggerT (initialiseSkov config) (logFor (fromIntegral bakerId))
             return BakerState{..}
-        _ssEvents = makeEvents $ (PEvent 0 (TransactionEvent (transactions (mkStdGen 1)))) : [PEvent 0 (BakerEvent i (EBake 0)) | i <- allBakers]
+        _ssEvents = makeEvents $ (PEvent 0 (TransactionEvent extraAccountTransactions)) : [PEvent 0 (BakerEvent i (EBake 0)) | i <- allBakers]
         _ssNextTimer = 0
         _ssCurrentTime = posixSecondsToUTCTime 0
 
 -- |Log an event for a particular baker.
 logFor :: (MonadIO m) => Int -> LogMethod m
--- logFor _ _ _ _ = return ()
-logFor i src lvl msg = liftIO $ do
-    putStrLn $ "[" ++ show i ++ ":" ++ show src ++ ":" ++ show lvl ++ "] " ++ show msg
-    hFlush stdout
+logFor _ _ _ _ = return ()
+-- logFor i src lvl msg = liftIO $ do
+--     putStrLn $ "[" ++ show i ++ ":" ++ show src ++ ":" ++ show lvl ++ "] " ++ show msg
+--     hFlush stdout
 
 -- |Run a baker action in the state monad.
 runBaker :: Integer -> Int -> BakerM a -> StateT SimState IO a
@@ -384,7 +393,11 @@ stepConsensus =
 
 -- |Main runner. Simply runs consensus for a certain number of steps.
 main :: IO ()
-main = b (1000000 :: Int)
+main = do
+    putStrLn "Press Enter to start"
+    _ <- getLine
+    putStrLn "Starting"
+    b (1000000 :: Int)
     where
         loop 0 _ = return ()
         loop n s = do
