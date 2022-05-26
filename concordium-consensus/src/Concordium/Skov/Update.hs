@@ -488,7 +488,7 @@ doStoreBlock pb@GB.PendingBlock{..} = unlessShutDown $ do
                 -- Check that the claimed key matches the signature/blockhash
                 checkClaimedSignature pb $ do
                 -- The block is new, so we have some work to do.
-                logEvent Skov LLDebug $ "Received block " ++ show pb
+                logEvent Skov LLInfo $ "Received block " ++ show pb
                 -- Get the `BlockState` of which the transactions should be verified within.
                 bs <- getContextBlockState (blockPointer bbFields)
                 txListWithVerRes <- sequence <$> forM (blockTransactions pb)
