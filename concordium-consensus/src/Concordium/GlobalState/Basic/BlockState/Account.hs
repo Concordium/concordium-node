@@ -125,8 +125,8 @@ serializeAccount cryptoParams acct@Account{..} = do
             initialCredentialIndex
             _accountCredentials
           )
-    asfExplicitAddress = _accountAddress /= addressFromRegId initialCredId
-    asfExplicitEncryptionKey = _accountEncryptionKey /= makeEncryptionKey cryptoParams initialCredId
+    asfExplicitAddress = _accountAddress /= addressFromRegIdRaw initialCredId
+    asfExplicitEncryptionKey = False -- _accountEncryptionKey /= makeEncryptionKey cryptoParams initialCredId
     (asfMultipleCredentials, putCredentials) = case Map.toList _accountCredentials of
       [(i, cred)] | i == initialCredentialIndex -> (False, S.put cred)
       _ -> (True, putSafeMapOf S.put S.put _accountCredentials)
@@ -160,8 +160,8 @@ deserializeAccount migration cryptoParams = do
     (_accountCredentials, initialCredId) <- getCredentials
     _accountRemovedCredentials <- if asfHasRemovedCredentials then makeHashed <$> S.get else return emptyHashedRemovedCredentials
     let _accountVerificationKeys = getAccountInformation threshold _accountCredentials
-    let _accountAddress = fromMaybe (addressFromRegId initialCredId) preAddress
-        _accountEncryptionKey = fromMaybe (makeEncryptionKey cryptoParams initialCredId) preEncryptionKey
+    let _accountAddress = fromMaybe (addressFromRegIdRaw initialCredId) preAddress
+        _accountEncryptionKey = fromMaybe (makeEncryptionKey cryptoParams (unsafeCredIdFromRaw initialCredId)) preEncryptionKey
     _accountNonce <- S.get
     _accountAmount <- S.get
     _accountEncryptedAmount <- if asfExplicitEncryptedAmount then S.get else return initialAccountEncryptedAmount
@@ -197,7 +197,7 @@ newAccountMultiCredential :: forall av. (IsAccountVersion av)
 newAccountMultiCredential cryptoParams threshold _accountAddress cs = Account {
         _accountPersisting = makeAccountPersisting PersistingAccountData {
         _accountEncryptionKey = makeEncryptionKey cryptoParams (credId (cs Map.! initialCredentialIndex)),
-        _accountCredentials = cs,
+        _accountCredentials = toRawAccountCredential <$> cs,
         _accountVerificationKeys = getAccountInformation threshold cs,
         _accountRemovedCredentials = emptyHashedRemovedCredentials,
         ..

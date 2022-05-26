@@ -32,11 +32,11 @@ import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 -- |A list of credential IDs that have been removed from an account.
 data RemovedCredentials
     = EmptyRemovedCredentials
-    | RemovedCredential !CredentialRegistrationID !RemovedCredentials
+    | RemovedCredential !CredentialRegistrationIDRaw !RemovedCredentials
     deriving (Eq)
 
 -- |Convert a 'RemovedCredentials' to a list of 'CredentialRegistrationID's.
-removedCredentialsToList :: RemovedCredentials -> [CredentialRegistrationID]
+removedCredentialsToList :: RemovedCredentials -> [CredentialRegistrationIDRaw]
 removedCredentialsToList EmptyRemovedCredentials = []
 removedCredentialsToList (RemovedCredential cred rest) = cred : removedCredentialsToList rest
 
@@ -59,7 +59,7 @@ emptyRemovedCredentialsHash = Hash.hash "E"
 {-# NOINLINE emptyRemovedCredentialsHash #-}
 
 -- |Function for determining the hash of a 'RemovedCredential'.
-removedCredentialHash :: CredentialRegistrationID -> Hash.Hash -> Hash.Hash
+removedCredentialHash :: CredentialRegistrationIDRaw -> Hash.Hash -> Hash.Hash
 removedCredentialHash cred hrest = Hash.hash $ "R" <> encode cred <> Hash.hashToByteString hrest
 
 instance HashableTo Hash.Hash RemovedCredentials where
@@ -67,7 +67,7 @@ instance HashableTo Hash.Hash RemovedCredentials where
   getHash (RemovedCredential cred rest) = removedCredentialHash cred (getHash rest)
 
 -- |Update hashed remove credentials with a new removed credentials.
-addRemovedCredential :: CredentialRegistrationID -> Hashed RemovedCredentials -> Hashed RemovedCredentials
+addRemovedCredential :: CredentialRegistrationIDRaw -> Hashed RemovedCredentials -> Hashed RemovedCredentials
 addRemovedCredential cred hrc = Hashed (RemovedCredential cred (hrc ^. unhashed)) (removedCredentialHash cred (getHash hrc))
 
 -- |Hashed 'EmptyRemovedCredentials'.
@@ -87,7 +87,7 @@ data PersistingAccountData = PersistingAccountData {
   ,_accountVerificationKeys :: !AccountInformation
   -- |Current credentials. This map is always non-empty and (presently)
   -- will have a credential at index 'initialCredentialIndex' (0) that cannot be changed.
-  ,_accountCredentials :: !(Map.Map CredentialIndex AccountCredential)
+  ,_accountCredentials :: !(Map.Map CredentialIndex AccountCredentialRaw)
   -- |Credential IDs of removed credentials.
   ,_accountRemovedCredentials :: !(Hashed RemovedCredentials)
 }
@@ -274,15 +274,16 @@ updateAccountInformation threshold addCreds remove (AccountInformation oldCredKe
 -- * Any new threshold is at most the number of accounts remaining (and at least 1).
 updateCredentials :: (HasPersistingAccountData d) => [CredentialIndex] -> Map.Map CredentialIndex AccountCredential -> AccountThreshold -> d -> d
 updateCredentials cuRemove cuAdd cuAccountThreshold d =
-  d & (accountCredentials %~ Map.union cuAdd . removeKeys)
+  d & (accountCredentials %~ Map.union (Map.map toRawAccountCredential cuAdd) . removeKeys)
                & (accountVerificationKeys %~ updateAccountInformation cuAccountThreshold cuAdd cuRemove)
                & (accountRemovedCredentials %~ flip (foldl' (flip (addRemovedCredential . removedCredentialId))) cuRemove)
   where removeKeys = flip (foldl' (flip Map.delete)) cuRemove
+        removedCredentialId :: CredentialIndex -> CredentialRegistrationIDRaw
         removedCredentialId cix = credId $ Map.findWithDefault (error "Removed credential key not found") cix (d ^. accountCredentials)
         
 
 -- |Update the keys of the given account credential.
-updateCredKeyInAccountCredential :: AccountCredential -> CredentialPublicKeys -> AccountCredential
+updateCredKeyInAccountCredential :: AccountCredential' credTy -> CredentialPublicKeys -> AccountCredential' credTy
 updateCredKeyInAccountCredential (InitialAC icdv) keys = InitialAC (icdv{icdvAccount=keys})
 updateCredKeyInAccountCredential (NormalAC cdv comms) keys = NormalAC (cdv{cdvPublicKeys=keys}) comms
 

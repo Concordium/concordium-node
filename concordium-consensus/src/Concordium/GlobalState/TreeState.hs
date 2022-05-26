@@ -47,6 +47,7 @@ import Concordium.Common.Version (Version)
 import qualified Concordium.GlobalState.Block as B
 import Data.Bits
 import qualified Concordium.TransactionVerification as TVer
+import Concordium.ID.Types (toRawCredId)
 
 data BlockStatus bp pb =
     BlockAlive !bp
@@ -577,7 +578,7 @@ instance (Monad m,
   {-# INLINE registrationIdExists #-}
   registrationIdExists regId = do
     ctx <- ask
-    lift $ isJust <$> getAccountByCredId (ctx ^. ctxBs) regId
+    lift $ isJust <$> getAccountByCredId (ctx ^. ctxBs) (toRawCredId regId)
   {-# INLINE getAccount #-}
   getAccount aaddr = do
     ctx <- ask

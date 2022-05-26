@@ -420,7 +420,6 @@ data PersistentAccount (av :: AccountVersion) = PersistentAccount {
   -- |A pointer to account data that changes rarely
   ,_persistingData :: !AccountPersisting
   -- |The baker info
-  --,_accountBaker :: !(Nullable (BufferedRef PersistentAccountBaker))
   ,_accountStake :: !(PersistentAccountStake av)
   -- |A hash of all account data. We store the hash explicitly here because we cannot compute the hash once
   -- the persisting account data is stored behind a pointer
@@ -520,7 +519,7 @@ newAccount cryptoParams _accountAddress credential = do
   let creds = Map.singleton initialCredentialIndex credential
   let newPData = PersistingAccountData {
         _accountEncryptionKey = makeEncryptionKey cryptoParams (credId credential),
-        _accountCredentials = creds,
+        _accountCredentials = toRawAccountCredential <$> creds,
         _accountVerificationKeys = getAccountInformation 1 creds,
         _accountRemovedCredentials = emptyHashedRemovedCredentials,
         ..
@@ -759,8 +758,8 @@ serializeAccount cryptoParams PersistentAccount{..} = do
                 initialCredentialIndex
                 _accountCredentials
               )
-        asfExplicitAddress = _accountAddress /= addressFromRegId initialCredId
-        asfExplicitEncryptionKey = _accountEncryptionKey /= makeEncryptionKey cryptoParams initialCredId
+        asfExplicitAddress = _accountAddress /= addressFromRegIdRaw initialCredId
+        asfExplicitEncryptionKey = _accountEncryptionKey /= makeEncryptionKey cryptoParams (unsafeCredIdFromRaw initialCredId)
         (asfMultipleCredentials, putCredentials) = case Map.toList _accountCredentials of
           [(i, cred)] | i == initialCredentialIndex -> (False, put cred)
           _ -> (True, putSafeMapOf put put _accountCredentials)

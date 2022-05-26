@@ -164,7 +164,7 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
 
   -- |Get the list of credentials deployed on the account, ordered from most
   -- recently deployed.  The list should be non-empty.
-  getAccountCredentials :: Account m -> m (Map.Map ID.CredentialIndex AccountCredential)
+  getAccountCredentials :: Account m -> m (Map.Map ID.CredentialIndex ID.AccountCredentialRaw)
 
   -- |Get the key used to verify transaction signatures, it records the signature scheme used as well
   getAccountVerificationKeys :: Account m -> m ID.AccountInformation
@@ -371,7 +371,7 @@ class (ContractStateOperations m, AccountOperations m) => BlockStateQuery m wher
     getActiveBakersAndDelegators :: (AccountVersionFor (MPV m) ~ 'AccountV1) => BlockState m -> m ([ActiveBakerInfo m], [ActiveDelegatorInfo])
 
     -- |Query an account by the id of the credential that belonged to it.
-    getAccountByCredId :: BlockState m -> CredentialRegistrationID -> m (Maybe (AccountIndex, Account m))
+    getAccountByCredId :: BlockState m -> ID.CredentialRegistrationIDRaw -> m (Maybe (AccountIndex, Account m))
 
     -- |Query an account by the account index that belonged to it.
     getAccountByIndex :: BlockState m -> AccountIndex -> m (Maybe (AccountIndex, Account m))
