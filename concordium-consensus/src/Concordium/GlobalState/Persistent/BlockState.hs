@@ -1617,6 +1617,7 @@ doGetRewardStatus pbs = do
             SP2 -> return rewardsV0
             SP3 -> return rewardsV0
             SP4 -> rewardsV1
+            SP5 -> rewardsV1
 
 doRewardFoundationAccount :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> Amount -> m (PersistentBlockState pv)
 doRewardFoundationAccount pbs reward = do

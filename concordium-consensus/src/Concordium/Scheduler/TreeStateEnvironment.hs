@@ -945,6 +945,7 @@ mintAndReward bshandle blockParent slotNumber bid newEpoch mintParams mfinInfo t
     SP2 -> mintAndRewardCPV0AccountV0
     SP3 -> mintAndRewardCPV0AccountV0
     SP4 -> mintAndRewardCPV1AccountV1
+    SP5 -> mintAndRewardCPV1AccountV1
   where
     mintAndRewardCPV0AccountV0
         :: (AccountVersionFor (MPV m) ~ 'AccountV0,
@@ -1038,6 +1039,7 @@ updateBirkParameters newSeedState bs0 oldChainParameters updates = case protocol
   SP2 -> updateCPV0AccountV0
   SP3 -> updateCPV0AccountV0
   SP4 -> updateCPV1AccountV1
+  SP5 -> updateCPV1AccountV1
   where
     updateCPV0AccountV0 :: AccountVersionFor (MPV m) ~ 'AccountV0
         => m (MintRewardParams 'ChainParametersV0, UpdatableBlockState m)
@@ -1190,6 +1192,7 @@ executeBlockPrologue slotTime newSeedState oldChainParameters bsStart = do
     bsDoneCommissions <- foldM (\bs uv -> case uv of
       UVPoolParameters PoolParametersV1{..} -> case protocolVersion @(MPV m) of
           SP4 -> foldM (putBakerCommissionsInRange _ppCommissionBounds) bs ab
+          SP5 -> foldM (putBakerCommissionsInRange _ppCommissionBounds) bs ab
       _ -> return bs) bsDoneUpdates (snd <$> prologueUpdates)
     -- unlock the scheduled releases that have expired
     bsDoneReleases <- bsoProcessReleaseSchedule bsDoneCommissions slotTime

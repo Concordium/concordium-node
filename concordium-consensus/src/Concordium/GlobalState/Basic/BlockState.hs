@@ -40,6 +40,7 @@ import qualified Concordium.Genesis.Data.P1 as P1
 import qualified Concordium.Genesis.Data.P2 as P2
 import qualified Concordium.Genesis.Data.P3 as P3
 import qualified Concordium.Genesis.Data.P4 as P4
+import qualified Concordium.Genesis.Data.P5 as P5
 import qualified Concordium.GlobalState.Types as GT
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Parameters
@@ -432,10 +433,9 @@ getBlockState migration = do
     _blockUpdates <- label "updates" $ getUpdates migration
 
     preBlockRewardDetails <- label "reward details" $ getBlockRewardDetails @(AccountVersionFor oldpv)
-    let _blockRewardDetails = case migration of
-            StateMigrationParametersTrivial -> preBlockRewardDetails
-            StateMigrationParametersP3ToP4 migrationParams ->
-                BlockRewardDetailsV1 . makeHashed $ PoolRewards.makePoolRewardsForMigration
+    let migrateRewardsV0V1 :: AccountVersionFor oldpv ~ 'AccountV0 => P4.StateMigrationData -> BlockRewardDetails 'AccountV1
+        migrateRewardsV0V1 migrationParams =
+          BlockRewardDetailsV1 . makeHashed $ PoolRewards.makePoolRewardsForMigration
                     (epochToBakerStakes (preBirkParameters ^. birkCurrentEpochBakers . unhashed))
                     (epochToBakerStakes (preBirkParameters ^. birkNextEpochBakers . unhashed))
                     (brdBlocks preBlockRewardDetails)
@@ -444,6 +444,10 @@ getBlockState migration = do
                 where
                     TimeParametersV1{..} =
                         P4.updateTimeParameters (P4.migrationProtocolUpdateData migrationParams)
+    let _blockRewardDetails = case migration of
+            StateMigrationParametersTrivial -> preBlockRewardDetails
+            StateMigrationParametersP3ToP4 migrationParams -> migrateRewardsV0V1 migrationParams
+            StateMigrationParametersP3ToP5 migrationParams -> migrateRewardsV0V1 migrationParams
 
     -- Construct the release schedule and active bakers from the accounts
     let processBakerAccount (rs,bkrs) account = do
@@ -702,6 +706,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
             SP2 -> rewardsV0
             SP3 -> rewardsV0
             SP4 -> rewardsV1
+            SP5 -> rewardsV1
         where
             bankStatus = bs ^. blockBank . unhashed
             rewardsV0 :: RewardStatus' Epoch
@@ -1940,6 +1945,7 @@ genesisStakesAndRewardDetails spv = case spv of
     SP2 -> gsc1
     SP3 -> gsc1
     SP4 -> gsc4
+    SP5 -> gsc4
   where
     gsc1 accounts seedState _ _ =
         ( initialBirkParameters accounts seedState,
@@ -2015,6 +2021,14 @@ genesisBakerInfo spv cp GenesisBaker{..} = AccountBaker{..}
                       _poolMetadataUrl = emptyUrlText,
                       _poolCommissionRates = cp ^. cpPoolParameters . ppCommissionBounds . to maximumCommissionRates
                     }
+        SP5 ->
+            BakerInfoExV1
+                bkrInfo
+                BakerPoolInfo
+                    { _poolOpenStatus = OpenForAll,
+                      _poolMetadataUrl = emptyUrlText,
+                      _poolCommissionRates = cp ^. cpPoolParameters . ppCommissionBounds . to maximumCommissionRates
+                    }
     _bakerPendingChange = NoChange
 
 -- |Initial block state based on 'GenesisData', for a given protocol version.
@@ -2033,6 +2047,10 @@ genesisState gd = case protocolVersion @pv of
                       GDP4 P4.GDP4Initial{..} -> mkGenesisStateInitial genesisCore genesisInitialState
                       GDP4 P4.GDP4Regenesis{..} -> mkGenesisStateRegenesis StateMigrationParametersTrivial genesisRegenesis
                       GDP4 P4.GDP4MigrateFromP3{..} -> mkGenesisStateRegenesis (StateMigrationParametersP3ToP4 genesisMigration) genesisRegenesis
+                    SP5 -> case gd of
+                      GDP5 (P5.GenesisDataP5 P4.GDP4Initial{genesisInitialState=GenesisState{..},..}) -> mkGenesisStateInitial genesisCore GenesisState{..}
+                      GDP5 (P5.GenesisDataP5 P4.GDP4Regenesis{..}) -> mkGenesisStateRegenesis StateMigrationParametersTrivial genesisRegenesis
+                      GDP5 (P5.GenesisDataP5 P4.GDP4MigrateFromP3{..}) -> mkGenesisStateRegenesis (StateMigrationParametersP3ToP5 genesisMigration) genesisRegenesis
     where
         mkGenesisStateInitial :: CoreGenesisParameters -> GenesisState pv -> Either String (BlockState pv)
         mkGenesisStateInitial GenesisData.CoreGenesisParameters{..} GenesisData.GenesisState{..} = do
@@ -2077,3 +2095,4 @@ genesisState gd = case protocolVersion @pv of
                         hashShouldMatch = case migration of
                             StateMigrationParametersTrivial{} -> True
                             StateMigrationParametersP3ToP4{} -> False
+                            StateMigrationParametersP3ToP5{} -> False

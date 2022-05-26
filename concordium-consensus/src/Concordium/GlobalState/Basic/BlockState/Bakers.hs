@@ -132,6 +132,13 @@ migrateEpochBakers (StateMigrationParametersP3ToP4 migration) EpochBakers{..} =
         }
     where
         migrateBakerInfo (BakerInfoExV0 bi) = BakerInfoExV1 bi (P4.defaultBakerPoolInfo migration)
+migrateEpochBakers (StateMigrationParametersP3ToP5 migration) EpochBakers{..} =
+    EpochBakers
+        { _bakerInfos = migrateBakerInfo <$> _bakerInfos,
+          ..
+        }
+    where
+        migrateBakerInfo (BakerInfoExV0 bi) = BakerInfoExV1 bi (P4.defaultBakerPoolInfo migration)
 
 
 -- |The delegators and total stake of an active pool.

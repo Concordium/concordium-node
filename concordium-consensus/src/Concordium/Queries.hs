@@ -559,6 +559,9 @@ getPoolStatus blockHash mbid =
         SP4 -> do
             bs <- blockState bp
             BS.getPoolStatus bs mbid
+        SP5 -> do
+            bs <- blockState bp
+            BS.getPoolStatus bs mbid
 
 -- |Get a list of all registered baker IDs in the specified block.
 getRegisteredBakers :: forall gsconf finconf. BlockHash -> MVR gsconf finconf (Maybe [BakerId])

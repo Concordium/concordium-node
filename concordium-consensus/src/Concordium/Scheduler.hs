@@ -1176,8 +1176,13 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
               Just targetAccount ->
                 -- Add the transfer to the current changeset and return the corresponding event.
                 lift (withContractToAccountAmountV1 (instanceAddress senderInstance) targetAccount tAmount $
-                      return [Transferred addr transferAmount (AddressAccount accAddr)])
-
+                      return [Transferred addr (if logIncorrectAmount then transferAmount else tAmount) (AddressAccount accAddr)])
+          -- Protocol version 4 contained a bug where an incorrect amount was logged.
+          -- Since this version was released on testnet it could not be retroactively fixed.
+          -- Protocol version 5 was introduced to fix this issue.
+          logIncorrectAmount = case protocolVersion @(MPV m) of
+            SP4 -> True
+            _ -> False
 
 -- | Invoke a V0 contract and process any generated messages.
 -- This includes the transfer of an amount from the sending account or instance.

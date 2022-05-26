@@ -395,3 +395,4 @@ getSlotBakers genData = case protocolVersion @(MPV m) of
     SP2 -> getSlotBakersP1
     SP3 -> getSlotBakersP1
     SP4 -> getSlotBakersP4 genData
+    SP5 -> getSlotBakersP4 genData
