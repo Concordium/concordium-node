@@ -67,7 +67,7 @@ import Concordium.GlobalState.Basic.BlockState.Updates
 import qualified Concordium.Types.Transactions as Transactions
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 import Concordium.Types.SeedState
-import Concordium.ID.Types (credId, ArIdentity, IdentityProviderIdentity)
+import Concordium.ID.Types (credId, ArIdentity, IdentityProviderIdentity, unsafeEncryptionKeyFromRaw)
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types.HashableTo
 import Concordium.Kontrol.Bakers
@@ -858,7 +858,7 @@ instance (Monad m, IsProtocolVersion pv) => BS.AccountOperations (PureBlockState
 
   getAccountEncryptedAmount acc = return $ acc ^. accountEncryptedAmount
 
-  getAccountEncryptionKey acc = return $ acc ^. accountEncryptionKey
+  getAccountEncryptionKey acc = return $ unsafeEncryptionKeyFromRaw (acc ^. accountEncryptionKey)
 
   getAccountReleaseSchedule acc = return $ acc ^. accountReleaseSchedule
 

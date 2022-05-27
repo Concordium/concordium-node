@@ -518,7 +518,7 @@ newAccount :: forall m av. (MonadBlobStore m, IsAccountVersion av)
 newAccount cryptoParams _accountAddress credential = do
   let creds = Map.singleton initialCredentialIndex credential
   let newPData = PersistingAccountData {
-        _accountEncryptionKey = makeEncryptionKey cryptoParams (credId credential),
+        _accountEncryptionKey = toRawEncryptionKey (makeEncryptionKey cryptoParams (credId credential)),
         _accountCredentials = toRawAccountCredential <$> creds,
         _accountVerificationKeys = getAccountInformation 1 creds,
         _accountRemovedCredentials = emptyHashedRemovedCredentials,
@@ -759,7 +759,7 @@ serializeAccount cryptoParams PersistentAccount{..} = do
                 _accountCredentials
               )
         asfExplicitAddress = _accountAddress /= addressFromRegIdRaw initialCredId
-        asfExplicitEncryptionKey = _accountEncryptionKey /= makeEncryptionKey cryptoParams (unsafeCredIdFromRaw initialCredId)
+        asfExplicitEncryptionKey = _accountEncryptionKey /= toRawEncryptionKey (makeEncryptionKey cryptoParams (unsafeCredIdFromRaw initialCredId)) -- TODO: No need for deserialization
         (asfMultipleCredentials, putCredentials) = case Map.toList _accountCredentials of
           [(i, cred)] | i == initialCredentialIndex -> (False, put cred)
           _ -> (True, putSafeMapOf put put _accountCredentials)

@@ -84,7 +84,7 @@ import Concordium.Types.Transactions hiding (BareBlockItem(..))
 
 import qualified Concordium.ID.Types as ID
 import Concordium.ID.Parameters(GlobalContext)
-import Concordium.ID.Types (AccountCredential, CredentialRegistrationID)
+import Concordium.ID.Types (AccountCredential)
 import Concordium.Crypto.EncryptedTransfers
 import Concordium.GlobalState.ContractStateFFIHelpers (LoadCallback)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1

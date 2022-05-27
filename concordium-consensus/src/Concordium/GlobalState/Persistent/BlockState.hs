@@ -86,6 +86,7 @@ import Concordium.Utils.Serialization.Put
 import Concordium.Utils.Serialization
 import Concordium.Utils.BinarySearch
 import Concordium.Kontrol.Bakers
+import Concordium.ID.Types (unsafeEncryptionKeyFromRaw)
 
 -- * Birk parameters
 
@@ -2690,7 +2691,7 @@ instance (PersistentState r m, IsProtocolVersion pv) => AccountOperations (Persi
 
   getAccountEncryptedAmount acc = loadPersistentAccountEncryptedAmount =<< loadBufferedRef (acc ^. accountEncryptedAmount)
 
-  getAccountEncryptionKey acc = acc ^^. accountEncryptionKey
+  getAccountEncryptionKey acc = unsafeEncryptionKeyFromRaw <$> acc ^^. accountEncryptionKey
 
   getAccountReleaseSchedule acc = loadPersistentAccountReleaseSchedule =<< loadBufferedRef (acc ^. accountReleaseSchedule)
 
