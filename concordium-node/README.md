@@ -1,26 +1,30 @@
 # Concordium node implementation
+
 ## Dependencies to build the project
-* Rust (stable 1.53 for using static libraries)
-* binutils >= 2.22
-  * For macOS one should use the binutils provided by Xcode.
-* cmake >= 3.8.0
-* [flatc](http://google.github.io/flatbuffers/flatbuffers_guide_building.html)
-  v2.0.0 is what we currently use. Either build from the v2.0.0 tag of the repository using CMake and copy the `flatc` binary somewhere in your PATH, or download a released binary from https://github.com/google/flatbuffers/releases/tag/v2.0.0 and place it somewhere in your PATH.
-* protobuf >= 3.7.1
-* LLVM and Clang >= 3.9
-* PostGreSQL >= 10
+
+- Rust (stable 1.53 for using static libraries)
+- binutils >= 2.22
+  - For macOS one should use the binutils provided by Xcode.
+- cmake >= 3.8.0
+- [flatc](http://google.github.io/flatbuffers/flatbuffers_guide_building.html)
+  v2.0.0 is what we currently use. Either build from the v2.0.0 tag of the repository using CMake and copy the `flatc` binary somewhere in your PATH, or download a released binary from <https://github.com/google/flatbuffers/releases/tag/v2.0.0> and place it somewhere in your PATH.
+- protobuf >= 3.7.1
+- LLVM and Clang >= 3.9
+- PostGreSQL >= 10
 
 ### Optional dependencies
-* [Haskell stack](https://docs.haskellstack.org/en/stable/README/) if **not** building using static libraries
+
+- [Haskell stack](https://docs.haskellstack.org/en/stable/README/) if **not** building using static libraries
 
 ## Supported features
-* instrumentation - switches the default internal counter implementation out with prometheus
-* instrumentation - enables stats data exporting to [prometheus](https://crates.io/crates/prometheus)
-* network_dump - makes the network dumping capabilites available.
-* static - build against static haskell libraries (Linux only)
-* profiling - build against haskell libraries with profiling support enabled (Linux only)
-* collector - enables the build of the node-collector and backend
-* dedup_benchmarks - enable support in the benchmarks for deduplication queues
+
+- instrumentation - switches the default internal counter implementation out with prometheus
+- instrumentation - enables stats data exporting to [prometheus](https://crates.io/crates/prometheus)
+- network_dump - makes the network dumping capabilites available.
+- static - build against static haskell libraries (Linux only)
+- profiling - build against haskell libraries with profiling support enabled (Linux only)
+- collector - enables the build of the node-collector and backend
+- dedup_benchmarks - enable support in the benchmarks for deduplication queues
 
 ## Building the node
 
@@ -45,6 +49,7 @@ The package supports the following features related to linking with the Haskell 
   mkdir -p concordium-node/deps/static-libs/linux
   tar -xf out/static-consensus-8.10.4.tar.gz --strip-components=1 -C concordium-node/deps/static-libs/linux
   ```
+
   (this is assuming a GNU version of tar)
 
 - `profiling`: This will link with Haskell libraries built with profiling support. This option implies `static`, with the difference
@@ -62,9 +67,9 @@ apart from system libraries and `libpq` for postgres.
 Environment variables only apply to the default build. This links with shared Haskell libraries.
 
 - `CONCORDIUM_HASKELL_ROOT` should, if present, be a directory containing
-   - libHSconcordium-consensus-0.1.0.0.so
-   - libHSconcordium-base-0.1.0.0.so
-   - libHSlmdb-0.2.5.so
+  - libHSconcordium-consensus-0.1.0.0.so
+  - libHSconcordium-base-0.1.0.0.so
+  - libHSlmdb-0.2.5.so
 
    This only applies to non-windows platforms. It is not used on other platforms.
    On Windows the Concordium haskell package is built with a `standalone` option which embeds all dependent libraries into one single DLL.
@@ -92,13 +97,17 @@ Environment variables only apply to the default build. This links with shared Ha
   ```
 
   Once the node is built it can be run as
+
   ```console
   cargo run --
   ```
+
   or
+
   ```console
   cargo run --release --
   ```
+
   to be run in release mode for improved performance. Note that the
   [concordium-consensus](../concordium-consensus/) dependency is the same regardless of how the
   node itself is built, the `--release` only applies to the optimization of the Rust node xcomponents.
@@ -106,24 +115,53 @@ Environment variables only apply to the default build. This links with shared Ha
 - The node built with Haskell library auto-discovery is not suitable for distribution to other
   machines. It is a dynamically linked binary with a large number of shared library dependencies.
 
+### MacOS Specific
+
+You may need to add the following entries to your `~/.stack/config.yaml` for the libraries installed via `brew`:
+
+```yaml
+extra-lib-dirs:
+- /opt/homebrew/lib
+
+extra-include-dirs:
+- /opt/homebrew/include/
+```
+
+### M1 MacOS Specific
+
+You may need to add the following entry to your `~/.stack/config.yaml` for the `libffi` include:
+
+```yaml
+extra-include-dirs:
+- /Library/Developer/CommandLineTools/SDKs/MacOSX12.3.sdk/usr/include/ffi/
+```
+
+To determine the exact path to the `libffi` include directory, run the following command:
+
+```sh
+pkg-config --cflags libffi
+```
+
 ## Building on Windows
 
 ### Dependencies
 
 Before building the node, you should install the following dependencies:
 
-* Haskell [stack](https://docs.haskellstack.org/en/stable/install_and_upgrade/)
-* [Rust](https://www.rust-lang.org/tools/install)
-  * For building the node, the toolchain `1.53.0-x86_64-pc-windows-gnu` is required, which can be installed with the command: `rustup toolchain install 1.53.0-x86_64-pc-windows-gnu`.
-  * For building the node runner service (optional), the toolchain `1.53.0-x86_64-pc-windows-msvc`  is required, which can be installed with the command: `rustup toolchain install 1.53.0-x86_64-pc-windows-msvc`.
-* [flatc](https://github.com/google/flatbuffers/releases/tag/v2.0.0) 2.0.0 (should be in the path)
-* [protoc](https://github.com/protocolbuffers/protobuf/releases) >= 3.7.1
-* PostGreSQL and LMDB should be installed under `stack`'s `msys2` installation, which can be done with the following commands:
-```
+- Haskell [stack](https://docs.haskellstack.org/en/stable/install_and_upgrade/)
+- [Rust](https://www.rust-lang.org/tools/install)
+  - For building the node, the toolchain `1.53.0-x86_64-pc-windows-gnu` is required, which can be installed with the command: `rustup toolchain install 1.53.0-x86_64-pc-windows-gnu`.
+  - For building the node runner service (optional), the toolchain `1.53.0-x86_64-pc-windows-msvc`  is required, which can be installed with the command: `rustup toolchain install 1.53.0-x86_64-pc-windows-msvc`.
+- [flatc](https://github.com/google/flatbuffers/releases/tag/v2.0.0) 2.0.0 (should be in the path)
+- [protoc](https://github.com/protocolbuffers/protobuf/releases) >= 3.7.1
+- PostGreSQL and LMDB should be installed under `stack`'s `msys2` installation, which can be done with the following commands:
+
+```console
 stack exec -- pacman -Syuq --noconfirm
 stack exec -- pacman -Syq mingw-w64-x86_64-postgresql mingw-w64-x86_64-lmdb --noconfirm
 ```
-* If building the installer, the [Wix Toolset](https://wixtoolset.org/releases/) is required, and should be in the path.
+
+- If building the installer, the [Wix Toolset](https://wixtoolset.org/releases/) is required, and should be in the path.
 
 ### Building and Running
 
@@ -134,18 +172,21 @@ However, running the node requires the consensus DLL, which is compiled to `..\c
 If you wish to run the node directly, you should copy `HSdll.dll` to the location of `concordium-node.exe`.
 The node also depends on a number of DLLs that are part of `stack`'s `msys2` installation.
 To run the node with these DLLs in the path, you can use `stack exec`, as in:
-```
+
+```console
 stack exec -- concordium-node.exe --help
 ```
 
 ### Build issue: long paths
+
 If the root directory of the repository is too long, then the build may fail with `No such file or directory` errors, such as:
-```
+
+```console
 concordium-consensus   >   = note: x86_64-w64-mingw32-gcc.exe: error: C:\msys64\jenkins-agent\workspace\concordium-node-windows\concordium-consensus\smart-contracts\wasm-chain-integration\target\release\build\winapi-x86_64-pc-windows-gnu-0838443214203ebf\build_script_build-0838443214203ebf.build_script_build.8py00u3m-cgu.0.rcgu.o: No such file or directory
 ```
+
 This is caused by the path exceeding the Windows maximum path length.
 The simplest solution for this is to clone the repository into a shorter root path.
-
 
 ## Running a bootstrapper node
 
@@ -164,27 +205,31 @@ bootstrapper node is restarted (and there had been a protocol update).
 
 The format would be the following:
 
-```
+```console
 p2p_boostrapper-cli ... --regenesis-block-hashes 0e8a30009f9cf7c7ab76929cf6bad057a20b7002fee6fe0be48682d32b331b91 c8ebf79db99dec96e5f32a09dbcdfd31744a88526e70bb3305837dcb8147241a ...
 ```
 
-# Running all tests
+## Running all tests
+
 ```console
 $> cargo test --all
 ```
 
-# Obtaining documentation
+## Obtaining documentation
+
 The output is placed in [./target/doc](./target/doc) by default.
+
 ```console
 $> cargo doc
 ```
 
 To automatically open the browser with the documentation once it is generated use the `--open` flag.
+
 ```console
 $> cargo doc --open
 ```
 
-# Collector
+## Collector
 
 To allow the network dashboard to display nodes in the network and their current status, a node must run a collector, which is a process that uses the GRPC api of the node to collect information and sends it to a centralized collector backend.
 

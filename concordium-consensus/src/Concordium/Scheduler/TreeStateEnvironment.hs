@@ -65,6 +65,9 @@ import qualified Concordium.Scheduler as Sch
 newtype BlockStateMonad w state m a = BSM { _runBSM :: RWST ContextState w state m a}
     deriving (Functor, Applicative, Monad, MonadState state, MonadReader ContextState, MonadTrans, MonadWriter w, MonadLogger, TimeMonad)
 
+deriving via (MGSTrans (RWST ContextState w state) m)
+    instance BlockStateTypes (BlockStateMonad w state m)
+
 deriving via (BSOMonadWrapper ContextState w state (MGSTrans (RWST ContextState w state) m))
     instance
         (SS state ~ UpdatableBlockState m, Monoid w, HasSchedulerState state,
@@ -116,9 +119,6 @@ mkInitialSS _lssBlockState =
 
 deriving via (MGSTrans (RWST ContextState w state) m)
     instance (MonadProtocolVersion m) => MonadProtocolVersion (BlockStateMonad w state m)
-
-deriving via (MGSTrans (RWST ContextState w state) m)
-    instance BlockStateTypes (BlockStateMonad w state m)
 
 deriving via (MGSTrans (RWST ContextState w state) m)
     instance (Monoid w, AccountOperations m) => AccountOperations (BlockStateMonad w state m)

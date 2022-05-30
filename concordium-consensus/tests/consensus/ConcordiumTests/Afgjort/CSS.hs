@@ -112,15 +112,17 @@ coreSize :: (Party -> Int) -> CoreSet -> Int
 coreSize partyWeight (NominationSet _ c1 c2) = sum (partyWeight <$> BitSet.toList (BitSet.union c1 c2))
 
 coresCheck :: Int -> Int -> Vec.Vector (First CoreSet) -> Property
-coresCheck allparties corruptWeight cores = (counterexample "Not all core sets found" $ all (isJust . getFirst) cores)
-            .&&. (let theCore = (coreIntersections $ Vec.toList $ (fromJust . getFirst) <$> cores)
-                    in counterexample ("Core too small: " ++ show theCore) $ allparties - corruptWeight <= coreSize (const 1) theCore )
+coresCheck allParties corruptWeight cores =
+  counterexample "Not all core sets found" (all (isJust . getFirst) cores)
+    .&&. ( let theCore = (coreIntersections $ Vec.toList $ fromJust . getFirst <$> cores)
+            in counterexample ("Core too small: " ++ show theCore) $ allParties - corruptWeight <= coreSize (const 1) theCore
+         )
 
 noCoresCheck :: Int -> Int -> Vec.Vector (First CoreSet) -> Property
 noCoresCheck _ _ _ = property True
 
 atParty :: Party -> Traversal' (Vec.Vector a) a
-atParty = ix . fromIntegral
+atParty p = ix $ fromIntegral p
 
 runCSSTest :: Int -> Int -> Int -> Seq.Seq (Party, CSSInput) -> Vec.Vector (CSSState ()) -> Vec.Vector (First CoreSet) -> Gen Property
 runCSSTest = runCSSTest' coresCheck

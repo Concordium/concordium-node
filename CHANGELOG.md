@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unrelease changes
+
 - The `SendTransaction` function exposed via the gRPC interface now provides the caller with detailed error messages if the 
   transaction was rejected instead of just `False`. The function still returns `True` if 
   the transaction was accepted.
