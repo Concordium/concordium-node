@@ -59,6 +59,7 @@ dependencies:
 - recursion-schemes >= 5.1
 - file-embed >= 0.0.11
 - lmdb
+- lrucache
 
 default-extensions:
 - FlexibleContexts
