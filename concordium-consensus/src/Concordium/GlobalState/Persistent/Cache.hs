@@ -6,9 +6,11 @@ module Concordium.GlobalState.Persistent.Cache where
 import Control.Concurrent.MVar
 import Control.Monad.IO.Class
 import Control.Monad.Reader
+import qualified Data.Cache.LRU.IO as LRU
 import qualified Data.IntMap.Strict as IntMap
 import Data.Proxy
 import qualified Data.Vector.Mutable as Vec
+import Data.Word (Word64)
 
 import Concordium.GlobalState.Persistent.BlobStore (BlobRef (..))
 
@@ -30,7 +32,7 @@ instance Cache (DummyCache k v) where
     type CacheKey (DummyCache k v) = k
     type CacheValue (DummyCache k v) = v
 
-    putCachedValue _ _ v = return v
+    putCachedValue _ _ = return
     lookupCachedValue _ _ = return Nothing
 
 -- |First-in, first-out cache, with entries keyed by 'Int's.
@@ -95,3 +97,22 @@ newFIFOCache size = do
                   nextIndex = 0
                 }
     FIFOCache <$> newMVar cache
+
+-- | An LRU cache that stores values in memory.
+type LRUCache v = LRU.AtomicLRU Word64 v
+
+instance Cache (LRUCache v) where
+  type CacheKey (LRUCache v) = BlobRef v
+  type CacheValue (LRUCache v) = v
+
+  putCachedValue _ k v = do
+    lru <- asks getCache
+    liftIO $ LRU.insert (theBlobRef k) v lru
+    return v
+
+  lookupCachedValue _ k = do
+    lru <- asks getCache
+    liftIO $ LRU.lookup (theBlobRef k) lru
+
+newLRUCache :: Int -> IO (LRUCache v)
+newLRUCache size = LRU.newAtomicLRU (Just $ toInteger size)
