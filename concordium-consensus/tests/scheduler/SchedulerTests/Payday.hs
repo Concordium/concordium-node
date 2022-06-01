@@ -1,12 +1,18 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 -- |Tests for the payday-related functionality.
 module SchedulerTests.Payday where
 
+import Data.Ratio
+import qualified Data.Vector as Vec
+import Lens.Micro.Platform
 import Test.HUnit
 import Test.Hspec
+import Test.QuickCheck
 
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.GlobalState.DummyData
@@ -16,6 +22,7 @@ import Concordium.Types.DummyData
 import Concordium.Types.SeedState
 
 import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.CapitalDistribution
 import GlobalStateMock
 
 foundationAccount :: AccountAddress
@@ -74,6 +81,101 @@ testDoMintingP4 = do
               stoFoundationAccount = foundationAccount
             }
 
+-- |Test that 'scaleAmount' performs correctly by multiplying by the denominator and adding the remainder.
+testScaleAmount1 :: Property
+testScaleAmount1 = property $ \(a :: Amount) b c ->
+    let num = min a b
+        den = max 1 (max a b)
+        cTimesNum = toInteger c * toInteger num
+    in toInteger (scaleAmount num den c) * toInteger den + cTimesNum `mod` (toInteger den) === cTimesNum
+
+-- |Test that 'scaleAmount' performs correctly 
+testScaleAmount2 :: Property
+testScaleAmount2 = property $ \(a :: Amount) b c ->
+    let num = min a b
+        den = max 1 (max a b)
+    in scaleAmount num den c === floor ((toInteger num % toInteger den) * toRational c)
+
+data DelegatorRewardTestCase = DelegatorRewardTestCase {
+  drtcName :: String,
+  drtcBakingReward :: Amount,
+  drtcFinalizationReward :: Amount,
+  drtcTransactionFeeReward :: Amount,
+  drtcBakerCapital :: Amount,
+  drtcDelegatorCapitals :: [Amount],
+  drtcDelegatorExpectedRewards :: [(Amount,Amount,Amount)]
+}
+
+drtcs :: [DelegatorRewardTestCase]
+drtcs =  [DelegatorRewardTestCase {
+    -- This tests for potential overflow in distributing the baking reward
+    drtcName = "big baker reward, 1 big delegator",
+    drtcBakingReward = 1_000_000_000_000_000,
+    drtcFinalizationReward = 0,
+    drtcTransactionFeeReward = 0,
+    drtcBakerCapital = 1,
+    drtcDelegatorCapitals = [1_000_000_000_000_000],
+    drtcDelegatorExpectedRewards = [(999_999_999_999_999,0,0)]
+  },
+  DelegatorRewardTestCase {
+    -- This tests for potential overflow in distributing the finalization reward
+    drtcName = "big finalization reward, 1 big delegator",
+    drtcBakingReward = 0,
+    drtcFinalizationReward = 1_000_000_000_000_000,
+    drtcTransactionFeeReward = 0,
+    drtcBakerCapital = 1,
+    drtcDelegatorCapitals = [1_000_000_000_000_000],
+    drtcDelegatorExpectedRewards = [(0,999_999_999_999_999,0)]
+  },
+  DelegatorRewardTestCase {
+    -- This tests for potential overflow in distributing the transaction fee reward
+    drtcName = "big transaction fee reward, 1 big delegator",
+    drtcBakingReward = 0,
+    drtcFinalizationReward = 0,
+    drtcTransactionFeeReward = 1_000_000_000_000_000,
+    drtcBakerCapital = 1,
+    drtcDelegatorCapitals = [1_000_000_000_000_000],
+    drtcDelegatorExpectedRewards = [(0,0,999_999_999_999_999)]
+  },
+  DelegatorRewardTestCase {
+    drtcName = "big rewards, 1 big delegator",
+    drtcBakingReward = 1_000_000_000_000_000,
+    drtcFinalizationReward = 1_000_000_000_000_000,
+    drtcTransactionFeeReward = 1_000_000_000_000_000,
+    drtcBakerCapital = 1,
+    drtcDelegatorCapitals = [1_000_000_000_000_000],
+    drtcDelegatorExpectedRewards = [(999_999_999_999_999,999_999_999_999_999,999_999_999_999_999)]
+  },
+  DelegatorRewardTestCase {
+    drtcName = "big rewards, 2 big delegators",
+    drtcBakingReward = 2_000_000_000_000_000,
+    drtcFinalizationReward = 2_000_000_000_000_000,
+    drtcTransactionFeeReward = 2_000_000_000_000_000,
+    drtcBakerCapital = 1,
+    drtcDelegatorCapitals = [1_000_000_000_000_000, 1_000_000_000_000_000],
+    drtcDelegatorExpectedRewards = [(999_999_999_999_999,999_999_999_999_999,999_999_999_999_999),(999_999_999_999_999,999_999_999_999_999,999_999_999_999_999)]
+  }]
+
+testRewardDelegators :: Spec
+testRewardDelegators = describe "testRewardDelegators" $ mapM_ p drtcs
+  where
+    p DelegatorRewardTestCase{..} = it drtcName $ runMock events $ do
+        (DelegatorRewardOutcomes{..}, _) <- rewardDelegators (bs 0) drtcFinalizationReward drtcBakingReward drtcTransactionFeeReward totCap dels
+        return $
+          (_delegatorAccumBaking == (sum $ drtcDelegatorExpectedRewards ^.. each . _1))
+          && (_delegatorAccumFinalization == (sum $ drtcDelegatorExpectedRewards ^.. each . _2))
+          && (_delegatorAccumTransaction == (sum $ drtcDelegatorExpectedRewards ^.. each . _3))
+      where
+        bs = MockUpdatableBlockState
+        events :: [WithResult (Action 'P4)]
+        events = zipWith (\i amts -> BSO (BsoRewardAccount (bs i) (fromIntegral i) (sum (amts ^.. each))) :-> (Just (accountAddressFrom (fromIntegral i)), (bs (i + 1)))) [0 ..] drtcDelegatorExpectedRewards
+        totCap = drtcBakerCapital + sum (dcDelegatorCapital <$> dels)
+        dels = Vec.fromList (zipWith DelegatorCapital [0 ..] drtcDelegatorCapitals)
+
 tests :: Spec
 tests = describe "Payday" $ do
     describe "Minting" testDoMintingP4
+    describe "scaleAmount" $ do
+      it "div-mod" testScaleAmount1
+      it "via Rational" testScaleAmount2
+    testRewardDelegators
