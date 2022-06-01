@@ -120,7 +120,7 @@ initialiseStatesDictator n = do
                                         (MTMBConfig defaultRuntimeParameters{rpEarlyBlockThreshold=maxBound})
                                         (ActiveFinalization fininst)
                                         NoHandler
-                                (initCtx, initState) <- liftIO $ runSilentLogger (initialiseSkovWithGenesis gen config)
+                                (initCtx, initState) <- liftIO $ runSilentLogger (initialiseSkov gen config)
                                 return (bid, binfo, (kp, gaAddress acct), initCtx, initState)
                              ) bis
         return $ (Vec.fromList res)

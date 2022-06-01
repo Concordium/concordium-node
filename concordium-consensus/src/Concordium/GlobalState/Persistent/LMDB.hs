@@ -617,7 +617,7 @@ writeBlock block = resizeOnFull blockSize
         storeReplaceRecord txn (dbh ^. finalizedByHeightStore) (_bpHeight b) (_bpHash b)
         storeReplaceRecord txn (dbh ^. blockStore) (_bpHash b) block
   where
-    blockSize = 1000 + fromIntegral (_bpTransactionsSize (sbInfo block))
+    blockSize = 2*digestSize + fromIntegral (LBS.length (S.runPutLazy (putStoredBlock block)))
 
 -- |Write a finalization record to the database.
 writeFinalizationRecord :: (MonadLogger m, MonadIO m, MonadState s m, HasDatabaseHandlers pv st s)

@@ -66,7 +66,7 @@ createGlobalState dbDir = do
     n = 3
     genesis = makeTestingGenesisDataP1 now n 1 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters emptyIdentityProviders emptyAnonymityRevokers maxBound dummyKeyCollection dummyChainParameters
     config = DTDBConfig defaultRuntimeParameters dbDir (dbDir </> "blockstate" <.> "dat")
-  (x, y, NoLogContext) <- runSilentLogger $ initialiseGlobalStateWithGenesis genesis config
+  (x, y, NoLogContext) <- runSilentLogger $ initialiseGlobalState genesis config
   return (x, y)
 
 destroyGlobalState :: (PBS.PersistentBlockStateContext, SkovPersistentData PV () (PBS.HashedPersistentBlockState PV)) -> IO ()

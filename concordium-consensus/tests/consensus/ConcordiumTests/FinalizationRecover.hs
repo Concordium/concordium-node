@@ -80,7 +80,7 @@ setup nBakers = do
         fullBakers
         genTotal
   let finInstances = map (makeFinalizationInstance . fst) bakers
-  (gsc, gss, _) <- runSilentLogger( initialiseGlobalStateWithGenesis genData =<< (liftIO $ makeGlobalStateConfig defaultRuntimeParameters))
+  (gsc, gss, _) <- runSilentLogger( initialiseGlobalState genData =<< (liftIO $ makeGlobalStateConfig defaultRuntimeParameters))
   active <- forM finInstances (\inst -> (initialState inst,) <$> runSilentLogger (getFinalizationState (Proxy :: Proxy PV) (Proxy :: Proxy TreeConfig) (gsc, gss) (Just inst)))
   passive <- (initialPassiveState,) <$> runSilentLogger (getFinalizationState (Proxy :: Proxy PV) (Proxy :: Proxy TreeConfig) (gsc, gss) Nothing)
   return $ passive:active

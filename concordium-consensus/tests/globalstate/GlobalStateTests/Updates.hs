@@ -105,7 +105,7 @@ createGS dbDir = do
                                      dummyChainParameters
     rp = defaultRuntimeParameters
     config = PairGSConfig (MTMBConfig rp, DTDBConfig rp dbDir (dbDir </> "blockstate" <.> "dat"))
-  (x, y, (NoLogContext, NoLogContext)) <- runSilentLogger $ initialiseGlobalStateWithGenesis genesis config
+  (x, y, (NoLogContext, NoLogContext)) <- runSilentLogger $ initialiseGlobalState genesis config
   return (Identity x, Identity y)
 
 destroyGS :: (Identity PairedGSContext, Identity PairedGState) -> IO ()

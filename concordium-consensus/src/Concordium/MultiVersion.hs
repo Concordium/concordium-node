@@ -425,7 +425,7 @@ newGenesis (PVGenesisData (gd :: GenesisData pv)) vcGenesisHeight =
                 let vcIndex = fromIntegral (length oldVersions)
                 (vcContext, st) <-
                     runLoggerT
-                        ( initialiseSkovWithGenesis
+                        ( initialiseNewSkov
                             gd
                             ( SkovConfig @pv @gsconf @finconf
                                 ( globalStateConfig
@@ -629,7 +629,7 @@ startupSkov genesis = do
                           ..
                         } -> do
                               r <- runLoggerT
-                                      ( initialiseSkov
+                                      ( initialiseExistingSkov
                                           ( SkovConfig @pv @gsconf @finconf
                                               ( globalStateConfig
                                                   mvcStateConfig
@@ -644,7 +644,7 @@ startupSkov genesis = do
                                       )
                                       mvLog
                               case r of
-                                Left (vcContext, st) -> do
+                                Just (vcContext, st) -> do
                                   vcState <- newIORef st
                                   let vcShutdown = shutdownSkov vcContext =<< liftIO (readIORef vcState)
                                   let newEConfig :: VersionedConfiguration gsconf finconf pv
@@ -660,7 +660,7 @@ startupSkov genesis = do
                                   ((genesisHash, lastFinalizedHeight, nextPV), _) <- runMVR (runSkovT getCurrentGenesisAndHeight (mvrSkovHandlers newEConfig mvr) vcContext st) mvr
                                   notifyRegenesis (Just genesisHash)
                                   return (Left (newVersion newEConfig, lastFinalizedHeight, nextPV))
-                                Right _ ->
+                                Nothing ->
                                   case first of
                                     Nothing -> return (Right Nothing)
                                     Just newEConfig -> return (Right (Just newEConfig))

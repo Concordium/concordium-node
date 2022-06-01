@@ -1186,17 +1186,19 @@ instance (GlobalStateConfig c1, GlobalStateConfig c2) => GlobalStateConfig (Pair
     type GSState (PairGSConfig c1 c2) pv = PairGState (GSState c1 pv) (GSState c2 pv)
     -- FIXME: The below could also be improved to add pairs.
     type GSLogContext (PairGSConfig c1 c2) pv = (GSLogContext c1 pv, GSLogContext c2 pv)
-    initialiseGlobalState (PairGSConfig (conf1, conf2)) = do
-        r1 <- initialiseGlobalState conf1
-        r2 <- initialiseGlobalState conf2
+    initialiseExistingGlobalState spv (PairGSConfig (conf1, conf2)) = do
+        r1 <- initialiseExistingGlobalState spv conf1
+        r2 <- initialiseExistingGlobalState spv conf2
         case (r1, r2) of
-            (Left (ctx1, s1, c1), Left (ctx2, s2, c2)) -> return $ Left (PairGSContext ctx1 ctx2, PairGState s1 s2, (c1, c2))
-            (Right k1, Right k2) -> return . Right $ \genData -> do
-              (ctx1, s1, c1) <- k1 genData
-              (ctx2, s2, c2) <- k2 genData
-              return (PairGSContext ctx1 ctx2, PairGState s1 s2, (c1, c2))
-            (Left _, Right _) -> error "Left state exists, but the right one does not."
-            (Right _, Left _) -> error "Right state exists, but the left one does not."
+            (Just (ctx1, s1, c1), Just (ctx2, s2, c2)) -> return $ Just (PairGSContext ctx1 ctx2, PairGState s1 s2, (c1, c2))
+            (Just _, Nothing) -> error "Left state exists, but the right one does not."
+            (Nothing, Just _) -> error "Right state exists, but the left one does not."
+            (Nothing, Nothing) -> return Nothing
+
+    initialiseNewGlobalState genData (PairGSConfig (conf1, conf2)) = do
+        (ctx1, s1, c1) <- initialiseNewGlobalState genData conf1
+        (ctx2, s2, c2) <- initialiseNewGlobalState genData conf2
+        return $ (PairGSContext ctx1 ctx2, PairGState s1 s2, (c1, c2))
 
     activateGlobalState :: forall pv .
         IsProtocolVersion pv =>

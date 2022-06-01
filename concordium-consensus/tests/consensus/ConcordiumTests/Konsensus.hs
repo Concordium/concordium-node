@@ -562,7 +562,7 @@ createInitStates bis extraAccounts maxFinComSize = Vec.fromList <$> liftIO (mapM
                     (MTMBConfig defaultRuntimeParameters)
                     (ActiveFinalization fininst)
                     NoHandler
-            (initCtx, initState) <- runSilentLogger (initialiseSkovWithGenesis gen config)
+            (initCtx, initState) <- runSilentLogger (initialiseSkov gen config)
             return (bid, binfo, (kp, gaAddress acct), initCtx, initState)
 
 instance Show BakerIdentity where
