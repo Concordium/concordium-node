@@ -1176,7 +1176,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
               Just targetAccount ->
                 -- Add the transfer to the current changeset and return the corresponding event.
                 lift (withContractToAccountAmountV1 (instanceAddress senderInstance) targetAccount tAmount $
-                      return [Transferred addr transferAmount (AddressAccount accAddr)])
+                      return [Transferred addr tAmount (AddressAccount accAddr)])
 
 
 -- | Invoke a V0 contract and process any generated messages.
@@ -1655,6 +1655,7 @@ handleConfigureBaker
                     ebaStake = bcaCapital,
                     ebaRestakeEarnings = bcaRestakeEarnings
                   },
+                  BakerSetMetadataURL bid senderAddress bcaMetadataURL,
                   BakerSetTransactionFeeCommission bid senderAddress bcaTransactionFeeCommission,
                   BakerSetBakingRewardCommission bid senderAddress bcaBakingRewardCommission,
                   BakerSetFinalizationRewardCommission bid senderAddress bcaFinalizationRewardCommission,
