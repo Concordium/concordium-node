@@ -333,17 +333,6 @@ instance (IsProtocolVersion pv) => EncodeBlock pv (Block pv) where
     putBlock _ (GenesisBlock gd) = put genesisSlot >> (putGenesisConfiguration gd)
     putBlock spv (NormalBlock bb) = putBlock spv bb
 
--- |The metadata is the arrival time of the block together with the genesis hash
--- of the current protocol version. The latter is only used when deserializing
--- genesis blocks.
-type instance DecodeBlockMetadata (Block pv) = (TransactionTime, BlockHash)
-
-instance forall pv. (IsProtocolVersion pv) => DecodeBlock pv (Block pv) where
-    getBlock _ (arrivalTime, genHash) = do
-        sl <- get
-        if sl == 0 then GenesisBlock <$> getGenesisConfiguration (protocolVersion @pv) genHash
-        else NormalBlock <$> getBakedBlockAtSlot (protocolVersion @pv) sl arrivalTime
-
 -- |A baked block, pre-hashed with its arrival time.
 --
 -- All instances of this type will implement automatically:

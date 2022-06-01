@@ -51,6 +51,7 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Persistent.BlockPointer
+import Concordium.Genesis.Data (getGenesisConfiguration)
 import Concordium.Types
 import Concordium.Types.Execution (TransactionIndex)
 import qualified Concordium.GlobalState.TransactionTable as T
@@ -111,12 +112,29 @@ instance FixedSizeSerialization (BlobRef a) where
 instance (FixedSizeSerialization a, FixedSizeSerialization b) => FixedSizeSerialization (a, b) where
   serializedSize _ = serializedSize (Proxy @a) + serializedSize (Proxy @b)
 
+-- |Decode a stored block given access to arrival time and the hash of the genesis block.
+-- The latter is only used when deserializing genesis blocks.
+--
+-- It is crucial that the result does not retain any pointers to the byte array
+-- from which the data is deserialized.
+--
+-- Note that in general when given a genesis block this function will not fully
+-- consume the input since it only needs to parse the genesis parameters.
+decodeStoredBlock :: SProtocolVersion pv -> TransactionTime -> BlockHash -> S.Get (Block pv)
+decodeStoredBlock spv arrivalTime genHash = do
+    sl <- S.get
+    if sl == 0 then GenesisBlock <$> getGenesisConfiguration spv genHash
+    else NormalBlock <$> getBakedBlockAtSlot spv sl arrivalTime
+
 instance (IsProtocolVersion pv, FixedSizeSerialization st) => MDBDatabase (BlockStore pv st) where
   type DBKey (BlockStore pv st) = BlockHash
   type DBValue (BlockStore pv st) = StoredBlock pv st
   encodeKey _ = hashToByteString . blockHash
   encodeValue _ sb = S.runPutLazy (putStoredBlock sb)
   decodeValue _ blockHash mdbVal = do
+    -- The use of unsafeByteStringFromMDB_val is OK here since deserialization of blocks
+    -- does not retain any pointers to the source. All the data and byte strings are copied
+    -- (cf getByteString).
     bs <- unsafeByteStringFromMDB_val mdbVal
     if BS.length bs < serializedSize (Proxy @st) then
       return (Left "Unexpected block value without state.")
@@ -126,7 +144,7 @@ instance (IsProtocolVersion pv, FixedSizeSerialization st) => MDBDatabase (Block
           bodyDecoder = do
             sbFinalizationIndex <- S.get
             sbInfo <- S.get
-            sbBlock <- S.label "getBlock" $ getBlock (protocolVersion @pv) (utcTimeToTransactionTime (_bpReceiveTime sbInfo), blockHash)
+            sbBlock <- S.label "decodeStoredBlock" $ decodeStoredBlock (protocolVersion @pv) (utcTimeToTransactionTime (_bpReceiveTime sbInfo)) blockHash
             return (sbFinalizationIndex, sbInfo, sbBlock)
       case (S.runGet bodyDecoder body, S.decode stateValue) of
         (Right (sbFinalizationIndex, sbInfo, sbBlock), Right sbState) -> return (Right StoredBlock{..})

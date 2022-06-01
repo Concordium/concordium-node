@@ -418,8 +418,7 @@ newGenesis (PVGenesisData (gd :: GenesisData pv)) vcGenesisHeight =
               ..
             } -> do
                 mvLog Runner LLInfo $
-                    "Starting new chain with genesis block "
-                        -- ++ show (genesisBlockHash gd)
+                    "Starting new chain"
                         ++ " at absolute height "
                         ++ show vcGenesisHeight
                 oldVersions <- readIORef mvVersions

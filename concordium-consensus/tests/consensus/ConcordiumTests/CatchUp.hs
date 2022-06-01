@@ -38,7 +38,7 @@ import Concordium.Skov.Monad
 import Concordium.Skov.MonadImplementations
 import Concordium.Afgjort.Finalize
 import Concordium.Birk.Bake
-import Concordium.Types (BlockHash, Energy(..), AccountAddress, protocolVersion)
+import Concordium.Types (Energy(..), AccountAddress, protocolVersion)
 import Concordium.Startup (defaultFinalizationParameters, makeBakersByStake)
 
 import ConcordiumTests.Konsensus hiding (tests)
@@ -90,7 +90,7 @@ runKonsensus steps g states es
                         continue fs' es'
 
 -- |Create initial states where the first baker is a dictator with respect to finalization.
-initialiseStatesDictator :: Int -> PropertyM IO (States, BlockHash)
+initialiseStatesDictator :: Int -> PropertyM IO States
 initialiseStatesDictator n = do
         let bakerAmt = 1000000
             stakes = (2*bakerAmt) : replicate (n-1) bakerAmt
@@ -123,11 +123,11 @@ initialiseStatesDictator n = do
                                 (initCtx, initState) <- liftIO $ runSilentLogger (initialiseSkovWithGenesis gen config)
                                 return (bid, binfo, (kp, gaAddress acct), initCtx, initState)
                              ) bis
-        return $ (Vec.fromList res, genesisBlockHash gen)
+        return $ (Vec.fromList res)
 
-simpleCatchUpCheck :: BlockHash -> States -> Property
-simpleCatchUpCheck genHash ss =
-        conjoin [monadicIO $ catchUpCheck genHash s1 s2 | s1 <- toList ss, s2 <- toList ss ]
+simpleCatchUpCheck :: States -> Property
+simpleCatchUpCheck ss =
+        conjoin [monadicIO $ catchUpCheck s1 s2 | s1 <- toList ss, s2 <- toList ss ]
 
 type TrivialHandlers = SkovHandlers PV DummyTimer (Config DummyTimer) LogIO
 
@@ -145,8 +145,8 @@ trivialEvalSkovT a ctx st = liftIO $ flip runLoggerT doLog $ evalSkovT a trivial
         doLog src LLError msg = error $ show src ++ ": " ++ msg
         doLog _ _ _ = return ()
 
-catchUpCheck :: BlockHash -> (BakerIdentity, FullBakerInfo, (SigScheme.KeyPair, AccountAddress), SkovContext (Config DummyTimer), SkovState (Config DummyTimer)) -> (BakerIdentity, FullBakerInfo, (SigScheme.KeyPair, AccountAddress), SkovContext (Config DummyTimer), SkovState (Config DummyTimer)) -> PropertyM IO Bool
-catchUpCheck genHash (_, _, _, c1, s1) (_, _, _, c2, s2) = do
+catchUpCheck :: (BakerIdentity, FullBakerInfo, (SigScheme.KeyPair, AccountAddress), SkovContext (Config DummyTimer), SkovState (Config DummyTimer)) -> (BakerIdentity, FullBakerInfo, (SigScheme.KeyPair, AccountAddress), SkovContext (Config DummyTimer), SkovState (Config DummyTimer)) -> PropertyM IO Bool
+catchUpCheck (_, _, _, c1, s1) (_, _, _, c2, s2) = do
         request <- myLoggedEvalSkovT (getCatchUpStatus True) c1 s1
         (response, result) <- trivialEvalSkovT (handleCatchUpStatus request 2000) c2 s2
         let
@@ -180,7 +180,7 @@ catchUpCheck genHash (_, _, _, c1, s1) (_, _, _, c2, s2) = do
                     checkBinary Set.isSubsetOf (Set.fromList $ cusLeaves request) respLive "is a subset of" "resquestor leaves" "respondent nodes, given no counter-request"
                 unless (lfh2 < lfh1) $ do
                     -- If the respondent should be able to send us something meaningful, then make sure they do
-                    let recBHs = [getHash (bp :: Block PV) | (MessageBlock, runGet (B.getVersionedBlock (protocolVersion @PV) (0, genHash)) -> Right bp) <- l]
+                    let recBHs = [getHash (bp :: BakedBlock) | (MessageBlock, runGet (B.getVersionedBlock (protocolVersion @PV) 0) -> Right bp) <- l]
                     let recBlocks = Set.fromList recBHs
                     -- Check that the requestor's live blocks + received blocks include all live blocks for respondent
                     checkBinary Set.isSubsetOf respLive (reqLive `Set.union` recBlocks) "is a subset of" "respondent live blocks" "requestor live blocks + received blocks"
@@ -219,10 +219,10 @@ catchUpCheck genHash (_, _, _, c1, s1) (_, _, _, c2, s2) = do
 
 doCatchUpCheck :: Int -> Int -> Property
 doCatchUpCheck n steps = monadicIO $ do
-        (s0, genHash) <- initialiseStatesDictator n
+        s0 <- initialiseStatesDictator n
         gen <- pick $ mkStdGen <$> arbitrary
         s1 <- liftIO $ runKonsensus steps gen s0 (makeExecState $ initialEvents s0)
-        return $ simpleCatchUpCheck genHash s1
+        return $ simpleCatchUpCheck s1
 
 tests :: Word -> Spec
 tests lvl = parallel $ describe "Concordium.CatchUp" $ do
