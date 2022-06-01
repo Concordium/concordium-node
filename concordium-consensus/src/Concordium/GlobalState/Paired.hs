@@ -1179,7 +1179,7 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
       r1 <- coerceGSML $ getNonFinalizedTransactionVerificationResult tx
       r2 <- coerceGSMR $ getNonFinalizedTransactionVerificationResult tx
       assertEq r1 r2 $ return r1
-newtype PairGSConfig c1 c2 (pv :: ProtocolVersion) = PairGSConfig (c1 pv, c2 pv)
+newtype PairGSConfig c1 c2 = PairGSConfig (c1, c2)
 
 instance (GlobalStateConfig c1, GlobalStateConfig c2) => GlobalStateConfig (PairGSConfig c1 c2) where
     type GSContext (PairGSConfig c1 c2) pv = PairGSContext (GSContext c1 pv) (GSContext c2 pv)
@@ -1200,13 +1200,14 @@ instance (GlobalStateConfig c1, GlobalStateConfig c2) => GlobalStateConfig (Pair
 
     activateGlobalState :: forall pv .
         IsProtocolVersion pv =>
-        Proxy (PairGSConfig c1 c2 pv) ->
+        Proxy (PairGSConfig c1 c2) ->
+        Proxy pv ->
         PairGSContext (GSContext c1 pv) (GSContext c2 pv) ->
         PairGState (GSState c1 pv) (GSState c2 pv) ->
         LogIO (PairGState (GSState c1 pv) (GSState c2 pv))
-    activateGlobalState Proxy (PairGSContext ctx1 ctx2) (PairGState s1 s2) = do
-            s1Active <- activateGlobalState (Proxy @(c1 pv)) ctx1 s1
-            s2Active <- activateGlobalState (Proxy @(c2 pv)) ctx2 s2
+    activateGlobalState Proxy Proxy (PairGSContext ctx1 ctx2) (PairGState s1 s2) = do
+            s1Active <- activateGlobalState (Proxy @c1) (Proxy @pv) ctx1 s1
+            s2Active <- activateGlobalState (Proxy @c2) (Proxy @pv) ctx2 s2
             return (PairGState s1Active s2Active)
 
     shutdownGlobalState spv _ (PairGSContext ctx1 ctx2) (PairGState s1 s2) (c1, c2) = do

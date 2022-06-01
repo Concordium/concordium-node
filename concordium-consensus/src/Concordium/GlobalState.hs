@@ -345,20 +345,20 @@ deriving via TreeStateBlockStateM pv g c r s m
 -----------------------------------------------------------------------------
 
 -- |Configuration that uses in-memory, Haskell implementations for both tree state and block state.
-newtype MemoryTreeMemoryBlockConfig (pv :: ProtocolVersion) = MTMBConfig {
+newtype MemoryTreeMemoryBlockConfig = MTMBConfig {
     mtmbRuntimeParameters :: RuntimeParameters
     }
 
 -- |Configuration that uses the in-memory, Haskell implementation of tree state and the
 -- persistent Haskell implementation of block state.
-data MemoryTreeDiskBlockConfig (pv :: ProtocolVersion) = MTDBConfig {
+data MemoryTreeDiskBlockConfig = MTDBConfig {
     mtdbRuntimeParameters :: !RuntimeParameters,
     mtdbBlockStateFile :: !FilePath
     }
 
 -- |Configuration that uses the disk implementation for both the tree state
 -- and the block state
-data DiskTreeDiskBlockConfig (pv :: ProtocolVersion) = DTDBConfig {
+data DiskTreeDiskBlockConfig = DTDBConfig {
     dtdbRuntimeParameters :: !RuntimeParameters,
     dtdbTreeStateDirectory :: !FilePath,
     dtdbBlockStateFile :: !FilePath
@@ -367,7 +367,7 @@ data DiskTreeDiskBlockConfig (pv :: ProtocolVersion) = DTDBConfig {
 -- |Configuration that uses the disk implementation for both the tree state
 -- and the block state, as well as an external database for producing
 -- an index of transactions affecting a given account.
-data DiskTreeDiskBlockWithLogConfig (pv :: ProtocolVersion) = DTDBWLConfig {
+data DiskTreeDiskBlockWithLogConfig = DTDBWLConfig {
     dtdbwlRuntimeParameters :: !RuntimeParameters,
     dtdbwlTreeStateDirectory :: !FilePath,
     dtdbwlBlockStateFile :: !FilePath,
@@ -387,7 +387,7 @@ instance Show GlobalStateInitException where
 instance Exception GlobalStateInitException
 
 -- |This class is implemented by types that determine configurations for the global state.
-class GlobalStateConfig (c :: ProtocolVersion -> Type) where
+class GlobalStateConfig (c :: Type) where
     -- |The read-only context type associated with a global state configuration.
     type GSContext c (pv :: ProtocolVersion)
     -- |The (mutable) state type associated with a global state configuration.
@@ -404,15 +404,15 @@ class GlobalStateConfig (c :: ProtocolVersion -> Type) where
     -- configuration. The reason for the added complexity, instead of just
     -- requiring genesis data up-front, is that loading genesis data can be very
     -- expensive and is not needed if the state already exists.
-    initialiseGlobalState :: IsProtocolVersion pv => c pv -> LogIO (Either (GSContext c pv, GSState c pv, GSLogContext c pv) (GenesisData pv -> LogIO (GSContext c pv, GSState c pv, GSLogContext c pv)))
+    initialiseGlobalState :: IsProtocolVersion pv => c -> LogIO (Either (GSContext c pv, GSState c pv, GSLogContext c pv) (GenesisData pv -> LogIO (GSContext c pv, GSState c pv, GSLogContext c pv)))
 
     -- |A wrapper around 'initialiseGlobalState' in case genesis data is already available.
-    initialiseGlobalStateWithGenesis :: IsProtocolVersion pv => GenesisData pv -> c pv -> LogIO (GSContext c pv, GSState c pv, GSLogContext c pv)
+    initialiseGlobalStateWithGenesis :: IsProtocolVersion pv => GenesisData pv -> c -> LogIO (GSContext c pv, GSState c pv, GSLogContext c pv)
     initialiseGlobalStateWithGenesis gd cfg = initialiseGlobalState cfg >>= \case
         Left x -> return x
         Right k -> k gd
 
-    activateGlobalState :: IsProtocolVersion pv => Proxy (c pv) -> GSContext c pv -> GSState c pv -> LogIO (GSState c pv)
+    activateGlobalState :: IsProtocolVersion pv => Proxy c -> Proxy pv -> GSContext c pv -> GSState c pv -> LogIO (GSState c pv)
 
     -- |Shutdown the global state.
     shutdownGlobalState :: SProtocolVersion pv -> Proxy c -> GSContext c pv -> GSState c pv -> GSLogContext c pv -> IO ()
@@ -428,7 +428,7 @@ instance GlobalStateConfig MemoryTreeMemoryBlockConfig where
         skovData <- runPureBlockStateMonad (initialSkovData rtparams gendata bs)
         return ((), skovData, NoLogContext)
 
-    activateGlobalState _ _ = return
+    activateGlobalState _ _ _ = return
 
     shutdownGlobalState _ _ _ _ _ = return ()
 
@@ -452,7 +452,7 @@ instance GlobalStateConfig MemoryTreeDiskBlockConfig where
             skovData <- runReaderT (runPersistentBlockStateMonad initState) pbsc
             return (pbsc, skovData, NoLogContext)
 
-    activateGlobalState _ _ = return
+    activateGlobalState _ _ _ = return
 
     shutdownGlobalState _ _ PersistentBlockStateContext{..} _ _ = liftIO $ do
         closeBlobStore pbscBlobStore
@@ -489,7 +489,7 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
                 `onException` liftIO (destroyBlobStore pbscBlobStore)
         return (pbsc, isd, NoLogContext)
 
-    activateGlobalState _ pbsc uninitState = 
+    activateGlobalState _ _ pbsc uninitState = 
       activateSkovPersistentData pbsc uninitState
 
     shutdownGlobalState _ _ PersistentBlockStateContext{..} st _ = do
@@ -541,7 +541,7 @@ instance GlobalStateConfig DiskTreeDiskBlockWithLogConfig where
                 `onException` liftIO (destroyAllResources dbHandle >> destroyBlobStore pbscBlobStore)
         return (pbsc, isd, transactionLogContext)
 
-    activateGlobalState _ pbsc uninitState =
+    activateGlobalState _ _ pbsc uninitState =
       activateSkovPersistentData pbsc uninitState
 
     shutdownGlobalState _ _ PersistentBlockStateContext{..} st transactionLogContext = do

@@ -65,7 +65,7 @@ type TreeConfig = DiskTreeDiskBlockConfig
 
 -- |Construct the global state configuration.
 -- Can be customised if changing the configuration.
-makeGlobalStateConfig :: RuntimeParameters -> FilePath -> FilePath -> IO (TreeConfig PV)
+makeGlobalStateConfig :: RuntimeParameters -> FilePath -> FilePath -> IO TreeConfig
 makeGlobalStateConfig rt treeStateDir blockStateFile = return $ DTDBConfig rt treeStateDir blockStateFile
 
 {-

@@ -183,7 +183,7 @@ instance (SkovFinalizationHandlers h m, Monad m, TimeMonad m, MonadLogger m, Sko
 -- * @finconfig@: the finalization configuration. Currently supported types are @NoFinalization t@,
 --   @ActiveFinalization t@ and @BufferedFinalization t@, where @t@ is the type of timers in the supporting monad.
 -- * @handlerconfig@ is the type of event handlers. Currently supported types are @NoHandlers@ and @LogUpdateHandlers@.
-data SkovConfig (pv :: ProtocolVersion) gsconfig finconfig handlerconfig = SkovConfig !(gsconfig pv) !finconfig !handlerconfig
+data SkovConfig (pv :: ProtocolVersion) gsconfig finconfig handlerconfig = SkovConfig !gsconfig !finconfig !handlerconfig
 
 -- |The type of contexts (i.e. read only data) for the skov configuration type.
 data family SkovContext c
@@ -298,7 +298,7 @@ instance
         SkovState (SkovConfig pv gsconfig finconfig handlerconfig) ->
         LogIO (SkovState (SkovConfig pv gsconfig finconfig handlerconfig))
     activateSkovState skovContext skovState = do
-        activatedState <- activateGlobalState (Proxy @(gsconfig pv)) (scGSContext skovContext) (ssGSState skovState)
+        activatedState <- activateGlobalState (Proxy @gsconfig) (Proxy @pv) (scGSContext skovContext) (ssGSState skovState)
         return skovState { ssGSState = activatedState }
     shutdownSkov :: forall pv. IsProtocolVersion pv => SkovContext (SkovConfig pv gsconfig finconfig handlerconfig) -> SkovState (SkovConfig pv gsconfig finconfig handlerconfig) -> LogIO ()
     shutdownSkov (SkovContext c _ _) (SkovState s _ _ logCtx) = liftIO $ shutdownGlobalState (protocolVersion @pv) (Proxy :: Proxy gsconfig) c s logCtx

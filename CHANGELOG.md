@@ -2,10 +2,11 @@
 
 ## Unrelease changes
 
-- Improve startup time by avoiding to process already processed protocol
+- Improve startup time by avoiding processing already processed protocol
   updates.
 - Decrease memory usage by not storing genesis blocks. This has the effect that
-  the database of node versions >= 4.1.* are not compatible with those of < 4.1.
+  the database produced by node versions >= 4.2.* cannot be used by node
+  versions <= 4.1. The other direction works.
 
 ## 4.0.11
 - The `SendTransaction` function exposed via the gRPC interface now provides the caller with detailed error messages if the 

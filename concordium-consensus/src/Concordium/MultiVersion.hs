@@ -128,7 +128,7 @@ data MultiVersionConfiguration gsconf finconf = MultiVersionConfiguration
 -- genesis.
 class
     (GlobalStateConfig gsconf) =>
-    MultiVersionStateConfig (gsconf :: ProtocolVersion -> Type)
+    MultiVersionStateConfig (gsconf :: Type)
     where
     -- |Type of state configuration data.
     type StateConfig gsconf
@@ -138,14 +138,13 @@ class
 
     -- |Create a global state configuration for a specific genesis.
     globalStateConfig ::
-        IsProtocolVersion pv =>
         StateConfig gsconf ->
         TXLogConfig gsconf ->
         RuntimeParameters ->
         GenesisIndex ->
         -- |Absolute height of the genesis block.
         AbsoluteBlockHeight ->
-        gsconf pv
+        gsconf
 
 instance MultiVersionStateConfig MemoryTreeMemoryBlockConfig where
     type StateConfig MemoryTreeMemoryBlockConfig = ()
