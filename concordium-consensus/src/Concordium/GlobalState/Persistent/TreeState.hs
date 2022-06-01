@@ -277,7 +277,15 @@ checkExistingDatabase treeStateDir blockStateFile = do
 --   * database does not contain the right genesis block (one that would match genesis data)
 --   * hash under which the genesis block is stored is not the computed hash of the genesis block
 --   * missing finalization record for the last stored block in the database.
---   * in the block state, an account which is listed cannot be loaded
+--
+-- The state that is loaded is usable for queries (except the next nonce query),
+-- but it is not usable for active consensus operation. For that,
+-- 'activateSkovPersistentData' should be called which establishes the necessary
+-- invariants in the transaction table, and caches the relevant state.
+--
+-- The reason for the split design is that activating the state is very time
+-- consuming, and it is not needed when starting a node on a chain which had
+-- multiple protocol updates.
 loadSkovPersistentData :: forall ati pv. (IsProtocolVersion pv, CanExtend (ATIValues ati))
                        => RuntimeParameters
                        -> FilePath -- ^Tree state directory
@@ -339,6 +347,14 @@ loadSkovPersistentData rp _treeStateDirectory pbsc atiContext = do
       bstate <- runReaderT (PBS.runPersistentBlockStateMonad (loadBlockState (blockStateHash sbBlock) sbState)) pbsc
       makeBlockPointerFromPersistentBlock sbBlock bstate defaultValue sbInfo
 
+-- |Activate the state and make it usable for use by consensus. This concretely
+-- means that the block state for the last finalized block is cached, and that
+-- the transaction table invariants are established. The latter means that the
+-- next nonce recorded in the pending table is correct for the focus block
+-- (which is the last finalized block).
+--
+-- This function will raise an IO exception in the following scenarios
+-- * in the block state, an account which is listed cannot be loaded
 activateSkovPersistentData :: forall ati pv. (IsProtocolVersion pv, CanExtend (ATIValues ati))
                            => PBS.PersistentBlockStateContext
                            -> SkovPersistentData pv ati (PBS.HashedPersistentBlockState pv)
