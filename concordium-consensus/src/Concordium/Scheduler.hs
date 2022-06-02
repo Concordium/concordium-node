@@ -1655,12 +1655,12 @@ handleConfigureBaker
                     ebaStake = bcaCapital,
                     ebaRestakeEarnings = bcaRestakeEarnings
                   },
+                  BakerSetRestakeEarnings bid senderAddress bcaRestakeEarnings,
+                  BakerSetOpenStatus bid senderAddress bcaOpenForDelegation,
                   BakerSetMetadataURL bid senderAddress bcaMetadataURL,
                   BakerSetTransactionFeeCommission bid senderAddress bcaTransactionFeeCommission,
                   BakerSetBakingRewardCommission bid senderAddress bcaBakingRewardCommission,
-                  BakerSetFinalizationRewardCommission bid senderAddress bcaFinalizationRewardCommission,
-                  BakerSetOpenStatus bid senderAddress bcaOpenForDelegation,
-                  BakerSetRestakeEarnings bid senderAddress bcaRestakeEarnings]
+                  BakerSetFinalizationRewardCommission bid senderAddress bcaFinalizationRewardCommission]
             return (TxSuccess events, energyCost, usedEnergy)
         kResult energyCost usedEnergy _ BI.BCInvalidAccount =
             return (TxReject (InvalidAccountReference senderAddress), energyCost, usedEnergy)
