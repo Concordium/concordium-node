@@ -442,24 +442,59 @@ doBlockRewardP4 transFees FreeTransactionCounts{..} bid bs0 = do
     let rewardParams = chainParameters ^. rewardParameters
         passiveTransCommission = chainParameters ^. cpPoolParameters . ppPassiveCommissions . transactionCommission
     oldRewardAccts <- (^. rewardAccounts) <$> bsoGetBankStatus bs0
-    let gasIn = oldRewardAccts ^. gasAccount
+    -- Note: the GAS payout fraction \sigma_{G,out} is tfdGASAccount / (1 - \sigma_{T,F}).
+    -- 
+    let -- Previous value of gas account: GAS^(j-1)
+        gasIn = oldRewardAccts ^. gasAccount
+        -- Baker share of the incoming transaction fees, but includes some fees due to passive
+        -- delegation: R_T * (1 - \sigma_{G,in})
+        -- where R_T = (1 - \sigma_{T,F}) * T is the incoming transaction fees
+        -- less the foundation cut.
         poolsAndPassiveFees = takeFraction (rewardParams ^. tfdBaker) transFees
+        -- GAS account share of the incoming transaction fees, but includes some fees due to
+        -- passive delegation: R_T * \sigma_{G,in}
         gasFees = takeFraction (rewardParams ^. tfdGASAccount) transFees
+        -- Total stake of passive delegators
         passiveStake = sum $ dcDelegatorCapital <$> passiveDelegatorsCapital capitalDistribution
+        -- Relative stake of passive delegators: s_L
         passiveRelativeStake = toRational $ passiveStake % (BI.bakerTotalStake bakers + passiveStake)
+        -- Fraction of transaction fee rewards for the passive delegators:  (1 - \mu_{T,L}) * s_L
         passiveFraction = fractionToRational (complementAmountFraction passiveTransCommission) * passiveRelativeStake
+        -- Share of the calculated GAS fees owed to passive:
+        -- R_T * \sigma{G,in} * (1 - \mu_{T,L}) * s_L
+        -- = \sigma{G,in} * R_{T,L}
         passiveGASFees = floor $ toRational gasFees * passiveFraction
+        -- Share of the calculated transaction fees owed to passive:
+        -- R_T * (1 - \sigma_{G,in}) * (1 - \mu_{T,L}) * s_L
         passiveTransFees = floor $ toRational poolsAndPassiveFees * passiveFraction
+        -- The total amount owed to the passive delegators:
+        -- R_{T,L} = R_T * (1 - \mu_{T,L}) * s_L
         passiveOut = passiveGASFees + passiveTransFees
-        poolFees = poolsAndPassiveFees - passiveOut
+        -- Share of transaction fees owed to the baker pool:
+        -- (R_T - R_{T,L}) * (1 - \sigma_{G,in})
+        poolFees = poolsAndPassiveFees - passiveTransFees
+        -- Share of transaction fees paid as platform development charge:
+        -- F_T = T * \sigma{T,F}
+        --     = T - R_T
+        --     = T - (R_T * (1 - \sigma_{G,in}) + R_T * \sigma_{G,in})
         platformFees = transFees - (poolsAndPassiveFees + gasFees)
+        -- The share of the old GAS account that goes tot he new GAS account:
+        -- gasIn * (1 - \sigma{G,out}) * (1 - f_acc)^a * (1 - f_gov)^u * (1 - f_fin)^f
+        -- = GAS^(j-1) * (1 - \sigma{G,out}) * (1 - NGT(f,a,u))
         gasGAS = ceiling $ toRational gasIn
                     * (fractionToRational . complementAmountFraction $ rewardParams ^. gasBaker)
                     * (fractionToRational . complementAmountFraction $ rewardParams ^. gasAccountCreation)^countAccountCreation
                     * (fractionToRational . complementAmountFraction $ rewardParams ^. gasChainUpdate)^countUpdate
                     * (fractionToRational . complementAmountFraction $ rewardParams ^. gasFinalizationProof)^countFinRecs
+        -- Share of the old GAS account that is paid to the baker pool:
+        -- gasIn * (1 - (1 - \sigma{G,out}) * (1 - NGT(f,a,u)))
+        -- = GAS^(j-1) * (\sigma{G,out} + NGT(f,a,u) - \sigma{G,out} * NGT(f,a,u))
         bakerGAS = gasIn - gasGAS
+        -- New balance of the GAS account:
+        -- GAS^(j) = (R_T - R_{T,L}) * \sigma{G,in} + GAS^(j-1) * (1 - \sigma{G,out}) * (1 - NGT(f,a,u))
         gasOut = gasFees - passiveGASFees + gasGAS
+        -- Amount of transaction fees and GAS account accruing to the baker pool:
+        -- R_{T,P} = (R_T - R_{T,L}) * (1 - \sigma_{G,in}) + GAS^(j-1) * (\sigma{G,out} + NGT(f,a,u) - \sigma{G,out} * NGT(f,a,u))
         poolOut = poolFees + bakerGAS
     bs1 <- bsoSetRewardAccounts bs0 (oldRewardAccts & gasAccount .~ gasOut)
     bs2 <- bsoUpdateAccruedTransactionFeesFoundationAccount bs1 (amountToDelta platformFees)
