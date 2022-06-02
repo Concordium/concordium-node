@@ -297,7 +297,6 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
             let mVerRes = case results of
                  Received _ verRes -> Just verRes
                  Committed _ verRes _ -> Just verRes
-                 Finalized {} -> Nothing
             when (slot > results ^. tsSlot) $ transactionTable . ttHashMap . at' trHash . mapped . _2 %= updateSlot slot
             return $ TS.Duplicate tr' mVerRes
 
