@@ -1,5 +1,6 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Concordium.GlobalState.Persistent.Cache where
 
@@ -25,6 +26,7 @@ class Cache c where
 
     putCachedValue :: (MonadCache r c m) => Proxy c -> CacheKey c -> CacheValue c -> m (CacheValue c)
     lookupCachedValue :: (MonadCache r c m) => Proxy c -> CacheKey c -> m (Maybe (CacheValue c))
+    cacheSize :: (MonadCache r c m) => Proxy c -> m Int
 
 data DummyCache k v = DummyCache
 
@@ -34,6 +36,7 @@ instance Cache (DummyCache k v) where
 
     putCachedValue _ _ = return
     lookupCachedValue _ _ = return Nothing
+    cacheSize _ = return 0
 
 -- |First-in, first-out cache, with entries keyed by 'Int's.
 data FIFOCache' v = FIFOCache'
@@ -52,6 +55,9 @@ data CacheEntry
     | CacheEntry {key :: !Int}
 
 newtype FIFOCache v = FIFOCache {theFIFOCache :: MVar (FIFOCache' v)}
+
+instance HasCache (FIFOCache v) (FIFOCache v) where
+    getCache = id
 
 instance Cache (FIFOCache v) where
     type CacheKey (FIFOCache v) = BlobRef v
@@ -76,9 +82,10 @@ instance Cache (FIFOCache v) where
                               nextIndex = (nextIndex cache + 1) `mod` Vec.length (fifoBuffer cache)
                             }
                     return val
-                Just val' -> do
-                    putMVar cacheRef cache
-                    return val'
+                Just _ -> do
+                    let newKeyMap = IntMap.insert intKey val (keyMap cache)
+                    putMVar cacheRef $ cache { keyMap = newKeyMap }
+                    return val
 
     lookupCachedValue _ key = do
         FIFOCache cacheRef <- asks getCache
@@ -86,6 +93,11 @@ instance Cache (FIFOCache v) where
         -- We need to be sure not to retain references after we are done.
         cache <- liftIO $ readMVar cacheRef
         return $! IntMap.lookup (fromIntegral (theBlobRef key)) (keyMap cache)
+
+    cacheSize _ = do
+        FIFOCache cacheRef :: FIFOCache v <- asks getCache
+        cache <- liftIO $ readMVar cacheRef
+        return $ IntMap.size (keyMap cache)
 
 newFIFOCache :: Int -> IO (FIFOCache v)
 newFIFOCache size = do
@@ -101,18 +113,26 @@ newFIFOCache size = do
 -- | An LRU cache that stores values in memory.
 type LRUCache v = LRU.AtomicLRU Word64 v
 
+instance HasCache (LRUCache v) (LRUCache v) where
+    getCache = id
+
 instance Cache (LRUCache v) where
-  type CacheKey (LRUCache v) = BlobRef v
-  type CacheValue (LRUCache v) = v
+    type CacheKey (LRUCache v) = BlobRef v
+    type CacheValue (LRUCache v) = v
 
-  putCachedValue _ k v = do
-    lru <- asks getCache
-    liftIO $ LRU.insert (theBlobRef k) v lru
-    return v
+    putCachedValue _ k v = do
+        lru <- asks getCache
+        liftIO $ LRU.insert (theBlobRef k) v lru
+        return v
 
-  lookupCachedValue _ k = do
-    lru <- asks getCache
-    liftIO $ LRU.lookup (theBlobRef k) lru
+    lookupCachedValue _ k = do
+        lru <- asks getCache
+        liftIO $ LRU.lookup (theBlobRef k) lru
+
+    cacheSize _ = do
+        lru :: LRUCache v <- asks getCache
+        liftIO $ LRU.size lru
+
 
 newLRUCache :: Int -> IO (LRUCache v)
 newLRUCache size = LRU.newAtomicLRU (Just $ toInteger size)
