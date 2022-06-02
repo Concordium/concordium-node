@@ -496,6 +496,14 @@ doBlockRewardP4 transFees FreeTransactionCounts{..} bid bs0 = do
         -- Amount of transaction fees and GAS account accruing to the baker pool:
         -- R_{T,P} = (R_T - R_{T,L}) * (1 - \sigma_{G,in}) + GAS^(j-1) * (\sigma{G,out} + NGT(f,a,u) - \sigma{G,out} * NGT(f,a,u))
         poolOut = poolFees + bakerGAS
+        -- Sanity check:
+        -- gasOut + platformFees + passiveOut + poolOut
+        -- = (gasFees - passiveGASFees + gasGAS) + (transFees - (poolsAndPassiveFees + gasFees)) + (passiveGASFees + passiveTransFees) + (poolFees + bakerGAS)
+        -- = gasGAS + transFees - poolsAndPassiveFees + passiveTransFees + poolFees + bakerGAS
+        -- = gasGAS + transFees - poolsAndPassiveFees + passiveTransFees + poolsAndPassiveFees - passiveTransFees + bakerGAS
+        -- = gasGAS + transFees + bakerGAS
+        -- = gasGAS + transFees + gasIn - gasGAS
+        -- = transFees + gasIn
     bs1 <- bsoSetRewardAccounts bs0 (oldRewardAccts & gasAccount .~ gasOut)
     bs2 <- bsoUpdateAccruedTransactionFeesFoundationAccount bs1 (amountToDelta platformFees)
     bs3 <- bsoUpdateAccruedTransactionFeesPassive bs2 (amountToDelta passiveOut)
