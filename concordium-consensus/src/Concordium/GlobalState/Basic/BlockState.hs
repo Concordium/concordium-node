@@ -29,6 +29,7 @@ import qualified Control.Monad.State.Strict as MTL
 import qualified Control.Monad.Except as MTL
 import qualified Control.Monad.Writer.Strict as MTL
 
+import qualified Concordium.ID.Types as ID
 import Concordium.Types
 import Concordium.Types.Accounts
 import Concordium.Types.Updates
@@ -639,7 +640,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
 
     {-# INLINE getAccountByCredId #-}
     getAccountByCredId bs cid =
-      let mai = bs ^? blockAccounts . to Accounts.accountRegIds . ix (encode cid)
+      let mai = bs ^? blockAccounts . to Accounts.accountRegIds . ix (ID.toRawCredRegId cid)
       in case mai of
            Nothing -> return Nothing
            Just ai -> return $ (ai, ) <$> bs ^? blockAccounts . Accounts.indexedAccount ai
