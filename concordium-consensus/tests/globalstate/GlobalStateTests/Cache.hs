@@ -24,7 +24,7 @@ tests = do
           val <- lookupCachedValue cacheProxy (BlobRef 1)
           lift $ val `shouldBe` Just "test"
           -- Check that the cache size is correct
-          s <- cacheSize cacheProxy
+          s <- getCacheSize cacheProxy
           lift $ s `shouldBe` 1
 
       specify "Item should be overwritten in the LRUCache" $ do
@@ -43,7 +43,7 @@ tests = do
           -- Check that the new item is in the cache
           lift $ val2 `shouldBe` Just "bar"
           -- Check that the cache size did not change
-          s <- cacheSize cacheProxy
+          s <- getCacheSize cacheProxy
           lift $ s `shouldBe` 1
 
       specify "Least recently used item should be removed from the LRUCache" $ do
@@ -74,7 +74,7 @@ tests = do
           val4 <- lookupCachedValue cacheProxy key4
           lift $ val4 `shouldBe` Just "val4"
           -- Check that the cache size did not change
-          s <- cacheSize cacheProxy
+          s <- getCacheSize cacheProxy
           lift $ s `shouldBe` 3
 
   describe "Testing FIFOCache: " $ do
@@ -89,7 +89,7 @@ tests = do
           val <- lookupCachedValue cacheProxy key
           lift $ val `shouldBe` Just "test"
           -- Check that the cache size is correct
-          s <- cacheSize cacheProxy
+          s <- getCacheSize cacheProxy
           lift $ s `shouldBe` 1
 
       specify "Item should be overwritten in the FIFOCache" $ do
@@ -108,7 +108,7 @@ tests = do
           -- Check that the new item is in the cache
           lift $ val2 `shouldBe` Just "bar"
           -- Check that the cache size did not change
-          s <- cacheSize cacheProxy
+          s <- getCacheSize cacheProxy
           lift $ s `shouldBe` 1
 
       specify "The oldest item should be removed from the FIFOCache" $ do
@@ -137,5 +137,5 @@ tests = do
           val4 <- lookupCachedValue cacheProxy key4
           lift $ val4 `shouldBe` Just "val4"
           -- Check that the cache size did not change
-          s <- cacheSize cacheProxy
+          s <- getCacheSize cacheProxy
           lift $ s `shouldBe` 3

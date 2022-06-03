@@ -26,7 +26,7 @@ class Cache c where
 
     putCachedValue :: (MonadCache r c m) => Proxy c -> CacheKey c -> CacheValue c -> m (CacheValue c)
     lookupCachedValue :: (MonadCache r c m) => Proxy c -> CacheKey c -> m (Maybe (CacheValue c))
-    cacheSize :: (MonadCache r c m) => Proxy c -> m Int
+    getCacheSize :: (MonadCache r c m) => Proxy c -> m Int
 
 data DummyCache k v = DummyCache
 
@@ -36,7 +36,7 @@ instance Cache (DummyCache k v) where
 
     putCachedValue _ _ = return
     lookupCachedValue _ _ = return Nothing
-    cacheSize _ = return 0
+    getCacheSize _ = return 0
 
 -- |First-in, first-out cache, with entries keyed by 'Int's.
 data FIFOCache' v = FIFOCache'
@@ -94,7 +94,7 @@ instance Cache (FIFOCache v) where
         cache <- liftIO $ readMVar cacheRef
         return $! IntMap.lookup (fromIntegral (theBlobRef key)) (keyMap cache)
 
-    cacheSize _ = do
+    getCacheSize _ = do
         FIFOCache cacheRef :: FIFOCache v <- asks getCache
         cache <- liftIO $ readMVar cacheRef
         return $ IntMap.size (keyMap cache)
@@ -129,7 +129,7 @@ instance Cache (LRUCache v) where
         lru <- asks getCache
         liftIO $ LRU.lookup (theBlobRef k) lru
 
-    cacheSize _ = do
+    getCacheSize _ = do
         lru :: LRUCache v <- asks getCache
         liftIO $ LRU.size lru
 
