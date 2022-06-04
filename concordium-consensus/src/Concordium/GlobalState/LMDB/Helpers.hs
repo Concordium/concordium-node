@@ -348,11 +348,13 @@ transaction se readOnly tx
 withMDB_val :: ByteString -> (MDB_val -> IO a) -> IO a
 withMDB_val bs a = BS.unsafeUseAsCStringLen bs $ \(ptr, plen) -> a $ MDB_val (fromIntegral plen) (coerce ptr)
 
--- |Create a 'ByteString' from an 'MDB_val'.  This creates a copy.
+-- |Create a 'ByteString' from an 'MDB_val'. This creates a copy.
 byteStringFromMDB_val :: MDB_val -> IO ByteString
 byteStringFromMDB_val (MDB_val len ptr) = packCStringLen (coerce ptr, fromIntegral len)
 
--- |Create a 'ByteString' from an 'MDB_val'.  This does not create a copy and must be consumed in a transaction.
+-- |Create a 'ByteString' from an 'MDB_val'. This does not create a copy of the
+-- bytestring so it is imperative that the returned bytestring is fully consumed
+-- inside an LMDB transaction and no pointers to any substrings are retained.
 unsafeByteStringFromMDB_val :: MDB_val -> IO ByteString
 unsafeByteStringFromMDB_val (MDB_val len ptr) = unsafePackCStringLen (coerce ptr, fromIntegral len)
 

@@ -84,6 +84,10 @@ data StoredBlock pv st = StoredBlock {
   sbState :: !st
 }
 
+-- Note: 'openReadOnlyDatabase' works on the presumption that the state is always the last part of
+-- the serialization, so we can serialize a stored block with any state type and deserialize it
+-- with the unit state type.  Any changes to the serialization used here must respect this or
+-- be accompanied by corresponding changes there.
 putStoredBlock :: forall pv st . (IsProtocolVersion pv, S.Serialize st) => S.Putter (StoredBlock pv st)
 putStoredBlock StoredBlock{..} =
       S.put sbFinalizationIndex <>

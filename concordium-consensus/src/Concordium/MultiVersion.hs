@@ -392,13 +392,16 @@ mvrLogIO :: LogIO a -> MVR gsconf finconf a
 mvrLogIO a = MVR $ \mvr -> runLoggerT a (mvLog mvr)
 
 -- |Start a consensus with a new genesis.
--- It is assumed that the thread holds the write lock.
--- This calls 'notifyRegenesis' to alert the P2P layer of the new genesis block and that catch-up
--- should be invoked.
+-- It is assumed that the thread holds the write lock. This calls
+-- 'notifyRegenesis' to alert the P2P layer of the new genesis block and that
+-- catch-up should be invoked.
 --
 -- This should only be used to process a live protocol update, i.e., a protocol
--- update that will start an additional protocol version that the node does not
--- yet know about.
+-- update that will start an additional genesis that the node does not yet know
+-- about.
+--
+-- 'startupSkov' should be used for starting a node up until the last genesis we
+-- know about.
 newGenesis ::
     forall gsconf finconf.
     ( MultiVersionStateConfig gsconf,
@@ -446,10 +449,8 @@ newGenesis (PVGenesisData (gd :: GenesisData pv)) vcGenesisHeight =
                     newEConfig = VersionedConfiguration{..}
                 writeIORef mvVersions (oldVersions `Vec.snoc` newVersion newEConfig)
                 (genConf, _) <- runMVR (runSkovT (liftSkov getGenesisData) (mvrSkovHandlers newEConfig mvr) vcContext st) mvr
+                -- Notify the network layer we have a new genesis.
                 notifyRegenesis (Just (_gcCurrentHash genConf))
-                -- Because this may be restoring an existing state, it is possible that a protocol
-                -- update has already happened on this chain.  Therefore, we must handle this
-                -- contingency.
 
 -- |Determine if a protocol update has occurred, and handle it.
 -- When a protocol update first becomes pending, this logs the update that will occur (if it is
@@ -599,10 +600,10 @@ startupSkov ::
       MultiVersion gsconf finconf,
       SkovConfiguration gsconf finconf UpdateHandler
     ) =>
-    -- |Genesis data, the decoder for it and the byte array representation. The
-    -- reason this does not take the genesis data directly is that it can be
-    -- expensive to deserialize, and if the database already exists then it is
-    -- not needed.
+    -- |Genesis data, either an unparsed byte array or already deserialized. The
+    -- former is useful when genesis is expensive to deserialize, and its
+    -- parsing is not needed if the node already has an existing state. The
+    -- latter is useful for testing and test runners.
     Either ByteString PVGenesisData ->
     MVR gsconf finconf ()
 startupSkov genesis = do
@@ -667,8 +668,9 @@ startupSkov genesis = do
             comp >>= \case
                 -- We successfully loaded a configuration.
                 Left (newEConfig@(EVersionedConfiguration newEConfig'), lastFinalizedHeight, nextPV) ->
-                    -- If there is a next protocol version then we attempt another loop.
-                    -- If there isn't we attempt to start with the last loaded state as the active state.
+                    -- If there is a next protocol then we attempt another loop.
+                    -- If there isn't we attempt to start with the last loaded
+                    -- state as the active state.
                     case nextPV of
                         Nothing -> liftSkovUpdate newEConfig' checkForProtocolUpdate
                         Just nextSPV -> loop nextSPV (Just newEConfig) (vcIndex + 1) (fromIntegral lastFinalizedHeight + 1)
