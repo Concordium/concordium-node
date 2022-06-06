@@ -16,7 +16,7 @@ import Concordium.Crypto.EncryptedTransfers
 import Concordium.Crypto.DummyData
 import Concordium.Crypto.FFIDataTypes (ElgamalSecretKey)
 import Concordium.ID.DummyData (dummyEncryptionSecretKey)
-import Concordium.ID.Types (AccountEncryptionKey(..))
+import Concordium.ID.Types (AccountEncryptionKey(..), unsafeEncryptionKeyFromRaw)
 import qualified Data.ByteString.Short as BSS
 
 import Concordium.Scheduler.Types
@@ -84,12 +84,12 @@ initialBlockState2 = blockStateWithAlesAccount
 alesEncryptionSecretKey :: ElgamalSecretKey
 alesEncryptionSecretKey = dummyEncryptionSecretKey dummyCryptographicParameters alesAccount
 alesEncryptionPublicKey :: AccountEncryptionKey
-alesEncryptionPublicKey = (fromJust $ Acc.getAccount alesAccount (initialBlockState ^. blockAccounts)) ^. accountEncryptionKey
+alesEncryptionPublicKey = unsafeEncryptionKeyFromRaw ((fromJust $ Acc.getAccount alesAccount (initialBlockState ^. blockAccounts)) ^. accountEncryptionKey)
 
 thomasEncryptionSecretKey :: ElgamalSecretKey
 thomasEncryptionSecretKey = dummyEncryptionSecretKey dummyCryptographicParameters thomasAccount
 thomasEncryptionPublicKey :: AccountEncryptionKey
-thomasEncryptionPublicKey = (fromJust $ Acc.getAccount thomasAccount (initialBlockState ^. blockAccounts)) ^. accountEncryptionKey
+thomasEncryptionPublicKey = unsafeEncryptionKeyFromRaw ((fromJust $ Acc.getAccount thomasAccount (initialBlockState ^. blockAccounts)) ^. accountEncryptionKey)
 
 createEncryptedTransferData :: AccountEncryptionKey -> ElgamalSecretKey -> AggregatedDecryptedAmount -> Amount -> IO (Maybe EncryptedAmountTransferData)
 createEncryptedTransferData (AccountEncryptionKey receiverPK) senderSK aggDecAmount amount =
