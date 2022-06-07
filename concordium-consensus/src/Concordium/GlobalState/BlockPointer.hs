@@ -1,14 +1,15 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE TypeFamilies #-}
 module Concordium.GlobalState.BlockPointer where
 
+import Data.Bits
 import Data.Kind
 import Data.Serialize
 import Data.Word
 import Data.Hashable
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.Block
--- import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Types
 import Data.Time.Clock
 import Data.Time.Clock.POSIX
@@ -76,24 +77,39 @@ instance HashableTo BlockHash BasicBlockPointerData where
 instance Serialize BasicBlockPointerData where
     put BasicBlockPointerData{..} = do
         let
-            timeWord :: UTCTime -> Word64
-            timeWord = floor . utcTimeToPOSIXSeconds
+            microSecondsWord :: UTCTime -> Word64
+            microSecondsWord = floor . (1_000_000 *) . utcTimeToPOSIXSeconds
         put _bpHash
         put _bpHeight
-        put (timeWord _bpReceiveTime)
-        put (timeWord _bpArriveTime)
+        -- In node versions <= 4.1.0 times were stored in seconds, which led to
+        -- loss of precision and awkward to use responses in the API. We then
+        -- changed the precision to microseconds, but to retain backwards
+        -- compatibility with existing databases we use the first bit of the
+        -- value to determine which variant we are using. If it is set it is
+        -- microseconds.
+        putWord64be (setBit (microSecondsWord _bpReceiveTime) 63)
+        putWord64be (setBit (microSecondsWord _bpArriveTime) 63)
         put _bpTransactionCount
         put _bpTransactionsEnergyCost
         put _bpTransactionsSize
         put _bpLastFinalizedHash
     get = do
         let
-            wordTime :: Word64 -> UTCTime
-            wordTime = posixSecondsToUTCTime . realToFrac
+            secondsTime :: Word64 -> UTCTime
+            secondsTime = posixSecondsToUTCTime . realToFrac
+            microSecondsTime :: Word64 -> UTCTime
+            microSecondsTime = posixSecondsToUTCTime . (/ 1_000_000) . realToFrac
+            getTime :: Get UTCTime
+            getTime = do
+                raw <- getWord64be
+                if testBit raw 63 then
+                    return (microSecondsTime (clearBit raw 63))
+                else
+                    return (secondsTime raw)
         _bpHash <- get
         _bpHeight <- get
-        _bpReceiveTime <- wordTime <$> get
-        _bpArriveTime <- wordTime <$> get
+        _bpReceiveTime <- getTime
+        _bpArriveTime <- getTime
         _bpTransactionCount <- get
         _bpTransactionsEnergyCost <- get
         _bpTransactionsSize <- get
