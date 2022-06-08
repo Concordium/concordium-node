@@ -255,8 +255,8 @@ createGlobalState :: (IsProtocolVersion pv) => FilePath -> IO (PersistentBlockSt
 createGlobalState dbDir = do
   let
     n = 5
-    config = DTDBConfig defaultRuntimeParameters dbDir (dbDir </> "blockstate" <.> "dat") (genesis n ^. _1)
-  (x, y, NoLogContext) <- runSilentLogger $ initialiseGlobalState config
+    config = DTDBConfig defaultRuntimeParameters dbDir (dbDir </> "blockstate" <.> "dat")
+  (x, y, NoLogContext) <- runSilentLogger $ initialiseGlobalState (genesis n ^. _1) config
   return (x, y)
 
 destroyGlobalState :: (IsProtocolVersion pv) => (PersistentBlockStateContext, MyPersistentTreeState pv) -> IO ()

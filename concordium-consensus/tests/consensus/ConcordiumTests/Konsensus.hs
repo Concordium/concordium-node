@@ -559,10 +559,10 @@ createInitStates bis extraAccounts maxFinComSize = Vec.fromList <$> liftIO (mapM
         createState (bid, binfo, acct, kp) = do
             let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                 config = SkovConfig
-                    (MTMBConfig defaultRuntimeParameters gen)
+                    (MTMBConfig defaultRuntimeParameters)
                     (ActiveFinalization fininst)
                     NoHandler
-            (initCtx, initState) <- runSilentLogger (initialiseSkov config)
+            (initCtx, initState) <- runSilentLogger (initialiseSkov gen config)
             return (bid, binfo, (kp, gaAddress acct), initCtx, initState)
 
 instance Show BakerIdentity where

@@ -58,7 +58,7 @@ data SkovData (pv :: ProtocolVersion) bs = SkovData {
     -- |Branches of the tree by height above the last finalized block
     _branches :: !(Seq.Seq [BasicBlockPointer pv bs]),
     -- |Genesis data
-    _genesisData :: !(GenesisData pv),
+    _genesisData :: !GenesisConfiguration,
     -- |Block pointer to genesis block
     _genesisBlockPointer :: !(BasicBlockPointer pv bs),
     -- |Current focus block
@@ -104,7 +104,7 @@ initialSkovData rp gd genState = do
             _possiblyPendingQueue = MPQ.empty,
             _finalizationList = Seq.singleton (gbfin, gb),
             _branches = Seq.empty,
-            _genesisData = gd,
+            _genesisData = genesisConfiguration gd,
             _genesisBlockPointer = gb,
             _focusBlock = gb,
             _pendingTransactions = emptyPendingTransactionTable,
@@ -297,7 +297,6 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
             let mVerRes = case results of
                  Received _ verRes -> Just verRes
                  Committed _ verRes _ -> Just verRes
-                 Finalized {} -> Nothing
             when (slot > results ^. tsSlot) $ transactionTable . ttHashMap . at' trHash . mapped . _2 %= updateSlot slot
             return $ TS.Duplicate tr' mVerRes
 

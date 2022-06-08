@@ -103,8 +103,8 @@ createGS dbDir = do
     n = 3
     genesis = makeTestingGenesisDataP1 now n 1 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters emptyIdentityProviders emptyAnonymityRevokers maxBound dummyKeyCollection dummyChainParameters
     rp = defaultRuntimeParameters
-    config = PairGSConfig (MTMBConfig rp genesis, DTDBConfig rp dbDir (dbDir </> "blockstate" <.> "dat") genesis)
-  (x, y, (NoLogContext, NoLogContext)) <- runSilentLogger $ initialiseGlobalState config
+    config = PairGSConfig (MTMBConfig rp, DTDBConfig rp dbDir (dbDir </> "blockstate" <.> "dat"))
+  (x, y, (NoLogContext, NoLogContext)) <- runSilentLogger $ initialiseGlobalState genesis config
   return (Identity x, Identity y)
 
 destroyGS :: (Identity PairedGSContext, Identity PairedGState) -> IO ()

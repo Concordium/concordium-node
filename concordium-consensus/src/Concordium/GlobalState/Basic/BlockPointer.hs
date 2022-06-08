@@ -53,7 +53,7 @@ makeGenesisBasicBlockPointer :: forall pv s. IsProtocolVersion pv => GenesisData
 makeGenesisBasicBlockPointer genData _bpState = theBlockPointer
     where
         theBlockPointer = BlockPointer {_bpInfo=BasicBlockPointerData{..},_bpATI=(),..}
-        _bpBlock = GenesisBlock genData
+        _bpBlock = GenesisBlock (genesisConfiguration genData)
         _bpHash = getHash _bpBlock
         _bpParent = Identity theBlockPointer
         _bpLastFinalized = Identity theBlockPointer

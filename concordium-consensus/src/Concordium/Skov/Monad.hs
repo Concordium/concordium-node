@@ -109,7 +109,7 @@ data UpdateResult
     -- ^The importing of blocks has been stopped.
     deriving (Eq, Show)
 
-class (Monad m, Eq (BlockPointerType m), HashableTo BlockHash (BlockPointerType m), BlockPointerData (BlockPointerType m), BlockPointerMonad m, EncodeBlock (MPV m) (BlockPointerType m), BlockStateQuery m, MonadProtocolVersion m)
+class (Monad m, Eq (BlockPointerType m), HashableTo BlockHash (BlockPointerType m), BlockPointerData (BlockPointerType m), BlockPointerMonad m, BlockStateQuery m, MonadProtocolVersion m)
         => SkovQueryMonad m where
     -- |Look up a block in the table given its hash
     resolveBlock :: BlockHash -> m (Maybe (BlockPointerType m))
@@ -126,8 +126,8 @@ class (Monad m, Eq (BlockPointerType m), HashableTo BlockHash (BlockPointerType 
     recordAtFinIndex :: FinalizationIndex -> m (Maybe FinalizationRecord)
     -- |Determine the next index for finalization.
     nextFinalizationIndex :: m FinalizationIndex
-    -- |Get the genesis data.
-    getGenesisData :: m (GenesisData (MPV m))
+    -- |Get the genesis configuration.
+    getGenesisData :: m GenesisConfiguration
     -- |Get the genesis block pointer.
     genesisBlock :: m (BlockPointerType m)
     -- |Get the height of the highest blocks in the tree.

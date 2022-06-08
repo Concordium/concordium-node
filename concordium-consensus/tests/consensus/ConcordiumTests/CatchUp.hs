@@ -31,7 +31,7 @@ import Concordium.GlobalState
 import Concordium.GlobalState.Finalization
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.DummyData (dummyChainParameters, dummyKeyCollection)
-import Concordium.Genesis.Data.P1
+import qualified Concordium.Genesis.Data.P1 as GP1
 
 import Concordium.Logger
 import Concordium.Skov.Monad
@@ -96,7 +96,7 @@ initialiseStatesDictator n = do
             stakes = (2*bakerAmt) : replicate (n-1) bakerAmt
             bis = makeBakersByStake stakes
             bakerAccounts = map (\(_, _, acc, _) -> acc) bis
-            gen = GDP1 GDP1Initial {
+            gen = GDP1 GP1.GDP1Initial {
                     genesisCore = CoreGenesisParameters {
                         genesisTime = 0,
                         genesisSlotDuration = 1,
@@ -117,13 +117,13 @@ initialiseStatesDictator n = do
         res <- liftIO $ mapM (\(bid, binfo, acct, kp) -> do
                                 let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                 let config = SkovConfig
-                                        (MTMBConfig defaultRuntimeParameters{rpEarlyBlockThreshold=maxBound} gen)
+                                        (MTMBConfig defaultRuntimeParameters{rpEarlyBlockThreshold=maxBound})
                                         (ActiveFinalization fininst)
                                         NoHandler
-                                (initCtx, initState) <- liftIO $ runSilentLogger (initialiseSkov config)
+                                (initCtx, initState) <- liftIO $ runSilentLogger (initialiseSkov gen config)
                                 return (bid, binfo, (kp, gaAddress acct), initCtx, initState)
                              ) bis
-        return $ Vec.fromList res
+        return $ (Vec.fromList res)
 
 simpleCatchUpCheck :: States -> Property
 simpleCatchUpCheck ss =
@@ -180,7 +180,7 @@ catchUpCheck (_, _, _, c1, s1) (_, _, _, c2, s2) = do
                     checkBinary Set.isSubsetOf (Set.fromList $ cusLeaves request) respLive "is a subset of" "resquestor leaves" "respondent nodes, given no counter-request"
                 unless (lfh2 < lfh1) $ do
                     -- If the respondent should be able to send us something meaningful, then make sure they do
-                    let recBHs = [getHash (bp :: Block PV) | (MessageBlock, runGet (B.getVersionedBlock (protocolVersion @PV) 0) -> Right bp) <- l]
+                    let recBHs = [getHash (bp :: BakedBlock) | (MessageBlock, runGet (B.getVersionedBlock (protocolVersion @PV) 0) -> Right bp) <- l]
                     let recBlocks = Set.fromList recBHs
                     -- Check that the requestor's live blocks + received blocks include all live blocks for respondent
                     checkBinary Set.isSubsetOf respLive (reqLive `Set.union` recBlocks) "is a subset of" "respondent live blocks" "requestor live blocks + received blocks"

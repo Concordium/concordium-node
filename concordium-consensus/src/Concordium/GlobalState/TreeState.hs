@@ -164,7 +164,7 @@ class (Eq (BlockPointerType m),
     -- |Get the genesis 'BlockPointer'.
     getGenesisBlockPointer :: m (BlockPointerType m)
     -- |Get the 'GenesisData'.
-    getGenesisData :: m (GenesisData (MPV m))
+    getGenesisData :: m GenesisConfiguration
     -- * Operations on the finalization list
     -- |Get the last finalized block.
     getLastFinalized :: m (BlockPointerType m, FinalizationRecord)

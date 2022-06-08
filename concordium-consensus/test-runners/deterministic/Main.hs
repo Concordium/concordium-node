@@ -65,8 +65,8 @@ type TreeConfig = DiskTreeDiskBlockConfig
 
 -- |Construct the global state configuration.
 -- Can be customised if changing the configuration.
-makeGlobalStateConfig :: RuntimeParameters -> FilePath -> FilePath -> GenesisData PV -> IO (TreeConfig PV)
-makeGlobalStateConfig rt treeStateDir blockStateFile genData = return $ DTDBConfig rt treeStateDir blockStateFile genData
+makeGlobalStateConfig :: RuntimeParameters -> FilePath -> FilePath -> IO TreeConfig
+makeGlobalStateConfig rt treeStateDir blockStateFile = return $ DTDBConfig rt treeStateDir blockStateFile
 
 {-
 type TreeConfig = PairGSConfig MemoryTreeMemoryBlockConfig DiskTreeDiskBlockConfig
@@ -281,12 +281,11 @@ initialState = do
                             defaultRuntimeParameters 
                             ("data/treestate-" ++ show now ++ "-" ++ show bakerId)
                             ("data/blockstate-" ++ show now ++ "-" ++ show bakerId ++ ".dat")
-                            genData
             let
                 finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey _bsIdentity) (bakerElectionKey _bsIdentity) (bakerAggregationKey _bsIdentity))
                 hconfig = NoHandler
                 config = SkovConfig gsconfig finconfig hconfig
-            (_bsContext, _bsState) <- runLoggerT (initialiseSkov config) (logFor (fromIntegral bakerId))
+            (_bsContext, _bsState) <- runLoggerT (initialiseSkov genData config) (logFor (fromIntegral bakerId))
             return BakerState{..}
         _ssEvents = makeEvents $ (PEvent 0 (TransactionEvent (transactions (mkStdGen 1)))) : [PEvent 0 (BakerEvent i (EBake 0)) | i <- allBakers]
         _ssNextTimer = 0
