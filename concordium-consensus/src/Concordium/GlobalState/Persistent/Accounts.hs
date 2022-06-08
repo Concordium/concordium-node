@@ -61,9 +61,9 @@ data Accounts (pv :: ProtocolVersion) = Accounts {
     -- |Hashed Merkle-tree of the accounts
     accountTable :: !(LFMBTree AccountIndex HashedBufferedRef (PersistentAccount (AccountVersionFor pv))),
     -- |Optional cached set of used 'ID.CredentialRegistrationID's
-    accountRegIds :: !(Nullable (Map.Map ID.CredentialRegistrationID AccountIndex)),
+    accountRegIds :: !(Nullable (Map.Map ID.RawCredentialRegistrationID AccountIndex)),
     -- |Persisted representation of the map from registration ids to account indices.
-    accountRegIdHistory :: !(Trie.TrieN (BufferedBlobbed BlobRef) ID.CredentialRegistrationID AccountIndex)
+    accountRegIdHistory :: !(Trie.TrieN (BufferedBlobbed BlobRef) ID.RawCredentialRegistrationID AccountIndex)
 }
 
 -- |Convert a (non-persistent) 'Transient.Accounts' to a (persistent) 'Accounts'.
@@ -95,7 +95,7 @@ instance MonadBlobStore m => BlobStorable m RegIdHistory
 -- |Load the registration ids.  If 'accountRegIds' is @Null@, then 'accountRegIdHistory'
 -- is used (reading from disk as necessary) to determine it, in which case 'accountRegIds'
 -- is updated with the determined value.
-loadRegIds :: forall m pv. MonadBlobStore m => Accounts pv -> m (Map.Map ID.CredentialRegistrationID AccountIndex, Accounts pv)
+loadRegIds :: forall m pv. MonadBlobStore m => Accounts pv -> m (Map.Map ID.RawCredentialRegistrationID AccountIndex, Accounts pv)
 loadRegIds a@Accounts{accountRegIds = Some regids} = return (regids, a)
 loadRegIds a@Accounts{accountRegIds = Null, ..} = do
         regids <- Trie.toMap accountRegIdHistory
@@ -167,7 +167,7 @@ getAccount addr Accounts{..} = AccountMap.lookup addr accountMap >>= \case
 
 -- |Retrieve an account associated with the given credential registration ID.
 -- Returns @Nothing@ if no such account exists.
-getAccountByCredId :: (MonadBlobStore m, IsProtocolVersion pv) => ID.CredentialRegistrationID -> Accounts pv -> m (Maybe (AccountIndex, PersistentAccount (AccountVersionFor pv)))
+getAccountByCredId :: (MonadBlobStore m, IsProtocolVersion pv) => ID.RawCredentialRegistrationID -> Accounts pv -> m (Maybe (AccountIndex, PersistentAccount (AccountVersionFor pv)))
 getAccountByCredId cid accs@Accounts{accountRegIds = Null,..} = Trie.lookup cid accountRegIdHistory  >>= \case
         Nothing -> return Nothing
         Just ai -> fmap (ai, ) <$> indexedAccount ai accs
@@ -210,14 +210,14 @@ addressWouldClash addr Accounts{..} = AccountMap.addressWouldClash addr accountM
 regIdExists :: MonadBlobStore m => ID.CredentialRegistrationID -> Accounts pv -> m (Maybe AccountIndex, Accounts pv)
 regIdExists rid accts0 = do
         (regids, accts) <- loadRegIds accts0
-        return (rid `Map.lookup` regids, accts)
+        return (ID.toRawCredRegId rid `Map.lookup` regids, accts)
 
 -- |Record an account registration ID as used.
 recordRegId :: MonadBlobStore m => ID.CredentialRegistrationID -> AccountIndex -> Accounts pv -> m (Accounts pv)
 recordRegId rid idx accts0 = do
-        accountRegIdHistory' <- Trie.insert rid idx (accountRegIdHistory accts0)
+        accountRegIdHistory' <- Trie.insert (ID.toRawCredRegId rid) idx (accountRegIdHistory accts0)
         return $! accts0 {
-                accountRegIds = Map.insert rid idx <$> accountRegIds accts0,
+                accountRegIds = Map.insert (ID.toRawCredRegId rid) idx <$> accountRegIds accts0,
                 accountRegIdHistory = accountRegIdHistory'
                 }
 

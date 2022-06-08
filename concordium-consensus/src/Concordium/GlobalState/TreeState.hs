@@ -39,6 +39,7 @@ import Concordium.Types.HashableTo
 import Concordium.Types
 import Concordium.Types.Updates hiding (getUpdateKeysCollection)
 import Concordium.GlobalState.AccountTransactionIndex
+import qualified Concordium.ID.Types as ID
 
 import Data.ByteString
 import Concordium.Logger
@@ -577,7 +578,7 @@ instance (Monad m,
   {-# INLINE registrationIdExists #-}
   registrationIdExists regId = do
     ctx <- ask
-    lift $ isJust <$> getAccountByCredId (ctx ^. ctxBs) regId
+    lift $ isJust <$> getAccountByCredId (ctx ^. ctxBs) (ID.toRawCredRegId regId)
   {-# INLINE getAccount #-}
   getAccount aaddr = do
     ctx <- ask

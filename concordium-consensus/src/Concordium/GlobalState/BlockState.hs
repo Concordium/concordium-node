@@ -84,7 +84,7 @@ import Concordium.Types.Transactions hiding (BareBlockItem(..))
 
 import qualified Concordium.ID.Types as ID
 import Concordium.ID.Parameters(GlobalContext)
-import Concordium.ID.Types (AccountCredential, CredentialRegistrationID)
+import Concordium.ID.Types (AccountCredential)
 import Concordium.Crypto.EncryptedTransfers
 import Concordium.GlobalState.ContractStateFFIHelpers (LoadCallback)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
@@ -371,7 +371,7 @@ class (ContractStateOperations m, AccountOperations m) => BlockStateQuery m wher
     getActiveBakersAndDelegators :: (AccountVersionFor (MPV m) ~ 'AccountV1) => BlockState m -> m ([ActiveBakerInfo m], [ActiveDelegatorInfo])
 
     -- |Query an account by the id of the credential that belonged to it.
-    getAccountByCredId :: BlockState m -> CredentialRegistrationID -> m (Maybe (AccountIndex, Account m))
+    getAccountByCredId :: BlockState m -> ID.RawCredentialRegistrationID -> m (Maybe (AccountIndex, Account m))
 
     -- |Query an account by the account index that belonged to it.
     getAccountByIndex :: BlockState m -> AccountIndex -> m (Maybe (AccountIndex, Account m))
