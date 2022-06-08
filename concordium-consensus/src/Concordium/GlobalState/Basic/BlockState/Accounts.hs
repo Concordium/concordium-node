@@ -224,7 +224,7 @@ deserializeAccounts migration cryptoParams = do
                   | otherwise = return $ Map.insert cred acctId regids
             newRegIds <- foldM addRegId accountRegIds $
                 (ID.toRawCredRegId . ID.credId <$> Map.elems (acct ^. accountCredentials))
-                ++ (ID.toRawCredRegId <$> removedCredentialsToList (acct ^. accountRemovedCredentials . unhashed))
+                ++ removedCredentialsToList (acct ^. accountRemovedCredentials . unhashed)
             loop (i+1)
               Accounts {
                 accountMap = AccountMap.insertPure (acct ^. accountAddress) acctId accountMap,
