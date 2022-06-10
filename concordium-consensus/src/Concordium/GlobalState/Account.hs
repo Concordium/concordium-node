@@ -32,11 +32,11 @@ import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 -- |A list of credential IDs that have been removed from an account.
 data RemovedCredentials
     = EmptyRemovedCredentials
-    | RemovedCredential !CredentialRegistrationID !RemovedCredentials
+    | RemovedCredential !RawCredentialRegistrationID !RemovedCredentials
     deriving (Eq)
 
 -- |Convert a 'RemovedCredentials' to a list of 'CredentialRegistrationID's.
-removedCredentialsToList :: RemovedCredentials -> [CredentialRegistrationID]
+removedCredentialsToList :: RemovedCredentials -> [RawCredentialRegistrationID]
 removedCredentialsToList EmptyRemovedCredentials = []
 removedCredentialsToList (RemovedCredential cred rest) = cred : removedCredentialsToList rest
 
@@ -59,7 +59,7 @@ emptyRemovedCredentialsHash = Hash.hash "E"
 {-# NOINLINE emptyRemovedCredentialsHash #-}
 
 -- |Function for determining the hash of a 'RemovedCredential'.
-removedCredentialHash :: CredentialRegistrationID -> Hash.Hash -> Hash.Hash
+removedCredentialHash :: RawCredentialRegistrationID -> Hash.Hash -> Hash.Hash
 removedCredentialHash cred hrest = Hash.hash $ "R" <> encode cred <> Hash.hashToByteString hrest
 
 instance HashableTo Hash.Hash RemovedCredentials where
@@ -67,7 +67,7 @@ instance HashableTo Hash.Hash RemovedCredentials where
   getHash (RemovedCredential cred rest) = removedCredentialHash cred (getHash rest)
 
 -- |Update hashed remove credentials with a new removed credentials.
-addRemovedCredential :: CredentialRegistrationID -> Hashed RemovedCredentials -> Hashed RemovedCredentials
+addRemovedCredential :: RawCredentialRegistrationID -> Hashed RemovedCredentials -> Hashed RemovedCredentials
 addRemovedCredential cred hrc = Hashed (RemovedCredential cred (hrc ^. unhashed)) (removedCredentialHash cred (getHash hrc))
 
 -- |Hashed 'EmptyRemovedCredentials'.
@@ -278,7 +278,7 @@ updateCredentials cuRemove cuAdd cuAccountThreshold d =
                & (accountVerificationKeys %~ updateAccountInformation cuAccountThreshold cuAdd cuRemove)
                & (accountRemovedCredentials %~ flip (foldl' (flip (addRemovedCredential . removedCredentialId))) cuRemove)
   where removeKeys = flip (foldl' (flip Map.delete)) cuRemove
-        removedCredentialId cix = credId $ Map.findWithDefault (error "Removed credential key not found") cix (d ^. accountCredentials)
+        removedCredentialId cix = toRawCredRegId . credId $ Map.findWithDefault (error "Removed credential key not found") cix (d ^. accountCredentials)
         
 
 -- |Update the keys of the given account credential.
