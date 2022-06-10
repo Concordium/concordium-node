@@ -57,7 +57,7 @@ Environment=CONCORDIUM_NODE_NO_LOG_TIMESTAMP=true
 # The bootstrapping interval in seconds.
 Environment=CONCORDIUM_NODE_CONNECTION_BOOTSTRAPPING_INTERVAL=1800
 # Haskell RTS flags to pass to consensus.
-Environment=CONCORDIUM_NODE_BAKER_HASKELL_RTS_FLAGS=-N2
+Environment=CONCORDIUM_NODE_RUNTIME_HASKELL_RTS_FLAGS=-N2
     
 [Install]
 # start the service when reaching multi-user target
