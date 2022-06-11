@@ -92,7 +92,6 @@ import Concordium.Types.Accounts hiding (getAccountStake)
 import Concordium.Scheduler.WasmIntegration.V1 (ReceiveResultData(rrdCurrentState))
 import Concordium.Wasm (IsWasmVersion)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
-import Concordium.ID.Types (toRawCredId)
 
 
 -- |The function asserts the following
@@ -1656,11 +1655,12 @@ handleConfigureBaker
                     ebaStake = bcaCapital,
                     ebaRestakeEarnings = bcaRestakeEarnings
                   },
+                  BakerSetRestakeEarnings bid senderAddress bcaRestakeEarnings,
+                  BakerSetOpenStatus bid senderAddress bcaOpenForDelegation,
+                  BakerSetMetadataURL bid senderAddress bcaMetadataURL,
                   BakerSetTransactionFeeCommission bid senderAddress bcaTransactionFeeCommission,
                   BakerSetBakingRewardCommission bid senderAddress bcaBakingRewardCommission,
-                  BakerSetFinalizationRewardCommission bid senderAddress bcaFinalizationRewardCommission,
-                  BakerSetOpenStatus bid senderAddress bcaOpenForDelegation,
-                  BakerSetRestakeEarnings bid senderAddress bcaRestakeEarnings]
+                  BakerSetFinalizationRewardCommission bid senderAddress bcaFinalizationRewardCommission]
             return (TxSuccess events, energyCost, usedEnergy)
         kResult energyCost usedEnergy _ BI.BCInvalidAccount =
             return (TxReject (InvalidAccountReference senderAddress), energyCost, usedEnergy)
@@ -2028,7 +2028,7 @@ handleUpdateCredentialKeys wtc cid keys sigs =
     c = do
       existingCredentials <- getAccountCredentials (snd senderAccount)
       tickEnergy $ Cost.updateCredentialKeysCost (OrdMap.size existingCredentials) $ length $ ID.credKeys keys
-      let rcid = toRawCredId cid
+      let rcid = ID.toRawCredRegId cid
       let credIndex = fst <$> find (\(_, v) -> ID.credId v == rcid) (OrdMap.toList existingCredentials)
       -- check that the new threshold is no more than the number of credentials
       let thresholdCheck = toInteger (OrdMap.size (ID.credKeys keys)) >= toInteger (ID.credThreshold keys)
@@ -2187,7 +2187,7 @@ handleUpdateCredentials wtc cdis removeRegIds threshold =
             -- map to the unique key index. Thus the following map is well-defined.
             let existingCredIds = OrdMap.fromList . map (\(ki, v) -> (ID.credId v, ki)) . OrdMap.toList $ existingCredentials
             in foldl' (\(nonExisting, existing, remList) rid ->
-                         let rrid = toRawCredId rid
+                         let rrid = ID.toRawCredRegId rid
                          in case rrid `OrdMap.lookup` existingCredIds of
                               Nothing -> (rid:nonExisting, existing, remList)
                               Just ki -> (nonExisting, Set.insert ki existing, if Set.member ki existing then remList else ki : remList)

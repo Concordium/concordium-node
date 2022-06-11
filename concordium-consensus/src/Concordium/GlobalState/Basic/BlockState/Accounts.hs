@@ -166,7 +166,7 @@ addressWouldClash addr Accounts{..} = AccountMap.addressWouldClashPure addr acco
 -- is the account index of the account is or was associated with, and @Nothing@
 -- otherwise.
 regIdExists :: ID.CredentialRegistrationID -> Accounts pv -> Maybe AccountIndex
-regIdExists rid Accounts{..} = ID.toRawCredId rid `Map.lookup` accountRegIds
+regIdExists rid Accounts{..} = ID.toRawCredRegId rid `Map.lookup` accountRegIds
 
 -- |Record an account registration ID as used on the account.
 recordRegId :: ID.RawCredentialRegistrationID -> AccountIndex -> Accounts pv -> Accounts pv
@@ -175,7 +175,7 @@ recordRegId rid idx accs = accs { accountRegIds = Map.insert rid idx (accountReg
 -- |Record multiple registration ids as used. This implementation is marginally
 -- more efficient than repeatedly calling `recordRegId`.
 recordRegIds :: [(ID.CredentialRegistrationID, AccountIndex)] -> Accounts pv -> Accounts pv
-recordRegIds rids accs = accs { accountRegIds = Map.union (accountRegIds accs) (Map.fromAscList . map (\(x, y) -> (ID.toRawCredId x, y)) $ rids) }
+recordRegIds rids accs = accs { accountRegIds = Map.union (accountRegIds accs) (Map.fromAscList . map (\(x, y) -> (ID.toRawCredRegId x, y)) $ rids) }
     -- since credentials can only be used on one account the union is well-defined, the maps should be disjoint.
 
 instance HashableTo H.Hash (Accounts pv) where

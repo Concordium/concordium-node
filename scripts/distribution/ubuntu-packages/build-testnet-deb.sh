@@ -21,7 +21,7 @@ docker build\
        --build-arg ubuntu_version=$UBUNTU_VERSION\
        --build-arg build_env_name=Testnet\
        --build-arg build_env_name_lower=testnet\
-       --build-arg build_genesis_hash=b6078154d6717e909ce0da4a45a25151b592824f31624b755900a74429e3073d\
+       --build-arg build_genesis_hash=4221332d34e1694168c2a0c0b3fd0f273809612cb13d000d5c2e00e85f50f796\
        --build-arg build_collector_backend_url=https://dashboard.testnet.concordium.com/nodes/post\
        --build-arg build_rpc_server_port=10001\
        --build-arg build_listen_port=8889\

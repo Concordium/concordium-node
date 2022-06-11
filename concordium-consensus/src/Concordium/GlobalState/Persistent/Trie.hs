@@ -25,6 +25,7 @@ import Data.Serialize
 import qualified Data.ByteString as BS
 import Data.Either
 import qualified Data.Map.Strict as Map
+import qualified Data.FixedByteString as FBS
 
 import Concordium.Types (AccountAddress, BakerId(..), DelegatorId(..), AccountIndex(..), ModuleRef(..))
 import Concordium.Utils
@@ -62,7 +63,10 @@ instance FixedTrieKey AccountAddress
 deriving via Word64 instance FixedTrieKey BakerId
 deriving via Word64 instance FixedTrieKey DelegatorId
 instance FixedTrieKey Bls.PublicKey -- FIXME: This is a bad instance. Serialization of these is expensive.
-instance FixedTrieKey IDTypes.RawCredentialRegistrationID
+
+instance FixedTrieKey (IDTypes.RawCredentialRegistrationID) where
+  unpackKey (IDTypes.RawCredentialRegistrationID x) = FBS.unpack x
+  packKey = IDTypes.RawCredentialRegistrationID . FBS.pack
 
 -- |Class for Trie keys that respect the 'Ord' instance.
 -- That is, @a `compare` b == unpackKey a `compare` unpackKey b@.

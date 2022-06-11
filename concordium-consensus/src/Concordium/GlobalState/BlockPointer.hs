@@ -81,7 +81,7 @@ instance Serialize BasicBlockPointerData where
             microSecondsWord = floor . (1_000_000 *) . utcTimeToPOSIXSeconds
         put _bpHash
         put _bpHeight
-        -- In older node versions times were stored in seconds, which led to
+        -- In node versions <= 4.1.0 times were stored in seconds, which led to
         -- loss of precision and awkward to use responses in the API. We then
         -- changed the precision to microseconds, but to retain backwards
         -- compatibility with existing databases we use the first bit of the

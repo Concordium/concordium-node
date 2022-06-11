@@ -210,15 +210,14 @@ addressWouldClash addr Accounts{..} = AccountMap.addressWouldClash addr accountM
 regIdExists :: MonadBlobStore m => ID.CredentialRegistrationID -> Accounts pv -> m (Maybe AccountIndex, Accounts pv)
 regIdExists rid accts0 = do
         (regids, accts) <- loadRegIds accts0
-        return (ID.toRawCredId rid `Map.lookup` regids, accts)
+        return (ID.toRawCredRegId rid `Map.lookup` regids, accts)
 
 -- |Record an account registration ID as used.
 recordRegId :: MonadBlobStore m => ID.CredentialRegistrationID -> AccountIndex -> Accounts pv -> m (Accounts pv)
 recordRegId rid idx accts0 = do
-        let rrid = ID.toRawCredId rid
-        accountRegIdHistory' <- Trie.insert rrid idx (accountRegIdHistory accts0)
+        accountRegIdHistory' <- Trie.insert (ID.toRawCredRegId rid) idx (accountRegIdHistory accts0)
         return $! accts0 {
-                accountRegIds = Map.insert rrid idx <$> accountRegIds accts0,
+                accountRegIds = Map.insert (ID.toRawCredRegId rid) idx <$> accountRegIds accts0,
                 accountRegIdHistory = accountRegIdHistory'
                 }
 

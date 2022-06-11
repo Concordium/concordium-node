@@ -70,6 +70,8 @@ getUpdateGenesisData =
             Right u -> Just <$> updateRegenesis u
         PendingProtocolUpdates _ -> return Nothing
 
+-- |If a protocol update has taken effect, return its protocol version.
+-- Otherwise return 'Nothing'.
 getNextProtocolVersion :: forall m .(BlockStateStorage m, SkovQueryMonad m) => m (Maybe SomeProtocolVersion)
 getNextProtocolVersion =
     getProtocolUpdateStatus >>= \case

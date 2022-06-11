@@ -1279,10 +1279,10 @@ doConfigureDelegation pbs ai DelegationConfigureUpdate{..} = do
         origBSP <- loadPBS pbs
         cp <- lookupCurrentParameters (bspUpdates origBSP)
         res <- MTL.runExceptT $ MTL.runWriterT $ flip MTL.execStateT origBSP $ do
-                updateDelegationTarget
+                oldTarget <- updateDelegationTarget
                 updateRestakeEarnings
-                updateCapital cp
-                checkOverdelegation cp
+                oldCapital <- updateCapital cp
+                checkOverdelegation oldCapital oldTarget cp
         case res of
             Left errorRes -> return (errorRes, pbs)
             Right (newBSP, changes) -> (DCSuccess changes did,) <$> storePBS pbs newBSP
@@ -1300,30 +1300,32 @@ doConfigureDelegation pbs ai DelegationConfigureUpdate{..} = do
             MTL.put bsp{
                 bspAccounts = newAccounts
             }
-        updateDelegationTarget = forM_ dcuDelegationTarget $ \target -> do
+        updateDelegationTarget = do
             acctDlg <- getAccountOrFail
             let oldTarget = acctDlg ^. BaseAccounts.delegationTarget
-            unless (oldTarget == target) $ do
-                -- Check that the target pool is open for delegation
-                bsp0 <- MTL.get
-                delegationCheckTargetOpen bsp0 target
-                ab <- refLoad =<< use (to bspBirkParameters . birkActiveBakers)
-                let stakedAmt = acctDlg ^. BaseAccounts.delegationStakedAmount
-                -- Transfer the delegator in the active bakers from the old target to the new one.
-                -- Note, these functions do not modify the total stake, but this is not being changed
-                -- - just moved.
-                ab1 <- removeDelegator oldTarget did stakedAmt ab
-                ab2 <- addDelegator target did stakedAmt ab1 >>= \case
-                    Left bid -> MTL.throwError (DCInvalidDelegationTarget bid)
-                    Right ab2 -> return ab2
-                newActiveBakers <- refMake ab2
-                MTL.modify' $ \bsp -> bsp{bspBirkParameters = bspBirkParameters bsp & birkActiveBakers .~ newActiveBakers}
-                -- Update the account with the new delegation target.
-                let updAcc acc = do
-                        newPAD <- refMake (acctDlg & BaseAccounts.delegationTarget .~ target)
-                        ((), ) <$> setPersistentAccountStake acc (PersistentAccountStakeDelegate newPAD)
-                modifyAccount updAcc
-            MTL.tell [DelegationConfigureDelegationTarget target]
+            forM_ dcuDelegationTarget $ \target -> do
+                unless (oldTarget == target) $ do
+                    -- Check that the target pool is open for delegation
+                    bsp0 <- MTL.get
+                    delegationCheckTargetOpen bsp0 target
+                    ab <- refLoad =<< use (to bspBirkParameters . birkActiveBakers)
+                    let stakedAmt = acctDlg ^. BaseAccounts.delegationStakedAmount
+                    -- Transfer the delegator in the active bakers from the old target to the new one.
+                    -- Note, these functions do not modify the total stake, but this is not being changed
+                    -- - just moved.
+                    ab1 <- removeDelegator oldTarget did stakedAmt ab
+                    ab2 <- addDelegator target did stakedAmt ab1 >>= \case
+                        Left bid -> MTL.throwError (DCInvalidDelegationTarget bid)
+                        Right ab2 -> return ab2
+                    newActiveBakers <- refMake ab2
+                    MTL.modify' $ \bsp -> bsp{bspBirkParameters = bspBirkParameters bsp & birkActiveBakers .~ newActiveBakers}
+                    -- Update the account with the new delegation target.
+                    let updAcc acc = do
+                            newPAD <- refMake (acctDlg & BaseAccounts.delegationTarget .~ target)
+                            ((), ) <$> setPersistentAccountStake acc (PersistentAccountStakeDelegate newPAD)
+                    modifyAccount updAcc
+                MTL.tell [DelegationConfigureDelegationTarget target]
+            return oldTarget
         updateRestakeEarnings = forM_ dcuRestakeEarnings $ \restakeEarnings -> do
             acctDlg <- getAccountOrFail
             unless (acctDlg ^. BaseAccounts.delegationStakeEarnings == restakeEarnings) $ do
@@ -1332,34 +1334,36 @@ doConfigureDelegation pbs ai DelegationConfigureUpdate{..} = do
                         ((), ) <$> setPersistentAccountStake acc (PersistentAccountStakeDelegate newPAD)
                 modifyAccount updAcc
             MTL.tell [DelegationConfigureRestakeEarnings restakeEarnings]
-        updateCapital cp = forM_ dcuCapital $ \capital -> do
+        updateCapital cp = do
             ad <- getAccountOrFail
-            when (BaseAccounts._delegationPendingChange ad /= BaseAccounts.NoChange) (MTL.throwError DCChangePending)
-            let updAcc updateStake acc = do
-                    newPAD <- refMake $ updateStake ad
-                    acc' <- setPersistentAccountStake acc (PersistentAccountStakeDelegate newPAD)
-                    return ((), acc')
-            -- Cooldown time, used when the change reduces or removes the stake.
-            let cooldownDuration = cp ^. cpCooldownParameters . cpDelegatorCooldown
-                cooldownElapsed = addDurationSeconds dcuSlotTimestamp cooldownDuration
-            if capital == 0 then do
-                let dpc = BaseAccounts.RemoveStake (BaseAccounts.PendingChangeEffectiveV1 cooldownElapsed)
-                modifyAccount $ updAcc $ BaseAccounts.delegationPendingChange .~ dpc
-                MTL.tell [DelegationConfigureStakeReduced capital]
-            else case compare capital (BaseAccounts._delegationStakedAmount ad) of
-                LT -> do
-                    let dpc = BaseAccounts.ReduceStake capital (BaseAccounts.PendingChangeEffectiveV1 cooldownElapsed)
+            forM_ dcuCapital $ \capital -> do
+                when (BaseAccounts._delegationPendingChange ad /= BaseAccounts.NoChange) (MTL.throwError DCChangePending)
+                let updAcc updateStake acc = do
+                        newPAD <- refMake $ updateStake ad
+                        acc' <- setPersistentAccountStake acc (PersistentAccountStakeDelegate newPAD)
+                        return ((), acc')
+                -- Cooldown time, used when the change reduces or removes the stake.
+                let cooldownDuration = cp ^. cpCooldownParameters . cpDelegatorCooldown
+                    cooldownElapsed = addDurationSeconds dcuSlotTimestamp cooldownDuration
+                if capital == 0 then do
+                    let dpc = BaseAccounts.RemoveStake (BaseAccounts.PendingChangeEffectiveV1 cooldownElapsed)
                     modifyAccount $ updAcc $ BaseAccounts.delegationPendingChange .~ dpc
                     MTL.tell [DelegationConfigureStakeReduced capital]
-                EQ ->
-                    MTL.tell [DelegationConfigureStakeIncreased capital]
-                GT -> do
-                    bsp1 <- MTL.get
-                    ab <- refLoad (bspBirkParameters bsp1 ^. birkActiveBakers)
-                    newActiveBakers <- addTotalsInActiveBakers ab ad (capital - BaseAccounts._delegationStakedAmount ad)
-                    MTL.modify' $ \bsp -> bsp{bspBirkParameters = bspBirkParameters bsp1 & birkActiveBakers .~ newActiveBakers}
-                    modifyAccount $ updAcc $ BaseAccounts.delegationStakedAmount .~ capital
-                    MTL.tell [DelegationConfigureStakeIncreased capital]
+                else case compare capital (BaseAccounts._delegationStakedAmount ad) of
+                    LT -> do
+                        let dpc = BaseAccounts.ReduceStake capital (BaseAccounts.PendingChangeEffectiveV1 cooldownElapsed)
+                        modifyAccount $ updAcc $ BaseAccounts.delegationPendingChange .~ dpc
+                        MTL.tell [DelegationConfigureStakeReduced capital]
+                    EQ ->
+                        MTL.tell [DelegationConfigureStakeIncreased capital]
+                    GT -> do
+                        bsp1 <- MTL.get
+                        ab <- refLoad (bspBirkParameters bsp1 ^. birkActiveBakers)
+                        newActiveBakers <- addTotalsInActiveBakers ab ad (capital - BaseAccounts._delegationStakedAmount ad)
+                        MTL.modify' $ \bsp -> bsp{bspBirkParameters = bspBirkParameters bsp1 & birkActiveBakers .~ newActiveBakers}
+                        modifyAccount $ updAcc $ BaseAccounts.delegationStakedAmount .~ capital
+                        MTL.tell [DelegationConfigureStakeIncreased capital]
+            return $ BaseAccounts._delegationStakedAmount ad
         addTotalsInActiveBakers ab0 ad delta = do
             let ab1 = ab0 & totalActiveCapital %~ addActiveCapital delta
             case ad ^. BaseAccounts.delegationTarget of
@@ -1372,12 +1376,19 @@ doConfigureDelegation pbs ai DelegationConfigureUpdate{..} = do
                         Just (PersistentActiveDelegatorsV1 dset dtot) -> do
                             newActiveMap <- Trie.insert bid (PersistentActiveDelegatorsV1 dset (dtot + delta)) (ab1 ^. activeBakers)
                             refMake $! ab1 & activeBakers .~ newActiveMap
-        checkOverdelegation cp = when (isJust dcuCapital || isJust dcuDelegationTarget) $ do
-            ad <- getAccountOrFail
-            let pp = cp ^. cpPoolParameters
-            let target = ad ^. BaseAccounts.delegationTarget
-            bsp <- MTL.get
-            delegationConfigureDisallowOverdelegation bsp pp target
+        checkOverdelegation oldCapital oldTarget cp = do
+            let doCheckOverDelegation = do
+                 let pp = cp ^. cpPoolParameters
+                 ad <- getAccountOrFail
+                 let target = ad ^. BaseAccounts.delegationTarget
+                 bsp <- MTL.get
+                 delegationConfigureDisallowOverdelegation bsp pp target
+            case (dcuCapital, dcuDelegationTarget) of
+                (Just newCapital, Just newTarget) -> unless (newCapital <= oldCapital && newTarget == oldTarget) doCheckOverDelegation
+                (Just newCapital, Nothing) -> unless (newCapital <= oldCapital) doCheckOverDelegation
+                (Nothing, Just newTarget) -> unless (newTarget == oldTarget) doCheckOverDelegation
+                _ -> return ()
+
 
 doUpdateBakerKeys ::(IsProtocolVersion pv, MonadBlobStore m, AccountVersionFor pv ~ 'AccountV0)
     => PersistentBlockState pv

@@ -442,25 +442,68 @@ doBlockRewardP4 transFees FreeTransactionCounts{..} bid bs0 = do
     let rewardParams = chainParameters ^. rewardParameters
         passiveTransCommission = chainParameters ^. cpPoolParameters . ppPassiveCommissions . transactionCommission
     oldRewardAccts <- (^. rewardAccounts) <$> bsoGetBankStatus bs0
-    let gasIn = oldRewardAccts ^. gasAccount
+    -- Note: the GAS payout fraction \sigma_{G,out} is tfdGASAccount / (1 - \sigma_{T,F}).
+    -- 
+    let -- Previous value of gas account: GAS^(j-1)
+        gasIn = oldRewardAccts ^. gasAccount
+        -- Baker share of the incoming transaction fees, but includes some fees due to passive
+        -- delegation: R_T * (1 - \sigma_{G,in})
+        -- where R_T = (1 - \sigma_{T,F}) * T is the incoming transaction fees
+        -- less the foundation cut.
         poolsAndPassiveFees = takeFraction (rewardParams ^. tfdBaker) transFees
+        -- GAS account share of the incoming transaction fees, but includes some fees due to
+        -- passive delegation: R_T * \sigma_{G,in}
         gasFees = takeFraction (rewardParams ^. tfdGASAccount) transFees
+        -- Total stake of passive delegators
         passiveStake = sum $ dcDelegatorCapital <$> passiveDelegatorsCapital capitalDistribution
-        passiveRelativeStake = passiveStake % (BI.bakerTotalStake bakers + passiveStake)
-        passiveFraction = fractionToRational (complementAmountFraction passiveTransCommission) * toRational passiveRelativeStake
+        -- Relative stake of passive delegators: s_L
+        passiveRelativeStake = toRational $ passiveStake % (BI.bakerTotalStake bakers + passiveStake)
+        -- Fraction of transaction fee rewards for the passive delegators:  (1 - \mu_{T,L}) * s_L
+        passiveFraction = fractionToRational (complementAmountFraction passiveTransCommission) * passiveRelativeStake
+        -- Share of the calculated GAS fees owed to passive:
+        -- R_T * \sigma{G,in} * (1 - \mu_{T,L}) * s_L
+        -- = \sigma{G,in} * R_{T,L}
         passiveGASFees = floor $ toRational gasFees * passiveFraction
+        -- Share of the calculated transaction fees owed to passive:
+        -- R_T * (1 - \sigma_{G,in}) * (1 - \mu_{T,L}) * s_L
         passiveTransFees = floor $ toRational poolsAndPassiveFees * passiveFraction
+        -- The total amount owed to the passive delegators:
+        -- R_{T,L} = R_T * (1 - \mu_{T,L}) * s_L
         passiveOut = passiveGASFees + passiveTransFees
-        poolFees = poolsAndPassiveFees - passiveOut
+        -- Share of transaction fees owed to the baker pool:
+        -- (R_T - R_{T,L}) * (1 - \sigma_{G,in})
+        poolFees = poolsAndPassiveFees - passiveTransFees
+        -- Share of transaction fees paid as platform development charge:
+        -- F_T = T * \sigma{T,F}
+        --     = T - R_T
+        --     = T - (R_T * (1 - \sigma_{G,in}) + R_T * \sigma_{G,in})
         platformFees = transFees - (poolsAndPassiveFees + gasFees)
+        -- The share of the old GAS account that goes tot he new GAS account:
+        -- gasIn * (1 - \sigma{G,out}) * (1 - f_acc)^a * (1 - f_gov)^u * (1 - f_fin)^f
+        -- = GAS^(j-1) * (1 - \sigma{G,out}) * (1 - NGT(f,a,u))
         gasGAS = ceiling $ toRational gasIn
                     * (fractionToRational . complementAmountFraction $ rewardParams ^. gasBaker)
                     * (fractionToRational . complementAmountFraction $ rewardParams ^. gasAccountCreation)^countAccountCreation
                     * (fractionToRational . complementAmountFraction $ rewardParams ^. gasChainUpdate)^countUpdate
                     * (fractionToRational . complementAmountFraction $ rewardParams ^. gasFinalizationProof)^countFinRecs
+        -- Share of the old GAS account that is paid to the baker pool:
+        -- gasIn * (1 - (1 - \sigma{G,out}) * (1 - NGT(f,a,u)))
+        -- = GAS^(j-1) * (\sigma{G,out} + NGT(f,a,u) - \sigma{G,out} * NGT(f,a,u))
         bakerGAS = gasIn - gasGAS
+        -- New balance of the GAS account:
+        -- GAS^(j) = (R_T - R_{T,L}) * \sigma{G,in} + GAS^(j-1) * (1 - \sigma{G,out}) * (1 - NGT(f,a,u))
         gasOut = gasFees - passiveGASFees + gasGAS
+        -- Amount of transaction fees and GAS account accruing to the baker pool:
+        -- R_{T,P} = (R_T - R_{T,L}) * (1 - \sigma_{G,in}) + GAS^(j-1) * (\sigma{G,out} + NGT(f,a,u) - \sigma{G,out} * NGT(f,a,u))
         poolOut = poolFees + bakerGAS
+        -- Sanity check:
+        -- gasOut + platformFees + passiveOut + poolOut
+        -- = (gasFees - passiveGASFees + gasGAS) + (transFees - (poolsAndPassiveFees + gasFees)) + (passiveGASFees + passiveTransFees) + (poolFees + bakerGAS)
+        -- = gasGAS + transFees - poolsAndPassiveFees + passiveTransFees + poolFees + bakerGAS
+        -- = gasGAS + transFees - poolsAndPassiveFees + passiveTransFees + poolsAndPassiveFees - passiveTransFees + bakerGAS
+        -- = gasGAS + transFees + bakerGAS
+        -- = gasGAS + transFees + gasIn - gasGAS
+        -- = transFees + gasIn
     bs1 <- bsoSetRewardAccounts bs0 (oldRewardAccts & gasAccount .~ gasOut)
     bs2 <- bsoUpdateAccruedTransactionFeesFoundationAccount bs1 (amountToDelta platformFees)
     bs3 <- bsoUpdateAccruedTransactionFeesPassive bs2 (amountToDelta passiveOut)
@@ -475,6 +518,11 @@ doBlockRewardP4 transFees FreeTransactionCounts{..} bid bs0 = do
       stoBakerId = bid
     }
 
+-- |@scaleAmount a b c@ computes @(a * c) `div` b@. It is expected that @0 <= a <= b@ and @0 < b@.
+-- This is used to scale an amount in proportion to a ratio of two quantities for the purposes of
+-- computing rewards.
+scaleAmount :: Integral a => a -> a -> Amount -> Amount
+scaleAmount num den amt = fromInteger $ (toInteger num * toInteger amt) `div` toInteger den
 
 -- |Accumulated rewards and outcomes to a set of delegators.
 data DelegatorRewardOutcomes = DelegatorRewardOutcomes
@@ -499,8 +547,7 @@ rewardDelegators ::
     forall m.
     ( AccountVersionFor (MPV m) ~ 'AccountV1,
       ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1,
-      BlockStateOperations m,
-      TreeStateMonad m
+      BlockStateOperations m
     ) =>
     UpdatableBlockState m ->
     -- |Finalization reward to distribute
@@ -521,10 +568,11 @@ rewardDelegators bs totalFinalizationReward totalBakingReward totalTransactionRe
     emptyRewardOutcomes = DelegatorRewardOutcomes 0 0 0 Seq.empty
     rewardDelegator (accumRewardOutcomes, bs1) dc = do
         let -- c_{D,P} = capital_{D,P} / capital_P
-            relativeCapital = dcDelegatorCapital dc % totalCapital
-            finalizationReward = floor $ relativeCapital * fromIntegral totalFinalizationReward
-            bakingReward = floor $ relativeCapital * fromIntegral totalBakingReward
-            transactionReward = floor $ relativeCapital * fromIntegral totalTransactionReward
+            -- Note that we already checked that capital_P (i.e. totalCapital) is nonzero.
+            scaleToCapital = scaleAmount (dcDelegatorCapital dc) totalCapital
+            finalizationReward = scaleToCapital totalFinalizationReward
+            bakingReward = scaleToCapital totalBakingReward
+            transactionReward = scaleToCapital totalTransactionReward
             reward = finalizationReward + bakingReward + transactionReward
         if reward == 0
             then return (accumRewardOutcomes, bs1)
@@ -564,8 +612,7 @@ rewardBakers ::
     forall m.
     ( AccountVersionFor (MPV m) ~ 'AccountV1,
       ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1,
-      BlockStateOperations m,
-      TreeStateMonad m
+      BlockStateOperations m
     ) =>
     UpdatableBlockState m ->
     -- |The baker stakes and commission rates in the reward period
@@ -617,23 +664,24 @@ rewardBakers bs bakers bakerTotalBakingRewards bakerTotalFinalizationRewards bcs
               Just prd -> prd
         let poolTransactionReward = transactionFeesAccrued bprd
             bakerBlockCount = blockCount bprd
-            bakerBlockFraction = bakerBlockCount % paydayBlockCount
-            poolBakingReward = floor $ fromIntegral bakerTotalBakingRewards * bakerBlockFraction
+            bakerBlockFraction = scaleAmount bakerBlockCount paydayBlockCount
+            poolBakingReward = bakerBlockFraction bakerTotalBakingRewards
             finalized = finalizationAwake bprd
-            -- The relativeFinalizationStake (fs_P) is the ratio of the finalization stake to the
-            -- total finalization stake. The finalization stake (fstake_P) is the stake if the baker
-            -- is awake for finalization, and 0 otherwise.
-            (relativeFinalizationStake, commissionRates) = case Map.lookup (bcBakerId bc) bakerStakesAndRatesMap of
+            -- 'scaleToFinalizationStake' scales an amount by the ratio of the finalization stake
+            -- to the total finalization stake (i.e. fs_P).
+            -- The finalization stake (fstake_P) is the stake if the baker is awake for
+            -- finalization, and 0 otherwise.
+            (scaleToFinalizationStake, commissionRates) = case Map.lookup (bcBakerId bc) bakerStakesAndRatesMap of
                 Nothing ->
                     error "Invariant violation: baker from capital distribution is not an epoch baker"
                 Just (s, commRates) ->
                     ( if finalized && totalFinStake /= 0 -- It should never be that totalFinStake == 0
-                        then s % totalFinStake
-                        else 0,
+                        then scaleAmount s totalFinStake
+                        else const 0,
                       commRates
                     )
             -- R_{F,P} = (R_F - R_{F,L})·fs_P
-            poolFinalizationReward = floor $ fromIntegral bakerTotalFinalizationRewards * relativeFinalizationStake
+            poolFinalizationReward = scaleToFinalizationStake bakerTotalFinalizationRewards
             -- capital_P -- the total capital of the pool
             totalPoolCapital = bcBakerEquityCapital bc + sum (dcDelegatorCapital <$> bcDelegatorCapital bc)
         -- We do not log an event (or issue rewards) if the rewards would be 0.
@@ -716,19 +764,20 @@ distributeRewards foundationAddr capitalDistribution bakers poolRewardDetails bs
   let -- stake_L -- The passive stake is the total capital passively delegated
       passiveStake = sum $ dcDelegatorCapital <$> passiveDelegatorsCapital capitalDistribution
       -- s_L -- The relative stake of the passive delegators; s_L = stake_L / (stake + stake_L)
-      passiveRelativeStake = passiveStake % (BI.bakerPoolTotalStake bakers + passiveStake)
+      passiveRelativeStake :: Rational
+      passiveRelativeStake = toRational $ passiveStake % (BI.bakerPoolTotalStake bakers + passiveStake)
       -- Finalization commission rate for the passive delegators
       passiveFinalizationCommission = passiveCommissions ^. finalizationCommission
       -- (1 - μ_{F,L})·s_L -- the passive delegators' fraction of the finalization rewards
-      passiveFinalizationFraction = fractionToRational (complementAmountFraction passiveFinalizationCommission) * toRational passiveRelativeStake
+      passiveFinalizationFraction = fractionToRational (complementAmountFraction passiveFinalizationCommission) * passiveRelativeStake
       -- R_{F,L} = R_F·(1 - μ_{F,L})·s_L -- the passive delegators' finalization rewards. Rounded down.
-      passiveFinalizationReward = floor $ fromIntegral (rewardAccts ^. finalizationRewardAccount) * passiveFinalizationFraction
+      passiveFinalizationReward = floor $ toRational (rewardAccts ^. finalizationRewardAccount) * passiveFinalizationFraction
       -- Baking commission rate for the passive delegators
       passiveBakingCommission = passiveCommissions ^. bakingCommission
       -- (1 - μ_{B,L))·s_L -- the passive delegators' fraction of the baking rewards
-      passiveBakingFraction = fractionToRational (complementAmountFraction passiveBakingCommission) * toRational passiveRelativeStake
+      passiveBakingFraction = fractionToRational (complementAmountFraction passiveBakingCommission) * passiveRelativeStake
       -- R_{B,L} = R_B·(1 - μ_{B,L})·s_L -- the passive delegators' baking rewards. Rounded down.
-      passiveBakingReward = floor $ fromIntegral (rewardAccts ^. bakingRewardAccount) * passiveBakingFraction
+      passiveBakingReward = floor $ toRational (rewardAccts ^. bakingRewardAccount) * passiveBakingFraction
   -- Reward the passive delegators.
   (passiveRes, bs1) <-
     rewardDelegators bs0 passiveFinalizationReward passiveBakingReward passiveAccrued passiveStake (passiveDelegatorsCapital capitalDistribution)
