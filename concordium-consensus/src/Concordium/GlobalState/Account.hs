@@ -80,7 +80,7 @@ data PersistingAccountData = PersistingAccountData {
   -- |Address of the account
   _accountAddress :: !AccountAddress
   -- |Account encryption key (for encrypted amounts)
-  ,_accountEncryptionKey :: !AccountEncryptionKeyRaw
+  ,_accountEncryptionKey :: !RawAccountEncryptionKey
   -- |Account signature verification keys. Except for the threshold,
   -- these are derived from the account credentials, and are provided
   -- for convenience.
