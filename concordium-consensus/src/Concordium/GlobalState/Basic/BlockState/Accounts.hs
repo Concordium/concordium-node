@@ -46,7 +46,7 @@ data Accounts (pv :: ProtocolVersion) = Accounts {
     -- |Hashed Merkle-tree of the accounts.
     accountTable :: !(AT.AccountTable (AccountVersionFor pv)),
     -- |A mapping of 'ID.CredentialRegistrationID's to accounts on which they are used.
-    accountRegIds :: !(Map.Map ID.CredentialRegistrationIDRaw AccountIndex)
+    accountRegIds :: !(Map.Map ID.RawCredentialRegistrationID AccountIndex)
 }
 
 instance IsProtocolVersion pv => Show (Accounts pv) where
@@ -169,7 +169,7 @@ regIdExists :: ID.CredentialRegistrationID -> Accounts pv -> Maybe AccountIndex
 regIdExists rid Accounts{..} = ID.toRawCredId rid `Map.lookup` accountRegIds
 
 -- |Record an account registration ID as used on the account.
-recordRegId :: ID.CredentialRegistrationIDRaw -> AccountIndex -> Accounts pv -> Accounts pv
+recordRegId :: ID.RawCredentialRegistrationID -> AccountIndex -> Accounts pv -> Accounts pv
 recordRegId rid idx accs = accs { accountRegIds = Map.insert rid idx (accountRegIds accs) }
 
 -- |Record multiple registration ids as used. This implementation is marginally

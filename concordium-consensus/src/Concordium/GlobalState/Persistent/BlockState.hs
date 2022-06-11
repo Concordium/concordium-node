@@ -1665,7 +1665,7 @@ doGetActiveBakers pbs = do
     ab <- refLoad $ bspBirkParameters bsp ^. birkActiveBakers
     Trie.keysAsc (ab ^. activeBakers)
 
-doGetAccountByCredId :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> ID.CredentialRegistrationIDRaw -> m (Maybe (AccountIndex, PersistentAccount (AccountVersionFor pv)))
+doGetAccountByCredId :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> ID.RawCredentialRegistrationID -> m (Maybe (AccountIndex, PersistentAccount (AccountVersionFor pv)))
 doGetAccountByCredId pbs cid = do
         bsp <- loadPBS pbs
         Accounts.getAccountByCredId cid (bspAccounts bsp)

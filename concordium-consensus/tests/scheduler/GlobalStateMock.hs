@@ -106,7 +106,7 @@ data BlockStateQueryAction (pv :: ProtocolVersion) a where
     AccountExists :: MockBlockState -> AccountAddress -> BlockStateQueryAction pv Bool
     GetActiveBakers :: MockBlockState -> BlockStateQueryAction pv [BakerId]
     GetActiveBakersAndDelegators :: (AccountVersionFor pv ~ 'AccountV1) => MockBlockState -> BlockStateQueryAction pv ([ActiveBakerInfo' MockBakerInfoRef], [ActiveDelegatorInfo])
-    GetAccountByCredId :: MockBlockState -> ID.CredentialRegistrationIDRaw -> BlockStateQueryAction pv (Maybe (AccountIndex, MockAccount))
+    GetAccountByCredId :: MockBlockState -> ID.RawCredentialRegistrationID -> BlockStateQueryAction pv (Maybe (AccountIndex, MockAccount))
     GetContractInstance :: MockBlockState -> ContractAddress -> BlockStateQueryAction pv (Maybe (InstanceInfoType MockContractState))
     GetModuleList :: MockBlockState -> BlockStateQueryAction pv [ModuleRef]
     GetAccountList :: MockBlockState -> BlockStateQueryAction pv [AccountAddress]
