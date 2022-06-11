@@ -26,7 +26,10 @@ ProtectKernelTunables=yes
 CapabilityBoundingSet=
 LockPersonality=yes
 RestrictRealtime=yes
-MemoryDenyWriteExecute=yes
+# The current node version generates some code at runtime to bridge the FFI
+# between Haskell and rust related to smart contracts. Hence we have to allow
+# mappings that are writable and then turned into executable.
+MemoryDenyWriteExecute=no
 DynamicUser=yes
 # state directory is relative to /var/lib/, see systemd man pages Sandboxing section.
 # This sets the STATE_DIRECTORY environment variable that is used as part of the ExecStart command.
