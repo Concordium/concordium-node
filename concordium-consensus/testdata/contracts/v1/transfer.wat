@@ -29,6 +29,12 @@
     (return (i32.const 0)) ;; Successful init
   )
 
+  ;; Just accept some tokens.
+  (func $deposit(export "transfer.deposit") (param i64) (result i32)
+    ;; no state
+    (return (i32.const 0)) ;; Succeed.
+  )
+
   (func $forward (export "transfer.forward") (param $amount i64) (result i32)
     ;; assume the parameter is the address to transfer to
     (call $get_parameter_section (i32.const 0) (i32.const 0) (i32.const 32) (i32.const 0))
@@ -36,6 +42,16 @@
     (i64.store (i32.const 32) (local.get $amount))
     (call $assert_eq_64 (call $invoke (i32.const 0) (i32.const 0) (i32.const 40)) (i64.const 0)) ;; ensure success without return value
     (call $assert_ne_64 (call $invoke (i32.const 0) (i32.const 0) (i32.const 40)) (i64.const 0)) ;; trying to transfer again fails since we have no tokens
+    ;; and return success
+    (i32.const 0)
+  )
+
+  ;; transfer the amount given in the parameter to the address given in the parameter
+  (func $send (export "transfer.send") (param $amount i64) (result i32)
+    ;; assume the parameter is the address to transfer to followed by the amount
+    (call $get_parameter_section (i32.const 0) (i32.const 0) (i32.const 40) (i32.const 0))
+    (drop)
+    (call $assert_eq_64 (call $invoke (i32.const 0) (i32.const 0) (i32.const 40)) (i64.const 0)) ;; ensure success without return value
     ;; and return success
     (i32.const 0)
   )
