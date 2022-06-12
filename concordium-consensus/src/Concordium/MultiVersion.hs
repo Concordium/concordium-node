@@ -475,7 +475,7 @@ checkForProtocolUpdate = liftSkov body
           TreeStateMonad (VersionedSkovM gc fc pv)
         ) =>
         VersionedSkovM gc fc pv ()
-    body = do
+    body =
         Skov.getProtocolUpdateStatus >>= \case
             ProtocolUpdated pu -> case checkUpdate @pv pu of
                 Left err -> do

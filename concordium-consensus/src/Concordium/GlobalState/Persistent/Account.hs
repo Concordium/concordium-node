@@ -759,7 +759,13 @@ serializeAccount cryptoParams PersistentAccount{..} = do
                 _accountCredentials
               )
         asfExplicitAddress = _accountAddress /= addressFromRegIdRaw initialCredId
-        asfExplicitEncryptionKey = _accountEncryptionKey /= toRawEncryptionKey (makeEncryptionKey cryptoParams (unsafeCredIdFromRaw initialCredId)) -- TODO: No need for deserialization
+        -- There is an opportunity for improvement here. There is no need to go
+        -- through the deserialized key. The way the encryption key is formed is
+        -- that the first half is the generator, the second half is the credId.
+        -- So we could just concatenate them. This requires a bit of scaffolding
+        -- to get the right component out of cryptoParams, so it is not yet
+        -- done.
+        asfExplicitEncryptionKey = _accountEncryptionKey /= toRawEncryptionKey (makeEncryptionKey cryptoParams (unsafeCredIdFromRaw initialCredId))
         (asfMultipleCredentials, putCredentials) = case Map.toList _accountCredentials of
           [(i, cred)] | i == initialCredentialIndex -> (False, put cred)
           _ -> (True, putSafeMapOf put put _accountCredentials)

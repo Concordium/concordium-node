@@ -79,7 +79,13 @@ emptyHashedRemovedCredentials = makeHashed EmptyRemovedCredentials
 data PersistingAccountData = PersistingAccountData {
   -- |Address of the account
   _accountAddress :: !AccountAddress
-  -- |Account encryption key (for encrypted amounts)
+  -- |Account encryption key (for encrypted amounts). This is stored as a "Raw"
+  -- encryption key for two reasons. First, it takes up around 1/3 of the space
+  -- of a deserialized key and second it is much faster to load from a byte
+  -- array since expensive validity checks are not needed. This raw key will
+  -- always be possible to convert to an 'AccountEncryptionKey' since only valid
+  -- keys are stored. When this process is needed the cost of conversion is
+  -- dominated by other costs.
   ,_accountEncryptionKey :: !RawAccountEncryptionKey
   -- |Account signature verification keys. Except for the threshold,
   -- these are derived from the account credentials, and are provided
@@ -87,7 +93,7 @@ data PersistingAccountData = PersistingAccountData {
   ,_accountVerificationKeys :: !AccountInformation
   -- |Current credentials. This map is always non-empty and (presently)
   -- will have a credential at index 'initialCredentialIndex' (0) that cannot be changed.
-  ,_accountCredentials :: !(Map.Map CredentialIndex AccountCredentialRaw)
+  ,_accountCredentials :: !(Map.Map CredentialIndex RawAccountCredential)
   -- |Credential IDs of removed credentials.
   ,_accountRemovedCredentials :: !(Hashed RemovedCredentials)
 }

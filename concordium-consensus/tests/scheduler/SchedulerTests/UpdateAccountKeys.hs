@@ -88,7 +88,7 @@ checkCredentialKeys keys threshold ID.CredentialPublicKeys{..} = do
     Nothing -> HUnit.assertFailure $ "Found no key at index " ++ show idx
     Just actualKey -> HUnit.assertEqual ("Key at index " ++ show idx ++ " should be equal") key actualKey)
 
-checkKeysInCredential :: [(ID.KeyIndex, AccountVerificationKey)] -> ID.SignatureThreshold -> ID.AccountCredentialRaw -> HUnit.Assertion
+checkKeysInCredential :: [(ID.KeyIndex, AccountVerificationKey)] -> ID.SignatureThreshold -> ID.RawAccountCredential -> HUnit.Assertion
 checkKeysInCredential keys threshold credential = checkCredentialKeys keys threshold $ credPubKeys credential
 
 tests :: Spec

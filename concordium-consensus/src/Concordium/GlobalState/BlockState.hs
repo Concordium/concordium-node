@@ -164,7 +164,7 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
 
   -- |Get the list of credentials deployed on the account, ordered from most
   -- recently deployed.  The list should be non-empty.
-  getAccountCredentials :: Account m -> m (Map.Map ID.CredentialIndex ID.AccountCredentialRaw)
+  getAccountCredentials :: Account m -> m (Map.Map ID.CredentialIndex ID.RawAccountCredential)
 
   -- |Get the key used to verify transaction signatures, it records the signature scheme used as well
   getAccountVerificationKeys :: Account m -> m ID.AccountInformation
