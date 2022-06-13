@@ -131,7 +131,7 @@ testCases =
         checkSuccess msg Types.TxReject{..} = assertFailure $ msg ++ show vrRejectReason
         checkSuccess _ _ = return ()
 
-        -- Check that the contract has the initial amount (1000) microCCD on its account.
+        -- Check that the contract has the initial amount 0 microCCD on its account.
         transferSpec bs = specify "Contract state" $
           case getInstance (Types.ContractAddress 0 0) (bs ^. blockInstances) of
             Nothing -> assertFailure "Instance at <0,0> does not exist."
@@ -139,12 +139,12 @@ testCases =
               assertEqual ("Contract has 0 CCD.") (Types.Amount 0) (instanceAmount istance)
 
 
-        -- Check that the contract has the initial amount (1000) minus 17 microCCD on its account.
+        -- Check that the contract has the deposited amount (1000) minus 17 microCCD on its account.
         sendSpec bs = specify "Contract state" $
           case getInstance (Types.ContractAddress 0 0) (bs ^. blockInstances) of
             Nothing -> assertFailure "Instance at <0,0> does not exist."
             Just istance ->
-              assertEqual ("Contract has 0 CCD.") (Types.Amount (1000 - 17)) (instanceAmount istance)
+              assertEqual ("Contract has 983 CCD.") (Types.Amount (1000 - 17)) (instanceAmount istance)
 
 tests :: Spec
 tests = describe "V1: Transfer from contract to account." $
