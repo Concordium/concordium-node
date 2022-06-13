@@ -80,7 +80,13 @@ impl Connection {
         handshake: Handshake,
         conn_stats: &[PeerStats],
     ) -> anyhow::Result<()> {
-        debug!("Got a Handshake request from peer {}", handshake.remote_id);
+        let remote_peer_id = match self.low_level.is_post_handshake() {
+            // This should never really happen as we have concluded the `low level` handshake.
+            None => bail!("Rejecting handshake: PeerId was not obtainable"),
+            Some(id) => id,
+        };
+
+        debug!("Got a Handshake request from peer {}", remote_peer_id);
 
         if !is_compatible_version(&handshake.node_version) {
             bail!("Rejecting handshake: incompatible client ({}).", handshake.node_version);
@@ -124,7 +130,7 @@ impl Connection {
         }
 
         self.promote_to_post_handshake(
-            handshake.remote_id,
+            remote_peer_id,
             handshake.remote_port,
             &handshake.networks,
             wire_version,

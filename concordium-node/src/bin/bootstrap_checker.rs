@@ -13,6 +13,7 @@ use concordium_node::{
     stats_export_service::instantiate_stats_export_engine,
     utils::get_config_and_logging_setup,
 };
+use rand::Rng;
 
 use std::{env, process::Command, thread, time::Duration};
 
@@ -40,8 +41,11 @@ fn main() -> anyhow::Result<()> {
         "Bootstrapper can't run without specifying genesis hashes."
     );
 
+    // todo: decide how to manage the private key
+    let csprng = &mut rand::rngs::OsRng;
+    let secret_key = csprng.gen::<[u8; noiseexplorer_xx::consts::DHLEN]>();
     let (node, server, poll) =
-        P2PNode::new(conf.common.id, &conf, PeerType::Node, stats_export_service, regenesis_arc)
+        P2PNode::new(secret_key, &conf, PeerType::Node, stats_export_service, regenesis_arc)
             .context("Failed to create the node.")?;
 
     spawn(&node, server, poll, None);
