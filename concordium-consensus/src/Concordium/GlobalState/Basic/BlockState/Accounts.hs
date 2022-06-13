@@ -169,13 +169,13 @@ regIdExists :: ID.CredentialRegistrationID -> Accounts pv -> Maybe AccountIndex
 regIdExists rid Accounts{..} = ID.toRawCredRegId rid `Map.lookup` accountRegIds
 
 -- |Record an account registration ID as used on the account.
-recordRegId :: ID.CredentialRegistrationID -> AccountIndex -> Accounts pv -> Accounts pv
-recordRegId rid idx accs = accs { accountRegIds = Map.insert (ID.toRawCredRegId rid) idx (accountRegIds accs) }
+recordRegId :: ID.RawCredentialRegistrationID -> AccountIndex -> Accounts pv -> Accounts pv
+recordRegId rid idx accs = accs { accountRegIds = Map.insert rid idx (accountRegIds accs) }
 
 -- |Record multiple registration ids as used. This implementation is marginally
 -- more efficient than repeatedly calling `recordRegId`.
 recordRegIds :: [(ID.CredentialRegistrationID, AccountIndex)] -> Accounts pv -> Accounts pv
-recordRegIds rids accs = accs { accountRegIds = Map.union (accountRegIds accs) (Map.fromAscList ((_1 %~ ID.toRawCredRegId) <$> rids)) }
+recordRegIds rids accs = accs { accountRegIds = Map.union (accountRegIds accs) (Map.fromAscList . map (\(x, y) -> (ID.toRawCredRegId x, y)) $ rids) }
     -- since credentials can only be used on one account the union is well-defined, the maps should be disjoint.
 
 instance HashableTo H.Hash (Accounts pv) where
@@ -223,7 +223,7 @@ deserializeAccounts migration cryptoParams = do
                   | cred `Map.member` regids = fail "Duplicate credential"
                   | otherwise = return $ Map.insert cred acctId regids
             newRegIds <- foldM addRegId accountRegIds $
-                (ID.toRawCredRegId . ID.credId <$> Map.elems (acct ^. accountCredentials))
+                (ID.credId <$> Map.elems (acct ^. accountCredentials))
                 ++ removedCredentialsToList (acct ^. accountRemovedCredentials . unhashed)
             loop (i+1)
               Accounts {

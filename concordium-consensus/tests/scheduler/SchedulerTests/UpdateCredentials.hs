@@ -239,7 +239,7 @@ checkAccountKeys keys threshold ID.AccountInformation{..} = do
     Just actualKey -> HUnit.assertEqual ("Key at index " ++ show idx ++ " should be equal") key actualKey)
 
 -- Checks the keys inside the relevant credentials are correct
-checkAllCredentialKeys :: [(ID.CredentialIndex, ID.CredentialPublicKeys)] -> Map.Map ID.CredentialIndex ID.AccountCredential -> HUnit.Assertion
+checkAllCredentialKeys :: [(ID.CredentialIndex, ID.CredentialPublicKeys)] -> Map.Map ID.CredentialIndex ID.RawAccountCredential -> HUnit.Assertion
 checkAllCredentialKeys keys credentials = do
   HUnit.assertEqual "Account keys should have same number of keys" (length keys) (length credentials)
   let keysInCredentials = fmap credPubKeys credentials

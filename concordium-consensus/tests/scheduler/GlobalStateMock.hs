@@ -71,7 +71,7 @@ data AccountOperationsAction (pv :: ProtocolVersion) a where
     CheckAccountIsAllowed :: MockAccount -> AccountAllowance -> AccountOperationsAction pv Bool
     GetAccountAvailableAmount :: MockAccount -> AccountOperationsAction pv Amount
     GetAccountNonce :: MockAccount -> AccountOperationsAction pv Nonce
-    GetAccountCredentials :: MockAccount -> AccountOperationsAction pv (Map.Map ID.CredentialIndex ID.AccountCredential)
+    GetAccountCredentials :: MockAccount -> AccountOperationsAction pv (Map.Map ID.CredentialIndex ID.RawAccountCredential)
     GetAccountVerificationKeys :: MockAccount -> AccountOperationsAction pv ID.AccountInformation
     GetAccountEncryptedAmount :: MockAccount -> AccountOperationsAction pv AccountEncryptedAmount
     GetAccountEncryptionKey :: MockAccount -> AccountOperationsAction pv ID.AccountEncryptionKey

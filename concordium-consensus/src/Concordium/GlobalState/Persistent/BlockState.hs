@@ -2701,7 +2701,10 @@ instance (PersistentState r m, IsProtocolVersion pv) => AccountOperations (Persi
 
   getAccountEncryptedAmount acc = loadPersistentAccountEncryptedAmount =<< loadBufferedRef (acc ^. accountEncryptedAmount)
 
-  getAccountEncryptionKey acc = acc ^^. accountEncryptionKey
+  -- The use of the unsafe @unsafeEncryptionKeyFromRaw@ function here is
+  -- justified because the encryption key was validated when it was
+  -- created/deployed (this is part of credential validation)
+  getAccountEncryptionKey acc = ID.unsafeEncryptionKeyFromRaw <$> acc ^^. accountEncryptionKey
 
   getAccountReleaseSchedule acc = loadPersistentAccountReleaseSchedule =<< loadBufferedRef (acc ^. accountReleaseSchedule)
 
