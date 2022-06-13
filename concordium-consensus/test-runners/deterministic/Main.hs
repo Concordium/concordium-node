@@ -286,7 +286,6 @@ initialState = do
                 hconfig = NoHandler
                 config = SkovConfig gsconfig finconfig hconfig
             (_bsContext, _bsState) <- runLoggerT (initialiseSkov genData config) (logFor (fromIntegral bakerId))
-
             return BakerState{..}
         _ssEvents = makeEvents $ (PEvent 0 (TransactionEvent (transactions (mkStdGen 1)))) : [PEvent 0 (BakerEvent i (EBake 0)) | i <- allBakers]
         _ssNextTimer = 0
