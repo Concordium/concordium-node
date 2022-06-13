@@ -71,7 +71,7 @@
 
         <!-- Haskell RTS flags to pass to consensus. -->
         <key>CONCORDIUM_NODE_RUNTIME_HASKELL_RTS_FLAGS</key>
-        <string>-N2</string>
+        <string>-N2,-I0</string>
 
     </dict>
 
