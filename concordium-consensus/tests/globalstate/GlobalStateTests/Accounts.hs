@@ -241,7 +241,7 @@ runAccountAction (RegIdExists rid) (ba, pa) = do
   checkBinary (==) be pe "<->" "regid exists in basic" "regid exists in persistent"
   return (ba, pa')
 runAccountAction (RecordRegId rid ai) (ba, pa) = do
-  let ba' = B.recordRegId (ID.toRawCredId rid) ai ba
+  let ba' = B.recordRegId (ID.toRawCredRegId rid) ai ba
   pa' <- P.recordRegId rid ai pa
   return (ba', pa')
 
