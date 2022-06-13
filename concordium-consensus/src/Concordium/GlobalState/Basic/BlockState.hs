@@ -1469,10 +1469,10 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
     bsoConfigureDelegation origBS ai DelegationConfigureUpdate{..} = do
         poolParams <- _cpPoolParameters <$> BS.bsoGetChainParameters origBS
         let res = MTL.runExcept $ MTL.runWriterT $ flip MTL.execStateT origBS $ do
-                updateDelegationTarget
+                oldTarget <- updateDelegationTarget
                 updateRestakeEarnings
-                updateCapital
-                checkOverdelegation poolParams
+                oldCapital <- updateCapital
+                checkOverdelegation oldCapital oldTarget poolParams
         return $! case res of
             Left errorRes -> (errorRes, origBS)
             Right (newBS, changes) -> (DCSuccess changes did, newBS)
@@ -1489,55 +1489,59 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
         modifyAccount f = do
             ad <- getAccount
             putAccount $! f ad
-        updateCapital = forM_ dcuCapital $ \capital -> do
+        updateCapital = do
             ad <- getAccount
-            when (_delegationPendingChange ad /= NoChange) (MTL.throwError DCChangePending)
-            if capital == 0 then do
-                let cooldownDuration = origBS ^. blockUpdates . currentParameters . cpCooldownParameters . cpDelegatorCooldown
-                    cooldownElapsed = addDurationSeconds dcuSlotTimestamp cooldownDuration
-                    dpc = RemoveStake (PendingChangeEffectiveV1 cooldownElapsed)
-                modifyAccount (delegationPendingChange .~ dpc)
-                MTL.tell [DelegationConfigureStakeReduced capital]
-            else case compare capital (ad ^. delegationStakedAmount) of
-                LT -> do
+            forM_ dcuCapital $ \capital -> do
+                when (_delegationPendingChange ad /= NoChange) (MTL.throwError DCChangePending)
+                if capital == 0 then do
                     let cooldownDuration = origBS ^. blockUpdates . currentParameters . cpCooldownParameters . cpDelegatorCooldown
                         cooldownElapsed = addDurationSeconds dcuSlotTimestamp cooldownDuration
-                    let dpc = ReduceStake capital (PendingChangeEffectiveV1 cooldownElapsed)
+                        dpc = RemoveStake (PendingChangeEffectiveV1 cooldownElapsed)
                     modifyAccount (delegationPendingChange .~ dpc)
                     MTL.tell [DelegationConfigureStakeReduced capital]
-                EQ ->
-                    MTL.tell [DelegationConfigureStakeIncreased capital]
-                GT -> do
-                    bs1 <- MTL.get
-                    let ab = bs1 ^. blockBirkParameters . birkActiveBakers
-                    let newAB = addTotalsInActiveBakers ab ad (capital - _delegationStakedAmount ad)
-                    MTL.modify' $ blockBirkParameters . birkActiveBakers .~ newAB
-                    modifyAccount (delegationStakedAmount .~ capital)
-                    MTL.tell [DelegationConfigureStakeIncreased capital]
+                else case compare capital (ad ^. delegationStakedAmount) of
+                    LT -> do
+                        let cooldownDuration = origBS ^. blockUpdates . currentParameters . cpCooldownParameters . cpDelegatorCooldown
+                            cooldownElapsed = addDurationSeconds dcuSlotTimestamp cooldownDuration
+                        let dpc = ReduceStake capital (PendingChangeEffectiveV1 cooldownElapsed)
+                        modifyAccount (delegationPendingChange .~ dpc)
+                        MTL.tell [DelegationConfigureStakeReduced capital]
+                    EQ ->
+                        MTL.tell [DelegationConfigureStakeIncreased capital]
+                    GT -> do
+                        bs1 <- MTL.get
+                        let ab = bs1 ^. blockBirkParameters . birkActiveBakers
+                        let newAB = addTotalsInActiveBakers ab ad (capital - _delegationStakedAmount ad)
+                        MTL.modify' $ blockBirkParameters . birkActiveBakers .~ newAB
+                        modifyAccount (delegationStakedAmount .~ capital)
+                        MTL.tell [DelegationConfigureStakeIncreased capital]
+            return (ad ^. delegationStakedAmount)
         updateRestakeEarnings = forM_ dcuRestakeEarnings $ \restakeEarnings -> do
             ad <- getAccount
             unless (restakeEarnings == ad ^. delegationStakeEarnings) $
               modifyAccount $ delegationStakeEarnings .~ restakeEarnings
             MTL.tell [DelegationConfigureRestakeEarnings restakeEarnings]
-        updateDelegationTarget = forM_ dcuDelegationTarget $ \target -> do
+        updateDelegationTarget = do
             ad <- getAccount
-            unless (target == ad ^. delegationTarget) $ do
-                -- Check that the pool is open for delegation
-                case target of
-                    DelegateToBaker targetBaker@(BakerId targetAcct) -> do
-                        targetOpenStatus <- preuse $ blockAccounts . Accounts.indexedAccount targetAcct . accountBaker . poolOpenStatus
-                        case targetOpenStatus of
-                            Just OpenForAll -> return ()
-                            Just _ -> MTL.throwError DCPoolClosed
-                            Nothing -> MTL.throwError (DCInvalidDelegationTarget targetBaker)
-                    DelegatePassive -> return ()
-                blockBirkParameters . birkActiveBakers %=
-                    (
-                        (pool (ad ^. delegationTarget) %~ removeDelegator did (ad ^. delegationStakedAmount))
-                        . (pool target %~ addDelegator did (ad ^. delegationStakedAmount))
-                    )
-                modifyAccount (delegationTarget .~ target)
-            MTL.tell [DelegationConfigureDelegationTarget target]
+            forM_ dcuDelegationTarget $ \target -> do
+                unless (target == ad ^. delegationTarget) $ do
+                    -- Check that the pool is open for delegation
+                    case target of
+                        DelegateToBaker targetBaker@(BakerId targetAcct) -> do
+                            targetOpenStatus <- preuse $ blockAccounts . Accounts.indexedAccount targetAcct . accountBaker . poolOpenStatus
+                            case targetOpenStatus of
+                                Just OpenForAll -> return ()
+                                Just _ -> MTL.throwError DCPoolClosed
+                                Nothing -> MTL.throwError (DCInvalidDelegationTarget targetBaker)
+                        DelegatePassive -> return ()
+                    blockBirkParameters . birkActiveBakers %=
+                        (
+                            (pool (ad ^. delegationTarget) %~ removeDelegator did (ad ^. delegationStakedAmount))
+                            . (pool target %~ addDelegator did (ad ^. delegationStakedAmount))
+                        )
+                    modifyAccount (delegationTarget .~ target)
+                MTL.tell [DelegationConfigureDelegationTarget target]
+            return (ad ^. delegationTarget)
         addTotalsInActiveBakers ab0 ad delta =
             let ab1 = ab0 & totalActiveCapital +~ delta in
             case ad ^. delegationTarget of
@@ -1550,10 +1554,18 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                         Just (ActivePool dset dtot) ->
                             let newActiveMap = Map.insert bid (ActivePool dset (dtot + delta)) (ab1 ^. activeBakers)
                             in ab1 & activeBakers .~ newActiveMap
-        checkOverdelegation poolParams = when (isJust dcuCapital || isJust dcuDelegationTarget) $ do
-            ad <- getAccount
-            bs <- MTL.get
-            delegationConfigureDisallowOverdelegation bs poolParams (ad ^. delegationTarget)
+        checkOverdelegation oldCapital oldTarget poolParams = do
+            let doCheckOverDelegation = do
+                 ad <- getAccount
+                 let target = ad ^. delegationTarget
+                 bsp <- MTL.get
+                 delegationConfigureDisallowOverdelegation bsp poolParams target
+            case (dcuCapital, dcuDelegationTarget) of
+                (Just newCapital, Just newTarget) -> unless (newCapital <= oldCapital && newTarget == oldTarget) doCheckOverDelegation
+                (Just newCapital, Nothing) -> unless (newCapital <= oldCapital) doCheckOverDelegation
+                (Nothing, Just newTarget) -> unless (newTarget == oldTarget) doCheckOverDelegation
+                _ -> return ()
+
 
     bsoUpdateBakerKeys bs ai bku@BakerKeyUpdate{..} = return $! case bs ^? blockAccounts . Accounts.indexedAccount ai of
         -- The account is valid and has a baker

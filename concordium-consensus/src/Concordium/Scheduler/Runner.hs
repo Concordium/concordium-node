@@ -112,7 +112,8 @@ transactionHelper t =
       return $ signTx keys meta (Types.encodePayload Types.EncryptedAmountTransferWithMemo{..})
     (TJSON meta TransferWithScheduleAndMemo{..} keys) ->
       return $ signTx keys meta (Types.encodePayload Types.TransferWithScheduleAndMemo{..})
-
+    (TJSON meta ConfigureDelegation{..} keys) ->
+      return $ signTx keys meta (Types.encodePayload Types.ConfigureDelegation{..})
 
 processTransactions :: (MonadFail m, MonadIO m) => [TransactionJSON]  -> m [Types.AccountTransaction]
 processTransactions = mapM transactionHelper
@@ -216,6 +217,14 @@ data PayloadJSON = DeployModule { wasmVersion :: Wasm.WasmVersion, moduleName ::
                       twswmTo :: !AccountAddress,
                       twswmMemo :: !Memo,
                       twswmSchedule :: ![(Timestamp, Amount)]
+                      }
+                  | ConfigureDelegation {
+                      -- |The capital delegated to the pool.
+                      cdCapital :: !(Maybe Amount),
+                      -- |Whether the delegator's earnings are restaked.
+                      cdRestakeEarnings :: !(Maybe Bool),
+                      -- |The target of the delegation.
+                      cdDelegationTarget :: !(Maybe Types.DelegationTarget)
                       }
                  deriving(Show, Generic)
 
