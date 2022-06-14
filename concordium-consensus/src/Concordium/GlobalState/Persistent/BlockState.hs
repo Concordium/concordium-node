@@ -332,7 +332,7 @@ emptyBlockRewardDetails =
 -- |Type representing a persistent block state. This is a 'BufferedRef' inside an 'IORef',
 -- which supports making changes to the state without them (necessarily) being written to
 -- disk.
-type PersistentBlockState (pv :: ProtocolVersion) = IORef (BufferedRef (BlockStatePointers pv))
+type PersistentBlockState (pv :: ProtocolVersion) c = IORef (BufferedRef (BlockStatePointers pv c))
 
 
 -- |References to the components that make up the block state.
@@ -342,8 +342,8 @@ type PersistentBlockState (pv :: ProtocolVersion) = IORef (BufferedRef (BlockSta
 -- similar across versions. Where component change between versions,
 -- those components themselves should be parametrised by the protocol
 -- version.
-data BlockStatePointers (pv :: ProtocolVersion) = BlockStatePointers {
-    bspAccounts :: !(Accounts.Accounts pv),
+data BlockStatePointers (pv :: ProtocolVersion) c = BlockStatePointers {
+    bspAccounts :: !(Accounts.Accounts pv c),
     bspInstances :: !(Instances.Instances pv),
     bspModules :: !(HashedBufferedRef Modules.Modules),
     bspBank :: !(Hashed Rewards.BankStatus),
@@ -366,8 +366,8 @@ birkParameters = lens bspBirkParameters (\bsp bp-> bsp{bspBirkParameters = bp})
 
 -- |A hashed version of 'PersistingBlockState'.  This is used when the block state
 -- is not being mutated so that the hash values are not recomputed constantly.
-data HashedPersistentBlockState pv = HashedPersistentBlockState {
-    hpbsPointers :: !(PersistentBlockState pv),
+data HashedPersistentBlockState pv c = HashedPersistentBlockState {
+    hpbsPointers :: !(PersistentBlockState pv c),
     hpbsHash :: !StateHash
 }
 
@@ -380,7 +380,7 @@ hashBlockState hpbsPointers = do
         hpbsHash <- getHashM bsp
         return HashedPersistentBlockState{..}
 
-instance (IsProtocolVersion pv, MonadBlobStore m) => MHashableTo m StateHash (BlockStatePointers pv) where
+instance (IsProtocolVersion pv, MonadBlobStore m) => MHashableTo m StateHash (BlockStatePointers pv c) where
     getHashM BlockStatePointers{..} = do
         bshBirkParameters <- getHashM bspBirkParameters
         bshCryptographicParameters <- getHashM bspCryptographicParameters
@@ -394,7 +394,7 @@ instance (IsProtocolVersion pv, MonadBlobStore m) => MHashableTo m StateHash (Bl
         bshBlockRewardDetails <- getHashM bspRewardDetails
         return $ makeBlockStateHash @pv BlockStateHashInputs{..}
 
-instance (IsProtocolVersion pv, MonadBlobStore m) => BlobStorable m (BlockStatePointers pv) where
+instance (IsProtocolVersion pv, MonadBlobStore m) => BlobStorable m (BlockStatePointers pv c) where
     storeUpdate bsp0@BlockStatePointers{..} = do
         (paccts, bspAccounts') <- storeUpdate bspAccounts
         (pinsts, bspInstances') <- storeUpdate bspInstances
@@ -2592,29 +2592,29 @@ instance HasBlobStore PersistentBlockStateContext where
     blobStoreCallback = bscStoreCallback . pbscBlobStore
 
 
-newtype PersistentBlockStateMonad (pv :: ProtocolVersion) r m a = PersistentBlockStateMonad {runPersistentBlockStateMonad :: m a}
+newtype PersistentBlockStateMonad (pv :: ProtocolVersion) r m a c = PersistentBlockStateMonad {runPersistentBlockStateMonad :: m a}
     deriving (Functor, Applicative, Monad, MonadIO, MonadReader r, MonadLogger)
 
 type PersistentState r m = (MonadIO m, MonadReader r m, HasBlobStore r)
 
-instance PersistentState r m => MonadBlobStore (PersistentBlockStateMonad pv r m)
-instance PersistentState r m => MonadBlobStore (PutT (PersistentBlockStateMonad pv r m))
-instance PersistentState r m => MonadBlobStore (PutH (PersistentBlockStateMonad pv r m))
+instance PersistentState r m => MonadBlobStore (PersistentBlockStateMonad pv r m c)
+instance PersistentState r m => MonadBlobStore (PutT (PersistentBlockStateMonad pv r m c))
+instance PersistentState r m => MonadBlobStore (PutH (PersistentBlockStateMonad pv r m c))
 
-type instance BlockStatePointer (PersistentBlockState pv) = BlobRef (BlockStatePointers pv)
-type instance BlockStatePointer (HashedPersistentBlockState pv) = BlobRef (BlockStatePointers pv)
+type instance BlockStatePointer (PersistentBlockState pv c) = BlobRef (BlockStatePointers pv c)
+type instance BlockStatePointer (HashedPersistentBlockState pv c) = BlobRef (BlockStatePointers pv c)
 
-instance (IsProtocolVersion pv) => MonadProtocolVersion (PersistentBlockStateMonad pv r m) where
-    type MPV (PersistentBlockStateMonad pv r m) = pv
+instance (IsProtocolVersion pv) => MonadProtocolVersion (PersistentBlockStateMonad pv r m c) where
+    type MPV (PersistentBlockStateMonad pv r m c) = pv
 
-instance BlockStateTypes (PersistentBlockStateMonad pv r m) where
-    type BlockState (PersistentBlockStateMonad pv r m) = HashedPersistentBlockState pv
-    type UpdatableBlockState (PersistentBlockStateMonad pv r m) = PersistentBlockState pv
-    type Account (PersistentBlockStateMonad pv r m) = PersistentAccount (AccountVersionFor pv)
-    type BakerInfoRef (PersistentBlockStateMonad pv r m) = PersistentBakerInfoEx (AccountVersionFor pv)
-    type ContractState (PersistentBlockStateMonad pv r m) = Instances.InstanceStateV
+instance BlockStateTypes (PersistentBlockStateMonad pv r m c) where
+    type BlockState (PersistentBlockStateMonad pv r m c) = HashedPersistentBlockState pv c
+    type UpdatableBlockState (PersistentBlockStateMonad pv r m c) = PersistentBlockState pv c
+    type Account (PersistentBlockStateMonad pv r m c) = PersistentAccount (AccountVersionFor pv)
+    type BakerInfoRef (PersistentBlockStateMonad pv r m c) = PersistentBakerInfoEx (AccountVersionFor pv)
+    type ContractState (PersistentBlockStateMonad pv r m c) = Instances.InstanceStateV
 
-instance (IsProtocolVersion pv, PersistentState r m) => BlockStateQuery (PersistentBlockStateMonad pv r m) where
+instance (IsProtocolVersion pv, PersistentState r m) => BlockStateQuery (PersistentBlockStateMonad pv r m c) where
     getModule = doGetModuleSource . hpbsPointers
     getModuleInterface pbs mref = doGetModule (hpbsPointers pbs) mref
     getAccount = doGetAccount . hpbsPointers
@@ -2655,7 +2655,7 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateQuery (Persist
     getPaydayEpoch = doGetPaydayEpoch . hpbsPointers
     getPoolStatus = doGetPoolStatus . hpbsPointers
 
-instance (MonadIO m, PersistentState r m) => ContractStateOperations (PersistentBlockStateMonad pv r m) where
+instance (MonadIO m, PersistentState r m) => ContractStateOperations (PersistentBlockStateMonad pv r m c) where
   thawContractState (Instances.InstanceStateV0 inst) = return inst
   thawContractState (Instances.InstanceStateV1 inst) = liftIO . flip StateV1.thaw inst . fst =<< getCallbacks
   stateSizeV0 (Instances.InstanceStateV0 inst) = return (Wasm.contractStateSize inst)
@@ -2667,7 +2667,7 @@ instance (MonadIO m, PersistentState r m) => ContractStateOperations (Persistent
   {-# INLINE getV1StateContext #-}
   {-# INLINE contractStateToByteString #-}
 
-instance (PersistentState r m, IsProtocolVersion pv) => AccountOperations (PersistentBlockStateMonad pv r m) where
+instance (PersistentState r m, IsProtocolVersion pv) => AccountOperations (PersistentBlockStateMonad pv r m c) where
 
   getAccountCanonicalAddress acc = acc ^^. accountAddress
 
@@ -2677,7 +2677,7 @@ instance (PersistentState r m, IsProtocolVersion pv) => AccountOperations (Persi
 
   checkAccountIsAllowed acc AllowedEncryptedTransfers = do
     creds <- getAccountCredentials acc
-    return (Map.size creds == 1)
+    return (Map.size creds == 1)n
   checkAccountIsAllowed acc AllowedMultipleCredentials = do
     PersistentAccountEncryptedAmount{..} <- loadBufferedRef (acc ^. accountEncryptedAmount)
     if null _incomingEncryptedAmounts && isNothing _aggregatedAmount then do
@@ -2722,7 +2722,7 @@ instance (PersistentState r m, IsProtocolVersion pv) => AccountOperations (Persi
 
   derefBakerInfo = refLoad . bakerInfoRef
 
-instance (IsProtocolVersion pv, PersistentState r m) => BlockStateOperations (PersistentBlockStateMonad pv r m) where
+instance (IsProtocolVersion pv, PersistentState r m) => BlockStateOperations (PersistentBlockStateMonad pv r m c) where
     bsoGetModule pbs mref = doGetModule pbs mref
     bsoGetAccount bs = doGetAccount bs
     bsoGetAccountIndex = doGetAccountIndex
