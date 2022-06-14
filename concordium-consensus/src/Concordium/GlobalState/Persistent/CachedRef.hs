@@ -82,7 +82,7 @@ instance
     getHashM ref = getHashM =<< refLoad ref
 
 instance Show a => Show (CachedRef c a) where
-  show ref = show (cachedRef ref) ++ maybe "" (\x -> " with hash: " ++ show x) (cachedRefHash ref)    
+  show ref = show "UNDEFINED" --  (cachedRef ref) ++ maybe "" (\x -> " with hash: " ++ show x) (cachedRefHash ref)    
 
 -- |A `CachedRef` accompanied with a `Maybe Hash`.
 data HashedCachedRef' h c a =
@@ -137,7 +137,7 @@ instance
       (r, v') <- storeUpdate (cachedRef c)
       return (r, HashedCachedRef v' (cachedRefHash c))
       
-    load = load
+    load = load -- TODO
 
 instance
     ( MonadCache r c m,

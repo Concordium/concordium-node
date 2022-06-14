@@ -32,7 +32,7 @@ import Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule
 import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.GlobalState.Basic.BlockState.AccountTable as Transient
 import qualified Concordium.GlobalState.AccountMap as AccountMap
-import Concordium.GlobalState.Persistent.LFMBTree (LFMBTree)
+import Concordium.GlobalState.Persistent.LFMBTree (LFMBTree')
 import qualified Concordium.GlobalState.Persistent.LFMBTree as L
 import Concordium.Types.HashableTo
 import Data.Foldable (foldrM, foldl', foldlM)
@@ -63,16 +63,20 @@ data Accounts (pv :: ProtocolVersion) c = Accounts {
     -- |Unique index of accounts by 'AccountAddress'
     accountMap :: !(AccountMap.PersistentAccountMap pv),
     -- |Hashed Merkle-tree of the accounts
-    accountTable :: !(LFMBTree AccountIndex (HashedCachedRef c) (PersistentAccount (AccountVersionFor pv))),
+    accountTable :: !(LFMBTree' AccountIndex HashedBufferedRef (HashedCachedRef c) (PersistentAccount (AccountVersionFor pv))),
     -- |Optional cached set of used 'ID.CredentialRegistrationID's
     accountRegIds :: !(Nullable (Map.Map ID.CredentialRegistrationID AccountIndex)),
     -- |Persisted representation of the map from registration ids to account indices.
     accountRegIdHistory :: !(Trie.TrieN (BufferedBlobbed BlobRef) ID.CredentialRegistrationID AccountIndex)
 }
 
+type AccountCache pv r c m = (MonadCache r c m, Cache c, CacheValue c ~ PersistentAccount (AccountVersionFor pv), CacheKey c ~ BlobRef (CacheValue c))
+
 -- |Convert a (non-persistent) 'Transient.Accounts' to a (persistent) 'Accounts'.
 -- The new object is not yet stored on disk.
-makePersistent :: (MonadBlobStore m, IsProtocolVersion pv, MonadCache r c m) => Transient.Accounts pv -> m (Accounts pv c)
+makePersistent :: (MonadBlobStore m, IsProtocolVersion pv,
+                  AccountCache pv r c m
+                  ) => Transient.Accounts pv -> m (Accounts pv c)
 makePersistent (Transient.Accounts amap atbl aregids) = do
     accountTable <- L.fromAscList =<< mapM (makePersistentAccount . snd) (Transient.toList atbl)
     accountMap <- AccountMap.toPersistent amap
@@ -82,7 +86,7 @@ makePersistent (Transient.Accounts amap atbl aregids) = do
 instance (IsProtocolVersion pv) => Show (Accounts pv c) where
     show a = show (accountTable a)
 
-instance (MonadBlobStore m, IsProtocolVersion pv) => MHashableTo m H.Hash (Accounts pv c) where
+instance (MonadBlobStore m, AccountCache pv r c m, IsProtocolVersion pv) => MHashableTo m H.Hash (Accounts pv c) where
   getHashM Accounts {..} = getHashM accountTable
 
 -- |This history of used registration ids, consisting of a list of (uncommitted) ids, and a pointer

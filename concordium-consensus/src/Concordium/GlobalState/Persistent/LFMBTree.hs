@@ -12,6 +12,7 @@
 module Concordium.GlobalState.Persistent.LFMBTree
   ( -- * Tree type
     LFMBTree,
+    LFMBTree',
     size,
 
     -- * Construction
@@ -83,7 +84,7 @@ type Height = Word64
 --
 --  This type is parametrized by the reference type of
 --  the stored items.
-data LFMBTree k (ref :: Type -> Type) v
+data LFMBTree' k (ref1 :: Type -> Type) (ref2 :: Type -> Type) v
   -- |Empty tree
   = Empty
   -- |Non-empty tree, with the number of elements in the tree (always non-zero).
@@ -91,16 +92,18 @@ data LFMBTree k (ref :: Type -> Type) v
     -- Number of elements in the tree. Always non-zero.
     !Word64
     -- The tree.
-    !(T ref v)
+    !(T ref1 ref2 v)
 
-deriving instance (Show (ref v), Show (ref (T ref v))) => (Show (LFMBTree k ref v))
+type LFMBTree k ref v = LFMBTree' k ref ref v
+
+deriving instance (Show (ref2 v), Show (ref1 (T ref1 ref2 v))) => (Show (LFMBTree' k ref1 ref2 v))
 
 -- | Inner type of a non-empty tree
-data T (ref :: Type -> Type) v
-  = Node !Height !(ref (T ref v)) !(ref (T ref v))
-  | Leaf !(ref v)
+data T (ref1 :: Type -> Type) (ref2 :: Type -> Type) v
+  = Node !Height !(ref1 (T ref1 ref2 v)) !(ref1 (T ref1 ref2 v))
+  | Leaf !(ref2 v)
 
-deriving instance (Show (ref v), Show (ref (T ref v))) => (Show (T ref v))
+deriving instance (Show (ref2 v), Show (ref1 (T ref1 ref2 v))) => (Show (T ref1 ref2 v))
 
 {-
 -------------------------------------------------------------------------------
@@ -110,10 +113,10 @@ deriving instance (Show (ref v), Show (ref (T ref v))) => (Show (T ref v))
 
 instance
   ( Monad m,
-    MHashableTo m H.Hash (ref v), -- references to values       must be mhashable
-    MHashableTo m H.Hash (ref (T ref v)) -- references to nodes must be mhashable
+    MHashableTo m H.Hash (ref2 v), -- references to values       must be mhashable
+    MHashableTo m H.Hash (ref1 (T ref1 ref2 v)) -- references to nodes must be mhashable
   ) =>
-  MHashableTo m H.Hash (T ref v)
+  MHashableTo m H.Hash (T ref1 ref2 v)
   where
   getHashM (Leaf v) = getHashM v
   getHashM (Node _ l r) = do
@@ -125,10 +128,10 @@ instance
 -- is empty or the hash of the tree otherwise.
 instance
   ( Monad m,
-    MHashableTo m H.Hash (ref v), -- references to values       must be mhashable
-    MHashableTo m H.Hash (ref (T ref v)) -- references to nodes must be mhashable
+    MHashableTo m H.Hash (ref2 v), -- references to values       must be mhashable
+    MHashableTo m H.Hash (ref1 (T ref1 ref2 v)) -- references to nodes must be mhashable
   ) =>
-  MHashableTo m H.Hash (LFMBTree k ref v)
+  MHashableTo m H.Hash (LFMBTree' k ref1 ref2 v)
   where
   getHashM Empty = return $ H.hash "EmptyLFMBTree"
   getHashM (NonEmpty _ v) = getHashM v
@@ -138,19 +141,19 @@ instance
 --
 -- NOTE: This constraint is not intended to be used outside of this module but just be
 -- fulfilled by every monad that tries to use this structure. It is just here for readability.
-type CanStoreLFMBTree m ref v =
+type CanStoreLFMBTree m ref1 ref2 v =
   ( MonadBlobStore m, -- Will work with MonadIOs
     BlobStorable m v,
     MHashableTo m H.Hash v, -- values                              must be storable in @BlobRef@s on the monad @m@
-    BlobStorable m (ref v), -- references to values        must be storable in @Blobref@s on the monad @m@
-    BlobStorable m (ref (T ref v)), -- references to nodes must be storable in @BlobRef@s on the monad @m@
-    Reference m ref v, -- references to values                           must be @Reference@
-    Reference m ref (ref v), -- references to references                 must be @Reference@
-    Reference m ref (T ref v), -- references to nodes                    must be @Reference@
-    Reference m ref (ref (T ref v)) -- references to references to nodes must be @Reference@
+    BlobStorable m (ref2 v), -- references to values        must be storable in @Blobref@s on the monad @m@
+    BlobStorable m (ref1 (T ref1 ref2 v)), -- references to nodes must be storable in @BlobRef@s on the monad @m@
+    Reference m ref2 v, -- references to values                           must be @Reference@
+    -- Reference m ref2 (ref2 v), -- references to references                 must be @Reference@
+    Reference m ref1 (T ref1 ref2 v) -- references to nodes                    must be @Reference@
+    -- Reference m ref1 (ref1 (T ref1 ref2 v)) -- references to references to nodes must be @Reference@
   )
 
-instance CanStoreLFMBTree m ref v => BlobStorable m (T ref v) where
+instance CanStoreLFMBTree m ref1 ref2 v => BlobStorable m (T ref1 ref2 v) where
   store (Leaf ref) = do
     pt <- store ref
     return (putWord8 0 >> pt)
@@ -190,7 +193,7 @@ instance CanStoreLFMBTree m ref v => BlobStorable m (T ref v) where
         right <- load
         return (Node h <$> left <*> right)
 
-instance CanStoreLFMBTree m ref v => BlobStorable m (LFMBTree k ref v) where
+instance CanStoreLFMBTree m ref1 ref2 v => BlobStorable m (LFMBTree' k ref1 ref2 v) where
   store Empty = return (putWord64be 0)
   store (NonEmpty h t) = do
     t' <- store t
@@ -214,15 +217,15 @@ instance CanStoreLFMBTree m ref v => BlobStorable m (LFMBTree k ref v) where
 
 -- These instances are defined concretely because it is easier than
 -- giving complex higher-order constraints.
-instance (BlobStorable m v, MHashableTo m H.Hash v, Cacheable m v) => Cacheable m (T BufferedRef v) where
+instance (BlobStorable m v, MHashableTo m H.Hash v, Cacheable m v) => Cacheable m (T BufferedRef BufferedRef v) where
   cache (Node h l r) = Node h <$> cache l <*> cache r
   cache (Leaf a) = Leaf <$> cache a
 
-instance (BlobStorable m v, MHashableTo m H.Hash v, Cacheable m v) => Cacheable m (T HashedBufferedRef v) where
+instance (BlobStorable m v, MHashableTo m H.Hash v, Cacheable m v) => Cacheable m (T HashedBufferedRef HashedBufferedRef v) where
   cache (Node h l r) = Node h <$> cache l <*> cache r
   cache (Leaf a) = Leaf <$> cache a
 
-instance (Applicative m, Cacheable m (T ref v)) => Cacheable m (LFMBTree k ref v) where
+instance (Applicative m, Cacheable m (T ref1 ref2 v)) => Cacheable m (LFMBTree' k ref1 ref2 v) where
   cache t@Empty = pure t
   cache (NonEmpty s t) = NonEmpty s <$> cache t
 
@@ -237,12 +240,12 @@ size Empty = 0
 size (NonEmpty s _) = s
 
 -- | Returns the empty tree
-empty :: LFMBTree k ref v
+empty :: LFMBTree' k ref1 ref2 v
 empty = Empty
 
 -- | Returns the value at the given key if it is present in the tree
 -- or Nothing otherwise.
-lookup :: (CanStoreLFMBTree m ref v, Ord k, Bits k, Coercible k Word64) => k -> LFMBTree k ref v -> m (Maybe v)
+lookup :: (CanStoreLFMBTree m ref1 ref2 v, Ord k, Bits k, Coercible k Word64) => k -> LFMBTree' k ref1 ref2 v -> m (Maybe v)
 lookup a b = do
   r <- lookupRef a b
   case r of
@@ -251,7 +254,7 @@ lookup a b = do
 
 -- | Return the reference to the value at the given key if it is present in the tree
 -- or Nothing otherwise.
-lookupRef :: (CanStoreLFMBTree m ref v, Ord k, Bits k, Coercible k Word64) => k -> LFMBTree k ref v -> m (Maybe (ref v))
+lookupRef :: (CanStoreLFMBTree m ref1 ref2 v, Ord k, Bits k, Coercible k Word64) => k -> LFMBTree' k ref1 ref2 v -> m (Maybe (ref2 v))
 lookupRef _ Empty = return Nothing
 lookupRef k (NonEmpty s t) =
   if k >= (coerce s)
@@ -267,19 +270,19 @@ lookupRef k (NonEmpty s t) =
           else lookupT key =<< refLoad left
 
 -- | If a tree holds values of type @Nullable v@ then lookup should return a @Just@ if the value is present and @Nothing@ if it is not present or is a Null. This function implements such behavior.
-lookupNullable :: (CanStoreLFMBTree m ref (Nullable v), Ord k, Bits k, Coercible k Word64) => k -> LFMBTree k ref (Nullable v) -> m (Maybe v)
+lookupNullable :: (CanStoreLFMBTree m ref1 ref2 (Nullable v), Ord k, Bits k, Coercible k Word64) => k -> LFMBTree' k ref1 ref2 (Nullable v) -> m (Maybe v)
 lookupNullable k t = lookup k t >>= \case
   Just (Some v) -> return $ Just v
   _ -> return Nothing
 
 -- | Adds a value to the tree returning the assigned key and the new tree.
-append :: (CanStoreLFMBTree m ref v, Coercible k Word64, Num k) => v -> LFMBTree k ref v -> m (k, LFMBTree k ref v)
+append :: (CanStoreLFMBTree m ref1 ref2 v, Coercible k Word64, Num k) => v -> LFMBTree' k ref1 ref2 v -> m (k, LFMBTree' k ref1 ref2 v)
 append a b = do
   (x, y, _) <- appendWithRef a b
   return (x, y)
 
 -- | Adds a value to the tree returning the assigned key, the new tree and the created reference to the value so that it can be shared.
-appendWithRef :: (CanStoreLFMBTree m ref v, Coercible k Word64, Num k) => v -> LFMBTree k ref v -> m (k, LFMBTree k ref v, ref v)
+appendWithRef :: (CanStoreLFMBTree m ref1 ref2 v, Coercible k Word64, Num k) => v -> LFMBTree' k ref1 ref2 v -> m (k, LFMBTree' k ref1 ref2 v, ref2 v)
 appendWithRef v Empty = do
   ref <- refMake v
   return (0, NonEmpty 1 (Leaf ref), ref)
@@ -333,7 +336,7 @@ appendWithRef v (NonEmpty s t) = do
 -- Otherwise, the value is loaded, modified with the given function and stored again.
 --
 -- @update@ will also recompute the hashes on the way up to the root.
-update :: (CanStoreLFMBTree m ref v, Ord k, Bits k, Coercible k Word64) => (v -> m (a, v)) -> k -> LFMBTree k ref v -> m (Maybe (a, LFMBTree k ref v))
+update :: (CanStoreLFMBTree m ref1 ref2 v, Ord k, Bits k, Coercible k Word64) => (v -> m (a, v)) -> k -> LFMBTree' k ref1 ref2 v -> m (Maybe (a, LFMBTree' k ref1 ref2 v))
 update _ _ Empty = return Nothing
 update f k (NonEmpty s t) =
   if k >= coerce s
@@ -363,7 +366,7 @@ update f k (NonEmpty s t) =
 
 -- | If a tree holds values of type @Maybe v@ then deleting is done by inserting a @Nothing@ at a given position.
 -- This function will return Nothing if the key is not present and otherwise it will return the updated tree.
-delete :: (CanStoreLFMBTree m ref (Nullable v), Ord k, Bits k, Coercible k Word64) => k -> LFMBTree k ref (Nullable v) -> m (Maybe (LFMBTree k ref (Nullable v)))
+delete :: (CanStoreLFMBTree m ref1 ref2 (Nullable v), Ord k, Bits k, Coercible k Word64) => k -> LFMBTree' k ref1 ref2 (Nullable v) -> m (Maybe (LFMBTree' k ref1 ref2 (Nullable v)))
 delete k t = do
   v <- update (const $ return ((), Null)) k t
   return $ fmap snd v
@@ -371,7 +374,7 @@ delete k t = do
 -- | Return the elements sorted by their keys. As there is no operation
 -- for deleting elements, this list will contain all the elements starting
 -- on the index 0 up to the size of the tree.
-toAscList :: CanStoreLFMBTree m ref v => LFMBTree k ref v -> m [v]
+toAscList :: CanStoreLFMBTree m ref1 ref2 v => LFMBTree' k ref1 ref2 v -> m [v]
 toAscList Empty = return []
 toAscList (NonEmpty _ t) = toListT t
   where
@@ -383,16 +386,16 @@ toAscList (NonEmpty _ t) = toListT t
 
 -- | Return the pairs (key, value) sorted by their keys. This list will contain
 -- all the elements starting on the index 0.
-toAscPairList :: (CanStoreLFMBTree m ref v, Coercible k Word64) => LFMBTree k ref v -> m [(k, v)]
+toAscPairList :: (CanStoreLFMBTree m ref1 ref2 v, Coercible k Word64) => LFMBTree' k ref1 ref2 v -> m [(k, v)]
 toAscPairList t = zip (map coerce [0 :: Word64 ..]) <$> toAscList t
 
 -- | Create a tree from a list of items. The items will be inserted sequentially
 -- starting on the index 0.
-fromAscList :: (CanStoreLFMBTree m ref v, Num k, Coercible k Word64) => [v] -> m (LFMBTree k ref v)
+fromAscList :: (CanStoreLFMBTree m ref1 ref2 v, Num k, Coercible k Word64) => [v] -> m (LFMBTree' k ref1 ref2 v)
 fromAscList = foldM (\acc e -> snd <$> append e acc) empty
 
 -- | Create a tree that holds the values wrapped in @Some@ when present and keeps @Null@s on the missing positions
-fromAscListNullable :: (CanStoreLFMBTree m ref (Nullable v), Coercible k Word64, Integral k) => [(k, v)] -> m (LFMBTree k ref (Nullable v))
+fromAscListNullable :: (CanStoreLFMBTree m ref1 ref2 (Nullable v), Coercible k Word64, Integral k) => [(k, v)] -> m (LFMBTree' k ref1 ref2 (Nullable v))
 fromAscListNullable l = fromAscList $ go l 0
   where go z@((i,v):xs) ix
          | i == ix = Some v : go xs (i + 1)
@@ -400,7 +403,7 @@ fromAscListNullable l = fromAscList $ go l 0
         go [] _ = []
 
 -- | Fold a monadic action over the tree in ascending order of index.
-mfold :: (CanStoreLFMBTree m ref v) => (a -> v -> m a) -> a -> LFMBTree k ref v -> m a
+mfold :: (CanStoreLFMBTree m ref1 ref2 v) => (a -> v -> m a) -> a -> LFMBTree' k ref1 ref2 v -> m a
 mfold _ a0 Empty = return a0
 mfold f a0 (NonEmpty _ t) = mfoldT a0 t
   where
@@ -410,7 +413,7 @@ mfold f a0 (NonEmpty _ t) = mfoldT a0 t
       mfoldT a' =<< refLoad r
 
 -- | Map a monadic action over the tree in ascending order of index, discarding the results.
-mmap_ :: (CanStoreLFMBTree m ref v) => (v -> m ()) -> LFMBTree k ref v -> m ()
+mmap_ :: (CanStoreLFMBTree m ref1 ref2 v) => (v -> m ()) -> LFMBTree' k ref1 ref2 v -> m ()
 mmap_ _ Empty = return ()
 mmap_ f (NonEmpty _ t) = mmap_T t
   where
