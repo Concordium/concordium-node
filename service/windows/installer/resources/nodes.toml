@@ -41,6 +41,10 @@ log.roll.count = 2
 collector.url = 'https://dashboard.mainnet.concordium.software/nodes/post'
 # Controls whether data is submitted to the network dashboard for this node.
 collector.enabled = false
+# Disable the idle major garbage collection. This is especially useful for
+# non-baker nodes. It significantly reduces CPU use when the node's database is
+# large and seems to have little downside.
+node.env.CONCORDIUM_NODE_RUNTIME_HASKELL_RTS_FLAGS = '-I0'
 
 [node.testnet]
 # Controls whether the node is enabled
@@ -77,3 +81,7 @@ log.roll.count = 2
 collector.url = 'https://dashboard.testnet.concordium.com/nodes/post'
 # Controls whether data is submitted to the network dashboard for this node.
 collector.enabled = false
+# Disable the idle major garbage collection. This is especially useful for
+# non-baker nodes. It significantly reduces CPU use when the node's database is
+# large and seems to have little downside.
+node.env.CONCORDIUM_NODE_RUNTIME_HASKELL_RTS_FLAGS = '-I0'
