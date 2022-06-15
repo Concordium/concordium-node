@@ -329,3 +329,16 @@ tests:
     - filepath >= 1.4.2
     - template-haskell
     - temporary >= 1.3
+
+benchmarks:
+  cache:
+    main: ./haskell-bench/LRUCache.hs
+    dependencies:
+      - concordium-consensus
+      - criterion
+      - mwc-random
+      - random
+      - random-fu
+    when:
+      - condition: "!os(windows)"
+        ghc-options: -dynamic
