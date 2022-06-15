@@ -4,7 +4,7 @@ extern crate log;
 
 // Force the system allocator on every platform
 use futures::FutureExt;
-use std::alloc::System;
+use std::{alloc::System, convert::identity};
 #[global_allocator]
 static A: System = System;
 
@@ -36,12 +36,13 @@ use concordium_node::{
 use mio::{net::TcpListener, Poll};
 use parking_lot::Mutex as ParkingMutex;
 use rand::Rng;
-use std::{sync::Arc, thread::JoinHandle};
+use std::{io::Cursor, sync::Arc, thread::JoinHandle};
 #[cfg(unix)]
 use tokio::signal::unix as unix_signal;
 #[cfg(windows)]
 use tokio::signal::windows as windows_signal;
 use tokio::sync::{broadcast, oneshot};
+use url::Url;
 
 #[cfg(feature = "instrumentation")]
 use concordium_node::stats_export_service::start_push_gateway;
@@ -138,9 +139,33 @@ async fn main() -> anyhow::Result<()> {
         None
     };
 
-    if let Some(ref import_path) = conf.cli.baker.import_path {
+    // Out-of-band catch-up
+    if let Some(ref import_blocks_from) = conf.cli.baker.import_blocks_from {
+        let import_path =
+            data_dir_path.to_path_buf().join(concordium_node::configuration::CATCHUP_FILE);
+        let from = match Url::parse(import_blocks_from) {
+            Ok(import_url) => {
+                info!("Downloading catch-up files");
+                let res: Result<(), Box<dyn std::error::Error + Send + Sync>> = async {
+                    let mut file = std::fs::File::create(import_path.clone())?;
+                    let response = reqwest::get(import_url).await?;
+                    let mut content = Cursor::new(response.bytes().await?);
+                    std::io::copy(&mut content, &mut file)?;
+                    Ok(())
+                }
+                .await;
+                match res {
+                    Ok(_) => import_path.to_str().map_or_else(|| import_blocks_from, identity),
+                    Err(_) => {
+                        info!("Downloading catch-up files failed");
+                        import_blocks_from
+                    }
+                }
+            }
+            Err(_) => import_blocks_from,
+        };
         info!("Starting out of band catch-up");
-        consensus.import_blocks(import_path.as_bytes());
+        consensus.import_blocks(from.as_bytes());
         info!("Completed out of band catch-up");
     }
 
@@ -434,7 +459,8 @@ fn start_consensus_message_threads(
 
 fn handle_queue_stop<F>(msg: QueueMsg<ConsensusMessage>, dir: &'static str, f: F) -> bool
 where
-    F: FnOnce(ConsensusMessage) -> anyhow::Result<()>, {
+    F: FnOnce(ConsensusMessage) -> anyhow::Result<()>,
+{
     match msg {
         QueueMsg::Relay(msg) => {
             if let Err(e) = f(msg) {

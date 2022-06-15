@@ -512,6 +512,7 @@ dependencies = [
  "tonic",
  "tonic-build",
  "twox-hash",
+ "url",
  "uuid",
  "walkdir",
 ]

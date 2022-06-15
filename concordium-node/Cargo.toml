@@ -12,7 +12,7 @@ default-run = "concordium-node"
 license-file = "../LICENSE"
 
 [features]
-default = []
+default = [ "reqwest" ]
 test_utils = [ "tempfile" ]
 instrumentation = ["serde_derive", "gotham", "mime", "gotham_derive", "prometheus", "hyper", "num_cpus", "reqwest", "http" ]
 network_dump = []
@@ -63,6 +63,7 @@ rpassword = "5.0"
 anyhow = "1.0"
 thiserror = "1.0"
 futures = { version = "0.3" }
+url = "2.2.2"
 
 # gRPC dependencies
 tonic = "0.4.1"

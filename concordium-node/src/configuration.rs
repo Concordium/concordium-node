@@ -18,7 +18,7 @@ use structopt::{clap::AppSettings, StructOpt};
 
 /// Client's details for local directory setup purposes.
 pub const APP_INFO: AppInfo = AppInfo {
-    name:   "concordium",
+    name: "concordium",
     author: "concordium",
 };
 
@@ -76,6 +76,8 @@ pub const SOFT_BAN_DURATION_SECS: u64 = 300;
 pub const MAX_PEER_NETWORKS: usize = 20;
 /// Database subdirectory name
 pub const DATABASE_SUB_DIRECTORY_NAME: &str = "database-v4";
+/// Default out-of-band catch-up file name
+pub const CATCHUP_FILE: &str = "blocks_to_import.mdb";
 
 // In order to avoid premature connection drops, it is estimated that the
 // KEEP_ALIVE_FACTOR should be kept above 3.
@@ -94,33 +96,33 @@ pub struct PrometheusConfig {
         default_value = "127.0.0.1",
         env = "CONCORDIUM_NODE_PROMETHEUS_LISTEN_ADDRESSS"
     )]
-    pub prometheus_listen_addr:   String,
+    pub prometheus_listen_addr: String,
     #[structopt(
         long = "prometheus-listen-port",
         help = "Port for prometheus to listen on",
         default_value = "9090",
         env = "CONCORDIUM_NODE_PROMETHEUS_LISTEN_PORT"
     )]
-    pub prometheus_listen_port:   u16,
+    pub prometheus_listen_port: u16,
     #[structopt(
         long = "prometheus-server",
         help = "Enable prometheus server for metrics",
         env = "CONCORDIUM_NODE_PROMETHEUS_SERVER"
     )]
-    pub prometheus_server:        bool,
+    pub prometheus_server: bool,
     #[structopt(
         long = "prometheus-push-gateway",
         help = "Enable prometheus via push gateway",
         env = "CONCORDIUM_NODE_PROMETHEUS_PUSH_GATEWAY"
     )]
-    pub prometheus_push_gateway:  Option<String>,
+    pub prometheus_push_gateway: Option<String>,
     #[structopt(
         long = "prometheus-job-name",
         help = "Job name to send to push gateway",
         default_value = "p2p_node_push",
         env = "CONCORDIUM_NODE_PROMETHEUS_JOB_NAME"
     )]
-    pub prometheus_job_name:      String,
+    pub prometheus_job_name: String,
     #[structopt(
         long = "prometheus-instance-name",
         help = "If not present node_id will be used",
@@ -246,10 +248,11 @@ pub struct BakerConfig {
     pub transactions_purging_delay: u32,
     #[structopt(
         long = "import-blocks-from",
-        help = "Path to a file exported by the database exporter",
+        help = "Where to find a file exported by the database exporter. \
+		Can be a local path or a URL.",
         env = "CONCORDIUM_NODE_CONSENSUS_IMPORT_BLOCKS_FROM"
     )]
-    pub import_path: Option<String>,
+    pub import_blocks_from: Option<String>,
     #[structopt(
         long = "max-expiry-duration",
         help = "Maximum allowed time difference between now and a transaction's expiry time in \
@@ -290,21 +293,21 @@ pub struct RpcCliConfig {
         help = "Disable the built-in RPC server",
         env = "CONCORDIUM_NODE_DISABLE_RPC_SERVER"
     )]
-    pub no_rpc_server:    bool,
+    pub no_rpc_server: bool,
     #[structopt(
         long = "rpc-server-port",
         help = "RPC server port",
         default_value = "10000",
         env = "CONCORDIUM_NODE_RPC_SERVER_PORT"
     )]
-    pub rpc_server_port:  u16,
+    pub rpc_server_port: u16,
     #[structopt(
         long = "rpc-server-addr",
         help = "RPC server listen address",
         default_value = "127.0.0.1",
         env = "CONCORDIUM_NODE_RPC_SERVER_ADDR"
     )]
-    pub rpc_server_addr:  String,
+    pub rpc_server_addr: String,
     #[structopt(
         long = "rpc-server-token",
         help = "RPC server access token",
@@ -704,19 +707,19 @@ pub struct MacOsConfig {
 #[structopt(about = "Concordium P2P node.")]
 pub struct Config {
     #[structopt(flatten)]
-    pub common:       CommonConfig,
+    pub common: CommonConfig,
     #[cfg(feature = "instrumentation")]
     #[structopt(flatten)]
-    pub prometheus:   PrometheusConfig,
+    pub prometheus: PrometheusConfig,
     #[structopt(flatten)]
-    pub connection:   ConnectionConfig,
+    pub connection: ConnectionConfig,
     #[structopt(flatten)]
-    pub cli:          CliConfig,
+    pub cli: CliConfig,
     #[structopt(flatten)]
     pub bootstrapper: BootstrapperConfig,
     #[cfg(target_os = "macos")]
     #[structopt(flatten)]
-    pub macos:        MacOsConfig,
+    pub macos: MacOsConfig,
 }
 
 impl Config {
@@ -820,8 +823,8 @@ pub fn parse_config() -> anyhow::Result<Config> {
 /// Handles the configuration data.
 #[derive(Debug)]
 pub struct AppPreferences {
-    preferences_map:     PreferencesMap<String>,
-    override_data_dir:   PathBuf,
+    preferences_map: PreferencesMap<String>,
+    override_data_dir: PathBuf,
     override_config_dir: PathBuf,
 }
 
@@ -840,8 +843,8 @@ impl AppPreferences {
             let prefs = load_result.unwrap_or_else(|_| PreferencesMap::<String>::new());
 
             AppPreferences {
-                preferences_map:     prefs,
-                override_data_dir:   override_data,
+                preferences_map: prefs,
+                override_data_dir: override_data,
                 override_config_dir: override_conf,
             }
         } else {
@@ -853,8 +856,8 @@ impl AppPreferences {
             let prefs = PreferencesMap::<String>::new();
 
             AppPreferences {
-                preferences_map:     prefs,
-                override_data_dir:   override_data,
+                preferences_map: prefs,
+                override_data_dir: override_data,
                 override_config_dir: override_conf,
             }
         };
@@ -913,8 +916,12 @@ impl AppPreferences {
     }
 
     /// Returns the path to the application directory.
-    pub fn get_data_dir(&self) -> &Path { &self.override_data_dir }
+    pub fn get_data_dir(&self) -> &Path {
+        &self.override_data_dir
+    }
 
     /// Returns the path to the config directory.
-    pub fn get_config_dir(&self) -> &Path { &self.override_config_dir }
+    pub fn get_config_dir(&self) -> &Path {
+        &self.override_config_dir
+    }
 }
