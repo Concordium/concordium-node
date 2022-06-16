@@ -20,7 +20,7 @@ data CachedRef c a
       CRMem {crMem :: !a}
 
 instance
-    ( MonadCache r c m,
+    ( MonadCache c m,
       BlobStorable m a,
       Cache c,
       CacheKey c ~ BlobRef a,
@@ -55,7 +55,7 @@ instance
         return (CRRef r)
 
 instance
-    ( MonadCache r c m,
+    ( MonadCache c m,
       BlobStorable m a,
       Cache c,
       CacheKey c ~ BlobRef a,
@@ -70,7 +70,7 @@ instance
     load = fmap CRRef <$> load
 
 instance
-    ( MonadCache r c m,
+    ( MonadCache c m,
       BlobStorable m a,
       Cache c,
       CacheKey c ~ BlobRef a,
@@ -95,7 +95,7 @@ data HashedCachedRef' h c a =
 type HashedCachedRef = HashedCachedRef' H.Hash
 
 instance
-    ( MonadCache r c m,
+    ( MonadCache c m,
       BlobStorable m a,
       Cache c,
       CacheKey c ~ BlobRef a,
@@ -123,7 +123,7 @@ instance
       return $ HashedCachedRef cr (cachedRefHash ref)
 
 instance
-    ( MonadCache r c m,
+    ( MonadCache c m,
       BlobStorable m a,
       Cache c,
       CacheKey c ~ BlobRef a,
@@ -140,7 +140,7 @@ instance
     load = load -- TODO
 
 instance
-    ( MonadCache r c m,
+    ( MonadCache c m,
       BlobStorable m a,
       Cache c,
       CacheKey c ~ BlobRef a,
@@ -153,3 +153,6 @@ instance
 
 instance Show a => Show (HashedCachedRef c a) where
   show ref = show (cachedRef ref) ++ maybe "" (\x -> " with hash: " ++ show x) (cachedRefHash ref)
+
+instance MonadBlobStore m => Cacheable m (HashedCachedRef' H.Hash c a) where
+  -- TODO: Figure out if the default implemenation is the desired one.

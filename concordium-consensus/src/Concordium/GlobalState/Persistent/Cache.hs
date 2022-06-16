@@ -5,24 +5,39 @@ module Concordium.GlobalState.Persistent.Cache where
 
 import Control.Concurrent.MVar
 import Control.Monad.IO.Class
-import Control.Monad.Reader
 import qualified Data.IntMap.Strict as IntMap
 import Data.Proxy
 import qualified Data.Vector.Mutable as Vec
 
 import Concordium.GlobalState.Persistent.BlobStore (BlobRef (..))
+import Control.Monad.State.Strict
+import Control.Monad.Writer.Strict
+import Control.Monad.Except (ExceptT)
+import Concordium.Utils.Serialization.Put (PutT)
 
-class HasCache c r where
-    getCache :: r -> c
+class MonadIO m => MonadCache c m where
+  getCache :: m c
 
-type MonadCache r c m = (MonadIO m, MonadReader r m, HasCache c r)
+-- TODO: These instances are sketchy.
+instance MonadCache c m => MonadCache c (StateT s m) where
+  getCache = lift getCache
+
+instance (Monoid w, MonadCache c m) => MonadCache c (WriterT w m) where
+  getCache = lift getCache
+
+-- TODO: Figure out whether this makes sense with respect to rollbacks.
+instance (MonadCache c m) => MonadCache c (ExceptT e m) where
+  getCache = lift getCache
+
+instance (MonadCache c m) => MonadCache c (PutT m) where
+  getCache = lift getCache
 
 class Cache c where
     type CacheKey c
     type CacheValue c
 
-    putCachedValue :: (MonadCache r c m) => Proxy c -> CacheKey c -> CacheValue c -> m (CacheValue c)
-    lookupCachedValue :: (MonadCache r c m) => Proxy c -> CacheKey c -> m (Maybe (CacheValue c))
+    putCachedValue :: (MonadCache c m) => Proxy c -> CacheKey c -> CacheValue c -> m (CacheValue c)
+    lookupCachedValue :: (MonadCache c m) => Proxy c -> CacheKey c -> m (Maybe (CacheValue c))
 
 data DummyCache k v = DummyCache
 
@@ -30,7 +45,7 @@ instance Cache (DummyCache k v) where
     type CacheKey (DummyCache k v) = k
     type CacheValue (DummyCache k v) = v
 
-    putCachedValue _ _ v = return v
+    putCachedValue _ _ = return
     lookupCachedValue _ _ = return Nothing
 
 -- |First-in, first-out cache, with entries keyed by 'Int's.
@@ -57,7 +72,7 @@ instance Cache (FIFOCache v) where
 
     putCachedValue _ key val = do
         let intKey = fromIntegral (theBlobRef key)
-        FIFOCache cacheRef <- asks getCache
+        FIFOCache cacheRef <- getCache
         liftIO $ do
             cache <- takeMVar cacheRef
             case IntMap.lookup intKey (keyMap cache) of
@@ -79,7 +94,7 @@ instance Cache (FIFOCache v) where
                     return val'
 
     lookupCachedValue _ key = do
-        FIFOCache cacheRef <- asks getCache
+        FIFOCache cacheRef <- getCache
         -- This should be OK as we are just accessing the keyMap, so we can read from a snapshot.
         -- We need to be sure not to retain references after we are done.
         cache <- liftIO $ readMVar cacheRef

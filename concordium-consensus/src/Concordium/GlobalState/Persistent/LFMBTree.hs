@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE MonoLocalBinds #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- |
 --    Module      : Concordium.GlobalState.LFMBTree
@@ -62,6 +62,8 @@ import Data.Serialize
 import Data.Word
 import Prelude hiding (lookup)
 import Data.Coerce (coerce, Coercible)
+import Concordium.GlobalState.Persistent.CachedRef (HashedCachedRef, HashedCachedRef'(HashedCachedRef))
+import qualified Concordium.GlobalState.Persistent.Cache as Cache
 
 {-
 -------------------------------------------------------------------------------
@@ -225,6 +227,10 @@ instance (BlobStorable m v, MHashableTo m H.Hash v, Cacheable m v) => Cacheable 
   cache (Node h l r) = Node h <$> cache l <*> cache r
   cache (Leaf a) = Leaf <$> cache a
 
+instance (Cache.MonadCache c m, Cache.Cache c, Cache.CacheValue c ~ v, Cache.CacheKey c ~ BlobRef v, BlobStorable m v, MHashableTo m H.Hash v, Cacheable m v) => Cacheable m (T HashedBufferedRef (HashedCachedRef c) v) where
+  cache (Node h l r) = Node h <$> cache l <*> cache r
+  cache (Leaf a) = Leaf <$> cache a
+
 instance (Applicative m, Cacheable m (T ref1 ref2 v)) => Cacheable m (LFMBTree' k ref1 ref2 v) where
   cache t@Empty = pure t
   cache (NonEmpty s t) = NonEmpty s <$> cache t
@@ -235,7 +241,7 @@ instance (Applicative m, Cacheable m (T ref1 ref2 v)) => Cacheable m (LFMBTree' 
 -------------------------------------------------------------------------------
 -}
 
-size :: LFMBTree k ref v -> Word64
+size :: LFMBTree' k ref1 ref2 v -> Word64
 size Empty = 0
 size (NonEmpty s _) = s
 
