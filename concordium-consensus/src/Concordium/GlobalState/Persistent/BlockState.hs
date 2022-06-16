@@ -2594,7 +2594,7 @@ instance HasBlobStore (PersistentBlockStateContext av) where
     blobLoadCallback = bscLoadCallback . pbscBlobStore
     blobStoreCallback = bscStoreCallback . pbscBlobStore
 
-instance AccountVersionFor pv ~ av => Classes.HasCache (Accounts.AccountCache av) (PersistentBlockStateContext pv) where
+instance AccountVersionFor pv ~ av => Cache.HasCache (Accounts.AccountCache av) (PersistentBlockStateContext pv) where
   projectCache = pbscCache
 
 instance (MonadIO m, av ~ AccountVersionFor pv) => Cache.MonadCache (Accounts.AccountCache av) (ReaderT (PersistentBlockStateContext pv) m) where

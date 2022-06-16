@@ -15,6 +15,9 @@ import Control.Monad.Writer.Strict
 import Control.Monad.Except (ExceptT)
 import Concordium.Utils.Serialization.Put (PutT)
 
+class HasCache cache r where
+  projectCache :: r -> cache
+
 class MonadIO m => MonadCache c m where
   getCache :: m c
 
