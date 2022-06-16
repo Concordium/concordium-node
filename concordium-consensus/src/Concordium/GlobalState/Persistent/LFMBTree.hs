@@ -62,7 +62,7 @@ import Data.Serialize
 import Data.Word
 import Prelude hiding (lookup)
 import Data.Coerce (coerce, Coercible)
-import Concordium.GlobalState.Persistent.CachedRef (HashedCachedRef, HashedCachedRef'(HashedCachedRef))
+import Concordium.GlobalState.Persistent.CachedRef (HashedCachedRef)
 import qualified Concordium.GlobalState.Persistent.Cache as Cache
 
 {-

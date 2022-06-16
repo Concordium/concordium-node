@@ -102,7 +102,7 @@ instance MonadBlobStore m => BlobStorable m RegIdHistory
 -- |Load the registration ids.  If 'accountRegIds' is @Null@, then 'accountRegIdHistory'
 -- is used (reading from disk as necessary) to determine it, in which case 'accountRegIds'
 -- is updated with the determined value.
-loadRegIds :: forall m pv c. MonadBlobStore m => Accounts pv -> m (Map.Map ID.CredentialRegistrationID AccountIndex, Accounts pv)
+loadRegIds :: forall m pv. MonadBlobStore m => Accounts pv -> m (Map.Map ID.CredentialRegistrationID AccountIndex, Accounts pv)
 loadRegIds a@Accounts{accountRegIds = Some regids} = return (regids, a)
 loadRegIds a@Accounts{accountRegIds = Null, ..} = do
         regids <- Trie.toMap accountRegIdHistory

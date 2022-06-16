@@ -137,7 +137,7 @@ instance
       (r, v') <- storeUpdate (cachedRef c)
       return (r, HashedCachedRef v' (cachedRefHash c))
       
-    load = load -- TODO
+    load = load
 
 instance
     ( MonadCache c m,
