@@ -652,12 +652,12 @@ startupSkov genesis = do
                                       newEConfig = VersionedConfiguration{..}
                                   oldVersions <- readIORef mvVersions
                                   writeIORef mvVersions (oldVersions `Vec.snoc` newVersion newEConfig)
-                                  let getCurrentGenesisAndHeight :: VersionedSkovM gsconf finconf pv (BlockHash, BlockHeight, Maybe SomeProtocolVersion)
+                                  let getCurrentGenesisAndHeight :: VersionedSkovM gsconf finconf pv (BlockHash, AbsoluteBlockHeight, Maybe SomeProtocolVersion)
                                       getCurrentGenesisAndHeight = liftSkov $ do
                                         currentGenesis <- getGenesisData
                                         lfHeight <- getLastFinalizedHeight
                                         nextPV <- getNextProtocolVersion
-                                        return (_gcCurrentHash currentGenesis, lfHeight, nextPV)
+                                        return (_gcCurrentHash currentGenesis, localToAbsoluteBlockHeight vcGenesisHeight lfHeight, nextPV)
                                   ((genesisHash, lastFinalizedHeight, nextPV), _) <- runMVR (runSkovT getCurrentGenesisAndHeight (mvrSkovHandlers newEConfig mvr) vcContext st) mvr
                                   notifyRegenesis (Just genesisHash)
                                   return (Left (newVersion newEConfig, lastFinalizedHeight, nextPV))
