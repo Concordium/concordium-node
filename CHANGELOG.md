@@ -2,6 +2,12 @@
 
 ## Unrelease changes
 
+- Remove transaction logging functionality from the node. It is replaced by an
+  external service. As a consequence the `transaction-outcome-logging` family of
+  command-line options are removed from the node.
+
+## 4.2.1
+
 - Decrease node startup time and memory use by avoiding needless checks when
   loading the database.
 - Improve startup time by avoiding processing already processed protocol

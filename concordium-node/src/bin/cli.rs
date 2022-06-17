@@ -79,19 +79,6 @@ async fn main() -> anyhow::Result<()> {
     let (gen_data, priv_data) = get_baker_data(&app_prefs, &conf.cli.baker)
         .context("Can't get genesis data or private data. Aborting")?;
 
-    let consensus_database_url = if conf.cli.transaction_outcome_logging {
-        format!(
-            "host={} port={} user={} dbname={} password={}",
-            conf.cli.transaction_outcome_logging_database_host,
-            conf.cli.transaction_outcome_logging_database_port,
-            conf.cli.transaction_outcome_logging_database_username,
-            conf.cli.transaction_outcome_logging_database_name,
-            conf.cli.transaction_outcome_logging_database_password
-        )
-    } else {
-        String::new()
-    };
-
     // Setup task with signal handling before doing any irreversible operations
     // to avoid being interrupted in the middle of sensitive operations, e.g.,
     // creating the database.
@@ -119,7 +106,6 @@ async fn main() -> anyhow::Result<()> {
             ConsensusLogLevel::Info
         },
         &database_directory,
-        &consensus_database_url,
         regenesis_arc,
     )?;
     info!("Consensus layer started");

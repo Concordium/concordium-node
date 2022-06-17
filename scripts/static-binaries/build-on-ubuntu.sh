@@ -2,7 +2,7 @@
 
 # Build concordium-node and related binaries in a format suitable for distribution.
 # The binaries are linked mostly statically, apart from a few common libraries that
-# seem difficult to impossible to link statically. These are libc, libpq.
+# seem difficult to impossible to link statically. In particular libc.
 
 set -euxo pipefail
 

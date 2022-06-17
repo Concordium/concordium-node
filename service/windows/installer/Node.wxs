@@ -124,9 +124,6 @@
                 <File Name="liblzma-5.dll" Source="!(bindpath.lib)liblzma-5.dll" KeyPath="yes" />
             </Component>
             <Component>
-                <File Name="libpq.dll" Source="!(bindpath.lib)libpq.dll" KeyPath="yes" />
-            </Component>
-            <Component>
                 <File Name="libssl-1_1-x64.dll" Source="!(bindpath.lib)libssl-1_1-x64.dll" KeyPath="yes" />
             </Component>
             <Component>

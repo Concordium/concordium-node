@@ -60,7 +60,7 @@ By default none of these features are enabled.
 
 Building a node with any of these features, e.g., `cargo build --release
 --features=static` produces a mostly statically linked binary `concordium-node`,
-apart from system libraries and `libpq` for postgres.
+apart from system libraries.
 
 ### Environment variables
 
