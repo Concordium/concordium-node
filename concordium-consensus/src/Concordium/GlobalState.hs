@@ -20,7 +20,6 @@ import Control.Monad.State.Class
 import Control.Monad.Trans.Reader hiding (ask)
 import Data.Proxy
 import Data.ByteString.Char8(ByteString)
-import Data.Pool(destroyAllResources)
 import Data.Kind
 
 import Concordium.Types.ProtocolVersion
@@ -35,8 +34,6 @@ import Concordium.GlobalState.Persistent.BlobStore (closeBlobStore, createBlobSt
 import Concordium.GlobalState.Persistent.BlockState
 import Concordium.GlobalState.Persistent.TreeState
 import Concordium.GlobalState.TreeState as TS
-import Concordium.GlobalState.AccountTransactionIndex
-import Concordium.GlobalState.SQL.AccountTransactionIndex
 import Concordium.Logger
 import Concordium.Types.Block (AbsoluteBlockHeight)
 
@@ -215,7 +212,7 @@ deriving via PersistentBlockStateMonad pv
 -- @MonadState s m@.
 --
 -- * If @s@ is 'SkovData pv bs', then the in-memory, Haskell tree state is used.
--- * If @s@ is 'SkovPersistentData pv ati bs', then the persistent Haskell tree state is used.
+-- * If @s@ is 'SkovPersistentData pv bs', then the persistent Haskell tree state is used.
 newtype TreeStateM s m a = TreeStateM {runTreeStateM :: m a}
     deriving (Functor, Applicative, Monad, MonadState s, MonadIO, BlockStateTypes, BlockStateQuery,
             AccountOperations, BlockStateOperations, BlockStateStorage, ContractStateOperations)
@@ -224,15 +221,10 @@ deriving instance MonadProtocolVersion m => MonadProtocolVersion (TreeStateM s m
 
 -- * Specializations
 type MemoryTreeStateM pv bs m = TreeStateM (SkovData pv bs) m
-type PersistentTreeStateM pv ati bs m = TreeStateM (SkovPersistentData pv ati bs) m
+type PersistentTreeStateM pv bs m = TreeStateM (SkovPersistentData pv bs) m
 
 -- * Specialized implementations
 -- ** Memory implementations
-deriving via PureTreeStateMonad bs m
-    instance ATITypes (MemoryTreeStateM pv bs m)
-
-deriving via PureTreeStateMonad bs m
-    instance Monad m => PerAccountDBOperations (MemoryTreeStateM pv bs m)
 
 deriving via PureTreeStateMonad bs m
     instance GlobalStateTypes (MemoryTreeStateM pv bs m)
@@ -250,31 +242,23 @@ deriving via PureTreeStateMonad bs m
              => TreeStateMonad (MemoryTreeStateM pv bs m)
 
 -- ** Disk implementations
-deriving via PersistentTreeStateMonad ati bs m
-    instance ATITypes (PersistentTreeStateMonad ati bs m)
-             => ATITypes (PersistentTreeStateM pv ati bs m)
 
-deriving via PersistentTreeStateMonad ati bs m
+deriving via PersistentTreeStateMonad bs m
+    instance GlobalStateTypes (PersistentTreeStateM pv bs m)
+
+deriving via PersistentTreeStateMonad bs m
     instance (Monad m,
-              PerAccountDBOperations (PersistentTreeStateMonad ati bs m))
-           => PerAccountDBOperations (PersistentTreeStateM pv ati bs m)
-
-deriving via PersistentTreeStateMonad ati bs m
-    instance GlobalStateTypes (PersistentTreeStateM pv ati bs m)
-
-deriving via PersistentTreeStateMonad ati bs m
-    instance (Monad m,
-              BlockPointerMonad (PersistentTreeStateMonad ati bs m),
+              BlockPointerMonad (PersistentTreeStateMonad bs m),
               MPV m ~ pv)
-             => BlockPointerMonad (PersistentTreeStateM pv ati bs m)
+             => BlockPointerMonad (PersistentTreeStateM pv bs m)
 
-deriving via PersistentTreeStateMonad ati bs m
+deriving via PersistentTreeStateMonad bs m
     instance (Monad m,
               MonadProtocolVersion m,
               BlockStateStorage m,
-              TreeStateMonad (PersistentTreeStateMonad ati bs m),
+              TreeStateMonad (PersistentTreeStateMonad bs m),
               MPV m ~ pv)
-             => TreeStateMonad (PersistentTreeStateM pv ati bs m)
+             => TreeStateMonad (PersistentTreeStateM pv bs m)
 
 -- |A newtype wrapper for providing instances of global state monad classes.
 -- The block state monad instances are derived directly from 'BlockStateM'.
@@ -282,12 +266,12 @@ deriving via PersistentTreeStateMonad ati bs m
 -- The arguments c, r, g, s, m, a are as in BlockStateM, whereas the argument @db@
 -- is an additional context that manages auxiliary databases not needed by consensus.
 -- In particular this means the index of transactions that affect a given account.
-newtype GlobalStateM (pv :: ProtocolVersion) db c r g s m a = GlobalStateM {runGlobalStateM :: m a}
+newtype GlobalStateM (pv :: ProtocolVersion) c r g s m a = GlobalStateM {runGlobalStateM :: m a}
     deriving (Functor, Applicative, Monad, MonadReader r, MonadState s, MonadIO, MonadLogger)
     deriving (BlockStateTypes) via (BlockStateM pv c r g s m)
 
-instance (IsProtocolVersion pv) => MonadProtocolVersion (GlobalStateM pv db c r g s m) where
-    type MPV (GlobalStateM pv db c r g s m) = pv
+instance (IsProtocolVersion pv) => MonadProtocolVersion (GlobalStateM pv c r g s m) where
+    type MPV (GlobalStateM pv c r g s m) = pv
 
 -- * Specializations
 
@@ -298,51 +282,42 @@ type TreeStateBlockStateM pv g c r s m = TreeStateM g (BlockStateM pv c r g s m)
 deriving via BlockStateM pv c r g s m
     instance (Monad m,
               BlockStateQuery (BlockStateM pv c r g s m))
-             => BlockStateQuery (GlobalStateM pv db c r g s m)
+             => BlockStateQuery (GlobalStateM pv c r g s m)
 
 deriving via BlockStateM pv c r g s m
     instance (Monad m,
               AccountOperations (BlockStateM pv c r g s m))
-             => AccountOperations (GlobalStateM pv db c r g s m)
+             => AccountOperations (GlobalStateM pv c r g s m)
 
 deriving via BlockStateM pv c r g s m
     instance (Monad m,
               ContractStateOperations (BlockStateM pv c r g s m))
-             => ContractStateOperations (GlobalStateM pv db c r g s m)
+             => ContractStateOperations (GlobalStateM pv c r g s m)
 
 deriving via BlockStateM pv c r g s m
-    instance (BlockStateQuery (GlobalStateM pv db c r g s m),
+    instance (BlockStateQuery (GlobalStateM pv c r g s m),
               BlockStateOperations (BlockStateM pv c r g s m))
-             => BlockStateOperations (GlobalStateM pv db c r g s m)
+             => BlockStateOperations (GlobalStateM pv c r g s m)
 
 deriving via BlockStateM pv c r g s m
-    instance (BlockStateOperations (GlobalStateM pv db c r g s m),
+    instance (BlockStateOperations (GlobalStateM pv c r g s m),
               BlockStateStorage (BlockStateM pv c r g s m))
-             => BlockStateStorage (GlobalStateM pv db c r g s m)
-
-deriving via TreeStateBlockStateM pv g c r s m
-    instance ATITypes (TreeStateBlockStateM pv g c r s m)
-             => ATITypes (GlobalStateM pv db c r g s m)
-
-deriving via TreeStateBlockStateM pv g c r s m
-    instance (Monad m,
-              PerAccountDBOperations (TreeStateBlockStateM pv g c r s m))
-             => PerAccountDBOperations (GlobalStateM pv db c r g s m)
+             => BlockStateStorage (GlobalStateM pv c r g s m)
 
 deriving via TreeStateBlockStateM pv g c r s m
     instance GlobalStateTypes (TreeStateBlockStateM pv g c r s m)
-             => GlobalStateTypes (GlobalStateM pv db c r g s m)
+             => GlobalStateTypes (GlobalStateM pv c r g s m)
 
 deriving via TreeStateBlockStateM pv g c r s m
     instance (Monad m,
               BlockPointerMonad (TreeStateBlockStateM pv g c r s m))
-             => BlockPointerMonad (GlobalStateM pv db c r g s m)
+             => BlockPointerMonad (GlobalStateM pv c r g s m)
 
 deriving via TreeStateBlockStateM pv g c r s m
     instance (Monad m,
               BlockStateStorage (BlockStateM pv c r g s m),
               TreeStateMonad (TreeStateBlockStateM pv g c r s m))
-             => TreeStateMonad (GlobalStateM pv db c r g s m)
+             => TreeStateMonad (GlobalStateM pv c r g s m)
 
 -----------------------------------------------------------------------------
 
@@ -394,8 +369,6 @@ class GlobalStateConfig (c :: Type) where
     type GSContext c (pv :: ProtocolVersion)
     -- |The (mutable) state type associated with a global state configuration.
     type GSState c (pv :: ProtocolVersion)
-    -- |Context for transaction logging associated with a global state configuration.
-    type GSLogContext c (pv :: ProtocolVersion)
     -- |Generate context and state from the initial configuration if the state
     -- exists already. This may have 'IO' side effects to set up any necessary
     -- storage. This may throw a 'GlobalStateInitException'.
@@ -406,15 +379,15 @@ class GlobalStateConfig (c :: Type) where
     -- Note that even if the state is successfully loaded it is not in a usable
     -- state for an active consensus and must be activated before. Use
     -- 'activateGlobalState' for that.
-    initialiseExistingGlobalState :: forall pv . IsProtocolVersion pv => SProtocolVersion pv -> c -> LogIO (Maybe (GSContext c pv, GSState c pv, GSLogContext c pv))
+    initialiseExistingGlobalState :: forall pv . IsProtocolVersion pv => SProtocolVersion pv -> c -> LogIO (Maybe (GSContext c pv, GSState c pv))
 
     -- |Initialise new global state with the given genesis. If the state already
     -- exists this will raise an exception. The same considerations as for
     -- 'initialiseExistingGlobalState' apply about state activation.
-    initialiseNewGlobalState :: IsProtocolVersion pv => GenesisData pv -> c -> LogIO (GSContext c pv, GSState c pv, GSLogContext c pv)
+    initialiseNewGlobalState :: IsProtocolVersion pv => GenesisData pv -> c -> LogIO (GSContext c pv, GSState c pv)
 
     -- |Either initialise an existing state, or if it does not exist, initialise a new one with the given genesis.
-    initialiseGlobalState :: forall pv . IsProtocolVersion pv => GenesisData pv -> c -> LogIO (GSContext c pv, GSState c pv, GSLogContext c pv)
+    initialiseGlobalState :: forall pv . IsProtocolVersion pv => GenesisData pv -> c -> LogIO (GSContext c pv, GSState c pv)
     initialiseGlobalState gd cfg = initialiseExistingGlobalState (protocolVersion @pv) cfg >>= \case
       Nothing -> initialiseNewGlobalState gd cfg
       Just config -> return config
@@ -424,29 +397,27 @@ class GlobalStateConfig (c :: Type) where
     activateGlobalState :: IsProtocolVersion pv => Proxy c -> Proxy pv -> GSContext c pv -> GSState c pv -> LogIO (GSState c pv)
 
     -- |Shutdown the global state.
-    shutdownGlobalState :: SProtocolVersion pv -> Proxy c -> GSContext c pv -> GSState c pv -> GSLogContext c pv -> IO ()
+    shutdownGlobalState :: SProtocolVersion pv -> Proxy c -> GSContext c pv -> GSState c pv -> IO ()
 
 instance GlobalStateConfig MemoryTreeMemoryBlockConfig where
     type GSContext MemoryTreeMemoryBlockConfig pv = ()
     type GSState MemoryTreeMemoryBlockConfig pv = SkovData pv (BS.HashedBlockState pv)
-    type GSLogContext MemoryTreeMemoryBlockConfig pv = NoLogContext
     initialiseExistingGlobalState _ _ = return Nothing
     initialiseNewGlobalState gendata (MTMBConfig rtparams) = do
         bs <- case genesisState gendata of
             Left err -> logExceptionAndThrow GlobalState (InvalidGenesisData err)
             Right bs -> return $ BS.hashBlockState bs
         skovData <- runPureBlockStateMonad (initialSkovData rtparams gendata bs)
-        return ((), skovData, NoLogContext)
+        return ((), skovData)
 
     activateGlobalState _ _ _ = return
 
-    shutdownGlobalState _ _ _ _ _ = return ()
+    shutdownGlobalState _ _ _ _ = return ()
 
 -- |Configuration that uses the Haskell implementation of tree state and the
 -- in-memory, Haskell implementation of the block state.
 instance GlobalStateConfig MemoryTreeDiskBlockConfig where
     type GSContext MemoryTreeDiskBlockConfig pv = PersistentBlockStateContext
-    type GSLogContext MemoryTreeDiskBlockConfig pv = NoLogContext
     type GSState MemoryTreeDiskBlockConfig pv = SkovData pv (HashedPersistentBlockState pv)
     initialiseExistingGlobalState _ _ = return Nothing
     initialiseNewGlobalState genData MTDBConfig{..} = do
@@ -461,16 +432,15 @@ instance GlobalStateConfig MemoryTreeDiskBlockConfig where
                     _ <- saveBlockState pbs
                     initialSkovData mtdbRuntimeParameters genData pbs
             skovData <- runReaderT (runPersistentBlockStateMonad initState) pbsc
-            return (pbsc, skovData, NoLogContext)
+            return (pbsc, skovData)
 
     activateGlobalState _ _ _ = return
 
-    shutdownGlobalState _ _ PersistentBlockStateContext{..} _ _ = liftIO $ do
+    shutdownGlobalState _ _ PersistentBlockStateContext{..} _ = liftIO $ do
         closeBlobStore pbscBlobStore
 
 instance GlobalStateConfig DiskTreeDiskBlockConfig where
-    type GSLogContext DiskTreeDiskBlockConfig pv = NoLogContext
-    type GSState DiskTreeDiskBlockConfig pv = SkovPersistentData pv () (HashedPersistentBlockState pv)
+    type GSState DiskTreeDiskBlockConfig pv = SkovPersistentData pv (HashedPersistentBlockState pv)
     type GSContext DiskTreeDiskBlockConfig pv = PersistentBlockStateContext
 
     initialiseExistingGlobalState _ DTDBConfig{..} = do
@@ -483,9 +453,9 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
           loadBlobStore dtdbBlockStateFile
         let pbsc = PersistentBlockStateContext{..}
         logm <- ask
-        skovData <- liftIO (runLoggerT (loadSkovPersistentData dtdbRuntimeParameters dtdbTreeStateDirectory pbsc NoLogContext) logm
+        skovData <- liftIO (runLoggerT (loadSkovPersistentData dtdbRuntimeParameters dtdbTreeStateDirectory pbsc) logm
                     `onException` (closeBlobStore pbscBlobStore))
-        return (Just (pbsc, skovData, NoLogContext))
+        return (Just (pbsc, skovData))
       else return Nothing
 
     initialiseNewGlobalState genData DTDBConfig{..} = do
@@ -497,82 +467,13 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
                   Right genState -> return genState
               pbs <- makePersistent genState
               ser <- saveBlockState pbs
-              initialSkovPersistentData dtdbRuntimeParameters dtdbTreeStateDirectory genData pbs () NoLogContext ser
+              initialSkovPersistentData dtdbRuntimeParameters dtdbTreeStateDirectory genData pbs ser
       isd <- runReaderT (runPersistentBlockStateMonad initGS) pbsc
               `onException` liftIO (destroyBlobStore pbscBlobStore)
-      return (pbsc, isd, NoLogContext)
+      return (pbsc, isd)
 
     activateGlobalState _ _ = activateSkovPersistentData
 
-    shutdownGlobalState _ _ PersistentBlockStateContext{..} st _ = do
+    shutdownGlobalState _ _ PersistentBlockStateContext{..} st = do
         closeBlobStore pbscBlobStore
         closeSkovPersistentData st
-
-instance GlobalStateConfig DiskTreeDiskBlockWithLogConfig where
-    type GSState DiskTreeDiskBlockWithLogConfig pv = SkovPersistentData pv SQLTransactionLog (HashedPersistentBlockState pv)
-    type GSContext DiskTreeDiskBlockWithLogConfig pv = PersistentBlockStateContext
-    type GSLogContext DiskTreeDiskBlockWithLogConfig pv = SQLTransactionLogContext
-
-    initialiseExistingGlobalState (_ :: SProtocolVersion pv) DTDBWLConfig{..} = do
-        -- check if all the necessary database files exist
-      existingDB <- checkExistingDatabase dtdbwlTreeStateDirectory dtdbwlBlockStateFile
-      if existingDB then do
-        dbHandle <- do
-          dbHandle <- liftIO $ connectPostgres dtdbwlTxDBConnectionString
-          liftIO (checkTablesExist dbHandle) >>= \case
-            Ok -> logEvent GlobalState LLInfo "Using existing PostgreSQL tables for transaction logging."
-            NoTables -> do
-              logEvent GlobalState LLInfo "No relevant tables found in transaction logging database. Creating them."
-              liftIO $ createTables dbHandle
-            IncorrectFormat -> logExceptionAndThrow GlobalState (DatabaseOpeningError (userError "The connected SQL database has some of the 'ati', 'cti', or 'summaries', but either not all or they have incorrect columns."))
-          return dbHandle
-        let transactionLogContext = SQLTransactionLogContext{
-              connectionPool = dbHandle,
-              genesisAbsoluteHeight = dtdbwlGenesisHeight                
-            }
-        pbscBlobStore <- liftIO $
-          -- the block state file exists, is readable and writable
-          -- we ignore the given block state parameter in such a case.
-          loadBlobStore dtdbwlBlockStateFile
-        let pbsc = PersistentBlockStateContext{..}
-        logm <- ask
-        skovData <- liftIO (runLoggerT (loadSkovPersistentData dtdbwlRuntimeParameters dtdbwlTreeStateDirectory pbsc transactionLogContext) logm
-                    `onException` (destroyAllResources dbHandle >> closeBlobStore pbscBlobStore))
-        return (Just (pbsc, skovData, transactionLogContext))
-      else return Nothing
-
-    initialiseNewGlobalState genData DTDBWLConfig{..} = do
-        dbHandle <- do
-          dbHandle <- liftIO $ connectPostgres dtdbwlTxDBConnectionString
-          liftIO (checkTablesExist dbHandle) >>= \case
-            Ok -> logEvent GlobalState LLInfo "Using existing PostgreSQL tables for transaction logging."
-            NoTables -> do
-              logEvent GlobalState LLInfo "No relevant tables found in transaction logging database. Creating them."
-              liftIO $ createTables dbHandle
-            IncorrectFormat -> logExceptionAndThrow GlobalState (DatabaseOpeningError (userError "The connected SQL database has some of the 'ati', 'cti', or 'summaries', but either not all or they have incorrect columns."))
-          return dbHandle
-        let transactionLogContext = SQLTransactionLogContext{
-              connectionPool = dbHandle,
-              genesisAbsoluteHeight = dtdbwlGenesisHeight                
-            }
-        pbscBlobStore <- liftIO $ createBlobStore dtdbwlBlockStateFile
-        let pbsc = PersistentBlockStateContext{..}
-        let initGS = do
-                genState <- case genesisState genData of
-                    Left err -> logExceptionAndThrow GlobalState (InvalidGenesisData err)
-                    Right genState -> return genState
-                pbs <- makePersistent genState
-                ser <- saveBlockState pbs
-                let ati = defaultValue
-                initialSkovPersistentData dtdbwlRuntimeParameters dtdbwlTreeStateDirectory genData pbs ati transactionLogContext ser
-        isd <- runReaderT (runPersistentBlockStateMonad initGS) pbsc
-                `onException` liftIO (destroyAllResources dbHandle >> destroyBlobStore pbscBlobStore)
-        return (pbsc, isd, transactionLogContext)
-
-    activateGlobalState _ _ = activateSkovPersistentData
-
-    shutdownGlobalState _ _ PersistentBlockStateContext{..} st transactionLogContext = do
-        closeBlobStore pbscBlobStore
-        destroyAllResources (connectionPool transactionLogContext)
-        closeSkovPersistentData st
-

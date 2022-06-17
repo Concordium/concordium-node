@@ -43,7 +43,6 @@ import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Parameters
 import Concordium.Types.SeedState
 import Concordium.GlobalState.TransactionTable
-import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.Scheduler.Types
 import Concordium.Types.UpdateQueues (currentParameters)
 import Concordium.Kontrol.Bakers
@@ -62,27 +61,22 @@ import Lens.Micro.Platform
 
 import qualified Concordium.Scheduler as Sch
 
-newtype BlockStateMonad w state m a = BSM { _runBSM :: RWST ContextState w state m a}
-    deriving (Functor, Applicative, Monad, MonadState state, MonadReader ContextState, MonadTrans, MonadWriter w, MonadLogger, TimeMonad)
+newtype BlockStateMonad state m a = BSM { _runBSM :: RWST ContextState () state m a}
+    deriving (Functor, Applicative, Monad, MonadState state, MonadReader ContextState, MonadTrans, MonadLogger, TimeMonad)
 
-deriving via (MGSTrans (RWST ContextState w state) m)
-    instance BlockStateTypes (BlockStateMonad w state m)
+deriving via (MGSTrans (RWST ContextState () state) m)
+    instance BlockStateTypes (BlockStateMonad state m)
 
-deriving via (BSOMonadWrapper ContextState w state (MGSTrans (RWST ContextState w state) m))
+deriving via (BSOMonadWrapper ContextState state (MGSTrans (RWST ContextState () state) m))
     instance
-        (SS state ~ UpdatableBlockState m, Monoid w, HasSchedulerState state,
-        BlockStateOperations m, Footprint (ATIStorage m) ~ w)
-             => StaticInformation (BlockStateMonad w state m)
-
-instance (ATIStorage m ~ w, ATITypes m) => ATITypes (BlockStateMonad w state m) where
-  type ATIStorage (BlockStateMonad w state m) = ATIStorage m
+        (SS state ~ UpdatableBlockState m, HasSchedulerState state, BlockStateOperations m)
+             => StaticInformation (BlockStateMonad state m)
 
 data LogSchedulerState (m :: DK.Type -> DK.Type) = LogSchedulerState {
   _lssBlockState :: !(UpdatableBlockState m),
   _lssSchedulerEnergyUsed :: !Energy,
   _lssSchedulerExecutionCosts :: !Amount,
-  _lssNextIndex :: !TransactionIndex,
-  _lssSchedulerTransactionLog :: !(ATIStorage m)
+  _lssNextIndex :: !TransactionIndex
   }
 
 makeLenses ''LogSchedulerState
@@ -90,61 +84,55 @@ makeLenses ''LogSchedulerState
 -- This hack of ExecutionResult' and ExecutionResult is so that we
 -- automatically get the property that if BlockState m = BlockState m'
 -- then ExecutionResult m is interchangeable with ExecutionResult m'
-data ExecutionResult' s ati = ExecutionResult{
+data ExecutionResult' s = ExecutionResult{
   _finalState :: !s,
-  _energyUsed :: !Energy,
-  _transactionLog :: !ati
+  _energyUsed :: !Energy
   }
 
-type ExecutionResult m = ExecutionResult' (BlockState m) (ATIStorage m)
+type ExecutionResult m = ExecutionResult' (BlockState m)
 
 makeLenses ''ExecutionResult'
 
 instance TreeStateMonad m => HasSchedulerState (LogSchedulerState m) where
   type SS (LogSchedulerState m) = UpdatableBlockState m
-  type TransactionLog (LogSchedulerState m) = ATIStorage m
   schedulerBlockState = lssBlockState
   schedulerEnergyUsed = lssSchedulerEnergyUsed
   schedulerExecutionCosts = lssSchedulerExecutionCosts
   nextIndex = lssNextIndex
-  schedulerTransactionLog = lssSchedulerTransactionLog
 
-mkInitialSS :: CanExtend (ATIStorage m) => UpdatableBlockState m -> LogSchedulerState m
+mkInitialSS :: UpdatableBlockState m -> LogSchedulerState m
 mkInitialSS _lssBlockState =
   LogSchedulerState{_lssSchedulerEnergyUsed = 0,
                     _lssSchedulerExecutionCosts = 0,
-                    _lssSchedulerTransactionLog = defaultValue,
                     _lssNextIndex = 0,
                     ..}
 
-deriving via (MGSTrans (RWST ContextState w state) m)
-    instance (MonadProtocolVersion m) => MonadProtocolVersion (BlockStateMonad w state m)
+deriving via (MGSTrans (RWST ContextState () state) m)
+    instance (MonadProtocolVersion m) => MonadProtocolVersion (BlockStateMonad state m)
 
-deriving via (MGSTrans (RWST ContextState w state) m)
-    instance (Monoid w, AccountOperations m) => AccountOperations (BlockStateMonad w state m)
+deriving via (MGSTrans (RWST ContextState () state) m)
+    instance (AccountOperations m) => AccountOperations (BlockStateMonad state m)
 
-deriving via (MGSTrans (RWST ContextState w state) m)
-    instance (Monoid w, ContractStateOperations m) => ContractStateOperations (BlockStateMonad w state m)
+deriving via (MGSTrans (RWST ContextState () state) m)
+    instance (ContractStateOperations m) => ContractStateOperations (BlockStateMonad state m)
 
-deriving via (BSOMonadWrapper ContextState w state (MGSTrans (RWST ContextState w state) m))
+deriving via (BSOMonadWrapper ContextState state (MGSTrans (RWST ContextState () state) m))
     instance (
               SS state ~ UpdatableBlockState m,
-              Footprint (ATIStorage m) ~ w,
               HasSchedulerState state,
               TreeStateMonad m,
               MonadLogger m,
-              BlockStateOperations m) => SchedulerMonad (BlockStateMonad w state m)
+              BlockStateOperations m) => SchedulerMonad (BlockStateMonad state m)
 
-deriving via (BSOMonadWrapper ContextState w state (MGSTrans (RWST ContextState w state) m))
+deriving via (BSOMonadWrapper ContextState state (MGSTrans (RWST ContextState () state) m))
     instance (
               SS state ~ UpdatableBlockState m,
-              Footprint (ATIStorage m) ~ w,
               HasSchedulerState state,
               TreeStateMonad m,
               MonadLogger m,
-              BlockStateOperations m) => TVer.TransactionVerifier (BlockStateMonad w state m)
+              BlockStateOperations m) => TVer.TransactionVerifier (BlockStateMonad state m)
 
-runBSM :: Monad m => BlockStateMonad w b m a -> ContextState -> b -> m (a, b)
+runBSM :: Monad m => BlockStateMonad b m a -> ContextState -> b -> m (a, b)
 runBSM m cm s = do
   (r, s', _) <- runRWST (_runBSM m) cm s
   return (r, s')
@@ -1307,8 +1295,8 @@ executeFrom blockHash slotNumber slotTime blockParent blockBaker mfinInfo newSee
                     prologueUpdates
                 finalbsHandle <- freezeBlockState bshandle4
                 return (Right (ExecutionResult{_energyUsed = usedEnergy,
-                                              _finalState = finalbsHandle,
-                                              _transactionLog = finState ^. schedulerTransactionLog}))
+                                              _finalState = finalbsHandle
+                                              }))
 
 -- |PRECONDITION: Focus block is the parent block of the block we wish to make,
 -- hence the pending transaction table is correct for the new block.
@@ -1402,5 +1390,5 @@ constructBlock slotNumber slotTime blockParent blockBaker mfinInfo newSeedState 
     endTime <- currentTime
     logEvent Scheduler LLInfo $ "Constructed a block in " ++ show (diffUTCTime endTime startTime)
     return (ft, ExecutionResult{_energyUsed = usedEnergy,
-                                _finalState = bshandleFinal,
-                                _transactionLog = finState ^. schedulerTransactionLog})
+                                _finalState = bshandleFinal
+                                })

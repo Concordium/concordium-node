@@ -26,7 +26,6 @@ import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
 import Concordium.Types.Transactions
 import Concordium.GlobalState.BakerInfo
-import Concordium.GlobalState.AccountTransactionIndex
 
 import Concordium.Scheduler.TreeStateEnvironment
 
@@ -196,13 +195,6 @@ processFinalization newFinBlock finRec@FinalizationRecord{..} = do
           mf <- markFinalized (getHash block) finRec
           -- Finalize the transactions of surviving blocks in the order of their finalization.
           ft <- finalizeTransactions (getHash block) (blockSlot block) (blockTransactions block)
-          ati <- bpTransactionAffectSummaries block
-          bcTime <- getSlotTimestamp (blockSlot block)
-          let ctx = BlockContext{
-                bcHash = getHash block,
-                bcHeight = bpHeight block,
-                ..}
-          flushBlockSummaries ctx ati =<< getSpecialOutcomes =<< blockState block
           return (mf, ft)
         -- block states and transaction statuses need to be added into the same LMDB transaction
         -- with the finalization record, if persistent tree state is used
@@ -440,7 +432,7 @@ blockArrive :: (HasCallStack, TreeStateMonad m, SkovMonad m)
 blockArrive block parentP lfBlockP ExecutionResult{..} = do
         let height = bpHeight parentP + 1
         curTime <- currentTime
-        blockP <- makeLiveBlock block parentP lfBlockP _finalState _transactionLog curTime _energyUsed
+        blockP <- makeLiveBlock block parentP lfBlockP _finalState curTime _energyUsed
         logEvent Skov LLInfo $ "Block " ++ show block ++ " arrived"
         -- Update the statistics
         updateArriveStatistics blockP

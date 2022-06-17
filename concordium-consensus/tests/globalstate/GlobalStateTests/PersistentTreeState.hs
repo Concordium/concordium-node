@@ -14,7 +14,6 @@ import Concordium.Crypto.BlsSignature
 import Concordium.Crypto.DummyData
 import Concordium.Crypto.VRF as VRF
 import Concordium.GlobalState
-import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.Types.AnonymityRevokers
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
@@ -47,31 +46,31 @@ import Test.Hspec
 -- |Protocol version.
 type PV = 'P1
 
-type GlobalStateIO c g = GlobalStateM PV NoLogContext c c g g (RWST c () g LogIO)
+type GlobalStateIO c g = GlobalStateM PV c c g g (RWST c () g LogIO)
 
-type TestM = GlobalStateIO PBS.PersistentBlockStateContext (SkovPersistentData PV () (PBS.HashedPersistentBlockState PV))
+type TestM = GlobalStateIO PBS.PersistentBlockStateContext (SkovPersistentData PV (PBS.HashedPersistentBlockState PV))
 
 type Test = TestM ()
 
 instance HasGlobalStateContext PBS.PersistentBlockStateContext PBS.PersistentBlockStateContext where
   globalStateContext = id
 
-instance HasGlobalState (SkovPersistentData PV () (PBS.HashedPersistentBlockState PV)) (SkovPersistentData PV () (PBS.HashedPersistentBlockState PV)) where
+instance HasGlobalState (SkovPersistentData PV (PBS.HashedPersistentBlockState PV)) (SkovPersistentData PV (PBS.HashedPersistentBlockState PV)) where
   globalState = id
 
-createGlobalState :: FilePath -> IO (PBS.PersistentBlockStateContext, SkovPersistentData PV () (PBS.HashedPersistentBlockState PV))
+createGlobalState :: FilePath -> IO (PBS.PersistentBlockStateContext, SkovPersistentData PV (PBS.HashedPersistentBlockState PV))
 createGlobalState dbDir = do
   now <- utcTimeToTimestamp <$> getCurrentTime
   let
     n = 3
     genesis = makeTestingGenesisDataP1 now n 1 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters emptyIdentityProviders emptyAnonymityRevokers maxBound dummyKeyCollection dummyChainParameters
     config = DTDBConfig defaultRuntimeParameters dbDir (dbDir </> "blockstate" <.> "dat")
-  (x, y, NoLogContext) <- runSilentLogger $ initialiseGlobalState genesis config
+  (x, y) <- runSilentLogger $ initialiseGlobalState genesis config
   return (x, y)
 
-destroyGlobalState :: (PBS.PersistentBlockStateContext, SkovPersistentData PV () (PBS.HashedPersistentBlockState PV)) -> IO ()
+destroyGlobalState :: (PBS.PersistentBlockStateContext, SkovPersistentData PV (PBS.HashedPersistentBlockState PV)) -> IO ()
 destroyGlobalState (c, s) =
-  shutdownGlobalState (protocolVersion @PV) (Proxy :: Proxy DiskTreeDiskBlockConfig) c s NoLogContext
+  shutdownGlobalState (protocolVersion @PV) (Proxy :: Proxy DiskTreeDiskBlockConfig) c s
 
 specifyWithGS :: String -> Test -> SpecWith (Arg Expectation)
 specifyWithGS s f =
@@ -97,7 +96,7 @@ testFinalizeABlock = do
   pb <- makePendingBlock (fst $ randomBlockKeyPair (mkStdGen 1)) 1 (bpHash genesisBlock) 0 proof1 proof2 NoFinalizationData [] (StateHashV0 minBound) (getHash Trns.emptyTransactionOutcomes) now
   
   now' <- liftIO $ getCurrentTime
-  blockPtr :: BlockPointerType TestM <- makeLiveBlock pb genesisBlock genesisBlock state () now' 0
+  blockPtr :: BlockPointerType TestM <- makeLiveBlock pb genesisBlock genesisBlock state now' 0
   let frec = FinalizationRecord 1 (bpHash blockPtr) (FinalizationProof [1] (sign "Hello" sk)) 0
   -- Add the finalization to the tree state
   mf <- markFinalized (bpHash blockPtr) frec
@@ -138,7 +137,7 @@ testFinalizeABlock = do
   --FIXME:  statehash is stubbed out with a palceholder stash
   pb2 <- makePendingBlock (fst $ randomBlockKeyPair (mkStdGen 1)) 2 (bpHash blockPtr) 0  proof1 proof2 NoFinalizationData [] (StateHashV0 minBound) (getHash Trns.emptyTransactionOutcomes) now''
   now''' <- liftIO $ getCurrentTime
-  blockPtr2 :: BlockPointerType TestM <- makeLiveBlock pb2 blockPtr genesisBlock state () now''' 0
+  blockPtr2 :: BlockPointerType TestM <- makeLiveBlock pb2 blockPtr genesisBlock state now''' 0
   let frec2 = FinalizationRecord 2 (bpHash blockPtr2) (FinalizationProof [1] (sign "Hello" sk)) 0
   -- Add the finalization to the tree state
   mf2 <- markFinalized (bpHash blockPtr2) frec2

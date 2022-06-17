@@ -40,7 +40,6 @@ import Concordium.MultiVersion (
     MVR (..),
     MultiVersionConfiguration (..),
     MultiVersionRunner (..),
-    TransactionDBConfig (..),
     makeMultiVersionRunner,
  )
 import qualified Concordium.MultiVersion as MV
@@ -338,10 +337,6 @@ startConsensus ::
     CString ->
     -- |Length of AppData path
     Int64 ->
-    -- |Database connection string. If length is 0 don't do logging.
-    CString ->
-    -- |Length of database connection string.
-    Int64 ->
     -- |Pointer to receive the pointer to the 'ConsensusRunner'.
     Ptr (StablePtr ConsensusRunner) ->
     IO Int64
@@ -365,8 +360,6 @@ startConsensus
     lcbk
     appDataC
     appDataLenC
-    connStringPtr
-    connStringLen
     runnerPtrPtr = handleStartExceptions logM $
         packGenesis $ \genesisBS -> decodeBakerIdentity $ \bakerIdentity -> do
             -- Get the data directory
@@ -391,25 +384,12 @@ startConsensus
                           notifyCatchUpStatus = callCatchUpStatusCallback cucbk,
                           notifyRegenesis = callRegenesisCallback regenesisCB regenesisRef
                         }
-            runner <-
-                if connStringLen /= 0
-                    then do
-                        mvcTXLogConfig <-
-                            TransactionDBConfig
-                                <$> BS.packCStringLen (connStringPtr, fromIntegral connStringLen)
-                        let config ::
-                                MultiVersionConfiguration
-                                    DiskTreeDiskBlockWithLogConfig
-                                    (BufferedFinalization ThreadTimer)
-                            config = MultiVersionConfiguration{..}
-                        ConsensusRunner
-                            <$> makeMultiVersionRunner config callbacks (Just bakerIdentity) logM (Left genesisBS)
-                    else do
+            runner <- do
                         let config ::
                                 MultiVersionConfiguration
                                     DiskTreeDiskBlockConfig
                                     (BufferedFinalization ThreadTimer)
-                            config = MultiVersionConfiguration{mvcTXLogConfig = (), ..}
+                            config = MultiVersionConfiguration{..}
                         ConsensusRunner
                             <$> makeMultiVersionRunner config callbacks (Just bakerIdentity) logM (Left genesisBS)
             poke runnerPtrPtr =<< newStablePtr runner
@@ -477,10 +457,6 @@ startConsensusPassive ::
     CString ->
     -- |Length of AppData path
     Int64 ->
-    -- |Database connection string. If length is 0 don't do logging.
-    CString ->
-    -- |Length of database connection string.
-    Int64 ->
     -- |Pointer to receive the pointer to the 'ConsensusRunner'.
     Ptr (StablePtr ConsensusRunner) ->
     IO Int64
@@ -501,8 +477,6 @@ startConsensusPassive
     lcbk
     appDataC
     appDataLenC
-    connStringPtr
-    connStringLen
     runnerPtrPtr = handleStartExceptions logM $
         packGenesis $ \genesisBS -> do
             -- Get the data directory
@@ -521,25 +495,12 @@ startConsensusPassive
                           notifyCatchUpStatus = callCatchUpStatusCallback cucbk,
                           notifyRegenesis = callRegenesisCallback regenesisCB regenesisRef
                         }
-            runner <-
-                if connStringLen /= 0
-                    then do
-                        mvcTXLogConfig <-
-                            TransactionDBConfig
-                                <$> BS.packCStringLen (connStringPtr, fromIntegral connStringLen)
-                        let config ::
-                                MultiVersionConfiguration
-                                    DiskTreeDiskBlockWithLogConfig
-                                    (NoFinalization ThreadTimer)
-                            config = MultiVersionConfiguration{..}
-                        ConsensusRunner
-                            <$> makeMultiVersionRunner config callbacks Nothing logM (Left genesisBS)
-                    else do
+            runner <- do
                         let config ::
                                 MultiVersionConfiguration
                                     DiskTreeDiskBlockConfig
                                     (NoFinalization ThreadTimer)
-                            config = MultiVersionConfiguration{mvcTXLogConfig = (), ..}
+                            config = MultiVersionConfiguration{..}
                         ConsensusRunner
                             <$> makeMultiVersionRunner config callbacks Nothing logM (Left genesisBS)
             poke runnerPtrPtr =<< newStablePtr runner
@@ -1293,10 +1254,6 @@ foreign export ccall
         CString ->
         -- |Length of AppData path
         Int64 ->
-        -- |Database connection string. If length is 0 don't do logging.
-        CString ->
-        -- |Length of database connection string.
-        Int64 ->
         -- |Pointer to receive the pointer to the 'ConsensusRunner'.
         Ptr (StablePtr ConsensusRunner) ->
         IO Int64
@@ -1332,10 +1289,6 @@ foreign export ccall
         -- |FilePath for the AppData directory
         CString ->
         -- |Length of AppData path
-        Int64 ->
-        -- |Database connection string. If length is 0 don't do logging.
-        CString ->
-        -- |Length of database connection string.
         Int64 ->
         -- |Pointer to receive the pointer to the 'ConsensusRunner'.
         Ptr (StablePtr ConsensusRunner) ->

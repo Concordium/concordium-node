@@ -51,10 +51,6 @@ dependencies:
 - text >= 1.2
 - filepath >= 1.4
 - directory >= 1.3
-- persistent-template >= 2.6.0
-- persistent-postgresql >= 2.9.1
-- persistent >= 2.10
-- resource-pool >= 0.2.3.2
 - monad-logger >= 0.3.30
 - recursion-schemes >= 5.1
 - file-embed >= 0.0.11
@@ -74,7 +70,7 @@ default-extensions:
 flags:
   dynamic:
     manual: True
-    default: True
+    default: False
 
 library:
   source-dirs: src

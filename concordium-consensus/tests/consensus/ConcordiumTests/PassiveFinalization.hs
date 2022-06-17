@@ -181,7 +181,7 @@ runTest firstBlocks
         receivedIndicesAndExpectedResults
         (bid1, fi1, fs1)
         (bid2, fi2, fs2)
-        finMember@(_, _, SkovState _ FinalizationState{_finsSessionId = sessionId, _finsCommittee = finCom} _ _)
+        finMember@(_, _, SkovState _ FinalizationState{_finsSessionId = sessionId, _finsCommittee = finCom} _)
         additionalFinMembers = do
             (blocks, _, _) <- myRunSkovT (mapM (bake bid1) [1..fromIntegral firstBlocks]) dummyHandlers fi1 fs1
             void $ myRunSkovT (do
@@ -203,7 +203,7 @@ runTest firstBlocks
                 -> UpdateResult
                 -> (BakerIdentity, b, SkovState (Config DummyTimer))
                 -> m ()
-            receiveFM block ind res (fmId, _, SkovState TS.SkovData{} FinalizationState{..} _ _) =
+            receiveFM block ind res (fmId, _, SkovState TS.SkovData{} FinalizationState{..} _) =
                 case _finsCurrentRound of
                     ActiveCurrentRound FinalizationRound{..} ->
                         receiveFinMessage (_finsIndex + ind) block roundDelta _finsSessionId roundMe fmId res

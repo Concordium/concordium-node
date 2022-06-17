@@ -30,7 +30,6 @@ import Concordium.Types.HashableTo
 import Concordium.Types
 import qualified Concordium.Wasm as Wasm
 
-import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.GlobalState.Instance
 import qualified Concordium.GlobalState.Classes as C
 import Concordium.GlobalState.Block
@@ -185,15 +184,12 @@ instance (BlockPointerData l, BlockPointerData r) => BlockPointerData (PairBlock
     bpTransactionsEnergyCost (PairBlockData (l, r)) = assertEq (bpTransactionsEnergyCost l) (bpTransactionsEnergyCost r) $ bpTransactionsEnergyCost l
     bpTransactionsSize (PairBlockData (l, r)) = assertEq (bpTransactionsSize l) (bpTransactionsSize r) $ bpTransactionsSize l
 
-type GSML pv lc r ls s m = GlobalStateM pv NoLogContext lc (FocusLeft r) ls (FocusLeft s) (ReviseRSM (FocusLeft r) (FocusLeft s) m)
-type GSMR pv rc r rs s m = GlobalStateM pv NoLogContext rc (FocusRight r) rs (FocusRight s) (ReviseRSM (FocusRight r) (FocusRight s) m)
+type GSML pv lc r ls s m = GlobalStateM pv lc (FocusLeft r) ls (FocusLeft s) (ReviseRSM (FocusLeft r) (FocusLeft s) m)
+type GSMR pv rc r rs s m = GlobalStateM pv rc (FocusRight r) rs (FocusRight s) (ReviseRSM (FocusRight r) (FocusRight s) m)
 
 instance (GlobalStateTypes (GSML pv lc r ls s m), GlobalStateTypes (GSMR pv rc r rs s m))
         => GlobalStateTypes (TreeStateBlockStateM pv (PairGState ls rs) (PairGSContext lc rc) r s m) where
     type BlockPointerType (TreeStateBlockStateM pv (PairGState ls rs) (PairGSContext lc rc) r s m) = PairBlockData (BlockPointerType (GSML pv lc r ls s m)) (BlockPointerType (GSMR pv rc r rs s m))
-
-instance ATITypes (TreeStateBlockStateM pv (PairGState ls rs) (PairGSContext lc rc) r s m) where
-  type ATIStorage (TreeStateBlockStateM pv (PairGState ls rs) (PairGSContext lc rc) r s m) = ()
 
 {-# INLINE coerceBSML #-}
 coerceBSML :: BSML pv lc r ls s m a -> BlockStateM pv (PairGSContext lc rc) r (PairGState ls rs) s m a
@@ -941,9 +937,6 @@ coerceGSML = coerce
 coerceGSMR :: GSMR pv rc r rs s m a -> TreeStateBlockStateM pv (PairGState ls rs) (PairGSContext lc rc) r s m a
 coerceGSMR = coerce
 
--- default instance since ATIStorage = ()
-instance Monad m => PerAccountDBOperations (TreeStateBlockStateM pv (PairGState ls rs) (PairGSContext lc rc) r s m)
-
 instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
           MonadReader r m,
           C.HasGlobalState (PairGState ls rs) s,
@@ -972,9 +965,7 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
         MonadIO m,
         BlockStateStorage (TreeStateBlockStateM pv (PairGState ls rs) (PairGSContext lc rc) r s m),
         TreeStateMonad (GSML pv lc r ls s m),
-        ATIStorage (GSML pv lc r ls s m) ~ (),
-        TreeStateMonad (GSMR pv rc r rs s m),
-        ATIStorage (GSMR pv rc r rs s m) ~ ())
+        TreeStateMonad (GSMR pv rc r rs s m))
         => TreeStateMonad (TreeStateBlockStateM pv (PairGState ls rs) (PairGSContext lc rc) r s m) where
     makePendingBlock sk sl parent bid bp bn lf trs sthash trouthash brtime = do
       pb1 <- coerceGSML $ TS.makePendingBlock sk sl parent bid bp bn lf trs sthash trouthash brtime
@@ -1011,9 +1002,9 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
                 assertEq fr1 fr2 $ return $ Just $ BlockFinalized (PairBlockData (bp1, bp2)) fr1
             (Just (BlockPending pb1), Just (BlockPending pb2)) -> assertEq pb1 pb2 $ return $ Just (BlockPending pb1)
             _ -> error $ "getBlockStatus (Paired): block statuses do not match: " ++ show bs1 ++ ", " ++ show bs2
-    makeLiveBlock pb (PairBlockData (parent1, parent2)) (PairBlockData (lf1, lf2)) (bs1, bs2) () t e = do
-        r1 <- coerceGSML $ makeLiveBlock pb parent1 lf1 bs1 () t e
-        r2 <- coerceGSMR $ makeLiveBlock pb parent2 lf2 bs2 () t e
+    makeLiveBlock pb (PairBlockData (parent1, parent2)) (PairBlockData (lf1, lf2)) (bs1, bs2) t e = do
+        r1 <- coerceGSML $ makeLiveBlock pb parent1 lf1 bs1 t e
+        r2 <- coerceGSMR $ makeLiveBlock pb parent2 lf2 bs2 t e
         return (PairBlockData (r1, r2))
     markDead bh = do
         coerceGSML $ markDead bh
@@ -1184,21 +1175,19 @@ newtype PairGSConfig c1 c2 = PairGSConfig (c1, c2)
 instance (GlobalStateConfig c1, GlobalStateConfig c2) => GlobalStateConfig (PairGSConfig c1 c2) where
     type GSContext (PairGSConfig c1 c2) pv = PairGSContext (GSContext c1 pv) (GSContext c2 pv)
     type GSState (PairGSConfig c1 c2) pv = PairGState (GSState c1 pv) (GSState c2 pv)
-    -- FIXME: The below could also be improved to add pairs.
-    type GSLogContext (PairGSConfig c1 c2) pv = (GSLogContext c1 pv, GSLogContext c2 pv)
     initialiseExistingGlobalState spv (PairGSConfig (conf1, conf2)) = do
         r1 <- initialiseExistingGlobalState spv conf1
         r2 <- initialiseExistingGlobalState spv conf2
         case (r1, r2) of
-            (Just (ctx1, s1, c1), Just (ctx2, s2, c2)) -> return $ Just (PairGSContext ctx1 ctx2, PairGState s1 s2, (c1, c2))
+            (Just (ctx1, s1), Just (ctx2, s2)) -> return $ Just (PairGSContext ctx1 ctx2, PairGState s1 s2)
             (Just _, Nothing) -> error "Left state exists, but the right one does not."
             (Nothing, Just _) -> error "Right state exists, but the left one does not."
             (Nothing, Nothing) -> return Nothing
 
     initialiseNewGlobalState genData (PairGSConfig (conf1, conf2)) = do
-        (ctx1, s1, c1) <- initialiseNewGlobalState genData conf1
-        (ctx2, s2, c2) <- initialiseNewGlobalState genData conf2
-        return $ (PairGSContext ctx1 ctx2, PairGState s1 s2, (c1, c2))
+        (ctx1, s1) <- initialiseNewGlobalState genData conf1
+        (ctx2, s2) <- initialiseNewGlobalState genData conf2
+        return (PairGSContext ctx1 ctx2, PairGState s1 s2)
 
     activateGlobalState :: forall pv .
         IsProtocolVersion pv =>
@@ -1212,6 +1201,6 @@ instance (GlobalStateConfig c1, GlobalStateConfig c2) => GlobalStateConfig (Pair
             s2Active <- activateGlobalState (Proxy @c2) (Proxy @pv) ctx2 s2
             return (PairGState s1Active s2Active)
 
-    shutdownGlobalState spv _ (PairGSContext ctx1 ctx2) (PairGState s1 s2) (c1, c2) = do
-            shutdownGlobalState spv (Proxy :: Proxy c1) ctx1 s1 c1
-            shutdownGlobalState spv (Proxy :: Proxy c2) ctx2 s2 c2
+    shutdownGlobalState spv _ (PairGSContext ctx1 ctx2) (PairGState s1 s2) = do
+            shutdownGlobalState spv (Proxy :: Proxy c1) ctx1 s1
+            shutdownGlobalState spv (Proxy :: Proxy c2) ctx2 s2
