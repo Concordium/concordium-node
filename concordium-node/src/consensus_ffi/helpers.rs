@@ -357,8 +357,8 @@ impl TryFrom<i64> for ConsensusFfiResponse {
             27 => Ok(ChainUpdateSequenceNumberTooOld),
             28 => Ok(ChainUpdateInvalidSignatures),
             29 => Ok(MaxBlockEnergyExceeded),
-            // 30 is reserved for`ResultImportStopped` which origins from a `SIGINT` or `SIGTERM`
-            // signal send to the node.
+            // 30 is used for`ResultImportStopped` which origins from a `SIGINT` or `SIGTERM`
+            // signal send to the node while catching up out of band.
             31 => Ok(InsufficientFunds),
             _ => Err(anyhow!("Unsupported FFI return code ({})", value)),
         }
