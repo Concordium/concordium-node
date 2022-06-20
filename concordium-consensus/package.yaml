@@ -337,8 +337,6 @@ benchmarks:
       - concordium-consensus
       - criterion
       - mwc-random
-      - random
-      - random-fu
     when:
       - condition: "!os(windows)"
         ghc-options: -dynamic
