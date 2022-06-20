@@ -120,6 +120,10 @@ class (Eq (BlockPointerType m),
     -- * Operations on the block table
     -- |Get the current status of a block.
     getBlockStatus :: BlockHash -> m (Maybe (BlockStatus (BlockPointerType m) PendingBlock))
+
+    -- |Get the current status of a block.
+    getBlockStatusOrOld :: BlockHash -> m (Maybe (Either () (BlockStatus (BlockPointerType m) PendingBlock)))
+
     -- |Make a live 'BlockPointer' from a 'PendingBlock'.
     -- The parent and last finalized pointers must be correct.
     makeLiveBlock ::
@@ -363,6 +367,7 @@ class (Eq (BlockPointerType m),
 instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTrans t m) where
     makePendingBlock key slot parent bid pf n lastFin trs statehash transactionOutcomesHash = lift . makePendingBlock key slot parent bid pf n lastFin trs statehash transactionOutcomesHash
     getBlockStatus = lift . getBlockStatus
+    getBlockStatusOrOld = lift . getBlockStatusOrOld
     makeLiveBlock b parent lastFin st time = lift . makeLiveBlock b parent lastFin st time
     markDead = lift . markDead
     type MarkFin (MGSTrans t m) = MarkFin m

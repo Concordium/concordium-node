@@ -36,6 +36,7 @@ import Control.Exception hiding (handle, throwIO)
 import Control.Monad.Reader
 import Control.Monad.State
 import qualified Data.HashMap.Strict as HM
+import qualified Data.HashSet as HS
 import Data.List (partition)
 import qualified Data.Map.Strict as Map
 import Data.Typeable
@@ -100,10 +101,87 @@ logErrorAndThrowTS = logErrorAndThrow TreeState
 -- |BlockStatus as recorded in the persistent implementation
 data PersistentBlockStatus pv bs =
     BlockAlive !(PersistentBlockPointer pv bs)
-    | BlockDead
-    | BlockFinalized !FinalizationIndex
     | BlockPending !PendingBlock
   deriving(Eq, Show)
+
+-- |Cache of dead blocks, i.e., blocks which have been either pending or alive
+-- once, but have been marked dead by finalization. The intention is that this
+-- acts as a kind of FIFO cache, except that inserting a duplicate into the
+-- cache has no effect on it.
+--
+-- One question is why this is even needed and it is indeed unclear that it is
+-- needed. The main problem this would solve is to help with deduplication but
+-- it is unclear whether this is really needed or not for the following reasons.
+--
+-- - Blocks are only marked dead upon finalization. Blocks can only arrive if
+--   they are no more than 30s in the future, and are above (i.e., later than)
+--   the last finalized block. This cache would help in the case where a branch
+--   is declared dead, and either duplicate blocks from that branch, or
+--   successors of blocks on that branch, arrive. Without the cache they would
+--   end up (potentially) in the pending state, with the cache they might be
+--   deemed as duplicate (but they might be deemed duplicate at the network
+--   already) or dead quickly. If finalization is reliable then even if we get
+--   duplicate pending blocks they will be relatively quickly marked dead
+--   themselves.
+-- - The node itself has deduplication at the network layer.
+--
+-- Despite this, it does seem that in relatively bad conditions with a lot of
+-- branching having a small cache of recent dead blocks would bring some
+-- benefit.
+data DeadCache = DeadCache
+    { -- |Set of hashes currently in the cache.
+      _dcHashes :: !(HS.HashSet BlockHash)
+      -- |Queue of hashes. The beginning of the queue is the item that was
+      -- inserted first (i.e., oldest hash).
+    , _dcQueue :: !(Seq.Seq BlockHash)
+    }
+    deriving (Eq, Show)
+
+-- |Maximum number of hashes to maintain in the cache. There is no particularly
+-- strong reason for using 1000 other than it seems like it should be big enough
+-- with realistic block times, as well as not too large so that cache
+-- performance is still excellent.
+deadCacheSize :: Int
+deadCacheSize = 1000
+
+emptyDeadCache :: DeadCache
+emptyDeadCache = DeadCache HS.empty Seq.empty
+
+-- |Update the cache with the given block hash. If the block hash is already in
+-- the cache do nothing.
+insertDeadCache :: BlockHash -> DeadCache -> DeadCache
+insertDeadCache !bh dc@DeadCache{..}
+    | HS.member bh _dcHashes = dc
+    | otherwise =
+        let newHashes = HS.insert bh _dcHashes
+        in if HS.size newHashes > deadCacheSize
+           then
+             let (newHashes', newQueue) = case _dcQueue of
+                   h Seq.:<| q -> (HS.delete h newHashes, q)
+                   _ -> error "Invariant violation. Dead cache not consistent."
+             in DeadCache
+                { _dcHashes = newHashes'
+                , _dcQueue = newQueue Seq.|> bh
+                }
+           else
+             DeadCache
+             { _dcHashes = newHashes
+             , _dcQueue = _dcQueue Seq.|> bh
+             }
+
+-- |Return whether the given block hash is in the cache.
+memberDeadCache :: BlockHash -> DeadCache -> Bool
+memberDeadCache bh DeadCache{..} = HS.member bh _dcHashes
+
+-- |A table of live blocks together with a small cache of dead ones.
+data BlockTable pv bs = BlockTable
+  { _deadCache :: !DeadCache,
+    _liveMap :: !(HM.HashMap BlockHash (PersistentBlockStatus pv bs))
+  } deriving(Eq, Show)
+makeLenses ''BlockTable
+
+emptyBlockTable :: BlockTable pv bs
+emptyBlockTable = BlockTable emptyDeadCache HM.empty
 
 -- |Skov data for the persistent tree state version that also holds the database handlers.
 -- The first type parameter, @pv@, is the protocol version.
@@ -111,7 +189,7 @@ data PersistentBlockStatus pv bs =
 -- The third type parameter, @bs@, is the type of block states.
 data SkovPersistentData (pv :: ProtocolVersion) bs = SkovPersistentData {
     -- |Map of all received blocks by hash.
-    _blockTable :: !(HM.HashMap BlockHash (PersistentBlockStatus pv bs)),
+    _blockTable :: !(BlockTable pv bs),
     -- |Map of (possibly) pending blocks by hash
     _possiblyPendingTable :: !(HM.HashMap BlockHash [PendingBlock]),
     -- |Priority queue of pairs of (block, parent) hashes where the block is (possibly) pending its parent, by block slot
@@ -191,7 +269,7 @@ initialSkovPersistentData rp treeStateDir gd genState serState = do
       sn <- getNextUpdateSequenceNumber genState uty
       return $! Map.insert uty sn m) Map.empty [minBound..]
   return SkovPersistentData {
-            _blockTable = HM.singleton gbh (BlockFinalized 0),
+            _blockTable = emptyBlockTable,
             _possiblyPendingTable = HM.empty,
             _possiblyPendingQueue = MPQ.empty,
             _lastFinalized = gb,
@@ -301,11 +379,6 @@ loadSkovPersistentData rp _treeStateDirectory pbsc = do
     GenesisBlock gd' -> return gd'
     _ -> logExceptionAndThrowTS (DatabaseInvariantViolation "Block at height 0 is not a genesis block.")
 
-  -- Populate the block table.
-  _blockTable <- liftIO (loadBlocksFinalizationIndexes _db) >>= \case
-      Left s -> logExceptionAndThrowTS $ DatabaseInvariantViolation s
-      Right hm -> return $! HM.map BlockFinalized hm
-
   -- Get the last finalized block.
   (_lastFinalizationRecord, lfStoredBlock) <- liftIO (getLastBlock _db) >>= \case
       Left s -> logExceptionAndThrowTS $ DatabaseInvariantViolation s
@@ -325,6 +398,7 @@ loadSkovPersistentData rp _treeStateDirectory pbsc = do
             -- consensus started.
             _statistics = initialConsensusStatistics,
             _runtimeParameters = rp,
+            _blockTable = BlockTable {_deadCache = emptyDeadCache, _liveMap = HM.empty},
             ..
         }
 
@@ -429,9 +503,9 @@ getWeakPointer weakPtr ptrHash name = do
               -- a parent that is also alive, which means either actually in memory `BlockAlive` or already
               -- finalized. If we fail to dereference the weak pointer we should thus be able to directly look
               -- up the block from the block table.
-              use (blockTable . at' ptrHash) >>=
+              use (blockTable . liveMap . at' ptrHash) >>=
                  \case Just (BlockAlive bp) -> return bp
-                       Just (BlockFinalized _) -> do
+                       Nothing -> do
                          nb <- readBlock ptrHash
                          case nb of
                            Just sb -> constructBlock sb
@@ -472,14 +546,11 @@ instance (MonadLogger (PersistentTreeStateMonad bs m),
     makePendingBlock key slot parent bid pf n lastFin trs stateHash transactionOutcomesHash time = do
         return $! makePendingBlock (signBlock key slot parent bid pf n lastFin trs stateHash transactionOutcomesHash) time
     getBlockStatus bh = do
-      st <- use (blockTable . at' bh)
+      st <- use (blockTable . liveMap . at' bh)
       case st of
         Just (BlockAlive bp) -> return $ Just $ TS.BlockAlive bp
         Just (BlockPending bp) -> return $ Just $ TS.BlockPending bp
-        Just BlockDead -> return $ Just TS.BlockDead
-        Just (BlockFinalized fidx) -> getFinalizedBlockAndFR fidx
-        _ -> return Nothing
-     where getFinalizedBlockAndFR fidx = do
+        Nothing -> do
             lf <- use lastFinalized
             if bh == bpHash lf then do
               lfr <- use lastFinalizationRecord
@@ -490,24 +561,50 @@ instance (MonadLogger (PersistentTreeStateMonad bs m),
                 return $ Just (TS.BlockFinalized gb (FinalizationRecord 0 (bpHash gb) emptyFinalizationProof 0))
               else do
                 b <- readBlock bh
-                fr <- readFinalizationRecord fidx
-                case (b, fr) of
-                  (Just sb, Just finr) -> do
-                    block <- constructBlock sb
-                    return $ Just (TS.BlockFinalized block finr)
-                  (Just _, Nothing) -> logErrorAndThrowTS $ "Lost finalization record that was stored" ++ show bh
-                  (Nothing, Just _) -> logErrorAndThrowTS $ "Lost block that was stored as finalized" ++ show bh
-                  _ -> logErrorAndThrowTS $ "Lost block and finalization record" ++ show bh
+                case b of
+                  Nothing -> do
+                    deadBlocks <- use (blockTable . deadCache)
+                    return $! if memberDeadCache bh deadBlocks then Just TS.BlockDead else Nothing
+                  Just sb -> do
+                    fr <- readFinalizationRecord (sbFinalizationIndex sb)
+                    case fr of
+                      Just finr -> do
+                        block <- constructBlock sb
+                        return $ Just (TS.BlockFinalized block finr)
+                      Nothing -> logErrorAndThrowTS $ "Lost finalization record that was stored" ++ show bh
+
+    getBlockStatusOrOld bh = do
+      st <- use (blockTable . liveMap . at' bh)
+      case st of
+        Just (BlockAlive bp) -> return $ Just $ Right $ TS.BlockAlive bp
+        Just (BlockPending bp) -> return $ Just $ Right $ TS.BlockPending bp
+        Nothing -> do
+            lf <- use lastFinalized
+            if bh == bpHash lf then do
+              lfr <- use lastFinalizationRecord
+              return $ Just $ Right (TS.BlockFinalized lf lfr)
+            else do
+              b <- memberBlockTable bh
+              if b then
+                return $ Just (Left ())
+              else do
+                  deadBlocks <- use (blockTable . deadCache)
+                  return $! if memberDeadCache bh deadBlocks then Just $ Right TS.BlockDead else Nothing
+
     makeLiveBlock block parent lastFin st arrTime energy = do
             blockP <- makePersistentBlockPointerFromPendingBlock block parent lastFin st arrTime energy
-            blockTable . at' (getHash block) ?=! BlockAlive blockP
+            blockTable . liveMap . at' (getHash block) ?=! BlockAlive blockP
             return blockP
-    markDead bh = blockTable . at' bh ?= BlockDead
+    markDead bh = do
+            blockTable . liveMap . at' bh .=! Nothing
+            blockTable . deadCache %=! insertDeadCache bh
     type MarkFin (PersistentTreeStateMonad bs m) = Maybe (StoredBlock (MPV m) (BlockStatePointer bs))
-    markFinalized bh fr = use (blockTable . at' bh) >>= \case
+    markFinalized bh fr = use (blockTable . liveMap . at' bh) >>= \case
             Just (BlockAlive bp) -> do
               st <- saveBlockState (_bpState bp)
-              blockTable . at' bh ?=! BlockFinalized (finalizationIndex fr)
+              -- TODO: This only makes sense if we have atomicity between here and wrapUpFinalization.
+              -- This is currently the case.
+              blockTable . liveMap . at' bh .=! Nothing
               return $ Just StoredBlock{
                   sbFinalizationIndex = finalizationIndex fr,
                   sbInfo = _bpInfo bp,
@@ -515,12 +612,11 @@ instance (MonadLogger (PersistentTreeStateMonad bs m),
                   sbState = st
                 }
             _ -> return Nothing
-    markPending pb = blockTable . at' (getHash pb) ?=! BlockPending pb
-    markAllNonFinalizedDead = blockTable %=! fmap nonFinDead
-        where
-            nonFinDead BlockAlive{} = BlockDead
-            nonFinDead BlockPending{} = BlockDead
-            nonFinDead o = o
+    markPending pb = blockTable . liveMap . at' (getHash pb) ?=! BlockPending pb
+    markAllNonFinalizedDead = do
+      blockTable . liveMap .=! HM.empty
+      blockTable . deadCache .=! emptyDeadCache
+    
     getGenesisBlockPointer = use genesisBlockPointer
     getGenesisData = use genesisData
     getLastFinalized = do

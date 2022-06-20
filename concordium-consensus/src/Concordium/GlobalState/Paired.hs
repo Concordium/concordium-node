@@ -997,11 +997,27 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
         case (bs1, bs2) of
             (Nothing, Nothing) -> return Nothing
             (Just (BlockAlive bp1), Just (BlockAlive bp2)) -> return $ Just (BlockAlive (PairBlockData (bp1, bp2)))
-            (Just BlockDead, Just BlockDead) -> return $ Just BlockDead
             (Just (BlockFinalized bp1 fr1), Just (BlockFinalized bp2 fr2)) ->
                 assertEq fr1 fr2 $ return $ Just $ BlockFinalized (PairBlockData (bp1, bp2)) fr1
             (Just (BlockPending pb1), Just (BlockPending pb2)) -> assertEq pb1 pb2 $ return $ Just (BlockPending pb1)
+            (Nothing, Just BlockDead) -> return Nothing
+            (Just BlockDead, Nothing) -> return Nothing
             _ -> error $ "getBlockStatus (Paired): block statuses do not match: " ++ show bs1 ++ ", " ++ show bs2
+
+    getBlockStatusOrOld bh = do
+        bs1 <- coerceGSML $ getBlockStatusOrOld bh
+        bs2 <- coerceGSMR $ getBlockStatusOrOld bh
+        case (bs1, bs2) of
+            (Nothing, Nothing) -> return Nothing
+            (Just (Right (BlockAlive bp1)), Just (Right (BlockAlive bp2))) -> return $ Just (Right (BlockAlive (PairBlockData (bp1, bp2))))
+            (Just (Right (BlockFinalized bp1 fr1)), Just (Right (BlockFinalized bp2 fr2))) ->
+                assertEq fr1 fr2 $ return $ Just $ Right $ BlockFinalized (PairBlockData (bp1, bp2)) fr1
+            (Just (Right (BlockPending pb1)), Just (Right (BlockPending pb2))) -> assertEq pb1 pb2 $ return $ Just $ Right (BlockPending pb1)
+            (Nothing, Just (Right BlockDead)) -> return Nothing
+            (Just (Right BlockDead), Nothing) -> return Nothing
+            (Just (Left ()), Just (Left ())) -> return Nothing
+            _ -> error $ "getBlockStatus (Paired): block statuses do not match: " ++ show bs1 ++ ", " ++ show bs2
+
     makeLiveBlock pb (PairBlockData (parent1, parent2)) (PairBlockData (lf1, lf2)) (bs1, bs2) t e = do
         r1 <- coerceGSML $ makeLiveBlock pb parent1 lf1 bs1 t e
         r2 <- coerceGSMR $ makeLiveBlock pb parent2 lf2 bs2 t e

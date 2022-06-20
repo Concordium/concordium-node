@@ -272,24 +272,30 @@ addBlock block txvers = do
         lfs <- getLastFinalizedSlot
         -- The block must be later than the last finalized block
         if lfs >= blockSlot block then deadBlock else do
-            parentStatus <- getBlockStatus parent
+            -- Look up the block parent, if any.
+            -- This is performance sensitive since it is before we managed to validate the block,
+            -- so we make sure to look up as little data as possible to determine block validity.
+            -- In particular we do not use getBlockStatus since that loads the entire block
+            -- from the database if the block is finalized.
+            parentStatus <- getBlockStatusOrOld parent
             case parentStatus of
                 Nothing -> do
                     addPendingBlock block
                     markPending block
                     logEvent Skov LLDebug $ "Block " ++ show block ++ " is pending its parent (" ++ show parent ++ ")"
                     return ResultPendingBlock
-                Just (BlockPending _) -> do
+                Just (Right (BlockPending _)) -> do
                     addPendingBlock block
                     markPending block
                     logEvent Skov LLDebug $ "Block " ++ show block ++ " is pending, since its parent is pending"
                     return ResultPendingBlock
-                Just BlockDead -> deadBlock
-                Just (BlockAlive parentP) -> tryAddLiveParent parentP
-                Just (BlockFinalized parentP _) -> do
-                    (lfb, _) <- getLastFinalized
-                    -- If the parent is finalized, it had better be the last finalized, or else the block is already dead
-                    if parentP /= lfb then deadBlock else tryAddLiveParent parentP
+                Just (Right BlockDead) -> deadBlock
+                Just (Right (BlockAlive parentP)) -> tryAddLiveParent parentP
+                -- In the following case the finalized block is the last finalized one (this is semantics of getBlockStatusOrOld)
+                Just (Right (BlockFinalized parentP _)) -> tryAddLiveParent parentP
+                -- The block's parent is already beyond the last finalized one. So
+                -- this block cannot be on a live branch.
+                Just (Left ()) -> deadBlock
     where
         deadBlock :: m UpdateResult
         deadBlock = do
