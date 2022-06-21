@@ -651,9 +651,7 @@ stopBaker cptr = mask_ $ do
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 -- |    29 | ResultEnergyExceeded                        | The stated energy of the transaction exceeds the maximum allowed                              | No       |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
--- |    30 | ResultImportStopped                         | The importing of the blocks has been stopped.                                                 | No       |
--- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
--- |    31 | ResultInsufficientFunds                     | The sender did not have enough funds to cover the costs.                                      | No       |
+-- |    30 | ResultInsufficientFunds                     | The sender did not have enough funds to cover the costs.                                      | No       |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 
 type ReceiveResult = Int64
@@ -690,8 +688,7 @@ toReceiveResult ResultChainUpdateInvalidEffectiveTime = 26
 toReceiveResult ResultChainUpdateSequenceNumberTooOld = 27
 toReceiveResult ResultChainUpdateInvalidSignatures = 28
 toReceiveResult ResultEnergyExceeded = 29
-toReceiveResult ResultImportStopped = 30
-toReceiveResult ResultInsufficientFunds = 31
+toReceiveResult ResultInsufficientFunds = 30
 
 -- |Handle receipt of a block.
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,

@@ -105,8 +105,6 @@ data UpdateResult
     -- ^The 'ChainUpdate' contained invalid signatures.
     | ResultEnergyExceeded
     -- ^The stated energy of the 'Transaction' exceeds the maximum allowed.
-    | ResultImportStopped
-    -- ^The importing of blocks has been stopped.
     | ResultInsufficientFunds
     -- ^The sender did not have enough funds to cover the costs.
     deriving (Eq, Show)

@@ -1116,7 +1116,7 @@ importBlocks importFile = do
         -- Check if the import should be stopped.
         shouldStop <- liftIO . readIORef =<< asks mvShouldStopImportingBlocks
         if shouldStop
-            then return $ Left (ImportOtherError ResultImportStopped)
+            then return $ fixResult ResultConsensusShutDown
             else fixResult <$> receiveBlock gi bs
 
     doImport (ImportFinalizationRecord _ gi bs) = fixResult <$> receiveFinalizationRecord gi bs
