@@ -291,14 +291,11 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
                     return (TS.Added bi verRes)
                   else return TS.ObsoleteNonce
           Just (_, Finalized{}) -> return TS.ObsoleteNonce
-          Just (tr', results) -> do
-            -- The `Finalized` case is not reachable as the cause would be that a finalized transaction
-            -- is also part of a later block which would be rejected when executing the block.
-            let verRes = case results of
-                 Received _ x -> x
-                 Committed _ x _ -> x
-            when (slot > results ^. tsSlot) $ transactionTable . ttHashMap . at' trHash . mapped . _2 %= updateSlot slot
-            return $ TS.Duplicate tr' verRes
+          Just (tr', status) -> do
+            when (slot > status ^. tsSlot) $ transactionTable . ttHashMap . at' trHash . mapped . _2 %= updateSlot slot
+            case status of
+                 Received _ verRes -> return $ TS.Duplicate tr' verRes
+                 Committed _ verRes _ -> return $ TS.Duplicate tr' verRes
 
 
     type FinTrans (PureTreeStateMonad bs m) = ()

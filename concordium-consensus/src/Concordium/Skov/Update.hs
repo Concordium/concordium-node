@@ -624,7 +624,7 @@ doReceiveTransactionInternal origin tr ts slot = do
         -- point of execution.
         -- If the transaction was received individually and it was already verified and stored beforehand
         -- then `ResultDuplicate` will be returned externally.
-        Duplicate tx mVerRes -> return (Just (tx, verRes), ResultDuplicate)
+        Duplicate tx verRes -> return (Just (tx, verRes), ResultDuplicate)
         ObsoleteNonce -> return (Nothing, ResultStale)
         NotAdded verRes -> return (Nothing, transactionVerificationResultToUpdateResult verRes)
   where
