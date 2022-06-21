@@ -41,8 +41,9 @@ cdi7' = Types.AccountCreation{
   credential = Types.credential cdi7
   }
 
+-- TODO
 transactionsInput :: [CredentialDeploymentWithStatus]
-transactionsInput = map ((\x -> (x, Nothing)) . Types.addMetadata Types.CredentialDeployment 0) $ [
+transactionsInput = map ((\x -> (x, undefined)) . Types.addMetadata Types.CredentialDeployment 0) $ [
   cdi1,
   cdi2,
   cdi3,

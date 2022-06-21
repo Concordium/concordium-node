@@ -1347,12 +1347,12 @@ constructBlock slotNumber slotTime blockParent blockBaker mfinInfo newSeedState 
 
     -- getCredential shouldn't return Nothing based on the transaction table invariants
     credentials <- mapM getCredential (HashSet.toList (pt ^. pttDeployCredential))
-    let grouped0 = MinPQ.fromList [(wmdArrivalTime c, TGCredentialDeployment (c, Just verRes)) | Just (c, verRes) <- credentials]
+    let grouped0 = MinPQ.fromList [(wmdArrivalTime c, TGCredentialDeployment (c, verRes)) | Just (c, verRes) <- credentials]
     let groupAcctTxs groups (acc, (l, _)) = getAccountNonFinalized acc l <&> \case
           accTxs@((_, firstNonceTxs) : _) ->
             let txsList = concatMap (Map.toList . snd) accTxs
                 minTime = minimum $ wmdArrivalTime <$> Map.keys firstNonceTxs
-            in MinPQ.insert minTime (TGAccountTransactions $ map (_2 %~ Just) txsList) groups
+            in MinPQ.insert minTime (TGAccountTransactions txsList) groups
           -- This should not happen since the pending transaction table should
           -- only have entries where there are actually transactions.
           [] -> groups
@@ -1361,7 +1361,7 @@ constructBlock slotNumber slotTime blockParent blockBaker mfinInfo newSeedState 
           uds@((_, firstSNUs) : _) ->
             let udsList = concatMap (Map.toList . snd) uds
                 minTime = minimum $ wmdArrivalTime <$> Map.keys firstSNUs
-            in MinPQ.insert minTime (TGUpdateInstructions $ map (_2 %~ Just) udsList) groups
+            in MinPQ.insert minTime (TGUpdateInstructions udsList) groups
           [] -> groups
     transactionGroups <- MinPQ.elems <$> foldM groupUpdates grouped1 (Map.toList (pt ^. pttUpdates))
 

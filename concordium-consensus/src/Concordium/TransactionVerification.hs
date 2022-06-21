@@ -124,7 +124,7 @@ data NotOkResult
   | NormalTransactionDuplicateNonce !Types.Nonce
   -- ^The 'NormalTransaction' contained an already used nonce.
   | Expired
-  -- ^The transaction was expired
+  -- ^The transaction was expired.
   | InvalidPayloadSize
   -- ^Transaction payload size exceeds protocol limit.
   deriving (Eq, Show, Ord)
@@ -315,16 +315,16 @@ verifyNormalTransaction meta =
 -- But to accommodate the above mentioned scenario the verification results are wrapped in a `Maybe`.
 
 -- |A 'BlockItem' with its associated 'VerificationResult'
-type BlockItemWithStatus = (Tx.BlockItem, Maybe VerificationResult)
+type BlockItemWithStatus = (Tx.BlockItem, VerificationResult)
 
 -- |A 'Transaction' with its associated 'VerificationResult'
-type TransactionWithStatus = (Tx.Transaction, Maybe VerificationResult)
+type TransactionWithStatus = (Tx.Transaction, VerificationResult)
 
 -- |A 'CredentialDeployment' with its associated 'VerificationResult'
-type CredentialDeploymentWithStatus = (Tx.CredentialDeploymentWithMeta, Maybe VerificationResult)
+type CredentialDeploymentWithStatus = (Tx.CredentialDeploymentWithMeta, VerificationResult)
 
 -- |A 'ChainUpdate' with its associated 'VerificationResult'
-type ChainUpdateWithStatus = (Tx.WithMetadata Updates.UpdateInstruction, Maybe VerificationResult)
+type ChainUpdateWithStatus = (Tx.WithMetadata Updates.UpdateInstruction, VerificationResult)
 
 -- |Type for describing the origin of the transaction.
 -- The transaction can either arrive at the consensus as a single transaction,
