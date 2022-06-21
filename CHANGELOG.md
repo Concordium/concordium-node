@@ -9,6 +9,8 @@
 - Decrease memory usage by not storing genesis blocks. This has the effect that
   the database produced by node versions >= 4.2.* cannot be used by node
   versions <= 4.1. The other direction works.
+- The gRPC API now reports correctly when the sender of a transaction did 
+  not have enough funds to cover the transaction costs.
 
 ## 4.0.11
 - The `SendTransaction` function exposed via the gRPC interface now provides the caller with detailed error messages if the 
