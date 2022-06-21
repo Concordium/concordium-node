@@ -685,7 +685,7 @@ transactionVerificationResultToUpdateResult (TV.NotOk TV.CredentialDeploymentInv
 transactionVerificationResultToUpdateResult (TV.NotOk (TV.ChainUpdateSequenceNumberTooOld _)) = ResultChainUpdateSequenceNumberTooOld
 transactionVerificationResultToUpdateResult (TV.NotOk TV.ChainUpdateEffectiveTimeBeforeTimeout) = ResultChainUpdateInvalidEffectiveTime
 transactionVerificationResultToUpdateResult (TV.NotOk TV.CredentialDeploymentExpired) = ResultCredentialDeploymentExpired
-transactionVerificationResultToUpdateResult (TV.NotOk TV.NormalTransactionDepositInsufficient) = ResultInsufficientFunds
+transactionVerificationResultToUpdateResult (TV.NotOk TV.NormalTransactionDepositInsufficient) = ResultTooLowEnergy
 transactionVerificationResultToUpdateResult (TV.NotOk TV.NormalTransactionEnergyExceeded) = ResultEnergyExceeded
 transactionVerificationResultToUpdateResult (TV.NotOk (TV.NormalTransactionDuplicateNonce _)) = ResultDuplicateNonce
 transactionVerificationResultToUpdateResult (TV.NotOk TV.Expired) = ResultStale
