@@ -173,7 +173,8 @@ insertDeadCache !bh dc@DeadCache{..}
 memberDeadCache :: BlockHash -> DeadCache -> Bool
 memberDeadCache bh DeadCache{..} = HS.member bh _dcHashes
 
--- |A table of live blocks together with a small cache of dead ones.
+-- |A table of live and non-finalized blocks together with a small cache of dead
+-- ones.
 data BlockTable pv bs = BlockTable
   { _deadCache :: !DeadCache,
     _liveMap :: !(HM.HashMap BlockHash (PersistentBlockStatus pv bs))
