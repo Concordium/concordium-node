@@ -85,6 +85,20 @@ data AddTransactionResult =
   NotAdded !TVer.VerificationResult
   deriving(Eq, Show)
 
+-- |Status of a "recent" block. Recent here means that instead of looking up the
+-- full status of a block that is older than the last finalized one, we return
+-- only the fact that it is older than last finalized. This performs better in
+-- cases where this is the only information that is needed. It avoids loading
+-- finalized blocks from the database.
+data RecentBlockStatus bp pb  =
+  -- |The block is either pending, dead, or no older than the last finalized block.
+  RecentBlock !(BlockStatus bp pb)
+  -- |The block is known, and is strictly older than the last finalized block.
+  | OlderThanLastFinalized
+  -- |The block is unknown
+  | Unknown
+  deriving (Eq, Show)
+
 -- |Monad that provides operations for working with the low-level tree state.
 -- These operations are abstracted where possible to allow for a range of implementation
 -- choices.
@@ -122,7 +136,7 @@ class (Eq (BlockPointerType m),
     getBlockStatus :: BlockHash -> m (Maybe (BlockStatus (BlockPointerType m) PendingBlock))
 
     -- |Get the current status of a block.
-    getBlockStatusOrOld :: BlockHash -> m (Maybe (Either () (BlockStatus (BlockPointerType m) PendingBlock)))
+    getRecentBlockStatus :: BlockHash -> m (RecentBlockStatus (BlockPointerType m) PendingBlock)
 
     -- |Make a live 'BlockPointer' from a 'PendingBlock'.
     -- The parent and last finalized pointers must be correct.
@@ -367,7 +381,7 @@ class (Eq (BlockPointerType m),
 instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTrans t m) where
     makePendingBlock key slot parent bid pf n lastFin trs statehash transactionOutcomesHash = lift . makePendingBlock key slot parent bid pf n lastFin trs statehash transactionOutcomesHash
     getBlockStatus = lift . getBlockStatus
-    getBlockStatusOrOld = lift . getBlockStatusOrOld
+    getRecentBlockStatus = lift . getRecentBlockStatus
     makeLiveBlock b parent lastFin st time = lift . makeLiveBlock b parent lastFin st time
     markDead = lift . markDead
     type MarkFin (MGSTrans t m) = MarkFin m

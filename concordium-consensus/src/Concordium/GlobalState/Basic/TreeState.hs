@@ -148,14 +148,15 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
     makePendingBlock key slot parent bid pf n lastFin trs statehash transactionOutcomesHash time = do
         return $ makePendingBlock (signBlock key slot parent bid pf n lastFin trs statehash transactionOutcomesHash) time
     getBlockStatus bh = use (blockTable . at' bh)
-    getBlockStatusOrOld bh = do
+    getRecentBlockStatus bh = do
             st <- use (blockTable . at' bh)
             case st of
-              Just (TS.BlockFinalized bp _) -> do
+              Just bs@(TS.BlockFinalized bp _) -> do
                 (lf, _) <- TS.getLastFinalized
-                if bp == lf then return (Right <$> st)
-                else return (Just (Left ()))
-              _ -> return (Right <$> st)
+                if bp == lf then return (TS.RecentBlock bs)
+                else return TS.OlderThanLastFinalized
+              Just bs -> return (TS.RecentBlock bs)
+              Nothing -> return TS.Unknown
 
     makeLiveBlock block parent lastFin st arrTime energy = do
             let blockP = makeBasicBlockPointer block parent lastFin st arrTime energy

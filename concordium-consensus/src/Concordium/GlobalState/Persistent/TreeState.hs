@@ -573,23 +573,23 @@ instance (MonadLogger (PersistentTreeStateMonad bs m),
                         return $ Just (TS.BlockFinalized block finr)
                       Nothing -> logErrorAndThrowTS $ "Lost finalization record that was stored" ++ show bh
 
-    getBlockStatusOrOld bh = do
+    getRecentBlockStatus bh = do
       st <- use (blockTable . liveMap . at' bh)
       case st of
-        Just (BlockAlive bp) -> return $ Just $ Right $ TS.BlockAlive bp
-        Just (BlockPending bp) -> return $ Just $ Right $ TS.BlockPending bp
+        Just (BlockAlive bp) -> return $ TS.RecentBlock (TS.BlockAlive bp)
+        Just (BlockPending bp) -> return $ TS.RecentBlock (TS.BlockPending bp)
         Nothing -> do
             lf <- use lastFinalized
             if bh == bpHash lf then do
               lfr <- use lastFinalizationRecord
-              return $ Just $ Right (TS.BlockFinalized lf lfr)
+              return $ TS.RecentBlock (TS.BlockFinalized lf lfr)
             else do
               b <- memberBlockTable bh
               if b then
-                return $ Just (Left ())
+                return TS.OlderThanLastFinalized
               else do
                   deadBlocks <- use (blockTable . deadCache)
-                  return $! if memberDeadCache bh deadBlocks then Just $ Right TS.BlockDead else Nothing
+                  return $! if memberDeadCache bh deadBlocks then TS.RecentBlock TS.BlockDead else TS.Unknown
 
     makeLiveBlock block parent lastFin st arrTime energy = do
             blockP <- makePersistentBlockPointerFromPendingBlock block parent lastFin st arrTime energy
@@ -602,8 +602,11 @@ instance (MonadLogger (PersistentTreeStateMonad bs m),
     markFinalized bh fr = use (blockTable . liveMap . at' bh) >>= \case
             Just (BlockAlive bp) -> do
               st <- saveBlockState (_bpState bp)
-              -- TODO: This only makes sense if we have atomicity between here and wrapUpFinalization.
-              -- This is currently the case.
+              -- NB: This only makes sense if no block lookups are done between
+              -- the call to this function and 'wrapUpFinalization'. This is
+              -- currently the case, and must remain the case in the future.
+              -- That is, finalization must remain atomic, or this handling, and
+              -- wrapUpFinalization must be changed.
               blockTable . liveMap . at' bh .=! Nothing
               return $ Just StoredBlock{
                   sbFinalizationIndex = finalizationIndex fr,

@@ -277,25 +277,25 @@ addBlock block txvers = do
             -- so we make sure to look up as little data as possible to determine block validity.
             -- In particular we do not use getBlockStatus since that loads the entire block
             -- from the database if the block is finalized.
-            parentStatus <- getBlockStatusOrOld parent
+            parentStatus <- getRecentBlockStatus parent
             case parentStatus of
-                Nothing -> do
+                -- The block's parent is already beyond the last finalized one. So
+                -- this block cannot be on a live branch.
+                OlderThanLastFinalized -> deadBlock
+                Unknown -> do
                     addPendingBlock block
                     markPending block
                     logEvent Skov LLDebug $ "Block " ++ show block ++ " is pending its parent (" ++ show parent ++ ")"
                     return ResultPendingBlock
-                Just (Right (BlockPending _)) -> do
+                RecentBlock (BlockPending _) -> do
                     addPendingBlock block
                     markPending block
                     logEvent Skov LLDebug $ "Block " ++ show block ++ " is pending, since its parent is pending"
                     return ResultPendingBlock
-                Just (Right BlockDead) -> deadBlock
-                Just (Right (BlockAlive parentP)) -> tryAddLiveParent parentP
-                -- In the following case the finalized block is the last finalized one (this is semantics of getBlockStatusOrOld)
-                Just (Right (BlockFinalized parentP _)) -> tryAddLiveParent parentP
-                -- The block's parent is already beyond the last finalized one. So
-                -- this block cannot be on a live branch.
-                Just (Left ()) -> deadBlock
+                RecentBlock BlockDead -> deadBlock
+                RecentBlock (BlockAlive parentP) -> tryAddLiveParent parentP
+                -- In the following case the finalized block is the last finalized one (this is semantics of getRecentBlockStatus)
+                RecentBlock (BlockFinalized parentP _) -> tryAddLiveParent parentP
     where
         deadBlock :: m UpdateResult
         deadBlock = do
