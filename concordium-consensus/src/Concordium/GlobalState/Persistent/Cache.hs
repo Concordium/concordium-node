@@ -36,6 +36,9 @@ instance (Monoid w, MonadCache c m) => MonadCache c (WriterT w m) where
 instance (MonadCache c m) => MonadCache c (ExceptT e m) where
   getCache = lift getCache
 
+instance (MonadIO m, HasCache c r) => MonadCache c (ReaderT r m) where
+  getCache = asks projectCache
+
 instance (MonadCache c m) => MonadCache c (PutT m) where
   getCache = lift getCache
 
@@ -46,6 +49,11 @@ class Cache c where
     putCachedValue :: (MonadCache c m) => Proxy c -> CacheKey c -> CacheValue c -> m (CacheValue c)
     lookupCachedValue :: (MonadCache c m) => Proxy c -> CacheKey c -> m (Maybe (CacheValue c))
     getCacheSize :: (MonadCache c m) => Proxy c -> m Int
+
+newtype CacheContext c = CacheContext { theCacheContext :: c }
+
+instance HasCache c (CacheContext c) where
+    projectCache = theCacheContext
 
 data DummyCache k v = DummyCache
 
@@ -74,9 +82,6 @@ data CacheEntry
     | CacheEntry {key :: !Int}
 
 newtype FIFOCache v = FIFOCache {theFIFOCache :: MVar (FIFOCache' v)}
-
-instance HasCache (FIFOCache v) (FIFOCache v) where
-    getCache = id
 
 instance Cache (FIFOCache v) where
     type CacheKey (FIFOCache v) = BlobRef v
@@ -114,7 +119,7 @@ instance Cache (FIFOCache v) where
         return $! IntMap.lookup (fromIntegral (theBlobRef key)) (keyMap cache)
 
     getCacheSize _ = do
-        FIFOCache cacheRef :: FIFOCache v <- asks getCache
+        FIFOCache cacheRef :: FIFOCache v <- getCache
         cache <- liftIO $ readMVar cacheRef
         return $ IntMap.size (keyMap cache)
 
@@ -130,28 +135,25 @@ newFIFOCache size = do
     FIFOCache <$> newMVar cache
 
 -- | An LRU cache that stores values in memory.
-type LRUCache v = LRU.AtomicLRU Word64 v
-
-instance HasCache (LRUCache v) (LRUCache v) where
-    getCache = id
+newtype LRUCache v = LRUCache { theLRUCache :: LRU.AtomicLRU Word64 v }
 
 instance Cache (LRUCache v) where
     type CacheKey (LRUCache v) = BlobRef v
     type CacheValue (LRUCache v) = v
 
     putCachedValue _ k v = do
-        lru <- asks getCache
+        lru <- theLRUCache <$> getCache
         liftIO $ LRU.insert (theBlobRef k) v lru
         return v
 
     lookupCachedValue _ k = do
-        lru <- asks getCache
+        lru <- theLRUCache <$> getCache
         liftIO $ LRU.lookup (theBlobRef k) lru
 
     getCacheSize _ = do
-        lru :: LRUCache v <- asks getCache
-        liftIO $ LRU.size lru
+        lru :: LRUCache v <- getCache
+        liftIO $ LRU.size $ theLRUCache lru
 
 
 newLRUCache :: Int -> IO (LRUCache v)
-newLRUCache size = LRU.newAtomicLRU (Just $ toInteger size)
+newLRUCache size = LRUCache <$> LRU.newAtomicLRU (Just $ toInteger size)

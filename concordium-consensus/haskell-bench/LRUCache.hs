@@ -23,10 +23,10 @@ data CacheOp k v
   = PutItem k v
   | GetItem k
 
-testCache :: forall v. (Cache v, HasCache v v) => v -> [CacheKey v] -> CacheValue v -> Int -> IO ()
+testCache :: forall v. (Cache v) => v -> [CacheKey v] -> CacheValue v -> Int -> IO ()
 testCache cache keys value txCount = do
   let cacheProxy = Proxy :: Proxy v
-  flip runReaderT cache $ do
+  flip runReaderT (CacheContext cache) $ do
     res <-
       forM
         (take txCount (reverse keys))
@@ -51,26 +51,26 @@ main = do
   let mean = fromIntegral txCount
   let deviation = fromIntegral txCount / 10 / 2
   xs <- replicateM txCount (normal mean deviation mwc :: IO Double)
-  let keys = map (BlobRef . round) xs
+  let txs = map (BlobRef . round) xs
   defaultMain [
     bgroup "cache" [
-      bench "test LRUCache" $ perRunEnv (lruCache keys) $ \ lruCache -> testCache lruCache keys "test" 6000,
-      bench "test FIFOCache" $ perRunEnv (fifoCache keys) $ \ fifoCache -> testCache fifoCache keys "test" 6000
+      bench "test LRUCache" $ perRunEnv (lruCache txs) $ \ lruCache -> testCache lruCache txs "test" 6000,
+      bench "test FIFOCache" $ perRunEnv (fifoCache txs) $ \ fifoCache -> testCache fifoCache txs "test" 6000
       ]
       ]
   where
     cacheSize = 30000
-    lruCache keys = do
+    lruCache txs = do
       cache <- newLRUCache cacheSize
       let lruCacheProxy = Proxy :: Proxy (LRUCache String)
-      flip runReaderT cache $ do
-        mapM_ (\key -> putCachedValue lruCacheProxy key "test") (take (cacheSize*2) keys)
+      flip runReaderT (CacheContext cache) $ do
+        mapM_ (\key -> putCachedValue lruCacheProxy key "test") (take (cacheSize*1) txs)
       return cache
-    fifoCache keys = do
+    fifoCache txs = do
       cache <- newFIFOCache cacheSize
       let fifoCacheProxy = Proxy :: Proxy (FIFOCache String)
-      flip runReaderT cache $ do
-        mapM_ (\key -> putCachedValue fifoCacheProxy key "test") (take (cacheSize*2) keys)
+      flip runReaderT (CacheContext cache) $ do
+        mapM_ (\key -> putCachedValue fifoCacheProxy key "test") (take (cacheSize*1) txs)
       return cache
 
 instance NFData (LRUCache v) where
