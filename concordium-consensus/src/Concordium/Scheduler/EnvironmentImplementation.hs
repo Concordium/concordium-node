@@ -344,7 +344,7 @@ type PBSSS pv = NoLogSchedulerState (PureBlockStateMonad pv Identity)
 newtype RWSTBS pv m a = RWSTBS {_runRWSTBS :: RWST ContextState [(LogSource, LogLevel, String)] (PBSSS pv) m a}
   deriving (Functor, Applicative, Monad, MonadReader ContextState, MonadState (PBSSS pv), MonadTrans)
 
--- |Basic implementation of the scheduler that does no transaction logging.
+-- |Basic implementation of the scheduler.
 newtype SchedulerImplementation pv a = SchedulerImplementation { _runScheduler :: RWSTBS pv (PureBlockStateMonad pv Identity) a }
     deriving (Functor, Applicative, Monad, MonadReader ContextState, MonadState (PBSSS pv))
     deriving (StaticInformation, AccountOperations, ContractStateOperations, MonadLogger)

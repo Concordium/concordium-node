@@ -51,15 +51,3 @@ container is running, or via `docker run` and mapping /genesis-data to a host di
 ## Build
 
 See [`dev-node.Jenkinsfile`](jenkinsfiles/dev-node.Jenkinsfile).
-
-# OLD
-
-Information from the old README that might still be(come) relevant:
- 
-> Remember to clean out PostgreSQL data between runs using
-> ```bash
-> $ NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f develop.wallet-dev.yml down
-> ```
-> 
-> ## Delay baker startup if PostgreSQL starts too slowly
-> If PostgreSQL starts too slowly the baker enabled for logging to it can be delayed by using the variable `DB_SLEEP` (the wallet-proxy has a default value of 30 set to delay start until PostgreSQL is up).
