@@ -385,9 +385,9 @@ openReadOnlyDatabase treeStateDir = do
 
 
 -- |Initialize the database handlers creating the databases if needed and writing the genesis block and its finalization record into the disk
-initializeDatabase :: forall pv st ati bs. (IsProtocolVersion pv, FixedSizeSerialization st) =>
+initializeDatabase :: forall pv st bs. (IsProtocolVersion pv, FixedSizeSerialization st) =>
   -- |Genesis block pointer
-  PersistentBlockPointer pv ati bs ->
+  PersistentBlockPointer pv bs ->
   -- |Genesis block state
   st ->
   -- |Tree state directory

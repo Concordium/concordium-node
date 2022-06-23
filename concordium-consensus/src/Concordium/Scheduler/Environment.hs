@@ -37,7 +37,6 @@ import Concordium.GlobalState.Classes (MGSTrans(..))
 import Concordium.GlobalState.Account (EncryptedAmountUpdate(..), AccountUpdate(..), auAmount, auEncrypted, auReleaseSchedule, emptyAccountUpdate)
 import Concordium.GlobalState.BlockState (AccountOperations(..), NewInstanceData, ContractStateOperations (..), InstanceInfo, InstanceInfoType (..), InstanceInfoTypeV (iiState, iiParameters), iiBalance, UpdatableContractState)
 import Concordium.GlobalState.BakerInfo
-import Concordium.GlobalState.AccountTransactionIndex
 import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as ARS
 
 import qualified Concordium.TransactionVerification as TVer
@@ -80,13 +79,8 @@ class (Monad m) => StaticInformation m where
   getStateAccount :: AccountAddress -> m (Maybe (IndexedAccount m))
 
 -- |Information needed to execute transactions in the form that is easy to use.
-class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m)), AccountOperations m, ContractStateOperations m, MonadLogger m, MonadProtocolVersion m, TVer.TransactionVerifier m)
+class (Monad m, StaticInformation m, AccountOperations m, ContractStateOperations m, MonadLogger m, MonadProtocolVersion m, TVer.TransactionVerifier m)
     => SchedulerMonad m where
-
-  -- |Notify the transaction log that a transaction had the given footprint. The
-  -- nature of the footprint will depend on the configuration, e.g., it could be
-  -- nothing, or the set of accounts affected by the transaction.
-  tlNotifyAccountEffect :: Footprint (ATIStorage m) -> TransactionSummary -> m ()
 
   -- |Get the 'AccountIndex' for an account, if it exists.
   getAccountIndex :: AccountAddress -> m (Maybe AccountIndex)
@@ -103,9 +97,6 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
   -- Precondition: Each account affected in the change set must exist in the
   -- block state.
   commitChanges :: ChangeSet -> m ()
-
-  -- |Observe a single transaction footprint.
-  observeTransactionFootprint :: m a -> m (a, Footprint (ATIStorage m))
 
   -- |Commit a module interface and module value to global state. Returns @True@
   -- if this was successful, and @False@ if a module with the given Hash already

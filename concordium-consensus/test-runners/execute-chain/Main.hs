@@ -48,7 +48,6 @@ main = do
         config =
             MultiVersionConfiguration
                 { mvcStateConfig = (DiskStateConfig dataDir, ()),
-                  mvcTXLogConfig = ((), ()),
                   mvcFinalizationConfig = NoFinalization,
                   mvcRuntimeParameters = defaultRuntimeParameters{rpTransactionsPurgingDelay = 0}
                 }

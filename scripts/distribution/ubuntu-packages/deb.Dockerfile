@@ -18,7 +18,7 @@ COPY --from=binaries /pkg-root /pkg-root
 WORKDIR /pkg-root
 
 RUN apt-get update && \
-DEBIAN_FRONTEND=noninteractive apt-get -y install debhelper dh-exec libpq5 libgmp10
+DEBIAN_FRONTEND=noninteractive apt-get -y install debhelper dh-exec libgmp10
 
 ARG build_env_name=Testnet
 ARG build_env_name_lower=testnet

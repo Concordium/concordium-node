@@ -101,13 +101,6 @@ newtype DiskStateConfig = DiskStateConfig
       stateBasePath :: FilePath
     }
 
--- |Configuration for the global state that logs finalized
--- transactions in an external database.
-newtype TransactionDBConfig = TransactionDBConfig
-    { -- |Database connection string.
-      dbConnString :: ByteString
-    }
-
 -- |Configuration information for a multi-version runner.
 -- The first type parameter defines the global state configuration, and should be an instance of
 -- 'MultiVersionStateConfig' (and, as a superclass, 'GlobalStateConfig').
@@ -116,8 +109,6 @@ newtype TransactionDBConfig = TransactionDBConfig
 data MultiVersionConfiguration gsconf finconf = MultiVersionConfiguration
     { -- |Configuration for the global state.
       mvcStateConfig :: !(StateConfig gsconf),
-      -- |Configuration for transaction logging.
-      mvcTXLogConfig :: !(TXLogConfig gsconf),
       -- |Configuration for finalization.
       mvcFinalizationConfig :: !finconf,
       -- |Runtime parameters.
@@ -133,13 +124,9 @@ class
     -- |Type of state configuration data.
     type StateConfig gsconf
 
-    -- |Type of transaction logging data.
-    type TXLogConfig gsconf
-
     -- |Create a global state configuration for a specific genesis.
     globalStateConfig ::
         StateConfig gsconf ->
-        TXLogConfig gsconf ->
         RuntimeParameters ->
         GenesisIndex ->
         -- |Absolute height of the genesis block.
@@ -148,30 +135,15 @@ class
 
 instance MultiVersionStateConfig MemoryTreeMemoryBlockConfig where
     type StateConfig MemoryTreeMemoryBlockConfig = ()
-    type TXLogConfig MemoryTreeMemoryBlockConfig = ()
-    globalStateConfig _ _ rtp _ _ = MTMBConfig rtp
+    globalStateConfig _ rtp _ _ = MTMBConfig rtp
 
 instance MultiVersionStateConfig DiskTreeDiskBlockConfig where
     type StateConfig DiskTreeDiskBlockConfig = DiskStateConfig
-    type TXLogConfig DiskTreeDiskBlockConfig = ()
-    globalStateConfig DiskStateConfig{..} _ rtp gi _ =
+    globalStateConfig DiskStateConfig{..} rtp gi _ =
         ( DTDBConfig
             { dtdbRuntimeParameters = rtp,
               dtdbTreeStateDirectory = stateBasePath </> ("treestate-" ++ show gi),
               dtdbBlockStateFile = stateBasePath </> ("blockstate-" ++ show gi) <.> "dat"
-            }
-        )
-
-instance MultiVersionStateConfig DiskTreeDiskBlockWithLogConfig where
-    type StateConfig DiskTreeDiskBlockWithLogConfig = DiskStateConfig
-    type TXLogConfig DiskTreeDiskBlockWithLogConfig = TransactionDBConfig
-    globalStateConfig DiskStateConfig{..} TransactionDBConfig{..} rtp gi genHeight =
-        ( DTDBWLConfig
-            { dtdbwlRuntimeParameters = rtp,
-              dtdbwlTreeStateDirectory = stateBasePath </> ("treestate-" ++ show gi),
-              dtdbwlBlockStateFile = stateBasePath </> ("blockstate-" ++ show gi) <.> "dat",
-              dtdbwlTxDBConnectionString = dbConnString,
-              dtdbwlGenesisHeight = genHeight
             }
         )
 
@@ -180,11 +152,10 @@ instance
     MultiVersionStateConfig (PairGSConfig c1 c2)
     where
     type StateConfig (PairGSConfig c1 c2) = (StateConfig c1, StateConfig c2)
-    type TXLogConfig (PairGSConfig c1 c2) = (TXLogConfig c1, TXLogConfig c2)
-    globalStateConfig (sc1, sc2) (txc1, txc2) rtp gi gh =
+    globalStateConfig (sc1, sc2) rtp gi gh =
         PairGSConfig
-            ( globalStateConfig sc1 txc1 rtp gi gh,
-              globalStateConfig sc2 txc2 rtp gi gh
+            ( globalStateConfig sc1 rtp gi gh,
+              globalStateConfig sc2 rtp gi gh
             )
 
 -- |Callback functions for communicating with the network layer.
@@ -433,7 +404,6 @@ newGenesis (PVGenesisData (gd :: GenesisData pv)) vcGenesisHeight =
                             ( SkovConfig @pv @gsconf @finconf
                                 ( globalStateConfig
                                     mvcStateConfig
-                                    mvcTXLogConfig
                                     mvcRuntimeParameters
                                     vcIndex
                                     vcGenesisHeight
@@ -634,7 +604,6 @@ startupSkov genesis = do
                                           ( SkovConfig @pv @gsconf @finconf
                                               ( globalStateConfig
                                                   mvcStateConfig
-                                                  mvcTXLogConfig
                                                   mvcRuntimeParameters
                                                   vcIndex
                                                   vcGenesisHeight

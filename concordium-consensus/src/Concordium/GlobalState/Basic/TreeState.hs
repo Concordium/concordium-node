@@ -38,7 +38,6 @@ import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Transactions
 import Concordium.Types.Updates
-import Concordium.GlobalState.AccountTransactionIndex
 import qualified Concordium.TransactionVerification as TVer
 
 -- |Datatype representing an in-memory tree state.
@@ -144,18 +143,12 @@ instance (bs ~ BlockState m, BlockStateTypes m, Monad m, MonadState (SkovData pv
     bpParent = return . runIdentity . _bpParent
     bpLastFinalized = return . runIdentity . _bpLastFinalized
 
-instance ATITypes (PureTreeStateMonad bs m) where
-  type ATIStorage (PureTreeStateMonad bs m) = ()
-
-instance (Monad m) => PerAccountDBOperations (PureTreeStateMonad bs m) where
-  -- default instance because ati = ()
-
 instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadState (SkovData (MPV m) bs) m, MonadProtocolVersion m)
           => TS.TreeStateMonad (PureTreeStateMonad bs m) where
     makePendingBlock key slot parent bid pf n lastFin trs statehash transactionOutcomesHash time = do
         return $ makePendingBlock (signBlock key slot parent bid pf n lastFin trs statehash transactionOutcomesHash) time
     getBlockStatus bh = use (blockTable . at' bh)
-    makeLiveBlock block parent lastFin st () arrTime energy = do
+    makeLiveBlock block parent lastFin st arrTime energy = do
             let blockP = makeBasicBlockPointer block parent lastFin st arrTime energy
             blockTable . at' (getHash block) ?= TS.BlockAlive blockP
             return blockP

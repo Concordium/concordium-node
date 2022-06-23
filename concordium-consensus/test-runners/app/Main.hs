@@ -298,7 +298,6 @@ callbacks myPeerId peersRef monitorChan = Callbacks{..}
 config :: FilePath -> BakerIdentity -> MultiVersionConfiguration DiskTreeDiskBlockConfig (BufferedFinalization ThreadTimer)
 config dataPath bid = MultiVersionConfiguration{..}
   where
-    mvcTXLogConfig = ()
     mvcStateConfig = DiskStateConfig dataPath
     mvcFinalizationConfig =
         BufferedFinalization

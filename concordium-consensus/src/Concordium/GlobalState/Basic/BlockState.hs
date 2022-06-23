@@ -43,7 +43,6 @@ import qualified Concordium.Genesis.Data.P4 as P4
 import qualified Concordium.GlobalState.Types as GT
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.GlobalState.ContractStateFFIHelpers
 import Concordium.GlobalState.Basic.BlockState.Bakers
 import qualified Concordium.GlobalState.BlockState as BS
@@ -569,12 +568,6 @@ instance GT.BlockStateTypes (PureBlockStateMonad pv m) where
     type Account (PureBlockStateMonad pv m) = Account (AccountVersionFor pv)
     type BakerInfoRef (PureBlockStateMonad pv m) = BakerInfoEx (AccountVersionFor pv)
     type ContractState (PureBlockStateMonad pv m) = Instance.InstanceStateV
-
-instance ATITypes (PureBlockStateMonad pv m) where
-  type ATIStorage (PureBlockStateMonad pv m) = ()
-
-instance Monad m => PerAccountDBOperations (PureBlockStateMonad pv m)
-  -- default implementation
 
 -- |Retrieve instance information from a basic instance.
 mkInstanceInfo :: Instance.Instance -> BS.InstanceInfoType Instance.InstanceStateV

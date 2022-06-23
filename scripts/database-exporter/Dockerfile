@@ -14,7 +14,7 @@ RUN stack build \
 
 FROM ubuntu:${ubuntu_version}
 RUN apt-get update && \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y jq awscli liblmdb0 libpq-dev && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y jq awscli liblmdb0 && \
     rm -rf /var/lib/apt/lists/*
 COPY --from=build /build/database-exporter /usr/local/bin/database-exporter
 COPY --from=build /build/concordium-base/rust-src/target/release/*.so /usr/local/lib/

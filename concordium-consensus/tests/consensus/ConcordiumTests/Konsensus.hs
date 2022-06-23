@@ -262,7 +262,7 @@ invariantSkovData TS.SkovData{..} = addContext $ do
         addContext r = r
 
 invariantSkovFinalization :: SkovState (Config t) -> FullBakerInfo -> FinalizationCommitteeSize -> Either String ()
-invariantSkovFinalization (SkovState sd@TS.SkovData{..} FinalizationState{..} _ _) baker maxFinComSize = do
+invariantSkovFinalization (SkovState sd@TS.SkovData{..} FinalizationState{..} _) baker maxFinComSize = do
         let finParams = finalizationParameters maxFinComSize
         invariantSkovData sd
         let (flHead Seq.:|> (lfr, lfb)) = _finalizationList
@@ -439,7 +439,7 @@ runKonsensusTest maxFinComSize collectedFinComParties steps g states es
             let es1 = es & esEventPool .~ events'
             let (bkr, bkrInfo, _, fi, fs) = states Vec.! rcpt
             let btargets = [x | x <- [0..length states - 1], x /= rcpt]
-            let continue fs'@(SkovState _ fState _ _) es' = case invariantSkovFinalization fs' bkrInfo maxFinComSize of
+            let continue fs'@(SkovState _ fState _) es' = case invariantSkovFinalization fs' bkrInfo maxFinComSize of
                     Left err -> return $ counterexample ("Invariant failed: " ++ err) False
                     Right _ -> do
                         let states' = states & ix rcpt . _5 .~ fs'

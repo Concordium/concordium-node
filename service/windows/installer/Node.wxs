@@ -109,31 +109,7 @@
         <!-- The third party DLLs -->
         <ComponentGroup Id="ThirdPartyDLLs" Directory="INSTALLDIR">
             <Component>
-                <File Name="libcrypto-1_1-x64.dll" Source="!(bindpath.lib)libcrypto-1_1-x64.dll" KeyPath="yes" />
-            </Component>
-            <Component>
-                <File Name="libiconv-2.dll" Source="!(bindpath.lib)libiconv-2.dll" KeyPath="yes" />
-            </Component>
-            <Component>
-                <File Name="libintl-8.dll" Source="!(bindpath.lib)libintl-8.dll" KeyPath="yes" />
-            </Component>
-            <Component>
                 <File Name="liblmdb.dll" Source="!(bindpath.lib)liblmdb.dll" KeyPath="yes" />
-            </Component>
-            <Component>
-                <File Name="liblzma-5.dll" Source="!(bindpath.lib)liblzma-5.dll" KeyPath="yes" />
-            </Component>
-            <Component>
-                <File Name="libpq.dll" Source="!(bindpath.lib)libpq.dll" KeyPath="yes" />
-            </Component>
-            <Component>
-                <File Name="libssl-1_1-x64.dll" Source="!(bindpath.lib)libssl-1_1-x64.dll" KeyPath="yes" />
-            </Component>
-            <Component>
-                <File Name="libxml2-2.dll" Source="!(bindpath.lib)libxml2-2.dll" KeyPath="yes" />
-            </Component>
-            <Component>
-                <File Name="zlib1.dll" Source="!(bindpath.lib)zlib1.dll" KeyPath="yes" />
             </Component>
         </ComponentGroup>
 

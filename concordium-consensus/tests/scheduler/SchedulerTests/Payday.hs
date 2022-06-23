@@ -57,7 +57,6 @@ import Concordium.GlobalState.BakerInfo
 import Concordium.Birk.Bake
 import Concordium.Startup
 import Concordium.GlobalState.Basic.BlockState.PoolRewards (BakerPoolRewardDetails(transactionFeesAccrued))
-import Concordium.GlobalState.AccountTransactionIndex
 
 foundationAccount :: AccountAddress
 foundationAccount = accountAddressFrom 0
@@ -240,8 +239,8 @@ runMyPureMonad' :: (IsProtocolVersion pv) => GenesisData pv -> MyPureMonad pv a 
 runMyPureMonad' gd = runPureBlockStateMonad (initialSkovDataDefault gd initialPureBlockState) >>= runMyPureMonad
 
 type MyPersistentBlockState pv = HashedPersistentBlockState pv
-type MyPersistentTreeState pv = SkovPersistentData pv () (MyPersistentBlockState pv)
-type MyPersistentMonad pv = PersistentTreeStateMonad () (MyPersistentBlockState pv)
+type MyPersistentTreeState pv = SkovPersistentData pv (MyPersistentBlockState pv)
+type MyPersistentMonad pv = PersistentTreeStateMonad (MyPersistentBlockState pv)
                               (MGSTrans (StateT (MyPersistentTreeState pv))
                                  (PersistentBlockStateMonad pv BlobStore (ReaderT BlobStore LogIO)))
 
@@ -260,11 +259,11 @@ createGlobalState dbDir = do
   let
     n = 5
     config = DTDBConfig defaultRuntimeParameters dbDir (dbDir </> "blockstate" <.> "dat")
-  (x, y, NoLogContext) <- runSilentLogger $ initialiseGlobalState (genesis n ^. _1) config
+  (x, y) <- runSilentLogger $ initialiseGlobalState (genesis n ^. _1) config
   return (x, y)
 
 destroyGlobalState :: (IsProtocolVersion pv) => (PersistentBlockStateContext, MyPersistentTreeState pv) -> IO ()
-destroyGlobalState (c, s) = shutdownGlobalState protocolVersion (Proxy :: Proxy DiskTreeDiskBlockConfig) c s NoLogContext
+destroyGlobalState (c, s) = shutdownGlobalState protocolVersion (Proxy :: Proxy DiskTreeDiskBlockConfig) c s
 
 withPersistentState' :: (IsProtocolVersion pv) => (MyPersistentBlockState pv -> MyPersistentMonad pv a) -> IO (a, MyPersistentTreeState pv)
 withPersistentState' f = withTempDirectory "." "test-directory"
@@ -281,7 +280,7 @@ testRewardDistribution = do
     assertBool "in-memory" resultPure
   it "does not change after mint distribution (persistent)" $ do
     ipbs :: MyPersistentBlockState 'P4 <- runBlobStoreTemp "." initialPersistentBlockState
-    blockParentPersistent :: PersistentBlockPointer 'P4 () (MyPersistentBlockState 'P4) <- makeGenesisPersistentBlockPointer gd ipbs  ()
+    blockParentPersistent :: PersistentBlockPointer 'P4 (MyPersistentBlockState 'P4) <- makeGenesisPersistentBlockPointer gd ipbs
     (resultPersistent, _) <- withPersistentState' (\x -> propMintDistributionImmediate (hpbsPointers x) blockParentPersistent slot bid epoch mfinInfo newSeedState transFees freeCounts updates)
     assertBool "persistent" resultPersistent
   it "does not change after block reward distribution (in-memory)" $ do

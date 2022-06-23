@@ -18,25 +18,6 @@ The global state depends on the lmdb library, which you may need to install usin
   package manager).
 - On OS X, use `brew install lmdb`.
 
-### PostgreSQL
-
-The global state depends on access to [PostgreSQL](https://www.postgresql.org/).
-The actual database is only needed when running the node in some configurations,
-however the library to access the database,
-[libpq](https://www.postgresql.org/docs/9.5/libpq.html), is always needed to
-compile the project.
-
-Install `postgresql` as follows:
-- On Windows:
-  ```
-  stack exec -- pacman -S mingw-w64-x86_64-postgresql
-  ```
-- On Linux, install the `postgresql-common` and `libpq-dev` packages
-- On OS X:
-  ```
-  brew install postgresql libpq
-  ```
-
 ### Troubleshooting on Windows
 
 ### `error: linking with link.exe failed`
