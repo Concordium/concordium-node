@@ -21,8 +21,9 @@ $ ./build 1.0.2
 The build script will ask whether you want to build and sign, or simply build
 the installer.
 
-NB: Make sure to replace the `genesis.dat` file in `template/payload/Library/Application
-Support/Concordium Node/Testnet/Data` when a new testnet is launched.
+### Genesis files
+- **Mainnet** genesis file is fetched from https://distribution.mainnet.concordium.software/data/genesis.dat
+- **Testnet** will use this [file](../../../service/windows/installer/resources/testnet-genesis.dat).
 
 ### Sign and Notarize
 

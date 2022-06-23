@@ -5,6 +5,8 @@
 - Remove transaction logging functionality from the node. It is replaced by an
   external service. As a consequence the `transaction-outcome-logging` family of
   command-line options are removed from the node.
+- The gRPC API now reports correctly when the sender of a transaction did
+  not have enough funds to cover the transaction costs.
 
 ## 4.2.1
 

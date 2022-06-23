@@ -245,6 +245,8 @@ pub enum ConsensusFfiResponse {
     ChainUpdateInvalidSignatures,
     #[error("The stated energy of the transaction exceeds the maximum allowed")]
     MaxBlockEnergyExceeded,
+    #[error("The sender did not have enough funds to cover the costs")]
+    InsufficientFunds,
 }
 
 impl ConsensusFfiResponse {
@@ -278,6 +280,7 @@ impl ConsensusFfiResponse {
                 | TooLowEnergy
                 | ConsensusShutDown
                 | InvalidGenesisIndex
+                | InsufficientFunds
         )
     }
 
@@ -310,6 +313,7 @@ impl ConsensusFfiResponse {
                 | ChainUpdateSequenceNumberTooOld
                 | ChainUpdateInvalidSignatures
                 | MaxBlockEnergyExceeded
+                | InsufficientFunds
         )
     }
 }
@@ -353,6 +357,7 @@ impl TryFrom<i64> for ConsensusFfiResponse {
             27 => Ok(ChainUpdateSequenceNumberTooOld),
             28 => Ok(ChainUpdateInvalidSignatures),
             29 => Ok(MaxBlockEnergyExceeded),
+            30 => Ok(InsufficientFunds),
             _ => Err(anyhow!("Unsupported FFI return code ({})", value)),
         }
     }
