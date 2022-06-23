@@ -42,7 +42,7 @@ instance (MonadIO m, HasCache c r) => MonadCache c (ReaderT r m) where
 instance (MonadCache c m) => MonadCache c (PutT m) where
   getCache = lift getCache
 
---| A cache that stores accounts in memory.
+-- | A cache that stores accounts in memory.
 class Cache c where
     type CacheKey c
     type CacheValue c
@@ -51,7 +51,7 @@ class Cache c where
     lookupCachedValue :: (MonadCache c m) => Proxy c -> CacheKey c -> m (Maybe (CacheValue c))
     getCacheSize :: (MonadCache c m) => Proxy c -> m Int
 
---| A context that simply wraps a cache, providing an instance @HasCache c (CacheContext c)@.
+-- | A context that simply wraps a cache, providing an instance @HasCache c (CacheContext c)@.
 newtype CacheContext c = CacheContext { theCacheContext :: c }
 
 instance HasCache c (CacheContext c) where

@@ -1,14 +1,14 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
---| This module provides a benchmark for the comparison of two different
---| implementations of the cache, namely `FIFOCache` and `LRUCache`.
---| The benchmark is based on the following assumption:
---| Most of the transactions in the network are done by a small number of
---| accounts. To simulate this, we use normal distribution to create the transactions
---| and the accounts. They are just integer values. Before each run of the benchmark,
---| we create a new cache and fill it with some transactions. Then, we test the cache
---| with another set of transactions/accounts.
+-- | This module provides a benchmark for the comparison of two different
+-- | implementations of the cache, namely `FIFOCache` and `LRUCache`.
+-- | The benchmark is based on the following assumption:
+-- | Most of the transactions in the network are done by a small number of
+-- | accounts. To simulate this, we use normal distribution to create the transactions
+-- | and the accounts. They are just integer values. Before each run of the benchmark,
+-- | we create a new cache and fill it with some transactions. Then, we test the cache
+-- | with another set of transactions/accounts.
 module Main where
 
 import Concordium.GlobalState.Persistent.BlobStore
