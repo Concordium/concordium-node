@@ -25,6 +25,8 @@ import Concordium.Types.DummyData
 import SchedulerTests.Helpers
 import SchedulerTests.TestUtils
 
+import qualified  Concordium.TransactionVerification as TVer
+
 shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
@@ -41,18 +43,21 @@ cdi7' = Types.AccountCreation{
   credential = Types.credential cdi7
   }
 
--- TODO
+-- TODO fix verres
 transactionsInput :: [CredentialDeploymentWithStatus]
-transactionsInput = map ((\x -> (x, undefined)) . Types.addMetadata Types.CredentialDeployment 0) $ [
-  cdi1,
-  cdi2,
-  cdi3,
-  cdi4, -- should fail because repeated credential ID
-  cdi5,
+transactionsInput = Types.addMetadata Types.CredentialDeployment 0 [
+  (cdi1, TVer.Ok TVer.CredentialDeploymentSuccess),
+  (cdi2, TVer.Ok TVer.CredentialDeploymentSuccess),
+  (cdi3, TVer.Ok TVer.CredentialDeploymentSuccess),
+  (cdi4, TVer.NotOk $ TVer.CredentialDeploymentDuplicateAccountRegistrationID (regId cdi4)), -- should fail because repeated credential ID
+  (cdi5, TVer.Ok TVer.CredentialDeploymentSuccess),
   -- cdi6, -- deploy just a new predicate
-  cdi7,
-  cdi7'
+  (cdi7, TVer.Ok TVer.CredentialDeploymentSuccess),
+  (cdi7', TVer.Ok TVer.CredentialDeploymentSuccess)
   ]
+
+regId :: Types.AccountCreation -> Types.CredentialRegistrationID
+regId cred = undefined -- TODO fixit
 
 testAccountCreation ::
     IO

@@ -33,7 +33,7 @@ initialAmount = 0
 initialBlockState :: BlockState PV1
 initialBlockState = blockStateWithAlesAccount initialAmount Acc.emptyAccounts
 
--- TODO
+-- TODO fix verres
 transactionsInput :: [CredentialDeploymentWithStatus]
 transactionsInput = map ((\x -> (x, undefined)) . Types.addMetadata Types.CredentialDeployment 0) [
   icdi1,
