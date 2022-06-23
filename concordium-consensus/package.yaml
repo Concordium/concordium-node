@@ -59,6 +59,7 @@ dependencies:
 - recursion-schemes >= 5.1
 - file-embed >= 0.0.11
 - lmdb
+- lrucache
 
 default-extensions:
 - FlexibleContexts
@@ -328,3 +329,15 @@ tests:
     - filepath >= 1.4.2
     - template-haskell
     - temporary >= 1.3
+
+benchmarks:
+  cache:
+    main: ./haskell-bench/LRUCache.hs
+    dependencies:
+      - concordium-consensus
+      - criterion
+      - mwc-random
+      - deepseq
+    when:
+      - condition: "!os(windows)"
+        ghc-options: -dynamic

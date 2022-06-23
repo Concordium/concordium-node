@@ -2596,8 +2596,6 @@ instance HasBlobStore (PersistentBlockStateContext av) where
 instance AccountVersionFor pv ~ av => Cache.HasCache (Accounts.AccountCache av) (PersistentBlockStateContext pv) where
   projectCache = pbscCache
 
-instance (MonadIO m, av ~ AccountVersionFor pv) => Cache.MonadCache (Accounts.AccountCache av) (ReaderT (PersistentBlockStateContext pv) m) where
-  getCache = asks pbscCache
 
 newtype PersistentBlockStateMonad (pv :: ProtocolVersion) r m a = PersistentBlockStateMonad {runPersistentBlockStateMonad :: m a}
     deriving (Functor, Applicative, Monad, MonadIO, MonadReader r, MonadLogger)
