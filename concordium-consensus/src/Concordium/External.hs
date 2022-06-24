@@ -443,7 +443,8 @@ startConsensus
                   rpInsertionsBeforeTransactionPurge = fromIntegral insertionsBeforePurge,
                   rpTransactionsKeepAliveTime = TransactionTime transactionsKeepAlive,
                   rpTransactionsPurgingDelay = fromIntegral transactionsPurgingDelay,
-                  rpMaxTimeToExpiry = fromIntegral maxTimeToExpiry
+                  rpMaxTimeToExpiry = fromIntegral maxTimeToExpiry,
+                  rpAccountsCacheSize = 1000 -- TODO
                 }
 
 -- |Start up an instance of Skov without starting the baker thread.
@@ -569,7 +570,8 @@ startConsensusPassive
                   rpInsertionsBeforeTransactionPurge = fromIntegral insertionsBeforePurge,
                   rpTransactionsKeepAliveTime = TransactionTime transactionsKeepAlive,
                   rpTransactionsPurgingDelay = fromIntegral transactionsPurgingDelay,
-                  rpMaxTimeToExpiry = fromIntegral maxTimeToExpiry
+                  rpMaxTimeToExpiry = fromIntegral maxTimeToExpiry,
+                  rpAccountsCacheSize = 1000 -- TODO
                 }
 
 -- |Shut down consensus, stopping any baker thread if necessary.

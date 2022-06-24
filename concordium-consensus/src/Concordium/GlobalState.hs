@@ -38,6 +38,10 @@ import Concordium.GlobalState.SQL.AccountTransactionIndex
 import Concordium.Logger
 import Concordium.Types.Block (AbsoluteBlockHeight)
 
+import qualified Concordium.GlobalState.Persistent.Cache as Cache
+import Concordium.GlobalState.Persistent.Cache
+import qualified Concordium.GlobalState.Persistent.Accounts as Accounts
+
 -- For the avid reader.
 -- The strategy followed in this module is the following: First `BlockStateM` and
 -- `TreeStateM` derive the behaviors of the BlockState Monads and TreeState Monads
@@ -107,7 +111,7 @@ instance (IsProtocolVersion pv) => MonadProtocolVersion (BlockStateM pv c r g s 
 -- * Specializations
 
 type MemoryBlockStateM pv r g s m = BlockStateM pv () r g s m
-type PersistentBlockStateM pv r g s m = BlockStateM pv PersistentBlockStateContext r g s m
+type PersistentBlockStateM pv r g s m = BlockStateM pv (PersistentBlockStateContext pv) r g s m
 
 -- * Generic implementations
 
@@ -150,58 +154,61 @@ deriving via PureBlockStateMonad pv m
              => BlockStateStorage (MemoryBlockStateM pv r g s m)
 
 -- ** Disk implementations
-deriving via PersistentBlockStateMonad pv PersistentBlockStateContext m
+deriving via PersistentBlockStateMonad pv (PersistentBlockStateContext pv) m
     instance BlockStateTypes (PersistentBlockStateM pv r g s m)
 
 deriving via PersistentBlockStateMonad pv
-              PersistentBlockStateContext
-              (FocusGlobalStateM PersistentBlockStateContext g m)
+              (PersistentBlockStateContext pv)
+              (FocusGlobalStateM (PersistentBlockStateContext pv) g m)
     instance (MonadIO m,
               IsProtocolVersion pv,
               BlockStateQuery (PersistentBlockStateMonad pv
-                                PersistentBlockStateContext
-                                (FocusGlobalStateM PersistentBlockStateContext g m)))
+                                (PersistentBlockStateContext pv)
+                                (FocusGlobalStateM (PersistentBlockStateContext pv) g m)))
              => BlockStateQuery (PersistentBlockStateM pv r g s m)
 
 deriving via PersistentBlockStateMonad pv
-              PersistentBlockStateContext
-              (FocusGlobalStateM PersistentBlockStateContext g m)
+              (PersistentBlockStateContext pv)
+              (FocusGlobalStateM (PersistentBlockStateContext pv) g m)
     instance (MonadIO m,
               AccountOperations (PersistentBlockStateMonad pv
-                                  PersistentBlockStateContext
-                                  (FocusGlobalStateM PersistentBlockStateContext g m)))
+                                  (PersistentBlockStateContext pv)
+                                  (FocusGlobalStateM (PersistentBlockStateContext pv) g m)))
              => AccountOperations (PersistentBlockStateM pv r g s m)
 
 deriving via PersistentBlockStateMonad pv
-              PersistentBlockStateContext
-              (FocusGlobalStateM PersistentBlockStateContext g m)
+              (PersistentBlockStateContext pv)
+              (FocusGlobalStateM (PersistentBlockStateContext pv) g m)
     instance (MonadIO m,
               IsProtocolVersion pv,
               ContractStateOperations (PersistentBlockStateMonad pv
-                                        PersistentBlockStateContext
-                                        (FocusGlobalStateM PersistentBlockStateContext g m)))
+                                        (PersistentBlockStateContext pv)
+                                        (FocusGlobalStateM (PersistentBlockStateContext pv) g m)))
              => ContractStateOperations (PersistentBlockStateM pv r g s m)
 
 
 deriving via PersistentBlockStateMonad pv
-              PersistentBlockStateContext
-              (FocusGlobalStateM PersistentBlockStateContext g m)
+              (PersistentBlockStateContext pv)
+              (FocusGlobalStateM (PersistentBlockStateContext pv) g m)
     instance (MonadIO m,
               IsProtocolVersion pv,
               BlockStateOperations (PersistentBlockStateMonad pv
-                                     PersistentBlockStateContext
-                                     (FocusGlobalStateM PersistentBlockStateContext g m)))
+                                     (PersistentBlockStateContext pv)
+                                     (FocusGlobalStateM (PersistentBlockStateContext pv) g m)))
              => BlockStateOperations (PersistentBlockStateM pv r g s m)
 
 deriving via PersistentBlockStateMonad pv
-              PersistentBlockStateContext
-              (FocusGlobalStateM PersistentBlockStateContext g m)
+              (PersistentBlockStateContext pv)
+              (FocusGlobalStateM (PersistentBlockStateContext pv) g m)
     instance (MonadIO m,
               IsProtocolVersion pv,
               BlockStateStorage (PersistentBlockStateMonad pv
-                                  PersistentBlockStateContext
-                                  (FocusGlobalStateM PersistentBlockStateContext g m)))
+                                  (PersistentBlockStateContext pv)
+                                  (FocusGlobalStateM (PersistentBlockStateContext pv) g m)))
              => BlockStateStorage (PersistentBlockStateM pv r g s m)
+
+instance (MonadIO m, c ~ PersistentBlockStateContext pv, HasGlobalStateContext c r, AccountVersionFor pv ~ av, MonadReader r m, HasCache (Accounts.AccountCache av) c) => MonadCache (Accounts.AccountCache av) (PersistentBlockStateM pv r g s m) where
+  getCache = projectCache <$> ask
 
 -----------------------------------------------------------------------------
 
@@ -421,7 +428,7 @@ instance GlobalStateConfig MemoryTreeMemoryBlockConfig where
 -- |Configuration that uses the Haskell implementation of tree state and the
 -- in-memory, Haskell implementation of the block state.
 instance GlobalStateConfig MemoryTreeDiskBlockConfig where
-    type GSContext MemoryTreeDiskBlockConfig pv = PersistentBlockStateContext
+    type GSContext MemoryTreeDiskBlockConfig pv = PersistentBlockStateContext pv
     type GSLogContext MemoryTreeDiskBlockConfig pv = NoLogContext
     type GSState MemoryTreeDiskBlockConfig pv = SkovData pv (HashedPersistentBlockState pv)
     initialiseGlobalState MTDBConfig{..} = do
@@ -430,6 +437,7 @@ instance GlobalStateConfig MemoryTreeDiskBlockConfig where
             Right genState -> return genState
         liftIO $ do
             pbscBlobStore <- createBlobStore mtdbBlockStateFile
+            pbscCache <- Cache.newFIFOCache (rpAccountsCacheSize mtdbRuntimeParameters)
             let pbsc = PersistentBlockStateContext {..}
             let initState = do
                     pbs <- makePersistent genState
@@ -443,11 +451,12 @@ instance GlobalStateConfig MemoryTreeDiskBlockConfig where
 instance GlobalStateConfig DiskTreeDiskBlockConfig where
     type GSLogContext DiskTreeDiskBlockConfig pv = NoLogContext
     type GSState DiskTreeDiskBlockConfig pv = SkovPersistentData pv () (HashedPersistentBlockState pv)
-    type GSContext DiskTreeDiskBlockConfig pv = PersistentBlockStateContext
+    type GSContext DiskTreeDiskBlockConfig pv = PersistentBlockStateContext pv
 
     initialiseGlobalState DTDBConfig{..} = do
       -- check if all the necessary database files exist
       existingDB <- checkExistingDatabase dtdbTreeStateDirectory dtdbBlockStateFile
+      pbscCache <- liftIO $ Cache.newFIFOCache (rpAccountsCacheSize dtdbRuntimeParameters)
       if existingDB then do
         pbscBlobStore <- liftIO $ do
           -- the block state file exists, is readable and writable
@@ -477,11 +486,12 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
 
 instance GlobalStateConfig DiskTreeDiskBlockWithLogConfig where
     type GSState DiskTreeDiskBlockWithLogConfig pv = SkovPersistentData pv SQLTransactionLog (HashedPersistentBlockState pv)
-    type GSContext DiskTreeDiskBlockWithLogConfig pv = PersistentBlockStateContext
+    type GSContext DiskTreeDiskBlockWithLogConfig pv = PersistentBlockStateContext pv
     type GSLogContext DiskTreeDiskBlockWithLogConfig pv = SQLTransactionLogContext
     initialiseGlobalState DTDBWLConfig{..} = do
         -- check if all the necessary database files exist
       existingDB <- checkExistingDatabase dtdbwlTreeStateDirectory dtdbwlBlockStateFile
+      pbscCache <- liftIO (Cache.newFIFOCache (rpAccountsCacheSize dtdbwlRuntimeParameters))
       dbHandle <- do
         dbHandle <- liftIO $ connectPostgres dtdbwlTxDBConnectionString
         liftIO (checkTablesExist dbHandle) >>= \case

@@ -147,6 +147,8 @@ data SkovPersistentData (pv :: ProtocolVersion) ati bs = SkovPersistentData {
     _db :: !(DatabaseHandlers pv (TS.BlockStatePointer bs)),
     -- |Context for the transaction log.
     _atiCtx :: !(ATIContext ati)
+    --
+    -- accountCache :: FIFOCache (PersistentAccount (AccountVersionFor pv))
 }
 makeLenses ''SkovPersistentData
 
@@ -287,7 +289,7 @@ loadSkovPersistentData :: forall ati pv. (IsProtocolVersion pv, CanExtend (ATIVa
                        => RuntimeParameters
                        -> FilePath -- ^Tree state directory
                        -> GenesisData pv
-                       -> PBS.PersistentBlockStateContext
+                       -> PBS.PersistentBlockStateContext pv
                        -> ATIContext ati
                        -> LogIO (SkovPersistentData pv ati (PBS.HashedPersistentBlockState pv))
 loadSkovPersistentData rp _treeStateDirectory _genesisData pbsc atiContext = do
@@ -328,7 +330,7 @@ loadSkovPersistentData rp _treeStateDirectory _genesisData pbsc atiContext = do
   -- For now we simply load all accounts, but after this table is also moved to
   -- some sort of a database we should not need to do that.
 
-  let getTransactionTable :: PBS.PersistentBlockStateMonad pv PBS.PersistentBlockStateContext (ReaderT PBS.PersistentBlockStateContext LogIO) TransactionTable
+  let getTransactionTable :: PBS.PersistentBlockStateMonad pv (PBS.PersistentBlockStateContext pv) (ReaderT (PBS.PersistentBlockStateContext pv) LogIO) TransactionTable
       getTransactionTable = do
         accs <- getAccountList lastState
         tt0 <- foldM (\table addr ->
