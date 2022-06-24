@@ -18,7 +18,7 @@ tests = do
       specify "Item should be retrieved from LRUCache" $ do
         cache :: LRUCache String <- newLRUCache 1
         let cacheProxy = Proxy :: Proxy (LRUCache String)
-        flip runReaderT cache $ do
+        flip runReaderT (CacheContext cache) $ do
           -- Put an item in the cache
           _ <- putCachedValue cacheProxy (BlobRef 1) "test"
           val <- lookupCachedValue cacheProxy (BlobRef 1)
@@ -31,7 +31,7 @@ tests = do
         cache :: LRUCache String <- newLRUCache 3
         let cacheProxy = Proxy :: Proxy (LRUCache String)
         let key = BlobRef 1
-        flip runReaderT cache $ do
+        flip runReaderT (CacheContext cache) $ do
           -- Put an item in the cache
           _ <- putCachedValue cacheProxy key "foo"
           val <- lookupCachedValue cacheProxy key
@@ -54,7 +54,7 @@ tests = do
         let key3 = BlobRef 3
         let key4 = BlobRef 4
         -- Fill the cache
-        flip runReaderT cache $ do
+        flip runReaderT (CacheContext cache) $ do
           _ <- putCachedValue cacheProxy key1 "val1"
           _ <- putCachedValue cacheProxy key2 "val2"
           _ <- putCachedValue cacheProxy key3 "val3"
@@ -82,7 +82,7 @@ tests = do
       specify "Item should be retrieved from the FIFOCache" $ do
         cache :: FIFOCache String <- newFIFOCache 1
         let cacheProxy = Proxy :: Proxy (FIFOCache String)
-        flip runReaderT cache $ do
+        flip runReaderT (CacheContext cache) $ do
           -- Put an item in the cache
           let key = BlobRef 1
           _ <- putCachedValue cacheProxy key "test"
@@ -96,7 +96,7 @@ tests = do
         cache :: FIFOCache String <- newFIFOCache 3
         let cacheProxy = Proxy :: Proxy (FIFOCache String)
         let key = BlobRef 1
-        flip runReaderT cache $ do
+        flip runReaderT (CacheContext cache) $ do
           -- Put an item in the cache
           _ <- putCachedValue cacheProxy key "foo"
           val <- lookupCachedValue cacheProxy key
@@ -119,7 +119,7 @@ tests = do
         let key3 = BlobRef 3
         let key4 = BlobRef 4
         -- Fill the cache
-        flip runReaderT cache $ do
+        flip runReaderT (CacheContext cache) $ do
           -- Fill the cache
           _ <- putCachedValue cacheProxy key1 "val1"
           _ <- putCachedValue cacheProxy key2 "val2"

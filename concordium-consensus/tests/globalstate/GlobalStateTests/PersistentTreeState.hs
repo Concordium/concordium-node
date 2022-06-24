@@ -49,17 +49,17 @@ type PV = 'P1
 
 type GlobalStateIO c g = GlobalStateM PV NoLogContext c c g g (RWST c () g LogIO)
 
-type TestM = GlobalStateIO PBS.PersistentBlockStateContext (SkovPersistentData PV () (PBS.HashedPersistentBlockState PV))
+type TestM = GlobalStateIO (PBS.PersistentBlockStateContext PV) (SkovPersistentData PV () (PBS.HashedPersistentBlockState PV))
 
 type Test = TestM ()
 
-instance HasGlobalStateContext PBS.PersistentBlockStateContext PBS.PersistentBlockStateContext where
+instance HasGlobalStateContext (PBS.PersistentBlockStateContext PV) (PBS.PersistentBlockStateContext PV) where
   globalStateContext = id
 
 instance HasGlobalState (SkovPersistentData PV () (PBS.HashedPersistentBlockState PV)) (SkovPersistentData PV () (PBS.HashedPersistentBlockState PV)) where
   globalState = id
 
-createGlobalState :: FilePath -> IO (PBS.PersistentBlockStateContext, SkovPersistentData PV () (PBS.HashedPersistentBlockState PV))
+createGlobalState :: FilePath -> IO (PBS.PersistentBlockStateContext PV, SkovPersistentData PV () (PBS.HashedPersistentBlockState PV))
 createGlobalState dbDir = do
   now <- utcTimeToTimestamp <$> getCurrentTime
   let
@@ -69,7 +69,7 @@ createGlobalState dbDir = do
   (x, y, NoLogContext) <- runSilentLogger $ initialiseGlobalState config
   return (x, y)
 
-destroyGlobalState :: (PBS.PersistentBlockStateContext, SkovPersistentData PV () (PBS.HashedPersistentBlockState PV)) -> IO ()
+destroyGlobalState :: (PBS.PersistentBlockStateContext PV, SkovPersistentData PV () (PBS.HashedPersistentBlockState PV)) -> IO ()
 destroyGlobalState (c, s) =
   shutdownGlobalState (protocolVersion @PV) (Proxy :: Proxy DiskTreeDiskBlockConfig) c s NoLogContext
 
