@@ -8,7 +8,9 @@ use crate::{
     connection::ConnChange,
     consensus_ffi::{
         catch_up::{PeerList, PeerStatus},
-        consensus::{self, ConsensusContainer, Regenesis, CALLBACK_QUEUE},
+        consensus::{
+            self, ConsensusContainer, ConsensusRuntimeParameters, Regenesis, CALLBACK_QUEUE,
+        },
         ffi,
         helpers::{
             ConsensusFfiResponse,
@@ -58,13 +60,18 @@ pub fn start_consensus_layer(
     #[cfg(not(feature = "profiling"))]
     ffi::start_haskell(&conf.rts_flags);
 
+    let runtime_parameters = ConsensusRuntimeParameters {
+        max_block_size:             u64::from(conf.maximum_block_size),
+        block_construction_timeout: u64::from(conf.block_construction_timeout),
+        max_time_to_expiry:         conf.max_time_to_expiry,
+        insertions_before_purging:  u64::from(conf.transaction_insertions_before_purge),
+        transaction_keep_alive:     u64::from(conf.transaction_keep_alive),
+        transactions_purging_delay: u64::from(conf.transactions_purging_delay),
+        accounts_cache_size:        conf.account_cache_size,
+    };
+
     ConsensusContainer::new(
-        u64::from(conf.maximum_block_size),
-        u64::from(conf.block_construction_timeout),
-        conf.max_time_to_expiry,
-        u64::from(conf.transaction_insertions_before_purge),
-        u64::from(conf.transaction_keep_alive),
-        u64::from(conf.transactions_purging_delay),
+        runtime_parameters,
         genesis_data,
         private_data,
         max_logging_level,
