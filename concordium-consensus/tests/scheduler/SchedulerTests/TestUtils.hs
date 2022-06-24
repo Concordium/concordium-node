@@ -26,7 +26,7 @@ import Concordium.Scheduler.Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import Concordium.Scheduler.Runner
 import qualified Concordium.Scheduler as Sch
-import Concordium.TransactionVerification
+import qualified Concordium.TransactionVerification as TVer
 
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
@@ -52,7 +52,7 @@ data TResultSpec
   -- | Like 'Success' but with exactly the given list of events.
   | SuccessE [Event]
   -- | Like Success but has access to the full transaction summary.
-  | SuccessWithSummary (BlockItemWithStatus -> TransactionSummary -> Expectation)
+  | SuccessWithSummary (TVer.BlockItemWithStatus -> TransactionSummary -> Expectation)
   -- | Expect the transaction to be rejected with the given reason.
   | Reject RejectReason
   -- | Expect the transaction to fail with the given reason.
@@ -98,16 +98,16 @@ data TestCase pv = TestCase
     tcName :: String
     -- | Parameters for executing the transactions.
   , tcParameters :: TestParameters pv
-    -- | The transactions to run, with their respective 'ResultSpec'.
+    -- | The transactions and their associated VerificationResult to run, with their respective 'ResultSpec'.
     -- NOTE: The following could be parametrized over the loaded module data like references, names etc.
     -- to be able to specify result events like specifying the TJSON.
     -- See transactionHelper in Runner to implement this.
-  , tcTransactions :: [(TransactionJSON, ResultSpec pv)]
+  , tcTransactions :: [((TransactionJSON, TVer.VerificationResult), ResultSpec pv)]
   }
 
 -- | Result of processing a single transaction.
 data ProcessResult
-  = Valid (BlockItemWithStatus, TransactionSummary)
+  = Valid (TVer.BlockItemWithStatus, TransactionSummary)
   | Failed FailureKind
   | Unprocessed
   deriving (Eq, Show)
@@ -117,7 +117,7 @@ data ProcessResult
 runWithIntermediateStates ::
   IsProtocolVersion pv
   => TestParameters pv
-  -> [TransactionJSON]
+  -> [(TransactionJSON, TVer.VerificationResult)]
   -> IO [(ProcessResult, BlockState pv, Amount)]
 runWithIntermediateStates TestParameters{..} transactions = do
   -- Create actual 'Transaction's from the 'TransactionJSON'.

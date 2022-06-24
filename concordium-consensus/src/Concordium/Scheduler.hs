@@ -106,11 +106,11 @@ import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 -- Throws 'Nothing' if the remaining block energy is not sufficient to cover the cost of checking the
 -- header and @Just fk@ if any of the checks fail, with the respective 'FailureKind'.
 --
--- Important! If @mVerRes@ is `Just VerificationResult` then it MUST be the `VerificationResult` matching the provided transaction.
+-- Important! @verRes@ the `VerificationResult` MUST be the `VerificationResult` matching the provided transaction.
 --
 -- Returns the sender account and the cost to be charged for checking the header.
-checkHeader :: forall msg m . (TransactionData msg, SchedulerMonad m) => msg -> Maybe TVer.VerificationResult -> ExceptT (Maybe FailureKind) m (IndexedAccount m, Energy)
-checkHeader meta mVerRes = do
+checkHeader :: forall msg m . (TransactionData msg, SchedulerMonad m) => msg -> TVer.VerificationResult -> ExceptT (Maybe FailureKind) m (IndexedAccount m, Energy)
+checkHeader meta verRes = do
   unless (validatePayloadSize (protocolVersion @(MPV m)) (thPayloadSize (transactionHeader meta))) $ throwError $ Just InvalidPayloadSize
   -- Before even checking the header we calculate the cost that will be charged for this
   -- and check that at least that much energy is deposited and remaining from the maximum block energy.
@@ -135,8 +135,8 @@ checkHeader meta mVerRes = do
       -- current account information matches with one at the point of verification.
       -- Also we check that the nonce is valid and that the sender has enough funds to cover his transfer.
       let acc = snd iacc
-      case mVerRes of
-        Just (TVer.Ok (TVer.NormalTransactionSuccess keysHash _)) -> do
+      case verRes of
+        TVer.Ok (TVer.NormalTransactionSuccess keysHash _) -> do
           currentKeys <- lift (TVer.getAccountVerificationKeys acc)
           -- Check that the keys match from initial verification.
           -- If they match we skip checking the signature as it has already been verified.
@@ -148,7 +148,7 @@ checkHeader meta mVerRes = do
             unless (verifyTransaction currentKeys meta) (throwError $ Just IncorrectSignature)
             checkNonceAndFunds acc
             return (iacc, cost)
-        -- An invalid verification result or `Nothing` was supplied to this function.
+        -- An invalid verification result was supplied to this function.
         -- In either case we verify the transaction now.
         _ -> do
               newVerRes <- lift (TVer.verifyNormalTransaction meta)
@@ -210,10 +210,10 @@ checkTransactionVerificationResult (TVer.NotOk TVer.InvalidPayloadSize) = Left I
 -- * @Nothing@ if the transaction would exceed the remaining block energy.
 -- * @Just result@ if the transaction failed ('TxInvalid') or was successfully committed
 --  ('TxValid', with either 'TxSuccess' or 'TxReject').
-dispatch :: forall msg m. (TransactionData msg, SchedulerMonad m) => (msg, Maybe TVer.VerificationResult) -> m (Maybe TxResult)
-dispatch (msg, mVerRes) = do
+dispatch :: forall msg m. (TransactionData msg, SchedulerMonad m) => (msg, TVer.VerificationResult) -> m (Maybe TxResult)
+dispatch (msg, verRes) = do
   let meta = transactionHeader msg
-  validMeta <- runExceptT (checkHeader msg mVerRes)
+  validMeta <- runExceptT (checkHeader msg verRes)
   case validMeta of
     Left (Just fk) -> return $ Just (TxInvalid fk)
     Left Nothing -> return Nothing
@@ -1952,7 +1952,7 @@ handleDeployCredential ::
   TVer.CredentialDeploymentWithStatus ->
   TransactionHash ->
   m (Maybe TxResult)
-handleDeployCredential (WithMetadata{wmdData=cred@AccountCreation{messageExpiry=messageExpiry, credential=cdi}}, mVerRes) cdiHash = do
+handleDeployCredential (WithMetadata{wmdData=cred@AccountCreation{messageExpiry=messageExpiry, credential=cdi}}, verRes) cdiHash = do
   res <- runExceptT $ do
     cm <- lift getChainMetadata
     let ts = slotTime cm
@@ -1960,8 +1960,8 @@ handleDeployCredential (WithMetadata{wmdData=cred@AccountCreation{messageExpiry=
     when (transactionExpired messageExpiry ts) $ throwError (Just ExpiredTransaction)
     remainingEnergy <- lift getRemainingEnergy
     when (remainingEnergy < theCost) $ throwError Nothing
-    case mVerRes of
-       Just (TVer.Ok _) -> do
+    case verRes of
+       TVer.Ok _ -> do
          -- check that the credential deployment has not expired since we last verified it.
          unless (isTimestampBefore ts (ID.validTo cdi)) $ throwError (Just AccountCredentialInvalid)
          -- We always need to make sure that the account was not created in between
@@ -1971,7 +1971,7 @@ handleDeployCredential (WithMetadata{wmdData=cred@AccountCreation{messageExpiry=
          when regIdEx $ throwError $ Just (DuplicateAccountRegistrationID regId)
          -- Create the account
          newAccount
-       -- An invalid verification result or `Nothing` was supplied to this function.
+       -- An invalid verification result was supplied to this function.
        -- In either case we verify the transaction now.
        _ -> do
          newVerRes <- lift (TVer.verifyCredentialDeployment ts cred)
@@ -2057,7 +2057,7 @@ handleChainUpdate
      . SchedulerMonad m
   => TVer.ChainUpdateWithStatus
     -> m TxResult
-handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, mVerRes) = do
+handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, verRes) = do
   cm <- getChainMetadata
   -- check that payload si
   if not (validatePayloadSize (protocolVersion @(MPV m)) (updatePayloadSize uiHeader)) then
@@ -2110,8 +2110,8 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, mVerRes
             SCPV1 -> checkSigAndEnqueue
     checkSigAndEnqueue :: UpdateValue (ChainParametersVersionFor (MPV m)) -> m TxResult
     checkSigAndEnqueue change = do
-      case mVerRes of
-        Just (TVer.Ok (TVer.ChainUpdateSuccess keysHash _)) -> do
+      case verRes of
+        TVer.Ok (TVer.ChainUpdateSuccess keysHash _) -> do
           currentKeys <- getUpdateKeyCollection
           -- If the keys have not changed then the signature remains valid.
           if matchesUpdateKeysCollection currentKeys keysHash then do
@@ -2120,8 +2120,8 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, mVerRes
             -- keys might have changed and as such we try to verify the signature again.
             if not (checkAuthorizedUpdate currentKeys ui) then return $ TxInvalid IncorrectSignature
             else enqueue change
-        -- An invalid verification result or `Nothing` was supplied to this function.
-        -- In either case we verify the transaction now.
+        -- An invalid verification result was supplied to this function.
+        -- Verify the transaction now.
         _ -> do
           newVerRes <- TVer.verifyChainUpdate ui
           case checkTransactionVerificationResult newVerRes of

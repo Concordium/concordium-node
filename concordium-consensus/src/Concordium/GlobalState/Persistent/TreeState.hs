@@ -682,19 +682,17 @@ instance (MonadLogger (PersistentTreeStateMonad bs m),
                         & (ttHashMap . at' trHash ?~ (bi, Received slot verRes)))
                     return (TS.Added bi verRes)
                   else return TS.ObsoleteNonce
-          Just (bi', results) -> do
-            -- The `Finalized` case is not reachable as the cause would be that a finalized transaction
-            -- is also part of a later block which would be rejected when executing the block.
-            let mVerRes = case results of
-                 Received _ verRes -> Just verRes
-                 Committed _ verRes _ -> Just verRes
-                 Finalized {} -> Nothing
+          Just (_, Finalized{}) -> return TS.ObsoleteNonce
+          Just (bi', status) -> do
             -- if it is we update the maximum committed slot,
             -- unless the transaction is already finalized (this case is handled by updateSlot)
             -- In the current model this latter case should not happen; once a transaction is finalized
             -- it is written to disk (see finalizeTransactions below)
-            when (slot > results ^. tsSlot) $ transactionTable . ttHashMap . at' trHash . mapped . _2 %= updateSlot slot
-            return $ TS.Duplicate bi' mVerRes
+            when (slot > status ^. tsSlot) $ transactionTable . ttHashMap . at' trHash . mapped . _2 %= updateSlot slot
+            case status of
+              Received _ verRes -> return $ TS.Duplicate bi' verRes
+              Committed _ verRes _ -> return $ TS.Duplicate bi' verRes
+           
 
     type FinTrans (PersistentTreeStateMonad bs m) = [(TransactionHash, FinalizedTransactionStatus)]
     finalizeTransactions bh slot txs = mapM finTrans txs
