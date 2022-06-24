@@ -13,6 +13,7 @@ import Data.Serialize(encode, runPut, putWord64le)
 import Lens.Micro.Platform
 import Control.Monad
 
+import Concordium.Types.HashableTo (getHash)
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Scheduler.Runner
@@ -51,34 +52,39 @@ testCases =
     { tcName = "Transfer from V1 contract to account."
     , tcParameters = (defaultParams @PV4) {tpInitialBlockState=initialBlockState}
     , tcTransactions =
-      [ ( TJSON { payload = DeployModule wasmModVersion transferSourceFile
+      [ ( (TJSON { payload = DeployModule wasmModVersion transferSourceFile
                 , metadata = makeDummyHeader alesAccount 1 100000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+            okVerRes 1)
         , (SuccessWithSummary deploymentCostCheck, emptySpec)
         )
-      , ( TJSON { payload = InitContract 0 wasmModVersion transferSourceFile "init_transfer" ""
+      , ( (TJSON { payload = InitContract 0 wasmModVersion transferSourceFile "init_transfer" ""
                 , metadata = makeDummyHeader alesAccount 2 100000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+            okVerRes 2)
         , (SuccessWithSummary initializationCostCheck, transferSpec)
         )
-      , ( TJSON { payload = Update 123 (Types.ContractAddress 0 0) "transfer.forward" (BSS.toShort (encode alesAccount))
+      , ( (TJSON { payload = Update 123 (Types.ContractAddress 0 0) "transfer.forward" (BSS.toShort (encode alesAccount))
                 , metadata = makeDummyHeader alesAccount 3 700000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+            okVerRes 3)
         , (SuccessWithSummary ensureSuccess , transferSpec)
         )
-      , ( TJSON { payload = Update 1000 (Types.ContractAddress 0 0) "transfer.deposit" ""
+      , ( (TJSON { payload = Update 1000 (Types.ContractAddress 0 0) "transfer.deposit" ""
                 , metadata = makeDummyHeader alesAccount 4 700000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+            okVerRes 4)
         , (SuccessWithSummary ensureSuccess , const (return ()))
         )
-      , ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "transfer.send" sendParameter
+      , ( (TJSON { payload = Update 0 (Types.ContractAddress 0 0) "transfer.send" sendParameter
                 , metadata = makeDummyHeader alesAccount 5 700000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+            okVerRes 5)
         , (Success (assertEqual "Transfer events" [
                        Types.Interrupted (Types.ContractAddress 0 0) [],
                        Types.Transferred (Types.AddressContract (Types.ContractAddress 0 0)) 17 (Types.AddressAccount alesAccount),
@@ -145,6 +151,12 @@ testCases =
             Nothing -> assertFailure "Instance at <0,0> does not exist."
             Just istance ->
               assertEqual ("Contract has 983 CCD.") (Types.Amount (1000 - 17)) (instanceAmount istance)
+        -- Create a `Ok NormalTransactionSuccess` verification result.
+        okVerRes nonce =
+          let
+            account = getAccount PV4 alesAccount (initialBlockState .^ blockAccounts)
+            accountInformation = undefined
+          in TVer.Ok $ TVer.NormalTransactionSuccess (getHash accountInformation) nonce
 
 tests :: Spec
 tests = describe "V1: Transfer from contract to account." $

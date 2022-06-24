@@ -30,7 +30,7 @@ import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Types
 import Concordium.Scheduler.Types hiding (Transfer)
-import Concordium.TransactionVerification
+import qualified Concordium.TransactionVerification as TVer
 
 import Lens.Micro.Platform
 
@@ -67,20 +67,20 @@ initialBlockState = createBlockState $ foldr putAccountWithRegIds Acc.emptyAccou
 baker1 :: (FullBakerInfo, VRF.SecretKey, BlockSig.SignKey, Bls.SecretKey)
 baker1 = mkFullBaker 1 1
 
-transactionsInput :: [TransactionJSON]
+transactionsInput :: [(TransactionJSON, TVer.VerificationResult)]
 transactionsInput =
     [
-      TJSON { payload = Transfer (account 0) 0
+      (TJSON { payload = Transfer (account 0) 0
            , metadata = makeDummyHeader (account 0) 1 10000
            , keys = [(0,[(0, keyPair 0)])]
-           },
-      TJSON { payload = Transfer (account 1) 0
+           }, TVer.MaybeOk TVer.NormalTransactionInsufficientFunds),
+      (TJSON { payload = Transfer (account 1) 0
            , metadata = makeDummyHeader (account 1) 1 10000
            , keys = [(0,[(0, keyPair 1)])]
-           }
+           }, TVer.MaybeOk TVer.NormalTransactionInsufficientFunds)
     ]
 
-type TestResult = ([(BlockItemWithStatus, Types.TransactionSummary)], [(TransactionWithStatus, FailureKind)])
+type TestResult = ([(TVer.BlockItemWithStatus, Types.TransactionSummary)], [(TVer.TransactionWithStatus, FailureKind)])
 
 runTransactions :: IO TestResult
 runTransactions = do
