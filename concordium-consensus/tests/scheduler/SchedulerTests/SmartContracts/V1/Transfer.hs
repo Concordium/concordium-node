@@ -155,7 +155,7 @@ testCases =
         okVerRes nonce =
           let
             account = getAccount PV4 alesAccount (initialBlockState .^ blockAccounts)
-            accountInformation = undefined
+            accountInformation = undefined -- TODO fix me
           in TVer.Ok $ TVer.NormalTransactionSuccess (getHash accountInformation) nonce
 
 tests :: Spec
