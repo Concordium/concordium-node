@@ -261,14 +261,14 @@ pub struct BakerConfig {
         default_value = "genesis.dat",
         env = "CONCORDIUM_NODE_CONSENSUS_GENESIS_DATA_FILE"
     )]
-    pub account_cache_size: u32,
+    pub genesis_data_file: PathBuf,
     #[structopt(
         long = "accounts-cache-size",
         help = "The max size of the accounts cache",
         default_value = "10000",
         env = "CONCORDIUM_NODE_CONSENSUS_ACCOUNTS_CACHE_SIZE"
     )]
-    pub genesis_data_file: PathBuf,
+    pub account_cache_size: u32,
     #[structopt(
         long = "baker-credentials-file",
         help = "Path to the baker credentials file. If the path is relative it is interpreted \
