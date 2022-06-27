@@ -40,7 +40,7 @@ testCache cache keys value txCount = do
         ( \key -> do
             r <- lookupCachedValue cacheProxy key
             when (isNothing r) $ do
-              liftIO $ threadDelay 500
+              -- liftIO $ threadDelay 500
               putCachedValue cacheProxy key value
               return ()
             return r
@@ -61,8 +61,9 @@ main = do
   let txs = map (BlobRef . round) xs
   defaultMain [
     bgroup "cache" [
-      bench "test LRUCache" $ perRunEnv (lruCache txs) $ \ lruCache -> testCache lruCache txs "test" 6000,
-      bench "test FIFOCache" $ perRunEnv (fifoCache txs) $ \ fifoCache -> testCache fifoCache txs "test" 6000
+      bench "test LRUCache" $ perRunEnv (lruCache txs) $ \ cache -> testCache cache txs "test" 6000,
+      bench "test MyLRUCache" $ perRunEnv (myLruCache txs) $ \ cache -> testCache cache txs "test" 6000,
+      bench "test FIFOCache" $ perRunEnv (fifoCache txs) $ \ cache -> testCache cache txs "test" 6000
       ]
       ]
   where
@@ -71,20 +72,29 @@ main = do
       cache <- newLRUCache cacheSize
       let lruCacheProxy = Proxy :: Proxy (LRUCache String)
       flip runReaderT (CacheContext cache) $ do
-        mapM_ (\key -> putCachedValue lruCacheProxy key "test") (take (cacheSize*1) txs)
+        mapM_ (\key -> putCachedValue lruCacheProxy key "test") (take (cacheSize*2) txs)
+      return cache
+    myLruCache txs = do
+      cache <- newMyLRUCache cacheSize
+      let lruCacheProxy = Proxy :: Proxy (MyLRUCache String)
+      flip runReaderT (CacheContext cache) $ do
+        mapM_ (\key -> putCachedValue lruCacheProxy key "test") (take (cacheSize*2) txs)
       return cache
     fifoCache txs = do
       cache <- newFIFOCache cacheSize
       let fifoCacheProxy = Proxy :: Proxy (FIFOCache String)
       flip runReaderT (CacheContext cache) $ do
-        mapM_ (\key -> putCachedValue fifoCacheProxy key "test") (take (cacheSize*1) txs)
+        mapM_ (\key -> putCachedValue fifoCacheProxy key "test") (take (cacheSize*2) txs)
       return cache
 
 instance NFData (LRUCache v) where
   rnf bs = bs `seq` ()
 
-instance NFData (BlobRef v) where
+instance NFData (MyLRUCache v) where
   rnf bs = bs `seq` ()
 
 instance NFData (FIFOCache v) where
+  rnf bs = bs `seq` ()
+
+instance NFData (BlobRef v) where
   rnf bs = bs `seq` ()

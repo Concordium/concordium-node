@@ -9,6 +9,7 @@ import Control.Monad.IO.Class
 import Control.Monad.Reader
 import qualified Data.Cache.LRU.IO as LRU
 import qualified Data.IntMap.Strict as IntMap
+import Data.List (delete)
 import Data.Proxy
 import qualified Data.Vector.Mutable as Vec
 import Data.Word (Word64)
@@ -159,3 +160,78 @@ instance Cache (LRUCache v) where
 
 newLRUCache :: Int -> IO (LRUCache v)
 newLRUCache size = LRUCache <$> LRU.newAtomicLRU (Just $ toInteger size)
+
+-- |First-in, first-out cache, with entries keyed by 'Int's.
+data MyLRUCache' v = MyLRUCache'
+    { -- |Map from keys to values that are stored in the cache.
+      -- Each entry in the map should have a corresponding entry in the 'fifoBuffer' vector.
+      mykeyMap :: !(IntMap.IntMap v),
+      -- |Vector of cached entries. Each (non-'Empty') entry must correspond to an entry
+      -- in the 'mykeyMap'.
+      myfifoBuffer :: ![IntMap.Key],
+      -- | The size of the cache
+      mysize :: !Int
+    }
+
+-- data CacheEntry
+--     = Empty
+--     | CacheEntry {key :: !Int}
+
+newtype MyLRUCache v = MyLRUCache {theMyLRUCache :: MVar (MyLRUCache' v)}
+
+instance Cache (MyLRUCache v) where
+    type CacheKey (MyLRUCache v) = BlobRef v
+    type CacheValue (MyLRUCache v) = v
+
+    putCachedValue _ key val = do
+        let intKey = fromIntegral (theBlobRef key)
+        MyLRUCache cacheRef <- getCache
+        liftIO $ do
+            cache <- takeMVar cacheRef
+            let keyMap = mykeyMap cache
+            let entries = myfifoBuffer cache
+            let (newKeyMap, newEntries) = 
+                    case (IntMap.lookup intKey keyMap) of
+                        Nothing ->
+                            if IntMap.size keyMap >= mysize cache
+                                then
+                                    (IntMap.delete (last entries) keyMap, init entries)
+                                else
+                                    (keyMap, entries)
+                        Just _ ->
+                            (keyMap, delete intKey entries)
+            putMVar cacheRef $
+                cache
+                    { mykeyMap = IntMap.insert intKey val newKeyMap,
+                      myfifoBuffer = intKey : newEntries
+                    }
+            return val
+
+    lookupCachedValue _ key = do
+        let intKey = fromIntegral (theBlobRef key)
+        MyLRUCache cacheRef <- getCache
+        liftIO $ do
+            cache <- takeMVar cacheRef
+            let (newCache, res) = case IntMap.lookup intKey (mykeyMap cache) of
+                  Nothing ->
+                      (cache, Nothing)
+                  Just v -> do
+                      let entries = intKey : (delete intKey $ myfifoBuffer cache)
+                      (cache { myfifoBuffer = entries }, Just v)
+            putMVar cacheRef $ newCache
+            return res
+
+    getCacheSize _ = do
+        MyLRUCache cacheRef :: MyLRUCache v <- getCache
+        cache <- liftIO $ readMVar cacheRef
+        return $ IntMap.size (mykeyMap cache)
+
+newMyLRUCache :: Int -> IO (MyLRUCache v)
+newMyLRUCache size = do
+    let cache =
+            MyLRUCache'
+                { mykeyMap = IntMap.empty,
+                  myfifoBuffer = [],
+                  mysize = size
+                }
+    MyLRUCache <$> newMVar cache
