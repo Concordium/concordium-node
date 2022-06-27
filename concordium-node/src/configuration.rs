@@ -648,48 +648,6 @@ pub struct CliConfig {
         env = "CONCORDIUM_NODE_DROP_REBROADCSAT_PROBABILITY"
     )]
     pub drop_rebroadcast_probability: Option<f64>,
-    #[structopt(
-        long = "transaction-outcome-logging",
-        help = "Enable transaction outcome logging",
-        env = "CONCORDIUM_NODE_TRANSACTION_OUTCOME_LOGGING"
-    )]
-    pub transaction_outcome_logging: bool,
-    #[structopt(
-        long = "transaction-outcome-logging-database-name",
-        help = "Transaction outcome logging database name",
-        default_value = "concordium",
-        env = "CONCORDIUM_NODE_TRANSACTION_OUTCOME_LOGGING_NAME"
-    )]
-    pub transaction_outcome_logging_database_name: String,
-    #[structopt(
-        long = "transaction-outcome-logging-database-host",
-        help = "Transaction outcome logging database host",
-        default_value = "127.0.0.1",
-        env = "CONCORDIUM_NODE_TRANSACTION_OUTCOME_LOGGING_HOST"
-    )]
-    pub transaction_outcome_logging_database_host: String,
-    #[structopt(
-        long = "transaction-outcome-logging-database-username",
-        help = "Transaction outcome logging database username",
-        default_value = "concordium",
-        env = "CONCORDIUM_NODE_TRANSACTION_OUTCOME_LOGGING_USERNAME"
-    )]
-    pub transaction_outcome_logging_database_username: String,
-    #[structopt(
-        long = "transaction-outcome-logging-database-password",
-        help = "Transaction outcome logging database password",
-        default_value = "concordium",
-        env = "CONCORDIUM_NODE_TRANSACTION_OUTCOME_LOGGING_PASSWORD",
-        hide_env_values = true
-    )]
-    pub transaction_outcome_logging_database_password: String,
-    #[structopt(
-        long = "transaction-outcome-logging-database-port",
-        help = "Transaction outcome logging database port",
-        default_value = "5432",
-        env = "CONCORDIUM_NODE_TRANSACTION_OUTCOME_LOGGING_PORT"
-    )]
-    pub transaction_outcome_logging_database_port: u16,
 }
 
 #[derive(StructOpt, Debug)]

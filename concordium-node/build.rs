@@ -50,7 +50,6 @@ fn main() -> std::io::Result<()> {
             for extra_library_dir in extra_library_dirs.split(", ") {
                 println!("cargo:rustc-link-search=native={}", extra_library_dir);
             }
-            println!("cargo:rustc-link-lib=dylib=libpq");
 
             println!("cargo:rustc-link-search=native=../concordium-consensus");
             println!("cargo:rustc-link-lib=dylib=HSdll");
@@ -101,7 +100,6 @@ fn main() -> std::io::Result<()> {
                         println!("cargo:rustc-link-lib=dylib={}", name);
                     }
                 }
-                println!("cargo:rustc-link-lib=dylib=pq");
                 if let Ok(ref extra_libs_path) = env::var("EXTRA_LIBS_PATH").as_ref() {
                     println!("cargo:rustc-link-search=native={}", extra_libs_path);
                 }
@@ -210,7 +208,6 @@ fn link_static_libs() -> std::io::Result<()> {
     println!("cargo:rustc-link-lib=static=Rcrypto");
     println!("cargo:rustc-link-lib=static=wasm_chain_integration");
 
-    println!("cargo:rustc-link-lib=dylib=pq");
     println!("cargo:rustc-link-lib=dylib=gmp");
 
     Ok(())

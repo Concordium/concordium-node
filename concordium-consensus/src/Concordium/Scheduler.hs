@@ -2445,16 +2445,15 @@ filterTransactions maxSize timeout groups0 = do
                 runNext maxEnergy size credLimit True newFts groups
               -- NB: be aware that credLimit is of an unsigned type, so it is crucial that we never wrap around
               else if credLimit > 0 && csize <= maxSize && cenergy <= maxEnergy then
-                observeTransactionFootprint (handleDeployCredential cws wmdHash) >>= \case
-                    (Just (TxInvalid reason), _) -> do
+                handleDeployCredential cws wmdHash >>= \case
+                    Just (TxInvalid reason) -> do
                       let newFts = fts { ftFailedCredentials = (cws, reason) : ftFailedCredentials fts}
                       runNext maxEnergy size (credLimit - 1) False newFts groups -- NB: We keep the old size
-                    (Just (TxValid summary), fp) -> do
+                    Just (TxValid summary) -> do
                       markEnergyUsed (tsEnergyCost summary)
-                      tlNotifyAccountEffect fp summary
                       let newFts = fts { ftAdded = ((credentialDeployment c, verRes), summary) : ftAdded fts}
                       runNext maxEnergy csize (credLimit - 1) False newFts groups
-                    (Nothing, _) -> error "Unreachable due to cenergy <= maxEnergy check."
+                    Nothing -> error "Unreachable due to cenergy <= maxEnergy check."
               else if Cost.deployCredential (ID.credentialType c) (ID.credNumKeys . ID.credPubKeys $ c) > maxEnergy then
                 -- this case should not happen (it would mean we set the parameters of the chain wrong),
                 -- but we keep it just in case.
@@ -2482,17 +2481,17 @@ filterTransactions maxSize timeout groups0 = do
               else if csize <= maxSize && cenergy <= maxEnergy then
                 -- The transaction fits regarding both block energy limit and max transaction size.
                 -- Thus try to add the transaction by executing it.
-                observeTransactionFootprint (dispatch t) >>= \case
+                dispatch t >>= \case
                    -- The transaction was committed, add it to the list of added transactions.
-                   (Just (TxValid summary), fp) -> do
-                     (newFts, rest) <- validTs t summary fp currentFts ts
+                   Just (TxValid summary) -> do
+                     (newFts, rest) <- validTs t summary currentFts ts
                      runTransactionGroup csize newFts rest
                    -- The transaction failed, add it to the list of failed transactions and
                    -- determine whether the following transactions have to fail as well.
-                   (Just (TxInvalid reason), _) ->
+                   Just (TxInvalid reason) ->
                      let (newFts, rest) = invalidTs t reason currentFts ts
                      in runTransactionGroup currentSize newFts rest
-                   (Nothing, _) -> error "Unreachable. Dispatch honors maximum transaction energy."
+                   Nothing -> error "Unreachable. Dispatch honors maximum transaction energy."
               -- If the stated energy of a single transaction exceeds the block energy limit the
               -- transaction is invalid. Add it to the list of failed transactions and
               -- determine whether following transactions have to fail as well.
@@ -2521,9 +2520,8 @@ filterTransactions maxSize timeout groups0 = do
             -- it would reject following valid transactions with a higher but correct nonce.
             -- The next transaction with a higher nonce (head of ts') should thus be processed
             -- with 'runNext'.
-            validTs t summary fp currentFts ts = do
+            validTs t summary currentFts ts = do
               markEnergyUsed (tsEnergyCost summary)
-              tlNotifyAccountEffect fp summary
               let (invalid, rest) = span ((== transactionNonce (fst t)) . transactionNonce . fst) ts
               let nextNonce = transactionNonce (fst t) + 1
               let newFts =
@@ -2562,15 +2560,14 @@ runTransactions :: forall m. (SchedulerMonad m)
                 -> m (Either (Maybe FailureKind) [(BlockItem, TransactionSummary)])
 runTransactions = go []
     where go valid (bi:ts) =
-            observeTransactionFootprint (predispatch bi) >>= \case
-              (Just (TxValid summary), fp) -> do
+              predispatch bi >>= \case
+              Just (TxValid summary) -> do
                 markEnergyUsed (tsEnergyCost summary)
-                tlNotifyAccountEffect fp summary
                 go ((bi, summary):valid) ts
-              (Just (TxInvalid reason), _) -> do
+              Just (TxInvalid reason) -> do
                 logInvalidBlockItem (fst bi) reason
                 return (Left (Just reason))
-              (Nothing, _) -> return (Left Nothing)
+              Nothing -> return (Left Nothing)
 
           go valid [] = return (Right (reverse $ map (\(x,y) -> (fst x, y)) valid))
 
@@ -2596,13 +2593,12 @@ execTransactions = go
   -- Same implementation as 'runTransactions', just that valid block items
   -- and transaction summaries are not collected.
   where go (bi:ts) =
-          observeTransactionFootprint (predispatch bi) >>= \case
-            (Nothing, _) -> return (Left Nothing)
-            (Just (TxValid summary), fp) -> do
+          predispatch bi >>= \case
+            Nothing -> return (Left Nothing)
+            Just (TxValid summary) -> do
               markEnergyUsed (tsEnergyCost summary)
-              tlNotifyAccountEffect fp summary
               go ts
-            (Just (TxInvalid reason), _) -> do
+            Just (TxInvalid reason) -> do
               logInvalidBlockItem (fst bi) reason
               return (Left (Just reason))
         go [] = return (Right ())

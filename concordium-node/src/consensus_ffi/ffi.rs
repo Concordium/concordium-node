@@ -276,8 +276,6 @@ extern "C" {
         log_callback: LogCallback,
         appdata_dir: *const u8,
         appdata_dir_len: i64,
-        database_connection_url: *const u8,
-        database_connection_url_len: i64,
         runner_ptr_ptr: *mut *mut consensus_runner,
     ) -> i64;
     pub fn startConsensusPassive(
@@ -298,8 +296,6 @@ extern "C" {
         log_callback: LogCallback,
         appdata_dir: *const u8,
         appdata_dir_len: i64,
-        database_connection_url: *const u8,
-        database_connection_url_len: i64,
         runner_ptr_ptr: *mut *mut consensus_runner,
     ) -> i64;
     #[allow(improper_ctypes)]
@@ -466,7 +462,6 @@ pub fn get_consensus_ptr(
     private_data: Option<Vec<u8>>,
     maximum_log_level: ConsensusLogLevel,
     appdata_dir: &Path,
-    database_connection_url: &str,
     regenesis_arc: Arc<Regenesis>,
 ) -> anyhow::Result<*mut consensus_runner> {
     let genesis_data_len = genesis_data.len();
@@ -499,8 +494,6 @@ pub fn get_consensus_ptr(
                     on_log_emited,
                     appdata_buf.as_ptr() as *const u8,
                     appdata_buf.len() as i64,
-                    database_connection_url.as_ptr(),
-                    database_connection_url.len() as i64,
                     runner_ptr_ptr,
                 )
             }
@@ -527,8 +520,6 @@ pub fn get_consensus_ptr(
                         on_log_emited,
                         appdata_buf.as_ptr() as *const u8,
                         appdata_buf.len() as i64,
-                        database_connection_url.as_ptr(),
-                        database_connection_url.len() as i64,
                         runner_ptr_ptr,
                     )
                 }

@@ -14,7 +14,7 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockPointer
 import qualified Concordium.Types.Transactions as Transactions
 
-type BasicBlockPointer pv s = BlockPointer pv () Identity s
+type BasicBlockPointer pv s = BlockPointer pv Identity s
 
 -- |Make a 'BasicBlockPointer' from a 'PendingBlock'.
 -- The parent and last finalized block pointers must match the block data.
@@ -39,7 +39,6 @@ makeBasicBlockPointer pb parent lastFinalized _bpState _bpArriveTime _bpTransact
                     _bpBlock = NormalBlock (pbBlock pb),
                     _bpParent = Identity parent,
                     _bpLastFinalized = Identity lastFinalized,
-                    _bpATI = (),
                     ..}
     where
         bf = bbFields $ pbBlock pb
@@ -52,7 +51,7 @@ makeBasicBlockPointer pb parent lastFinalized _bpState _bpArriveTime _bpTransact
 makeGenesisBasicBlockPointer :: forall pv s. IsProtocolVersion pv => GenesisData pv -> s -> BasicBlockPointer pv s
 makeGenesisBasicBlockPointer genData _bpState = theBlockPointer
     where
-        theBlockPointer = BlockPointer {_bpInfo=BasicBlockPointerData{..},_bpATI=(),..}
+        theBlockPointer = BlockPointer {_bpInfo=BasicBlockPointerData{..},..}
         _bpBlock = GenesisBlock (genesisConfiguration genData)
         _bpHash = getHash _bpBlock
         _bpParent = Identity theBlockPointer

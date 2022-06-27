@@ -64,7 +64,6 @@ import Concordium.Constants.Time (finalizationReplayBaseDelay, finalizationRepla
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.BlockPointer
-import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.TreeState
@@ -1062,11 +1061,10 @@ nextFinalizationRecord parentBlock = do
 -- |'ActiveFinalizationM' provides an implementation of 'FinalizationMonad' that
 -- actively participates in finalization.
 newtype ActiveFinalizationM (pv :: ProtocolVersion) r s m a = ActiveFinalizationM {runActiveFinalizationM :: m a}
-    deriving (Functor, Applicative, Monad, MonadState s, MonadReader r, TimerMonad, BlockStateTypes, BlockStateQuery, AccountOperations, ContractStateOperations, BlockStateOperations, BlockStateStorage, BlockPointerMonad, PerAccountDBOperations, TreeStateMonad, SkovMonad, TimeMonad, MonadLogger, MonadIO, FinalizationOutputMonad, SkovQueryMonad)
+    deriving (Functor, Applicative, Monad, MonadState s, MonadReader r, TimerMonad, BlockStateTypes, BlockStateQuery, AccountOperations, ContractStateOperations, BlockStateOperations, BlockStateStorage, BlockPointerMonad, TreeStateMonad, SkovMonad, TimeMonad, MonadLogger, MonadIO, FinalizationOutputMonad, SkovQueryMonad)
 
 deriving instance (MonadProtocolVersion m) => MonadProtocolVersion (ActiveFinalizationM pv r s m)
 deriving instance (BlockPointerData (BlockPointerType m)) => GlobalStateTypes (ActiveFinalizationM pv r s m)
-deriving instance (CanExtend (ATIStorage m), CanRecordFootprint (Footprint (ATIStorage m))) => ATITypes (ActiveFinalizationM pv r s m)
 
 
 instance (FinalizationBaseMonad pv r s m) => FinalizationMonad (ActiveFinalizationM pv r s m) where

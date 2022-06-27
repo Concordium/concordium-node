@@ -38,7 +38,6 @@ import Concordium.GlobalState.Statistics
 import Concordium.Types.HashableTo
 import Concordium.Types
 import Concordium.Types.Updates hiding (getUpdateKeysCollection)
-import Concordium.GlobalState.AccountTransactionIndex
 import qualified Concordium.ID.Types as ID
 
 import Data.ByteString
@@ -97,7 +96,6 @@ class (Eq (BlockPointerType m),
        BlockStateStorage m,
        BlockPointerMonad m,
        B.EncodeBlock (MPV m) (BlockPointerType m),
-       PerAccountDBOperations m,
        Monad m,
        MonadProtocolVersion m)
       => TreeStateMonad m where
@@ -129,7 +127,6 @@ class (Eq (BlockPointerType m),
         -> BlockPointerType m                -- ^Parent block pointer
         -> BlockPointerType m                -- ^Last finalized block pointer
         -> BlockState m                      -- ^Block state
-        -> ATIStorage m                      -- ^This block's account -> transaction index.
         -> UTCTime                           -- ^Block arrival time
         -> Energy                            -- ^Energy cost of the transactions in the block.
         -> m (BlockPointerType m)
@@ -366,7 +363,7 @@ class (Eq (BlockPointerType m),
 instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTrans t m) where
     makePendingBlock key slot parent bid pf n lastFin trs statehash transactionOutcomesHash = lift . makePendingBlock key slot parent bid pf n lastFin trs statehash transactionOutcomesHash
     getBlockStatus = lift . getBlockStatus
-    makeLiveBlock b parent lastFin st ati time = lift . makeLiveBlock b parent lastFin st ati time
+    makeLiveBlock b parent lastFin st time = lift . makeLiveBlock b parent lastFin st time
     markDead = lift . markDead
     type MarkFin (MGSTrans t m) = MarkFin m
     markFinalized bh = lift . markFinalized bh

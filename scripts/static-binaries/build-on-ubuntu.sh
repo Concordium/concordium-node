@@ -2,7 +2,7 @@
 
 # Build concordium-node and related binaries in a format suitable for distribution.
 # The binaries are linked mostly statically, apart from a few common libraries that
-# seem difficult to impossible to link statically. These are libc, libpq.
+# seem difficult to impossible to link statically. In particular libc.
 
 set -euxo pipefail
 
@@ -30,7 +30,6 @@ DEBIAN_FRONTEND=noninteractive apt-get -y install \
 	libnuma-dev \
 	libgmp-dev \
 	liblmdb0 \
-	postgresql-server-dev-all \
 	locales \
 	liblmdb-dev \
     build-essential

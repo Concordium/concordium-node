@@ -28,7 +28,6 @@ import Concordium.Types.UpdateQueues (ProtocolUpdateStatus)
 import Concordium.GlobalState.Types
 import Concordium.Types.HashableTo
 import Concordium.GlobalState
-import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
 import Concordium.Types.Transactions
@@ -295,7 +294,6 @@ instance MonadTrans SkovQueryMonadT where
   lift = SkovQueryMonadT
 
 deriving via (MGSTrans SkovQueryMonadT m) instance MonadProtocolVersion m => MonadProtocolVersion (SkovQueryMonadT m)
-deriving via (MGSTrans SkovQueryMonadT m) instance ATITypes m => ATITypes (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance GlobalStateTypes m => GlobalStateTypes (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance BlockStateTypes (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance AccountOperations m => AccountOperations (SkovQueryMonadT m)
@@ -304,7 +302,6 @@ deriving via (MGSTrans SkovQueryMonadT m) instance BlockStateQuery m => BlockSta
 deriving via (MGSTrans SkovQueryMonadT m) instance BlockPointerMonad m => BlockPointerMonad (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance TS.TreeStateMonad m => TS.TreeStateMonad (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance BlockStateStorage m => BlockStateStorage (SkovQueryMonadT m)
-deriving via (MGSTrans SkovQueryMonadT m) instance PerAccountDBOperations m => PerAccountDBOperations (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance BlockStateOperations m => BlockStateOperations (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance TimeMonad m => TimeMonad (SkovQueryMonadT m)
 
@@ -353,10 +350,10 @@ instance (TS.TreeStateMonad m)
     isShutDown = lift doIsShutDown
     getProtocolUpdateStatus = lift doGetProtocolUpdateStatus
 
-deriving via SkovQueryMonadT (GlobalStateM pv db c r g s m)
+deriving via SkovQueryMonadT (GlobalStateM pv c r g s m)
       instance (Monad m,
                 MonadProtocolVersion (BlockStateM pv c r g s m),
                 BlockStateQuery (BlockStateM pv c r g s m),
                 BlockStateStorage (BlockStateM pv c r g s m),
                 TS.TreeStateMonad (TreeStateBlockStateM pv g c r s m)
-                ) => SkovQueryMonad (GlobalStateM pv db c r g s m)
+                ) => SkovQueryMonad (GlobalStateM pv c r g s m)

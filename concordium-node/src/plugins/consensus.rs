@@ -42,7 +42,6 @@ pub fn start_consensus_layer(
     private_data: Option<Vec<u8>>,
     max_logging_level: consensus::ConsensusLogLevel,
     appdata_dir: &Path,
-    database_connection_url: &str,
     regenesis_arc: Arc<Regenesis>,
 ) -> anyhow::Result<ConsensusContainer> {
     info!("Starting up the consensus thread");
@@ -76,7 +75,6 @@ pub fn start_consensus_layer(
         private_data,
         max_logging_level,
         appdata_dir,
-        database_connection_url,
         regenesis_arc,
     )
 }

@@ -8,8 +8,7 @@ EXPOSE 8888
 EXPOSE 9090
 # GRPC port.
 EXPOSE 10000
-RUN apt-get update && \
-    apt-get install -y libpq-dev && \
-    rm -rf /var/lib/apt/lists/*
+
 COPY --from=build /build/concordium-node/target/release/concordium-node /concordium-node
+
 ENTRYPOINT ["/concordium-node"]

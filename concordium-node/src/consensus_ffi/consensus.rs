@@ -231,12 +231,11 @@ pub struct ConsensusRuntimeParameters {
 
 #[derive(Clone)]
 pub struct ConsensusContainer {
-    pub runtime_parameters:      ConsensusRuntimeParameters,
-    pub is_baking:               Arc<AtomicBool>,
-    pub consensus:               Arc<AtomicPtr<consensus_runner>>,
-    pub genesis:                 Arc<[u8]>,
-    pub consensus_type:          ConsensusType,
-    pub database_connection_url: String,
+    pub runtime_parameters: ConsensusRuntimeParameters,
+    pub is_baking:          Arc<AtomicBool>,
+    pub consensus:          Arc<AtomicPtr<consensus_runner>>,
+    pub genesis:            Arc<[u8]>,
+    pub consensus_type:     ConsensusType,
 }
 
 impl ConsensusContainer {
@@ -246,7 +245,6 @@ impl ConsensusContainer {
         private_data: Option<Vec<u8>>,
         max_log_level: ConsensusLogLevel,
         appdata_dir: &Path,
-        database_connection_url: &str,
         regenesis_arc: Arc<Regenesis>,
     ) -> anyhow::Result<Self> {
         info!("Starting up the consensus layer");
@@ -263,7 +261,6 @@ impl ConsensusContainer {
             private_data,
             max_log_level,
             appdata_dir,
-            database_connection_url,
             regenesis_arc,
         ) {
             Ok(consensus_ptr) => Ok(Self {
@@ -272,7 +269,6 @@ impl ConsensusContainer {
                 consensus: Arc::new(AtomicPtr::new(consensus_ptr)),
                 genesis: Arc::from(genesis_data),
                 consensus_type,
-                database_connection_url: database_connection_url.to_owned(),
             }),
             Err(e) => Err(e),
         }

@@ -16,7 +16,6 @@ module GlobalStateTests.Updates where
 -}
 
 import Concordium.GlobalState
-import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.Types.AnonymityRevokers
 import Concordium.GlobalState.Basic.BlockState as BS
 import Concordium.GlobalState.Basic.BlockState.Account
@@ -68,7 +67,7 @@ type PairedGSContext = PairGSContext () (PBS.PersistentBlockStateContext PV)
 
 type PairedGState = PairGState
                       (SkovData PV (HashedBlockState PV))
-                      (SkovPersistentData PV () (PBS.HashedPersistentBlockState PV))
+                      (SkovPersistentData PV (PBS.HashedPersistentBlockState PV))
 
 -- |Basically a PureBlockStateMonad and a PersistentBlockStateMonad paired
 type ThisMonadConcrete = BlockStateM
@@ -105,7 +104,7 @@ createGS dbDir = do
                                      dummyChainParameters
     rp = defaultRuntimeParameters
     config = PairGSConfig (MTMBConfig rp, DTDBConfig rp dbDir (dbDir </> "blockstate" <.> "dat"))
-  (x, y, (NoLogContext, NoLogContext)) <- runSilentLogger $ initialiseGlobalState genesis config
+  (x, y) <- runSilentLogger $ initialiseGlobalState genesis config
   return (Identity x, Identity y)
 
 destroyGS :: (Identity PairedGSContext, Identity PairedGState) -> IO ()
@@ -114,7 +113,6 @@ destroyGS (Identity c, Identity s) =
                       (Proxy :: Proxy (PairGSConfig MemoryTreeMemoryBlockConfig DiskTreeDiskBlockConfig))
                       c
                       s
-                      (NoLogContext, NoLogContext)
 
 --------------------------------------------------------------------------------
 --                                                                            --

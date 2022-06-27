@@ -24,13 +24,8 @@ Data is written to databases on each finalization.
 
 ### Databases
 
-The node stores data in two internal databases (per genesis), and an optional external
-database. The internal/external distinction refers to how the databases are
-intended to be used. Internal means that only the node accesses the database,
-whereas external means that the data is written by the node, but read by other
-services.
-
-These databases are
+The node stores data in two internal databases (per genesis). These databases
+are
 
 1. the **tree state database** which stores
   - finalized blocks indexed by hashes
@@ -49,13 +44,6 @@ These databases are
 
    for each block since genesis.
 
-3. the **transaction index database** which is an optional external database that
-   stores an index of transactions by affected account, and by affected smart
-   contract. This means that both incoming and outgoing transactions are
-   accessible for an account or contract. In contrast to the block and tree
-   state this database is never read by the node, only by external services such
-   as the wallet-proxy.
-
 The **tree state** is stored in an LMDB database with 5 key-value **stores**.
 Three of these store blocks, finalization records and the status of finalized
 transactions. A fourth indexes blocks by height. The remaining store is used
@@ -69,17 +57,12 @@ example, if an account does not change from one block to another then most of
 its data is not copied, only some metadata related to its position in the
 account table.
 
-The **transaction index** is stored in an external PostgreSQL database in a
-fairly unstructured way. We mostly store transaction outcomes as a JSON blob,
-but some metadata is stored in separate columns to enable more efficient
-indexing.
-
 In the event of a protocol update, a new chain is started, with a new genesis
 block that is based on the last finalized block of the previous chain. The new
 chain maintains a separate **tree state** and **block state** from the previous
-chain, while the **transaction index** is shared. Once a protocol update
-occurs, the tree state and block state databases of the old chain will not be
-changed any further, since no new blocks will be finalized on the old chain.
+chain. Once a protocol update occurs, the tree state and block state databases
+of the old chain will not be changed any further, since no new blocks will be
+finalized on the old chain.
 
 ### Data processed by the node
 
@@ -559,47 +542,3 @@ The **focus block** is updated by consensus so that it is always a live block,
 and never behind the **last finalized block**. When it is a baker's turn to bake
 a block the focus block is set to the **best block**, which is a protocol
 defined block that the baker is supposed to build upon.
-
-# External transaction index database
-
-The external transaction index database is optionally written to by the node
-upon each finalization. It stores transaction outcomes for finalized blocks with
-an additional index so that incoming as well as outgoing transactions can be
-looked up for an account, as well as for smart contract instances.
-
-The postgres database consists of three tables
-- the **summaries** table, which has columns
-  - **id** --- the auto-generated id of the summary, i.e., the row number. This
-    is the primary key.
-  - **block** --- hash of the block the transaction is in
-  - **timestamp** --- the timestamp, in milliseconds, of the block slot
-  - **height** --- the absolute height of the block
-  - **summary** --- a JSON value containing the transaction outcome
-
-- the **ati** (account transaction index) table, which has columns
-  - **atiId** --- the auto-generated id. This is the primary key.
-  - **account** --- the byte-serialized account address, i.e., 32 bytes
-  - **summary** --- a foreign key in the **summaries** table.
-  The meaning of each row is that the account balance was affected by the
-  transaction whose summary is recorded.
-
-- the **cti** (contract transaction index) table which has columns
-  - **ctiId** --- the auto-generated id. This is the primary key.
-  - **index** and **subindex** --- together they form the contract address
-  - **summary** --- a foreign key in the **summaries** table.
-
-Data is written to this database upon each finalization. In addition to account
-transaction summaries, the database also contains **special outcomes** which are
-protocol defined transfers. They are
-
-- minting
-- baking rewards
-- block rewards
-- finalization rewards
-
-The format of the actual summary is unfortunately an automatically generated
-JSON value. The concrete values that are stored are values of the Haskell
-datatype `Either TransactionSummary SpecialTransactionOutcome`. The `Either`,
-`TransactionSummary`, and `SpecialTransactionOutcome` types all have
-automatically derived JSON encodings defined in `concordium-base`. Please see
-the type definitions for details of the format.

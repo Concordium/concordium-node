@@ -10,7 +10,6 @@
 module GlobalStateTests.AccountReleaseScheduleTest where
 
 import Concordium.GlobalState
-import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.Types.AnonymityRevokers
 import Concordium.GlobalState.Basic.BlockState as BS
 import Concordium.GlobalState.Basic.BlockState.Account
@@ -61,7 +60,7 @@ type PairedGSContext = PairGSContext () (PBS.PersistentBlockStateContext PV)
 
 type PairedGState = PairGState
                       (SkovData PV (HashedBlockState PV))
-                      (SkovPersistentData PV () (PBS.HashedPersistentBlockState PV))
+                      (SkovPersistentData PV (PBS.HashedPersistentBlockState PV))
 
 type ThisMonadConcrete = BlockStateM
                 PV
@@ -105,11 +104,11 @@ createGS dbDir = do
     genesis = makeTestingGenesisDataP1 now n 1 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters emptyIdentityProviders emptyAnonymityRevokers maxBound dummyKeyCollection dummyChainParameters
     rp = defaultRuntimeParameters
     config = PairGSConfig (MTMBConfig rp, DTDBConfig rp dbDir (dbDir </> "blockstate" <.> "dat"))
-  (x, y, (NoLogContext, NoLogContext)) <- runSilentLogger $ initialiseGlobalState genesis config
+  (x, y) <- runSilentLogger $ initialiseGlobalState genesis config
   return (Identity x, Identity y)
 
 destroyGS :: (Identity PairedGSContext, Identity PairedGState) -> IO ()
-destroyGS (Identity c, Identity s) = shutdownGlobalState (protocolVersion @PV) (Proxy :: Proxy (PairGSConfig MemoryTreeMemoryBlockConfig DiskTreeDiskBlockConfig)) c s (NoLogContext, NoLogContext)
+destroyGS (Identity c, Identity s) = shutdownGlobalState (protocolVersion @PV) (Proxy :: Proxy (PairGSConfig MemoryTreeMemoryBlockConfig DiskTreeDiskBlockConfig)) c s
 
 ------------------------------------- Test -------------------------------------
 

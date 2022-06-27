@@ -15,21 +15,18 @@ import Concordium.Scheduler.Environment
 import qualified Data.Kind as DK
 import Data.HashMap.Strict as Map
 import qualified Data.Map.Strict as OrdMap
-import Data.HashSet as Set
 import Data.Functor.Identity
 
 import Concordium.TimeMonad
 import Lens.Micro.Platform
 
 import Control.Monad.Reader
-import Control.Monad.Writer.Strict(MonadWriter, tell, censor, listen, pass)
 import Control.Monad.Trans.RWS.Strict hiding (ask, get, put, tell, censor, listen)
 import Control.Monad.State.Class
 
 import Concordium.Scheduler.Types
 import Concordium.Logger
 import Concordium.GlobalState.Account
-import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.Basic.BlockState (PureBlockStateMonad(..), BlockState)
 import Concordium.GlobalState.TreeState
@@ -48,15 +45,13 @@ makeLenses ''ContextState
 
 -- Doing it manually because otherwise the generated class definition
 -- seems to be wrong (m has kind *).
-class CanExtend (TransactionLog a) => HasSchedulerState a where
+class HasSchedulerState a where
   type SS a
-  type TransactionLog a
 
   schedulerBlockState :: Lens' a (SS a)
   schedulerEnergyUsed :: Lens' a Energy
   -- |The running total of execution costs for this block.
   schedulerExecutionCosts :: Lens' a Amount
-  schedulerTransactionLog :: Lens' a (TransactionLog a)
   nextIndex :: Lens' a TransactionIndex
 
 data NoLogSchedulerState (m :: DK.Type -> DK.Type) = NoLogSchedulerState {
@@ -78,40 +73,32 @@ makeLenses ''NoLogSchedulerState
 
 instance HasSchedulerState (NoLogSchedulerState m) where
   type SS (NoLogSchedulerState m) = UpdatableBlockState m
-  type TransactionLog (NoLogSchedulerState m) = ()
   schedulerBlockState = ssBlockState
   schedulerEnergyUsed = ssSchedulerEnergyUsed
   schedulerExecutionCosts = ssSchedulerExecutionCosts
   nextIndex = ssNextIndex
-  schedulerTransactionLog f s = s <$ f ()
 
-newtype BSOMonadWrapper r w state m a = BSOMonadWrapper (m a)
+newtype BSOMonadWrapper r state m a = BSOMonadWrapper (m a)
     deriving (Functor,
               Applicative,
               Monad,
               MonadReader r,
               MonadState state,
-              MonadWriter w,
               MonadLogger)
 
-deriving instance GS.MonadProtocolVersion m => GS.MonadProtocolVersion (BSOMonadWrapper r w s m)
+deriving instance GS.MonadProtocolVersion m => GS.MonadProtocolVersion (BSOMonadWrapper r s m)
 
-instance MonadTrans (BSOMonadWrapper r w s) where
+instance MonadTrans (BSOMonadWrapper r s) where
     {-# INLINE lift #-}
     lift = BSOMonadWrapper
-
-instance (ATITypes m, ATIStorage m ~ w) => ATITypes (BSOMonadWrapper r w s m) where
-  type ATIStorage (BSOMonadWrapper r w s m) = ATIStorage m
 
 instance (MonadReader ContextState m,
           SS state ~ UpdatableBlockState m,
           HasSchedulerState state,
           MonadState state m,
-          BlockStateOperations m,
-          Footprint (ATIStorage m) ~ w,
-          MonadWriter w m
+          BlockStateOperations m
          )
-         => StaticInformation (BSOMonadWrapper ContextState w state m) where
+         => StaticInformation (BSOMonadWrapper ContextState state m) where
 
   {-# INLINE getMaxBlockEnergy #-}
   getMaxBlockEnergy = view maxBlockEnergy
@@ -140,7 +127,7 @@ instance (SS state ~ UpdatableBlockState m,
           MonadReader ContextState m,
           GS.MonadProtocolVersion m
          )
-         => TVer.TransactionVerifier (BSOMonadWrapper ContextState w state m) where
+         => TVer.TransactionVerifier (BSOMonadWrapper ContextState state m) where
   {-# INLINE registrationIdExists #-}
   registrationIdExists !regid =
     lift . flip bsoRegIdExists regid =<< use schedulerBlockState
@@ -186,21 +173,10 @@ instance (MonadReader ContextState m,
           HasSchedulerState state,
           MonadState state m,
           BlockStateOperations m,
-          CanRecordFootprint w,
-          CanExtend (ATIStorage m),
-          Footprint (ATIStorage m) ~ w,
-          MonadWriter w m,
           MonadLogger m,
           GS.MonadProtocolVersion m
          )
-         => SchedulerMonad (BSOMonadWrapper ContextState w state m) where
-
-  {-# INLINE tlNotifyAccountEffect #-}
-  tlNotifyAccountEffect items summary = do
-    traverseAccountOutcomes items $ \addr -> do
-      schedulerTransactionLog %= extendAccountRecord addr summary
-    traverseContractOutcomes items $ \addr -> do
-      schedulerTransactionLog %= extendContractRecord addr summary
+         => SchedulerMonad (BSOMonadWrapper ContextState state m) where
 
   {-# INLINE markEnergyUsed #-}
   markEnergyUsed energy = schedulerEnergyUsed += energy
@@ -257,36 +233,21 @@ instance (MonadReader ContextState m,
     -- ASSUMPTION: the property which should hold at this point is that any
     -- changed instance must exist in the global state and moreover all instances
     -- are distinct by the virtue of a HashMap being a function
-    s1 <- lift (foldM (\s' (addr, (_, amnt, val)) -> do
-                          tell (logContract addr)
+    s1 <- lift (foldM (\s' (addr, (_, amnt, val)) ->
                           bsoModifyInstance s' addr amnt val)
                       s
                       (Map.toList (cs ^. instanceV0Updates)))
     -- since V0 and V1 instances are disjoint, the order in which we do updates does not matter.
-    s2 <- lift (foldM (\s' (addr, (_, amnt, val)) -> do
-                          tell (logContract addr)
+    s2 <- lift (foldM (\s' (addr, (_, amnt, val)) ->
                           bsoModifyInstance s' addr amnt val)
                       s1
                       (Map.toList (cs ^. instanceV1Updates)))
-    -- log the initialized instances too
-    lift (mapM_ (tell . logContract)
-                      (Set.toList (cs ^. instanceInits)))
-    -- Notify account transfers, but also log the affected accounts. Since the
-    -- changeset is meant to contain the canonical address of the account we
-    -- always log affected accounts by the canonical address.
-    s3 <- lift (foldM (\curState accUpdate -> do
-                           tell (logAccount (accUpdate ^. auAddress))
-                           bsoModifyAccount curState accUpdate
-                       )
+    -- Notify account transfers.
+    s3 <- lift (foldM bsoModifyAccount
                   s2
                   (cs ^. accountUpdates))
     s4 <- lift (bsoAddReleaseSchedule s3 (OrdMap.toList $ cs ^. addedReleaseSchedules))
     schedulerBlockState .= s4
-
-  -- Observe a single transaction footprint.
-  {-# INLINE observeTransactionFootprint #-}
-  observeTransactionFootprint c =
-    censor (const mempty) (listen c)
 
   {-# INLINE energyToGtu #-}
   energyToGtu v = do
@@ -372,10 +333,10 @@ instance (MonadReader ContextState m,
     s' <- lift (bsoEnqueueUpdate s tt p)
     schedulerBlockState .= s'
 
-deriving instance GS.BlockStateTypes (BSOMonadWrapper r w state m)
+deriving instance GS.BlockStateTypes (BSOMonadWrapper r state m)
 
-deriving instance AccountOperations m => AccountOperations (BSOMonadWrapper r w state m)
-deriving instance ContractStateOperations m => ContractStateOperations (BSOMonadWrapper r w state m)
+deriving instance AccountOperations m => AccountOperations (BSOMonadWrapper r state m)
+deriving instance ContractStateOperations m => ContractStateOperations (BSOMonadWrapper r state m)
 
 -- Pure block state scheduler state
 type PBSSS pv = NoLogSchedulerState (PureBlockStateMonad pv Identity)
@@ -383,16 +344,11 @@ type PBSSS pv = NoLogSchedulerState (PureBlockStateMonad pv Identity)
 newtype RWSTBS pv m a = RWSTBS {_runRWSTBS :: RWST ContextState [(LogSource, LogLevel, String)] (PBSSS pv) m a}
   deriving (Functor, Applicative, Monad, MonadReader ContextState, MonadState (PBSSS pv), MonadTrans)
 
-instance Monad m => MonadWriter () (RWSTBS pv m) where
-  tell _ = return ()
-  listen = fmap (,())
-  pass = fmap fst
-
--- |Basic implementation of the scheduler that does no transaction logging.
+-- |Basic implementation of the scheduler.
 newtype SchedulerImplementation pv a = SchedulerImplementation { _runScheduler :: RWSTBS pv (PureBlockStateMonad pv Identity) a }
     deriving (Functor, Applicative, Monad, MonadReader ContextState, MonadState (PBSSS pv))
     deriving (StaticInformation, AccountOperations, ContractStateOperations, MonadLogger)
-      via (BSOMonadWrapper ContextState () (PBSSS pv) (MGSTrans (RWSTBS pv) (PureBlockStateMonad pv Identity)))
+      via (BSOMonadWrapper ContextState (PBSSS pv) (MGSTrans (RWSTBS pv) (PureBlockStateMonad pv Identity)))
 
 instance IsProtocolVersion pv => GS.MonadProtocolVersion (SchedulerImplementation pv) where
   type MPV (SchedulerImplementation pv) = pv
@@ -406,13 +362,10 @@ instance Monad m => MonadLogger (RWSTBS pv m) where
 
 deriving via (PureBlockStateMonad pv Identity) instance GS.BlockStateTypes (SchedulerImplementation pv)
 
-deriving via (BSOMonadWrapper ContextState () (PBSSS pv) (MGSTrans (RWSTBS pv) (PureBlockStateMonad pv Identity))) instance
+deriving via (BSOMonadWrapper ContextState (PBSSS pv) (MGSTrans (RWSTBS pv) (PureBlockStateMonad pv Identity))) instance
   (IsProtocolVersion pv) => SchedulerMonad (SchedulerImplementation pv)
-deriving via (BSOMonadWrapper ContextState () (PBSSS pv) (MGSTrans (RWSTBS pv) (PureBlockStateMonad pv Identity))) instance
+deriving via (BSOMonadWrapper ContextState (PBSSS pv) (MGSTrans (RWSTBS pv) (PureBlockStateMonad pv Identity))) instance
   (IsProtocolVersion pv) => TVer.TransactionVerifier (SchedulerImplementation pv)
-
-instance ATITypes (SchedulerImplementation pv) where
-  type ATIStorage (SchedulerImplementation pv) = ()
 
 runSI :: SchedulerImplementation pv a -> ChainMetadata -> Energy -> CredentialsPerBlockLimit -> BlockState pv -> (a, PBSSS pv)
 runSI sc cd energy maxCreds gs =
