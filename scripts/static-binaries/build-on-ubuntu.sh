@@ -30,7 +30,6 @@ DEBIAN_FRONTEND=noninteractive apt-get -y install \
 	libnuma-dev \
 	libgmp-dev \
 	liblmdb0 \
-	postgresql-server-dev-all \
 	locales \
 	liblmdb-dev \
     build-essential

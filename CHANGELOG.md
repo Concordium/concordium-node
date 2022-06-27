@@ -5,9 +5,14 @@
 - Reduce startup time and memory use further by reducing the amount of block
   data retained in memory. In particular finalized blocks are no longer stored
   in memory.
+  
+## 4.2.2
+
 - Remove transaction logging functionality from the node. It is replaced by an
   external service. As a consequence the `transaction-outcome-logging` family of
   command-line options are removed from the node.
+- The gRPC API now reports correctly when the sender of a transaction did
+  not have enough funds to cover the transaction costs.
 
 ## 4.2.1
 
@@ -18,8 +23,10 @@
 - Decrease memory usage by not storing genesis blocks. This has the effect that
   the database produced by node versions >= 4.2.* cannot be used by node
   versions <= 4.1. The other direction works.
+- Increase precision of block arrive and block receive times in the
+  `GetBlockInfo` query.
 
-## 4.0.11
+## 4.1.1
 - The `SendTransaction` function exposed via the gRPC interface now provides the caller with detailed error messages if the 
   transaction was rejected instead of just `False`. The function still returns `True` if 
   the transaction was accepted.
