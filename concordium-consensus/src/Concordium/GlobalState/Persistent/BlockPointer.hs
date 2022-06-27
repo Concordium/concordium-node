@@ -29,7 +29,7 @@ emptyWeak = do
   return pointer
 
 -- |Creates a persistent block pointer with the provided block and metadata. Should not be called directly.
-makePersistentBlockPointer :: (IsProtocolVersion pv, Monad m)
+makePersistentBlockPointer :: (Monad m)
                            => Block pv                               -- ^Pending block
                            -> Maybe BlockHash                    -- ^Precomputed hash of this block. If not provided, it will be computed in-place.
                            -> BlockHeight                        -- ^Height of the block
@@ -68,7 +68,7 @@ makeGenesisPersistentBlockPointer :: forall pv m bs ati. (IsProtocolVersion pv, 
                                   -> m (PersistentBlockPointer pv ati bs)
 makeGenesisPersistentBlockPointer genData _bpState _bpATI = liftIO $ do
   let _bpReceiveTime = timestampToUTCTime (gdGenesisTime genData)
-      b = GenesisBlock genData
+      b = GenesisBlock (genesisConfiguration genData)
       _bpHash = genesisBlockHash genData
   _bpParent <- emptyWeak
   _bpLastFinalized <- emptyWeak
@@ -85,7 +85,7 @@ makeGenesisPersistentBlockPointer genData _bpState _bpATI = liftIO $ do
       ..}
 
 -- |Converts a Pending Block into a PersistentBlockPointer
-makePersistentBlockPointerFromPendingBlock :: forall pv m ati bs. (IsProtocolVersion pv, MonadLogger m, MonadIO m) =>
+makePersistentBlockPointerFromPendingBlock :: forall pv m ati bs. (MonadLogger m, MonadIO m) =>
                                    PendingBlock      -- ^Pending block
                                  -> PersistentBlockPointer pv ati bs  -- ^Parent block
                                  -> PersistentBlockPointer pv ati bs  -- ^Last finalized block

@@ -9,7 +9,7 @@ import Test.HUnit(assertFailure, assertEqual)
 
 import qualified Data.ByteString.Short as BSS
 import qualified Data.ByteString as BS
-import Data.Serialize(encode)
+import Data.Serialize(encode, runPut, putWord64le)
 import Lens.Micro.Platform
 import Control.Monad
 
@@ -69,11 +69,29 @@ testCases =
                 }
         , (SuccessWithSummary ensureSuccess , transferSpec)
         )
+      , ( TJSON { payload = Update 1000 (Types.ContractAddress 0 0) "transfer.deposit" ""
+                , metadata = makeDummyHeader alesAccount 4 700000
+                , keys = [(0,[(0, alesKP)])]
+                }
+        , (SuccessWithSummary ensureSuccess , const (return ()))
+        )
+      , ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "transfer.send" sendParameter
+                , metadata = makeDummyHeader alesAccount 5 700000
+                , keys = [(0,[(0, alesKP)])]
+                }
+        , (Success (assertEqual "Transfer events" [
+                       Types.Interrupted (Types.ContractAddress 0 0) [],
+                       Types.Transferred (Types.AddressContract (Types.ContractAddress 0 0)) 17 (Types.AddressAccount alesAccount),
+                       Types.Resumed (Types.ContractAddress 0 0) True,
+                       Types.Updated (Types.ContractAddress 0 0) (Types.AddressAccount alesAccount) 0 (Parameter sendParameter) (ReceiveName "transfer.send") V1 []
+                       ]) , sendSpec)
+        )
       ]
      }
   ]
 
   where
+        sendParameter = BSS.toShort (encode alesAccount <> runPut (putWord64le 17))
         deploymentCostCheck :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
         deploymentCostCheck _ Types.TransactionSummary{..} = do
           checkSuccess "Module deployment failed: " tsResult
@@ -113,12 +131,20 @@ testCases =
         checkSuccess msg Types.TxReject{..} = assertFailure $ msg ++ show vrRejectReason
         checkSuccess _ _ = return ()
 
-        -- Check that the contract has 0 CCD on its account.
+        -- Check that the contract has the initial amount 0 microCCD on its account.
         transferSpec bs = specify "Contract state" $
           case getInstance (Types.ContractAddress 0 0) (bs ^. blockInstances) of
             Nothing -> assertFailure "Instance at <0,0> does not exist."
-            Just istance -> do
+            Just istance ->
               assertEqual ("Contract has 0 CCD.") (Types.Amount 0) (instanceAmount istance)
+
+
+        -- Check that the contract has the deposited amount (1000) minus 17 microCCD on its account.
+        sendSpec bs = specify "Contract state" $
+          case getInstance (Types.ContractAddress 0 0) (bs ^. blockInstances) of
+            Nothing -> assertFailure "Instance at <0,0> does not exist."
+            Just istance ->
+              assertEqual ("Contract has 983 CCD.") (Types.Amount (1000 - 17)) (instanceAmount istance)
 
 tests :: Spec
 tests = describe "V1: Transfer from contract to account." $

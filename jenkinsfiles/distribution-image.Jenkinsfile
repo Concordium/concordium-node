@@ -3,7 +3,7 @@
 // - image_tag (default: "latest")
 // - base_image_tag (default: "latest")
 // - static_libraries_image_tag (default: "latest")
-// - ghc_version (default: "8.10.4")
+// - ghc_version (default: "9.0.2")
 // - genesis_ref (default: "master")
 // - genesis_path
 

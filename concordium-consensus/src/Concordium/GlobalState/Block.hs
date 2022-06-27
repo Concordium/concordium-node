@@ -59,8 +59,8 @@ generateBlockHash slot parent baker bakerKey proof bnonce finData transactions s
             putWord64be (fromIntegral (length transactions))
             mapM_ putBlockItemV0 transactions
 
-instance IsProtocolVersion pv => HashableTo BlockHash (Block pv) where
-    getHash (GenesisBlock genData) = genesisBlockHash genData
+instance HashableTo BlockHash (Block pv) where
+    getHash (GenesisBlock genCore) = _gcCurrentHash genCore
     getHash (NormalBlock bb) = getHash bb
 
 -- * Block type classes
@@ -292,8 +292,8 @@ instance forall pv. (IsProtocolVersion pv) => DecodeBlock pv BakedBlock where
 -- * BlockFieldType & BlockTransactionType
 -- * BlockData
 data Block (pv :: ProtocolVersion)
-    = GenesisBlock !(GenesisData pv)
-    -- ^A genesis block
+    = GenesisBlock !GenesisConfiguration
+    -- ^A genesis block with the given configuration.
     | NormalBlock !BakedBlock
     -- ^A baked (i.e. non-genesis) block
 
@@ -330,16 +330,8 @@ instance BlockData (Block pv) where
     {-# INLINE blockTransactions #-}
 
 instance (IsProtocolVersion pv) => EncodeBlock pv (Block pv) where
-    putBlock _ (GenesisBlock gd) = put genesisSlot >> put gd
+    putBlock _ (GenesisBlock gd) = put genesisSlot >> (putGenesisConfiguration gd)
     putBlock spv (NormalBlock bb) = putBlock spv bb
-
-type instance DecodeBlockMetadata (Block pv) = TransactionTime
-
-instance forall pv. (IsProtocolVersion pv) => DecodeBlock pv (Block pv) where
-    getBlock _ arrivalTime = do
-        sl <- get
-        if sl == 0 then GenesisBlock <$> get
-        else NormalBlock <$> getBakedBlockAtSlot (protocolVersion @pv) sl arrivalTime
 
 -- |A baked block, pre-hashed with its arrival time.
 --

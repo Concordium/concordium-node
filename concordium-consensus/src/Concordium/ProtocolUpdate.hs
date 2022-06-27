@@ -48,6 +48,17 @@ updateRegenesis (UpdateP1 u) = P1.updateRegenesis u
 updateRegenesis (UpdateP2 u) = P2.updateRegenesis u
 updateRegenesis (UpdateP3 u) = P3.updateRegenesis u
 
+-- |Determine the next protocol version for the given update. Although the same
+-- information can be retrieved from 'updateRegenesis', this is more efficient
+-- than 'updateRegenesis' if only the next protocol version is needed.
+updateNextProtocolVersion ::
+    Update pv ->
+    SomeProtocolVersion
+updateNextProtocolVersion (UpdateP1 u) = P1.updateNextProtocolVersion u
+updateNextProtocolVersion (UpdateP2 u) = P2.updateNextProtocolVersion u
+updateNextProtocolVersion (UpdateP3 u) = P3.updateNextProtocolVersion u
+
+
 -- |If a protocol update has taken effect, return the genesis data for the new chain.
 getUpdateGenesisData ::
     (BlockStateStorage m, SkovQueryMonad m) =>
@@ -58,3 +69,14 @@ getUpdateGenesisData =
             Left _ -> return Nothing
             Right u -> Just <$> updateRegenesis u
         PendingProtocolUpdates _ -> return Nothing
+
+-- |If a protocol update has taken effect, return its protocol version.
+-- Otherwise return 'Nothing'.
+getNextProtocolVersion :: forall m .(BlockStateStorage m, SkovQueryMonad m) => m (Maybe SomeProtocolVersion)
+getNextProtocolVersion =
+    getProtocolUpdateStatus >>= \case
+        ProtocolUpdated pu -> case checkUpdate @(MPV m) pu of
+            Left _ -> return Nothing
+            Right u -> return . Just . updateNextProtocolVersion $ u
+        PendingProtocolUpdates _ -> return Nothing
+

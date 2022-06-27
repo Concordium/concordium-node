@@ -122,7 +122,7 @@ applyPendingChanges isEffective (bakers0, passive0) =
         pDelegators = processDelegators activeBakerDelegators
 
 -- |Compute the timestamp of the start of an epoch based on the genesis data.
-epochTimestamp :: (BasicGenesisData gd) => gd -> Epoch -> Timestamp
+epochTimestamp :: GenesisConfiguration -> Epoch -> Timestamp
 epochTimestamp gd epoch =
     addDuration
         (gdGenesisTime gd)
@@ -141,7 +141,7 @@ effectiveTest paydayEpoch = do
 
 -- |Determine whether a pending change is effective at a payday based
 -- on the epoch of the payday.
-effectiveTest' :: (BasicGenesisData gd) => gd -> Epoch -> PendingChangeEffective 'AccountV1 -> Bool
+effectiveTest' :: GenesisConfiguration -> Epoch -> PendingChangeEffective 'AccountV1 -> Bool
 effectiveTest' genData paydayEpoch = \(PendingChangeEffectiveV1 t) -> t <= paydayEpochTime
     where
         paydayEpochTime = epochTimestamp genData paydayEpoch
@@ -308,10 +308,9 @@ getSlotBakersP4 ::
     forall m.
     ( BlockStateQuery m,
       AccountVersionFor (MPV m) ~ 'AccountV1,
-      ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1,
-      IsProtocolVersion (MPV m)
+      ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1
     ) =>
-    GenesisData (MPV m) ->
+    GenesisConfiguration ->
     BlockState m ->
     Slot ->
     m FullBakers
@@ -386,7 +385,7 @@ getSlotBakersP4 genData bs slot = do
 getSlotBakers ::
     forall m.
     (IsProtocolVersion (MPV m), BlockStateQuery m) =>
-    GenesisData (MPV m) ->
+    GenesisConfiguration ->
     BlockState m ->
     Slot ->
     m FullBakers

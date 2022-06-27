@@ -37,8 +37,8 @@ dummyArs = emptyAnonymityRevokers
 
 -- type TreeConfig = DiskTreeDiskBlockConfig
 type TreeConfig = MemoryTreeMemoryBlockConfig
-makeGlobalStateConfig :: RuntimeParameters -> GenesisData PV -> IO (TreeConfig PV)
-makeGlobalStateConfig rt genData = return $ MTMBConfig rt genData
+makeGlobalStateConfig :: RuntimeParameters -> IO TreeConfig
+makeGlobalStateConfig rt = return $ MTMBConfig rt
 
 genesis :: Word -> (GenesisData PV, [(BakerIdentity, FullBakerInfo)], Amount)
 genesis nBakers =
@@ -69,18 +69,18 @@ setup nBakers = do
   let initialState inst =
         initialFinalizationState
         inst
-        (getHash (GenesisBlock genData))
+        (getHash (GenesisBlock (genesisConfiguration genData)))
         (gdFinalizationParameters genData)
         fullBakers
         genTotal
   let initialPassiveState =
         initialPassiveFinalizationState
-        (getHash (GenesisBlock genData))
+        (getHash (GenesisBlock (genesisConfiguration genData)))
         (gdFinalizationParameters genData)
         fullBakers
         genTotal
   let finInstances = map (makeFinalizationInstance . fst) bakers
-  (gsc, gss, _) <- runSilentLogger( initialiseGlobalState =<< (liftIO $ makeGlobalStateConfig defaultRuntimeParameters genData))
+  (gsc, gss, _) <- runSilentLogger( initialiseGlobalState genData =<< (liftIO $ makeGlobalStateConfig defaultRuntimeParameters))
   active <- forM finInstances (\inst -> (initialState inst,) <$> runSilentLogger (getFinalizationState (Proxy :: Proxy PV) (Proxy :: Proxy TreeConfig) (gsc, gss) (Just inst)))
   passive <- (initialPassiveState,) <$> runSilentLogger (getFinalizationState (Proxy :: Proxy PV) (Proxy :: Proxy TreeConfig) (gsc, gss) Nothing)
   return $ passive:active

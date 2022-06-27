@@ -37,7 +37,7 @@ import Concordium.Types
 import Concordium.Constants
 import Concordium.Crypto.FFIDataTypes (ElgamalSecretKey)
 import Concordium.ID.DummyData (dummyEncryptionSecretKey)
-import Concordium.ID.Types (AccountEncryptionKey(..))
+import Concordium.ID.Types (AccountEncryptionKey(..), unsafeEncryptionKeyFromRaw)
 
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.Runner as Runner
@@ -59,13 +59,13 @@ initialBlockState = blockStateWithAlesAccount
 alesEncryptionSecretKey :: ElgamalSecretKey
 alesEncryptionSecretKey = dummyEncryptionSecretKey dummyCryptographicParameters alesAccount
 alesEncryptionPublicKey :: AccountEncryptionKey
-alesEncryptionPublicKey = fromJust (Acc.getAccount alesAccount (initialBlockState ^. blockAccounts)) ^. accountEncryptionKey
+alesEncryptionPublicKey = unsafeEncryptionKeyFromRaw (fromJust (Acc.getAccount alesAccount (initialBlockState ^. blockAccounts)) ^. accountEncryptionKey)
 
 -- Thomas' keys
 thomasEncryptionSecretKey :: ElgamalSecretKey
 thomasEncryptionSecretKey = dummyEncryptionSecretKey dummyCryptographicParameters thomasAccount
 thomasEncryptionPublicKey :: AccountEncryptionKey
-thomasEncryptionPublicKey = fromJust (Acc.getAccount thomasAccount (initialBlockState ^. blockAccounts)) ^. accountEncryptionKey
+thomasEncryptionPublicKey = unsafeEncryptionKeyFromRaw (fromJust (Acc.getAccount thomasAccount (initialBlockState ^. blockAccounts)) ^. accountEncryptionKey)
 
 -- Helpers for creating the transfer datas
 createEncryptedTransferData ::

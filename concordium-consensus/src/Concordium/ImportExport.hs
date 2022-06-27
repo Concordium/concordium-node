@@ -198,9 +198,9 @@ exportBlocks hdl = eb 0
     eb count height =
         resizeOnResized (readFinalizedBlockAtHeight height) >>= \case
             Nothing -> return count
-            Just sb -> do
+            Just sb | NormalBlock normalBlock <- sbBlock sb -> do
                 let serializedBlock =
-                        runPut $ putVersionedBlock (protocolVersion @pv) (sbBlock sb)
+                        runPut $ putVersionedBlock (protocolVersion @pv) normalBlock
                     len = fromIntegral $ BS.length serializedBlock
                 liftIO $ do
                     BS.hPut hdl $ runPut $ putWord64be len
@@ -219,6 +219,7 @@ exportBlocks hdl = eb 0
                             dbsLastFinIndex .= finalizationIndex fr
                         _ -> return ()
                 eb (count + 1) (height + 1)
+            Just _ -> return count -- this branch should never be reachable, genesis blocks are not exported.
 
 -- |Export a series of finalization records, starting from the successor of 'dbsLastFinIndex'
 -- as recorded in the state.

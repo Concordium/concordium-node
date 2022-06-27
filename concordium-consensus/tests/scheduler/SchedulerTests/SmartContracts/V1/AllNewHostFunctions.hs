@@ -8,16 +8,13 @@
 module SchedulerTests.SmartContracts.V1.AllNewHostFunctions (tests) where
 
 import Test.Hspec
-import Test.HUnit(assertFailure, assertEqual, Assertion)
+import Test.HUnit(assertFailure, Assertion)
 
 import qualified Data.ByteString as BS
-import qualified Data.Set as Set
-import qualified Data.Map.Strict as Map
 
 import Concordium.Wasm
 import qualified Concordium.GlobalState.Wasm as GSWasm
 import qualified Concordium.Scheduler.WasmIntegration.V1 as WasmV1
-import qualified Concordium.Scheduler.WasmIntegration as WasmV0
 
 -- |A V1 module with extra exports.
 testModule1 :: Assertion

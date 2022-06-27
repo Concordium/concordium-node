@@ -371,7 +371,7 @@ startConsensus
     connStringPtr
     connStringLen
     runnerPtrPtr = handleStartExceptions logM $
-        decodeGenesis $ \genesisData -> decodeBakerIdentity $ \bakerIdentity -> do
+        packGenesis $ \genesisBS -> decodeBakerIdentity $ \bakerIdentity -> do
             -- Get the data directory
             appDataPath <- peekCStringLen (appDataC, fromIntegral appDataLenC)
             -- Do globalstate migration if necessary
@@ -406,7 +406,7 @@ startConsensus
                                     (BufferedFinalization ThreadTimer)
                             config = MultiVersionConfiguration{..}
                         ConsensusRunner
-                            <$> makeMultiVersionRunner config callbacks (Just bakerIdentity) logM genesisData
+                            <$> makeMultiVersionRunner config callbacks (Just bakerIdentity) logM (Left genesisBS)
                     else do
                         let config ::
                                 MultiVersionConfiguration
@@ -414,18 +414,14 @@ startConsensus
                                     (BufferedFinalization ThreadTimer)
                             config = MultiVersionConfiguration{mvcTXLogConfig = (), ..}
                         ConsensusRunner
-                            <$> makeMultiVersionRunner config callbacks (Just bakerIdentity) logM genesisData
+                            <$> makeMultiVersionRunner config callbacks (Just bakerIdentity) logM (Left genesisBS)
             poke runnerPtrPtr =<< newStablePtr runner
             return StartSuccess
       where
-        -- Decode genesis data
-        decodeGenesis cont = do
-            genesisBS <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
-            case S.runGet getPVGenesisData genesisBS of
-                Left err -> do
-                    logM External LLError $ "Failed to decode genesis data: " ++ err
-                    return StartGenesisFailure
-                Right genData -> cont genData
+        -- Pack the genesis string as a byte string.
+        packGenesis cont = do
+            cont =<< BS.packCStringLen (gdataC, fromIntegral gdataLenC)
+
         -- Decode the baker identity
         decodeBakerIdentity cont = do
             bakerInfoBS <- BS.packCStringLen (bidC, fromIntegral bidLenC)
@@ -515,7 +511,7 @@ startConsensusPassive
     connStringPtr
     connStringLen
     runnerPtrPtr = handleStartExceptions logM $
-        decodeGenesis $ \genesisData -> do
+        packGenesis $ \genesisBS -> do
             -- Get the data directory
             appDataPath <- peekCStringLen (appDataC, fromIntegral appDataLenC)
             -- Do globalstate migration if necessary
@@ -544,7 +540,7 @@ startConsensusPassive
                                     (NoFinalization ThreadTimer)
                             config = MultiVersionConfiguration{..}
                         ConsensusRunner
-                            <$> makeMultiVersionRunner config callbacks Nothing logM genesisData
+                            <$> makeMultiVersionRunner config callbacks Nothing logM (Left genesisBS)
                     else do
                         let config ::
                                 MultiVersionConfiguration
@@ -552,18 +548,13 @@ startConsensusPassive
                                     (NoFinalization ThreadTimer)
                             config = MultiVersionConfiguration{mvcTXLogConfig = (), ..}
                         ConsensusRunner
-                            <$> makeMultiVersionRunner config callbacks Nothing logM genesisData
+                            <$> makeMultiVersionRunner config callbacks Nothing logM (Left genesisBS)
             poke runnerPtrPtr =<< newStablePtr runner
             return StartSuccess
       where
-        -- Decode genesis data
-        decodeGenesis cont = do
-            genesisBS <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
-            case S.runGet getPVGenesisData genesisBS of
-                Left err -> do
-                    logM External LLError $ "Failed to decode genesis data: " ++ err
-                    return StartGenesisFailure
-                Right genData -> cont genData
+        -- Pack the genesis string as a byte string.
+        packGenesis cont = do
+            cont =<< BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         -- Log method
         logM = toLogMethod maxLogLevel lcbk
         -- Runtime parameters
@@ -668,7 +659,7 @@ stopBaker cptr = mask_ $ do
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 -- |    29 | ResultEnergyExceeded                        | The stated energy of the transaction exceeds the maximum allowed                              | No       |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
--- |    30 | ResultImportStopped                         | The importing of the blocks has been stopped.                                                 | No       |
+-- |    30 | ResultInsufficientFunds                     | The sender did not have enough funds to cover the costs.                                      | No       |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 
 type ReceiveResult = Int64
@@ -705,7 +696,7 @@ toReceiveResult ResultChainUpdateInvalidEffectiveTime = 26
 toReceiveResult ResultChainUpdateSequenceNumberTooOld = 27
 toReceiveResult ResultChainUpdateInvalidSignatures = 28
 toReceiveResult ResultEnergyExceeded = 29
-toReceiveResult ResultImportStopped = 30
+toReceiveResult ResultInsufficientFunds = 30
 
 -- |Handle receipt of a block.
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,

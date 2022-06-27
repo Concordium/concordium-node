@@ -26,7 +26,10 @@ ProtectKernelTunables=yes
 CapabilityBoundingSet=
 LockPersonality=yes
 RestrictRealtime=yes
-MemoryDenyWriteExecute=yes
+# The current node version generates some code at runtime to bridge the FFI
+# between Haskell and rust related to smart contracts. Hence we have to allow
+# mappings that are writable and then turned into executable.
+MemoryDenyWriteExecute=no
 DynamicUser=yes
 # state directory is relative to /var/lib/, see systemd man pages Sandboxing section.
 # This sets the STATE_DIRECTORY environment variable that is used as part of the ExecStart command.
@@ -57,7 +60,7 @@ Environment=CONCORDIUM_NODE_NO_LOG_TIMESTAMP=true
 # The bootstrapping interval in seconds.
 Environment=CONCORDIUM_NODE_CONNECTION_BOOTSTRAPPING_INTERVAL=1800
 # Haskell RTS flags to pass to consensus.
-Environment=CONCORDIUM_NODE_BAKER_HASKELL_RTS_FLAGS=-N2
+Environment=CONCORDIUM_NODE_RUNTIME_HASKELL_RTS_FLAGS=-N2,-I0
     
 [Install]
 # start the service when reaching multi-user target

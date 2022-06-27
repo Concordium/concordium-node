@@ -84,10 +84,11 @@ import Concordium.Types.Transactions hiding (BareBlockItem(..))
 
 import qualified Concordium.ID.Types as ID
 import Concordium.ID.Parameters(GlobalContext)
-import Concordium.ID.Types (AccountCredential, CredentialRegistrationID)
+import Concordium.ID.Types (AccountCredential)
 import Concordium.Crypto.EncryptedTransfers
 import Concordium.GlobalState.ContractStateFFIHelpers (LoadCallback)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
+import Concordium.GlobalState.Persistent.LMDB (FixedSizeSerialization)
 
 -- |Hash associated with birk parameters.
 newtype BirkParametersHash (pv :: ProtocolVersion) = BirkParametersHash {birkParamHash :: H.Hash}
@@ -163,7 +164,7 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
 
   -- |Get the list of credentials deployed on the account, ordered from most
   -- recently deployed.  The list should be non-empty.
-  getAccountCredentials :: Account m -> m (Map.Map ID.CredentialIndex AccountCredential)
+  getAccountCredentials :: Account m -> m (Map.Map ID.CredentialIndex ID.RawAccountCredential)
 
   -- |Get the key used to verify transaction signatures, it records the signature scheme used as well
   getAccountVerificationKeys :: Account m -> m ID.AccountInformation
@@ -370,7 +371,7 @@ class (ContractStateOperations m, AccountOperations m) => BlockStateQuery m wher
     getActiveBakersAndDelegators :: (AccountVersionFor (MPV m) ~ 'AccountV1) => BlockState m -> m ([ActiveBakerInfo m], [ActiveDelegatorInfo])
 
     -- |Query an account by the id of the credential that belonged to it.
-    getAccountByCredId :: BlockState m -> CredentialRegistrationID -> m (Maybe (AccountIndex, Account m))
+    getAccountByCredId :: BlockState m -> ID.RawCredentialRegistrationID -> m (Maybe (AccountIndex, Account m))
 
     -- |Query an account by the account index that belonged to it.
     getAccountByIndex :: BlockState m -> AccountIndex -> m (Maybe (AccountIndex, Account m))
@@ -1150,7 +1151,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   bsoSetRewardAccounts :: UpdatableBlockState m -> RewardAccounts -> m (UpdatableBlockState m)
 
 -- | Block state storage operations
-class (BlockStateOperations m, Serialize (BlockStateRef m)) => BlockStateStorage m where
+class (BlockStateOperations m, FixedSizeSerialization (BlockStateRef m)) => BlockStateStorage m where
     -- |Derive a mutable state instance from a block state instance. The mutable
     -- state instance supports all the operations needed by the scheduler for
     -- block execution. Semantically the 'UpdatableBlockState' must be a copy,

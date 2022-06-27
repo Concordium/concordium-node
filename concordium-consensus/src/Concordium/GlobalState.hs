@@ -1,7 +1,9 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
 -- FIXME: This is to suppress compiler warnings for derived instances of BlockStateOperations.
 -- This may be fixed in GHC 9.0.1.
@@ -352,36 +354,32 @@ deriving via TreeStateBlockStateM pv g c r s m
 -----------------------------------------------------------------------------
 
 -- |Configuration that uses in-memory, Haskell implementations for both tree state and block state.
-data MemoryTreeMemoryBlockConfig pv = MTMBConfig {
-    mtmbRuntimeParameters :: !RuntimeParameters,
-    mtmbGenesisData :: !(GenesisData pv)
+newtype MemoryTreeMemoryBlockConfig = MTMBConfig {
+    mtmbRuntimeParameters :: RuntimeParameters
     }
 
 -- |Configuration that uses the in-memory, Haskell implementation of tree state and the
 -- persistent Haskell implementation of block state.
-data MemoryTreeDiskBlockConfig pv = MTDBConfig {
+data MemoryTreeDiskBlockConfig = MTDBConfig {
     mtdbRuntimeParameters :: !RuntimeParameters,
-    mtdbBlockStateFile :: !FilePath,
-    mtdbGenesisData :: !(GenesisData pv)
+    mtdbBlockStateFile :: !FilePath
     }
 
 -- |Configuration that uses the disk implementation for both the tree state
 -- and the block state
-data DiskTreeDiskBlockConfig pv = DTDBConfig {
+data DiskTreeDiskBlockConfig = DTDBConfig {
     dtdbRuntimeParameters :: !RuntimeParameters,
     dtdbTreeStateDirectory :: !FilePath,
-    dtdbBlockStateFile :: !FilePath,
-    dtdbGenesisData :: !(GenesisData pv)
+    dtdbBlockStateFile :: !FilePath
     }
 
 -- |Configuration that uses the disk implementation for both the tree state
 -- and the block state, as well as an external database for producing
 -- an index of transactions affecting a given account.
-data DiskTreeDiskBlockWithLogConfig pv = DTDBWLConfig {
+data DiskTreeDiskBlockWithLogConfig = DTDBWLConfig {
     dtdbwlRuntimeParameters :: !RuntimeParameters,
     dtdbwlTreeStateDirectory :: !FilePath,
     dtdbwlBlockStateFile :: !FilePath,
-    dtdbwlGenesisData :: !(GenesisData pv),
     dtdbwlTxDBConnectionString :: !ByteString,
     dtdbwlGenesisHeight  :: !AbsoluteBlockHeight
   }
@@ -398,17 +396,39 @@ instance Show GlobalStateInitException where
 instance Exception GlobalStateInitException
 
 -- |This class is implemented by types that determine configurations for the global state.
-class GlobalStateConfig (c :: ProtocolVersion -> Type) where
+class GlobalStateConfig (c :: Type) where
     -- |The read-only context type associated with a global state configuration.
     type GSContext c (pv :: ProtocolVersion)
     -- |The (mutable) state type associated with a global state configuration.
     type GSState c (pv :: ProtocolVersion)
     -- |Context for transaction logging associated with a global state configuration.
     type GSLogContext c (pv :: ProtocolVersion)
-    -- |Generate context and state from the initial configuration. This may
-    -- have 'IO' side effects to set up any necessary storage.
-    -- This may throw a 'GlobalStateInitException'.
-    initialiseGlobalState :: IsProtocolVersion pv => c pv -> LogIO (GSContext c pv, GSState c pv, GSLogContext c pv)
+    -- |Generate context and state from the initial configuration if the state
+    -- exists already. This may have 'IO' side effects to set up any necessary
+    -- storage. This may throw a 'GlobalStateInitException'.
+    --
+    -- The return value is 'Nothing' if the state could not be found. If the
+    -- state could be found, but could not be loaded an exception is thrown.
+    --
+    -- Note that even if the state is successfully loaded it is not in a usable
+    -- state for an active consensus and must be activated before. Use
+    -- 'activateGlobalState' for that.
+    initialiseExistingGlobalState :: forall pv . IsProtocolVersion pv => SProtocolVersion pv -> c -> LogIO (Maybe (GSContext c pv, GSState c pv, GSLogContext c pv))
+
+    -- |Initialise new global state with the given genesis. If the state already
+    -- exists this will raise an exception. The same considerations as for
+    -- 'initialiseExistingGlobalState' apply about state activation.
+    initialiseNewGlobalState :: IsProtocolVersion pv => GenesisData pv -> c -> LogIO (GSContext c pv, GSState c pv, GSLogContext c pv)
+
+    -- |Either initialise an existing state, or if it does not exist, initialise a new one with the given genesis.
+    initialiseGlobalState :: forall pv . IsProtocolVersion pv => GenesisData pv -> c -> LogIO (GSContext c pv, GSState c pv, GSLogContext c pv)
+    initialiseGlobalState gd cfg = initialiseExistingGlobalState (protocolVersion @pv) cfg >>= \case
+      Nothing -> initialiseNewGlobalState gd cfg
+      Just config -> return config
+
+    -- |Establish all the necessary invariants so that the state can be used by
+    -- consensus. This should only be called once per initialised state.
+    activateGlobalState :: IsProtocolVersion pv => Proxy c -> Proxy pv -> GSContext c pv -> GSState c pv -> LogIO (GSState c pv)
 
     -- |Shutdown the global state.
     shutdownGlobalState :: SProtocolVersion pv -> Proxy c -> GSContext c pv -> GSState c pv -> GSLogContext c pv -> IO ()
@@ -417,12 +437,16 @@ instance GlobalStateConfig MemoryTreeMemoryBlockConfig where
     type GSContext MemoryTreeMemoryBlockConfig pv = ()
     type GSState MemoryTreeMemoryBlockConfig pv = SkovData pv (BS.HashedBlockState pv)
     type GSLogContext MemoryTreeMemoryBlockConfig pv = NoLogContext
-    initialiseGlobalState (MTMBConfig rtparams gendata) = do
+    initialiseExistingGlobalState _ _ = return Nothing
+    initialiseNewGlobalState gendata (MTMBConfig rtparams) = do
         bs <- case genesisState gendata of
             Left err -> logExceptionAndThrow GlobalState (InvalidGenesisData err)
             Right bs -> return $ BS.hashBlockState bs
         skovData <- runPureBlockStateMonad (initialSkovData rtparams gendata bs)
         return ((), skovData, NoLogContext)
+
+    activateGlobalState _ _ _ = return
+
     shutdownGlobalState _ _ _ _ _ = return ()
 
 -- |Configuration that uses the Haskell implementation of tree state and the
@@ -431,8 +455,9 @@ instance GlobalStateConfig MemoryTreeDiskBlockConfig where
     type GSContext MemoryTreeDiskBlockConfig pv = PersistentBlockStateContext pv
     type GSLogContext MemoryTreeDiskBlockConfig pv = NoLogContext
     type GSState MemoryTreeDiskBlockConfig pv = SkovData pv (HashedPersistentBlockState pv)
-    initialiseGlobalState MTDBConfig{..} = do
-        genState <- case genesisState mtdbGenesisData of
+    initialiseExistingGlobalState _ _ = return Nothing
+    initialiseNewGlobalState genData MTDBConfig{..} = do
+        genState <- case genesisState genData of
             Left err -> logExceptionAndThrow GlobalState (InvalidGenesisData err)
             Right genState -> return genState
         liftIO $ do
@@ -442,9 +467,12 @@ instance GlobalStateConfig MemoryTreeDiskBlockConfig where
             let initState = do
                     pbs <- makePersistent genState
                     _ <- saveBlockState pbs
-                    initialSkovData mtdbRuntimeParameters mtdbGenesisData pbs
+                    initialSkovData mtdbRuntimeParameters genData pbs
             skovData <- runReaderT (runPersistentBlockStateMonad initState) pbsc
             return (pbsc, skovData, NoLogContext)
+
+    activateGlobalState _ _ _ = return
+
     shutdownGlobalState _ _ PersistentBlockStateContext{..} _ _ = liftIO $ do
         closeBlobStore pbscBlobStore
 
@@ -453,7 +481,7 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
     type GSState DiskTreeDiskBlockConfig pv = SkovPersistentData pv () (HashedPersistentBlockState pv)
     type GSContext DiskTreeDiskBlockConfig pv = PersistentBlockStateContext pv
 
-    initialiseGlobalState DTDBConfig{..} = do
+    initialiseExistingGlobalState _ DTDBConfig{..} = do
       -- check if all the necessary database files exist
       existingDB <- checkExistingDatabase dtdbTreeStateDirectory dtdbBlockStateFile
       pbscCache <- liftIO $ Cache.newFIFOCache (rpAccountsCacheSize dtdbRuntimeParameters)
@@ -464,22 +492,28 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
           loadBlobStore dtdbBlockStateFile
         let pbsc = PersistentBlockStateContext{..}
         logm <- ask
-        skovData <- liftIO (runLoggerT (loadSkovPersistentData dtdbRuntimeParameters dtdbTreeStateDirectory dtdbGenesisData pbsc NoLogContext) logm
+        skovData <- liftIO (runLoggerT (loadSkovPersistentData dtdbRuntimeParameters dtdbTreeStateDirectory pbsc NoLogContext) logm
                     `onException` (closeBlobStore pbscBlobStore))
-        return (pbsc, skovData, NoLogContext)
-      else do
-        pbscBlobStore <- liftIO $ createBlobStore dtdbBlockStateFile
-        let pbsc = PersistentBlockStateContext{..}
-        let initGS = do
-                genState <- case genesisState dtdbGenesisData of
-                    Left err -> logExceptionAndThrow GlobalState (InvalidGenesisData err)
-                    Right genState -> return genState
-                pbs <- makePersistent genState
-                ser <- saveBlockState pbs
-                initialSkovPersistentData dtdbRuntimeParameters dtdbTreeStateDirectory dtdbGenesisData pbs () NoLogContext ser
-        isd <- runReaderT (runPersistentBlockStateMonad initGS) pbsc
-                `onException` liftIO (destroyBlobStore pbscBlobStore)
-        return (pbsc, isd, NoLogContext)
+        return (Just (pbsc, skovData, NoLogContext))
+      else return Nothing
+
+    initialiseNewGlobalState genData DTDBConfig{..} = do
+      pbscBlobStore <- liftIO $ createBlobStore dtdbBlockStateFile
+      pbscCache <- liftIO (Cache.newFIFOCache (rpAccountsCacheSize dtdbRuntimeParameters))
+      let pbsc = PersistentBlockStateContext{..}
+      let initGS = do
+              genState <- case genesisState genData of
+                  Left err -> logExceptionAndThrow GlobalState (InvalidGenesisData err)
+                  Right genState -> return genState
+              pbs <- makePersistent genState
+              ser <- saveBlockState pbs
+              initialSkovPersistentData dtdbRuntimeParameters dtdbTreeStateDirectory genData pbs () NoLogContext ser
+      isd <- runReaderT (runPersistentBlockStateMonad initGS) pbsc
+              `onException` liftIO (destroyBlobStore pbscBlobStore)
+      return (pbsc, isd, NoLogContext)
+
+    activateGlobalState _ _ = activateSkovPersistentData
+
     shutdownGlobalState _ _ PersistentBlockStateContext{..} st _ = do
         closeBlobStore pbscBlobStore
         closeSkovPersistentData st
@@ -488,47 +522,67 @@ instance GlobalStateConfig DiskTreeDiskBlockWithLogConfig where
     type GSState DiskTreeDiskBlockWithLogConfig pv = SkovPersistentData pv SQLTransactionLog (HashedPersistentBlockState pv)
     type GSContext DiskTreeDiskBlockWithLogConfig pv = PersistentBlockStateContext pv
     type GSLogContext DiskTreeDiskBlockWithLogConfig pv = SQLTransactionLogContext
-    initialiseGlobalState DTDBWLConfig{..} = do
+
+    initialiseExistingGlobalState (_ :: SProtocolVersion pv) DTDBWLConfig{..} = do
         -- check if all the necessary database files exist
       existingDB <- checkExistingDatabase dtdbwlTreeStateDirectory dtdbwlBlockStateFile
       pbscCache <- liftIO (Cache.newFIFOCache (rpAccountsCacheSize dtdbwlRuntimeParameters))
-      dbHandle <- do
-        dbHandle <- liftIO $ connectPostgres dtdbwlTxDBConnectionString
-        liftIO (checkTablesExist dbHandle) >>= \case
-          Ok -> logEvent GlobalState LLInfo "Using existing PostgreSQL tables for transaction logging."
-          NoTables -> do
-            logEvent GlobalState LLInfo "No relevant tables found in transaction logging database. Creating them."
-            liftIO $ createTables dbHandle
-          IncorrectFormat -> logExceptionAndThrow GlobalState (DatabaseOpeningError (userError "The connected SQL database has some of the 'ati', 'cti', or 'summaries', but either not all or they have incorrect columns."))
-        return dbHandle
-      let transactionLogContext = SQLTransactionLogContext{
-            connectionPool = dbHandle,
-            genesisAbsoluteHeight = dtdbwlGenesisHeight                
-          }
       if existingDB then do
+        dbHandle <- do
+          dbHandle <- liftIO $ connectPostgres dtdbwlTxDBConnectionString
+          liftIO (checkTablesExist dbHandle) >>= \case
+            Ok -> logEvent GlobalState LLInfo "Using existing PostgreSQL tables for transaction logging."
+            NoTables -> do
+              logEvent GlobalState LLInfo "No relevant tables found in transaction logging database. Creating them."
+              liftIO $ createTables dbHandle
+            IncorrectFormat -> logExceptionAndThrow GlobalState (DatabaseOpeningError (userError "The connected SQL database has some of the 'ati', 'cti', or 'summaries', but either not all or they have incorrect columns."))
+          return dbHandle
+        let transactionLogContext = SQLTransactionLogContext{
+              connectionPool = dbHandle,
+              genesisAbsoluteHeight = dtdbwlGenesisHeight                
+            }
         pbscBlobStore <- liftIO $
           -- the block state file exists, is readable and writable
           -- we ignore the given block state parameter in such a case.
           loadBlobStore dtdbwlBlockStateFile
         let pbsc = PersistentBlockStateContext{..}
         logm <- ask
-        skovData <- liftIO (runLoggerT (loadSkovPersistentData dtdbwlRuntimeParameters dtdbwlTreeStateDirectory dtdbwlGenesisData pbsc transactionLogContext) logm
+        skovData <- liftIO (runLoggerT (loadSkovPersistentData dtdbwlRuntimeParameters dtdbwlTreeStateDirectory pbsc transactionLogContext) logm
                     `onException` (destroyAllResources dbHandle >> closeBlobStore pbscBlobStore))
-        return (pbsc, skovData, transactionLogContext)
-      else do
+        return (Just (pbsc, skovData, transactionLogContext))
+      else return Nothing
+
+    initialiseNewGlobalState genData DTDBWLConfig{..} = do
+        dbHandle <- do
+          dbHandle <- liftIO $ connectPostgres dtdbwlTxDBConnectionString
+          liftIO (checkTablesExist dbHandle) >>= \case
+            Ok -> logEvent GlobalState LLInfo "Using existing PostgreSQL tables for transaction logging."
+            NoTables -> do
+              logEvent GlobalState LLInfo "No relevant tables found in transaction logging database. Creating them."
+              liftIO $ createTables dbHandle
+            IncorrectFormat -> logExceptionAndThrow GlobalState (DatabaseOpeningError (userError "The connected SQL database has some of the 'ati', 'cti', or 'summaries', but either not all or they have incorrect columns."))
+          return dbHandle
+        let transactionLogContext = SQLTransactionLogContext{
+              connectionPool = dbHandle,
+              genesisAbsoluteHeight = dtdbwlGenesisHeight                
+            }
         pbscBlobStore <- liftIO $ createBlobStore dtdbwlBlockStateFile
+        pbscCache <- liftIO (Cache.newFIFOCache (rpAccountsCacheSize dtdbwlRuntimeParameters))
         let pbsc = PersistentBlockStateContext{..}
         let initGS = do
-                genState <- case genesisState dtdbwlGenesisData of
+                genState <- case genesisState genData of
                     Left err -> logExceptionAndThrow GlobalState (InvalidGenesisData err)
                     Right genState -> return genState
                 pbs <- makePersistent genState
                 ser <- saveBlockState pbs
                 let ati = defaultValue
-                initialSkovPersistentData dtdbwlRuntimeParameters dtdbwlTreeStateDirectory dtdbwlGenesisData pbs ati transactionLogContext ser
+                initialSkovPersistentData dtdbwlRuntimeParameters dtdbwlTreeStateDirectory genData pbs ati transactionLogContext ser
         isd <- runReaderT (runPersistentBlockStateMonad initGS) pbsc
                 `onException` liftIO (destroyAllResources dbHandle >> destroyBlobStore pbscBlobStore)
         return (pbsc, isd, transactionLogContext)
+
+    activateGlobalState _ _ = activateSkovPersistentData
+
     shutdownGlobalState _ _ PersistentBlockStateContext{..} st transactionLogContext = do
         closeBlobStore pbscBlobStore
         destroyAllResources (connectionPool transactionLogContext)

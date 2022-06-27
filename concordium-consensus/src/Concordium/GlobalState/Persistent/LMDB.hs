@@ -43,6 +43,7 @@ module Concordium.GlobalState.Persistent.LMDB (
   , writeTransactionStatus
   , writeTransactionStatuses
   , writeFinalizationComposite
+  , FixedSizeSerialization
   ) where
 
 import Concordium.GlobalState.LMDB.Helpers
@@ -50,6 +51,7 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Persistent.BlockPointer
+import Concordium.Genesis.Data (getGenesisConfiguration)
 import Concordium.Types
 import Concordium.Types.Execution (TransactionIndex)
 import qualified Concordium.GlobalState.TransactionTable as T
@@ -71,6 +73,8 @@ import System.Directory
 import qualified Data.HashMap.Strict as HM
 import Concordium.Logger
 import Concordium.Common.Version
+import Concordium.GlobalState.Persistent.BlobStore (BlobRef)
+import Data.Proxy
 
 -- |A (finalized) block as stored in the database.
 data StoredBlock pv st = StoredBlock {
@@ -84,26 +88,73 @@ data StoredBlock pv st = StoredBlock {
 -- the serialization, so we can serialize a stored block with any state type and deserialize it
 -- with the unit state type.  Any changes to the serialization used here must respect this or
 -- be accompanied by corresponding changes there.
-instance (IsProtocolVersion pv, S.Serialize st) => S.Serialize (StoredBlock pv st) where
-  put StoredBlock{..} = S.put sbFinalizationIndex <>
-          S.put sbInfo <>
-          putBlock (protocolVersion @pv) sbBlock <>
-          S.put sbState
-  get = do
-          sbFinalizationIndex <- S.get
-          sbInfo <- S.get
-          sbBlock <- getBlock (protocolVersion @pv) (utcTimeToTransactionTime (_bpReceiveTime sbInfo))
-          sbState <- S.get
-          return StoredBlock{..}
+putStoredBlock :: forall pv st . (IsProtocolVersion pv, S.Serialize st) => S.Putter (StoredBlock pv st)
+putStoredBlock StoredBlock{..} =
+      S.put sbFinalizationIndex <>
+      S.put sbInfo <>
+      putBlock (protocolVersion @pv) sbBlock <>
+      S.put sbState
 
 -- |A block store table. A @BlockStore pv st@ stores @StoredBlock pv st@ blocks
 -- indexed by 'BlockHash'.
 newtype BlockStore (pv :: ProtocolVersion) st = BlockStore MDB_dbi'
 
-instance (IsProtocolVersion pv, S.Serialize st) => MDBDatabase (BlockStore pv st) where
+-- |A refinement of 'Serialize' that indicates that the size (i.e., amount of
+-- bytes used) of the serialized value is independend of the value. This must be
+-- exact, not just an upper bound.
+class S.Serialize a => FixedSizeSerialization a where
+  -- |Return the size of serialized values in bytes.
+  serializedSize :: Proxy a -> Int
+
+instance FixedSizeSerialization () where
+  serializedSize _ = 0
+
+instance FixedSizeSerialization (BlobRef a) where
+  serializedSize _ = 8
+
+-- This instance is needed for paired state.
+instance (FixedSizeSerialization a, FixedSizeSerialization b) => FixedSizeSerialization (a, b) where
+  serializedSize _ = serializedSize (Proxy @a) + serializedSize (Proxy @b)
+
+-- |Decode a stored block given access to arrival time and the hash of the genesis block.
+-- The latter is only used when deserializing genesis blocks.
+--
+-- It is crucial that the result does not retain any pointers to the byte array
+-- from which the data is deserialized.
+--
+-- Note that in general when given a genesis block this function will not fully
+-- consume the input since it only needs to parse the genesis parameters.
+decodeStoredBlock :: SProtocolVersion pv -> TransactionTime -> BlockHash -> S.Get (Block pv)
+decodeStoredBlock spv arrivalTime genHash = do
+    sl <- S.get
+    if sl == 0 then GenesisBlock <$> getGenesisConfiguration spv genHash
+    else NormalBlock <$> getBakedBlockAtSlot spv sl arrivalTime
+
+instance (IsProtocolVersion pv, FixedSizeSerialization st) => MDBDatabase (BlockStore pv st) where
   type DBKey (BlockStore pv st) = BlockHash
   type DBValue (BlockStore pv st) = StoredBlock pv st
   encodeKey _ = hashToByteString . blockHash
+  encodeValue _ sb = S.runPutLazy (putStoredBlock sb)
+  decodeValue _ blockHash mdbVal = do
+    -- The use of unsafeByteStringFromMDB_val is OK here since deserialization of blocks
+    -- does not retain any pointers to the source. All the data and byte strings are copied
+    -- (cf getByteString).
+    bs <- unsafeByteStringFromMDB_val mdbVal
+    if BS.length bs < serializedSize (Proxy @st) then
+      return (Left "Unexpected block value without state.")
+    else do
+      let (body, stateValue) = BS.splitAt (BS.length bs - serializedSize (Proxy @st)) bs
+          bodyDecoder :: S.Get (FinalizationIndex, BasicBlockPointerData, Block pv)
+          bodyDecoder = do
+            sbFinalizationIndex <- S.get
+            sbInfo <- S.get
+            sbBlock <- S.label "decodeStoredBlock" $ decodeStoredBlock (protocolVersion @pv) (utcTimeToTransactionTime (_bpReceiveTime sbInfo)) blockHash
+            return (sbFinalizationIndex, sbInfo, sbBlock)
+      case (S.runGet bodyDecoder body, S.decode stateValue) of
+        (Right (sbFinalizationIndex, sbInfo, sbBlock), Right sbState) -> return (Right StoredBlock{..})
+        (Right _, Left err) -> return (Left $ "Cannot decode state: " ++ err)
+        (Left err, Right _) -> return (Left $ "Cannot decode block: " ++ err)
+        (Left err1, Left err2) -> return (Left $ "Cannot decode block nor state: " ++ err1 ++ ", " ++ err2)
 
 -- |A finalization record store table. A @FinalizationRecordStore@ stores
 -- 'FinalizationRecord's indexed by 'FinalizationIndex'.
@@ -160,7 +211,7 @@ instance MDBDatabase MetadataStore where
     decodeKey _ k = Right <$> byteStringFromMDB_val k
     type DBValue MetadataStore = BS.ByteString
     encodeValue _ = LBS.fromStrict
-    decodeValue _ v = Right <$> byteStringFromMDB_val v
+    decodeValue _ _ v = Right <$> byteStringFromMDB_val v
 
 -- |Key to the version information.
 -- This key should map to a serialized 'VersionMetadata' structure.
@@ -334,7 +385,7 @@ openReadOnlyDatabase treeStateDir = do
 
 
 -- |Initialize the database handlers creating the databases if needed and writing the genesis block and its finalization record into the disk
-initializeDatabase :: forall pv st ati bs. (IsProtocolVersion pv, S.Serialize st) =>
+initializeDatabase :: forall pv st ati bs. (IsProtocolVersion pv, FixedSizeSerialization st) =>
   -- |Genesis block pointer
   PersistentBlockPointer pv ati bs ->
   -- |Genesis block state
@@ -354,7 +405,7 @@ initializeDatabase gb stRef treeStateDir = do
   -- initialization would fail. Since a regenesis block can contain a serialization of the state, which may be
   -- arbitrarily large, to be safe we ensure that we have at least 1MB more than the size of the serialization
   -- of the genesis block.
-  let initSize = fromIntegral $ LBS.length (S.encodeLazy storedGenesis) + 1_048_576
+  let initSize = fromIntegral $ LBS.length (S.runPutLazy (putStoredBlock storedGenesis)) + 1_048_576
   handlers@DatabaseHandlers{..} <- makeDatabaseHandlers treeStateDir False initSize
   let gbh = getHash gb
       gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
@@ -439,7 +490,7 @@ resizeDatabaseHandlers dbh size = do
   liftIO . withWriteStoreEnv (dbh ^. storeEnv) $ flip mdb_env_set_mapsize newMapSize
 
 -- |Read a block from the database by hash.
-readBlock :: (MonadIO m, MonadState s m, IsProtocolVersion pv, HasDatabaseHandlers pv st s, S.Serialize st)
+readBlock :: (MonadIO m, MonadState s m, IsProtocolVersion pv, HasDatabaseHandlers pv st s, FixedSizeSerialization st)
   => BlockHash
   -> m (Maybe (StoredBlock pv st))
 readBlock bh = do
@@ -469,7 +520,7 @@ readTransactionStatus txHash = do
     $ \txn -> loadRecord txn (dbh ^. transactionStatusStore) txHash
 
 -- |Get a block from the database by its height.
-getFinalizedBlockAtHeight :: (IsProtocolVersion pv, S.Serialize st)
+getFinalizedBlockAtHeight :: (IsProtocolVersion pv, FixedSizeSerialization st)
   => DatabaseHandlers pv st
   -> BlockHeight
   -> IO (Maybe (StoredBlock pv st))
@@ -479,7 +530,7 @@ getFinalizedBlockAtHeight dbh bHeight = transaction (dbh ^. storeEnv) True
         join <$> mapM (loadRecord txn (dbh ^. blockStore)) mbHash
 
 -- |Read a block from the database by its height.
-readFinalizedBlockAtHeight :: (MonadIO m, MonadState s m, IsProtocolVersion pv, HasDatabaseHandlers pv st s, S.Serialize st)
+readFinalizedBlockAtHeight :: (MonadIO m, MonadState s m, IsProtocolVersion pv, HasDatabaseHandlers pv st s, FixedSizeSerialization st)
   => BlockHeight
   -> m (Maybe (StoredBlock pv st))
 readFinalizedBlockAtHeight bHeight = do
@@ -497,7 +548,7 @@ memberTransactionTable th = do
     $ \txn -> isRecordPresent txn (dbh ^. transactionStatusStore) th
 
 -- |Build a table of a block finalization indexes for blocks.
-loadBlocksFinalizationIndexes :: (IsProtocolVersion pv, S.Serialize st) => DatabaseHandlers pv st -> IO (Either String (HM.HashMap BlockHash FinalizationIndex))
+loadBlocksFinalizationIndexes :: (IsProtocolVersion pv, FixedSizeSerialization st) => DatabaseHandlers pv st -> IO (Either String (HM.HashMap BlockHash FinalizationIndex))
 loadBlocksFinalizationIndexes dbh = transaction (dbh ^. storeEnv) True $ \txn ->
     withPrimitiveCursor txn (mdbDatabase $ dbh ^. blockStore) $ \cursor -> do
       let
@@ -515,7 +566,7 @@ loadBlocksFinalizationIndexes dbh = transaction (dbh ^. storeEnv) True $ \txn ->
       loop fstRes HM.empty
 
 -- |Get the last finalized block by block height.
-getLastBlock :: (IsProtocolVersion pv, S.Serialize st) => DatabaseHandlers pv st -> IO (Either String (FinalizationRecord, StoredBlock pv st))
+getLastBlock :: (IsProtocolVersion pv, FixedSizeSerialization st) => DatabaseHandlers pv st -> IO (Either String (FinalizationRecord, StoredBlock pv st))
 getLastBlock dbh = transaction (dbh ^. storeEnv) True $ \txn -> do
     mLastFin <- withCursor txn (dbh ^. finalizationRecordStore) $ getCursor CursorLast
     case mLastFin of
@@ -527,7 +578,7 @@ getLastBlock dbh = transaction (dbh ^. storeEnv) True $ \txn -> do
       Nothing -> return $ Left "No last finalized block found"
 
 -- |Get the first block
-getFirstBlock :: (IsProtocolVersion pv, S.Serialize st) => DatabaseHandlers pv st -> IO (Maybe (StoredBlock pv st))
+getFirstBlock :: (IsProtocolVersion pv, FixedSizeSerialization st) => DatabaseHandlers pv st -> IO (Maybe (StoredBlock pv st))
 getFirstBlock dbh = transaction (dbh ^. storeEnv) True $ \txn -> do
         mbHash <- loadRecord txn (dbh ^. finalizedByHeightStore) 0
         join <$> mapM (loadRecord txn (dbh ^. blockStore)) mbHash
@@ -561,7 +612,7 @@ resizeOnFull addSize a = do
 
 -- |Write a block to the database. Adds it both to the index by height and
 -- by block hash.
-writeBlock :: (MonadLogger m, MonadIO m, MonadState s m, HasDatabaseHandlers pv st s, IsProtocolVersion pv, S.Serialize st)
+writeBlock :: (MonadLogger m, MonadIO m, MonadState s m, HasDatabaseHandlers pv st s, IsProtocolVersion pv, FixedSizeSerialization st)
   => StoredBlock pv st -> m ()
 writeBlock block = resizeOnFull blockSize
     $ \dbh -> transaction (dbh ^. storeEnv) False
@@ -570,7 +621,7 @@ writeBlock block = resizeOnFull blockSize
         storeReplaceRecord txn (dbh ^. finalizedByHeightStore) (_bpHeight b) (_bpHash b)
         storeReplaceRecord txn (dbh ^. blockStore) (_bpHash b) block
   where
-    blockSize = 2*digestSize + fromIntegral (LBS.length (S.encodeLazy block))
+    blockSize = 2*digestSize + fromIntegral (LBS.length (S.runPutLazy (putStoredBlock block)))
 
 -- |Write a finalization record to the database.
 writeFinalizationRecord :: (MonadLogger m, MonadIO m, MonadState s m, HasDatabaseHandlers pv st s)
@@ -608,7 +659,7 @@ writeTransactionStatuses tss = resizeOnFull tssSize
 -- the database. This is a combination of `writeFinalizationRecord`, `writeTransactionStatuses` and
 -- an arbitrary number of `writeBlock`s in a single transaction.
 writeFinalizationComposite :: (MonadLogger m, MonadIO m, MonadState s m,
-                               HasDatabaseHandlers pv st s, IsProtocolVersion pv, S.Serialize st)
+                               HasDatabaseHandlers pv st s, IsProtocolVersion pv, FixedSizeSerialization st)
   => FinalizationRecord -> [(Maybe (StoredBlock pv st), [(TransactionHash, FinalizedTransactionStatus)])] -> m ()
 writeFinalizationComposite finRec blocktss = resizeOnFull (finRecSize + blocksSize + tssSize)
     $ \dbh -> transaction (dbh ^. storeEnv) False
@@ -619,7 +670,7 @@ writeFinalizationComposite finRec blocktss = resizeOnFull (finRecSize + blocksSi
                           storeReplaceBytes txn (dbh ^. blockStore) (_bpHash b) block
                           forM_ tss (uncurry (storeReplaceRecord txn (dbh ^. transactionStatusStore))))
   where
-    serializedBlocksTss = (((S.encodeLazy &&& sbInfo) . fromJust . fst) &&& snd) <$> filter (isJust . fst) blocktss
+    serializedBlocksTss = (((S.runPutLazy . putStoredBlock &&& sbInfo) . fromJust . fst) &&& snd) <$> filter (isJust . fst) blocktss
     finRecSize = let FinalizationProof vs _ = finalizationProof finRec in
           -- key + finIndex + finBlockPointer + finProof (list of Word32s + BlsSignature.signatureSize) + finDelay
           digestSize + 64 + digestSize + (32 * Prelude.length vs) + 48 + 64

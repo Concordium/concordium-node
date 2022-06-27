@@ -39,7 +39,8 @@ module Concordium.GlobalState.LMDB.Helpers (
   loadAll,
 
   -- * Low level operations.
-  byteStringFromMDB_val
+  byteStringFromMDB_val,
+  unsafeByteStringFromMDB_val
                                            )
 where
 
@@ -62,6 +63,7 @@ import Foreign.Marshal.Alloc
 import Foreign.Ptr
 import Foreign.Storable
 import Lens.Micro.Platform
+import Data.ByteString.Unsafe (unsafePackCStringLen)
 
 -- |State of a reader-writer lock.
 data RWState =
@@ -314,10 +316,10 @@ class MDBDatabase db where
   encodeValue :: Proxy db -> DBValue db -> LBS.ByteString
   default encodeValue :: (S.Serialize (DBValue db)) => Proxy db -> DBValue db -> LBS.ByteString
   encodeValue _ = S.encodeLazy
-  -- |Decode a value. The result should not retain the pointer.
-  decodeValue :: Proxy db -> MDB_val -> IO (Either String (DBValue db))
-  default decodeValue :: (S.Serialize (DBValue db)) => Proxy db -> MDB_val -> IO (Either String (DBValue db))
-  decodeValue _ v = S.decode <$> byteStringFromMDB_val v
+  -- |Decode a value at the given key. The result should not retain the pointer.
+  decodeValue :: Proxy db -> DBKey db -> MDB_val -> IO (Either String (DBValue db))
+  default decodeValue :: (S.Serialize (DBValue db)) => Proxy db -> DBKey db -> MDB_val -> IO (Either String (DBValue db))
+  decodeValue _ _ v = S.decode <$> byteStringFromMDB_val v
 
 -- |Run a transaction in an LMDB environment. The second argument specifies if
 -- the transaction is read-only. This will acquire a read lock so the given IO
@@ -346,9 +348,15 @@ transaction se readOnly tx
 withMDB_val :: ByteString -> (MDB_val -> IO a) -> IO a
 withMDB_val bs a = BS.unsafeUseAsCStringLen bs $ \(ptr, plen) -> a $ MDB_val (fromIntegral plen) (coerce ptr)
 
--- |Create a 'ByteString' from an 'MDB_val'.  This creates a copy.
+-- |Create a 'ByteString' from an 'MDB_val'. This creates a copy.
 byteStringFromMDB_val :: MDB_val -> IO ByteString
 byteStringFromMDB_val (MDB_val len ptr) = packCStringLen (coerce ptr, fromIntegral len)
+
+-- |Create a 'ByteString' from an 'MDB_val'. This does not create a copy of the
+-- bytestring so it is imperative that the returned bytestring is fully consumed
+-- inside an LMDB transaction and no pointers to any substrings are retained.
+unsafeByteStringFromMDB_val :: MDB_val -> IO ByteString
+unsafeByteStringFromMDB_val (MDB_val len ptr) = unsafePackCStringLen (coerce ptr, fromIntegral len)
 
 -- |Write a lazy 'LBS.ByteString' into an 'MDB_val'.
 -- The destination must have the same size as the source.
@@ -447,7 +455,7 @@ getCursor movement (Cursor pc) = getPrimitiveCursor movement pc >>= mapM decodeK
   where
     decodeKV (keyv, valv) = runExceptT $ do
       key <- ExceptT $ decodeKey prox keyv
-      val <- ExceptT $ decodeValue prox valv
+      val <- ExceptT $ decodeValue prox key valv
       return (key, val)
     prox :: Proxy db
     prox = Proxy
@@ -534,7 +542,7 @@ loadRecord txn dbi key = do
     mval <- withMDB_val (encodeKey prox key) $ mdb_get' txn (mdbDatabase dbi)
     case mval of
       Nothing -> return Nothing
-      Just bval -> decodeValue prox bval >>= \case
+      Just bval -> decodeValue prox key bval >>= \case
         Left _ -> return Nothing
         Right val -> return (Just val)
   where
