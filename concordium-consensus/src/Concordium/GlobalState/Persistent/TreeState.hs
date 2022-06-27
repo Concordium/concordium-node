@@ -146,8 +146,6 @@ data SkovPersistentData (pv :: ProtocolVersion) ati bs = SkovPersistentData {
     _db :: !(DatabaseHandlers pv (TS.BlockStatePointer bs)),
     -- |Context for the transaction log.
     _atiCtx :: !(ATIContext ati)
-    --
-    -- accountCache :: FIFOCache (PersistentAccount (AccountVersionFor pv))
 }
 makeLenses ''SkovPersistentData
 
