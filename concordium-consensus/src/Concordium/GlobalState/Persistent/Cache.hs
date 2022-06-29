@@ -57,15 +57,18 @@ newtype CacheContext c = CacheContext { theCacheContext :: c }
 instance HasCache c (CacheContext c) where
     projectCache = theCacheContext
 
-data DummyCache k v = DummyCache
+data DummyCache v = DummyCache
 
-instance Cache (DummyCache k v) where
-    type CacheKey (DummyCache k v) = k
-    type CacheValue (DummyCache k v) = v
+instance Cache (DummyCache v) where
+    type CacheKey (DummyCache v) = BlobRef v
+    type CacheValue (DummyCache v) = v
 
     putCachedValue _ _ = return
     lookupCachedValue _ _ = return Nothing
     getCacheSize _ = return 0
+
+newDummyCache :: Int -> IO (DummyCache v)
+newDummyCache _ = pure DummyCache
 
 -- |First-in, first-out cache, with entries keyed by 'Int's.
 data FIFOCache' v = FIFOCache'
@@ -83,6 +86,7 @@ data CacheEntry
     = Empty
     | CacheEntry {key :: !Int}
 
+
 newtype FIFOCache v = FIFOCache {theFIFOCache :: MVar (FIFOCache' v)}
 
 instance Cache (FIFOCache v) where
@@ -92,17 +96,17 @@ instance Cache (FIFOCache v) where
     putCachedValue _ key val = do
         let intKey = fromIntegral (theBlobRef key)
         FIFOCache cacheRef <- getCache
-        liftIO $ do
+        liftIO $! do
             cache <- takeMVar cacheRef
             case IntMap.lookup intKey (keyMap cache) of
                 Nothing -> do
                     oldEntry <- Vec.read (fifoBuffer cache) (nextIndex cache)
-                    let newKeyMap = IntMap.insert intKey val $
+                    let newKeyMap = IntMap.insert intKey val $!
                             case oldEntry of
                                 Empty -> keyMap cache
                                 CacheEntry oldKey -> IntMap.delete oldKey (keyMap cache)
-                    Vec.write (fifoBuffer cache) (nextIndex cache) $ CacheEntry intKey
-                    putMVar cacheRef $
+                    Vec.write (fifoBuffer cache) (nextIndex cache) $! CacheEntry intKey
+                    putMVar cacheRef $!
                         cache
                             { keyMap = newKeyMap,
                               nextIndex = (nextIndex cache + 1) `mod` Vec.length (fifoBuffer cache)
@@ -110,20 +114,20 @@ instance Cache (FIFOCache v) where
                     return val
                 Just _ -> do
                     let newKeyMap = IntMap.insert intKey val (keyMap cache)
-                    putMVar cacheRef $ cache { keyMap = newKeyMap }
+                    putMVar cacheRef $! cache { keyMap = newKeyMap }
                     return val
 
     lookupCachedValue _ key = do
         FIFOCache cacheRef <- getCache
         -- This should be OK as we are just accessing the keyMap, so we can read from a snapshot.
         -- We need to be sure not to retain references after we are done.
-        cache <- liftIO $ readMVar cacheRef
+        cache <- liftIO $! readMVar cacheRef
         return $! IntMap.lookup (fromIntegral (theBlobRef key)) (keyMap cache)
 
     getCacheSize _ = do
         FIFOCache cacheRef :: FIFOCache v <- getCache
-        cache <- liftIO $ readMVar cacheRef
-        return $ IntMap.size (keyMap cache)
+        cache <- liftIO $! readMVar cacheRef
+        return $! IntMap.size (keyMap cache)
 
 newFIFOCache :: Int -> IO (FIFOCache v)
 newFIFOCache size = do
