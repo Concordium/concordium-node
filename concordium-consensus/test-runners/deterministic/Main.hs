@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GeneralisedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -28,6 +29,7 @@ import qualified Data.PQueue.Min as MinPQ
 import qualified Data.Sequence as Seq
 import System.Random
 import System.IO
+import System.Mem
 
 import Concordium.Afgjort.Finalize.Types
 import Concordium.Types
@@ -237,14 +239,17 @@ transactions gen = trs (0 :: Nonce) (randoms gen :: [Word8])
         trs (Nonce n) (amnt:amnts) = (toInteger n `div` 100, Dummy.makeTransferTransaction (Dummy.mateuszKP, Dummy.mateuszAccount) Dummy.mateuszAccount (fromIntegral amnt) (Nonce n)) : trs (Nonce (n+1)) amnts
         trs _ _ = error "Ran out of transaction data"
 
+numAccts :: Num a => a
+numAccts = 500000
+
 extraAccountTransactions :: [(Integer, BlockItem)]
 extraAccountTransactions = trs 0
     where
-        trs (Nonce n) = [(1000000 * toInteger n + toInteger i, Dummy.makeTransferTransaction (Dummy.alesKP, Dummy.accountAddressFrom i) (Dummy.accountAddressFrom i) 0 (Nonce n)) | i <- [1..1000000]] ++ trs (Nonce (n+1))
+        trs (Nonce n) = [(numAccts * toInteger n + toInteger i, Dummy.makeTransferTransaction (Dummy.alesKP, Dummy.accountAddressFrom i) (Dummy.accountAddressFrom i) 0 (Nonce n)) | i <- [1..numAccts]] ++ trs (Nonce (n+1))
 
 -- |Genesis accounts. For convenience, these all use the same keys.
 extraAccounts :: [GenesisAccount]
-extraAccounts = [Dummy.createCustomAccount 1000000 Dummy.alesKP (Dummy.accountAddressFrom i) | i <- [1..1000000]]
+extraAccounts = [Dummy.createCustomAccount 1000000 Dummy.alesKP (Dummy.accountAddressFrom i) | i <- [1..numAccts]]
 
 -- |The initial state of the simulation.
 initialState :: IO SimState
@@ -287,7 +292,7 @@ initialState = do
         mkBakerState now (bakerId, (_bsIdentity, _bsInfo)) = do
             createDirectoryIfMissing True "data"
             gsconfig <- makeGlobalStateConfig 
-                            defaultRuntimeParameters 
+                            defaultRuntimeParameters{ rpAccountsCacheSize = 5000 }
                             ("data/treestate-" ++ show now ++ "-" ++ show bakerId)
                             ("data/blockstate-" ++ show now ++ "-" ++ show bakerId ++ ".dat")
             let
@@ -365,7 +370,7 @@ stepConsensus =
                         case r of
                             [] -> return ()
                             ((t', _) : _) -> ssEvents %= addEvent (PEvent t' (TransactionEvent r))
-                (PEvent t (BakerEvent i ev)) -> displayBakerEvent i ev >> case ev of
+                (PEvent t (BakerEvent i ev)) -> {- displayBakerEvent i ev >> -} case ev of
                     EBake sl -> do
                         bIdentity <- (^. bsIdentity) . (Vec.! i) <$> use ssBakers
                         let doBake =
@@ -395,11 +400,17 @@ main :: IO ()
 main = do
     putStrLn "Press Enter to start"
     _ <- getLine
-    putStrLn "Starting"
-    b (1000000 :: Int)
+    putStrLn "Initalising"
+    b (100000 :: Int)
     where
         loop 0 _ = return ()
         loop n s = do
             s' <- execStateT stepConsensus s
             loop (n-1) s'
-        b steps = loop steps =<< initialState
+        b steps = do
+            !s0 <- initialState
+            putStrLn "Initialisation complete"
+            performGC
+            _ <- getLine
+            putStrLn "Starting"
+            loop steps s0
