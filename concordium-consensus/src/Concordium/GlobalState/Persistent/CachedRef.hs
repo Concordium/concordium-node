@@ -48,7 +48,9 @@ instance
 
     refLoad (CRRef ref) =
         lookupCachedValue (Proxy @c) ref >>= \case
-            Nothing -> loadRef ref
+            Nothing -> do
+              val <- loadRef ref
+              putCachedValue (Proxy @c) ref val
             Just val -> return val
     refLoad (CRMem val) = return val
     refMake val = return (CRMem val)
