@@ -473,9 +473,9 @@ instance (MonadBlobStore m, IsAccountVersion av) => BlobStorable m (PersistentAc
         mAccountStake <- load
         return $ do
           _persistingData <- cache =<< mAccDataPtr
-          _accountEncryptedAmount <- cache =<< mAccountEncryptedAmountPtr
-          _accountReleaseSchedule <- cache =<< mAccountReleaseSchedulePtr
-          _accountStake <- cache =<< mAccountStake
+          _accountEncryptedAmount <- mAccountEncryptedAmountPtr
+          _accountReleaseSchedule <- mAccountReleaseSchedulePtr
+          _accountStake <- mAccountStake
           
           eData <- loadBufferedRef _accountEncryptedAmount
           eData' <- loadPersistentAccountEncryptedAmount eData
