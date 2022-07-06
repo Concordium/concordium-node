@@ -23,6 +23,16 @@ doResolveBlock cbp = getBlockStatus cbp <&> \case
         Just (BlockFinalized bp _) -> Just bp
         _ -> Nothing
 
+doIsBlockKnownAndLive :: TreeStateMonad m => BlockHash -> m Bool
+doIsBlockKnownAndLive cbp =
+    getRecentBlockStatus cbp <&> \case
+        RecentBlock bs -> case bs of
+            BlockAlive _ -> True
+            BlockFinalized _ _ -> True
+            _ -> False
+        OlderThanLastFinalized -> True
+        Unknown -> False
+
 doIsFinalized :: TreeStateMonad m => BlockHash -> m Bool
 {- - INLINE doIsFinalized - -}
 doIsFinalized = getBlockStatus >=> \case

@@ -110,8 +110,13 @@ data UpdateResult
 
 class (Monad m, Eq (BlockPointerType m), HashableTo BlockHash (BlockPointerType m), BlockPointerData (BlockPointerType m), BlockPointerMonad m, BlockStateQuery m, MonadProtocolVersion m)
         => SkovQueryMonad m where
-    -- |Look up a block in the table given its hash
+    -- |Look up a block in the table given its hash.
     resolveBlock :: BlockHash -> m (Maybe (BlockPointerType m))
+    -- |Check whether the block is known to us and part of the live tree (i.e.,
+    -- not dead or pending). If only block existence is needed then this will be
+    -- more efficient than using 'resolveBlock' and checking for a 'Just'
+    -- response.
+    isBlockKnownAndLive :: BlockHash -> m Bool
     -- |Determine if a block has been finalized.
     isFinalized :: BlockHash -> m Bool
     -- |Determine the last finalized block.
@@ -203,6 +208,7 @@ class (SkovQueryMonad m, TimeMonad m, MonadLogger m) => SkovMonad m where
 
 instance (Monad (t m), MonadTrans t, SkovQueryMonad m) => SkovQueryMonad (MGSTrans t m) where
     resolveBlock = lift . resolveBlock
+    isBlockKnownAndLive = lift . isBlockKnownAndLive
     isFinalized = lift . isFinalized
     lastFinalizedBlock = lift lastFinalizedBlock
     lastFinalizedBlockWithRecord = lift lastFinalizedBlockWithRecord
@@ -309,6 +315,7 @@ instance (TS.TreeStateMonad m)
           => SkovQueryMonad (SkovQueryMonadT m) where
     {- - INLINE resolveBlock - -}
     resolveBlock = lift . doResolveBlock
+    isBlockKnownAndLive = lift . doIsBlockKnownAndLive
     {- - INLINE isFinalized - -}
     isFinalized = lift . doIsFinalized
     {- - INLINE blockAtFinIndex - -}

@@ -135,7 +135,8 @@ class (Eq (BlockPointerType m),
     -- |Get the current status of a block.
     getBlockStatus :: BlockHash -> m (Maybe (BlockStatus (BlockPointerType m) PendingBlock))
 
-    -- |Get the current status of a block.
+    -- |Get a 'RecentBlockStatus'. See documentation of 'RecentBlockStatus' for
+    -- the meaning of the return value.
     getRecentBlockStatus :: BlockHash -> m (RecentBlockStatus (BlockPointerType m) PendingBlock)
 
     -- |Make a live 'BlockPointer' from a 'PendingBlock'.
