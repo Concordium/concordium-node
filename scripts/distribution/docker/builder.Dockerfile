@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:experimental
+# syntax=docker/dockerfile:1
 
 # This dockerfile builds a distribution image that contains
 # - the node binary at /concordium-node
