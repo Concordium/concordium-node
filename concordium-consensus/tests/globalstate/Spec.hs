@@ -12,6 +12,7 @@ import qualified GlobalStateTests.AccountMap(tests)
 import qualified GlobalStateTests.PersistentTreeState(tests)
 import qualified GlobalStateTests.Accounts(tests)
 import qualified GlobalStateTests.BlockHash(tests)
+import qualified GlobalStateTests.Cache (tests)
 import qualified GlobalStateTests.AccountReleaseScheduleTest(tests)
 import qualified GlobalStateTests.Updates(tests)
 
@@ -19,7 +20,7 @@ atLevel :: (Word -> IO ()) -> IO ()
 atLevel a = do
         args0 <- getArgs
         let (args1, mlevel) = mconcat $ map lvlArg args0
-        withArgs args1 $ a $! (maybe 1 getLast mlevel)
+        withArgs args1 $ a $! maybe 1 getLast mlevel
     where
         lvlArg s = case stripPrefix "--level=" s of
             Nothing -> ([s], Nothing)
@@ -28,6 +29,7 @@ atLevel a = do
 main :: IO ()
 main = atLevel $ \lvl -> hspec $ do
   GlobalStateTests.BlockHash.tests
+  GlobalStateTests.Cache.tests
   GlobalStateTests.LFMBTree.tests
   GlobalStateTests.Accounts.tests lvl
   GlobalStateTests.Trie.tests

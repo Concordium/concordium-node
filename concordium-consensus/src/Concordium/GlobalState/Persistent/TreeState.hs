@@ -278,7 +278,7 @@ checkExistingDatabase treeStateDir blockStateFile = do
 loadSkovPersistentData :: forall pv. (IsProtocolVersion pv)
                        => RuntimeParameters
                        -> FilePath -- ^Tree state directory
-                       -> PBS.PersistentBlockStateContext
+                       -> PBS.PersistentBlockStateContext pv
                        -> LogIO (SkovPersistentData pv (PBS.HashedPersistentBlockState pv))
 loadSkovPersistentData rp _treeStateDirectory pbsc = do
   -- we open the environment first.
@@ -343,7 +343,7 @@ loadSkovPersistentData rp _treeStateDirectory pbsc = do
 -- This function will raise an IO exception in the following scenarios
 -- * in the block state, an account which is listed cannot be loaded
 activateSkovPersistentData :: forall pv. (IsProtocolVersion pv)
-                           => PBS.PersistentBlockStateContext
+                           => PBS.PersistentBlockStateContext pv
                            -> SkovPersistentData pv (PBS.HashedPersistentBlockState pv)
                            -> LogIO (SkovPersistentData pv (PBS.HashedPersistentBlockState pv))
 activateSkovPersistentData pbsc uninitState = do
@@ -353,7 +353,7 @@ activateSkovPersistentData pbsc uninitState = do
   -- 
   -- Before we establish the invariants we cache the block state.
   let lastState = _bpState cachedLastFinalized
-  let getTransactionTable :: PBS.PersistentBlockStateMonad pv PBS.PersistentBlockStateContext (ReaderT PBS.PersistentBlockStateContext LogIO) TransactionTable
+  let getTransactionTable :: PBS.PersistentBlockStateMonad pv (PBS.PersistentBlockStateContext pv) (ReaderT (PBS.PersistentBlockStateContext pv) LogIO) TransactionTable
       getTransactionTable = do
         accs <- getAccountList lastState
         tt0 <- foldM (\table addr ->

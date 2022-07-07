@@ -325,7 +325,7 @@ instance HasBlobStore BlobStore where
   blobLoadCallback = bscLoadCallback
   blobStoreCallback = bscStoreCallback
 
-instance MonadBlobStore (ReaderT BlobStore IO)
+instance (MonadIO m, HasBlobStore r) => MonadBlobStore (ReaderT r m)
 
 -- |A wrapper type for lifting 'MonadBlobStore' instances over monad transformers.
 -- Lifted instances are provided for 'WriterT', 'StateT' and 'ExceptT', which are used for

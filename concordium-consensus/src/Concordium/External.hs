@@ -313,6 +313,8 @@ startConsensus ::
     Word64 ->
     -- |Number of seconds between transaction table purging runs
     Word64 ->
+    -- |Accounts table cache size
+    Word32 ->
     -- |Serialized genesis data (c string + len)
     CString ->
     Int64 ->
@@ -347,6 +349,7 @@ startConsensus
     insertionsBeforePurge
     transactionsKeepAlive
     transactionsPurgingDelay
+    accountsCacheSize
     gdataC
     gdataLenC
     bidC
@@ -419,7 +422,8 @@ startConsensus
                   rpInsertionsBeforeTransactionPurge = fromIntegral insertionsBeforePurge,
                   rpTransactionsKeepAliveTime = TransactionTime transactionsKeepAlive,
                   rpTransactionsPurgingDelay = fromIntegral transactionsPurgingDelay,
-                  rpMaxTimeToExpiry = fromIntegral maxTimeToExpiry
+                  rpMaxTimeToExpiry = fromIntegral maxTimeToExpiry,
+                  rpAccountsCacheSize = fromIntegral accountsCacheSize
                 }
 
 -- |Start up an instance of Skov without starting the baker thread.
@@ -438,6 +442,8 @@ startConsensusPassive ::
     Word64 ->
     -- |Number of seconds between transaction table purging runs
     Word64 ->
+    -- |Accounts table cache size
+    Word32 ->
     -- |Serialized genesis data (c string + len)
     CString ->
     Int64 ->
@@ -467,6 +473,7 @@ startConsensusPassive
     insertionsBeforePurge
     transactionsKeepAlive
     transactionsPurgingDelay
+    accountsCacheSize
     gdataC
     gdataLenC
     cucbk
@@ -521,7 +528,8 @@ startConsensusPassive
                   rpInsertionsBeforeTransactionPurge = fromIntegral insertionsBeforePurge,
                   rpTransactionsKeepAliveTime = TransactionTime transactionsKeepAlive,
                   rpTransactionsPurgingDelay = fromIntegral transactionsPurgingDelay,
-                  rpMaxTimeToExpiry = fromIntegral maxTimeToExpiry
+                  rpMaxTimeToExpiry = fromIntegral maxTimeToExpiry,
+                  rpAccountsCacheSize = fromIntegral accountsCacheSize
                 }
 
 -- |Shut down consensus, stopping any baker thread if necessary.
@@ -1230,6 +1238,8 @@ foreign export ccall
         Word64 ->
         -- |Number of seconds between transaction table purging runs
         Word64 ->
+        -- |Accounts table cache size
+        Word32 ->
         -- |Serialized genesis data (c string + len)
         CString ->
         Int64 ->
@@ -1271,6 +1281,8 @@ foreign export ccall
         Word64 ->
         -- |Number of seconds between transaction table purging runs
         Word64 ->
+        -- |Accounts table cache size
+        Word32 ->
         -- |Serialized genesis data (c string + len)
         CString ->
         Int64 ->
