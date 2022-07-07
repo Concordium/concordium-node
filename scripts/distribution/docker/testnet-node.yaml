@@ -1,0 +1,92 @@
+# This is an example configuration for running the testnet node
+
+version: '3'
+services:
+  testnet-node:
+    container_name: testnet-node
+    image: concordium/testnet-node:latest
+    pull_policy: always
+    environment:
+      # Environment specific configuration
+      # The url where IPs of the bootstrap nodes can be found.
+      - CONCORDIUM_NODE_CONNECTION_BOOTSTRAP_NODES=bootstrap.testnet.concordium.com:8888
+      # Where the genesis is located
+      - CONCORDIUM_NODE_CONSENSUS_GENESIS_DATA_FILE=/testnet-genesis.dat
+
+      # General node configuration Data and config directories (it's OK if they
+      # are the same). This should match the volume mount below. If the location
+      # of the mount inside the container is changed, then these should be
+      # changed accordingly as well.
+      - CONCORDIUM_NODE_DATA_DIR=/mnt/data
+      - CONCORDIUM_NODE_CONFIG_DIR=/mnt/data
+
+      # port on which the node will listen for incoming connections. This is a
+      # port inside the container. It is mapped to an external port by the port
+      # mapping in the `ports` section below. If the internal and external ports
+      # are going to be different then you should also set
+      # `CONCORDIUM_NODE_EXTERNAL_PORT` variable to what the external port value is.
+      - CONCORDIUM_NODE_LISTEN_PORT=8889
+      # Desired number of nodes to be connected to.
+      - CONCORDIUM_NODE_CONNECTION_DESIRED_NODES=5
+      # Maximum number of __nodes__ the node will be connected to.
+      - CONCORDIUM_NODE_CONNECTION_MAX_ALLOWED_NODES=10
+      # Address of the GRPC server
+      - CONCORDIUM_NODE_RPC_SERVER_ADDR=0.0.0.0
+      # And its port
+      - CONCORDIUM_NODE_RPC_SERVER_PORT=10001
+      # maximum number of __connections__ the node can have. This can temporarily be more than
+      # the number of peers when incoming connections are processed. This limit
+      # ensures that there cannot be too many of those.
+      - CONCORDIUM_NODE_CONNECTION_HARD_CONNECTION_LIMIT=20
+      # Number of threads to use to process network events. This should be
+      # adjusted based on the resources the node has (in combination with
+      # `CONCORDIUM_NODE_BAKER_HASKELL_RTS_FLAGS`) below.
+      - CONCORDIUM_NODE_CONNECTION_THREAD_POOL_SIZE=2
+      # The bootstrapping interval in seconds. This makes the node contact the
+      # specified bootstrappers at a given interval to discover new peers.
+      - CONCORDIUM_NODE_CONNECTION_BOOTSTRAPPING_INTERVAL=1800
+      # Haskell RTS flags to pass to consensus. `-N2` means to use two threads
+      # for consensus operations. `-I0` disables the idle garbage collector
+      # which reduces CPU load for passive nodes.
+      - CONCORDIUM_NODE_BAKER_HASKELL_RTS_FLAGS=-N2,-I0
+
+    entrypoint: ["/concordium-node"]
+
+    # Exposed ports. The ports the node listens on inside the container (defined
+    # by `CONCORDIUM_NODE_LISTEN_PORT` and `CONCORDIUM_NODE_RPC_SERVER_PORT`)
+    # should match what is defined here. When running multiple nodes the
+    # external ports should be changed so as not to conflict.
+    ports:
+    - "8889:8889"
+    - "10001:10001"
+
+    volumes:
+    # The node's database should be stored in a persistent volume so that it
+    # survives container restart. In this case we map the **host** directory
+    # ~/tmp/testnet to be used as the node's database directory.
+    - /tmp/testnet:/mnt/data
+
+  # The collector reports the state of the node to the network dashboard. A node
+  # can run without reporting to the network dashboard. Remove this section if
+  # that is desired.
+  testnet-node-collector:
+    container_name: testnet-node-collector
+    image: concordium/testnet-node:latest
+    pull_policy: always
+    environment:
+      # Settings that should be customized by the user.
+      - CONCORDIUM_NODE_COLLECTOR_NODE_NAME=docker-test
+
+      # Environment specific settings.
+      - CONCORDIUM_NODE_COLLECTOR_URL=https://dashboard.testnet.concordium.com/nodes/post
+
+      # Collection settings.
+      # How often to collect the statistics from the node.
+      - CONCORDIUM_NODE_COLLECTOR_COLLECT_INTERVAL=5000
+      # The URL where the node can be reached. Note that this will use the
+      # docker created network which maps `testnet-node` to the internal IP of
+      # the `testnet-node`. If the name of the node service is changed from
+      # `testnet-node` then the name here must also be changed.
+      - CONCORDIUM_NODE_COLLECTOR_GRPC_HOST=http://testnet-node:10001
+
+    entrypoint: ["/node-collector"]
