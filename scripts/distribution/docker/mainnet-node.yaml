@@ -5,6 +5,7 @@ services:
   mainnet-node:
     container_name: mainnet-node
     image: concordium/mainnet-node:latest
+    pull_policy: always
     environment:
       # Environment specific configuration
       # The url where IPs of the bootstrap nodes can be found.
@@ -71,6 +72,7 @@ services:
   mainnet-node-collector:
     container_name: mainnet-node-collector
     image: concordium/mainnet-node:latest
+    pull_policy: always
     environment:
       # Settings that should be customized by the user.
       - CONCORDIUM_NODE_COLLECTOR_NODE_NAME=docker-test-mainnet

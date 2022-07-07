@@ -5,6 +5,7 @@ services:
   testnet-node:
     container_name: testnet-node
     image: concordium/testnet-node:latest
+    pull_policy: always
     environment:
       # Environment specific configuration
       # The url where IPs of the bootstrap nodes can be found.
@@ -71,6 +72,7 @@ services:
   testnet-node-collector:
     container_name: testnet-node-collector
     image: concordium/testnet-node:latest
+    pull_policy: always
     environment:
       # Settings that should be customized by the user.
       - CONCORDIUM_NODE_COLLECTOR_NODE_NAME=docker-test
