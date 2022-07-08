@@ -9,6 +9,7 @@ import Control.Monad.IO.Class
 import Control.Monad.Reader
 import qualified Data.Cache.LRU.IO as LRU
 import qualified Data.IntMap.Strict as IntMap
+import Data.IORef
 import Data.Proxy
 import qualified Data.Vector.Mutable as Vec
 import Data.Word (Word64)
@@ -50,6 +51,8 @@ class Cache c where
     putCachedValue :: (MonadCache c m) => Proxy c -> CacheKey c -> CacheValue c -> m (CacheValue c)
     lookupCachedValue :: (MonadCache c m) => Proxy c -> CacheKey c -> m (Maybe (CacheValue c))
     getCacheSize :: (MonadCache c m) => Proxy c -> m Int
+    printCacheStats :: c -> IO ()
+    printCacheStats _ = return ()
 
 -- | A context that simply wraps a cache, providing an instance @HasCache c (CacheContext c)@.
 newtype CacheContext c = CacheContext { theCacheContext :: c }
@@ -79,7 +82,9 @@ data FIFOCache' v = FIFOCache'
       -- in the 'keyMap'.
       fifoBuffer :: !(Vec.IOVector CacheEntry),
       -- | The next index to use, 0 <= nextIndex < Vec.length fifoBuffer
-      nextIndex :: !Int
+      nextIndex :: !Int,
+      hitCount :: !(IORef Int),
+      missCount :: !(IORef Int)
     }
 
 data CacheEntry
@@ -122,21 +127,34 @@ instance Cache (FIFOCache v) where
         -- This should be OK as we are just accessing the keyMap, so we can read from a snapshot.
         -- We need to be sure not to retain references after we are done.
         cache <- liftIO $! readMVar cacheRef
-        return $! IntMap.lookup (fromIntegral (theBlobRef key)) (keyMap cache)
+        let res = IntMap.lookup (fromIntegral (theBlobRef key)) (keyMap cache) 
+        liftIO $ case res of
+          Nothing -> modifyIORef' (missCount cache) (+1)
+          Just _ -> modifyIORef' (hitCount cache) (+1)
+        return res
 
     getCacheSize _ = do
         FIFOCache cacheRef :: FIFOCache v <- getCache
         cache <- liftIO $! readMVar cacheRef
         return $! IntMap.size (keyMap cache)
+    
+    printCacheStats (FIFOCache cacheRef) = do
+      cache <- readMVar cacheRef
+      misses <- readIORef (missCount cache)
+      hits <- readIORef (hitCount cache)
+      putStrLn $ "Cache hits: " ++ show hits ++ "\nCache misses: " ++ show misses
 
 newFIFOCache :: Int -> IO (FIFOCache v)
 newFIFOCache size = do
     fifoBuffer <- Vec.replicate size Empty
+    hitCount <- newIORef 0
+    missCount <- newIORef 0
     let cache =
             FIFOCache'
                 { keyMap = IntMap.empty,
                   fifoBuffer = fifoBuffer,
-                  nextIndex = 0
+                  nextIndex = 0,
+                  ..
                 }
     FIFOCache <$> newMVar cache
 

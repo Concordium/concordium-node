@@ -37,10 +37,10 @@ import Concordium.Types.HashableTo
 import Data.Foldable (foldrM, foldl', foldlM)
 import Concordium.ID.Parameters
 
-type AccountCache (av :: AccountVersion) = FIFOCache (PersistentAccount av)
+type AccountCache (av :: AccountVersion) = DummyCache (PersistentAccount av)
 
 newAccountCache :: Int -> IO (AccountCache av)
-newAccountCache = newFIFOCache
+newAccountCache = newDummyCache
 
 -- |Representation of the set of accounts on the chain.
 -- Each account has an 'AccountIndex' which is the order
@@ -67,8 +67,8 @@ data Accounts (pv :: ProtocolVersion) = Accounts {
     -- |Unique index of accounts by 'AccountAddress'
     accountMap :: !(AccountMap.PersistentAccountMap pv),
     -- |Hashed Merkle-tree of the accounts
-    accountTable :: !(LFMBTree' AccountIndex EagerlyHashedBufferedRef (EagerlyHashedCachedRef (AccountCache (AccountVersionFor pv)) (PersistentAccount (AccountVersionFor pv)))),
-    -- accountTable :: !(LFMBTree' AccountIndex EagerlyHashedBufferedRef (EagerlyHashedBufferedRef (PersistentAccount (AccountVersionFor pv)))),
+    -- accountTable :: !(LFMBTree' AccountIndex EagerlyHashedBufferedRef (EagerlyHashedCachedRef (AccountCache (AccountVersionFor pv)) (PersistentAccount (AccountVersionFor pv)))),
+    accountTable :: !(LFMBTree' AccountIndex EagerlyHashedBufferedRef (EagerlyHashedBufferedRef (PersistentAccount (AccountVersionFor pv)))),
     -- |Optional cached set of used 'ID.CredentialRegistrationID's
     accountRegIds :: !(Nullable (Map.Map ID.RawCredentialRegistrationID AccountIndex)),
     -- |Persisted representation of the map from registration ids to account indices.

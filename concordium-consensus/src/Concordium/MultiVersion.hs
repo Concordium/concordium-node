@@ -420,6 +420,7 @@ newGenesis (PVGenesisData (gd :: GenesisData pv)) vcGenesisHeight =
                 writeIORef mvVersions (oldVersions `Vec.snoc` newVersion newEConfig)
                 mvLog Runner LLTrace "Getting genesis configuration"
                 (genConf, _) <- runMVR (runSkovT (liftSkov getGenesisData) (mvrSkovHandlers newEConfig mvr) vcContext st) mvr
+                mvLog Runner LLTrace "Got genesis configuration"
                 -- Notify the network layer we have a new genesis.
                 notifyRegenesis (Just (_gcCurrentHash genConf))
 

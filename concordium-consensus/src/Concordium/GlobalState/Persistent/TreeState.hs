@@ -159,6 +159,9 @@ initialSkovPersistentDataDefault
     -> m (SkovPersistentData pv bs)
 initialSkovPersistentDataDefault = initialSkovPersistentData defaultRuntimeParameters
 
+-- |Create an initial 'SkovPersistentData'.
+-- Important note: this does not correctly initialize the transaction table, which
+-- should be done with 'activateSkovPersistentData'.
 initialSkovPersistentData
     :: (IsProtocolVersion pv, FixedSizeSerialization (TS.BlockStatePointer bs), BlockStateQuery m, bs ~ BlockState m, MonadIO m)
     => RuntimeParameters
@@ -191,7 +194,8 @@ initialSkovPersistentData rp treeStateDir gd genState serState = do
   --     sn <- getNextUpdateSequenceNumber genState uty
   --     return $! Map.insert uty sn m) Map.empty [minBound..]
   -- let initialTransactionTable = emptyTransactionTableWithSequenceNumbers acctNonces updSeqNums
-  initialTransactionTable <- getInitialTransactionTable genState
+  -- initialTransactionTable <- getInitialTransactionTable genState
+  let initialTransactionTable = emptyTransactionTable
   return SkovPersistentData {
             _blockTable = HM.singleton gbh (BlockFinalized 0),
             _possiblyPendingTable = HM.empty,
@@ -349,6 +353,7 @@ activateSkovPersistentData :: forall pv. (IsProtocolVersion pv)
                            -> SkovPersistentData pv (PBS.HashedPersistentBlockState pv)
                            -> LogIO (SkovPersistentData pv (PBS.HashedPersistentBlockState pv))
 activateSkovPersistentData pbsc uninitState = do
+  logEvent GlobalState LLTrace "Caching last finalized block"
   cachedLastFinalized <- liftIO (makeBlockPointerCached (_lastFinalized uninitState))
   -- We need to establish is the transaction table invariants.
   -- This specifically means for each account we need to determine the next available nonce.
@@ -368,7 +373,9 @@ activateSkovPersistentData pbsc uninitState = do
             sn <- getNextUpdateSequenceNumber lastState uty
             return $ table & ttNonFinalizedChainUpdates . at uty ?~ emptyNFCUWithSequenceNumber sn
           ) tt0 [minBound..]
-  tt <- runReaderT (PBS.runPersistentBlockStateMonad getTransactionTable) pbsc
+  logEvent GlobalState LLTrace "Initialising transaction table"
+  tt <- runReaderT (PBS.runPersistentBlockStateMonad (getInitialTransactionTable lastState)) pbsc
+  logEvent GlobalState LLTrace "Done initialising transaction table"
   return (uninitState{_transactionTable = tt, _lastFinalized = cachedLastFinalized})
   where 
     makeBlockPointerCached :: PersistentBlockPointer pv (PBS.HashedPersistentBlockState pv) -> IO (PersistentBlockPointer pv (PBS.HashedPersistentBlockState pv))

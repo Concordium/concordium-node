@@ -490,5 +490,6 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
     activateGlobalState _ _ = activateSkovPersistentData
 
     shutdownGlobalState _ _ PersistentBlockStateContext{..} st = do
+        printCacheStats pbscCache
         closeBlobStore pbscBlobStore
         closeSkovPersistentData st
