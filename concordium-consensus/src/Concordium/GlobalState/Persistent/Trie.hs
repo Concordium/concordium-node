@@ -23,6 +23,7 @@ import Data.Bifunctor
 import Control.Monad
 import Data.Serialize
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Short as SBS
 import Data.Either
 import qualified Data.Map.Strict as Map
 import qualified Data.FixedByteString as FBS
@@ -47,26 +48,28 @@ import Concordium.GlobalState.Persistent.BlobStore
 class FixedTrieKey a where
     -- |Unpack a key to a list of bytes.
     -- The length of the list must be independent of the value.
-    unpackKey :: a -> [Word8]
-    default unpackKey :: (Serialize a) => a -> [Word8]
-    unpackKey = BS.unpack . encode
+    unpackKey :: a -> SBS.ShortByteString
+    default unpackKey :: (Serialize a) => a -> SBS.ShortByteString
+    unpackKey = SBS.toShort . encode
     -- |Pack a key from a list of bytes.
-    packKey :: [Word8] -> a
-    default packKey :: (Serialize a) => [Word8] -> a
-    packKey = fromRight (error "FixedTrieKey: deserialization failed") . decode . BS.pack
+    packKey :: SBS.ShortByteString -> a
+    default packKey :: (Serialize a) => SBS.ShortByteString -> a
+    packKey = fromRight (error "FixedTrieKey: deserialization failed") . decode . SBS.fromShort
 
 instance FixedTrieKey Word64
 instance FixedTrieKey Word32
-instance FixedTrieKey SHA256.Hash
+instance FixedTrieKey SHA256.Hash where
+    unpackKey (SHA256.Hash fbs) = FBS.toShortByteString fbs
+    packKey = SHA256.Hash . FBS.fromShortByteString
 deriving via SHA256.Hash instance FixedTrieKey ModuleRef
 instance FixedTrieKey AccountAddress
 deriving via Word64 instance FixedTrieKey BakerId
 deriving via Word64 instance FixedTrieKey DelegatorId
 instance FixedTrieKey Bls.PublicKey -- FIXME: This is a bad instance. Serialization of these is expensive.
 
-instance FixedTrieKey (IDTypes.RawCredentialRegistrationID) where
-  unpackKey (IDTypes.RawCredentialRegistrationID x) = FBS.unpack x
-  packKey = IDTypes.RawCredentialRegistrationID . FBS.pack
+instance FixedTrieKey IDTypes.RawCredentialRegistrationID where
+  unpackKey (IDTypes.RawCredentialRegistrationID x) = FBS.toShortByteString x
+  packKey = IDTypes.RawCredentialRegistrationID . FBS.fromShortByteString
 
 -- |Class for Trie keys that respect the 'Ord' instance.
 -- That is, @a `compare` b == unpackKey a `compare` unpackKey b@.
@@ -83,9 +86,9 @@ deriving via Word64 instance OrdFixedTrieKey DelegatorId
 -- The third parameter is the recursive type argument: a type for Tries
 -- is obtained by applying a fixed-point combinator to @TrieF k v@.
 data TrieF k v r
-    = Branch !(V.Vector (Nullable r))
+    = Branch {-# UNPACK #-} !(V.Vector (Nullable r))
     -- ^Branch on the next byte of the key (256, possibly null children)
-    | Stem ![Word8] !r
+    | Stem {-# UNPACK #-} !SBS.ShortByteString !r
     -- ^The next bytes of the key are given
     | Tip !v
     -- ^A value
@@ -99,7 +102,7 @@ showTrieFString (Branch vec) = "[ " ++ ss (0 :: Int) (V.toList vec) ++ "]"
         ss _ [] = ""
         ss i (Null:r) = ss (i+1) r
         ss i (Some v:r) = show i ++ ":" ++ v ++ "; " ++ ss (i+1) r
-showTrieFString (Stem l r) = intercalate ":" (show <$> l) ++ r
+showTrieFString (Stem l r) = intercalate ":" (show <$> SBS.unpack l) ++ r
 showTrieFString (Tip v) = show v
 
 instance Bifunctor (TrieF k) where
@@ -114,13 +117,13 @@ instance (Serialize r, Serialize (Nullable r), Serialize v) => Serialize (TrieF 
         forM_ vec put
     put (Tip v) = putWord8 2 >> put v
     put (Stem l r) = do
-        let len = length l
+        let len = SBS.length l
         if len <= 251 then
             putWord8 (3 + fromIntegral len)
         else do
             putWord8 255
             putWord64be (fromIntegral len)
-        forM_ l putWord8
+        putShortByteString l
         put r
     get = getWord8 >>= \case
         0 -> fail "Empty trie"
@@ -131,7 +134,7 @@ instance (Serialize r, Serialize (Nullable r), Serialize v) => Serialize (TrieF 
                     fromIntegral <$> getWord64be
                 else
                     return (fromIntegral (v - 3))
-            Stem <$> replicateM len getWord8 <*> get
+            Stem <$> getShortByteString len <*> get
 
 instance (BlobStorable m r, BlobStorable m (Nullable r), BlobStorable m v) => BlobStorable m (TrieF k v r) where
     storeUpdate (Branch vec) = do
@@ -143,13 +146,13 @@ instance (BlobStorable m r, BlobStorable m (Nullable r), BlobStorable m v) => Bl
     storeUpdate (Stem l r) = do
         (pr, r') <- storeUpdate r
         let putter = do
-                let len = length l
+                let len = SBS.length l
                 if len <= 251 then
                     putWord8 (3 + fromIntegral len)
                 else do
                     putWord8 255
                     putWord64be (fromIntegral len)
-                forM_ l putWord8
+                putShortByteString l
                 pr
         return $!! (putter, Stem l r')
     store t = fst <$> storeUpdate t
@@ -164,7 +167,7 @@ instance (BlobStorable m r, BlobStorable m (Nullable r), BlobStorable m v) => Bl
                     fromIntegral <$> getWord64be
                 else
                     return (fromIntegral (v - 3))
-            l <- replicateM len getWord8
+            l <- getShortByteString len
             r <- load
             return $! (Stem l <$> r)
 
@@ -193,12 +196,14 @@ instance Functor (Trie k) where
 -- (as for 'Trie'), but also correspond to creating and traversing disk references.
 
 -- |Retrieve the value (if any) corresponding to a given key.
+-- TODO: With bytestring-0.11.3.0 and later, the operations on 'SBS.ShortByteString' can
+-- be used to implement this more efficiently without unpacking.
 lookupF :: (MRecursive m t, Base t ~ TrieF k v, FixedTrieKey k) => k -> t -> m (Maybe v)
-lookupF k = lu (unpackKey k) <=< mproject
+lookupF k = lu (SBS.unpack $ unpackKey k) <=< mproject
     where
         lu [] (Tip v) = pure (Just v)
         lu _ (Tip _) = pure Nothing
-        lu key (Stem pref r) = case stripPrefix pref key of
+        lu key (Stem pref r) = case stripPrefix (SBS.unpack pref) key of
             Nothing -> pure Nothing
             Just key' -> mproject r >>= lu key'
         lu [] (Branch _) = pure Nothing
@@ -231,20 +236,20 @@ followStem = go
 lookupPrefixF :: (MRecursive m t, Base t ~ TrieF k v, FixedTrieKey k) => [Word8] -> t -> m [(k, v)]
 lookupPrefixF ks = lu [] ks <=< mproject
     where
-        lu prefix [] (Tip v) = pure [(packKey prefix, v)]
+        lu prefix [] (Tip v) = pure [(packKey $ SBS.pack prefix, v)]
         lu _ _ (Tip _) = pure []
-        lu prefix key (Stem pref r) = case followStem key pref of
-            StemIsPrefix{..} -> mproject r >>= lu (prefix ++ pref) remainingKey
+        lu prefix key (Stem pref r) = case followStem key (SBS.unpack pref) of
+            StemIsPrefix{..} -> mproject r >>= lu (prefix ++ SBS.unpack pref) remainingKey
             Diff -> pure []
-            Equal -> mproject r >>= lu (prefix ++ pref) []
-            KeyIsPrefix -> mproject r >>= collect (prefix ++ pref)
+            Equal -> mproject r >>= lu (prefix ++ SBS.unpack pref) []
+            KeyIsPrefix -> mproject r >>= collect (prefix ++ SBS.unpack pref)
         lu prefix [] b@(Branch _) = collect prefix b
         lu prefix (w:key') (Branch vec) = case vec V.! fromIntegral w of
             Null -> return []
             Some r -> mproject r >>= lu (prefix ++ [w]) key'
 
-        collect keyPrefix (Tip v) = return [(packKey keyPrefix, v)]
-        collect keyPrefix (Stem pref r) = collect (keyPrefix ++ pref) =<< mproject r
+        collect keyPrefix (Tip v) = return [(packKey $ SBS.pack keyPrefix, v)]
+        collect keyPrefix (Stem pref r) = collect (keyPrefix ++ SBS.unpack pref) =<< mproject r
         collect keyPrefix (Branch vec) = do
             let
                 handleBranch acc _ Null = return acc
@@ -260,8 +265,8 @@ lookupPrefixF ks = lu [] ks <=< mproject
 mapReduceF :: (MRecursive m t, Base t ~ TrieF k v, FixedTrieKey k, Monoid a) => (k -> v -> m a) -> t -> m a
 mapReduceF mfun = mr [] <=< mproject
     where
-        mr keyPrefix (Tip v) = mfun (packKey keyPrefix) v
-        mr keyPrefix (Stem pref r) = mr (keyPrefix ++ pref) =<< mproject r
+        mr keyPrefix (Tip v) = mfun (packKey $ SBS.pack keyPrefix) v
+        mr keyPrefix (Stem pref r) = mr (keyPrefix ++ SBS.unpack pref) =<< mproject r
         mr keyPrefix (Branch vec) = do
             let
                 handleBranch _ Null = return mempty
@@ -314,9 +319,9 @@ alterM k upd pt0 = do
             remove0 res = return (res, Nothing)
             update0 res [] t = return (res, Just t)
             update0 res key t = do
-                t' <- membed (Stem key t)
+                t' <- membed (Stem (SBS.pack key) t)
                 return (res, Just t')
-        aM (unpackKey k) t0 nochange0 remove0 update0
+        aM (SBS.unpack $ unpackKey k) t0 nochange0 remove0 update0
     where
         aM :: [Word8] -> TrieF k v t -> (a -> m z) -> (a -> m z) -> (a -> [Word8] -> t -> m z) -> m z
         aM [] (Tip v0) nochange remove update = upd (Just v0) >>= \case
@@ -329,7 +334,7 @@ alterM k upd pt0 = do
             Null -> upd Nothing >>= \case
                 (res, Insert v) -> do
                     tip <- membed (Tip v)
-                    stem <- if null key' then return tip else membed (Stem key' tip)
+                    stem <- if null key' then return tip else membed (Stem (SBS.pack key') tip)
                     let vec' = vec V.// [(fromIntegral kw, Some stem)]
                     branch <- membed (Branch vec')
                     update res [] branch
@@ -341,7 +346,7 @@ alterM k upd pt0 = do
                         let vec' = vec V.// [(fromIntegral kw, Some t)]
                         membed (Branch vec') >>= update res []
                     myupdate res skey t' = do
-                        t <- membed (Stem skey t')
+                        t <- membed (Stem (SBS.pack skey) t')
                         let vec' = vec V.// [(fromIntegral kw, Some t)]
                         membed (Branch vec') >>= update res []
                     myremove res = do
@@ -355,17 +360,17 @@ alterM k upd pt0 = do
                             onebranch _ _ (Some _:_) = membed (Branch vec') >>= update res []
                         nobranches 0 (V.toList vec')
                 aM key' b nochange myremove myupdate
-        aM key (Stem pref r) nochange remove update = case commonPrefix key pref of
+        aM key (Stem pref r) nochange remove update = case commonPrefix key (SBS.unpack pref) of
                 (_, key', []) -> do
                     t <- mproject r
-                    let myupdate res skey t' = update res (pref ++ skey) t'
+                    let myupdate res skey t' = update res (SBS.unpack pref ++ skey) t'
                     aM key' t nochange remove myupdate
                 (_, [], (_:_)) -> error "Key too short"
                 (pref', (hk:tk), (hr:tr)) -> upd Nothing >>= \case
                     (res, Insert v) -> do
-                        rbranch <- if null tr then return r else membed (Stem tr r)
+                        rbranch <- if null tr then return r else membed (Stem (SBS.pack tr) r)
                         ktip <- membed (Tip v)
-                        kbranch <- if null tk then return ktip else membed (Stem tk ktip)
+                        kbranch <- if null tk then return ktip else membed (Stem (SBS.pack tk) ktip)
                         branches <- membed (Branch (V.replicate 256 Null V.// [(fromIntegral hr, Some rbranch), (fromIntegral hk, Some kbranch)] ))
                         update res pref' branches
                     (res, _) -> nochange res
