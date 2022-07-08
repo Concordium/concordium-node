@@ -88,6 +88,7 @@ import Concordium.Utils.Serialization
 import Concordium.Utils.BinarySearch
 import Concordium.Kontrol.Bakers
 import qualified Concordium.GlobalState.Persistent.Cache as Cache
+import qualified Concordium.GlobalState.TransactionTable as TransactionTable
 
 -- * Birk parameters
 
@@ -2097,16 +2098,16 @@ doProcessUpdateQueues pbs ts = do
 doProcessReleaseSchedule :: (IsProtocolVersion pv, SupportsPersistentAccount pv m) => PersistentBlockState pv -> Timestamp -> m (PersistentBlockState pv)
 doProcessReleaseSchedule pbs ts = do
         bsp <- loadPBS pbs
-        releaseSchedule <- loadBufferedRef (bspReleaseSchedule bsp)
+        releaseSchedule <- refLoad (bspReleaseSchedule bsp)
         if Map.null releaseSchedule
           then return pbs
           else do
           let (accountsToRemove, blockReleaseSchedule') = Map.partition (<= ts) releaseSchedule
               f (ba, readded) addr = do
                 let upd acc = do
-                      rData <- loadBufferedRef (acc ^. accountReleaseSchedule)
+                      rData <- refLoad (acc ^. accountReleaseSchedule)
                       (_, nextTs, rData') <- unlockAmountsUntil ts rData
-                      rDataRef <- makeBufferedRef rData'
+                      rDataRef <- refMake rData'
                       acc' <- rehashAccount $ acc & accountReleaseSchedule .~ rDataRef
                       return (nextTs, acc')
                 (toRead, ba') <- Accounts.updateAccounts upd addr ba
@@ -2114,7 +2115,7 @@ doProcessReleaseSchedule pbs ts = do
                                Just t -> (addr, t) : readded
                                Nothing -> readded)
           (bspAccounts', accsToReadd) <- foldlM f (bspAccounts bsp, []) (Map.keys accountsToRemove)
-          bspReleaseSchedule' <- makeBufferedRef $ foldl' (\b (a, t) -> Map.insert a t b) blockReleaseSchedule' accsToReadd
+          bspReleaseSchedule' <- refMake $ foldl' (\b (a, t) -> Map.insert a t b) blockReleaseSchedule' accsToReadd
           storePBS pbs (bsp {bspAccounts = bspAccounts', bspReleaseSchedule = bspReleaseSchedule'})
 
 doGetUpdateKeyCollection
@@ -2593,6 +2594,31 @@ doSetRewardAccounts pbs rewards = do
         bsp <- loadPBS pbs
         storePBS pbs bsp{bspBank = bspBank bsp & unhashed . Rewards.rewardAccounts .~ rewards}
 
+doGetInitialTransactionTable :: forall pv m. SupportsPersistentAccount pv m => PersistentBlockState pv -> m TransactionTable.TransactionTable
+doGetInitialTransactionTable pbs = do
+    bsp <- loadPBS pbs
+    tt1 <- Accounts.foldAccounts accInTT TransactionTable.emptyTransactionTable (bspAccounts bsp)
+    foldM (updInTT bsp) tt1 [minBound..]
+  where
+    accInTT :: TransactionTable.TransactionTable -> PersistentAccount (AccountVersionFor pv) -> m TransactionTable.TransactionTable
+    accInTT tt acct = do
+        let nonce = acct ^. accountNonce
+        if nonce /= minNonce
+            then do
+                addr <- acct ^^. accountAddress
+                return $! tt
+                    & TransactionTable.ttNonFinalizedTransactions . at' (accountAddressEmbed addr)
+                    ?~ TransactionTable.emptyANFTWithNonce nonce
+            else return tt
+    updInTT bsp tt uty = do
+        sn <- lookupNextUpdateSequenceNumber (bspUpdates bsp) uty
+        if sn /= minUpdateSequenceNumber
+            then
+                return $! tt
+                    & TransactionTable.ttNonFinalizedChainUpdates . at' uty
+                    ?~ TransactionTable.emptyNFCUWithSequenceNumber sn
+            else
+                return tt
 
 data PersistentBlockStateContext pv = PersistentBlockStateContext {
     pbscBlobStore :: !BlobStore,
@@ -2673,6 +2699,7 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateQuery (P
     getEnergyRate = doGetEnergyRate . hpbsPointers
     getPaydayEpoch = doGetPaydayEpoch . hpbsPointers
     getPoolStatus = doGetPoolStatus . hpbsPointers
+    getInitialTransactionTable = doGetInitialTransactionTable . hpbsPointers
 
 instance (MonadIO m, PersistentState av pv r m) => ContractStateOperations (PersistentBlockStateMonad pv r m) where
   thawContractState (Instances.InstanceStateV0 inst) = return inst
@@ -2690,31 +2717,31 @@ instance (PersistentState av pv r m, IsProtocolVersion pv) => AccountOperations 
 
   getAccountCanonicalAddress acc = acc ^^. accountAddress
 
-  getAccountAmount acc = return $ acc ^. accountAmount
+  getAccountAmount acc = return $! acc ^. accountAmount
 
-  getAccountNonce acc = return $ acc ^. accountNonce
+  getAccountNonce acc = return $! acc ^. accountNonce
 
   checkAccountIsAllowed acc AllowedEncryptedTransfers = do
     creds <- getAccountCredentials acc
     return (Map.size creds == 1)
   checkAccountIsAllowed acc AllowedMultipleCredentials = do
-    PersistentAccountEncryptedAmount{..} <- loadBufferedRef (acc ^. accountEncryptedAmount)
+    PersistentAccountEncryptedAmount{..} <- refLoad (acc ^. accountEncryptedAmount)
     if null _incomingEncryptedAmounts && isNothing _aggregatedAmount then do
-      isZeroEncryptedAmount <$> loadBufferedRef _selfAmount
+      isZeroEncryptedAmount <$> refLoad _selfAmount
     else return False
 
   getAccountCredentials acc = acc ^^. accountCredentials
 
   getAccountVerificationKeys acc = acc ^^. accountVerificationKeys
 
-  getAccountEncryptedAmount acc = loadPersistentAccountEncryptedAmount =<< loadBufferedRef (acc ^. accountEncryptedAmount)
+  getAccountEncryptedAmount acc = loadPersistentAccountEncryptedAmount =<< refLoad (acc ^. accountEncryptedAmount)
 
   -- The use of the unsafe @unsafeEncryptionKeyFromRaw@ function here is
   -- justified because the encryption key was validated when it was
   -- created/deployed (this is part of credential validation)
   getAccountEncryptionKey acc = ID.unsafeEncryptionKeyFromRaw <$> acc ^^. accountEncryptionKey
 
-  getAccountReleaseSchedule acc = loadPersistentAccountReleaseSchedule =<< loadBufferedRef (acc ^. accountReleaseSchedule)
+  getAccountReleaseSchedule acc = loadPersistentAccountReleaseSchedule =<< refLoad (acc ^. accountReleaseSchedule)
 
   getAccountBaker acc = case acc ^. accountBaker of
         Null -> return Nothing

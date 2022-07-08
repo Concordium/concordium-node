@@ -438,6 +438,10 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
         ps1 <- coerceBSML (getPoolStatus bps1 mbid)
         ps2 <- coerceBSMR (getPoolStatus bps2 mbid)
         assertEq ps1 ps2 $ return ps1
+    getInitialTransactionTable (bps1, bps2) = do
+        tt1 <- coerceBSML (getInitialTransactionTable bps1)
+        tt2 <- coerceBSMR (getInitialTransactionTable bps2)
+        assertEq tt1 tt2 $ return tt1
 
 instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r) => ContractStateOperations (BlockStateM pv (PairGSContext lc rc) r (PairGState ls rs) s m) where
   thawContractState (InstanceStateV0 st) = return st

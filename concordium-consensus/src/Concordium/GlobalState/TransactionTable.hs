@@ -120,7 +120,7 @@ emptyANFTWithNonce = AccountNonFinalizedTransactions Map.empty
 data NonFinalizedChainUpdates = NonFinalizedChainUpdates {
     _nfcuMap :: Map.Map UpdateSequenceNumber (Map.Map (WithMetadata UpdateInstruction) TVer.VerificationResult),
     _nfcuNextSequenceNumber :: UpdateSequenceNumber
-} deriving (Eq)
+} deriving (Eq, Show)
 makeLenses ''NonFinalizedChainUpdates
 
 emptyNFCU :: NonFinalizedChainUpdates
@@ -182,7 +182,7 @@ data TransactionTable = TransactionTable {
     -- |For each update types, the non-finalized update instructions, grouped by
     -- sequence number.
     _ttNonFinalizedChainUpdates :: !(Map.Map UpdateType NonFinalizedChainUpdates)
-}
+} deriving (Eq, Show)
 makeLenses ''TransactionTable
 
 -- |Get the verification result for a non finalized transaction given by its hash.

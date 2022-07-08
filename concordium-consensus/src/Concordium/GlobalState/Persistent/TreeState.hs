@@ -180,16 +180,18 @@ initialSkovPersistentData rp treeStateDir gd genState serState = do
   -- When the state contains accounts, we must ensure that the transaction
   -- table correctly reflects the account nonces, and similarly for
   -- updates.
-  acctAddrs <- getAccountList genState
-  acctNonces <- foldM (\nnces addr ->
-      getAccount genState addr >>= \case
-          Nothing -> error "Invariant violation: listed account does not exist"
-          Just (_, acct) -> do
-              nonce <- getAccountNonce acct
-              return $! (addr, nonce):nnces) [] acctAddrs
-  updSeqNums <- foldM (\m uty -> do
-      sn <- getNextUpdateSequenceNumber genState uty
-      return $! Map.insert uty sn m) Map.empty [minBound..]
+  -- acctAddrs <- getAccountList genState
+  -- acctNonces <- foldM (\nnces !addr ->
+  --     getAccount genState addr >>= \case
+  --         Nothing -> error "Invariant violation: listed account does not exist"
+  --         Just (_, acct) -> do
+  --             nonce <- getAccountNonce acct
+  --             return $! (addr, nonce):nnces) [] acctAddrs
+  -- updSeqNums <- foldM (\m uty -> do
+  --     sn <- getNextUpdateSequenceNumber genState uty
+  --     return $! Map.insert uty sn m) Map.empty [minBound..]
+  -- let initialTransactionTable = emptyTransactionTableWithSequenceNumbers acctNonces updSeqNums
+  initialTransactionTable <- getInitialTransactionTable genState
   return SkovPersistentData {
             _blockTable = HM.singleton gbh (BlockFinalized 0),
             _possiblyPendingTable = HM.empty,
@@ -201,7 +203,7 @@ initialSkovPersistentData rp treeStateDir gd genState serState = do
             _genesisBlockPointer = gb,
             _focusBlock = gb,
             _pendingTransactions = emptyPendingTransactionTable,
-            _transactionTable = emptyTransactionTableWithSequenceNumbers acctNonces updSeqNums,
+            _transactionTable = initialTransactionTable,
             _transactionTablePurgeCounter = 0,
             _statistics = initialConsensusStatistics,
             _runtimeParameters = rp,

@@ -39,6 +39,9 @@ import Concordium.ID.Parameters
 
 type AccountCache (av :: AccountVersion) = FIFOCache (PersistentAccount av)
 
+newAccountCache :: Int -> IO (AccountCache av)
+newAccountCache = newFIFOCache
+
 -- |Representation of the set of accounts on the chain.
 -- Each account has an 'AccountIndex' which is the order
 -- in which it was created.
@@ -64,7 +67,8 @@ data Accounts (pv :: ProtocolVersion) = Accounts {
     -- |Unique index of accounts by 'AccountAddress'
     accountMap :: !(AccountMap.PersistentAccountMap pv),
     -- |Hashed Merkle-tree of the accounts
-    accountTable :: !(LFMBTree' AccountIndex HashedBufferedRef (EagerlyHashedCachedRef (AccountCache (AccountVersionFor pv)) (PersistentAccount (AccountVersionFor pv)))),
+    accountTable :: !(LFMBTree' AccountIndex EagerlyHashedBufferedRef (EagerlyHashedCachedRef (AccountCache (AccountVersionFor pv)) (PersistentAccount (AccountVersionFor pv)))),
+    -- accountTable :: !(LFMBTree' AccountIndex EagerlyHashedBufferedRef (EagerlyHashedBufferedRef (PersistentAccount (AccountVersionFor pv)))),
     -- |Optional cached set of used 'ID.CredentialRegistrationID's
     accountRegIds :: !(Nullable (Map.Map ID.RawCredentialRegistrationID AccountIndex)),
     -- |Persisted representation of the map from registration ids to account indices.
@@ -258,17 +262,17 @@ updateAccountsAtIndex fupd ai a0@Accounts{..} = L.update fupd ai accountTable >>
 -- account updates and account are the same.
 updateAccount :: forall m av. (MonadBlobStore m, IsAccountVersion av) => AccountUpdate -> PersistentAccount av -> m (PersistentAccount av)
 updateAccount !upd !acc = do
-  rData <- loadBufferedRef (acc ^. accountReleaseSchedule)
+  rData <- refLoad (acc ^. accountReleaseSchedule)
   (stakeDelta, releaseSchedule) <- case upd ^. auReleaseSchedule of
         Just l -> (amountToDelta $ foldl' (+) 0 (concatMap (\(values, _) -> map snd values) l),) <$> foldlM (flip addReleases) rData l
         Nothing -> return (amountToDelta 0, rData)
-  encAmount <- loadBufferedRef (acc ^. accountEncryptedAmount)
+  encAmount <- refLoad (acc ^. accountEncryptedAmount)
   let updateSingle Add{..} = addIncomingEncryptedAmount newAmount
       updateSingle ReplaceUpTo{..} = replaceUpTo aggIndex newAmount
       updateSingle AddSelf{..} = addToSelfEncryptedAmount newAmount
   newEncryptedAmount <- foldrM updateSingle encAmount (upd ^. auEncrypted)
-  newEncryptedAmountRef <- makeBufferedRef newEncryptedAmount
-  releaseScheduleRef <- makeBufferedRef releaseSchedule
+  newEncryptedAmountRef <- refMake newEncryptedAmount
+  releaseScheduleRef <- refMake releaseSchedule
   let newAccWithoutHash = acc & accountNonce %~ setMaybe (upd ^. auNonce)
                                                     & accountAmount %~ applyAmountDelta (upd ^. auAmount . non 0)
                                                     & accountAmount %~ applyAmountDelta stakeDelta
@@ -287,3 +291,6 @@ serializeAccounts :: (SupportsPersistentAccount pv m, MonadPut m) => GlobalConte
 serializeAccounts cryptoParams accts = do
         liftPut $ putWord64be $ L.size (accountTable accts)
         L.mmap_ (serializeAccount cryptoParams) (accountTable accts)
+
+foldAccounts :: SupportsPersistentAccount pv m => (a -> PersistentAccount (AccountVersionFor pv) -> m a) -> a -> Accounts pv -> m a
+foldAccounts f a accts = L.mfold f a (accountTable accts)

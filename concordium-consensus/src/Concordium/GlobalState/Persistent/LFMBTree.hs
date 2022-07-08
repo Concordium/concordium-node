@@ -222,6 +222,10 @@ instance (BlobStorable m v, MHashableTo m H.Hash v, Cacheable m v) => Cacheable 
   cache (Node h l r) = Node h <$> cache l <*> cache r
   cache (Leaf a) = Leaf <$> cache a
 
+instance (BlobStorable m v, MHashableTo m H.Hash v, Cacheable m v) => Cacheable m (T EagerlyHashedBufferedRef v) where
+  cache (Node h l r) = Node h <$> cache l <*> cache r
+  cache (Leaf a) = Leaf <$> cache a
+
 instance (Applicative m, Cacheable m (T ref v)) => Cacheable m (LFMBTree' k ref v) where
   cache t@Empty = pure t
   cache (NonEmpty s t) = NonEmpty s <$> cache t

@@ -149,7 +149,6 @@ executables:
                 ghc-options: -static
     dependencies:
       - concordium-consensus
-      - criterion >= 1.5
 
   catchup-runner:
     main:                Main.hs

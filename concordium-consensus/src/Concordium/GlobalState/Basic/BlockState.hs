@@ -834,6 +834,8 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
             ..
         }
 
+    getInitialTransactionTable = undefined
+
 instance (Monad m, IsProtocolVersion pv) => BS.AccountOperations (PureBlockStateMonad pv m) where
 
   getAccountCanonicalAddress acc = return $ acc ^. accountAddress

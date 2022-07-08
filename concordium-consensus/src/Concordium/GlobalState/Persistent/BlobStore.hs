@@ -630,6 +630,89 @@ instance (BlobStorable m a, BlobStorable m b, MHashableTo m H.Hash a) => BlobSto
     (r, v') <- storeUpdate v
     return (r, Some v')
 
+-- |A value that always exists in memory but may also exist on disk.
+data EagerBufferedRef a = EagerBufferedRef
+    { ebrIORef :: {-# UNPACK #-} !(IORef (BlobRef a)),
+      ebrValue :: !a
+    }
+
+instance Show a => Show (EagerBufferedRef a) where
+    show = show . ebrValue
+
+makeEagerBufferedRef :: MonadIO m => BlobRef a -> a -> m (EagerBufferedRef a)
+makeEagerBufferedRef r a = do
+    ref <- liftIO $ newIORef r
+    return $ EagerBufferedRef ref a
+
+flushEagerBufferedRef :: BlobStorable m a => EagerBufferedRef a -> m (BlobRef a)
+flushEagerBufferedRef EagerBufferedRef{..} = do
+    r <- liftIO $ readIORef ebrIORef
+    if isNull r
+    then do
+        (r' :: BlobRef a) <- storeRef ebrValue
+        liftIO . writeIORef ebrIORef $! r'
+        return r'
+    else
+        return r
+
+instance BlobStorable m a => BlobStorable m (EagerBufferedRef a) where
+    store b = flushEagerBufferedRef b >>= store
+    load = do
+        br <- get
+        return $ do
+            val <- loadRef br
+            makeEagerBufferedRef br val
+    storeUpdate ebr@(EagerBufferedRef ref v) = do
+        r <- liftIO $ readIORef ref
+        if isNull r
+        then do
+            (r' :: BlobRef a, v') <- storeUpdateRef v
+            liftIO $ writeIORef ref $! r'
+            (, EagerBufferedRef ref v') <$> store r'
+        else (,ebr) <$> store ebr
+
+
+instance (Monad m, BlobStorable m a) => Reference m EagerBufferedRef a where
+    refMake = makeEagerBufferedRef refNull
+    refLoad EagerBufferedRef{..} = return ebrValue
+    refCache ebr = return (ebrValue ebr, ebr)
+    refFlush ebr@(EagerBufferedRef ref v) = do
+        r <- liftIO $ readIORef ref
+        if isNull r
+        then do
+            (r' :: BlobRef a, v') <- storeUpdateRef v
+            liftIO $ writeIORef ref $! r'
+            return (EagerBufferedRef ref v', r')
+        else return (ebr, r)
+    refUncache = pure
+    {-# INLINE refFlush #-}
+    {-# INLINE refLoad #-}
+    {-# INLINE refMake #-}
+    {-# INLINE refCache #-}
+    {-# INLINE refUncache #-}
+
+instance (MHashableTo m h a) => MHashableTo m h (EagerBufferedRef a) where
+    getHashM = getHashM . ebrValue
+
+instance BlobStorable m a => BlobStorable m (Nullable (EagerBufferedRef a)) where
+    store Null = return $ put (refNull :: BlobRef a)
+    store (Some v) = store v
+    load = do
+        (r :: BlobRef a) <- get
+        if isNull r then
+            return (pure Null)
+        else return $ do
+            val <- loadRef r
+            Some <$> makeEagerBufferedRef r val
+    storeUpdate n@Null = return (put (refNull :: BlobRef a), n)
+    storeUpdate (Some v) = do
+        (r, v') <- storeUpdate v
+        return (r, Some v')
+
+-- |Note, this implementation does not recursively cache.
+instance Applicative m => Cacheable m (EagerBufferedRef a)
+
+
 -- | Blobbed is a fixed point of the functor `f` wrapped in references of type @ref@
 newtype Blobbed ref f = Blobbed {unblobbed :: ref (f (Blobbed ref f))}
 
@@ -956,6 +1039,62 @@ instance
         (r, v') <- storeUpdate v
         return (r, JustForCPV1 v')
 
+data EagerlyHashedBufferedRef' h a = EagerlyHashedBufferedRef
+    { ehbrReference :: !(BufferedRef a),
+      ehbrHash :: !h
+    }
+
+type EagerlyHashedBufferedRef = EagerlyHashedBufferedRef' H.Hash
+
+instance HashableTo h (EagerlyHashedBufferedRef' h a) where
+    getHash = ehbrHash
+
+instance (Monad m) => MHashableTo m h (EagerlyHashedBufferedRef' h a)
+
+instance (BlobStorable m a, MHashableTo m h a) => BlobStorable m (EagerlyHashedBufferedRef' h a) where
+    store b = getBRRef (ehbrReference b) >>= store
+    load = do
+        mref <- load
+        return $ do
+            ref <- mref
+            (a, r) <- cacheBufferedRef ref
+            h <- getHashM a
+            return $ EagerlyHashedBufferedRef r h
+    storeUpdate (EagerlyHashedBufferedRef br0 hsh) = do
+        (pt, br1) <- storeUpdate br0
+        return (pt, EagerlyHashedBufferedRef br1 hsh)
+    {-# INLINE store #-}
+    {-# INLINE load #-}
+    {-# INLINE storeUpdate #-}
+
+instance (Monad m, BlobStorable m a, MHashableTo m h a) => Reference m (EagerlyHashedBufferedRef' h) a where
+    refFlush ref = do
+        (br, r) <- flushBufferedRef (ehbrReference ref)
+        return (EagerlyHashedBufferedRef br (ehbrHash ref), r)
+    
+    refLoad = refLoad . ehbrReference
+
+    refMake val = do
+        br <- makeBRMemory refNull val
+        h <- getHashM val
+        return $ EagerlyHashedBufferedRef br h
+    
+    refCache ref = do
+        (v, r) <- refCache (ehbrReference ref)
+        return (v, ref{ehbrReference = r})
+    
+    refUncache ref = do
+        br <- refUncache (ehbrReference ref)
+        return $! ref{ehbrReference = br}
+    {-# INLINE refFlush #-}
+    {-# INLINE refLoad #-}
+    {-# INLINE refMake #-}
+    {-# INLINE refCache #-}
+    {-# INLINE refUncache #-}
+
+instance Show a => Show (EagerlyHashedBufferedRef a) where
+  show ref = show (ehbrReference ref) ++ " with hash: " ++ show (ehbrHash ref)
+
 -- |This class abstracts values that can be cached in some monad.
 class Cacheable m a where
     -- |Recursively cache a value of type @a@.
@@ -987,6 +1126,11 @@ instance (MHashableTo m h a, BlobStorable m a, Cacheable m a) => Cacheable m (Ha
   cache (HashedBufferedRef ref hsh) = do
     ref' <- cache ref
     return (HashedBufferedRef ref' hsh)
+
+instance (BlobStorable m a, Cacheable m a) => Cacheable m (EagerlyHashedBufferedRef' h a) where
+    cache r = do
+        ref' <- cache (ehbrReference r)
+        return $! r {ehbrReference = ref'}
 
 instance (Applicative m, Cacheable m a, Cacheable m b) => Cacheable m (a, b) where
     cache (x, y) = (,) <$> cache x <*> cache y

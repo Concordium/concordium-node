@@ -280,7 +280,9 @@ instance
     initialiseExistingSkov (SkovConfig gsc finconf hconf) = do
         logEvent Baker LLDebug "Attempting to use existing global state."
         initialiseExistingGlobalState (protocolVersion @pv) gsc >>= \case
-          Nothing -> return Nothing
+          Nothing -> do
+            logEvent Baker LLDebug "No existing global state"
+            return Nothing
           Just (c, s) -> do
             (finctx, finst) <- evalGlobalState @_ @pv (Proxy @gsconfig) (initialiseFinalization finconf) c s
             logEvent Baker LLDebug $ "Initializing finalization with context = " ++ show finctx

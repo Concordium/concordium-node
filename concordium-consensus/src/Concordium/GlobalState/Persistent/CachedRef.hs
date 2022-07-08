@@ -33,13 +33,13 @@ instance
     where
     refFlush r@(CRRef ref) = return (r, ref)
     refFlush (CRMem val) = do
-        (r, val') <- storeUpdateRef val
+        (r, val') <- {-# SCC "FLUSHCACHE" #-} storeUpdateRef val
         _ <- putCachedValue (Proxy @c) r val'
         return (CRRef r, r)
     refCache r@(CRRef ref) =
         lookupCachedValue (Proxy @c) ref >>= \case
             Nothing -> do
-                val <- loadRef ref
+                val <- {-# SCC "LOADCACHE" #-} loadRef ref
                 val' <- putCachedValue (Proxy @c) ref val
                 return (val', r)
             Just val ->
@@ -49,7 +49,7 @@ instance
     refLoad (CRRef ref) =
         lookupCachedValue (Proxy @c) ref >>= \case
             Nothing -> do
-              val <- loadRef ref
+              val <- {-# SCC "LOADCACHE" #-} loadRef ref
               putCachedValue (Proxy @c) ref val
             Just val -> return val
     refLoad (CRMem val) = return val
@@ -58,6 +58,11 @@ instance
     refUncache (CRMem val) = do
         (r, _) <- storeUpdateRef val
         return (CRRef r)
+    {-# INLINE refFlush #-}
+    {-# INLINE refCache #-}
+    {-# INLINE refLoad #-}
+    {-# INLINE refMake #-}
+    {-# INLINE refUncache #-}
 
 instance
     ( MonadCache c m,
@@ -73,7 +78,9 @@ instance
         (c', ref) <- refFlush c
         (,c') <$> store ref
     load = fmap CRRef <$> load
-
+    {-# INLINE store #-}
+    {-# INLINE storeUpdate #-}
+    {-# INLINE load #-}
 instance
     ( MonadCache c m,
       BlobStorable m a,
@@ -210,6 +217,7 @@ type EagerlyHashedCachedRef = EagerlyHashedCachedRef' H.Hash
 
 instance HashableTo h (EagerlyHashedCachedRef' h c a) where
     getHash = ehHash
+    {-# INLINE getHash #-}
 
 instance (Monad m) => MHashableTo m h (EagerlyHashedCachedRef' h c a)
 
@@ -225,11 +233,11 @@ instance
     where
     refFlush ref = do
         (cr, r) <- refFlush $ ehCachedRef ref
-        return (ref{ehCachedRef = cr}, r)
+        return (EagerlyHashedCachedRef{ehCachedRef = cr, ehHash = ehHash ref}, r)
 
     refCache ref = do
         (r, cr) <- refCache $ ehCachedRef ref
-        return (r, ref{ehCachedRef = cr})
+        return (r, EagerlyHashedCachedRef{ehCachedRef = cr, ehHash = ehHash ref})
 
     refLoad ref = refLoad $ ehCachedRef ref
 
@@ -239,7 +247,7 @@ instance
 
     refUncache ref = do
         cr <- refUncache (ehCachedRef ref)
-        return $! ref{ehCachedRef = cr}
+        return EagerlyHashedCachedRef{ehCachedRef = cr, ehHash = ehHash ref}
 
 instance
     ( MonadCache c m,
@@ -255,7 +263,7 @@ instance
 
     storeUpdate c = do
         (r, v') <- storeUpdate (ehCachedRef c)
-        return (r, c{ehCachedRef = v'})
+        return (r, EagerlyHashedCachedRef v' (ehHash c))
 
     load = do
         mCachedRef <- load

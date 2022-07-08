@@ -434,7 +434,7 @@ instance GlobalStateConfig MemoryTreeDiskBlockConfig where
             Right genState -> return genState
         liftIO $ do
             pbscBlobStore <- createBlobStore mtdbBlockStateFile
-            pbscCache <- Cache.newFIFOCache (rpAccountsCacheSize mtdbRuntimeParameters)
+            pbscCache <- Accounts.newAccountCache (rpAccountsCacheSize mtdbRuntimeParameters)
             let pbsc = PersistentBlockStateContext {..}
             let initState = do
                     pbs <- makePersistent genState
@@ -455,7 +455,7 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
     initialiseExistingGlobalState _ DTDBConfig{..} = do
       -- check if all the necessary database files exist
       existingDB <- checkExistingDatabase dtdbTreeStateDirectory dtdbBlockStateFile
-      pbscCache <- liftIO $ Cache.newFIFOCache (rpAccountsCacheSize dtdbRuntimeParameters)
+      pbscCache <- liftIO $ Accounts.newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
       if existingDB then do
         pbscBlobStore <- liftIO $ do
           -- the block state file exists, is readable and writable
@@ -470,14 +470,18 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
 
     initialiseNewGlobalState genData DTDBConfig{..} = do
       pbscBlobStore <- liftIO $ createBlobStore dtdbBlockStateFile
-      pbscCache <- liftIO (Cache.newFIFOCache (rpAccountsCacheSize dtdbRuntimeParameters))
+      pbscCache <- liftIO (Accounts.newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters))
       let pbsc = PersistentBlockStateContext{..}
       let initGS = do
+              logEvent GlobalState LLTrace "Creating transient global state"
               genState <- case genesisState genData of
                   Left err -> logExceptionAndThrow GlobalState (InvalidGenesisData err)
                   Right genState -> return genState
+              logEvent GlobalState LLTrace "Creating persistent global state"
               pbs <- makePersistent genState
+              logEvent GlobalState LLTrace "Writing persistent global state"
               ser <- saveBlockState pbs
+              logEvent GlobalState LLTrace "Creating persistent global state context"
               initialSkovPersistentData dtdbRuntimeParameters dtdbTreeStateDirectory genData pbs ser
       isd <- runReaderT (runPersistentBlockStateMonad initGS) pbsc
               `onException` liftIO (destroyBlobStore pbscBlobStore)

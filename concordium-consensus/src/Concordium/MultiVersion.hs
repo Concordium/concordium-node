@@ -418,6 +418,7 @@ newGenesis (PVGenesisData (gd :: GenesisData pv)) vcGenesisHeight =
                 let newEConfig :: VersionedConfiguration gsconf finconf pv
                     newEConfig = VersionedConfiguration{..}
                 writeIORef mvVersions (oldVersions `Vec.snoc` newVersion newEConfig)
+                mvLog Runner LLTrace "Getting genesis configuration"
                 (genConf, _) <- runMVR (runSkovT (liftSkov getGenesisData) (mvrSkovHandlers newEConfig mvr) vcContext st) mvr
                 -- Notify the network layer we have a new genesis.
                 notifyRegenesis (Just (_gcCurrentHash genConf))
@@ -615,6 +616,7 @@ startupSkov genesis = do
                                       mvLog
                               case r of
                                 Just (vcContext, st) -> do
+                                  mvLog Runner LLTrace "Loaded configuration"
                                   vcState <- newIORef st
                                   let vcShutdown = shutdownSkov vcContext =<< liftIO (readIORef vcState)
                                   let newEConfig :: VersionedConfiguration gsconf finconf pv
@@ -629,6 +631,7 @@ startupSkov genesis = do
                                         return (_gcCurrentHash currentGenesis, localToAbsoluteBlockHeight vcGenesisHeight lfHeight, nextPV)
                                   ((genesisHash, lastFinalizedHeight, nextPV), _) <- runMVR (runSkovT getCurrentGenesisAndHeight (mvrSkovHandlers newEConfig mvr) vcContext st) mvr
                                   notifyRegenesis (Just genesisHash)
+                                  mvLog Runner LLTrace "Load configuration done"
                                   return (Left (newVersion newEConfig, lastFinalizedHeight, nextPV))
                                 Nothing ->
                                   case first of
@@ -646,7 +649,8 @@ startupSkov genesis = do
                 -- We failed to load anything in the first iteration of the
                 -- loop. Decode the provided genesis and attempt to start the
                 -- chain.
-                Right Nothing ->
+                Right Nothing -> do
+                    logEvent Runner LLTrace "Attempting to decode genesis"
                     case genesis of
                         Left genBS -> case runGet getPVGenesisData genBS of
                             Left err -> do
