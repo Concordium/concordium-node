@@ -1015,6 +1015,7 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
             (RecentBlock (BlockPending pb1), RecentBlock (BlockPending pb2)) -> assertEq pb1 pb2 $ return $ RecentBlock (BlockPending pb1)
             (Unknown, RecentBlock BlockDead) -> return Unknown
             (RecentBlock BlockDead, Unknown) -> return Unknown
+            (RecentBlock BlockDead, RecentBlock BlockDead) -> return Unknown
             (OlderThanLastFinalized, OlderThanLastFinalized) -> return OlderThanLastFinalized
             _ -> error $ "getBlockStatus (Paired): block statuses do not match: " ++ show bs1 ++ ", " ++ show bs2
 

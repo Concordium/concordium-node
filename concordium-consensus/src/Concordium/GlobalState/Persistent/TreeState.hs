@@ -603,11 +603,12 @@ instance (MonadLogger (PersistentTreeStateMonad bs m),
     markFinalized bh fr = use (blockTable . liveMap . at' bh) >>= \case
             Just (BlockAlive bp) -> do
               st <- saveBlockState (_bpState bp)
-              -- NB: This only makes sense if no block lookups are done between
-              -- the call to this function and 'wrapUpFinalization'. This is
-              -- currently the case, and must remain the case in the future.
-              -- That is, finalization must remain atomic, or this handling, and
-              -- wrapUpFinalization must be changed.
+              -- NB: Removing the block from the in-memory cache only makes
+              -- sense if no block lookups are done between the call to this
+              -- function and 'wrapUpFinalization'. This is currently the case,
+              -- and must remain the case in the future. That is, finalization
+              -- must remain atomic, or this handling, and wrapUpFinalization
+              -- must be changed.
               blockTable . liveMap . at' bh .=! Nothing
               return $ Just StoredBlock{
                   sbFinalizationIndex = finalizationIndex fr,
