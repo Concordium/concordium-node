@@ -459,8 +459,7 @@ fn start_consensus_message_threads(
 
 fn handle_queue_stop<F>(msg: QueueMsg<ConsensusMessage>, dir: &'static str, f: F) -> bool
 where
-    F: FnOnce(ConsensusMessage) -> anyhow::Result<()>,
-{
+    F: FnOnce(ConsensusMessage) -> anyhow::Result<()>, {
     match msg {
         QueueMsg::Relay(msg) => {
             if let Err(e) = f(msg) {
