@@ -2,6 +2,12 @@
 
 ## Unrelease changes
 
+- Reduce startup time and memory use further by reducing the amount of block
+  data retained in memory. In particular finalized blocks are no longer stored
+  in memory.
+  
+## 4.2.2
+
 - Remove transaction logging functionality from the node. It is replaced by an
   external service. As a consequence the `transaction-outcome-logging` family of
   command-line options are removed from the node.

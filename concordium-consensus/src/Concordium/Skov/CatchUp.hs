@@ -59,9 +59,9 @@ doHandleCatchUp peerCUS@CatchUpStatus{} limit = do
                     -- leaf block we do not recognise.
                     let
                         testLeaves [] = return False
-                        testLeaves (l:ls) = resolveBlock l >>= \case
-                            Nothing -> return True
-                            Just _ -> testLeaves ls  -- FIXME: Once globalstate is more optimized just query for block existence
+                        testLeaves (l:ls) = isBlockKnownAndLive l >>= \case
+                            False -> return True
+                            True -> testLeaves ls
                     catchUpWithPeer <- testLeaves (cusLeaves peerCUS)
                     let catchUpResult = if catchUpWithPeer then resultDoCatchUp else ResultSuccess
 
