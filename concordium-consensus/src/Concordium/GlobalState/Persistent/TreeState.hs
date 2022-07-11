@@ -104,30 +104,31 @@ data PersistentBlockStatus pv bs =
     | BlockPending !PendingBlock
   deriving(Eq, Show)
 
--- |Cache of dead blocks, i.e., blocks which have been either pending or alive
--- once, but have been marked dead by finalization. The intention is that this
--- acts as a kind of FIFO cache, except that inserting a duplicate into the
--- cache has no effect on it.
+-- |Cache of dead blocks, which are blocks which have been either pending or
+-- alive once, but have been marked dead by finalization, or which we have
+-- received and deemed as invalid. The intention is that this acts as a kind of
+-- FIFO cache, except that inserting a duplicate into the cache has no effect on
+-- it.
 --
 -- One question is why this is even needed and it is indeed unclear that it is
--- needed. The main problem this would solve is to help with deduplication but
--- it is unclear whether this is really needed or not for the following reasons.
+-- needed. It should not be necessary for correctness, but it likely does help
+-- performance in some cases.
 --
--- - Blocks are only marked dead upon finalization. Blocks can only arrive if
---   they are no more than 30s in the future, and are above (i.e., later than)
---   the last finalized block. This cache would help in the case where a branch
---   is declared dead, and either duplicate blocks from that branch, or
---   successors of blocks on that branch, arrive. Without the cache they would
---   end up (potentially) in the pending state, with the cache they might be
---   deemed as duplicate (but they might be deemed duplicate at the network
---   already) or dead quickly. If finalization is reliable then even if we get
---   duplicate pending blocks they will be relatively quickly marked dead
---   themselves.
--- - The node itself has deduplication at the network layer.
+-- - Live blocks are only marked dead upon finalization (this is done
+--   transitively, i.e., a descendant of a dead block is marked as dead). Blocks
+--   can only arrive if they are no more than 30s in the future, and are above
+--   (i.e., later than) the last finalized block. This cache helps in the case
+--   where a branch is declared dead, and either duplicate blocks from that
+--   branch, or successors of blocks on that branch, arrive. Without the cache
+--   they would end up (potentially) in the pending state, with the cache they
+--   might be deemed as duplicate (but they might be deemed duplicate at the
+--   network already) or dead quickly. If finalization is reliable then even if
+--   we get duplicate pending blocks they will be relatively quickly marked dead
+--   themselves. The node itself has deduplication at the network layer.
 --
--- Despite this, it does seem that in relatively bad conditions with a lot of
--- branching having a small cache of recent dead blocks would bring some
--- benefit.
+-- - If a block is received and immediately deemed invalid, then it is marked as
+--   dead. In such a case it is good to remember this for some time in case the
+--   network layer deduplication is insufficient.
 data DeadCache = DeadCache
     { -- |Set of hashes currently in the cache.
       _dcHashes :: !(HS.HashSet BlockHash)
@@ -181,6 +182,8 @@ data BlockTable pv bs = BlockTable
   } deriving(Eq, Show)
 makeLenses ''BlockTable
 
+-- |A block table that does not contain any blocks, and has an empty cache of
+-- dead blocks.
 emptyBlockTable :: BlockTable pv bs
 emptyBlockTable = BlockTable emptyDeadCache HM.empty
 
@@ -585,9 +588,9 @@ instance (MonadLogger (PersistentTreeStateMonad bs m),
               lfr <- use lastFinalizationRecord
               return $ TS.RecentBlock (TS.BlockFinalized lf lfr)
             else do
-              b <- memberBlockTable bh
+              b <- memberBlockStore bh
               if b then
-                return TS.OlderThanLastFinalized
+                return TS.OldFinalized
               else do
                   deadBlocks <- use (blockTable . deadCache)
                   return $! if memberDeadCache bh deadBlocks then TS.RecentBlock TS.BlockDead else TS.Unknown
@@ -618,7 +621,7 @@ instance (MonadLogger (PersistentTreeStateMonad bs m),
                 }
             _ -> return Nothing
     markPending pb = blockTable . liveMap . at' (getHash pb) ?=! BlockPending pb
-    markAllNonFinalizedDead = do
+    clearAllNonFinalizedBlocks = do
       blockTable . liveMap .=! HM.empty
       blockTable . deadCache .=! emptyDeadCache
     

@@ -279,9 +279,9 @@ addBlock block txvers = do
             -- from the database if the block is finalized.
             parentStatus <- getRecentBlockStatus parent
             case parentStatus of
-                -- The block's parent is already beyond the last finalized one. So
+                -- The block's parent is older than the last finalized one. So
                 -- this block cannot be on a live branch.
-                OlderThanLastFinalized -> deadBlock
+                OldFinalized -> deadBlock
                 Unknown -> do
                     addPendingBlock block
                     markPending block
@@ -294,7 +294,8 @@ addBlock block txvers = do
                     return ResultPendingBlock
                 RecentBlock BlockDead -> deadBlock
                 RecentBlock (BlockAlive parentP) -> tryAddLiveParent parentP
-                -- In the following case the finalized block is the last finalized one (this is semantics of getRecentBlockStatus)
+                -- In the following case the finalized block is the last
+                -- finalized one (this is the semantics of getRecentBlockStatus)
                 RecentBlock (BlockFinalized parentP _) -> tryAddLiveParent parentP
     where
         deadBlock :: m UpdateResult
@@ -653,7 +654,7 @@ doTerminateSkov = isShutDown >>= \case
         -- Clear out all of the non-finalized blocks.
         putBranches Seq.empty
         wipePendingBlocks
-        markAllNonFinalizedDead
+        clearAllNonFinalizedBlocks
         -- Clear out (and return) the non-finalized transactions.
         wipeNonFinalizedTransactions
 

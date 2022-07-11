@@ -154,7 +154,7 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
               Just bs@(TS.BlockFinalized bp _) -> do
                 (lf, _) <- TS.getLastFinalized
                 if bp == lf then return (TS.RecentBlock bs)
-                else return TS.OlderThanLastFinalized
+                else return TS.OldFinalized
               Just bs -> return (TS.RecentBlock bs)
               Nothing -> return TS.Unknown
 
@@ -170,7 +170,7 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
               finalizedByHeightTable . at (bpHeight bp) ?= bp
             _ -> return ()
     markPending pb = blockTable . at' (getHash pb) ?= TS.BlockPending pb
-    markAllNonFinalizedDead = blockTable %= fmap nonFinDead
+    clearAllNonFinalizedBlocks = blockTable %= fmap nonFinDead
         where
             nonFinDead TS.BlockPending{} = TS.BlockDead
             nonFinDead TS.BlockAlive{} = TS.BlockDead

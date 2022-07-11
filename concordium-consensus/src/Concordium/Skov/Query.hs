@@ -30,7 +30,7 @@ doIsBlockKnownAndLive cbp =
             BlockAlive _ -> True
             BlockFinalized _ _ -> True
             _ -> False
-        OlderThanLastFinalized -> True
+        OldFinalized -> True
         Unknown -> False
 
 doIsFinalized :: TreeStateMonad m => BlockHash -> m Bool

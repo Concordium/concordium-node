@@ -34,7 +34,7 @@ module Concordium.GlobalState.Persistent.LMDB (
   , readTransactionStatus
   , readFinalizedBlockAtHeight
   , memberTransactionTable
-  , memberBlockTable
+  , memberBlockStore
   , loadBlocksFinalizationIndexes
   , getFinalizedBlockAtHeight
   , getLastBlock
@@ -549,11 +549,11 @@ memberTransactionTable th = do
     $ \txn -> isRecordPresent txn (dbh ^. transactionStatusStore) th
 
 -- |Check if a block with the given hash is stored in the LMDB block store.
-memberBlockTable ::
+memberBlockStore ::
   (IsProtocolVersion pv, FixedSizeSerialization st, MonadIO m, MonadState s m, HasDatabaseHandlers pv st s) =>
   BlockHash ->
   m Bool
-memberBlockTable bh = do
+memberBlockStore bh = do
   dbh <- use dbHandlers
   liftIO $
     transaction (dbh ^. storeEnv) True $

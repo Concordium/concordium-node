@@ -94,7 +94,7 @@ data RecentBlockStatus bp pb  =
   -- |The block is either pending, dead, or no older than the last finalized block.
   RecentBlock !(BlockStatus bp pb)
   -- |The block is known, and is strictly older than the last finalized block.
-  | OlderThanLastFinalized
+  | OldFinalized
   -- |The block is unknown
   | Unknown
   deriving (Eq, Show)
@@ -172,11 +172,18 @@ class (Eq (BlockPointerType m),
     -- |Mark a block as finalized (by a particular 'FinalizationRecord').
     --
     -- Precondition: The block must be alive.
+    -- 
+    -- The finalization is considered fully done when 'wrapUpFinalization' is
+    -- called. In between calling 'markFinalized' and 'wrapUpFinalization' calls
+    -- to 'getBlockStatus' may return inconsistent results and thus should not
+    -- be used.
     markFinalized :: BlockHash -> FinalizationRecord -> m (MarkFin m)
     -- |Mark a block as pending (i.e. awaiting parent)
     markPending :: PendingBlock -> m ()
-    -- |Mark every live or pending block as dead.
-    markAllNonFinalizedDead :: m ()
+    -- |Clear all non-finalized blocks from the block table. This is only
+    -- intended to be used on Skov shut down, when these blocks are no longer
+    -- needed.
+    clearAllNonFinalizedBlocks :: m ()
     -- * Queries on genesis block
     -- |Get the genesis 'BlockPointer'.
     getGenesisBlockPointer :: m (BlockPointerType m)
@@ -388,7 +395,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     type MarkFin (MGSTrans t m) = MarkFin m
     markFinalized bh = lift . markFinalized bh
     markPending = lift . markPending
-    markAllNonFinalizedDead = lift markAllNonFinalizedDead
+    clearAllNonFinalizedBlocks = lift clearAllNonFinalizedBlocks
     getGenesisBlockPointer = lift getGenesisBlockPointer
     getGenesisData = lift getGenesisData
     getLastFinalized = lift getLastFinalized
@@ -433,7 +440,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     {-# INLINE markDead #-}
     {-# INLINE markFinalized #-}
     {-# INLINE markPending #-}
-    {-# INLINE markAllNonFinalizedDead #-}
+    {-# INLINE clearAllNonFinalizedBlocks #-}
     {-# INLINE getGenesisBlockPointer #-}
     {-# INLINE getGenesisData #-}
     {-# INLINE getLastFinalized #-}

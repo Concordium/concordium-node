@@ -1016,7 +1016,7 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
             (Unknown, RecentBlock BlockDead) -> return Unknown
             (RecentBlock BlockDead, Unknown) -> return Unknown
             (RecentBlock BlockDead, RecentBlock BlockDead) -> return Unknown
-            (OlderThanLastFinalized, OlderThanLastFinalized) -> return OlderThanLastFinalized
+            (OldFinalized, OldFinalized) -> return OldFinalized
             _ -> error $ "getBlockStatus (Paired): block statuses do not match: " ++ show bs1 ++ ", " ++ show bs2
 
     makeLiveBlock pb (PairBlockData (parent1, parent2)) (PairBlockData (lf1, lf2)) (bs1, bs2) t e = do
@@ -1035,9 +1035,9 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
     markPending pb = do
         coerceGSML $ markPending pb
         coerceGSMR $ markPending pb
-    markAllNonFinalizedDead  = do
-        coerceGSML markAllNonFinalizedDead
-        coerceGSMR markAllNonFinalizedDead
+    clearAllNonFinalizedBlocks  = do
+        coerceGSML clearAllNonFinalizedBlocks
+        coerceGSMR clearAllNonFinalizedBlocks
     getGenesisBlockPointer = do
         gen1 <- coerceGSML getGenesisBlockPointer
         gen2 <- coerceGSMR getGenesisBlockPointer
