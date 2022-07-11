@@ -473,9 +473,9 @@ class Monad m => Reference m ref a where
 -- ('BRMemory' with @brIORef = null@), or both in memory and on disk. When the
 -- value is both on disk and in memory the two values must match.
 data BufferedRef a
-    = BRBlobbed {brRef :: !(BlobRef a)}
+    = BRBlobbed {brRef :: {-# UNPACK #-} !(BlobRef a)}
     -- ^Value stored on disk
-    | BRMemory {brIORef :: !(IORef (BlobRef a)), brValue :: !a}
+    | BRMemory {brIORef :: {-# UNPACK #-} !(IORef (BlobRef a)), brValue :: !a}
     -- ^Value stored in memory and possibly on disk.
     -- When a new 'BRMemory' instance is created, we initialize 'brIORef' to 'refNull'.
     -- When we store the instance in persistent storage, we update 'brIORef' with the corresponding pointer.
@@ -677,8 +677,8 @@ instance (forall b. HasNull (ref b)) => HasNull (Blobbed ref a) where
 --
 -- A value can either be only on disk (`CBUncached`), or cached in memory (`CBCached`).
 data CachedBlobbed ref f
-    = CBUncached (Blobbed ref f)
-    | CBCached (Blobbed ref f) (f (CachedBlobbed ref f))
+    = CBUncached !(Blobbed ref f)
+    | CBCached !(Blobbed ref f) !(f (CachedBlobbed ref f))
 
 cachedBlob :: CachedBlobbed ref f -> Blobbed ref f
 cachedBlob (CBUncached r) = r
@@ -710,8 +710,8 @@ instance MonadBlobStore m => BlobStorable m (CachedBlobbed BlobRef f)
 --
 -- It can contain either a CachedBlobbed value or both a Blobbed value and the recursive type.
 data BufferedBlobbed ref f
-    = LBMemory (IORef (Blobbed ref f)) (f (BufferedBlobbed ref f))
-    | LBCached (CachedBlobbed ref f)
+    = LBMemory {-# UNPACK #-} !(IORef (Blobbed ref f)) !(f (BufferedBlobbed ref f))
+    | LBCached !(CachedBlobbed ref f)
 
 -- | Create a BufferedBlobbed value that points to the given reference and holds the given value.
 makeLBMemory :: MonadIO m => Blobbed ref f -> f (BufferedBlobbed ref f) -> m (BufferedBlobbed ref f)
