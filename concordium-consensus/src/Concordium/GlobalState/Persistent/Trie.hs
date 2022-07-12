@@ -83,10 +83,19 @@ instance OrdFixedTrieKey Word32
 deriving via Word64 instance OrdFixedTrieKey BakerId
 deriving via Word64 instance OrdFixedTrieKey DelegatorId
 
+-- |A pair of an index and a branch.
+data BranchEntry r = BranchEntry
+    { -- |The branch index.
+      beIndex :: {-# UNPACK #-} !Word8,
+      -- |The branch itself.
+      beBranch :: !r
+    }
+    deriving (Show, Functor, Foldable, Traversable)
+
 -- |Data structure representing the branches of the Trie.
 newtype Branches r = Branches
     { -- |The branches, represented as an ordered array of pairs of indices and non-null values.
-      theBranches :: Array.Array (Word8, r)
+      theBranches :: Array.Array (BranchEntry r)
     }
     deriving (Show, Functor, Foldable, Traversable)
 
@@ -94,38 +103,38 @@ newtype Branches r = Branches
 branchesToList :: Branches r -> [Nullable r]
 branchesToList = mkl 0 . Foldable.toList . theBranches
   where
-    mkl n [] = replicate (256 - fromIntegral n) Null
-    mkl n ((i, v) : r) = replicate (fromIntegral $ i - n) Null ++ Some v : mkl (i + 1) r
+    mkl n [] = replicate (256 - n) Null
+    mkl n (BranchEntry i v : r) = replicate (fromIntegral i - n) Null ++ Some v : mkl (fromIntegral i + 1) r
 
 -- |Convert a list to 'Branches'. The list MUST have length 256.
 branchesFromList :: [Nullable r] -> Branches r
 branchesFromList = Branches . Array.fromList . mkl 0
   where
     mkl _ [] = []
-    mkl i (Null : r) = mkl (i + 1) r
-    mkl i (Some v : r) = (i, v) : mkl (i + 1) r
+    mkl !i (Null : r) = mkl (i + 1) r
+    mkl !i (Some v : r) = BranchEntry i v : mkl (i + 1) r
 
 -- |Get the branch at a particular index.
 branchAt :: Branches r -> Word8 -> Nullable r
 branchAt br i =
-    case binarySearch fst (V.fromArray (theBranches br)) i of
+    case binarySearch beIndex (V.fromArray (theBranches br)) i of
         Nothing -> Null
-        Just (_, v) -> Some v
+        Just (BranchEntry _ v) -> Some v
 
 -- |Update the branch at a particular index.
 -- This is strict in the value.
 updateBranch :: Word8 -> Nullable r -> Branches r -> Branches r
 updateBranch i (Some v) = Branches . Array.fromList . updl . Foldable.toList . theBranches
   where
-    updl [] = [(i, v)]
-    updl l@(p@(k, _) : r) = case compare i k of
-        LT -> (i, v) : l
-        EQ -> (i, v) : r
+    updl [] = [BranchEntry i v]
+    updl l@(p@(BranchEntry k _) : r) = case compare i k of
+        LT -> BranchEntry i v : l
+        EQ -> BranchEntry i v : r
         GT -> p : updl r
 updateBranch i Null = Branches . Array.fromList . updl . Foldable.toList . theBranches
   where
     updl [] = []
-    updl l@(p@(k, _) : r) = case compare i k of
+    updl l@(p@(BranchEntry k _) : r) = case compare i k of
         LT -> l
         EQ -> r
         GT -> p : updl r
@@ -136,12 +145,12 @@ makeBranches :: [(Word8, Nullable r)] -> Branches r
 makeBranches = Branches . Array.fromList . collapse . sortOn fst
   where
     collapse [] = []
-    collapse [(i, Some v)] = [(i, v)]
+    collapse [(i, Some v)] = [BranchEntry i v]
     collapse [(_, Null)] = []
     collapse ((i1, v1) : t@((i2, _) : _))
         | i1 == i2 = collapse t
         | otherwise = case v1 of
-            Some v1' -> (i1, v1') : collapse t
+            Some v1' -> BranchEntry i1 v1' : collapse t
             Null -> collapse t
 
 -- |Trie with keys all of same fixed length treated as lists of bytes.
@@ -179,7 +188,7 @@ instance Bifunctor (TrieF k) where
 instance (Serialize r, Serialize (Nullable r), Serialize v) => Serialize (TrieF k v r) where
     put (Branch vec) = do
         putWord8 1
-        forM_ vec put
+        forM_ (branchesToList vec) put
     put (Tip v) = putWord8 2 >> put v
     put (Stem l r) = do
         let len = SBS.length l
@@ -203,8 +212,8 @@ instance (Serialize r, Serialize (Nullable r), Serialize v) => Serialize (TrieF 
 
 instance (BlobStorable m r, BlobStorable m (Nullable r), BlobStorable m v) => BlobStorable m (TrieF k v r) where
     storeUpdate (Branch vec) = do
-        pvec <- mapM storeUpdate vec
-        return $!! (putWord8 1 >> sequence_ (fst <$> pvec), Branch (snd <$> pvec))
+        pvec <- mapM storeUpdate (branchesToList vec)
+        return $!! (putWord8 1 >> sequence_ (fst <$> pvec), Branch (branchesFromList $ snd <$> pvec))
     storeUpdate (Tip v) = do
         (pv, v') <- storeUpdate v
         return $!! (putWord8 2 >> pv, Tip v')
