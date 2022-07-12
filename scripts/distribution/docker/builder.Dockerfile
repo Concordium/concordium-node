@@ -37,7 +37,7 @@ FROM ubuntu:20.04
 ARG environment
 
 RUN apt-get update && \
-    apt-get install -y libgmp10 libssl1.1 ca-certificates && \
+    apt-get install -y libgmp10 libssl1.1 ca-certificates libpq-dev && \
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=binaries /build/bin/concordium-node /concordium-node
