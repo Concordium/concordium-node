@@ -17,7 +17,8 @@ module Concordium.GlobalState.Persistent.Trie where
 
 import Data.Fix
 import qualified Data.Foldable as Foldable
-import Data.List(intercalate,stripPrefix)
+import qualified Data.Vector as V
+import Data.List(intercalate,stripPrefix,sortOn)
 import Data.Word
 import Data.Functor.Foldable hiding (Nil)
 import Data.Bifunctor
@@ -32,6 +33,7 @@ import qualified Data.Primitive.Array as Array
 
 import Concordium.Types (AccountAddress, BakerId(..), DelegatorId(..), AccountIndex(..), ModuleRef(..))
 import Concordium.Utils
+import Concordium.Utils.BinarySearch
 import qualified Concordium.Crypto.SHA256 as SHA256
 import qualified Concordium.Crypto.BlsSignature as Bls
 import qualified Concordium.ID.Types as IDTypes
@@ -83,36 +85,64 @@ deriving via Word64 instance OrdFixedTrieKey DelegatorId
 
 -- |Data structure representing the branches of the Trie.
 newtype Branches r = Branches
-    { -- |An array of length 256.
-      theBranches :: Array.Array (Nullable r)
+    { -- |The branches, represented as an ordered array of pairs of indices and non-null values.
+      theBranches :: Array.Array (Word8, r)
     }
     deriving (Show, Functor, Foldable, Traversable)
 
 -- |Convert 'Branches' to a list. The list will have length 256.
 branchesToList :: Branches r -> [Nullable r]
-branchesToList = Foldable.toList . theBranches
+branchesToList = mkl 0 . Foldable.toList . theBranches
+  where
+    mkl n [] = replicate (256 - fromIntegral n) Null
+    mkl n ((i, v) : r) = replicate (fromIntegral $ i - n) Null ++ Some v : mkl (i + 1) r
 
 -- |Convert a list to 'Branches'. The list MUST have length 256.
 branchesFromList :: [Nullable r] -> Branches r
-branchesFromList = Branches . Array.fromListN 256
+branchesFromList = Branches . Array.fromList . mkl 0
+  where
+    mkl _ [] = []
+    mkl i (Null : r) = mkl (i + 1) r
+    mkl i (Some v : r) = (i, v) : mkl (i + 1) r
 
 -- |Get the branch at a particular index.
 branchAt :: Branches r -> Word8 -> Nullable r
-branchAt br i = Array.indexArray (theBranches br) (fromIntegral i)
+branchAt br i =
+    case binarySearch fst (V.fromArray (theBranches br)) i of
+        Nothing -> Null
+        Just (_, v) -> Some v
 
 -- |Update the branch at a particular index.
 -- This is strict in the value.
 updateBranch :: Word8 -> Nullable r -> Branches r -> Branches r
-updateBranch i v br = Branches $ Array.runArray $ do
-    arr <- Array.thawArray (theBranches br) 0 256
-    Array.writeArray arr (fromIntegral i) $! v
-    return arr
+updateBranch i (Some v) = Branches . Array.fromList . updl . Foldable.toList . theBranches
+  where
+    updl [] = [(i, v)]
+    updl l@(p@(k, _) : r) = case compare i k of
+        LT -> (i, v) : l
+        EQ -> (i, v) : r
+        GT -> p : updl r
+updateBranch i Null = Branches . Array.fromList . updl . Foldable.toList . theBranches
+  where
+    updl [] = []
+    updl l@(p@(k, _) : r) = case compare i k of
+        LT -> l
+        EQ -> r
+        GT -> p : updl r
 
 -- |Construct a 'Branches' with the given entries; all other entries are 'Null'.
 -- This is strict in the provided values.
 makeBranches :: [(Word8, Nullable r)] -> Branches r
-makeBranches upds = Branches $ Array.createArray 256 Null $ \arr -> do
-    forM_ upds $ \(i, v) -> Array.writeArray arr (fromIntegral i) $! v
+makeBranches = Branches . Array.fromList . collapse . sortOn fst
+  where
+    collapse [] = []
+    collapse [(i, Some v)] = [(i, v)]
+    collapse [(_, Null)] = []
+    collapse ((i1, v1) : t@((i2, _) : _))
+        | i1 == i2 = collapse t
+        | otherwise = case v1 of
+            Some v1' -> (i1, v1') : collapse t
+            Null -> collapse t
 
 -- |Trie with keys all of same fixed length treated as lists of bytes.
 -- The first parameter of 'TrieF' is the type of keys, which should
