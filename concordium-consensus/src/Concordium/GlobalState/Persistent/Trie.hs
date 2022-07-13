@@ -18,7 +18,7 @@ module Concordium.GlobalState.Persistent.Trie where
 import Data.Fix
 import qualified Data.Foldable as Foldable
 import qualified Data.Vector as V
-import Data.List(intercalate,stripPrefix,sortOn)
+import Data.List(intercalate,stripPrefix)
 import Data.Word
 import Data.Functor.Foldable hiding (Nil)
 import Data.Bifunctor
@@ -62,11 +62,12 @@ class FixedTrieKey a where
 
 instance FixedTrieKey Word64
 instance FixedTrieKey Word32
-instance FixedTrieKey SHA256.Hash where
-    unpackKey (SHA256.Hash fbs) = FBS.unpack fbs
-    packKey = SHA256.Hash . FBS.pack
+instance FBS.FixedLength len => FixedTrieKey (FBS.FixedByteString len) where
+    unpackKey = FBS.unpack
+    packKey = FBS.pack
+deriving via (FBS.FixedByteString SHA256.DigestSize) instance FixedTrieKey SHA256.Hash
 deriving via SHA256.Hash instance FixedTrieKey ModuleRef
-instance FixedTrieKey AccountAddress
+deriving via (FBS.FixedByteString IDTypes.AccountAddressSize) instance FixedTrieKey AccountAddress
 deriving via Word64 instance FixedTrieKey BakerId
 deriving via Word64 instance FixedTrieKey DelegatorId
 instance FixedTrieKey Bls.PublicKey -- FIXME: This is a bad instance. Serialization of these is expensive.
@@ -83,11 +84,13 @@ instance OrdFixedTrieKey Word32
 deriving via Word64 instance OrdFixedTrieKey BakerId
 deriving via Word64 instance OrdFixedTrieKey DelegatorId
 
--- |A pair of an index and a branch.
+-- |A pair of an index and a sub-trie.
+-- Branching in the Trie is on a 'Word8' in the key, which is referred to here as the index of
+-- the sub-trie.
 data BranchEntry r = BranchEntry
-    { -- |The branch index.
+    { -- |The index of the branch entry.
       beIndex :: {-# UNPACK #-} !Word8,
-      -- |The branch itself.
+      -- |The sub-trie itself.
       beBranch :: !r
     }
     deriving (Show, Functor, Foldable, Traversable)
@@ -114,6 +117,10 @@ branchesFromList = Branches . Array.fromList . mkl 0
     mkl !i (Null : r) = mkl (i + 1) r
     mkl !i (Some v : r) = BranchEntry i v : mkl (i + 1) r
 
+-- |Convert a 'Branches' to a list of pairs of indices and (non-null) sub-tries.
+branchesToPairs :: Branches r -> [(Word8, r)]
+branchesToPairs = map (\BranchEntry{..} -> (beIndex, beBranch)) . Foldable.toList . theBranches
+
 -- |Get the branch at a particular index.
 branchAt :: Branches r -> Word8 -> Nullable r
 branchAt br i =
@@ -139,19 +146,12 @@ updateBranch i Null = Branches . Array.fromList . updl . Foldable.toList . theBr
         EQ -> r
         GT -> p : updl r
 
--- |Construct a 'Branches' with the given entries; all other entries are 'Null'.
--- This is strict in the provided values.
-makeBranches :: [(Word8, Nullable r)] -> Branches r
-makeBranches = Branches . Array.fromList . collapse . sortOn fst
-  where
-    collapse [] = []
-    collapse [(i, Some v)] = [BranchEntry i v]
-    collapse [(_, Null)] = []
-    collapse ((i1, v1) : t@((i2, _) : _))
-        | i1 == i2 = collapse t
-        | otherwise = case v1 of
-            Some v1' -> BranchEntry i1 v1' : collapse t
-            Null -> collapse t
+-- |Construct a 'Branches' with two given entries. The indexes of the entries must
+-- be distinct.
+pairBranch :: (Word8, r) -> (Word8, r) -> Branches r
+pairBranch (k1, v1) (k2, v2)
+    | k1 <= k2 = Branches $ Array.fromListN 2 [BranchEntry k1 v1, BranchEntry k2 v2]
+    | otherwise = Branches $ Array.fromListN 2 [BranchEntry k2 v2, BranchEntry k1 v1]
 
 -- |Trie with keys all of same fixed length treated as lists of bytes.
 -- The first parameter of 'TrieF' is the type of keys, which should
@@ -325,12 +325,10 @@ lookupPrefixF ks = lu [] ks <=< mproject
         collect keyPrefix (Tip v) = return [(packKey keyPrefix, v)]
         collect keyPrefix (Stem pref r) = collect (keyPrefix ++ SBS.unpack pref) =<< mproject r
         collect keyPrefix (Branch vec) = do
-            let
-                handleBranch acc (_, Null) = return acc
-                handleBranch acc (i, Some r) = do
+            let handleBranch acc (i, r) = do
                   childList <- mproject r >>= collect (keyPrefix ++ [i])
                   return (childList ++ acc)
-            foldM handleBranch [] ([0..] `zip` branchesToList vec)
+            foldM handleBranch [] (branchesToPairs vec)
 
 -- |Traverse the trie, applying a function to each key value pair and concatenating the
 -- results monoidally.  Keys are traversed from lowest to highest in their byte-wise
@@ -341,10 +339,8 @@ mapReduceF mfun = mr [] <=< mproject
         mr keyPrefix (Tip v) = mfun (packKey keyPrefix) v
         mr keyPrefix (Stem pref r) = mr (keyPrefix ++ SBS.unpack pref) =<< mproject r
         mr keyPrefix (Branch vec) = do
-            let
-                handleBranch (_, Null) = return mempty
-                handleBranch (i, Some r) = mr (keyPrefix ++ [i]) =<< mproject r
-            mconcat <$> mapM handleBranch ([0..] `zip` branchesToList vec)
+            let handleBranch (i, r) = mr (keyPrefix ++ [i]) =<< mproject r
+            mconcat <$> mapM handleBranch (branchesToPairs vec)
 
 -- |Essentially 'mapReduceF', but the constraint implies that keys are traversed lowest to
 -- highest with respect to their 'Ord' instance.
@@ -444,7 +440,8 @@ alterM k upd pt0 = do
                         rbranch <- if null tr then return r else membed (Stem (SBS.pack tr) r)
                         ktip <- membed (Tip v)
                         kbranch <- if null tk then return ktip else membed (Stem (SBS.pack tk) ktip)
-                        branches <- membed (Branch (makeBranches [(hr, Some rbranch), (hk, Some kbranch)] ))
+                        -- Note, because pref' is the common prefix, hk /= hr.
+                        branches <- membed (Branch (pairBranch (hr, rbranch) (hk, kbranch)))
                         update res pref' branches
                     (res, _) -> nochange res
 
