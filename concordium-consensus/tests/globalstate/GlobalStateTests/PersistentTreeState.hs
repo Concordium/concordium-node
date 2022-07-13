@@ -10,7 +10,13 @@
 
 module GlobalStateTests.PersistentTreeState where
 
+import qualified Data.HashSet as HS
+import qualified Data.Sequence as Seq
+import qualified Data.List as List
+
+import qualified Data.FixedByteString as FBS
 import Concordium.Crypto.BlsSignature
+import qualified Concordium.Crypto.SHA256 as SHA256
 import Concordium.Crypto.DummyData
 import Concordium.Crypto.VRF as VRF
 import Concordium.GlobalState
@@ -42,6 +48,7 @@ import qualified Concordium.Types.Transactions as Trns
 
 import System.Random
 import Test.Hspec
+import Test.QuickCheck
 
 -- |Protocol version.
 type PV = 'P1
@@ -125,8 +132,8 @@ testFinalizeABlock = do
     forM_ blocks (`shouldSatisfy` flip elem [blockPtr, genesisBlock])
     forM_ finRecs (`shouldSatisfy` flip elem [frec, genesisFr])
   -- check the blocktable
-  bs <- use (blockTable . at (bpHash blockPtr))
-  liftIO $ bs `shouldBe` Just (Concordium.GlobalState.Persistent.TreeState.BlockFinalized 1)
+  bs <- use (blockTable . liveMap . at (bpHash blockPtr))
+  liftIO $ bs `shouldBe` Nothing -- block finalized, so should not be in the in-memory block table anymore
   -- check that the parent and last finalized are the proper ones
   parent <- bpParent blockPtr
   liftIO $ parent `shouldBe` genesisBlock
@@ -161,8 +168,8 @@ testFinalizeABlock = do
     forM_ blocks (`shouldSatisfy` flip elem [blockPtr2, blockPtr, genesisBlock])
     forM_ finRecs (`shouldSatisfy` flip elem [frec2, frec, genesisFr])
   -- check the blocktable
-  bs <- use (blockTable . at (bpHash blockPtr2))
-  liftIO $ bs `shouldBe` Just (Concordium.GlobalState.Persistent.TreeState.BlockFinalized 2)
+  bs <- use (blockTable . liveMap . at (bpHash blockPtr2))
+  liftIO $ bs `shouldBe` Nothing -- block finalized, so should not be in the in-memory block table anymore
   -- check that the parent and last finalized are the proper ones
   parent <- bpParent blockPtr2
   liftIO $ parent `shouldBe` blockPtr
@@ -193,8 +200,38 @@ testEmptyGS = do
       finalizationBlockPointer fr `shouldBe` gbh
     _ -> expectationFailure "Finalization record for genesis is missing"
 
+-- Tests for the dead block cache
+
+-- |Generate random block hashes.
+genBlockHashes :: Gen [BlockHash]
+genBlockHashes = do
+  len <- choose (700, 5000)
+  replicateM len (BlockHash . SHA256.Hash . FBS.pack <$> vector 32)
+
+-- |Construct a cache by inserting the list of blocks from left to right.
+constructCache :: [BlockHash] -> DeadCache
+constructCache = List.foldl' (flip insertDeadCache) emptyDeadCache
+
+-- |Test the following properties of the cache
+-- - the last 1000 inserted blocks are always there
+-- - the queue and the hashmap are consistent (same length and elements)
+-- - the size of the cache is bounded by 1000
+testDeadCache :: Property
+testDeadCache =
+    withMaxSuccess 1000 $
+        property $
+            forAll genBlockHashes $ \bhs ->
+                let dc = constructCache bhs
+                    lastThousand = drop (max 0 (length bhs - 1000)) bhs
+                 in HS.size (_dcHashes dc) === Seq.length (_dcQueue dc)
+                        .&&. Seq.length (_dcQueue dc) <= 1000
+                        .&&. all (`HS.member` _dcHashes dc) (_dcQueue dc)
+                        .&&. all (`memberDeadCache` dc) lastThousand
+
+
 tests :: Spec
 tests = do
   describe "GlobalState:PersistentTreeState" $ do
     specifyWithGS "empty gs wrote the genesis to disk" testEmptyGS
     specifyWithGS "finalize a block" testFinalizeABlock
+    it "Dead block cache" testDeadCache

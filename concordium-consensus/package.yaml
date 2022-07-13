@@ -56,6 +56,7 @@ dependencies:
 - file-embed >= 0.0.11
 - lmdb
 - lrucache
+- primitive
 
 default-extensions:
 - FlexibleContexts
@@ -326,6 +327,35 @@ tests:
     - temporary >= 1.3
 
 benchmarks:
+  trie:
+    main:                TrieBench.hs
+    source-dirs:         benchmarks/trie
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N1
+    - -Wall
+    - -Wcompat
+    - -fno-ignore-asserts
+    - -Wno-deprecations
+    when:
+      - condition: os(windows)
+        then:
+          ghc-options: -static
+        else:
+          when:
+            - condition: flag(dynamic)
+              then:
+                ghc-options: -dynamic
+              else:
+                ghc-options: -static
+    dependencies:
+    - concordium-consensus
+    - containers
+    - temporary >= 1.3
+    - criterion
+    - deepseq
+
   cache:
     main: ./haskell-bench/LRUCache.hs
     dependencies:

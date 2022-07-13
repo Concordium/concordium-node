@@ -15,7 +15,6 @@ import System.FilePath
 import System.IO
 
 import Concordium.GlobalState
-import Concordium.GlobalState.Paired
 import Concordium.GlobalState.Parameters
 import Concordium.Kontrol (currentTimestamp)
 import Concordium.MultiVersion

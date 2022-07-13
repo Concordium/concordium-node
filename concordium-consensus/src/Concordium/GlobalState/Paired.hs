@@ -1001,11 +1001,28 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
         case (bs1, bs2) of
             (Nothing, Nothing) -> return Nothing
             (Just (BlockAlive bp1), Just (BlockAlive bp2)) -> return $ Just (BlockAlive (PairBlockData (bp1, bp2)))
-            (Just BlockDead, Just BlockDead) -> return $ Just BlockDead
             (Just (BlockFinalized bp1 fr1), Just (BlockFinalized bp2 fr2)) ->
                 assertEq fr1 fr2 $ return $ Just $ BlockFinalized (PairBlockData (bp1, bp2)) fr1
             (Just (BlockPending pb1), Just (BlockPending pb2)) -> assertEq pb1 pb2 $ return $ Just (BlockPending pb1)
+            (Nothing, Just BlockDead) -> return Nothing
+            (Just BlockDead, Nothing) -> return Nothing
             _ -> error $ "getBlockStatus (Paired): block statuses do not match: " ++ show bs1 ++ ", " ++ show bs2
+
+    getRecentBlockStatus bh = do
+        bs1 <- coerceGSML $ getRecentBlockStatus bh
+        bs2 <- coerceGSMR $ getRecentBlockStatus bh
+        case (bs1, bs2) of
+            (Unknown, Unknown) -> return Unknown
+            (RecentBlock (BlockAlive bp1), RecentBlock (BlockAlive bp2)) -> return $ RecentBlock (BlockAlive (PairBlockData (bp1, bp2)))
+            (RecentBlock (BlockFinalized bp1 fr1), RecentBlock (BlockFinalized bp2 fr2)) ->
+                assertEq fr1 fr2 $ return $ RecentBlock $ BlockFinalized (PairBlockData (bp1, bp2)) fr1
+            (RecentBlock (BlockPending pb1), RecentBlock (BlockPending pb2)) -> assertEq pb1 pb2 $ return $ RecentBlock (BlockPending pb1)
+            (Unknown, RecentBlock BlockDead) -> return Unknown
+            (RecentBlock BlockDead, Unknown) -> return Unknown
+            (RecentBlock BlockDead, RecentBlock BlockDead) -> return Unknown
+            (OldFinalized, OldFinalized) -> return OldFinalized
+            _ -> error $ "getBlockStatus (Paired): block statuses do not match: " ++ show bs1 ++ ", " ++ show bs2
+
     makeLiveBlock pb (PairBlockData (parent1, parent2)) (PairBlockData (lf1, lf2)) (bs1, bs2) t e = do
         r1 <- coerceGSML $ makeLiveBlock pb parent1 lf1 bs1 t e
         r2 <- coerceGSMR $ makeLiveBlock pb parent2 lf2 bs2 t e
@@ -1022,9 +1039,9 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
     markPending pb = do
         coerceGSML $ markPending pb
         coerceGSMR $ markPending pb
-    markAllNonFinalizedDead  = do
-        coerceGSML markAllNonFinalizedDead
-        coerceGSMR markAllNonFinalizedDead
+    clearAllNonFinalizedBlocks  = do
+        coerceGSML clearAllNonFinalizedBlocks
+        coerceGSMR clearAllNonFinalizedBlocks
     getGenesisBlockPointer = do
         gen1 <- coerceGSML getGenesisBlockPointer
         gen2 <- coerceGSMR getGenesisBlockPointer
