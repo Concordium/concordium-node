@@ -3,12 +3,13 @@
 extern crate log;
 
 // Force the system allocator on every platform
-use futures::FutureExt;
-use std::{alloc::System, convert::identity};
+use futures::{stream::StreamExt, FutureExt};
+use std::{alloc::System, io::Write};
 #[global_allocator]
 static A: System = System;
 
 use anyhow::Context;
+use chrono::Utc;
 use concordium_node::{
     common::PeerType,
     configuration as config,
@@ -36,7 +37,7 @@ use concordium_node::{
 use mio::{net::TcpListener, Poll};
 use parking_lot::Mutex as ParkingMutex;
 use rand::Rng;
-use std::{io::Cursor, sync::Arc, thread::JoinHandle};
+use std::{sync::Arc, thread::JoinHandle};
 #[cfg(unix)]
 use tokio::signal::unix as unix_signal;
 #[cfg(windows)]
@@ -141,28 +142,42 @@ async fn main() -> anyhow::Result<()> {
 
     // Out-of-band catch-up
     if let Some(ref import_blocks_from) = conf.cli.baker.import_blocks_from {
-        let import_path =
-            data_dir_path.to_path_buf().join(concordium_node::configuration::CATCHUP_FILE);
-        let from = match Url::parse(import_blocks_from) {
-            Ok(import_url) => {
-                info!("Downloading catch-up files");
-                let res: Result<(), Box<dyn std::error::Error + Send + Sync>> = async {
-                    let mut file = std::fs::File::create(import_path.clone())?;
-                    let response = reqwest::get(import_url).await?;
-                    let mut content = Cursor::new(response.bytes().await?);
-                    std::io::copy(&mut content, &mut file)?;
-                    Ok(())
+        let from = if let Ok(import_url) = Url::parse(import_blocks_from) {
+            let default_filename = config::CATCHUP_FILE_BASENAME.to_owned()
+                + "_"
+                + &Utc::now().to_string()
+                + &config::CATCHUP_FILE_EXT;
+            let filename = import_url
+                .path_segments()
+                .and_then(|x| x.last())
+                .map(|x| x.to_string())
+                .unwrap_or(default_filename.clone());
+            let import_path = data_dir_path.to_path_buf().join(&filename);
+            let location_msg = if filename.eq(&default_filename) {
+                " to ".to_owned() + &import_path.display().to_string()
+            } else {
+                "".to_owned()
+            };
+            info!("Downloading the catch-up file from {}{}", import_url, location_msg);
+            let mut file = std::fs::File::create(&import_path)?;
+            let res: anyhow::Result<()> = async {
+                let mut stream = reqwest::get(import_url).await?.bytes_stream();
+                while let Some(bytes) = stream.next().await {
+                    let bytes = bytes?;
+                    file.write_all(&bytes)?;
                 }
-                .await;
-                match res {
-                    Ok(_) => import_path.to_str().map_or_else(|| import_blocks_from, identity),
-                    Err(_) => {
-                        info!("Downloading catch-up files failed");
-                        import_blocks_from
-                    }
+                Ok(())
+            }
+            .await;
+            match res {
+                Ok(()) => import_path.display().to_string(),
+                Err(e) => {
+                    error!("Downloading catch-up files failed: {}", e);
+                    import_blocks_from.to_string()
                 }
             }
-            Err(_) => import_blocks_from,
+        } else {
+            import_blocks_from.to_string()
         };
         info!("Starting out of band catch-up");
         consensus.import_blocks(from.as_bytes());
