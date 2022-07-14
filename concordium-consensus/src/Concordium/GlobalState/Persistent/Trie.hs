@@ -98,14 +98,16 @@ newtype Branches r = Branches
     }
     deriving (Show, Functor, Foldable, Traversable)
 
--- |Convert 'Branches' to a list. The list will have length 256.
+-- |Convert 'Branches' to a list. The list will have length 256 (i.e. the branching degree of
+-- the Trie).
 branchesToList :: Branches r -> [Nullable r]
 branchesToList = mkl 0 . Foldable.toList . theBranches
   where
     mkl n [] = replicate (256 - n) Null
     mkl n (BranchEntry i v : r) = replicate (fromIntegral i - n) Null ++ Some v : mkl (fromIntegral i + 1) r
 
--- |Convert a list to 'Branches'. The list MUST have length 256.
+-- |Convert a list to 'Branches'. The list MUST have length 256 (i.e. the branching degree of
+-- the Trie).
 branchesFromList :: [Nullable r] -> Branches r
 branchesFromList = Branches . Array.fromList . mkl 0
   where

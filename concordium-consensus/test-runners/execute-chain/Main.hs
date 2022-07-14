@@ -14,6 +14,7 @@ import System.FilePath
 import System.IO
 
 import Concordium.GlobalState
+import Concordium.GlobalState.Paired
 import Concordium.GlobalState.Parameters
 import Concordium.Kontrol (currentTimestamp)
 import Concordium.MultiVersion
@@ -42,11 +43,11 @@ main = do
     createDirectoryIfMissing True dataDir
     let config ::
             MultiVersionConfiguration
-                DiskTreeDiskBlockConfig
+                (PairGSConfig DiskTreeDiskBlockConfig MemoryTreeMemoryBlockConfig)
                 (NoFinalization ThreadTimer)
         config =
             MultiVersionConfiguration
-                { mvcStateConfig = DiskStateConfig dataDir,
+                { mvcStateConfig = (DiskStateConfig dataDir, ()),
                   mvcFinalizationConfig = NoFinalization,
                   mvcRuntimeParameters = defaultRuntimeParameters{rpTransactionsPurgingDelay = 0}
                 }
