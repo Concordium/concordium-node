@@ -63,7 +63,7 @@ data Accounts (pv :: ProtocolVersion) = Accounts {
     -- |Optional cached set of used 'ID.CredentialRegistrationID's
     accountRegIds :: !(Nullable (Map.Map ID.RawCredentialRegistrationID AccountIndex)),
     -- |Persisted representation of the map from registration ids to account indices.
-    accountRegIdHistory :: !(Trie.TrieN (BufferedBlobbed BlobRef) ID.RawCredentialRegistrationID AccountIndex)
+    accountRegIdHistory :: !(Trie.TrieN BufferedFix ID.RawCredentialRegistrationID AccountIndex)
 }
 
 -- |Convert a (non-persistent) 'Transient.Accounts' to a (persistent) 'Accounts'.

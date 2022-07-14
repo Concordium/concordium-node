@@ -40,13 +40,9 @@ import qualified Concordium.ID.Types as IDTypes
 
 import Concordium.GlobalState.Persistent.MonadicRecursive
 import Concordium.GlobalState.Persistent.BlobStore
-    ( cacheBufferedBlobbed,
-      BlobRef,
-      BlobStorable(..),
-      BufferedBlobbed,
+    ( BlobStorable(..),
       Cacheable(..),
       FixShowable(..),
-      MonadBlobStore,
       Nullable(..) )
 
 class FixedTrieKey a where
@@ -245,6 +241,10 @@ instance (BlobStorable m r, BlobStorable m (Nullable r), BlobStorable m v) => Bl
             r <- load
             return $! (Stem l <$> r)
 
+instance (Monad m, Cacheable m r, Cacheable m v) => Cacheable m (TrieF k v r) where
+    cache (Branch vec) = Branch <$> mapM cache vec
+    cache (Stem s r) = Stem s <$> cache r
+    cache (Tip v) = Tip <$> cache v
 
 -- |@Trie k v@ is defined as a simple fixed-point of @TrieF k v@.
 newtype Trie k v = Trie (TrieF k v (Trie k v)) deriving (Show)
@@ -605,9 +605,6 @@ toMap :: (MRecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, Fi
 toMap EmptyTrieN = return Map.empty
 toMap (TrieN _ t) = mapReduceF (\k v -> return (Map.singleton k v)) t
 
-instance (MonadBlobStore m, BlobStorable m v, Cacheable m v) => Cacheable m (TrieN (BufferedBlobbed BlobRef) k v) where
+instance (BlobStorable m v, Cacheable m (fix (TrieF k v))) => Cacheable m (TrieN fix k v) where
     cache t@EmptyTrieN = return t
-    cache (TrieN s t) = TrieN s <$> cacheBufferedBlobbed innerCache t
-        where
-            innerCache (Tip v) = Tip <$> cache v
-            innerCache r = return r
+    cache (TrieN s t) = TrieN s <$> cache t
