@@ -504,12 +504,15 @@ data BufferedRef a
     -- That way, when we store the same instance again on disk (this could be, e.g., a child block
     -- that inherited its parent's state) we can store the pointer to the 'brValue' data rather than
     -- storing all of the data again.
+    | BRBoth {brRef :: !(BlobRef a), brValue :: !a}
+    -- ^Value stored in memory and on disk.
 
 -- |Coerce one buffered ref to another. This is unsafe unless a and b have compatible
 -- blobstorable instances.
 unsafeCoerceBufferedRef :: (a -> b) -> BufferedRef a -> BufferedRef b
 unsafeCoerceBufferedRef _ (BRBlobbed br) = BRBlobbed (coerce br)
 unsafeCoerceBufferedRef f (BRMemory ioref val) = BRMemory (coerce ioref) (f val)
+unsafeCoerceBufferedRef f (BRBoth br val) = BRBoth (coerce br) (f val)
 
 -- | Create a @BRMemory@ value in a @MonadIO@ context with the provided values
 makeBRMemory :: MonadIO m => (BlobRef a) -> a -> m (BufferedRef a)
@@ -524,6 +527,7 @@ makeBufferedRef = makeBRMemory refNull
 instance Show a => Show (BufferedRef a) where
   show (BRBlobbed r) = show r
   show (BRMemory _ v) = "{" ++ show v ++ "}"
+  show (BRBoth r v) = "{" ++ show v ++ "}@" ++ show r
 
 instance BlobStorable m a => BlobStorable m (BufferedRef a) where
     store b = getBRRef b >>= store
@@ -534,7 +538,7 @@ instance BlobStorable m a => BlobStorable m (BufferedRef a) where
         then do
             (r' :: BlobRef a, v') <- storeUpdateRef v
             liftIO . writeIORef ref $! r'
-            (,BRMemory ref v') <$> store r'
+            (,BRBoth r' v') <$> store r'
         else (,brm) <$> store brm
     storeUpdate x = (,x) <$> store x
 
@@ -549,6 +553,7 @@ getBRRef (BRMemory ref v) = do
         return r'
     else
         return r
+getBRRef (BRBoth r _) = return r
 getBRRef (BRBlobbed r) = return r
 
 instance BlobStorable m a => BlobStorable m (Nullable (BufferedRef a)) where
@@ -586,11 +591,13 @@ instance (Monad m, BlobStorable m a) => Reference m BufferedRef a where
 
   refLoad (BRBlobbed ref) = loadRef ref
   refLoad (BRMemory _ v) = return v
+  refLoad (BRBoth _ v) = return v
 
   refCache (BRBlobbed ref) = do
     v <- loadRef ref
-    (v,) <$> makeBRMemory ref v
+    return (v, BRBoth ref v)
   refCache r@(BRMemory _ v) = return (v, r)
+  refCache r@(BRBoth _ v) = return (v, r)
 
   refFlush brm@(BRMemory ref v) = do
     r <- liftIO $ readIORef ref
@@ -598,11 +605,12 @@ instance (Monad m, BlobStorable m a) => Reference m BufferedRef a where
       then do
         (r' :: BlobRef a, v') <- storeUpdateRef v
         liftIO . writeIORef ref $! r'
-        return (BRMemory ref v', r')
+        return (BRBoth r' v', r')
       else return (brm, r)
   refFlush b = return (b, brRef b)
 
   refUncache v@(BRMemory _ _) = BRBlobbed <$> getBRRef v
+  refUncache (BRBoth r _) = return $ BRBlobbed r
   refUncache b = return b
   {-# INLINE refFlush #-}
   {-# INLINE refLoad #-}
@@ -693,6 +701,7 @@ class FixShowable fix where
 instance FixShowable BufferedFix where
     showFix _ (BufferedFix (BRBlobbed r)) = show r
     showFix sh (BufferedFix (BRMemory _ v)) = sh (showFix sh <$> v)
+    showFix sh (BufferedFix (BRBoth _ v)) = sh (showFix sh <$> v)
 
 instance (Functor m, BlobStorable m (f (BufferedFix f)), Cacheable m (f (BufferedFix f))) => Cacheable m (BufferedFix f) where
     cache = fmap BufferedFix . cache . unBF
@@ -860,11 +869,13 @@ instance (Applicative m, Cacheable m a) => Cacheable m (JustForCPV1 cpv a) where
 instance (BlobStorable m a, Cacheable m a) => Cacheable m (BufferedRef a) where
     cache BRBlobbed{..} = do
         brValue <- cache =<< loadRef brRef
-        brIORef <- liftIO $ newIORef brRef
-        return BRMemory{..}
+        return BRBoth{..}
     cache br@BRMemory{..} = do
         cachedVal <- cache brValue
-        return br{brValue = cachedVal}
+        return $! br{brValue = cachedVal}
+    cache br@BRBoth{..} = do
+        cachedVal <- cache brValue
+        return $! br{brValue = cachedVal}
 
 instance (MHashableTo m h a, BlobStorable m a, Cacheable m a) => Cacheable m (HashedBufferedRef' h a) where
   cache (HashedBufferedRef ref Nothing) = do
