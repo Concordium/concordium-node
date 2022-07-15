@@ -44,7 +44,7 @@ import Data.Functor.Foldable
 import Control.Monad.Reader.Class
 import Control.Monad.Trans.Writer.Strict (WriterT)
 import Control.Monad.Trans.State.Strict (StateT)
-import Control.Monad.Trans.Reader (ReaderT, runReaderT)
+import Control.Monad.Trans.Reader (ReaderT(..))
 import Control.Monad.Trans.Except (ExceptT)
 import Control.Monad.Trans
 import System.Directory
@@ -197,7 +197,7 @@ destroyBlobStore bs@BlobStore{..} = do
 -- The given FilePath is a directory where the temporary blob
 -- store will be created.
 -- The blob store file is deleted afterwards.
-runBlobStoreTemp :: FilePath -> ReaderT BlobStore IO a -> IO a
+runBlobStoreTemp :: FilePath -> BlobStoreM a -> IO a
 runBlobStoreTemp dir a = bracket openf closef usef
     where
         openf = openBinaryTempFile dir "blb.dat"
@@ -209,7 +209,7 @@ runBlobStoreTemp dir a = bracket openf closef usef
             mmap <- newIORef BS.empty
             let bscBlobStore = BlobStoreAccess mv fp mmap
             (bscLoadCallback, bscStoreCallback) <- mkCallbacksFromBlobStore bscBlobStore
-            res <- runReaderT a BlobStore{..}
+            res <- runBlobStoreM a BlobStore{..}
             _ <- takeMVar mv
             freeCallbacks bscLoadCallback bscStoreCallback
             return res
@@ -325,7 +325,14 @@ instance HasBlobStore BlobStore where
   blobLoadCallback = bscLoadCallback
   blobStoreCallback = bscStoreCallback
 
-instance MonadBlobStore (ReaderT BlobStore IO)
+-- |A simple monad implementing 'MonadBlobStore' that is equivalent to
+-- @ReaderT BlobStore IO@.
+newtype BlobStoreM a = BlobStoreM {runBlobStoreM :: BlobStore -> IO a}
+    deriving
+        (Functor, Applicative, Monad, MonadReader BlobStore, MonadIO, MonadFail)
+        via (ReaderT BlobStore IO)
+
+instance MonadBlobStore BlobStoreM
 
 -- |A wrapper type for lifting 'MonadBlobStore' instances over monad transformers.
 -- Lifted instances are provided for 'WriterT', 'StateT' and 'ExceptT', which are used for
@@ -353,12 +360,11 @@ deriving via (LiftMonadBlobStore (ExceptT e) m)
     instance MonadBlobStore m => MonadBlobStore (ExceptT e m)
 
 -- |This instance lifts a 'MonadBlobStore' over a 'ReaderT' transformer.
--- It is overlapped by the instance for @ReaderT BlobStore IO@ that uses
--- the 'BlobStore' to provide the instance instead. This overlap should
--- not be problematic, since there should be no 'MonadBlobStore' instance
--- for 'IO'.
+-- This is used to implement a 'Cacheable' instance for the persistent
+-- 'Concordium.GlobalState.Persistent.Instances' type, which requires
+-- makes use of a context to achieve sharing.
 deriving via (LiftMonadBlobStore (ReaderT r) m)
-    instance {-# OVERLAPPABLE #-} MonadBlobStore m => MonadBlobStore (ReaderT r m)
+    instance MonadBlobStore m => MonadBlobStore (ReaderT r m)
 
 -- |The @BlobStorable m a@ class defines how a value
 -- of type @a@ may be stored in monad @m@.
@@ -661,6 +667,19 @@ instance (BlobStorable m a, BlobStorable m b, MHashableTo m H.Hash a) => BlobSto
     return (r, Some v')
 
 -- |'BufferedFix' is a fixed-point combinator that uses a 'BufferedRef'.
+-- This is used for constructing a recursive type from a type constructor.
+-- For instance, given
+--
+-- > data BinaryTree r = Branch r r | Leaf
+--
+-- the type @BufferedFix BinaryTree@ describes is effectively equivalent to
+-- @BufferedRef BinaryTree'@ with @BinaryTree'@ defined as
+--
+-- > data BinaryTree' = Branch (BufferedRef BinaryTree') (BufferedRef BinaryTree') | Leaf
+--
+-- The use of fixed point combinators such as this allows us to implement recursive
+-- datastructures independently of how the recursion is handled (e.g. via 'BufferedRef'
+-- as in this case, or without refrences as with 'Fix').
 newtype BufferedFix f = BufferedFix {unBF :: BufferedRef (f (BufferedFix f))}
 
 type instance Base (BufferedFix f) = f

@@ -9,10 +9,9 @@
 module Main where
 
 import Control.DeepSeq
-import Control.Monad.Reader
+import Control.Monad
 import Criterion
 import Criterion.Main
-import Data.Maybe
 import System.IO.Temp
 import System.Random
 
@@ -44,7 +43,7 @@ testPersistentAccountMap :: Int -> IO (BlobStore, AM.PersistentAccountMap 'P4)
 testPersistentAccountMap n = do
     tempBlobStoreFile <- emptySystemTempFile "blb.dat"
     bs <- loadBlobStore tempBlobStoreFile
-    !pam <- flip runReaderT bs $ do
+    !pam <- flip runBlobStoreM bs $ do
         pam0 <- foldM (flip $ uncurry AM.insert) AM.empty (accounts n)
         snd <$> storeUpdate pam0
     return (bs, pam)
@@ -84,7 +83,7 @@ benchPersistent n = envWithCleanup (testPersistentAccountMap n) cleanupPersisten
     let testAccount x xres = env (pure (testAccountAddress x)) $ \addr ->
             bench ("Account" ++ show x) $
                 whnfIO $ do
-                    res <- runReaderT (AM.lookup addr pam) bs
+                    res <- runBlobStoreM (AM.lookup addr pam) bs
                     return $! res == xres
      in bgroup
             ("lookupPersistent" ++ show n)

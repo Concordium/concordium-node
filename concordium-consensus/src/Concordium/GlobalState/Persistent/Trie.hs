@@ -208,6 +208,13 @@ instance (Serialize r, Serialize (Nullable r), Serialize v) => Serialize (TrieF 
                     return (fromIntegral (v - 3))
             Stem <$> getShortByteString len <*> get
 
+-- |The 'BlobStorable' format for 'TrieF' uses a single-byte tag that determines the constructor
+-- and, in the 'Stem' case, may also encode information about the length.
+-- In the 'Branch' case, the branches are represented as a list of 256 entries, some of which
+-- may be null. While a more efficient representation would be possible where there are fewer
+-- entries, currently this is not done to preserve compatibility.
+-- TODO: Since all the keys we use are shorter than 251, we can repurpose higher tag numbers to
+-- support more efficient branch representations.
 instance (BlobStorable m r, BlobStorable m (Nullable r), BlobStorable m v) => BlobStorable m (TrieF k v r) where
     storeUpdate (Branch vec) = do
         pvec <- mapM storeUpdate (branchesToList vec)
