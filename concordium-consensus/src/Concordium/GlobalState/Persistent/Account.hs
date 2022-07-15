@@ -361,7 +361,6 @@ instance forall m av. (MonadBlobStore m, IsAccountVersion av) => BlobStorable m 
         su0 (PersistentAccountStakeBaker bkrref) = do
           (r, bkrref') <- storeUpdate bkrref
           return (r, PersistentAccountStakeBaker bkrref')
-        su0 (PersistentAccountStakeDelegate _) = error "Account cannot delegate in AccountV0 state"
         su1 :: PersistentAccountStake 'AccountV1 -> m (Put, PersistentAccountStake 'AccountV1)
         su1 pas@PersistentAccountStakeNone = return (putWord8 0, pas)
         su1 (PersistentAccountStakeBaker bkrref) = do
@@ -393,7 +392,7 @@ loadAccountStake (PersistentAccountStakeBaker bkr) = AccountStakeBaker <$> (load
 loadAccountStake (PersistentAccountStakeDelegate dlg) = AccountStakeDelegate <$> refLoad dlg
 
 
-instance (MonadBlobStore m, IsAccountVersion av) => Cacheable m (PersistentAccountStake av) where
+instance (MonadBlobStore m) => Cacheable m (PersistentAccountStake av) where
     cache pasn@PersistentAccountStakeNone = return pasn
     cache (PersistentAccountStakeBaker b) = PersistentAccountStakeBaker <$> cache b
     cache (PersistentAccountStakeDelegate d) = PersistentAccountStakeDelegate <$> cache d

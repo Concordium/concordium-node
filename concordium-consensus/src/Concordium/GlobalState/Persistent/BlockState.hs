@@ -23,7 +23,8 @@ module Concordium.GlobalState.Persistent.BlockState (
     emptyBlockState,
     PersistentBlockStateContext(..),
     PersistentState,
-    PersistentBlockStateMonad(..)
+    PersistentBlockStateMonad(..),
+    withNewAccountCache
 ) where
 
 import Data.Serialize
@@ -2633,6 +2634,10 @@ instance HasBlobStore (PersistentBlockStateContext av) where
 instance AccountVersionFor pv ~ av => Cache.HasCache (Accounts.AccountCache av) (PersistentBlockStateContext pv) where
   projectCache = pbscCache
 
+withNewAccountCache :: (MonadIO m) => Int -> BlobStoreT (PersistentBlockStateContext pv) m a -> BlobStoreT BlobStore m a
+withNewAccountCache size bsm = do
+    ac <- liftIO $ Accounts.newAccountCache size
+    alterBlobStoreT (flip PersistentBlockStateContext ac) bsm
 
 newtype PersistentBlockStateMonad (pv :: ProtocolVersion) r m a = PersistentBlockStateMonad {runPersistentBlockStateMonad :: m a}
     deriving (Functor, Applicative, Monad, MonadIO, MonadReader r, MonadLogger)

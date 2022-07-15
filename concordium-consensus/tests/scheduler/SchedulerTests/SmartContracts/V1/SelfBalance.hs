@@ -136,7 +136,7 @@ checkSuccess msg expectBefore expectAfter icr = liftIO $
 
 runTransferTests :: Assertion
 runTransferTests = do
-  runBlobStoreTemp "." . runPersistentBlockStateMonad $ do
+  runBlobStoreTemp "." . withNewAccountCache 10_000 . runPersistentBlockStateMonad $ do
     initState <- thawBlockState =<< initialBlockState
     (mod1, bsWithMod) <- deployModule1 initState
     (addr1, stateWithContract1) <- initContract1 bsWithMod mod1

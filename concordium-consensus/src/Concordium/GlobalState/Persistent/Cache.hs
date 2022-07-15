@@ -7,6 +7,9 @@ module Concordium.GlobalState.Persistent.Cache where
 import Control.Concurrent.MVar
 import Control.Monad.IO.Class
 import Control.Monad.Reader
+import Control.Monad.State.Strict
+import Control.Monad.Writer.Strict ( WriterT )
+import Control.Monad.Except (ExceptT)
 import qualified Data.Cache.LRU.IO as LRU
 import qualified Data.IntMap.Strict as IntMap
 import Data.IORef
@@ -14,11 +17,9 @@ import Data.Proxy
 import qualified Data.Vector.Mutable as Vec
 import Data.Word (Word64)
 
-import Concordium.GlobalState.Persistent.BlobStore (BlobRef (..))
-import Control.Monad.State.Strict
-import Control.Monad.Writer.Strict
-import Control.Monad.Except (ExceptT)
 import Concordium.Utils.Serialization.Put (PutT)
+
+import Concordium.GlobalState.Persistent.BlobStore (BlobRef (..), BlobStoreT)
 
 class HasCache cache r where
   projectCache :: r -> cache
@@ -38,6 +39,9 @@ instance (MonadCache c m) => MonadCache c (ExceptT e m) where
   getCache = lift getCache
 
 instance (MonadIO m, HasCache c r) => MonadCache c (ReaderT r m) where
+  getCache = asks projectCache
+
+instance (HasCache c r, MonadIO m) => MonadCache c (BlobStoreT r m) where
   getCache = asks projectCache
 
 instance (MonadCache c m) => MonadCache c (PutT m) where

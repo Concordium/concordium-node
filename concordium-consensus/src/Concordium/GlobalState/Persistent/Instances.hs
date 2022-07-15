@@ -490,7 +490,7 @@ data Instances pv
     -- |The empty instance table
     = InstancesEmpty
     -- |A non-empty instance table (recording the size)
-    | InstancesTree !Word64 !(BufferedBlobbed BlobRef (IT pv))
+    | InstancesTree !Word64 !(BufferedFix (IT pv))
 
 instance Show (Instances pv) where
     show InstancesEmpty = "Empty"
@@ -514,14 +514,17 @@ instance (IsProtocolVersion pv, MonadBlobStore m) => BlobStorable m (Instances p
             s <- get
             fmap (InstancesTree s) <$> load
 
+instance (MonadBlobStore m, Cacheable m r, Cacheable m (PersistentInstance pv)) => Cacheable m (IT pv r) where
+    cache Branch{..} = do
+        branchLeft' <- cache branchLeft
+        branchRight' <- cache branchRight
+        return Branch {branchLeft = branchLeft', branchRight = branchRight', ..}
+    cache (Leaf l) = Leaf <$> cache l
+    cache vacant = return vacant
+
 instance (IsProtocolVersion pv, MonadBlobStore m) => Cacheable (ReaderT Modules m) (Instances pv) where
     cache i@InstancesEmpty = return i
-    cache (InstancesTree s r) = do
-        modules <- ask
-        let cacheIT :: IT pv r -> m (IT pv r)
-            cacheIT (Leaf l) = Leaf <$> runReaderT (cache l) modules
-            cacheIT it = return it
-        lift (InstancesTree s <$> cacheBufferedBlobbed cacheIT r)
+    cache (InstancesTree s r) = InstancesTree s <$> cache r
             
 
 emptyInstances :: Instances pv
@@ -621,13 +624,13 @@ makePersistent :: forall m pv. MonadBlobStore m => Modules.Modules -> Transient.
 makePersistent _ (Transient.Instances Transient.Empty) = return InstancesEmpty
 makePersistent mods (Transient.Instances (Transient.Tree s t)) = InstancesTree s <$> conv t
     where
-        conv :: Transient.IT -> m (BufferedBlobbed BlobRef (IT pv))
+        conv :: Transient.IT -> m (BufferedFix (IT pv))
         conv (Transient.Branch lvl fll vac hsh l r) = do
             l' <- conv l
             r' <- conv r
-            makeBufferedBlobbed (Branch lvl fll vac hsh l' r')
-        conv (Transient.Leaf i) = convInst i >>= makeBufferedBlobbed . Leaf
-        conv (Transient.VacantLeaf si) = makeBufferedBlobbed (VacantLeaf si)
+            membed (Branch lvl fll vac hsh l' r')
+        conv (Transient.Leaf i) = convInst i >>= membed . Leaf
+        conv (Transient.VacantLeaf si) = membed (VacantLeaf si)
         convInst (Transient.InstanceV0 Transient.InstanceV {_instanceVParameters=Transient.InstanceParameters{..},
                                                             _instanceVModel=Transient.InstanceStateV0 transientModel,..}) = do
             pIParams <- makeBufferedRef $ PersistentInstanceParameters{

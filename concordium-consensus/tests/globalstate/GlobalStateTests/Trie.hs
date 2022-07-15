@@ -50,12 +50,12 @@ tests :: Spec
 tests = describe "GlobalStateTests.Trie" $ do
     it "simple test" $
         runBlobStoreTemp "." $ do
-            let e = Trie.empty :: Trie.TrieN (BufferedBlobbed BlobRef) Word64 (SerializeStorable String)
+            let e = Trie.empty :: Trie.TrieN BufferedFix Word64 (SerializeStorable String)
             e0 <- Trie.insert 27 (SerStore "Hello") e
             e1 <- Trie.insert 13 (SerStore "World") e0
             (p, _e2) <- storeUpdate e1
             let (Right me2') = runGet load (runPut p)
-            (e2' :: Trie.TrieN (CachedBlobbed BlobRef) Word64 (SerializeStorable String)) <- me2'
+            (e2' :: Trie.TrieN BufferedFix Word64 (SerializeStorable String)) <- me2'
             r <- Trie.lookup 27 e2'
             liftIO $ r `shouldBe` Just (SerStore "Hello")
     it "branchesFromToList" $ withMaxSuccess 10000 testBranchesFromToList

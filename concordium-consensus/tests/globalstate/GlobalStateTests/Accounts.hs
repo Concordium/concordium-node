@@ -20,14 +20,13 @@ import qualified Concordium.GlobalState.Persistent.LFMBTree as L
 import Concordium.GlobalState.DummyData
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.BlockState (PersistentBlockStateContext(..))
-import Concordium.GlobalState.Persistent.Cache (MonadCache, newFIFOCache)
+import Concordium.GlobalState.Persistent.Cache (MonadCache)
 import Concordium.ID.DummyData
 import qualified Concordium.ID.Types as ID
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Control.Exception (bracket)
 import Control.Monad hiding (fail)
-import Control.Monad.Trans.Reader
 import Data.Either
 import qualified Data.FixedByteString as FBS
 import qualified Data.Map.Strict as OrdMap
@@ -192,8 +191,8 @@ randomActions = sized (ra Set.empty Map.empty)
 makePureAccount :: forall m av. (MonadBlobStore m, IsAccountVersion av) => PA.PersistentAccount av -> m (Account av)
 makePureAccount PA.PersistentAccount {..} = do
   (_accountPersisting :: AccountPersisting) <- makeHashed <$> refLoad _persistingData
-  _accountEncryptedAmount <- PA.loadPersistentAccountEncryptedAmount =<< loadBufferedRef _accountEncryptedAmount
-  _accountReleaseSchedule <- PA.loadPersistentAccountReleaseSchedule =<< loadBufferedRef _accountReleaseSchedule
+  _accountEncryptedAmount <- PA.loadPersistentAccountEncryptedAmount =<< refLoad _accountEncryptedAmount
+  _accountReleaseSchedule <- PA.loadPersistentAccountReleaseSchedule =<< refLoad _accountReleaseSchedule
   _accountStaking <- PA.loadAccountStake _accountStake
   return Account {..}
 
@@ -250,13 +249,13 @@ runAccountAction (RecordRegId rid ai) (ba, pa) = do
 emptyTest :: SpecWith (PersistentBlockStateContext PV)
 emptyTest =
   it "empty" $
-    runReaderT
-      (checkEquivalent B.emptyAccounts P.emptyAccounts :: ReaderT (PersistentBlockStateContext PV) IO ())
+    runBlobStoreM
+      (checkEquivalent B.emptyAccounts P.emptyAccounts :: BlobStoreM' (PersistentBlockStateContext PV) ())
 
 actionTest :: Word -> SpecWith (PersistentBlockStateContext PV)
 actionTest lvl = it "account actions" $ \bs -> withMaxSuccess (100 * fromIntegral lvl) $ property $ do
   acts <- randomActions
-  return $ ioProperty $ flip runReaderT bs $ do
+  return $ ioProperty $ flip runBlobStoreM bs $ do
     (ba, pa) <- foldM (flip runAccountAction) (B.emptyAccounts, P.emptyAccounts) acts
     checkEquivalent ba pa
 
@@ -266,7 +265,7 @@ tests lvl = describe "GlobalStateTests.Accounts" $
                       withTempDirectory "." "blockstate" $ \dir -> bracket
                         (do
                           pbscBlobStore <- createBlobStore (dir </> "blockstate.dat")
-                          pbscCache <- newFIFOCache 100
+                          pbscCache <- P.newAccountCache 100
                           return PersistentBlockStateContext {..}
                         )
                         (closeBlobStore . pbscBlobStore)

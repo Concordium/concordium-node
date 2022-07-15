@@ -55,7 +55,7 @@ type PV = 'P1
 
 type GlobalStateIO c g = GlobalStateM PV c c g g (RWST c () g LogIO)
 
-type TestM = GlobalStateIO (PBS.PersistentBlockStateContext PV) (SkovPersistentData PV () (PBS.HashedPersistentBlockState PV))
+type TestM = GlobalStateIO (PBS.PersistentBlockStateContext PV) (SkovPersistentData PV (PBS.HashedPersistentBlockState PV))
 
 type Test = TestM ()
 

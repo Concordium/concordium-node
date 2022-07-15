@@ -47,7 +47,6 @@ import qualified Data.Map.Strict as Map
 import Data.Word
 import Data.Functor.Foldable (Base)
 import Data.Bifunctor
-import qualified Data.ByteString.Short as SBS
 import Data.Maybe
 import Control.Monad.Identity
 
@@ -67,7 +66,7 @@ newtype AccountMap (pv :: ProtocolVersion) fix = AccountMap {
   }
 
 -- |The account map to be used in the persistent block state.
-type PersistentAccountMap pv = AccountMap pv (BufferedBlobbed BlobRef)
+type PersistentAccountMap pv = AccountMap pv BufferedFix
 
 -- |The account map that is purely in memory and used in the basic block state.
 type PureAccountMap pv = AccountMap pv Fix
@@ -102,7 +101,7 @@ empty :: AccountMap pv fix
 empty = AccountMap Trie.empty
 
 mkPrefix :: AccountAddress -> [Word8]
-mkPrefix = take accountAddressPrefixSize . SBS.unpack . Trie.unpackKey
+mkPrefix = take accountAddressPrefixSize . Trie.unpackKey
 
 -- |Retrieve the account index for the given address if the address exists.
 -- The semantics of this method depends on the protocol version.
