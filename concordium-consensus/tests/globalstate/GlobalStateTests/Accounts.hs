@@ -25,7 +25,6 @@ import Concordium.Types
 import Concordium.Types.HashableTo
 import Control.Exception (bracket)
 import Control.Monad hiding (fail)
-import Control.Monad.Trans.Reader
 import Data.Either
 import qualified Data.FixedByteString as FBS
 import qualified Data.Map.Strict as OrdMap
@@ -248,13 +247,13 @@ runAccountAction (RecordRegId rid ai) (ba, pa) = do
 emptyTest :: SpecWith BlobStore
 emptyTest =
   it "empty" $
-    runReaderT
-      (checkEquivalent B.emptyAccounts P.emptyAccounts :: ReaderT BlobStore IO ())
+    runBlobStoreM
+      (checkEquivalent B.emptyAccounts P.emptyAccounts :: BlobStoreM ())
 
 actionTest :: Word -> SpecWith BlobStore
 actionTest lvl = it "account actions" $ \bs -> withMaxSuccess (100 * fromIntegral lvl) $ property $ do
   acts <- randomActions
-  return $ ioProperty $ flip runReaderT bs $ do
+  return $ ioProperty $ flip runBlobStoreM bs $ do
     (ba, pa) <- foldM (flip runAccountAction) (B.emptyAccounts, P.emptyAccounts) acts
     checkEquivalent ba pa
 

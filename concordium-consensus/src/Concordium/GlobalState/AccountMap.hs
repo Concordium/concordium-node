@@ -66,7 +66,7 @@ newtype AccountMap (pv :: ProtocolVersion) fix = AccountMap {
   }
 
 -- |The account map to be used in the persistent block state.
-type PersistentAccountMap pv = AccountMap pv (BufferedBlobbed BlobRef)
+type PersistentAccountMap pv = AccountMap pv BufferedFix
 
 -- |The account map that is purely in memory and used in the basic block state.
 type PureAccountMap pv = AccountMap pv Fix

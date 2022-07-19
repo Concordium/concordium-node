@@ -180,9 +180,9 @@ makePersistentEpochBakers ebs = do
     let _bakerTotalStake = Basic._bakerTotalStake ebs
     return PersistentEpochBakers{..}
 
-type DelegatorIdTrieSet = Trie.TrieN (BufferedBlobbed BlobRef) DelegatorId ()
+type DelegatorIdTrieSet = Trie.TrieN BufferedFix DelegatorId ()
 
-type BakerIdTrieMap av = Trie.TrieN (BufferedBlobbed BlobRef) BakerId (PersistentActiveDelegators av)
+type BakerIdTrieMap av = Trie.TrieN BufferedFix BakerId (PersistentActiveDelegators av)
 
 -- |The set of delegators to a particular pool.
 -- For 'AccountV0', delegation is not supported, and this is essentially the unit type.
@@ -253,7 +253,7 @@ subtractActiveCapital amt0 (TotalActiveCapitalV1 amt1) = TotalActiveCapitalV1 $ 
 tacAmount :: Lens' (TotalActiveCapital 'AccountV1) Amount
 tacAmount f (TotalActiveCapitalV1 amt) = TotalActiveCapitalV1 <$> f amt
 
-type AggregationKeySet = Trie.TrieN (BufferedBlobbed BlobRef) BakerAggregationVerifyKey ()
+type AggregationKeySet = Trie.TrieN BufferedFix BakerAggregationVerifyKey ()
 
 data PersistentActiveBakers (av :: AccountVersion) = PersistentActiveBakers {
     _activeBakers :: !(BakerIdTrieMap av),
