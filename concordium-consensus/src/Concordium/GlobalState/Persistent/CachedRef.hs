@@ -97,15 +97,11 @@ instance Show a => Show (CachedRef c a) where
     show (CRRef r) = show r
     show (CRMem v) = show v
 
-instance (MonadCache c m, BlobStorable m a, Cache c, CacheKey c ~ BlobRef a, CacheValue c ~ a, Cacheable m a) => Cacheable m (CachedRef c a) where
-    cache cr@CRRef{..} = do
-        val <-
-            lookupCachedValue (Proxy @c) crRef >>= \case
-                Nothing -> loadRef crRef
-                Just val -> return val
-        _ <- putCachedValue (Proxy @c) crRef =<< cache val
-        return cr
-    cache CRMem{..} = CRMem <$> cache crMem
+-- |We do nothing to cache a 'CachedRef'. Since 'cache' is generally used to cache the entire
+-- global state, it is generally undesirable to load every 'CachedRef' into the cache, as this
+-- can result in evictions and wasted effort if the chache size is insufficient.
+instance (Applicative m) => Cacheable m (CachedRef c a) where
+    cache = pure
 
 -- |A 'CachedRef', possibly accompanied by a hash.
 data HashedCachedRef' h c a = HashedCachedRef
@@ -192,19 +188,13 @@ instance
 instance Show a => Show (HashedCachedRef c a) where
     show ref = show (cachedRef ref)
 
+-- |See the implementation for 'CachedRef'.
 instance
-    ( MonadCache c m,
-      BlobStorable m a,
-      Cache c,
-      CacheKey c ~ BlobRef a,
-      CacheValue c ~ a,
-      Cacheable m a
+    ( Applicative m
     ) =>
     Cacheable m (HashedCachedRef' h c a)
     where
-    cache HashedCachedRef{..} = do
-        ref' <- cache cachedRef
-        return HashedCachedRef{cachedRef = ref', ..}
+    cache = pure
 
 -- |A 'CachedRef' with a hash that is eagerly computed.
 data EagerlyHashedCachedRef' h c a = EagerlyHashedCachedRef
@@ -272,16 +262,10 @@ instance
             ehHash <- getHashM ehCachedRef
             return EagerlyHashedCachedRef{..}
 
+-- |See implementation for 'CachedRef'.
 instance
-    ( MonadCache c m,
-      BlobStorable m a,
-      Cache c,
-      CacheKey c ~ BlobRef a,
-      CacheValue c ~ a,
-      Cacheable m a
+    ( Applicative m
     ) =>
     Cacheable m (EagerlyHashedCachedRef' h c a)
     where
-    cache EagerlyHashedCachedRef{..} = do
-        ref' <- cache ehCachedRef
-        return EagerlyHashedCachedRef{ehCachedRef = ref', ..}
+    cache = pure
