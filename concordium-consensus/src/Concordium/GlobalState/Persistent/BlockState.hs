@@ -139,7 +139,7 @@ instance (MonadBlobStore m, IsAccountVersion av) => BlobStorable m (PersistentBi
                 pnebs
                 pcebs
                 put _birkSeedState
-        return (putBSP, bps {
+        return $!! (putBSP, bps {
                     _birkActiveBakers = actBakers,
                     _birkNextEpochBakers = nextBakers,
                     _birkCurrentEpochBakers = currentBakers
@@ -194,7 +194,7 @@ instance (MonadBlobStore m) => BlobStorable m EpochBlock where
         (ppref, ebPrevious') <- storeUpdate ebPrevious
         let putEB = put ebBakerId >> ppref
         let eb' = eb{ebPrevious = ebPrevious'}
-        return (putEB, eb')
+        return $!! (putEB, eb')
     store eb = fst <$> storeUpdate eb
     load = do
         ebBakerId <- get
@@ -226,7 +226,7 @@ instance HashableTo Rewards.EpochBlocksHash HashedEpochBlocks where
 instance MonadBlobStore m => BlobStorable m HashedEpochBlocks where
     storeUpdate heb = do
         (pblocks, blocks') <- storeUpdate (hebBlocks heb)
-        return (pblocks, heb{hebBlocks = blocks'})
+        return $!! (pblocks, heb{hebBlocks = blocks'})
     store = store . hebBlocks
     load = do
         mhebBlocks <- load
@@ -2867,7 +2867,7 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage 
 
     saveBlockState HashedPersistentBlockState{..} = do
         inner <- liftIO $ readIORef hpbsPointers
-        (inner', ref) <- flushBufferedRef inner
+        (!inner', !ref) <- flushBufferedRef inner
         liftIO $ writeIORef hpbsPointers inner'
         flushStore
         return ref

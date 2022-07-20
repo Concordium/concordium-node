@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -359,15 +360,15 @@ instance forall m av. (MonadBlobStore m, IsAccountVersion av) => BlobStorable m 
         su0 :: PersistentAccountStake 'AccountV0 -> m (Put, PersistentAccountStake 'AccountV0)
         su0 pas@PersistentAccountStakeNone = return (put (refNull :: BlobRef (PersistentAccountBaker av)), pas)
         su0 (PersistentAccountStakeBaker bkrref) = do
-          (r, bkrref') <- storeUpdate bkrref
+          (!r, !bkrref') <- storeUpdate bkrref
           return (r, PersistentAccountStakeBaker bkrref')
         su1 :: PersistentAccountStake 'AccountV1 -> m (Put, PersistentAccountStake 'AccountV1)
         su1 pas@PersistentAccountStakeNone = return (putWord8 0, pas)
         su1 (PersistentAccountStakeBaker bkrref) = do
-          (r, bkrref') <- storeUpdate bkrref
+          (!r, !bkrref') <- storeUpdate bkrref
           return (putWord8 1 >> r, PersistentAccountStakeBaker bkrref')
         su1 (PersistentAccountStakeDelegate dlgref) = do
-          (r, dlgref') <- storeUpdate dlgref
+          (!r, !dlgref') <- storeUpdate dlgref
           return (putWord8 2 >> r, PersistentAccountStakeDelegate dlgref')
     store = fmap fst . storeUpdate
     load = case accountVersion @av of
@@ -447,14 +448,14 @@ instance (MonadBlobStore m, IsAccountVersion av) => BlobStorable m (PersistentAc
         (pEnc, encData) <- storeUpdate _accountEncryptedAmount
         (pSched, schedData) <- storeUpdate _accountReleaseSchedule
         (pBkr, stakeData) <- storeUpdate _accountStake
-        let persistentAcc = PersistentAccount {
+        let !persistentAcc = PersistentAccount {
                 _persistingData = accData,
                 _accountEncryptedAmount = encData,
                 _accountReleaseSchedule = schedData,
                 _accountStake = stakeData,
                 ..
             }
-        let putAccs = do
+        let !putAccs = do
                     put _accountNonce
                     put _accountAmount
                     pAccData
@@ -566,7 +567,7 @@ rehashAccount pac = do
   arsHash <- getHashM sdata
   persistingHash <- getHashM (_persistingData pac)
   stakeHash <- getHashM (_accountStake pac)
-  let newHash = makeAccountHash AccountHashInputs{
+  let !newHash = makeAccountHash AccountHashInputs{
               ahiNextNonce = _accountNonce pac,
               ahiAccountAmount = _accountAmount pac,
               ahiAccountEncryptedAmount = eac,
@@ -574,7 +575,7 @@ rehashAccount pac = do
               ahiPersistingAccountDataHash = persistingHash,
               ahiAccountStakeHash = stakeHash
             }
-  return pac{_accountHash = newHash}
+  return $! pac{_accountHash = newHash}
 
 -- |Set the baker of an account.
 setPersistentAccountStake :: forall m av. (MonadBlobStore m, IsAccountVersion av)
@@ -587,7 +588,7 @@ setPersistentAccountStake pac newStake = do
   arsHash <- getHashM sdata
   persistingHash <- getHashM (_persistingData pac)
   stakeHash <- getHashM newStake
-  let newHash = makeAccountHash AccountHashInputs{
+  let !newHash = makeAccountHash AccountHashInputs{
               ahiNextNonce = _accountNonce pac,
               ahiAccountAmount = _accountAmount pac,
               ahiAccountEncryptedAmount = eac,
@@ -595,7 +596,7 @@ setPersistentAccountStake pac newStake = do
               ahiPersistingAccountDataHash = persistingHash,
               ahiAccountStakeHash = stakeHash
             }
-  return pac{_accountHash = newHash, _accountStake = newStake}
+  return $! pac{_accountHash = newHash, _accountStake = newStake}
 
 -- |Checks whether the two arguments represent the same account. (Used for testing.)
 sameAccount :: forall m av. (MonadBlobStore m, IsAccountVersion av) => Transient.Account av -> PersistentAccount av -> m Bool
@@ -638,7 +639,7 @@ setPAD f acc@PersistentAccount{..} = do
   newPDataRef <- refMake newPData
   persistingHash <- getHashM newPDataRef
   stakeHash <- getHashM _accountStake
-  let newHash = makeAccountHash AccountHashInputs{
+  let !newHash = makeAccountHash AccountHashInputs{
               ahiNextNonce = _accountNonce,
               ahiAccountAmount = _accountAmount,
               ahiAccountEncryptedAmount = eac,
@@ -646,7 +647,7 @@ setPAD f acc@PersistentAccount{..} = do
               ahiPersistingAccountDataHash = persistingHash,
               ahiAccountStakeHash = stakeHash
             }
-  return $ acc & persistingData .~ newPDataRef
+  return $! acc & persistingData .~ newPDataRef
                & accountHash .~ newHash
 
 -- |Set a field of an account's 'PersistingAccountData' pointer, creating a new pointer.

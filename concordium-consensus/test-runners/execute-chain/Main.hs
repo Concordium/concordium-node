@@ -46,13 +46,13 @@ main = do
     createDirectoryIfMissing True dataDir
     let config ::
             MultiVersionConfiguration
-                (PairGSConfig DiskTreeDiskBlockConfig MemoryTreeMemoryBlockConfig)
+                DiskTreeDiskBlockConfig
                 (NoFinalization ThreadTimer)
         config =
             MultiVersionConfiguration
-                { mvcStateConfig = (DiskStateConfig dataDir, ()),
+                { mvcStateConfig = DiskStateConfig dataDir,
                   mvcFinalizationConfig = NoFinalization,
-                  mvcRuntimeParameters = defaultRuntimeParameters{rpTransactionsPurgingDelay = 0}
+                  mvcRuntimeParameters = defaultRuntimeParameters{rpTransactionsPurgingDelay = 0, rpAccountsCacheSize = 1000}
                 }
     let callbacks =
             Callbacks

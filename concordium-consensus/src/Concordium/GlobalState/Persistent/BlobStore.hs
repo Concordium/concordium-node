@@ -425,7 +425,7 @@ storeRef v = do
 -- an updated value.  (See 'storeUpdate'.)
 storeUpdateRef :: BlobStorable m a => a -> m (BlobRef a, a)
 storeUpdateRef v = do
-    (p, v') <- storeUpdate v
+    (!p, !v') <- storeUpdate v
     (, v') <$> storeRaw (runPut p)
 {-# INLINE storeUpdateRef #-}
 
@@ -441,8 +441,8 @@ loadRef ref = do
 instance (MonadIO m, BlobStorable m a, BlobStorable m b) => BlobStorable m (a, b) where
 
   storeUpdate (a, b) = do
-    (pa, a') <- storeUpdate a
-    (pb, b') <- storeUpdate b
+    (!pa, !a') <- storeUpdate a
+    (!pb, !b') <- storeUpdate b
     let pab = pa >> pb
     return (pab, (a', b'))
 
@@ -591,7 +591,7 @@ instance BlobStorable m a => BlobStorable m (Nullable (BufferedRef a)) where
             return $ pure $ Some $ BRBlobbed r
     storeUpdate n@Null = return (put (refNull :: BlobRef a), n)
     storeUpdate (Some v) = do
-        (r, v') <- storeUpdate v
+        (!r, !v') <- storeUpdate v
         return (r, Some v')
 
 -- |Load the value from a @BufferedRef@ not caching it.
@@ -627,7 +627,7 @@ instance (Monad m, BlobStorable m a) => Reference m BufferedRef a where
     r <- liftIO $ readIORef ref
     if isNull r
       then do
-        (r' :: BlobRef a, v') <- storeUpdateRef v
+        (!r' :: BlobRef a, !v') <- storeUpdateRef v
         liftIO . writeIORef ref $! r'
         return (BRBoth r' v', r')
       else return (brm, r)
@@ -664,7 +664,7 @@ instance (BlobStorable m a, BlobStorable m b) => BlobStorable m (Nullable (Buffe
           pure $ Some (BRBlobbed r, binner)
   storeUpdate n@Null = return (put (refNull :: BlobRef a), n)
   storeUpdate (Some v) = do
-    (r, v') <- storeUpdate v
+    (!r, !v') <- storeUpdate v
     return (r, Some v')
 
 instance (BlobStorable m a, BlobStorable m b, MHashableTo m H.Hash a) => BlobStorable m (Nullable (HashedBufferedRef a, b)) where
@@ -681,7 +681,7 @@ instance (BlobStorable m a, BlobStorable m b, MHashableTo m H.Hash a) => BlobSto
           pure $ Some (HashedBufferedRef (BRBlobbed r) Nothing, binner)
   storeUpdate n@Null = return (put (refNull :: BlobRef a), n)
   storeUpdate (Some v) = do
-    (r, v') <- storeUpdate v
+    (!r, !v') <- storeUpdate v
     return (r, Some v')
 
 -- |A value that always exists in memory but may also exist on disk.
@@ -720,7 +720,7 @@ instance BlobStorable m a => BlobStorable m (EagerBufferedRef a) where
         r <- liftIO $ readIORef ref
         if isNull r
         then do
-            (r' :: BlobRef a, v') <- storeUpdateRef v
+            (!r' :: BlobRef a, !v') <- storeUpdateRef v
             liftIO $ writeIORef ref $! r'
             (, EagerBufferedRef ref v') <$> store r'
         else (,ebr) <$> store ebr
@@ -734,7 +734,7 @@ instance (Monad m, BlobStorable m a) => Reference m EagerBufferedRef a where
         r <- liftIO $ readIORef ref
         if isNull r
         then do
-            (r' :: BlobRef a, v') <- storeUpdateRef v
+            (!r' :: BlobRef a, !v') <- storeUpdateRef v
             liftIO $ writeIORef ref $! r'
             return (EagerBufferedRef ref v', r')
         else return (ebr, r)
@@ -760,7 +760,7 @@ instance BlobStorable m a => BlobStorable m (Nullable (EagerBufferedRef a)) wher
             Some <$> makeEagerBufferedRef r val
     storeUpdate n@Null = return (put (refNull :: BlobRef a), n)
     storeUpdate (Some v) = do
-        (r, v') <- storeUpdate v
+        (!r, !v') <- storeUpdate v
         return (r, Some v')
 
 -- |Note, this implementation does not recursively cache.
@@ -788,14 +788,14 @@ instance (MonadBlobStore m, BlobStorable m (f (BufferedFix f))) => BlobStorable 
     store = store . unBF
     load = fmap BufferedFix <$> load
     storeUpdate bf = do
-        (p, r) <- storeUpdate (unBF bf)
+        (!p, !r) <- storeUpdate (unBF bf)
         return (p, BufferedFix r)
 
 instance (MonadBlobStore m, BlobStorable m (f (BufferedFix f))) => BlobStorable m (Nullable (BufferedFix f)) where
     store = store . fmap unBF
     load = fmap (fmap BufferedFix) <$> load
     storeUpdate bf = do
-        (p, r) <- storeUpdate (fmap unBF bf)
+        (!p, !r) <- storeUpdate (fmap unBF bf)
         return (p, BufferedFix <$> r)
 
 instance (Monad m, BlobStorable m (f (BufferedFix f))) => MRecursive m (BufferedFix f) where
@@ -907,13 +907,13 @@ instance (BlobStorable m a, MHashableTo m h a) => BlobStorable m (HashedBuffered
     -- deserialize the reference and keep it as blobbed
     fmap (flip HashedBufferedRef Nothing . BRBlobbed) <$> load
   storeUpdate (HashedBufferedRef brm _) = do
-    (pt, br) <- storeUpdate brm
+    (!pt, !br) <- storeUpdate brm
     h <- getHashM . fst =<< cacheBufferedRef br
     return (pt, HashedBufferedRef br (Just h))
 
 instance (Monad m, BlobStorable m a, MHashableTo m h a) => Reference m (HashedBufferedRef' h) a where
   refFlush ref = do
-    (br, r) <- flushBufferedRef (bufferedReference ref)
+    (!br, !r) <- flushBufferedRef (bufferedReference ref)
     return (HashedBufferedRef br (bufferedHash ref), r)
 
   refLoad = loadBufferedRef . bufferedReference
@@ -924,7 +924,7 @@ instance (Monad m, BlobStorable m a, MHashableTo m h a) => Reference m (HashedBu
     return $ HashedBufferedRef br (Just h)
 
   refCache ref = do
-    (val, br) <- cacheBufferedRef (bufferedReference ref)
+    (!val, !br) <- cacheBufferedRef (bufferedReference ref)
     case bufferedHash ref of
       Nothing -> do
         h <- getHashM val
@@ -951,7 +951,7 @@ instance (BlobStorable m a, MHashableTo m h a) => BlobStorable m (Nullable (Hash
             return $ pure $ Some $ HashedBufferedRef (BRBlobbed r) Nothing
     storeUpdate n@Null = return (put (refNull :: BlobRef a), n)
     storeUpdate (Some v) = do
-        (r, v') <- storeUpdate v
+        (!r, !v') <- storeUpdate v
         return (r, Some v')
 
 type HashedBufferedRefForCPV1 (cpv :: ChainParametersVersion) a =
@@ -968,7 +968,7 @@ instance
             SCPV1 -> fmap (fmap JustForCPV1) load
     storeUpdate NothingForCPV1 = return (pure (), NothingForCPV1)
     storeUpdate (JustForCPV1 v) = do
-        (r, v') <- storeUpdate v
+        (!r, !v') <- storeUpdate v
         return (r, JustForCPV1 v')
 
 data EagerlyHashedBufferedRef' h a = EagerlyHashedBufferedRef
@@ -989,11 +989,11 @@ instance (BlobStorable m a, MHashableTo m h a) => BlobStorable m (EagerlyHashedB
         mref <- load
         return $ do
             ref <- mref
-            (a, r) <- cacheBufferedRef ref
+            (!a, !r) <- cacheBufferedRef ref
             h <- getHashM a
             return $ EagerlyHashedBufferedRef r h
     storeUpdate (EagerlyHashedBufferedRef br0 hsh) = do
-        (pt, br1) <- storeUpdate br0
+        (!pt, !br1) <- storeUpdate br0
         return (pt, EagerlyHashedBufferedRef br1 hsh)
     {-# INLINE store #-}
     {-# INLINE load #-}
@@ -1001,7 +1001,7 @@ instance (BlobStorable m a, MHashableTo m h a) => BlobStorable m (EagerlyHashedB
 
 instance (Monad m, BlobStorable m a, MHashableTo m h a) => Reference m (EagerlyHashedBufferedRef' h) a where
     refFlush ref = do
-        (br, r) <- flushBufferedRef (ehbrReference ref)
+        (!br, !r) <- flushBufferedRef (ehbrReference ref)
         return (EagerlyHashedBufferedRef br (ehbrHash ref), r)
     
     refLoad = refLoad . ehbrReference
@@ -1012,7 +1012,7 @@ instance (Monad m, BlobStorable m a, MHashableTo m h a) => Reference m (EagerlyH
         return $ EagerlyHashedBufferedRef br h
     
     refCache ref = do
-        (v, r) <- refCache (ehbrReference ref)
+        (!v, !r) <- refCache (ehbrReference ref)
         return (v, ref{ehbrReference = r})
     
     refUncache ref = do
