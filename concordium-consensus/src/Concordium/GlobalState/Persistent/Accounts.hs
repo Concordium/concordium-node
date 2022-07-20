@@ -69,8 +69,8 @@ data Accounts (pv :: ProtocolVersion) = Accounts {
     -- |Unique index of accounts by 'AccountAddress'
     accountMap :: !(AccountMap.PersistentAccountMap pv),
     -- |Hashed Merkle-tree of the accounts
-    accountTable :: !(LFMBTree' AccountIndex EagerlyHashedBufferedRef (EagerlyHashedCachedRef (AccountCache (AccountVersionFor pv)) (PersistentAccount (AccountVersionFor pv)))),
-    -- accountTable :: !(LFMBTree' AccountIndex EagerlyHashedBufferedRef (EagerlyHashedBufferedRef (PersistentAccount (AccountVersionFor pv)))),
+    accountTable :: !(LFMBTree' AccountIndex HashedBufferedRef (EagerlyHashedCachedRef (AccountCache (AccountVersionFor pv)) (PersistentAccount (AccountVersionFor pv)))),
+    -- accountTable :: !(LFMBTree' AccountIndex HashedBufferedRef (EagerlyHashedBufferedRef (PersistentAccount (AccountVersionFor pv)))),
     -- |Optional cached set of used 'ID.CredentialRegistrationID's
     accountRegIds :: !(Nullable (Map.Map ID.RawCredentialRegistrationID AccountIndex)),
     -- |Persisted representation of the map from registration ids to account indices.
