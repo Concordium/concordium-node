@@ -59,6 +59,7 @@ import Concordium.GlobalState.CapitalDistribution
 
 import qualified Concordium.GlobalState.AccountMap as AccountMap
 import qualified Concordium.GlobalState.Rewards as Rewards
+import qualified Concordium.GlobalState.TransactionTable as TransactionTable
 import qualified Concordium.Types.IdentityProviders as IPS
 import qualified Concordium.Types.AnonymityRevokers as ARS
 import Concordium.Types.Queries (PoolStatus(..),CurrentPaydayBakerPoolStatus(..),makePoolPendingChange, RewardStatus'(..))
@@ -834,7 +835,26 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
             ..
         }
 
-    getInitialTransactionTable = undefined
+    getInitialTransactionTable bs = return tt2
+      where
+        tt1 = Accounts.foldAccounts accInTT TransactionTable.emptyTransactionTable (bs ^. blockAccounts)
+        tt2 = foldl' updInTT tt1 [minBound..]
+        accInTT tt acct =
+            let nonce = acct ^. accountNonce
+                addr = acct ^. accountAddress
+            in if nonce /= minNonce
+                then
+                    tt & TransactionTable.ttNonFinalizedTransactions . at' (accountAddressEmbed addr)
+                        ?~ TransactionTable.emptyANFTWithNonce nonce
+                else tt
+        updInTT tt uty =
+            let sn = lookupNextUpdateSequenceNumber (bs ^. blockUpdates) uty
+            in if sn /= minUpdateSequenceNumber
+                then
+                    tt & TransactionTable.ttNonFinalizedChainUpdates . at' uty
+                        ?~ TransactionTable.emptyNFCUWithSequenceNumber sn
+                else
+                    tt
 
 instance (Monad m, IsProtocolVersion pv) => BS.AccountOperations (PureBlockStateMonad pv m) where
 

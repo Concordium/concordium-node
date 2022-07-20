@@ -294,5 +294,6 @@ serializeAccounts cryptoParams accts = do
         liftPut $ putWord64be $ L.size (accountTable accts)
         L.mmap_ (serializeAccount cryptoParams) (accountTable accts)
 
+-- |Fold over the account table in ascending order of account index.
 foldAccounts :: SupportsPersistentAccount pv m => (a -> PersistentAccount (AccountVersionFor pv) -> m a) -> a -> Accounts pv -> m a
 foldAccounts f a accts = L.mfold f a (accountTable accts)
