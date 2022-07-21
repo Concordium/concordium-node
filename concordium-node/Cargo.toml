@@ -14,7 +14,7 @@ license-file = "../LICENSE"
 [features]
 default = []
 test_utils = [ "tempfile" ]
-instrumentation = ["serde_derive", "gotham", "mime", "gotham_derive", "prometheus", "hyper", "num_cpus", "reqwest", "http" ]
+instrumentation = ["serde_derive", "gotham", "mime", "gotham_derive", "prometheus", "hyper", "num_cpus", "http" ]
 network_dump = []
 static = [ ]
 profiling = [ "static" ]
@@ -63,6 +63,8 @@ rpassword = "5.0"
 anyhow = "1.0"
 thiserror = "1.0"
 futures = { version = "0.3" }
+url = "2.2.2"
+reqwest = { version = "0.11", features = ["stream"] }
 
 # gRPC dependencies
 tonic = "0.4.1"
@@ -74,7 +76,6 @@ gotham = { version = "0.6", optional = true }
 gotham_derive = { version = "0.6", optional = true }
 http = { version = "0.2", optional = true }
 hyper = { version = "0.14", optional = true }
-reqwest = { version = "0.11", default-features = false, optional = true, features = ["default-tls", "stream", "json"] }
 mime = { version = "0.3", optional = true }
 serde_derive = { version = "1.0", optional = true }
 rmp-serde = { version = "0.15", optional = true }

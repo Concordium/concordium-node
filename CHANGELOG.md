@@ -25,6 +25,8 @@
   versions <= 4.1. The other direction works.
 - Increase precision of block arrive and block receive times in the
   `GetBlockInfo` query.
+- Added the ability to download the catch-up file
+  ('CONCORDIUM_NODE_CONSENSUS_IMPORT_BLOCKS_FROM' now accepts both local paths and URLs)
 
 ## 4.1.1
 - The `SendTransaction` function exposed via the gRPC interface now provides the caller with detailed error messages if the 
