@@ -471,8 +471,12 @@ checkForProtocolUpdate = liftSkov body
                     oldTransactions <- terminateSkov
                     -- Transfer the non-finalized transactions to the new version.
                     lift $ do
-                        vvec <- liftIO . readIORef =<< asks mvVersions
-                        case Vec.last vvec of
+                        lastV <- fmap Vec.last . liftIO . readIORef =<< asks mvVersions
+                        -- We activate the configuration to ensure that the transaction table
+                        -- invariants are established before processing the transactions.
+                        logEvent Runner LLTrace "Activating new Skov"
+                        mvrLogIO $ activateConfiguration lastV
+                        case lastV of
                             (EVersionedConfiguration vc) ->
                                 liftSkovUpdate vc $ mapM_ Skov.receiveTransaction oldTransactions
                     return ()
