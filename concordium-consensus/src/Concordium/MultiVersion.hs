@@ -472,10 +472,6 @@ checkForProtocolUpdate = liftSkov body
                     -- Transfer the non-finalized transactions to the new version.
                     lift $ do
                         lastV <- fmap Vec.last . liftIO . readIORef =<< asks mvVersions
-                        -- We activate the configuration to ensure that the transaction table
-                        -- invariants are established before processing the transactions.
-                        logEvent Runner LLTrace "Activating new Skov"
-                        mvrLogIO $ activateConfiguration lastV
                         case lastV of
                             (EVersionedConfiguration vc) ->
                                 liftSkovUpdate vc $ mapM_ Skov.receiveTransaction oldTransactions
@@ -543,8 +539,6 @@ makeMultiVersionRunner
         mvTransactionPurgingThread <- newEmptyMVar
         let mvr = MultiVersionRunner{..}
         runMVR (startupSkov genesis) mvr
-        -- Cache accounts, contracts, etc., and establish all invariants for an active consensus.
-        runLoggerT (activateConfiguration . Vec.last =<< liftIO (readIORef mvVersions)) mvLog
         putMVar mvWriteLock ()
         startTransactionPurgingThread mvr
         return mvr
@@ -649,7 +643,9 @@ startupSkov genesis = do
                     -- If there isn't we attempt to start with the last loaded
                     -- state as the active state.
                     case nextPV of
-                        Nothing -> liftSkovUpdate newEConfig' checkForProtocolUpdate
+                        Nothing -> do
+                            mvrLogIO $ activateConfiguration newEConfig
+                            liftSkovUpdate newEConfig' checkForProtocolUpdate
                         Just nextSPV -> loop nextSPV (Just newEConfig) (vcIndex + 1) (fromIntegral lastFinalizedHeight + 1)
                 -- We failed to load anything in the first iteration of the
                 -- loop. Decode the provided genesis and attempt to start the
@@ -665,7 +661,9 @@ startupSkov genesis = do
                         Right gd -> newGenesis gd 0
                     -- We loaded some protocol versions. Attempt to start in the
                     -- last one we loaded.
-                Right (Just (EVersionedConfiguration newEConfig')) -> liftSkovUpdate newEConfig' checkForProtocolUpdate
+                Right (Just config@(EVersionedConfiguration newEConfig')) -> do
+                    mvrLogIO $ activateConfiguration config
+                    liftSkovUpdate newEConfig' checkForProtocolUpdate
     loop initProtocolVersion Nothing 0 0
 
 -- |Start a thread to periodically purge uncommitted transactions.

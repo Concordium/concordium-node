@@ -70,7 +70,7 @@ data Accounts (pv :: ProtocolVersion) = Accounts {
     accountMap :: !(AccountMap.PersistentAccountMap pv),
     -- |Hashed Merkle-tree of the accounts
     accountTable :: !(LFMBTree' AccountIndex HashedBufferedRef (EagerlyHashedCachedRef (AccountCache (AccountVersionFor pv)) (PersistentAccount (AccountVersionFor pv)))),
-    -- accountTable :: !(LFMBTree' AccountIndex HashedBufferedRef (EagerlyHashedBufferedRef (PersistentAccount (AccountVersionFor pv)))),
+    -- accountTable :: !(LFMBTree' AccountIndex HashedBufferedRef (BufferedRef (PersistentAccount (AccountVersionFor pv)))),
     -- |Optional cached set of used 'ID.CredentialRegistrationID's
     accountRegIds :: !(Nullable (Map.Map ID.RawCredentialRegistrationID AccountIndex)),
     -- |Persisted representation of the map from registration ids to account indices.
@@ -297,3 +297,7 @@ serializeAccounts cryptoParams accts = do
 -- |Fold over the account table in ascending order of account index.
 foldAccounts :: SupportsPersistentAccount pv m => (a -> PersistentAccount (AccountVersionFor pv) -> m a) -> a -> Accounts pv -> m a
 foldAccounts f a accts = L.mfold f a (accountTable accts)
+
+-- |Fold over the account table in ascending order of account index.
+foldAccountsDesc :: SupportsPersistentAccount pv m => (a -> PersistentAccount (AccountVersionFor pv) -> m a) -> a -> Accounts pv -> m a
+foldAccountsDesc f a accts = L.mfoldDesc f a (accountTable accts)

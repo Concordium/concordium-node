@@ -52,7 +52,7 @@ main = do
             MultiVersionConfiguration
                 { mvcStateConfig = DiskStateConfig dataDir,
                   mvcFinalizationConfig = NoFinalization,
-                  mvcRuntimeParameters = defaultRuntimeParameters{rpTransactionsPurgingDelay = 0, rpAccountsCacheSize = 1000}
+                  mvcRuntimeParameters = defaultRuntimeParameters{rpTransactionsPurgingDelay = 0, rpAccountsCacheSize = 10000}
                 }
     let callbacks =
             Callbacks

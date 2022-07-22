@@ -21,7 +21,6 @@ import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.Persistent.Account
 import Concordium.GlobalState.Persistent.BlockPointer as PB
 import Concordium.GlobalState.Persistent.LMDB
 import Concordium.GlobalState.Statistics
@@ -238,12 +237,13 @@ initialSkovPersistentDataDefault
     -> GenesisData pv
     -> bs
     -> TS.BlockStatePointer bs -- ^How to serialize the block state reference for inclusion in the table.
+    -> TransactionTable
     -> m (SkovPersistentData pv bs)
 initialSkovPersistentDataDefault = initialSkovPersistentData defaultRuntimeParameters
 
 -- |Create an initial 'SkovPersistentData'.
--- Important note: this does not correctly initialize the transaction table, which
--- should be done with 'activateSkovPersistentData'.
+-- The state does not need to be activated if the supplied 'TransactionTable' is correctly
+-- initialised with the nonces and sequence numbers of the accounts and update types.
 initialSkovPersistentData
     :: (IsProtocolVersion pv, FixedSizeSerialization (TS.BlockStatePointer bs), BlockStateQuery m, bs ~ BlockState m, MonadIO m)
     => RuntimeParameters
@@ -256,28 +256,14 @@ initialSkovPersistentData
     -- ^Genesis state
     -> TS.BlockStatePointer bs
     -- ^Genesis block state
+    -> TransactionTable
+    -- ^Genesis transaction table
     -> m (SkovPersistentData pv bs)
-initialSkovPersistentData rp treeStateDir gd genState serState = do
+initialSkovPersistentData rp treeStateDir gd genState serState genTT = do
   gb <- makeGenesisPersistentBlockPointer gd genState
   let gbh = bpHash gb
       gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
   initialDb <- liftIO $ initializeDatabase gb serState treeStateDir
-  -- When the state contains accounts, we must ensure that the transaction
-  -- table correctly reflects the account nonces, and similarly for
-  -- updates.
-  -- acctAddrs <- getAccountList genState
-  -- acctNonces <- foldM (\nnces !addr ->
-  --     getAccount genState addr >>= \case
-  --         Nothing -> error "Invariant violation: listed account does not exist"
-  --         Just (_, acct) -> do
-  --             nonce <- getAccountNonce acct
-  --             return $! (addr, nonce):nnces) [] acctAddrs
-  -- updSeqNums <- foldM (\m uty -> do
-  --     sn <- getNextUpdateSequenceNumber genState uty
-  --     return $! Map.insert uty sn m) Map.empty [minBound..]
-  -- let initialTransactionTable = emptyTransactionTableWithSequenceNumbers acctNonces updSeqNums
-  -- initialTransactionTable <- getInitialTransactionTable genState
-  let initialTransactionTable = emptyTransactionTable
   return SkovPersistentData {
             _blockTable = emptyBlockTable,
             _possiblyPendingTable = HM.empty,
@@ -289,7 +275,7 @@ initialSkovPersistentData rp treeStateDir gd genState serState = do
             _genesisBlockPointer = gb,
             _focusBlock = gb,
             _pendingTransactions = emptyPendingTransactionTable,
-            _transactionTable = initialTransactionTable,
+            _transactionTable = genTT,
             _transactionTablePurgeCounter = 0,
             _statistics = initialConsensusStatistics,
             _runtimeParameters = rp,
@@ -431,26 +417,14 @@ activateSkovPersistentData :: forall pv. (IsProtocolVersion pv)
                            -> SkovPersistentData pv (PBS.HashedPersistentBlockState pv)
                            -> LogIO (SkovPersistentData pv (PBS.HashedPersistentBlockState pv))
 activateSkovPersistentData pbsc uninitState = do
+  -- Before we establish the invariants we cache the block state.
   logEvent GlobalState LLTrace "Caching last finalized block"
   cachedLastFinalized <- liftIO (makeBlockPointerCached (_lastFinalized uninitState))
+  let lastState = _bpState cachedLastFinalized
   -- We need to establish is the transaction table invariants.
   -- This specifically means for each account we need to determine the next available nonce.
-  -- 
-  -- Before we establish the invariants we cache the block state.
-  let lastState = _bpState cachedLastFinalized
-  let getTransactionTable :: PBS.PersistentBlockStateMonad pv (PBS.PersistentBlockStateContext pv) (ReaderT (PBS.PersistentBlockStateContext pv) LogIO) TransactionTable
-      getTransactionTable = do
-        accs <- getAccountList lastState
-        tt0 <- foldM (\table addr ->
-                 getAccount lastState addr >>= \case
-                  Nothing -> logExceptionAndThrowTS (DatabaseInvariantViolation $ "Account " ++ show addr ++ " which is in the account list cannot be loaded.")
-                  Just (_, acc) -> return (table & ttNonFinalizedTransactions . at (accountAddressEmbed addr) ?~ emptyANFTWithNonce (acc ^. accountNonce)))
-            emptyTransactionTable
-            accs
-        foldM (\table uty -> do
-            sn <- getNextUpdateSequenceNumber lastState uty
-            return $ table & ttNonFinalizedChainUpdates . at uty ?~ emptyNFCUWithSequenceNumber sn
-          ) tt0 [minBound..]
+  -- This is handled by the 'BlockStateQuery' monad operation 'getInitialTransactionTable'
+  -- to ensure that the account table is traversed as efficiently as possible.
   logEvent GlobalState LLTrace "Initialising transaction table"
   tt <- runReaderT (PBS.runPersistentBlockStateMonad (getInitialTransactionTable lastState)) pbsc
   logEvent GlobalState LLTrace "Done initialising transaction table"

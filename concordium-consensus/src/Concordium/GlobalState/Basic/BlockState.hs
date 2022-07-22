@@ -2045,7 +2045,8 @@ genesisBakerInfo spv cp GenesisBaker{..} = AccountBaker{..}
     _bakerPendingChange = NoChange
 
 -- |Initial block state based on 'GenesisData', for a given protocol version.
-genesisState :: forall pv . IsProtocolVersion pv => GenesisData pv -> Either String (BlockState pv)
+-- This also returns the transaction table.
+genesisState :: forall pv . IsProtocolVersion pv => GenesisData pv -> Either String (BlockState pv, TransactionTable.TransactionTable)
 genesisState gd = case protocolVersion @pv of
                     SP1 -> case gd of
                       GDP1 P1.GDP1Initial{..} -> mkGenesisStateInitial genesisCore genesisInitialState
@@ -2061,7 +2062,7 @@ genesisState gd = case protocolVersion @pv of
                       GDP4 P4.GDP4Regenesis{..} -> mkGenesisStateRegenesis StateMigrationParametersTrivial genesisRegenesis
                       GDP4 P4.GDP4MigrateFromP3{..} -> mkGenesisStateRegenesis (StateMigrationParametersP3ToP4 genesisMigration) genesisRegenesis
     where
-        mkGenesisStateInitial :: CoreGenesisParameters -> GenesisState pv -> Either String (BlockState pv)
+        mkGenesisStateInitial :: CoreGenesisParameters -> GenesisState pv -> Either String (BlockState pv, TransactionTable.TransactionTable)
         mkGenesisStateInitial GenesisData.CoreGenesisParameters{..} GenesisData.GenesisState{..} = do
             accounts <- mapM mkAccount (zip [0..] (toList genesisAccounts))
             let
@@ -2070,7 +2071,9 @@ genesisState gd = case protocolVersion @pv of
                 -- initial amount in the central bank is the amount on all genesis accounts combined
                 initialAmount = List.foldl' (\c acc -> c + acc ^. accountAmount) 0 accounts
                 _blockBank = makeHashed $ Rewards.makeGenesisBankStatus initialAmount
-            return BlockState {..}
+                -- In initial genesis, all accounts and updates have no prior transactions
+                initialTT = TransactionTable.emptyTransactionTable
+            return (BlockState {..}, initialTT)
               where
                   mkAccount :: (BakerId, GenesisAccount) -> Either String (Account (AccountVersionFor pv))
                   mkAccount (bid, GenesisAccount{..}) =
@@ -2098,9 +2101,10 @@ genesisState gd = case protocolVersion @pv of
                 Right bs
                     | hashShouldMatch && hbs ^. blockStateHash /= genesisStateHash -> Left "Could not deserialize genesis state: state hash is incorrect"
                     | epochLength (bs ^. blockBirkParameters . birkSeedState) /= GenesisData.genesisEpochLength genesisCore -> Left "Could not deserialize genesis state: epoch length mismatch"
-                    | otherwise -> Right bs
+                    | otherwise -> Right $!! (bs, genesisTT)
                     where
                         hbs = hashBlockState bs
                         hashShouldMatch = case migration of
                             StateMigrationParametersTrivial{} -> True
                             StateMigrationParametersP3ToP4{} -> False
+                        genesisTT = runIdentity $ runPureBlockStateMonad $ BS.getInitialTransactionTable hbs

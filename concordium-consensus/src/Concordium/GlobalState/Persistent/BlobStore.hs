@@ -763,8 +763,8 @@ instance BlobStorable m a => BlobStorable m (Nullable (EagerBufferedRef a)) wher
         (!r, !v') <- storeUpdate v
         return (r, Some v')
 
--- |Note, this implementation does not recursively cache.
-instance Applicative m => Cacheable m (EagerBufferedRef a)
+instance (Applicative m, Cacheable m a) => Cacheable m (EagerBufferedRef a) where
+    cache (EagerBufferedRef ioref v) = EagerBufferedRef ioref <$> cache v
 
 -- |'BufferedFix' is a fixed-point combinator that uses a 'BufferedRef'.
 -- This is used for constructing a recursive type from a type constructor.

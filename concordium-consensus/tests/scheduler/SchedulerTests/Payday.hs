@@ -292,7 +292,7 @@ testRewardDistribution = do
     (resultPersistent, _ :: MyPersistentTreeState 'P4) <- withPersistentState' (propTransactionFeesDistributionP4 transFees freeCounts bid . hpbsPointers)
     assertBool "persistent" resultPersistent
       where gd = genesis 5 ^._1 :: GenesisData 'P4
-            ibs = fromRight (_unhashedBlockState initialPureBlockState :: Concordium.GlobalState.Basic.BlockState.BlockState 'P4) (genesisState gd)
+            ibs = fromRight (_unhashedBlockState initialPureBlockState :: Concordium.GlobalState.Basic.BlockState.BlockState 'P4) (fst <$> genesisState gd)
             blockParentPure = makeGenesisBasicBlockPointer gd initialPureBlockState
             slot = 400
             bid = BakerId 1

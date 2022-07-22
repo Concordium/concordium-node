@@ -2598,7 +2598,11 @@ doSetRewardAccounts pbs rewards = do
 doGetInitialTransactionTable :: forall pv m. SupportsPersistentAccount pv m => PersistentBlockState pv -> m TransactionTable.TransactionTable
 doGetInitialTransactionTable pbs = do
     bsp <- loadPBS pbs
-    tt1 <- Accounts.foldAccounts accInTT TransactionTable.emptyTransactionTable (bspAccounts bsp)
+    -- Note: we deliberately fold over the accounts in descending order here under the assumption
+    -- that they have just been loaded in ascending order previously, allowing us to make maximal
+    -- use of the cache. The order does not matter semantically since account addresses are
+    -- distinctive.
+    tt1 <- Accounts.foldAccountsDesc accInTT TransactionTable.emptyTransactionTable (bspAccounts bsp)
     foldM (updInTT bsp) tt1 [minBound..]
   where
     accInTT :: TransactionTable.TransactionTable -> PersistentAccount (AccountVersionFor pv) -> m TransactionTable.TransactionTable

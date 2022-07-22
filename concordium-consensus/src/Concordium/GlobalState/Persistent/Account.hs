@@ -168,9 +168,15 @@ instance (MonadBlobStore m) => Cacheable m PersistentAccountEncryptedAmount wher
       ..
     }
 
+-- |Extra info (beyond 'BakerInfo') associated with a baker.
+-- IMPORTANT NOTE: The 'Cacheable' instance for 'PersistentExtraBakerInfo' relies on this not
+-- requiring recursive caching. (This is trivially true for '()', and is true for
+-- @EagerBufferedRef BakerPoolInfo@ since the 'BakerPoolInfo' is flat and an 'EagerBufferedRef'
+-- is always in memory.) Ideally, changes should preserve this. If not the 'Cacheable' instances
+-- for 'PersistentBakerInfoEx' and 'PersistentAccountBaker' should also be updated.
 type family PersistentExtraBakerInfo' (av :: AccountVersion) where
     PersistentExtraBakerInfo' 'AccountV0 = ()
-    PersistentExtraBakerInfo' 'AccountV1 = BufferedRef BakerPoolInfo
+    PersistentExtraBakerInfo' 'AccountV1 = EagerBufferedRef BakerPoolInfo
 
 newtype PersistentExtraBakerInfo (av :: AccountVersion) = PersistentExtraBakerInfo
     { _theExtraBakerInfo :: PersistentExtraBakerInfo' av
@@ -179,18 +185,16 @@ makeLenses ''PersistentExtraBakerInfo
 
 instance forall av. IsAccountVersion av => Show (PersistentExtraBakerInfo av) where
     show = case accountVersion @av of
-        SAccountV0 -> show
-        SAccountV1 -> show
+        SAccountV0 -> show . _theExtraBakerInfo
+        SAccountV1 -> show . _theExtraBakerInfo
 
-instance forall av m. (IsAccountVersion av, MonadBlobStore m) => Cacheable m (PersistentExtraBakerInfo av) where
-  cache = case accountVersion @av of
-    SAccountV0 -> pure
-    SAccountV1 -> theExtraBakerInfo cache
+instance forall av m. (Applicative m) => Cacheable m (PersistentExtraBakerInfo av)
 
 -- |A persistent version of 'BakerInfoEx'.
-
+-- IMPORTANT NOTE: The 'Cacheable' instance relies on this not requiring recursive caching.
+-- If this changes, the instance for 'BakerInfos' should also be updated.
 data PersistentBakerInfoEx av = PersistentBakerInfoEx {
-    bakerInfoRef :: !(BufferedRef BakerInfo),
+    bakerInfoRef :: !(EagerBufferedRef BakerInfo),
     bakerInfoExtra :: !(PersistentExtraBakerInfo av)
 } deriving (Show)
 
@@ -240,14 +244,16 @@ instance forall m av. (IsAccountVersion av, MonadBlobStore m) => BlobStorable m 
       bakerInfoExtra <- PersistentExtraBakerInfo <$> rExtraBakerInfo
       return PersistentBakerInfoEx{..}
 
-instance (IsAccountVersion av, MonadBlobStore m) => Cacheable m (PersistentBakerInfoEx av) where
-  cache PersistentBakerInfoEx{..} = 
-    PersistentBakerInfoEx <$> cache bakerInfoRef <*> cache bakerInfoExtra
+instance (Applicative m) => Cacheable m (PersistentBakerInfoEx av)
 
+-- |A baker associated with an account.
+-- IMPORTANT NOTE: The 'Cacheable' instance relies on the fact that no recursive caching is
+-- necessary (due to the use of 'EagerBufferedRef's). If this changes, the instance for
+-- 'PersistentAccountStake' will also need to be updated.
 data PersistentAccountBaker (av :: AccountVersion) = PersistentAccountBaker
   { _stakedAmount :: !Amount
   , _stakeEarnings :: !Bool
-  , _accountBakerInfo :: !(BufferedRef BakerInfo)
+  , _accountBakerInfo :: !(EagerBufferedRef BakerInfo)
   , _extraBakerInfo :: !(PersistentExtraBakerInfo av)
   , _bakerPendingChange :: !(StakePendingChange av)
   }
@@ -259,7 +265,7 @@ makeLenses ''PersistentAccountBaker
 accountBakerInfoEx :: Getting r (PersistentAccountBaker av) (PersistentBakerInfoEx av)
 accountBakerInfoEx = to (\PersistentAccountBaker{..} -> PersistentBakerInfoEx _accountBakerInfo _extraBakerInfo)
 
-bakerPoolInfoRef :: Lens' (PersistentAccountBaker 'AccountV1) (BufferedRef BakerPoolInfo)
+bakerPoolInfoRef :: Lens' (PersistentAccountBaker 'AccountV1) (EagerBufferedRef BakerPoolInfo)
 bakerPoolInfoRef = extraBakerInfo . theExtraBakerInfo
 
 -- |Load a 'PersistentAccountBaker' to an 'AccountBaker'.
@@ -323,10 +329,7 @@ instance forall m av. (IsAccountVersion av, MonadBlobStore m) => BlobStorable m 
       _extraBakerInfo <- PersistentExtraBakerInfo <$> rExtraBakerInfo
       return PersistentAccountBaker{..}
 
-instance (MonadBlobStore m) => Cacheable m (PersistentAccountBaker av) where
-  cache pab = do
-    cachedBaker <- cache (_accountBakerInfo pab)
-    return pab{_accountBakerInfo = cachedBaker}
+instance (Applicative m) => Cacheable m (PersistentAccountBaker av) where
 
 -- |Serialize a 'PersistentAccountBaker'.
 putAccountBaker :: forall m av. (IsAccountVersion av, MonadBlobStore m, MonadPut m)
@@ -345,6 +348,10 @@ putAccountBaker PersistentAccountBaker{..} = do
       put abie
       put _bakerPendingChange
 
+-- |Staking information associated with an account.
+-- IMPORTANT NOTE: The 'Cacheable' instance relies on the fact that no recursive caching is
+-- necessary (due to the use of 'EagerBufferedRef's). If this changes, the instance for
+-- 'PersistentAccount' will also need to be updated.
 data PersistentAccountStake (av :: AccountVersion) where
     PersistentAccountStakeNone :: PersistentAccountStake av
     PersistentAccountStakeBaker :: !(EagerBufferedRef (PersistentAccountBaker av)) -> PersistentAccountStake av
@@ -392,11 +399,7 @@ loadAccountStake PersistentAccountStakeNone = return AccountStakeNone
 loadAccountStake (PersistentAccountStakeBaker bkr) = AccountStakeBaker <$> (loadPersistentAccountBaker =<< refLoad bkr)
 loadAccountStake (PersistentAccountStakeDelegate dlg) = AccountStakeDelegate <$> refLoad dlg
 
-
-instance (MonadBlobStore m) => Cacheable m (PersistentAccountStake av) where
-    cache pasn@PersistentAccountStakeNone = return pasn
-    cache (PersistentAccountStakeBaker b) = PersistentAccountStakeBaker <$> cache b
-    cache (PersistentAccountStakeDelegate d) = PersistentAccountStakeDelegate <$> cache d
+instance (Applicative m) => Cacheable m (PersistentAccountStake av) where
 
 instance (MonadBlobStore m, IsAccountVersion av) => MHashableTo m (AccountStakeHash av) (PersistentAccountStake av) where
   getHashM PersistentAccountStakeNone = return $ getAccountStakeHash AccountStakeNone
@@ -408,6 +411,10 @@ instance (MonadBlobStore m, IsAccountVersion av) => MHashableTo m (AccountStakeH
 -- |Type for a reference to an account's persisting data.
 type AccountPersisting = EagerlyHashedBufferedRef PersistingAccountData
 
+-- |A (persistent) account.
+-- IMPORTANT NOTE: The 'Cacheable' instance relies on the fact that no recursive caching is
+-- necessary (due to the use of 'EagerBufferedRef's). This fact is also important to the
+-- implementation of 'load'.
 data PersistentAccount (av :: AccountVersion) = PersistentAccount {
   -- |Next available nonce for this account.
   _accountNonce :: !Nonce
@@ -472,10 +479,12 @@ instance (MonadBlobStore m, IsAccountVersion av) => BlobStorable m (PersistentAc
         mAccountReleaseSchedulePtr <- load
         mAccountStake <- load
         return $ do
-          _persistingData <- {- cache =<< -} mAccDataPtr
-          _accountEncryptedAmount <- {- cache =<< -} mAccountEncryptedAmountPtr
-          _accountReleaseSchedule <- {- cache =<< -} mAccountReleaseSchedulePtr
-          _accountStake <- {- cache =<< -} mAccountStake
+          -- Note: because of the use of 'EagerBufferedRef's, we do not have to cache these
+          -- sub-structures here: they are cached by construction.
+          _persistingData <- mAccDataPtr
+          _accountEncryptedAmount <- mAccountEncryptedAmountPtr
+          _accountReleaseSchedule <- mAccountReleaseSchedulePtr
+          _accountStake <- mAccountStake
           
           eData <- refLoad _accountEncryptedAmount
           eData' <- loadPersistentAccountEncryptedAmount eData
@@ -492,14 +501,7 @@ instance (MonadBlobStore m, IsAccountVersion av) => BlobStorable m (PersistentAc
             }
           return PersistentAccount {..}
 
-instance (MonadBlobStore m) => Cacheable m (PersistentAccount av) where
-    cache pa@PersistentAccount{..} = do
-        _accountEncryptedAmount' <- cache _accountEncryptedAmount
-        _persistingData' <- cache _persistingData
-        return pa{
-          _accountEncryptedAmount = _accountEncryptedAmount',
-          _persistingData = _persistingData'
-        }
+instance (Applicative m) => Cacheable m (PersistentAccount av) where
 
 instance HashableTo (AccountHash av) (PersistentAccount av) where
   getHash = _accountHash

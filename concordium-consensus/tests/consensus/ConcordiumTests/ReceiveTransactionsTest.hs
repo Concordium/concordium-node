@@ -222,7 +222,7 @@ runMyMonad act time initialState = runReaderT (runDeterministic (runStateT (runP
 runMyMonad' :: MyMonad a -> UTCTime -> GenesisData PV -> IO (a, MyState)
 runMyMonad' act time gd = runPureBlockStateMonad (initialSkovDataDefault gd (hashBlockState $ mock bs)) >>= runMyMonad act time
   where
-    bs = case genesisState gd of
+    bs = case fst <$> genesisState gd of
                Left err -> error $ "Invalid genesis state: " ++ err
                Right x -> x
     mock = mockChainUpdate . mockAccount
