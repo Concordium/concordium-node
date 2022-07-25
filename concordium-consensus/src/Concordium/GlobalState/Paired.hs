@@ -932,6 +932,9 @@ instance (MonadLogger m,
         -- acceptable for implementations to give different results.
         assertEq s1 s2 $ return s2
     blockStateLoadCallback = coerceBSML blockStateLoadCallback
+    collapseCaches = do
+        coerceBSML collapseCaches
+        coerceBSMR collapseCaches
 
 {-# INLINE coerceGSML #-}
 coerceGSML :: GSML pv lc r ls s m a -> TreeStateBlockStateM pv (PairGState ls rs) (PairGSContext lc rc) r s m a

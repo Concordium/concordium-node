@@ -42,7 +42,7 @@ type AccountCache (av :: AccountVersion) = FIFOCache (PersistentAccount av)
 
 -- |Construct a new 'AccountCache' with the given size.
 newAccountCache :: Int -> IO (AccountCache av)
-newAccountCache = newFIFOCache
+newAccountCache = newCache
 
 -- |Representation of the set of accounts on the chain.
 -- Each account has an 'AccountIndex' which is the order

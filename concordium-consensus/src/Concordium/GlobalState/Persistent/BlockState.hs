@@ -35,6 +35,7 @@ import qualified Control.Monad.Except as MTL
 import qualified Control.Monad.Writer.Strict as MTL
 import Data.Foldable
 import Data.Maybe
+import Data.Proxy
 import Data.Word
 import Lens.Micro.Platform
 import qualified Data.Vector as Vec
@@ -61,7 +62,7 @@ import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToS
 import qualified Concordium.Types.IdentityProviders as IPS
 import qualified Concordium.Types.AnonymityRevokers as ARS
 import qualified Concordium.GlobalState.Rewards as Rewards
-import Concordium.GlobalState.Persistent.Accounts (SupportsPersistentAccount)
+import Concordium.GlobalState.Persistent.Accounts (SupportsPersistentAccount, AccountCache)
 import qualified Concordium.GlobalState.Persistent.Accounts as Accounts
 import Concordium.GlobalState.Persistent.Bakers
 import qualified Concordium.GlobalState.Persistent.Instances as Instances
@@ -2646,11 +2647,13 @@ withNewAccountCache size bsm = do
 newtype PersistentBlockStateMonad (pv :: ProtocolVersion) r m a = PersistentBlockStateMonad {runPersistentBlockStateMonad :: m a}
     deriving (Functor, Applicative, Monad, MonadIO, MonadReader r, MonadLogger)
 
-type PersistentState av pv r m = (MonadIO m, MonadReader r m, HasBlobStore r, AccountVersionFor pv ~ av, Cache.MonadCache (Accounts.AccountCache av) m)
+type PersistentState av pv r m = (MonadIO m, MonadReader r m, HasBlobStore r, AccountVersionFor pv ~ av, Cache.HasCache (Accounts.AccountCache av) r)
 
 instance PersistentState av pv r m => MonadBlobStore (PersistentBlockStateMonad pv r m)
 instance PersistentState av pv r m => MonadBlobStore (PutT (PersistentBlockStateMonad pv r m))
 instance PersistentState av pv r m => MonadBlobStore (PutH (PersistentBlockStateMonad pv r m))
+
+instance PersistentState av pv r m => Cache.MonadCache (Accounts.AccountCache av) (PersistentBlockStateMonad pv r m)
 
 type instance BlockStatePointer (PersistentBlockState pv) = BlobRef (BlockStatePointers pv)
 type instance BlockStatePointer (HashedPersistentBlockState pv) = BlobRef (BlockStatePointers pv)
@@ -2664,9 +2667,6 @@ instance BlockStateTypes (PersistentBlockStateMonad pv r m) where
     type Account (PersistentBlockStateMonad pv r m) = PersistentAccount (AccountVersionFor pv)
     type BakerInfoRef (PersistentBlockStateMonad pv r m) = PersistentBakerInfoEx (AccountVersionFor pv)
     type ContractState (PersistentBlockStateMonad pv r m) = Instances.InstanceStateV
-
-instance Cache.MonadCache cache m => Cache.MonadCache cache (PersistentBlockStateMonad pv r m) where
-  getCache = PersistentBlockStateMonad Cache.getCache
 
 instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateQuery (PersistentBlockStateMonad pv r m) where
     getModule = doGetModuleSource . hpbsPointers
@@ -2892,3 +2892,6 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage 
 
     blockStateLoadCallback = asks blobLoadCallback
     {-# INLINE blockStateLoadCallback #-}
+
+    collapseCaches = do
+        Cache.collapseCache (Proxy :: Proxy (AccountCache av))

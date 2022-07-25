@@ -1877,6 +1877,9 @@ instance (IsProtocolVersion pv, MonadIO m) => BS.BlockStateStorage (PureBlockSta
     {-# INLINE blockStateLoadCallback #-}
     blockStateLoadCallback = return errorLoadCallback -- basic block state is not written, so it never has to be loaded.
 
+    {-# INLINE collapseCaches #-}
+    collapseCaches = return ()
+
 -- |Initial block state.
 initialState :: forall pv
               . IsProtocolVersion pv
