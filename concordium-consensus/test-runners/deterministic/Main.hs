@@ -62,7 +62,7 @@ import Concordium.GlobalState.DummyData (dummyKeyCollection)
 import System.Directory
 
 -- |Protocol version
-type PV = 'P1
+type PV = 'P4
 
 type TreeConfig = DiskTreeDiskBlockConfig
 
@@ -234,44 +234,35 @@ allBakers :: (Integral a) => [a]
 allBakers = [0..maxBakerId]
 
 transactions :: StdGen -> [(Integer, BlockItem)]
-transactions gen = trs (0 :: Nonce) (randoms gen :: [Word8])
+transactions gen = trs (1 :: Nonce) (randoms gen :: [Word8])
     where
         trs (Nonce n) (amnt:amnts) = (toInteger n `div` 100, Dummy.makeTransferTransaction (Dummy.mateuszKP, Dummy.mateuszAccount) Dummy.mateuszAccount (fromIntegral amnt) (Nonce n)) : trs (Nonce (n+1)) amnts
         trs _ _ = error "Ran out of transaction data"
 
-numAccts :: Num a => a
-numAccts = 500000
+-- numAccts :: Num a => a
+-- numAccts = 40000
 
-extraAccountTransactions :: [(Integer, BlockItem)]
-extraAccountTransactions = trs 0
+extraAccountTransactions :: Int -> [(Integer, BlockItem)]
+extraAccountTransactions numAccts = trs 1
     where
-        trs (Nonce n) = [(numAccts * toInteger n + toInteger i, Dummy.makeTransferTransaction (Dummy.alesKP, Dummy.accountAddressFrom i) (Dummy.accountAddressFrom i) 0 (Nonce n)) | i <- [1..numAccts]] ++ trs (Nonce (n+1))
+        trs (Nonce n) = [((toInteger numAccts * toInteger n + toInteger i) `div` 20, Dummy.makeTransferTransaction (Dummy.alesKP, Dummy.accountAddressFrom i) (Dummy.accountAddressFrom i) 0 (Nonce n)) | i <- [1..numAccts]] ++ trs (Nonce (n+1))
 
 -- |Genesis accounts. For convenience, these all use the same keys.
-extraAccounts :: [GenesisAccount]
-extraAccounts = [Dummy.createCustomAccount 1000000 Dummy.alesKP (Dummy.accountAddressFrom i) | i <- [1..numAccts]]
+extraAccounts :: Int -> [GenesisAccount]
+extraAccounts numAccts = [Dummy.createCustomAccount 1000000 Dummy.alesKP (Dummy.accountAddressFrom i) | i <- [1..numAccts]]
 
 -- |The initial state of the simulation.
-initialState :: IO SimState
-initialState = do
+initialState :: Int -> IO SimState
+initialState numAccts = do
     -- This timestamp is only used for naming the database files.
     now <- currentTimestamp
     _ssBakers <- Vec.fromList <$> mapM (mkBakerState now) (zip [0..] bakers)
     return SimState {..}
     where
-        chainParams = ChainParameters {
+        chainParams = Dummy.dummyChainParameters {
             _cpElectionDifficulty = makeElectionDifficulty 50000,
             _cpExchangeRates = makeExchangeRates 1 1,
-            _cpCooldownParameters = CooldownParametersV0 {
-                _cpBakerExtraCooldownEpochs = 4
-                },
-            _cpTimeParameters = TimeParametersV0,
-            _cpAccountCreationLimit = 10,
-            _cpRewardParameters = Dummy.dummyRewardParametersV0,
-            _cpFoundationAccount = maxBakerId + 1,
-            _cpPoolParameters = PoolParametersV0 {
-                _ppBakerStakeThreshold =  300000000000
-                }
+            _cpFoundationAccount = maxBakerId + 1
             }
         -- The genesis parameters could be changed.
         -- The slot duration is set to 1 second (1000 ms), since the deterministic time is also
@@ -284,7 +275,7 @@ initialState = do
                                 Dummy.dummyCryptographicParameters
                                 dummyIdentityProviders
                                 dummyArs
-                                ([Dummy.createCustomAccount 1000000000000 Dummy.mateuszKP Dummy.mateuszAccount] ++ extraAccounts)
+                                ([Dummy.createCustomAccount 1000000000000 Dummy.mateuszKP Dummy.mateuszAccount] ++ extraAccounts numAccts)
                                 (Energy maxBound)
                                 dummyKeyCollection
                                 chainParams
@@ -301,7 +292,7 @@ initialState = do
                 config = SkovConfig gsconfig finconfig hconfig
             (_bsContext, _bsState) <- runLoggerT (initialiseSkov genData config) (logFor (fromIntegral bakerId))
             return BakerState{..}
-        _ssEvents = makeEvents $ (PEvent 0 (TransactionEvent extraAccountTransactions)) : [PEvent 0 (BakerEvent i (EBake 0)) | i <- allBakers]
+        _ssEvents = makeEvents $ (PEvent 0 (TransactionEvent (extraAccountTransactions numAccts))) : [PEvent 0 (BakerEvent i (EBake 0)) | i <- allBakers]
         _ssNextTimer = 0
         _ssCurrentTime = posixSecondsToUTCTime 0
 
@@ -398,17 +389,19 @@ stepConsensus =
 -- |Main runner. Simply runs consensus for a certain number of steps.
 main :: IO ()
 main = do
-    putStrLn "Press Enter to start"
-    _ <- getLine
+    putStr "Number of accounts: "
+    numAccts <- readLn
+    -- putStrLn "Press Enter to start"
+    -- _ <- getLine
     putStrLn "Initalising"
-    b (100000 :: Int)
+    b numAccts (1000000 :: Int)
     where
         loop 0 _ = return ()
         loop n s = do
             s' <- execStateT stepConsensus s
             loop (n-1) s'
-        b steps = do
-            !s0 <- initialState
+        b numAccts steps = do
+            !s0 <- initialState numAccts
             putStrLn "Initialisation complete"
             performGC
             _ <- getLine
