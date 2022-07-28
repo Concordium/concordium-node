@@ -149,8 +149,10 @@ async fn main() -> anyhow::Result<()> {
                 info!("Starting out of band catch-up");
                 consensus.import_blocks(from.as_bytes());
                 info!("Completed out of band catch-up");
-                if let Err(e) = std::fs::remove_file(from) {
-                    error!("Cleaning up downloaded out of band catch-up files failed: {}", e);
+                if from != *import_blocks_from {
+                    if let Err(e) = std::fs::remove_file(from) {
+                        error!("Cleaning up downloaded out of band catch-up files failed: {}", e);
+                    };
                 };
             }
             Err(e) => {
@@ -491,8 +493,8 @@ async fn download_catchup_files(
         }
         buffer.flush()?;
 
-        return Ok(import_path.display().to_string());
+        Ok(import_path.display().to_string())
     } else {
-        return Ok(import_blocks_from.to_string());
-    };
+        Ok(import_blocks_from.to_string())
+    }
 }
