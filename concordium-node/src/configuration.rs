@@ -79,7 +79,7 @@ pub const DATABASE_SUB_DIRECTORY_NAME: &str = "database-v4";
 /// Default out-of-band catch-up file name (excluding the extension)
 pub const CATCHUP_FILE_BASENAME: &str = "blocks_to_import";
 /// Default out-of-band catch-up file extension
-pub const CATCHUP_FILE_EXT: &str = ".mdb";
+pub const CATCHUP_FILE_EXT: &str = ".dat";
 
 // In order to avoid premature connection drops, it is estimated that the
 // KEEP_ALIVE_FACTOR should be kept above 3.
