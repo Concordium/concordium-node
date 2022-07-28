@@ -5,7 +5,9 @@
 - Reduce startup time and memory use further by reducing the amount of block
   data retained in memory. In particular finalized blocks are no longer stored
   in memory.
-  
+- `database-exporter` now produces a collection of export files, instead of a single file. The new
+  `--chunksize` option specifies the size of export files in blocks.
+
 ## 4.2.2
 
 - Remove transaction logging functionality from the node. It is replaced by an
