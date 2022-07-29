@@ -3,12 +3,13 @@
 extern crate log;
 
 // Force the system allocator on every platform
-use futures::FutureExt;
-use std::alloc::System;
+use futures::{stream::StreamExt, FutureExt};
+use std::{alloc::System, io::Write};
 #[global_allocator]
 static A: System = System;
 
 use anyhow::Context;
+use chrono::Utc;
 use concordium_node::{
     common::PeerType,
     configuration as config,
@@ -36,12 +37,13 @@ use concordium_node::{
 use mio::{net::TcpListener, Poll};
 use parking_lot::Mutex as ParkingMutex;
 use rand::Rng;
-use std::{sync::Arc, thread::JoinHandle};
+use std::{path::Path, sync::Arc, thread::JoinHandle};
 #[cfg(unix)]
 use tokio::signal::unix as unix_signal;
 #[cfg(windows)]
 use tokio::signal::windows as windows_signal;
 use tokio::sync::{broadcast, oneshot};
+use url::Url;
 
 #[cfg(feature = "instrumentation")]
 use concordium_node::stats_export_service::start_push_gateway;
@@ -138,10 +140,25 @@ async fn main() -> anyhow::Result<()> {
         None
     };
 
-    if let Some(ref import_path) = conf.cli.baker.import_path {
-        info!("Starting out of band catch-up");
-        consensus.import_blocks(import_path.as_bytes());
-        info!("Completed out of band catch-up");
+    // Out-of-band catch-up
+    if let Some(ref import_blocks_from) = conf.cli.baker.import_blocks_from {
+        let from: anyhow::Result<String> =
+            download_catchup_files(import_blocks_from, data_dir_path).await;
+        match from {
+            Ok(from) => {
+                info!("Starting out of band catch-up");
+                consensus.import_blocks(from.as_bytes());
+                info!("Completed out of band catch-up");
+                if from != *import_blocks_from {
+                    if let Err(e) = std::fs::remove_file(from) {
+                        error!("Cleaning up downloaded out of band catch-up files failed: {}", e);
+                    };
+                };
+            }
+            Err(e) => {
+                error!("Downloading catch-up files failed: {}", e);
+            }
+        }
     }
 
     // Consensus queue threads
@@ -447,4 +464,37 @@ where
         }
     }
     true
+}
+
+async fn download_catchup_files(
+    import_blocks_from: &str,
+    data_dir_path: &Path,
+) -> anyhow::Result<String> {
+    if let Ok(import_url) = Url::parse(import_blocks_from) {
+        let default_filename = format!(
+            "{}_{}{}",
+            config::CATCHUP_FILE_BASENAME,
+            Utc::now().timestamp(),
+            config::CATCHUP_FILE_EXT
+        );
+        let filename = import_url
+            .path_segments()
+            .and_then(|x| x.last())
+            .map(|x| x.to_string())
+            .unwrap_or(default_filename);
+        let import_path = data_dir_path.to_path_buf().join(&filename);
+
+        info!("Downloading the catch-up file from {} to {}", import_url, import_path.display());
+        let file = std::fs::File::create(&import_path)?;
+        let mut buffer = std::io::BufWriter::new(file);
+        let mut stream = reqwest::get(import_url).await?.bytes_stream();
+        while let Some(Ok(bytes)) = stream.next().await {
+            buffer.write_all(&bytes)?;
+        }
+        buffer.flush()?;
+
+        Ok(import_path.display().to_string())
+    } else {
+        Ok(import_blocks_from.to_string())
+    }
 }
