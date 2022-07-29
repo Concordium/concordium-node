@@ -16,11 +16,13 @@ import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.Cache
 import Concordium.Types.HashableTo
 
+data MaybeMem a = Disk !(BlobRef a) | Mem !a
+
 data CachedRef c a
     = -- |Value stored on disk, and possibly cached
       CRRef {crRef :: !(BlobRef a)}
     | -- |Value stored only in memory
-      CRMem {crIORef :: !(IORef (BlobRef a)), crMem :: !a}
+      CRMem {crIORef :: !(IORef (MaybeMem a))}
 
 instance
     ( MonadCache c m,
@@ -32,15 +34,15 @@ instance
     Reference m (CachedRef c) a
     where
     refFlush r@(CRRef ref) = return (r, ref)
-    refFlush (CRMem ioref val) = do
+    refFlush (CRMem ioref) = do
         mbr <- liftIO $ readIORef ioref
-        if isNull mbr then do
-            (!r, !val') <- {-# SCC "FLUSHCACHE" #-} storeUpdateRef val
-            liftIO $ writeIORef ioref r
-            _ <- putCachedValue (Proxy @c) r val'
-            return (CRRef r, r)
-        else
-            return (CRRef mbr, mbr)
+        case mbr of
+            Disk br -> return (CRRef br, br)
+            Mem val -> do
+                (!r, !val') <- {-# SCC "FLUSHCACHE" #-} storeUpdateRef val
+                liftIO $ writeIORef ioref (Disk r)
+                _ <- putCachedValue (Proxy @c) r val'
+                return (CRRef r, r)
     refCache r@(CRRef ref) =
         lookupCachedValue (Proxy @c) ref >>= \case
             Nothing -> do
@@ -49,27 +51,35 @@ instance
                 return (val', r)
             Just val ->
                 return (val, r)
-    refCache r@(CRMem _ val) = return (val, r)
-
+    refCache r@(CRMem ioref) = liftIO (readIORef ioref) >>= \case
+        Mem v -> return (v, r)
+        Disk ref -> do
+            val <- {-# SCC "LOADCACHE" #-} loadRef ref
+            !val' <- putCachedValue (Proxy @c) ref val
+            return (val', r)
     refLoad (CRRef ref) =
         lookupCachedValue (Proxy @c) ref >>= \case
             Nothing -> do
               val <- {-# SCC "LOADCACHE" #-} loadRef ref
               putCachedValue (Proxy @c) ref val
             Just val -> return val
-    refLoad (CRMem _ val) = return val
+    refLoad (CRMem ioref) = liftIO (readIORef ioref) >>= \case
+        Mem val -> return val
+        Disk ref -> lookupCachedValue (Proxy @c) ref >>= \case
+            Nothing -> do
+              val <- {-# SCC "LOADCACHE" #-} loadRef ref
+              putCachedValue (Proxy @c) ref val
+            Just val -> return val
     refMake val = do
-        ioref <- liftIO $ newIORef refNull
-        return (CRMem ioref val)
+        ioref <- liftIO $ newIORef (Mem val)
+        return (CRMem ioref)
     refUncache r@(CRRef _) = return r
-    refUncache (CRMem ioref val) = do
-        mbr <- liftIO $ readIORef ioref
-        if isNull mbr then do
+    refUncache (CRMem ioref) = liftIO (readIORef ioref) >>= \case
+        Mem val -> do
             (r, _) <- storeUpdateRef val
-            liftIO $ writeIORef ioref r
+            liftIO $ writeIORef ioref (Disk r)
             return (CRRef r)
-        else
-            return (CRRef mbr)
+        Disk r -> return (CRRef r)
     {-# INLINE refFlush #-}
     {-# INLINE refCache #-}
     {-# INLINE refLoad #-}
@@ -107,7 +117,7 @@ instance
 
 instance Show a => Show (CachedRef c a) where
     show (CRRef r) = show r
-    show (CRMem _ v) = show v
+    show (CRMem _) = "<CRMem>"
 
 -- |We do nothing to cache a 'CachedRef'. Since 'cache' is generally used to cache the entire
 -- global state, it is generally undesirable to load every 'CachedRef' into the cache, as this
