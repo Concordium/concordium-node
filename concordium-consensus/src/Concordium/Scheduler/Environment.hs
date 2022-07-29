@@ -1034,16 +1034,13 @@ instance (MonadProtocolVersion m, StaticInformation m, AccountOperations m, Cont
       Nothing -> return $ netDeposit - max oldLockedUp staked
 
   {-# INLINE getCurrentContractAmount #-}
-  getCurrentContractAmount sv inst = do
-    let amnt = iiBalance inst
+  getCurrentContractAmount _ inst = do
     let addr = _instanceAddress . iiParameters $ inst
-    case sv of
-      Wasm.SV0 -> use (changeSet . instanceV0Updates . at addr) >>= \case
-        Just (_, delta, _) -> return $! applyAmountDelta delta amnt
-        Nothing -> return amnt
-      Wasm.SV1 -> use (changeSet . instanceV1Updates . at addr) >>= \case
-        Just (_, delta, _) -> return $! applyAmountDelta delta amnt
-        Nothing -> return amnt
+    getCurrentContractInstance addr >>= \case
+      Nothing -> error "Precondition violation."
+      Just ist -> case ist of
+          InstanceInfoV0 ii -> return (iiBalance ii)
+          InstanceInfoV1 ii -> return (iiBalance ii)
 
   {-# INLINE getEnergy #-}
   getEnergy = do
