@@ -21,7 +21,7 @@ import Lens.Micro.Platform
 import Data.Time.Clock.POSIX
 import Data.Time.Clock
 import Data.Word
-import Control.Monad.Trans.State (StateT(..),execStateT)
+import Control.Monad.Trans.State.Strict (StateT(..),execStateT)
 import Control.Monad.State.Class
 import Control.Monad.Trans.Reader (ReaderT(..))
 import Control.Monad.Reader.Class
@@ -60,6 +60,8 @@ import qualified Concordium.Crypto.DummyData as Dummy
 import Concordium.GlobalState.DummyData (dummyKeyCollection)
 
 import System.Directory
+import qualified Data.ByteString.Lazy as LBS
+import qualified Data.Serialize as S
 
 -- |Protocol version
 type PV = 'P4
@@ -244,8 +246,19 @@ transactions gen = trs (1 :: Nonce) (randoms gen :: [Word8])
 
 extraAccountTransactions :: Int -> [(Integer, BlockItem)]
 extraAccountTransactions numAccts = trs 1
-    where
-        trs (Nonce n) = [((toInteger numAccts * toInteger n + toInteger i) `div` 20, Dummy.makeTransferTransaction (Dummy.alesKP, Dummy.accountAddressFrom i) (Dummy.accountAddressFrom i) 0 (Nonce n)) | i <- [1..numAccts]] ++ trs (Nonce (n+1))
+  where
+    maxAcc = numAccts `div` 2
+    trs (Nonce n) =
+        [ ( toInteger maxAcc * toInteger (n - 1) + toInteger i,
+            Dummy.makeTransferTransaction
+                (Dummy.alesKP, Dummy.accountAddressFrom i)
+                Dummy.mateuszAccount
+                1
+                (Nonce n) -- $ fromInteger $ toInteger maxAcc * toInteger (n - 1) + toInteger i)
+          )
+          | i <- [1 .. maxAcc]
+        ]
+            ++ trs (Nonce (n + 1))
 
 -- |Genesis accounts. For convenience, these all use the same keys.
 extraAccounts :: Int -> [GenesisAccount]
@@ -256,6 +269,7 @@ initialState :: Int -> IO SimState
 initialState numAccts = do
     -- This timestamp is only used for naming the database files.
     now <- currentTimestamp
+    LBS.writeFile ("data/genesis-" ++ show now ++ ".dat") $ S.runPutLazy (putPVGenesisData (PVGenesisData genData))
     _ssBakers <- Vec.fromList <$> mapM (mkBakerState now) (zip [0..] bakers)
     return SimState {..}
     where
@@ -370,7 +384,7 @@ stepConsensus =
                         forM_ (bpBlock <$> mb) $ \case
                             GenesisBlock{} -> return ()
                             NormalBlock b -> broadcastEvent t (EBlock b)
-                        ssEvents %= addEvent (PEvent (t+1) (BakerEvent i (EBake (sl+1))))
+                        ssEvents %= addEvent (PEvent (t+20) (BakerEvent i (EBake (sl+1))))
                     EBlock bb -> do
                         let pb = makePendingBlock bb (posixSecondsToUTCTime (fromIntegral t))
                         _ <- runBaker t i (storeBlock pb)
@@ -390,6 +404,7 @@ stepConsensus =
 main :: IO ()
 main = do
     putStr "Number of accounts: "
+    hFlush stdout
     numAccts <- readLn
     -- putStrLn "Press Enter to start"
     -- _ <- getLine

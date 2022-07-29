@@ -99,10 +99,10 @@ getTransactionIndex bh = \case
 -- |The non-finalized transactions for a particular account.
 data AccountNonFinalizedTransactions = AccountNonFinalizedTransactions {
     -- |Non-finalized transactions (for an account) and their verification results indexed by nonce.
-    _anftMap :: Map.Map Nonce (Map.Map Transaction TVer.VerificationResult),
+    _anftMap :: !(Map.Map Nonce (Map.Map Transaction TVer.VerificationResult)),
     -- |The next available nonce at the last finalized block.
     -- 'anftMap' should only contain nonces that are at least 'anftNextNonce'.
-    _anftNextNonce :: Nonce
+    _anftNextNonce :: !Nonce
 } deriving (Eq, Show)
 makeLenses ''AccountNonFinalizedTransactions
 
@@ -118,8 +118,8 @@ emptyANFTWithNonce = AccountNonFinalizedTransactions Map.empty
 
 -- |The non-finalized chain updates of a particular type.
 data NonFinalizedChainUpdates = NonFinalizedChainUpdates {
-    _nfcuMap :: Map.Map UpdateSequenceNumber (Map.Map (WithMetadata UpdateInstruction) TVer.VerificationResult),
-    _nfcuNextSequenceNumber :: UpdateSequenceNumber
+    _nfcuMap :: !(Map.Map UpdateSequenceNumber (Map.Map (WithMetadata UpdateInstruction) TVer.VerificationResult)),
+    _nfcuNextSequenceNumber :: !UpdateSequenceNumber
 } deriving (Eq, Show)
 makeLenses ''NonFinalizedChainUpdates
 
