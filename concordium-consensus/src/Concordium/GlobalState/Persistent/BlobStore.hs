@@ -667,7 +667,7 @@ instance (BlobStorable m a, BlobStorable m b) => BlobStorable m (Nullable (Buffe
     (!r, !v') <- storeUpdate v
     return (r, Some v')
 
-instance (BlobStorable m a, BlobStorable m b, MHashableTo m H.Hash a) => BlobStorable m (Nullable (HashedBufferedRef a, b)) where
+instance (BlobStorable m a, BlobStorable m b) => BlobStorable m (Nullable (HashedBufferedRef a, b)) where
   store Null = return $ put (refNull :: BlobRef a)
   store (Some v) = store v
   load = do
@@ -678,7 +678,8 @@ instance (BlobStorable m a, BlobStorable m b, MHashableTo m H.Hash a) => BlobSto
         bval <- load
         return $ do
           binner <- bval
-          pure $ Some (HashedBufferedRef (BRBlobbed r) Nothing, binner)
+          hshRef <- liftIO $ newIORef Nothing
+          pure $ Some (HashedBufferedRef (BRBlobbed r) hshRef, binner)
   storeUpdate n@Null = return (put (refNull :: BlobRef a), n)
   storeUpdate (Some v) = do
     (!r, !v') <- storeUpdate v
@@ -877,39 +878,50 @@ deriving newtype instance MHashableTo m h a => MHashableTo m h (StoreSerialized 
 data HashedBufferedRef' h a
   = HashedBufferedRef
       { bufferedReference :: !(BufferedRef a),
-        bufferedHash :: !(Maybe h)
+        bufferedHash :: !(IORef (Maybe h))
       }
 
 type HashedBufferedRef = HashedBufferedRef' H.Hash
 
 bufferHashed :: MonadIO m => Hashed a -> m (HashedBufferedRef a)
-bufferHashed (Hashed val h) = do
+bufferHashed (Hashed !val !h) = do
   br <- makeBRMemory refNull val
-  return $ HashedBufferedRef br (Just h)
+  hashRef <- liftIO $ newIORef (Just h)
+  return $ HashedBufferedRef br hashRef
 
-makeHashedBufferedRef :: (MonadIO m, MHashableTo m h a) => a -> m (HashedBufferedRef' h a)
+-- |Make a 'HashedBufferedRef'' to a given value. This does not compute the hash, which is done
+-- on demand.
+makeHashedBufferedRef :: (MonadIO m) => a -> m (HashedBufferedRef' h a)
 makeHashedBufferedRef val = do
-  h <- getHashM val
   br <- makeBRMemory refNull val
-  return $ HashedBufferedRef br (Just h)
+  hashRef <- liftIO $ newIORef Nothing
+  return $ HashedBufferedRef br hashRef
 
 instance (BlobStorable m a, MHashableTo m h a) => MHashableTo m h (HashedBufferedRef' h a) where
-  getHashM ref = maybe (getHashM =<< refLoad ref) return (bufferedHash ref)
+  getHashM HashedBufferedRef{..} = liftIO (readIORef bufferedHash) >>= \case
+    Nothing -> do
+        !h <- getHashM bufferedReference
+        liftIO $ writeIORef bufferedHash (Just h)
+        return h
+    Just h -> return h
 
 instance Show a => Show (HashedBufferedRef a) where
-  show ref = show (bufferedReference ref) ++ maybe "" (\x -> " with hash: " ++ show x) (bufferedHash ref)
+  show ref = show (bufferedReference ref)
 
-instance (BlobStorable m a, MHashableTo m h a) => BlobStorable m (HashedBufferedRef' h a) where
+instance (BlobStorable m a) => BlobStorable m (HashedBufferedRef' h a) where
   store b =
     -- store the value if needed and then serialize the returned reference.
-    getBRRef (bufferedReference b) >>= store
-  load =
+    store (bufferedReference b)
+  load = do
     -- deserialize the reference and keep it as blobbed
-    fmap (flip HashedBufferedRef Nothing . BRBlobbed) <$> load
-  storeUpdate (HashedBufferedRef brm _) = do
+    mbufferedReference <- load
+    return $ do
+        bufferedReference <- mbufferedReference
+        bufferedHash <- liftIO $ newIORef Nothing
+        return HashedBufferedRef{..}
+  storeUpdate (HashedBufferedRef brm hRef) = do
     (!pt, !br) <- storeUpdate brm
-    h <- getHashM . fst =<< cacheBufferedRef br
-    return (pt, HashedBufferedRef br (Just h))
+    return (pt, HashedBufferedRef br hRef)
 
 instance (Monad m, BlobStorable m a, MHashableTo m h a) => Reference m (HashedBufferedRef' h) a where
   refFlush ref = do
@@ -920,16 +932,18 @@ instance (Monad m, BlobStorable m a, MHashableTo m h a) => Reference m (HashedBu
 
   refMake val = do
     br <- makeBRMemory refNull val
-    h <- getHashM val
-    return $ HashedBufferedRef br (Just h)
+    hashRef <- liftIO $ newIORef Nothing
+    return $ HashedBufferedRef br hashRef
 
   refCache ref = do
     (!val, !br) <- cacheBufferedRef (bufferedReference ref)
-    case bufferedHash ref of
-      Nothing -> do
-        h <- getHashM val
-        return (val, ref {bufferedReference = br, bufferedHash = Just h})
-      theHash@(Just _) -> return (val, ref {bufferedReference = br, bufferedHash = theHash})
+    liftIO (readIORef (bufferedHash ref)) >>= \case
+        Nothing -> do
+            !h <- getHashM val
+            liftIO $ writeIORef (bufferedHash ref) (Just h)
+        Just _ -> return ()
+    let !ref' = ref {bufferedReference = br}
+    return (val, ref')
 
   refUncache ref = do
     br <- uncacheBuffered (bufferedReference ref)
@@ -940,7 +954,7 @@ instance (Monad m, BlobStorable m a, MHashableTo m h a) => Reference m (HashedBu
   {-# INLINE refCache #-}
   {-# INLINE refUncache #-}
 
-instance (BlobStorable m a, MHashableTo m h a) => BlobStorable m (Nullable (HashedBufferedRef' h a)) where
+instance (BlobStorable m a) => BlobStorable m (Nullable (HashedBufferedRef' h a)) where
     store Null = return $ put (refNull :: BlobRef a)
     store (Some v) = store v
     load = do
@@ -948,7 +962,9 @@ instance (BlobStorable m a, MHashableTo m h a) => BlobStorable m (Nullable (Hash
         if isNull r then
             return (pure Null)
         else
-            return $ pure $ Some $ HashedBufferedRef (BRBlobbed r) Nothing
+            return $ do
+                hashRef <- liftIO $ newIORef Nothing
+                pure $ Some $ HashedBufferedRef (BRBlobbed r) hashRef
     storeUpdate n@Null = return (put (refNull :: BlobRef a), n)
     storeUpdate (Some v) = do
         (!r, !v') <- storeUpdate v
@@ -958,7 +974,7 @@ type HashedBufferedRefForCPV1 (cpv :: ChainParametersVersion) a =
     JustForCPV1 cpv (HashedBufferedRef a)
 
 instance
-    (BlobStorable m a, MHashableTo m H.Hash a, IsChainParametersVersion cpv) =>
+    (BlobStorable m a, IsChainParametersVersion cpv) =>
     BlobStorable m (HashedBufferedRefForCPV1 cpv a)
     where
     store NothingForCPV1 = return (pure ())
@@ -1053,13 +1069,14 @@ instance (BlobStorable m a, Cacheable m a) => Cacheable m (BufferedRef a) where
         return $! br{brValue = cachedVal}
 
 instance (MHashableTo m h a, BlobStorable m a, Cacheable m a) => Cacheable m (HashedBufferedRef' h a) where
-  cache (HashedBufferedRef ref Nothing) = do
+  cache (HashedBufferedRef ref hshRef) = do
     ref' <- cache ref
-    hsh <- getHashM =<< refLoad ref'
-    return (HashedBufferedRef ref' (Just hsh))
-  cache (HashedBufferedRef ref hsh) = do
-    ref' <- cache ref
-    return (HashedBufferedRef ref' hsh)
+    liftIO (readIORef hshRef) >>= \case
+        Nothing -> do
+            !h <- getHashM ref
+            liftIO $ writeIORef hshRef (Just h)
+        Just _ -> return ()
+    return (HashedBufferedRef ref' hshRef)
 
 instance (BlobStorable m a, Cacheable m a) => Cacheable m (EagerlyHashedBufferedRef' h a) where
     cache r = do

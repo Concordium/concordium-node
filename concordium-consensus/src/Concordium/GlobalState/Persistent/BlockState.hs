@@ -214,7 +214,7 @@ instance MonadBlobStore m => MHashableTo m Rewards.EpochBlocksHash EpochBlock wh
 
 instance MonadBlobStore m => MHashableTo m Rewards.EpochBlocksHash EpochBlocks where
     getHashM Null = return Rewards.emptyEpochBlocksHash
-    getHashM (Some r) = getHashM =<< refLoad r
+    getHashM (Some r) = getHashM r
 
 data HashedEpochBlocks = HashedEpochBlocks {
         hebBlocks :: !EpochBlocks,

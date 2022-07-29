@@ -488,7 +488,7 @@ instance (MonadBlobStore m, IsAccountVersion av) => BlobStorable m (PersistentAc
           
           eData <- refLoad _accountEncryptedAmount
           eData' <- loadPersistentAccountEncryptedAmount eData
-          sHash <- getHashM =<< refLoad _accountReleaseSchedule
+          sHash <- getHashM _accountReleaseSchedule
           persistingHash <- getHashM _persistingData
           stakeHash <- getHashM _accountStake
           let _accountHash = makeAccountHash AccountHashInputs{
@@ -636,7 +636,7 @@ setPAD :: forall m av. (MonadBlobStore m, IsAccountVersion av)
 setPAD f acc@PersistentAccount{..} = do
   pData <- refLoad (acc ^. persistingData)
   eac <- loadPersistentAccountEncryptedAmount =<< refLoad _accountEncryptedAmount
-  arsHash <- getHashM =<< refLoad _accountReleaseSchedule
+  arsHash <- getHashM _accountReleaseSchedule
   let newPData = f pData
   newPDataRef <- refMake newPData
   persistingHash <- getHashM newPDataRef
