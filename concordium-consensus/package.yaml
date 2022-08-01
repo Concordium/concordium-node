@@ -357,7 +357,7 @@ benchmarks:
     - deepseq
 
   cache:
-    main: ./haskell-bench/LRUCache.hs
+    main: ./benchmarks/lru-cache/LRUCache.hs
     dependencies:
       - concordium-consensus
       - criterion

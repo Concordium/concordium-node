@@ -87,7 +87,7 @@ newtype DummyTimer = DummyTimer Integer
 -- |Configuration to use for bakers.
 -- Can be customised for different global state configurations (disk/memory/paired)
 -- or to enable/disable finalization buffering.
-type BakerConfig = SkovConfig PV TreeConfig (BufferedFinalization DummyTimer) NoHandler
+type BakerConfig = SkovConfig PV TreeConfig (ActiveFinalization DummyTimer) NoHandler
 
 -- |The identity providers to use.
 dummyIdentityProviders :: IdentityProviders
@@ -241,13 +241,11 @@ transactions gen = trs (1 :: Nonce) (randoms gen :: [Word8])
         trs (Nonce n) (amnt:amnts) = (toInteger n `div` 100, Dummy.makeTransferTransaction (Dummy.mateuszKP, Dummy.mateuszAccount) Dummy.mateuszAccount (fromIntegral amnt) (Nonce n)) : trs (Nonce (n+1)) amnts
         trs _ _ = error "Ran out of transaction data"
 
--- numAccts :: Num a => a
--- numAccts = 40000
-
+-- |Transactions from the extra accounts.
 extraAccountTransactions :: Int -> [(Integer, BlockItem)]
 extraAccountTransactions numAccts = trs 1
   where
-    maxAcc = numAccts `div` 2
+    maxAcc = numAccts
     trs (Nonce n) =
         [ ( toInteger maxAcc * toInteger (n - 1) + toInteger i,
             Dummy.makeTransferTransaction
@@ -264,12 +262,20 @@ extraAccountTransactions numAccts = trs 1
 extraAccounts :: Int -> [GenesisAccount]
 extraAccounts numAccts = [Dummy.createCustomAccount 1000000 Dummy.alesKP (Dummy.accountAddressFrom i) | i <- [1..numAccts]]
 
+-- |Number of execution steps between blocks.
+-- Note: this can be used to control the number of transactions per block, in preference to
+-- having multiple transactions in a single execution step.
+ticksPerSlot :: Num a => a
+ticksPerSlot = 100
+
 -- |The initial state of the simulation.
 initialState :: Int -> IO SimState
 initialState numAccts = do
     -- This timestamp is only used for naming the database files.
     now <- currentTimestamp
-    LBS.writeFile ("data/genesis-" ++ show now ++ ".dat") $ S.runPutLazy (putPVGenesisData (PVGenesisData genData))
+    -- Change the following line to write the genesis to a file, if desired.
+    when False $
+        LBS.writeFile ("data/genesis-" ++ show now ++ ".dat") $ S.runPutLazy (putPVGenesisData (PVGenesisData genData))
     _ssBakers <- Vec.fromList <$> mapM (mkBakerState now) (zip [0..] bakers)
     return SimState {..}
     where
@@ -279,12 +285,12 @@ initialState numAccts = do
             _cpFoundationAccount = maxBakerId + 1
             }
         -- The genesis parameters could be changed.
-        -- The slot duration is set to 1 second (1000 ms), since the deterministic time is also
-        -- set to increase in 1 second intervals.
+        -- The slot duration is set to 'ticksPerSlot' seconds, since the deterministic time
+        -- advances 1 second per tick and baking is set to occur once every 'ticksPerSlot' ticks.
         (genData, bakers, _) = makeGenesisData
                                 0 -- Start at time 0, to match time
                                 (maxBakerId + 1) -- Number of bakers
-                                1000 -- Slot time is 1 second, to match time
+                                (ticksPerSlot * 1000) -- Slot time is 100 seconds, for baking blocks every 100 ticks
                                 defaultFinalizationParameters
                                 Dummy.dummyCryptographicParameters
                                 dummyIdentityProviders
@@ -301,7 +307,7 @@ initialState numAccts = do
                             ("data/treestate-" ++ show now ++ "-" ++ show bakerId)
                             ("data/blockstate-" ++ show now ++ "-" ++ show bakerId ++ ".dat")
             let
-                finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey _bsIdentity) (bakerElectionKey _bsIdentity) (bakerAggregationKey _bsIdentity))
+                finconfig = ActiveFinalization (FinalizationInstance (bakerSignKey _bsIdentity) (bakerElectionKey _bsIdentity) (bakerAggregationKey _bsIdentity))
                 hconfig = NoHandler
                 config = SkovConfig gsconfig finconfig hconfig
             (_bsContext, _bsState) <- runLoggerT (initialiseSkov genData config) (logFor (fromIntegral bakerId))
@@ -384,7 +390,7 @@ stepConsensus =
                         forM_ (bpBlock <$> mb) $ \case
                             GenesisBlock{} -> return ()
                             NormalBlock b -> broadcastEvent t (EBlock b)
-                        ssEvents %= addEvent (PEvent (t+20) (BakerEvent i (EBake (sl+1))))
+                        ssEvents %= addEvent (PEvent (t+ticksPerSlot) (BakerEvent i (EBake (sl+1))))
                     EBlock bb -> do
                         let pb = makePendingBlock bb (posixSecondsToUTCTime (fromIntegral t))
                         _ <- runBaker t i (storeBlock pb)
@@ -406,9 +412,7 @@ main = do
     putStr "Number of accounts: "
     hFlush stdout
     numAccts <- readLn
-    -- putStrLn "Press Enter to start"
-    -- _ <- getLine
-    putStrLn "Initalising"
+    putStrLn "Initialising"
     b numAccts (1000000 :: Int)
     where
         loop 0 _ = return ()
@@ -417,7 +421,7 @@ main = do
             loop (n-1) s'
         b numAccts steps = do
             !s0 <- initialState numAccts
-            putStrLn "Initialisation complete"
+            putStrLn "Initialisation complete; press Enter to start"
             performGC
             _ <- getLine
             putStrLn "Starting"

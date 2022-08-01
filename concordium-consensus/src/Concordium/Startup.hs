@@ -109,7 +109,7 @@ defaultFinalizationParameters = FinalizationParameters {
     finalizationSkipGrowFactor = 2,
     finalizationDelayShrinkFactor = 0.8,
     finalizationDelayGrowFactor = 2,
-    finalizationAllowZeroDelay = False
+    finalizationAllowZeroDelay = True
 }
 
 makeGenesisData :: forall pv.
