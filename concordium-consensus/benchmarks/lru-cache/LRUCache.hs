@@ -33,7 +33,7 @@ data CacheOp k v
 testCache :: forall v. (Cache v) => v -> [CacheKey v] -> CacheValue v -> Int -> IO ()
 testCache cache keys value txCount = do
   let cacheProxy = Proxy :: Proxy v
-  flip runReaderT (CacheContext cache) $ do
+  flip runBlobStoreT (CacheContext cache) $ do
     res <-
       forM
         (take txCount (reverse keys))
@@ -70,13 +70,13 @@ main = do
     lruCache txs = do
       cache <- newLRUCache cacheSize
       let lruCacheProxy = Proxy :: Proxy (LRUCache String)
-      flip runReaderT (CacheContext cache) $ do
+      flip runBlobStoreT (CacheContext cache) $ do
         mapM_ (\key -> putCachedValue lruCacheProxy key "test") (take (cacheSize*1) txs)
       return cache
     fifoCache txs = do
       cache <- newFIFOCache cacheSize
       let fifoCacheProxy = Proxy :: Proxy (FIFOCache String)
-      flip runReaderT (CacheContext cache) $ do
+      flip runBlobStoreT (CacheContext cache) $ do
         mapM_ (\key -> putCachedValue fifoCacheProxy key "test") (take (cacheSize*1) txs)
       return cache
 
