@@ -16,13 +16,25 @@ import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.Cache
 import Concordium.Types.HashableTo
 
-data MaybeMem a = Disk !(BlobRef a) | Mem !a
+-- * 'CachedRef'
 
-data CachedRef c a
-    = -- |Value stored on disk, and possibly cached
-      CRRef {crRef :: !(BlobRef a)}
-    | -- |Value stored only in memory
-      CRMem {crIORef :: !(IORef (MaybeMem a))}
+-- |A value that is either stored on disk as a 'BlobRef' or in memory only.
+data MaybeMem a
+    = -- |A value stored on disk as a 'BlobRef'
+      Disk !(BlobRef a)
+    | -- |A value held directly in memory
+      Mem !a
+
+-- |A reference that is backed by a cache.
+-- Before it is first written to disk, the value is stored in memory.
+-- Once it is first written to disk, only the reference is directly maintained, but the value
+-- is stored in the cache.
+--
+-- The use of an 'IORef' is to allow for the possibility of references being duplicated
+-- between block states, which can happen if finalization is lagging the head of the chain.
+-- The IORef is shared among all copies of the reference, which ensures that it is not unnecessarily
+-- held in memory and is not written to disk in duplicate.
+newtype CachedRef c a = CachedRef {crIORef :: IORef (MaybeMem a)}
 
 instance
     ( MonadCache c m,
@@ -33,53 +45,41 @@ instance
     ) =>
     Reference m (CachedRef c) a
     where
-    refFlush r@(CRRef ref) = return (r, ref)
-    refFlush (CRMem ioref) = do
+    refFlush cr@(CachedRef ioref) = do
         mbr <- liftIO $ readIORef ioref
         case mbr of
-            Disk br -> return (CRRef br, br)
+            Disk br -> return (cr, br)
             Mem val -> do
                 (!r, !val') <- {-# SCC "FLUSHCACHE" #-} storeUpdateRef val
                 liftIO $ writeIORef ioref (Disk r)
                 _ <- putCachedValue (Proxy @c) r val'
-                return (CRRef r, r)
-    refCache r@(CRRef ref) =
-        lookupCachedValue (Proxy @c) ref >>= \case
-            Nothing -> do
+                return (cr, r)
+    refCache r@(CachedRef ioref) =
+        liftIO (readIORef ioref) >>= \case
+            Mem v -> return (v, r)
+            Disk ref -> do
                 val <- {-# SCC "LOADCACHE" #-} loadRef ref
                 !val' <- putCachedValue (Proxy @c) ref val
                 return (val', r)
-            Just val ->
-                return (val, r)
-    refCache r@(CRMem ioref) = liftIO (readIORef ioref) >>= \case
-        Mem v -> return (v, r)
-        Disk ref -> do
-            val <- {-# SCC "LOADCACHE" #-} loadRef ref
-            !val' <- putCachedValue (Proxy @c) ref val
-            return (val', r)
-    refLoad (CRRef ref) =
-        lookupCachedValue (Proxy @c) ref >>= \case
-            Nothing -> do
-              val <- {-# SCC "LOADCACHE" #-} loadRef ref
-              putCachedValue (Proxy @c) ref val
-            Just val -> return val
-    refLoad (CRMem ioref) = liftIO (readIORef ioref) >>= \case
-        Mem val -> return val
-        Disk ref -> lookupCachedValue (Proxy @c) ref >>= \case
-            Nothing -> do
-              val <- {-# SCC "LOADCACHE" #-} loadRef ref
-              putCachedValue (Proxy @c) ref val
-            Just val -> return val
+    refLoad (CachedRef ioref) =
+        liftIO (readIORef ioref) >>= \case
+            Mem val -> return val
+            Disk ref ->
+                lookupCachedValue (Proxy @c) ref >>= \case
+                    Nothing -> do
+                        val <- {-# SCC "LOADCACHE" #-} loadRef ref
+                        putCachedValue (Proxy @c) ref val
+                    Just val -> return val
     refMake val = do
         ioref <- liftIO $ newIORef (Mem val)
-        return (CRMem ioref)
-    refUncache r@(CRRef _) = return r
-    refUncache (CRMem ioref) = liftIO (readIORef ioref) >>= \case
-        Mem val -> do
-            (r, _) <- storeUpdateRef val
-            liftIO $ writeIORef ioref (Disk r)
-            return (CRRef r)
-        Disk r -> return (CRRef r)
+        return (CachedRef ioref)
+    refUncache cr@(CachedRef ioref) =
+        liftIO (readIORef ioref) >>= \case
+            Mem val -> do
+                (r, _) <- storeUpdateRef val
+                liftIO $ writeIORef ioref (Disk r)
+                return cr
+            Disk _ -> return cr
     {-# INLINE refFlush #-}
     {-# INLINE refCache #-}
     {-# INLINE refLoad #-}
@@ -99,7 +99,12 @@ instance
     storeUpdate c = do
         (c', ref) <- refFlush c
         (,c') <$> store ref
-    load = fmap CRRef <$> load
+    load = do
+        mref <- load
+        return $ do
+            ref <- mref
+            ioref <- liftIO $ newIORef (Disk ref)
+            return (CachedRef ioref)
     {-# INLINE store #-}
     {-# INLINE storeUpdate #-}
     {-# INLINE load #-}
@@ -116,8 +121,7 @@ instance
     getHashM ref = getHashM =<< refLoad ref
 
 instance Show a => Show (CachedRef c a) where
-    show (CRRef r) = show r
-    show (CRMem _) = "<CRMem>"
+    show _ = "<CachedRef>"
 
 -- |We do nothing to cache a 'CachedRef'. Since 'cache' is generally used to cache the entire
 -- global state, it is generally undesirable to load every 'CachedRef' into the cache, as this
@@ -125,12 +129,15 @@ instance Show a => Show (CachedRef c a) where
 instance (Applicative m) => Cacheable m (CachedRef c a) where
     cache = pure
 
+-- * 'HashedCachedRef'
+
 -- |A 'CachedRef', possibly accompanied by a hash.
 data HashedCachedRef' h c a = HashedCachedRef
     { cachedRef :: !(CachedRef c a),
       cachedRefHash :: !(IORef (Maybe h))
     }
 
+-- |A 'CachedRef', possibly accompanied by a hash.
 type HashedCachedRef = HashedCachedRef' H.Hash
 
 -- |'refFlush', 'refCache', 'refLoad' and 'refUncache' do not touch the hash.
@@ -219,13 +226,16 @@ instance
     where
     cache = pure
 
+-- * 'EagerlyHashedCachedRef'
+
 -- |A 'CachedRef' with a hash that is eagerly computed.
 data EagerlyHashedCachedRef' h c a = EagerlyHashedCachedRef
     { ehCachedRef :: !(CachedRef c a),
       ehHash :: !h
     }
-    deriving Show
+    deriving (Show)
 
+-- |A 'CachedRef' with a hash that is eagerly computed.
 type EagerlyHashedCachedRef = EagerlyHashedCachedRef' H.Hash
 
 instance HashableTo h (EagerlyHashedCachedRef' h c a) where
