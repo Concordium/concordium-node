@@ -11,12 +11,9 @@ import Control.Monad.IO.Class
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Control.Monad.Writer.Strict (WriterT)
-import qualified Data.Cache.LRU as LRUBase
-import qualified Data.Cache.LRU.IO as LRU
 import qualified Data.IntMap.Strict as IntMap
 import Data.Proxy
 import qualified Data.Vector.Primitive.Mutable as Vec
-import Data.Word (Word64)
 
 import Concordium.Utils.Serialization.Put (PutT)
 
@@ -202,30 +199,3 @@ newFIFOCache :: Int -> IO (FIFOCache v)
 newFIFOCache size = do
     cache <- emptyFIFOCache' size
     FIFOCache <$> newMVar cache
-
--- | An LRU cache that stores values in memory.
-newtype LRUCache v = LRUCache {theLRUCache :: LRU.AtomicLRU Word64 v}
-
-instance Cache (LRUCache v) where
-    type CacheKey (LRUCache v) = BlobRef v
-    type CacheValue (LRUCache v) = v
-
-    newCache = newLRUCache
-    collapseCache _ = do
-        (lru :: LRU.AtomicLRU Word64 v) <- theLRUCache <$> getCache
-        liftIO $ LRU.modifyAtomicLRU (\_ -> LRUBase.newLRU (Just 0)) lru
-    putCachedValue _ k v = do
-        lru <- theLRUCache <$> getCache
-        liftIO $ LRU.insert (theBlobRef k) v lru
-        return v
-
-    lookupCachedValue _ k = do
-        lru <- theLRUCache <$> getCache
-        liftIO $ LRU.lookup (theBlobRef k) lru
-
-    getCacheSize _ = do
-        lru :: LRUCache v <- getCache
-        liftIO $ LRU.size $ theLRUCache lru
-
-newLRUCache :: Int -> IO (LRUCache v)
-newLRUCache size = LRUCache <$> LRU.newAtomicLRU (Just $ toInteger size)
