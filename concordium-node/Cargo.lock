@@ -512,6 +512,7 @@ dependencies = [
  "tonic",
  "tonic-build",
  "twox-hash",
+ "url",
  "uuid",
  "walkdir",
 ]
@@ -2603,7 +2604,6 @@ dependencies = [
  "percent-encoding",
  "pin-project-lite",
  "serde 1.0.126",
- "serde_json 1.0.64",
  "serde_urlencoded",
  "tokio",
  "tokio-native-tls",
