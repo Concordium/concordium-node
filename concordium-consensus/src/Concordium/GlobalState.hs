@@ -382,8 +382,8 @@ class GlobalStateConfig (c :: Type) where
     initialiseExistingGlobalState :: forall pv . IsProtocolVersion pv => SProtocolVersion pv -> c -> LogIO (Maybe (GSContext c pv, GSState c pv))
 
     -- |Initialise new global state with the given genesis. If the state already
-    -- exists this will raise an exception. The same considerations as for
-    -- 'initialiseExistingGlobalState' apply about state activation.
+    -- exists this will raise an exception. It is not necessary to call 'activateGlobalState'
+    -- on the generated state, as this will establish the necessary invariants.
     initialiseNewGlobalState :: IsProtocolVersion pv => GenesisData pv -> c -> LogIO (GSContext c pv, GSState c pv)
 
     -- |Either initialise an existing state, or if it does not exist, initialise a new one with the given genesis.

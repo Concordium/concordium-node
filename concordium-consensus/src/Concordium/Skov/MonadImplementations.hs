@@ -222,6 +222,8 @@ class SkovConfiguration gsconfig finconfig handlerconfig where
 
     -- |Create an initial context and state from a given configuration assuming
     -- no state exists. If the state exists then an IO exception will be thrown.
+    --
+    -- It is not necessary to call 'activateSkovState' on the resulting state.
     initialiseNewSkov :: IsProtocolVersion pv
                       => GenesisData pv
                       -> SkovConfig pv gsconfig finconfig handlerconfig
