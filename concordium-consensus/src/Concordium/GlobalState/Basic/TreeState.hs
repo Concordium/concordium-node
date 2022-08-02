@@ -80,22 +80,12 @@ instance IsProtocolVersion pv => Show (SkovData pv bs) where
         "Branches: " ++ intercalate "," ( ('[':) . (++"]") . intercalate "," . map (take 6 . show . bpHash) <$> toList _branches)
 
 -- |Initial skov data with default runtime parameters (block size = 10MB).
-initialSkovDataDefault :: (IsProtocolVersion pv, BS.BlockStateQuery m, bs ~ BlockState m) => GenesisData pv -> bs -> m (SkovData pv bs)
+initialSkovDataDefault :: (IsProtocolVersion pv, BS.BlockStateQuery m, bs ~ BlockState m) => GenesisData pv -> bs -> TransactionTable -> m (SkovData pv bs)
 initialSkovDataDefault = initialSkovData defaultRuntimeParameters
 
--- |Create initial skov data based on a genesis block and its state.
-initialSkovData :: (IsProtocolVersion pv, BS.BlockStateQuery m, bs ~ BlockState m) => RuntimeParameters -> GenesisData pv -> bs -> m (SkovData pv bs)
-initialSkovData rp gd genState = do
-    acctAddrs <- BS.getAccountList genState
-    acctNonces <- foldM (\nnces addr ->
-        BS.getAccount genState addr >>= \case
-            Nothing -> error "Invariant violation: listed account does not exist"
-            Just (_, acct) -> do
-                nonce <- BS.getAccountNonce acct
-                return $! (addr,nonce):nnces) [] acctAddrs
-    updSeqNums <- foldM (\m uty -> do
-        sn <- BS.getNextUpdateSequenceNumber genState uty
-        return $! Map.insert uty sn m) Map.empty [minBound..]
+-- |Create initial skov data based on a genesis block, its state, and the initial transaction table.
+initialSkovData :: (IsProtocolVersion pv, BS.BlockStateQuery m, bs ~ BlockState m) => RuntimeParameters -> GenesisData pv -> bs -> TransactionTable -> m (SkovData pv bs)
+initialSkovData rp gd genState genTT =
     return $ SkovData {
             _blockTable = HM.singleton gbh (TS.BlockFinalized gb gbfin),
             _finalizedByHeightTable = HM.singleton 0 gb,
@@ -107,7 +97,7 @@ initialSkovData rp gd genState = do
             _genesisBlockPointer = gb,
             _focusBlock = gb,
             _pendingTransactions = emptyPendingTransactionTable,
-            _transactionTable = emptyTransactionTableWithSequenceNumbers acctNonces updSeqNums,
+            _transactionTable = genTT,
             _statistics = initialConsensusStatistics,
             _runtimeParameters = rp,
             _transactionTablePurgeCounter = 0

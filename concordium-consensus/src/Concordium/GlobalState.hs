@@ -404,10 +404,10 @@ instance GlobalStateConfig MemoryTreeMemoryBlockConfig where
     type GSState MemoryTreeMemoryBlockConfig pv = SkovData pv (BS.HashedBlockState pv)
     initialiseExistingGlobalState _ _ = return Nothing
     initialiseNewGlobalState gendata (MTMBConfig rtparams) = do
-        bs <- case genesisState gendata of
+        (bs, tt) <- case genesisState gendata of
             Left err -> logExceptionAndThrow GlobalState (InvalidGenesisData err)
-            Right bs -> return $ BS.hashBlockState bs
-        skovData <- runPureBlockStateMonad (initialSkovData rtparams gendata bs)
+            Right (bs, tt) -> return (BS.hashBlockState bs, tt)
+        skovData <- runPureBlockStateMonad (initialSkovData rtparams gendata bs tt)
         return ((), skovData)
 
     activateGlobalState _ _ _ = return
@@ -421,7 +421,7 @@ instance GlobalStateConfig MemoryTreeDiskBlockConfig where
     type GSState MemoryTreeDiskBlockConfig pv = SkovData pv (HashedPersistentBlockState pv)
     initialiseExistingGlobalState _ _ = return Nothing
     initialiseNewGlobalState genData MTDBConfig{..} = do
-        genState <- case genesisState genData of
+        (genState, genTT) <- case genesisState genData of
             Left err -> logExceptionAndThrow GlobalState (InvalidGenesisData err)
             Right genState -> return genState
         liftIO $ do
@@ -430,7 +430,7 @@ instance GlobalStateConfig MemoryTreeDiskBlockConfig where
             let initState = do
                     pbs <- makePersistent genState
                     _ <- saveBlockState pbs
-                    initialSkovData mtdbRuntimeParameters genData pbs
+                    initialSkovData mtdbRuntimeParameters genData pbs genTT
             skovData <- runReaderT (runPersistentBlockStateMonad initState) pbsc
             return (pbsc, skovData)
 
@@ -462,12 +462,16 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
       pbscBlobStore <- liftIO $ createBlobStore dtdbBlockStateFile
       let pbsc = PersistentBlockStateContext{..}
       let initGS = do
-              genState <- case genesisState genData of
+              logEvent GlobalState LLTrace "Creating transient global state"
+              (genState, genTT) <- case genesisState genData of
                   Left err -> logExceptionAndThrow GlobalState (InvalidGenesisData err)
                   Right genState -> return genState
+              logEvent GlobalState LLTrace "Creating persistent global state"
               pbs <- makePersistent genState
+              logEvent GlobalState LLTrace "Writing persistent global state"
               ser <- saveBlockState pbs
-              initialSkovPersistentData dtdbRuntimeParameters dtdbTreeStateDirectory genData pbs ser
+              logEvent GlobalState LLTrace "Creating persistent global state context"
+              initialSkovPersistentData dtdbRuntimeParameters dtdbTreeStateDirectory genData pbs ser genTT
       isd <- runReaderT (runPersistentBlockStateMonad initGS) pbsc
               `onException` liftIO (destroyBlobStore pbscBlobStore)
       return (pbsc, isd)

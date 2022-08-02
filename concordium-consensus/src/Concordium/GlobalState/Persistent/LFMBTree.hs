@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE StandaloneDeriving #-}
@@ -38,6 +39,7 @@ module Concordium.GlobalState.Persistent.LFMBTree
 
     -- * Traversal
     mfold,
+    mfoldDesc,
     mmap_,
 
     -- * Specialized functions for @Nullable@
@@ -408,6 +410,17 @@ mfold f a0 (NonEmpty _ t) = mfoldT a0 t
     mfoldT a (Node _ l r) = do
       a' <- mfoldT a =<< refLoad l
       mfoldT a' =<< refLoad r
+
+-- | Fold a monadic action over the tree in descending order of index.
+-- This is strict in the intermediate results.
+mfoldDesc :: (CanStoreLFMBTree m ref v) => (a -> v -> m a) -> a -> LFMBTree k ref v -> m a
+mfoldDesc _ a0 Empty = return a0
+mfoldDesc f !a0 (NonEmpty _ t) = mfoldT a0 t
+  where
+    mfoldT a (Leaf v) = f a =<< refLoad v
+    mfoldT a (Node _ l r) = do
+      !a' <- mfoldT a =<< refLoad r
+      mfoldT a' =<< refLoad l
 
 -- | Map a monadic action over the tree in ascending order of index, discarding the results.
 mmap_ :: (CanStoreLFMBTree m ref v) => (v -> m ()) -> LFMBTree k ref v -> m ()

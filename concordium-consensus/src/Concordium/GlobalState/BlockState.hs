@@ -89,6 +89,7 @@ import Concordium.Crypto.EncryptedTransfers
 import Concordium.GlobalState.ContractStateFFIHelpers (LoadCallback)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import Concordium.GlobalState.Persistent.LMDB (FixedSizeSerialization)
+import Concordium.GlobalState.TransactionTable (TransactionTable)
 
 -- |Hash associated with birk parameters.
 newtype BirkParametersHash (pv :: ProtocolVersion) = BirkParametersHash {birkParamHash :: H.Hash}
@@ -475,6 +476,10 @@ class (ContractStateOperations m, AccountOperations m) => BlockStateQuery m wher
     -- if the 'BakerId' is not currently a baker.
     getPoolStatus :: (AccountVersionFor (MPV m) ~ 'AccountV1, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1)
         => BlockState m -> Maybe BakerId -> m (Maybe PoolStatus)
+
+    -- |Construct a transaction table that is empty but records the next nonces/sequence numbers
+    -- for all accounts and chain updates.
+    getInitialTransactionTable :: BlockState m -> m TransactionTable
 
 -- |Distribution of newly-minted GTU.
 data MintAmounts = MintAmounts {
@@ -1237,6 +1242,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   getEnergyRate s = lift $ getEnergyRate s
   getPaydayEpoch = lift . getPaydayEpoch
   getPoolStatus s = lift . getPoolStatus s
+  getInitialTransactionTable = lift . getInitialTransactionTable
   {-# INLINE getModule #-}
   {-# INLINE getAccount #-}
   {-# INLINE accountExists #-}
@@ -1267,6 +1273,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   {-# INLINE getAnonymityRevokers #-}
   {-# INLINE getUpdateKeysCollection #-}
   {-# INLINE getEnergyRate #-}
+  {-# INLINE getInitialTransactionTable #-}
 
 instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (MGSTrans t m) where
   getAccountCanonicalAddress = lift . getAccountCanonicalAddress

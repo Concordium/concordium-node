@@ -418,7 +418,9 @@ newGenesis (PVGenesisData (gd :: GenesisData pv)) vcGenesisHeight =
                 let newEConfig :: VersionedConfiguration gsconf finconf pv
                     newEConfig = VersionedConfiguration{..}
                 writeIORef mvVersions (oldVersions `Vec.snoc` newVersion newEConfig)
+                mvLog Runner LLTrace "Getting genesis configuration"
                 (genConf, _) <- runMVR (runSkovT (liftSkov getGenesisData) (mvrSkovHandlers newEConfig mvr) vcContext st) mvr
+                mvLog Runner LLTrace "Got genesis configuration"
                 -- Notify the network layer we have a new genesis.
                 notifyRegenesis (Just (_gcCurrentHash genConf))
 
@@ -469,8 +471,8 @@ checkForProtocolUpdate = liftSkov body
                     oldTransactions <- terminateSkov
                     -- Transfer the non-finalized transactions to the new version.
                     lift $ do
-                        vvec <- liftIO . readIORef =<< asks mvVersions
-                        case Vec.last vvec of
+                        lastV <- fmap Vec.last . liftIO . readIORef =<< asks mvVersions
+                        case lastV of
                             (EVersionedConfiguration vc) ->
                                 liftSkovUpdate vc $ mapM_ Skov.receiveTransaction oldTransactions
                     return ()
@@ -537,8 +539,6 @@ makeMultiVersionRunner
         mvTransactionPurgingThread <- newEmptyMVar
         let mvr = MultiVersionRunner{..}
         runMVR (startupSkov genesis) mvr
-        -- Cache accounts, contracts, etc., and establish all invariants for an active consensus.
-        runLoggerT (activateConfiguration . Vec.last =<< liftIO (readIORef mvVersions)) mvLog
         putMVar mvWriteLock ()
         startTransactionPurgingThread mvr
         return mvr
@@ -615,6 +615,7 @@ startupSkov genesis = do
                                       mvLog
                               case r of
                                 Just (vcContext, st) -> do
+                                  mvLog Runner LLTrace "Loaded configuration"
                                   vcState <- newIORef st
                                   let vcShutdown = shutdownSkov vcContext =<< liftIO (readIORef vcState)
                                   let newEConfig :: VersionedConfiguration gsconf finconf pv
@@ -629,6 +630,7 @@ startupSkov genesis = do
                                         return (_gcCurrentHash currentGenesis, localToAbsoluteBlockHeight vcGenesisHeight lfHeight, nextPV)
                                   ((genesisHash, lastFinalizedHeight, nextPV), _) <- runMVR (runSkovT getCurrentGenesisAndHeight (mvrSkovHandlers newEConfig mvr) vcContext st) mvr
                                   notifyRegenesis (Just genesisHash)
+                                  mvLog Runner LLTrace "Load configuration done"
                                   return (Left (newVersion newEConfig, lastFinalizedHeight, nextPV))
                                 Nothing ->
                                   case first of
@@ -641,12 +643,15 @@ startupSkov genesis = do
                     -- If there isn't we attempt to start with the last loaded
                     -- state as the active state.
                     case nextPV of
-                        Nothing -> liftSkovUpdate newEConfig' checkForProtocolUpdate
+                        Nothing -> do
+                            mvrLogIO $ activateConfiguration newEConfig
+                            liftSkovUpdate newEConfig' checkForProtocolUpdate
                         Just nextSPV -> loop nextSPV (Just newEConfig) (vcIndex + 1) (fromIntegral lastFinalizedHeight + 1)
                 -- We failed to load anything in the first iteration of the
                 -- loop. Decode the provided genesis and attempt to start the
                 -- chain.
-                Right Nothing ->
+                Right Nothing -> do
+                    logEvent Runner LLTrace "Attempting to decode genesis"
                     case genesis of
                         Left genBS -> case runGet getPVGenesisData genBS of
                             Left err -> do
@@ -656,7 +661,9 @@ startupSkov genesis = do
                         Right gd -> newGenesis gd 0
                     -- We loaded some protocol versions. Attempt to start in the
                     -- last one we loaded.
-                Right (Just (EVersionedConfiguration newEConfig')) -> liftSkovUpdate newEConfig' checkForProtocolUpdate
+                Right (Just config@(EVersionedConfiguration newEConfig')) -> do
+                    mvrLogIO $ activateConfiguration config
+                    liftSkovUpdate newEConfig' checkForProtocolUpdate
     loop initProtocolVersion Nothing 0 0
 
 -- |Start a thread to periodically purge uncommitted transactions.
