@@ -9,7 +9,7 @@ use crate::{
     },
     write_or_die,
 };
-use anyhow::{anyhow, bail};
+use anyhow::{anyhow, bail, Context};
 use byteorder::{NetworkEndian, ReadBytesExt};
 use crypto_common::Serial;
 use std::{
@@ -450,7 +450,7 @@ extern "C" {
         consensus: *mut consensus_runner,
         import_file_path: *const u8,
         import_file_path_len: i64,
-    ) -> u64;
+    ) -> i64;
     pub fn stopImportingBlocks(consensus: *mut consensus_runner);
 }
 
@@ -862,11 +862,22 @@ impl ConsensusContainer {
         )))
     }
 
-    pub fn import_blocks(&self, import_file_path: &[u8]) -> u64 {
+    /// Import blocks from the given file path. If the file exists and the node
+    /// could import all blocks from the file `Ok(())` is returned. Otherwise an
+    /// error is returned.
+    pub fn import_blocks(&self, import_file_path: &Path) -> anyhow::Result<()> {
         let consensus = self.consensus.load(Ordering::SeqCst);
-        let len = import_file_path.len();
 
-        unsafe { importBlocks(consensus, import_file_path.as_ptr(), len as i64) }
+        let path_bytes =
+            import_file_path.as_os_str().to_str().context("Cannot decode path.")?.as_bytes();
+
+        let len = path_bytes.len();
+
+        let response = unsafe { importBlocks(consensus, path_bytes.as_ptr(), len as i64) };
+        match ConsensusFfiResponse::try_from(response)? {
+            ConsensusFfiResponse::Success => Ok(()),
+            other => bail!("Error during block import: {}", other),
+        }
     }
 
     pub fn stop_importing_blocks(&self) {
