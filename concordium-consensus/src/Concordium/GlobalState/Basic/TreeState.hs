@@ -83,7 +83,7 @@ instance IsProtocolVersion pv => Show (SkovData pv bs) where
 initialSkovDataDefault :: (IsProtocolVersion pv, BS.BlockStateQuery m, bs ~ BlockState m) => GenesisData pv -> bs -> TransactionTable -> m (SkovData pv bs)
 initialSkovDataDefault = initialSkovData defaultRuntimeParameters
 
--- |Create initial skov data based on a genesis block and its state.
+-- |Create initial skov data based on a genesis block, its state, and the initial transaction table.
 initialSkovData :: (IsProtocolVersion pv, BS.BlockStateQuery m, bs ~ BlockState m) => RuntimeParameters -> GenesisData pv -> bs -> TransactionTable -> m (SkovData pv bs)
 initialSkovData rp gd genState genTT =
     return $ SkovData {
