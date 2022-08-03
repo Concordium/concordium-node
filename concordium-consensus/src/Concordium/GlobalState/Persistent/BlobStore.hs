@@ -686,8 +686,10 @@ instance (BlobStorable m a, BlobStorable m b) => BlobStorable m (Nullable (Hashe
     return (r, Some v')
 
 -- |A value that always exists in memory but may also exist on disk.
+-- The disk reference is shared via an 'IORef', which ensures that copies created before
+-- the value is flushed to disk will share the same underlying reference.
 data EagerBufferedRef a = EagerBufferedRef
-    { ebrIORef :: {-# UNPACK #-} !(IORef (BlobRef a)),
+    { ebrIORef :: !(IORef (BlobRef a)),
       ebrValue :: !a
     }
 
@@ -875,14 +877,26 @@ instance (MonadBlobStore m, Serialize a) => BlobStorable m (StoreSerialized a)
 deriving newtype instance HashableTo h a => HashableTo h (StoreSerialized a)
 deriving newtype instance MHashableTo m h a => MHashableTo m h (StoreSerialized a)
 
+-- |A 'BufferedRef' accompanied with a hash.  The hash may be lazily computed.
+--
+-- The hash is computed and retained in the following circumstances:
+--
+-- * The hash is requested via 'getHashM'.
+-- * The 'HashedBufferedRef' is constructed from an already-hashed value via 'bufferHashed'.
+-- * The 'HashedBufferedRef'' is cached via 'cache' or 'refCache'.
+--
+-- Note, the hash is not computed when the reference is loaded with 'load', or dereferenced
+-- with 'refLoad'.  None of the operations cause the hash to be dropped.
 data HashedBufferedRef' h a
   = HashedBufferedRef
       { bufferedReference :: !(BufferedRef a),
         bufferedHash :: !(IORef (Maybe h))
       }
 
+-- |A specialisation of 'HashedBufferedRef'' to the hash type 'H.Hash'.
 type HashedBufferedRef = HashedBufferedRef' H.Hash
 
+-- |Created a 'HashedBufferedRef' value from a 'Hashed' value, retaining the hash.
 bufferHashed :: MonadIO m => Hashed a -> m (HashedBufferedRef a)
 bufferHashed (Hashed !val !h) = do
   br <- makeBRMemory refNull val
@@ -987,8 +1001,10 @@ instance
         (!r, !v') <- storeUpdate v
         return (r, JustForCPV1 v')
 
+-- |An 'EagerBufferedRef' accompanied by a hash.
+-- Both the value and the hash are retained in memory by this reference.
 data EagerlyHashedBufferedRef' h a = EagerlyHashedBufferedRef
-    { ehbrReference :: !(BufferedRef a),
+    { ehbrReference :: !(EagerBufferedRef a),
       ehbrHash :: !h
     }
 
@@ -1000,12 +1016,12 @@ instance HashableTo h (EagerlyHashedBufferedRef' h a) where
 instance (Monad m) => MHashableTo m h (EagerlyHashedBufferedRef' h a)
 
 instance (BlobStorable m a, MHashableTo m h a) => BlobStorable m (EagerlyHashedBufferedRef' h a) where
-    store b = getBRRef (ehbrReference b) >>= store
+    store b = store (ehbrReference b)
     load = do
         mref <- load
         return $ do
             ref <- mref
-            (!a, !r) <- cacheBufferedRef ref
+            (!a, !r) <- refCache ref
             h <- getHashM a
             return $ EagerlyHashedBufferedRef r h
     storeUpdate (EagerlyHashedBufferedRef br0 hsh) = do
@@ -1017,13 +1033,13 @@ instance (BlobStorable m a, MHashableTo m h a) => BlobStorable m (EagerlyHashedB
 
 instance (Monad m, BlobStorable m a, MHashableTo m h a) => Reference m (EagerlyHashedBufferedRef' h) a where
     refFlush ref = do
-        (!br, !r) <- flushBufferedRef (ehbrReference ref)
+        (!br, !r) <- refFlush (ehbrReference ref)
         return (EagerlyHashedBufferedRef br (ehbrHash ref), r)
     
     refLoad = refLoad . ehbrReference
 
     refMake val = do
-        br <- makeBRMemory refNull val
+        br <- refMake val
         h <- getHashM val
         return $ EagerlyHashedBufferedRef br h
     
