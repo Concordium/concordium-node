@@ -120,7 +120,7 @@ emptyANFTWithNonce = AccountNonFinalizedTransactions Map.empty
 data NonFinalizedChainUpdates = NonFinalizedChainUpdates {
     _nfcuMap :: Map.Map UpdateSequenceNumber (Map.Map (WithMetadata UpdateInstruction) TVer.VerificationResult),
     _nfcuNextSequenceNumber :: UpdateSequenceNumber
-} deriving (Eq)
+} deriving (Eq, Show)
 makeLenses ''NonFinalizedChainUpdates
 
 emptyNFCU :: NonFinalizedChainUpdates
