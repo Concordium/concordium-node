@@ -281,3 +281,11 @@ serializeAccounts :: (MonadBlobStore m, MonadPut m, IsProtocolVersion pv) => Glo
 serializeAccounts cryptoParams accts = do
         liftPut $ putWord64be $ L.size (accountTable accts)
         L.mmap_ (serializeAccount cryptoParams) (accountTable accts)
+
+-- |Fold over the account table in ascending order of account index.
+foldAccounts :: (MonadBlobStore m, IsProtocolVersion pv) => (a -> PersistentAccount (AccountVersionFor pv) -> m a) -> a -> Accounts pv -> m a
+foldAccounts f a accts = L.mfold f a (accountTable accts)
+
+-- |Fold over the account table in ascending order of account index.
+foldAccountsDesc :: (MonadBlobStore m, IsProtocolVersion pv) => (a -> PersistentAccount (AccountVersionFor pv) -> m a) -> a -> Accounts pv -> m a
+foldAccountsDesc f a accts = L.mfoldDesc f a (accountTable accts)

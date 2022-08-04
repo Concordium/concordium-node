@@ -14,7 +14,6 @@ import Control.Monad.Trans.State
 
 import qualified Data.Vector as Vec
 import Data.Ratio
-import Data.Either ( fromRight )
 import Data.List ( maximumBy, sortBy )
 import Data.Map ( (!) )
 import Data.Proxy
@@ -50,6 +49,7 @@ import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.BlockState
 import Concordium.GlobalState.Persistent.BlockPointer
 import Concordium.GlobalState.Persistent.TreeState
+import Concordium.GlobalState.TransactionTable (TransactionTable, emptyTransactionTable)
 import Concordium.ID.Types
 import SchedulerTests.TestUtils ()
 import Concordium.GlobalState.BlockPointer (BlockPointer (_bpState))
@@ -235,8 +235,8 @@ type MyPureMonad pv = PureTreeStateMonad (MyPureBlockState pv) (PureBlockStateMo
 runMyPureMonad :: (IsProtocolVersion pv) => MyPureTreeState pv -> MyPureMonad pv a -> IO (a, MyPureTreeState pv)
 runMyPureMonad is = (`runStateT` is) . runPureBlockStateMonad . runPureTreeStateMonad
 
-runMyPureMonad' :: (IsProtocolVersion pv) => GenesisData pv -> MyPureMonad pv a -> IO (a, MyPureTreeState pv)
-runMyPureMonad' gd = runPureBlockStateMonad (initialSkovDataDefault gd initialPureBlockState) >>= runMyPureMonad
+runMyPureMonad' :: (IsProtocolVersion pv) => GenesisData pv -> TransactionTable -> MyPureMonad pv a -> IO (a, MyPureTreeState pv)
+runMyPureMonad' gd genTT = runPureBlockStateMonad (initialSkovDataDefault gd initialPureBlockState genTT) >>= runMyPureMonad
 
 type MyPersistentBlockState pv = HashedPersistentBlockState pv
 type MyPersistentTreeState pv = SkovPersistentData pv (MyPersistentBlockState pv)
@@ -276,7 +276,7 @@ testRewardDistribution = do
   it "splits the minted amount three ways" $ withMaxSuccess 10000 $ property propMintAmountsEqNewMint
   it "chooses the most recent mint distribution before payday" $ withMaxSuccess 10000 $ property propMintDistributionMostRecent
   it "does not change after mint distribution (in-memory)" $ do
-    (resultPure, _) <- runMyPureMonad' gd (propMintDistributionImmediate ibs blockParentPure slot bid epoch mfinInfo newSeedState transFees freeCounts updates)
+    (resultPure, _) <- runMyPureMonad' gd genTT (propMintDistributionImmediate ibs blockParentPure slot bid epoch mfinInfo newSeedState transFees freeCounts updates)
     assertBool "in-memory" resultPure
   it "does not change after mint distribution (persistent)" $ do
     ipbs :: MyPersistentBlockState 'P4 <- runBlobStoreTemp "." initialPersistentBlockState
@@ -284,13 +284,15 @@ testRewardDistribution = do
     (resultPersistent, _) <- withPersistentState' (\x -> propMintDistributionImmediate (hpbsPointers x) blockParentPersistent slot bid epoch mfinInfo newSeedState transFees freeCounts updates)
     assertBool "persistent" resultPersistent
   it "does not change after block reward distribution (in-memory)" $ do
-    (resultPure, _) <- runMyPureMonad' gd (propTransactionFeesDistributionP4 transFees freeCounts bid ibs)
+    (resultPure, _) <- runMyPureMonad' gd genTT (propTransactionFeesDistributionP4 transFees freeCounts bid ibs)
     assertBool "in-memory" resultPure
   it "does not change after block reward distribution (persistent)" $ do
     (resultPersistent, _ :: MyPersistentTreeState 'P4) <- withPersistentState' (propTransactionFeesDistributionP4 transFees freeCounts bid . hpbsPointers)
     assertBool "persistent" resultPersistent
       where gd = genesis 5 ^._1 :: GenesisData 'P4
-            ibs = fromRight (_unhashedBlockState initialPureBlockState :: Concordium.GlobalState.Basic.BlockState.BlockState 'P4) (genesisState gd)
+            (ibs, genTT) = case genesisState gd of
+              Right x -> x
+              Left _ -> (_unhashedBlockState initialPureBlockState :: Concordium.GlobalState.Basic.BlockState.BlockState 'P4, emptyTransactionTable)
             blockParentPure = makeGenesisBasicBlockPointer gd initialPureBlockState
             slot = 400
             bid = BakerId 1

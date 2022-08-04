@@ -86,6 +86,7 @@ import Concordium.Utils.Serialization.Put
 import Concordium.Utils.Serialization
 import Concordium.Utils.BinarySearch
 import Concordium.Kontrol.Bakers
+import qualified Concordium.GlobalState.TransactionTable as TransactionTable
 
 -- * Birk parameters
 
@@ -2592,6 +2593,35 @@ doSetRewardAccounts pbs rewards = do
         bsp <- loadPBS pbs
         storePBS pbs bsp{bspBank = bspBank bsp & unhashed . Rewards.rewardAccounts .~ rewards}
 
+doGetInitialTransactionTable :: forall pv m. (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m TransactionTable.TransactionTable
+doGetInitialTransactionTable pbs = do
+    bsp <- loadPBS pbs
+    -- Note: we deliberately fold over the accounts in descending order here under the assumption
+    -- that they have just been loaded in ascending order previously, allowing us to make maximal
+    -- use of the cache. The order does not matter semantically since account addresses are
+    -- distinctive.
+    tt1 <- Accounts.foldAccountsDesc accInTT TransactionTable.emptyTransactionTable (bspAccounts bsp)
+    foldM (updInTT bsp) tt1 [minBound..]
+  where
+    accInTT :: TransactionTable.TransactionTable -> PersistentAccount (AccountVersionFor pv) -> m TransactionTable.TransactionTable
+    accInTT tt acct = do
+        let nonce = acct ^. accountNonce
+        if nonce /= minNonce
+            then do
+                addr <- acct ^^. accountAddress
+                return $! tt
+                    & TransactionTable.ttNonFinalizedTransactions . at' (accountAddressEmbed addr)
+                    ?~ TransactionTable.emptyANFTWithNonce nonce
+            else return tt
+    updInTT bsp tt uty = do
+        sn <- lookupNextUpdateSequenceNumber (bspUpdates bsp) uty
+        if sn /= minUpdateSequenceNumber
+            then
+                return $! tt
+                    & TransactionTable.ttNonFinalizedChainUpdates . at' uty
+                    ?~ TransactionTable.emptyNFCUWithSequenceNumber sn
+            else
+                return tt
 
 newtype PersistentBlockStateContext = PersistentBlockStateContext {
     pbscBlobStore :: BlobStore
@@ -2665,6 +2695,7 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateQuery (Persist
     getEnergyRate = doGetEnergyRate . hpbsPointers
     getPaydayEpoch = doGetPaydayEpoch . hpbsPointers
     getPoolStatus = doGetPoolStatus . hpbsPointers
+    getInitialTransactionTable = doGetInitialTransactionTable . hpbsPointers
 
 instance (MonadIO m, PersistentState r m) => ContractStateOperations (PersistentBlockStateMonad pv r m) where
   thawContractState (Instances.InstanceStateV0 inst) = return inst

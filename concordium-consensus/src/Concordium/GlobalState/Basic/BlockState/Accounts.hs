@@ -194,6 +194,10 @@ instance IsProtocolVersion pv => Ixed (Accounts pv) where
 accountList :: Accounts pv -> [Account (AccountVersionFor pv)]
 accountList = fmap snd . AT.toList . accountTable
 
+-- |Fold over the account table in ascending order of account index.
+foldAccounts :: (a -> Account (AccountVersionFor pv) -> a) -> a -> Accounts pv -> a
+foldAccounts f a = AT.foldl' f a. accountTable
+
 -- |Serialize 'Accounts' in V0 format.
 serializeAccounts :: IsProtocolVersion pv => GlobalContext -> Putter (Accounts pv)
 serializeAccounts cryptoParams Accounts{..} = do
