@@ -52,7 +52,6 @@ import Concordium.GlobalState.Basic.BlockState.Bakers
 import qualified Concordium.Types.SeedState as SeedState
 import Concordium.GlobalState
 import Concordium.Genesis.Data.P1
-import Concordium.TransactionVerification
 
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
@@ -122,9 +121,15 @@ invariantSkovData TS.SkovData{..} = addContext $ do
         checkBinary Set.isSubsetOf (Set.fromList $ HM.keys $ HM.filter onlyPending _blockTable) allPossiblyPending "is a subset of" "blocks marked pending" "pending queues"
         checkBinary Set.isSubsetOf allPossiblyPending (Set.fromList $ HM.keys _blockTable) "is a subset of" "pending queues" "blocks in block table"
         -- Transactions
-        -- We put a dummy verification result here. The scheduler will verify it.
+        -- First walk the transactions in the finalized blocks.
+        -- This constructs a table of the non-finalized transactions, and ANFTS and NFCUS that
+        -- record the next nonces and sequence numbers for accounts/update types that have had
+        -- transactions.
         (nonFinTrans, anftNonces, nfcuSNs) <- walkTransactions _genesisBlockPointer lastFin (_ttHashMap _transactionTable) HM.empty Map.empty
-        let (anft', nfcu') = foldr (\(bi, _) ->
+        -- We reconstruct the account non-finalized transactions and non-finalized chain updates
+        -- by inserting the non-finalized transactions into the previously-constructed
+        -- ANFTS and NFCUS.
+        let (anft', nfcu') = foldr (\(bi, status) ->
                              case bi of
                                WithMetadata{wmdData=NormalTransaction tr,..} ->
                                  _1
@@ -132,20 +137,22 @@ invariantSkovData TS.SkovData{..} = addContext $ do
                                  . non emptyANFT
                                  . anftMap
                                  . at (transactionNonce tr)
-                                 . non Map.empty . at WithMetadata{wmdData=tr,..} ?~ (MaybeOk NormalTransactionInsufficientFunds)
+                                 . non Map.empty . at WithMetadata{wmdData=tr,..} ?~ _tsVerRes status
                                WithMetadata{wmdData=ChainUpdate cu,..} ->
                                     _2
                                     . at (updateType (uiPayload cu))
                                     . non emptyNFCU
                                     . nfcuMap
                                     . at (updateSeqNumber (uiHeader cu))
-                                    . non Map.empty . at WithMetadata{wmdData=cu,..} ?~ (MaybeOk ChainUpdateInvalidSignatures)
+                                    . non Map.empty . at WithMetadata{wmdData=cu,..} ?~ _tsVerRes status
                                _ -> id
                           )
                           (anftNonces, nfcuSNs)
                           nonFinTrans
-        unless (anft' == _ttNonFinalizedTransactions _transactionTable) $ Left "Incorrect non-finalized transactions"
-        unless (nfcu' == _ttNonFinalizedChainUpdates _transactionTable) $ Left "Incorrect non-finalized chain updates"
+        -- Check that these tables match the actual tables in the state.
+        checkBinary (==) anft' (_ttNonFinalizedTransactions _transactionTable) "==" "expected non-finalized transactions" "actual non-finalized transactions"
+        checkBinary (==) nfcu' (_ttNonFinalizedChainUpdates _transactionTable) "==" "expected non-finalized chain updates" "actual non-finalized chain updates"
+        -- Walk the remaining transactions to the focus block to determine the pending transaction table.
         (pendingTrans, pendingNonces, pendingUpdateSNs) <- walkTransactions lastFin _focusBlock nonFinTrans anftNonces nfcuSNs
         let ptt = foldr (\(bi, _) ->
                         case wmdData bi of
@@ -525,7 +532,7 @@ initialiseStates n maxFinComSize = do
 
 -- Initial states for the test in which we want finalization-committee members to change.
 -- The `averageStake` amount is a stake such that
---   * it is approximately equal to `1 / maxFinCommitteSize` of the total stake
+--   * it is approximately equal to `1 / maxFinCommitteeSize` of the total stake
 --   * to be in the committee, a baker needs to have at least `averageStake` stake
 -- We pick `f` bakers that will initially be in the finalization committee; their stake will be somewhat greater than
 -- `averageStake`; and we pick `b` bakers whose stake will be lower and who therefore won't be in the committee.
