@@ -14,7 +14,6 @@ import Control.Monad.Trans.State
 
 import qualified Data.Vector as Vec
 import Data.Ratio
-import Data.Either ( fromRight )
 import Data.List ( maximumBy, sortBy )
 import Data.Map ( (!) )
 import Data.Proxy
