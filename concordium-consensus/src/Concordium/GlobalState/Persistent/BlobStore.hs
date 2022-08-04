@@ -349,7 +349,8 @@ type BlobStoreM' r = BlobStoreT r IO
 -- @ReaderT BlobStore IO@.
 type BlobStoreM = BlobStoreM' BlobStore
 
-runBlobStoreM :: BlobStoreT r IO a -> r -> IO a
+-- |Run a 'BlobStoreM'' operation with the supplied context.
+runBlobStoreM :: BlobStoreM' r a -> r -> IO a
 runBlobStoreM = runBlobStoreT
 
 -- |A wrapper type for lifting 'MonadBlobStore' instances over monad transformers.
