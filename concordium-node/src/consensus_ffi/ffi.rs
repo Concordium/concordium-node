@@ -908,7 +908,7 @@ pub extern "C" fn on_finalization_message_catchup_out(
         let mut full_payload = Vec::with_capacity(1 + payload.len());
         (msg_variant as u8).serial(&mut full_payload);
 
-        full_payload.write_all(&payload).unwrap(); // infallible
+        full_payload.write_all(payload).unwrap(); // infallible
         let full_payload = Arc::from(full_payload);
 
         let msg = ConsensusMessage::new(
@@ -1045,7 +1045,7 @@ pub unsafe extern "C" fn regenesis_callback(ptr: *const Regenesis, block_hash: *
 
     // The pointer must remain valid, so we use into_raw to prevent the reference
     // count from being decremented.
-    Arc::into_raw(arc);
+    let _ = Arc::into_raw(arc);
 }
 
 /// A callback to free the regenesis Arc.

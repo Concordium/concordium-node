@@ -121,7 +121,7 @@ pub fn check_peers(node: &Arc<P2PNode>, peer_stats: &[PeerStats], attempted_boot
     debug!("I currently have {}/{} peers", peer_stats.len(), node.config.max_allowed_nodes);
 
     if node.config.print_peers {
-        node.print_stats(&peer_stats);
+        node.print_stats(peer_stats);
     }
 
     if node.self_peer.peer_type == PeerType::Node {

@@ -36,11 +36,11 @@ pub fn setup_logger(trace: bool, debug: bool, no_log_timestamp: bool) {
             writeln!(buf, "{}: {}: {}", buf.timestamp_nanos(), record.level(), record.args())
         });
     }
-    log_builder.filter(Some(&"tokio_reactor"), LevelFilter::Error);
-    log_builder.filter(Some(&"hyper"), LevelFilter::Error);
-    log_builder.filter(Some(&"reqwest"), LevelFilter::Error);
-    log_builder.filter(Some(&"gotham"), LevelFilter::Error);
-    log_builder.filter(Some(&"h2"), LevelFilter::Error);
+    log_builder.filter(Some("tokio_reactor"), LevelFilter::Error);
+    log_builder.filter(Some("hyper"), LevelFilter::Error);
+    log_builder.filter(Some("reqwest"), LevelFilter::Error);
+    log_builder.filter(Some("gotham"), LevelFilter::Error);
+    log_builder.filter(Some("h2"), LevelFilter::Error);
     log_builder.init();
 }
 

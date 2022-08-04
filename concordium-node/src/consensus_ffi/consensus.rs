@@ -90,18 +90,10 @@ impl Default for ConsensusOutboundQueues {
     }
 }
 
+#[derive(Default)]
 pub struct ConsensusQueues {
     pub inbound:  ConsensusInboundQueues,
     pub outbound: ConsensusOutboundQueues,
-}
-
-impl Default for ConsensusQueues {
-    fn default() -> Self {
-        Self {
-            inbound:  Default::default(),
-            outbound: Default::default(),
-        }
-    }
 }
 
 impl ConsensusQueues {
