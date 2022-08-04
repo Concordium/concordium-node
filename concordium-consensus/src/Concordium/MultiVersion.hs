@@ -471,7 +471,7 @@ checkForProtocolUpdate = liftSkov body
                     oldTransactions <- terminateSkov
                     -- Transfer the non-finalized transactions to the new version.
                     lift $ do
-                        lastV <- fmap Vec.last . liftIO . readIORef =<< asks mvVersions
+                        lastV <- liftIO . fmap Vec.last . readIORef =<< asks mvVersions
                         case lastV of
                             (EVersionedConfiguration vc) ->
                                 liftSkovUpdate vc $ mapM_ Skov.receiveTransaction oldTransactions
