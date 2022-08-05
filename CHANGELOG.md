@@ -5,6 +5,10 @@
 - Reduce startup time and memory use further by reducing the amount of block
   data retained in memory. In particular finalized blocks are no longer stored
   in memory.
+- Account records are no longer constantly retained in memory. Instead a limited
+  number are retained in a cache. The number of cached accounts defaults to 10000,
+  and can be configured by the `--accounts-cache-size` command line argument or the
+  `CONCORDIUM_NODE_CONSENSUS_ACCOUNTS_CACHE_SIZE` environment variable.
   
 ## 4.2.2
 
