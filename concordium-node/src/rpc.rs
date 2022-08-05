@@ -254,7 +254,7 @@ impl P2p for RpcServerImpl {
             let result = if consensus_result == Success {
                 let mut payload = Vec::with_capacity(1 + transaction.len());
                 payload.write_u8(PacketType::Transaction as u8)?;
-                payload.write_all(&transaction)?;
+                payload.write_all(transaction)?;
 
                 CALLBACK_QUEUE.send_out_message(ConsensusMessage::new(
                     MessageType::Outbound(None),
@@ -493,14 +493,14 @@ impl P2p for RpcServerImpl {
         let req = req.get_ref();
         let banned_node = match (&req.node_id, &req.ip) {
             (Some(node_id), None) => {
-                if let Ok(id) = RemotePeerId::from_str(&node_id.to_string()) {
+                if let Ok(id) = RemotePeerId::from_str(node_id) {
                     Ok(self.node.drop_by_id(id))
                 } else {
                     return Err(Status::new(Code::InvalidArgument, "Malformed node ID."));
                 }
             }
             (None, Some(ip)) => {
-                if let Ok(ip) = IpAddr::from_str(&ip.to_string()) {
+                if let Ok(ip) = IpAddr::from_str(ip) {
                     self.node.drop_by_ip_and_ban(ip)
                 } else {
                     return Err(Status::new(Code::InvalidArgument, "Malformed IP address."));
@@ -535,7 +535,7 @@ impl P2p for RpcServerImpl {
         authenticate!(req, self.access_token);
         let req = req.get_ref();
         let banned_node = match req.ip {
-            Some(ref ip) => IpAddr::from_str(&ip.to_string()).ok().map(PersistedBanId::Ip),
+            Some(ref ip) => IpAddr::from_str(ip).ok().map(PersistedBanId::Ip),
             _ => None,
         };
 

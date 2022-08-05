@@ -80,6 +80,7 @@ struct ConfigCli {
     #[structopt(long = "trace", help = "Trace mode", env = "CONCORDIUM_NODE_COLLECTOR_TRACE")]
     pub trace:                  bool,
     #[structopt(long = "info", help = "Info mode", env = "CONCORDIUM_NODE_COLLECTOR_INFO")]
+    #[allow(dead_code)] // allow for backwards compatibility.
     pub info:                   bool,
     #[structopt(
         long = "no-log-timestamp",

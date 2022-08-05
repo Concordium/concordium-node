@@ -1,4 +1,4 @@
-param ([string] $rustVersion = "1.53.0")
+param ([string] $rustVersion = "1.62.1")
 
 Write-Output "stack version: $(stack --version)"
 Write-Output "cargo version: $(cargo --version)"
