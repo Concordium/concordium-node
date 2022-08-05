@@ -50,30 +50,34 @@ testCases =
     { tcName = "Iterator"
     , tcParameters = (defaultParams @PV4) {tpInitialBlockState=initialBlockState}
     , tcTransactions =
-      [ ( TJSON { payload = DeployModule wasmModVersion iteratorSourceFile
+      [ ( (TJSON { payload = DeployModule wasmModVersion iteratorSourceFile
                 , metadata = makeDummyHeader alesAccount 1 100000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+            TVer.MaybeOk TVer.NormalTransactionInsufficientFunds)
         , (SuccessWithSummary deploymentCostCheck, emptySpec)
         )
-      , ( TJSON { payload = InitContract 0 wasmModVersion iteratorSourceFile "init_iterator" ""
+      , ( (TJSON { payload = InitContract 0 wasmModVersion iteratorSourceFile "init_iterator" ""
                 , metadata = makeDummyHeader alesAccount 2 100000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+            TVer.MaybeOk TVer.NormalTransactionInsufficientFunds)
         , (SuccessWithSummary initializationCostCheck, iteratorSpec)
         )
       ,
-        ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "iterator.iteratetest" BSS.empty
+        ( (TJSON { payload = Update 0 (Types.ContractAddress 0 0) "iterator.iteratetest" BSS.empty
                 , metadata = makeDummyHeader alesAccount 3 100000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+            TVer.MaybeOk TVer.NormalTransactionInsufficientFunds)
         , (SuccessWithSummary ensureSuccess, iteratorSpec)
         )
       ,
-        ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "iterator.lockingtest" BSS.empty
+        ( (TJSON { payload = Update 0 (Types.ContractAddress 0 0) "iterator.lockingtest" BSS.empty
                 , metadata = makeDummyHeader alesAccount 4 100000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+            TVer.MaybeOk TVer.NormalTransactionInsufficientFunds)
         , (SuccessWithSummary ensureSuccess, iteratorSpec)
         )
       ]

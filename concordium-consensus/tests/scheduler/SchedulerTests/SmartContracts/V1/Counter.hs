@@ -55,34 +55,39 @@ testCases =
     { tcName = "Counter updates and returns."
     , tcParameters = (defaultParams @PV4) {tpInitialBlockState=initialBlockState}
     , tcTransactions =
-      [ ( TJSON { payload = DeployModule wasmModVersion counterSourceFile
+      [ ( (TJSON { payload = DeployModule wasmModVersion counterSourceFile
                 , metadata = makeDummyHeader alesAccount 1 100000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+            TVer.MaybeOk TVer.NormalTransactionInsufficientFunds)
         , (SuccessWithSummary deploymentCostCheck, emptySpec)
         )
-      , ( TJSON { payload = InitContract 0 wasmModVersion counterSourceFile "init_counter" ""
+      , ( (TJSON { payload = InitContract 0 wasmModVersion counterSourceFile "init_counter" ""
                 , metadata = makeDummyHeader alesAccount 2 100000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+            TVer.MaybeOk TVer.NormalTransactionInsufficientFunds)
         , (SuccessWithSummary initializationCostCheck, counterSpec 0)
         )
-      , ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "counter.inc" BSS.empty
+      , ( (TJSON { payload = Update 0 (Types.ContractAddress 0 0) "counter.inc" BSS.empty
                 , metadata = makeDummyHeader alesAccount 3 700000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+            TVer.MaybeOk TVer.NormalTransactionInsufficientFunds)
         , (SuccessWithSummary ensureSuccess , counterSpec 1)
         )
-      , ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "counter.inc" BSS.empty
+      , ( (TJSON { payload = Update 0 (Types.ContractAddress 0 0) "counter.inc" BSS.empty
                 , metadata = makeDummyHeader alesAccount 4 700000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+            TVer.MaybeOk TVer.NormalTransactionInsufficientFunds)
         , (SuccessWithSummary ensureSuccess , counterSpec 2)
         )
-      , ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "counter.inc10" callArgs
+      , ( (TJSON { payload = Update 0 (Types.ContractAddress 0 0) "counter.inc10" callArgs
                 , metadata = makeDummyHeader alesAccount 5 700000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+            TVer.MaybeOk TVer.NormalTransactionInsufficientFunds)
         , (SuccessWithSummary ensureSuccess , counterSpec 12)
         )
       ]

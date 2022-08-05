@@ -60,36 +60,41 @@ testCases =
     { tcName = "CrossMessaging via a proxy"
     , tcParameters = (defaultParams @PV4) {tpInitialBlockState=initialBlockState}
     , tcTransactions =
-      [ ( TJSON { payload = DeployModule version1 counterSourceFile
+      [ ( (TJSON { payload = DeployModule version1 counterSourceFile
                 , metadata = makeDummyHeader alesAccount 1 100000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+            TVer.MaybeOk TVer.NormalTransactionInsufficientFunds)
         , (SuccessWithSummary ensureSuccess, emptySpec)
         )
-      , ( TJSON { payload = DeployModule version0 proxySourceFile
+      , ( (TJSON { payload = DeployModule version0 proxySourceFile
                 , metadata = makeDummyHeader alesAccount 2 100000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+            TVer.MaybeOk TVer.NormalTransactionInsufficientFunds)
         , (SuccessWithSummary ensureSuccess, emptySpec)
         )
-      , ( TJSON { payload = InitContract 0 version1 counterSourceFile "init_counter" ""
+      , ( (TJSON { payload = InitContract 0 version1 counterSourceFile "init_counter" ""
                 , metadata = makeDummyHeader alesAccount 3 100000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+            TVer.MaybeOk TVer.NormalTransactionInsufficientFunds)
         , (SuccessWithSummary ensureSuccess, counterSpec 0)
         )
-      , ( TJSON { payload = InitContract 0 version0 proxySourceFile "init_proxy" ""
+      , ( (TJSON { payload = InitContract 0 version0 proxySourceFile "init_proxy" ""
                 , metadata = makeDummyHeader alesAccount 4 100000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+            TVer.MaybeOk TVer.NormalTransactionInsufficientFunds)
         , (SuccessWithSummary ensureSuccess, emptySpec)
         )
         -- run the nocheck entrypoint since the @inc10@ one checks the return value, and since
         -- we are invoking a V0 contract there is no return value.
-      , ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "counter.inc10nocheck" callArgs
+      , ( (TJSON { payload = Update 0 (Types.ContractAddress 0 0) "counter.inc10nocheck" callArgs
                 , metadata = makeDummyHeader alesAccount 5 700000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+            TVer.MaybeOk TVer.NormalTransactionInsufficientFunds)
         , (SuccessWithSummary ensureSuccess, counterSpec 10)
         )
       ]

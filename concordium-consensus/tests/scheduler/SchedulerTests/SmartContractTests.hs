@@ -40,6 +40,7 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import SchedulerTests.TestUtils
 import Test.Hspec
+import qualified Concordium.TransactionVerification as TVer
 
 -- ** Test runners **
 

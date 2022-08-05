@@ -71,32 +71,36 @@ testCase1 =
     { tcName = "Checkpointing 1"
     , tcParameters = (defaultParams @PV4) {tpInitialBlockState=initialBlockState}
     , tcTransactions =
-      [ ( TJSON { payload = DeployModule wasmModVersion1 checkpointingSourceFile
+      [ ( (TJSON { payload = DeployModule wasmModVersion1 checkpointingSourceFile
                 , metadata = makeDummyHeader alesAccount 1 100000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+            TVer.MaybeOk TVer.NormalTransactionInsufficientFunds)
         , (SuccessWithSummary (deploymentCostCheck checkpointingSourceFile), emptySpec)
         )       
-      , ( TJSON { payload = InitContract 0 wasmModVersion1 checkpointingSourceFile "init_a" ""
+      , ( (TJSON { payload = InitContract 0 wasmModVersion1 checkpointingSourceFile "init_a" ""
                 , metadata = makeDummyHeader alesAccount 2 100000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+            TVer.MaybeOk TVer.NormalTransactionInsufficientFunds)
         , (SuccessWithSummary (initializationCostCheck checkpointingSourceFile "init_a"), emptySpec)
         )
       ,
-        ( TJSON { payload = InitContract 0 wasmModVersion1 checkpointingSourceFile "init_b" ""
+        ( (TJSON { payload = InitContract 0 wasmModVersion1 checkpointingSourceFile "init_b" ""
                 , metadata = makeDummyHeader alesAccount 3 100000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+            TVer.MaybeOk TVer.NormalTransactionInsufficientFunds)
         , (SuccessWithSummary (initializationCostCheck checkpointingSourceFile "init_b"), emptySpec)
         )
       ,
         -- We supply one micro CCD as we expect a trap from a v1 contract.
         -- See the contract for details.
-        ( TJSON { payload = Update 1 (Types.ContractAddress 0 0) "a.a_modify_proxy" parameters
+        ( (TJSON { payload = Update 1 (Types.ContractAddress 0 0) "a.a_modify_proxy" parameters
                 , metadata = makeDummyHeader alesAccount 4 100000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+            TVer.MaybeOk TVer.NormalTransactionInsufficientFunds)
         , (SuccessWithSummary ensureSuccess, emptySpec)
         )
       ]
@@ -144,23 +148,26 @@ testCase2 =
     , tcParameters = (defaultParams @PV4) {tpInitialBlockState=initialBlockState}
     , tcTransactions =
       [
-        ( TJSON { payload = DeployModule wasmModVersion1 checkpointingSourceFile
+        ( (TJSON { payload = DeployModule wasmModVersion1 checkpointingSourceFile
                 , metadata = makeDummyHeader alesAccount 1 100000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+            TVer.MaybeOk TVer.NormalTransactionInsufficientFunds)
         , (SuccessWithSummary (deploymentCostCheck checkpointingSourceFile), emptySpec)
         )       
-      , ( TJSON { payload = InitContract 0 wasmModVersion1 checkpointingSourceFile "init_a" ""
+      , ( (TJSON { payload = InitContract 0 wasmModVersion1 checkpointingSourceFile "init_a" ""
                 , metadata = makeDummyHeader alesAccount 2 100000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+            TVer.MaybeOk TVer.NormalTransactionInsufficientFunds)
         , (SuccessWithSummary (initializationCostCheck checkpointingSourceFile "init_a"), emptySpec)
         )
       ,
-        ( TJSON { payload = InitContract 0 wasmModVersion1 checkpointingSourceFile "init_b" ""
+        ( (TJSON { payload = InitContract 0 wasmModVersion1 checkpointingSourceFile "init_b" ""
                 , metadata = makeDummyHeader alesAccount 3 100000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+            TVer.MaybeOk TVer.NormalTransactionInsufficientFunds)
         , (SuccessWithSummary (initializationCostCheck checkpointingSourceFile "init_b"), emptySpec)
         )
       ,
@@ -168,10 +175,11 @@ testCase2 =
         -- does not expect errors i.e. a trap signal from underlying invocations.
         -- The 'inner' call to contract A does not modify the state. 
         -- See the contract for details. 
-        (TJSON { payload = Update 0 (Types.ContractAddress 0 0) "a.a_modify_proxy" parameters
+        ((TJSON { payload = Update 0 (Types.ContractAddress 0 0) "a.a_modify_proxy" parameters
                 , metadata = makeDummyHeader alesAccount 4 100000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+           TVer.MaybeOk TVer.NormalTransactionInsufficientFunds)
         , (SuccessWithSummary ensureSuccess, emptySpec)
         )
       ]
@@ -215,32 +223,36 @@ testCase3 =
     , tcParameters = (defaultParams @PV4) {tpInitialBlockState=initialBlockState}
     , tcTransactions =
       [
-        ( TJSON { payload = DeployModule wasmModVersion1 checkpointingSourceFile
+        ( (TJSON { payload = DeployModule wasmModVersion1 checkpointingSourceFile
                 , metadata = makeDummyHeader alesAccount 1 100000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+            TVer.MaybeOk TVer.NormalTransactionInsufficientFunds)
         , (SuccessWithSummary (deploymentCostCheck checkpointingSourceFile), emptySpec)
         )       
-      , ( TJSON { payload = InitContract 0 wasmModVersion1 checkpointingSourceFile "init_a" ""
+      , ( (TJSON { payload = InitContract 0 wasmModVersion1 checkpointingSourceFile "init_a" ""
                 , metadata = makeDummyHeader alesAccount 2 100000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+            TVer.MaybeOk TVer.NormalTransactionInsufficientFunds)
         , (SuccessWithSummary (initializationCostCheck checkpointingSourceFile "init_a"), emptySpec)
         )
       ,
-        ( TJSON { payload = InitContract 0 wasmModVersion1 checkpointingSourceFile "init_b" ""
+        ( (TJSON { payload = InitContract 0 wasmModVersion1 checkpointingSourceFile "init_b" ""
                 , metadata = makeDummyHeader alesAccount 3 100000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+            TVer.MaybeOk TVer.NormalTransactionInsufficientFunds)
         , (SuccessWithSummary (initializationCostCheck checkpointingSourceFile "init_b"), emptySpec)
         )
       ,
         -- We supply three micro CCDs as we're instructing the contract to carry out a transfer instead of a call.
         -- See the contract for details.
-        (TJSON { payload = Update 3 (Types.ContractAddress 0 0) "a.a_modify_proxy" (BSS.toShort (encode thomasAccount))
+        ((TJSON { payload = Update 3 (Types.ContractAddress 0 0) "a.a_modify_proxy" (BSS.toShort (encode thomasAccount))
                 , metadata = makeDummyHeader alesAccount 4 100000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+           TVer.MaybeOk TVer.NormalTransactionInsufficientFunds)
         , (SuccessWithSummary ensureSuccess, emptySpec)
         )
       ]
@@ -270,33 +282,37 @@ testCase4 =
     { tcName = "Checkpointing 4"
     , tcParameters = (defaultParams @PV4) {tpInitialBlockState=initialBlockState}
     , tcTransactions =
-      [ ( TJSON { payload = DeployModule wasmModVersion1 checkpointingSourceFile
+      [ ( (TJSON { payload = DeployModule wasmModVersion1 checkpointingSourceFile
                 , metadata = makeDummyHeader alesAccount 1 100000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+            TVer.MaybeOk TVer.NormalTransactionInsufficientFunds)
         , (SuccessWithSummary (deploymentCostCheck checkpointingSourceFile), emptySpec)
         )       
-      , ( TJSON { payload = InitContract 0 wasmModVersion1 checkpointingSourceFile "init_a" ""
+      , ( (TJSON { payload = InitContract 0 wasmModVersion1 checkpointingSourceFile "init_a" ""
                 , metadata = makeDummyHeader alesAccount 2 100000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+            TVer.MaybeOk TVer.NormalTransactionInsufficientFunds)
         , (SuccessWithSummary (initializationCostCheck checkpointingSourceFile "init_a"), emptySpec)
         )
       ,
-        ( TJSON { payload = InitContract 0 wasmModVersion1 checkpointingSourceFile "init_b" ""
+        ( (TJSON { payload = InitContract 0 wasmModVersion1 checkpointingSourceFile "init_b" ""
                 , metadata = makeDummyHeader alesAccount 3 100000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+            TVer.MaybeOk TVer.NormalTransactionInsufficientFunds)
         , (SuccessWithSummary (initializationCostCheck checkpointingSourceFile "init_b"), emptySpec)
         )
       ,
         -- We supply four micro CCDs as we're instructing the contract to expect state modifications
         -- being made from the 'inner' contract A call to be in effect when returned to the caller (a.a_modify_proxy)
         -- See the contract for details.
-        ( TJSON { payload = Update 4 (Types.ContractAddress 0 0) "a.a_modify_proxy" parameters
+        ( (TJSON { payload = Update 4 (Types.ContractAddress 0 0) "a.a_modify_proxy" parameters
                 , metadata = makeDummyHeader alesAccount 4 100000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+            TVer.MaybeOk TVer.NormalTransactionInsufficientFunds)
         , (SuccessWithSummary ensureSuccess, emptySpec)
         )
       ]
@@ -344,46 +360,52 @@ testCase5 =
     { tcName = "Cross Checkpointing 1"
     , tcParameters = (defaultParams @PV4) {tpInitialBlockState=initialBlockState}
     , tcTransactions =
-      [ ( TJSON { payload = DeployModule wasmModVersion1 checkpointingSourceFile
+      [ ( (TJSON { payload = DeployModule wasmModVersion1 checkpointingSourceFile
                 , metadata = makeDummyHeader alesAccount 1 100000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+            TVer.MaybeOk TVer.NormalTransactionInsufficientFunds)
         , (SuccessWithSummary (deploymentCostCheck checkpointingSourceFile), emptySpec)
         )
       ,
-        ( TJSON { payload = DeployModule wasmModVersion0 v0ProxySourceFile
+        ( (TJSON { payload = DeployModule wasmModVersion0 v0ProxySourceFile
                 , metadata = makeDummyHeader alesAccount 2 100000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+            TVer.MaybeOk TVer.NormalTransactionInsufficientFunds)
         , (SuccessWithSummary (deploymentCostCheck v0ProxySourceFile), emptySpec)
         )       
-      , ( TJSON { payload = InitContract 0 wasmModVersion1 checkpointingSourceFile "init_a" ""
+      , ( (TJSON { payload = InitContract 0 wasmModVersion1 checkpointingSourceFile "init_a" ""
                 , metadata = makeDummyHeader alesAccount 3 100000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+            TVer.MaybeOk TVer.NormalTransactionInsufficientFunds)
         , (SuccessWithSummary (initializationCostCheck checkpointingSourceFile "init_a"), emptySpec)
         )
       ,
-        ( TJSON { payload = InitContract 0 wasmModVersion1 checkpointingSourceFile "init_b" ""
+        ( (TJSON { payload = InitContract 0 wasmModVersion1 checkpointingSourceFile "init_b" ""
                 , metadata = makeDummyHeader alesAccount 4 100000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+            TVer.MaybeOk TVer.NormalTransactionInsufficientFunds)
         , (SuccessWithSummary (initializationCostCheck checkpointingSourceFile "init_b"), emptySpec)
         )
       ,
-        ( TJSON { payload = InitContract 0 wasmModVersion0 v0ProxySourceFile "init_proxy" ""
+        ( (TJSON { payload = InitContract 0 wasmModVersion0 v0ProxySourceFile "init_proxy" ""
                 , metadata = makeDummyHeader alesAccount 5 100000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+            TVer.MaybeOk TVer.NormalTransactionInsufficientFunds)
         , (SuccessWithSummary (initializationCostCheck v0ProxySourceFile "init_proxy"), emptySpec)
         )
       ,
         -- We supply two micro CCDs as we expect a trap from a v0 contract.
         -- See the contract for details.
-        ( TJSON { payload = Update 2 (Types.ContractAddress 0 0) "a.a_modify_proxy" parameters
+        ( (TJSON { payload = Update 2 (Types.ContractAddress 0 0) "a.a_modify_proxy" parameters
                 , metadata = makeDummyHeader alesAccount 6 100000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+            TVer.MaybeOk TVer.NormalTransactionInsufficientFunds)
         , (SuccessWithSummary ensureSuccess, emptySpec)
         )
       ]
@@ -442,47 +464,53 @@ testCase6 =
     { tcName = "Cross Checkpointing 2"
     , tcParameters = (defaultParams @PV4) {tpInitialBlockState=initialBlockState}
     , tcTransactions =
-      [ ( TJSON { payload = DeployModule wasmModVersion1 checkpointingSourceFile
+      [ ( (TJSON { payload = DeployModule wasmModVersion1 checkpointingSourceFile
                 , metadata = makeDummyHeader alesAccount 1 100000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+            TVer.MaybeOk TVer.NormalTransactionInsufficientFunds)
         , (SuccessWithSummary (deploymentCostCheck checkpointingSourceFile), emptySpec)
         )
       ,
-        ( TJSON { payload = DeployModule wasmModVersion0 v0ProxySourceFile
+        ( (TJSON { payload = DeployModule wasmModVersion0 v0ProxySourceFile
                 , metadata = makeDummyHeader alesAccount 2 100000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+            TVer.MaybeOk TVer.NormalTransactionInsufficientFunds)
         , (SuccessWithSummary (deploymentCostCheck v0ProxySourceFile), emptySpec)
         )       
-      , ( TJSON { payload = InitContract 0 wasmModVersion1 checkpointingSourceFile "init_a" ""
+      , ( (TJSON { payload = InitContract 0 wasmModVersion1 checkpointingSourceFile "init_a" ""
                 , metadata = makeDummyHeader alesAccount 3 100000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+            TVer.MaybeOk TVer.NormalTransactionInsufficientFunds)
         , (SuccessWithSummary (initializationCostCheck checkpointingSourceFile "init_a"), emptySpec)
         )
       ,
-        ( TJSON { payload = InitContract 0 wasmModVersion1 checkpointingSourceFile "init_b" ""
+        ( (TJSON { payload = InitContract 0 wasmModVersion1 checkpointingSourceFile "init_b" ""
                 , metadata = makeDummyHeader alesAccount 4 100000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+            TVer.MaybeOk TVer.NormalTransactionInsufficientFunds)
         , (SuccessWithSummary (initializationCostCheck checkpointingSourceFile "init_b"), emptySpec)
         )
       ,
-        ( TJSON { payload = InitContract 0 wasmModVersion0 v0ProxySourceFile "init_proxy" ""
+        ( (TJSON { payload = InitContract 0 wasmModVersion0 v0ProxySourceFile "init_proxy" ""
                 , metadata = makeDummyHeader alesAccount 5 100000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+            TVer.MaybeOk TVer.NormalTransactionInsufficientFunds)
         , (SuccessWithSummary (initializationCostCheck v0ProxySourceFile "init_proxy"), emptySpec)
         )
       ,
         -- We supply four micro CCDs as we're instructing the contract to expect state modifications
         -- being made from the 'inner' contract A call to be in effect when returned to the caller (a.a_modify_proxy)
         -- See the contract for details.
-        ( TJSON { payload = Update 4 (Types.ContractAddress 0 0) "a.a_modify_proxy" parameters
+        ( (TJSON { payload = Update 4 (Types.ContractAddress 0 0) "a.a_modify_proxy" parameters
                 , metadata = makeDummyHeader alesAccount 6 100000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+            TVer.MaybeOk TVer.NormalTransactionInsufficientFunds)
         , (SuccessWithSummary ensureSuccess, emptySpec)
         )
       ]

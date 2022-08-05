@@ -53,29 +53,34 @@ testCases =
     { tcName = "Record data in a contract."
     , tcParameters = (defaultParams @PV4) {tpInitialBlockState=initialBlockState}
     , tcTransactions =
-      [ ( TJSON { payload = DeployModule wasmModVersion recorderSourceFile
+      [ ( (TJSON { payload = DeployModule wasmModVersion recorderSourceFile
                 , metadata = makeDummyHeader alesAccount 1 100000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+            TVer.MaybeOk TVer.NormalTransactionInsufficientFunds
+            )
         , (SuccessWithSummary deploymentCostCheck, emptySpec)
         )
-      , ( TJSON { payload = InitContract 0 wasmModVersion recorderSourceFile "init_recorder" ""
+      , ( (TJSON { payload = InitContract 0 wasmModVersion recorderSourceFile "init_recorder" ""
                 , metadata = makeDummyHeader alesAccount 2 100000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+            TVer.MaybeOk TVer.NormalTransactionInsufficientFunds)
         , (SuccessWithSummary initializationCostCheck, recorderSpec 0)
         )
-      , ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "recorder.record_u64" (BSS.toShort (runPut (putWord64le 20)))
+      , ( (TJSON { payload = Update 0 (Types.ContractAddress 0 0) "recorder.record_u64" (BSS.toShort (runPut (putWord64le 20)))
                 , metadata = makeDummyHeader alesAccount 3 700000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+            TVer.MaybeOk TVer.NormalTransactionInsufficientFunds)
         , (SuccessWithSummary ensureSuccess , recorderSpec 20)
         )
         -- and then again
-      , ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "recorder.record_u64" (BSS.toShort (runPut (putWord64le 40)))
+      , ( (TJSON { payload = Update 0 (Types.ContractAddress 0 0) "recorder.record_u64" (BSS.toShort (runPut (putWord64le 40)))
                 , metadata = makeDummyHeader alesAccount 4 700000
                 , keys = [(0,[(0, alesKP)])]
-                }
+                },
+            TVer.MaybeOk TVer.NormalTransactionInsufficientFunds)
         , (SuccessWithSummary ensureSuccess , recorderSpec 60)
         )
       ]
