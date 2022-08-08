@@ -2,9 +2,15 @@
 
 ## Unrelease changes
 
+## 4.2.4
+
 - Reduce startup time and memory use further by reducing the amount of block
   data retained in memory. In particular finalized blocks are no longer stored
   in memory.
+- Optimize node data structures related to accounts. This reduces node memory
+  use and improves performance.
+- Added the ability to download the catch-up file
+  ('CONCORDIUM_NODE_CONSENSUS_IMPORT_BLOCKS_FROM' now accepts both local paths and URLs)
   
 ## 4.2.2
 
@@ -25,8 +31,6 @@
   versions <= 4.1. The other direction works.
 - Increase precision of block arrive and block receive times in the
   `GetBlockInfo` query.
-- Added the ability to download the catch-up file
-  ('CONCORDIUM_NODE_CONSENSUS_IMPORT_BLOCKS_FROM' now accepts both local paths and URLs)
 
 ## 4.1.1
 - The `SendTransaction` function exposed via the gRPC interface now provides the caller with detailed error messages if the 

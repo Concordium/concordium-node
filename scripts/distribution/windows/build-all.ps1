@@ -17,6 +17,7 @@ stack exec -- cargo build --manifest-path concordium-node\Cargo.toml --release -
 if ($LASTEXITCODE -ne 0) { throw "Failed building node" }
 
 Write-Output "Building node runner service..."
+
 # We navigate to the folder so that the .cargo\Config.toml is used.
 # This ensures that the MSVC runtime is linked statically, and the output is produced
 # in the right target folder.
