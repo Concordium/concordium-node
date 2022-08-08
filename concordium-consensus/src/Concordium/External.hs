@@ -305,8 +305,6 @@ startConsensus ::
     Word64 ->
     -- |Block construction timeout in milliseconds
     Word64 ->
-    -- |The amount of time in the future a transaction's expiry can be. In seconds.
-    Word64 ->
     -- |Insertions before purging of transactions
     Word64 ->
     -- |Time in seconds during which a transaction can't be purged
@@ -343,7 +341,6 @@ startConsensus ::
 startConsensus
     maxBlock
     blockConstructionTimeout
-    maxTimeToExpiry
     insertionsBeforePurge
     transactionsKeepAlive
     transactionsPurgingDelay
@@ -418,8 +415,7 @@ startConsensus
                   rpMaxBakingDelay = defaultMaxBakingDelay,
                   rpInsertionsBeforeTransactionPurge = fromIntegral insertionsBeforePurge,
                   rpTransactionsKeepAliveTime = TransactionTime transactionsKeepAlive,
-                  rpTransactionsPurgingDelay = fromIntegral transactionsPurgingDelay,
-                  rpMaxTimeToExpiry = fromIntegral maxTimeToExpiry
+                  rpTransactionsPurgingDelay = fromIntegral transactionsPurgingDelay
                 }
 
 -- |Start up an instance of Skov without starting the baker thread.
@@ -429,8 +425,6 @@ startConsensusPassive ::
     -- |Maximum block size.
     Word64 ->
     -- |Block construction timeout in milliseconds
-    Word64 ->
-    -- |The amount of time in the future a transaction's expiry can be. In seconds.
     Word64 ->
     -- |Insertions before purging of transactions
     Word64 ->
@@ -463,7 +457,6 @@ startConsensusPassive ::
 startConsensusPassive
     maxBlock
     blockConstructionTimeout
-    maxTimeToExpiry
     insertionsBeforePurge
     transactionsKeepAlive
     transactionsPurgingDelay
@@ -520,8 +513,7 @@ startConsensusPassive
                   rpMaxBakingDelay = defaultMaxBakingDelay,
                   rpInsertionsBeforeTransactionPurge = fromIntegral insertionsBeforePurge,
                   rpTransactionsKeepAliveTime = TransactionTime transactionsKeepAlive,
-                  rpTransactionsPurgingDelay = fromIntegral transactionsPurgingDelay,
-                  rpMaxTimeToExpiry = fromIntegral maxTimeToExpiry
+                  rpTransactionsPurgingDelay = fromIntegral transactionsPurgingDelay
                 }
 
 -- |Shut down consensus, stopping any baker thread if necessary.
@@ -1222,8 +1214,6 @@ foreign export ccall
         Word64 ->
         -- |Block construction timeout in milliseconds
         Word64 ->
-        -- |The amount of time in the future a transaction's expiry can be. In seconds.
-        Word64 ->
         -- |Insertions before purging of transactions
         Word64 ->
         -- |Time in seconds during which a transaction can't be purged
@@ -1262,8 +1252,6 @@ foreign export ccall
         -- |Maximum block size.
         Word64 ->
         -- |Block construction timeout in milliseconds
-        Word64 ->
-        -- |The amount of time in the future a transaction's expiry can be. In seconds.
         Word64 ->
         -- |Insertions before purging of transactions
         Word64 ->

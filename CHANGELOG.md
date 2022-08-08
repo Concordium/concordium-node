@@ -2,6 +2,8 @@
 
 ## Unrelease changes
 
+- Remove obsolete and unused option `--max-expiry-duration`
+
 ## 4.2.4
 
 - Reduce startup time and memory use further by reducing the amount of block
