@@ -258,7 +258,6 @@ extern "C" {
     pub fn startConsensus(
         max_block_size: u64,
         block_construction_timeout: u64,
-        max_time_to_expiry: u64,
         insertions_before_purging: u64,
         transaction_keep_alive: u64,
         transactions_purging_delay: u64,
@@ -280,7 +279,6 @@ extern "C" {
     pub fn startConsensusPassive(
         max_block_size: u64,
         block_construction_timeout: u64,
-        max_time_to_expiry: u64,
         insertions_before_purging: u64,
         transaction_keep_alive: u64,
         transactions_purging_delay: u64,
@@ -459,7 +457,6 @@ extern "C" {
 pub fn get_consensus_ptr(
     max_block_size: u64,
     block_construction_timeout: u64,
-    max_time_to_expiry: u64,
     insertions_before_purging: u64,
     transaction_keep_alive: u64,
     transactions_purging_delay: u64,
@@ -481,7 +478,6 @@ pub fn get_consensus_ptr(
                 startConsensus(
                     max_block_size,
                     block_construction_timeout,
-                    max_time_to_expiry,
                     insertions_before_purging,
                     transaction_keep_alive,
                     transactions_purging_delay,
@@ -509,7 +505,6 @@ pub fn get_consensus_ptr(
                     startConsensusPassive(
                         max_block_size,
                         block_construction_timeout,
-                        max_time_to_expiry,
                         insertions_before_purging,
                         transaction_keep_alive,
                         transactions_purging_delay,

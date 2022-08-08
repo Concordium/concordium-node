@@ -60,7 +60,6 @@ pub fn start_consensus_layer(
     ConsensusContainer::new(
         u64::from(conf.maximum_block_size),
         u64::from(conf.block_construction_timeout),
-        conf.max_time_to_expiry,
         u64::from(conf.transaction_insertions_before_purge),
         u64::from(conf.transaction_keep_alive),
         u64::from(conf.transactions_purging_delay),

@@ -201,7 +201,6 @@ impl std::fmt::Display for ConsensusType {
 pub struct ConsensusContainer {
     pub max_block_size:             u64,
     pub block_construction_timeout: u64,
-    pub max_time_to_expiry:         u64,
     pub insertions_before_purging:  u64,
     pub transaction_keep_alive:     u64,
     pub is_baking:                  Arc<AtomicBool>,
@@ -216,7 +215,6 @@ impl ConsensusContainer {
     pub fn new(
         max_block_size: u64,
         block_construction_timeout: u64,
-        max_time_to_expiry: u64,
         insertions_before_purging: u64,
         transaction_keep_alive: u64,
         transactions_purging_delay: u64,
@@ -237,7 +235,6 @@ impl ConsensusContainer {
         match get_consensus_ptr(
             max_block_size,
             block_construction_timeout,
-            max_time_to_expiry,
             insertions_before_purging,
             transaction_keep_alive,
             transactions_purging_delay,
@@ -250,7 +247,6 @@ impl ConsensusContainer {
             Ok(consensus_ptr) => Ok(Self {
                 max_block_size,
                 block_construction_timeout,
-                max_time_to_expiry,
                 insertions_before_purging,
                 transaction_keep_alive,
                 is_baking: Arc::new(AtomicBool::new(false)),
