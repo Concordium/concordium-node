@@ -7,6 +7,7 @@
 -- |Cached references.
 module Concordium.GlobalState.Persistent.CachedRef where
 
+import Control.Monad
 import Control.Monad.IO.Class
 import Data.IORef
 import Data.Proxy
@@ -129,6 +130,119 @@ instance Show a => Show (CachedRef c a) where
 instance (Applicative m) => Cacheable m (CachedRef c a) where
     cache = pure
 
+-- * 'LazilyHashedCachedRef'
+
+-- |A 'CachedRef' with a hash that is computed when first demanded (via 'getHashM'), or when the
+-- reference is cached (via 'refCache' or 'cache').
+data LazilyHashedCachedRef' h c a = LazilyHashedCachedRef
+    { lhCachedRef :: !(CachedRef c a),
+      lhHash :: !(IORef (Nullable h))
+    }
+
+type LazilyHashedCachedRef = LazilyHashedCachedRef' H.Hash
+
+instance Show (LazilyHashedCachedRef' h c a) where
+    show _ = "<LazilyHashedCachedRef>"
+
+instance
+    ( MonadCache c m,
+      BlobStorable m a,
+      Cache c,
+      CacheKey c ~ BlobRef a,
+      CacheValue c ~ a,
+      MHashableTo m h a
+    ) =>
+    MHashableTo m h (LazilyHashedCachedRef' h c a)
+    where
+    getHashM LazilyHashedCachedRef{..} =
+        liftIO (readIORef lhHash) >>= \case
+            Some h -> return h
+            Null -> do
+                h <- getHashM lhCachedRef
+                liftIO $ writeIORef lhHash (Some h)
+                return h
+
+instance
+    ( MonadCache c m,
+      BlobStorable m a,
+      Cache c,
+      CacheKey c ~ BlobRef a,
+      CacheValue c ~ a,
+      MHashableTo m h a
+    ) =>
+    Reference m (LazilyHashedCachedRef' h c) a
+    where
+    refFlush ref = do
+        (cr, r) <- refFlush $ lhCachedRef ref
+        return (LazilyHashedCachedRef{lhCachedRef = cr, lhHash = lhHash ref}, r)
+
+    refCache ref = do
+        (r, cr) <- refCache $ lhCachedRef ref
+        liftIO (readIORef (lhHash ref)) >>= \case
+           Null -> do
+                h <- getHashM r
+                liftIO (writeIORef (lhHash ref) (Some h))
+           Some _ -> return ()
+        return (r, LazilyHashedCachedRef{lhCachedRef = cr, lhHash = lhHash ref})
+
+    refLoad ref = refLoad $ lhCachedRef ref
+
+    refMake val = do
+        h <- liftIO $ newIORef Null
+        cref <- refMake val
+        return $ LazilyHashedCachedRef cref h
+
+    refUncache ref = do
+        cr <- refUncache (lhCachedRef ref)
+        return LazilyHashedCachedRef{lhCachedRef = cr, lhHash = lhHash ref}
+
+-- |Construct a 'LazilyHashedCachedRef'' given the value and hash.
+makeLazilyHashedCachedRef :: (MonadIO m) => a -> h -> m (LazilyHashedCachedRef' h c a)
+makeLazilyHashedCachedRef val hsh = liftIO $ do
+    lhCachedRef <- CachedRef <$> newIORef (Mem val)
+    lhHash <- newIORef (Some hsh)
+    return LazilyHashedCachedRef{..}
+
+instance
+    ( MonadCache c m,
+      BlobStorable m a,
+      Cache c,
+      CacheKey c ~ BlobRef a,
+      CacheValue c ~ a
+    ) =>
+    BlobStorable m (LazilyHashedCachedRef' h c a)
+    where
+    store c = store . snd =<< refFlush (lhCachedRef c)
+
+    storeUpdate c = do
+        (r, v') <- storeUpdate (lhCachedRef c)
+        return (r, LazilyHashedCachedRef v' (lhHash c))
+
+    load = do
+        mCachedRef <- load
+        return $ do
+            lhCachedRef <- mCachedRef
+            lhHash <- liftIO $ newIORef Null
+            return LazilyHashedCachedRef{..}
+
+instance
+    ( MonadCache c m,
+      BlobStorable m a,
+      Cache c,
+      CacheKey c ~ BlobRef a,
+      CacheValue c ~ a,
+      MHashableTo m h a
+    ) =>
+    Cacheable m (LazilyHashedCachedRef' h c a)
+    where
+    cache r@LazilyHashedCachedRef{..} = do
+        mhsh <- liftIO (readIORef lhHash)
+        when (isNull mhsh) $ do
+            val <- refLoad lhCachedRef
+            hsh <- getHashM val
+            liftIO $ writeIORef lhHash (Some hsh)
+        return r
+
 -- * 'EagerlyHashedCachedRef'
 
 -- |A 'CachedRef' with a hash that is eagerly computed.
@@ -175,6 +289,12 @@ instance
     refUncache ref = do
         cr <- refUncache (ehCachedRef ref)
         return EagerlyHashedCachedRef{ehCachedRef = cr, ehHash = ehHash ref}
+
+-- |Construct an 'EagerlyHashedCachedRef'' given the value and hash.
+makeEagerlyHashedCachedRef :: (MonadIO m) => a -> h -> m (EagerlyHashedCachedRef' h c a)
+makeEagerlyHashedCachedRef val ehHash = do
+    ehCachedRef <- liftIO $ CachedRef <$> newIORef (Mem val)
+    return EagerlyHashedCachedRef{..}
 
 instance
     ( MonadCache c m,

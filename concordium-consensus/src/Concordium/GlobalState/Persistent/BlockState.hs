@@ -1566,7 +1566,7 @@ doRewardAccount pbs ai reward = do
                         _ ->
                             return (return, pas)
                 pas -> return (return, pas)
-            acc' <- rehashAccount $ acc & accountStake .~ newAccountStake & accountAmount +~ reward
+            let !acc' = acc & accountStake .~ newAccountStake & accountAmount +~ reward
             return ((addr, restaked), acc')
 
         updateDelegationPoolCapital
@@ -1636,7 +1636,7 @@ doGetRewardStatus pbs = do
 doRewardFoundationAccount :: (IsProtocolVersion pv, SupportsPersistentAccount pv m) => PersistentBlockState pv -> Amount -> m (PersistentBlockState pv)
 doRewardFoundationAccount pbs reward = do
         bsp <- loadPBS pbs
-        let updAcc acc = ((),) <$> rehashAccount (acc & accountAmount %~ (+ reward))
+        let updAcc acc = pure ((), acc & accountAmount %~ (+ reward))
         foundationAccount <- (^. cpFoundationAccount) <$> lookupCurrentParameters (bspUpdates bsp)
         (_, newAccounts) <- Accounts.updateAccountsAtIndex updAcc foundationAccount (bspAccounts bsp)
         storePBS pbs (bsp {bspAccounts = newAccounts})
@@ -1658,7 +1658,7 @@ doMint pbs mint = do
                 (Rewards.totalGTU +~ mintTotal mint) .
                 (Rewards.bakingRewardAccount +~ mintBakingReward mint) .
                 (Rewards.finalizationRewardAccount +~ mintFinalizationReward mint)
-        let updAcc acc = ((),) <$> rehashAccount (acc & accountAmount %~ (+ mintDevelopmentCharge mint))
+        let updAcc acc = pure ((), acc & accountAmount %~ (+ mintDevelopmentCharge mint))
         foundationAccount <- (^. cpFoundationAccount) <$> lookupCurrentParameters (bspUpdates bsp)
         (_, newAccounts) <- Accounts.updateAccountsAtIndex updAcc foundationAccount (bspAccounts bsp)
         storePBS pbs (bsp {bspBank = newBank, bspAccounts = newAccounts})
@@ -1713,7 +1713,7 @@ doRegIdExists pbs regid = do
         bsp <- loadPBS pbs
         isJust . fst <$> Accounts.regIdExists regid (bspAccounts bsp)
 
-doCreateAccount :: (IsProtocolVersion pv, SupportsPersistentAccount pv m) => PersistentBlockState pv -> ID.GlobalContext -> AccountAddress -> ID.AccountCredential ->  m (Maybe (PersistentAccount (AccountVersionFor pv)), PersistentBlockState pv)
+doCreateAccount :: (SupportsPersistentAccount pv m) => PersistentBlockState pv -> ID.GlobalContext -> AccountAddress -> ID.AccountCredential ->  m (Maybe (PersistentAccount (AccountVersionFor pv)), PersistentBlockState pv)
 doCreateAccount pbs cryptoParams acctAddr credential = do
         acct <- newAccount cryptoParams acctAddr credential
         bsp <- loadPBS pbs
@@ -1727,7 +1727,7 @@ doCreateAccount pbs cryptoParams acctAddr credential = do
           Nothing -> -- the account was not created
             return (Nothing, pbs)
 
-doModifyAccount :: (IsProtocolVersion pv, SupportsPersistentAccount pv m) => PersistentBlockState pv -> AccountUpdate -> m (PersistentBlockState pv)
+doModifyAccount :: (SupportsPersistentAccount pv m) => PersistentBlockState pv -> AccountUpdate -> m (PersistentBlockState pv)
 doModifyAccount pbs aUpd@AccountUpdate{..} = do
         bsp <- loadPBS pbs
         -- Do the update to the account
@@ -1736,7 +1736,7 @@ doModifyAccount pbs aUpd@AccountUpdate{..} = do
     where
         upd oldAccount = ((), ) <$> Accounts.updateAccount aUpd oldAccount
 
-doSetAccountCredentialKeys :: (IsProtocolVersion pv, SupportsPersistentAccount pv m) => PersistentBlockState pv -> AccountIndex -> ID.CredentialIndex -> ID.CredentialPublicKeys -> m (PersistentBlockState pv)
+doSetAccountCredentialKeys :: (SupportsPersistentAccount pv m) => PersistentBlockState pv -> AccountIndex -> ID.CredentialIndex -> ID.CredentialPublicKeys -> m (PersistentBlockState pv)
 doSetAccountCredentialKeys pbs accIndex credIx credKeys = do
         bsp <- loadPBS pbs
         (_, accts1) <- Accounts.updateAccountsAtIndex upd accIndex (bspAccounts bsp)
@@ -1744,7 +1744,7 @@ doSetAccountCredentialKeys pbs accIndex credIx credKeys = do
     where
         upd oldAccount = ((), ) <$> setPAD (updateCredentialKeys credIx credKeys) oldAccount
 
-doUpdateAccountCredentials :: (IsProtocolVersion pv, SupportsPersistentAccount pv m) =>
+doUpdateAccountCredentials :: (SupportsPersistentAccount pv m) =>
     PersistentBlockState pv
     -> AccountIndex -- ^ Address of the account to update.
     -> [ID.CredentialIndex] -- ^ List of credential indices to remove.
@@ -2097,7 +2097,7 @@ doProcessUpdateQueues pbs ts = do
         (changes, (u', ars', ips')) <- processUpdateQueues ts (u, ars, ips)
         (changes,) <$> storePBS pbs bsp{bspUpdates = u', bspAnonymityRevokers = ars', bspIdentityProviders = ips'}
 
-doProcessReleaseSchedule :: (IsProtocolVersion pv, SupportsPersistentAccount pv m) => PersistentBlockState pv -> Timestamp -> m (PersistentBlockState pv)
+doProcessReleaseSchedule :: (SupportsPersistentAccount pv m) => PersistentBlockState pv -> Timestamp -> m (PersistentBlockState pv)
 doProcessReleaseSchedule pbs ts = do
         bsp <- loadPBS pbs
         releaseSchedule <- refLoad (bspReleaseSchedule bsp)
@@ -2110,7 +2110,7 @@ doProcessReleaseSchedule pbs ts = do
                       rData <- refLoad (acc ^. accountReleaseSchedule)
                       (_, nextTs, rData') <- unlockAmountsUntil ts rData
                       rDataRef <- refMake rData'
-                      acc' <- rehashAccount $ acc & accountReleaseSchedule .~ rDataRef
+                      let !acc' = acc & accountReleaseSchedule .~ rDataRef
                       return (nextTs, acc')
                 (toRead, ba') <- Accounts.updateAccounts upd addr ba
                 return (ba', case snd =<< toRead of

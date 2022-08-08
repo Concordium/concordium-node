@@ -69,7 +69,7 @@ data Accounts (pv :: ProtocolVersion) = Accounts {
     -- |Unique index of accounts by 'AccountAddress'
     accountMap :: !(AccountMap.PersistentAccountMap pv),
     -- |Hashed Merkle-tree of the accounts
-    accountTable :: !(LFMBTree' AccountIndex HashedBufferedRef (EagerlyHashedCachedRef (AccountCache (AccountVersionFor pv)) (PersistentAccount (AccountVersionFor pv)))),
+    accountTable :: !(LFMBTree' AccountIndex HashedBufferedRef (LazilyHashedCachedRef (AccountCache (AccountVersionFor pv)) (PersistentAccount (AccountVersionFor pv)))),
     -- |Optional cached set of used 'ID.CredentialRegistrationID's
     accountRegIds :: !(Nullable (Map.Map ID.RawCredentialRegistrationID AccountIndex)),
     -- |Persisted representation of the map from registration ids to account indices.
@@ -82,7 +82,7 @@ type SupportsPersistentAccount pv m = (IsProtocolVersion pv, MonadBlobStore m, M
 -- The new object is not yet stored on disk.
 makePersistent :: SupportsPersistentAccount pv m => Transient.Accounts pv -> m (Accounts pv)
 makePersistent (Transient.Accounts amap atbl aregids) = do
-    accountTable <- L.fromAscList =<< mapM (makePersistentAccount . snd) (Transient.toList atbl)
+    accountTable <- L.fromAscListV =<< mapM makePersistentAccountRef (Transient.toHashedList atbl)
     accountMap <- AccountMap.toPersistent amap
     accountRegIdHistory <- Trie.fromList (Map.toList aregids)
     return Accounts {accountRegIds = Some aregids,..}
@@ -261,7 +261,7 @@ updateAccountsAtIndex fupd ai a0@Accounts{..} = L.update fupd ai accountTable >>
 
 -- |Apply account updates to an account. It is assumed that the address in
 -- account updates and account are the same.
-updateAccount :: forall m av. (MonadBlobStore m, IsAccountVersion av) => AccountUpdate -> PersistentAccount av -> m (PersistentAccount av)
+updateAccount :: forall m av. (MonadBlobStore m) => AccountUpdate -> PersistentAccount av -> m (PersistentAccount av)
 updateAccount !upd !acc = do
   rData <- refLoad (acc ^. accountReleaseSchedule)
   (stakeDelta, releaseSchedule) <- case upd ^. auReleaseSchedule of
@@ -274,12 +274,12 @@ updateAccount !upd !acc = do
   newEncryptedAmount <- foldrM updateSingle encAmount (upd ^. auEncrypted)
   newEncryptedAmountRef <- refMake newEncryptedAmount
   releaseScheduleRef <- refMake releaseSchedule
-  let newAccWithoutHash = acc & accountNonce %~ setMaybe (upd ^. auNonce)
-                                                    & accountAmount %~ applyAmountDelta (upd ^. auAmount . non 0)
-                                                    & accountAmount %~ applyAmountDelta stakeDelta
-                                                    & accountReleaseSchedule .~ releaseScheduleRef
-                                                    & accountEncryptedAmount .~ newEncryptedAmountRef
-  rehashAccount newAccWithoutHash
+  return $! acc
+            & accountNonce %~ setMaybe (upd ^. auNonce)
+            & accountAmount %~ applyAmountDelta (upd ^. auAmount . non 0)
+            & accountAmount %~ applyAmountDelta stakeDelta
+            & accountReleaseSchedule .~ releaseScheduleRef
+            & accountEncryptedAmount .~ newEncryptedAmountRef
   where setMaybe (Just x) _ = x
         setMaybe Nothing y = y
 

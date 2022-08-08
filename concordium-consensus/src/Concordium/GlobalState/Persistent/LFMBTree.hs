@@ -37,6 +37,7 @@ module Concordium.GlobalState.Persistent.LFMBTree
     toAscList,
     toAscPairList,
     fromAscList,
+    fromAscListV,
 
     -- * Traversal
     mfold,
@@ -397,6 +398,11 @@ toAscPairList t = zip (map coerce [0 :: Word64 ..]) <$> toAscList t
 -- starting on the index 0.
 fromAscList :: (CanStoreLFMBTree m ref1 (ref2 v), Num k, Coercible k Word64, Reference m ref2 v) => [v] -> m (LFMBTree' k ref1 (ref2 v))
 fromAscList = foldM (\acc e -> snd <$> append e acc) empty
+
+-- | Create a tree from a list of items. The items will be inserted sequentially
+-- starting on the index 0.
+fromAscListV :: (CanStoreLFMBTree m ref v, Num k, Coercible k Word64) => [v] -> m (LFMBTree' k ref v)
+fromAscListV = foldM (\acc e -> snd <$> appendV e acc) empty
 
 -- | Create a tree that holds the values wrapped in @Some@ when present and keeps @Null@s on the missing positions
 fromAscListNullable :: (CanStoreLFMBTree m ref1 (ref2 (Nullable v)), Coercible k Word64, Integral k, Reference m ref2 (Nullable v)) => [(k, v)] -> m (LFMBTree' k ref1 (ref2 (Nullable v)))
