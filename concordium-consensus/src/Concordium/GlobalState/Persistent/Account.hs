@@ -40,6 +40,8 @@ import Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule
 import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToSelfEncryptedAmount)
 
 -- | The persistent version of the encrypted amount structure per account.
+-- We use 'EagerBufferedRef's for the encrypted amounts so that when a 'PersistentAccount' is
+-- loaded, the entire encrypted amount will also be loaded.
 data PersistentAccountEncryptedAmount = PersistentAccountEncryptedAmount {
   -- | Encrypted amount that is a result of this accounts' actions.
   -- In particular this list includes the aggregate of
@@ -49,7 +51,7 @@ data PersistentAccountEncryptedAmount = PersistentAccountEncryptedAmount {
   -- - encrypted amounts that are transferred from public balance
   --
   -- When a transfer is made all of these must always be used.
-  _selfAmount :: !(BufferedRef EncryptedAmount),
+  _selfAmount :: !(EagerBufferedRef EncryptedAmount),
   -- | Starting index for incoming encrypted amounts. If an aggregated amount is present
   -- then this index is associated with such an amount and the list of incoming encrypted amounts
   -- starts at the index @_startIndex + 1@.
@@ -57,16 +59,16 @@ data PersistentAccountEncryptedAmount = PersistentAccountEncryptedAmount {
   -- | Amounts starting at @startIndex@ (or at @startIndex + 1@ if there is an aggregated amount present).
   -- They are assumed to be numbered sequentially. This list will never contain more than 'maxNumIncoming'
   -- (or @maxNumIncoming - 1@ if there is an aggregated amount present) values.
-  _incomingEncryptedAmounts :: !(Seq.Seq (BufferedRef EncryptedAmount)),
+  _incomingEncryptedAmounts :: !(Seq.Seq (EagerBufferedRef EncryptedAmount)),
   -- |If 'Just', the amount that has resulted from aggregating other amounts and the
   -- number of aggregated amounts (must be at least 2 if present).
-  _aggregatedAmount :: !(Maybe (BufferedRef EncryptedAmount, Word32))
+  _aggregatedAmount :: !(Maybe (EagerBufferedRef EncryptedAmount, Word32))
   } deriving Show
 
 -- | Create an empty PersistentAccountEncryptedAmount
 initialPersistentAccountEncryptedAmount :: MonadBlobStore m => m PersistentAccountEncryptedAmount
 initialPersistentAccountEncryptedAmount = do
-  _selfAmount <- makeBufferedRef mempty
+  _selfAmount <- refMake mempty
   return PersistentAccountEncryptedAmount {
     _startIndex = 0,
     _incomingEncryptedAmounts = Seq.Empty,
@@ -102,21 +104,21 @@ putAccountEncryptedAmountV0 PersistentAccountEncryptedAmount{..} = do
 -- | Given an AccountEncryptedAmount, create a Persistent version of it
 storePersistentAccountEncryptedAmount :: MonadBlobStore m => AccountEncryptedAmount -> m PersistentAccountEncryptedAmount
 storePersistentAccountEncryptedAmount AccountEncryptedAmount{..} = do
-  _selfAmount <- makeBufferedRef _selfAmount
-  _incomingEncryptedAmounts <- mapM makeBufferedRef _incomingEncryptedAmounts
+  _selfAmount <- refMake _selfAmount
+  _incomingEncryptedAmounts <- mapM refMake _incomingEncryptedAmounts
   _aggregatedAmount <- case _aggregatedAmount of
                         Nothing -> return Nothing
-                        Just (e, n) -> Just . (,n) <$> makeBufferedRef e
+                        Just (e, n) -> Just . (,n) <$> refMake e
   return PersistentAccountEncryptedAmount{..}
 
 -- | Given a PersistentAccountEncryptedAmount, load its equivalent AccountEncryptedAmount
 loadPersistentAccountEncryptedAmount :: MonadBlobStore m => PersistentAccountEncryptedAmount -> m AccountEncryptedAmount
 loadPersistentAccountEncryptedAmount PersistentAccountEncryptedAmount{..} = do
-  _selfAmount <- loadBufferedRef _selfAmount
-  _incomingEncryptedAmounts <- mapM loadBufferedRef _incomingEncryptedAmounts
+  _selfAmount <- refLoad _selfAmount
+  _incomingEncryptedAmounts <- mapM refLoad _incomingEncryptedAmounts
   _aggregatedAmount <- case _aggregatedAmount of
                         Nothing -> return Nothing
-                        Just (e, n) -> Just . (,n) <$> loadBufferedRef e
+                        Just (e, n) -> Just . (,n) <$> refLoad e
   return AccountEncryptedAmount{..}
 
 instance MonadBlobStore m => BlobStorable m PersistentAccountEncryptedAmount where
@@ -157,16 +159,6 @@ instance MonadBlobStore m => BlobStorable m PersistentAccountEncryptedAmount whe
       return PersistentAccountEncryptedAmount {..}
 
 instance (MonadBlobStore m) => Cacheable m PersistentAccountEncryptedAmount where
-  cache PersistentAccountEncryptedAmount{..} = do
-    _selfAmount' <- cache _selfAmount
-    _incomingEncryptedAmounts' <- mapM cache _incomingEncryptedAmounts
-    _aggregatedAmount' <- mapM (\(a, b) -> (,b) <$> cache a) _aggregatedAmount
-    return PersistentAccountEncryptedAmount{
-      _selfAmount = _selfAmount',
-      _incomingEncryptedAmounts = _incomingEncryptedAmounts',
-      _aggregatedAmount = _aggregatedAmount',
-      ..
-    }
 
 -- |Extra info (beyond 'BakerInfo') associated with a baker.
 -- IMPORTANT NOTE: The 'Cacheable' instance for 'PersistentExtraBakerInfo' relies on this not
@@ -683,15 +675,15 @@ infixr 4 %~~
 -- aggregate the first two incoming amounts.
 addIncomingEncryptedAmount :: MonadBlobStore m => EncryptedAmount -> PersistentAccountEncryptedAmount -> m PersistentAccountEncryptedAmount
 addIncomingEncryptedAmount newAmount old = do
-  newAmountRef <- makeBufferedRef newAmount
+  newAmountRef <- refMake newAmount
   case _aggregatedAmount old of
       Nothing -> -- we need to aggregate if we have 'maxNumIncoming' or more incoming amounts
         if Seq.length (_incomingEncryptedAmounts old) >= maxNumIncoming then do
           -- irrefutable because of check above
           let ~(x Seq.:<| y Seq.:<| rest) = _incomingEncryptedAmounts old
-          xVal <- loadBufferedRef x
-          yVal <- loadBufferedRef y
-          xPlusY <- makeBufferedRef (xVal <> yVal)
+          xVal <- refLoad x
+          yVal <- refLoad y
+          xPlusY <- refMake (xVal <> yVal)
           return old{_incomingEncryptedAmounts = rest Seq.|> newAmountRef,
                      _aggregatedAmount = Just (xPlusY, 2),
                      _startIndex = _startIndex old + 1
@@ -700,9 +692,9 @@ addIncomingEncryptedAmount newAmount old = do
       Just (e, n) -> do -- we have to aggregate always
         -- irrefutable because of check above
         let ~(x Seq.:<| rest) = _incomingEncryptedAmounts old
-        xVal <- loadBufferedRef x
-        aggVal <- loadBufferedRef e
-        xPlusY <- makeBufferedRef (aggVal <> xVal)
+        xVal <- refLoad x
+        aggVal <- refLoad e
+        xPlusY <- refMake (aggVal <> xVal)
         return old{_incomingEncryptedAmounts = rest Seq.|> newAmountRef,
                    _aggregatedAmount = Just (xPlusY, n + 1),
                    _startIndex = _startIndex old + 1
@@ -716,7 +708,7 @@ addIncomingEncryptedAmount newAmount old = do
 -- outgoing action of the account.
 replaceUpTo :: MonadBlobStore m => EncryptedAmountAggIndex -> EncryptedAmount -> PersistentAccountEncryptedAmount -> m PersistentAccountEncryptedAmount
 replaceUpTo newIndex newAmount PersistentAccountEncryptedAmount{..} = do
-  _selfAmount <- makeBufferedRef newAmount
+  _selfAmount <- refMake newAmount
   return PersistentAccountEncryptedAmount{
     _startIndex = newStartIndex,
     _incomingEncryptedAmounts = newEncryptedAmounts,
@@ -739,7 +731,7 @@ replaceUpTo newIndex newAmount PersistentAccountEncryptedAmount{..} = do
 -- This is used when the account is transferring from public to secret balance.
 addToSelfEncryptedAmount :: MonadBlobStore m => EncryptedAmount -> PersistentAccountEncryptedAmount -> m PersistentAccountEncryptedAmount
 addToSelfEncryptedAmount newAmount old@PersistentAccountEncryptedAmount{..} = do
-  newSelf <- makeBufferedRef . (<> newAmount) =<< loadBufferedRef _selfAmount
+  newSelf <- refMake . (<> newAmount) =<< refLoad _selfAmount
   return old{_selfAmount = newSelf}
 
 

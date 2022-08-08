@@ -1005,7 +1005,7 @@ instance
 -- |An 'EagerBufferedRef' accompanied by a hash.
 -- Both the value and the hash are retained in memory by this reference.
 data EagerlyHashedBufferedRef' h a = EagerlyHashedBufferedRef
-    { ehbrReference :: !(EagerBufferedRef a),
+    { ehbrReference :: {-# UNPACK #-} !(EagerBufferedRef a),
       ehbrHash :: !h
     }
 
