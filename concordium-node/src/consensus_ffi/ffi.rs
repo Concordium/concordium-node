@@ -452,6 +452,17 @@ extern "C" {
         import_file_path_len: i64,
     ) -> i64;
     pub fn stopImportingBlocks(consensus: *mut consensus_runner);
+
+    /// Stream finalized blocks when they become available.
+    pub fn streamFinalized(
+        consensus: *mut consensus_runner,
+        sender: *mut futures::channel::mpsc::Sender<Vec<u8>>,
+        callback: extern "C" fn(
+            *mut futures::channel::mpsc::Sender<Vec<u8>>,
+            *const u8,
+            i64,
+        ) -> i32,
+    ) -> i64;
 }
 
 pub fn get_consensus_ptr(
@@ -878,6 +889,18 @@ impl ConsensusContainer {
 
         unsafe { stopImportingBlocks(consensus) }
     }
+
+    /// Stream finalized blocks when they become available.
+    pub fn stream_finalized_blocks(
+        &self,
+        sender: futures::channel::mpsc::Sender<Vec<u8>>,
+    ) -> ConsensusFfiResponse {
+        let sender = Box::new(sender);
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let response =
+            unsafe { streamFinalized(consensus, Box::into_raw(sender), enqueue_bytearray_callback) };
+        ConsensusFfiResponse::try_from(response).unwrap()
+    }
 }
 
 pub enum CallbackType {
@@ -986,6 +1009,37 @@ pub extern "C" fn broadcast_callback(
 ) {
     trace!("Broadcast callback hit - queueing message");
     sending_callback!(None, msg_type, genesis_index, msg, msg_length, None);
+}
+
+/// Enqueue the byte array in the provided channel if possible.
+/// The return value is
+/// - 0 if enqueueing is successful.
+/// - -1 if the channel is full.
+/// - -2 if there are no more receivers. In this case the given sender is
+///   dropped and the given `sender` pointer must not be used anymore.
+extern "C" fn enqueue_bytearray_callback(
+    sender: *mut futures::channel::mpsc::Sender<Vec<u8>>,
+    msg: *const u8,
+    msg_length: i64,
+) -> i32 {
+    let mut sender = unsafe { Box::from_raw(sender) };
+    let data = unsafe { slice::from_raw_parts(msg, msg_length as usize) };
+    match sender.try_send(data.to_vec()) {
+        Ok(()) => {
+            // Do not drop the sender.
+            Box::into_raw(sender);
+            0
+        }
+        Err(e) if e.is_full() => {
+            // Do not drop the sender, we will enqueue more things.
+            Box::into_raw(sender);
+            -1
+        }
+        Err(_) => {
+            // drop the sender since it is no longer necessary.
+            -2
+        }
+    }
 }
 
 pub extern "C" fn direct_callback(

@@ -143,6 +143,18 @@ async fn main() -> anyhow::Result<()> {
         None
     };
 
+    {
+        info!("Starting RPC V2 server");
+        let mut serv =
+            concordium_node::grpc2::server::RpcServerImpl::new(node.clone(), consensus.clone())
+                .context("Cannot create RPC V2 server.")?;
+        let task = tokio::spawn(async move {
+            if let Err(e) = serv.start_server().await {
+                error!("Error starting RPC V2 server: {}", e)
+            }
+        });
+    }
+
     maybe_do_out_of_band_catchup(
         &consensus,
         import_stopped,

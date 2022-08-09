@@ -128,6 +128,29 @@ fn main() -> std::io::Result<()> {
         .build_client(true)
         .compile(&[&proto], &[&proto_root_input])
         .expect("Failed to compile gRPC definitions!");
+
+    {
+        let types = format!("{}/v2/concordium/types.proto", proto_root_input);
+        println!("cargo:rerun-if-changed={}", types);
+        prost_build::compile_protos(&[types], &[proto_root_input])?;
+    }
+
+    let query_service = tonic_build::manual::Service::builder()
+        .name("Queries")
+        .package("concordium_v2")
+        .method(
+            tonic_build::manual::Method::builder()
+                .name("finalized_blocks")
+                .route_name("FinalizedBlocks")
+                .input_type("crate::grpc2::types::Empty")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .server_streaming()
+                .build(),
+        )
+        .build();
+    // Due to the slightly hacky nature of the RawCodec we cannot build the client.
+    tonic_build::manual::Builder::new().build_client(false).compile(&[query_service]);
     Ok(())
 }
 
