@@ -34,7 +34,7 @@ import qualified Concordium.GlobalState.AccountMap as AccountMap
 import Concordium.GlobalState.Persistent.LFMBTree (LFMBTree')
 import qualified Concordium.GlobalState.Persistent.LFMBTree as L
 import Concordium.Types.HashableTo
-import Data.Foldable (foldrM, foldl', foldlM)
+import Data.Foldable (foldl', foldlM)
 import Concordium.ID.Parameters
 
 -- |Type alias for the cache to use for accounts.
@@ -263,23 +263,30 @@ updateAccountsAtIndex fupd ai a0@Accounts{..} = L.update fupd ai accountTable >>
 -- account updates and account are the same.
 updateAccount :: forall m av. (MonadBlobStore m) => AccountUpdate -> PersistentAccount av -> m (PersistentAccount av)
 updateAccount !upd !acc = do
-  rData <- refLoad (acc ^. accountReleaseSchedule)
-  (stakeDelta, releaseSchedule) <- case upd ^. auReleaseSchedule of
-        Just l -> (amountToDelta $ foldl' (+) 0 (concatMap (\(values, _) -> map snd values) l),) <$> foldlM (flip addReleases) rData l
-        Nothing -> return (amountToDelta 0, rData)
-  encAmount <- refLoad (acc ^. accountEncryptedAmount)
-  let updateSingle Add{..} = addIncomingEncryptedAmount newAmount
-      updateSingle ReplaceUpTo{..} = replaceUpTo aggIndex newAmount
-      updateSingle AddSelf{..} = addToSelfEncryptedAmount newAmount
-  newEncryptedAmount <- foldrM updateSingle encAmount (upd ^. auEncrypted)
-  newEncryptedAmountRef <- refMake newEncryptedAmount
-  releaseScheduleRef <- refMake releaseSchedule
+  releaseScheduleUpdate <- case upd ^. auReleaseSchedule of
+        Just l -> do
+            rData <- refLoad (acc ^. accountReleaseSchedule)
+            let newLockedFunds = amountToDelta $ foldl' (+) 0 (concatMap (\(values, _) -> map snd values) l)
+            newReleaseSchedule <- foldlM (flip addReleases) rData l
+            releaseScheduleRef <- refMake newReleaseSchedule
+            return $ (accountAmount %~ applyAmountDelta newLockedFunds) . (accountReleaseSchedule .~ releaseScheduleRef)
+        Nothing -> return id
+  encryptedAmountUpdate <- case upd ^. auEncrypted of
+        Just encUpd -> do
+            encAmount <- refLoad (acc ^. accountEncryptedAmount)
+            newEncryptedAmount <- (case encUpd of
+                Add{..} -> addIncomingEncryptedAmount newAmount
+                ReplaceUpTo{..} -> replaceUpTo aggIndex newAmount
+                AddSelf{..} -> addToSelfEncryptedAmount newAmount)
+                    encAmount
+            encryptedAmountRef <- refMake newEncryptedAmount
+            return (accountEncryptedAmount .~ encryptedAmountRef)
+        Nothing -> return id
   return $! acc
             & accountNonce %~ setMaybe (upd ^. auNonce)
             & accountAmount %~ applyAmountDelta (upd ^. auAmount . non 0)
-            & accountAmount %~ applyAmountDelta stakeDelta
-            & accountReleaseSchedule .~ releaseScheduleRef
-            & accountEncryptedAmount .~ newEncryptedAmountRef
+            & releaseScheduleUpdate
+            & encryptedAmountUpdate
   where setMaybe (Just x) _ = x
         setMaybe Nothing y = y
 
