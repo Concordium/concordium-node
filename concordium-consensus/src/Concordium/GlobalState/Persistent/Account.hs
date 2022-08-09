@@ -539,10 +539,10 @@ makePersistentAccount tacc@Transient.Account{..} = do
 makePersistentAccountRef ::
     (MonadBlobStore m, IsAccountVersion av) =>
     Hashed' (AccountHash av) (Transient.Account av) ->
-    m (LazilyHashedCachedRef c (PersistentAccount av))
+    m (HashedCachedRef c (PersistentAccount av))
 makePersistentAccountRef (Hashed tacc acctHash) = do
     pacc <- makePersistentAccount tacc
-    makeLazilyHashedCachedRef pacc (theAccountHash acctHash)
+    makeHashedCachedRef pacc (theAccountHash acctHash)
 
 -- |Set the baker of an account.
 setPersistentAccountStake :: forall m av. (Monad m)

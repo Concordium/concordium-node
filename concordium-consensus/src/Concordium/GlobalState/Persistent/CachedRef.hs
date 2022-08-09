@@ -13,9 +13,11 @@ import Data.IORef
 import Data.Proxy
 
 import qualified Concordium.Crypto.SHA256 as H
+import Concordium.Types.HashableTo
+
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.Cache
-import Concordium.Types.HashableTo
+
 
 -- * 'CachedRef'
 
@@ -72,7 +74,7 @@ instance
                         putCachedValue (Proxy @c) ref val
                     Just val -> return val
     refMake val = do
-        ioref <- liftIO $ newIORef (Mem val)
+        ioref <- liftIO $ newIORef $! Mem val
         return (CachedRef ioref)
     refUncache cr@(CachedRef ioref) =
         liftIO (readIORef ioref) >>= \case
@@ -104,7 +106,7 @@ instance
         mref <- load
         return $ do
             ref <- mref
-            ioref <- liftIO $ newIORef (Disk ref)
+            ioref <- liftIO $ newIORef $! Disk ref
             return (CachedRef ioref)
     {-# INLINE store #-}
     {-# INLINE storeUpdate #-}
@@ -199,8 +201,8 @@ instance
 -- |Construct a 'LazilyHashedCachedRef'' given the value and hash.
 makeLazilyHashedCachedRef :: (MonadIO m) => a -> h -> m (LazilyHashedCachedRef' h c a)
 makeLazilyHashedCachedRef val hsh = liftIO $ do
-    lhCachedRef <- CachedRef <$> newIORef (Mem val)
-    lhHash <- newIORef (Some hsh)
+    lhCachedRef <- CachedRef <$> (newIORef $! Mem val)
+    lhHash <- newIORef $! Some hsh
     return LazilyHashedCachedRef{..}
 
 instance
@@ -293,7 +295,7 @@ instance
 -- |Construct an 'EagerlyHashedCachedRef'' given the value and hash.
 makeEagerlyHashedCachedRef :: (MonadIO m) => a -> h -> m (EagerlyHashedCachedRef' h c a)
 makeEagerlyHashedCachedRef val ehHash = do
-    ehCachedRef <- liftIO $ CachedRef <$> newIORef (Mem val)
+    ehCachedRef <- liftIO $ CachedRef <$> (newIORef $! Mem val)
     return EagerlyHashedCachedRef{..}
 
 instance
@@ -325,4 +327,134 @@ instance
     ) =>
     Cacheable m (EagerlyHashedCachedRef' h c a)
     where
+    cache = pure
+
+-- * 'HashedCachedRef'
+
+data MaybeHashedCachedRef h c a = HCRMem !a | HCRMemHashed !a !h | HCRDisk !(HashedCachedRef' h c a)
+
+-- |A 'CachedRef' with a hash that is computed when first demanded (via 'getHashM'), or when the
+-- reference is cached (via 'refCache' or 'cache').
+data HashedCachedRef' h c a
+    = HCRUnflushed { hcrUnflushed :: !(IORef (MaybeHashedCachedRef h c a))}
+    | HCRFlushed {
+        hcrBlob :: !(BlobRef a),
+        hcrHash :: !h
+    }
+
+type HashedCachedRef = HashedCachedRef' H.Hash
+
+instance Show (HashedCachedRef' h c a) where
+    show _ = "<HashedCachedRef>"
+
+instance
+    ( MonadCache c m,
+      BlobStorable m a,
+      Cache c,
+      CacheKey c ~ BlobRef a,
+      CacheValue c ~ a,
+      MHashableTo m h a
+    ) =>
+    MHashableTo m h (HashedCachedRef' h c a)
+    where
+    getHashM HCRUnflushed{..} = liftIO (readIORef hcrUnflushed) >>= \case
+        HCRMem a -> getHashM a
+        HCRMemHashed _ h -> return h
+        HCRDisk d -> getHashM d
+    getHashM HCRFlushed{..} = return hcrHash
+
+instance
+    ( MonadCache c m,
+      BlobStorable m a,
+      Cache c,
+      CacheKey c ~ BlobRef a,
+      CacheValue c ~ a,
+      MHashableTo m h a
+    ) =>
+    Reference m (HashedCachedRef' h c) a
+    where
+    refFlush HCRUnflushed{..} = liftIO (readIORef hcrUnflushed) >>= \case
+        HCRMem val -> do
+            (!hcrBlob, !val') <- storeUpdateRef val
+            _ <- putCachedValue (Proxy @c) hcrBlob val'
+            hcrHash <- getHashM val'
+            let !newHCR = HCRFlushed{..}
+            liftIO $ writeIORef hcrUnflushed $! HCRDisk newHCR
+            return (newHCR, hcrBlob)
+        HCRMemHashed val hcrHash -> do
+            (!hcrBlob, !val') <- storeUpdateRef val
+            _ <- putCachedValue (Proxy @c) hcrBlob val'
+            let !newHCR = HCRFlushed{..}
+            liftIO $ writeIORef hcrUnflushed $! HCRDisk newHCR
+            return (newHCR, hcrBlob)
+        HCRDisk newHCR -> refFlush newHCR
+    refFlush hcr@HCRFlushed{..} = return (hcr, hcrBlob)
+
+    refCache hcr@HCRUnflushed{..} = liftIO (readIORef hcrUnflushed) >>= \case
+        HCRMem val -> return (val, hcr)
+        HCRMemHashed val _ -> return (val, hcr)
+        HCRDisk d -> refCache d
+    refCache hcr@HCRFlushed{..} = do
+        val <- loadRef hcrBlob
+        !val' <- putCachedValue (Proxy @c) hcrBlob val
+        return (val', hcr)
+    
+    refMake val = liftIO $ do
+        hcrUnflushed <- newIORef $! HCRMem val
+        return $! HCRUnflushed{..}
+    
+    refLoad HCRUnflushed{..} = liftIO (readIORef hcrUnflushed) >>= \case
+        HCRMem val -> return val
+        HCRMemHashed val _ -> return val
+        HCRDisk r -> refLoad r
+    refLoad HCRFlushed{..} = lookupCachedValue (Proxy @c) hcrBlob >>= \case
+        Nothing -> do
+            val <- loadRef hcrBlob
+            putCachedValue (Proxy @c) hcrBlob val
+        Just val -> return val
+
+    refUncache = fmap fst . refFlush
+    {-# INLINE refFlush #-}
+    {-# INLINE refCache #-}
+    {-# INLINE refLoad #-}
+    {-# INLINE refMake #-}
+    {-# INLINE refUncache #-}
+
+
+-- |Construct a 'HashedCachedRef'' given the value and hash.
+makeHashedCachedRef :: (MonadIO m) => a -> h -> m (HashedCachedRef' h c a)
+makeHashedCachedRef val hsh = liftIO $
+    HCRUnflushed <$!> (newIORef $! HCRMemHashed val hsh)
+
+instance
+    ( MonadCache c m,
+      BlobStorable m a,
+      Cache c,
+      CacheKey c ~ BlobRef a,
+      CacheValue c ~ a,
+      MHashableTo m h a
+    ) =>
+    BlobStorable m (HashedCachedRef' h c a)
+    where
+    store hcr = store . snd =<< refFlush hcr
+
+    storeUpdate hcr = do
+        (!hcr', !ref) <- refFlush hcr
+        (, hcr') <$> store ref
+
+    load = do
+        mref <- load
+        return $ do
+            hcrBlob <- mref
+            val <- lookupCachedValue (Proxy @c) hcrBlob >>= \case
+                Nothing -> do
+                    val <- loadRef hcrBlob
+                    putCachedValue (Proxy @c) hcrBlob val
+                Just val -> return val
+            hcrHash <- getHashM val
+            return HCRFlushed{..}
+
+-- |Caching a 'HashedCachedRef' does nothing on the principle that it is generally undesirable to
+-- load every 'HashedCachedRef' into the cache at load time.
+instance (Applicative m) => Cacheable m (HashedCachedRef c a) where
     cache = pure
