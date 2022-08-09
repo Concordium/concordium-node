@@ -897,8 +897,9 @@ impl ConsensusContainer {
     ) -> ConsensusFfiResponse {
         let sender = Box::new(sender);
         let consensus = self.consensus.load(Ordering::SeqCst);
-        let response =
-            unsafe { streamFinalized(consensus, Box::into_raw(sender), enqueue_bytearray_callback) };
+        let response = unsafe {
+            streamFinalized(consensus, Box::into_raw(sender), enqueue_bytearray_callback)
+        };
         ConsensusFfiResponse::try_from(response).unwrap()
     }
 }

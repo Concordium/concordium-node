@@ -137,7 +137,7 @@ fn main() -> std::io::Result<()> {
 
     let query_service = tonic_build::manual::Service::builder()
         .name("Queries")
-        .package("concordium_v2")
+        .package("concordium.v2")
         .method(
             tonic_build::manual::Method::builder()
                 .name("finalized_blocks")

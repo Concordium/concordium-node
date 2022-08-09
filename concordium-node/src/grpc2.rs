@@ -3,11 +3,11 @@ use std::marker::PhantomData;
 use prost::bytes::BufMut;
 
 pub mod types {
-    include!(concat!(env!("OUT_DIR"), "/concordium.types.rs"));
+    include!(concat!(env!("OUT_DIR"), "/concordium.v2.rs"));
 }
 
 pub mod service {
-    include!(concat!(env!("OUT_DIR"), "/concordium_v2.Queries.rs"));
+    include!(concat!(env!("OUT_DIR"), "/concordium.v2.Queries.rs"));
 }
 
 #[derive(Default)]
@@ -65,7 +65,10 @@ pub mod server {
     use futures::StreamExt;
     use tonic::async_trait;
 
-    use crate::{consensus_ffi::{consensus::ConsensusContainer, helpers::ConsensusFfiResponse}, p2p::P2PNode};
+    use crate::{
+        consensus_ffi::{consensus::ConsensusContainer, helpers::ConsensusFfiResponse},
+        p2p::P2PNode,
+    };
 
     use super::*;
     /// The object used to initiate a gRPC server.
@@ -102,7 +105,10 @@ pub mod server {
     #[async_trait]
     impl service::queries_server::Queries for RpcServerImpl {
         ///Server streaming response type for the FinalizedBlocks method.
-        type FinalizedBlocksStream = futures::stream::Map<futures::channel::mpsc::Receiver<Vec<u8>>, fn(Vec<u8>) -> Result<Vec<u8>, tonic::Status>>;
+        type FinalizedBlocksStream = futures::stream::Map<
+            futures::channel::mpsc::Receiver<Vec<u8>>,
+            fn(Vec<u8>) -> Result<Vec<u8>, tonic::Status>,
+        >;
 
         async fn finalized_blocks(
             &self,
