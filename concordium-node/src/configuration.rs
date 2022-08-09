@@ -247,14 +247,14 @@ pub struct BakerConfig {
     #[structopt(
         long = "import-blocks-from",
         conflicts_with = "download-blocks-from",
-        help = "Path to a file with a list of blocks to import",
+        help = "Path to a file containing an exported block database to import",
         env = "CONCORDIUM_NODE_CONSENSUS_IMPORT_BLOCKS_FROM"
     )]
     pub import_blocks_from: Option<PathBuf>,
     #[structopt(
         long = "download-blocks-from",
         conflicts_with = "import-blocks-from",
-        help = "URL of a file with a list of blocks to import",
+        help = "URL to an index file of an exported block database to import",
         env = "CONCORDIUM_NODE_CONSENSUS_DOWNLOAD_BLOCKS_FROM"
     )]
     pub download_blocks_from: Option<url::Url>,
