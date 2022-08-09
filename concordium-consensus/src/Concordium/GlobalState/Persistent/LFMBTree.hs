@@ -3,6 +3,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
@@ -289,14 +290,17 @@ appendWithRef v t = do
   return (k, t', ref)
 
 -- |Append a value to the tree, returning the assigned key and the updated tree.
-appendV :: (CanStoreLFMBTree m ref v, Coercible k Word64, Num k) => v -> LFMBTree' k ref v -> m (k, LFMBTree' k ref v)
+appendV :: forall m ref v k. (CanStoreLFMBTree m ref v, Coercible k Word64, Num k) => v -> LFMBTree' k ref v -> m (k, LFMBTree' k ref v)
 appendV value Empty = do
   return (0, NonEmpty 1 (Leaf value))
 appendV value (NonEmpty s t) = do
   t' <- appendT s t Nothing
   return (coerce s, NonEmpty (s + 1) t')
   where
-    -- createLeaf :: T m ref v -> Maybe (ref (T m ref v)) -> (ref (T m ref v) -> ref (T m ref v)) -> m (T m ref v)
+    createLeaf :: T ref v
+      -> Maybe (ref (T ref v))
+      -> (ref (T ref v) -> ref (T ref v) -> T ref v)
+      -> m (T ref v)
     createLeaf originalNode refNode f = do
       -- Given a node, we either already have a reference (in @refNode@)
       -- or we store it (this will only happen on the top level where the
@@ -307,7 +311,7 @@ appendV value (NonEmpty s t) = do
       -- Combine the original ref and the new one into a node with the given
       -- partially applied function.
       return (f ref ref')
-    -- appendT :: Key -> T m ref v -> Maybe (ref (T m ref v)) -> m (T m ref v)
+    appendT :: Word64 -> T ref v -> Maybe (ref (T ref v)) -> m (T ref v)
     -- NOTE: @refNode@ is the stored reference to @node@ for it to be reused if needed
     appendT key node refNode =
       case node of

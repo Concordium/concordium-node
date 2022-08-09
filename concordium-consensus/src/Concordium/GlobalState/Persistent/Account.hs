@@ -42,6 +42,8 @@ import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToS
 -- | The persistent version of the encrypted amount structure per account.
 -- We use 'EagerBufferedRef's for the encrypted amounts so that when a 'PersistentAccount' is
 -- loaded, the entire encrypted amount will also be loaded.
+-- This is useful, since the encrypted amount structure is used for computing the
+-- hash of the account.
 data PersistentAccountEncryptedAmount = PersistentAccountEncryptedAmount {
   -- | Encrypted amount that is a result of this accounts' actions.
   -- In particular this list includes the aggregate of

@@ -2866,7 +2866,7 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage 
 
     archiveBlockState HashedPersistentBlockState{..} = do
         inner <- liftIO $ readIORef hpbsPointers
-        inner' <- uncacheBuffered inner
+        !inner' <- uncacheBuffered inner
         liftIO $ writeIORef hpbsPointers inner'
 
     saveBlockState HashedPersistentBlockState{..} = do
@@ -2882,7 +2882,7 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage 
 
     cacheBlockState pbs@HashedPersistentBlockState{..} = do
         bsp <- liftIO $ readIORef hpbsPointers
-        bsp' <- cache bsp
+        !bsp' <- cache bsp
         liftIO $ writeIORef hpbsPointers bsp'
         return pbs
 

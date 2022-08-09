@@ -272,7 +272,7 @@ pub struct BakerConfig {
     pub genesis_data_file: PathBuf,
     #[structopt(
         long = "accounts-cache-size",
-        help = "The max size of the accounts cache",
+        help = "The maximum number of accounts that can be stored in accounts cache",
         default_value = "10000",
         env = "CONCORDIUM_NODE_CONSENSUS_ACCOUNTS_CACHE_SIZE"
     )]

@@ -216,7 +216,7 @@ pub struct ConsensusRuntimeParameters {
     /// transaction's expiry time in seconds. Transactions received with
     /// later expiry times will be dropped.
     pub max_time_to_expiry:         u64,
-    /// The number of insertsions to be performed in the transaction table
+    /// The number of insertions to be performed in the transaction table
     /// before running a purge to remove transactions that have not been
     /// executed for more than `transactions_keep_alive` seconds.
     pub insertions_before_purging:  u64,

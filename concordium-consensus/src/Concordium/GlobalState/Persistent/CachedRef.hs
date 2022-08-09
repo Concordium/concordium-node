@@ -51,15 +51,15 @@ instance
         case mbr of
             Disk br -> return (cr, br)
             Mem val -> do
-                (!r, !val') <- {-# SCC "FLUSHCACHE" #-} storeUpdateRef val
-                liftIO $ writeIORef ioref (Disk r)
+                (!r, !val') <- storeUpdateRef val
+                liftIO $ writeIORef ioref $! Disk r
                 _ <- putCachedValue (Proxy @c) r val'
                 return (cr, r)
     refCache r@(CachedRef ioref) =
         liftIO (readIORef ioref) >>= \case
             Mem v -> return (v, r)
             Disk ref -> do
-                val <- {-# SCC "LOADCACHE" #-} loadRef ref
+                val <- loadRef ref
                 !val' <- putCachedValue (Proxy @c) ref val
                 return (val', r)
     refLoad (CachedRef ioref) =
@@ -68,7 +68,7 @@ instance
             Disk ref ->
                 lookupCachedValue (Proxy @c) ref >>= \case
                     Nothing -> do
-                        val <- {-# SCC "LOADCACHE" #-} loadRef ref
+                        val <- loadRef ref
                         putCachedValue (Proxy @c) ref val
                     Just val -> return val
     refMake val = do
@@ -78,7 +78,7 @@ instance
         liftIO (readIORef ioref) >>= \case
             Mem val -> do
                 (r, _) <- storeUpdateRef val
-                liftIO $ writeIORef ioref (Disk r)
+                liftIO $ writeIORef ioref $! Disk r
                 return cr
             Disk _ -> return cr
     {-# INLINE refFlush #-}
@@ -159,7 +159,7 @@ instance
             Some h -> return h
             Null -> do
                 h <- getHashM lhCachedRef
-                liftIO $ writeIORef lhHash (Some h)
+                liftIO $ writeIORef lhHash $! Some h
                 return h
 
 instance
@@ -181,7 +181,7 @@ instance
         liftIO (readIORef (lhHash ref)) >>= \case
            Null -> do
                 h <- getHashM r
-                liftIO (writeIORef (lhHash ref) (Some h))
+                liftIO (writeIORef (lhHash ref) $! Some h)
            Some _ -> return ()
         return (r, LazilyHashedCachedRef{lhCachedRef = cr, lhHash = lhHash ref})
 
@@ -240,7 +240,7 @@ instance
         when (isNull mhsh) $ do
             val <- refLoad lhCachedRef
             hsh <- getHashM val
-            liftIO $ writeIORef lhHash (Some hsh)
+            liftIO $ writeIORef lhHash $! Some hsh
         return r
 
 -- * 'EagerlyHashedCachedRef'

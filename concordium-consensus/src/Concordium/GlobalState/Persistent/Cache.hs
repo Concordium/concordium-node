@@ -108,8 +108,11 @@ instance Cache (DummyCache v) where
 newDummyCache :: Int -> IO (DummyCache v)
 newDummyCache _ = pure DummyCache
 
--- |First-in, first-out cache, with entries keyed by 'BlobRefs's.
+-- |First-in, first-out cache, with entries keyed by 'BlobRef's.
 -- 'refNull' is considered an invalid key, and should not be inserted in the cache.
+-- Internally, 'BlobRef' keys are converted to 'Int's so that we can make use of
+-- 'IntMap.IntMap'. This relies on lossless conversion from 'Word64' to 'Int', which
+-- is the case on 64-bit GHC platforms.An emp
 data FIFOCache' v = FIFOCache'
     { -- |Map from keys to values that are stored in the cache.
       -- Each entry in the map should have a corresponding entry in the 'fifoBuffer' vector.
@@ -180,7 +183,7 @@ instance Cache (FIFOCache v) where
         cache <- liftIO $! readMVar cacheRef
         return $! IntMap.size (keyMap cache)
 
--- |An empty 'FIFOCache'' of the specified size.
+-- |An empty 'FIFOCache'' of at least the specified size.
 emptyFIFOCache' :: Int -> IO (FIFOCache' v)
 emptyFIFOCache' size' = do
     let size = max 1 size'
