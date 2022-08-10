@@ -247,7 +247,9 @@ instance
 
 -- * 'EagerlyHashedCachedRef'
 
--- |A 'CachedRef' with a hash that is eagerly computed.
+-- |A 'CachedRef' with a hash that is always computed. In particular, this means that 'load'ing
+-- the reference will also load the referenced data (consequently caching it) in order to
+-- compute the hash.
 data EagerlyHashedCachedRef' h c a = EagerlyHashedCachedRef
     { ehCachedRef :: !(CachedRef c a),
       ehHash :: !h

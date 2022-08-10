@@ -39,11 +39,30 @@ import Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule
 import Concordium.GlobalState.Persistent.CachedRef
 import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToSelfEncryptedAmount)
 
+-- * A note on 'Cacheable' instances for persistent accounts
+-- $PersistentAccountCacheable
+-- 
+-- 'PersistentAccount' and its constituents 'PersistentAccountEncryptedAmount',
+-- 'PersistentExtraBakerInfo', 'PersistentBakerInfoEx', 'PersistentAccountBaker', and
+-- 'AccountReleaseSchedule' internally use only 'EagerBufferedRef's, which means that when the
+-- 'PersistentAccount' is loaded, so too are all of its component parts. Consequently, these
+-- can have trivial instances of the 'Cacheable' typeclass, since the data is always cached.
+-- (This also applies to 'Concordium.GlobalState.Persistent.Bakers.BakerInfos', which uses 
+-- 'PersistentBakerInfoEx'.)
+--
+-- The motivation for always loading accounts in their entirety is that when accounts are loaded
+-- they will commonly also be updated, which requires recomputing their hashes, which in turn
+-- requires all of the data associated with the account to be available. (For some portions,
+-- having just the hash available is sufficient, but at present we retain the data instead of the
+-- hash.)
+
+-- * Encrypted amounts
+
 -- | The persistent version of the encrypted amount structure per account.
 -- We use 'EagerBufferedRef's for the encrypted amounts so that when a 'PersistentAccount' is
 -- loaded, the entire encrypted amount will also be loaded.
 -- This is useful, since the encrypted amount structure is used for computing the
--- hash of the account.
+-- hash of the account. (See $PersistentAccountCacheable.)
 data PersistentAccountEncryptedAmount = PersistentAccountEncryptedAmount {
   -- | Encrypted amount that is a result of this accounts' actions.
   -- In particular this list includes the aggregate of
@@ -162,16 +181,16 @@ instance MonadBlobStore m => BlobStorable m PersistentAccountEncryptedAmount whe
 
 instance (MonadBlobStore m) => Cacheable m PersistentAccountEncryptedAmount where
 
+-- * Staking information
+
 -- |Extra info (beyond 'BakerInfo') associated with a baker.
--- IMPORTANT NOTE: The 'Cacheable' instance for 'PersistentExtraBakerInfo' relies on this not
--- requiring recursive caching. (This is trivially true for '()', and is true for
--- @EagerBufferedRef BakerPoolInfo@ since the 'BakerPoolInfo' is flat and an 'EagerBufferedRef'
--- is always in memory.) Ideally, changes should preserve this. If not the 'Cacheable' instances
--- for 'PersistentBakerInfoEx' and 'PersistentAccountBaker' should also be updated.
+-- (This type is always fully cached in memory. See $PersistentAccountCacheable for details.)
 type family PersistentExtraBakerInfo' (av :: AccountVersion) where
     PersistentExtraBakerInfo' 'AccountV0 = ()
     PersistentExtraBakerInfo' 'AccountV1 = EagerBufferedRef BakerPoolInfo
 
+-- |Extra info (beyond 'BakerInfo') associated with a baker.
+-- (This structure is always fully cached in memory. See $PersistentAccountCacheable for details.)
 newtype PersistentExtraBakerInfo (av :: AccountVersion) = PersistentExtraBakerInfo
     { _theExtraBakerInfo :: PersistentExtraBakerInfo' av
     }
@@ -185,8 +204,7 @@ instance forall av. IsAccountVersion av => Show (PersistentExtraBakerInfo av) wh
 instance forall av m. (Applicative m) => Cacheable m (PersistentExtraBakerInfo av)
 
 -- |A persistent version of 'BakerInfoEx'.
--- IMPORTANT NOTE: The 'Cacheable' instance relies on this not requiring recursive caching.
--- If this changes, the instance for 'BakerInfos' should also be updated.
+-- (This structure is always fully cached in memory. See $PersistentAccountCacheable for details.)
 data PersistentBakerInfoEx av = PersistentBakerInfoEx {
     bakerInfoRef :: !(EagerBufferedRef BakerInfo),
     bakerInfoExtra :: !(PersistentExtraBakerInfo av)
@@ -241,9 +259,7 @@ instance forall m av. (IsAccountVersion av, MonadBlobStore m) => BlobStorable m 
 instance (Applicative m) => Cacheable m (PersistentBakerInfoEx av)
 
 -- |A baker associated with an account.
--- IMPORTANT NOTE: The 'Cacheable' instance relies on the fact that no recursive caching is
--- necessary (due to the use of 'EagerBufferedRef's). If this changes, the instance for
--- 'PersistentAccountStake' will also need to be updated.
+-- (This structure is always fully cached in memory. See $PersistentAccountCacheable for details.)
 data PersistentAccountBaker (av :: AccountVersion) = PersistentAccountBaker
   { _stakedAmount :: !Amount
   , _stakeEarnings :: !Bool
@@ -256,9 +272,11 @@ deriving instance (Show (PersistentExtraBakerInfo av)) => Show (PersistentAccoun
 
 makeLenses ''PersistentAccountBaker
 
+-- |Getter for accessing the 'PersistentBakerInfoEx' of a 'PersistentAccountBaker'.
 accountBakerInfoEx :: Getting r (PersistentAccountBaker av) (PersistentBakerInfoEx av)
 accountBakerInfoEx = to (\PersistentAccountBaker{..} -> PersistentBakerInfoEx _accountBakerInfo _extraBakerInfo)
 
+-- |Lens for accessing the reference to the 'BakerPoolInfo' of a 'PersistentAccountBaker'.
 bakerPoolInfoRef :: Lens' (PersistentAccountBaker 'AccountV1) (EagerBufferedRef BakerPoolInfo)
 bakerPoolInfoRef = extraBakerInfo . theExtraBakerInfo
 
@@ -361,15 +379,15 @@ instance forall m av. (MonadBlobStore m, IsAccountVersion av) => BlobStorable m 
         su0 :: PersistentAccountStake 'AccountV0 -> m (Put, PersistentAccountStake 'AccountV0)
         su0 pas@PersistentAccountStakeNone = return (put (refNull :: BlobRef (PersistentAccountBaker av)), pas)
         su0 (PersistentAccountStakeBaker bkrref) = do
-          (!r, !bkrref') <- storeUpdate bkrref
+          (r, bkrref') <- storeUpdate bkrref
           return (r, PersistentAccountStakeBaker bkrref')
         su1 :: PersistentAccountStake 'AccountV1 -> m (Put, PersistentAccountStake 'AccountV1)
         su1 pas@PersistentAccountStakeNone = return (putWord8 0, pas)
         su1 (PersistentAccountStakeBaker bkrref) = do
-          (!r, !bkrref') <- storeUpdate bkrref
+          (r, bkrref') <- storeUpdate bkrref
           return (putWord8 1 >> r, PersistentAccountStakeBaker bkrref')
         su1 (PersistentAccountStakeDelegate dlgref) = do
-          (!r, !dlgref') <- storeUpdate dlgref
+          (r, dlgref') <- storeUpdate dlgref
           return (putWord8 2 >> r, PersistentAccountStakeDelegate dlgref')
     store = fmap fst . storeUpdate
     load = case accountVersion @av of
@@ -402,8 +420,12 @@ instance (MonadBlobStore m, IsAccountVersion av) => MHashableTo m (AccountStakeH
   getHashM (PersistentAccountStakeDelegate dlgref) =
       getAccountStakeHash . AccountStakeDelegate <$> refLoad dlgref
 
+-- * Persisting account data
+
 -- |Type for a reference to an account's persisting data.
 type AccountPersisting = EagerlyHashedBufferedRef PersistingAccountData
+
+-- * Persistent account
 
 -- |A (persistent) account.
 -- IMPORTANT NOTE: The 'Cacheable' instance relies on the fact that no recursive caching is

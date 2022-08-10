@@ -2639,6 +2639,8 @@ instance HasBlobStore (PersistentBlockStateContext av) where
 instance AccountVersionFor pv ~ av => Cache.HasCache (Accounts.AccountCache av) (PersistentBlockStateContext pv) where
   projectCache = pbscCache
 
+-- |Create a new account cache of the specified size for running the given monadic operation by
+-- extending the 'BlobStore' context to a 'PersistentBlockStateContext'.
 withNewAccountCache :: (MonadIO m) => Int -> BlobStoreT (PersistentBlockStateContext pv) m a -> BlobStoreT BlobStore m a
 withNewAccountCache size bsm = do
     ac <- liftIO $ Accounts.newAccountCache size

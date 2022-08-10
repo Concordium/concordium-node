@@ -36,8 +36,8 @@ import Concordium.Types.HashableTo
 import Concordium.Utils.Serialization.Put
 
 -- |A list of references to 'BakerInfo's, ordered by increasing 'BakerId'.
--- IMPORTANT NOTE: The 'Cacheable' instance relies on this not requiring recursive caching through
--- the use of 'EagerBufferedRef's.
+-- (This structure is always fully cached in memory, so the 'Cacheable' instance is trivial. See
+-- $Concordium.GlobalState.Persistent.Account.PersistentAccountCacheable for details.)
 newtype BakerInfos (av :: AccountVersion)
     = BakerInfos (Vec.Vector (PersistentBakerInfoEx av))
     deriving (Show)

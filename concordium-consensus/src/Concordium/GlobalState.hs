@@ -205,8 +205,17 @@ deriving via PersistentBlockStateMonad pv
                                   (FocusGlobalStateM (PersistentBlockStateContext pv) g m)))
              => BlockStateStorage (PersistentBlockStateM pv r g s m)
 
-instance (MonadIO m, c ~ PersistentBlockStateContext pv, HasGlobalStateContext c r, AccountVersionFor pv ~ av, MonadReader r m, HasCache (Accounts.AccountCache av) c) => MonadCache (Accounts.AccountCache av) (PersistentBlockStateM pv r g s m) where
-  getCache = projectCache <$> ask
+instance
+    ( MonadIO m,
+      c ~ PersistentBlockStateContext pv,
+      HasGlobalStateContext c r,
+      AccountVersionFor pv ~ av,
+      MonadReader r m,
+      HasCache (Accounts.AccountCache av) c
+    ) =>
+    MonadCache (Accounts.AccountCache av) (PersistentBlockStateM pv r g s m)
+    where
+    getCache = projectCache <$> ask
 
 -----------------------------------------------------------------------------
 

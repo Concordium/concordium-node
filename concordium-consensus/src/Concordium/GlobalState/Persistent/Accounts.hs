@@ -65,6 +65,17 @@ newAccountCache = newCache
 -- The data integrity of accounts is also not enforced by these operations.
 --
 -- This implementation uses disk-backed structures for implementation.
+--
+-- Accounts are cached using an 'AccountCache'. This caches accounts keyed by the 'BlobRef' at
+-- which the 'PersistentAccount' is stored, and uses a FIFO eviction strategy. The benefit of this
+-- is that it is relatively simple and transparent. The downside is that it would most likely be
+-- beneficial to evict old versions of an account from the cache when a new one is created, which
+-- is not the case with this caching mechanism.
+--
+-- An alternative would be to key the cache by the account index. However, this is less convenient
+-- since it requires the key to be available when loading the account from the reference, and
+-- hence the current solution was chosen. Caching by account index (probably with an LRU strategy)
+-- would likely be a more effective strategy over all.
 data Accounts (pv :: ProtocolVersion) = Accounts {
     -- |Unique index of accounts by 'AccountAddress'
     accountMap :: !(AccountMap.PersistentAccountMap pv),
@@ -76,7 +87,14 @@ data Accounts (pv :: ProtocolVersion) = Accounts {
     accountRegIdHistory :: !(Trie.TrieN BufferedFix ID.RawCredentialRegistrationID AccountIndex)
 }
 
-type SupportsPersistentAccount pv m = (IsProtocolVersion pv, MonadBlobStore m, MonadCache (AccountCache (AccountVersionFor pv)) m)
+-- |A constraint that ensures a monad @m@ supports the persistent account operations.
+-- This essentially requires that the monad support 'MonadBlobStore', and 'MonadCache' for
+-- the account cache.
+type SupportsPersistentAccount pv m =
+    ( IsProtocolVersion pv,
+      MonadBlobStore m,
+      MonadCache (AccountCache (AccountVersionFor pv)) m
+    )
 
 -- |Convert a (non-persistent) 'Transient.Accounts' to a (persistent) 'Accounts'.
 -- The new object is not yet stored on disk.

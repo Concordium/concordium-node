@@ -43,6 +43,7 @@ instance (Monoid w, MonadCache c m) => MonadCache c (WriterT w m) where
     {-# INLINE getCache #-}
 
 instance (MonadCache c m) => MonadCache c (ExceptT e m) where
+    -- Note that exceptions will not cause rollbacks in the cache.
     getCache = lift getCache
     {-# INLINE getCache #-}
 
@@ -92,27 +93,27 @@ instance HasCache c (CacheContext c) where
 
 -- |A dummy cache that does not store any values.
 -- That is, all lookups are cache misses.
-data DummyCache v = DummyCache
+data NullCache v = NullCache
 
-instance Cache (DummyCache v) where
-    type CacheKey (DummyCache v) = BlobRef v
-    type CacheValue (DummyCache v) = v
+instance Cache (NullCache v) where
+    type CacheKey (NullCache v) = BlobRef v
+    type CacheValue (NullCache v) = v
 
-    newCache = newDummyCache
+    newCache = newNullCache
     collapseCache _ = return ()
     putCachedValue _ _ = return
     lookupCachedValue _ _ = return Nothing
     getCacheSize _ = return 0
 
--- |Construct a new 'DummyCache'. The size parameter is ignored.
-newDummyCache :: Int -> IO (DummyCache v)
-newDummyCache _ = pure DummyCache
+-- |Construct a new 'NullCache'. The size parameter is ignored.
+newNullCache :: Int -> IO (NullCache v)
+newNullCache _ = pure NullCache
 
 -- |First-in, first-out cache, with entries keyed by 'BlobRef's.
 -- 'refNull' is considered an invalid key, and should not be inserted in the cache.
 -- Internally, 'BlobRef' keys are converted to 'Int's so that we can make use of
 -- 'IntMap.IntMap'. This relies on lossless conversion from 'Word64' to 'Int', which
--- is the case on 64-bit GHC platforms.An emp
+-- is the case on 64-bit GHC platforms.
 data FIFOCache' v = FIFOCache'
     { -- |Map from keys to values that are stored in the cache.
       -- Each entry in the map should have a corresponding entry in the 'fifoBuffer' vector.
@@ -196,7 +197,7 @@ emptyFIFOCache' size' = do
               ..
             }
 
--- |Construct a FIFO cache of the specified size.
+-- |Construct a FIFO cache of at least the specified size.
 -- If the size is less than 1, a cache of size 1 will be created instead.
 newFIFOCache :: Int -> IO (FIFOCache v)
 newFIFOCache size = do

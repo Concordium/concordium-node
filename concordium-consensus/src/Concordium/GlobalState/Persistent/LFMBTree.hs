@@ -86,8 +86,10 @@ type Height = Word64
 
 -- | Left-full Merkle Binary Tree
 --
---  This type is parametrized by the reference type of
---  the stored items.
+--  This type is parametrized by:
+--  * the type of indexing keys, which should be coercible to 'Word64';
+--  * the reference type to use for internal branches; and
+--  * the type of values to be stored at the leaves.
 data LFMBTree' k (ref :: Type -> Type) v
   -- |Empty tree
   = Empty
@@ -98,6 +100,8 @@ data LFMBTree' k (ref :: Type -> Type) v
     -- The tree.
     !(T ref v)
 
+-- |A left-full Merkle binary tree where the leaf values are stored under references of the
+-- same type as used for internal branches.
 type LFMBTree k ref v = LFMBTree' k ref (ref v)
 
 deriving instance (Show v, Show (ref (T ref v))) => (Show (LFMBTree' k ref v))
@@ -117,8 +121,8 @@ deriving instance (Show v, Show (ref (T ref v))) => (Show (T ref v))
 
 instance
   ( Monad m,
-    MHashableTo m H.Hash v, -- references to values       must be mhashable
-    MHashableTo m H.Hash (ref (T ref v)) -- references to nodes must be mhashable
+    MHashableTo m H.Hash v, -- values must be hashable
+    MHashableTo m H.Hash (ref (T ref v)) -- references to nodes must be hashable
   ) =>
   MHashableTo m H.Hash (T ref v)
   where
@@ -132,8 +136,8 @@ instance
 -- is empty or the hash of the tree otherwise.
 instance
   ( Monad m,
-    MHashableTo m H.Hash v, -- references to values       must be mhashable
-    MHashableTo m H.Hash (ref (T ref v)) -- references to nodes must be mhashable
+    MHashableTo m H.Hash v, -- values must be hashable
+    MHashableTo m H.Hash (ref (T ref v)) -- references to nodes must be hashable
   ) =>
   MHashableTo m H.Hash (LFMBTree' k ref v)
   where
@@ -146,12 +150,11 @@ instance
 -- NOTE: This constraint is not intended to be used outside of this module but just be
 -- fulfilled by every monad that tries to use this structure. It is just here for readability.
 type CanStoreLFMBTree m ref v =
-  ( MonadBlobStore m, -- Will work with MonadIOs
-    BlobStorable m v,
-    MHashableTo m H.Hash v, -- values                              must be storable in @BlobRef@s on the monad @m@
-    BlobStorable m v, -- references to values        must be storable in @Blobref@s on the monad @m@
-    BlobStorable m (ref (T ref v)), -- references to nodes must be storable in @BlobRef@s on the monad @m@
-    Reference m ref (T ref v) -- references to nodes                    must be @Reference@
+  ( MonadBlobStore m, -- can access BlobStore
+    MHashableTo m H.Hash v, -- leaf values are hashable
+    BlobStorable m v, -- leaf values are storable
+    BlobStorable m (ref (T ref v)), -- internal references are storable
+    Reference m ref (T ref v) -- internal references are references
   )
 
 instance CanStoreLFMBTree m ref v => BlobStorable m (T ref v) where
@@ -253,7 +256,7 @@ empty = Empty
 lookup :: (CanStoreLFMBTree m ref1 (ref2 v), Ord k, Bits k, Coercible k Word64, Reference m ref2 v) => k -> LFMBTree' k ref1 (ref2 v) -> m (Maybe v)
 lookup a b = mapM refLoad =<< lookupRef a b
 
--- | Return the reference to the value at the given key if it is present in the tree
+-- | Return the (reference to the) value at the given key if it is present in the tree
 -- or Nothing otherwise.
 lookupRef :: (CanStoreLFMBTree m ref1 v, Ord k, Bits k, Coercible k Word64) => k -> LFMBTree' k ref1 v -> m (Maybe v)
 lookupRef _ Empty = return Nothing
