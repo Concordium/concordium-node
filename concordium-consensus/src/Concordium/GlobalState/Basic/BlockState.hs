@@ -887,6 +887,8 @@ instance (Monad m, IsProtocolVersion pv) => BS.AccountOperations (PureBlockState
 
   derefBakerInfo = return . view bakerInfo
 
+  getAccountHash = return . getHash
+
 -- |Checks that the delegation target is not over-delegated.
 -- This can throw one of the following 'DelegationConfigureResult's, in order:
 --

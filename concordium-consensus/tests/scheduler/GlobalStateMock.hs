@@ -84,6 +84,7 @@ data AccountOperationsAction (pv :: ProtocolVersion) a where
     GetAccountDelegator :: MockAccount -> AccountOperationsAction pv (Maybe (AccountDelegation (AccountVersionFor pv)))
     GetAccountStake :: MockAccount -> AccountOperationsAction pv (AccountStake (AccountVersionFor pv))
     DerefBakerInfo :: MockBakerInfoRef -> AccountOperationsAction pv BakerInfo
+    GetAccountHash :: MockAccount -> AccountOperationsAcciont pv AccountHash
     deriving (Typeable)
 
 deriving instance Eq (AccountOperationsAction pv a)

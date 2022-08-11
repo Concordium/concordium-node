@@ -25,7 +25,6 @@ import qualified Data.Sequence as Seq
 import qualified Data.List as List
 import Data.Proxy
 
-import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types.HashableTo
 import Concordium.Types
 import qualified Concordium.Wasm as Wasm
@@ -199,8 +198,29 @@ coerceBSML = coerce
 coerceBSMR :: BSMR pv rc r rs s m a -> BlockStateM pv (PairGSContext lc rc) r (PairGState ls rs) s m a
 coerceBSMR = coerce
 
-instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQuery (BSML pv lc r ls s m), BlockStateQuery (BSMR pv rc r rs s m), HashableTo H.Hash (Account (BSML pv lc r ls s m)), HashableTo H.Hash (Account (BSMR pv rc r rs s m)))
-        => BlockStateQuery (BlockStateM pv (PairGSContext lc rc) r (PairGState ls rs) s m) where
+-- |Check that two accounts have the same hash.
+assertAccountHashEq ::
+    ( HasCallStack,
+      Monad m,
+      AccountOperations (BSML pv lc r ls s m),
+      AccountOperations (BSMR pv rc r rs s m)
+    ) =>
+    Account (BSML pv lc r ls s m) ->
+    Account (BSMR pv rc r rs s m) ->
+    BlockStateM pv (PairGSContext lc rc) r (PairGState ls rs) s m ()
+assertAccountHashEq acctL acctR = do
+    hl <- coerceBSML $ getAccountHash acctL
+    hr <- coerceBSMR $ getAccountHash acctR
+    unless (hl == hr) $ error "Account hashes do not mach"
+
+instance
+    ( Monad m,
+      C.HasGlobalStateContext (PairGSContext lc rc) r,
+      BlockStateQuery (BSML pv lc r ls s m),
+      BlockStateQuery (BSMR pv rc r rs s m)
+    ) =>
+    BlockStateQuery (BlockStateM pv (PairGSContext lc rc) r (PairGState ls rs) s m)
+    where
     getModule (ls, rs) modRef = do
         m1 <- coerceBSML (getModule ls modRef)
         m2 <- coerceBSMR (getModule rs modRef)
@@ -213,9 +233,9 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
         a1 <- coerceBSML (getAccount ls addr)
         a2 <- coerceBSMR (getAccount rs addr)
         case (a1, a2) of
-          (Just (ai1, a1'), Just (ai2, a2')) ->
-            assertEq (getHash a1' :: H.Hash) (getHash a2') $
-              assertEq ai1 ai2 $
+          (Just (ai1, a1'), Just (ai2, a2')) -> do
+            assertAccountHashEq a1' a2'
+            assertEq ai1 ai2 $
               return $ Just (ai1, (a1', a2'))
           (Nothing, Nothing) ->
             return Nothing
@@ -245,7 +265,7 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
                             activeBakerEquityCapital = activeBakerEquityCapital i1,
                             activeBakerPendingChange = activeBakerPendingChange i1,
                             activeBakerDelegators = activeBakerDelegators i1
-                        } 
+                        }
                     b = zipActiveBakerInfo b1 b2
                 in i : b
             zipActiveBakerInfo _ _ = []
@@ -253,9 +273,9 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
         a1 <- coerceBSML (getAccountByCredId ls cid)
         a2 <- coerceBSMR (getAccountByCredId rs cid)
         case (a1, a2) of
-          (Just (ai1, a1'), Just (ai2, a2')) ->
-            assertEq (getHash a1' :: H.Hash) (getHash a2') $
-              assertEq ai1 ai2 $
+          (Just (ai1, a1'), Just (ai2, a2')) -> do
+            assertAccountHashEq a1' a2'
+            assertEq ai1 ai2 $
               return $ Just (ai1, (a1', a2'))
           (Nothing, Nothing) ->
             return Nothing
@@ -265,9 +285,9 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
         a1 <- coerceBSML (getAccountByIndex ls idx)
         a2 <- coerceBSMR (getAccountByIndex rs idx)
         case (a1, a2) of
-          (Just (ai1, a1'), Just (ai2, a2')) ->
-            assertEq (getHash a1' :: H.Hash) (getHash a2') $
-              assertEq ai1 ai2 $
+          (Just (ai1, a1'), Just (ai2, a2')) -> do
+            assertAccountHashEq a1' a2'
+            assertEq ai1 ai2 $
               return $ Just (ai1, (a1', a2'))
           (Nothing, Nothing) ->
             return Nothing
@@ -277,9 +297,9 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
         a1 <- coerceBSML (getBakerAccount ls bid)
         a2 <- coerceBSMR (getBakerAccount rs bid)
         case (a1, a2) of
-          (Just a1', Just a2') ->
-            assertEq ((getHash a1' :: H.Hash)) (getHash a2') $
-              return $ Just (a1', a2')
+          (Just a1', Just a2') -> do
+            assertAccountHashEq a1' a2'
+            return $ Just (a1', a2')
           (Nothing, Nothing) ->
             return Nothing
           (Nothing, _) -> error $ "Cannot get account for baker " ++ show bid ++ " in left implementation"
@@ -451,8 +471,13 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r) => ContractS
   contractStateToByteString (InstanceStateV0 st) = return (Wasm.contractState st)
   contractStateToByteString (InstanceStateV1 st) = return (S.encode st)
 
-instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, AccountOperations (BSML pv lc r ls s m), AccountOperations (BSMR pv rc r rs s m), HashableTo H.Hash (Account (BSML pv lc r ls s m)), HashableTo H.Hash (Account (BSMR pv rc r rs s m)))
-  => AccountOperations (BlockStateM pv (PairGSContext lc rc) r (PairGState ls rs) s m) where
+instance
+    ( Monad m,
+      C.HasGlobalStateContext (PairGSContext lc rc) r,
+      AccountOperations (BSML pv lc r ls s m),
+      AccountOperations (BSMR pv rc r rs s m)
+    ) =>
+    AccountOperations (BlockStateM pv (PairGSContext lc rc) r (PairGState ls rs) s m) where
 
     getAccountCanonicalAddress (acc1, acc2) = do
         addr1 <- coerceBSML (getAccountCanonicalAddress acc1)
@@ -524,8 +549,18 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, AccountOpera
         ab2 <- coerceBSMR (getAccountStake acc2)
         assertEq ab1 ab2 $ return ab1
 
-instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateOperations (BSML pv lc r ls s m), BlockStateOperations (BSMR pv rc r rs s m), HashableTo H.Hash (Account (BSML pv lc r ls s m)), HashableTo H.Hash (Account (BSMR pv rc r rs s m)))
-        => BlockStateOperations (BlockStateM pv (PairGSContext lc rc) r (PairGState ls rs) s m) where
+    getAccountHash (acc1, acc2) = do
+        h1 <- coerceBSML (getAccountHash acc1)
+        h2 <- coerceBSMR (getAccountHash acc2)
+        assertEq h1 h2 $ return h1
+
+instance
+    ( MonadLogger m,
+      C.HasGlobalStateContext (PairGSContext lc rc) r,
+      BlockStateOperations (BSML pv lc r ls s m),
+      BlockStateOperations (BSMR pv rc r rs s m)
+    ) =>
+    BlockStateOperations (BlockStateM pv (PairGSContext lc rc) r (PairGState ls rs) s m) where
     bsoGetModule (bs1, bs2) mref = do
         r1 <- coerceBSML $ bsoGetModule bs1 mref
         r2 <- coerceBSMR $ bsoGetModule bs2 mref
@@ -534,9 +569,9 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         r1 <- coerceBSML $ bsoGetAccount bs1 aref
         r2 <- coerceBSMR $ bsoGetAccount bs2 aref
         case (r1, r2) of
-          (Just (ai1, r1'), Just (ai2, r2')) ->
-            assertEq ((getHash r1' :: H.Hash)) (getHash r2') $
-              assertEq ai1 ai2 $ 
+          (Just (ai1, r1'), Just (ai2, r2')) -> do
+            assertAccountHashEq r1' r2'
+            assertEq ai1 ai2 $
                 return $ Just (ai1, (r1', r2'))
           (Nothing, Nothing) ->
             return Nothing
@@ -587,9 +622,9 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         r1 <- coerceBSML $ bsoGetAccountByIndex bs1 ai
         r2 <- coerceBSMR $ bsoGetAccountByIndex bs2 ai
         case (r1, r2) of
-          (Just r1', Just r2') ->
-            assertEq ((getHash r1' :: H.Hash)) (getHash r2') $
-                return $ Just (r1', r2')
+          (Just r1', Just r2') -> do
+            assertAccountHashEq r1' r2'
+            return $ Just (r1', r2')
           (Nothing, Nothing) ->
             return Nothing
           (Nothing, _) ->
@@ -609,8 +644,9 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         (r1, bs1') <- coerceBSML $ bsoCreateAccount bs1 gc addr cred
         (r2, bs2') <- coerceBSMR $ bsoCreateAccount bs2 gc addr cred
         case (r1, r2) of
-            (Just a1, Just a2) ->
-                assertEq ((getHash a1 :: H.Hash)) (getHash a2) $ return (Just (a1, a2), (bs1', bs2'))
+            (Just a1, Just a2) -> do
+                assertAccountHashEq a1 a2
+                return (Just (a1, a2), (bs1', bs2'))
             (Nothing, Nothing) -> return (Nothing, (bs1', bs2'))
             (Nothing, _) ->
                 error "Account creation failed in left implementation but not right"
@@ -892,9 +928,7 @@ type instance BlockStatePointer (a, b) = (BlockStatePointer a, BlockStatePointer
 instance (MonadLogger m,
     C.HasGlobalStateContext (PairGSContext lc rc) r,
     BlockStateStorage (BSML pv lc r ls s m),
-    BlockStateStorage (BSMR pv rc r rs s m),
-    HashableTo H.Hash (Account (BSML pv lc r ls s m)),
-    HashableTo H.Hash (Account (BSMR pv rc r rs s m)))
+    BlockStateStorage (BSMR pv rc r rs s m))
         => BlockStateStorage (BlockStateM pv (PairGSContext lc rc) r (PairGState ls rs) s m) where
     thawBlockState (bs1, bs2) = do
         ubs1 <- coerceBSML $ thawBlockState bs1
@@ -1181,7 +1215,7 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
     purgeTransactionTable t i = do
       coerceGSML (purgeTransactionTable t i)
       coerceGSMR (purgeTransactionTable t i)
-    
+
     wipeNonFinalizedTransactions = do
         l1 <- coerceGSML wipeNonFinalizedTransactions
         l2 <- coerceGSMR wipeNonFinalizedTransactions
@@ -1189,7 +1223,7 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
         -- between implementations, which may not in general be a
         -- reasonable assumption.
         assertEq l1 l2 $ return l1
-        
+
     getNonFinalizedTransactionVerificationResult tx = do
       r1 <- coerceGSML $ getNonFinalizedTransactionVerificationResult tx
       r2 <- coerceGSMR $ getNonFinalizedTransactionVerificationResult tx

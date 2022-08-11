@@ -220,6 +220,10 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
   -- |Dereference a 'BakerInfoRef' to a 'BakerInfo'.
   derefBakerInfo :: BakerInfoRef m -> m BakerInfo
 
+  -- |Get the hash of an account.
+  -- Note: this may not be implemented efficiently, and is principally intended for testing purposes.
+  getAccountHash :: Account m -> m (AccountHash (AccountVersionFor (MPV m)))
+
 -- * Active, current and next bakers/delegators
 --
 -- $ActiveCurrentNext
@@ -1296,6 +1300,7 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
   getAccountStake = lift . getAccountStake
   getAccountBakerInfoRef = lift . getAccountBakerInfoRef
   derefBakerInfo = lift . derefBakerInfo
+  getAccountHash = lift . getAccountHash
   {-# INLINE getAccountCanonicalAddress #-}
   {-# INLINE getAccountAmount #-}
   {-# INLINE getAccountAvailableAmount #-}
@@ -1309,6 +1314,7 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
   {-# INLINE getAccountStake #-}
   {-# INLINE getAccountBakerInfoRef #-}
   {-# INLINE derefBakerInfo #-}
+  {-# INLINE getAccountHash #-}
 
 instance (Monad (t m), MonadTrans t, ContractStateOperations m) => ContractStateOperations (MGSTrans t m) where
   thawContractState = lift . thawContractState

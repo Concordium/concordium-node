@@ -2782,6 +2782,8 @@ instance (PersistentState av pv r m, IsProtocolVersion pv) => AccountOperations 
 
   derefBakerInfo = refLoad . bakerInfoRef
 
+  getAccountHash = getHashM
+
 instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperations (PersistentBlockStateMonad pv r m) where
     bsoGetModule pbs mref = doGetModule pbs mref
     bsoGetAccount bs = doGetAccount bs
