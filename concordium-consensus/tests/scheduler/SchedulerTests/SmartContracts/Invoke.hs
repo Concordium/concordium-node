@@ -31,7 +31,7 @@ import Concordium.GlobalState.DummyData
 import SchedulerTests.TestUtils
 import qualified SchedulerTests.SmartContracts.V1.InvokeHelpers as InvokeHelpers
 
-type ContextM = PersistentBlockStateMonad PV4 BlobStore BlobStoreM
+type ContextM = PersistentBlockStateMonad PV4 (PersistentBlockStateContext PV4) (BlobStoreM' (PersistentBlockStateContext PV4))
 
 -- empty state, no accounts, no modules, no instances
 initialBlockState :: ContextM (HashedPersistentBlockState PV4)
@@ -132,7 +132,7 @@ invokeContract4 ccContract bs = do
 
 runCounterTests :: Assertion
 runCounterTests = do
-  runBlobStoreTemp "." . runPersistentBlockStateMonad $ do
+  runBlobStoreTemp "." . withNewAccountCache 100 . runPersistentBlockStateMonad $ do
     bsWithMod <- deployModule
     (addr, stateWithContract) <- initContract bsWithMod
     invokeContract1 addr stateWithContract >>= \case

@@ -46,7 +46,7 @@ genesis nBakers =
     0
     nBakers
     1000
-    defaultFinalizationParameters
+    defaultFinalizationParameters { finalizationAllowZeroDelay = False }
     Dummy.dummyCryptographicParameters
     emptyIdentityProviders
     dummyArs

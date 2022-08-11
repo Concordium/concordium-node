@@ -3,6 +3,10 @@
 ## Unrelease changes
 
 - Remove obsolete and unused option `--max-expiry-duration`
+- Account records are no longer constantly retained in memory. Instead a limited
+  number are retained in a cache. The number of cached accounts defaults to 10000,
+  and can be configured by the `--accounts-cache-size` command line argument or the
+  `CONCORDIUM_NODE_CONSENSUS_ACCOUNTS_CACHE_SIZE` environment variable.
 
 ## 4.2.4
 

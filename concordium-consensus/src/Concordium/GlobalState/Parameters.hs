@@ -3,6 +3,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE NumericUnderscores #-}
 
 -- |This module defines types for blockchain parameters, including genesis data,
 -- baker parameters and finalization parameters.
@@ -102,7 +103,9 @@ data RuntimeParameters = RuntimeParameters {
   -- transaction table if a purge is executed.
   rpTransactionsKeepAliveTime :: !TransactionTime,
   -- |Number of seconds between automatic transaction table purging  runs.
-  rpTransactionsPurgingDelay :: !Int
+  rpTransactionsPurgingDelay :: !Int,
+  -- |The accounts cache size
+  rpAccountsCacheSize :: !Int
   }
 
 -- |Default runtime parameters, block size = 10MB.
@@ -114,7 +117,8 @@ defaultRuntimeParameters = RuntimeParameters {
   rpMaxBakingDelay = 10000, -- 10 seconds
   rpInsertionsBeforeTransactionPurge = 1000,
   rpTransactionsKeepAliveTime = 5 * 60, -- 5 min
-  rpTransactionsPurgingDelay = 3 * 60 -- 3 min
+  rpTransactionsPurgingDelay = 3 * 60, -- 3 min
+  rpAccountsCacheSize = 10_000
   }
 
 instance FromJSON RuntimeParameters where
@@ -126,10 +130,13 @@ instance FromJSON RuntimeParameters where
     rpInsertionsBeforeTransactionPurge <- v .: "insertionsBeforeTransactionPurge"
     rpTransactionsKeepAliveTime <- (fromIntegral :: Int -> TransactionTime) <$> v .: "transactionsKeepAliveTime"
     rpTransactionsPurgingDelay <- v .: "transactionsPurgingDelay"
+    rpAccountsCacheSize <- v .: "accountsCacheSize"
     when (rpBlockSize <= 0) $
       fail "Block size must be a positive integer."
     when (rpEarlyBlockThreshold <= 0) $
       fail "The early block threshold must be a positive integer"
+    when (rpAccountsCacheSize <= 0) $
+      fail "Account cache size must be a positive integer"
     return RuntimeParameters{..}
 
 -- |Values of updates that are stored in update queues.

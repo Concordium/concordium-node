@@ -6,28 +6,22 @@
 -- memory-based storage to ensure that the execution is consistent between these.
 module Main where
 
-import qualified Data.ByteString.Lazy as LBS
-import Data.Serialize
+import qualified Data.ByteString as BS
 import System.Directory
 import System.Environment
 import System.FilePath
 import System.IO
 
 import Concordium.GlobalState
-import Concordium.GlobalState.Paired
 import Concordium.GlobalState.Parameters
 import Concordium.Kontrol (currentTimestamp)
 import Concordium.MultiVersion
 import Concordium.Skov
 import Concordium.TimerMonad
 
-parseArgs :: [String] -> IO (PVGenesisData, FilePath)
+parseArgs :: [String] -> IO (BS.ByteString, FilePath)
 parseArgs [gdPath, blocksPath] = do
-    gdfile <- LBS.readFile gdPath
-    gd <- case runGetLazy getPVGenesisData gdfile of
-        Left err -> error err
-        Right gd -> return gd
-    -- blocks <- LBS.readFile blocksPath
+    gd <- BS.readFile gdPath
     return (gd, blocksPath)
 parseArgs _ = error "Expected exactly two arguments: genesis data file, and blocks to execute file"
 
@@ -39,17 +33,18 @@ main = do
     let logM src lvl msg = {- when (lvl == LLInfo) $ -} do
             hPutStrLn logFile $ show lvl ++ " - " ++ show src ++ ": " ++ msg
             hFlush logFile
+    -- let logM src lvl msg = putStrLn $ show lvl ++ " - " ++ show src ++ ": " ++ msg
     let dataDir = "data" </> ("db" ++ show now)
     createDirectoryIfMissing True dataDir
     let config ::
             MultiVersionConfiguration
-                (PairGSConfig DiskTreeDiskBlockConfig MemoryTreeMemoryBlockConfig)
+                DiskTreeDiskBlockConfig
                 (NoFinalization ThreadTimer)
         config =
             MultiVersionConfiguration
-                { mvcStateConfig = (DiskStateConfig dataDir, ()),
+                { mvcStateConfig = DiskStateConfig dataDir,
                   mvcFinalizationConfig = NoFinalization,
-                  mvcRuntimeParameters = defaultRuntimeParameters{rpTransactionsPurgingDelay = 0}
+                  mvcRuntimeParameters = defaultRuntimeParameters{rpTransactionsPurgingDelay = 0, rpAccountsCacheSize = 10000}
                 }
     let callbacks =
             Callbacks
@@ -60,6 +55,7 @@ main = do
                   notifyRegenesis = \_ -> return ()
                 }
 
-    mvr <- makeMultiVersionRunner config callbacks Nothing logM (Right genesisData)
+    mvr <- makeMultiVersionRunner config callbacks Nothing logM (Left genesisData)
     result <- runMVR (importBlocks blocks) mvr
+    shutdownMultiVersionRunner mvr
     print result
