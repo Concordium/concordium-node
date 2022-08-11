@@ -195,7 +195,7 @@ fn deserialize_request(root: &network::NetworkMessage) -> anyhow::Result<Network
                         .iter()
                         .map(|wv| {
                             wv.genesis_block()
-                                .map_or_else(|| bail!("Missing block hash"), |w| BlockHash::new(w))
+                                .map_or_else(|| bail!("Missing block hash"), BlockHash::new)
                         })
                         .collect::<anyhow::Result<Vec<BlockHash>>>()?
                 } else {

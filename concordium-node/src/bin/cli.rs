@@ -308,7 +308,7 @@ fn instantiate_node(
         error!("Failed to persist own node id.");
     };
 
-    P2PNode::new(Some(node_id), &conf, PeerType::Node, stats_export_service, regenesis_arc)
+    P2PNode::new(Some(node_id), conf, PeerType::Node, stats_export_service, regenesis_arc)
 }
 
 fn establish_connections(conf: &config::Config, node: &Arc<P2PNode>) -> anyhow::Result<()> {

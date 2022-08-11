@@ -2,13 +2,21 @@
 
 ## Unrelease changes
 
-- Reduce startup time and memory use further by reducing the amount of block
-  data retained in memory. In particular finalized blocks are no longer stored
-  in memory.
+- Remove obsolete and unused option `--max-expiry-duration`
 - Account records are no longer constantly retained in memory. Instead a limited
   number are retained in a cache. The number of cached accounts defaults to 10000,
   and can be configured by the `--accounts-cache-size` command line argument or the
   `CONCORDIUM_NODE_CONSENSUS_ACCOUNTS_CACHE_SIZE` environment variable.
+
+## 4.2.4
+
+- Reduce startup time and memory use further by reducing the amount of block
+  data retained in memory. In particular finalized blocks are no longer stored
+  in memory.
+- Optimize node data structures related to accounts. This reduces node memory
+  use and improves performance.
+- Added the ability to download the catch-up file
+  ('CONCORDIUM_NODE_CONSENSUS_IMPORT_BLOCKS_FROM' now accepts both local paths and URLs)
   
 ## 4.2.2
 
@@ -29,8 +37,6 @@
   versions <= 4.1. The other direction works.
 - Increase precision of block arrive and block receive times in the
   `GetBlockInfo` query.
-- Added the ability to download the catch-up file
-  ('CONCORDIUM_NODE_CONSENSUS_IMPORT_BLOCKS_FROM' now accepts both local paths and URLs)
 
 ## 4.1.1
 - The `SendTransaction` function exposed via the gRPC interface now provides the caller with detailed error messages if the 

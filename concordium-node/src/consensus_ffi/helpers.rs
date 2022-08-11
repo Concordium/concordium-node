@@ -84,7 +84,7 @@ impl Deref for HashBytes {
 }
 
 impl AsRef<[u8]> for HashBytes {
-    fn as_ref(&self) -> &[u8] { &self }
+    fn as_ref(&self) -> &[u8] { self }
 }
 
 impl FromStr for HashBytes {
