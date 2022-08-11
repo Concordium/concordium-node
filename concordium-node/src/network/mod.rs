@@ -64,10 +64,10 @@ pub struct NetworkMessage {
 #[macro_export]
 macro_rules! netmsg {
     ($payload_type:ident, $payload:expr) => {{
-        crate::network::NetworkMessage {
+        $crate::network::NetworkMessage {
             created:  get_current_stamp(),
             received: None,
-            payload:  crate::network::NetworkPayload::$payload_type($payload),
+            payload:  $crate::network::NetworkPayload::$payload_type($payload),
         }
     }};
 }

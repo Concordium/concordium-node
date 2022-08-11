@@ -305,8 +305,6 @@ startConsensus ::
     Word64 ->
     -- |Block construction timeout in milliseconds
     Word64 ->
-    -- |The amount of time in the future a transaction's expiry can be. In seconds.
-    Word64 ->
     -- |Insertions before purging of transactions
     Word64 ->
     -- |Time in seconds during which a transaction can't be purged
@@ -345,7 +343,6 @@ startConsensus ::
 startConsensus
     maxBlock
     blockConstructionTimeout
-    maxTimeToExpiry
     insertionsBeforePurge
     transactionsKeepAlive
     transactionsPurgingDelay
@@ -422,7 +419,6 @@ startConsensus
                   rpInsertionsBeforeTransactionPurge = fromIntegral insertionsBeforePurge,
                   rpTransactionsKeepAliveTime = TransactionTime transactionsKeepAlive,
                   rpTransactionsPurgingDelay = fromIntegral transactionsPurgingDelay,
-                  rpMaxTimeToExpiry = fromIntegral maxTimeToExpiry,
                   rpAccountsCacheSize = fromIntegral accountsCacheSize
                 }
 
@@ -433,8 +429,6 @@ startConsensusPassive ::
     -- |Maximum block size.
     Word64 ->
     -- |Block construction timeout in milliseconds
-    Word64 ->
-    -- |The amount of time in the future a transaction's expiry can be. In seconds.
     Word64 ->
     -- |Insertions before purging of transactions
     Word64 ->
@@ -469,7 +463,6 @@ startConsensusPassive ::
 startConsensusPassive
     maxBlock
     blockConstructionTimeout
-    maxTimeToExpiry
     insertionsBeforePurge
     transactionsKeepAlive
     transactionsPurgingDelay
@@ -528,7 +521,6 @@ startConsensusPassive
                   rpInsertionsBeforeTransactionPurge = fromIntegral insertionsBeforePurge,
                   rpTransactionsKeepAliveTime = TransactionTime transactionsKeepAlive,
                   rpTransactionsPurgingDelay = fromIntegral transactionsPurgingDelay,
-                  rpMaxTimeToExpiry = fromIntegral maxTimeToExpiry,
                   rpAccountsCacheSize = fromIntegral accountsCacheSize
                 }
 
@@ -1230,8 +1222,6 @@ foreign export ccall
         Word64 ->
         -- |Block construction timeout in milliseconds
         Word64 ->
-        -- |The amount of time in the future a transaction's expiry can be. In seconds.
-        Word64 ->
         -- |Insertions before purging of transactions
         Word64 ->
         -- |Time in seconds during which a transaction can't be purged
@@ -1272,8 +1262,6 @@ foreign export ccall
         -- |Maximum block size.
         Word64 ->
         -- |Block construction timeout in milliseconds
-        Word64 ->
-        -- |The amount of time in the future a transaction's expiry can be. In seconds.
         Word64 ->
         -- |Insertions before purging of transactions
         Word64 ->

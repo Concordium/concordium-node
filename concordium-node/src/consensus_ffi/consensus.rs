@@ -90,18 +90,10 @@ impl Default for ConsensusOutboundQueues {
     }
 }
 
+#[derive(Default)]
 pub struct ConsensusQueues {
     pub inbound:  ConsensusInboundQueues,
     pub outbound: ConsensusOutboundQueues,
-}
-
-impl Default for ConsensusQueues {
-    fn default() -> Self {
-        Self {
-            inbound:  Default::default(),
-            outbound: Default::default(),
-        }
-    }
 }
 
 impl ConsensusQueues {
@@ -212,13 +204,6 @@ pub struct ConsensusRuntimeParameters {
     /// Timeout in milliseconds for executing transactions when constructing a
     /// block.
     pub block_construction_timeout: u64,
-    /// The maximum allowed time difference between the current time and a
-    /// transaction's expiry time in seconds. Transactions received with
-    /// later expiry times will be dropped.
-    pub max_time_to_expiry:         u64,
-    /// The number of insertions to be performed in the transaction table
-    /// before running a purge to remove transactions that have not been
-    /// executed for more than `transactions_keep_alive` seconds.
     pub insertions_before_purging:  u64,
     /// Time in seconds that a transaction is kept before being a candidate for
     /// purging.

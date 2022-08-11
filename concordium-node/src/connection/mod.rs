@@ -109,14 +109,14 @@ impl DeduplicationQueueXxHash64 {
         use std::hash::Hasher;
         use twox_hash::XxHash64;
         let mut hasher = XxHash64::with_seed(self.seed);
-        hasher.write(&input);
+        hasher.write(input);
         hasher.finish()
     }
 }
 
 impl DeduplicationQueue for DeduplicationQueueXxHash64 {
     fn check_and_insert(&mut self, input: &[u8]) -> anyhow::Result<bool> {
-        let num = self.hash(&input);
+        let num = self.hash(input);
         if !self.queue.iter().any(|n| n == &num) {
             trace!("Message XxHash64 {:x} is unique, adding to dedup queue", num);
             self.queue.push(num);
@@ -128,7 +128,7 @@ impl DeduplicationQueue for DeduplicationQueueXxHash64 {
     }
 
     fn invalidate_if_exists(&mut self, input: &[u8]) {
-        let num = self.hash(&input);
+        let num = self.hash(input);
         if let Some(old_val) = self.queue.iter_mut().find(|val| **val == num) {
             // flip all bits in the old hash; we can't just remove the value from the queue
             *old_val = !*old_val;
@@ -159,7 +159,7 @@ impl DeduplicationQueueSha256 {
 
 impl DeduplicationQueue for DeduplicationQueueSha256 {
     fn check_and_insert(&mut self, input: &[u8]) -> anyhow::Result<bool> {
-        let hash = self.hash(&input);
+        let hash = self.hash(input);
         if !self.queue.iter().any(|n| *n == hash) {
             trace!("Message SHA256 {:X?} is unique, adding to dedup queue", &hash[..]);
             self.queue.push(hash);
@@ -171,7 +171,7 @@ impl DeduplicationQueue for DeduplicationQueueSha256 {
     }
 
     fn invalidate_if_exists(&mut self, input: &[u8]) {
-        let hash = self.hash(&input);
+        let hash = self.hash(input);
         if let Some(old_val) = self.queue.iter_mut().find(|val| **val == hash) {
             // zero out all bits in the old hash; we can't just remove the value from the
             // queue

@@ -62,7 +62,6 @@ pub fn start_consensus_layer(
     let runtime_parameters = ConsensusRuntimeParameters {
         max_block_size:             u64::from(conf.maximum_block_size),
         block_construction_timeout: u64::from(conf.block_construction_timeout),
-        max_time_to_expiry:         conf.max_time_to_expiry,
         insertions_before_purging:  u64::from(conf.transaction_insertions_before_purge),
         transaction_keep_alive:     u64::from(conf.transaction_keep_alive),
         transactions_purging_delay: u64::from(conf.transactions_purging_delay),
@@ -261,7 +260,7 @@ pub fn handle_consensus_inbound_msg(
             && request.variant.is_rebroadcastable()
         {
             send_consensus_msg_to_net(
-                &node,
+                node,
                 request.dont_relay_to(),
                 None,
                 (request.payload.clone(), request.variant),
@@ -293,7 +292,7 @@ pub fn handle_consensus_inbound_msg(
             && consensus_result.is_rebroadcastable()
         {
             send_consensus_msg_to_net(
-                &node,
+                node,
                 request.dont_relay_to(),
                 None,
                 (request.payload, request.variant),
@@ -382,8 +381,8 @@ pub fn update_peer_list(node: &P2PNode) {
 
     let mut peers = write_or_die!(node.peers);
     // remove global state peers whose connections were dropped
-    peers.peer_states.retain(|id, _| peer_ids.contains(&id));
-    peers.pending_queue.retain(|id| peer_ids.contains(&id));
+    peers.peer_states.retain(|id, _| peer_ids.contains(id));
+    peers.pending_queue.retain(|id| peer_ids.contains(id));
     if let Some(in_progress) = peers.catch_up_peer {
         if !peers.peer_states.contains_key(&in_progress) {
             peers.catch_up_peer = None;

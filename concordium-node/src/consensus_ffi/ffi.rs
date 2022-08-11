@@ -258,9 +258,7 @@ extern "C" {
     pub fn startConsensus(
         max_block_size: u64,
         block_construction_timeout: u64,
-        max_time_to_expiry: u64,
         insertions_before_purging: u64,
-        transaction_keep_alive: u64,
         transactions_purging_delay: u64,
         accounts_cache_size: u32,
         genesis_data: *const u8,
@@ -281,7 +279,6 @@ extern "C" {
     pub fn startConsensusPassive(
         max_block_size: u64,
         block_construction_timeout: u64,
-        max_time_to_expiry: u64,
         insertions_before_purging: u64,
         transaction_keep_alive: u64,
         transactions_purging_delay: u64,
@@ -476,9 +473,7 @@ pub fn get_consensus_ptr(
                 startConsensus(
                     runtime_parameters.max_block_size,
                     runtime_parameters.block_construction_timeout,
-                    runtime_parameters.max_time_to_expiry,
                     runtime_parameters.insertions_before_purging,
-                    runtime_parameters.transaction_keep_alive,
                     runtime_parameters.transactions_purging_delay,
                     runtime_parameters.accounts_cache_size,
                     genesis_data.as_ptr(),
@@ -505,7 +500,6 @@ pub fn get_consensus_ptr(
                     startConsensusPassive(
                         runtime_parameters.max_block_size,
                         runtime_parameters.block_construction_timeout,
-                        runtime_parameters.max_time_to_expiry,
                         runtime_parameters.insertions_before_purging,
                         runtime_parameters.transaction_keep_alive,
                         runtime_parameters.transactions_purging_delay,
@@ -905,7 +899,7 @@ pub extern "C" fn on_finalization_message_catchup_out(
         let mut full_payload = Vec::with_capacity(1 + payload.len());
         (msg_variant as u8).serial(&mut full_payload);
 
-        full_payload.write_all(&payload).unwrap(); // infallible
+        full_payload.write_all(payload).unwrap(); // infallible
         let full_payload = Arc::from(full_payload);
 
         let msg = ConsensusMessage::new(
@@ -1042,7 +1036,7 @@ pub unsafe extern "C" fn regenesis_callback(ptr: *const Regenesis, block_hash: *
 
     // The pointer must remain valid, so we use into_raw to prevent the reference
     // count from being decremented.
-    Arc::into_raw(arc);
+    let _ = Arc::into_raw(arc);
 }
 
 /// A callback to free the regenesis Arc.
