@@ -18,7 +18,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 COPY --from=build /build/database-exporter /usr/local/bin/database-exporter
 COPY --from=build /build/concordium-base/rust-src/target/release/*.so /usr/local/lib/
-COPY --from=build /build/concordium-consensus/smart-contracts/wasm-chain-integration/target/release/*.so /usr/local/lib/
+COPY --from=build /build/concordium-base/smart-contracts/wasm-chain-integration/target/release/*.so /usr/local/lib/
 # Reconfigure dynamic linker to ensure that the shared libraries get loaded.
 RUN ldconfig
 COPY ./scripts/database-exporter/publish.sh /docker-entrypoint-publish.sh
