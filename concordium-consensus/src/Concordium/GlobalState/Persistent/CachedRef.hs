@@ -128,7 +128,7 @@ instance Show a => Show (CachedRef c a) where
 
 -- |We do nothing to cache a 'CachedRef'. Since 'cache' is generally used to cache the entire
 -- global state, it is generally undesirable to load every 'CachedRef' into the cache, as this
--- can result in evictions and wasted effort if the chache size is insufficient.
+-- can result in evictions and wasted effort if the cache size is insufficient.
 instance (Applicative m) => Cacheable m (CachedRef c a) where
     cache = pure
 

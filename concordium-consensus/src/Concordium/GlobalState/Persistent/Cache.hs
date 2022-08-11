@@ -91,7 +91,7 @@ newtype CacheContext c = CacheContext {theCacheContext :: c}
 instance HasCache c (CacheContext c) where
     projectCache = theCacheContext
 
--- |A dummy cache that does not store any values.
+-- |A null cache that does not store any values.
 -- That is, all lookups are cache misses.
 data NullCache v = NullCache
 
