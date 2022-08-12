@@ -10,6 +10,3 @@
 [submodule "concordium-consensus/haskell-lmdb"]
 	path = concordium-consensus/haskell-lmdb
 	url = ../haskell-lmdb.git
-[submodule "concordium-consensus/smart-contracts"]
-	path = concordium-consensus/smart-contracts
-	url = ../concordium-wasm-smart-contracts.git

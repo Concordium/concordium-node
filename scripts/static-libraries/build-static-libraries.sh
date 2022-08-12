@@ -28,7 +28,7 @@ find /build/concordium-consensus/.stack-work -type f -name "*_p.a" -exec cp {} /
 LOCAL_INSTALL_ROOT=$(stack --stack-yaml /build/concordium-consensus/stack.static.yaml path --profile --local-install-root)
 cp "$LOCAL_INSTALL_ROOT"/bin/{generate-update-keys,genesis,database-exporter} /binaries/bin/
 cp /build/concordium-base/rust-src/target/release/*.so /binaries/lib/
-cp /build/concordium-consensus/smart-contracts/wasm-chain-integration/target/release/*.so /binaries/lib/
+cp /build/concordium-base/smart-contracts/wasm-chain-integration/target/release/*.so /binaries/lib/
 cargo build --release --manifest-path /build/concordium-base/rust-bins/Cargo.toml
 cp /build/concordium-base/rust-bins/target/release/{client,genesis_tool,generate_testdata} /binaries/bin/
 
@@ -70,7 +70,7 @@ find /target /binaries -type f -exec strip --strip-debug {} \;
     ar rcs libRcrypto.a *.o
     rm *.o
 
-    cp /build/concordium-consensus/smart-contracts/wasm-chain-integration/target/release/libwasm_chain_integration.a /target/rust/libwasm_chain_integration.a
+    cp /build/concordium-base/smart-contracts/wasm-chain-integration/target/release/libwasm_chain_integration.a /target/rust/libwasm_chain_integration.a
 
     ar x libwasm_chain_integration.a
 
