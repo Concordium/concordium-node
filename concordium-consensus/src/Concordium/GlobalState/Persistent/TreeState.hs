@@ -352,7 +352,7 @@ checkExistingDatabase treeStateDir blockStateFile = do
 loadSkovPersistentData :: forall pv. (IsProtocolVersion pv)
                        => RuntimeParameters
                        -> FilePath -- ^Tree state directory
-                       -> PBS.PersistentBlockStateContext
+                       -> PBS.PersistentBlockStateContext pv
                        -> LogIO (SkovPersistentData pv (PBS.HashedPersistentBlockState pv))
 loadSkovPersistentData rp _treeStateDirectory pbsc = do
   -- we open the environment first.
@@ -413,7 +413,7 @@ loadSkovPersistentData rp _treeStateDirectory pbsc = do
 -- This function will raise an IO exception in the following scenarios
 -- * in the block state, an account which is listed cannot be loaded
 activateSkovPersistentData :: forall pv. (IsProtocolVersion pv)
-                           => PBS.PersistentBlockStateContext
+                           => PBS.PersistentBlockStateContext pv
                            -> SkovPersistentData pv (PBS.HashedPersistentBlockState pv)
                            -> LogIO (SkovPersistentData pv (PBS.HashedPersistentBlockState pv))
 activateSkovPersistentData pbsc uninitState = do

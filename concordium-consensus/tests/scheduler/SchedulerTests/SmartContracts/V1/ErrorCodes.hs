@@ -265,7 +265,7 @@ checkSuccess msg targetValue icr = liftIO $
 
 runCallerTests :: Assertion
 runCallerTests = do
-  runBlobStoreTemp "." . runPersistentBlockStateMonad $ do
+  runBlobStoreTemp "." . withNewAccountCache 100 . runPersistentBlockStateMonad $ do
     initState <- thawBlockState =<< initialBlockState
     (mod1, bsWithMod) <- deployModule1 initState
     (mod0, bsWithMods) <- deployModule0 bsWithMod

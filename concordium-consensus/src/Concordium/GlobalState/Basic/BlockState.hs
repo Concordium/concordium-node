@@ -887,6 +887,8 @@ instance (Monad m, IsProtocolVersion pv) => BS.AccountOperations (PureBlockState
 
   derefBakerInfo = return . view bakerInfo
 
+  getAccountHash = return . getHash
+
 -- |Checks that the delegation target is not over-delegated.
 -- This can throw one of the following 'DelegationConfigureResult's, in order:
 --
@@ -1876,6 +1878,9 @@ instance (IsProtocolVersion pv, MonadIO m) => BS.BlockStateStorage (PureBlockSta
 
     {-# INLINE blockStateLoadCallback #-}
     blockStateLoadCallback = return errorLoadCallback -- basic block state is not written, so it never has to be loaded.
+
+    {-# INLINE collapseCaches #-}
+    collapseCaches = return ()
 
 -- |Initial block state.
 initialState :: forall pv

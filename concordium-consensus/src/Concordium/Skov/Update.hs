@@ -655,6 +655,8 @@ doTerminateSkov = isShutDown >>= \case
         putBranches Seq.empty
         wipePendingBlocks
         clearAllNonFinalizedBlocks
+        -- Clear out the account cache
+        collapseCaches
         -- Clear out (and return) the non-finalized transactions.
         wipeNonFinalizedTransactions
 

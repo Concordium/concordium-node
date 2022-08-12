@@ -19,6 +19,8 @@ import qualified Concordium.GlobalState.Persistent.Accounts as P
 import qualified Concordium.GlobalState.Persistent.LFMBTree as L
 import Concordium.GlobalState.DummyData
 import Concordium.GlobalState.Persistent.BlobStore
+import Concordium.GlobalState.Persistent.BlockState (PersistentBlockStateContext(..))
+import Concordium.GlobalState.Persistent.Cache (MonadCache)
 import Concordium.ID.DummyData
 import qualified Concordium.ID.Types as ID
 import Concordium.Types
@@ -58,7 +60,7 @@ checkBinaryM bop x y sbop sx sy = do
 -- | Check that a 'B.Accounts' and a 'P.Accounts' are equivalent.
 --  That is, they have the same account map, account table, and set of
 --  use registration ids.
-checkEquivalent :: (MonadBlobStore m, MonadFail m) => B.Accounts PV -> P.Accounts PV -> m ()
+checkEquivalent :: (MonadBlobStore m, MonadFail m, MonadCache (P.AccountCache (AccountVersionFor PV)) m) => B.Accounts PV -> P.Accounts PV -> m ()
 checkEquivalent ba pa = do
   pam <- AccountMap.toMap (P.accountMap pa)
   checkBinary (==) (AccountMap.toMapPure (B.accountMap ba)) pam "==" "Basic account map" "Persistent account map"
@@ -189,12 +191,12 @@ randomActions = sized (ra Set.empty Map.empty)
 makePureAccount :: forall m av. (MonadBlobStore m, IsAccountVersion av) => PA.PersistentAccount av -> m (Account av)
 makePureAccount PA.PersistentAccount {..} = do
   (_accountPersisting :: AccountPersisting) <- makeHashed <$> refLoad _persistingData
-  _accountEncryptedAmount <- PA.loadPersistentAccountEncryptedAmount =<< loadBufferedRef _accountEncryptedAmount
-  _accountReleaseSchedule <- PA.loadPersistentAccountReleaseSchedule =<< loadBufferedRef _accountReleaseSchedule
+  _accountEncryptedAmount <- PA.loadPersistentAccountEncryptedAmount =<< refLoad _accountEncryptedAmount
+  _accountReleaseSchedule <- PA.loadPersistentAccountReleaseSchedule =<< refLoad _accountReleaseSchedule
   _accountStaking <- PA.loadAccountStake _accountStake
   return Account {..}
 
-runAccountAction :: (MonadBlobStore m, MonadIO m) => AccountAction -> (B.Accounts PV, P.Accounts PV) -> m (B.Accounts PV, P.Accounts PV)
+runAccountAction :: (MonadBlobStore m, MonadIO m, MonadCache (P.AccountCache (AccountVersionFor PV)) m) => AccountAction -> (B.Accounts PV, P.Accounts PV) -> m (B.Accounts PV, P.Accounts PV)
 runAccountAction (PutAccount acct) (ba, pa) = do
   let ba' = B.putNewAccount acct ba
   pAcct <- PA.makePersistentAccount acct
@@ -244,13 +246,13 @@ runAccountAction (RecordRegId rid ai) (ba, pa) = do
   pa' <- P.recordRegId rid ai pa
   return (ba', pa')
 
-emptyTest :: SpecWith BlobStore
+emptyTest :: SpecWith (PersistentBlockStateContext PV)
 emptyTest =
   it "empty" $
     runBlobStoreM
-      (checkEquivalent B.emptyAccounts P.emptyAccounts :: BlobStoreM ())
+      (checkEquivalent B.emptyAccounts P.emptyAccounts :: BlobStoreM' (PersistentBlockStateContext PV) ())
 
-actionTest :: Word -> SpecWith BlobStore
+actionTest :: Word -> SpecWith (PersistentBlockStateContext PV)
 actionTest lvl = it "account actions" $ \bs -> withMaxSuccess (100 * fromIntegral lvl) $ property $ do
   acts <- randomActions
   return $ ioProperty $ flip runBlobStoreM bs $ do
@@ -261,8 +263,12 @@ tests :: Word -> Spec
 tests lvl = describe "GlobalStateTests.Accounts" $
             around (\kont ->
                       withTempDirectory "." "blockstate" $ \dir -> bracket
-                        (createBlobStore (dir </> "blockstate.dat"))
-                        closeBlobStore
+                        (do
+                          pbscBlobStore <- createBlobStore (dir </> "blockstate.dat")
+                          pbscCache <- P.newAccountCache 100
+                          return PersistentBlockStateContext {..}
+                        )
+                        (closeBlobStore . pbscBlobStore)
                         kont
                    ) $ do emptyTest
                           actionTest lvl
