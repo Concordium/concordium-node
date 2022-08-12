@@ -220,6 +220,10 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
   -- |Dereference a 'BakerInfoRef' to a 'BakerInfo'.
   derefBakerInfo :: BakerInfoRef m -> m BakerInfo
 
+  -- |Get the hash of an account.
+  -- Note: this may not be implemented efficiently, and is principally intended for testing purposes.
+  getAccountHash :: Account m -> m (AccountHash (AccountVersionFor (MPV m)))
+
 -- * Active, current and next bakers/delegators
 --
 -- $ActiveCurrentNext
@@ -1202,6 +1206,11 @@ class (BlockStateOperations m, FixedSizeSerialization (BlockStateRef m)) => Bloc
     -- memory. This is needed for using V1 contract state.
     blockStateLoadCallback :: m LoadCallback
 
+    -- |Shut down any caches used by the block state. This is used to free
+    -- up the memory in the case where the block state is no longer being
+    -- actively used, in particular, after a protocol update.
+    collapseCaches :: m ()
+
 instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGSTrans t m) where
   getModule s = lift . getModule s
   getModuleInterface s = lift . getModuleInterface s
@@ -1291,6 +1300,7 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
   getAccountStake = lift . getAccountStake
   getAccountBakerInfoRef = lift . getAccountBakerInfoRef
   derefBakerInfo = lift . derefBakerInfo
+  getAccountHash = lift . getAccountHash
   {-# INLINE getAccountCanonicalAddress #-}
   {-# INLINE getAccountAmount #-}
   {-# INLINE getAccountAvailableAmount #-}
@@ -1304,6 +1314,7 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
   {-# INLINE getAccountStake #-}
   {-# INLINE getAccountBakerInfoRef #-}
   {-# INLINE derefBakerInfo #-}
+  {-# INLINE getAccountHash #-}
 
 instance (Monad (t m), MonadTrans t, ContractStateOperations m) => ContractStateOperations (MGSTrans t m) where
   thawContractState = lift . thawContractState
@@ -1448,6 +1459,7 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
     cacheBlockState = lift . cacheBlockState
     serializeBlockState = lift . serializeBlockState
     blockStateLoadCallback = lift blockStateLoadCallback
+    collapseCaches = lift collapseCaches
     {-# INLINE thawBlockState #-}
     {-# INLINE freezeBlockState #-}
     {-# INLINE dropUpdatableBlockState #-}
@@ -1458,6 +1470,7 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
     {-# INLINE cacheBlockState #-}
     {-# INLINE serializeBlockState #-}
     {-# INLINE blockStateLoadCallback #-}
+    {-# INLINE collapseCaches #-}
 
 deriving via (MGSTrans MaybeT m) instance BlockStateQuery m => BlockStateQuery (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance AccountOperations m => AccountOperations (MaybeT m)

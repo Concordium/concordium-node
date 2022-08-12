@@ -63,7 +63,7 @@ import qualified Concordium.Types.UpdateQueues as UQ
 
 type PV = 'P1
 
-type PairedGSContext = PairGSContext () PBS.PersistentBlockStateContext
+type PairedGSContext = PairGSContext () (PBS.PersistentBlockStateContext PV)
 
 type PairedGState = PairGState
                       (SkovData PV (HashedBlockState PV))
@@ -181,7 +181,7 @@ modifyStakeTo a (bs, ai) = do
 -- tests.
 increaseLimit :: Amount -> (TheBlockStates, AccountIndex) -> ThisMonadConcrete (TheBlockStates, AccountIndex)
 increaseLimit newLimit ((bs, bs2), ai) = do
-  let f :: PBS.PersistentBlockStateMonad PV PBS.PersistentBlockStateContext (ReaderT PBS.PersistentBlockStateContext LogIO) ()
+  let f :: PBS.PersistentBlockStateMonad PV (PBS.PersistentBlockStateContext PV) (ReaderT (PBS.PersistentBlockStateContext PV) LogIO) ()
       f = do
         -- load the block from the IORef
         bsp <- refLoad =<< (liftIO $ readIORef bs2)

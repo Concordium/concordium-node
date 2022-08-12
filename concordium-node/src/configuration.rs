@@ -259,14 +259,6 @@ pub struct BakerConfig {
     )]
     pub download_blocks_from: Option<url::Url>,
     #[structopt(
-        long = "max-expiry-duration",
-        help = "Maximum allowed time difference between now and a transaction's expiry time in \
-                seconds",
-        default_value = "7200",
-        env = "CONCORDIUM_NODE_CONSENSUS_MAX_EXPIRY_DURATION"
-    )]
-    pub max_time_to_expiry: u64,
-    #[structopt(
         long = "genesis-data-file",
         help = "Path to the data that constitutes the genesis block. If the path is relative it \
                 is interpreted relative to the supplied data directory.",
@@ -274,6 +266,13 @@ pub struct BakerConfig {
         env = "CONCORDIUM_NODE_CONSENSUS_GENESIS_DATA_FILE"
     )]
     pub genesis_data_file: PathBuf,
+    #[structopt(
+        long = "accounts-cache-size",
+        help = "The maximum number of accounts that can be stored in accounts cache",
+        default_value = "10000",
+        env = "CONCORDIUM_NODE_CONSENSUS_ACCOUNTS_CACHE_SIZE"
+    )]
+    pub account_cache_size: u32,
     #[structopt(
         long = "baker-credentials-file",
         help = "Path to the baker credentials file. If the path is relative it is interpreted \

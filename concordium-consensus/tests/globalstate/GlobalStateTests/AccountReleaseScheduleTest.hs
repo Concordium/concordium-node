@@ -3,6 +3,7 @@
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 
@@ -54,7 +55,7 @@ import Test.QuickCheck
 -- |Protocol version.
 type PV = 'P1
 
-type PairedGSContext = PairGSContext () PBS.PersistentBlockStateContext
+type PairedGSContext = PairGSContext () (PBS.PersistentBlockStateContext PV)
 
 type PairedGState = PairGState
                       (SkovData PV (HashedBlockState PV))
@@ -151,7 +152,7 @@ tests = do
 checkEqualBlockReleaseSchedule :: (BS.BlockState PV, PBS.PersistentBlockState PV) -> ThisMonadConcrete ()
 checkEqualBlockReleaseSchedule (blockstateBasic, blockStatePersistent) = do
   let brs = _blockReleaseSchedule blockstateBasic
-  ctx <- PBS.pbscBlobStore . _pairContextRight <$> R.ask
+  ctx <- _pairContextRight <$> R.ask
   brsP <- liftIO $ runBlobStoreM (do
                                  blockStatePersistent' <- loadBufferedRef =<< liftIO (readIORef  blockStatePersistent)
                                  loadBufferedRef $ PBS.bspReleaseSchedule  blockStatePersistent') ctx
@@ -161,12 +162,12 @@ checkEqualBlockReleaseSchedule (blockstateBasic, blockStatePersistent) = do
 checkEqualAccountReleaseSchedule :: (BS.BlockState PV, PBS.PersistentBlockState PV) -> AccountAddress -> ThisMonadConcrete ()
 checkEqualAccountReleaseSchedule (blockStateBasic, blockStatePersistent) acc = do
   let Just newBasicAccount = Concordium.GlobalState.Basic.BlockState.Accounts.getAccount acc (blockStateBasic ^. blockAccounts)
-  ctx <- PBS.pbscBlobStore . _pairContextRight <$> R.ask
+  ctx <- _pairContextRight <$> R.ask
   newPersistentAccountReleaseScheduleHash <- liftIO $ runBlobStoreM (do
                                                   blockStatePersistent' <- loadBufferedRef =<< liftIO (readIORef  blockStatePersistent)
                                                   Concordium.GlobalState.Persistent.Accounts.getAccount acc (PBS.bspAccounts blockStatePersistent') >>= \case
                                                     Nothing -> return Nothing
-                                                    Just a -> Just <$> (loadBufferedRef (Concordium.GlobalState.Persistent.Account._accountReleaseSchedule a) >>= getHashM)) ctx :: ThisMonadConcrete (Maybe AccountReleaseScheduleHash)
+                                                    Just a -> Just <$> (refLoad (Concordium.GlobalState.Persistent.Account._accountReleaseSchedule a) >>= getHashM)) ctx :: ThisMonadConcrete (Maybe AccountReleaseScheduleHash)
   assert (Just (getHash (newBasicAccount ^. accountReleaseSchedule)) == newPersistentAccountReleaseScheduleHash) $ return ()
 
 -- | Check that an an account was correctly updated in the two blockstates with the given release schedule

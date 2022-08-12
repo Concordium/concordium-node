@@ -109,7 +109,7 @@ defaultFinalizationParameters = FinalizationParameters {
     finalizationSkipGrowFactor = 2,
     finalizationDelayShrinkFactor = 0.8,
     finalizationDelayGrowFactor = 2,
-    finalizationAllowZeroDelay = False
+    finalizationAllowZeroDelay = True
 }
 
 makeGenesisData :: forall pv.
@@ -142,7 +142,7 @@ makeGenesisData
     where
         -- todo hardcoded epoch length (and initial seed)
         genesisLeadershipElectionNonce = Hash.hash "LeadershipElectionNonce"
-        genesisEpochLength = 10 :: EpochLength
+        genesisEpochLength = 3600 :: EpochLength
         mbkrs = makeBakers nBakers
         bakers = (\(bid,binfo,_,_) -> (bid,binfo)) <$> mbkrs
         bakerAccounts = (\(_,_,bacc,_) -> bacc) <$> mbkrs

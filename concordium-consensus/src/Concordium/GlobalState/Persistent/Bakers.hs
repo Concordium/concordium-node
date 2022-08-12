@@ -36,6 +36,8 @@ import Concordium.Types.HashableTo
 import Concordium.Utils.Serialization.Put
 
 -- |A list of references to 'BakerInfo's, ordered by increasing 'BakerId'.
+-- (This structure is always fully cached in memory, so the 'Cacheable' instance is trivial. See
+-- $Concordium.GlobalState.Persistent.Account.PersistentAccountCacheable for details.)
 newtype BakerInfos (av :: AccountVersion)
     = BakerInfos (Vec.Vector (PersistentBakerInfoEx av))
     deriving (Show)
@@ -59,8 +61,7 @@ instance (IsAccountVersion av, MonadBlobStore m) => MHashableTo m H.Hash (BakerI
       v' <- mapM loadPersistentBakerInfoEx v
       return $ H.hashLazy $ runPutLazy $ mapM_ put v'
 
-instance (IsAccountVersion av, MonadBlobStore m) => Cacheable m (BakerInfos av) where
-    cache (BakerInfos v) = BakerInfos <$> mapM cache v
+instance (Applicative m) => Cacheable m (BakerInfos av)
 
 -- |A list of stakes for bakers.
 newtype BakerStakes = BakerStakes (Vec.Vector Amount) deriving (Show)

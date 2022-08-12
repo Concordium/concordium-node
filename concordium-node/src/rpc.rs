@@ -111,7 +111,8 @@ macro_rules! call_consensus {
 macro_rules! req_with_auth {
     ($req:expr, $token:expr) => {{
         let mut req = Request::new($req);
-        req.metadata_mut().insert("authentication", MetadataValue::from_str($token).unwrap());
+        use std::convert::TryFrom;
+        req.metadata_mut().insert("authentication", MetadataValue::try_from($token).unwrap());
         req
     }};
 }
