@@ -78,7 +78,7 @@ default-extensions:
 flags:
   dynamic:
     manual: True
-    default: False
+    default: True
 
 library:
   source-dirs: src

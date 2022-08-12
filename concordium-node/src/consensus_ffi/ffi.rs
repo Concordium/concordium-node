@@ -253,6 +253,12 @@ type DirectMessageCallback = extern "C" fn(
 type RegenesisCallback = unsafe extern "C" fn(*const Regenesis, *const u8);
 type RegenesisFreeCallback = unsafe extern "C" fn(*const Regenesis);
 
+type CopyToVecCallback = extern "C" fn(
+    *mut Vec<u8>,
+    *const u8,
+    i64,
+);
+
 #[allow(improper_ctypes)]
 extern "C" {
     pub fn startConsensus(
@@ -452,6 +458,19 @@ extern "C" {
         import_file_path_len: i64,
     ) -> i64;
     pub fn stopImportingBlocks(consensus: *mut consensus_runner);
+
+    pub fn freeByteArray(hstring: *const u8);
+
+    ///
+    pub fn getAccountInfoV2(
+        consensus: *mut consensus_runner,
+        acc_type: u8,
+        acc_id: *const u8,
+        block_id_type: u8,
+        block_hash: *const u8,
+        out: *mut Vec<u8>,
+        copier: CopyToVecCallback
+    ) -> i64;
 
     /// Stream finalized blocks when they become available.
     pub fn streamFinalized(
@@ -902,6 +921,37 @@ impl ConsensusContainer {
         };
         ConsensusFfiResponse::try_from(response).unwrap()
     }
+
+    /// Stream finalized blocks when they become available.
+    pub fn get_account_info_v2(
+        &self,
+        block_hash: &crate::grpc2::types::BlockHashInput,
+        account_identifier: &crate::grpc2::types::account_info_request::AccountIdentifier,
+    ) -> Result<Vec<u8>, tonic::Status> {
+        use crate::grpc2::Require;
+        use std::convert::TryInto;
+        let (block_id_type, block_hash) =
+            crate::grpc2::types::block_hash_input_to_ffi(block_hash).require_owned()?;
+        let (acc_type, acc_id) =
+            crate::grpc2::types::account_identifier_to_ffi(account_identifier).require_owned()?;
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut out_data: Vec<u8> = Vec::new();
+        let response: ConsensusFfiResponse = unsafe {
+            getAccountInfoV2(
+                consensus,
+                acc_type,
+                acc_id,
+                block_id_type,
+                block_hash,
+                &mut out_data,
+                copy_to_vec_callback
+            )
+            .try_into()
+            .expect("Unexpected FFI response.")
+        };
+        response.check_rpc_response()?;
+        Ok(out_data)
+    }
 }
 
 pub enum CallbackType {
@@ -1042,6 +1092,17 @@ extern "C" fn enqueue_bytearray_callback(
         }
     }
 }
+
+extern "C" fn copy_to_vec_callback(
+    out: *mut Vec<u8>,
+    data: *const u8,
+    len: i64,
+) {
+    let data = unsafe { slice::from_raw_parts(data, len as usize) };
+    let out = unsafe {&mut *out};
+    out.extend_from_slice(data);
+}
+
 
 pub extern "C" fn direct_callback(
     peer_id: u64,

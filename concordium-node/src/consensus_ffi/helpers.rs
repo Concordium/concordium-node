@@ -182,6 +182,7 @@ impl PacketType {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Error)]
+#[must_use]
 pub enum ConsensusFfiResponse {
     #[error("Baker not found")]
     BakerNotFound = -1,
@@ -247,9 +248,21 @@ pub enum ConsensusFfiResponse {
     MaxBlockEnergyExceeded,
     #[error("The sender did not have enough funds to cover the costs")]
     InsufficientFunds,
+    #[error("The requested data was not found.")]
+    NotFound,
 }
 
 impl ConsensusFfiResponse {
+    /// Check that the response is [Success](Self::Success) and convert to an appropriate
+    /// [tonic::Status] if not.
+    pub fn check_rpc_response(self) -> Result<(), tonic::Status> {
+        match self {
+            Self::Success => Ok(()),
+            Self::NotFound => Err(tonic::Status::not_found(self.to_string())),
+            _ => Err(tonic::Status::invalid_argument(self.to_string()))
+        }
+    }
+
     pub fn is_successful(self) -> bool {
         use ConsensusFfiResponse::*;
 
@@ -281,6 +294,7 @@ impl ConsensusFfiResponse {
                 | ConsensusShutDown
                 | InvalidGenesisIndex
                 | InsufficientFunds
+                | NotFound
         )
     }
 
@@ -314,6 +328,7 @@ impl ConsensusFfiResponse {
                 | ChainUpdateInvalidSignatures
                 | MaxBlockEnergyExceeded
                 | InsufficientFunds
+                | NotFound
         )
     }
 }
@@ -358,6 +373,7 @@ impl TryFrom<i64> for ConsensusFfiResponse {
             28 => Ok(ChainUpdateInvalidSignatures),
             29 => Ok(MaxBlockEnergyExceeded),
             30 => Ok(InsufficientFunds),
+            31 => Ok(NotFound),
             _ => Err(anyhow!("Unsupported FFI return code ({})", value)),
         }
     }

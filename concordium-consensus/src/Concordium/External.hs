@@ -1028,7 +1028,7 @@ getAccountInfo cptr blockcstr acctcstr = do
     acctbs <- BS.packCString acctcstr
     let account = decodeAccountIdentifier acctbs
     case (mblock, account) of
-        (Just bh, Just acct) -> jsonQuery cptr (Q.getAccountInfo bh acct)
+        (Just bh, Just acct) -> jsonQuery cptr (Q.getAccountInfo (Q.BHIGiven bh) acct)
         _ -> jsonCString AE.Null
 
 -- |Get instance information the given block and instance. The block must be

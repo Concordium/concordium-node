@@ -58,6 +58,16 @@ import Concordium.Skov as Skov (
     evalSkovT,
  )
 
+-- |Input to block based queries, i.e., queries which query the state of an
+-- entity in a given block.
+data BlockHashInput
+    = -- |Best block.
+      BHIBest
+    | -- |Last finalized block
+      BHILastFinal
+      -- |Given block hash
+    | BHIGiven BlockHash
+
 -- |Run a query against a specific skov version.
 liftSkovQuery ::
     MultiVersionRunner gsconf finconf ->
@@ -148,6 +158,32 @@ liftSkovQueryBlock a bh =
         atLatestSuccessfulVersion
             (\vc -> liftSkovQuery mvr vc (mapM a =<< resolveBlock bh))
             mvr
+
+-- |Try a block based query on the latest skov version, working
+-- backwards until we find the specified block or run out of
+-- versions.
+liftSkovQueryBlock' ::
+    ( forall (pv :: ProtocolVersion).
+      ( SkovMonad (VersionedSkovM gsconf finconf pv),
+        FinalizationMonad (VersionedSkovM gsconf finconf pv)
+      ) =>
+      BlockPointerType (VersionedSkovM gsconf finconf pv) ->
+      VersionedSkovM gsconf finconf pv a
+    ) ->
+    BlockHashInput ->
+    MVR gsconf finconf (Maybe a)
+liftSkovQueryBlock' a bhi = do
+  case bhi of
+    BHIGiven bh ->
+      MVR $ \mvr ->
+              atLatestSuccessfulVersion
+                (\vc -> liftSkovQuery mvr vc (mapM a =<< resolveBlock bh))
+                mvr
+    other -> liftSkovQueryLatest $ do
+      bp <- case other of
+             BHIBest -> bestBlock
+             BHILastFinal -> lastFinalizedBlock
+      Just <$> a bp
 
 -- |Try a block based query on the latest skov version, working
 -- backwards until we find the specified block or run out of
@@ -467,12 +503,12 @@ getModuleList = liftSkovQueryBlock $ BS.getModuleList <=< blockState
 -- In the latter case we lookup the account the credential is associated with, even if it was
 -- removed from the account.
 getAccountInfo ::
-    BlockHash ->
+    BlockHashInput ->
     AccountIdentifier ->
     MVR gsconf finconf (Maybe AccountInfo)
-getAccountInfo blockHash acct =
+getAccountInfo blockHashInput acct =
     join
-        <$> liftSkovQueryBlock
+        <$> liftSkovQueryBlock'
             ( \bp -> do
                 bs <- blockState bp
                 macc <- case acct of 
@@ -497,7 +533,7 @@ getAccountInfo blockHash acct =
                     aiAccountAddress <- BS.getAccountCanonicalAddress acc
                     return AccountInfo{..}
             )
-            blockHash
+            blockHashInput
 
 -- |Get the details of a smart contract instance in the block state.
 getInstanceInfo :: BlockHash -> ContractAddress -> MVR gsconf finconf (Maybe Wasm.InstanceInfo)
