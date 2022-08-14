@@ -17,6 +17,11 @@
   use and improves performance.
 - Added the ability to download the catch-up file
   ('CONCORDIUM_NODE_CONSENSUS_IMPORT_BLOCKS_FROM' now accepts both local paths and URLs)
+
+## 4.2.3
+
+- Fix a bug in the scheduler which would cause the node to crash when executing
+  certain transactions. [Security advisory](https://github.com/Concordium/concordium-node/security/advisories/GHSA-44wx-3q8j-r8qr)
   
 ## 4.2.2
 
