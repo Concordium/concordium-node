@@ -430,8 +430,10 @@ class (StaticInformation m, ContractStateOperations m, MonadProtocolVersion m) =
   -- or due to being staked for baking, or both.  That is @available = total - max locked staked@.
   getCurrentAccountAvailableAmount :: IndexedAccount m -> m Amount
 
-  -- |Same as above, but for contracts.
-  getCurrentContractAmount :: Wasm.SWasmVersion v -> UInstanceInfoV m v -> m Amount
+  -- |Get the current available public balance of a contract. This accounts for
+  -- the exact current state of the contract during transaction, e.g., in a
+  -- nested contract call.
+  getCurrentContractAmount :: HasInstanceAddress addr => Wasm.SWasmVersion v -> addr -> m Amount
 
   -- |Get the current contract instance state, together with the modification
   -- index of the last modification.
@@ -1035,7 +1037,7 @@ instance (MonadProtocolVersion m, StaticInformation m, AccountOperations m, Cont
 
   {-# INLINE getCurrentContractAmount #-}
   getCurrentContractAmount _ inst = do
-    let addr = _instanceAddress . iiParameters $ inst
+    let addr = instanceAddress inst
     getCurrentContractInstance addr >>= \case
       Nothing -> error "Precondition violation."
       Just ist -> case ist of
