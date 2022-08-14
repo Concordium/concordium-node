@@ -14,7 +14,7 @@ license-file = "../LICENSE"
 [features]
 default = []
 test_utils = [ ]
-instrumentation = ["serde_derive", "gotham", "mime", "gotham_derive", "prometheus", "hyper", "num_cpus", "http" ]
+instrumentation = ["serde_derive", "gotham", "mime", "gotham_derive", "prometheus", "hyper", "http" ]
 network_dump = []
 static = [ ]
 profiling = [ "static" ]
@@ -80,9 +80,7 @@ mime = { version = "0.3", optional = true }
 serde_derive = { version = "1.0", optional = true }
 rmp-serde = { version = "0.15", optional = true }
 serde_json = { version = "1" }
-num_cpus = { version = "1.13", optional = true }
-jsonwebtoken = { version = "7", optional = true }
-prometheus = { version = "0.12", default-features = false, features = ["gen", "push", "protobuf"], optional = true }
+prometheus = { version = "0.13", default-features = false, features = ["gen", "push", "protobuf"], optional = true }
 tempfile = { version = "3.1" }
 
 collector-backend = { version = "*", path = "../collector-backend/", optional = true }
