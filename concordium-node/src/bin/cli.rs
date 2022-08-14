@@ -143,47 +143,14 @@ async fn main() -> anyhow::Result<()> {
         None
     };
 
-    // Out-of-band catch-up
-    if let Some(ref import_blocks_from) = conf.cli.baker.import_blocks_from {
-        info!("Starting out of band catch-up");
-        if let Err(e) = consensus.import_blocks(import_blocks_from) {
-            if import_stopped.load(atomic::Ordering::Acquire) {
-                info!("Out of band catchup stopped.");
-            } else {
-                info!(
-                    "Could not complete out of band catch-up from {} due to: {:#}.",
-                    import_blocks_from.display(),
-                    e
-                );
-            }
-        } else {
-            info!("Completed out of band catch-up from {}.", import_blocks_from.display());
-        }
-    } else if let Some(download_url) = conf.cli.baker.download_blocks_from.as_ref().cloned() {
-        let from = download_catchup_files(download_url.clone(), data_dir_path).await;
-        match from {
-            Ok(path) => {
-                info!("Starting out of band catch-up");
-                if let Err(e) = consensus.import_blocks(&path) {
-                    if import_stopped.load(atomic::Ordering::Acquire) {
-                        info!("Out of band catchup stopped.");
-                    } else {
-                        info!("Could not complete out of band catch-up due to: {:#}.", e);
-                    }
-                } else {
-                    info!("Completed out of band catch-up from {}.", download_url);
-                }
-                // attempt to properly clean up the downloaded file.
-                if let Err(e) = path.close() {
-                    error!("Could not delete the downloaded file: {}", e);
-                }
-            }
-            Err(e) => {
-                // report error, but continue startup
-                error!("Downloading catch-up files failed: {}.", e)
-            }
-        }
-    }
+    maybe_do_out_of_band_catchup(
+        &consensus,
+        import_stopped,
+        conf.cli.baker.import_blocks_from.as_deref(),
+        conf.cli.baker.download_blocks_from.as_ref(),
+        data_dir_path,
+    )
+    .await;
 
     // Consensus queue threads
     let consensus_queue_threads = start_consensus_message_threads(&node, consensus.clone());
@@ -488,6 +455,60 @@ where
         }
     }
     true
+}
+
+/// If either the local import path, or the URL are specified do out of band
+/// catchup with them.
+/// If the local path is specified that is used, otherwise we try the URL if it
+/// is specified.
+async fn maybe_do_out_of_band_catchup(
+    consensus: &ConsensusContainer,
+    import_stopped: Arc<atomic::AtomicBool>,
+    import_blocks_from: Option<&Path>,
+    download_blocks_from: Option<&reqwest::Url>,
+    data_dir_path: &Path,
+) {
+    // Out-of-band catch-up
+    if let Some(import_blocks_from) = import_blocks_from {
+        info!("Starting out of band catch-up");
+        if let Err(e) = consensus.import_blocks(import_blocks_from) {
+            if import_stopped.load(atomic::Ordering::Acquire) {
+                info!("Out of band catchup stopped.");
+            } else {
+                info!(
+                    "Could not complete out of band catch-up from {} due to: {:#}.",
+                    import_blocks_from.display(),
+                    e
+                );
+            }
+        } else {
+            info!("Completed out of band catch-up from {}.", import_blocks_from.display());
+        }
+    } else if let Some(download_url) = download_blocks_from.as_ref().cloned() {
+        let from = download_catchup_files(download_url.clone(), data_dir_path).await;
+        match from {
+            Ok(path) => {
+                info!("Starting out of band catch-up");
+                if let Err(e) = consensus.import_blocks(&path) {
+                    if import_stopped.load(atomic::Ordering::Acquire) {
+                        info!("Out of band catchup stopped.");
+                    } else {
+                        info!("Could not complete out of band catch-up due to: {:#}.", e);
+                    }
+                } else {
+                    info!("Completed out of band catch-up from {}.", download_url);
+                }
+                // attempt to properly clean up the downloaded file.
+                if let Err(e) = path.close() {
+                    error!("Could not delete the downloaded file: {}", e);
+                }
+            }
+            Err(e) => {
+                // report error, but continue startup
+                error!("Downloading catch-up files failed: {}.", e)
+            }
+        }
+    }
 }
 
 async fn download_catchup_files(
