@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE NumericUnderscores #-}
-{-| This module tests that the correct self-balance is exposed to V1 contracts.
+{-| This module tests that the correct self-balance is exposed to V1 contracts
     In essence that the self-balance is updated by the invoke.
 -}
 module SchedulerTests.SmartContracts.V1.SelfBalance (tests) where
@@ -36,19 +36,22 @@ import qualified SchedulerTests.SmartContracts.V1.InvokeHelpers as InvokeHelpers
 -- empty state, no accounts, no modules, no instances
 initialBlockState :: ContextM (HashedPersistentBlockState PV4)
 initialBlockState = initialPersistentState
-                    (initialSeedState (Hash.hash "") 1000)
+                    (initialSeedState (Hash.hash "") 1_000)
                     dummyCryptographicParameters
-                    [mkAccount alesVK alesAccount 1000]
+                    [mkAccount alesVK alesAccount 1_000]
                     dummyIdentityProviders
                     dummyArs
                     dummyKeyCollection
                     dummyChainParameters
 
-transferSourceFile :: FilePath
-transferSourceFile = "./testdata/contracts/v1/self-balance.wasm"
+selfBalanceSourceFile :: FilePath
+selfBalanceSourceFile = "./testdata/contracts/v1/self-balance.wasm"
+
+nestedSelfBalanceSourceFile :: FilePath
+nestedSelfBalanceSourceFile = "./testdata/contracts/v1/self-balance-nested.wasm"
 
 deployModule1 :: PersistentBlockState PV4 -> ContextM ((GSWasm.ModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1), PersistentBlockState PV4)
-deployModule1 = InvokeHelpers.deployModuleV1 transferSourceFile
+deployModule1 = InvokeHelpers.deployModuleV1 selfBalanceSourceFile
 
 -- Initialize a contract with 0 CCD in its balance.
 initContract1 :: PersistentBlockState PV4 -> (GSWasm.ModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1) -> ContextM (Types.ContractAddress, PersistentBlockState PV4)
@@ -118,7 +121,6 @@ invokeContract3 ccContract bs = do
         }
   InvokeContract.invokeContract ctx cm bs
 
-
 checkSuccess :: MonadIO m
              => String -- ^ Custom error message.
              -> Types.Amount -- ^ Expected balance before the transfer.
@@ -134,18 +136,114 @@ checkSuccess msg expectBefore expectAfter icr = liftIO $
                   (BS.unpack (runPut $ (putWord64le . Types._amount $ expectBefore) <> (putWord64le . Types._amount $ expectAfter)))
                   (BS.unpack rv)
 
-runTransferTests :: Assertion
-runTransferTests = do
+-- |Deploy the module that contains the @test@ contract to test nested self-transfers.
+deployModule2 :: PersistentBlockState PV4 -> ContextM ((GSWasm.ModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1), PersistentBlockState PV4)
+deployModule2 = InvokeHelpers.deployModuleV1 nestedSelfBalanceSourceFile
+
+-- |Initialize the @test@ contract for testing nested self transfers.
+-- The initial balance of the contract is 456
+initContract2 ::
+    -- |Initial balance of the contract
+    Types.Amount ->
+    -- |State to create the contract in.
+    PersistentBlockState PV4 ->
+    -- |And the module from which to initialize the contract.
+    (GSWasm.ModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1) ->
+    -- |The address of the created contract, and the new state.
+    ContextM (Types.ContractAddress, PersistentBlockState PV4)
+initContract2 = InvokeHelpers.initContractV1 alesAccount (InitName "init_test") emptyParameter
+
+runSelfBalanceTests :: Assertion
+runSelfBalanceTests = do
   runBlobStoreTemp "." . withNewAccountCache 10_000 . runPersistentBlockStateMonad $ do
     initState <- thawBlockState =<< initialBlockState
     (mod1, bsWithMod) <- deployModule1 initState
     (addr1, stateWithContract1) <- initContract1 bsWithMod mod1
     (_another, stateWithBothContracts') <- initContract1 stateWithContract1 mod1
     stateWithBothContracts <- freezeBlockState stateWithBothContracts'
-    invokeContract1 addr1 stateWithBothContracts >>= checkSuccess "Self transfer" 123 123
-    invokeContract2 addr1 stateWithBothContracts >>= checkSuccess "Transfer to another instance" 123 23
-    invokeContract3 addr1 stateWithBothContracts >>= checkSuccess "Transfer to account" 123 23
+    invokeContract1 addr1 stateWithBothContracts >>= checkSuccess "Self selfBalance" 123 123
+    invokeContract2 addr1 stateWithBothContracts >>= checkSuccess "SelfBalance to another instance" 123 23
+    invokeContract3 addr1 stateWithBothContracts >>= checkSuccess "SelfBalance to account" 123 23
+
+-- |Invoke the @invoke_nested@ entrypoint at the given address.
+invokeNestedSelfBalanceTest ::
+  Types.ContractAddress -- ^Address of the contract to invoke.
+  -> HashedPersistentBlockState PV4 -> ContextM InvokeContract.InvokeContractResult
+invokeNestedSelfBalanceTest ccContract bs = do
+  let cm = Types.ChainMetadata 0
+  let innerEntrypointName = "accept"
+  let outerEntrypointName = "invoke_nested"
+  let invokeItselfParameter = runPut $ do
+          putWord32le 1 -- instruction, invoke contract
+          -- contract address, serialized in little endian since that is what
+          -- the contract expects
+          putWord64le (fromIntegral (Types.contractIndex ccContract))
+          putWord64le (fromIntegral (Types.contractSubindex ccContract))
+          -- (invoke itself with the empty parameter, this is just so we get to the resume)
+          putWord16le 0
+          -- the entrypoint to invoke.
+          putWord16le (fromIntegral (BS.length innerEntrypointName))
+          putByteString innerEntrypointName
+          putWord64le 0 -- amount to transfer
+  let ccParameter = Parameter $ BSS.toShort $ runPut $ do
+          putWord32le 1 -- instruction, invoke contract
+          -- contract address, serialized in little endian since that is what
+          -- the contract expects
+          putWord64le (fromIntegral (Types.contractIndex ccContract))
+          putWord64le (fromIntegral (Types.contractSubindex ccContract))
+          -- (invoke itself with the empty parameter, this is just so we get to the resume)
+          putWord16le (fromIntegral (BS.length invokeItselfParameter))
+          putByteString invokeItselfParameter
+          -- the entrypoint to invoke.
+          putWord16le (fromIntegral (BS.length outerEntrypointName))
+          putByteString outerEntrypointName
+          putWord64le 100 -- amount to transfer
+  let ctx = InvokeContract.ContractContext{
+        ccInvoker = Nothing,
+        ccAmount = 10,
+        ccMethod = ReceiveName "test.invoke_nested",
+        ccEnergy = 1_000_000_000,
+        ..
+        }
+  InvokeContract.invokeContract ctx cm bs
+
+-- A starts with 123
+-- account transfers 10 to A
+-- A transfers 100 to itself
+-- A transfers 0 to itself.
+
+-- The balances observed are after each call, in reverse order, so they should
+-- be
+-- A: 123 + 10
+-- B: 123 + 10
+-- 
+-- Previously there was a bug, so the second-innermost call, **after the resume**, the self balance was reported
+-- incorrectly since the +10 delta was applied twice.
+checkNestedSelfBalanceTest :: MonadIO m
+                           => InvokeContract.InvokeContractResult -> m ()
+checkNestedSelfBalanceTest icr = liftIO $
+  case icr of
+    InvokeContract.Failure{..} -> assertFailure $ "Invocation failed for nested self balance test: " ++ show rcrReason
+    InvokeContract.Success{..} ->
+      case rcrReturnValue of
+        Nothing -> assertFailure "Invoking a V1 contract must produce a return value."
+        Just rv -> assertEqual "Nested self balance test"
+                  (BS.unpack (runPut . mapM_ putWord64le $ [133, 133]))
+                  (BS.unpack rv)
+
+-- Self balance test in case of nested calls.
+-- This tests that the balance is correctly reported in case of re-entrancy.
+runNestedSelfBalanceTests :: Assertion
+runNestedSelfBalanceTests = do
+  runBlobStoreTemp "." . withNewAccountCache 10_000 . runPersistentBlockStateMonad $ do
+    initState <- thawBlockState =<< initialBlockState
+    (mod1, bsWithMod) <- deployModule2 initState
+    -- we will invoke the second contract with the address of the first.
+    (addr2, mutStateWithBothContracts) <- initContract2 123 bsWithMod mod1
+    stateWithBothContracts <- freezeBlockState mutStateWithBothContracts
+    invokeNestedSelfBalanceTest addr2 stateWithBothContracts >>= checkNestedSelfBalanceTest
 
 tests :: Spec
 tests = describe "V1: Self balance" $ do
-  specify "Transfer contract" runTransferTests
+  specify "Self balance contract" runSelfBalanceTests
+  specify "Nested self balance contract" runNestedSelfBalanceTests
