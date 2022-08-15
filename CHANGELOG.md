@@ -7,6 +7,8 @@
   number are retained in a cache. The number of cached accounts defaults to 10000,
   and can be configured by the `--accounts-cache-size` command line argument or the
   `CONCORDIUM_NODE_CONSENSUS_ACCOUNTS_CACHE_SIZE` environment variable.
+- Added the ability to download the catch-up file using the
+  `--download-blocks-from` option (or `CONCORDIUM_NODE_CONSENSUS_DOWNLOAD_BLOCKS_FROM` environment variable).
 
 ## 4.2.4
 

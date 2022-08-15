@@ -76,10 +76,6 @@ pub const SOFT_BAN_DURATION_SECS: u64 = 300;
 pub const MAX_PEER_NETWORKS: usize = 20;
 /// Database subdirectory name
 pub const DATABASE_SUB_DIRECTORY_NAME: &str = "database-v4";
-/// Default out-of-band catch-up file name (excluding the extension)
-pub const CATCHUP_FILE_BASENAME: &str = "blocks_to_import";
-/// Default out-of-band catch-up file extension
-pub const CATCHUP_FILE_EXT: &str = ".dat";
 
 // In order to avoid premature connection drops, it is estimated that the
 // KEEP_ALIVE_FACTOR should be kept above 3.
@@ -250,10 +246,18 @@ pub struct BakerConfig {
     pub transactions_purging_delay: u32,
     #[structopt(
         long = "import-blocks-from",
-        help = "Local path or URL pointing at a file exported by the database exporter",
+        conflicts_with = "download-blocks-from",
+        help = "Path to a file containing an exported block database to import",
         env = "CONCORDIUM_NODE_CONSENSUS_IMPORT_BLOCKS_FROM"
     )]
-    pub import_blocks_from: Option<String>,
+    pub import_blocks_from: Option<PathBuf>,
+    #[structopt(
+        long = "download-blocks-from",
+        conflicts_with = "import-blocks-from",
+        help = "URL to an index file of an exported block database to import",
+        env = "CONCORDIUM_NODE_CONSENSUS_DOWNLOAD_BLOCKS_FROM"
+    )]
+    pub download_blocks_from: Option<url::Url>,
     #[structopt(
         long = "genesis-data-file",
         help = "Path to the data that constitutes the genesis block. If the path is relative it \
