@@ -4,6 +4,8 @@
 
 - `database-exporter` now produces a collection of export files, instead of a single file. The new
   `--chunksize` option specifies the size of export files in blocks.
+- The `--download-blocks-from` option now takes the URL to the catchup _index file_, permitting to
+  only download and import catchup files containing blocks not already present in the database.
 
 ## 4.3.0
 

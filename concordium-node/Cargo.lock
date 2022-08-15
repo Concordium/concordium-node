@@ -522,6 +522,7 @@ dependencies = [
  "criterion",
  "crossbeam-channel",
  "crypto_common",
+ "csv-async",
  "digest 0.9.0",
  "ed25519-dalek",
  "env_logger",
@@ -770,6 +771,21 @@ dependencies = [
  "bstr",
  "csv-core",
  "itoa 0.4.8",
+ "ryu",
+ "serde 1.0.142",
+]
+
+[[package]]
+name = "csv-async"
+version = "1.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c19b33b32fd48f83388821bd8f534b59e1b1ffd5c6c83771d1b23abd3dac2685"
+dependencies = [
+ "bstr",
+ "cfg-if",
+ "csv-core",
+ "futures",
+ "itoa 1.0.3",
  "ryu",
  "serde 1.0.142",
 ]

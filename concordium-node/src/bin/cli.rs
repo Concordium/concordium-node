@@ -3,7 +3,7 @@
 extern crate log;
 
 // Force the system allocator on every platform
-use futures::{stream::StreamExt, FutureExt};
+use futures::{stream::StreamExt, FutureExt, TryStreamExt};
 use std::{alloc::System, io::Write, sync::atomic};
 use tempfile::TempPath;
 #[global_allocator]
@@ -485,36 +485,70 @@ async fn maybe_do_out_of_band_catchup(
             info!("Completed out of band catch-up from {}.", import_blocks_from.display());
         }
     } else if let Some(download_url) = download_blocks_from.as_ref().cloned() {
-        let from = download_catchup_files(download_url.clone(), data_dir_path).await;
-        match from {
-            Ok(path) => {
-                info!("Starting out of band catch-up");
-                if let Err(e) = consensus.import_blocks(&path) {
-                    if import_stopped.load(atomic::Ordering::Acquire) {
-                        info!("Out of band catchup stopped.");
-                    } else {
-                        info!("Could not complete out of band catch-up due to: {:#}.", e);
-                    }
-                } else {
-                    info!("Completed out of band catch-up from {}.", download_url);
-                }
-                // attempt to properly clean up the downloaded file.
-                if let Err(e) = path.close() {
-                    error!("Could not delete the downloaded file: {}", e);
-                }
+        info!("Starting out of band catch-up");
+        if let Err(e) = import_missing_blocks(consensus, download_url, data_dir_path).await {
+            if import_stopped.load(atomic::Ordering::Acquire) {
+                info!("Out of band catchup stopped.");
+            } else {
+                info!("Could not complete out of band catch-up due to: {:#}.", e);
             }
-            Err(e) => {
-                // report error, but continue startup
-                error!("Downloading catch-up files failed: {}.", e)
-            }
+        } else {
+            info!("Completed out of band catch-up from {}.", download_url)
         }
     }
 }
 
-async fn download_catchup_files(
-    download_url: url::Url,
+#[derive(serde::Deserialize)]
+struct BlockChunkData {
+    filename:           String,
+    genesis_index:      u64,
+    first_block_height: u64,
+    last_block_height:  u64,
+}
+
+async fn import_missing_blocks(
+    consensus: &ConsensusContainer,
+    index_url: &url::Url,
     data_dir_path: &Path,
-) -> anyhow::Result<TempPath> {
+) -> anyhow::Result<()> {
+    let json_consensus_value: serde_json::Value =
+        serde_json::from_str(&consensus.get_consensus_status())?;
+    let best_block_height = json_consensus_value["bestBlockHeight"].as_u64().unwrap();
+    let current_genesis_index = json_consensus_value["genesisIndex"].as_u64().unwrap();
+    let current_genesis_block_hash =
+        json_consensus_value["currentEraGenesisBlock"].as_str().unwrap();
+    let json_genesis_block_value: serde_json::Value =
+        serde_json::from_str(&consensus.get_block_info(current_genesis_block_hash)?)?;
+    let current_genesis_block_height = json_genesis_block_value["blockHeight"].as_u64().unwrap();
+    let index_reader = reqwest::get(index_url.clone())
+        .await?
+        .bytes_stream()
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+        .into_async_read();
+    let mut chunk_records = csv_async::AsyncReaderBuilder::new()
+        .comment(Some(b'#'))
+        .create_deserializer(index_reader)
+        .into_deserialize();
+    while let Some(result) = chunk_records.next().await {
+        let block_chunk_data: BlockChunkData = result?;
+        // no need to reimport blocks that are present in the database
+        if block_chunk_data.genesis_index < current_genesis_index
+            || current_genesis_block_height + block_chunk_data.last_block_height < best_block_height
+        {
+            continue;
+        }
+        let block_chunk_url = index_url.join(&block_chunk_data.filename)?;
+        let path = download_chunk(block_chunk_url, data_dir_path).await?;
+        consensus.import_blocks(&path)?;
+        // attempt to properly clean up the downloaded file.
+        if let Err(e) = path.close() {
+            error!("Could not delete the downloaded file: {}", e);
+        }
+    }
+    Ok(())
+}
+
+async fn download_chunk(download_url: url::Url, data_dir_path: &Path) -> anyhow::Result<TempPath> {
     // Create a temporary file inside the data directory.
     // The data directory is the most reliable place where the node should have
     // write access, that is why it is used.
