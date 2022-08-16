@@ -29,7 +29,7 @@ import Concordium.GlobalState.DummyData
 
 import SchedulerTests.TestUtils
 
-type ContextM = PersistentBlockStateMonad PV4 BlobStore BlobStoreM
+type ContextM = PersistentBlockStateMonad PV4 (PersistentBlockStateContext PV4) (BlobStoreM' (PersistentBlockStateContext PV4))
 
 -- empty state, no accounts, no modules, no instances
 initialBlockState :: ContextM (HashedPersistentBlockState PV4)

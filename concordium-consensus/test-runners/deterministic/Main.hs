@@ -1,5 +1,7 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GeneralisedNewtypeDeriving #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
@@ -19,7 +21,7 @@ import Lens.Micro.Platform
 import Data.Time.Clock.POSIX
 import Data.Time.Clock
 import Data.Word
-import Control.Monad.Trans.State (StateT(..),execStateT)
+import Control.Monad.Trans.State.Strict (StateT(..),execStateT)
 import Control.Monad.State.Class
 import Control.Monad.Trans.Reader (ReaderT(..))
 import Control.Monad.Reader.Class
@@ -27,6 +29,7 @@ import qualified Data.PQueue.Min as MinPQ
 import qualified Data.Sequence as Seq
 import System.Random
 import System.IO
+import System.Mem
 
 import Concordium.Afgjort.Finalize.Types
 import Concordium.Types
@@ -57,9 +60,11 @@ import qualified Concordium.Crypto.DummyData as Dummy
 import Concordium.GlobalState.DummyData (dummyKeyCollection)
 
 import System.Directory
+import qualified Data.ByteString.Lazy as LBS
+import qualified Data.Serialize as S
 
 -- |Protocol version
-type PV = 'P1
+type PV = 'P4
 
 type TreeConfig = DiskTreeDiskBlockConfig
 
@@ -82,7 +87,7 @@ newtype DummyTimer = DummyTimer Integer
 -- |Configuration to use for bakers.
 -- Can be customised for different global state configurations (disk/memory/paired)
 -- or to enable/disable finalization buffering.
-type BakerConfig = SkovConfig PV TreeConfig (BufferedFinalization DummyTimer) NoHandler
+type BakerConfig = SkovConfig PV TreeConfig (ActiveFinalization DummyTimer) NoHandler
 
 -- |The identity providers to use.
 dummyIdentityProviders :: IdentityProviders
@@ -231,46 +236,66 @@ allBakers :: (Integral a) => [a]
 allBakers = [0..maxBakerId]
 
 transactions :: StdGen -> [(Integer, BlockItem)]
-transactions gen = trs (0 :: Nonce) (randoms gen :: [Word8])
+transactions gen = trs (1 :: Nonce) (randoms gen :: [Word8])
     where
         trs (Nonce n) (amnt:amnts) = (toInteger n `div` 100, Dummy.makeTransferTransaction (Dummy.mateuszKP, Dummy.mateuszAccount) Dummy.mateuszAccount (fromIntegral amnt) (Nonce n)) : trs (Nonce (n+1)) amnts
         trs _ _ = error "Ran out of transaction data"
 
+-- |Transactions from the extra accounts.
+extraAccountTransactions :: Int -> [(Integer, BlockItem)]
+extraAccountTransactions numAccts = trs 1
+  where
+    maxAcc = numAccts
+    trs (Nonce n) =
+        [ ( toInteger maxAcc * toInteger (n - 1) + toInteger i,
+            Dummy.makeTransferTransaction
+                (Dummy.alesKP, Dummy.accountAddressFrom i)
+                Dummy.mateuszAccount
+                1
+                (Nonce n) -- $ fromInteger $ toInteger maxAcc * toInteger (n - 1) + toInteger i)
+          )
+          | i <- [1 .. maxAcc]
+        ]
+            ++ trs (Nonce (n + 1))
+
+-- |Genesis accounts. For convenience, these all use the same keys.
+extraAccounts :: Int -> [GenesisAccount]
+extraAccounts numAccts = [Dummy.createCustomAccount 1000000 Dummy.alesKP (Dummy.accountAddressFrom i) | i <- [1..numAccts]]
+
+-- |Number of execution steps between blocks.
+-- Note: this can be used to control the number of transactions per block, in preference to
+-- having multiple transactions in a single execution step.
+ticksPerSlot :: Num a => a
+ticksPerSlot = 100
 
 -- |The initial state of the simulation.
-initialState :: IO SimState
-initialState = do
+initialState :: Int -> IO SimState
+initialState numAccts = do
     -- This timestamp is only used for naming the database files.
     now <- currentTimestamp
+    -- Change the following line to write the genesis to a file, if desired.
+    when False $
+        LBS.writeFile ("data/genesis-" ++ show now ++ ".dat") $ S.runPutLazy (putPVGenesisData (PVGenesisData genData))
     _ssBakers <- Vec.fromList <$> mapM (mkBakerState now) (zip [0..] bakers)
     return SimState {..}
     where
-        chainParams = ChainParameters {
-            _cpElectionDifficulty = makeElectionDifficulty 20000,
+        chainParams = Dummy.dummyChainParameters {
+            _cpElectionDifficulty = makeElectionDifficulty 50000,
             _cpExchangeRates = makeExchangeRates 1 1,
-            _cpCooldownParameters = CooldownParametersV0 {
-                _cpBakerExtraCooldownEpochs = 4
-                },
-            _cpTimeParameters = TimeParametersV0,
-            _cpAccountCreationLimit = 10,
-            _cpRewardParameters = Dummy.dummyRewardParametersV0,
-            _cpFoundationAccount = maxBakerId + 1,
-            _cpPoolParameters = PoolParametersV0 {
-                _ppBakerStakeThreshold =  300000000000
-                }
+            _cpFoundationAccount = maxBakerId + 1
             }
         -- The genesis parameters could be changed.
-        -- The slot duration is set to 1 second (1000 ms), since the deterministic time is also
-        -- set to increase in 1 second intervals.
+        -- The slot duration is set to 'ticksPerSlot' seconds, since the deterministic time
+        -- advances 1 second per tick and baking is set to occur once every 'ticksPerSlot' ticks.
         (genData, bakers, _) = makeGenesisData
                                 0 -- Start at time 0, to match time
                                 (maxBakerId + 1) -- Number of bakers
-                                1000 -- Slot time is 1 second, to match time
+                                (ticksPerSlot * 1000) -- Slot time is 100 seconds, for baking blocks every 100 ticks
                                 defaultFinalizationParameters
                                 Dummy.dummyCryptographicParameters
                                 dummyIdentityProviders
                                 dummyArs
-                                [Dummy.createCustomAccount 1000000000000 Dummy.mateuszKP Dummy.mateuszAccount]
+                                ([Dummy.createCustomAccount 1000000000000 Dummy.mateuszKP Dummy.mateuszAccount] ++ extraAccounts numAccts)
                                 (Energy maxBound)
                                 dummyKeyCollection
                                 chainParams
@@ -278,25 +303,25 @@ initialState = do
         mkBakerState now (bakerId, (_bsIdentity, _bsInfo)) = do
             createDirectoryIfMissing True "data"
             gsconfig <- makeGlobalStateConfig 
-                            defaultRuntimeParameters 
+                            defaultRuntimeParameters{ rpAccountsCacheSize = 5000 }
                             ("data/treestate-" ++ show now ++ "-" ++ show bakerId)
                             ("data/blockstate-" ++ show now ++ "-" ++ show bakerId ++ ".dat")
             let
-                finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey _bsIdentity) (bakerElectionKey _bsIdentity) (bakerAggregationKey _bsIdentity))
+                finconfig = ActiveFinalization (FinalizationInstance (bakerSignKey _bsIdentity) (bakerElectionKey _bsIdentity) (bakerAggregationKey _bsIdentity))
                 hconfig = NoHandler
                 config = SkovConfig gsconfig finconfig hconfig
             (_bsContext, _bsState) <- runLoggerT (initialiseSkov genData config) (logFor (fromIntegral bakerId))
             return BakerState{..}
-        _ssEvents = makeEvents $ (PEvent 0 (TransactionEvent (transactions (mkStdGen 1)))) : [PEvent 0 (BakerEvent i (EBake 0)) | i <- allBakers]
+        _ssEvents = makeEvents $ (PEvent 0 (TransactionEvent (extraAccountTransactions numAccts))) : [PEvent 0 (BakerEvent i (EBake 0)) | i <- allBakers]
         _ssNextTimer = 0
         _ssCurrentTime = posixSecondsToUTCTime 0
 
 -- |Log an event for a particular baker.
 logFor :: (MonadIO m) => Int -> LogMethod m
--- logFor _ _ _ _ = return ()
-logFor i src lvl msg = liftIO $ do
-    putStrLn $ "[" ++ show i ++ ":" ++ show src ++ ":" ++ show lvl ++ "] " ++ show msg
-    hFlush stdout
+logFor _ _ _ _ = return ()
+-- logFor i src lvl msg = liftIO $ do
+--     putStrLn $ "[" ++ show i ++ ":" ++ show src ++ ":" ++ show lvl ++ "] " ++ show msg
+--     hFlush stdout
 
 -- |Run a baker action in the state monad.
 runBaker :: Integer -> Int -> BakerM a -> StateT SimState IO a
@@ -356,7 +381,7 @@ stepConsensus =
                         case r of
                             [] -> return ()
                             ((t', _) : _) -> ssEvents %= addEvent (PEvent t' (TransactionEvent r))
-                (PEvent t (BakerEvent i ev)) -> displayBakerEvent i ev >> case ev of
+                (PEvent t (BakerEvent i ev)) -> {- displayBakerEvent i ev >> -} case ev of
                     EBake sl -> do
                         bIdentity <- (^. bsIdentity) . (Vec.! i) <$> use ssBakers
                         let doBake =
@@ -365,7 +390,7 @@ stepConsensus =
                         forM_ (bpBlock <$> mb) $ \case
                             GenesisBlock{} -> return ()
                             NormalBlock b -> broadcastEvent t (EBlock b)
-                        ssEvents %= addEvent (PEvent (t+1) (BakerEvent i (EBake (sl+1))))
+                        ssEvents %= addEvent (PEvent (t+ticksPerSlot) (BakerEvent i (EBake (sl+1))))
                     EBlock bb -> do
                         let pb = makePendingBlock bb (posixSecondsToUTCTime (fromIntegral t))
                         _ <- runBaker t i (storeBlock pb)
@@ -383,10 +408,21 @@ stepConsensus =
 
 -- |Main runner. Simply runs consensus for a certain number of steps.
 main :: IO ()
-main = b (1000000 :: Int)
+main = do
+    putStr "Number of accounts: "
+    hFlush stdout
+    numAccts <- readLn
+    putStrLn "Initialising"
+    b numAccts (1000000 :: Int)
     where
         loop 0 _ = return ()
         loop n s = do
             s' <- execStateT stepConsensus s
             loop (n-1) s'
-        b steps = loop steps =<< initialState
+        b numAccts steps = do
+            !s0 <- initialState numAccts
+            putStrLn "Initialisation complete; press Enter to start"
+            performGC
+            _ <- getLine
+            putStrLn "Starting"
+            loop steps s0

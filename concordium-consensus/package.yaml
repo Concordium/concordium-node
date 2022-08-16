@@ -91,7 +91,7 @@ library:
   when:
     - condition: os(windows)
       then:
-        ghc-options: -static -shared lib.def -L./smart-contracts/lib -lwasm_chain_integration
+        ghc-options: -static -shared lib.def -L../concordium-base/smart-contracts/lib -lwasm_chain_integration
       else:
         when:
           - condition: flag(dynamic)
@@ -150,7 +150,6 @@ executables:
                 ghc-options: -static
     dependencies:
       - concordium-consensus
-      - criterion >= 1.5
 
   catchup-runner:
     main:                Main.hs

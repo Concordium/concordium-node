@@ -89,6 +89,7 @@ import Concordium.Crypto.EncryptedTransfers
 import Concordium.GlobalState.ContractStateFFIHelpers (LoadCallback)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import Concordium.GlobalState.Persistent.LMDB (FixedSizeSerialization)
+import Concordium.GlobalState.TransactionTable (TransactionTable)
 
 -- |Hash associated with birk parameters.
 newtype BirkParametersHash (pv :: ProtocolVersion) = BirkParametersHash {birkParamHash :: H.Hash}
@@ -218,6 +219,10 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
 
   -- |Dereference a 'BakerInfoRef' to a 'BakerInfo'.
   derefBakerInfo :: BakerInfoRef m -> m BakerInfo
+
+  -- |Get the hash of an account.
+  -- Note: this may not be implemented efficiently, and is principally intended for testing purposes.
+  getAccountHash :: Account m -> m (AccountHash (AccountVersionFor (MPV m)))
 
 -- * Active, current and next bakers/delegators
 --
@@ -475,6 +480,10 @@ class (ContractStateOperations m, AccountOperations m) => BlockStateQuery m wher
     -- if the 'BakerId' is not currently a baker.
     getPoolStatus :: (AccountVersionFor (MPV m) ~ 'AccountV1, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1)
         => BlockState m -> Maybe BakerId -> m (Maybe PoolStatus)
+
+    -- |Construct a transaction table that is empty but records the next nonces/sequence numbers
+    -- for all accounts and chain updates.
+    getInitialTransactionTable :: BlockState m -> m TransactionTable
 
 -- |Distribution of newly-minted GTU.
 data MintAmounts = MintAmounts {
@@ -1197,6 +1206,11 @@ class (BlockStateOperations m, FixedSizeSerialization (BlockStateRef m)) => Bloc
     -- memory. This is needed for using V1 contract state.
     blockStateLoadCallback :: m LoadCallback
 
+    -- |Shut down any caches used by the block state. This is used to free
+    -- up the memory in the case where the block state is no longer being
+    -- actively used, in particular, after a protocol update.
+    collapseCaches :: m ()
+
 instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGSTrans t m) where
   getModule s = lift . getModule s
   getModuleInterface s = lift . getModuleInterface s
@@ -1237,6 +1251,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   getEnergyRate s = lift $ getEnergyRate s
   getPaydayEpoch = lift . getPaydayEpoch
   getPoolStatus s = lift . getPoolStatus s
+  getInitialTransactionTable = lift . getInitialTransactionTable
   {-# INLINE getModule #-}
   {-# INLINE getAccount #-}
   {-# INLINE accountExists #-}
@@ -1267,6 +1282,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   {-# INLINE getAnonymityRevokers #-}
   {-# INLINE getUpdateKeysCollection #-}
   {-# INLINE getEnergyRate #-}
+  {-# INLINE getInitialTransactionTable #-}
 
 instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (MGSTrans t m) where
   getAccountCanonicalAddress = lift . getAccountCanonicalAddress
@@ -1284,6 +1300,7 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
   getAccountStake = lift . getAccountStake
   getAccountBakerInfoRef = lift . getAccountBakerInfoRef
   derefBakerInfo = lift . derefBakerInfo
+  getAccountHash = lift . getAccountHash
   {-# INLINE getAccountCanonicalAddress #-}
   {-# INLINE getAccountAmount #-}
   {-# INLINE getAccountAvailableAmount #-}
@@ -1297,6 +1314,7 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
   {-# INLINE getAccountStake #-}
   {-# INLINE getAccountBakerInfoRef #-}
   {-# INLINE derefBakerInfo #-}
+  {-# INLINE getAccountHash #-}
 
 instance (Monad (t m), MonadTrans t, ContractStateOperations m) => ContractStateOperations (MGSTrans t m) where
   thawContractState = lift . thawContractState
@@ -1441,6 +1459,7 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
     cacheBlockState = lift . cacheBlockState
     serializeBlockState = lift . serializeBlockState
     blockStateLoadCallback = lift blockStateLoadCallback
+    collapseCaches = lift collapseCaches
     {-# INLINE thawBlockState #-}
     {-# INLINE freezeBlockState #-}
     {-# INLINE dropUpdatableBlockState #-}
@@ -1451,6 +1470,7 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
     {-# INLINE cacheBlockState #-}
     {-# INLINE serializeBlockState #-}
     {-# INLINE blockStateLoadCallback #-}
+    {-# INLINE collapseCaches #-}
 
 deriving via (MGSTrans MaybeT m) instance BlockStateQuery m => BlockStateQuery (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance AccountOperations m => AccountOperations (MaybeT m)

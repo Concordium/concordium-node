@@ -3,18 +3,17 @@
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 
 -- |Tests for the payday-related functionality.
 module SchedulerTests.Payday where
 
 import Control.Exception ( bracket )
-import Control.Monad.Trans.Reader
 import Control.Monad.Trans.State
 
 import qualified Data.Vector as Vec
 import Data.Ratio
-import Data.Either ( fromRight )
 import Data.List ( maximumBy, sortBy )
 import Data.Map ( (!) )
 import Data.Proxy
@@ -46,10 +45,12 @@ import GlobalStateMock
 import Concordium.GlobalState.Basic.BlockPointer (makeGenesisBasicBlockPointer)
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.TreeState
+import Concordium.GlobalState.Persistent.Accounts (SupportsPersistentAccount)
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.BlockState
 import Concordium.GlobalState.Persistent.BlockPointer
 import Concordium.GlobalState.Persistent.TreeState
+import Concordium.GlobalState.TransactionTable (TransactionTable, emptyTransactionTable)
 import Concordium.ID.Types
 import SchedulerTests.TestUtils ()
 import Concordium.GlobalState.BlockPointer (BlockPointer (_bpState))
@@ -208,7 +209,7 @@ initialAccounts = foldr addAcc emptyAccounts (take numAccounts staticKeys)
 initialPureBlockState :: (IsProtocolVersion pv) => HashedBlockState pv
 initialPureBlockState = Concordium.GlobalState.Basic.BlockState.hashBlockState $ createBlockState initialAccounts
 
-initialPersistentBlockState :: (IsProtocolVersion pv, MonadBlobStore m) => m (HashedPersistentBlockState pv)
+initialPersistentBlockState :: (SupportsPersistentAccount pv m) => m (HashedPersistentBlockState pv)
 initialPersistentBlockState = makePersistent . _unhashedBlockState $ initialPureBlockState
 
 genesis :: (IsProtocolVersion pv) => Word -> (GenesisData pv, [(BakerIdentity, FullBakerInfo)], Amount)
@@ -235,26 +236,27 @@ type MyPureMonad pv = PureTreeStateMonad (MyPureBlockState pv) (PureBlockStateMo
 runMyPureMonad :: (IsProtocolVersion pv) => MyPureTreeState pv -> MyPureMonad pv a -> IO (a, MyPureTreeState pv)
 runMyPureMonad is = (`runStateT` is) . runPureBlockStateMonad . runPureTreeStateMonad
 
-runMyPureMonad' :: (IsProtocolVersion pv) => GenesisData pv -> MyPureMonad pv a -> IO (a, MyPureTreeState pv)
-runMyPureMonad' gd = runPureBlockStateMonad (initialSkovDataDefault gd initialPureBlockState) >>= runMyPureMonad
+runMyPureMonad' :: (IsProtocolVersion pv) => GenesisData pv -> TransactionTable -> MyPureMonad pv a -> IO (a, MyPureTreeState pv)
+runMyPureMonad' gd genTT = runPureBlockStateMonad (initialSkovDataDefault gd initialPureBlockState genTT) >>= runMyPureMonad
 
 type MyPersistentBlockState pv = HashedPersistentBlockState pv
 type MyPersistentTreeState pv = SkovPersistentData pv (MyPersistentBlockState pv)
 type MyPersistentMonad pv = PersistentTreeStateMonad (MyPersistentBlockState pv)
                               (MGSTrans (StateT (MyPersistentTreeState pv))
-                                 (PersistentBlockStateMonad pv BlobStore (ReaderT BlobStore LogIO)))
+                                 (PersistentBlockStateMonad pv (PersistentBlockStateContext pv)
+                                    (BlobStoreT (PersistentBlockStateContext pv) LogIO)))
 
 fakeLogMethod :: LogMethod IO
 fakeLogMethod _ _ _ = return ()
 
-withPersistentState :: (IsProtocolVersion pv) => BlobStore -> MyPersistentTreeState pv -> (MyPersistentBlockState pv -> MyPersistentMonad pv a) -> IO (a, MyPersistentTreeState pv)
-withPersistentState bSt is f = (`runLoggerT` fakeLogMethod) . (`runReaderT` bSt) . runPersistentBlockStateMonad
+withPersistentState :: (IsProtocolVersion pv) => PersistentBlockStateContext pv -> MyPersistentTreeState pv -> (MyPersistentBlockState pv -> MyPersistentMonad pv a) -> IO (a, MyPersistentTreeState pv)
+withPersistentState pbsc is f = (`runLoggerT` fakeLogMethod) . (`runBlobStoreT` pbsc) . runPersistentBlockStateMonad
                              . (`runStateT` is) . (\(MGSTrans z) -> z)
                              . runPersistentTreeStateMonad $ f (_bpState . Concordium.GlobalState.Persistent.TreeState._focusBlock $ is)
 
 -- `createGlobalState` and `destroyGlobalState` are adapted from GlobalStateTests.PersistentTreeState        
 
-createGlobalState :: (IsProtocolVersion pv) => FilePath -> IO (PersistentBlockStateContext, MyPersistentTreeState pv)
+createGlobalState :: (IsProtocolVersion pv) => FilePath -> IO (PersistentBlockStateContext pv, MyPersistentTreeState pv)
 createGlobalState dbDir = do
   let
     n = 5
@@ -262,35 +264,37 @@ createGlobalState dbDir = do
   (x, y) <- runSilentLogger $ initialiseGlobalState (genesis n ^. _1) config
   return (x, y)
 
-destroyGlobalState :: (IsProtocolVersion pv) => (PersistentBlockStateContext, MyPersistentTreeState pv) -> IO ()
+destroyGlobalState :: (IsProtocolVersion pv) => (PersistentBlockStateContext pv, MyPersistentTreeState pv) -> IO ()
 destroyGlobalState (c, s) = shutdownGlobalState protocolVersion (Proxy :: Proxy DiskTreeDiskBlockConfig) c s
 
 withPersistentState' :: (IsProtocolVersion pv) => (MyPersistentBlockState pv -> MyPersistentMonad pv a) -> IO (a, MyPersistentTreeState pv)
 withPersistentState' f = withTempDirectory "." "test-directory"
     $ \dbDir -> bracket (createGlobalState dbDir) destroyGlobalState $
-                \ (PersistentBlockStateContext myBlobStore, mySkovPersistentData) ->
-                  withPersistentState myBlobStore mySkovPersistentData f
+                \ (pbsc, mySkovPersistentData) ->
+                  withPersistentState pbsc mySkovPersistentData f
 
 testRewardDistribution :: Spec
 testRewardDistribution = do
   it "splits the minted amount three ways" $ withMaxSuccess 10000 $ property propMintAmountsEqNewMint
   it "chooses the most recent mint distribution before payday" $ withMaxSuccess 10000 $ property propMintDistributionMostRecent
   it "does not change after mint distribution (in-memory)" $ do
-    (resultPure, _) <- runMyPureMonad' gd (propMintDistributionImmediate ibs blockParentPure slot bid epoch mfinInfo newSeedState transFees freeCounts updates)
+    (resultPure, _) <- runMyPureMonad' gd genTT (propMintDistributionImmediate ibs blockParentPure slot bid epoch mfinInfo newSeedState transFees freeCounts updates)
     assertBool "in-memory" resultPure
   it "does not change after mint distribution (persistent)" $ do
-    ipbs :: MyPersistentBlockState 'P4 <- runBlobStoreTemp "." initialPersistentBlockState
+    ipbs :: MyPersistentBlockState 'P4 <- runBlobStoreTemp "." $ withNewAccountCache @_ @'P4 1 initialPersistentBlockState
     blockParentPersistent :: PersistentBlockPointer 'P4 (MyPersistentBlockState 'P4) <- makeGenesisPersistentBlockPointer gd ipbs
     (resultPersistent, _) <- withPersistentState' (\x -> propMintDistributionImmediate (hpbsPointers x) blockParentPersistent slot bid epoch mfinInfo newSeedState transFees freeCounts updates)
     assertBool "persistent" resultPersistent
   it "does not change after block reward distribution (in-memory)" $ do
-    (resultPure, _) <- runMyPureMonad' gd (propTransactionFeesDistributionP4 transFees freeCounts bid ibs)
+    (resultPure, _) <- runMyPureMonad' gd genTT (propTransactionFeesDistributionP4 transFees freeCounts bid ibs)
     assertBool "in-memory" resultPure
   it "does not change after block reward distribution (persistent)" $ do
     (resultPersistent, _ :: MyPersistentTreeState 'P4) <- withPersistentState' (propTransactionFeesDistributionP4 transFees freeCounts bid . hpbsPointers)
     assertBool "persistent" resultPersistent
       where gd = genesis 5 ^._1 :: GenesisData 'P4
-            ibs = fromRight (_unhashedBlockState initialPureBlockState :: Concordium.GlobalState.Basic.BlockState.BlockState 'P4) (genesisState gd)
+            (ibs, genTT) = case genesisState gd of
+              Right x -> x
+              Left _ -> (_unhashedBlockState initialPureBlockState :: Concordium.GlobalState.Basic.BlockState.BlockState 'P4, emptyTransactionTable)
             blockParentPure = makeGenesisBasicBlockPointer gd initialPureBlockState
             slot = 400
             bid = BakerId 1

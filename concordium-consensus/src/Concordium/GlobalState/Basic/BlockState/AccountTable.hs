@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -111,3 +112,23 @@ toList (Tree t) = toL 0 t
     where
         toL o (Leaf _ a) = [(o, a)]
         toL o (Branch lvl _ _ t1 t2) = toL o t1 ++ toL (setBit o (fromIntegral lvl)) t2
+
+-- |Convert the account table to a list of accounts with their hashes.
+-- The accounts are in ascending index order.
+toHashedList :: AccountTable av -> [Hashed' (AccountHash av) (Account av)]
+toHashedList Empty = []
+toHashedList (Tree t) = toHL t
+    where
+            toHL (Leaf h a) = [Hashed a h]
+            toHL (Branch _ _ _  t1 t2) = toHL t1 ++ toHL t2
+
+-- |Strict fold over the account table in increasing order of account index.
+foldl' :: (a -> Account av -> a) -> a ->  AccountTable av -> a
+foldl' _ a Empty = a
+foldl' f !a0 (Tree t) = ft a0 t
+    where
+        ft a (Leaf _ acct) = f a acct
+        ft a (Branch _ _ _ l r) =
+            let !a1 = ft a l
+                !a2 = ft a1 r
+            in a2

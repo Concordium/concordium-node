@@ -166,9 +166,9 @@ impl P2PNode {
         let mut removed_peers = false;
         let mut removed_candidates = false;
         for token in tokens {
-            if conn_candidates.remove(&token).is_some() {
+            if conn_candidates.remove(token).is_some() {
                 removed_candidates = true;
-            } else if connections.remove(&token).is_some() {
+            } else if connections.remove(token).is_some() {
                 removed_peers = true;
             }
         }
@@ -192,7 +192,7 @@ impl P2PNode {
                     use rand::seq::SliceRandom;
                     let mut rng = rand::thread_rng();
                     let mut peers = self.get_node_peer_tokens();
-                    peers.retain(|token| !dont_relay_to.contains(&token));
+                    peers.retain(|token| !dont_relay_to.contains(token));
                     let peers_to_take = f64::floor(
                         f64::from(peers.len() as u32) * self.config.relay_broadcast_percentage,
                     );
@@ -560,13 +560,13 @@ pub fn connection_housekeeping(node: &Arc<P2PNode>) -> bool {
     };
 
     // remove connections without handshakes
-    lock_or_die!(node.conn_candidates()).retain(|_, conn| !is_conn_without_handshake(&conn));
+    lock_or_die!(node.conn_candidates()).retain(|_, conn| !is_conn_without_handshake(conn));
 
     // remove faulty and inactive connections
     {
         let mut faulty_removed = false;
         write_or_die!(node.connections()).retain(|_, conn| {
-            if is_conn_faulty(&conn) || is_conn_inactive(&conn) {
+            if is_conn_faulty(conn) || is_conn_inactive(conn) {
                 faulty_removed = true;
                 false
             } else {

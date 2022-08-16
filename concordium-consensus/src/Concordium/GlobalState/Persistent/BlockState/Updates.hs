@@ -97,7 +97,7 @@ emptyUpdateQueue = UpdateQueue {
     }
 
 -- |Make a persistent update queue from a memory-only queue.
-makePersistentUpdateQueue :: (MonadIO m, MHashableTo m H.Hash (StoreSerialized e)) => UQ.UpdateQueue e -> m (UpdateQueue e)
+makePersistentUpdateQueue :: (MonadIO m) => UQ.UpdateQueue e -> m (UpdateQueue e)
 makePersistentUpdateQueue UQ.UpdateQueue{..} = do
     let uqNextSequenceNumber = _uqNextSequenceNumber
     uqQueue <- Seq.fromList <$> forM _uqQueue (\(t, e) -> (t,) <$> makeHashedBufferedRef (StoreSerialized e))
@@ -123,7 +123,7 @@ makeBasicUpdateQueueHashed UpdateQueue{..} = do
 -- |Add an update event to an update queue, incrementing the sequence number.
 -- Any updates in the queue with later or equal effective times are removed
 -- from the queue.
-enqueue :: (MonadIO m, Reference m ref (UpdateQueue e), MHashableTo m H.Hash e)
+enqueue :: (MonadIO m, Reference m ref (UpdateQueue e))
     => TransactionTime -> e -> ref (UpdateQueue e) -> m (ref (UpdateQueue e))
 enqueue !t !e q = do
         UpdateQueue{..} <- refLoad q
@@ -369,7 +369,7 @@ emptyPendingUpdates
     => m (PendingUpdates cpv)
 emptyPendingUpdates = PendingUpdates <$> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> justForCPV1A e <*> justForCPV1A e
     where
-        e :: MHashableTo m H.Hash (UpdateQueue a) => m (HashedBufferedRef (UpdateQueue a))
+        e :: m (HashedBufferedRef (UpdateQueue a))
         e = makeHashedBufferedRef emptyUpdateQueue
 
 -- |Construct a persistent 'PendingUpdates' from an in-memory one.
@@ -816,9 +816,9 @@ processAddAnonymityRevokerUpdates t bu hbar = do
             newQ <- refMake oldQ { uqQueue = qr }
             newU <- refMake u { pendingUpdates = pendingUpdates {pAddAnonymityRevokerQueue = newQ} }
 
-            -- Since updates might be invalid, we check whether any actual changes occured.
+            -- Since updates might be invalid, we check whether any actual changes occurred.
             hbar' <- if null changes
-                        then return hbar -- Return existing reference if no changes occured.
+                        then return hbar -- Return existing reference if no changes occurred.
                         else refMake . ARS.AnonymityRevokers $ updatedARs
             return (changes, newU, hbar')
 

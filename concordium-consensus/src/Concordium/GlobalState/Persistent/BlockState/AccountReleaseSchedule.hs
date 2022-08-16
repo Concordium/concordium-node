@@ -95,7 +95,7 @@ import Concordium.Utils.Serialization
 data Release = Release {
   _rTimestamp :: !Timestamp,
   _rAmount :: !Amount,
-  _rNext :: !(Nullable (HashedBufferedRef Release))
+  _rNext :: !(Nullable (EagerlyHashedBufferedRef Release))
   } deriving (Show)
 
 -- | As every link in the chain is a HashedBufferedRef, when computing the hash
@@ -126,7 +126,7 @@ instance MonadBlobStore m => BlobStorable m Release where
 -- | Stores schedules. New items are inserted with 'addReleases' and are removed
 -- with 'unlockAmountsUntil'.
 data AccountReleaseSchedule = AccountReleaseSchedule {
-  _arsValues :: !(Vector (Nullable (HashedBufferedRef Release, TransactionHash))),
+  _arsValues :: !(Vector (Nullable (EagerlyHashedBufferedRef Release, TransactionHash))),
   _arsPrioQueue :: !(Map Timestamp [Int]),
   _arsTotalLockedUpBalance :: !Amount
   } deriving (Show)
@@ -193,7 +193,7 @@ addReleases (l, txh) ars = do
       -- 2. Accumulate the total amount that is scheduled in these releases.
       -- 3. Add the entries to the prio queue so that they are later unqueued.
       f (thisTimestamp, thisAmount) (nextRelease, thisPrioQueue, thisBalance) = do
-        thisReleaseRef <- makeHashedBufferedRef (Release thisTimestamp thisAmount nextRelease)
+        thisReleaseRef <- refMake (Release thisTimestamp thisAmount nextRelease)
         let thisPrioQueue' = Map.alter (maybe (Just [itemIndex]) (Just . (itemIndex:))) thisTimestamp thisPrioQueue
             thisBalance' = thisBalance + thisAmount
         return (Some thisReleaseRef, thisPrioQueue', thisBalance')
@@ -266,9 +266,13 @@ pickNthResultM f i num
 
 storePersistentAccountReleaseSchedule :: MonadBlobStore m => Transient.AccountReleaseSchedule -> m AccountReleaseSchedule
 storePersistentAccountReleaseSchedule Transient.AccountReleaseSchedule{..} = do
-  _arsValues <- Vector.mapM (\case
-                                Nothing -> return Null
-                                Just (r, t) -> fmap (, t) <$> foldrM (\(Transient.Release thisTimestamp thisAmount) nextRelease -> Some <$> makeHashedBufferedRef (Release thisTimestamp thisAmount nextRelease)) Null r) _values
+  let persistTransientReleases (Transient.Release thisTimestamp thisAmount) nextRelease =
+        Some <$> refMake (Release thisTimestamp thisAmount nextRelease)
+  _arsValues <- Vector.mapM
+      (\case
+          Nothing -> return Null
+          Just (r, t) -> fmap (, t) <$> foldrM persistTransientReleases Null r)
+      _values
   return AccountReleaseSchedule{
     _arsPrioQueue = _pendingReleases,
     _arsTotalLockedUpBalance = _totalLockedUpBalance,

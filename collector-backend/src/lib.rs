@@ -262,9 +262,9 @@ pub fn setup_logger(trace: bool, debug: bool, no_log_timestamp: bool) {
             writeln!(buf, "{}: {}: {}", buf.timestamp_nanos(), record.level(), record.args())
         });
     }
-    log_builder.filter(Some(&"tokio_reactor"), LevelFilter::Warn);
-    log_builder.filter(Some(&"hyper"), LevelFilter::Warn);
-    log_builder.filter(Some(&"gotham"), LevelFilter::Warn);
-    log_builder.filter(Some(&"h2"), LevelFilter::Warn);
+    log_builder.filter(Some("tokio_reactor"), LevelFilter::Warn);
+    log_builder.filter(Some("hyper"), LevelFilter::Warn);
+    log_builder.filter(Some("gotham"), LevelFilter::Warn);
+    log_builder.filter(Some("h2"), LevelFilter::Warn);
     log_builder.init();
 }

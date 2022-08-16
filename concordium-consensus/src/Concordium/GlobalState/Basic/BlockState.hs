@@ -59,6 +59,7 @@ import Concordium.GlobalState.CapitalDistribution
 
 import qualified Concordium.GlobalState.AccountMap as AccountMap
 import qualified Concordium.GlobalState.Rewards as Rewards
+import qualified Concordium.GlobalState.TransactionTable as TransactionTable
 import qualified Concordium.Types.IdentityProviders as IPS
 import qualified Concordium.Types.AnonymityRevokers as ARS
 import Concordium.Types.Queries (PoolStatus(..),CurrentPaydayBakerPoolStatus(..),makePoolPendingChange, RewardStatus'(..))
@@ -834,6 +835,27 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
             ..
         }
 
+    getInitialTransactionTable bs = return tt2
+      where
+        tt1 = Accounts.foldAccounts accInTT TransactionTable.emptyTransactionTable (bs ^. blockAccounts)
+        tt2 = foldl' updInTT tt1 [minBound..]
+        accInTT tt acct =
+            let nonce = acct ^. accountNonce
+                addr = acct ^. accountAddress
+            in if nonce /= minNonce
+                then
+                    tt & TransactionTable.ttNonFinalizedTransactions . at' (accountAddressEmbed addr)
+                        ?~ TransactionTable.emptyANFTWithNonce nonce
+                else tt
+        updInTT tt uty =
+            let sn = lookupNextUpdateSequenceNumber (bs ^. blockUpdates) uty
+            in if sn /= minUpdateSequenceNumber
+                then
+                    tt & TransactionTable.ttNonFinalizedChainUpdates . at' uty
+                        ?~ TransactionTable.emptyNFCUWithSequenceNumber sn
+                else
+                    tt
+
 instance (Monad m, IsProtocolVersion pv) => BS.AccountOperations (PureBlockStateMonad pv m) where
 
   getAccountCanonicalAddress acc = return $ acc ^. accountAddress
@@ -864,6 +886,8 @@ instance (Monad m, IsProtocolVersion pv) => BS.AccountOperations (PureBlockState
   getAccountStake acc = return $ acc ^. accountStaking
 
   derefBakerInfo = return . view bakerInfo
+
+  getAccountHash = return . getHash
 
 -- |Checks that the delegation target is not over-delegated.
 -- This can throw one of the following 'DelegationConfigureResult's, in order:
@@ -1855,6 +1879,9 @@ instance (IsProtocolVersion pv, MonadIO m) => BS.BlockStateStorage (PureBlockSta
     {-# INLINE blockStateLoadCallback #-}
     blockStateLoadCallback = return errorLoadCallback -- basic block state is not written, so it never has to be loaded.
 
+    {-# INLINE collapseCaches #-}
+    collapseCaches = return ()
+
 -- |Initial block state.
 initialState :: forall pv
               . IsProtocolVersion pv
@@ -2023,7 +2050,8 @@ genesisBakerInfo spv cp GenesisBaker{..} = AccountBaker{..}
     _bakerPendingChange = NoChange
 
 -- |Initial block state based on 'GenesisData', for a given protocol version.
-genesisState :: forall pv . IsProtocolVersion pv => GenesisData pv -> Either String (BlockState pv)
+-- This also returns the transaction table.
+genesisState :: forall pv . IsProtocolVersion pv => GenesisData pv -> Either String (BlockState pv, TransactionTable.TransactionTable)
 genesisState gd = case protocolVersion @pv of
                     SP1 -> case gd of
                       GDP1 P1.GDP1Initial{..} -> mkGenesisStateInitial genesisCore genesisInitialState
@@ -2039,7 +2067,7 @@ genesisState gd = case protocolVersion @pv of
                       GDP4 P4.GDP4Regenesis{..} -> mkGenesisStateRegenesis StateMigrationParametersTrivial genesisRegenesis
                       GDP4 P4.GDP4MigrateFromP3{..} -> mkGenesisStateRegenesis (StateMigrationParametersP3ToP4 genesisMigration) genesisRegenesis
     where
-        mkGenesisStateInitial :: CoreGenesisParameters -> GenesisState pv -> Either String (BlockState pv)
+        mkGenesisStateInitial :: CoreGenesisParameters -> GenesisState pv -> Either String (BlockState pv, TransactionTable.TransactionTable)
         mkGenesisStateInitial GenesisData.CoreGenesisParameters{..} GenesisData.GenesisState{..} = do
             accounts <- mapM mkAccount (zip [0..] (toList genesisAccounts))
             let
@@ -2048,7 +2076,9 @@ genesisState gd = case protocolVersion @pv of
                 -- initial amount in the central bank is the amount on all genesis accounts combined
                 initialAmount = List.foldl' (\c acc -> c + acc ^. accountAmount) 0 accounts
                 _blockBank = makeHashed $ Rewards.makeGenesisBankStatus initialAmount
-            return BlockState {..}
+                -- In initial genesis, all accounts and updates have no prior transactions
+                initialTT = TransactionTable.emptyTransactionTable
+            return (BlockState {..}, initialTT)
               where
                   mkAccount :: (BakerId, GenesisAccount) -> Either String (Account (AccountVersionFor pv))
                   mkAccount (bid, GenesisAccount{..}) =
@@ -2076,9 +2106,10 @@ genesisState gd = case protocolVersion @pv of
                 Right bs
                     | hashShouldMatch && hbs ^. blockStateHash /= genesisStateHash -> Left "Could not deserialize genesis state: state hash is incorrect"
                     | epochLength (bs ^. blockBirkParameters . birkSeedState) /= GenesisData.genesisEpochLength genesisCore -> Left "Could not deserialize genesis state: epoch length mismatch"
-                    | otherwise -> Right bs
+                    | otherwise -> Right $!! (bs, genesisTT)
                     where
                         hbs = hashBlockState bs
                         hashShouldMatch = case migration of
                             StateMigrationParametersTrivial{} -> True
                             StateMigrationParametersP3ToP4{} -> False
+                        genesisTT = runIdentity $ runPureBlockStateMonad $ BS.getInitialTransactionTable hbs

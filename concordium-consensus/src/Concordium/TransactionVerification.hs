@@ -26,14 +26,14 @@ import Concordium.Types.Updates (UpdateSequenceNumber)
 -- 
 -- This type exists as an intermediate type for decoupling the internal verification process from the outcome of processing a transaction.
 data VerificationResult
-  = Ok OkResult
+  = Ok !OkResult
   -- ^The transaction successfully passed the verification check.
-  | MaybeOk MaybeOkResult
+  | MaybeOk !MaybeOkResult
   -- ^The transaction did not pass the verification check, but it might
   -- be valid at a later point in time. As such if the transaction was received individually
   -- it must be rejected at once. However if the transaction was received as part of a block,
   -- then it must be accepted and re-verified in the 'Scheduler'.
-  | NotOk NotOkResult
+  | NotOk !NotOkResult
   -- ^The transaction is definitely not valid and must be rejected.
   deriving (Eq, Show, Ord)
 
@@ -185,7 +185,7 @@ verify now bi = do
     Tx.WithMetadata {wmdData = Tx.ChainUpdate ui} -> do
       verifyChainUpdate ui
     Tx.WithMetadata{wmdData = Tx.NormalTransaction tx} -> do
-     verifyNormalTransaction tx  
+      verifyNormalTransaction tx
 
 -- |Verifies a 'CredentialDeployment' transaction.
 --

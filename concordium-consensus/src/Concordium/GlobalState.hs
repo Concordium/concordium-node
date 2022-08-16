@@ -37,6 +37,9 @@ import Concordium.GlobalState.TreeState as TS
 import Concordium.Logger
 import Concordium.Types.Block (AbsoluteBlockHeight)
 
+import Concordium.GlobalState.Persistent.Cache
+import qualified Concordium.GlobalState.Persistent.Accounts as Accounts
+
 -- For the avid reader.
 -- The strategy followed in this module is the following: First `BlockStateM` and
 -- `TreeStateM` derive the behaviors of the BlockState Monads and TreeState Monads
@@ -106,7 +109,7 @@ instance (IsProtocolVersion pv) => MonadProtocolVersion (BlockStateM pv c r g s 
 -- * Specializations
 
 type MemoryBlockStateM pv r g s m = BlockStateM pv () r g s m
-type PersistentBlockStateM pv r g s m = BlockStateM pv PersistentBlockStateContext r g s m
+type PersistentBlockStateM pv r g s m = BlockStateM pv (PersistentBlockStateContext pv) r g s m
 
 -- * Generic implementations
 
@@ -149,58 +152,70 @@ deriving via PureBlockStateMonad pv m
              => BlockStateStorage (MemoryBlockStateM pv r g s m)
 
 -- ** Disk implementations
-deriving via PersistentBlockStateMonad pv PersistentBlockStateContext m
+deriving via PersistentBlockStateMonad pv (PersistentBlockStateContext pv) m
     instance BlockStateTypes (PersistentBlockStateM pv r g s m)
 
 deriving via PersistentBlockStateMonad pv
-              PersistentBlockStateContext
-              (FocusGlobalStateM PersistentBlockStateContext g m)
+              (PersistentBlockStateContext pv)
+              (FocusGlobalStateM (PersistentBlockStateContext pv) g m)
     instance (MonadIO m,
               IsProtocolVersion pv,
               BlockStateQuery (PersistentBlockStateMonad pv
-                                PersistentBlockStateContext
-                                (FocusGlobalStateM PersistentBlockStateContext g m)))
+                                (PersistentBlockStateContext pv)
+                                (FocusGlobalStateM (PersistentBlockStateContext pv) g m)))
              => BlockStateQuery (PersistentBlockStateM pv r g s m)
 
 deriving via PersistentBlockStateMonad pv
-              PersistentBlockStateContext
-              (FocusGlobalStateM PersistentBlockStateContext g m)
+              (PersistentBlockStateContext pv)
+              (FocusGlobalStateM (PersistentBlockStateContext pv) g m)
     instance (MonadIO m,
               AccountOperations (PersistentBlockStateMonad pv
-                                  PersistentBlockStateContext
-                                  (FocusGlobalStateM PersistentBlockStateContext g m)))
+                                  (PersistentBlockStateContext pv)
+                                  (FocusGlobalStateM (PersistentBlockStateContext pv) g m)))
              => AccountOperations (PersistentBlockStateM pv r g s m)
 
 deriving via PersistentBlockStateMonad pv
-              PersistentBlockStateContext
-              (FocusGlobalStateM PersistentBlockStateContext g m)
+              (PersistentBlockStateContext pv)
+              (FocusGlobalStateM (PersistentBlockStateContext pv) g m)
     instance (MonadIO m,
               IsProtocolVersion pv,
               ContractStateOperations (PersistentBlockStateMonad pv
-                                        PersistentBlockStateContext
-                                        (FocusGlobalStateM PersistentBlockStateContext g m)))
+                                        (PersistentBlockStateContext pv)
+                                        (FocusGlobalStateM (PersistentBlockStateContext pv) g m)))
              => ContractStateOperations (PersistentBlockStateM pv r g s m)
 
 
 deriving via PersistentBlockStateMonad pv
-              PersistentBlockStateContext
-              (FocusGlobalStateM PersistentBlockStateContext g m)
+              (PersistentBlockStateContext pv)
+              (FocusGlobalStateM (PersistentBlockStateContext pv) g m)
     instance (MonadIO m,
               IsProtocolVersion pv,
               BlockStateOperations (PersistentBlockStateMonad pv
-                                     PersistentBlockStateContext
-                                     (FocusGlobalStateM PersistentBlockStateContext g m)))
+                                     (PersistentBlockStateContext pv)
+                                     (FocusGlobalStateM (PersistentBlockStateContext pv) g m)))
              => BlockStateOperations (PersistentBlockStateM pv r g s m)
 
 deriving via PersistentBlockStateMonad pv
-              PersistentBlockStateContext
-              (FocusGlobalStateM PersistentBlockStateContext g m)
+              (PersistentBlockStateContext pv)
+              (FocusGlobalStateM (PersistentBlockStateContext pv) g m)
     instance (MonadIO m,
               IsProtocolVersion pv,
               BlockStateStorage (PersistentBlockStateMonad pv
-                                  PersistentBlockStateContext
-                                  (FocusGlobalStateM PersistentBlockStateContext g m)))
+                                  (PersistentBlockStateContext pv)
+                                  (FocusGlobalStateM (PersistentBlockStateContext pv) g m)))
              => BlockStateStorage (PersistentBlockStateM pv r g s m)
+
+instance
+    ( MonadIO m,
+      c ~ PersistentBlockStateContext pv,
+      HasGlobalStateContext c r,
+      AccountVersionFor pv ~ av,
+      MonadReader r m,
+      HasCache (Accounts.AccountCache av) c
+    ) =>
+    MonadCache (Accounts.AccountCache av) (PersistentBlockStateM pv r g s m)
+    where
+    getCache = projectCache <$> ask
 
 -----------------------------------------------------------------------------
 
@@ -382,8 +397,8 @@ class GlobalStateConfig (c :: Type) where
     initialiseExistingGlobalState :: forall pv . IsProtocolVersion pv => SProtocolVersion pv -> c -> LogIO (Maybe (GSContext c pv, GSState c pv))
 
     -- |Initialise new global state with the given genesis. If the state already
-    -- exists this will raise an exception. The same considerations as for
-    -- 'initialiseExistingGlobalState' apply about state activation.
+    -- exists this will raise an exception. It is not necessary to call 'activateGlobalState'
+    -- on the generated state, as this will establish the necessary invariants.
     initialiseNewGlobalState :: IsProtocolVersion pv => GenesisData pv -> c -> LogIO (GSContext c pv, GSState c pv)
 
     -- |Either initialise an existing state, or if it does not exist, initialise a new one with the given genesis.
@@ -404,10 +419,10 @@ instance GlobalStateConfig MemoryTreeMemoryBlockConfig where
     type GSState MemoryTreeMemoryBlockConfig pv = SkovData pv (BS.HashedBlockState pv)
     initialiseExistingGlobalState _ _ = return Nothing
     initialiseNewGlobalState gendata (MTMBConfig rtparams) = do
-        bs <- case genesisState gendata of
+        (bs, tt) <- case genesisState gendata of
             Left err -> logExceptionAndThrow GlobalState (InvalidGenesisData err)
-            Right bs -> return $ BS.hashBlockState bs
-        skovData <- runPureBlockStateMonad (initialSkovData rtparams gendata bs)
+            Right (bs, tt) -> return (BS.hashBlockState bs, tt)
+        skovData <- runPureBlockStateMonad (initialSkovData rtparams gendata bs tt)
         return ((), skovData)
 
     activateGlobalState _ _ _ = return
@@ -417,20 +432,22 @@ instance GlobalStateConfig MemoryTreeMemoryBlockConfig where
 -- |Configuration that uses the Haskell implementation of tree state and the
 -- in-memory, Haskell implementation of the block state.
 instance GlobalStateConfig MemoryTreeDiskBlockConfig where
-    type GSContext MemoryTreeDiskBlockConfig pv = PersistentBlockStateContext
+    type GSContext MemoryTreeDiskBlockConfig pv = PersistentBlockStateContext pv
     type GSState MemoryTreeDiskBlockConfig pv = SkovData pv (HashedPersistentBlockState pv)
+    
     initialiseExistingGlobalState _ _ = return Nothing
     initialiseNewGlobalState genData MTDBConfig{..} = do
-        genState <- case genesisState genData of
+        (genState, genTT) <- case genesisState genData of
             Left err -> logExceptionAndThrow GlobalState (InvalidGenesisData err)
             Right genState -> return genState
         liftIO $ do
             pbscBlobStore <- createBlobStore mtdbBlockStateFile
+            pbscCache <- Accounts.newAccountCache (rpAccountsCacheSize mtdbRuntimeParameters)
             let pbsc = PersistentBlockStateContext {..}
             let initState = do
                     pbs <- makePersistent genState
                     _ <- saveBlockState pbs
-                    initialSkovData mtdbRuntimeParameters genData pbs
+                    initialSkovData mtdbRuntimeParameters genData pbs genTT
             skovData <- runReaderT (runPersistentBlockStateMonad initState) pbsc
             return (pbsc, skovData)
 
@@ -441,11 +458,12 @@ instance GlobalStateConfig MemoryTreeDiskBlockConfig where
 
 instance GlobalStateConfig DiskTreeDiskBlockConfig where
     type GSState DiskTreeDiskBlockConfig pv = SkovPersistentData pv (HashedPersistentBlockState pv)
-    type GSContext DiskTreeDiskBlockConfig pv = PersistentBlockStateContext
+    type GSContext DiskTreeDiskBlockConfig pv = PersistentBlockStateContext pv
 
     initialiseExistingGlobalState _ DTDBConfig{..} = do
       -- check if all the necessary database files exist
       existingDB <- checkExistingDatabase dtdbTreeStateDirectory dtdbBlockStateFile
+      pbscCache <- liftIO $ Accounts.newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
       if existingDB then do
         pbscBlobStore <- liftIO $ do
           -- the block state file exists, is readable and writable
@@ -460,14 +478,19 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
 
     initialiseNewGlobalState genData DTDBConfig{..} = do
       pbscBlobStore <- liftIO $ createBlobStore dtdbBlockStateFile
+      pbscCache <- liftIO (Accounts.newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters))
       let pbsc = PersistentBlockStateContext{..}
       let initGS = do
-              genState <- case genesisState genData of
+              logEvent GlobalState LLTrace "Creating transient global state"
+              (genState, genTT) <- case genesisState genData of
                   Left err -> logExceptionAndThrow GlobalState (InvalidGenesisData err)
                   Right genState -> return genState
+              logEvent GlobalState LLTrace "Creating persistent global state"
               pbs <- makePersistent genState
+              logEvent GlobalState LLTrace "Writing persistent global state"
               ser <- saveBlockState pbs
-              initialSkovPersistentData dtdbRuntimeParameters dtdbTreeStateDirectory genData pbs ser
+              logEvent GlobalState LLTrace "Creating persistent global state context"
+              initialSkovPersistentData dtdbRuntimeParameters dtdbTreeStateDirectory genData pbs ser genTT
       isd <- runReaderT (runPersistentBlockStateMonad initGS) pbsc
               `onException` liftIO (destroyBlobStore pbscBlobStore)
       return (pbsc, isd)

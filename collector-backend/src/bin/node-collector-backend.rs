@@ -77,6 +77,7 @@ struct ConfigCli {
     #[structopt(long = "trace", help = "Trace mode", env = "COLLECTOR_BACKEND_LOG_LEVEL_TRACE")]
     pub trace:                  bool,
     #[structopt(long = "info", help = "Info mode", env = "COLLECTOR_BACKEND_LOG_LEVEL_INFO")]
+    #[allow(dead_code)] // for backwards compatibility
     pub info:                   bool,
     #[structopt(
         long = "no-log-timestamp",
@@ -358,7 +359,7 @@ async fn nodes_post_handler(state: &mut State) -> gotham::anyhow::Result<Respons
         nodes_info.peersCount <= validation_conf.valid_node_peers_count,
         "peersCount is too high to be considered valid"
     );
-    let state_data = CollectorStateData::borrow_from(&state);
+    let state_data = CollectorStateData::borrow_from(state);
     ensure!(!state_data.banned_versions.contains(&nodes_info.client), "node version is banned");
     ensure!(
         !state_data.banned_node_names.contains(&nodes_info.nodeName.trim().to_string()),
@@ -405,7 +406,7 @@ async fn nodes_post_handler(state: &mut State) -> gotham::anyhow::Result<Respons
         .expect("RWLock poisoned")
         .insert(nodes_info.nodeId.clone(), nodes_info);
 
-    Ok(create_empty_response(&state, StatusCode::OK))
+    Ok(create_empty_response(state, StatusCode::OK))
 }
 
 pub fn router(

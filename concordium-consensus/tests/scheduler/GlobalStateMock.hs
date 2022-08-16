@@ -30,6 +30,7 @@ import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.CapitalDistribution
+import Concordium.GlobalState.TransactionTable (TransactionTable)
 import Concordium.GlobalState.Types
 import qualified Concordium.GlobalState.Wasm as GSWasm
 import qualified Concordium.ID.Types as ID
@@ -83,6 +84,7 @@ data AccountOperationsAction (pv :: ProtocolVersion) a where
     GetAccountDelegator :: MockAccount -> AccountOperationsAction pv (Maybe (AccountDelegation (AccountVersionFor pv)))
     GetAccountStake :: MockAccount -> AccountOperationsAction pv (AccountStake (AccountVersionFor pv))
     DerefBakerInfo :: MockBakerInfoRef -> AccountOperationsAction pv BakerInfo
+    GetAccountHash :: MockAccount -> AccountOperationsAction pv (AccountHash (AccountVersionFor pv))
     deriving (Typeable)
 
 deriving instance Eq (AccountOperationsAction pv a)
@@ -138,6 +140,7 @@ data BlockStateQueryAction (pv :: ProtocolVersion) a where
     GetEnergyRate :: MockBlockState -> BlockStateQueryAction pv EnergyRate
     GetPaydayEpoch :: (AccountVersionFor pv ~ 'AccountV1) => MockBlockState -> BlockStateQueryAction pv Epoch
     GetPoolStatus :: (AccountVersionFor pv ~ 'AccountV1, ChainParametersVersionFor pv ~ 'ChainParametersV1) => MockBlockState -> Maybe BakerId -> BlockStateQueryAction pv (Maybe PoolStatus)
+    GetInitialTransactionTable :: MockBlockState -> BlockStateQueryAction pv TransactionTable
 
 deriving instance Eq (BlockStateQueryAction pv a)
 deriving instance Show (BlockStateQueryAction pv a)

@@ -46,7 +46,7 @@ extra-deps:
 
 extra-lib-dirs:
 - ../concordium-base/lib
-- ./smart-contracts/lib
+- ../concordium-base/smart-contracts/lib
 
 # Override default flag values for local packages and extra-deps
 # flags: {}

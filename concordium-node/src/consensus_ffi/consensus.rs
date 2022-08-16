@@ -90,18 +90,10 @@ impl Default for ConsensusOutboundQueues {
     }
 }
 
+#[derive(Default)]
 pub struct ConsensusQueues {
     pub inbound:  ConsensusInboundQueues,
     pub outbound: ConsensusOutboundQueues,
-}
-
-impl Default for ConsensusQueues {
-    fn default() -> Self {
-        Self {
-            inbound:  Default::default(),
-            outbound: Default::default(),
-        }
-    }
 }
 
 impl ConsensusQueues {
@@ -206,28 +198,34 @@ impl std::fmt::Display for ConsensusType {
 }
 
 #[derive(Clone)]
-pub struct ConsensusContainer {
+pub struct ConsensusRuntimeParameters {
+    /// Size limit on blocks baked by this node in bytes.
     pub max_block_size:             u64,
+    /// Timeout in milliseconds for executing transactions when constructing a
+    /// block.
     pub block_construction_timeout: u64,
-    pub max_time_to_expiry:         u64,
     pub insertions_before_purging:  u64,
+    /// Time in seconds that a transaction is kept before being a candidate for
+    /// purging.
     pub transaction_keep_alive:     u64,
-    pub is_baking:                  Arc<AtomicBool>,
-    pub consensus:                  Arc<AtomicPtr<consensus_runner>>,
-    pub genesis:                    Arc<[u8]>,
-    pub consensus_type:             ConsensusType,
+    /// Number of seconds between automatic transaction table purging runs.
+    pub transactions_purging_delay: u64,
+    /// Number of accounts that may be cached in memory.
+    pub accounts_cache_size:        u32,
+}
+
+#[derive(Clone)]
+pub struct ConsensusContainer {
+    pub runtime_parameters: ConsensusRuntimeParameters,
+    pub is_baking:          Arc<AtomicBool>,
+    pub consensus:          Arc<AtomicPtr<consensus_runner>>,
+    pub genesis:            Arc<[u8]>,
+    pub consensus_type:     ConsensusType,
 }
 
 impl ConsensusContainer {
-    // TODO : Simplify arguments to function, or group with struct
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
-        max_block_size: u64,
-        block_construction_timeout: u64,
-        max_time_to_expiry: u64,
-        insertions_before_purging: u64,
-        transaction_keep_alive: u64,
-        transactions_purging_delay: u64,
+        runtime_parameters: ConsensusRuntimeParameters,
         genesis_data: Vec<u8>,
         private_data: Option<Vec<u8>>,
         max_log_level: ConsensusLogLevel,
@@ -243,12 +241,7 @@ impl ConsensusContainer {
         };
 
         match get_consensus_ptr(
-            max_block_size,
-            block_construction_timeout,
-            max_time_to_expiry,
-            insertions_before_purging,
-            transaction_keep_alive,
-            transactions_purging_delay,
+            &runtime_parameters,
             genesis_data.clone(),
             private_data,
             max_log_level,
@@ -256,11 +249,7 @@ impl ConsensusContainer {
             regenesis_arc,
         ) {
             Ok(consensus_ptr) => Ok(Self {
-                max_block_size,
-                block_construction_timeout,
-                max_time_to_expiry,
-                insertions_before_purging,
-                transaction_keep_alive,
+                runtime_parameters,
                 is_baking: Arc::new(AtomicBool::new(false)),
                 consensus: Arc::new(AtomicPtr::new(consensus_ptr)),
                 genesis: Arc::from(genesis_data),

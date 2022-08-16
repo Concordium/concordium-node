@@ -4,12 +4,12 @@ extern crate log;
 
 // Force the system allocator on every platform
 use futures::{stream::StreamExt, FutureExt};
-use std::{alloc::System, io::Write};
+use std::{alloc::System, io::Write, sync::atomic};
+use tempfile::TempPath;
 #[global_allocator]
 static A: System = System;
 
 use anyhow::Context;
-use chrono::Utc;
 use concordium_node::{
     common::PeerType,
     configuration as config,
@@ -43,7 +43,6 @@ use tokio::signal::unix as unix_signal;
 #[cfg(windows)]
 use tokio::signal::windows as windows_signal;
 use tokio::sync::{broadcast, oneshot};
-use url::Url;
 
 #[cfg(feature = "instrumentation")]
 use concordium_node::stats_export_service::start_push_gateway;
@@ -112,13 +111,17 @@ async fn main() -> anyhow::Result<()> {
     )?;
     info!("Consensus layer started");
 
+    // A flag to record that the import was stopped by a signal handler.
+    let import_stopped = Arc::new(atomic::AtomicBool::new(false));
     {
         // set up the handler for terminating block state import.
         let consensus = consensus.clone();
+        let import_stopped = Arc::clone(&import_stopped);
         tokio::spawn(async move {
             if shutdown_signal_2.recv().await.is_err() {
                 error!("Signal handler dropped. This should not happen.");
             }
+            import_stopped.store(true, atomic::Ordering::Release);
             consensus.stop_importing_blocks();
         });
     }
@@ -140,26 +143,14 @@ async fn main() -> anyhow::Result<()> {
         None
     };
 
-    // Out-of-band catch-up
-    if let Some(ref import_blocks_from) = conf.cli.baker.import_blocks_from {
-        let from: anyhow::Result<String> =
-            download_catchup_files(import_blocks_from, data_dir_path).await;
-        match from {
-            Ok(from) => {
-                info!("Starting out of band catch-up");
-                consensus.import_blocks(from.as_bytes());
-                info!("Completed out of band catch-up");
-                if from != *import_blocks_from {
-                    if let Err(e) = std::fs::remove_file(from) {
-                        error!("Cleaning up downloaded out of band catch-up files failed: {}", e);
-                    };
-                };
-            }
-            Err(e) => {
-                error!("Downloading catch-up files failed: {}", e);
-            }
-        }
-    }
+    maybe_do_out_of_band_catchup(
+        &consensus,
+        import_stopped,
+        conf.cli.baker.import_blocks_from.as_deref(),
+        conf.cli.baker.download_blocks_from.as_ref(),
+        data_dir_path,
+    )
+    .await;
 
     // Consensus queue threads
     let consensus_queue_threads = start_consensus_message_threads(&node, consensus.clone());
@@ -308,7 +299,7 @@ fn instantiate_node(
         error!("Failed to persist own node id.");
     };
 
-    P2PNode::new(Some(node_id), &conf, PeerType::Node, stats_export_service, regenesis_arc)
+    P2PNode::new(Some(node_id), conf, PeerType::Node, stats_export_service, regenesis_arc)
 }
 
 fn establish_connections(conf: &config::Config, node: &Arc<P2PNode>) -> anyhow::Result<()> {
@@ -466,35 +457,78 @@ where
     true
 }
 
-async fn download_catchup_files(
-    import_blocks_from: &str,
+/// If either the local import path, or the URL are specified do out of band
+/// catchup with them.
+/// If the local path is specified that is used, otherwise we try the URL if it
+/// is specified.
+async fn maybe_do_out_of_band_catchup(
+    consensus: &ConsensusContainer,
+    import_stopped: Arc<atomic::AtomicBool>,
+    import_blocks_from: Option<&Path>,
+    download_blocks_from: Option<&reqwest::Url>,
     data_dir_path: &Path,
-) -> anyhow::Result<String> {
-    if let Ok(import_url) = Url::parse(import_blocks_from) {
-        let default_filename = format!(
-            "{}_{}{}",
-            config::CATCHUP_FILE_BASENAME,
-            Utc::now().timestamp(),
-            config::CATCHUP_FILE_EXT
-        );
-        let filename = import_url
-            .path_segments()
-            .and_then(|x| x.last())
-            .map(|x| x.to_string())
-            .unwrap_or(default_filename);
-        let import_path = data_dir_path.to_path_buf().join(&filename);
+) {
+    // Out-of-band catch-up
+    if let Some(import_blocks_from) = import_blocks_from {
+        info!("Starting out of band catch-up");
+        if let Err(e) = consensus.import_blocks(import_blocks_from) {
+            if import_stopped.load(atomic::Ordering::Acquire) {
+                info!("Out of band catchup stopped.");
+            } else {
+                info!(
+                    "Could not complete out of band catch-up from {} due to: {:#}.",
+                    import_blocks_from.display(),
+                    e
+                );
+            }
+        } else {
+            info!("Completed out of band catch-up from {}.", import_blocks_from.display());
+        }
+    } else if let Some(download_url) = download_blocks_from.as_ref().cloned() {
+        let from = download_catchup_files(download_url.clone(), data_dir_path).await;
+        match from {
+            Ok(path) => {
+                info!("Starting out of band catch-up");
+                if let Err(e) = consensus.import_blocks(&path) {
+                    if import_stopped.load(atomic::Ordering::Acquire) {
+                        info!("Out of band catchup stopped.");
+                    } else {
+                        info!("Could not complete out of band catch-up due to: {:#}.", e);
+                    }
+                } else {
+                    info!("Completed out of band catch-up from {}.", download_url);
+                }
+                // attempt to properly clean up the downloaded file.
+                if let Err(e) = path.close() {
+                    error!("Could not delete the downloaded file: {}", e);
+                }
+            }
+            Err(e) => {
+                // report error, but continue startup
+                error!("Downloading catch-up files failed: {}.", e)
+            }
+        }
+    }
+}
 
-        info!("Downloading the catch-up file from {} to {}", import_url, import_path.display());
-        let file = std::fs::File::create(&import_path)?;
+async fn download_catchup_files(
+    download_url: url::Url,
+    data_dir_path: &Path,
+) -> anyhow::Result<TempPath> {
+    // Create a temporary file inside the data directory.
+    // The data directory is the most reliable place where the node should have
+    // write access, that is why it is used.
+    let mut temp_file =
+        tempfile::NamedTempFile::new_in(data_dir_path).context("Cannot create output file.")?;
+    info!("Downloading the catch-up file from {} to {}", download_url, temp_file.path().display());
+    {
+        let file = temp_file.as_file_mut();
         let mut buffer = std::io::BufWriter::new(file);
-        let mut stream = reqwest::get(import_url).await?.bytes_stream();
+        let mut stream = reqwest::get(download_url).await?.bytes_stream();
         while let Some(Ok(bytes)) = stream.next().await {
             buffer.write_all(&bytes)?;
         }
         buffer.flush()?;
-
-        Ok(import_path.display().to_string())
-    } else {
-        Ok(import_blocks_from.to_string())
     }
+    Ok(temp_file.into_temp_path())
 }

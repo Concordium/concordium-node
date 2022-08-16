@@ -88,7 +88,7 @@ fn s11n_packet() {
     let mut buffer = Cursor::new(Vec::new());
 
     msg.serialize(&mut buffer).unwrap();
-    let deserialized = NetworkMessage::deserialize(&buffer.get_ref()).unwrap();
+    let deserialized = NetworkMessage::deserialize(buffer.get_ref()).unwrap();
     assert_eq!(deserialized.payload, msg.payload);
 }
 

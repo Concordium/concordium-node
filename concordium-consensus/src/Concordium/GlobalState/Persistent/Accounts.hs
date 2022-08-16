@@ -3,8 +3,9 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE MonoLocalBinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Concordium.GlobalState.Persistent.Accounts where
 
@@ -21,6 +22,8 @@ import Concordium.GlobalState.Persistent.Account
 import qualified Concordium.ID.Types as ID
 import qualified Concordium.GlobalState.Persistent.Trie as Trie
 import Concordium.GlobalState.Persistent.BlobStore
+import Concordium.GlobalState.Persistent.CachedRef
+import Concordium.GlobalState.Persistent.Cache
 import Concordium.GlobalState.Account hiding (replaceUpTo, addIncomingEncryptedAmount, addToSelfEncryptedAmount)
 import qualified Concordium.GlobalState.Basic.BlockState.Accounts as Transient
 
@@ -28,11 +31,18 @@ import Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule
 import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.GlobalState.Basic.BlockState.AccountTable as Transient
 import qualified Concordium.GlobalState.AccountMap as AccountMap
-import Concordium.GlobalState.Persistent.LFMBTree (LFMBTree)
+import Concordium.GlobalState.Persistent.LFMBTree (LFMBTree')
 import qualified Concordium.GlobalState.Persistent.LFMBTree as L
 import Concordium.Types.HashableTo
-import Data.Foldable (foldrM, foldl', foldlM)
+import Data.Foldable (foldl', foldlM)
 import Concordium.ID.Parameters
+
+-- |Type alias for the cache to use for accounts.
+type AccountCache (av :: AccountVersion) = FIFOCache (PersistentAccount av)
+
+-- |Construct a new 'AccountCache' with the given size.
+newAccountCache :: Int -> IO (AccountCache av)
+newAccountCache = newCache
 
 -- |Representation of the set of accounts on the chain.
 -- Each account has an 'AccountIndex' which is the order
@@ -55,22 +65,42 @@ import Concordium.ID.Parameters
 -- The data integrity of accounts is also not enforced by these operations.
 --
 -- This implementation uses disk-backed structures for implementation.
+--
+-- Accounts are cached using an 'AccountCache'. This caches accounts keyed by the 'BlobRef' at
+-- which the 'PersistentAccount' is stored, and uses a FIFO eviction strategy. The benefit of this
+-- is that it is relatively simple and transparent. The downside is that it would most likely be
+-- beneficial to evict old versions of an account from the cache when a new one is created, which
+-- is not the case with this caching mechanism.
+--
+-- An alternative would be to key the cache by the account index. However, this is less convenient
+-- since it requires the key to be available when loading the account from the reference, and
+-- hence the current solution was chosen. Caching by account index (probably with an LRU strategy)
+-- would likely be a more effective strategy over all.
 data Accounts (pv :: ProtocolVersion) = Accounts {
     -- |Unique index of accounts by 'AccountAddress'
     accountMap :: !(AccountMap.PersistentAccountMap pv),
     -- |Hashed Merkle-tree of the accounts
-    accountTable :: !(LFMBTree AccountIndex HashedBufferedRef (PersistentAccount (AccountVersionFor pv))),
+    accountTable :: !(LFMBTree' AccountIndex HashedBufferedRef (HashedCachedRef (AccountCache (AccountVersionFor pv)) (PersistentAccount (AccountVersionFor pv)))),
     -- |Optional cached set of used 'ID.CredentialRegistrationID's
     accountRegIds :: !(Nullable (Map.Map ID.RawCredentialRegistrationID AccountIndex)),
     -- |Persisted representation of the map from registration ids to account indices.
     accountRegIdHistory :: !(Trie.TrieN BufferedFix ID.RawCredentialRegistrationID AccountIndex)
 }
 
+-- |A constraint that ensures a monad @m@ supports the persistent account operations.
+-- This essentially requires that the monad support 'MonadBlobStore', and 'MonadCache' for
+-- the account cache.
+type SupportsPersistentAccount pv m =
+    ( IsProtocolVersion pv,
+      MonadBlobStore m,
+      MonadCache (AccountCache (AccountVersionFor pv)) m
+    )
+
 -- |Convert a (non-persistent) 'Transient.Accounts' to a (persistent) 'Accounts'.
 -- The new object is not yet stored on disk.
-makePersistent :: (MonadBlobStore m, IsProtocolVersion pv) => Transient.Accounts pv -> m (Accounts pv)
+makePersistent :: SupportsPersistentAccount pv m => Transient.Accounts pv -> m (Accounts pv)
 makePersistent (Transient.Accounts amap atbl aregids) = do
-    accountTable <- L.fromAscList =<< mapM (makePersistentAccount . snd) (Transient.toList atbl)
+    accountTable <- L.fromAscListV =<< mapM makePersistentAccountRef (Transient.toHashedList atbl)
     accountMap <- AccountMap.toPersistent amap
     accountRegIdHistory <- Trie.fromList (Map.toList aregids)
     return Accounts {accountRegIds = Some aregids,..}
@@ -78,7 +108,7 @@ makePersistent (Transient.Accounts amap atbl aregids) = do
 instance (IsProtocolVersion pv) => Show (Accounts pv) where
     show a = show (accountTable a)
 
-instance (MonadBlobStore m, IsProtocolVersion pv) => MHashableTo m H.Hash (Accounts pv) where
+instance SupportsPersistentAccount pv m => MHashableTo m H.Hash (Accounts pv) where
   getHashM Accounts {..} = getHashM accountTable
 
 -- |This history of used registration ids, consisting of a list of (uncommitted) ids, and a pointer
@@ -101,7 +131,7 @@ loadRegIds a@Accounts{accountRegIds = Null, ..} = do
         regids <- Trie.toMap accountRegIdHistory
         return (regids, a {accountRegIds = Some regids})
 
-instance (MonadBlobStore m, IsProtocolVersion pv) => BlobStorable m (Accounts pv) where
+instance (SupportsPersistentAccount pv m) => BlobStorable m (Accounts pv) where
     storeUpdate Accounts{..} = do
         (pMap, accountMap') <- storeUpdate accountMap
         (pTable, accountTable') <- storeUpdate accountTable
@@ -124,7 +154,7 @@ instance (MonadBlobStore m, IsProtocolVersion pv) => BlobStorable m (Accounts pv
             accountRegIdHistory <- mrRIH
             return $ Accounts {accountRegIds = Null,..}
 
-instance (MonadBlobStore m, IsProtocolVersion pv) => Cacheable m (Accounts pv) where
+instance SupportsPersistentAccount pv m => Cacheable m (Accounts pv) where
     cache accts0 = do
         (_, accts@Accounts{..}) <- loadRegIds accts0
         acctMap <- cache accountMap
@@ -140,8 +170,7 @@ emptyAccounts = Accounts AccountMap.empty L.empty (Some Map.empty) Trie.empty
 
 -- |Add a new account. Returns @Just idx@ if the new account is fresh, i.e., the address does not exist,
 -- or @Nothing@ in case the account already exists. In the latter case there is no change to the accounts structure.
-putNewAccount :: (MonadBlobStore m, IsProtocolVersion pv)
-    => PersistentAccount (AccountVersionFor pv) -> Accounts pv -> m (Maybe AccountIndex, Accounts pv)
+putNewAccount :: SupportsPersistentAccount pv m => PersistentAccount (AccountVersionFor pv) -> Accounts pv -> m (Maybe AccountIndex, Accounts pv)
 putNewAccount !acct accts0 = do
         addr <- acct ^^. accountAddress
         (existingAccountId, newAccountMap) <- AccountMap.maybeInsert addr acctIndex (accountMap accts0)
@@ -160,14 +189,14 @@ exists addr Accounts{..} = AccountMap.isAddressAssigned addr accountMap
 
 -- |Retrieve an account with the given address.
 -- Returns @Nothing@ if no such account exists.
-getAccount :: (MonadBlobStore m, IsProtocolVersion pv) => AccountAddress -> Accounts pv -> m (Maybe (PersistentAccount (AccountVersionFor pv)))
+getAccount :: SupportsPersistentAccount pv m => AccountAddress -> Accounts pv -> m (Maybe (PersistentAccount (AccountVersionFor pv)))
 getAccount addr Accounts{..} = AccountMap.lookup addr accountMap >>= \case
         Nothing -> return Nothing
         Just ai -> L.lookup ai accountTable
 
 -- |Retrieve an account associated with the given credential registration ID.
 -- Returns @Nothing@ if no such account exists.
-getAccountByCredId :: (MonadBlobStore m, IsProtocolVersion pv) => ID.RawCredentialRegistrationID -> Accounts pv -> m (Maybe (AccountIndex, PersistentAccount (AccountVersionFor pv)))
+getAccountByCredId :: SupportsPersistentAccount pv m => ID.RawCredentialRegistrationID -> Accounts pv -> m (Maybe (AccountIndex, PersistentAccount (AccountVersionFor pv)))
 getAccountByCredId cid accs@Accounts{accountRegIds = Null,..} = Trie.lookup cid accountRegIdHistory  >>= \case
         Nothing -> return Nothing
         Just ai -> fmap (ai, ) <$> indexedAccount ai accs
@@ -183,18 +212,18 @@ getAccountIndex addr Accounts{..} = AccountMap.lookup addr accountMap
 
 -- |Retrieve an account and its index from a given address.
 -- Returns @Nothing@ if no such account exists.
-getAccountWithIndex :: (MonadBlobStore m, IsProtocolVersion pv) => AccountAddress -> Accounts pv -> m (Maybe (AccountIndex, PersistentAccount (AccountVersionFor pv)))
+getAccountWithIndex :: SupportsPersistentAccount pv m => AccountAddress -> Accounts pv -> m (Maybe (AccountIndex, PersistentAccount (AccountVersionFor pv)))
 getAccountWithIndex addr Accounts{..} = AccountMap.lookup addr accountMap >>= \case
         Nothing -> return Nothing
         Just ai -> fmap (ai, ) <$> L.lookup ai accountTable
 
 -- |Retrieve the account at a given index.
-indexedAccount :: (MonadBlobStore m, IsProtocolVersion pv) => AccountIndex -> Accounts pv -> m (Maybe (PersistentAccount (AccountVersionFor pv)))
+indexedAccount :: SupportsPersistentAccount pv m => AccountIndex -> Accounts pv -> m (Maybe (PersistentAccount (AccountVersionFor pv)))
 indexedAccount ai Accounts{..} = L.lookup ai accountTable
 
 -- |Retrieve an account with the given address.
 -- An account with the address is required to exist.
-unsafeGetAccount :: (MonadBlobStore m, IsProtocolVersion pv) => AccountAddress -> Accounts pv -> m (PersistentAccount (AccountVersionFor pv))
+unsafeGetAccount :: SupportsPersistentAccount pv m => AccountAddress -> Accounts pv -> m (PersistentAccount (AccountVersionFor pv))
 unsafeGetAccount addr accts = getAccount addr accts <&> \case
         Just acct -> acct
         Nothing -> error $ "unsafeGetAccount: Account " ++ show addr ++ " does not exist."
@@ -232,7 +261,7 @@ recordRegIds rids accts0 = foldM (\accts (cid, idx) -> recordRegId cid idx accts
 --
 -- This should not be used to alter the address of an account (which is
 -- disallowed).
-updateAccounts :: (MonadBlobStore m, IsProtocolVersion pv) => (PersistentAccount (AccountVersionFor pv) -> m (a, PersistentAccount (AccountVersionFor pv))) -> AccountAddress -> Accounts pv -> m (Maybe (AccountIndex, a), Accounts pv)
+updateAccounts :: SupportsPersistentAccount pv m => (PersistentAccount (AccountVersionFor pv) -> m (a, PersistentAccount (AccountVersionFor pv))) -> AccountAddress -> Accounts pv -> m (Maybe (AccountIndex, a), Accounts pv)
 updateAccounts fupd addr a0@Accounts{..} = AccountMap.lookup addr accountMap >>= \case
         Nothing -> return (Nothing, a0)
         Just ai -> L.update fupd ai accountTable >>= \case
@@ -243,32 +272,39 @@ updateAccounts fupd addr a0@Accounts{..} = AccountMap.lookup addr accountMap >>=
 -- Does nothing (returning @Nothing@) if the account does not exist.
 -- This should not be used to alter the address of an account (which is
 -- disallowed).
-updateAccountsAtIndex :: (MonadBlobStore m, IsProtocolVersion pv) => (PersistentAccount (AccountVersionFor pv) -> m (a, PersistentAccount (AccountVersionFor pv))) -> AccountIndex -> Accounts pv -> m (Maybe a, Accounts pv)
+updateAccountsAtIndex :: SupportsPersistentAccount pv m => (PersistentAccount (AccountVersionFor pv) -> m (a, PersistentAccount (AccountVersionFor pv))) -> AccountIndex -> Accounts pv -> m (Maybe a, Accounts pv)
 updateAccountsAtIndex fupd ai a0@Accounts{..} = L.update fupd ai accountTable >>= \case
         Nothing -> return (Nothing, a0)
         Just (res, act') -> return (Just res, a0 {accountTable = act'})
 
 -- |Apply account updates to an account. It is assumed that the address in
 -- account updates and account are the same.
-updateAccount :: forall m av. (MonadBlobStore m, IsAccountVersion av) => AccountUpdate -> PersistentAccount av -> m (PersistentAccount av)
+updateAccount :: forall m av. (MonadBlobStore m) => AccountUpdate -> PersistentAccount av -> m (PersistentAccount av)
 updateAccount !upd !acc = do
-  rData <- loadBufferedRef (acc ^. accountReleaseSchedule)
-  (stakeDelta, releaseSchedule) <- case upd ^. auReleaseSchedule of
-        Just l -> (amountToDelta $ foldl' (+) 0 (concatMap (\(values, _) -> map snd values) l),) <$> foldlM (flip addReleases) rData l
-        Nothing -> return (amountToDelta 0, rData)
-  encAmount <- loadBufferedRef (acc ^. accountEncryptedAmount)
-  let updateSingle Add{..} = addIncomingEncryptedAmount newAmount
-      updateSingle ReplaceUpTo{..} = replaceUpTo aggIndex newAmount
-      updateSingle AddSelf{..} = addToSelfEncryptedAmount newAmount
-  newEncryptedAmount <- foldrM updateSingle encAmount (upd ^. auEncrypted)
-  newEncryptedAmountRef <- makeBufferedRef newEncryptedAmount
-  releaseScheduleRef <- makeBufferedRef releaseSchedule
-  let newAccWithoutHash = acc & accountNonce %~ setMaybe (upd ^. auNonce)
-                                                    & accountAmount %~ applyAmountDelta (upd ^. auAmount . non 0)
-                                                    & accountAmount %~ applyAmountDelta stakeDelta
-                                                    & accountReleaseSchedule .~ releaseScheduleRef
-                                                    & accountEncryptedAmount .~ newEncryptedAmountRef
-  rehashAccount newAccWithoutHash
+  releaseScheduleUpdate <- case upd ^. auReleaseSchedule of
+        Just l -> do
+            rData <- refLoad (acc ^. accountReleaseSchedule)
+            let newLockedFunds = amountToDelta $ foldl' (+) 0 (concatMap (\(values, _) -> map snd values) l)
+            newReleaseSchedule <- foldlM (flip addReleases) rData l
+            releaseScheduleRef <- refMake newReleaseSchedule
+            return $ (accountAmount %~ applyAmountDelta newLockedFunds) . (accountReleaseSchedule .~ releaseScheduleRef)
+        Nothing -> return id
+  encryptedAmountUpdate <- case upd ^. auEncrypted of
+        Just encUpd -> do
+            encAmount <- refLoad (acc ^. accountEncryptedAmount)
+            newEncryptedAmount <- (case encUpd of
+                Add{..} -> addIncomingEncryptedAmount newAmount
+                ReplaceUpTo{..} -> replaceUpTo aggIndex newAmount
+                AddSelf{..} -> addToSelfEncryptedAmount newAmount)
+                    encAmount
+            encryptedAmountRef <- refMake newEncryptedAmount
+            return (accountEncryptedAmount .~ encryptedAmountRef)
+        Nothing -> return id
+  return $! acc
+            & accountNonce %~ setMaybe (upd ^. auNonce)
+            & accountAmount %~ applyAmountDelta (upd ^. auAmount . non 0)
+            & releaseScheduleUpdate
+            & encryptedAmountUpdate
   where setMaybe (Just x) _ = x
         setMaybe Nothing y = y
 
@@ -277,7 +313,15 @@ accountAddresses :: MonadBlobStore m => Accounts pv -> m [AccountAddress]
 accountAddresses = AccountMap.addresses . accountMap
 
 -- |Serialize accounts in V0 format.
-serializeAccounts :: (MonadBlobStore m, MonadPut m, IsProtocolVersion pv) => GlobalContext -> Accounts pv -> m ()
+serializeAccounts :: (SupportsPersistentAccount pv m, MonadPut m) => GlobalContext -> Accounts pv -> m ()
 serializeAccounts cryptoParams accts = do
         liftPut $ putWord64be $ L.size (accountTable accts)
         L.mmap_ (serializeAccount cryptoParams) (accountTable accts)
+
+-- |Fold over the account table in ascending order of account index.
+foldAccounts :: SupportsPersistentAccount pv m => (a -> PersistentAccount (AccountVersionFor pv) -> m a) -> a -> Accounts pv -> m a
+foldAccounts f a accts = L.mfold f a (accountTable accts)
+
+-- |Fold over the account table in ascending order of account index.
+foldAccountsDesc :: SupportsPersistentAccount pv m => (a -> PersistentAccount (AccountVersionFor pv) -> m a) -> a -> Accounts pv -> m a
+foldAccountsDesc f a accts = L.mfoldDesc f a (accountTable accts)

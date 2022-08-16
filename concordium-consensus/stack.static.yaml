@@ -9,7 +9,7 @@ extra-deps: []
 
 extra-lib-dirs:
 - ../concordium-base/lib
-- ./smart-contracts/lib
+- ../concordium-base/smart-contracts/lib
 
 ghc-options:
     # `simpl-tick-factor` parameter here is necessary due to a bug in the ghc: https://gitlab.haskell.org/ghc/ghc/-/issues/14637#note_413425

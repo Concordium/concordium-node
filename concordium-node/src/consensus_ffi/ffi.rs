@@ -9,7 +9,7 @@ use crate::{
     },
     write_or_die,
 };
-use anyhow::{anyhow, bail};
+use anyhow::{anyhow, bail, Context};
 use byteorder::{NetworkEndian, ReadBytesExt};
 use crypto_common::Serial;
 use std::{
@@ -258,10 +258,10 @@ extern "C" {
     pub fn startConsensus(
         max_block_size: u64,
         block_construction_timeout: u64,
-        max_time_to_expiry: u64,
         insertions_before_purging: u64,
         transaction_keep_alive: u64,
         transactions_purging_delay: u64,
+        accounts_cache_size: u32,
         genesis_data: *const u8,
         genesis_data_len: i64,
         private_data: *const u8,
@@ -280,10 +280,10 @@ extern "C" {
     pub fn startConsensusPassive(
         max_block_size: u64,
         block_construction_timeout: u64,
-        max_time_to_expiry: u64,
         insertions_before_purging: u64,
         transaction_keep_alive: u64,
         transactions_purging_delay: u64,
+        accounts_cache_size: u32,
         genesis_data: *const u8,
         genesis_data_len: i64,
         catchup_status_callback: CatchUpStatusCallback,
@@ -450,19 +450,12 @@ extern "C" {
         consensus: *mut consensus_runner,
         import_file_path: *const u8,
         import_file_path_len: i64,
-    ) -> u64;
+    ) -> i64;
     pub fn stopImportingBlocks(consensus: *mut consensus_runner);
 }
 
-// TODO : Simplify arguments to function, or group with struct
-#[allow(clippy::too_many_arguments)]
 pub fn get_consensus_ptr(
-    max_block_size: u64,
-    block_construction_timeout: u64,
-    max_time_to_expiry: u64,
-    insertions_before_purging: u64,
-    transaction_keep_alive: u64,
-    transactions_purging_delay: u64,
+    runtime_parameters: &ConsensusRuntimeParameters,
     genesis_data: Vec<u8>,
     private_data: Option<Vec<u8>>,
     maximum_log_level: ConsensusLogLevel,
@@ -479,12 +472,12 @@ pub fn get_consensus_ptr(
             let appdata_buf = appdata_dir.to_str().unwrap();
             unsafe {
                 startConsensus(
-                    max_block_size,
-                    block_construction_timeout,
-                    max_time_to_expiry,
-                    insertions_before_purging,
-                    transaction_keep_alive,
-                    transactions_purging_delay,
+                    runtime_parameters.max_block_size,
+                    runtime_parameters.block_construction_timeout,
+                    runtime_parameters.insertions_before_purging,
+                    runtime_parameters.transaction_keep_alive,
+                    runtime_parameters.transactions_purging_delay,
+                    runtime_parameters.accounts_cache_size,
                     genesis_data.as_ptr(),
                     genesis_data_len as i64,
                     private_data_bytes.as_ptr(),
@@ -507,12 +500,12 @@ pub fn get_consensus_ptr(
             unsafe {
                 {
                     startConsensusPassive(
-                        max_block_size,
-                        block_construction_timeout,
-                        max_time_to_expiry,
-                        insertions_before_purging,
-                        transaction_keep_alive,
-                        transactions_purging_delay,
+                        runtime_parameters.max_block_size,
+                        runtime_parameters.block_construction_timeout,
+                        runtime_parameters.insertions_before_purging,
+                        runtime_parameters.transaction_keep_alive,
+                        runtime_parameters.transactions_purging_delay,
+                        runtime_parameters.accounts_cache_size,
                         genesis_data.as_ptr(),
                         genesis_data_len as i64,
                         catchup_status_callback,
@@ -862,11 +855,22 @@ impl ConsensusContainer {
         )))
     }
 
-    pub fn import_blocks(&self, import_file_path: &[u8]) -> u64 {
+    /// Import blocks from the given file path. If the file exists and the node
+    /// could import all blocks from the file `Ok(())` is returned. Otherwise an
+    /// error is returned.
+    pub fn import_blocks(&self, import_file_path: &Path) -> anyhow::Result<()> {
         let consensus = self.consensus.load(Ordering::SeqCst);
-        let len = import_file_path.len();
 
-        unsafe { importBlocks(consensus, import_file_path.as_ptr(), len as i64) }
+        let path_bytes =
+            import_file_path.as_os_str().to_str().context("Cannot decode path.")?.as_bytes();
+
+        let len = path_bytes.len();
+
+        let response = unsafe { importBlocks(consensus, path_bytes.as_ptr(), len as i64) };
+        match ConsensusFfiResponse::try_from(response)? {
+            ConsensusFfiResponse::Success => Ok(()),
+            other => bail!("Error during block import: {}", other),
+        }
     }
 
     pub fn stop_importing_blocks(&self) {
@@ -908,7 +912,7 @@ pub extern "C" fn on_finalization_message_catchup_out(
         let mut full_payload = Vec::with_capacity(1 + payload.len());
         (msg_variant as u8).serial(&mut full_payload);
 
-        full_payload.write_all(&payload).unwrap(); // infallible
+        full_payload.write_all(payload).unwrap(); // infallible
         let full_payload = Arc::from(full_payload);
 
         let msg = ConsensusMessage::new(
@@ -1045,7 +1049,7 @@ pub unsafe extern "C" fn regenesis_callback(ptr: *const Regenesis, block_hash: *
 
     // The pointer must remain valid, so we use into_raw to prevent the reference
     // count from being decremented.
-    Arc::into_raw(arc);
+    let _ = Arc::into_raw(arc);
 }
 
 /// A callback to free the regenesis Arc.
