@@ -1,6 +1,10 @@
 {-# LANGUAGE ViewPatterns #-}
 -- |Functionality for updating and computing leadership election nonces.
-module Concordium.Kontrol.UpdateLeaderElectionParameters (updateSeedState, computeLeadershipElectionNonce) where
+module Concordium.Kontrol.UpdateLeaderElectionParameters (
+    updateSeedState,
+    computeLeadershipElectionNonce,
+    predictLeadershipElectionNonce,
+) where
 
 import Data.Serialize
 
@@ -62,3 +66,29 @@ computeLeadershipElectionNonce state slot = case compare newEpoch oldEpoch of
         updateEpochs e n
             | e == newEpoch = n
             | otherwise = updateEpochs (e+1) (updateWithEpoch e n)
+
+-- |Predict a future leadership election nonce as far as possible.
+-- The slot to predict for must be after the slot of the last finalized block.
+--
+-- If @predictLeadershipElectionNonce ss lastFinSlot targetSlot = Just n@ then it must be that
+-- @computeLeadershipElectionNonce ss targetSlot = n@.
+-- Moreover, for any @bn@, @sl@, and @ss'@ with @lastFinSlot < sl < targetSlot@, and
+-- @ss' = updateSeedState sl bn ss@, it must be that
+-- @predictLeadershipElectionNonce ss' sl targetSlot = Just n@.
+predictLeadershipElectionNonce ::
+    -- |Seed state of last finalized block
+    SeedState ->
+    -- |Slot of last finalized block
+    Slot ->
+    -- |Slot to predict for
+    Slot ->
+    Maybe LeadershipElectionNonce
+predictLeadershipElectionNonce SeedState{..} lastFinSlot targetSlot
+    | slotEpoch == epoch = Just currentLeadershipElectionNonce
+    | slotEpoch == epoch + 1 && 3 * (lastFinSlot `rem` epochLength) >= 2 * epochLength =
+        -- In this case, no blocks after the last finalized block can contribute to the block
+        -- nonce for the next epoch.
+        Just $ updateWithEpoch epoch currentLeadershipElectionNonce
+    | otherwise = Nothing
+  where
+    slotEpoch = fromIntegral $ targetSlot `quot` epochLength
