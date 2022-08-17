@@ -2,10 +2,13 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE UndecidableInstances #-}
 module Concordium.GlobalState.Persistent.BlockState.Modules
   ( Module(..),
     ModuleV(..),
     Modules,
+    ModuleCache,
     getModuleInterface,
     emptyModules,
     getInterface,
@@ -16,6 +19,7 @@ module Concordium.GlobalState.Persistent.BlockState.Modules
     putInterface,
     moduleRefList,
     makePersistentModules,
+    newModuleCache,
     -- * Serialization
     putModulesV0
   ) where
@@ -24,7 +28,7 @@ import Concordium.Crypto.SHA256
 import qualified Concordium.GlobalState.Basic.BlockState.Modules as TransientModules
 import qualified Concordium.GlobalState.Wasm as GSWasm
 import Concordium.GlobalState.Persistent.BlobStore
-import Concordium.GlobalState.Persistent.LFMBTree (LFMBTree)
+import Concordium.GlobalState.Persistent.LFMBTree (LFMBTree')
 import qualified Concordium.GlobalState.Persistent.LFMBTree as LFMB
 import Concordium.Types
 import Concordium.Types.HashableTo
@@ -37,6 +41,8 @@ import qualified Data.Map.Strict as Map
 import Data.Serialize
 import Data.Word
 import Lens.Micro.Platform
+import Concordium.GlobalState.Persistent.Cache
+import Concordium.GlobalState.Persistent.CachedRef
 
 -- |Index of the module in the module table. Reflects when the module was added
 -- to the table.
@@ -139,20 +145,32 @@ putModuleV0 (ModuleV1 ModuleV{..}) = sPut =<< loadRef moduleVSource
 
 --------------------------------------------------------------------------------
 
+-- |The cache for `Module`s
+-- TODO: Revise the FIFOCache usage.
+newtype ModuleCache = FIFOCache Module
+
+-- |Construct a new `ModulesCache` with the given size.
+newModuleCache :: Int -> IO ModuleCache
+newModuleCache = newCache
+
+-- |Make sure that a monad supports the `MonadBlobStore` and `MonadCache`
+-- for the modules cache.
+type SupportsPersistentModules m = (MonadBlobStore m, MonadCache ModuleCache m)
+
 -- |The collection of modules stored in a block state.
 data Modules = Modules {
   -- |A tree of 'Module's indexed by 'ModuleIndex'
-  _modulesTable :: !(LFMBTree ModuleIndex HashedBufferedRef Module),
+  _modulesTable :: !(LFMBTree' ModuleIndex HashedBufferedRef (HashedCachedRef ModuleCache Module)),
   -- |A map of ModuleRef to ModuleIndex.
   _modulesMap :: !(Map ModuleRef ModuleIndex)
   }
 makeLenses ''Modules
 
 -- | The hash of the collection of modules is the hash of the tree.
-instance MonadBlobStore m => MHashableTo m Hash Modules where
+instance SupportsPersistentModules m => MHashableTo m Hash Modules where
   getHashM = getHashM . _modulesTable
 
-instance MonadBlobStore m => BlobStorable m Modules where
+instance SupportsPersistentModules m => BlobStorable m Modules where
   load = do
     table <- load
     return $ do

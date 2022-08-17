@@ -212,6 +212,8 @@ pub struct ConsensusRuntimeParameters {
     pub transactions_purging_delay: u64,
     /// Number of accounts that may be cached in memory.
     pub accounts_cache_size:        u32,
+    /// Number of modules that may be cached in memory.
+    pub modules_cache_size:         u32,
 }
 
 #[derive(Clone)]

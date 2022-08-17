@@ -313,6 +313,8 @@ startConsensus ::
     Word64 ->
     -- |Accounts table cache size
     Word32 ->
+    -- |Modules table cache size
+    Word32 ->
     -- |Serialized genesis data (c string + len)
     CString ->
     Int64 ->
@@ -347,6 +349,7 @@ startConsensus
     transactionsKeepAlive
     transactionsPurgingDelay
     accountsCacheSize
+    modulesCacheSize
     gdataC
     gdataLenC
     bidC
@@ -419,7 +422,8 @@ startConsensus
                   rpInsertionsBeforeTransactionPurge = fromIntegral insertionsBeforePurge,
                   rpTransactionsKeepAliveTime = TransactionTime transactionsKeepAlive,
                   rpTransactionsPurgingDelay = fromIntegral transactionsPurgingDelay,
-                  rpAccountsCacheSize = fromIntegral accountsCacheSize
+                  rpAccountsCacheSize = fromIntegral accountsCacheSize,
+                  rpModulesCacheSize = fromIntegral modulesCacheSize
                 }
 
 -- |Start up an instance of Skov without starting the baker thread.
@@ -437,6 +441,8 @@ startConsensusPassive ::
     -- |Number of seconds between transaction table purging runs
     Word64 ->
     -- |Accounts table cache size
+    Word32 ->
+    -- |Modules table cache size
     Word32 ->
     -- |Serialized genesis data (c string + len)
     CString ->
@@ -467,6 +473,7 @@ startConsensusPassive
     transactionsKeepAlive
     transactionsPurgingDelay
     accountsCacheSize
+    modulesCacheSize
     gdataC
     gdataLenC
     cucbk
@@ -521,7 +528,8 @@ startConsensusPassive
                   rpInsertionsBeforeTransactionPurge = fromIntegral insertionsBeforePurge,
                   rpTransactionsKeepAliveTime = TransactionTime transactionsKeepAlive,
                   rpTransactionsPurgingDelay = fromIntegral transactionsPurgingDelay,
-                  rpAccountsCacheSize = fromIntegral accountsCacheSize
+                  rpAccountsCacheSize = fromIntegral accountsCacheSize,
+                  rpModulesCacheSize = fromIntegral modulesCacheSize
                 }
 
 -- |Shut down consensus, stopping any baker thread if necessary.
@@ -1230,6 +1238,8 @@ foreign export ccall
         Word64 ->
         -- |Accounts table cache size
         Word32 ->
+        -- |Modules table cache size
+        Word32 ->
         -- |Serialized genesis data (c string + len)
         CString ->
         Int64 ->
@@ -1270,6 +1280,8 @@ foreign export ccall
         -- |Number of seconds between transaction table purging runs
         Word64 ->
         -- |Accounts table cache size
+        Word32 ->
+        -- |Modules table cache size
         Word32 ->
         -- |Serialized genesis data (c string + len)
         CString ->

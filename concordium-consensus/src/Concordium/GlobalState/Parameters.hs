@@ -105,7 +105,9 @@ data RuntimeParameters = RuntimeParameters {
   -- |Number of seconds between automatic transaction table purging  runs.
   rpTransactionsPurgingDelay :: !Int,
   -- |The accounts cache size
-  rpAccountsCacheSize :: !Int
+  rpAccountsCacheSize :: !Int,
+  -- |The instances cache size
+  rpModulesCacheSize :: !Int
   }
 
 -- |Default runtime parameters, block size = 10MB.
@@ -118,7 +120,8 @@ defaultRuntimeParameters = RuntimeParameters {
   rpInsertionsBeforeTransactionPurge = 1000,
   rpTransactionsKeepAliveTime = 5 * 60, -- 5 min
   rpTransactionsPurgingDelay = 3 * 60, -- 3 min
-  rpAccountsCacheSize = 10_000
+  rpAccountsCacheSize = 10_000,
+  rpModulesCacheSize = 50
   }
 
 instance FromJSON RuntimeParameters where
@@ -131,6 +134,7 @@ instance FromJSON RuntimeParameters where
     rpTransactionsKeepAliveTime <- (fromIntegral :: Int -> TransactionTime) <$> v .: "transactionsKeepAliveTime"
     rpTransactionsPurgingDelay <- v .: "transactionsPurgingDelay"
     rpAccountsCacheSize <- v .: "accountsCacheSize"
+    rpModulesCacheSize <- v .: "modulesCacheSize"
     when (rpBlockSize <= 0) $
       fail "Block size must be a positive integer."
     when (rpEarlyBlockThreshold <= 0) $

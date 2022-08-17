@@ -22,6 +22,7 @@ module Concordium.GlobalState.Persistent.BlockState (
     initialPersistentState,
     emptyBlockState,
     PersistentBlockStateContext(..),
+    PersistentBlockStateContextCaches(..),
     PersistentState,
     PersistentBlockStateMonad(..),
     withNewAccountCache
@@ -2628,7 +2629,12 @@ doGetInitialTransactionTable pbs = do
 
 data PersistentBlockStateContext pv = PersistentBlockStateContext {
     pbscBlobStore :: !BlobStore,
-    pbscCache :: !(Accounts.AccountCache (AccountVersionFor pv))
+    pbscCaches :: !(PersistentBlockStateContextCaches pv)
+}
+
+data PersistentBlockStateContextCaches pv = PersistentBlockStateContextCaches {
+  pbsccAccountCache :: !(Accounts.AccountCache (AccountVersionFor pv)),
+  pbsccModuleCache :: !Modules.ModuleCache
 }
 
 instance HasBlobStore (PersistentBlockStateContext av) where
@@ -2636,26 +2642,37 @@ instance HasBlobStore (PersistentBlockStateContext av) where
     blobLoadCallback = bscLoadCallback . pbscBlobStore
     blobStoreCallback = bscStoreCallback . pbscBlobStore
 
-instance AccountVersionFor pv ~ av => Cache.HasCache (Accounts.AccountCache av) (PersistentBlockStateContext pv) where
-  projectCache = pbscCache
+instance AccountVersionFor pv ~ av => Cache.HasCache (Accounts.AccountCache av) (PersistentBlockStateContextCaches pv) where
+  projectCache = pbsccAccountCache
+
+instance Cache.HasCache Modules.ModuleCache (PersistentBlockStateContextCaches pv) where
+  projectCache = pbsccModuleCache
 
 -- |Create a new account cache of the specified size for running the given monadic operation by
 -- extending the 'BlobStore' context to a 'PersistentBlockStateContext'.
 withNewAccountCache :: (MonadIO m) => Int -> BlobStoreT (PersistentBlockStateContext pv) m a -> BlobStoreT BlobStore m a
 withNewAccountCache size bsm = do
     ac <- liftIO $ Accounts.newAccountCache size
-    alterBlobStoreT (flip PersistentBlockStateContext ac) bsm
+    mc <- liftIO $ Modules.newModuleCache 50 -- todo: make size configurable.
+    let caches = PersistentBlockStateContextCaches ac mc
+    alterBlobStoreT (flip PersistentBlockStateContext caches) bsm
 
 newtype PersistentBlockStateMonad (pv :: ProtocolVersion) r m a = PersistentBlockStateMonad {runPersistentBlockStateMonad :: m a}
     deriving (Functor, Applicative, Monad, MonadIO, MonadReader r, MonadLogger)
 
-type PersistentState av pv r m = (MonadIO m, MonadReader r m, HasBlobStore r, AccountVersionFor pv ~ av, Cache.HasCache (Accounts.AccountCache av) r)
+type PersistentState av pv r m = (
+  MonadIO m,
+  MonadReader r m,
+  HasBlobStore r,
+  AccountVersionFor pv ~ av, Cache.HasCache (Accounts.AccountCache av) r,
+  Cache.HasCache Modules.ModuleCache r)
 
 instance PersistentState av pv r m => MonadBlobStore (PersistentBlockStateMonad pv r m)
 instance PersistentState av pv r m => MonadBlobStore (PutT (PersistentBlockStateMonad pv r m))
 instance PersistentState av pv r m => MonadBlobStore (PutH (PersistentBlockStateMonad pv r m))
 
 instance PersistentState av pv r m => Cache.MonadCache (Accounts.AccountCache av) (PersistentBlockStateMonad pv r m)
+instance PersistentState av pr r m => Cache.MonadCache Modules.ModuleCache (PersistentBlockStateMonad pv r m)
 
 type instance BlockStatePointer (PersistentBlockState pv) = BlobRef (BlockStatePointers pv)
 type instance BlockStatePointer (HashedPersistentBlockState pv) = BlobRef (BlockStatePointers pv)

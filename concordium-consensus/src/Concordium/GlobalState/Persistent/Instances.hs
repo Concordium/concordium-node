@@ -98,7 +98,7 @@ data PersistentInstanceV (v :: Wasm.WasmVersion) = PersistentInstanceV {
     -- but that reference should never be consulted in the scope of Instance operations.
     pinstanceModuleInterface :: !(BufferedRef (Modules.ModuleV v)),
     -- |The current local state of the instance
-    pinstanceModel :: !(InstanceStateV v),
+    pinstanceModel :: !(BlobRef (InstanceStateV v)),
     -- |The current amount of GTU owned by the instance
     pinstanceAmount :: !Amount,
     -- |Hash of the smart contract instance

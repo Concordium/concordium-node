@@ -287,6 +287,13 @@ pub struct BakerConfig {
         env = "CONCORDIUM_NODE_BAKER_DECRYPT_CREDENTIALS"
     )]
     pub decrypt_baker_credentials: bool,
+    #[structopt(
+        long = "instances-cache-size",
+        help = "The maximum number of instances that can be stored in instances cache",
+        default_value = "50",
+        env = "CONCORDIUM_NODE_CONSENSUS_INSTANCES_CACHE_SIZE"
+    )]
+    pub modules_cache_size: u32,
 }
 
 #[derive(StructOpt, Debug)]

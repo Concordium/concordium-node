@@ -39,6 +39,7 @@ import Concordium.Types.Block (AbsoluteBlockHeight)
 
 import Concordium.GlobalState.Persistent.Cache
 import qualified Concordium.GlobalState.Persistent.Accounts as Accounts
+import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Modules
 
 -- For the avid reader.
 -- The strategy followed in this module is the following: First `BlockStateM` and
@@ -214,6 +215,17 @@ instance
       HasCache (Accounts.AccountCache av) c
     ) =>
     MonadCache (Accounts.AccountCache av) (PersistentBlockStateM pv r g s m)
+    where
+    getCache = projectCache <$> ask
+
+instance
+    ( MonadIO m,
+      c ~ PersistentBlockStateContext pv,
+      HasGlobalStateContext c r,
+      MonadReader r m,
+      HasCache Modules.ModuleCache c
+    ) =>
+    MonadCache Modules.ModuleCache (PersistentBlockStateM pv r g s m)
     where
     getCache = projectCache <$> ask
 
@@ -442,7 +454,9 @@ instance GlobalStateConfig MemoryTreeDiskBlockConfig where
             Right genState -> return genState
         liftIO $ do
             pbscBlobStore <- createBlobStore mtdbBlockStateFile
-            pbscCache <- Accounts.newAccountCache (rpAccountsCacheSize mtdbRuntimeParameters)
+            pbsccAccountCache <- Accounts.newAccountCache (rpAccountsCacheSize mtdbRuntimeParameters)
+            pbsccModuleCache <- Modules.newModuleCache (rpModulesCacheSize mtdbRuntimeParameters)
+            let pbscCaches = PersistentBlockStateContextCaches {..}
             let pbsc = PersistentBlockStateContext {..}
             let initState = do
                     pbs <- makePersistent genState
@@ -463,7 +477,9 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
     initialiseExistingGlobalState _ DTDBConfig{..} = do
       -- check if all the necessary database files exist
       existingDB <- checkExistingDatabase dtdbTreeStateDirectory dtdbBlockStateFile
-      pbscCache <- liftIO $ Accounts.newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
+      pbsccAccountCache <- Accounts.newAccountCache (rpAccountsCacheSize mtdbRuntimeParameters)
+      pbsccModuleCache <- Modules.newModuleCache (rpModulesCacheSize mtdbRuntimeParameters)
+      let pbscCaches = PersistentBlockStateContextCaches {..}
       if existingDB then do
         pbscBlobStore <- liftIO $ do
           -- the block state file exists, is readable and writable
@@ -478,7 +494,9 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
 
     initialiseNewGlobalState genData DTDBConfig{..} = do
       pbscBlobStore <- liftIO $ createBlobStore dtdbBlockStateFile
-      pbscCache <- liftIO (Accounts.newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters))
+      pbsccAccountCache <- Accounts.newAccountCache (rpAccountsCacheSize mtdbRuntimeParameters)
+      pbsccModuleCache <- Modules.newModuleCache (rpModulesCacheSize mtdbRuntimeParameters)
+      let pbscCaches = PersistentBlockStateContextCaches {..}
       let pbsc = PersistentBlockStateContext{..}
       let initGS = do
               logEvent GlobalState LLTrace "Creating transient global state"
