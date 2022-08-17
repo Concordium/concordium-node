@@ -43,6 +43,7 @@ import Control.Monad.Trans.Except
 import qualified Data.ByteString as BS
 import Data.Serialize
 import Data.Word
+import Data.List.Split
 import System.Directory
 import System.FilePath
 import System.IO
@@ -114,146 +115,76 @@ placeholderSectionHeader = SectionHeader 0 0 P1 (BlockHash minBound) 0 0 0 0
 sectionHeaderLength :: Word64
 sectionHeaderLength = fromIntegral $ BS.length $ encode placeholderSectionHeader
 
--- |Write a section to the file handle.  It must be possible to write and seek the handle.
--- The section is written at the current seek location of the handle, and afterwards the seek
--- location is at the end of the the written section.
-writeSection ::
-    (MonadIO m) =>
-    -- |Genesis index
-    GenesisIndex ->
-    -- |Protocol version
-    ProtocolVersion ->
-    -- |Genesis block hash
-    BlockHash ->
-    -- |Height of first block in section
-    BlockHeight ->
-    -- |Handle to write to
-    Handle ->
-    -- |Action to write out the blocks and return the number of them
-    m Word64 ->
-    -- |Action to write out the finalization records and return the number of them
-    m Word64 ->
-    m ()
-writeSection
-    sectionGenesisIndex
-    sectionProtocolVersion
-    sectionGenesisHash
-    sectionFirstBlockHeight
-    hdl
-    writeBlocks
-    writeFinRecs = do
-        (sectionStart, blocksStart) <- liftIO $ do
-            sectionStart <- hTell hdl
-            -- Write a dummy section header that we will later overwrite
-            runPutH (liftPut $ putWord64be sectionHeaderLength >> put placeholderSectionHeader) hdl
-            blocksStart <- hTell hdl
-            return (sectionStart, blocksStart)
-        sectionBlockCount <- writeBlocks
-        blocksEnd <- liftIO $ hTell hdl
-        sectionFinalizationCount <- writeFinRecs
-        liftIO $ do
-            sectionEnd <- hTell hdl
-            -- Go back to the start and rewrite the section header with the correct data
-            hSeek hdl AbsoluteSeek sectionStart
-            let sectionHeader =
-                    SectionHeader
-                        { sectionLength = fromInteger (sectionEnd - sectionStart),
-                          sectionBlocksLength = fromInteger (blocksEnd - blocksStart),
-                          ..
-                        }
-            runPutH (liftPut $ putWord64be sectionHeaderLength >> put sectionHeader) hdl
-            hSeek hdl AbsoluteSeek sectionEnd
-
--- |Open a file handle for writing the database.
-initialHandle :: FilePath -> IO Handle
+-- |Open a file handle for writing a chunk. If the file with the specified name already exists, a
+-- new name is chosen by putting or incrementing a version number in its extension. It is expected
+-- that an unversioned filename only has a single extension.
+initialHandle :: FilePath -> IO (FilePath, Handle)
 initialHandle p = do
     createDirectoryIfMissing True (takeDirectory p)
-    openBinaryFile p WriteMode
+    chunkExists <- doesFileExist p
+    if chunkExists
+      then initialHandle (replaceExtensions p newExt)
+      else do
+        hdl <- openBinaryFile p WriteMode
+        return (p, hdl)
+    where
+      oldExt = takeExtensions p
+      newExt = if oldExt == takeExtension p
+               then ".2" ++ oldExt
+               else (\x -> "." ++ x ++ ".dat")
+                    . show . (+ (1 :: Int)) . read . (!! 1) . splitOn "." $ oldExt
 
--- |Export a database in V3 format, given the data directory root.
+-- |Export a database in V3 format, as a collection of block file chunks, given the data directory
+-- root and the export directory root.
 exportDatabaseV3 ::
     -- |Data directory
     FilePath ->
-    -- |Export file name
+    -- |Export directory
     FilePath ->
+    -- |Chunk size
+    Word64 ->
     IO ()
-exportDatabaseV3 dbDir outFile = do
-    h <- initialHandle outFile
-    BS.hPut h $ encode (3 :: Version)
-    exportSections h dbDir 0
-    hClose h
+exportDatabaseV3 dbDir outDir chunkSize = do
+  let indexFile = outDir </> "blocks.idx"
+  indexExists <- doesFileExist indexFile
+  (genIndex, startHeight) <- if indexExists
+    then do
+      indexContents <- readFile indexFile
+      let lastChunkMetadata =
+            if not $ null indexContents
+            then splitOn "," . last . lines $ indexContents
+            -- if the index file is empty, reexporting from section 0 and block height 1 will be
+            -- equivalent to exporting from scratch
+            else ["", "0", "1", "1"]
+      let lastChunkGenesisIndex = GenesisIndex . read $ lastChunkMetadata !! 1
+      let lastChunkFirstBlock   = BlockHeight  . read $ lastChunkMetadata !! 2
+      -- write back the index file without the last line (corresponding to the chunk deleted above)
+      writeFile (indexFile ++ "~") . unlines . init . lines $ indexContents
+      renameFile (indexFile ++ "~") indexFile
+      return (lastChunkGenesisIndex, lastChunkFirstBlock)
+    else do
+      createDirectoryIfMissing True outDir
+      -- we export blocks starting from height 1 because genesis blocks need not be exported
+      return (0, 1)
+  bracket (openFile indexFile AppendMode) hClose
+    (\indexHdl -> exportSections dbDir outDir indexHdl chunkSize genIndex startHeight)
 
--- |Export a series of blocks. When a block contains a finalization record, the 'dbsLastFinIndex'
--- field of the state is updated accordingly.
-exportBlocks ::
-    forall pv m.
-    (IsProtocolVersion pv, MonadIO m, MonadState (DBState pv) m, MonadCatch m) =>
-    -- |Handle to export to
-    Handle ->
-    -- |Height of next block to export
-    BlockHeight ->
-    m Word64
-exportBlocks hdl = eb 0
-  where
-    eb count height =
-        resizeOnResized (readFinalizedBlockAtHeight height) >>= \case
-            Nothing -> return count
-            Just sb | NormalBlock normalBlock <- sbBlock sb -> do
-                let serializedBlock =
-                        runPut $ putVersionedBlock (protocolVersion @pv) normalBlock
-                    len = fromIntegral $ BS.length serializedBlock
-                liftIO $ do
-                    BS.hPut hdl $ runPut $ putWord64be len
-                    BS.hPut hdl serializedBlock
-                    putStrLn $
-                        "Exported block: " ++ show (_bpHash (sbInfo sb))
-                            ++ " at height "
-                            ++ show height
-                            ++ " with blockSlot "
-                            ++ show (blockSlot (sbBlock sb))
-                            ++ ". Serialized length: "
-                            ++ show (8 + len)
-                forM_ (blockFields (sbBlock sb)) $ \bf ->
-                    case blockFinalizationData bf of
-                        BlockFinalizationData fr ->
-                            dbsLastFinIndex .= finalizationIndex fr
-                        _ -> return ()
-                eb (count + 1) (height + 1)
-            Just _ -> return count -- this branch should never be reachable, genesis blocks are not exported.
-
--- |Export a series of finalization records, starting from the successor of 'dbsLastFinIndex'
--- as recorded in the state.
-exportFinRecs :: (MonadIO m, MonadState (DBState pv) m, MonadCatch m) => Handle -> m Word64
-exportFinRecs hdl = exportFinRecsFrom 0 . (+ 1) =<< use dbsLastFinIndex
-  where
-    exportFinRecsFrom count finRecIndex =
-        resizeOnResized (readFinalizationRecord finRecIndex) >>= \case
-            Nothing -> return count
-            Just fr -> do
-                let serializedFr = runPut $ putVersionedFinalizationRecordV0 fr
-                    len = fromIntegral $ BS.length serializedFr
-                liftIO $ do
-                    BS.hPut hdl $ runPut $ putWord64be len
-                    BS.hPut hdl serializedFr
-                    putStrLn $
-                        "Exported finalization record index="
-                            ++ show finRecIndex
-                            ++ " for block "
-                            ++ show (finalizationBlockPointer fr)
-                            ++ ". Serialized length: "
-                            ++ show (8 + len)
-                exportFinRecsFrom (count + 1) (finRecIndex + 1)
-
--- |Export a section for each genesis index.
+-- |Export a database section for each genesis index.
 exportSections ::
-    -- |File to export to
-    Handle ->
     -- |Database directory
     FilePath ->
-    -- |Next genesis index to export
+    -- |Export directory
+    FilePath ->
+    -- |Index file handle
+    Handle ->
+    -- |Chunk size in blocks
+    Word64 ->
+    -- |Genesis index to export
     GenesisIndex ->
+    -- |Height of first block in section to export
+    BlockHeight ->
     IO ()
-exportSections hdl dbDir genIndex = do
+exportSections dbDir outDir indexHdl chunkSize genIndex startHeight = do
     let treeStateDir = dbDir </> "treestate-" ++ show genIndex
     -- Check if the database exists for this genesis index
     dbEx <- doesPathExist $ treeStateDir </> "data.mdb"
@@ -262,25 +193,170 @@ exportSections hdl dbDir genIndex = do
             openReadOnlyDatabase treeStateDir >>= \case
                 Nothing -> putStrLn "Tree state database could not be opened."
                 Just (VersionDatabaseHandlers (dbh :: DatabaseHandlers pv ())) -> do
-                    evalStateT
-                        ( do
-                            mgenFinRec <- resizeOnResized $ readFinalizationRecord 0
-                            forM_ mgenFinRec $ \genFinRec -> do
-                                let genHash = finalizationBlockPointer genFinRec
-                                    startHeight = 1
-                                writeSection
-                                    genIndex
-                                    (demoteProtocolVersion (protocolVersion @pv))
-                                    genHash
-                                    startHeight
-                                    hdl
-                                    (exportBlocks hdl startHeight)
-                                    (exportFinRecs hdl)
-                        )
-                        (DBState dbh 0)
-                    closeDatabase dbh
-                    exportSections hdl dbDir (genIndex + 1)
+                  liftIO $ getLastBlock dbh >>= \case
+                    Left err -> putStrLn ("Database section " ++ show genIndex ++ " cannot be exported: " ++ err)
+                    Right (_, sb) -> evalStateT
+                                     ( do
+                                         mgenFinRec <- resizeOnResized $ readFinalizationRecord 0
+                                         forM_ mgenFinRec $ \genFinRec -> do
+                                           let genHash = finalizationBlockPointer genFinRec
+                                           liftIO . hPutStrLn indexHdl $ "# genesis hash " ++ show genHash
+                                           writeChunks
+                                             genIndex
+                                             (demoteProtocolVersion (protocolVersion @pv))
+                                             genHash
+                                             startHeight
+                                             (_bpHeight . sbInfo $ sb)
+                                             outDir
+                                             indexHdl
+                                             chunkSize
+                                     )
+                                     (DBState dbh 0)
+                  closeDatabase dbh
+                  exportSections dbDir outDir indexHdl chunkSize (genIndex + 1) 1
         else putStrLn ("The tree state database does not exist at " ++ treeStateDir)
+
+-- |Write a database section as a collection of chunks in the specified directory. The last exported
+-- chunk (i.e. the one containing the block with the greatest height in the section) also contains
+-- finalization records finalizing all blocks after the last block containing a finalization
+-- record. The exported chunks will be accompanied by an index file mapping chunk filenames to the
+-- block ranges stored in them. Each line in index file has format FILENAME,GENESISINDEX,FIRSTBLOCK,LASTBLOCK\n
+writeChunks ::
+    (IsProtocolVersion pv, MonadIO m, MonadState (DBState pv) m, MonadCatch m) =>
+    -- |Genesis index
+    GenesisIndex ->
+    -- |Protocol version
+    ProtocolVersion ->
+    -- |Genesis block hash
+    BlockHash ->
+    -- |Height of first block in section
+    BlockHeight ->
+    -- |Height of last block in section
+    BlockHeight ->
+    -- |Export directory
+    FilePath ->
+    -- |Index file handle
+    Handle ->
+    -- |Chunk size in blocks
+    Word64 ->
+    m ()
+writeChunks
+    sectionGenesisIndex
+    sectionProtocolVersion
+    sectionGenesisHash
+    sectionFirstBlockHeight
+    sectionLastBlockHeight
+    outDir indexHdl chunkSize = do
+        let chunkNameCandidate = outDir </> "blocks-"
+                        ++ show sectionGenesisIndex ++ "-"
+                        ++ (show . theBlockHeight) sectionFirstBlockHeight
+                        ++ ".dat"
+        (chunkName, chunkHdl) <- liftIO $ initialHandle chunkNameCandidate
+
+        (sectionStart, blocksStart) <- liftIO $ do
+            BS.hPut chunkHdl $ encode (3 :: Version)
+            sectionStart <- hTell chunkHdl
+            -- Write a dummy section header that we will later overwrite
+            runPutH (liftPut $ putWord64be sectionHeaderLength >> put placeholderSectionHeader) chunkHdl
+            blocksStart <- hTell chunkHdl
+            return (sectionStart, blocksStart)
+        sectionBlockCount <- exportBlocksToChunk chunkHdl sectionFirstBlockHeight chunkSize
+        blocksEnd <- liftIO $ hTell chunkHdl
+        -- Only write finalization records to a chunk if it's the last one for the section
+        let lastExportedBlockHeight = sectionFirstBlockHeight + BlockHeight sectionBlockCount - 1
+        sectionFinalizationCount <- if lastExportedBlockHeight < sectionLastBlockHeight
+                                    then return 0
+                                    else exportFinRecsToChunk chunkHdl
+        liftIO $ do
+            sectionEnd <- hTell chunkHdl
+            -- Go back to the start and rewrite the section header with the correct data
+            hSeek chunkHdl AbsoluteSeek sectionStart
+            let sectionHeader =
+                    SectionHeader
+                        { sectionLength = fromInteger (sectionEnd - sectionStart),
+                          sectionBlocksLength = fromInteger (blocksEnd - blocksStart),
+                          ..
+                        }
+            runPutH (liftPut $ putWord64be sectionHeaderLength >> put sectionHeader) chunkHdl
+            hClose chunkHdl
+            hPutStrLn indexHdl $
+              takeFileName chunkName
+              ++ "," ++ show sectionGenesisIndex
+              ++ "," ++ (show . theBlockHeight) sectionFirstBlockHeight
+              ++ "," ++ (show . theBlockHeight) (sectionFirstBlockHeight + BlockHeight sectionBlockCount - 1)
+            putStrLn $
+              "Exported chunk " ++ takeFileName chunkName
+              ++ " containing blocks with heights from " ++ show sectionFirstBlockHeight
+              ++ " to " ++ (show . theBlockHeight) lastExportedBlockHeight
+              ++ " and " ++ show sectionFinalizationCount ++ " finalization records"
+        when (lastExportedBlockHeight < sectionLastBlockHeight)
+          (writeChunks
+             sectionGenesisIndex
+             sectionProtocolVersion
+             sectionGenesisHash
+             (sectionFirstBlockHeight + BlockHeight chunkSize)
+             sectionLastBlockHeight
+             outDir
+             indexHdl
+             chunkSize)
+
+-- |Export a series of blocks as a chunk of a specified length. For each block containing a
+-- finalization record, the 'dbsLastFinIndex' field of the state is updated with its finalization
+-- index.
+exportBlocksToChunk ::
+  forall pv m.
+    (IsProtocolVersion pv, MonadIO m, MonadState (DBState pv) m, MonadCatch m) =>
+    -- |Handle to export to
+    Handle ->
+    -- |Height of next block to export
+    BlockHeight ->
+    -- |Number of blocks to export
+    Word64 ->
+    -- |Number of exported blocks
+    m Word64
+exportBlocksToChunk hdl firstHeight chunkSize = ebtc firstHeight 0
+  where ebtc height count =
+          resizeOnResized (readFinalizedBlockAtHeight height) >>= \case
+            Nothing -> return count
+            Just sb | NormalBlock normalBlock <- sbBlock sb -> do
+                let serializedBlock =
+                        runPut $ putVersionedBlock (protocolVersion @pv) normalBlock
+                    len = fromIntegral $ BS.length serializedBlock
+                liftIO $ do
+                    BS.hPut hdl $ runPut $ putWord64be len
+                    BS.hPut hdl serializedBlock
+                forM_ (blockFields (sbBlock sb)) $ \bf ->
+                    case blockFinalizationData bf of
+                        BlockFinalizationData fr ->
+                            dbsLastFinIndex .= finalizationIndex fr
+                        NoFinalizationData -> return ()
+                if count < chunkSize
+                  then ebtc (height + 1) (count + 1)
+                  else return count
+            Just _ -> return count -- this branch should never be reachable, genesis blocks are not exported.
+
+-- |Export all finalization records with indices above `dbsLastFinIndex` to a chunk
+exportFinRecsToChunk ::
+  forall pv m.
+    (MonadIO m, MonadState (DBState pv) m, MonadCatch m) =>
+    -- |Handle to export to
+    Handle ->
+    -- |Number of exported finalization records
+    m Word64
+exportFinRecsToChunk hdl = exportFinRecsFrom 0 . (+ 1) =<< use dbsLastFinIndex
+  where
+    exportFinRecsFrom count finRecIndex =
+      resizeOnResized (readFinalizationRecord finRecIndex) >>= \case
+        -- if there's no finalization record with an index after the last exported one,
+        -- there are no more finalization records to export
+        Nothing -> return count
+        Just fr -> do
+          let serializedFr = runPut $ putVersionedFinalizationRecordV0 fr
+              len = fromIntegral $ BS.length serializedFr
+          liftIO $ do
+            BS.hPut hdl $ runPut $ putWord64be len
+            BS.hPut hdl serializedFr
+          exportFinRecsFrom (count + 1) (finRecIndex + 1)
 
 -- |Imported data for processing.
 data ImportData

@@ -2,11 +2,13 @@ module DatabaseExporter.CommandLineParser where
 
 import Options.Applicative
 import Data.Functor.Identity
+import Data.Word
 
 data Config =
    Export
     { dbPath     :: FilePath
     , exportPath :: FilePath
+    , chunkSize  :: Word64
     }
   | Check
     { file :: FilePath }
@@ -27,7 +29,11 @@ config =
           <*> strOption
           (long "exportpath"
             <> metavar "PATH"
-            <> help "Export path"))
+            <> help "Export path")
+          <*> option auto
+          (long "chunksize"
+            <> metavar "NUM"
+            <> help "Maximum number of blocks to export in a single file"))
         (progDesc "Export a database"))) <>
     (command
       "check"
