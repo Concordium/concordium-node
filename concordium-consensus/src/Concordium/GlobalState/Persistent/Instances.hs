@@ -33,6 +33,7 @@ import Concordium.GlobalState.Persistent.BlockState.Modules
 import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Modules
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import Concordium.GlobalState.BlockState (InstanceInfoTypeV(..), InstanceInfoType(..))
+import Concordium.GlobalState.Persistent.CachedRef
 
 ----------------------------------------------------------------------------------------------------
 
@@ -90,15 +91,15 @@ instance Applicative m => Cacheable m PersistentInstanceParameters
 -- `v` that is used to tie the instance version to the module version. At
 -- present the version only appears in the module, but with the state changes it
 -- will also appear in the contract state.
-data PersistentInstanceV (v :: Wasm.WasmVersion) = PersistentInstanceV {
+data PersistentInstanceV (v :: Wasm.WasmVersion) c = PersistentInstanceV {
     -- |The fixed parameters of the instance.
     pinstanceParameters :: !(BufferedRef PersistentInstanceParameters),
     -- |The interface of 'pinstanceContractModule'. Note this is a BufferedRef to a Module as this
     -- is how the data is stored in the Modules table. A 'Module' carries a BlobRef to the source
     -- but that reference should never be consulted in the scope of Instance operations.
-    pinstanceModuleInterface :: !(BufferedRef (Modules.ModuleV v)),
+    pinstanceModuleInterface :: !(CachedRef c (Modules.ModuleV v)),
     -- |The current local state of the instance
-    pinstanceModel :: !(BlobRef (InstanceStateV v)),
+    pinstanceModel :: !(InstanceStateV v),
     -- |The current amount of GTU owned by the instance
     pinstanceAmount :: !Amount,
     -- |Hash of the smart contract instance
