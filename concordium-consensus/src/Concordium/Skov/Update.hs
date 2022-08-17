@@ -552,7 +552,7 @@ doStoreBlock pb@GB.PendingBlock{pbBlock = BakedBlock{..}, ..} = unlessShutDown $
                                     Nothing -> continuePending -- Cannot check the proof (yet)
                                     Just nonce -> do
                                         -- We get the election difficulty based on the last finalized block.
-                                        -- In principle, this could change before the block. 
+                                        -- In principle, this could change before the block.
                                         elDiff <- getElectionDifficulty lastFinBS slotTime
                                         if verifyProof
                                                 nonce
@@ -568,9 +568,9 @@ doStoreBlock pb@GB.PendingBlock{pbBlock = BakedBlock{..}, ..} = unlessShutDown $
                                             processDead
                         Nothing -> processDead
                     Nothing -> continuePending
-        processLive slotTime parentP = do
-                -- Check that the claimed key matches the signature/blockhash
-                checkClaimedSignature $ do
+        processLive slotTime parentP =
+            -- Check that the claimed key matches the signature/blockhash
+            checkClaimedSignature $ do
                 -- The block is new, so we have some work to do.
                 logEvent Skov LLInfo $ "Received block " ++ show pb
                 -- We process the block's transactions in the context of the parent block.
