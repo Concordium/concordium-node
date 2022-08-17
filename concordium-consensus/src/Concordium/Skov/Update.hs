@@ -296,6 +296,9 @@ addBlock block txvers = do
             return ResultStale
         parent = blockPointer block
 
+-- |Add a block to the pending blocks table, returning 'ResultPendingBlock'.
+-- It is assumed that the parent of the block is unknown or also a pending block, and that its
+-- slot time is after the slot time of the last finalized block.
 addBlockAsPending :: (TreeStateMonad m, MonadLogger m) => PendingBlock -> m UpdateResult
 addBlockAsPending block = do
         addPendingBlock block
@@ -304,52 +307,67 @@ addBlockAsPending block = do
         logEvent Skov LLDebug $ "Block " ++ show block ++ " is pending its parent (" ++ show parent ++ ")"
         return ResultPendingBlock
 
-addBlockWithLiveParent :: forall m. (HasCallStack, TreeStateMonad m, SkovMonad m, FinalizationMonad m, OnSkov m) => PendingBlock -> [Maybe TV.VerificationResult] -> BlockPointerType m -> m UpdateResult
-addBlockWithLiveParent block txvers parentP = -- The parent block must be Alive or Finalized here.
-            -- Determine if the block's finalized data is valid and if so what
-            -- its last finalized block pointer should be.
-            case blockFinalizationData block of
-                -- If the block contains no finalization data, it is trivially valid and
-                -- inherits the last finalized pointer from the parent.
-                NoFinalizationData -> tryAddParentLastFin Nothing =<< bpLastFinalized parentP
-                -- If the block contains a finalization record...
-                BlockFinalizationData finRec@FinalizationRecord{finalizationBlockPointer=finBP,..} -> do
-                    -- Get whichever block was finalized at the previous index.
-                    -- We do this before calling finalization because there is a (slightly) greater
-                    -- chance that this is the last finalized block, which saves a DB lookup.
-                    previousFinalized <- fmap finalizationBlockPointer <$> recordAtFinIndex (finalizationIndex - 1)
-                    -- send it for finalization processing
-                    finOK <- finalizationReceiveRecord True finRec >>= \case
-                        ResultSuccess ->
-                            -- In this event, we can be sure that the finalization record
-                            -- was used to finalize a block; so in particular, the block it
-                            -- finalizes is the named one.
-                            -- Check that the parent block is still live: potentially, the
-                            -- block might not be descended from the one it has a finalization
-                            -- record for.  Furthermore, if the parent block is finalized now,
-                            -- it has to be the last finalized block.
-                            getBlockStatus (bpHash parentP) >>= \case
-                                Just BlockAlive{} -> return True
-                                Just BlockFinalized{} -> do
-                                    -- The last finalized block may have changed as a result
-                                    -- of the call to finalizationReceiveRecord.
-                                    (lf, _) <- getLastFinalized
-                                    return (parentP == lf)
-                                _ -> return False
-                        ResultDuplicate -> return True
-                        _ -> return False
-                    -- check that the finalized block at the previous index
-                    -- is the last finalized block of the parent
-                    check "invalid finalization" (finOK && previousFinalized == Just (bpLastFinalizedHash  parentP)) $
-                        finalizationUnsettledRecordAt finalizationIndex >>= \case
-                            Nothing -> invalidBlock $ "no unsettled finalization at index " ++ show finalizationIndex
-                            Just (_,committee,_) ->
-                                -- Check that the finalized block at the given index
-                                -- is actually the one named in the finalization record.
-                                blockAtFinIndex finalizationIndex >>= \case
-                                    Just fbp -> check "finalization inconsistency" (bpHash fbp == finBP) $
-                                                    tryAddParentLastFin (Just (makeFinalizerInfo committee finalizationProof)) fbp
-                                    Nothing -> invalidBlock $ "no finalized block at index " ++ show finalizationIndex
+-- |Add a block where the parent block is known to be live, and the transactions have been verified.
+-- If the block proves to be valid, it is added to the tree and this returns 'ResultSuccess'.
+-- Otherwise, the block is marked dead and 'ResultInvalid' is returned.
+--
+-- It is assumed that the slot time of the block is after the last finalized block.
+addBlockWithLiveParent ::
+    forall m.
+    (HasCallStack, TreeStateMonad m, SkovMonad m, FinalizationMonad m, OnSkov m) =>
+    -- |Block to add
+    PendingBlock ->
+    -- |Verification results of transactions, corresponding to those in the block
+    [Maybe TV.VerificationResult] ->
+    -- |Parent block pointer
+    BlockPointerType m ->
+    m UpdateResult
+addBlockWithLiveParent block txvers parentP =
+        -- The parent block must be Alive or Finalized here.
+        -- Determine if the block's finalized data is valid and if so what
+        -- its last finalized block pointer should be.
+        case blockFinalizationData block of
+            -- If the block contains no finalization data, it is trivially valid and
+            -- inherits the last finalized pointer from the parent.
+            NoFinalizationData -> tryAddParentLastFin Nothing =<< bpLastFinalized parentP
+            -- If the block contains a finalization record...
+            BlockFinalizationData finRec@FinalizationRecord{finalizationBlockPointer=finBP,..} -> do
+                -- Get whichever block was finalized at the previous index.
+                -- We do this before calling finalization because there is a (slightly) greater
+                -- chance that this is the last finalized block, which saves a DB lookup.
+                previousFinalized <- fmap finalizationBlockPointer <$> recordAtFinIndex (finalizationIndex - 1)
+                -- send it for finalization processing
+                finOK <- finalizationReceiveRecord True finRec >>= \case
+                    ResultSuccess ->
+                        -- In this event, we can be sure that the finalization record
+                        -- was used to finalize a block; so in particular, the block it
+                        -- finalizes is the named one.
+                        -- Check that the parent block is still live: potentially, the
+                        -- block might not be descended from the one it has a finalization
+                        -- record for.  Furthermore, if the parent block is finalized now,
+                        -- it has to be the last finalized block.
+                        getBlockStatus (bpHash parentP) >>= \case
+                            Just BlockAlive{} -> return True
+                            Just BlockFinalized{} -> do
+                                -- The last finalized block may have changed as a result
+                                -- of the call to finalizationReceiveRecord.
+                                (lf, _) <- getLastFinalized
+                                return (parentP == lf)
+                            _ -> return False
+                    ResultDuplicate -> return True
+                    _ -> return False
+                -- check that the finalized block at the previous index
+                -- is the last finalized block of the parent
+                check "invalid finalization" (finOK && previousFinalized == Just (bpLastFinalizedHash  parentP)) $
+                    finalizationUnsettledRecordAt finalizationIndex >>= \case
+                        Nothing -> invalidBlock $ "no unsettled finalization at index " ++ show finalizationIndex
+                        Just (_,committee,_) ->
+                            -- Check that the finalized block at the given index
+                            -- is actually the one named in the finalization record.
+                            blockAtFinIndex finalizationIndex >>= \case
+                                Just fbp -> check "finalization inconsistency" (bpHash fbp == finBP) $
+                                                tryAddParentLastFin (Just (makeFinalizerInfo committee finalizationProof)) fbp
+                                Nothing -> invalidBlock $ "no finalized block at index " ++ show finalizationIndex
     where
         invalidBlock :: String -> m UpdateResult
         invalidBlock reason = do
@@ -488,21 +506,18 @@ doStoreBlock pb@GB.PendingBlock{pbBlock = BakedBlock{..}, ..} = unlessShutDown $
                 -- The block must be later than the last finalized block, otherwise it is already
                 -- dead.
                 if lfs >= blockSlot pb then processDead else do
-
-                -- Get the parent if available
-                let parent = blockPointer bbFields
-                parentStatus <- getRecentBlockStatus parent
-                    
-                -- If the parent is unknown, try to check the signing key and block proof based on the last finalized block
-                case parentStatus of
-                    Unknown -> processPending slotTime
-                    RecentBlock (BlockPending _) -> processPending slotTime
-                    RecentBlock BlockDead -> processDead
-                    RecentBlock (BlockFinalized parentB _) -> processLive slotTime parentB
-                    RecentBlock (BlockAlive parentB) -> processLive slotTime parentB
-                    OldFinalized -> processDead
+                    -- Get the parent if available
+                    let parent = blockPointer bbFields
+                    parentStatus <- getRecentBlockStatus parent
+                    -- If the parent is unknown, try to check the signing key and block proof based on the last finalized block
+                    case parentStatus of
+                        Unknown -> processPending slotTime
+                        RecentBlock (BlockPending _) -> processPending slotTime
+                        RecentBlock (BlockAlive parentB) -> processLive slotTime parentB
+                        RecentBlock (BlockFinalized parentB _) -> processLive slotTime parentB
+                        RecentBlock BlockDead -> processDead
+                        OldFinalized -> processDead
             _ -> return ResultDuplicate
-
     where
         checkClaimedSignature a = if verifyBlockSignature pb then a else do
             logEvent Skov LLWarning "Dropping block where signature did not match claimed key or blockhash."
@@ -521,36 +536,44 @@ doStoreBlock pb@GB.PendingBlock{pbBlock = BakedBlock{..}, ..} = unlessShutDown $
                 lastFinBS <- blockState lastFin
                 gd <- getGenesisData
                 let continuePending = checkClaimedSignature $ do
-                    processBlockTransactions slotTime lastFinBS >>= \case
-                        Nothing -> processDead
-                        Just (newBlock, _) -> addBlockAsPending newBlock
+                        -- We execute the block transactions in the context of the last finalized block
+                        processBlockTransactions slotTime lastFinBS >>= \case
+                            Nothing -> processDead
+                            Just (newBlock, _) -> addBlockAsPending newBlock
                 getDefiniteSlotBakers gd lastFinBS (blockSlot pb) >>= \case
                     Just bakers -> case lotteryBaker bakers (blockBaker pb) of
-                        Just (bkrInfo, _)
+                        Just (bkrInfo, bkrPower)
                             | bkrInfo ^. bakerSignatureVerifyKey /= blockBakerKey pb -> do
-                                logEvent Skov LLWarning $ "Pending block is not signed by a valid baker:" ++ show pb
+                                logEvent Skov LLWarning $ "Pending block is not signed by a valid baker: " ++ show pb
                                 processDead
                             | otherwise -> do
                                 lastFinSS <- getSeedState lastFinBS
                                 case predictLeadershipElectionNonce lastFinSS (blockSlot lastFin) (blockSlot pb) of
-                                    Nothing -> continuePending
-                                    Just nonce -> undefined
-                                        -- XXX: We cannot reliably check the proof, because and intervening block might change the election difficulty.
+                                    Nothing -> continuePending -- Cannot check the proof (yet)
+                                    Just nonce -> do
+                                        -- We get the election difficulty based on the last finalized block.
+                                        -- In principle, this could change before the block. 
+                                        elDiff <- getElectionDifficulty lastFinBS slotTime
+                                        if verifyProof
+                                                nonce
+                                                elDiff
+                                                (blockSlot pb)
+                                                (bkrInfo ^. bakerElectionVerifyKey)
+                                                bkrPower
+                                                (blockProof pb)
+                                        then do
+                                            continuePending
+                                        else do
+                                            logEvent Skov LLWarning $ "Block proof of pending block was not verifiable: " ++ show pb
+                                            processDead
                         Nothing -> processDead
-                    
                     Nothing -> continuePending
-
-                
-
-                -- processLive slotTime =<< blockState . fst =<< getLastFinalized
         processLive slotTime parentP = do
                 -- Check that the claimed key matches the signature/blockhash
                 checkClaimedSignature $ do
                 -- The block is new, so we have some work to do.
                 logEvent Skov LLInfo $ "Received block " ++ show pb
-                -- XXX Get the `BlockState` in which the transactions should be verified.
-                -- XXX This is the parent `BlockState` if it's available and alive otherwise we fallback to
-                -- XXX use the last finalized `BlockState`.
+                -- We process the block's transactions in the context of the parent block.
                 bs <- blockState parentP
                 processBlockTransactions slotTime bs >>= \case
                     Nothing -> processDead
