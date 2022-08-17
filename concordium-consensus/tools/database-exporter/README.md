@@ -34,6 +34,7 @@ large `--chunksize` argument, for example, 1000000000000.
 
 After upgrading to `database-exporter` shipped with `concordium-node` >4.3.0, use the `--chunksize`
 option to every invocation of `database-exporter export`, as it is required. A good first choice of
-the `--chunksize` argument is 1000, which exports block files no larger than 3 GiB each (at the
-current mainnet block size of 3 MiB).
+the `--chunksize` argument is 10000, which is close to the number of blocks produced on the mainnet
+daily. At the current mainnet maximum block size of 3 MiB, the resulting block files will not exceed
+30 GiB in size.
 
