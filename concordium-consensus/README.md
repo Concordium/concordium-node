@@ -117,38 +117,6 @@ In addition to the library and tests this package contains a number of supportin
 
 ## [database-exporter](./tools/database-exporter/)
 
-This is a tool that can export blocks from the node's database into a file that
-can later be used to import them quickly if a new node is, or to analyze the blocks.
-
-1. Export
-
-When having a `data.mdb` file in path `$DATA`, we execute the tool providing an output path `$OUT`:
-```
-stack run database-exporter -- --dbpath $DATA --exportpath $OUT
-```
-
-This will generate a binary file that contains all the blocks written to the database **excluding** the genesis block. Each serialized block is prepended by its length in bytes.
-
-2. Check
-
-When having an exported database in path `$OUT` we execute the tool with the `-r` flag:
-```
-stack run database-exporter -- --exportpath $OUT -r
-```
-
-This will try to read the exported file showing the hash and block slot for each
-block read from the file. With this we can check that the exported data is well
-formed. Note that this doesn't check if the blocks are properly chained in
-sequence or any other integrity rule.
-
-3. Import
-
-When a baker is created and before starting the baker thread, we can provide the
-blocks in sequence and they will be imported. As the blocks are finalized, a
-consumer baker would reach the same point in the chain as the one that exported
-the blocks because the blocks carry the finalization information. An easy way to
-do this, integrated with the tools we have is providing the exported file to the
-`concordium-node` via the flag `--import-blocks-from <PATH>`. The `concordium-node` will
-retrieve the file and give it to consensus, who will import each serialized
-block in sequence. If any imports fail, the state will remain as-is and the node
-will have to catch-up after starting.
+This is a tool that can export blocks from the node's database into a file that can later be used to
+import them quickly if a new node is, or to analyze the blocks. See its
+[README](./tools/database-exporter/README.md) for additional information.

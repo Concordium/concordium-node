@@ -1,6 +1,9 @@
 # Changelog
 
-## Unrelease changes
+## Unreleased changes
+
+- `database-exporter` now produces a collection of export files, instead of a single file. The new
+  `--chunksize` option specifies the size of export files in blocks.
 
 ## 4.3.0
 

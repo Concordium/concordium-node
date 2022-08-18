@@ -47,7 +47,8 @@ main = do
     Identity conf <- execParser opts
     case conf of
         Check file -> checkDatabase file
-        Export db filepath -> exportDatabaseV3 db filepath
+        Export db filepath n | n > 0 -> exportDatabaseV3 db filepath n
+        Export _ _ _ -> putStrLn "Chunk size should be larger than 0"
   where
     opts =
         info
