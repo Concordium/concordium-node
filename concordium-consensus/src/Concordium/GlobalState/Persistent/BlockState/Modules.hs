@@ -175,8 +175,8 @@ type SupportsPersistentModules m = (MonadBlobStore m, MonadCache ModuleCache m)
 -- |The collection of modules stored in a block state.
 data Modules = Modules {
   -- |A tree of 'Module's indexed by 'ModuleIndex'
-  -- The modules are themselves cached via the `HashedCachedRef` while
-  -- the stems usually are all in memory.
+  -- The modules themselves are cached `HashedCachedRef` hence only a limited
+  -- amount of modules may be retained in memory at the same time. 
   _modulesTable :: !(LFMBTree' ModuleIndex HashedBufferedRef (HashedCachedRef ModuleCache Module)),
   -- |A map of ModuleRef to ModuleIndex.
   _modulesMap :: !(Map ModuleRef ModuleIndex)
@@ -235,7 +235,7 @@ getModule ref mods =
     Nothing -> return Nothing
     Just idx -> LFMB.lookup idx (mods ^. modulesTable)
 
--- |Gets the Cached reference to a module as stored in the module table
+-- |Gets the 'HashedCachedRef' to a module as stored in the module table
 -- to be given to instances when associating them with the interface.
 -- The reason we return the reference here is to allow for sharing of the reference.
 getModuleReference :: SupportsPersistentModules m => ModuleRef -> Modules -> m (Maybe (HashedCachedRef ModuleCache Module))

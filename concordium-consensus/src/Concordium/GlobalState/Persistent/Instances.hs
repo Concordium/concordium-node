@@ -94,7 +94,7 @@ instance Applicative m => Cacheable m PersistentInstanceParameters
 data PersistentInstanceV (v :: Wasm.WasmVersion) = PersistentInstanceV {
     -- |The fixed parameters of the instance.
     pinstanceParameters :: !(BufferedRef PersistentInstanceParameters),
-    -- |The interface of 'pinstanceContractModule'. Note this is a CachedRef to a Module as this
+    -- |The interface of 'pinstanceContractModule'. Note this is a 'CachedRef' to a Module as this
     -- is how the data is stored in the Modules table. A 'Module' carries a BlobRef to the source
     -- but that reference should never be consulted in the scope of Instance operations.
     -- The module will always be of version @v@.
