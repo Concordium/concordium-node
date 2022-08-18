@@ -291,7 +291,7 @@ pub struct BakerConfig {
         long = "modules-cache-size",
         help = "The maximum number of artifacts that can be stored in the module cache",
         default_value = "1000",
-        env = "CONCORDIUM_NODE_CONSENSUS_INSTANCES_CACHE_SIZE"
+        env = "CONCORDIUM_NODE_CONSENSUS_MODULES_CACHE_SIZE"
     )]
     pub modules_cache_size: u32,
 }
