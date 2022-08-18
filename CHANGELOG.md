@@ -24,6 +24,11 @@
 - Remove transaction logging functionality from the node. It is replaced by an
   external service. As a consequence the `transaction-outcome-logging` family of
   command-line options are removed from the node.
+- Smart contracts are no longer being constantly retained in memory. Instead a 
+  limited number of smart contract instances are being retained in a cache. 
+  By default the node will retain at most 1000 smart contract instances in memory, however this
+  is configurable via the `--modules-cache-size` command line argument or by using the 
+  `CONCORDIUM_NODE_CONSENSUS_MODULES_CACHE_SIZE` environment variable.
 
 ## 4.2.3
 
