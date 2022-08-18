@@ -93,7 +93,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     info!("Starting consensus layer");
-    let consensus = plugins::consensus::start_consensus_layer(
+    let (consensus, notification_handlers) = plugins::consensus::start_consensus_layer(
         &conf.cli.baker,
         gen_data,
         priv_data,
@@ -143,17 +143,13 @@ async fn main() -> anyhow::Result<()> {
         None
     };
 
-    {
-        info!("Starting RPC V2 server");
-        let mut serv =
-            concordium_node::grpc2::server::RpcServerImpl::new(node.clone(), consensus.clone())
-                .context("Cannot create RPC V2 server.")?;
-        let task = tokio::spawn(async move {
-            if let Err(e) = serv.start_server().await {
-                error!("Error starting RPC V2 server: {}", e)
-            }
-        });
-    }
+    let rpc2 = concordium_node::grpc2::server::GRPC2Server::new(
+        &node,
+        &consensus,
+        &conf.cli.grpc2,
+        notification_handlers,
+    )
+    .context("Unable to start GRPC2 server.")?;
 
     maybe_do_out_of_band_catchup(
         &consensus,
@@ -205,6 +201,11 @@ async fn main() -> anyhow::Result<()> {
                 warn!("RPC server was forcefully shut down due to: {}", timed_out);
             }
         }
+    }
+
+    // Message grpc2 to shutdown if it exists.
+    if let Some(rpc2) = rpc2 {
+        rpc2.shutdown().await
     }
 
     // Shutdown node

@@ -253,16 +253,6 @@ pub enum ConsensusFfiResponse {
 }
 
 impl ConsensusFfiResponse {
-    /// Check that the response is [Success](Self::Success) and convert to an appropriate
-    /// [tonic::Status] if not.
-    pub fn check_rpc_response(self) -> Result<(), tonic::Status> {
-        match self {
-            Self::Success => Ok(()),
-            Self::NotFound => Err(tonic::Status::not_found(self.to_string())),
-            _ => Err(tonic::Status::invalid_argument(self.to_string()))
-        }
-    }
-
     pub fn is_successful(self) -> bool {
         use ConsensusFfiResponse::*;
 
@@ -333,11 +323,23 @@ impl ConsensusFfiResponse {
     }
 }
 
+#[derive(Debug, Error)]
+#[error("Unsupported FFI return code ({unknown_code})")]
+pub struct ConsensusFfiResponseConversionError {
+    unknown_code: i64,
+}
+
+impl From<ConsensusFfiResponseConversionError> for tonic::Status {
+    fn from(code: ConsensusFfiResponseConversionError) -> Self {
+        Self::internal(format!("Unexpected response from FFI call: {}.", code.unknown_code))
+    }
+}
+
 impl TryFrom<i64> for ConsensusFfiResponse {
-    type Error = anyhow::Error;
+    type Error = ConsensusFfiResponseConversionError;
 
     #[inline]
-    fn try_from(value: i64) -> anyhow::Result<ConsensusFfiResponse> {
+    fn try_from(value: i64) -> Result<ConsensusFfiResponse, ConsensusFfiResponseConversionError> {
         use ConsensusFfiResponse::*;
 
         match value {
@@ -374,7 +376,9 @@ impl TryFrom<i64> for ConsensusFfiResponse {
             29 => Ok(MaxBlockEnergyExceeded),
             30 => Ok(InsufficientFunds),
             31 => Ok(NotFound),
-            _ => Err(anyhow!("Unsupported FFI return code ({})", value)),
+            _ => Err(ConsensusFfiResponseConversionError {
+                unknown_code: value,
+            }),
         }
     }
 }
@@ -423,6 +427,46 @@ impl TryFrom<u8> for ConsensusIsInFinalizationCommitteeResponse {
             1 => Ok(AddedButNotActiveInCommittee),
             2 => Ok(ActiveInCommittee),
             _ => Err(anyhow!("Unsupported FFI return code for committee status ({})", value)),
+        }
+    }
+}
+
+pub enum ConsensusQueryResponse {
+    Ok,
+    NotFound,
+}
+
+impl ConsensusQueryResponse {
+    pub fn check_rpc_response(self) -> Result<(), tonic::Status> {
+        match self {
+            Self::Ok => Ok(()),
+            Self::NotFound => Err(tonic::Status::not_found("Object not found.")),
+        }
+    }
+}
+
+#[derive(Debug, Error)]
+#[error("Unsupported query response return code ({unknown_code})")]
+pub struct ConsensusQueryUnknownCode {
+    unknown_code: i64,
+}
+
+impl From<ConsensusQueryUnknownCode> for tonic::Status {
+    fn from(code: ConsensusQueryUnknownCode) -> Self {
+        Self::internal(format!("Unexpected response from internal query: {}.", code.unknown_code))
+    }
+}
+
+impl TryFrom<i64> for ConsensusQueryResponse {
+    type Error = ConsensusQueryUnknownCode;
+
+    fn try_from(value: i64) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::Ok),
+            1 => Ok(Self::NotFound),
+            unknown_code => Err(ConsensusQueryUnknownCode {
+                unknown_code,
+            }),
         }
     }
 }

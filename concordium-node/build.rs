@@ -143,7 +143,7 @@ fn main() -> std::io::Result<()> {
                 .name("finalized_blocks")
                 .route_name("FinalizedBlocks")
                 .input_type("crate::grpc2::types::Empty")
-                .output_type("Vec<u8>")
+                .output_type("Arc<[u8]>")
                 .codec_path("crate::grpc2::RawCodec")
                 .server_streaming()
                 .build(),
@@ -155,6 +155,16 @@ fn main() -> std::io::Result<()> {
                 .input_type("crate::grpc2::types::AccountInfoRequest")
                 .output_type("Vec<u8>")
                 .codec_path("crate::grpc2::RawCodec")
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
+                .name("get_account_list")
+                .route_name("GetAccountList")
+                .input_type("crate::grpc2::types::BlockHashInput")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .server_streaming()
                 .build(),
         )
         .build();

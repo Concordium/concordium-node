@@ -11,6 +11,7 @@ use preferences::{Preferences, PreferencesMap};
 use std::{
     fs::{File, OpenOptions},
     io::{BufReader, BufWriter, Write},
+    net::SocketAddr,
     path::{Path, PathBuf},
     str::FromStr,
 };
@@ -323,6 +324,34 @@ pub struct RpcCliConfig {
 }
 
 #[derive(StructOpt, Debug)]
+/// Parameters related to the V2 GRPC interface.
+pub struct GRPC2Config {
+    #[structopt(
+        name = "api-listen-address",
+        long = "api-listen-address",
+        help = "Address the GRPC server should listen on, e.g., 127.0.0.1:20000",
+        env = "CONCORDIUM_NODE_API_LISTEN_ADDR"
+    )]
+    pub api_listen_addr:      Option<SocketAddr>,
+    #[structopt(
+        long = "api-x509-cert",
+        help = "Certificate used to enable TLS support",
+        env = "CONCORDIUM_NODE_API_X509_CERT",
+        requires = "api-listen-address",
+        requires = "api-cert-private-key"
+    )]
+    pub api_x509_cert:        Option<PathBuf>,
+    #[structopt(
+        long = "api-cert-private-key",
+        help = "Private key corresponding to the certificate",
+        env = "CONCORDIUM_NODE_API_X509_CERT",
+        requires = "api-listen-address",
+        requires = "api-x509-cert"
+    )]
+    pub api_cert_private_key: Option<PathBuf>,
+}
+
+#[derive(StructOpt, Debug)]
 // Parameters related to connections.
 pub struct ConnectionConfig {
     #[structopt(
@@ -629,6 +658,8 @@ pub struct CliConfig {
     pub baker: BakerConfig,
     #[structopt(flatten)]
     pub rpc: RpcCliConfig,
+    #[structopt(flatten)]
+    pub grpc2: GRPC2Config,
     #[structopt(
         long = "timeout-bucket-entry-period",
         help = "Timeout an entry in the buckets after a given period (in ms), 0 means never",

@@ -4,7 +4,10 @@ use crate::{
         blockchain_types::BlockHash,
         catch_up::*,
         consensus::*,
-        helpers::{ConsensusFfiResponse, ConsensusIsInBakingCommitteeResponse, PacketType},
+        helpers::{
+            ConsensusFfiResponse, ConsensusIsInBakingCommitteeResponse, ConsensusQueryResponse,
+            PacketType,
+        },
         messaging::*,
     },
     write_or_die,
@@ -13,7 +16,7 @@ use anyhow::{anyhow, bail, Context};
 use byteorder::{NetworkEndian, ReadBytesExt};
 use crypto_common::Serial;
 use std::{
-    convert::TryFrom,
+    convert::{TryFrom, TryInto},
     ffi::{CStr, CString},
     io::{Cursor, Write},
     os::raw::{c_char, c_int},
@@ -253,11 +256,39 @@ type DirectMessageCallback = extern "C" fn(
 type RegenesisCallback = unsafe extern "C" fn(*const Regenesis, *const u8);
 type RegenesisFreeCallback = unsafe extern "C" fn(*const Regenesis);
 
-type CopyToVecCallback = extern "C" fn(
-    *mut Vec<u8>,
-    *const u8,
-    i64,
-);
+/// A type of callback that is used to copy the provided data at the end of the
+/// given vector.
+type CopyToVecCallback = extern "C" fn(*mut Vec<u8>, *const u8, i64);
+
+/// Context necessary for Haskell code/Consensus to send notifications on
+/// important events to Rust code (i.e., RPC server, or network layer).
+pub struct NotifyContext {
+    /// Notification channel for newly added blocks. This is an unbounded
+    /// channel since it makes the implementation simpler. This should not be a
+    /// problem since the consumer of this channel is a dedicated task and
+    /// blocks are not added to the tree that quickly. So there should not be
+    /// much contention for this.
+    blocks:           futures::channel::mpsc::UnboundedSender<Arc<[u8]>>,
+    /// Notification channel for newly finalized blocks. See
+    /// [NotificationContext::blocks] documentation for why having an unbounded
+    /// channel is OK here, and is unlikely to lead to resource exhaustion.
+    finalized_blocks: futures::channel::mpsc::UnboundedSender<Arc<[u8]>>,
+}
+
+/// A type of callback used to notify Rust code of important events. The
+/// callback is called with
+/// - the context
+/// - the event type (0 for block arrived, 1 for block finalized)
+/// - pointer to a byte array containing the serialized event
+/// - length of the data
+///
+/// The callback should not retain references to supplied data after the exit.
+type NotifyCallback = unsafe extern "C" fn(*mut NotifyContext, u8, *const u8, u64);
+
+pub struct NotificationHandlers {
+    pub blocks:           futures::channel::mpsc::UnboundedReceiver<Arc<[u8]>>,
+    pub finalized_blocks: futures::channel::mpsc::UnboundedReceiver<Arc<[u8]>>,
+}
 
 #[allow(improper_ctypes)]
 extern "C" {
@@ -272,6 +303,8 @@ extern "C" {
         genesis_data_len: i64,
         private_data: *const u8,
         private_data_len: i64,
+        notify_context: *mut NotifyContext,
+        notify_callback: NotifyCallback,
         broadcast_callback: BroadcastCallback,
         catchup_status_callback: CatchUpStatusCallback,
         regenesis_arc: *const Regenesis,
@@ -292,6 +325,8 @@ extern "C" {
         accounts_cache_size: u32,
         genesis_data: *const u8,
         genesis_data_len: i64,
+        notify_context: *mut NotifyContext,
+        notify_callback: NotifyCallback,
         catchup_status_callback: CatchUpStatusCallback,
         regenesis_arc: *const Regenesis,
         free_regenesis_arc: RegenesisFreeCallback,
@@ -461,7 +496,9 @@ extern "C" {
 
     pub fn freeByteArray(hstring: *const u8);
 
-    ///
+    // Functions related to V2 GRPC interface.
+
+    /// Get an information about a specific account
     pub fn getAccountInfoV2(
         consensus: *mut consensus_runner,
         acc_type: u8,
@@ -469,19 +506,68 @@ extern "C" {
         block_id_type: u8,
         block_hash: *const u8,
         out: *mut Vec<u8>,
-        copier: CopyToVecCallback
+        copier: CopyToVecCallback,
     ) -> i64;
 
     /// Stream finalized blocks when they become available.
-    pub fn streamFinalized(
+    pub fn getAccountListV2(
         consensus: *mut consensus_runner,
-        sender: *mut futures::channel::mpsc::Sender<Vec<u8>>,
+        sender: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+        block_id_type: u8,
+        block_hash: *const u8,
+        out_hash: *mut u8,
         callback: extern "C" fn(
-            *mut futures::channel::mpsc::Sender<Vec<u8>>,
+            *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
             *const u8,
             i64,
         ) -> i32,
     ) -> i64;
+}
+
+/// This is the callback invoked by consensus on newly arrived, and newly
+/// finalized blocks. The callback enqueues the block in the corresponding
+/// channel for further processing. The other end of the channel is owned by a
+/// background task that forwards data from the channels into any currently
+/// active RPC clients.
+unsafe extern "C" fn notify_callback(
+    notify_context: *mut NotifyContext,
+    ty: u8,
+    data_ptr: *const u8,
+    data_len: u64,
+) {
+    let sender = &*notify_context;
+    match ty {
+        0u8 => {
+            if sender
+                .blocks
+                .unbounded_send(std::slice::from_raw_parts(data_ptr, data_len as usize).into())
+                .is_err()
+            {
+                error!("Failed to enqueue block that arrived.");
+                // do nothing. The error here should only happen if the
+                // receiver is disconnected, which means that the task
+                // forwarding events has been killed. That should never happen,
+                // and if it does indicates a disastrous situation.
+            }
+        }
+        1u8 => {
+            if sender
+                .finalized_blocks
+                .unbounded_send(std::slice::from_raw_parts(data_ptr, data_len as usize).into())
+                .is_err()
+            {
+                error!("Failed to enqueue finalized block.");
+                // do nothing. The error here should only happen if the
+                // receiver is disconnected, which means that the task
+                // forwarding events has been killed. That should never happen,
+                // and if it does indicates a disastrous situation.
+            }
+        }
+        unexpected => {
+            error!("Unexpected notification type {}. This is a bug.", unexpected);
+            // do nothing
+        }
+    }
 }
 
 pub fn get_consensus_ptr(
@@ -491,9 +577,18 @@ pub fn get_consensus_ptr(
     maximum_log_level: ConsensusLogLevel,
     appdata_dir: &Path,
     regenesis_arc: Arc<Regenesis>,
-) -> anyhow::Result<*mut consensus_runner> {
+) -> anyhow::Result<(*mut consensus_runner, NotificationHandlers)> {
     let genesis_data_len = genesis_data.len();
-
+    let (sender, receiver) = futures::channel::mpsc::unbounded();
+    let (sender_finalized, receiver_finalized) = futures::channel::mpsc::unbounded();
+    let notify_context = NotifyContext {
+        blocks:           sender,
+        finalized_blocks: sender_finalized,
+    };
+    let notification_handlers = NotificationHandlers {
+        blocks:           receiver,
+        finalized_blocks: receiver_finalized,
+    };
     let mut runner_ptr = std::ptr::null_mut();
     let runner_ptr_ptr = &mut runner_ptr;
     let ret_code = match private_data {
@@ -512,6 +607,8 @@ pub fn get_consensus_ptr(
                     genesis_data_len as i64,
                     private_data_bytes.as_ptr(),
                     private_data_len as i64,
+                    Box::into_raw(Box::new(notify_context)),
+                    notify_callback,
                     broadcast_callback,
                     catchup_status_callback,
                     Arc::into_raw(regenesis_arc),
@@ -538,6 +635,8 @@ pub fn get_consensus_ptr(
                         runtime_parameters.accounts_cache_size,
                         genesis_data.as_ptr(),
                         genesis_data_len as i64,
+                        Box::into_raw(Box::new(notify_context)),
+                        notify_callback,
                         catchup_status_callback,
                         Arc::into_raw(regenesis_arc),
                         free_regenesis_arc,
@@ -553,7 +652,7 @@ pub fn get_consensus_ptr(
         }
     };
     match ret_code {
-        0 => Ok(runner_ptr),
+        0 => Ok((runner_ptr, notification_handlers)),
         // NB: the following errors should be in line with
         // the enumeration defined by `toStartResult` in External.hs
         1 => bail!("Cannot decode given genesis data."),
@@ -910,33 +1009,19 @@ impl ConsensusContainer {
     }
 
     /// Stream finalized blocks when they become available.
-    pub fn stream_finalized_blocks(
-        &self,
-        sender: futures::channel::mpsc::Sender<Vec<u8>>,
-    ) -> ConsensusFfiResponse {
-        let sender = Box::new(sender);
-        let consensus = self.consensus.load(Ordering::SeqCst);
-        let response = unsafe {
-            streamFinalized(consensus, Box::into_raw(sender), enqueue_bytearray_callback)
-        };
-        ConsensusFfiResponse::try_from(response).unwrap()
-    }
-
-    /// Stream finalized blocks when they become available.
     pub fn get_account_info_v2(
         &self,
         block_hash: &crate::grpc2::types::BlockHashInput,
         account_identifier: &crate::grpc2::types::account_info_request::AccountIdentifier,
     ) -> Result<Vec<u8>, tonic::Status> {
         use crate::grpc2::Require;
-        use std::convert::TryInto;
         let (block_id_type, block_hash) =
             crate::grpc2::types::block_hash_input_to_ffi(block_hash).require_owned()?;
         let (acc_type, acc_id) =
             crate::grpc2::types::account_identifier_to_ffi(account_identifier).require_owned()?;
         let consensus = self.consensus.load(Ordering::SeqCst);
         let mut out_data: Vec<u8> = Vec::new();
-        let response: ConsensusFfiResponse = unsafe {
+        let response: ConsensusQueryResponse = unsafe {
             getAccountInfoV2(
                 consensus,
                 acc_type,
@@ -944,13 +1029,39 @@ impl ConsensusContainer {
                 block_id_type,
                 block_hash,
                 &mut out_data,
-                copy_to_vec_callback
+                copy_to_vec_callback,
             )
-            .try_into()
-            .expect("Unexpected FFI response.")
+            .try_into()?
         };
         response.check_rpc_response()?;
         Ok(out_data)
+    }
+
+    /// Stream finalized blocks when they become available.
+    pub fn get_account_list_v2(
+        &self,
+        block_hash: &crate::grpc2::types::BlockHashInput,
+        sender: futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+    ) -> Result<[u8; 32], tonic::Status> {
+        use crate::grpc2::Require;
+        let sender = Box::new(sender);
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut buf = [0u8; 32];
+        let (block_id_type, block_hash) =
+            crate::grpc2::types::block_hash_input_to_ffi(block_hash).require_owned()?;
+        let response: ConsensusQueryResponse = unsafe {
+            getAccountListV2(
+                consensus,
+                Box::into_raw(sender),
+                block_id_type,
+                block_hash,
+                buf.as_mut_ptr(),
+                enqueue_bytearray_callback,
+            )
+        }
+        .try_into()?;
+        response.check_rpc_response()?;
+        Ok(buf)
     }
 }
 
@@ -1068,14 +1179,21 @@ pub extern "C" fn broadcast_callback(
 /// - -1 if the channel is full.
 /// - -2 if there are no more receivers. In this case the given sender is
 ///   dropped and the given `sender` pointer must not be used anymore.
+///
+/// If the msg is a null pointer then the `sender` is always dropped, and the
+/// response will be `-2`.
 extern "C" fn enqueue_bytearray_callback(
-    sender: *mut futures::channel::mpsc::Sender<Vec<u8>>,
+    sender: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
     msg: *const u8,
     msg_length: i64,
 ) -> i32 {
     let mut sender = unsafe { Box::from_raw(sender) };
+    if msg.is_null() {
+        // drop sender
+        return -2;
+    }
     let data = unsafe { slice::from_raw_parts(msg, msg_length as usize) };
-    match sender.try_send(data.to_vec()) {
+    match sender.try_send(Ok(data.to_vec())) {
         Ok(()) => {
             // Do not drop the sender.
             Box::into_raw(sender);
@@ -1093,16 +1211,13 @@ extern "C" fn enqueue_bytearray_callback(
     }
 }
 
-extern "C" fn copy_to_vec_callback(
-    out: *mut Vec<u8>,
-    data: *const u8,
-    len: i64,
-) {
+/// Copy data at the given location (provided by the `data` pointer) at the end
+/// of the given vector.
+extern "C" fn copy_to_vec_callback(out: *mut Vec<u8>, data: *const u8, len: i64) {
     let data = unsafe { slice::from_raw_parts(data, len as usize) };
-    let out = unsafe {&mut *out};
+    let out = unsafe { &mut *out };
     out.extend_from_slice(data);
 }
-
 
 pub extern "C" fn direct_callback(
     peer_id: u64,

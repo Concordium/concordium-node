@@ -1,6 +1,9 @@
 use crate::consensus_ffi::{
     blockchain_types::BlockHash,
-    ffi::{consensus_runner, get_consensus_ptr, startBaker, stopBaker, stopConsensus},
+    ffi::{
+        consensus_runner, get_consensus_ptr, startBaker, stopBaker, stopConsensus,
+        NotificationHandlers,
+    },
     helpers::{QueueReceiver, QueueSyncSender, RelayOrStopSenderHelper},
     messaging::ConsensusMessage,
 };
@@ -231,7 +234,7 @@ impl ConsensusContainer {
         max_log_level: ConsensusLogLevel,
         appdata_dir: &Path,
         regenesis_arc: Arc<Regenesis>,
-    ) -> anyhow::Result<Self> {
+    ) -> anyhow::Result<(Self, NotificationHandlers)> {
         info!("Starting up the consensus layer");
 
         let consensus_type = if private_data.is_some() {
@@ -248,13 +251,16 @@ impl ConsensusContainer {
             appdata_dir,
             regenesis_arc,
         ) {
-            Ok(consensus_ptr) => Ok(Self {
-                runtime_parameters,
-                is_baking: Arc::new(AtomicBool::new(false)),
-                consensus: Arc::new(AtomicPtr::new(consensus_ptr)),
-                genesis: Arc::from(genesis_data),
-                consensus_type,
-            }),
+            Ok((consensus_ptr, notification_handlers)) => Ok((
+                Self {
+                    runtime_parameters,
+                    is_baking: Arc::new(AtomicBool::new(false)),
+                    consensus: Arc::new(AtomicPtr::new(consensus_ptr)),
+                    genesis: Arc::from(genesis_data),
+                    consensus_type,
+                },
+                notification_handlers,
+            )),
             Err(e) => Err(e),
         }
     }
