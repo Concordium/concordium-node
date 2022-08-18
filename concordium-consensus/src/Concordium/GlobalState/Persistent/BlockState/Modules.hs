@@ -14,8 +14,6 @@ module Concordium.GlobalState.Persistent.BlockState.Modules
     getInterface,
     getSource,
     getModuleReference,
-    unsafeGetModuleReferenceV0,
-    unsafeGetModuleReferenceV1,
     putInterface,
     moduleRefList,
     makePersistentModules,
@@ -223,24 +221,12 @@ getModule ref mods =
 -- |Gets the Cached reference to a module as stored in the module table
 -- to be given to instances when associating them with the interface.
 -- The reason we return the reference here is to allow for sharing of the reference.
-getModuleReference :: SupportsPersistentModules m => ModuleRef -> Modules -> m (Maybe (CachedRef ModuleCache Module))
+getModuleReference :: SupportsPersistentModules m => ModuleRef -> Modules -> m (Maybe (HashedCachedRef ModuleCache Module))
 getModuleReference ref mods =
   let modIdx = Map.lookup ref (mods ^. modulesMap) in
   case modIdx of
     Nothing -> return Nothing
-    Just idx -> fmap lhCachedRef <$> LFMB.lookupRef idx (mods ^. modulesTable)
-
--- |Gets the buffered reference to a module as stored in the module table assuming it is version 0.
-unsafeGetModuleReferenceV0 :: SupportsPersistentModules m => ModuleRef -> Modules -> m (Maybe (CachedRef ModuleCache (ModuleV GSWasm.V0)))
-unsafeGetModuleReferenceV0 ref mods = fmap (unsafeCoerceCachedRef extract) <$> getModuleReference ref mods 
-    where extract (ModuleV0 m) = m
-          extract _ = error "Precondition violation. Expected module version 0, got 1."
--- |Gets the buffered reference to a module as stored in the module table assuming it is version 1.
-unsafeGetModuleReferenceV1 :: SupportsPersistentModules m => ModuleRef -> Modules -> m (Maybe (CachedRef ModuleCache (ModuleV GSWasm.V1)))
-unsafeGetModuleReferenceV1 ref mods = fmap (unsafeCoerceCachedRef extract) <$> getModuleReference ref mods 
-    where extract (ModuleV1 m) = m
-          extract _ = error "Precondition violation. Expected module version 1, got 0."
-
+    Just idx -> LFMB.lookupRef idx (mods ^. modulesTable)
 
 -- |Get an interface by module reference.
 getInterface :: SupportsPersistentModules m

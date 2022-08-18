@@ -91,13 +91,14 @@ instance Applicative m => Cacheable m PersistentInstanceParameters
 -- `v` that is used to tie the instance version to the module version. At
 -- present the version only appears in the module, but with the state changes it
 -- will also appear in the contract state.
-data PersistentInstanceV (v :: Wasm.WasmVersion) c = PersistentInstanceV {
+data PersistentInstanceV (v :: Wasm.WasmVersion) = PersistentInstanceV {
     -- |The fixed parameters of the instance.
     pinstanceParameters :: !(BufferedRef PersistentInstanceParameters),
     -- |The interface of 'pinstanceContractModule'. Note this is a CachedRef to a Module as this
     -- is how the data is stored in the Modules table. A 'Module' carries a BlobRef to the source
     -- but that reference should never be consulted in the scope of Instance operations.
-    pinstanceModuleInterface :: !(CachedRef c (Modules.ModuleV v)),
+    -- The module will always be of version @v@.
+    pinstanceModuleInterface :: !(HashedCachedRef Modules.ModuleCache Modules.Module),
     -- |The current local state of the instance
     pinstanceModel :: !(InstanceStateV v),
     -- |The current amount of GTU owned by the instance
@@ -114,8 +115,8 @@ data PersistentInstanceV (v :: Wasm.WasmVersion) c = PersistentInstanceV {
 -- different instance versions. This is necessary because there is a single
 -- address space for all contract instances.
 data PersistentInstance (pv :: ProtocolVersion) where
-  PersistentInstanceV0 :: PersistentInstanceV GSWasm.V0 Modules.ModuleCache -> PersistentInstance pv
-  PersistentInstanceV1 :: PersistentInstanceV GSWasm.V1 Modules.ModuleCache -> PersistentInstance pv
+  PersistentInstanceV0 :: PersistentInstanceV GSWasm.V0 -> PersistentInstance pv
+  PersistentInstanceV1 :: PersistentInstanceV GSWasm.V1 -> PersistentInstance pv
 
 instance Show (PersistentInstance pv) where
     show (PersistentInstanceV0 PersistentInstanceV {pinstanceModel = InstanceStateV0 model,..}) = show pinstanceParameters ++ " {balance=" ++ show pinstanceAmount ++ ", model=" ++ show model ++ "}"
@@ -230,7 +231,7 @@ instance MonadBlobStore m => Cacheable (ReaderT Modules m) (PersistentInstance p
             ips <- cache pinstanceParameters
             params <- loadBufferedRef ips
             let modref = pinstanceContractModule params
-            miface <- Modules.unsafeGetModuleReferenceV0 modref modules
+            miface <- Modules.getModuleReference modref modules
             case miface of
               Nothing -> return (PersistentInstanceV0 p{pinstanceParameters = ips}) -- this case should never happen, but it is safe to do this.
               Just iface -> return (PersistentInstanceV0 p{pinstanceModuleInterface = iface, pinstanceParameters = ips})
@@ -245,7 +246,7 @@ instance MonadBlobStore m => Cacheable (ReaderT Modules m) (PersistentInstance p
             params <- loadBufferedRef ips
             imodel <- cache pinstanceModel
             let modref = pinstanceContractModule params
-            miface <- Modules.unsafeGetModuleReferenceV1 modref modules
+            miface <- Modules.getModuleReference modref modules
             case miface of
               Nothing -> return (PersistentInstanceV1 p{pinstanceParameters = ips, pinstanceModel = imodel}) -- this case should never happen, but it is safe to do this.
               Just iface -> return (PersistentInstanceV1 p{pinstanceModuleInterface = iface, pinstanceParameters = ips, pinstanceModel = imodel})
@@ -258,7 +259,7 @@ mkInstanceInfo (PersistentInstanceV1 inst) = InstanceInfoV1 <$> mkInstanceInfoV 
 mkInstanceInfoV :: BlobStorable m (ModuleV v) => PersistentInstanceV v -> m (InstanceInfoTypeV InstanceStateV v)
 mkInstanceInfoV PersistentInstanceV{..} = do
   PersistentInstanceParameters{..} <- loadBufferedRef pinstanceParameters
-  instanceModuleInterface <- moduleVInterface <$> loadBufferedRef pinstanceModuleInterface
+  instanceModuleInterface <- refLoad pinstanceModuleInterface
   let iiParameters = Transient.InstanceParameters {
         _instanceAddress = pinstanceAddress,
         instanceOwner = pinstanceOwner,
@@ -644,7 +645,7 @@ makePersistent mods (Transient.Instances (Transient.Tree s t)) = InstancesTree s
             }
             -- This pattern is irrefutable because if the instance exists in the Basic version,
             -- then the module must be present in the persistent implementation.
-            ~(Just pIModuleInterface) <- Modules.unsafeGetModuleReferenceV0 (GSWasm.miModuleRef instanceModuleInterface) mods
+            ~(Just pIModuleInterface) <- Modules.getModuleReference (GSWasm.miModuleRef instanceModuleInterface) mods
             return $ PersistentInstanceV0 PersistentInstanceV {
                 pinstanceParameters = pIParams,
                 pinstanceModuleInterface = pIModuleInterface,
@@ -664,7 +665,7 @@ makePersistent mods (Transient.Instances (Transient.Tree s t)) = InstancesTree s
             }
             -- This pattern is irrefutable because if the instance exists in the Basic version,
             -- then the module must be present in the persistent implementation.
-            ~(Just pIModuleInterface) <- Modules.unsafeGetModuleReferenceV1 (GSWasm.miModuleRef instanceModuleInterface) mods
+            ~(Just pIModuleInterface) <- Modules.getModuleReference (GSWasm.miModuleRef instanceModuleInterface) mods
             return $ PersistentInstanceV1 PersistentInstanceV {
                 pinstanceParameters = pIParams,
                 pinstanceModuleInterface = pIModuleInterface,
