@@ -94,7 +94,7 @@ instance Applicative m => Cacheable m PersistentInstanceParameters
 data PersistentInstanceV (v :: Wasm.WasmVersion) c = PersistentInstanceV {
     -- |The fixed parameters of the instance.
     pinstanceParameters :: !(BufferedRef PersistentInstanceParameters),
-    -- |The interface of 'pinstanceContractModule'. Note this is a BufferedRef to a Module as this
+    -- |The interface of 'pinstanceContractModule'. Note this is a CachedRef to a Module as this
     -- is how the data is stored in the Modules table. A 'Module' carries a BlobRef to the source
     -- but that reference should never be consulted in the scope of Instance operations.
     pinstanceModuleInterface :: !(CachedRef c (Modules.ModuleV v)),
@@ -114,8 +114,8 @@ data PersistentInstanceV (v :: Wasm.WasmVersion) c = PersistentInstanceV {
 -- different instance versions. This is necessary because there is a single
 -- address space for all contract instances.
 data PersistentInstance (pv :: ProtocolVersion) where
-  PersistentInstanceV0 :: PersistentInstanceV GSWasm.V0 -> PersistentInstance pv
-  PersistentInstanceV1 :: PersistentInstanceV GSWasm.V1 -> PersistentInstance pv
+  PersistentInstanceV0 :: PersistentInstanceV GSWasm.V0 Modules.ModuleCache -> PersistentInstance pv
+  PersistentInstanceV1 :: PersistentInstanceV GSWasm.V1 Modules.ModuleCache -> PersistentInstance pv
 
 instance Show (PersistentInstance pv) where
     show (PersistentInstanceV0 PersistentInstanceV {pinstanceModel = InstanceStateV0 model,..}) = show pinstanceParameters ++ " {balance=" ++ show pinstanceAmount ++ ", model=" ++ show model ++ "}"

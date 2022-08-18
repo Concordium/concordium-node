@@ -17,6 +17,7 @@ import Concordium.Types.HashableTo
 
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.Cache
+import Data.Coerce
 
 
 -- * 'CachedRef'
@@ -460,3 +461,7 @@ instance
 -- load every 'HashedCachedRef' into the cache at load time.
 instance (Applicative m) => Cacheable m (HashedCachedRef c a) where
     cache = pure
+
+-- |This is only safe if a and b have compatible `BlobStorable` instances.
+unsafeCoerceCachedRef :: (a -> b) -> CachedRef c a -> CachedRef c b
+unsafeCoerceCachedRef _ (CachedRef ref) = undefined 

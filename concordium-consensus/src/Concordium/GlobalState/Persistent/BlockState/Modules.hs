@@ -160,6 +160,8 @@ type SupportsPersistentModules m = (MonadBlobStore m, MonadCache ModuleCache m)
 -- |The collection of modules stored in a block state.
 data Modules = Modules {
   -- |A tree of 'Module's indexed by 'ModuleIndex'
+  -- The modules are themselves cached via the `HashedCachedRef` while
+  -- the stems usually are all in memory.
   _modulesTable :: !(LFMBTree' ModuleIndex HashedBufferedRef (HashedCachedRef ModuleCache Module)),
   -- |A map of ModuleRef to ModuleIndex.
   _modulesMap :: !(Map ModuleRef ModuleIndex)
@@ -184,7 +186,7 @@ instance SupportsPersistentModules m => BlobStorable m Modules where
     (pModulesTable, _modulesTable') <- storeUpdate _modulesTable
     return (pModulesTable, m { _modulesTable = _modulesTable' })
 
-instance MonadBlobStore m => Cacheable m Modules where
+instance SupportsPersistentModules m => Cacheable m Modules where
   cache Modules{..} = do
     modulesTable' <- cache _modulesTable
     return Modules { _modulesTable = modulesTable', ..}
@@ -197,7 +199,7 @@ emptyModules = Modules LFMB.empty Map.empty
 
 -- |Try to add interfaces to the module table. If a module with the given
 -- reference exists returns @Nothing@.
-putInterface :: (IsWasmVersion v, MonadBlobStore m)
+putInterface :: (IsWasmVersion v, SupportsPersistentModules m)
              => (GSWasm.ModuleInterfaceV v, WasmModuleV v)
              -> Modules
              -> m (Maybe Modules)
@@ -211,43 +213,44 @@ putInterface (modul, src) m =
                       & modulesMap %~ Map.insert mref idx
  where mref = GSWasm.moduleReference modul
 
-getModule :: MonadBlobStore m => ModuleRef -> Modules -> m (Maybe Module)
+getModule :: SupportsPersistentModules m => ModuleRef -> Modules -> m (Maybe Module)
 getModule ref mods =
   let modIdx = Map.lookup ref (mods ^. modulesMap) in
   case modIdx of
     Nothing -> return Nothing
     Just idx -> LFMB.lookup idx (mods ^. modulesTable)
 
--- |Gets the buffered reference to a module as stored in the module table
+-- |Gets the Cached reference to a module as stored in the module table
 -- to be given to instances when associating them with the interface.
-getModuleReference :: MonadBlobStore m => ModuleRef -> Modules -> m (Maybe (BufferedRef Module))
+-- The reason we return the reference here is to allow for sharing of the reference.
+getModuleReference :: SupportsPersistentModules m => ModuleRef -> Modules -> m (Maybe (CachedRef ModuleCache Module))
 getModuleReference ref mods =
   let modIdx = Map.lookup ref (mods ^. modulesMap) in
   case modIdx of
     Nothing -> return Nothing
-    Just idx -> fmap bufferedReference <$> LFMB.lookupRef idx (mods ^. modulesTable)
+    Just idx -> fmap lhCachedRef <$> LFMB.lookupRef idx (mods ^. modulesTable)
 
 -- |Gets the buffered reference to a module as stored in the module table assuming it is version 0.
-unsafeGetModuleReferenceV0 :: MonadBlobStore m => ModuleRef -> Modules -> m (Maybe (BufferedRef (ModuleV GSWasm.V0)))
-unsafeGetModuleReferenceV0 ref mods = fmap (unsafeCoerceBufferedRef extract) <$> getModuleReference ref mods 
+unsafeGetModuleReferenceV0 :: SupportsPersistentModules m => ModuleRef -> Modules -> m (Maybe (CachedRef ModuleCache (ModuleV GSWasm.V0)))
+unsafeGetModuleReferenceV0 ref mods = fmap (unsafeCoerceCachedRef extract) <$> getModuleReference ref mods 
     where extract (ModuleV0 m) = m
           extract _ = error "Precondition violation. Expected module version 0, got 1."
 -- |Gets the buffered reference to a module as stored in the module table assuming it is version 1.
-unsafeGetModuleReferenceV1 :: MonadBlobStore m => ModuleRef -> Modules -> m (Maybe (BufferedRef (ModuleV GSWasm.V1)))
-unsafeGetModuleReferenceV1 ref mods = fmap (unsafeCoerceBufferedRef extract) <$> getModuleReference ref mods 
+unsafeGetModuleReferenceV1 :: SupportsPersistentModules m => ModuleRef -> Modules -> m (Maybe (CachedRef ModuleCache (ModuleV GSWasm.V1)))
+unsafeGetModuleReferenceV1 ref mods = fmap (unsafeCoerceCachedRef extract) <$> getModuleReference ref mods 
     where extract (ModuleV1 m) = m
           extract _ = error "Precondition violation. Expected module version 1, got 0."
 
 
 -- |Get an interface by module reference.
-getInterface :: MonadBlobStore m
+getInterface :: SupportsPersistentModules m
              => ModuleRef
              -> Modules
              -> m (Maybe GSWasm.ModuleInterface)
 getInterface ref mods = fmap getModuleInterface <$> getModule ref mods
 
 -- |Get the source of a module by module reference.
-getSource :: MonadBlobStore m => ModuleRef -> Modules -> m (Maybe WasmModule)
+getSource :: SupportsPersistentModules m => ModuleRef -> Modules -> m (Maybe WasmModule)
 getSource ref mods = do
   m <- getModule ref mods
   case m of
@@ -272,7 +275,7 @@ storePersistentModule (TransientModules.ModuleV1 TransientModules.ModuleV{..}) =
   moduleVSource' <- storeRef moduleVSource
   return (ModuleV1 (ModuleV { moduleVSource = moduleVSource', ..}))
 
-makePersistentModules :: MonadBlobStore m
+makePersistentModules :: SupportsPersistentModules m
                        => TransientModules.Modules
                        -> m Modules
 makePersistentModules mods = do
@@ -284,7 +287,7 @@ makePersistentModules mods = do
 --------------------------------------------------------------------------------
 
 -- |Serialize modules in V0 format.
-putModulesV0 :: (MonadBlobStore m, MonadPut m) => Modules -> m ()
+putModulesV0 :: (SupportsPersistentModules m, MonadPut m) => Modules -> m ()
 putModulesV0 mods = do
     let mt = mods ^. modulesTable
     liftPut $ putWord64be $ LFMB.size mt
