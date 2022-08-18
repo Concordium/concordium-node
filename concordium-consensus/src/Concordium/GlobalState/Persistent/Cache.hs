@@ -55,6 +55,10 @@ instance (MonadCache c m) => MonadCache c (PutT m) where
     getCache = lift getCache
     {-# INLINE getCache #-}
 
+instance MonadCache c m => MonadCache c (ReaderT s m) where
+    getCache = lift getCache
+    {-# INLINE getCache #-}
+
 -- | A cache that stores values identified by (unique) keys.
 class Cache c where
     -- |The key used to identify a cache entry.

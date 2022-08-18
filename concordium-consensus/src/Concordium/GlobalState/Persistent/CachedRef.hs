@@ -17,8 +17,6 @@ import Concordium.Types.HashableTo
 
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.Cache
-import Data.Coerce
-
 
 -- * 'CachedRef'
 

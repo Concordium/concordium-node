@@ -9,6 +9,7 @@ module Concordium.GlobalState.Persistent.BlockState.Modules
     ModuleV(..),
     Modules,
     ModuleCache,
+    SupportsPersistentModules,
     getModuleInterface,
     emptyModules,
     getInterface,
@@ -18,6 +19,7 @@ module Concordium.GlobalState.Persistent.BlockState.Modules
     moduleRefList,
     makePersistentModules,
     newModuleCache,
+    unsafeToModuleV,
     -- * Serialization
     putModulesV0
   ) where
@@ -80,6 +82,21 @@ getModuleInterface :: Module -> GSWasm.ModuleInterface
 getModuleInterface (ModuleV0 m) = GSWasm.ModuleInterfaceV0 (moduleVInterface m)
 getModuleInterface (ModuleV1 m) = GSWasm.ModuleInterfaceV1 (moduleVInterface m)
 
+-- |Coerce a module to V0. Will fail if the version is not 'V0'.
+unsafeToModuleV0 :: Module -> ModuleV V0
+unsafeToModuleV0 (ModuleV0 m) = m
+unsafeToModuleV0 (ModuleV1 _) = error "Could not coerce module to V0."
+
+-- |Coerce a module to V1. Will fail if the version is not 'V1'.
+unsafeToModuleV1 :: Module -> ModuleV V1
+unsafeToModuleV1 (ModuleV0 _) = error "Could not coerce module to V1."
+unsafeToModuleV1 (ModuleV1 m) = m
+
+-- |Coerce a 'Module' to a 'ModuleV' depending on the 'WasmVersion'.
+unsafeToModuleV :: forall v. IsWasmVersion v => Module -> ModuleV v
+unsafeToModuleV = case getWasmVersion @v of
+  SV0 -> unsafeToModuleV0
+  SV1 -> unsafeToModuleV1
 
 instance GSWasm.HasModuleRef Module where
   moduleReference (ModuleV0 m) = GSWasm.moduleReference (moduleVInterface m)

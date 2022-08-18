@@ -454,9 +454,8 @@ instance GlobalStateConfig MemoryTreeDiskBlockConfig where
             Right genState -> return genState
         liftIO $ do
             pbscBlobStore <- createBlobStore mtdbBlockStateFile
-            pbsccAccountCache <- Accounts.newAccountCache (rpAccountsCacheSize mtdbRuntimeParameters)
-            pbsccModuleCache <- Modules.newModuleCache (rpModulesCacheSize mtdbRuntimeParameters)
-            let pbscCaches = PersistentBlockStateContextCaches {..}
+            pbscAccountCache <- Accounts.newAccountCache (rpAccountsCacheSize mtdbRuntimeParameters)
+            pbscModuleCache <- Modules.newModuleCache (rpModulesCacheSize mtdbRuntimeParameters)
             let pbsc = PersistentBlockStateContext {..}
             let initState = do
                     pbs <- makePersistent genState
@@ -477,9 +476,8 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
     initialiseExistingGlobalState _ DTDBConfig{..} = do
       -- check if all the necessary database files exist
       existingDB <- checkExistingDatabase dtdbTreeStateDirectory dtdbBlockStateFile
-      pbsccAccountCache <- Accounts.newAccountCache (rpAccountsCacheSize mtdbRuntimeParameters)
-      pbsccModuleCache <- Modules.newModuleCache (rpModulesCacheSize mtdbRuntimeParameters)
-      let pbscCaches = PersistentBlockStateContextCaches {..}
+      pbscAccountCache <- liftIO $ Accounts.newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
+      pbscModuleCache <- liftIO $ Modules.newModuleCache (rpModulesCacheSize dtdbRuntimeParameters)
       if existingDB then do
         pbscBlobStore <- liftIO $ do
           -- the block state file exists, is readable and writable
@@ -494,9 +492,8 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
 
     initialiseNewGlobalState genData DTDBConfig{..} = do
       pbscBlobStore <- liftIO $ createBlobStore dtdbBlockStateFile
-      pbsccAccountCache <- Accounts.newAccountCache (rpAccountsCacheSize mtdbRuntimeParameters)
-      pbsccModuleCache <- Modules.newModuleCache (rpModulesCacheSize mtdbRuntimeParameters)
-      let pbscCaches = PersistentBlockStateContextCaches {..}
+      pbscAccountCache <- liftIO $ Accounts.newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
+      pbscModuleCache <- liftIO $ Modules.newModuleCache (rpModulesCacheSize dtdbRuntimeParameters)
       let pbsc = PersistentBlockStateContext{..}
       let initGS = do
               logEvent GlobalState LLTrace "Creating transient global state"
