@@ -24,7 +24,7 @@ import Concordium.GlobalState.Instance
 import Concordium.Types
 import Concordium.Types.Accounts
 import Concordium.Types.AnonymityRevokers
-import Concordium.Types.Block (absoluteToLocalBlockHeight, localToAbsoluteBlockHeight)
+import Concordium.Types.Block (AbsoluteBlockHeight, absoluteToLocalBlockHeight, localToAbsoluteBlockHeight)
 import Concordium.Types.HashableTo
 import Concordium.Types.IdentityProviders
 import Concordium.Types.Parameters
@@ -291,6 +291,17 @@ getBlocksAtHeight height baseGI True = MVR $ \mvr -> do
     case versions Vec.!? fromIntegral baseGI of
         Nothing -> return []
         Just evc -> liftSkovQuery mvr evc (map getHash <$> Skov.getBlocksAtHeight height)
+
+-- | Retrieve the best block height (useful to know where to resume out-of-band catchup)
+getBestBlockHeight :: MVR gsconf finconf AbsoluteBlockHeight
+getBestBlockHeight = MVR $ \mvr -> do
+    versions <- readIORef (mvVersions mvr)
+    case Vec.last versions of
+        evc@(EVersionedConfiguration (vc :: VersionedConfiguration gsconf finconf pv)) -> do
+          liftSkovQuery mvr evc $ do
+            let absoluteHeight = localToAbsoluteBlockHeight (vcGenesisHeight vc) . bpHeight            
+            bb <- bestBlock
+            return . absoluteHeight $ bb
 
 -- ** Accounts
 

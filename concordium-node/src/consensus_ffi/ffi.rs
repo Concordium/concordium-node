@@ -421,6 +421,7 @@ extern "C" {
         genesis_index: u32,
         restrict: u8,
     ) -> *const c_char;
+    pub fn getBestBlockHeight(consensus: *mut consensus_runner) -> u64;
     pub fn getTransactionStatus(
         consensus: *mut consensus_runner,
         transaction_hash: *const c_char,
@@ -589,6 +590,11 @@ impl ConsensusContainer {
             genesis_index,
             restrict as u8
         ))
+    }
+
+    pub fn get_best_block_height(&self) -> u64 {
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        unsafe { getBestBlockHeight(consensus) }
     }
 
     pub fn get_ancestors(&self, block_hash: &str, amount: u64) -> anyhow::Result<String> {

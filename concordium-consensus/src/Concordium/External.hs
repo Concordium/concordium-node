@@ -24,6 +24,7 @@ import qualified Concordium.Crypto.SHA256 as SHA256
 import Concordium.ID.Types
 import Concordium.Logger
 import Concordium.Types
+import Concordium.Types.Block (theAbsoluteBlockHeight)
 import qualified Data.FixedByteString as FBS
 
 import Concordium.Afgjort.Finalize.Types (FinalizationInstance (FinalizationInstance))
@@ -903,6 +904,13 @@ getBlocksAtHeight cptr height genIndex restrict =
             (GenesisIndex genIndex)
             (restrict /= 0)
 
+getBestBlockHeight ::
+    StablePtr ConsensusRunner ->
+    IO Word64
+getBestBlockHeight cptr = do
+  (ConsensusRunner mvr) <- deRefStablePtr cptr
+  runMVR Q.getBestBlockHeight mvr >>= return . theAbsoluteBlockHeight
+
 -- ** Block-indexed queries
 
 -- |Given a null-terminated string that represents a block hash (base 16), returns a null-terminated
@@ -1341,6 +1349,7 @@ foreign export ccall getAccountNonFinalizedTransactions :: StablePtr ConsensusRu
 foreign export ccall getBlockSummary :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getNextAccountNonce :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getBlocksAtHeight :: StablePtr ConsensusRunner -> Word64 -> Word32 -> Word8 -> IO CString
+foreign export ccall getBestBlockHeight :: StablePtr ConsensusRunner -> IO Word64
 foreign export ccall getAllIdentityProviders :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getAllAnonymityRevokers :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getCryptographicParameters :: StablePtr ConsensusRunner -> CString -> IO CString
