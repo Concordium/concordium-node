@@ -88,7 +88,7 @@ predictLeadershipElectionNonce SeedState{..} lastFinSlot targetSlot
     | slotEpoch == epoch + 1 && 3 * (lastFinSlot `rem` epochLength) >= 2 * epochLength =
         -- In this case, no blocks after the last finalized block can contribute to the block
         -- nonce for the next epoch.
-        Just $ updateWithEpoch epoch currentLeadershipElectionNonce
+        Just $ updateWithEpoch epoch updatedNonce
     | otherwise = Nothing
   where
     slotEpoch = fromIntegral $ targetSlot `quot` epochLength
