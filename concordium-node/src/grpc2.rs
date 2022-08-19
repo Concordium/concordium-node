@@ -295,8 +295,11 @@ pub mod server {
             let request = request.get_ref();
             let block_hash = request.block_hash.require()?;
             let account_identifier = request.account_identifier.require()?;
-            let response = self.consensus.get_account_info_v2(block_hash, account_identifier)?;
-            Ok(tonic::Response::new(response))
+            let (hash, response) =
+                self.consensus.get_account_info_v2(block_hash, account_identifier)?;
+            let mut response = tonic::Response::new(response);
+            add_hash(&mut response, hash);
+            Ok(response)
         }
 
         async fn get_account_list(
@@ -306,14 +309,25 @@ pub mod server {
             let (sender, receiver) = futures::channel::mpsc::channel(100);
             let hash = self.consensus.get_account_list_v2(request.get_ref(), sender)?;
             let mut response = tonic::Response::new(receiver);
-            response
-                .metadata_mut()
-                .insert_bin("blockhash-bin", tonic::metadata::MetadataValue::from_bytes(&hash));
+            add_hash(&mut response, hash);
             Ok(response)
         }
     }
 }
 
+fn add_hash<T>(response: &mut tonic::Response<T>, hash: [u8; 32]) {
+    response
+        .metadata_mut()
+        .insert_bin("blockhash-bin", tonic::metadata::MetadataValue::from_bytes(&hash));
+}
+
+/// A helper trait to make it simpler to require specific fields when parsing a
+/// protobuf message by allowing us to use method calling syntax and
+/// constructing responses that match the calling context, allowing us to use
+/// the `?` syntax.
+///
+/// The main reason for needing this is that in proto3 all fields are optional,
+/// so it is up to the application to validate inputs if they are required.
 pub(crate) trait Require<E> {
     type A;
     fn require(&self) -> Result<&Self::A, E>;

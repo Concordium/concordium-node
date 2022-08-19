@@ -505,6 +505,7 @@ extern "C" {
         acc_id: *const u8,
         block_id_type: u8,
         block_hash: *const u8,
+        out_hash: *mut u8,
         out: *mut Vec<u8>,
         copier: CopyToVecCallback,
     ) -> i64;
@@ -1013,7 +1014,7 @@ impl ConsensusContainer {
         &self,
         block_hash: &crate::grpc2::types::BlockHashInput,
         account_identifier: &crate::grpc2::types::account_info_request::AccountIdentifier,
-    ) -> Result<Vec<u8>, tonic::Status> {
+    ) -> Result<([u8; 32], Vec<u8>), tonic::Status> {
         use crate::grpc2::Require;
         let (block_id_type, block_hash) =
             crate::grpc2::types::block_hash_input_to_ffi(block_hash).require_owned()?;
@@ -1021,6 +1022,7 @@ impl ConsensusContainer {
             crate::grpc2::types::account_identifier_to_ffi(account_identifier).require_owned()?;
         let consensus = self.consensus.load(Ordering::SeqCst);
         let mut out_data: Vec<u8> = Vec::new();
+        let mut out_hash = [0u8; 32];
         let response: ConsensusQueryResponse = unsafe {
             getAccountInfoV2(
                 consensus,
@@ -1028,13 +1030,14 @@ impl ConsensusContainer {
                 acc_id,
                 block_id_type,
                 block_hash,
+                out_hash.as_mut_ptr(),
                 &mut out_data,
                 copy_to_vec_callback,
             )
             .try_into()?
         };
         response.check_rpc_response()?;
-        Ok(out_data)
+        Ok((out_hash, out_data))
     }
 
     /// Stream finalized blocks when they become available.
