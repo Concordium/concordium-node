@@ -140,8 +140,8 @@ fn main() -> std::io::Result<()> {
         .package("concordium.v2")
         .method(
             tonic_build::manual::Method::builder()
-                .name("finalized_blocks")
-                .route_name("FinalizedBlocks")
+                .name("get_finalized_blocks")
+                .route_name("GetFinalizedBlocks")
                 .input_type("crate::grpc2::types::Empty")
                 .output_type("Arc<[u8]>")
                 .codec_path("crate::grpc2::RawCodec")

@@ -275,16 +275,16 @@ pub mod server {
 
     #[async_trait]
     impl service::queries_server::Queries for RpcServerImpl {
-        ///Server streaming response type for the FinalizedBlocks method.
-        type FinalizedBlocksStream =
-            tokio_stream::wrappers::ReceiverStream<Result<Arc<[u8]>, tonic::Status>>;
         type GetAccountListStream =
             futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
+        ///Server streaming response type for the FinalizedBlocks method.
+        type GetFinalizedBlocksStream =
+            tokio_stream::wrappers::ReceiverStream<Result<Arc<[u8]>, tonic::Status>>;
 
-        async fn finalized_blocks(
+        async fn get_finalized_blocks(
             &self,
             _request: tonic::Request<crate::grpc2::types::Empty>,
-        ) -> Result<tonic::Response<Self::FinalizedBlocksStream>, tonic::Status> {
+        ) -> Result<tonic::Response<Self::GetFinalizedBlocksStream>, tonic::Status> {
             let (sender, receiver) = tokio::sync::mpsc::channel(100);
             match self.finalized_blocks_channels.lock() {
                 Ok(mut fbs) => {
