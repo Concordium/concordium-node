@@ -349,6 +349,13 @@ pub struct GRPC2Config {
         requires = "api-x509-cert"
     )]
     pub api_cert_private_key: Option<PathBuf>,
+    #[structopt(
+        long = "api-enable-grpc-web",
+        help = "Enable support for GRPC-Web protocol.",
+        env = "CONCORDIUM_NODE_ENABLE_GRPC_WEB",
+        requires = "api-listen-address",
+    )]
+    pub api_enable_grpc_web: bool,
 }
 
 #[derive(StructOpt, Debug)]

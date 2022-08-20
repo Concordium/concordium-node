@@ -1,5 +1,5 @@
 use prost::bytes::BufMut;
-use std::marker::PhantomData;
+use std::{convert::TryFrom, marker::PhantomData};
 
 pub mod types {
     use self::account_info_request::AccountIdentifier;
@@ -220,15 +220,25 @@ pub mod server {
                     builder = builder
                         .tls_config(ServerTlsConfig::new().identity(identity))
                         .context("Unable to configure TLS.")?;
+                } else {
+                    // if TLS is not enabled and we want grpc-web we need to explicitly
+                    // enable http1 support.
+                    // This is because TLS supports protocol negotiation.
+                    if config.api_enable_grpc_web {
+                        builder = builder.accept_http1(true);
+                    }
                 }
 
                 let (shutdown_sender, shutdown_receiver) = tokio::sync::oneshot::channel::<()>();
 
+                let router = if config.api_enable_grpc_web {
+                    builder.add_service(tonic_web::enable(service))
+                } else {
+                    builder.add_service(service)
+                };
+
                 let task = tokio::spawn(async move {
-                    builder
-                        .add_service(service)
-                        .serve_with_shutdown(listen_addr, shutdown_receiver.map(|_| ()))
-                        .await
+                    router.serve_with_shutdown(listen_addr, shutdown_receiver.map(|_| ())).await
                 });
                 Ok(Some(Self {
                     task,
@@ -298,7 +308,7 @@ pub mod server {
             let (hash, response) =
                 self.consensus.get_account_info_v2(block_hash, account_identifier)?;
             let mut response = tonic::Response::new(response);
-            add_hash(&mut response, hash);
+            add_hash(&mut response, hash)?;
             Ok(response)
         }
 
@@ -309,16 +319,17 @@ pub mod server {
             let (sender, receiver) = futures::channel::mpsc::channel(100);
             let hash = self.consensus.get_account_list_v2(request.get_ref(), sender)?;
             let mut response = tonic::Response::new(receiver);
-            add_hash(&mut response, hash);
+            add_hash(&mut response, hash)?;
             Ok(response)
         }
     }
 }
 
-fn add_hash<T>(response: &mut tonic::Response<T>, hash: [u8; 32]) {
-    response
-        .metadata_mut()
-        .insert_bin("blockhash-bin", tonic::metadata::MetadataValue::from_bytes(&hash));
+fn add_hash<T>(response: &mut tonic::Response<T>, hash: [u8; 32]) -> Result<(), tonic::Status> {
+    let value = tonic::metadata::MetadataValue::try_from(hex::encode(&hash))
+        .map_err(|_| tonic::Status::internal("Cannot add metadata hash."))?;
+    response.metadata_mut().insert("blockhash", value);
+    Ok(())
 }
 
 /// A helper trait to make it simpler to require specific fields when parsing a
