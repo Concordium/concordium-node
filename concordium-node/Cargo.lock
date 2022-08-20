@@ -569,6 +569,7 @@ dependencies = [
  "tonic",
  "tonic-build",
  "tonic-web",
+ "tower-http",
  "twox-hash",
  "url",
  "walkdir",
@@ -3491,6 +3492,7 @@ dependencies = [
  "tower",
  "tower-layer",
  "tower-service",
+ "tracing",
 ]
 
 [[package]]

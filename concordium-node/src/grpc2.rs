@@ -214,8 +214,8 @@ pub mod server {
                     }
                 });
                 let service = service::queries_server::QueriesServer::new(server);
-
-                let mut builder = tonic::transport::Server::builder();
+                let log_layer = tower_http::trace::TraceLayer::new_for_grpc();
+                let mut builder = tonic::transport::Server::builder().layer(log_layer);
                 if let Some(identity) = identity {
                     builder = builder
                         .tls_config(ServerTlsConfig::new().identity(identity))
