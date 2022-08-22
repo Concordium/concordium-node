@@ -34,7 +34,7 @@ EXPORTS
  getBlockSummary
  getNextAccountNonce
  getBlocksAtHeight
- getBestBlockHeight
+ getLastFinalizedBlockHeight
  getAllIdentityProviders
  getAllAnonymityRevokers
  getCryptographicParameters

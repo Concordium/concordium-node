@@ -13,7 +13,6 @@ import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Unsafe as BS
 import Data.Int
 import qualified Data.Serialize as S
-import Data.Functor ( (<&>) )
 import Data.Word
 import Foreign
 import Foreign.C
@@ -905,12 +904,12 @@ getBlocksAtHeight cptr height genIndex restrict =
             (GenesisIndex genIndex)
             (restrict /= 0)
 
-getBestBlockHeight ::
+getLastFinalizedBlockHeight ::
     StablePtr ConsensusRunner ->
     IO Word64
-getBestBlockHeight cptr = do
+getLastFinalizedBlockHeight cptr = do
   (ConsensusRunner mvr) <- deRefStablePtr cptr
-  runMVR Q.getBestBlockHeight mvr <&> theAbsoluteBlockHeight
+  theAbsoluteBlockHeight <$> runMVR Q.getLastFinalizedBlockHeight mvr
 
 -- ** Block-indexed queries
 
@@ -1350,7 +1349,7 @@ foreign export ccall getAccountNonFinalizedTransactions :: StablePtr ConsensusRu
 foreign export ccall getBlockSummary :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getNextAccountNonce :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getBlocksAtHeight :: StablePtr ConsensusRunner -> Word64 -> Word32 -> Word8 -> IO CString
-foreign export ccall getBestBlockHeight :: StablePtr ConsensusRunner -> IO Word64
+foreign export ccall getLastFinalizedBlockHeight :: StablePtr ConsensusRunner -> IO Word64
 foreign export ccall getAllIdentityProviders :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getAllAnonymityRevokers :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getCryptographicParameters :: StablePtr ConsensusRunner -> CString -> IO CString

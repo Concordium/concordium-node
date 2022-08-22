@@ -292,15 +292,15 @@ getBlocksAtHeight height baseGI True = MVR $ \mvr -> do
         Nothing -> return []
         Just evc -> liftSkovQuery mvr evc (map getHash <$> Skov.getBlocksAtHeight height)
 
--- | Retrieve the best block height (useful to know where to resume out-of-band catchup)
-getBestBlockHeight :: MVR gsconf finconf AbsoluteBlockHeight
-getBestBlockHeight = MVR $ \mvr -> do
+-- | Retrieve the last finalized block height (useful to know where to resume out-of-band catchup)
+getLastFinalizedBlockHeight :: MVR gsconf finconf AbsoluteBlockHeight
+getLastFinalizedBlockHeight = MVR $ \mvr -> do
     versions <- readIORef (mvVersions mvr)
     case Vec.last versions of
         evc@(EVersionedConfiguration (vc :: VersionedConfiguration gsconf finconf pv)) -> do
           liftSkovQuery mvr evc $ do
             let absoluteHeight = localToAbsoluteBlockHeight (vcGenesisHeight vc) . bpHeight            
-            bb <- bestBlock
+            bb <- lastFinalizedBlock
             return . absoluteHeight $ bb
 
 -- ** Accounts
