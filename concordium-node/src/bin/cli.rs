@@ -532,6 +532,10 @@ async fn import_missing_blocks(
         serde_json::from_str(&consensus.get_block_info(&current_genesis_block_hash)?)?;
     let current_genesis_block_height = json_genesis_block_value["blockHeight"].as_u64().unwrap();
 
+    info!("Current genesis index: {}", current_genesis_index);
+    info!("Current genesis block height: {}", current_genesis_block_height);
+    info!("Local best block height: {}", best_block_height);
+
     let comments_stream = reqwest::get(index_url.clone())
         .await?
         .bytes_stream()
@@ -571,17 +575,16 @@ async fn import_missing_blocks(
             || current_genesis_block_height + block_chunk_data.last_block_height
                 <= best_block_height
         {
+	    info!("Skipping chunk {}: no blocks above best block height", block_chunk_data.filename);
             continue;
         }
-        if current_genesis_block_height + block_chunk_data.first_block_height > best_block_height {
-            let block_chunk_url = index_url.join(&block_chunk_data.filename)?;
-            let path = download_chunk(block_chunk_url, data_dir_path).await?;
-            consensus.import_blocks(&path)?;
-            // attempt to properly clean up the downloaded file.
-            if let Err(e) = path.close() {
-                error!("Could not delete the downloaded file: {}", e);
-            }
-        };
+        let block_chunk_url = index_url.join(&block_chunk_data.filename)?;
+        let path = download_chunk(block_chunk_url, data_dir_path).await?;
+        consensus.import_blocks(&path)?;
+        // attempt to properly clean up the downloaded file.
+        if let Err(e) = path.close() {
+            error!("Could not delete the downloaded file: {}", e);
+        }
     }
     Ok(())
 }
