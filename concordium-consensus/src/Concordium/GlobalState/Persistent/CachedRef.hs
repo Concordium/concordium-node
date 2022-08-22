@@ -460,3 +460,26 @@ instance
 -- load every 'HashedCachedRef' into the cache at load time.
 instance (Applicative m) => Cacheable m (HashedCachedRef c a) where
     cache = pure
+
+instance 
+    ( MonadCache c m,
+      BlobStorable m a,
+      Cache c,
+      CacheKey c ~ BlobRef a,
+      CacheValue c ~ a
+    ) => Cacheable1 m (HashedCachedRef' h c a) a where
+    liftCache csh hcr@HCRUnflushed{..} = liftIO (readIORef hcrUnflushed) >>= \case
+        HCRMem val -> do
+            val' <- csh val
+            liftIO . writeIORef hcrUnflushed . HCRMem $! val'
+            return hcr
+        HCRMemHashed val hsh -> do
+            val' <- csh val
+            liftIO . writeIORef hcrUnflushed $! HCRMemHashed val' hsh
+            return hcr
+        HCRDisk d -> liftCache csh d
+    liftCache csh hcr@HCRFlushed{..} = do
+        _ <- lookupCachedValue (Proxy @c) hcrBlob >>= \case
+            Nothing -> putCachedValue (Proxy @c) hcrBlob =<< csh =<< loadRef hcrBlob
+            Just val -> putCachedValue (Proxy @c) hcrBlob =<< csh val
+        return hcr

@@ -2626,6 +2626,57 @@ doGetInitialTransactionTable pbs = do
             else
                 return tt
 
+cacheGetTT :: forall pv m. SupportsPersistentAccount pv m => PersistentBlockState pv -> m TransactionTable.TransactionTable
+cacheGetTT pbs = do
+    BlockStatePointers{..} <- loadPBS pbs
+    let cacheAcct acct = do
+        let nonce = acct ^. accountNonce
+        unless (nonce == minNonce) $ do
+            addr <- acct ^^. accountAddress
+            MTL.modify
+                (TransactionTable.ttNonFinalizedTransactions . at' (accountAddressEmbed addr)
+                    ?~ TransactionTable.emptyANFTWithNonce nonce)
+        return acct
+    (accts, tt0) <- MTL.runStateT (liftCache cacheAcct bspAccounts) TransactionTable.emptyTransactionTable
+    -- first cache the modules
+    mods <- cache bspModules
+    -- then cache the instances, but don't cache the modules again. Instead
+    -- share the references in memory we have already constructed by caching
+    -- modules above. Loading the modules here is cheap since we cached them.
+    insts <- runReaderT (cache bspInstances) =<< refLoad mods
+    ips <- cache bspIdentityProviders
+    ars <- cache bspAnonymityRevokers
+    birkParams <- cache bspBirkParameters
+    cryptoParams <- cache bspCryptographicParameters
+    upds <- cache bspUpdates
+    let updInTT tt uty = do
+            sn <- lookupNextUpdateSequenceNumber bspUpdates uty
+            if sn /= minUpdateSequenceNumber
+                then
+                    return $! tt
+                        & TransactionTable.ttNonFinalizedChainUpdates . at' uty
+                        ?~ TransactionTable.emptyNFCUWithSequenceNumber sn
+                else
+                    return tt
+    tt <- foldM updInTT tt0 [minBound..]
+    rels <- cache bspReleaseSchedule
+    red <- cache bspRewardDetails
+    _ <- storePBS pbs BlockStatePointers{
+            bspAccounts = accts,
+            bspInstances = insts,
+            bspModules = mods,
+            bspBank = bspBank,
+            bspIdentityProviders = ips,
+            bspAnonymityRevokers = ars,
+            bspBirkParameters = birkParams,
+            bspCryptographicParameters = cryptoParams,
+            bspUpdates = upds,
+            bspReleaseSchedule = rels,
+            bspTransactionOutcomes = bspTransactionOutcomes,
+            bspRewardDetails = red
+        }
+    return tt
+
 data PersistentBlockStateContext pv = PersistentBlockStateContext {
     pbscBlobStore :: !BlobStore,
     pbscCache :: !(Accounts.AccountCache (AccountVersionFor pv))
