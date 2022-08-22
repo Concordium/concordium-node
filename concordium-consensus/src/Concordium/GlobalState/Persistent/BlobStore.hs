@@ -1174,8 +1174,11 @@ instance (Applicative m) => Cacheable m BakerCapital
 instance (Applicative m) => Cacheable m CapitalDistribution
 
 -- |Typeclass for caching a container type, given a function for caching the
--- contained type.
+-- contained type. The caching operation should not affect the value up to an equivalence
+-- appropriate to the type in question.
 class Cacheable1 m c a where
+    -- |Lift a caching operation on the contained type to a caching operation on the container
+    -- type.
     liftCache :: (a -> m a) -> c -> m c
 
 instance BlobStorable m a => Cacheable1 m (BufferedRef a) a where

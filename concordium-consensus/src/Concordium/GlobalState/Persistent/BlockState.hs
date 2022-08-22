@@ -464,37 +464,6 @@ instance (SupportsPersistentAccount pv m) => BlobStorable m (BlockStatePointers 
             bspRewardDetails <- mRewardDetails
             return $! BlockStatePointers{..}
 
-instance (SupportsPersistentAccount pv m) => Cacheable m (BlockStatePointers pv) where
-    cache BlockStatePointers{..} = do
-        accts <- cache bspAccounts
-        -- first cache the modules
-        mods <- cache bspModules
-        -- then cache the instances, but don't cache the modules again. Instead
-        -- share the references in memory we have already constructed by caching
-        -- modules above. Loading the modules here is cheap since we cached them.
-        insts <- runReaderT (cache bspInstances) =<< refLoad mods
-        ips <- cache bspIdentityProviders
-        ars <- cache bspAnonymityRevokers
-        birkParams <- cache bspBirkParameters
-        cryptoParams <- cache bspCryptographicParameters
-        upds <- cache bspUpdates
-        rels <- cache bspReleaseSchedule
-        red <- cache bspRewardDetails
-        return BlockStatePointers{
-            bspAccounts = accts,
-            bspInstances = insts,
-            bspModules = mods,
-            bspBank = bspBank,
-            bspIdentityProviders = ips,
-            bspAnonymityRevokers = ars,
-            bspBirkParameters = birkParams,
-            bspCryptographicParameters = cryptoParams,
-            bspUpdates = upds,
-            bspReleaseSchedule = rels,
-            bspTransactionOutcomes = bspTransactionOutcomes,
-            bspRewardDetails = red
-        }
-
 -- |Accessor for getting the pool rewards when supported by the protocol version.
 bspPoolRewards :: AccountVersionFor pv ~ 'AccountV1 => BlockStatePointers pv -> HashedBufferedRef' Rewards.PoolRewardsHash PoolRewards
 bspPoolRewards bsp = case bspRewardDetails bsp :: BlockRewardDetails 'AccountV1 of
@@ -2597,36 +2566,6 @@ doSetRewardAccounts pbs rewards = do
         bsp <- loadPBS pbs
         storePBS pbs bsp{bspBank = bspBank bsp & unhashed . Rewards.rewardAccounts .~ rewards}
 
-doGetInitialTransactionTable :: forall pv m. SupportsPersistentAccount pv m => PersistentBlockState pv -> m TransactionTable.TransactionTable
-doGetInitialTransactionTable pbs = do
-    bsp <- loadPBS pbs
-    -- Note: we deliberately fold over the accounts in descending order here under the assumption
-    -- that they have just been loaded in ascending order previously, allowing us to make maximal
-    -- use of the cache. The order does not matter semantically since account addresses are
-    -- distinctive.
-    tt1 <- Accounts.foldAccountsDesc accInTT TransactionTable.emptyTransactionTable (bspAccounts bsp)
-    foldM (updInTT bsp) tt1 [minBound..]
-  where
-    accInTT :: TransactionTable.TransactionTable -> PersistentAccount (AccountVersionFor pv) -> m TransactionTable.TransactionTable
-    accInTT tt acct = do
-        let nonce = acct ^. accountNonce
-        if nonce /= minNonce
-            then do
-                addr <- acct ^^. accountAddress
-                return $! tt
-                    & TransactionTable.ttNonFinalizedTransactions . at' (accountAddressEmbed addr)
-                    ?~ TransactionTable.emptyANFTWithNonce nonce
-            else return tt
-    updInTT bsp tt uty = do
-        sn <- lookupNextUpdateSequenceNumber (bspUpdates bsp) uty
-        if sn /= minUpdateSequenceNumber
-            then
-                return $! tt
-                    & TransactionTable.ttNonFinalizedChainUpdates . at' uty
-                    ?~ TransactionTable.emptyNFCUWithSequenceNumber sn
-            else
-                return tt
-
 data PersistentBlockStateContext pv = PersistentBlockStateContext {
     pbscBlobStore :: !BlobStore,
     pbscCache :: !(Accounts.AccountCache (AccountVersionFor pv))
@@ -2711,7 +2650,6 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateQuery (P
     getEnergyRate = doGetEnergyRate . hpbsPointers
     getPaydayEpoch = doGetPaydayEpoch . hpbsPointers
     getPoolStatus = doGetPoolStatus . hpbsPointers
-    getInitialTransactionTable = doGetInitialTransactionTable . hpbsPointers
 
 instance (MonadIO m, PersistentState av pv r m) => ContractStateOperations (PersistentBlockStateMonad pv r m) where
   thawContractState (Instances.InstanceStateV0 inst) = return inst
@@ -2884,12 +2822,6 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage 
     loadBlockState hpbsHash ref = do
         hpbsPointers <- liftIO $ newIORef $ BRBlobbed ref
         return HashedPersistentBlockState{..}
-
-    cacheBlockState pbs@HashedPersistentBlockState{..} = do
-        bsp <- liftIO $ readIORef hpbsPointers
-        !bsp' <- cache bsp
-        liftIO $ writeIORef hpbsPointers bsp'
-        return pbs
 
     serializeBlockState hpbs = do
         p <- runPutT (putBlockStateV0 (hpbsPointers hpbs))

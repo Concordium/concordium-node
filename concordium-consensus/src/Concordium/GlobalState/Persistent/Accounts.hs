@@ -155,16 +155,6 @@ instance (SupportsPersistentAccount pv m) => BlobStorable m (Accounts pv) where
             accountRegIdHistory <- mrRIH
             return $ Accounts {accountRegIds = Null,..}
 
-instance SupportsPersistentAccount pv m => Cacheable m (Accounts pv) where
-    cache accts0 = do
-        (_, accts@Accounts{..}) <- loadRegIds accts0
-        acctMap <- cache accountMap
-        acctTable <- cache accountTable
-        return accts{
-            accountMap = acctMap,
-            accountTable = acctTable
-        }
-
 instance (SupportsPersistentAccount pv m, av ~ AccountVersionFor pv) => Cacheable1 m (Accounts pv) (PersistentAccount av) where
     liftCache cch accts0 = do
         (_, accts@Accounts{..}) <- loadRegIds accts0
