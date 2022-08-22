@@ -24,7 +24,8 @@ module Concordium.GlobalState.Persistent.BlockState (
     PersistentBlockStateContext(..),
     PersistentState,
     PersistentBlockStateMonad(..),
-    withNewAccountCache
+    withNewAccountCache,
+    cacheStateAndGetTransactionTable
 ) where
 
 import Data.Serialize
@@ -2626,57 +2627,6 @@ doGetInitialTransactionTable pbs = do
             else
                 return tt
 
-cacheGetTT :: forall pv m. SupportsPersistentAccount pv m => PersistentBlockState pv -> m TransactionTable.TransactionTable
-cacheGetTT pbs = do
-    BlockStatePointers{..} <- loadPBS pbs
-    let cacheAcct acct = do
-        let nonce = acct ^. accountNonce
-        unless (nonce == minNonce) $ do
-            addr <- acct ^^. accountAddress
-            MTL.modify
-                (TransactionTable.ttNonFinalizedTransactions . at' (accountAddressEmbed addr)
-                    ?~ TransactionTable.emptyANFTWithNonce nonce)
-        return acct
-    (accts, tt0) <- MTL.runStateT (liftCache cacheAcct bspAccounts) TransactionTable.emptyTransactionTable
-    -- first cache the modules
-    mods <- cache bspModules
-    -- then cache the instances, but don't cache the modules again. Instead
-    -- share the references in memory we have already constructed by caching
-    -- modules above. Loading the modules here is cheap since we cached them.
-    insts <- runReaderT (cache bspInstances) =<< refLoad mods
-    ips <- cache bspIdentityProviders
-    ars <- cache bspAnonymityRevokers
-    birkParams <- cache bspBirkParameters
-    cryptoParams <- cache bspCryptographicParameters
-    upds <- cache bspUpdates
-    let updInTT tt uty = do
-            sn <- lookupNextUpdateSequenceNumber bspUpdates uty
-            if sn /= minUpdateSequenceNumber
-                then
-                    return $! tt
-                        & TransactionTable.ttNonFinalizedChainUpdates . at' uty
-                        ?~ TransactionTable.emptyNFCUWithSequenceNumber sn
-                else
-                    return tt
-    tt <- foldM updInTT tt0 [minBound..]
-    rels <- cache bspReleaseSchedule
-    red <- cache bspRewardDetails
-    _ <- storePBS pbs BlockStatePointers{
-            bspAccounts = accts,
-            bspInstances = insts,
-            bspModules = mods,
-            bspBank = bspBank,
-            bspIdentityProviders = ips,
-            bspAnonymityRevokers = ars,
-            bspBirkParameters = birkParams,
-            bspCryptographicParameters = cryptoParams,
-            bspUpdates = upds,
-            bspReleaseSchedule = rels,
-            bspTransactionOutcomes = bspTransactionOutcomes,
-            bspRewardDetails = red
-        }
-    return tt
-
 data PersistentBlockStateContext pv = PersistentBlockStateContext {
     pbscBlobStore :: !BlobStore,
     pbscCache :: !(Accounts.AccountCache (AccountVersionFor pv))
@@ -2950,3 +2900,69 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage 
 
     collapseCaches = do
         Cache.collapseCache (Proxy :: Proxy (AccountCache av))
+
+-- |Cache the block state and get the initial (empty) transaction table with the next account nonces
+-- and update sequence numbers populated.
+cacheStateAndGetTransactionTable ::
+    forall pv m.
+    SupportsPersistentAccount pv m =>
+    HashedPersistentBlockState pv ->
+    m TransactionTable.TransactionTable
+cacheStateAndGetTransactionTable hpbs = do
+    BlockStatePointers{..} <- loadPBS (hpbsPointers hpbs)
+    -- When caching the accounts, we populate the transaction table with the next account nonces.
+    -- This is done by using 'liftCache' on the account table with a custom cache function that
+    -- records the nonces.
+    let cacheAcct acct = do
+            -- Note: we do not need to cache the account because a loaded account is already fully
+            -- cached. (Indeed, 'cache' is defined to be 'pure'.)
+            let nonce = acct ^. accountNonce
+            unless (nonce == minNonce) $ do
+                addr <- acct ^^. accountAddress
+                MTL.modify
+                    ( TransactionTable.ttNonFinalizedTransactions . at' (accountAddressEmbed addr)
+                        ?~ TransactionTable.emptyANFTWithNonce nonce
+                    )
+            return acct
+    (accts, tt0) <- MTL.runStateT (liftCache cacheAcct bspAccounts) TransactionTable.emptyTransactionTable
+    -- first cache the modules
+    mods <- cache bspModules
+    -- then cache the instances, but don't cache the modules again. Instead
+    -- share the references in memory we have already constructed by caching
+    -- modules above. Loading the modules here is cheap since we cached them.
+    insts <- runReaderT (cache bspInstances) =<< refLoad mods
+    ips <- cache bspIdentityProviders
+    ars <- cache bspAnonymityRevokers
+    birkParams <- cache bspBirkParameters
+    cryptoParams <- cache bspCryptographicParameters
+    upds <- cache bspUpdates
+    -- Update the transaction table with the sequence numbers for chain updates.
+    let updInTT tt uty = do
+            sn <- lookupNextUpdateSequenceNumber bspUpdates uty
+            if sn /= minUpdateSequenceNumber
+                then
+                    return $! tt
+                        & TransactionTable.ttNonFinalizedChainUpdates . at' uty
+                        ?~ TransactionTable.emptyNFCUWithSequenceNumber sn
+                else return tt
+    tt <- foldM updInTT tt0 [minBound ..]
+    rels <- cache bspReleaseSchedule
+    red <- cache bspRewardDetails
+    _ <-
+        storePBS
+            (hpbsPointers hpbs)
+            BlockStatePointers
+                { bspAccounts = accts,
+                  bspInstances = insts,
+                  bspModules = mods,
+                  bspBank = bspBank,
+                  bspIdentityProviders = ips,
+                  bspAnonymityRevokers = ars,
+                  bspBirkParameters = birkParams,
+                  bspCryptographicParameters = cryptoParams,
+                  bspUpdates = upds,
+                  bspReleaseSchedule = rels,
+                  bspTransactionOutcomes = bspTransactionOutcomes,
+                  bspRewardDetails = red
+                }
+    return tt
