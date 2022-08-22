@@ -489,7 +489,7 @@ async fn maybe_do_out_of_band_catchup(
         }
     } else if let Some(download_url) = download_blocks_from.as_ref().cloned() {
         info!("Starting out of band catch-up");
-        let genesis_block_hashes = regenesis_arc.blocks.read().unwrap();
+        let genesis_block_hashes = regenesis_arc.blocks.read().unwrap().clone();
         if let Err(e) =
             import_missing_blocks(consensus, &genesis_block_hashes, download_url, data_dir_path)
                 .await
@@ -521,19 +521,14 @@ struct BlockChunkData {
 
 async fn import_missing_blocks(
     consensus: &ConsensusContainer,
-    genesis_block_hashes: &Vec<HashBytes>,
+    genesis_block_hashes: &[HashBytes],
     index_url: &url::Url,
     data_dir_path: &Path,
 ) -> anyhow::Result<()> {
-    let last_finalized_block_height = consensus.get_last_finalized_block_height();
     let current_genesis_index = genesis_block_hashes.len() - 1;
-    let current_genesis_block_hash = genesis_block_hashes[current_genesis_index].to_string();
-    let json_genesis_block_value: serde_json::Value =
-        serde_json::from_str(&consensus.get_block_info(&current_genesis_block_hash)?)?;
-    let current_genesis_block_height = json_genesis_block_value["blockHeight"].as_u64().unwrap();
+    let last_finalized_block_height = consensus.get_last_finalized_block_height();
 
     info!("Current genesis index: {}", current_genesis_index);
-    info!("Current genesis block height: {}", current_genesis_block_height);
     info!("Local last finalized block height: {}", last_finalized_block_height);
 
     let comments_stream = reqwest::get(index_url.clone())
@@ -572,10 +567,12 @@ async fn import_missing_blocks(
         let block_chunk_data: BlockChunkData = result?;
         // no need to reimport blocks that are present in the database
         if block_chunk_data.genesis_index < current_genesis_index
-            || current_genesis_block_height + block_chunk_data.last_block_height
-                <= last_finalized_block_height
+            || block_chunk_data.last_block_height <= last_finalized_block_height
         {
-	    info!("Skipping chunk {}: no blocks above last finalized block height", block_chunk_data.filename);
+            info!(
+                "Skipping chunk {}: no blocks above last finalized block height",
+                block_chunk_data.filename
+            );
             continue;
         }
         let block_chunk_url = index_url.join(&block_chunk_data.filename)?;

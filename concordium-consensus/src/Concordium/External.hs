@@ -24,7 +24,6 @@ import qualified Concordium.Crypto.SHA256 as SHA256
 import Concordium.ID.Types
 import Concordium.Logger
 import Concordium.Types
-import Concordium.Types.Block (theAbsoluteBlockHeight)
 import qualified Data.FixedByteString as FBS
 
 import Concordium.Afgjort.Finalize.Types (FinalizationInstance (FinalizationInstance))
@@ -909,7 +908,7 @@ getLastFinalizedBlockHeight ::
     IO Word64
 getLastFinalizedBlockHeight cptr = do
   (ConsensusRunner mvr) <- deRefStablePtr cptr
-  theAbsoluteBlockHeight <$> runMVR Q.getLastFinalizedBlockHeight mvr
+  theBlockHeight <$> runMVR Q.getLastFinalizedBlockHeight mvr
 
 -- ** Block-indexed queries
 
