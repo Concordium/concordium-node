@@ -164,6 +164,7 @@ exportDatabaseV3 dbDir outDir chunkSize = do
       return (lastChunkGenesisIndex, lastChunkFirstBlock)
     else do
       createDirectoryIfMissing True outDir
+      writeFile indexFile "filename,genesis_index,first_block_height,last_block_height\n"
       -- we export blocks starting from height 1 because genesis blocks need not be exported
       return (0, 1)
   bracket (openFile indexFile AppendMode) hClose
@@ -220,7 +221,8 @@ exportSections dbDir outDir indexHdl chunkSize genIndex startHeight = do
 -- chunk (i.e. the one containing the block with the greatest height in the section) also contains
 -- finalization records finalizing all blocks after the last block containing a finalization
 -- record. The exported chunks will be accompanied by an index file mapping chunk filenames to the
--- block ranges stored in them. Each line in index file has format FILENAME,GENESISINDEX,FIRSTBLOCK,LASTBLOCK\n
+-- block ranges stored in them. Each line in index file has format
+-- 'filename,genesis_index,first_block_height,last_block_height\n'.
 writeChunks ::
     (IsProtocolVersion pv, MonadIO m, MonadState (DBState pv) m, MonadCatch m) =>
     -- |Genesis index

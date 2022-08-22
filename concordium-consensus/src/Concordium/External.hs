@@ -13,6 +13,7 @@ import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Unsafe as BS
 import Data.Int
 import qualified Data.Serialize as S
+import Data.Functor ( (<&>) )
 import Data.Word
 import Foreign
 import Foreign.C
@@ -909,7 +910,7 @@ getBestBlockHeight ::
     IO Word64
 getBestBlockHeight cptr = do
   (ConsensusRunner mvr) <- deRefStablePtr cptr
-  runMVR Q.getBestBlockHeight mvr >>= return . theAbsoluteBlockHeight
+  runMVR Q.getBestBlockHeight mvr <&> theAbsoluteBlockHeight
 
 -- ** Block-indexed queries
 

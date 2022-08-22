@@ -6,6 +6,7 @@ extern crate log;
 use futures::{stream::StreamExt, FutureExt, TryStreamExt};
 use std::{alloc::System, io::Write, sync::atomic};
 use tempfile::TempPath;
+use tokio::io::AsyncBufReadExt;
 #[global_allocator]
 static A: System = System;
 
@@ -107,7 +108,7 @@ async fn main() -> anyhow::Result<()> {
             ConsensusLogLevel::Info
         },
         &database_directory,
-        regenesis_arc,
+        regenesis_arc.clone(),
     )?;
     info!("Consensus layer started");
 
@@ -145,6 +146,7 @@ async fn main() -> anyhow::Result<()> {
 
     maybe_do_out_of_band_catchup(
         &consensus,
+        regenesis_arc,
         import_stopped,
         conf.cli.baker.import_blocks_from.as_deref(),
         conf.cli.baker.download_blocks_from.as_ref(),
@@ -463,6 +465,7 @@ where
 /// is specified.
 async fn maybe_do_out_of_band_catchup(
     consensus: &ConsensusContainer,
+    regenesis_arc: Arc<Regenesis>,
     import_stopped: Arc<atomic::AtomicBool>,
     import_blocks_from: Option<&Path>,
     download_blocks_from: Option<&reqwest::Url>,
@@ -486,7 +489,9 @@ async fn maybe_do_out_of_band_catchup(
         }
     } else if let Some(download_url) = download_blocks_from.as_ref().cloned() {
         info!("Starting out of band catch-up");
-        if let Err(e) = import_missing_blocks(consensus, download_url, data_dir_path).await {
+        if let Err(e) =
+            import_missing_blocks(consensus, regenesis_arc, download_url, data_dir_path).await
+        {
             if import_stopped.load(atomic::Ordering::Acquire) {
                 info!("Out of band catchup stopped.");
             } else {
@@ -498,28 +503,57 @@ async fn maybe_do_out_of_band_catchup(
     }
 }
 
+// An index entry for a chunk of blocks. Its format must correspond to one
+// produced by `database-exporter`.
 #[derive(serde::Deserialize)]
 struct BlockChunkData {
+    // exported chunk of blocks' filename
     filename:           String,
-    genesis_index:      u64,
+    // genesis block index from which relative heights of blocks in the chunk are counted
+    genesis_index:      usize,
+    // relative height of the oldest block stored in the chunk
     first_block_height: u64,
+    // relative height of the newest block stored in the chunk
     last_block_height:  u64,
 }
 
 async fn import_missing_blocks(
     consensus: &ConsensusContainer,
+    regenesis_arc: Arc<Regenesis>,
     index_url: &url::Url,
     data_dir_path: &Path,
 ) -> anyhow::Result<()> {
-    let json_consensus_value: serde_json::Value =
-        serde_json::from_str(&consensus.get_consensus_status())?;
-    let best_block_height = json_consensus_value["bestBlockHeight"].as_u64().unwrap();
-    let current_genesis_index = json_consensus_value["genesisIndex"].as_u64().unwrap();
-    let current_genesis_block_hash =
-        json_consensus_value["currentEraGenesisBlock"].as_str().unwrap();
+    let best_block_height = consensus.get_best_block_height();
+    let genesis_block_hashes = regenesis_arc.blocks.read().unwrap();
+    let current_genesis_index = genesis_block_hashes.len() - 1;
+    let current_genesis_block_hash = genesis_block_hashes[current_genesis_index].to_string();
     let json_genesis_block_value: serde_json::Value =
-        serde_json::from_str(&consensus.get_block_info(current_genesis_block_hash)?)?;
+        serde_json::from_str(&consensus.get_block_info(&current_genesis_block_hash)?)?;
     let current_genesis_block_height = json_genesis_block_value["blockHeight"].as_u64().unwrap();
+
+    let comments_stream = reqwest::get(index_url.clone())
+        .await?
+        .bytes_stream()
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e));
+    let mut comments_lines = tokio_util::io::StreamReader::new(comments_stream).lines();
+    while let Some(line) = comments_lines.next_line().await? {
+        if line.starts_with("# genesis hash ") {
+            let index_genesis_block_hash = line.strip_prefix("# genesis hash ").unwrap();
+            let genesis_hash = genesis_block_hashes[0].to_string();
+            if index_genesis_block_hash != genesis_hash {
+                return Err(anyhow::anyhow!(
+                    "The genesis block hash in the catchup index file {} does not match the \
+                     genesis block hash {} in the local tree state. Please verify that you chose \
+                     the catchup service for the correct chain.",
+                    index_genesis_block_hash,
+                    genesis_hash
+                ));
+            } else {
+                break;
+            }
+        }
+    }
+
     let index_reader = reqwest::get(index_url.clone())
         .await?
         .bytes_stream()
@@ -533,17 +567,20 @@ async fn import_missing_blocks(
         let block_chunk_data: BlockChunkData = result?;
         // no need to reimport blocks that are present in the database
         if block_chunk_data.genesis_index < current_genesis_index
-            || current_genesis_block_height + block_chunk_data.last_block_height < best_block_height
+            || current_genesis_block_height + block_chunk_data.last_block_height
+                <= best_block_height
         {
             continue;
         }
-        let block_chunk_url = index_url.join(&block_chunk_data.filename)?;
-        let path = download_chunk(block_chunk_url, data_dir_path).await?;
-        consensus.import_blocks(&path)?;
-        // attempt to properly clean up the downloaded file.
-        if let Err(e) = path.close() {
-            error!("Could not delete the downloaded file: {}", e);
-        }
+        if current_genesis_block_height + block_chunk_data.first_block_height > best_block_height {
+            let block_chunk_url = index_url.join(&block_chunk_data.filename)?;
+            let path = download_chunk(block_chunk_url, data_dir_path).await?;
+            consensus.import_blocks(&path)?;
+            // attempt to properly clean up the downloaded file.
+            if let Err(e) = path.close() {
+                error!("Could not delete the downloaded file: {}", e);
+            }
+        };
     }
     Ok(())
 }
