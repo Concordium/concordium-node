@@ -1130,7 +1130,7 @@ instance (MHashableTo m h a, BlobStorable m a, Cacheable m a) => Cacheable m (Ha
     ref' <- cache ref
     currentHash <- liftIO (readIORef hshRef)
     when (isNull currentHash) $ do
-        h <- getHashM ref
+        h <- getHashM ref'
         liftIO $ writeIORef hshRef $! Some h
     return (HashedBufferedRef ref' hshRef)
 
