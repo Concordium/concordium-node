@@ -20,7 +20,7 @@ use concordium_node::{
             CONSENSUS_QUEUE_DEPTH_IN_HI, CONSENSUS_QUEUE_DEPTH_OUT_HI,
         },
         ffi,
-        helpers::QueueMsg,
+        helpers::{HashBytes, QueueMsg},
         messaging::ConsensusMessage,
     },
     p2p::{
@@ -489,8 +489,10 @@ async fn maybe_do_out_of_band_catchup(
         }
     } else if let Some(download_url) = download_blocks_from.as_ref().cloned() {
         info!("Starting out of band catch-up");
+        let genesis_block_hashes = regenesis_arc.blocks.read().unwrap();
         if let Err(e) =
-            import_missing_blocks(consensus, regenesis_arc, download_url, data_dir_path).await
+            import_missing_blocks(consensus, &genesis_block_hashes, download_url, data_dir_path)
+                .await
         {
             if import_stopped.load(atomic::Ordering::Acquire) {
                 info!("Out of band catchup stopped.");
@@ -519,12 +521,11 @@ struct BlockChunkData {
 
 async fn import_missing_blocks(
     consensus: &ConsensusContainer,
-    regenesis_arc: Arc<Regenesis>,
+    genesis_block_hashes: &Vec<HashBytes>,
     index_url: &url::Url,
     data_dir_path: &Path,
 ) -> anyhow::Result<()> {
     let best_block_height = consensus.get_best_block_height();
-    let genesis_block_hashes = regenesis_arc.blocks.read().unwrap();
     let current_genesis_index = genesis_block_hashes.len() - 1;
     let current_genesis_block_hash = genesis_block_hashes[current_genesis_index].to_string();
     let json_genesis_block_value: serde_json::Value =
