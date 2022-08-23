@@ -121,7 +121,7 @@ defaultRuntimeParameters = RuntimeParameters {
   rpTransactionsKeepAliveTime = 5 * 60, -- 5 min
   rpTransactionsPurgingDelay = 3 * 60, -- 3 min
   rpAccountsCacheSize = 10_000,
-  rpModulesCacheSize = 1_000
+  rpModulesCacheSize = 100
   }
 
 instance FromJSON RuntimeParameters where
