@@ -16,6 +16,7 @@ import qualified Concordium.GlobalState.AccountMap as AccountMap
 import qualified Concordium.GlobalState.Persistent.Account as PA
 import qualified Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule as PA
 import qualified Concordium.GlobalState.Persistent.Accounts as P
+import qualified Concordium.GlobalState.Persistent.BlockState.Modules as M
 import qualified Concordium.GlobalState.Persistent.LFMBTree as L
 import Concordium.GlobalState.DummyData
 import Concordium.GlobalState.Persistent.BlobStore
@@ -265,7 +266,8 @@ tests lvl = describe "GlobalStateTests.Accounts" $
                       withTempDirectory "." "blockstate" $ \dir -> bracket
                         (do
                           pbscBlobStore <- createBlobStore (dir </> "blockstate.dat")
-                          pbscCache <- P.newAccountCache 100
+                          pbscAccountCache <- P.newAccountCache 100
+                          pbscModuleCache <- M.newModuleCache 100
                           return PersistentBlockStateContext {..}
                         )
                         (closeBlobStore . pbscBlobStore)

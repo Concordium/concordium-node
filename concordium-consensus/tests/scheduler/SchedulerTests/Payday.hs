@@ -46,6 +46,7 @@ import Concordium.GlobalState.Basic.BlockPointer (makeGenesisBasicBlockPointer)
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.TreeState
 import Concordium.GlobalState.Persistent.Accounts (SupportsPersistentAccount)
+import Concordium.GlobalState.Persistent.BlockState.Modules (SupportsPersistentModules)
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.BlockState
 import Concordium.GlobalState.Persistent.BlockPointer
@@ -209,7 +210,7 @@ initialAccounts = foldr addAcc emptyAccounts (take numAccounts staticKeys)
 initialPureBlockState :: (IsProtocolVersion pv) => HashedBlockState pv
 initialPureBlockState = Concordium.GlobalState.Basic.BlockState.hashBlockState $ createBlockState initialAccounts
 
-initialPersistentBlockState :: (SupportsPersistentAccount pv m) => m (HashedPersistentBlockState pv)
+initialPersistentBlockState :: (SupportsPersistentAccount pv m, SupportsPersistentModules m) => m (HashedPersistentBlockState pv)
 initialPersistentBlockState = makePersistent . _unhashedBlockState $ initialPureBlockState
 
 genesis :: (IsProtocolVersion pv) => Word -> (GenesisData pv, [(BakerIdentity, FullBakerInfo)], Amount)
