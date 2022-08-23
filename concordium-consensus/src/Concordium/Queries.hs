@@ -497,8 +497,8 @@ getInstanceList =
         BS.getContractInstanceList <=< blockState
 
 -- |Get the list of modules present as of a given block.
-getModuleList :: BlockHash -> MVR gsconf finconf (Maybe [ModuleRef])
-getModuleList = liftSkovQueryBlock $ BS.getModuleList <=< blockState
+getModuleList :: BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe [ModuleRef])
+getModuleList = liftSkovQueryBlock' $ BS.getModuleList <=< blockState
 
 {- |Get the details of an account in the block state.
  The account can be given via an address, an account index or a credential registration id.

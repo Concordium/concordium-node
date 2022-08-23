@@ -151,6 +151,10 @@ instance ToProto TransactionHashV0 where
     type Output TransactionHashV0 = Proto.TransactionHash
     toProto = mkSerialize
 
+instance ToProto ModuleRef where
+    type Output ModuleRef = Proto.ModuleReference
+    toProto = mkSerialize
+
 instance ToProto BlockHeight where
     type Output BlockHeight = Proto.BlockHeight
     toProto = mkWord64
@@ -478,6 +482,29 @@ getAccountListV2 cptr channel blockType blockHashPtr outHash cbk = do
             _ <- enqueueMessages (sender channel) addresses
             return (queryResultCode QRSuccess)
 
+getModuleListV2 ::
+    StablePtr Ext.ConsensusRunner ->
+    Ptr SenderChannel ->
+    -- |Block type.
+    Word8 ->
+    -- |Block hash.
+    Ptr Word8 ->
+    -- |Out pointer for writing the block hash that was used.
+    Ptr Word8 ->
+    FunPtr (Ptr SenderChannel -> Ptr Word8 -> Int64 -> IO Int32) ->
+    IO Int64
+getModuleListV2 cptr channel blockType blockHashPtr outHash cbk = do
+    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
+    let sender = callChannelSendCallback cbk
+    bhi <- decodeBlockHashInput blockType blockHashPtr
+    (bh, mModules) <- runMVR (Q.getModuleList bhi) mvr
+    case mModules of
+        Nothing -> return (queryResultCode QRNotFound)
+        Just modules -> do
+            copyHashTo outHash bh
+            _ <- enqueueMessages (sender channel) modules
+            return (queryResultCode QRSuccess)
+
 {- |Write the hash to the provided pointer, and if the message is given encode and
    write it using the provided callback.
 -}
@@ -543,6 +570,19 @@ foreign export ccall
 
 foreign export ccall
     getAccountListV2 ::
+        StablePtr Ext.ConsensusRunner ->
+        Ptr SenderChannel ->
+        -- |Block type.
+        Word8 ->
+        -- |Block hash.
+        Ptr Word8 ->
+        -- |Out pointer for writing the block hash that was used.
+        Ptr Word8 ->
+        FunPtr (Ptr SenderChannel -> Ptr Word8 -> Int64 -> IO Int32) ->
+        IO Int64
+
+foreign export ccall
+    getModuleListV2 ::
         StablePtr Ext.ConsensusRunner ->
         Ptr SenderChannel ->
         -- |Block type.

@@ -523,6 +523,19 @@ extern "C" {
             i64,
         ) -> i32,
     ) -> i64;
+
+    pub fn getModuleListV2(
+        consensus: *mut consensus_runner,
+        sender: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+        block_id_type: u8,
+        block_hash: *const u8,
+        out_hash: *mut u8,
+        callback: extern "C" fn(
+            *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+            *const u8,
+            i64,
+        ) -> i32,
+    ) -> i64;
 }
 
 /// This is the callback invoked by consensus on newly arrived, and newly
@@ -1042,6 +1055,32 @@ impl ConsensusContainer {
 
     /// Stream finalized blocks when they become available.
     pub fn get_account_list_v2(
+        &self,
+        block_hash: &crate::grpc2::types::BlockHashInput,
+        sender: futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+    ) -> Result<[u8; 32], tonic::Status> {
+        use crate::grpc2::Require;
+        let sender = Box::new(sender);
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut buf = [0u8; 32];
+        let (block_id_type, block_hash) =
+            crate::grpc2::types::block_hash_input_to_ffi(block_hash).require_owned()?;
+        let response: ConsensusQueryResponse = unsafe {
+            getAccountListV2(
+                consensus,
+                Box::into_raw(sender),
+                block_id_type,
+                block_hash,
+                buf.as_mut_ptr(),
+                enqueue_bytearray_callback,
+            )
+        }
+        .try_into()?;
+        response.check_rpc_response()?;
+        Ok(buf)
+    }
+
+    pub fn get_module_list_v2(
         &self,
         block_hash: &crate::grpc2::types::BlockHashInput,
         sender: futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,

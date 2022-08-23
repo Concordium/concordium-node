@@ -1059,7 +1059,7 @@ getModuleList :: StablePtr ConsensusRunner -> CString -> IO CString
 getModuleList cptr blockcstr = do
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (Q.getModuleList bh)
+        Just bh -> jsonQuery cptr (snd <$> Q.getModuleList (Q.BHIGiven bh))
 
 -- |Get account information for the given block and identifier. The block must be
 -- given as a null-terminated base16 encoding of the block hash and the account
