@@ -164,7 +164,6 @@ exportDatabaseV3 dbDir outDir chunkSize = do
       return (lastChunkGenesisIndex, lastChunkFirstBlock)
     else do
       createDirectoryIfMissing True outDir
-      writeFile indexFile "filename,genesis_index,first_block_height,last_block_height\n"
       -- we export blocks starting from height 1 because genesis blocks need not be exported
       return (0, 1)
   bracket (openFile indexFile AppendMode) hClose

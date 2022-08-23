@@ -3,10 +3,9 @@
 extern crate log;
 
 // Force the system allocator on every platform
-use futures::{stream::StreamExt, FutureExt, TryStreamExt};
+use futures::{stream::StreamExt, AsyncBufReadExt, FutureExt, TryStreamExt};
 use std::{alloc::System, io::Write, sync::atomic};
 use tempfile::TempPath;
-use tokio::io::AsyncBufReadExt;
 #[global_allocator]
 static A: System = System;
 
@@ -528,39 +527,38 @@ async fn import_missing_blocks(
     let current_genesis_index = genesis_block_hashes.len() - 1;
     let last_finalized_block_height = consensus.get_last_finalized_block_height();
 
-    info!("Current genesis index: {}", current_genesis_index);
-    info!("Local last finalized block height: {}", last_finalized_block_height);
+    debug!("Current genesis index: {}", current_genesis_index);
+    debug!("Local last finalized block height: {}", last_finalized_block_height);
 
-    let comments_stream = reqwest::get(index_url.clone())
-        .await?
-        .bytes_stream()
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e));
-    let mut comments_lines = tokio_util::io::StreamReader::new(comments_stream).lines();
-    while let Some(line) = comments_lines.next_line().await? {
-        if line.starts_with("# genesis hash ") {
-            let index_genesis_block_hash = line.strip_prefix("# genesis hash ").unwrap();
-            let genesis_hash = genesis_block_hashes[0].to_string();
-            if index_genesis_block_hash != genesis_hash {
-                return Err(anyhow::anyhow!(
-                    "The genesis block hash in the catchup index file {} does not match the \
-                     genesis block hash {} in the local tree state. Please verify that you chose \
-                     the catchup service for the correct chain.",
-                    index_genesis_block_hash,
-                    genesis_hash
-                ));
-            } else {
-                break;
-            }
-        }
-    }
-
-    let index_reader = reqwest::get(index_url.clone())
-        .await?
+    let mut index_reader = reqwest::get(index_url.clone())
+        .await
+        .context("Unable to download the catchup index file.")?
         .bytes_stream()
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
         .into_async_read();
+    let mut first_line: String = String::new();
+    index_reader.read_line(&mut first_line).await?;
+
+    let index_genesis_block_hash = first_line
+        .strip_prefix("# genesis hash ")
+        .context(
+            "The catchup index file does not begin with a line containing the genesis block hash. \
+             Please contact the catchup service administrator.",
+        )?
+        .trim();
+    let genesis_hash = genesis_block_hashes[0].to_string();
+    anyhow::ensure!(
+        index_genesis_block_hash == genesis_hash,
+        "The genesis block hash in the catchup index file {} does not match the genesis block \
+         hash {} in the local tree state. Please verify that you chose the catchup service for \
+         the correct chain.",
+        index_genesis_block_hash,
+        genesis_hash
+    );
+
     let mut chunk_records = csv_async::AsyncReaderBuilder::new()
         .comment(Some(b'#'))
+        .has_headers(false)
         .create_deserializer(index_reader)
         .into_deserialize();
     while let Some(result) = chunk_records.next().await {
