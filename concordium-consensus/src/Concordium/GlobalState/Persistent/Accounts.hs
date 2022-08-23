@@ -3,8 +3,9 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 module Concordium.GlobalState.Persistent.Accounts where
@@ -154,11 +155,11 @@ instance (SupportsPersistentAccount pv m) => BlobStorable m (Accounts pv) where
             accountRegIdHistory <- mrRIH
             return $ Accounts {accountRegIds = Null,..}
 
-instance SupportsPersistentAccount pv m => Cacheable m (Accounts pv) where
-    cache accts0 = do
+instance (SupportsPersistentAccount pv m, av ~ AccountVersionFor pv) => Cacheable1 m (Accounts pv) (PersistentAccount av) where
+    liftCache cch accts0 = do
         (_, accts@Accounts{..}) <- loadRegIds accts0
         acctMap <- cache accountMap
-        acctTable <- cache accountTable
+        acctTable <- liftCache (liftCache @_ @(HashedCachedRef (AccountCache av) (PersistentAccount av)) cch) accountTable
         return accts{
             accountMap = acctMap,
             accountTable = acctTable

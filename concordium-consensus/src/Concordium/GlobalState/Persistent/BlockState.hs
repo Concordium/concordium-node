@@ -24,7 +24,8 @@ module Concordium.GlobalState.Persistent.BlockState (
     PersistentBlockStateContext(..),
     PersistentState,
     PersistentBlockStateMonad(..),
-    withNewAccountCache
+    withNewAccountCache,
+    cacheStateAndGetTransactionTable
 ) where
 
 import Data.Serialize
@@ -462,37 +463,6 @@ instance (SupportsPersistentAccount pv m) => BlobStorable m (BlockStatePointers 
             bspReleaseSchedule <- mReleases
             bspRewardDetails <- mRewardDetails
             return $! BlockStatePointers{..}
-
-instance (SupportsPersistentAccount pv m) => Cacheable m (BlockStatePointers pv) where
-    cache BlockStatePointers{..} = do
-        accts <- cache bspAccounts
-        -- first cache the modules
-        mods <- cache bspModules
-        -- then cache the instances, but don't cache the modules again. Instead
-        -- share the references in memory we have already constructed by caching
-        -- modules above. Loading the modules here is cheap since we cached them.
-        insts <- runReaderT (cache bspInstances) =<< refLoad mods
-        ips <- cache bspIdentityProviders
-        ars <- cache bspAnonymityRevokers
-        birkParams <- cache bspBirkParameters
-        cryptoParams <- cache bspCryptographicParameters
-        upds <- cache bspUpdates
-        rels <- cache bspReleaseSchedule
-        red <- cache bspRewardDetails
-        return BlockStatePointers{
-            bspAccounts = accts,
-            bspInstances = insts,
-            bspModules = mods,
-            bspBank = bspBank,
-            bspIdentityProviders = ips,
-            bspAnonymityRevokers = ars,
-            bspBirkParameters = birkParams,
-            bspCryptographicParameters = cryptoParams,
-            bspUpdates = upds,
-            bspReleaseSchedule = rels,
-            bspTransactionOutcomes = bspTransactionOutcomes,
-            bspRewardDetails = red
-        }
 
 -- |Accessor for getting the pool rewards when supported by the protocol version.
 bspPoolRewards :: AccountVersionFor pv ~ 'AccountV1 => BlockStatePointers pv -> HashedBufferedRef' Rewards.PoolRewardsHash PoolRewards
@@ -2596,36 +2566,6 @@ doSetRewardAccounts pbs rewards = do
         bsp <- loadPBS pbs
         storePBS pbs bsp{bspBank = bspBank bsp & unhashed . Rewards.rewardAccounts .~ rewards}
 
-doGetInitialTransactionTable :: forall pv m. SupportsPersistentAccount pv m => PersistentBlockState pv -> m TransactionTable.TransactionTable
-doGetInitialTransactionTable pbs = do
-    bsp <- loadPBS pbs
-    -- Note: we deliberately fold over the accounts in descending order here under the assumption
-    -- that they have just been loaded in ascending order previously, allowing us to make maximal
-    -- use of the cache. The order does not matter semantically since account addresses are
-    -- distinctive.
-    tt1 <- Accounts.foldAccountsDesc accInTT TransactionTable.emptyTransactionTable (bspAccounts bsp)
-    foldM (updInTT bsp) tt1 [minBound..]
-  where
-    accInTT :: TransactionTable.TransactionTable -> PersistentAccount (AccountVersionFor pv) -> m TransactionTable.TransactionTable
-    accInTT tt acct = do
-        let nonce = acct ^. accountNonce
-        if nonce /= minNonce
-            then do
-                addr <- acct ^^. accountAddress
-                return $! tt
-                    & TransactionTable.ttNonFinalizedTransactions . at' (accountAddressEmbed addr)
-                    ?~ TransactionTable.emptyANFTWithNonce nonce
-            else return tt
-    updInTT bsp tt uty = do
-        sn <- lookupNextUpdateSequenceNumber (bspUpdates bsp) uty
-        if sn /= minUpdateSequenceNumber
-            then
-                return $! tt
-                    & TransactionTable.ttNonFinalizedChainUpdates . at' uty
-                    ?~ TransactionTable.emptyNFCUWithSequenceNumber sn
-            else
-                return tt
-
 data PersistentBlockStateContext pv = PersistentBlockStateContext {
     pbscBlobStore :: !BlobStore,
     pbscCache :: !(Accounts.AccountCache (AccountVersionFor pv))
@@ -2710,7 +2650,6 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateQuery (P
     getEnergyRate = doGetEnergyRate . hpbsPointers
     getPaydayEpoch = doGetPaydayEpoch . hpbsPointers
     getPoolStatus = doGetPoolStatus . hpbsPointers
-    getInitialTransactionTable = doGetInitialTransactionTable . hpbsPointers
 
 instance (MonadIO m, PersistentState av pv r m) => ContractStateOperations (PersistentBlockStateMonad pv r m) where
   thawContractState (Instances.InstanceStateV0 inst) = return inst
@@ -2884,12 +2823,6 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage 
         hpbsPointers <- liftIO $ newIORef $ BRBlobbed ref
         return HashedPersistentBlockState{..}
 
-    cacheBlockState pbs@HashedPersistentBlockState{..} = do
-        bsp <- liftIO $ readIORef hpbsPointers
-        !bsp' <- cache bsp
-        liftIO $ writeIORef hpbsPointers bsp'
-        return pbs
-
     serializeBlockState hpbs = do
         p <- runPutT (putBlockStateV0 (hpbsPointers hpbs))
         return $ runPut p
@@ -2899,3 +2832,69 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage 
 
     collapseCaches = do
         Cache.collapseCache (Proxy :: Proxy (AccountCache av))
+
+-- |Cache the block state and get the initial (empty) transaction table with the next account nonces
+-- and update sequence numbers populated.
+cacheStateAndGetTransactionTable ::
+    forall pv m.
+    SupportsPersistentAccount pv m =>
+    HashedPersistentBlockState pv ->
+    m TransactionTable.TransactionTable
+cacheStateAndGetTransactionTable hpbs = do
+    BlockStatePointers{..} <- loadPBS (hpbsPointers hpbs)
+    -- When caching the accounts, we populate the transaction table with the next account nonces.
+    -- This is done by using 'liftCache' on the account table with a custom cache function that
+    -- records the nonces.
+    let cacheAcct acct = do
+            -- Note: we do not need to cache the account because a loaded account is already fully
+            -- cached. (Indeed, 'cache' is defined to be 'pure'.)
+            let nonce = acct ^. accountNonce
+            unless (nonce == minNonce) $ do
+                addr <- acct ^^. accountAddress
+                MTL.modify
+                    ( TransactionTable.ttNonFinalizedTransactions . at' (accountAddressEmbed addr)
+                        ?~ TransactionTable.emptyANFTWithNonce nonce
+                    )
+            return acct
+    (accts, tt0) <- MTL.runStateT (liftCache cacheAcct bspAccounts) TransactionTable.emptyTransactionTable
+    -- first cache the modules
+    mods <- cache bspModules
+    -- then cache the instances, but don't cache the modules again. Instead
+    -- share the references in memory we have already constructed by caching
+    -- modules above. Loading the modules here is cheap since we cached them.
+    insts <- runReaderT (cache bspInstances) =<< refLoad mods
+    ips <- cache bspIdentityProviders
+    ars <- cache bspAnonymityRevokers
+    birkParams <- cache bspBirkParameters
+    cryptoParams <- cache bspCryptographicParameters
+    upds <- cache bspUpdates
+    -- Update the transaction table with the sequence numbers for chain updates.
+    let updInTT tt uty = do
+            sn <- lookupNextUpdateSequenceNumber bspUpdates uty
+            if sn /= minUpdateSequenceNumber
+                then
+                    return $! tt
+                        & TransactionTable.ttNonFinalizedChainUpdates . at' uty
+                        ?~ TransactionTable.emptyNFCUWithSequenceNumber sn
+                else return tt
+    tt <- foldM updInTT tt0 [minBound ..]
+    rels <- cache bspReleaseSchedule
+    red <- cache bspRewardDetails
+    _ <-
+        storePBS
+            (hpbsPointers hpbs)
+            BlockStatePointers
+                { bspAccounts = accts,
+                  bspInstances = insts,
+                  bspModules = mods,
+                  bspBank = bspBank,
+                  bspIdentityProviders = ips,
+                  bspAnonymityRevokers = ars,
+                  bspBirkParameters = birkParams,
+                  bspCryptographicParameters = cryptoParams,
+                  bspUpdates = upds,
+                  bspReleaseSchedule = rels,
+                  bspTransactionOutcomes = bspTransactionOutcomes,
+                  bspRewardDetails = red
+                }
+    return tt
