@@ -1130,7 +1130,7 @@ instance (MHashableTo m h a, BlobStorable m a, Cacheable m a) => Cacheable m (Ha
     ref' <- cache ref
     currentHash <- liftIO (readIORef hshRef)
     when (isNull currentHash) $ do
-        h <- getHashM ref
+        h <- getHashM ref'
         liftIO $ writeIORef hshRef $! Some h
     return (HashedBufferedRef ref' hshRef)
 
@@ -1172,3 +1172,31 @@ instance (Applicative m) => Cacheable m BakerPoolRewardDetails
 instance (Applicative m) => Cacheable m DelegatorCapital
 instance (Applicative m) => Cacheable m BakerCapital
 instance (Applicative m) => Cacheable m CapitalDistribution
+
+-- |Typeclass for caching a container type, given a function for caching the
+-- contained type. The caching operation should not affect the value up to an equivalence
+-- appropriate to the type in question.
+class Cacheable1 m c a where
+    -- |Lift a caching operation on the contained type to a caching operation on the container
+    -- type.
+    liftCache :: (a -> m a) -> c -> m c
+
+instance BlobStorable m a => Cacheable1 m (BufferedRef a) a where
+    liftCache cch BRBlobbed{..} = do
+        brValue <- cch =<< loadRef brRef
+        return BRBoth{..}
+    liftCache cch br@BRMemory{..} = do
+        cachedVal <- cch brValue
+        return $! br{brValue = cachedVal}
+    liftCache cch br@BRBoth{..} = do
+        cachedVal <- cch brValue
+        return $! br{brValue = cachedVal}
+
+instance (MHashableTo m h a, BlobStorable m a) => Cacheable1 m (HashedBufferedRef' h a) a where
+    liftCache cch (HashedBufferedRef ref hshRef) = do
+        ref' <- liftCache cch ref
+        currentHash <- liftIO (readIORef hshRef)
+        when (isNull currentHash) $ do
+            h <- getHashM ref'
+            liftIO $ writeIORef hshRef $! Some h
+        return (HashedBufferedRef ref' hshRef)

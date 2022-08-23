@@ -6,6 +6,7 @@
   `--chunksize` option specifies the size of export files in blocks.
 - The `--download-blocks-from` option now takes the URL to the catchup _index file_, permitting to
   only download and import catchup files containing blocks not already present in the database.
+- Improvements to start-up time that fix regressions introduced by the account caching.
 
 ## 4.3.0
 

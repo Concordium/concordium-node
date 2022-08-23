@@ -4,6 +4,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 -- FIXME: This is to suppress compiler warnings for derived instances of BlockStateOperations.
@@ -416,24 +417,15 @@ activateSkovPersistentData :: forall pv. (IsProtocolVersion pv)
                            => PBS.PersistentBlockStateContext pv
                            -> SkovPersistentData pv (PBS.HashedPersistentBlockState pv)
                            -> LogIO (SkovPersistentData pv (PBS.HashedPersistentBlockState pv))
-activateSkovPersistentData pbsc uninitState = do
-  -- Before we establish the invariants we cache the block state.
-  logEvent GlobalState LLTrace "Caching last finalized block"
-  cachedLastFinalized <- liftIO (makeBlockPointerCached (_lastFinalized uninitState))
-  let lastState = _bpState cachedLastFinalized
-  -- We need to establish is the transaction table invariants.
-  -- This specifically means for each account we need to determine the next available nonce.
-  -- This is handled by the 'BlockStateQuery' monad operation 'getInitialTransactionTable'
-  -- to ensure that the account table is traversed as efficiently as possible.
-  logEvent GlobalState LLTrace "Initialising transaction table"
-  tt <- runReaderT (PBS.runPersistentBlockStateMonad (getInitialTransactionTable lastState)) pbsc
-  logEvent GlobalState LLTrace "Done initialising transaction table"
-  return (uninitState{_transactionTable = tt, _lastFinalized = cachedLastFinalized})
+activateSkovPersistentData pbsc uninitState = 
+  runBlockState $ do
+    logEvent GlobalState LLTrace "Caching last finalized block and initializing transaction table"
+    let bps = _bpState $ _lastFinalized uninitState
+    tt <- PBS.cacheStateAndGetTransactionTable bps
+    logEvent GlobalState LLTrace "Done caching last finalized block"
+    return $! uninitState{_transactionTable = tt}
   where 
-    makeBlockPointerCached :: PersistentBlockPointer pv (PBS.HashedPersistentBlockState pv) -> IO (PersistentBlockPointer pv (PBS.HashedPersistentBlockState pv))
-    makeBlockPointerCached bp@BlockPointer{..} = do
-      cachedState <- runReaderT (PBS.runPersistentBlockStateMonad (cacheBlockState _bpState)) pbsc
-      return bp {_bpState = cachedState}
+    runBlockState a =  runReaderT (PBS.runPersistentBlockStateMonad @pv a) pbsc
 
 
 -- |Close the database associated with a 'SkovPersistentData'.
