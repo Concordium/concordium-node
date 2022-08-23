@@ -1,6 +1,8 @@
 # Changelog
 
-## Unrelease changes
+## Unreleased changes
+
+## 4.3.1
 
 - Improvements to start-up time that fix regressions introduced by the account caching.
 
