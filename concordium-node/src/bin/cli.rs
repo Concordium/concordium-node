@@ -567,7 +567,7 @@ async fn import_missing_blocks(
         if block_chunk_data.genesis_index < current_genesis_index
             || block_chunk_data.last_block_height <= last_finalized_block_height
         {
-            info!(
+            debug!(
                 "Skipping chunk {}: no blocks above last finalized block height",
                 block_chunk_data.filename
             );
