@@ -2852,8 +2852,8 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage 
 -- and update sequence numbers populated.
 cacheStateAndGetTransactionTable ::
     forall pv m.
-    SupportsPersistentAccount pv m,
-    Modules.SupportsPersistentModules m =>
+    (SupportsPersistentAccount pv m,
+    Modules.SupportsPersistentModules m) =>
     HashedPersistentBlockState pv ->
     m TransactionTable.TransactionTable
 cacheStateAndGetTransactionTable hpbs = do
