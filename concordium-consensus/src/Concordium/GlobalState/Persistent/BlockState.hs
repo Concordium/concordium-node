@@ -2648,11 +2648,10 @@ instance Cache.HasCache Modules.ModuleCache (PersistentBlockStateContext pv) whe
 
 -- |Create a new account cache of the specified size for running the given monadic operation by
 -- extending the 'BlobStore' context to a 'PersistentBlockStateContext'.
--- TODO: Make modules cache size configurable and rename function.
 withNewAccountCache :: (MonadIO m) => Int -> BlobStoreT (PersistentBlockStateContext pv) m a -> BlobStoreT BlobStore m a
 withNewAccountCache size bsm = do
     ac <- liftIO $ Accounts.newAccountCache size
-    mc <- liftIO $ Modules.newModuleCache 50
+    mc <- liftIO $ Modules.newModuleCache 100
     alterBlobStoreT (flip (flip PersistentBlockStateContext ac) mc) bsm 
 
 newtype PersistentBlockStateMonad (pv :: ProtocolVersion) r m a = PersistentBlockStateMonad {runPersistentBlockStateMonad :: m a}

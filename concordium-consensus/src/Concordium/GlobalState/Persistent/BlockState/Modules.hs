@@ -160,8 +160,7 @@ putModuleV0 (ModuleV1 ModuleV{..}) = sPut =<< loadRef moduleVSource
 
 --------------------------------------------------------------------------------
 
--- |The cache for `Module`s
--- TODO: Revise the FIFOCache usage.
+-- |The cache retaining 'Module's
 type ModuleCache = FIFOCache Module
 
 -- |Construct a new `ModulesCache` with the given size.

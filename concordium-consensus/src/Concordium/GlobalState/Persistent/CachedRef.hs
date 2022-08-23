@@ -18,6 +18,7 @@ import Concordium.Types.HashableTo
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.Cache
 
+
 -- * 'CachedRef'
 
 -- |A value that is either stored on disk as a 'BlobRef' or in memory only.
