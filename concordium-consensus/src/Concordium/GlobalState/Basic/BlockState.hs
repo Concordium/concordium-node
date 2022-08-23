@@ -2090,8 +2090,9 @@ genesisState gd = case protocolVersion @pv of
                             StateMigrationParametersP3ToP4{} -> False
                         genesisTT = getInitialTransactionTable hbs
 
--- |Construct a transaction table that is empty but records the next nonces/sequence numbers
--- for all accounts and chain updates.
+-- |Construct a transaction table that is empty but reflects the next nonces/sequence numbers
+-- for all accounts and chain updates. That is, if the next nonce/sequence number is not the minimal
+    -- one, it is recorded in the transaction table.
 getInitialTransactionTable ::
     ( HasBlockState s pv,
       IsChainParametersVersion (ChainParametersVersionFor pv)
