@@ -2,6 +2,8 @@
 
 ## Unrelease changes
 
+- Improvements to start-up time that fix regressions introduced by the account caching.
+
 ## 4.3.0
 
 - Account records are no longer constantly retained in memory. Instead a limited
