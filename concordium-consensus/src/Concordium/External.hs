@@ -903,6 +903,8 @@ getBlocksAtHeight cptr height genIndex restrict =
             (GenesisIndex genIndex)
             (restrict /= 0)
 
+-- | Retrieve the last finalized block height relative to the most recent genesis index. Used for
+-- resuming out-of-band catchup.
 getLastFinalizedBlockHeight ::
     StablePtr ConsensusRunner ->
     IO Word64
