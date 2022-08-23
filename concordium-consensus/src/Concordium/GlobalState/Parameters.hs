@@ -106,7 +106,7 @@ data RuntimeParameters = RuntimeParameters {
   rpTransactionsPurgingDelay :: !Int,
   -- |The accounts cache size
   rpAccountsCacheSize :: !Int,
-  -- |The instances cache size
+  -- |The modules cache size
   rpModulesCacheSize :: !Int
   }
 
