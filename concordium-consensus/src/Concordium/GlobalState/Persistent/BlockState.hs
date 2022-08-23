@@ -2914,3 +2914,4 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage 
 
     collapseCaches = do
         Cache.collapseCache (Proxy :: Proxy (AccountCache av))
+        Cache.collapseCache (Proxy :: Proxy Modules.ModuleCache)
