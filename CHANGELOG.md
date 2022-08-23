@@ -4,6 +4,7 @@
 
 - `database-exporter` now produces a collection of export files, instead of a single file. The new
   `--chunksize` option specifies the size of export files in blocks.
+- Improvements to start-up time that fix regressions introduced by the account caching.
 
 ## 4.3.0
 

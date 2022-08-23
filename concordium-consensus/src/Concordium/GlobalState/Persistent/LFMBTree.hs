@@ -237,6 +237,16 @@ instance (Applicative m, Cacheable m (T ref v)) => Cacheable m (LFMBTree' k ref 
   cache t@Empty = pure t
   cache (NonEmpty s t) = NonEmpty s <$> cache t
 
+instance (Applicative m, Cacheable1 m (r (T r v)) (T r v)) => Cacheable1 m (T r v) v where
+    liftCache cch = lc
+        where
+            lc (Node h l r) = Node h <$> liftCache lc l <*> liftCache lc r
+            lc (Leaf a) = Leaf <$> cch a
+
+instance (Applicative m, Cacheable1 m (r (T r v)) (T r v)) => Cacheable1 m (LFMBTree' k r v) v where
+    liftCache _ t@Empty = pure t
+    liftCache cch (NonEmpty s t) = NonEmpty s <$> liftCache cch t
+
 {-
 -------------------------------------------------------------------------------
                                   Interface
