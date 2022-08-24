@@ -430,7 +430,3 @@ deserializeExactVersionedPendingBlock spv blockBS rectime =
     case runGet (getVersionedBlock spv rectime) blockBS of
         Left err -> Left $ "Block deserialization failed: " ++ err
         Right block1 -> Right block1
-
--- |Deserialize a pending block without a version tag.
-deserializePendingBlock :: IsProtocolVersion pv => SProtocolVersion pv -> ByteString.ByteString -> UTCTime -> Either String PendingBlock
-deserializePendingBlock spv blockBS rectime = runGet (getBlock spv rectime) blockBS
