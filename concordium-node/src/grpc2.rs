@@ -277,6 +277,7 @@ pub mod server {
     impl service::queries_server::Queries for RpcServerImpl {
         type GetAccountListStream =
             futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
+        type GetAncestorsStream = futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
         ///Server streaming response type for the FinalizedBlocks method.
         type GetFinalizedBlocksStream =
             tokio_stream::wrappers::ReceiverStream<Result<Arc<[u8]>, tonic::Status>>;
@@ -330,6 +331,20 @@ pub mod server {
         ) -> Result<tonic::Response<Self::GetModuleListStream>, tonic::Status> {
             let (sender, receiver) = futures::channel::mpsc::channel(100);
             let hash = self.consensus.get_module_list_v2(request.get_ref(), sender)?;
+            let mut response = tonic::Response::new(receiver);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_ancestors(
+            &self,
+            request: tonic::Request<crate::grpc2::types::AncestorsRequest>,
+        ) -> Result<tonic::Response<Self::GetAncestorsStream>, tonic::Status> {
+            let (sender, receiver) = futures::channel::mpsc::channel(100);
+            let request = request.get_ref();
+            let block_hash = request.block_hash.require()?;
+            let amount = request.amount;
+            let hash = self.consensus.get_ancestors_v2(block_hash, amount, sender)?;
             let mut response = tonic::Response::new(receiver);
             add_hash(&mut response, hash)?;
             Ok(response)

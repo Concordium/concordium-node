@@ -1029,7 +1029,7 @@ getAncestors :: StablePtr ConsensusRunner -> CString -> Word64 -> IO CString
 getAncestors cptr blockcstr depth =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (Q.getAncestors bh (BlockHeight depth))
+        Just bh -> jsonQuery cptr (snd <$> Q.getAncestors (Q.BHIGiven bh) (BlockHeight depth))
 
 -- |Get the list of account addresses in the given block. The block must be
 -- given as a null-terminated base16 encoding of the block hash. The return

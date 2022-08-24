@@ -177,6 +177,16 @@ fn main() -> std::io::Result<()> {
                 .server_streaming()
                 .build(),
         )
+        .method(
+            tonic_build::manual::Method::builder()
+                .name("get_ancestors")
+                .route_name("GetAncestors")
+                .input_type("crate::grpc2::types::AncestorsRequest")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .server_streaming()
+                .build(),
+        )
         .build();
     // Due to the slightly hacky nature of the RawCodec we cannot build the client.
     tonic_build::manual::Builder::new().build_client(false).compile(&[query_service]);

@@ -469,13 +469,13 @@ getAllAnonymityRevokers = liftSkovQueryBlock $ BS.getAllAnonymityRevokers <=< bl
 
 -- |Get the ancestors of a block (including itself) up to a maximum
 -- length.
-getAncestors :: BlockHash -> BlockHeight -> MVR gsconf finconf (Maybe [BlockHash])
-getAncestors blockHash count =
-    liftSkovQueryBlock
+getAncestors :: BlockHashInput -> BlockHeight -> MVR gsconf finconf (BlockHash, Maybe [BlockHash])
+getAncestors bhi count =
+    liftSkovQueryBlock'
         ( \bp -> do
             map bpHash <$> iterateForM bpParent (fromIntegral $ min count (1 + bpHeight bp)) bp
         )
-        blockHash
+        bhi
   where
     iterateForM :: (Monad m) => (a -> m a) -> Int -> a -> m [a]
     iterateForM f steps initial = reverse <$> go [] steps initial
