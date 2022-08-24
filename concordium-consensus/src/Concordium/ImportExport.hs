@@ -221,7 +221,7 @@ exportSections dbDir outDir indexHdl chunkSize genIndex startHeight = do
 -- finalization records finalizing all blocks after the last block containing a finalization
 -- record. The exported chunks will be accompanied by an index file mapping chunk filenames to the
 -- block ranges stored in them. Each line in index file has format
--- 'filename,genesis_index,first_block_height,last_block_height\n'.
+-- @filename,genesis_index,first_block_height,last_block_height\n@.
 writeChunks ::
     (IsProtocolVersion pv, MonadIO m, MonadState (DBState pv) m, MonadCatch m) =>
     -- |Genesis index

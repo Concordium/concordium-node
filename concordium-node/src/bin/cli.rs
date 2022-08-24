@@ -543,7 +543,8 @@ async fn import_missing_blocks(
         .strip_prefix("# genesis hash ")
         .context(
             "The catchup index file does not begin with a line containing the genesis block hash. \
-             Please contact the catchup service administrator.",
+             Please verify that you specified a correct catchup service URL. If the specified URL \
+             is correct, contact the catchup service administrator.",
         )?
         .trim();
     let genesis_hash = genesis_block_hashes[0].to_string();
