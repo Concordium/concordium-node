@@ -490,9 +490,14 @@ async fn maybe_do_out_of_band_catchup(
     } else if let Some(download_url) = download_blocks_from.as_ref().cloned() {
         info!("Starting out of band catch-up");
         let genesis_block_hashes = regenesis_arc.blocks.read().unwrap().clone();
-        if let Err(e) =
-            import_missing_blocks(consensus, &genesis_block_hashes, download_url, data_dir_path)
-                .await
+        if let Err(e) = import_missing_blocks(
+            consensus,
+            import_stopped.clone(),
+            &genesis_block_hashes,
+            download_url,
+            data_dir_path,
+        )
+        .await
         {
             if import_stopped.load(atomic::Ordering::Acquire) {
                 info!("Out of band catchup stopped.");
@@ -507,7 +512,6 @@ async fn maybe_do_out_of_band_catchup(
 
 // An index entry for a chunk of blocks. Its format must correspond to one
 // produced by `database-exporter`.
-#[allow(dead_code)]
 #[derive(serde::Deserialize)]
 struct BlockChunkData {
     // exported chunk of blocks' filename
@@ -515,6 +519,7 @@ struct BlockChunkData {
     // genesis block index from which relative heights of blocks in the chunk are counted
     genesis_index:      usize,
     // relative height of the oldest block stored in the chunk
+    #[allow(dead_code)]
     first_block_height: u64,
     // relative height of the newest block stored in the chunk
     last_block_height:  u64,
@@ -522,6 +527,7 @@ struct BlockChunkData {
 
 async fn import_missing_blocks(
     consensus: &ConsensusContainer,
+    import_stopped: Arc<atomic::AtomicBool>,
     genesis_block_hashes: &[HashBytes],
     index_url: &url::Url,
     data_dir_path: &Path,
@@ -573,6 +579,10 @@ async fn import_missing_blocks(
         .create_deserializer(index_reader)
         .into_deserialize();
     while let Some(result) = chunk_records.next().await {
+        if import_stopped.load(atomic::Ordering::Acquire) {
+            break;
+        }
+
         let block_chunk_data: BlockChunkData = result?;
         // no need to reimport blocks that are present in the database
         if block_chunk_data.genesis_index < current_genesis_index
