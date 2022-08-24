@@ -289,7 +289,8 @@ pub struct BakerConfig {
     pub decrypt_baker_credentials: bool,
     #[structopt(
         long = "modules-cache-size",
-        help = "The maximum number of artifacts that can be stored in the module cache",
+        help = "The maximum number of smart contract modules that can be stored in the module \
+                cache",
         default_value = "100",
         env = "CONCORDIUM_NODE_CONSENSUS_MODULES_CACHE_SIZE"
     )]

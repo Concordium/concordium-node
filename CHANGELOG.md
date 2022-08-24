@@ -5,6 +5,11 @@
 - `database-exporter` now produces a collection of export files, instead of a single file. The new
   `--chunksize` option specifies the size of export files in blocks.
 - Improvements to start-up time that fix regressions introduced by the account caching.
+- Smart contract modules are no longer being constantly retained in memory. Instead a 
+  limited number of smart contract modules are being retained in a cache. 
+  By default the node will retain at most 100 smart contract instances in memory, however this
+  is configurable via the `--modules-cache-size` command line argument or by using the 
+  `CONCORDIUM_NODE_CONSENSUS_MODULES_CACHE_SIZE` environment variable.
 
 ## 4.3.0
 
@@ -25,11 +30,6 @@
 - Remove transaction logging functionality from the node. It is replaced by an
   external service. As a consequence the `transaction-outcome-logging` family of
   command-line options are removed from the node.
-- Smart contract modules are no longer being constantly retained in memory. Instead a 
-  limited number of smart contract modules are being retained in a cache. 
-  By default the node will retain at most 100 smart contract instances in memory, however this
-  is configurable via the `--modules-cache-size` command line argument or by using the 
-  `CONCORDIUM_NODE_CONSENSUS_MODULES_CACHE_SIZE` environment variable.
 
 ## 4.2.3
 

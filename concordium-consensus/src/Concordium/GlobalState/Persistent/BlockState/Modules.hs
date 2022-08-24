@@ -163,7 +163,7 @@ putModuleV0 (ModuleV1 ModuleV{..}) = sPut =<< loadRef moduleVSource
 -- |The cache retaining 'Module's
 type ModuleCache = FIFOCache Module
 
--- |Construct a new `ModulesCache` with the given size.
+-- |Construct a new `ModuleCache` with the given size.
 newModuleCache :: Int -> IO ModuleCache
 newModuleCache = newCache
 
