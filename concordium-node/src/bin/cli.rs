@@ -506,6 +506,7 @@ async fn maybe_do_out_of_band_catchup(
 
 // An index entry for a chunk of blocks. Its format must correspond to one
 // produced by `database-exporter`.
+#[allow(dead_code)]
 #[derive(serde::Deserialize)]
 struct BlockChunkData {
     // exported chunk of blocks' filename
@@ -527,8 +528,8 @@ async fn import_missing_blocks(
     let current_genesis_index = genesis_block_hashes.len() - 1;
     let last_finalized_block_height = consensus.get_last_finalized_block_height();
 
-    debug!("Current genesis index: {}", current_genesis_index);
-    debug!("Local last finalized block height: {}", last_finalized_block_height);
+    trace!("Current genesis index: {}", current_genesis_index);
+    trace!("Local last finalized block height: {}", last_finalized_block_height);
 
     let mut index_reader = reqwest::get(index_url.clone())
         .await
@@ -568,7 +569,7 @@ async fn import_missing_blocks(
         if block_chunk_data.genesis_index < current_genesis_index
             || block_chunk_data.last_block_height <= last_finalized_block_height
         {
-            debug!(
+            trace!(
                 "Skipping chunk {}: no blocks above last finalized block height",
                 block_chunk_data.filename
             );
@@ -576,11 +577,12 @@ async fn import_missing_blocks(
         }
         let block_chunk_url = index_url.join(&block_chunk_data.filename)?;
         let path = download_chunk(block_chunk_url, data_dir_path).await?;
-        consensus.import_blocks(&path)?;
+        let import_result = consensus.import_blocks(&path);
         // attempt to properly clean up the downloaded file.
         if let Err(e) = path.close() {
             error!("Could not delete the downloaded file: {}", e);
         }
+	import_result?
     }
     Ok(())
 }
