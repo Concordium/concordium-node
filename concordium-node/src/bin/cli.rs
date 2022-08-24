@@ -37,6 +37,7 @@ use concordium_node::{
 use mio::{net::TcpListener, Poll};
 use parking_lot::Mutex as ParkingMutex;
 use rand::Rng;
+use reqwest::{Client, StatusCode};
 use std::{path::Path, sync::Arc, thread::JoinHandle};
 #[cfg(unix)]
 use tokio::signal::unix as unix_signal;
@@ -477,8 +478,8 @@ async fn maybe_do_out_of_band_catchup(
             if import_stopped.load(atomic::Ordering::Acquire) {
                 info!("Out of band catchup stopped.");
             } else {
-                info!(
-                    "Could not complete out of band catch-up from {} due to: {:#}.",
+                error!(
+                    "Could not complete out of band catch-up from {} due to: {:#}",
                     import_blocks_from.display(),
                     e
                 );
@@ -496,7 +497,7 @@ async fn maybe_do_out_of_band_catchup(
             if import_stopped.load(atomic::Ordering::Acquire) {
                 info!("Out of band catchup stopped.");
             } else {
-                info!("Could not complete out of band catch-up due to: {:#}.", e);
+                error!("Could not complete out of band catch-up due to: {:#}", e);
             }
         } else {
             info!("Completed out of band catch-up from {}.", download_url)
@@ -531,9 +532,17 @@ async fn import_missing_blocks(
     trace!("Current genesis index: {}", current_genesis_index);
     trace!("Local last finalized block height: {}", last_finalized_block_height);
 
-    let mut index_reader = reqwest::get(index_url.clone())
-        .await
-        .context("Unable to download the catchup index file.")?
+    let http_client = Client::builder().build()?;
+    let index_response = http_client.get(index_url.clone()).send().await?;
+    anyhow::ensure!(
+        index_response.status() == StatusCode::OK,
+        "Unable to download the catchup index file from {}: {} {}",
+        index_url,
+        index_response.status().as_str(),
+        index_response.status().canonical_reason().unwrap()
+    );
+
+    let mut index_reader = index_response
         .bytes_stream()
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
         .into_async_read();
@@ -576,18 +585,22 @@ async fn import_missing_blocks(
             continue;
         }
         let block_chunk_url = index_url.join(&block_chunk_data.filename)?;
-        let path = download_chunk(block_chunk_url, data_dir_path).await?;
+        let path = download_chunk(http_client.clone(), block_chunk_url, data_dir_path).await?;
         let import_result = consensus.import_blocks(&path);
         // attempt to properly clean up the downloaded file.
         if let Err(e) = path.close() {
             error!("Could not delete the downloaded file: {}", e);
         }
-	import_result?
+        import_result?
     }
     Ok(())
 }
 
-async fn download_chunk(download_url: url::Url, data_dir_path: &Path) -> anyhow::Result<TempPath> {
+async fn download_chunk(
+    http_client: Client,
+    download_url: url::Url,
+    data_dir_path: &Path,
+) -> anyhow::Result<TempPath> {
     // Create a temporary file inside the data directory.
     // The data directory is the most reliable place where the node should have
     // write access, that is why it is used.
@@ -595,9 +608,18 @@ async fn download_chunk(download_url: url::Url, data_dir_path: &Path) -> anyhow:
         tempfile::NamedTempFile::new_in(data_dir_path).context("Cannot create output file.")?;
     info!("Downloading the catch-up file from {} to {}", download_url, temp_file.path().display());
     {
+        let chunk_response = http_client.get(download_url.clone()).send().await?;
+        anyhow::ensure!(
+            chunk_response.status() == StatusCode::OK,
+            "Unable to download the block chunk file from {}: {} {}",
+            download_url,
+            chunk_response.status().as_str(),
+            chunk_response.status().canonical_reason().unwrap()
+        );
+
         let file = temp_file.as_file_mut();
         let mut buffer = std::io::BufWriter::new(file);
-        let mut stream = reqwest::get(download_url).await?.bytes_stream();
+        let mut stream = chunk_response.bytes_stream();
         while let Some(Ok(bytes)) = stream.next().await {
             buffer.write_all(&bytes)?;
         }
