@@ -434,13 +434,13 @@ queryResultCode QRNotFound = 1
 
 getAccountInfoV2 ::
     StablePtr Ext.ConsensusRunner ->
-    -- |Identifier type, 0 for account address, 1 for credential, 2 for account index
-    Word8 ->
-    -- |Serialized identifier. Length determined by the type.
-    Ptr Word8 ->
     -- |Block type.
     Word8 ->
     -- |Block hash.
+    Ptr Word8 ->
+    -- |Identifier type, 0 for account address, 1 for credential, 2 for account index
+    Word8 ->
+    -- |Serialized identifier. Length determined by the type.
     Ptr Word8 ->
     -- |Out pointer for writing the block hash that was used.
     Ptr Word8 ->
@@ -448,7 +448,7 @@ getAccountInfoV2 ::
     -- |Callback to output data.
     FunPtr CopyToVecCallback ->
     IO Int64
-getAccountInfoV2 cptr accIdType accIdBytesPtr blockType blockHashPtr outHash outVec copierCbk = do
+getAccountInfoV2 cptr blockType blockHashPtr accIdType accIdBytesPtr outHash outVec copierCbk = do
     Ext.ConsensusRunner mvr <- deRefStablePtr cptr
     let copier = callCopyToVecCallback copierCbk
     bhi <- decodeBlockHashInput blockType blockHashPtr
@@ -554,13 +554,13 @@ enqueueMessages callback = forkIO . go 0 . map encodeMsg
 foreign export ccall
     getAccountInfoV2 ::
         StablePtr Ext.ConsensusRunner ->
-        -- |Identifier type, 0 for account address, 1 for credential, 2 for account index
-        Word8 ->
-        -- |Serialized identifier. Length determined by the type.
-        Ptr Word8 ->
         -- |Block type.
         Word8 ->
         -- |Block hash.
+        Ptr Word8 ->
+        -- |Identifier type, 0 for account address, 1 for credential, 2 for account index
+        Word8 ->
+        -- |Serialized identifier. Length determined by the type.
         Ptr Word8 ->
         -- |Out pointer for writing the block hash that was used.
         Ptr Word8 ->

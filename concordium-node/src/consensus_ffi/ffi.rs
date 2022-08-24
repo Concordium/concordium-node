@@ -501,10 +501,10 @@ extern "C" {
     /// Get an information about a specific account
     pub fn getAccountInfoV2(
         consensus: *mut consensus_runner,
-        acc_type: u8,
-        acc_id: *const u8,
         block_id_type: u8,
         block_hash: *const u8,
+        acc_type: u8,
+        acc_id: *const u8,
         out_hash: *mut u8,
         out: *mut Vec<u8>,
         copier: CopyToVecCallback,
@@ -1039,10 +1039,10 @@ impl ConsensusContainer {
         let response: ConsensusQueryResponse = unsafe {
             getAccountInfoV2(
                 consensus,
-                acc_type,
-                acc_id,
                 block_id_type,
                 block_hash,
+                acc_type,
+                acc_id,
                 out_hash.as_mut_ptr(),
                 &mut out_data,
                 copy_to_vec_callback,
