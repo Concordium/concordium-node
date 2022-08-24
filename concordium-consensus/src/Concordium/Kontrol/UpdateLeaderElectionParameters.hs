@@ -54,6 +54,13 @@ updateSeedState slot bn state = case compare newEpoch oldEpoch of
 
 -- |Derive the leadership election nonce for a particular slot from the seed state.
 -- This compensates for if the slot is in a different epoch.
+-- NB: If the slot is in a different epoch than the epoch of the seedstate,
+-- the block nonces from the previous are not accounted for in the calculation of the
+-- leadership election nonce. This means the leadership election nonce used to produce
+-- the first block is different than those used for all other blocks of an epoch.
+--
+-- This behaviour differs from the specification in the Bluepaper. This is not a security issue, since
+-- the leadership election nonce will still get updated each epoch.
 computeLeadershipElectionNonce :: SeedState -> Slot -> LeadershipElectionNonce
 computeLeadershipElectionNonce state slot = case compare newEpoch oldEpoch of
         EQ -> currentLeadershipElectionNonce state
@@ -69,26 +76,42 @@ computeLeadershipElectionNonce state slot = case compare newEpoch oldEpoch of
 
 -- |Predict a future leadership election nonce as far as possible.
 -- The slot to predict for must be after the slot of the last finalized block.
+-- Since the leadership election nonce used to produce a block in a slot
+-- depends on whether the block is the first block in the epoch, we take
+-- this into account in order to predict the correct nonce. If we don't
+-- know the slot of the pending block's parent, we return two
+-- leadership election nonces as we don't know which of them is the correct one.
 --
--- If @predictLeadershipElectionNonce ss lastFinSlot targetSlot = Just n@ then it must be that
+-- If @predictLeadershipElectionNonce ss lastFinSlot maybeParentBlockSlot targetSlot = Just [n]@ then it must be that
 -- @computeLeadershipElectionNonce ss targetSlot = n@.
--- Moreover, for any @bn@, @sl@, and @ss'@ with @lastFinSlot < sl < targetSlot@, and
+-- If @predictLeadershipElectionNonce ss lastFinSlot maybeParentBlockSlot targetSlot = Just [n, m]@ then it must be that
+-- @computeLeadershipElectionNonce ss targetSlot ∈ {n, m}@.
+-- Moreover, if @predictLeadershipElectionNonce ss lastFinSlot maybeParentBlockSlot targetSlot = Just A,
+-- for any @bn@, @sl@, and @ss'@ with @lastFinSlot < sl < targetSlot@, and
 -- @ss' = updateSeedState sl bn ss@, it must be that
--- @predictLeadershipElectionNonce ss' sl targetSlot = Just n@.
+-- @predictLeadershipElectionNonce ss' sl targetSlot = Just B@ where B ⊆ A.
 predictLeadershipElectionNonce ::
     -- |Seed state of last finalized block
     SeedState ->
     -- |Slot of last finalized block
     Slot ->
+    -- |Maybe slot of pending block's parent (Just if known, Nothing otherwise)
+    Maybe Slot ->
     -- |Slot to predict for
     Slot ->
-    Maybe LeadershipElectionNonce
-predictLeadershipElectionNonce SeedState{..} lastFinSlot targetSlot
-    | slotEpoch == epoch = Just currentLeadershipElectionNonce
-    | slotEpoch == epoch + 1 && 3 * (lastFinSlot `rem` epochLength) >= 2 * epochLength =
+    Maybe [LeadershipElectionNonce]
+predictLeadershipElectionNonce SeedState{..} lastFinSlot maybeParentBlockSlot targetSlot
+    | slotEpoch targetSlot == epoch = Just [currentLeadershipElectionNonce]
+    | slotEpoch targetSlot == epoch + 1 && 3 * (lastFinSlot `rem` epochLength) >= 2 * epochLength =
         -- In this case, no blocks after the last finalized block can contribute to the block
         -- nonce for the next epoch.
-        Just $ updateWithEpoch epoch updatedNonce
+        case maybeParentBlockSlot of
+            Nothing -> Just [current, updated]
+            Just parentBlockSlot -> if slotEpoch parentBlockSlot == slotEpoch targetSlot then Just [updated]
+                                    else Just [current]
     | otherwise = Nothing
   where
-    slotEpoch = fromIntegral $ targetSlot `quot` epochLength
+    slotEpoch :: Slot -> Epoch
+    slotEpoch slot = fromIntegral $ slot `quot` epochLength
+    current = updateWithEpoch epoch currentLeadershipElectionNonce
+    updated = updateWithEpoch epoch updatedNonce

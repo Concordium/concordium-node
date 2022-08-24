@@ -10,8 +10,12 @@ import Concordium.Types.SeedState
 import Concordium.Kontrol.UpdateLeaderElectionParameters
 import System.Random
 
-testPredictFuture :: Expectation
-testPredictFuture = predictLeadershipElectionNonce ss 7 15 `shouldBe` Just (computeLeadershipElectionNonce ss' 15)
+testPredictFuture :: [Expectation]
+testPredictFuture = [
+                        predictLeadershipElectionNonce ss 7 Nothing 15 `shouldBe` Just [computeLeadershipElectionNonce ss 15, computeLeadershipElectionNonce ss' 15],
+                        predictLeadershipElectionNonce ss 7 (Just 8) 15 `shouldBe` Just [computeLeadershipElectionNonce ss 15],
+                        predictLeadershipElectionNonce ss 7 (Just 11) 15 `shouldBe` Just [computeLeadershipElectionNonce ss' 15]
+                    ]
     where
         ss = SeedState {
             epochLength = 9,
@@ -25,4 +29,4 @@ testPredictFuture = predictLeadershipElectionNonce ss 7 15 `shouldBe` Just (comp
 
 tests :: Spec
 tests = describe "LeaderElectionTest" $ do
-    it "PredictFuture" testPredictFuture
+    mapM_ (it "PredictFuture") testPredictFuture

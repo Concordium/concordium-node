@@ -511,8 +511,8 @@ doStoreBlock pb@GB.PendingBlock{pbBlock = BakedBlock{..}, ..} = unlessShutDown $
                     parentStatus <- getRecentBlockStatus parent
                     -- If the parent is unknown, try to check the signing key and block proof based on the last finalized block
                     case parentStatus of
-                        Unknown -> processPending slotTime
-                        RecentBlock (BlockPending _) -> processPending slotTime
+                        Unknown -> processPending slotTime Nothing
+                        RecentBlock (BlockPending ppb) -> processPending slotTime $ Just $ blockSlot ppb
                         RecentBlock (BlockAlive parentB) -> processLive slotTime parentB
                         RecentBlock (BlockFinalized parentB _) -> processLive slotTime parentB
                         RecentBlock BlockDead -> processDead
@@ -526,7 +526,7 @@ doStoreBlock pb@GB.PendingBlock{pbBlock = BakedBlock{..}, ..} = unlessShutDown $
         processDead = do
             blockArriveDead blkHash
             return ResultStale
-        processPending slotTime = do
+        processPending slotTime maybeParentBlockSlot = do
                 -- Check:
                 -- - Claimed baker key is valid in committee
                 -- - Proof is valid
@@ -548,19 +548,20 @@ doStoreBlock pb@GB.PendingBlock{pbBlock = BakedBlock{..}, ..} = unlessShutDown $
                                 processDead
                             | otherwise -> do
                                 lastFinSS <- getSeedState lastFinBS
-                                case predictLeadershipElectionNonce lastFinSS (blockSlot lastFin) (blockSlot pb) of
+                                case predictLeadershipElectionNonce lastFinSS (blockSlot lastFin) maybeParentBlockSlot (blockSlot pb) of
                                     Nothing -> continuePending -- Cannot check the proof (yet)
-                                    Just nonce -> do
+                                    Just nonceList -> do
                                         -- We get the election difficulty based on the last finalized block.
                                         -- In principle, this could change before the block.
                                         elDiff <- getElectionDifficulty lastFinBS slotTime
-                                        if verifyProof
+                                        let verifyProofWithNonce nonce = verifyProof
                                                 nonce
                                                 elDiff
                                                 (blockSlot pb)
                                                 (bkrInfo ^. bakerElectionVerifyKey)
                                                 bkrPower
                                                 (blockProof pb)
+                                        if any verifyProofWithNonce nonceList
                                         then do
                                             continuePending
                                         else do
