@@ -161,6 +161,7 @@ instance (IsProtocolVersion pv, SupportsPersistentModules m) => BlobStorable m (
                    pinterface
                    put model
                    put pinstanceAmount
+             -- The module version is V0 as we're storing an instance of version V0.
              return (putInst, PersistentInstanceV{pinstanceParameters = newParameters, pinstanceModuleInterface = newpInterface,
                               pinstanceModel=InstanceStateV0 model,..})
            storeV1 :: PersistentInstanceV GSWasm.V1 -> m (Put, PersistentInstance pv)
@@ -174,6 +175,7 @@ instance (IsProtocolVersion pv, SupportsPersistentModules m) => BlobStorable m (
                    pinterface
                    pstate
                    put pinstanceAmount
+             -- The module version is V1 as we're storing an instance of version V1.
              return (putInst, PersistentInstanceV1 PersistentInstanceV{pinstanceParameters = newParameters,
                                                   pinstanceModuleInterface = newpInterface,
                                                   pinstanceModel = InstanceStateV1 newpstate,..})
@@ -234,6 +236,7 @@ instance SupportsPersistentModules m => Cacheable (ReaderT Modules m) (Persisten
             miface <- Modules.getModuleReference modref modules
             case miface of
               Nothing -> return (PersistentInstanceV0 p{pinstanceParameters = ips}) -- this case should never happen, but it is safe to do this.
+              -- The module version is V0 as we're caching an instance of version V0.
               Just iface -> return (PersistentInstanceV0 p{pinstanceModuleInterface = iface, pinstanceParameters = ips})
     cache (PersistentInstanceV1 p@PersistentInstanceV{..}) = do
         modules <- ask
@@ -249,6 +252,7 @@ instance SupportsPersistentModules m => Cacheable (ReaderT Modules m) (Persisten
             miface <- Modules.getModuleReference modref modules
             case miface of
               Nothing -> return (PersistentInstanceV1 p{pinstanceParameters = ips, pinstanceModel = imodel}) -- this case should never happen, but it is safe to do this.
+              -- The module version is V1 as we're caching an instance of version V1.
               Just iface -> return (PersistentInstanceV1 p{pinstanceModuleInterface = iface, pinstanceParameters = ips, pinstanceModel = imodel})
 
 -- |Construct instance information from a persistent instance, loading as much
@@ -648,6 +652,7 @@ makePersistent mods (Transient.Instances (Transient.Tree s t)) = InstancesTree s
             ~(Just pIModuleInterface) <- Modules.getModuleReference (GSWasm.miModuleRef instanceModuleInterface) mods
             return $ PersistentInstanceV0 PersistentInstanceV {
                 pinstanceParameters = pIParams,
+                -- The module version is V0 as we're caching an instance of version V1.
                 pinstanceModuleInterface = pIModuleInterface,
                 pinstanceModel = InstanceStateV0 transientModel,
                 pinstanceAmount = _instanceVAmount,
@@ -668,6 +673,7 @@ makePersistent mods (Transient.Instances (Transient.Tree s t)) = InstancesTree s
             ~(Just pIModuleInterface) <- Modules.getModuleReference (GSWasm.miModuleRef instanceModuleInterface) mods
             return $ PersistentInstanceV1 PersistentInstanceV {
                 pinstanceParameters = pIParams,
+                -- The module version is V0 as we're caching an instance of version V1.
                 pinstanceModuleInterface = pIModuleInterface,
                 pinstanceModel = InstanceStateV1 (StateV1.makePersistent transientModel),
                 pinstanceAmount = _instanceVAmount,
