@@ -25,7 +25,8 @@ module Concordium.GlobalState.Persistent.BlockState (
     PersistentState,
     PersistentBlockStateMonad(..),
     withNewAccountCache,
-    cacheStateAndGetTransactionTable
+    cacheStateAndGetTransactionTable,
+    SupportsPersistentState
 ) where
 
 import Data.Serialize
