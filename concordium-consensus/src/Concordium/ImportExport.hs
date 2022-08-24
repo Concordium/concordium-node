@@ -445,7 +445,7 @@ importBlocksV3 inFile firstGenIndex cbk = runExceptT $
     getLengthByteString hdl fileSize = do
         lenBS <- liftIO $ BS.hGet hdl 8
         case runGet getWord64be lenBS of
-            Right len | len >= 0 -> do
+            Right len -> do
                 curPos <- liftIO $ hTell hdl
                 unless (fromIntegral len <= fileSize - curPos) $ failWith "unexpected end of file"
                 bs <- liftIO $ BS.hGet hdl (fromIntegral len)
