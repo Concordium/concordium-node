@@ -152,6 +152,13 @@ instance MonadBlobStore m => BlobStorable m (ModuleV GSWasm.V1) where
 instance MonadBlobStore m => BlobStorable m Module where
 instance MonadBlobStore m => Cacheable m Module where
 
+instance CacheCleanup Module where
+  cleanup = \case
+      ModuleV0 m -> cleanupMod m
+      ModuleV1 m -> cleanupMod m
+    where
+      cleanupMod = GSWasm.finalizeModuleInterfaceV . moduleVInterface
+
 -- |Serialize a module in V0 format.
 -- This only serializes the source.
 putModuleV0 :: (MonadBlobStore m, MonadPut m) => Module -> m ()
@@ -169,7 +176,7 @@ newModuleCache = newCache
 
 -- |Make sure that a monad supports the `MonadBlobStore` and `MonadCache`
 -- for the modules cache.
-type SupportsPersistentModules m = (MonadBlobStore m, MonadCache ModuleCache m, CacheCleanup ModuleCache m)
+type SupportsPersistentModules m = (MonadBlobStore m, MonadCache ModuleCache m)
 
 -- |The collection of modules stored in a block state.
 data Modules = Modules {

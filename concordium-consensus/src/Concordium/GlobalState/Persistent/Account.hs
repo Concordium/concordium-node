@@ -36,6 +36,7 @@ import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
 import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as Transient
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule
+import Concordium.GlobalState.Persistent.Cache (CacheCleanup)
 import Concordium.GlobalState.Persistent.CachedRef
 import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToSelfEncryptedAmount)
 
@@ -522,6 +523,8 @@ instance (MonadBlobStore m, IsAccountVersion av) => MHashableTo m (AccountHash a
 
 instance (MonadBlobStore m, IsAccountVersion av) => MHashableTo m Hash.Hash (PersistentAccount av) where
     getHashM = fmap (theAccountHash @av) . getHashM
+
+instance CacheCleanup (PersistentAccount av)
 
 -- |Create an empty account with the given public key, address and credential.
 newAccount :: forall m av. (MonadBlobStore m)
