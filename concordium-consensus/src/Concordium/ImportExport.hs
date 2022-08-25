@@ -437,10 +437,14 @@ importBlocksV3 inFile firstGenIndex cbk = runExceptT $
                     -- Move to the next section
                     liftIO $ hSeek hdl AbsoluteSeek (sectionStart + toInteger sectionLength)
                     importSections hdl fileSize
+    -- This function takes the file handle, the file size (used for bounds checking reads),
+    -- and a function for wrapping the read data as 'ImportData'.
     importData :: Handle -> Integer -> (BS.ByteString -> ImportData) -> ExceptT (ImportFailure a) m ()
     importData hdl fileSize makeImport = do
         blockBS <- getLengthByteString hdl fileSize
         ExceptT $ cbk $ makeImport blockBS
+    -- This takes the file handle and the length of the file, which is used for checking that
+    -- the length of the byte string is within bounds.
     getLengthByteString :: Handle -> Integer -> ExceptT (ImportFailure a) m BS.ByteString
     getLengthByteString hdl fileSize = do
         lenBS <- liftIO $ BS.hGet hdl 8
