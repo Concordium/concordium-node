@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+- Fix a bug in Ctrl-C signal handling where a node would fail to stop if
+  interrupted early on in the startup if out-of-band catchup was enabled.
 - `database-exporter` now produces a collection of export files, instead of a single file. The new
   `--chunksize` option specifies the size of export files in blocks.
 
