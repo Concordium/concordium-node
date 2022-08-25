@@ -1049,7 +1049,7 @@ getInstances :: StablePtr ConsensusRunner -> CString -> IO CString
 getInstances cptr blockcstr =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (Q.getInstanceList bh)
+        Just bh -> jsonQuery cptr (snd <$> Q.getInstanceList (Q.BHIGiven bh))
 
 -- |Get the list of modules in the given block. The block must be given as a
 -- null-terminated base16 encoding of the block hash.
@@ -1088,7 +1088,7 @@ getInstanceInfo cptr blockcstr instcstr = do
     mblock <- decodeBlockHash blockcstr
     minst <- decodeInstanceAddress instcstr
     case (mblock, minst) of
-        (Just bh, Just inst) -> jsonQuery cptr (Q.getInstanceInfo bh inst)
+        (Just bh, Just inst) -> jsonQuery cptr (snd <$> Q.getInstanceInfo (Q.BHIGiven bh) inst)
         _ -> jsonCString AE.Null
 
 -- |Run the smart contract entrypoint in a given context and in the state at the
@@ -1124,7 +1124,7 @@ getModuleSource cptr blockcstr modcstr = do
     mmod <- decodeModuleRef modcstr
     case (mblock, mmod) of
         (Just bh, Just modref) -> do
-            msrc <- runMVR (Q.getModuleSource bh modref) mvr
+            msrc <- runMVR (snd <$> Q.getModuleSource (Q.BHIGiven bh) modref) mvr
             byteStringToCString $ maybe BS.empty S.encode msrc
         _ -> byteStringToCString BS.empty
 

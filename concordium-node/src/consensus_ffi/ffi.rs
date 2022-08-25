@@ -538,6 +538,43 @@ extern "C" {
         ) -> i32,
     ) -> i64;
 
+    /// Stream the source of a smart contract module.
+    pub fn getModuleSourceV2(
+        consensus: *mut consensus_runner,
+        block_id_type: u8,
+        block_hash: *const u8,
+        module_ref: *const u8,
+        out_hash: *mut u8,
+        out: *mut Vec<u8>,
+        copier: CopyToVecCallback,
+    ) -> i64;
+
+    /// Stream a list of smart contract instances.
+    pub fn getInstanceListV2(
+        consensus: *mut consensus_runner,
+        sender: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+        block_id_type: u8,
+        block_hash: *const u8,
+        out_hash: *mut u8,
+        callback: extern "C" fn(
+            *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+            *const u8,
+            i64,
+        ) -> i32,
+    ) -> i64;
+
+    /// Get an information about a specific smart contract instance.
+    pub fn getInstanceInfoV2(
+        consensus: *mut consensus_runner,
+        block_id_type: u8,
+        block_hash: *const u8,
+        addr_index: u64,
+        addr_subindex: u64,
+        out_hash: *mut u8,
+        out: *mut Vec<u8>,
+        copier: CopyToVecCallback,
+    ) -> i64;
+
     /// Stream a list of ancestors for the given block.
     pub fn getAncestorsV2(
         consensus: *mut consensus_runner,
@@ -1120,6 +1157,90 @@ impl ConsensusContainer {
         .try_into()?;
         response.check_rpc_response()?;
         Ok(buf)
+    }
+
+    pub fn get_module_source_v2(
+        &self,
+        block_hash: &crate::grpc2::types::BlockHashInput,
+        module_ref: &crate::grpc2::types::ModuleRef,
+    ) -> Result<([u8; 32], Vec<u8>), tonic::Status> {
+        use crate::grpc2::Require;
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut out_data: Vec<u8> = Vec::new();
+        let mut out_hash = [0u8; 32];
+        let (block_id_type, block_hash) =
+            crate::grpc2::types::block_hash_input_to_ffi(block_hash).require_owned()?;
+        let response: ConsensusQueryResponse = unsafe {
+            getModuleSourceV2(
+                consensus,
+                block_id_type,
+                block_hash,
+                module_ref.value.as_ptr(),
+                out_hash.as_mut_ptr(),
+                &mut out_data,
+                copy_to_vec_callback,
+            )
+        }
+        .try_into()?;
+        response.check_rpc_response()?;
+        Ok((out_hash, out_data))
+    }
+
+    pub fn get_instance_list_v2(
+        &self,
+        block_hash: &crate::grpc2::types::BlockHashInput,
+        sender: futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+    ) -> Result<[u8; 32], tonic::Status> {
+        use crate::grpc2::Require;
+        let sender = Box::new(sender);
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut buf = [0u8; 32];
+        let (block_id_type, block_hash) =
+            crate::grpc2::types::block_hash_input_to_ffi(block_hash).require_owned()?;
+        let response: ConsensusQueryResponse = unsafe {
+            getInstanceListV2(
+                consensus,
+                Box::into_raw(sender),
+                block_id_type,
+                block_hash,
+                buf.as_mut_ptr(),
+                enqueue_bytearray_callback,
+            )
+        }
+        .try_into()?;
+        response.check_rpc_response()?;
+        Ok(buf)
+    }
+
+    /// Get information about a specific smart contract instance.
+    pub fn get_instance_info_v2(
+        &self,
+        block_hash: &crate::grpc2::types::BlockHashInput,
+        address: &crate::grpc2::types::ContractAddress,
+    ) -> Result<([u8; 32], Vec<u8>), tonic::Status> {
+        use crate::grpc2::Require;
+        let (block_id_type, block_hash) =
+            crate::grpc2::types::block_hash_input_to_ffi(block_hash).require_owned()?;
+        let addr_index = address.index;
+        let addr_subindex = address.subindex;
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut out_data: Vec<u8> = Vec::new();
+        let mut out_hash = [0u8; 32];
+        let response: ConsensusQueryResponse = unsafe {
+            getInstanceInfoV2(
+                consensus,
+                block_id_type,
+                block_hash,
+                addr_index,
+                addr_subindex,
+                out_hash.as_mut_ptr(),
+                &mut out_data,
+                copy_to_vec_callback,
+            )
+            .try_into()?
+        };
+        response.check_rpc_response()?;
+        Ok((out_hash, out_data))
     }
 
     pub fn get_ancestors_v2(

@@ -179,6 +179,34 @@ fn main() -> std::io::Result<()> {
         )
         .method(
             tonic_build::manual::Method::builder()
+                .name("get_module_source")
+                .route_name("GetModuleSource")
+                .input_type("crate::grpc2::types::ModuleSourceRequest")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
+                .name("get_instance_list")
+                .route_name("GetInstanceList")
+                .input_type("crate::grpc2::types::BlockHashInput")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .server_streaming()
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
+                .name("get_instance_info")
+                .route_name("GetInstanceInfo")
+                .input_type("crate::grpc2::types::InstanceInfoRequest")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
                 .name("get_ancestors")
                 .route_name("GetAncestors")
                 .input_type("crate::grpc2::types::AncestorsRequest")

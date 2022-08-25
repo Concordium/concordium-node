@@ -281,6 +281,8 @@ pub mod server {
         ///Server streaming response type for the FinalizedBlocks method.
         type GetFinalizedBlocksStream =
             tokio_stream::wrappers::ReceiverStream<Result<Arc<[u8]>, tonic::Status>>;
+        type GetInstanceListStream =
+            futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
         type GetModuleListStream = futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
 
         async fn get_finalized_blocks(
@@ -332,6 +334,44 @@ pub mod server {
             let (sender, receiver) = futures::channel::mpsc::channel(100);
             let hash = self.consensus.get_module_list_v2(request.get_ref(), sender)?;
             let mut response = tonic::Response::new(receiver);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_module_source(
+            &self,
+            request: tonic::Request<crate::grpc2::types::ModuleSourceRequest>,
+        ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            let request = request.get_ref();
+            let block_hash = request.block_hash.require()?;
+            let module_ref = request.module_ref.require()?;
+            let (hash, response) = self.consensus.get_module_source_v2(block_hash, module_ref)?;
+            let mut response = tonic::Response::new(response);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_instance_list(
+            &self,
+            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+        ) -> Result<tonic::Response<Self::GetInstanceListStream>, tonic::Status> {
+            let (sender, receiver) = futures::channel::mpsc::channel(100);
+            let hash = self.consensus.get_instance_list_v2(request.get_ref(), sender)?;
+            let mut response = tonic::Response::new(receiver);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_instance_info(
+            &self,
+            request: tonic::Request<crate::grpc2::types::InstanceInfoRequest>,
+        ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            let request = request.get_ref();
+            let block_hash = request.block_hash.require()?;
+            let contract_address = request.address.require()?;
+            let (hash, response) =
+                self.consensus.get_instance_info_v2(block_hash, contract_address)?;
+            let mut response = tonic::Response::new(response);
             add_hash(&mut response, hash)?;
             Ok(response)
         }

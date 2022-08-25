@@ -491,9 +491,9 @@ getAccountList :: BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe [Accoun
 getAccountList = liftSkovQueryBlock' (BS.getAccountList <=< blockState)
 
 -- |Get a list of all smart contract instances in the block state.
-getInstanceList :: BlockHash -> MVR gsconf finconf (Maybe [ContractAddress])
+getInstanceList :: BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe [ContractAddress])
 getInstanceList =
-    liftSkovQueryBlock $
+    liftSkovQueryBlock' $
         BS.getContractInstanceList <=< blockState
 
 -- |Get the list of modules present as of a given block.
@@ -540,15 +540,15 @@ getAccountInfo blockHashInput acct = do
     return (bh, join mmai)
 
 -- |Get the details of a smart contract instance in the block state.
-getInstanceInfo :: BlockHash -> ContractAddress -> MVR gsconf finconf (Maybe Wasm.InstanceInfo)
-getInstanceInfo blockHash caddr =
-    join
-        <$> liftSkovQueryBlock
+getInstanceInfo :: BlockHashInput -> ContractAddress -> MVR gsconf finconf (BlockHash, Maybe Wasm.InstanceInfo)
+getInstanceInfo bhi caddr = do
+    (bh, ii) <- liftSkovQueryBlock'
             ( \bp -> do
                 bs <- blockState bp
                 mkII =<< BS.getContractInstance bs caddr
             )
-            blockHash
+            bhi
+    return (bh, join ii)
     where mkII Nothing = return Nothing
           mkII (Just (BS.InstanceInfoV0 BS.InstanceInfoV{..})) = do
             iiModel <- BS.thawContractState iiState
@@ -570,15 +570,15 @@ getInstanceInfo blockHash caddr =
               }))
 
 -- |Get the source of a module as it was deployed to the chain.
-getModuleSource :: BlockHash -> ModuleRef -> MVR gsconf finconf (Maybe Wasm.WasmModule)
-getModuleSource blockHash modRef =
-    join
-        <$> liftSkovQueryBlock
+getModuleSource :: BlockHashInput -> ModuleRef -> MVR gsconf finconf (BlockHash, Maybe Wasm.WasmModule)
+getModuleSource bhi modRef = do
+    (bh, res) <- liftSkovQueryBlock'
             ( \bp -> do
                 bs <- blockState bp
                 BS.getModule bs modRef
             )
-            blockHash
+            bhi
+    return (bh, join res)
 
 -- |Get the status of a particular delegation pool.
 getPoolStatus :: forall gsconf finconf. BlockHash -> Maybe BakerId -> MVR gsconf finconf (Maybe PoolStatus)
