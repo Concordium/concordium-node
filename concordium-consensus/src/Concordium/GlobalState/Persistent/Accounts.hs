@@ -94,7 +94,8 @@ data Accounts (pv :: ProtocolVersion) = Accounts {
 type SupportsPersistentAccount pv m =
     ( IsProtocolVersion pv,
       MonadBlobStore m,
-      MonadCache (AccountCache (AccountVersionFor pv)) m
+      MonadCache (AccountCache (AccountVersionFor pv)) m,
+      CacheCleanup (AccountCache (AccountVersionFor pv)) m
     )
 
 -- |Convert a (non-persistent) 'Transient.Accounts' to a (persistent) 'Accounts'.
