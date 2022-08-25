@@ -37,7 +37,7 @@ use concordium_node::{
 use mio::{net::TcpListener, Poll};
 use parking_lot::Mutex as ParkingMutex;
 use rand::Rng;
-use reqwest::{Client, StatusCode};
+use reqwest::Client;
 use std::{path::Path, sync::Arc, thread::JoinHandle};
 #[cfg(unix)]
 use tokio::signal::unix as unix_signal;
@@ -541,7 +541,7 @@ async fn import_missing_blocks(
     let http_client = Client::builder().build()?;
     let index_response = http_client.get(index_url.clone()).send().await?;
     anyhow::ensure!(
-        index_response.status() == StatusCode::OK,
+        index_response.status().is_success(),
         "Unable to download the catchup index file from {}: {} {}",
         index_url,
         index_response.status().as_str(),
@@ -579,9 +579,10 @@ async fn import_missing_blocks(
         .create_deserializer(index_reader)
         .into_deserialize();
     while let Some(result) = chunk_records.next().await {
-        if import_stopped.load(atomic::Ordering::Acquire) {
-            break;
-        }
+        anyhow::ensure!(
+            !import_stopped.load(atomic::Ordering::Acquire),
+            "Import stopped by the user."
+        );
 
         let block_chunk_data: BlockChunkData = result?;
         // no need to reimport blocks that are present in the database
@@ -620,7 +621,7 @@ async fn download_chunk(
     {
         let chunk_response = http_client.get(download_url.clone()).send().await?;
         anyhow::ensure!(
-            chunk_response.status() == StatusCode::OK,
+            chunk_response.status().is_success(),
             "Unable to download the block chunk file from {}: {} {}",
             download_url,
             chunk_response.status().as_str(),
