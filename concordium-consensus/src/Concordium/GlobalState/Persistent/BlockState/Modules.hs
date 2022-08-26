@@ -169,7 +169,7 @@ newModuleCache = newCache
 
 -- |Make sure that a monad supports the `MonadBlobStore` and `MonadCache`
 -- for the modules cache.
-type SupportsPersistentModules m = (MonadBlobStore m, MonadCache ModuleCache m, CacheCleanup ModuleCache m)
+type SupportsPersistentModules m = (MonadBlobStore m, MonadCache ModuleCache m)
 
 -- |The collection of modules stored in a block state.
 data Modules = Modules {

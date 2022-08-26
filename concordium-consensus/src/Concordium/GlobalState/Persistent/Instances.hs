@@ -403,7 +403,7 @@ conditionalSetBit :: (Bits a) => Int -> Bool -> a -> a
 conditionalSetBit _ False x = x
 conditionalSetBit b True x = setBit x b
 
-instance (IsProtocolVersion pv, BlobStorable m r, MonadIO m, Cache.MonadCache ModuleCache m, Cache.CacheCleanup ModuleCache m) => BlobStorable m (IT pv r) where
+instance (IsProtocolVersion pv, BlobStorable m r, MonadIO m, Cache.MonadCache ModuleCache m) => BlobStorable m (IT pv r) where
     storeUpdate (Branch {..}) = do
         (pl, l') <- storeUpdate branchLeft
         (pr, r') <- storeUpdate branchRight
