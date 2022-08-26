@@ -162,16 +162,6 @@ instance ToProto Wasm.WasmModule where
     type Output Wasm.WasmModule = Proto.ModuleSource
     toProto = mkSerialize
 
-    -- toProto (ReduceStake newStake effectiveTime) =
-    --     Just . Proto.make $
-    --         ( ProtoFields.reduce
-    --             .= Proto.make
-    --                 ( do
-    --                     ProtoFields.newStake .= toProto newStake
-    --                     ProtoFields.effectiveTime .= fromIntegral (utcTimeToTimestamp effectiveTime)
-    --                 )
-    --         )
-
 instance ToProto Wasm.InstanceInfo where
     type Output Wasm.InstanceInfo = Proto.InstanceInfo
     toProto Wasm.InstanceInfoV0{..} = Proto.make ( ProtoFields.v0 .= Proto.make ( do
@@ -685,7 +675,7 @@ enqueueMessages :: (Proto.Message (Output a), ToProto a) => (Ptr Word8 -> Int64 
 enqueueMessages callback = forkIO . go 0 . map encodeMsg
   where
     encodeMsg = Proto.encodeMessage . toProto
-    go _ [] = () <$ callback nullPtr 0
+    go _ [] = () <$ callback nullPtr maxBound -- Use maxBound to distinguish it from an empty message (default values are not encoded explicitly).
     go n msgs@(msg : msgs') =
         BS.unsafeUseAsCStringLen msg $ \(headPtr, len) -> do
             res <- callback (castPtr headPtr) (fromIntegral len)

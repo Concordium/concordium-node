@@ -1387,20 +1387,29 @@ pub extern "C" fn broadcast_callback(
 /// - -2 if there are no more receivers. In this case the given sender is
 ///   dropped and the given `sender` pointer must not be used anymore.
 ///
-/// If the msg is a null pointer then the `sender` is always dropped, and the
-/// response will be `-2`.
+/// Default values (an empty string, 0, first enum variant, etc.) are not
+/// encoded explicitly in protobuf. This means that an empty message, with `msg`
+/// being a null-pointer, is valid if the `msg_length` is `0`. However, if
+/// `msg_length` is non-zero and `msg` is a null pointer, then the `sender`
+/// is always dropped, and the response will be `-2`.
 extern "C" fn enqueue_bytearray_callback(
     sender: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
     msg: *const u8,
     msg_length: i64,
 ) -> i32 {
     let mut sender = unsafe { Box::from_raw(sender) };
-    if msg.is_null() {
-        // drop sender
-        return -2;
-    }
-    let data = unsafe { slice::from_raw_parts(msg, msg_length as usize) };
-    match sender.try_send(Ok(data.to_vec())) {
+    let data = if msg_length == 0 {
+        Vec::new()
+    } else {
+        if msg.is_null() {
+            // drop sender
+            return -2;
+        }
+
+        unsafe { slice::from_raw_parts(msg, msg_length as usize).to_vec() }
+    };
+
+    match sender.try_send(Ok(data)) {
         Ok(()) => {
             // Do not drop the sender.
             Box::into_raw(sender);
