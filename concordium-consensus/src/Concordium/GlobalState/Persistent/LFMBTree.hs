@@ -5,6 +5,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
 
 -- |
 --    Module      : Concordium.GlobalState.LFMBTree
@@ -43,6 +44,7 @@ module Concordium.GlobalState.Persistent.LFMBTree
     -- * Traversal
     mfold,
     mfoldDesc,
+    migrateLFMBTree,
     mmap_,
 
     -- * Specialized functions for @Nullable@
@@ -59,6 +61,7 @@ import qualified Concordium.Crypto.SHA256 as H
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.Types.HashableTo
 import Control.Monad
+import Control.Monad.Trans
 import Concordium.GlobalState.Basic.BlockState.LFMBTree (setBits)
 import Data.Bits
 import Data.Kind
@@ -418,7 +421,7 @@ fromAscList = foldM (\acc e -> snd <$> append e acc) empty
 
 -- | Create a tree from a list of items. The items will be inserted sequentially
 -- starting on the index 0.
-fromAscListV :: (CanStoreLFMBTree m ref v, Num k, Coercible k Word64) => [v] -> m (LFMBTree' k ref v)
+fromAscListV :: forall k m ref v . (CanStoreLFMBTree m ref v, Num k, Coercible k Word64) => [v] -> m (LFMBTree' k ref v)
 fromAscListV = foldM (\acc e -> snd <$> appendV e acc) empty
 
 -- | Create a tree that holds the values wrapped in @Some@ when present and keeps @Null@s on the missing positions
@@ -461,7 +464,24 @@ mmap_ f (NonEmpty _ t) = mmap_T t
       mmap_T =<< refLoad l
       mmap_T =<< refLoad r
 
-
+-- | Map a monadic action over the tree in ascending order of index, discarding the results.
+migrateLFMBTree :: forall m t ref1 ref2 v1 v2 k. (CanStoreLFMBTree m ref1 v1, Reference (t m) ref2 (T ref2 v2), MonadTrans t)
+     => (v1 -> t m v2)
+     -> LFMBTree' k ref1 v1
+     -> t m (LFMBTree' k ref2 v2)
+migrateLFMBTree _ Empty = return Empty
+migrateLFMBTree f (NonEmpty numElem t) = NonEmpty numElem <$> mmap_T t
+  where
+    mmap_T :: T ref1 v1 -> t m (T ref2 v2)
+    mmap_T (Leaf v) = Leaf <$> f v
+    mmap_T (Node s l r) = do
+        left <- mmap_T =<< lift (refLoad l)
+        right <- mmap_T =<< lift (refLoad r)
+        leftRef <- refMake left
+        (leftRefFlushed, _) <- refFlush leftRef
+        rightRef <- refMake right
+        (rightRefFlushed, _) <- refFlush rightRef
+        return $! Node s leftRefFlushed rightRefFlushed
 
 {-
 -------------------------------------------------------------------------------

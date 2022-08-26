@@ -77,6 +77,7 @@ import Concordium.Utils.BinarySearch
 import Concordium.Utils.Serialization
 import Concordium.GlobalState.BlockState (InstanceInfoTypeV(iiParameters), UpdatableContractState)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
+import Data.Functor.Const
 
 data BasicBirkParameters (av :: AccountVersion) = BasicBirkParameters {
     -- |The active (i.e. currently-registered) bakers.
@@ -569,6 +570,8 @@ instance GT.BlockStateTypes (PureBlockStateMonad pv m) where
     type Account (PureBlockStateMonad pv m) = Account (AccountVersionFor pv)
     type BakerInfoRef (PureBlockStateMonad pv m) = BakerInfoEx (AccountVersionFor pv)
     type ContractState (PureBlockStateMonad pv m) = Instance.InstanceStateV
+    type MigrationContext (PureBlockStateMonad pv m) = Const ()
+    type NextBlockState (PureBlockStateMonad pv m) = HashedBlockState
 
 -- |Retrieve instance information from a basic instance.
 mkInstanceInfo :: Instance.Instance -> BS.InstanceInfoType Instance.InstanceStateV
@@ -1858,6 +1861,8 @@ instance (IsProtocolVersion pv, MonadIO m) => BS.BlockStateStorage (PureBlockSta
     {-# INLINE collapseCaches #-}
     collapseCaches = return ()
 
+    migrateBlockState = error "TODO"
+
 -- |Initial block state.
 initialState :: forall pv
               . IsProtocolVersion pv
@@ -2027,7 +2032,9 @@ genesisBakerInfo spv cp GenesisBaker{..} = AccountBaker{..}
 
 -- |Initial block state based on 'GenesisData', for a given protocol version.
 -- This also returns the transaction table.
-genesisState :: forall pv . IsProtocolVersion pv => GenesisData pv -> Either String (BlockState pv, TransactionTable.TransactionTable)
+genesisState :: forall pv . IsProtocolVersion pv
+             => GenesisData pv
+             -> Either String (BlockState pv, TransactionTable.TransactionTable)
 genesisState gd = case protocolVersion @pv of
                     SP1 -> case gd of
                       GDP1 P1.GDP1Initial{..} -> mkGenesisStateInitial genesisCore genesisInitialState
@@ -2077,7 +2084,7 @@ genesisState gd = case protocolVersion @pv of
                   _blockReleaseSchedule = Map.empty
 
         mkGenesisStateRegenesis migration GenesisData.RegenesisData{..} = do
-            case runGet (getBlockState migration) genesisNewState of
+            case runGet (getBlockState migration) undefined of
                 Left err -> Left $ "Could not deserialize genesis state: " ++ err
                 Right bs
                     | hashShouldMatch && hbs ^. blockStateHash /= genesisStateHash -> Left "Could not deserialize genesis state: state hash is incorrect"

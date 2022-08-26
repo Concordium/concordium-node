@@ -25,7 +25,8 @@ module Concordium.GlobalState.Persistent.BlockState (
     PersistentState,
     PersistentBlockStateMonad(..),
     withNewAccountCache,
-    cacheStateAndGetTransactionTable
+    cacheStateAndGetTransactionTable,
+    migratePersistentBlockState
 ) where
 
 import Data.Serialize
@@ -107,6 +108,36 @@ data PersistentBirkParameters (av :: AccountVersion) = PersistentBirkParameters 
 } deriving (Show)
 
 makeLenses ''PersistentBirkParameters
+
+migratePersistentBirkParameters :: forall oldpv pv t m .
+    ( IsProtocolVersion pv
+    , IsProtocolVersion oldpv
+    , MonadBlobStore m
+    , MonadBlobStore (t m)
+    , MonadTrans t
+    , SupportsPersistentAccount pv (t m)
+    ) =>
+  StateMigrationParameters oldpv pv ->
+  -- |Total amount staked by all the __bakers__.
+  Accounts.Accounts pv ->
+  PersistentBirkParameters (AccountVersionFor oldpv) ->
+  t m (PersistentBirkParameters (AccountVersionFor pv))
+migratePersistentBirkParameters migration accounts PersistentBirkParameters{..} = do
+  bakerIds <- lift (Trie.keysAsc . _activeBakers =<< refLoad _birkActiveBakers)
+  totalBakerStakedAmount <- foldM (\acc (BakerId aid) ->
+    Accounts.indexedAccount aid accounts >>= \case
+      Nothing -> error "Baker account does not exist."
+      Just pa -> return $! (acc + _accountAmount pa)) 0 bakerIds
+  newActiveBakers <- migrateBufferedRef (migratePersistentActiveBakers migration totalBakerStakedAmount) _birkActiveBakers
+  newNextEpochBakers <- migrateHashedBufferedRef' (migratePersistentEpochBakers migration) _birkNextEpochBakers
+  newCurrentEpochBakers <- migrateHashedBufferedRef' (migratePersistentEpochBakers migration) _birkCurrentEpochBakers
+  return PersistentBirkParameters {
+    _birkActiveBakers = newActiveBakers,
+    _birkNextEpochBakers = newNextEpochBakers,
+    _birkCurrentEpochBakers = newCurrentEpochBakers,
+    _birkSeedState = _birkSeedState
+    }
+  
 
 freezeContractState :: forall v m . (Wasm.IsWasmVersion v, MonadBlobStore m) => UpdatableContractState v -> m (SHA256.Hash, Instances.InstanceStateV v)
 freezeContractState cs = case Wasm.getWasmVersion @v of
@@ -191,6 +222,22 @@ data EpochBlock = EpochBlock {
     ebPrevious :: !EpochBlocks
 }
 
+migrateEpochBlocks :: (MonadTrans t, BlobStorable m EpochBlock, BlobStorable (t m) EpochBlock) => EpochBlocks -> t m EpochBlocks
+migrateEpochBlocks Null = return Null
+migrateEpochBlocks (Some inner) = Some <$> migrateBufferedRef go inner
+  where go EpochBlock{..} = do
+          newPrevious <- migrateEpochBlocks ebPrevious
+          return EpochBlock{ebPrevious = newPrevious,..}
+
+bakersFromEpochBlocks :: (MonadBlobStore m) => EpochBlocks -> m (Map.Map BakerId Word64)
+bakersFromEpochBlocks = go (0 :: Word64) Map.empty
+  where go _ m Null = return m
+        go t m (Some ref) = do
+            EpochBlock{..} <- refLoad ref
+            let !t' = t + 1
+                !m' = m & at ebBakerId . non 0 +~ 1
+            go t' m' ebPrevious
+
 instance (MonadBlobStore m) => BlobStorable m EpochBlock where
     storeUpdate eb@EpochBlock{..} = do
         (ppref, ebPrevious') <- storeUpdate ebPrevious
@@ -220,6 +267,14 @@ instance MonadBlobStore m => MHashableTo m Rewards.EpochBlocksHash EpochBlocks w
 data HashedEpochBlocks = HashedEpochBlocks {
         hebBlocks :: !EpochBlocks,
         hebHash :: !Rewards.EpochBlocksHash
+    }
+
+migrateHashedEpochBlocks :: (MonadTrans t, BlobStorable m EpochBlock, BlobStorable (t m) EpochBlock) => HashedEpochBlocks -> t m HashedEpochBlocks
+migrateHashedEpochBlocks HashedEpochBlocks{..} = do
+  newHebBlocks <- migrateEpochBlocks hebBlocks
+  return HashedEpochBlocks{
+    hebBlocks = newHebBlocks,
+    ..
     }
 
 instance HashableTo Rewards.EpochBlocksHash HashedEpochBlocks where
@@ -284,6 +339,33 @@ putHashedEpochBlocksV0 HashedEpochBlocks{..} = do
 data BlockRewardDetails (av :: AccountVersion) where
     BlockRewardDetailsV0 :: !HashedEpochBlocks -> BlockRewardDetails 'AccountV0
     BlockRewardDetailsV1 :: !(HashedBufferedRef' Rewards.PoolRewardsHash PoolRewards) -> BlockRewardDetails 'AccountV1
+
+migrateBlockRewardDetails ::
+    (
+      MonadBlobStore (t m)
+    , MonadTrans t
+    , SupportsPersistentAccount oldpv m
+    ) =>
+    StateMigrationParameters oldpv pv ->
+    -- |Current epoch bakers and stakes, in ascending order of 'BakerId'.
+    [(BakerId, Amount)] ->
+    -- |Next epoch bakers and stakes, in ascending order of 'BakerId'.
+    [(BakerId, Amount)] ->
+    TimeParameters (ChainParametersVersionFor pv) ->
+    BlockRewardDetails (AccountVersionFor oldpv) ->
+    t m (BlockRewardDetails (AccountVersionFor pv))
+migrateBlockRewardDetails StateMigrationParametersTrivial _ _ _ = \case
+    (BlockRewardDetailsV0 heb) -> BlockRewardDetailsV0 <$> migrateHashedEpochBlocks heb
+    (BlockRewardDetailsV1 hbr) -> BlockRewardDetailsV1 <$> migrateHashedBufferedRef' return hbr
+migrateBlockRewardDetails StateMigrationParametersTrivialP1P2 _ _ _ = \case
+    (BlockRewardDetailsV0 heb) -> BlockRewardDetailsV0 <$> migrateHashedEpochBlocks heb
+migrateBlockRewardDetails StateMigrationParametersTrivialP2P3 _ _ _ = \case
+    (BlockRewardDetailsV0 heb) -> BlockRewardDetailsV0 <$> migrateHashedEpochBlocks heb
+migrateBlockRewardDetails (StateMigrationParametersP3ToP4 _) curBakers nextBakers TimeParametersV1{..} = \case
+    (BlockRewardDetailsV0 heb) -> do
+      blockCounts <- bakersFromEpochBlocks (hebBlocks heb)
+      (newRef, _) <- refFlush =<< refMake =<< migratePoolRewards curBakers nextBakers blockCounts (rewardPeriodEpochs _tpRewardPeriodLength) _tpMintPerPayday
+      return (BlockRewardDetailsV1 newRef)
 
 instance MonadBlobStore m => MHashableTo m (Rewards.BlockRewardDetailsHash av) (BlockRewardDetails av) where
     getHashM (BlockRewardDetailsV0 heb) = return $ Rewards.BlockRewardDetailsHashV0 (getHash heb)
@@ -2609,6 +2691,8 @@ instance BlockStateTypes (PersistentBlockStateMonad pv r m) where
     type Account (PersistentBlockStateMonad pv r m) = PersistentAccount (AccountVersionFor pv)
     type BakerInfoRef (PersistentBlockStateMonad pv r m) = PersistentBakerInfoEx (AccountVersionFor pv)
     type ContractState (PersistentBlockStateMonad pv r m) = Instances.InstanceStateV
+    type MigrationContext (PersistentBlockStateMonad pv r m) = PersistentBlockStateContext
+    type NextBlockState (PersistentBlockStateMonad pv r m) = HashedPersistentBlockState
 
 instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateQuery (PersistentBlockStateMonad pv r m) where
     getModule = doGetModuleSource . hpbsPointers
@@ -2832,6 +2916,68 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage 
 
     collapseCaches = do
         Cache.collapseCache (Proxy :: Proxy (AccountCache av))
+
+    migrateBlockState Proxy ctx migration oldstate = flip runBlobStoreT ctx $ do
+      newState <- migratePersistentBlockState migration (hpbsPointers oldstate)
+      hashBlockState newState
+
+migratePersistentBlockState ::
+    forall oldpv pv t m.
+    (MonadTrans t,
+     MonadBlobStore (t m),
+     SupportsPersistentAccount oldpv m,
+     SupportsPersistentAccount pv (t m)) =>
+    StateMigrationParameters oldpv pv ->
+    PersistentBlockState oldpv ->
+    t m (PersistentBlockState pv)
+migratePersistentBlockState migration oldState = do
+    newState <- migrateBlockPointers migration =<< lift . refLoad =<< liftIO (readIORef oldState)
+    newStateRef <- refMake newState
+    (newStateRefFlushed, _) <- refFlush newStateRef
+    liftIO (newIORef newStateRefFlushed)
+
+migrateBlockPointers ::
+    forall oldpv pv t m.
+    (MonadTrans t,
+     MonadBlobStore (t m),
+     SupportsPersistentAccount oldpv m,
+     SupportsPersistentAccount pv (t m)) =>
+    StateMigrationParameters oldpv pv ->
+    BlockStatePointers oldpv ->
+    t m (BlockStatePointers pv)
+migrateBlockPointers migration BlockStatePointers {..} = do
+    newAccounts <- Accounts.migrateAccounts migration bspAccounts
+    newInstances <- Instances.migrateInstances bspInstances
+    newModules <- migrateHashedBufferedRef' Modules.migrateModules bspModules
+    let newBank = bspBank
+    newIdentityProviders <- migrateHashedBufferedRef' return bspIdentityProviders
+    newAnonymityRevokers <- migrateHashedBufferedRef' return bspAnonymityRevokers
+    newBirkParameters <- migratePersistentBirkParameters migration newAccounts bspBirkParameters
+    newCryptographicParameters <- migrateHashedBufferedRef' return bspCryptographicParameters
+    newUpdates <- migrateBufferedRef (migrateUpdates migration) bspUpdates
+    newReleaseSchedule <- migrateBufferedRef return bspReleaseSchedule
+    curBakers <- extractBakerStakes =<< refLoad (_birkCurrentEpochBakers newBirkParameters)
+    nextBakers <- extractBakerStakes =<< refLoad (_birkNextEpochBakers newBirkParameters)
+    -- clear transaction outcomes.
+    let newTransactionOutcomes = Transactions.emptyTransactionOutcomes
+    chainParams <- refLoad . currentParameters =<< refLoad newUpdates
+    let timeParams = _cpTimeParameters . unStoreSerialized $ chainParams
+    newRewardDetails <- migrateBlockRewardDetails migration curBakers nextBakers timeParams bspRewardDetails
+
+    return BlockStatePointers {
+      bspAccounts = newAccounts,
+      bspInstances = newInstances,
+      bspModules = newModules,
+      bspBank = newBank,
+      bspIdentityProviders = newIdentityProviders,
+      bspAnonymityRevokers = newAnonymityRevokers,
+      bspBirkParameters = newBirkParameters,
+      bspCryptographicParameters = newCryptographicParameters,
+      bspUpdates = newUpdates,
+      bspReleaseSchedule = newReleaseSchedule,
+      bspTransactionOutcomes = newTransactionOutcomes,
+      bspRewardDetails = newRewardDetails
+        }
 
 -- |Cache the block state and get the initial (empty) transaction table with the next account nonces
 -- and update sequence numbers populated.

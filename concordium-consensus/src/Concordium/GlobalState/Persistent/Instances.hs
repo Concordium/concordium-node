@@ -43,6 +43,18 @@ data InstanceStateV (v :: Wasm.WasmVersion) where
   InstanceStateV0 :: Wasm.ContractState -> InstanceStateV GSWasm.V0
   InstanceStateV1 :: StateV1.PersistentState -> InstanceStateV GSWasm.V1
 
+migrateInstanceStateV ::
+    forall v t m.
+    ( MonadBlobStore m
+    , MonadBlobStore (t m)
+    , MonadTrans t
+    ) =>
+    InstanceStateV v ->
+    t m (InstanceStateV v)
+migrateInstanceStateV (InstanceStateV0 s) = return (InstanceStateV0 s) -- flat state, no inner references.
+migrateInstanceStateV (InstanceStateV1 s) = error "TODO: This should be implemented on the Rust side to do it gradually."
+
+
 -- |The fixed parameters associated with a smart contract instance
 data PersistentInstanceParameters = PersistentInstanceParameters {
     -- |Address of the instance
@@ -105,6 +117,26 @@ data PersistentInstanceV (v :: Wasm.WasmVersion) = PersistentInstanceV {
     pinstanceHash :: H.Hash
 }
 
+migratePersistentInstanceV ::
+    forall v t m.
+    ( 
+      BlobStorable m (ModuleV v)
+    , BlobStorable (t m) (ModuleV v)
+    , MonadTrans t
+    ) =>
+    PersistentInstanceV v ->
+    t m (PersistentInstanceV v)
+migratePersistentInstanceV PersistentInstanceV{..} = do
+  newInstanceParameters <- migrateBufferedRef return pinstanceParameters
+  newInstanceModuleInterface <- migrateBufferedRef return pinstanceModuleInterface
+  newInstanceModel <- migrateInstanceStateV pinstanceModel
+  return PersistentInstanceV{
+    pinstanceParameters = newInstanceParameters,
+    pinstanceModuleInterface = newInstanceModuleInterface,
+    pinstanceModel = newInstanceModel,
+    .. -- copy over the remaining flat fields
+    }
+
 -- |Either a V0 or V1 instance. V1 instance is only allowed in protocol versions
 -- P4 and up, however this is not explicit here since it needlessly complicates
 -- code. The Scheduler ensures that no V1 instances can be constructed prior to
@@ -115,6 +147,18 @@ data PersistentInstanceV (v :: Wasm.WasmVersion) = PersistentInstanceV {
 data PersistentInstance (pv :: ProtocolVersion) where
   PersistentInstanceV0 :: PersistentInstanceV GSWasm.V0 -> PersistentInstance pv
   PersistentInstanceV1 :: PersistentInstanceV GSWasm.V1 -> PersistentInstance pv
+
+migratePersistentInstance ::
+    forall oldpv pv t m.
+    ( MonadBlobStore m
+    , MonadBlobStore (t m)
+    , MonadTrans t
+    ) =>
+    PersistentInstance oldpv ->
+    t m (PersistentInstance pv)
+migratePersistentInstance (PersistentInstanceV0 p) = PersistentInstanceV0 <$> migratePersistentInstanceV p
+migratePersistentInstance (PersistentInstanceV1 p) = PersistentInstanceV1 <$> migratePersistentInstanceV p
+
 
 instance Show (PersistentInstance pv) where
     show (PersistentInstanceV0 PersistentInstanceV {pinstanceModel = InstanceStateV0 model,..}) = show pinstanceParameters ++ " {balance=" ++ show pinstanceAmount ++ ", model=" ++ show model ++ "}"
@@ -485,12 +529,52 @@ newContractInstanceIT mk t0 = (\(res, v) -> (res,) <$> membed v) =<< nci 0 t0 =<
             (res, c) <- mk (ContractAddress ind subind)
             return (res, Leaf c)
 
+migrateIT ::
+    forall oldpv pv t m.
+    ( MonadBlobStore m
+    , MonadBlobStore (t m)
+    , IsProtocolVersion oldpv
+    , IsProtocolVersion pv
+    , MonadTrans t
+    ) =>
+    BufferedFix (IT oldpv) ->
+    t m (BufferedFix (IT pv))
+migrateIT (BufferedFix bf) = BufferedFix <$> migrateBufferedRef go bf
+  where
+    go :: IT oldpv (BufferedFix (IT oldpv)) -> t m (IT pv (BufferedFix (IT pv)))
+    go Branch{..} = do
+        newLeft <- migrateIT branchLeft
+        newRight <- migrateIT branchRight
+        return
+            Branch
+                { branchLeft = newLeft
+                , branchRight = newRight
+                , ..
+                }
+    go (Leaf pinst) = Leaf <$> migratePersistentInstance pinst
+    go (VacantLeaf i) = return (VacantLeaf i)
+
+
 
 data Instances pv
     -- |The empty instance table
     = InstancesEmpty
     -- |A non-empty instance table (recording the size)
     | InstancesTree !Word64 !(BufferedFix (IT pv))
+
+migrateInstances ::
+    ( MonadBlobStore m
+    , MonadBlobStore (t m)
+    , IsProtocolVersion oldpv
+    , IsProtocolVersion pv
+    , MonadTrans t
+    ) =>
+    Instances oldpv ->
+    t m (Instances pv)
+migrateInstances InstancesEmpty = return InstancesEmpty
+migrateInstances (InstancesTree size bf) = do
+    newBF <- migrateIT bf
+    return $! InstancesTree size newBF
 
 instance Show (Instances pv) where
     show InstancesEmpty = "Empty"

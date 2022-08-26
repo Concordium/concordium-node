@@ -67,7 +67,8 @@ module Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule (
   unlockAmountsUntil,
   -- * Conversions
   loadPersistentAccountReleaseSchedule,
-  storePersistentAccountReleaseSchedule
+  storePersistentAccountReleaseSchedule,
+  migratePersistentAccountReleaseSchedule
   ) where
 
 import Concordium.Crypto.SHA256
@@ -76,6 +77,7 @@ import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule 
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Control.Monad
+import Control.Monad.Trans
 import qualified Data.ByteString as BS
 import Data.Foldable
 import Data.List (group, sort)
@@ -97,6 +99,18 @@ data Release = Release {
   _rAmount :: !Amount,
   _rNext :: !(Nullable (EagerlyHashedBufferedRef Release))
   } deriving (Show)
+
+migrateRelease :: (
+     MonadTrans t,
+     MonadBlobStore m,
+     MonadBlobStore (t m)
+    ) =>
+    Release -> t m Release
+migrateRelease r = do
+  newNext <- forM (_rNext r) $ \v -> migrateEagerlyHashedBufferedRef migrateRelease v
+  return r {_rNext = newNext}
+  
+  
 
 -- | As every link in the chain is a HashedBufferedRef, when computing the hash
 -- of a release we will compute the hash of @timestamp <> amount <> nextHash@.
@@ -131,6 +145,21 @@ data AccountReleaseSchedule = AccountReleaseSchedule {
   _arsTotalLockedUpBalance :: !Amount
   } deriving (Show)
 makeLenses ''AccountReleaseSchedule
+
+migratePersistentAccountReleaseSchedule :: (
+     MonadTrans t,
+     MonadBlobStore m,
+     MonadBlobStore (t m)
+    ) =>
+    AccountReleaseSchedule -> t m AccountReleaseSchedule
+migratePersistentAccountReleaseSchedule AccountReleaseSchedule{..} = do
+  newValues <- forM _arsValues $ \n -> do
+    forM n $ \(hf, r) -> (, r) <$> migrateEagerlyHashedBufferedRef migrateRelease hf
+  return AccountReleaseSchedule{
+  _arsValues = newValues,
+  _arsPrioQueue = _arsPrioQueue,
+  _arsTotalLockedUpBalance = _arsTotalLockedUpBalance
+    }
 
 instance MonadBlobStore m => BlobStorable m AccountReleaseSchedule where
   storeUpdate a = (, a) <$> store a

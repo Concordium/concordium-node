@@ -223,7 +223,13 @@ data SkovPersistentData (pv :: ProtocolVersion) bs = SkovPersistentData {
     -- |Tree state directory
     _treeStateDirectory :: !FilePath,
     -- | Database handlers
-    _db :: !(DatabaseHandlers pv (TS.BlockStatePointer bs))
+    _db :: !(DatabaseHandlers pv (TS.BlockStatePointer bs)),
+    -- |State where we store the initial state for the new protocol update.
+    -- TODO: This is not an ideal solution, but seems simplest in terms of abstractions.
+    -- If we only had the one state implementation this would not be necessary, and we could simply
+    -- return the value in the 'updateRegenesis' function. However as it is, it is challenging to properly
+    -- specify the types of these values due to the way the relevant types are parameterized.
+    _nextGenesisInitialState :: !(Maybe bs)
 }
 makeLenses ''SkovPersistentData
 
@@ -281,7 +287,8 @@ initialSkovPersistentData rp treeStateDir gd genState serState genTT = do
             _statistics = initialConsensusStatistics,
             _runtimeParameters = rp,
             _treeStateDirectory = treeStateDir,
-            _db = initialDb
+            _db = initialDb,
+            _nextGenesisInitialState = Nothing
         }
 
 --------------------------------------------------------------------------------
@@ -396,6 +403,7 @@ loadSkovPersistentData rp _treeStateDirectory pbsc = do
             _statistics = initialConsensusStatistics,
             _runtimeParameters = rp,
             _blockTable = BlockTable {_deadCache = emptyDeadCache, _liveMap = HM.empty},
+            _nextGenesisInitialState = Nothing,
             ..
         }
 
@@ -599,6 +607,7 @@ instance (MonadLogger (PersistentTreeStateMonad bs m),
     clearAllNonFinalizedBlocks = do
       blockTable . liveMap .=! HM.empty
       blockTable . deadCache .=! emptyDeadCache
+      nextGenesisInitialState .=! Nothing
     
     getGenesisBlockPointer = use genesisBlockPointer
     getGenesisData = use genesisData
@@ -917,3 +926,5 @@ instance (MonadLogger (PersistentTreeStateMonad bs m),
     getNonFinalizedTransactionVerificationResult bi = do
       table <- use transactionTable
       return $ getNonFinalizedVerificationResult bi table
+
+    storeFinalState bs = nextGenesisInitialState ?= bs

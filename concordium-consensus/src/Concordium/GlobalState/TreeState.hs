@@ -386,6 +386,9 @@ class (Eq (BlockPointerType m),
     -- not belong to genesis data.
     getRuntimeParameters :: m RuntimeParameters
 
+    --
+    storeFinalState :: BlockState m -> m ()
+
 instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTrans t m) where
     makePendingBlock key slot parent bid pf n lastFin trs statehash transactionOutcomesHash = lift . makePendingBlock key slot parent bid pf n lastFin trs statehash transactionOutcomesHash
     getBlockStatus = lift . getBlockStatus
@@ -434,6 +437,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     getRuntimeParameters = lift getRuntimeParameters
     purgeTransactionTable tm = lift . (purgeTransactionTable tm)
     getNonFinalizedTransactionVerificationResult = lift . getNonFinalizedTransactionVerificationResult
+    storeFinalState = lift . storeFinalState
     {-# INLINE makePendingBlock #-}
     {-# INLINE getBlockStatus #-}
     {-# INLINE makeLiveBlock #-}

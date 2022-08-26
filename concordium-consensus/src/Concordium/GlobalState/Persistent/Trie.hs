@@ -23,6 +23,7 @@ import Data.Word
 import Data.Functor.Foldable hiding (Nil)
 import Data.Bifunctor
 import Control.Monad
+import Control.Monad.Trans
 import Data.Serialize
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Short as SBS
@@ -43,7 +44,7 @@ import Concordium.GlobalState.Persistent.BlobStore
     ( BlobStorable(..),
       Cacheable(..),
       FixShowable(..),
-      Nullable(..) )
+      Nullable(..), BufferedFix(..), Reference(..))
 
 class FixedTrieKey a where
     -- |Unpack a key to a list of bytes.
@@ -460,6 +461,41 @@ data TrieN fix k v
     -- ^The empty trie
     | TrieN !Int !(fix (TrieF k v))
     -- ^A non empty trie with its size
+
+-- TODO: Fix and generalize
+migrateTrieN ::
+  forall v1 v2 k m t .
+    (BlobStorable m v1, BlobStorable (t m) v2, MonadTrans t) =>
+    (v1 -> t m v2) ->
+    TrieN BufferedFix k v1 ->
+    t m (TrieN BufferedFix k v2)
+migrateTrieN _ EmptyTrieN = return EmptyTrieN
+migrateTrieN f (TrieN n root) = do
+    trieF <- lift (refLoad (unBF root))
+    newRoot <- migrateTrieF f trieF
+    rootRef <- refMake newRoot
+    (rootRefFlushed, _) <- refFlush rootRef
+    return $! TrieN n (BufferedFix rootRefFlushed)
+
+-- TODO: Fix and generalize
+migrateTrieF ::
+    (BlobStorable m v1, BlobStorable (t m) v2, MonadTrans t) =>
+    (v1 -> t m v2) ->
+    TrieF k v1 (BufferedFix (TrieF k v1)) ->
+    t m (TrieF k v2 (BufferedFix (TrieF k v2)))
+migrateTrieF f (Tip v) = Tip <$> f v
+migrateTrieF f (Stem stem r) = do
+    child <- lift (refLoad (unBF r))
+    newChild <- migrateTrieF f child
+    (childRefFlushed, _) <- refFlush =<< refMake newChild
+    return $! Stem stem (BufferedFix childRefFlushed)
+migrateTrieF f (Branch branches) = do
+    newBranches <- forM branches $ \be -> do
+      child <- lift (refLoad (unBF be))
+      newChild <- migrateTrieF f child
+      (childRefFlushed, _) <- refFlush =<< refMake newChild
+      return $! BufferedFix childRefFlushed
+    return $! Branch newBranches
 
 instance (Show v, FixShowable fix) => Show (TrieN fix k v) where
     show EmptyTrieN = "EmptyTrieN"

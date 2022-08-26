@@ -533,6 +533,15 @@ data BufferedRef a
     | BRBoth {brRef :: !(BlobRef a), brValue :: !a}
     -- ^Value stored in memory and on disk.
 
+-- |Migrate a hashed buffered ref, provided that the value stored there is a flat value, i.e.,
+-- it does not have any nested references.
+migrateBufferedRef :: forall t m a b. (MonadTrans t, BlobStorable m a, BlobStorable (t m) b) => (a -> t m b) -> BufferedRef a -> t m (BufferedRef b)
+migrateBufferedRef f hb = do
+  a <- f =<< lift (refLoad hb)
+  newRef <- refMake a
+  (newFlushedRef, _) <- refFlush newRef
+  return newFlushedRef
+
 -- |Coerce one buffered ref to another. This is unsafe unless a and b have compatible
 -- blobstorable instances.
 unsafeCoerceBufferedRef :: (a -> b) -> BufferedRef a -> BufferedRef b
@@ -694,6 +703,17 @@ data EagerBufferedRef a = EagerBufferedRef
     { ebrIORef :: !(IORef (BlobRef a)),
       ebrValue :: !a
     }
+
+-- TODO: Implement this for the Reference class
+migrateEagerBufferedRef ::
+    (BlobStorable m a, BlobStorable (t m) b, MonadTrans t) =>
+    (a -> t m b) ->
+    EagerBufferedRef a ->
+    t m (EagerBufferedRef b)
+migrateEagerBufferedRef f r = do
+    v <- f =<< lift (refLoad r)
+    (newRef, _) <- refFlush =<< refMake v
+    return newRef
 
 instance Show a => Show (EagerBufferedRef a) where
     show = show . ebrValue
@@ -895,6 +915,13 @@ data HashedBufferedRef' h a
         bufferedHash :: !(IORef (Nullable h))
       }
 
+-- TODO: This is good as long as the hash is not changed by 'f'.
+migrateHashedBufferedRef' :: (MonadTrans t, MHashableTo (t m) h b, BlobStorable m a, BlobStorable (t m) b) => (a -> t m b) -> HashedBufferedRef' h a -> t m (HashedBufferedRef' h b)
+migrateHashedBufferedRef' f hb = do
+    (b, _) <- refFlush =<< refMake =<< f =<< lift (refLoad (bufferedReference hb))
+    return b
+
+
 -- |A specialisation of 'HashedBufferedRef'' to the hash type 'H.Hash'.
 type HashedBufferedRef = HashedBufferedRef' H.Hash
 
@@ -1010,6 +1037,18 @@ data EagerlyHashedBufferedRef' h a = EagerlyHashedBufferedRef
     }
 
 type EagerlyHashedBufferedRef = EagerlyHashedBufferedRef' H.Hash
+
+
+migrateEagerlyHashedBufferedRef ::
+    (BlobStorable m a, BlobStorable (t m) a, MonadTrans t) =>
+    (a -> t m a) -> -- TODO: This should not change the hash.
+    EagerlyHashedBufferedRef' h a ->
+    t m (EagerlyHashedBufferedRef' h a)
+migrateEagerlyHashedBufferedRef f r = do
+    ehbrReference <- migrateEagerBufferedRef f (ehbrReference r)
+    
+    return r { ehbrReference = ehbrReference }
+
 
 instance HashableTo h (EagerlyHashedBufferedRef' h a) where
     getHash = ehbrHash

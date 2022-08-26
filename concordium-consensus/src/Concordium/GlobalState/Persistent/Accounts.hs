@@ -11,6 +11,7 @@
 module Concordium.GlobalState.Persistent.Accounts where
 
 import Control.Monad
+import Control.Monad.Trans
 import Lens.Micro.Platform
 import Data.Serialize
 import GHC.Generics
@@ -37,6 +38,7 @@ import qualified Concordium.GlobalState.Persistent.LFMBTree as L
 import Concordium.Types.HashableTo
 import Data.Foldable (foldl', foldlM)
 import Concordium.ID.Parameters
+import Concordium.GlobalState.Parameters
 
 -- |Type alias for the cache to use for accounts.
 type AccountCache (av :: AccountVersion) = FIFOCache (PersistentAccount av)
@@ -326,3 +328,26 @@ foldAccounts f a accts = L.mfold f a (accountTable accts)
 -- |Fold over the account table in ascending order of account index.
 foldAccountsDesc :: SupportsPersistentAccount pv m => (a -> PersistentAccount (AccountVersionFor pv) -> m a) -> a -> Accounts pv -> m a
 foldAccountsDesc f a accts = L.mfoldDesc f a (accountTable accts)
+
+migrateAccounts :: forall oldpv pv t m .
+    (IsProtocolVersion oldpv,
+     IsProtocolVersion pv,
+     MonadTrans t,
+     MonadBlobStore m,
+     MonadBlobStore (t m),
+     SupportsPersistentAccount oldpv m,
+     SupportsPersistentAccount pv (t m)
+    ) => 
+    StateMigrationParameters oldpv pv ->
+    Accounts oldpv -> 
+    t m (Accounts pv)
+migrateAccounts migration Accounts{..} = do
+    newAccountMap <- AccountMap.migratePersistentAccountMap accountMap
+    newAccountTable <- L.migrateLFMBTree (migrateHashedCachedRef' (migratePersistentAccount migration)) accountTable
+    newAccountRegIds <- Trie.migrateTrieN return accountRegIdHistory
+    return Accounts {
+      accountMap = newAccountMap,
+      accountTable = newAccountTable,
+      accountRegIds = accountRegIds,
+      accountRegIdHistory = newAccountRegIds
+      }

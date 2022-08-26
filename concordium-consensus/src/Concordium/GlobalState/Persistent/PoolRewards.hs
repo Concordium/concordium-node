@@ -1,3 +1,5 @@
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module Concordium.GlobalState.Persistent.PoolRewards (
     module Concordium.GlobalState.Basic.BlockState.PoolRewards,
     PoolRewards (..),
@@ -9,18 +11,24 @@ module Concordium.GlobalState.Persistent.PoolRewards (
     setNextCapitalDistribution,
     currentPassiveDelegationCapital,
     lookupBakerCapitalAndRewardDetails,
+    migratePoolRewards
 ) where
 
+import Lens.Micro.Platform
+import qualified Data.Map.Strict as Map
 import Data.Serialize
 import qualified Data.Vector as Vec
 import Data.Word
 import Control.Exception (assert)
+import Control.Monad.Trans
 
 import Concordium.Crypto.SHA256 as Hash
 
 import Concordium.Types
 import Concordium.Types.HashableTo
+import Concordium.Utils
 import Concordium.Utils.BinarySearch
+import qualified Concordium.Genesis.Data.P4 as P4
 
 import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as BasicLFMBT
 import Concordium.GlobalState.Rewards
@@ -59,6 +67,46 @@ data PoolRewards = PoolRewards
       nextPaydayMintRate :: !MintRate
     }
     deriving (Show)
+
+migratePoolRewards :: forall m . (MonadBlobStore m) => 
+    -- |Current epoch bakers and stakes, in ascending order of 'BakerId'.
+    [(BakerId, Amount)] ->
+    -- |Next epoch bakers and stakes, in ascending order of 'BakerId'.
+    [(BakerId, Amount)] ->
+    -- |Mapping of baker ids to the number of blocks baked in the epoch.
+    Map.Map BakerId Word64 ->
+    -- |Epoch of next payday
+    Epoch ->
+    -- |Mint rate for the next payday
+    MintRate ->
+    m PoolRewards 
+migratePoolRewards curBakers nextBakers blockCounts npEpoch npMintRate = do
+  (nextCapital, _) <- refFlush =<< bufferHashed (makeCD nextBakers)
+  (currentCapital, _) <- refFlush =<< bufferHashed (makeCD curBakers)
+  bakerPoolRewardDetails' <- LFMBT.fromAscListV =<< mapM makePRD curBakers
+  -- TODO: This traversal is not necessary. Fix it.
+  (_, bakerPoolRewardDetails) <- storeUpdateRef bakerPoolRewardDetails'
+  let passiveDelegationTransactionRewards = 0
+      foundationTransactionRewards = 0
+      nextPaydayEpoch = npEpoch
+      nextPaydayMintRate = npMintRate
+  return PoolRewards{..}
+
+  where makeCD bkrs = makeHashed $
+            CapitalDistribution
+                { bakerPoolCapital = Vec.fromList (makeBakerCapital <$> bkrs),
+                  passiveDelegatorsCapital = Vec.empty
+                }
+        makeBakerCapital (bid, amt) = BakerCapital bid amt Vec.empty
+        makePRD :: (BakerId, a) -> m (BufferedRef BakerPoolRewardDetails)
+        makePRD (bid, _) = do
+          let bprd = BakerPoolRewardDetails
+                  { blockCount = Map.findWithDefault 0 bid blockCounts,
+                    transactionFeesAccrued = 0,
+                    finalizationAwake = False
+                  }
+          (newRef, _) <- refFlush =<< refMake bprd
+          return newRef
 
 -- |Look up the baker capital and reward details for a baker ID.
 lookupBakerCapitalAndRewardDetails ::

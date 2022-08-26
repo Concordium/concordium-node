@@ -60,11 +60,13 @@ import qualified Concordium.Genesis.Data as GenesisData
 import qualified Concordium.Genesis.Data.P2 as P2
 import Concordium.Types.SeedState
 
+import Concordium.GlobalState.Types
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.BlockState
 import Concordium.Kontrol
+import Concordium.Types.ProtocolVersion
 
 -- |The hash that identifies a update from P1 to P2 protocol.
 -- This is the hash of the published specification document.
@@ -75,7 +77,7 @@ updateHash = read "9b1f206bbe230fef248c9312805460b4f1b05c1ef3964946981a8d4abb58b
 -- It is assumed that the last finalized block is the terminal block of the old chain:
 -- i.e. it is the first (and only) explicitly-finalized block with timestamp after the
 -- update takes effect.
-updateRegenesis :: (BlockPointerMonad m, BlockStateStorage m, SkovQueryMonad m) => m PVGenesisData
+updateRegenesis :: (MPV m ~ 'P1, BlockPointerMonad m, BlockStateStorage m, SkovMonad m) => m (PVInit m)
 updateRegenesis = do
     lfb <- lastFinalizedBlock
     -- Genesis time is the timestamp of the terminal block
@@ -101,6 +103,7 @@ updateRegenesis = do
     -- Clear the protocol update.
     s3 <- bsoClearProtocolUpdate s1
     regenesisState <- freezeBlockState s3
+    rememberFinalState regenesisState
     genesisStateHash <- getStateHash regenesisState
-    genesisNewState <- serializeBlockState regenesisState
-    return . PVGenesisData . GDP2 $ P2.GDP2Regenesis{genesisRegenesis = GenesisData.RegenesisData{genesisCore = core, ..}}
+    let newGenesis = GDP2 $ P2.GDP2Regenesis{genesisRegenesis = GenesisData.RegenesisData{genesisCore = core, ..}}
+    return (PVInit newGenesis StateMigrationParametersTrivialP1P2 regenesisState)

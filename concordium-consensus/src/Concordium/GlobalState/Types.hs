@@ -3,6 +3,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE GADTs #-}
 
 module Concordium.GlobalState.Types where
 
@@ -15,6 +16,7 @@ import Concordium.GlobalState.BlockPointer (BlockPointerData)
 import Concordium.Wasm (WasmVersion)
 import Concordium.GlobalState.Classes
 import Concordium.Types
+import Concordium.Genesis.Data
 
 class (IsProtocolVersion (MPV m)) => MonadProtocolVersion (m :: Type -> Type) where
     type MPV m :: ProtocolVersion
@@ -35,6 +37,16 @@ class BlockStateTypes (m :: Type -> Type) where
     -- |A reference type for 'BakerInfo'. This is used to avoid duplicating 'BakerInfo' in the
     -- state where possible.
     type BakerInfoRef m :: Type
+
+    type MigrationContext m :: ProtocolVersion -> Type
+    type NextBlockState m :: ProtocolVersion -> Type
+
+
+data PVInit m = forall pv . (IsProtocolVersion pv) => PVInit {
+    pvInitGenesis :: GenesisData pv,
+    migration :: StateMigrationParameters (MPV m) pv,
+    finalState :: BlockState m
+  }
 
 -- |Account together with its index in the account map.
 type IndexedAccount m = (AccountIndex, Account m)
@@ -62,6 +74,8 @@ instance BlockStateTypes (MGSTrans t m) where
     type Account (MGSTrans t m) = Account m
     type ContractState (MGSTrans t m) = ContractState m
     type BakerInfoRef (MGSTrans t m) = BakerInfoRef m
+    type NextBlockState (MGSTrans t m) = NextBlockState m
+    type MigrationContext (MGSTrans t m) = MigrationContext m
 
 deriving via MGSTrans MaybeT m instance BlockStateTypes (MaybeT m)
 deriving via MGSTrans (ExceptT e) m instance BlockStateTypes (ExceptT e m)

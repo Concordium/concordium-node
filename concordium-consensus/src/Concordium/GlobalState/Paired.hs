@@ -42,6 +42,7 @@ import Concordium.GlobalState.ContractStateFFIHelpers (errorLoadCallback)
 import Concordium.Logger (MonadLogger(..), LogIO)
 import Control.Arrow ((&&&))
 import GHC.Stack
+import Data.Functor.Const
 
 -- |Assert equality of two values that are 'Show' instances.
 -- This provides more useful diagnostic information on failure than just @assert (x == y)@.
@@ -116,6 +117,12 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r)
     type BakerInfoRef (BlockStateM pv (PairGSContext lc rc) r (PairGState lg rg) s m)
             = (BakerInfoRef (BSML pv lc r lg s m),
                 BakerInfoRef (BSMR pv rc r rg s m))
+
+    type NextBlockState (BlockStateM pv (PairGSContext lc rc) r (PairGState lg rg) s m)
+            = Const () -- TODO
+
+    type MigrationContext (BlockStateM pv (PairGSContext lc rc) r (PairGState lg rg) s m)
+            = Const () -- TODO
 
 instance C.HasGlobalState (PairGState ls rs) s => C.HasGlobalState ls (FocusLeft s) where
     globalState = lens unFocusLeft (const FocusLeft) . C.globalState . pairStateLeft
@@ -962,6 +969,8 @@ instance (MonadLogger m,
         coerceBSML collapseCaches
         coerceBSMR collapseCaches
 
+    migrateBlockState = error "Unimplemented for paired state"
+
 {-# INLINE coerceGSML #-}
 coerceGSML :: GSML pv lc r ls s m a -> TreeStateBlockStateM pv (PairGState ls rs) (PairGSContext lc rc) r s m a
 coerceGSML = coerce
@@ -1220,6 +1229,9 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
       r1 <- coerceGSML $ getNonFinalizedTransactionVerificationResult tx
       r2 <- coerceGSMR $ getNonFinalizedTransactionVerificationResult tx
       assertEq r1 r2 $ return r1
+
+    storeFinalState = error "TODO"
+
 newtype PairGSConfig c1 c2 = PairGSConfig (c1, c2)
 
 instance (GlobalStateConfig c1, GlobalStateConfig c2) => GlobalStateConfig (PairGSConfig c1 c2) where
@@ -1238,6 +1250,8 @@ instance (GlobalStateConfig c1, GlobalStateConfig c2) => GlobalStateConfig (Pair
         (ctx1, s1) <- initialiseNewGlobalState genData conf1
         (ctx2, s2) <- initialiseNewGlobalState genData conf2
         return (PairGSContext ctx1 ctx2, PairGState s1 s2)
+
+    migrateExistingState = error "TODO: Unimplemented"
 
     activateGlobalState :: forall pv .
         IsProtocolVersion pv =>

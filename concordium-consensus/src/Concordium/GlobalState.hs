@@ -30,7 +30,7 @@ import Concordium.GlobalState.Basic.TreeState
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.Persistent.BlobStore (closeBlobStore, createBlobStore, destroyBlobStore, loadBlobStore)
+import Concordium.GlobalState.Persistent.BlobStore (closeBlobStore, createBlobStore, destroyBlobStore, loadBlobStore, BlobStoreT (runBlobStoreT))
 import Concordium.GlobalState.Persistent.BlockState
 import Concordium.GlobalState.Persistent.TreeState
 import Concordium.GlobalState.TreeState as TS
@@ -39,6 +39,7 @@ import Concordium.Types.Block (AbsoluteBlockHeight)
 
 import Concordium.GlobalState.Persistent.Cache
 import qualified Concordium.GlobalState.Persistent.Accounts as Accounts
+import Data.Maybe
 
 -- For the avid reader.
 -- The strategy followed in this module is the following: First `BlockStateM` and
@@ -378,7 +379,7 @@ instance Show GlobalStateInitException where
 
 instance Exception GlobalStateInitException
 
--- |This class is implemented by types that determine configurations for the global state.
+-- |This class is implemented by types that determine configurations for the global state.z
 class GlobalStateConfig (c :: Type) where
     -- |The read-only context type associated with a global state configuration.
     type GSContext c (pv :: ProtocolVersion)
@@ -395,6 +396,15 @@ class GlobalStateConfig (c :: Type) where
     -- state for an active consensus and must be activated before. Use
     -- 'activateGlobalState' for that.
     initialiseExistingGlobalState :: forall pv . IsProtocolVersion pv => SProtocolVersion pv -> c -> LogIO (Maybe (GSContext c pv, GSState c pv))
+
+    migrateExistingState ::
+      (IsProtocolVersion pv, IsProtocolVersion oldpv) =>
+      c ->
+      GSContext c oldpv ->
+      GSState c oldpv ->
+      StateMigrationParameters oldpv pv ->
+      GenesisData pv ->
+      LogIO (GSContext c pv, GSState c pv)
 
     -- |Initialise new global state with the given genesis. If the state already
     -- exists this will raise an exception. It is not necessary to call 'activateGlobalState'
@@ -418,6 +428,9 @@ instance GlobalStateConfig MemoryTreeMemoryBlockConfig where
     type GSContext MemoryTreeMemoryBlockConfig pv = ()
     type GSState MemoryTreeMemoryBlockConfig pv = SkovData pv (BS.HashedBlockState pv)
     initialiseExistingGlobalState _ _ = return Nothing
+
+    migrateExistingState = error "TODO: Unimplemented"
+
     initialiseNewGlobalState gendata (MTMBConfig rtparams) = do
         (bs, tt) <- case genesisState gendata of
             Left err -> logExceptionAndThrow GlobalState (InvalidGenesisData err)
@@ -436,6 +449,9 @@ instance GlobalStateConfig MemoryTreeDiskBlockConfig where
     type GSState MemoryTreeDiskBlockConfig pv = SkovData pv (HashedPersistentBlockState pv)
     
     initialiseExistingGlobalState _ _ = return Nothing
+
+    migrateExistingState = error "TODO: Unimplemented"
+
     initialiseNewGlobalState genData MTDBConfig{..} = do
         (genState, genTT) <- case genesisState genData of
             Left err -> logExceptionAndThrow GlobalState (InvalidGenesisData err)
@@ -476,10 +492,35 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
         return (Just (pbsc, skovData))
       else return Nothing
 
+
+    migrateExistingState DTDBConfig{..} oldPbsc oldState migration genData = do
+      pbscBlobStore <- liftIO $ createBlobStore dtdbBlockStateFile
+      pbscCache <- liftIO $ Accounts.newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
+      let pbsc = PersistentBlockStateContext {..}
+      newInitialBlockState <- flip runBlobStoreT oldPbsc . flip runBlobStoreT pbsc $ do
+          case _nextGenesisInitialState oldState of
+            Nothing -> error "Precondition violation. Migration called in state without initial block state."
+            Just initState -> do
+              newState <- migratePersistentBlockState migration (hpbsPointers initState)
+              Concordium.GlobalState.Persistent.BlockState.hashBlockState newState
+      let initGS = do
+            ser <- saveBlockState newInitialBlockState
+            initialSkovPersistentData
+              dtdbRuntimeParameters
+              dtdbTreeStateDirectory
+              genData
+              newInitialBlockState
+              ser
+              -- TODO: Figure out if this is the correct thing to do or whether we need to clean up.
+              (Concordium.GlobalState.Persistent.TreeState._transactionTable oldState)
+      isd <- runReaderT (runPersistentBlockStateMonad initGS) pbsc
+              `onException` liftIO (destroyBlobStore pbscBlobStore)
+
+      return (pbsc, isd)
     initialiseNewGlobalState genData DTDBConfig{..} = do
       pbscBlobStore <- liftIO $ createBlobStore dtdbBlockStateFile
-      pbscCache <- liftIO (Accounts.newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters))
-      let pbsc = PersistentBlockStateContext{..}
+      pbscCache <- liftIO $ Accounts.newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
+      let pbsc = PersistentBlockStateContext {..}
       let initGS = do
               logEvent GlobalState LLTrace "Creating transient global state"
               (genState, genTT) <- case genesisState genData of

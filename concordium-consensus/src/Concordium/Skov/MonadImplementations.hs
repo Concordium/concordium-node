@@ -229,6 +229,16 @@ class SkovConfiguration gsconfig finconfig handlerconfig where
                       -> SkovConfig pv gsconfig finconfig handlerconfig
                       -> LogIO (SkovContext (SkovConfig pv gsconfig finconfig handlerconfig), SkovState (SkovConfig pv gsconfig finconfig handlerconfig))
 
+    migrateExistingSkov ::
+      (IsProtocolVersion oldpv, IsProtocolVersion pv) =>
+      SkovContext (SkovConfig oldpv gsconfig finconfig handlerconfig) ->
+      SkovState (SkovConfig oldpv gsconfig finconfig handlerconfig) ->
+      StateMigrationParameters oldpv pv ->
+      GenesisData pv ->
+      SkovConfig pv gsconfig finconfig handlerconfig ->
+      LogIO (SkovContext (SkovConfig pv gsconfig finconfig handlerconfig),
+             SkovState (SkovConfig pv gsconfig finconfig handlerconfig))
+
     -- |A helper which attemps to use the existing state if it exists, and
     -- otherwise initialises skov from a new state created from the given genesis.
     initialiseSkov :: IsProtocolVersion pv
@@ -301,6 +311,23 @@ instance
     initialiseNewSkov genData (SkovConfig gsc finconf hconf) = do
         logEvent Skov LLDebug "Creating new global state."
         (c, s) <- initialiseNewGlobalState genData gsc
+        (finctx, finst) <- evalGlobalState @_ @pv (Proxy @gsconfig) (initialiseFinalization finconf) c s
+        logEvent Skov LLDebug $ "Initializing finalization with context = " ++ show finctx
+        logEvent Skov LLDebug $ "Initializing finalization with initial state = " ++ show finst
+        let (hctx, hst) = initialiseHandler hconf
+        return (SkovContext c finctx hctx, SkovState s finst hst)
+
+    migrateExistingSkov :: forall oldpv pv . (IsProtocolVersion oldpv, IsProtocolVersion pv) =>
+      SkovContext (SkovConfig oldpv gsconfig finconfig handlerconfig) ->
+      SkovState (SkovConfig oldpv gsconfig finconfig handlerconfig) ->
+      StateMigrationParameters oldpv pv ->
+      GenesisData pv ->
+      SkovConfig pv gsconfig finconfig handlerconfig ->
+      LogIO (SkovContext (SkovConfig pv gsconfig finconfig handlerconfig),
+             SkovState (SkovConfig pv gsconfig finconfig handlerconfig))
+    migrateExistingSkov oldCtx oldState migration genData (SkovConfig gsc finconf hconf) = do
+        logEvent Skov LLDebug "Migrating existing global state."
+        (c, s) <- migrateExistingState gsc (scGSContext oldCtx) (ssGSState oldState) migration genData
         (finctx, finst) <- evalGlobalState @_ @pv (Proxy @gsconfig) (initialiseFinalization finconf) c s
         logEvent Skov LLDebug $ "Initializing finalization with context = " ++ show finctx
         logEvent Skov LLDebug $ "Initializing finalization with initial state = " ++ show finst
@@ -494,6 +521,9 @@ instance (
     handleCatchUpStatus = doHandleCatchUp
     terminateSkov = doTerminateSkov
     purgeTransactions = doPurgeTransactions
+
+    rememberFinalState = storeFinalState
+
 
 class (Monad m, HandlerConfig c) => HandlerConfigHandlers c m | m -> c where
     handleBlock :: BlockPointerType m -> m ()

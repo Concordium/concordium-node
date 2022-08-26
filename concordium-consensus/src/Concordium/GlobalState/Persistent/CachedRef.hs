@@ -8,6 +8,7 @@
 module Concordium.GlobalState.Persistent.CachedRef where
 
 import Control.Monad
+import Control.Monad.Trans
 import Control.Monad.IO.Class
 import Data.IORef
 import Data.Proxy
@@ -343,6 +344,31 @@ data HashedCachedRef' h c a
         hcrBlob :: !(BlobRef a),
         hcrHash :: !h
     }
+
+-- TODO: If the hash hasn't changed then this can be optimized. Do it.
+migrateHashedCachedRef' ::
+    forall h c c' a b t m.
+    ( Cache c
+    , Cache c'
+    , MonadCache c m
+    , MonadCache c' (t m)
+    , BlobStorable m a
+    , BlobStorable (t m) b
+    , MonadTrans t
+    , MHashableTo m h a
+    , CacheValue c ~ a
+    , CacheKey c ~ BlobRef a
+    , MHashableTo (t m) h b
+    , CacheValue c' ~ b
+    , CacheKey c' ~ BlobRef b
+    ) =>
+    (a -> t m b) ->
+    HashedCachedRef' h c a ->
+    t m (HashedCachedRef' h c' b)
+migrateHashedCachedRef' f hcr = do
+    v <- f =<< lift (refLoad hcr)
+    (newRef, _) <- refFlush =<< refMake v
+    return newRef
 
 type HashedCachedRef = HashedCachedRef' H.Hash
 

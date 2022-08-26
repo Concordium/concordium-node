@@ -13,6 +13,7 @@ module Concordium.GlobalState.Persistent.Bakers where
 
 import Control.Exception
 import Control.Monad
+import Control.Monad.Trans
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.Vector as Vec
@@ -23,6 +24,7 @@ import Data.Foldable (foldlM)
 import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.Basic.BlockState.Bakers as Basic
 import qualified Concordium.Types.Accounts as BaseAccounts
+import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.Account
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.Types
@@ -41,6 +43,15 @@ import Concordium.Utils.Serialization.Put
 newtype BakerInfos (av :: AccountVersion)
     = BakerInfos (Vec.Vector (PersistentBakerInfoEx av))
     deriving (Show)
+
+migrateBakerInfos ::
+    forall oldpv pv t m.
+    ( IsProtocolVersion pv
+    , MonadBlobStore m
+    , MonadBlobStore (t m)
+    , MonadTrans t
+    ) => StateMigrationParameters oldpv pv -> BakerInfos (AccountVersionFor oldpv) -> t m (BakerInfos (AccountVersionFor pv))
+migrateBakerInfos migration (BakerInfos inner) = BakerInfos <$> mapM (migratePersistentBakerInfoEx migration) inner
 
 instance (IsAccountVersion av, MonadBlobStore m) => BlobStorable m (BakerInfos av) where
     storeUpdate (BakerInfos v) = do
@@ -92,6 +103,37 @@ data PersistentEpochBakers (av :: AccountVersion) = PersistentEpochBakers {
 } deriving (Show)
 
 makeLenses ''PersistentEpochBakers
+
+extractBakerStakes :: (IsAccountVersion av, MonadBlobStore m) => PersistentEpochBakers av -> m [(BakerId, Amount)]
+extractBakerStakes PersistentEpochBakers{..} = do
+  BakerInfos infos <- refLoad _bakerInfos
+  BakerStakes stakes <- refLoad _bakerStakes
+  zipWithM (\bi bs -> do
+               bid <- loadBakerId bi
+               return (bid, bs)
+               )
+      (Vec.toList infos)
+      (Vec.toList stakes)
+
+migratePersistentEpochBakers ::
+    forall oldpv pv t m.
+    ( IsProtocolVersion oldpv
+    , IsProtocolVersion pv
+    , MonadBlobStore m
+    , MonadBlobStore (t m)
+    , MonadTrans t
+    ) =>
+    StateMigrationParameters oldpv pv ->
+    PersistentEpochBakers (AccountVersionFor oldpv) ->
+    t m (PersistentEpochBakers (AccountVersionFor pv))
+migratePersistentEpochBakers migration PersistentEpochBakers {..} = do
+  newBakerInfos <- migrateHashedBufferedRef' (migrateBakerInfos migration) _bakerInfos
+  newBakerStakes <- migrateHashedBufferedRef' return _bakerStakes
+  return PersistentEpochBakers {
+    _bakerInfos = newBakerInfos,
+    _bakerStakes = newBakerStakes,
+    ..
+    }
 
 -- |Look up a baker and its stake in a 'PersistentEpochBakers'.
 epochBaker :: forall m av. (IsAccountVersion av, MonadBlobStore m) => BakerId -> PersistentEpochBakers av -> m (Maybe (BaseAccounts.BakerInfo, Amount))
@@ -197,6 +239,28 @@ data PersistentActiveDelegators (av :: AccountVersion) where
         } ->
         PersistentActiveDelegators 'AccountV1
 
+migratePersistentActiveDelegators ::
+    (BlobStorable m (), BlobStorable (t m) (), MonadTrans t) =>
+    StateMigrationParameters oldpv pv ->
+    PersistentActiveDelegators (AccountVersionFor oldpv) ->
+    t m (PersistentActiveDelegators (AccountVersionFor pv))
+migratePersistentActiveDelegators StateMigrationParametersTrivial = \case
+    PersistentActiveDelegatorsV0 -> return PersistentActiveDelegatorsV0
+    PersistentActiveDelegatorsV1{..} -> do
+        newDelegators <- Trie.migrateTrieN return adDelegators
+        return PersistentActiveDelegatorsV1{adDelegators = newDelegators, ..}
+migratePersistentActiveDelegators StateMigrationParametersTrivialP1P2 = \case
+    PersistentActiveDelegatorsV0 -> return PersistentActiveDelegatorsV0
+migratePersistentActiveDelegators StateMigrationParametersTrivialP2P3 = \case
+    PersistentActiveDelegatorsV0 -> return PersistentActiveDelegatorsV0
+migratePersistentActiveDelegators (StateMigrationParametersP3ToP4 _) = \case
+    PersistentActiveDelegatorsV0 ->
+        return
+            PersistentActiveDelegatorsV1
+                { adDelegators = Trie.empty
+                , adDelegatorTotalCapital = 0
+                }
+
 emptyPersistentActiveDelegators :: forall av. IsAccountVersion av => PersistentActiveDelegators av
 emptyPersistentActiveDelegators =
     case accountVersion @av of
@@ -232,6 +296,12 @@ data TotalActiveCapital (av :: AccountVersion) where
 
 deriving instance Show (TotalActiveCapital av)
 
+migrateTotalActiveCapital :: StateMigrationParameters oldpv pv -> Amount -> TotalActiveCapital (AccountVersionFor oldpv) -> TotalActiveCapital (AccountVersionFor pv)
+migrateTotalActiveCapital StateMigrationParametersTrivial _ x = x
+migrateTotalActiveCapital StateMigrationParametersTrivialP1P2 _ x = x
+migrateTotalActiveCapital StateMigrationParametersTrivialP2P3 _ x = x
+migrateTotalActiveCapital (StateMigrationParametersP3ToP4 _) bts TotalActiveCapitalV0 = TotalActiveCapitalV1 bts
+
 instance IsAccountVersion av => Serialize (TotalActiveCapital av) where
     put TotalActiveCapitalV0 = return ()
     put (TotalActiveCapitalV1 amt) = put amt
@@ -264,6 +334,29 @@ data PersistentActiveBakers (av :: AccountVersion) = PersistentActiveBakers {
 } deriving (Show)
 
 makeLenses ''PersistentActiveBakers
+
+migratePersistentActiveBakers :: forall oldpv pv t m .
+    (IsProtocolVersion oldpv,
+     IsProtocolVersion pv,
+     MonadTrans t,
+     BlobStorable m (),
+     BlobStorable (t m) ()) => 
+    StateMigrationParameters oldpv pv ->
+    -- |Total amount staked by all the bakers.
+    Amount -> 
+    PersistentActiveBakers (AccountVersionFor oldpv) ->
+    t m (PersistentActiveBakers (AccountVersionFor pv))
+migratePersistentActiveBakers migration bakerStakedAmount PersistentActiveBakers{..} = do
+  newActiveBakers <- Trie.migrateTrieN (migratePersistentActiveDelegators migration) _activeBakers
+  newAggregationKeys <- Trie.migrateTrieN return _aggregationKeys
+  newPassiveDelegators <- migratePersistentActiveDelegators migration _passiveDelegators
+  let newTotalActiveCapital = migrateTotalActiveCapital migration bakerStakedAmount _totalActiveCapital
+  return PersistentActiveBakers {
+    _activeBakers = newActiveBakers,
+    _aggregationKeys = newAggregationKeys,
+    _passiveDelegators = newPassiveDelegators,
+    _totalActiveCapital = newTotalActiveCapital
+    }
 
 totalActiveCapitalV1 :: Lens' (PersistentActiveBakers 'AccountV1) Amount
 totalActiveCapitalV1 = totalActiveCapital . tac

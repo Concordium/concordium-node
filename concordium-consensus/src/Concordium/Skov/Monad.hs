@@ -205,6 +205,7 @@ class (SkovQueryMonad m, TimeMonad m, MonadLogger m) => SkovMonad m where
     -- periodically to clean up transactions that are not committed to any block.
     purgeTransactions :: m ()
 
+    rememberFinalState :: BlockState m -> m ()
 
 instance (Monad (t m), MonadTrans t, SkovQueryMonad m) => SkovQueryMonad (MGSTrans t m) where
     resolveBlock = lift . resolveBlock
@@ -261,6 +262,8 @@ instance (MonadLogger (t m), MonadTrans t, SkovMonad m) => SkovMonad (MGSTrans t
     handleCatchUpStatus peerCUS = lift . handleCatchUpStatus peerCUS
     terminateSkov = lift terminateSkov
     purgeTransactions = lift purgeTransactions
+
+    rememberFinalState = lift . rememberFinalState
     {- - INLINE storeBlock - -}
     {- - INLINE receiveTransaction - -}
     {- - INLINE trustedFinalize - -}

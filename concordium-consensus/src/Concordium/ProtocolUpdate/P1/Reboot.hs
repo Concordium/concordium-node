@@ -145,6 +145,5 @@ updateRegenesis UpdateData{..} = do
     s3 <- bsoClearProtocolUpdate s2
     regenesisState <- freezeBlockState s3
     genesisStateHash <- getStateHash regenesisState
-    genesisNewState <- serializeBlockState regenesisState
     let genesisRegenesis = GenesisData.RegenesisData{..}
     return $ PVGenesisData $ GDP1 P1.GDP1Regenesis{..}

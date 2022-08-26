@@ -89,6 +89,7 @@ import Concordium.Crypto.EncryptedTransfers
 import Concordium.GlobalState.ContractStateFFIHelpers (LoadCallback)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import Concordium.GlobalState.Persistent.LMDB (FixedSizeSerialization)
+import Data.Proxy
 
 -- |Hash associated with birk parameters.
 newtype BirkParametersHash (pv :: ProtocolVersion) = BirkParametersHash {birkParamHash :: H.Hash}
@@ -1202,6 +1203,9 @@ class (BlockStateOperations m, FixedSizeSerialization (BlockStateRef m)) => Bloc
     -- actively used, in particular, after a protocol update.
     collapseCaches :: m ()
 
+    -- |Migrate the block state to a new state.
+    migrateBlockState :: IsProtocolVersion pv => Proxy pv -> MigrationContext m pv -> StateMigrationParameters (MPV m) pv -> BlockState m -> m (NextBlockState m pv)
+
 instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGSTrans t m) where
   getModule s = lift . getModule s
   getModuleInterface s = lift . getModuleInterface s
@@ -1448,6 +1452,7 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
     serializeBlockState = lift . serializeBlockState
     blockStateLoadCallback = lift blockStateLoadCallback
     collapseCaches = lift collapseCaches
+    migrateBlockState proxy ctx mig = lift . migrateBlockState proxy ctx mig
     {-# INLINE thawBlockState #-}
     {-# INLINE freezeBlockState #-}
     {-# INLINE dropUpdatableBlockState #-}

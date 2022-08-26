@@ -415,3 +415,5 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
     getNonFinalizedTransactionVerificationResult bi = do
       table <- use transactionTable
       return $ getNonFinalizedVerificationResult bi table
+
+    storeFinalState = error "TODO: Implement"
