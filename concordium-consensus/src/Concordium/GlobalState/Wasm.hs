@@ -25,8 +25,7 @@ module Concordium.GlobalState.Wasm (
   ModuleInterface(..),
   ModuleInterfaceV(..),
   HasModuleRef(..),
-  HasEntrypoints(..),
-  finalizeModuleInterfaceV
+  HasEntrypoints(..)
   )
   where
 
@@ -35,7 +34,7 @@ import Data.Serialize
 import Data.Word
 import qualified Data.Set as Set
 import qualified Data.Map.Strict as Map
-import Foreign (ForeignPtr, withForeignPtr, newForeignPtr, finalizeForeignPtr)
+import Foreign (ForeignPtr, withForeignPtr, newForeignPtr)
 import Foreign.Ptr
 import Foreign.C
 
@@ -78,9 +77,6 @@ newModuleArtifactV1 p = do
 -- computation.
 withModuleArtifact :: ModuleArtifact v -> (Ptr (ModuleArtifact v) -> IO a) -> IO a
 withModuleArtifact ModuleArtifact{..} = withForeignPtr maArtifact
-
-finalizeModuleArtifact :: ModuleArtifact v -> IO ()
-finalizeModuleArtifact = finalizeForeignPtr . maArtifact
 
 -- This serialization instance does not add explicit versioning on its own. The
 -- module artifact is always stored as part of another structure that has
@@ -139,10 +135,6 @@ instance Serialize (InstrumentedModuleV V1) where
     V0 -> fail "Expected Wasm version 1, got 0."
     V1 -> InstrumentedWasmModuleV1 <$> get
 
-finalizeInstrumentedModuleV :: InstrumentedModuleV v -> IO ()
-finalizeInstrumentedModuleV (InstrumentedWasmModuleV0 ma) = finalizeModuleArtifact ma
-finalizeInstrumentedModuleV (InstrumentedWasmModuleV1 ma) = finalizeModuleArtifact ma
-
 --------------------------------------------------------------------------------
 
 -- |A Wasm module interface of a given version, specified via a type parameter.
@@ -165,9 +157,6 @@ data ModuleInterfaceV v = ModuleInterface {
 imWasmArtifact :: ModuleInterfaceV v -> ModuleArtifact v
 imWasmArtifact ModuleInterface{miModule = InstrumentedWasmModuleV0{..}} = imWasmArtifactV0
 imWasmArtifact ModuleInterface{miModule = InstrumentedWasmModuleV1{..}} = imWasmArtifactV1
-
-finalizeModuleInterfaceV :: ModuleInterfaceV v -> IO ()
-finalizeModuleInterfaceV = finalizeInstrumentedModuleV . miModule
 
 class HasModuleRef a where
   -- |Retrieve the module reference (the way a module is identified on the chain).

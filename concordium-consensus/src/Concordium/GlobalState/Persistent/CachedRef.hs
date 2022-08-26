@@ -44,7 +44,8 @@ instance
       BlobStorable m a,
       Cache c,
       CacheKey c ~ BlobRef a,
-      CacheValue c ~ a
+      CacheValue c ~ a,
+      CacheCleanup (CacheValue c) m
     ) =>
     Reference m (CachedRef c) a
     where
@@ -94,7 +95,8 @@ instance
       BlobStorable m a,
       Cache c,
       CacheKey c ~ BlobRef a,
-      CacheValue c ~ a
+      CacheValue c ~ a,
+      CacheCleanup (CacheValue c) m
     ) =>
     BlobStorable m (CachedRef c a)
     where
@@ -117,7 +119,8 @@ instance
       Cache c,
       CacheKey c ~ BlobRef a,
       CacheValue c ~ a,
-      MHashableTo m h a
+      MHashableTo m h a,
+      CacheCleanup (CacheValue c) m
     ) =>
     MHashableTo m h (CachedRef c a)
     where
@@ -152,7 +155,8 @@ instance
       Cache c,
       CacheKey c ~ BlobRef a,
       CacheValue c ~ a,
-      MHashableTo m h a
+      MHashableTo m h a,
+      CacheCleanup (CacheValue c) m
     ) =>
     MHashableTo m h (LazilyHashedCachedRef' h c a)
     where
@@ -170,7 +174,8 @@ instance
       Cache c,
       CacheKey c ~ BlobRef a,
       CacheValue c ~ a,
-      MHashableTo m h a
+      MHashableTo m h a,
+      CacheCleanup (CacheValue c) m
     ) =>
     Reference m (LazilyHashedCachedRef' h c) a
     where
@@ -210,7 +215,8 @@ instance
       BlobStorable m a,
       Cache c,
       CacheKey c ~ BlobRef a,
-      CacheValue c ~ a
+      CacheValue c ~ a,
+      CacheCleanup (CacheValue c) m
     ) =>
     BlobStorable m (LazilyHashedCachedRef' h c a)
     where
@@ -233,7 +239,8 @@ instance
       Cache c,
       CacheKey c ~ BlobRef a,
       CacheValue c ~ a,
-      MHashableTo m h a
+      MHashableTo m h a,
+      CacheCleanup (CacheValue c) m
     ) =>
     Cacheable m (LazilyHashedCachedRef' h c a)
     where
@@ -271,7 +278,8 @@ instance
       Cache c,
       CacheKey c ~ BlobRef a,
       CacheValue c ~ a,
-      MHashableTo m h a
+      MHashableTo m h a,
+      CacheCleanup (CacheValue c) m
     ) =>
     Reference m (EagerlyHashedCachedRef' h c) a
     where
@@ -306,7 +314,8 @@ instance
       Cache c,
       CacheKey c ~ BlobRef a,
       CacheValue c ~ a,
-      MHashableTo m h a
+      MHashableTo m h a,
+      CacheCleanup (CacheValue c) m
     ) =>
     BlobStorable m (EagerlyHashedCachedRef' h c a)
     where
@@ -372,7 +381,7 @@ instance
       CacheKey c ~ BlobRef a,
       CacheValue c ~ a,
       MHashableTo m h a,
-      CacheCleanup (CacheValue c)
+      CacheCleanup (CacheValue c) m
     ) =>
     Reference m (HashedCachedRef' h c) a
     where
@@ -436,7 +445,7 @@ instance
       CacheKey c ~ BlobRef a,
       CacheValue c ~ a,
       MHashableTo m h a,
-      CacheCleanup (CacheValue c)
+      CacheCleanup (CacheValue c) m
     ) =>
     BlobStorable m (HashedCachedRef' h c a)
     where
@@ -469,7 +478,7 @@ instance
       Cache c,
       CacheKey c ~ BlobRef a,
       CacheValue c ~ a,
-      CacheCleanup (CacheValue c)
+      CacheCleanup (CacheValue c) m
     ) => Cacheable1 m (HashedCachedRef' h c a) a where
     liftCache csh hcr@HCRUnflushed{..} = liftIO (readIORef hcrUnflushed) >>= \case
         HCRMem val -> do

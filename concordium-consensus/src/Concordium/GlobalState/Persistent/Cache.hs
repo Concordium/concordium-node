@@ -1,4 +1,3 @@
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -79,7 +78,7 @@ class Cache c where
     -- |Store a value in the cache with the given key.
     -- The cache will not store more than one entry per key.
     -- If an entry is already present for the key, then this should replace the entry.
-    putCachedValue :: (MonadCache c m) => Proxy c -> CacheKey c -> CacheValue c -> m (CacheValue c)
+    putCachedValue :: (MonadCache c m, CacheCleanup (CacheValue c) m) => Proxy c -> CacheKey c -> CacheValue c -> m (CacheValue c)
 
     -- |Load a cached value with the given key.
     -- This returns 'Nothing' if the value is not in the cache.
@@ -138,15 +137,14 @@ cacheEntry = fromIntegral . theBlobRef
 nullCacheEntry :: Int
 nullCacheEntry = cacheEntry (refNull :: BlobRef ())
 
-class CacheCleanup v where
-    cleanup :: v -> IO ()
-    cleanup _ = pure ()
+class MonadIO m => CacheCleanup v m where
+  cleanup :: m v
 
 -- |First-in, first-out cache, with entries keyed by 'BlobRefs's.
 -- 'refNull' is considered an invalid key, and should not be inserted in the cache.
 newtype FIFOCache v = FIFOCache {theFIFOCache :: MVar (FIFOCache' v)}
 
-instance (CacheCleanup v) => Cache (FIFOCache v) where
+instance Cache (FIFOCache v) where
     type CacheKey (FIFOCache v) = BlobRef v
     type CacheValue (FIFOCache v) = v
 
@@ -164,15 +162,18 @@ instance (CacheCleanup v) => Cache (FIFOCache v) where
             case IntMap.lookup intKey (keyMap cache) of
                 Nothing -> do
                     oldEntry <- Vec.read (fifoBuffer cache) (nextIndex cache)
-                    freeMap <-
-                        if oldEntry == nullCacheEntry
-                            then return (keyMap cache)
-                            else do
-                                -- Clean up the evicted cache entry
-                                mapM_ (liftIO . cleanup) (IntMap.lookup oldEntry (keyMap cache))
-                                return $ IntMap.delete oldEntry (keyMap cache)
-                    let !newKeyMap =
-                            IntMap.insert intKey val freeMap
+                    let newKeyMap =
+                            IntMap.insert intKey val
+                                $! if oldEntry == nullCacheEntry
+                                    then keyMap cache
+                                    else
+                                     let oldVal = IntMap.lookup oldEntry (keyMap cache)
+                                     in case oldVal of
+                                       Just v -> do
+                                         -- run custom cleanup
+                                         _ <- cleanup v
+                                         IntMap.delete oldEntry (keyMap cache)
+                                       Nothing -> IntMap.delete oldEntry (keyMap cache)
                     Vec.write (fifoBuffer cache) (nextIndex cache) $! intKey
                     putMVar cacheRef
                         $! cache
