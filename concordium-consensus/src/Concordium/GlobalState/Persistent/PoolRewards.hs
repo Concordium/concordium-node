@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module Concordium.GlobalState.Persistent.PoolRewards (
@@ -105,7 +106,7 @@ migratePoolRewards curBakers nextBakers blockCounts npEpoch npMintRate = do
                     transactionFeesAccrued = 0,
                     finalizationAwake = False
                   }
-          (newRef, _) <- refFlush =<< refMake bprd
+          (!newRef, _) <- refFlush =<< refMake bprd
           return newRef
 
 -- |Look up the baker capital and reward details for a baker ID.

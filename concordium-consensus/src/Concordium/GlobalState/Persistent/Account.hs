@@ -227,7 +227,7 @@ migratePersistentExtraBakerInfo' migration bi = do
         StateMigrationParametersTrivialP2P3 -> return ()
         StateMigrationParametersP3ToP4 migrationData -> do
             let bpi = P4.defaultBakerPoolInfo migrationData
-            (newRef, _) <- refFlush =<< refMake bpi
+            (!newRef, _) <- refFlush =<< refMake bpi
             return newRef
 
 migratePersistentExtraBakerInfo ::

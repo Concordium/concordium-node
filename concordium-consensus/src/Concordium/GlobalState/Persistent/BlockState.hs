@@ -364,7 +364,7 @@ migrateBlockRewardDetails StateMigrationParametersTrivialP2P3 _ _ _ = \case
 migrateBlockRewardDetails (StateMigrationParametersP3ToP4 _) curBakers nextBakers TimeParametersV1{..} = \case
     (BlockRewardDetailsV0 heb) -> do
       blockCounts <- bakersFromEpochBlocks (hebBlocks heb)
-      (newRef, _) <- refFlush =<< refMake =<< migratePoolRewards curBakers nextBakers blockCounts (rewardPeriodEpochs _tpRewardPeriodLength) _tpMintPerPayday
+      (!newRef, _) <- refFlush =<< refMake =<< migratePoolRewards curBakers nextBakers blockCounts (rewardPeriodEpochs _tpRewardPeriodLength) _tpMintPerPayday
       return (BlockRewardDetailsV1 newRef)
 
 instance MonadBlobStore m => MHashableTo m (Rewards.BlockRewardDetailsHash av) (BlockRewardDetails av) where

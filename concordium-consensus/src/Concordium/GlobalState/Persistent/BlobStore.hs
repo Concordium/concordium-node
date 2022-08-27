@@ -712,7 +712,7 @@ migrateEagerBufferedRef ::
     t m (EagerBufferedRef b)
 migrateEagerBufferedRef f r = do
     v <- f =<< lift (refLoad r)
-    (newRef, _) <- refFlush =<< refMake v
+    (!newRef, _) <- refFlush =<< refMake v
     return newRef
 
 instance Show a => Show (EagerBufferedRef a) where
@@ -918,7 +918,11 @@ data HashedBufferedRef' h a
 -- TODO: This is good as long as the hash is not changed by 'f'.
 migrateHashedBufferedRef' :: (MonadTrans t, MHashableTo (t m) h b, BlobStorable m a, BlobStorable (t m) b) => (a -> t m b) -> HashedBufferedRef' h a -> t m (HashedBufferedRef' h b)
 migrateHashedBufferedRef' f hb = do
-    (b, _) <- refFlush =<< refMake =<< f =<< lift (refLoad (bufferedReference hb))
+    newRef <- refMake =<< f =<< lift (refLoad (bufferedReference hb))
+    -- compute the hash while the data is in memory.
+    !h <- getHashM (bufferedReference newRef)
+    liftIO $ writeIORef (bufferedHash newRef) (Some h)
+    (!b, _) <- refFlush newRef
     return b
 
 
@@ -1046,7 +1050,6 @@ migrateEagerlyHashedBufferedRef ::
     t m (EagerlyHashedBufferedRef' h a)
 migrateEagerlyHashedBufferedRef f r = do
     ehbrReference <- migrateEagerBufferedRef f (ehbrReference r)
-    
     return r { ehbrReference = ehbrReference }
 
 

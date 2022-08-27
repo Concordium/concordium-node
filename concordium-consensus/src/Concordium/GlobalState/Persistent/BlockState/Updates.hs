@@ -245,7 +245,7 @@ migratePendingUpdates migration PendingUpdates{..} = do
     StateMigrationParametersTrivialP2P3 -> case pTimeParametersQueue of
       NothingForCPV1 -> return NothingForCPV1
     StateMigrationParametersP3ToP4{} -> do
-      (hbr, _) <- refFlush =<< refMake emptyUpdateQueue
+      (!hbr, _) <- refFlush =<< refMake emptyUpdateQueue
       return (JustForCPV1 hbr)
   newCooldownParameters <- case migration of
     StateMigrationParametersTrivial -> case pCooldownParametersQueue of
@@ -256,7 +256,7 @@ migratePendingUpdates migration PendingUpdates{..} = do
     StateMigrationParametersTrivialP2P3 -> case pCooldownParametersQueue of
       NothingForCPV1 -> return NothingForCPV1
     StateMigrationParametersP3ToP4{} -> do
-      (hbr, _) <- refFlush =<< refMake emptyUpdateQueue
+      (!hbr, _) <- refFlush =<< refMake emptyUpdateQueue
       return (JustForCPV1 hbr)
   return PendingUpdates{
         pRootKeysUpdateQueue = newRootKeys,

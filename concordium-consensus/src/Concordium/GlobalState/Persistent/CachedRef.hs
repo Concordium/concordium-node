@@ -366,8 +366,8 @@ migrateHashedCachedRef' ::
     HashedCachedRef' h c a ->
     t m (HashedCachedRef' h c' b)
 migrateHashedCachedRef' f hcr = do
-    v <- f =<< lift (refLoad hcr)
-    (newRef, _) <- refFlush =<< refMake v
+    !v <- f =<< lift (refLoad hcr)
+    (!newRef, _) <- refFlush =<< refMake v
     return newRef
 
 type HashedCachedRef = HashedCachedRef' H.Hash

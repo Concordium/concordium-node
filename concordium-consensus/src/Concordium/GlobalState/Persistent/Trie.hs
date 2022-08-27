@@ -487,13 +487,13 @@ migrateTrieF f (Tip v) = Tip <$> f v
 migrateTrieF f (Stem stem r) = do
     child <- lift (refLoad (unBF r))
     newChild <- migrateTrieF f child
-    (childRefFlushed, _) <- refFlush =<< refMake newChild
+    (!childRefFlushed, _) <- refFlush =<< refMake newChild
     return $! Stem stem (BufferedFix childRefFlushed)
 migrateTrieF f (Branch branches) = do
     newBranches <- forM branches $ \be -> do
       child <- lift (refLoad (unBF be))
       newChild <- migrateTrieF f child
-      (childRefFlushed, _) <- refFlush =<< refMake newChild
+      (!childRefFlushed, _) <- refFlush =<< refMake newChild
       return $! BufferedFix childRefFlushed
     return $! Branch newBranches
 
