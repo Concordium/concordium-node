@@ -508,7 +508,7 @@ enqueueMessages :: (Proto.Message (Output a), ToProto a) => (Ptr Word8 -> Int64 
 enqueueMessages callback = forkIO . go 0 . map encodeMsg
   where
     encodeMsg = Proto.encodeMessage . toProto
-    go _ [] = () <$ callback nullPtr 0
+    go _ [] = () <$ callback nullPtr maxBound -- close the sender channel.
     go n msgs@(msg : msgs') =
         BS.unsafeUseAsCStringLen msg $ \(headPtr, len) -> do
             res <- callback (castPtr headPtr) (fromIntegral len)

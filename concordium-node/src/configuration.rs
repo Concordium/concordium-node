@@ -353,9 +353,9 @@ pub struct GRPC2Config {
         long = "api-enable-grpc-web",
         help = "Enable support for GRPC-Web protocol.",
         env = "CONCORDIUM_NODE_ENABLE_GRPC_WEB",
-        requires = "api-listen-address",
+        requires = "api-listen-address"
     )]
-    pub api_enable_grpc_web: bool,
+    pub api_enable_grpc_web:  bool,
 }
 
 #[derive(StructOpt, Debug)]

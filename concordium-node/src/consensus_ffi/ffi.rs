@@ -1015,7 +1015,12 @@ impl ConsensusContainer {
         unsafe { stopImportingBlocks(consensus) }
     }
 
-    /// Stream finalized blocks when they become available.
+    /// Look up the account in the given block.
+    /// The return value is a pair of the block hash which was used for the
+    /// query, and the protobuf serialized response.
+    ///
+    /// If the account cannot be found then a [tonic::Status::not_found] is
+    /// returned.
     pub fn get_account_info_v2(
         &self,
         block_hash: &crate::grpc2::types::BlockHashInput,
@@ -1046,7 +1051,11 @@ impl ConsensusContainer {
         Ok((out_hash, out_data))
     }
 
-    /// Stream finalized blocks when they become available.
+    /// Look up accounts in the given block, and return a stream of their
+    /// addresses.
+    ///
+    /// The return value is a block hash used for the query. If the requested
+    /// block does not exist a [tonic::Status::not_found] is returned.
     pub fn get_account_list_v2(
         &self,
         block_hash: &crate::grpc2::types::BlockHashInput,
@@ -1058,10 +1067,11 @@ impl ConsensusContainer {
         let mut buf = [0u8; 32];
         let (block_id_type, block_hash) =
             crate::grpc2::types::block_hash_input_to_ffi(block_hash).require_owned()?;
+        let sender_ptr = Box::into_raw(sender);
         let response: ConsensusQueryResponse = unsafe {
             getAccountListV2(
                 consensus,
-                Box::into_raw(sender),
+                sender_ptr,
                 block_id_type,
                 block_hash,
                 buf.as_mut_ptr(),
@@ -1069,8 +1079,12 @@ impl ConsensusContainer {
             )
         }
         .try_into()?;
-        response.check_rpc_response()?;
-        Ok(buf)
+        if let Err(e) = response.check_rpc_response() {
+            let _ = unsafe { Box::from_raw(sender_ptr) }; // deallocate sender since it is unused by Haskell.
+            Err(e)
+        } else {
+            Ok(buf)
+        }
     }
 }
 
@@ -1189,19 +1203,24 @@ pub extern "C" fn broadcast_callback(
 /// - -2 if there are no more receivers. In this case the given sender is
 ///   dropped and the given `sender` pointer must not be used anymore.
 ///
-/// If the msg is a null pointer then the `sender` is always dropped, and the
-/// response will be `-2`.
+/// If the msg is a null pointer and length is not 0 then the `sender` is always
+/// dropped, and the response will be `-2`.
 extern "C" fn enqueue_bytearray_callback(
     sender: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
     msg: *const u8,
     msg_length: i64,
 ) -> i32 {
     let mut sender = unsafe { Box::from_raw(sender) };
-    if msg.is_null() {
-        // drop sender
-        return -2;
-    }
-    let data = unsafe { slice::from_raw_parts(msg, msg_length as usize) };
+    let data = if msg_length != 0 {
+        if msg.is_null() {
+            // drop sender
+            return -2;
+        } else {
+            unsafe { slice::from_raw_parts(msg, msg_length as usize) }.to_vec()
+        }
+    } else {
+        Vec::new()
+    };
     match sender.try_send(Ok(data.to_vec())) {
         Ok(()) => {
             // Do not drop the sender.
