@@ -121,8 +121,10 @@ pub mod server {
     }
 
     pub struct GRPC2Server {
-        task:            tokio::task::JoinHandle<Result<(), tonic::transport::Error>>,
-        shutdown_sender: tokio::sync::oneshot::Sender<()>,
+        task:                   tokio::task::JoinHandle<Result<(), tonic::transport::Error>>,
+        shutdown_sender:        tokio::sync::oneshot::Sender<()>,
+        blocks_relay:           tokio::task::JoinHandle<()>,
+        finalized_blocks_relay: tokio::task::JoinHandle<()>,
     }
 
     impl GRPC2Server {
@@ -163,9 +165,8 @@ pub mod server {
                     mut finalized_blocks,
                 } = notification_handlers;
 
-                // TODO: Kill then on shutdown.
                 let blocks_channel = server.blocks_channels.clone();
-                let _ = tokio::spawn(async move {
+                let blocks_relay = tokio::spawn(async move {
                     while let Some(v) = blocks.next().await {
                         match blocks_channel.lock() {
                             Ok(mut senders) => senders.retain(|sender| {
@@ -189,7 +190,7 @@ pub mod server {
                 });
 
                 let finalized_blocks_channel = server.finalized_blocks_channels.clone();
-                let _ = tokio::spawn(async move {
+                let finalized_blocks_relay = tokio::spawn(async move {
                     while let Some(v) = finalized_blocks.next().await {
                         match finalized_blocks_channel.lock() {
                             Ok(mut senders) => senders.retain(|sender| {
@@ -243,6 +244,8 @@ pub mod server {
                 Ok(Some(Self {
                     task,
                     shutdown_sender,
+                    blocks_relay,
+                    finalized_blocks_relay,
                 }))
             } else {
                 Ok(None)
@@ -254,6 +257,8 @@ pub mod server {
                 error!("Could not stop the GRPC2 server correctly. Forcing shutdown.");
                 self.task.abort();
             }
+            self.blocks_relay.abort();
+            self.finalized_blocks_relay.abort();
             // Force the rpc server to shut down in at most 10 seconds.
             let timeout_duration = std::time::Duration::from_secs(10);
             match tokio::time::timeout(timeout_duration, self.task).await {
