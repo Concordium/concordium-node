@@ -3,7 +3,7 @@
 extern crate log;
 
 // Force the system allocator on every platform
-use futures::{stream::StreamExt, FutureExt};
+use futures::{stream::StreamExt, AsyncBufReadExt, FutureExt, TryStreamExt};
 use std::{alloc::System, io::Write, sync::atomic};
 use tempfile::TempPath;
 #[global_allocator]
@@ -19,7 +19,7 @@ use concordium_node::{
             CONSENSUS_QUEUE_DEPTH_IN_HI, CONSENSUS_QUEUE_DEPTH_OUT_HI,
         },
         ffi,
-        helpers::QueueMsg,
+        helpers::{HashBytes, QueueMsg},
         messaging::ConsensusMessage,
     },
     p2p::{
@@ -37,6 +37,7 @@ use concordium_node::{
 use mio::{net::TcpListener, Poll};
 use parking_lot::Mutex as ParkingMutex;
 use rand::Rng;
+use reqwest::Client;
 use std::{path::Path, sync::Arc, thread::JoinHandle};
 #[cfg(unix)]
 use tokio::signal::unix as unix_signal;
@@ -107,7 +108,7 @@ async fn main() -> anyhow::Result<()> {
             ConsensusLogLevel::Info
         },
         &database_directory,
-        regenesis_arc,
+        regenesis_arc.clone(),
     )?;
     info!("Consensus layer started");
 
@@ -153,6 +154,7 @@ async fn main() -> anyhow::Result<()> {
 
     maybe_do_out_of_band_catchup(
         &consensus,
+        regenesis_arc,
         import_stopped,
         conf.cli.baker.import_blocks_from.as_deref(),
         conf.cli.baker.download_blocks_from.as_ref(),
@@ -476,6 +478,7 @@ where
 /// is specified.
 async fn maybe_do_out_of_band_catchup(
     consensus: &ConsensusContainer,
+    regenesis_arc: Arc<Regenesis>,
     import_stopped: Arc<atomic::AtomicBool>,
     import_blocks_from: Option<&Path>,
     download_blocks_from: Option<&reqwest::Url>,
@@ -488,8 +491,8 @@ async fn maybe_do_out_of_band_catchup(
             if import_stopped.load(atomic::Ordering::Acquire) {
                 info!("Out of band catchup stopped.");
             } else {
-                info!(
-                    "Could not complete out of band catch-up from {} due to: {:#}.",
+                error!(
+                    "Could not complete out of band catch-up from {} due to: {:#}",
                     import_blocks_from.display(),
                     e
                 );
@@ -498,33 +501,127 @@ async fn maybe_do_out_of_band_catchup(
             info!("Completed out of band catch-up from {}.", import_blocks_from.display());
         }
     } else if let Some(download_url) = download_blocks_from.as_ref().cloned() {
-        let from = download_catchup_files(download_url.clone(), data_dir_path).await;
-        match from {
-            Ok(path) => {
-                info!("Starting out of band catch-up");
-                if let Err(e) = consensus.import_blocks(&path) {
-                    if import_stopped.load(atomic::Ordering::Acquire) {
-                        info!("Out of band catchup stopped.");
-                    } else {
-                        info!("Could not complete out of band catch-up due to: {:#}.", e);
-                    }
-                } else {
-                    info!("Completed out of band catch-up from {}.", download_url);
-                }
-                // attempt to properly clean up the downloaded file.
-                if let Err(e) = path.close() {
-                    error!("Could not delete the downloaded file: {}", e);
-                }
+        info!("Starting out of band catch-up");
+        let genesis_block_hashes = regenesis_arc.blocks.read().unwrap().clone();
+        if let Err(e) = import_missing_blocks(
+            consensus,
+            import_stopped.clone(),
+            &genesis_block_hashes,
+            download_url,
+            data_dir_path,
+        )
+        .await
+        {
+            if import_stopped.load(atomic::Ordering::Acquire) {
+                info!("Out of band catchup stopped.");
+            } else {
+                error!("Could not complete out of band catch-up due to: {:#}", e);
             }
-            Err(e) => {
-                // report error, but continue startup
-                error!("Downloading catch-up files failed: {}.", e)
-            }
+        } else {
+            info!("Completed out of band catch-up from {}.", download_url)
         }
     }
 }
 
-async fn download_catchup_files(
+// An index entry for a chunk of blocks. Its format must correspond to one
+// produced by `database-exporter`.
+#[derive(serde::Deserialize)]
+struct BlockChunkData {
+    // exported chunk of blocks' filename
+    filename:           String,
+    // genesis block index from which relative heights of blocks in the chunk are counted
+    genesis_index:      usize,
+    // relative height of the oldest block stored in the chunk
+    #[allow(dead_code)]
+    first_block_height: u64,
+    // relative height of the newest block stored in the chunk
+    last_block_height:  u64,
+}
+
+async fn import_missing_blocks(
+    consensus: &ConsensusContainer,
+    import_stopped: Arc<atomic::AtomicBool>,
+    genesis_block_hashes: &[HashBytes],
+    index_url: &url::Url,
+    data_dir_path: &Path,
+) -> anyhow::Result<()> {
+    let current_genesis_index = genesis_block_hashes.len() - 1;
+    let last_finalized_block_height = consensus.get_last_finalized_block_height();
+
+    trace!("Current genesis index: {}", current_genesis_index);
+    trace!("Local last finalized block height: {}", last_finalized_block_height);
+
+    let http_client = Client::builder().build()?;
+    let index_response = http_client.get(index_url.clone()).send().await?;
+    anyhow::ensure!(
+        index_response.status().is_success(),
+        "Unable to download the catchup index file from {}: {} {}",
+        index_url,
+        index_response.status().as_str(),
+        index_response.status().canonical_reason().unwrap()
+    );
+
+    let mut index_reader = index_response
+        .bytes_stream()
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+        .into_async_read();
+    let mut first_line: String = String::new();
+    index_reader.read_line(&mut first_line).await?;
+
+    let index_genesis_block_hash = first_line
+        .strip_prefix("# genesis hash ")
+        .context(
+            "The catchup index file does not begin with a line containing the genesis block hash. \
+             Please verify that you specified a correct catchup service URL. If the specified URL \
+             is correct, contact the catchup service administrator.",
+        )?
+        .trim();
+    let genesis_hash = genesis_block_hashes[0].to_string();
+    anyhow::ensure!(
+        index_genesis_block_hash == genesis_hash,
+        "The genesis block hash in the catchup index file {} does not match the genesis block \
+         hash {} in the local tree state. Please verify that you chose the catchup service for \
+         the correct chain.",
+        index_genesis_block_hash,
+        genesis_hash
+    );
+
+    let mut chunk_records = csv_async::AsyncReaderBuilder::new()
+        .comment(Some(b'#'))
+        .has_headers(false)
+        .create_deserializer(index_reader)
+        .into_deserialize();
+    while let Some(result) = chunk_records.next().await {
+        anyhow::ensure!(
+            !import_stopped.load(atomic::Ordering::Acquire),
+            "Import stopped by the user."
+        );
+
+        let block_chunk_data: BlockChunkData = result?;
+        // no need to reimport blocks that are present in the database
+        if block_chunk_data.genesis_index < current_genesis_index
+            || block_chunk_data.last_block_height <= last_finalized_block_height
+        {
+            trace!(
+                "Skipping chunk {}: no blocks above last finalized block height",
+                block_chunk_data.filename
+            );
+            continue;
+        }
+        let block_chunk_url = index_url.join(&block_chunk_data.filename)?;
+        let path = download_chunk(http_client.clone(), block_chunk_url, data_dir_path).await?;
+        let import_result = consensus.import_blocks(&path);
+        // attempt to properly clean up the downloaded file.
+        if let Err(e) = path.close() {
+            error!("Could not delete the downloaded file: {}", e);
+        }
+        import_result?
+    }
+    Ok(())
+}
+
+async fn download_chunk(
+    http_client: Client,
     download_url: url::Url,
     data_dir_path: &Path,
 ) -> anyhow::Result<TempPath> {
@@ -535,9 +632,18 @@ async fn download_catchup_files(
         tempfile::NamedTempFile::new_in(data_dir_path).context("Cannot create output file.")?;
     info!("Downloading the catch-up file from {} to {}", download_url, temp_file.path().display());
     {
+        let chunk_response = http_client.get(download_url.clone()).send().await?;
+        anyhow::ensure!(
+            chunk_response.status().is_success(),
+            "Unable to download the block chunk file from {}: {} {}",
+            download_url,
+            chunk_response.status().as_str(),
+            chunk_response.status().canonical_reason().unwrap()
+        );
+
         let file = temp_file.as_file_mut();
         let mut buffer = std::io::BufWriter::new(file);
-        let mut stream = reqwest::get(download_url).await?.bytes_stream();
+        let mut stream = chunk_response.bytes_stream();
         while let Some(Ok(bytes)) = stream.next().await {
             buffer.write_all(&bytes)?;
         }
