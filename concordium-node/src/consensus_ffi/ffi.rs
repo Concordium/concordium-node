@@ -499,7 +499,7 @@ extern "C" {
 
     // Functions related to V2 GRPC interface.
 
-    /// Get an information about a specific account
+    /// Get information about a specific account in a given block.
     pub fn getAccountInfoV2(
         consensus: *mut consensus_runner,
         acc_type: u8,
@@ -511,7 +511,10 @@ extern "C" {
         copier: CopyToVecCallback,
     ) -> i64;
 
-    /// Stream finalized blocks when they become available.
+    /// Get the list of accounts in a given block and, if the block exists,
+    /// enqueue them into the provided [Sender](futures::channel::mpsc::Sender).
+    ///
+    /// Individual account addresses are enqueued using the provided callback.
     pub fn getAccountListV2(
         consensus: *mut consensus_runner,
         sender: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
