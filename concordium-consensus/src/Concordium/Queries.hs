@@ -330,6 +330,11 @@ getBlocksAtHeight height baseGI True = MVR $ \mvr -> do
         Nothing -> return []
         Just evc -> liftSkovQuery mvr evc (map getHash <$> Skov.getBlocksAtHeight height)
 
+-- | Retrieve the last finalized block height relative to the most recent genesis index. Used for
+-- resuming out-of-band catchup.
+getLastFinalizedBlockHeight :: MVR gsconf finconf BlockHeight
+getLastFinalizedBlockHeight = liftSkovQueryLatest $ bpHeight <$> lastFinalizedBlock
+
 -- ** Accounts
 
 -- |Get a list of non-finalized transaction hashes for a given account.

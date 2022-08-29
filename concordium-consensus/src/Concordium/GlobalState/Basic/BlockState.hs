@@ -835,27 +835,6 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
             ..
         }
 
-    getInitialTransactionTable bs = return tt2
-      where
-        tt1 = Accounts.foldAccounts accInTT TransactionTable.emptyTransactionTable (bs ^. blockAccounts)
-        tt2 = foldl' updInTT tt1 [minBound..]
-        accInTT tt acct =
-            let nonce = acct ^. accountNonce
-                addr = acct ^. accountAddress
-            in if nonce /= minNonce
-                then
-                    tt & TransactionTable.ttNonFinalizedTransactions . at' (accountAddressEmbed addr)
-                        ?~ TransactionTable.emptyANFTWithNonce nonce
-                else tt
-        updInTT tt uty =
-            let sn = lookupNextUpdateSequenceNumber (bs ^. blockUpdates) uty
-            in if sn /= minUpdateSequenceNumber
-                then
-                    tt & TransactionTable.ttNonFinalizedChainUpdates . at' uty
-                        ?~ TransactionTable.emptyNFCUWithSequenceNumber sn
-                else
-                    tt
-
 instance (Monad m, IsProtocolVersion pv) => BS.AccountOperations (PureBlockStateMonad pv m) where
 
   getAccountCanonicalAddress acc = return $ acc ^. accountAddress
@@ -1870,9 +1849,6 @@ instance (IsProtocolVersion pv, MonadIO m) => BS.BlockStateStorage (PureBlockSta
     {-# INLINE loadBlockState #-}
     loadBlockState _ _ = error "Cannot load memory-based block state"
 
-    {-# INLINE cacheBlockState #-}
-    cacheBlockState = return
-
     {-# INLINE serializeBlockState #-}
     serializeBlockState = return . runPut . putBlockState . _unhashedBlockState
 
@@ -2112,4 +2088,33 @@ genesisState gd = case protocolVersion @pv of
                         hashShouldMatch = case migration of
                             StateMigrationParametersTrivial{} -> True
                             StateMigrationParametersP3ToP4{} -> False
-                        genesisTT = runIdentity $ runPureBlockStateMonad $ BS.getInitialTransactionTable hbs
+                        genesisTT = getInitialTransactionTable hbs
+
+-- |Construct a transaction table that is empty but reflects the next nonces/sequence numbers
+-- for all accounts and chain updates. That is, if the next nonce/sequence number is not the minimal
+    -- one, it is recorded in the transaction table.
+getInitialTransactionTable ::
+    ( HasBlockState s pv,
+      IsChainParametersVersion (ChainParametersVersionFor pv)
+    ) =>
+    s ->
+    TransactionTable.TransactionTable
+getInitialTransactionTable bs = tt2
+  where
+    tt1 = Accounts.foldAccounts accInTT TransactionTable.emptyTransactionTable (bs ^. blockAccounts)
+    tt2 = foldl' updInTT tt1 [minBound ..]
+    accInTT tt acct =
+        let nonce = acct ^. accountNonce
+            addr = acct ^. accountAddress
+         in if nonce /= minNonce
+                then
+                    tt & TransactionTable.ttNonFinalizedTransactions . at' (accountAddressEmbed addr)
+                        ?~ TransactionTable.emptyANFTWithNonce nonce
+                else tt
+    updInTT tt uty =
+        let sn = lookupNextUpdateSequenceNumber (bs ^. blockUpdates) uty
+         in if sn /= minUpdateSequenceNumber
+                then
+                    tt & TransactionTable.ttNonFinalizedChainUpdates . at' uty
+                        ?~ TransactionTable.emptyNFCUWithSequenceNumber sn
+                else tt

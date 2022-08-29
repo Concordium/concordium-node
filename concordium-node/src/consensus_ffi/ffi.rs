@@ -462,6 +462,7 @@ extern "C" {
         genesis_index: u32,
         restrict: u8,
     ) -> *const c_char;
+    pub fn getLastFinalizedBlockHeight(consensus: *mut consensus_runner) -> u64;
     pub fn getTransactionStatus(
         consensus: *mut consensus_runner,
         transaction_hash: *const c_char,
@@ -498,7 +499,7 @@ extern "C" {
 
     // Functions related to V2 GRPC interface.
 
-    /// Get an information about a specific account.
+    /// Get information about a specific account in a given block.
     pub fn getAccountInfoV2(
         consensus: *mut consensus_runner,
         block_id_type: u8,
@@ -508,20 +509,6 @@ extern "C" {
         out_hash: *mut u8,
         out: *mut Vec<u8>,
         copier: CopyToVecCallback,
-    ) -> i64;
-
-    /// Stream a list of all accounts.
-    pub fn getAccountListV2(
-        consensus: *mut consensus_runner,
-        sender: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
-        block_id_type: u8,
-        block_hash: *const u8,
-        out_hash: *mut u8,
-        callback: extern "C" fn(
-            *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
-            *const u8,
-            i64,
-        ) -> i32,
     ) -> i64;
 
     /// Stream a list of all modules.
@@ -577,6 +564,24 @@ extern "C" {
 
     /// Stream a list of ancestors for the given block.
     pub fn getAncestorsV2(
+        consensus: *mut consensus_runner,
+        sender: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+        block_id_type: u8,
+        block_hash: *const u8,
+        depth: u64,
+        out_hash: *mut u8,
+        callback: extern "C" fn(
+            *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+            *const u8,
+            i64,
+        ) -> i32,
+    ) -> i64;
+
+    /// Get the list of accounts in a given block and, if the block exists,
+    /// enqueue them into the provided [Sender](futures::channel::mpsc::Sender).
+    ///
+    /// Individual account addresses are enqueued using the provided callback.
+    pub fn getAccountListV2(
         consensus: *mut consensus_runner,
         sender: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
         block_id_type: u8,
@@ -785,6 +790,11 @@ impl ConsensusContainer {
             genesis_index,
             restrict as u8
         ))
+    }
+
+    pub fn get_last_finalized_block_height(&self) -> u64 {
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        unsafe { getLastFinalizedBlockHeight(consensus) }
     }
 
     pub fn get_ancestors(&self, block_hash: &str, amount: u64) -> anyhow::Result<String> {
@@ -1075,7 +1085,12 @@ impl ConsensusContainer {
         unsafe { stopImportingBlocks(consensus) }
     }
 
-    /// Stream finalized blocks when they become available.
+    /// Look up the account in the given block.
+    /// The return value is a pair of the block hash which was used for the
+    /// query, and the protobuf serialized response.
+    ///
+    /// If the account cannot be found then a [tonic::Status::not_found] is
+    /// returned.
     pub fn get_account_info_v2(
         &self,
         block_hash: &crate::grpc2::types::BlockHashInput,
@@ -1106,7 +1121,11 @@ impl ConsensusContainer {
         Ok((out_hash, out_data))
     }
 
-    /// Stream finalized blocks when they become available.
+    /// Look up accounts in the given block, and return a stream of their
+    /// addresses.
+    ///
+    /// The return value is a block hash used for the query. If the requested
+    /// block does not exist a [tonic::Status::not_found] is returned.
     pub fn get_account_list_v2(
         &self,
         block_hash: &crate::grpc2::types::BlockHashInput,
@@ -1118,10 +1137,11 @@ impl ConsensusContainer {
         let mut buf = [0u8; 32];
         let (block_id_type, block_hash) =
             crate::grpc2::types::block_hash_input_to_ffi(block_hash).require_owned()?;
+        let sender_ptr = Box::into_raw(sender);
         let response: ConsensusQueryResponse = unsafe {
             getAccountListV2(
                 consensus,
-                Box::into_raw(sender),
+                sender_ptr,
                 block_id_type,
                 block_hash,
                 buf.as_mut_ptr(),
@@ -1129,8 +1149,12 @@ impl ConsensusContainer {
             )
         }
         .try_into()?;
-        response.check_rpc_response()?;
-        Ok(buf)
+        if let Err(e) = response.check_rpc_response() {
+            let _ = unsafe { Box::from_raw(sender_ptr) }; // deallocate sender since it is unused by Haskell.
+            Err(e)
+        } else {
+            Ok(buf)
+        }
     }
 
     pub fn get_module_list_v2(
@@ -1387,29 +1411,25 @@ pub extern "C" fn broadcast_callback(
 /// - -2 if there are no more receivers. In this case the given sender is
 ///   dropped and the given `sender` pointer must not be used anymore.
 ///
-/// Default values (an empty string, 0, first enum variant, etc.) are not
-/// encoded explicitly in protobuf. This means that an empty message, with `msg`
-/// being a null-pointer, is valid if the `msg_length` is `0`. However, if
-/// `msg_length` is non-zero and `msg` is a null pointer, then the `sender`
-/// is always dropped, and the response will be `-2`.
+/// If the msg is a null pointer and length is not 0 then the `sender` is always
+/// dropped, and the response will be `-2`.
 extern "C" fn enqueue_bytearray_callback(
     sender: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
     msg: *const u8,
     msg_length: i64,
 ) -> i32 {
     let mut sender = unsafe { Box::from_raw(sender) };
-    let data = if msg_length == 0 {
-        Vec::new()
-    } else {
+    let data = if msg_length != 0 {
         if msg.is_null() {
             // drop sender
             return -2;
+        } else {
+            unsafe { slice::from_raw_parts(msg, msg_length as usize) }.to_vec()
         }
-
-        unsafe { slice::from_raw_parts(msg, msg_length as usize).to_vec() }
+    } else {
+        Vec::new()
     };
-
-    match sender.try_send(Ok(data)) {
+    match sender.try_send(Ok(data.to_vec())) {
         Ok(()) => {
             // Do not drop the sender.
             Box::into_raw(sender);

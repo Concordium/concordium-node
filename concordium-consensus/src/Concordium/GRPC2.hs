@@ -133,11 +133,11 @@ mkWord8 ::
     b
 mkWord8 a = Proto.make (ProtoFields.value .= (fromIntegral (coerce a :: Word8) :: Word32))
 
--- |A helper class analogous to something like Aeson's ToJSON.DelegatorCapital
+-- |A helper class analogous to something like Aeson's ToJSON.
 -- It exists to make it more manageable to convert the internal Haskell types to
 -- their Protobuf equivalents.
 class ToProto a where
-    -- |The corressponding Proto type.
+    -- |The corresponding Proto type.
     type Output a
     -- |A conversion function from the type to its protobuf equivalent.
     toProto :: a -> Output a
@@ -675,7 +675,7 @@ enqueueMessages :: (Proto.Message (Output a), ToProto a) => (Ptr Word8 -> Int64 
 enqueueMessages callback = forkIO . go 0 . map encodeMsg
   where
     encodeMsg = Proto.encodeMessage . toProto
-    go _ [] = () <$ callback nullPtr maxBound -- Use maxBound to distinguish it from an empty message (default values are not encoded explicitly).
+    go _ [] = () <$ callback nullPtr maxBound -- close the sender channel.
     go n msgs@(msg : msgs') =
         BS.unsafeUseAsCStringLen msg $ \(headPtr, len) -> do
             res <- callback (castPtr headPtr) (fromIntegral len)

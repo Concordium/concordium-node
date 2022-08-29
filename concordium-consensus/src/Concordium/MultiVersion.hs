@@ -1102,9 +1102,6 @@ receiveTransaction transactionBS = do
 importBlocks :: FilePath -> MVR gsconf finconf UpdateResult
 importBlocks importFile = do
     vvec <- liftIO . readIORef =<< asks mvVersions
-    -- reset the stop flag to False, in case it was set to True
-    shouldStop <- asks mvShouldStopImportingBlocks
-    liftIO $ writeIORef shouldStop False
     case Vec.last vvec of
         EVersionedConfiguration vc -> do
             -- Import starting from the genesis index of the latest consensus
