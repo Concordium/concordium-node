@@ -93,8 +93,24 @@ async fn main() -> anyhow::Result<()> {
         std::fs::create_dir_all(&database_directory)?;
     }
 
+    let (notification_context, notification_handlers) = if conf.cli.grpc2.is_enabled() {
+        let (sender, receiver) = futures::channel::mpsc::unbounded();
+        let (sender_finalized, receiver_finalized) = futures::channel::mpsc::unbounded();
+        let notify_context = ffi::NotificationContext {
+            blocks:           sender,
+            finalized_blocks: sender_finalized,
+        };
+        let notification_handlers = ffi::NotificationHandlers {
+            blocks:           receiver,
+            finalized_blocks: receiver_finalized,
+        };
+        (Some(notify_context), Some(notification_handlers))
+    } else {
+        (None, None)
+    };
+
     info!("Starting consensus layer");
-    let (consensus, notification_handlers) = plugins::consensus::start_consensus_layer(
+    let consensus = plugins::consensus::start_consensus_layer(
         &conf.cli.baker,
         gen_data,
         priv_data,
@@ -109,6 +125,7 @@ async fn main() -> anyhow::Result<()> {
         },
         &database_directory,
         regenesis_arc.clone(),
+        notification_context,
     )?;
     info!("Consensus layer started");
 
@@ -144,13 +161,18 @@ async fn main() -> anyhow::Result<()> {
         None
     };
 
-    let rpc2 = concordium_node::grpc2::server::GRPC2Server::new(
-        &node,
-        &consensus,
-        &conf.cli.grpc2,
-        notification_handlers,
-    )
-    .context("Unable to start GRPC2 server.")?;
+    // Start the grpc2 server, if so configured.
+    let rpc2 = if let Some(handlers) = notification_handlers {
+        concordium_node::grpc2::server::GRPC2Server::new(
+            &node,
+            &consensus,
+            &conf.cli.grpc2,
+            handlers,
+        )
+        .context("Unable to start GRPC2 server.")?
+    } else {
+        None
+    };
 
     maybe_do_out_of_band_catchup(
         &consensus,

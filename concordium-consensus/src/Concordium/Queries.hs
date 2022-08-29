@@ -159,11 +159,11 @@ liftSkovQueryBlock a bh =
             (\vc -> liftSkovQuery mvr vc (mapM a =<< resolveBlock bh))
             mvr
 
-{- |Try a block based query on the latest skov version, working
- backwards until we find the specified block or run out of
- versions.
--}
-liftSkovQueryBlock' ::
+-- |Try a 'BlockHashInput' based query on the latest skov version. If a specific
+-- block hash is given we work backwards through consensus versions until we
+-- find the specified block or run out of versions.
+-- The return value is the hash used for the query, and a result if it was found.
+liftSkovQueryBHI ::
     ( forall (pv :: ProtocolVersion).
       ( SkovMonad (VersionedSkovM gsconf finconf pv)
       , FinalizationMonad (VersionedSkovM gsconf finconf pv)
@@ -173,7 +173,7 @@ liftSkovQueryBlock' ::
     ) ->
     BlockHashInput ->
     MVR gsconf finconf (BlockHash, Maybe a)
-liftSkovQueryBlock' a bhi = do
+liftSkovQueryBHI a bhi = do
     case bhi of
         BHIGiven bh ->
             MVR $ \mvr ->
@@ -493,7 +493,7 @@ getAncestors blockHash count =
 
 -- |Get a list of all accounts in the block state.
 getAccountList :: BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe [AccountAddress])
-getAccountList = liftSkovQueryBlock' (BS.getAccountList <=< blockState)
+getAccountList = liftSkovQueryBHI (BS.getAccountList <=< blockState)
 
 -- |Get a list of all smart contract instances in the block state.
 getInstanceList :: BlockHash -> MVR gsconf finconf (Maybe [ContractAddress])
@@ -516,7 +516,7 @@ getAccountInfo ::
     MVR gsconf finconf (BlockHash, Maybe AccountInfo)
 getAccountInfo blockHashInput acct = do
     (bh, mmai) <-
-        liftSkovQueryBlock'
+        liftSkovQueryBHI
             ( \bp -> do
                 bs <- blockState bp
                 macc <- case acct of

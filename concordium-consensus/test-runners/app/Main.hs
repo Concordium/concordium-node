@@ -293,8 +293,8 @@ callbacks myPeerId peersRef monitorChan = Callbacks{..}
         forM_ (Map.lookup myPeerId peers) $ \myPeer ->
             forM_ peers $ \peer -> markPeerPending myPeer (peerId peer)
     notifyRegenesis Nothing = return ()
-    notifyBlockArrived = \_ _ -> return ()
-    notifyBlockFinalized = \_ _ -> return ()
+    notifyBlockArrived = Nothing
+    notifyBlockFinalized = Nothing
 
 
 -- |Construct a 'MultiVersionConfiguration' to use for each baker node.

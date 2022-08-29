@@ -11,7 +11,6 @@ use preferences::{Preferences, PreferencesMap};
 use std::{
     fs::{File, OpenOptions},
     io::{BufReader, BufWriter, Write},
-    net::SocketAddr,
     path::{Path, PathBuf},
     str::FromStr,
 };
@@ -327,35 +326,49 @@ pub struct RpcCliConfig {
 /// Parameters related to the V2 GRPC interface.
 pub struct GRPC2Config {
     #[structopt(
-        name = "api-listen-address",
-        long = "api-listen-address",
-        help = "Address the GRPC server should listen on, e.g., 127.0.0.1:20000",
-        env = "CONCORDIUM_NODE_API_LISTEN_ADDR"
+        name = "grpc2-listen-addr",
+        long = "grpc2-listen-addr",
+        requires = "grpc2-listen-port",
+        help = "Address the GRPC server should listen on, e.g., 127.0.0.1",
+        env = "CONCORDIUM_NODE_GRPC2_LISTEN_ADDRESS"
     )]
-    pub api_listen_addr:      Option<SocketAddr>,
+    pub listen_addr:      Option<std::net::IpAddr>,
     #[structopt(
-        long = "api-x509-cert",
-        help = "Certificate used to enable TLS support",
-        env = "CONCORDIUM_NODE_API_X509_CERT",
-        requires = "api-listen-address",
-        requires = "api-cert-private-key"
+        name = "grpc2-listen-port",
+        long = "grpc2-listen-port",
+        requires = "grpc2-listen-addr",
+        help = "Address the GRPC server should listen on, e.g. 11000",
+        env = "CONCORDIUM_NODE_GRPC2_LISTEN_PORT"
     )]
-    pub api_x509_cert:        Option<PathBuf>,
+    pub listen_port:      Option<u16>,
     #[structopt(
-        long = "api-cert-private-key",
+        long = "grpc2-x509-cert",
+        help = "Certificate used to enable TLS support for the GRPC V2 server.",
+        env = "CONCORDIUM_NODE_GRPC2_X509_CERT",
+        requires = "grpc2-listen-addr",
+        requires = "grpc2-cert-private-key"
+    )]
+    pub x509_cert:        Option<PathBuf>,
+    #[structopt(
+        long = "grpc2-cert-private-key",
         help = "Private key corresponding to the certificate",
-        env = "CONCORDIUM_NODE_API_X509_CERT",
-        requires = "api-listen-address",
-        requires = "api-x509-cert"
+        env = "CONCORDIUM_NODE_GRPC2_CERT_PRIVATE_KEY",
+        requires = "grpc2-listen-addr",
+        requires = "grpc2-x509-cert"
     )]
-    pub api_cert_private_key: Option<PathBuf>,
+    pub cert_private_key: Option<PathBuf>,
     #[structopt(
-        long = "api-enable-grpc-web",
+        long = "grpc2-enable-grpc-web",
         help = "Enable support for GRPC-Web protocol.",
-        env = "CONCORDIUM_NODE_ENABLE_GRPC_WEB",
-        requires = "api-listen-address"
+        env = "CONCORDIUM_NODE_GRPC2_ENABLE_GRPC_WEB",
+        requires = "grpc2-listen-addr"
     )]
-    pub api_enable_grpc_web:  bool,
+    pub enable_grpc_web:  bool,
+}
+
+impl GRPC2Config {
+    /// Return whether the grpc2 server is enabled.
+    pub fn is_enabled(&self) -> bool { self.listen_addr.is_some() && self.listen_port.is_some() }
 }
 
 #[derive(StructOpt, Debug)]

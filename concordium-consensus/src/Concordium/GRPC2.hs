@@ -55,7 +55,7 @@ import Data.Time (UTCTime)
 -}
 data ReceiverVec
 
--- |A type of callback that copies the data to the end of the given vector.
+-- |A type of callback that extends the given vector with the provided data.
 type CopyToVecCallback = Ptr ReceiverVec -> Ptr Word8 -> Int64 -> IO ()
 
 {- |An opaque representation of a channel to which streaming responses can write

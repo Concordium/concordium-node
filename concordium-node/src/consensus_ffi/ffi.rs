@@ -256,23 +256,22 @@ type DirectMessageCallback = extern "C" fn(
 type RegenesisCallback = unsafe extern "C" fn(*const Regenesis, *const u8);
 type RegenesisFreeCallback = unsafe extern "C" fn(*const Regenesis);
 
-/// A type of callback that is used to copy the provided data at the end of the
-/// given vector.
+/// A type of callback that extends the given vector with the provided data.
 type CopyToVecCallback = extern "C" fn(*mut Vec<u8>, *const u8, i64);
 
 /// Context necessary for Haskell code/Consensus to send notifications on
 /// important events to Rust code (i.e., RPC server, or network layer).
-pub struct NotifyContext {
+pub struct NotificationContext {
     /// Notification channel for newly added blocks. This is an unbounded
     /// channel since it makes the implementation simpler. This should not be a
     /// problem since the consumer of this channel is a dedicated task and
     /// blocks are not added to the tree that quickly. So there should not be
     /// much contention for this.
-    blocks:           futures::channel::mpsc::UnboundedSender<Arc<[u8]>>,
+    pub blocks:           futures::channel::mpsc::UnboundedSender<Arc<[u8]>>,
     /// Notification channel for newly finalized blocks. See
     /// [NotificationContext::blocks] documentation for why having an unbounded
     /// channel is OK here, and is unlikely to lead to resource exhaustion.
-    finalized_blocks: futures::channel::mpsc::UnboundedSender<Arc<[u8]>>,
+    pub finalized_blocks: futures::channel::mpsc::UnboundedSender<Arc<[u8]>>,
 }
 
 /// A type of callback used to notify Rust code of important events. The
@@ -283,7 +282,7 @@ pub struct NotifyContext {
 /// - length of the data
 ///
 /// The callback should not retain references to supplied data after the exit.
-type NotifyCallback = unsafe extern "C" fn(*mut NotifyContext, u8, *const u8, u64);
+type NotifyCallback = unsafe extern "C" fn(*mut NotificationContext, u8, *const u8, u64);
 
 pub struct NotificationHandlers {
     pub blocks:           futures::channel::mpsc::UnboundedReceiver<Arc<[u8]>>,
@@ -303,7 +302,7 @@ extern "C" {
         genesis_data_len: i64,
         private_data: *const u8,
         private_data_len: i64,
-        notify_context: *mut NotifyContext,
+        notify_context: *mut NotificationContext,
         notify_callback: NotifyCallback,
         broadcast_callback: BroadcastCallback,
         catchup_status_callback: CatchUpStatusCallback,
@@ -325,7 +324,7 @@ extern "C" {
         accounts_cache_size: u32,
         genesis_data: *const u8,
         genesis_data_len: i64,
-        notify_context: *mut NotifyContext,
+        notify_context: *mut NotificationContext,
         notify_callback: NotifyCallback,
         catchup_status_callback: CatchUpStatusCallback,
         regenesis_arc: *const Regenesis,
@@ -535,7 +534,7 @@ extern "C" {
 /// background task that forwards data from the channels into any currently
 /// active RPC clients.
 unsafe extern "C" fn notify_callback(
-    notify_context: *mut NotifyContext,
+    notify_context: *mut NotificationContext,
     ty: u8,
     data_ptr: *const u8,
     data_len: u64,
@@ -582,18 +581,9 @@ pub fn get_consensus_ptr(
     maximum_log_level: ConsensusLogLevel,
     appdata_dir: &Path,
     regenesis_arc: Arc<Regenesis>,
-) -> anyhow::Result<(*mut consensus_runner, NotificationHandlers)> {
+    notification_context: Option<NotificationContext>,
+) -> anyhow::Result<*mut consensus_runner> {
     let genesis_data_len = genesis_data.len();
-    let (sender, receiver) = futures::channel::mpsc::unbounded();
-    let (sender_finalized, receiver_finalized) = futures::channel::mpsc::unbounded();
-    let notify_context = NotifyContext {
-        blocks:           sender,
-        finalized_blocks: sender_finalized,
-    };
-    let notification_handlers = NotificationHandlers {
-        blocks:           receiver,
-        finalized_blocks: receiver_finalized,
-    };
     let mut runner_ptr = std::ptr::null_mut();
     let runner_ptr_ptr = &mut runner_ptr;
     let ret_code = match private_data {
@@ -612,7 +602,8 @@ pub fn get_consensus_ptr(
                     genesis_data_len as i64,
                     private_data_bytes.as_ptr(),
                     private_data_len as i64,
-                    Box::into_raw(Box::new(notify_context)),
+                    notification_context
+                        .map_or(std::ptr::null_mut(), |ctx| Box::into_raw(Box::new(ctx))),
                     notify_callback,
                     broadcast_callback,
                     catchup_status_callback,
@@ -640,7 +631,8 @@ pub fn get_consensus_ptr(
                         runtime_parameters.accounts_cache_size,
                         genesis_data.as_ptr(),
                         genesis_data_len as i64,
-                        Box::into_raw(Box::new(notify_context)),
+                        notification_context
+                            .map_or(std::ptr::null_mut(), |ctx| Box::into_raw(Box::new(ctx))),
                         notify_callback,
                         catchup_status_callback,
                         Arc::into_raw(regenesis_arc),
@@ -657,7 +649,7 @@ pub fn get_consensus_ptr(
         }
     };
     match ret_code {
-        0 => Ok((runner_ptr, notification_handlers)),
+        0 => Ok(runner_ptr),
         // NB: the following errors should be in line with
         // the enumeration defined by `toStartResult` in External.hs
         1 => bail!("Cannot decode given genesis data."),
@@ -1050,7 +1042,7 @@ impl ConsensusContainer {
             )
             .try_into()?
         };
-        response.check_rpc_response()?;
+        response.ensure_ok()?;
         Ok((out_hash, out_data))
     }
 
@@ -1082,7 +1074,7 @@ impl ConsensusContainer {
             )
         }
         .try_into()?;
-        if let Err(e) = response.check_rpc_response() {
+        if let Err(e) = response.ensure_ok() {
             let _ = unsafe { Box::from_raw(sender_ptr) }; // deallocate sender since it is unused by Haskell.
             Err(e)
         } else {

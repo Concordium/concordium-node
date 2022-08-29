@@ -123,9 +123,16 @@ fn main() -> std::io::Result<()> {
     #[cfg(feature = "static")]
     link_static_libs()?;
 
+    build_grpc2(&proto, &proto_root_input)?;
+    Ok(())
+}
+
+// Compile the types for GRPC2 API and generate a service description for the
+// GRPC2 interface.
+fn build_grpc2(proto: &str, proto_root_input: &str) -> std::io::Result<()> {
     tonic_build::configure()
         .build_server(true)
-        .build_client(true)
+        .build_client(false)
         .compile(&[&proto], &[&proto_root_input])
         .expect("Failed to compile gRPC definitions!");
 
@@ -135,6 +142,21 @@ fn main() -> std::io::Result<()> {
         prost_build::compile_protos(&[types], &[proto_root_input])?;
     }
 
+    // Because we serialize messages in Haskell we need to construct the service
+    // description here manually using a custom codec. This custom codec allows us
+    // to just take the message that is produced by consensus and forward it to
+    // the client without any re-encoding.
+    // For this reason the output type of each query is some representation of a
+    // byte array.
+    //
+    // For most queries data is produced for that specific query, and so there is
+    // only one producer, and one consumer. In such a case we use `Vec<u8>` as
+    // the return type of the query. In some cases the data is produced for
+    // multiple consumers. In particular this is the case for `GetBlocks` and
+    // `GetFinalizedBlocks`. There data is maintained in a shared channel and then
+    // sent to all the listeners. To avoid copying and retaining data for each
+    // client we use `Arc<[u8]>` instead. This way only a single copy of the data to
+    // be sent is retained in memory.
     let query_service = tonic_build::manual::Service::builder()
         .name("Queries")
         .package("concordium.v2")
@@ -168,7 +190,9 @@ fn main() -> std::io::Result<()> {
                 .build(),
         )
         .build();
-    // Due to the slightly hacky nature of the RawCodec we cannot build the client.
+    // Due to the slightly hacky nature of the RawCodec (i.e., it does not support
+    // deserialization) we cannot build the client. But we also don't need it in the
+    // node.
     tonic_build::manual::Builder::new().build_client(false).compile(&[query_service]);
     Ok(())
 }
