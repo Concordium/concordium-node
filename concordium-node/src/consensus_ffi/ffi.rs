@@ -586,7 +586,6 @@ extern "C" {
         sender: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
         block_id_type: u8,
         block_hash: *const u8,
-        depth: u64,
         out_hash: *mut u8,
         callback: extern "C" fn(
             *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
