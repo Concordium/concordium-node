@@ -279,6 +279,20 @@ writeBlobBS BlobStoreAccess{..} bs = mask $ \restore -> do
     where
         size = encode (fromIntegral (BS.length bs) :: Word64)
 
+-- |A pointer into the blob store that can be used for direct memory access.
+data BlobPtr a = BlobPtr { theBlobPtr :: !Word64, blobPtrLen :: !Word64 }
+
+readBlobPtrBSFromHandle :: BlobStoreAccess -> BlobPtr a -> IO BS.ByteString
+readBlobPtrBSFromHandle BlobStoreAccess{..} BlobPtr{..} = mask $ \restore -> do
+        bh@BlobHandle{..} <- takeMVar blobStoreFile
+        eres <- try $ restore $ do
+            hSeek bhHandle AbsoluteSeek (fromIntegral theBlobPtr)
+            BS.hGet bhHandle (fromIntegral blobPtrLen)
+        putMVar blobStoreFile bh{bhAtEnd=False}
+        case eres :: Either SomeException BS.ByteString of
+            Left e -> throwIO e
+            Right bs -> return bs
+
 -- |Typeclass for a monad to be equipped with a blob store.
 -- This allows a 'BS.ByteString' to be written to the store,
 -- obtaining a 'BlobRef', and a 'BlobRef' to be read back as
@@ -317,6 +331,30 @@ class MonadIO m => MonadBlobStore m where
     getCallbacks = do
       r <- ask
       return (blobLoadCallback r, blobStoreCallback r)
+
+    -- |Access a blob pointer directly. The function should ONLY READ the memory at the pointer,
+    -- and not read beyond the length of the 'BlobPtr'.
+    withBlobPtr :: BlobPtr a -> (Ptr a -> IO b) -> m b
+    default withBlobPtr :: (MonadReader r m, HasBlobStore r) => BlobPtr a -> (Ptr a -> IO b) -> m b
+    withBlobPtr bptr@BlobPtr{..} f = do
+        let ptrEnd = fromIntegral $ theBlobPtr + blobPtrLen
+        bs@BlobStoreAccess{..} <- blobStore <$> ask
+        liftIO $ do
+            mmap0 <- readIORef blobStoreMMap
+            mmap <- if ptrEnd > BS.length mmap0 then do
+                    -- Remap the file
+                    mmap <- mmapFileByteString blobStoreFilePath Nothing
+                    writeIORef blobStoreMMap mmap
+                    return mmap
+                else return mmap0
+            let mmapLength = BS.length mmap
+            if ptrEnd > mmapLength then do
+                bytes <- readBlobPtrBSFromHandle bs bptr
+                BSUnsafe.unsafeUseAsCString bytes (f . castPtr)
+            else do
+                let f' = f . castPtr . flip plusPtr (fromIntegral theBlobPtr)
+                BSUnsafe.unsafeUseAsCString mmap f'
+
     {-# INLINE storeRaw #-}
     {-# INLINE loadRaw #-}
     {-# INLINE flushStore #-}
@@ -369,6 +407,8 @@ instance (MonadTrans t, MonadBlobStore m, MonadIO (t m)) => MonadBlobStore (Lift
     {-# INLINE flushStore #-}
     getCallbacks = lift getCallbacks
     {-# INLINE getCallbacks #-}
+    withBlobPtr bp = lift . withBlobPtr bp
+    {-# INLINE withBlobPtr #-}
 
 deriving via (LiftMonadBlobStore (WriterT w) m)
     instance (Monoid w, MonadBlobStore m) => MonadBlobStore (WriterT w m)

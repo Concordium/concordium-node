@@ -72,7 +72,7 @@ data Module where
   ModuleV1 :: ModuleV GSWasm.V1 -> Module
   deriving (Show)
 
-getModuleInterface :: Module -> GSWasm.ModuleInterface
+getModuleInterface :: Module -> GSWasm.BasicModuleInterface
 getModuleInterface (ModuleV0 m) = GSWasm.ModuleInterfaceV0 (moduleVInterface m)
 getModuleInterface (ModuleV1 m) = GSWasm.ModuleInterfaceV1 (moduleVInterface m)
 
@@ -225,7 +225,7 @@ unsafeGetModuleReferenceV1 ref mods = fmap (unsafeCoerceBufferedRef extract) <$>
 getInterface :: MonadBlobStore m
              => ModuleRef
              -> Modules
-             -> m (Maybe GSWasm.ModuleInterface)
+             -> m (Maybe GSWasm.BasicModuleInterface)
 getInterface ref mods = fmap getModuleInterface <$> getModule ref mods
 
 -- |Get the source of a module by module reference.

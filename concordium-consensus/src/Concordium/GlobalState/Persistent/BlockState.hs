@@ -617,11 +617,15 @@ totalCapital bsp = do
     pab <- refLoad (bspBirkParameters bsp ^. birkActiveBakers)
     return $! pab ^. totalActiveCapitalV1
 
-doGetModule :: (SupportsPersistentAccount pv m) => PersistentBlockState pv -> ModuleRef -> m (Maybe GSWasm.ModuleInterface)
+doGetModule :: (SupportsPersistentAccount pv m) => PersistentBlockState pv -> ModuleRef -> m (Maybe GSWasm.BasicModuleInterface)
 doGetModule s modRef = do
     bsp <- loadPBS s
     mods <- refLoad (bspModules bsp)
     Modules.getInterface modRef mods
+
+doGetModuleArtifact :: (Monad m) => GSWasm.InstrumentedModuleV v -> m (GSWasm.ModuleArtifact v)
+doGetModuleArtifact (GSWasm.InstrumentedWasmModuleV0 artifact) = return artifact
+doGetModuleArtifact (GSWasm.InstrumentedWasmModuleV1 artifact) = return artifact
 
 doGetModuleList :: (SupportsPersistentAccount pv m) => PersistentBlockState pv -> m [ModuleRef]
 doGetModuleList s = do
@@ -1736,7 +1740,7 @@ doUpdateAccountCredentials pbs accIndex remove add thrsh = do
 doGetInstance :: (SupportsPersistentAccount pv m)
               => PersistentBlockState pv
               -> ContractAddress
-              -> m (Maybe (InstanceInfoType Instances.InstanceStateV))
+              -> m (Maybe (InstanceInfoType GSWasm.InstrumentedModuleV Instances.InstanceStateV))
 doGetInstance pbs caddr = do
         bsp <- loadPBS pbs
         minst <- Instances.lookupContractInstance caddr (bspInstances bsp)
@@ -1749,7 +1753,7 @@ doContractInstanceList pbs = do
 
 doPutNewInstance :: forall m pv v. (SupportsPersistentAccount pv m, Wasm.IsWasmVersion v)
                  => PersistentBlockState pv
-                 -> NewInstanceData v
+                 -> NewInstanceData (GSWasm.InstrumentedModuleV v) v
                  -> m (ContractAddress, PersistentBlockState pv)
 doPutNewInstance pbs NewInstanceData{..} = do
         bsp <- loadPBS pbs
@@ -2609,10 +2613,12 @@ instance BlockStateTypes (PersistentBlockStateMonad pv r m) where
     type Account (PersistentBlockStateMonad pv r m) = PersistentAccount (AccountVersionFor pv)
     type BakerInfoRef (PersistentBlockStateMonad pv r m) = PersistentBakerInfoEx (AccountVersionFor pv)
     type ContractState (PersistentBlockStateMonad pv r m) = Instances.InstanceStateV
+    type InstrumentedModuleRef (PersistentBlockStateMonad pv r m) = GSWasm.InstrumentedModuleV
 
 instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateQuery (PersistentBlockStateMonad pv r m) where
     getModule = doGetModuleSource . hpbsPointers
     getModuleInterface pbs mref = doGetModule (hpbsPointers pbs) mref
+    getModuleArtifact = doGetModuleArtifact
     getAccount = doGetAccount . hpbsPointers
     accountExists = doGetAccountExists . hpbsPointers
     getActiveBakers = doGetActiveBakers . hpbsPointers

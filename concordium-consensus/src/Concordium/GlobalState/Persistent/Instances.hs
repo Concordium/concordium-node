@@ -251,10 +251,10 @@ instance MonadBlobStore m => Cacheable (ReaderT Modules m) (PersistentInstance p
 
 -- |Construct instance information from a persistent instance, loading as much
 -- data as necessary from persistent storage.
-mkInstanceInfo :: MonadBlobStore m => PersistentInstance pv -> m (InstanceInfoType InstanceStateV)
+mkInstanceInfo :: MonadBlobStore m => PersistentInstance pv -> m (InstanceInfoType GSWasm.InstrumentedModuleV InstanceStateV)
 mkInstanceInfo (PersistentInstanceV0 inst) = InstanceInfoV0 <$> mkInstanceInfoV inst
 mkInstanceInfo (PersistentInstanceV1 inst) = InstanceInfoV1 <$> mkInstanceInfoV inst
-mkInstanceInfoV :: BlobStorable m (ModuleV v) => PersistentInstanceV v -> m (InstanceInfoTypeV InstanceStateV v)
+mkInstanceInfoV :: BlobStorable m (ModuleV v) => PersistentInstanceV v -> m (InstanceInfoTypeV GSWasm.InstrumentedModuleV InstanceStateV v)
 mkInstanceInfoV PersistentInstanceV{..} = do
   PersistentInstanceParameters{..} <- loadBufferedRef pinstanceParameters
   instanceModuleInterface <- moduleVInterface <$> loadBufferedRef pinstanceModuleInterface

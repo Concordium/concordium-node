@@ -318,19 +318,23 @@ class (BlockStateTypes m, Monad m) => ContractStateOperations m where
 -- opposed to passing m directly, so that type unification sees that if
 -- @ContractState m ~ ContractState n@ then @InstanceInfo m v ~ InstanceInfo n
 -- v@
-data InstanceInfoTypeV (contractState :: Wasm.WasmVersion -> Type) (v :: Wasm.WasmVersion) = InstanceInfoV {
+data InstanceInfoTypeV
+    (instrumentedModule :: Wasm.WasmVersion -> Type)
+    (contractState :: Wasm.WasmVersion -> Type)
+    (v :: Wasm.WasmVersion)
+    = InstanceInfoV {
     -- |Immutable parameters that do not change after the instance is created.
-    iiParameters :: InstanceParameters v,
+    iiParameters :: InstanceParameters (instrumentedModule v),
     -- |The state that will be modified during execution.
     iiState :: contractState v,
     -- |The current balance of the contract.
     iiBalance :: Amount
     }
 
-deriving instance Eq (contractState v) => Eq (InstanceInfoTypeV contractState v)
-deriving instance Show (contractState v) => Show (InstanceInfoTypeV contractState v)
+deriving instance (Eq (instrumentedModule v), Eq (contractState v)) => Eq (InstanceInfoTypeV instrumentedModule contractState v)
+deriving instance Show (contractState v) => Show (InstanceInfoTypeV instrumentedModule contractState v)
 
-instance HasInstanceAddress (InstanceInfoTypeV contractState v) where
+instance HasInstanceAddress (InstanceInfoTypeV instrumentedModule contractState v) where
   {-# INLINE instanceAddress #-}
   instanceAddress = instanceAddress . iiParameters
 
@@ -339,17 +343,20 @@ instance HasInstanceAddress (InstanceInfoTypeV contractState v) where
 -- is given in this way, as opposed to passing m directly and using
 -- @ContractState m@, so that type unification sees that if @ContractState m ~
 -- ContractState n@ then @InstanceInfo m v ~ InstanceInfo n v@
-data InstanceInfoType (contractState :: Wasm.WasmVersion -> Type) =
-  InstanceInfoV0 (InstanceInfoTypeV contractState GSWasm.V0)
-  | InstanceInfoV1 (InstanceInfoTypeV contractState GSWasm.V1)
+data InstanceInfoType
+  (instrumentedModule :: Wasm.WasmVersion -> Type)
+  (contractState :: Wasm.WasmVersion -> Type)
+  = InstanceInfoV0 (InstanceInfoTypeV instrumentedModule contractState GSWasm.V0)
+  | InstanceInfoV1 (InstanceInfoTypeV instrumentedModule contractState GSWasm.V1)
 
-deriving instance (Eq (contractState GSWasm.V0), Eq (contractState GSWasm.V1)) => Eq (InstanceInfoType contractState)
-deriving instance (Show (contractState GSWasm.V0), Show (contractState GSWasm.V1)) => Show (InstanceInfoType contractState)
+deriving instance (Eq (instrumentedModule GSWasm.V0), Eq (instrumentedModule GSWasm.V1), Eq (contractState GSWasm.V0), Eq (contractState GSWasm.V1)) => Eq (InstanceInfoType instrumentedModule contractState)
+deriving instance (Show (contractState GSWasm.V0), Show (contractState GSWasm.V1)) => Show (InstanceInfoType instrumentedModule contractState)
 
 -- |An alias for the most common part of the instance information, parametrized
 -- by the context monad @m@.
-type InstanceInfoV m = InstanceInfoTypeV (ContractState m)
-type InstanceInfo m = InstanceInfoType (ContractState m)
+type InstanceInfoV m = InstanceInfoTypeV (InstrumentedModuleRef m) (ContractState m)
+type InstanceInfo m = InstanceInfoType (InstrumentedModuleRef m) (ContractState m)
+
 
 -- |The block query methods can query block state. They are needed by
 -- consensus itself to compute stake, get a list of and information about
@@ -359,7 +366,10 @@ class (ContractStateOperations m, AccountOperations m) => BlockStateQuery m wher
     getModule :: BlockState m -> ModuleRef -> m (Maybe Wasm.WasmModule)
 
     -- |Get the module source from the module table as deployed to the chain.
-    getModuleInterface :: BlockState m -> ModuleRef -> m (Maybe GSWasm.ModuleInterface)
+    getModuleInterface :: BlockState m -> ModuleRef -> m (Maybe (GSWasm.ModuleInterface (InstrumentedModuleRef m)))
+
+    -- |Get a module artifact from an 'InstrumentedModuleRef'.
+    getModuleArtifact :: InstrumentedModuleRef m v -> m (GSWasm.ModuleArtifact v)
 
     -- |Get the account state from the account table of the state instance.
     getAccount :: BlockState m -> AccountAddress -> m (Maybe (AccountIndex, Account m))
@@ -512,13 +522,13 @@ mintTotal MintAmounts{..} = mintBakingReward + mintFinalizationReward + mintDeve
 --
 -- The fields of this type are deliberately not strict since this is just an intermediate type
 -- to simplify function API. Thus values are immediately deconstructed.
-data NewInstanceData v = NewInstanceData {
+data NewInstanceData im v = NewInstanceData {
   -- |Name of the init method used to initialize the contract.
   nidInitName :: Wasm.InitName,
   -- |Receive functions suitable for this instance.
   nidEntrypoints :: Set.Set Wasm.ReceiveName,
   -- |Module interface that contains the code of the contract.
-  nidInterface :: GSWasm.ModuleInterfaceV v,
+  nidInterface :: GSWasm.ModuleInterfaceA im,
   -- |Initial state of the instance.
   nidInitialState :: UpdatableContractState v,
   -- |Initial balance.
@@ -560,7 +570,7 @@ type ActiveBakerInfo m = ActiveBakerInfo' (BakerInfoRef m)
 -- support different implementations, from pure ones to stateful ones.
 class (BlockStateQuery m) => BlockStateOperations m where
   -- |Get the module from the module table of the state instance.
-  bsoGetModule :: UpdatableBlockState m -> ModuleRef -> m (Maybe GSWasm.ModuleInterface)
+  bsoGetModule :: UpdatableBlockState m -> ModuleRef -> m (Maybe (GSWasm.ModuleInterface (InstrumentedModuleRef m)))
   -- |Get an account by its address.
   bsoGetAccount :: UpdatableBlockState m -> AccountAddress -> m (Maybe (IndexedAccount m))
   -- |Get the index of an account.
@@ -584,10 +594,10 @@ class (BlockStateQuery m) => BlockStateOperations m where
   bsoCreateAccount :: UpdatableBlockState m -> GlobalContext -> AccountAddress -> AccountCredential -> m (Maybe (Account m), UpdatableBlockState m)
 
   -- |Add a new smart contract instance to the state.
-  bsoPutNewInstance :: forall v . Wasm.IsWasmVersion v => UpdatableBlockState m -> NewInstanceData v -> m (ContractAddress, UpdatableBlockState m)
+  bsoPutNewInstance :: forall v . Wasm.IsWasmVersion v => UpdatableBlockState m -> NewInstanceData (InstrumentedModuleRef m v) v -> m (ContractAddress, UpdatableBlockState m)
   -- |Add the module to the global state. If a module with the given address
   -- already exists return @False@.
-  bsoPutNewModule :: Wasm.IsWasmVersion v => UpdatableBlockState m -> (GSWasm.ModuleInterfaceV v, Wasm.WasmModuleV v) -> m (Bool, UpdatableBlockState m)
+  bsoPutNewModule :: Wasm.IsWasmVersion v => UpdatableBlockState m -> (GSWasm.ModuleInterfaceA (InstrumentedModuleRef m v), Wasm.WasmModuleV v) -> m (Bool, UpdatableBlockState m)
 
   -- |Modify an existing account with given data (which includes the address of the account).
   -- This method is only called when an account exists and can thus assume this.
@@ -1205,6 +1215,7 @@ class (BlockStateOperations m, FixedSizeSerialization (BlockStateRef m)) => Bloc
 instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGSTrans t m) where
   getModule s = lift . getModule s
   getModuleInterface s = lift . getModuleInterface s
+  getModuleArtifact = lift . getModuleArtifact
   getAccount s = lift . getAccount s
   accountExists s = lift . accountExists s
   getActiveBakers = lift . getActiveBakers

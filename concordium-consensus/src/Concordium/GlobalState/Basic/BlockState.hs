@@ -569,12 +569,13 @@ instance GT.BlockStateTypes (PureBlockStateMonad pv m) where
     type Account (PureBlockStateMonad pv m) = Account (AccountVersionFor pv)
     type BakerInfoRef (PureBlockStateMonad pv m) = BakerInfoEx (AccountVersionFor pv)
     type ContractState (PureBlockStateMonad pv m) = Instance.InstanceStateV
+    type InstrumentedModuleRef (PureBlockStateMonad pv m) = GSWasm.InstrumentedModuleV
 
 -- |Retrieve instance information from a basic instance.
-mkInstanceInfo :: Instance.Instance -> BS.InstanceInfoType Instance.InstanceStateV
+mkInstanceInfo :: Instance.Instance im -> BS.InstanceInfoType im Instance.InstanceStateV
 mkInstanceInfo = \case (Instance.InstanceV0 inst) -> BS.InstanceInfoV0 (mkInstanceInfoV inst)
                        (Instance.InstanceV1 inst) -> BS.InstanceInfoV1 (mkInstanceInfoV inst)
-    where mkInstanceInfoV :: Instance.InstanceV v -> BS.InstanceInfoTypeV Instance.InstanceStateV v
+    where mkInstanceInfoV :: Instance.InstanceV (im v) v -> BS.InstanceInfoTypeV im Instance.InstanceStateV v
           mkInstanceInfoV Instance.InstanceV{..} = BS.InstanceInfoV{
             iiParameters = _instanceVParameters,
             iiState = _instanceVModel,
@@ -616,6 +617,10 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
     {-# INLINE getModuleInterface #-}
     getModuleInterface bs mref =
         return $ bs ^. blockModules . to (Modules.getInterface mref)
+
+    {-# INLINE getModuleArtifact #-}
+    getModuleArtifact (GSWasm.InstrumentedWasmModuleV0 artifact) = return artifact
+    getModuleArtifact (GSWasm.InstrumentedWasmModuleV1 artifact) = return artifact
 
     {-# INLINE getContractInstance #-}
     getContractInstance bs caddr =
@@ -972,7 +977,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
 
     bsoPutNewInstance :: forall v . Wasm.IsWasmVersion v
                       => BlockState pv
-                      -> BS.NewInstanceData v
+                      -> BS.NewInstanceData (GSWasm.InstrumentedModuleV v) v
                       -> PureBlockStateMonad pv m (ContractAddress, BlockState pv)
     bsoPutNewInstance bs BS.NewInstanceData{..} = return (Instances.instanceAddress inst, bs')
         where

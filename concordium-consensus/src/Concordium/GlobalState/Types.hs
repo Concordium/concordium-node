@@ -35,6 +35,8 @@ class BlockStateTypes (m :: Type -> Type) where
     -- |A reference type for 'BakerInfo'. This is used to avoid duplicating 'BakerInfo' in the
     -- state where possible.
     type BakerInfoRef m :: Type
+    -- |A reference to an instrumented module.
+    type InstrumentedModuleRef m :: WasmVersion -> Type
 
 -- |Account together with its index in the account map.
 type IndexedAccount m = (AccountIndex, Account m)
@@ -62,6 +64,7 @@ instance BlockStateTypes (MGSTrans t m) where
     type Account (MGSTrans t m) = Account m
     type ContractState (MGSTrans t m) = ContractState m
     type BakerInfoRef (MGSTrans t m) = BakerInfoRef m
+    type InstrumentedModuleRef (MGSTrans t m) = InstrumentedModuleRef m
 
 deriving via MGSTrans MaybeT m instance BlockStateTypes (MaybeT m)
 deriving via MGSTrans (ExceptT e) m instance BlockStateTypes (ExceptT e m)

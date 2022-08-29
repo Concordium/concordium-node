@@ -125,7 +125,7 @@ getModule ref mods = Map.lookup ref (mods ^. modulesMap) >>=
                        flip LFMB.lookup (mods ^. modulesTable)
 
 -- |Get an interface by module reference.
-getInterface :: ModuleRef -> Modules -> Maybe GSWasm.ModuleInterface
+getInterface :: ModuleRef -> Modules -> Maybe GSWasm.BasicModuleInterface
 getInterface ref mods = fromModule <$> getModule ref mods
     where
       fromModule (ModuleV0 v) = GSWasm.ModuleInterfaceV0 (moduleVInterface v)

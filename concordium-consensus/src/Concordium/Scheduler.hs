@@ -744,7 +744,7 @@ handleInitContract wtc initAmount modref initName param =
             unless (senderAmount >= initAmount) $! rejectTransaction (AmountTooLarge (AddressAccount (thSender meta)) initAmount)
 
             -- First try to get the module interface of the parent module of the contract.
-            viface <- liftLocal (getModuleInterfaces modref) `rejectingWith` InvalidModuleReference modref
+            (viface :: (GSWasm.ModuleInterface (InstrumentedModuleRef m))) <- liftLocal (getModuleInterfaces modref) `rejectingWith` InvalidModuleReference modref
             case viface of
               GSWasm.ModuleInterfaceV0 iface -> do
                 let iSize = GSWasm.miModuleSize iface
@@ -765,6 +765,7 @@ handleInitContract wtc initAmount modref initName param =
                     initOrigin = senderAddress,
                     icSenderPolicies = map (Wasm.mkSenderPolicy . snd) (OrdMap.toAscList senderCredentials)
                 }
+                artifact <- mapM (getModuleArtifact) iface
                 result <- runInterpreter (return . WasmV0.applyInitFun iface cm initCtx initName param initAmount)
                         `rejectingWith'` wasmRejectToRejectReasonInit
 
