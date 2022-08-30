@@ -357,19 +357,19 @@ deriving instance (Show (contractState GSWasm.V0), Show (contractState GSWasm.V1
 type InstanceInfoV m = InstanceInfoTypeV (InstrumentedModuleRef m) (ContractState m)
 type InstanceInfo m = InstanceInfoType (InstrumentedModuleRef m) (ContractState m)
 
+class (Monad m, BlockStateTypes m) => ModuleQuery m where
+    -- |Get a module artifact from an 'InstrumentedModuleRef'.
+    getModuleArtifact :: InstrumentedModuleRef m v -> m (GSWasm.InstrumentedModuleV v)
 
 -- |The block query methods can query block state. They are needed by
 -- consensus itself to compute stake, get a list of and information about
 -- bakers, finalization committee, etc.
-class (ContractStateOperations m, AccountOperations m) => BlockStateQuery m where
+class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockStateQuery m where
     -- |Get the module source from the module table as deployed to the chain.
     getModule :: BlockState m -> ModuleRef -> m (Maybe Wasm.WasmModule)
 
     -- |Get the module source from the module table as deployed to the chain.
     getModuleInterface :: BlockState m -> ModuleRef -> m (Maybe (GSWasm.ModuleInterface (InstrumentedModuleRef m)))
-
-    -- |Get a module artifact from an 'InstrumentedModuleRef'.
-    getModuleArtifact :: InstrumentedModuleRef m v -> m (GSWasm.ModuleArtifact v)
 
     -- |Get the account state from the account table of the state instance.
     getAccount :: BlockState m -> AccountAddress -> m (Maybe (AccountIndex, Account m))
@@ -597,7 +597,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   bsoPutNewInstance :: forall v . Wasm.IsWasmVersion v => UpdatableBlockState m -> NewInstanceData (InstrumentedModuleRef m v) v -> m (ContractAddress, UpdatableBlockState m)
   -- |Add the module to the global state. If a module with the given address
   -- already exists return @False@.
-  bsoPutNewModule :: Wasm.IsWasmVersion v => UpdatableBlockState m -> (GSWasm.ModuleInterfaceA (InstrumentedModuleRef m v), Wasm.WasmModuleV v) -> m (Bool, UpdatableBlockState m)
+  bsoPutNewModule :: Wasm.IsWasmVersion v => UpdatableBlockState m -> (GSWasm.ModuleInterfaceV v, Wasm.WasmModuleV v) -> m (Bool, UpdatableBlockState m)
 
   -- |Modify an existing account with given data (which includes the address of the account).
   -- This method is only called when an account exists and can thus assume this.
@@ -1212,10 +1212,13 @@ class (BlockStateOperations m, FixedSizeSerialization (BlockStateRef m)) => Bloc
     -- actively used, in particular, after a protocol update.
     collapseCaches :: m ()
 
+instance (Monad (t m), MonadTrans t, ModuleQuery m) => ModuleQuery (MGSTrans t m) where
+  getModuleArtifact = lift . getModuleArtifact
+  {-# INLINE getModuleArtifact #-}
+
 instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGSTrans t m) where
   getModule s = lift . getModule s
   getModuleInterface s = lift . getModuleInterface s
-  getModuleArtifact = lift . getModuleArtifact
   getAccount s = lift . getAccount s
   accountExists s = lift . accountExists s
   getActiveBakers = lift . getActiveBakers
@@ -1473,12 +1476,14 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
 deriving via (MGSTrans MaybeT m) instance BlockStateQuery m => BlockStateQuery (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance AccountOperations m => AccountOperations (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance ContractStateOperations m => ContractStateOperations (MaybeT m)
+deriving via (MGSTrans MaybeT m) instance ModuleQuery m => ModuleQuery (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance BlockStateOperations m => BlockStateOperations (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance BlockStateStorage m => BlockStateStorage (MaybeT m)
 
 deriving via (MGSTrans (ExceptT e) m) instance BlockStateQuery m => BlockStateQuery (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance AccountOperations m => AccountOperations (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance ContractStateOperations m => ContractStateOperations (ExceptT e m)
+deriving via (MGSTrans (ExceptT e) m) instance ModuleQuery m => ModuleQuery (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance BlockStateOperations m => BlockStateOperations (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance BlockStateStorage m => BlockStateStorage (ExceptT e m)
 

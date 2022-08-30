@@ -337,6 +337,7 @@ deriving instance GS.BlockStateTypes (BSOMonadWrapper r state m)
 
 deriving instance AccountOperations m => AccountOperations (BSOMonadWrapper r state m)
 deriving instance ContractStateOperations m => ContractStateOperations (BSOMonadWrapper r state m)
+deriving instance ModuleQuery m => ModuleQuery (BSOMonadWrapper r state m)
 
 -- Pure block state scheduler state
 type PBSSS pv = NoLogSchedulerState (PureBlockStateMonad pv Identity)
@@ -347,7 +348,7 @@ newtype RWSTBS pv m a = RWSTBS {_runRWSTBS :: RWST ContextState [(LogSource, Log
 -- |Basic implementation of the scheduler.
 newtype SchedulerImplementation pv a = SchedulerImplementation { _runScheduler :: RWSTBS pv (PureBlockStateMonad pv Identity) a }
     deriving (Functor, Applicative, Monad, MonadReader ContextState, MonadState (PBSSS pv))
-    deriving (StaticInformation, AccountOperations, ContractStateOperations, MonadLogger)
+    deriving (StaticInformation, AccountOperations, ContractStateOperations, ModuleQuery, MonadLogger)
       via (BSOMonadWrapper ContextState (PBSSS pv) (MGSTrans (RWSTBS pv) (PureBlockStateMonad pv Identity)))
 
 instance IsProtocolVersion pv => GS.MonadProtocolVersion (SchedulerImplementation pv) where

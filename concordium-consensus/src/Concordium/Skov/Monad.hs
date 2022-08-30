@@ -34,7 +34,7 @@ import Concordium.Types.Transactions
 import Concordium.GlobalState.Block as B
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer
-import Concordium.GlobalState.BlockState (BlockStateQuery, AccountOperations, BlockStateStorage, BlockStateOperations, ContractStateOperations)
+import Concordium.GlobalState.BlockState (BlockStateQuery, AccountOperations, BlockStateStorage, BlockStateOperations, ContractStateOperations, ModuleQuery)
 import Concordium.GlobalState.Statistics (ConsensusStatistics)
 import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.Classes as C
@@ -304,6 +304,7 @@ deriving via (MGSTrans SkovQueryMonadT m) instance GlobalStateTypes m => GlobalS
 deriving via (MGSTrans SkovQueryMonadT m) instance BlockStateTypes (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance AccountOperations m => AccountOperations (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance ContractStateOperations m => ContractStateOperations (SkovQueryMonadT m)
+deriving via (MGSTrans SkovQueryMonadT m) instance ModuleQuery m => ModuleQuery (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance BlockStateQuery m => BlockStateQuery (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance BlockPointerMonad m => BlockPointerMonad (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance TS.TreeStateMonad m => TS.TreeStateMonad (SkovQueryMonadT m)

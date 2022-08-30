@@ -17,7 +17,6 @@ transaction, and to allow execution in a more precise state context.
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
@@ -70,6 +69,7 @@ deriving via (MGSTrans InvokeContractMonad m) instance MonadProtocolVersion m =>
 deriving via (MGSTrans InvokeContractMonad m) instance BlockStateTypes (InvokeContractMonad m)
 deriving via (MGSTrans InvokeContractMonad m) instance BS.AccountOperations m => BS.AccountOperations (InvokeContractMonad m)
 deriving via (MGSTrans InvokeContractMonad m) instance BS.ContractStateOperations m => BS.ContractStateOperations (InvokeContractMonad m)
+deriving via (MGSTrans InvokeContractMonad m) instance BS.ModuleQuery m => BS.ModuleQuery (InvokeContractMonad m)
 
 instance (Monad m, BS.BlockStateQuery m) => StaticInformation (InvokeContractMonad m) where
 

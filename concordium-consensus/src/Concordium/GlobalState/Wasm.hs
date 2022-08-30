@@ -1,5 +1,5 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -155,7 +155,7 @@ data ModuleInterfaceA instrumentedModule = ModuleInterface {
   miModule :: !instrumentedModule,
   -- |Size of the module as deployed in the transaction.
   miModuleSize :: !Word64
-  } deriving(Eq, Show, Functor)
+  } deriving(Eq, Show, Functor, Foldable, Traversable)
 
 type ModuleInterfaceV (v :: WasmVersion) = ModuleInterfaceA (InstrumentedModuleV v)
 
@@ -206,7 +206,6 @@ instance Serialize im => Serialize (ModuleInterfaceA im) where
 data ModuleInterface im where
   ModuleInterfaceV0 :: ModuleInterfaceA (im V0) -> ModuleInterface im
   ModuleInterfaceV1 :: ModuleInterfaceA (im V1) -> ModuleInterface im
---  deriving (Eq, Show)
 
 instance HasModuleRef (ModuleInterface im) where
   {-# INLINE moduleReference #-}

@@ -609,6 +609,10 @@ doGetUpdateKeysCollection bs = return $! bs ^. blockUpdates . currentKeyCollecti
 doGetEnergyRate :: (Monad m, HasBlockState s pv) => s -> m EnergyRate
 doGetEnergyRate bs = return $! bs ^. blockUpdates . currentParameters . energyRate  
 
+instance (Monad m) => BS.ModuleQuery (PureBlockStateMonad pv m) where
+    {-# INLINE getModuleArtifact #-}
+    getModuleArtifact = return
+
 instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMonad pv m) where
     {-# INLINE getModule #-}
     getModule bs mref =
@@ -618,9 +622,6 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
     getModuleInterface bs mref =
         return $ bs ^. blockModules . to (Modules.getInterface mref)
 
-    {-# INLINE getModuleArtifact #-}
-    getModuleArtifact (GSWasm.InstrumentedWasmModuleV0 artifact) = return artifact
-    getModuleArtifact (GSWasm.InstrumentedWasmModuleV1 artifact) = return artifact
 
     {-# INLINE getContractInstance #-}
     getContractInstance bs caddr =

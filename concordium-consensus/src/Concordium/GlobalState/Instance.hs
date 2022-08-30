@@ -4,11 +4,11 @@
   as well as the basic implementation which should ideally be in Concordium.GlobalState.Basic.Instance.
   At some future point we should consider splitting this module into two as outlined above.
 -}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module Concordium.GlobalState.Instance where
 
 import Data.Maybe
@@ -55,7 +55,7 @@ data InstanceParameters instrumentedModule = InstanceParameters {
     instanceModuleInterface :: !(GSWasm.ModuleInterfaceA instrumentedModule),
     -- |Hash of the fixed parameters
     instanceParameterHash :: !H.Hash
-} deriving(Eq)
+} deriving(Eq, Functor)
 
 class HasInstanceAddress a where
   instanceAddress :: a -> ContractAddress

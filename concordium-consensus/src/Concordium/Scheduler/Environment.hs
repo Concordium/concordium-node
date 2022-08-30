@@ -1,4 +1,3 @@
-{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -35,7 +34,7 @@ import Concordium.Types.Accounts hiding (getAccountBaker)
 import Concordium.GlobalState.Types
 import Concordium.GlobalState.Classes (MGSTrans(..))
 import Concordium.GlobalState.Account (EncryptedAmountUpdate(..), AccountUpdate(..), auAmount, auEncrypted, auReleaseSchedule, emptyAccountUpdate)
-import Concordium.GlobalState.BlockState (AccountOperations(..), NewInstanceData, ContractStateOperations (..), InstanceInfo, InstanceInfoType (..), InstanceInfoTypeV (iiState, iiParameters), iiBalance, UpdatableContractState)
+import Concordium.GlobalState.BlockState (AccountOperations(..), NewInstanceData, ContractStateOperations (..), ModuleQuery(..), InstanceInfo, InstanceInfoType (..), InstanceInfoTypeV (iiState, iiParameters), iiBalance, UpdatableContractState)
 import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as ARS
 
@@ -79,7 +78,7 @@ class (Monad m) => StaticInformation m where
   getStateAccount :: AccountAddress -> m (Maybe (IndexedAccount m))
 
 -- |Information needed to execute transactions in the form that is easy to use.
-class (Monad m, StaticInformation m, AccountOperations m, ContractStateOperations m, MonadLogger m, MonadProtocolVersion m, TVer.TransactionVerifier m)
+class (Monad m, StaticInformation m, AccountOperations m, ContractStateOperations m, ModuleQuery m, MonadLogger m, MonadProtocolVersion m, TVer.TransactionVerifier m)
     => SchedulerMonad m where
 
   -- |Get the 'AccountIndex' for an account, if it exists.

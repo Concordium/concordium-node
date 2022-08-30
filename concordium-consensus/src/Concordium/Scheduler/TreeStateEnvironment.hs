@@ -116,6 +116,9 @@ deriving via (MGSTrans (RWST ContextState () state) m)
 deriving via (MGSTrans (RWST ContextState () state) m)
     instance (ContractStateOperations m) => ContractStateOperations (BlockStateMonad state m)
 
+deriving via (MGSTrans (RWST ContextState () state) m)
+    instance (ModuleQuery m) => ModuleQuery (BlockStateMonad state m)
+
 deriving via (BSOMonadWrapper ContextState state (MGSTrans (RWST ContextState () state) m))
     instance (
               SS state ~ UpdatableBlockState m,

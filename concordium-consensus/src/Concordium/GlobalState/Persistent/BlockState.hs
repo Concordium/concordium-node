@@ -623,9 +623,8 @@ doGetModule s modRef = do
     mods <- refLoad (bspModules bsp)
     Modules.getInterface modRef mods
 
-doGetModuleArtifact :: (Monad m) => GSWasm.InstrumentedModuleV v -> m (GSWasm.ModuleArtifact v)
-doGetModuleArtifact (GSWasm.InstrumentedWasmModuleV0 artifact) = return artifact
-doGetModuleArtifact (GSWasm.InstrumentedWasmModuleV1 artifact) = return artifact
+doGetModuleArtifact :: (Monad m) => GSWasm.InstrumentedModuleV v -> m (GSWasm.InstrumentedModuleV v)
+doGetModuleArtifact = return
 
 doGetModuleList :: (SupportsPersistentAccount pv m) => PersistentBlockState pv -> m [ModuleRef]
 doGetModuleList s = do
@@ -2615,10 +2614,12 @@ instance BlockStateTypes (PersistentBlockStateMonad pv r m) where
     type ContractState (PersistentBlockStateMonad pv r m) = Instances.InstanceStateV
     type InstrumentedModuleRef (PersistentBlockStateMonad pv r m) = GSWasm.InstrumentedModuleV
 
+instance (Monad m) => ModuleQuery (PersistentBlockStateMonad pv r m) where
+    getModuleArtifact = doGetModuleArtifact
+
 instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateQuery (PersistentBlockStateMonad pv r m) where
     getModule = doGetModuleSource . hpbsPointers
     getModuleInterface pbs mref = doGetModule (hpbsPointers pbs) mref
-    getModuleArtifact = doGetModuleArtifact
     getAccount = doGetAccount . hpbsPointers
     accountExists = doGetAccountExists . hpbsPointers
     getActiveBakers = doGetActiveBakers . hpbsPointers

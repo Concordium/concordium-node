@@ -1,4 +1,3 @@
-{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -18,7 +17,6 @@ import qualified Data.Map.Strict as Map
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Except
-import System.IO
 import Lens.Micro.Platform
 import Control.Monad.Reader
 import Data.Maybe (isJust)
@@ -40,12 +38,7 @@ import Concordium.Types
 import Concordium.Types.Updates hiding (getUpdateKeysCollection)
 import qualified Concordium.ID.Types as ID
 
-import Data.ByteString
-import Concordium.Logger
-import Data.Serialize as S
-import Concordium.Common.Version (Version)
 import qualified Concordium.GlobalState.Block as B
-import Data.Bits
 import qualified Concordium.TransactionVerification as TVer
 
 data BlockStatus bp pb =
