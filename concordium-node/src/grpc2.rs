@@ -60,21 +60,27 @@ pub mod service {
 }
 
 /// Service configuration, listing which endpoints are enabled.
+/// If the endpoint is not listed in the configuration file it will be disabled.
+/// This is what the `#[serde(default)]` annotations achieve.
 #[derive(serde::Deserialize)]
-pub struct ServiceConfig {
-    finalized_blocks: bool,
-    blocks:           bool,
-    account_list:     bool,
-    account_info:     bool,
+struct ServiceConfig {
+    #[serde(default)]
+    get_finalized_blocks: bool,
+    #[serde(default)]
+    get_blocks:           bool,
+    #[serde(default)]
+    get_account_list:     bool,
+    #[serde(default)]
+    get_account_info:     bool,
 }
 
 impl ServiceConfig {
     pub const fn new_all_enabled() -> Self {
         Self {
-            finalized_blocks: true,
-            blocks:           true,
-            account_list:     true,
-            account_info:     true,
+            get_finalized_blocks: true,
+            get_blocks:           true,
+            get_account_list:     true,
+            get_account_info:     true,
         }
     }
 
@@ -226,7 +232,7 @@ pub mod server {
                 // port.
                 let listen_port = config.listen_port.context("Missing GRPC port")?;
 
-                let service_config = if let Some(ref source) = config.endpoints_config {
+                let service_config = if let Some(ref source) = config.endpoint_config {
                     ServiceConfig::from_file(source)?
                 } else {
                     ServiceConfig::new_all_enabled()
@@ -406,7 +412,7 @@ pub mod server {
             &self,
             _request: tonic::Request<crate::grpc2::types::Empty>,
         ) -> Result<tonic::Response<Self::GetBlocksStream>, tonic::Status> {
-            if !self.service_config.blocks {
+            if !self.service_config.get_blocks {
                 return Err(tonic::Status::unimplemented("`GetBlocks` is not enabled."));
             }
             let (sender, receiver) = tokio::sync::mpsc::channel(100);
@@ -426,7 +432,7 @@ pub mod server {
             &self,
             _request: tonic::Request<crate::grpc2::types::Empty>,
         ) -> Result<tonic::Response<Self::GetFinalizedBlocksStream>, tonic::Status> {
-            if !self.service_config.finalized_blocks {
+            if !self.service_config.get_finalized_blocks {
                 return Err(tonic::Status::unimplemented("`GetFinalizedBlocks` is not enabled."));
             }
             let (sender, receiver) = tokio::sync::mpsc::channel(100);
@@ -446,7 +452,7 @@ pub mod server {
             &self,
             request: tonic::Request<crate::grpc2::types::AccountInfoRequest>,
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
-            if !self.service_config.account_info {
+            if !self.service_config.get_account_info {
                 return Err(tonic::Status::unimplemented("`GetAccountInfo` is not enabled."));
             }
             let request = request.get_ref();
@@ -463,7 +469,7 @@ pub mod server {
             &self,
             request: tonic::Request<crate::grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Self::GetAccountListStream>, tonic::Status> {
-            if !self.service_config.account_list {
+            if !self.service_config.get_account_list {
                 return Err(tonic::Status::unimplemented("`GetAccountList` is not enabled."));
             }
             let (sender, receiver) = futures::channel::mpsc::channel(100);
