@@ -55,8 +55,8 @@ updateSeedState slot bn state = case compare newEpoch oldEpoch of
 -- |Derive the leadership election nonce for a particular slot from the seed state.
 -- This compensates for if the slot is in a different epoch.
 -- NB: If the slot is in a different epoch than the epoch of the seedstate,
--- the block nonces from the previous are not accounted for in the calculation of the
--- leadership election nonce. This means the leadership election nonce used to produce
+-- the block nonces from the previous epoch are not accounted for in the calculation of the
+-- leadership election nonce. This means that the leadership election nonce used to produce
 -- the first block is different than those used for all other blocks of an epoch.
 --
 -- This behaviour differs from the specification in the Bluepaper. This is not a security issue, since
@@ -87,14 +87,15 @@ computeLeadershipElectionNonce state slot = case compare newEpoch oldEpoch of
 -- @computeLeadershipElectionNonce ss targetSlot = n@.
 --
 -- If @predictLeadershipElectionNonce ss lastFinSlot (Just pendingParentSlot) targetSlot = Just [m]@
--- and @pendingParentSlot@ is in the epoch after @lastFinSlot@ then for any @bn@, @sl@ and @ss'@ with
--- @nextEpochSlot < sl < targetSlot@ and @ss' = updateSeedState sl bn ss@ it must be that
+-- and @pendingParentSlot@ is in the epoch after @lastFinSlot@ then for any @bn@, @sl@
+-- (a slot in the same epoch as @targetSlot@) and @ss'@ with
+-- @sl < targetSlot@ and @ss' = updateSeedState sl bn ss@ it must be that
 -- @computeLeadershipElectionNonce ss' targetSlot = m@.
 --
 -- If @predictLeadershipElectionNonce ss lastFinSlot maybeParentBlockSlot targetSlot = Just [n, m]@ then it must be that
 -- @maybeParentBlockSlot = Nothing@, @computeLeadershipElectionNonce ss targetSlot = n@, and, for
--- for any @bn@, @sl@ and @ss'@ with @nextEpochSlot < sl < targetSlot@ and @ss' = updateSeedState sl bn ss@,
--- @computeLeadershipElectionNonce ss' targetSlot = m@
+-- for any @bn@, @sl@ (a slot in the same epoch as @targetSlot@) and @ss'@ with @sl < targetSlot@
+-- and @ss' = updateSeedState sl bn ss@, it must be that @computeLeadershipElectionNonce ss' targetSlot = m@.
 --
 -- If @predictLeadershipElectionNonce ss lastFinSlot maybeParentBlockSlot targetSlot = Nothing@, it means that we
 -- cannot predict the leadership election nonce. It will happen if @lastFinSlot@ is earlier than two thirds of
