@@ -101,7 +101,7 @@ deriving instance Show (ContractStateOperationsAction a)
 -- |Mock type for 'BlockStateQuery'.
 data BlockStateQueryAction (pv :: ProtocolVersion) a where
     GetModule :: MockBlockState -> ModuleRef -> BlockStateQueryAction pv (Maybe Wasm.WasmModule)
-    GetModuleInterface :: MockBlockState -> ModuleRef -> BlockStateQueryAction pv (Maybe GSWasm.ModuleInterface)
+    GetModuleInterface :: MockBlockState -> ModuleRef -> BlockStateQueryAction pv (Maybe (GSWasm.ModuleInterface (InstrumentedModuleRef m)))
     GetAccount :: MockBlockState -> AccountAddress -> BlockStateQueryAction pv (Maybe (AccountIndex, MockAccount))
     GetAccountByIndex :: MockBlockState -> AccountIndex -> BlockStateQueryAction pv (Maybe (AccountIndex, MockAccount))
     AccountExists :: MockBlockState -> AccountAddress -> BlockStateQueryAction pv Bool
