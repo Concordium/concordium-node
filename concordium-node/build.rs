@@ -172,6 +172,16 @@ fn build_grpc2(proto: &str, proto_root_input: &str) -> std::io::Result<()> {
         )
         .method(
             tonic_build::manual::Method::builder()
+                .name("get_blocks")
+                .route_name("GetBlocks")
+                .input_type("crate::grpc2::types::Empty")
+                .output_type("Arc<[u8]>")
+                .codec_path("crate::grpc2::RawCodec")
+                .server_streaming()
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
                 .name("get_account_info")
                 .route_name("GetAccountInfo")
                 .input_type("crate::grpc2::types::AccountInfoRequest")

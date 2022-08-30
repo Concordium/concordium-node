@@ -568,6 +568,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tokio-util",
+ "toml",
  "tonic",
  "tonic-build",
  "tonic-web",

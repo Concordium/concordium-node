@@ -364,6 +364,14 @@ pub struct GRPC2Config {
         requires = "grpc2-listen-addr"
     )]
     pub enable_grpc_web:  bool,
+    #[structopt(
+        long = "grpc2-endpoints-config",
+        help = "Configuration file for endpoints, listing which endpoints should be enabled or \
+                disabled.",
+        env = "CONCORDIUM_NODE_GRPC2_ENDPOINTS_CONFIG",
+        requires = "grpc2-listen-addr"
+    )]
+    pub endpoints_config: Option<PathBuf>,
 }
 
 impl GRPC2Config {

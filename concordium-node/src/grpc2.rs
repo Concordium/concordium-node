@@ -1,5 +1,6 @@
+use anyhow::Context;
 use prost::bytes::BufMut;
-use std::{convert::TryFrom, marker::PhantomData};
+use std::{convert::TryFrom, marker::PhantomData, path::Path};
 
 /// Types generated from the types.proto file, together
 /// with some auxiliary definitions that help passing values through the FFI
@@ -56,6 +57,34 @@ pub mod types {
 /// The service generated from the configuration in the `build.rs` file.
 pub mod service {
     include!(concat!(env!("OUT_DIR"), "/concordium.v2.Queries.rs"));
+}
+
+/// Service configuration, listing which endpoints are enabled.
+#[derive(serde::Deserialize)]
+pub struct ServiceConfig {
+    finalized_blocks: bool,
+    blocks:           bool,
+    account_list:     bool,
+    account_info:     bool,
+}
+
+impl ServiceConfig {
+    pub const fn new_all_enabled() -> Self {
+        Self {
+            finalized_blocks: true,
+            blocks:           true,
+            account_list:     true,
+            account_info:     true,
+        }
+    }
+
+    pub fn from_file(source: &Path) -> anyhow::Result<ServiceConfig> {
+        let config: ServiceConfig = toml::from_slice(
+            &std::fs::read(source).context("Unable to read the endpoints configuration file.")?,
+        )
+        .context("Unable to parse the endpoints configuration file.")?;
+        Ok(config)
+    }
 }
 
 /// The "codec" used by [tonic] to encode proto messages.
@@ -149,6 +178,8 @@ pub mod server {
 
     /// The type that implements the service that responds to queries.
     struct RpcServerImpl {
+        /// Configuration of enabled endpoints.
+        service_config: ServiceConfig,
         /// Reference to the node to support network and node status related
         /// queries.
         #[allow(dead_code)] // this will be used by network queries.
@@ -195,6 +226,12 @@ pub mod server {
                 // port.
                 let listen_port = config.listen_port.context("Missing GRPC port")?;
 
+                let service_config = if let Some(ref source) = config.endpoints_config {
+                    ServiceConfig::from_file(source)?
+                } else {
+                    ServiceConfig::new_all_enabled()
+                };
+
                 let identity = match (&config.x509_cert, &config.cert_private_key) {
                     (None, None) => None,
                     (None, Some(_)) => {
@@ -212,6 +249,7 @@ pub mod server {
                     }
                 };
                 let server = RpcServerImpl {
+                    service_config,
                     node: Arc::clone(node),
                     consensus: consensus.clone(),
                     blocks_channels: Arc::new(Mutex::new(Vec::new())),
@@ -357,14 +395,40 @@ pub mod server {
     impl service::queries_server::Queries for RpcServerImpl {
         type GetAccountListStream =
             futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
+        ///Server streaming response type for the Blocks method.
+        type GetBlocksStream =
+            tokio_stream::wrappers::ReceiverStream<Result<Arc<[u8]>, tonic::Status>>;
         ///Server streaming response type for the FinalizedBlocks method.
         type GetFinalizedBlocksStream =
             tokio_stream::wrappers::ReceiverStream<Result<Arc<[u8]>, tonic::Status>>;
+
+        async fn get_blocks(
+            &self,
+            _request: tonic::Request<crate::grpc2::types::Empty>,
+        ) -> Result<tonic::Response<Self::GetBlocksStream>, tonic::Status> {
+            if !self.service_config.blocks {
+                return Err(tonic::Status::unimplemented("`GetBlocks` is not enabled."));
+            }
+            let (sender, receiver) = tokio::sync::mpsc::channel(100);
+            match self.blocks_channels.lock() {
+                Ok(mut fbs) => {
+                    fbs.push(sender);
+                }
+                Err(e) => {
+                    error!("Could not acquire lock: {}", e);
+                    return Err(tonic::Status::internal("Could not enqueue request."));
+                }
+            }
+            Ok(tonic::Response::new(tokio_stream::wrappers::ReceiverStream::new(receiver)))
+        }
 
         async fn get_finalized_blocks(
             &self,
             _request: tonic::Request<crate::grpc2::types::Empty>,
         ) -> Result<tonic::Response<Self::GetFinalizedBlocksStream>, tonic::Status> {
+            if !self.service_config.finalized_blocks {
+                return Err(tonic::Status::unimplemented("`GetFinalizedBlocks` is not enabled."));
+            }
             let (sender, receiver) = tokio::sync::mpsc::channel(100);
             match self.finalized_blocks_channels.lock() {
                 Ok(mut fbs) => {
@@ -382,6 +446,9 @@ pub mod server {
             &self,
             request: tonic::Request<crate::grpc2::types::AccountInfoRequest>,
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            if !self.service_config.account_info {
+                return Err(tonic::Status::unimplemented("`GetAccountInfo` is not enabled."));
+            }
             let request = request.get_ref();
             let block_hash = request.block_hash.require()?;
             let account_identifier = request.account_identifier.require()?;
@@ -396,6 +463,9 @@ pub mod server {
             &self,
             request: tonic::Request<crate::grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Self::GetAccountListStream>, tonic::Status> {
+            if !self.service_config.account_list {
+                return Err(tonic::Status::unimplemented("`GetAccountList` is not enabled."));
+            }
             let (sender, receiver) = futures::channel::mpsc::channel(100);
             let hash = self.consensus.get_account_list_v2(request.get_ref(), sender)?;
             let mut response = tonic::Response::new(receiver);
