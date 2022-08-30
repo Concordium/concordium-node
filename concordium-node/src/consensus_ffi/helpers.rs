@@ -317,9 +317,7 @@ impl ConsensusFfiResponse {
             | MissingImportFile
             | ContinueCatchUp => false,
             PendingBlock => packet_type != PacketType::Block,
-            Success
-            | PendingFinalization
-            | Asynchronous => true,
+            Success | PendingFinalization | Asynchronous => true,
         }
     }
 }
