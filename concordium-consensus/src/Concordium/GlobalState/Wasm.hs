@@ -207,6 +207,8 @@ data ModuleInterface im where
   ModuleInterfaceV0 :: ModuleInterfaceA (im V0) -> ModuleInterface im
   ModuleInterfaceV1 :: ModuleInterfaceA (im V1) -> ModuleInterface im
 
+deriving instance (Show (im V0), Show (im V1)) => Show (ModuleInterface im)
+
 instance HasModuleRef (ModuleInterface im) where
   {-# INLINE moduleReference #-}
   moduleReference (ModuleInterfaceV0 mi) = miModuleRef mi

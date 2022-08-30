@@ -281,6 +281,7 @@ writeBlobBS BlobStoreAccess{..} bs = mask $ \restore -> do
 
 -- |A pointer into the blob store that can be used for direct memory access.
 data BlobPtr a = BlobPtr { theBlobPtr :: !Word64, blobPtrLen :: !Word64 }
+    deriving (Eq, Show)
 
 readBlobPtrBSFromHandle :: BlobStoreAccess -> BlobPtr a -> IO BS.ByteString
 readBlobPtrBSFromHandle BlobStoreAccess{..} BlobPtr{..} = mask $ \restore -> do
@@ -605,7 +606,7 @@ instance BlobStorable m a => BlobStorable m (BufferedRef a) where
             (r' :: BlobRef a, v') <- storeUpdateRef v
             liftIO . writeIORef ref $! r'
             (,BRBoth r' v') <$> store r'
-        else (,brm) <$> store brm
+        else (,BRBoth r v) <$> store brm
     storeUpdate x = (,x) <$> store x
 
 -- |Stores in-memory data to disk if it has not been stored yet and returns pointer to saved data
@@ -1240,3 +1241,81 @@ instance (MHashableTo m h a, BlobStorable m a) => Cacheable1 m (HashedBufferedRe
             h <- getHashM ref'
             liftIO $ writeIORef hshRef $! Some h
         return (HashedBufferedRef ref' hshRef)
+
+class MonadBlobStore m => DirectBlobStorable m a where
+    storeUpdateDirect :: a -> m (BlobRef a, a)
+    loadDirect :: BlobRef a -> m a
+
+newtype DirectBufferedRef a = DirectBufferedRef {theDBR :: BufferedRef a}
+    deriving (Show)
+
+-- getDBRRef :: DirectBlobStorable m a => DirectBufferedRef a -> m (BlobRef a)
+-- getDBRRef (DirectBufferedRef (BRMemory ref v)) = do
+--     r <- liftIO $ readIORef ref
+--     if isNull r
+--     then do
+--         (r' :: BlobRef a) <- storeRef v
+
+instance DirectBlobStorable m a => BlobStorable m (DirectBufferedRef a) where
+    storeUpdate (DirectBufferedRef (BRMemory ref v)) = do
+        r <- liftIO $ readIORef ref
+        if isNull r
+        then do
+            (r', !v') <- storeUpdateDirect v
+            liftIO . writeIORef ref $! r'
+            (,DirectBufferedRef (BRBoth r' v')) <$> store r'
+        else do
+            (,DirectBufferedRef (BRBoth r v)) <$> store r
+    storeUpdate dbr@(DirectBufferedRef (BRBlobbed r)) = (,dbr) <$> store r
+    storeUpdate dbr@(DirectBufferedRef (BRBoth r _)) = (,dbr) <$> store r
+    store b = fst <$> storeUpdate b
+    load = fmap (DirectBufferedRef . BRBlobbed) <$> load
+
+instance DirectBlobStorable m a => Reference m DirectBufferedRef a where
+    refMake = fmap DirectBufferedRef . makeBufferedRef
+
+    refLoad (DirectBufferedRef br) = case br of
+        BRBlobbed ref -> loadDirect ref
+        BRMemory _ v -> return v
+        BRBoth _ v -> return v
+    
+    refCache dbr@(DirectBufferedRef br) = case br of
+        BRBlobbed ref -> do
+            v <- loadDirect ref
+            return (v, DirectBufferedRef (BRBoth ref v))
+        BRMemory _ v -> return (v, dbr)
+        BRBoth _ v -> return (v, dbr)
+    
+    refFlush dbr@(DirectBufferedRef br) = case br of
+        BRMemory ref v -> do
+            r <- liftIO $ readIORef ref
+            if isNull r
+            then do
+                (!r', !v') <- storeUpdateDirect v
+                liftIO . writeIORef ref $! r
+                return (DirectBufferedRef (BRBoth r' v'), r')
+            else return (DirectBufferedRef (BRBoth r v), r)
+        _ -> return (dbr, brRef br)
+    
+    refUncache (DirectBufferedRef br) = case br of
+        BRMemory ref v -> do
+            r <- liftIO $ readIORef ref
+            if isNull r
+            then do
+                (!r', _) <- storeUpdateDirect v
+                liftIO . writeIORef ref $! r
+                return (DirectBufferedRef (BRBlobbed r'))
+            else return (DirectBufferedRef (BRBlobbed r))
+        _ -> return (DirectBufferedRef (BRBlobbed (brRef br)))
+
+instance (DirectBlobStorable m a, MHashableTo m h a) => MHashableTo m h (DirectBufferedRef a) where
+    getHashM = getHashM <=< refLoad
+
+-- FIXME: Get rid of this
+-- |Coerce a 'DirectBufferedRef' from type @a@ to type @b@. For safety, this requires that @a@ and
+-- @b@ have compatible 'DirectBlobStorable' instances.
+unsafeCoerceDirectBufferedRef :: (a -> b) -> DirectBufferedRef a -> DirectBufferedRef b
+unsafeCoerceDirectBufferedRef f dbr = DirectBufferedRef $ case theDBR dbr of
+    BRBlobbed br -> BRBlobbed (coerce br)
+    BRMemory ioref val -> BRMemory (coerce ioref) (f val)
+    BRBoth br val -> BRBoth (coerce br) (f val)
