@@ -82,14 +82,29 @@ computeLeadershipElectionNonce state slot = case compare newEpoch oldEpoch of
 -- know the slot of the pending block's parent, we return two
 -- leadership election nonces as we don't know which of them is the correct one.
 --
--- If @predictLeadershipElectionNonce ss lastFinSlot maybeParentBlockSlot targetSlot = Just [n]@ then it must be that
+-- If @predictLeadershipElectionNonce ss lastFinSlot (Just pendingParentSlot) targetSlot = Just [n]@
+-- and @pendingParentSlot@ is @>= lastFinSlot@ and in the same epoch as @lastFinSlot@ then it must be that
 -- @computeLeadershipElectionNonce ss targetSlot = n@.
+--
+-- If @predictLeadershipElectionNonce ss lastFinSlot (Just pendingParentSlot) targetSlot = Just [m]@
+-- and @pendingParentSlot@ is in the epoch after @lastFinSlot@ then for any @bn@, @sl@ and @ss'@ with
+-- @nextEpochSlot < sl < targetSlot@ and @ss' = updateSeedState sl bn ss@ it must be that
+-- @computeLeadershipElectionNonce ss' targetSlot = m@.
+--
 -- If @predictLeadershipElectionNonce ss lastFinSlot maybeParentBlockSlot targetSlot = Just [n, m]@ then it must be that
--- @computeLeadershipElectionNonce ss targetSlot ∈ {n, m}@.
--- Moreover, if @predictLeadershipElectionNonce ss lastFinSlot maybeParentBlockSlot targetSlot = Just A,
+-- @maybeParentBlockSlot = Nothing@, @computeLeadershipElectionNonce ss targetSlot = n@, and, for
+-- for any @bn@, @sl@ and @ss'@ with @nextEpochSlot < sl < targetSlot@ and @ss' = updateSeedState sl bn ss@,
+-- @computeLeadershipElectionNonce ss' targetSlot = m@
+--
+-- If @predictLeadershipElectionNonce ss lastFinSlot maybeParentBlockSlot targetSlot = Nothing@, it means that we
+-- cannot predict the leadership election nonce. It will happen if @lastFinSlot@ is earlier than two thirds of
+-- the epoch and @targetSlot@ is in the epoch after @lastFinSlot@, or if @targetSlot@ is in a later epoch than
+-- the epoch after @lastFinSlot@.
+--
+-- Moreover, if @predictLeadershipElectionNonce ss lastFinSlot maybeParentBlockSlot targetSlot = Just A@,
 -- for any @bn@, @sl@, and @ss'@ with @lastFinSlot < sl < targetSlot@, and
 -- @ss' = updateSeedState sl bn ss@, it must be that
--- @predictLeadershipElectionNonce ss' sl targetSlot = Just B@ where B ⊆ A.
+-- @predictLeadershipElectionNonce ss' sl maybeParentBlockSlot targetSlot = Just B@ where B is a sublist of A.
 predictLeadershipElectionNonce ::
     -- |Seed state of last finalized block
     SeedState ->
