@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
@@ -7,16 +8,16 @@ module Concordium.GlobalState.Persistent.BlockState.Modules
   ( Module(..),
     ModuleV(..),
     Modules,
-    -- getModuleInterface,
+    PersistentInstrumentedModuleV,
+    loadInstrumentedModuleV,
     emptyModules,
     getInterface,
     getSource,
     getModuleReference,
-    unsafeGetModuleReferenceV0,
-    unsafeGetModuleReferenceV1,
     putInterface,
     moduleRefList,
     makePersistentModules,
+    unsafeToModuleV,
     -- * Serialization
     putModulesV0
   ) where
@@ -29,14 +30,17 @@ import Concordium.GlobalState.Persistent.LFMBTree (LFMBTree')
 import qualified Concordium.GlobalState.Persistent.LFMBTree as LFMB
 import Concordium.Types
 import Concordium.Types.HashableTo
+import Concordium.Utils.Serialization
 import Concordium.Utils.Serialization.Put
 import Concordium.Wasm
+import qualified Data.ByteString as BS
 import Data.Coerce
 import Data.Foldable
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Serialize
 import Data.Word
+import Control.Monad.IO.Class
 import Lens.Micro.Platform
 
 -- |Index of the module in the module table. Reflects when the module was added
@@ -49,6 +53,13 @@ data PersistentInstrumentedModuleV v =
   PIMVMem (GSWasm.InstrumentedModuleV v)
   | PIMVPtr (BlobPtr (GSWasm.InstrumentedModuleV v))
   deriving (Show)
+
+loadInstrumentedModuleV :: (MonadBlobStore m, IsWasmVersion v) => PersistentInstrumentedModuleV v -> m (GSWasm.InstrumentedModuleV v)
+loadInstrumentedModuleV (PIMVMem im) = return im
+loadInstrumentedModuleV (PIMVPtr ptr) = do
+  bs <- loadBlobPtr ptr
+  liftIO $ GSWasm.instrumentedModuleVFromBytes bs
+  
 
 -- |A module contains both the module interface and the raw source code of the
 -- module. The module is parameterized by the wasm version, which determines the shape
@@ -84,6 +95,21 @@ getModuleInterface :: Module -> GSWasm.ModuleInterface PersistentInstrumentedMod
 getModuleInterface (ModuleV0 m) = GSWasm.ModuleInterfaceV0 (moduleVInterface m)
 getModuleInterface (ModuleV1 m) = GSWasm.ModuleInterfaceV1 (moduleVInterface m)
 
+-- |Coerce a module to V0. Will fail if the version is not 'V0'.
+unsafeToModuleV0 :: Module -> ModuleV V0
+unsafeToModuleV0 (ModuleV0 m) = m
+unsafeToModuleV0 (ModuleV1 _) = error "Could not coerce module to V0."
+
+-- |Coerce a module to V1. Will fail if the version is not 'V1'.
+unsafeToModuleV1 :: Module -> ModuleV V1
+unsafeToModuleV1 (ModuleV0 _) = error "Could not coerce module to V1."
+unsafeToModuleV1 (ModuleV1 m) = m
+
+-- |Coerce a 'Module' to a 'ModuleV' depending on the 'WasmVersion'.
+unsafeToModuleV :: forall v. IsWasmVersion v => Module -> ModuleV v
+unsafeToModuleV = case getWasmVersion @v of
+  SV0 -> unsafeToModuleV0
+  SV1 -> unsafeToModuleV1
 
 instance GSWasm.HasModuleRef Module where
   moduleReference (ModuleV0 m) = GSWasm.moduleReference (moduleVInterface m)
@@ -140,10 +166,92 @@ instance MonadBlobStore m => BlobStorable m (ModuleV GSWasm.V1) where
 instance MonadBlobStore m => BlobStorable m Module where
 -}
 
+data DummyInstrumentedModule = DummyInstrumentedModule {
+    dimVersion :: !WasmVersion,
+    dimStartOffset :: !Word64,
+    dimLength :: !Word64
+    }
+
+instance Serialize DummyInstrumentedModule where
+  get = do
+    dimVersion <- get
+    len <- getWord32be
+    dimStartOffset <- fromIntegral <$> bytesRead
+    skip (fromIntegral len)
+    let dimLength = fromIntegral len
+    return DummyInstrumentedModule{..}
+  put = error "DummyInstrumentedModule does not support 'put'."
+
 instance MonadBlobStore m => DirectBlobStorable m Module where
   loadDirect br = do
     bs <- loadRaw br
-    
+    let getModule = do
+          startOffset <- fromIntegral <$> bytesRead
+          mvi <- get
+          let DummyInstrumentedModule{..} = GSWasm.miModule mvi
+          let moduleVInterface :: GSWasm.ModuleInterfaceA (PersistentInstrumentedModuleV v)
+              moduleVInterface = PIMVPtr BlobPtr {
+                  theBlobPtr =
+                    -- Start of the blob ref
+                    theBlobRef br
+                    -- Add the size of the length field for the blob ref
+                    + 8
+                    -- Add the offset of the artifact
+                    + dimStartOffset
+                    -- Subtract the starting offset
+                    - startOffset,
+                  blobPtrLen = dimLength
+                } <$ mvi
+          case dimVersion of
+            V0 -> do
+              moduleVSource <- get
+              return $! ModuleV0 (ModuleV{..})
+            V1 -> do
+              moduleVSource <- get
+              return $! ModuleV1 (ModuleV{..})
+    case runGet getModule bs of
+        Left e -> error (e ++ " :: " ++ show bs)
+        Right !mv -> return mv
+
+  storeUpdateDirect mdl = do
+      case mdl of
+        ModuleV0 mv0 -> sudV SV0 mv0
+        ModuleV1 mv1 -> sudV SV1 mv1
+    where
+      sudV :: SWasmVersion v -> ModuleV v -> m (BlobRef Module, Module)
+      sudV ver ModuleV{moduleVInterface = GSWasm.ModuleInterface{..}, ..} = do
+          instrumentedModuleBytes <- case miModule of
+            PIMVMem instrModule -> return $ case ver of
+                SV0 -> encode instrModule
+                SV1 -> encode instrModule
+            PIMVPtr ptr -> do
+              artifact <- loadBlobPtr ptr
+              return $ runPut $ do
+                -- This must match the serialization of InstrumentedModuleV
+                put (demoteWasmVersion ver)
+                putWord32be (fromIntegral (BS.length artifact))
+                putByteString artifact
+          let headerBytes = runPut $ do
+                put miModuleRef
+                putSafeSetOf put miExposedInit
+                putSafeMapOf put (putSafeSetOf put) miExposedReceive
+              footerBytes = runPut $ do
+                putWord64be miModuleSize
+                put moduleVSource
+          br <- storeRaw (headerBytes <> instrumentedModuleBytes <> footerBytes)
+          let miModule' = PIMVPtr BlobPtr {
+                  -- Pointer is blob ref + 8 bytes (length of blob) + header length +
+                  -- 4 bytes for version + 4 bytes for length of instrumented module
+                  theBlobPtr = theBlobRef br + 8 + fromIntegral (BS.length headerBytes) + 8,
+                  -- Length is the length of the serialized instrumented module -
+                  -- 4 bytes for version - 4 bytes for length
+                  blobPtrLen =  fromIntegral (BS.length instrumentedModuleBytes) - 8
+                }
+          let mv' = ModuleV{moduleVInterface = GSWasm.ModuleInterface{miModule = miModule', ..}, ..}
+          return (br, mkModule ver mv')
+      mkModule :: SWasmVersion v -> ModuleV v -> Module
+      mkModule SV0 = ModuleV0
+      mkModule SV1 = ModuleV1
 
 instance MonadBlobStore m => Cacheable m Module where
 
@@ -153,22 +261,6 @@ putModuleV0 :: (MonadBlobStore m, MonadPut m) => Module -> m ()
 putModuleV0 (ModuleV0 ModuleV{..}) = sPut =<< loadRef moduleVSource
 putModuleV0 (ModuleV1 ModuleV{..}) = sPut =<< loadRef moduleVSource
 
-newtype ModuleHBRef a = ModuleHBRef {theModuleHBRef :: HashedBufferedRef a}
-  deriving (Show)
-
-deriving instance (MonadBlobStore m) => MHashableTo m Hash (ModuleHBRef Module)
--- instance (BlobStorable m Module) => BlobStorable m (ModuleHBRef Module) where
-{-
-instance (MonadBlobStore m) => Reference m ModuleHBRef Module where
-  refFlush = fmap coerce . refFlush . theModuleHBRef
-
-  refLoad = undefined
-
-  refMake = fmap ModuleHBRef . refMake
-
-  refCache = 
-
--}
 --------------------------------------------------------------------------------
 
 -- |The collection of modules stored in a block state.
@@ -241,24 +333,11 @@ getModuleReference ref mods =
     Nothing -> return Nothing
     Just idx -> LFMB.lookupRef idx (mods ^. modulesTable)
 
--- FIXME: Remove
--- |Gets the buffered reference to a module as stored in the module table assuming it is version 0.
-unsafeGetModuleReferenceV0 :: MonadBlobStore m => ModuleRef -> Modules -> m (Maybe (DirectBufferedRef (ModuleV GSWasm.V0)))
-unsafeGetModuleReferenceV0 ref mods = fmap (unsafeCoerceDirectBufferedRef extract) <$> getModuleReference ref mods 
-    where extract (ModuleV0 m) = m
-          extract _ = error "Precondition violation. Expected module version 0, got 1."
--- |Gets the buffered reference to a module as stored in the module table assuming it is version 1.
-unsafeGetModuleReferenceV1 :: MonadBlobStore m => ModuleRef -> Modules -> m (Maybe (DirectBufferedRef (ModuleV GSWasm.V1)))
-unsafeGetModuleReferenceV1 ref mods = fmap (unsafeCoerceDirectBufferedRef extract) <$> getModuleReference ref mods 
-    where extract (ModuleV1 m) = m
-          extract _ = error "Precondition violation. Expected module version 1, got 0."
-
-
 -- |Get an interface by module reference.
 getInterface :: MonadBlobStore m
              => ModuleRef
              -> Modules
-             -> m (Maybe GSWasm.BasicModuleInterface)
+             -> m (Maybe (GSWasm.ModuleInterface PersistentInstrumentedModuleV))
 getInterface ref mods = fmap getModuleInterface <$> getModule ref mods
 
 -- |Get the source of a module by module reference.
@@ -280,12 +359,14 @@ moduleRefList mods = Map.keys (mods ^. modulesMap)
 storePersistentModule :: MonadBlobStore m
                       => TransientModules.Module
                       -> m Module
-storePersistentModule (TransientModules.ModuleV0 TransientModules.ModuleV{..}) = do
+storePersistentModule (TransientModules.ModuleV0 TransientModules.ModuleV{ ..}) = do
+  let moduleVInterface' = PIMVMem <$> moduleVInterface
   moduleVSource' <- storeRef moduleVSource
-  return (ModuleV0 (ModuleV { moduleVSource = moduleVSource', ..}))
+  return (ModuleV0 (ModuleV { moduleVInterface = moduleVInterface', moduleVSource = moduleVSource'}))
 storePersistentModule (TransientModules.ModuleV1 TransientModules.ModuleV{..}) = do
+  let moduleVInterface' = PIMVMem <$> moduleVInterface
   moduleVSource' <- storeRef moduleVSource
-  return (ModuleV1 (ModuleV { moduleVSource = moduleVSource', ..}))
+  return (ModuleV1 (ModuleV { moduleVInterface = moduleVInterface', moduleVSource = moduleVSource'}))
 
 makePersistentModules :: MonadBlobStore m
                        => TransientModules.Modules

@@ -4,6 +4,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-| Common types and functions used to support wasm module storage in block state. |-}
 module Concordium.GlobalState.Wasm (
@@ -21,6 +22,7 @@ module Concordium.GlobalState.Wasm (
   withModuleArtifact,
   InstrumentedModuleV(..),
   imWasmArtifact,
+  instrumentedModuleVFromBytes,
   -- *** Module interface
   ModuleInterface(..),
   ModuleInterfaceA(..),
@@ -80,6 +82,15 @@ newModuleArtifactV1 p = do
 withModuleArtifact :: ModuleArtifact v -> (Ptr (ModuleArtifact v) -> IO a) -> IO a
 withModuleArtifact ModuleArtifact{..} = withForeignPtr maArtifact
 
+moduleArtifactFromBytes :: forall v. (IsWasmVersion v) => BS.ByteString -> IO (ModuleArtifact v)
+moduleArtifactFromBytes bs = do
+  let martifact = case getWasmVersion @v of
+        SV0 -> fromBytesHelper freeArtifactV0 fromBytesArtifactV0 bs
+        SV1 -> fromBytesHelper freeArtifactV1 fromBytesArtifactV1 bs
+  case martifact of
+    Nothing -> error "Cannot decode module artifact."
+    Just maArtifact -> return ModuleArtifact{..}
+
 -- This serialization instance does not add explicit versioning on its own. The
 -- module artifact is always stored as part of another structure that has
 -- versioning.
@@ -136,6 +147,13 @@ instance Serialize (InstrumentedModuleV V1) where
   get = get >>= \case
     V0 -> fail "Expected Wasm version 1, got 0."
     V1 -> InstrumentedWasmModuleV1 <$> get
+
+instrumentedModuleVFromBytes :: forall v. (IsWasmVersion v) => BS.ByteString -> IO (InstrumentedModuleV v)
+instrumentedModuleVFromBytes bs = do
+    artifact <- moduleArtifactFromBytes @v bs
+    case getWasmVersion @v of
+      SV0 -> return (InstrumentedWasmModuleV0 artifact)
+      SV1 -> return (InstrumentedWasmModuleV1 artifact)
 
 --------------------------------------------------------------------------------
 

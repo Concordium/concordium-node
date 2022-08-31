@@ -359,7 +359,7 @@ type InstanceInfo m = InstanceInfoType (InstrumentedModuleRef m) (ContractState 
 
 class (Monad m, BlockStateTypes m) => ModuleQuery m where
     -- |Get a module artifact from an 'InstrumentedModuleRef'.
-    getModuleArtifact :: InstrumentedModuleRef m v -> m (GSWasm.InstrumentedModuleV v)
+    getModuleArtifact :: Wasm.IsWasmVersion v => InstrumentedModuleRef m v -> m (GSWasm.InstrumentedModuleV v)
 
 -- |The block query methods can query block state. They are needed by
 -- consensus itself to compute stake, get a list of and information about

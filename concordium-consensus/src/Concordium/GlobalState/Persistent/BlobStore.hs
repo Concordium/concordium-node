@@ -283,6 +283,7 @@ writeBlobBS BlobStoreAccess{..} bs = mask $ \restore -> do
 data BlobPtr a = BlobPtr { theBlobPtr :: !Word64, blobPtrLen :: !Word64 }
     deriving (Eq, Show)
 
+-- | Read a bytestring from the blob store at the given offset and length using the file handle.
 readBlobPtrBSFromHandle :: BlobStoreAccess -> BlobPtr a -> IO BS.ByteString
 readBlobPtrBSFromHandle BlobStoreAccess{..} BlobPtr{..} = mask $ \restore -> do
         bh@BlobHandle{..} <- takeMVar blobStoreFile
@@ -293,6 +294,25 @@ readBlobPtrBSFromHandle BlobStoreAccess{..} BlobPtr{..} = mask $ \restore -> do
         case eres :: Either SomeException BS.ByteString of
             Left e -> throwIO e
             Right bs -> return bs
+
+-- | Read a bytestring from the blob store at the given offset and length using the memory map.
+-- The file handle is used as a backstop if the data to be read would be outside the memory map
+-- even after re-mapping.
+readBlobPtrBS :: BlobStoreAccess -> BlobPtr a -> IO BS.ByteString
+readBlobPtrBS bs@BlobStoreAccess{..} bptr@BlobPtr{..} = do
+        let ptrEnd = fromIntegral $ theBlobPtr + blobPtrLen
+        mmap0 <- readIORef blobStoreMMap
+        mmap <- if ptrEnd > BS.length mmap0 then do
+                -- Remap the file
+                mmap <- mmapFileByteString blobStoreFilePath Nothing
+                writeIORef blobStoreMMap mmap
+                return mmap
+            else return mmap0
+        let mmapLength = BS.length mmap
+        if ptrEnd > mmapLength then
+            readBlobPtrBSFromHandle bs bptr
+        else 
+            return $! BS.take (fromIntegral blobPtrLen) (BS.drop (fromIntegral theBlobPtr) mmap)
 
 -- |Typeclass for a monad to be equipped with a blob store.
 -- This allows a 'BS.ByteString' to be written to the store,
@@ -336,25 +356,16 @@ class MonadIO m => MonadBlobStore m where
     -- |Access a blob pointer directly. The function should ONLY READ the memory at the pointer,
     -- and not read beyond the length of the 'BlobPtr'.
     withBlobPtr :: BlobPtr a -> (Ptr a -> IO b) -> m b
-    default withBlobPtr :: (MonadReader r m, HasBlobStore r) => BlobPtr a -> (Ptr a -> IO b) -> m b
-    withBlobPtr bptr@BlobPtr{..} f = do
-        let ptrEnd = fromIntegral $ theBlobPtr + blobPtrLen
-        bs@BlobStoreAccess{..} <- blobStore <$> ask
-        liftIO $ do
-            mmap0 <- readIORef blobStoreMMap
-            mmap <- if ptrEnd > BS.length mmap0 then do
-                    -- Remap the file
-                    mmap <- mmapFileByteString blobStoreFilePath Nothing
-                    writeIORef blobStoreMMap mmap
-                    return mmap
-                else return mmap0
-            let mmapLength = BS.length mmap
-            if ptrEnd > mmapLength then do
-                bytes <- readBlobPtrBSFromHandle bs bptr
-                BSUnsafe.unsafeUseAsCString bytes (f . castPtr)
-            else do
-                let f' = f . castPtr . flip plusPtr (fromIntegral theBlobPtr)
-                BSUnsafe.unsafeUseAsCString mmap f'
+    withBlobPtr bptr f = do
+        bytes <- loadBlobPtr bptr
+        liftIO $ BSUnsafe.unsafeUseAsCString bytes (f . castPtr)
+
+    -- |Access a blob pointer directly as a 'BS.ByteString'.
+    loadBlobPtr :: BlobPtr a -> m BS.ByteString
+    default loadBlobPtr :: (MonadReader r m, HasBlobStore r) => BlobPtr a -> m BS.ByteString
+    loadBlobPtr bptr = do
+        bs <- blobStore <$> ask
+        liftIO $ readBlobPtrBS bs bptr
 
     {-# INLINE storeRaw #-}
     {-# INLINE loadRaw #-}
@@ -410,6 +421,8 @@ instance (MonadTrans t, MonadBlobStore m, MonadIO (t m)) => MonadBlobStore (Lift
     {-# INLINE getCallbacks #-}
     withBlobPtr bp = lift . withBlobPtr bp
     {-# INLINE withBlobPtr #-}
+    loadBlobPtr = lift . loadBlobPtr
+    {-# INLINE loadBlobPtr #-}
 
 deriving via (LiftMonadBlobStore (WriterT w) m)
     instance (Monoid w, MonadBlobStore m) => MonadBlobStore (WriterT w m)
@@ -1310,6 +1323,18 @@ instance DirectBlobStorable m a => Reference m DirectBufferedRef a where
 
 instance (DirectBlobStorable m a, MHashableTo m h a) => MHashableTo m h (DirectBufferedRef a) where
     getHashM = getHashM <=< refLoad
+
+instance (DirectBlobStorable m a, Cacheable m a) => Cacheable m (DirectBufferedRef a) where
+    cache (DirectBufferedRef br) = case br of
+        BRBlobbed{..} -> do
+            brValue <- cache =<< loadDirect brRef
+            return $! DirectBufferedRef BRBoth{..}
+        BRMemory{..} -> do
+            cachedVal <- cache brValue
+            return $! DirectBufferedRef br{brValue = cachedVal}
+        BRBoth{..} -> do
+            cachedVal <- cache brValue
+            return $! DirectBufferedRef br{brValue = cachedVal}    
 
 -- FIXME: Get rid of this
 -- |Coerce a 'DirectBufferedRef' from type @a@ to type @b@. For safety, this requires that @a@ and

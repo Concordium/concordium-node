@@ -617,14 +617,14 @@ totalCapital bsp = do
     pab <- refLoad (bspBirkParameters bsp ^. birkActiveBakers)
     return $! pab ^. totalActiveCapitalV1
 
-doGetModule :: (SupportsPersistentAccount pv m) => PersistentBlockState pv -> ModuleRef -> m (Maybe GSWasm.BasicModuleInterface)
+doGetModule :: (SupportsPersistentAccount pv m) => PersistentBlockState pv -> ModuleRef -> m (Maybe (GSWasm.ModuleInterface Modules.PersistentInstrumentedModuleV))
 doGetModule s modRef = do
     bsp <- loadPBS s
     mods <- refLoad (bspModules bsp)
     Modules.getInterface modRef mods
 
-doGetModuleArtifact :: (Monad m) => GSWasm.InstrumentedModuleV v -> m (GSWasm.InstrumentedModuleV v)
-doGetModuleArtifact = return
+doGetModuleArtifact :: (MonadBlobStore m, Wasm.IsWasmVersion v) => Modules.PersistentInstrumentedModuleV v -> m (GSWasm.InstrumentedModuleV v)
+doGetModuleArtifact = Modules.loadInstrumentedModuleV
 
 doGetModuleList :: (SupportsPersistentAccount pv m) => PersistentBlockState pv -> m [ModuleRef]
 doGetModuleList s = do
@@ -1739,7 +1739,7 @@ doUpdateAccountCredentials pbs accIndex remove add thrsh = do
 doGetInstance :: (SupportsPersistentAccount pv m)
               => PersistentBlockState pv
               -> ContractAddress
-              -> m (Maybe (InstanceInfoType GSWasm.InstrumentedModuleV Instances.InstanceStateV))
+              -> m (Maybe (InstanceInfoType Modules.PersistentInstrumentedModuleV Instances.InstanceStateV))
 doGetInstance pbs caddr = do
         bsp <- loadPBS pbs
         minst <- Instances.lookupContractInstance caddr (bspInstances bsp)
@@ -1752,7 +1752,7 @@ doContractInstanceList pbs = do
 
 doPutNewInstance :: forall m pv v. (SupportsPersistentAccount pv m, Wasm.IsWasmVersion v)
                  => PersistentBlockState pv
-                 -> NewInstanceData (GSWasm.InstrumentedModuleV v) v
+                 -> NewInstanceData (Modules.PersistentInstrumentedModuleV v) v
                  -> m (ContractAddress, PersistentBlockState pv)
 doPutNewInstance pbs NewInstanceData{..} = do
         bsp <- loadPBS pbs
@@ -1776,7 +1776,7 @@ doPutNewInstance pbs NewInstanceData{..} = do
               -- We retrieve the module interface here so that we only have a single copy of it, meaning that
               -- all instances created from the same module share a reference to the module.
               -- Seeing that we know that the instance is V0, and that the module exists, this cannot fail.
-              ~(Just modRef) <- Modules.unsafeGetModuleReferenceV0 (GSWasm.miModuleRef nidInterface) mods
+              ~(Just modRef) <- Modules.getModuleReference (GSWasm.miModuleRef nidInterface) mods
               (csHash, initialState) <- freezeContractState nidInitialState
               return (ca, PersistentInstanceV0 Instances.PersistentInstanceV{
                   pinstanceModuleInterface = modRef,
@@ -1798,7 +1798,7 @@ doPutNewInstance pbs NewInstanceData{..} = do
               -- We retrieve the module interface here so that we only have a single copy of it, meaning that
               -- all instances created from the same module share a reference to the module.
               -- Seeing that we know that the instance is V1, and that the module exists, this cannot fail.
-              ~(Just modRef) <- Modules.unsafeGetModuleReferenceV1 (GSWasm.miModuleRef nidInterface) mods
+              ~(Just modRef) <- Modules.getModuleReference (GSWasm.miModuleRef nidInterface) mods
               (csHash, initialState) <- freezeContractState nidInitialState
               let pinstanceHash = Instances.makeInstanceHashV1 (pinstanceParameterHash params) csHash nidInitialAmount
               return (ca, PersistentInstanceV1 Instances.PersistentInstanceV{
@@ -2612,9 +2612,9 @@ instance BlockStateTypes (PersistentBlockStateMonad pv r m) where
     type Account (PersistentBlockStateMonad pv r m) = PersistentAccount (AccountVersionFor pv)
     type BakerInfoRef (PersistentBlockStateMonad pv r m) = PersistentBakerInfoEx (AccountVersionFor pv)
     type ContractState (PersistentBlockStateMonad pv r m) = Instances.InstanceStateV
-    type InstrumentedModuleRef (PersistentBlockStateMonad pv r m) = GSWasm.InstrumentedModuleV
+    type InstrumentedModuleRef (PersistentBlockStateMonad pv r m) = Modules.PersistentInstrumentedModuleV
 
-instance (Monad m) => ModuleQuery (PersistentBlockStateMonad pv r m) where
+instance (PersistentState av pv r m) => ModuleQuery (PersistentBlockStateMonad pv r m) where
     getModuleArtifact = doGetModuleArtifact
 
 instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateQuery (PersistentBlockStateMonad pv r m) where
