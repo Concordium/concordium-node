@@ -69,6 +69,7 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.Types
 import Concordium.Kontrol
 
 -- |The data required to perform a P1.Reboot update.
@@ -108,9 +109,9 @@ updateHash = SHA256.hash "P1.Reboot"
 -- i.e. it is the first (and only) explicitly-finalized block with timestamp after the
 -- update takes effect.
 updateRegenesis ::
-    (BlockPointerMonad m, BlockStateStorage m, SkovQueryMonad m) =>
+    (MPV m ~ 'P1, BlockPointerMonad m, BlockStateStorage m, SkovQueryMonad m) =>
     UpdateData ->
-    m PVGenesisData
+    m (PVInit m)
 updateRegenesis UpdateData{..} = do
     lfb <- lastFinalizedBlock
     -- Genesis time is the timestamp of the terminal block
@@ -146,4 +147,5 @@ updateRegenesis UpdateData{..} = do
     regenesisState <- freezeBlockState s3
     genesisStateHash <- getStateHash regenesisState
     let genesisRegenesis = GenesisData.RegenesisData{..}
-    return $ PVGenesisData $ GDP1 P1.GDP1Regenesis{..}
+    let newGenesis = GDP1 P1.GDP1Regenesis{..}
+    return (PVInit newGenesis StateMigrationParametersTrivial regenesisState)

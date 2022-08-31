@@ -969,8 +969,6 @@ instance (MonadLogger m,
         coerceBSML collapseCaches
         coerceBSMR collapseCaches
 
-    migrateBlockState = error "Unimplemented for paired state"
-
 {-# INLINE coerceGSML #-}
 coerceGSML :: GSML pv lc r ls s m a -> TreeStateBlockStateM pv (PairGState ls rs) (PairGSContext lc rc) r s m a
 coerceGSML = coerce
@@ -1230,7 +1228,9 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
       r2 <- coerceGSMR $ getNonFinalizedTransactionVerificationResult tx
       assertEq r1 r2 $ return r1
 
-    storeFinalState = error "TODO"
+    storeFinalState (bs1, bs2) = do
+      coerceGSML (storeFinalState bs1)
+      coerceGSMR (storeFinalState bs2)
 
 newtype PairGSConfig c1 c2 = PairGSConfig (c1, c2)
 
@@ -1251,7 +1251,10 @@ instance (GlobalStateConfig c1, GlobalStateConfig c2) => GlobalStateConfig (Pair
         (ctx2, s2) <- initialiseNewGlobalState genData conf2
         return (PairGSContext ctx1 ctx2, PairGState s1 s2)
 
-    migrateExistingState = error "TODO: Unimplemented"
+    migrateExistingState (PairGSConfig (conf1, conf2)) (PairGSContext ctx1 ctx2) (PairGState s1 s2) migrationData gd = do
+      (newCtx1, newState1) <- migrateExistingState conf1 ctx1 s1 migrationData gd
+      (newCtx2, newState2) <- migrateExistingState conf2 ctx2 s2 migrationData gd
+      return (PairGSContext newCtx1 newCtx2, PairGState newState1 newState2)
 
     activateGlobalState :: forall pv .
         IsProtocolVersion pv =>

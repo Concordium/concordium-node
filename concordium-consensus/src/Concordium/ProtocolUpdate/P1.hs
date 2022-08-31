@@ -12,7 +12,6 @@ import qualified Data.HashMap.Strict as HM
 import Data.Serialize
 
 import qualified Concordium.Crypto.SHA256 as SHA256
-import Concordium.Genesis.Data
 import Concordium.Types
 import Concordium.Types.Updates
 
@@ -43,7 +42,7 @@ checkUpdate ProtocolUpdate{..} = case HM.lookup puSpecificationHash updates of
 -- i.e. it is the first (and only) explicitly-finalized block with timestamp after the
 -- update takes effect.
 updateRegenesis :: (MPV m ~ 'P1, BlockStateStorage m, SkovMonad m) => Update -> m (PVInit m)
-updateRegenesis (Reboot upd) = error "TODO" -- Reboot.updateRegenesis upd
+updateRegenesis (Reboot upd) = Reboot.updateRegenesis upd
 updateRegenesis ProtocolP2 = ProtocolP2.updateRegenesis
 
 -- |Determine the protocol version the update will update to.

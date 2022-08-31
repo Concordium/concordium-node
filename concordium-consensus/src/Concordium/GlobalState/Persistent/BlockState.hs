@@ -2917,10 +2917,6 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage 
     collapseCaches = do
         Cache.collapseCache (Proxy :: Proxy (AccountCache av))
 
-    migrateBlockState Proxy ctx migration oldstate = flip runBlobStoreT ctx $ do
-      newState <- migratePersistentBlockState migration (hpbsPointers oldstate)
-      hashBlockState newState
-
 migratePersistentBlockState ::
     forall oldpv pv t m.
     (MonadTrans t,

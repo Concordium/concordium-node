@@ -12,7 +12,6 @@ import qualified Data.HashMap.Strict as HM
 import Data.Serialize
 
 import qualified Concordium.Crypto.SHA256 as SHA256
-import Concordium.Genesis.Data
 import Concordium.Types
 import Concordium.Types.Updates
 

@@ -71,7 +71,13 @@ data SkovData (pv :: ProtocolVersion) bs = SkovData {
     -- |Runtime parameters
     _runtimeParameters :: !RuntimeParameters,
     -- |Transaction table purge counter
-    _transactionTablePurgeCounter :: !Int
+    _transactionTablePurgeCounter :: !Int,
+    -- |State where we store the initial state for the new protocol update.
+    -- TODO: This is not an ideal solution, but seems simplest in terms of abstractions.
+    -- If we only had the one state implementation this would not be necessary, and we could simply
+    -- return the value in the 'updateRegenesis' function. However as it is, it is challenging to properly
+    -- specify the types of these values due to the way the relevant types are parameterized.
+    _nextGenesisInitialState :: !(Maybe bs)
 }
 makeLenses ''SkovData
 
@@ -100,7 +106,8 @@ initialSkovData rp gd genState genTT =
             _transactionTable = genTT,
             _statistics = initialConsensusStatistics,
             _runtimeParameters = rp,
-            _transactionTablePurgeCounter = 0
+            _transactionTablePurgeCounter = 0,
+            _nextGenesisInitialState = Nothing
         }
   where gbh = bpHash gb
         gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
@@ -416,4 +423,4 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
       table <- use transactionTable
       return $ getNonFinalizedVerificationResult bi table
 
-    storeFinalState = error "TODO: Implement"
+    storeFinalState bs = nextGenesisInitialState ?= bs

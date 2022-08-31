@@ -5,14 +5,12 @@
 
 module Concordium.ProtocolUpdate where
 
-import Concordium.Genesis.Data
-import Concordium.Logger (LogIO)
 import Concordium.Types
 import Concordium.Types.UpdateQueues (ProtocolUpdateStatus (..))
 import Concordium.Types.Updates
 
 import Concordium.GlobalState.BlockState (BlockStateStorage)
-import Concordium.GlobalState.Types (MPV, BlockState, PVInit)
+import Concordium.GlobalState.Types (MPV, PVInit)
 import qualified Concordium.ProtocolUpdate.P1 as P1
 import qualified Concordium.ProtocolUpdate.P2 as P2
 import qualified Concordium.ProtocolUpdate.P3 as P3

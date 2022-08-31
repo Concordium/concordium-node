@@ -26,7 +26,7 @@ import Concordium.Types.ProtocolVersion
 
 import Concordium.GlobalState.Classes
 import Concordium.GlobalState.Basic.BlockState as BS
-import Concordium.GlobalState.Basic.TreeState
+import qualified Concordium.GlobalState.Basic.TreeState as Basic
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Parameters
@@ -39,7 +39,6 @@ import Concordium.Types.Block (AbsoluteBlockHeight)
 
 import Concordium.GlobalState.Persistent.Cache
 import qualified Concordium.GlobalState.Persistent.Accounts as Accounts
-import Data.Maybe
 
 -- For the avid reader.
 -- The strategy followed in this module is the following: First `BlockStateM` and
@@ -236,25 +235,25 @@ newtype TreeStateM s m a = TreeStateM {runTreeStateM :: m a}
 deriving instance MonadProtocolVersion m => MonadProtocolVersion (TreeStateM s m)
 
 -- * Specializations
-type MemoryTreeStateM pv bs m = TreeStateM (SkovData pv bs) m
+type MemoryTreeStateM pv bs m = TreeStateM (Basic.SkovData pv bs) m
 type PersistentTreeStateM pv bs m = TreeStateM (SkovPersistentData pv bs) m
 
 -- * Specialized implementations
 -- ** Memory implementations
 
-deriving via PureTreeStateMonad bs m
+deriving via Basic.PureTreeStateMonad bs m
     instance GlobalStateTypes (MemoryTreeStateM pv bs m)
 
-deriving via PureTreeStateMonad bs m
+deriving via Basic.PureTreeStateMonad bs m
     instance (Monad m,
-              BlockPointerMonad (PureTreeStateMonad bs m))
+              BlockPointerMonad (Basic.PureTreeStateMonad bs m))
              => BlockPointerMonad (MemoryTreeStateM pv bs m)
 
-deriving via PureTreeStateMonad bs m
+deriving via Basic.PureTreeStateMonad bs m
     instance (Monad m,
               MPV m ~ pv, MonadProtocolVersion m,
               BlockStateStorage m,
-              TreeStateMonad (PureTreeStateMonad bs m))
+              TreeStateMonad (Basic.PureTreeStateMonad bs m))
              => TreeStateMonad (MemoryTreeStateM pv bs m)
 
 -- ** Disk implementations
@@ -426,7 +425,7 @@ class GlobalStateConfig (c :: Type) where
 
 instance GlobalStateConfig MemoryTreeMemoryBlockConfig where
     type GSContext MemoryTreeMemoryBlockConfig pv = ()
-    type GSState MemoryTreeMemoryBlockConfig pv = SkovData pv (BS.HashedBlockState pv)
+    type GSState MemoryTreeMemoryBlockConfig pv = Basic.SkovData pv (BS.HashedBlockState pv)
     initialiseExistingGlobalState _ _ = return Nothing
 
     migrateExistingState = error "TODO: Unimplemented"
@@ -435,7 +434,7 @@ instance GlobalStateConfig MemoryTreeMemoryBlockConfig where
         (bs, tt) <- case genesisState gendata of
             Left err -> logExceptionAndThrow GlobalState (InvalidGenesisData err)
             Right (bs, tt) -> return (BS.hashBlockState bs, tt)
-        skovData <- runPureBlockStateMonad (initialSkovData rtparams gendata bs tt)
+        skovData <- runPureBlockStateMonad (Basic.initialSkovData rtparams gendata bs tt)
         return ((), skovData)
 
     activateGlobalState _ _ _ = return
@@ -446,11 +445,30 @@ instance GlobalStateConfig MemoryTreeMemoryBlockConfig where
 -- in-memory, Haskell implementation of the block state.
 instance GlobalStateConfig MemoryTreeDiskBlockConfig where
     type GSContext MemoryTreeDiskBlockConfig pv = PersistentBlockStateContext pv
-    type GSState MemoryTreeDiskBlockConfig pv = SkovData pv (HashedPersistentBlockState pv)
+    type GSState MemoryTreeDiskBlockConfig pv = Basic.SkovData pv (HashedPersistentBlockState pv)
     
     initialiseExistingGlobalState _ _ = return Nothing
 
-    migrateExistingState = error "TODO: Unimplemented"
+    migrateExistingState MTDBConfig{..} oldPbsc oldState migration genData = do
+      pbscBlobStore <- liftIO $ createBlobStore mtdbBlockStateFile
+      pbscCache <- liftIO $ Accounts.newAccountCache (rpAccountsCacheSize mtdbRuntimeParameters)
+      let pbsc = PersistentBlockStateContext {..}
+      newInitialBlockState <- flip runBlobStoreT oldPbsc . flip runBlobStoreT pbsc $ do
+          case Basic._nextGenesisInitialState oldState of
+            Nothing -> error "Precondition violation. Migration called in state without initial block state."
+            Just initState -> do
+              newState <- migratePersistentBlockState migration (hpbsPointers initState)
+              Concordium.GlobalState.Persistent.BlockState.hashBlockState newState
+      let initGS = do
+            Basic.initialSkovData
+              mtdbRuntimeParameters
+              genData
+              newInitialBlockState
+              -- TODO: Figure out if this is the correct thing to do or whether we need to clean up.
+              (Basic._transactionTable oldState)
+      isd <- runReaderT (runPersistentBlockStateMonad initGS) pbsc
+              `onException` liftIO (destroyBlobStore pbscBlobStore)
+      return (pbsc, isd)
 
     initialiseNewGlobalState genData MTDBConfig{..} = do
         (genState, genTT) <- case genesisState genData of
@@ -463,7 +481,7 @@ instance GlobalStateConfig MemoryTreeDiskBlockConfig where
             let initState = do
                     pbs <- makePersistent genState
                     _ <- saveBlockState pbs
-                    initialSkovData mtdbRuntimeParameters genData pbs genTT
+                    Basic.initialSkovData mtdbRuntimeParameters genData pbs genTT
             skovData <- runReaderT (runPersistentBlockStateMonad initState) pbsc
             return (pbsc, skovData)
 
@@ -515,8 +533,8 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
               (Concordium.GlobalState.Persistent.TreeState._transactionTable oldState)
       isd <- runReaderT (runPersistentBlockStateMonad initGS) pbsc
               `onException` liftIO (destroyBlobStore pbscBlobStore)
-
       return (pbsc, isd)
+
     initialiseNewGlobalState genData DTDBConfig{..} = do
       pbscBlobStore <- liftIO $ createBlobStore dtdbBlockStateFile
       pbscCache <- liftIO $ Accounts.newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)

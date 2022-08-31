@@ -435,6 +435,8 @@ getBlockState migration = do
     preBlockRewardDetails <- label "reward details" $ getBlockRewardDetails @(AccountVersionFor oldpv)
     let _blockRewardDetails = case migration of
             StateMigrationParametersTrivial -> preBlockRewardDetails
+            StateMigrationParametersTrivialP1P2 -> preBlockRewardDetails
+            StateMigrationParametersTrivialP2P3 -> preBlockRewardDetails
             StateMigrationParametersP3ToP4 migrationParams ->
                 BlockRewardDetailsV1 . makeHashed $ PoolRewards.makePoolRewardsForMigration
                     (epochToBakerStakes (preBirkParameters ^. birkCurrentEpochBakers . unhashed))
@@ -1861,8 +1863,6 @@ instance (IsProtocolVersion pv, MonadIO m) => BS.BlockStateStorage (PureBlockSta
     {-# INLINE collapseCaches #-}
     collapseCaches = return ()
 
-    migrateBlockState = error "TODO"
-
 -- |Initial block state.
 initialState :: forall pv
               . IsProtocolVersion pv
@@ -2094,6 +2094,8 @@ genesisState gd = case protocolVersion @pv of
                         hbs = hashBlockState bs
                         hashShouldMatch = case migration of
                             StateMigrationParametersTrivial{} -> True
+                            StateMigrationParametersTrivialP1P2{} -> True
+                            StateMigrationParametersTrivialP2P3{} -> True
                             StateMigrationParametersP3ToP4{} -> False
                         genesisTT = getInitialTransactionTable hbs
 

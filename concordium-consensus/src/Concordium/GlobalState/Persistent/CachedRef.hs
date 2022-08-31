@@ -9,7 +9,6 @@ module Concordium.GlobalState.Persistent.CachedRef where
 
 import Control.Monad
 import Control.Monad.Trans
-import Control.Monad.IO.Class
 import Data.IORef
 import Data.Proxy
 

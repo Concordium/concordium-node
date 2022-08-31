@@ -464,7 +464,7 @@ mmap_ f (NonEmpty _ t) = mmap_T t
       mmap_T =<< refLoad l
       mmap_T =<< refLoad r
 
--- | Map a monadic action over the tree in ascending order of index, discarding the results.
+-- | Migrate a LFMBTree from one context to the other.
 migrateLFMBTree :: forall m t ref1 ref2 v1 v2 k. (CanStoreLFMBTree m ref1 v1, Reference (t m) ref2 (T ref2 v2), MonadTrans t)
      => (v1 -> t m v2)
      -> LFMBTree' k ref1 v1

@@ -15,21 +15,17 @@ module Concordium.GlobalState.Persistent.PoolRewards (
     migratePoolRewards
 ) where
 
-import Lens.Micro.Platform
 import qualified Data.Map.Strict as Map
 import Data.Serialize
 import qualified Data.Vector as Vec
 import Data.Word
 import Control.Exception (assert)
-import Control.Monad.Trans
 
 import Concordium.Crypto.SHA256 as Hash
 
 import Concordium.Types
 import Concordium.Types.HashableTo
-import Concordium.Utils
 import Concordium.Utils.BinarySearch
-import qualified Concordium.Genesis.Data.P4 as P4
 
 import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as BasicLFMBT
 import Concordium.GlobalState.Rewards
@@ -85,7 +81,6 @@ migratePoolRewards curBakers nextBakers blockCounts npEpoch npMintRate = do
   (nextCapital, _) <- refFlush =<< bufferHashed (makeCD nextBakers)
   (currentCapital, _) <- refFlush =<< bufferHashed (makeCD curBakers)
   bakerPoolRewardDetails' <- LFMBT.fromAscListV =<< mapM makePRD curBakers
-  -- TODO: This traversal is not necessary. Fix it.
   (_, bakerPoolRewardDetails) <- storeUpdateRef bakerPoolRewardDetails'
   let passiveDelegationTransactionRewards = 0
       foundationTransactionRewards = 0

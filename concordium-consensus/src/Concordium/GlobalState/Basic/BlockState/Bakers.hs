@@ -125,6 +125,8 @@ migrateEpochBakers ::
     EpochBakers (AccountVersionFor oldpv) ->
     EpochBakers (AccountVersionFor pv)
 migrateEpochBakers StateMigrationParametersTrivial eb = eb
+migrateEpochBakers StateMigrationParametersTrivialP1P2 eb = eb
+migrateEpochBakers StateMigrationParametersTrivialP2P3 eb = eb
 migrateEpochBakers (StateMigrationParametersP3ToP4 migration) EpochBakers{..} =
     EpochBakers
         { _bakerInfos = migrateBakerInfo <$> _bakerInfos,
