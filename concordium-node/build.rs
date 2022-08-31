@@ -123,19 +123,20 @@ fn main() -> std::io::Result<()> {
     #[cfg(feature = "static")]
     link_static_libs()?;
 
-    build_grpc2(&proto, &proto_root_input)?;
+    // build GRPC V1 interface.
+    tonic_build::configure()
+        .build_server(true)
+        .build_client(true) // the client is needed for the collector
+        .compile(&[&proto], &[&proto_root_input])
+        .expect("Failed to compile gRPC definitions!");
+
+    build_grpc2(&proto_root_input)?;
     Ok(())
 }
 
 // Compile the types for GRPC2 API and generate a service description for the
 // GRPC2 interface.
-fn build_grpc2(proto: &str, proto_root_input: &str) -> std::io::Result<()> {
-    tonic_build::configure()
-        .build_server(true)
-        .build_client(false)
-        .compile(&[&proto], &[&proto_root_input])
-        .expect("Failed to compile gRPC definitions!");
-
+fn build_grpc2(proto_root_input: &str) -> std::io::Result<()> {
     {
         let types = format!("{}/v2/concordium/types.proto", proto_root_input);
         println!("cargo:rerun-if-changed={}", types);
