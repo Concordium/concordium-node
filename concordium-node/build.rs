@@ -215,6 +215,15 @@ fn main() -> std::io::Result<()> {
                 .server_streaming()
                 .build(),
         )
+        .method(
+            tonic_build::manual::Method::builder()
+                .name("get_transaction_status")
+                .route_name("GetTransactionStatus")
+                .input_type("crate::grpc2::types::TransactionHash")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .build(),
+        )
         .build();
     // Due to the slightly hacky nature of the RawCodec we cannot build the client.
     tonic_build::manual::Builder::new().build_client(false).compile(&[query_service]);

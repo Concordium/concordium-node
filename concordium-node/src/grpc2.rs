@@ -394,6 +394,16 @@ pub mod server {
             add_hash(&mut response, hash)?;
             Ok(response)
         }
+
+        async fn get_transaction_status(
+            &self,
+            request: tonic::Request<crate::grpc2::types::TransactionHash>,
+        ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            let (hash, response) = self.consensus.get_transaction_status_v2(request.get_ref())?;
+            let mut response = tonic::Response::new(response);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
     }
 }
 
