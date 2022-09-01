@@ -23,6 +23,7 @@ import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.BlockPointer as PB
+import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.LMDB
 import Concordium.GlobalState.Statistics
 import Concordium.GlobalState.TransactionTable
@@ -32,7 +33,7 @@ import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Transactions as T
 import Concordium.Types.Updates
-import Control.Exception hiding (handle, throwIO)
+import Control.Exception hiding (handle)
 import Control.Monad.Reader
 import Control.Monad.State
 import qualified Data.HashMap.Strict as HM
@@ -51,6 +52,7 @@ import System.FilePath
 import Concordium.Logger
 import Control.Monad.Except
 import qualified Concordium.TransactionVerification as TVer
+import qualified Data.ByteString as BS
 
 -- * Exceptions
 
@@ -380,9 +382,13 @@ loadSkovPersistentData rp _treeStateDirectory pbsc = do
   (_lastFinalizationRecord, lfStoredBlock) <- liftIO (getLastBlock _db) >>= \case
       Left s -> logExceptionAndThrowTS $ DatabaseInvariantViolation s
       Right r -> return r
-  _lastFinalized <- liftIO (makeBlockPointer lfStoredBlock)
-
-  return SkovPersistentData {
+  elfBlob <- liftIO . try $
+    readBlobBSFromHandle (bscBlobStore . PBS.pbscBlobStore $ pbsc) (sbState lfStoredBlock)
+  case elfBlob :: Either IOError BS.ByteString of
+    Left _ -> liftIO . throwIO $ userError "Last finalized block cannot be read. Blockstate database recovery required."
+    Right _ -> do
+      _lastFinalized <- liftIO (makeBlockPointer lfStoredBlock)
+      return SkovPersistentData {
             _possiblyPendingTable = HM.empty,
             _possiblyPendingQueue = MPQ.empty,
             _branches = Seq.empty,
