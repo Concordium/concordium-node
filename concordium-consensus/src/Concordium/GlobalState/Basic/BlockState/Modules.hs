@@ -55,8 +55,8 @@ data ModuleV v = ModuleV {
 -- contract instance we use the ModuleV type directly so we may tie the version
 -- of the module to the version of the instance.
 data Module where
-  ModuleV0 :: ModuleV GSWasm.V0 -> Module
-  ModuleV1 :: ModuleV GSWasm.V1 -> Module
+  ModuleV0 :: !(ModuleV GSWasm.V0) -> Module
+  ModuleV1 :: !(ModuleV GSWasm.V1) -> Module
   deriving(Show)
 
 instance GSWasm.HasModuleRef Module where

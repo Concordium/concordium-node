@@ -123,8 +123,8 @@ instance Serialize ModuleArtifactV1 where
 -- be instrumented with, and preprocessed to an executable format, ready to be
 -- instantiated and run.
 data InstrumentedModuleV v where
-  InstrumentedWasmModuleV0 :: { imWasmArtifactV0 :: ModuleArtifact V0 } -> InstrumentedModuleV V0
-  InstrumentedWasmModuleV1 :: { imWasmArtifactV1 :: ModuleArtifact V1 } -> InstrumentedModuleV V1
+  InstrumentedWasmModuleV0 :: { imWasmArtifactV0 :: !(ModuleArtifact V0) } -> InstrumentedModuleV V0
+  InstrumentedWasmModuleV1 :: { imWasmArtifactV1 :: !(ModuleArtifact V1) } -> InstrumentedModuleV V1
 
 deriving instance Eq (InstrumentedModuleV v)
 deriving instance Show (InstrumentedModuleV v)
@@ -222,8 +222,8 @@ instance Serialize im => Serialize (ModuleInterfaceA im) where
 -- when looking up a module before an instance is created. Afterwards an
 -- explicitly versioned module interface (ModuleInterfaceV) is used.
 data ModuleInterface im where
-  ModuleInterfaceV0 :: ModuleInterfaceA (im V0) -> ModuleInterface im
-  ModuleInterfaceV1 :: ModuleInterfaceA (im V1) -> ModuleInterface im
+  ModuleInterfaceV0 :: !(ModuleInterfaceA (im V0)) -> ModuleInterface im
+  ModuleInterfaceV1 :: !(ModuleInterfaceA (im V1)) -> ModuleInterface im
 
 deriving instance (Show (im V0), Show (im V1)) => Show (ModuleInterface im)
 

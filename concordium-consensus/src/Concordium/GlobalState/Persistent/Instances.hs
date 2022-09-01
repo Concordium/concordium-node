@@ -1,10 +1,11 @@
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE DeriveTraversable #-}
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 module Concordium.GlobalState.Persistent.Instances where
 
 import Data.Word
@@ -21,6 +22,7 @@ import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types
 import Concordium.Types.HashableTo
 import qualified Concordium.Wasm as Wasm
+import Concordium.Utils
 import Concordium.Utils.Serialization.Put
 import Concordium.Utils.Serialization (putByteStringLen)
 
@@ -40,8 +42,8 @@ import Concordium.GlobalState.BlockState (InstanceInfoTypeV(..), InstanceInfoTyp
 -- persistent version which supports storing and loading the state from a blob
 -- store.
 data InstanceStateV (v :: Wasm.WasmVersion) where
-  InstanceStateV0 :: Wasm.ContractState -> InstanceStateV GSWasm.V0
-  InstanceStateV1 :: StateV1.PersistentState -> InstanceStateV GSWasm.V1
+  InstanceStateV0 :: !Wasm.ContractState -> InstanceStateV GSWasm.V0
+  InstanceStateV1 :: !StateV1.PersistentState -> InstanceStateV GSWasm.V1
 
 -- |The fixed parameters associated with a smart contract instance
 data PersistentInstanceParameters = PersistentInstanceParameters {
@@ -114,8 +116,8 @@ data PersistentInstanceV (v :: Wasm.WasmVersion) = PersistentInstanceV {
 -- different instance versions. This is necessary because there is a single
 -- address space for all contract instances.
 data PersistentInstance (pv :: ProtocolVersion) where
-  PersistentInstanceV0 :: PersistentInstanceV GSWasm.V0 -> PersistentInstance pv
-  PersistentInstanceV1 :: PersistentInstanceV GSWasm.V1 -> PersistentInstance pv
+  PersistentInstanceV0 :: !(PersistentInstanceV GSWasm.V0) -> PersistentInstance pv
+  PersistentInstanceV1 :: !(PersistentInstanceV GSWasm.V1) -> PersistentInstance pv
 
 instance Show (PersistentInstance pv) where
     show (PersistentInstanceV0 PersistentInstanceV {pinstanceModel = InstanceStateV0 model,..}) = show pinstanceParameters ++ " {balance=" ++ show pinstanceAmount ++ ", model=" ++ show model ++ "}"
@@ -147,12 +149,12 @@ instance (IsProtocolVersion pv, MonadBlobStore m) => BlobStorable m (PersistentI
            storeUnversionedV0 PersistentInstanceV{pinstanceModel=InstanceStateV0 model,..} = do
              (pparams, newParameters) <- storeUpdate pinstanceParameters
              (pinterface, newpInterface) <- storeUpdate pinstanceModuleInterface
-             let putInst = do
+             let !putInst = do
                    pparams
                    pinterface
                    put model
                    put pinstanceAmount
-             return (putInst, PersistentInstanceV{pinstanceParameters = newParameters, pinstanceModuleInterface = newpInterface,
+             return $!! (putInst, PersistentInstanceV{pinstanceParameters = newParameters, pinstanceModuleInterface = newpInterface,
                               pinstanceModel=InstanceStateV0 model,..})
            storeV1 :: PersistentInstanceV GSWasm.V1 -> m (Put, PersistentInstance pv)
            storeV1 PersistentInstanceV{pinstanceModel=InstanceStateV1 model,..} = do
@@ -165,7 +167,7 @@ instance (IsProtocolVersion pv, MonadBlobStore m) => BlobStorable m (PersistentI
                    pinterface
                    pstate
                    put pinstanceAmount
-             return (putInst, PersistentInstanceV1 PersistentInstanceV{pinstanceParameters = newParameters,
+             return $!! (putInst, PersistentInstanceV1 PersistentInstanceV{pinstanceParameters = newParameters,
                                                   pinstanceModuleInterface = newpInterface,
                                                   pinstanceModel = InstanceStateV1 newpstate,..})
 

@@ -30,6 +30,7 @@ import Concordium.GlobalState.Persistent.LFMBTree (LFMBTree')
 import qualified Concordium.GlobalState.Persistent.LFMBTree as LFMB
 import Concordium.Types
 import Concordium.Types.HashableTo
+import Concordium.Utils
 import Concordium.Utils.Serialization
 import Concordium.Utils.Serialization.Put
 import Concordium.Wasm
@@ -50,8 +51,8 @@ type ModuleIndex = Word64
 --------------------------------------------------------------------------------
 
 data PersistentInstrumentedModuleV v =
-  PIMVMem (GSWasm.InstrumentedModuleV v)
-  | PIMVPtr (BlobPtr (GSWasm.InstrumentedModuleV v))
+  PIMVMem !(GSWasm.InstrumentedModuleV v)
+  | PIMVPtr !(BlobPtr (GSWasm.InstrumentedModuleV v))
   deriving (Show)
 
 loadInstrumentedModuleV :: (MonadBlobStore m, IsWasmVersion v) => PersistentInstrumentedModuleV v -> m (GSWasm.InstrumentedModuleV v)
@@ -87,8 +88,8 @@ toModule mvi moduleVSource =
 -- contract instance we use the ModuleV type directly so we may tie the version
 -- of the module to the version of the instance.
 data Module where
-  ModuleV0 :: ModuleV GSWasm.V0 -> Module
-  ModuleV1 :: ModuleV GSWasm.V1 -> Module
+  ModuleV0 :: !(ModuleV GSWasm.V0) -> Module
+  ModuleV1 :: !(ModuleV GSWasm.V1) -> Module
   deriving (Show)
 
 getModuleInterface :: Module -> GSWasm.ModuleInterface PersistentInstrumentedModuleV
@@ -220,7 +221,7 @@ instance MonadBlobStore m => DirectBlobStorable m Module where
     where
       sudV :: SWasmVersion v -> ModuleV v -> m (BlobRef Module, Module)
       sudV ver ModuleV{moduleVInterface = GSWasm.ModuleInterface{..}, ..} = do
-          instrumentedModuleBytes <- case miModule of
+          !instrumentedModuleBytes <- case miModule of
             PIMVMem instrModule -> return $ case ver of
                 SV0 -> encode instrModule
                 SV1 -> encode instrModule
@@ -238,17 +239,19 @@ instance MonadBlobStore m => DirectBlobStorable m Module where
               footerBytes = runPut $ do
                 putWord64be miModuleSize
                 put moduleVSource
+              !headerLen = fromIntegral $ BS.length headerBytes
+              !imLen = fromIntegral $ BS.length instrumentedModuleBytes
           br <- storeRaw (headerBytes <> instrumentedModuleBytes <> footerBytes)
-          let miModule' = PIMVPtr BlobPtr {
+          let !miModule' = PIMVPtr BlobPtr {
                   -- Pointer is blob ref + 8 bytes (length of blob) + header length +
                   -- 4 bytes for version + 4 bytes for length of instrumented module
-                  theBlobPtr = theBlobRef br + 8 + fromIntegral (BS.length headerBytes) + 8,
+                  theBlobPtr = theBlobRef br + 8 + headerLen + 8,
                   -- Length is the length of the serialized instrumented module -
                   -- 4 bytes for version - 4 bytes for length
-                  blobPtrLen =  fromIntegral (BS.length instrumentedModuleBytes) - 8
+                  blobPtrLen =  imLen - 8
                 }
           let mv' = ModuleV{moduleVInterface = GSWasm.ModuleInterface{miModule = miModule', ..}, ..}
-          return (br, mkModule ver mv')
+          return $!! (br, mkModule ver mv')
       mkModule :: SWasmVersion v -> ModuleV v -> Module
       mkModule SV0 = ModuleV0
       mkModule SV1 = ModuleV1

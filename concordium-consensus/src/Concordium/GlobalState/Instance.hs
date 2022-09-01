@@ -26,8 +26,8 @@ import qualified Concordium.Crypto.SHA256 as SHA256
 -- "basic" version which keeps the state in memory. The persistent version is
 -- defined in Concordium.GlobalState.Persistent.Instance.
 data InstanceStateV (v :: Wasm.WasmVersion) where
-  InstanceStateV0 :: Wasm.ContractState -> InstanceStateV GSWasm.V0
-  InstanceStateV1 :: StateV1.InMemoryPersistentState -> InstanceStateV GSWasm.V1
+  InstanceStateV0 :: !Wasm.ContractState -> InstanceStateV GSWasm.V0
+  InstanceStateV1 :: !StateV1.InMemoryPersistentState -> InstanceStateV GSWasm.V1
 
 -- There is no versioning added to this. Contract state is always serialized in
 -- the context of an instance, which gives it a version.
@@ -81,7 +81,7 @@ data InstanceV instrumentedModule (v :: Wasm.WasmVersion) = InstanceV {
   -- |The current amount of GTU owned by the instance
   _instanceVAmount :: !Amount,
   -- |Hash of the smart contract instance
-  _instanceVHash :: H.Hash
+  _instanceVHash :: !H.Hash
   }
 
 class HasInstanceFields a where
