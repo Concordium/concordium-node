@@ -39,7 +39,7 @@ data UpdateQueue e = UpdateQueue {
         uqQueue :: !(Seq.Seq (TransactionTime, HashedBufferedRef (StoreSerialized e)))
     }
 
-instance (MonadBlobStore m, Serialize e, MHashableTo m H.Hash e)
+instance (MonadBlobStore m, Serialize e)
         => BlobStorable m (UpdateQueue e) where
     storeUpdate uq@UpdateQueue{..} = do
         l <- forM uqQueue $ \(t, r) -> do
@@ -51,7 +51,6 @@ instance (MonadBlobStore m, Serialize e, MHashableTo m H.Hash e)
                 sequence_ $ fst <$> l
         let uq' = uq{uqQueue = snd <$> l}
         return (putUQ, uq')
-    store uq = fst <$> storeUpdate uq
     load = do
         uqNextSequenceNumber <- get
         l <- getLength
@@ -279,7 +278,6 @@ instance
                     >> putCooldownParametersQueue
                     >> putTimeParametersQueue
             return (putPU, newPU)
-    store pu = fst <$> storeUpdate pu
     load = do
         mRKQ <- label "Root keys update queue" load
         mL1KQ <- label "Level 1 keys update queue" load
@@ -460,7 +458,6 @@ instance (MonadBlobStore m, IsChainParametersVersion cpv)
                 pendingUpdates = pU
             }
         return (pKC >> pCPU >> pCP >> pPU, newUpdates)
-    store u = fst <$> storeUpdate u
     load = do
         mKC <- label "Current key collection" load
         mCPU <- label "Current protocol update" load

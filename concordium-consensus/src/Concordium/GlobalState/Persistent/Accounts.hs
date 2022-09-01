@@ -144,7 +144,6 @@ instance (SupportsPersistentAccount pv m) => BlobStorable m (Accounts pv) where
                 ..
             }
         return (pMap >> pTable >> pRegIdHistory, newAccounts)
-    store a = fst <$> storeUpdate a
     load = do
         maccountMap <- load
         maccountTable <- load

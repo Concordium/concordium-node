@@ -158,7 +158,6 @@ instance MonadBlobStore m => BlobStorable m PersistentAccountEncryptedAmount whe
       sequence_ pAmounts
       pAgg
 
-  store a = fst <$> storeUpdate a
   load = do
     pSelf <- load
     _startIndex <- get
@@ -245,7 +244,6 @@ instance forall m av. (IsAccountVersion av, MonadBlobStore m) => BlobStorable m 
     return . (, pab) $ do
       pBakerInfo
       pExtraBakerInfo
-  store a = fst <$> storeUpdate a
   load = do
     rBakerInfo <- load
     rExtraBakerInfo <- case accountVersion @av of
@@ -327,7 +325,6 @@ instance forall m av. (IsAccountVersion av, MonadBlobStore m) => BlobStorable m 
       pBakerInfo
       pExtraBakerInfo
       put _bakerPendingChange
-  store a = fst <$> storeUpdate a
   load = do
     _stakedAmount <- get
     _stakeEarnings <- get
@@ -389,7 +386,6 @@ instance forall m av. (MonadBlobStore m, IsAccountVersion av) => BlobStorable m 
         su1 (PersistentAccountStakeDelegate dlgref) = do
           (r, dlgref') <- storeUpdate dlgref
           return (putWord8 2 >> r, PersistentAccountStakeDelegate dlgref')
-    store = fmap fst . storeUpdate
     load = case accountVersion @av of
         SAccountV0 -> l0
         SAccountV1 -> l1
@@ -483,7 +479,6 @@ instance (MonadBlobStore m, IsAccountVersion av) => BlobStorable m (PersistentAc
                     pSched
                     pBkr
         return (putAccs, persistentAcc)
-    store a = fst <$> storeUpdate a
     load = do
         _accountNonce <- get
         _accountAmount <- get

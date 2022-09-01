@@ -173,7 +173,6 @@ instance (IsProtocolVersion pv, MonadBlobStore m) => BlobStorable m (PersistentI
 
            addVersion (s, inst') = (putWord8 0 <> s,  PersistentInstanceV0 inst')
 
-    store pinst = fst <$> storeUpdate pinst
     load = do
       if demoteProtocolVersion (protocolVersion @pv) <= P3 then do
         loadIV0
@@ -408,7 +407,6 @@ instance (IsProtocolVersion pv, BlobStorable m r, MonadIO m) => BlobStorable m (
         (pinst, i') <- storeUpdate i
         return (putWord8 8 >> pinst, Leaf i')
     storeUpdate v@(VacantLeaf si) = return (putWord8 9 >> put si, v)
-    store v = fst <$> storeUpdate v
     load = do
         tag <- getWord8
         if tag < 8 then do
@@ -500,7 +498,6 @@ instance (IsProtocolVersion pv, MonadBlobStore m) => BlobStorable m (Instances p
     storeUpdate (InstancesTree s t) = do
         (pt, t') <- storeUpdate t
         return (putWord8 1 >> put s >> pt, InstancesTree s t')
-    store i = fst <$> storeUpdate i
     load = do
         tag <- getWord8
         if tag == 0 then

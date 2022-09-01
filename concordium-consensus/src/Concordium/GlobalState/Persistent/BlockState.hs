@@ -146,7 +146,6 @@ instance (MonadBlobStore m, IsAccountVersion av) => BlobStorable m (PersistentBi
                     _birkNextEpochBakers = nextBakers,
                     _birkCurrentEpochBakers = currentBakers
                 })
-    store bps = fst <$> storeUpdate bps
     load = do
         mabs <- label "Active bakers" load
         mnebs <- label "Next epoch bakers" load
@@ -197,7 +196,6 @@ instance (MonadBlobStore m) => BlobStorable m EpochBlock where
         let putEB = put ebBakerId >> ppref
         let eb' = eb{ebPrevious = ebPrevious'}
         return $!! (putEB, eb')
-    store eb = fst <$> storeUpdate eb
     load = do
         ebBakerId <- get
         mPrevious <- load
@@ -229,7 +227,6 @@ instance MonadBlobStore m => BlobStorable m HashedEpochBlocks where
     storeUpdate heb = do
         (pblocks, blocks') <- storeUpdate (hebBlocks heb)
         return $!! (pblocks, heb{hebBlocks = blocks'})
-    store = store . hebBlocks
     load = do
         mhebBlocks <- load
         return $! do
@@ -292,7 +289,6 @@ instance MonadBlobStore m => MHashableTo m (Rewards.BlockRewardDetailsHash av) (
 instance (IsAccountVersion av, MonadBlobStore m) => BlobStorable m (BlockRewardDetails av) where
     storeUpdate (BlockRewardDetailsV0 heb) = fmap (fmap BlockRewardDetailsV0) $ storeUpdate heb
     storeUpdate (BlockRewardDetailsV1 hpr) = fmap (fmap BlockRewardDetailsV1) $ storeUpdate hpr
-    store bsp = fst <$> storeUpdate bsp
     load = case accountVersion @av of
         SAccountV0 -> fmap (fmap BlockRewardDetailsV0) load
         SAccountV1 -> fmap (fmap BlockRewardDetailsV1) load
@@ -436,7 +432,6 @@ instance (SupportsPersistentAccount pv m) => BlobStorable m (BlockStatePointers 
                     bspReleaseSchedule = bspReleaseSchedule',
                     bspRewardDetails = bspRewardDetails'
                 })
-    store bsp = fst <$> storeUpdate bsp
     load = do
         maccts <- label "Accounts" load
         minsts <- label "Instances" load

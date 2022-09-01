@@ -11,6 +11,7 @@ import Control.Monad
 import Control.Monad.IO.Class
 import Data.IORef
 import Data.Proxy
+import Data.Serialize (put)
 
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types.HashableTo
@@ -98,17 +99,15 @@ instance
     ) =>
     BlobStorable m (CachedRef c a)
     where
-    store c = store . snd =<< refFlush c
     storeUpdate c = do
         (c', ref) <- refFlush c
-        (,c') <$> store ref
+        return (put ref, c')
     load = do
         mref <- load
         return $ do
             ref <- mref
             ioref <- liftIO $ newIORef $! Disk ref
             return (CachedRef ioref)
-    {-# INLINE store #-}
     {-# INLINE storeUpdate #-}
     {-# INLINE load #-}
 instance
@@ -214,8 +213,6 @@ instance
     ) =>
     BlobStorable m (LazilyHashedCachedRef' h c a)
     where
-    store c = store . snd =<< refFlush (lhCachedRef c)
-
     storeUpdate c = do
         (r, v') <- storeUpdate (lhCachedRef c)
         return (r, LazilyHashedCachedRef v' (lhHash c))
@@ -310,8 +307,6 @@ instance
     ) =>
     BlobStorable m (EagerlyHashedCachedRef' h c a)
     where
-    store c = store . snd =<< refFlush (ehCachedRef c)
-
     storeUpdate c = do
         (r, v') <- storeUpdate (ehCachedRef c)
         return (r, EagerlyHashedCachedRef v' (ehHash c))
@@ -438,11 +433,9 @@ instance
     ) =>
     BlobStorable m (HashedCachedRef' h c a)
     where
-    store hcr = store . snd =<< refFlush hcr
-
     storeUpdate hcr = do
         (!hcr', !ref) <- refFlush hcr
-        (, hcr') <$> store ref
+        return (put ref, hcr')
 
     load = do
         mref <- load

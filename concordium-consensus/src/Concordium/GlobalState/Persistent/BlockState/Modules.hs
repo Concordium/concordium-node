@@ -288,7 +288,6 @@ instance MonadBlobStore m => BlobStorable m Modules where
                              Map.insert (GSWasm.moduleReference aModule) idx m)
                                Map.empty <$> LFMB.toAscPairList _modulesTable
       return Modules{..}
-  store = fmap fst . storeUpdate
   storeUpdate m@Modules{..} = do
     (pModulesTable, _modulesTable') <- storeUpdate _modulesTable
     return (pModulesTable, m { _modulesTable = _modulesTable' })

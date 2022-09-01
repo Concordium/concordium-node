@@ -169,9 +169,6 @@ thawInMemoryPersistent :: InMemoryPersistentState -> MutableState
 thawInMemoryPersistent (InMemoryPersistentState ts) = unsafePerformIO $ thaw errorLoadCallback ts
 
 instance (MonadBlobStore m) => BlobStorable m PersistentState where
-  store = fmap fst . storeUpdate
-  {-# INLINE store #-}
-
   load = do
     br :: BlobRef PersistentState <- get
     pure $! do
