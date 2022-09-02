@@ -382,6 +382,10 @@ loadSkovPersistentData rp _treeStateDirectory pbsc = do
   (_lastFinalizationRecord, lfStoredBlock) <- liftIO (getLastBlock _db) >>= \case
       Left s -> logExceptionAndThrowTS $ DatabaseInvariantViolation s
       Right r -> return r
+  -- Check that the block state for the last finalized block is not corrupt. The check works because
+  -- the `BlobRef` to the block state is stored in LMDB only after the block state is stored in the
+  -- blob store. If the reference points to a blob that cannot be read, the blob store can be
+  -- assumed to be corrupted.
   elfBlob <- liftIO . try $
     readBlobBSFromHandle (bscBlobStore . PBS.pbscBlobStore $ pbsc) (sbState lfStoredBlock)
   case elfBlob :: Either IOError BS.ByteString of
