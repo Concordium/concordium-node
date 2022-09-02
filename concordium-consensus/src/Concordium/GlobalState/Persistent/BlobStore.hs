@@ -35,7 +35,6 @@ import Control.Concurrent.MVar
 import System.IO
 import Data.Kind (Type)
 import Data.Serialize
-import Data.Coerce
 import Data.Word
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Unsafe as BSUnsafe
@@ -570,32 +569,21 @@ class Monad m => Reference m ref a where
 data BufferedRef a
     = BRBlobbed {brRef :: !(BlobRef a)}
     -- ^Value stored on disk
-    | BRMemory {brIORef :: !(IORef (BlobRef a)), brValue :: !a}
+    | BRMemory {brIORef :: !(IORef (Nullable (BufferedRef a))), brValue :: !a}
     -- ^Value stored in memory and possibly on disk.
-    -- When a new 'BRMemory' instance is created, we initialize 'brIORef' to 'refNull'.
-    -- When we store the instance in persistent storage, we update 'brIORef' with the corresponding pointer.
+    -- When a new 'BRMemory' instance is created, we initialize 'brIORef' to 'Null'.
+    -- When we store the instance in persistent storage, we update 'brIORef' to a @Some BRBoth{..}@.
     -- That way, when we store the same instance again on disk (this could be, e.g., a child block
     -- that inherited its parent's state) we can store the pointer to the 'brValue' data rather than
     -- storing all of the data again.
     | BRBoth {brRef :: !(BlobRef a), brValue :: !a}
     -- ^Value stored in memory and on disk.
 
--- |Coerce one buffered ref to another. This is unsafe unless a and b have compatible
--- blobstorable instances.
-unsafeCoerceBufferedRef :: (a -> b) -> BufferedRef a -> BufferedRef b
-unsafeCoerceBufferedRef _ (BRBlobbed br) = BRBlobbed (coerce br)
-unsafeCoerceBufferedRef f (BRMemory ioref val) = BRMemory (coerce ioref) (f val)
-unsafeCoerceBufferedRef f (BRBoth br val) = BRBoth (coerce br) (f val)
-
--- | Create a @BRMemory@ value in a @MonadIO@ context with the provided values
-makeBRMemory :: MonadIO m => (BlobRef a) -> a -> m (BufferedRef a)
-makeBRMemory r a = liftIO $ do
-    ref <- newIORef r
-    return $ BRMemory ref a
-
 -- | Create a @BRMemory@ value with a null reference (so the value is just in memory)
 makeBufferedRef :: MonadIO m => a -> m (BufferedRef a)
-makeBufferedRef = makeBRMemory refNull
+makeBufferedRef v = liftIO $ do
+    ref <- newIORef Null
+    return $ BRMemory ref v
 
 instance Show a => Show (BufferedRef a) where
   show (BRBlobbed r) = show r
@@ -604,29 +592,25 @@ instance Show a => Show (BufferedRef a) where
 
 instance BlobStorable m a => BlobStorable m (BufferedRef a) where
     load = fmap BRBlobbed <$> load
-    storeUpdate (BRMemory ref v) = do
-        r <- liftIO $ readIORef ref
-        if isNull r
-        then do
+    storeUpdate (BRMemory ref v) = liftIO (readIORef ref) >>= \case
+        Null -> do
             (r' :: BlobRef a, v') <- storeUpdateRef v
-            liftIO . writeIORef ref $! r'
-            return (put r', BRBoth r' v')
-        else return (put r, BRBoth r v)
+            let br' = BRBoth r' v'
+            liftIO . writeIORef ref $! Some br'
+            return (put r', br')
+        Some br' -> storeUpdate br'
     storeUpdate x = do
         ref <- getBRRef x
         return (put ref, x)
 
 -- |Stores in-memory data to disk if it has not been stored yet and returns pointer to saved data
 getBRRef :: BlobStorable m a => BufferedRef a -> m (BlobRef a)
-getBRRef (BRMemory ref v) = do
-    r <- liftIO $ readIORef ref
-    if isNull r
-    then do
-        (r' :: BlobRef a) <- storeRef v
-        liftIO . writeIORef ref $! r'
+getBRRef (BRMemory ref v) = liftIO (readIORef ref) >>= \case
+    Null -> do
+        (r' :: BlobRef a, v') <- storeUpdateRef v
+        liftIO . writeIORef ref $! Some (BRBoth r' v')
         return r'
-    else
-        return r
+    Some br' -> getBRRef br'
 getBRRef (BRBoth r _) = return r
 getBRRef (BRBlobbed r) = return r
 
@@ -659,7 +643,7 @@ uncacheBuffered :: BlobStorable m a => BufferedRef a -> m (BufferedRef a)
 uncacheBuffered = refUncache
 
 instance (Monad m, BlobStorable m a) => Reference m BufferedRef a where
-  refMake = makeBRMemory refNull
+  refMake = makeBufferedRef
 
   refLoad (BRBlobbed ref) = loadRef ref
   refLoad (BRMemory _ v) = return v
@@ -671,14 +655,13 @@ instance (Monad m, BlobStorable m a) => Reference m BufferedRef a where
   refCache r@(BRMemory _ v) = return (v, r)
   refCache r@(BRBoth _ v) = return (v, r)
 
-  refFlush brm@(BRMemory ref v) = do
-    r <- liftIO $ readIORef ref
-    if isNull r
-      then do
+  refFlush (BRMemory ref v) = liftIO (readIORef ref) >>= \case
+    Null -> do
         (!r' :: BlobRef a, !v') <- storeUpdateRef v
-        liftIO . writeIORef ref $! r'
+        let br' = BRBoth r' v'
+        liftIO . writeIORef ref $! Some br'
         return (BRBoth r' v', r')
-      else return (brm, r)
+    Some brm' -> refFlush brm'
   refFlush b = return (b, brRef b)
 
   refUncache v@(BRMemory _ _) = BRBlobbed <$> getBRRef v
@@ -940,7 +923,7 @@ type HashedBufferedRef = HashedBufferedRef' H.Hash
 -- |Created a 'HashedBufferedRef' value from a 'Hashed' value, retaining the hash.
 bufferHashed :: MonadIO m => Hashed a -> m (HashedBufferedRef a)
 bufferHashed (Hashed !val !h) = do
-  br <- makeBRMemory refNull val
+  br <- makeBufferedRef val
   hashRef <- liftIO $ newIORef (Some h)
   return $ HashedBufferedRef br hashRef
 
@@ -948,7 +931,7 @@ bufferHashed (Hashed !val !h) = do
 -- on demand.
 makeHashedBufferedRef :: (MonadIO m) => a -> m (HashedBufferedRef' h a)
 makeHashedBufferedRef val = do
-  br <- makeBRMemory refNull val
+  br <- makeBufferedRef val
   hashRef <- liftIO $ newIORef Null
   return $ HashedBufferedRef br hashRef
 
@@ -983,7 +966,7 @@ instance (Monad m, BlobStorable m a, MHashableTo m h a) => Reference m (HashedBu
   refLoad = loadBufferedRef . bufferedReference
 
   refMake val = do
-    br <- makeBRMemory refNull val
+    br <- makeBufferedRef val
     hashRef <- liftIO $ newIORef Null
     return $ HashedBufferedRef br hashRef
 
@@ -1234,23 +1217,14 @@ class MonadBlobStore m => DirectBlobStorable m a where
 newtype DirectBufferedRef a = DirectBufferedRef {theDBR :: BufferedRef a}
     deriving (Show)
 
--- getDBRRef :: DirectBlobStorable m a => DirectBufferedRef a -> m (BlobRef a)
--- getDBRRef (DirectBufferedRef (BRMemory ref v)) = do
---     r <- liftIO $ readIORef ref
---     if isNull r
---     then do
---         (r' :: BlobRef a) <- storeRef v
-
 instance DirectBlobStorable m a => BlobStorable m (DirectBufferedRef a) where
-    storeUpdate (DirectBufferedRef (BRMemory ref v)) = do
-        r <- liftIO $ readIORef ref
-        if isNull r
-        then do
+    storeUpdate (DirectBufferedRef (BRMemory ref v)) = liftIO (readIORef ref) >>= \case
+        Null -> do
             (r', !v') <- storeUpdateDirect v
-            liftIO . writeIORef ref $! r'
-            return (put r', DirectBufferedRef (BRBoth r' v'))
-        else do
-            return (put r, DirectBufferedRef (BRBoth r v))
+            let br = BRBoth r' v'
+            liftIO . writeIORef ref $! Some br
+            return (put r', DirectBufferedRef br)
+        Some brm' -> storeUpdate (DirectBufferedRef brm')
     storeUpdate dbr@(DirectBufferedRef (BRBlobbed r)) = return (put r, dbr)
     storeUpdate dbr@(DirectBufferedRef (BRBoth r _)) = return (put r, dbr)
     load = fmap (DirectBufferedRef . BRBlobbed) <$> load
@@ -1271,25 +1245,22 @@ instance DirectBlobStorable m a => Reference m DirectBufferedRef a where
         BRBoth _ v -> return (v, dbr)
     
     refFlush dbr@(DirectBufferedRef br) = case br of
-        BRMemory ref v -> do
-            r <- liftIO $ readIORef ref
-            if isNull r
-            then do
+        BRMemory ref v -> liftIO (readIORef ref) >>= \case
+            Null -> do
                 (!r', !v') <- storeUpdateDirect v
-                liftIO . writeIORef ref $! r
-                return (DirectBufferedRef (BRBoth r' v'), r')
-            else return (DirectBufferedRef (BRBoth r v), r)
+                let br' = BRBoth r' v'
+                liftIO . writeIORef ref $! Some br'
+                return (DirectBufferedRef br', r')
+            Some br' -> refFlush (DirectBufferedRef br')
         _ -> return (dbr, brRef br)
     
     refUncache (DirectBufferedRef br) = case br of
-        BRMemory ref v -> do
-            r <- liftIO $ readIORef ref
-            if isNull r
-            then do
-                (!r', _) <- storeUpdateDirect v
-                liftIO . writeIORef ref $! r
+        BRMemory ref v -> liftIO (readIORef ref) >>= \case
+            Null -> do
+                (!r', !v') <- storeUpdateDirect v
+                liftIO . writeIORef ref $! Some (BRBoth r' v')
                 return (DirectBufferedRef (BRBlobbed r'))
-            else return (DirectBufferedRef (BRBlobbed r))
+            Some br' -> refUncache (DirectBufferedRef br')
         _ -> return (DirectBufferedRef (BRBlobbed (brRef br)))
 
 instance (DirectBlobStorable m a, MHashableTo m h a) => MHashableTo m h (DirectBufferedRef a) where
@@ -1306,12 +1277,3 @@ instance (DirectBlobStorable m a, Cacheable m a) => Cacheable m (DirectBufferedR
         BRBoth{..} -> do
             cachedVal <- cache brValue
             return $! DirectBufferedRef br{brValue = cachedVal}    
-
--- FIXME: Get rid of this
--- |Coerce a 'DirectBufferedRef' from type @a@ to type @b@. For safety, this requires that @a@ and
--- @b@ have compatible 'DirectBlobStorable' instances.
-unsafeCoerceDirectBufferedRef :: (a -> b) -> DirectBufferedRef a -> DirectBufferedRef b
-unsafeCoerceDirectBufferedRef f dbr = DirectBufferedRef $ case theDBR dbr of
-    BRBlobbed br -> BRBlobbed (coerce br)
-    BRMemory ioref val -> BRMemory (coerce ioref) (f val)
-    BRBoth br val -> BRBoth (coerce br) (f val)

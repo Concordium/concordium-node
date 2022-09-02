@@ -1773,7 +1773,7 @@ doPutNewInstance pbs NewInstanceData{..} = do
               -- Seeing that we know that the instance is V0, and that the module exists, this cannot fail.
               ~(Just modRef) <- Modules.getModuleReference (GSWasm.miModuleRef nidInterface) mods
               (csHash, initialState) <- freezeContractState nidInitialState
-              return (ca, PersistentInstanceV0 Instances.PersistentInstanceV{
+              return $!! (ca, PersistentInstanceV0 Instances.PersistentInstanceV{
                   pinstanceModuleInterface = modRef,
                   pinstanceModel = initialState,
                   pinstanceAmount = nidInitialAmount,
@@ -1796,7 +1796,7 @@ doPutNewInstance pbs NewInstanceData{..} = do
               ~(Just modRef) <- Modules.getModuleReference (GSWasm.miModuleRef nidInterface) mods
               (csHash, initialState) <- freezeContractState nidInitialState
               let pinstanceHash = Instances.makeInstanceHashV1 (pinstanceParameterHash params) csHash nidInitialAmount
-              return (ca, PersistentInstanceV1 Instances.PersistentInstanceV{
+              return $!! (ca, PersistentInstanceV1 Instances.PersistentInstanceV{
                   pinstanceModuleInterface = modRef,
                   pinstanceModel = initialState,
                   pinstanceAmount = nidInitialAmount,
