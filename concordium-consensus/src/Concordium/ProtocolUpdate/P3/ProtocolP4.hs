@@ -117,7 +117,7 @@ updateRegenesis updateData = do
                     updateData
                     (gdGenesisTime gd)
                     (fromIntegral (gdEpochLength gd) * gdSlotDuration gd)
-    let newGenesis = GDP4 $
+    let newGenesis = RGDP4 $
             P4.GDP4MigrateFromP3
             { genesisRegenesis = GenesisData.RegenesisData{genesisCore = core, ..},
               ..

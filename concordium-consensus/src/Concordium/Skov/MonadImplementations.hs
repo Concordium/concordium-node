@@ -234,7 +234,7 @@ class SkovConfiguration gsconfig finconfig handlerconfig where
       SkovContext (SkovConfig oldpv gsconfig finconfig handlerconfig) ->
       SkovState (SkovConfig oldpv gsconfig finconfig handlerconfig) ->
       StateMigrationParameters oldpv pv ->
-      GenesisData pv ->
+      Regenesis pv ->
       SkovConfig pv gsconfig finconfig handlerconfig ->
       LogIO (SkovContext (SkovConfig pv gsconfig finconfig handlerconfig),
              SkovState (SkovConfig pv gsconfig finconfig handlerconfig))
@@ -321,7 +321,7 @@ instance
       SkovContext (SkovConfig oldpv gsconfig finconfig handlerconfig) ->
       SkovState (SkovConfig oldpv gsconfig finconfig handlerconfig) ->
       StateMigrationParameters oldpv pv ->
-      GenesisData pv ->
+      Regenesis pv ->
       SkovConfig pv gsconfig finconfig handlerconfig ->
       LogIO (SkovContext (SkovConfig pv gsconfig finconfig handlerconfig),
              SkovState (SkovConfig pv gsconfig finconfig handlerconfig))

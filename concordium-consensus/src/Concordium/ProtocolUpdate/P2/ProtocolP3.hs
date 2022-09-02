@@ -107,5 +107,5 @@ updateRegenesis = do
     regenesisState <- freezeBlockState s3
     rememberFinalState regenesisState
     genesisStateHash <- getStateHash regenesisState
-    let newGenesis = GDP3 $ P3.GDP3Regenesis{genesisRegenesis = GenesisData.RegenesisData{genesisCore = core, ..}}
+    let newGenesis = RGDP3 $ P3.GDP3Regenesis{genesisRegenesis = GenesisData.RegenesisData{genesisCore = core, ..}}
     return (PVInit newGenesis StateMigrationParametersTrivialP2P3 regenesisState)

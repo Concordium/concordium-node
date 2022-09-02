@@ -60,14 +60,14 @@ makePersistentBlockPointer b hs _bpHeight _bpParent _bpLastFinalized _bpLastFina
 -- do block with Weak pointers results in the pointer being deallocated immediately so instead of doing that
 -- we will just put empty pointers there. In any case, when reading those values, if the block is the genesis
 -- block we don't even deref these pointers so they can be empty.
-makeGenesisPersistentBlockPointer :: forall pv m bs. (IsProtocolVersion pv, MonadIO m) =>
-                                    GenesisData pv
+makeGenesisPersistentBlockPointer :: forall pv m bs. (MonadIO m) =>
+                                    GenesisConfiguration
                                   -> bs
                                   -> m (PersistentBlockPointer pv bs)
-makeGenesisPersistentBlockPointer genData _bpState = liftIO $ do
-  let _bpReceiveTime = timestampToUTCTime (gdGenesisTime genData)
-      b = GenesisBlock (genesisConfiguration genData)
-      _bpHash = genesisBlockHash genData
+makeGenesisPersistentBlockPointer genConf _bpState = liftIO $ do
+  let _bpReceiveTime = timestampToUTCTime (gdGenesisTime . _gcCore $ genConf)
+      b = GenesisBlock genConf
+      _bpHash = _gcCurrentHash genConf
   _bpParent <- emptyWeak
   _bpLastFinalized <- emptyWeak
   return $ BlockPointer {

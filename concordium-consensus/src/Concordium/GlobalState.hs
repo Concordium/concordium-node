@@ -402,7 +402,7 @@ class GlobalStateConfig (c :: Type) where
       GSContext c oldpv ->
       GSState c oldpv ->
       StateMigrationParameters oldpv pv ->
-      GenesisData pv ->
+      Regenesis pv ->
       LogIO (GSContext c pv, GSState c pv)
 
     -- |Initialise new global state with the given genesis. If the state already
@@ -428,13 +428,21 @@ instance GlobalStateConfig MemoryTreeMemoryBlockConfig where
     type GSState MemoryTreeMemoryBlockConfig pv = Basic.SkovData pv (BS.HashedBlockState pv)
     initialiseExistingGlobalState _ _ = return Nothing
 
-    migrateExistingState = error "TODO: Unimplemented"
+    migrateExistingState MTMBConfig{..} () Basic.SkovData{..} migration regen = do
+        case _nextGenesisInitialState of
+            Nothing -> error "Precondition violation. The initial state must exist."
+            Just bs ->
+                case migrateBlockState migration (_unhashedBlockState bs) of
+                    Left err -> error $ "Precondition violation. Cannot migrate existing state: " ++ err
+                    Right newbs -> do
+                        skovData <- runPureBlockStateMonad (Basic.initialSkovData mtmbRuntimeParameters (regenesisConfiguration regen) (BS.hashBlockState newbs) _transactionTable)
+                        return ((), skovData)
 
     initialiseNewGlobalState gendata (MTMBConfig rtparams) = do
         (bs, tt) <- case genesisState gendata of
             Left err -> logExceptionAndThrow GlobalState (InvalidGenesisData err)
             Right (bs, tt) -> return (BS.hashBlockState bs, tt)
-        skovData <- runPureBlockStateMonad (Basic.initialSkovData rtparams gendata bs tt)
+        skovData <- runPureBlockStateMonad (Basic.initialSkovData rtparams (genesisConfiguration gendata) bs tt)
         return ((), skovData)
 
     activateGlobalState _ _ _ = return
@@ -462,7 +470,7 @@ instance GlobalStateConfig MemoryTreeDiskBlockConfig where
       let initGS = do
             Basic.initialSkovData
               mtdbRuntimeParameters
-              genData
+              (regenesisConfiguration genData)
               newInitialBlockState
               -- TODO: Figure out if this is the correct thing to do or whether we need to clean up.
               (Basic._transactionTable oldState)
@@ -481,7 +489,7 @@ instance GlobalStateConfig MemoryTreeDiskBlockConfig where
             let initState = do
                     pbs <- makePersistent genState
                     _ <- saveBlockState pbs
-                    Basic.initialSkovData mtdbRuntimeParameters genData pbs genTT
+                    Basic.initialSkovData mtdbRuntimeParameters (genesisConfiguration genData) pbs genTT
             skovData <- runReaderT (runPersistentBlockStateMonad initState) pbsc
             return (pbsc, skovData)
 
@@ -510,7 +518,6 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
         return (Just (pbsc, skovData))
       else return Nothing
 
-
     migrateExistingState DTDBConfig{..} oldPbsc oldState migration genData = do
       pbscBlobStore <- liftIO $ createBlobStore dtdbBlockStateFile
       pbscCache <- liftIO $ Accounts.newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
@@ -526,7 +533,7 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
             initialSkovPersistentData
               dtdbRuntimeParameters
               dtdbTreeStateDirectory
-              genData
+              (regenesisConfiguration genData)
               newInitialBlockState
               ser
               -- TODO: Figure out if this is the correct thing to do or whether we need to clean up.
@@ -549,7 +556,7 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
               logEvent GlobalState LLTrace "Writing persistent global state"
               ser <- saveBlockState pbs
               logEvent GlobalState LLTrace "Creating persistent global state context"
-              initialSkovPersistentData dtdbRuntimeParameters dtdbTreeStateDirectory genData pbs ser genTT
+              initialSkovPersistentData dtdbRuntimeParameters dtdbTreeStateDirectory (genesisConfiguration genData) pbs ser genTT
       isd <- runReaderT (runPersistentBlockStateMonad initGS) pbsc
               `onException` liftIO (destroyBlobStore pbscBlobStore)
       return (pbsc, isd)

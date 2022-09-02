@@ -86,11 +86,11 @@ instance IsProtocolVersion pv => Show (SkovData pv bs) where
         "Branches: " ++ intercalate "," ( ('[':) . (++"]") . intercalate "," . map (take 6 . show . bpHash) <$> toList _branches)
 
 -- |Initial skov data with default runtime parameters (block size = 10MB).
-initialSkovDataDefault :: (IsProtocolVersion pv, BS.BlockStateQuery m, bs ~ BlockState m) => GenesisData pv -> bs -> TransactionTable -> m (SkovData pv bs)
+initialSkovDataDefault :: (IsProtocolVersion pv, BS.BlockStateQuery m, bs ~ BlockState m) => GenesisConfiguration -> bs -> TransactionTable -> m (SkovData pv bs)
 initialSkovDataDefault = initialSkovData defaultRuntimeParameters
 
 -- |Create initial skov data based on a genesis block, its state, and the initial transaction table.
-initialSkovData :: (IsProtocolVersion pv, BS.BlockStateQuery m, bs ~ BlockState m) => RuntimeParameters -> GenesisData pv -> bs -> TransactionTable -> m (SkovData pv bs)
+initialSkovData :: (IsProtocolVersion pv, BS.BlockStateQuery m, bs ~ BlockState m) => RuntimeParameters -> GenesisConfiguration -> bs -> TransactionTable -> m (SkovData pv bs)
 initialSkovData rp gd genState genTT =
     return $ SkovData {
             _blockTable = HM.singleton gbh (TS.BlockFinalized gb gbfin),
@@ -99,7 +99,7 @@ initialSkovData rp gd genState genTT =
             _possiblyPendingQueue = MPQ.empty,
             _finalizationList = Seq.singleton (gbfin, gb),
             _branches = Seq.empty,
-            _genesisData = genesisConfiguration gd,
+            _genesisData = gd,
             _genesisBlockPointer = gb,
             _focusBlock = gb,
             _pendingTransactions = emptyPendingTransactionTable,

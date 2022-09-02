@@ -43,7 +43,7 @@ class BlockStateTypes (m :: Type -> Type) where
 
 
 data PVInit m = forall pv . (IsProtocolVersion pv) => PVInit {
-    pvInitGenesis :: GenesisData pv,
+    pvInitGenesis :: Regenesis pv,
     migration :: StateMigrationParameters (MPV m) pv,
     finalState :: BlockState m
   }

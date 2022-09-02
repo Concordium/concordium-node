@@ -241,7 +241,7 @@ instance (bsp ~ TS.BlockStatePointer bs)
 initialSkovPersistentDataDefault
     :: (IsProtocolVersion pv, FixedSizeSerialization (TS.BlockStatePointer bs), BlockStateQuery m, bs ~ BlockState m, MonadIO m)
     => FilePath
-    -> GenesisData pv
+    -> GenesisConfiguration
     -> bs
     -> TS.BlockStatePointer bs -- ^How to serialize the block state reference for inclusion in the table.
     -> TransactionTable
@@ -257,7 +257,7 @@ initialSkovPersistentData
     -- ^Runtime parameters
     -> FilePath
     -- ^Tree state directory
-    -> GenesisData pv
+    -> GenesisConfiguration
     -- ^Genesis data
     -> bs
     -- ^Genesis state
@@ -278,7 +278,7 @@ initialSkovPersistentData rp treeStateDir gd genState serState genTT = do
             _lastFinalized = gb,
             _lastFinalizationRecord = gbfin,
             _branches = Seq.empty,
-            _genesisData = genesisConfiguration gd,
+            _genesisData = gd,
             _genesisBlockPointer = gb,
             _focusBlock = gb,
             _pendingTransactions = emptyPendingTransactionTable,

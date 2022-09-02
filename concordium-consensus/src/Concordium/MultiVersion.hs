@@ -448,7 +448,7 @@ checkForProtocolUpdate = do
                 let latestEraGenesisHeight = vcGenesisHeight currentConfig
                 runMVR (liftSkovUpdate currentConfig (liftSkov body)) mvr >>= \case
                     Nothing -> return ()
-                    Just (PVInit{pvInitGenesis = nextGenesis :: GenesisData newpv, ..}, lfbHeight) -> do
+                    Just (PVInit{pvInitGenesis = nextGenesis :: Regenesis newpv, ..}, lfbHeight) -> do
                         let vcGenesisHeight = 1 + localToAbsoluteBlockHeight latestEraGenesisHeight lfbHeight
                         let newGSConfig =
                                 ( SkovConfig @newpv @gc @fc
