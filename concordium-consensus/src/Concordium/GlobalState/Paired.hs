@@ -1075,9 +1075,6 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
     markPending pb = do
         coerceGSML $ markPending pb
         coerceGSMR $ markPending pb
-    clearAllNonFinalizedBlocks  = do
-        coerceGSML clearAllNonFinalizedBlocks
-        coerceGSMR clearAllNonFinalizedBlocks
     getGenesisBlockPointer = do
         gen1 <- coerceGSML getGenesisBlockPointer
         gen2 <- coerceGSMR getGenesisBlockPointer
@@ -1154,9 +1151,6 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
             (Nothing, Nothing) -> return Nothing
             (Just pb1, Just pb2) -> assertEq pb1 pb2 $ return $ Just pb1
             _ -> error "takeNextPendingUntil (Paired): implementations returned different results"
-    wipePendingBlocks = do
-        coerceGSML wipePendingBlocks
-        coerceGSMR wipePendingBlocks
     getFocusBlock = do
         fb1 <- coerceGSML $ getFocusBlock
         fb2 <- coerceGSMR $ getFocusBlock
@@ -1215,13 +1209,13 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
       coerceGSML (purgeTransactionTable t i)
       coerceGSMR (purgeTransactionTable t i)
 
-    wipeNonFinalizedTransactions = do
-        l1 <- coerceGSML wipeNonFinalizedTransactions
-        l2 <- coerceGSMR wipeNonFinalizedTransactions
-        -- Note that this test assumes the ordering is consistent
-        -- between implementations, which may not in general be a
-        -- reasonable assumption.
-        assertEq l1 l2 $ return l1
+    clearOnProtocolUpdate = do
+        coerceGSML clearOnProtocolUpdate
+        coerceGSMR clearOnProtocolUpdate
+
+    clearAfterProtocolUpdate = do
+        coerceGSML clearAfterProtocolUpdate
+        coerceGSMR clearAfterProtocolUpdate
 
     getNonFinalizedTransactionVerificationResult tx = do
       r1 <- coerceGSML $ getNonFinalizedTransactionVerificationResult tx

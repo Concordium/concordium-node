@@ -10,6 +10,7 @@ module Concordium.GlobalState.Basic.TreeState where
 
 import Lens.Micro.Platform
 import Concordium.Utils
+import Data.Maybe (fromMaybe)
 import Data.List (intercalate, partition)
 import Data.Foldable
 import Control.Monad.State
@@ -86,12 +87,23 @@ instance IsProtocolVersion pv => Show (SkovData pv bs) where
         "Branches: " ++ intercalate "," ( ('[':) . (++"]") . intercalate "," . map (take 6 . show . bpHash) <$> toList _branches)
 
 -- |Initial skov data with default runtime parameters (block size = 10MB).
-initialSkovDataDefault :: (IsProtocolVersion pv, BS.BlockStateQuery m, bs ~ BlockState m) => GenesisConfiguration -> bs -> TransactionTable -> m (SkovData pv bs)
+initialSkovDataDefault :: (IsProtocolVersion pv, BS.BlockStateQuery m, bs ~ BlockState m) => GenesisConfiguration -> bs -> TransactionTable -> Maybe PendingTransactionTable -> m (SkovData pv bs)
 initialSkovDataDefault = initialSkovData defaultRuntimeParameters
 
 -- |Create initial skov data based on a genesis block, its state, and the initial transaction table.
-initialSkovData :: (IsProtocolVersion pv, BS.BlockStateQuery m, bs ~ BlockState m) => RuntimeParameters -> GenesisConfiguration -> bs -> TransactionTable -> m (SkovData pv bs)
-initialSkovData rp gd genState genTT =
+initialSkovData ::
+  (IsProtocolVersion pv, BS.BlockStateQuery m, bs ~ BlockState m) =>
+  RuntimeParameters ->
+  GenesisConfiguration ->
+  bs ->
+  TransactionTable ->
+  -- ^Genesis transaction table
+  Maybe PendingTransactionTable ->
+  -- ^The table of transactions to start the configuration with. If this
+  -- transaction table has any non-finalized transactions then the pending
+  -- table corresponding to those non-finalized transactions must be supplied.
+  m (SkovData pv bs)
+initialSkovData rp gd genState genTT mPending =
     return $ SkovData {
             _blockTable = HM.singleton gbh (TS.BlockFinalized gb gbfin),
             _finalizedByHeightTable = HM.singleton 0 gb,
@@ -102,7 +114,7 @@ initialSkovData rp gd genState genTT =
             _genesisData = gd,
             _genesisBlockPointer = gb,
             _focusBlock = gb,
-            _pendingTransactions = emptyPendingTransactionTable,
+            _pendingTransactions = fromMaybe emptyPendingTransactionTable mPending,
             _transactionTable = genTT,
             _statistics = initialConsensusStatistics,
             _runtimeParameters = rp,
@@ -167,11 +179,6 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
               finalizedByHeightTable . at (bpHeight bp) ?= bp
             _ -> return ()
     markPending pb = blockTable . at' (getHash pb) ?= TS.BlockPending pb
-    clearAllNonFinalizedBlocks = blockTable %= fmap nonFinDead
-        where
-            nonFinDead TS.BlockPending{} = TS.BlockDead
-            nonFinDead TS.BlockAlive{} = TS.BlockDead
-            nonFinDead o = o
     getGenesisBlockPointer = use genesisBlockPointer
     getGenesisData = use genesisData
     getLastFinalized = use finalizationList >>= \case
@@ -209,9 +216,6 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
                     possiblyPendingQueue .= ppq
                     return Nothing
                     
-    wipePendingBlocks = do
-        possiblyPendingTable .= HM.empty
-        possiblyPendingQueue .= MPQ.empty
     getFocusBlock = use focusBlock
     putFocusBlock bb = focusBlock .= bb
     getPendingTransactions = use pendingTransactions
@@ -406,19 +410,32 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
         transactionTable .= newTT
         pendingTransactions .= newPT
 
-    wipeNonFinalizedTransactions = do
-        let consNonFin (_, Finalized{}) = id
-            consNonFin (bi, _) = (bi :)
-            isFin (_, Finalized{}) = True
-            isFin _ = False
-        -- The motivation for using foldr here is that the list will be consumed by iteration
-        -- almost immediately, so it is reasonable to build it lazily.
-        oldTransactions <- HM.foldr consNonFin [] <$> use (transactionTable . ttHashMap)
-        -- Filter to only the finalized transactions.
-        transactionTable %= (ttHashMap %~ HM.filter isFin)
-                . (ttNonFinalizedTransactions %~ fmap (anftMap .~ Map.empty))
-                . (ttNonFinalizedChainUpdates %~ fmap (nfcuMap .~ Map.empty))
-        return oldTransactions
+    clearOnProtocolUpdate = do
+        -- clear pending blocks
+        possiblyPendingTable .= HM.empty
+        possiblyPendingQueue .= MPQ.empty
+        -- clear non-finalized blocks.
+        branches .=! Seq.empty
+        let nonFinDead TS.BlockPending{} = TS.BlockDead
+            nonFinDead TS.BlockAlive{} = TS.BlockDead
+            nonFinDead o = o
+        blockTable %=! fmap nonFinDead
+        -- mark transactions that are not finalized as received since
+        -- they are no longer committed to any blocks.
+        transactionTable
+            . ttHashMap
+            %=! HM.map
+                ( \(bi, s) -> case s of
+                    Committed{..} -> (bi, Received{..})
+                    _ -> (bi, s)
+                )
+
+    clearAfterProtocolUpdate = do
+        transactionTable .=! emptyTransactionTable
+        pendingTransactions .=! emptyPendingTransactionTable
+        nextGenesisInitialState .=! Nothing
+        BS.collapseCaches
+
     getNonFinalizedTransactionVerificationResult bi = do
       table <- use transactionTable
       return $ getNonFinalizedVerificationResult bi table

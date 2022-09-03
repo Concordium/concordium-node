@@ -83,7 +83,7 @@ updateHash = read "20c6f246713e573fb5bfdf1e59c0a6f1a37cded34ff68fda4a60aa2ed9b15
 -- i.e. it is the first (and only) explicitly-finalized block with timestamp after the
 -- update takes effect.
 updateRegenesis ::
-    (MPV m ~ 'P3, BlockPointerMonad m, BlockStateStorage m, SkovMonad m) =>
+    (MPV m ~ 'P3, BlockStateStorage m, SkovMonad m) =>
     P4.ProtocolUpdateData ->
     m (PVInit m)
 updateRegenesis updateData = do

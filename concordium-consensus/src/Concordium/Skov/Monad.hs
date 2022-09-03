@@ -198,9 +198,15 @@ class (SkovQueryMonad m, TimeMonad m, MonadLogger m) => SkovMonad m where
     trustedFinalize :: FinalizationRecord -> m (Either UpdateResult (BlockPointerType m))
     -- |Handle a catch-up status message.
     handleCatchUpStatus :: CatchUpStatus -> Int -> m (Maybe ([(MessageType, ByteString)], CatchUpStatus), UpdateResult)
-    -- |Clean up the Skov state once it is shut down (i.e. a protocol update has
-    -- occurred). Returns a list of non-finalized transactions.
-    terminateSkov :: m [BlockItem]
+    -- |Clean up the Skov state upon a protocol update, removing all blocks that
+    -- are made obsolete by the protocol update. This should maintain all
+    -- invariants normally maintained by the Skov state, e.g., transaction table
+    -- invariants. occurred). Returns a list of non-finalized transactions.
+    clearSkovOnProtocolUpdate :: m ()
+    -- |Release any resources maintained by Skov and no longer needed after a
+    -- new skov instance is started after a protocol update. This is intended to be called
+    -- **after** 'clearSkovOnProtocolUpdate'.
+    terminateSkov :: m ()
     -- |Purge uncommitted transactions from the transaction table.  This can be called
     -- periodically to clean up transactions that are not committed to any block.
     purgeTransactions :: m ()
@@ -261,6 +267,7 @@ instance (MonadLogger (t m), MonadTrans t, SkovMonad m) => SkovMonad (MGSTrans t
     trustedFinalize = lift . trustedFinalize
     handleCatchUpStatus peerCUS = lift . handleCatchUpStatus peerCUS
     terminateSkov = lift terminateSkov
+    clearSkovOnProtocolUpdate = lift clearSkovOnProtocolUpdate
     purgeTransactions = lift purgeTransactions
 
     rememberFinalState = lift . rememberFinalState

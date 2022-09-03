@@ -519,7 +519,9 @@ instance (
     trustedFinalize = doTrustedFinalize
     {- - INLINE handleCatchUpStatus - -}
     handleCatchUpStatus = doHandleCatchUp
+    clearSkovOnProtocolUpdate = doClearSkov
     terminateSkov = doTerminateSkov
+
     purgeTransactions = doPurgeTransactions
 
     rememberFinalState = storeFinalState

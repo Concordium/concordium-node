@@ -435,14 +435,14 @@ instance GlobalStateConfig MemoryTreeMemoryBlockConfig where
                 case migrateBlockState migration (_unhashedBlockState bs) of
                     Left err -> error $ "Precondition violation. Cannot migrate existing state: " ++ err
                     Right newbs -> do
-                        skovData <- runPureBlockStateMonad (Basic.initialSkovData mtmbRuntimeParameters (regenesisConfiguration regen) (BS.hashBlockState newbs) _transactionTable)
+                        skovData <- runPureBlockStateMonad (Basic.initialSkovData mtmbRuntimeParameters (regenesisConfiguration regen) (BS.hashBlockState newbs) _transactionTable (Just _pendingTransactions))
                         return ((), skovData)
 
     initialiseNewGlobalState gendata (MTMBConfig rtparams) = do
         (bs, tt) <- case genesisState gendata of
             Left err -> logExceptionAndThrow GlobalState (InvalidGenesisData err)
             Right (bs, tt) -> return (BS.hashBlockState bs, tt)
-        skovData <- runPureBlockStateMonad (Basic.initialSkovData rtparams (genesisConfiguration gendata) bs tt)
+        skovData <- runPureBlockStateMonad (Basic.initialSkovData rtparams (genesisConfiguration gendata) bs tt Nothing)
         return ((), skovData)
 
     activateGlobalState _ _ _ = return
@@ -474,6 +474,7 @@ instance GlobalStateConfig MemoryTreeDiskBlockConfig where
               newInitialBlockState
               -- TODO: Figure out if this is the correct thing to do or whether we need to clean up.
               (Basic._transactionTable oldState)
+              (Just (Basic._pendingTransactions oldState))
       isd <- runReaderT (runPersistentBlockStateMonad initGS) pbsc
               `onException` liftIO (destroyBlobStore pbscBlobStore)
       return (pbsc, isd)
@@ -489,7 +490,7 @@ instance GlobalStateConfig MemoryTreeDiskBlockConfig where
             let initState = do
                     pbs <- makePersistent genState
                     _ <- saveBlockState pbs
-                    Basic.initialSkovData mtdbRuntimeParameters (genesisConfiguration genData) pbs genTT
+                    Basic.initialSkovData mtdbRuntimeParameters (genesisConfiguration genData) pbs genTT Nothing
             skovData <- runReaderT (runPersistentBlockStateMonad initState) pbsc
             return (pbsc, skovData)
 
@@ -536,8 +537,8 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
               (regenesisConfiguration genData)
               newInitialBlockState
               ser
-              -- TODO: Figure out if this is the correct thing to do or whether we need to clean up.
-              (Concordium.GlobalState.Persistent.TreeState._transactionTable oldState)
+              (_transactionTable oldState)
+              (Just (_pendingTransactions oldState))
       isd <- runReaderT (runPersistentBlockStateMonad initGS) pbsc
               `onException` liftIO (destroyBlobStore pbscBlobStore)
       return (pbsc, isd)
@@ -556,7 +557,7 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
               logEvent GlobalState LLTrace "Writing persistent global state"
               ser <- saveBlockState pbs
               logEvent GlobalState LLTrace "Creating persistent global state context"
-              initialSkovPersistentData dtdbRuntimeParameters dtdbTreeStateDirectory (genesisConfiguration genData) pbs ser genTT
+              initialSkovPersistentData dtdbRuntimeParameters dtdbTreeStateDirectory (genesisConfiguration genData) pbs ser genTT Nothing
       isd <- runReaderT (runPersistentBlockStateMonad initGS) pbsc
               `onException` liftIO (destroyBlobStore pbscBlobStore)
       return (pbsc, isd)

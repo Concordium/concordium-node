@@ -35,6 +35,7 @@ import Concordium.Types.Updates
 import Control.Exception hiding (handle, throwIO)
 import Control.Monad.Reader
 import Control.Monad.State
+import Data.Maybe (fromMaybe)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import Data.List (partition)
@@ -245,6 +246,7 @@ initialSkovPersistentDataDefault
     -> bs
     -> TS.BlockStatePointer bs -- ^How to serialize the block state reference for inclusion in the table.
     -> TransactionTable
+    -> Maybe PendingTransactionTable
     -> m (SkovPersistentData pv bs)
 initialSkovPersistentDataDefault = initialSkovPersistentData defaultRuntimeParameters
 
@@ -264,9 +266,12 @@ initialSkovPersistentData
     -> TS.BlockStatePointer bs
     -- ^Genesis block state
     -> TransactionTable
-    -- ^Genesis transaction table
+    -- ^The table of transactions to start the configuration with. If this
+    -- transaction table has any non-finalized transactions then the pending
+    -- table corresponding to those non-finalized transactions must be supplied.
+    -> Maybe PendingTransactionTable
     -> m (SkovPersistentData pv bs)
-initialSkovPersistentData rp treeStateDir gd genState serState genTT = do
+initialSkovPersistentData rp treeStateDir gd genState serState genTT mPending = do
   gb <- makeGenesisPersistentBlockPointer gd genState
   let gbh = bpHash gb
       gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
@@ -281,7 +286,7 @@ initialSkovPersistentData rp treeStateDir gd genState serState genTT = do
             _genesisData = gd,
             _genesisBlockPointer = gb,
             _focusBlock = gb,
-            _pendingTransactions = emptyPendingTransactionTable,
+            _pendingTransactions = fromMaybe emptyPendingTransactionTable mPending,
             _transactionTable = genTT,
             _transactionTablePurgeCounter = 0,
             _statistics = initialConsensusStatistics,
@@ -604,10 +609,6 @@ instance (MonadLogger (PersistentTreeStateMonad bs m),
                 }
             _ -> return Nothing
     markPending pb = blockTable . liveMap . at' (getHash pb) ?=! BlockPending pb
-    clearAllNonFinalizedBlocks = do
-      blockTable . liveMap .=! HM.empty
-      blockTable . deadCache .=! emptyDeadCache
-      nextGenesisInitialState .=! Nothing
     
     getGenesisBlockPointer = use genesisBlockPointer
     getGenesisData = use genesisData
@@ -675,9 +676,6 @@ instance (MonadLogger (PersistentTreeStateMonad bs m),
                 Nothing -> do
                     possiblyPendingQueue .= ppq
                     return Nothing
-    wipePendingBlocks = do
-        possiblyPendingTable .=! HM.empty
-        possiblyPendingQueue .=! MPQ.empty
 
     getFocusBlock = use focusBlock
     putFocusBlock bb = focusBlock .= bb
@@ -915,14 +913,30 @@ instance (MonadLogger (PersistentTreeStateMonad bs m),
         transactionTable .= newTT
         pendingTransactions .= newPT
 
-    wipeNonFinalizedTransactions = do
-        -- This assumes that the transaction table only
-        -- contains non-finalized transactions.
-        -- The motivation for using foldr here is that the list will be consumed by iteration
-        -- almost immediately, so it is reasonable to build it lazily.
-        oldTransactions <- HM.foldr ((:) . fst) [] <$> use (transactionTable . ttHashMap)
+    clearOnProtocolUpdate = do
+        -- clear the pending blocks
+        possiblyPendingTable .=! HM.empty
+        possiblyPendingQueue .=! MPQ.empty
+        -- and non-finalized blocks
+        branches .=! Seq.empty
+        blockTable . liveMap .=! HM.empty
+        blockTable . deadCache .=! emptyDeadCache
+        -- mark all transactions that are not finalized as received since
+        -- they are no longer part of any blocks.
+        transactionTable
+            . ttHashMap
+            %=! HM.map
+                ( \(bi, s) -> case s of
+                    Committed{..} -> (bi, Received{..})
+                    _ -> (bi, s)
+                )
+
+    clearAfterProtocolUpdate = do
         transactionTable .=! emptyTransactionTable
-        return oldTransactions
+        pendingTransactions .=! emptyPendingTransactionTable
+        nextGenesisInitialState .=! Nothing
+        collapseCaches
+
     getNonFinalizedTransactionVerificationResult bi = do
       table <- use transactionTable
       return $ getNonFinalizedVerificationResult bi table

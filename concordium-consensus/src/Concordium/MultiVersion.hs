@@ -449,6 +449,10 @@ checkForProtocolUpdate = do
                 runMVR (liftSkovUpdate currentConfig (liftSkov body)) mvr >>= \case
                     Nothing -> return ()
                     Just (PVInit{pvInitGenesis = nextGenesis :: Regenesis newpv, ..}, lfbHeight) -> do
+                        -- clear data we no longer need after the protocol update
+                        runMVR (liftSkovUpdate currentConfig (liftSkov clearSkovOnProtocolUpdate)) mvr
+
+                        -- and start the new skov.
                         let vcGenesisHeight = 1 + localToAbsoluteBlockHeight latestEraGenesisHeight lfbHeight
                         let newGSConfig =
                                 ( SkovConfig @newpv @gc @fc
@@ -471,21 +475,13 @@ checkForProtocolUpdate = do
                         let newEConfig :: VersionedConfiguration gc fc newpv
                             newEConfig = VersionedConfiguration{..}
                         writeIORef mvVersions (existingVersions `Vec.snoc` newVersion newEConfig)
-                        runLoggerT (logEvent Runner LLTrace "Getting genesis configuration") mvLog
-                        (genConf, _) <- runMVR (runSkovT (liftSkov getGenesisData) (mvrSkovHandlers newEConfig mvr) vcContext st) mvr
-                        runLoggerT (logEvent Runner LLTrace "Got genesis configuration") mvLog
                         -- Notify the network layer we have a new genesis.
                         let Callbacks{..} = mvCallbacks
-                        notifyRegenesis (Just (_gcCurrentHash genConf))
-                        -- Close down the state and get the non-finalized transactions.
-                        oldTransactions <- runMVR (liftSkovUpdate currentConfig (liftSkov terminateSkov)) mvr
+                        notifyRegenesis (Just (regenesisBlockHash nextGenesis))
+                        -- Close down and resources that the old instance retains.
+                        runMVR (liftSkovUpdate currentConfig (liftSkov terminateSkov)) mvr
                         return ()
   where
-    -- TODO: THis is now done by state migration
-    -- Transfer the non-finalized transactions to the new version.
-    --                   lift $ do
-    --                     liftSkovUpdate newEConfig $ mapM_ Skov.receiveTransaction oldTransactions
-    --                   return ()
 
     showPU ProtocolUpdate{..} =
         Text.unpack puMessage

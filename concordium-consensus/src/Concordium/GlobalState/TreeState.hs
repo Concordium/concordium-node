@@ -174,10 +174,6 @@ class (Eq (BlockPointerType m),
     markFinalized :: BlockHash -> FinalizationRecord -> m (MarkFin m)
     -- |Mark a block as pending (i.e. awaiting parent)
     markPending :: PendingBlock -> m ()
-    -- |Clear all non-finalized blocks from the block table. This is only
-    -- intended to be used on Skov shut down, when these blocks are no longer
-    -- needed.
-    clearAllNonFinalizedBlocks :: m ()
     -- * Queries on genesis block
     -- |Get the genesis 'BlockPointer'.
     getGenesisBlockPointer :: m (BlockPointerType m)
@@ -237,9 +233,6 @@ class (Eq (BlockPointerType m),
     -- less than or equal to the given value, removing it from the pending
     -- table.  Returns 'Nothing' if there is no such pending block.
     takeNextPendingUntil :: Slot -> m (Maybe PendingBlock)
-    -- |Remove all blocks from the pending table. This is only intended to
-    -- be used on Skov shut down, when these blocks are no longer needed.
-    wipePendingBlocks :: m ()
 
     -- * Operations on the pending transaction table
     --
@@ -364,11 +357,6 @@ class (Eq (BlockPointerType m),
     markDeadTransaction :: BlockHash -> BlockItem -> m ()
     -- |Lookup a transaction status by its hash.
     lookupTransaction :: TransactionHash -> m (Maybe TransactionStatus)
-    -- |Remove and return all non-finalized transactions from the transaction table.
-    -- This is intended for use in shutting down the Skov, since it disregards whether
-    -- transactions are present in blocks.
-    wipeNonFinalizedTransactions :: m [BlockItem]
-
 
     -- * Operations on statistics
     -- |Get the current consensus statistics.
@@ -380,7 +368,21 @@ class (Eq (BlockPointerType m),
     -- not belong to genesis data.
     getRuntimeParameters :: m RuntimeParameters
 
-    --
+    -- * Operations related to shutdown upon protocol update.
+
+    -- |Remove all blocks that are made redundant by the protocol update
+    -- taking effect. This is intended to be called after the first block
+    -- after the effective time is finalized. It will
+    -- 
+    --   - Clear all non-finalized blocks from the block table.
+    --   - Remove all blocks from the pending table.
+    --   - Mark all non-finalized but committed transactions 
+    clearOnProtocolUpdate :: m ()
+
+    -- |Do any cleanup of resources that are no longer needed after the protocol
+    -- update has been processed.
+    clearAfterProtocolUpdate :: m ()
+  
     storeFinalState :: BlockState m -> m ()
 
 instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTrans t m) where
@@ -392,7 +394,6 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     type MarkFin (MGSTrans t m) = MarkFin m
     markFinalized bh = lift . markFinalized bh
     markPending = lift . markPending
-    clearAllNonFinalizedBlocks = lift clearAllNonFinalizedBlocks
     getGenesisBlockPointer = lift getGenesisBlockPointer
     getGenesisData = lift getGenesisData
     getLastFinalized = lift getLastFinalized
@@ -409,7 +410,6 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     takePendingChildren = lift . takePendingChildren
     addPendingBlock = lift . addPendingBlock
     takeNextPendingUntil = lift . takeNextPendingUntil
-    wipePendingBlocks = lift wipePendingBlocks
     getFocusBlock = lift getFocusBlock
     putFocusBlock = lift . putFocusBlock
     getPendingTransactions = lift getPendingTransactions
@@ -423,7 +423,6 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     commitTransaction slot bh tr = lift . commitTransaction slot bh tr
     addCommitTransaction tr ctx ts slot = lift $ addCommitTransaction tr ctx ts slot
     purgeTransaction = lift . purgeTransaction
-    wipeNonFinalizedTransactions = lift wipeNonFinalizedTransactions
     markDeadTransaction bh = lift . markDeadTransaction bh
     lookupTransaction = lift . lookupTransaction
     getConsensusStatistics = lift getConsensusStatistics
@@ -431,6 +430,8 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     getRuntimeParameters = lift getRuntimeParameters
     purgeTransactionTable tm = lift . (purgeTransactionTable tm)
     getNonFinalizedTransactionVerificationResult = lift . getNonFinalizedTransactionVerificationResult
+    clearOnProtocolUpdate = lift clearOnProtocolUpdate
+    clearAfterProtocolUpdate = lift clearAfterProtocolUpdate
     storeFinalState = lift . storeFinalState
     {-# INLINE makePendingBlock #-}
     {-# INLINE getBlockStatus #-}
@@ -438,7 +439,6 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     {-# INLINE markDead #-}
     {-# INLINE markFinalized #-}
     {-# INLINE markPending #-}
-    {-# INLINE clearAllNonFinalizedBlocks #-}
     {-# INLINE getGenesisBlockPointer #-}
     {-# INLINE getGenesisData #-}
     {-# INLINE getLastFinalized #-}
@@ -454,7 +454,6 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     {-# INLINE takePendingChildren #-}
     {-# INLINE addPendingBlock #-}
     {-# INLINE takeNextPendingUntil #-}
-    {-# INLINE wipePendingBlocks #-}
     {-# INLINE getFocusBlock #-}
     {-# INLINE putFocusBlock #-}
     {-# INLINE getPendingTransactions #-}
@@ -467,7 +466,6 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     {-# INLINE commitTransaction #-}
     {-# INLINE addCommitTransaction #-}
     {-# INLINE purgeTransaction #-}
-    {-# INLINE wipeNonFinalizedTransactions #-}
     {-# INLINE lookupTransaction #-}
     {-# INLINE markDeadTransaction #-}
     {-# INLINE getConsensusStatistics #-}
@@ -475,6 +473,8 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     {-# INLINE getRuntimeParameters #-}
     {-# INLINE purgeTransactionTable #-}
     {-# INLINE getNonFinalizedTransactionVerificationResult #-}
+    {-# INLINE clearOnProtocolUpdate #-}
+    {-# INLINE clearAfterProtocolUpdate #-}
 
 deriving via (MGSTrans MaybeT m) instance TreeStateMonad m => TreeStateMonad (MaybeT m)
 deriving via (MGSTrans (ExceptT e) m) instance TreeStateMonad m => TreeStateMonad (ExceptT e m)
