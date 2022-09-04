@@ -122,4 +122,4 @@ updateRegenesis updateData = do
             { genesisRegenesis = GenesisData.RegenesisData{genesisCore = core, ..},
               ..
             }
-    return (PVInit newGenesis (StateMigrationParametersP3ToP4 genesisMigration) regenesisState)
+    return (PVInit newGenesis (StateMigrationParametersP3ToP4 genesisMigration) (bpHeight lfb))

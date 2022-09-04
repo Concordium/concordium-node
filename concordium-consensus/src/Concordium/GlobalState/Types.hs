@@ -41,11 +41,17 @@ class BlockStateTypes (m :: Type -> Type) where
     type MigrationContext m :: ProtocolVersion -> Type
     type NextBlockState m :: ProtocolVersion -> Type
 
-
+-- |Data retrieved from the existing skov instance that is needed to construct
+-- the new instance. This is an existential type that closes over the **new**
+-- protocol version. The existing protocol version is determined from the monad
+-- @m@, which will have to be an instance of 'MonadProtocolVersion'.
 data PVInit m = forall pv . (IsProtocolVersion pv) => PVInit {
+    -- |Genesis data for the new chain.
     pvInitGenesis :: Regenesis pv,
-    migration :: StateMigrationParameters (MPV m) pv,
-    finalState :: BlockState m
+    -- |Instructions on how to migrate from the existing instance to the new one.
+    pvInitMigration :: StateMigrationParameters (MPV m) pv,
+    -- |(Relative) height of the last finalized block.
+    pvInitFinalHeight :: BlockHeight
   }
 
 -- |Account together with its index in the account map.

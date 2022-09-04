@@ -148,4 +148,4 @@ updateRegenesis UpdateData{..} = do
     genesisStateHash <- getStateHash regenesisState
     let genesisRegenesis = GenesisData.RegenesisData{..}
     let newGenesis = RGDP1 P1.GDP1Regenesis{..}
-    return (PVInit newGenesis StateMigrationParametersTrivial regenesisState)
+    return (PVInit newGenesis StateMigrationParametersTrivial (bpHeight lfb))
