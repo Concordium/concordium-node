@@ -127,8 +127,8 @@ migratePersistentEpochBakers ::
     PersistentEpochBakers (AccountVersionFor oldpv) ->
     t m (PersistentEpochBakers (AccountVersionFor pv))
 migratePersistentEpochBakers migration PersistentEpochBakers {..} = do
-  newBakerInfos <- migrateHashedBufferedRef' (migrateBakerInfos migration) _bakerInfos
-  newBakerStakes <- migrateHashedBufferedRef' return _bakerStakes
+  newBakerInfos <- migrateHashedBufferedRef (migrateBakerInfos migration) _bakerInfos
+  newBakerStakes <- migrateHashedBufferedRef return _bakerStakes
   return PersistentEpochBakers {
     _bakerInfos = newBakerInfos,
     _bakerStakes = newBakerStakes,

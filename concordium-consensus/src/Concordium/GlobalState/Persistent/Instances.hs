@@ -127,8 +127,8 @@ migratePersistentInstanceV ::
     PersistentInstanceV v ->
     t m (PersistentInstanceV v)
 migratePersistentInstanceV PersistentInstanceV{..} = do
-  newInstanceParameters <- migrateBufferedRef return pinstanceParameters
-  newInstanceModuleInterface <- migrateBufferedRef return pinstanceModuleInterface
+  newInstanceParameters <- migrateReference return pinstanceParameters
+  newInstanceModuleInterface <- migrateReference return pinstanceModuleInterface
   newInstanceModel <- migrateInstanceStateV pinstanceModel
   return PersistentInstanceV{
     pinstanceParameters = newInstanceParameters,
@@ -539,7 +539,7 @@ migrateIT ::
     ) =>
     BufferedFix (IT oldpv) ->
     t m (BufferedFix (IT pv))
-migrateIT (BufferedFix bf) = BufferedFix <$> migrateBufferedRef go bf
+migrateIT (BufferedFix bf) = BufferedFix <$> migrateReference go bf
   where
     go :: IT oldpv (BufferedFix (IT oldpv)) -> t m (IT pv (BufferedFix (IT pv)))
     go Branch{..} = do

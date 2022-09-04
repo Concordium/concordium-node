@@ -344,7 +344,7 @@ data HashedCachedRef' h c a
         hcrHash :: !h
     }
 
--- TODO: If the hash hasn't changed then this can be optimized. Do it.
+-- |Migrate a 'HashedCachedRef'. This
 migrateHashedCachedRef' ::
     forall h c c' a b t m.
     ( Cache c
@@ -366,7 +366,8 @@ migrateHashedCachedRef' ::
     t m (HashedCachedRef' h c' b)
 migrateHashedCachedRef' f hcr = do
     !v <- f =<< lift (refLoad hcr)
-    (!newRef, _) <- refFlush =<< refMake v
+    -- compute the hash now that the value is available
+    (!newRef, _) <- refFlush =<< makeHashedCachedRef v =<< getHashM v
     return newRef
 
 type HashedCachedRef = HashedCachedRef' H.Hash

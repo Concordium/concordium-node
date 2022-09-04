@@ -53,7 +53,7 @@ migrateUpdateQueue ::
   t m (UpdateQueue e2)
 migrateUpdateQueue f UpdateQueue{..} = do
   newQueue <- forM uqQueue $ \(tt, r) -> do
-    (tt,) <$> migrateHashedBufferedRef' (return . StoreSerialized . f . unStoreSerialized) r
+    (tt,) <$> migrateHashedBufferedRef (return . StoreSerialized . f . unStoreSerialized) r
   return UpdateQueue {
     uqQueue = newQueue,
     .. -- copy over the next sequence number
@@ -222,24 +222,24 @@ migratePendingUpdates ::
   PendingUpdates (ChainParametersVersionFor oldpv) ->
   t m (PendingUpdates (ChainParametersVersionFor pv))
 migratePendingUpdates migration PendingUpdates{..} = do
-  newRootKeys <- migrateHashedBufferedRef' (migrateUpdateQueue id) pRootKeysUpdateQueue
-  newLevel1Keys <- migrateHashedBufferedRef' (migrateUpdateQueue id) pLevel1KeysUpdateQueue
-  newLevel2Keys <- migrateHashedBufferedRef' (migrateUpdateQueue (migrateAuthorizations migration)) pLevel2KeysUpdateQueue
-  newProtocol <- migrateHashedBufferedRef' (migrateUpdateQueue id) pProtocolQueue
-  newElectionDifficulty <- migrateHashedBufferedRef' (migrateUpdateQueue id) pElectionDifficultyQueue
-  newEuroPerEnergy <- migrateHashedBufferedRef' (migrateUpdateQueue id) pEuroPerEnergyQueue
-  newMicroGTUPerEuro <- migrateHashedBufferedRef' (migrateUpdateQueue id) pMicroGTUPerEuroQueue
-  newFoundationAccount <- migrateHashedBufferedRef' (migrateUpdateQueue id) pFoundationAccountQueue
-  newMintDistribution <- migrateHashedBufferedRef' (migrateUpdateQueue (migrateMintDistribution migration)) pMintDistributionQueue
-  newTransactionFeeDistribution <- migrateHashedBufferedRef' (migrateUpdateQueue id) pTransactionFeeDistributionQueue
-  newGASRewards <- migrateHashedBufferedRef' (migrateUpdateQueue id) pGASRewardsQueue
-  newPoolParameters <- migrateHashedBufferedRef' (migrateUpdateQueue (migratePoolParameters migration)) pPoolParametersQueue
-  newAddAnonymityRevokers <- migrateHashedBufferedRef' (migrateUpdateQueue id) pAddAnonymityRevokerQueue
-  newAddIdentityProviders <- migrateHashedBufferedRef' (migrateUpdateQueue id) pAddIdentityProviderQueue
+  newRootKeys <- migrateHashedBufferedRef (migrateUpdateQueue id) pRootKeysUpdateQueue
+  newLevel1Keys <- migrateHashedBufferedRef (migrateUpdateQueue id) pLevel1KeysUpdateQueue
+  newLevel2Keys <- migrateHashedBufferedRef (migrateUpdateQueue (migrateAuthorizations migration)) pLevel2KeysUpdateQueue
+  newProtocol <- migrateHashedBufferedRef (migrateUpdateQueue id) pProtocolQueue
+  newElectionDifficulty <- migrateHashedBufferedRef (migrateUpdateQueue id) pElectionDifficultyQueue
+  newEuroPerEnergy <- migrateHashedBufferedRef (migrateUpdateQueue id) pEuroPerEnergyQueue
+  newMicroGTUPerEuro <- migrateHashedBufferedRef (migrateUpdateQueue id) pMicroGTUPerEuroQueue
+  newFoundationAccount <- migrateHashedBufferedRef (migrateUpdateQueue id) pFoundationAccountQueue
+  newMintDistribution <- migrateHashedBufferedRef (migrateUpdateQueue (migrateMintDistribution migration)) pMintDistributionQueue
+  newTransactionFeeDistribution <- migrateHashedBufferedRef (migrateUpdateQueue id) pTransactionFeeDistributionQueue
+  newGASRewards <- migrateHashedBufferedRef (migrateUpdateQueue id) pGASRewardsQueue
+  newPoolParameters <- migrateHashedBufferedRef (migrateUpdateQueue (migratePoolParameters migration)) pPoolParametersQueue
+  newAddAnonymityRevokers <- migrateHashedBufferedRef (migrateUpdateQueue id) pAddAnonymityRevokerQueue
+  newAddIdentityProviders <- migrateHashedBufferedRef (migrateUpdateQueue id) pAddIdentityProviderQueue
   newTimeParameters <- case migration of
     StateMigrationParametersTrivial -> case pTimeParametersQueue of
       NothingForCPV1 -> return NothingForCPV1
-      JustForCPV1 hbr -> JustForCPV1 <$> migrateHashedBufferedRef' (migrateUpdateQueue id) hbr
+      JustForCPV1 hbr -> JustForCPV1 <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
     StateMigrationParametersTrivialP1P2 -> case pTimeParametersQueue of
       NothingForCPV1 -> return NothingForCPV1
     StateMigrationParametersTrivialP2P3 -> case pTimeParametersQueue of
@@ -250,7 +250,7 @@ migratePendingUpdates migration PendingUpdates{..} = do
   newCooldownParameters <- case migration of
     StateMigrationParametersTrivial -> case pCooldownParametersQueue of
       NothingForCPV1 -> return NothingForCPV1
-      JustForCPV1 hbr -> JustForCPV1 <$> migrateHashedBufferedRef' (migrateUpdateQueue id) hbr
+      JustForCPV1 hbr -> JustForCPV1 <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
     StateMigrationParametersTrivialP1P2 -> case pCooldownParametersQueue of
       NothingForCPV1 -> return NothingForCPV1
     StateMigrationParametersTrivialP2P3 -> case pCooldownParametersQueue of
@@ -532,8 +532,8 @@ migrateUpdates migration Updates{..} = do
           level2Keys = migrateAuthorizations migration level2Keys,
           ..
           }
-  newKeyCollection <- migrateHashedBufferedRef' (return . StoreSerialized . migrateKeysCollection . unStoreSerialized) currentKeyCollection
-  newParameters <- migrateHashedBufferedRef' (return . StoreSerialized . migrateChainParameters migration . unStoreSerialized) currentParameters
+  newKeyCollection <- migrateHashedBufferedRef (return . StoreSerialized . migrateKeysCollection . unStoreSerialized) currentKeyCollection
+  newParameters <- migrateHashedBufferedRef (return . StoreSerialized . migrateChainParameters migration . unStoreSerialized) currentParameters
   return Updates {
     currentKeyCollection = newKeyCollection,
     currentProtocolUpdate = Null, -- TODO: Make sure this is sensible. We do always clear pending protocol updates, but maybe we don't want to do that here.

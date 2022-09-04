@@ -128,9 +128,9 @@ migratePersistentBirkParameters migration accounts PersistentBirkParameters{..} 
     Accounts.indexedAccount aid accounts >>= \case
       Nothing -> error "Baker account does not exist."
       Just pa -> return $! (acc + _accountAmount pa)) 0 bakerIds
-  newActiveBakers <- migrateBufferedRef (migratePersistentActiveBakers migration totalBakerStakedAmount) _birkActiveBakers
-  newNextEpochBakers <- migrateHashedBufferedRef' (migratePersistentEpochBakers migration) _birkNextEpochBakers
-  newCurrentEpochBakers <- migrateHashedBufferedRef' (migratePersistentEpochBakers migration) _birkCurrentEpochBakers
+  newActiveBakers <- migrateReference (migratePersistentActiveBakers migration totalBakerStakedAmount) _birkActiveBakers
+  newNextEpochBakers <- migrateHashedBufferedRef (migratePersistentEpochBakers migration) _birkNextEpochBakers
+  newCurrentEpochBakers <- migrateHashedBufferedRef (migratePersistentEpochBakers migration) _birkCurrentEpochBakers
   return PersistentBirkParameters {
     _birkActiveBakers = newActiveBakers,
     _birkNextEpochBakers = newNextEpochBakers,
@@ -224,7 +224,7 @@ data EpochBlock = EpochBlock {
 
 migrateEpochBlocks :: (MonadTrans t, BlobStorable m EpochBlock, BlobStorable (t m) EpochBlock) => EpochBlocks -> t m EpochBlocks
 migrateEpochBlocks Null = return Null
-migrateEpochBlocks (Some inner) = Some <$> migrateBufferedRef go inner
+migrateEpochBlocks (Some inner) = Some <$> migrateReference go inner
   where go EpochBlock{..} = do
           newPrevious <- migrateEpochBlocks ebPrevious
           return EpochBlock{ebPrevious = newPrevious,..}
@@ -356,7 +356,7 @@ migrateBlockRewardDetails ::
     t m (BlockRewardDetails (AccountVersionFor pv))
 migrateBlockRewardDetails StateMigrationParametersTrivial _ _ _ = \case
     (BlockRewardDetailsV0 heb) -> BlockRewardDetailsV0 <$> migrateHashedEpochBlocks heb
-    (BlockRewardDetailsV1 hbr) -> BlockRewardDetailsV1 <$> migrateHashedBufferedRef' return hbr
+    (BlockRewardDetailsV1 hbr) -> BlockRewardDetailsV1 <$> migrateHashedBufferedRef return hbr
 migrateBlockRewardDetails StateMigrationParametersTrivialP1P2 _ _ _ = \case
     (BlockRewardDetailsV0 heb) -> BlockRewardDetailsV0 <$> migrateHashedEpochBlocks heb
 migrateBlockRewardDetails StateMigrationParametersTrivialP2P3 _ _ _ = \case
@@ -2944,14 +2944,14 @@ migrateBlockPointers ::
 migrateBlockPointers migration BlockStatePointers {..} = do
     newAccounts <- Accounts.migrateAccounts migration bspAccounts
     newInstances <- Instances.migrateInstances bspInstances
-    newModules <- migrateHashedBufferedRef' Modules.migrateModules bspModules
+    newModules <- migrateHashedBufferedRef Modules.migrateModules bspModules
     let newBank = bspBank
-    newIdentityProviders <- migrateHashedBufferedRef' return bspIdentityProviders
-    newAnonymityRevokers <- migrateHashedBufferedRef' return bspAnonymityRevokers
+    newIdentityProviders <- migrateHashedBufferedRef return bspIdentityProviders
+    newAnonymityRevokers <- migrateHashedBufferedRef return bspAnonymityRevokers
     newBirkParameters <- migratePersistentBirkParameters migration newAccounts bspBirkParameters
-    newCryptographicParameters <- migrateHashedBufferedRef' return bspCryptographicParameters
-    newUpdates <- migrateBufferedRef (migrateUpdates migration) bspUpdates
-    newReleaseSchedule <- migrateBufferedRef return bspReleaseSchedule
+    newCryptographicParameters <- migrateHashedBufferedRef return bspCryptographicParameters
+    newUpdates <- migrateReference (migrateUpdates migration) bspUpdates
+    newReleaseSchedule <- migrateReference return bspReleaseSchedule
     curBakers <- extractBakerStakes =<< refLoad (_birkCurrentEpochBakers newBirkParameters)
     nextBakers <- extractBakerStakes =<< refLoad (_birkNextEpochBakers newBirkParameters)
     -- clear transaction outcomes.

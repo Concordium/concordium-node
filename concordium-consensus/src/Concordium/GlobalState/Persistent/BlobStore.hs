@@ -517,6 +517,25 @@ class Monad m => Reference m ref a where
   -- |Given a reference, flush the data and return an uncached reference.
   refUncache :: ref a -> m (ref a)
 
+-- |Migrate a reference from one context to another, using the provided callback
+-- to migrate the value. This is a general construction that applies to all
+-- references, but it might not be the most efficient option. In particular, for
+-- hashed references if the hash is unchanged by migration a more efficient
+-- implementation is possible that either retains the original hash if this is
+-- applicable, or one that computes the hash at the most opportune time, when
+-- the value is known to be in memory.
+migrateReference ::
+    forall t m ref1 ref2 a b.
+    (MonadTrans t, Reference m ref1 a, Reference (t m) ref2 b) =>
+    (a -> t m b) ->
+    ref1 a ->
+    t m (ref2 b)
+migrateReference f hb = do
+    a <- f =<< lift (refLoad hb)
+    newRef <- refMake a
+    (newFlushedRef, _) <- refFlush newRef
+    return newFlushedRef
+
 -- |A value that may exists purely on disk ('BRBlobbed'), purely in memory
 -- ('BRMemory' with @brIORef = null@), or both in memory and on disk. When the
 -- value is both on disk and in memory the two values must match.
@@ -532,15 +551,6 @@ data BufferedRef a
     -- storing all of the data again.
     | BRBoth {brRef :: !(BlobRef a), brValue :: !a}
     -- ^Value stored in memory and on disk.
-
--- |Migrate a hashed buffered ref, provided that the value stored there is a flat value, i.e.,
--- it does not have any nested references.
-migrateBufferedRef :: forall t m a b. (MonadTrans t, BlobStorable m a, BlobStorable (t m) b) => (a -> t m b) -> BufferedRef a -> t m (BufferedRef b)
-migrateBufferedRef f hb = do
-  a <- f =<< lift (refLoad hb)
-  newRef <- refMake a
-  (newFlushedRef, _) <- refFlush newRef
-  return newFlushedRef
 
 -- |Coerce one buffered ref to another. This is unsafe unless a and b have compatible
 -- blobstorable instances.
@@ -704,16 +714,14 @@ data EagerBufferedRef a = EagerBufferedRef
       ebrValue :: !a
     }
 
--- TODO: Implement this for the Reference class
+-- |Migrate the reference from one context to another, using the provided
+-- callback to migrate the value.
 migrateEagerBufferedRef ::
     (BlobStorable m a, BlobStorable (t m) b, MonadTrans t) =>
     (a -> t m b) ->
     EagerBufferedRef a ->
     t m (EagerBufferedRef b)
-migrateEagerBufferedRef f r = do
-    v <- f =<< lift (refLoad r)
-    (!newRef, _) <- refFlush =<< refMake v
-    return newRef
+migrateEagerBufferedRef = migrateReference 
 
 instance Show a => Show (EagerBufferedRef a) where
     show = show . ebrValue
@@ -915,9 +923,14 @@ data HashedBufferedRef' h a
         bufferedHash :: !(IORef (Nullable h))
       }
 
--- TODO: This is good as long as the hash is not changed by 'f'.
-migrateHashedBufferedRef' :: (MonadTrans t, MHashableTo (t m) h b, BlobStorable m a, BlobStorable (t m) b) => (a -> t m b) -> HashedBufferedRef' h a -> t m (HashedBufferedRef' h b)
-migrateHashedBufferedRef' f hb = do
+-- |Migrate a 'HashedBufferedRef'. The returned reference has a hash computed
+-- already.
+migrateHashedBufferedRef ::
+  (MonadTrans t, MHashableTo (t m) h b, BlobStorable m a, BlobStorable (t m) b) =>
+  (a -> t m b) ->
+  HashedBufferedRef' h a ->
+  t m (HashedBufferedRef' h b)
+migrateHashedBufferedRef f hb = do
     newRef <- refMake =<< f =<< lift (refLoad (bufferedReference hb))
     -- compute the hash while the data is in memory.
     !h <- getHashM (bufferedReference newRef)
