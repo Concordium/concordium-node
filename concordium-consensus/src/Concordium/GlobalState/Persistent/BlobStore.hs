@@ -576,6 +576,8 @@ data BufferedRef a
     -- That way, when we store the same instance again on disk (this could be, e.g., a child block
     -- that inherited its parent's state) we can store the pointer to the 'brValue' data rather than
     -- storing all of the data again.
+    -- This definition also makes it possible for shared references to share the
+    -- underlying value @a@.
     | BRBoth {brRef :: !(BlobRef a), brValue :: !a}
     -- ^Value stored in memory and on disk.
 
@@ -1210,10 +1212,18 @@ instance (MHashableTo m h a, BlobStorable m a) => Cacheable1 m (HashedBufferedRe
             liftIO $ writeIORef hshRef $! Some h
         return (HashedBufferedRef ref' hshRef)
 
+-- |The @DirectBlobStorable m a@ class defines how a value
+-- of type @a@ may be stored directly in monad @m@.
+--
+-- As opposed to @BlobStorable@ this class defines a natural interface
+-- for operating on the raw bytes stored in the underlying storage.
 class MonadBlobStore m => DirectBlobStorable m a where
+    -- |Store a value of type @a@, possibly updating its representation.
     storeUpdateDirect :: a -> m (BlobRef a, a)
+    -- |Load a value of type @a@ from the underlying storage.
     loadDirect :: BlobRef a -> m a
 
+-- |A wrapped @BufferedRef@ so we can derive @DirectBlobStorable@.
 newtype DirectBufferedRef a = DirectBufferedRef {theDBR :: BufferedRef a}
     deriving (Show)
 

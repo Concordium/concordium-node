@@ -312,7 +312,9 @@ class (BlockStateTypes m, Monad m) => ContractStateOperations m where
 
 -- |Information about an instance returned by block state queries. The type
 -- parameter @contractState@ determines the concrete representation of the
--- contract state, and @v@ determines the instance version. The fields of this
+-- contract state, the @instrumentedModule@ determines the concrete representation
+-- of the instrumented module i.e. the artifact for exectution
+-- and @v@ determines the instance version. The fields of this
 -- record are not strict because this is just an intermediate type that is
 -- quickly deconstructed. The @contractState@ parameter is given in this way, as
 -- opposed to passing m directly, so that type unification sees that if
@@ -522,6 +524,8 @@ mintTotal MintAmounts{..} = mintBakingReward + mintFinalizationReward + mintDeve
 --
 -- The fields of this type are deliberately not strict since this is just an intermediate type
 -- to simplify function API. Thus values are immediately deconstructed.
+-- It is parameterized by the concrete instrumented module @iv@ and the
+-- WasmVersion @v@.
 data NewInstanceData im v = NewInstanceData {
   -- |Name of the init method used to initialize the contract.
   nidInitName :: Wasm.InitName,

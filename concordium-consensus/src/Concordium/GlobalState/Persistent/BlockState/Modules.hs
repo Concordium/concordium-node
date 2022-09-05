@@ -50,9 +50,17 @@ type ModuleIndex = Word64
 
 --------------------------------------------------------------------------------
 
+-- |An @InstrumentedModuleV v@ in the @PersistentBlockState@, where
+-- @v@ is the @WasmVersion@.
 data PersistentInstrumentedModuleV v =
   PIMVMem !(GSWasm.InstrumentedModuleV v)
+  -- ^The instrumented module is retained in memory only.
+  -- This is the case in between finalizations.
   | PIMVPtr !(BlobPtr (GSWasm.InstrumentedModuleV v))
+  -- ^The instrumented module resides solely on disk thus the raw
+  -- bytes can be read via the @BlobPtr@.
+  -- The wasm execution engine on the Rust side uses this @BlobPtr@ to read the
+  -- actual artifact when executing it.
   deriving (Show)
 
 loadInstrumentedModuleV :: (MonadBlobStore m, IsWasmVersion v) => PersistentInstrumentedModuleV v -> m (GSWasm.InstrumentedModuleV v)
@@ -122,57 +130,19 @@ instance HashableTo Hash Module where
 
 instance Monad m => MHashableTo m Hash Module
 
-{-
--- |This serialization is used for storing the module in the BlobStore.
--- It should not be used for other purposes.
-instance Serialize Module where
-  get = do
-    -- interface is versioned
-    get >>= \case
-      GSWasm.ModuleInterfaceV0 moduleVInterface -> do
-        moduleVSource <- get
-        return $! toModule moduleVInterface moduleVSource
-      GSWasm.ModuleInterfaceV1 moduleVInterface -> do
-        moduleVSource <- get
-        return $! toModule moduleVInterface moduleVSource
-  put m  = do
-    put (getModuleInterface m)
-    case m of
-      ModuleV0 ModuleV{..} -> put moduleVSource
-      ModuleV1 ModuleV{..} -> put moduleVSource
-
--- |This serialization is used for storing the module in the BlobStore.
--- It should not be used for other purposes.
-instance Serialize (ModuleV GSWasm.V0) where
-  get = do
-    -- interface is versioned
-    moduleVInterface <- get
-    moduleVSource <- get
-    return $! ModuleV {..}
-  put ModuleV{..} = put moduleVInterface <> put moduleVSource
-
--- |This serialization is used for storing the module in the BlobStore.
--- It should not be used for other purposes.
-instance Serialize (ModuleV GSWasm.V1) where
-  get = do
-    -- interface is versioned
-    moduleVInterface <- get
-    moduleVSource <- get
-    return $! ModuleV {..}
-  put ModuleV{..} = put moduleVInterface <> put moduleVSource
-
-
-instance MonadBlobStore m => BlobStorable m (ModuleV GSWasm.V0) where
-instance MonadBlobStore m => BlobStorable m (ModuleV GSWasm.V1) where
-instance MonadBlobStore m => BlobStorable m Module where
--}
-
+-- |The @DummyInstrumentedModule@ serves the purpose of
+-- deserializing a @BlobPtr@ for the @PersistentInstrumentedModuleV@ as
+-- we do not want to pollude the @BlobPtr@ with @WasmVersion@'s.
 data DummyInstrumentedModule = DummyInstrumentedModule {
     dimVersion :: !WasmVersion,
     dimStartOffset :: !Word64,
     dimLength :: !Word64
     }
 
+-- |The @DummyInstrumentedModule@'s only purpose is to
+-- help with loading the @PersistentInstrumentedModuleV@.
+-- In particular we have that it is not possible to serialize
+-- a @DummyInstrumentedModule@.
 instance Serialize DummyInstrumentedModule where
   get = do
     dimVersion <- get
