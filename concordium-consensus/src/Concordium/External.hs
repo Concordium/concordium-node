@@ -558,7 +558,7 @@ stopBaker cptr = mask_ $ do
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 -- |     2 | ResultInvalid                               | The message was determined to be invalid                                                      | No       |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
--- |     3 | ResultPendingBlock                          | The message was received, but is awaiting a block to complete processing                      | Unless message is a block|
+-- |     3 | ResultPendingBlock                          | The message was received, but is awaiting a block to complete processing                      | No for blocks, yes for other messages|
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 -- |     4 | ResultPendingFinalization                   | The message was received, but is awaiting a finalization record to complete processing        | Yes      |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+

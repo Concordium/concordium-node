@@ -5,7 +5,6 @@ module ConcordiumTests.LeaderElectionTest where
 import Test.Hspec
 import Test.QuickCheck
 import Data.Word
-import qualified Data.List as L
 
 import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.Crypto.VRF as VRF
@@ -16,10 +15,11 @@ import Concordium.Types
 import Concordium.Kontrol.UpdateLeaderElectionParameters
 import System.Random
 
--- Tests that both Maybe List's are Just and that former contains the latter as a sublist
-maybeSublistExpectation :: Maybe [LeadershipElectionNonce] -> Maybe [LeadershipElectionNonce] -> Expectation
-maybeSublistExpectation (Just a) (Just b) = a `shouldContain` b
-maybeSublistExpectation _ _ = expectationFailure "Both prediction should be Just"
+-- Tests that both Maybe List's are Just, that the second Just is a singleton,
+-- and that the element of the singleton is an element of the first list.
+singletonListElementOfExpectation :: Maybe [LeadershipElectionNonce] -> Maybe [LeadershipElectionNonce] -> Expectation
+singletonListElementOfExpectation (Just a) (Just [b]) = a `shouldSatisfy` elem b
+singletonListElementOfExpectation _ _ = expectationFailure "Both arguments should be Just, and the second Just should contain a list with one element."
 
 -- Some concrete test cases for @predictLeadershipElectionNonce@.
 testPredictFuture :: [Expectation]
@@ -29,7 +29,7 @@ testPredictFuture = [
                         predictLeadershipElectionNonce ss 7 Nothing 15 `shouldBe` Just [computeLeadershipElectionNonce ss 15, computeLeadershipElectionNonce ss' 15],
                         predictLeadershipElectionNonce ss 7 (Just 8) 15 `shouldBe` Just [computeLeadershipElectionNonce ss 15],
                         predictLeadershipElectionNonce ss 7 (Just 11) 15 `shouldBe` Just [computeLeadershipElectionNonce ss' 15],
-                        maybeSublistExpectation (predictLeadershipElectionNonce ss 7 Nothing 15) (predictLeadershipElectionNonce ss' 10 Nothing 15),
+                        singletonListElementOfExpectation (predictLeadershipElectionNonce ss 7 Nothing 15) (predictLeadershipElectionNonce ss' 10 Nothing 15),
                         predictLeadershipElectionNonce ss 6 (Just 8) 15 `shouldBe` predictLeadershipElectionNonce ss'' 7 (Just 8) 15,
                         predictLeadershipElectionNonce ss 6 Nothing 15 `shouldBe` predictLeadershipElectionNonce ss'' 7 Nothing 15,
                         predictLeadershipElectionNonce ss 6 Nothing 8 `shouldBe` predictLeadershipElectionNonce ss'' 7 Nothing 8,
@@ -68,10 +68,12 @@ genSeedstate =
             ..
         }
 
--- Tests that both Maybe List's are Just and that former contains the latter as a sublist
-maybeSublistProperty :: Maybe [LeadershipElectionNonce] -> Maybe [LeadershipElectionNonce] -> Property
-maybeSublistProperty (Just a) (Just b) = counterexample "Prediction of second seedstate should be a prefix of the first" $ property $ b `L.isInfixOf` a
-maybeSublistProperty _ _ = counterexample "Both predictions should be Just" False
+
+-- Tests that both Maybe List's are Just, that the second Just is a singleton,
+-- and that the element of the singleton is an element of the first list.
+singletonElementOfProperty :: Maybe [LeadershipElectionNonce] -> Maybe [LeadershipElectionNonce] -> Property
+singletonElementOfProperty (Just a) (Just [b]) = counterexample "Prediction from second seedstate should be one of the predictions in the first." $ elem b a
+singletonElementOfProperty _ _ = counterexample "Both arguments should be Just, and the second Just should contain a list with one element." False
 
 -- Generates a seedstate meant to be from a block in the last third of an epoch and tests @predictLeadershipElectionNonce@
 -- on this seedstate and a target slot in the next epoch. It tests against @computeLeadershipElectionNonce@ and tests that
@@ -98,7 +100,7 @@ makePropertyJust = property $ do
             counterexample "Without knowledge of pending block's parent" $ predictLeadershipElectionNonce ss seedStateSlot Nothing slotToPredictFor === Just [computeLeadershipElectionNonce ss slotToPredictFor, computeLeadershipElectionNonce ss' slotToPredictFor],
             counterexample "With parent in same epoch as the last finalized block" $ predictLeadershipElectionNonce ss seedStateSlot (Just parentInThisEpoch) slotToPredictFor === Just [computeLeadershipElectionNonce ss slotToPredictFor],
             counterexample "With parent in the same epoch as the target slot" $ predictLeadershipElectionNonce ss seedStateSlot (Just parentInNextEpoch) slotToPredictFor === Just [computeLeadershipElectionNonce ss' slotToPredictFor],
-            maybeSublistProperty (predictLeadershipElectionNonce ss seedStateSlot Nothing slotToPredictFor) (predictLeadershipElectionNonce ss' seedStateSlot' Nothing slotToPredictFor),
+            singletonElementOfProperty (predictLeadershipElectionNonce ss seedStateSlot Nothing slotToPredictFor) (predictLeadershipElectionNonce ss' seedStateSlot' Nothing slotToPredictFor),
             counterexample "Prediction invariant under seedstate update, with parent in same epoch as the last finalized block" $ predictLeadershipElectionNonce ss seedStateSlot (Just parentInThisEpoch) slotToPredictFor === predictLeadershipElectionNonce ss'' seedStateSlot'' (Just parentInThisEpoch) slotToPredictFor,
             counterexample "Prediction invariant under seedstate update across an epoch, with parent in the same epoch as the target slot" $ predictLeadershipElectionNonce ss seedStateSlot (Just parentInNextEpoch) slotToPredictFor === predictLeadershipElectionNonce ss' seedStateSlot' (Just parentInNextEpoch) slotToPredictFor,
             counterexample "Prediction invariant under seedstate update in same epoch, with parent in the same epoch as the target slot" $ predictLeadershipElectionNonce ss seedStateSlot (Just parentInNextEpoch) slotToPredictFor === predictLeadershipElectionNonce ss'' seedStateSlot'' (Just parentInNextEpoch) slotToPredictFor

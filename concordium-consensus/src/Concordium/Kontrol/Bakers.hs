@@ -431,7 +431,7 @@ getDefiniteSlotBakersP1 bs slot = do
 -- If the slot is in the same payday as the given block, use the current epoch bakers.
 -- If the slot is in the next payday, and the given block is in the last epoch of the prior payday,
 -- use the next epoch bakers.
--- If the slot is further in the future, return nothing.
+-- If the slot is further in the future, return 'Nothing'.
 -- (If the slot is in the past, the current epoch bakers are returned, but the function should
 -- never be called for a historical slot.)
 getDefiniteSlotBakersP4 ::
