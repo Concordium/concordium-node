@@ -468,7 +468,7 @@ migratePersistentAccountStake migration (PersistentAccountStakeBaker r) = Persis
 migratePersistentAccountStake migration (PersistentAccountStakeDelegate r) = 
   case migration of
     StateMigrationParametersTrivial -> PersistentAccountStakeDelegate <$> migrateEagerBufferedRef return r
-    -- the other case is impossible at the moment since protocols <= 3 do not have delegation.
+    -- the other cases are impossible at the moment since protocols <= 3 do not have delegation.
 
 instance forall m av. (MonadBlobStore m, IsAccountVersion av) => BlobStorable m (PersistentAccountStake av) where
     storeUpdate = case accountVersion @av of

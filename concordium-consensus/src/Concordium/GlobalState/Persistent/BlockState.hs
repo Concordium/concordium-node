@@ -2915,6 +2915,22 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage 
     collapseCaches = do
         Cache.collapseCache (Proxy :: Proxy (AccountCache av))
 
+-- |Migrate the block state from the representation used by protocol version
+-- @oldpv@ to the one used by protocol version @pv@. The migration is done gradually,
+-- and that is the reason for the monad @m@ and the transformer @t@. The inner monad @m@ is
+-- used to __load__ the state, only the loading part of the 'MonadBlobStore' is used.
+-- The outer monad @t m@ is used to __write__ the new state after migration.
+--
+-- The intention is that the inner @m@ is @BlobStoreT
+-- (PersistentBlockStateContext oldpv) IO@, whereas the @t@ is @BlobStoreT
+-- (PersistentBlockStateContext pv)@. Since they both implement the
+-- 'MonadBlobStore' interface some care must be observed to read and write in
+-- the correct context in the implementation of this function. Typically,
+-- reading from the old state requires @lift@ing the relevant operation.
+--
+-- The migration function should not do non-trivial changes, i.e., it should
+-- only migrate representation, and fill in the defaults as specified by the
+-- state migration parameters.
 migratePersistentBlockState ::
     forall oldpv pv t m.
     (MonadTrans t,
