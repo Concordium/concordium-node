@@ -220,7 +220,8 @@ exportSections dbDir outDir indexHdl chunkSize genIndex startHeight = do
 -- chunk (i.e. the one containing the block with the greatest height in the section) also contains
 -- finalization records finalizing all blocks after the last block containing a finalization
 -- record. The exported chunks will be accompanied by an index file mapping chunk filenames to the
--- block ranges stored in them. Each line in index file has format FILENAME,GENESISINDEX,FIRSTBLOCK,LASTBLOCK\n
+-- block ranges stored in them. Each line in index file has format
+-- @filename,genesis_index,first_block_height,last_block_height\n@.
 writeChunks ::
     (IsProtocolVersion pv, MonadIO m, MonadState (DBState pv) m, MonadCatch m) =>
     -- |Genesis index
@@ -393,11 +394,12 @@ importBlocksV3 ::
 importBlocksV3 inFile firstGenIndex cbk = runExceptT $
     handle onIOErr $
         bracket (liftIO $ openBinaryFile inFile ReadMode) (liftIO . hClose) $ \hdl -> do
+            fileSize <- liftIO $ hFileSize hdl
             v <- liftIO $ getVersionBytes hdl
             case decode v of
                 Left err -> failWith $ "Error deserializing version header: " ++ err
                 Right version
-                    | version == supportedVersion -> importSections hdl
+                    | version == supportedVersion -> importSections hdl fileSize
                     | otherwise ->
                         failWith $
                             "Block file version is " ++ show version
@@ -414,39 +416,45 @@ importBlocksV3 inFile firstGenIndex cbk = runExceptT $
     -- We handle all IO errors as serialization failures from a result perspective.
     onIOErr :: IOError -> ExceptT (ImportFailure a) m ()
     onIOErr = failWith . show
-    importSections hdl = do
+    importSections hdl fileSize = do
         eof <- liftIO $ hIsEOF hdl
         unless eof $ do
             sectionStart <- liftIO $ hTell hdl
-            sectionBS <- getLengthByteString hdl
+            sectionBS <- getLengthByteString hdl fileSize
             case decode sectionBS of
                 Left err -> failWith err
                 Right SectionHeader{..} -> do
                     when (sectionGenesisIndex >= firstGenIndex) $ do
                         replicateM_
                             (fromIntegral sectionBlockCount)
-                            ( importData hdl $
+                            ( importData hdl fileSize $
                                 ImportBlock sectionProtocolVersion sectionGenesisIndex
                             )
                         replicateM_
                             (fromIntegral sectionFinalizationCount)
-                            ( importData hdl $
+                            ( importData hdl fileSize $
                                 ImportFinalizationRecord sectionProtocolVersion sectionGenesisIndex
                             )
                     -- Move to the next section
                     liftIO $ hSeek hdl AbsoluteSeek (sectionStart + toInteger sectionLength)
-                    importSections hdl
-    importData :: Handle -> (BS.ByteString -> ImportData) -> ExceptT (ImportFailure a) m ()
-    importData hdl makeImport = do
-        blockBS <- getLengthByteString hdl
+                    importSections hdl fileSize
+    -- This function takes the file handle, the file size (used for bounds checking reads),
+    -- and a function for wrapping the read data as 'ImportData'.
+    importData :: Handle -> Integer -> (BS.ByteString -> ImportData) -> ExceptT (ImportFailure a) m ()
+    importData hdl fileSize makeImport = do
+        blockBS <- getLengthByteString hdl fileSize
         ExceptT $ cbk $ makeImport blockBS
-    getLengthByteString :: Handle -> ExceptT (ImportFailure a) m BS.ByteString
-    getLengthByteString hdl = do
+    -- This takes the file handle and the length of the file, which is used for checking that
+    -- the length of the byte string is within bounds.
+    getLengthByteString :: Handle -> Integer -> ExceptT (ImportFailure a) m BS.ByteString
+    getLengthByteString hdl fileSize = do
         lenBS <- liftIO $ BS.hGet hdl 8
-        case fromIntegral <$> runGet getWord64be lenBS of
-            Left _ -> failWith "unexpected end of file"
+        case runGet getWord64be lenBS of
             Right len -> do
-                bs <- liftIO $ BS.hGet hdl len
-                if BS.length bs == len
+                curPos <- liftIO $ hTell hdl
+                unless (fromIntegral len <= fileSize - curPos) $ failWith "unexpected end of file"
+                bs <- liftIO $ BS.hGet hdl (fromIntegral len)
+                if BS.length bs == fromIntegral len
                     then return bs
                     else failWith "unexpected end of file"
+            _ -> failWith "unexpected end of file"

@@ -29,8 +29,21 @@ imported, the state will remain as-is and the node will have to catch-up using P
 
 A version of `database-exporter` shipped with `concordium-node` <=4.3.0 did not implement the
 `--chunksize` option in its `export` command. It exported the node database as a single file. If you
-would like still to export the node database as a single file, run `database-exporter` with a very
-large `--chunksize` argument, for example, 1000000000000.
+would like still to export the node database as a single file, run `database-exporter` shipped with
+`concordium-node` <= 4.3.0.
+
+It is possible to export each database section as a single file using `database-exporter` shipped
+with `concordium-node` >4.3.0 by setting `--chunksize` to a large number, for
+example, 1000000000. It will still be possible to import each exported database section into
+`concordium-node` <4.3.0 using the `--import-blocks-from` option by concatenating all exported
+database sections stripped of the 4-byte database version header:
+
+```
+#!/bin/sh
+for b in blocks-*.dat; do
+  dd skip=4 if=$b of=blocks_to_import.dat
+done
+```
 
 After upgrading to `database-exporter` shipped with `concordium-node` >4.3.0, use the `--chunksize`
 option to every invocation of `database-exporter export`, as it is required. A good first choice of

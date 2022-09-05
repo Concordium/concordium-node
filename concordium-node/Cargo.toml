@@ -1,6 +1,6 @@
 [package]
 name = "concordium_node"
-version = "4.3.0" # must be kept in sync with 'is_compatible_version' in 'src/configuration.rs'
+version = "4.4.0" # must be kept in sync with 'is_compatible_version' in 'src/configuration.rs'
 description = "Concordium Node"
 authors = ["Concordium <developers@concordium.com>"]
 exclude = [".gitignore", ".gitlab-ci.yml", "test/**/*","**/**/.gitignore","**/**/.gitlab-ci.yml"]
@@ -65,11 +65,13 @@ thiserror = "1.0"
 futures = { version = "0.3" }
 url = "2.2.2"
 reqwest = { version = "0.11", features = ["stream"] }
+csv-async = "1.2.4"
+tokio-util = { version = "0.7.3", features = ["io"] }
 
 # gRPC dependencies
 tonic = "0.8"
 prost = "0.11"
-tokio = { version = "1.20", features = ["macros", "rt-multi-thread", "signal"] }
+tokio = { version = "1.20", features = ["macros", "rt-multi-thread", "signal", "io-util"] }
 
 # Feature-gated dependencies
 gotham = { version = "0.6", optional = true }
