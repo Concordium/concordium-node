@@ -46,7 +46,6 @@ import Concordium.Afgjort.Finalize.Types
 import Concordium.Birk.Bake
 import Concordium.GlobalState
 import Concordium.GlobalState.Block
-import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Paired
 import Concordium.GlobalState.Parameters

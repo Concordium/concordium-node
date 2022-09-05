@@ -2691,8 +2691,6 @@ instance BlockStateTypes (PersistentBlockStateMonad pv r m) where
     type Account (PersistentBlockStateMonad pv r m) = PersistentAccount (AccountVersionFor pv)
     type BakerInfoRef (PersistentBlockStateMonad pv r m) = PersistentBakerInfoEx (AccountVersionFor pv)
     type ContractState (PersistentBlockStateMonad pv r m) = Instances.InstanceStateV
-    type MigrationContext (PersistentBlockStateMonad pv r m) = PersistentBlockStateContext
-    type NextBlockState (PersistentBlockStateMonad pv r m) = HashedPersistentBlockState
 
 instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateQuery (PersistentBlockStateMonad pv r m) where
     getModule = doGetModuleSource . hpbsPointers

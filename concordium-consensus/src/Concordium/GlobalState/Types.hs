@@ -38,9 +38,6 @@ class BlockStateTypes (m :: Type -> Type) where
     -- state where possible.
     type BakerInfoRef m :: Type
 
-    type MigrationContext m :: ProtocolVersion -> Type
-    type NextBlockState m :: ProtocolVersion -> Type
-
 -- |Data retrieved from the existing skov instance that is needed to construct
 -- the new instance. This is an existential type that closes over the **new**
 -- protocol version. The existing protocol version is determined from the monad
@@ -80,8 +77,6 @@ instance BlockStateTypes (MGSTrans t m) where
     type Account (MGSTrans t m) = Account m
     type ContractState (MGSTrans t m) = ContractState m
     type BakerInfoRef (MGSTrans t m) = BakerInfoRef m
-    type NextBlockState (MGSTrans t m) = NextBlockState m
-    type MigrationContext (MGSTrans t m) = MigrationContext m
 
 deriving via MGSTrans MaybeT m instance BlockStateTypes (MaybeT m)
 deriving via MGSTrans (ExceptT e) m instance BlockStateTypes (ExceptT e m)

@@ -118,12 +118,6 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r)
             = (BakerInfoRef (BSML pv lc r lg s m),
                 BakerInfoRef (BSMR pv rc r rg s m))
 
-    type NextBlockState (BlockStateM pv (PairGSContext lc rc) r (PairGState lg rg) s m)
-            = Const () -- TODO
-
-    type MigrationContext (BlockStateM pv (PairGSContext lc rc) r (PairGState lg rg) s m)
-            = Const () -- TODO
-
 instance C.HasGlobalState (PairGState ls rs) s => C.HasGlobalState ls (FocusLeft s) where
     globalState = lens unFocusLeft (const FocusLeft) . C.globalState . pairStateLeft
 

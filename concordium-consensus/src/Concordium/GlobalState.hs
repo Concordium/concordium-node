@@ -479,7 +479,6 @@ instance GlobalStateConfig MemoryTreeDiskBlockConfig where
               mtdbRuntimeParameters
               (regenesisConfiguration genData)
               newInitialBlockState
-              -- TODO: Figure out if this is the correct thing to do or whether we need to clean up.
               (Basic._transactionTable oldState)
               (Just (Basic._pendingTransactions oldState))
       isd <- runReaderT (runPersistentBlockStateMonad initGS) pbsc

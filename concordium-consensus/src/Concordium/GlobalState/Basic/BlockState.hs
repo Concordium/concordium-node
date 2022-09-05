@@ -77,7 +77,6 @@ import Concordium.Utils.BinarySearch
 import Concordium.Utils.Serialization
 import Concordium.GlobalState.BlockState (InstanceInfoTypeV(iiParameters), UpdatableContractState)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
-import Data.Functor.Const
 
 data BasicBirkParameters (av :: AccountVersion) = BasicBirkParameters {
     -- |The active (i.e. currently-registered) bakers.
@@ -572,8 +571,6 @@ instance GT.BlockStateTypes (PureBlockStateMonad pv m) where
     type Account (PureBlockStateMonad pv m) = Account (AccountVersionFor pv)
     type BakerInfoRef (PureBlockStateMonad pv m) = BakerInfoEx (AccountVersionFor pv)
     type ContractState (PureBlockStateMonad pv m) = Instance.InstanceStateV
-    type MigrationContext (PureBlockStateMonad pv m) = Const ()
-    type NextBlockState (PureBlockStateMonad pv m) = HashedBlockState
 
 -- |Retrieve instance information from a basic instance.
 mkInstanceInfo :: Instance.Instance -> BS.InstanceInfoType Instance.InstanceStateV

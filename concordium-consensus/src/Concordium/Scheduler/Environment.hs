@@ -674,8 +674,6 @@ instance BlockStateTypes (LocalT r m) where
     type Account (LocalT r m) = Account m
     type ContractState (LocalT r m) = ContractState m
     type BakerInfoRef (LocalT r m) = BakerInfoRef m
-    type MigrationContext (LocalT r m) = MigrationContext m
-    type NextBlockState (LocalT r m) = NextBlockState m
 
 {-# INLINE energyUsed #-}
 -- |Compute how much energy was used from the upper bound in the header of a
