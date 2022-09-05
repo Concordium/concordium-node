@@ -598,7 +598,6 @@ extern "C" {
     pub fn getTransactionStatusV2(
         consensus: *mut consensus_runner,
         transaction_hash: *const u8,
-        out_hash: *mut u8,
         out: *mut Vec<u8>,
         copier: CopyToVecCallback,
     ) -> i64;
@@ -1307,22 +1306,20 @@ impl ConsensusContainer {
     pub fn get_transaction_status_v2(
         &self,
         transaction_hash: &crate::grpc2::types::TransactionHash,
-    ) -> Result<([u8; 32], Vec<u8>), tonic::Status> {
+    ) -> Result<Vec<u8>, tonic::Status> {
         let consensus = self.consensus.load(Ordering::SeqCst);
         let mut out_data: Vec<u8> = Vec::new();
-        let mut out_hash = [0u8; 32];
         let response: ConsensusQueryResponse = unsafe {
             getTransactionStatusV2(
                 consensus,
                 transaction_hash.value.as_ptr(),
-                out_hash.as_mut_ptr(),
                 &mut out_data,
                 copy_to_vec_callback,
             )
             .try_into()?
         };
         response.check_rpc_response()?;
-        Ok((out_hash, out_data))
+        Ok(out_data)
     }
 }
 
