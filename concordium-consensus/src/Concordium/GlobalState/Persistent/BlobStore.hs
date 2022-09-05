@@ -223,7 +223,9 @@ readBlobBSFromHandle BlobStoreAccess{..} (BlobRef offset) = mask $ \restore -> d
             hSeek bhHandle AbsoluteSeek (fromIntegral offset)
             esize <- decode <$> BS.hGet bhHandle 8
             case esize :: Either String Word64 of
-                Right size | offset + size <= fromIntegral bhSize ->
+                -- there should be at least `size` bytes left to read after `offset + 8`, where 8 is
+                -- the size of the blob size header
+                Right size | offset + 8 + size <= fromIntegral bhSize ->
                              BS.hGet bhHandle (fromIntegral size)
                 _ ->  throwIO $ userError "Attempted to read beyond the blob store end"
         putMVar blobStoreFile bh{bhAtEnd=False}
