@@ -65,8 +65,8 @@ data BlockHashInput
       BHIBest
     | -- |Last finalized block
       BHILastFinal
-      -- |Given block hash
-    | BHIGiven BlockHash
+    | -- |Given block hash
+      BHIGiven BlockHash
 
 -- |Run a query against a specific skov version.
 liftSkovQuery ::

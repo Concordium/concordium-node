@@ -160,7 +160,7 @@ instance ToProto AccountAddress where
     toProto = mkSerialize
 
 instance ToProto Nonce where
-    type Output Nonce = Proto.Nonce
+    type Output Nonce = Proto.SequenceNumber
     toProto = mkWord64
 
 instance ToProto AccountThreshold where
@@ -210,7 +210,7 @@ instance ToProto AccountReleaseSummary where
 instance ToProto ScheduledRelease where
     type Output ScheduledRelease = Proto.Release
     toProto r = Proto.make $ do
-        ProtoFields.timestamp .= coerce (releaseTimestamp r)
+        ProtoFields.timestamp .= mkWord64 (releaseTimestamp r)
         ProtoFields.amount .= toProto (releaseAmount r)
         ProtoFields.transactions .= (toProto <$> releaseTransactions r)
 
@@ -223,11 +223,11 @@ instance ToProto (StakePendingChange' UTCTime) where
                 .= Proto.make
                     ( do
                         ProtoFields.newStake .= toProto newStake
-                        ProtoFields.effectiveTime .= fromIntegral (utcTimeToTimestamp effectiveTime)
+                        ProtoFields.effectiveTime .= mkWord64 (utcTimeToTimestamp effectiveTime)
                     )
             )
     toProto (RemoveStake effectiveTime) =
-        Just . Proto.make $ (ProtoFields.remove .= fromIntegral (utcTimeToTimestamp effectiveTime))
+        Just . Proto.make $ (ProtoFields.remove .= mkWord64 (utcTimeToTimestamp effectiveTime))
 
 instance ToProto BakerInfo where
     type Output BakerInfo = Proto.BakerInfo
@@ -242,9 +242,9 @@ instance ToProto BakerInfo where
 
 instance ToProto OpenStatus where
     type Output OpenStatus = Proto.OpenStatus
-    toProto OpenForAll = Proto.OPEN_STATUS_OPENFORALL
-    toProto ClosedForNew = Proto.OPEN_STATUS_CLOSEDFORNEW
-    toProto ClosedForAll = Proto.OPEN_STATUS_CLOSEDFORALL
+    toProto OpenForAll = Proto.OPEN_STATUS_OPEN_FOR_ALL
+    toProto ClosedForNew = Proto.OPEN_STATUS_CLOSED_FOR_NEW
+    toProto ClosedForAll = Proto.OPEN_STATUS_CLOSED_FOR_ALL
 
 instance ToProto UrlText where
     type Output UrlText = Text
@@ -289,7 +289,7 @@ instance ToProto AccountStakingInfo where
     toProto AccountStakingDelegated{..} =
         Just . Proto.make $
             ( do
-                ProtoFields.delegate
+                ProtoFields.delegator
                     .= Proto.make
                         ( do
                             ProtoFields.stakedAmount .= mkWord64 asiStakedAmount
@@ -393,7 +393,7 @@ instance ToProto AccountEncryptionKey where
 instance ToProto AccountInfo where
     type Output AccountInfo = Proto.AccountInfo
     toProto AccountInfo{..} = Proto.make $ do
-        ProtoFields.nonce .= toProto aiAccountNonce
+        ProtoFields.sequenceNumber .= toProto aiAccountNonce
         ProtoFields.amount .= toProto aiAccountAmount
         ProtoFields.schedule .= toProto aiAccountReleaseSchedule
         ProtoFields.creds .= toProto aiAccountCredentials

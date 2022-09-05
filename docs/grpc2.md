@@ -3,8 +3,8 @@
 This document describes the node configuration pertaining to the V2 GRPC
 interface.
 
-The V2 GRPC interface differs from the original mainly that the encoding of the
-responses uses [protocol
+The V2 GRPC interface differs from the original mainly in that the encoding of
+the responses uses [protocol
 buffers](https://developers.google.com/protocol-buffers) compared to a mix of
 JSON and protobuf for the original interface.
 
@@ -32,9 +32,10 @@ If these are enabled then the following options become available
   enables the server support for [grpc-web](https://github.com/grpc/grpc-web)
   over HTTP 1.1. This allows the node's API to be used directly from a browser.
 - `--grpc2-endpoint-config` (`CONCORDIUM_NODE_GRPC2_ENDPOINT_CONFIG`) if
-  supplied, should point to a `.toml` file with the configuration of endpoints.
-  If this option is not supplied all endpoints are enabled. If it is supplied
-  then only the endpoints explicitly enabled in the configuration are available.
+  supplied, it should point to a `.toml` file with the configuration of
+  endpoints. If this option is not supplied all endpoints are enabled. If it is
+  supplied then only the endpoints explicitly enabled in the configuration are
+  available.
   
   The format of the file is a simple key-value list, with values being booleans.
   Keys are names of endpoints in snake_case. For example

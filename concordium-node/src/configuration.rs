@@ -367,7 +367,8 @@ pub struct GRPC2Config {
     #[structopt(
         long = "grpc2-endpoint-config",
         help = "Configuration file for endpoints, listing which endpoints should be enabled or \
-                disabled.",
+                disabled. Note that using this option, only endpoints that are explicitly enabled \
+                will be enabled. If this option is not set all endpoints are enabled.",
         env = "CONCORDIUM_NODE_GRPC2_ENDPOINT_CONFIG",
         requires = "grpc2-listen-addr"
     )]

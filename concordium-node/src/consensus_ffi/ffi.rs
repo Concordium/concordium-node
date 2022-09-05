@@ -551,7 +551,7 @@ unsafe extern "C" fn notify_callback(
                 // do nothing. The error here should only happen if the
                 // receiver is disconnected, which means that the task
                 // forwarding events has been killed. That should never happen,
-                // and if it does indicates a disastrous situation.
+                // and if it does, it indicates a disastrous situation.
             }
         }
         1u8 => {
@@ -564,7 +564,7 @@ unsafe extern "C" fn notify_callback(
                 // do nothing. The error here should only happen if the
                 // receiver is disconnected, which means that the task
                 // forwarding events has been killed. That should never happen,
-                // and if it does indicates a disastrous situation.
+                // and if it does, it indicates a disastrous situation.
             }
         }
         unexpected => {
@@ -1042,7 +1042,7 @@ impl ConsensusContainer {
             )
             .try_into()?
         };
-        response.ensure_ok()?;
+        response.ensure_ok("account or block")?;
         Ok((out_hash, out_data))
     }
 
@@ -1074,7 +1074,7 @@ impl ConsensusContainer {
             )
         }
         .try_into()?;
-        if let Err(e) = response.ensure_ok() {
+        if let Err(e) = response.ensure_ok("block") {
             let _ = unsafe { Box::from_raw(sender_ptr) }; // deallocate sender since it is unused by Haskell.
             Err(e)
         } else {

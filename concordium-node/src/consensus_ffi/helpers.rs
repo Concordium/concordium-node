@@ -437,10 +437,10 @@ pub enum ConsensusQueryResponse {
 impl ConsensusQueryResponse {
     /// Convert the response to a [Result]. The concrete type makes it
     /// convenient to use in the implementations of the different queries.
-    pub fn ensure_ok(self) -> Result<(), tonic::Status> {
+    pub fn ensure_ok(self, msg: impl std::fmt::Display) -> Result<(), tonic::Status> {
         match self {
             Self::Ok => Ok(()),
-            Self::NotFound => Err(tonic::Status::not_found("Object not found.")),
+            Self::NotFound => Err(tonic::Status::not_found(format!("{} not found.", msg))),
         }
     }
 }
