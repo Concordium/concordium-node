@@ -207,6 +207,15 @@ fn main() -> std::io::Result<()> {
         )
         .method(
             tonic_build::manual::Method::builder()
+                .name("get_next_account_nonce")
+                .route_name("GetNextAccountNonce")
+                .input_type("crate::grpc2::types::AccountIdentifierInput")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
                 .name("get_ancestors")
                 .route_name("GetAncestors")
                 .input_type("crate::grpc2::types::AncestorsRequest")

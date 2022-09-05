@@ -3,6 +3,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE LambdaCase #-}
 
 -- |Consensus queries against the multi-version runner.
 module Concordium.Queries where
@@ -345,10 +346,18 @@ getAccountNonFinalizedTransactions acct = liftSkovQueryLatest $ queryNonFinalize
 -- If all account transactions are finalized then this information is reliable.
 -- Otherwise this is the best guess, assuming all other transactions will be
 -- committed to blocks and eventually finalized.
-getNextAccountNonce :: AccountAddress -> MVR gsconf finconf NextAccountNonce
+getNextAccountNonce :: AccountIdentifier -> MVR gsconf finconf (Maybe NextAccountNonce)
 getNextAccountNonce acct = liftSkovQueryLatest $ do
-    (nanNonce, nanAllFinal) <- queryNextAccountNonce . accountAddressEmbed $ acct
-    return NextAccountNonce{..}
+  bp <- bestBlock
+  bs <- blockState bp
+  macc <- case acct of
+    AccAddress addr -> BS.getAccount bs addr
+    AccIndex idx -> BS.getAccountByIndex bs idx
+    CredRegID crid -> BS.getAccountByCredId bs crid
+  maybeNextNonce <- forM macc (\(_, account) -> do
+                       accountAddress <- BS.getAccountCanonicalAddress account
+                       queryNextAccountNonce $ accountAddressEmbed accountAddress)
+  return $ \case { (nanNonce, nanAllFinal) -> NextAccountNonce{..} } <$> maybeNextNonce
 
 -- * Queries against latest version that produces a result
 

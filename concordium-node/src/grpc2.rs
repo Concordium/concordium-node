@@ -2,23 +2,17 @@ use prost::bytes::BufMut;
 use std::{convert::TryFrom, marker::PhantomData};
 
 pub mod types {
-    use self::account_info_request::AccountIdentifier;
 
     include!(concat!(env!("OUT_DIR"), "/concordium.v2.rs"));
 
     pub(crate) fn account_identifier_to_ffi(
-        account_identifier: &AccountIdentifier,
+        account_identifier: &AccountIdentifierInput,
     ) -> Option<(u8, *const u8)> {
-        match account_identifier {
-            AccountIdentifier::Address(addr) if addr.value.len() == 32 => {
-                Some((0u8, addr.value.as_ptr()))
-            }
-            AccountIdentifier::CredId(cred_id) if cred_id.value.len() == 48 => {
-                Some((1u8, cred_id.value.as_ptr()))
-            }
-            AccountIdentifier::AccountIndex(ai) => {
-                Some((2u8, (&ai.value) as *const u64 as *const u8))
-            }
+        use account_identifier_input::AccountIdentifierInput::*;
+        match account_identifier.account_identifier_input.as_ref()? {
+            Address(addr) if addr.value.len() == 32 => Some((0u8, addr.value.as_ptr())),
+            CredId(cred_id) if cred_id.value.len() == 48 => Some((1u8, cred_id.value.as_ptr())),
+            AccountIndex(ai) => Some((2u8, (&ai.value) as *const u64 as *const u8)),
             _ => None,
         }
     }
@@ -379,6 +373,15 @@ pub mod server {
             let mut response = tonic::Response::new(response);
             add_hash(&mut response, hash)?;
             Ok(response)
+        }
+
+        async fn get_next_account_nonce(
+            &self,
+            request: tonic::Request<crate::grpc2::types::AccountIdentifierInput>,
+        ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            let account_identifier = request.get_ref();
+            let response = self.consensus.get_next_account_nonce_v2(account_identifier)?;
+            Ok(tonic::Response::new(response))
         }
 
         async fn get_ancestors(

@@ -511,6 +511,14 @@ extern "C" {
         copier: CopyToVecCallback,
     ) -> i64;
 
+    pub fn getNextAccountNonceV2(
+        consensus: *mut consensus_runner,
+        acc_type: u8,
+        acc_id: *const u8,
+        out: *mut Vec<u8>,
+        copier: CopyToVecCallback,
+    ) -> i64;
+
     /// Stream a list of all modules.
     pub fn getModuleListV2(
         consensus: *mut consensus_runner,
@@ -1102,7 +1110,7 @@ impl ConsensusContainer {
     pub fn get_account_info_v2(
         &self,
         block_hash: &crate::grpc2::types::BlockHashInput,
-        account_identifier: &crate::grpc2::types::account_info_request::AccountIdentifier,
+        account_identifier: &crate::grpc2::types::AccountIdentifierInput,
     ) -> Result<([u8; 32], Vec<u8>), tonic::Status> {
         use crate::grpc2::Require;
         let (block_id_type, block_hash) =
@@ -1127,6 +1135,23 @@ impl ConsensusContainer {
         };
         response.check_rpc_response()?;
         Ok((out_hash, out_data))
+    }
+
+    pub fn get_next_account_nonce_v2(
+        &self,
+        account_identifier: &crate::grpc2::types::AccountIdentifierInput,
+    ) -> Result<Vec<u8>, tonic::Status> {
+        use crate::grpc2::Require;
+        let (acc_type, acc_id) =
+            crate::grpc2::types::account_identifier_to_ffi(account_identifier).require_owned()?;
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut out_data: Vec<u8> = Vec::new();
+        let response: ConsensusQueryResponse = unsafe {
+            getNextAccountNonceV2(consensus, acc_type, acc_id, &mut out_data, copy_to_vec_callback)
+                .try_into()?
+        };
+        response.check_rpc_response()?;
+        Ok(out_data)
     }
 
     /// Look up accounts in the given block, and return a stream of their

@@ -1222,7 +1222,7 @@ getNextAccountNonce :: StablePtr ConsensusRunner -> CString -> IO CString
 getNextAccountNonce cptr addrcstr =
     decodeAccountAddress addrcstr >>= \case
         Left _ -> jsonCString AE.Null
-        Right acct -> jsonQuery cptr (Q.getNextAccountNonce acct)
+        Right acct -> jsonQuery cptr (Q.getNextAccountNonce (AccAddress acct))
 
 -- ** Baker/finalizer status queries
 
