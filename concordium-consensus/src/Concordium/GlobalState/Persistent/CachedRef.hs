@@ -328,12 +328,12 @@ instance
 
 -- * 'HashedCachedRef'
 
-data MaybeHashedCachedRef h c a = HCRMem !a | HCRMemHashed !a !h | HCRDisk !(HashedCachedRef' h c a)
+data MaybeHashedCachedRef ref h c a = HCRMem !a | HCRMemHashed !a !h | HCRDisk !(HashedCachedRef'' ref h c a)
 
 -- |A 'CachedRef' with a hash that is computed when first demanded (via 'getHashM'), or when the
 -- reference is cached (via 'refCache' or 'cache').
 data HashedCachedRef'' ref h c a
-    = HCRUnflushed { hcrUnflushed :: !(IORef (MaybeHashedCachedRef h c a))}
+    = HCRUnflushed { hcrUnflushed :: !(IORef (MaybeHashedCachedRef ref h c a))}
     | HCRFlushed {
         hcrBlob :: !(ref a),
         hcrHash :: !h
