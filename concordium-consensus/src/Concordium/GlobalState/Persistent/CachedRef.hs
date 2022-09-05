@@ -365,11 +365,11 @@ instance
 instance
     ( MonadCache c m,
       BlobStorable m a,
+      Reference m ref a,
       Cache c,
-      CacheKey c ~ BlobRef a,
+      CacheKey c ~ ref a,
       CacheValue c ~ a,
-      MHashableTo m h a,
-      Reference m ref a
+      MHashableTo m h a
     ) =>
     Reference m (HashedCachedRef'' ref h c) a
     where
@@ -395,7 +395,7 @@ instance
         HCRMemHashed val _ -> return (val, hcr)
         HCRDisk d -> refCache d
     refCache hcr@HCRFlushed{..} = do
-        val <- loadRef hcrBlob
+        val <- refLoad hcrBlob
         !val' <- putCachedValue (Proxy @c) hcrBlob val
         return (val', hcr)
     
@@ -409,7 +409,7 @@ instance
         HCRDisk r -> refLoad r
     refLoad HCRFlushed{..} = lookupCachedValue (Proxy @c) hcrBlob >>= \case
         Nothing -> do
-            val <- loadRef hcrBlob
+            val <- refLoad hcrBlob
             putCachedValue (Proxy @c) hcrBlob val
         Just val -> return val
 
@@ -429,11 +429,11 @@ makeHashedCachedRef val hsh = liftIO $
 instance
     ( MonadCache c m,
       BlobStorable m a,
+      Reference m ref a,
       Cache c,
-      CacheKey c ~ BlobRef a,
+      CacheKey c ~ ref a,
       CacheValue c ~ a,
-      MHashableTo m h a,
-      Reference m ref a
+      MHashableTo m h a
     ) =>
     BlobStorable m (HashedCachedRef'' ref h c a)
     where
@@ -461,10 +461,10 @@ instance (Applicative m) => Cacheable m (HashedCachedRef c a) where
 instance 
     ( MonadCache c m,
       BlobStorable m a,
+      Reference m ref a,
       Cache c,
-      CacheKey c ~ BlobRef a,
-      CacheValue c ~ a,
-      Reference m ref a
+      CacheKey c ~ ref a,
+      CacheValue c ~ a
     ) => Cacheable1 m (HashedCachedRef'' ref h c a) a where
     liftCache csh hcr@HCRUnflushed{..} = liftIO (readIORef hcrUnflushed) >>= \case
         HCRMem val -> do
@@ -478,6 +478,6 @@ instance
         HCRDisk d -> liftCache csh d
     liftCache csh hcr@HCRFlushed{..} = do
         _ <- lookupCachedValue (Proxy @c) hcrBlob >>= \case
-            Nothing -> putCachedValue (Proxy @c) hcrBlob =<< csh =<< loadRef hcrBlob
+            Nothing -> putCachedValue (Proxy @c) hcrBlob =<< csh =<< refLoad hcrBlob
             Just val -> putCachedValue (Proxy @c) hcrBlob =<< csh val
         return hcr
