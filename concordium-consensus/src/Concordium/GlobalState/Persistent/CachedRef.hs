@@ -351,7 +351,8 @@ instance
       Cache c,
       CacheKey c ~ BlobRef a,
       CacheValue c ~ a,
-      MHashableTo m h a
+      MHashableTo m h a,
+      Reference m ref a
     ) =>
     MHashableTo m h (HashedCachedRef'' ref h c a)
     where
@@ -367,7 +368,8 @@ instance
       Cache c,
       CacheKey c ~ BlobRef a,
       CacheValue c ~ a,
-      MHashableTo m h a
+      MHashableTo m h a,
+      Reference m ref a
     ) =>
     Reference m (HashedCachedRef'' ref h c) a
     where
@@ -430,9 +432,10 @@ instance
       Cache c,
       CacheKey c ~ BlobRef a,
       CacheValue c ~ a,
-      MHashableTo m h a
+      MHashableTo m h a,
+      Reference m ref a
     ) =>
-    BlobStorable m (HashedCachedRef' h c a)
+    BlobStorable m (HashedCachedRef'' ref h c a)
     where
     storeUpdate hcr = do
         (!hcr', !ref) <- refFlush hcr
@@ -460,8 +463,9 @@ instance
       BlobStorable m a,
       Cache c,
       CacheKey c ~ BlobRef a,
-      CacheValue c ~ a
-    ) => Cacheable1 m (HashedCachedRef' h c a) a where
+      CacheValue c ~ a,
+      Reference m ref a
+    ) => Cacheable1 m (HashedCachedRef'' ref h c a) a where
     liftCache csh hcr@HCRUnflushed{..} = liftIO (readIORef hcrUnflushed) >>= \case
         HCRMem val -> do
             val' <- csh val
