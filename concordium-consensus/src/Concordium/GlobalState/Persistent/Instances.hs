@@ -1,11 +1,12 @@
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE DeriveTraversable #-}
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE TypeFamilies #-}
 module Concordium.GlobalState.Persistent.Instances where
 
 import Data.Word
@@ -22,13 +23,14 @@ import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types
 import Concordium.Types.HashableTo
 import qualified Concordium.Wasm as Wasm
+import Concordium.Utils
 import Concordium.Utils.Serialization.Put
 import Concordium.Utils.Serialization (putByteStringLen)
 
 import qualified Concordium.GlobalState.Wasm as GSWasm
 import Concordium.GlobalState.Persistent.MonadicRecursive
 import Concordium.GlobalState.Persistent.BlobStore
-import qualified Concordium.GlobalState.Instance as Transient
+import qualified Concordium.GlobalState.Instance as Instance
 import qualified Concordium.GlobalState.Basic.BlockState.InstanceTable as Transient
 import Concordium.GlobalState.Persistent.BlockState.Modules as Modules
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
@@ -41,8 +43,8 @@ import qualified Concordium.GlobalState.Persistent.Cache as Cache
 -- persistent version which supports storing and loading the state from a blob
 -- store.
 data InstanceStateV (v :: Wasm.WasmVersion) where
-  InstanceStateV0 :: Wasm.ContractState -> InstanceStateV GSWasm.V0
-  InstanceStateV1 :: StateV1.PersistentState -> InstanceStateV GSWasm.V1
+  InstanceStateV0 :: !Wasm.ContractState -> InstanceStateV GSWasm.V0
+  InstanceStateV1 :: !StateV1.PersistentState -> InstanceStateV GSWasm.V1
 
 -- |The fixed parameters associated with a smart contract instance
 data PersistentInstanceParameters = PersistentInstanceParameters {
@@ -97,8 +99,8 @@ data PersistentInstanceV (v :: Wasm.WasmVersion) = PersistentInstanceV {
     -- |The interface of 'pinstanceContractModule'. Note this is a 'HashedCachedRef' to a Module as this
     -- is how the data is stored in the Modules table. A 'Module' carries a BlobRef to the source
     -- but that reference should never be consulted in the scope of Instance operations.
-    -- The module will always be of version @v@.
-    pinstanceModuleInterface :: !(HashedCachedRef Modules.ModuleCache Modules.Module),
+    -- Invariant: the module will always be of the appropriate version.
+    pinstanceModuleInterface :: !(DirectBufferedRef Modules.ModuleCache Modules.Module),
     -- |The current local state of the instance
     pinstanceModel :: !(InstanceStateV v),
     -- |The current amount of GTU owned by the instance
@@ -115,8 +117,8 @@ data PersistentInstanceV (v :: Wasm.WasmVersion) = PersistentInstanceV {
 -- different instance versions. This is necessary because there is a single
 -- address space for all contract instances.
 data PersistentInstance (pv :: ProtocolVersion) where
-  PersistentInstanceV0 :: PersistentInstanceV GSWasm.V0 -> PersistentInstance pv
-  PersistentInstanceV1 :: PersistentInstanceV GSWasm.V1 -> PersistentInstance pv
+  PersistentInstanceV0 :: !(PersistentInstanceV GSWasm.V0) -> PersistentInstance pv
+  PersistentInstanceV1 :: !(PersistentInstanceV GSWasm.V1) -> PersistentInstance pv
 
 instance Show (PersistentInstance pv) where
     show (PersistentInstanceV0 PersistentInstanceV {pinstanceModel = InstanceStateV0 model,..}) = show pinstanceParameters ++ " {balance=" ++ show pinstanceAmount ++ ", model=" ++ show model ++ "}"
@@ -156,13 +158,12 @@ instance (IsProtocolVersion pv, SupportsPersistentModules m) => BlobStorable m (
            storeUnversionedV0 PersistentInstanceV{pinstanceModel=InstanceStateV0 model,..} = do
              (pparams, newParameters) <- storeUpdate pinstanceParameters
              (pinterface, newpInterface) <- storeUpdate pinstanceModuleInterface
-             let putInst = do
+             let !putInst = do
                    pparams
                    pinterface
                    put model
                    put pinstanceAmount
-             -- The module version is V0 as we're storing an instance of version V0.
-             return (putInst, PersistentInstanceV{pinstanceParameters = newParameters, pinstanceModuleInterface = newpInterface,
+             return $!! (putInst, PersistentInstanceV{pinstanceParameters = newParameters, pinstanceModuleInterface = newpInterface,
                               pinstanceModel=InstanceStateV0 model,..})
            storeV1 :: PersistentInstanceV GSWasm.V1 -> m (Put, PersistentInstance pv)
            storeV1 PersistentInstanceV{pinstanceModel=InstanceStateV1 model,..} = do
@@ -175,14 +176,12 @@ instance (IsProtocolVersion pv, SupportsPersistentModules m) => BlobStorable m (
                    pinterface
                    pstate
                    put pinstanceAmount
-             -- The module version is V1 as we're storing an instance of version V1.
-             return (putInst, PersistentInstanceV1 PersistentInstanceV{pinstanceParameters = newParameters,
+             return $!! (putInst, PersistentInstanceV1 PersistentInstanceV{pinstanceParameters = newParameters,
                                                   pinstanceModuleInterface = newpInterface,
                                                   pinstanceModel = InstanceStateV1 newpstate,..})
 
            addVersion (s, inst') = (putWord8 0 <> s,  PersistentInstanceV0 inst')
 
-    store pinst = fst <$> storeUpdate pinst
     load = do
       if demoteProtocolVersion (protocolVersion @pv) <= P3 then do
         loadIV0
@@ -257,14 +256,14 @@ instance SupportsPersistentModules m => Cacheable (ReaderT Modules m) (Persisten
 
 -- |Construct instance information from a persistent instance, loading as much
 -- data as necessary from persistent storage.
-mkInstanceInfo :: SupportsPersistentModules m => PersistentInstance pv -> m (InstanceInfoType InstanceStateV)
+mkInstanceInfo :: MonadBlobStore m => PersistentInstance pv -> m (InstanceInfoType PersistentInstrumentedModuleV InstanceStateV)
 mkInstanceInfo (PersistentInstanceV0 inst) = InstanceInfoV0 <$> mkInstanceInfoV inst
 mkInstanceInfo (PersistentInstanceV1 inst) = InstanceInfoV1 <$> mkInstanceInfoV inst
-mkInstanceInfoV :: (SupportsPersistentModules m, Wasm.IsWasmVersion v) => PersistentInstanceV v -> m (InstanceInfoTypeV InstanceStateV v)
+mkInstanceInfoV :: (MonadBlobStore m, Wasm.IsWasmVersion v) => PersistentInstanceV v -> m (InstanceInfoTypeV PersistentInstrumentedModuleV InstanceStateV v)
 mkInstanceInfoV PersistentInstanceV{..} = do
   PersistentInstanceParameters{..} <- loadBufferedRef pinstanceParameters
   instanceModuleInterface <- moduleVInterface . unsafeToModuleV <$> refLoad pinstanceModuleInterface
-  let iiParameters = Transient.InstanceParameters {
+  let iiParameters = Instance.InstanceParameters {
         _instanceAddress = pinstanceAddress,
         instanceOwner = pinstanceOwner,
         instanceInitName = pinstanceInitName,
@@ -419,7 +418,6 @@ instance (IsProtocolVersion pv, BlobStorable m r, MonadIO m, Cache.MonadCache Mo
         (pinst, i') <- storeUpdate i
         return (putWord8 8 >> pinst, Leaf i')
     storeUpdate v@(VacantLeaf si) = return (putWord8 9 >> put si, v)
-    store v = fst <$> storeUpdate v
     load = do
         tag <- getWord8
         if tag < 8 then do
@@ -511,7 +509,6 @@ instance (IsProtocolVersion pv, SupportsPersistentModules m) => BlobStorable m (
     storeUpdate (InstancesTree s t) = do
         (pt, t') <- storeUpdate t
         return (putWord8 1 >> put s >> pt, InstancesTree s t')
-    store i = fst <$> storeUpdate i
     load = do
         tag <- getWord8
         if tag == 0 then
@@ -637,8 +634,8 @@ makePersistent mods (Transient.Instances (Transient.Tree s t)) = InstancesTree s
             membed (Branch lvl fll vac hsh l' r')
         conv (Transient.Leaf i) = convInst i >>= membed . Leaf
         conv (Transient.VacantLeaf si) = membed (VacantLeaf si)
-        convInst (Transient.InstanceV0 Transient.InstanceV {_instanceVParameters=Transient.InstanceParameters{..},
-                                                            _instanceVModel=Transient.InstanceStateV0 transientModel,..}) = do
+        convInst (Instance.InstanceV0 Instance.InstanceV {_instanceVParameters=Instance.InstanceParameters{..},
+                                                            _instanceVModel=Instance.InstanceStateV0 transientModel,..}) = do
             pIParams <- makeBufferedRef $ PersistentInstanceParameters{
                 pinstanceAddress = _instanceAddress,
                 pinstanceOwner = instanceOwner,
@@ -649,6 +646,7 @@ makePersistent mods (Transient.Instances (Transient.Tree s t)) = InstancesTree s
             }
             -- This pattern is irrefutable because if the instance exists in the Basic version,
             -- then the module must be present in the persistent implementation.
+            -- Moreover, it will be of the same module version (i.e. V0).
             ~(Just pIModuleInterface) <- Modules.getModuleReference (GSWasm.miModuleRef instanceModuleInterface) mods
             return $ PersistentInstanceV0 PersistentInstanceV {
                 pinstanceParameters = pIParams,
@@ -658,8 +656,8 @@ makePersistent mods (Transient.Instances (Transient.Tree s t)) = InstancesTree s
                 pinstanceAmount = _instanceVAmount,
                 pinstanceHash = _instanceVHash
             }
-        convInst (Transient.InstanceV1 Transient.InstanceV {_instanceVParameters=Transient.InstanceParameters{..}, 
-                                                            _instanceVModel=Transient.InstanceStateV1 transientModel,..}) = do
+        convInst (Instance.InstanceV1 Instance.InstanceV {_instanceVParameters=Instance.InstanceParameters{..}, 
+                                                            _instanceVModel=Instance.InstanceStateV1 transientModel,..}) = do
             pIParams <- makeBufferedRef $ PersistentInstanceParameters{
                 pinstanceAddress = _instanceAddress,
                 pinstanceOwner = instanceOwner,
@@ -670,6 +668,7 @@ makePersistent mods (Transient.Instances (Transient.Tree s t)) = InstancesTree s
             }
             -- This pattern is irrefutable because if the instance exists in the Basic version,
             -- then the module must be present in the persistent implementation.
+            -- Moreover, it will be of the same module version (i.e. V1).
             ~(Just pIModuleInterface) <- Modules.getModuleReference (GSWasm.miModuleRef instanceModuleInterface) mods
             return $ PersistentInstanceV1 PersistentInstanceV {
                 pinstanceParameters = pIParams,

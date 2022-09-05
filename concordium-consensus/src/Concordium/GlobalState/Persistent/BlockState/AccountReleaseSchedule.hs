@@ -1,4 +1,5 @@
-{-# LANGUAGE TemplateHaskell,
+{-# LANGUAGE BangPatterns,
+             TemplateHaskell,
              OverloadedStrings,
              ScopedTypeVariables #-}
 {-|
@@ -76,6 +77,8 @@ import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule 
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Control.Monad
+import Control.Monad.Trans (lift)
+import Control.Monad.Trans.Writer.CPS
 import qualified Data.ByteString as BS
 import Data.Foldable
 import Data.List (group, sort)
@@ -110,9 +113,8 @@ instance MonadBlobStore m => MHashableTo m Hash Release where
 instance MonadBlobStore m => BlobStorable m Release where
   storeUpdate r@Release{..} = do
     (pNext, _rNext') <- storeUpdate _rNext
-    return $ ( put _rTimestamp >> put _rAmount >> pNext,
+    return ( put _rTimestamp >> put _rAmount >> pNext,
               r { _rNext = _rNext' })
-  store r = fst <$> storeUpdate r
   load = do
     _rTimestamp <- get
     _rAmount <- get
@@ -133,12 +135,14 @@ data AccountReleaseSchedule = AccountReleaseSchedule {
 makeLenses ''AccountReleaseSchedule
 
 instance MonadBlobStore m => BlobStorable m AccountReleaseSchedule where
-  storeUpdate a = (, a) <$> store a
-  store AccountReleaseSchedule{..} = do
-    let f accPut item = do
-              pItem <- store item
-              return (accPut >> pItem)
-    Vector.foldM' f (putLength $ Vector.length _arsValues) _arsValues
+  storeUpdate AccountReleaseSchedule{..} = do
+    let !len = Vector.length _arsValues
+    let f item = do
+              (pItem, item') <- lift $ storeUpdate item
+              tell pItem
+              return item'
+    (!newValues, !putEntries) <- runWriterT $ mapM f _arsValues
+    return (putLength len >> putEntries, AccountReleaseSchedule{_arsValues = newValues, ..})
   load = do
     numOfReleases <- getLength
     case numOfReleases of

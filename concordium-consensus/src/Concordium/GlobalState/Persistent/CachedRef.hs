@@ -11,6 +11,7 @@ import Control.Monad
 import Control.Monad.IO.Class
 import Data.IORef
 import Data.Proxy
+import Data.Serialize (put)
 
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types.HashableTo
@@ -98,17 +99,15 @@ instance
     ) =>
     BlobStorable m (CachedRef c a)
     where
-    store c = store . snd =<< refFlush c
     storeUpdate c = do
         (c', ref) <- refFlush c
-        (,c') <$> store ref
+        return (put ref, c')
     load = do
         mref <- load
         return $ do
             ref <- mref
             ioref <- liftIO $ newIORef $! Disk ref
             return (CachedRef ioref)
-    {-# INLINE store #-}
     {-# INLINE storeUpdate #-}
     {-# INLINE load #-}
 instance
@@ -214,8 +213,6 @@ instance
     ) =>
     BlobStorable m (LazilyHashedCachedRef' h c a)
     where
-    store c = store . snd =<< refFlush (lhCachedRef c)
-
     storeUpdate c = do
         (r, v') <- storeUpdate (lhCachedRef c)
         return (r, LazilyHashedCachedRef v' (lhHash c))
@@ -310,8 +307,6 @@ instance
     ) =>
     BlobStorable m (EagerlyHashedCachedRef' h c a)
     where
-    store c = store . snd =<< refFlush (ehCachedRef c)
-
     storeUpdate c = do
         (r, v') <- storeUpdate (ehCachedRef c)
         return (r, EagerlyHashedCachedRef v' (ehHash c))
@@ -337,16 +332,17 @@ data MaybeHashedCachedRef h c a = HCRMem !a | HCRMemHashed !a !h | HCRDisk !(Has
 
 -- |A 'CachedRef' with a hash that is computed when first demanded (via 'getHashM'), or when the
 -- reference is cached (via 'refCache' or 'cache').
-data HashedCachedRef' h c a
+data HashedCachedRef'' ref h c a
     = HCRUnflushed { hcrUnflushed :: !(IORef (MaybeHashedCachedRef h c a))}
     | HCRFlushed {
-        hcrBlob :: !(BlobRef a),
+        hcrBlob :: !(ref a),
         hcrHash :: !h
     }
 
+type HashedCachedRef' = HashedCachedRef'' BlobRef
 type HashedCachedRef = HashedCachedRef' H.Hash
 
-instance Show (HashedCachedRef' h c a) where
+instance Show (HashedCachedRef'' ref h c a) where
     show _ = "<HashedCachedRef>"
 
 instance
@@ -357,7 +353,7 @@ instance
       CacheValue c ~ a,
       MHashableTo m h a
     ) =>
-    MHashableTo m h (HashedCachedRef' h c a)
+    MHashableTo m h (HashedCachedRef'' ref h c a)
     where
     getHashM HCRUnflushed{..} = liftIO (readIORef hcrUnflushed) >>= \case
         HCRMem a -> getHashM a
@@ -373,7 +369,7 @@ instance
       CacheValue c ~ a,
       MHashableTo m h a
     ) =>
-    Reference m (HashedCachedRef' h c) a
+    Reference m (HashedCachedRef'' ref h c) a
     where
     refFlush HCRUnflushed{..} = liftIO (readIORef hcrUnflushed) >>= \case
         HCRMem val -> do
@@ -438,11 +434,9 @@ instance
     ) =>
     BlobStorable m (HashedCachedRef' h c a)
     where
-    store hcr = store . snd =<< refFlush hcr
-
     storeUpdate hcr = do
         (!hcr', !ref) <- refFlush hcr
-        (, hcr') <$> store ref
+        return (put ref, hcr')
 
     load = do
         mref <- load

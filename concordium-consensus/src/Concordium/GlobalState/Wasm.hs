@@ -1,11 +1,11 @@
-{-# LANGUAGE GADTs #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE StandaloneDeriving #-}
 {-| Common types and functions used to support wasm module storage in block state. |-}
 module Concordium.GlobalState.Wasm (
   -- ** Instrumented module
@@ -14,6 +14,7 @@ module Concordium.GlobalState.Wasm (
   -- instantiated and run.
   V0,
   V1,
+  ModuleArtifact,
   ModuleArtifactV0,
   ModuleArtifactV1,
   newModuleArtifactV0,
@@ -21,9 +22,12 @@ module Concordium.GlobalState.Wasm (
   withModuleArtifact,
   InstrumentedModuleV(..),
   imWasmArtifact,
+  instrumentedModuleVFromBytes,
   -- *** Module interface
   ModuleInterface(..),
-  ModuleInterfaceV(..),
+  ModuleInterfaceA(..),
+  ModuleInterfaceV,
+  BasicModuleInterface,
   HasModuleRef(..),
   HasEntrypoints(..)
   )
@@ -78,6 +82,15 @@ newModuleArtifactV1 p = do
 withModuleArtifact :: ModuleArtifact v -> (Ptr (ModuleArtifact v) -> IO a) -> IO a
 withModuleArtifact ModuleArtifact{..} = withForeignPtr maArtifact
 
+moduleArtifactFromBytes :: forall v. (IsWasmVersion v) => BS.ByteString -> IO (ModuleArtifact v)
+moduleArtifactFromBytes bs = do
+  let martifact = case getWasmVersion @v of
+        SV0 -> fromBytesHelper freeArtifactV0 fromBytesArtifactV0 bs
+        SV1 -> fromBytesHelper freeArtifactV1 fromBytesArtifactV1 bs
+  case martifact of
+    Nothing -> error "Cannot decode module artifact."
+    Just maArtifact -> return ModuleArtifact{..}
+
 -- This serialization instance does not add explicit versioning on its own. The
 -- module artifact is always stored as part of another structure that has
 -- versioning.
@@ -110,8 +123,8 @@ instance Serialize ModuleArtifactV1 where
 -- be instrumented with, and preprocessed to an executable format, ready to be
 -- instantiated and run.
 data InstrumentedModuleV v where
-  InstrumentedWasmModuleV0 :: { imWasmArtifactV0 :: ModuleArtifact V0 } -> InstrumentedModuleV V0
-  InstrumentedWasmModuleV1 :: { imWasmArtifactV1 :: ModuleArtifact V1 } -> InstrumentedModuleV V1
+  InstrumentedWasmModuleV0 :: { imWasmArtifactV0 :: !(ModuleArtifact V0) } -> InstrumentedModuleV V0
+  InstrumentedWasmModuleV1 :: { imWasmArtifactV1 :: !(ModuleArtifact V1) } -> InstrumentedModuleV V1
 
 deriving instance Eq (InstrumentedModuleV v)
 deriving instance Show (InstrumentedModuleV v)
@@ -135,10 +148,18 @@ instance Serialize (InstrumentedModuleV V1) where
     V0 -> fail "Expected Wasm version 1, got 0."
     V1 -> InstrumentedWasmModuleV1 <$> get
 
+instrumentedModuleVFromBytes :: forall v. (IsWasmVersion v) => BS.ByteString -> IO (InstrumentedModuleV v)
+instrumentedModuleVFromBytes bs = do
+    artifact <- moduleArtifactFromBytes @v bs
+    case getWasmVersion @v of
+      SV0 -> return (InstrumentedWasmModuleV0 artifact)
+      SV1 -> return (InstrumentedWasmModuleV1 artifact)
+
 --------------------------------------------------------------------------------
 
--- |A Wasm module interface of a given version, specified via a type parameter.
-data ModuleInterfaceV v = ModuleInterface {
+-- |A Wasm module interface, parametrised by the type of the instrumented module.
+-- The instrumented module should be e.g. @InstrumentedModuleV v@.
+data ModuleInterfaceA instrumentedModule = ModuleInterface {
   -- |Reference of the module on the chain.
   miModuleRef :: !ModuleRef,
   -- |Init methods exposed by this module.
@@ -149,12 +170,14 @@ data ModuleInterfaceV v = ModuleInterface {
   miExposedReceive :: !(Map.Map InitName (Set.Set ReceiveName)),
   -- |Module source processed into an efficiently executable format.
   -- For details see "Artifact" in smart-contracts/wasm-chain-integration
-  miModule :: !(InstrumentedModuleV v),
+  miModule :: !instrumentedModule,
   -- |Size of the module as deployed in the transaction.
   miModuleSize :: !Word64
-  } deriving(Eq, Show)
+  } deriving(Eq, Show, Functor, Foldable, Traversable)
 
-imWasmArtifact :: ModuleInterfaceV v -> ModuleArtifact v
+type ModuleInterfaceV (v :: WasmVersion) = ModuleInterfaceA (InstrumentedModuleV v)
+
+imWasmArtifact :: ModuleInterfaceA (InstrumentedModuleV v) -> ModuleArtifact v
 imWasmArtifact ModuleInterface{miModule = InstrumentedWasmModuleV0{..}} = imWasmArtifactV0
 imWasmArtifact ModuleInterface{miModule = InstrumentedWasmModuleV1{..}} = imWasmArtifactV1
 
@@ -170,36 +193,17 @@ class HasEntrypoints a where
   -- |Retrieve the set of exposed entrypoints indexed by contract names.
   exposedReceive :: a -> Map.Map InitName (Set.Set ReceiveName)
 
-instance HasEntrypoints (ModuleInterfaceV v) where
+instance HasEntrypoints (ModuleInterfaceA im) where
   exposedInit ModuleInterface{..} = miExposedInit
   exposedReceive ModuleInterface{..} = miExposedReceive
 
-instance HasModuleRef (ModuleInterfaceV v) where
+instance HasModuleRef (ModuleInterfaceA im) where
   {-# INLINE moduleReference #-}
   moduleReference = miModuleRef
 
--- |A module interface in either version 0 or 1. This is generally only used
--- when looking up a module before an instance is created. Afterwards an
--- expliclitly versioned module interface (ModuleInterfaceV) is used.
-data ModuleInterface where
-  ModuleInterfaceV0 :: ModuleInterfaceV V0 -> ModuleInterface
-  ModuleInterfaceV1 :: ModuleInterfaceV V1 -> ModuleInterface
-  deriving (Eq, Show)
-
-instance HasModuleRef ModuleInterface where
-  {-# INLINE moduleReference #-}
-  moduleReference (ModuleInterfaceV0 mi) = miModuleRef mi
-  moduleReference (ModuleInterfaceV1 mi) = miModuleRef mi
-
-instance HasEntrypoints ModuleInterface where
-  exposedInit (ModuleInterfaceV0 m) = exposedInit m
-  exposedInit (ModuleInterfaceV1 m) = exposedInit m
-  exposedReceive (ModuleInterfaceV0 m) = miExposedReceive m
-  exposedReceive (ModuleInterfaceV1 m) = miExposedReceive m
-
 -- This serialization instance relies on the versioning of the
 -- InstrumentedModuleV for its own versioning.
-instance Serialize (InstrumentedModuleV v) => Serialize (ModuleInterfaceV v) where
+instance Serialize im => Serialize (ModuleInterfaceA im) where
   get = do
     miModuleRef <- get
     miExposedInit <- getSafeSetOf get
@@ -214,7 +218,29 @@ instance Serialize (InstrumentedModuleV v) => Serialize (ModuleInterfaceV v) whe
     put miModule
     putWord64be miModuleSize
 
-instance Serialize ModuleInterface where
+-- |A module interface in either version 0 or 1. This is generally only used
+-- when looking up a module before an instance is created. Afterwards an
+-- explicitly versioned module interface (ModuleInterfaceV) is used.
+data ModuleInterface im where
+  ModuleInterfaceV0 :: !(ModuleInterfaceA (im V0)) -> ModuleInterface im
+  ModuleInterfaceV1 :: !(ModuleInterfaceA (im V1)) -> ModuleInterface im
+
+deriving instance (Show (im V0), Show (im V1)) => Show (ModuleInterface im)
+
+instance HasModuleRef (ModuleInterface im) where
+  {-# INLINE moduleReference #-}
+  moduleReference (ModuleInterfaceV0 mi) = miModuleRef mi
+  moduleReference (ModuleInterfaceV1 mi) = miModuleRef mi
+
+instance HasEntrypoints (ModuleInterface im) where
+  exposedInit (ModuleInterfaceV0 m) = exposedInit m
+  exposedInit (ModuleInterfaceV1 m) = exposedInit m
+  exposedReceive (ModuleInterfaceV0 m) = miExposedReceive m
+  exposedReceive (ModuleInterfaceV1 m) = miExposedReceive m
+
+type BasicModuleInterface = ModuleInterface InstrumentedModuleV
+
+instance Serialize BasicModuleInterface where
   get = do
     miModuleRef <- get
     miExposedInit <- getSafeSetOf get

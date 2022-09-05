@@ -78,9 +78,6 @@ instance MonadBlobStore m => Cacheable m (PersistentAccountMap pv) where
   {-# INLINE cache #-}
 
 instance MonadBlobStore m => BlobStorable m (PersistentAccountMap pv) where
-  store (AccountMap am) = store am
-  {-# INLINE store #-}
-
   storeUpdate (AccountMap am) = second AccountMap <$> storeUpdate am
   {-# INLINE storeUpdate #-}
 

@@ -1,6 +1,7 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -19,6 +20,7 @@ import Control.Monad.State.Class
 import Control.Monad.IO.Class
 import Control.Monad
 import Data.Coerce
+import Data.Kind
 import qualified Data.Serialize as S
 import Data.Function
 import qualified Data.Sequence as Seq
@@ -36,6 +38,7 @@ import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.TreeState as TS
+import Concordium.GlobalState.Wasm
 import Concordium.GlobalState
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import Concordium.GlobalState.ContractStateFFIHelpers (errorLoadCallback)
@@ -92,6 +95,9 @@ instance C.HasGlobalStateContext (PairGSContext lc rc) a => C.HasGlobalStateCont
 type BSML pv lc r ls s m = BlockStateM pv lc (FocusLeft r) ls (FocusLeft s) (ReviseRSM (FocusLeft r) (FocusLeft s) m)
 type BSMR pv rc r rs s m = BlockStateM pv rc (FocusRight r) rs (FocusRight s) (ReviseRSM (FocusRight r) (FocusRight s) m)
 
+data PairInstrumentedModuleRef imr1 imr2 :: Wasm.WasmVersion -> Type where
+    PIMR :: imr1 v -> imr2 v -> PairInstrumentedModuleRef imr1 imr2 v
+
 instance (C.HasGlobalStateContext (PairGSContext lc rc) r)
         => BlockStateTypes (BlockStateM pv (PairGSContext lc rc) r (PairGState lg rg) s m) where
     type BlockState (BlockStateM pv (PairGSContext lc rc) r (PairGState lg rg) s m)
@@ -116,6 +122,12 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r)
     type BakerInfoRef (BlockStateM pv (PairGSContext lc rc) r (PairGState lg rg) s m)
             = (BakerInfoRef (BSML pv lc r lg s m),
                 BakerInfoRef (BSMR pv rc r rg s m))
+    
+    -- It doesn't really make sense to compare 'InstrumentedModuleRef's between implementations,
+    -- or to operate on both, so we just always use the 'InstrumentedModuleRef' for the left
+    -- implementation.
+    type InstrumentedModuleRef (BlockStateM pv (PairGSContext lc rc) r (PairGState lg rg) s m)
+            = PairInstrumentedModuleRef (InstrumentedModuleRef (BSML pv lc r lg s m)) (InstrumentedModuleRef (BSMR pv rc r rg s m))
 
 instance C.HasGlobalState (PairGState ls rs) s => C.HasGlobalState ls (FocusLeft s) where
     globalState = lens unFocusLeft (const FocusLeft) . C.globalState . pairStateLeft
@@ -228,7 +240,15 @@ instance
     getModuleInterface (bs1, bs2) mref = do
         r1 <- coerceBSML $ getModuleInterface bs1 mref
         r2 <- coerceBSMR $ getModuleInterface bs2 mref
-        assertEq r1 r2 $ return r1
+        case (r1, r2) of
+            (Nothing, Nothing) -> return Nothing
+            (Just (ModuleInterfaceV0 mi1), Just (ModuleInterfaceV0 mi2)) ->
+                assertEq (void mi1) (void mi2) $
+                    return (Just (ModuleInterfaceV0 (PIMR (miModule mi1) (miModule mi2) <$ mi1)))
+            (Just (ModuleInterfaceV1 mi1), Just (ModuleInterfaceV1 mi2)) ->
+                assertEq (void mi1) (void mi2) $
+                    return (Just (ModuleInterfaceV1 (PIMR (miModule mi1) (miModule mi2) <$ mi1)))
+            (_, _) -> error "Module interface types do not match"
     getAccount (ls, rs) addr = do
         a1 <- coerceBSML (getAccount ls addr)
         a2 <- coerceBSMR (getAccount rs addr)
@@ -314,26 +334,26 @@ instance
           (Just ii1, Just ii2) ->
             case (ii1, ii2) of
               (InstanceInfoV0 iv1, InstanceInfoV0 iv2) ->
-                assertEq (iiParameters iv1) (iiParameters iv2) $
+                assertEq (void (iiParameters iv1)) (void (iiParameters iv2)) $
                 assertEq (iiBalance iv1) (iiBalance iv2) $ do
                   statebs1 <- coerceBSML (contractStateToByteString (iiState iv1))
                   statebs2 <- coerceBSMR (contractStateToByteString (iiState iv2))
                   assertEq statebs1 statebs2 $
                     return $ Just $ InstanceInfoV0 InstanceInfoV{
-                      iiParameters = iiParameters iv1,
+                      iiParameters = PIMR (miModule (instanceModuleInterface (iiParameters iv1))) <$> iiParameters iv2,
                       iiBalance = iiBalance iv1,
                       iiState = case S.decode statebs1 of
                           Left err -> error $ "Could not decode left V0 state: " ++ err
                           Right x -> x
                       }
               (InstanceInfoV1 iv1, InstanceInfoV1 iv2) ->
-                assertEq (iiParameters iv1) (iiParameters iv2) $
+                assertEq (void (iiParameters iv1)) (void (iiParameters iv2)) $
                 assertEq (iiBalance iv1) (iiBalance iv2) $ do
                   statebs1 <- coerceBSML (contractStateToByteString (iiState iv1))
                   statebs2 <- coerceBSMR (contractStateToByteString (iiState iv2))
                   assertEq statebs1 statebs2 $
                     return $ Just $ InstanceInfoV1 InstanceInfoV{
-                      iiParameters = iiParameters iv1,
+                      iiParameters = PIMR (miModule (instanceModuleInterface (iiParameters iv1))) <$> iiParameters iv2,
                       iiBalance = iiBalance iv1,
                       iiState = case S.decode statebs1 of
                           Left err -> error $ "Could not decode left V1 state: " ++ err
@@ -551,6 +571,17 @@ instance
         assertEq h1 h2 $ return h1
 
 instance
+    ( Monad m,
+      C.HasGlobalStateContext (PairGSContext lc rc) r,
+      ModuleQuery (BSML pv lc r ls s m)
+    ) =>
+    ModuleQuery (BlockStateM pv (PairGSContext lc rc) r (PairGState ls rs) s m) where
+    -- Because it is difficult to do so, we do not compare the module artifacts, which are foreign
+    -- pointers.
+    getModuleArtifact (PIMR mod1 _) =
+        coerceBSML (getModuleArtifact mod1)
+
+instance
     ( MonadLogger m,
       C.HasGlobalStateContext (PairGSContext lc rc) r,
       BlockStateOperations (BSML pv lc r ls s m),
@@ -560,7 +591,15 @@ instance
     bsoGetModule (bs1, bs2) mref = do
         r1 <- coerceBSML $ bsoGetModule bs1 mref
         r2 <- coerceBSMR $ bsoGetModule bs2 mref
-        assertEq r1 r2 $ return r1
+        case (r1, r2) of
+            (Nothing, Nothing) -> return Nothing
+            (Just (ModuleInterfaceV0 mi1), Just (ModuleInterfaceV0 mi2)) ->
+                assertEq (void mi1) (void mi2) $
+                    return (Just (ModuleInterfaceV0 (PIMR (miModule mi1) (miModule mi2) <$ mi1)))
+            (Just (ModuleInterfaceV1 mi1), Just (ModuleInterfaceV1 mi2)) ->
+                assertEq (void mi1) (void mi2) $
+                    return (Just (ModuleInterfaceV1 (PIMR (miModule mi1) (miModule mi2) <$ mi1)))
+            (_, _) -> error "Module interface types do not match"
     bsoGetAccount (bs1, bs2) aref = do
         r1 <- coerceBSML $ bsoGetAccount bs1 aref
         r2 <- coerceBSMR $ bsoGetAccount bs2 aref
@@ -590,22 +629,22 @@ instance
           (Just ii1, Just ii2) ->
             case (ii1, ii2) of
               (InstanceInfoV0 iv1, InstanceInfoV0 iv2) ->
-                assertEq (iiParameters iv1) (iiParameters iv2) $
+                assertEq (void (iiParameters iv1)) (void (iiParameters iv2)) $
                 assertEq (iiBalance iv1) (iiBalance iv2) $ do
                   statebs <- coerceBSML (contractStateToByteString (iiState iv1))
                   return $ Just $ InstanceInfoV0 InstanceInfoV{
-                    iiParameters = iiParameters iv1,
+                    iiParameters = PIMR (miModule (instanceModuleInterface (iiParameters iv1))) <$> iiParameters iv2,
                     iiBalance = iiBalance iv1,
                     iiState = case S.decode statebs of
                         Left err -> error $ "Could not decode left V0 state: " ++ err
                         Right x -> x
                     }
               (InstanceInfoV1 iv1, InstanceInfoV1 iv2) ->
-                assertEq (iiParameters iv1) (iiParameters iv2) $
+                assertEq (void (iiParameters iv1)) (void (iiParameters iv2)) $
                 assertEq (iiBalance iv1) (iiBalance iv2) $ do
                   statebs <- coerceBSML (contractStateToByteString (iiState iv1))
                   return $ Just $ InstanceInfoV1 InstanceInfoV{
-                    iiParameters = iiParameters iv1,
+                    iiParameters = PIMR (miModule (instanceModuleInterface (iiParameters iv1))) <$> iiParameters iv2,
                     iiBalance = iiBalance iv1,
                     iiState = case S.decode statebs of
                         Left err -> error $ "Could not decode left V1 state: " ++ err
@@ -648,9 +687,15 @@ instance
                 error "Account creation failed in left implementation but not right"
             (_, Nothing) ->
                 error "Account creation failed in right implementation but not left"
-    bsoPutNewInstance (bs1, bs2) nid = do
-        (r1, bs1') <- coerceBSML $ bsoPutNewInstance bs1 nid
-        (r2, bs2') <- coerceBSMR $ bsoPutNewInstance bs2 nid
+    bsoPutNewInstance (bs1, bs2) NewInstanceData{..} = do
+        (r1, bs1') <- coerceBSML $ bsoPutNewInstance bs1 NewInstanceData{
+                nidInterface = (\(PIMR l _) -> l) <$> nidInterface,
+                ..
+            }
+        (r2, bs2') <- coerceBSMR $ bsoPutNewInstance bs2 NewInstanceData{
+                nidInterface = (\(PIMR _ r) -> r) <$> nidInterface,
+                ..
+            }
         assertEq r1 r2 $ return (r1, (bs1', bs2'))
     bsoPutNewModule (bs1, bs2) iface = do
         (r1, bs1') <- coerceBSML $ bsoPutNewModule bs1 iface

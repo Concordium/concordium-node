@@ -147,7 +147,6 @@ instance (MonadBlobStore m, IsAccountVersion av) => BlobStorable m (PersistentBi
                     _birkNextEpochBakers = nextBakers,
                     _birkCurrentEpochBakers = currentBakers
                 })
-    store bps = fst <$> storeUpdate bps
     load = do
         mabs <- label "Active bakers" load
         mnebs <- label "Next epoch bakers" load
@@ -198,7 +197,6 @@ instance (MonadBlobStore m) => BlobStorable m EpochBlock where
         let putEB = put ebBakerId >> ppref
         let eb' = eb{ebPrevious = ebPrevious'}
         return $!! (putEB, eb')
-    store eb = fst <$> storeUpdate eb
     load = do
         ebBakerId <- get
         mPrevious <- load
@@ -230,7 +228,6 @@ instance MonadBlobStore m => BlobStorable m HashedEpochBlocks where
     storeUpdate heb = do
         (pblocks, blocks') <- storeUpdate (hebBlocks heb)
         return $!! (pblocks, heb{hebBlocks = blocks'})
-    store = store . hebBlocks
     load = do
         mhebBlocks <- load
         return $! do
@@ -293,7 +290,6 @@ instance MonadBlobStore m => MHashableTo m (Rewards.BlockRewardDetailsHash av) (
 instance (IsAccountVersion av, MonadBlobStore m) => BlobStorable m (BlockRewardDetails av) where
     storeUpdate (BlockRewardDetailsV0 heb) = fmap (fmap BlockRewardDetailsV0) $ storeUpdate heb
     storeUpdate (BlockRewardDetailsV1 hpr) = fmap (fmap BlockRewardDetailsV1) $ storeUpdate hpr
-    store bsp = fst <$> storeUpdate bsp
     load = case accountVersion @av of
         SAccountV0 -> fmap (fmap BlockRewardDetailsV0) load
         SAccountV1 -> fmap (fmap BlockRewardDetailsV1) load
@@ -440,7 +436,6 @@ instance (SupportsPersistentState pv m) => BlobStorable m (BlockStatePointers pv
                     bspReleaseSchedule = bspReleaseSchedule',
                     bspRewardDetails = bspRewardDetails'
                 })
-    store bsp = fst <$> storeUpdate bsp
     load = do
         maccts <- label "Accounts" load
         minsts <- label "Instances" load
@@ -627,7 +622,10 @@ doGetModule s modRef = do
     mods <- refLoad (bspModules bsp)
     Modules.getInterface modRef mods
 
-doGetModuleList :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m [ModuleRef]
+doGetModuleArtifact :: SupportsPersistentState pv m => Modules.PersistentInstrumentedModuleV v -> m (GSWasm.InstrumentedModuleV v)
+doGetModuleArtifact = Modules.loadInstrumentedModuleV
+
+doGetModuleList :: (SupportsPersistentAccount pv m) => PersistentBlockState pv -> m [ModuleRef]
 doGetModuleList s = do
     bsp <- loadPBS s
     mods <- refLoad (bspModules bsp)
@@ -1741,7 +1739,7 @@ doUpdateAccountCredentials pbs accIndex remove add thrsh = do
 doGetInstance :: (SupportsPersistentState pv m)
               => PersistentBlockState pv
               -> ContractAddress
-              -> m (Maybe (InstanceInfoType Instances.InstanceStateV))
+              -> m (Maybe (InstanceInfoType Modules.PersistentInstrumentedModuleV Instances.InstanceStateV))
 doGetInstance pbs caddr = do
         bsp <- loadPBS pbs
         minst <- Instances.lookupContractInstance caddr (bspInstances bsp)
@@ -1754,7 +1752,7 @@ doContractInstanceList pbs = do
 
 doPutNewInstance :: forall m pv v. (SupportsPersistentState pv m, Wasm.IsWasmVersion v)
                  => PersistentBlockState pv
-                 -> NewInstanceData v
+                 -> NewInstanceData (Modules.PersistentInstrumentedModuleV v) v
                  -> m (ContractAddress, PersistentBlockState pv)
 doPutNewInstance pbs NewInstanceData{..} = do
         bsp <- loadPBS pbs
@@ -1780,8 +1778,8 @@ doPutNewInstance pbs NewInstanceData{..} = do
               -- Seeing that we know that the instance is V0, and that the module exists, this cannot fail.
               ~(Just modRef) <- Modules.getModuleReference (GSWasm.miModuleRef nidInterface) mods
               (csHash, initialState) <- freezeContractState nidInitialState
-              return (ca, PersistentInstanceV0 Instances.PersistentInstanceV{
                   -- The module version is V0 because of the 'WasmVersion' is V0.
+              return $!! (ca, PersistentInstanceV0 Instances.PersistentInstanceV{
                   pinstanceModuleInterface = modRef,
                   pinstanceModel = initialState,
                   pinstanceAmount = nidInitialAmount,
@@ -1804,8 +1802,8 @@ doPutNewInstance pbs NewInstanceData{..} = do
               ~(Just modRef) <- Modules.getModuleReference (GSWasm.miModuleRef nidInterface) mods
               (csHash, initialState) <- freezeContractState nidInitialState
               let pinstanceHash = Instances.makeInstanceHashV1 (pinstanceParameterHash params) csHash nidInitialAmount
-              return (ca, PersistentInstanceV1 Instances.PersistentInstanceV{
                   -- The module version is V1 because of the 'WasmVersion' is V1.
+              return $!! (ca, PersistentInstanceV1 Instances.PersistentInstanceV{
                   pinstanceModuleInterface = modRef,
                   pinstanceModel = initialState,
                   pinstanceAmount = nidInitialAmount,
@@ -2629,6 +2627,10 @@ instance BlockStateTypes (PersistentBlockStateMonad pv r m) where
     type Account (PersistentBlockStateMonad pv r m) = PersistentAccount (AccountVersionFor pv)
     type BakerInfoRef (PersistentBlockStateMonad pv r m) = PersistentBakerInfoEx (AccountVersionFor pv)
     type ContractState (PersistentBlockStateMonad pv r m) = Instances.InstanceStateV
+    type InstrumentedModuleRef (PersistentBlockStateMonad pv r m) = Modules.PersistentInstrumentedModuleV
+
+instance (PersistentState av pv r m) => ModuleQuery (PersistentBlockStateMonad pv r m) where
+    getModuleArtifact = doGetModuleArtifact
 
 instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateQuery (PersistentBlockStateMonad pv r m) where
     getModule = doGetModuleSource . hpbsPointers

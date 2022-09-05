@@ -118,7 +118,7 @@ initialSkovData rp gd genState genTT =
 -- This newtype establishes types for the @GlobalStateTypes@. The type variable @bs@ stands for the BlockState
 -- type used in the implementation.
 newtype PureTreeStateMonad bs m a = PureTreeStateMonad { runPureTreeStateMonad :: m a }
-  deriving (Functor, Applicative, Monad, MonadIO, BlockStateTypes, BS.AccountOperations,
+  deriving (Functor, Applicative, Monad, MonadIO, BlockStateTypes, BS.AccountOperations, BS.ModuleQuery,
             BS.BlockStateQuery, BS.BlockStateOperations, BS.BlockStateStorage, BS.ContractStateOperations, TimeMonad)
 
 deriving instance (MonadProtocolVersion m) => MonadProtocolVersion (PureTreeStateMonad bs m)

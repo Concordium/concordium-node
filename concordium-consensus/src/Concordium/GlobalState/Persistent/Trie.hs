@@ -234,7 +234,6 @@ instance (BlobStorable m r, BlobStorable m (Nullable r), BlobStorable m v) => Bl
                 putShortByteString l
                 pr
         return $!! (putter, Stem l r')
-    store t = fst <$> storeUpdate t
     load = getWord8 >>= \case
         0 -> fail "Empty trie"
         1 -> do
@@ -466,10 +465,6 @@ instance (Show v, FixShowable fix) => Show (TrieN fix k v) where
     show (TrieN _ t) = showFix showTrieFString t
 
 instance (BlobStorable m (fix (TrieF k v)), BlobStorable m v, Base (fix (TrieF k v)) ~ TrieF k v) => BlobStorable m (TrieN fix k v) where
-    store EmptyTrieN = return (put (0 :: Int))
-    store (TrieN size t) = do
-        pt <- store t
-        return $! (put size >> pt)
     storeUpdate v@EmptyTrieN = return (put (0 :: Int), v)
     storeUpdate (TrieN size t) = do
         (pt, t') <- storeUpdate t
