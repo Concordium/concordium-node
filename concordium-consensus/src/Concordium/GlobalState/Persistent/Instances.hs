@@ -100,7 +100,7 @@ data PersistentInstanceV (v :: Wasm.WasmVersion) = PersistentInstanceV {
     -- is how the data is stored in the Modules table. A 'Module' carries a BlobRef to the source
     -- but that reference should never be consulted in the scope of Instance operations.
     -- Invariant: the module will always be of the appropriate version.
-    pinstanceModuleInterface :: !(DirectHashedCachedRef Modules.ModuleCache Modules.Module),
+    pinstanceModuleInterface :: !(DirectHashedCachedRef H.Hash Modules.ModuleCache Modules.Module),
     -- |The current local state of the instance
     pinstanceModel :: !(InstanceStateV v),
     -- |The current amount of GTU owned by the instance

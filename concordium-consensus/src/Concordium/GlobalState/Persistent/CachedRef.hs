@@ -477,9 +477,12 @@ instance
         return hcr
 
 
-newtype DirectHashedCachedRef c a = DirectHashedCachedRef {theHashedCachedRef :: IORef (HashedCachedRef c a)}
+data DirectHashedCachedRef h c a = DirectHashedCachedRef {
+        theHashedCachedRef :: IORef (HashedCachedRef c a),
+        theHashedCachedRefHash :: !h
+    }
 
-instance Show (DirectHashedCachedRef c a) where
+instance Show (DirectHashedCachedRef h c a) where
     show _ = "<DirectHashedCachedRef>"
 
 instance
@@ -491,11 +494,9 @@ instance
       MHashableTo m h a,
       h ~ H.Hash
     ) =>
-    MHashableTo m h (DirectHashedCachedRef c a)
+    MHashableTo m h (DirectHashedCachedRef h c a)
     where
-    getHashM DirectHashedCachedRef{..} = liftIO (readIORef theHashedCachedRef) >>= \case
-        HCRFlushed a h -> return h
-        HCRUnflushed ref -> undefined
+    getHashM DirectHashedCachedRef{..} = return theHashedCachedRefHash
 
 instance
     ( MonadCache c m,
@@ -506,7 +507,7 @@ instance
       MHashableTo m h a,
       h ~ H.Hash
     ) =>
-    BlobStorable m (DirectHashedCachedRef c a)
+    BlobStorable m (DirectHashedCachedRef h c a)
     where
     storeUpdate dhcr = undefined
     load = undefined
@@ -520,7 +521,7 @@ instance
       MHashableTo m h a,
       h ~ H.Hash
     ) =>
-    Reference m (DirectHashedCachedRef c) a
+    Reference m (DirectHashedCachedRef h c) a
     where
     refFlush = undefined
     refCache = undefined
@@ -534,8 +535,8 @@ instance
       Cache c,
       CacheKey c ~ BlobRef a,
       CacheValue c ~ a
-    ) => Cacheable1 m (DirectHashedCachedRef c a) a where
+    ) => Cacheable1 m (DirectHashedCachedRef h c a) a where
     liftCache csh DirectHashedCachedRef{..} = undefined
 
-instance (Applicative m) => Cacheable m (DirectHashedCachedRef c a) where
+instance (Applicative m) => Cacheable m (DirectHashedCachedRef h c a) where
     cache = pure
