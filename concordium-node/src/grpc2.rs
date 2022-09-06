@@ -384,6 +384,14 @@ pub mod server {
             Ok(tonic::Response::new(response))
         }
 
+        async fn get_consensus_info(
+            &self,
+            _request: tonic::Request<crate::grpc2::types::Empty>,
+        ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            let response = self.consensus.get_consensus_info_v2()?;
+            Ok(tonic::Response::new(response))
+        }
+
         async fn get_ancestors(
             &self,
             request: tonic::Request<crate::grpc2::types::AncestorsRequest>,

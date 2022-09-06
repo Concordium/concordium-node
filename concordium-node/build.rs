@@ -216,6 +216,15 @@ fn main() -> std::io::Result<()> {
         )
         .method(
             tonic_build::manual::Method::builder()
+                .name("get_consensus_info")
+                .route_name("GetConsensusInfo")
+                .input_type("crate::grpc2::types::Empty")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
                 .name("get_ancestors")
                 .route_name("GetAncestors")
                 .input_type("crate::grpc2::types::AncestorsRequest")

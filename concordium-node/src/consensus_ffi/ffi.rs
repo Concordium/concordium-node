@@ -519,6 +519,12 @@ extern "C" {
         copier: CopyToVecCallback,
     ) -> i64;
 
+    pub fn getConsensusInfoV2(
+        consensus: *mut consensus_runner,
+        out: *mut Vec<u8>,
+        copier: CopyToVecCallback,
+    ) -> i64;
+
     /// Stream a list of all modules.
     pub fn getModuleListV2(
         consensus: *mut consensus_runner,
@@ -1149,6 +1155,16 @@ impl ConsensusContainer {
         let response: ConsensusQueryResponse = unsafe {
             getNextAccountNonceV2(consensus, acc_type, acc_id, &mut out_data, copy_to_vec_callback)
                 .try_into()?
+        };
+        response.check_rpc_response()?;
+        Ok(out_data)
+    }
+
+    pub fn get_consensus_info_v2(&self) -> Result<Vec<u8>, tonic::Status> {
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut out_data: Vec<u8> = Vec::new();
+        let response: ConsensusQueryResponse = unsafe {
+            getConsensusInfoV2(consensus, &mut out_data, copy_to_vec_callback).try_into()?
         };
         response.check_rpc_response()?;
         Ok(out_data)
