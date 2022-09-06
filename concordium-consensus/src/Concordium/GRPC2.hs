@@ -386,6 +386,10 @@ instance ToProto RawCredentialRegistrationID where
     type Output RawCredentialRegistrationID = Proto.CredentialRegistrationId
     toProto = mkSerialize
 
+instance ToProto CredentialRegistrationID where
+  type Output CredentialRegistrationID = Proto.CredentialRegistrationId
+  toProto = toProto . toRawCredRegId
+
 instance ToProto IdentityProviderIdentity where
     type Output IdentityProviderIdentity = Proto.IdentityProviderIdentity
     toProto = mkWord32
@@ -451,18 +455,97 @@ instance ToProto AccountInfo where
         ProtoFields.address .= toProto aiAccountAddress
         ProtoFields.maybe'stake .= toProto aiStakingInfo
 
+instance ToProto Wasm.Parameter where
+  type Output Wasm.Parameter = Proto.Parameter
+  toProto = mkSerialize
+
+instance ToProto RejectReason where
+  type Output RejectReason = Proto.RejectReason
+  toProto r = case r of
+    ModuleNotWF -> Proto.make $ ProtoFields.moduleNotWf .= Proto.defMessage
+    ModuleHashAlreadyExists moduleRef -> Proto.make $ ProtoFields.moduleHashAlreadyExists . ProtoFields.contents .= toProto moduleRef
+    InvalidAccountReference addr -> Proto.make $ ProtoFields.invalidAccountReference . ProtoFields.contents .= toProto addr
+    InvalidInitMethod moduleRef initName -> Proto.make $ ProtoFields.invalidInitMethod .= Proto.make (do
+                                                                                            ProtoFields.moduleRef .= toProto moduleRef
+                                                                                            ProtoFields.initName .= toProto initName)
+    InvalidReceiveMethod moduleRef receiveName -> Proto.make $ ProtoFields.invalidReceiveMethod .= Proto.make (do
+                                                                                            ProtoFields.moduleRef .= toProto moduleRef
+                                                                                            ProtoFields.receiveName .= toProto receiveName)
+    InvalidModuleReference moduleRef -> Proto.make $ ProtoFields.invalidModuleReference . ProtoFields.contents .= toProto moduleRef
+    InvalidContractAddress addr -> Proto.make $ ProtoFields.invalidContractAddress . ProtoFields.contents .= toProto addr
+    RuntimeFailure -> Proto.make $ ProtoFields.runtimeFailure .= Proto.defMessage
+    AmountTooLarge addr amount -> Proto.make $ ProtoFields.amountTooLarge .= Proto.make (do
+                                                                                         ProtoFields.address .= toProto addr
+                                                                                         ProtoFields.amount .= toProto amount)
+    SerializationFailure -> Proto.make $ ProtoFields.serializationFailure .= Proto.defMessage
+    OutOfEnergy -> Proto.make $ ProtoFields.outOfEnergy .= Proto.defMessage
+    RejectedInit{..} -> Proto.make $ ProtoFields.rejectedInit . ProtoFields.rejectReason .= rejectReason
+    RejectedReceive{..} -> Proto.make $ ProtoFields.rejectedReceive .= Proto.make (do
+                                                                        ProtoFields.rejectReason .= rejectReason
+                                                                        ProtoFields.contractAddress .= toProto contractAddress
+                                                                        ProtoFields.receiveName .= toProto receiveName
+                                                                        ProtoFields.parameter .= toProto parameter)
+    InvalidProof -> Proto.make $ ProtoFields.invalidProof .= Proto.defMessage
+    AlreadyABaker bakerId -> Proto.make $ ProtoFields.alreadyABaker . ProtoFields.contents .= toProto bakerId
+    NotABaker addr -> Proto.make $ ProtoFields.notABaker . ProtoFields.contents .= toProto addr
+    InsufficientBalanceForBakerStake -> Proto.make $ ProtoFields.insufficientBalanceForBakerStake .= Proto.defMessage
+    StakeUnderMinimumThresholdForBaking -> Proto.make $ ProtoFields.stakeUnderMinimumThresholdForBaking .= Proto.defMessage
+    BakerInCooldown -> Proto.make $ ProtoFields.bakerInCooldown .= Proto.defMessage
+    DuplicateAggregationKey k -> Proto.make $ ProtoFields.duplicateAggregationKey . ProtoFields.contents .= mkSerialize k
+    NonExistentCredentialID -> Proto.make $ ProtoFields.nonExistentCredentialId .= Proto.defMessage
+    KeyIndexAlreadyInUse -> Proto.make $ ProtoFields.keyIndexAlreadyInUse .= Proto.defMessage
+    InvalidAccountThreshold -> Proto.make $ ProtoFields.invalidAccountThreshold .= Proto.defMessage
+    InvalidCredentialKeySignThreshold -> Proto.make $ ProtoFields.invalidCredentialKeySignThreshold .= Proto.defMessage
+    InvalidEncryptedAmountTransferProof -> Proto.make $ ProtoFields.invalidEncryptedAmountTransferProof .= Proto.defMessage
+    InvalidTransferToPublicProof -> Proto.make $ ProtoFields.invalidTransferToPublicProof .= Proto.defMessage
+    EncryptedAmountSelfTransfer addr -> Proto.make $ ProtoFields.encryptedAmountSelfTransfer . ProtoFields.contents .= toProto addr
+    InvalidIndexOnEncryptedTransfer -> Proto.make $ ProtoFields.invalidIndexOnEncryptedTransfer .= Proto.defMessage
+    ZeroScheduledAmount -> Proto.make $ ProtoFields.zeroScheduledAmount .= Proto.defMessage
+    NonIncreasingSchedule -> Proto.make $ ProtoFields.nonIncreasingSchedule .= Proto.defMessage
+    FirstScheduledReleaseExpired -> Proto.make $ ProtoFields.firstScheduledReleaseExpired .= Proto.defMessage
+    ScheduledSelfTransfer addr -> Proto.make $ ProtoFields.scheduledSelfTransfer . ProtoFields.contents .= toProto addr
+    InvalidCredentials -> Proto.make $ ProtoFields.invalidCredentials .= Proto.defMessage
+    DuplicateCredIDs ids -> Proto.make $ ProtoFields.duplicateCredIds . ProtoFields.contents .= (toProto <$> ids)
+    NonExistentCredIDs ids -> Proto.make $ ProtoFields.nonExistentCredIds . ProtoFields.contents .= (toProto <$> ids)
+    RemoveFirstCredential -> Proto.make $ ProtoFields.removeFirstCredential .= Proto.defMessage
+    CredentialHolderDidNotSign -> Proto.make $ ProtoFields.credentialHolderDidNotSign .= Proto.defMessage
+    NotAllowedMultipleCredentials -> Proto.make $ ProtoFields.notAllowedMultipleCredentials .= Proto.defMessage
+    NotAllowedToReceiveEncrypted -> Proto.make $ ProtoFields.notAllowedToReceiveEncrypted .= Proto.defMessage
+    NotAllowedToHandleEncrypted -> Proto.make $ ProtoFields.notAllowedToHandleEncrypted .= Proto.defMessage
+    MissingBakerAddParameters -> Proto.make $ ProtoFields.missingBakerAddParameters .= Proto.defMessage
+    FinalizationRewardCommissionNotInRange -> Proto.make $ ProtoFields.finalizationRewardCommissionNotInRange .= Proto.defMessage
+    BakingRewardCommissionNotInRange -> Proto.make $ ProtoFields.bakingRewardCommissionNotInRange .= Proto.defMessage
+    TransactionFeeCommissionNotInRange -> Proto.make $ ProtoFields.transactionFeeCommissionNotInRange .= Proto.defMessage
+    AlreadyADelegator -> Proto.make $ ProtoFields.alreadyADelegator .= Proto.defMessage
+    InsufficientBalanceForDelegationStake -> Proto.make $ ProtoFields.insufficientBalanceForDelegationStake .= Proto.defMessage
+    MissingDelegationAddParameters -> Proto.make $ ProtoFields.missingDelegationAddParameters .= Proto.defMessage
+    InsufficientDelegationStake -> Proto.make $ ProtoFields.insufficientDelegationStake .= Proto.defMessage
+    DelegatorInCooldown -> Proto.make $ ProtoFields.delegatorInCooldown .= Proto.defMessage
+    NotADelegator addr -> Proto.make $ ProtoFields.notADelegator . ProtoFields.contents .= toProto addr
+    DelegationTargetNotABaker bakerId -> Proto.make $ ProtoFields.delegationTargetNotABaker . ProtoFields.contents .= toProto bakerId
+    StakeOverMaximumThresholdForPool -> Proto.make $ ProtoFields.stakeOverMaximumThresholdForPool .= Proto.defMessage
+    PoolWouldBecomeOverDelegated -> Proto.make $ ProtoFields.poolWouldBecomeOverDelegated .= Proto.defMessage
+    PoolClosed -> Proto.make $ ProtoFields.poolClosed .= Proto.defMessage
+
 toTransactionStatus :: QueryTypes.TransactionStatus -> Either ConversionError Proto.TransactionStatus
 toTransactionStatus ts = case ts of
   QueryTypes.Received -> Right . Proto.make $ ProtoFields.received .= Proto.defMessage
   QueryTypes.Finalized bh trx -> do
-    bis <- case trx of
-      Nothing -> Left CEInvalidTransactionResult
-      Just t -> toBlockItemSummary t
-    trxInBlock <- Right . Proto.make $ do
+    bis <- toBis trx
+    trxInBlock <- toTrxInBlock bh bis
+    Right . Proto.make $ ProtoFields.finalized . ProtoFields.outcome .= trxInBlock
+  QueryTypes.Committed trxs -> do
+    outcomes <- mapM (\(bh, trx) -> toTrxInBlock bh =<< toBis trx) $ Map.toList trxs
+    Right . Proto.make $ ProtoFields.committed . ProtoFields.outcomes .= outcomes
+  where
+    toBis Nothing = Left CEInvalidTransactionResult -- TODO: Throw internal error here?
+    toBis (Just t) = toBlockItemSummary t
+
+    toTrxInBlock bh bis = Right . Proto.make $ do
       ProtoFields.blockHash .= toProto bh
       ProtoFields.outcome .= bis
-    Right . Proto.make $ ProtoFields.finalized . ProtoFields.outcome .= trxInBlock
-  QueryTypes.Committed _ -> undefined -- TODO
+
+
 
 -- TODO: use monad so we can short circuit
 toBlockItemSummary :: TransactionSummary -> Either ConversionError Proto.BlockItemSummary
@@ -493,30 +576,40 @@ convertAccountTransaction
   -> AccountAddress
   -> ValidResult
   -> Either ConversionError Proto.AccountTransactionDetails
-convertAccountTransaction ty cost sender result = case ty' of
-  TTTransfer -> mkSuccess =<< withSingleton events (\evts -> case evts of
-    Transferred{..} -> case etTo of
-      AddressContract _ -> Left CEInvalidTransactionResult
-      AddressAccount receiver -> Right $ Proto.make $ do
-        ProtoFields.accountTransfer .= Proto.make (do
-            ProtoFields.amount .= toProto etAmount-- etFrom, etAmount, etTo
-            ProtoFields.to .= toProto receiver)
-    _ -> Left CEInvalidTransactionResult)
-  _ -> undefined -- other types
+convertAccountTransaction ty cost sender result = case ty of
+    Nothing -> Right . mkNone $ SerializationFailure
+    Just ty' -> case result of
+        TxReject rejectReason -> Right . mkNone $ rejectReason
+        TxSuccess events -> case ty' of
+            TTTransfer -> mkSuccess <$> withSingleton events (\evts -> case evts of
+                Transferred{..} -> case etTo of
+                    AddressContract _ -> Left CEInvalidTransactionResult
+                    AddressAccount receiver -> Right $ Proto.make $ do
+                        ProtoFields.accountTransfer .= Proto.make (do
+                            ProtoFields.amount .= toProto etAmount
+                            ProtoFields.to .= toProto receiver)
+                _ -> Left CEInvalidTransactionResult)
+        _ -> undefined -- other types
 
   where
-    ty' = case ty of
-      Nothing -> undefined -- mkNone serializationError
-      Just t -> t
-    events = case result of
-      TxSuccess events -> events
-      TxReject rejectReason -> undefined -- mkNone rejectReason
-
-    mkSuccess :: Proto.AccountTransactionEffects -> Either ConversionError Proto.AccountTransactionDetails
-    mkSuccess effects = Right $ Proto.make $ do
+    mkSuccess :: Proto.AccountTransactionEffects -> Proto.AccountTransactionDetails
+    mkSuccess effects = Proto.make $ do
       ProtoFields.cost .= toProto cost
       ProtoFields.sender .= toProto sender
       ProtoFields.effects .= effects
+
+    mkNone :: RejectReason -> Proto.AccountTransactionDetails
+    mkNone rr = Proto.make $ do
+      ProtoFields.cost .= toProto cost
+      ProtoFields.sender .= toProto sender
+      ProtoFields.effects . ProtoFields.none .=
+        (Proto.make $ do
+            ProtoFields.rejectReason .= toProto rr
+            case ty of
+              Nothing -> return ()
+              Just ty' -> ProtoFields.transactionType .= toProto ty'
+        )
+
 
     withSingleton :: [Event] -> (Event -> Either ConversionError Proto.AccountTransactionEffects)
       -> Either ConversionError Proto.AccountTransactionEffects
@@ -774,8 +867,6 @@ getTransactionStatusV2 cptr trxHashPtr outVec copierCbk = do
     let copier = callCopyToVecCallback copierCbk
     trxHash <- decodeTransactionHashInput trxHashPtr
     res <- runMVR (Q.getTransactionStatus trxHash) mvr
-
-    -- TODO: Is this large enough to qualify for a streaming response?
     case res of
         Nothing -> do
           return $ queryResultCode QRNotFound
@@ -806,20 +897,6 @@ returnMessage copier outHash (bh, Just v) = do
     let encoded = Proto.encodeMessage (toProto v)
     BS.unsafeUseAsCStringLen encoded (\(ptr, len) -> copier (castPtr ptr) (fromIntegral len))
     return (queryResultCode QRSuccess)
-
--- |Similar to returnMessage, expect that it doesn't return a block hash.
-returnMessageWithoutBlock ::
-    (Proto.Message (Output a), ToProto a) =>
-    (Ptr Word8 -> Int64 -> IO ()) ->
-    -- | The potential message.
-    Maybe a ->
-    IO Int64
-returnMessageWithoutBlock copier res = case res of
-  Nothing -> return $ queryResultCode QRNotFound
-  Just v -> do
-    let encoded = Proto.encodeMessage (toProto v)
-    BS.unsafeUseAsCStringLen encoded (\(ptr, len) -> copier (castPtr ptr) (fromIntegral len))
-    return $ queryResultCode QRSuccess
 
 {- |Spawn a new thread that will invoke the provided callback on the list of
  encoded messages. If the callback response indicates that the channel to
