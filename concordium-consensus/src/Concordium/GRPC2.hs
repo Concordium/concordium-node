@@ -81,6 +81,18 @@ foreign import ccall "dynamic" callChannelSendCallback :: FunPtr ChannelSendCall
 -- |Boilerplate wrapper to invoke C callbacks.
 foreign import ccall "dynamic" callCopyToVecCallback :: FunPtr CopyToVecCallback -> CopyToVecCallback
 
+-- |A helper function that can be used to construct a value of a protobuf
+-- "wrapper" type by serializing the provided value @a@ using its serialize
+-- instance.
+--
+-- More concretely, the wrapper type should be of the form
+--
+-- > message Wrapper {
+-- >    bytes value = 1
+-- > }
+--
+-- where the name @Wrapper@ can be arbitrary, but the @value@ field must exist,
+-- and it must have type @bytes@.
 mkSerialize ::
     ( Proto.Message b
     , Data.ProtoLens.Field.HasField
@@ -93,6 +105,10 @@ mkSerialize ::
     b
 mkSerialize ek = Proto.make (ProtoFields.value .= S.encode ek)
 
+-- |Like 'mkSerialize' above, but used to set a wrapper type whose @value@ field
+-- has type @uint64@. The supplied value must be coercible to a 'Word64'.
+-- Coercible here means that the value is a newtype wrapper (possibly repeated)
+-- of a Word64.
 mkWord64 ::
     ( Proto.Message b
     , Data.ProtoLens.Field.HasField
@@ -105,6 +121,7 @@ mkWord64 ::
     b
 mkWord64 a = Proto.make (ProtoFields.value .= coerce a)
 
+-- |Like 'mkWord64', but for 32-bit integers instead of 64.
 mkWord32 ::
     ( Proto.Message b
     , Data.ProtoLens.Field.HasField
@@ -117,6 +134,8 @@ mkWord32 ::
     b
 mkWord32 a = Proto.make (ProtoFields.value .= coerce a)
 
+-- |Like 'mkWord32', but the supplied value must be coercible to
+-- 'Word8'.
 mkWord8 ::
     forall a b.
     ( Proto.Message b

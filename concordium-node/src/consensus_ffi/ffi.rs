@@ -1023,9 +1023,9 @@ impl ConsensusContainer {
     ) -> Result<([u8; 32], Vec<u8>), tonic::Status> {
         use crate::grpc2::Require;
         let (block_id_type, block_hash) =
-            crate::grpc2::types::block_hash_input_to_ffi(block_hash).require_owned()?;
+            crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
         let (acc_type, acc_id) =
-            crate::grpc2::types::account_identifier_to_ffi(account_identifier).require_owned()?;
+            crate::grpc2::types::account_identifier_to_ffi(account_identifier).require()?;
         let consensus = self.consensus.load(Ordering::SeqCst);
         let mut out_data: Vec<u8> = Vec::new();
         let mut out_hash = [0u8; 32];
@@ -1061,7 +1061,7 @@ impl ConsensusContainer {
         let consensus = self.consensus.load(Ordering::SeqCst);
         let mut buf = [0u8; 32];
         let (block_id_type, block_hash) =
-            crate::grpc2::types::block_hash_input_to_ffi(block_hash).require_owned()?;
+            crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
         let sender_ptr = Box::into_raw(sender);
         let response: ConsensusQueryResponse = unsafe {
             getAccountListV2(
