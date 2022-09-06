@@ -19,7 +19,13 @@ import Foreign.C
 import System.Directory
 import System.FilePath
 import Text.Read (readMaybe)
+import qualified Data.ProtoLens as Proto
+import qualified Data.ProtoLens.Combinators as Proto
+import qualified Proto.Concordium.Types as Proto
+import qualified Proto.Concordium.Types_Fields as ProtoFields
+import Lens.Micro.Platform
 
+import Concordium.Types.Block (AbsoluteBlockHeight)
 import qualified Concordium.Crypto.SHA256 as SHA256
 import Concordium.ID.Types
 import Concordium.Logger
@@ -297,6 +303,48 @@ migrateGlobalState dbPath logM = do
             (False, True) -> logM GlobalState LLWarning "Cannot migrate legacy database as 'blockstate.dat' is absent."
             _ -> return ()
 
+-- |The opaque type that represents a foreign (i.e., living in Rust) object. The
+-- purpose of this context is to enable consensus to signal important events to
+-- the Rust code. In particular it is currently used to inform the GRPC2 server
+-- that a new block has arrived, or that a new block is finalized.
+data NotifyContext
+
+-- |Type of the callback used to send notifications.
+type NotifyCallback =
+  -- |Handle to the context.
+  Ptr NotifyContext ->
+  -- |The type of event. Only 0 and 1 are given meaning.
+  --
+  --   - 0 for block arrived
+  --   - 1 for block finalized
+  Word8
+  -- |Pointer to the beginning of the data to send.
+  -> Ptr Word8
+  -- |Size of the data to send.
+  -> Word64 -> IO ()
+
+foreign import ccall "dynamic" callNotifyCallback :: FunPtr NotifyCallback -> NotifyCallback
+
+-- |Serialize the provided arguments (block hash and absolute block height) into
+-- an appropriate Proto message, and invoke the provided FFI callback.
+mkNotifyBlockArrived :: (Word8 -> Ptr Word8 -> Word64 -> IO ()) -> BlockHash -> AbsoluteBlockHeight -> IO ()
+mkNotifyBlockArrived f = \bh height -> do
+    let msg :: Proto.FinalizedBlockInfo = Proto.make $ do
+            ProtoFields.hash . ProtoFields.value .= S.encode bh
+            ProtoFields.height . ProtoFields.value .= fromIntegral height
+    BS.unsafeUseAsCStringLen (Proto.encodeMessage msg) $ \(cPtr, len) -> do
+        f 0 (castPtr cPtr) (fromIntegral len)
+
+-- |Serialize the provided arguments (block hash and block height) into an
+-- appropriate Proto message, and invoke the provided FFI callback.
+mkNotifyBlockFinalized :: (Word8 -> Ptr Word8 -> Word64 -> IO ()) -> BlockHash -> AbsoluteBlockHeight -> IO ()
+mkNotifyBlockFinalized f = \bh height -> do
+    let msg :: Proto.FinalizedBlockInfo = Proto.make $ do
+            ProtoFields.hash . ProtoFields.value .= S.encode bh
+            ProtoFields.height . ProtoFields.value .= fromIntegral height
+    BS.unsafeUseAsCStringLen (Proto.encodeMessage msg) $ \(cPtr, len) -> do
+        f 1 (castPtr cPtr) (fromIntegral len)
+
 -- |Start up an instance of Skov without starting the baker thread.
 -- If an error occurs starting Skov, the error will be logged and
 -- a null pointer will be returned.
@@ -319,6 +367,10 @@ startConsensus ::
     -- |Serialized baker identity (c string + len)
     CString ->
     Int64 ->
+    -- |Context for notifying upon new block arrival, and new finalized blocks.
+    Ptr NotifyContext ->
+    -- |The callback used to invoke upon new block arrival, and new finalized blocks.
+    FunPtr NotifyCallback ->
     -- |Handler for generated messages
     FunPtr BroadcastCallback ->
     -- |Handler for sending catch-up status to peers
@@ -351,6 +403,8 @@ startConsensus
     gdataLenC
     bidC
     bidLenC
+    notifyContext
+    notifyCbk
     bcbk
     cucbk
     regenesisPtr
@@ -376,11 +430,20 @@ startConsensus
                         )
             regenesisRef <- makeRegenesisRef regenesisFree regenesisPtr
             -- Callbacks
+            let notifyCallback = callNotifyCallback notifyCbk
             let callbacks =
                     Callbacks
                         { broadcastBlock = callBroadcastCallback bcbk MessageBlock,
                           broadcastFinalizationMessage = callBroadcastCallback bcbk MessageFinalization,
                           broadcastFinalizationRecord = callBroadcastCallback bcbk MessageFinalizationRecord,
+                          notifyBlockArrived =
+                            if notifyContext /= nullPtr then
+                              Just $ mkNotifyBlockArrived (notifyCallback notifyContext)
+                            else Nothing,
+                          notifyBlockFinalized =
+                            if notifyContext /= nullPtr then
+                              Just $ mkNotifyBlockFinalized (notifyCallback notifyContext)
+                            else Nothing,
                           notifyCatchUpStatus = callCatchUpStatusCallback cucbk,
                           notifyRegenesis = callRegenesisCallback regenesisCB regenesisRef
                         }
@@ -441,6 +504,10 @@ startConsensusPassive ::
     -- |Serialized genesis data (c string + len)
     CString ->
     Int64 ->
+    -- |Context for notifying upon new block arrival, and new finalized blocks.
+    Ptr NotifyContext ->
+    -- |The callback used to invoke upon new block arrival, and new finalized blocks.
+    FunPtr NotifyCallback ->
     -- |Handler for sending catch-up status to peers
     FunPtr CatchUpStatusCallback ->
     -- |Regenesis object
@@ -469,6 +536,8 @@ startConsensusPassive
     accountsCacheSize
     gdataC
     gdataLenC
+    notifyContext
+    notifycbk
     cucbk
     regenesisPtr
     regenesisFree
@@ -487,12 +556,22 @@ startConsensusPassive
             let mvcFinalizationConfig = NoFinalization
             -- Callbacks
             regenesisRef <- makeRegenesisRef regenesisFree regenesisPtr
+            let notifyCallback = callNotifyCallback notifycbk
             let callbacks =
                     Callbacks
                         { broadcastBlock = \_ _ -> return (),
                           broadcastFinalizationMessage = \_ _ -> return (),
                           broadcastFinalizationRecord = \_ _ -> return (),
                           notifyCatchUpStatus = callCatchUpStatusCallback cucbk,
+                          notifyBlockArrived =
+                            if notifyContext /= nullPtr then
+                              Just $ mkNotifyBlockArrived (notifyCallback notifyContext)
+                            else Nothing,
+                          notifyBlockFinalized =
+                            if notifyContext /= nullPtr then
+                              Just $ mkNotifyBlockFinalized (notifyCallback notifyContext)
+                            else
+                              Nothing,
                           notifyRegenesis = callRegenesisCallback regenesisCB regenesisRef
                         }
             runner <- do
@@ -1002,7 +1081,7 @@ getAccountList :: StablePtr ConsensusRunner -> CString -> IO CString
 getAccountList cptr blockcstr =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (Q.getAccountList bh)
+        Just bh -> jsonQuery cptr (snd <$> Q.getAccountList (Q.BHIGiven bh))
 
 -- |Get the list of contract instances (their addresses) in the given block. The
 -- block must be given as a null-terminated base16 encoding of the block hash.
@@ -1037,7 +1116,7 @@ getAccountInfo cptr blockcstr acctcstr = do
     acctbs <- BS.packCString acctcstr
     let account = decodeAccountIdentifier acctbs
     case (mblock, account) of
-        (Just bh, Just acct) -> jsonQuery cptr (Q.getAccountInfo bh acct)
+        (Just bh, Just acct) -> jsonQuery cptr (Q.getAccountInfo (Q.BHIGiven bh) acct)
         _ -> jsonCString AE.Null
 
 -- |Get instance information the given block and instance. The block must be
@@ -1245,6 +1324,8 @@ foreign export ccall
         -- |Serialized baker identity (c string + len)
         CString ->
         Int64 ->
+        Ptr NotifyContext ->
+        FunPtr NotifyCallback ->
         -- |Handler for generated messages
         FunPtr BroadcastCallback ->
         -- |Handler for sending catch-up status to peers
@@ -1283,6 +1364,8 @@ foreign export ccall
         -- |Serialized genesis data (c string + len)
         CString ->
         Int64 ->
+        Ptr NotifyContext ->
+        FunPtr NotifyCallback ->
         -- |Handler for sending catch-up status to peers
         FunPtr CatchUpStatusCallback ->
         -- |Regenesis object

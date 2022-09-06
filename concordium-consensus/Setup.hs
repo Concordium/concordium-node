@@ -1,3 +1,5 @@
+import Data.ProtoLens.Setup
+
 import Distribution.PackageDescription
 import Distribution.Simple
 import Distribution.Simple.LocalBuildInfo
@@ -36,7 +38,7 @@ makeRust args flags = do
                     rawSystemExit verbosity "ln" ["-s", "-f", "../wasm-chain-integration/target/release/libwasm_chain_integration.so", smartContractRoot ++ "/lib/libwasm_chain_integration.so"]
     return emptyHookedBuildInfo
 
-main = defaultMainWithHooks simpleUserHooks
+main = defaultMainWithHooks $ generatingProtos "../concordium-grpc-api/v2" simpleUserHooks
   {
     preConf = makeRust
   }
