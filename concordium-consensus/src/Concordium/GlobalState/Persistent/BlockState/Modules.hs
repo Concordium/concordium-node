@@ -247,7 +247,7 @@ putModuleV0 (ModuleV1 ModuleV{..}) = sPut =<< loadRef moduleVSource
 -- |A reference for obtaining a module in the 'LFMBTree'.
 -- The module is cached in the 'ModuleCache' while the actual artifact is
 -- loaded on demand via the 'DirectBufferedRef'.
-type ModuleReference = HashedCachedRef'' DirectBufferedRef H.Hash ModuleCache
+type ModuleReference = DirectHashedCachedRef ModuleCache
 
 -- |The cache retaining 'DirectBufferedRef Module's
 type ModuleCache = FIFOCache Module

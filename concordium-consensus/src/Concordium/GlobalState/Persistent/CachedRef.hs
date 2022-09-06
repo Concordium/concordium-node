@@ -328,21 +328,19 @@ instance
 
 -- * 'HashedCachedRef'
 
-data MaybeHashedCachedRef ref h c a = HCRMem !a | HCRMemHashed !a !h | HCRDisk !(HashedCachedRef'' ref h c a)
+data MaybeHashedCachedRef h c a = HCRMem !a | HCRMemHashed !a !h | HCRDisk !(HashedCachedRef' h c a)
 
 -- |A 'CachedRef' with a hash that is computed when first demanded (via 'getHashM'), or when the
 -- reference is cached (via 'refCache' or 'cache').
-data HashedCachedRef'' ref h c a
-    = HCRUnflushed { hcrUnflushed :: !(IORef (MaybeHashedCachedRef ref h c a))}
+data HashedCachedRef' h c a
+    = HCRUnflushed { hcrUnflushed :: !(IORef (MaybeHashedCachedRef h c a))}
     | HCRFlushed {
-        hcrBlob :: !(ref a),
+        hcrBlob :: !(BlobRef a),
         hcrHash :: !h
     }
-
-type HashedCachedRef' = HashedCachedRef'' BlobRef
 type HashedCachedRef = HashedCachedRef' H.Hash
 
-instance Show (HashedCachedRef'' ref h c a) where
+instance Show (HashedCachedRef' h c a) where
     show _ = "<HashedCachedRef>"
 
 instance
@@ -351,10 +349,9 @@ instance
       Cache c,
       CacheKey c ~ BlobRef a,
       CacheValue c ~ a,
-      MHashableTo m h a,
-      Reference m ref a
+      MHashableTo m h a
     ) =>
-    MHashableTo m h (HashedCachedRef'' ref h c a)
+    MHashableTo m h (HashedCachedRef' h c a)
     where
     getHashM HCRUnflushed{..} = liftIO (readIORef hcrUnflushed) >>= \case
         HCRMem a -> getHashM a
@@ -365,13 +362,12 @@ instance
 instance
     ( MonadCache c m,
       BlobStorable m a,
-      Reference m ref a,
       Cache c,
-      CacheKey c ~ ref a,
+      CacheKey c ~ BlobRef a,
       CacheValue c ~ a,
       MHashableTo m h a
     ) =>
-    Reference m (HashedCachedRef'' ref h c) a
+    Reference m (HashedCachedRef' h c) a
     where
     refFlush HCRUnflushed{..} = liftIO (readIORef hcrUnflushed) >>= \case
         HCRMem val -> do
@@ -395,7 +391,7 @@ instance
         HCRMemHashed val _ -> return (val, hcr)
         HCRDisk d -> refCache d
     refCache hcr@HCRFlushed{..} = do
-        val <- refLoad hcrBlob
+        val <- loadRef hcrBlob
         !val' <- putCachedValue (Proxy @c) hcrBlob val
         return (val', hcr)
     
@@ -409,7 +405,7 @@ instance
         HCRDisk r -> refLoad r
     refLoad HCRFlushed{..} = lookupCachedValue (Proxy @c) hcrBlob >>= \case
         Nothing -> do
-            val <- refLoad hcrBlob
+            val <- loadRef hcrBlob
             putCachedValue (Proxy @c) hcrBlob val
         Just val -> return val
 
@@ -429,13 +425,12 @@ makeHashedCachedRef val hsh = liftIO $
 instance
     ( MonadCache c m,
       BlobStorable m a,
-      Reference m ref a,
       Cache c,
-      CacheKey c ~ ref a,
+      CacheKey c ~ BlobRef a,
       CacheValue c ~ a,
       MHashableTo m h a
     ) =>
-    BlobStorable m (HashedCachedRef'' ref h c a)
+    BlobStorable m (HashedCachedRef' h c a)
     where
     storeUpdate hcr = do
         (!hcr', !ref) <- refFlush hcr
@@ -461,11 +456,10 @@ instance (Applicative m) => Cacheable m (HashedCachedRef c a) where
 instance 
     ( MonadCache c m,
       BlobStorable m a,
-      Reference m ref a,
       Cache c,
-      CacheKey c ~ ref a,
+      CacheKey c ~ BlobRef a,
       CacheValue c ~ a
-    ) => Cacheable1 m (HashedCachedRef'' ref h c a) a where
+    ) => Cacheable1 m (HashedCachedRef' h c a) a where
     liftCache csh hcr@HCRUnflushed{..} = liftIO (readIORef hcrUnflushed) >>= \case
         HCRMem val -> do
             val' <- csh val
@@ -478,6 +472,70 @@ instance
         HCRDisk d -> liftCache csh d
     liftCache csh hcr@HCRFlushed{..} = do
         _ <- lookupCachedValue (Proxy @c) hcrBlob >>= \case
-            Nothing -> putCachedValue (Proxy @c) hcrBlob =<< csh =<< refLoad hcrBlob
+            Nothing -> putCachedValue (Proxy @c) hcrBlob =<< csh =<< loadRef hcrBlob
             Just val -> putCachedValue (Proxy @c) hcrBlob =<< csh val
         return hcr
+
+
+newtype DirectHashedCachedRef c a = DirectHashedCachedRef {theHashedCachedRef :: IORef (HashedCachedRef c a)}
+
+instance Show (DirectHashedCachedRef c a) where
+    show _ = "<DirectHashedCachedRef>"
+
+instance
+    ( MonadCache c m,
+      DirectBlobStorable m a,
+      Cache c,
+      CacheKey c ~ BlobRef a,
+      CacheValue c ~ a,
+      MHashableTo m h a,
+      h ~ H.Hash
+    ) =>
+    MHashableTo m h (DirectHashedCachedRef c a)
+    where
+    getHashM DirectHashedCachedRef{..} = liftIO (readIORef theHashedCachedRef) >>= \case
+        HCRFlushed a h -> return h
+        HCRUnflushed ref -> undefined
+
+instance
+    ( MonadCache c m,
+      DirectBlobStorable m a,
+      Cache c,
+      CacheKey c ~ BlobRef a,
+      CacheValue c ~ a,
+      MHashableTo m h a,
+      h ~ H.Hash
+    ) =>
+    BlobStorable m (DirectHashedCachedRef c a)
+    where
+    storeUpdate dhcr = undefined
+    load = undefined
+
+instance
+    ( MonadCache c m,
+      DirectBlobStorable m a,
+      Cache c,
+      CacheKey c ~ BlobRef a,
+      CacheValue c ~ a,
+      MHashableTo m h a,
+      h ~ H.Hash
+    ) =>
+    Reference m (DirectHashedCachedRef c) a
+    where
+    refFlush = undefined
+    refCache = undefined
+    refLoad = undefined
+    refMake = undefined
+    refUncache = undefined
+
+instance 
+    ( MonadCache c m,
+      DirectBlobStorable m a,
+      Cache c,
+      CacheKey c ~ BlobRef a,
+      CacheValue c ~ a
+    ) => Cacheable1 m (DirectHashedCachedRef c a) a where
+    liftCache csh DirectHashedCachedRef{..} = undefined
+
+instance (Applicative m) => Cacheable m (DirectHashedCachedRef c a) where
+    cache = pure

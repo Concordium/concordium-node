@@ -1219,9 +1219,9 @@ instance (MHashableTo m h a, BlobStorable m a) => Cacheable1 m (HashedBufferedRe
 -- for operating on the raw bytes stored in the underlying storage.
 class MonadBlobStore m => DirectBlobStorable m a where
     -- |Store a value of type @a@, possibly updating its representation.
-    storeUpdateDirect :: a -> m (BlobRef a, a)
+  storeUpdateDirect :: a -> m (BlobRef a, a)
     -- |Load a value of type @a@ from the underlying storage.
-    loadDirect :: BlobRef a -> m a
+  loadDirect :: BlobRef a -> m a
 
 -- |A wrapped @BufferedRef@ so we can derive @DirectBlobStorable@.
 newtype DirectBufferedRef a = DirectBufferedRef {theDBR :: BufferedRef a}

@@ -616,16 +616,16 @@ totalCapital bsp = do
     pab <- refLoad (bspBirkParameters bsp ^. birkActiveBakers)
     return $! pab ^. totalActiveCapitalV1
 
-doGetModule :: (SupportsPersistentState pv m) => PersistentBlockState pv -> ModuleRef -> m (Maybe GSWasm.ModuleInterface)
+doGetModule :: (SupportsPersistentState pv m) => PersistentBlockState pv -> ModuleRef -> m (Maybe (GSWasm.ModuleInterface Modules.PersistentInstrumentedModuleV))
 doGetModule s modRef = do
     bsp <- loadPBS s
     mods <- refLoad (bspModules bsp)
     Modules.getInterface modRef mods
 
-doGetModuleArtifact :: SupportsPersistentState pv m => Modules.PersistentInstrumentedModuleV v -> m (GSWasm.InstrumentedModuleV v)
+doGetModuleArtifact :: (MonadBlobStore m, Wasm.IsWasmVersion v) => Modules.PersistentInstrumentedModuleV v -> m (GSWasm.InstrumentedModuleV v)
 doGetModuleArtifact = Modules.loadInstrumentedModuleV
 
-doGetModuleList :: (SupportsPersistentAccount pv m) => PersistentBlockState pv -> m [ModuleRef]
+doGetModuleList :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m [ModuleRef]
 doGetModuleList s = do
     bsp <- loadPBS s
     mods <- refLoad (bspModules bsp)

@@ -100,7 +100,7 @@ data PersistentInstanceV (v :: Wasm.WasmVersion) = PersistentInstanceV {
     -- is how the data is stored in the Modules table. A 'Module' carries a BlobRef to the source
     -- but that reference should never be consulted in the scope of Instance operations.
     -- Invariant: the module will always be of the appropriate version.
-    pinstanceModuleInterface :: !(DirectBufferedRef Modules.ModuleCache Modules.Module),
+    pinstanceModuleInterface :: !(DirectHashedCachedRef Modules.ModuleCache Modules.Module),
     -- |The current local state of the instance
     pinstanceModel :: !(InstanceStateV v),
     -- |The current amount of GTU owned by the instance
@@ -256,10 +256,10 @@ instance SupportsPersistentModules m => Cacheable (ReaderT Modules m) (Persisten
 
 -- |Construct instance information from a persistent instance, loading as much
 -- data as necessary from persistent storage.
-mkInstanceInfo :: MonadBlobStore m => PersistentInstance pv -> m (InstanceInfoType PersistentInstrumentedModuleV InstanceStateV)
+mkInstanceInfo :: SupportsPersistentModules m => PersistentInstance pv -> m (InstanceInfoType PersistentInstrumentedModuleV InstanceStateV)
 mkInstanceInfo (PersistentInstanceV0 inst) = InstanceInfoV0 <$> mkInstanceInfoV inst
 mkInstanceInfo (PersistentInstanceV1 inst) = InstanceInfoV1 <$> mkInstanceInfoV inst
-mkInstanceInfoV :: (MonadBlobStore m, Wasm.IsWasmVersion v) => PersistentInstanceV v -> m (InstanceInfoTypeV PersistentInstrumentedModuleV InstanceStateV v)
+mkInstanceInfoV :: (SupportsPersistentModules m, Wasm.IsWasmVersion v) => PersistentInstanceV v -> m (InstanceInfoTypeV PersistentInstrumentedModuleV InstanceStateV v)
 mkInstanceInfoV PersistentInstanceV{..} = do
   PersistentInstanceParameters{..} <- loadBufferedRef pinstanceParameters
   instanceModuleInterface <- moduleVInterface . unsafeToModuleV <$> refLoad pinstanceModuleInterface
