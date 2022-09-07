@@ -38,6 +38,7 @@ import Control.Monad.Reader
 import Control.Monad.State
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
+import Data.Either (isLeft)
 import Data.List (partition)
 import qualified Data.Map.Strict as Map
 import Data.Typeable
@@ -378,10 +379,15 @@ loadSkovPersistentData rp _treeStateDirectory pbsc = do
     GenesisBlock gd' -> return gd'
     _ -> logExceptionAndThrowTS (DatabaseInvariantViolation "Block at height 0 is not a genesis block.")
 
+  -- Unroll the treestate if the last finalized blockstate is corrupted. If the last finalized
+  -- blockstate is not corrupted, the treestate is unchanged.
+  liftIO $ deleteBlocksBy _db isBlockStateCorrupted
+
   -- Get the last finalized block.
   (_lastFinalizationRecord, lfStoredBlock) <- liftIO (getLastBlock _db) >>= \case
       Left s -> logExceptionAndThrowTS $ DatabaseInvariantViolation s
       Right r -> return r
+
   -- Check that the block state for the last finalized block is not corrupt. The check works because
   -- the `BlobRef` to the block state is stored in LMDB only after the block state is stored in the
   -- blob store. If the reference points to a blob that cannot be read, the blob store can be
@@ -389,9 +395,13 @@ loadSkovPersistentData rp _treeStateDirectory pbsc = do
   elfBlob <- liftIO . try $
     readBlobBSFromHandle (bscBlobStore . PBS.pbscBlobStore $ pbsc) (sbState lfStoredBlock)
   case elfBlob :: Either IOError BS.ByteString of
-    Left _ -> logExceptionAndThrowTS $
+    Left _ -> do
+      -- Truncate the blobstore beyond the last finalized blockstate. If no corruption was found
+      -- earlier, the blobstore size does not change.
+      liftIO $ truncateBlobStore (bscBlobStore . PBS.pbscBlobStore $ pbsc) (sbState lfStoredBlock)      
+      logExceptionAndThrowTS $
       DatabaseInvariantViolation "Last finalized block cannot be read. Blockstate database recovery required."
-    Right _ -> do
+    Right _ -> do      
       _lastFinalized <- liftIO (makeBlockPointer lfStoredBlock)
       return SkovPersistentData {
             _possiblyPendingTable = HM.empty,
@@ -415,6 +425,11 @@ loadSkovPersistentData rp _treeStateDirectory pbsc = do
     makeBlockPointer StoredBlock{..} = do
       bstate <- runReaderT (PBS.runPersistentBlockStateMonad (loadBlockState (blockStateHash sbBlock) sbState)) pbsc
       makeBlockPointerFromPersistentBlock sbBlock bstate sbInfo
+    isBlockStateCorrupted :: StoredBlock pv (TS.BlockStatePointer (PBS.PersistentBlockState pv)) -> IO Bool
+    isBlockStateCorrupted block = do
+      elfBlob :: Either SomeException BS.ByteString <-
+        try $ readBlobBSFromHandle (bscBlobStore . PBS.pbscBlobStore $ pbsc) (sbState block)
+      return $ isLeft elfBlob
 
 -- |Activate the state and make it usable for use by consensus. This concretely
 -- means that the block state for the last finalized block is cached, and that

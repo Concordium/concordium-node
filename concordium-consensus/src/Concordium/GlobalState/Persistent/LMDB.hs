@@ -44,6 +44,7 @@ module Concordium.GlobalState.Persistent.LMDB (
   , writeTransactionStatus
   , writeTransactionStatuses
   , writeFinalizationComposite
+  , deleteBlocksBy
   , FixedSizeSerialization
   ) where
 
@@ -58,6 +59,7 @@ import Concordium.Types.Execution (TransactionIndex)
 import qualified Concordium.GlobalState.TransactionTable as T
 import Concordium.Crypto.SHA256
 import Concordium.Types.HashableTo
+import Concordium.Types.Transactions
 import Control.Concurrent (runInBoundThread)
 import Control.Monad.Catch (tryJust, handleJust, MonadCatch)
 import Control.Monad.IO.Class
@@ -688,3 +690,17 @@ writeFinalizationComposite finRec blocktss = resizeOnFull (finRecSize + blocksSi
           digestSize + 64 + digestSize + (32 * Prelude.length vs) + 48 + 64
     blocksSize = sum . map (\b -> 2*digestSize + fromIntegral (LBS.length . fst . fst $ b)) $ serializedBlocksTss
     tssSize = (* (2 * digestSize + 16)) . sum . map (Prelude.length . snd) $ blocktss
+
+-- |Delete blocks while they match a predicate starting with the last finalized block, together with
+-- corresponding finalization records and transaction statuses.
+deleteBlocksBy :: (IsProtocolVersion pv, FixedSizeSerialization st) =>
+  DatabaseHandlers pv st -> (StoredBlock pv st -> IO Bool) -> IO ()
+deleteBlocksBy dbh p = transaction (dbh ^. storeEnv) False $ \txn -> do
+  popFromTableWhile (p . snd) txn (dbh ^. blockStore) >>=
+    \case
+      Just hb -> do
+        let (blockHashes, storedBlocks) = unzip hb
+        mapM_ (deleteRecord txn (dbh ^. blockStore)) blockHashes
+        mapM_ (deleteRecord txn (dbh ^. finalizationRecordStore)) (sbFinalizationIndex <$> storedBlocks)
+        mapM_ (deleteRecord txn (dbh ^. transactionStatusStore)) (concatMap ((wmdHash <$>) . blockTransactions . sbBlock) storedBlocks)
+      Nothing -> return ()
