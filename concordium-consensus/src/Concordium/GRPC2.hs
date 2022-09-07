@@ -545,8 +545,6 @@ toTransactionStatus ts = case ts of
       ProtoFields.blockHash .= toProto bh
       ProtoFields.outcome .= bis
 
-
-
 toBlockItemSummary :: TransactionSummary -> Either ConversionError Proto.BlockItemSummary
 toBlockItemSummary TransactionSummary{..} = case tsType of
   TSTAccountTransaction tty -> do
@@ -609,8 +607,6 @@ instance ToProto BakerAggregationVerifyKey where
   type Output BakerAggregationVerifyKey = Proto.BakerAggregationVerifyKey
   toProto = mkSerialize
 
-
-
 convertAccountTransaction
   :: Maybe TransactionType
   -> Amount
@@ -647,6 +643,24 @@ convertAccountTransaction ty cost sender result = case ty of
                 BakerAdded{..} -> Right . Proto.make $ ProtoFields.bakerAdded . ProtoFields.contents .=
                    toProto ((ebaBakerId, ebaAccount, ebaSignKey, ebaElectionKey, ebaAggregationKey), ebaStake, ebaRestakeEarnings)
                 _ -> Left CEInvalidTransactionResult)
+            TTRemoveBaker -> mkSuccess <$> withSingleton events (\case
+                BakerRemoved{..} -> Right . Proto.make $ ProtoFields.bakerRemoved . ProtoFields.bakerId .= toProto ebrBakerId
+                _ -> Left CEInvalidTransactionResult)
+            TTUpdateBakerStake -> mkSuccess <$> do
+                v <- case events of
+                  [] -> Right Proto.defMessage
+                  [BakerStakeIncreased{..}] -> undefined
+                  [BakerStakeDecreased{..}] -> undefined
+                  _ -> Left CEInvalidTransactionResult
+                Right . Proto.make $ ProtoFields.bakerStakeUpdated .= v
+            TTUpdateBakerRestakeEarnings -> mkSuccess <$> withSingleton events (\case
+                BakerSetRestakeEarnings{..} -> Right . Proto.make $ ProtoFields.bakerRestakeEarningsUpdated .= Proto.make (do
+                  ProtoFields.bakerId .= toProto ebsreBakerId
+                  ProtoFields.restakeEarnings .= ebsreRestakeEarnings)
+                _ -> Left CEInvalidTransactionResult)
+            -- TTEncryptedAmountTransfer -> mkSuccess <$> (case events of
+            --     [EncryptedAmountsRemoved{..}, NewEncryptedAmount{..}] -> undefined
+            --     _ -> Left CEInvalidTransactionResult)
             _ -> undefined
 
 
