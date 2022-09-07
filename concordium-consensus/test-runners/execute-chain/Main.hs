@@ -35,7 +35,7 @@ main = do
             hFlush logFile
     -- let logM src lvl msg = putStrLn $ show lvl ++ " - " ++ show src ++ ": " ++ msg
     let dataDir = "data" </> ("db" ++ show now)
-    -- createDirectoryIfMissing True dataDir
+    createDirectoryIfMissing True dataDir
     let config ::
             MultiVersionConfiguration
                 DiskTreeDiskBlockConfig
@@ -58,5 +58,6 @@ main = do
                 }
 
     mvr <- makeMultiVersionRunner config callbacks Nothing logM (Left genesisData)
+    result <- runMVR (importBlocks blocks) mvr
     shutdownMultiVersionRunner mvr
-    print "DONE"
+    print result
