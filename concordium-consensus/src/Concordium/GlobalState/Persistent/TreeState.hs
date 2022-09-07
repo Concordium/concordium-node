@@ -389,7 +389,8 @@ loadSkovPersistentData rp _treeStateDirectory pbsc = do
   elfBlob <- liftIO . try $
     readBlobBSFromHandle (bscBlobStore . PBS.pbscBlobStore $ pbsc) (sbState lfStoredBlock)
   case elfBlob :: Either IOError BS.ByteString of
-    Left _ -> liftIO . throwIO $ userError "Last finalized block cannot be read. Blockstate database recovery required."
+    Left _ -> logExceptionAndThrowTS $
+      DatabaseInvariantViolation "Last finalized block cannot be read. Blockstate database recovery required."
     Right _ -> do
       _lastFinalized <- liftIO (makeBlockPointer lfStoredBlock)
       return SkovPersistentData {
