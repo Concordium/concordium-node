@@ -44,3 +44,6 @@ EXPORTS
  freeCStr
  importBlocks
  stopImportingBlocks
+
+ getAccountInfoV2
+ getAccountListV2

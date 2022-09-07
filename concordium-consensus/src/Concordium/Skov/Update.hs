@@ -98,7 +98,7 @@ class OnSkov m where
     -- |Called when a finalization record is validated.  This is
     -- only called for the block that is explicitly finalized (i.e.
     -- once per finalization record).
-    onFinalize :: FinalizationRecord -> BlockPointerType m -> m ()
+    onFinalize :: FinalizationRecord -> BlockPointerType m -> [BlockPointerType m] -> m ()
     -- |Called when a block or finalization record that was previously
     -- pending becomes live.
     onPendingLive :: m ()
@@ -202,12 +202,15 @@ processFinalization newFinBlock finRec@FinalizationRecord{..} = do
         logEvent Skov LLDebug $ "Blocks " ++ intercalate ", " (map show toFinalize) ++ " marked finalized"
         -- Archive the states of blocks up to but not including the new finalized block
         let doArchive b = case compare (bpHeight b) lastFinHeight of
-                LT -> return ()
-                EQ -> archiveBlockState =<< blockState b
+                LT -> return []
+                EQ -> do
+                  archiveBlockState =<< blockState b
+                  return []
                 GT -> do
-                        doArchive =<< bpParent b
+                        blocks <- doArchive =<< bpParent b
                         archiveBlockState =<< blockState b
-        doArchive =<< bpParent newFinBlock
+                        return (b:blocks)
+        finalizedBlocks <- doArchive =<< bpParent newFinBlock
         -- Prune the branches: mark dead any block that doesn't descend from
         -- the newly-finalized block.
         -- Instead of marking blocks dead immediately we accumulate them
@@ -249,7 +252,7 @@ processFinalization newFinBlock finRec@FinalizationRecord{..} = do
           logEvent Skov LLDebug $ "Block " ++ show (bpHash bp) ++ " marked dead"
         -- purge pending blocks with slot numbers predating the last finalized slot
         purgePending
-        onFinalize finRec newFinBlock
+        onFinalize finRec newFinBlock finalizedBlocks
         endTime <- currentTime
         logEvent Skov LLDebug $ "Processed finalization in " ++ show (diffUTCTime endTime startTime)
 

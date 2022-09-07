@@ -323,6 +323,64 @@ pub struct RpcCliConfig {
 }
 
 #[derive(StructOpt, Debug)]
+/// Parameters related to the V2 GRPC interface.
+pub struct GRPC2Config {
+    #[structopt(
+        name = "grpc2-listen-addr",
+        long = "grpc2-listen-addr",
+        requires = "grpc2-listen-port",
+        help = "Address the GRPC server should listen on, e.g., 127.0.0.1",
+        env = "CONCORDIUM_NODE_GRPC2_LISTEN_ADDRESS"
+    )]
+    pub listen_addr:      Option<std::net::IpAddr>,
+    #[structopt(
+        name = "grpc2-listen-port",
+        long = "grpc2-listen-port",
+        requires = "grpc2-listen-addr",
+        help = "Address the GRPC server should listen on, e.g. 11000",
+        env = "CONCORDIUM_NODE_GRPC2_LISTEN_PORT"
+    )]
+    pub listen_port:      Option<u16>,
+    #[structopt(
+        long = "grpc2-x509-cert",
+        help = "Certificate used to enable TLS support for the GRPC V2 server.",
+        env = "CONCORDIUM_NODE_GRPC2_X509_CERT",
+        requires = "grpc2-listen-addr",
+        requires = "grpc2-cert-private-key"
+    )]
+    pub x509_cert:        Option<PathBuf>,
+    #[structopt(
+        long = "grpc2-cert-private-key",
+        help = "Private key corresponding to the certificate",
+        env = "CONCORDIUM_NODE_GRPC2_CERT_PRIVATE_KEY",
+        requires = "grpc2-listen-addr",
+        requires = "grpc2-x509-cert"
+    )]
+    pub cert_private_key: Option<PathBuf>,
+    #[structopt(
+        long = "grpc2-enable-grpc-web",
+        help = "Enable support for GRPC-Web protocol.",
+        env = "CONCORDIUM_NODE_GRPC2_ENABLE_GRPC_WEB",
+        requires = "grpc2-listen-addr"
+    )]
+    pub enable_grpc_web:  bool,
+    #[structopt(
+        long = "grpc2-endpoint-config",
+        help = "Configuration file for endpoints, listing which endpoints should be enabled or \
+                disabled. Note that using this option, only endpoints that are explicitly enabled \
+                will be enabled. If this option is not set all endpoints are enabled.",
+        env = "CONCORDIUM_NODE_GRPC2_ENDPOINT_CONFIG",
+        requires = "grpc2-listen-addr"
+    )]
+    pub endpoint_config:  Option<PathBuf>,
+}
+
+impl GRPC2Config {
+    /// Return whether the grpc2 server is enabled.
+    pub fn is_enabled(&self) -> bool { self.listen_addr.is_some() && self.listen_port.is_some() }
+}
+
+#[derive(StructOpt, Debug)]
 // Parameters related to connections.
 pub struct ConnectionConfig {
     #[structopt(
@@ -629,6 +687,8 @@ pub struct CliConfig {
     pub baker: BakerConfig,
     #[structopt(flatten)]
     pub rpc: RpcCliConfig,
+    #[structopt(flatten)]
+    pub grpc2: GRPC2Config,
     #[structopt(
         long = "timeout-bucket-entry-period",
         help = "Timeout an entry in the buckets after a given period (in ms), 0 means never",

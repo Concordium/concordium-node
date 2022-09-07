@@ -11,7 +11,7 @@ use crate::{
         consensus::{
             self, ConsensusContainer, ConsensusRuntimeParameters, Regenesis, CALLBACK_QUEUE,
         },
-        ffi,
+        ffi::{self, NotificationContext},
         helpers::{
             ConsensusFfiResponse,
             PacketType::{self, *},
@@ -43,6 +43,7 @@ pub fn start_consensus_layer(
     max_logging_level: consensus::ConsensusLogLevel,
     appdata_dir: &Path,
     regenesis_arc: Arc<Regenesis>,
+    notification_context: Option<NotificationContext>,
 ) -> anyhow::Result<ConsensusContainer> {
     info!("Starting up the consensus thread");
 
@@ -75,6 +76,7 @@ pub fn start_consensus_layer(
         max_logging_level,
         appdata_dir,
         regenesis_arc,
+        notification_context,
     )
 }
 

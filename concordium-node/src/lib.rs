@@ -50,3 +50,5 @@ pub mod flatbuffers_shim;
 
 #[cfg(target_os = "macos")]
 mod macos_log;
+
+pub mod grpc2;

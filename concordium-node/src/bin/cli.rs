@@ -93,6 +93,22 @@ async fn main() -> anyhow::Result<()> {
         std::fs::create_dir_all(&database_directory)?;
     }
 
+    let (notification_context, notification_handlers) = if conf.cli.grpc2.is_enabled() {
+        let (sender, receiver) = futures::channel::mpsc::unbounded();
+        let (sender_finalized, receiver_finalized) = futures::channel::mpsc::unbounded();
+        let notify_context = ffi::NotificationContext {
+            blocks:           sender,
+            finalized_blocks: sender_finalized,
+        };
+        let notification_handlers = ffi::NotificationHandlers {
+            blocks:           receiver,
+            finalized_blocks: receiver_finalized,
+        };
+        (Some(notify_context), Some(notification_handlers))
+    } else {
+        (None, None)
+    };
+
     info!("Starting consensus layer");
     let consensus = plugins::consensus::start_consensus_layer(
         &conf.cli.baker,
@@ -109,6 +125,7 @@ async fn main() -> anyhow::Result<()> {
         },
         &database_directory,
         regenesis_arc.clone(),
+        notification_context,
     )?;
     info!("Consensus layer started");
 
@@ -140,6 +157,19 @@ async fn main() -> anyhow::Result<()> {
                 .expect("Can't start the RPC server");
         });
         Some(task)
+    } else {
+        None
+    };
+
+    // Start the grpc2 server, if so configured.
+    let rpc2 = if let Some(handlers) = notification_handlers {
+        concordium_node::grpc2::server::GRPC2Server::new(
+            &node,
+            &consensus,
+            &conf.cli.grpc2,
+            handlers,
+        )
+        .context("Unable to start GRPC2 server.")?
     } else {
         None
     };
@@ -195,6 +225,11 @@ async fn main() -> anyhow::Result<()> {
                 warn!("RPC server was forcefully shut down due to: {}", timed_out);
             }
         }
+    }
+
+    // Message grpc2 to shutdown if it exists.
+    if let Some(rpc2) = rpc2 {
+        rpc2.shutdown().await
     }
 
     // Shutdown node
