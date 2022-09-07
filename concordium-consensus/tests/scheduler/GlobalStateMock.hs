@@ -234,6 +234,7 @@ generateAct ''BlockStateOperationsAction
 data Action pv a where
     AO :: AccountOperationsAction pv a -> Action pv a
     CO :: ContractStateOperationsAction a -> Action pv a
+    MQ :: ModuleQueryAction a -> Action pv a
     BSQ :: BlockStateQueryAction pv a -> Action pv a
     BSO :: BlockStateOperationsAction pv a -> Action pv a
 
@@ -247,6 +248,7 @@ instance Act (Action pv) where
     eqAct _ _ = Nothing
     showRes (AO x) r = showRes x r
     showRes (CO x) _ = case x of
+    showRes (MQ x) r = showRes x r
     showRes (BSQ x) r = showRes x r
     showRes (BSO x) r = showRes x r
 
