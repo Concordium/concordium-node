@@ -62,7 +62,7 @@ import Concordium.Types.Block (AbsoluteBlockHeight(..))
 -}
 data ReceiverVec
 
--- |A type of callback that copies the data to the end of the given vector.
+-- |A type of callback that extends the given vector with the provided data.
 type CopyToVecCallback = Ptr ReceiverVec -> Ptr Word8 -> Int64 -> IO ()
 
 {- |An opaque representation of a channel to which streaming responses can write
@@ -88,6 +88,18 @@ foreign import ccall "dynamic" callChannelSendCallback :: FunPtr ChannelSendCall
 -- |Boilerplate wrapper to invoke C callbacks.
 foreign import ccall "dynamic" callCopyToVecCallback :: FunPtr CopyToVecCallback -> CopyToVecCallback
 
+-- |A helper function that can be used to construct a value of a protobuf
+-- "wrapper" type by serializing the provided value @a@ using its serialize
+-- instance.
+--
+-- More concretely, the wrapper type should be of the form
+--
+-- > message Wrapper {
+-- >    bytes value = 1
+-- > }
+--
+-- where the name @Wrapper@ can be arbitrary, but the @value@ field must exist,
+-- and it must have type @bytes@.
 mkSerialize ::
     ( Proto.Message b
     , Data.ProtoLens.Field.HasField
@@ -100,6 +112,10 @@ mkSerialize ::
     b
 mkSerialize ek = Proto.make (ProtoFields.value .= S.encode ek)
 
+-- |Like 'mkSerialize' above, but used to set a wrapper type whose @value@ field
+-- has type @uint64@. The supplied value must be coercible to a 'Word64'.
+-- Coercible here means that the value is a newtype wrapper (possibly repeated)
+-- of a Word64.
 mkWord64 ::
     ( Proto.Message b
     , Data.ProtoLens.Field.HasField
@@ -112,6 +128,7 @@ mkWord64 ::
     b
 mkWord64 a = Proto.make (ProtoFields.value .= coerce a)
 
+-- |Like 'mkWord64', but for 32-bit integers instead of 64.
 mkWord32 ::
     ( Proto.Message b
     , Data.ProtoLens.Field.HasField
@@ -124,6 +141,8 @@ mkWord32 ::
     b
 mkWord32 a = Proto.make (ProtoFields.value .= coerce a)
 
+-- |Like 'mkWord32', but the supplied value must be coercible to
+-- 'Word8'.
 mkWord8 ::
     forall a b.
     ( Proto.Message b
@@ -213,7 +232,7 @@ instance ToProto AccountAddress where
     toProto = mkSerialize
 
 instance ToProto Nonce where
-    type Output Nonce = Proto.Nonce
+    type Output Nonce = Proto.SequenceNumber
     toProto = mkWord64
 
 instance ToProto UTCTime where
@@ -236,9 +255,9 @@ instance ToProto ProtocolVersion where
     toProto P4 = Proto.PROTOCOL_VERSION_4
 
 instance ToProto NextAccountNonce where
-    type Output NextAccountNonce = Proto.NextAccountNonce
+    type Output NextAccountNonce = Proto.NextAccountSequenceNumber
     toProto QueryTypes.NextAccountNonce{..} = Proto.make $ do
-      ProtoFields.nonce .= toProto nanNonce
+      ProtoFields.sequenceNumber .= toProto nanNonce
       ProtoFields.allFinal .= nanAllFinal
 
 instance ToProto QueryTypes.ConsensusStatus where
@@ -322,7 +341,7 @@ instance ToProto AccountReleaseSummary where
 instance ToProto ScheduledRelease where
     type Output ScheduledRelease = Proto.Release
     toProto r = Proto.make $ do
-        ProtoFields.timestamp .= coerce (releaseTimestamp r)
+        ProtoFields.timestamp .= mkWord64 (releaseTimestamp r)
         ProtoFields.amount .= toProto (releaseAmount r)
         ProtoFields.transactions .= (toProto <$> releaseTransactions r)
 
@@ -335,11 +354,11 @@ instance ToProto (StakePendingChange' UTCTime) where
                 .= Proto.make
                     ( do
                         ProtoFields.newStake .= toProto newStake
-                        ProtoFields.effectiveTime .= fromIntegral (utcTimeToTimestamp effectiveTime)
+                        ProtoFields.effectiveTime .= mkWord64 (utcTimeToTimestamp effectiveTime)
                     )
             )
     toProto (RemoveStake effectiveTime) =
-        Just . Proto.make $ (ProtoFields.remove .= fromIntegral (utcTimeToTimestamp effectiveTime))
+        Just . Proto.make $ (ProtoFields.remove .= mkWord64 (utcTimeToTimestamp effectiveTime))
 
 instance ToProto BakerInfo where
     type Output BakerInfo = Proto.BakerInfo
@@ -354,9 +373,9 @@ instance ToProto BakerInfo where
 
 instance ToProto OpenStatus where
     type Output OpenStatus = Proto.OpenStatus
-    toProto OpenForAll = Proto.OPEN_STATUS_OPENFORALL
-    toProto ClosedForNew = Proto.OPEN_STATUS_CLOSEDFORNEW
-    toProto ClosedForAll = Proto.OPEN_STATUS_CLOSEDFORALL
+    toProto OpenForAll = Proto.OPEN_STATUS_OPEN_FOR_ALL
+    toProto ClosedForNew = Proto.OPEN_STATUS_CLOSED_FOR_NEW
+    toProto ClosedForAll = Proto.OPEN_STATUS_CLOSED_FOR_ALL
 
 instance ToProto UrlText where
     type Output UrlText = Text
@@ -401,7 +420,7 @@ instance ToProto AccountStakingInfo where
     toProto AccountStakingDelegated{..} =
         Just . Proto.make $
             ( do
-                ProtoFields.delegate
+                ProtoFields.delegator
                     .= Proto.make
                         ( do
                             ProtoFields.stakedAmount .= mkWord64 asiStakedAmount
@@ -505,7 +524,7 @@ instance ToProto AccountEncryptionKey where
 instance ToProto AccountInfo where
     type Output AccountInfo = Proto.AccountInfo
     toProto AccountInfo{..} = Proto.make $ do
-        ProtoFields.nonce .= toProto aiAccountNonce
+        ProtoFields.sequenceNumber .= toProto aiAccountNonce
         ProtoFields.amount .= toProto aiAccountAmount
         ProtoFields.schedule .= toProto aiAccountReleaseSchedule
         ProtoFields.creds .= toProto aiAccountCredentials
@@ -771,7 +790,7 @@ getInstanceInfoV2 cptr blockType blockHashPtr addrIndex addrSubindex outHash out
     returnMessage (copier outVec) outHash res
 
 
-getNextAccountNonceV2 ::
+getNextAccountSequenceNumberV2 ::
         StablePtr Ext.ConsensusRunner ->
         -- |Identifier type, 0 for account address, 1 for credential, 2 for account index
         Word8 ->
@@ -780,7 +799,7 @@ getNextAccountNonceV2 ::
         Ptr ReceiverVec ->
         FunPtr (Ptr ReceiverVec -> Ptr Word8 -> Int64 -> IO ()) ->
         IO Int64
-getNextAccountNonceV2 cptr accIdType accIdBytesPtr outVec copierCbk = do
+getNextAccountSequenceNumberV2 cptr accIdType accIdBytesPtr outVec copierCbk = do
     Ext.ConsensusRunner mvr <- deRefStablePtr cptr
     let copier = callCopyToVecCallback copierCbk
     ai <- decodeAccountIdentifierInput accIdType accIdBytesPtr
@@ -1011,7 +1030,7 @@ foreign export ccall
         IO Int64
 
 foreign export ccall
-    getNextAccountNonceV2 ::
+    getNextAccountSequenceNumberV2 ::
         StablePtr Ext.ConsensusRunner ->
         -- |Identifier type, 0 for account address, 1 for credential, 2 for account index
         Word8 ->

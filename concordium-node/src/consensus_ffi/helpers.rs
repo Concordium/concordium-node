@@ -248,8 +248,6 @@ pub enum ConsensusFfiResponse {
     MaxBlockEnergyExceeded,
     #[error("The sender did not have enough funds to cover the costs")]
     InsufficientFunds,
-    #[error("The requested data was not found.")]
-    NotFound,
 }
 
 impl ConsensusFfiResponse {
@@ -284,7 +282,6 @@ impl ConsensusFfiResponse {
                 | ConsensusShutDown
                 | InvalidGenesisIndex
                 | InsufficientFunds
-                | NotFound
         )
     }
 
@@ -318,7 +315,6 @@ impl ConsensusFfiResponse {
                 | ChainUpdateInvalidSignatures
                 | MaxBlockEnergyExceeded
                 | InsufficientFunds
-                | NotFound
         )
     }
 }
@@ -375,7 +371,6 @@ impl TryFrom<i64> for ConsensusFfiResponse {
             28 => Ok(ChainUpdateInvalidSignatures),
             29 => Ok(MaxBlockEnergyExceeded),
             30 => Ok(InsufficientFunds),
-            31 => Ok(NotFound),
             _ => Err(ConsensusFfiResponseConversionError {
                 unknown_code: value,
             }),
@@ -431,16 +426,21 @@ impl TryFrom<u8> for ConsensusIsInFinalizationCommitteeResponse {
     }
 }
 
+/// Response to a consensus GRPC V2 query.
+/// This is a response that is already parsed from the error code return through
+/// FFI.
 pub enum ConsensusQueryResponse {
     Ok,
     NotFound,
 }
 
 impl ConsensusQueryResponse {
-    pub fn check_rpc_response(self) -> Result<(), tonic::Status> {
+    /// Convert the response to a [Result]. The concrete type makes it
+    /// convenient to use in the implementations of the different queries.
+    pub fn ensure_ok(self, msg: impl std::fmt::Display) -> Result<(), tonic::Status> {
         match self {
             Self::Ok => Ok(()),
-            Self::NotFound => Err(tonic::Status::not_found("Object not found.")),
+            Self::NotFound => Err(tonic::Status::not_found(format!("{} not found.", msg))),
         }
     }
 }

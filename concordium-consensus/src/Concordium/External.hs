@@ -303,13 +303,30 @@ migrateGlobalState dbPath logM = do
             (False, True) -> logM GlobalState LLWarning "Cannot migrate legacy database as 'blockstate.dat' is absent."
             _ -> return ()
 
+-- |The opaque type that represents a foreign (i.e., living in Rust) object. The
+-- purpose of this context is to enable consensus to signal important events to
+-- the Rust code. In particular it is currently used to inform the GRPC2 server
+-- that a new block has arrived, or that a new block is finalized.
 data NotifyContext
-type NotifyCallback = Ptr NotifyContext -> Word8 -> Ptr Word8 -> Word64 -> IO ()
+
+-- |Type of the callback used to send notifications.
+type NotifyCallback =
+  -- |Handle to the context.
+  Ptr NotifyContext ->
+  -- |The type of event. Only 0 and 1 are given meaning.
+  --
+  --   - 0 for block arrived
+  --   - 1 for block finalized
+  Word8
+  -- |Pointer to the beginning of the data to send.
+  -> Ptr Word8
+  -- |Size of the data to send.
+  -> Word64 -> IO ()
 
 foreign import ccall "dynamic" callNotifyCallback :: FunPtr NotifyCallback -> NotifyCallback
 
--- |Serialize the provided arguments into an appropriate Proto message, and
--- invoke the provided FFI callback.
+-- |Serialize the provided arguments (block hash and absolute block height) into
+-- an appropriate Proto message, and invoke the provided FFI callback.
 mkNotifyBlockArrived :: (Word8 -> Ptr Word8 -> Word64 -> IO ()) -> BlockHash -> AbsoluteBlockHeight -> IO ()
 mkNotifyBlockArrived f = \bh height -> do
     let msg :: Proto.FinalizedBlockInfo = Proto.make $ do
@@ -318,8 +335,8 @@ mkNotifyBlockArrived f = \bh height -> do
     BS.unsafeUseAsCStringLen (Proto.encodeMessage msg) $ \(cPtr, len) -> do
         f 0 (castPtr cPtr) (fromIntegral len)
 
--- |Serialize the provided arguments into an appropriate Proto message, and
--- invoke the provided FFI callback.
+-- |Serialize the provided arguments (block hash and block height) into an
+-- appropriate Proto message, and invoke the provided FFI callback.
 mkNotifyBlockFinalized :: (Word8 -> Ptr Word8 -> Word64 -> IO ()) -> BlockHash -> AbsoluteBlockHeight -> IO ()
 mkNotifyBlockFinalized f = \bh height -> do
     let msg :: Proto.FinalizedBlockInfo = Proto.make $ do
@@ -350,8 +367,9 @@ startConsensus ::
     -- |Serialized baker identity (c string + len)
     CString ->
     Int64 ->
-    -- |Context for notifying for, e.g., new block arrival, new finalization messages.
+    -- |Context for notifying upon new block arrival, and new finalized blocks.
     Ptr NotifyContext ->
+    -- |The callback used to invoke upon new block arrival, and new finalized blocks.
     FunPtr NotifyCallback ->
     -- |Handler for generated messages
     FunPtr BroadcastCallback ->
@@ -418,8 +436,14 @@ startConsensus
                         { broadcastBlock = callBroadcastCallback bcbk MessageBlock,
                           broadcastFinalizationMessage = callBroadcastCallback bcbk MessageFinalization,
                           broadcastFinalizationRecord = callBroadcastCallback bcbk MessageFinalizationRecord,
-                          notifyBlockArrived = mkNotifyBlockArrived (notifyCallback notifyContext),
-                          notifyBlockFinalized = mkNotifyBlockFinalized (notifyCallback notifyContext),
+                          notifyBlockArrived =
+                            if notifyContext /= nullPtr then
+                              Just $ mkNotifyBlockArrived (notifyCallback notifyContext)
+                            else Nothing,
+                          notifyBlockFinalized =
+                            if notifyContext /= nullPtr then
+                              Just $ mkNotifyBlockFinalized (notifyCallback notifyContext)
+                            else Nothing,
                           notifyCatchUpStatus = callCatchUpStatusCallback cucbk,
                           notifyRegenesis = callRegenesisCallback regenesisCB regenesisRef
                         }
@@ -480,7 +504,9 @@ startConsensusPassive ::
     -- |Serialized genesis data (c string + len)
     CString ->
     Int64 ->
+    -- |Context for notifying upon new block arrival, and new finalized blocks.
     Ptr NotifyContext ->
+    -- |The callback used to invoke upon new block arrival, and new finalized blocks.
     FunPtr NotifyCallback ->
     -- |Handler for sending catch-up status to peers
     FunPtr CatchUpStatusCallback ->
@@ -537,8 +563,15 @@ startConsensusPassive
                           broadcastFinalizationMessage = \_ _ -> return (),
                           broadcastFinalizationRecord = \_ _ -> return (),
                           notifyCatchUpStatus = callCatchUpStatusCallback cucbk,
-                          notifyBlockArrived = mkNotifyBlockArrived (notifyCallback notifyContext),
-                          notifyBlockFinalized = mkNotifyBlockFinalized (notifyCallback notifyContext),
+                          notifyBlockArrived =
+                            if notifyContext /= nullPtr then
+                              Just $ mkNotifyBlockArrived (notifyCallback notifyContext)
+                            else Nothing,
+                          notifyBlockFinalized =
+                            if notifyContext /= nullPtr then
+                              Just $ mkNotifyBlockFinalized (notifyCallback notifyContext)
+                            else
+                              Nothing,
                           notifyRegenesis = callRegenesisCallback regenesisCB regenesisRef
                         }
             runner <- do

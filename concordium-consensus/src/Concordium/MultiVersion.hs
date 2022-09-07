@@ -92,27 +92,33 @@ instance
     HandlerConfigHandlers UpdateHandler (VersionedSkovM gc fc pv)
     where
     handleBlock bp = liftSkov $ do
-      versionsRef <- lift (asks mvVersions)
-      versions <- liftIO (readIORef versionsRef)
-      let latestEraGenesisHeight =
-            case Vec.last versions of
-              EVersionedConfiguration vc -> vcGenesisHeight vc
-      cbks <- lift (asks mvCallbacks)
-      let height = localToAbsoluteBlockHeight latestEraGenesisHeight (bpHeight bp)
-      liftIO (notifyBlockArrived cbks (bpHash bp) height)
+      lift (asks (notifyBlockArrived . mvCallbacks)) >>= \case
+        Nothing -> return ()
+        Just notifyCallback -> do
+          versionsRef <- lift (asks mvVersions)
+          versions <- liftIO (readIORef versionsRef)
+          let latestEraGenesisHeight =
+                case Vec.last versions of
+                  EVersionedConfiguration vc -> vcGenesisHeight vc
+          let height = localToAbsoluteBlockHeight latestEraGenesisHeight (bpHeight bp)
+          liftIO (notifyCallback (bpHash bp) height)
     handleFinalize _ lfbp bps = liftSkov $ do
+      lift (asks (notifyBlockFinalized . mvCallbacks)) >>= \case
+        Nothing -> return ()
+        Just notifyCallback -> do
+          -- Notify a new block was finalized first.
+          versionsRef <- lift (asks mvVersions)
+          versions <- liftIO (readIORef versionsRef)
+          let latestEraGenesisHeight =
+                case Vec.last versions of
+                  EVersionedConfiguration vc -> vcGenesisHeight vc
+          forM_ (reverse bps) $ \bp -> do
+            let height = localToAbsoluteBlockHeight latestEraGenesisHeight (bpHeight bp)
+            liftIO (notifyCallback (bpHash bp) height)
+          let height = localToAbsoluteBlockHeight latestEraGenesisHeight (bpHeight lfbp)
+          liftIO (notifyCallback (bpHash lfbp) height)
+      -- And then check for protocol update.
       checkForProtocolUpdate
-      versionsRef <- lift (asks mvVersions)
-      versions <- liftIO (readIORef versionsRef)
-      let latestEraGenesisHeight =
-            case Vec.last versions of
-              EVersionedConfiguration vc -> vcGenesisHeight vc
-      cbks <- lift (asks mvCallbacks)
-      forM_ (reverse bps) $ \bp -> do
-        let height = localToAbsoluteBlockHeight latestEraGenesisHeight (bpHeight bp)
-        liftIO (notifyBlockFinalized cbks (bpHash bp) height)
-      let height = localToAbsoluteBlockHeight latestEraGenesisHeight (bpHeight lfbp)
-      liftIO (notifyBlockFinalized cbks (bpHash lfbp) height)
 
 -- |Configuration for the global state that uses disk storage
 -- for both tree state and block state.
@@ -196,10 +202,10 @@ data Callbacks = Callbacks
       notifyRegenesis :: Maybe BlockHash -> IO (),
       -- |Notify a block was added to the tree. The arguments are
       -- the hash of the block, and its absolute height.
-      notifyBlockArrived :: BlockHash -> AbsoluteBlockHeight -> IO (),
+      notifyBlockArrived :: Maybe (BlockHash -> AbsoluteBlockHeight -> IO ()),
       -- |Notify a block was finalized. The arguments are the hash of the block,
       -- and its absolute height.
-      notifyBlockFinalized :: BlockHash -> AbsoluteBlockHeight -> IO ()
+      notifyBlockFinalized :: Maybe (BlockHash -> AbsoluteBlockHeight -> IO ())
     }
 
 -- |Baker identity and baking thread 'MVar'.
