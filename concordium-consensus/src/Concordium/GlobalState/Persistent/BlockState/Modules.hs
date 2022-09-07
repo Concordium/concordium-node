@@ -51,7 +51,6 @@ import Control.Monad.IO.Class
 import Lens.Micro.Platform
 import Concordium.GlobalState.Persistent.Cache
 import Concordium.GlobalState.Persistent.CachedRef
-import qualified Concordium.Crypto.SHA256 as H
 
 -- |Index of the module in the module table. Reflects when the module was added
 -- to the table.
