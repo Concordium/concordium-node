@@ -53,7 +53,6 @@ import Data.Text (Text)
 import Data.Time (UTCTime)
 import Concordium.Wasm (InstanceInfo(iiSourceModule))
 import Concordium.Types.Updates (UpdateType(..))
-import Concordium.Types.Queries (NextAccountNonce)
 import Concordium.Types.Block (AbsoluteBlockHeight(..))
 
 {- |An opaque representation of a Rust vector. This is used by callbacks to copy
@@ -254,8 +253,8 @@ instance ToProto ProtocolVersion where
     toProto P3 = Proto.PROTOCOL_VERSION_3
     toProto P4 = Proto.PROTOCOL_VERSION_4
 
-instance ToProto NextAccountNonce where
-    type Output NextAccountNonce = Proto.NextAccountSequenceNumber
+instance ToProto QueryTypes.NextAccountNonce where
+    type Output QueryTypes.NextAccountNonce = Proto.NextAccountSequenceNumber
     toProto QueryTypes.NextAccountNonce{..} = Proto.make $ do
       ProtoFields.sequenceNumber .= toProto nanNonce
       ProtoFields.allFinal .= nanAllFinal

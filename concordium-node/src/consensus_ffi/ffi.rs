@@ -1135,6 +1135,10 @@ impl ConsensusContainer {
         Ok((out_hash, out_data))
     }
 
+    /// Get the best guess as to what the next account sequence number should
+    /// be. If all account transactions are finalized then this information
+    /// is reliable. Otherwise this is the best guess, assuming all other
+    /// transactions will be committed to blocks and eventually finalized.
     pub fn get_next_account_sequence_number_v2(
         &self,
         account_identifier: &crate::grpc2::types::AccountIdentifierInput,
@@ -1158,6 +1162,7 @@ impl ConsensusContainer {
         Ok(out_data)
     }
 
+    /// Get information of the current state of consensus.
     pub fn get_consensus_info_v2(&self) -> Result<Vec<u8>, tonic::Status> {
         let consensus = self.consensus.load(Ordering::SeqCst);
         let mut out_data: Vec<u8> = Vec::new();
@@ -1203,6 +1208,9 @@ impl ConsensusContainer {
         }
     }
 
+    /// Get a list of all smart contract modules. The stream will end
+    /// when all modules that exist in the state at the end of the given
+    /// block have been returned.
     pub fn get_module_list_v2(
         &self,
         block_hash: &crate::grpc2::types::BlockHashInput,
@@ -1230,6 +1238,7 @@ impl ConsensusContainer {
         Ok(buf)
     }
 
+    /// Get the source of a smart contract module.
     pub fn get_module_source_v2(
         &self,
         block_hash: &crate::grpc2::types::BlockHashInput,
@@ -1257,6 +1266,9 @@ impl ConsensusContainer {
         Ok((out_hash, out_data))
     }
 
+    /// Get a list of addresses for all smart contract instances. The stream
+    /// will end when all instances that exist in the state at the end of the
+    /// given block has been returned.
     pub fn get_instance_list_v2(
         &self,
         block_hash: &crate::grpc2::types::BlockHashInput,
@@ -1314,6 +1326,7 @@ impl ConsensusContainer {
         Ok((out_hash, out_data))
     }
 
+    /// Get ancestors for the provided block.
     pub fn get_ancestors_v2(
         &self,
         block_hash: &crate::grpc2::types::BlockHashInput,
