@@ -100,12 +100,12 @@ data ContractStateOperationsAction a where
 deriving instance Eq (ContractStateOperationsAction a)
 deriving instance Show (ContractStateOperationsAction a)
 
+-- |Mock type for 'ModuleQuery'
+-- None of the operations are currently implemented.
 data ModuleQueryAction a where
 
 deriving instance Eq (ModuleQueryAction a)
 deriving instance Show (ModuleQueryAction a)
-
-generateAct ''ModuleQueryAction
 
 -- |Mock type for 'BlockStateQuery'.
 data BlockStateQueryAction (pv :: ProtocolVersion) a where
@@ -248,7 +248,7 @@ instance Act (Action pv) where
     eqAct _ _ = Nothing
     showRes (AO x) r = showRes x r
     showRes (CO x) _ = case x of
-    showRes (MQ x) r = showRes x r
+    showRes (MQ x) _ = case x of
     showRes (BSQ x) r = showRes x r
     showRes (BSO x) r = showRes x r
 
@@ -300,6 +300,7 @@ instance BlockStateTypes (MockT (Action pv) m) where
     type Account (MockT (Action pv) m) = MockAccount
     type ContractState (MockT (Action pv) m) = MockContractState
     type BakerInfoRef (MockT (Action pv) m) = MockBakerInfoRef
+    type InstrumentedModuleRef (MockT (Action pv) m) = MockInstrumentedModuleRef
 
 mockOperations
     [d|instance (Monad m) => AccountOperations (MockT (Action pv) m)|]
@@ -315,6 +316,13 @@ mockOperations
          |]
     ''ContractStateOperationsAction
     [|mockAction . CO|]
+
+mockOperations
+    [d|instance (Monad m) => ModuleQuery (MockT (Action pv) m) where
+         getModuleArtifact = error "Unsupported operation."
+         |]
+    ''ModuleQueryAction
+    [|mockAction . MO|]
 
 mockOperations
     [d|instance (Monad m) => BlockStateQuery (MockT (Action pv) m)|]
