@@ -230,6 +230,10 @@ instance ToProto BakerId where
     type Output BakerId = Proto.BakerId
     toProto = mkWord64
 
+instance ToProto DelegatorId where
+    type Output DelegatorId = Proto.DelegatorId
+    toProto v = Proto.make $ ProtoFields.id .= toProto (delegatorAccountIndex v)
+
 instance ToProto EncryptedAmount where
     type Output EncryptedAmount = Proto.EncryptedAmount
     toProto = mkSerialize
@@ -260,6 +264,12 @@ instance ToProto ScheduledRelease where
         ProtoFields.timestamp .= coerce (releaseTimestamp r)
         ProtoFields.amount .= toProto (releaseAmount r)
         ProtoFields.transactions .= (toProto <$> releaseTransactions r)
+
+instance ToProto (Timestamp, Amount) where
+  type Output (Timestamp, Amount) = Proto.NewRelease
+  toProto (t, a) = Proto.make $ do
+      ProtoFields.timestamp .= coerce t
+      ProtoFields.amount .= toProto a
 
 instance ToProto (StakePendingChange' UTCTime) where
     type Output (StakePendingChange' UTCTime) = Maybe Proto.StakePendingChange
@@ -341,16 +351,15 @@ instance ToProto AccountStakingInfo where
                         ( do
                             ProtoFields.stakedAmount .= mkWord64 asiStakedAmount
                             ProtoFields.restakeEarnings .= asiStakeEarnings
-                            ProtoFields.target
-                                .= Proto.make
-                                    ( do
-                                        case asiDelegationTarget of
-                                            DelegatePassive -> ProtoFields.passive .= Proto.defMessage
-                                            DelegateToBaker bi -> ProtoFields.baker .= mkWord64 bi
-                                    )
+                            ProtoFields.target .= toProto asiDelegationTarget
                             ProtoFields.maybe'pendingChange .= toProto asiDelegationPendingChange
                         )
             )
+
+instance ToProto DelegationTarget where
+  type Output DelegationTarget = Proto.DelegationTarget
+  toProto DelegatePassive = Proto.make $ ProtoFields.passive .= Proto.defMessage
+  toProto (DelegateToBaker bi) = Proto.make $ ProtoFields.baker .= toProto bi
 
 instance ToProto (Map.Map CredentialIndex (Versioned RawAccountCredential)) where
     type Output (Map.Map CredentialIndex (Versioned RawAccountCredential)) = Map.Map Word32 Proto.AccountCredential
@@ -579,7 +588,7 @@ instance ToProto Wasm.ContractEvent where
 type BakerAddedEvent = (BakerKeysEvent, Amount, Bool)
 
 instance ToProto BakerAddedEvent where
-  type Output BakerAddedEvent = Proto.BakerAddedEvent
+  type Output BakerAddedEvent = Proto.BakerEvent'BakerAdded
   toProto (keysEvent, stake, restakeEarnings) = Proto.make $ do
     ProtoFields.keysEvent .= toProto keysEvent
     ProtoFields.stake .= toProto stake
@@ -607,6 +616,14 @@ instance ToProto BakerAggregationVerifyKey where
   type Output BakerAggregationVerifyKey = Proto.BakerAggregationVerifyKey
   toProto = mkSerialize
 
+instance ToProto Memo where
+  type Output Memo = Proto.Memo
+  toProto = mkSerialize
+
+instance ToProto RegisteredData where
+  type Output RegisteredData = Proto.RegisteredData
+  toProto = mkSerialize
+
 convertAccountTransaction
   :: Maybe TransactionType
   -> Amount
@@ -618,52 +635,247 @@ convertAccountTransaction ty cost sender result = case ty of
     Just ty' -> case result of
         TxReject rejectReason -> Right . mkNone $ rejectReason
         TxSuccess events -> case ty' of
-            TTDeployModule -> mkSuccess <$> withSingleton events (\case
-                ModuleDeployed moduleRef -> Right . Proto.make $ ProtoFields.moduleDeployed . ProtoFields.moduleRef .= toProto moduleRef
-                _ -> Left CEInvalidTransactionResult)
-            TTInitContract -> mkSuccess <$> withSingleton events (\case
-                ContractInitialized {..} -> Right . Proto.make $ ProtoFields.contractInitialized . ProtoFields.contents .= Proto.make (do
+            TTDeployModule -> mkSuccess <$> do
+                v <- case events of
+                    [ModuleDeployed moduleRef] -> Right $ toProto moduleRef
+                    _ -> Left CEInvalidTransactionResult
+                Right . Proto.make $ ProtoFields.moduleDeployed . ProtoFields.moduleRef .= v
+            TTInitContract -> mkSuccess <$> do
+                v <- case events of
+                    [ContractInitialized {..}] -> Right $ Proto.make $ do
                        ProtoFields.contractVersion .= toProto ecContractVersion
                        ProtoFields.originRef .= toProto ecRef
                        ProtoFields.address .= toProto ecAddress
                        ProtoFields.amount .= toProto ecAmount
                        ProtoFields.initName .= toProto ecInitName
-                       ProtoFields.events .= (toProto <$> ecEvents))
-                _ -> Left CEInvalidTransactionResult)
-            TTUpdate -> undefined -- TODO
-            TTTransfer -> mkSuccess <$> withSingleton events (\case
-                Transferred{..} -> case etTo of
-                    AddressContract _ -> Left CEInvalidTransactionResult
-                    AddressAccount receiver -> Right . Proto.make $
-                        ProtoFields.accountTransfer .= Proto.make (do
+                       ProtoFields.events .= map toProto ecEvents
+                    _ -> Left CEInvalidTransactionResult
+                Right . Proto.make $ ProtoFields.contractInitialized . ProtoFields.contents .= v
+            TTUpdate-> mkSuccess <$> do
+                let toContractEvent = \case
+                        Updated{..} -> Right . Proto.make $ ProtoFields.updated . ProtoFields.contents .= Proto.make (do
+                            ProtoFields.contractVersion .= toProto euContractVersion
+                            ProtoFields.address .= toProto euAddress
+                            ProtoFields.instigator .= toProto euInstigator
+                            ProtoFields.amount .= toProto euAmount
+                            ProtoFields.parameter .= toProto euMessage
+                            ProtoFields.receiveName .= toProto euReceiveName
+                            ProtoFields.events .= map toProto euEvents)
+                        Transferred{..} -> do
+                            from <- case etFrom of
+                                AddressAccount _ -> Left CEInvalidTransactionResult
+                                AddressContract addr -> Right addr
+                            to' <- case etTo of
+                                AddressAccount addr -> Right addr
+                                AddressContract _ -> Left CEInvalidTransactionResult
+                            Right . Proto.make $ ProtoFields.transferred .= Proto.make (do
+                                ProtoFields.from .= toProto from
+                                ProtoFields.amount .= toProto etAmount
+                                ProtoFields.to .= toProto to')
+                        Interrupted{..} -> Right . Proto.make $ ProtoFields.interrupted .= Proto.make (do
+                            ProtoFields.address .= toProto iAddress
+                            ProtoFields.events .= map toProto iEvents)
+                        Resumed{..} -> Right . Proto.make $ ProtoFields.resumed .= Proto.make (do
+                            ProtoFields.address .= toProto rAddress
+                            ProtoFields.success .= rSuccess)
+                        _ -> Left CEInvalidTransactionResult
+                v <- mapM toContractEvent events
+                Right . Proto.make $ ProtoFields.contractUpdateIssued . ProtoFields.effects .= v
+            TTTransfer-> mkSuccess <$> do
+                v <- case events of
+                    [Transferred{..}] -> case etTo of
+                        AddressContract _ -> Left CEInvalidTransactionResult
+                        AddressAccount receiver -> Right . Proto.make $ do
                             ProtoFields.amount .= toProto etAmount
-                            ProtoFields.to .= toProto receiver)
-                _ -> Left CEInvalidTransactionResult)
-            TTAddBaker -> mkSuccess <$> withSingleton events (\case
-                BakerAdded{..} -> Right . Proto.make $ ProtoFields.bakerAdded . ProtoFields.contents .=
-                   toProto ((ebaBakerId, ebaAccount, ebaSignKey, ebaElectionKey, ebaAggregationKey), ebaStake, ebaRestakeEarnings)
-                _ -> Left CEInvalidTransactionResult)
-            TTRemoveBaker -> mkSuccess <$> withSingleton events (\case
-                BakerRemoved{..} -> Right . Proto.make $ ProtoFields.bakerRemoved . ProtoFields.bakerId .= toProto ebrBakerId
-                _ -> Left CEInvalidTransactionResult)
+                            ProtoFields.to .= toProto receiver
+                    _ -> Left CEInvalidTransactionResult
+                Right . Proto.make $ ProtoFields.accountTransfer .= v
+            TTTransferWithMemo -> mkSuccess <$> do
+                v <- case events of
+                    [Transferred{..}, TransferMemo{..}] -> case etTo of
+                        AddressContract _ -> Left CEInvalidTransactionResult
+                        AddressAccount receiver -> Right . Proto.make $ do
+                            ProtoFields.amount .= toProto etAmount
+                            ProtoFields.to .= toProto receiver
+                            ProtoFields.memo .= toProto tmMemo
+                    _ -> Left CEInvalidTransactionResult
+                Right . Proto.make $ ProtoFields.accountTransfer .= v
+            TTAddBaker -> mkSuccess <$> do
+                v <- case events of
+                    [BakerAdded{..}] -> Right $ toProto ((ebaBakerId, ebaAccount, ebaSignKey, ebaElectionKey, ebaAggregationKey), ebaStake, ebaRestakeEarnings)
+                    _ -> Left CEInvalidTransactionResult
+                Right . Proto.make $ ProtoFields.bakerAdded .= v
+            TTRemoveBaker -> mkSuccess <$> do
+                v <- case events of
+                    [BakerRemoved{..}] -> Right $ toProto ebrBakerId
+                    _ -> Left CEInvalidTransactionResult
+                Right . Proto.make $ ProtoFields.bakerRemoved . ProtoFields.bakerId .= v
             TTUpdateBakerStake -> mkSuccess <$> do
                 v <- case events of
-                  [] -> Right Proto.defMessage
-                  [BakerStakeIncreased{..}] -> undefined
-                  [BakerStakeDecreased{..}] -> undefined
-                  _ -> Left CEInvalidTransactionResult
-                Right . Proto.make $ ProtoFields.bakerStakeUpdated .= v
-            TTUpdateBakerRestakeEarnings -> mkSuccess <$> withSingleton events (\case
-                BakerSetRestakeEarnings{..} -> Right . Proto.make $ ProtoFields.bakerRestakeEarningsUpdated .= Proto.make (do
-                  ProtoFields.bakerId .= toProto ebsreBakerId
-                  ProtoFields.restakeEarnings .= ebsreRestakeEarnings)
-                _ -> Left CEInvalidTransactionResult)
-            -- TTEncryptedAmountTransfer -> mkSuccess <$> (case events of
-            --     [EncryptedAmountsRemoved{..}, NewEncryptedAmount{..}] -> undefined
-            --     _ -> Left CEInvalidTransactionResult)
-            _ -> undefined
-
-
+                    [] -> Right Proto.defMessage -- TODO: Is it correct that if the stake is unchanged, no events occur?
+                    [BakerStakeIncreased{..}] -> Right . Proto.make $ do
+                        ProtoFields.bakerId .= toProto ebsiBakerId
+                        ProtoFields.newStake .= toProto ebsiNewStake
+                        ProtoFields.increased .= True
+                    [BakerStakeDecreased{..}] -> Right . Proto.make $ do
+                        ProtoFields.bakerId .= toProto ebsiBakerId
+                        ProtoFields.newStake .= toProto ebsiNewStake
+                        ProtoFields.increased .= False
+                    _ -> Left CEInvalidTransactionResult
+                Right . Proto.make $ ProtoFields.bakerStakeUpdated . ProtoFields.contents .= v
+            TTUpdateBakerRestakeEarnings -> mkSuccess <$> do
+                v <- case events of
+                    [BakerSetRestakeEarnings{..}] -> Right $ Proto.make $ do
+                        ProtoFields.bakerId .= toProto ebsreBakerId
+                        ProtoFields.restakeEarnings .= ebsreRestakeEarnings
+                    _ -> Left CEInvalidTransactionResult
+                Right . Proto.make $ ProtoFields.bakerRestakeEarningsUpdated .= v
+            TTUpdateBakerKeys -> mkSuccess <$> do
+                v <- case events of
+                    [BakerKeysUpdated{..}] -> Right $ toProto (ebkuBakerId, ebkuAccount, ebkuSignKey, ebkuElectionKey, ebkuAggregationKey)
+                    _ -> Left CEInvalidTransactionResult
+                Right . Proto.make $ ProtoFields.bakerKeysUpdated . ProtoFields.contents .= v
+            TTEncryptedAmountTransfer -> mkSuccess <$> do
+                v <- case events of
+                    [EncryptedAmountsRemoved{..}, NewEncryptedAmount{..}] -> let
+                        removed = Proto.make $ do
+                            ProtoFields.account .= toProto earAccount
+                            ProtoFields.newAmount .= toProto earNewAmount
+                            ProtoFields.inputAmount .= toProto earInputAmount
+                            ProtoFields.upToIndex .= theAggIndex earUpToIndex
+                        added = Proto.make $ do
+                            ProtoFields.receiver .= toProto neaAccount
+                            ProtoFields.newIndex .= theIndex neaNewIndex
+                            ProtoFields.encryptedAmount .= toProto neaEncryptedAmount
+                        in Right . Proto.make $ do
+                            ProtoFields.removed .= removed
+                            ProtoFields.added .= added
+                    _ -> Left CEInvalidTransactionResult
+                Right . Proto.make $ ProtoFields.encryptedAmountTransferred .= v
+            TTEncryptedAmountTransferWithMemo -> mkSuccess <$> do
+                v <- case events of
+                    [EncryptedAmountsRemoved{..}, NewEncryptedAmount{..}, TransferMemo{..}] -> let
+                        removed = Proto.make $ do
+                            ProtoFields.account .= toProto earAccount
+                            ProtoFields.newAmount .= toProto earNewAmount
+                            ProtoFields.inputAmount .= toProto earInputAmount
+                            ProtoFields.upToIndex .= theAggIndex earUpToIndex
+                        added = Proto.make $ do
+                            ProtoFields.receiver .= toProto neaAccount
+                            ProtoFields.newIndex .= theIndex neaNewIndex
+                            ProtoFields.encryptedAmount .= toProto neaEncryptedAmount
+                        in Right . Proto.make $ do
+                            ProtoFields.removed .= removed
+                            ProtoFields.added .= added
+                            ProtoFields.memo .= toProto tmMemo
+                    _ -> Left CEInvalidTransactionResult
+                Right . Proto.make $ ProtoFields.encryptedAmountTransferred .= v
+            TTTransferToEncrypted -> mkSuccess <$> do
+                v <- case events of
+                    [EncryptedSelfAmountAdded{..}] -> Right . Proto.make $ do
+                        ProtoFields.account .= toProto eaaAccount
+                        ProtoFields.newAmount .= toProto eaaNewAmount
+                        ProtoFields.amount .= toProto eaaAmount
+                    _ -> Left CEInvalidTransactionResult
+                Right . Proto.make $ ProtoFields.transferredToEncrypted . ProtoFields.contents .= v
+            TTTransferToPublic -> mkSuccess <$> do
+                v <- case events of
+                    [EncryptedAmountsRemoved{..}, AmountAddedByDecryption{..}] -> let
+                        removed = Proto.make $ do
+                            ProtoFields.account .= toProto earAccount
+                            ProtoFields.newAmount .= toProto earNewAmount
+                            ProtoFields.inputAmount .= toProto earInputAmount
+                            ProtoFields.upToIndex .= theAggIndex earUpToIndex
+                        in Right . Proto.make $ do
+                            ProtoFields.removed .= removed
+                            ProtoFields.amount .= toProto aabdAmount
+                    _ -> Left CEInvalidTransactionResult
+                Right . Proto.make $ ProtoFields.transferredToPublic .= v
+            TTTransferWithSchedule -> mkSuccess <$> do
+                v <- case events of
+                    [TransferredWithSchedule{..}] -> Right . Proto.make $ do
+                        ProtoFields.to .= toProto etwsTo
+                        ProtoFields.amount .= map toProto etwsAmount
+                    _ -> Left CEInvalidTransactionResult
+                Right . Proto.make $ ProtoFields.transferredWithSchedule .= v
+            TTTransferWithScheduleAndMemo -> mkSuccess <$> do
+                v <- case events of
+                    [TransferredWithSchedule{..}, TransferMemo{..}] -> Right . Proto.make $ do
+                        ProtoFields.to .= toProto etwsTo
+                        ProtoFields.amount .= map toProto etwsAmount
+                        ProtoFields.memo .= toProto tmMemo
+                    _ -> Left CEInvalidTransactionResult
+                Right . Proto.make $ ProtoFields.transferredWithSchedule .= v
+            TTUpdateCredentialKeys -> mkSuccess <$> do
+                v <- case events of
+                    [CredentialKeysUpdated{..}] -> Right $ toProto ckuCredId
+                    _ -> Left CEInvalidTransactionResult
+                Right . Proto.make $ ProtoFields.credentialKeysUpdated . ProtoFields.credId .= v
+            TTUpdateCredentials -> mkSuccess <$> do
+                v <- case events of
+                    [CredentialsUpdated{..}] -> Right . Proto.make $ do
+                        ProtoFields.newCredIds .= map toProto cuNewCredIds
+                        ProtoFields.removedCredIds .= map toProto cuRemovedCredIds
+                        ProtoFields.newThreshold .= toProto cuNewThreshold
+                    _ -> Left CEInvalidTransactionResult
+                Right . Proto.make $ ProtoFields.credentialsUpdated .= v
+            TTRegisterData -> mkSuccess <$> do
+                v <- case events of
+                    [DataRegistered{..}] -> Right $ toProto drData
+                    _ -> Left CEInvalidTransactionResult
+                Right . Proto.make $ ProtoFields.dataRegistered . ProtoFields.contents .= v
+            TTConfigureBaker -> mkSuccess <$> do
+                let toBakerEvent = \case
+                        BakerAdded{..} -> Right . Proto.make $ ProtoFields.bakerAdded .=
+                          toProto ((ebaBakerId, ebaAccount, ebaSignKey, ebaElectionKey, ebaAggregationKey), ebaStake, ebaRestakeEarnings)
+                        BakerRemoved{..} -> Right . Proto.make $ ProtoFields.bakerRemoved . ProtoFields.bakerId .= toProto ebrBakerId
+                        BakerStakeIncreased{..} -> Right . Proto.make $ ProtoFields.bakerStakeIncreased .= Proto.make (do
+                            ProtoFields.bakerId .= toProto ebsiBakerId
+                            ProtoFields.newStake .= toProto ebsiNewStake)
+                        BakerStakeDecreased{..} -> Right . Proto.make $ ProtoFields.bakerStakeDecreased .= Proto.make (do
+                            ProtoFields.bakerId .= toProto ebsiBakerId
+                            ProtoFields.newStake .= toProto ebsiNewStake)
+                        BakerSetRestakeEarnings{..} -> Right . Proto.make $ ProtoFields.bakerRestakeEarningsUpdated .= Proto.make (do
+                            ProtoFields.bakerId .= toProto ebsreBakerId
+                            ProtoFields.restakeEarnings .= ebsreRestakeEarnings)
+                        BakerKeysUpdated{..} -> Right . Proto.make $ ProtoFields.bakerKeysUpdated . ProtoFields.contents .= toProto (ebkuBakerId, ebkuAccount, ebkuSignKey, ebkuElectionKey, ebkuAggregationKey)
+                        BakerSetOpenStatus{..} -> Right . Proto.make $ ProtoFields.bakerSetOpenStatus .= Proto.make (do
+                            ProtoFields.bakerId .= toProto ebsosBakerId
+                            ProtoFields.openStatus .= toProto ebsosOpenStatus)
+                        BakerSetMetadataURL{..} -> Right . Proto.make $ ProtoFields.bakerSetMetadataUrl .= Proto.make (do
+                            ProtoFields.bakerId .= toProto ebsmuBakerId
+                            ProtoFields.url .= toProto ebsmuMetadataURL)
+                        BakerSetTransactionFeeCommission{..} -> Right . Proto.make $ ProtoFields.bakerSetTransactionFeeCommission .= Proto.make (do
+                            ProtoFields.bakerId .= toProto ebstfcBakerId
+                            ProtoFields.transactionFeeCommission .= toProto ebstfcTransactionFeeCommission)
+                        BakerSetBakingRewardCommission{..} -> Right . Proto.make $ ProtoFields.bakerSetBakingRewardCommission .= Proto.make (do
+                            ProtoFields.bakerId .= toProto ebsbrcBakerId
+                            ProtoFields.bakingRewardCommission .= toProto ebsbrcBakingRewardCommission)
+                        BakerSetFinalizationRewardCommission{..} -> Right . Proto.make $ ProtoFields.bakerSetFinalizationRewardCommission .= Proto.make (do
+                            ProtoFields.bakerId .= toProto ebsfrcBakerId
+                            ProtoFields.finalizationRewardCommission .= toProto ebsfrcFinalizationRewardCommission)
+                        _ -> Left CEInvalidTransactionResult
+                v <- mapM toBakerEvent events
+                Right . Proto.make $ ProtoFields.bakerConfigured . ProtoFields.contents .= v
+            TTConfigureDelegation -> mkSuccess <$> do
+                let toDelegationEvent = \case
+                        DelegationStakeIncreased{..} -> Right . Proto.make $ ProtoFields.delegationStakeIncreased .= Proto.make (do
+                            ProtoFields.delegatorId .= toProto edsiDelegatorId
+                            ProtoFields.newStake .= toProto edsiNewStake)
+                        DelegationStakeDecreased{..} -> Right . Proto.make $ ProtoFields.delegationStakeDecreased.= Proto.make (do
+                            ProtoFields.delegatorId .= toProto edsdDelegatorId
+                            ProtoFields.newStake .= toProto edsdNewStake)
+                        DelegationSetRestakeEarnings{..} -> Right . Proto.make $ ProtoFields.delegationSetRestakeEarnings .= Proto.make (do
+                            ProtoFields.delegatorId .= toProto edsreDelegatorId
+                            ProtoFields.restakeEarnings .= edsreRestakeEarnings)
+                        DelegationSetDelegationTarget{..} -> Right . Proto.make $ ProtoFields.delegationSetDelegationTarget .= Proto.make (do
+                            ProtoFields.delegatorId .= toProto edsdtDelegatorId
+                            ProtoFields.delegationTarget .= toProto edsdtDelegationTarget)
+                        DelegationAdded{..} -> Right . Proto.make $ ProtoFields.delegationAdded . ProtoFields.delegatorId .= toProto edaDelegatorId
+                        DelegationRemoved{..} -> Right . Proto.make $ ProtoFields.delegationRemoved . ProtoFields.delegatorId .= toProto edrDelegatorId
+                        _ -> Left CEInvalidTransactionResult
+                v <- mapM toDelegationEvent events
+                Right . Proto.make $ ProtoFields.delegationConfigured . ProtoFields.contents .= v
   where
     mkSuccess :: Proto.AccountTransactionEffects -> Proto.AccountTransactionDetails
     mkSuccess effects = Proto.make $ do
@@ -682,12 +894,6 @@ convertAccountTransaction ty cost sender result = case ty of
               Nothing -> return ()
               Just ty' -> ProtoFields.transactionType .= toProto ty'
         )
-
-
-    withSingleton :: [Event] -> (Event -> Either ConversionError Proto.AccountTransactionEffects)
-      -> Either ConversionError Proto.AccountTransactionEffects
-    withSingleton [e] f = f e
-    withSingleton _ _ = Left CEInvalidTransactionResult
 
 instance ToProto Address where
   type Output Address = Proto.Address
@@ -720,7 +926,23 @@ instance ToProto TransactionType where
   toProto TTInitContract = Proto.INIT_CONTRACT
   toProto TTUpdate = Proto.UPDATE
   toProto TTTransfer = Proto.TRANSFER
-  toProto _ = undefined -- TODO: finish
+  toProto TTAddBaker = Proto.ADD_BAKER
+  toProto TTRemoveBaker = Proto.REMOVE_BAKER
+  toProto TTUpdateBakerStake = Proto.UPDATE_BAKER_STAKE
+  toProto TTUpdateBakerRestakeEarnings = Proto.UPDATE_BAKER_RESTAKE_EARNINGS
+  toProto TTUpdateBakerKeys = Proto.UPDATE_BAKER_KEYS
+  toProto TTUpdateCredentialKeys = Proto.UPDATE_CREDENTIAL_KEYS
+  toProto TTEncryptedAmountTransfer = Proto.ENCRYPTED_AMOUNT_TRANSFER
+  toProto TTTransferToEncrypted = Proto.TRANSFER_TO_ENCRYPTED
+  toProto TTTransferToPublic = Proto.TRANSFER_TO_PUBLIC
+  toProto TTTransferWithSchedule = Proto.TRANSFER_WITH_SCHEDULE
+  toProto TTUpdateCredentials = Proto.UPDATE_CREDENTIALS
+  toProto TTRegisterData = Proto.REGISTER_DATA
+  toProto TTTransferWithMemo = Proto.TRANSFER_WITH_MEMO
+  toProto TTEncryptedAmountTransferWithMemo = Proto.ENCRYPTED_AMOUNT_TRANSFER_WITH_MEMO
+  toProto TTTransferWithScheduleAndMemo = Proto.TRANSFER_WITH_SCHEDULE_AND_MEMO
+  toProto TTConfigureBaker = Proto.CONFIGURE_BAKER
+  toProto TTConfigureDelegation = Proto.CONFIGURE_DELEGATION
 
 instance ToProto Energy where
   type Output Energy = Proto.Energy
