@@ -285,37 +285,41 @@ impl ConsensusFfiResponse {
         )
     }
 
-    pub fn is_rebroadcastable(self) -> bool {
+    pub fn is_rebroadcastable(self, packet_type: PacketType) -> bool {
         use ConsensusFfiResponse::*;
 
-        !matches!(
-            self,
+        match self {
             DeserializationError
-                | InvalidResult
-                | Unverifiable
-                | DuplicateEntry
-                | Stale
-                | IncorrectFinalizationSession
-                | BlockTooEarly
-                | ExpiryTooLate
-                | VerificationFailed
-                | NonexistingSenderAccount
-                | DuplicateNonce
-                | NonceTooLarge
-                | TooLowEnergy
-                | ConsensusShutDown
-                | InvalidGenesisIndex
-                | DuplicateAccountRegistrationID
-                | CredentialDeploymentInvalidSignatures
-                | CredentialDeploymentInvalidIP
-                | CredentialDeploymentInvalidAR
-                | CredentialDeploymentExpired
-                | ChainUpdateInvalidEffectiveTime
-                | ChainUpdateSequenceNumberTooOld
-                | ChainUpdateInvalidSignatures
-                | MaxBlockEnergyExceeded
-                | InsufficientFunds
-        )
+            | InvalidResult
+            | Unverifiable
+            | DuplicateEntry
+            | Stale
+            | IncorrectFinalizationSession
+            | BlockTooEarly
+            | ExpiryTooLate
+            | VerificationFailed
+            | NonexistingSenderAccount
+            | DuplicateNonce
+            | NonceTooLarge
+            | TooLowEnergy
+            | ConsensusShutDown
+            | InvalidGenesisIndex
+            | DuplicateAccountRegistrationID
+            | CredentialDeploymentInvalidSignatures
+            | CredentialDeploymentInvalidIP
+            | CredentialDeploymentInvalidAR
+            | CredentialDeploymentExpired
+            | ChainUpdateInvalidEffectiveTime
+            | ChainUpdateSequenceNumberTooOld
+            | ChainUpdateInvalidSignatures
+            | MaxBlockEnergyExceeded
+            | InsufficientFunds
+            | BakerNotFound
+            | MissingImportFile
+            | ContinueCatchUp => false,
+            PendingBlock => packet_type != PacketType::Block,
+            Success | PendingFinalization | Asynchronous => true,
+        }
     }
 }
 

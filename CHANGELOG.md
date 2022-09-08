@@ -13,6 +13,10 @@
 
 - Improvements to start-up time that fix regressions introduced by the account caching.
 
+- Verify pending blocks earlier when possible.
+- Do not relay pending blocks.
+
+
 ## 4.3.0
 
 - Account records are no longer constantly retained in memory. Instead a limited

@@ -637,7 +637,7 @@ stopBaker cptr = mask_ $ do
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 -- |     2 | ResultInvalid                               | The message was determined to be invalid                                                      | No       |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
--- |     3 | ResultPendingBlock                          | The message was received, but is awaiting a block to complete processing                      | Yes      |
+-- |     3 | ResultPendingBlock                          | The message was received, but is awaiting a block to complete processing                      | No for blocks, yes for other messages|
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 -- |     4 | ResultPendingFinalization                   | The message was received, but is awaiting a finalization record to complete processing        | Yes      |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
@@ -731,9 +731,9 @@ toReceiveResult ResultEnergyExceeded = 29
 toReceiveResult ResultInsufficientFunds = 30
 
 -- |Handle receipt of a block.
--- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,
--- @ResultPendingBlock@, @ResultPendingFinalization@, @ResultAsync@, @ResultDuplicate@,
--- @ResultStale@, @ResultConsensusShutDown@, and @ResultInvalidGenesisIndex@.
+-- The possible return codes are @ResultSuccess@, @ResultSerializationFail@,
+-- @ResultInvalid@, @ResultPendingBlock@, @ResultDuplicate@, @ResultStale@,
+-- @ResultConsensusShutDown@, and @ResultInvalidGenesisIndex@.
 -- 'receiveBlock' may invoke the callbacks for new finalization messages.
 receiveBlock :: StablePtr ConsensusRunner -> GenesisIndex -> CString -> Int64 -> IO ReceiveResult
 receiveBlock bptr genIndex msg msgLen = do
