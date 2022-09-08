@@ -3,7 +3,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE LambdaCase #-}
 
 -- |Consensus queries against the multi-version runner.
 module Concordium.Queries where
@@ -691,7 +690,7 @@ invokeContract bh cctx =
         cm <- ChainMetadata <$> getSlotTimestamp (blockSlot bp)
         InvokeContract.invokeContract cctx cm bs)
     bh
-    
+
 
 
 -- * Miscellaneous

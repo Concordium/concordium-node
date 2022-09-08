@@ -595,7 +595,7 @@ getAccountInfoV2 cptr blockType blockHashPtr accIdType accIdBytesPtr outHash out
     bhi <- decodeBlockHashInput blockType blockHashPtr
     ai <- decodeAccountIdentifierInput accIdType accIdBytesPtr
     res <- runMVR (Q.getAccountInfo bhi ai) mvr
-    returnMessage (copier outVec) outHash res
+    returnMessageWithBlock (copier outVec) outHash res
 
 copyHashTo :: Ptr Word8 -> BlockHash -> IO ()
 copyHashTo dest (BlockHash (Hash h)) = FBS.withPtrReadOnly h $ \p -> copyBytes dest p 32
@@ -666,8 +666,7 @@ getModuleSourceV2 cptr blockType blockHashPtr moduleRefPtr outHash outVec copier
     bhi <- decodeBlockHashInput blockType blockHashPtr
     modRef <- decodeModuleRefInput moduleRefPtr
     res <- runMVR (Q.getModuleSource bhi modRef) mvr
-    -- TODO: Consider splitting the module in chunks and streaming the results.
-    returnMessage (copier outVec) outHash res
+    returnMessageWithBlock (copier outVec) outHash res
 
 getInstanceListV2 ::
     StablePtr Ext.ConsensusRunner ->
@@ -714,8 +713,7 @@ getInstanceInfoV2 cptr blockType blockHashPtr addrIndex addrSubindex outHash out
     bhi <- decodeBlockHashInput blockType blockHashPtr
     let caddr = ContractAddress (ContractIndex addrIndex) (ContractSubindex addrSubindex)
     res <- runMVR (Q.getInstanceInfo bhi caddr) mvr
-    -- TODO: Consider whether we need to stream the model of v0 contracts.
-    returnMessage (copier outVec) outHash res
+    returnMessageWithBlock (copier outVec) outHash res
 
 
 getNextAccountSequenceNumberV2 ::
@@ -732,7 +730,7 @@ getNextAccountSequenceNumberV2 cptr accIdType accIdBytesPtr outVec copierCbk = d
     let copier = callCopyToVecCallback copierCbk
     ai <- decodeAccountIdentifierInput accIdType accIdBytesPtr
     res <- runMVR (Q.getNextAccountNonce ai) mvr
-    returnMessageWithoutBlock (copier outVec) res
+    returnMessage (copier outVec) res
 
 getConsensusInfoV2 ::
         StablePtr Ext.ConsensusRunner ->
@@ -743,7 +741,7 @@ getConsensusInfoV2 cptr outVec copierCbk = do
     Ext.ConsensusRunner mvr <- deRefStablePtr cptr
     let copier = callCopyToVecCallback copierCbk
     consensusInfo <- runMVR Q.getConsensusStatus mvr
-    returnMessageWithoutBlock (copier outVec) (Just consensusInfo)
+    returnMessage (copier outVec) (Just consensusInfo)
 
 getAncestorsV2 ::
     StablePtr Ext.ConsensusRunner ->
@@ -773,7 +771,7 @@ getAncestorsV2 cptr channel blockType blockHashPtr depth outHash cbk = do
 {- |Write the hash to the provided pointer, and if the message is given encode and
    write it using the provided callback.
 -}
-returnMessage ::
+returnMessageWithBlock ::
     (Proto.Message (Output a), ToProto a) =>
     (Ptr Word8 -> Int64 -> IO ()) ->
     -- |Out pointer where the hash is written.
@@ -782,23 +780,18 @@ returnMessage ::
     -- message.
     (BlockHash, Maybe a) ->
     IO Int64
-returnMessage _ outHash (bh, Nothing) = do
+returnMessageWithBlock copier outHash (bh, out) = do
     copyHashTo outHash bh
-    return (queryResultCode QRNotFound)
-returnMessage copier outHash (bh, Just v) = do
-    copyHashTo outHash bh
-    let encoded = Proto.encodeMessage (toProto v)
-    BS.unsafeUseAsCStringLen encoded (\(ptr, len) -> copier (castPtr ptr) (fromIntegral len))
-    return (queryResultCode QRSuccess)
+    returnMessage copier out
 
--- |Similar to returnMessage, expect that it doesn't return a block hash.
-returnMessageWithoutBlock ::
+-- |If the message is given encode and write it using the provided callback.
+returnMessage ::
     (Proto.Message (Output a), ToProto a) =>
     (Ptr Word8 -> Int64 -> IO ()) ->
     -- | The potential message.
     Maybe a ->
     IO Int64
-returnMessageWithoutBlock copier res = case res of
+returnMessage copier res = case res of
   Nothing -> return $ queryResultCode QRNotFound
   Just v -> do
     let encoded = Proto.encodeMessage (toProto v)

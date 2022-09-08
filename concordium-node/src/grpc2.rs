@@ -563,7 +563,7 @@ pub mod server {
 }
 
 /// Add a block hash to the metadata of a response. Used for returning the block
-/// hash for streaming responses.
+/// hash.
 fn add_hash<T>(response: &mut tonic::Response<T>, hash: [u8; 32]) -> Result<(), tonic::Status> {
     let value = tonic::metadata::MetadataValue::try_from(hex::encode(&hash))
         .map_err(|_| tonic::Status::internal("Cannot add metadata hash."))?;
