@@ -571,21 +571,11 @@ pub mod server {
             add_hash(&mut response, hash)?;
             Ok(response)
         }
-
-        async fn get_transaction_status(
-            &self,
-            request: tonic::Request<crate::grpc2::types::TransactionHash>,
-        ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
-            let (hash, response) = self.consensus.get_transaction_status_v2(request.get_ref())?;
-            let mut response = tonic::Response::new(response);
-            add_hash(&mut response, hash)?;
-            Ok(response)
-        }
     }
 }
 
 /// Add a block hash to the metadata of a response. Used for returning the block
-/// hash for streaming responses.
+/// hash.
 fn add_hash<T>(response: &mut tonic::Response<T>, hash: [u8; 32]) -> Result<(), tonic::Status> {
     let value = tonic::metadata::MetadataValue::try_from(hex::encode(&hash))
         .map_err(|_| tonic::Status::internal("Cannot add metadata hash."))?;

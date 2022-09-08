@@ -275,15 +275,6 @@ fn build_grpc2(proto_root_input: &str) -> std::io::Result<()> {
                 .codec_path("tonic::codec::ProstCodec")
                 .build(),
         )
-        .method(
-            tonic_build::manual::Method::builder()
-                .name("get_transaction_status")
-                .route_name("GetTransactionStatus")
-                .input_type("crate::grpc2::types::TransactionHash")
-                .output_type("Vec<u8>")
-                .codec_path("crate::grpc2::RawCodec")
-                .build(),
-        )
         .build();
     // Due to the slightly hacky nature of the RawCodec (i.e., it does not support
     // deserialization) we cannot build the client. But we also don't need it in the
