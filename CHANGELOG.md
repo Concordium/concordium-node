@@ -2,6 +2,14 @@
 
 ## Unrelease changes
 
+- A function `predictLeadershipElectionNonce` added. It can predict the leadership election nonce for the next epoch as long as the last finalized block is in the last 1/3 of the current epoch.
+- A function `getDefiniteSlotBakers` added. It returns the bakers that apply to a future slot, if it is certain that the bakers are correct. Otherwise it returns Nothing.
+- If `getDefiniteSlotBakers` returns Nothing, we only check the block signature. Otherwise, for a pending block we also check
+  - whether the claimed baker is valid in the committee
+  - if we can predict the leadership election nonce for a pending block, we do it and mark the block as dead if the proof is incorrect with the given nonce
+- Pending blocks will not be relayed anymore.
+
+
 ## 4.3.0
 
 - Account records are no longer constantly retained in memory. Instead a limited
