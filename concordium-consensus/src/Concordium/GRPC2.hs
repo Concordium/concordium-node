@@ -180,8 +180,11 @@ instance ToProto ModuleRef where
     toProto = mkSerialize
 
 instance ToProto Wasm.WasmModule where
-    type Output Wasm.WasmModule = Proto.ModuleSource
-    toProto = mkSerialize
+    type Output Wasm.WasmModule = Proto.VersionedModuleSource
+    toProto (Wasm.WasmModuleV0 modul) = Proto.make (ProtoFields.v0 .=
+       Proto.make (ProtoFields.value .= Wasm.moduleSource (Wasm.wmvSource modul)))
+    toProto (Wasm.WasmModuleV1 modul) = Proto.make (ProtoFields.v1 .=
+       Proto.make ( ProtoFields.value .= Wasm.moduleSource (Wasm.wmvSource modul)))
 
 instance ToProto Wasm.InstanceInfo where
     type Output Wasm.InstanceInfo = Proto.InstanceInfo
