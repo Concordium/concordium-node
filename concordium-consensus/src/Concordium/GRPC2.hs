@@ -52,7 +52,6 @@ import qualified Concordium.Wasm as Wasm
 import Data.Text (Text)
 import Data.Time (UTCTime)
 import Concordium.Wasm (InstanceInfo(iiSourceModule))
-import Concordium.Types.Updates (UpdateType(..))
 import Concordium.Types.Block (AbsoluteBlockHeight(..))
 
 {- |An opaque representation of a Rust vector. This is used by callbacks to copy
@@ -209,7 +208,7 @@ instance ToProto Wasm.InitName where
   toProto name = Proto.make $ ProtoFields.value .= Wasm.initName name
 
 instance ToProto Wasm.ContractState where
-  type Output Wasm.ContractState = Proto.ContractState
+  type Output Wasm.ContractState = Proto.ContractStateV0
   toProto = mkSerialize
 
 instance ToProto ContractAddress where
@@ -534,79 +533,10 @@ instance ToProto AccountInfo where
         ProtoFields.address .= toProto aiAccountAddress
         ProtoFields.maybe'stake .= toProto aiStakingInfo
 
-instance ToProto QueryTypes.TransactionStatus where
-  type Output QueryTypes.TransactionStatus = Proto.TransactionStatus
-  toProto QueryTypes.Received = Proto.make $ ProtoFields.received .= Proto.defMessage
-  toProto (QueryTypes.Committed m) =
-    Proto.make $ ProtoFields.committed .= Proto.make (ProtoFields.outcomes .= map toProto (Map.toList m))
-  toProto (QueryTypes.Finalized bh ts) =
-    Proto.make $ ProtoFields.finalized.= Proto.make (ProtoFields.outcomes .= toProto (bh, ts))
-
-instance ToProto (BlockHash, Maybe TransactionSummary) where
-  type Output (BlockHash, Maybe TransactionSummary) = Proto.TransactionSummaryInBlock
-  toProto (bh, mts) = Proto.make $ do
-    case mts of
-      Nothing -> return ()
-      Just ts -> ProtoFields.outcome .= toProto ts
-    ProtoFields.blockHash .= toProto bh
-
-instance ToProto TransactionSummary where
-  type Output TransactionSummary = Proto.TransactionSummary
-  toProto TransactionSummary{..} = Proto.make $ do
-    ProtoFields.sender .= maybe Proto.defMessage toProto tsSender
-    ProtoFields.hash .= toProto tsHash
-    ProtoFields.cost .= toProto tsCost
-    ProtoFields.energyCost .= toProto tsEnergyCost
-    case tsType of
-      TSTAccountTransaction mts -> ProtoFields.account .= case mts of
-        Nothing -> Proto.defMessage
-        Just ts -> Proto.make $ ProtoFields.value .= toProto ts
-      TSTCredentialDeploymentTransaction _ -> undefined -- TODO
-      TSTUpdateTransaction ut -> ProtoFields.update .= Proto.make (ProtoFields.value .= toProto ut)
-    case tsResult of
-      TxSuccess events -> ProtoFields.success .= Proto.make (ProtoFields.events .= (toProto <$> events))
-      TxReject rejectReason -> undefined -- TODO
-
-instance ToProto Event where
-  type Output Event = Proto.TransactionSummary'Success'Event
-  toProto Transferred{..} = Proto.make $ ProtoFields.transferred .= Proto.make (do
-                                                                        ProtoFields.sender .= toProto etFrom
-                                                                        ProtoFields.amount .= toProto etAmount
-                                                                        ProtoFields.receiver .= toProto etTo)
-  toProto _ = undefined -- TODO: implement rest
-
 instance ToProto Address where
   type Output Address = Proto.Address
   toProto (AddressAccount addr) = Proto.make $ ProtoFields.account .= toProto addr
   toProto (AddressContract addr) = Proto.make $ ProtoFields.contract .= toProto addr
-
-instance ToProto UpdateType where
-  type Output UpdateType = Proto.UpdateType
-  toProto UpdateProtocol = Proto.UPDATE_PROTOCOL
-  toProto UpdateElectionDifficulty = Proto.UPDATE_ELECTION_DIFFICULTY
-  toProto UpdateEuroPerEnergy = Proto.UPDATE_EURO_PER_ENERGY
-  toProto UpdateMicroGTUPerEuro = Proto.UPDATE_MICRO_GTU_PER_EURO
-  toProto UpdateFoundationAccount = Proto.UPDATE_FOUNDATION_ACCOUNT
-  toProto UpdateMintDistribution = Proto.UPDATE_MINT_DISTRIBUTION
-  toProto UpdateTransactionFeeDistribution = Proto.UPDATE_TRANSACTION_FEE_DISTRIBUTION
-  toProto UpdateGASRewards = Proto.UPDATE_GAS_REWARDS
-  toProto UpdatePoolParameters = Proto.UPDATE_POOL_PARAMETERS
-  toProto UpdateAddAnonymityRevoker = Proto.ADD_ANONYMITY_REVOKER
-  toProto UpdateAddIdentityProvider = Proto.ADD_IDENTITY_PROVIDER
-  toProto UpdateRootKeys = Proto.UPDATE_ROOT_KEYS
-  toProto UpdateLevel1Keys = Proto.UPDATE_LEVEL1_KEYS
-  toProto UpdateLevel2Keys = Proto.UPDATE_LEVEL2_KEYS
-  toProto UpdateCooldownParameters = Proto.UPDATE_COOLDOWN_PARAMETERS
-  toProto UpdateTimeParameters = Proto.UPDATE_TIME_PARAMETERS
-
-
-instance ToProto TransactionType where
-  type Output TransactionType = Proto.TransactionType
-  toProto TTDeployModule = Proto.DEPLOY_MODULE
-  toProto TTInitContract = Proto.INIT_CONTRACT
-  toProto TTUpdate = Proto.UPDATE
-  toProto TTTransfer = Proto.TRANSFER
-  toProto _ = undefined -- TODO: finish
 
 instance ToProto Energy where
   type Output Energy = Proto.Energy
@@ -618,10 +548,6 @@ decodeBlockHashInput :: Word8 -> Ptr Word8 -> IO Q.BlockHashInput
 decodeBlockHashInput 0 _ = return Q.BHIBest
 decodeBlockHashInput 1 _ = return Q.BHILastFinal
 decodeBlockHashInput _ hsh = Q.BHIGiven . coerce <$> FBS.create @DigestSize (\p -> copyBytes p hsh 32)
-
--- |NB: Assumes the data is at least 32 bytes.
-decodeTransactionHashInput :: Ptr Word8 -> IO TransactionHash
-decodeTransactionHashInput hsh = coerce <$> FBS.create @DigestSize (\p -> copyBytes p hsh 32)
 
 decodeAccountIdentifierInput :: Word8 -> Ptr Word8 -> IO AccountIdentifier
 decodeAccountIdentifierInput 0 dta = AccAddress . coerce <$> FBS.create @AccountAddressSize (\p -> copyBytes p dta 32)
@@ -841,21 +767,6 @@ getAncestorsV2 cptr channel blockType blockHashPtr depth outHash cbk = do
             _ <- enqueueMessages (sender channel) modules
             return (queryResultCode QRSuccess)
 
-getTransactionStatusV2 ::
-    StablePtr Ext.ConsensusRunner ->
-    -- |Transaction hash.
-    Ptr Word8 ->
-    Ptr ReceiverVec ->
-    -- |Callback to output data.
-    FunPtr CopyToVecCallback ->
-    IO Int64
-getTransactionStatusV2 cptr trxHashPtr outVec copierCbk = do
-    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
-    let copier = callCopyToVecCallback copierCbk
-    trxHash <- decodeTransactionHashInput trxHashPtr
-    res <- runMVR (Q.getTransactionStatus trxHash) mvr
-    returnMessageWithoutBlock (copier outVec) res
-
 {- |Write the hash to the provided pointer, and if the message is given encode and
    write it using the provided callback.
 -}
@@ -1014,15 +925,6 @@ foreign export ccall
         -- |Smart contract address subindex.
         Word64 ->
         -- |Out pointer for writing the block hash that was used.
-        Ptr Word8 ->
-        Ptr ReceiverVec ->
-        FunPtr (Ptr ReceiverVec -> Ptr Word8 -> Int64 -> IO ()) ->
-        IO Int64
-
-foreign export ccall
-    getTransactionStatusV2 ::
-        StablePtr Ext.ConsensusRunner ->
-        -- |Transaction hash.
         Ptr Word8 ->
         Ptr ReceiverVec ->
         FunPtr (Ptr ReceiverVec -> Ptr Word8 -> Int64 -> IO ()) ->
