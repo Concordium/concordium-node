@@ -83,9 +83,9 @@ makePropertyJust = property $ do
     ss@SeedState{..} <- genSeedstate
     let epochSlot = epoch * fromIntegral epochLength
     let nextEpoch = epochSlot + fromIntegral epochLength
-    let toThirds = 2 * fromIntegral epochLength `div` 3
+    let twoThirds = 2 * fromIntegral epochLength `div` 3
     -- Find a slot in the last 2/3 of the epoch
-    seedStateSlot :: Slot <- fromIntegral <$> choose (epochSlot + toThirds, nextEpoch-2) -- We substract 2 so that we can update the seedstate and still be in the same epoch.
+    seedStateSlot :: Slot <- fromIntegral <$> choose (epochSlot + twoThirds, nextEpoch-2) -- We subtract 2 so that we can update the seedstate and still be in the same epoch.
     parentInThisEpoch :: Slot <- fromIntegral <$> choose (fromIntegral seedStateSlot + 1, nextEpoch-1) -- For test cases where the parent of the pending block is in the same epoch as the seed state
     parentInNextEpoch :: Slot <- fromIntegral <$> choose (nextEpoch + 1, nextEpoch + fromIntegral epochLength-1) -- For test cases where the parent of the pending block in the same epoch as the target slot
     let vrfKP = fst $ VRF.randomKeyPair (mkStdGen 0)
@@ -106,17 +106,17 @@ makePropertyJust = property $ do
             counterexample "Prediction invariant under seedstate update in same epoch, with parent in the same epoch as the target slot" $ predictLeadershipElectionNonce ss seedStateSlot (Just parentInNextEpoch) slotToPredictFor === predictLeadershipElectionNonce ss'' seedStateSlot'' (Just parentInNextEpoch) slotToPredictFor
         ]
 
--- Tests cases where the leadership election nonce cannot be predicted, either beceause the seedstate slot is too early (i.e. in the first 2/3 of the epoch), or
+-- Tests cases where the leadership election nonce cannot be predicted, either because the seedstate slot is too early (i.e. in the first 2/3 of the epoch), or
 -- if the target slot is too far in the future (i.e. two epochs after the seed state or later)
 makePropertyNothing :: Property
 makePropertyNothing = property $ do
     ss@SeedState{..} <- genSeedstate
     let epochSlot = epoch * fromIntegral epochLength
     let nextEpoch = epochSlot + fromIntegral epochLength
-    let toThirds = 2 * fromIntegral epochLength `div` 3
+    let twoThirds = 2 * fromIntegral epochLength `div` 3
     -- Find a slot in the last 2/3 of the epoch
-    seedStateSlot :: Slot <- fromIntegral <$> choose (epochSlot + toThirds, nextEpoch-1)
-    seedStateSlotTooEarly :: Slot <- fromIntegral <$> choose (epochSlot, epochSlot + toThirds-1)
+    seedStateSlot :: Slot <- fromIntegral <$> choose (epochSlot + twoThirds, nextEpoch-1)
+    seedStateSlotTooEarly :: Slot <- fromIntegral <$> choose (epochSlot, epochSlot + twoThirds-1)
     parentInThisEpoch :: Slot <- fromIntegral <$> choose (fromIntegral seedStateSlot, nextEpoch-1)
     parentInNextEpoch :: Slot <- fromIntegral <$> choose (nextEpoch, nextEpoch + fromIntegral epochLength-1)
     slotToPredictFor :: Slot <- fromIntegral <$> choose (fromIntegral parentInNextEpoch, nextEpoch + fromIntegral epochLength-1)
@@ -133,15 +133,8 @@ makePropertyNothing = property $ do
                         counterexample "Seedstate slot too early and prediction slot too late, parent in epoch after seedstate epoch" $ predictLeadershipElectionNonce ss seedStateSlotTooEarly (Just parentInNextEpoch) slotToPredictTooLate === Nothing
                     ]
 
-testPredictionJust :: Property
-testPredictionJust = label "Prediction corrrect" makePropertyJust
-
-
-testPredictionNothing :: Property
-testPredictionNothing = label "No prediction possible" makePropertyNothing
-
 tests :: Spec
 tests = describe "LeaderElectionTest" $ do
-    specify "Correct prediction of leadership election nonces" $ withMaxSuccess 100 testPredictionJust
-    specify "No prediction due to too early finalized slot or prediction slot too far in future" $ withMaxSuccess 100 testPredictionNothing
+    specify "Correct prediction of leadership election nonces" $ withMaxSuccess 100 makePropertyJust
+    specify "No prediction due to too early finalized slot or prediction slot too far in future" $ withMaxSuccess 100 makePropertyNothing
     it "PredictFuture" $ sequence_ testPredictFuture
