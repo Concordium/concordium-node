@@ -186,10 +186,6 @@ instance (MonadBlobStore m) => BlobStorable m PersistentState where
       return (put bRef, ps)
 
 instance MonadBlobStore m => Cacheable m PersistentState where
-  cache ps = do
-    (cbk, _) <- getCallbacks
-    liftIO (withPersistentState ps (cachePersistentState cbk))
-    return ps
 
 instance MonadBlobStore m => MHashableTo m SHA256.Hash PersistentState where
   getHashM ps = do
