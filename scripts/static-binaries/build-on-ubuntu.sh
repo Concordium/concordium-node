@@ -13,6 +13,7 @@ set -euxo pipefail
 
 extra_features=${EXTRA_FEATURES:-""}
 
+protoc_version=3.15.3
 flatbuffers_version=v2.0.0
 rust_toolchain_version=1.62
 
@@ -24,7 +25,6 @@ DEBIAN_FRONTEND=noninteractive apt-get -y install \
 	curl \
 	libprotobuf-dev \
 	libssl-dev \
-	protobuf-compiler \
 	cmake \
 	pkg-config \
 	libnuma-dev \
@@ -32,7 +32,14 @@ DEBIAN_FRONTEND=noninteractive apt-get -y install \
 	liblmdb0 \
 	locales \
 	liblmdb-dev \
+    unzip \
     build-essential
+
+# Install protobuf
+
+curl -L https://github.com/protocolbuffers/protobuf/releases/download/v${protoc_version}/protoc-${protoc_version}-linux-x86_64.zip -o protoc.zip
+unzip protoc.zip bin/protoc -d /usr/
+rm protoc.zip
 
 # Install Rust.
 
