@@ -468,10 +468,10 @@ getBlockBirkParameters = liftSkovQueryBlock $ \bp -> do
 
 -- |Get the cryptographic parameters of the chain at a given block.
 -- The result is versioned (which will currently always be version 0).
-getCryptographicParameters :: BlockHash -> MVR gsconf finconf (Maybe (Versioned CryptographicParameters))
-getCryptographicParameters = liftSkovQueryBlock $ \bp -> do
+getCryptographicParameters :: BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe CryptographicParameters)
+getCryptographicParameters = liftSkovQueryBHI $ \bp -> do
     bs <- blockState bp
-    Versioned 0 <$> BS.getCryptographicParameters bs
+    BS.getCryptographicParameters bs
 
 -- |Get all of the identity providers registered in the system as of a given block.
 getAllIdentityProviders :: BlockHash -> MVR gsconf finconf (Maybe [IpInfo])

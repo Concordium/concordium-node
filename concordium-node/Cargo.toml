@@ -26,6 +26,7 @@ codegen-units = 1
 [dependencies]
 # Internal dependencies
 crypto_common = { path = "../concordium-base/rust-src/crypto_common", features = ["encryption"] }
+id = { path = "../concordium-base/rust-src/id", default-features = false }
 
 # External dependencies
 parking_lot = "0.12"

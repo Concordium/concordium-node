@@ -259,6 +259,14 @@ type RegenesisFreeCallback = unsafe extern "C" fn(*const Regenesis);
 /// A type of callback that extends the given vector with the provided data.
 type CopyToVecCallback = extern "C" fn(*mut Vec<u8>, *const u8, i64);
 
+/// The cryptographic parameters expose through ffi.
+type CryptographicParameters = id::types::GlobalContext<id::constants::ArCurve>;
+
+/// A type of callback that copies cryptographic parameters from one pointer to
+/// another.
+type CopyCryptographicParametersCallback =
+    extern "C" fn(*mut Option<CryptographicParameters>, *const CryptographicParameters);
+
 /// Context necessary for Haskell code/Consensus to send notifications on
 /// important events to Rust code (i.e., RPC server, or network layer).
 pub struct NotificationContext {
@@ -522,6 +530,15 @@ extern "C" {
         consensus: *mut consensus_runner,
         out: *mut Vec<u8>,
         copier: CopyToVecCallback,
+    ) -> i64;
+
+    pub fn getCryptographicParametersV2(
+        consensus: *mut consensus_runner,
+        block_id_type: u8,
+        block_hash: *const u8,
+        out_hash: *mut u8,
+        out: *mut Option<CryptographicParameters>,
+        copier: CopyCryptographicParametersCallback,
     ) -> i64;
 
     /// Stream a list of all modules.
@@ -1172,6 +1189,44 @@ impl ConsensusContainer {
         Ok(out_data)
     }
 
+    /// Get the cryptographic parameters in a given block.
+    pub fn get_cryptographic_parameters_v2(
+        &self,
+        block_hash: &crate::grpc2::types::BlockHashInput,
+    ) -> Result<([u8; 32], crate::grpc2::types::CryptographicParameters), tonic::Status> {
+        use crate::grpc2::Require;
+        let (block_id_type, block_hash) =
+            crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut out_hash = [0u8; 32];
+        let mut crypto_parameter_ptr: Option<CryptographicParameters> = None;
+        let response: ConsensusQueryResponse = unsafe {
+            getCryptographicParametersV2(
+                consensus,
+                block_id_type,
+                block_hash,
+                out_hash.as_mut_ptr(),
+                &mut crypto_parameter_ptr,
+                copy_cryptographic_parameters_callback,
+            )
+            .try_into()?
+        };
+        response.ensure_ok("block")?;
+        let crypto_parameters = crypto_parameter_ptr
+            .ok_or_else(|| tonic::Status::internal("Failed to access cryptographic parameters"))?;
+
+        let out = crate::grpc2::types::CryptographicParameters {
+            genesis_string:          crypto_parameters.genesis_string.clone(),
+            bulletproof_generators:  crypto_common::to_bytes(
+                crypto_parameters.bulletproof_generators(),
+            ),
+            on_chain_commitment_key: crypto_common::to_bytes(
+                &crypto_parameters.on_chain_commitment_key,
+            ),
+        };
+        Ok((out_hash, out))
+    }
+
     /// Look up accounts in the given block, and return a stream of their
     /// addresses.
     ///
@@ -1535,6 +1590,15 @@ extern "C" fn copy_to_vec_callback(out: *mut Vec<u8>, data: *const u8, len: i64)
     let data = unsafe { slice::from_raw_parts(data, len as usize) };
     let out = unsafe { &mut *out };
     out.extend_from_slice(data);
+}
+
+/// Copy cryptographic parameters to the target location provided by the
+/// `source` pointer.
+extern "C" fn copy_cryptographic_parameters_callback(
+    target: *mut Option<CryptographicParameters>,
+    source: *const CryptographicParameters,
+) {
+    unsafe { *target = source.as_ref().map(|g| g.to_owned()) };
 }
 
 pub extern "C" fn direct_callback(

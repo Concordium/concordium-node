@@ -31,6 +31,7 @@ import Concordium.ID.Types
 import Concordium.Logger
 import Concordium.Types
 import qualified Data.FixedByteString as FBS
+import Concordium.Common.Version
 
 import Concordium.Afgjort.Finalize.Types (FinalizationInstance (FinalizationInstance))
 import Concordium.Birk.Bake
@@ -1041,7 +1042,7 @@ getCryptographicParameters :: StablePtr ConsensusRunner -> CString -> IO CString
 getCryptographicParameters cptr blockcstr =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (Q.getCryptographicParameters bh)
+        Just bh -> jsonQuery cptr $ Versioned 0 <$> Q.getCryptographicParameters (Q.BHIGiven bh)
 
 -- |Get all of the identity providers registered in the system as of a given block.
 -- The block must be given as a null-terminated base16 encoding of the block hash.
