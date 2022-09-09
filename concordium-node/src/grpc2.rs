@@ -9,12 +9,13 @@ pub mod types {
 
     include!(concat!(env!("OUT_DIR"), "/concordium.v2.rs"));
 
-    // Convert an account address to a pointer to the
-    // content. The length of the content is checked to be 32 bytes.
-    //
-    // # Safety
-    // The caller **must** ensure that the pointer is not used after the reference
-    // to the supplied `account_identifier` is no longer retained.
+    /// Convert an account address to a pointer to the
+    /// content. The length of the content is checked to be 32 bytes.
+    ///
+    /// # Safety
+    /// The caller **must** ensure that the pointer is not used after the
+    /// reference to the supplied `account_identifier` is no longer
+    /// retained.
     pub(crate) fn account_address_to_ffi(address: &AccountAddress) -> Option<*const u8> {
         if address.value.len() == 32 {
             Some(address.value.as_ptr())
@@ -23,14 +24,15 @@ pub mod types {
         }
     }
 
-    // Convert an account identifier to a pair of a tag and a pointer to the
-    // content. The length of the content is determined by the tag, which is
-    // either 0 for the address, 1 for the credential registration ID, and 2 for
-    // the account index.
-    //
-    // # Safety
-    // The caller **must** ensure that the pointer is not used after the reference
-    // to the supplied `account_identifier` is no longer retained.
+    /// Convert an account identifier to a pair of a tag and a pointer to the
+    /// content. The length of the content is determined by the tag, which is
+    /// either 0 for the address, 1 for the credential registration ID, and 2
+    /// for the account index.
+    ///
+    /// # Safety
+    /// The caller **must** ensure that the pointer is not used after the
+    /// reference to the supplied `account_identifier` is no longer
+    /// retained.
     pub(crate) fn account_identifier_to_ffi(
         account_identifier: &AccountIdentifierInput,
     ) -> Option<(u8, *const u8)> {
@@ -43,14 +45,14 @@ pub mod types {
         }
     }
 
-    // Convert the [BlockHashInput] to a pair of a tag and pointer to the content.
-    // The tag is 0 for "Best" block, 1 for "LastFinal" block, and 2 for a specific
-    // block given by a hash. If the tag is 0 or 1 then there is no additional data,
-    // and the content pointer is `null`.
-    //
-    // # Safety
-    // The caller **must** ensure that the pointer is not used after the reference
-    // to the supplied `bhi` is no longer retained.
+    /// Convert the [BlockHashInput] to a pair of a tag and pointer to the
+    /// content. The tag is 0 for "Best" block, 1 for "LastFinal" block, and
+    /// 2 for a specific block given by a hash. If the tag is 0 or 1 then
+    /// there is no additional data, and the content pointer is `null`.
+    ///
+    /// # Safety
+    /// The caller **must** ensure that the pointer is not used after the
+    /// reference to the supplied `bhi` is no longer retained.
     pub(crate) fn block_hash_input_to_ffi(bhi: &BlockHashInput) -> Option<(u8, *const u8)> {
         use block_hash_input::BlockHashInput::*;
         match bhi.block_hash_input.as_ref()? {
@@ -409,17 +411,21 @@ pub mod server {
 
     #[async_trait]
     impl service::queries_server::Queries for RpcServerImpl {
+        /// Return type for the 'GetAccountList' method.
         type GetAccountListStream =
             futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
+        /// Return type for the 'GetAncestors' method.
         type GetAncestorsStream = futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
-        ///Server streaming response type for the Blocks method.
+        /// Return type for the 'Blocks' method.
         type GetBlocksStream =
             tokio_stream::wrappers::ReceiverStream<Result<Arc<[u8]>, tonic::Status>>;
-        ///Server streaming response type for the FinalizedBlocks method.
+        /// Return type for the 'FinalizedBlocks' method.
         type GetFinalizedBlocksStream =
             tokio_stream::wrappers::ReceiverStream<Result<Arc<[u8]>, tonic::Status>>;
+        /// Return type for the 'GetInstanceList' method.
         type GetInstanceListStream =
             futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
+        /// Return type for the 'GetModuleList' method.
         type GetModuleListStream = futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
 
         async fn get_blocks(
