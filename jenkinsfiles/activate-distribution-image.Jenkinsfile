@@ -1,56 +1,90 @@
 // Parameters:
 // - environment
-// - image_tag
+// - source_image_tag
+// - destination_image_tag
+// - set_latest
+// - delete_source
 @Library('concordium-pipelines') _
-node('master-node') {
-    def DISTRIBUTION_IDS = [
-        stagenet: 'E2Z6VZ10YEWPDX',
-        testnet: 'E3OE3P6NHHWU0I',
-        mainnet: 'E1F07594M64NU0',
+node('any') {
+    def docker_images_base = [
+        stagenet: 'stagenet-node',
+        testnet: 'testnet-node',
+        mainnet: 'mainnet-node',
     ]
     
     if (!environment?.trim()) {
         error "No value for 'environment' provided."
     }
+    if (!current_image_tag) {
+        error "No value for 'current_image_tag' found."
+    }
+    if (!future_image_tag) {
+        error "No value for 'future_image_tag' found."
+    }
     
-    def image_name = "${environment}-node"
-    def file_name = "${image_name}-${image_tag}.tar.gz"
-    def s3_bucket = "s3://distribution.${concordiumDomain(environment)}"
-    def s3_version_path = 'image/version.json'
-    def s3_image_path = "image/${file_name}"
-    def cf_distribution_id = DISTRIBUTION_IDS[environment]
-    if (!cf_distribution_id) {
-        error "No value for 'cf_distribution_id' found."
+    def docker_repo = "concordium/${docker_images_base[environment]}"
+    def current_image_name = "${docker_repo}:${current_image_tag}"
+    def future_image_name = "${docker_repo}:${future_image_tag}"
+    def latest_image_name = "${docker_repo}:latest"
+
+    if (set_latest) {
+        def latest_image_command = "--tag ${docker_repo}:latest"
+    } else {
+        def latest_image_command = ""
     }
 
     stage('verify') {
+        // Verify existens of source image
         try {
-            sh (script: """\
-                aws s3 ls "${s3_bucket}/${s3_image_path}"
-            """.stripIndent())
+            sh "curl --silent https://hub.docker.com/v2/namespaces/concordium/repositories/${docker_images_base}/tags/${source_image_tag} | jq -re '.digest'"
         } catch (e) {
-            error "Image with tag '${image_tag}' does not exist in bucket '${s3_bucket}' on path '${s3_image_path}'."
+            error "Image with tag '${source_image_tag}' does not exist in repo '${docker_repo}'."
+        }
+
+        // Verify tags to add don't already exist
+        try {
+            sh "! curl --silent https://hub.docker.com/v2/namespaces/concordium/repositories/${docker_images_base}/tags/${destination_image_tag} | jq -re '.digest'"
+        } catch (e) {
+            error "Image with tag '${destination_image_tag}' already exists in repo '${docker_repo}'."
+        }
+    }
+    stage('dockerhub-login') {
+        environment {
+            CRED = credentials('jenkins-dockerhub')
+        }
+        steps {
+            sh 'echo $CRED_PSW | docker login --username $CRED_USR --password-stdin'
         }
     }
     stage('update') {
-        sh(script: """\
-            aws s3 cp - "${s3_bucket}/${s3_version_path}" --grants=read=uri=http://acs.amazonaws.com/groups/global/AllUsers <<EOF
+        sh "docker buildx imagetools create ${source_image_tag} --tag ${destination_image_tag} ${latest_image_command}"
+    }
+    stage('cleanup') {
+        when {
+            beforeAgent true
+            environment name: 'delete_source', value: 'true'
+        }
+        environment {
+            CRED = credentials('jenkins-dockerhub')
+        }
+        steps {
+            //https://devopsheaven.com/docker/dockerhub/2018/04/09/delete-docker-image-tag-dockerhub.html
+            sh '''\
+            login_data() {
+            cat <<EOF
             {
-                "image_tag": "${image_tag}",
-                "file": "${file_name}",
-                "image_name": "${image_name}"
+            "username": "$CRED_USR",
+            "password": "$CRED_PSW"
             }
             EOF
-        """.stripIndent())
-    }
-    stage('invalidate') {
-        invalidation_result = sh(script: """\
-            aws cloudfront create-invalidation --distribution-id="${cf_distribution_id}" --paths="/${s3_version_path}"
-        """, returnStdout: true)
-        // Wait for invalidation to complete.
-        invalidation = readJSON(text: invalidation_result)
-        sh(script: """\
-            aws cloudfront wait invalidation-completed --distribution-id="${cf_distribution_id}" --id="${invalidation.Invalidation.Id}"
-        """.stripIndent())
+            }
+
+            TOKEN=`curl -s -H "Content-Type: application/json" -X POST -d "$(login_data)" "https://hub.docker.com/v2/users/login/" | jq -r .token`
+
+            curl "https://hub.docker.com/v2/repositories/${ORGANIZATION}/${IMAGE}/tags/${TAG}/" \
+            -X DELETE \
+            -H "Authorization: JWT ${TOKEN}"
+            '''..stripIndent()
+        }
     }
 }
