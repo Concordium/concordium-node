@@ -42,7 +42,6 @@ import Concordium.GlobalState.ContractStateFFIHelpers (errorLoadCallback)
 import Concordium.Logger (MonadLogger(..), LogIO)
 import Control.Arrow ((&&&))
 import GHC.Stack
-import Data.Functor.Const
 
 -- |Assert equality of two values that are 'Show' instances.
 -- This provides more useful diagnostic information on failure than just @assert (x == y)@.
