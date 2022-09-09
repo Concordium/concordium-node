@@ -345,18 +345,10 @@ getAccountNonFinalizedTransactions acct = liftSkovQueryLatest $ queryNonFinalize
 -- If all account transactions are finalized then this information is reliable.
 -- Otherwise this is the best guess, assuming all other transactions will be
 -- committed to blocks and eventually finalized.
-getNextAccountNonce :: AccountIdentifier -> MVR gsconf finconf (Maybe NextAccountNonce)
-getNextAccountNonce acct = liftSkovQueryLatest $ do
-  bp <- bestBlock
-  bs <- blockState bp
-  macc <- case acct of
-    AccAddress addr -> BS.getAccount bs addr
-    AccIndex idx -> BS.getAccountByIndex bs idx
-    CredRegID crid -> BS.getAccountByCredId bs crid
-  maybeNextNonce <- forM macc (\(_, account) -> do
-                       accountAddress <- BS.getAccountCanonicalAddress account
-                       queryNextAccountNonce $ accountAddressEmbed accountAddress)
-  return $ \case { (nanNonce, nanAllFinal) -> NextAccountNonce{..} } <$> maybeNextNonce
+getNextAccountNonce :: AccountAddress -> MVR gsconf finconf NextAccountNonce
+getNextAccountNonce accountAddress = liftSkovQueryLatest $ do
+  (nanNonce, nanAllFinal) <- queryNextAccountNonce $ accountAddressEmbed accountAddress
+  return NextAccountNonce{..}
 
 -- * Queries against latest version that produces a result
 

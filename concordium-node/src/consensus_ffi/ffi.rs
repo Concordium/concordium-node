@@ -507,46 +507,85 @@ extern "C" {
     // Functions related to V2 GRPC interface.
 
     /// Get information about a specific account in a given block.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `account_id_type` - Type of account identifier.
+    /// * `account_id` - Location with the account identifier. Length must match
+    ///   the corresponding type of block identifier.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `out` - Location to write the output of the query.
+    /// * `copier` - Callback for writting the output.
     pub fn getAccountInfoV2(
         consensus: *mut consensus_runner,
         block_id_type: u8,
-        block_hash: *const u8,
-        acc_type: u8,
-        acc_id: *const u8,
+        block_id: *const u8,
+        account_id_type: u8,
+        account_id: *const u8,
         out_hash: *mut u8,
         out: *mut Vec<u8>,
         copier: CopyToVecCallback,
     ) -> i64;
 
+    /// Get next account sequence number.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `account_address_ptr` - Pointer to account address. Must contain 32
+    ///   bytes.
+    /// * `out` - Location to write the output of the query.
+    /// * `copier` - Callback for writting the output.
     pub fn getNextAccountSequenceNumberV2(
         consensus: *mut consensus_runner,
-        acc_type: u8,
-        acc_id: *const u8,
+        account_address_ptr: *const u8,
         out: *mut Vec<u8>,
         copier: CopyToVecCallback,
     ) -> i64;
 
+    /// Get the current consensus info.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `out` - Location to write the output of the query.
+    /// * `copier` - Callback for writting the output.
     pub fn getConsensusInfoV2(
         consensus: *mut consensus_runner,
         out: *mut Vec<u8>,
         copier: CopyToVecCallback,
     ) -> i64;
 
+    /// Get the cryptographic parameters at the end of a given block.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `out` - Location to write the output of the query.
+    /// * `copier` - Callback for writting the output.
     pub fn getCryptographicParametersV2(
         consensus: *mut consensus_runner,
         block_id_type: u8,
-        block_hash: *const u8,
+        block_id: *const u8,
         out_hash: *mut u8,
         out: *mut Option<CryptographicParameters>,
         copier: CopyCryptographicParametersCallback,
     ) -> i64;
 
     /// Stream a list of all modules.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `stream` - Pointer to the response stream.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `callback` - Callback for writing to the response stream.
     pub fn getModuleListV2(
         consensus: *mut consensus_runner,
-        sender: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+        stream: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
         block_id_type: u8,
-        block_hash: *const u8,
+        block_id: *const u8,
         out_hash: *mut u8,
         callback: extern "C" fn(
             *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
@@ -555,11 +594,21 @@ extern "C" {
         ) -> i32,
     ) -> i64;
 
-    /// Stream the source of a smart contract module.
+    /// Get the source of a smart contract module.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `module_ref` - Location with the module reference. Length must be 32
+    ///   bytes.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `out` - Location to write the output of the query.
+    /// * `copier` - Callback for writting the output.
     pub fn getModuleSourceV2(
         consensus: *mut consensus_runner,
         block_id_type: u8,
-        block_hash: *const u8,
+        block_id: *const u8,
         module_ref: *const u8,
         out_hash: *mut u8,
         out: *mut Vec<u8>,
@@ -567,11 +616,19 @@ extern "C" {
     ) -> i64;
 
     /// Stream a list of smart contract instances.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `stream` - Pointer to the response stream.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `callback` - Callback for writing to the response stream.
     pub fn getInstanceListV2(
         consensus: *mut consensus_runner,
-        sender: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+        stream: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
         block_id_type: u8,
-        block_hash: *const u8,
+        block_id: *const u8,
         out_hash: *mut u8,
         callback: extern "C" fn(
             *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
@@ -581,23 +638,44 @@ extern "C" {
     ) -> i64;
 
     /// Get an information about a specific smart contract instance.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `contract_address_index` - The contract address index to use for the
+    ///   query.
+    /// * `contract_address_subindex` - The contract address subindex to use for
+    ///   the query.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `out` - Location to write the output of the query.
+    /// * `copier` - Callback for writting the output.
     pub fn getInstanceInfoV2(
         consensus: *mut consensus_runner,
         block_id_type: u8,
-        block_hash: *const u8,
-        addr_index: u64,
-        addr_subindex: u64,
+        block_id: *const u8,
+        contract_address_index: u64,
+        contract_address_subindex: u64,
         out_hash: *mut u8,
         out: *mut Vec<u8>,
         copier: CopyToVecCallback,
     ) -> i64;
 
-    /// Stream a list of ancestors for the given block.
+    /// Stream a list of ancestors for the given block
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `stream` - Pointer to the response stream.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `depth` - The maximum number of ancestors to include in the response.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `callback` - Callback for writing to the response stream.
     pub fn getAncestorsV2(
         consensus: *mut consensus_runner,
-        sender: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+        stream: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
         block_id_type: u8,
-        block_hash: *const u8,
+        block_id: *const u8,
         depth: u64,
         out_hash: *mut u8,
         callback: extern "C" fn(
@@ -611,11 +689,19 @@ extern "C" {
     /// enqueue them into the provided [Sender](futures::channel::mpsc::Sender).
     ///
     /// Individual account addresses are enqueued using the provided callback.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `stream` - Pointer to the response stream.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `callback` - Callback for writing to the response stream.
     pub fn getAccountListV2(
         consensus: *mut consensus_runner,
-        sender: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+        stream: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
         block_id_type: u8,
-        block_hash: *const u8,
+        block_id: *const u8,
         out_hash: *mut u8,
         callback: extern "C" fn(
             *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
@@ -1149,24 +1235,23 @@ impl ConsensusContainer {
     /// transactions will be committed to blocks and eventually finalized.
     pub fn get_next_account_sequence_number_v2(
         &self,
-        account_identifier: &crate::grpc2::types::AccountIdentifierInput,
+        account_address: &crate::grpc2::types::AccountAddress,
     ) -> Result<Vec<u8>, tonic::Status> {
         use crate::grpc2::Require;
-        let (acc_type, acc_id) =
-            crate::grpc2::types::account_identifier_to_ffi(account_identifier).require()?;
+        let account_address_ptr =
+            crate::grpc2::types::account_address_to_ffi(account_address).require()?;
         let consensus = self.consensus.load(Ordering::SeqCst);
         let mut out_data: Vec<u8> = Vec::new();
-        let response: ConsensusQueryResponse = unsafe {
+        let _response: ConsensusQueryResponse = unsafe {
             getNextAccountSequenceNumberV2(
                 consensus,
-                acc_type,
-                acc_id,
+                account_address_ptr,
                 &mut out_data,
                 copy_to_vec_callback,
             )
             .try_into()?
         };
-        response.ensure_ok("account")?;
+        // The query should always return successfully, so no need to check here.
         Ok(out_data)
     }
 
@@ -1177,6 +1262,7 @@ impl ConsensusContainer {
         let _response: ConsensusQueryResponse = unsafe {
             getConsensusInfoV2(consensus, &mut out_data, copy_to_vec_callback).try_into()?
         };
+        // The query should always return successfully, so no need to check here.
         Ok(out_data)
     }
 
@@ -1294,14 +1380,15 @@ impl ConsensusContainer {
         let consensus = self.consensus.load(Ordering::SeqCst);
         let mut out_data: Vec<u8> = Vec::new();
         let mut out_hash = [0u8; 32];
-        let (block_id_type, block_hash) =
+        let (block_id_type, block_id) =
             crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let module_ref_ptr = crate::grpc2::types::module_reference_to_ffi(module_ref).require()?;
         let response: ConsensusQueryResponse = unsafe {
             getModuleSourceV2(
                 consensus,
                 block_id_type,
-                block_hash,
-                module_ref.value.as_ptr(),
+                block_id,
+                module_ref_ptr,
                 out_hash.as_mut_ptr(),
                 &mut out_data,
                 copy_to_vec_callback,
