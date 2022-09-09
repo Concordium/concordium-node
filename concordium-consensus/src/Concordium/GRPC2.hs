@@ -51,7 +51,6 @@ import Concordium.Types.Execution
 import qualified Concordium.Wasm as Wasm
 import Data.Text (Text)
 import Data.Time (UTCTime)
-import Concordium.Wasm (InstanceInfo(iiSourceModule))
 import Concordium.Types.Block (AbsoluteBlockHeight(..))
 
 {- |An opaque representation of a Rust vector. This is used by callbacks to copy
@@ -552,8 +551,13 @@ decodeBlockHashInput 0 _ = return Q.BHIBest
 decodeBlockHashInput 1 _ = return Q.BHILastFinal
 decodeBlockHashInput _ hsh = Q.BHIGiven . coerce <$> FBS.create @DigestSize (\p -> copyBytes p hsh 32)
 
+-- | Decode an account address from a foreign ptr. Assumes 32 bytes are available.
+decodeAccountAddress :: Ptr Word8 -> IO AccountAddress
+decodeAccountAddress accPtr = coerce <$> FBS.create @AccountAddressSize (\p -> copyBytes p accPtr 32)
+
+-- | Decode an account address from a foreign ptr.
 decodeAccountIdentifierInput :: Word8 -> Ptr Word8 -> IO AccountIdentifier
-decodeAccountIdentifierInput 0 dta = AccAddress . coerce <$> FBS.create @AccountAddressSize (\p -> copyBytes p dta 32)
+decodeAccountIdentifierInput 0 dta = AccAddress <$> decodeAccountAddress dta
 decodeAccountIdentifierInput 1 dta = do
     bs <- BS.unsafePackCStringLen (castPtr dta, 48)
     case S.decode bs of
@@ -718,19 +722,17 @@ getInstanceInfoV2 cptr blockType blockHashPtr addrIndex addrSubindex outHash out
 
 getNextAccountSequenceNumberV2 ::
         StablePtr Ext.ConsensusRunner ->
-        -- |Identifier type, 0 for account address, 1 for credential, 2 for account index
-        Word8 ->
-        -- |Serialized identifier. Length determined by the type.
+        -- |Serialized account address. Length is 32 bytes.
         Ptr Word8 ->
         Ptr ReceiverVec ->
         FunPtr (Ptr ReceiverVec -> Ptr Word8 -> Int64 -> IO ()) ->
         IO Int64
-getNextAccountSequenceNumberV2 cptr accIdType accIdBytesPtr outVec copierCbk = do
+getNextAccountSequenceNumberV2 cptr accPtr outVec copierCbk = do
     Ext.ConsensusRunner mvr <- deRefStablePtr cptr
     let copier = callCopyToVecCallback copierCbk
-    ai <- decodeAccountIdentifierInput accIdType accIdBytesPtr
-    res <- runMVR (Q.getNextAccountNonce ai) mvr
-    returnMessage (copier outVec) res
+    accountAddress <- decodeAccountAddress accPtr
+    res <- runMVR (Q.getNextAccountNonce accountAddress) mvr
+    returnMessage (copier outVec) (Just res)
 
 getConsensusInfoV2 ::
         StablePtr Ext.ConsensusRunner ->
@@ -929,9 +931,7 @@ foreign export ccall
 foreign export ccall
     getNextAccountSequenceNumberV2 ::
         StablePtr Ext.ConsensusRunner ->
-        -- |Identifier type, 0 for account address, 1 for credential, 2 for account index
-        Word8 ->
-        -- |Serialized identifier. Length determined by the type.
+        -- |Serialized account address. Length must be 32 bytes.
         Ptr Word8 ->
         Ptr ReceiverVec ->
         FunPtr (Ptr ReceiverVec -> Ptr Word8 -> Int64 -> IO ()) ->

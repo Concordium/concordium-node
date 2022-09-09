@@ -9,6 +9,20 @@ pub mod types {
 
     include!(concat!(env!("OUT_DIR"), "/concordium.v2.rs"));
 
+    // Convert an account address to a pointer to the
+    // content. The length of the content is checked to be 32 bytes.
+    //
+    // # Safety
+    // The caller **must** ensure that the pointer is not used after the reference
+    // to the supplied `account_identifier` is no longer retained.
+    pub(crate) fn account_address_to_ffi(address: &AccountAddress) -> Option<*const u8> {
+        if address.value.len() == 32 {
+            Some(address.value.as_ptr())
+        } else {
+            None
+        }
+    }
+
     // Convert an account identifier to a pair of a tag and a pointer to the
     // content. The length of the content is determined by the tag, which is
     // either 0 for the address, 1 for the credential registration ID, and 2 for
@@ -530,11 +544,9 @@ pub mod server {
 
         async fn get_next_account_sequence_number(
             &self,
-            request: tonic::Request<crate::grpc2::types::AccountIdentifierInput>,
+            request: tonic::Request<crate::grpc2::types::AccountAddress>,
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
-            let account_identifier = request.get_ref();
-            let response =
-                self.consensus.get_next_account_sequence_number_v2(account_identifier)?;
+            let response = self.consensus.get_next_account_sequence_number_v2(request.get_ref())?;
             Ok(tonic::Response::new(response))
         }
 

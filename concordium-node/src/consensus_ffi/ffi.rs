@@ -512,8 +512,7 @@ extern "C" {
 
     pub fn getNextAccountSequenceNumberV2(
         consensus: *mut consensus_runner,
-        acc_type: u8,
-        acc_id: *const u8,
+        account_address_ptr: *const u8,
         out: *mut Vec<u8>,
         copier: CopyToVecCallback,
     ) -> i64;
@@ -1132,24 +1131,22 @@ impl ConsensusContainer {
     /// transactions will be committed to blocks and eventually finalized.
     pub fn get_next_account_sequence_number_v2(
         &self,
-        account_identifier: &crate::grpc2::types::AccountIdentifierInput,
+        account_address: &crate::grpc2::types::AccountAddress,
     ) -> Result<Vec<u8>, tonic::Status> {
         use crate::grpc2::Require;
-        let (acc_type, acc_id) =
-            crate::grpc2::types::account_identifier_to_ffi(account_identifier).require()?;
+        let account_address_ptr =
+            crate::grpc2::types::account_address_to_ffi(account_address).require()?;
         let consensus = self.consensus.load(Ordering::SeqCst);
         let mut out_data: Vec<u8> = Vec::new();
-        let response: ConsensusQueryResponse = unsafe {
+        let _response: ConsensusQueryResponse = unsafe {
             getNextAccountSequenceNumberV2(
                 consensus,
-                acc_type,
-                acc_id,
+                account_address_ptr,
                 &mut out_data,
                 copy_to_vec_callback,
             )
             .try_into()?
         };
-        response.ensure_ok("account")?;
         Ok(out_data)
     }
 

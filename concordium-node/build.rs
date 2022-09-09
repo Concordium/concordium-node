@@ -242,7 +242,7 @@ fn build_grpc2(proto_root_input: &str) -> std::io::Result<()> {
             tonic_build::manual::Method::builder()
                 .name("get_next_account_sequence_number")
                 .route_name("GetNextAccountSequenceNumber")
-                .input_type("crate::grpc2::types::AccountIdentifierInput")
+                .input_type("crate::grpc2::types::AccountAddress")
                 .output_type("Vec<u8>")
                 .codec_path("crate::grpc2::RawCodec")
                 .build(),
