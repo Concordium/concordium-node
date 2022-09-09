@@ -374,7 +374,7 @@ data HashedPersistentBlockState pv = HashedPersistentBlockState {
 }
 
 -- |Constraint for ensuring that @m@ supports both persistent accounts and persistent modules.
-type SupportsPersistentState pv m = (SupportsPersistentAccount pv m, Modules.SupportsPersistentModules m)
+type SupportsPersistentState pv m = (SupportsPersistentAccount pv m, Modules.SupportsPersistentModule m)
 
 -- |Convert a 'PersistentBlockState' to a 'HashedPersistentBlockState' by computing
 -- the state hash.
@@ -791,7 +791,7 @@ doGetActiveBakersAndDelegators
     :: forall pv m
      . (IsProtocolVersion pv,
         SupportsPersistentAccount pv m,
-        Modules.SupportsPersistentModules m,
+        Modules.SupportsPersistentModule m,
         AccountVersionFor pv ~ 'AccountV1,
         BakerInfoRef m ~ PersistentBakerInfoEx 'AccountV1)
     => PersistentBlockState pv -> m ([ActiveBakerInfo m], [ActiveDelegatorInfo])
@@ -1949,7 +1949,7 @@ doGetPoolStatus ::
     forall pv m.
     ( IsProtocolVersion pv,
       SupportsPersistentAccount pv m,
-      Modules.SupportsPersistentModules m,
+      Modules.SupportsPersistentModule m,
       AccountVersionFor pv ~ 'AccountV1,
       ChainParametersVersionFor pv ~ 'ChainParametersV1
     ) =>
@@ -2572,12 +2572,15 @@ doSetRewardAccounts pbs rewards = do
         bsp <- loadPBS pbs
         storePBS pbs bsp{bspBank = bspBank bsp & unhashed . Rewards.rewardAccounts .~ rewards}
 
+-- |Context that supports the persistent block state.
 data PersistentBlockStateContext pv = PersistentBlockStateContext {
+    -- |The 'BlobStore' used for storing the persistent state.
     pbscBlobStore :: !BlobStore,
+    -- |Cache used for caching accounts.
     pbscAccountCache :: !(Accounts.AccountCache (AccountVersionFor pv)),
+    -- |Cache used for caching modules.
     pbscModuleCache :: !Modules.ModuleCache
 }
-
 
 instance HasBlobStore (PersistentBlockStateContext av) where
     blobStore = bscBlobStore . pbscBlobStore
@@ -2860,8 +2863,7 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage 
 -- and update sequence numbers populated.
 cacheStateAndGetTransactionTable ::
     forall pv m.
-    (SupportsPersistentAccount pv m,
-    Modules.SupportsPersistentModules m) =>
+    (SupportsPersistentState pv m) =>
     HashedPersistentBlockState pv ->
     m TransactionTable.TransactionTable
 cacheStateAndGetTransactionTable hpbs = do

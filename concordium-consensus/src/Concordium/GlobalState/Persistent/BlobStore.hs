@@ -622,7 +622,7 @@ class Monad m => Reference m ref a where
   refUncache :: ref a -> m (ref a)
 
 -- |A value that may exists purely on disk ('BRBlobbed'), purely in memory
--- ('BRMemory' with @brIORef = null@), or both in memory and on disk. When the
+-- ('BRMemory' with @brIORef = Null@), or both in memory and on disk. When the
 -- value is both on disk and in memory the two values must match.
 data BufferedRef a
     = BRBlobbed {brRef :: !(BlobRef a)}
@@ -635,7 +635,7 @@ data BufferedRef a
     -- that inherited its parent's state) we can store the pointer to the 'brValue' data rather than
     -- storing all of the data again.
     -- This definition also makes it possible for shared references to share the
-    -- underlying value @a@.
+    -- underlying stored value @a@.
     | BRBoth {brRef :: !(BlobRef a), brValue :: !a}
     -- ^Value stored in memory and on disk.
 

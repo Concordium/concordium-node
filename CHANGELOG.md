@@ -8,15 +8,15 @@
   `--chunksize` option specifies the size of export files in blocks.
 - The `--download-blocks-from` option now takes the URL to the catchup _index file_, permitting to
   only download and import catchup files containing blocks not already present in the database.
+- Smart contract modules are no longer retained in memory. Module artifacts are loaded as needed
+  during contract execution. Metadata is cached for a limited number of smart contract modules.
+  By default, the cache will retain metadata for at most 100 smart contract modules, and this is
+  configurable via the `--modules-cache-size` command line argument or by using the 
+  `CONCORDIUM_NODE_CONSENSUS_MODULES_CACHE_SIZE` environment variable.
 
 ## 4.3.1
 
 - Improvements to start-up time that fix regressions introduced by the account caching.
-- Smart contract modules are no longer being constantly retained in memory. Instead a 
-  limited number of smart contract modules are being retained in a cache. 
-  By default the node will retain at most 100 smart contract instances in memory, however this
-  is configurable via the `--modules-cache-size` command line argument or by using the 
-  `CONCORDIUM_NODE_CONSENSUS_MODULES_CACHE_SIZE` environment variable.
 
 ## 4.3.0
 

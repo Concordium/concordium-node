@@ -1,17 +1,18 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE UndecidableInstances #-}
 module Concordium.GlobalState.Persistent.BlockState.Modules
   ( Module(..),
     ModuleV(..),
     Modules,
     ModuleCache,
-    SupportsPersistentModules,
+    SupportsPersistentModule,
     getModuleInterface,
     PersistentInstrumentedModuleV,
     loadInstrumentedModuleV,
@@ -60,17 +61,21 @@ type ModuleIndex = Word64
 
 -- |An @InstrumentedModuleV v@ in the @PersistentBlockState@, where
 -- @v@ is the @WasmVersion@.
-data PersistentInstrumentedModuleV v =
+data PersistentInstrumentedModuleV (v :: WasmVersion) =
   PIMVMem !(GSWasm.InstrumentedModuleV v)
   -- ^The instrumented module is retained in memory only.
-  -- This is the case in between finalizations.
+  -- This is the case before finalization.
   | PIMVPtr !(BlobPtr (GSWasm.InstrumentedModuleV v))
-  -- ^The instrumented module resides solely on disk thus the raw
-  -- bytes can be read via the @BlobPtr@.
-  -- The wasm execution engine on the Rust side uses this @BlobPtr@ to read the
-  -- actual artifact when executing it.
+  -- ^The instrumented module resides solely on disk, and thus the raw
+  -- bytes can be read from the blob store via the @BlobPtr@.
+  -- The @BlobPtr@ is used to reconstruct artifact on the Rust side, copying it as needed
+  -- from the blob store.
   deriving (Show)
 
+-- |Load a 'PersistentInstrumentedModuleV', retrieving the artifact.
+-- If the artifact has been persisted to the blob store, this creates an (executable) copy of the
+-- artifact on the Rust side.  The Rust artifact is reference counted, and Haskell retains a
+-- reference with a 'ForeignPtr' that drops the reference when it is garbage collected.
 loadInstrumentedModuleV :: (MonadBlobStore m, IsWasmVersion v) => PersistentInstrumentedModuleV v -> m (GSWasm.InstrumentedModuleV v)
 loadInstrumentedModuleV (PIMVMem im) = return im
 loadInstrumentedModuleV (PIMVPtr ptr) = do
@@ -123,6 +128,7 @@ unsafeToModuleV1 (ModuleV0 _) = error "Could not coerce module to V1."
 unsafeToModuleV1 (ModuleV1 m) = m
 
 -- |Coerce a 'Module' to a 'ModuleV' depending on the 'WasmVersion'.
+-- This results in an error if the module is not of the desired version.
 unsafeToModuleV :: forall v. IsWasmVersion v => Module -> ModuleV v
 unsafeToModuleV = case getWasmVersion @v of
   SV0 -> unsafeToModuleV0
@@ -139,50 +145,43 @@ instance HashableTo Hash Module where
 instance Monad m => MHashableTo m Hash Module
 instance MonadBlobStore m => Cacheable m Module where
 
--- |The @DummyInstrumentedModule@ serves the purpose of
--- deserializing a @BlobPtr@ for the @PersistentInstrumentedModuleV@ as
--- we do not want to pollude the @BlobPtr@ with @WasmVersion@'s.
-data DummyInstrumentedModule = DummyInstrumentedModule {
-    dimVersion :: !WasmVersion,
-    dimStartOffset :: !Word64,
-    dimLength :: !Word64
-    }
-
--- |The @DummyInstrumentedModule@'s only purpose is to
--- help with loading the @PersistentInstrumentedModuleV@.
--- In particular we have that it is not possible to serialize
--- a @DummyInstrumentedModule@.
-instance Serialize DummyInstrumentedModule where
-  get = do
-    dimVersion <- get
-    len <- getWord32be
-    dimStartOffset <- fromIntegral <$> bytesRead
-    skip (fromIntegral len)
-    let dimLength = fromIntegral len
-    return DummyInstrumentedModule{..}
-  put = error "DummyInstrumentedModule does not support 'put'."
-
+-- |This instance is based on and should be compatible with the 'Serialize' instance
+-- for 'BasicModuleInterface'.
 instance MonadBlobStore m => DirectBlobStorable m Module where
   loadDirect br = do
     bs <- loadRaw br
     let getModule = do
+          -- Offset of the start of the module
           startOffset <- fromIntegral <$> bytesRead
-          mvi <- get
-          let DummyInstrumentedModule{..} = GSWasm.miModule mvi
-          let moduleVInterface :: GSWasm.ModuleInterfaceA (PersistentInstrumentedModuleV v)
-              moduleVInterface = PIMVPtr BlobPtr {
+          -- Header
+          miModuleRef <- get
+          miExposedInit <- getSafeSetOf get
+          miExposedReceive <- getSafeMapOf get (getSafeSetOf get)
+          -- Artifact is serialized as @InstrumentedModule v@.
+          artVersion <- get
+          artLen <- getWord32be
+          -- Offset of the start of the artifact
+          artOffset <- fromIntegral <$> bytesRead
+          -- Skip the actual body of the artifact; we deserialize as a 'BlobPtr' instead.
+          skip (fromIntegral artLen)
+          -- Footer
+          miModuleSize <- getWord64be
+          let miModule :: PersistentInstrumentedModuleV v
+              miModule = PIMVPtr BlobPtr {
                   theBlobPtr =
                     -- Start of the blob ref
                     theBlobRef br
                     -- Add the size of the length field for the blob ref
                     + 8
                     -- Add the offset of the artifact
-                    + dimStartOffset
+                    + artOffset
                     -- Subtract the starting offset
                     - startOffset,
-                  blobPtrLen = dimLength
-                } <$ mvi
-          case dimVersion of
+                  blobPtrLen = fromIntegral artLen
+                }
+              moduleVInterface :: GSWasm.ModuleInterfaceA (PersistentInstrumentedModuleV v)
+              moduleVInterface = GSWasm.ModuleInterface{..}
+          case artVersion of
             V0 -> do
               moduleVSource <- get
               return $! ModuleV0 (ModuleV{..})
@@ -257,7 +256,7 @@ newModuleCache = newCache
 
 -- |Make sure that a monad supports the `MonadBlobStore` and `MonadCache`
 -- for the modules cache.
-type SupportsPersistentModules m = (MonadBlobStore m, MonadCache ModuleCache m)
+type SupportsPersistentModule m = (MonadBlobStore m, MonadCache ModuleCache m)
 
 -- |The collection of modules stored in a block state.
 data Modules = Modules {
@@ -275,10 +274,10 @@ makeLenses ''Modules
 
 
 -- | The hash of the collection of modules is the hash of the tree.
-instance SupportsPersistentModules m => MHashableTo m Hash Modules where
+instance SupportsPersistentModule m => MHashableTo m Hash Modules where
   getHashM = getHashM . _modulesTable
 
-instance SupportsPersistentModules m => BlobStorable m Modules where
+instance SupportsPersistentModule m => BlobStorable m Modules where
   load = do
     table <- load
     return $ do
@@ -291,7 +290,7 @@ instance SupportsPersistentModules m => BlobStorable m Modules where
     (pModulesTable, _modulesTable') <- storeUpdate _modulesTable
     return (pModulesTable, m { _modulesTable = _modulesTable' })
 
-instance SupportsPersistentModules m => Cacheable m Modules where
+instance SupportsPersistentModule m => Cacheable m Modules where
   cache Modules{..} = do
     modulesTable' <- cache _modulesTable
     return Modules { _modulesTable = modulesTable', ..}
@@ -304,7 +303,7 @@ emptyModules = Modules LFMB.empty Map.empty
 
 -- |Try to add interfaces to the module table. If a module with the given
 -- reference exists returns @Nothing@.
-putInterface :: (IsWasmVersion v, SupportsPersistentModules m)
+putInterface :: (IsWasmVersion v, SupportsPersistentModule m)
              => (GSWasm.ModuleInterfaceV v, WasmModuleV v)
              -> Modules
              -> m (Maybe Modules)
@@ -318,7 +317,7 @@ putInterface (modul, src) m =
                       & modulesMap %~ Map.insert mref idx
  where mref = GSWasm.moduleReference modul
 
-getModule :: SupportsPersistentModules m => ModuleRef -> Modules -> m (Maybe Module)
+getModule :: SupportsPersistentModule m => ModuleRef -> Modules -> m (Maybe Module)
 getModule ref mods =
   let modIdx = Map.lookup ref (mods ^. modulesMap) in
   case modIdx of
@@ -328,7 +327,7 @@ getModule ref mods =
 -- |Gets the 'HashedCachedRef' to a module as stored in the module table
 -- to be given to instances when associating them with the interface.
 -- The reason we return the reference here is to allow for sharing of the reference.
-getModuleReference :: SupportsPersistentModules m => ModuleRef -> Modules -> m (Maybe (ModuleReference Module))
+getModuleReference :: SupportsPersistentModule m => ModuleRef -> Modules -> m (Maybe (ModuleReference Module))
 getModuleReference ref mods =
   let modIdx = Map.lookup ref (mods ^. modulesMap) in
   case modIdx of
@@ -336,14 +335,14 @@ getModuleReference ref mods =
     Just idx -> LFMB.lookupRef idx (mods ^. modulesTable)
 
 -- |Get an interface by module reference.
-getInterface :: SupportsPersistentModules m
+getInterface :: SupportsPersistentModule m
              => ModuleRef
              -> Modules
              -> m (Maybe (GSWasm.ModuleInterface PersistentInstrumentedModuleV))
 getInterface ref mods = fmap getModuleInterface <$> getModule ref mods
 
 -- |Get the source of a module by module reference.
-getSource :: SupportsPersistentModules m => ModuleRef -> Modules -> m (Maybe WasmModule)
+getSource :: SupportsPersistentModule m => ModuleRef -> Modules -> m (Maybe WasmModule)
 getSource ref mods = do
   m <- getModule ref mods
   case m of
@@ -370,7 +369,7 @@ storePersistentModule (TransientModules.ModuleV1 TransientModules.ModuleV{..}) =
   moduleVSource' <- storeRef moduleVSource
   return (ModuleV1 (ModuleV { moduleVInterface = moduleVInterface', moduleVSource = moduleVSource'}))
 
-makePersistentModules :: SupportsPersistentModules m
+makePersistentModules :: SupportsPersistentModule m
                        => TransientModules.Modules
                        -> m Modules
 makePersistentModules mods = do
@@ -382,7 +381,7 @@ makePersistentModules mods = do
 --------------------------------------------------------------------------------
 
 -- |Serialize modules in V0 format.
-putModulesV0 :: (SupportsPersistentModules m, MonadPut m) => Modules -> m ()
+putModulesV0 :: (SupportsPersistentModule m, MonadPut m) => Modules -> m ()
 putModulesV0 mods = do
     let mt = mods ^. modulesTable
     liftPut $ putWord64be $ LFMB.size mt

@@ -95,6 +95,7 @@ instance C.HasGlobalStateContext (PairGSContext lc rc) a => C.HasGlobalStateCont
 type BSML pv lc r ls s m = BlockStateM pv lc (FocusLeft r) ls (FocusLeft s) (ReviseRSM (FocusLeft r) (FocusLeft s) m)
 type BSMR pv rc r rs s m = BlockStateM pv rc (FocusRight r) rs (FocusRight s) (ReviseRSM (FocusRight r) (FocusRight s) m)
 
+-- |A pair of instrumented module references.
 data PairInstrumentedModuleRef imr1 imr2 :: Wasm.WasmVersion -> Type where
     PIMR :: imr1 v -> imr2 v -> PairInstrumentedModuleRef imr1 imr2 v
 
@@ -123,9 +124,6 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r)
             = (BakerInfoRef (BSML pv lc r lg s m),
                 BakerInfoRef (BSMR pv rc r rg s m))
     
-    -- It doesn't really make sense to compare 'InstrumentedModuleRef's between implementations,
-    -- or to operate on both, so we just always use the 'InstrumentedModuleRef' for the left
-    -- implementation.
     type InstrumentedModuleRef (BlockStateM pv (PairGSContext lc rc) r (PairGState lg rg) s m)
             = PairInstrumentedModuleRef (InstrumentedModuleRef (BSML pv lc r lg s m)) (InstrumentedModuleRef (BSMR pv rc r rg s m))
 

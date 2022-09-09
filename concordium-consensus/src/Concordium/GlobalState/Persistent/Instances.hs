@@ -132,7 +132,7 @@ cacheInstanceParameters :: MonadBlobStore m => PersistentInstance pv -> m (Persi
 cacheInstanceParameters (PersistentInstanceV0 PersistentInstanceV {..}) = cacheBufferedRef pinstanceParameters
 cacheInstanceParameters (PersistentInstanceV1 PersistentInstanceV {..}) = cacheBufferedRef pinstanceParameters
 
-loadInstanceModule :: SupportsPersistentModules m => PersistentInstance pv -> m Module
+loadInstanceModule :: SupportsPersistentModule m => PersistentInstance pv -> m Module
 loadInstanceModule (PersistentInstanceV0 PersistentInstanceV {..}) = refLoad pinstanceModuleInterface
 loadInstanceModule (PersistentInstanceV1 PersistentInstanceV {..}) = refLoad pinstanceModuleInterface
 
@@ -145,7 +145,7 @@ instance HashableTo H.Hash (PersistentInstance pv) where
 -- decide whether we are loading instance V0 or instance V1, we essentially have
 -- two implementations of BlobStorable. One for protocol versions <= P3, and
 -- another one for later protocol versions. The latter ones add versioning information.
-instance (IsProtocolVersion pv, SupportsPersistentModules m) => BlobStorable m (PersistentInstance pv) where
+instance (IsProtocolVersion pv, SupportsPersistentModule m) => BlobStorable m (PersistentInstance pv) where
     storeUpdate inst = do
         if demoteProtocolVersion (protocolVersion @pv) <= P3 then
           case inst of
@@ -221,7 +221,7 @@ instance MonadBlobStore m => Cacheable m (InstanceStateV GSWasm.V1) where
 
 -- This cacheable instance is a bit unusual. Caching instances requires us to have access
 -- to the modules so that we can share the module interfaces from different instances.
-instance SupportsPersistentModules m => Cacheable (ReaderT Modules m) (PersistentInstance pv) where
+instance SupportsPersistentModule m => Cacheable (ReaderT Modules m) (PersistentInstance pv) where
     cache (PersistentInstanceV0 p@PersistentInstanceV{..}) = do
         modules <- ask
         lift $! do
@@ -256,10 +256,10 @@ instance SupportsPersistentModules m => Cacheable (ReaderT Modules m) (Persisten
 
 -- |Construct instance information from a persistent instance, loading as much
 -- data as necessary from persistent storage.
-mkInstanceInfo :: SupportsPersistentModules m => PersistentInstance pv -> m (InstanceInfoType PersistentInstrumentedModuleV InstanceStateV)
+mkInstanceInfo :: SupportsPersistentModule m => PersistentInstance pv -> m (InstanceInfoType PersistentInstrumentedModuleV InstanceStateV)
 mkInstanceInfo (PersistentInstanceV0 inst) = InstanceInfoV0 <$> mkInstanceInfoV inst
 mkInstanceInfo (PersistentInstanceV1 inst) = InstanceInfoV1 <$> mkInstanceInfoV inst
-mkInstanceInfoV :: (SupportsPersistentModules m, Wasm.IsWasmVersion v) => PersistentInstanceV v -> m (InstanceInfoTypeV PersistentInstrumentedModuleV InstanceStateV v)
+mkInstanceInfoV :: (SupportsPersistentModule m, Wasm.IsWasmVersion v) => PersistentInstanceV v -> m (InstanceInfoTypeV PersistentInstrumentedModuleV InstanceStateV v)
 mkInstanceInfoV PersistentInstanceV{..} = do
   PersistentInstanceParameters{..} <- loadBufferedRef pinstanceParameters
   instanceModuleInterface <- moduleVInterface . unsafeToModuleV <$> refLoad pinstanceModuleInterface
@@ -500,11 +500,11 @@ instance Show (Instances pv) where
     show InstancesEmpty = "Empty"
     show (InstancesTree _ t) = showFix showITString t
 
-instance (IsProtocolVersion pv, SupportsPersistentModules m) => MHashableTo m H.Hash (Instances pv) where
+instance (IsProtocolVersion pv, SupportsPersistentModule m) => MHashableTo m H.Hash (Instances pv) where
   getHashM InstancesEmpty = return $ H.hash "EmptyInstances"
   getHashM (InstancesTree _ t) = getHash <$> mproject t
 
-instance (IsProtocolVersion pv, SupportsPersistentModules m) => BlobStorable m (Instances pv) where
+instance (IsProtocolVersion pv, SupportsPersistentModule m) => BlobStorable m (Instances pv) where
     storeUpdate i@InstancesEmpty = return (putWord8 0, i)
     storeUpdate (InstancesTree s t) = do
         (pt, t') <- storeUpdate t
@@ -525,7 +525,7 @@ instance (MonadBlobStore m, Cacheable m r, Cacheable m (PersistentInstance pv)) 
     cache (Leaf l) = Leaf <$> cache l
     cache vacant = return vacant
 
-instance (IsProtocolVersion pv, SupportsPersistentModules m) => Cacheable (ReaderT Modules m) (Instances pv) where
+instance (IsProtocolVersion pv, SupportsPersistentModule m) => Cacheable (ReaderT Modules m) (Instances pv) where
     cache i@InstancesEmpty = return i
     cache (InstancesTree s r) = InstancesTree s <$> cache r
             
@@ -533,14 +533,14 @@ instance (IsProtocolVersion pv, SupportsPersistentModules m) => Cacheable (Reade
 emptyInstances :: Instances pv
 emptyInstances = InstancesEmpty
 
-newContractInstance :: forall m pv a. (IsProtocolVersion pv, SupportsPersistentModules m) => (ContractAddress -> m (a, PersistentInstance pv)) -> Instances pv -> m (a, Instances pv)
+newContractInstance :: forall m pv a. (IsProtocolVersion pv, SupportsPersistentModule m) => (ContractAddress -> m (a, PersistentInstance pv)) -> Instances pv -> m (a, Instances pv)
 newContractInstance fnew InstancesEmpty = do
         let ca = ContractAddress 0 0
         (res, newInst) <- fnew ca
         (res,) . InstancesTree 1 <$> membed (Leaf newInst)
 newContractInstance fnew (InstancesTree s it) = (\(res, it') -> (res, InstancesTree (s+1) it')) <$> newContractInstanceIT fnew it
 
-deleteContractInstance :: forall m pv. (IsProtocolVersion pv, SupportsPersistentModules m) => ContractAddress -> Instances pv -> m (Instances pv)
+deleteContractInstance :: forall m pv. (IsProtocolVersion pv, SupportsPersistentModule m) => ContractAddress -> Instances pv -> m (Instances pv)
 deleteContractInstance _ InstancesEmpty = return InstancesEmpty
 deleteContractInstance addr t0@(InstancesTree s it0) = dci (fmap (InstancesTree (s-1)) . membed) (contractIndex addr) =<< mproject it0
     where
@@ -568,7 +568,7 @@ deleteContractInstance addr t0@(InstancesTree s it0) = dci (fmap (InstancesTree 
                 in dci newCont (i - 2^h) =<< mproject r
             | otherwise = return t0
 
-lookupContractInstance :: forall m pv. (IsProtocolVersion pv, SupportsPersistentModules m) => ContractAddress -> Instances pv -> m (Maybe (PersistentInstance pv))
+lookupContractInstance :: forall m pv. (IsProtocolVersion pv, SupportsPersistentModule m) => ContractAddress -> Instances pv -> m (Maybe (PersistentInstance pv))
 lookupContractInstance _ InstancesEmpty = return Nothing
 lookupContractInstance addr (InstancesTree _ it0) = lu (contractIndex addr) =<< mproject it0
     where
@@ -583,7 +583,7 @@ lookupContractInstance addr (InstancesTree _ it0) = lu (contractIndex addr) =<< 
             | i < 2^(h+1) = lu (i - 2^h) =<< mproject r
             | otherwise = return Nothing
 
-updateContractInstance :: forall m pv a. (IsProtocolVersion pv, SupportsPersistentModules m) => (PersistentInstance pv -> m (a, PersistentInstance pv)) -> ContractAddress -> Instances pv -> m (Maybe (a, Instances pv))
+updateContractInstance :: forall m pv a. (IsProtocolVersion pv, SupportsPersistentModule m) => (PersistentInstance pv -> m (a, PersistentInstance pv)) -> ContractAddress -> Instances pv -> m (Maybe (a, Instances pv))
 updateContractInstance _ _ InstancesEmpty = return Nothing
 updateContractInstance fupd addr (InstancesTree s it0) = upd baseSuccess (contractIndex addr) =<< mproject it0
     where
@@ -616,14 +616,14 @@ updateContractInstance fupd addr (InstancesTree s it0) = upd baseSuccess (contra
             | otherwise = return Nothing
 
 -- |Retrieve the list of all instance addresses. The addresses are returned in increasing order.
-allInstances :: forall m pv. (IsProtocolVersion pv, SupportsPersistentModules m) => Instances pv -> m [ContractAddress]
+allInstances :: forall m pv. (IsProtocolVersion pv, SupportsPersistentModule m) => Instances pv -> m [ContractAddress]
 allInstances InstancesEmpty = return []
 allInstances (InstancesTree _ it) = mapReduceIT mfun it
     where
         mfun (Left _) = return mempty
         mfun (Right inst) = (:[]) . pinstanceAddress <$> loadInstanceParameters inst
 
-makePersistent :: forall m pv. SupportsPersistentModules m => Modules.Modules -> Transient.Instances -> m (Instances pv)
+makePersistent :: forall m pv. SupportsPersistentModule m => Modules.Modules -> Transient.Instances -> m (Instances pv)
 makePersistent _ (Transient.Instances Transient.Empty) = return InstancesEmpty
 makePersistent mods (Transient.Instances (Transient.Tree s t)) = InstancesTree s <$> conv t
     where
@@ -680,7 +680,7 @@ makePersistent mods (Transient.Instances (Transient.Tree s t)) = InstancesTree s
             }
 
 -- |Serialize instances in V0 format.
-putInstancesV0 :: (IsProtocolVersion pv, SupportsPersistentModules m, MonadPut m) => Instances pv -> m ()
+putInstancesV0 :: (IsProtocolVersion pv, SupportsPersistentModule m, MonadPut m) => Instances pv -> m ()
 putInstancesV0 InstancesEmpty = liftPut $ putWord8 0
 putInstancesV0 (InstancesTree _ it) = do
         mapReduceIT putOptInstance it

@@ -34,6 +34,7 @@ module Concordium.GlobalState.Wasm (
   where
 
 import qualified Data.ByteString as BS
+import Data.Kind
 import Data.Serialize
 import Data.Word
 import qualified Data.Set as Set
@@ -82,6 +83,9 @@ newModuleArtifactV1 p = do
 withModuleArtifact :: ModuleArtifact v -> (Ptr (ModuleArtifact v) -> IO a) -> IO a
 withModuleArtifact ModuleArtifact{..} = withForeignPtr maArtifact
 
+-- |Load a module artifact from a 'BS.ByteString'. This creates a reference counted copy of
+-- the artifact on the Rust side and attaches a finalizer to drop the reference when it is
+-- garbage collected on the Haskell side.
 moduleArtifactFromBytes :: forall v. (IsWasmVersion v) => BS.ByteString -> IO (ModuleArtifact v)
 moduleArtifactFromBytes bs = do
   let martifact = case getWasmVersion @v of
@@ -148,6 +152,9 @@ instance Serialize (InstrumentedModuleV V1) where
     V0 -> fail "Expected Wasm version 1, got 0."
     V1 -> InstrumentedWasmModuleV1 <$> get
 
+-- |Load an instrumented module from a 'BS.ByteString'. This creates a reference counted copy of
+-- the artifact on the Rust side and attaches a finalizer to drop the reference when it is
+-- garbage collected on the Haskell side.
 instrumentedModuleVFromBytes :: forall v. (IsWasmVersion v) => BS.ByteString -> IO (InstrumentedModuleV v)
 instrumentedModuleVFromBytes bs = do
     artifact <- moduleArtifactFromBytes @v bs
@@ -175,9 +182,10 @@ data ModuleInterfaceA instrumentedModule = ModuleInterface {
   miModuleSize :: !Word64
   } deriving(Eq, Show, Functor, Foldable, Traversable)
 
+-- |A Wasm module interface, parametrised by the version of the instrumented module @v@.
 type ModuleInterfaceV (v :: WasmVersion) = ModuleInterfaceA (InstrumentedModuleV v)
 
-imWasmArtifact :: ModuleInterfaceA (InstrumentedModuleV v) -> ModuleArtifact v
+imWasmArtifact :: ModuleInterfaceV v -> ModuleArtifact v
 imWasmArtifact ModuleInterface{miModule = InstrumentedWasmModuleV0{..}} = imWasmArtifactV0
 imWasmArtifact ModuleInterface{miModule = InstrumentedWasmModuleV1{..}} = imWasmArtifactV1
 
@@ -221,7 +229,9 @@ instance Serialize im => Serialize (ModuleInterfaceA im) where
 -- |A module interface in either version 0 or 1. This is generally only used
 -- when looking up a module before an instance is created. Afterwards an
 -- explicitly versioned module interface (ModuleInterfaceV) is used.
-data ModuleInterface im where
+-- This is parametrised by the type (family) of the instrumented module
+-- @im :: WasmVersion -> Type@.
+data ModuleInterface (im :: WasmVersion -> Type) where
   ModuleInterfaceV0 :: !(ModuleInterfaceA (im V0)) -> ModuleInterface im
   ModuleInterfaceV1 :: !(ModuleInterfaceA (im V1)) -> ModuleInterface im
 
