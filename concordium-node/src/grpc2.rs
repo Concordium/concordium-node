@@ -9,8 +9,8 @@ pub mod types {
 
     include!(concat!(env!("OUT_DIR"), "/concordium.v2.rs"));
 
-    /// Convert an account address to a pointer to the
-    /// content. The length of the content is checked to be 32 bytes.
+    /// Convert an account address to a pointer to the content. The length of
+    /// the content is checked to be 32 bytes.
     ///
     /// # Safety
     /// The caller **must** ensure that the pointer is not used after the
@@ -60,6 +60,20 @@ pub mod types {
             LastFinal(_) => Some((1, std::ptr::null())),
             Given(bh) if bh.value.len() == 32 => Some((2, bh.value.as_ptr())),
             _ => None,
+        }
+    }
+
+    /// Convert [ModuleRef] to a pointer to the content. The length of the
+    /// content is checked to be 32 bytes.
+    ///
+    /// # Safety
+    /// The caller **must** ensure that the pointer is not used after the
+    /// reference to the supplied `module_ref` is no longer retained.
+    pub(crate) fn module_reference_to_ffi(module_ref: &ModuleRef) -> Option<*const u8> {
+        if module_ref.value.len() == 32 {
+            Some(module_ref.value.as_ptr())
+        } else {
+            None
         }
     }
 }

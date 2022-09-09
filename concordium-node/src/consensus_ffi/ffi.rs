@@ -1225,6 +1225,7 @@ impl ConsensusContainer {
             )
             .try_into()?
         };
+        // The query should always return successfully, so no need to check here.
         Ok(out_data)
     }
 
@@ -1235,6 +1236,7 @@ impl ConsensusContainer {
         let _response: ConsensusQueryResponse = unsafe {
             getConsensusInfoV2(consensus, &mut out_data, copy_to_vec_callback).try_into()?
         };
+        // The query should always return successfully, so no need to check here.
         Ok(out_data)
     }
 
@@ -1314,14 +1316,15 @@ impl ConsensusContainer {
         let consensus = self.consensus.load(Ordering::SeqCst);
         let mut out_data: Vec<u8> = Vec::new();
         let mut out_hash = [0u8; 32];
-        let (block_id_type, block_hash) =
+        let (block_id_type, block_id) =
             crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let module_ref_ptr = crate::grpc2::types::module_reference_to_ffi(module_ref).require()?;
         let response: ConsensusQueryResponse = unsafe {
             getModuleSourceV2(
                 consensus,
                 block_id_type,
-                block_hash,
-                module_ref.value.as_ptr(),
+                block_id,
+                module_ref_ptr,
                 out_hash.as_mut_ptr(),
                 &mut out_data,
                 copy_to_vec_callback,
