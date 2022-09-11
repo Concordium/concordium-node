@@ -247,7 +247,7 @@ migratePersistentActiveDelegators ::
 migratePersistentActiveDelegators StateMigrationParametersTrivial = \case
     PersistentActiveDelegatorsV0 -> return PersistentActiveDelegatorsV0
     PersistentActiveDelegatorsV1{..} -> do
-        newDelegators <- Trie.migrateTrieN return adDelegators
+        newDelegators <- Trie.migrateTrieN True return adDelegators
         return PersistentActiveDelegatorsV1{adDelegators = newDelegators, ..}
 migratePersistentActiveDelegators StateMigrationParametersTrivialP1P2 = \case
     PersistentActiveDelegatorsV0 -> return PersistentActiveDelegatorsV0
@@ -347,8 +347,8 @@ migratePersistentActiveBakers :: forall oldpv pv t m .
     PersistentActiveBakers (AccountVersionFor oldpv) ->
     t m (PersistentActiveBakers (AccountVersionFor pv))
 migratePersistentActiveBakers migration bakerStakedAmount PersistentActiveBakers{..} = do
-  newActiveBakers <- Trie.migrateTrieN (migratePersistentActiveDelegators migration) _activeBakers
-  newAggregationKeys <- Trie.migrateTrieN return _aggregationKeys
+  newActiveBakers <- Trie.migrateTrieN True (migratePersistentActiveDelegators migration) _activeBakers
+  newAggregationKeys <- Trie.migrateTrieN True return _aggregationKeys
   newPassiveDelegators <- migratePersistentActiveDelegators migration _passiveDelegators
   let newTotalActiveCapital = migrateTotalActiveCapital migration bakerStakedAmount _totalActiveCapital
   return PersistentActiveBakers {

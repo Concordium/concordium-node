@@ -107,7 +107,7 @@ migrateRelease :: (
     ) =>
     Release -> t m Release
 migrateRelease r = do
-  newNext <- forM (_rNext r) $ \v -> migrateEagerlyHashedBufferedRef migrateRelease v
+  newNext <- forM (_rNext r) $ migrateEagerlyHashedBufferedRefKeepHash migrateRelease
   return r {_rNext = newNext}
   
   
@@ -154,7 +154,7 @@ migratePersistentAccountReleaseSchedule :: (
     AccountReleaseSchedule -> t m AccountReleaseSchedule
 migratePersistentAccountReleaseSchedule AccountReleaseSchedule{..} = do
   newValues <- forM _arsValues $ \n -> do
-    forM n $ \(hf, r) -> (, r) <$> migrateEagerlyHashedBufferedRef migrateRelease hf
+    forM n $ \(hf, r) -> (, r) <$> migrateEagerlyHashedBufferedRefKeepHash migrateRelease hf
   return AccountReleaseSchedule{
   _arsValues = newValues,
   _arsPrioQueue = _arsPrioQueue,

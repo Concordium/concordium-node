@@ -2941,10 +2941,10 @@ migratePersistentBlockState ::
     PersistentBlockState oldpv ->
     t m (PersistentBlockState pv)
 migratePersistentBlockState migration oldState = do
-    newState <- migrateBlockPointers migration =<< lift . refLoad =<< liftIO (readIORef oldState)
+    !newState <- migrateBlockPointers migration =<< lift . refLoad =<< liftIO (readIORef oldState)
     newStateRef <- refMake newState
     (newStateRefFlushed, _) <- refFlush newStateRef
-    liftIO (newIORef newStateRefFlushed)
+    liftIO . newIORef $! newStateRefFlushed
 
 migrateBlockPointers ::
     forall oldpv pv t m.
@@ -2974,7 +2974,7 @@ migrateBlockPointers migration BlockStatePointers {..} = do
     let timeParams = _cpTimeParameters . unStoreSerialized $ chainParams
     newRewardDetails <- migrateBlockRewardDetails migration curBakers nextBakers timeParams bspRewardDetails
 
-    return BlockStatePointers {
+    return $! BlockStatePointers {
       bspAccounts = newAccounts,
       bspInstances = newInstances,
       bspModules = newModules,

@@ -464,10 +464,10 @@ migratePersistentAccountStake :: forall oldpv pv t m .
     StateMigrationParameters oldpv pv ->
     PersistentAccountStake (AccountVersionFor oldpv) -> t m (PersistentAccountStake (AccountVersionFor pv))
 migratePersistentAccountStake _ PersistentAccountStakeNone = return PersistentAccountStakeNone
-migratePersistentAccountStake migration (PersistentAccountStakeBaker r) = PersistentAccountStakeBaker <$> migrateEagerBufferedRef (migratePersistentAccountBaker migration) r
+migratePersistentAccountStake migration (PersistentAccountStakeBaker r) = PersistentAccountStakeBaker <$!> migrateEagerBufferedRef (migratePersistentAccountBaker migration) r
 migratePersistentAccountStake migration (PersistentAccountStakeDelegate r) = 
   case migration of
-    StateMigrationParametersTrivial -> PersistentAccountStakeDelegate <$> migrateEagerBufferedRef return r
+    StateMigrationParametersTrivial -> PersistentAccountStakeDelegate <$!> migrateEagerBufferedRef return r
     -- the other cases are impossible at the moment since protocols <= 3 do not have delegation.
 
 instance forall m av. (MonadBlobStore m, IsAccountVersion av) => BlobStorable m (PersistentAccountStake av) where
@@ -558,10 +558,10 @@ migratePersistentAccount :: forall oldpv pv t m .
     PersistentAccount (AccountVersionFor oldpv) ->
     t m (PersistentAccount (AccountVersionFor pv))
 migratePersistentAccount migration PersistentAccount {..} = do
-  newAccountEncryptedAmount <- migrateEagerBufferedRef migratePersistentEncryptedAmount _accountEncryptedAmount
-  newAccountReleaseSchedule <- migrateEagerBufferedRef migratePersistentAccountReleaseSchedule _accountReleaseSchedule
-  newPersistingData <- migrateEagerlyHashedBufferedRef return _persistingData
-  newAccountStake <- migratePersistentAccountStake migration _accountStake
+  !newAccountEncryptedAmount <- migrateEagerBufferedRef migratePersistentEncryptedAmount _accountEncryptedAmount
+  !newAccountReleaseSchedule <- migrateEagerBufferedRef migratePersistentAccountReleaseSchedule _accountReleaseSchedule
+  !newPersistingData <- migrateEagerlyHashedBufferedRefKeepHash return _persistingData
+  !newAccountStake <- migratePersistentAccountStake migration _accountStake
   return PersistentAccount {
     _accountNonce = _accountNonce,
     _accountAmount = _accountAmount,

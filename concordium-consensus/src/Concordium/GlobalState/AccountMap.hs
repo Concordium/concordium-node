@@ -75,7 +75,7 @@ migratePersistentAccountMap
     :: (BlobStorable m AccountIndex, BlobStorable (t m) AccountIndex, MonadTrans t)
     => PersistentAccountMap oldpv
     -> t m (PersistentAccountMap pv)
-migratePersistentAccountMap (AccountMap am) = AccountMap <$> Trie.migrateTrieN return am
+migratePersistentAccountMap (AccountMap am) = AccountMap <$> Trie.migrateTrieN True return am
 
 -- |The account map that is purely in memory and used in the basic block state.
 type PureAccountMap pv = AccountMap pv Fix

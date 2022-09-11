@@ -946,6 +946,13 @@ instance (MonadLogger (PersistentTreeStateMonad bs m),
         transactionTable .=! emptyTransactionTable
         pendingTransactions .=! emptyPendingTransactionTable
         nextGenesisInitialState .=! Nothing
+        -- uncache any blocks that might still be cached.
+        gp <- use genesisBlockPointer
+        archiveBlockState (_bpState gp)
+        fp <- use focusBlock
+        archiveBlockState (_bpState fp)
+        lf <- use lastFinalized
+        archiveBlockState (_bpState lf)
         collapseCaches
 
     getNonFinalizedTransactionVerificationResult bi = do

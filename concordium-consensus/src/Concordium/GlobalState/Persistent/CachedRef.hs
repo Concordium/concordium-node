@@ -368,6 +368,7 @@ migrateHashedCachedRef' f hcr = do
     !v <- f =<< lift (refLoad hcr)
     -- compute the hash now that the value is available
     (!newRef, _) <- refFlush =<< makeHashedCachedRef v =<< getHashM v
+    !_ <- lift (refUncache hcr)
     return newRef
 
 type HashedCachedRef = HashedCachedRef' H.Hash

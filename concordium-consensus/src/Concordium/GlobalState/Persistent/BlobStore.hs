@@ -536,8 +536,9 @@ migrateReference ::
 migrateReference f hb = do
     a <- f =<< lift (refLoad hb)
     newRef <- refMake a
-    (newFlushedRef, _) <- refFlush newRef
-    return newFlushedRef
+    (!newFlushedRef, _) <- refFlush newRef
+    !_ <- lift (refUncache hb)
+    return $! newFlushedRef
 
 -- |A value that may exists purely on disk ('BRBlobbed'), purely in memory
 -- ('BRMemory' with @brIORef = null@), or both in memory and on disk. When the
@@ -934,13 +935,14 @@ migrateHashedBufferedRef ::
   HashedBufferedRef' h a ->
   t m (HashedBufferedRef' h b)
 migrateHashedBufferedRef f hb = do
-    newRef <- refMake =<< f =<< lift (refLoad (bufferedReference hb))
+    !newRef <- refMake =<< f =<< lift (refLoad (bufferedReference hb))
     -- compute the hash while the data is in memory.
     !h <- getHashM (bufferedReference newRef)
-    liftIO $ writeIORef (bufferedHash newRef) (Some h)
+    liftIO . writeIORef (bufferedHash newRef) $! Some h
     (!b, _) <- refFlush newRef
+    !_ <- lift (refUncache (bufferedReference hb))
+    liftIO $! writeIORef (bufferedHash hb) Null
     return b
-
 
 -- |A specialisation of 'HashedBufferedRef'' to the hash type 'H.Hash'.
 type HashedBufferedRef = HashedBufferedRef' H.Hash
@@ -1059,14 +1061,16 @@ data EagerlyHashedBufferedRef' h a = EagerlyHashedBufferedRef
 type EagerlyHashedBufferedRef = EagerlyHashedBufferedRef' H.Hash
 
 
-migrateEagerlyHashedBufferedRef ::
+-- |Migrate an 'EagerlyHashedBufferedRef' **assuming the migration does not
+-- change the hash**. The hash is carried over and not recomputed.
+migrateEagerlyHashedBufferedRefKeepHash ::
     (BlobStorable m a, BlobStorable (t m) a, MonadTrans t) =>
-    (a -> t m a) -> -- TODO: This should not change the hash.
+    (a -> t m a) ->
     EagerlyHashedBufferedRef' h a ->
     t m (EagerlyHashedBufferedRef' h a)
-migrateEagerlyHashedBufferedRef f r = do
+migrateEagerlyHashedBufferedRefKeepHash f r = do
     ehbrReference <- migrateEagerBufferedRef f (ehbrReference r)
-    return r { ehbrReference = ehbrReference }
+    return $! r { ehbrReference = ehbrReference }
 
 
 instance HashableTo h (EagerlyHashedBufferedRef' h a) where

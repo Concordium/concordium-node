@@ -344,8 +344,10 @@ migrateAccounts :: forall oldpv pv t m .
 migrateAccounts migration Accounts{..} = do
     newAccountMap <- AccountMap.migratePersistentAccountMap accountMap
     newAccountTable <- L.migrateLFMBTree (migrateHashedCachedRef' (migratePersistentAccount migration)) accountTable
-    newAccountRegIds <- Trie.migrateTrieN return accountRegIdHistory
-    return Accounts {
+    -- The account registration IDs are not cached. There is a separate cache
+    -- that is purely in-memory and just copied over.
+    newAccountRegIds <- Trie.migrateTrieN False return accountRegIdHistory
+    return $! Accounts {
       accountMap = newAccountMap,
       accountTable = newAccountTable,
       accountRegIds = accountRegIds,

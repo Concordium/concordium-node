@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
@@ -861,8 +862,8 @@ liftSkovUpdate ::
 liftSkovUpdate vc a = MVR $ \mvr -> do
     oldState <- readIORef (vcState vc)
     (res, newState) <- runMVR (runSkovT a (mvrSkovHandlers vc mvr) (vcContext vc) oldState) mvr
-    writeIORef (vcState vc) newState
-    return res
+    writeIORef (vcState vc) $! newState
+    return $! res
 
 -- |Run a transaction that may affect the state.
 -- This acquires the write lock for the duration of the operation.
