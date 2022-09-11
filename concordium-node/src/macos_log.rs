@@ -44,14 +44,14 @@ impl From<log::Level> for Level {
     }
 }
 
-/// Provided by macOS.
+// Provided by macOS.
 extern "C" {
     fn os_log_create(subsystem: *const c_char, category: *const c_char) -> LogT;
     fn os_release(object: *mut c_void);
 }
 
-/// Wrapper for the macOS macro `os_log_with_type`. Defined in the file
-/// macos_log_wrapper.c.
+// Wrapper for the macOS macro `os_log_with_type`. Defined in the file
+// macos_log_wrapper.c.
 extern "C" {
     fn wrapped_os_log_with_type(log: LogT, log_level: LogLevelT, message: *const c_char);
 }

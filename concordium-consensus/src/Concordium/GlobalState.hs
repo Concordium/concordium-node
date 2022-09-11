@@ -378,7 +378,7 @@ instance Show GlobalStateInitException where
 
 instance Exception GlobalStateInitException
 
--- |This class is implemented by types that determine configurations for the global state.z
+-- |This class is implemented by types that determine configurations for the global state.
 class GlobalStateConfig (c :: Type) where
     -- |The read-only context type associated with a global state configuration.
     type GSContext c (pv :: ProtocolVersion)
