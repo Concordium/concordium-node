@@ -45,10 +45,7 @@ data InstanceStateV (v :: Wasm.WasmVersion) where
 
 migrateInstanceStateV ::
     forall v t m.
-    ( MonadBlobStore m
-    , MonadBlobStore (t m)
-    , MonadTrans t
-    ) =>
+    SupportMigration m t =>
     InstanceStateV v ->
     t m (InstanceStateV v)
 migrateInstanceStateV (InstanceStateV0 s) = return (InstanceStateV0 s) -- flat state, no inner references.
@@ -152,10 +149,7 @@ data PersistentInstance (pv :: ProtocolVersion) where
 
 migratePersistentInstance ::
     forall oldpv pv t m.
-    ( MonadBlobStore m
-    , MonadBlobStore (t m)
-    , MonadTrans t
-    ) =>
+    SupportMigration m t =>
     PersistentInstance oldpv ->
     t m (PersistentInstance pv)
 migratePersistentInstance (PersistentInstanceV0 p) = PersistentInstanceV0 <$> migratePersistentInstanceV p
@@ -533,11 +527,9 @@ newContractInstanceIT mk t0 = (\(res, v) -> (res,) <$> membed v) =<< nci 0 t0 =<
 
 migrateIT ::
     forall oldpv pv t m.
-    ( MonadBlobStore m
-    , MonadBlobStore (t m)
+    ( SupportMigration m t
     , IsProtocolVersion oldpv
     , IsProtocolVersion pv
-    , MonadTrans t
     ) =>
     BufferedFix (IT oldpv) ->
     t m (BufferedFix (IT pv))
@@ -565,11 +557,9 @@ data Instances pv
     | InstancesTree !Word64 !(BufferedFix (IT pv))
 
 migrateInstances ::
-    ( MonadBlobStore m
-    , MonadBlobStore (t m)
+    ( SupportMigration m t
     , IsProtocolVersion oldpv
     , IsProtocolVersion pv
-    , MonadTrans t
     ) =>
     Instances oldpv ->
     t m (Instances pv)

@@ -15,7 +15,6 @@ import Data.Serialize
 import Lens.Micro.Platform
 import Data.Word
 import Control.Monad
-import Control.Monad.Trans
 import qualified Data.Sequence as Seq
 import Data.Maybe (isNothing)
 import qualified Data.Map.Strict as Map
@@ -210,9 +209,7 @@ instance forall av m. (Applicative m) => Cacheable m (PersistentExtraBakerInfo a
 migratePersistentExtraBakerInfo' ::
     forall oldpv pv t m.
     ( IsProtocolVersion pv
-    , MonadBlobStore m
-    , MonadBlobStore (t m)
-    , MonadTrans t
+    , SupportMigration m t
     ) =>
     StateMigrationParameters oldpv pv ->
     PersistentExtraBakerInfo' (AccountVersionFor oldpv) ->
@@ -233,9 +230,7 @@ migratePersistentExtraBakerInfo' migration bi = do
 migratePersistentExtraBakerInfo ::
     forall oldpv pv t m.
     ( IsProtocolVersion pv
-    , MonadBlobStore m
-    , MonadBlobStore (t m)
-    , MonadTrans t
+    , SupportMigration m t
     ) =>
     StateMigrationParameters oldpv pv ->
     PersistentExtraBakerInfo (AccountVersionFor oldpv) ->
@@ -260,9 +255,7 @@ loadBakerId PersistentBakerInfoEx {..} = do
 migratePersistentBakerInfoEx ::
     forall oldpv pv t m.
     ( IsProtocolVersion pv
-    , MonadBlobStore m
-    , MonadBlobStore (t m)
-    , MonadTrans t
+    , SupportMigration m t
     ) => StateMigrationParameters oldpv pv ->
     PersistentBakerInfoEx (AccountVersionFor oldpv) ->
     t m (PersistentBakerInfoEx (AccountVersionFor pv))
@@ -337,9 +330,7 @@ deriving instance (Show (PersistentExtraBakerInfo av)) => Show (PersistentAccoun
 
 migratePersistentAccountBaker :: forall oldpv pv t m .
     (IsProtocolVersion pv,
-     MonadBlobStore m,
-     MonadBlobStore (t m),
-     MonadTrans t) =>
+     SupportMigration m t) =>
     StateMigrationParameters oldpv pv ->
     PersistentAccountBaker (AccountVersionFor oldpv) -> t m (PersistentAccountBaker (AccountVersionFor pv))
 migratePersistentAccountBaker migration PersistentAccountBaker{..} = do
@@ -458,9 +449,7 @@ deriving instance (Show (PersistentExtraBakerInfo av)) => Show (PersistentAccoun
 migratePersistentAccountStake :: forall oldpv pv t m .
     (IsProtocolVersion oldpv,
      IsProtocolVersion pv,
-     MonadBlobStore m,
-     MonadBlobStore (t m),
-     MonadTrans t) =>
+     SupportMigration m t) =>
     StateMigrationParameters oldpv pv ->
     PersistentAccountStake (AccountVersionFor oldpv) -> t m (PersistentAccountStake (AccountVersionFor pv))
 migratePersistentAccountStake _ PersistentAccountStakeNone = return PersistentAccountStakeNone
@@ -550,9 +539,7 @@ makeLenses ''PersistentAccount
 migratePersistentAccount :: forall oldpv pv t m .
     (IsProtocolVersion oldpv,
      IsProtocolVersion pv,
-     MonadTrans t,
-     MonadBlobStore m,
-     MonadBlobStore (t m)
+     SupportMigration m t
     ) =>
     StateMigrationParameters oldpv pv ->
     PersistentAccount (AccountVersionFor oldpv) ->
@@ -572,9 +559,7 @@ migratePersistentAccount migration PersistentAccount {..} = do
    }
 
 migratePersistentEncryptedAmount :: (
-     MonadTrans t,
-     MonadBlobStore m,
-     MonadBlobStore (t m)
+     SupportMigration m t
     ) =>
     PersistentAccountEncryptedAmount -> t m PersistentAccountEncryptedAmount
 migratePersistentEncryptedAmount PersistentAccountEncryptedAmount{..} = do

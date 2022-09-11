@@ -329,6 +329,12 @@ instance HasBlobStore BlobStore where
   blobLoadCallback = bscLoadCallback
   blobStoreCallback = bscStoreCallback
 
+-- |An auxiliary constraint needed by all functions that migrate state from one
+-- blob store to another. The intended reading of this is that @m@ and @t@
+-- support migration from the context @m@ to the context @t m@. The context in
+-- this case is essentially access to a block state database.
+type SupportsMigration m t = (MonadBlobStore m, MonadTrans t, MonadBlobStore (t m))
+
 -- |A monad transformer that is equivalent to 'ReaderT' but provides a 'MonadBlobStore' instance
 -- based on the context (rather than lifting).
 newtype BlobStoreT r m a = BlobStoreT {runBlobStoreT :: r -> m a}

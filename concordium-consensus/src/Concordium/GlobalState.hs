@@ -398,7 +398,7 @@ class GlobalStateConfig (c :: Type) where
 
     -- |Migrate an existing global state. This is only intended to be used on a
     -- protocol update and requires that the initial state for the new protocol
-    -- version is prepared (cf @TreeState.storeFinalState@). This function will
+    -- version is prepared (see @TreeState.storeFinalState@). This function will
     -- construct a new active instance of global state by migrating state from
     -- the existing instance. The existing instance is unchanged. It is assumed
     -- that the existing instance is in a good state, i.e., all internal

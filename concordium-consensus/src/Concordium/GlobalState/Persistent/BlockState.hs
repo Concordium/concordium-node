@@ -112,13 +112,10 @@ makeLenses ''PersistentBirkParameters
 migratePersistentBirkParameters :: forall oldpv pv t m .
     ( IsProtocolVersion pv
     , IsProtocolVersion oldpv
-    , MonadBlobStore m
-    , MonadBlobStore (t m)
-    , MonadTrans t
+    , SupportMigration m t
     , SupportsPersistentAccount pv (t m)
     ) =>
   StateMigrationParameters oldpv pv ->
-  -- |Total amount staked by all the __bakers__.
   Accounts.Accounts pv ->
   PersistentBirkParameters (AccountVersionFor oldpv) ->
   t m (PersistentBirkParameters (AccountVersionFor pv))
@@ -2948,8 +2945,7 @@ migratePersistentBlockState migration oldState = do
 
 migrateBlockPointers ::
     forall oldpv pv t m.
-    (MonadTrans t,
-     MonadBlobStore (t m),
+    (SupportMigration m t,
      SupportsPersistentAccount oldpv m,
      SupportsPersistentAccount pv (t m)) =>
     StateMigrationParameters oldpv pv ->

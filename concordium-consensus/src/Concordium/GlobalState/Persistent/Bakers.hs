@@ -47,9 +47,7 @@ newtype BakerInfos (av :: AccountVersion)
 migrateBakerInfos ::
     forall oldpv pv t m.
     ( IsProtocolVersion pv
-    , MonadBlobStore m
-    , MonadBlobStore (t m)
-    , MonadTrans t
+    , SupportMigration m t
     ) => StateMigrationParameters oldpv pv -> BakerInfos (AccountVersionFor oldpv) -> t m (BakerInfos (AccountVersionFor pv))
 migrateBakerInfos migration (BakerInfos inner) = BakerInfos <$> mapM (migratePersistentBakerInfoEx migration) inner
 
@@ -104,6 +102,9 @@ data PersistentEpochBakers (av :: AccountVersion) = PersistentEpochBakers {
 
 makeLenses ''PersistentEpochBakers
 
+-- |Extract the list of pairs of (baker id, staked amount). The list is ordered
+-- by increasing 'BakerId'.
+-- The intention is that the list will be consumed immediately.
 extractBakerStakes :: (IsAccountVersion av, MonadBlobStore m) => PersistentEpochBakers av -> m [(BakerId, Amount)]
 extractBakerStakes PersistentEpochBakers{..} = do
   BakerInfos infos <- refLoad _bakerInfos
@@ -119,9 +120,7 @@ migratePersistentEpochBakers ::
     forall oldpv pv t m.
     ( IsProtocolVersion oldpv
     , IsProtocolVersion pv
-    , MonadBlobStore m
-    , MonadBlobStore (t m)
-    , MonadTrans t
+    , SupportMigration m t
     ) =>
     StateMigrationParameters oldpv pv ->
     PersistentEpochBakers (AccountVersionFor oldpv) ->
@@ -338,9 +337,7 @@ makeLenses ''PersistentActiveBakers
 migratePersistentActiveBakers :: forall oldpv pv t m .
     (IsProtocolVersion oldpv,
      IsProtocolVersion pv,
-     MonadTrans t,
-     BlobStorable m (),
-     BlobStorable (t m) ()) => 
+     SupportMigration m t) => 
     StateMigrationParameters oldpv pv ->
     -- |Total amount staked by all the bakers.
     Amount -> 

@@ -11,7 +11,6 @@
 module Concordium.GlobalState.Persistent.Accounts where
 
 import Control.Monad
-import Control.Monad.Trans
 import Lens.Micro.Platform
 import Data.Serialize
 import GHC.Generics
@@ -332,9 +331,7 @@ foldAccountsDesc f a accts = L.mfoldDesc f a (accountTable accts)
 migrateAccounts :: forall oldpv pv t m .
     (IsProtocolVersion oldpv,
      IsProtocolVersion pv,
-     MonadTrans t,
-     MonadBlobStore m,
-     MonadBlobStore (t m),
+     SupportMigration m t,
      SupportsPersistentAccount oldpv m,
      SupportsPersistentAccount pv (t m)
     ) => 

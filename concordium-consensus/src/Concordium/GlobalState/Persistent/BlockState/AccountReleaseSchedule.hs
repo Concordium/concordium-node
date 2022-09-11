@@ -77,7 +77,6 @@ import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule 
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Control.Monad
-import Control.Monad.Trans
 import qualified Data.ByteString as BS
 import Data.Foldable
 import Data.List (group, sort)
@@ -100,17 +99,10 @@ data Release = Release {
   _rNext :: !(Nullable (EagerlyHashedBufferedRef Release))
   } deriving (Show)
 
-migrateRelease :: (
-     MonadTrans t,
-     MonadBlobStore m,
-     MonadBlobStore (t m)
-    ) =>
-    Release -> t m Release
+migrateRelease :: SupportMigration m t => Release -> t m Release
 migrateRelease r = do
   newNext <- forM (_rNext r) $ migrateEagerlyHashedBufferedRefKeepHash migrateRelease
   return r {_rNext = newNext}
-  
-  
 
 -- | As every link in the chain is a HashedBufferedRef, when computing the hash
 -- of a release we will compute the hash of @timestamp <> amount <> nextHash@.
@@ -146,12 +138,7 @@ data AccountReleaseSchedule = AccountReleaseSchedule {
   } deriving (Show)
 makeLenses ''AccountReleaseSchedule
 
-migratePersistentAccountReleaseSchedule :: (
-     MonadTrans t,
-     MonadBlobStore m,
-     MonadBlobStore (t m)
-    ) =>
-    AccountReleaseSchedule -> t m AccountReleaseSchedule
+migratePersistentAccountReleaseSchedule :: SupportMigration m t => AccountReleaseSchedule -> t m AccountReleaseSchedule
 migratePersistentAccountReleaseSchedule AccountReleaseSchedule{..} = do
   newValues <- forM _arsValues $ \n -> do
     forM n $ \(hf, r) -> (, r) <$> migrateEagerlyHashedBufferedRefKeepHash migrateRelease hf

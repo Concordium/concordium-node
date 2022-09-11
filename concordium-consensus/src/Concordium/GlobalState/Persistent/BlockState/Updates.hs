@@ -41,11 +41,9 @@ data UpdateQueue e = UpdateQueue {
     }
 
 migrateUpdateQueue ::
-  (MonadTrans t,
+  (SupportMigration m t,
    Serialize e1,
    Serialize e2,
-   MonadBlobStore m,
-   MonadBlobStore (t m),
    (MHashableTo (t m) H.Hash e2)
   ) =>
   (e1 -> e2) ->
@@ -215,9 +213,7 @@ migratePendingUpdates ::
   forall oldpv pv t m . 
   (IsProtocolVersion pv,
    IsProtocolVersion oldpv,
-   MonadTrans t,
-   MonadBlobStore (t m),
-   MonadBlobStore m) =>
+   SupportMigration m t) =>
   StateMigrationParameters oldpv pv ->
   PendingUpdates (ChainParametersVersionFor oldpv) ->
   t m (PendingUpdates (ChainParametersVersionFor pv))
@@ -258,7 +254,7 @@ migratePendingUpdates migration PendingUpdates{..} = do
     StateMigrationParametersP3ToP4{} -> do
       (!hbr, _) <- refFlush =<< refMake emptyUpdateQueue
       return (JustForCPV1 hbr)
-  return PendingUpdates{
+  return $! PendingUpdates{
         pRootKeysUpdateQueue = newRootKeys,
         pLevel1KeysUpdateQueue = newLevel1Keys,
         pLevel2KeysUpdateQueue = newLevel2Keys,
@@ -521,9 +517,7 @@ migrateUpdates ::
   forall oldpv pv t m . 
     (IsProtocolVersion pv,
      IsProtocolVersion oldpv,
-     MonadTrans t,
-     MonadBlobStore (t m),
-     MonadBlobStore m) =>
+     SupportMigration m t) =>
     StateMigrationParameters oldpv pv -> Updates oldpv -> t m (Updates pv)
 migrateUpdates migration Updates{..} = do
   newPendingUpdates <- migratePendingUpdates migration pendingUpdates

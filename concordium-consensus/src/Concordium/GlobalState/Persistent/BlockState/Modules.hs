@@ -274,7 +274,7 @@ putModulesV0 mods = do
     liftPut $ putWord64be $ LFMB.size mt
     LFMB.mmap_ putModuleV0 mt
 
-migrateModules :: (MonadBlobStore m, MonadTrans t, MonadBlobStore (t m)) => Modules -> t m Modules
+migrateModules :: SupportMigration m t => Modules -> t m Modules
 migrateModules mods = do
     newModulesTable <- LFMB.migrateLFMBTree migrateModule (_modulesTable mods)
     return
@@ -283,13 +283,7 @@ migrateModules mods = do
             , _modulesTable = newModulesTable
             }
 
-migrateModule ::
-    ( MonadBlobStore m
-    , MonadTrans t
-    , MonadBlobStore (t m)
-    ) =>
-    HashedBufferedRef Module ->
-    t m (HashedBufferedRef Module)
+migrateModule :: SupportMigration m t => HashedBufferedRef Module -> t m (HashedBufferedRef Module)
 migrateModule mdl = do
     newModule <- lift (refLoad mdl)
     ref <- refMake newModule

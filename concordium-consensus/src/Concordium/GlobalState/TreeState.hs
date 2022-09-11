@@ -381,7 +381,12 @@ class (Eq (BlockPointerType m),
     -- |Do any cleanup of resources that are no longer needed after the protocol
     -- update has been processed.
     clearAfterProtocolUpdate :: m ()
-  
+
+    -- |Record the final block state, derived from the last finalized block to
+    -- prepare for the construction of the new genesis for the chain after the
+    -- protocol update. This state is not associated with any specific block of
+    -- the chain. This function is only meant to be used during a protocol
+    -- update.
     storeFinalState :: BlockState m -> m ()
 
 instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTrans t m) where

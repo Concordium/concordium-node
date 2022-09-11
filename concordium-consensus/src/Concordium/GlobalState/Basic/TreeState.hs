@@ -104,7 +104,7 @@ initialSkovData ::
   -- table corresponding to those non-finalized transactions must be supplied.
   m (SkovData pv bs)
 initialSkovData rp gd genState genTT mPending =
-    return $ SkovData {
+    return $! SkovData {
             _blockTable = HM.singleton gbh (TS.BlockFinalized gb gbfin),
             _finalizedByHeightTable = HM.singleton 0 gb,
             _possiblyPendingTable = HM.empty,
