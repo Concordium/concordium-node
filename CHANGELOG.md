@@ -2,6 +2,13 @@
 
 ## Unreleased changes
 
+## 4.4.1
+
+- Verify pending blocks earlier when possible.
+- Do not relay pending blocks.
+
+## 4.4.0
+
 - Fix a bug in Ctrl-C signal handling where a node would fail to stop if
   interrupted early on in the startup if out-of-band catchup was enabled.
 - `database-exporter` now produces a collection of export files, instead of a single file. The new
@@ -12,10 +19,6 @@
 ## 4.3.1
 
 - Improvements to start-up time that fix regressions introduced by the account caching.
-
-- Verify pending blocks earlier when possible.
-- Do not relay pending blocks.
-
 
 ## 4.3.0
 
