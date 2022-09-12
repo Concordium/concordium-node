@@ -187,6 +187,39 @@ liftSkovQueryBHI a bhi = do
                 BHILastFinal -> lastFinalizedBlock
             (bpHash bp,) . Just <$> a bp
 
+-- |Try a 'BlockHashInput' based query on the latest skov version. If a specific
+-- block hash is given we work backwards through consensus versions until we
+-- find the specified block or run out of versions.
+-- The return value is the hash used for the query, and a result if it was found.
+liftSkovQueryBHIAndVersion ::
+    ( forall (pv :: ProtocolVersion).
+      ( SkovMonad (VersionedSkovM gsconf finconf pv)
+      , FinalizationMonad (VersionedSkovM gsconf finconf pv)
+      ) =>
+      EVersionedConfiguration gsconf finconf ->
+      BlockPointerType (VersionedSkovM gsconf finconf pv) ->
+      VersionedSkovM gsconf finconf pv a
+    ) ->
+    BlockHashInput ->
+    MVR gsconf finconf (BlockHash, Maybe a)
+liftSkovQueryBHIAndVersion query bhi = do
+    case bhi of
+        BHIGiven bh ->
+            MVR $ \mvr ->
+                (bh,)
+                    <$> atLatestSuccessfulVersion
+                        (\evc -> liftSkovQuery mvr evc (mapM (query evc) =<< resolveBlock bh))
+                        mvr
+        other -> do
+          versions <- liftIO . readIORef =<< asks mvVersions
+          let evc = Vec.last versions
+          liftSkovQueryLatest $ do
+            bp <- case other of
+                    BHIBest -> bestBlock
+                    BHILastFinal -> lastFinalizedBlock
+            (bpHash bp,) . Just <$> query evc bp
+
+
 -- |Try a block based query on the latest skov version, working
 -- backwards until we find the specified block or run out of
 -- versions.  This version also passes the version configuration
@@ -355,10 +388,10 @@ getNextAccountNonce accountAddress = liftSkovQueryLatest $ do
 -- ** Block indexed
 
 -- |Get the basic info about a particular block.
-getBlockInfo :: BlockHash -> MVR gsconf finconf (Maybe BlockInfo)
-getBlockInfo bh =
-    liftSkovQueryBlockAndVersion
-        ( \vc bp -> do
+getBlockInfo :: BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe BlockInfo)
+getBlockInfo =
+    liftSkovQueryBHIAndVersion
+        ( \(EVersionedConfiguration vc) bp -> do
             let biBlockHash = getHash bp
             biBlockParent <-
                 if blockSlot bp == 0 && vcIndex vc /= 0
@@ -381,14 +414,13 @@ getBlockInfo bh =
             let biBlockSlot = blockSlot bp
             biBlockSlotTime <- getSlotTime biBlockSlot
             let biBlockBaker = blockBaker <$> blockFields bp
-            biFinalized <- isFinalized bh
+            biFinalized <- isFinalized (bpHash bp)
             let biTransactionCount = bpTransactionCount bp
             let biTransactionEnergyCost = bpTransactionsEnergyCost bp
             let biTransactionsSize = bpTransactionsSize bp
             let biBlockStateHash = blockStateHash bp
             return BlockInfo{..}
         )
-        bh
 
 -- |Get a detailed summary of a particular block including:
 --   * The transaction outcomes in the block (including special transactions)

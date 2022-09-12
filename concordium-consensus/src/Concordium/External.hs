@@ -50,7 +50,7 @@ import Concordium.MultiVersion (
     makeMultiVersionRunner,
  )
 import qualified Concordium.MultiVersion as MV
-import Concordium.Queries (BakerStatus (..))
+import Concordium.Queries (BakerStatus (..), BlockHashInput (BHIGiven))
 import qualified Concordium.Queries as Q
 import Concordium.Scheduler.Types
 import Concordium.Skov (
@@ -1002,7 +1002,7 @@ getBlockInfo :: StablePtr ConsensusRunner -> CString -> IO CString
 getBlockInfo cptr blockcstr =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (Q.getBlockInfo bh)
+        Just bh -> jsonQuery cptr (Q.getBlockInfo (BHIGiven bh))
 
 -- |Get the list of transactions in a block with short summaries of their effects.
 -- Returns a null-terminated string encoding a JSON value.

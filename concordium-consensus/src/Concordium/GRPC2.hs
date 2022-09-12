@@ -557,6 +557,33 @@ instance ToProto Energy where
   type Output Energy = Proto.Energy
   toProto = mkWord64
 
+instance ToProto Slot where
+  type Output Slot = Proto.Slot
+  toProto = mkWord64
+
+instance ToProto StateHash where
+  type Output StateHash = Proto.StateHash
+  toProto = mkSerialize
+
+instance ToProto QueryTypes.BlockInfo where
+    type Output QueryTypes.BlockInfo = Proto.BlockInfo
+    toProto QueryTypes.BlockInfo{..} = Proto.make $ do
+        ProtoFields.hash .= toProto biBlockHash
+        ProtoFields.height .= toProto biBlockHeight
+        ProtoFields.parentBlock .= toProto biBlockParent
+        ProtoFields.lastFinalizedBlock .= toProto biBlockLastFinalized
+        ProtoFields.genesisIndex .= toProto biGenesisIndex
+        ProtoFields.eraBlockHeight .= toProto biEraBlockHeight
+        ProtoFields.receiveTime .= toProto biBlockReceiveTime
+        ProtoFields.arriveTime .= toProto biBlockArriveTime
+        ProtoFields.slotNumber .= toProto biBlockSlot
+        ProtoFields.slotTime .= toProto biBlockSlotTime
+        ProtoFields.maybe'baker .= fmap toProto biBlockBaker
+        ProtoFields.finalized .= biFinalized
+        ProtoFields.transactionCount .= fromIntegral biTransactionCount
+        ProtoFields.transactionsEnergyCost .= toProto biTransactionEnergyCost
+        ProtoFields.transactionsSize .= fromIntegral biTransactionsSize
+        ProtoFields.stateHash .= toProto biBlockStateHash
 
 -- |NB: Assumes the data is at least 32 bytes
 decodeBlockHashInput :: Word8 -> Ptr Word8 -> IO Q.BlockHashInput
@@ -805,6 +832,25 @@ getAncestorsV2 cptr channel blockType blockHashPtr depth outHash cbk = do
             _ <- enqueueMessages (sender channel) modules
             return (queryResultCode QRSuccess)
 
+getBlockInfoV2 ::
+    StablePtr Ext.ConsensusRunner ->
+    -- |Block type.
+    Word8 ->
+    -- |Block hash.
+    Ptr Word8 ->
+    -- |Out pointer for writing the block hash that was used.
+    Ptr Word8 ->
+    Ptr ReceiverVec ->
+    -- |Callback to output data.
+    FunPtr CopyToVecCallback ->
+    IO Int64
+getBlockInfoV2 cptr blockType blockHashPtr outHash outVec copierCbk = do
+    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
+    let copier = callCopyToVecCallback copierCbk
+    bhi <- decodeBlockHashInput blockType blockHashPtr
+    res <- runMVR (Q.getBlockInfo bhi) mvr
+    returnMessageWithBlock (copier outVec) outHash res
+
 {- |Write the hash to the provided pointer, and if the message is given encode and
    write it using the provided callback.
 -}
@@ -990,4 +1036,17 @@ foreign export ccall
         Ptr Word8 ->
         Ptr ReceiverCryptographicParameters ->
         FunPtr CopyCryptographicParametersCallback ->
+        IO Int64
+
+foreign export ccall
+    getBlockInfoV2 ::
+        StablePtr Ext.ConsensusRunner ->
+        -- |Block type.
+        Word8 ->
+        -- |Block hash.
+        Ptr Word8 ->
+        -- |Out pointer for writing the block hash that was used.
+        Ptr Word8 ->
+        Ptr ReceiverVec ->
+        FunPtr CopyToVecCallback ->
         IO Int64
