@@ -10,7 +10,7 @@ node {
         stagenet: 'stagenet-node',
         testnet: 'testnet-node',
         mainnet: 'mainnet-node',
-    ]
+    ][environment]
     
     if (!environment?.trim()) {
         error "No value for 'environment' provided."
@@ -22,7 +22,8 @@ node {
         error "No value for 'destination_image_tag' found."
     }
     
-    def docker_repo = "concordium/${docker_images_base[environment]}"
+    
+    def docker_repo = "concordium/${docker_images_base}"
     def current_image_name = "${docker_repo}:${source_image_tag}"
     def future_image_name = "${docker_repo}:${destination_image_tag}"
     def latest_image_name = "${docker_repo}:latest"
@@ -36,24 +37,21 @@ node {
     stage('verify') {
         // Verify existens of source image
         try {
-            sh "curl --silent https://hub.docker.com/v2/namespaces/concordium/repositories/${docker_images_base}/tags/${source_image_tag} | jq -re '.digest'"
+            sh "curl --silent https://hub.docker.com/v2/namespaces/concordium/repositories/${docker_repo}/tags/${source_image_tag} | jq -re '.digest'"
         } catch (e) {
             error "Image with tag '${source_image_tag}' does not exist in repo '${docker_repo}'."
         }
 
         // Verify tags to add don't already exist
         try {
-            sh "! curl --silent https://hub.docker.com/v2/namespaces/concordium/repositories/${docker_images_base}/tags/${destination_image_tag} | jq -re '.digest'"
+            sh "! curl --silent https://hub.docker.com/v2/namespaces/concordium/repositories/${docker_repos}/tags/${destination_image_tag} | jq -re '.digest'"
         } catch (e) {
             error "Image with tag '${destination_image_tag}' already exists in repo '${docker_repo}'."
         }
     }
     stage('dockerhub-login') {
-        environment {
-            CRED = credentials('jenkins-dockerhub')
-        }
-        steps {
-            sh 'echo $CRED_PSW | docker login --username $CRED_USR --password-stdin'
+        withCredentials([usernamePassword(credentialsId: 'jenkins-dockerhub', passwordVariable: 'CRED_PSW', usernameVariable: 'CRED_USR')]) {
+            sh 'docker login --username $CRED_USR --password $CRED_PSW'
         }
     }
     stage('update') {
@@ -64,10 +62,7 @@ node {
             beforeAgent true
             environment name: 'delete_source', value: 'true'
         }
-        environment {
-            CRED = credentials('jenkins-dockerhub')
-        }
-        steps {
+        withCredentials([usernamePassword(credentialsId: 'jenkins-dockerhub', passwordVariable: 'CRED_PSW', usernameVariable: 'CRED_USR')]) {
             //https://devopsheaven.com/docker/dockerhub/2018/04/09/delete-docker-image-tag-dockerhub.html
             sh '''\
             login_data() {
