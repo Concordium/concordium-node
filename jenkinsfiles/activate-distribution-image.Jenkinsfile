@@ -5,7 +5,7 @@
 // - set_latest
 // - delete_source
 @Library('concordium-pipelines') _
-node('any') {
+node {
     def docker_images_base = [
         stagenet: 'stagenet-node',
         testnet: 'testnet-node',
