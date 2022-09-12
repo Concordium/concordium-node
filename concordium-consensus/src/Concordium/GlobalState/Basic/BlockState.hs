@@ -434,8 +434,8 @@ getBlockState migration = do
     preBlockRewardDetails <- label "reward details" $ getBlockRewardDetails @(AccountVersionFor oldpv)
     let _blockRewardDetails = case migration of
             StateMigrationParametersTrivial -> preBlockRewardDetails
-            StateMigrationParametersTrivialP1P2 -> preBlockRewardDetails
-            StateMigrationParametersTrivialP2P3 -> preBlockRewardDetails
+            StateMigrationParametersP1P2 -> preBlockRewardDetails
+            StateMigrationParametersP2P3 -> preBlockRewardDetails
             StateMigrationParametersP3ToP4 migrationParams ->
                 BlockRewardDetailsV1 . makeHashed $ PoolRewards.makePoolRewardsForMigration
                     (epochToBakerStakes (preBirkParameters ^. birkCurrentEpochBakers . unhashed))

@@ -220,8 +220,8 @@ migratePersistentExtraBakerInfo' migration bi = do
             case accountVersion @(AccountVersionFor oldpv) of
                 SAccountV0 -> return ()
                 SAccountV1 -> migrateEagerBufferedRef return bi
-        StateMigrationParametersTrivialP1P2 -> return ()
-        StateMigrationParametersTrivialP2P3 -> return ()
+        StateMigrationParametersP1P2 -> return ()
+        StateMigrationParametersP2P3 -> return ()
         StateMigrationParametersP3ToP4 migrationData -> do
             let bpi = P4.defaultBakerPoolInfo migrationData
             (!newRef, _) <- refFlush =<< refMake bpi

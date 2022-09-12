@@ -354,9 +354,9 @@ migrateBlockRewardDetails ::
 migrateBlockRewardDetails StateMigrationParametersTrivial _ _ _ = \case
     (BlockRewardDetailsV0 heb) -> BlockRewardDetailsV0 <$> migrateHashedEpochBlocks heb
     (BlockRewardDetailsV1 hbr) -> BlockRewardDetailsV1 <$> migrateHashedBufferedRef return hbr
-migrateBlockRewardDetails StateMigrationParametersTrivialP1P2 _ _ _ = \case
+migrateBlockRewardDetails StateMigrationParametersP1P2 _ _ _ = \case
     (BlockRewardDetailsV0 heb) -> BlockRewardDetailsV0 <$> migrateHashedEpochBlocks heb
-migrateBlockRewardDetails StateMigrationParametersTrivialP2P3 _ _ _ = \case
+migrateBlockRewardDetails StateMigrationParametersP2P3 _ _ _ = \case
     (BlockRewardDetailsV0 heb) -> BlockRewardDetailsV0 <$> migrateHashedEpochBlocks heb
 migrateBlockRewardDetails (StateMigrationParametersP3ToP4 _) curBakers nextBakers TimeParametersV1{..} = \case
     (BlockRewardDetailsV0 heb) -> do

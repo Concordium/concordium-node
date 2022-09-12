@@ -248,9 +248,9 @@ migratePersistentActiveDelegators StateMigrationParametersTrivial = \case
     PersistentActiveDelegatorsV1{..} -> do
         newDelegators <- Trie.migrateTrieN True return adDelegators
         return PersistentActiveDelegatorsV1{adDelegators = newDelegators, ..}
-migratePersistentActiveDelegators StateMigrationParametersTrivialP1P2 = \case
+migratePersistentActiveDelegators StateMigrationParametersP1P2 = \case
     PersistentActiveDelegatorsV0 -> return PersistentActiveDelegatorsV0
-migratePersistentActiveDelegators StateMigrationParametersTrivialP2P3 = \case
+migratePersistentActiveDelegators StateMigrationParametersP2P3 = \case
     PersistentActiveDelegatorsV0 -> return PersistentActiveDelegatorsV0
 migratePersistentActiveDelegators (StateMigrationParametersP3ToP4 _) = \case
     PersistentActiveDelegatorsV0 ->
@@ -297,8 +297,8 @@ deriving instance Show (TotalActiveCapital av)
 
 migrateTotalActiveCapital :: StateMigrationParameters oldpv pv -> Amount -> TotalActiveCapital (AccountVersionFor oldpv) -> TotalActiveCapital (AccountVersionFor pv)
 migrateTotalActiveCapital StateMigrationParametersTrivial _ x = x
-migrateTotalActiveCapital StateMigrationParametersTrivialP1P2 _ x = x
-migrateTotalActiveCapital StateMigrationParametersTrivialP2P3 _ x = x
+migrateTotalActiveCapital StateMigrationParametersP1P2 _ x = x
+migrateTotalActiveCapital StateMigrationParametersP2P3 _ x = x
 migrateTotalActiveCapital (StateMigrationParametersP3ToP4 _) bts TotalActiveCapitalV0 = TotalActiveCapitalV1 bts
 
 instance IsAccountVersion av => Serialize (TotalActiveCapital av) where

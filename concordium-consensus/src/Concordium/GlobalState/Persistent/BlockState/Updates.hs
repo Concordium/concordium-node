@@ -236,9 +236,9 @@ migratePendingUpdates migration PendingUpdates{..} = do
     StateMigrationParametersTrivial -> case pTimeParametersQueue of
       NothingForCPV1 -> return NothingForCPV1
       JustForCPV1 hbr -> JustForCPV1 <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
-    StateMigrationParametersTrivialP1P2 -> case pTimeParametersQueue of
+    StateMigrationParametersP1P2 -> case pTimeParametersQueue of
       NothingForCPV1 -> return NothingForCPV1
-    StateMigrationParametersTrivialP2P3 -> case pTimeParametersQueue of
+    StateMigrationParametersP2P3 -> case pTimeParametersQueue of
       NothingForCPV1 -> return NothingForCPV1
     StateMigrationParametersP3ToP4{} -> do
       (!hbr, _) <- refFlush =<< refMake emptyUpdateQueue
@@ -247,9 +247,9 @@ migratePendingUpdates migration PendingUpdates{..} = do
     StateMigrationParametersTrivial -> case pCooldownParametersQueue of
       NothingForCPV1 -> return NothingForCPV1
       JustForCPV1 hbr -> JustForCPV1 <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
-    StateMigrationParametersTrivialP1P2 -> case pCooldownParametersQueue of
+    StateMigrationParametersP1P2 -> case pCooldownParametersQueue of
       NothingForCPV1 -> return NothingForCPV1
-    StateMigrationParametersTrivialP2P3 -> case pCooldownParametersQueue of
+    StateMigrationParametersP2P3 -> case pCooldownParametersQueue of
       NothingForCPV1 -> return NothingForCPV1
     StateMigrationParametersP3ToP4{} -> do
       (!hbr, _) <- refFlush =<< refMake emptyUpdateQueue
