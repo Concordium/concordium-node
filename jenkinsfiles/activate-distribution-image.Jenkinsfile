@@ -15,16 +15,16 @@ node {
     if (!environment?.trim()) {
         error "No value for 'environment' provided."
     }
-    if (!current_image_tag) {
-        error "No value for 'current_image_tag' found."
+    if (!source_image_tag) {
+        error "No value for 'source_image_tag' found."
     }
-    if (!future_image_tag) {
-        error "No value for 'future_image_tag' found."
+    if (!destination_image_tag) {
+        error "No value for 'destination_image_tag' found."
     }
     
     def docker_repo = "concordium/${docker_images_base[environment]}"
-    def current_image_name = "${docker_repo}:${current_image_tag}"
-    def future_image_name = "${docker_repo}:${future_image_tag}"
+    def current_image_name = "${docker_repo}:${source_image_tag}"
+    def future_image_name = "${docker_repo}:${destination_image_tag}"
     def latest_image_name = "${docker_repo}:latest"
 
     if (set_latest) {
