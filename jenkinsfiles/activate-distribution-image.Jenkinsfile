@@ -54,31 +54,29 @@ node {
         }
     }
     stage('update') {
-        sh "docker buildx imagetools create ${source_image_name} --tag ${destination_image_tag} ${latest_image_command}"
+        sh "/usr/libexec/docker/cli-plugins/buildx imagetools create ${source_image_name} --tag ${destination_image_name} ${latest_image_command}"
     }
-    stage('cleanup') {
-        when {
-            beforeAgent true
-            environment name: 'delete_source', value: 'true'
-        }
-        withCredentials([usernamePassword(credentialsId: 'jenkins-dockerhub', passwordVariable: 'CRED_PSW', usernameVariable: 'CRED_USR')]) {
-            //https://devopsheaven.com/docker/dockerhub/2018/04/09/delete-docker-image-tag-dockerhub.html
-            sh '''\
-            login_data() {
-            cat <<EOF
-            {
-            "username": "$CRED_USR",
-            "password": "$CRED_PSW"
-            }
-            EOF
-            }
+    if (params.delete_source) {
+        stage('cleanup') {
+            withCredentials([usernamePassword(credentialsId: 'jenkins-dockerhub', passwordVariable: 'CRED_PSW', usernameVariable: 'CRED_USR')]) {
+                //https://devopsheaven.com/docker/dockerhub/2018/04/09/delete-docker-image-tag-dockerhub.html
+                sh '''\
+                login_data() {
+                cat <<EOF
+                {
+                "username": "$CRED_USR",
+                "password": "$CRED_PSW"
+                }
+                EOF
+                }
 
-            TOKEN=`curl -s -H "Content-Type: application/json" -X POST -d "$(login_data)" "https://hub.docker.com/v2/users/login/" | jq -r .token`
+                TOKEN=`curl -s -H "Content-Type: application/json" -X POST -d "$(login_data)" "https://hub.docker.com/v2/users/login/" | jq -r .token`
 
-            curl "https://hub.docker.com/v2/repositories/${ORGANIZATION}/${IMAGE}/tags/${TAG}/" \
-            -X DELETE \
-            -H "Authorization: JWT ${TOKEN}"
-            '''..stripIndent()
+                curl "https://hub.docker.com/v2/repositories/${ORGANIZATION}/${IMAGE}/tags/${TAG}/" \
+                -X DELETE \
+                -H "Authorization: JWT ${TOKEN}"
+                '''..stripIndent()
+            }
         }
     }
 }
