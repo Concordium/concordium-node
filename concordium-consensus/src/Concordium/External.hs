@@ -1180,7 +1180,7 @@ getBakerList :: StablePtr ConsensusRunner -> CString -> IO CString
 getBakerList cptr blockcstr = do
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (Q.getRegisteredBakers bh)
+        Just bh -> jsonQuery cptr (Q.getRegisteredBakers (BHIGiven bh))
 
 -- |Get the status of a baker pool or the passive delegators with respect to a particular block.
 -- The block must be given as a null-terminated base16 encoding of the block hash.

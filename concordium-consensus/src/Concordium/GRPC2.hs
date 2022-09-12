@@ -851,6 +851,29 @@ getBlockInfoV2 cptr blockType blockHashPtr outHash outVec copierCbk = do
     res <- runMVR (Q.getBlockInfo bhi) mvr
     returnMessageWithBlock (copier outVec) outHash res
 
+getBakerListV2 ::
+    StablePtr Ext.ConsensusRunner ->
+    Ptr SenderChannel ->
+    -- |Block type.
+    Word8 ->
+    -- |Block hash.
+    Ptr Word8 ->
+    -- |Out pointer for writing the block hash that was used.
+    Ptr Word8 ->
+    FunPtr ChannelSendCallback ->
+    IO Int64
+getBakerListV2 cptr channel blockType blockHashPtr outHash cbk = do
+    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
+    let sender = callChannelSendCallback cbk
+    bhi <- decodeBlockHashInput blockType blockHashPtr
+    (bh, mBakers) <- runMVR (Q.getRegisteredBakers bhi) mvr
+    case mBakers of
+        Nothing -> return (queryResultCode QRNotFound)
+        Just instances -> do
+            copyHashTo outHash bh
+            _ <- enqueueMessages (sender channel) instances
+            return (queryResultCode QRSuccess)
+
 {- |Write the hash to the provided pointer, and if the message is given encode and
    write it using the provided callback.
 -}
@@ -1049,4 +1072,17 @@ foreign export ccall
         Ptr Word8 ->
         Ptr ReceiverVec ->
         FunPtr CopyToVecCallback ->
+        IO Int64
+
+foreign export ccall
+    getBakerListV2 ::
+        StablePtr Ext.ConsensusRunner ->
+        Ptr SenderChannel ->
+        -- |Block type.
+        Word8 ->
+        -- |Block hash.
+        Ptr Word8 ->
+        -- |Out pointer for writing the block hash that was used.
+        Ptr Word8 ->
+        FunPtr ChannelSendCallback ->
         IO Int64

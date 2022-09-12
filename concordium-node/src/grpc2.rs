@@ -430,6 +430,8 @@ pub mod server {
             futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
         /// Return type for the 'GetAncestors' method.
         type GetAncestorsStream = futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
+        /// Return type for the 'GetBakerList' method.
+        type GetBakerListStream = futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
         /// Return type for the 'Blocks' method.
         type GetBlocksStream =
             tokio_stream::wrappers::ReceiverStream<Result<Arc<[u8]>, tonic::Status>>;
@@ -610,6 +612,17 @@ pub mod server {
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
             let (hash, response) = self.consensus.get_block_info_v2(request.get_ref())?;
             let mut response = tonic::Response::new(response);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_baker_list(
+            &self,
+            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+        ) -> Result<tonic::Response<Self::GetBakerListStream>, tonic::Status> {
+            let (sender, receiver) = futures::channel::mpsc::channel(100);
+            let hash = self.consensus.get_baker_list_v2(request.get_ref(), sender)?;
+            let mut response = tonic::Response::new(receiver);
             add_hash(&mut response, hash)?;
             Ok(response)
         }

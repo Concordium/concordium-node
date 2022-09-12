@@ -638,8 +638,8 @@ getPoolStatus blockHash mbid =
             BS.getPoolStatus bs mbid
 
 -- |Get a list of all registered baker IDs in the specified block.
-getRegisteredBakers :: forall gsconf finconf. BlockHash -> MVR gsconf finconf (Maybe [BakerId])
-getRegisteredBakers = liftSkovQueryBlock (BS.getActiveBakers <=< blockState)
+getRegisteredBakers :: forall gsconf finconf. BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe [BakerId])
+getRegisteredBakers = liftSkovQueryBHI (BS.getActiveBakers <=< blockState)
 
 -- ** Transaction indexed
 

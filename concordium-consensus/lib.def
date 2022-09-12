@@ -56,3 +56,4 @@ EXPORTS
  getConsensusInfoV2
  getCryptographicParametersV2
  getBlockInfoV2
+ getBakerListV2
