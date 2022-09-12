@@ -60,22 +60,22 @@ node {
         stage('cleanup') {
             withCredentials([usernamePassword(credentialsId: 'jenkins-dockerhub', passwordVariable: 'CRED_PSW', usernameVariable: 'CRED_USR')]) {
                 //https://devopsheaven.com/docker/dockerhub/2018/04/09/delete-docker-image-tag-dockerhub.html
-                sh '''\
+                sh """\
                 login_data() {
                 cat <<EOF
                 {
-                "username": "$CRED_USR",
-                "password": "$CRED_PSW"
+                "username": "\$CRED_USR",
+                "password": "\$CRED_PSW"
                 }
                 EOF
                 }
 
                 TOKEN=`curl -s -H "Content-Type: application/json" -X POST -d "$(login_data)" "https://hub.docker.com/v2/users/login/" | jq -r .token`
 
-                curl "https://hub.docker.com/v2/repositories/${ORGANIZATION}/${IMAGE}/tags/${TAG}/" \
+                curl "https://hub.docker.com/v2/repositories/concordium/${docker_images_base}/tags/${source_image_tag}/" \
                 -X DELETE \
                 -H "Authorization: JWT ${TOKEN}"
-                '''.stripIndent()
+                """.stripIndent()
             }
         }
     }
