@@ -64,8 +64,8 @@ node {
                 login_data() {
                 cat <<EOF
                 {
-                "username": "\$CRED_USR",
-                "password": "\$CRED_PSW"
+                "username": "${CRED_USR}",
+                "password": "${CRED_PSW}"
                 }
                 EOF
                 }
