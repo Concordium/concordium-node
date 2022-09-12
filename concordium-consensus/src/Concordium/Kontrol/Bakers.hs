@@ -394,3 +394,97 @@ getSlotBakers genData = case protocolVersion @(MPV m) of
     SP2 -> getSlotBakersP1
     SP3 -> getSlotBakersP1
     SP4 -> getSlotBakersP4 genData
+
+-- |Determine the bakers that apply to a future slot, given the state at a particular block.
+-- This will return 'Nothing' if the projected bakers could change before then (depending on
+-- additional blocks), but will return the actual bakers if it is certain they will be correct.
+-- This implementation is used for protocol versions P1-P3.
+--
+-- The given slot should never be earlier than the slot of the given block.
+--
+-- In P1, the bakers are fixed for the current epoch and the next epoch.
+-- If the slot is in an epoch further in the future, this returns 'Nothing'.
+-- (If the slot is in the past, the current epoch bakers will be returned, but the function should
+-- not be called with a historical slot.)
+getDefiniteSlotBakersP1 :: forall m. 
+    ( BlockStateQuery m,
+      AccountVersionFor (MPV m) ~ 'AccountV0
+    ) =>
+    BlockState m ->
+    Slot ->
+    m (Maybe FullBakers)
+getDefiniteSlotBakersP1 bs slot = do
+    SeedState{..} <- getSeedState bs
+    let slotEpoch = fromIntegral $ slot `quot` epochLength
+    if slotEpoch <= epoch + 1 then
+        Just <$> getSlotBakersP1 bs slot
+    else 
+        return Nothing
+
+-- |Determine the bakers that apply to a future slot, given the state at a particular block.
+-- This will return 'Nothing' if the projected bakers could change before then (depending on
+-- additional blocks), but will return the actual bakers if it is certain they will be correct.
+-- This implementation is used for protocol version P4 and later.
+--
+-- The given slot should never be earlier than the slot of the given block.
+-- 
+-- If the slot is in the same payday as the given block, use the current epoch bakers.
+-- If the slot is in the next payday, and the given block is in the last epoch of the prior payday,
+-- use the next epoch bakers.
+-- If the slot is further in the future, return 'Nothing'.
+-- (If the slot is in the past, the current epoch bakers are returned, but the function should
+-- never be called for a historical slot.)
+getDefiniteSlotBakersP4 ::
+    forall m.
+    ( BlockStateQuery m,
+      AccountVersionFor (MPV m) ~ 'AccountV1,
+      ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1
+    ) =>
+    GenesisConfiguration ->
+    BlockState m ->
+    Slot ->
+    m (Maybe FullBakers)
+getDefiniteSlotBakersP4 genData bs slot = do
+    SeedState{epochLength, epoch = blockEpoch} <- getSeedState bs
+    let epochToSlot :: Epoch -> Slot
+        epochToSlot e = fromIntegral e * epochLength
+    nextPayday <- getPaydayEpoch bs
+    let nextPaydaySlot = epochToSlot nextPayday
+
+    if slot < nextPaydaySlot
+        then Just <$> getCurrentEpochBakers bs
+        else do
+            chainParams <- _currentParameters <$> getUpdates bs
+            let blockTimeParameters = chainParams ^. cpTimeParameters
+            pendingTimeParameters <-
+                fmap (_1 %~ transactionTimeToSlot (gdGenesisTime genData) (gdSlotDuration genData))
+                    <$> getPendingTimeParameters bs
+            let paydayTimeParameters =
+                    timeParametersAtSlot
+                        nextPaydaySlot
+                        blockTimeParameters
+                        pendingTimeParameters
+            let nextPaydayLength =
+                    paydayTimeParameters
+                        ^. tpRewardPeriodLength . to (epochToSlot . rewardPeriodEpochs)
+            if blockEpoch + 1 == nextPayday && slot < nextPaydaySlot + nextPaydayLength
+                then Just <$> getNextEpochBakers bs
+                else return Nothing
+
+-- |Determine the bakers that apply to a future slot, given the state at a particular block.
+-- This will return 'Nothing' if the projected bakers could change before then (depending on
+-- additional blocks), but will return the actual bakers if it is certain they will be correct.
+--
+-- The given slot should never be earlier than the slot of the given block.
+getDefiniteSlotBakers ::
+    forall m.
+    (IsProtocolVersion (MPV m), BlockStateQuery m) =>
+    GenesisConfiguration ->
+    BlockState m ->
+    Slot ->
+    m (Maybe FullBakers)
+getDefiniteSlotBakers genData = case protocolVersion @(MPV m) of
+    SP1 -> getDefiniteSlotBakersP1
+    SP2 -> getDefiniteSlotBakersP1
+    SP3 -> getDefiniteSlotBakersP1
+    SP4 -> getDefiniteSlotBakersP4 genData

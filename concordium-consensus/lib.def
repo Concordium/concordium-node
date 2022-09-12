@@ -44,3 +44,14 @@ EXPORTS
  freeCStr
  importBlocks
  stopImportingBlocks
+
+ getAccountInfoV2
+ getAccountListV2
+ getModuleListV2
+ getModuleSourceV2
+ getInstanceListV2
+ getAncestorsV2
+ getInstanceInfoV2
+ getNextAccountSequenceNumberV2
+ getConsensusInfoV2
+ getTransactionStatusV2

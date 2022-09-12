@@ -506,7 +506,7 @@ dependencies = [
 
 [[package]]
 name = "concordium_node"
-version = "4.4.0"
+version = "4.4.1"
 dependencies = [
  "anyhow",
  "app_dirs2",
@@ -568,6 +568,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tokio-util",
+ "toml",
  "tonic",
  "tonic-build",
  "tonic-web",

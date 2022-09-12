@@ -65,8 +65,8 @@ data BlockHashInput
       BHIBest
     | -- |Last finalized block
       BHILastFinal
-      -- |Given block hash
-    | BHIGiven BlockHash
+    | -- |Given block hash
+      BHIGiven BlockHash
 
 -- |Run a query against a specific skov version.
 liftSkovQuery ::
@@ -159,11 +159,11 @@ liftSkovQueryBlock a bh =
             (\vc -> liftSkovQuery mvr vc (mapM a =<< resolveBlock bh))
             mvr
 
-{- |Try a block based query on the latest skov version, working
- backwards until we find the specified block or run out of
- versions.
--}
-liftSkovQueryBlock' ::
+-- |Try a 'BlockHashInput' based query on the latest skov version. If a specific
+-- block hash is given we work backwards through consensus versions until we
+-- find the specified block or run out of versions.
+-- The return value is the hash used for the query, and a result if it was found.
+liftSkovQueryBHI ::
     ( forall (pv :: ProtocolVersion).
       ( SkovMonad (VersionedSkovM gsconf finconf pv)
       , FinalizationMonad (VersionedSkovM gsconf finconf pv)
@@ -173,7 +173,7 @@ liftSkovQueryBlock' ::
     ) ->
     BlockHashInput ->
     MVR gsconf finconf (BlockHash, Maybe a)
-liftSkovQueryBlock' a bhi = do
+liftSkovQueryBHI a bhi = do
     case bhi of
         BHIGiven bh ->
             MVR $ \mvr ->
@@ -346,9 +346,9 @@ getAccountNonFinalizedTransactions acct = liftSkovQueryLatest $ queryNonFinalize
 -- Otherwise this is the best guess, assuming all other transactions will be
 -- committed to blocks and eventually finalized.
 getNextAccountNonce :: AccountAddress -> MVR gsconf finconf NextAccountNonce
-getNextAccountNonce acct = liftSkovQueryLatest $ do
-    (nanNonce, nanAllFinal) <- queryNextAccountNonce . accountAddressEmbed $ acct
-    return NextAccountNonce{..}
+getNextAccountNonce accountAddress = liftSkovQueryLatest $ do
+  (nanNonce, nanAllFinal) <- queryNextAccountNonce $ accountAddressEmbed accountAddress
+  return NextAccountNonce{..}
 
 -- * Queries against latest version that produces a result
 
@@ -476,7 +476,7 @@ getAllAnonymityRevokers = liftSkovQueryBlock $ BS.getAllAnonymityRevokers <=< bl
 -- length.
 getAncestors :: BlockHashInput -> BlockHeight -> MVR gsconf finconf (BlockHash, Maybe [BlockHash])
 getAncestors bhi count =
-    liftSkovQueryBlock'
+    liftSkovQueryBHI
         ( \bp -> do
             map bpHash <$> iterateForM bpParent (fromIntegral $ min count (1 + bpHeight bp)) bp
         )
@@ -493,17 +493,17 @@ getAncestors bhi count =
 
 -- |Get a list of all accounts in the block state.
 getAccountList :: BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe [AccountAddress])
-getAccountList = liftSkovQueryBlock' (BS.getAccountList <=< blockState)
+getAccountList = liftSkovQueryBHI (BS.getAccountList <=< blockState)
 
 -- |Get a list of all smart contract instances in the block state.
 getInstanceList :: BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe [ContractAddress])
 getInstanceList =
-    liftSkovQueryBlock' $
+    liftSkovQueryBHI $
         BS.getContractInstanceList <=< blockState
 
 -- |Get the list of modules present as of a given block.
 getModuleList :: BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe [ModuleRef])
-getModuleList = liftSkovQueryBlock' $ BS.getModuleList <=< blockState
+getModuleList = liftSkovQueryBHI $ BS.getModuleList <=< blockState
 
 {- |Get the details of an account in the block state.
  The account can be given via an address, an account index or a credential registration id.
@@ -516,7 +516,7 @@ getAccountInfo ::
     MVR gsconf finconf (BlockHash, Maybe AccountInfo)
 getAccountInfo blockHashInput acct = do
     (bh, mmai) <-
-        liftSkovQueryBlock'
+        liftSkovQueryBHI
             ( \bp -> do
                 bs <- blockState bp
                 macc <- case acct of
@@ -547,7 +547,7 @@ getAccountInfo blockHashInput acct = do
 -- |Get the details of a smart contract instance in the block state.
 getInstanceInfo :: BlockHashInput -> ContractAddress -> MVR gsconf finconf (BlockHash, Maybe Wasm.InstanceInfo)
 getInstanceInfo bhi caddr = do
-    (bh, ii) <- liftSkovQueryBlock'
+    (bh, ii) <- liftSkovQueryBHI
             ( \bp -> do
                 bs <- blockState bp
                 mkII =<< BS.getContractInstance bs caddr
@@ -577,7 +577,7 @@ getInstanceInfo bhi caddr = do
 -- |Get the source of a module as it was deployed to the chain.
 getModuleSource :: BlockHashInput -> ModuleRef -> MVR gsconf finconf (BlockHash, Maybe Wasm.WasmModule)
 getModuleSource bhi modRef = do
-    (bh, res) <- liftSkovQueryBlock'
+    (bh, res) <- liftSkovQueryBHI
             ( \bp -> do
                 bs <- blockState bp
                 BS.getModule bs modRef
@@ -682,7 +682,7 @@ invokeContract bh cctx =
         cm <- ChainMetadata <$> getSlotTimestamp (blockSlot bp)
         InvokeContract.invokeContract cctx cm bs)
     bh
-    
+
 
 
 -- * Miscellaneous

@@ -1,9 +1,6 @@
 use crate::consensus_ffi::{
     blockchain_types::BlockHash,
-    ffi::{
-        consensus_runner, get_consensus_ptr, startBaker, stopBaker, stopConsensus,
-        NotificationHandlers,
-    },
+    ffi::{consensus_runner, get_consensus_ptr, startBaker, stopBaker, stopConsensus},
     helpers::{QueueReceiver, QueueSyncSender, RelayOrStopSenderHelper},
     messaging::ConsensusMessage,
 };
@@ -16,6 +13,8 @@ use std::{
         Arc, Mutex, RwLock,
     },
 };
+
+use super::ffi::NotificationContext;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ConsensusLogLevel {
@@ -234,7 +233,8 @@ impl ConsensusContainer {
         max_log_level: ConsensusLogLevel,
         appdata_dir: &Path,
         regenesis_arc: Arc<Regenesis>,
-    ) -> anyhow::Result<(Self, NotificationHandlers)> {
+        notification_context: Option<NotificationContext>,
+    ) -> anyhow::Result<Self> {
         info!("Starting up the consensus layer");
 
         let consensus_type = if private_data.is_some() {
@@ -250,17 +250,15 @@ impl ConsensusContainer {
             max_log_level,
             appdata_dir,
             regenesis_arc,
+            notification_context,
         ) {
-            Ok((consensus_ptr, notification_handlers)) => Ok((
-                Self {
-                    runtime_parameters,
-                    is_baking: Arc::new(AtomicBool::new(false)),
-                    consensus: Arc::new(AtomicPtr::new(consensus_ptr)),
-                    genesis: Arc::from(genesis_data),
-                    consensus_type,
-                },
-                notification_handlers,
-            )),
+            Ok(consensus_ptr) => Ok(Self {
+                runtime_parameters,
+                is_baking: Arc::new(AtomicBool::new(false)),
+                consensus: Arc::new(AtomicPtr::new(consensus_ptr)),
+                genesis: Arc::from(genesis_data),
+                consensus_type,
+            }),
             Err(e) => Err(e),
         }
     }
