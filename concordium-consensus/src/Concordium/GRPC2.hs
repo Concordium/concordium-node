@@ -707,7 +707,13 @@ instance ToProto DurationSeconds where
 
 instance ToProto ArInfo where
   type Output ArInfo = Proto.ArInfo
-  toProto = undefined -- TODO: Actual ArInfo lives in Rust.
+  toProto ai = Proto.make $ do
+    ProtoFields.identity .= mkWord64 (arIdentity ai)
+    ProtoFields.description .= Proto.make (do
+      ProtoFields.name .= toProto (arName ai)
+      ProtoFields.url .= toProto (arUrl ai)
+      ProtoFields.description .= toProto (arDescription ai))
+    ProtoFields.publicKey .= toProto (arPublicKey ai)
 
 instance ToProto IpInfo where
   type Output IpInfo = Proto.IpInfo
