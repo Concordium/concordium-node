@@ -114,10 +114,6 @@ foreign import ccall "thaw_persistent_state_v1" thawPersistentTree :: Ptr Persis
 -- entries.
 foreign import ccall "get_new_state_size_v1" getNewStateSizeFFI :: LoadCallback -> Ptr MutableStateInner -> IO Word64
 
--- |Cache the persistent state, loading all parts of the tree that are purely on
--- disk.
-foreign import ccall "cache_persistent_state_v1" cachePersistentState :: LoadCallback -> Ptr PersistentState -> IO ()
-
 -- |Compute and retrieve the hash of the persistent state. The function is given
 -- a buffer to write the hash into.
 foreign import ccall "hash_persistent_state_v1" hashPersistentState :: LoadCallback -> Ptr PersistentState -> Ptr Word8 -> IO ()
