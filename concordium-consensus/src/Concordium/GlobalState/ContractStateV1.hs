@@ -181,6 +181,10 @@ instance (MonadBlobStore m) => BlobStorable m PersistentState where
       bRef <- withPersistentState ps $ storePersistentTree storeCallback
       return (put bRef, ps)
 
+-- |We are using the default no-op 'Cacheable' instance here
+-- as we do not want to load smart contract state
+-- into memory prematurely. The smart contract state is loaded
+-- on demand and flushed to disk upon finalization.
 instance MonadBlobStore m => Cacheable m PersistentState where
 
 instance MonadBlobStore m => MHashableTo m SHA256.Hash PersistentState where
