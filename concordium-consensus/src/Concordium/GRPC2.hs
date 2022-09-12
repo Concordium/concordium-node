@@ -593,19 +593,73 @@ toBlockItemSummary TransactionSummary{..} = case tsType of
                     ProtoFields.hash .= toProto tsHash
                     ProtoFields.accountCreation .= details
             _ -> Left CEInvalidAccountCreation
-    TSTUpdateTransaction ut -> case tsResult of -- TODO: Check that updateType match update enqueued similar to convertAccountTransaction
+    TSTUpdateTransaction ut -> case tsResult of
         TxReject _ -> Left CEFailedUpdate
         TxSuccess events -> case events of
-            [UpdateEnqueued{..}] -> let
-                details = Proto.make $ do
+            [UpdateEnqueued{..}] -> do
+                payload <- convertUpdatePayload ut uePayload
+                details <- Right . Proto.make $ do
                     ProtoFields.effectiveTime .= toProto ueEffectiveTime
-                    ProtoFields.payload .= toProto uePayload
-                in Right . Proto.make $ do
+                    ProtoFields.payload .= payload
+                Right . Proto.make $ do
                     ProtoFields.index .= mkWord64 tsIndex
                     ProtoFields.energyCost .= toProto tsEnergyCost
                     ProtoFields.hash .= toProto tsHash
                     ProtoFields.update .= details
             _ -> Left CEInvalidUpdateResult
+
+convertUpdatePayload :: UpdateType -> UpdatePayload -> Either ConversionError Proto.UpdatePayload
+convertUpdatePayload ut pl = case (ut, pl) of
+    (UpdateProtocol, ProtocolUpdatePayload ProtocolUpdate{..}) -> Right . Proto.make $ ProtoFields.protocolUpdate .= Proto.make (do
+            ProtoFields.message .= puMessage
+            ProtoFields.specificationUrl .= puSpecificationURL
+            ProtoFields.specificationHash .= toProto puSpecificationHash
+            ProtoFields.specificationAuxiliaryData .= puSpecificationAuxiliaryData)
+    (UpdateElectionDifficulty, ElectionDifficultyUpdatePayload ed) -> Right . Proto.make $ ProtoFields.electionDifficultyUpdate .= toProto ed
+    (UpdateEuroPerEnergy, EuroPerEnergyUpdatePayload er) -> Right . Proto.make $ ProtoFields.euroPerEnergyUpdate .= toProto er
+    (UpdateMicroGTUPerEuro, MicroGTUPerEuroUpdatePayload er) -> Right . Proto.make $ ProtoFields.microCcdPerEuroUpdate .= toProto er
+    (UpdateFoundationAccount, FoundationAccountUpdatePayload addr) -> Right . Proto.make $ ProtoFields.foundationAccountUpdate .= toProto addr
+    (UpdateMintDistribution, MintDistributionUpdatePayload md) -> Right . Proto.make $ ProtoFields.mintDistributionUpdate .= Proto.make (do
+        ProtoFields.mintDistribution .= toProto (md ^. mdMintPerSlot . mpsMintPerSlot)
+        ProtoFields.bakingReward .= toProto (_mdBakingReward md)
+        ProtoFields.finalizationReward .= toProto (_mdFinalizationReward md))
+    (UpdateTransactionFeeDistribution, TransactionFeeDistributionUpdatePayload TransactionFeeDistribution{..}) -> Right . Proto.make $ ProtoFields.transactionFeeDistributionUpdate .= Proto.make (do
+        ProtoFields.baker .= toProto _tfdBaker
+        ProtoFields.gasAccount .= toProto _tfdGASAccount)
+    (UpdateGASRewards, GASRewardsUpdatePayload GASRewards{..}) -> Right . Proto.make $ ProtoFields.gasRewardsUpdate .= Proto.make (do
+        ProtoFields.baker .= toProto _gasBaker
+        ProtoFields.finalizationProof .= toProto _gasFinalizationProof
+        ProtoFields.accountCreation .= toProto _gasAccountCreation
+        ProtoFields.chainUpdate .= toProto _gasChainUpdate)
+    (UpdatePoolParameters, BakerStakeThresholdUpdatePayload pp) -> Right . Proto.make $
+        ProtoFields.bakerStakeThresholdUpdate . ProtoFields.bakerStakeThreshold .= toProto (pp ^. ppBakerStakeThreshold)
+    (UpdateRootKeys, RootUpdatePayload ru) -> Right . Proto.make $ ProtoFields.rootUpdate .= toProto ru
+    (UpdateLevel1Keys, Level1UpdatePayload l1u) -> Right . Proto.make $ ProtoFields.level1RootUpdate .= toProto l1u
+    (UpdateAddAnonymityRevoker, AddAnonymityRevokerUpdatePayload ai) -> Right . Proto.make $ ProtoFields.addAnonymityRevokerUpdate .= toProto ai
+    (UpdateAddIdentityProvider, AddIdentityProviderUpdatePayload ip) -> Right . Proto.make $ ProtoFields.addIdentityProviderUpdate .= toProto ip
+    (UpdateCooldownParameters, CooldownParametersCPV1UpdatePayload cp) -> Right $ case cp of
+        CooldownParametersV1{..} -> Proto.make $ ProtoFields.cooldownParametersCpv1Update .= Proto.make (do
+            ProtoFields.poolOwnerCooldown .= toProto _cpPoolOwnerCooldown
+            ProtoFields.delegatorCooldown .= toProto _cpDelegatorCooldown)
+    (UpdatePoolParameters, PoolParametersCPV1UpdatePayload pp) -> Right . Proto.make $ ProtoFields.poolParametersCpv1Update .= Proto.make (do
+            ProtoFields.passiveFinalizationCommission .= toProto (pp ^. ppPassiveCommissions . finalizationCommission)
+            ProtoFields.passiveBakingCommission .= toProto (pp ^. ppPassiveCommissions . bakingCommission)
+            ProtoFields.passiveTransactionCommission .= toProto (pp ^. ppPassiveCommissions . transactionCommission)
+            ProtoFields.commissionBounds .= Proto.make (do
+                ProtoFields.finalization .= toProto (pp ^. ppCommissionBounds . finalizationCommissionRange)
+                ProtoFields.baking.= toProto (pp ^. ppCommissionBounds . bakingCommissionRange)
+                ProtoFields.transaction .= toProto (pp ^. ppCommissionBounds . transactionCommissionRange))
+            ProtoFields.minimumEquityCapital .= toProto (pp ^. ppMinimumEquityCapital)
+            ProtoFields.capitalBound .= toProto (pp ^. ppCapitalBound)
+            ProtoFields.leverageBound .= toProto (pp ^. ppLeverageBound))
+    (UpdateTimeParameters, TimeParametersCPV1UpdatePayload tp) -> Right $ case tp of
+        TimeParametersV1{..} -> Proto.make $ ProtoFields.timeParametersCpv1Update .= Proto.make (do
+            ProtoFields.rewardPeriodLength .= toProto _tpRewardPeriodLength
+            ProtoFields.mintPerPayday .= toProto _tpMintPerPayday)
+    (UpdateMintDistribution, MintDistributionCPV1UpdatePayload md) -> Right . Proto.make $ ProtoFields.mintDistributionCpv1Update .= Proto.make (do
+        ProtoFields.bakingReward .= toProto (_mdBakingReward md)
+        ProtoFields.finalizationReward .= toProto (_mdFinalizationReward md))
+    _ -> Left CEInvalidUpdateResult
 
 data ConversionError
   = CEFailedAccountCreation
@@ -628,59 +682,6 @@ instance ToProto (Ratio.Ratio Word64) where
   toProto r = Proto.make $ do
      ProtoFields.numerator .= Ratio.numerator r
      ProtoFields.denominator .= Ratio.denominator r
-
-instance ToProto UpdatePayload where
-    type Output UpdatePayload = Proto.UpdatePayload
-    toProto = \case
-        ProtocolUpdatePayload ProtocolUpdate{..} -> Proto.make $ ProtoFields.protocolUpdate .= Proto.make (do
-             ProtoFields.message .= puMessage
-             ProtoFields.specificationUrl .= puSpecificationURL
-             ProtoFields.specificationHash .= toProto puSpecificationHash
-             ProtoFields.specificationAuxiliaryData .= puSpecificationAuxiliaryData)
-        ElectionDifficultyUpdatePayload ed -> Proto.make $ ProtoFields.electionDifficultyUpdate .= toProto ed
-        EuroPerEnergyUpdatePayload er -> Proto.make $ ProtoFields.euroPerEnergyUpdate .= toProto er
-        MicroGTUPerEuroUpdatePayload er -> Proto.make $ ProtoFields.microCcdPerEuroUpdate .= toProto er
-        FoundationAccountUpdatePayload addr -> Proto.make $ ProtoFields.foundationAccountUpdate .= toProto addr
-        MintDistributionUpdatePayload md -> Proto.make $ ProtoFields.mintDistributionUpdate .= Proto.make (do
-            ProtoFields.mintDistribution .= toProto (md ^. mdMintPerSlot . mpsMintPerSlot)
-            ProtoFields.bakingReward .= toProto (_mdBakingReward md)
-            ProtoFields.finalizationReward .= toProto (_mdFinalizationReward md))
-        TransactionFeeDistributionUpdatePayload TransactionFeeDistribution{..} -> Proto.make $ ProtoFields.transactionFeeDistributionUpdate .= Proto.make (do
-            ProtoFields.baker .= toProto _tfdBaker
-            ProtoFields.gasAccount .= toProto _tfdGASAccount)
-        GASRewardsUpdatePayload GASRewards{..} -> Proto.make $ ProtoFields.gasRewardsUpdate .= Proto.make (do
-            ProtoFields.baker .= toProto _gasBaker
-            ProtoFields.finalizationProof .= toProto _gasFinalizationProof
-            ProtoFields.accountCreation .= toProto _gasAccountCreation
-            ProtoFields.chainUpdate .= toProto _gasChainUpdate)
-        BakerStakeThresholdUpdatePayload pp -> Proto.make $
-            ProtoFields.bakerStakeThresholdUpdate . ProtoFields.bakerStakeThreshold .= toProto (pp ^. ppBakerStakeThreshold)
-        RootUpdatePayload ru -> Proto.make $ ProtoFields.rootUpdate .= toProto ru
-        Level1UpdatePayload l1u -> Proto.make $ ProtoFields.level1RootUpdate .= toProto l1u
-        AddAnonymityRevokerUpdatePayload ai -> Proto.make $ ProtoFields.addAnonymityRevokerUpdate .= toProto ai
-        AddIdentityProviderUpdatePayload ip -> Proto.make $ ProtoFields.addIdentityProviderUpdate .= toProto ip
-        CooldownParametersCPV1UpdatePayload cp -> case cp of
-            CooldownParametersV1{..} -> Proto.make $ ProtoFields.cooldownParametersCpv1Update .= Proto.make (do
-                ProtoFields.poolOwnerCooldown .= toProto _cpPoolOwnerCooldown
-                ProtoFields.delegatorCooldown .= toProto _cpDelegatorCooldown)
-        PoolParametersCPV1UpdatePayload pp -> Proto.make $ ProtoFields.poolParametersCpv1Update .= Proto.make (do
-                ProtoFields.passiveFinalizationCommission .= toProto (pp ^. ppPassiveCommissions . finalizationCommission)
-                ProtoFields.passiveBakingCommission .= toProto (pp ^. ppPassiveCommissions . bakingCommission)
-                ProtoFields.passiveTransactionCommission .= toProto (pp ^. ppPassiveCommissions . transactionCommission)
-                ProtoFields.commissionBounds .= Proto.make (do
-                    ProtoFields.finalization .= toProto (pp ^. ppCommissionBounds . finalizationCommissionRange)
-                    ProtoFields.baking.= toProto (pp ^. ppCommissionBounds . bakingCommissionRange)
-                    ProtoFields.transaction .= toProto (pp ^. ppCommissionBounds . transactionCommissionRange))
-                ProtoFields.minimumEquityCapital .= toProto (pp ^. ppMinimumEquityCapital)
-                ProtoFields.capitalBound .= toProto (pp ^. ppCapitalBound)
-                ProtoFields.leverageBound .= toProto (pp ^. ppLeverageBound))
-        TimeParametersCPV1UpdatePayload tp -> case tp of
-            TimeParametersV1{..} -> Proto.make $ ProtoFields.timeParametersCpv1Update .= Proto.make (do
-                ProtoFields.rewardPeriodLength .= toProto _tpRewardPeriodLength
-                ProtoFields.mintPerPayday .= toProto _tpMintPerPayday)
-        MintDistributionCPV1UpdatePayload md -> Proto.make $ ProtoFields.mintDistributionCpv1Update .= Proto.make (do
-            ProtoFields.bakingReward .= toProto (_mdBakingReward md)
-            ProtoFields.finalizationReward .= toProto (_mdFinalizationReward md))
 
 instance ToProto (InclusiveRange AmountFraction) where
   type Output (InclusiveRange AmountFraction)= Proto.InclusiveRangeAmountFraction
