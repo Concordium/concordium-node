@@ -45,6 +45,7 @@ module Concordium.GlobalState.Persistent.LMDB (
   , writeTransactionStatuses
   , writeFinalizationComposite
   , deleteBlocksBy
+  , deleteFinalizedBlocksWhile
   , FixedSizeSerialization
   ) where
 
@@ -587,7 +588,7 @@ getLastBlock dbh = transaction (dbh ^. storeEnv) True $ \txn -> do
       Just (Right (_, finRec)) ->
         loadRecord txn (dbh ^. blockStore) (finalizationBlockPointer finRec) >>= \case
           Just block -> return $ Right (finRec, block)
-          Nothing -> return $ Left "Could not read last finalized block"
+          Nothing -> return . Left $ "Could not read last finalized block by hash " <> show (finalizationBlockPointer finRec)
       Just (Left s) -> return $ Left $ "Could not read last finalization record: " ++ s
       Nothing -> return $ Left "No last finalized block found"
 
@@ -609,16 +610,19 @@ resizeOnFull :: (MonadLogger m, MonadIO m, MonadState s m, HasDatabaseHandlers p
   -> m a
 resizeOnFull addSize a = do
     dbh <- use dbHandlers
-    inner dbh
+    resizeOnFullInternal addSize dbh a
+
+resizeOnFullInternal :: (MonadIO m, MonadLogger m) => Int -> DatabaseHandlers pv st -> (DatabaseHandlers pv st -> IO b) -> m b
+resizeOnFullInternal addSize dbh a = inner
   where
-    inner dbh = do
+    inner = do
       r <- liftIO $ tryJust selectDBFullError (a dbh)
       case r of
         Left _ -> do
           -- Resize the database handlers, and try to add again in case the size estimate
           -- given by lmdbStoreTypeSize is off.
           resizeDatabaseHandlers dbh addSize
-          inner dbh
+          inner
         Right res -> return res
     -- only handle the db full error and propagate other exceptions.
     selectDBFullError = \case (LMDB_Error _ _ (Right MDB_MAP_FULL)) -> Just ()
@@ -691,7 +695,7 @@ writeFinalizationComposite finRec blocktss = resizeOnFull (finRecSize + blocksSi
     blocksSize = sum . map (\b -> 2*digestSize + fromIntegral (LBS.length . fst . fst $ b)) $ serializedBlocksTss
     tssSize = (* (2 * digestSize + 16)) . sum . map (Prelude.length . snd) $ blocktss
 
--- |Delete blocks while they match a predicate starting with the last finalized block, together with
+-- |Delete blocks while they match a predicate starting with the last block, together with
 -- corresponding finalization records and transaction statuses.
 deleteBlocksBy :: (IsProtocolVersion pv, FixedSizeSerialization st) =>
   DatabaseHandlers pv st -> (StoredBlock pv st -> IO Bool) -> IO ()
@@ -704,3 +708,37 @@ deleteBlocksBy dbh p = transaction (dbh ^. storeEnv) False $ \txn -> do
         mapM_ (deleteRecord txn (dbh ^. finalizationRecordStore)) (sbFinalizationIndex <$> storedBlocks)
         mapM_ (deleteRecord txn (dbh ^. transactionStatusStore)) (concatMap ((wmdHash <$>) . blockTransactions . sbBlock) storedBlocks)
       Nothing -> return ()
+
+-- If an explicitly finalized block does not satisfy a predicate, delete it, together with its
+-- finalization record, all blocks implicitly finalized by its finalization records and all
+-- associated transaction statuses. Returns the last finalized block hash available in the unrolled
+-- treestate/blockstate on success.
+deleteFinalizedBlocksWhile :: (MonadLogger m, MonadIO m, IsProtocolVersion pv, FixedSizeSerialization st) =>
+  DatabaseHandlers pv st -> (StoredBlock pv st -> IO Bool) -> m (Either String BlockHash)
+deleteFinalizedBlocksWhile dbh p = resizeOnFullInternal 4096 dbh $ \h -> transaction (h ^. storeEnv) False $ \txn ->
+  let loopBlocks finIndex sb | NormalBlock block <- sbBlock sb =
+        do
+          let bh = _bpHash . sbInfo $ sb
+          isP <- p sb
+          if isP then do
+            delBlockOK <- deleteRecord txn (h ^. blockStore) bh
+            if delBlockOK then do
+                mapM_ (deleteRecord txn (h ^. transactionStatusStore)) ((wmdHash <$>) . blockTransactions $ block)
+                loadRecord txn (h ^. blockStore) (blockPointer block) >>= \case
+                  Just sbParent | finIndex == sbFinalizationIndex sbParent -> loopBlocks finIndex sbParent
+                  -- Before deleting a finalization record for a block, we must ensure that its
+                  -- parent is not finalized by the same finalization record.
+                  Just sbParent -> do
+                    delFinRecOK <- deleteRecord txn (h ^. finalizationRecordStore) finIndex
+                    if delFinRecOK
+                      then loopBlocks (sbFinalizationIndex sbParent) sbParent
+                      else return . Left $ "Could not delete finalization record with index "
+                           <> show finIndex <> " finalizing block " <> show bh
+                  Nothing -> return . Left $ "Could not read parent of block " <> show bh
+            else return . Left $ "Could not delete block " <> show bh
+          else return $ Right bh
+      -- genesis blocks won't be deleted
+      loopBlocks _ sb = return . Right . _bpHash . sbInfo $ sb
+  in getLastBlock h >>= \case
+       Left s -> return $ Left s
+       Right (finRec, sb) -> loopBlocks (finalizationIndex finRec) sb

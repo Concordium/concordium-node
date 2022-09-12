@@ -224,11 +224,11 @@ truncateBlobStore BlobStoreAccess{..} (BlobRef offset) = mask $ \restore -> do
     hSeek bhHandle AbsoluteSeek (fromIntegral offset)
     esize <- decode <$> BS.hGet bhHandle 8
     case esize :: Either String Word64 of
-      Left e -> error e
       Right size -> do
         let newSize = offset + 8 + size
         hSetFileSize bhHandle $ fromIntegral newSize
         putMVar blobStoreFile bh{bhSize = fromIntegral newSize, bhAtEnd=False}
+      _ -> throwIO $ userError "Cannot truncate the blob store: cannot obtain the last blob size"
   case eres :: Either SomeException () of
     Left e -> throwIO e
     Right () -> return ()
