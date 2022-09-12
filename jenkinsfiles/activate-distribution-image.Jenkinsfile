@@ -75,7 +75,7 @@ node {
                 curl "https://hub.docker.com/v2/repositories/${ORGANIZATION}/${IMAGE}/tags/${TAG}/" \
                 -X DELETE \
                 -H "Authorization: JWT ${TOKEN}"
-                '''..stripIndent()
+                '''.stripIndent()
             }
         }
     }
