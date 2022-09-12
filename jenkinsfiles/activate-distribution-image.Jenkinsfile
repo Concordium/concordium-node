@@ -24,14 +24,13 @@ node {
     
     
     def docker_repo = "concordium/${docker_images_base}"
-    def current_image_name = "${docker_repo}:${source_image_tag}"
-    def future_image_name = "${docker_repo}:${destination_image_tag}"
+    def source_image_name = "${docker_repo}:${source_image_tag}"
+    def destination_image_name = "${docker_repo}:${destination_image_tag}"
     def latest_image_name = "${docker_repo}:latest"
 
-    if (set_latest) {
-        def latest_image_command = "--tag ${docker_repo}:latest"
-    } else {
-        def latest_image_command = ""
+    def latest_image_command = ""
+    if (params.set_latest) {
+        latest_image_command = "--tag ${docker_repo}:latest"
     }
 
     stage('verify') {
@@ -55,7 +54,7 @@ node {
         }
     }
     stage('update') {
-        sh "docker buildx imagetools create ${source_image_tag} --tag ${destination_image_tag} ${latest_image_command}"
+        sh "docker buildx imagetools create ${source_image_name} --tag ${destination_image_tag} ${latest_image_command}"
     }
     stage('cleanup') {
         when {
