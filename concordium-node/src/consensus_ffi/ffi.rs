@@ -26,6 +26,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc, Once,
     },
+    u64,
 };
 
 /// A type used in this module to document that a given value is intended
@@ -788,6 +789,31 @@ extern "C" {
         out_hash: *mut u8,
         out: *mut Vec<u8>,
         copier: CopyToVecCallback,
+    ) -> i64;
+
+    /// Get a stream of live blocks at a given height.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `stream` - Pointer to the response stream.
+    /// * `height` - Block height, is absolute if the genesis_index is 0,
+    ///   otherwise relative.
+    /// * `genesis_index` - Genesis index to start from. Set to 0 to use
+    ///   absolute height.
+    /// * `restrict` - Whether to return results only from the specified genesis
+    ///   index (1), or allow results from more recent genesis indices as well
+    ///   (0).
+    /// * `callback` - Callback for writing to the response stream.
+    pub fn getBlocksAtHeightV2(
+        consensus: *mut consensus_runner,
+        stream: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+        height: u64,
+        genesis_index: u32,
+        restrict: u8,
+        callback: extern "C" fn(
+            *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+            *const u8,
+            i64,
+        ) -> i32,
     ) -> i64;
 
 }
@@ -1679,6 +1705,34 @@ impl ConsensusContainer {
         .try_into()?;
         response.ensure_ok("block")?;
         Ok((out_hash, out_data))
+    }
+
+    /// Get a stream of live blocks at a given height.
+    pub fn get_blocks_at_height_v2(
+        &self,
+        height: &crate::grpc2::types::BlocksAtHeightRequest,
+        sender: futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+    ) -> Result<(), tonic::Status> {
+        use crate::grpc2::Require;
+        let sender = Box::new(sender);
+        let consensus = self.consensus.load(Ordering::SeqCst);
+
+        let (block_height, genesis_index, restrict) =
+            crate::grpc2::types::blocks_at_height_request_to_ffi(height).require()?;
+
+        let _response: ConsensusQueryResponse = unsafe {
+            getBlocksAtHeightV2(
+                consensus,
+                Box::into_raw(sender),
+                block_height,
+                genesis_index,
+                restrict,
+                enqueue_bytearray_callback,
+            )
+        }
+        .try_into()?;
+        // The query should always return successfully, so no need to check here.
+        Ok(())
     }
 }
 

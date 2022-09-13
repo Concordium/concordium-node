@@ -965,6 +965,26 @@ getPassiveDelegationStatusV2 cptr blockType blockHashPtr outHash outVec copierCb
         return $ queryResultCode QRSuccess
       _ -> return $ queryResultCode QRNotFound
 
+getBlocksAtHeightV2 ::
+  StablePtr Ext.ConsensusRunner ->
+  Ptr SenderChannel ->
+  -- | Block height, is absolute if the genesis_index is 0, otherwise relative.
+  Word64 ->
+  -- | Genesis index to start from. Set to 0 to use absolute height.
+  Word32 ->
+  -- | Whether to return results only from the specified genesis index (1),
+  -- or allow results from more recent genesis indices as well (0). Out pointer
+  -- for writing the block hash that was used.
+  Word8 ->
+  FunPtr ChannelSendCallback ->
+  IO Int64
+getBlocksAtHeightV2 cptr channel height genIndex restrict cbk = do
+    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
+    let sender = callChannelSendCallback cbk
+    blocks <- runMVR (Q.getBlocksAtHeight (BlockHeight height) (GenesisIndex genIndex) (restrict /= 0)) mvr
+    _ <- enqueueMessages (sender channel) blocks
+    return (queryResultCode QRSuccess)
+
 {- |Write the hash to the provided pointer, and if the message is given encode and
    write it using the provided callback.
 -}
@@ -1204,5 +1224,20 @@ foreign export ccall
         Ptr Word8 ->
         Ptr ReceiverVec ->
         FunPtr CopyToVecCallback ->
+        IO Int64
+
+foreign export ccall
+    getBlocksAtHeightV2 ::
+        StablePtr Ext.ConsensusRunner ->
+        Ptr SenderChannel ->
+        -- | Block height, is absolute if the genesis_index is 0, otherwise relative.
+        Word64 ->
+        -- | Genesis index to start from. Set to 0 to use absolute height.
+        Word32 ->
+        -- | Whether to return results only from the specified genesis index (1),
+        -- or allow results from more recent genesis indices as well (0). Out pointer
+        -- for writing the block hash that was used.
+        Word8 ->
+        FunPtr ChannelSendCallback ->
         IO Int64
 
