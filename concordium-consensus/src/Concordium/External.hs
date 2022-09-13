@@ -1203,7 +1203,7 @@ getPoolStatus ::
 getPoolStatus cptr blockcstr passive bid = do
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (Q.getPoolStatus bh mbid)
+        Just bh -> jsonQuery cptr (Q.getPoolStatus (BHIGiven bh) mbid)
   where
     mbid = if passive /= 0 then Nothing else Just (BakerId (AccountIndex bid))
 

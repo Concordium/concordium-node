@@ -57,3 +57,5 @@ EXPORTS
  getCryptographicParametersV2
  getBlockInfoV2
  getBakerListV2
+ getPoolStatusV2
+ getPassiveDelegationStatusV2

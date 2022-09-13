@@ -76,6 +76,9 @@ pub mod types {
             None
         }
     }
+
+    /// Convert [BakerId] to a u64.
+    pub(crate) fn baker_id_to_ffi(baker_id: &BakerId) -> u64 { baker_id.value }
 }
 
 /// The service generated from the configuration in the `build.rs` file.
@@ -623,6 +626,27 @@ pub mod server {
             let (sender, receiver) = futures::channel::mpsc::channel(100);
             let hash = self.consensus.get_baker_list_v2(request.get_ref(), sender)?;
             let mut response = tonic::Response::new(receiver);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_pool_status(
+            &self,
+            request: tonic::Request<crate::grpc2::types::PoolStatusRequest>,
+        ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            let (hash, response) = self.consensus.get_pool_status_v2(request.get_ref())?;
+            let mut response = tonic::Response::new(response);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_passive_delegation_status(
+            &self,
+            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+        ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            let (hash, response) =
+                self.consensus.get_passive_delegation_status_v2(request.get_ref())?;
+            let mut response = tonic::Response::new(response);
             add_hash(&mut response, hash)?;
             Ok(response)
         }

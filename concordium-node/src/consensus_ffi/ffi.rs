@@ -751,6 +751,45 @@ extern "C" {
         ) -> i32,
     ) -> i64;
 
+    /// Get status information about a given pool at the end of a given block.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `baker_id` - Baker id of the owner of the pool to query.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `out` - Location to write the output of the query.
+    /// * `copier` - Callback for writting the output.
+    pub fn getPoolStatusV2(
+        consensus: *mut consensus_runner,
+        block_id_type: u8,
+        block_id: *const u8,
+        baker_id: u64,
+        out_hash: *mut u8,
+        out: *mut Vec<u8>,
+        copier: CopyToVecCallback,
+    ) -> i64;
+
+    /// Get status information about the passive delegators at the end of a
+    /// given block.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `out` - Location to write the output of the query.
+    /// * `copier` - Callback for writting the output.
+    pub fn getPassiveDelegationStatusV2(
+        consensus: *mut consensus_runner,
+        block_id_type: u8,
+        block_id: *const u8,
+        out_hash: *mut u8,
+        out: *mut Vec<u8>,
+        copier: CopyToVecCallback,
+    ) -> i64;
+
 }
 
 /// This is the callback invoked by consensus on newly arrived, and newly
@@ -1583,6 +1622,63 @@ impl ConsensusContainer {
         .try_into()?;
         response.ensure_ok("block")?;
         Ok(buf)
+    }
+
+    /// Get status information about a given pool at the end of a given block.
+    pub fn get_pool_status_v2(
+        &self,
+        request: &crate::grpc2::types::PoolStatusRequest,
+    ) -> Result<([u8; 32], Vec<u8>), tonic::Status> {
+        use crate::grpc2::Require;
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut out_data: Vec<u8> = Vec::new();
+        let mut out_hash = [0u8; 32];
+        let (block_id_type, block_id) =
+            crate::grpc2::types::block_hash_input_to_ffi(request.block_hash.as_ref().require()?)
+                .require()?;
+        let baker_id = crate::grpc2::types::baker_id_to_ffi(request.baker.as_ref().require()?);
+
+        let response: ConsensusQueryResponse = unsafe {
+            getPoolStatusV2(
+                consensus,
+                block_id_type,
+                block_id,
+                baker_id,
+                out_hash.as_mut_ptr(),
+                &mut out_data,
+                copy_to_vec_callback,
+            )
+        }
+        .try_into()?;
+        response.ensure_ok("block or baker")?;
+        Ok((out_hash, out_data))
+    }
+
+    /// Get status information about the passive delegators at the end of a
+    /// given block.
+    pub fn get_passive_delegation_status_v2(
+        &self,
+        block_hash: &crate::grpc2::types::BlockHashInput,
+    ) -> Result<([u8; 32], Vec<u8>), tonic::Status> {
+        use crate::grpc2::Require;
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut out_data: Vec<u8> = Vec::new();
+        let mut out_hash = [0u8; 32];
+        let (block_id_type, block_id) =
+            crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let response: ConsensusQueryResponse = unsafe {
+            getPassiveDelegationStatusV2(
+                consensus,
+                block_id_type,
+                block_id,
+                out_hash.as_mut_ptr(),
+                &mut out_data,
+                copy_to_vec_callback,
+            )
+        }
+        .try_into()?;
+        response.ensure_ok("block")?;
+        Ok((out_hash, out_data))
     }
 }
 

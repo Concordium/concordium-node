@@ -585,6 +585,45 @@ instance ToProto QueryTypes.BlockInfo where
         ProtoFields.transactionsSize .= fromIntegral biTransactionsSize
         ProtoFields.stateHash .= toProto biBlockStateHash
 
+instance ToProto QueryTypes.PoolStatus where
+    type Output QueryTypes.PoolStatus = Either Proto.PoolStatus Proto.PassiveDelegationStatus
+    toProto QueryTypes.BakerPoolStatus{..} = Left $ Proto.make $ do
+      ProtoFields.baker .= toProto psBakerId
+      ProtoFields.address .= toProto psBakerAddress
+      ProtoFields.equityCapital .= toProto psBakerEquityCapital
+      ProtoFields.delegatedCapital .= toProto psDelegatedCapital
+      ProtoFields.delegatedCapitalCap .= toProto psDelegatedCapitalCap
+      ProtoFields.poolInfo .= toProto psPoolInfo
+      ProtoFields.maybe'equityPendingChange .= toProto psBakerStakePendingChange
+      ProtoFields.maybe'currentPaydayStatus .= fmap toProto psCurrentPaydayStatus
+      ProtoFields.allPoolTotalCapital .= toProto psAllPoolTotalCapital
+    toProto QueryTypes.PassiveDelegationStatus{..} = Right $ Proto.make $ do
+      ProtoFields.delegatedCapital .= toProto psDelegatedCapital
+      ProtoFields.commissionRates .= toProto psCommissionRates
+      ProtoFields.currentPaydayTransactionFeesEarned .= toProto psCurrentPaydayTransactionFeesEarned
+      ProtoFields.currentPaydayDelegatedCapital .= toProto psCurrentPaydayDelegatedCapital
+      ProtoFields.allPoolTotalCapital .= toProto psAllPoolTotalCapital
+
+instance ToProto QueryTypes.PoolPendingChange where
+    type Output QueryTypes.PoolPendingChange = Maybe Proto.PoolPendingChange
+    toProto QueryTypes.PPCNoChange = Nothing
+    toProto QueryTypes.PPCReduceBakerCapital {..} = Just $ Proto.make $ ProtoFields.reduce .= Proto.make (do
+      ProtoFields.reducedEquityCapital .= toProto ppcBakerEquityCapital
+      ProtoFields.effectiveTime .= toProto ppcEffectiveTime)
+    toProto QueryTypes.PPCRemovePool {..} = Just $ Proto.make $ ProtoFields.remove .= Proto.make
+      (ProtoFields.effectiveTime .= toProto ppcEffectiveTime)
+
+instance ToProto QueryTypes.CurrentPaydayBakerPoolStatus where
+    type Output QueryTypes.CurrentPaydayBakerPoolStatus = Proto.PoolCurrentPaydayStatus
+    toProto QueryTypes.CurrentPaydayBakerPoolStatus {..} = Proto.make $ do
+      ProtoFields.blocksBaked .= fromIntegral bpsBlocksBaked
+      ProtoFields.finalizationLive .= bpsFinalizationLive
+      ProtoFields.transactionFeesEarned .= toProto bpsTransactionFeesEarned
+      ProtoFields.effectiveStake .= toProto bpsEffectiveStake
+      ProtoFields.lotteryPower .= bpsLotteryPower
+      ProtoFields.bakerEquityCapital .= toProto bpsBakerEquityCapital
+      ProtoFields.delegatedCapital .= toProto bpsDelegatedCapital
+
 -- |NB: Assumes the data is at least 32 bytes
 decodeBlockHashInput :: Word8 -> Ptr Word8 -> IO Q.BlockHashInput
 decodeBlockHashInput 0 _ = return Q.BHIBest
@@ -874,6 +913,58 @@ getBakerListV2 cptr channel blockType blockHashPtr outHash cbk = do
             _ <- enqueueMessages (sender channel) instances
             return (queryResultCode QRSuccess)
 
+getPoolStatusV2 ::
+    StablePtr Ext.ConsensusRunner ->
+    -- |Block type.
+    Word8 ->
+    -- |Block hash.
+    Ptr Word8 ->
+    -- |Baker id of the pool owner.
+    Word64 ->
+    -- |Out pointer for writing the block hash that was used.
+    Ptr Word8 ->
+    Ptr ReceiverVec ->
+    -- |Callback to output data.
+    FunPtr CopyToVecCallback ->
+    IO Int64
+getPoolStatusV2 cptr blockType blockHashPtr bakerId outHash outVec copierCbk = do
+    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
+    let copier = callCopyToVecCallback copierCbk
+    bhi <- decodeBlockHashInput blockType blockHashPtr
+    (bh, status) <- runMVR (Q.getPoolStatus bhi (Just $ fromIntegral bakerId)) mvr
+    copyHashTo outHash bh
+    case toProto <$> status of
+      Just (Left proto) -> do
+        let encoded = Proto.encodeMessage proto
+        BS.unsafeUseAsCStringLen encoded (\(ptr, len) -> copier outVec (castPtr ptr) (fromIntegral len))
+        return $ queryResultCode QRSuccess
+      _ -> return $ queryResultCode QRNotFound
+
+getPassiveDelegationStatusV2 ::
+    StablePtr Ext.ConsensusRunner ->
+    -- |Block type.
+    Word8 ->
+    -- |Block hash.
+    Ptr Word8 ->
+    -- |Out pointer for writing the block hash that was used.
+    Ptr Word8 ->
+    Ptr ReceiverVec ->
+    -- |Callback to output data.
+    FunPtr CopyToVecCallback ->
+    IO Int64
+getPassiveDelegationStatusV2 cptr blockType blockHashPtr outHash outVec copierCbk = do
+    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
+    let copier = callCopyToVecCallback copierCbk
+    bhi <- decodeBlockHashInput blockType blockHashPtr
+    (bh, status) <- runMVR (Q.getPoolStatus bhi Nothing) mvr
+    copyHashTo outHash bh
+    case toProto <$> status of
+      Just (Right proto) -> do
+        let encoded = Proto.encodeMessage proto
+        BS.unsafeUseAsCStringLen encoded (\(ptr, len) -> copier outVec (castPtr ptr) (fromIntegral len))
+        return $ queryResultCode QRSuccess
+      _ -> return $ queryResultCode QRNotFound
+
 {- |Write the hash to the provided pointer, and if the message is given encode and
    write it using the provided callback.
 -}
@@ -1086,3 +1177,32 @@ foreign export ccall
         Ptr Word8 ->
         FunPtr ChannelSendCallback ->
         IO Int64
+
+foreign export ccall
+    getPoolStatusV2 ::
+        StablePtr Ext.ConsensusRunner ->
+        -- |Block type.
+        Word8 ->
+        -- |Block hash.
+        Ptr Word8 ->
+        -- | Baker id of the pool owner.
+        Word64 ->
+        -- |Out pointer for writing the block hash that was used.
+        Ptr Word8 ->
+        Ptr ReceiverVec ->
+        FunPtr CopyToVecCallback ->
+        IO Int64
+
+foreign export ccall
+    getPassiveDelegationStatusV2 ::
+        StablePtr Ext.ConsensusRunner ->
+        -- |Block type.
+        Word8 ->
+        -- |Block hash.
+        Ptr Word8 ->
+        -- |Out pointer for writing the block hash that was used.
+        Ptr Word8 ->
+        Ptr ReceiverVec ->
+        FunPtr CopyToVecCallback ->
+        IO Int64
+

@@ -618,10 +618,10 @@ getModuleSource bhi modRef = do
     return (bh, join res)
 
 -- |Get the status of a particular delegation pool.
-getPoolStatus :: forall gsconf finconf. BlockHash -> Maybe BakerId -> MVR gsconf finconf (Maybe PoolStatus)
-getPoolStatus blockHash mbid =
-    join
-        <$> liftSkovQueryBlock poolStatus blockHash
+getPoolStatus :: forall gsconf finconf. BlockHashInput -> Maybe BakerId -> MVR gsconf finconf (BlockHash, Maybe PoolStatus)
+getPoolStatus blockHashInput mbid = do
+    (bh, res) <- liftSkovQueryBHI poolStatus blockHashInput
+    return (bh, join res)
   where
     poolStatus ::
         forall pv.
