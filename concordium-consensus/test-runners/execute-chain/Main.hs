@@ -51,6 +51,8 @@ main = do
                 { broadcastBlock = \_ _ -> return (),
                   broadcastFinalizationMessage = \_ _ -> return (),
                   broadcastFinalizationRecord = \_ _ -> return (),
+                  notifyBlockArrived = Nothing,
+                  notifyBlockFinalized = Nothing,
                   notifyCatchUpStatus = \_ _ -> return (),
                   notifyRegenesis = \_ -> return ()
                 }

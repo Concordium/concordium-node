@@ -14,6 +14,8 @@ use std::{
     },
 };
 
+use super::ffi::NotificationContext;
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ConsensusLogLevel {
     Error = 1,
@@ -233,6 +235,7 @@ impl ConsensusContainer {
         max_log_level: ConsensusLogLevel,
         appdata_dir: &Path,
         regenesis_arc: Arc<Regenesis>,
+        notification_context: Option<NotificationContext>,
     ) -> anyhow::Result<Self> {
         info!("Starting up the consensus layer");
 
@@ -249,6 +252,7 @@ impl ConsensusContainer {
             max_log_level,
             appdata_dir,
             regenesis_arc,
+            notification_context,
         ) {
             Ok(consensus_ptr) => Ok(Self {
                 runtime_parameters,

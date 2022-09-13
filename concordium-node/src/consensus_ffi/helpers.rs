@@ -182,6 +182,7 @@ impl PacketType {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Error)]
+#[must_use]
 pub enum ConsensusFfiResponse {
     #[error("Baker not found")]
     BakerNotFound = -1,
@@ -284,45 +285,61 @@ impl ConsensusFfiResponse {
         )
     }
 
-    pub fn is_rebroadcastable(self) -> bool {
+    pub fn is_rebroadcastable(self, packet_type: PacketType) -> bool {
         use ConsensusFfiResponse::*;
 
-        !matches!(
-            self,
+        match self {
             DeserializationError
-                | InvalidResult
-                | Unverifiable
-                | DuplicateEntry
-                | Stale
-                | IncorrectFinalizationSession
-                | BlockTooEarly
-                | ExpiryTooLate
-                | VerificationFailed
-                | NonexistingSenderAccount
-                | DuplicateNonce
-                | NonceTooLarge
-                | TooLowEnergy
-                | ConsensusShutDown
-                | InvalidGenesisIndex
-                | DuplicateAccountRegistrationID
-                | CredentialDeploymentInvalidSignatures
-                | CredentialDeploymentInvalidIP
-                | CredentialDeploymentInvalidAR
-                | CredentialDeploymentExpired
-                | ChainUpdateInvalidEffectiveTime
-                | ChainUpdateSequenceNumberTooOld
-                | ChainUpdateInvalidSignatures
-                | MaxBlockEnergyExceeded
-                | InsufficientFunds
-        )
+            | InvalidResult
+            | Unverifiable
+            | DuplicateEntry
+            | Stale
+            | IncorrectFinalizationSession
+            | BlockTooEarly
+            | ExpiryTooLate
+            | VerificationFailed
+            | NonexistingSenderAccount
+            | DuplicateNonce
+            | NonceTooLarge
+            | TooLowEnergy
+            | ConsensusShutDown
+            | InvalidGenesisIndex
+            | DuplicateAccountRegistrationID
+            | CredentialDeploymentInvalidSignatures
+            | CredentialDeploymentInvalidIP
+            | CredentialDeploymentInvalidAR
+            | CredentialDeploymentExpired
+            | ChainUpdateInvalidEffectiveTime
+            | ChainUpdateSequenceNumberTooOld
+            | ChainUpdateInvalidSignatures
+            | MaxBlockEnergyExceeded
+            | InsufficientFunds
+            | BakerNotFound
+            | MissingImportFile
+            | ContinueCatchUp => false,
+            PendingBlock => packet_type != PacketType::Block,
+            Success | PendingFinalization | Asynchronous => true,
+        }
+    }
+}
+
+#[derive(Debug, Error)]
+#[error("Unsupported FFI return code ({unknown_code})")]
+pub struct ConsensusFfiResponseConversionError {
+    unknown_code: i64,
+}
+
+impl From<ConsensusFfiResponseConversionError> for tonic::Status {
+    fn from(code: ConsensusFfiResponseConversionError) -> Self {
+        Self::internal(format!("Unexpected response from FFI call: {}.", code.unknown_code))
     }
 }
 
 impl TryFrom<i64> for ConsensusFfiResponse {
-    type Error = anyhow::Error;
+    type Error = ConsensusFfiResponseConversionError;
 
     #[inline]
-    fn try_from(value: i64) -> anyhow::Result<ConsensusFfiResponse> {
+    fn try_from(value: i64) -> Result<ConsensusFfiResponse, ConsensusFfiResponseConversionError> {
         use ConsensusFfiResponse::*;
 
         match value {
@@ -358,7 +375,9 @@ impl TryFrom<i64> for ConsensusFfiResponse {
             28 => Ok(ChainUpdateInvalidSignatures),
             29 => Ok(MaxBlockEnergyExceeded),
             30 => Ok(InsufficientFunds),
-            _ => Err(anyhow!("Unsupported FFI return code ({})", value)),
+            _ => Err(ConsensusFfiResponseConversionError {
+                unknown_code: value,
+            }),
         }
     }
 }
@@ -407,6 +426,51 @@ impl TryFrom<u8> for ConsensusIsInFinalizationCommitteeResponse {
             1 => Ok(AddedButNotActiveInCommittee),
             2 => Ok(ActiveInCommittee),
             _ => Err(anyhow!("Unsupported FFI return code for committee status ({})", value)),
+        }
+    }
+}
+
+/// Response to a consensus GRPC V2 query.
+/// This is a response that is already parsed from the error code return through
+/// FFI.
+pub enum ConsensusQueryResponse {
+    Ok,
+    NotFound,
+}
+
+impl ConsensusQueryResponse {
+    /// Convert the response to a [Result]. The concrete type makes it
+    /// convenient to use in the implementations of the different queries.
+    pub fn ensure_ok(self, msg: impl std::fmt::Display) -> Result<(), tonic::Status> {
+        match self {
+            Self::Ok => Ok(()),
+            Self::NotFound => Err(tonic::Status::not_found(format!("{} not found.", msg))),
+        }
+    }
+}
+
+#[derive(Debug, Error)]
+#[error("Unsupported query response return code ({unknown_code})")]
+pub struct ConsensusQueryUnknownCode {
+    unknown_code: i64,
+}
+
+impl From<ConsensusQueryUnknownCode> for tonic::Status {
+    fn from(code: ConsensusQueryUnknownCode) -> Self {
+        Self::internal(format!("Unexpected response from internal query: {}.", code.unknown_code))
+    }
+}
+
+impl TryFrom<i64> for ConsensusQueryResponse {
+    type Error = ConsensusQueryUnknownCode;
+
+    fn try_from(value: i64) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::Ok),
+            1 => Ok(Self::NotFound),
+            unknown_code => Err(ConsensusQueryUnknownCode {
+                unknown_code,
+            }),
         }
     }
 }

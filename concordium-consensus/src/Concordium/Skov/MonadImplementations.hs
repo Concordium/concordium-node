@@ -501,8 +501,13 @@ instance (
     purgeTransactions = doPurgeTransactions
 
 class (Monad m, HandlerConfig c) => HandlerConfigHandlers c m | m -> c where
+    -- |Called upon a block being added to the tree.
     handleBlock :: BlockPointerType m -> m ()
-    handleFinalize :: FinalizationRecord -> BlockPointerType m -> m ()
+    -- |An event handler called per finalization. It is called with the
+    -- finalization record, the block that the finalization record finalized,
+    -- and the remaining blocks that were finalized as a result of this
+    -- finalization. These blocks are ordered by decreasing height.
+    handleFinalize :: FinalizationRecord -> BlockPointerType m -> [BlockPointerType m] -> m ()
 
 -- |A handler that does nothing.
 data NoHandler = NoHandler
@@ -514,7 +519,7 @@ instance HandlerConfig NoHandler where
 
 instance (Monad m) => HandlerConfigHandlers NoHandler (SkovT pv h (SkovConfig pv gc fc NoHandler) m) where
     handleBlock = \_ -> return ()
-    handleFinalize = \_ _ -> return ()
+    handleFinalize = \_ _ _ -> return ()
 
 -- |A handler that checks finalized blocks for protocol updates and:
 --  * logs a warning if a protocol update is queued;
@@ -528,7 +533,7 @@ instance HandlerConfig LogUpdateHandler where
 
 instance (SkovMonad (SkovT pv h (SkovConfig pv gc fc LogUpdateHandler) m)) => HandlerConfigHandlers LogUpdateHandler (SkovT pv h (SkovConfig pv gc fc LogUpdateHandler) m) where
     handleBlock = \_ -> return ()
-    handleFinalize = \_ _ ->
+    handleFinalize = \_ _ _ ->
         Skov.getProtocolUpdateStatus >>= \case
             ProtocolUpdated pu -> logEvent Kontrol LLError $
                 "Consensus has been updated: " ++ showPU pu
@@ -573,7 +578,7 @@ instance (MonadIO m,
           SkovPendingLiveHandlers h m)
          => OnSkov (SkovT pv h (SkovConfig pv gsconf finconf hconf) m) where
     onBlock bp = handleBlock bp
-    onFinalize fr bp = handleFinalize fr bp
+    onFinalize = handleFinalize
     onPendingLive = SkovT $ \h _ -> lift $ handlePendingLive h
     {- - INLINE onBlock - -}
     {- - INLINE onFinalize - -}

@@ -1,6 +1,6 @@
 [package]
 name = "concordium_node"
-version = "4.4.0" # must be kept in sync with 'is_compatible_version' in 'src/configuration.rs'
+version = "4.4.1" # must be kept in sync with 'is_compatible_version' in 'src/configuration.rs'
 description = "Concordium Node"
 authors = ["Concordium <developers@concordium.com>"]
 exclude = [".gitignore", ".gitlab-ci.yml", "test/**/*","**/**/.gitignore","**/**/.gitlab-ci.yml"]
@@ -36,6 +36,7 @@ mio = { version = "0.7", features = ["os-poll", "tcp"] }
 log = "0.4"
 env_logger = "0.8.3"
 log4rs = { version = "1.1", features = ["all_components", "config_parsing", "toml_format", "yaml_format", "gzip"] }
+toml = "0.5"
 byteorder = "1.3"
 preferences = "1.1"
 app_dirs2 = "2.3"
@@ -63,15 +64,19 @@ rpassword = "5.0"
 anyhow = "1.0"
 thiserror = "1.0"
 futures = { version = "0.3" }
-url = "2.2.2"
+url = "2.2"
 reqwest = { version = "0.11", features = ["stream"] }
-csv-async = "1.2.4"
+csv-async = "1.2"
 tokio-util = { version = "0.7.3", features = ["io"] }
 
 # gRPC dependencies
-tonic = "0.8"
+tonic = { version = "0.8", features = ["tls"] }
+tower-http = { version = "0.3", features = ["trace"] }
+tonic-web = "0.4"
 prost = "0.11"
 tokio = { version = "1.20", features = ["macros", "rt-multi-thread", "signal", "io-util"] }
+tokio-stream = "0.1"
+
 
 # Feature-gated dependencies
 gotham = { version = "0.6", optional = true }

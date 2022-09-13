@@ -4,7 +4,10 @@ use crate::{
         blockchain_types::BlockHash,
         catch_up::*,
         consensus::*,
-        helpers::{ConsensusFfiResponse, ConsensusIsInBakingCommitteeResponse, PacketType},
+        helpers::{
+            ConsensusFfiResponse, ConsensusIsInBakingCommitteeResponse, ConsensusQueryResponse,
+            PacketType,
+        },
         messaging::*,
     },
     write_or_die,
@@ -13,7 +16,7 @@ use anyhow::{anyhow, bail, Context};
 use byteorder::{NetworkEndian, ReadBytesExt};
 use crypto_common::Serial;
 use std::{
-    convert::TryFrom,
+    convert::{TryFrom, TryInto},
     ffi::{CStr, CString},
     io::{Cursor, Write},
     os::raw::{c_char, c_int},
@@ -253,6 +256,39 @@ type DirectMessageCallback = extern "C" fn(
 type RegenesisCallback = unsafe extern "C" fn(*const Regenesis, *const u8);
 type RegenesisFreeCallback = unsafe extern "C" fn(*const Regenesis);
 
+/// A type of callback that extends the given vector with the provided data.
+type CopyToVecCallback = extern "C" fn(*mut Vec<u8>, *const u8, i64);
+
+/// Context necessary for Haskell code/Consensus to send notifications on
+/// important events to Rust code (i.e., RPC server, or network layer).
+pub struct NotificationContext {
+    /// Notification channel for newly added blocks. This is an unbounded
+    /// channel since it makes the implementation simpler. This should not be a
+    /// problem since the consumer of this channel is a dedicated task and
+    /// blocks are not added to the tree that quickly. So there should not be
+    /// much contention for this.
+    pub blocks:           futures::channel::mpsc::UnboundedSender<Arc<[u8]>>,
+    /// Notification channel for newly finalized blocks. See
+    /// [NotificationContext::blocks] documentation for why having an unbounded
+    /// channel is OK here, and is unlikely to lead to resource exhaustion.
+    pub finalized_blocks: futures::channel::mpsc::UnboundedSender<Arc<[u8]>>,
+}
+
+/// A type of callback used to notify Rust code of important events. The
+/// callback is called with
+/// - the context
+/// - the event type (0 for block arrived, 1 for block finalized)
+/// - pointer to a byte array containing the serialized event
+/// - length of the data
+///
+/// The callback should not retain references to supplied data after the exit.
+type NotifyCallback = unsafe extern "C" fn(*mut NotificationContext, u8, *const u8, u64);
+
+pub struct NotificationHandlers {
+    pub blocks:           futures::channel::mpsc::UnboundedReceiver<Arc<[u8]>>,
+    pub finalized_blocks: futures::channel::mpsc::UnboundedReceiver<Arc<[u8]>>,
+}
+
 #[allow(improper_ctypes)]
 extern "C" {
     pub fn startConsensus(
@@ -267,6 +303,8 @@ extern "C" {
         genesis_data_len: i64,
         private_data: *const u8,
         private_data_len: i64,
+        notify_context: *mut NotificationContext,
+        notify_callback: NotifyCallback,
         broadcast_callback: BroadcastCallback,
         catchup_status_callback: CatchUpStatusCallback,
         regenesis_arc: *const Regenesis,
@@ -288,6 +326,8 @@ extern "C" {
         modules_cache_size: u32,
         genesis_data: *const u8,
         genesis_data_len: i64,
+        notify_context: *mut NotificationContext,
+        notify_callback: NotifyCallback,
         catchup_status_callback: CatchUpStatusCallback,
         regenesis_arc: *const Regenesis,
         free_regenesis_arc: RegenesisFreeCallback,
@@ -455,6 +495,242 @@ extern "C" {
         import_file_path_len: i64,
     ) -> i64;
     pub fn stopImportingBlocks(consensus: *mut consensus_runner);
+
+    pub fn freeByteArray(hstring: *const u8);
+
+    // Functions related to V2 GRPC interface.
+
+    /// Get information about a specific account in a given block.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `account_id_type` - Type of account identifier.
+    /// * `account_id` - Location with the account identifier. Length must match
+    ///   the corresponding type of block identifier.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `out` - Location to write the output of the query.
+    /// * `copier` - Callback for writting the output.
+    pub fn getAccountInfoV2(
+        consensus: *mut consensus_runner,
+        block_id_type: u8,
+        block_id: *const u8,
+        account_id_type: u8,
+        account_id: *const u8,
+        out_hash: *mut u8,
+        out: *mut Vec<u8>,
+        copier: CopyToVecCallback,
+    ) -> i64;
+
+    /// Get next account sequence number.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `account_address_ptr` - Pointer to account address. Must contain 32
+    ///   bytes.
+    /// * `out` - Location to write the output of the query.
+    /// * `copier` - Callback for writting the output.
+    pub fn getNextAccountSequenceNumberV2(
+        consensus: *mut consensus_runner,
+        account_address_ptr: *const u8,
+        out: *mut Vec<u8>,
+        copier: CopyToVecCallback,
+    ) -> i64;
+
+    /// Get the current consensus info.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `out` - Location to write the output of the query.
+    /// * `copier` - Callback for writting the output.
+    pub fn getConsensusInfoV2(
+        consensus: *mut consensus_runner,
+        out: *mut Vec<u8>,
+        copier: CopyToVecCallback,
+    ) -> i64;
+
+    /// Stream a list of all modules.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `stream` - Pointer to the response stream.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `callback` - Callback for writing to the response stream.
+    pub fn getModuleListV2(
+        consensus: *mut consensus_runner,
+        stream: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+        block_id_type: u8,
+        block_id: *const u8,
+        out_hash: *mut u8,
+        callback: extern "C" fn(
+            *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+            *const u8,
+            i64,
+        ) -> i32,
+    ) -> i64;
+
+    /// Get the source of a smart contract module.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `module_ref` - Location with the module reference. Length must be 32
+    ///   bytes.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `out` - Location to write the output of the query.
+    /// * `copier` - Callback for writting the output.
+    pub fn getModuleSourceV2(
+        consensus: *mut consensus_runner,
+        block_id_type: u8,
+        block_id: *const u8,
+        module_ref: *const u8,
+        out_hash: *mut u8,
+        out: *mut Vec<u8>,
+        copier: CopyToVecCallback,
+    ) -> i64;
+
+    /// Stream a list of smart contract instances.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `stream` - Pointer to the response stream.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `callback` - Callback for writing to the response stream.
+    pub fn getInstanceListV2(
+        consensus: *mut consensus_runner,
+        stream: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+        block_id_type: u8,
+        block_id: *const u8,
+        out_hash: *mut u8,
+        callback: extern "C" fn(
+            *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+            *const u8,
+            i64,
+        ) -> i32,
+    ) -> i64;
+
+    /// Get an information about a specific smart contract instance.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `contract_address_index` - The contract address index to use for the
+    ///   query.
+    /// * `contract_address_subindex` - The contract address subindex to use for
+    ///   the query.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `out` - Location to write the output of the query.
+    /// * `copier` - Callback for writting the output.
+    pub fn getInstanceInfoV2(
+        consensus: *mut consensus_runner,
+        block_id_type: u8,
+        block_id: *const u8,
+        contract_address_index: u64,
+        contract_address_subindex: u64,
+        out_hash: *mut u8,
+        out: *mut Vec<u8>,
+        copier: CopyToVecCallback,
+    ) -> i64;
+
+    /// Stream a list of ancestors for the given block
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `stream` - Pointer to the response stream.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `depth` - The maximum number of ancestors to include in the response.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `callback` - Callback for writing to the response stream.
+    pub fn getAncestorsV2(
+        consensus: *mut consensus_runner,
+        stream: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+        block_id_type: u8,
+        block_id: *const u8,
+        depth: u64,
+        out_hash: *mut u8,
+        callback: extern "C" fn(
+            *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+            *const u8,
+            i64,
+        ) -> i32,
+    ) -> i64;
+
+    /// Get the list of accounts in a given block and, if the block exists,
+    /// enqueue them into the provided [Sender](futures::channel::mpsc::Sender).
+    ///
+    /// Individual account addresses are enqueued using the provided callback.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `stream` - Pointer to the response stream.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `callback` - Callback for writing to the response stream.
+    pub fn getAccountListV2(
+        consensus: *mut consensus_runner,
+        stream: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+        block_id_type: u8,
+        block_id: *const u8,
+        out_hash: *mut u8,
+        callback: extern "C" fn(
+            *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+            *const u8,
+            i64,
+        ) -> i32,
+    ) -> i64;
+}
+
+/// This is the callback invoked by consensus on newly arrived, and newly
+/// finalized blocks. The callback enqueues the block in the corresponding
+/// channel for further processing. The other end of the channel is owned by a
+/// background task that forwards data from the channels into any currently
+/// active RPC clients.
+unsafe extern "C" fn notify_callback(
+    notify_context: *mut NotificationContext,
+    ty: u8,
+    data_ptr: *const u8,
+    data_len: u64,
+) {
+    let sender = &*notify_context;
+    match ty {
+        0u8 => {
+            if sender
+                .blocks
+                .unbounded_send(std::slice::from_raw_parts(data_ptr, data_len as usize).into())
+                .is_err()
+            {
+                error!("Failed to enqueue block that arrived.");
+                // do nothing. The error here should only happen if the
+                // receiver is disconnected, which means that the task
+                // forwarding events has been killed. That should never happen,
+                // and if it does, it indicates a disastrous situation.
+            }
+        }
+        1u8 => {
+            if sender
+                .finalized_blocks
+                .unbounded_send(std::slice::from_raw_parts(data_ptr, data_len as usize).into())
+                .is_err()
+            {
+                error!("Failed to enqueue finalized block.");
+                // do nothing. The error here should only happen if the
+                // receiver is disconnected, which means that the task
+                // forwarding events has been killed. That should never happen,
+                // and if it does, it indicates a disastrous situation.
+            }
+        }
+        unexpected => {
+            error!("Unexpected notification type {}. This is a bug.", unexpected);
+            // do nothing
+        }
+    }
 }
 
 pub fn get_consensus_ptr(
@@ -464,9 +740,9 @@ pub fn get_consensus_ptr(
     maximum_log_level: ConsensusLogLevel,
     appdata_dir: &Path,
     regenesis_arc: Arc<Regenesis>,
+    notification_context: Option<NotificationContext>,
 ) -> anyhow::Result<*mut consensus_runner> {
     let genesis_data_len = genesis_data.len();
-
     let mut runner_ptr = std::ptr::null_mut();
     let runner_ptr_ptr = &mut runner_ptr;
     let ret_code = match private_data {
@@ -486,6 +762,9 @@ pub fn get_consensus_ptr(
                     genesis_data_len as i64,
                     private_data_bytes.as_ptr(),
                     private_data_len as i64,
+                    notification_context
+                        .map_or(std::ptr::null_mut(), |ctx| Box::into_raw(Box::new(ctx))),
+                    notify_callback,
                     broadcast_callback,
                     catchup_status_callback,
                     Arc::into_raw(regenesis_arc),
@@ -513,6 +792,9 @@ pub fn get_consensus_ptr(
                         runtime_parameters.modules_cache_size,
                         genesis_data.as_ptr(),
                         genesis_data_len as i64,
+                        notification_context
+                            .map_or(std::ptr::null_mut(), |ctx| Box::into_raw(Box::new(ctx))),
+                        notify_callback,
                         catchup_status_callback,
                         Arc::into_raw(regenesis_arc),
                         free_regenesis_arc,
@@ -888,6 +1170,263 @@ impl ConsensusContainer {
 
         unsafe { stopImportingBlocks(consensus) }
     }
+
+    /// Look up the account in the given block.
+    /// The return value is a pair of the block hash which was used for the
+    /// query, and the protobuf serialized response.
+    ///
+    /// If the account cannot be found then a [tonic::Status::not_found] is
+    /// returned.
+    pub fn get_account_info_v2(
+        &self,
+        block_hash: &crate::grpc2::types::BlockHashInput,
+        account_identifier: &crate::grpc2::types::AccountIdentifierInput,
+    ) -> Result<([u8; 32], Vec<u8>), tonic::Status> {
+        use crate::grpc2::Require;
+        let (block_id_type, block_hash) =
+            crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let (acc_type, acc_id) =
+            crate::grpc2::types::account_identifier_to_ffi(account_identifier).require()?;
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut out_data: Vec<u8> = Vec::new();
+        let mut out_hash = [0u8; 32];
+        let response: ConsensusQueryResponse = unsafe {
+            getAccountInfoV2(
+                consensus,
+                block_id_type,
+                block_hash,
+                acc_type,
+                acc_id,
+                out_hash.as_mut_ptr(),
+                &mut out_data,
+                copy_to_vec_callback,
+            )
+            .try_into()?
+        };
+        response.ensure_ok("account or block")?;
+        Ok((out_hash, out_data))
+    }
+
+    /// Get the best guess as to what the next account sequence number should
+    /// be. If all account transactions are finalized, then this information
+    /// is reliable. Otherwise, this is the best guess, assuming all other
+    /// transactions will be committed to blocks and eventually finalized.
+    pub fn get_next_account_sequence_number_v2(
+        &self,
+        account_address: &crate::grpc2::types::AccountAddress,
+    ) -> Result<Vec<u8>, tonic::Status> {
+        use crate::grpc2::Require;
+        let account_address_ptr =
+            crate::grpc2::types::account_address_to_ffi(account_address).require()?;
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut out_data: Vec<u8> = Vec::new();
+        let _response: ConsensusQueryResponse = unsafe {
+            getNextAccountSequenceNumberV2(
+                consensus,
+                account_address_ptr,
+                &mut out_data,
+                copy_to_vec_callback,
+            )
+            .try_into()?
+        };
+        // The query should always return successfully, so no need to check here.
+        Ok(out_data)
+    }
+
+    /// Get information of the current state of consensus.
+    pub fn get_consensus_info_v2(&self) -> Result<Vec<u8>, tonic::Status> {
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut out_data: Vec<u8> = Vec::new();
+        let _response: ConsensusQueryResponse = unsafe {
+            getConsensusInfoV2(consensus, &mut out_data, copy_to_vec_callback).try_into()?
+        };
+        // The query should always return successfully, so no need to check here.
+        Ok(out_data)
+    }
+
+    /// Look up accounts in the given block, and return a stream of their
+    /// addresses.
+    ///
+    /// The return value is a block hash used for the query. If the requested
+    /// block does not exist a [tonic::Status::not_found] is returned.
+    pub fn get_account_list_v2(
+        &self,
+        block_hash: &crate::grpc2::types::BlockHashInput,
+        sender: futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+    ) -> Result<[u8; 32], tonic::Status> {
+        use crate::grpc2::Require;
+        let sender = Box::new(sender);
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut buf = [0u8; 32];
+        let (block_id_type, block_hash) =
+            crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let sender_ptr = Box::into_raw(sender);
+        let response: ConsensusQueryResponse = unsafe {
+            getAccountListV2(
+                consensus,
+                sender_ptr,
+                block_id_type,
+                block_hash,
+                buf.as_mut_ptr(),
+                enqueue_bytearray_callback,
+            )
+        }
+        .try_into()?;
+        if let Err(e) = response.ensure_ok("block") {
+            let _ = unsafe { Box::from_raw(sender_ptr) }; // deallocate sender since it is unused by Haskell.
+            Err(e)
+        } else {
+            Ok(buf)
+        }
+    }
+
+    /// Get a list of all smart contract modules. The stream will end
+    /// when all modules that exist in the state at the end of the given
+    /// block have been returned.
+    pub fn get_module_list_v2(
+        &self,
+        block_hash: &crate::grpc2::types::BlockHashInput,
+        sender: futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+    ) -> Result<[u8; 32], tonic::Status> {
+        use crate::grpc2::Require;
+
+        let sender = Box::new(sender);
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut buf = [0u8; 32];
+        let (block_id_type, block_hash) =
+            crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let response: ConsensusQueryResponse = unsafe {
+            getModuleListV2(
+                consensus,
+                Box::into_raw(sender),
+                block_id_type,
+                block_hash,
+                buf.as_mut_ptr(),
+                enqueue_bytearray_callback,
+            )
+        }
+        .try_into()?;
+        response.ensure_ok("block")?;
+        Ok(buf)
+    }
+
+    /// Get the source of a smart contract module.
+    pub fn get_module_source_v2(
+        &self,
+        block_hash: &crate::grpc2::types::BlockHashInput,
+        module_ref: &crate::grpc2::types::ModuleRef,
+    ) -> Result<([u8; 32], Vec<u8>), tonic::Status> {
+        use crate::grpc2::Require;
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut out_data: Vec<u8> = Vec::new();
+        let mut out_hash = [0u8; 32];
+        let (block_id_type, block_id) =
+            crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let module_ref_ptr = crate::grpc2::types::module_reference_to_ffi(module_ref).require()?;
+        let response: ConsensusQueryResponse = unsafe {
+            getModuleSourceV2(
+                consensus,
+                block_id_type,
+                block_id,
+                module_ref_ptr,
+                out_hash.as_mut_ptr(),
+                &mut out_data,
+                copy_to_vec_callback,
+            )
+        }
+        .try_into()?;
+        response.ensure_ok("module or block")?;
+        Ok((out_hash, out_data))
+    }
+
+    /// Get a list of addresses for all smart contract instances. The stream
+    /// will end when all instances that exist in the state at the end of the
+    /// given block has been returned.
+    pub fn get_instance_list_v2(
+        &self,
+        block_hash: &crate::grpc2::types::BlockHashInput,
+        sender: futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+    ) -> Result<[u8; 32], tonic::Status> {
+        use crate::grpc2::Require;
+        let sender = Box::new(sender);
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut buf = [0u8; 32];
+        let (block_id_type, block_hash) =
+            crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let response: ConsensusQueryResponse = unsafe {
+            getInstanceListV2(
+                consensus,
+                Box::into_raw(sender),
+                block_id_type,
+                block_hash,
+                buf.as_mut_ptr(),
+                enqueue_bytearray_callback,
+            )
+        }
+        .try_into()?;
+        response.ensure_ok("block")?;
+        Ok(buf)
+    }
+
+    /// Get information about a specific smart contract instance.
+    pub fn get_instance_info_v2(
+        &self,
+        block_hash: &crate::grpc2::types::BlockHashInput,
+        address: &crate::grpc2::types::ContractAddress,
+    ) -> Result<([u8; 32], Vec<u8>), tonic::Status> {
+        use crate::grpc2::Require;
+        let (block_id_type, block_hash) =
+            crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let addr_index = address.index;
+        let addr_subindex = address.subindex;
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut out_data: Vec<u8> = Vec::new();
+        let mut out_hash = [0u8; 32];
+        let response: ConsensusQueryResponse = unsafe {
+            getInstanceInfoV2(
+                consensus,
+                block_id_type,
+                block_hash,
+                addr_index,
+                addr_subindex,
+                out_hash.as_mut_ptr(),
+                &mut out_data,
+                copy_to_vec_callback,
+            )
+            .try_into()?
+        };
+        response.ensure_ok("block or instance")?;
+        Ok((out_hash, out_data))
+    }
+
+    /// Get ancestors for the provided block.
+    pub fn get_ancestors_v2(
+        &self,
+        block_hash: &crate::grpc2::types::BlockHashInput,
+        amount: u64,
+        sender: futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+    ) -> Result<[u8; 32], tonic::Status> {
+        use crate::grpc2::Require;
+        let sender = Box::new(sender);
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut buf = [0u8; 32];
+        let (block_id_type, block_hash) =
+            crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let response: ConsensusQueryResponse = unsafe {
+            getAncestorsV2(
+                consensus,
+                Box::into_raw(sender),
+                block_id_type,
+                block_hash,
+                amount,
+                buf.as_mut_ptr(),
+                enqueue_bytearray_callback,
+            )
+        }
+        .try_into()?;
+        response.ensure_ok("block")?;
+        Ok(buf)
+    }
 }
 
 pub enum CallbackType {
@@ -996,6 +1535,57 @@ pub extern "C" fn broadcast_callback(
 ) {
     trace!("Broadcast callback hit - queueing message");
     sending_callback!(None, msg_type, genesis_index, msg, msg_length, None);
+}
+
+/// Enqueue the byte array in the provided channel if possible.
+/// The return value is
+/// - 0 if enqueueing is successful.
+/// - -1 if the channel is full.
+/// - -2 if there are no more receivers. In this case the given sender is
+///   dropped and the given `sender` pointer must not be used anymore.
+///
+/// If the msg is a null pointer and length is not 0 then the `sender` is always
+/// dropped, and the response will be `-2`.
+extern "C" fn enqueue_bytearray_callback(
+    sender: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+    msg: *const u8,
+    msg_length: i64,
+) -> i32 {
+    let mut sender = unsafe { Box::from_raw(sender) };
+    let data = if msg_length != 0 {
+        if msg.is_null() {
+            // drop sender
+            return -2;
+        } else {
+            unsafe { slice::from_raw_parts(msg, msg_length as usize) }.to_vec()
+        }
+    } else {
+        Vec::new()
+    };
+    match sender.try_send(Ok(data.to_vec())) {
+        Ok(()) => {
+            // Do not drop the sender.
+            Box::into_raw(sender);
+            0
+        }
+        Err(e) if e.is_full() => {
+            // Do not drop the sender, we will enqueue more things.
+            Box::into_raw(sender);
+            -1
+        }
+        Err(_) => {
+            // drop the sender since it is no longer necessary.
+            -2
+        }
+    }
+}
+
+/// Copy data at the given location (provided by the `data` pointer) at the end
+/// of the given vector.
+extern "C" fn copy_to_vec_callback(out: *mut Vec<u8>, data: *const u8, len: i64) {
+    let data = unsafe { slice::from_raw_parts(data, len as usize) };
+    let out = unsafe { &mut *out };
+    out.extend_from_slice(data);
 }
 
 pub extern "C" fn direct_callback(

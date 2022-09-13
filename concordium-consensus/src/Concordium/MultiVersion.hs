@@ -91,8 +91,34 @@ instance
     ) =>
     HandlerConfigHandlers UpdateHandler (VersionedSkovM gc fc pv)
     where
-    handleBlock = \_ -> return ()
-    handleFinalize = \_ _ -> checkForProtocolUpdate
+    handleBlock bp = liftSkov $ do
+      lift (asks (notifyBlockArrived . mvCallbacks)) >>= \case
+        Nothing -> return ()
+        Just notifyCallback -> do
+          versionsRef <- lift (asks mvVersions)
+          versions <- liftIO (readIORef versionsRef)
+          let latestEraGenesisHeight =
+                case Vec.last versions of
+                  EVersionedConfiguration vc -> vcGenesisHeight vc
+          let height = localToAbsoluteBlockHeight latestEraGenesisHeight (bpHeight bp)
+          liftIO (notifyCallback (bpHash bp) height)
+    handleFinalize _ lfbp bps = liftSkov $ do
+      lift (asks (notifyBlockFinalized . mvCallbacks)) >>= \case
+        Nothing -> return ()
+        Just notifyCallback -> do
+          -- Notify a new block was finalized first.
+          versionsRef <- lift (asks mvVersions)
+          versions <- liftIO (readIORef versionsRef)
+          let latestEraGenesisHeight =
+                case Vec.last versions of
+                  EVersionedConfiguration vc -> vcGenesisHeight vc
+          forM_ (reverse bps) $ \bp -> do
+            let height = localToAbsoluteBlockHeight latestEraGenesisHeight (bpHeight bp)
+            liftIO (notifyCallback (bpHash bp) height)
+          let height = localToAbsoluteBlockHeight latestEraGenesisHeight (bpHeight lfbp)
+          liftIO (notifyCallback (bpHash lfbp) height)
+      -- And then check for protocol update.
+      checkForProtocolUpdate
 
 -- |Configuration for the global state that uses disk storage
 -- for both tree state and block state.
@@ -173,7 +199,13 @@ data Callbacks = Callbacks
       notifyCatchUpStatus :: GenesisIndex -> ByteString -> IO (),
       -- |Notify the P2P layer that we have a new genesis block, or Nothing
       -- if an unrecognized update took effect.
-      notifyRegenesis :: Maybe BlockHash -> IO ()
+      notifyRegenesis :: Maybe BlockHash -> IO (),
+      -- |Notify a block was added to the tree. The arguments are
+      -- the hash of the block, and its absolute height.
+      notifyBlockArrived :: Maybe (BlockHash -> AbsoluteBlockHeight -> IO ()),
+      -- |Notify a block was finalized. The arguments are the hash of the block,
+      -- and its absolute height.
+      notifyBlockFinalized :: Maybe (BlockHash -> AbsoluteBlockHeight -> IO ())
     }
 
 -- |Baker identity and baking thread 'MVar'.
