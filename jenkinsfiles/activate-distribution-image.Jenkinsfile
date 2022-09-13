@@ -64,8 +64,8 @@ node {
                 login_data() {
                 cat <<EOF
                 {
-                "username": "${CRED_USR}",
-                "password": "${CRED_PSW}"
+                "username": "\${CRED_USR}",
+                "password": "\${CRED_PSW}"
                 }
                 EOF
                 }
@@ -74,7 +74,7 @@ node {
 
                 curl "https://hub.docker.com/v2/repositories/concordium/${docker_images_base}/tags/${source_image_tag}/" \
                 -X DELETE \
-                -H "Authorization: JWT ${TOKEN}"
+                -H "Authorization: JWT \${TOKEN}"
                 """.stripIndent()
             }
         }
