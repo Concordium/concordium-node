@@ -648,8 +648,9 @@ data BufferedRef a
     -- That way, when we store the same instance again on disk (this could be, e.g., a child block
     -- that inherited its parent's state) we can store the pointer to the 'brValue' data rather than
     -- storing all of the data again.
-    -- This definition also makes it possible for shared references to share the
-    -- underlying stored value @a@.
+    -- This definition makes it possible for shared references to share the
+    -- updated value after it's been 'storeUpdated'.
+    -- See implementation for 'storeUpdate'.
     | BRBoth {brRef :: !(BlobRef a), brValue :: !a}
     -- ^Value stored in memory and on disk.
 
