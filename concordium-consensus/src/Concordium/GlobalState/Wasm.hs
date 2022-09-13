@@ -164,7 +164,7 @@ instrumentedModuleVFromBytes bs = do
 
 --------------------------------------------------------------------------------
 
--- |A Wasm module interface, parametrised by the type of the instrumented module.
+-- |A Wasm module interface, parametrised by the type of the "Artifact" i.e. an instrumented module.
 -- The instrumented module should be e.g. @InstrumentedModuleV v@.
 data ModuleInterfaceA instrumentedModule = ModuleInterface {
   -- |Reference of the module on the chain.
