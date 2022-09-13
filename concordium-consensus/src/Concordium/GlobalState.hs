@@ -20,10 +20,13 @@ import Control.Monad.State.Class
 import Control.Monad.Trans.Reader hiding (ask)
 import Data.Proxy
 import Data.ByteString.Char8(ByteString)
+import qualified Data.HashMap.Strict as HM
 import Data.Kind
+import Lens.Micro.Platform
 
+import Concordium.Utils
 import Concordium.Types.ProtocolVersion
-
+import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.Classes
 import Concordium.GlobalState.Basic.BlockState as BS
 import qualified Concordium.GlobalState.Basic.TreeState as Basic
@@ -402,14 +405,28 @@ class GlobalStateConfig (c :: Type) where
     -- construct a new active instance of global state by migrating state from
     -- the existing instance. The existing instance is unchanged. It is assumed
     -- that the existing instance is in a good state, i.e., all internal
-    -- invariants normally maintained during execution still exist.
+    -- invariants normally maintained during execution still hold. This function
+    -- additionally assumes the focus block is the last finalized block, and
+    -- there are no branches. This in particular implies that any transactions
+    -- in the transaction table are either finalized, or "received".
+    --
+    -- As well as block and tree state, this migrates the transaction table with
+    -- the auxiliary pending table. At present these are simply carried over,
+    -- but future protocol updates might need to do some migration of these as
+    -- well.
     migrateExistingState ::
       (IsProtocolVersion pv, IsProtocolVersion oldpv) =>
+      -- |The configuration.
       c ->
+      -- |Global state context for the state we are migrating from.
       GSContext c oldpv ->
+      -- |The state of the chain we are migrating from. See documentation above for assumptions.
       GSState c oldpv ->
+      -- |Auxiliary migration data.
       StateMigrationParameters oldpv pv ->
+      -- |Regenesis data for the new chain. This is in effect the genesis block of the new chain.
       Regenesis pv ->
+      -- |The return value is the context and state for the new chain.
       LogIO (GSContext c pv, GSState c pv)
 
     -- |Initialise new global state with the given genesis. If the state already
@@ -442,7 +459,17 @@ instance GlobalStateConfig MemoryTreeMemoryBlockConfig where
                 case migrateBlockState migration (_unhashedBlockState bs) of
                     Left err -> error $ "Precondition violation. Cannot migrate existing state: " ++ err
                     Right newbs -> do
-                        skovData <- runPureBlockStateMonad (Basic.initialSkovData mtmbRuntimeParameters (regenesisConfiguration regen) (BS.hashBlockState newbs) _transactionTable (Just _pendingTransactions))
+                        -- since the basic state maintains finalized transactions in the transaction table
+                        -- we need to remove them from the table for the new state since they don't apply to it.
+                        let newTT =
+                                _transactionTable
+                                    & ttHashMap
+                                        %~ HM.filter
+                                            ( \(_, s) -> case s of
+                                                Finalized{} -> False
+                                                _ -> True
+                                            )
+                        skovData <- runPureBlockStateMonad (Basic.initialSkovData mtmbRuntimeParameters (regenesisConfiguration regen) (BS.hashBlockState newbs) newTT (Just _pendingTransactions))
                         return ((), skovData)
 
     initialiseNewGlobalState gendata (MTMBConfig rtparams) = do
@@ -465,26 +492,37 @@ instance GlobalStateConfig MemoryTreeDiskBlockConfig where
     initialiseExistingGlobalState _ _ = return Nothing
 
     migrateExistingState MTDBConfig{..} oldPbsc oldState migration genData = do
-      pbscBlobStore <- liftIO $ createBlobStore mtdbBlockStateFile
-      pbscCache <- liftIO $ Accounts.newAccountCache (rpAccountsCacheSize mtdbRuntimeParameters)
-      let pbsc = PersistentBlockStateContext {..}
-      newInitialBlockState <- flip runBlobStoreT oldPbsc . flip runBlobStoreT pbsc $ do
-          case Basic._nextGenesisInitialState oldState of
-            Nothing -> error "Precondition violation. Migration called in state without initial block state."
-            Just initState -> do
-              newState <- migratePersistentBlockState migration (hpbsPointers initState)
-              Concordium.GlobalState.Persistent.BlockState.hashBlockState newState
-      let initGS = do
-            Basic.initialSkovData
-              mtdbRuntimeParameters
-              (regenesisConfiguration genData)
-              newInitialBlockState
-              (Basic._transactionTable oldState)
-              (Just (Basic._pendingTransactions oldState))
-      isd <- runReaderT (runPersistentBlockStateMonad initGS) pbsc
-              `onException` liftIO (destroyBlobStore pbscBlobStore)
-      return (pbsc, isd)
-
+        pbscBlobStore <- liftIO $ createBlobStore mtdbBlockStateFile
+        pbscCache <- liftIO $ Accounts.newAccountCache (rpAccountsCacheSize mtdbRuntimeParameters)
+        let pbsc = PersistentBlockStateContext{..}
+        newInitialBlockState <- flip runBlobStoreT oldPbsc . flip runBlobStoreT pbsc $ do
+            case Basic._nextGenesisInitialState oldState of
+                Nothing -> error "Precondition violation. Migration called in state without initial block state."
+                Just initState -> do
+                    newState <- migratePersistentBlockState migration (hpbsPointers initState)
+                    Concordium.GlobalState.Persistent.BlockState.hashBlockState newState
+        -- since the basic state maintains finalized transactions in the transaction table
+        -- we need to remove them from the table for the new state since they don't apply to it.
+        let newTT =
+                Basic._transactionTable oldState
+                    & ttHashMap
+                        %~ HM.filter
+                            ( \(_, s) -> case s of
+                                Finalized{} -> False
+                                _ -> True
+                            )
+        let initGS = do
+                Basic.initialSkovData
+                    mtdbRuntimeParameters
+                    (regenesisConfiguration genData)
+                    newInitialBlockState
+                    newTT
+                    (Just (Basic._pendingTransactions oldState))
+        isd <-
+            runReaderT (runPersistentBlockStateMonad initGS) pbsc
+                `onException` liftIO (destroyBlobStore pbscBlobStore)
+        return (pbsc, isd)
+    
     initialiseNewGlobalState genData MTDBConfig{..} = do
         (genState, genTT) <- case genesisState genData of
             Left err -> logExceptionAndThrow GlobalState (InvalidGenesisData err)

@@ -26,7 +26,7 @@ module Concordium.GlobalState.AccountMap (
   toMap,
   addresses,
   isAddressAssigned,
-  
+
   -- * Specializations for the pure in-memory implementation.
   lookupPure,
   addressWouldClashPure,
