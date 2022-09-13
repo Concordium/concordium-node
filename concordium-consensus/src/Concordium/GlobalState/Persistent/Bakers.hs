@@ -26,6 +26,7 @@ import qualified Concordium.GlobalState.Basic.BlockState.Bakers as Basic
 import qualified Concordium.Types.Accounts as BaseAccounts
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.Account
+import qualified Concordium.GlobalState.Persistent.Accounts as Accounts
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.Types
 import Concordium.Types.Execution (DelegationTarget(..))
@@ -117,6 +118,7 @@ extractBakerStakes PersistentEpochBakers{..} = do
       (Vec.toList infos)
       (Vec.toList stakes)
 
+-- |See documentation of @migratePersistentBlockState@.
 migratePersistentEpochBakers ::
     forall oldpv pv t m.
     ( IsProtocolVersion oldpv
@@ -128,7 +130,7 @@ migratePersistentEpochBakers ::
     t m (PersistentEpochBakers (AccountVersionFor pv))
 migratePersistentEpochBakers migration PersistentEpochBakers {..} = do
   newBakerInfos <- migrateHashedBufferedRef (migrateBakerInfos migration) _bakerInfos
-  newBakerStakes <- migrateHashedBufferedRefId _bakerStakes
+  newBakerStakes <- migrateHashedBufferedRefKeepHash _bakerStakes
   return PersistentEpochBakers {
     _bakerInfos = newBakerInfos,
     _bakerStakes = newBakerStakes,
@@ -239,6 +241,7 @@ data PersistentActiveDelegators (av :: AccountVersion) where
         } ->
         PersistentActiveDelegators 'AccountV1
 
+-- |See documentation of @migratePersistentBlockState@.
 migratePersistentActiveDelegators ::
     (BlobStorable m (), BlobStorable (t m) (), MonadTrans t) =>
     StateMigrationParameters oldpv pv ->
@@ -296,7 +299,13 @@ data TotalActiveCapital (av :: AccountVersion) where
 
 deriving instance Show (TotalActiveCapital av)
 
-migrateTotalActiveCapital :: StateMigrationParameters oldpv pv -> Amount -> TotalActiveCapital (AccountVersionFor oldpv) -> TotalActiveCapital (AccountVersionFor pv)
+-- |See documentation of @migratePersistentBlockState@.
+migrateTotalActiveCapital ::
+  StateMigrationParameters oldpv pv ->
+  -- |The total amount staked by all the __bakers__.
+  Amount ->
+  TotalActiveCapital (AccountVersionFor oldpv) ->
+  TotalActiveCapital (AccountVersionFor pv)
 migrateTotalActiveCapital StateMigrationParametersTrivial _ x = x
 migrateTotalActiveCapital StateMigrationParametersP1P2 _ x = x
 migrateTotalActiveCapital StateMigrationParametersP2P3 _ x = x
@@ -335,20 +344,32 @@ data PersistentActiveBakers (av :: AccountVersion) = PersistentActiveBakers {
 
 makeLenses ''PersistentActiveBakers
 
+-- |See documentation of @migratePersistentBlockState@.
 migratePersistentActiveBakers :: forall oldpv pv t m .
     (IsProtocolVersion oldpv,
      IsProtocolVersion pv,
-     SupportMigration m t) => 
+     SupportMigration m t,
+     Accounts.SupportsPersistentAccount pv (t m)
+    ) => 
     StateMigrationParameters oldpv pv ->
-    -- |Total amount staked by all the bakers.
-    Amount -> 
+    -- |Already migrated accounts.
+    Accounts.Accounts pv -> 
     PersistentActiveBakers (AccountVersionFor oldpv) ->
     t m (PersistentActiveBakers (AccountVersionFor pv))
-migratePersistentActiveBakers migration bakerStakedAmount PersistentActiveBakers{..} = do
+migratePersistentActiveBakers migration accounts PersistentActiveBakers{..} = do
   newActiveBakers <- Trie.migrateTrieN True (migratePersistentActiveDelegators migration) _activeBakers
   newAggregationKeys <- Trie.migrateTrieN True return _aggregationKeys
   newPassiveDelegators <- migratePersistentActiveDelegators migration _passiveDelegators
-  let newTotalActiveCapital = migrateTotalActiveCapital migration bakerStakedAmount _totalActiveCapital
+  bakerIds <- Trie.keysAsc newActiveBakers
+  totalStakedAmount <- foldM (\acc (BakerId aid) ->
+    Accounts.indexedAccount aid accounts >>= \case
+      Nothing -> error "Baker account does not exist."
+      Just pa -> case pa ^. accountBaker of
+        Null -> error "Baker account not a baker."
+        Some bref -> do
+            bkr <- refLoad bref
+            return $! (acc + _stakedAmount bkr)) 0 bakerIds
+  let newTotalActiveCapital = migrateTotalActiveCapital migration totalStakedAmount _totalActiveCapital
   return PersistentActiveBakers {
     _activeBakers = newActiveBakers,
     _aggregationKeys = newAggregationKeys,

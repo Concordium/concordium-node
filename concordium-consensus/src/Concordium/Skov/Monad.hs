@@ -201,7 +201,7 @@ class (SkovQueryMonad m, TimeMonad m, MonadLogger m) => SkovMonad m where
     -- |Clean up the Skov state upon a protocol update, removing all blocks that
     -- are made obsolete by the protocol update. This should maintain all
     -- invariants normally maintained by the Skov state, e.g., transaction table
-    -- invariants. occurred).
+    -- invariants.
     clearSkovOnProtocolUpdate :: m ()
     -- |Release any resources maintained by Skov and no longer needed after a
     -- new skov instance is started after a protocol update. This is intended to be called
@@ -211,6 +211,11 @@ class (SkovQueryMonad m, TimeMonad m, MonadLogger m) => SkovMonad m where
     -- periodically to clean up transactions that are not committed to any block.
     purgeTransactions :: m ()
 
+    -- |Record the final block state, derived from the last finalized block to
+    -- prepare for the construction of the new genesis for the chain after the
+    -- protocol update. This state is not associated with any specific block of
+    -- the chain. This function is only meant to be used during a protocol
+    -- update.
     rememberFinalState :: BlockState m -> m ()
 
 instance (Monad (t m), MonadTrans t, SkovQueryMonad m) => SkovQueryMonad (MGSTrans t m) where

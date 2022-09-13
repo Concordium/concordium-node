@@ -939,12 +939,13 @@ data HashedBufferedRef' h a
       }
 
 -- |Migrate a 'HashedBufferedRef' assuming that the value nor its hash change.
--- already.
-migrateHashedBufferedRefId ::
+-- The input reference is uncached, and the new references is flushed
+-- to disk, as well as cached in memory.
+migrateHashedBufferedRefKeepHash ::
     (MonadTrans t, BlobStorable m a, BlobStorable (t m) a) =>
     HashedBufferedRef' h a ->
     t m (HashedBufferedRef' h a)
-migrateHashedBufferedRefId hb = do
+migrateHashedBufferedRefKeepHash hb = do
     !newRef <- refMake =<< lift (refLoad (bufferedReference hb))
     -- carry over the hash
     (!b, _) <- refFlush newRef
@@ -956,7 +957,8 @@ migrateHashedBufferedRefId hb = do
             }
 
 -- |Migrate a 'HashedBufferedRef'. The returned reference has a hash computed
--- already.
+-- already. The input reference is uncached, and the new references is flushed
+-- to disk, as well as cached in memory.
 migrateHashedBufferedRef ::
   (MonadTrans t, MHashableTo (t m) h b, BlobStorable m a, BlobStorable (t m) b) =>
   (a -> t m b) ->

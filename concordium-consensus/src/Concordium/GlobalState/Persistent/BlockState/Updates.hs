@@ -40,6 +40,7 @@ data UpdateQueue e = UpdateQueue {
         uqQueue :: !(Seq.Seq (TransactionTime, HashedBufferedRef (StoreSerialized e)))
     }
 
+-- |See documentation of @migratePersistentBlockState@.
 migrateUpdateQueue ::
   (SupportMigration m t,
    Serialize e1,
@@ -209,6 +210,7 @@ data PendingUpdates (cpv :: ChainParametersVersion) = PendingUpdates {
     }
 
 
+-- |See documentation of @migratePersistentBlockState@.
 migratePendingUpdates ::
   forall oldpv pv t m . 
   (IsProtocolVersion pv,
@@ -513,6 +515,7 @@ data Updates' (cpv :: ChainParametersVersion) = Updates {
         pendingUpdates :: !(PendingUpdates cpv)
     }
 
+-- |See documentation of @migratePersistentBlockState@.
 migrateUpdates :: 
   forall oldpv pv t m . 
     (IsProtocolVersion pv,
@@ -528,11 +531,14 @@ migrateUpdates migration Updates{..} = do
           }
   newKeyCollection <- migrateHashedBufferedRef (return . StoreSerialized . migrateKeysCollection . unStoreSerialized) currentKeyCollection
   newParameters <- migrateHashedBufferedRef (return . StoreSerialized . migrateChainParameters migration . unStoreSerialized) currentParameters
+  newCurrentProtocolUpdate <- case currentProtocolUpdate of
+    Null -> return Null
+    Some c -> Some <$!> migrateHashedBufferedRef return c
   return Updates {
     currentKeyCollection = newKeyCollection,
-    currentProtocolUpdate = Null, -- TODO: Make sure this is sensible. We do always clear pending protocol updates, but maybe we don't want to do that here.
     currentParameters = newParameters,
-    pendingUpdates = newPendingUpdates
+    pendingUpdates = newPendingUpdates,
+    currentProtocolUpdate = newCurrentProtocolUpdate
     }
 
 type Updates (pv :: ProtocolVersion) = Updates' (ChainParametersVersionFor pv)

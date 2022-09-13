@@ -109,6 +109,9 @@ data PersistentBirkParameters (av :: AccountVersion) = PersistentBirkParameters 
 
 makeLenses ''PersistentBirkParameters
 
+-- |See documentation of @migratePersistentBlockState@.
+--
+-- Migrate the birk parameters assuming accounts have already been migrated.
 migratePersistentBirkParameters :: forall oldpv pv t m .
     ( IsProtocolVersion pv
     , IsProtocolVersion oldpv
@@ -120,12 +123,7 @@ migratePersistentBirkParameters :: forall oldpv pv t m .
   PersistentBirkParameters (AccountVersionFor oldpv) ->
   t m (PersistentBirkParameters (AccountVersionFor pv))
 migratePersistentBirkParameters migration accounts PersistentBirkParameters{..} = do
-  bakerIds <- lift (Trie.keysAsc . _activeBakers =<< refLoad _birkActiveBakers)
-  totalBakerStakedAmount <- foldM (\acc (BakerId aid) ->
-    Accounts.indexedAccount aid accounts >>= \case
-      Nothing -> error "Baker account does not exist."
-      Just pa -> return $! (acc + _accountAmount pa)) 0 bakerIds
-  newActiveBakers <- migrateReference (migratePersistentActiveBakers migration totalBakerStakedAmount) _birkActiveBakers
+  newActiveBakers <- migrateReference (migratePersistentActiveBakers migration accounts) _birkActiveBakers
   newNextEpochBakers <- migrateHashedBufferedRef (migratePersistentEpochBakers migration) _birkNextEpochBakers
   newCurrentEpochBakers <- migrateHashedBufferedRef (migratePersistentEpochBakers migration) _birkCurrentEpochBakers
   return PersistentBirkParameters {
@@ -219,6 +217,8 @@ data EpochBlock = EpochBlock {
     ebPrevious :: !EpochBlocks
 }
 
+-- |Migrate the 'EpochBlocks' structure, reading it from context @m@ and writing
+-- it to context @t m@.
 migrateEpochBlocks :: (MonadTrans t, BlobStorable m EpochBlock, BlobStorable (t m) EpochBlock) => EpochBlocks -> t m EpochBlocks
 migrateEpochBlocks Null = return Null
 migrateEpochBlocks (Some inner) = Some <$> migrateReference go inner
@@ -226,14 +226,15 @@ migrateEpochBlocks (Some inner) = Some <$> migrateReference go inner
           newPrevious <- migrateEpochBlocks ebPrevious
           return EpochBlock{ebPrevious = newPrevious,..}
 
+-- |Return a map, mapping baker ids to the number of blocks they baked as they
+-- appear in the 'EpochBlocks' structure.
 bakersFromEpochBlocks :: (MonadBlobStore m) => EpochBlocks -> m (Map.Map BakerId Word64)
-bakersFromEpochBlocks = go (0 :: Word64) Map.empty
-  where go _ m Null = return m
-        go t m (Some ref) = do
+bakersFromEpochBlocks = go Map.empty
+  where go m Null = return m
+        go m (Some ref) = do
             EpochBlock{..} <- refLoad ref
-            let !t' = t + 1
-                !m' = m & at ebBakerId . non 0 +~ 1
-            go t' m' ebPrevious
+            let !m' = m & at ebBakerId . non 0 +~ 1
+            go m' ebPrevious
 
 instance (MonadBlobStore m) => BlobStorable m EpochBlock where
     storeUpdate eb@EpochBlock{..} = do
@@ -266,6 +267,10 @@ data HashedEpochBlocks = HashedEpochBlocks {
         hebHash :: !Rewards.EpochBlocksHash
     }
 
+-- |Like 'migrateEpochBlocks', but for hashed blocks. This makes use of the fact
+-- that the hash does not change upon migration and so it is carried over.
+--
+-- See also documentation of @migratePersistentBlockState@.
 migrateHashedEpochBlocks :: (MonadTrans t, BlobStorable m EpochBlock, BlobStorable (t m) EpochBlock) => HashedEpochBlocks -> t m HashedEpochBlocks
 migrateHashedEpochBlocks HashedEpochBlocks{..} = do
   newHebBlocks <- migrateEpochBlocks hebBlocks
@@ -353,7 +358,7 @@ migrateBlockRewardDetails ::
     t m (BlockRewardDetails (AccountVersionFor pv))
 migrateBlockRewardDetails StateMigrationParametersTrivial _ _ _ = \case
     (BlockRewardDetailsV0 heb) -> BlockRewardDetailsV0 <$> migrateHashedEpochBlocks heb
-    (BlockRewardDetailsV1 hbr) -> BlockRewardDetailsV1 <$> migrateHashedBufferedRef return hbr
+    (BlockRewardDetailsV1 hbr) -> BlockRewardDetailsV1 <$> migrateHashedBufferedRefKeepHash hbr
 migrateBlockRewardDetails StateMigrationParametersP1P2 _ _ _ = \case
     (BlockRewardDetailsV0 heb) -> BlockRewardDetailsV0 <$> migrateHashedEpochBlocks heb
 migrateBlockRewardDetails StateMigrationParametersP2P3 _ _ _ = \case
@@ -2956,10 +2961,10 @@ migrateBlockPointers migration BlockStatePointers {..} = do
     newInstances <- Instances.migrateInstances bspInstances
     newModules <- migrateHashedBufferedRef Modules.migrateModules bspModules
     let newBank = bspBank
-    newIdentityProviders <- migrateHashedBufferedRef return bspIdentityProviders
-    newAnonymityRevokers <- migrateHashedBufferedRef return bspAnonymityRevokers
+    newIdentityProviders <- migrateHashedBufferedRefKeepHash bspIdentityProviders
+    newAnonymityRevokers <- migrateHashedBufferedRefKeepHash bspAnonymityRevokers
     newBirkParameters <- migratePersistentBirkParameters migration newAccounts bspBirkParameters
-    newCryptographicParameters <- migrateHashedBufferedRef return bspCryptographicParameters
+    newCryptographicParameters <- migrateHashedBufferedRefKeepHash bspCryptographicParameters
     newUpdates <- migrateReference (migrateUpdates migration) bspUpdates
     newReleaseSchedule <- migrateReference return bspReleaseSchedule
     curBakers <- extractBakerStakes =<< refLoad (_birkCurrentEpochBakers newBirkParameters)
