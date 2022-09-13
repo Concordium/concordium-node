@@ -97,11 +97,13 @@ initialSkovData ::
   GenesisConfiguration ->
   bs ->
   TransactionTable ->
-  -- ^Genesis transaction table
+  -- ^Initial transaction table. All transactions should either be finalized,
+  -- or received, but not committed.
   Maybe PendingTransactionTable ->
-  -- ^The table of transactions to start the configuration with. If this
-  -- transaction table has any non-finalized transactions then the pending
-  -- table corresponding to those non-finalized transactions must be supplied.
+  -- ^The initial pending transaction table. If the supplied __transaction
+  -- table__ has transactions that are not finalized the pending table must be
+  -- supplied to record these, satisfying the usual properties. See
+  -- documentation of the 'PendingTransactionTable' for details.
   m (SkovData pv bs)
 initialSkovData rp gd genState genTT mPending =
     return $! SkovData {
@@ -431,7 +433,18 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
                 )
 
     clearAfterProtocolUpdate = do
-        transactionTable .=! emptyTransactionTable
+        oldTT <- use transactionTable
+        -- since this is the basic state we have to maintain the old
+        -- finalized transactions in memory
+        let newTT =
+                emptyTransactionTable
+                    & ttHashMap
+                        .~ HM.filter
+                            ( \(_, s) -> case s of
+                                Finalized{} -> True
+                                _ -> False
+                            )
+                            (oldTT ^. ttHashMap)
         pendingTransactions .=! emptyPendingTransactionTable
         nextGenesisInitialState .=! Nothing
         BS.collapseCaches

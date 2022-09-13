@@ -85,7 +85,8 @@ newtype InMemoryPersistentState = InMemoryPersistentState PersistentState
 -- |Migrate the provided persistent state from the existing backing store (which
 -- can be accessed using the provided 'LoadCallback'), to the new backing store
 -- (that is written to using the provided 'StoreCallback'). The input persistent
--- state remains valid.
+-- state remains valid. The new persistent state is not cached, it is entirely
+-- stored on disk.
 foreign import ccall "migrate_persistent_tree_v1" migratePersistentTree :: LoadCallback -> StoreCallback -> Ptr PersistentState -> IO (Ptr PersistentState)
 
 migratePersistentState :: LoadCallback -> StoreCallback -> PersistentState -> IO PersistentState

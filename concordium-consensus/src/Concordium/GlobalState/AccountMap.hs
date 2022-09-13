@@ -71,6 +71,7 @@ newtype AccountMap (pv :: ProtocolVersion) fix = AccountMap {
 -- |The account map to be used in the persistent block state.
 type PersistentAccountMap pv = AccountMap pv BufferedFix
 
+-- |See documentation of @migratePersistentBlockState@.
 migratePersistentAccountMap
     :: (BlobStorable m AccountIndex, BlobStorable (t m) AccountIndex, MonadTrans t)
     => PersistentAccountMap oldpv

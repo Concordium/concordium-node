@@ -533,6 +533,11 @@ class Monad m => Reference m ref a where
 -- implementation is possible that either retains the original hash if this is
 -- applicable, or one that computes the hash at the most opportune time, when
 -- the value is known to be in memory.
+--
+-- The old (input) reference is uncached, and the new reference is flushed.
+-- Typically this will mean that the value is retained in memory with a pointer
+-- to a disk value. But this may be different for some references such as
+-- 'CachedRef'.
 migrateReference ::
     forall t m ref1 ref2 a b.
     (MonadTrans t, Reference m ref1 a, Reference (t m) ref2 b) =>
@@ -932,6 +937,23 @@ data HashedBufferedRef' h a
       { bufferedReference :: !(BufferedRef a),
         bufferedHash :: !(IORef (Nullable h))
       }
+
+-- |Migrate a 'HashedBufferedRef' assuming that the value nor its hash change.
+-- already.
+migrateHashedBufferedRefId ::
+    (MonadTrans t, BlobStorable m a, BlobStorable (t m) a) =>
+    HashedBufferedRef' h a ->
+    t m (HashedBufferedRef' h a)
+migrateHashedBufferedRefId hb = do
+    !newRef <- refMake =<< lift (refLoad (bufferedReference hb))
+    -- carry over the hash
+    (!b, _) <- refFlush newRef
+    !_ <- lift (refUncache (bufferedReference hb))
+    return $!
+        HashedBufferedRef
+            { bufferedReference = b
+            , bufferedHash = bufferedHash hb
+            }
 
 -- |Migrate a 'HashedBufferedRef'. The returned reference has a hash computed
 -- already.

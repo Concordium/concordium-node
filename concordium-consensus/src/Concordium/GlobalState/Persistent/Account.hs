@@ -206,6 +206,7 @@ instance forall av. IsAccountVersion av => Show (PersistentExtraBakerInfo av) wh
 
 instance forall av m. (Applicative m) => Cacheable m (PersistentExtraBakerInfo av)
 
+-- |See documentation of @migratePersistentBlockState@.
 migratePersistentExtraBakerInfo' ::
     forall oldpv pv t m.
     ( IsProtocolVersion pv
@@ -227,6 +228,7 @@ migratePersistentExtraBakerInfo' migration bi = do
             (!newRef, _) <- refFlush =<< refMake bpi
             return newRef
 
+-- |See documentation of @migratePersistentBlockState@.
 migratePersistentExtraBakerInfo ::
     forall oldpv pv t m.
     ( IsProtocolVersion pv
@@ -247,11 +249,13 @@ data PersistentBakerInfoEx av = PersistentBakerInfoEx {
     bakerInfoExtra :: !(PersistentExtraBakerInfo av)
 } deriving (Show)
 
+-- |Load the baker id from the 'PersistentBakerInfoEx' structure.
 loadBakerId :: MonadBlobStore m => PersistentBakerInfoEx av -> m BakerId
 loadBakerId PersistentBakerInfoEx {..} = do
   bi <- refLoad bakerInfoRef
   return (_bakerIdentity bi)
 
+-- |See documentation of @migratePersistentBlockState@.
 migratePersistentBakerInfoEx ::
     forall oldpv pv t m.
     ( IsProtocolVersion pv
@@ -267,7 +271,6 @@ migratePersistentBakerInfoEx migration PersistentBakerInfoEx {..} = do
     bakerInfoExtra = newBakerInfoExtra
     }
   
-
 -- |Load a 'BakerInfoEx' from a 'PersistentBakerInfoEx'.
 loadPersistentBakerInfoEx :: forall av m. (IsAccountVersion av, MonadBlobStore m)
   => PersistentBakerInfoEx av -> m (BakerInfoEx av)
@@ -328,6 +331,7 @@ data PersistentAccountBaker (av :: AccountVersion) = PersistentAccountBaker
 
 deriving instance (Show (PersistentExtraBakerInfo av)) => Show (PersistentAccountBaker av)
 
+-- |See documentation of @migratePersistentBlockState@.
 migratePersistentAccountBaker :: forall oldpv pv t m .
     (IsProtocolVersion pv,
      SupportMigration m t) =>
@@ -446,12 +450,14 @@ data PersistentAccountStake (av :: AccountVersion) where
 
 deriving instance (Show (PersistentExtraBakerInfo av)) => Show (PersistentAccountStake av)
 
+-- |See documentation of @migratePersistentBlockState@.
 migratePersistentAccountStake :: forall oldpv pv t m .
     (IsProtocolVersion oldpv,
      IsProtocolVersion pv,
      SupportMigration m t) =>
     StateMigrationParameters oldpv pv ->
-    PersistentAccountStake (AccountVersionFor oldpv) -> t m (PersistentAccountStake (AccountVersionFor pv))
+    PersistentAccountStake (AccountVersionFor oldpv) ->
+    t m (PersistentAccountStake (AccountVersionFor pv))
 migratePersistentAccountStake _ PersistentAccountStakeNone = return PersistentAccountStakeNone
 migratePersistentAccountStake migration (PersistentAccountStakeBaker r) = PersistentAccountStakeBaker <$!> migrateEagerBufferedRef (migratePersistentAccountBaker migration) r
 migratePersistentAccountStake migration (PersistentAccountStakeDelegate r) = 
@@ -536,6 +542,7 @@ data PersistentAccount (av :: AccountVersion) = PersistentAccount {
 
 makeLenses ''PersistentAccount
 
+-- |See documentation of @migratePersistentBlockState@.
 migratePersistentAccount :: forall oldpv pv t m .
     (IsProtocolVersion oldpv,
      IsProtocolVersion pv,
@@ -558,9 +565,8 @@ migratePersistentAccount migration PersistentAccount {..} = do
     _accountStake = newAccountStake
    }
 
-migratePersistentEncryptedAmount :: (
-     SupportMigration m t
-    ) =>
+-- |See documentation of @migratePersistentBlockState@.
+migratePersistentEncryptedAmount :: SupportMigration m t =>
     PersistentAccountEncryptedAmount -> t m PersistentAccountEncryptedAmount
 migratePersistentEncryptedAmount PersistentAccountEncryptedAmount{..} = do
   newSelfAmount <- migrateEagerBufferedRef return _selfAmount

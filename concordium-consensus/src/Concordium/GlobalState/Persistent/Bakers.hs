@@ -44,6 +44,7 @@ newtype BakerInfos (av :: AccountVersion)
     = BakerInfos (Vec.Vector (PersistentBakerInfoEx av))
     deriving (Show)
 
+-- |See documentation of @migratePersistentBlockState@.
 migrateBakerInfos ::
     forall oldpv pv t m.
     ( IsProtocolVersion pv
@@ -127,7 +128,7 @@ migratePersistentEpochBakers ::
     t m (PersistentEpochBakers (AccountVersionFor pv))
 migratePersistentEpochBakers migration PersistentEpochBakers {..} = do
   newBakerInfos <- migrateHashedBufferedRef (migrateBakerInfos migration) _bakerInfos
-  newBakerStakes <- migrateHashedBufferedRef return _bakerStakes
+  newBakerStakes <- migrateHashedBufferedRefId _bakerStakes
   return PersistentEpochBakers {
     _bakerInfos = newBakerInfos,
     _bakerStakes = newBakerStakes,

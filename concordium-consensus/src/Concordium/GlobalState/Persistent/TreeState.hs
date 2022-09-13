@@ -271,7 +271,12 @@ initialSkovPersistentData
     -- ^The table of transactions to start the configuration with. If this
     -- transaction table has any non-finalized transactions then the pending
     -- table corresponding to those non-finalized transactions must be supplied.
+    -- This table should never have "Committed" transactions.
     -> Maybe PendingTransactionTable
+    -- ^The initial pending transaction table. If the supplied __transaction
+    -- table__ has transactions that are not finalized the pending table must be
+    -- supplied to record these, satisfying the usual properties. See
+    -- documentation of the 'PendingTransactionTable' for details.
     -> m (SkovPersistentData pv bs)
 initialSkovPersistentData rp treeStateDir gd genState serState genTT mPending = do
   gb <- makeGenesisPersistentBlockPointer gd genState

@@ -2075,6 +2075,11 @@ genesisState gd = case protocolVersion @pv of
                   _blockUpdates = initialUpdates genesisUpdateKeys genesisChainParameters
                   _blockReleaseSchedule = Map.empty
 
+-- |Migrate block state from the representation used by protocol version @oldpv@
+-- to the one used by protocol version @pv@. The @StateMigrationParameters@
+-- supply any context that might be needed to perform the migration.
+--
+-- This function should only fail if there is a bug in state deserialization.
 migrateBlockState ::
     forall oldpv pv.
     (IsProtocolVersion oldpv, IsProtocolVersion pv) =>
