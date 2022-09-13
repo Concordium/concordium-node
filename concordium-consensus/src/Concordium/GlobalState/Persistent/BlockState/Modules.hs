@@ -242,10 +242,14 @@ putModuleV0 (ModuleV1 ModuleV{..}) = sPut =<< loadRef moduleVSource
 
 --------------------------------------------------------------------------------
 
--- |A reference for obtaining a module in the 'LFMBTree'.
+-- |A cached 'Module' accessed via a cached 'Reference' i.e., a 'Reference'
+-- that might or might not yield the actual value (the 'Module').
+-- The 'CachedModule' is further "hashed" making it suitable for storing in
+-- the 'LFMBTree' which stores references to the 'Modules's in the underlying storage.
+--
 -- The module is cached in the 'ModuleCache' while the actual artifact is
 -- loaded on demand.
-type ModuleReference = HashedCachedRef ModuleCache
+type CachedModule = HashedCachedRef ModuleCache Module
 
 -- |The cache retaining 'Module's
 type ModuleCache = FIFOCache Module
@@ -266,7 +270,7 @@ data Modules = Modules {
   -- Modules themselves are wrapped in a @DirectBufferedRef@ which
   -- serves the purpose of not loading the artifact before it is required
   -- by the rust wasm execution engine.
-  _modulesTable :: !(LFMBTree' ModuleIndex HashedBufferedRef (ModuleReference Module)),
+  _modulesTable :: !(LFMBTree' ModuleIndex HashedBufferedRef CachedModule),
   -- |A map of ModuleRef to ModuleIndex.
   _modulesMap :: !(Map ModuleRef ModuleIndex)
   }
@@ -327,7 +331,7 @@ getModule ref mods =
 -- |Gets the 'HashedCachedRef' to a module as stored in the module table
 -- to be given to instances when associating them with the interface.
 -- The reason we return the reference here is to allow for sharing of the reference.
-getModuleReference :: SupportsPersistentModule m => ModuleRef -> Modules -> m (Maybe (ModuleReference Module))
+getModuleReference :: SupportsPersistentModule m => ModuleRef -> Modules -> m (Maybe CachedModule)
 getModuleReference ref mods =
   let modIdx = Map.lookup ref (mods ^. modulesMap) in
   case modIdx of

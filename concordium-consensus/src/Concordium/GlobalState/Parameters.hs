@@ -114,14 +114,14 @@ data RuntimeParameters = RuntimeParameters {
 defaultRuntimeParameters :: RuntimeParameters
 defaultRuntimeParameters = RuntimeParameters {
   rpBlockSize = 10 * 10^(6 :: Int), -- 10MB
-  rpBlockTimeout = 3000, -- 3 seconds
-  rpEarlyBlockThreshold = 30000, -- 30 seconds
-  rpMaxBakingDelay = 10000, -- 10 seconds
-  rpInsertionsBeforeTransactionPurge = 1000,
+  rpBlockTimeout = 3_000, -- 3 seconds
+  rpEarlyBlockThreshold = 30_000, -- 30 seconds
+  rpMaxBakingDelay = 10_000, -- 10 seconds
+  rpInsertionsBeforeTransactionPurge = 1_000,
   rpTransactionsKeepAliveTime = 5 * 60, -- 5 min
   rpTransactionsPurgingDelay = 3 * 60, -- 3 min
   rpAccountsCacheSize = 10_000,
-  rpModulesCacheSize = 100
+  rpModulesCacheSize = 1_000
   }
 
 instance FromJSON RuntimeParameters where

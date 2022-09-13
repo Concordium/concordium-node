@@ -2599,7 +2599,7 @@ withNewAccountCache :: (MonadIO m) => Int -> BlobStoreT (PersistentBlockStateCon
 withNewAccountCache size bsm = do
     ac <- liftIO $ Accounts.newAccountCache size
     mc <- liftIO $ Modules.newModuleCache 100
-    alterBlobStoreT (flip (flip PersistentBlockStateContext ac) mc) bsm 
+    alterBlobStoreT (\bs -> PersistentBlockStateContext bs ac mc) bsm
 
 newtype PersistentBlockStateMonad (pv :: ProtocolVersion) r m a = PersistentBlockStateMonad {runPersistentBlockStateMonad :: m a}
     deriving (Functor, Applicative, Monad, MonadIO, MonadReader r, MonadLogger)

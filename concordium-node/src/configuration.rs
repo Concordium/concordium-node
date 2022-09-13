@@ -291,7 +291,7 @@ pub struct BakerConfig {
         long = "modules-cache-size",
         help = "The maximum number of smart contract modules that can be stored in the module \
                 cache",
-        default_value = "100",
+        default_value = "1000",
         env = "CONCORDIUM_NODE_CONSENSUS_MODULES_CACHE_SIZE"
     )]
     pub modules_cache_size: u32,

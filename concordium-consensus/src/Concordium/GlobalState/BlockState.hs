@@ -524,7 +524,7 @@ mintTotal MintAmounts{..} = mintBakingReward + mintFinalizationReward + mintDeve
 --
 -- The fields of this type are deliberately not strict since this is just an intermediate type
 -- to simplify function API. Thus values are immediately deconstructed.
--- It is parameterized by the concrete instrumented module @iv@ and the
+-- It is parameterized by the concrete instrumented module @im@ and the
 -- WasmVersion @v@.
 data NewInstanceData im v = NewInstanceData {
   -- |Name of the init method used to initialize the contract.

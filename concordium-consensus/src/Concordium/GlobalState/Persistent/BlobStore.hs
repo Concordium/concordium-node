@@ -282,7 +282,18 @@ writeBlobBS BlobStoreAccess{..} bs = mask $ \restore -> do
         size = encode (fromIntegral (BS.length bs) :: Word64)
 
 -- |A pointer into the blob store that can be used for direct memory access.
-data BlobPtr a = BlobPtr { theBlobPtr :: !Word64, blobPtrLen :: !Word64 }
+-- In particular the 'BlobPtr' can be used for 'custom' access into the 'BlobStore'
+-- as it does not depend on serialization of @a@, instead it is used for retrieving
+-- a raw 'ByteString' from the 'BlobStore'.
+--
+-- This is used for providing the Rust side with raw bytes of an 'Artifact' without having to
+-- deserialize it beforehand.
+data BlobPtr a = BlobPtr {
+    theBlobPtr :: !Word64,
+    -- ^The offset of @a@ in the 'BlobStore'.
+    blobPtrLen :: !Word64
+    -- ^The length to read from the offset.
+  }
     deriving (Eq, Show)
 
 -- | Read a bytestring from the blob store at the given offset and length using the file handle.
