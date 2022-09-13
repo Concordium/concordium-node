@@ -22,7 +22,6 @@ node {
         error "No value for 'destination_image_tag' found."
     }
     
-    
     def docker_repo = "concordium/${docker_images_base}"
     def source_image_name = "${docker_repo}:${source_image_tag}"
     def destination_image_name = "${docker_repo}:${destination_image_tag}"
@@ -36,29 +35,32 @@ node {
     stage('verify') {
         // Verify existens of source image
         try {
-            sh "curl --silent https://hub.docker.com/v2/namespaces/concordium/repositories/${docker_images_base}/tags/${source_image_tag} | jq -re '.digest'"
+            sh "curl -s https://hub.docker.com/v2/namespaces/concordium/repositories/${docker_images_base}/tags/${source_image_tag} | jq -re '.digest'"
         } catch (e) {
             error "Image with tag '${source_image_tag}' does not exist in repo '${docker_repo}'."
         }
 
-        // Verify tags to add don't already exist
+        // Verify source tag doesen't already exist
         try {
-            sh "! curl --silent https://hub.docker.com/v2/namespaces/concordium/repositories/${docker_images_base}/tags/${destination_image_tag} | jq -re '.digest'"
+            sh "! curl -s https://hub.docker.com/v2/namespaces/concordium/repositories/${docker_images_base}/tags/${destination_image_tag} | jq -re '.digest'"
         } catch (e) {
             error "Image with tag '${destination_image_tag}' already exists in repo '${docker_repo}'."
         }
     }
     stage('dockerhub-login') {
+        // Login to dockerhub for pushing destination tag
         withCredentials([usernamePassword(credentialsId: 'jenkins-dockerhub', passwordVariable: 'CRED_PSW', usernameVariable: 'CRED_USR')]) {
             sh 'docker login --username $CRED_USR --password $CRED_PSW'
         }
     }
     stage('update') {
+        // Use buildx to push destination tags. Docker doesen't recognise that buildx is installed, so invoking buildx directly.
         sh "/usr/libexec/docker/cli-plugins/buildx imagetools create ${source_image_name} --tag ${destination_image_name} ${latest_image_command}"
     }
     if (params.delete_source) {
         stage('cleanup') {
             withCredentials([usernamePassword(credentialsId: 'jenkins-dockerhub', passwordVariable: 'CRED_PSW', usernameVariable: 'CRED_USR')]) {
+                // Use the Docker Hub api to delete the source tag, based on
                 //https://devopsheaven.com/docker/dockerhub/2018/04/09/delete-docker-image-tag-dockerhub.html
                 sh """\
                 login_data() {
