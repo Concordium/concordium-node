@@ -70,7 +70,7 @@ node {
                 EOF
                 }
 
-                TOKEN=`curl -s -H "Content-Type: application/json" -X POST -d "$(login_data)" "https://hub.docker.com/v2/users/login/" | jq -r .token`
+                TOKEN=`curl -s -H "Content-Type: application/json" -X POST -d "\$(login_data)" "https://hub.docker.com/v2/users/login/" | jq -r .token`
 
                 curl "https://hub.docker.com/v2/repositories/concordium/${docker_images_base}/tags/${source_image_tag}/" \
                 -X DELETE \
