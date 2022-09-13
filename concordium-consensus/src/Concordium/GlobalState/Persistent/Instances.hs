@@ -7,6 +7,7 @@
 {-# LANGUAGE TypeApplications #-}
 module Concordium.GlobalState.Persistent.Instances where
 
+import Data.Maybe
 import Data.Word
 import Data.Functor.Foldable hiding (Nil)
 import Control.Monad
@@ -118,23 +119,43 @@ data PersistentInstanceV (v :: Wasm.WasmVersion) = PersistentInstanceV {
 
 migratePersistentInstanceV ::
     forall v t m.
-    ( 
-      BlobStorable m (ModuleV v)
+    ( Wasm.IsWasmVersion v
+    , BlobStorable m (ModuleV v)
     , BlobStorable (t m) (ModuleV v)
     , MonadTrans t
     ) =>
+    -- |The already migrated modules.
+    Modules.Modules ->
     PersistentInstanceV v ->
     t m (PersistentInstanceV v)
-migratePersistentInstanceV PersistentInstanceV{..} = do
-  newInstanceParameters <- migrateReference return pinstanceParameters
-  newInstanceModuleInterface <- migrateReference return pinstanceModuleInterface
-  newInstanceModel <- migrateInstanceStateV pinstanceModel
-  return PersistentInstanceV{
-    pinstanceParameters = newInstanceParameters,
-    pinstanceModuleInterface = newInstanceModuleInterface,
-    pinstanceModel = newInstanceModel,
-    .. -- copy over the remaining flat fields
-    }
+migratePersistentInstanceV modules PersistentInstanceV{..} = do
+    newInstanceParameters <- migrateReference return pinstanceParameters
+    params <- loadBufferedRef newInstanceParameters
+    -- The modules were already migrated by the module migration, so we want to
+    -- insert references to the existing modules in the instances so that we
+    -- don't end up with duplicates both in-memory and on disk.
+    let modref = pinstanceContractModule params
+    case Wasm.getWasmVersion @v of
+        Wasm.SV0 -> do
+            newInstanceModuleInterface <- Modules.unsafeGetModuleReferenceV0 modref modules
+            newInstanceModel <- migrateInstanceStateV pinstanceModel
+            return
+                PersistentInstanceV
+                    { pinstanceParameters = newInstanceParameters
+                    , pinstanceModuleInterface = fromMaybe (error "V0 Module referred to from an instance does not exist.") newInstanceModuleInterface
+                    , pinstanceModel = newInstanceModel
+                    , ..
+                    }
+        Wasm.SV1 -> do
+            newInstanceModuleInterface <- Modules.unsafeGetModuleReferenceV1 modref modules
+            newInstanceModel <- migrateInstanceStateV pinstanceModel
+            return
+                PersistentInstanceV
+                    { pinstanceParameters = newInstanceParameters
+                    , pinstanceModuleInterface = fromMaybe (error "V1 Module referred to from an instance does not exist.") newInstanceModuleInterface
+                    , pinstanceModel = newInstanceModel
+                    , ..
+                    }
 
 -- |Either a V0 or V1 instance. V1 instance is only allowed in protocol versions
 -- P4 and up, however this is not explicit here since it needlessly complicates
@@ -150,10 +171,11 @@ data PersistentInstance (pv :: ProtocolVersion) where
 migratePersistentInstance ::
     forall oldpv pv t m.
     SupportMigration m t =>
+    Modules.Modules ->
     PersistentInstance oldpv ->
     t m (PersistentInstance pv)
-migratePersistentInstance (PersistentInstanceV0 p) = PersistentInstanceV0 <$> migratePersistentInstanceV p
-migratePersistentInstance (PersistentInstanceV1 p) = PersistentInstanceV1 <$> migratePersistentInstanceV p
+migratePersistentInstance modules (PersistentInstanceV0 p) = PersistentInstanceV0 <$> migratePersistentInstanceV modules p
+migratePersistentInstance modules (PersistentInstanceV1 p) = PersistentInstanceV1 <$> migratePersistentInstanceV modules p
 
 
 instance Show (PersistentInstance pv) where
@@ -531,21 +553,22 @@ migrateIT ::
     , IsProtocolVersion oldpv
     , IsProtocolVersion pv
     ) =>
+    Modules.Modules ->
     BufferedFix (IT oldpv) ->
     t m (BufferedFix (IT pv))
-migrateIT (BufferedFix bf) = BufferedFix <$> migrateReference go bf
+migrateIT modules (BufferedFix bf) = BufferedFix <$> migrateReference go bf
   where
     go :: IT oldpv (BufferedFix (IT oldpv)) -> t m (IT pv (BufferedFix (IT pv)))
     go Branch{..} = do
-        newLeft <- migrateIT branchLeft
-        newRight <- migrateIT branchRight
+        newLeft <- migrateIT modules branchLeft
+        newRight <- migrateIT modules branchRight
         return
             Branch
                 { branchLeft = newLeft
                 , branchRight = newRight
                 , ..
                 }
-    go (Leaf pinst) = Leaf <$> migratePersistentInstance pinst
+    go (Leaf pinst) = Leaf <$> migratePersistentInstance modules pinst
     go (VacantLeaf i) = return (VacantLeaf i)
 
 
@@ -561,11 +584,12 @@ migrateInstances ::
     , IsProtocolVersion oldpv
     , IsProtocolVersion pv
     ) =>
+    Modules.Modules ->
     Instances oldpv ->
     t m (Instances pv)
-migrateInstances InstancesEmpty = return InstancesEmpty
-migrateInstances (InstancesTree size bf) = do
-    newBF <- migrateIT bf
+migrateInstances _ InstancesEmpty = return InstancesEmpty
+migrateInstances modules (InstancesTree size bf) = do
+    newBF <- migrateIT modules bf
     return $! InstancesTree size newBF
 
 instance Show (Instances pv) where

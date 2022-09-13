@@ -2958,8 +2958,9 @@ migrateBlockPointers ::
     t m (BlockStatePointers pv)
 migrateBlockPointers migration BlockStatePointers {..} = do
     newAccounts <- Accounts.migrateAccounts migration bspAccounts
-    newInstances <- Instances.migrateInstances bspInstances
     newModules <- migrateHashedBufferedRef Modules.migrateModules bspModules
+    modules <- refLoad newModules
+    newInstances <- Instances.migrateInstances modules bspInstances
     let newBank = bspBank
     newIdentityProviders <- migrateHashedBufferedRefKeepHash bspIdentityProviders
     newAnonymityRevokers <- migrateHashedBufferedRefKeepHash bspAnonymityRevokers
