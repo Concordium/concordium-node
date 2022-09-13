@@ -381,25 +381,10 @@ loadSkovPersistentData rp _treeStateDirectory pbsc = do
 
   -- Unroll the treestate if the last finalized blockstate is corrupted. If the last finalized
   -- blockstate is not corrupted, the treestate is unchanged.
-  deleteFinalizedBlocksWhile _db isBlockStateCorrupted >>= \case
-    Left e -> logExceptionAndThrowTS . DatabaseInvariantViolation $ "Database recovery failed: " <> e
-    Right bh -> logEvent GlobalState LLInfo $ "Local treestate and blockstate unrolled. Last finalized block hash is now " <> show bh
-
-  -- Get the last finalized block.
-  (_lastFinalizationRecord, lfStoredBlock) <- liftIO (getLastBlock _db) >>= \case
-      Left s -> logExceptionAndThrowTS $ DatabaseInvariantViolation s
-      Right r -> return r
-
-  -- Check that the block state for the last finalized block is not corrupt. The check works because
-  -- the `BlobRef` to the block state is stored in LMDB only after the block state is stored in the
-  -- blob store. If the reference points to a blob that cannot be read, the blob store can be
-  -- assumed to be corrupted.
-  elfBlob <- liftIO . try $
-    readBlobBSFromHandle (bscBlobStore . PBS.pbscBlobStore $ pbsc) (sbState lfStoredBlock)
-  case elfBlob :: Either IOError BS.ByteString of
-    Left _ -> logExceptionAndThrowTS $
-        DatabaseInvariantViolation "Last finalized block cannot be read. Blockstate database recovery required."
-    Right _ -> do
+  unrollTreeStateWhile _db isBlockStateCorrupted >>= \case
+    Left e -> logExceptionAndThrowTS . DatabaseInvariantViolation $
+              "The block state database is corrupt. Recovery attempt failed: " <> e
+    Right (_lastFinalizationRecord, lfStoredBlock) -> do
       -- Truncate the blobstore beyond the last finalized blockstate. If no corruption was found
       -- earlier, the blobstore size does not change.
       liftIO $ truncateBlobStore (bscBlobStore . PBS.pbscBlobStore $ pbsc) (sbState lfStoredBlock)

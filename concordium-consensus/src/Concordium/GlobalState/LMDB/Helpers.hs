@@ -36,8 +36,6 @@ module Concordium.GlobalState.LMDB.Helpers (
   movePrimitiveCursor,
   withPrimitiveCursor,
   PrimitiveCursor,
-  traverseTable,
-  popFromTableWhile,
   loadAll,
 
   -- * Low level operations.
@@ -428,54 +426,6 @@ movePrimitiveCursor target PrimitiveCursor{..} = do
       Just <$> peek pcValPtr
     else
       return Nothing
-
--- |Traverse a database from the first record to last, using a cursor internally.
--- 'MDB_val' values must not be retained as they will be reused.
-traverseTable :: MDBDatabase db => MDB_txn -> db -> ((MDB_val, MDB_val) -> a -> IO a) -> a -> IO a
-traverseTable = traverseTable' (CursorFirst, CursorNext) (const $ return True)
-
--- |Traverse a database backwards while a condition holds and collect results.
-popFromTableWhile :: forall db. MDBDatabase db => ((DBKey db, DBValue db) -> IO Bool) -> MDB_txn -> db -> IO (Maybe [(DBKey db, DBValue db)])
-popFromTableWhile p txn db = traverseTable' (CursorLast, CursorPrevious) p txn db step (Just [])
-  where step mdbKV (Just acc) = do
-          ekv <- decodeKV prox mdbKV
-          case ekv of
-            Left _ -> return Nothing
-            Right kv -> return (Just (kv : acc))
-        step _ Nothing = return Nothing
-        prox :: Proxy db
-        prox = Proxy
-
--- |Traverse a database, using a cursor internally, while a condition holds.  'MDB_val' values must
--- not be retained as they will be reused.  The `(first, next)` tuple indicates the beginning and
--- the direction of the traversal. Its possible values are `(CursorFirst, CursorNext)` and
--- `(CursorLast, CursorPrevious)`.
-traverseTable' :: forall db a.  MDBDatabase db
-  => (CursorMove, CursorMove)
-  -> ((DBKey db, DBValue db) -> IO Bool)
-  -> MDB_txn
-  -> db
-  -> ((MDB_val, MDB_val) -> a -> IO a)
-  -> a
-  -> IO a
-traverseTable' (first, next) p txn db step initialAcc =
-    withPrimitiveCursor txn (mdbDatabase db) $ \cursor -> do
-      let
-          loop (Just mdbKV) acc = decodeKV prox mdbKV >>= \ekv  -> case ekv of
-            Left e -> error $ "traverseTable': " <> e
-            Right kv  -> do
-              isP <- p kv
-              if isP then do
-                nxt <- step mdbKV acc
-                nxtRes <- getPrimitiveCursor next cursor
-                loop nxtRes nxt
-              else return acc
-          loop Nothing acc = return acc
-      fstRes <- getPrimitiveCursor first cursor
-      loop fstRes initialAcc
-  where
-    prox :: Proxy db
-    prox = Proxy
 
 -- |A type-safe cursor over a database.
 newtype Cursor db = Cursor PrimitiveCursor
