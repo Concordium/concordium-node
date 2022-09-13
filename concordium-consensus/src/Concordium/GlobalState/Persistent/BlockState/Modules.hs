@@ -64,10 +64,10 @@ type ModuleIndex = Word64
 -- |An @InstrumentedModuleV v@ in the @PersistentBlockState@, where
 -- @v@ is the @WasmVersion@.
 data PersistentInstrumentedModuleV (v :: WasmVersion) =
-  PIMVMem !(GSWasm.InstrumentedModuleV v)
+  PIMVMem !(GSWasm.InstrumentedModuleBytesV v)
   -- ^The instrumented module is retained in memory only.
   -- This is the case before finalization.
-  | PIMVPtr !(BlobPtr (GSWasm.InstrumentedModuleV v))
+  | PIMVPtr !(BlobPtr (GSWasm.InstrumentedModuleBytesV v))
   -- ^The instrumented module resides solely on disk, and thus the raw
   -- bytes can be read from the blob store via the @BlobPtr@.
   -- The @BlobPtr@ is used to reconstruct artifact on the Rust side, copying it as needed
@@ -78,19 +78,20 @@ data PersistentInstrumentedModuleV (v :: WasmVersion) =
 -- If the artifact has been persisted to the blob store, this creates an (executable) copy of the
 -- artifact on the Rust side.  The Rust artifact is reference counted, and Haskell retains a
 -- reference with a 'ForeignPtr' that drops the reference when it is garbage collected.
-loadInstrumentedModuleV :: (MonadBlobStore m, IsWasmVersion v) => PersistentInstrumentedModuleV v -> m (GSWasm.InstrumentedModuleV v)
+loadInstrumentedModuleV :: forall m v . (MonadBlobStore m, IsWasmVersion v) => PersistentInstrumentedModuleV v -> m (GSWasm.InstrumentedModuleBytesV v)
 loadInstrumentedModuleV (PIMVMem im) = return im
 loadInstrumentedModuleV (PIMVPtr ptr) = do
   bs <- loadBlobPtr ptr
-  liftIO $ GSWasm.instrumentedModuleVFromBytes bs
-  
+  case getWasmVersion @v of
+    SV0 -> return $! GSWasm.InstrumentedWasmModuleBytesV0 $ GSWasm.ModuleArtifactBytes bs
+    SV1 -> return $! GSWasm.InstrumentedWasmModuleBytesV1 $ GSWasm.ModuleArtifactBytes bs
 
 -- |A module contains both the module interface and the raw source code of the
 -- module. The module is parameterized by the wasm version, which determines the shape
 -- of the module interface.
 data ModuleV v = ModuleV {
   -- | The instrumented module, ready to be instantiated.
-  moduleVInterface :: !(GSWasm.ModuleInterfaceA (PersistentInstrumentedModuleV v)),
+  moduleVInterface :: !(GSWasm.ModuleInterfaceA (GSWasm.InstrumentedModuleBytesV v)),
   -- | A plain reference to the raw module binary source. This is generally not needed by consensus, so
   -- it is almost always simply kept on disk.
   moduleVSource :: !(BlobRef (WasmModuleV v))
@@ -98,13 +99,13 @@ data ModuleV v = ModuleV {
     deriving(Show)
 
 -- |Helper to convert from an interface to a module.
-toModule :: forall v . IsWasmVersion v => GSWasm.ModuleInterfaceV v -> BlobRef (WasmModuleV v) -> Module
-toModule mvi moduleVSource =
+toModule :: forall v . IsWasmVersion v => GSWasm.InstrumentedModuleBytesV v -> BlobRef (WasmModuleV v) -> Module
+toModule mdlArtifactBytes moduleVSource =
   case getWasmVersion @v of
     SV0 -> ModuleV0 ModuleV{..}
     SV1 -> ModuleV1 ModuleV{..}
   where
-    moduleVInterface = PIMVMem <$> mvi
+    moduleVInterface = PIMVMem <$> mdlArtifactBytes
 
 -- |A module, either of version 0 or 1. This is only used when storing a module
 -- independently, e.g., in the module table. When a module is referenced from a

@@ -27,11 +27,12 @@ foreign import ccall "validate_and_process_v0"
    validate_and_process :: Ptr Word8 -- ^Pointer to the Wasm module source.
                         -> CSize -- ^Length of the module source.
                         -> Ptr CSize -- ^Total length of the output.
-                        -> Ptr (Ptr ModuleArtifactV0) -- ^Null, or the processed module artifact. This is null if and only if the return value is null.
+                        -> Ptr (Ptr ModuleArtifactBytesV0) -- ^Null, or the processed module artifact. This is null if and only if the return value is null.
                         -> IO (Ptr Word8) -- ^Null, or exports.
 
 foreign import ccall "call_init_v0"
-   call_init :: Ptr ModuleArtifactV0 -- ^Pointer to the Wasm artifact.
+   call_init :: Ptr Word8 -- ^Pointer to the Wasm artifact.
+             -> CSize -- ^Length of the artifiact.
              -> Ptr Word8 -- ^Pointer to the serialized chain meta + init ctx.
              -> CSize -- ^Length of the preceding data.
              -> Word64 -- ^Amount
@@ -45,7 +46,8 @@ foreign import ccall "call_init_v0"
 
 
 foreign import ccall "call_receive_v0"
-   call_receive :: Ptr ModuleArtifactV0 -- ^Pointer to the Wasm artifact.
+   call_receive :: Ptr Word8 -- ^Pointer to the Wasm artifact.
+             -> CSize -- ^Length of the artifiact.
              -> Ptr Word8 -- ^Pointer to the serialized receive context.
              -> CSize  -- ^Length of the preceding data.
              -> Word64 -- ^Amount
@@ -61,7 +63,7 @@ foreign import ccall "call_receive_v0"
 
 -- |Apply an init function which is assumed to be a part of the module.
 applyInitFun
-    :: ModuleInterfaceV V0
+    :: ModuleArtifactBytes V0
     -> ChainMetadata -- ^Chain information available to the contracts.
     -> InitContext -- ^Additional parameters supplied by the chain and
                   -- available to the init method.
@@ -72,14 +74,14 @@ applyInitFun
     -> Maybe (Either ContractExecutionFailure (SuccessfulResultData ()), InterpreterEnergy)
     -- ^Nothing if execution ran out of energy.
     -- Just (result, remainingEnergy) otherwise, where @remainingEnergy@ is the amount of energy that is left from the amount given.
-applyInitFun miface cm initCtx iName param amnt iEnergy = processInterpreterResult (get :: Get ()) result
+applyInitFun artifactBytes cm initCtx iName param amnt iEnergy = processInterpreterResult (get :: Get ()) result
   where result = unsafePerformIO $ do
-              withModuleArtifact wasmArtifact $ \wasmArtifactPtr ->
+              BSU.unsafeUseAsCStringLen wasmArtifact $ \(wasmArtifactPtr, wasmArtifactLen) ->
                 BSU.unsafeUseAsCStringLen initCtxBytes $ \(initCtxBytesPtr, initCtxBytesLen) ->
                   BSU.unsafeUseAsCStringLen nameBytes $ \(nameBytesPtr, nameBytesLen) ->
                     BSU.unsafeUseAsCStringLen paramBytes $ \(paramBytesPtr, paramBytesLen) ->
                       alloca $ \outputLenPtr -> do
-                        outPtr <- call_init wasmArtifactPtr
+                        outPtr <- call_init (castPtr wasmArtifactPtr) (fromIntegral wasmArtifactLen)
                                            (castPtr initCtxBytesPtr) (fromIntegral initCtxBytesLen)
                                            amountWord
                                            (castPtr nameBytesPtr) (fromIntegral nameBytesLen)
@@ -91,7 +93,7 @@ applyInitFun miface cm initCtx iName param amnt iEnergy = processInterpreterResu
                           len <- peek outputLenPtr
                           bs <- BSU.unsafePackCStringFinalizer outPtr (fromIntegral len) (rs_free_array_len outPtr (fromIntegral len))
                           return (Just bs)
-        wasmArtifact = imWasmArtifact miface
+        wasmArtifact = getModuleArtifactBytes artifactBytes
         initCtxBytes = encodeChainMeta cm <> encodeInitContext initCtx
         paramBytes = BSS.fromShort (parameter param)
         energy = fromIntegral iEnergy
@@ -129,7 +131,7 @@ processInterpreterResult aDecoder result = case result of
 
 -- |Apply a receive function which is assumed to be part of the given module.
 applyReceiveFun
-    :: ModuleInterfaceV V0
+    :: ModuleArtifactBytes V0
     -> ChainMetadata -- ^Metadata available to the contract.
     -> ReceiveContext -- ^Additional parameter supplied by the chain and
                      -- available to the receive method.
@@ -141,15 +143,15 @@ applyReceiveFun
     -> Maybe (Either ContractExecutionFailure (SuccessfulResultData ActionsTree), InterpreterEnergy)
     -- ^Nothing if execution used up all the energy, and otherwise the result
     -- of execution with the amount of energy remaining.
-applyReceiveFun miface cm receiveCtx rName param amnt cs initialEnergy = processInterpreterResult getActionsTree result
+applyReceiveFun artifactBytes cm receiveCtx rName param amnt cs initialEnergy = processInterpreterResult getActionsTree result
   where result = unsafePerformIO $ do
-              withModuleArtifact wasmArtifact $ \wasmArtifactPtr ->
+              BSU.unsafeUseAsCStringLen wasmArtifact $ \(wasmArtifactPtr, wasmArtifactLen) ->
                 BSU.unsafeUseAsCStringLen initCtxBytes $ \(initCtxBytesPtr, initCtxBytesLen) ->
                   BSU.unsafeUseAsCStringLen nameBytes $ \(nameBytesPtr, nameBytesLen) ->
                     BSU.unsafeUseAsCStringLen stateBytes $ \(stateBytesPtr, stateBytesLen) ->
                       BSU.unsafeUseAsCStringLen paramBytes $ \(paramBytesPtr, paramBytesLen) ->
                         alloca $ \outputLenPtr -> do
-                          outPtr <- call_receive wasmArtifactPtr
+                          outPtr <- call_receive (castPtr wasmArtifactPtr) (fromIntegral wasmArtifactLen)
                                                  (castPtr initCtxBytesPtr) (fromIntegral initCtxBytesLen)
                                                  amountWord
                                                  (castPtr nameBytesPtr) (fromIntegral nameBytesLen)
@@ -162,7 +164,7 @@ applyReceiveFun miface cm receiveCtx rName param amnt cs initialEnergy = process
                             len <- peek outputLenPtr
                             bs <- BSU.unsafePackCStringFinalizer outPtr (fromIntegral len) (rs_free_array_len outPtr (fromIntegral len))
                             return (Just bs)
-        wasmArtifact = imWasmArtifact miface
+        wasmArtifact = getModuleArtifactBytes artifactBytes
         initCtxBytes = encodeChainMeta cm <> encodeReceiveContext receiveCtx
         amountWord = _amount amnt
         stateBytes = contractState cs
@@ -179,12 +181,12 @@ applyReceiveFun miface cm receiveCtx rName param amnt cs initialEnergy = process
 {-# NOINLINE processModule #-}
 processModule :: WasmModuleV V0 -> Maybe (ModuleInterfaceV V0)
 processModule modl = do
-  (bs, imWasmArtifactV0) <- ffiResult
+  (bs, imWasmArtifactBytesV0) <- ffiResult
   case getExports bs of
     Left _ -> Nothing
     Right (miExposedInit, miExposedReceive) ->
       let miModuleRef = getModuleRef modl
-          miModule = InstrumentedWasmModuleV0{..}
+          miModule = InstrumentedWasmModuleBytesV0{..}
       in Just ModuleInterface{miModuleSize = moduleSourceLength (wmvSource modl),..}
 
   where ffiResult = unsafePerformIO $ do

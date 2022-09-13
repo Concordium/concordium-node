@@ -706,7 +706,7 @@ doGetModule s modRef = do
     mods <- refLoad (bspModules bsp)
     Modules.getInterface modRef mods
 
-doGetModuleArtifact :: (MonadBlobStore m, Wasm.IsWasmVersion v) => Modules.PersistentInstrumentedModuleV v -> m (GSWasm.InstrumentedModuleV v)
+doGetModuleArtifact :: (MonadBlobStore m, Wasm.IsWasmVersion v) => Modules.PersistentInstrumentedModuleV v -> m (GSWasm.InstrumentedModuleBytesV v)
 doGetModuleArtifact = Modules.loadInstrumentedModuleV
 
 doGetModuleList :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m [ModuleRef]
