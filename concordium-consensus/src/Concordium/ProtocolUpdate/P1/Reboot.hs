@@ -109,7 +109,7 @@ updateHash = SHA256.hash "P1.Reboot"
 -- i.e. it is the first (and only) explicitly-finalized block with timestamp after the
 -- update takes effect.
 updateRegenesis ::
-    (MPV m ~ 'P1, BlockPointerMonad m, BlockStateStorage m, SkovQueryMonad m) =>
+    (MPV m ~ 'P1, BlockPointerMonad m, BlockStateStorage m, SkovMonad m) =>
     UpdateData ->
     m (PVInit m)
 updateRegenesis UpdateData{..} = do
@@ -145,6 +145,7 @@ updateRegenesis UpdateData{..} = do
     -- Clear the protocol update.
     s3 <- bsoClearProtocolUpdate s2
     regenesisState <- freezeBlockState s3
+    rememberFinalState regenesisState
     genesisStateHash <- getStateHash regenesisState
     let genesisRegenesis = GenesisData.RegenesisData{..}
     let newGenesis = RGDP1 P1.GDP1Regenesis{..}

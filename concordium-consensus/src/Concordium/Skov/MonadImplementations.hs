@@ -229,12 +229,27 @@ class SkovConfiguration gsconfig finconfig handlerconfig where
                       -> SkovConfig pv gsconfig finconfig handlerconfig
                       -> LogIO (SkovContext (SkovConfig pv gsconfig finconfig handlerconfig), SkovState (SkovConfig pv gsconfig finconfig handlerconfig))
 
+    -- |Migrate an existing skov instance to a fresh one. This is used on
+    -- protocol updates to construct a new instance to be used after the
+    -- protocol update. The new instance is constructed by migrating state from
+    -- the existing one. The block state and the tree state are migrated, and at
+    -- present the new instance is from the time of construction independent of
+    -- the old one. Transactions are also migrated from the existing instance to
+    -- the new one. See @migrateExistingState@ in @Concordium.GlobalState@ for
+    -- additional details.
     migrateExistingSkov ::
       (IsProtocolVersion oldpv, IsProtocolVersion pv) =>
+      -- |Context for the existing skov instance.
       SkovContext (SkovConfig oldpv gsconfig finconfig handlerconfig) ->
+      -- |State of the existing skov instance. This must be prepared for
+      -- migration. See @rememberFinalState@ and @clearSkovOnProtocolUpdate@, and
+      -- @migrateExistingState@ for details on the assumptions on this state.
       SkovState (SkovConfig oldpv gsconfig finconfig handlerconfig) ->
+      -- |Any parameters needed for the migration of the block state.
       StateMigrationParameters oldpv pv ->
+      -- |The genesis for the new chain after the protocol update.
       Regenesis pv ->
+      -- |Configuration for the new chain after the protocol update.
       SkovConfig pv gsconfig finconfig handlerconfig ->
       LogIO (SkovContext (SkovConfig pv gsconfig finconfig handlerconfig),
              SkovState (SkovConfig pv gsconfig finconfig handlerconfig))

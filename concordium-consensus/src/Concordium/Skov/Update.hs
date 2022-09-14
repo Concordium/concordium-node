@@ -716,7 +716,9 @@ doReceiveTransactionInternal origin tr ts slot = do
           TV.Single -> blockState . fst =<< getLastFinalized
           TV.Block bs -> pure bs
 
--- |Shutdown the skov.
+-- |Clear the skov instance __just before__ handling the protocol update. This
+-- clears all blocks that are not finalized but otherwise maintains all existing
+-- state invariants. This prepares the state for @migrateExistingSkov@.
 doClearSkov :: (TreeStateMonad m, SkovMonad m) => m ()
 doClearSkov = isShutDown >>= \case
     False -> return ()
@@ -730,7 +732,8 @@ doClearSkov = isShutDown >>= \case
         -- Clear out all of the non-finalized and pending blocks.
         clearOnProtocolUpdate
 
--- |Shutdown the skov.
+-- |Terminate the skov instance __after__ the protocol update has taken effect.
+-- After this point the skov instance is useful for queries only.
 doTerminateSkov :: (TreeStateMonad m, SkovMonad m) => m ()
 doTerminateSkov = isShutDown >>= \case
     False -> return ()
