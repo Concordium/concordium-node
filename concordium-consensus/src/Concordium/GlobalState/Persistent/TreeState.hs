@@ -381,7 +381,7 @@ loadSkovPersistentData rp _treeStateDirectory pbsc = do
 
   -- Unroll the treestate if the last finalized blockstate is corrupted. If the last finalized
   -- blockstate is not corrupted, the treestate is unchanged.
-  unrollTreeStateWhile _db isBlockStateCorrupted >>= \case
+  unrollTreeStateWhile _db (liftIO . isBlockStateCorrupted) >>= \case
     Left e -> logExceptionAndThrowTS . DatabaseInvariantViolation $
               "The block state database is corrupt. Recovery attempt failed: " <> e
     Right (_lastFinalizationRecord, lfStoredBlock) -> do
