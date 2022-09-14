@@ -445,6 +445,7 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
                                 _ -> False
                             )
                             (oldTT ^. ttHashMap)
+        transactionTable .=! newTT
         pendingTransactions .=! emptyPendingTransactionTable
         nextGenesisInitialState .=! Nothing
         BS.collapseCaches

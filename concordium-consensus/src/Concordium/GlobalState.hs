@@ -24,7 +24,6 @@ import qualified Data.HashMap.Strict as HM
 import Data.Kind
 import Lens.Micro.Platform
 
-import Concordium.Utils
 import Concordium.Types.ProtocolVersion
 import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.Classes
