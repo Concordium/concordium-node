@@ -36,10 +36,10 @@ If these are enabled then the following options become available
   endpoints. If this option is not supplied all endpoints are enabled. If it is
   supplied then only the endpoints explicitly enabled in the configuration are
   available.
-  
+
   The format of the file is a simple key-value list, with values being booleans.
   Keys are names of endpoints in snake_case. For example
-  
+
   ```toml
   get_finalized_blocks = true
   get_blocks = true

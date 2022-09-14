@@ -637,7 +637,7 @@ stopBaker cptr = mask_ $ do
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 -- |     2 | ResultInvalid                               | The message was determined to be invalid                                                      | No       |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
--- |     3 | ResultPendingBlock                          | The message was received, but is awaiting a block to complete processing                      | Yes      |
+-- |     3 | ResultPendingBlock                          | The message was received, but is awaiting a block to complete processing                      | No for blocks, yes for other messages|
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 -- |     4 | ResultPendingFinalization                   | The message was received, but is awaiting a finalization record to complete processing        | Yes      |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
@@ -731,9 +731,9 @@ toReceiveResult ResultEnergyExceeded = 29
 toReceiveResult ResultInsufficientFunds = 30
 
 -- |Handle receipt of a block.
--- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,
--- @ResultPendingBlock@, @ResultPendingFinalization@, @ResultAsync@, @ResultDuplicate@,
--- @ResultStale@, @ResultConsensusShutDown@, and @ResultInvalidGenesisIndex@.
+-- The possible return codes are @ResultSuccess@, @ResultSerializationFail@,
+-- @ResultInvalid@, @ResultPendingBlock@, @ResultDuplicate@, @ResultStale@,
+-- @ResultConsensusShutDown@, and @ResultInvalidGenesisIndex@.
 -- 'receiveBlock' may invoke the callbacks for new finalization messages.
 receiveBlock :: StablePtr ConsensusRunner -> GenesisIndex -> CString -> Int64 -> IO ReceiveResult
 receiveBlock bptr genIndex msg msgLen = do
@@ -1071,7 +1071,7 @@ getAncestors :: StablePtr ConsensusRunner -> CString -> Word64 -> IO CString
 getAncestors cptr blockcstr depth =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (Q.getAncestors bh (BlockHeight depth))
+        Just bh -> jsonQuery cptr (snd <$> Q.getAncestors (Q.BHIGiven bh) (BlockHeight depth))
 
 -- |Get the list of account addresses in the given block. The block must be
 -- given as a null-terminated base16 encoding of the block hash. The return
@@ -1091,7 +1091,7 @@ getInstances :: StablePtr ConsensusRunner -> CString -> IO CString
 getInstances cptr blockcstr =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (Q.getInstanceList bh)
+        Just bh -> jsonQuery cptr (snd <$> Q.getInstanceList (Q.BHIGiven bh))
 
 -- |Get the list of modules in the given block. The block must be given as a
 -- null-terminated base16 encoding of the block hash.
@@ -1101,7 +1101,7 @@ getModuleList :: StablePtr ConsensusRunner -> CString -> IO CString
 getModuleList cptr blockcstr = do
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (Q.getModuleList bh)
+        Just bh -> jsonQuery cptr (snd <$> Q.getModuleList (Q.BHIGiven bh))
 
 -- |Get account information for the given block and identifier. The block must be
 -- given as a null-terminated base16 encoding of the block hash and the account
@@ -1116,7 +1116,7 @@ getAccountInfo cptr blockcstr acctcstr = do
     acctbs <- BS.packCString acctcstr
     let account = decodeAccountIdentifier acctbs
     case (mblock, account) of
-        (Just bh, Just acct) -> jsonQuery cptr (Q.getAccountInfo (Q.BHIGiven bh) acct)
+        (Just bh, Just acct) -> jsonQuery cptr (snd <$> Q.getAccountInfo (Q.BHIGiven bh) acct)
         _ -> jsonCString AE.Null
 
 -- |Get instance information the given block and instance. The block must be
@@ -1130,7 +1130,7 @@ getInstanceInfo cptr blockcstr instcstr = do
     mblock <- decodeBlockHash blockcstr
     minst <- decodeInstanceAddress instcstr
     case (mblock, minst) of
-        (Just bh, Just inst) -> jsonQuery cptr (Q.getInstanceInfo bh inst)
+        (Just bh, Just inst) -> jsonQuery cptr (snd <$> Q.getInstanceInfo (Q.BHIGiven bh) inst)
         _ -> jsonCString AE.Null
 
 -- |Run the smart contract entrypoint in a given context and in the state at the
@@ -1166,7 +1166,7 @@ getModuleSource cptr blockcstr modcstr = do
     mmod <- decodeModuleRef modcstr
     case (mblock, mmod) of
         (Just bh, Just modref) -> do
-            msrc <- runMVR (Q.getModuleSource bh modref) mvr
+            msrc <- runMVR (snd <$> Q.getModuleSource (Q.BHIGiven bh) modref) mvr
             byteStringToCString $ maybe BS.empty S.encode msrc
         _ -> byteStringToCString BS.empty
 

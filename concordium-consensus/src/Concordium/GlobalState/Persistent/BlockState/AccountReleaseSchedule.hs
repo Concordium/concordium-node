@@ -67,7 +67,8 @@ module Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule (
   unlockAmountsUntil,
   -- * Conversions
   loadPersistentAccountReleaseSchedule,
-  storePersistentAccountReleaseSchedule
+  storePersistentAccountReleaseSchedule,
+  migratePersistentAccountReleaseSchedule
   ) where
 
 import Concordium.Crypto.SHA256
@@ -97,6 +98,11 @@ data Release = Release {
   _rAmount :: !Amount,
   _rNext :: !(Nullable (EagerlyHashedBufferedRef Release))
   } deriving (Show)
+
+migrateRelease :: SupportMigration m t => Release -> t m Release
+migrateRelease r = do
+  newNext <- forM (_rNext r) $ migrateEagerlyHashedBufferedRefKeepHash migrateRelease
+  return r {_rNext = newNext}
 
 -- | As every link in the chain is a HashedBufferedRef, when computing the hash
 -- of a release we will compute the hash of @timestamp <> amount <> nextHash@.
@@ -131,6 +137,16 @@ data AccountReleaseSchedule = AccountReleaseSchedule {
   _arsTotalLockedUpBalance :: !Amount
   } deriving (Show)
 makeLenses ''AccountReleaseSchedule
+
+migratePersistentAccountReleaseSchedule :: SupportMigration m t => AccountReleaseSchedule -> t m AccountReleaseSchedule
+migratePersistentAccountReleaseSchedule AccountReleaseSchedule{..} = do
+  newValues <- forM _arsValues $ \n -> do
+    forM n $ \(hf, r) -> (, r) <$> migrateEagerlyHashedBufferedRefKeepHash migrateRelease hf
+  return AccountReleaseSchedule{
+  _arsValues = newValues,
+  _arsPrioQueue = _arsPrioQueue,
+  _arsTotalLockedUpBalance = _arsTotalLockedUpBalance
+    }
 
 instance MonadBlobStore m => BlobStorable m AccountReleaseSchedule where
   storeUpdate a = (, a) <$> store a

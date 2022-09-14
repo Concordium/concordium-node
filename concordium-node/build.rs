@@ -200,6 +200,72 @@ fn build_grpc2(proto_root_input: &str) -> std::io::Result<()> {
                 .server_streaming()
                 .build(),
         )
+        .method(
+            tonic_build::manual::Method::builder()
+                .name("get_module_list")
+                .route_name("GetModuleList")
+                .input_type("crate::grpc2::types::BlockHashInput")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .server_streaming()
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
+                .name("get_module_source")
+                .route_name("GetModuleSource")
+                .input_type("crate::grpc2::types::ModuleSourceRequest")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
+                .name("get_instance_list")
+                .route_name("GetInstanceList")
+                .input_type("crate::grpc2::types::BlockHashInput")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .server_streaming()
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
+                .name("get_instance_info")
+                .route_name("GetInstanceInfo")
+                .input_type("crate::grpc2::types::InstanceInfoRequest")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
+                .name("get_next_account_sequence_number")
+                .route_name("GetNextAccountSequenceNumber")
+                .input_type("crate::grpc2::types::AccountAddress")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
+                .name("get_consensus_info")
+                .route_name("GetConsensusInfo")
+                .input_type("crate::grpc2::types::Empty")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
+                .name("get_ancestors")
+                .route_name("GetAncestors")
+                .input_type("crate::grpc2::types::AncestorsRequest")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .server_streaming()
+                .build(),
+        )
         .build();
     // Due to the slightly hacky nature of the RawCodec (i.e., it does not support
     // deserialization) we cannot build the client. But we also don't need it in the

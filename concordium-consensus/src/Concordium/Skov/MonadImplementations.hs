@@ -229,6 +229,31 @@ class SkovConfiguration gsconfig finconfig handlerconfig where
                       -> SkovConfig pv gsconfig finconfig handlerconfig
                       -> LogIO (SkovContext (SkovConfig pv gsconfig finconfig handlerconfig), SkovState (SkovConfig pv gsconfig finconfig handlerconfig))
 
+    -- |Migrate an existing skov instance to a fresh one. This is used on
+    -- protocol updates to construct a new instance to be used after the
+    -- protocol update. The new instance is constructed by migrating state from
+    -- the existing one. The block state and the tree state are migrated, and at
+    -- present the new instance is from the time of construction independent of
+    -- the old one. Transactions are also migrated from the existing instance to
+    -- the new one. See @migrateExistingState@ in @Concordium.GlobalState@ for
+    -- additional details.
+    migrateExistingSkov ::
+      (IsProtocolVersion oldpv, IsProtocolVersion pv) =>
+      -- |Context for the existing skov instance.
+      SkovContext (SkovConfig oldpv gsconfig finconfig handlerconfig) ->
+      -- |State of the existing skov instance. This must be prepared for
+      -- migration. See @rememberFinalState@ and @clearSkovOnProtocolUpdate@, and
+      -- @migrateExistingState@ for details on the assumptions on this state.
+      SkovState (SkovConfig oldpv gsconfig finconfig handlerconfig) ->
+      -- |Any parameters needed for the migration of the block state.
+      StateMigrationParameters oldpv pv ->
+      -- |The genesis for the new chain after the protocol update.
+      Regenesis pv ->
+      -- |Configuration for the new chain after the protocol update.
+      SkovConfig pv gsconfig finconfig handlerconfig ->
+      LogIO (SkovContext (SkovConfig pv gsconfig finconfig handlerconfig),
+             SkovState (SkovConfig pv gsconfig finconfig handlerconfig))
+
     -- |A helper which attemps to use the existing state if it exists, and
     -- otherwise initialises skov from a new state created from the given genesis.
     initialiseSkov :: IsProtocolVersion pv
@@ -301,6 +326,23 @@ instance
     initialiseNewSkov genData (SkovConfig gsc finconf hconf) = do
         logEvent Skov LLDebug "Creating new global state."
         (c, s) <- initialiseNewGlobalState genData gsc
+        (finctx, finst) <- evalGlobalState @_ @pv (Proxy @gsconfig) (initialiseFinalization finconf) c s
+        logEvent Skov LLDebug $ "Initializing finalization with context = " ++ show finctx
+        logEvent Skov LLDebug $ "Initializing finalization with initial state = " ++ show finst
+        let (hctx, hst) = initialiseHandler hconf
+        return (SkovContext c finctx hctx, SkovState s finst hst)
+
+    migrateExistingSkov :: forall oldpv pv . (IsProtocolVersion oldpv, IsProtocolVersion pv) =>
+      SkovContext (SkovConfig oldpv gsconfig finconfig handlerconfig) ->
+      SkovState (SkovConfig oldpv gsconfig finconfig handlerconfig) ->
+      StateMigrationParameters oldpv pv ->
+      Regenesis pv ->
+      SkovConfig pv gsconfig finconfig handlerconfig ->
+      LogIO (SkovContext (SkovConfig pv gsconfig finconfig handlerconfig),
+             SkovState (SkovConfig pv gsconfig finconfig handlerconfig))
+    migrateExistingSkov oldCtx oldState migration genData (SkovConfig gsc finconf hconf) = do
+        logEvent Skov LLDebug "Migrating existing global state."
+        (c, s) <- migrateExistingState gsc (scGSContext oldCtx) (ssGSState oldState) migration genData
         (finctx, finst) <- evalGlobalState @_ @pv (Proxy @gsconfig) (initialiseFinalization finconf) c s
         logEvent Skov LLDebug $ "Initializing finalization with context = " ++ show finctx
         logEvent Skov LLDebug $ "Initializing finalization with initial state = " ++ show finst
@@ -492,8 +534,13 @@ instance (
     trustedFinalize = doTrustedFinalize
     {- - INLINE handleCatchUpStatus - -}
     handleCatchUpStatus = doHandleCatchUp
+    clearSkovOnProtocolUpdate = doClearSkov
     terminateSkov = doTerminateSkov
+
     purgeTransactions = doPurgeTransactions
+
+    rememberFinalState = storeFinalState
+
 
 class (Monad m, HandlerConfig c) => HandlerConfigHandlers c m | m -> c where
     -- |Called upon a block being added to the tree.

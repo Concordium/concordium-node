@@ -8,7 +8,7 @@
 module Concordium.GlobalState.Persistent.CachedRef where
 
 import Control.Monad
-import Control.Monad.IO.Class
+import Control.Monad.Trans
 import Data.IORef
 import Data.Proxy
 
@@ -483,3 +483,34 @@ instance
             Nothing -> putCachedValue (Proxy @c) hcrBlob =<< csh =<< loadRef hcrBlob
             Just val -> putCachedValue (Proxy @c) hcrBlob =<< csh val
         return hcr
+
+-- |Migrate a 'HashedCachedRef' from context @m@ to context @t m@. See
+-- documentation of @migratePersistentBlockState@. This uncaches the the input
+-- reference and computes the hash of the new reference. The new reference is
+-- flushed, but cached and the value is retained in memory in so far as there is
+-- space in the cache.
+migrateHashedCachedRef' ::
+    forall h c c' a b t m.
+    ( Cache c
+    , Cache c'
+    , MonadCache c m
+    , MonadCache c' (t m)
+    , BlobStorable m a
+    , BlobStorable (t m) b
+    , MonadTrans t
+    , MHashableTo m h a
+    , CacheValue c ~ a
+    , CacheKey c ~ BlobRef a
+    , MHashableTo (t m) h b
+    , CacheValue c' ~ b
+    , CacheKey c' ~ BlobRef b
+    ) =>
+    (a -> t m b) ->
+    HashedCachedRef' h c a ->
+    t m (HashedCachedRef' h c' b)
+migrateHashedCachedRef' f hcr = do
+    !v <- f =<< lift (refLoad hcr)
+    -- compute the hash now that the value is available
+    (!newRef, _) <- refFlush =<< makeHashedCachedRef v =<< getHashM v
+    !_ <- lift (refUncache hcr)
+    return newRef

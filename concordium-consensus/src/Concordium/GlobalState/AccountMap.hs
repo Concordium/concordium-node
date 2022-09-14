@@ -3,7 +3,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ConstraintKinds #-}
-{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE DerivingVia #-}
 module Concordium.GlobalState.AccountMap (
   AccountMap(..),
@@ -36,7 +35,10 @@ module Concordium.GlobalState.AccountMap (
   toListPure,
   toMapPure,
   addressesPure,
-  isAddressAssignedPure
+  isAddressAssignedPure,
+
+  -- * Migration
+  migratePersistentAccountMap
   )
 
 where
@@ -49,6 +51,7 @@ import Data.Functor.Foldable (Base)
 import Data.Bifunctor
 import Data.Maybe
 import Control.Monad.Identity
+import Control.Monad.Trans
 
 import Concordium.Types
 import qualified Concordium.GlobalState.Persistent.Trie as Trie
@@ -67,6 +70,13 @@ newtype AccountMap (pv :: ProtocolVersion) fix = AccountMap {
 
 -- |The account map to be used in the persistent block state.
 type PersistentAccountMap pv = AccountMap pv BufferedFix
+
+-- |See documentation of @migratePersistentBlockState@.
+migratePersistentAccountMap
+    :: (BlobStorable m AccountIndex, BlobStorable (t m) AccountIndex, MonadTrans t)
+    => PersistentAccountMap oldpv
+    -> t m (PersistentAccountMap pv)
+migratePersistentAccountMap (AccountMap am) = AccountMap <$> Trie.migrateTrieN True return am
 
 -- |The account map that is purely in memory and used in the basic block state.
 type PureAccountMap pv = AccountMap pv Fix

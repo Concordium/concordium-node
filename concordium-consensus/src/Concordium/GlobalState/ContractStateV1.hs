@@ -19,6 +19,7 @@ module Concordium.GlobalState.ContractStateV1
    freezeInMemoryPersistent,
    thawInMemoryPersistent,
    toByteString,
+   migratePersistentState,
    -- * Testing
    lookupKey,
    generatePersistentTree
@@ -80,6 +81,19 @@ newtype PersistentState = PersistentState (ForeignPtr PersistentState)
 -- part of the state to disk, and thus the entirety of this state is always
 -- in-memory.
 newtype InMemoryPersistentState = InMemoryPersistentState PersistentState
+
+-- |Migrate the provided persistent state from the existing backing store (which
+-- can be accessed using the provided 'LoadCallback'), to the new backing store
+-- (that is written to using the provided 'StoreCallback'). The input persistent
+-- state remains valid. The new persistent state is not cached, it is entirely
+-- stored on disk.
+foreign import ccall "migrate_persistent_tree_v1" migratePersistentTree :: LoadCallback -> StoreCallback -> Ptr PersistentState -> IO (Ptr PersistentState)
+
+migratePersistentState :: LoadCallback -> StoreCallback -> PersistentState -> IO PersistentState
+migratePersistentState lcbk scbk ps = do
+  newPSPtr <- withPersistentState ps $ migratePersistentTree lcbk scbk
+  newPS <- newForeignPtr freePersistentState newPSPtr
+  return (PersistentState newPS)
 
 -- |Gain temporary access to a pointer to the persistent state. The pointer
 -- should not be leaked from the computation.

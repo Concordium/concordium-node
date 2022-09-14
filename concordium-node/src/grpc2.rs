@@ -6,43 +6,53 @@ use std::{convert::TryFrom, marker::PhantomData, path::Path};
 /// with some auxiliary definitions that help passing values through the FFI
 /// boundary.
 pub mod types {
-    use self::account_info_request::AccountIdentifier;
 
     include!(concat!(env!("OUT_DIR"), "/concordium.v2.rs"));
 
-    // Convert an account identifier to a pair of a tag and a pointer to the
-    // content. The length of the content is determined by the tag, which is
-    // either 0 for the address, 1 for the credential registration ID, and 2 for
-    // the account index.
-    //
-    // # Safety
-    // The caller **must** ensure that the pointer is not used after the reference
-    // to the supplied `account_identifier` is no longer retained.
+    /// Convert an account address to a pointer to the content. The length of
+    /// the content is checked to be 32 bytes.
+    ///
+    /// # Safety
+    /// The caller **must** ensure that the pointer is not used after the
+    /// reference to the supplied `account_identifier` is no longer
+    /// retained.
+    pub(crate) fn account_address_to_ffi(address: &AccountAddress) -> Option<*const u8> {
+        if address.value.len() == 32 {
+            Some(address.value.as_ptr())
+        } else {
+            None
+        }
+    }
+
+    /// Convert an account identifier to a pair of a tag and a pointer to the
+    /// content. The length of the content is determined by the tag, which is
+    /// either 0 for the address, 1 for the credential registration ID, and 2
+    /// for the account index.
+    ///
+    /// # Safety
+    /// The caller **must** ensure that the pointer is not used after the
+    /// reference to the supplied `account_identifier` is no longer
+    /// retained.
     pub(crate) fn account_identifier_to_ffi(
-        account_identifier: &AccountIdentifier,
+        account_identifier: &AccountIdentifierInput,
     ) -> Option<(u8, *const u8)> {
-        match account_identifier {
-            AccountIdentifier::Address(addr) if addr.value.len() == 32 => {
-                Some((0u8, addr.value.as_ptr()))
-            }
-            AccountIdentifier::CredId(cred_id) if cred_id.value.len() == 48 => {
-                Some((1u8, cred_id.value.as_ptr()))
-            }
-            AccountIdentifier::AccountIndex(ai) => {
-                Some((2u8, (&ai.value) as *const u64 as *const u8))
-            }
+        use account_identifier_input::AccountIdentifierInput::*;
+        match account_identifier.account_identifier_input.as_ref()? {
+            Address(addr) if addr.value.len() == 32 => Some((0u8, addr.value.as_ptr())),
+            CredId(cred_id) if cred_id.value.len() == 48 => Some((1u8, cred_id.value.as_ptr())),
+            AccountIndex(ai) => Some((2u8, (&ai.value) as *const u64 as *const u8)),
             _ => None,
         }
     }
 
-    // Convert the [BlockHashInput] to a pair of a tag and pointer to the content.
-    // The tag is 0 for "Best" block, 1 for "LastFinal" block, and 2 for a specific
-    // block given by a hash. If the tag is 0 or 1 then there is no additional data,
-    // and the content pointer is `null`.
-    //
-    // # Safety
-    // The caller **must** ensure that the pointer is not used after the reference
-    // to the supplied `bhi` is no longer retained.
+    /// Convert the [BlockHashInput] to a pair of a tag and pointer to the
+    /// content. The tag is 0 for "Best" block, 1 for "LastFinal" block, and
+    /// 2 for a specific block given by a hash. If the tag is 0 or 1 then
+    /// there is no additional data, and the content pointer is `null`.
+    ///
+    /// # Safety
+    /// The caller **must** ensure that the pointer is not used after the
+    /// reference to the supplied `bhi` is no longer retained.
     pub(crate) fn block_hash_input_to_ffi(bhi: &BlockHashInput) -> Option<(u8, *const u8)> {
         use block_hash_input::BlockHashInput::*;
         match bhi.block_hash_input.as_ref()? {
@@ -50,6 +60,20 @@ pub mod types {
             LastFinal(_) => Some((1, std::ptr::null())),
             Given(bh) if bh.value.len() == 32 => Some((2, bh.value.as_ptr())),
             _ => None,
+        }
+    }
+
+    /// Convert [ModuleRef] to a pointer to the content. The length of the
+    /// content is checked to be 32 bytes.
+    ///
+    /// # Safety
+    /// The caller **must** ensure that the pointer is not used after the
+    /// reference to the supplied `module_ref` is no longer retained.
+    pub(crate) fn module_reference_to_ffi(module_ref: &ModuleRef) -> Option<*const u8> {
+        if module_ref.value.len() == 32 {
+            Some(module_ref.value.as_ptr())
+        } else {
+            None
         }
     }
 }
@@ -401,14 +425,22 @@ pub mod server {
 
     #[async_trait]
     impl service::queries_server::Queries for RpcServerImpl {
+        /// Return type for the 'GetAccountList' method.
         type GetAccountListStream =
             futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
-        ///Server streaming response type for the Blocks method.
+        /// Return type for the 'GetAncestors' method.
+        type GetAncestorsStream = futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
+        /// Return type for the 'Blocks' method.
         type GetBlocksStream =
             tokio_stream::wrappers::ReceiverStream<Result<Arc<[u8]>, tonic::Status>>;
-        ///Server streaming response type for the FinalizedBlocks method.
+        /// Return type for the 'FinalizedBlocks' method.
         type GetFinalizedBlocksStream =
             tokio_stream::wrappers::ReceiverStream<Result<Arc<[u8]>, tonic::Status>>;
+        /// Return type for the 'GetInstanceList' method.
+        type GetInstanceListStream =
+            futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
+        /// Return type for the 'GetModuleList' method.
+        type GetModuleListStream = futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
 
         async fn get_blocks(
             &self,
@@ -480,10 +512,90 @@ pub mod server {
             add_hash(&mut response, hash)?;
             Ok(response)
         }
+
+        async fn get_module_list(
+            &self,
+            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+        ) -> Result<tonic::Response<Self::GetModuleListStream>, tonic::Status> {
+            let (sender, receiver) = futures::channel::mpsc::channel(100);
+            let hash = self.consensus.get_module_list_v2(request.get_ref(), sender)?;
+            let mut response = tonic::Response::new(receiver);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_module_source(
+            &self,
+            request: tonic::Request<crate::grpc2::types::ModuleSourceRequest>,
+        ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            let request = request.get_ref();
+            let block_hash = request.block_hash.as_ref().require()?;
+            let module_ref = request.module_ref.as_ref().require()?;
+            let (hash, response) = self.consensus.get_module_source_v2(block_hash, module_ref)?;
+            let mut response = tonic::Response::new(response);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_instance_list(
+            &self,
+            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+        ) -> Result<tonic::Response<Self::GetInstanceListStream>, tonic::Status> {
+            let (sender, receiver) = futures::channel::mpsc::channel(100);
+            let hash = self.consensus.get_instance_list_v2(request.get_ref(), sender)?;
+            let mut response = tonic::Response::new(receiver);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_instance_info(
+            &self,
+            request: tonic::Request<crate::grpc2::types::InstanceInfoRequest>,
+        ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            let request = request.get_ref();
+            let block_hash = request.block_hash.as_ref().require()?;
+            let contract_address = request.address.as_ref().require()?;
+            let (hash, response) =
+                self.consensus.get_instance_info_v2(block_hash, contract_address)?;
+            let mut response = tonic::Response::new(response);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_next_account_sequence_number(
+            &self,
+            request: tonic::Request<crate::grpc2::types::AccountAddress>,
+        ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            let response = self.consensus.get_next_account_sequence_number_v2(request.get_ref())?;
+            Ok(tonic::Response::new(response))
+        }
+
+        async fn get_consensus_info(
+            &self,
+            _request: tonic::Request<crate::grpc2::types::Empty>,
+        ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            let response = self.consensus.get_consensus_info_v2()?;
+            Ok(tonic::Response::new(response))
+        }
+
+        async fn get_ancestors(
+            &self,
+            request: tonic::Request<crate::grpc2::types::AncestorsRequest>,
+        ) -> Result<tonic::Response<Self::GetAncestorsStream>, tonic::Status> {
+            let (sender, receiver) = futures::channel::mpsc::channel(100);
+            let request = request.get_ref();
+            let block_hash = request.block_hash.as_ref().require()?;
+            let amount = request.amount;
+            let hash = self.consensus.get_ancestors_v2(block_hash, amount, sender)?;
+            let mut response = tonic::Response::new(receiver);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
     }
 }
 
-/// Add hash to the provided response. The hash is added as part of metadata.
+/// Add a block hash to the metadata of a response. Used for returning the block
+/// hash.
 fn add_hash<T>(response: &mut tonic::Response<T>, hash: [u8; 32]) -> Result<(), tonic::Status> {
     let value = tonic::metadata::MetadataValue::try_from(hex::encode(&hash))
         .map_err(|_| tonic::Status::internal("Cannot add metadata hash."))?;

@@ -48,17 +48,17 @@ makeBasicBlockPointer pb parent lastFinalized _bpState _bpArriveTime _bpTransact
             NoFinalizationData -> lastFinalized == runIdentity (_bpLastFinalized parent)
             BlockFinalizationData r -> getHash lastFinalized == finalizationBlockPointer r
 
-makeGenesisBasicBlockPointer :: forall pv s. IsProtocolVersion pv => GenesisData pv -> s -> BasicBlockPointer pv s
-makeGenesisBasicBlockPointer genData _bpState = theBlockPointer
+makeGenesisBasicBlockPointer :: forall pv s. GenesisConfiguration -> s -> BasicBlockPointer pv s
+makeGenesisBasicBlockPointer genConf _bpState = theBlockPointer
     where
         theBlockPointer = BlockPointer {_bpInfo=BasicBlockPointerData{..},..}
-        _bpBlock = GenesisBlock (genesisConfiguration genData)
+        _bpBlock = GenesisBlock genConf
         _bpHash = getHash _bpBlock
         _bpParent = Identity theBlockPointer
         _bpLastFinalized = Identity theBlockPointer
         _bpLastFinalizedHash = _bpHash
         _bpHeight = 0
-        _bpReceiveTime = timestampToUTCTime (gdGenesisTime genData)
+        _bpReceiveTime = timestampToUTCTime (gdGenesisTime . _gcCore $ genConf)
         _bpArriveTime = _bpReceiveTime
         _bpTransactionCount = 0
         _bpTransactionsEnergyCost = 0
