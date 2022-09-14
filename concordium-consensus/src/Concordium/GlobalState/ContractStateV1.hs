@@ -128,10 +128,6 @@ foreign import ccall "thaw_persistent_state_v1" thawPersistentTree :: Ptr Persis
 -- entries.
 foreign import ccall "get_new_state_size_v1" getNewStateSizeFFI :: LoadCallback -> Ptr MutableStateInner -> IO Word64
 
--- |Cache the persistent state, loading all parts of the tree that are purely on
--- disk.
-foreign import ccall "cache_persistent_state_v1" cachePersistentState :: LoadCallback -> Ptr PersistentState -> IO ()
-
 -- |Compute and retrieve the hash of the persistent state. The function is given
 -- a buffer to write the hash into.
 foreign import ccall "hash_persistent_state_v1" hashPersistentState :: LoadCallback -> Ptr PersistentState -> Ptr Word8 -> IO ()
@@ -199,11 +195,11 @@ instance (MonadBlobStore m) => BlobStorable m PersistentState where
       bRef <- withPersistentState ps $ storePersistentTree storeCallback
       return (put bRef, ps)
 
+-- |We are using the default no-op 'Cacheable' instance here
+-- as we do not want to load smart contract state
+-- into memory prematurely. The smart contract state is loaded
+-- on demand and flushed to disk upon finalization.
 instance MonadBlobStore m => Cacheable m PersistentState where
-  cache ps = do
-    (cbk, _) <- getCallbacks
-    liftIO (withPersistentState ps (cachePersistentState cbk))
-    return ps
 
 instance MonadBlobStore m => MHashableTo m SHA256.Hash PersistentState where
   getHashM ps = do

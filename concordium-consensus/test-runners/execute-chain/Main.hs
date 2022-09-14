@@ -11,6 +11,7 @@ import System.Directory
 import System.Environment
 import System.FilePath
 import System.IO
+import Data.Time.Clock.POSIX
 
 import Concordium.GlobalState
 import Concordium.GlobalState.Parameters
@@ -31,9 +32,9 @@ main = do
     now <- currentTimestamp
     logFile <- openFile ("consensus-" ++ show now ++ ".log") WriteMode
     let logM src lvl msg = {- when (lvl == LLInfo) $ -} do
-            hPutStrLn logFile $ show lvl ++ " - " ++ show src ++ ": " ++ msg
+            timestamp <- getCurrentTime
+            hPutStrLn logFile $ "[" ++ show timestamp ++ "] " ++ show lvl ++ " - " ++ show src ++ ": " ++ msg
             hFlush logFile
-    -- let logM src lvl msg = putStrLn $ show lvl ++ " - " ++ show src ++ ": " ++ msg
     let dataDir = "data" </> ("db" ++ show now)
     createDirectoryIfMissing True dataDir
     let config ::

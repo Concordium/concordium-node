@@ -17,6 +17,7 @@
   `--chunksize` option specifies the size of export files in blocks.
 - The `--download-blocks-from` option now takes the URL to the catchup _index file_, permitting to
   only download and import catchup files containing blocks not already present in the database.
+- Smart contract state is no longer cached on startup and is not cached after finalization.
 
 ## 4.3.1
 
