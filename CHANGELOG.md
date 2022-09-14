@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+- Speed up and reduce memory overhead during protocol updates.
+
 ## 4.4.1
 
 - Verify pending blocks earlier when possible.

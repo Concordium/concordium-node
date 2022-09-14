@@ -36,6 +36,7 @@ import Concordium.Types.Updates
 import Control.Exception hiding (handle)
 import Control.Monad.Reader
 import Control.Monad.State
+import Data.Maybe (fromMaybe)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import Data.List (partition)
@@ -225,7 +226,13 @@ data SkovPersistentData (pv :: ProtocolVersion) bs = SkovPersistentData {
     -- |Tree state directory
     _treeStateDirectory :: !FilePath,
     -- | Database handlers
-    _db :: !(DatabaseHandlers pv (TS.BlockStatePointer bs))
+    _db :: !(DatabaseHandlers pv (TS.BlockStatePointer bs)),
+    -- |State where we store the initial state for the new protocol update.
+    -- TODO: This is not an ideal solution, but seems simplest in terms of abstractions.
+    -- If we only had the one state implementation this would not be necessary, and we could simply
+    -- return the value in the 'updateRegenesis' function. However as it is, it is challenging to properly
+    -- specify the types of these values due to the way the relevant types are parameterized.
+    _nextGenesisInitialState :: !(Maybe bs)
 }
 makeLenses ''SkovPersistentData
 
@@ -237,10 +244,11 @@ instance (bsp ~ TS.BlockStatePointer bs)
 initialSkovPersistentDataDefault
     :: (IsProtocolVersion pv, FixedSizeSerialization (TS.BlockStatePointer bs), BlockStateQuery m, bs ~ BlockState m, MonadIO m)
     => FilePath
-    -> GenesisData pv
+    -> GenesisConfiguration
     -> bs
     -> TS.BlockStatePointer bs -- ^How to serialize the block state reference for inclusion in the table.
     -> TransactionTable
+    -> Maybe PendingTransactionTable
     -> m (SkovPersistentData pv bs)
 initialSkovPersistentDataDefault = initialSkovPersistentData defaultRuntimeParameters
 
@@ -253,16 +261,24 @@ initialSkovPersistentData
     -- ^Runtime parameters
     -> FilePath
     -- ^Tree state directory
-    -> GenesisData pv
+    -> GenesisConfiguration
     -- ^Genesis data
     -> bs
     -- ^Genesis state
     -> TS.BlockStatePointer bs
     -- ^Genesis block state
     -> TransactionTable
-    -- ^Genesis transaction table
+    -- ^The table of transactions to start the configuration with. If this
+    -- transaction table has any non-finalized transactions then the pending
+    -- table corresponding to those non-finalized transactions must be supplied.
+    -- This table should never have "Committed" transactions.
+    -> Maybe PendingTransactionTable
+    -- ^The initial pending transaction table. If the supplied __transaction
+    -- table__ has transactions that are not finalized the pending table must be
+    -- supplied to record these, satisfying the usual properties. See
+    -- documentation of the 'PendingTransactionTable' for details.
     -> m (SkovPersistentData pv bs)
-initialSkovPersistentData rp treeStateDir gd genState serState genTT = do
+initialSkovPersistentData rp treeStateDir gd genState serState genTT mPending = do
   gb <- makeGenesisPersistentBlockPointer gd genState
   let gbh = bpHash gb
       gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
@@ -274,16 +290,17 @@ initialSkovPersistentData rp treeStateDir gd genState serState genTT = do
             _lastFinalized = gb,
             _lastFinalizationRecord = gbfin,
             _branches = Seq.empty,
-            _genesisData = genesisConfiguration gd,
+            _genesisData = gd,
             _genesisBlockPointer = gb,
             _focusBlock = gb,
-            _pendingTransactions = emptyPendingTransactionTable,
+            _pendingTransactions = fromMaybe emptyPendingTransactionTable mPending,
             _transactionTable = genTT,
             _transactionTablePurgeCounter = 0,
             _statistics = initialConsensusStatistics,
             _runtimeParameters = rp,
             _treeStateDirectory = treeStateDir,
-            _db = initialDb
+            _db = initialDb,
+            _nextGenesisInitialState = Nothing
         }
 
 --------------------------------------------------------------------------------
@@ -407,6 +424,7 @@ loadSkovPersistentData rp _treeStateDirectory pbsc = do
             _statistics = initialConsensusStatistics,
             _runtimeParameters = rp,
             _blockTable = BlockTable {_deadCache = emptyDeadCache, _liveMap = HM.empty},
+            _nextGenesisInitialState = Nothing,
             ..
         }
 
@@ -607,9 +625,6 @@ instance (MonadLogger (PersistentTreeStateMonad bs m),
                 }
             _ -> return Nothing
     markPending pb = blockTable . liveMap . at' (getHash pb) ?=! BlockPending pb
-    clearAllNonFinalizedBlocks = do
-      blockTable . liveMap .=! HM.empty
-      blockTable . deadCache .=! emptyDeadCache
     
     getGenesisBlockPointer = use genesisBlockPointer
     getGenesisData = use genesisData
@@ -677,9 +692,6 @@ instance (MonadLogger (PersistentTreeStateMonad bs m),
                 Nothing -> do
                     possiblyPendingQueue .= ppq
                     return Nothing
-    wipePendingBlocks = do
-        possiblyPendingTable .=! HM.empty
-        possiblyPendingQueue .=! MPQ.empty
 
     getFocusBlock = use focusBlock
     putFocusBlock bb = focusBlock .= bb
@@ -917,14 +929,39 @@ instance (MonadLogger (PersistentTreeStateMonad bs m),
         transactionTable .= newTT
         pendingTransactions .= newPT
 
-    wipeNonFinalizedTransactions = do
-        -- This assumes that the transaction table only
-        -- contains non-finalized transactions.
-        -- The motivation for using foldr here is that the list will be consumed by iteration
-        -- almost immediately, so it is reasonable to build it lazily.
-        oldTransactions <- HM.foldr ((:) . fst) [] <$> use (transactionTable . ttHashMap)
+    clearOnProtocolUpdate = do
+        -- clear the pending blocks
+        possiblyPendingTable .=! HM.empty
+        possiblyPendingQueue .=! MPQ.empty
+        -- and non-finalized blocks
+        branches .=! Seq.empty
+        blockTable . liveMap .=! HM.empty
+        blockTable . deadCache .=! emptyDeadCache
+        -- mark all transactions that are not finalized as received since
+        -- they are no longer part of any blocks.
+        transactionTable
+            . ttHashMap
+            %=! HM.map
+                ( \(bi, s) -> case s of
+                    Committed{..} -> (bi, Received{..})
+                    _ -> (bi, s)
+                )
+
+    clearAfterProtocolUpdate = do
         transactionTable .=! emptyTransactionTable
-        return oldTransactions
+        pendingTransactions .=! emptyPendingTransactionTable
+        nextGenesisInitialState .=! Nothing
+        -- uncache any blocks that might still be cached.
+        gp <- use genesisBlockPointer
+        archiveBlockState (_bpState gp)
+        fp <- use focusBlock
+        archiveBlockState (_bpState fp)
+        lf <- use lastFinalized
+        archiveBlockState (_bpState lf)
+        collapseCaches
+
     getNonFinalizedTransactionVerificationResult bi = do
       table <- use transactionTable
       return $ getNonFinalizedVerificationResult bi table
+
+    storeFinalState bs = nextGenesisInitialState ?= bs

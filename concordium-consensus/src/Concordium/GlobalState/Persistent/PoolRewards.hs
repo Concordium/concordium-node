@@ -1,3 +1,5 @@
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module Concordium.GlobalState.Persistent.PoolRewards (
     module Concordium.GlobalState.Basic.BlockState.PoolRewards,
     PoolRewards (..),
@@ -9,8 +11,10 @@ module Concordium.GlobalState.Persistent.PoolRewards (
     setNextCapitalDistribution,
     currentPassiveDelegationCapital,
     lookupBakerCapitalAndRewardDetails,
+    migratePoolRewards
 ) where
 
+import qualified Data.Map.Strict as Map
 import Data.Serialize
 import qualified Data.Vector as Vec
 import Data.Word
@@ -59,6 +63,45 @@ data PoolRewards = PoolRewards
       nextPaydayMintRate :: !MintRate
     }
     deriving (Show)
+
+migratePoolRewards :: forall m . (MonadBlobStore m) => 
+    -- |Current epoch bakers and stakes, in ascending order of 'BakerId'.
+    [(BakerId, Amount)] ->
+    -- |Next epoch bakers and stakes, in ascending order of 'BakerId'.
+    [(BakerId, Amount)] ->
+    -- |Mapping of baker ids to the number of blocks baked in the epoch.
+    Map.Map BakerId Word64 ->
+    -- |Epoch of next payday
+    Epoch ->
+    -- |Mint rate for the next payday
+    MintRate ->
+    m PoolRewards 
+migratePoolRewards curBakers nextBakers blockCounts npEpoch npMintRate = do
+  (nextCapital, _) <- refFlush =<< bufferHashed (makeCD nextBakers)
+  (currentCapital, _) <- refFlush =<< bufferHashed (makeCD curBakers)
+  bakerPoolRewardDetails' <- LFMBT.fromAscListV =<< mapM makePRD curBakers
+  (_, bakerPoolRewardDetails) <- storeUpdateRef bakerPoolRewardDetails'
+  let passiveDelegationTransactionRewards = 0
+      foundationTransactionRewards = 0
+      nextPaydayEpoch = npEpoch
+      nextPaydayMintRate = npMintRate
+  return PoolRewards{..}
+
+  where makeCD bkrs = makeHashed $
+            CapitalDistribution
+                { bakerPoolCapital = Vec.fromList (makeBakerCapital <$> bkrs),
+                  passiveDelegatorsCapital = Vec.empty
+                }
+        makeBakerCapital (bid, amt) = BakerCapital bid amt Vec.empty
+        makePRD :: (BakerId, a) -> m (BufferedRef BakerPoolRewardDetails)
+        makePRD (bid, _) = do
+          let bprd = BakerPoolRewardDetails
+                  { blockCount = Map.findWithDefault 0 bid blockCounts,
+                    transactionFeesAccrued = 0,
+                    finalizationAwake = False
+                  }
+          (!newRef, _) <- refFlush =<< refMake bprd
+          return newRef
 
 -- |Look up the baker capital and reward details for a baker ID.
 lookupBakerCapitalAndRewardDetails ::
