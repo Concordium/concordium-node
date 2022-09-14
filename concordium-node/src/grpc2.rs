@@ -78,6 +78,20 @@ pub mod types {
             None
         }
     }
+
+    /// Convert [TransactionHash] to a pointer to the content. The length of the
+    /// content is checked to be 32 bytes.
+    ///
+    /// # Safety
+    /// The caller **must** ensure that the pointer is not used after the
+    /// reference to the supplied `transaction_hash` is no longer retained.
+    pub(crate) fn transaction_hash_to_ffi(transaction_hash: &TransactionHash) -> Option<*const u8> {
+        if transaction_hash.value.len() == 32 {
+            Some(transaction_hash.value.as_ptr())
+        } else {
+            None
+        }
+    }
 }
 
 /// The service generated from the configuration in the `build.rs` file.

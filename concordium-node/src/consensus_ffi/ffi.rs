@@ -685,6 +685,11 @@ extern "C" {
     ) -> i64;
 
     /// Get an information about a specific transaction.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `transaction_hash` - The transaction hash to use for the query.
+    /// * `out` - Location to write the output of the query.
+    /// * `copier` - Callback for writting the output.
     pub fn getTransactionStatusV2(
         consensus: *mut consensus_runner,
         transaction_hash: *const u8,
@@ -1437,18 +1442,21 @@ impl ConsensusContainer {
         &self,
         transaction_hash: &crate::grpc2::types::TransactionHash,
     ) -> Result<Vec<u8>, tonic::Status> {
+        use crate::grpc2::Require;
         let consensus = self.consensus.load(Ordering::SeqCst);
         let mut out_data: Vec<u8> = Vec::new();
+        let transaction_hash_ptr =
+            crate::grpc2::types::transaction_hash_to_ffi(transaction_hash).require()?;
         let response: ConsensusQueryResponse = unsafe {
             getTransactionStatusV2(
                 consensus,
-                transaction_hash.value.as_ptr(),
+                transaction_hash_ptr,
                 &mut out_data,
                 copy_to_vec_callback,
             )
             .try_into()?
         };
-        response.ensure_ok("block")?;
+        response.ensure_ok("transaction")?;
         Ok(out_data)
     }
 }

@@ -54,9 +54,8 @@ import Concordium.Types.Execution
 import qualified Concordium.Wasm as Wasm
 import Data.Text (Text)
 import Data.Time (UTCTime)
-import Concordium.Wasm (InstanceInfo(iiSourceModule))
-import Concordium.Types.Updates (UpdateType(..), UpdatePublicKey, UpdateKeysThreshold(..), UpdatePayload(..), ProtocolUpdate (..), RootUpdate(..), HigherLevelKeys(..), Authorizations(..), AccessStructure(..), Level1Update (..))
-import Concordium.Types.Parameters (mdMintPerSlot, mpsMintPerSlot, MintDistribution (..), TransactionFeeDistribution (..), GASRewards (..), ppBakerStakeThreshold, CooldownParameters (..), TimeParameters (..), InclusiveRange (..), CapitalBound (..), LeverageFactor (..), ppMinimumEquityCapital, ppPassiveCommissions, ppLeverageBound, ppCommissionBounds, ppCapitalBound, finalizationCommissionRange, bakingCommissionRange, transactionCommissionRange)
+import qualified Concordium.Types.Updates as Updates
+import qualified Concordium.Types.Parameters as Parameters
 import qualified Concordium.ID.AnonymityRevoker as ArInfo
 import qualified Concordium.ID.IdentityProvider as IpInfo
 import Concordium.Types.Block (AbsoluteBlockHeight(..))
@@ -364,7 +363,7 @@ instance ToProto ScheduledRelease where
 instance ToProto (Timestamp, Amount) where
   type Output (Timestamp, Amount) = Proto.NewRelease
   toProto (t, a) = Proto.make $ do
-      ProtoFields.timestamp .= coerce t
+      ProtoFields.timestamp . ProtoFields.value .= tsMillis t
       ProtoFields.amount .= toProto a
 
 instance ToProto (StakePendingChange' UTCTime) where
@@ -572,16 +571,16 @@ instance ToProto RejectReason where
   type Output RejectReason = Proto.RejectReason
   toProto r = case r of
     ModuleNotWF -> Proto.make $ ProtoFields.moduleNotWf .= Proto.defMessage
-    ModuleHashAlreadyExists moduleRef -> Proto.make $ ProtoFields.moduleHashAlreadyExists . ProtoFields.contents .= toProto moduleRef
-    InvalidAccountReference addr -> Proto.make $ ProtoFields.invalidAccountReference . ProtoFields.contents .= toProto addr
+    ModuleHashAlreadyExists moduleRef -> Proto.make $ ProtoFields.moduleHashAlreadyExists .= toProto moduleRef
+    InvalidAccountReference addr -> Proto.make $ ProtoFields.invalidAccountReference .= toProto addr
     InvalidInitMethod moduleRef initName -> Proto.make $ ProtoFields.invalidInitMethod .= Proto.make (do
                                                                                             ProtoFields.moduleRef .= toProto moduleRef
                                                                                             ProtoFields.initName .= toProto initName)
     InvalidReceiveMethod moduleRef receiveName -> Proto.make $ ProtoFields.invalidReceiveMethod .= Proto.make (do
                                                                                             ProtoFields.moduleRef .= toProto moduleRef
                                                                                             ProtoFields.receiveName .= toProto receiveName)
-    InvalidModuleReference moduleRef -> Proto.make $ ProtoFields.invalidModuleReference . ProtoFields.contents .= toProto moduleRef
-    InvalidContractAddress addr -> Proto.make $ ProtoFields.invalidContractAddress . ProtoFields.contents .= toProto addr
+    InvalidModuleReference moduleRef -> Proto.make $ ProtoFields.invalidModuleReference .= toProto moduleRef
+    InvalidContractAddress addr -> Proto.make $ ProtoFields.invalidContractAddress .= toProto addr
     RuntimeFailure -> Proto.make $ ProtoFields.runtimeFailure .= Proto.defMessage
     AmountTooLarge addr amount -> Proto.make $ ProtoFields.amountTooLarge .= Proto.make (do
                                                                                          ProtoFields.address .= toProto addr
@@ -595,27 +594,27 @@ instance ToProto RejectReason where
                                                                         ProtoFields.receiveName .= toProto receiveName
                                                                         ProtoFields.parameter .= toProto parameter)
     InvalidProof -> Proto.make $ ProtoFields.invalidProof .= Proto.defMessage
-    AlreadyABaker bakerId -> Proto.make $ ProtoFields.alreadyABaker . ProtoFields.contents .= toProto bakerId
-    NotABaker addr -> Proto.make $ ProtoFields.notABaker . ProtoFields.contents .= toProto addr
+    AlreadyABaker bakerId -> Proto.make $ ProtoFields.alreadyABaker .= toProto bakerId
+    NotABaker addr -> Proto.make $ ProtoFields.notABaker .= toProto addr
     InsufficientBalanceForBakerStake -> Proto.make $ ProtoFields.insufficientBalanceForBakerStake .= Proto.defMessage
     StakeUnderMinimumThresholdForBaking -> Proto.make $ ProtoFields.stakeUnderMinimumThresholdForBaking .= Proto.defMessage
     BakerInCooldown -> Proto.make $ ProtoFields.bakerInCooldown .= Proto.defMessage
-    DuplicateAggregationKey k -> Proto.make $ ProtoFields.duplicateAggregationKey . ProtoFields.contents .= mkSerialize k
+    DuplicateAggregationKey k -> Proto.make $ ProtoFields.duplicateAggregationKey .= mkSerialize k
     NonExistentCredentialID -> Proto.make $ ProtoFields.nonExistentCredentialId .= Proto.defMessage
     KeyIndexAlreadyInUse -> Proto.make $ ProtoFields.keyIndexAlreadyInUse .= Proto.defMessage
     InvalidAccountThreshold -> Proto.make $ ProtoFields.invalidAccountThreshold .= Proto.defMessage
     InvalidCredentialKeySignThreshold -> Proto.make $ ProtoFields.invalidCredentialKeySignThreshold .= Proto.defMessage
     InvalidEncryptedAmountTransferProof -> Proto.make $ ProtoFields.invalidEncryptedAmountTransferProof .= Proto.defMessage
     InvalidTransferToPublicProof -> Proto.make $ ProtoFields.invalidTransferToPublicProof .= Proto.defMessage
-    EncryptedAmountSelfTransfer addr -> Proto.make $ ProtoFields.encryptedAmountSelfTransfer . ProtoFields.contents .= toProto addr
+    EncryptedAmountSelfTransfer addr -> Proto.make $ ProtoFields.encryptedAmountSelfTransfer .= toProto addr
     InvalidIndexOnEncryptedTransfer -> Proto.make $ ProtoFields.invalidIndexOnEncryptedTransfer .= Proto.defMessage
     ZeroScheduledAmount -> Proto.make $ ProtoFields.zeroScheduledAmount .= Proto.defMessage
     NonIncreasingSchedule -> Proto.make $ ProtoFields.nonIncreasingSchedule .= Proto.defMessage
     FirstScheduledReleaseExpired -> Proto.make $ ProtoFields.firstScheduledReleaseExpired .= Proto.defMessage
-    ScheduledSelfTransfer addr -> Proto.make $ ProtoFields.scheduledSelfTransfer . ProtoFields.contents .= toProto addr
+    ScheduledSelfTransfer addr -> Proto.make $ ProtoFields.scheduledSelfTransfer .= toProto addr
     InvalidCredentials -> Proto.make $ ProtoFields.invalidCredentials .= Proto.defMessage
-    DuplicateCredIDs ids -> Proto.make $ ProtoFields.duplicateCredIds . ProtoFields.contents .= (toProto <$> ids)
-    NonExistentCredIDs ids -> Proto.make $ ProtoFields.nonExistentCredIds . ProtoFields.contents .= (toProto <$> ids)
+    DuplicateCredIDs ids -> Proto.make $ ProtoFields.duplicateCredIds . ProtoFields.ids .= (toProto <$> ids)
+    NonExistentCredIDs ids -> Proto.make $ ProtoFields.nonExistentCredIds . ProtoFields.ids .= (toProto <$> ids)
     RemoveFirstCredential -> Proto.make $ ProtoFields.removeFirstCredential .= Proto.defMessage
     CredentialHolderDidNotSign -> Proto.make $ ProtoFields.credentialHolderDidNotSign .= Proto.defMessage
     NotAllowedMultipleCredentials -> Proto.make $ ProtoFields.notAllowedMultipleCredentials .= Proto.defMessage
@@ -630,8 +629,8 @@ instance ToProto RejectReason where
     MissingDelegationAddParameters -> Proto.make $ ProtoFields.missingDelegationAddParameters .= Proto.defMessage
     InsufficientDelegationStake -> Proto.make $ ProtoFields.insufficientDelegationStake .= Proto.defMessage
     DelegatorInCooldown -> Proto.make $ ProtoFields.delegatorInCooldown .= Proto.defMessage
-    NotADelegator addr -> Proto.make $ ProtoFields.notADelegator . ProtoFields.contents .= toProto addr
-    DelegationTargetNotABaker bakerId -> Proto.make $ ProtoFields.delegationTargetNotABaker . ProtoFields.contents .= toProto bakerId
+    NotADelegator addr -> Proto.make $ ProtoFields.notADelegator .= toProto addr
+    DelegationTargetNotABaker bakerId -> Proto.make $ ProtoFields.delegationTargetNotABaker .= toProto bakerId
     StakeOverMaximumThresholdForPool -> Proto.make $ ProtoFields.stakeOverMaximumThresholdForPool .= Proto.defMessage
     PoolWouldBecomeOverDelegated -> Proto.make $ ProtoFields.poolWouldBecomeOverDelegated .= Proto.defMessage
     PoolClosed -> Proto.make $ ProtoFields.poolClosed .= Proto.defMessage
@@ -703,57 +702,57 @@ toBlockItemSummary TransactionSummary{..} = case tsType of
 
 -- |Attempt to construct the protobuf updatepayload.
 --  See @toTransactionStatus@ for more context.
-convertUpdatePayload :: UpdateType -> UpdatePayload -> Either ConversionError Proto.UpdatePayload
+convertUpdatePayload :: Updates.UpdateType -> Updates.UpdatePayload -> Either ConversionError Proto.UpdatePayload
 convertUpdatePayload ut pl = case (ut, pl) of
-    (UpdateProtocol, ProtocolUpdatePayload ProtocolUpdate{..}) -> Right . Proto.make $ ProtoFields.protocolUpdate .= Proto.make (do
+    (Updates.UpdateProtocol, Updates.ProtocolUpdatePayload Updates.ProtocolUpdate{..}) -> Right . Proto.make $ ProtoFields.protocolUpdate .= Proto.make (do
             ProtoFields.message .= puMessage
             ProtoFields.specificationUrl .= puSpecificationURL
             ProtoFields.specificationHash .= toProto puSpecificationHash
             ProtoFields.specificationAuxiliaryData .= puSpecificationAuxiliaryData)
-    (UpdateElectionDifficulty, ElectionDifficultyUpdatePayload ed) -> Right . Proto.make $ ProtoFields.electionDifficultyUpdate .= toProto ed
-    (UpdateEuroPerEnergy, EuroPerEnergyUpdatePayload er) -> Right . Proto.make $ ProtoFields.euroPerEnergyUpdate .= toProto er
-    (UpdateMicroGTUPerEuro, MicroGTUPerEuroUpdatePayload er) -> Right . Proto.make $ ProtoFields.microCcdPerEuroUpdate .= toProto er
-    (UpdateFoundationAccount, FoundationAccountUpdatePayload addr) -> Right . Proto.make $ ProtoFields.foundationAccountUpdate .= toProto addr
-    (UpdateMintDistribution, MintDistributionUpdatePayload md) -> Right . Proto.make $ ProtoFields.mintDistributionUpdate .= Proto.make (do
-        ProtoFields.mintDistribution .= toProto (md ^. mdMintPerSlot . mpsMintPerSlot)
-        ProtoFields.bakingReward .= toProto (_mdBakingReward md)
-        ProtoFields.finalizationReward .= toProto (_mdFinalizationReward md))
-    (UpdateTransactionFeeDistribution, TransactionFeeDistributionUpdatePayload TransactionFeeDistribution{..}) -> Right . Proto.make $ ProtoFields.transactionFeeDistributionUpdate .= Proto.make (do
+    (Updates.UpdateElectionDifficulty, Updates.ElectionDifficultyUpdatePayload ed) -> Right . Proto.make $ ProtoFields.electionDifficultyUpdate .= toProto ed
+    (Updates.UpdateEuroPerEnergy, Updates.EuroPerEnergyUpdatePayload er) -> Right . Proto.make $ ProtoFields.euroPerEnergyUpdate .= toProto er
+    (Updates.UpdateMicroGTUPerEuro, Updates.MicroGTUPerEuroUpdatePayload er) -> Right . Proto.make $ ProtoFields.microCcdPerEuroUpdate .= toProto er
+    (Updates.UpdateFoundationAccount, Updates.FoundationAccountUpdatePayload addr) -> Right . Proto.make $ ProtoFields.foundationAccountUpdate .= toProto addr
+    (Updates.UpdateMintDistribution, Updates.MintDistributionUpdatePayload md) -> Right . Proto.make $ ProtoFields.mintDistributionUpdate .= Proto.make (do
+        ProtoFields.mintDistribution .= toProto (md ^. Parameters.mdMintPerSlot . Parameters.mpsMintPerSlot)
+        ProtoFields.bakingReward .= toProto (Parameters._mdBakingReward md)
+        ProtoFields.finalizationReward .= toProto (Parameters._mdFinalizationReward md))
+    (Updates.UpdateTransactionFeeDistribution, Updates.TransactionFeeDistributionUpdatePayload Parameters.TransactionFeeDistribution{..}) -> Right . Proto.make $ ProtoFields.transactionFeeDistributionUpdate .= Proto.make (do
         ProtoFields.baker .= toProto _tfdBaker
         ProtoFields.gasAccount .= toProto _tfdGASAccount)
-    (UpdateGASRewards, GASRewardsUpdatePayload GASRewards{..}) -> Right . Proto.make $ ProtoFields.gasRewardsUpdate .= Proto.make (do
+    (Updates.UpdateGASRewards, Updates.GASRewardsUpdatePayload Parameters.GASRewards{..}) -> Right . Proto.make $ ProtoFields.gasRewardsUpdate .= Proto.make (do
         ProtoFields.baker .= toProto _gasBaker
         ProtoFields.finalizationProof .= toProto _gasFinalizationProof
         ProtoFields.accountCreation .= toProto _gasAccountCreation
         ProtoFields.chainUpdate .= toProto _gasChainUpdate)
-    (UpdatePoolParameters, BakerStakeThresholdUpdatePayload pp) -> Right . Proto.make $
-        ProtoFields.bakerStakeThresholdUpdate . ProtoFields.bakerStakeThreshold .= toProto (pp ^. ppBakerStakeThreshold)
-    (UpdateRootKeys, RootUpdatePayload ru) -> Right . Proto.make $ ProtoFields.rootUpdate .= toProto ru
-    (UpdateLevel1Keys, Level1UpdatePayload l1u) -> Right . Proto.make $ ProtoFields.level1RootUpdate .= toProto l1u
-    (UpdateAddAnonymityRevoker, AddAnonymityRevokerUpdatePayload ai) -> Right . Proto.make $ ProtoFields.addAnonymityRevokerUpdate .= toProto ai
-    (UpdateAddIdentityProvider, AddIdentityProviderUpdatePayload ip) -> Right . Proto.make $ ProtoFields.addIdentityProviderUpdate .= toProto ip
-    (UpdateCooldownParameters, CooldownParametersCPV1UpdatePayload cp) -> Right $ case cp of
-        CooldownParametersV1{..} -> Proto.make $ ProtoFields.cooldownParametersCpv1Update .= Proto.make (do
+    (Updates.UpdatePoolParameters, Updates.BakerStakeThresholdUpdatePayload pp) -> Right . Proto.make $
+        ProtoFields.bakerStakeThresholdUpdate . ProtoFields.bakerStakeThreshold .= toProto (pp ^. Parameters.ppBakerStakeThreshold)
+    (Updates.UpdateRootKeys, Updates.RootUpdatePayload ru) -> Right . Proto.make $ ProtoFields.rootUpdate .= toProto ru
+    (Updates.UpdateLevel1Keys, Updates.Level1UpdatePayload l1u) -> Right . Proto.make $ ProtoFields.level1RootUpdate .= toProto l1u
+    (Updates.UpdateAddAnonymityRevoker, Updates.AddAnonymityRevokerUpdatePayload ai) -> Right . Proto.make $ ProtoFields.addAnonymityRevokerUpdate .= toProto ai
+    (Updates.UpdateAddIdentityProvider, Updates.AddIdentityProviderUpdatePayload ip) -> Right . Proto.make $ ProtoFields.addIdentityProviderUpdate .= toProto ip
+    (Updates.UpdateCooldownParameters, Updates.CooldownParametersCPV1UpdatePayload cp) -> Right $ case cp of
+        Parameters.CooldownParametersV1{..} -> Proto.make $ ProtoFields.cooldownParametersCpv1Update .= Proto.make (do
             ProtoFields.poolOwnerCooldown .= toProto _cpPoolOwnerCooldown
             ProtoFields.delegatorCooldown .= toProto _cpDelegatorCooldown)
-    (UpdatePoolParameters, PoolParametersCPV1UpdatePayload pp) -> Right . Proto.make $ ProtoFields.poolParametersCpv1Update .= Proto.make (do
-            ProtoFields.passiveFinalizationCommission .= toProto (pp ^. ppPassiveCommissions . finalizationCommission)
-            ProtoFields.passiveBakingCommission .= toProto (pp ^. ppPassiveCommissions . bakingCommission)
-            ProtoFields.passiveTransactionCommission .= toProto (pp ^. ppPassiveCommissions . transactionCommission)
+    (Updates.UpdatePoolParameters, Updates.PoolParametersCPV1UpdatePayload pp) -> Right . Proto.make $ ProtoFields.poolParametersCpv1Update .= Proto.make (do
+            ProtoFields.passiveFinalizationCommission .= toProto (pp ^. Parameters.ppPassiveCommissions . finalizationCommission)
+            ProtoFields.passiveBakingCommission .= toProto (pp ^. Parameters.ppPassiveCommissions . bakingCommission)
+            ProtoFields.passiveTransactionCommission .= toProto (pp ^. Parameters.ppPassiveCommissions . transactionCommission)
             ProtoFields.commissionBounds .= Proto.make (do
-                ProtoFields.finalization .= toProto (pp ^. ppCommissionBounds . finalizationCommissionRange)
-                ProtoFields.baking.= toProto (pp ^. ppCommissionBounds . bakingCommissionRange)
-                ProtoFields.transaction .= toProto (pp ^. ppCommissionBounds . transactionCommissionRange))
-            ProtoFields.minimumEquityCapital .= toProto (pp ^. ppMinimumEquityCapital)
-            ProtoFields.capitalBound .= toProto (pp ^. ppCapitalBound)
-            ProtoFields.leverageBound .= toProto (pp ^. ppLeverageBound))
-    (UpdateTimeParameters, TimeParametersCPV1UpdatePayload tp) -> Right $ case tp of
-        TimeParametersV1{..} -> Proto.make $ ProtoFields.timeParametersCpv1Update .= Proto.make (do
+                ProtoFields.finalization .= toProto (pp ^. Parameters.ppCommissionBounds . Parameters.finalizationCommissionRange)
+                ProtoFields.baking.= toProto (pp ^. Parameters.ppCommissionBounds . Parameters.bakingCommissionRange)
+                ProtoFields.transaction .= toProto (pp ^. Parameters.ppCommissionBounds . Parameters.transactionCommissionRange))
+            ProtoFields.minimumEquityCapital .= toProto (pp ^. Parameters.ppMinimumEquityCapital)
+            ProtoFields.capitalBound .= toProto (pp ^. Parameters.ppCapitalBound)
+            ProtoFields.leverageBound .= toProto (pp ^. Parameters.ppLeverageBound))
+    (Updates.UpdateTimeParameters, Updates.TimeParametersCPV1UpdatePayload tp) -> Right $ case tp of
+        Parameters.TimeParametersV1{..} -> Proto.make $ ProtoFields.timeParametersCpv1Update .= Proto.make (do
             ProtoFields.rewardPeriodLength .= toProto _tpRewardPeriodLength
             ProtoFields.mintPerPayday .= toProto _tpMintPerPayday)
-    (UpdateMintDistribution, MintDistributionCPV1UpdatePayload md) -> Right . Proto.make $ ProtoFields.mintDistributionCpv1Update .= Proto.make (do
-        ProtoFields.bakingReward .= toProto (_mdBakingReward md)
-        ProtoFields.finalizationReward .= toProto (_mdFinalizationReward md))
+    (Updates.UpdateMintDistribution, Updates.MintDistributionCPV1UpdatePayload md) -> Right . Proto.make $ ProtoFields.mintDistributionCpv1Update .= Proto.make (do
+        ProtoFields.bakingReward .= toProto (Parameters._mdBakingReward md)
+        ProtoFields.finalizationReward .= toProto (Parameters._mdFinalizationReward md))
     _ -> Left CEInvalidUpdateResult
 
 -- |The different conversions errors possible in @toTransactionStatus@ (and the helper to* functions it calls).
@@ -786,19 +785,19 @@ instance ToProto (Ratio.Ratio Word64) where
      ProtoFields.numerator .= Ratio.numerator r
      ProtoFields.denominator .= Ratio.denominator r
 
-instance ToProto (InclusiveRange AmountFraction) where
-  type Output (InclusiveRange AmountFraction)= Proto.InclusiveRangeAmountFraction
-  toProto InclusiveRange{..} = Proto.make $ do
+instance ToProto (Parameters.InclusiveRange AmountFraction) where
+  type Output (Parameters.InclusiveRange AmountFraction)= Proto.InclusiveRangeAmountFraction
+  toProto Parameters.InclusiveRange{..} = Proto.make $ do
     ProtoFields.min .= toProto irMin
     ProtoFields.max .= toProto irMax
 
-instance ToProto CapitalBound where
-  type Output CapitalBound = Proto.CapitalBound
-  toProto CapitalBound{..} = Proto.make $ ProtoFields.value .= toProto theCapitalBound
+instance ToProto Parameters.CapitalBound where
+  type Output Parameters.CapitalBound = Proto.CapitalBound
+  toProto Parameters.CapitalBound{..} = Proto.make $ ProtoFields.value .= toProto theCapitalBound
 
-instance ToProto LeverageFactor where
-  type Output LeverageFactor = Proto.LeverageFactor
-  toProto LeverageFactor{..} = Proto.make $ ProtoFields.value .= toProto theLeverageFactor
+instance ToProto Parameters.LeverageFactor where
+  type Output Parameters.LeverageFactor = Proto.LeverageFactor
+  toProto Parameters.LeverageFactor{..} = Proto.make $ ProtoFields.value .= toProto theLeverageFactor
 
 instance ToProto RewardPeriodLength where
   type Output RewardPeriodLength = Proto.RewardPeriodLength
@@ -829,67 +828,67 @@ instance ToProto IpInfo.IpInfo where
     ProtoFields.verifyKey . ProtoFields.value .= IpInfo.ipVerifyKey ii
     ProtoFields.cdiVerifyKey . ProtoFields.value .= IpInfo.ipCdiVerifyKey ii
 
-instance ToProto Level1Update where
-  type Output Level1Update = Proto.UpdatePayload'Level1UpdatePayload
-  toProto Level1KeysLevel1Update{..} = Proto.make $ ProtoFields.level1KeysUpdate .= toProtoKeys l1kl1uKeys
-  toProto Level2KeysLevel1Update{..} = Proto.make $ ProtoFields.level2KeysUpdateV0 .= toProtoAuthorizationsV0 l2kl1uAuthorizations
-  toProto Level2KeysLevel1UpdateV1{..} = Proto.make $ ProtoFields.level2KeysUpdateV1 .= Proto.make (do
+instance ToProto Updates.Level1Update where
+  type Output Updates.Level1Update = Proto.UpdatePayload'Level1UpdatePayload
+  toProto Updates.Level1KeysLevel1Update{..} = Proto.make $ ProtoFields.level1KeysUpdate .= toProtoKeys l1kl1uKeys
+  toProto Updates.Level2KeysLevel1Update{..} = Proto.make $ ProtoFields.level2KeysUpdateV0 .= toProtoAuthorizationsV0 l2kl1uAuthorizations
+  toProto Updates.Level2KeysLevel1UpdateV1{..} = Proto.make $ ProtoFields.level2KeysUpdateV1 .= Proto.make (do
         ProtoFields.v0 .= toProtoAuthorizationsV0 l2kl1uAuthorizationsV1
-        case asCooldownParameters l2kl1uAuthorizationsV1 of
+        case Updates.asCooldownParameters l2kl1uAuthorizationsV1 of
             JustForCPV1 as -> ProtoFields.parameterCooldown .= toProto as
-        case asTimeParameters l2kl1uAuthorizationsV1 of
+        case Updates.asTimeParameters l2kl1uAuthorizationsV1 of
             JustForCPV1 as -> ProtoFields.parameterTime .= toProto as)
 
-instance ToProto RootUpdate where
-  type Output RootUpdate = Proto.UpdatePayload'RootUpdatePayload
+instance ToProto Updates.RootUpdate where
+  type Output Updates.RootUpdate = Proto.UpdatePayload'RootUpdatePayload
   toProto ru = case ru of
-    RootKeysRootUpdate{..} -> Proto.make $ ProtoFields.rootKeysUpdate .= toProtoKeys rkruKeys
-    Level1KeysRootUpdate{..} -> Proto.make $ ProtoFields.level1KeysUpdate .= toProtoKeys l1kruKeys
-    Level2KeysRootUpdate{..} -> Proto.make $ ProtoFields.level2KeysUpdateV0 .= toProtoAuthorizationsV0 l2kruAuthorizations
-    Level2KeysRootUpdateV1{..} -> Proto.make $ ProtoFields.level2KeysUpdateV1 .= Proto.make (do
+    Updates.RootKeysRootUpdate{..} -> Proto.make $ ProtoFields.rootKeysUpdate .= toProtoKeys rkruKeys
+    Updates.Level1KeysRootUpdate{..} -> Proto.make $ ProtoFields.level1KeysUpdate .= toProtoKeys l1kruKeys
+    Updates.Level2KeysRootUpdate{..} -> Proto.make $ ProtoFields.level2KeysUpdateV0 .= toProtoAuthorizationsV0 l2kruAuthorizations
+    Updates.Level2KeysRootUpdateV1{..} -> Proto.make $ ProtoFields.level2KeysUpdateV1 .= Proto.make (do
         ProtoFields.v0 .= toProtoAuthorizationsV0 l2kruAuthorizationsV1
-        case asCooldownParameters l2kruAuthorizationsV1 of
+        case Updates.asCooldownParameters l2kruAuthorizationsV1 of
             JustForCPV1 as -> ProtoFields.parameterCooldown .= toProto as
-        case asTimeParameters l2kruAuthorizationsV1 of
+        case Updates.asTimeParameters l2kruAuthorizationsV1 of
             JustForCPV1 as -> ProtoFields.parameterTime .= toProto as)
 
 -- |Is not needed if we can make a ToProto instance for HigherLevelKeys.
-toProtoKeys :: HigherLevelKeys kind -> Proto.HigherLevelKeys
+toProtoKeys :: Updates.HigherLevelKeys kind -> Proto.HigherLevelKeys
 toProtoKeys keys = Proto.make $ do
-    ProtoFields.keys .= map toProto (Vec.toList $ hlkKeys keys)
-    ProtoFields.threshold .= toProto (hlkThreshold keys)
+    ProtoFields.keys .= map toProto (Vec.toList $ Updates.hlkKeys keys)
+    ProtoFields.threshold .= toProto (Updates.hlkThreshold keys)
 
 -- |Is not needed if we can make a ToProto instance for Authorizations.
-toProtoAuthorizationsV0 :: Authorizations cpv -> Proto.AuthorizationsV0
+toProtoAuthorizationsV0 :: Updates.Authorizations cpv -> Proto.AuthorizationsV0
 toProtoAuthorizationsV0 auth = Proto.make $ do
-    ProtoFields.keys .= map toProto (Vec.toList $ asKeys auth)
-    ProtoFields.emergency .= toProto (asEmergency auth)
-    ProtoFields.protocol .= toProto (asProtocol auth)
-    ProtoFields.parameterElectionDifficulty .= toProto (asParamElectionDifficulty auth)
-    ProtoFields.parameterEuroPerEnergy.= toProto (asParamEuroPerEnergy auth)
-    ProtoFields.parameterMicroCCDPerEuro .= toProto (asParamMicroGTUPerEuro auth)
-    ProtoFields.parameterFoundationAccount .= toProto (asParamFoundationAccount auth)
-    ProtoFields.parameterMintDistribution .= toProto (asParamMintDistribution auth)
-    ProtoFields.parameterTransactionFeeDistribution .= toProto (asParamTransactionFeeDistribution auth)
-    ProtoFields.parameterGasRewards .= toProto (asParamGASRewards auth)
-    ProtoFields.poolParameters .= toProto (asPoolParameters auth)
-    ProtoFields.addAnonymityRevoker .= toProto (asAddAnonymityRevoker auth)
-    ProtoFields.addIdentityProvider .= toProto (asAddIdentityProvider auth)
+    ProtoFields.keys .= map toProto (Vec.toList $ Updates.asKeys auth)
+    ProtoFields.emergency .= toProto (Updates.asEmergency auth)
+    ProtoFields.protocol .= toProto (Updates.asProtocol auth)
+    ProtoFields.parameterElectionDifficulty .= toProto (Updates.asParamElectionDifficulty auth)
+    ProtoFields.parameterEuroPerEnergy.= toProto (Updates.asParamEuroPerEnergy auth)
+    ProtoFields.parameterMicroCCDPerEuro .= toProto (Updates.asParamMicroGTUPerEuro auth)
+    ProtoFields.parameterFoundationAccount .= toProto (Updates.asParamFoundationAccount auth)
+    ProtoFields.parameterMintDistribution .= toProto (Updates.asParamMintDistribution auth)
+    ProtoFields.parameterTransactionFeeDistribution .= toProto (Updates.asParamTransactionFeeDistribution auth)
+    ProtoFields.parameterGasRewards .= toProto (Updates.asParamGASRewards auth)
+    ProtoFields.poolParameters .= toProto (Updates.asPoolParameters auth)
+    ProtoFields.addAnonymityRevoker .= toProto (Updates.asAddAnonymityRevoker auth)
+    ProtoFields.addIdentityProvider .= toProto (Updates.asAddIdentityProvider auth)
 
-instance ToProto AccessStructure where
-  type Output AccessStructure = Proto.AccessStructure
-  toProto AccessStructure{..} = Proto.make $ do
+instance ToProto Updates.AccessStructure where
+  type Output Updates.AccessStructure = Proto.AccessStructure
+  toProto Updates.AccessStructure{..} = Proto.make $ do
     ProtoFields.accessPublicKeys .= map toProtoUpdateKeysIndex (Set.toList accessPublicKeys)
     ProtoFields.accessThreshold .= toProto accessThreshold
     where toProtoUpdateKeysIndex i = Proto.make $ ProtoFields.value .= fromIntegral i
 
-instance ToProto UpdatePublicKey where
-  type Output UpdatePublicKey = Proto.UpdatePublicKey
+instance ToProto Updates.UpdatePublicKey where
+  type Output Updates.UpdatePublicKey = Proto.UpdatePublicKey
   toProto = mkSerialize
 
-instance ToProto UpdateKeysThreshold where
-  type Output UpdateKeysThreshold = Proto.UpdateKeysThreshold
-  toProto UpdateKeysThreshold{..} = Proto.make $ ProtoFields.value .= fromIntegral uktTheThreshold
+instance ToProto Updates.UpdateKeysThreshold where
+  type Output Updates.UpdateKeysThreshold = Proto.UpdateKeysThreshold
+  toProto Updates.UpdateKeysThreshold{..} = Proto.make $ ProtoFields.value .= fromIntegral uktTheThreshold
 
 instance ToProto MintRate where
   type Output MintRate = Proto.MintRate
@@ -990,16 +989,16 @@ convertAccountTransaction ty cost sender result = case ty of
                             ProtoFields.receiveName .= toProto euReceiveName
                             ProtoFields.events .= map toProto euEvents)
                         Transferred{..} -> do
-                            from <- case etFrom of
+                            sender' <- case etFrom of
                                 AddressAccount _ -> Left CEInvalidTransactionResult
                                 AddressContract addr -> Right addr
-                            to' <- case etTo of
+                            receiver <- case etTo of
                                 AddressAccount addr -> Right addr
                                 AddressContract _ -> Left CEInvalidTransactionResult
                             Right . Proto.make $ ProtoFields.transferred .= Proto.make (do
-                                ProtoFields.from .= toProto from
+                                ProtoFields.sender .= toProto sender'
                                 ProtoFields.amount .= toProto etAmount
-                                ProtoFields.to .= toProto to')
+                                ProtoFields.receiver .= toProto receiver)
                         Interrupted{..} -> Right . Proto.make $ ProtoFields.interrupted .= Proto.make (do
                             ProtoFields.address .= toProto iAddress
                             ProtoFields.events .= map toProto iEvents)
@@ -1015,7 +1014,7 @@ convertAccountTransaction ty cost sender result = case ty of
                         AddressContract _ -> Left CEInvalidTransactionResult
                         AddressAccount receiver -> Right . Proto.make $ do
                             ProtoFields.amount .= toProto etAmount
-                            ProtoFields.to .= toProto receiver
+                            ProtoFields.receiver .= toProto receiver
                     _ -> Left CEInvalidTransactionResult
                 Right . Proto.make $ ProtoFields.accountTransfer .= v
             TTTransferWithMemo -> mkSuccess <$> do
@@ -1024,7 +1023,7 @@ convertAccountTransaction ty cost sender result = case ty of
                         AddressContract _ -> Left CEInvalidTransactionResult
                         AddressAccount receiver -> Right . Proto.make $ do
                             ProtoFields.amount .= toProto etAmount
-                            ProtoFields.to .= toProto receiver
+                            ProtoFields.receiver .= toProto receiver
                             ProtoFields.memo .= toProto tmMemo
                     _ -> Left CEInvalidTransactionResult
                 Right . Proto.make $ ProtoFields.accountTransfer .= v
@@ -1050,7 +1049,7 @@ convertAccountTransaction ty cost sender result = case ty of
                         ProtoFields.newStake .= toProto ebsiNewStake
                         ProtoFields.increased .= False
                     _ -> Left CEInvalidTransactionResult
-                Right . Proto.make $ ProtoFields.bakerStakeUpdated . ProtoFields.contents .= v
+                Right . Proto.make $ ProtoFields.bakerStakeUpdated . ProtoFields.update .= v
             TTUpdateBakerRestakeEarnings -> mkSuccess <$> do
                 v <- case events of
                     [BakerSetRestakeEarnings{..}] -> Right $ Proto.make $ do
@@ -1122,14 +1121,14 @@ convertAccountTransaction ty cost sender result = case ty of
             TTTransferWithSchedule -> mkSuccess <$> do
                 v <- case events of
                     [TransferredWithSchedule{..}] -> Right . Proto.make $ do
-                        ProtoFields.to .= toProto etwsTo
+                        ProtoFields.receiver .= toProto etwsTo
                         ProtoFields.amount .= map toProto etwsAmount
                     _ -> Left CEInvalidTransactionResult
                 Right . Proto.make $ ProtoFields.transferredWithSchedule .= v
             TTTransferWithScheduleAndMemo -> mkSuccess <$> do
                 v <- case events of
                     [TransferredWithSchedule{..}, TransferMemo{..}] -> Right . Proto.make $ do
-                        ProtoFields.to .= toProto etwsTo
+                        ProtoFields.receiver .= toProto etwsTo
                         ProtoFields.amount .= map toProto etwsAmount
                         ProtoFields.memo .= toProto tmMemo
                     _ -> Left CEInvalidTransactionResult
@@ -1184,7 +1183,7 @@ convertAccountTransaction ty cost sender result = case ty of
                             ProtoFields.finalizationRewardCommission .= toProto ebsfrcFinalizationRewardCommission)
                         _ -> Left CEInvalidTransactionResult
                 v <- mapM toBakerEvent events
-                Right . Proto.make $ ProtoFields.bakerConfigured . ProtoFields.contents .= v
+                Right . Proto.make $ ProtoFields.bakerConfigured . ProtoFields.events .= v
             TTConfigureDelegation -> mkSuccess <$> do
                 let toDelegationEvent = \case
                         DelegationStakeIncreased{..} -> Right . Proto.make $ ProtoFields.delegationStakeIncreased .= Proto.make (do
@@ -1203,7 +1202,7 @@ convertAccountTransaction ty cost sender result = case ty of
                         DelegationRemoved{..} -> Right . Proto.make $ ProtoFields.delegationRemoved .= toProto edrDelegatorId
                         _ -> Left CEInvalidTransactionResult
                 v <- mapM toDelegationEvent events
-                Right . Proto.make $ ProtoFields.delegationConfigured . ProtoFields.contents .= v
+                Right . Proto.make $ ProtoFields.delegationConfigured . ProtoFields.events .= v
   where
     mkSuccess :: Proto.AccountTransactionEffects -> Proto.AccountTransactionDetails
     mkSuccess effects = Proto.make $ do
@@ -1228,24 +1227,24 @@ instance ToProto Address where
   toProto (AddressAccount addr) = Proto.make $ ProtoFields.account .= toProto addr
   toProto (AddressContract addr) = Proto.make $ ProtoFields.contract .= toProto addr
 
-instance ToProto UpdateType where
-  type Output UpdateType = Proto.UpdateType
-  toProto UpdateProtocol = Proto.UPDATE_PROTOCOL
-  toProto UpdateElectionDifficulty = Proto.UPDATE_ELECTION_DIFFICULTY
-  toProto UpdateEuroPerEnergy = Proto.UPDATE_EURO_PER_ENERGY
-  toProto UpdateMicroGTUPerEuro = Proto.UPDATE_MICRO_GTU_PER_EURO
-  toProto UpdateFoundationAccount = Proto.UPDATE_FOUNDATION_ACCOUNT
-  toProto UpdateMintDistribution = Proto.UPDATE_MINT_DISTRIBUTION
-  toProto UpdateTransactionFeeDistribution = Proto.UPDATE_TRANSACTION_FEE_DISTRIBUTION
-  toProto UpdateGASRewards = Proto.UPDATE_GAS_REWARDS
-  toProto UpdatePoolParameters = Proto.UPDATE_POOL_PARAMETERS
-  toProto UpdateAddAnonymityRevoker = Proto.ADD_ANONYMITY_REVOKER
-  toProto UpdateAddIdentityProvider = Proto.ADD_IDENTITY_PROVIDER
-  toProto UpdateRootKeys = Proto.UPDATE_ROOT_KEYS
-  toProto UpdateLevel1Keys = Proto.UPDATE_LEVEL1_KEYS
-  toProto UpdateLevel2Keys = Proto.UPDATE_LEVEL2_KEYS
-  toProto UpdateCooldownParameters = Proto.UPDATE_COOLDOWN_PARAMETERS
-  toProto UpdateTimeParameters = Proto.UPDATE_TIME_PARAMETERS
+instance ToProto Updates.UpdateType where
+  type Output Updates.UpdateType = Proto.UpdateType
+  toProto Updates.UpdateProtocol = Proto.UPDATE_PROTOCOL
+  toProto Updates.UpdateElectionDifficulty = Proto.UPDATE_ELECTION_DIFFICULTY
+  toProto Updates.UpdateEuroPerEnergy = Proto.UPDATE_EURO_PER_ENERGY
+  toProto Updates.UpdateMicroGTUPerEuro = Proto.UPDATE_MICRO_GTU_PER_EURO
+  toProto Updates.UpdateFoundationAccount = Proto.UPDATE_FOUNDATION_ACCOUNT
+  toProto Updates.UpdateMintDistribution = Proto.UPDATE_MINT_DISTRIBUTION
+  toProto Updates.UpdateTransactionFeeDistribution = Proto.UPDATE_TRANSACTION_FEE_DISTRIBUTION
+  toProto Updates.UpdateGASRewards = Proto.UPDATE_GAS_REWARDS
+  toProto Updates.UpdatePoolParameters = Proto.UPDATE_POOL_PARAMETERS
+  toProto Updates.UpdateAddAnonymityRevoker = Proto.ADD_ANONYMITY_REVOKER
+  toProto Updates.UpdateAddIdentityProvider = Proto.ADD_IDENTITY_PROVIDER
+  toProto Updates.UpdateRootKeys = Proto.UPDATE_ROOT_KEYS
+  toProto Updates.UpdateLevel1Keys = Proto.UPDATE_LEVEL1_KEYS
+  toProto Updates.UpdateLevel2Keys = Proto.UPDATE_LEVEL2_KEYS
+  toProto Updates.UpdateCooldownParameters = Proto.UPDATE_COOLDOWN_PARAMETERS
+  toProto Updates.UpdateTimeParameters = Proto.UPDATE_TIME_PARAMETERS
 
 
 instance ToProto TransactionType where
