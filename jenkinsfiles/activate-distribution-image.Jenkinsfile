@@ -33,14 +33,14 @@ node {
     }
 
     stage('verify') {
-        // Verify existens of source image
+        // Verify existence of source image
         try {
             sh "curl -s https://hub.docker.com/v2/namespaces/concordium/repositories/${docker_images_base}/tags/${source_image_tag} | jq -re '.digest'"
         } catch (e) {
             error "Image with tag '${source_image_tag}' does not exist in repo '${docker_repo}'."
         }
 
-        // Verify source tag doesen't already exist
+        // Verify target tag doesen't already exist
         try {
             sh "! curl -s https://hub.docker.com/v2/namespaces/concordium/repositories/${docker_images_base}/tags/${destination_image_tag} | jq -re '.digest'"
         } catch (e) {
