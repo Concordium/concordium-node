@@ -6,6 +6,9 @@ use std::{convert::TryFrom, marker::PhantomData, path::Path};
 /// with some auxiliary definitions that help passing values through the FFI
 /// boundary.
 pub mod types {
+    // Allow some clippy warnings in this module. Needed because the generated code
+    // triggers these warnings.
+    #![allow(clippy::derive_partial_eq_without_eq, clippy::large_enum_variant)]
 
     include!(concat!(env!("OUT_DIR"), "/concordium.v2.rs"));
 
