@@ -60,3 +60,4 @@ EXPORTS
  getPoolStatusV2
  getPassiveDelegationStatusV2
  getBlocksAtHeightV2
+ getTokenomicsStatusV2

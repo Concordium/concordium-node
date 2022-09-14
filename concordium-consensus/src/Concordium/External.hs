@@ -1002,7 +1002,7 @@ getBlockInfo :: StablePtr ConsensusRunner -> CString -> IO CString
 getBlockInfo cptr blockcstr =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (Q.getBlockInfo (BHIGiven bh))
+        Just bh -> jsonQuery cptr (snd <$> Q.getBlockInfo (BHIGiven bh))
 
 -- |Get the list of transactions in a block with short summaries of their effects.
 -- Returns a null-terminated string encoding a JSON value.
@@ -1022,7 +1022,7 @@ getRewardStatus :: StablePtr ConsensusRunner -> CString -> IO CString
 getRewardStatus cptr blockcstr =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (Q.getRewardStatus bh)
+        Just bh -> jsonQuery cptr (snd <$> Q.getRewardStatus (BHIGiven bh))
 
 -- |Get birk parameters for the given block. The block must be given as a
 -- null-terminated base16 encoding of the block hash.
@@ -1042,7 +1042,7 @@ getCryptographicParameters :: StablePtr ConsensusRunner -> CString -> IO CString
 getCryptographicParameters cptr blockcstr =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr $ Versioned 0 <$> Q.getCryptographicParameters (Q.BHIGiven bh)
+        Just bh -> jsonQuery cptr $ Versioned 0 . snd <$> Q.getCryptographicParameters (Q.BHIGiven bh)
 
 -- |Get all of the identity providers registered in the system as of a given block.
 -- The block must be given as a null-terminated base16 encoding of the block hash.
@@ -1117,7 +1117,7 @@ getAccountInfo cptr blockcstr acctcstr = do
     acctbs <- BS.packCString acctcstr
     let account = decodeAccountIdentifier acctbs
     case (mblock, account) of
-        (Just bh, Just acct) -> jsonQuery cptr (Q.getAccountInfo (Q.BHIGiven bh) acct)
+        (Just bh, Just acct) -> jsonQuery cptr (snd <$> Q.getAccountInfo (Q.BHIGiven bh) acct)
         _ -> jsonCString AE.Null
 
 -- |Get instance information the given block and instance. The block must be
@@ -1180,7 +1180,7 @@ getBakerList :: StablePtr ConsensusRunner -> CString -> IO CString
 getBakerList cptr blockcstr = do
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (Q.getRegisteredBakers (BHIGiven bh))
+        Just bh -> jsonQuery cptr (snd <$> Q.getRegisteredBakers (BHIGiven bh))
 
 -- |Get the status of a baker pool or the passive delegators with respect to a particular block.
 -- The block must be given as a null-terminated base16 encoding of the block hash.
@@ -1203,7 +1203,7 @@ getPoolStatus ::
 getPoolStatus cptr blockcstr passive bid = do
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (Q.getPoolStatus (BHIGiven bh) mbid)
+        Just bh -> jsonQuery cptr (snd <$> Q.getPoolStatus (BHIGiven bh) mbid)
   where
     mbid = if passive /= 0 then Nothing else Just (BakerId (AccountIndex bid))
 

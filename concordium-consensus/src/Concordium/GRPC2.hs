@@ -624,6 +624,33 @@ instance ToProto QueryTypes.CurrentPaydayBakerPoolStatus where
       ProtoFields.bakerEquityCapital .= toProto bpsBakerEquityCapital
       ProtoFields.delegatedCapital .= toProto bpsDelegatedCapital
 
+instance ToProto MintRate where
+    type Output MintRate = Proto.MintRate
+    toProto MintRate {..} = Proto.make $ do
+      ProtoFields.mantissa .= mrMantissa
+      ProtoFields.exponent .= fromIntegral mrExponent
+
+instance ToProto QueryTypes.RewardStatus where
+    type Output QueryTypes.RewardStatus = Proto.TokenomicsStatus
+    toProto QueryTypes.RewardStatusV0 {..} = Proto.make (ProtoFields.v0 .= Proto.make (do
+      ProtoFields.totalAmount .= toProto rsTotalAmount
+      ProtoFields.totalEncryptedAmount .= toProto rsTotalEncryptedAmount
+      ProtoFields.bakingRewardAccount .= toProto rsBakingRewardAccount
+      ProtoFields.finalizationRewardAccount .= toProto rsFinalizationRewardAccount
+      ProtoFields.gasAccount .= toProto rsGasAccount
+      ProtoFields.protocolVersion .= toProto rsProtocolVersion))
+    toProto QueryTypes.RewardStatusV1 {..} = Proto.make (ProtoFields.v1 .= Proto.make (do
+      ProtoFields.totalAmount .= toProto rsTotalAmount
+      ProtoFields.totalEncryptedAmount .= toProto rsTotalEncryptedAmount
+      ProtoFields.bakingRewardAccount .= toProto rsBakingRewardAccount
+      ProtoFields.finalizationRewardAccount .= toProto rsFinalizationRewardAccount
+      ProtoFields.gasAccount .= toProto rsGasAccount
+      ProtoFields.foundationTransactionRewards .= toProto rsFoundationTransactionRewards
+      ProtoFields.nextPaydayTime .= toProto rsNextPaydayTime
+      ProtoFields.nextPaydayMintRate .= toProto rsNextPaydayMintRate
+      ProtoFields.totalStakedCapital .= toProto rsTotalStakedCapital
+      ProtoFields.protocolVersion .= toProto rsProtocolVersion))
+
 -- |NB: Assumes the data is at least 32 bytes
 decodeBlockHashInput :: Word8 -> Ptr Word8 -> IO Q.BlockHashInput
 decodeBlockHashInput 0 _ = return Q.BHIBest
@@ -985,6 +1012,25 @@ getBlocksAtHeightV2 cptr channel height genIndex restrict cbk = do
     _ <- enqueueMessages (sender channel) blocks
     return (queryResultCode QRSuccess)
 
+getTokenomicsStatusV2 ::
+    StablePtr Ext.ConsensusRunner ->
+    -- |Block type.
+    Word8 ->
+    -- |Block hash.
+    Ptr Word8 ->
+    -- |Out pointer for writing the block hash that was used.
+    Ptr Word8 ->
+    Ptr ReceiverVec ->
+    -- |Callback to output data.
+    FunPtr CopyToVecCallback ->
+    IO Int64
+getTokenomicsStatusV2 cptr blockType blockHashPtr outHash outVec copierCbk = do
+    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
+    let copier = callCopyToVecCallback copierCbk
+    bhi <- decodeBlockHashInput blockType blockHashPtr
+    result <- runMVR (Q.getRewardStatus bhi) mvr
+    returnMessageWithBlock (copier outVec) outHash result
+
 {- |Write the hash to the provided pointer, and if the message is given encode and
    write it using the provided callback.
 -}
@@ -1241,3 +1287,15 @@ foreign export ccall
         FunPtr ChannelSendCallback ->
         IO Int64
 
+foreign export ccall
+    getTokenomicsStatusV2 ::
+        StablePtr Ext.ConsensusRunner ->
+        -- |Block type.
+        Word8 ->
+        -- |Block hash.
+        Ptr Word8 ->
+        -- |Out pointer for writing the block hash that was used.
+        Ptr Word8 ->
+        Ptr ReceiverVec ->
+        FunPtr CopyToVecCallback ->
+        IO Int64

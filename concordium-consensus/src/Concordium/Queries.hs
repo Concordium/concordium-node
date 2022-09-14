@@ -464,11 +464,11 @@ getBlockSummary = liftSkovQueryBlock getBlockSummarySkovM
         return BlockSummary{..}
 
 -- |Get the total amount of GTU in existence and status of the reward accounts.
-getRewardStatus :: BlockHash -> MVR gsconf finconf (Maybe RewardStatus)
-getRewardStatus = liftSkovQueryBlock $ \bp -> do
+getRewardStatus :: BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe RewardStatus)
+getRewardStatus = liftSkovQueryBHI $ \bp -> do
     reward <- BS.getRewardStatus =<< blockState bp
     gd <- getGenesisData
-    let epochToUTC e = timestampToUTCTime $ 
+    let epochToUTC e = timestampToUTCTime $
             addDuration (gdGenesisTime gd) (fromIntegral e * fromIntegral (gdEpochLength gd) * gdSlotDuration gd)
     return $ epochToUTC <$> reward
 
