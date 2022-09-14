@@ -139,7 +139,7 @@ migratePersistentInstanceV modules PersistentInstanceV{..} = do
         Wasm.SV0 -> do
             newInstanceModuleInterface <- Modules.unsafeGetModuleReferenceV0 modref modules
             newInstanceModel <- migrateInstanceStateV pinstanceModel
-            return
+            return $!
                 PersistentInstanceV
                     { pinstanceParameters = newInstanceParameters
                     , pinstanceModuleInterface = fromMaybe (error "V0 Module referred to from an instance does not exist.") newInstanceModuleInterface
@@ -149,7 +149,7 @@ migratePersistentInstanceV modules PersistentInstanceV{..} = do
         Wasm.SV1 -> do
             newInstanceModuleInterface <- Modules.unsafeGetModuleReferenceV1 modref modules
             newInstanceModel <- migrateInstanceStateV pinstanceModel
-            return
+            return $!
                 PersistentInstanceV
                     { pinstanceParameters = newInstanceParameters
                     , pinstanceModuleInterface = fromMaybe (error "V1 Module referred to from an instance does not exist.") newInstanceModuleInterface
@@ -168,9 +168,14 @@ data PersistentInstance (pv :: ProtocolVersion) where
   PersistentInstanceV0 :: PersistentInstanceV GSWasm.V0 -> PersistentInstance pv
   PersistentInstanceV1 :: PersistentInstanceV GSWasm.V1 -> PersistentInstance pv
 
+-- |Migrate persistent instances from the old to the new protocol version.
 migratePersistentInstance ::
     forall oldpv pv t m.
     SupportMigration m t =>
+    -- |The __already migrated__ modules. The modules were already migrated by the
+    -- module migration, so we want to insert references to the existing modules
+    -- in the instances so that we don't end up with duplicates both in-memory
+    -- and on disk.
     Modules.Modules ->
     PersistentInstance oldpv ->
     t m (PersistentInstance pv)

@@ -938,9 +938,9 @@ data HashedBufferedRef' h a
         bufferedHash :: !(IORef (Nullable h))
       }
 
--- |Migrate a 'HashedBufferedRef' assuming that the value nor its hash change.
--- The input reference is uncached, and the new references is flushed
--- to disk, as well as cached in memory.
+-- |Migrate a 'HashedBufferedRef' assuming that neither the value nor its hash
+-- change. The input reference is uncached, and the new references is flushed to
+-- disk, as well as cached in memory.
 migrateHashedBufferedRefKeepHash ::
     (MonadTrans t, BlobStorable m a, BlobStorable (t m) a) =>
     HashedBufferedRef' h a ->

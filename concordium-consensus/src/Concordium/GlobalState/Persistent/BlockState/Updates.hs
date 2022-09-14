@@ -533,7 +533,7 @@ migrateUpdates migration Updates{..} = do
   newParameters <- migrateHashedBufferedRef (return . StoreSerialized . migrateChainParameters migration . unStoreSerialized) currentParameters
   newCurrentProtocolUpdate <- case currentProtocolUpdate of
     Null -> return Null
-    Some c -> Some <$!> migrateHashedBufferedRef return c
+    Some c -> Some <$!> migrateHashedBufferedRefKeepHash c
   return Updates {
     currentKeyCollection = newKeyCollection,
     currentParameters = newParameters,
