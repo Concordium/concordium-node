@@ -215,6 +215,25 @@ runBlobStoreTemp dir a = bracket openf closef usef
             freeCallbacks bscLoadCallback bscStoreCallback
             return res
 
+-- | Truncate the blob store after the blob stored at the given offset. The blob should not be
+-- corrupted (i.e., its size header should be readable, and its size should match the size header).
+truncateBlobStore :: BlobStoreAccess -> BlobRef a -> IO ()
+truncateBlobStore BlobStoreAccess{..} (BlobRef offset) = do
+  bh@BlobHandle{..} <- takeMVar blobStoreFile
+  eres <- try $ do
+    hSeek bhHandle AbsoluteSeek (fromIntegral offset)
+    esize <- decode <$> BS.hGet bhHandle 8
+    case esize :: Either String Word64 of
+      Right size -> do
+        let newSize = offset + 8 + size
+        hSetFileSize bhHandle $ fromIntegral newSize
+        putMVar blobStoreFile bh{bhSize = fromIntegral newSize, bhAtEnd=False}
+        mmapFileByteString blobStoreFilePath Nothing >>= writeIORef blobStoreMMap
+      _ -> throwIO $ userError "Cannot truncate the blob store: cannot obtain the last blob size"
+  case eres :: Either SomeException () of
+    Left e -> throwIO e
+    Right () -> return ()
+
 -- | Read a bytestring from the blob store at the given offset using the file handle.
 readBlobBSFromHandle :: BlobStoreAccess -> BlobRef a -> IO BS.ByteString
 readBlobBSFromHandle BlobStoreAccess{..} (BlobRef offset) = mask $ \restore -> do

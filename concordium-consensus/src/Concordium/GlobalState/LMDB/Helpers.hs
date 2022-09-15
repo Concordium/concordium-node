@@ -25,6 +25,7 @@ module Concordium.GlobalState.LMDB.Helpers (
   storeReplaceRecord,
   storeReplaceBytes,
   loadRecord,
+  deleteRecord,
   databaseSize,
 
   -- * Traversing the database.
@@ -35,7 +36,6 @@ module Concordium.GlobalState.LMDB.Helpers (
   movePrimitiveCursor,
   withPrimitiveCursor,
   PrimitiveCursor,
-  traverseTable,
   loadAll,
 
   -- * Low level operations.
@@ -427,20 +427,6 @@ movePrimitiveCursor target PrimitiveCursor{..} = do
     else
       return Nothing
 
--- |Traverse a database, using a cursor internally.
--- 'MDB_val' values must not be retained as they will be reused.
-traverseTable :: MDB_txn -> MDB_dbi' -> (a -> MDB_val -> MDB_val -> IO a) -> a -> IO a
-traverseTable txn db step start =
-    withPrimitiveCursor txn db $ \cursor -> do
-      let
-          loop Nothing cur = return cur
-          loop (Just (key, val)) cur = do
-            nxt <- step cur key val
-            nxtRes <- getPrimitiveCursor CursorNext cursor
-            loop nxtRes nxt
-      fstRes <- getPrimitiveCursor CursorFirst cursor
-      loop fstRes start
-
 -- |A type-safe cursor over a database.
 newtype Cursor db = Cursor PrimitiveCursor
 
@@ -451,14 +437,17 @@ withCursor txn db op = withPrimitiveCursor txn (mdbDatabase db) (op . Cursor)
 
 -- |Move a cursor and read the key and value at the new location.
 getCursor :: forall db. (MDBDatabase db) => CursorMove -> Cursor db -> IO (Maybe (Either String (DBKey db, DBValue db)))
-getCursor movement (Cursor pc) = getPrimitiveCursor movement pc >>= mapM decodeKV
+getCursor movement (Cursor pc) = getPrimitiveCursor movement pc >>= mapM (decodeKV prox)
   where
-    decodeKV (keyv, valv) = runExceptT $ do
-      key <- ExceptT $ decodeKey prox keyv
-      val <- ExceptT $ decodeValue prox key valv
-      return (key, val)
     prox :: Proxy db
     prox = Proxy
+
+-- |Decode a key-value pair from the database internal representation.
+decodeKV :: MDBDatabase db => Proxy db -> (MDB_val, MDB_val) -> IO (Either String (DBKey db, DBValue db))
+decodeKV prox (keyv, valv) = runExceptT $ do
+  key <- ExceptT $ decodeKey prox keyv
+  val <- ExceptT $ decodeValue prox key valv
+  return (key, val)
 
 -- |Load all key value pairs from a database. Raises an error on a serialization failure.
 loadAll :: forall db. (MDBDatabase db) => MDB_txn -> db -> IO [(DBKey db, DBValue db)]
@@ -545,6 +534,22 @@ loadRecord txn dbi key = do
       Just bval -> decodeValue prox key bval >>= \case
         Left _ -> return Nothing
         Right val -> return (Just val)
+  where
+    prox :: Proxy db
+    prox = Proxy
+
+-- |Delete a record at the specified key. Returns True on success, or False if no value exists for
+-- the specified key.
+deleteRecord :: forall db. (MDBDatabase db)
+  => MDB_txn
+  -- ^Transaction
+  -> db
+  -- ^Table
+  -> DBKey db
+  -- ^Key
+  -> IO Bool
+deleteRecord txn dbi key = do
+  withMDB_val (encodeKey prox key) $ \val -> mdb_del' txn (mdbDatabase dbi) val Nothing
   where
     prox :: Proxy db
     prox = Proxy
