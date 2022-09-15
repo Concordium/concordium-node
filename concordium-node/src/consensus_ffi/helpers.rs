@@ -444,7 +444,7 @@ impl ConsensusQueryResponse {
     /// convenient to use in the implementations of the different queries.
     pub fn ensure_ok(self, msg: impl std::fmt::Display) -> Result<(), tonic::Status> {
         match self {
-            Self::InternalError => Err(tonic::Status::internal(format!("Internal error: {}", msg))),
+            Self::InternalError => Err(tonic::Status::internal(format!("Internal error: {}. Please report this bug at https://github.com/Concordium/concordium-node/issues.", msg))),
             Self::Ok => Ok(()),
             Self::NotFound => Err(tonic::Status::not_found(format!("{} not found.", msg))),
         }
