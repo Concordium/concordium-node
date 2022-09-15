@@ -635,12 +635,12 @@ instance ToProto RejectReason where
     PoolWouldBecomeOverDelegated -> Proto.make $ ProtoFields.poolWouldBecomeOverDelegated .= Proto.defMessage
     PoolClosed -> Proto.make $ ProtoFields.poolClosed .= Proto.defMessage
 
--- |Attempt to convert the node's TransactionStatus type into the protobuf TransactionStatus type.
+-- |Attempt to convert the node's TransactionStatus type into the protobuf BlockItemStatus type.
 --  The protobuf type is better structured and removes the need for handling impossible cases.
 --  For example the case of an account transfer resulting in a smart contract update, which is a
 --  technical possibility in the way that the node's trx status is defined.
-toTransactionStatus :: QueryTypes.TransactionStatus -> Either ConversionError Proto.TransactionStatus
-toTransactionStatus ts = case ts of
+toBlockItemStatus :: QueryTypes.TransactionStatus -> Either ConversionError Proto.BlockItemStatus
+toBlockItemStatus ts = case ts of
   QueryTypes.Received -> Right . Proto.make $ ProtoFields.received .= Proto.defMessage
   QueryTypes.Finalized bh trx -> do
     bis <- toBis trx
@@ -650,6 +650,9 @@ toTransactionStatus ts = case ts of
     outcomes <- mapM (\(bh, trx) -> toTrxInBlock bh =<< toBis trx) $ Map.toList trxs
     Right . Proto.make $ ProtoFields.committed . ProtoFields.outcomes .= outcomes
   where
+    -- |Convert a transaction summary to a proto block item summary.
+    --  The transaction summary can technically be Nothing, but it should never occur.
+    toBis :: Maybe TransactionSummary -> Either ConversionError Proto.BlockItemSummary
     toBis Nothing = Left CEInvalidTransactionResult
     toBis (Just t) = toBlockItemSummary t
 
@@ -658,7 +661,7 @@ toTransactionStatus ts = case ts of
       ProtoFields.outcome .= bis
 
 -- |Attempt to convert a TransactionSummary type into the protobuf BlockItemSummary type.
---  See @toTransactionStatus@ for more context.
+--  See @toBlockItemStatus@ for more context.
 toBlockItemSummary :: TransactionSummary -> Either ConversionError Proto.BlockItemSummary
 toBlockItemSummary TransactionSummary{..} = case tsType of
     TSTAccountTransaction tty -> do
@@ -701,7 +704,7 @@ toBlockItemSummary TransactionSummary{..} = case tsType of
             _ -> Left CEInvalidUpdateResult
 
 -- |Attempt to construct the protobuf updatepayload.
---  See @toTransactionStatus@ for more context.
+--  See @toBlockItemStatus@ for more context.
 convertUpdatePayload :: Updates.UpdateType -> Updates.UpdatePayload -> Either ConversionError Proto.UpdatePayload
 convertUpdatePayload ut pl = case (ut, pl) of
     (Updates.UpdateProtocol, Updates.ProtocolUpdatePayload Updates.ProtocolUpdate{..}) -> Right . Proto.make $ ProtoFields.protocolUpdate .= Proto.make (do
@@ -755,7 +758,7 @@ convertUpdatePayload ut pl = case (ut, pl) of
         ProtoFields.finalizationReward .= toProto (Parameters._mdFinalizationReward md))
     _ -> Left CEInvalidUpdateResult
 
--- |The different conversions errors possible in @toTransactionStatus@ (and the helper to* functions it calls).
+-- |The different conversions errors possible in @toBlockItemStatus@ (and the helper to* functions it calls).
 data ConversionError
   -- |An account creation failed.
   = CEFailedAccountCreation
@@ -950,7 +953,7 @@ instance ToProto RegisteredData where
   toProto = mkSerialize
 
 -- |Attempt to construct the protobuf type AccounTransactionType.
--- See @toTransactionStatus@ for more context.
+-- See @toBlockItemStatus@ for more context.
 convertAccountTransaction
   :: Maybe TransactionType
   -> Amount
@@ -1505,7 +1508,7 @@ getAncestorsV2 cptr channel blockType blockHashPtr depth outHash cbk = do
             _ <- enqueueMessages (sender channel) modules
             return (queryResultCode QRSuccess)
 
-getTransactionStatusV2 ::
+getBlockItemStatusV2 ::
     StablePtr Ext.ConsensusRunner ->
     -- |Transaction hash.
     Ptr Word8 ->
@@ -1513,7 +1516,7 @@ getTransactionStatusV2 ::
     -- |Callback to output data.
     FunPtr CopyToVecCallback ->
     IO Int64
-getTransactionStatusV2 cptr trxHashPtr outVec copierCbk = do
+getBlockItemStatusV2 cptr trxHashPtr outVec copierCbk = do
     Ext.ConsensusRunner mvr <- deRefStablePtr cptr
     let copier = callCopyToVecCallback copierCbk
     trxHash <- decodeTransactionHashInput trxHashPtr
@@ -1521,7 +1524,7 @@ getTransactionStatusV2 cptr trxHashPtr outVec copierCbk = do
     case res of
         Nothing -> do
           return $ queryResultCode QRNotFound
-        Just ts -> case toTransactionStatus ts of
+        Just ts -> case toBlockItemStatus ts of
               Left e -> Exception.throw e -- TODO: Review question: What should be returned if the if it is CEFailed* and not CEInvalid*?
               Right t -> do
                 let encoded = Proto.encodeMessage t
@@ -1696,7 +1699,7 @@ foreign export ccall
         IO Int64
 
 foreign export ccall
-    getTransactionStatusV2 ::
+    getBlockItemStatusV2 ::
         StablePtr Ext.ConsensusRunner ->
         -- |TransactionHash. Length must be 32 bytes.
         Ptr Word8 ->
