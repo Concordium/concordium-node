@@ -434,6 +434,7 @@ impl TryFrom<u8> for ConsensusIsInFinalizationCommitteeResponse {
 /// This is a response that is already parsed from the error code return through
 /// FFI.
 pub enum ConsensusQueryResponse {
+    InternalError,
     Ok,
     NotFound,
 }
@@ -443,6 +444,7 @@ impl ConsensusQueryResponse {
     /// convenient to use in the implementations of the different queries.
     pub fn ensure_ok(self, msg: impl std::fmt::Display) -> Result<(), tonic::Status> {
         match self {
+            Self::InternalError => Err(tonic::Status::internal(format!("Internal error: {}", msg))),
             Self::Ok => Ok(()),
             Self::NotFound => Err(tonic::Status::not_found(format!("{} not found.", msg))),
         }
@@ -466,6 +468,7 @@ impl TryFrom<i64> for ConsensusQueryResponse {
 
     fn try_from(value: i64) -> Result<Self, Self::Error> {
         match value {
+            -1 => Ok(Self::InternalError),
             0 => Ok(Self::Ok),
             1 => Ok(Self::NotFound),
             unknown_code => Err(ConsensusQueryUnknownCode {

@@ -13,9 +13,9 @@
 module Concordium.GRPC2 () where
 
 import Control.Concurrent
-import qualified Control.Exception as Exception
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Unsafe as BS
+import qualified Data.ByteString.Short as BSS
 import Data.Coerce
 import qualified Data.FixedByteString as FBS
 import Data.Int
@@ -32,6 +32,7 @@ import Foreign
 import Lens.Micro.Platform
 import qualified Proto.Concordium.Types as Proto
 import qualified Proto.Concordium.Types_Fields as ProtoFields
+import System.IO (hPutStrLn, stderr)
 
 import Concordium.Crypto.EncryptedTransfers
 import Concordium.ID.Types
@@ -772,8 +773,6 @@ data ConversionError
   | CEInvalidTransactionResult
   deriving (Eq, Show)
 
-instance Exception.Exception ConversionError
-
 instance ToProto TransactionTime where
   type Output TransactionTime = Proto.TransactionTime
   toProto = mkWord64
@@ -833,50 +832,55 @@ instance ToProto IpInfo.IpInfo where
 
 instance ToProto Updates.Level1Update where
   type Output Updates.Level1Update = Proto.UpdatePayload'Level1UpdatePayload
-  toProto Updates.Level1KeysLevel1Update{..} = Proto.make $ ProtoFields.level1KeysUpdate .= toProtoKeys l1kl1uKeys
-  toProto Updates.Level2KeysLevel1Update{..} = Proto.make $ ProtoFields.level2KeysUpdateV0 .= toProtoAuthorizationsV0 l2kl1uAuthorizations
-  toProto Updates.Level2KeysLevel1UpdateV1{..} = Proto.make $ ProtoFields.level2KeysUpdateV1 .= Proto.make (do
-        ProtoFields.v0 .= toProtoAuthorizationsV0 l2kl1uAuthorizationsV1
-        case Updates.asCooldownParameters l2kl1uAuthorizationsV1 of
-            JustForCPV1 as -> ProtoFields.parameterCooldown .= toProto as
-        case Updates.asTimeParameters l2kl1uAuthorizationsV1 of
-            JustForCPV1 as -> ProtoFields.parameterTime .= toProto as)
+  toProto Updates.Level1KeysLevel1Update{..} = Proto.make $ ProtoFields.level1KeysUpdate .= toProto l1kl1uKeys
+  toProto Updates.Level2KeysLevel1Update{..} = Proto.make $ ProtoFields.level2KeysUpdateV0 .= toProto l2kl1uAuthorizations
+  toProto Updates.Level2KeysLevel1UpdateV1{..} = Proto.make $ ProtoFields.level2KeysUpdateV1 .= toProto l2kl1uAuthorizationsV1
 
 instance ToProto Updates.RootUpdate where
   type Output Updates.RootUpdate = Proto.UpdatePayload'RootUpdatePayload
   toProto ru = case ru of
-    Updates.RootKeysRootUpdate{..} -> Proto.make $ ProtoFields.rootKeysUpdate .= toProtoKeys rkruKeys
-    Updates.Level1KeysRootUpdate{..} -> Proto.make $ ProtoFields.level1KeysUpdate .= toProtoKeys l1kruKeys
-    Updates.Level2KeysRootUpdate{..} -> Proto.make $ ProtoFields.level2KeysUpdateV0 .= toProtoAuthorizationsV0 l2kruAuthorizations
-    Updates.Level2KeysRootUpdateV1{..} -> Proto.make $ ProtoFields.level2KeysUpdateV1 .= Proto.make (do
-        ProtoFields.v0 .= toProtoAuthorizationsV0 l2kruAuthorizationsV1
-        case Updates.asCooldownParameters l2kruAuthorizationsV1 of
-            JustForCPV1 as -> ProtoFields.parameterCooldown .= toProto as
-        case Updates.asTimeParameters l2kruAuthorizationsV1 of
-            JustForCPV1 as -> ProtoFields.parameterTime .= toProto as)
+    Updates.RootKeysRootUpdate{..} -> Proto.make $ ProtoFields.rootKeysUpdate .= toProto rkruKeys
+    Updates.Level1KeysRootUpdate{..} -> Proto.make $ ProtoFields.level1KeysUpdate .= toProto l1kruKeys
+    Updates.Level2KeysRootUpdate{..} -> Proto.make $ ProtoFields.level2KeysUpdateV0 .= toProto l2kruAuthorizations
+    Updates.Level2KeysRootUpdateV1{..} -> Proto.make $ ProtoFields.level2KeysUpdateV1 .= toProto l2kruAuthorizationsV1
 
--- |Is not needed if we can make a ToProto instance for HigherLevelKeys.
-toProtoKeys :: Updates.HigherLevelKeys kind -> Proto.HigherLevelKeys
-toProtoKeys keys = Proto.make $ do
+instance ToProto (Updates.HigherLevelKeys kind) where
+  type Output (Updates.HigherLevelKeys kind) = Proto.HigherLevelKeys
+  toProto keys = Proto.make $ do
     ProtoFields.keys .= map toProto (Vec.toList $ Updates.hlkKeys keys)
     ProtoFields.threshold .= toProto (Updates.hlkThreshold keys)
 
--- |Is not needed if we can make a ToProto instance for Authorizations.
-toProtoAuthorizationsV0 :: Updates.Authorizations cpv -> Proto.AuthorizationsV0
-toProtoAuthorizationsV0 auth = Proto.make $ do
-    ProtoFields.keys .= map toProto (Vec.toList $ Updates.asKeys auth)
-    ProtoFields.emergency .= toProto (Updates.asEmergency auth)
-    ProtoFields.protocol .= toProto (Updates.asProtocol auth)
-    ProtoFields.parameterElectionDifficulty .= toProto (Updates.asParamElectionDifficulty auth)
-    ProtoFields.parameterEuroPerEnergy.= toProto (Updates.asParamEuroPerEnergy auth)
-    ProtoFields.parameterMicroCCDPerEuro .= toProto (Updates.asParamMicroGTUPerEuro auth)
-    ProtoFields.parameterFoundationAccount .= toProto (Updates.asParamFoundationAccount auth)
-    ProtoFields.parameterMintDistribution .= toProto (Updates.asParamMintDistribution auth)
-    ProtoFields.parameterTransactionFeeDistribution .= toProto (Updates.asParamTransactionFeeDistribution auth)
-    ProtoFields.parameterGasRewards .= toProto (Updates.asParamGASRewards auth)
-    ProtoFields.poolParameters .= toProto (Updates.asPoolParameters auth)
-    ProtoFields.addAnonymityRevoker .= toProto (Updates.asAddAnonymityRevoker auth)
-    ProtoFields.addIdentityProvider .= toProto (Updates.asAddIdentityProvider auth)
+instance IsChainParametersVersion cpv => ToProto (Updates.Authorizations cpv) where
+  type Output (Updates.Authorizations cpv) = AuthorizationsFamily cpv
+  toProto auth = let
+    v0 :: Proto.AuthorizationsV0
+    v0 = Proto.make $ do
+      ProtoFields.keys .= map toProto (Vec.toList $ Updates.asKeys auth)
+      ProtoFields.emergency .= toProto (Updates.asEmergency auth)
+      ProtoFields.protocol .= toProto (Updates.asProtocol auth)
+      ProtoFields.parameterElectionDifficulty .= toProto (Updates.asParamElectionDifficulty auth)
+      ProtoFields.parameterEuroPerEnergy.= toProto (Updates.asParamEuroPerEnergy auth)
+      ProtoFields.parameterMicroCCDPerEuro .= toProto (Updates.asParamMicroGTUPerEuro auth)
+      ProtoFields.parameterFoundationAccount .= toProto (Updates.asParamFoundationAccount auth)
+      ProtoFields.parameterMintDistribution .= toProto (Updates.asParamMintDistribution auth)
+      ProtoFields.parameterTransactionFeeDistribution .= toProto (Updates.asParamTransactionFeeDistribution auth)
+      ProtoFields.parameterGasRewards .= toProto (Updates.asParamGASRewards auth)
+      ProtoFields.poolParameters .= toProto (Updates.asPoolParameters auth)
+      ProtoFields.addAnonymityRevoker .= toProto (Updates.asAddAnonymityRevoker auth)
+      ProtoFields.addIdentityProvider .= toProto (Updates.asAddIdentityProvider auth)
+    in case chainParametersVersion @cpv of
+        SCPV0 -> v0
+        SCPV1 -> Proto.make $ do
+          ProtoFields.v0 .= v0
+          case Updates.asCooldownParameters auth of
+            JustForCPV1 as -> ProtoFields.parameterCooldown .= toProto as
+          case Updates.asTimeParameters auth of
+            JustForCPV1 as -> ProtoFields.parameterTime .= toProto as
+
+-- |Defines a type family that is used in the ToProto instance for Updates.Authorizations.
+type family AuthorizationsFamily cpv where
+  AuthorizationsFamily 'ChainParametersV0 = Proto.AuthorizationsV0
+  AuthorizationsFamily 'ChainParametersV1 = Proto.AuthorizationsV1
 
 instance ToProto Updates.AccessStructure where
   type Output Updates.AccessStructure = Proto.AccessStructure
@@ -906,7 +910,7 @@ instance ToProto Wasm.WasmVersion where
 
 instance ToProto Wasm.ContractEvent where
   type Output Wasm.ContractEvent = Proto.ContractEvent
-  toProto = mkSerialize
+  toProto (Wasm.ContractEvent shortBS) = Proto.make $ ProtoFields.value .= BSS.fromShort shortBS
 
 instance ToProto CredentialType where
   type Output CredentialType = Proto.CredentialType
@@ -946,19 +950,20 @@ instance ToProto BakerAggregationVerifyKey where
 
 instance ToProto Memo where
   type Output Memo = Proto.Memo
-  toProto = mkSerialize
+  toProto (Memo shortBS) = Proto.make $ ProtoFields.value .= BSS.fromShort shortBS
 
 instance ToProto RegisteredData where
   type Output RegisteredData = Proto.RegisteredData
-  toProto = mkSerialize
+  toProto (RegisteredData shortBS) = Proto.make $ ProtoFields.value .= BSS.fromShort shortBS
 
 -- |Attempt to construct the protobuf type AccounTransactionType.
 -- See @toBlockItemStatus@ for more context.
 convertAccountTransaction
-  :: Maybe TransactionType
-  -> Amount
-  -> AccountAddress
-  -> ValidResult
+  :: Maybe TransactionType -- ^ The transaction type. @Nothing@ means that the transaction was serialized incorrectly.
+  -> Amount -- ^ The cost of the transaction.
+  -> AccountAddress -- ^ The sender of the transaction.
+  -> ValidResult -- ^ The result of the transaction. If the transaction was rejected, it contains the reject reason.
+                 --   Otherwise it contains the events.
   -> Either ConversionError Proto.AccountTransactionDetails
 convertAccountTransaction ty cost sender result = case ty of
     Nothing -> Right . mkNone $ SerializationFailure
@@ -1042,7 +1047,7 @@ convertAccountTransaction ty cost sender result = case ty of
                 Right . Proto.make $ ProtoFields.bakerRemoved .= v
             TTUpdateBakerStake -> mkSuccess <$> do
                 v <- case events of
-                    [] -> Right Proto.defMessage -- TODO: Review question: Is it correct that if the stake is unchanged, no events occur?
+                    [] -> Right Proto.defMessage
                     [BakerStakeIncreased{..}] -> Right . Proto.make $ do
                         ProtoFields.bakerId .= toProto ebsiBakerId
                         ProtoFields.newStake .= toProto ebsiNewStake
@@ -1307,11 +1312,17 @@ decodeAccountIdentifierInput n _ = error $ "Unknown account identifier tag: " ++
 decodeModuleRefInput :: Ptr Word8 -> IO ModuleRef
 decodeModuleRefInput modRef = coerce <$> FBS.create @DigestSize (\p -> copyBytes p modRef 32)
 
+-- |The result type of a gRPC2 query.
 data QueryResult
-    = QRSuccess
-    | QRNotFound
+    = QRInternalError -- ^ An internal error occured.
+                      --   This can only be produced when querying for
+                      --   BlockItemStatuses, or something which contains a BlockItemStatus.
+    | QRSuccess -- ^ The query succeeded.
+    | QRNotFound -- ^ The requested data could not be found.
 
+-- |Convert a QueryResult to a result code.
 queryResultCode :: QueryResult -> Int64
+queryResultCode QRInternalError = -1
 queryResultCode QRSuccess = 0
 queryResultCode QRNotFound = 1
 
@@ -1525,7 +1536,15 @@ getBlockItemStatusV2 cptr trxHashPtr outVec copierCbk = do
         Nothing -> do
           return $ queryResultCode QRNotFound
         Just ts -> case toBlockItemStatus ts of
-              Left e -> Exception.throw e -- TODO: Review question: What should be returned if the if it is CEFailed* and not CEInvalid*?
+              Left e -> do
+                let msg = case e of
+                      CEFailedAccountCreation -> "An account creation failed."
+                      CEInvalidAccountCreation -> "An account creation transaction occurred but was malformed and could not be converted."
+                      CEFailedUpdate -> "An update transaction failed."
+                      CEInvalidUpdateResult -> "An update transaction occurred but was malformed and could not be converted."
+                      CEInvalidTransactionResult -> "An account transaction occurred but was malformed and could not be converted."
+                hPutStrLn stderr $ "Internal conversion error occured: " ++ msg
+                return $ queryResultCode QRInternalError
               Right t -> do
                 let encoded = Proto.encodeMessage t
                 BS.unsafeUseAsCStringLen encoded (\(ptr, len) -> copier outVec (castPtr ptr) (fromIntegral len))

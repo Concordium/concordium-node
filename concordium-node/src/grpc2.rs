@@ -608,11 +608,11 @@ pub mod server {
             Ok(response)
         }
 
-        async fn get_transaction_status(
+        async fn get_block_item_status(
             &self,
             request: tonic::Request<crate::grpc2::types::TransactionHash>,
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
-            let response = self.consensus.get_transaction_status_v2(request.get_ref())?;
+            let response = self.consensus.get_block_item_status_v2(request.get_ref())?;
             Ok(tonic::Response::new(response))
         }
     }
