@@ -41,6 +41,7 @@ import Concordium.Types.Block (AbsoluteBlockHeight)
 
 import Concordium.GlobalState.Persistent.Cache
 import qualified Concordium.GlobalState.Persistent.Accounts as Accounts
+import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Modules
 
 -- For the avid reader.
 -- The strategy followed in this module is the following: First `BlockStateM` and
@@ -142,6 +143,10 @@ deriving via PureBlockStateMonad pv m
              => ContractStateOperations (MemoryBlockStateM pv r g s m)
 
 deriving via PureBlockStateMonad pv m
+    instance Monad m
+             => ModuleQuery (MemoryBlockStateM pv r g s m)
+
+deriving via PureBlockStateMonad pv m
     instance (Monad m,
               IsProtocolVersion pv,
               BlockStateQuery (MemoryBlockStateM pv r g s m))
@@ -186,6 +191,16 @@ deriving via PersistentBlockStateMonad pv
                                         (FocusGlobalStateM (PersistentBlockStateContext pv) g m)))
              => ContractStateOperations (PersistentBlockStateM pv r g s m)
 
+deriving via PersistentBlockStateMonad pv
+              (PersistentBlockStateContext pv)
+              (FocusGlobalStateM (PersistentBlockStateContext pv) g m)
+    instance (MonadIO m,
+              IsProtocolVersion pv,
+              ModuleQuery (PersistentBlockStateMonad pv
+                                        (PersistentBlockStateContext pv)
+                                        (FocusGlobalStateM (PersistentBlockStateContext pv) g m)))
+             => ModuleQuery (PersistentBlockStateM pv r g s m)
+
 
 deriving via PersistentBlockStateMonad pv
               (PersistentBlockStateContext pv)
@@ -219,6 +234,17 @@ instance
     where
     getCache = projectCache <$> ask
 
+instance
+    ( MonadIO m,
+      c ~ PersistentBlockStateContext pv,
+      HasGlobalStateContext c r,
+      MonadReader r m,
+      HasCache Modules.ModuleCache c
+    ) =>
+    MonadCache Modules.ModuleCache (PersistentBlockStateM pv r g s m)
+    where
+    getCache = projectCache <$> ask
+
 -----------------------------------------------------------------------------
 
 -- |@TreeStateM s m@ is a newtype wrapper around a monad for
@@ -232,7 +258,8 @@ instance
 -- * If @s@ is 'SkovPersistentData pv bs', then the persistent Haskell tree state is used.
 newtype TreeStateM s m a = TreeStateM {runTreeStateM :: m a}
     deriving (Functor, Applicative, Monad, MonadState s, MonadIO, BlockStateTypes, BlockStateQuery,
-            AccountOperations, BlockStateOperations, BlockStateStorage, ContractStateOperations)
+            ModuleQuery, AccountOperations, BlockStateOperations, BlockStateStorage,
+            ContractStateOperations)
 
 deriving instance MonadProtocolVersion m => MonadProtocolVersion (TreeStateM s m)
 
@@ -310,6 +337,11 @@ deriving via BlockStateM pv c r g s m
     instance (Monad m,
               ContractStateOperations (BlockStateM pv c r g s m))
              => ContractStateOperations (GlobalStateM pv c r g s m)
+
+deriving via BlockStateM pv c r g s m
+    instance (Monad m,
+              ModuleQuery (BlockStateM pv c r g s m))
+             => ModuleQuery (GlobalStateM pv c r g s m)
 
 deriving via BlockStateM pv c r g s m
     instance (BlockStateQuery (GlobalStateM pv c r g s m),
@@ -491,9 +523,11 @@ instance GlobalStateConfig MemoryTreeDiskBlockConfig where
     initialiseExistingGlobalState _ _ = return Nothing
 
     migrateExistingState MTDBConfig{..} oldPbsc oldState migration genData = do
-        pbscBlobStore <- liftIO $ createBlobStore mtdbBlockStateFile
-        pbscCache <- liftIO $ Accounts.newAccountCache (rpAccountsCacheSize mtdbRuntimeParameters)
-        let pbsc = PersistentBlockStateContext{..}
+        pbsc <- liftIO $ do
+            pbscBlobStore <- createBlobStore mtdbBlockStateFile
+            pbscAccountCache <- Accounts.newAccountCache (rpAccountsCacheSize mtdbRuntimeParameters)
+            pbscModuleCache <- Modules.newModuleCache (rpModulesCacheSize mtdbRuntimeParameters)
+            return PersistentBlockStateContext{..}
         newInitialBlockState <- flip runBlobStoreT oldPbsc . flip runBlobStoreT pbsc $ do
             case Basic._nextGenesisInitialState oldState of
                 Nothing -> error "Precondition violation. Migration called in state without initial block state."
@@ -519,7 +553,7 @@ instance GlobalStateConfig MemoryTreeDiskBlockConfig where
                     (Just (Basic._pendingTransactions oldState))
         isd <-
             runReaderT (runPersistentBlockStateMonad initGS) pbsc
-                `onException` liftIO (destroyBlobStore pbscBlobStore)
+                `onException` liftIO (destroyBlobStore (pbscBlobStore pbsc))
         return (pbsc, isd)
     
     initialiseNewGlobalState genData MTDBConfig{..} = do
@@ -528,7 +562,8 @@ instance GlobalStateConfig MemoryTreeDiskBlockConfig where
             Right genState -> return genState
         liftIO $ do
             pbscBlobStore <- createBlobStore mtdbBlockStateFile
-            pbscCache <- Accounts.newAccountCache (rpAccountsCacheSize mtdbRuntimeParameters)
+            pbscAccountCache <- Accounts.newAccountCache (rpAccountsCacheSize mtdbRuntimeParameters)
+            pbscModuleCache <- Modules.newModuleCache (rpModulesCacheSize mtdbRuntimeParameters)
             let pbsc = PersistentBlockStateContext {..}
             let initState = do
                     pbs <- makePersistent genState
@@ -549,7 +584,8 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
     initialiseExistingGlobalState _ DTDBConfig{..} = do
       -- check if all the necessary database files exist
       existingDB <- checkExistingDatabase dtdbTreeStateDirectory dtdbBlockStateFile
-      pbscCache <- liftIO $ Accounts.newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
+      pbscAccountCache <- liftIO $ Accounts.newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
+      pbscModuleCache <- liftIO $ Modules.newModuleCache (rpModulesCacheSize dtdbRuntimeParameters)
       if existingDB then do
         pbscBlobStore <- liftIO $ do
           -- the block state file exists, is readable and writable
@@ -564,7 +600,8 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
 
     migrateExistingState DTDBConfig{..} oldPbsc oldState migration genData = do
       pbscBlobStore <- liftIO $ createBlobStore dtdbBlockStateFile
-      pbscCache <- liftIO $ Accounts.newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
+      pbscAccountCache <- liftIO $ Accounts.newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
+      pbscModuleCache <- liftIO $ Modules.newModuleCache (rpModulesCacheSize dtdbRuntimeParameters)
       let pbsc = PersistentBlockStateContext {..}
       newInitialBlockState <- flip runBlobStoreT oldPbsc . flip runBlobStoreT pbsc $ do
           case _nextGenesisInitialState oldState of
@@ -588,8 +625,9 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
 
     initialiseNewGlobalState genData DTDBConfig{..} = do
       pbscBlobStore <- liftIO $ createBlobStore dtdbBlockStateFile
-      pbscCache <- liftIO $ Accounts.newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
-      let pbsc = PersistentBlockStateContext {..}
+      pbscAccountCache <- liftIO $ Accounts.newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
+      pbscModuleCache <- liftIO $ Modules.newModuleCache (rpModulesCacheSize dtdbRuntimeParameters)
+      let pbsc = PersistentBlockStateContext{..}
       let initGS = do
               logEvent GlobalState LLTrace "Creating transient global state"
               (genState, genTT) <- case genesisState genData of

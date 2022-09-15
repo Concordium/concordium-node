@@ -287,6 +287,14 @@ pub struct BakerConfig {
         env = "CONCORDIUM_NODE_BAKER_DECRYPT_CREDENTIALS"
     )]
     pub decrypt_baker_credentials: bool,
+    #[structopt(
+        long = "modules-cache-size",
+        help = "The maximum number of smart contract modules that can be stored in the module \
+                cache",
+        default_value = "1000",
+        env = "CONCORDIUM_NODE_CONSENSUS_MODULES_CACHE_SIZE"
+    )]
+    pub modules_cache_size: u32,
 }
 
 #[derive(StructOpt, Debug)]

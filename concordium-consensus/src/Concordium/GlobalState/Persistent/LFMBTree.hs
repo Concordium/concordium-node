@@ -160,18 +160,6 @@ type CanStoreLFMBTree m ref v =
   )
 
 instance CanStoreLFMBTree m ref v => BlobStorable m (T ref v) where
-  store (Leaf ref) = do
-    pt <- store ref
-    return (putWord8 0 >> pt)
-  store (Node height left right) = do
-    l <- store left
-    r <- store right
-    return $ do
-      putWord8 1
-      putWord64be height
-      l
-      r
-
   storeUpdate (Leaf ref) = do
     (pt, ref') <- storeUpdate ref
     return (putWord8 0 >> pt, Leaf ref')
@@ -200,11 +188,6 @@ instance CanStoreLFMBTree m ref v => BlobStorable m (T ref v) where
         return (Node h <$> left <*> right)
 
 instance CanStoreLFMBTree m ref1 v => BlobStorable m (LFMBTree' k ref1 v) where
-  store Empty = return (putWord64be 0)
-  store (NonEmpty h t) = do
-    t' <- store t
-    return $ putWord64be h <> t'
-
   storeUpdate t@Empty = return (putWord64be 0, t)
   storeUpdate (NonEmpty h t) = do
     (pt, t') <- storeUpdate t

@@ -60,7 +60,6 @@ instance (IsAccountVersion av, MonadBlobStore m) => BlobStorable m (BakerInfos a
               putLength (Vec.length v')
               mapM_ fst v'
       return (pv, BakerInfos (snd <$> v'))
-    store bi = fst <$> storeUpdate bi
     load = do
       len <- getLength
       v <- Vec.replicateM len load
@@ -173,7 +172,6 @@ instance (IsAccountVersion av, MonadBlobStore m) => BlobStorable m (PersistentEp
                 pBkrStakes
                 put _bakerTotalStake
         return (pBkrs, PersistentEpochBakers{_bakerInfos = newBkrInfos, _bakerStakes = newBkrStakes,..})
-    store eb = fst <$> storeUpdate eb
     load = do
         mBkrInfos <- load
         mBkrStakes <- load
@@ -280,7 +278,6 @@ instance (IsAccountVersion av, MonadBlobStore m) => BlobStorable m (PersistentAc
     storeUpdate PersistentActiveDelegatorsV1{..} = do
         (pDas, newDs) <- storeUpdate adDelegators
         return (pDas <> put adDelegatorTotalCapital, PersistentActiveDelegatorsV1 newDs adDelegatorTotalCapital)
-    store a = fst <$> storeUpdate a
     load =
         case accountVersion @av of
             SAccountV0 -> return (return PersistentActiveDelegatorsV0)
@@ -480,7 +477,6 @@ instance
           _passiveDelegators = newpassiveDelegators
         }
         return (pPAB, newPAB)
-    store pab = fst <$> storeUpdate pab
     load = do
         mActiveBakers <- load
         mAggregationKeys <- load

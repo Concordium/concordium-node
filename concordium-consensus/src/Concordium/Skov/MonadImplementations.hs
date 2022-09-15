@@ -483,6 +483,11 @@ deriving via SkovTGSM pv h c' m
 
 deriving via SkovTGSM pv h c' m
     instance (Monad m,
+              ModuleQuery (SkovTGSM pv h c' m))
+             => ModuleQuery (SkovT pv h c' m)
+
+deriving via SkovTGSM pv h c' m
+    instance (Monad m,
               BlockStateOperations (SkovTGSM pv h c' m))
              => BlockStateOperations (SkovT pv h c' m)
 

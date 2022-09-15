@@ -39,7 +39,6 @@ import Control.Monad.State
 import Data.Maybe (fromMaybe)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
-import Data.Either (isLeft)
 import Data.List (partition)
 import qualified Data.Map.Strict as Map
 import Data.Typeable
@@ -54,7 +53,6 @@ import System.FilePath
 import Concordium.Logger
 import Control.Monad.Except
 import qualified Concordium.TransactionVerification as TVer
-import qualified Data.ByteString as BS
 
 -- * Exceptions
 
@@ -430,10 +428,8 @@ loadSkovPersistentData rp _treeStateDirectory pbsc = do
       bstate <- runReaderT (PBS.runPersistentBlockStateMonad (loadBlockState (blockStateHash sbBlock) sbState)) pbsc
       makeBlockPointerFromPersistentBlock sbBlock bstate sbInfo
     isBlockStateCorrupted :: StoredBlock pv (TS.BlockStatePointer (PBS.PersistentBlockState pv)) -> IO Bool
-    isBlockStateCorrupted block = do
-      elfBlob :: Either SomeException BS.ByteString <-
-        try $ readBlobBSFromHandle (bscBlobStore . PBS.pbscBlobStore $ pbsc) (sbState block)
-      return $ isLeft elfBlob
+    isBlockStateCorrupted block =
+      not <$> isValidBlobRef (bscBlobStore . PBS.pbscBlobStore $ pbsc) (sbState block)
 
 -- |Activate the state and make it usable for use by consensus. This concretely
 -- means that the block state for the last finalized block is cached, and that
@@ -479,7 +475,8 @@ closeSkovPersistentData = closeDatabase . _db
 -- type used in the implementation.
 newtype PersistentTreeStateMonad bs m a = PersistentTreeStateMonad { runPersistentTreeStateMonad :: m a }
   deriving (Functor, Applicative, Monad, MonadIO, BlockStateTypes, MonadLogger, MonadError e,
-            BlockStateQuery, AccountOperations, BlockStateOperations, BlockStateStorage, ContractStateOperations)
+            BlockStateQuery, AccountOperations, BlockStateOperations, BlockStateStorage,
+            ContractStateOperations, ModuleQuery)
 
 deriving instance (MonadProtocolVersion m) => MonadProtocolVersion (PersistentTreeStateMonad bs m)
 

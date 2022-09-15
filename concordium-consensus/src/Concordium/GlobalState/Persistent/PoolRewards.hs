@@ -137,7 +137,6 @@ instance MonadBlobStore m => BlobStorable m PoolRewards where
                 pNextPaydayEpoch
                 pNextPaydayMintRate
         return (p, PoolRewards{..})
-    store bsp = fst <$> storeUpdate bsp
     load = do
         mNextCapital <- label "Next Capital" load
         mCurrentCapital <- label "Current Capital" load

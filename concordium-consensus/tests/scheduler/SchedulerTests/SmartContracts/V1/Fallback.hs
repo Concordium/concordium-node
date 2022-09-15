@@ -47,12 +47,12 @@ initialBlockState = initialPersistentState
 fallbackSourceFile :: FilePath
 fallbackSourceFile = "./testdata/contracts/v1/fallback.wasm"
 
-deployModule :: ContextM (PersistentBlockState PV4, GSWasm.ModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1)
+deployModule :: ContextM (PersistentBlockState PV4, InvokeHelpers.PersistentModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1)
 deployModule = do
   ((x, y), z) <- InvokeHelpers.deployModuleV1 fallbackSourceFile . hpbsPointers =<< initialBlockState
   return (z, x, y)
 
-initContracts :: (PersistentBlockState PV4, GSWasm.ModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1)
+initContracts :: (PersistentBlockState PV4, InvokeHelpers.PersistentModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1)
               -> ContextM ((Types.ContractAddress, Types.ContractAddress), HashedPersistentBlockState PV4)
 initContracts (bs, miv, wm) = do
   (ca2, pbs2) <- InvokeHelpers.initContractV1 alesAccount (InitName "init_two") emptyParameter (0 :: Types.Amount) bs (miv, wm)

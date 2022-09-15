@@ -65,7 +65,8 @@ import Concordium.GlobalState.BlockState (
   NewInstanceData(..),
   InstanceInfoType(..),
   InstanceInfoTypeV(..),
-  ContractStateOperations (..))
+  ContractStateOperations (..),
+  ModuleQuery(..))
 import qualified Concordium.GlobalState.BakerInfo as BI
 import Concordium.GlobalState.Types
 import qualified Concordium.Cost as Cost
@@ -744,7 +745,7 @@ handleInitContract wtc initAmount modref initName param =
             unless (senderAmount >= initAmount) $! rejectTransaction (AmountTooLarge (AddressAccount (thSender meta)) initAmount)
 
             -- First try to get the module interface of the parent module of the contract.
-            viface <- liftLocal (getModuleInterfaces modref) `rejectingWith` InvalidModuleReference modref
+            (viface :: (GSWasm.ModuleInterface (InstrumentedModuleRef m))) <- liftLocal (getModuleInterfaces modref) `rejectingWith` InvalidModuleReference modref
             case viface of
               GSWasm.ModuleInterfaceV0 iface -> do
                 let iSize = GSWasm.miModuleSize iface
@@ -765,7 +766,8 @@ handleInitContract wtc initAmount modref initName param =
                     initOrigin = senderAddress,
                     icSenderPolicies = map (Wasm.mkSenderPolicy . snd) (OrdMap.toAscList senderCredentials)
                 }
-                result <- runInterpreter (return . WasmV0.applyInitFun iface cm initCtx initName param initAmount)
+                artifact <- liftLocal $ mapM getModuleArtifact iface
+                result <- runInterpreter (return . WasmV0.applyInitFun artifact cm initCtx initName param initAmount)
                         `rejectingWith'` wasmRejectToRejectReasonInit
 
                 -- Charge for storing the contract state.
@@ -795,7 +797,8 @@ handleInitContract wtc initAmount modref initName param =
                       icSenderPolicies = map (Wasm.mkSenderPolicy . snd) (OrdMap.toAscList senderCredentials)
                    }
                 stateContext <- getV1StateContext
-                result <- runInterpreter (return . WasmV1.applyInitFun stateContext iface cm initCtx initName param initAmount)
+                artifact <- liftLocal $ mapM getModuleArtifact iface
+                result <- runInterpreter (return . WasmV1.applyInitFun stateContext artifact cm initCtx initName param initAmount)
                            `rejectingWith'` WasmV1.cerToRejectReasonInit
 
                 -- Charge for storing the contract state.
@@ -998,7 +1001,7 @@ checkAndGetBalanceInstanceV0 ownerAccount istance transferAmount = do
 -- The reason for this is that the possible errors are exposed back to the smart
 -- contract in case a contract A invokes contract B's entrypoint.
 handleContractUpdateV1 :: forall r m.
-  (StaticInformation m, AccountOperations m, ContractStateOperations m, MonadProtocolVersion m)
+  (StaticInformation m, AccountOperations m, ContractStateOperations m, ModuleQuery m, MonadProtocolVersion m)
   => AccountAddress -- ^The address that was used to send the top-level transaction.
   -> UInstanceInfoV m GSWasm.V1 -- ^The current state of the target contract of the transaction, which must exist.
   -> (Amount -> LocalT r m (Either WasmV1.ContractCallFailure (Address, [ID.RawAccountCredential], Either (Wasm.WasmVersion, ContractAddress) IndexedAccountAddress)))
@@ -1157,7 +1160,8 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
       -- for, e.g., forwarding.
       withToContractAmountV1 sender istance transferAmount $ do
         foreignModel <- getRuntimeReprV1 model
-        go [] =<< runInterpreter (return . WasmV1.applyReceiveFun iface cm receiveCtx receiveName useFallback parameter transferAmount foreignModel)
+        iface' <- liftLocal $ mapM getModuleArtifact iface
+        go [] =<< runInterpreter (return . WasmV1.applyReceiveFun iface' cm receiveCtx receiveName useFallback parameter transferAmount foreignModel)
    where  transferAccountSync :: AccountAddress -- ^The target account address.
                               -> UInstanceInfoV m GSWasm.V1 -- ^The sender of this transfer.
                               -> Amount -- ^The amount to transfer.
@@ -1184,7 +1188,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
 -- Recursively do the same for new messages created by contracts (from left to right, depth first).
 -- The target contract must exist, so that its state can be looked up.
 handleContractUpdateV0 :: forall r m.
-  (StaticInformation m, AccountOperations m, ContractStateOperations m, MonadProtocolVersion m)
+  (StaticInformation m, AccountOperations m, ContractStateOperations m, ModuleQuery m, MonadProtocolVersion m)
   => AccountAddress -- ^The address that was used to send the top-level transaction.
   -> UInstanceInfoV m GSWasm.V0 -- ^The current state of the target contract of the transaction, which must exist.
   -> (Amount -> LocalT r m (Address, [ID.RawAccountCredential], (Either (Wasm.WasmVersion, ContractAddress) IndexedAccountAddress)))
@@ -1236,7 +1240,8 @@ handleContractUpdateV0 originAddr istance checkAndGetSender transferAmount recei
   tickEnergy $ Cost.lookupModule (GSWasm.miModuleSize iface)
 
   model <- getRuntimeReprV0 (iiState istance)
-  result <- runInterpreter (return . WasmV0.applyReceiveFun iface cm receiveCtx receiveName parameter transferAmount model)
+  iface' <- liftLocal $ mapM getModuleArtifact iface
+  result <- runInterpreter (return . WasmV0.applyReceiveFun iface' cm receiveCtx receiveName parameter transferAmount model)
              `rejectingWith'` wasmRejectToRejectReasonReceive cref receiveName parameter
 
   -- If we reach here the contract accepted the message and returned a new state as well as outgoing messages.
@@ -1274,7 +1279,7 @@ handleContractUpdateV0 originAddr istance checkAndGetSender transferAmount recei
 traversalStepCost :: Energy
 traversalStepCost = 10
 
-foldEvents :: (StaticInformation m, AccountOperations m, ContractStateOperations m, MonadProtocolVersion m)
+foldEvents :: (StaticInformation m, AccountOperations m, ContractStateOperations m, ModuleQuery m, MonadProtocolVersion m)
            => AccountAddress -- ^Address that was used in the top-level transaction.
            -> (IndexedAccount m, UInstanceInfoV m GSWasm.V0) -- ^Instance that generated the events.
            -> Event -- ^Event generated by the invocation of the instance.

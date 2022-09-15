@@ -50,11 +50,11 @@ selfBalanceSourceFile = "./testdata/contracts/v1/self-balance.wasm"
 nestedSelfBalanceSourceFile :: FilePath
 nestedSelfBalanceSourceFile = "./testdata/contracts/v1/self-balance-nested.wasm"
 
-deployModule1 :: PersistentBlockState PV4 -> ContextM ((GSWasm.ModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1), PersistentBlockState PV4)
+deployModule1 :: PersistentBlockState PV4 -> ContextM ((InvokeHelpers.PersistentModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1), PersistentBlockState PV4)
 deployModule1 = InvokeHelpers.deployModuleV1 selfBalanceSourceFile
 
 -- Initialize a contract with 0 CCD in its balance.
-initContract1 :: PersistentBlockState PV4 -> (GSWasm.ModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1) -> ContextM (Types.ContractAddress, PersistentBlockState PV4)
+initContract1 :: PersistentBlockState PV4 -> (InvokeHelpers.PersistentModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1) -> ContextM (Types.ContractAddress, PersistentBlockState PV4)
 initContract1 = InvokeHelpers.initContractV1 alesAccount (InitName "init_transfer") emptyParameter 0
 
 -- |Invoke an entrypoint and transfer to ourselves.
@@ -137,7 +137,7 @@ checkSuccess msg expectBefore expectAfter icr = liftIO $
                   (BS.unpack rv)
 
 -- |Deploy the module that contains the @test@ contract to test nested self-transfers.
-deployModule2 :: PersistentBlockState PV4 -> ContextM ((GSWasm.ModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1), PersistentBlockState PV4)
+deployModule2 :: PersistentBlockState PV4 -> ContextM ((InvokeHelpers.PersistentModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1), PersistentBlockState PV4)
 deployModule2 = InvokeHelpers.deployModuleV1 nestedSelfBalanceSourceFile
 
 -- |Initialize the @test@ contract for testing nested self transfers.
@@ -148,7 +148,7 @@ initContract2 ::
     -- |State to create the contract in.
     PersistentBlockState PV4 ->
     -- |And the module from which to initialize the contract.
-    (GSWasm.ModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1) ->
+    (InvokeHelpers.PersistentModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1) ->
     -- |The address of the created contract, and the new state.
     ContextM (Types.ContractAddress, PersistentBlockState PV4)
 initContract2 = InvokeHelpers.initContractV1 alesAccount (InitName "init_test") emptyParameter

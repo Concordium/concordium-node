@@ -1,4 +1,3 @@
-{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -38,6 +37,7 @@ import Concordium.Types.HashableTo
 import Concordium.Types
 import Concordium.Types.Updates hiding (getUpdateKeysCollection)
 import qualified Concordium.ID.Types as ID
+
 import qualified Concordium.GlobalState.Block as B
 import qualified Concordium.TransactionVerification as TVer
 

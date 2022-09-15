@@ -11,6 +11,7 @@ import Control.Monad
 import Control.Monad.Trans
 import Data.IORef
 import Data.Proxy
+import Data.Serialize (put)
 
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types.HashableTo
@@ -41,7 +42,7 @@ newtype CachedRef c a = CachedRef {crIORef :: IORef (MaybeMem a)}
 
 instance
     ( MonadCache c m,
-      BlobStorable m a,
+      DirectBlobStorable m a,
       Cache c,
       CacheKey c ~ BlobRef a,
       CacheValue c ~ a
@@ -53,7 +54,7 @@ instance
         case mbr of
             Disk br -> return (cr, br)
             Mem val -> do
-                (!r, !val') <- storeUpdateRef val
+                (!r, !val') <- storeUpdateDirect val
                 liftIO $ writeIORef ioref $! Disk r
                 _ <- putCachedValue (Proxy @c) r val'
                 return (cr, r)
@@ -61,7 +62,7 @@ instance
         liftIO (readIORef ioref) >>= \case
             Mem v -> return (v, r)
             Disk ref -> do
-                val <- loadRef ref
+                val <- loadDirect ref
                 !val' <- putCachedValue (Proxy @c) ref val
                 return (val', r)
     refLoad (CachedRef ioref) =
@@ -70,7 +71,7 @@ instance
             Disk ref ->
                 lookupCachedValue (Proxy @c) ref >>= \case
                     Nothing -> do
-                        val <- loadRef ref
+                        val <- loadDirect ref
                         putCachedValue (Proxy @c) ref val
                     Just val -> return val
     refMake val = do
@@ -79,7 +80,7 @@ instance
     refUncache cr@(CachedRef ioref) =
         liftIO (readIORef ioref) >>= \case
             Mem val -> do
-                (r, _) <- storeUpdateRef val
+                (r, _) <- storeUpdateDirect val
                 liftIO $ writeIORef ioref $! Disk r
                 return cr
             Disk _ -> return cr
@@ -91,29 +92,27 @@ instance
 
 instance
     ( MonadCache c m,
-      BlobStorable m a,
+      DirectBlobStorable m a,
       Cache c,
       CacheKey c ~ BlobRef a,
       CacheValue c ~ a
     ) =>
     BlobStorable m (CachedRef c a)
     where
-    store c = store . snd =<< refFlush c
     storeUpdate c = do
         (c', ref) <- refFlush c
-        (,c') <$> store ref
+        return (put ref, c')
     load = do
         mref <- load
         return $ do
             ref <- mref
             ioref <- liftIO $ newIORef $! Disk ref
             return (CachedRef ioref)
-    {-# INLINE store #-}
     {-# INLINE storeUpdate #-}
     {-# INLINE load #-}
 instance
     ( MonadCache c m,
-      BlobStorable m a,
+      DirectBlobStorable m a,
       Cache c,
       CacheKey c ~ BlobRef a,
       CacheValue c ~ a,
@@ -148,7 +147,7 @@ instance Show (LazilyHashedCachedRef' h c a) where
 
 instance
     ( MonadCache c m,
-      BlobStorable m a,
+      DirectBlobStorable m a,
       Cache c,
       CacheKey c ~ BlobRef a,
       CacheValue c ~ a,
@@ -166,7 +165,7 @@ instance
 
 instance
     ( MonadCache c m,
-      BlobStorable m a,
+      DirectBlobStorable m a,
       Cache c,
       CacheKey c ~ BlobRef a,
       CacheValue c ~ a,
@@ -207,15 +206,13 @@ makeLazilyHashedCachedRef val hsh = liftIO $ do
 
 instance
     ( MonadCache c m,
-      BlobStorable m a,
+      DirectBlobStorable m a,
       Cache c,
       CacheKey c ~ BlobRef a,
       CacheValue c ~ a
     ) =>
     BlobStorable m (LazilyHashedCachedRef' h c a)
     where
-    store c = store . snd =<< refFlush (lhCachedRef c)
-
     storeUpdate c = do
         (r, v') <- storeUpdate (lhCachedRef c)
         return (r, LazilyHashedCachedRef v' (lhHash c))
@@ -229,7 +226,7 @@ instance
 
 instance
     ( MonadCache c m,
-      BlobStorable m a,
+      DirectBlobStorable m a,
       Cache c,
       CacheKey c ~ BlobRef a,
       CacheValue c ~ a,
@@ -267,7 +264,7 @@ instance (Monad m) => MHashableTo m h (EagerlyHashedCachedRef' h c a)
 
 instance
     ( MonadCache c m,
-      BlobStorable m a,
+      DirectBlobStorable m a,
       Cache c,
       CacheKey c ~ BlobRef a,
       CacheValue c ~ a,
@@ -310,8 +307,6 @@ instance
     ) =>
     BlobStorable m (EagerlyHashedCachedRef' h c a)
     where
-    store c = store . snd =<< refFlush (ehCachedRef c)
-
     storeUpdate c = do
         (r, v') <- storeUpdate (ehCachedRef c)
         return (r, EagerlyHashedCachedRef v' (ehHash c))
@@ -343,7 +338,6 @@ data HashedCachedRef' h c a
         hcrBlob :: !(BlobRef a),
         hcrHash :: !h
     }
-
 type HashedCachedRef = HashedCachedRef' H.Hash
 
 instance Show (HashedCachedRef' h c a) where
@@ -351,7 +345,7 @@ instance Show (HashedCachedRef' h c a) where
 
 instance
     ( MonadCache c m,
-      BlobStorable m a,
+      DirectBlobStorable m a,
       Cache c,
       CacheKey c ~ BlobRef a,
       CacheValue c ~ a,
@@ -367,7 +361,7 @@ instance
 
 instance
     ( MonadCache c m,
-      BlobStorable m a,
+      DirectBlobStorable m a,
       Cache c,
       CacheKey c ~ BlobRef a,
       CacheValue c ~ a,
@@ -377,14 +371,14 @@ instance
     where
     refFlush HCRUnflushed{..} = liftIO (readIORef hcrUnflushed) >>= \case
         HCRMem val -> do
-            (!hcrBlob, !val') <- storeUpdateRef val
+            (!hcrBlob, !val') <- storeUpdateDirect val
             _ <- putCachedValue (Proxy @c) hcrBlob val'
             hcrHash <- getHashM val'
             let !newHCR = HCRFlushed{..}
             liftIO $ writeIORef hcrUnflushed $! HCRDisk newHCR
             return (newHCR, hcrBlob)
         HCRMemHashed val hcrHash -> do
-            (!hcrBlob, !val') <- storeUpdateRef val
+            (!hcrBlob, !val') <- storeUpdateDirect val
             _ <- putCachedValue (Proxy @c) hcrBlob val'
             let !newHCR = HCRFlushed{..}
             liftIO $ writeIORef hcrUnflushed $! HCRDisk newHCR
@@ -397,7 +391,7 @@ instance
         HCRMemHashed val _ -> return (val, hcr)
         HCRDisk d -> refCache d
     refCache hcr@HCRFlushed{..} = do
-        val <- loadRef hcrBlob
+        val <- loadDirect hcrBlob
         !val' <- putCachedValue (Proxy @c) hcrBlob val
         return (val', hcr)
     
@@ -411,7 +405,7 @@ instance
         HCRDisk r -> refLoad r
     refLoad HCRFlushed{..} = lookupCachedValue (Proxy @c) hcrBlob >>= \case
         Nothing -> do
-            val <- loadRef hcrBlob
+            val <- loadDirect hcrBlob
             putCachedValue (Proxy @c) hcrBlob val
         Just val -> return val
 
@@ -430,7 +424,7 @@ makeHashedCachedRef val hsh = liftIO $
 
 instance
     ( MonadCache c m,
-      BlobStorable m a,
+      DirectBlobStorable m a,
       Cache c,
       CacheKey c ~ BlobRef a,
       CacheValue c ~ a,
@@ -438,11 +432,9 @@ instance
     ) =>
     BlobStorable m (HashedCachedRef' h c a)
     where
-    store hcr = store . snd =<< refFlush hcr
-
     storeUpdate hcr = do
         (!hcr', !ref) <- refFlush hcr
-        (, hcr') <$> store ref
+        return (put ref, hcr')
 
     load = do
         mref <- load
@@ -450,7 +442,7 @@ instance
             hcrBlob <- mref
             val <- lookupCachedValue (Proxy @c) hcrBlob >>= \case
                 Nothing -> do
-                    val <- loadRef hcrBlob
+                    val <- loadDirect hcrBlob
                     putCachedValue (Proxy @c) hcrBlob val
                 Just val -> return val
             hcrHash <- getHashM val
@@ -463,7 +455,7 @@ instance (Applicative m) => Cacheable m (HashedCachedRef c a) where
 
 instance 
     ( MonadCache c m,
-      BlobStorable m a,
+      DirectBlobStorable m a,
       Cache c,
       CacheKey c ~ BlobRef a,
       CacheValue c ~ a
@@ -480,7 +472,7 @@ instance
         HCRDisk d -> liftCache csh d
     liftCache csh hcr@HCRFlushed{..} = do
         _ <- lookupCachedValue (Proxy @c) hcrBlob >>= \case
-            Nothing -> putCachedValue (Proxy @c) hcrBlob =<< csh =<< loadRef hcrBlob
+            Nothing -> putCachedValue (Proxy @c) hcrBlob =<< csh =<< loadDirect hcrBlob
             Just val -> putCachedValue (Proxy @c) hcrBlob =<< csh val
         return hcr
 

@@ -117,7 +117,7 @@ genV1ContractState = do
   len <- choose (0, 10)
   return $ StateV1.generatePersistentTree seed len
 
-makeDummyInstance :: InstanceData -> Gen (ContractAddress -> Instance)
+makeDummyInstance :: InstanceData -> Gen (ContractAddress -> Instance GSWasm.InstrumentedModuleV)
 makeDummyInstance (InstanceDataV0 model amount) = do
   let owner = AccountAddress . FBS.pack . replicate 32 $ 0
   (_, mInterface@GSWasm.ModuleInterface{..}) <- elements validContractArtifactsV0
@@ -149,7 +149,7 @@ instance Arbitrary InstanceData where
     where v0 = InstanceStateV0 <$> genV0ContractState
           v1 = InstanceStateV1 <$> genV1ContractState
 
-instanceData :: Instance -> InstanceData
+instanceData :: Instance GSWasm.InstrumentedModuleV -> InstanceData
 instanceData (InstanceV0 InstanceV{..}) = InstanceDataV0 _instanceVModel _instanceVAmount
 instanceData (InstanceV1 InstanceV{..}) = InstanceDataV1 _instanceVModel _instanceVAmount
 
@@ -184,7 +184,7 @@ modelUpdateInstanceAt (ContractAddress ci csi) amt val m = m {modelInstances = M
                   _ -> error "Contract version mismatch."
             | otherwise = o
 
-modelCreateInstance :: (ContractAddress -> Instance) -> Model -> (ContractAddress, Model)
+modelCreateInstance :: (ContractAddress -> Instance GSWasm.InstrumentedModuleV) -> Model -> (ContractAddress, Model)
 modelCreateInstance mk m
     | null (modelFree m) =
         let ca = ContractAddress (modelBound m) 0 in
