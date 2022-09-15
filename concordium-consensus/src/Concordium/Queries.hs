@@ -31,6 +31,7 @@ import Concordium.Types.Parameters
 import Concordium.Types.Queries
 import Concordium.Types.SeedState
 import qualified Concordium.Wasm as Wasm
+import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 
 import qualified Concordium.Scheduler.InvokeContract as InvokeContract
 import qualified Concordium.Types.InvokeContract as InvokeContract
@@ -604,6 +605,23 @@ getInstanceInfo bhi caddr = do
               Wasm.iiName = instanceInitName iiParameters,
               Wasm.iiSourceModule = GSWasm.miModuleRef (instanceModuleInterface iiParameters)
               }))
+
+
+-- |Get the details of a smart contract instance in the block state.
+getInstanceState :: BlockHashInput -> ContractAddress -> MVR gsconf finconf (BlockHash, Maybe (Either Wasm.ContractState StateV1.MutableState))
+getInstanceState bhi caddr = do
+    (bh, ii) <- liftSkovQueryBHI
+            ( \bp -> do
+                bs <- blockState bp
+                mkII =<< BS.getContractInstance bs caddr
+            )
+            bhi
+    return (bh, join ii)
+    where mkII Nothing = return Nothing
+          mkII (Just (BS.InstanceInfoV0 BS.InstanceInfoV{..})) = do
+            Just . Left <$> BS.thawContractState iiState
+          mkII (Just (BS.InstanceInfoV1 BS.InstanceInfoV{..})) = do
+            Just . Right <$> BS.thawContractState iiState
 
 -- |Get the source of a module as it was deployed to the chain.
 getModuleSource :: BlockHashInput -> ModuleRef -> MVR gsconf finconf (BlockHash, Maybe Wasm.WasmModule)

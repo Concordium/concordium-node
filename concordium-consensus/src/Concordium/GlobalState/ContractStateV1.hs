@@ -20,6 +20,7 @@ module Concordium.GlobalState.ContractStateV1
    thawInMemoryPersistent,
    toByteString,
    migratePersistentState,
+   LoadCallback,
    -- * Testing
    lookupKey,
    generatePersistentTree

@@ -238,7 +238,10 @@ impl<D: prost::Message + Default> tonic::codec::Decoder for RawDecoder<D> {
 pub mod server {
     use crate::{
         configuration::GRPC2Config,
-        consensus_ffi::{consensus::ConsensusContainer, ffi::NotificationHandlers},
+        consensus_ffi::{
+            consensus::ConsensusContainer, ffi::NotificationHandlers,
+            helpers::ContractStateResponse,
+        },
         p2p::P2PNode,
     };
     use anyhow::Context;
@@ -487,6 +490,9 @@ pub mod server {
         /// Return type for the 'GetInstanceList' method.
         type GetInstanceListStream =
             futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
+        /// Return type for the 'GetInstanceState' method.
+        type GetInstanceStateStream =
+            futures::channel::mpsc::Receiver<Result<types::InstanceStateKvPair, tonic::Status>>;
         /// Return type for the 'GetModuleList' method.
         type GetModuleListStream = futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
 
@@ -608,6 +614,91 @@ pub mod server {
             let mut response = tonic::Response::new(response);
             add_hash(&mut response, hash)?;
             Ok(response)
+        }
+
+        async fn get_instance_state(
+            &self,
+            request: tonic::Request<crate::grpc2::types::InstanceInfoRequest>,
+        ) -> Result<tonic::Response<Self::GetInstanceStateStream>, tonic::Status> {
+            let request = request.get_ref();
+            let block_hash = request.block_hash.as_ref().require()?;
+            let contract_address = request.address.as_ref().require()?;
+            let (hash, response) =
+                self.consensus.get_instance_state_v2(block_hash, contract_address)?;
+            match response {
+                ContractStateResponse::V0 {
+                    state,
+                } => {
+                    let (mut sender, receiver) = futures::channel::mpsc::channel(1);
+                    let _sender = tokio::spawn(async move {
+                        let msg = types::InstanceStateKvPair {
+                            key:   Vec::new(),
+                            value: state,
+                        };
+                        if sender.try_send(Ok(msg)).is_err() {
+                            error!("Could not send V0 contract state.")
+                        }
+                    });
+                    let mut response = tonic::Response::new(receiver);
+                    add_hash(&mut response, hash)?;
+                    Ok(response)
+                }
+                ContractStateResponse::V1 {
+                    mut state,
+                    mut loader,
+                } => {
+                    let (mut sender, receiver) = futures::channel::mpsc::channel(10);
+                    let _sender = tokio::spawn(async move {
+                        let state = state.get_inner(&mut loader);
+                        let mut state = state.lock();
+                        // get an iterator over the entire state (starting at root)
+                        match state.iter(&mut loader, &[]) {
+                            Err(e) => {
+                                let msg = Err(tonic::Status::internal(format!(
+                                    "Cannot return key-value pairs: {}.",
+                                    e
+                                )));
+                                if sender.try_send(msg).is_err() {
+                                    error!("Could not send V1 contract state.");
+                                }
+                            }
+                            Ok(iterator) => {
+                                if let Some(mut iterator) = iterator {
+                                    while let Some(entry) = state
+                                        .next(
+                                            &mut loader,
+                                            &mut iterator,
+                                            &mut wasm_chain_integration::v1::trie::EmptyCounter,
+                                        )
+                                        .expect("Empty error type, so errors cannot happen.")
+                                    {
+                                        let key = iterator.get_key();
+                                        let msg = state.with_entry(entry, &mut loader, |value| {
+                                            types::InstanceStateKvPair {
+                                                key:   key.to_vec(),
+                                                value: value.to_vec(),
+                                            }
+                                        });
+                                        let msg = msg.ok_or_else(|| {
+                                            tonic::Status::internal(
+                                                "An entry was deleted during traversal. This \
+                                                 should never happen",
+                                            )
+                                        });
+                                        if sender.try_send(msg).is_err() {
+                                            error!("Could not send V1 contract state.");
+                                            break;
+                                        }
+                                    }
+                                } // else there is nothing to do, so terminate
+                            }
+                        }
+                    });
+                    let mut response = tonic::Response::new(receiver);
+                    add_hash(&mut response, hash)?;
+                    Ok(response)
+                }
+            }
         }
 
         async fn get_next_account_sequence_number(
