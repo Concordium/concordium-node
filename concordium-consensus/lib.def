@@ -54,4 +54,4 @@ EXPORTS
  getInstanceInfoV2
  getNextAccountSequenceNumberV2
  getConsensusInfoV2
- getTransactionStatusV2
+ getBlockItemStatusV2
