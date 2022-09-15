@@ -273,14 +273,14 @@ type CopyCryptographicParametersCallback =
 /// Context for returning V1 contract state in the
 /// [`get_instance_state_v2`](ConsensusContainer::get_instance_state_v2) query.
 pub struct V1ContractStateReceiver {
-    state:  Option<wasm_chain_integration::v1::trie::MutableState>,
+    state:  Option<wasm_chain_integration::v1::trie::PersistentState>,
     loader: Option<wasm_chain_integration::v1::trie::foreign::LoadCallback>,
 }
 
 /// A type of callback to write V1 contract state into.
 type CopyV1ContractStateCallback = extern "C" fn(
     *mut V1ContractStateReceiver,
-    *mut wasm_chain_integration::v1::trie::MutableState,
+    *mut wasm_chain_integration::v1::trie::PersistentState,
     wasm_chain_integration::v1::trie::foreign::LoadCallback,
 );
 
@@ -2083,7 +2083,7 @@ extern "C" fn copy_cryptographic_parameters_callback(
 /// Store the V1 contract state and context to the given structure.
 extern "C" fn copy_v1_contract_state_callback(
     out: *mut V1ContractStateReceiver,
-    state: *mut wasm_chain_integration::v1::trie::MutableState,
+    state: *mut wasm_chain_integration::v1::trie::PersistentState,
     loader: wasm_chain_integration::v1::trie::foreign::LoadCallback,
 ) {
     let out = unsafe { &mut *out };

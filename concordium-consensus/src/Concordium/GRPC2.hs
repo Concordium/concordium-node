@@ -1576,13 +1576,13 @@ getInstanceInfoV2 cptr blockType blockHashPtr addrIndex addrSubindex outHash out
     returnMessageWithBlock (copier outVec) outHash res
 
 -- |An opaque representation of the place where we write the mutable state in the 'getInstanceStateV2' query.
-data MutableStateReceiver
+data PersistentStateReceiver
 
 -- |A type of callback that copies the mutable state into the provided recevier.
-type MutableStateCopier = Ptr MutableStateReceiver -> Ptr StateV1.MutableStateInner -> StateV1.LoadCallback -> IO ()
+type PersistentStateCopier = Ptr PersistentStateReceiver -> Ptr StateV1.PersistentState -> StateV1.LoadCallback -> IO ()
 
 -- |Boilerplate wrapper to invoke C callbacks.
-foreign import ccall "dynamic" callMutableStateCopier :: FunPtr MutableStateCopier -> MutableStateCopier
+foreign import ccall "dynamic" callPersistentStateCopier :: FunPtr PersistentStateCopier -> PersistentStateCopier
 
 getInstanceStateV2 ::
     StablePtr Ext.ConsensusRunner ->
@@ -1602,10 +1602,10 @@ getInstanceStateV2 ::
     -- |Callback to output data in case it is a V0 instance.
     FunPtr CopyToVecCallback ->
     -- |If the instance is a V1 instance its instance state and callbacks are written to this vector.
-    Ptr MutableStateReceiver ->
+    Ptr PersistentStateReceiver ->
     -- |Callback to copy the mutable state into provided receiver. It is assumed that the mutable
     -- state is then dropped by Haskell and not used.
-    FunPtr MutableStateCopier ->
+    FunPtr PersistentStateCopier ->
     IO Int64
 getInstanceStateV2 cptr blockType blockHashPtr addrIndex addrSubindex outHash outVec vecCopierCbk outMS msCopierCbk = do
     Ext.ConsensusRunner mvr <- deRefStablePtr cptr
@@ -1621,10 +1621,10 @@ getInstanceStateV2 cptr blockType blockHashPtr addrIndex addrSubindex outHash ou
                 let copier = callCopyToVecCallback vecCopierCbk
                 BS.unsafeUseAsCStringLen (Wasm.contractState v0State) (\(ptr, len) -> copier outVec (castPtr ptr) (fromIntegral len))
                 return (queryResultCode QRSuccess)
-            Right ms@StateV1.MutableState{..} -> do
-                let copier = callMutableStateCopier msCopierCbk
-                StateV1.withMutableState ms $ \msPtr -> do
-                  copier outMS msPtr msContext
+            Right (ps, sContext) -> do
+                let copier = callPersistentStateCopier msCopierCbk
+                StateV1.withPersistentState ps $ \psPtr -> do
+                  copier outMS psPtr sContext
                 return (queryResultCode QRSuccess)
 
 getNextAccountSequenceNumberV2 ::
@@ -2042,10 +2042,10 @@ foreign export ccall getInstanceStateV2 ::
     -- |Callback to output data in case it is a V0 instance.
     FunPtr CopyToVecCallback ->
     -- |If the instance is a V1 instance its instance state and callbacks are written to this vector.
-    Ptr MutableStateReceiver ->
+    Ptr PersistentStateReceiver ->
     -- |Callback to copy the mutable state into provided receiver. It is assumed that the mutable
     -- state is then dropped by Haskell and not used.
-    FunPtr MutableStateCopier ->
+    FunPtr PersistentStateCopier ->
     IO Int64
 
 

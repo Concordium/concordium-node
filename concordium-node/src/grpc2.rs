@@ -491,8 +491,9 @@ pub mod server {
         type GetInstanceListStream =
             futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
         /// Return type for the 'GetInstanceState' method.
-        type GetInstanceStateStream =
-            futures::channel::mpsc::Receiver<Result<types::InstanceStateKvPair, tonic::Status>>;
+        type GetInstanceStateStream = tokio_stream::wrappers::ReceiverStream<
+            Result<types::InstanceStateKvPair, tonic::Status>,
+        >;
         /// Return type for the 'GetModuleList' method.
         type GetModuleListStream = futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
 
@@ -629,28 +630,28 @@ pub mod server {
                 ContractStateResponse::V0 {
                     state,
                 } => {
-                    let (mut sender, receiver) = futures::channel::mpsc::channel(1);
+                    let (sender, receiver) = tokio::sync::mpsc::channel(1);
                     let _sender = tokio::spawn(async move {
                         let msg = types::InstanceStateKvPair {
                             key:   Vec::new(),
                             value: state,
                         };
-                        if sender.try_send(Ok(msg)).is_err() {
+                        if sender.send(Ok(msg)).await.is_err() {
                             error!("Could not send V0 contract state.")
                         }
                     });
-                    let mut response = tonic::Response::new(receiver);
+                    let mut response =
+                        tonic::Response::new(tokio_stream::wrappers::ReceiverStream::new(receiver));
                     add_hash(&mut response, hash)?;
                     Ok(response)
                 }
                 ContractStateResponse::V1 {
-                    mut state,
+                    state,
                     mut loader,
                 } => {
-                    let (mut sender, receiver) = futures::channel::mpsc::channel(10);
+                    let (sender, receiver) = tokio::sync::mpsc::channel(10);
                     let _sender = tokio::spawn(async move {
-                        let state = state.get_inner(&mut loader);
-                        let mut state = state.lock();
+                        let mut state = state.into_trie(&mut loader);
                         // get an iterator over the entire state (starting at root)
                         match state.iter(&mut loader, &[]) {
                             Err(e) => {
@@ -658,7 +659,7 @@ pub mod server {
                                     "Cannot return key-value pairs: {}.",
                                     e
                                 )));
-                                if sender.try_send(msg).is_err() {
+                                if sender.send(msg).await.is_err() {
                                     error!("Could not send V1 contract state.");
                                 }
                             }
@@ -685,7 +686,7 @@ pub mod server {
                                                  should never happen",
                                             )
                                         });
-                                        if sender.try_send(msg).is_err() {
+                                        if sender.send(msg).await.is_err() {
                                             error!("Could not send V1 contract state.");
                                             break;
                                         }
@@ -694,7 +695,8 @@ pub mod server {
                             }
                         }
                     });
-                    let mut response = tonic::Response::new(receiver);
+                    let mut response =
+                        tonic::Response::new(tokio_stream::wrappers::ReceiverStream::new(receiver));
                     add_hash(&mut response, hash)?;
                     Ok(response)
                 }

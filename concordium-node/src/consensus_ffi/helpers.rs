@@ -483,7 +483,7 @@ pub enum ContractStateResponse {
         state: Vec<u8>,
     },
     V1 {
-        state:  wasm_chain_integration::v1::trie::MutableState,
+        state:  wasm_chain_integration::v1::trie::PersistentState,
         loader: wasm_chain_integration::v1::trie::foreign::LoadCallback,
     },
 }

@@ -588,7 +588,7 @@ getInstanceInfo bhi caddr = do
     return (bh, join ii)
     where mkII Nothing = return Nothing
           mkII (Just (BS.InstanceInfoV0 BS.InstanceInfoV{..})) = do
-            iiModel <- BS.thawContractState iiState
+            iiModel <- BS.externalContractState iiState
             return (Just (Wasm.InstanceInfoV0{
               Wasm.iiOwner = instanceOwner iiParameters,
               Wasm.iiAmount = iiBalance,
@@ -608,7 +608,7 @@ getInstanceInfo bhi caddr = do
 
 
 -- |Get the details of a smart contract instance in the block state.
-getInstanceState :: BlockHashInput -> ContractAddress -> MVR gsconf finconf (BlockHash, Maybe (Either Wasm.ContractState StateV1.MutableState))
+getInstanceState :: BlockHashInput -> ContractAddress -> MVR gsconf finconf (BlockHash, Maybe (Either Wasm.ContractState (StateV1.PersistentState, StateV1.LoadCallback)))
 getInstanceState bhi caddr = do
     (bh, ii) <- liftSkovQueryBHI
             ( \bp -> do
@@ -618,10 +618,12 @@ getInstanceState bhi caddr = do
             bhi
     return (bh, join ii)
     where mkII Nothing = return Nothing
-          mkII (Just (BS.InstanceInfoV0 BS.InstanceInfoV{..})) = do
-            Just . Left <$> BS.thawContractState iiState
+          mkII (Just (BS.InstanceInfoV0 BS.InstanceInfoV{..})) =
+            Just . Left <$> BS.externalContractState iiState
           mkII (Just (BS.InstanceInfoV1 BS.InstanceInfoV{..})) = do
-            Just . Right <$> BS.thawContractState iiState
+            state <- BS.externalContractState iiState
+            callback <- BS.getV1StateContext
+            return . Just . Right $! (state, callback)
 
 -- |Get the source of a module as it was deployed to the chain.
 getModuleSource :: BlockHashInput -> ModuleRef -> MVR gsconf finconf (BlockHash, Maybe Wasm.WasmModule)
