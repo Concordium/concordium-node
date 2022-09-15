@@ -21,7 +21,6 @@ pipeline {
             )}""".trim()
         DOMAIN = concordiumDomain(environment)
         OUTFILE = "s3://distribution.${DOMAIN}/macos/concordium-${environment}-node_${TAG}_amd64.deb"
-        GENESIS_HASH = 
     }
     stages {
         stage('Build static-node-binaries') {
@@ -32,6 +31,9 @@ pipeline {
             steps {
                 echo 'Build static-node-binaries'
             }
+        }
+        stage('Checkout genesis') {
+            git credentialsId: 'jenkins-gitlab-ssh', url: 'git@gitlab.com:Concordium/genesis-data.git'
         }
         // stage('Publish') {
         //     steps {
