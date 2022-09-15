@@ -224,7 +224,7 @@ instance ToProto Wasm.InitName where
 
 instance ToProto Wasm.ContractState where
   type Output Wasm.ContractState = Proto.ContractStateV0
-  toProto = mkSerialize
+  toProto Wasm.ContractState{..} = Proto.make $ ProtoFields.value .= contractState
 
 instance ToProto ContractAddress where
   type Output ContractAddress = Proto.ContractAddress
@@ -567,7 +567,7 @@ instance ToProto AccountInfo where
 
 instance ToProto Wasm.Parameter where
   type Output Wasm.Parameter = Proto.Parameter
-  toProto = mkSerialize
+  toProto Wasm.Parameter{..} = Proto.make $ ProtoFields.value .= BSS.fromShort parameter
 
 instance ToProto RejectReason where
   type Output RejectReason = Proto.RejectReason
