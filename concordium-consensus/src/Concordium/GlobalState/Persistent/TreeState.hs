@@ -1,6 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -49,7 +48,6 @@ import Concordium.Utils
 import System.Mem.Weak
 import System.Directory
 import System.IO.Error
-import System.FilePath
 import Concordium.Logger
 import Control.Monad.Except
 import qualified Concordium.TransactionVerification as TVer
@@ -95,6 +93,18 @@ logExceptionAndThrowTS = logExceptionAndThrow TreeState
 
 logErrorAndThrowTS :: (MonadLogger m, MonadIO m) => String -> m a
 logErrorAndThrowTS = logErrorAndThrow TreeState
+
+  -- Check whether a path is a normal file that is readable and writable
+checkRWFile :: forall m. (MonadLogger m, MonadIO m) => FilePath -> InitException -> m ()
+checkRWFile path exc = do
+  fileEx <- liftIO $ doesFileExist path
+  unless fileEx $ logExceptionAndThrowTS BlockStatePathDir
+  mperms <- liftIO $ catchJust (guard . isPermissionError)
+    (Just <$> getPermissions path) (const $ return Nothing)
+  case mperms of
+    Nothing -> logExceptionAndThrowTS exc
+    Just perms ->
+      unless (readable perms && writable perms) $ logExceptionAndThrowTS exc
 
 --------------------------------------------------------------------------------
 
@@ -305,49 +315,6 @@ initialSkovPersistentData rp treeStateDir gd genState serState genTT mPending = 
 --------------------------------------------------------------------------------
 
 -- * Initialization functions
-
--- |Check the permissions in the required files.
--- Returns 'True' if the database already existed, 'False' if not.
--- Raises an exception if the database is inaccessible, or only partially exists.
-checkExistingDatabase :: forall m. (MonadLogger m, MonadIO m) =>
-    -- |Tree state path
-    FilePath ->
-    -- |Block state file
-    FilePath ->
-    m Bool
-checkExistingDatabase treeStateDir blockStateFile = do
-  let treeStateFile = treeStateDir </> "data.mdb"
-  bsPathEx <- liftIO $ doesPathExist blockStateFile
-  tsPathEx <- liftIO $ doesPathExist treeStateFile
-
-  -- Check whether a path is a normal file that is readable and writable
-  let checkRWFile :: FilePath -> InitException -> m ()
-      checkRWFile path exc = do
-        fileEx <- liftIO $ doesFileExist path
-        unless fileEx $ logExceptionAndThrowTS BlockStatePathDir
-        mperms <- liftIO $ catchJust (guard . isPermissionError)
-                           (Just <$> getPermissions path)
-                           (const $ return Nothing)
-        case mperms of
-          Nothing -> logExceptionAndThrowTS exc
-          Just perms ->
-            unless (readable perms && writable perms) $ do
-            logExceptionAndThrowTS exc
-
-  -- if both files exist we check whether they are both readable and writable.
-  -- In case only one of them exists we raise an appropriate exception. We don't want to delete any data.
-  if | bsPathEx && tsPathEx -> do
-         -- check whether it is a normal file and whether we have the right permissions
-         checkRWFile blockStateFile BlockStatePermissionError
-         checkRWFile treeStateFile TreeStatePermissionError
-         mapM_ (logEvent TreeState LLTrace) ["Existing database found.", "TreeState filepath: " ++ show blockStateFile, "BlockState filepath: " ++ show treeStateFile]
-         return True
-     | bsPathEx -> do
-         logExceptionAndThrowTS $ DatabaseInvariantViolation "Block state file exists, but tree state file does not."
-     | tsPathEx -> do
-         logExceptionAndThrowTS $ DatabaseInvariantViolation "Tree state file exists, but block state file does not."
-     | otherwise ->
-         return False
 
 -- |Try to load an existing instance of skov persistent data.
 -- This function will raise an exception if it detects invariant violation in the

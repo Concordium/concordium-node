@@ -5,6 +5,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE MultiWayIf #-}
 -- FIXME: This is to suppress compiler warnings for derived instances of BlockStateOperations.
 -- This may be fixed in GHC 9.0.1.
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
@@ -23,6 +24,8 @@ import Data.ByteString.Char8(ByteString)
 import qualified Data.HashMap.Strict as HM
 import Data.Kind
 import Lens.Micro.Platform
+import System.FilePath
+import System.Directory
 
 import Concordium.Types.ProtocolVersion
 import Concordium.GlobalState.TransactionTable
@@ -423,7 +426,8 @@ class GlobalStateConfig (c :: Type) where
     -- storage. This may throw a 'GlobalStateInitException'.
     --
     -- The return value is 'Nothing' if the state could not be found. If the
-    -- state could be found, but could not be loaded an exception is thrown.
+    -- state could be found, but could not be loaded, recovery is attempted,
+    -- and if that fails,  an exception is thrown.
     --
     -- Note that even if the state is successfully loaded it is not in a usable
     -- state for an active consensus and must be activated before. Use
@@ -583,20 +587,30 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
 
     initialiseExistingGlobalState _ DTDBConfig{..} = do
       -- check if all the necessary database files exist
-      existingDB <- checkExistingDatabase dtdbTreeStateDirectory dtdbBlockStateFile
-      pbscAccountCache <- liftIO $ Accounts.newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
-      pbscModuleCache <- liftIO $ Modules.newModuleCache (rpModulesCacheSize dtdbRuntimeParameters)
-      if existingDB then do
-        pbscBlobStore <- liftIO $ do
-          -- the block state file exists, is readable and writable
-          -- we ignore the given block state parameter in such a case.
-          loadBlobStore dtdbBlockStateFile
-        let pbsc = PersistentBlockStateContext{..}
-        logm <- ask
-        skovData <- liftIO (runLoggerT (loadSkovPersistentData dtdbRuntimeParameters dtdbTreeStateDirectory pbsc) logm
-                    `onException` (closeBlobStore pbscBlobStore))
-        return (Just (pbsc, skovData))
-      else return Nothing
+      let treeStateFile = dtdbTreeStateDirectory </> "data.mdb"
+      bsPathEx <- liftIO $ doesPathExist dtdbBlockStateFile
+      tsPathEx <- liftIO $ doesPathExist treeStateFile
+      if | bsPathEx && tsPathEx -> do
+             checkRWFile dtdbBlockStateFile BlockStatePermissionError
+             checkRWFile treeStateFile TreeStatePermissionError
+             mapM_ (logEvent TreeState LLTrace) ["Existing database found.", "TreeState filepath: " ++ show dtdbBlockStateFile, "BlockState filepath: " ++ show treeStateFile]
+             pbscAccountCache <- liftIO $ Accounts.newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
+             pbscModuleCache <- liftIO $ Modules.newModuleCache (rpModulesCacheSize dtdbRuntimeParameters)
+             pbscBlobStore <- liftIO $ loadBlobStore dtdbBlockStateFile
+             let pbsc = PersistentBlockStateContext{..}
+             logm <- ask
+             skovData <- liftIO $ runLoggerT (loadSkovPersistentData dtdbRuntimeParameters dtdbTreeStateDirectory pbsc) logm
+                                   `onException` closeBlobStore pbscBlobStore
+             return (Just (pbsc, skovData))
+         | bsPathEx -> do
+             logEvent GlobalState LLTrace "Block state file exists, but tree state file does not. Deleting the block state file and attempting to recreate it from regenesis."
+             liftIO $ removeFile dtdbBlockStateFile
+             return Nothing
+         | tsPathEx -> do
+             logEvent GlobalState LLTrace "Tree state file exists, but block state file does not. Deleting the tree state file and attempting to recreate it from regenesis."
+             liftIO $ removeFile treeStateFile
+             return Nothing
+         | otherwise -> return Nothing
 
     migrateExistingState DTDBConfig{..} oldPbsc oldState migration genData = do
       pbscBlobStore <- liftIO $ createBlobStore dtdbBlockStateFile
