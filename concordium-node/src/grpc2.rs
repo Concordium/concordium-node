@@ -92,6 +92,16 @@ pub mod types {
             None
         }
     }
+
+    pub(crate) fn receive_name_to_ffi(receive_name: &ReceiveName) -> Option<(*const u8, u32)> {
+        let string = &receive_name.value;
+        let len = string.len();
+        if string.is_ascii() && len <= 100 {
+            Some((string.as_ptr(), len as u32))
+        } else {
+            None
+        }
+    }
 }
 
 /// The service generated from the configuration in the `build.rs` file.
@@ -614,6 +624,16 @@ pub mod server {
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
             let response = self.consensus.get_block_item_status_v2(request.get_ref())?;
             Ok(tonic::Response::new(response))
+        }
+
+        async fn invoke_contract(
+            &self,
+            request: tonic::Request<crate::grpc2::types::InvokeContractRequest>,
+        ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            let (hash, response) = self.consensus.invoke_contract_v2(request.get_ref())?;
+            let mut response = tonic::Response::new(response);
+            add_hash(&mut response, hash)?;
+            Ok(response)
         }
     }
 }
