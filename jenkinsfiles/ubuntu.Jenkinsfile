@@ -33,7 +33,9 @@ pipeline {
             }
         }
         stage('Checkout genesis') {
-            git credentialsId: 'jenkins-gitlab-ssh', url: 'git@gitlab.com:Concordium/genesis-data.git'
+            steps {
+                git credentialsId: 'jenkins-gitlab-ssh', url: 'git@gitlab.com:Concordium/genesis-data.git'
+            }
         }
         // stage('Publish') {
         //     steps {
