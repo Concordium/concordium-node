@@ -29,7 +29,65 @@
 --    Simple references (`BufferedRef`) and fixed point references (`BufferedBlobbed`) are
 --    provided, the latter ones requiring to be used together with a Functor that will
 --    instantiate the recursive data type definition.
-module Concordium.GlobalState.Persistent.BlobStore where
+module Concordium.GlobalState.Persistent.BlobStore(
+    -- * Blob store
+    BlobRef(..),
+    BlobHandle,
+    BlobStoreAccess,
+    BlobStore(..),
+    HasBlobStore(..),
+    createBlobStore,
+    loadBlobStore,
+    closeBlobStore,
+    destroyBlobStore,
+    runBlobStoreTemp,
+    isValidBlobRef,
+    BlobPtr(..),
+    MonadBlobStore(..),
+    BlobStoreT(..),
+    alterBlobStoreT,
+    BlobStoreM',
+    BlobStoreM,
+    runBlobStoreM,
+    -- * Storage classes
+    -- $storageClasses
+    BlobStorable(..),
+    storeRef,
+    storeUpdateRef,
+    loadRef,
+    DirectBlobStorable(..),
+    -- * Nullable
+    Nullable(..),
+    HasNull(..),
+    -- * Reference types
+    Reference(..),
+    -- ** 'BufferedRef'
+    BufferedRef,
+    makeBufferedRef,
+    blobRefToBufferedRef,
+    loadBufferedRef,
+    cacheBufferedRef,
+    flushBufferedRef,
+    uncacheBufferedRef,
+    -- ** 'EagerBufferedRef'
+    EagerBufferedRef,
+    -- ** 'HashedBufferedRef'
+    HashedBufferedRef',
+    HashedBufferedRef,
+    bufferHashed,
+    makeHashedBufferedRef,
+    HashedBufferedRefForCPV1,
+    -- ** 'EagerlyHashedBufferedRef'
+    EagerlyHashedBufferedRef',
+    EagerlyHashedBufferedRef,
+    -- * Fixpoint references
+    BufferedFix,
+    FixShowable(..),
+    StoreSerialized(..),
+    -- * Caching
+    Cacheable(..),
+    Cacheable1(..),
+) where
 
 import Control.Concurrent.MVar
 import System.IO
@@ -260,6 +318,11 @@ readBlobBS bs@BlobStoreAccess{..} br@(BlobRef offset) = do
                         return
                             $ BS.take (fromIntegral size)
                             $ BS.drop dataOffset mmap
+
+-- |Check if a given 'BlobRef' is valid in the blob store. This does not attempt to deserialize
+-- the value, but will check that the offset and length of the 'BlobRef' are valid.
+isValidBlobRef :: BlobStoreAccess -> BlobRef a -> IO Bool
+isValidBlobRef bs br = (True <$ readBlobBS bs br) `catch` (\(_ :: IOError) -> return False)
 
 -- | Write a bytestring into the blob store and return the offset
 writeBlobBS :: BlobStoreAccess -> BS.ByteString -> IO (BlobRef a)
@@ -638,19 +701,39 @@ class Monad m => Reference m ref a where
 -- |A value that may exists purely on disk ('BRBlobbed'), purely in memory
 -- ('BRMemory' with @brIORef = Null@), or both in memory and on disk. When the
 -- value is both on disk and in memory the two values must match.
+-- 
+-- The 'BRMemory' case uses an 'IORef' that either stores 'Null' if the reference has not already
+-- been written to the disk, or @Some BRBoth{..}@ if it has.  When 'storeUpdate' is called, this
+-- 'IORef' is checked, and it is used in the @Some@ case; in the @Null@ case, the updated reference
+-- (a @BRBoth@) is written into the 'IORef'.  This ensures that if the reference is shared then
+-- we: 1) don't write it multiple times; and 2) also share the updated value after it is written.
+-- (Note, we could just store the contents of the @BRBoth@ instead of the @BRBoth@ itself in the
+-- 'IORef'.  Our implementation choice avoids some extra constructors and definitions, although
+-- it does introduce an invariant that is not enforced by the type system itself.  However, this
+-- implementation detail should not leak outside the present module.)
+--
+-- In a previous version, the 'IORef' only held the 'BlobRef', and 'storeUpdate' would use that
+-- and the existing value. This was problematic, because in cases of sharing it is important to
+-- also share the updated value.  In particular, it caused cases where a module was retained
+-- in memory as a result of a shared 'BRMemory' not being updated.  (The module reference is
+-- shared by the modules table and instances of the module.  The module table reference would be
+-- flushed, and updated with a version that did not retain the module in memory.  However, the
+-- instance reference would just be updated with the new 'BlobRef', but keep the old value, which
+-- retained the module in memory.)
+--
+-- An alternative implementation choice would be to have 'BRMemory' always store the value under
+-- the 'IORef'.  This approach was not taken in order to avoid the additional indirection this
+-- introduces.
+--
+-- The choice to have 'BRBoth' at all (and not just use 'BRMemory') was to reduce the indirection
+-- for the common case where the data is both in memory and on disk.
 data BufferedRef a
     = BRBlobbed {brRef :: !(BlobRef a)}
     -- ^Value stored on disk
     | BRMemory {brIORef :: !(IORef (Nullable (BufferedRef a))), brValue :: !a}
     -- ^Value stored in memory and possibly on disk.
-    -- When a new 'BRMemory' instance is created, we initialize 'brIORef' to 'Null'.
-    -- When we store the instance in persistent storage, we update 'brIORef' to a @Some BRBoth{..}@.
-    -- That way, when we store the same instance again on disk (this could be, e.g., a child block
-    -- that inherited its parent's state) we can store the pointer to the 'brValue' data rather than
-    -- storing all of the data again.
-    -- This definition makes it possible for shared references to share the
-    -- updated value after it's been 'storeUpdated'.
-    -- See implementation for 'storeUpdate'.
+    -- 'brIORef' contains 'Null' if the value has never been written to the blob store, and
+    -- otherwise @Some BRBoth{..}@ with the reference and updated value.
     | BRBoth {brRef :: !(BlobRef a), brValue :: !a}
     -- ^Value stored in memory and on disk.
 
@@ -659,6 +742,10 @@ makeBufferedRef :: MonadIO m => a -> m (BufferedRef a)
 makeBufferedRef v = liftIO $ do
     ref <- newIORef Null
     return $ BRMemory ref v
+
+-- | Create a 'BufferedRef' from a 'BlobRef', without loading anything.
+blobRefToBufferedRef :: BlobRef a -> BufferedRef a
+blobRefToBufferedRef = BRBlobbed
 
 instance Show a => Show (BufferedRef a) where
   show (BRBlobbed r) = show r
@@ -714,8 +801,8 @@ flushBufferedRef :: DirectBlobStorable m a => BufferedRef a -> m (BufferedRef a,
 flushBufferedRef = refFlush
 
 -- |Convert a Cached reference into a Blobbed one storing the data if needed.
-uncacheBuffered :: DirectBlobStorable m a => BufferedRef a -> m (BufferedRef a)
-uncacheBuffered = refUncache
+uncacheBufferedRef :: DirectBlobStorable m a => BufferedRef a -> m (BufferedRef a)
+uncacheBufferedRef = refUncache
 
 instance (Monad m, DirectBlobStorable m a) => Reference m BufferedRef a where
   refMake = makeBufferedRef
@@ -735,7 +822,7 @@ instance (Monad m, DirectBlobStorable m a) => Reference m BufferedRef a where
         (!r' :: BlobRef a, !v') <- storeUpdateDirect v
         let br' = BRBoth r' v'
         liftIO . writeIORef ref $! Some br'
-        return (BRBoth r' v', r')
+        return (br', r')
     Some brm' -> refFlush brm'
   refFlush b = return (b, brRef b)
 
@@ -1051,7 +1138,7 @@ instance (Monad m, DirectBlobStorable m a, MHashableTo m h a) => Reference m (Ha
     return (val, ref')
 
   refUncache ref = do
-    br <- uncacheBuffered (bufferedReference ref)
+    br <- uncacheBufferedRef (bufferedReference ref)
     return $ ref {bufferedReference = br}
   {-# INLINE refFlush #-}
   {-# INLINE refLoad #-}

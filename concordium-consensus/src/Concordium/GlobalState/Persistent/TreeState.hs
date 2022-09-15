@@ -52,7 +52,6 @@ import System.FilePath
 import Concordium.Logger
 import Control.Monad.Except
 import qualified Concordium.TransactionVerification as TVer
-import qualified Data.ByteString as BS
 
 -- * Exceptions
 
@@ -386,29 +385,27 @@ loadSkovPersistentData rp _treeStateDirectory pbsc = do
   -- the `BlobRef` to the block state is stored in LMDB only after the block state is stored in the
   -- blob store. If the reference points to a blob that cannot be read, the blob store can be
   -- assumed to be corrupted.
-  elfBlob <- liftIO . try $
-    readBlobBSFromHandle (bscBlobStore . PBS.pbscBlobStore $ pbsc) (sbState lfStoredBlock)
-  case elfBlob :: Either IOError BS.ByteString of
-    Left _ -> logExceptionAndThrowTS $
+  stateIntact <- liftIO $ isValidBlobRef (bscBlobStore . PBS.pbscBlobStore $ pbsc) (sbState lfStoredBlock)
+  unless stateIntact $
+    logExceptionAndThrowTS $
       DatabaseInvariantViolation "Last finalized block cannot be read. Blockstate database recovery required."
-    Right _ -> do
-      _lastFinalized <- liftIO (makeBlockPointer lfStoredBlock)
-      return SkovPersistentData {
-            _possiblyPendingTable = HM.empty,
-            _possiblyPendingQueue = MPQ.empty,
-            _branches = Seq.empty,
-            _focusBlock = _lastFinalized,
-            _pendingTransactions = emptyPendingTransactionTable,
-            _transactionTable = emptyTransactionTable,
-            _transactionTablePurgeCounter = 0,
-            -- The best thing we can probably do is use the initial statistics,
-            -- and make the meaning of those with respect to the last time
-            -- consensus started.
-            _statistics = initialConsensusStatistics,
-            _runtimeParameters = rp,
-            _blockTable = BlockTable {_deadCache = emptyDeadCache, _liveMap = HM.empty},
-            ..
-        }
+  _lastFinalized <- liftIO (makeBlockPointer lfStoredBlock)
+  return SkovPersistentData {
+        _possiblyPendingTable = HM.empty,
+        _possiblyPendingQueue = MPQ.empty,
+        _branches = Seq.empty,
+        _focusBlock = _lastFinalized,
+        _pendingTransactions = emptyPendingTransactionTable,
+        _transactionTable = emptyTransactionTable,
+        _transactionTablePurgeCounter = 0,
+        -- The best thing we can probably do is use the initial statistics,
+        -- and make the meaning of those with respect to the last time
+        -- consensus started.
+        _statistics = initialConsensusStatistics,
+        _runtimeParameters = rp,
+        _blockTable = BlockTable {_deadCache = emptyDeadCache, _liveMap = HM.empty},
+        ..
+    }
 
   where
     makeBlockPointer :: StoredBlock pv (TS.BlockStatePointer (PBS.PersistentBlockState pv)) -> IO (PersistentBlockPointer pv (PBS.HashedPersistentBlockState pv))
