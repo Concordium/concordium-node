@@ -2964,7 +2964,9 @@ migratePersistentBlockState ::
     (MonadTrans t,
      MonadBlobStore (t m),
      SupportsPersistentAccount oldpv m,
-     SupportsPersistentAccount pv (t m)) =>
+     SupportsPersistentAccount pv (t m),
+     Modules.SupportsPersistentModule m,
+     Modules.SupportsPersistentModule (t m)) =>
     StateMigrationParameters oldpv pv ->
     PersistentBlockState oldpv ->
     t m (PersistentBlockState pv)
@@ -2978,7 +2980,9 @@ migrateBlockPointers ::
     forall oldpv pv t m.
     (SupportMigration m t,
      SupportsPersistentAccount oldpv m,
-     SupportsPersistentAccount pv (t m)) =>
+     SupportsPersistentAccount pv (t m),
+     Modules.SupportsPersistentModule m,
+     Modules.SupportsPersistentModule (t m)) =>
     StateMigrationParameters oldpv pv ->
     BlockStatePointers oldpv ->
     t m (BlockStatePointers pv)

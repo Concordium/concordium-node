@@ -39,7 +39,6 @@ import Control.Monad.State
 import Data.Maybe (fromMaybe)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
-import Data.Either (isLeft)
 import Data.List (partition)
 import qualified Data.Map.Strict as Map
 import Data.Typeable

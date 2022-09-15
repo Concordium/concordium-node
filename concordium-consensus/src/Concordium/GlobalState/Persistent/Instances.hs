@@ -124,8 +124,8 @@ data PersistentInstanceV (v :: Wasm.WasmVersion) = PersistentInstanceV {
 migratePersistentInstanceV ::
     forall v t m.
     ( Wasm.IsWasmVersion v
-    , BlobStorable m (ModuleV v)
-    , BlobStorable (t m) (ModuleV v)
+    , SupportsPersistentModule m
+    , SupportsPersistentModule (t m)
     , MonadTrans t
     ) =>
     -- |The already migrated modules.
@@ -141,7 +141,7 @@ migratePersistentInstanceV modules PersistentInstanceV{..} = do
     let modref = pinstanceContractModule params
     case Wasm.getWasmVersion @v of
         Wasm.SV0 -> do
-            newInstanceModuleInterface <- Modules.unsafeGetModuleReferenceV0 modref modules
+            newInstanceModuleInterface <- Modules.getModuleReference modref modules
             newInstanceModel <- migrateInstanceStateV pinstanceModel
             return $!
                 PersistentInstanceV
@@ -151,7 +151,7 @@ migratePersistentInstanceV modules PersistentInstanceV{..} = do
                     , ..
                     }
         Wasm.SV1 -> do
-            newInstanceModuleInterface <- Modules.unsafeGetModuleReferenceV1 modref modules
+            newInstanceModuleInterface <- Modules.getModuleReference modref modules
             newInstanceModel <- migrateInstanceStateV pinstanceModel
             return $!
                 PersistentInstanceV
@@ -175,7 +175,7 @@ data PersistentInstance (pv :: ProtocolVersion) where
 -- |Migrate persistent instances from the old to the new protocol version.
 migratePersistentInstance ::
     forall oldpv pv t m.
-    SupportMigration m t =>
+    (SupportsPersistentModule m, SupportsPersistentModule (t m), SupportMigration m t) =>
     -- |The __already migrated__ modules. The modules were already migrated by the
     -- module migration, so we want to insert references to the existing modules
     -- in the instances so that we don't end up with duplicates both in-memory
@@ -559,6 +559,8 @@ newContractInstanceIT mk t0 = (\(res, v) -> (res,) <$> membed v) =<< nci 0 t0 =<
 migrateIT ::
     forall oldpv pv t m.
     ( SupportMigration m t
+    , SupportsPersistentModule m
+    , SupportsPersistentModule (t m)
     , IsProtocolVersion oldpv
     , IsProtocolVersion pv
     ) =>
@@ -590,6 +592,8 @@ data Instances pv
 
 migrateInstances ::
     ( SupportMigration m t
+    , SupportsPersistentModule m
+    , SupportsPersistentModule (t m)
     , IsProtocolVersion oldpv
     , IsProtocolVersion pv
     ) =>

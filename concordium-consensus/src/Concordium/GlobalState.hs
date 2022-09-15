@@ -523,9 +523,11 @@ instance GlobalStateConfig MemoryTreeDiskBlockConfig where
     initialiseExistingGlobalState _ _ = return Nothing
 
     migrateExistingState MTDBConfig{..} oldPbsc oldState migration genData = do
-        pbscBlobStore <- liftIO $ createBlobStore mtdbBlockStateFile
-        pbscCache <- liftIO $ Accounts.newAccountCache (rpAccountsCacheSize mtdbRuntimeParameters)
-        let pbsc = PersistentBlockStateContext{..}
+        pbsc <- liftIO $ do
+            pbscBlobStore <- createBlobStore mtdbBlockStateFile
+            pbscAccountCache <- Accounts.newAccountCache (rpAccountsCacheSize mtdbRuntimeParameters)
+            pbscModuleCache <- Modules.newModuleCache (rpModulesCacheSize mtdbRuntimeParameters)
+            return PersistentBlockStateContext{..}
         newInitialBlockState <- flip runBlobStoreT oldPbsc . flip runBlobStoreT pbsc $ do
             case Basic._nextGenesisInitialState oldState of
                 Nothing -> error "Precondition violation. Migration called in state without initial block state."
@@ -551,7 +553,7 @@ instance GlobalStateConfig MemoryTreeDiskBlockConfig where
                     (Just (Basic._pendingTransactions oldState))
         isd <-
             runReaderT (runPersistentBlockStateMonad initGS) pbsc
-                `onException` liftIO (destroyBlobStore pbscBlobStore)
+                `onException` liftIO (destroyBlobStore (pbscBlobStore pbsc))
         return (pbsc, isd)
     
     initialiseNewGlobalState genData MTDBConfig{..} = do
@@ -598,7 +600,8 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
 
     migrateExistingState DTDBConfig{..} oldPbsc oldState migration genData = do
       pbscBlobStore <- liftIO $ createBlobStore dtdbBlockStateFile
-      pbscCache <- liftIO $ Accounts.newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
+      pbscAccountCache <- liftIO $ Accounts.newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
+      pbscModuleCache <- liftIO $ Modules.newModuleCache (rpModulesCacheSize dtdbRuntimeParameters)
       let pbsc = PersistentBlockStateContext {..}
       newInitialBlockState <- flip runBlobStoreT oldPbsc . flip runBlobStoreT pbsc $ do
           case _nextGenesisInitialState oldState of

@@ -41,6 +41,7 @@ module Concordium.GlobalState.Persistent.BlobStore(
     closeBlobStore,
     destroyBlobStore,
     runBlobStoreTemp,
+    truncateBlobStore,
     isValidBlobRef,
     BlobPtr(..),
     MonadBlobStore(..),
@@ -49,6 +50,7 @@ module Concordium.GlobalState.Persistent.BlobStore(
     BlobStoreM',
     BlobStoreM,
     runBlobStoreM,
+    SupportMigration,
     -- * Storage classes
     -- $storageClasses
     BlobStorable(..),
@@ -61,6 +63,7 @@ module Concordium.GlobalState.Persistent.BlobStore(
     HasNull(..),
     -- * Reference types
     Reference(..),
+    migrateReference,
     -- ** 'BufferedRef'
     BufferedRef,
     makeBufferedRef,
@@ -71,17 +74,21 @@ module Concordium.GlobalState.Persistent.BlobStore(
     uncacheBufferedRef,
     -- ** 'EagerBufferedRef'
     EagerBufferedRef,
+    migrateEagerBufferedRef,
     -- ** 'HashedBufferedRef'
     HashedBufferedRef',
     HashedBufferedRef,
     bufferHashed,
     makeHashedBufferedRef,
+    migrateHashedBufferedRef,
+    migrateHashedBufferedRefKeepHash,
     HashedBufferedRefForCPV1,
     -- ** 'EagerlyHashedBufferedRef'
     EagerlyHashedBufferedRef',
     EagerlyHashedBufferedRef,
+    migrateEagerlyHashedBufferedRefKeepHash,
     -- * Fixpoint references
-    BufferedFix,
+    BufferedFix(..),
     FixShowable(..),
     StoreSerialized(..),
     -- * Caching
