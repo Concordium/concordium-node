@@ -6,6 +6,8 @@ use std::{convert::TryFrom, marker::PhantomData, path::Path};
 /// with some auxiliary definitions that help passing values through the FFI
 /// boundary.
 pub mod types {
+    // Tell clippy to allow large enum variants in the generated code.
+    #![allow(clippy::large_enum_variant)]
 
     include!(concat!(env!("OUT_DIR"), "/concordium.v2.rs"));
 
@@ -72,6 +74,20 @@ pub mod types {
     pub(crate) fn module_reference_to_ffi(module_ref: &ModuleRef) -> Option<*const u8> {
         if module_ref.value.len() == 32 {
             Some(module_ref.value.as_ptr())
+        } else {
+            None
+        }
+    }
+
+    /// Convert [TransactionHash] to a pointer to the content. The length of the
+    /// content is checked to be 32 bytes.
+    ///
+    /// # Safety
+    /// The caller **must** ensure that the pointer is not used after the
+    /// reference to the supplied `transaction_hash` is no longer retained.
+    pub(crate) fn transaction_hash_to_ffi(transaction_hash: &TransactionHash) -> Option<*const u8> {
+        if transaction_hash.value.len() == 32 {
+            Some(transaction_hash.value.as_ptr())
         } else {
             None
         }
@@ -590,6 +606,14 @@ pub mod server {
             let mut response = tonic::Response::new(receiver);
             add_hash(&mut response, hash)?;
             Ok(response)
+        }
+
+        async fn get_block_item_status(
+            &self,
+            request: tonic::Request<crate::grpc2::types::TransactionHash>,
+        ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            let response = self.consensus.get_block_item_status_v2(request.get_ref())?;
+            Ok(tonic::Response::new(response))
         }
     }
 }
