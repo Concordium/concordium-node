@@ -26,7 +26,7 @@ pipeline {
         stage('Build static-node-binaries') {
             when {
                 equals expected: 1,
-                actual: sh script:'docker inspect --type=image static-node-binaries > /dev/null 2> /dev/null', returnStatus:true
+                actual: "${sh script:'docker inspect --type=image static-node-binaries > /dev/null 2> /dev/null', returnStatus:true}"
             }
             steps {
                 echo 'Build static-node-binaries'
