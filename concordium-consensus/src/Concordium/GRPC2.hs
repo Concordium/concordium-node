@@ -731,8 +731,13 @@ convertUpdatePayload ut pl = case (ut, pl) of
         ProtoFields.chainUpdate .= toProto _gasChainUpdate)
     (Updates.UpdatePoolParameters, Updates.BakerStakeThresholdUpdatePayload pp) -> Right . Proto.make $
         ProtoFields.bakerStakeThresholdUpdate . ProtoFields.bakerStakeThreshold .= toProto (pp ^. Parameters.ppBakerStakeThreshold)
-    (Updates.UpdateRootKeys, Updates.RootUpdatePayload ru) -> Right . Proto.make $ ProtoFields.rootUpdate .= toProto ru
-    (Updates.UpdateLevel1Keys, Updates.Level1UpdatePayload l1u) -> Right . Proto.make $ ProtoFields.level1RootUpdate .= toProto l1u
+    (Updates.UpdateRootKeys, Updates.RootUpdatePayload ru@(Updates.RootKeysRootUpdate{})) -> Right . Proto.make $ ProtoFields.rootUpdate .= toProto ru
+    (Updates.UpdateLevel1Keys, Updates.RootUpdatePayload ru@(Updates.Level1KeysRootUpdate{})) -> Right . Proto.make $ ProtoFields.rootUpdate .= toProto ru
+    (Updates.UpdateLevel2Keys, Updates.RootUpdatePayload ru@(Updates.Level2KeysRootUpdate{})) -> Right . Proto.make $ ProtoFields.rootUpdate .= toProto ru
+    (Updates.UpdateLevel2Keys, Updates.RootUpdatePayload ru@(Updates.Level2KeysRootUpdateV1{})) -> Right . Proto.make $ ProtoFields.rootUpdate .= toProto ru
+    (Updates.UpdateLevel1Keys, Updates.Level1UpdatePayload u@(Updates.Level1KeysLevel1Update{})) -> Right . Proto.make $ ProtoFields.level1Update .= toProto u
+    (Updates.UpdateLevel2Keys, Updates.Level1UpdatePayload u@(Updates.Level2KeysLevel1Update{})) -> Right . Proto.make $ ProtoFields.level1Update .= toProto u
+    (Updates.UpdateLevel2Keys, Updates.Level1UpdatePayload u@(Updates.Level2KeysLevel1UpdateV1{})) -> Right . Proto.make $ ProtoFields.level1Update .= toProto u
     (Updates.UpdateAddAnonymityRevoker, Updates.AddAnonymityRevokerUpdatePayload ai) -> Right . Proto.make $ ProtoFields.addAnonymityRevokerUpdate .= toProto ai
     (Updates.UpdateAddIdentityProvider, Updates.AddIdentityProviderUpdatePayload ip) -> Right . Proto.make $ ProtoFields.addIdentityProviderUpdate .= toProto ip
     (Updates.UpdateCooldownParameters, Updates.CooldownParametersCPV1UpdatePayload cp) -> Right $ case cp of
@@ -891,7 +896,7 @@ instance ToProto Updates.AccessStructure where
 
 instance ToProto Updates.UpdatePublicKey where
   type Output Updates.UpdatePublicKey = Proto.UpdatePublicKey
-  toProto = mkSerialize
+  toProto (VerifyKeyEd25519 key) = Proto.make $ ProtoFields.value .= S.encode key
 
 instance ToProto Updates.UpdateKeysThreshold where
   type Output Updates.UpdateKeysThreshold = Proto.UpdateKeysThreshold
@@ -1543,7 +1548,7 @@ getBlockItemStatusV2 cptr trxHashPtr outVec copierCbk = do
                       CEFailedUpdate -> "An update transaction failed."
                       CEInvalidUpdateResult -> "An update transaction occurred but was malformed and could not be converted."
                       CEInvalidTransactionResult -> "An account transaction occurred but was malformed and could not be converted."
-                hPutStrLn stderr $ "Internal conversion error occured: " ++ msg
+                hPutStrLn stderr $ "Internal conversion error occured for transaction '" ++ show trxHash ++ "': " ++ msg
                 return $ queryResultCode QRInternalError
               Right t -> do
                 let encoded = Proto.encodeMessage t
