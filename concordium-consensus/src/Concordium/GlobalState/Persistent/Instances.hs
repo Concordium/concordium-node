@@ -9,6 +9,7 @@
 {-# LANGUAGE TypeFamilies #-}
 module Concordium.GlobalState.Persistent.Instances where
 
+import Data.Maybe
 import Data.Word
 import Data.Functor.Foldable hiding (Nil)
 import Control.Monad
@@ -45,6 +46,17 @@ import qualified Concordium.GlobalState.Persistent.Cache as Cache
 data InstanceStateV (v :: Wasm.WasmVersion) where
   InstanceStateV0 :: !Wasm.ContractState -> InstanceStateV GSWasm.V0
   InstanceStateV1 :: !StateV1.PersistentState -> InstanceStateV GSWasm.V1
+
+migrateInstanceStateV ::
+    forall v t m.
+    SupportMigration m t =>
+    InstanceStateV v ->
+    t m (InstanceStateV v)
+migrateInstanceStateV (InstanceStateV0 s) = return (InstanceStateV0 s) -- flat state, no inner references.
+migrateInstanceStateV (InstanceStateV1 s) = do
+  (oldLoadCallback,_) <- lift getCallbacks
+  (_, newStoreCallback) <- getCallbacks
+  InstanceStateV1 <$> liftIO (StateV1.migratePersistentState oldLoadCallback newStoreCallback s)
 
 -- |The fixed parameters associated with a smart contract instance
 data PersistentInstanceParameters = PersistentInstanceParameters {
@@ -109,6 +121,46 @@ data PersistentInstanceV (v :: Wasm.WasmVersion) = PersistentInstanceV {
     pinstanceHash :: H.Hash
 }
 
+migratePersistentInstanceV ::
+    forall v t m.
+    ( Wasm.IsWasmVersion v
+    , BlobStorable m (ModuleV v)
+    , BlobStorable (t m) (ModuleV v)
+    , MonadTrans t
+    ) =>
+    -- |The already migrated modules.
+    Modules.Modules ->
+    PersistentInstanceV v ->
+    t m (PersistentInstanceV v)
+migratePersistentInstanceV modules PersistentInstanceV{..} = do
+    newInstanceParameters <- migrateReference return pinstanceParameters
+    params <- loadBufferedRef newInstanceParameters
+    -- The modules were already migrated by the module migration, so we want to
+    -- insert references to the existing modules in the instances so that we
+    -- don't end up with duplicates both in-memory and on disk.
+    let modref = pinstanceContractModule params
+    case Wasm.getWasmVersion @v of
+        Wasm.SV0 -> do
+            newInstanceModuleInterface <- Modules.unsafeGetModuleReferenceV0 modref modules
+            newInstanceModel <- migrateInstanceStateV pinstanceModel
+            return $!
+                PersistentInstanceV
+                    { pinstanceParameters = newInstanceParameters
+                    , pinstanceModuleInterface = fromMaybe (error "V0 Module referred to from an instance does not exist.") newInstanceModuleInterface
+                    , pinstanceModel = newInstanceModel
+                    , ..
+                    }
+        Wasm.SV1 -> do
+            newInstanceModuleInterface <- Modules.unsafeGetModuleReferenceV1 modref modules
+            newInstanceModel <- migrateInstanceStateV pinstanceModel
+            return $!
+                PersistentInstanceV
+                    { pinstanceParameters = newInstanceParameters
+                    , pinstanceModuleInterface = fromMaybe (error "V1 Module referred to from an instance does not exist.") newInstanceModuleInterface
+                    , pinstanceModel = newInstanceModel
+                    , ..
+                    }
+
 -- |Either a V0 or V1 instance. V1 instance is only allowed in protocol versions
 -- P4 and up, however this is not explicit here since it needlessly complicates
 -- code. The Scheduler ensures that no V1 instances can be constructed prior to
@@ -119,6 +171,21 @@ data PersistentInstanceV (v :: Wasm.WasmVersion) = PersistentInstanceV {
 data PersistentInstance (pv :: ProtocolVersion) where
   PersistentInstanceV0 :: !(PersistentInstanceV GSWasm.V0) -> PersistentInstance pv
   PersistentInstanceV1 :: !(PersistentInstanceV GSWasm.V1) -> PersistentInstance pv
+
+-- |Migrate persistent instances from the old to the new protocol version.
+migratePersistentInstance ::
+    forall oldpv pv t m.
+    SupportMigration m t =>
+    -- |The __already migrated__ modules. The modules were already migrated by the
+    -- module migration, so we want to insert references to the existing modules
+    -- in the instances so that we don't end up with duplicates both in-memory
+    -- and on disk.
+    Modules.Modules ->
+    PersistentInstance oldpv ->
+    t m (PersistentInstance pv)
+migratePersistentInstance modules (PersistentInstanceV0 p) = PersistentInstanceV0 <$> migratePersistentInstanceV modules p
+migratePersistentInstance modules (PersistentInstanceV1 p) = PersistentInstanceV1 <$> migratePersistentInstanceV modules p
+
 
 instance Show (PersistentInstance pv) where
     show (PersistentInstanceV0 PersistentInstanceV {pinstanceModel = InstanceStateV0 model,..}) = show pinstanceParameters ++ " {balance=" ++ show pinstanceAmount ++ ", model=" ++ show model ++ "}"
@@ -489,12 +556,50 @@ newContractInstanceIT mk t0 = (\(res, v) -> (res,) <$> membed v) =<< nci 0 t0 =<
             (res, c) <- mk (ContractAddress ind subind)
             return (res, Leaf c)
 
+migrateIT ::
+    forall oldpv pv t m.
+    ( SupportMigration m t
+    , IsProtocolVersion oldpv
+    , IsProtocolVersion pv
+    ) =>
+    Modules.Modules ->
+    BufferedFix (IT oldpv) ->
+    t m (BufferedFix (IT pv))
+migrateIT modules (BufferedFix bf) = BufferedFix <$> migrateReference go bf
+  where
+    go :: IT oldpv (BufferedFix (IT oldpv)) -> t m (IT pv (BufferedFix (IT pv)))
+    go Branch{..} = do
+        newLeft <- migrateIT modules branchLeft
+        newRight <- migrateIT modules branchRight
+        return
+            Branch
+                { branchLeft = newLeft
+                , branchRight = newRight
+                , ..
+                }
+    go (Leaf pinst) = Leaf <$> migratePersistentInstance modules pinst
+    go (VacantLeaf i) = return (VacantLeaf i)
+
+
 
 data Instances pv
     -- |The empty instance table
     = InstancesEmpty
     -- |A non-empty instance table (recording the size)
     | InstancesTree !Word64 !(BufferedFix (IT pv))
+
+migrateInstances ::
+    ( SupportMigration m t
+    , IsProtocolVersion oldpv
+    , IsProtocolVersion pv
+    ) =>
+    Modules.Modules ->
+    Instances oldpv ->
+    t m (Instances pv)
+migrateInstances _ InstancesEmpty = return InstancesEmpty
+migrateInstances modules (InstancesTree size bf) = do
+    newBF <- migrateIT modules bf
+    return $! InstancesTree size newBF
 
 instance Show (Instances pv) where
     show InstancesEmpty = "Empty"

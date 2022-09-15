@@ -26,13 +26,16 @@ module Concordium.GlobalState.Persistent.BlockState.Modules
     newModuleCache,
     unsafeToModuleV,
     -- * Serialization
-    putModulesV0
+    putModulesV0,
+    migrateModules
   ) where
 
 import Concordium.Crypto.SHA256
 import qualified Concordium.GlobalState.Basic.BlockState.Modules as TransientModules
 import qualified Concordium.GlobalState.Wasm as GSWasm
 import Concordium.GlobalState.Persistent.BlobStore
+import Concordium.GlobalState.Persistent.Cache
+import Concordium.GlobalState.Persistent.CachedRef
 import Concordium.GlobalState.Persistent.LFMBTree (LFMBTree')
 import qualified Concordium.GlobalState.Persistent.LFMBTree as LFMB
 import Concordium.Types
@@ -49,9 +52,8 @@ import qualified Data.Map.Strict as Map
 import Data.Serialize
 import Data.Word
 import Control.Monad.IO.Class
+import Control.Monad.Trans
 import Lens.Micro.Platform
-import Concordium.GlobalState.Persistent.Cache
-import Concordium.GlobalState.Persistent.CachedRef
 
 -- |Index of the module in the module table. Reflects when the module was added
 -- to the table.
@@ -390,3 +392,19 @@ putModulesV0 mods = do
     let mt = mods ^. modulesTable
     liftPut $ putWord64be $ LFMB.size mt
     LFMB.mmap_ putModuleV0 mt
+
+migrateModules :: SupportMigration m t => Modules -> t m Modules
+migrateModules mods = do
+    newModulesTable <- LFMB.migrateLFMBTree migrateModule (_modulesTable mods)
+    return
+        Modules
+            { _modulesMap = _modulesMap mods
+            , _modulesTable = newModulesTable
+            }
+
+migrateModule :: SupportMigration m t => HashedBufferedRef Module -> t m (HashedBufferedRef Module)
+migrateModule mdl = do
+    newModule <- lift (refLoad mdl)
+    ref <- refMake newModule
+    (ret, _) <- refFlush ref
+    return ret

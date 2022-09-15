@@ -23,6 +23,7 @@ import Data.Word
 import Data.Functor.Foldable hiding (Nil)
 import Data.Bifunctor
 import Control.Monad
+import Control.Monad.Trans
 import Data.Serialize
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Short as SBS
@@ -43,7 +44,7 @@ import Concordium.GlobalState.Persistent.BlobStore
     ( BlobStorable(..),
       Cacheable(..),
       FixShowable(..),
-      Nullable(..) )
+      Nullable(..), BufferedFix(..), Reference(..))
 
 class FixedTrieKey a where
     -- |Unpack a key to a list of bytes.
@@ -459,6 +460,47 @@ data TrieN fix k v
     -- ^The empty trie
     | TrieN !Int !(fix (TrieF k v))
     -- ^A non empty trie with its size
+
+-- |Migrate a trie from one blob store to another.
+migrateTrieN ::
+  forall v1 v2 k m t .
+    (BlobStorable m v1, BlobStorable (t m) v2, MonadTrans t) =>
+    -- | Flag that indicates whether the new trie should be cached in memory or not.
+    Bool ->
+    (v1 -> t m v2) ->
+    TrieN BufferedFix k v1 ->
+    t m (TrieN BufferedFix k v2)
+migrateTrieN _ _ EmptyTrieN = return EmptyTrieN
+migrateTrieN cacheNew f (TrieN n root) = do
+    trieF <- lift (refLoad (unBF root))
+    !newRoot <- migrateTrieF cacheNew f trieF
+    !rootRef <- refMake newRoot
+    !rootRefFlushed <- if cacheNew then fst <$> refFlush rootRef else refUncache rootRef
+    !_ <- lift (refUncache (unBF root))
+    return $! TrieN n (BufferedFix rootRefFlushed)
+
+migrateTrieF ::
+    (BlobStorable m v1, BlobStorable (t m) v2, MonadTrans t) =>
+    -- | Flag that indicates whether the new trie should be cached in memory or not.
+    Bool ->
+    (v1 -> t m v2) ->
+    TrieF k v1 (BufferedFix (TrieF k v1)) ->
+    t m (TrieF k v2 (BufferedFix (TrieF k v2)))
+migrateTrieF _ f (Tip v) = Tip <$!> f v
+migrateTrieF cacheNew f (Stem stem r) = do
+    !child <- lift (refLoad (unBF r))
+    !newChild <- refMake =<< migrateTrieF cacheNew f child
+    !childRefFlushed <- if cacheNew then fst <$> refFlush newChild else refUncache newChild
+    !_ <- lift (refUncache (unBF r))
+    return $! Stem stem (BufferedFix childRefFlushed)
+migrateTrieF cacheNew f (Branch branches) = do
+    newBranches <- forM branches $ \be -> do
+      !child <- lift (refLoad (unBF be))
+      !newChild <- refMake =<< migrateTrieF cacheNew f child
+      !childRefFlushed <- if cacheNew then fst <$> refFlush newChild else refUncache newChild
+      !_ <- lift (refUncache (unBF be))
+      return $! BufferedFix childRefFlushed
+    return $! Branch newBranches
 
 instance (Show v, FixShowable fix) => Show (TrieN fix k v) where
     show EmptyTrieN = "EmptyTrieN"

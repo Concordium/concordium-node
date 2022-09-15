@@ -37,6 +37,7 @@ import qualified Concordium.GlobalState.Persistent.LFMBTree as L
 import Concordium.Types.HashableTo
 import Data.Foldable (foldl', foldlM)
 import Concordium.ID.Parameters
+import Concordium.GlobalState.Parameters
 
 -- |Type alias for the cache to use for accounts.
 type AccountCache (av :: AccountVersion) = FIFOCache (PersistentAccount av)
@@ -325,3 +326,27 @@ foldAccounts f a accts = L.mfold f a (accountTable accts)
 -- |Fold over the account table in ascending order of account index.
 foldAccountsDesc :: SupportsPersistentAccount pv m => (a -> PersistentAccount (AccountVersionFor pv) -> m a) -> a -> Accounts pv -> m a
 foldAccountsDesc f a accts = L.mfoldDesc f a (accountTable accts)
+
+-- |See documentation of @migratePersistentBlockState@.
+migrateAccounts :: forall oldpv pv t m .
+    (IsProtocolVersion oldpv,
+     IsProtocolVersion pv,
+     SupportMigration m t,
+     SupportsPersistentAccount oldpv m,
+     SupportsPersistentAccount pv (t m)
+    ) => 
+    StateMigrationParameters oldpv pv ->
+    Accounts oldpv -> 
+    t m (Accounts pv)
+migrateAccounts migration Accounts{..} = do
+    newAccountMap <- AccountMap.migratePersistentAccountMap accountMap
+    newAccountTable <- L.migrateLFMBTree (migrateHashedCachedRef' (migratePersistentAccount migration)) accountTable
+    -- The account registration IDs are not cached. There is a separate cache
+    -- that is purely in-memory and just copied over.
+    newAccountRegIds <- Trie.migrateTrieN False return accountRegIdHistory
+    return $! Accounts {
+      accountMap = newAccountMap,
+      accountTable = newAccountTable,
+      accountRegIds = accountRegIds,
+      accountRegIdHistory = newAccountRegIds
+      }
