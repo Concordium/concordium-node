@@ -32,7 +32,6 @@ import Foreign
 import Lens.Micro.Platform
 import qualified Proto.Concordium.Types as Proto
 import qualified Proto.Concordium.Types_Fields as ProtoFields
-import System.IO (hPutStrLn, stderr)
 
 import Concordium.Crypto.EncryptedTransfers
 import Concordium.ID.Types
@@ -43,7 +42,9 @@ import qualified Concordium.Types.Queries as QueryTypes
 import qualified Concordium.External as Ext -- TODO: This is not an ideal configuration.
 import Concordium.MultiVersion (
     MVR (..),
+    mvLog,
  )
+import qualified Concordium.Logger as Logger
 import qualified Concordium.Queries as Q
 
 import Concordium.Common.Time
@@ -1548,7 +1549,7 @@ getBlockItemStatusV2 cptr trxHashPtr outVec copierCbk = do
                       CEFailedUpdate -> "An update transaction failed."
                       CEInvalidUpdateResult -> "An update transaction occurred but was malformed and could not be converted."
                       CEInvalidTransactionResult -> "An account transaction occurred but was malformed and could not be converted."
-                hPutStrLn stderr $ "Internal conversion error occured for transaction '" ++ show trxHash ++ "': " ++ msg
+                mvLog mvr Logger.External Logger.LLError $ "Internal conversion error occured for transaction '" ++ show trxHash ++ "': " ++ msg
                 return $ queryResultCode QRInternalError
               Right t -> do
                 let encoded = Proto.encodeMessage t
