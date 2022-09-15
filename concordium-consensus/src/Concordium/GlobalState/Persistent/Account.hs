@@ -29,9 +29,12 @@ import Concordium.Constants
 import qualified Concordium.Types as TY
 import Concordium.ID.Types
 import Concordium.ID.Parameters
+import qualified Concordium.Genesis.Data.P4 as P4
+import qualified Concordium.Types.Migration as Migration
 
 import Concordium.Types.Accounts hiding (_stakedAmount, _stakeEarnings, _accountBakerInfo)
 import qualified Concordium.Types.Accounts as Transient
+import Concordium.GlobalState.Parameters
 import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
 import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as Transient
 import Concordium.GlobalState.Persistent.BlobStore
@@ -203,6 +206,42 @@ instance forall av. IsAccountVersion av => Show (PersistentExtraBakerInfo av) wh
 
 instance forall av m. (Applicative m) => Cacheable m (PersistentExtraBakerInfo av)
 
+-- |See documentation of @migratePersistentBlockState@.
+migratePersistentExtraBakerInfo' ::
+    forall oldpv pv t m.
+    ( IsProtocolVersion pv
+    , SupportMigration m t
+    ) =>
+    StateMigrationParameters oldpv pv ->
+    PersistentExtraBakerInfo' (AccountVersionFor oldpv) ->
+    t m (PersistentExtraBakerInfo' (AccountVersionFor pv))
+migratePersistentExtraBakerInfo' migration bi = do
+    case migration of
+        StateMigrationParametersTrivial ->
+            case accountVersion @(AccountVersionFor oldpv) of
+                SAccountV0 -> return ()
+                SAccountV1 -> migrateEagerBufferedRef return bi
+        StateMigrationParametersP1P2 -> return ()
+        StateMigrationParametersP2P3 -> return ()
+        StateMigrationParametersP3ToP4 migrationData -> do
+            let bpi = P4.defaultBakerPoolInfo migrationData
+            (!newRef, _) <- refFlush =<< refMake bpi
+            return newRef
+
+-- |See documentation of @migratePersistentBlockState@.
+migratePersistentExtraBakerInfo ::
+    forall oldpv pv t m.
+    ( IsProtocolVersion pv
+    , SupportMigration m t
+    ) =>
+    StateMigrationParameters oldpv pv ->
+    PersistentExtraBakerInfo (AccountVersionFor oldpv) ->
+    t m (PersistentExtraBakerInfo (AccountVersionFor pv))
+migratePersistentExtraBakerInfo migration =
+    fmap PersistentExtraBakerInfo
+        . migratePersistentExtraBakerInfo' migration
+        . _theExtraBakerInfo
+
 -- |A persistent version of 'BakerInfoEx'.
 -- (This structure is always fully cached in memory. See $PersistentAccountCacheable for details.)
 data PersistentBakerInfoEx av = PersistentBakerInfoEx {
@@ -210,6 +249,28 @@ data PersistentBakerInfoEx av = PersistentBakerInfoEx {
     bakerInfoExtra :: !(PersistentExtraBakerInfo av)
 } deriving (Show)
 
+-- |Load the baker id from the 'PersistentBakerInfoEx' structure.
+loadBakerId :: MonadBlobStore m => PersistentBakerInfoEx av -> m BakerId
+loadBakerId PersistentBakerInfoEx {..} = do
+  bi <- refLoad bakerInfoRef
+  return (_bakerIdentity bi)
+
+-- |See documentation of @migratePersistentBlockState@.
+migratePersistentBakerInfoEx ::
+    forall oldpv pv t m.
+    ( IsProtocolVersion pv
+    , SupportMigration m t
+    ) => StateMigrationParameters oldpv pv ->
+    PersistentBakerInfoEx (AccountVersionFor oldpv) ->
+    t m (PersistentBakerInfoEx (AccountVersionFor pv))
+migratePersistentBakerInfoEx migration PersistentBakerInfoEx {..} = do
+  newBakerInfoRef <- migrateEagerBufferedRef return bakerInfoRef
+  newBakerInfoExtra <- migratePersistentExtraBakerInfo migration bakerInfoExtra
+  return PersistentBakerInfoEx {
+    bakerInfoRef = newBakerInfoRef,
+    bakerInfoExtra = newBakerInfoExtra
+    }
+  
 -- |Load a 'BakerInfoEx' from a 'PersistentBakerInfoEx'.
 loadPersistentBakerInfoEx :: forall av m. (IsAccountVersion av, MonadBlobStore m)
   => PersistentBakerInfoEx av -> m (BakerInfoEx av)
@@ -269,6 +330,24 @@ data PersistentAccountBaker (av :: AccountVersion) = PersistentAccountBaker
   }
 
 deriving instance (Show (PersistentExtraBakerInfo av)) => Show (PersistentAccountBaker av)
+
+-- |See documentation of @migratePersistentBlockState@.
+migratePersistentAccountBaker :: forall oldpv pv t m .
+    (IsProtocolVersion pv,
+     SupportMigration m t) =>
+    StateMigrationParameters oldpv pv ->
+    PersistentAccountBaker (AccountVersionFor oldpv) -> t m (PersistentAccountBaker (AccountVersionFor pv))
+migratePersistentAccountBaker migration PersistentAccountBaker{..} = do
+  newAccountBakerInfo <- migrateEagerBufferedRef return _accountBakerInfo
+  newExtraBakerInfo <- migratePersistentExtraBakerInfo migration _extraBakerInfo
+  return PersistentAccountBaker{
+    _stakedAmount = _stakedAmount,
+    _stakeEarnings = _stakeEarnings,
+    _accountBakerInfo = newAccountBakerInfo,
+    _extraBakerInfo = newExtraBakerInfo,
+    _bakerPendingChange = Migration.migrateStakePendingChange migration _bakerPendingChange
+    }
+    
 
 makeLenses ''PersistentAccountBaker
 
@@ -371,6 +450,21 @@ data PersistentAccountStake (av :: AccountVersion) where
 
 deriving instance (Show (PersistentExtraBakerInfo av)) => Show (PersistentAccountStake av)
 
+-- |See documentation of @migratePersistentBlockState@.
+migratePersistentAccountStake :: forall oldpv pv t m .
+    (IsProtocolVersion oldpv,
+     IsProtocolVersion pv,
+     SupportMigration m t) =>
+    StateMigrationParameters oldpv pv ->
+    PersistentAccountStake (AccountVersionFor oldpv) ->
+    t m (PersistentAccountStake (AccountVersionFor pv))
+migratePersistentAccountStake _ PersistentAccountStakeNone = return PersistentAccountStakeNone
+migratePersistentAccountStake migration (PersistentAccountStakeBaker r) = PersistentAccountStakeBaker <$!> migrateEagerBufferedRef (migratePersistentAccountBaker migration) r
+migratePersistentAccountStake migration (PersistentAccountStakeDelegate r) = 
+  case migration of
+    StateMigrationParametersTrivial -> PersistentAccountStakeDelegate <$!> migrateEagerBufferedRef return r
+    -- the other cases are impossible at the moment since protocols <= 3 do not have delegation.
+
 instance forall m av. (MonadBlobStore m, IsAccountVersion av) => BlobStorable m (PersistentAccountStake av) where
     storeUpdate = case accountVersion @av of
         SAccountV0 -> su0
@@ -447,6 +541,43 @@ data PersistentAccount (av :: AccountVersion) = PersistentAccount {
   }
 
 makeLenses ''PersistentAccount
+
+-- |See documentation of @migratePersistentBlockState@.
+migratePersistentAccount :: forall oldpv pv t m .
+    (IsProtocolVersion oldpv,
+     IsProtocolVersion pv,
+     SupportMigration m t
+    ) =>
+    StateMigrationParameters oldpv pv ->
+    PersistentAccount (AccountVersionFor oldpv) ->
+    t m (PersistentAccount (AccountVersionFor pv))
+migratePersistentAccount migration PersistentAccount {..} = do
+  !newAccountEncryptedAmount <- migrateEagerBufferedRef migratePersistentEncryptedAmount _accountEncryptedAmount
+  !newAccountReleaseSchedule <- migrateEagerBufferedRef migratePersistentAccountReleaseSchedule _accountReleaseSchedule
+  !newPersistingData <- migrateEagerlyHashedBufferedRefKeepHash return _persistingData
+  !newAccountStake <- migratePersistentAccountStake migration _accountStake
+  return PersistentAccount {
+    _accountNonce = _accountNonce,
+    _accountAmount = _accountAmount,
+    _accountEncryptedAmount = newAccountEncryptedAmount,
+    _accountReleaseSchedule = newAccountReleaseSchedule,
+    _persistingData = newPersistingData,
+    _accountStake = newAccountStake
+   }
+
+-- |See documentation of @migratePersistentBlockState@.
+migratePersistentEncryptedAmount :: SupportMigration m t =>
+    PersistentAccountEncryptedAmount -> t m PersistentAccountEncryptedAmount
+migratePersistentEncryptedAmount PersistentAccountEncryptedAmount{..} = do
+  newSelfAmount <- migrateEagerBufferedRef return _selfAmount
+  newIncomingEncryptedAmounts <- mapM (migrateEagerBufferedRef return) _incomingEncryptedAmounts
+  newAggregatedAmount <- mapM (\(ea, numAgg) -> (, numAgg) <$> migrateEagerBufferedRef return ea) _aggregatedAmount
+  return PersistentAccountEncryptedAmount{
+    _selfAmount = newSelfAmount,
+    _startIndex = _startIndex,
+    _incomingEncryptedAmounts = newIncomingEncryptedAmounts,
+    _aggregatedAmount = newAggregatedAmount
+    }
 
 accountBaker :: SimpleGetter (PersistentAccount av) (Nullable (EagerBufferedRef (PersistentAccountBaker av)))
 accountBaker = to g

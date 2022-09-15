@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
@@ -23,7 +24,7 @@ import Control.Concurrent
 import Control.Exception
 import Control.Monad.Catch (MonadCatch, MonadMask, MonadThrow (throwM))
 import Control.Monad.Reader
-import Control.Monad.State
+import qualified Control.Monad.State.Strict as State
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as LBS
 import Data.IORef
@@ -46,11 +47,11 @@ import Concordium.Afgjort.Finalize.Types
 import Concordium.Birk.Bake
 import Concordium.GlobalState
 import Concordium.GlobalState.Block
-import Concordium.GlobalState.BlockPointer
+import Concordium.GlobalState.BlockPointer (BlockPointerData(..))
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Paired
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.TreeState (TreeStateMonad (getLastFinalizedHeight))
+import Concordium.GlobalState.TreeState (TreeStateMonad (getLastFinalizedHeight), PVInit(..))
 import Concordium.ImportExport
 import Concordium.ProtocolUpdate
 import Concordium.Skov as Skov
@@ -84,10 +85,10 @@ instance HandlerConfig UpdateHandler where
     initialiseHandler UpdateHandler = ((), NeverNotified)
 
 instance
-    ( MultiVersionStateConfig gc,
+    ( IsProtocolVersion pv,
+      MultiVersionStateConfig gc,
       MultiVersion gc fc,
-      SkovConfiguration gc fc UpdateHandler,
-      IsProtocolVersion pv
+      SkovConfiguration gc fc UpdateHandler
     ) =>
     HandlerConfigHandlers UpdateHandler (VersionedSkovM gc fc pv)
     where
@@ -418,7 +419,7 @@ newGenesis ::
     MVR gsconf finconf ()
 newGenesis (PVGenesisData (gd :: GenesisData pv)) vcGenesisHeight =
     MVR $
-        \mvr@MultiVersionRunner
+        \MultiVersionRunner
             { mvCallbacks = Callbacks{..},
               mvConfiguration = MultiVersionConfiguration{..},
               ..
@@ -450,11 +451,8 @@ newGenesis (PVGenesisData (gd :: GenesisData pv)) vcGenesisHeight =
                 let newEConfig :: VersionedConfiguration gsconf finconf pv
                     newEConfig = VersionedConfiguration{..}
                 writeIORef mvVersions (oldVersions `Vec.snoc` newVersion newEConfig)
-                mvLog Runner LLTrace "Getting genesis configuration"
-                (genConf, _) <- runMVR (runSkovT (liftSkov getGenesisData) (mvrSkovHandlers newEConfig mvr) vcContext st) mvr
-                mvLog Runner LLTrace "Got genesis configuration"
                 -- Notify the network layer we have a new genesis.
-                notifyRegenesis (Just (_gcCurrentHash genConf))
+                notifyRegenesis (Just (genesisBlockHash gd))
 
 -- |Determine if a protocol update has occurred, and handle it.
 -- When a protocol update first becomes pending, this logs the update that will occur (if it is
@@ -465,64 +463,119 @@ newGenesis (PVGenesisData (gd :: GenesisData pv)) vcGenesisHeight =
 -- effectively stop accepting blocks.
 -- It is assumed that the thread holds the write lock.
 checkForProtocolUpdate ::
-    forall gc fc pv.
-    ( MultiVersionStateConfig gc,
-      MultiVersion gc fc,
-      SkovConfiguration gc fc UpdateHandler,
-      IsProtocolVersion pv
+    forall lastpv gc fc.
+    ( IsProtocolVersion lastpv
+    , MultiVersionStateConfig gc
+    , MultiVersion gc fc
+    , SkovConfiguration gc fc UpdateHandler
     ) =>
-    VersionedSkovM gc fc pv ()
+    VersionedSkovM gc fc lastpv ()
 checkForProtocolUpdate = liftSkov body
   where
     body ::
-        ( SkovMonad (VersionedSkovM gc fc pv),
-          TreeStateMonad (VersionedSkovM gc fc pv)
+        ( SkovMonad (VersionedSkovM gc fc lastpv)
+        , TreeStateMonad (VersionedSkovM gc fc lastpv)
         ) =>
-        VersionedSkovM gc fc pv ()
+        VersionedSkovM gc fc lastpv ()
     body =
+        check >>= \case
+            Nothing -> return ()
+            Just (PVInit{pvInitGenesis = nextGenesis :: Regenesis newpv, ..}) -> do
+                MultiVersionRunner{..} <- lift ask
+                existingVersions <- liftIO (readIORef mvVersions)
+                latestEraGenesisHeight <- liftIO $ do
+                    cfgs <- readIORef mvVersions
+                    case Vec.last cfgs of
+                        EVersionedConfiguration vc -> return (vcGenesisHeight vc)
+                let vcIndex = fromIntegral (length existingVersions)
+                -- construct the the new skov instance
+                let vcGenesisHeight = 1 + localToAbsoluteBlockHeight latestEraGenesisHeight pvInitFinalHeight
+                let newGSConfig =
+                        ( SkovConfig @newpv @gc @fc
+                            ( globalStateConfig
+                                (mvcStateConfig mvConfiguration)
+                                (mvcRuntimeParameters mvConfiguration)
+                                vcIndex
+                                vcGenesisHeight
+                            )
+                            (mvcFinalizationConfig mvConfiguration)
+                            UpdateHandler
+                        )
+                -- clear data we no longer need after the protocol update
+                clearSkovOnProtocolUpdate
+                -- migrate the final block state into the new skov instance, and establish
+                -- all the necessary transaction table, and other, invariants.
+                (vcContext, st) <- SkovT $ \_ ctx -> do
+                    currentState <- State.get
+                    liftIO $
+                        runLoggerT
+                            (migrateExistingSkov ctx currentState pvInitMigration nextGenesis newGSConfig)
+                            mvLog
+                -- Close down and resources that the old instance retains. We do this after
+                -- since, e.g., caches and the transaction table are needed during migration.
+                terminateSkov
+                -- wrap up, notify the network layer, and add the new instance to
+                -- the end of the mvVersions list
+                liftIO $ do
+                    vcState <- liftIO $ newIORef st
+                    let vcShutdown = shutdownSkov vcContext =<< liftIO (readIORef vcState)
+                    let newEConfig :: VersionedConfiguration gc fc newpv
+                        newEConfig = VersionedConfiguration{..}
+                    writeIORef mvVersions (existingVersions `Vec.snoc` newVersion newEConfig)
+                    -- Notify the network layer we have a new genesis.
+                    let Callbacks{..} = mvCallbacks
+                    liftIO $ notifyRegenesis (Just (regenesisBlockHash nextGenesis))
+                    return ()
+
+    showPU ProtocolUpdate{..} =
+        Text.unpack puMessage
+            ++ "\n["
+            ++ Text.unpack puSpecificationURL
+            ++ " (hash "
+            ++ show puSpecificationHash
+            ++ ")]"
+
+    -- Check whether a protocol update has taken effect. If it did return
+    -- information needed to initialize a new skov instance.
+    check ::
+        ( SkovMonad (VersionedSkovM gc fc lastpv)
+        , TreeStateMonad (VersionedSkovM gc fc lastpv)
+        ) =>
+        VersionedSkovM gc fc lastpv (Maybe (PVInit (VersionedSkovM gc fc lastpv)))
+    check =
         Skov.getProtocolUpdateStatus >>= \case
-            ProtocolUpdated pu -> case checkUpdate @pv pu of
+            ProtocolUpdated pu -> case checkUpdate @lastpv pu of
                 Left err -> do
                     logEvent Kontrol LLError $
-                        "An unsupported protocol update (" ++ err ++ ") has taken effect:"
+                        "An unsupported protocol update ("
+                            ++ err
+                            ++ ") has taken effect:"
                             ++ showPU pu
                     lift $ do
-                      callbacks <- asks mvCallbacks
-                      liftIO (notifyRegenesis callbacks Nothing)
+                        callbacks <- asks mvCallbacks
+                        liftIO (notifyRegenesis callbacks Nothing)
+                        return Nothing
                 Right upd -> do
-                    regenesis <- updateRegenesis upd
-                    lfbHeight <- bpHeight <$> lastFinalizedBlock
-                    latestEraGenesisHeight <- lift $
-                        MVR $ \mvr -> do
-                            versions <- readIORef $ mvVersions mvr
-                            return $ case Vec.last versions of
-                                EVersionedConfiguration vc -> vcGenesisHeight vc
-                    let newGenesisHeight = 1 + localToAbsoluteBlockHeight latestEraGenesisHeight lfbHeight
-                    lift $ newGenesis regenesis $! newGenesisHeight
-                    -- Close down the state and get the non-finalized transactions.
-                    oldTransactions <- terminateSkov
-                    -- Transfer the non-finalized transactions to the new version.
-                    lift $ do
-                        lastV <- liftIO . fmap Vec.last . readIORef =<< asks mvVersions
-                        case lastV of
-                            (EVersionedConfiguration vc) ->
-                                liftSkovUpdate vc $ mapM_ Skov.receiveTransaction oldTransactions
-                    return ()
-            PendingProtocolUpdates [] -> return ()
+                    logEvent Kontrol LLInfo $ "Starting protocol update."
+                    initData <- updateRegenesis upd
+                    return (Just initData)
+            PendingProtocolUpdates [] -> return Nothing
             PendingProtocolUpdates ((ts, pu) : _) -> do
                 -- There is a queued protocol update, but only log about it
                 -- if we have not done so already.
                 alreadyNotified <-
-                    state
+                    State.state
                         ( \s ->
                             if ssHandlerState s == AlreadyNotified ts pu
                                 then (True, s)
                                 else (False, s{ssHandlerState = AlreadyNotified ts pu})
                         )
-                unless alreadyNotified $ case checkUpdate @pv pu of
+                unless alreadyNotified $ case checkUpdate @lastpv pu of
                     Left err ->
                         logEvent Kontrol LLError $
-                            "An unsupported protocol update (" ++ err ++ ") will take effect at "
+                            "An unsupported protocol update ("
+                                ++ err
+                                ++ ") will take effect at "
                                 ++ show (timestampToUTCTime $ transactionTimeToTimestamp ts)
                                 ++ ": "
                                 ++ showPU pu
@@ -534,12 +587,7 @@ checkForProtocolUpdate = liftSkov body
                                 ++ showPU pu
                                 ++ "\n"
                                 ++ show upd
-    showPU ProtocolUpdate{..} =
-        Text.unpack puMessage ++ "\n["
-            ++ Text.unpack puSpecificationURL
-            ++ " (hash "
-            ++ show puSpecificationHash
-            ++ ")]"
+                return Nothing
 
 -- |Make a 'MultiVersionRunner' for a given configuration.
 makeMultiVersionRunner ::
@@ -814,8 +862,8 @@ liftSkovUpdate ::
 liftSkovUpdate vc a = MVR $ \mvr -> do
     oldState <- readIORef (vcState vc)
     (res, newState) <- runMVR (runSkovT a (mvrSkovHandlers vc mvr) (vcContext vc) oldState) mvr
-    writeIORef (vcState vc) newState
-    return res
+    writeIORef (vcState vc) $! newState
+    return $! res
 
 -- |Run a transaction that may affect the state.
 -- This acquires the write lock for the duration of the operation.

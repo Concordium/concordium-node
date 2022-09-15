@@ -65,11 +65,13 @@ import qualified Concordium.Genesis.Data as GenesisData
 import qualified Concordium.Genesis.Data.P4 as P4
 import Concordium.Types.SeedState
 
+import Concordium.GlobalState.Types
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.BlockState
 import Concordium.Kontrol
+import Concordium.Types.ProtocolVersion
 
 -- |The hash that identifies a update from P3 to P4 protocol.
 -- This is the hash of the published specification document.
@@ -81,9 +83,9 @@ updateHash = read "20c6f246713e573fb5bfdf1e59c0a6f1a37cded34ff68fda4a60aa2ed9b15
 -- i.e. it is the first (and only) explicitly-finalized block with timestamp after the
 -- update takes effect.
 updateRegenesis ::
-    (BlockPointerMonad m, BlockStateStorage m, SkovQueryMonad m) =>
+    (MPV m ~ 'P3, BlockStateStorage m, SkovMonad m) =>
     P4.ProtocolUpdateData ->
-    m PVGenesisData
+    m (PVInit m)
 updateRegenesis updateData = do
     lfb <- lastFinalizedBlock
     -- Genesis time is the timestamp of the terminal block
@@ -109,14 +111,15 @@ updateRegenesis updateData = do
     -- Clear the protocol update.
     s3 <- bsoClearProtocolUpdate s1
     regenesisState <- freezeBlockState s3
+    rememberFinalState regenesisState
     genesisStateHash <- getStateHash regenesisState
-    genesisNewState <- serializeBlockState regenesisState
-    return . PVGenesisData . GDP4 $
-        P4.GDP4MigrateFromP3
-            { genesisRegenesis = GenesisData.RegenesisData{genesisCore = core, ..},
-              genesisMigration =
-                P4.makeStateMigrationParametersP3toP4
+    let genesisMigration = P4.makeStateMigrationParametersP3toP4
                     updateData
                     (gdGenesisTime gd)
                     (fromIntegral (gdEpochLength gd) * gdSlotDuration gd)
+    let newGenesis = RGDP4 $
+            P4.GDP4MigrateFromP3
+            { genesisRegenesis = GenesisData.RegenesisData{genesisCore = core, ..},
+              ..
             }
+    return (PVInit newGenesis (StateMigrationParametersP3ToP4 genesisMigration) (bpHeight lfb))

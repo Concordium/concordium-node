@@ -43,6 +43,7 @@ module Concordium.GlobalState.Persistent.LFMBTree
     -- * Traversal
     mfold,
     mfoldDesc,
+    migrateLFMBTree,
     mmap_,
 
     -- * Specialized functions for @Nullable@
@@ -59,6 +60,7 @@ import qualified Concordium.Crypto.SHA256 as H
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.Types.HashableTo
 import Control.Monad
+import Control.Monad.Trans
 import Concordium.GlobalState.Basic.BlockState.LFMBTree (setBits)
 import Data.Bits
 import Data.Kind
@@ -418,7 +420,7 @@ fromAscList = foldM (\acc e -> snd <$> append e acc) empty
 
 -- | Create a tree from a list of items. The items will be inserted sequentially
 -- starting on the index 0.
-fromAscListV :: (CanStoreLFMBTree m ref v, Num k, Coercible k Word64) => [v] -> m (LFMBTree' k ref v)
+fromAscListV :: forall k m ref v . (CanStoreLFMBTree m ref v, Num k, Coercible k Word64) => [v] -> m (LFMBTree' k ref v)
 fromAscListV = foldM (\acc e -> snd <$> appendV e acc) empty
 
 -- | Create a tree that holds the values wrapped in @Some@ when present and keeps @Null@s on the missing positions
@@ -461,7 +463,21 @@ mmap_ f (NonEmpty _ t) = mmap_T t
       mmap_T =<< refLoad l
       mmap_T =<< refLoad r
 
-
+-- | Migrate a LFMBTree from one context to the other. The new tree is cached in
+-- memory and written to disk.
+migrateLFMBTree :: forall m t ref1 ref2 v1 v2 k. (CanStoreLFMBTree m ref1 v1, Reference (t m) ref2 (T ref2 v2), MonadTrans t)
+     => (v1 -> t m v2)
+     -> LFMBTree' k ref1 v1
+     -> t m (LFMBTree' k ref2 v2)
+migrateLFMBTree _ Empty = return Empty
+migrateLFMBTree f (NonEmpty numElem t) = NonEmpty numElem <$!> mmap_T t
+  where
+    mmap_T :: T ref1 v1 -> t m (T ref2 v2)
+    mmap_T (Leaf v) = Leaf <$!> f v
+    mmap_T (Node s l r) = do
+        !leftRef <- migrateReference mmap_T l
+        !rightRef <- migrateReference mmap_T r
+        return $! Node s leftRef rightRef
 
 {-
 -------------------------------------------------------------------------------

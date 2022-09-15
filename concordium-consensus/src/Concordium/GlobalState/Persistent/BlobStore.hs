@@ -215,6 +215,25 @@ runBlobStoreTemp dir a = bracket openf closef usef
             freeCallbacks bscLoadCallback bscStoreCallback
             return res
 
+-- | Truncate the blob store after the blob stored at the given offset. The blob should not be
+-- corrupted (i.e., its size header should be readable, and its size should match the size header).
+truncateBlobStore :: BlobStoreAccess -> BlobRef a -> IO ()
+truncateBlobStore BlobStoreAccess{..} (BlobRef offset) = do
+  bh@BlobHandle{..} <- takeMVar blobStoreFile
+  eres <- try $ do
+    hSeek bhHandle AbsoluteSeek (fromIntegral offset)
+    esize <- decode <$> BS.hGet bhHandle 8
+    case esize :: Either String Word64 of
+      Right size -> do
+        let newSize = offset + 8 + size
+        hSetFileSize bhHandle $ fromIntegral newSize
+        putMVar blobStoreFile bh{bhSize = fromIntegral newSize, bhAtEnd=False}
+        mmapFileByteString blobStoreFilePath Nothing >>= writeIORef blobStoreMMap
+      _ -> throwIO $ userError "Cannot truncate the blob store: cannot obtain the last blob size"
+  case eres :: Either SomeException () of
+    Left e -> throwIO e
+    Right () -> return ()
+
 -- | Read a bytestring from the blob store at the given offset using the file handle.
 readBlobBSFromHandle :: BlobStoreAccess -> BlobRef a -> IO BS.ByteString
 readBlobBSFromHandle BlobStoreAccess{..} (BlobRef offset) = mask $ \restore -> do
@@ -328,6 +347,12 @@ instance HasBlobStore BlobStore where
   blobStore = bscBlobStore
   blobLoadCallback = bscLoadCallback
   blobStoreCallback = bscStoreCallback
+
+-- |An auxiliary constraint needed by all functions that migrate state from one
+-- blob store to another. The intended reading of this is that @m@ and @t@
+-- support migration from the context @m@ to the context @t m@. The context in
+-- this case is essentially access to a block state database.
+type SupportMigration m t = (MonadBlobStore m, MonadTrans t, MonadBlobStore (t m))
 
 -- |A monad transformer that is equivalent to 'ReaderT' but provides a 'MonadBlobStore' instance
 -- based on the context (rather than lifting).
@@ -520,6 +545,31 @@ class Monad m => Reference m ref a where
   -- |Given a reference, flush the data and return an uncached reference.
   refUncache :: ref a -> m (ref a)
 
+-- |Migrate a reference from one context to another, using the provided callback
+-- to migrate the value. This is a general construction that applies to all
+-- references, but it might not be the most efficient option. In particular, for
+-- hashed references if the hash is unchanged by migration a more efficient
+-- implementation is possible that either retains the original hash if this is
+-- applicable, or one that computes the hash at the most opportune time, when
+-- the value is known to be in memory.
+--
+-- The old (input) reference is uncached, and the new reference is flushed.
+-- Typically this will mean that the value is retained in memory with a pointer
+-- to a disk value. But this may be different for some references such as
+-- 'CachedRef'.
+migrateReference ::
+    forall t m ref1 ref2 a b.
+    (MonadTrans t, Reference m ref1 a, Reference (t m) ref2 b) =>
+    (a -> t m b) ->
+    ref1 a ->
+    t m (ref2 b)
+migrateReference f hb = do
+    a <- f =<< lift (refLoad hb)
+    newRef <- refMake a
+    (!newFlushedRef, _) <- refFlush newRef
+    !_ <- lift (refUncache hb)
+    return $! newFlushedRef
+
 -- |A value that may exists purely on disk ('BRBlobbed'), purely in memory
 -- ('BRMemory' with @brIORef = null@), or both in memory and on disk. When the
 -- value is both on disk and in memory the two values must match.
@@ -697,6 +747,15 @@ data EagerBufferedRef a = EagerBufferedRef
     { ebrIORef :: !(IORef (BlobRef a)),
       ebrValue :: !a
     }
+
+-- |Migrate the reference from one context to another, using the provided
+-- callback to migrate the value.
+migrateEagerBufferedRef ::
+    (BlobStorable m a, BlobStorable (t m) b, MonadTrans t) =>
+    (a -> t m b) ->
+    EagerBufferedRef a ->
+    t m (EagerBufferedRef b)
+migrateEagerBufferedRef = migrateReference 
 
 instance Show a => Show (EagerBufferedRef a) where
     show = show . ebrValue
@@ -898,6 +957,42 @@ data HashedBufferedRef' h a
         bufferedHash :: !(IORef (Nullable h))
       }
 
+-- |Migrate a 'HashedBufferedRef' assuming that neither the value nor its hash
+-- change. The input reference is uncached, and the new references is flushed to
+-- disk, as well as cached in memory.
+migrateHashedBufferedRefKeepHash ::
+    (MonadTrans t, BlobStorable m a, BlobStorable (t m) a) =>
+    HashedBufferedRef' h a ->
+    t m (HashedBufferedRef' h a)
+migrateHashedBufferedRefKeepHash hb = do
+    !newRef <- refMake =<< lift (refLoad (bufferedReference hb))
+    -- carry over the hash
+    (!b, _) <- refFlush newRef
+    !_ <- lift (refUncache (bufferedReference hb))
+    return $!
+        HashedBufferedRef
+            { bufferedReference = b
+            , bufferedHash = bufferedHash hb
+            }
+
+-- |Migrate a 'HashedBufferedRef'. The returned reference has a hash computed
+-- already. The input reference is uncached, and the new references is flushed
+-- to disk, as well as cached in memory.
+migrateHashedBufferedRef ::
+  (MonadTrans t, MHashableTo (t m) h b, BlobStorable m a, BlobStorable (t m) b) =>
+  (a -> t m b) ->
+  HashedBufferedRef' h a ->
+  t m (HashedBufferedRef' h b)
+migrateHashedBufferedRef f hb = do
+    !newRef <- refMake =<< f =<< lift (refLoad (bufferedReference hb))
+    -- compute the hash while the data is in memory.
+    !h <- getHashM (bufferedReference newRef)
+    liftIO . writeIORef (bufferedHash newRef) $! Some h
+    (!b, _) <- refFlush newRef
+    !_ <- lift (refUncache (bufferedReference hb))
+    liftIO $! writeIORef (bufferedHash hb) Null
+    return b
+
 -- |A specialisation of 'HashedBufferedRef'' to the hash type 'H.Hash'.
 type HashedBufferedRef = HashedBufferedRef' H.Hash
 
@@ -1013,6 +1108,19 @@ data EagerlyHashedBufferedRef' h a = EagerlyHashedBufferedRef
     }
 
 type EagerlyHashedBufferedRef = EagerlyHashedBufferedRef' H.Hash
+
+
+-- |Migrate an 'EagerlyHashedBufferedRef' **assuming the migration does not
+-- change the hash**. The hash is carried over and not recomputed.
+migrateEagerlyHashedBufferedRefKeepHash ::
+    (BlobStorable m a, BlobStorable (t m) a, MonadTrans t) =>
+    (a -> t m a) ->
+    EagerlyHashedBufferedRef' h a ->
+    t m (EagerlyHashedBufferedRef' h a)
+migrateEagerlyHashedBufferedRefKeepHash f r = do
+    ehbrReference <- migrateEagerBufferedRef f (ehbrReference r)
+    return $! r { ehbrReference = ehbrReference }
+
 
 instance HashableTo h (EagerlyHashedBufferedRef' h a) where
     getHash = ehbrHash
