@@ -285,7 +285,9 @@ type family UpdatableContractState (v :: Wasm.WasmVersion) = ty | ty -> v where
 
 -- |An external representation of the persistent (i.e., frozen) contract state.
 -- This is used to pass this state through FFI for queries and should not be
--- used for other purposes.
+-- used during contract execution in the scheduler since it's considered an
+-- implementation detail and needs to be used together with the correct loader
+-- callback. Higher-level abstractions should be used in the scheduler.
 type family ExternalContractState (v :: Wasm.WasmVersion) = ty | ty -> v where
   ExternalContractState GSWasm.V0 = Wasm.ContractState
   ExternalContractState GSWasm.V1 = StateV1.PersistentState

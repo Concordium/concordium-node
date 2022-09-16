@@ -707,8 +707,8 @@ extern "C" {
         out_hash: *mut u8,
         out_v0: *mut Vec<u8>,
         copier_v0: CopyToVecCallback,
-        out_v0: *mut V1ContractStateReceiver,
-        copier_v0: CopyV1ContractStateCallback,
+        out_v1: *mut V1ContractStateReceiver,
+        copier_v1: CopyV1ContractStateCallback,
     ) -> i64;
 
     /// Stream a list of ancestors for the given block

@@ -1579,7 +1579,7 @@ getInstanceInfoV2 cptr blockType blockHashPtr addrIndex addrSubindex outHash out
 data PersistentStateReceiver
 
 -- |A type of callback that copies the V1 contract persistent state into the
--- provided recevier.
+-- provided receveir.
 type PersistentStateCopier = Ptr PersistentStateReceiver -> Ptr StateV1.PersistentState -> StateV1.LoadCallback -> IO ()
 
 -- |Boilerplate wrapper to invoke C callbacks.

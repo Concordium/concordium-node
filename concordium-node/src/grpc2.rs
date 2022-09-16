@@ -641,7 +641,7 @@ pub mod server {
                         let _ = sender.send(Ok(msg)).await;
                         // The error only happens if the receiver has been
                         // dropped already (e.g., connection closed),
-                        // so we do not have to handle it. We just stop
+                        // so we do not have to handle it. We just stop sending.
                     });
                     let mut response =
                         tonic::Response::new(tokio_stream::wrappers::ReceiverStream::new(receiver));
@@ -652,6 +652,11 @@ pub mod server {
                     state,
                     mut loader,
                 } => {
+                    // Create a buffer of size 10 to send messages. It is not clear what the optimal
+                    // size would be, or even what optimal means. I choose 10 here to have some
+                    // buffering to account for variance in networking and
+                    // scheduling of the sender task. 10 is also small enough so that not too many
+                    // values linger in memory while waiting to be sent.
                     let (sender, receiver) = tokio::sync::mpsc::channel(10);
                     let _sender = tokio::spawn(async move {
                         let iter = state.into_iterator(&mut loader);
