@@ -9,8 +9,8 @@
   By default, the cache will retain metadata for at most 100 smart contract modules, and this is
   configurable via the `--modules-cache-size` command line argument or by using the 
   `CONCORDIUM_NODE_CONSENSUS_MODULES_CACHE_SIZE` environment variable.
+  
 - Smart contract state is no longer cached on startup and is not cached after finalization.
-
 
 ## 4.4.1
 
