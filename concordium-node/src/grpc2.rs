@@ -625,11 +625,10 @@ pub mod server {
             Ok(tonic::Response::new(response))
         }
 
-        async fn send_transaction(
+        async fn send_block_item(
             &self,
-            request: tonic::Request<crate::grpc2::types::SendTransactionRequest>,
-        ) -> Result<tonic::Response<crate::grpc2::types::SendTransactionResponse>, tonic::Status>
-        {
+            request: tonic::Request<crate::grpc2::types::SendBlockItemRequest>,
+        ) -> Result<tonic::Response<crate::grpc2::types::TransactionHash>, tonic::Status> {
             use ConsensusFfiResponse::*;
 
             if self.node.is_network_stopped() {
@@ -670,8 +669,8 @@ pub mod server {
 
             match (result, consensus_result) {
                 (Ok(_), Success) => {
-                    Ok(tonic::Response::new(crate::grpc2::types::SendTransactionResponse {
-                        success: true,
+                    Ok(tonic::Response::new(crate::grpc2::types::TransactionHash {
+                        value: vec![0; 32], // TODO: Add actual transaction hash.
                     }))
                 }
                 (Err(e), Success) => {

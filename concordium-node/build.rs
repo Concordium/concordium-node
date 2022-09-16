@@ -277,10 +277,10 @@ fn build_grpc2(proto_root_input: &str) -> std::io::Result<()> {
         )
         .method(
             tonic_build::manual::Method::builder()
-                .name("send_transaction")
-                .route_name("SendTransaction")
-                .input_type("crate::grpc2::types::SendTransactionRequest")
-                .output_type("crate::grpc2::types::SendTransactionResponse")
+                .name("send_block_item")
+                .route_name("SendBlockItem")
+                .input_type("crate::grpc2::types::SendBlockItemRequest")
+                .output_type("crate::grpc2::types::TransactionHash")
                 .codec_path("tonic::codec::ProstCodec")
                 .build(),
         )
