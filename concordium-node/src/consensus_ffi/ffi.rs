@@ -752,7 +752,7 @@ extern "C" {
         ) -> i32,
     ) -> i64;
 
-    /// Get status information about a given pool at the end of a given block.
+    /// Get information about a given pool at the end of a given block.
     ///
     /// * `consensus` - Pointer to the current consensus.
     /// * `block_id_type` - Type of block identifier.
@@ -762,7 +762,7 @@ extern "C" {
     /// * `out_hash` - Location to write the block hash used in the query.
     /// * `out` - Location to write the output of the query.
     /// * `copier` - Callback for writting the output.
-    pub fn getPoolStatusV2(
+    pub fn getPoolInfoV2(
         consensus: *mut consensus_runner,
         block_id_type: u8,
         block_id: *const u8,
@@ -772,8 +772,8 @@ extern "C" {
         copier: CopyToVecCallback,
     ) -> i64;
 
-    /// Get status information about the passive delegators at the end of a
-    /// given block.
+    /// Get information about the passive delegators at the end of a given
+    /// block.
     ///
     /// * `consensus` - Pointer to the current consensus.
     /// * `block_id_type` - Type of block identifier.
@@ -782,7 +782,7 @@ extern "C" {
     /// * `out_hash` - Location to write the block hash used in the query.
     /// * `out` - Location to write the output of the query.
     /// * `copier` - Callback for writting the output.
-    pub fn getPassiveDelegationStatusV2(
+    pub fn getPassiveDelegationInfoV2(
         consensus: *mut consensus_runner,
         block_id_type: u8,
         block_id: *const u8,
@@ -791,10 +791,9 @@ extern "C" {
         copier: CopyToVecCallback,
     ) -> i64;
 
-    /// Get a stream of live blocks at a given height.
+    /// Get a list of live blocks at a given height.
     ///
     /// * `consensus` - Pointer to the current consensus.
-    /// * `stream` - Pointer to the response stream.
     /// * `height` - Block height, is absolute if the genesis_index is 0,
     ///   otherwise relative.
     /// * `genesis_index` - Genesis index to start from. Set to 0 to use
@@ -802,21 +801,18 @@ extern "C" {
     /// * `restrict` - Whether to return results only from the specified genesis
     ///   index (1), or allow results from more recent genesis indices as well
     ///   (0).
-    /// * `callback` - Callback for writing to the response stream.
+    /// * `out` - Location to write the output of the query.
+    /// * `copier` - Callback for writting the output.
     pub fn getBlocksAtHeightV2(
         consensus: *mut consensus_runner,
-        stream: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
         height: u64,
         genesis_index: u32,
         restrict: u8,
-        callback: extern "C" fn(
-            *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
-            *const u8,
-            i64,
-        ) -> i32,
+        out: *mut Vec<u8>,
+        copier: CopyToVecCallback,
     ) -> i64;
 
-    /// Get status of the tokenomics at the end of a given block.
+    /// Get information related to tokenomics at the end of a given block.
     ///
     /// * `consensus` - Pointer to the current consensus.
     /// * `block_id_type` - Type of block identifier.
@@ -825,7 +821,7 @@ extern "C" {
     /// * `out_hash` - Location to write the block hash used in the query.
     /// * `out` - Location to write the output of the query.
     /// * `copier` - Callback for writting the output.
-    pub fn getTokenomicsStatusV2(
+    pub fn getTokenomicsInfoV2(
         consensus: *mut consensus_runner,
         block_id_type: u8,
         block_id: *const u8,
@@ -1668,9 +1664,9 @@ impl ConsensusContainer {
     }
 
     /// Get status information about a given pool at the end of a given block.
-    pub fn get_pool_status_v2(
+    pub fn get_pool_info_v2(
         &self,
-        request: &crate::grpc2::types::PoolStatusRequest,
+        request: &crate::grpc2::types::PoolInfoRequest,
     ) -> Result<([u8; 32], Vec<u8>), tonic::Status> {
         use crate::grpc2::Require;
         let consensus = self.consensus.load(Ordering::SeqCst);
@@ -1682,7 +1678,7 @@ impl ConsensusContainer {
         let baker_id = crate::grpc2::types::baker_id_to_ffi(request.baker.as_ref().require()?);
 
         let response: ConsensusQueryResponse = unsafe {
-            getPoolStatusV2(
+            getPoolInfoV2(
                 consensus,
                 block_id_type,
                 block_id,
@@ -1699,7 +1695,7 @@ impl ConsensusContainer {
 
     /// Get status information about the passive delegators at the end of a
     /// given block.
-    pub fn get_passive_delegation_status_v2(
+    pub fn get_passive_delegation_info_v2(
         &self,
         block_hash: &crate::grpc2::types::BlockHashInput,
     ) -> Result<([u8; 32], Vec<u8>), tonic::Status> {
@@ -1710,7 +1706,7 @@ impl ConsensusContainer {
         let (block_id_type, block_id) =
             crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
         let response: ConsensusQueryResponse = unsafe {
-            getPassiveDelegationStatusV2(
+            getPassiveDelegationInfoV2(
                 consensus,
                 block_id_type,
                 block_id,
@@ -1728,32 +1724,31 @@ impl ConsensusContainer {
     pub fn get_blocks_at_height_v2(
         &self,
         height: &crate::grpc2::types::BlocksAtHeightRequest,
-        sender: futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
-    ) -> Result<(), tonic::Status> {
+    ) -> Result<Vec<u8>, tonic::Status> {
         use crate::grpc2::Require;
-        let sender = Box::new(sender);
         let consensus = self.consensus.load(Ordering::SeqCst);
 
         let (block_height, genesis_index, restrict) =
             crate::grpc2::types::blocks_at_height_request_to_ffi(height).require()?;
 
-        let _response: ConsensusQueryResponse = unsafe {
+        let mut out_data: Vec<u8> = Vec::new();
+        let response: ConsensusQueryResponse = unsafe {
             getBlocksAtHeightV2(
                 consensus,
-                Box::into_raw(sender),
                 block_height,
                 genesis_index,
                 restrict,
-                enqueue_bytearray_callback,
+                &mut out_data,
+                copy_to_vec_callback,
             )
         }
         .try_into()?;
         // The query should always return successfully, so no need to check here.
-        Ok(())
+        Ok(out_data)
     }
 
     /// Get status of the tokenomics at the end of a given block.
-    pub fn get_tokenomics_status_v2(
+    pub fn get_tokenomics_info_v2(
         &self,
         block_hash: &crate::grpc2::types::BlockHashInput,
     ) -> Result<([u8; 32], Vec<u8>), tonic::Status> {
@@ -1764,7 +1759,7 @@ impl ConsensusContainer {
         let (block_id_type, block_id) =
             crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
         let response: ConsensusQueryResponse = unsafe {
-            getTokenomicsStatusV2(
+            getTokenomicsInfoV2(
                 consensus,
                 block_id_type,
                 block_id,

@@ -586,7 +586,7 @@ instance ToProto QueryTypes.BlockInfo where
         ProtoFields.stateHash .= toProto biBlockStateHash
 
 instance ToProto QueryTypes.PoolStatus where
-    type Output QueryTypes.PoolStatus = Either Proto.PoolStatus Proto.PassiveDelegationStatus
+    type Output QueryTypes.PoolStatus = Either Proto.PoolInfoResponse Proto.PassiveDelegationInfo
     toProto QueryTypes.BakerPoolStatus{..} = Left $ Proto.make $ do
       ProtoFields.baker .= toProto psBakerId
       ProtoFields.address .= toProto psBakerAddress
@@ -595,7 +595,7 @@ instance ToProto QueryTypes.PoolStatus where
       ProtoFields.delegatedCapitalCap .= toProto psDelegatedCapitalCap
       ProtoFields.poolInfo .= toProto psPoolInfo
       ProtoFields.maybe'equityPendingChange .= toProto psBakerStakePendingChange
-      ProtoFields.maybe'currentPaydayStatus .= fmap toProto psCurrentPaydayStatus
+      ProtoFields.maybe'currentPaydayInfo .= fmap toProto psCurrentPaydayStatus
       ProtoFields.allPoolTotalCapital .= toProto psAllPoolTotalCapital
     toProto QueryTypes.PassiveDelegationStatus{..} = Right $ Proto.make $ do
       ProtoFields.delegatedCapital .= toProto psDelegatedCapital
@@ -614,7 +614,7 @@ instance ToProto QueryTypes.PoolPendingChange where
       (ProtoFields.effectiveTime .= toProto ppcEffectiveTime)
 
 instance ToProto QueryTypes.CurrentPaydayBakerPoolStatus where
-    type Output QueryTypes.CurrentPaydayBakerPoolStatus = Proto.PoolCurrentPaydayStatus
+    type Output QueryTypes.CurrentPaydayBakerPoolStatus = Proto.PoolCurrentPaydayInfo
     toProto QueryTypes.CurrentPaydayBakerPoolStatus {..} = Proto.make $ do
       ProtoFields.blocksBaked .= fromIntegral bpsBlocksBaked
       ProtoFields.finalizationLive .= bpsFinalizationLive
@@ -631,7 +631,7 @@ instance ToProto MintRate where
       ProtoFields.exponent .= fromIntegral mrExponent
 
 instance ToProto QueryTypes.RewardStatus where
-    type Output QueryTypes.RewardStatus = Proto.TokenomicsStatus
+    type Output QueryTypes.RewardStatus = Proto.TokenomicsInfo
     toProto QueryTypes.RewardStatusV0 {..} = Proto.make (ProtoFields.v0 .= Proto.make (do
       ProtoFields.totalAmount .= toProto rsTotalAmount
       ProtoFields.totalEncryptedAmount .= toProto rsTotalEncryptedAmount
@@ -940,7 +940,7 @@ getBakerListV2 cptr channel blockType blockHashPtr outHash cbk = do
             _ <- enqueueMessages (sender channel) instances
             return (queryResultCode QRSuccess)
 
-getPoolStatusV2 ::
+getPoolInfoV2 ::
     StablePtr Ext.ConsensusRunner ->
     -- |Block type.
     Word8 ->
@@ -954,7 +954,7 @@ getPoolStatusV2 ::
     -- |Callback to output data.
     FunPtr CopyToVecCallback ->
     IO Int64
-getPoolStatusV2 cptr blockType blockHashPtr bakerId outHash outVec copierCbk = do
+getPoolInfoV2 cptr blockType blockHashPtr bakerId outHash outVec copierCbk = do
     Ext.ConsensusRunner mvr <- deRefStablePtr cptr
     let copier = callCopyToVecCallback copierCbk
     bhi <- decodeBlockHashInput blockType blockHashPtr
@@ -967,7 +967,7 @@ getPoolStatusV2 cptr blockType blockHashPtr bakerId outHash outVec copierCbk = d
         return $ queryResultCode QRSuccess
       _ -> return $ queryResultCode QRNotFound
 
-getPassiveDelegationStatusV2 ::
+getPassiveDelegationInfoV2 ::
     StablePtr Ext.ConsensusRunner ->
     -- |Block type.
     Word8 ->
@@ -979,7 +979,7 @@ getPassiveDelegationStatusV2 ::
     -- |Callback to output data.
     FunPtr CopyToVecCallback ->
     IO Int64
-getPassiveDelegationStatusV2 cptr blockType blockHashPtr outHash outVec copierCbk = do
+getPassiveDelegationInfoV2 cptr blockType blockHashPtr outHash outVec copierCbk = do
     Ext.ConsensusRunner mvr <- deRefStablePtr cptr
     let copier = callCopyToVecCallback copierCbk
     bhi <- decodeBlockHashInput blockType blockHashPtr
@@ -994,7 +994,6 @@ getPassiveDelegationStatusV2 cptr blockType blockHashPtr outHash outVec copierCb
 
 getBlocksAtHeightV2 ::
   StablePtr Ext.ConsensusRunner ->
-  Ptr SenderChannel ->
   -- | Block height, is absolute if the genesis_index is 0, otherwise relative.
   Word64 ->
   -- | Genesis index to start from. Set to 0 to use absolute height.
@@ -1003,16 +1002,20 @@ getBlocksAtHeightV2 ::
   -- or allow results from more recent genesis indices as well (0). Out pointer
   -- for writing the block hash that was used.
   Word8 ->
-  FunPtr ChannelSendCallback ->
+  Ptr ReceiverVec ->
+  -- |Callback to output data.
+  FunPtr CopyToVecCallback ->
   IO Int64
-getBlocksAtHeightV2 cptr channel height genIndex restrict cbk = do
+getBlocksAtHeightV2 cptr height genIndex restrict outVec copierCbk = do
     Ext.ConsensusRunner mvr <- deRefStablePtr cptr
-    let sender = callChannelSendCallback cbk
+    let copier = callCopyToVecCallback copierCbk
     blocks <- runMVR (Q.getBlocksAtHeight (BlockHeight height) (GenesisIndex genIndex) (restrict /= 0)) mvr
-    _ <- enqueueMessages (sender channel) blocks
-    return (queryResultCode QRSuccess)
+    let proto :: Proto.BlocksAtHeightResponse = Proto.make $ ProtoFields.blocks .= fmap toProto blocks
+    let encoded = Proto.encodeMessage proto
+    BS.unsafeUseAsCStringLen encoded (\(ptr, len) -> copier outVec (castPtr ptr) (fromIntegral len))
+    return $ queryResultCode QRSuccess
 
-getTokenomicsStatusV2 ::
+getTokenomicsInfoV2 ::
     StablePtr Ext.ConsensusRunner ->
     -- |Block type.
     Word8 ->
@@ -1024,7 +1027,7 @@ getTokenomicsStatusV2 ::
     -- |Callback to output data.
     FunPtr CopyToVecCallback ->
     IO Int64
-getTokenomicsStatusV2 cptr blockType blockHashPtr outHash outVec copierCbk = do
+getTokenomicsInfoV2 cptr blockType blockHashPtr outHash outVec copierCbk = do
     Ext.ConsensusRunner mvr <- deRefStablePtr cptr
     let copier = callCopyToVecCallback copierCbk
     bhi <- decodeBlockHashInput blockType blockHashPtr
@@ -1245,7 +1248,7 @@ foreign export ccall
         IO Int64
 
 foreign export ccall
-    getPoolStatusV2 ::
+    getPoolInfoV2 ::
         StablePtr Ext.ConsensusRunner ->
         -- |Block type.
         Word8 ->
@@ -1260,7 +1263,7 @@ foreign export ccall
         IO Int64
 
 foreign export ccall
-    getPassiveDelegationStatusV2 ::
+    getPassiveDelegationInfoV2 ::
         StablePtr Ext.ConsensusRunner ->
         -- |Block type.
         Word8 ->
@@ -1275,7 +1278,6 @@ foreign export ccall
 foreign export ccall
     getBlocksAtHeightV2 ::
         StablePtr Ext.ConsensusRunner ->
-        Ptr SenderChannel ->
         -- | Block height, is absolute if the genesis_index is 0, otherwise relative.
         Word64 ->
         -- | Genesis index to start from. Set to 0 to use absolute height.
@@ -1284,11 +1286,12 @@ foreign export ccall
         -- or allow results from more recent genesis indices as well (0). Out pointer
         -- for writing the block hash that was used.
         Word8 ->
-        FunPtr ChannelSendCallback ->
+        Ptr ReceiverVec ->
+        FunPtr CopyToVecCallback ->
         IO Int64
 
 foreign export ccall
-    getTokenomicsStatusV2 ::
+    getTokenomicsInfoV2 ::
         StablePtr Ext.ConsensusRunner ->
         -- |Block type.
         Word8 ->

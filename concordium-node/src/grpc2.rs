@@ -462,9 +462,6 @@ pub mod server {
         type GetAncestorsStream = futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
         /// Return type for the 'GetBakerList' method.
         type GetBakerListStream = futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
-        /// Return type for the 'GetBlocksAtHeight' method.
-        type GetBlocksAtHeightStream =
-            futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
         /// Return type for the 'Blocks' method.
         type GetBlocksStream =
             tokio_stream::wrappers::ReceiverStream<Result<Arc<[u8]>, tonic::Status>>;
@@ -660,22 +657,22 @@ pub mod server {
             Ok(response)
         }
 
-        async fn get_pool_status(
+        async fn get_pool_info(
             &self,
-            request: tonic::Request<crate::grpc2::types::PoolStatusRequest>,
+            request: tonic::Request<crate::grpc2::types::PoolInfoRequest>,
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
-            let (hash, response) = self.consensus.get_pool_status_v2(request.get_ref())?;
+            let (hash, response) = self.consensus.get_pool_info_v2(request.get_ref())?;
             let mut response = tonic::Response::new(response);
             add_hash(&mut response, hash)?;
             Ok(response)
         }
 
-        async fn get_passive_delegation_status(
+        async fn get_passive_delegation_info(
             &self,
             request: tonic::Request<crate::grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
             let (hash, response) =
-                self.consensus.get_passive_delegation_status_v2(request.get_ref())?;
+                self.consensus.get_passive_delegation_info_v2(request.get_ref())?;
             let mut response = tonic::Response::new(response);
             add_hash(&mut response, hash)?;
             Ok(response)
@@ -684,18 +681,17 @@ pub mod server {
         async fn get_blocks_at_height(
             &self,
             request: tonic::Request<crate::grpc2::types::BlocksAtHeightRequest>,
-        ) -> Result<tonic::Response<Self::GetBlocksAtHeightStream>, tonic::Status> {
-            let (sender, receiver) = futures::channel::mpsc::channel(100);
-            self.consensus.get_blocks_at_height_v2(request.get_ref(), sender)?;
-            let response = tonic::Response::new(receiver);
+        ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            let data = self.consensus.get_blocks_at_height_v2(request.get_ref())?;
+            let response = tonic::Response::new(data);
             Ok(response)
         }
 
-        async fn get_tokenomics_status(
+        async fn get_tokenomics_info(
             &self,
             request: tonic::Request<crate::grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
-            let (hash, response) = self.consensus.get_tokenomics_status_v2(request.get_ref())?;
+            let (hash, response) = self.consensus.get_tokenomics_info_v2(request.get_ref())?;
             let mut response = tonic::Response::new(response);
             add_hash(&mut response, hash)?;
             Ok(response)

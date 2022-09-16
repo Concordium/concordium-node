@@ -296,17 +296,17 @@ fn build_grpc2(proto_root_input: &str) -> std::io::Result<()> {
         )
         .method(
             tonic_build::manual::Method::builder()
-                .name("get_pool_status")
-                .route_name("GetPoolStatus")
-                .input_type("crate::grpc2::types::PoolStatusRequest")
+                .name("get_pool_info")
+                .route_name("GetPoolInfo")
+                .input_type("crate::grpc2::types::PoolInfoRequest")
                 .output_type("Vec<u8>")
                 .codec_path("crate::grpc2::RawCodec")
                 .build(),
         )
         .method(
             tonic_build::manual::Method::builder()
-                .name("get_passive_delegation_status")
-                .route_name("GetPassiveDelegationStatus")
+                .name("get_passive_delegation_info")
+                .route_name("GetPassiveDelegationInfo")
                 .input_type("crate::grpc2::types::BlockHashInput")
                 .output_type("Vec<u8>")
                 .codec_path("crate::grpc2::RawCodec")
@@ -319,13 +319,12 @@ fn build_grpc2(proto_root_input: &str) -> std::io::Result<()> {
                 .input_type("crate::grpc2::types::BlocksAtHeightRequest")
                 .output_type("Vec<u8>")
                 .codec_path("crate::grpc2::RawCodec")
-                .server_streaming()
                 .build(),
         )
         .method(
             tonic_build::manual::Method::builder()
-                .name("get_tokenomics_status")
-                .route_name("GetTokenomicsStatus")
+                .name("get_tokenomics_info")
+                .route_name("GetTokenomicsInfo")
                 .input_type("crate::grpc2::types::BlockHashInput")
                 .output_type("Vec<u8>")
                 .codec_path("crate::grpc2::RawCodec")
