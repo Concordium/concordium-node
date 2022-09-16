@@ -268,6 +268,15 @@ fn build_grpc2(proto_root_input: &str) -> std::io::Result<()> {
         )
         .method(
             tonic_build::manual::Method::builder()
+                .name("get_block_item_status")
+                .route_name("GetBlockItemStatus")
+                .input_type("crate::grpc2::types::TransactionHash")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
                 .name("get_cryptographic_parameters")
                 .route_name("GetCryptographicParameters")
                 .input_type("crate::grpc2::types::BlockHashInput")

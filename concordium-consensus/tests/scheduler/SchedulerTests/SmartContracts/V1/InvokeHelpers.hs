@@ -18,6 +18,7 @@ import Concordium.Types.SeedState (initialSeedState)
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Persistent.BlockState
+import Concordium.GlobalState.Persistent.BlockState.Modules (PersistentInstrumentedModuleV)
 import Concordium.Wasm
 import qualified Concordium.Scheduler.WasmIntegration as WasmV0
 import qualified Concordium.Scheduler.WasmIntegration.V1 as WasmV1
@@ -30,6 +31,8 @@ import Concordium.GlobalState.DummyData
 import SchedulerTests.TestUtils
 
 type ContextM = PersistentBlockStateMonad PV4 (PersistentBlockStateContext PV4) (BlobStoreM' (PersistentBlockStateContext PV4))
+
+type PersistentModuleInterfaceV v = GSWasm.ModuleInterfaceA (PersistentInstrumentedModuleV v)
 
 -- empty state, no accounts, no modules, no instances
 initialBlockState :: ContextM (HashedPersistentBlockState PV4)
@@ -52,7 +55,7 @@ emptyContractSourceFile = "./testdata/contracts/empty.wasm"
 -- If the module is invalid this will raise an exception.
 deployModuleV1 :: FilePath -- ^Source file.
               -> PersistentBlockState PV4 -- ^State to add the module to.
-              -> ContextM ((GSWasm.ModuleInterfaceV V1, WasmModuleV V1), PersistentBlockState PV4)
+              -> ContextM ((PersistentModuleInterfaceV V1, WasmModuleV V1), PersistentBlockState PV4)
 deployModuleV1 sourceFile bs = do
   ws <- liftIO $ BS.readFile sourceFile
   let wm = WasmModuleV (ModuleSource ws)
@@ -60,14 +63,16 @@ deployModuleV1 sourceFile bs = do
     Nothing -> liftIO $ assertFailure "Invalid module."
     Just miv -> do
       (_, modState) <- bsoPutNewModule bs (miv, wm)
-      return ((miv, wm), modState)
+      bsoGetModule modState (GSWasm.miModuleRef miv) >>= \case
+        Just (GSWasm.ModuleInterfaceV1 miv') -> return ((miv', wm), modState)
+        _ -> liftIO $ assertFailure "bsoGetModule failed to return put module."
 
 
 -- |Deploy a V0 module in the given state. The source file should be a raw Wasm file.
 -- If the module is invalid this will raise an exception.
 deployModuleV0 :: FilePath -- ^Source file.
               -> PersistentBlockState PV4 -- ^State to add the module to.
-              -> ContextM ((GSWasm.ModuleInterfaceV V0, WasmModuleV V0), PersistentBlockState PV4)
+              -> ContextM ((PersistentModuleInterfaceV V0, WasmModuleV V0), PersistentBlockState PV4)
 deployModuleV0 sourceFile bs = do
   ws <- liftIO $ BS.readFile sourceFile
   let wm = WasmModuleV (ModuleSource ws)
@@ -75,7 +80,9 @@ deployModuleV0 sourceFile bs = do
     Nothing -> liftIO $ assertFailure "Invalid module."
     Just miv -> do
       (_, modState) <- bsoPutNewModule bs (miv, wm)
-      return ((miv, wm), modState)
+      bsoGetModule modState (GSWasm.miModuleRef miv) >>= \case
+        Just (GSWasm.ModuleInterfaceV0 miv') -> return ((miv', wm), modState)
+        _ -> liftIO $ assertFailure "bsoGetModule failed to return put module."
 
 -- |Initialize a contract from the supplied module in the given state, and return its address.
 -- The state is assumed to contain the module.
@@ -84,7 +91,7 @@ initContractV1 :: Types.AccountAddress -- ^Sender address
                -> Parameter -- ^Parameter to initialize with.
                -> Types.Amount -- ^Initial balance.
                -> PersistentBlockState PV4
-               -> (GSWasm.ModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1)
+               -> (PersistentModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1)
                -> ContextM (Types.ContractAddress, PersistentBlockState PV4)
 initContractV1 senderAddress initName initParam initAmount bs (miv, _) = do
   let cm = Types.ChainMetadata 0
@@ -94,7 +101,8 @@ initContractV1 senderAddress initName initParam initAmount bs (miv, _) = do
         }
   let initInterpreterEnergy = 1_000_000_000
   (cbk, _) <- getCallbacks
-  case WasmV1.applyInitFun cbk miv cm initContext initName initParam initAmount initInterpreterEnergy of
+  artifact <- mapM getModuleArtifact miv
+  case WasmV1.applyInitFun cbk artifact cm initContext initName initParam initAmount initInterpreterEnergy of
     Nothing -> -- out of energy
       liftIO $ assertFailure "Initialization ran out of energy."
     Just (Left failure, _) ->
@@ -118,7 +126,7 @@ initContractV0 :: Types.AccountAddress -- ^Sender address
                -> Parameter -- ^Parameter to initialize with.
                -> Types.Amount -- ^Initial balance.
                -> PersistentBlockState PV4
-               -> (GSWasm.ModuleInterfaceV GSWasm.V0, WasmModuleV GSWasm.V0)
+               -> (PersistentModuleInterfaceV GSWasm.V0, WasmModuleV GSWasm.V0)
                -> ContextM (Types.ContractAddress, PersistentBlockState PV4)
 initContractV0 senderAddress initName initParam initAmount bs (miv, _) = do
   let cm = Types.ChainMetadata 0
@@ -127,7 +135,8 @@ initContractV0 senderAddress initName initParam initAmount bs (miv, _) = do
         icSenderPolicies = []
         }
   let initInterpreterEnergy = 1_000_000_000
-  case WasmV0.applyInitFun miv cm initContext initName initParam initAmount initInterpreterEnergy of
+  artifact <- mapM getModuleArtifact miv
+  case WasmV0.applyInitFun artifact cm initContext initName initParam initAmount initInterpreterEnergy of
     Nothing -> -- out of energy
       liftIO $ assertFailure "Initialization ran out of energy."
     Just (Left failure, _) ->

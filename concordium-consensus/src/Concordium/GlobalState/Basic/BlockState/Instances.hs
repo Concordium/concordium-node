@@ -37,7 +37,7 @@ emptyInstances :: Instances
 emptyInstances = Instances Empty
 
 -- |Get the smart contract instance at the given address, if it exists.
-getInstance :: ContractAddress -> Instances -> Maybe Instance
+getInstance :: ContractAddress -> Instances -> Maybe BasicInstance
 getInstance addr (Instances iss) = iss ^? ix addr
 
 -- |Update the instance at the specified address with an amount delta and
@@ -75,7 +75,7 @@ updateInstanceAt' ca amt val (Instances iss) = Instances (iss & ix ca %~ updateO
                             InstanceV1 i -> InstanceV1 $ updateInstanceV' amt val i
 
 -- |Create a new smart contract instance.
-createInstance :: (ContractAddress -> Instance) -> Instances -> (Instance, Instances)
+createInstance :: (ContractAddress -> BasicInstance) -> Instances -> (BasicInstance, Instances)
 createInstance mkInst (Instances iss) = Instances <$> (iss & newContractInstance <%~ mkInst)
 
 -- |Delete the instance with the given address.  Does nothing
@@ -84,7 +84,7 @@ deleteInstance :: ContractAddress -> Instances -> Instances
 deleteInstance ca (Instances i) = Instances (deleteContractInstanceExact ca i)
 
 -- |A fold over smart contract instances.
-foldInstances :: SimpleFold Instances Instance
+foldInstances :: SimpleFold Instances BasicInstance
 foldInstances _ is@(Instances Empty) = is <$ mempty
 foldInstances f is@(Instances (Tree _ t)) = is <$ (foldIT . _Right) f t
 
@@ -113,7 +113,7 @@ putInstancesV0 (Instances (Tree _ t)) = do
 
 -- |Deserialize 'Instances' in V0 format.
 getInstancesV0
-    :: (ModuleRef -> Wasm.InitName -> Maybe (Set.Set Wasm.ReceiveName, GSWasm.ModuleInterface))
+    :: (ModuleRef -> Wasm.InitName -> Maybe (Set.Set Wasm.ReceiveName, GSWasm.ModuleInterface GSWasm.InstrumentedModuleV))
     -> Get Instances
 getInstancesV0 resolve = Instances <$> constructM buildInstance
     where

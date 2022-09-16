@@ -45,7 +45,6 @@ import GlobalStateMock
 import Concordium.GlobalState.Basic.BlockPointer (makeGenesisBasicBlockPointer)
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.TreeState
-import Concordium.GlobalState.Persistent.Accounts (SupportsPersistentAccount)
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.BlockState
 import Concordium.GlobalState.Persistent.BlockPointer
@@ -209,7 +208,7 @@ initialAccounts = foldr addAcc emptyAccounts (take numAccounts staticKeys)
 initialPureBlockState :: (IsProtocolVersion pv) => HashedBlockState pv
 initialPureBlockState = Concordium.GlobalState.Basic.BlockState.hashBlockState $ createBlockState initialAccounts
 
-initialPersistentBlockState :: (SupportsPersistentAccount pv m) => m (HashedPersistentBlockState pv)
+initialPersistentBlockState :: (SupportsPersistentState pv m) => m (HashedPersistentBlockState pv)
 initialPersistentBlockState = makePersistent . _unhashedBlockState $ initialPureBlockState
 
 genesis :: (IsProtocolVersion pv) => Word -> (GenesisData pv, [(BakerIdentity, FullBakerInfo)], Amount)
@@ -237,7 +236,7 @@ runMyPureMonad :: (IsProtocolVersion pv) => MyPureTreeState pv -> MyPureMonad pv
 runMyPureMonad is = (`runStateT` is) . runPureBlockStateMonad . runPureTreeStateMonad
 
 runMyPureMonad' :: (IsProtocolVersion pv) => GenesisData pv -> TransactionTable -> MyPureMonad pv a -> IO (a, MyPureTreeState pv)
-runMyPureMonad' gd genTT = runPureBlockStateMonad (initialSkovDataDefault gd initialPureBlockState genTT) >>= runMyPureMonad
+runMyPureMonad' gd genTT = runPureBlockStateMonad (initialSkovDataDefault (genesisConfiguration gd) initialPureBlockState genTT Nothing) >>= runMyPureMonad
 
 type MyPersistentBlockState pv = HashedPersistentBlockState pv
 type MyPersistentTreeState pv = SkovPersistentData pv (MyPersistentBlockState pv)
@@ -282,7 +281,7 @@ testRewardDistribution = do
     assertBool "in-memory" resultPure
   it "does not change after mint distribution (persistent)" $ do
     ipbs :: MyPersistentBlockState 'P4 <- runBlobStoreTemp "." $ withNewAccountCache @_ @'P4 1 initialPersistentBlockState
-    blockParentPersistent :: PersistentBlockPointer 'P4 (MyPersistentBlockState 'P4) <- makeGenesisPersistentBlockPointer gd ipbs
+    blockParentPersistent :: PersistentBlockPointer 'P4 (MyPersistentBlockState 'P4) <- makeGenesisPersistentBlockPointer (genesisConfiguration gd) ipbs
     (resultPersistent, _) <- withPersistentState' (\x -> propMintDistributionImmediate (hpbsPointers x) blockParentPersistent slot bid epoch mfinInfo newSeedState transFees freeCounts updates)
     assertBool "persistent" resultPersistent
   it "does not change after block reward distribution (in-memory)" $ do
@@ -295,7 +294,7 @@ testRewardDistribution = do
             (ibs, genTT) = case genesisState gd of
               Right x -> x
               Left _ -> (_unhashedBlockState initialPureBlockState :: Concordium.GlobalState.Basic.BlockState.BlockState 'P4, emptyTransactionTable)
-            blockParentPure = makeGenesisBasicBlockPointer gd initialPureBlockState
+            blockParentPure = makeGenesisBasicBlockPointer (genesisConfiguration gd) initialPureBlockState
             slot = 400
             bid = BakerId 1
             epoch = 4

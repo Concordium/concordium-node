@@ -2,12 +2,28 @@
 
 ## Unreleased changes
 
+- Speed up and reduce memory overhead during protocol updates.
+
+- Smart contract modules are no longer retained in memory. Module artifacts are loaded as needed
+  during contract execution. Metadata is cached for a limited number of smart contract modules.
+  By default, the cache will retain metadata for at most 100 smart contract modules, and this is
+  configurable via the `--modules-cache-size` command line argument or by using the 
+  `CONCORDIUM_NODE_CONSENSUS_MODULES_CACHE_SIZE` environment variable.
+
+## 4.4.1
+
+- Verify pending blocks earlier when possible.
+- Do not relay pending blocks.
+
+## 4.4.0
+
 - Fix a bug in Ctrl-C signal handling where a node would fail to stop if
   interrupted early on in the startup if out-of-band catchup was enabled.
 - `database-exporter` now produces a collection of export files, instead of a single file. The new
   `--chunksize` option specifies the size of export files in blocks.
 - The `--download-blocks-from` option now takes the URL to the catchup _index file_, permitting to
   only download and import catchup files containing blocks not already present in the database.
+- Smart contract state is no longer cached on startup and is not cached after finalization.
 
 ## 4.3.1
 

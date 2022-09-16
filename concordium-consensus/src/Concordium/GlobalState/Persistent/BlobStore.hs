@@ -29,13 +29,77 @@
 --    Simple references (`BufferedRef`) and fixed point references (`BufferedBlobbed`) are
 --    provided, the latter ones requiring to be used together with a Functor that will
 --    instantiate the recursive data type definition.
-module Concordium.GlobalState.Persistent.BlobStore where
+module Concordium.GlobalState.Persistent.BlobStore(
+    -- * Blob store
+    BlobRef(..),
+    BlobHandle,
+    BlobStoreAccess,
+    BlobStore(..),
+    HasBlobStore(..),
+    createBlobStore,
+    loadBlobStore,
+    closeBlobStore,
+    destroyBlobStore,
+    runBlobStoreTemp,
+    truncateBlobStore,
+    isValidBlobRef,
+    BlobPtr(..),
+    MonadBlobStore(..),
+    BlobStoreT(..),
+    alterBlobStoreT,
+    BlobStoreM',
+    BlobStoreM,
+    runBlobStoreM,
+    SupportMigration,
+    -- * Storage classes
+    -- $storageClasses
+    BlobStorable(..),
+    storeRef,
+    storeUpdateRef,
+    loadRef,
+    DirectBlobStorable(..),
+    -- * Nullable
+    Nullable(..),
+    HasNull(..),
+    -- * Reference types
+    Reference(..),
+    migrateReference,
+    -- ** 'BufferedRef'
+    BufferedRef,
+    makeBufferedRef,
+    blobRefToBufferedRef,
+    loadBufferedRef,
+    cacheBufferedRef,
+    flushBufferedRef,
+    uncacheBufferedRef,
+    -- ** 'EagerBufferedRef'
+    EagerBufferedRef,
+    migrateEagerBufferedRef,
+    -- ** 'HashedBufferedRef'
+    HashedBufferedRef',
+    HashedBufferedRef,
+    bufferHashed,
+    makeHashedBufferedRef,
+    migrateHashedBufferedRef,
+    migrateHashedBufferedRefKeepHash,
+    HashedBufferedRefForCPV1,
+    -- ** 'EagerlyHashedBufferedRef'
+    EagerlyHashedBufferedRef',
+    EagerlyHashedBufferedRef,
+    migrateEagerlyHashedBufferedRefKeepHash,
+    -- * Fixpoint references
+    BufferedFix(..),
+    FixShowable(..),
+    StoreSerialized(..),
+    -- * Caching
+    Cacheable(..),
+    Cacheable1(..),
+) where
 
 import Control.Concurrent.MVar
 import System.IO
 import Data.Kind (Type)
 import Data.Serialize
-import Data.Coerce
 import Data.Word
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Unsafe as BSUnsafe
@@ -215,6 +279,25 @@ runBlobStoreTemp dir a = bracket openf closef usef
             freeCallbacks bscLoadCallback bscStoreCallback
             return res
 
+-- | Truncate the blob store after the blob stored at the given offset. The blob should not be
+-- corrupted (i.e., its size header should be readable, and its size should match the size header).
+truncateBlobStore :: BlobStoreAccess -> BlobRef a -> IO ()
+truncateBlobStore BlobStoreAccess{..} (BlobRef offset) = do
+  bh@BlobHandle{..} <- takeMVar blobStoreFile
+  eres <- try $ do
+    hSeek bhHandle AbsoluteSeek (fromIntegral offset)
+    esize <- decode <$> BS.hGet bhHandle 8
+    case esize :: Either String Word64 of
+      Right size -> do
+        let newSize = offset + 8 + size
+        hSetFileSize bhHandle $ fromIntegral newSize
+        putMVar blobStoreFile bh{bhSize = fromIntegral newSize, bhAtEnd=False}
+        mmapFileByteString blobStoreFilePath Nothing >>= writeIORef blobStoreMMap
+      _ -> throwIO $ userError "Cannot truncate the blob store: cannot obtain the last blob size"
+  case eres :: Either SomeException () of
+    Left e -> throwIO e
+    Right () -> return ()
+
 -- | Read a bytestring from the blob store at the given offset using the file handle.
 readBlobBSFromHandle :: BlobStoreAccess -> BlobRef a -> IO BS.ByteString
 readBlobBSFromHandle BlobStoreAccess{..} (BlobRef offset) = mask $ \restore -> do
@@ -223,8 +306,11 @@ readBlobBSFromHandle BlobStoreAccess{..} (BlobRef offset) = mask $ \restore -> d
             hSeek bhHandle AbsoluteSeek (fromIntegral offset)
             esize <- decode <$> BS.hGet bhHandle 8
             case esize :: Either String Word64 of
-                Left e -> error e
-                Right size -> BS.hGet bhHandle (fromIntegral size)
+                -- there should be at least `size` bytes left to read after `offset + 8`, where 8 is
+                -- the size of the blob size header
+                Right size | offset + 8 + size <= fromIntegral bhSize ->
+                             BS.hGet bhHandle (fromIntegral size)
+                _ ->  throwIO $ userError "Attempted to read beyond the blob store end"
         putMVar blobStoreFile bh{bhAtEnd=False}
         case eres :: Either SomeException BS.ByteString of
             Left e -> throwIO e
@@ -259,6 +345,11 @@ readBlobBS bs@BlobStoreAccess{..} br@(BlobRef offset) = do
                             $ BS.take (fromIntegral size)
                             $ BS.drop dataOffset mmap
 
+-- |Check if a given 'BlobRef' is valid in the blob store. This does not attempt to deserialize
+-- the value, but will check that the offset and length of the 'BlobRef' are valid.
+isValidBlobRef :: BlobStoreAccess -> BlobRef a -> IO Bool
+isValidBlobRef bs br = (True <$ readBlobBS bs br) `catch` (\(_ :: IOError) -> return False)
+
 -- | Write a bytestring into the blob store and return the offset
 writeBlobBS :: BlobStoreAccess -> BS.ByteString -> IO (BlobRef a)
 writeBlobBS BlobStoreAccess{..} bs = mask $ \restore -> do
@@ -278,6 +369,52 @@ writeBlobBS BlobStoreAccess{..} bs = mask $ \restore -> do
                 return (BlobRef (fromIntegral (bhSize bh)))
     where
         size = encode (fromIntegral (BS.length bs) :: Word64)
+
+-- |A pointer into the blob store that can be used for direct memory access.
+-- In particular the 'BlobPtr' can be used for 'custom' access into the 'BlobStore'
+-- as it does not depend on serialization of @a@, instead it is used for retrieving
+-- a raw 'ByteString' from the 'BlobStore'.
+--
+-- This is used for providing the Rust side with raw bytes of an 'Artifact' without having to
+-- deserialize it beforehand.
+data BlobPtr a = BlobPtr {
+    theBlobPtr :: !Word64,
+    -- ^The offset of @a@ in the 'BlobStore'.
+    blobPtrLen :: !Word64
+    -- ^The length to read from the offset.
+  }
+    deriving (Eq, Show)
+
+-- | Read a bytestring from the blob store at the given offset and length using the file handle.
+readBlobPtrBSFromHandle :: BlobStoreAccess -> BlobPtr a -> IO BS.ByteString
+readBlobPtrBSFromHandle BlobStoreAccess{..} BlobPtr{..} = mask $ \restore -> do
+        bh@BlobHandle{..} <- takeMVar blobStoreFile
+        eres <- try $ restore $ do
+            hSeek bhHandle AbsoluteSeek (fromIntegral theBlobPtr)
+            BS.hGet bhHandle (fromIntegral blobPtrLen)
+        putMVar blobStoreFile bh{bhAtEnd=False}
+        case eres :: Either SomeException BS.ByteString of
+            Left e -> throwIO e
+            Right bs -> return bs
+
+-- | Read a bytestring from the blob store at the given offset and length using the memory map.
+-- The file handle is used as a backstop if the data to be read would be outside the memory map
+-- even after re-mapping.
+readBlobPtrBS :: BlobStoreAccess -> BlobPtr a -> IO BS.ByteString
+readBlobPtrBS bs@BlobStoreAccess{..} bptr@BlobPtr{..} = do
+        let ptrEnd = fromIntegral $ theBlobPtr + blobPtrLen
+        mmap0 <- readIORef blobStoreMMap
+        mmap <- if ptrEnd > BS.length mmap0 then do
+                -- Remap the file
+                mmap <- mmapFileByteString blobStoreFilePath Nothing
+                writeIORef blobStoreMMap mmap
+                return mmap
+            else return mmap0
+        let mmapLength = BS.length mmap
+        if ptrEnd > mmapLength then
+            readBlobPtrBSFromHandle bs bptr
+        else 
+            return $! BS.take (fromIntegral blobPtrLen) (BS.drop (fromIntegral theBlobPtr) mmap)
 
 -- |Typeclass for a monad to be equipped with a blob store.
 -- This allows a 'BS.ByteString' to be written to the store,
@@ -317,6 +454,21 @@ class MonadIO m => MonadBlobStore m where
     getCallbacks = do
       r <- ask
       return (blobLoadCallback r, blobStoreCallback r)
+
+    -- |Access a blob pointer directly. The function should ONLY READ the memory at the pointer,
+    -- and not read beyond the length of the 'BlobPtr'.
+    withBlobPtr :: BlobPtr a -> (Ptr a -> IO b) -> m b
+    withBlobPtr bptr f = do
+        bytes <- loadBlobPtr bptr
+        liftIO $ BSUnsafe.unsafeUseAsCString bytes (f . castPtr)
+
+    -- |Access a blob pointer directly as a 'BS.ByteString'.
+    loadBlobPtr :: BlobPtr a -> m BS.ByteString
+    default loadBlobPtr :: (MonadReader r m, HasBlobStore r) => BlobPtr a -> m BS.ByteString
+    loadBlobPtr bptr = do
+        bs <- blobStore <$> ask
+        liftIO $ readBlobPtrBS bs bptr
+
     {-# INLINE storeRaw #-}
     {-# INLINE loadRaw #-}
     {-# INLINE flushStore #-}
@@ -325,6 +477,12 @@ instance HasBlobStore BlobStore where
   blobStore = bscBlobStore
   blobLoadCallback = bscLoadCallback
   blobStoreCallback = bscStoreCallback
+
+-- |An auxiliary constraint needed by all functions that migrate state from one
+-- blob store to another. The intended reading of this is that @m@ and @t@
+-- support migration from the context @m@ to the context @t m@. The context in
+-- this case is essentially access to a block state database.
+type SupportMigration m t = (MonadBlobStore m, MonadTrans t, MonadBlobStore (t m))
 
 -- |A monad transformer that is equivalent to 'ReaderT' but provides a 'MonadBlobStore' instance
 -- based on the context (rather than lifting).
@@ -369,6 +527,10 @@ instance (MonadTrans t, MonadBlobStore m, MonadIO (t m)) => MonadBlobStore (Lift
     {-# INLINE flushStore #-}
     getCallbacks = lift getCallbacks
     {-# INLINE getCallbacks #-}
+    withBlobPtr bp = lift . withBlobPtr bp
+    {-# INLINE withBlobPtr #-}
+    loadBlobPtr = lift . loadBlobPtr
+    {-# INLINE loadBlobPtr #-}
 
 deriving via (LiftMonadBlobStore (WriterT w) m)
     instance (Monoid w, MonadBlobStore m) => MonadBlobStore (WriterT w m)
@@ -386,6 +548,37 @@ deriving via (LiftMonadBlobStore (ExceptT e) m)
 deriving via (LiftMonadBlobStore (ReaderT r) m)
     instance MonadBlobStore m => MonadBlobStore (ReaderT r m)
 
+-- * Storage classes
+--
+-- $storageClasses
+-- For a type to be storable in the blob store, it must define exactly how it is stored.
+-- Ultimately, this comes down to having a 'DirectBlobStorable' instance for the type.
+-- However, an implementation can instead provide a 'BlobStorable' instance from which a
+-- 'DirectBlobStorable' instance is automatically provided.  For types that implement
+-- 'Serialize', the 'BlobStorable' class provides default implementations of the functions.
+--
+-- Although not explicit in the class constraints, there is an implicit hierarchy between
+-- 'DirectBlobStorable' (most general), 'BlobStorable' and 'Serializable' (most specific).
+--
+-- * A 'Serializable' type can be stored by simply serializing it to a flat 'ByteString'.
+--
+-- * A 'BlobStorable' type can be stored by serializing it with possible side-effects that
+--   can involve storing components. This is used for complex or nested structures, and
+--   allows for sharing between stored values.
+--
+-- * A 'DirectBlobStorable' type provides direct operations for its storage in the blob store.
+--   This allows the most flexibility of implementation, and in particular is used to
+--   implement types that may maintain 'BlobPtr's that allow for direct data access in the blob
+--   store.
+--
+-- Note that a 'BlobRef' is expected to be an offset in the blob store to a length (64-bit, big
+-- endian) followed by a byte-string (of the given length) that represents the value under the
+-- reference.  This is implicitly the case for types that implement 'BlobStorable', however,
+-- it could be violated by implementations of 'DirectBlobStorable'.
+--
+-- Where possible, the 'DirectBlobStorable' constraint should be used over 'BlobStorable', and
+-- conversely 'BlobStorable' should be implemented in preference to 'DirectBlobStorable'.
+
 -- |The @BlobStorable m a@ class defines how a value
 -- of type @a@ may be stored in monad @m@.
 --
@@ -399,10 +592,6 @@ deriving via (LiftMonadBlobStore (ReaderT r) m)
 -- `put` and `get` but working on references so that they can be written
 -- to the disk.
 class MonadBlobStore m => BlobStorable m a where
-    -- |Serialize a value of type @a@ for storage.
-    store :: a -> m Put
-    default store :: (Serialize a) => a -> m Put
-    store = pure . put
     -- |Deserialize a value of type @a@ from storage.
     load :: Get (m a)
     default load :: (Serialize a) => Get (m a)
@@ -411,15 +600,15 @@ class MonadBlobStore m => BlobStorable m a where
     -- This is used when the value's representation includes pointers that
     -- may be replaced or supplemented with blob references.
     storeUpdate :: a -> m (Put, a)
-    storeUpdate v = (,v) <$> store v
-    {-# INLINE store #-}
+    default storeUpdate :: (Serialize a) => a -> m (Put, a)
+    storeUpdate v = return (put v, v)
     {-# INLINE load #-}
     {-# INLINE storeUpdate #-}
 
 -- |Store a value in the blob store and return a reference to it.
 storeRef :: BlobStorable m a => a -> m (BlobRef a)
 storeRef v = do
-    p <- runPut <$> store v
+    p <- runPut . fst <$> storeUpdate v
     storeRaw p
 {-# INLINE storeRef #-}
 
@@ -440,15 +629,40 @@ loadRef ref = do
         Right !mv -> mv
 {-# INLINE loadRef #-}
 
-instance (MonadIO m, BlobStorable m a, BlobStorable m b) => BlobStorable m (a, b) where
+-- |The @DirectBlobStorable m a@ class defines how a value
+-- of type @a@ may be stored directly in monad @m@.
+--
+-- The 'DirectBlobStorable' interface allows for more direct control of how
+-- data is stored and loaded from the blob store than does 'BlobStorable'.
+-- It is expected that this class should only be implemented directly where
+-- implementing 'BlobStorable' instead would not be possible.
+--
+-- A blanket, overlappable instance of 'DirectBlobStorable' is provided for
+-- types that implement 'BlobStorable'.  Thus, if both 'BlobStorable' and
+-- 'DirectBlobStorable' are implemented for a type, then it MUST be that:
+--
+-- * 'storeUpdateDirect' is functionally equivalent to 'storeUpdateRef'; and
+--
+-- * 'loadDirect' is functionally equivalent to 'loadRef'.
+class MonadBlobStore m => DirectBlobStorable m a where
+    -- |Store a value of type @a@, possibly updating its representation.
+    storeUpdateDirect :: a -> m (BlobRef a, a)
+    -- |Load a value of type @a@ from the underlying storage.
+    loadDirect :: BlobRef a -> m a
+
+instance {-# OVERLAPPABLE #-} (MonadBlobStore m, BlobStorable m a) => DirectBlobStorable m a where
+    storeUpdateDirect = storeUpdateRef
+    loadDirect = loadRef
+    {-# INLINE storeUpdateDirect #-}
+    {-# INLINE loadDirect #-}
+
+instance (BlobStorable m a, BlobStorable m b) => BlobStorable m (a, b) where
 
   storeUpdate (a, b) = do
     (!pa, !a') <- storeUpdate a
     (!pb, !b') <- storeUpdate b
     let pab = pa >> pb
     return (pab, (a', b'))
-
-  store v = fst <$> storeUpdate v
 
   load = do
     ma <- load
@@ -457,7 +671,6 @@ instance (MonadIO m, BlobStorable m a, BlobStorable m b) => BlobStorable m (a, b
       a <- ma
       b <- mb
       return (a, b)
-  {-# INLINE store #-}
   {-# INLINE load #-}
   {-# INLINE storeUpdate #-}
 
@@ -517,74 +730,110 @@ class Monad m => Reference m ref a where
   -- |Given a reference, flush the data and return an uncached reference.
   refUncache :: ref a -> m (ref a)
 
+-- |Migrate a reference from one context to another, using the provided callback
+-- to migrate the value. This is a general construction that applies to all
+-- references, but it might not be the most efficient option. In particular, for
+-- hashed references if the hash is unchanged by migration a more efficient
+-- implementation is possible that either retains the original hash if this is
+-- applicable, or one that computes the hash at the most opportune time, when
+-- the value is known to be in memory.
+--
+-- The old (input) reference is uncached, and the new reference is flushed.
+-- Typically this will mean that the value is retained in memory with a pointer
+-- to a disk value. But this may be different for some references such as
+-- 'CachedRef'.
+migrateReference ::
+    forall t m ref1 ref2 a b.
+    (MonadTrans t, Reference m ref1 a, Reference (t m) ref2 b) =>
+    (a -> t m b) ->
+    ref1 a ->
+    t m (ref2 b)
+migrateReference f hb = do
+    a <- f =<< lift (refLoad hb)
+    newRef <- refMake a
+    (!newFlushedRef, _) <- refFlush newRef
+    !_ <- lift (refUncache hb)
+    return $! newFlushedRef
+
 -- |A value that may exists purely on disk ('BRBlobbed'), purely in memory
--- ('BRMemory' with @brIORef = null@), or both in memory and on disk. When the
+-- ('BRMemory' with @brIORef = Null@), or both in memory and on disk. When the
 -- value is both on disk and in memory the two values must match.
+-- 
+-- The 'BRMemory' case uses an 'IORef' that either stores 'Null' if the reference has not already
+-- been written to the disk, or @Some BRBoth{..}@ if it has.  When 'storeUpdate' is called, this
+-- 'IORef' is checked, and it is used in the @Some@ case; in the @Null@ case, the updated reference
+-- (a @BRBoth@) is written into the 'IORef'.  This ensures that if the reference is shared then
+-- we: 1) don't write it multiple times; and 2) also share the updated value after it is written.
+-- (Note, we could just store the contents of the @BRBoth@ instead of the @BRBoth@ itself in the
+-- 'IORef'.  Our implementation choice avoids some extra constructors and definitions, although
+-- it does introduce an invariant that is not enforced by the type system itself.  However, this
+-- implementation detail should not leak outside the present module.)
+--
+-- In a previous version, the 'IORef' only held the 'BlobRef', and 'storeUpdate' would use that
+-- and the existing value. This was problematic, because in cases of sharing it is important to
+-- also share the updated value.  In particular, it caused cases where a module was retained
+-- in memory as a result of a shared 'BRMemory' not being updated.  (The module reference is
+-- shared by the modules table and instances of the module.  The module table reference would be
+-- flushed, and updated with a version that did not retain the module in memory.  However, the
+-- instance reference would just be updated with the new 'BlobRef', but keep the old value, which
+-- retained the module in memory.)
+--
+-- An alternative implementation choice would be to have 'BRMemory' always store the value under
+-- the 'IORef'.  This approach was not taken in order to avoid the additional indirection this
+-- introduces.
+--
+-- The choice to have 'BRBoth' at all (and not just use 'BRMemory') was to reduce the indirection
+-- for the common case where the data is both in memory and on disk.
 data BufferedRef a
     = BRBlobbed {brRef :: !(BlobRef a)}
     -- ^Value stored on disk
-    | BRMemory {brIORef :: !(IORef (BlobRef a)), brValue :: !a}
+    | BRMemory {brIORef :: !(IORef (Nullable (BufferedRef a))), brValue :: !a}
     -- ^Value stored in memory and possibly on disk.
-    -- When a new 'BRMemory' instance is created, we initialize 'brIORef' to 'refNull'.
-    -- When we store the instance in persistent storage, we update 'brIORef' with the corresponding pointer.
-    -- That way, when we store the same instance again on disk (this could be, e.g., a child block
-    -- that inherited its parent's state) we can store the pointer to the 'brValue' data rather than
-    -- storing all of the data again.
+    -- 'brIORef' contains 'Null' if the value has never been written to the blob store, and
+    -- otherwise @Some BRBoth{..}@ with the reference and updated value.
     | BRBoth {brRef :: !(BlobRef a), brValue :: !a}
     -- ^Value stored in memory and on disk.
 
--- |Coerce one buffered ref to another. This is unsafe unless a and b have compatible
--- blobstorable instances.
-unsafeCoerceBufferedRef :: (a -> b) -> BufferedRef a -> BufferedRef b
-unsafeCoerceBufferedRef _ (BRBlobbed br) = BRBlobbed (coerce br)
-unsafeCoerceBufferedRef f (BRMemory ioref val) = BRMemory (coerce ioref) (f val)
-unsafeCoerceBufferedRef f (BRBoth br val) = BRBoth (coerce br) (f val)
-
--- | Create a @BRMemory@ value in a @MonadIO@ context with the provided values
-makeBRMemory :: MonadIO m => (BlobRef a) -> a -> m (BufferedRef a)
-makeBRMemory r a = liftIO $ do
-    ref <- newIORef r
-    return $ BRMemory ref a
-
 -- | Create a @BRMemory@ value with a null reference (so the value is just in memory)
 makeBufferedRef :: MonadIO m => a -> m (BufferedRef a)
-makeBufferedRef = makeBRMemory refNull
+makeBufferedRef v = liftIO $ do
+    ref <- newIORef Null
+    return $ BRMemory ref v
+
+-- | Create a 'BufferedRef' from a 'BlobRef', without loading anything.
+blobRefToBufferedRef :: BlobRef a -> BufferedRef a
+blobRefToBufferedRef = BRBlobbed
 
 instance Show a => Show (BufferedRef a) where
   show (BRBlobbed r) = show r
   show (BRMemory _ v) = "{" ++ show v ++ "}"
   show (BRBoth r v) = "{" ++ show v ++ "}@" ++ show r
 
-instance BlobStorable m a => BlobStorable m (BufferedRef a) where
-    store b = getBRRef b >>= store
+instance DirectBlobStorable m a => BlobStorable m (BufferedRef a) where
     load = fmap BRBlobbed <$> load
-    storeUpdate brm@(BRMemory ref v) = do
-        r <- liftIO $ readIORef ref
-        if isNull r
-        then do
-            (r' :: BlobRef a, v') <- storeUpdateRef v
-            liftIO . writeIORef ref $! r'
-            (,BRBoth r' v') <$> store r'
-        else (,brm) <$> store brm
-    storeUpdate x = (,x) <$> store x
+    storeUpdate (BRMemory ref v) = liftIO (readIORef ref) >>= \case
+        Null -> do
+            (r' :: BlobRef a, v') <- storeUpdateDirect v
+            let br' = BRBoth r' v'
+            liftIO . writeIORef ref $! Some br'
+            return (put r', br')
+        Some br' -> storeUpdate br'
+    storeUpdate x = do
+        ref <- getBRRef x
+        return (put ref, x)
 
 -- |Stores in-memory data to disk if it has not been stored yet and returns pointer to saved data
-getBRRef :: BlobStorable m a => BufferedRef a -> m (BlobRef a)
-getBRRef (BRMemory ref v) = do
-    r <- liftIO $ readIORef ref
-    if isNull r
-    then do
-        (r' :: BlobRef a) <- storeRef v
-        liftIO . writeIORef ref $! r'
+getBRRef :: DirectBlobStorable m a => BufferedRef a -> m (BlobRef a)
+getBRRef (BRMemory ref v) = liftIO (readIORef ref) >>= \case
+    Null -> do
+        (r' :: BlobRef a, v') <- storeUpdateDirect v
+        liftIO . writeIORef ref $! Some (BRBoth r' v')
         return r'
-    else
-        return r
+    Some br' -> getBRRef br'
 getBRRef (BRBoth r _) = return r
 getBRRef (BRBlobbed r) = return r
 
-instance BlobStorable m a => BlobStorable m (Nullable (BufferedRef a)) where
-    store Null = return $ put (refNull :: BlobRef a)
-    store (Some v) = store v
+instance DirectBlobStorable m a => BlobStorable m (Nullable (BufferedRef a)) where
     load = do
         (r :: BlobRef a) <- get
         if isNull r then
@@ -597,42 +846,41 @@ instance BlobStorable m a => BlobStorable m (Nullable (BufferedRef a)) where
         return (r, Some v')
 
 -- |Load the value from a @BufferedRef@ not caching it.
-loadBufferedRef :: BlobStorable m a => BufferedRef a -> m a
+loadBufferedRef :: DirectBlobStorable m a => BufferedRef a -> m a
 loadBufferedRef = refLoad
 
 -- |Load a 'BufferedRef' and cache it if it wasn't already in memory.
-cacheBufferedRef :: BlobStorable m a => BufferedRef a -> m (a, BufferedRef a)
+cacheBufferedRef :: DirectBlobStorable m a => BufferedRef a -> m (a, BufferedRef a)
 cacheBufferedRef = refCache
 
 -- |If given a Blobbed reference, do nothing. Otherwise if needed store the value.
-flushBufferedRef :: BlobStorable m a => BufferedRef a -> m (BufferedRef a, BlobRef a)
+flushBufferedRef :: DirectBlobStorable m a => BufferedRef a -> m (BufferedRef a, BlobRef a)
 flushBufferedRef = refFlush
 
 -- |Convert a Cached reference into a Blobbed one storing the data if needed.
-uncacheBuffered :: BlobStorable m a => BufferedRef a -> m (BufferedRef a)
-uncacheBuffered = refUncache
+uncacheBufferedRef :: DirectBlobStorable m a => BufferedRef a -> m (BufferedRef a)
+uncacheBufferedRef = refUncache
 
-instance (Monad m, BlobStorable m a) => Reference m BufferedRef a where
-  refMake = makeBRMemory refNull
+instance (Monad m, DirectBlobStorable m a) => Reference m BufferedRef a where
+  refMake = makeBufferedRef
 
-  refLoad (BRBlobbed ref) = loadRef ref
+  refLoad (BRBlobbed ref) = loadDirect ref
   refLoad (BRMemory _ v) = return v
   refLoad (BRBoth _ v) = return v
 
   refCache (BRBlobbed ref) = do
-    v <- loadRef ref
+    v <- loadDirect ref
     return (v, BRBoth ref v)
   refCache r@(BRMemory _ v) = return (v, r)
   refCache r@(BRBoth _ v) = return (v, r)
 
-  refFlush brm@(BRMemory ref v) = do
-    r <- liftIO $ readIORef ref
-    if isNull r
-      then do
-        (!r' :: BlobRef a, !v') <- storeUpdateRef v
-        liftIO . writeIORef ref $! r'
-        return (BRBoth r' v', r')
-      else return (brm, r)
+  refFlush (BRMemory ref v) = liftIO (readIORef ref) >>= \case
+    Null -> do
+        (!r' :: BlobRef a, !v') <- storeUpdateDirect v
+        let br' = BRBoth r' v'
+        liftIO . writeIORef ref $! Some br'
+        return (br', r')
+    Some brm' -> refFlush brm'
   refFlush b = return (b, brRef b)
 
   refUncache v@(BRMemory _ _) = BRBlobbed <$> getBRRef v
@@ -644,17 +892,10 @@ instance (Monad m, BlobStorable m a) => Reference m BufferedRef a where
   {-# INLINE refCache #-}
   {-# INLINE refUncache #-}
 
-instance (BlobStorable m a, MHashableTo m h a) => MHashableTo m h (BufferedRef a) where
+instance (DirectBlobStorable m a, MHashableTo m h a) => MHashableTo m h (BufferedRef a) where
   getHashM ref = getHashM =<< refLoad ref
 
-instance (Serialize a, Serialize b, BlobStorable m a) => MHashableTo m H.Hash (BufferedRef a, b) where
-  getHashM (a, b) = do
-    val <- encode <$> refLoad a
-    return $ H.hash (val <> encode b)
-
-instance (BlobStorable m a, BlobStorable m b) => BlobStorable m (Nullable (BufferedRef a, b)) where
-  store Null = return $ put (refNull :: BlobRef a)
-  store (Some v) = store v
+instance (DirectBlobStorable m a, BlobStorable m b) => BlobStorable m (Nullable (BufferedRef a, b)) where
   load = do
     (r :: BlobRef a) <- get
     if isNull r
@@ -669,9 +910,8 @@ instance (BlobStorable m a, BlobStorable m b) => BlobStorable m (Nullable (Buffe
     (!r, !v') <- storeUpdate v
     return (r, Some v')
 
-instance (BlobStorable m a, BlobStorable m b) => BlobStorable m (Nullable (HashedBufferedRef a, b)) where
-  store Null = return $ put (refNull :: BlobRef a)
-  store (Some v) = store v
+
+instance (DirectBlobStorable m a, BlobStorable m b) => BlobStorable m (Nullable (HashedBufferedRef a, b)) where
   load = do
     (r :: BlobRef a) <- get
     if isNull r
@@ -695,6 +935,15 @@ data EagerBufferedRef a = EagerBufferedRef
       ebrValue :: !a
     }
 
+-- |Migrate the reference from one context to another, using the provided
+-- callback to migrate the value.
+migrateEagerBufferedRef ::
+    (BlobStorable m a, BlobStorable (t m) b, MonadTrans t) =>
+    (a -> t m b) ->
+    EagerBufferedRef a ->
+    t m (EagerBufferedRef b)
+migrateEagerBufferedRef = migrateReference 
+
 instance Show a => Show (EagerBufferedRef a) where
     show = show . ebrValue
 
@@ -703,35 +952,36 @@ makeEagerBufferedRef r a = do
     ref <- liftIO $ newIORef r
     return $ EagerBufferedRef ref a
 
-flushEagerBufferedRef :: BlobStorable m a => EagerBufferedRef a -> m (BlobRef a)
+flushEagerBufferedRef :: DirectBlobStorable m a => EagerBufferedRef a -> m (BlobRef a)
 flushEagerBufferedRef EagerBufferedRef{..} = do
     r <- liftIO $ readIORef ebrIORef
     if isNull r
     then do
-        (r' :: BlobRef a) <- storeRef ebrValue
+        (r' :: BlobRef a) <- fst <$> storeUpdateDirect ebrValue
         liftIO . writeIORef ebrIORef $! r'
         return r'
     else
         return r
 
-instance BlobStorable m a => BlobStorable m (EagerBufferedRef a) where
-    store b = flushEagerBufferedRef b >>= store
+instance DirectBlobStorable m a => BlobStorable m (EagerBufferedRef a) where
     load = do
         br <- get
         return $ do
-            val <- loadRef br
+            val <- loadDirect br
             makeEagerBufferedRef br val
     storeUpdate ebr@(EagerBufferedRef ref v) = do
         r <- liftIO $ readIORef ref
         if isNull r
         then do
-            (!r' :: BlobRef a, !v') <- storeUpdateRef v
+            (!r' :: BlobRef a, !v') <- storeUpdateDirect v
             liftIO $ writeIORef ref $! r'
-            (, EagerBufferedRef ref v') <$> store r'
-        else (,ebr) <$> store ebr
+            return (put r', EagerBufferedRef ref v')
+        else do
+            r' <- flushEagerBufferedRef ebr
+            return (put r', ebr)
 
 
-instance (Monad m, BlobStorable m a) => Reference m EagerBufferedRef a where
+instance (Monad m, DirectBlobStorable m a) => Reference m EagerBufferedRef a where
     refMake = makeEagerBufferedRef refNull
     refLoad EagerBufferedRef{..} = return ebrValue
     refCache ebr = return (ebrValue ebr, ebr)
@@ -739,7 +989,7 @@ instance (Monad m, BlobStorable m a) => Reference m EagerBufferedRef a where
         r <- liftIO $ readIORef ref
         if isNull r
         then do
-            (!r' :: BlobRef a, !v') <- storeUpdateRef v
+            (!r' :: BlobRef a, !v') <- storeUpdateDirect v
             liftIO $ writeIORef ref $! r'
             return (EagerBufferedRef ref v', r')
         else return (ebr, r)
@@ -753,15 +1003,13 @@ instance (Monad m, BlobStorable m a) => Reference m EagerBufferedRef a where
 instance (MHashableTo m h a) => MHashableTo m h (EagerBufferedRef a) where
     getHashM = getHashM . ebrValue
 
-instance BlobStorable m a => BlobStorable m (Nullable (EagerBufferedRef a)) where
-    store Null = return $ put (refNull :: BlobRef a)
-    store (Some v) = store v
+instance DirectBlobStorable m a => BlobStorable m (Nullable (EagerBufferedRef a)) where
     load = do
         (r :: BlobRef a) <- get
         if isNull r then
             return (pure Null)
         else return $ do
-            val <- loadRef r
+            val <- loadDirect r
             Some <$> makeEagerBufferedRef r val
     storeUpdate n@Null = return (put (refNull :: BlobRef a), n)
     storeUpdate (Some v) = do
@@ -783,27 +1031,25 @@ instance (Applicative m, Cacheable m a) => Cacheable m (EagerBufferedRef a) wher
 -- > data BinaryTree' = Branch (BufferedRef BinaryTree') (BufferedRef BinaryTree') | Leaf
 --
 -- The use of fixed point combinators such as this allows us to implement recursive
--- datastructures independently of how the recursion is handled (e.g. via 'BufferedRef'
--- as in this case, or without refrences as with 'Fix').
+-- data-structures independently of how the recursion is handled (e.g. via 'BufferedRef'
+-- as in this case, or without references as with 'Fix').
 newtype BufferedFix f = BufferedFix {unBF :: BufferedRef (f (BufferedFix f))}
 
 type instance Base (BufferedFix f) = f
 
-instance (MonadBlobStore m, BlobStorable m (f (BufferedFix f))) => BlobStorable m (BufferedFix f) where
-    store = store . unBF
+instance (MonadBlobStore m, DirectBlobStorable m (f (BufferedFix f))) => BlobStorable m (BufferedFix f) where
     load = fmap BufferedFix <$> load
     storeUpdate bf = do
         (!p, !r) <- storeUpdate (unBF bf)
         return (p, BufferedFix r)
 
-instance (MonadBlobStore m, BlobStorable m (f (BufferedFix f))) => BlobStorable m (Nullable (BufferedFix f)) where
-    store = store . fmap unBF
+instance (MonadBlobStore m, DirectBlobStorable m (f (BufferedFix f))) => BlobStorable m (Nullable (BufferedFix f)) where
     load = fmap (fmap BufferedFix) <$> load
     storeUpdate bf = do
         (!p, !r) <- storeUpdate (fmap unBF bf)
         return (p, BufferedFix <$> r)
 
-instance (Monad m, BlobStorable m (f (BufferedFix f))) => MRecursive m (BufferedFix f) where
+instance (Monad m, DirectBlobStorable m (f (BufferedFix f))) => MRecursive m (BufferedFix f) where
     mproject = refLoad . unBF
     {-# INLINE mproject #-}
 
@@ -827,7 +1073,7 @@ instance FixShowable BufferedFix where
     showFix sh (BufferedFix (BRMemory _ v)) = sh (showFix sh <$> v)
     showFix sh (BufferedFix (BRBoth _ v)) = sh (showFix sh <$> v)
 
-instance (Functor m, BlobStorable m (f (BufferedFix f)), Cacheable m (f (BufferedFix f))) => Cacheable m (BufferedFix f) where
+instance (Functor m, DirectBlobStorable m (f (BufferedFix f)), Cacheable m (f (BufferedFix f))) => Cacheable m (BufferedFix f) where
     cache = fmap BufferedFix . cache . unBF
 
 -- BlobStorable instances
@@ -895,13 +1141,49 @@ data HashedBufferedRef' h a
         bufferedHash :: !(IORef (Nullable h))
       }
 
+-- |Migrate a 'HashedBufferedRef' assuming that neither the value nor its hash
+-- change. The input reference is uncached, and the new references is flushed to
+-- disk, as well as cached in memory.
+migrateHashedBufferedRefKeepHash ::
+    (MonadTrans t, BlobStorable m a, BlobStorable (t m) a) =>
+    HashedBufferedRef' h a ->
+    t m (HashedBufferedRef' h a)
+migrateHashedBufferedRefKeepHash hb = do
+    !newRef <- refMake =<< lift (refLoad (bufferedReference hb))
+    -- carry over the hash
+    (!b, _) <- refFlush newRef
+    !_ <- lift (refUncache (bufferedReference hb))
+    return $!
+        HashedBufferedRef
+            { bufferedReference = b
+            , bufferedHash = bufferedHash hb
+            }
+
+-- |Migrate a 'HashedBufferedRef'. The returned reference has a hash computed
+-- already. The input reference is uncached, and the new references is flushed
+-- to disk, as well as cached in memory.
+migrateHashedBufferedRef ::
+  (MonadTrans t, MHashableTo (t m) h b, BlobStorable m a, BlobStorable (t m) b) =>
+  (a -> t m b) ->
+  HashedBufferedRef' h a ->
+  t m (HashedBufferedRef' h b)
+migrateHashedBufferedRef f hb = do
+    !newRef <- refMake =<< f =<< lift (refLoad (bufferedReference hb))
+    -- compute the hash while the data is in memory.
+    !h <- getHashM (bufferedReference newRef)
+    liftIO . writeIORef (bufferedHash newRef) $! Some h
+    (!b, _) <- refFlush newRef
+    !_ <- lift (refUncache (bufferedReference hb))
+    liftIO $! writeIORef (bufferedHash hb) Null
+    return b
+
 -- |A specialisation of 'HashedBufferedRef'' to the hash type 'H.Hash'.
 type HashedBufferedRef = HashedBufferedRef' H.Hash
 
 -- |Created a 'HashedBufferedRef' value from a 'Hashed' value, retaining the hash.
 bufferHashed :: MonadIO m => Hashed a -> m (HashedBufferedRef a)
 bufferHashed (Hashed !val !h) = do
-  br <- makeBRMemory refNull val
+  br <- makeBufferedRef val
   hashRef <- liftIO $ newIORef (Some h)
   return $ HashedBufferedRef br hashRef
 
@@ -909,11 +1191,11 @@ bufferHashed (Hashed !val !h) = do
 -- on demand.
 makeHashedBufferedRef :: (MonadIO m) => a -> m (HashedBufferedRef' h a)
 makeHashedBufferedRef val = do
-  br <- makeBRMemory refNull val
+  br <- makeBufferedRef val
   hashRef <- liftIO $ newIORef Null
   return $ HashedBufferedRef br hashRef
 
-instance (BlobStorable m a, MHashableTo m h a) => MHashableTo m h (HashedBufferedRef' h a) where
+instance (DirectBlobStorable m a, MHashableTo m h a) => MHashableTo m h (HashedBufferedRef' h a) where
   getHashM HashedBufferedRef{..} = liftIO (readIORef bufferedHash) >>= \case
     Null -> do
         !h <- getHashM bufferedReference
@@ -924,10 +1206,7 @@ instance (BlobStorable m a, MHashableTo m h a) => MHashableTo m h (HashedBuffere
 instance Show a => Show (HashedBufferedRef a) where
   show ref = show (bufferedReference ref)
 
-instance (BlobStorable m a) => BlobStorable m (HashedBufferedRef' h a) where
-  store b =
-    -- store the value if needed and then serialize the returned reference.
-    store (bufferedReference b)
+instance (DirectBlobStorable m a) => BlobStorable m (HashedBufferedRef' h a) where
   load = do
     -- deserialize the reference and keep it as blobbed
     mbufferedReference <- load
@@ -939,7 +1218,7 @@ instance (BlobStorable m a) => BlobStorable m (HashedBufferedRef' h a) where
     (!pt, !br) <- storeUpdate brm
     return (pt, HashedBufferedRef br hRef)
 
-instance (Monad m, BlobStorable m a, MHashableTo m h a) => Reference m (HashedBufferedRef' h) a where
+instance (Monad m, DirectBlobStorable m a, MHashableTo m h a) => Reference m (HashedBufferedRef' h) a where
   refFlush ref = do
     (!br, !r) <- flushBufferedRef (bufferedReference ref)
     return (HashedBufferedRef br (bufferedHash ref), r)
@@ -947,7 +1226,7 @@ instance (Monad m, BlobStorable m a, MHashableTo m h a) => Reference m (HashedBu
   refLoad = loadBufferedRef . bufferedReference
 
   refMake val = do
-    br <- makeBRMemory refNull val
+    br <- makeBufferedRef val
     hashRef <- liftIO $ newIORef Null
     return $ HashedBufferedRef br hashRef
 
@@ -961,7 +1240,7 @@ instance (Monad m, BlobStorable m a, MHashableTo m h a) => Reference m (HashedBu
     return (val, ref')
 
   refUncache ref = do
-    br <- uncacheBuffered (bufferedReference ref)
+    br <- uncacheBufferedRef (bufferedReference ref)
     return $ ref {bufferedReference = br}
   {-# INLINE refFlush #-}
   {-# INLINE refLoad #-}
@@ -969,9 +1248,7 @@ instance (Monad m, BlobStorable m a, MHashableTo m h a) => Reference m (HashedBu
   {-# INLINE refCache #-}
   {-# INLINE refUncache #-}
 
-instance (BlobStorable m a) => BlobStorable m (Nullable (HashedBufferedRef' h a)) where
-    store Null = return $ put (refNull :: BlobRef a)
-    store (Some v) = store v
+instance (DirectBlobStorable m a) => BlobStorable m (Nullable (HashedBufferedRef' h a)) where
     load = do
         (r :: BlobRef a) <- get
         if isNull r then
@@ -989,11 +1266,9 @@ type HashedBufferedRefForCPV1 (cpv :: ChainParametersVersion) a =
     JustForCPV1 cpv (HashedBufferedRef a)
 
 instance
-    (BlobStorable m a, IsChainParametersVersion cpv) =>
+    (DirectBlobStorable m a, IsChainParametersVersion cpv) =>
     BlobStorable m (HashedBufferedRefForCPV1 cpv a)
     where
-    store NothingForCPV1 = return (pure ())
-    store (JustForCPV1 v) = store v
     load = case chainParametersVersion @cpv of
             SCPV0 -> return (pure NothingForCPV1)
             SCPV1 -> fmap (fmap JustForCPV1) load
@@ -1011,13 +1286,25 @@ data EagerlyHashedBufferedRef' h a = EagerlyHashedBufferedRef
 
 type EagerlyHashedBufferedRef = EagerlyHashedBufferedRef' H.Hash
 
+
+-- |Migrate an 'EagerlyHashedBufferedRef' **assuming the migration does not
+-- change the hash**. The hash is carried over and not recomputed.
+migrateEagerlyHashedBufferedRefKeepHash ::
+    (BlobStorable m a, BlobStorable (t m) a, MonadTrans t) =>
+    (a -> t m a) ->
+    EagerlyHashedBufferedRef' h a ->
+    t m (EagerlyHashedBufferedRef' h a)
+migrateEagerlyHashedBufferedRefKeepHash f r = do
+    ehbrReference <- migrateEagerBufferedRef f (ehbrReference r)
+    return $! r { ehbrReference = ehbrReference }
+
+
 instance HashableTo h (EagerlyHashedBufferedRef' h a) where
     getHash = ehbrHash
 
 instance (Monad m) => MHashableTo m h (EagerlyHashedBufferedRef' h a)
 
 instance (BlobStorable m a, MHashableTo m h a) => BlobStorable m (EagerlyHashedBufferedRef' h a) where
-    store b = store (ehbrReference b)
     load = do
         mref <- load
         return $ do
@@ -1028,7 +1315,6 @@ instance (BlobStorable m a, MHashableTo m h a) => BlobStorable m (EagerlyHashedB
     storeUpdate (EagerlyHashedBufferedRef br0 hsh) = do
         (!pt, !br1) <- storeUpdate br0
         return (pt, EagerlyHashedBufferedRef br1 hsh)
-    {-# INLINE store #-}
     {-# INLINE load #-}
     {-# INLINE storeUpdate #-}
 
@@ -1041,8 +1327,6 @@ blobRefToEagerlyHashedBufferedRef ref = do
     return $! EagerlyHashedBufferedRef{..}
 
 instance (BlobStorable m a, MHashableTo m h a) => BlobStorable m (Nullable (EagerlyHashedBufferedRef' h a)) where
-    store Null = return $ put (refNull :: BlobRef a)
-    store (Some v) = store v
     load = do
         (r :: BlobRef a) <- get
         if isNull r then
@@ -1055,8 +1339,6 @@ instance (BlobStorable m a, MHashableTo m h a) => BlobStorable m (Nullable (Eage
         return (r, Some v')
 
 instance (BlobStorable m a, MHashableTo m h a, BlobStorable m b) => BlobStorable m (Nullable (EagerlyHashedBufferedRef' h a, b)) where
-  store Null = return $ put (refNull :: BlobRef a)
-  store (Some v) = store v
   load = do
     (r :: BlobRef a) <- get
     if isNull r
@@ -1114,9 +1396,9 @@ instance (Applicative m, Cacheable m a) => Cacheable m (Nullable a) where
 instance (Applicative m, Cacheable m a) => Cacheable m (JustForCPV1 cpv a) where
     cache = traverse cache
 
-instance (BlobStorable m a, Cacheable m a) => Cacheable m (BufferedRef a) where
+instance (DirectBlobStorable m a, Cacheable m a) => Cacheable m (BufferedRef a) where
     cache BRBlobbed{..} = do
-        brValue <- cache =<< loadRef brRef
+        brValue <- cache =<< loadDirect brRef
         return BRBoth{..}
     cache br@BRMemory{..} = do
         cachedVal <- cache brValue
@@ -1125,7 +1407,7 @@ instance (BlobStorable m a, Cacheable m a) => Cacheable m (BufferedRef a) where
         cachedVal <- cache brValue
         return $! br{brValue = cachedVal}
 
-instance (MHashableTo m h a, BlobStorable m a, Cacheable m a) => Cacheable m (HashedBufferedRef' h a) where
+instance (MHashableTo m h a, DirectBlobStorable m a, Cacheable m a) => Cacheable m (HashedBufferedRef' h a) where
   cache (HashedBufferedRef ref hshRef) = do
     ref' <- cache ref
     currentHash <- liftIO (readIORef hshRef)
@@ -1181,9 +1463,9 @@ class Cacheable1 m c a where
     -- type.
     liftCache :: (a -> m a) -> c -> m c
 
-instance BlobStorable m a => Cacheable1 m (BufferedRef a) a where
+instance DirectBlobStorable m a => Cacheable1 m (BufferedRef a) a where
     liftCache cch BRBlobbed{..} = do
-        brValue <- cch =<< loadRef brRef
+        brValue <- cch =<< loadDirect brRef
         return BRBoth{..}
     liftCache cch br@BRMemory{..} = do
         cachedVal <- cch brValue
@@ -1192,7 +1474,7 @@ instance BlobStorable m a => Cacheable1 m (BufferedRef a) a where
         cachedVal <- cch brValue
         return $! br{brValue = cachedVal}
 
-instance (MHashableTo m h a, BlobStorable m a) => Cacheable1 m (HashedBufferedRef' h a) a where
+instance (MHashableTo m h a, DirectBlobStorable m a) => Cacheable1 m (HashedBufferedRef' h a) a where
     liftCache cch (HashedBufferedRef ref hshRef) = do
         ref' <- liftCache cch ref
         currentHash <- liftIO (readIORef hshRef)

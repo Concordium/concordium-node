@@ -40,7 +40,7 @@ data IT
     -- * the left and right subtrees
     = Branch !Word8 !Bool !Bool H.Hash IT IT
     -- |A leaf holds a contract instance
-    | Leaf !Instance
+    | Leaf !BasicInstance
     -- |A vacant leaf records the 'ContractSubindex' of the last instance
     -- with this 'ContractIndex'.
     | VacantLeaf !ContractSubindex
@@ -57,13 +57,13 @@ instance HashableTo H.Hash InstanceTable where
     getHash (Tree _ t) = getHash t
 
 -- |A fold over the leaves of an 'IT'
-foldIT :: SimpleFold IT (Either ContractSubindex Instance)
+foldIT :: SimpleFold IT (Either ContractSubindex BasicInstance)
 foldIT up (Branch _ _ _ _ l r) = foldIT up l <> foldIT up r
 foldIT up t@(Leaf i) = t <$ up (Right i)
 foldIT up t@(VacantLeaf si) = t <$ up (Left si)
 
 type instance Index IT = ContractIndex
-type instance IxValue IT = Instance
+type instance IxValue IT = BasicInstance
 
 instance Ixed IT where
     ix i upd br@(Branch b f v _ t1 t2)
@@ -78,7 +78,7 @@ instance Ixed IT where
     ix _ _ v@(VacantLeaf _) = pure v
 
 type instance Index InstanceTable = ContractAddress
-type instance IxValue InstanceTable = Instance
+type instance IxValue InstanceTable = BasicInstance
 
 instance Ixed InstanceTable where
     ix _ _ t@Empty = pure t
@@ -99,7 +99,7 @@ hasVacancies (Branch _ _ v _ _ _) = v
 hasVacancies (Leaf _) = False
 hasVacancies (VacantLeaf _) = True
 
-newContractInstance :: Lens InstanceTable InstanceTable ContractAddress Instance
+newContractInstance :: Lens InstanceTable InstanceTable ContractAddress BasicInstance
 newContractInstance mk Empty = Tree 1 . Leaf <$> mk (ContractAddress 0 0)
 newContractInstance mk (Tree s0 t0) = Tree (s0 + 1) <$> nci 0 t0
     where
@@ -160,7 +160,7 @@ deleteContractInstanceExact addr (Tree s0 t0) = uncurry Tree $ dci (contractInde
 -- the function returns 'Nothing', indicating there are no more
 -- instances in the constructed table.
 constructM :: (Monad m)
-    => (ContractIndex -> m (Maybe (Either ContractSubindex Instance)))
+    => (ContractIndex -> m (Maybe (Either ContractSubindex BasicInstance)))
     -> m InstanceTable
 constructM build = c 0 0 []
     where
@@ -197,7 +197,7 @@ instance HashableTo H.Hash Instances where
     getHash = getHash . _instances
 
 type instance Index Instances = ContractAddress
-type instance IxValue Instances = Instance
+type instance IxValue Instances = BasicInstance
 
 instance Ixed Instances where
     ix z = instances . ix z

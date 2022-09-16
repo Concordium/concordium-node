@@ -34,7 +34,7 @@ import Concordium.Types.Transactions
 import Concordium.GlobalState.Block as B
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer
-import Concordium.GlobalState.BlockState (BlockStateQuery, AccountOperations, BlockStateStorage, BlockStateOperations, ContractStateOperations)
+import Concordium.GlobalState.BlockState (BlockStateQuery, AccountOperations, BlockStateStorage, BlockStateOperations, ContractStateOperations, ModuleQuery)
 import Concordium.GlobalState.Statistics (ConsensusStatistics)
 import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.Classes as C
@@ -198,13 +198,25 @@ class (SkovQueryMonad m, TimeMonad m, MonadLogger m) => SkovMonad m where
     trustedFinalize :: FinalizationRecord -> m (Either UpdateResult (BlockPointerType m))
     -- |Handle a catch-up status message.
     handleCatchUpStatus :: CatchUpStatus -> Int -> m (Maybe ([(MessageType, ByteString)], CatchUpStatus), UpdateResult)
-    -- |Clean up the Skov state once it is shut down (i.e. a protocol update has
-    -- occurred). Returns a list of non-finalized transactions.
-    terminateSkov :: m [BlockItem]
+    -- |Clean up the Skov state upon a protocol update, removing all blocks that
+    -- are made obsolete by the protocol update. This should maintain all
+    -- invariants normally maintained by the Skov state, e.g., transaction table
+    -- invariants.
+    clearSkovOnProtocolUpdate :: m ()
+    -- |Release any resources maintained by Skov and no longer needed after a
+    -- new skov instance is started after a protocol update. This is intended to be called
+    -- **after** 'clearSkovOnProtocolUpdate'.
+    terminateSkov :: m ()
     -- |Purge uncommitted transactions from the transaction table.  This can be called
     -- periodically to clean up transactions that are not committed to any block.
     purgeTransactions :: m ()
 
+    -- |Record the final block state, derived from the last finalized block to
+    -- prepare for the construction of the new genesis for the chain after the
+    -- protocol update. This state is not associated with any specific block of
+    -- the chain. This function is only meant to be used during a protocol
+    -- update.
+    rememberFinalState :: BlockState m -> m ()
 
 instance (Monad (t m), MonadTrans t, SkovQueryMonad m) => SkovQueryMonad (MGSTrans t m) where
     resolveBlock = lift . resolveBlock
@@ -260,7 +272,10 @@ instance (MonadLogger (t m), MonadTrans t, SkovMonad m) => SkovMonad (MGSTrans t
     trustedFinalize = lift . trustedFinalize
     handleCatchUpStatus peerCUS = lift . handleCatchUpStatus peerCUS
     terminateSkov = lift terminateSkov
+    clearSkovOnProtocolUpdate = lift clearSkovOnProtocolUpdate
     purgeTransactions = lift purgeTransactions
+
+    rememberFinalState = lift . rememberFinalState
     {- - INLINE storeBlock - -}
     {- - INLINE receiveTransaction - -}
     {- - INLINE trustedFinalize - -}
@@ -304,6 +319,7 @@ deriving via (MGSTrans SkovQueryMonadT m) instance GlobalStateTypes m => GlobalS
 deriving via (MGSTrans SkovQueryMonadT m) instance BlockStateTypes (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance AccountOperations m => AccountOperations (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance ContractStateOperations m => ContractStateOperations (SkovQueryMonadT m)
+deriving via (MGSTrans SkovQueryMonadT m) instance ModuleQuery m => ModuleQuery (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance BlockStateQuery m => BlockStateQuery (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance BlockPointerMonad m => BlockPointerMonad (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance TS.TreeStateMonad m => TS.TreeStateMonad (SkovQueryMonadT m)

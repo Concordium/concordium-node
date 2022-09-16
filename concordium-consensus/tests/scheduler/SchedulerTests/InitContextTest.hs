@@ -62,7 +62,7 @@ transactionInputs proxy = [
 
 type TestResult = ([(BlockItemWithStatus, Types.ValidResult)],
                    [(TransactionWithStatus, Types.FailureKind)],
-                   [(Types.ContractAddress, Instance)])
+                   [(Types.ContractAddress, Types.BasicInstance)])
 
 testInit :: forall pv . IsProtocolVersion pv => Proxy pv -> IO TestResult
 testInit proxy = do

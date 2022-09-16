@@ -67,6 +67,7 @@ pub fn start_consensus_layer(
         transaction_keep_alive:     u64::from(conf.transaction_keep_alive),
         transactions_purging_delay: u64::from(conf.transactions_purging_delay),
         accounts_cache_size:        conf.account_cache_size,
+        modules_cache_size:         conf.modules_cache_size,
     };
 
     ConsensusContainer::new(
@@ -291,7 +292,7 @@ pub fn handle_consensus_inbound_msg(
         if !drop_message
             && request.distribution_mode() == DistributionMode::Broadcast
             && request.variant.is_rebroadcastable()
-            && consensus_result.is_rebroadcastable()
+            && consensus_result.is_rebroadcastable(request.variant)
         {
             send_consensus_msg_to_net(
                 node,

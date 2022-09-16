@@ -285,37 +285,41 @@ impl ConsensusFfiResponse {
         )
     }
 
-    pub fn is_rebroadcastable(self) -> bool {
+    pub fn is_rebroadcastable(self, packet_type: PacketType) -> bool {
         use ConsensusFfiResponse::*;
 
-        !matches!(
-            self,
+        match self {
             DeserializationError
-                | InvalidResult
-                | Unverifiable
-                | DuplicateEntry
-                | Stale
-                | IncorrectFinalizationSession
-                | BlockTooEarly
-                | ExpiryTooLate
-                | VerificationFailed
-                | NonexistingSenderAccount
-                | DuplicateNonce
-                | NonceTooLarge
-                | TooLowEnergy
-                | ConsensusShutDown
-                | InvalidGenesisIndex
-                | DuplicateAccountRegistrationID
-                | CredentialDeploymentInvalidSignatures
-                | CredentialDeploymentInvalidIP
-                | CredentialDeploymentInvalidAR
-                | CredentialDeploymentExpired
-                | ChainUpdateInvalidEffectiveTime
-                | ChainUpdateSequenceNumberTooOld
-                | ChainUpdateInvalidSignatures
-                | MaxBlockEnergyExceeded
-                | InsufficientFunds
-        )
+            | InvalidResult
+            | Unverifiable
+            | DuplicateEntry
+            | Stale
+            | IncorrectFinalizationSession
+            | BlockTooEarly
+            | ExpiryTooLate
+            | VerificationFailed
+            | NonexistingSenderAccount
+            | DuplicateNonce
+            | NonceTooLarge
+            | TooLowEnergy
+            | ConsensusShutDown
+            | InvalidGenesisIndex
+            | DuplicateAccountRegistrationID
+            | CredentialDeploymentInvalidSignatures
+            | CredentialDeploymentInvalidIP
+            | CredentialDeploymentInvalidAR
+            | CredentialDeploymentExpired
+            | ChainUpdateInvalidEffectiveTime
+            | ChainUpdateSequenceNumberTooOld
+            | ChainUpdateInvalidSignatures
+            | MaxBlockEnergyExceeded
+            | InsufficientFunds
+            | BakerNotFound
+            | MissingImportFile
+            | ContinueCatchUp => false,
+            PendingBlock => packet_type != PacketType::Block,
+            Success | PendingFinalization | Asynchronous => true,
+        }
     }
 }
 
@@ -430,6 +434,7 @@ impl TryFrom<u8> for ConsensusIsInFinalizationCommitteeResponse {
 /// This is a response that is already parsed from the error code return through
 /// FFI.
 pub enum ConsensusQueryResponse {
+    InternalError,
     Ok,
     NotFound,
 }
@@ -439,6 +444,7 @@ impl ConsensusQueryResponse {
     /// convenient to use in the implementations of the different queries.
     pub fn ensure_ok(self, msg: impl std::fmt::Display) -> Result<(), tonic::Status> {
         match self {
+            Self::InternalError => Err(tonic::Status::internal(format!("Internal error: {}. Please report this bug at https://github.com/Concordium/concordium-node/issues.", msg))),
             Self::Ok => Ok(()),
             Self::NotFound => Err(tonic::Status::not_found(format!("{} not found.", msg))),
         }
@@ -462,6 +468,7 @@ impl TryFrom<i64> for ConsensusQueryResponse {
 
     fn try_from(value: i64) -> Result<Self, Self::Error> {
         match value {
+            -1 => Ok(Self::InternalError),
             0 => Ok(Self::Ok),
             1 => Ok(Self::NotFound),
             unknown_code => Err(ConsensusQueryUnknownCode {

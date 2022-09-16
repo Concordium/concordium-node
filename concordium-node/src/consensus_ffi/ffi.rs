@@ -307,6 +307,7 @@ extern "C" {
         transaction_keep_alive: u64,
         transactions_purging_delay: u64,
         accounts_cache_size: u32,
+        modules_cache_size: u32,
         genesis_data: *const u8,
         genesis_data_len: i64,
         private_data: *const u8,
@@ -331,6 +332,7 @@ extern "C" {
         transaction_keep_alive: u64,
         transactions_purging_delay: u64,
         accounts_cache_size: u32,
+        modules_cache_size: u32,
         genesis_data: *const u8,
         genesis_data_len: i64,
         notify_context: *mut NotificationContext,
@@ -711,6 +713,19 @@ extern "C" {
         ) -> i32,
     ) -> i64;
 
+    /// Get an information about a specific block item.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `transaction_hash` - The transaction hash to use for the query.
+    /// * `out` - Location to write the output of the query.
+    /// * `copier` - Callback for writting the output.
+    pub fn getBlockItemStatusV2(
+        consensus: *mut consensus_runner,
+        transaction_hash: *const u8,
+        out: *mut Vec<u8>,
+        copier: CopyToVecCallback,
+    ) -> i64;
+
     /// Get information, such as height, timings, and transaction counts for the
     /// given block.
     ///
@@ -901,6 +916,7 @@ pub fn get_consensus_ptr(
                     runtime_parameters.transaction_keep_alive,
                     runtime_parameters.transactions_purging_delay,
                     runtime_parameters.accounts_cache_size,
+                    runtime_parameters.modules_cache_size,
                     genesis_data.as_ptr(),
                     genesis_data_len as i64,
                     private_data_bytes.as_ptr(),
@@ -932,6 +948,7 @@ pub fn get_consensus_ptr(
                         runtime_parameters.transaction_keep_alive,
                         runtime_parameters.transactions_purging_delay,
                         runtime_parameters.accounts_cache_size,
+                        runtime_parameters.modules_cache_size,
                         genesis_data.as_ptr(),
                         genesis_data_len as i64,
                         notification_context
@@ -1608,6 +1625,29 @@ impl ConsensusContainer {
         Ok(buf)
     }
 
+    /// Get information about a specific transaction.
+    pub fn get_block_item_status_v2(
+        &self,
+        transaction_hash: &crate::grpc2::types::TransactionHash,
+    ) -> Result<Vec<u8>, tonic::Status> {
+        use crate::grpc2::Require;
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut out_data: Vec<u8> = Vec::new();
+        let transaction_hash_ptr =
+            crate::grpc2::types::transaction_hash_to_ffi(transaction_hash).require()?;
+        let response: ConsensusQueryResponse = unsafe {
+            getBlockItemStatusV2(
+                consensus,
+                transaction_hash_ptr,
+                &mut out_data,
+                copy_to_vec_callback,
+            )
+            .try_into()?
+        };
+        response.ensure_ok("transaction")?;
+        Ok(out_data)
+    }
+
     /// Get information, such as height, timings, and transaction counts for the
     /// given block.
     pub fn get_block_info_v2(
@@ -1732,7 +1772,7 @@ impl ConsensusContainer {
             crate::grpc2::types::blocks_at_height_request_to_ffi(height).require()?;
 
         let mut out_data: Vec<u8> = Vec::new();
-        let response: ConsensusQueryResponse = unsafe {
+        let _response: ConsensusQueryResponse = unsafe {
             getBlocksAtHeightV2(
                 consensus,
                 block_height,

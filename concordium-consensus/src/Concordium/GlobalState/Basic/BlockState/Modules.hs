@@ -55,8 +55,8 @@ data ModuleV v = ModuleV {
 -- contract instance we use the ModuleV type directly so we may tie the version
 -- of the module to the version of the instance.
 data Module where
-  ModuleV0 :: ModuleV GSWasm.V0 -> Module
-  ModuleV1 :: ModuleV GSWasm.V1 -> Module
+  ModuleV0 :: !(ModuleV GSWasm.V0) -> Module
+  ModuleV1 :: !(ModuleV GSWasm.V1) -> Module
   deriving(Show)
 
 instance GSWasm.HasModuleRef Module where
@@ -125,7 +125,7 @@ getModule ref mods = Map.lookup ref (mods ^. modulesMap) >>=
                        flip LFMB.lookup (mods ^. modulesTable)
 
 -- |Get an interface by module reference.
-getInterface :: ModuleRef -> Modules -> Maybe GSWasm.ModuleInterface
+getInterface :: ModuleRef -> Modules -> Maybe GSWasm.BasicModuleInterface
 getInterface ref mods = fromModule <$> getModule ref mods
     where
       fromModule (ModuleV0 v) = GSWasm.ModuleInterfaceV0 (moduleVInterface v)
