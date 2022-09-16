@@ -638,9 +638,10 @@ pub mod server {
                             key:   Vec::new(),
                             value: state,
                         };
-                        if sender.send(Ok(msg)).await.is_err() {
-                            error!("Could not send V0 contract state.")
-                        }
+                        let _ = sender.send(Ok(msg)).await;
+                        // The error only happens if the receiver has been
+                        // dropped already (e.g., connection closed),
+                        // so we do not have to handle it. We just stop
                     });
                     let mut response =
                         tonic::Response::new(tokio_stream::wrappers::ReceiverStream::new(receiver));
@@ -654,14 +655,13 @@ pub mod server {
                     let (sender, receiver) = tokio::sync::mpsc::channel(10);
                     let _sender = tokio::spawn(async move {
                         let iter = state.into_iterator(&mut loader);
-                        // get an iterator over the entire state (starting at root)
                         for (key, value) in iter {
                             let msg = types::InstanceStateKvPair {
                                 key,
                                 value,
                             };
                             if sender.send(Ok(msg)).await.is_err() {
-                                error!("Could not send V1 contract state.");
+                                // the receiver has been dropped, so we stop
                                 break;
                             }
                         }

@@ -1578,7 +1578,8 @@ getInstanceInfoV2 cptr blockType blockHashPtr addrIndex addrSubindex outHash out
 -- |An opaque representation of the place where we write the mutable state in the 'getInstanceStateV2' query.
 data PersistentStateReceiver
 
--- |A type of callback that copies the mutable state into the provided recevier.
+-- |A type of callback that copies the V1 contract persistent state into the
+-- provided recevier.
 type PersistentStateCopier = Ptr PersistentStateReceiver -> Ptr StateV1.PersistentState -> StateV1.LoadCallback -> IO ()
 
 -- |Boilerplate wrapper to invoke C callbacks.
