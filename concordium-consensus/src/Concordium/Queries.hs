@@ -490,7 +490,6 @@ getBlockBirkParameters = liftSkovQueryBlock $ \bp -> do
     return BlockBirkParameters{..}
 
 -- |Get the cryptographic parameters of the chain at a given block.
--- The result is versioned (which will currently always be version 0).
 getCryptographicParameters :: BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe CryptographicParameters)
 getCryptographicParameters = liftSkovQueryBHI $ \bp -> do
     bs <- blockState bp

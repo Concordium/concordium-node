@@ -1939,7 +1939,7 @@ extern "C" fn copy_cryptographic_parameters_callback(
     target: *mut Option<CryptographicParameters>,
     source: *const CryptographicParameters,
 ) {
-    unsafe { *target = source.as_ref().map(|g| g.to_owned()) };
+    unsafe { *target = source.as_ref().cloned() };
 }
 
 pub extern "C" fn direct_callback(
