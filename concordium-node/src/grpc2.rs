@@ -658,11 +658,11 @@ pub mod server {
             Ok(tonic::Response::new(response))
         }
 
-        async fn invoke_contract(
+        async fn invoke_instance(
             &self,
-            request: tonic::Request<crate::grpc2::types::InvokeContractRequest>,
+            request: tonic::Request<crate::grpc2::types::InvokeInstanceRequest>,
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
-            let (hash, response) = self.consensus.invoke_contract_v2(request.get_ref())?;
+            let (hash, response) = self.consensus.invoke_instance_v2(request.get_ref())?;
             let mut response = tonic::Response::new(response);
             add_hash(&mut response, hash)?;
             Ok(response)

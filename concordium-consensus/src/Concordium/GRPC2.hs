@@ -1308,7 +1308,7 @@ instance ToProto Energy where
   toProto = mkWord64
 
 instance ToProto InvokeContract.InvokeContractResult where
-  type Output InvokeContract.InvokeContractResult = Either ConversionError Proto.InvokeContractResponse
+  type Output InvokeContract.InvokeContractResult = Either ConversionError Proto.InvokeInstanceResponse
   toProto InvokeContract.Failure {..} = return $ Proto.make $ ProtoFields.failure .= Proto.make (do
       ProtoFields.maybe'returnValue .= rcrReturnValue
       ProtoFields.usedEnergy .= toProto rcrUsedEnergy
@@ -1702,7 +1702,7 @@ getBlockItemStatusV2 cptr trxHashPtr outVec copierCbk = do
                 BS.unsafeUseAsCStringLen encoded (\(ptr, len) -> copier outVec (castPtr ptr) (fromIntegral len))
                 return $ queryResultCode QRSuccess
 
-invokeContractV2 ::
+invokeInstanceV2 ::
         StablePtr Ext.ConsensusRunner ->
         -- | Block ID type.
         Word8 ->
@@ -1737,7 +1737,7 @@ invokeContractV2 ::
         Ptr ReceiverVec ->
         FunPtr CopyToVecCallback ->
         IO Int64
-invokeContractV2 cptr blockIdType blockIdPtr contractIndex contractSubindex invokerAddressType invokerAccountAddressPtr invokerContractIndex invokerContractSubindex amount receiveNamePtr receiveNameLen parameterPtr parameterLen energy outHash outVec copierCbk = do
+invokeInstanceV2 cptr blockIdType blockIdPtr contractIndex contractSubindex invokerAddressType invokerAccountAddressPtr invokerContractIndex invokerContractSubindex amount receiveNamePtr receiveNameLen parameterPtr parameterLen energy outHash outVec copierCbk = do
   Ext.ConsensusRunner mvr <- deRefStablePtr cptr
   let copier = callCopyToVecCallback copierCbk
   block <- decodeBlockHashInput blockIdType blockIdPtr
@@ -2085,7 +2085,7 @@ foreign export ccall
         IO Int64
 
 foreign export ccall
-    invokeContractV2 ::
+    invokeInstanceV2 ::
         StablePtr Ext.ConsensusRunner ->
         -- | Block ID type.
         Word8 ->

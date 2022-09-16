@@ -756,7 +756,7 @@ extern "C" {
     /// * `out_hash` - Location to write the block hash used in the query.
     /// * `out` - Location to write the output of the query.
     /// * `copier` - Callback for writting the output.
-    pub fn invokeContractV2(
+    pub fn invokeInstanceV2(
         consensus: *mut consensus_runner,
         block_id_type: u8,
         block_id: *const u8,
@@ -1702,9 +1702,9 @@ impl ConsensusContainer {
     /// Run the smart contract entrypoint in a given context and in the state at
     /// the end of the given block.Get status of the tokenomics at the end of a
     /// given block.
-    pub fn invoke_contract_v2(
+    pub fn invoke_instance_v2(
         &self,
-        request: &crate::grpc2::types::InvokeContractRequest,
+        request: &crate::grpc2::types::InvokeInstanceRequest,
     ) -> Result<([u8; 32], Vec<u8>), tonic::Status> {
         use crate::grpc2::Require;
         let consensus = self.consensus.load(Ordering::SeqCst);
@@ -1747,10 +1747,10 @@ impl ConsensusContainer {
 
         let energy = request.energy.as_ref().require()?.value;
 
-        let contract = request.contract.as_ref().require()?;
+        let contract = request.instance.as_ref().require()?;
 
         let response: ConsensusQueryResponse = unsafe {
-            invokeContractV2(
+            invokeInstanceV2(
                 consensus,
                 block_id_type,
                 block_id,
