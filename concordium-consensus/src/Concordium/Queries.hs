@@ -187,6 +187,39 @@ liftSkovQueryBHI a bhi = do
                 BHILastFinal -> lastFinalizedBlock
             (bpHash bp,) . Just <$> a bp
 
+-- |Try a 'BlockHashInput' based query on the latest skov version. If a specific
+-- block hash is given we work backwards through consensus versions until we
+-- find the specified block or run out of versions.
+-- The return value is the hash used for the query, and a result if it was found.
+liftSkovQueryBHIAndVersion ::
+    ( forall (pv :: ProtocolVersion).
+      ( SkovMonad (VersionedSkovM gsconf finconf pv)
+      , FinalizationMonad (VersionedSkovM gsconf finconf pv)
+      ) =>
+      EVersionedConfiguration gsconf finconf ->
+      BlockPointerType (VersionedSkovM gsconf finconf pv) ->
+      VersionedSkovM gsconf finconf pv a
+    ) ->
+    BlockHashInput ->
+    MVR gsconf finconf (BlockHash, Maybe a)
+liftSkovQueryBHIAndVersion query bhi = do
+    case bhi of
+        BHIGiven bh ->
+            MVR $ \mvr ->
+                (bh,)
+                    <$> atLatestSuccessfulVersion
+                        (\evc -> liftSkovQuery mvr evc (mapM (query evc) =<< resolveBlock bh))
+                        mvr
+        other -> do
+          versions <- liftIO . readIORef =<< asks mvVersions
+          let evc = Vec.last versions
+          liftSkovQueryLatest $ do
+            bp <- case other of
+                    BHIBest -> bestBlock
+                    BHILastFinal -> lastFinalizedBlock
+            (bpHash bp,) . Just <$> query evc bp
+
+
 -- |Try a block based query on the latest skov version, working
 -- backwards until we find the specified block or run out of
 -- versions.  This version also passes the version configuration
@@ -355,10 +388,10 @@ getNextAccountNonce accountAddress = liftSkovQueryLatest $ do
 -- ** Block indexed
 
 -- |Get the basic info about a particular block.
-getBlockInfo :: BlockHash -> MVR gsconf finconf (Maybe BlockInfo)
-getBlockInfo bh =
-    liftSkovQueryBlockAndVersion
-        ( \vc bp -> do
+getBlockInfo :: BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe BlockInfo)
+getBlockInfo =
+    liftSkovQueryBHIAndVersion
+        ( \(EVersionedConfiguration vc) bp -> do
             let biBlockHash = getHash bp
             biBlockParent <-
                 if blockSlot bp == 0 && vcIndex vc /= 0
@@ -381,14 +414,13 @@ getBlockInfo bh =
             let biBlockSlot = blockSlot bp
             biBlockSlotTime <- getSlotTime biBlockSlot
             let biBlockBaker = blockBaker <$> blockFields bp
-            biFinalized <- isFinalized bh
+            biFinalized <- isFinalized (bpHash bp)
             let biTransactionCount = bpTransactionCount bp
             let biTransactionEnergyCost = bpTransactionsEnergyCost bp
             let biTransactionsSize = bpTransactionsSize bp
             let biBlockStateHash = blockStateHash bp
             return BlockInfo{..}
         )
-        bh
 
 -- |Get a detailed summary of a particular block including:
 --   * The transaction outcomes in the block (including special transactions)
@@ -432,11 +464,11 @@ getBlockSummary = liftSkovQueryBlock getBlockSummarySkovM
         return BlockSummary{..}
 
 -- |Get the total amount of GTU in existence and status of the reward accounts.
-getRewardStatus :: BlockHash -> MVR gsconf finconf (Maybe RewardStatus)
-getRewardStatus = liftSkovQueryBlock $ \bp -> do
+getRewardStatus :: BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe RewardStatus)
+getRewardStatus = liftSkovQueryBHI $ \bp -> do
     reward <- BS.getRewardStatus =<< blockState bp
     gd <- getGenesisData
-    let epochToUTC e = timestampToUTCTime $ 
+    let epochToUTC e = timestampToUTCTime $
             addDuration (gdGenesisTime gd) (fromIntegral e * fromIntegral (gdEpochLength gd) * gdSlotDuration gd)
     return $ epochToUTC <$> reward
 
@@ -458,11 +490,10 @@ getBlockBirkParameters = liftSkovQueryBlock $ \bp -> do
     return BlockBirkParameters{..}
 
 -- |Get the cryptographic parameters of the chain at a given block.
--- The result is versioned (which will currently always be version 0).
-getCryptographicParameters :: BlockHash -> MVR gsconf finconf (Maybe (Versioned CryptographicParameters))
-getCryptographicParameters = liftSkovQueryBlock $ \bp -> do
+getCryptographicParameters :: BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe CryptographicParameters)
+getCryptographicParameters = liftSkovQueryBHI $ \bp -> do
     bs <- blockState bp
-    Versioned 0 <$> BS.getCryptographicParameters bs
+    BS.getCryptographicParameters bs
 
 -- |Get all of the identity providers registered in the system as of a given block.
 getAllIdentityProviders :: BlockHash -> MVR gsconf finconf (Maybe [IpInfo])
@@ -586,10 +617,10 @@ getModuleSource bhi modRef = do
     return (bh, join res)
 
 -- |Get the status of a particular delegation pool.
-getPoolStatus :: forall gsconf finconf. BlockHash -> Maybe BakerId -> MVR gsconf finconf (Maybe PoolStatus)
-getPoolStatus blockHash mbid =
-    join
-        <$> liftSkovQueryBlock poolStatus blockHash
+getPoolStatus :: forall gsconf finconf. BlockHashInput -> Maybe BakerId -> MVR gsconf finconf (BlockHash, Maybe PoolStatus)
+getPoolStatus blockHashInput mbid = do
+    (bh, res) <- liftSkovQueryBHI poolStatus blockHashInput
+    return (bh, join res)
   where
     poolStatus ::
         forall pv.
@@ -606,8 +637,8 @@ getPoolStatus blockHash mbid =
             BS.getPoolStatus bs mbid
 
 -- |Get a list of all registered baker IDs in the specified block.
-getRegisteredBakers :: forall gsconf finconf. BlockHash -> MVR gsconf finconf (Maybe [BakerId])
-getRegisteredBakers = liftSkovQueryBlock (BS.getActiveBakers <=< blockState)
+getRegisteredBakers :: forall gsconf finconf. BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe [BakerId])
+getRegisteredBakers = liftSkovQueryBHI (BS.getActiveBakers <=< blockState)
 
 -- ** Transaction indexed
 

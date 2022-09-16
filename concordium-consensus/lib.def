@@ -55,3 +55,10 @@ EXPORTS
  getNextAccountSequenceNumberV2
  getConsensusInfoV2
  getBlockItemStatusV2
+ getCryptographicParametersV2
+ getBlockInfoV2
+ getBakerListV2
+ getPoolInfoV2
+ getPassiveDelegationInfoV2
+ getBlocksAtHeightV2
+ getTokenomicsInfoV2

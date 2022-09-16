@@ -275,6 +275,70 @@ fn build_grpc2(proto_root_input: &str) -> std::io::Result<()> {
                 .codec_path("crate::grpc2::RawCodec")
                 .build(),
         )
+        .method(
+            tonic_build::manual::Method::builder()
+                .name("get_cryptographic_parameters")
+                .route_name("GetCryptographicParameters")
+                .input_type("crate::grpc2::types::BlockHashInput")
+                .output_type("crate::grpc2::types::CryptographicParameters")
+                .codec_path("tonic::codec::ProstCodec")
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
+                .name("get_block_info")
+                .route_name("GetBlockInfo")
+                .input_type("crate::grpc2::types::BlockHashInput")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
+                .name("get_baker_list")
+                .route_name("GetBakerList")
+                .input_type("crate::grpc2::types::BlockHashInput")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .server_streaming()
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
+                .name("get_pool_info")
+                .route_name("GetPoolInfo")
+                .input_type("crate::grpc2::types::PoolInfoRequest")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
+                .name("get_passive_delegation_info")
+                .route_name("GetPassiveDelegationInfo")
+                .input_type("crate::grpc2::types::BlockHashInput")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
+                .name("get_blocks_at_height")
+                .route_name("GetBlocksAtHeight")
+                .input_type("crate::grpc2::types::BlocksAtHeightRequest")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
+                .name("get_tokenomics_info")
+                .route_name("GetTokenomicsInfo")
+                .input_type("crate::grpc2::types::BlockHashInput")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .build(),
+        )
         .build();
     // Due to the slightly hacky nature of the RawCodec (i.e., it does not support
     // deserialization) we cannot build the client. But we also don't need it in the
