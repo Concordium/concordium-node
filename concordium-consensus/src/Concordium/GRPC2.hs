@@ -1604,8 +1604,9 @@ getInstanceStateV2 ::
     FunPtr CopyToVecCallback ->
     -- |If the instance is a V1 instance its instance state and callbacks are written to this vector.
     Ptr PersistentStateReceiver ->
-    -- |Callback to copy the mutable state into provided receiver. It is assumed that the mutable
-    -- state is then dropped by Haskell and not used.
+    -- |Callback to copy the persistent state into provided receiver. The
+    -- ownership of the state is retained by Haskell, and a copy is given to
+    -- Rust.
     FunPtr PersistentStateCopier ->
     IO Int64
 getInstanceStateV2 cptr blockType blockHashPtr addrIndex addrSubindex outHash outVec vecCopierCbk outMS msCopierCbk = do
@@ -2044,8 +2045,9 @@ foreign export ccall getInstanceStateV2 ::
     FunPtr CopyToVecCallback ->
     -- |If the instance is a V1 instance its instance state and callbacks are written to this vector.
     Ptr PersistentStateReceiver ->
-    -- |Callback to copy the mutable state into provided receiver. It is assumed that the mutable
-    -- state is then dropped by Haskell and not used.
+    -- |Callback to copy the persistent state into provided receiver. The
+    -- ownership of the state is retained by Haskell, and a copy is given to
+    -- Rust.
     FunPtr PersistentStateCopier ->
     IO Int64
 
