@@ -630,6 +630,8 @@ pub mod server {
                 ContractStateResponse::V0 {
                     state,
                 } => {
+                    // We need to return the same type in both branches, so we create a silly
+                    // little channel to which we will only send one value.
                     let (sender, receiver) = tokio::sync::mpsc::channel(1);
                     let _sender = tokio::spawn(async move {
                         let msg = types::InstanceStateKvPair {
@@ -651,47 +653,16 @@ pub mod server {
                 } => {
                     let (sender, receiver) = tokio::sync::mpsc::channel(10);
                     let _sender = tokio::spawn(async move {
-                        let mut state = state.into_trie(&mut loader);
+                        let iter = state.into_iterator(&mut loader);
                         // get an iterator over the entire state (starting at root)
-                        match state.iter(&mut loader, &[]) {
-                            Err(e) => {
-                                let msg = Err(tonic::Status::internal(format!(
-                                    "Cannot return key-value pairs: {}.",
-                                    e
-                                )));
-                                if sender.send(msg).await.is_err() {
-                                    error!("Could not send V1 contract state.");
-                                }
-                            }
-                            Ok(iterator) => {
-                                if let Some(mut iterator) = iterator {
-                                    while let Some(entry) = state
-                                        .next(
-                                            &mut loader,
-                                            &mut iterator,
-                                            &mut wasm_chain_integration::v1::trie::EmptyCounter,
-                                        )
-                                        .expect("Empty error type, so errors cannot happen.")
-                                    {
-                                        let key = iterator.get_key();
-                                        let msg = state.with_entry(entry, &mut loader, |value| {
-                                            types::InstanceStateKvPair {
-                                                key:   key.to_vec(),
-                                                value: value.to_vec(),
-                                            }
-                                        });
-                                        let msg = msg.ok_or_else(|| {
-                                            tonic::Status::internal(
-                                                "An entry was deleted during traversal. This \
-                                                 should never happen",
-                                            )
-                                        });
-                                        if sender.send(msg).await.is_err() {
-                                            error!("Could not send V1 contract state.");
-                                            break;
-                                        }
-                                    }
-                                } // else there is nothing to do, so terminate
+                        for (key, value) in iter {
+                            let msg = types::InstanceStateKvPair {
+                                key,
+                                value,
+                            };
+                            if sender.send(Ok(msg)).await.is_err() {
+                                error!("Could not send V1 contract state.");
+                                break;
                             }
                         }
                     });
