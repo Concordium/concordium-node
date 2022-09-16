@@ -9,6 +9,8 @@
   By default, the cache will retain metadata for at most 100 smart contract modules, and this is
   configurable via the `--modules-cache-size` command line argument or by using the 
   `CONCORDIUM_NODE_CONSENSUS_MODULES_CACHE_SIZE` environment variable.
+  
+- Smart contract state is no longer cached on startup and is not cached after finalization.
 
 ## 4.4.1
 
@@ -23,7 +25,6 @@
   `--chunksize` option specifies the size of export files in blocks.
 - The `--download-blocks-from` option now takes the URL to the catchup _index file_, permitting to
   only download and import catchup files containing blocks not already present in the database.
-- Smart contract state is no longer cached on startup and is not cached after finalization.
 
 ## 4.3.1
 
