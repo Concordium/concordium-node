@@ -250,6 +250,15 @@ fn build_grpc2(proto_root_input: &str) -> std::io::Result<()> {
         )
         .method(
             tonic_build::manual::Method::builder()
+                .name("instance_state_lookup")
+                .route_name("InstanceStateLookup")
+                .input_type("crate::grpc2::types::InstanceStateLookupRequest")
+                .output_type("crate::grpc2::types::InstanceStateValueAtKey")
+                .codec_path("tonic::codec::ProstCodec")
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
                 .name("get_next_account_sequence_number")
                 .route_name("GetNextAccountSequenceNumber")
                 .input_type("crate::grpc2::types::AccountAddress")

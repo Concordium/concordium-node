@@ -674,6 +674,45 @@ pub mod server {
             }
         }
 
+        async fn instance_state_lookup(
+            &self,
+            request: tonic::Request<types::InstanceStateLookupRequest>,
+        ) -> Result<tonic::Response<types::InstanceStateValueAtKey>, tonic::Status> {
+            let request = request.get_ref();
+            let block_hash = request.block_hash.as_ref().require()?;
+            let contract_address = request.address.as_ref().require()?;
+            // this is cheap since we only lookup the tree root in the V1 case, and V0
+            // lookup always involves the entire state anyhow.
+            let (hash, response) =
+                self.consensus.get_instance_state_v2(block_hash, contract_address)?;
+            match response {
+                ContractStateResponse::V0 {
+                    state,
+                } => {
+                    let mut response = tonic::Response::new(types::InstanceStateValueAtKey {
+                        value: state,
+                    });
+                    add_hash(&mut response, hash)?;
+                    Ok(response)
+                }
+                ContractStateResponse::V1 {
+                    state,
+                    mut loader,
+                } => {
+                    let value = state.lookup(&mut loader, &request.key);
+                    if let Some(value) = value {
+                        let mut response = tonic::Response::new(types::InstanceStateValueAtKey {
+                            value,
+                        });
+                        add_hash(&mut response, hash)?;
+                        Ok(response)
+                    } else {
+                        Err(tonic::Status::not_found("Key not found."))
+                    }
+                }
+            }
+        }
+
         async fn get_next_account_sequence_number(
             &self,
             request: tonic::Request<crate::grpc2::types::AccountAddress>,

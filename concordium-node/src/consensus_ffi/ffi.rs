@@ -261,7 +261,6 @@ type RegenesisFreeCallback = unsafe extern "C" fn(*const Regenesis);
 /// A type of callback that extends the given vector with the provided data.
 type CopyToVecCallback = extern "C" fn(*mut Vec<u8>, *const u8, i64);
 
-
 /// The cryptographic parameters expose through ffi.
 type CryptographicParameters = id::types::GlobalContext<id::constants::ArCurve>;
 
@@ -2079,6 +2078,7 @@ extern "C" fn copy_cryptographic_parameters_callback(
     source: *const CryptographicParameters,
 ) {
     unsafe { *target = source.as_ref().cloned() };
+}
 
 /// Store the V1 contract state and context to the given structure.
 extern "C" fn copy_v1_contract_state_callback(
