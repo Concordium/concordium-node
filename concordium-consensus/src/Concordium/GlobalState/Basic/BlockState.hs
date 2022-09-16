@@ -434,6 +434,8 @@ getBlockState migration = do
     preBlockRewardDetails <- label "reward details" $ getBlockRewardDetails @(AccountVersionFor oldpv)
     let _blockRewardDetails = case migration of
             StateMigrationParametersTrivial -> preBlockRewardDetails
+            StateMigrationParametersP1P2 -> preBlockRewardDetails
+            StateMigrationParametersP2P3 -> preBlockRewardDetails
             StateMigrationParametersP3ToP4 migrationParams ->
                 BlockRewardDetailsV1 . makeHashed $ PoolRewards.makePoolRewardsForMigration
                     (epochToBakerStakes (preBirkParameters ^. birkCurrentEpochBakers . unhashed))
@@ -569,12 +571,13 @@ instance GT.BlockStateTypes (PureBlockStateMonad pv m) where
     type Account (PureBlockStateMonad pv m) = Account (AccountVersionFor pv)
     type BakerInfoRef (PureBlockStateMonad pv m) = BakerInfoEx (AccountVersionFor pv)
     type ContractState (PureBlockStateMonad pv m) = Instance.InstanceStateV
+    type InstrumentedModuleRef (PureBlockStateMonad pv m) = GSWasm.InstrumentedModuleV
 
 -- |Retrieve instance information from a basic instance.
-mkInstanceInfo :: Instance.Instance -> BS.InstanceInfoType Instance.InstanceStateV
+mkInstanceInfo :: Instance.Instance im -> BS.InstanceInfoType im Instance.InstanceStateV
 mkInstanceInfo = \case (Instance.InstanceV0 inst) -> BS.InstanceInfoV0 (mkInstanceInfoV inst)
                        (Instance.InstanceV1 inst) -> BS.InstanceInfoV1 (mkInstanceInfoV inst)
-    where mkInstanceInfoV :: Instance.InstanceV v -> BS.InstanceInfoTypeV Instance.InstanceStateV v
+    where mkInstanceInfoV :: Instance.InstanceV (im v) v -> BS.InstanceInfoTypeV im Instance.InstanceStateV v
           mkInstanceInfoV Instance.InstanceV{..} = BS.InstanceInfoV{
             iiParameters = _instanceVParameters,
             iiState = _instanceVModel,
@@ -608,6 +611,10 @@ doGetUpdateKeysCollection bs = return $! bs ^. blockUpdates . currentKeyCollecti
 doGetEnergyRate :: (Monad m, HasBlockState s pv) => s -> m EnergyRate
 doGetEnergyRate bs = return $! bs ^. blockUpdates . currentParameters . energyRate  
 
+instance (Monad m) => BS.ModuleQuery (PureBlockStateMonad pv m) where
+    {-# INLINE getModuleArtifact #-}
+    getModuleArtifact = return
+
 instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMonad pv m) where
     {-# INLINE getModule #-}
     getModule bs mref =
@@ -616,6 +623,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
     {-# INLINE getModuleInterface #-}
     getModuleInterface bs mref =
         return $ bs ^. blockModules . to (Modules.getInterface mref)
+
 
     {-# INLINE getContractInstance #-}
     getContractInstance bs caddr =
@@ -972,7 +980,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
 
     bsoPutNewInstance :: forall v . Wasm.IsWasmVersion v
                       => BlockState pv
-                      -> BS.NewInstanceData v
+                      -> BS.NewInstanceData (GSWasm.InstrumentedModuleV v) v
                       -> PureBlockStateMonad pv m (ContractAddress, BlockState pv)
     bsoPutNewInstance bs BS.NewInstanceData{..} = return (Instances.instanceAddress inst, bs')
         where
@@ -2027,21 +2035,18 @@ genesisBakerInfo spv cp GenesisBaker{..} = AccountBaker{..}
 
 -- |Initial block state based on 'GenesisData', for a given protocol version.
 -- This also returns the transaction table.
-genesisState :: forall pv . IsProtocolVersion pv => GenesisData pv -> Either String (BlockState pv, TransactionTable.TransactionTable)
+genesisState :: forall pv . IsProtocolVersion pv
+             => GenesisData pv
+             -> Either String (BlockState pv, TransactionTable.TransactionTable)
 genesisState gd = case protocolVersion @pv of
                     SP1 -> case gd of
                       GDP1 P1.GDP1Initial{..} -> mkGenesisStateInitial genesisCore genesisInitialState
-                      GDP1 P1.GDP1Regenesis{..} -> mkGenesisStateRegenesis StateMigrationParametersTrivial genesisRegenesis
                     SP2 -> case gd of
                       GDP2 P2.GDP2Initial{..} -> mkGenesisStateInitial genesisCore genesisInitialState
-                      GDP2 P2.GDP2Regenesis{..} -> mkGenesisStateRegenesis StateMigrationParametersTrivial genesisRegenesis
                     SP3 -> case gd of
                       GDP3 P3.GDP3Initial{..} -> mkGenesisStateInitial genesisCore genesisInitialState
-                      GDP3 P3.GDP3Regenesis{..} -> mkGenesisStateRegenesis StateMigrationParametersTrivial genesisRegenesis
                     SP4 -> case gd of
                       GDP4 P4.GDP4Initial{..} -> mkGenesisStateInitial genesisCore genesisInitialState
-                      GDP4 P4.GDP4Regenesis{..} -> mkGenesisStateRegenesis StateMigrationParametersTrivial genesisRegenesis
-                      GDP4 P4.GDP4MigrateFromP3{..} -> mkGenesisStateRegenesis (StateMigrationParametersP3ToP4 genesisMigration) genesisRegenesis
     where
         mkGenesisStateInitial :: CoreGenesisParameters -> GenesisState pv -> Either String (BlockState pv, TransactionTable.TransactionTable)
         mkGenesisStateInitial GenesisData.CoreGenesisParameters{..} GenesisData.GenesisState{..} = do
@@ -2076,19 +2081,21 @@ genesisState gd = case protocolVersion @pv of
                   _blockUpdates = initialUpdates genesisUpdateKeys genesisChainParameters
                   _blockReleaseSchedule = Map.empty
 
-        mkGenesisStateRegenesis migration GenesisData.RegenesisData{..} = do
-            case runGet (getBlockState migration) genesisNewState of
-                Left err -> Left $ "Could not deserialize genesis state: " ++ err
-                Right bs
-                    | hashShouldMatch && hbs ^. blockStateHash /= genesisStateHash -> Left "Could not deserialize genesis state: state hash is incorrect"
-                    | epochLength (bs ^. blockBirkParameters . birkSeedState) /= GenesisData.genesisEpochLength genesisCore -> Left "Could not deserialize genesis state: epoch length mismatch"
-                    | otherwise -> Right $!! (bs, genesisTT)
-                    where
-                        hbs = hashBlockState bs
-                        hashShouldMatch = case migration of
-                            StateMigrationParametersTrivial{} -> True
-                            StateMigrationParametersP3ToP4{} -> False
-                        genesisTT = getInitialTransactionTable hbs
+-- |Migrate block state from the representation used by protocol version @oldpv@
+-- to the one used by protocol version @pv@. The @StateMigrationParameters@
+-- supply any context that might be needed to perform the migration.
+--
+-- This function should only fail if there is a bug in state deserialization.
+migrateBlockState ::
+    forall oldpv pv.
+    (IsProtocolVersion oldpv, IsProtocolVersion pv) =>
+    StateMigrationParameters oldpv pv ->
+    BlockState oldpv ->
+    Either String (BlockState pv)
+migrateBlockState migration oldbs = do
+    case runGet (getBlockState migration) (runPut $ putBlockState oldbs) of
+        Left err -> Left $ "Could not deserialize genesis state: " ++ err
+        Right bs -> Right $! bs
 
 -- |Construct a transaction table that is empty but reflects the next nonces/sequence numbers
 -- for all accounts and chain updates. That is, if the next nonce/sequence number is not the minimal

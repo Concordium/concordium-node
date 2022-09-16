@@ -1,4 +1,3 @@
-{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -35,7 +34,7 @@ import Concordium.Types.Accounts hiding (getAccountBaker)
 import Concordium.GlobalState.Types
 import Concordium.GlobalState.Classes (MGSTrans(..))
 import Concordium.GlobalState.Account (EncryptedAmountUpdate(..), AccountUpdate(..), auAmount, auEncrypted, auReleaseSchedule, emptyAccountUpdate)
-import Concordium.GlobalState.BlockState (AccountOperations(..), NewInstanceData, ContractStateOperations (..), InstanceInfo, InstanceInfoType (..), InstanceInfoTypeV (iiState, iiParameters), iiBalance, UpdatableContractState)
+import Concordium.GlobalState.BlockState (AccountOperations(..), NewInstanceData, ContractStateOperations (..), ModuleQuery(..), InstanceInfo, InstanceInfoType (..), InstanceInfoTypeV (iiState, iiParameters), iiBalance, UpdatableContractState)
 import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as ARS
 
@@ -64,7 +63,7 @@ class (Monad m) => StaticInformation m where
   getChainMetadata :: m ChainMetadata
 
   -- |Get a module interface, if available.
-  getModuleInterfaces :: ModuleRef -> m (Maybe GSWasm.ModuleInterface)
+  getModuleInterfaces :: ModuleRef -> m (Maybe (GSWasm.ModuleInterface (InstrumentedModuleRef m)))
 
   -- |Get maximum allowed block energy.
   getMaxBlockEnergy :: m Energy
@@ -79,7 +78,7 @@ class (Monad m) => StaticInformation m where
   getStateAccount :: AccountAddress -> m (Maybe (IndexedAccount m))
 
 -- |Information needed to execute transactions in the form that is easy to use.
-class (Monad m, StaticInformation m, AccountOperations m, ContractStateOperations m, MonadLogger m, MonadProtocolVersion m, TVer.TransactionVerifier m)
+class (Monad m, StaticInformation m, AccountOperations m, ContractStateOperations m, ModuleQuery m, MonadLogger m, MonadProtocolVersion m, TVer.TransactionVerifier m)
     => SchedulerMonad m where
 
   -- |Get the 'AccountIndex' for an account, if it exists.
@@ -106,7 +105,7 @@ class (Monad m, StaticInformation m, AccountOperations m, ContractStateOperation
   -- |Create new instance in the global state.
   -- The instance is parametrised by the address, and the return value is the
   -- address assigned to the new instance.
-  putNewInstance :: IsWasmVersion v => NewInstanceData v -> m ContractAddress
+  putNewInstance :: IsWasmVersion v => NewInstanceData (InstrumentedModuleRef m v) v -> m ContractAddress
 
   -- |Bump the next available transaction nonce of the account.
   -- Precondition: the account exists in the block state.
@@ -319,11 +318,11 @@ getStateSizeV0 (Thawed cs) = return $ Wasm.contractStateSize cs
 
 -- |Updatable instance information. This is used in the scheduler to efficiently
 -- update contract states.
-type UInstanceInfo m = InstanceInfoType (TemporaryContractState (ContractState m))
+type UInstanceInfo m = InstanceInfoType (InstrumentedModuleRef m) (TemporaryContractState (ContractState m))
 
 -- |Updatable instance information, versioned variant. This is used in the scheduler to efficiently
 -- update contract states.
-type UInstanceInfoV m = InstanceInfoTypeV (TemporaryContractState (ContractState m))
+type UInstanceInfoV m = InstanceInfoTypeV (InstrumentedModuleRef m) (TemporaryContractState (ContractState m))
 
 -- |This is a derived notion that is used inside a transaction to keep track of
 -- the state of the world during execution. Local state of contracts and amounts
@@ -674,6 +673,7 @@ instance BlockStateTypes (LocalT r m) where
     type Account (LocalT r m) = Account m
     type ContractState (LocalT r m) = ContractState m
     type BakerInfoRef (LocalT r m) = BakerInfoRef m
+    type InstrumentedModuleRef (LocalT r m) = InstrumentedModuleRef m
 
 {-# INLINE energyUsed #-}
 -- |Compute how much energy was used from the upper bound in the header of a

@@ -50,7 +50,7 @@ transactionInputs = [
 
 type TestResult = ([(BlockItemWithStatus, Types.ValidResult)],
                    [(TransactionWithStatus, Types.FailureKind)],
-                   [(Types.ContractAddress, Instance)])
+                   [(Types.ContractAddress, Types.BasicInstance)])
 
 testChainMeta :: IO TestResult
 testChainMeta = do

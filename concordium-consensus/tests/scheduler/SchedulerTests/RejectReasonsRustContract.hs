@@ -121,7 +121,7 @@ transactionInputs = zipWith ($) transactionFunctionList [1..]
 
 type TestResult = ([(BlockItemWithStatus, Types.ValidResult)],
                    [(TransactionWithStatus, Types.FailureKind)],
-                   [(Types.ContractAddress, Instance)])
+                   [(Types.ContractAddress, Types.BasicInstance)])
 
 testRejectReasons :: IO TestResult
 testRejectReasons = do

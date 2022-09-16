@@ -716,26 +716,28 @@ doReceiveTransactionInternal origin tr ts slot = do
           TV.Single -> blockState . fst =<< getLastFinalized
           TV.Block bs -> pure bs
 
--- |Shutdown the skov, returning a list of pending transactions.
-doTerminateSkov :: (TreeStateMonad m, SkovMonad m) => m [BlockItem]
-doTerminateSkov = isShutDown >>= \case
-    False -> return []
+-- |Clear the skov instance __just before__ handling the protocol update. This
+-- clears all blocks that are not finalized but otherwise maintains all existing
+-- state invariants. This prepares the state for @migrateExistingSkov@.
+doClearSkov :: (TreeStateMonad m, SkovMonad m) => m ()
+doClearSkov = isShutDown >>= \case
+    False -> return ()
     True -> do
         lfb <- lastFinalizedBlock
         -- Archive the state
         archiveBlockState =<< blockState lfb
-        -- Make the last finalized block the focus block
-        -- and empty the pending transaction table.
-        putFocusBlock lfb
-        putPendingTransactions emptyPendingTransactionTable
-        -- Clear out all of the non-finalized blocks.
-        putBranches Seq.empty
-        wipePendingBlocks
-        clearAllNonFinalizedBlocks
-        -- Clear out the account cache
-        collapseCaches
-        -- Clear out (and return) the non-finalized transactions.
-        wipeNonFinalizedTransactions
+        -- Make the last finalized block the focus block,
+        -- adjusting the pending transaction table.
+        updateFocusBlockTo lfb
+        -- Clear out all of the non-finalized and pending blocks.
+        clearOnProtocolUpdate
+
+-- |Terminate the skov instance __after__ the protocol update has taken effect.
+-- After this point the skov instance is useful for queries only.
+doTerminateSkov :: (TreeStateMonad m, SkovMonad m) => m ()
+doTerminateSkov = isShutDown >>= \case
+    False -> return ()
+    True -> clearAfterProtocolUpdate
 
 doPurgeTransactions :: (TimeMonad m, TreeStateMonad m) => m ()
 doPurgeTransactions = do

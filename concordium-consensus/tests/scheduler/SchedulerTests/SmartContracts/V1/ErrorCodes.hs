@@ -51,16 +51,16 @@ callerSourceFile = "./testdata/contracts/v1/caller.wasm"
 emptyContractSourceFile :: FilePath
 emptyContractSourceFile = "./testdata/contracts/empty.wasm"
 
-deployModule1 :: PersistentBlockState PV4 -> ContextM ((GSWasm.ModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1), PersistentBlockState PV4)
+deployModule1 :: PersistentBlockState PV4 -> ContextM ((InvokeHelpers.PersistentModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1), PersistentBlockState PV4)
 deployModule1 = InvokeHelpers.deployModuleV1 callerSourceFile
 
-initContract1 :: PersistentBlockState PV4 -> (GSWasm.ModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1) -> ContextM (Types.ContractAddress, PersistentBlockState PV4)
+initContract1 :: PersistentBlockState PV4 -> (InvokeHelpers.PersistentModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1) -> ContextM (Types.ContractAddress, PersistentBlockState PV4)
 initContract1 = InvokeHelpers.initContractV1 alesAccount (InitName "init_caller") emptyParameter 0 
 
-deployModule0 :: PersistentBlockState PV4 -> ContextM ((GSWasm.ModuleInterfaceV GSWasm.V0, WasmModuleV GSWasm.V0), PersistentBlockState PV4)
+deployModule0 :: PersistentBlockState PV4 -> ContextM ((InvokeHelpers.PersistentModuleInterfaceV GSWasm.V0, WasmModuleV GSWasm.V0), PersistentBlockState PV4)
 deployModule0 = InvokeHelpers.deployModuleV0 emptyContractSourceFile
 
-initContract0 :: PersistentBlockState PV4 -> (GSWasm.ModuleInterfaceV GSWasm.V0, WasmModuleV GSWasm.V0) -> ContextM (Types.ContractAddress, PersistentBlockState PV4)
+initContract0 :: PersistentBlockState PV4 -> (InvokeHelpers.PersistentModuleInterfaceV GSWasm.V0, WasmModuleV GSWasm.V0) -> ContextM (Types.ContractAddress, PersistentBlockState PV4)
 initContract0 = InvokeHelpers.initContractV0 alesAccount (InitName "init_empty") emptyParameter 0 
 
 -- |Invoke an entrypoint that calls the "fail" entrypoint.

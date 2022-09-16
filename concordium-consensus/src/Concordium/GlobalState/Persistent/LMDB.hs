@@ -44,6 +44,7 @@ module Concordium.GlobalState.Persistent.LMDB (
   , writeTransactionStatus
   , writeTransactionStatuses
   , writeFinalizationComposite
+  , unrollTreeStateWhile
   , FixedSizeSerialization
   ) where
 
@@ -58,6 +59,7 @@ import Concordium.Types.Execution (TransactionIndex)
 import qualified Concordium.GlobalState.TransactionTable as T
 import Concordium.Crypto.SHA256
 import Concordium.Types.HashableTo
+import Concordium.Types.Transactions
 import Control.Concurrent (runInBoundThread)
 import Control.Monad.Catch (tryJust, handleJust, MonadCatch)
 import Control.Monad.IO.Class
@@ -66,6 +68,7 @@ import Control.Monad.State
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Serialize as S
+import Data.List (intercalate)
 import Data.Maybe (fromJust, isJust)
 import Control.Arrow ((&&&))
 import Database.LMDB.Raw
@@ -471,6 +474,9 @@ resizeOnResized a = do
     dbh <- use dbHandlers
     resizeOnResizedInternal (dbh ^. storeEnv) a
 
+-- |Perform a database action and resize the LMDB map if the file size has changed. The difference
+-- with `resizeOnResized` is that this function takes database handlers as an argument, instead of
+-- reading their value from `HasDatabaseHandlers`.
 resizeOnResizedInternal :: (MonadIO m, MonadCatch m) => StoreEnv -> m a -> m a
 resizeOnResizedInternal se a = inner
   where
@@ -585,7 +591,7 @@ getLastBlock dbh = transaction (dbh ^. storeEnv) True $ \txn -> do
       Just (Right (_, finRec)) ->
         loadRecord txn (dbh ^. blockStore) (finalizationBlockPointer finRec) >>= \case
           Just block -> return $ Right (finRec, block)
-          Nothing -> return $ Left "Could not read last finalized block"
+          Nothing -> return . Left $ "Could not read last finalized block by hash " <> show (finalizationBlockPointer finRec)
       Just (Left s) -> return $ Left $ "Could not read last finalization record: " ++ s
       Nothing -> return $ Left "No last finalized block found"
 
@@ -607,16 +613,29 @@ resizeOnFull :: (MonadLogger m, MonadIO m, MonadState s m, HasDatabaseHandlers p
   -> m a
 resizeOnFull addSize a = do
     dbh <- use dbHandlers
-    inner dbh
+    resizeOnFullInternal addSize dbh a
+
+-- |Perform a database action that may require the database to be resized, resizing the database if
+-- necessary. The difference with `resizeOnFull` is that this function takes database handlers as an
+-- argument, instead of reading their value from `HasDatabaseHandlers`.
+resizeOnFullInternal :: (MonadIO m, MonadLogger m)
+  => Int
+  -- ^Additional size
+  -> DatabaseHandlers pv st
+  -- ^Database handlers
+  -> (DatabaseHandlers pv st -> IO b)
+  -- ^Action that may require resizing
+  -> m b
+resizeOnFullInternal addSize dbh a = inner
   where
-    inner dbh = do
+    inner = do
       r <- liftIO $ tryJust selectDBFullError (a dbh)
       case r of
         Left _ -> do
           -- Resize the database handlers, and try to add again in case the size estimate
           -- given by lmdbStoreTypeSize is off.
           resizeDatabaseHandlers dbh addSize
-          inner dbh
+          inner
         Right res -> return res
     -- only handle the db full error and propagate other exceptions.
     selectDBFullError = \case (LMDB_Error _ _ (Right MDB_MAP_FULL)) -> Just ()
@@ -688,3 +707,77 @@ writeFinalizationComposite finRec blocktss = resizeOnFull (finRecSize + blocksSi
           digestSize + 64 + digestSize + (32 * Prelude.length vs) + 48 + 64
     blocksSize = sum . map (\b -> 2*digestSize + fromIntegral (LBS.length . fst . fst $ b)) $ serializedBlocksTss
     tssSize = (* (2 * digestSize + 16)) . sum . map (Prelude.length . snd) $ blocktss
+
+-- |If an explicitly finalized block does not satisfy a predicate, delete it, together with its
+-- finalization record, all blocks implicitly finalized by its finalization records and all
+-- associated transaction statuses. Returns the last finalized block and the corresponding finalized
+-- record on success, which allows the use of this function as a drop-in replacement of
+-- `getLastBlock`.
+--
+-- This function is intended to be called during the consensus initialisation, before the database
+-- is used by the consensus. Since this function takes a writer lock, one should avoid calling it in
+-- a context where other writers might take a lock.
+--
+-- This function is expected to be called with a consistent treestate.
+unrollTreeStateWhile :: (MonadLogger m, MonadIO m, IsProtocolVersion pv, FixedSizeSerialization st)
+  => DatabaseHandlers pv st
+  -- ^Database handlers
+  -> (StoredBlock pv st -> m Bool)
+  -- ^A predicate determining if a block should be removed from the database. It is allowed to
+  -- perform IO actions, for example, to attempt to read the block state from the blob store.
+  -> m (Either String (FinalizationRecord, StoredBlock pv st))
+unrollTreeStateWhile dbh shouldDelete =
+  let loopBlocks h txn delbhs finIndex sb | NormalBlock block <- sbBlock sb = do
+        let bh = _bpHash . sbInfo $ sb
+        -- When deleting a block, also delete the corresponding entry in the block height index
+        -- and the statuses of all transactions included in the block. If any of those are not
+        -- present in the database, report the treestate corruption, so it can be treated
+        -- elsewhere.
+        delBlockOK <- deleteRecord txn (h ^. blockStore) bh
+        delBlockHashOK <- deleteRecord txn (h ^. finalizedByHeightStore) (_bpHeight . sbInfo $ sb)
+        delTxsOK <- mapM (deleteRecord txn (h ^. transactionStatusStore)) ((wmdHash <$>) . blockTransactions $ block)
+        if delBlockOK && delBlockHashOK && and delTxsOK then do
+          loadRecord txn (h ^. blockStore) (blockPointer block) >>= \case
+            Just sbParent | finIndex == sbFinalizationIndex sbParent -> loopBlocks h txn (bh : delbhs) finIndex sbParent
+            -- In particular, we stop deleting blocks when the current block's parent is the genesis
+            -- block, which is the only block with the finalization index 0.
+            Just sbParent -> return . Right $ (sbParent, bh : delbhs)
+            Nothing -> return . Left $ "Could not read the parent of the block " <> show bh
+         else return . Left $ "Could not rollback block " <> show bh
+      -- If the rollback reached the genesis block, do nothing. The genesis block state corruption
+      -- is to be handled as part of handling global state initialisation failure.
+      loopBlocks _ _ delbhs _ sb | otherwise = return . Right $ (sb, delbhs)
+
+      loopFinRecs finIndex sb = do
+        isP <- shouldDelete sb
+        if isP then do
+          let bh = _bpHash . sbInfo $ sb
+          eancestor <- resizeOnFullInternal 4096 dbh $ \h -> transaction (h ^. storeEnv) False $ \txn -> do
+              -- After a finalization record is deleted, we must delete not only the block explicitly
+              -- finalized by it but also all ancestors of that block having the same finalization
+              -- index, even if the `shouldDelete` predicate does not hold for them. Otherwise, the
+              -- last explicitly finalized block will still have descendants in the database without a
+              -- finalization record.
+              delFinRecOK <- deleteRecord txn (h ^. finalizationRecordStore) finIndex
+              if delFinRecOK
+                then loopBlocks h txn [] finIndex sb
+                else return . Left $ "Could not delete the finalization record with index "
+                     <> show finIndex <> " finalizing block " <> show bh
+          case eancestor of
+            Left s -> return . Left $ s
+            Right (ancestor, delbhs) -> do
+              logEvent LMDB LLDebug $ "The block state for block " <> show bh
+                                       <> " is corrupted. Deleted blocks " <> intercalate ", " (show <$> delbhs)
+                                       <> " and finalization record " <> show finIndex
+              loopFinRecs (sbFinalizationIndex ancestor) ancestor
+        else return . Right $ (finIndex, sb)
+
+  in liftIO (getLastBlock dbh) >>= \case
+       Left s -> return . Left $ s
+       Right (finRec, sb) -> loopFinRecs (finalizationIndex finRec) sb >>= \case
+         Left s -> return . Left $ s
+         Right (finIndex, sb') -> liftIO (transaction (dbh ^. storeEnv) True
+                                    (\txn -> loadRecord txn (dbh ^. finalizationRecordStore) finIndex)) >>= \case
+           Just finRec' -> return . Right $ (finRec', sb')
+           Nothing -> return . Left $ "Could not read the finalization record for the block "
+                                      <> show (_bpHash . sbInfo $ sb')

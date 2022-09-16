@@ -8,7 +8,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Seq
 import Data.Serialize
 import Control.Monad
-import Control.Monad.IO.Class
+import Control.Monad.Trans
 import Lens.Micro.Platform
 
 import qualified Concordium.Crypto.SHA256 as H
@@ -23,6 +23,7 @@ import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.Types.UpdateQueues as UQ
 import qualified Concordium.Types.IdentityProviders as IPS
 import qualified Concordium.Types.AnonymityRevokers as ARS
+import Concordium.Types.Migration
 
 -- |An update queue consists of pending future updates ordered by
 -- the time at which they will take effect.
@@ -39,7 +40,25 @@ data UpdateQueue e = UpdateQueue {
         uqQueue :: !(Seq.Seq (TransactionTime, HashedBufferedRef (StoreSerialized e)))
     }
 
-instance (MonadBlobStore m, Serialize e, MHashableTo m H.Hash e)
+-- |See documentation of @migratePersistentBlockState@.
+migrateUpdateQueue ::
+  (SupportMigration m t,
+   Serialize e1,
+   Serialize e2,
+   (MHashableTo (t m) H.Hash e2)
+  ) =>
+  (e1 -> e2) ->
+  UpdateQueue e1 ->
+  t m (UpdateQueue e2)
+migrateUpdateQueue f UpdateQueue{..} = do
+  newQueue <- forM uqQueue $ \(tt, r) -> do
+    (tt,) <$> migrateHashedBufferedRef (return . StoreSerialized . f . unStoreSerialized) r
+  return UpdateQueue {
+    uqQueue = newQueue,
+    .. -- copy over the next sequence number
+    }
+
+instance (MonadBlobStore m, Serialize e)
         => BlobStorable m (UpdateQueue e) where
     storeUpdate uq@UpdateQueue{..} = do
         l <- forM uqQueue $ \(t, r) -> do
@@ -51,7 +70,6 @@ instance (MonadBlobStore m, Serialize e, MHashableTo m H.Hash e)
                 sequence_ $ fst <$> l
         let uq' = uq{uqQueue = snd <$> l}
         return (putUQ, uq')
-    store uq = fst <$> storeUpdate uq
     load = do
         uqNextSequenceNumber <- get
         l <- getLength
@@ -190,6 +208,72 @@ data PendingUpdates (cpv :: ChainParametersVersion) = PendingUpdates {
         pTimeParametersQueue :: !(HashedBufferedRefForCPV1 cpv (UpdateQueue (TimeParameters 'ChainParametersV1)))
     }
 
+
+-- |See documentation of @migratePersistentBlockState@.
+migratePendingUpdates ::
+  forall oldpv pv t m . 
+  (IsProtocolVersion pv,
+   IsProtocolVersion oldpv,
+   SupportMigration m t) =>
+  StateMigrationParameters oldpv pv ->
+  PendingUpdates (ChainParametersVersionFor oldpv) ->
+  t m (PendingUpdates (ChainParametersVersionFor pv))
+migratePendingUpdates migration PendingUpdates{..} = do
+  newRootKeys <- migrateHashedBufferedRef (migrateUpdateQueue id) pRootKeysUpdateQueue
+  newLevel1Keys <- migrateHashedBufferedRef (migrateUpdateQueue id) pLevel1KeysUpdateQueue
+  newLevel2Keys <- migrateHashedBufferedRef (migrateUpdateQueue (migrateAuthorizations migration)) pLevel2KeysUpdateQueue
+  newProtocol <- migrateHashedBufferedRef (migrateUpdateQueue id) pProtocolQueue
+  newElectionDifficulty <- migrateHashedBufferedRef (migrateUpdateQueue id) pElectionDifficultyQueue
+  newEuroPerEnergy <- migrateHashedBufferedRef (migrateUpdateQueue id) pEuroPerEnergyQueue
+  newMicroGTUPerEuro <- migrateHashedBufferedRef (migrateUpdateQueue id) pMicroGTUPerEuroQueue
+  newFoundationAccount <- migrateHashedBufferedRef (migrateUpdateQueue id) pFoundationAccountQueue
+  newMintDistribution <- migrateHashedBufferedRef (migrateUpdateQueue (migrateMintDistribution migration)) pMintDistributionQueue
+  newTransactionFeeDistribution <- migrateHashedBufferedRef (migrateUpdateQueue id) pTransactionFeeDistributionQueue
+  newGASRewards <- migrateHashedBufferedRef (migrateUpdateQueue id) pGASRewardsQueue
+  newPoolParameters <- migrateHashedBufferedRef (migrateUpdateQueue (migratePoolParameters migration)) pPoolParametersQueue
+  newAddAnonymityRevokers <- migrateHashedBufferedRef (migrateUpdateQueue id) pAddAnonymityRevokerQueue
+  newAddIdentityProviders <- migrateHashedBufferedRef (migrateUpdateQueue id) pAddIdentityProviderQueue
+  newTimeParameters <- case migration of
+    StateMigrationParametersTrivial -> case pTimeParametersQueue of
+      NothingForCPV1 -> return NothingForCPV1
+      JustForCPV1 hbr -> JustForCPV1 <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
+    StateMigrationParametersP1P2 -> case pTimeParametersQueue of
+      NothingForCPV1 -> return NothingForCPV1
+    StateMigrationParametersP2P3 -> case pTimeParametersQueue of
+      NothingForCPV1 -> return NothingForCPV1
+    StateMigrationParametersP3ToP4{} -> do
+      (!hbr, _) <- refFlush =<< refMake emptyUpdateQueue
+      return (JustForCPV1 hbr)
+  newCooldownParameters <- case migration of
+    StateMigrationParametersTrivial -> case pCooldownParametersQueue of
+      NothingForCPV1 -> return NothingForCPV1
+      JustForCPV1 hbr -> JustForCPV1 <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
+    StateMigrationParametersP1P2 -> case pCooldownParametersQueue of
+      NothingForCPV1 -> return NothingForCPV1
+    StateMigrationParametersP2P3 -> case pCooldownParametersQueue of
+      NothingForCPV1 -> return NothingForCPV1
+    StateMigrationParametersP3ToP4{} -> do
+      (!hbr, _) <- refFlush =<< refMake emptyUpdateQueue
+      return (JustForCPV1 hbr)
+  return $! PendingUpdates{
+        pRootKeysUpdateQueue = newRootKeys,
+        pLevel1KeysUpdateQueue = newLevel1Keys,
+        pLevel2KeysUpdateQueue = newLevel2Keys,
+        pProtocolQueue = newProtocol,
+        pElectionDifficultyQueue = newElectionDifficulty,
+        pEuroPerEnergyQueue = newEuroPerEnergy,
+        pMicroGTUPerEuroQueue = newMicroGTUPerEuro,
+        pFoundationAccountQueue = newFoundationAccount,
+        pMintDistributionQueue = newMintDistribution,
+        pTransactionFeeDistributionQueue = newTransactionFeeDistribution,
+        pGASRewardsQueue = newGASRewards,
+        pPoolParametersQueue = newPoolParameters,
+        pAddAnonymityRevokerQueue = newAddAnonymityRevokers,
+        pAddIdentityProviderQueue = newAddIdentityProviders,
+        pCooldownParametersQueue = newCooldownParameters,
+        pTimeParametersQueue = newTimeParameters
+        }
+
 instance
     (MonadBlobStore m, IsChainParametersVersion cpv) =>
     MHashableTo m H.Hash (PendingUpdates cpv)
@@ -279,7 +363,6 @@ instance
                     >> putCooldownParametersQueue
                     >> putTimeParametersQueue
             return (putPU, newPU)
-    store pu = fst <$> storeUpdate pu
     load = do
         mRKQ <- label "Root keys update queue" load
         mL1KQ <- label "Level 1 keys update queue" load
@@ -430,6 +513,32 @@ data Updates' (cpv :: ChainParametersVersion) = Updates {
         pendingUpdates :: !(PendingUpdates cpv)
     }
 
+-- |See documentation of @migratePersistentBlockState@.
+migrateUpdates :: 
+  forall oldpv pv t m . 
+    (IsProtocolVersion pv,
+     IsProtocolVersion oldpv,
+     SupportMigration m t) =>
+    StateMigrationParameters oldpv pv -> Updates oldpv -> t m (Updates pv)
+migrateUpdates migration Updates{..} = do
+  newPendingUpdates <- migratePendingUpdates migration pendingUpdates
+  let migrateKeysCollection UpdateKeysCollection{..} =
+        UpdateKeysCollection{
+          level2Keys = migrateAuthorizations migration level2Keys,
+          ..
+          }
+  newKeyCollection <- migrateHashedBufferedRef (return . StoreSerialized . migrateKeysCollection . unStoreSerialized) currentKeyCollection
+  newParameters <- migrateHashedBufferedRef (return . StoreSerialized . migrateChainParameters migration . unStoreSerialized) currentParameters
+  newCurrentProtocolUpdate <- case currentProtocolUpdate of
+    Null -> return Null
+    Some c -> Some <$!> migrateHashedBufferedRefKeepHash c
+  return Updates {
+    currentKeyCollection = newKeyCollection,
+    currentParameters = newParameters,
+    pendingUpdates = newPendingUpdates,
+    currentProtocolUpdate = newCurrentProtocolUpdate
+    }
+
 type Updates (pv :: ProtocolVersion) = Updates' (ChainParametersVersionFor pv)
 
 instance (MonadBlobStore m, IsChainParametersVersion cpv) => MHashableTo m H.Hash (Updates' cpv) where
@@ -460,7 +569,6 @@ instance (MonadBlobStore m, IsChainParametersVersion cpv)
                 pendingUpdates = pU
             }
         return (pKC >> pCPU >> pCP >> pPU, newUpdates)
-    store u = fst <$> storeUpdate u
     load = do
         mKC <- label "Current key collection" load
         mCPU <- label "Current protocol update" load

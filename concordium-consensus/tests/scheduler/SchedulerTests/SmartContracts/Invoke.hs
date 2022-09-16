@@ -47,12 +47,12 @@ initialBlockState = initialPersistentState
 counterSourceFile :: FilePath
 counterSourceFile = "./testdata/contracts/v1/call-counter.wasm"
 
-deployModule :: ContextM (PersistentBlockState PV4, GSWasm.ModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1)
+deployModule :: ContextM (PersistentBlockState PV4, InvokeHelpers.PersistentModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1)
 deployModule = do
   ((x, y), z) <- InvokeHelpers.deployModuleV1 counterSourceFile . hpbsPointers =<< initialBlockState
   return (z, x, y)
 
-initContract :: (PersistentBlockState PV4, GSWasm.ModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1) -> ContextM (Types.ContractAddress, HashedPersistentBlockState PV4)
+initContract :: (PersistentBlockState PV4, InvokeHelpers.PersistentModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1) -> ContextM (Types.ContractAddress, HashedPersistentBlockState PV4)
 initContract (bs, miv, wm) = do
   (ca, pbs) <- InvokeHelpers.initContractV1 alesAccount (InitName "init_counter") emptyParameter (0 :: Types.Amount) bs (miv, wm)
   (ca,) <$> freezeBlockState pbs

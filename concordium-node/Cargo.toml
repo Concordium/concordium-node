@@ -26,6 +26,7 @@ codegen-units = 1
 [dependencies]
 # Internal dependencies
 crypto_common = { path = "../concordium-base/rust-src/crypto_common", features = ["encryption"] }
+id = { path = "../concordium-base/rust-src/id", default-features = false }
 
 # External dependencies
 parking_lot = "0.12"
@@ -65,7 +66,7 @@ anyhow = "1.0"
 thiserror = "1.0"
 futures = { version = "0.3" }
 url = "2.2"
-reqwest = { version = "0.11", features = ["stream"] }
+reqwest = { version = "0.11", features = ["stream", "native-tls-vendored"] }
 csv-async = "1.2"
 tokio-util = { version = "0.7.3", features = ["io"] }
 

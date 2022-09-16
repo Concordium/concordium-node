@@ -2,6 +2,16 @@
 
 ## Unreleased changes
 
+- Speed up and reduce memory overhead during protocol updates.
+
+- Smart contract modules are no longer retained in memory. Module artifacts are loaded as needed
+  during contract execution. Metadata is cached for a limited number of smart contract modules.
+  By default, the cache will retain metadata for at most 100 smart contract modules, and this is
+  configurable via the `--modules-cache-size` command line argument or by using the 
+  `CONCORDIUM_NODE_CONSENSUS_MODULES_CACHE_SIZE` environment variable.
+  
+- Smart contract state is no longer cached on startup and is not cached after finalization.
+
 ## 4.4.1
 
 - Verify pending blocks earlier when possible.
