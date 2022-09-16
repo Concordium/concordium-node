@@ -208,12 +208,21 @@ impl<D: prost::Message + Default> tonic::codec::Decoder for RawDecoder<D> {
 pub mod server {
     use crate::{
         configuration::GRPC2Config,
-        consensus_ffi::{consensus::ConsensusContainer, ffi::NotificationHandlers},
+        consensus_ffi::{
+            consensus::{ConsensusContainer, CALLBACK_QUEUE},
+            ffi::NotificationHandlers,
+            helpers::{ConsensusFfiResponse, PacketType},
+            messaging::{ConsensusMessage, MessageType},
+        },
         p2p::P2PNode,
     };
     use anyhow::Context;
+    use byteorder::WriteBytesExt;
     use futures::{FutureExt, StreamExt};
-    use std::sync::{Arc, Mutex};
+    use std::{
+        io::Write,
+        sync::{Arc, Mutex},
+    };
     use tonic::{async_trait, transport::ServerTlsConfig};
 
     use super::*;
@@ -614,6 +623,80 @@ pub mod server {
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
             let response = self.consensus.get_block_item_status_v2(request.get_ref())?;
             Ok(tonic::Response::new(response))
+        }
+
+        async fn send_transaction(
+            &self,
+            request: tonic::Request<crate::grpc2::types::SendTransactionRequest>,
+        ) -> Result<tonic::Response<crate::grpc2::types::SendTransactionResponse>, tonic::Status>
+        {
+            use ConsensusFfiResponse::*;
+
+            if self.node.is_network_stopped() {
+                return Err(tonic::Status::failed_precondition(
+                    "The network is stopped due to unrecognized protocol update.",
+                ));
+            }
+
+            let request = request.get_ref();
+            let transaction = &request.payload;
+            if transaction.len() > crate::configuration::PROTOCOL_MAX_TRANSACTION_SIZE {
+                warn!("Received a transaction that exceeds maximum transaction size.");
+                return Err(tonic::Status::invalid_argument(
+                    "Transaction size exceeds maximum allowed size.",
+                ));
+            }
+            let consensus_result = self.consensus.send_transaction(transaction);
+
+            let result = if consensus_result == Success {
+                let mut payload = Vec::with_capacity(1 + transaction.len());
+                payload.write_u8(PacketType::Transaction as u8)?;
+                payload.write_all(transaction)?;
+
+                CALLBACK_QUEUE.send_out_message(ConsensusMessage::new(
+                    MessageType::Outbound(None),
+                    PacketType::Transaction,
+                    Arc::from(payload),
+                    vec![],
+                    None,
+                ))
+            } else {
+                Err(consensus_result.into())
+            };
+
+            let mk_err_response = |code, error| Err(tonic::Status::new(code, error));
+            let mk_err_invalid_argument_response =
+                |error| mk_err_response(tonic::Code::InvalidArgument, error);
+
+            match (result, consensus_result) {
+                (Ok(_), Success) => {
+                    Ok(tonic::Response::new(crate::grpc2::types::SendTransactionResponse {
+                        success: true,
+                    }))
+                }
+                (Err(e), Success) => {
+                    warn!("Couldn't put a transaction in the outbound queue due to {:?}", e);
+                    Err(tonic::Status::new(
+                        tonic::Code::Internal,
+                        format!("Couldn't put a transaction in the outbound queue due to {:?}", e),
+                    ))
+                }
+                // the wildcard is always Err as only 'Success' responses from the consensus are
+                // being retransmitted. In other words Ok(_) implies consensus_result == Success
+                (_, DuplicateEntry) => {
+                    mk_err_response(tonic::Code::AlreadyExists, DuplicateEntry.to_string())
+                }
+                (_, ConsensusShutDown) => {
+                    warn!(
+                        "Consensus didn't accept a transaction via RPC due to {:?}",
+                        ConsensusShutDown.to_string()
+                    );
+                    mk_err_invalid_argument_response(ConsensusShutDown.to_string())
+                }
+                (_, consensus_error) => {
+                    mk_err_invalid_argument_response(consensus_error.to_string())
+                }
+            }
         }
     }
 }
