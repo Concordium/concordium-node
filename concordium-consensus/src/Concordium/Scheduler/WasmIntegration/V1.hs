@@ -64,7 +64,8 @@ foreign import ccall "validate_and_process_v1"
    validate_and_process :: Ptr Word8 -- ^Pointer to the Wasm module source.
                         -> CSize -- ^Length of the module source.
                         -> Ptr CSize -- ^Total length of the output.
-                        -> Ptr (Ptr ModuleArtifactBytesV1) -- ^Null, or the processed module artifact. This is null if and only if the return value is null.
+                        -> Ptr CSize -- ^Length of the artifact.
+                        -> Ptr (Ptr Word8) -- ^Processed module artifact.
                         -> IO (Ptr Word8) -- ^Null, or exports.
 
 -- |Return value of a V1 contract call. This is deliberately opaque so that we avoid redundant data copying
@@ -142,7 +143,7 @@ data EnvFailure =
 -- - every failure has all bits of the first (most significant) 3 bytes set
 -- - in case of failure
 --   - if the 4th byte is 0 then the remaining 4 bytes encode the rejection reason from the contract
---   - otherwise only the 4th byte is used, and encodes the enviroment failure.
+--   - otherwise only the 4th byte is used, and encodes the environment failure.
 invokeResponseToWord64 :: InvokeResponseCode -> Word64
 invokeResponseToWord64 Success = 0
 invokeResponseToWord64 (Error (EnvFailure e)) =
@@ -162,7 +163,7 @@ invokeResponseToWord64 (Error (ExecutionReject LogicReject{..})) =
 foreign import ccall "call_init_v1"
    call_init :: LoadCallback -- Callbacks for loading state. Not needed in reality, but the way things are set it is. It does not hurt to pass.
              -> Ptr Word8 -- ^Pointer to the Wasm artifact.
-             -> CSize -- ^Length of the artifiact.
+             -> CSize -- ^Length of the artifact.
              -> Ptr Word8 -- ^Pointer to the serialized chain meta + init ctx.
              -> CSize -- ^Length of the preceding data.
              -> Word64 -- ^Amount
@@ -174,7 +175,7 @@ foreign import ccall "call_init_v1"
              -> Ptr (Ptr ReturnValue) -- ^Location where the pointer to the return value will be written.
              -> Ptr CSize -- ^Length of the output byte array, if non-null.
              -> Ptr (Ptr StateV1.MutableStateInner) -- ^Location where the pointer to the mutable state will be written.
-             -> IO (Ptr Word8) -- ^New state and logs, if applicable, or null, signaling out-of-energy.
+             -> IO (Ptr Word8) -- ^New state and logs, if applicable, or null, signalling out-of-energy.
 
 
 foreign import ccall "call_receive_v1"
@@ -197,7 +198,7 @@ foreign import ccall "call_receive_v1"
              -> Ptr (Ptr ReturnValue) -- ^Location where the pointer to the return value will be written.
              -> Ptr (Ptr ReceiveInterruptedState) -- ^Location where the pointer to interrupted config will be stored.
              -> Ptr CSize -- ^Length of the output byte array, if non-null.
-             -> IO (Ptr Word8) -- ^New state, logs, and actions, if applicable, or null, signaling out-of-energy.
+             -> IO (Ptr Word8) -- ^New state, logs, and actions, if applicable, or null, signalling out-of-energy.
 
 
 foreign import ccall "resume_receive_v1"
@@ -214,14 +215,14 @@ foreign import ccall "resume_receive_v1"
              -> Word64 -- ^Available energy.
              -> Ptr (Ptr ReturnValue) -- ^Location where the pointer to the return value will be written.
              -> Ptr CSize -- ^Length of the output byte array, if non-null.
-             -> IO (Ptr Word8) -- ^New state, logs, and actions, if applicable, or null, signaling out-of-energy.
+             -> IO (Ptr Word8) -- ^New state, logs, and actions, if applicable, or null, signalling out-of-energy.
 
 
 -- |Apply an init function which is assumed to be a part of the module.
 {-# NOINLINE applyInitFun #-}
 applyInitFun
     :: LoadCallback
-    -> ModuleArtifactBytes V1
+    -> InstrumentedModuleV V1
     -> ChainMetadata -- ^Chain information available to the contracts.
     -> InitContext -- ^Additional parameters supplied by the chain and
                   -- available to the init method.
@@ -232,7 +233,7 @@ applyInitFun
     -> Maybe (Either ContractExecutionReject InitResultData, InterpreterEnergy)
     -- ^Nothing if execution ran out of energy.
     -- Just (result, remainingEnergy) otherwise, where @remainingEnergy@ is the amount of energy that is left from the amount given.
-applyInitFun cbk artifactBytes cm initCtx iName param amnt iEnergy = unsafePerformIO $ do
+applyInitFun cbk miface cm initCtx iName param amnt iEnergy = unsafePerformIO $ do
               BSU.unsafeUseAsCStringLen wasmArtifactBytes $ \(wasmArtifactPtr, wasmArtifactLen)  ->
                 BSU.unsafeUseAsCStringLen initCtxBytes $ \(initCtxBytesPtr, initCtxBytesLen) ->
                   BSU.unsafeUseAsCStringLen nameBytes $ \(nameBytesPtr, nameBytesLen) ->
@@ -257,7 +258,7 @@ applyInitFun cbk artifactBytes cm initCtx iName param amnt iEnergy = unsafePerfo
                           statePtr <- peek statePtrPtr
                           processInitResult cbk bs returnValuePtr statePtr
     where
-        wasmArtifactBytes = getModuleArtifactBytes artifactBytes
+        wasmArtifactBytes = imWasmArtifactBytes miface
         initCtxBytes = encodeChainMeta cm <> encodeInitContext initCtx
         paramBytes = BSS.fromShort (parameter param)
         energy = fromIntegral iEnergy
@@ -467,7 +468,7 @@ processReceiveResult callbacks initialState result returnValuePtr statePtr eithe
 -- |Apply a receive function which is assumed to be part of the given module.
 {-# NOINLINE applyReceiveFun #-}
 applyReceiveFun
-    :: ModuleArtifactBytes V1
+    :: InstrumentedModuleV V1
     -> ChainMetadata -- ^Metadata available to the contract.
     -> ReceiveContext -- ^Additional parameter supplied by the chain and
                      -- available to the receive method.
@@ -480,7 +481,7 @@ applyReceiveFun
     -> Maybe (Either ContractExecutionReject ReceiveResultData, InterpreterEnergy)
     -- ^Nothing if execution used up all the energy, and otherwise the result
     -- of execution with the amount of energy remaining.
-applyReceiveFun artifactBytes cm receiveCtx rName useFallback param amnt initialState initialEnergy = unsafePerformIO $ do
+applyReceiveFun miface cm receiveCtx rName useFallback param amnt initialState initialEnergy = unsafePerformIO $ do
               BSU.unsafeUseAsCStringLen wasmArtifact $ \(wasmArtifactPtr, wasmArtifactLen)  ->
                 BSU.unsafeUseAsCStringLen initCtxBytes $ \(initCtxBytesPtr, initCtxBytesLen) ->
                   BSU.unsafeUseAsCStringLen nameBytes $ \(nameBytesPtr, nameBytesLen) ->
@@ -508,7 +509,7 @@ applyReceiveFun artifactBytes cm receiveCtx rName useFallback param amnt initial
                             statePtr <- peek statePtrPtr
                             processReceiveResult callbacks initialState bs returnValuePtr statePtr (Right outputInterruptedConfigPtrPtr)
     where
-        wasmArtifact = getModuleArtifactBytes artifactBytes
+        wasmArtifact = imWasmArtifactBytes miface
         initCtxBytes = encodeChainMeta cm <> encodeReceiveContext receiveCtx
         amountWord = _amount amnt
         energy = fromIntegral initialEnergy
@@ -564,25 +565,31 @@ resumeReceiveFun is currentState stateChanged amnt statusCode rVal remainingEner
 {-# NOINLINE processModule #-}
 processModule :: WasmModuleV V1 -> Maybe (ModuleInterfaceV V1)
 processModule modl = do
-  (bs, imWasmArtifactV1) <- ffiResult
+  (bs, miModule) <- ffiResult
   case getExports bs of
     Left _ -> Nothing
     Right (miExposedInit, miExposedReceive) ->
       let miModuleRef = getModuleRef modl
-          miModule = InstrumentedWasmModuleV1{..}
       in Just ModuleInterface{miModuleSize = moduleSourceLength (wmvSource modl),..}
 
   where ffiResult = unsafePerformIO $ do
           unsafeUseModuleSourceAsCStringLen (wmvSource modl) $ \(wasmBytesPtr, wasmBytesLen) ->
               alloca $ \outputLenPtr ->
-                alloca $ \outputModuleArtifactPtr -> do
-                  outPtr <- validate_and_process (castPtr wasmBytesPtr) (fromIntegral wasmBytesLen) outputLenPtr outputModuleArtifactPtr
-                  if outPtr == nullPtr then return Nothing
-                  else do
-                    len <- peek outputLenPtr
-                    bs <- BSU.unsafePackCStringFinalizer outPtr (fromIntegral len) (rs_free_array_len outPtr (fromIntegral len))
-                    moduleArtifact <- newModuleArtifactV1 =<< peek outputModuleArtifactPtr
-                    return (Just (bs, moduleArtifact))
+                alloca $ \artifactLenPtr ->
+                  alloca $ \outputModuleArtifactPtr -> do
+                    outPtr <- validate_and_process (castPtr wasmBytesPtr) (fromIntegral wasmBytesLen) outputLenPtr artifactLenPtr outputModuleArtifactPtr
+                    if outPtr == nullPtr then return Nothing
+                    else do
+                      len <- peek outputLenPtr
+                      bs <- BSU.unsafePackCStringFinalizer outPtr (fromIntegral len) (rs_free_array_len outPtr (fromIntegral len))
+                      artifactLen <- peek artifactLenPtr
+                      artifactPtr <- peek outputModuleArtifactPtr
+                      moduleArtifact <-
+                        BSU.unsafePackCStringFinalizer
+                          artifactPtr
+                          (fromIntegral artifactLen)
+                          (rs_free_array_len artifactPtr (fromIntegral artifactLen))
+                      return (Just (bs, instrumentedModuleFromBytes SV1 moduleArtifact))
 
         getExports bs =
           flip runGet bs $ do

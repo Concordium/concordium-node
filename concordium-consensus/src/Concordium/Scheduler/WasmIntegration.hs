@@ -27,12 +27,13 @@ foreign import ccall "validate_and_process_v0"
    validate_and_process :: Ptr Word8 -- ^Pointer to the Wasm module source.
                         -> CSize -- ^Length of the module source.
                         -> Ptr CSize -- ^Total length of the output.
-                        -> Ptr (Ptr ModuleArtifactBytesV0) -- ^Null, or the processed module artifact. This is null if and only if the return value is null.
+                        -> Ptr CSize -- ^Length of the artifact.
+                        -> Ptr (Ptr Word8) -- ^Processed module artifact.
                         -> IO (Ptr Word8) -- ^Null, or exports.
 
 foreign import ccall "call_init_v0"
    call_init :: Ptr Word8 -- ^Pointer to the Wasm artifact.
-             -> CSize -- ^Length of the artifiact.
+             -> CSize -- ^Length of the artifact.
              -> Ptr Word8 -- ^Pointer to the serialized chain meta + init ctx.
              -> CSize -- ^Length of the preceding data.
              -> Word64 -- ^Amount
@@ -42,12 +43,12 @@ foreign import ccall "call_init_v0"
              -> CSize -- ^Length of the parameter bytes.
              -> Word64 -- ^Available energy.
              -> Ptr CSize -- ^Length of the output byte array, if non-null.
-             -> IO (Ptr Word8) -- ^New state and logs, if applicable, or null, signaling out-of-energy.
+             -> IO (Ptr Word8) -- ^New state and logs, if applicable, or null, signalling out-of-energy.
 
 
 foreign import ccall "call_receive_v0"
    call_receive :: Ptr Word8 -- ^Pointer to the Wasm artifact.
-             -> CSize -- ^Length of the artifiact.
+             -> CSize -- ^Length of the artifact.
              -> Ptr Word8 -- ^Pointer to the serialized receive context.
              -> CSize  -- ^Length of the preceding data.
              -> Word64 -- ^Amount
@@ -59,11 +60,11 @@ foreign import ccall "call_receive_v0"
              -> CSize -- ^Length of the parameter bytes.
              -> Word64 -- ^Available energy.
              -> Ptr CSize -- ^Length of the output byte array, if non-null.
-             -> IO (Ptr Word8) -- ^New state, logs, and actions, if applicable, or null, signaling out-of-energy.
+             -> IO (Ptr Word8) -- ^New state, logs, and actions, if applicable, or null, signalling out-of-energy.
 
 -- |Apply an init function which is assumed to be a part of the module.
 applyInitFun
-    :: ModuleArtifactBytes V0
+    :: InstrumentedModuleV V0
     -> ChainMetadata -- ^Chain information available to the contracts.
     -> InitContext -- ^Additional parameters supplied by the chain and
                   -- available to the init method.
@@ -74,7 +75,7 @@ applyInitFun
     -> Maybe (Either ContractExecutionFailure (SuccessfulResultData ()), InterpreterEnergy)
     -- ^Nothing if execution ran out of energy.
     -- Just (result, remainingEnergy) otherwise, where @remainingEnergy@ is the amount of energy that is left from the amount given.
-applyInitFun artifactBytes cm initCtx iName param amnt iEnergy = processInterpreterResult (get :: Get ()) result
+applyInitFun miface cm initCtx iName param amnt iEnergy = processInterpreterResult (get :: Get ()) result
   where result = unsafePerformIO $ do
               BSU.unsafeUseAsCStringLen wasmArtifact $ \(wasmArtifactPtr, wasmArtifactLen) ->
                 BSU.unsafeUseAsCStringLen initCtxBytes $ \(initCtxBytesPtr, initCtxBytesLen) ->
@@ -93,7 +94,7 @@ applyInitFun artifactBytes cm initCtx iName param amnt iEnergy = processInterpre
                           len <- peek outputLenPtr
                           bs <- BSU.unsafePackCStringFinalizer outPtr (fromIntegral len) (rs_free_array_len outPtr (fromIntegral len))
                           return (Just bs)
-        wasmArtifact = getModuleArtifactBytes artifactBytes
+        wasmArtifact = imWasmArtifactBytes miface
         initCtxBytes = encodeChainMeta cm <> encodeInitContext initCtx
         paramBytes = BSS.fromShort (parameter param)
         energy = fromIntegral iEnergy
@@ -131,7 +132,7 @@ processInterpreterResult aDecoder result = case result of
 
 -- |Apply a receive function which is assumed to be part of the given module.
 applyReceiveFun
-    :: ModuleArtifactBytes V0
+    :: InstrumentedModuleV V0
     -> ChainMetadata -- ^Metadata available to the contract.
     -> ReceiveContext -- ^Additional parameter supplied by the chain and
                      -- available to the receive method.
@@ -143,7 +144,7 @@ applyReceiveFun
     -> Maybe (Either ContractExecutionFailure (SuccessfulResultData ActionsTree), InterpreterEnergy)
     -- ^Nothing if execution used up all the energy, and otherwise the result
     -- of execution with the amount of energy remaining.
-applyReceiveFun artifactBytes cm receiveCtx rName param amnt cs initialEnergy = processInterpreterResult getActionsTree result
+applyReceiveFun miface cm receiveCtx rName param amnt cs initialEnergy = processInterpreterResult getActionsTree result
   where result = unsafePerformIO $ do
               BSU.unsafeUseAsCStringLen wasmArtifact $ \(wasmArtifactPtr, wasmArtifactLen) ->
                 BSU.unsafeUseAsCStringLen initCtxBytes $ \(initCtxBytesPtr, initCtxBytesLen) ->
@@ -164,7 +165,7 @@ applyReceiveFun artifactBytes cm receiveCtx rName param amnt cs initialEnergy = 
                             len <- peek outputLenPtr
                             bs <- BSU.unsafePackCStringFinalizer outPtr (fromIntegral len) (rs_free_array_len outPtr (fromIntegral len))
                             return (Just bs)
-        wasmArtifact = getModuleArtifactBytes artifactBytes
+        wasmArtifact = imWasmArtifactBytes miface
         initCtxBytes = encodeChainMeta cm <> encodeReceiveContext receiveCtx
         amountWord = _amount amnt
         stateBytes = contractState cs
@@ -181,25 +182,31 @@ applyReceiveFun artifactBytes cm receiveCtx rName param amnt cs initialEnergy = 
 {-# NOINLINE processModule #-}
 processModule :: WasmModuleV V0 -> Maybe (ModuleInterfaceV V0)
 processModule modl = do
-  (bs, imWasmArtifactBytesV0) <- ffiResult
+  (bs, miModule) <- ffiResult
   case getExports bs of
     Left _ -> Nothing
     Right (miExposedInit, miExposedReceive) ->
       let miModuleRef = getModuleRef modl
-          miModule = InstrumentedWasmModuleBytesV0{..}
       in Just ModuleInterface{miModuleSize = moduleSourceLength (wmvSource modl),..}
 
   where ffiResult = unsafePerformIO $ do
           unsafeUseModuleSourceAsCStringLen (wmvSource modl) $ \(wasmBytesPtr, wasmBytesLen) ->
               alloca $ \outputLenPtr -> 
-                alloca $ \outputModuleArtifactPtr -> do
-                  outPtr <- validate_and_process (castPtr wasmBytesPtr) (fromIntegral wasmBytesLen) outputLenPtr outputModuleArtifactPtr
-                  if outPtr == nullPtr then return Nothing
-                  else do
-                    len <- peek outputLenPtr
-                    bs <- BSU.unsafePackCStringFinalizer outPtr (fromIntegral len) (rs_free_array_len outPtr (fromIntegral len))
-                    moduleArtifact <- newModuleArtifactV0 =<< peek outputModuleArtifactPtr
-                    return (Just (bs, moduleArtifact))
+                alloca $ \artifactLenPtr ->
+                  alloca $ \outputModuleArtifactPtr -> do
+                    outPtr <- validate_and_process (castPtr wasmBytesPtr) (fromIntegral wasmBytesLen) outputLenPtr artifactLenPtr outputModuleArtifactPtr
+                    if outPtr == nullPtr then return Nothing
+                    else do
+                      len <- peek outputLenPtr
+                      bs <- BSU.unsafePackCStringFinalizer outPtr (fromIntegral len) (rs_free_array_len outPtr (fromIntegral len))
+                      artifactLen <- peek artifactLenPtr
+                      artifactPtr <- peek outputModuleArtifactPtr
+                      moduleArtifact <-
+                        BSU.unsafePackCStringFinalizer
+                          artifactPtr
+                          (fromIntegral artifactLen)
+                          (rs_free_array_len artifactPtr (fromIntegral artifactLen))
+                      return (Just (bs, instrumentedModuleFromBytes SV0 moduleArtifact))
 
         getExports bs =
           flip runGet bs $ do

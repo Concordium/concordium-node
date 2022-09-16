@@ -766,7 +766,7 @@ handleInitContract wtc initAmount modref initName param =
                     initOrigin = senderAddress,
                     icSenderPolicies = map (Wasm.mkSenderPolicy . snd) (OrdMap.toAscList senderCredentials)
                 }
-                artifact <- liftLocal $ mapM getModuleArtifact iface
+                artifact <- liftLocal $ getModuleArtifact (GSWasm.miModule iface)
                 result <- runInterpreter (return . WasmV0.applyInitFun artifact cm initCtx initName param initAmount)
                         `rejectingWith'` wasmRejectToRejectReasonInit
 
@@ -797,7 +797,7 @@ handleInitContract wtc initAmount modref initName param =
                       icSenderPolicies = map (Wasm.mkSenderPolicy . snd) (OrdMap.toAscList senderCredentials)
                    }
                 stateContext <- getV1StateContext
-                artifact <- liftLocal $ mapM getModuleArtifact iface
+                artifact <- liftLocal $ getModuleArtifact (GSWasm.miModule iface)
                 result <- runInterpreter (return . WasmV1.applyInitFun stateContext artifact cm initCtx initName param initAmount)
                            `rejectingWith'` WasmV1.cerToRejectReasonInit
 
@@ -1160,8 +1160,8 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
       -- for, e.g., forwarding.
       withToContractAmountV1 sender istance transferAmount $ do
         foreignModel <- getRuntimeReprV1 model
-        iface' <- liftLocal $ mapM getModuleArtifact iface
-        go [] =<< runInterpreter (return . WasmV1.applyReceiveFun iface' cm receiveCtx receiveName useFallback parameter transferAmount foreignModel)
+        artifact <- liftLocal $ getModuleArtifact (GSWasm.miModule iface)
+        go [] =<< runInterpreter (return . WasmV1.applyReceiveFun artifact cm receiveCtx receiveName useFallback parameter transferAmount foreignModel)
    where  transferAccountSync :: AccountAddress -- ^The target account address.
                               -> UInstanceInfoV m GSWasm.V1 -- ^The sender of this transfer.
                               -> Amount -- ^The amount to transfer.
@@ -1240,8 +1240,8 @@ handleContractUpdateV0 originAddr istance checkAndGetSender transferAmount recei
   tickEnergy $ Cost.lookupModule (GSWasm.miModuleSize iface)
 
   model <- getRuntimeReprV0 (iiState istance)
-  iface' <- liftLocal $ mapM getModuleArtifact iface
-  result <- runInterpreter (return . WasmV0.applyReceiveFun iface' cm receiveCtx receiveName parameter transferAmount model)
+  artifact <- liftLocal $ getModuleArtifact (GSWasm.miModule iface)
+  result <- runInterpreter (return . WasmV0.applyReceiveFun artifact cm receiveCtx receiveName parameter transferAmount model)
              `rejectingWith'` wasmRejectToRejectReasonReceive cref receiveName parameter
 
   -- If we reach here the contract accepted the message and returned a new state as well as outgoing messages.
