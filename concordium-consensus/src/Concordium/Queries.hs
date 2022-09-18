@@ -705,16 +705,14 @@ getTransactionStatusInBlock trHash blockHash =
             )
 
 -- * Smart contract invocations
-invokeContract :: BlockHash -> InvokeContract.ContractContext -> MVR gsconf finconf (Maybe InvokeContract.InvokeContractResult)
-invokeContract bh cctx =
-    liftSkovQueryBlockAndVersion
-    (\(_ :: VersionedConfiguration gsconf finconf pv) bp -> do
+invokeContract :: BlockHashInput -> InvokeContract.ContractContext -> MVR gsconf finconf (BlockHash, Maybe InvokeContract.InvokeContractResult)
+invokeContract bhi cctx =
+    liftSkovQueryBHI
+    (\bp -> do
         bs <- blockState bp
         cm <- ChainMetadata <$> getSlotTimestamp (blockSlot bp)
         InvokeContract.invokeContract cctx cm bs)
-    bh
-
-
+    bhi
 
 -- * Miscellaneous
 

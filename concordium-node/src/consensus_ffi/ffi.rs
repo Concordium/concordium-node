@@ -726,6 +726,57 @@ extern "C" {
         copier: CopyToVecCallback,
     ) -> i64;
 
+    /// Run the smart contract entrypoint in a given context and in the state at
+    /// the end of the given block.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `contract_index` - The contact index to invoke.
+    /// * `contract_subindex` - The contact subindex to invoke.
+    /// * `invoker_address_type` - Tag for whether an account or a contract
+    ///   address is provided. If 0 no address is provided, if 1 the
+    ///   `invoker_account_address_ptr` is 32 bytes for an account address, if 2
+    ///   the `invoker_contract_index` and `invoker_contract_subindex` is used
+    ///   for the contract address.
+    /// * `invoker_account_address_ptr` - Pointer to the address if this is
+    ///   provided. The length will depend on the value of
+    ///   `invoker_address_type`.
+    /// * `invoker_contract_index` - The invoker contact index. Only used if
+    ///   `invoker_address_type` is 2.
+    /// * `invoker_contract_subindex` - The invoker contact subindex. Only used
+    ///   if `invoker_address_type` is 2.
+    /// * `amount` - The amount to use for the invocation.
+    /// * `receive_name_ptr` - Pointer to the entrypoint to invoke.
+    /// * `receive_name_len` - Length of the bytes for the entrypoint.
+    /// * `parameter_ptr` - Pointer to the parameter to invoke with.
+    /// * `parameter_len` - Length of the bytes for the parameter.
+    /// * `energy` - The energy to use for the invocation.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `out` - Location to write the output of the query.
+    /// * `copier` - Callback for writting the output.
+    pub fn invokeInstanceV2(
+        consensus: *mut consensus_runner,
+        block_id_type: u8,
+        block_id: *const u8,
+        contract_index: u64,
+        contract_subindex: u64,
+        invoker_address_type: u8,
+        invoker_account_address_ptr: *const u8,
+        invoker_contract_index: u64,
+        invoker_contract_subindex: u64,
+        amount: u64,
+        receive_name_ptr: *const u8,
+        receive_name_len: u32,
+        parameter_ptr: *const u8,
+        parameter_len: u32,
+        energy: u64,
+        out_hash: *mut u8,
+        out: *mut Vec<u8>,
+        copier: CopyToVecCallback,
+    ) -> i64;
+
     /// Get information, such as height, timings, and transaction counts for the
     /// given block.
     ///
@@ -1646,6 +1697,88 @@ impl ConsensusContainer {
         };
         response.ensure_ok("transaction")?;
         Ok(out_data)
+    }
+
+    /// Run the smart contract entrypoint in a given context and in the state at
+    /// the end of the given block.Get status of the tokenomics at the end of a
+    /// given block.
+    pub fn invoke_instance_v2(
+        &self,
+        request: &crate::grpc2::types::InvokeInstanceRequest,
+    ) -> Result<([u8; 32], Vec<u8>), tonic::Status> {
+        use crate::grpc2::Require;
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut out_data: Vec<u8> = Vec::new();
+        let mut out_hash = [0u8; 32];
+        let (block_id_type, block_id) =
+            crate::grpc2::types::block_hash_input_to_ffi(request.block_hash.as_ref().require()?)
+                .require()?;
+
+        // Optional Address to ffi
+        let (
+            invoker_address_type,
+            invoker_account_address_ptr,
+            invoker_contract_index,
+            invoker_contract_subindex,
+        ) = if let Some(address) = &request.invoker {
+            match address.r#type.as_ref().require()? {
+                crate::grpc2::types::address::Type::Account(account) => {
+                    (1, crate::grpc2::types::account_address_to_ffi(account).require()?, 0, 0)
+                }
+                crate::grpc2::types::address::Type::Contract(contract) => {
+                    (2, std::ptr::null(), contract.index, contract.subindex)
+                }
+            }
+        } else {
+            (0, std::ptr::null(), 0, 0)
+        };
+
+        let amount = request.amount.as_ref().require()?.value;
+
+        let (receive_name_ptr, receive_name_len) =
+            crate::grpc2::types::receive_name_to_ffi(request.entrypoint.as_ref().require()?)
+                .require()?;
+
+        // Parameter to ffi
+        let (parameter_ptr, parameter_len) = {
+            let bytes = &request.parameter.as_ref().require()?.value;
+            (
+                bytes.as_ptr(),
+                bytes.len().try_into().map_err(|_| {
+                    tonic::Status::invalid_argument("Parameter exceeds maximum supported size.")
+                })?,
+            )
+        };
+
+        let energy = request.energy.as_ref().require()?.value;
+
+        let contract = request.instance.as_ref().require()?;
+
+        let response: ConsensusQueryResponse = unsafe {
+            invokeInstanceV2(
+                consensus,
+                block_id_type,
+                block_id,
+                contract.index,
+                contract.subindex,
+                invoker_address_type,
+                invoker_account_address_ptr,
+                invoker_contract_index,
+                invoker_contract_subindex,
+                amount,
+                receive_name_ptr,
+                receive_name_len,
+                parameter_ptr,
+                parameter_len,
+                energy,
+                out_hash.as_mut_ptr(),
+                &mut out_data,
+                copy_to_vec_callback,
+            )
+        }
+        .try_into()?;
+        response.ensure_ok("block or contract")?;
+        Ok((out_hash, out_data))
     }
 
     /// Get information, such as height, timings, and transaction counts for the

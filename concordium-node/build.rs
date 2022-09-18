@@ -339,6 +339,15 @@ fn build_grpc2(proto_root_input: &str) -> std::io::Result<()> {
                 .codec_path("crate::grpc2::RawCodec")
                 .build(),
         )
+        .method(
+            tonic_build::manual::Method::builder()
+                .name("invoke_instance")
+                .route_name("InvokeInstance")
+                .input_type("crate::grpc2::types::InvokeInstanceRequest")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .build(),
+        )
         .build();
     // Due to the slightly hacky nature of the RawCodec (i.e., it does not support
     // deserialization) we cannot build the client. But we also don't need it in the

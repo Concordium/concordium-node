@@ -2,6 +2,11 @@ use anyhow::Context;
 use prost::bytes::BufMut;
 use std::{convert::TryFrom, marker::PhantomData, path::Path};
 
+/// Maximum allowed energy to use in the `invoke_instance` request.
+/// This is to make sure that there are no conversion errors to interpreter
+/// energy.
+const MAX_ALLOWED_INVOKE_ENERGY: u64 = 100_000_000_000;
+
 /// Types generated from the types.proto file, together
 /// with some auxiliary definitions that help passing values through the FFI
 /// boundary.
@@ -88,6 +93,16 @@ pub mod types {
     pub(crate) fn transaction_hash_to_ffi(transaction_hash: &TransactionHash) -> Option<*const u8> {
         if transaction_hash.value.len() == 32 {
             Some(transaction_hash.value.as_ptr())
+        } else {
+            None
+        }
+    }
+
+    pub(crate) fn receive_name_to_ffi(receive_name: &ReceiveName) -> Option<(*const u8, u32)> {
+        let string = &receive_name.value;
+        let len = string.len();
+        if string.is_ascii() && len <= 100 {
+            Some((string.as_ptr(), len as u32))
         } else {
             None
         }
@@ -646,6 +661,28 @@ pub mod server {
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
             let response = self.consensus.get_block_item_status_v2(request.get_ref())?;
             Ok(tonic::Response::new(response))
+        }
+
+        async fn invoke_instance(
+            &self,
+            request: tonic::Request<crate::grpc2::types::InvokeInstanceRequest>,
+        ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            if request
+                .get_ref()
+                .energy
+                .as_ref()
+                .map_or(false, |x| x.value <= MAX_ALLOWED_INVOKE_ENERGY)
+            {
+                let (hash, response) = self.consensus.invoke_instance_v2(request.get_ref())?;
+                let mut response = tonic::Response::new(response);
+                add_hash(&mut response, hash)?;
+                Ok(response)
+            } else {
+                Err(tonic::Status::internal(format!(
+                    "`energy` must be supplied and be less than {}",
+                    MAX_ALLOWED_INVOKE_ENERGY
+                )))
+            }
         }
 
         async fn get_cryptographic_parameters(

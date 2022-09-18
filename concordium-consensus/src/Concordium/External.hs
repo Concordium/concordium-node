@@ -1156,7 +1156,7 @@ invokeContract cptr blockcstr ctxcstr = do
     mblock <- decodeBlockHash blockcstr
     mctx <- decodeContractContext ctxcstr
     case (mblock, mctx) of
-        (Just bh, Just ctx) -> jsonQuery cptr (Q.invokeContract bh ctx)
+        (Just bh, Just ctx) -> jsonQuery cptr (snd <$> Q.invokeContract (Q.BHIGiven bh) ctx)
         _ -> jsonCString AE.Null
 
 
