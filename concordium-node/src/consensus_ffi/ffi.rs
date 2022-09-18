@@ -272,13 +272,13 @@ type CopyCryptographicParametersCallback =
 /// Context for returning V1 contract state in the
 /// [`get_instance_state_v2`](ConsensusContainer::get_instance_state_v2) query.
 pub struct V1ContractStateReceiver {
-    state:  Option<wasm_chain_integration::v1::trie::PersistentState>,
-    loader: Option<wasm_chain_integration::v1::trie::foreign::LoadCallback>,
+    state:  wasm_chain_integration::v1::trie::PersistentState,
+    loader: wasm_chain_integration::v1::trie::foreign::LoadCallback,
 }
 
 /// A type of callback to write V1 contract state into.
 type CopyV1ContractStateCallback = extern "C" fn(
-    *mut V1ContractStateReceiver,
+    *mut Option<V1ContractStateReceiver>,
     *mut wasm_chain_integration::v1::trie::PersistentState,
     wasm_chain_integration::v1::trie::foreign::LoadCallback,
 );
@@ -707,7 +707,7 @@ extern "C" {
         out_hash: *mut u8,
         out_v0: *mut Vec<u8>,
         copier_v0: CopyToVecCallback,
-        out_v1: *mut V1ContractStateReceiver,
+        out_v1: *mut Option<V1ContractStateReceiver>,
         copier_v1: CopyV1ContractStateCallback,
     ) -> i64;
 
@@ -1707,10 +1707,7 @@ impl ConsensusContainer {
         let addr_subindex = address.subindex;
         let consensus = self.consensus.load(Ordering::SeqCst);
         let mut out_v0_data: Vec<u8> = Vec::new();
-        let mut out_v1_data = V1ContractStateReceiver {
-            state:  None,
-            loader: None,
-        };
+        let mut out_v1_data = None;
         let mut out_hash = [0u8; 32];
         let response: ConsensusQueryResponse = unsafe {
             getInstanceStateV2(
@@ -1728,19 +1725,13 @@ impl ConsensusContainer {
             .try_into()?
         };
         response.ensure_ok("block or instance")?;
-        match (out_v1_data.state, out_v1_data.loader) {
-            (None, None) => Ok((out_hash, ContractStateResponse::V0 {
+        match out_v1_data {
+            None => Ok((out_hash, ContractStateResponse::V0 {
                 state: out_v0_data,
             })),
-            (None, Some(_)) => Err(tonic::Status::internal(
-                "Cannot construct response. State available, but callback is not.",
-            )),
-            (Some(_), None) => Err(tonic::Status::internal(
-                "Cannot construct response. Callback available, but state is not.",
-            )),
-            (Some(state), Some(loader)) => Ok((out_hash, ContractStateResponse::V1 {
-                state,
-                loader,
+            Some(data) => Ok((out_hash, ContractStateResponse::V1 {
+                state:  data.state,
+                loader: data.loader,
             })),
         }
     }
@@ -2215,13 +2206,16 @@ extern "C" fn copy_cryptographic_parameters_callback(
 
 /// Store the V1 contract state and context to the given structure.
 extern "C" fn copy_v1_contract_state_callback(
-    out: *mut V1ContractStateReceiver,
+    out: *mut Option<V1ContractStateReceiver>,
     state: *mut wasm_chain_integration::v1::trie::PersistentState,
     loader: wasm_chain_integration::v1::trie::foreign::LoadCallback,
 ) {
     let out = unsafe { &mut *out };
-    out.state = unsafe { state.as_ref() }.cloned();
-    out.loader = Some(loader);
+    let v = V1ContractStateReceiver {
+        state: unsafe { &*state }.clone(),
+        loader,
+    };
+    *out = Some(v);
 }
 
 pub extern "C" fn direct_callback(

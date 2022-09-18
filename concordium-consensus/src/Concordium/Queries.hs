@@ -607,7 +607,11 @@ getInstanceInfo bhi caddr = do
               }))
 
 
--- |Get the details of a smart contract instance in the block state.
+-- |Get the exact state of a smart contract instance in the block state. The
+-- return value is 'Nothing' if the instance cannot be found (either the
+-- requested block does not exist, or the instance does not exist in that
+-- block), @Just . Left@ if the instance is a V0 instance, and @Just . Right@ if
+-- the instance is a V1 instance.
 getInstanceState :: BlockHashInput -> ContractAddress -> MVR gsconf finconf (BlockHash, Maybe (Either Wasm.ContractState (StateV1.PersistentState, StateV1.LoadCallback)))
 getInstanceState bhi caddr = do
     (bh, ii) <- liftSkovQueryBHI
