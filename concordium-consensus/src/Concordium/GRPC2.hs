@@ -1308,6 +1308,9 @@ instance ToProto Energy where
   toProto = mkWord64
 
 instance ToProto InvokeContract.InvokeContractResult where
+  -- Since this is a conversion that may fail we use Either in the output type
+  -- here so that we can forward errors, which is not in-line with other
+  -- instances which are not fallible. The caller is meant to catch the error.
   type Output InvokeContract.InvokeContractResult = Either ConversionError Proto.InvokeInstanceResponse
   toProto InvokeContract.Failure {..} = return $ Proto.make $ ProtoFields.failure .= Proto.make (do
       ProtoFields.maybe'returnValue .= rcrReturnValue
