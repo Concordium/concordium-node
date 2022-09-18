@@ -283,12 +283,26 @@ type family UpdatableContractState (v :: Wasm.WasmVersion) = ty | ty -> v where
   UpdatableContractState GSWasm.V0 = Wasm.ContractState
   UpdatableContractState GSWasm.V1 = StateV1.MutableState
 
+-- |An external representation of the persistent (i.e., frozen) contract state.
+-- This is used to pass this state through FFI for queries and should not be
+-- used during contract execution in the scheduler since it's considered an
+-- implementation detail and needs to be used together with the correct loader
+-- callback. Higher-level abstractions should be used in the scheduler.
+type family ExternalContractState (v :: Wasm.WasmVersion) = ty | ty -> v where
+  ExternalContractState GSWasm.V0 = Wasm.ContractState
+  ExternalContractState GSWasm.V1 = StateV1.PersistentState
+
 class (BlockStateTypes m, Monad m) => ContractStateOperations m where
     -- |Convert a persistent state to a mutable one that can be updated by the
     -- scheduler. This function must generate independent mutable states for
     -- each invocation, where independent means that updates to different
     -- versions are __not__ reflected in others.
     thawContractState :: ContractState m v -> m (UpdatableContractState v)
+
+    -- |Convert a persistent state to its external representation that can be
+    -- passed through FFI. The state should be used together with the
+    -- callbacks returned by 'getV1StateContext'.
+    externalContractState :: ContractState m v -> m (ExternalContractState v)
 
     -- |Get the callback to allow loading the contract state. Contracts are
     -- executed on the other end of FFI, and state is managed by Haskell, this
@@ -1326,6 +1340,8 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
 instance (Monad (t m), MonadTrans t, ContractStateOperations m) => ContractStateOperations (MGSTrans t m) where
   thawContractState = lift . thawContractState
   {-# INLINE thawContractState #-}
+  externalContractState = lift . externalContractState
+  {-# INLINE externalContractState #-}
   stateSizeV0 = lift . stateSizeV0
   {-# INLINE stateSizeV0 #-}
   getV1StateContext = lift getV1StateContext

@@ -477,3 +477,13 @@ impl TryFrom<i64> for ConsensusQueryResponse {
         }
     }
 }
+
+pub enum ContractStateResponse {
+    V0 {
+        state: Vec<u8>,
+    },
+    V1 {
+        state:  wasm_chain_integration::v1::trie::PersistentState,
+        loader: wasm_chain_integration::v1::trie::foreign::LoadCallback,
+    },
+}

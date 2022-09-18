@@ -2763,6 +2763,8 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateQuery (P
 instance (MonadIO m, PersistentState av pv r m) => ContractStateOperations (PersistentBlockStateMonad pv r m) where
   thawContractState (Instances.InstanceStateV0 inst) = return inst
   thawContractState (Instances.InstanceStateV1 inst) = liftIO . flip StateV1.thaw inst . fst =<< getCallbacks
+  externalContractState (Instances.InstanceStateV0 inst) = return inst
+  externalContractState (Instances.InstanceStateV1 inst) = return inst
   stateSizeV0 (Instances.InstanceStateV0 inst) = return (Wasm.contractStateSize inst)
   getV1StateContext = asks blobLoadCallback
   contractStateToByteString (Instances.InstanceStateV0 st) = return (encode st)

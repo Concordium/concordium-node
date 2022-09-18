@@ -253,7 +253,10 @@ impl<D: prost::Message + Default> tonic::codec::Decoder for RawDecoder<D> {
 pub mod server {
     use crate::{
         configuration::GRPC2Config,
-        consensus_ffi::{consensus::ConsensusContainer, ffi::NotificationHandlers},
+        consensus_ffi::{
+            consensus::ConsensusContainer, ffi::NotificationHandlers,
+            helpers::ContractStateResponse,
+        },
         p2p::P2PNode,
     };
     use anyhow::Context;
@@ -502,6 +505,10 @@ pub mod server {
         /// Return type for the 'GetInstanceList' method.
         type GetInstanceListStream =
             futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
+        /// Return type for the 'GetInstanceState' method.
+        type GetInstanceStateStream = tokio_stream::wrappers::ReceiverStream<
+            Result<types::InstanceStateKvPair, tonic::Status>,
+        >;
         /// Return type for the 'GetModuleList' method.
         type GetModuleListStream = futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
 
@@ -623,6 +630,107 @@ pub mod server {
             let mut response = tonic::Response::new(response);
             add_hash(&mut response, hash)?;
             Ok(response)
+        }
+
+        async fn get_instance_state(
+            &self,
+            request: tonic::Request<crate::grpc2::types::InstanceInfoRequest>,
+        ) -> Result<tonic::Response<Self::GetInstanceStateStream>, tonic::Status> {
+            let request = request.get_ref();
+            let block_hash = request.block_hash.as_ref().require()?;
+            let contract_address = request.address.as_ref().require()?;
+            let (hash, response) =
+                self.consensus.get_instance_state_v2(block_hash, contract_address)?;
+            match response {
+                ContractStateResponse::V0 {
+                    state,
+                } => {
+                    // We need to return the same type in both branches, so we create a silly
+                    // little channel to which we will only send one value.
+                    let (sender, receiver) = tokio::sync::mpsc::channel(1);
+                    let _sender = tokio::spawn(async move {
+                        let msg = types::InstanceStateKvPair {
+                            key:   Vec::new(),
+                            value: state,
+                        };
+                        let _ = sender.send(Ok(msg)).await;
+                        // The error only happens if the receiver has been
+                        // dropped already (e.g., connection closed),
+                        // so we do not have to handle it. We just stop sending.
+                    });
+                    let mut response =
+                        tonic::Response::new(tokio_stream::wrappers::ReceiverStream::new(receiver));
+                    add_hash(&mut response, hash)?;
+                    Ok(response)
+                }
+                ContractStateResponse::V1 {
+                    state,
+                    mut loader,
+                } => {
+                    // Create a buffer of size 10 to send messages. It is not clear what the optimal
+                    // size would be, or even what optimal means. I choose 10 here to have some
+                    // buffering to account for variance in networking and
+                    // scheduling of the sender task. 10 is also small enough so that not too many
+                    // values linger in memory while waiting to be sent.
+                    let (sender, receiver) = tokio::sync::mpsc::channel(10);
+                    let _sender = tokio::spawn(async move {
+                        let iter = state.into_iterator(&mut loader);
+                        for (key, value) in iter {
+                            let msg = types::InstanceStateKvPair {
+                                key,
+                                value,
+                            };
+                            if sender.send(Ok(msg)).await.is_err() {
+                                // the receiver has been dropped, so we stop
+                                break;
+                            }
+                        }
+                    });
+                    let mut response =
+                        tonic::Response::new(tokio_stream::wrappers::ReceiverStream::new(receiver));
+                    add_hash(&mut response, hash)?;
+                    Ok(response)
+                }
+            }
+        }
+
+        async fn instance_state_lookup(
+            &self,
+            request: tonic::Request<types::InstanceStateLookupRequest>,
+        ) -> Result<tonic::Response<types::InstanceStateValueAtKey>, tonic::Status> {
+            let request = request.get_ref();
+            let block_hash = request.block_hash.as_ref().require()?;
+            let contract_address = request.address.as_ref().require()?;
+            // this is cheap since we only lookup the tree root in the V1 case, and V0
+            // lookup always involves the entire state anyhow.
+            let (hash, response) =
+                self.consensus.get_instance_state_v2(block_hash, contract_address)?;
+            match response {
+                ContractStateResponse::V0 {
+                    state,
+                } => {
+                    let mut response = tonic::Response::new(types::InstanceStateValueAtKey {
+                        value: state,
+                    });
+                    add_hash(&mut response, hash)?;
+                    Ok(response)
+                }
+                ContractStateResponse::V1 {
+                    state,
+                    mut loader,
+                } => {
+                    let value = state.lookup(&mut loader, &request.key);
+                    if let Some(value) = value {
+                        let mut response = tonic::Response::new(types::InstanceStateValueAtKey {
+                            value,
+                        });
+                        add_hash(&mut response, hash)?;
+                        Ok(response)
+                    } else {
+                        Err(tonic::Status::not_found("Key not found."))
+                    }
+                }
+            }
         }
 
         async fn get_next_account_sequence_number(

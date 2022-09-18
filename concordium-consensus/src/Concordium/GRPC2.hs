@@ -38,6 +38,7 @@ import Concordium.ID.Types
 import Concordium.Types
 import Concordium.Types.Accounts
 import qualified Concordium.Types.Queries as QueryTypes
+import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 
 import qualified Concordium.External as Ext -- TODO: This is not an ideal configuration.
 import Concordium.MultiVersion (
@@ -1603,6 +1604,59 @@ getInstanceInfoV2 cptr blockType blockHashPtr addrIndex addrSubindex outHash out
     res <- runMVR (Q.getInstanceInfo bhi caddr) mvr
     returnMessageWithBlock (copier outVec) outHash res
 
+-- |An opaque representation of the place where we write the mutable state in the 'getInstanceStateV2' query.
+data PersistentStateReceiver
+
+-- |A type of callback that copies the V1 contract persistent state into the
+-- provided receveir.
+type PersistentStateCopier = Ptr PersistentStateReceiver -> Ptr StateV1.PersistentState -> StateV1.LoadCallback -> IO ()
+
+-- |Boilerplate wrapper to invoke C callbacks.
+foreign import ccall "dynamic" callPersistentStateCopier :: FunPtr PersistentStateCopier -> PersistentStateCopier
+
+getInstanceStateV2 ::
+    StablePtr Ext.ConsensusRunner ->
+    -- |Block type.
+    Word8 ->
+    -- |Block hash.
+    Ptr Word8 ->
+    -- |Smart contract instance index.
+    Word64 ->
+    -- |Smart contract instance subindex.
+    Word64 ->
+    -- |Out pointer for writing the block hash that was used.
+    Ptr Word8 ->
+    -- |If the instance is a V0 instance its instance state is written to this vector.
+    -- Otherwise this is unused.
+    Ptr ReceiverVec ->
+    -- |Callback to output data in case it is a V0 instance.
+    FunPtr CopyToVecCallback ->
+    -- |If the instance is a V1 instance its instance state and callbacks are written to this vector.
+    Ptr PersistentStateReceiver ->
+    -- |Callback to copy the persistent state into provided receiver. The
+    -- ownership of the state is retained by Haskell, and a copy is given to
+    -- Rust.
+    FunPtr PersistentStateCopier ->
+    IO Int64
+getInstanceStateV2 cptr blockType blockHashPtr addrIndex addrSubindex outHash outVec vecCopierCbk outMS msCopierCbk = do
+    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
+    bhi <- decodeBlockHashInput blockType blockHashPtr
+    let caddr = ContractAddress (ContractIndex addrIndex) (ContractSubindex addrSubindex)
+    (bh, res) <- runMVR (Q.getInstanceState bhi caddr) mvr
+    case res of
+      Nothing -> return (queryResultCode QRNotFound)
+      Just iState -> do
+          copyHashTo outHash bh
+          case iState of
+            Left v0State -> do
+                let copier = callCopyToVecCallback vecCopierCbk
+                BS.unsafeUseAsCStringLen (Wasm.contractState v0State) (\(ptr, len) -> copier outVec (castPtr ptr) (fromIntegral len))
+                return (queryResultCode QRSuccess)
+            Right (ps, sContext) -> do
+                let copier = callPersistentStateCopier msCopierCbk
+                StateV1.withPersistentState ps $ \psPtr -> do
+                  copier outMS psPtr sContext
+                return (queryResultCode QRSuccess)
 
 getNextAccountSequenceNumberV2 ::
         StablePtr Ext.ConsensusRunner ->
@@ -2063,6 +2117,32 @@ foreign export ccall
         Ptr ReceiverVec ->
         FunPtr (Ptr ReceiverVec -> Ptr Word8 -> Int64 -> IO ()) ->
         IO Int64
+
+foreign export ccall getInstanceStateV2 ::
+    StablePtr Ext.ConsensusRunner ->
+    -- |Block type.
+    Word8 ->
+    -- |Block hash.
+    Ptr Word8 ->
+    -- |Smart contract instance index.
+    Word64 ->
+    -- |Smart contract instance subindex.
+    Word64 ->
+    -- |Out pointer for writing the block hash that was used.
+    Ptr Word8 ->
+    -- |If the instance is a V0 instance its instance state is written to this vector.
+    -- Otherwise this is unused.
+    Ptr ReceiverVec ->
+    -- |Callback to output data in case it is a V0 instance.
+    FunPtr CopyToVecCallback ->
+    -- |If the instance is a V1 instance its instance state and callbacks are written to this vector.
+    Ptr PersistentStateReceiver ->
+    -- |Callback to copy the persistent state into provided receiver. The
+    -- ownership of the state is retained by Haskell, and a copy is given to
+    -- Rust.
+    FunPtr PersistentStateCopier ->
+    IO Int64
+
 
 foreign export ccall
     getNextAccountSequenceNumberV2 ::

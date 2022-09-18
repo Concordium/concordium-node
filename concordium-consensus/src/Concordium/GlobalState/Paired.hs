@@ -480,6 +480,8 @@ instance
 instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r) => ContractStateOperations (BlockStateM pv (PairGSContext lc rc) r (PairGState ls rs) s m) where
   thawContractState (InstanceStateV0 st) = return st
   thawContractState (InstanceStateV1 st) = return (StateV1.thawInMemoryPersistent st)
+  externalContractState (InstanceStateV0 st) = return st
+  externalContractState (InstanceStateV1 (StateV1.InMemoryPersistentState st)) = return st
   stateSizeV0 (InstanceStateV0 cs) = return (Wasm.contractStateSize cs)
   getV1StateContext = return errorLoadCallback
   contractStateToByteString (InstanceStateV0 st) = return (Wasm.contractState st)

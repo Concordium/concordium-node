@@ -1,3 +1,4 @@
+use super::helpers::ContractStateResponse;
 use crate::{
     common::p2p_peer::RemotePeerId,
     consensus_ffi::{
@@ -267,6 +268,20 @@ type CryptographicParameters = id::types::GlobalContext<id::constants::ArCurve>;
 /// another.
 type CopyCryptographicParametersCallback =
     extern "C" fn(*mut Option<CryptographicParameters>, *const CryptographicParameters);
+
+/// Context for returning V1 contract state in the
+/// [`get_instance_state_v2`](ConsensusContainer::get_instance_state_v2) query.
+pub struct V1ContractStateReceiver {
+    state:  wasm_chain_integration::v1::trie::PersistentState,
+    loader: wasm_chain_integration::v1::trie::foreign::LoadCallback,
+}
+
+/// A type of callback to write V1 contract state into.
+type CopyV1ContractStateCallback = extern "C" fn(
+    *mut Option<V1ContractStateReceiver>,
+    *mut wasm_chain_integration::v1::trie::PersistentState,
+    wasm_chain_integration::v1::trie::foreign::LoadCallback,
+);
 
 /// Context necessary for Haskell code/Consensus to send notifications on
 /// important events to Rust code (i.e., RPC server, or network layer).
@@ -662,6 +677,38 @@ extern "C" {
         out_hash: *mut u8,
         out: *mut Vec<u8>,
         copier: CopyToVecCallback,
+    ) -> i64;
+
+    /// Get an information about a specific smart contract instance state.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `contract_address_index` - The contract address index to use for the
+    ///   query.
+    /// * `contract_address_subindex` - The contract address subindex to use for
+    ///   the query.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `out_v0` - Location to write the state if the instance is a V0
+    ///   instance.
+    /// * `copier_v0` - Callback for writting the output in case of a V0
+    ///   instance.
+    /// * `out_v1` - Location where to write the state if the instance is a V1
+    ///   instance.
+    /// * `copier_v1` - Callback for writting the output in case of a V1
+    ///   instance.
+    pub fn getInstanceStateV2(
+        consensus: *mut consensus_runner,
+        block_id_type: u8,
+        block_id: *const u8,
+        contract_address_index: u64,
+        contract_address_subindex: u64,
+        out_hash: *mut u8,
+        out_v0: *mut Vec<u8>,
+        copier_v0: CopyToVecCallback,
+        out_v1: *mut Option<V1ContractStateReceiver>,
+        copier_v1: CopyV1ContractStateCallback,
     ) -> i64;
 
     /// Stream a list of ancestors for the given block
@@ -1647,6 +1694,48 @@ impl ConsensusContainer {
         Ok((out_hash, out_data))
     }
 
+    /// Get the entire smart contract state of the specified instance.
+    pub fn get_instance_state_v2(
+        &self,
+        block_hash: &crate::grpc2::types::BlockHashInput,
+        address: &crate::grpc2::types::ContractAddress,
+    ) -> Result<([u8; 32], ContractStateResponse), tonic::Status> {
+        use crate::grpc2::Require;
+        let (block_id_type, block_hash) =
+            crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let addr_index = address.index;
+        let addr_subindex = address.subindex;
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut out_v0_data: Vec<u8> = Vec::new();
+        let mut out_v1_data = None;
+        let mut out_hash = [0u8; 32];
+        let response: ConsensusQueryResponse = unsafe {
+            getInstanceStateV2(
+                consensus,
+                block_id_type,
+                block_hash,
+                addr_index,
+                addr_subindex,
+                out_hash.as_mut_ptr(),
+                &mut out_v0_data,
+                copy_to_vec_callback,
+                &mut out_v1_data,
+                copy_v1_contract_state_callback,
+            )
+            .try_into()?
+        };
+        response.ensure_ok("block or instance")?;
+        match out_v1_data {
+            None => Ok((out_hash, ContractStateResponse::V0 {
+                state: out_v0_data,
+            })),
+            Some(data) => Ok((out_hash, ContractStateResponse::V1 {
+                state:  data.state,
+                loader: data.loader,
+            })),
+        }
+    }
+
     /// Get ancestors for the provided block.
     pub fn get_ancestors_v2(
         &self,
@@ -2113,6 +2202,20 @@ extern "C" fn copy_cryptographic_parameters_callback(
     source: *const CryptographicParameters,
 ) {
     unsafe { *target = source.as_ref().cloned() };
+}
+
+/// Store the V1 contract state and context to the given structure.
+extern "C" fn copy_v1_contract_state_callback(
+    out: *mut Option<V1ContractStateReceiver>,
+    state: *mut wasm_chain_integration::v1::trie::PersistentState,
+    loader: wasm_chain_integration::v1::trie::foreign::LoadCallback,
+) {
+    let out = unsafe { &mut *out };
+    let v = V1ContractStateReceiver {
+        state: unsafe { &*state }.clone(),
+        loader,
+    };
+    *out = Some(v);
 }
 
 pub extern "C" fn direct_callback(
