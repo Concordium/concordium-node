@@ -1436,11 +1436,13 @@ decodeAccountIdentifierInput n _ = error $ "Unknown account identifier tag: " ++
 decodeModuleRefInput :: Ptr Word8 -> IO ModuleRef
 decodeModuleRefInput modRef = coerce <$> FBS.create @DigestSize (\p -> copyBytes p modRef 32)
 
--- |NB: Assumes the data is valid utf8.
+-- |NB: Assumes the data is valid utf8. The caller is expected to guarantee
+-- this.
 decodeText :: Ptr Word8 -> Word32 -> IO Text
 decodeText ptr len = Text.decodeUtf8 <$> BS.packCStringLen (castPtr ptr, fromIntegral len)
 
--- |NB: Assumes the data is valid utf8.
+-- |NB: Assumes the data is valid utf8. Protobuf guarantees this, and Rust/tonic
+-- does actually implement the validation, so this is safe.
 decodeReceiveName :: Ptr Word8 -> Word32 -> IO Wasm.ReceiveName
 decodeReceiveName ptr len = Wasm.ReceiveName <$> decodeText ptr len
 

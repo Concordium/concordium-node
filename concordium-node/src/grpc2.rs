@@ -2,6 +2,11 @@ use anyhow::Context;
 use prost::bytes::BufMut;
 use std::{convert::TryFrom, marker::PhantomData, path::Path};
 
+/// Maximum allowed energy to use in the `invoke_instance` request.
+/// This is to make sure that there are no conversion errors to interpreter
+/// energy.
+const MAX_ALLOWED_INVOKE_ENERGY: u64 = 100_000_000_000;
+
 /// Types generated from the types.proto file, together
 /// with some auxiliary definitions that help passing values through the FFI
 /// boundary.
@@ -662,10 +667,22 @@ pub mod server {
             &self,
             request: tonic::Request<crate::grpc2::types::InvokeInstanceRequest>,
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
-            let (hash, response) = self.consensus.invoke_instance_v2(request.get_ref())?;
-            let mut response = tonic::Response::new(response);
-            add_hash(&mut response, hash)?;
-            Ok(response)
+            if request
+                .get_ref()
+                .energy
+                .as_ref()
+                .map_or(false, |x| x.value <= MAX_ALLOWED_INVOKE_ENERGY)
+            {
+                let (hash, response) = self.consensus.invoke_instance_v2(request.get_ref())?;
+                let mut response = tonic::Response::new(response);
+                add_hash(&mut response, hash)?;
+                Ok(response)
+            } else {
+                Err(tonic::Status::internal(format!(
+                    "`energy` must be supplied and be less than {}",
+                    MAX_ALLOWED_INVOKE_ENERGY
+                )))
+            }
         }
 
         async fn get_cryptographic_parameters(

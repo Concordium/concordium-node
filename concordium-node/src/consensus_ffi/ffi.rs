@@ -1723,7 +1723,7 @@ impl ConsensusContainer {
         ) = if let Some(address) = &request.invoker {
             match address.r#type.as_ref().require()? {
                 crate::grpc2::types::address::Type::Account(account) => {
-                    (1, crate::grpc2::types::account_address_to_ffi(&account).require()?, 0, 0)
+                    (1, crate::grpc2::types::account_address_to_ffi(account).require()?, 0, 0)
                 }
                 crate::grpc2::types::address::Type::Contract(contract) => {
                     (2, std::ptr::null(), contract.index, contract.subindex)
@@ -1742,7 +1742,12 @@ impl ConsensusContainer {
         // Parameter to ffi
         let (parameter_ptr, parameter_len) = {
             let bytes = &request.parameter.as_ref().require()?.value;
-            (bytes.as_ptr(), bytes.len().try_into().map_err(|_| tonic::Status::internal(""))?)
+            (
+                bytes.as_ptr(),
+                bytes.len().try_into().map_err(|_| {
+                    tonic::Status::invalid_argument("Parameter exceeds maximum supported size.")
+                })?,
+            )
         };
 
         let energy = request.energy.as_ref().require()?.value;
