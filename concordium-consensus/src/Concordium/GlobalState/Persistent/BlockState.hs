@@ -913,6 +913,72 @@ doGetActiveBakersAndDelegators pbs = do
                     ..
                 }
 
+doGetActiveDelegators
+    :: forall pv m
+     . (IsProtocolVersion pv,
+        SupportsPersistentAccount pv m,
+        Modules.SupportsPersistentModule m,
+        AccountVersionFor pv ~ 'AccountV1)
+    => PersistentBlockState pv -> Maybe BakerId -> m (Maybe [(AccountAddress, ActiveDelegatorInfo)])
+doGetActiveDelegators pbs mPoolId = do
+    bsp <- loadPBS pbs
+    ab <- refLoad $ bspBirkParameters bsp ^. birkActiveBakers
+    case mPoolId of
+      Nothing -> do
+        let PersistentActiveDelegatorsV1 dset _ = ab ^. passiveDelegators
+        dids <- Trie.keys dset
+        lps <- mapM (mkActiveDelegatorInfo bsp) dids
+        return (Just lps)
+      Just bid -> do
+        Trie.lookup bid (ab ^. activeBakers) >>= \case
+          Nothing -> return Nothing
+          Just (PersistentActiveDelegatorsV1 dlgs _) -> do
+            lps <- Trie.keys dlgs >>= mapM (mkActiveDelegatorInfo bsp)
+            return (Just lps)
+      where
+            mkActiveDelegatorInfo :: BlockStatePointers pv -> DelegatorId -> m (AccountAddress, ActiveDelegatorInfo)
+            mkActiveDelegatorInfo bsp activeDelegatorId@(DelegatorId acct) = do
+                (addr, theDelegator@BaseAccounts.AccountDelegationV1{}) <-
+                    Accounts.indexedAccount acct (bspAccounts bsp) >>= \case
+                        Just PersistentAccount{_accountStake = PersistentAccountStakeDelegate pad,..} -> do
+                            r <- refLoad pad
+                            addr <- _accountAddress <$> refLoad _persistingData
+                            return (addr, r)
+                        _ -> error "Invariant violation: active baker is not a baker account"
+                return (addr, ActiveDelegatorInfo{
+                    activeDelegatorStake = theDelegator ^. BaseAccounts.delegationStakedAmount,
+                    activeDelegatorPendingChange = theDelegator ^. BaseAccounts.delegationPendingChange,
+                    ..
+                })
+
+doGetCurrentDelegators
+    :: forall pv m
+     . (SupportsPersistentAccount pv m,
+        Modules.SupportsPersistentModule m,
+        AccountVersionFor pv ~ 'AccountV1)
+    => PersistentBlockState pv -> Maybe BakerId -> m (Maybe [(AccountAddress, DelegatorCapital)])
+doGetCurrentDelegators pbs mPoolId = do
+    bsp <- loadPBS pbs
+    let hpr = case bspRewardDetails bsp :: BlockRewardDetails 'AccountV1 of BlockRewardDetailsV1 hp -> hp
+    poolRewards <- refLoad hpr
+    CapitalDistribution{..} <- refLoad $ currentCapital poolRewards
+    let mkReturn dc@DelegatorCapital{dcDelegatorId = DelegatorId acct} =
+            Accounts.indexedAccount acct (bspAccounts bsp) >>= \case
+                Nothing -> error "Invariant violation: current delegator does not exist."
+                Just PersistentAccount{..} -> do
+                    addr <- _accountAddress <$> refLoad _persistingData
+                    return (addr, dc)
+    case mPoolId of
+        Nothing -> do
+          dlgs <- mapM mkReturn . Vec.toList $ passiveDelegatorsCapital
+          return (Just dlgs)
+        Just poolId ->
+            case binarySearch bcBakerId bakerPoolCapital poolId of
+                Nothing -> return Nothing
+                Just BakerCapital{..} -> do
+                  dlgs <- mapM mkReturn . Vec.toList $ bcDelegatorCapital
+                  return (Just dlgs)
+
 doAddBaker
     :: (SupportsPersistentState pv m, AccountVersionFor pv ~ 'AccountV0, ChainParametersVersionFor pv ~ 'ChainParametersV0)
     => PersistentBlockState pv
@@ -2726,6 +2792,11 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateQuery (P
     accountExists = doGetAccountExists . hpbsPointers
     getActiveBakers = doGetActiveBakers . hpbsPointers
     getActiveBakersAndDelegators = doGetActiveBakersAndDelegators . hpbsPointers
+
+    getActiveDelegators = doGetActiveDelegators . hpbsPointers
+
+    getCurrentDelegators = doGetCurrentDelegators . hpbsPointers
+
     getAccountByCredId = doGetAccountByCredId . hpbsPointers
     getAccountByIndex = doGetIndexedAccountByIndex . hpbsPointers
     getContractInstance = doGetInstance . hpbsPointers

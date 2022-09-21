@@ -556,6 +556,56 @@ doGetActiveBakersAndDelegators bs = return (bakers, passiveDelegatorInfos)
     passive = Set.toAscList $ bs ^. blockBirkParameters . birkActiveBakers . passiveDelegators . apDelegators
     !passiveDelegatorInfos = mkActiveDelegatorInfo <$> passive
 
+doGetActiveDelegators ::
+    ( HasBlockState s pv,
+      IsProtocolVersion pv,
+      Monad m,
+      AccountVersionFor pv ~ 'AccountV1
+    ) =>
+    s ->
+    Maybe BakerId ->
+    m (Maybe [(AccountAddress, BS.ActiveDelegatorInfo)])
+doGetActiveDelegators bs mPoolId =
+  case mPoolId of
+    Nothing -> return (Just passiveDelegatorInfos)
+    Just poolId ->
+      case bs ^. blockBirkParameters . birkActiveBakers . activeBakers . at poolId of
+        Nothing -> return Nothing
+        Just ActivePool{..} -> return . Just . fmap mkActiveDelegatorInfo . Set.toAscList $ _apDelegators
+  where
+    mkActiveDelegatorInfo activeDelegatorId@(DelegatorId acct) =
+        (addr, BS.ActiveDelegatorInfo
+            { activeDelegatorStake = theDelegator ^. delegationStakedAmount,
+              activeDelegatorPendingChange = theDelegator ^. delegationPendingChange,
+              ..
+            })
+      where
+        !theDelegator = bs ^. blockAccounts . Accounts.unsafeIndexedAccount acct . unsafeAccountDelegator
+        !addr = bs ^. blockAccounts . Accounts.unsafeIndexedAccount acct . accountAddress
+    passive = Set.toAscList $ bs ^. blockBirkParameters . birkActiveBakers . passiveDelegators . apDelegators
+    !passiveDelegatorInfos = mkActiveDelegatorInfo <$> passive
+
+doGetCurrentDelegators ::
+    ( HasBlockState s pv,
+      IsProtocolVersion pv,
+      Monad m,
+      AccountVersionFor pv ~ 'AccountV1
+    ) =>
+    s ->
+    Maybe BakerId ->
+    m (Maybe [(AccountAddress, DelegatorCapital)])
+doGetCurrentDelegators bs mPoolId = return v
+  where CapitalDistribution{..} = _unhashed . PoolRewards.currentCapital $ bs ^. blockPoolRewards
+        v = case mPoolId of
+          Nothing -> Just . fmap mkReturn . Vec.toList $ passiveDelegatorsCapital
+          Just poolId ->
+            case binarySearch bcBakerId bakerPoolCapital poolId of
+              Nothing -> Nothing
+              Just BakerCapital{..} -> Just . fmap mkReturn . Vec.toList $ bcDelegatorCapital
+        mkReturn dc@DelegatorCapital{dcDelegatorId=DelegatorId acct} =
+            let addr = bs ^. blockAccounts . Accounts.unsafeIndexedAccount acct . accountAddress
+            in (addr, dc)
+
 newtype PureBlockStateMonad (pv :: ProtocolVersion) m a = PureBlockStateMonad {runPureBlockStateMonad :: m a}
     deriving (Functor, Applicative, Monad, MonadIO, MTL.MonadState s, TimeMonad)
 
@@ -638,6 +688,10 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
     getActiveBakers bs = return $ Map.keys $ bs ^. blockBirkParameters . birkActiveBakers . activeBakers
 
     getActiveBakersAndDelegators = doGetActiveBakersAndDelegators
+
+    getActiveDelegators = doGetActiveDelegators
+
+    getCurrentDelegators = doGetCurrentDelegators
 
     {-# INLINE getAccountByCredId #-}
     getAccountByCredId bs cid =
