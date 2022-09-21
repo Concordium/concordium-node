@@ -9,36 +9,30 @@
 @Library('concordium-pipelines') _
 
 Map rpc_port = [
-            mainnet: "10000",
-            testnet: "10001",
-            stagenet: "10500"
-        ]
+    mainnet: "10000",
+    testnet: "10001",
+    stagenet: "10500"
+]
 
 Map listen_port = [
-            mainnet: "8888",
-            testnet: "8889",
-            stagenet: "9500"
-        ]
+    mainnet: "8888",
+    testnet: "8889",
+    stagenet: "9500"
+]
 
 pipeline {
     // Use jenkins-worker, as it has the keys for pushing to AWS.
     agent { label 'jenkins-worker' }
     environment {
+        // Extract version from code
         CODE_VERSION = """${sh(
                 returnStdout: true,
-                script: '''\
-                    awk '/version = / { print substr($3, 2, length($3)-2); exit }' concordium-node/Cargo.toml
-                '''
+                script: '''awk '/version = / { print substr($3, 2, length($3)-2); exit }' concordium-node/Cargo.toml'''
             )}""".trim()
+        // Use code version if the version param has not been set
         OUT_VERSION = """${sh(
                 returnStdout: true,
-                script: '''\
-                    if [ -z "$VERSION" ]; then
-                        echo "$CODE_VERSION"
-                    else
-                        echo "$VERSION"
-                    fi
-                '''
+                script: "[[ -z '${VERSION}' ]] && echo '${CODE_VERSION}' || echo '${VERSION}'"
             )}""".trim()
         DOMAIN = concordiumDomain(ENVIRONMENT)
         BUILD_FILE = "concordium-${ENVIRONMENT}-node_${CODE_VERSION}_amd64.deb"
@@ -77,18 +71,15 @@ pipeline {
             steps {
                 dir('genesis') {
                     git credentialsId: 'jenkins-gitlab-ssh', url: 'git@gitlab.com:Concordium/genesis-data.git'
-                    echo "done cloning"
-                    sh 'ls'
                 }
                     sh '''
                         cat ${GENESIS_HASH_PATH} | tr -cd "[:alnum:]"
                         mkdir ${DATA_DIR}
                         cp ${GENESIS_DAT_FILE} ${DATA_DIR}/${ENVIRONMENT}-genesis.dat
-                        ls ${DATA_DIR}
                     '''
             }
         }
-        stage('Build node') {
+        stage('Build node deb') {
             steps {
                 sh '''
                     docker build\
@@ -114,7 +105,6 @@ pipeline {
                     id=$(docker create ${ENVIRONMENT}-deb)
                     docker cp $id:/out ${ENVIRONMENT}-build
                     docker rm $id
-                    ls ${ENVIRONMENT}-build
                     aws s3 cp ${ENVIRONMENT}-build/${BUILD_FILE} ${OUTFILE} --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
                 '''
             }
