@@ -1,9 +1,10 @@
 // Parameters:
-// - environment
-// - version
-// - genesis_path
-// - ubuntu_version
-// - ghc_version
+// - ENVIRONMENT
+// - VERSION
+// - GENESIS_PATH
+// - UBUNTU_VERSION
+// - GHC_VERSION
+// - FORCE_REBUILD
 
 @Library('concordium-pipelines') _
 
@@ -32,18 +33,18 @@ pipeline {
         OUT_VERSION = """${sh(
                 returnStdout: true,
                 script: '''\
-                    if [ -z "$version" ]; then
+                    if [ -z "$VERSION" ]; then
                         echo "$CODE_VERSION"
                     else
-                        echo "$version"
+                        echo "$VERSION"
                     fi
                 '''
             )}""".trim()
-        DOMAIN = concordiumDomain(environment)
-        BUILD_FILE = "concordium-${environment}-node_${CODE_VERSION}_amd64.deb"
-        OUTFILE = "s3://distribution.${DOMAIN}/deb/concordium-${environment}-node_${OUT_VERSION}_amd64-SNM.deb"
-        GENESIS_HASH_PATH = "genesis/${genesis_path}/genesis_hash"
-        GENESIS_DAT_FILE = "genesis/${genesis_path}/genesis.dat"
+        DOMAIN = concordiumDomain(ENVIRONMENT)
+        BUILD_FILE = "concordium-${ENVIRONMENT}-node_${CODE_VERSION}_amd64.deb"
+        OUTFILE = "s3://distribution.${DOMAIN}/deb/concordium-${ENVIRONMENT}-node_${OUT_VERSION}_amd64-SNM.deb"
+        GENESIS_HASH_PATH = "genesis/${GENESIS_PATH}/genesis_hash"
+        GENESIS_DAT_FILE = "genesis/${GENESIS_PATH}/genesis.dat"
         ENVIRONMENT_CAP = environment.capitalize()
         DATA_DIR = "./scripts/distribution/ubuntu-packages/template/data/"
         RPC_PORT = "${rpc_port[environment]}"
@@ -52,15 +53,21 @@ pipeline {
     stages {
         stage('Build static-node-binaries') {
             when {
-                // Check if static-node-binaries image is present, if not build it.
-                equals expected: "1",
-                actual: "${sh script:'docker inspect --type=image static-node-binaries > /dev/null 2> /dev/null', returnStatus:true}"
+                anyOf {
+                    // Build it if forced_rebuild is checked
+                    expression {
+                        return params.FORCE_REBUILD
+                    }
+
+                    // OR
+                    // Check if static-node-binaries image is present, if not build it.
+                    equals expected: "1",
+                    actual: "${sh script:'docker inspect --type=image static-node-binaries > /dev/null 2> /dev/null', returnStatus:true}"
+                }
             }
             environment {
                 STATIC_LIBRARIES_IMAGE_TAG = "latest"
-                GHC_VERSION = "${ghc_version}"
                 EXTRA_FEATURES = "collector"
-                UBUNTU_VERSION = "${ubuntu_version}"
             }
             steps {
                 sh './scripts/static-binaries/build-static-binaries.sh'
@@ -76,7 +83,7 @@ pipeline {
                     sh '''
                         cat ${GENESIS_HASH_PATH} | tr -cd "[:alnum:]"
                         mkdir ${DATA_DIR}
-                        cp ${GENESIS_DAT_FILE} ${DATA_DIR}/${environment}-genesis.dat
+                        cp ${GENESIS_DAT_FILE} ${DATA_DIR}/${ENVIRONMENT}-genesis.dat
                         ls ${DATA_DIR}
                     '''
             }
@@ -85,16 +92,16 @@ pipeline {
             steps {
                 sh '''
                     docker build\
-                        --build-arg ubuntu_version=${ubuntu_version}\
+                        --build-arg ubuntu_version=${UBUNTU_VERSION}\
                         --build-arg build_env_name=${ENVIRONMENT_CAP}\
-                        --build-arg build_env_name_lower=${environment}\
+                        --build-arg build_env_name_lower=${ENVIRONMENT}\
                         --build-arg build_genesis_hash=$(cat ${GENESIS_HASH_PATH} | tr -cd "[:alnum:]")\
                         --build-arg build_collector_backend_url=https://dashboard.${DOMAIN}/nodes/post\
                         --build-arg build_rpc_server_port=${RPC_PORT}\
                         --build-arg build_listen_port=${LISTEN_PORT}\
                         --build-arg build_bootstrap=bootstrap.${DOMAIN}:8888\
                         -f ./scripts/distribution/ubuntu-packages/deb.Dockerfile\
-                        -t ${environment}-deb ./scripts/distribution/ubuntu-packages/ --no-cache
+                        -t ${ENVIRONMENT}-deb ./scripts/distribution/ubuntu-packages/ --no-cache
                 '''
             }
         }
@@ -104,11 +111,11 @@ pipeline {
                 // cp. This makes the output artifacts have correct file permissions (they are
                 // owned by the user who ran the script).
                 sh '''
-                    id=$(docker create ${environment}-deb)
-                    docker cp $id:/out ${environment}-build
+                    id=$(docker create ${ENVIRONMENT}-deb)
+                    docker cp $id:/out ${ENVIRONMENT}-build
                     docker rm $id
-                    ls ${environment}-build
-                    aws s3 cp ${environment}-build/${BUILD_FILE} ${OUTFILE} --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
+                    ls ${ENVIRONMENT}-build
+                    aws s3 cp ${ENVIRONMENT}-build/${BUILD_FILE} ${OUTFILE} --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
                 '''
             }
         }
