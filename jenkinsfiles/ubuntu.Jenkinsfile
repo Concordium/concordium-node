@@ -7,6 +7,18 @@
 
 @Library('concordium-pipelines') _
 
+Map rpc_port = [
+            mainnet: "10000",
+            testnet: "10001",
+            stagenet: "10500"
+        ]
+
+Map listen_port = [
+            mainnet: "8888",
+            testnet: "8889",
+            stagenet: "9500"
+        ]
+
 pipeline {
     // Use jenkins-worker, as it has the keys for pushing to AWS.
     agent { label 'jenkins-worker' }
@@ -34,6 +46,8 @@ pipeline {
         GENESIS_DAT_FILE = "genesis/${genesis_path}/genesis.dat"
         ENVIRONMENT_CAP = environment.capitalize()
         DATA_DIR = "./scripts/distribution/ubuntu-packages/template/data/"
+        RPC_PORT = "${rpc_port[environment]}"
+        LISTEN_PORT = "${listen_port[environment]}"
     }
     stages {
         stage('Build static-node-binaries') {
@@ -42,25 +56,18 @@ pipeline {
                 equals expected: "1",
                 actual: "${sh script:'docker inspect --type=image static-node-binaries > /dev/null 2> /dev/null', returnStatus:true}"
             }
+            environment {
+                STATIC_LIBRARIES_IMAGE_TAG = "latest"
+                GHC_VERSION = "${ghc_version}"
+                EXTRA_FEATURES = "collector"
+                UBUNTU_VERSION = "${ubuntu_version}"
+            }
             steps {
-                sh '''
-                    export STATIC_LIBRARIES_IMAGE_TAG="latest"
-                    export GHC_VERSION="${ghc_version}"
-                    export EXTRA_FEATURES="collector"
-                    export UBUNTU_VERSION=${ubuntu_version}
-                    ./scripts/static-binaries/build-static-binaries.sh
-                '''
+                sh './scripts/static-binaries/build-static-binaries.sh'
             }
         }
         stage('Checkout genesis') {
             steps {
-                // checkout([
-                //     $class: 'GitSCM', 
-                //     branches: [[name: '*/master']], 
-                //     extensions: [[$class: 'RelativeTargetDirectory', relativeTargetDir: 'genesis'], 
-                //     [$class: 'SparseCheckoutPaths', sparseCheckoutPaths: [[path: '${environment}/2022-06-24/genesis_data']]]], 
-                //     userRemoteConfigs: [[credentialsId: 'jenkins-gitlab-ssh', url: 'git@gitlab.com:Concordium/genesis-data.git']]
-                // ])
                 dir('genesis') {
                     git credentialsId: 'jenkins-gitlab-ssh', url: 'git@gitlab.com:Concordium/genesis-data.git'
                     echo "done cloning"
@@ -83,8 +90,8 @@ pipeline {
                         --build-arg build_env_name_lower=${environment}\
                         --build-arg build_genesis_hash=$(cat ${GENESIS_HASH_PATH} | tr -cd "[:alnum:]")\
                         --build-arg build_collector_backend_url=https://dashboard.${DOMAIN}/nodes/post\
-                        --build-arg build_rpc_server_port=10000\
-                        --build-arg build_listen_port=8888\
+                        --build-arg build_rpc_server_port=${RPC_PORT}\
+                        --build-arg build_listen_port=${LISTEN_PORT}\
                         --build-arg build_bootstrap=bootstrap.${DOMAIN}:8888\
                         -f ./scripts/distribution/ubuntu-packages/deb.Dockerfile\
                         -t ${environment}-deb ./scripts/distribution/ubuntu-packages/ --no-cache
