@@ -14,6 +14,7 @@
 -- in this package.
 module Concordium.GlobalState where
 
+import Control.Monad (guard, unless)
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Monad.Reader.Class
@@ -26,6 +27,7 @@ import Data.Kind
 import Lens.Micro.Platform
 import System.FilePath
 import System.Directory
+import System.IO.Error (isPermissionError)
 
 import Concordium.Types.ProtocolVersion
 import Concordium.GlobalState.TransactionTable
@@ -594,23 +596,36 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
              checkRWFile dtdbBlockStateFile BlockStatePermissionError
              checkRWFile treeStateFile TreeStatePermissionError
              mapM_ (logEvent TreeState LLTrace) ["Existing database found.", "TreeState filepath: " ++ show dtdbBlockStateFile, "BlockState filepath: " ++ show treeStateFile]
-             pbscAccountCache <- liftIO $ Accounts.newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
-             pbscModuleCache <- liftIO $ Modules.newModuleCache (rpModulesCacheSize dtdbRuntimeParameters)
-             pbscBlobStore <- liftIO $ loadBlobStore dtdbBlockStateFile
-             let pbsc = PersistentBlockStateContext{..}
              logm <- ask
-             skovData <- liftIO $ runLoggerT (loadSkovPersistentData dtdbRuntimeParameters dtdbTreeStateDirectory pbsc) logm
+             liftIO $ do
+               pbscAccountCache <- Accounts.newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
+               pbscModuleCache <- Modules.newModuleCache (rpModulesCacheSize dtdbRuntimeParameters)
+               pbscBlobStore <- loadBlobStore dtdbBlockStateFile
+               let pbsc = PersistentBlockStateContext{..}
+               skovData <- runLoggerT (loadSkovPersistentData dtdbRuntimeParameters dtdbTreeStateDirectory pbsc) logm
                                    `onException` closeBlobStore pbscBlobStore
-             return (Just (pbsc, skovData))
+               return (Just (pbsc, skovData))
          | bsPathEx -> do
-             logEvent GlobalState LLTrace "Block state file exists, but tree state file does not. Deleting the block state file and attempting to recreate it from regenesis."
+             logEvent GlobalState LLWarning "Block state file exists, but tree state file does not. Deleting the block state file."
              liftIO $ removeFile dtdbBlockStateFile
              return Nothing
          | tsPathEx -> do
-             logEvent GlobalState LLTrace "Tree state file exists, but block state file does not. Deleting the tree state file and attempting to recreate it from regenesis."
-             liftIO $ removeFile treeStateFile
+             logEvent GlobalState LLWarning "Tree state file exists, but block state file does not. Deleting the tree state file."
+             liftIO . removeDirectoryRecursive . takeDirectory $ treeStateFile
              return Nothing
          | otherwise -> return Nothing
+      where
+        -- Check whether a path is a normal file that is readable and writable
+        checkRWFile :: forall m. (MonadLogger m, MonadIO m) => FilePath -> InitException -> m ()
+        checkRWFile path exc = do
+          fileEx <- liftIO $ doesFileExist path
+          unless fileEx $ logExceptionAndThrowTS BlockStatePathDir
+          mperms <- liftIO $ catchJust (guard . isPermissionError)
+                    (Just <$> getPermissions path) (const $ return Nothing)
+          case mperms of
+            Nothing -> logExceptionAndThrowTS exc
+            Just perms ->
+              unless (readable perms && writable perms) $ logExceptionAndThrowTS exc
 
     migrateExistingState DTDBConfig{..} oldPbsc oldState migration genData = do
       pbscBlobStore <- liftIO $ createBlobStore dtdbBlockStateFile

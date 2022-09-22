@@ -46,8 +46,6 @@ import qualified Data.Sequence as Seq
 import Lens.Micro.Platform
 import Concordium.Utils
 import System.Mem.Weak
-import System.Directory
-import System.IO.Error
 import Concordium.Logger
 import Control.Monad.Except
 import qualified Concordium.TransactionVerification as TVer
@@ -93,18 +91,6 @@ logExceptionAndThrowTS = logExceptionAndThrow TreeState
 
 logErrorAndThrowTS :: (MonadLogger m, MonadIO m) => String -> m a
 logErrorAndThrowTS = logErrorAndThrow TreeState
-
-  -- Check whether a path is a normal file that is readable and writable
-checkRWFile :: forall m. (MonadLogger m, MonadIO m) => FilePath -> InitException -> m ()
-checkRWFile path exc = do
-  fileEx <- liftIO $ doesFileExist path
-  unless fileEx $ logExceptionAndThrowTS BlockStatePathDir
-  mperms <- liftIO $ catchJust (guard . isPermissionError)
-    (Just <$> getPermissions path) (const $ return Nothing)
-  case mperms of
-    Nothing -> logExceptionAndThrowTS exc
-    Just perms ->
-      unless (readable perms && writable perms) $ logExceptionAndThrowTS exc
 
 --------------------------------------------------------------------------------
 
