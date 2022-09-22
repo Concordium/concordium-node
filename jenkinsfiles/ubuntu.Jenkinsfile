@@ -36,7 +36,7 @@ pipeline {
             )}""".trim()
         DOMAIN = concordiumDomain(ENVIRONMENT)
         BUILD_FILE = "concordium-${ENVIRONMENT}-node_${CODE_VERSION}_amd64.deb"
-        OUTFILE = "s3://distribution.${DOMAIN}/deb/concordium-${ENVIRONMENT}-node_${OUT_VERSION}_amd64-SNM.deb"
+        OUTFILE = "s3://distribution.${DOMAIN}/deb/concordium-${ENVIRONMENT}-node_${OUT_VERSION}_amd64.deb"
         GENESIS_HASH_PATH = "genesis/${GENESIS_PATH}/genesis_hash"
         GENESIS_DAT_FILE = "genesis/${GENESIS_PATH}/genesis.dat"
         ENVIRONMENT_CAP = environment.capitalize()
