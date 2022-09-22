@@ -106,6 +106,7 @@ import qualified Data.ByteString.Unsafe as BSUnsafe
 import Control.Exception
 import Data.Functor.Foldable
 import Control.Monad
+import qualified Control.Monad.Catch as MonadCatch
 import Control.Monad.Reader.Class
 import Control.Monad.Trans.Writer.Strict (WriterT)
 import Control.Monad.Trans.State.Strict (StateT)
@@ -113,7 +114,6 @@ import Control.Monad.Trans.Reader (ReaderT(..))
 import Control.Monad.Trans.Except (ExceptT)
 import Control.Monad.Trans
 import System.Directory
-import GHC.Stack
 import Data.IORef
 import Concordium.Crypto.EncryptedTransfers
 import Data.Map (Map)
@@ -347,8 +347,8 @@ readBlobBS bs@BlobStoreAccess{..} br@(BlobRef offset) = do
 
 -- |Check if a given 'BlobRef' is valid in the blob store. This does not attempt to deserialize
 -- the value, but will check that the offset and length of the 'BlobRef' are valid.
-isValidBlobRef :: BlobStoreAccess -> BlobRef a -> IO Bool
-isValidBlobRef bs br = (True <$ readBlobBS bs br) `catch` (\(_ :: IOError) -> return False)
+isValidBlobRef :: (MonadCatch.MonadCatch m, BlobStorable m a) => BlobRef a -> m Bool
+isValidBlobRef br = (True <$ loadRef br) `MonadCatch.catch` (\(_ :: SomeException) -> return False)
 
 -- | Write a bytestring into the blob store and return the offset
 writeBlobBS :: BlobStoreAccess -> BS.ByteString -> IO (BlobRef a)
@@ -488,7 +488,7 @@ type SupportMigration m t = (MonadBlobStore m, MonadTrans t, MonadBlobStore (t m
 -- based on the context (rather than lifting).
 newtype BlobStoreT r m a = BlobStoreT {runBlobStoreT :: r -> m a}
     deriving
-        (Functor, Applicative, Monad, MonadReader r, MonadIO, MonadFail, MonadLogger)
+        (Functor, Applicative, Monad, MonadReader r, MonadIO, MonadFail, MonadLogger, MonadCatch.MonadThrow, MonadCatch.MonadCatch)
         via (ReaderT r m)
     deriving
         (MonadTrans)
@@ -621,11 +621,11 @@ storeUpdateRef v = do
 {-# INLINE storeUpdateRef #-}
 
 -- |Load a value from a reference.
-loadRef :: (HasCallStack, BlobStorable m a) => BlobRef a -> m a
+loadRef :: (BlobStorable m a) => BlobRef a -> m a
 loadRef ref = do
     bs <- loadRaw ref
     case runGet load bs of
-        Left e -> error (e ++ " :: " ++ show bs)
+        Left e -> liftIO (throwIO (userError (e ++ " :: " ++ show bs)))
         Right !mv -> mv
 {-# INLINE loadRef #-}
 

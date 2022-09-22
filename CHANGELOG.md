@@ -2,6 +2,10 @@
 
 ## Unreleased changes
 
+## 4.4.3
+
+Fix a bug in database recovery where corruption was not always correctly detected.
+
 ## 4.4.2
 
 - Speed up and reduce memory overhead during protocol updates.
