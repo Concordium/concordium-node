@@ -345,8 +345,16 @@ readBlobBS bs@BlobStoreAccess{..} br@(BlobRef offset) = do
                             $ BS.take (fromIntegral size)
                             $ BS.drop dataOffset mmap
 
--- |Check if a given 'BlobRef' is valid in the blob store. This does not attempt to deserialize
--- the value, but will check that the offset and length of the 'BlobRef' are valid.
+-- |Check if a given 'BlobRef' is valid in the blob store. This attempts to
+-- load the value from the given location and handles the following two failures
+-- - there is not enough data to read from the blob store, i.e., the file ends prematurely
+-- - the value cannot be loaded/deserialized.
+--
+-- These two together handle the common case of corruption where data at the end
+-- of the blob store is not written properly. The second test is needed since at
+-- least on some platforms the blob store sometimes ends up with enough trailing
+-- zeros that the first check above succeeds, but those zeros are not valid
+-- data. This happens if the node is killed at the right time.
 isValidBlobRef :: (MonadCatch.MonadCatch m, BlobStorable m a) => BlobRef a -> m Bool
 isValidBlobRef br = (True <$ loadRef br) `MonadCatch.catch` (\(_ :: SomeException) -> return False)
 
