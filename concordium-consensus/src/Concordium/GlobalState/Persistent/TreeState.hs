@@ -429,7 +429,7 @@ loadSkovPersistentData rp _treeStateDirectory pbsc = do
       makeBlockPointerFromPersistentBlock sbBlock bstate sbInfo
     isBlockStateCorrupted :: StoredBlock pv (TS.BlockStatePointer (PBS.PersistentBlockState pv)) -> IO Bool
     isBlockStateCorrupted block =
-      not <$> isValidBlobRef (bscBlobStore . PBS.pbscBlobStore $ pbsc) (sbState block)
+      not <$> runBlobStoreT (isValidBlobRef (sbState block)) pbsc
 
 -- |Activate the state and make it usable for use by consensus. This concretely
 -- means that the block state for the last finalized block is cached, and that

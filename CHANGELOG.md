@@ -2,6 +2,9 @@
 
 ## Unreleased changes
 
+## 4.4.3
+
+- Fix a bug in database recovery where corruption was not always correctly detected.
 - Fix typo in environment variable `CONCORDIUM_NODE_PROMETHEUS_LISTEN_ADDRESSS` (remove trailing `S`).
 
 ## 4.4.2
