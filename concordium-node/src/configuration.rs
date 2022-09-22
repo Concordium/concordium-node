@@ -92,7 +92,7 @@ pub struct PrometheusConfig {
         long = "prometheus-listen-addr",
         help = "IP to listen for prometheus requests on",
         default_value = "127.0.0.1",
-        env = "CONCORDIUM_NODE_PROMETHEUS_LISTEN_ADDRESSS"
+        env = "CONCORDIUM_NODE_PROMETHEUS_LISTEN_ADDRESS"
     )]
     pub prometheus_listen_addr:   String,
     #[structopt(
