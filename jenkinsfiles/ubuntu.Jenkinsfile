@@ -72,8 +72,8 @@ pipeline {
                 dir('genesis') {
                     git credentialsId: 'jenkins-gitlab-ssh', url: 'git@gitlab.com:Concordium/genesis-data.git'
                 }
+                    // Copy genesis.dat file into place in data dir, and rename.
                     sh '''
-                        cat ${GENESIS_HASH_PATH} | tr -cd "[:alnum:]"
                         mkdir ${DATA_DIR}
                         cp ${GENESIS_DAT_FILE} ${DATA_DIR}/${ENVIRONMENT}-genesis.dat
                     '''
