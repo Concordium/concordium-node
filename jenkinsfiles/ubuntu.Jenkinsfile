@@ -4,7 +4,6 @@
 // - GENESIS_PATH
 // - UBUNTU_VERSION
 // - GHC_VERSION
-// - FORCE_REBUILD
 
 @Library('concordium-pipelines') _
 
@@ -59,19 +58,6 @@ pipeline {
             }
         }
         stage('Build static-node-binaries') {
-            when {
-                anyOf {
-                    // Build it if forced_rebuild is checked
-                    expression {
-                        return params.FORCE_REBUILD
-                    }
-
-                    // OR
-                    // Check if static-node-binaries image is present, if not build it.
-                    equals expected: "1",
-                    actual: "${sh script:'docker inspect --type=image static-node-binaries > /dev/null 2> /dev/null', returnStatus:true}"
-                }
-            }
             environment {
                 STATIC_LIBRARIES_IMAGE_TAG = "latest"
                 EXTRA_FEATURES = "collector"
