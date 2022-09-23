@@ -6,6 +6,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE MultiWayIf #-}
 -- FIXME: This is to suppress compiler warnings for derived instances of BlockStateOperations.
 -- This may be fixed in GHC 9.0.1.
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
@@ -48,6 +49,9 @@ import Concordium.Utils
 import System.Mem.Weak
 import Concordium.Logger
 import Control.Monad.Except
+import System.FilePath
+import System.Directory
+import System.IO.Error
 import qualified Concordium.TransactionVerification as TVer
 
 -- * Exceptions
@@ -301,6 +305,53 @@ initialSkovPersistentData rp treeStateDir gd genState serState genTT mPending = 
 --------------------------------------------------------------------------------
 
 -- * Initialization functions
+
+--- |Check the permissions in the required files.  Returns 'True' if the database already exists,
+--- 'False' if it does not exist, or is inaccessible.  If the database exists only partially, then it
+--- is deleted to allow for creating it again through `newGenesis`.
+checkExistingDatabase :: forall m. (MonadLogger m, MonadIO m) =>
+    -- |Tree state path
+    FilePath ->
+    -- |Block state file
+    FilePath ->
+    m Bool
+checkExistingDatabase treeStateDir blockStateFile = do
+  let treeStateFile = treeStateDir </> "data.mdb"
+  bsPathEx <- liftIO $ doesPathExist blockStateFile
+  tsPathEx <- liftIO $ doesPathExist treeStateFile
+
+  -- Check whether a path is a normal file that is readable and writable
+  let checkRWFile :: FilePath -> InitException -> m ()
+      checkRWFile path exc = do
+        fileEx <- liftIO $ doesFileExist path
+        unless fileEx $ logExceptionAndThrowTS BlockStatePathDir
+        mperms <- liftIO $ catchJust (guard . isPermissionError)
+                           (Just <$> getPermissions path)
+                           (const $ return Nothing)
+        case mperms of
+          Nothing -> logExceptionAndThrowTS exc
+          Just perms ->
+            unless (readable perms && writable perms) $ do
+            logExceptionAndThrowTS exc
+
+  -- if both files exist we check whether they are both readable and writable.
+  -- In case only one of them exists we raise an appropriate exception. We don't want to delete any data.
+  if | bsPathEx && tsPathEx -> do
+         -- check whether it is a normal file and whether we have the right permissions
+         checkRWFile blockStateFile BlockStatePermissionError
+         checkRWFile treeStateFile TreeStatePermissionError
+         mapM_ (logEvent TreeState LLTrace) ["Existing database found.", "TreeState filepath: " ++ show blockStateFile, "BlockState filepath: " ++ show treeStateFile]
+         return True
+     | bsPathEx -> do
+         logEvent GlobalState LLWarning "Block state file exists, but tree state database does not. Deleting the block state file."
+         liftIO $ removeFile blockStateFile
+         return False
+     | tsPathEx -> do
+         logEvent GlobalState LLWarning "Tree state database exists, but block state file does not. Deleting the tree state database."
+         liftIO . removeDirectoryRecursive $ treeStateDir
+         return False
+     | otherwise ->
+         return False
 
 -- |Try to load an existing instance of skov persistent data.
 -- This function will raise an exception if it detects invariant violation in the
