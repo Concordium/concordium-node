@@ -934,6 +934,10 @@ redelegatePassive (DelegatorId accId) =
 instance Monad m => BS.ContractStateOperations (PureBlockStateMonad pv m) where
   thawContractState (Instance.InstanceStateV0 st) = return st
   thawContractState (Instance.InstanceStateV1 st) = return (StateV1.thawInMemoryPersistent st)
+
+  externalContractState (Instance.InstanceStateV0 st) = return st
+  externalContractState (Instance.InstanceStateV1 (StateV1.InMemoryPersistentState st)) = return st
+
   stateSizeV0 (Instance.InstanceStateV0 cs) = return (Wasm.contractStateSize cs)
   getV1StateContext = return errorLoadCallback
   contractStateToByteString (Instance.InstanceStateV0 st) = return (encode st)

@@ -1,6 +1,6 @@
 [package]
 name = "concordium_node"
-version = "4.4.1" # must be kept in sync with 'is_compatible_version' in 'src/configuration.rs'
+version = "4.4.3" # must be kept in sync with 'is_compatible_version' in 'src/configuration.rs'
 description = "Concordium Node"
 authors = ["Concordium <developers@concordium.com>"]
 exclude = [".gitignore", ".gitlab-ci.yml", "test/**/*","**/**/.gitignore","**/**/.gitlab-ci.yml"]
@@ -26,6 +26,8 @@ codegen-units = 1
 [dependencies]
 # Internal dependencies
 crypto_common = { path = "../concordium-base/rust-src/crypto_common", features = ["encryption"] }
+id = { path = "../concordium-base/rust-src/id", default-features = false }
+wasm-chain-integration = { path = "../concordium-base/smart-contracts/wasm-chain-integration", default-features=false }
 
 # External dependencies
 parking_lot = "0.12"
@@ -65,7 +67,7 @@ anyhow = "1.0"
 thiserror = "1.0"
 futures = { version = "0.3" }
 url = "2.2"
-reqwest = { version = "0.11", features = ["stream"] }
+reqwest = { version = "0.11", features = ["stream", "native-tls-vendored"] }
 csv-async = "1.2"
 tokio-util = { version = "0.7.3", features = ["io"] }
 

@@ -1,4 +1,5 @@
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE BangPatterns #-}
 -- |Functionality for updating and computing leadership election nonces.
 module Concordium.Kontrol.UpdateLeaderElectionParameters (
     updateSeedState,
@@ -25,7 +26,7 @@ updateWithEpoch
     -> H.Hash
     -- ^Running updated leadership election nonce
     -> H.Hash
-updateWithEpoch e n = hash $ runPut $ put n <> put e
+updateWithEpoch e !n = hash $ runPut $ put n <> put e
 
 -- |Update the seed state. The slot must not belong to a prior epoch.
 updateSeedState :: Slot -> BlockNonce -> SeedState -> SeedState
