@@ -36,7 +36,8 @@ import Concordium.Utils.Serialization
 import Concordium.Types
 import Concordium.Wasm
 
--- |A processed module artifact as a 'BS.ByteString'.
+-- |A processed module artifact as a 'BS.ByteString', as returned by the @validate_and_process_v*@
+-- Rust functions, and used by the @call_receive_v*@ and @call_init_v*@ functions.
 newtype ModuleArtifactBytes (v :: WasmVersion) = ModuleArtifactBytes { maBytes :: BS.ByteString }
   deriving(Eq, Show)
 
