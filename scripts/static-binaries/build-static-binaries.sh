@@ -4,6 +4,7 @@ set -euxo pipefail
 
 ubuntu_version="${UBUNTU_VERSION}"
 static_libraries_image_tag="${STATIC_LIBRARIES_IMAGE_TAG}"
+static_binaries_image_tag="${STATIC_BINARIES_IMAGE_TAG}"
 ghc_version="${GHC_VERSION}"
 extra_features=${EXTRA_FEATURES:-""}
 
@@ -17,7 +18,7 @@ docker build \
     --label ghc_version="$ghc_version" \
     --label extra_features="$extra_features" \
     -f "scripts/static-binaries/static-binaries.Dockerfile" \
-    -t static-node-binaries \
+    -t static-node-binaries:"$static_binaries_image_tag" \
     "."
 
 echo "The binaries are ready inside the 'static-node-binaries' image in the '/build/bin/' directory."
