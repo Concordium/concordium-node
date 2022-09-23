@@ -199,6 +199,8 @@ instance MonadBlobStore m => DirectBlobStorable m Module where
         ModuleV0 mv0 -> sudV SV0 mv0
         ModuleV1 mv1 -> sudV SV1 mv1
     where
+      -- NB: If this is updated the @storeV@ function in 'migrateModules' below
+      -- must also be updated if any changes in the representation are made.
       sudV :: SWasmVersion v -> ModuleV v -> m (BlobRef Module, Module)
       sudV ver ModuleV{moduleVInterface = GSWasm.ModuleInterface{..}, ..} = do
           !instrumentedModuleBytes <- case miModule of
@@ -393,24 +395,84 @@ putModulesV0 mods = do
     liftPut $ putWord64be $ LFMB.size mt
     LFMB.mmap_ putModuleV0 mt
 
+-- |Migrate smart contract modules from context @m@ to the context @t m@.
 migrateModules ::
-  (SupportsPersistentModule m, SupportsPersistentModule (t m), SupportMigration m t)
+  forall t m . (SupportsPersistentModule m, SupportsPersistentModule (t m), SupportMigration m t)
   => Modules
   -> t m Modules
 migrateModules mods = do
-    newModulesTable <- LFMB.migrateLFMBTree migrateModule (_modulesTable mods)
+    newModulesTable <- LFMB.migrateLFMBTree migrateCachedModule (_modulesTable mods)
     return
         Modules
             { _modulesMap = _modulesMap mods
             , _modulesTable = newModulesTable
             }
+    where 
+      migrateCachedModule :: CachedModule -> t m CachedModule
+      migrateCachedModule cm = do
+        existingModule <- lift (refLoad cm)
+        case existingModule of
+          ModuleV0 v0 -> migrateModuleV v0
+          ModuleV1 v1 -> migrateModuleV v1
 
-migrateModule :: 
-  (SupportsPersistentModule m, SupportsPersistentModule (t m), SupportMigration m t)
-  => CachedModule
-  -> t m CachedModule
-migrateModule mdl = do
-    newModule <- lift (refLoad mdl)
-    ref <- refMake newModule
-    (ret, _) <- refFlush ref
-    return ret
+      migrateModuleV :: forall v . (IsWasmVersion v) => ModuleV v -> t m CachedModule
+      migrateModuleV ModuleV{..} = do
+        newModuleVSource <- do
+          -- Load the module source from the old context.
+          s <- lift (loadRef moduleVSource)
+          -- and store it in the new context, returning a reference to it.
+          storeRef s
+        -- then store the module itself to the new state. The main complexity
+        -- here is the @BlobPtr@.
+        storeV (getWasmVersion @v) newModuleVSource moduleVInterface
+
+      -- Store the new version of the module in context @t m@.
+      -- The new module is always stored on disk, and only the location in the new blob store is retained in memory.
+      -- The module is not cached.
+      storeV ::
+        SWasmVersion v ->
+        -- |The location where the module source is stored in the **new** context.
+        BlobRef (WasmModuleV v) ->
+        -- |The module interface that needs to be migrated.
+        GSWasm.ModuleInterfaceA (PersistentInstrumentedModuleV v) ->
+        t m CachedModule
+      -- This function must match what the @storeUpdateDirect@ and @loadDirect@
+      -- do. In order to avoid copying as much as possible we almost duplicate
+      -- the implementation here, but with two differences
+      -- - the artifact is loaded from the old context (monad @m@)
+      -- - we always construct a 'HCRFlushed' value, and the instance is never cached.
+      storeV ver newSource GSWasm.ModuleInterface{..} = do
+              !instrumentedModuleBytes <- case miModule of
+                PIMVMem instrModule -> return $ case ver of
+                    SV0 -> encode instrModule
+                    SV1 -> encode instrModule
+                PIMVPtr ptr -> do
+                  artifact <- lift (loadBlobPtr ptr)
+                  return $ runPut $ do
+                    put (demoteWasmVersion ver)
+                    putWord32be (fromIntegral (BS.length artifact))
+                    putByteString artifact
+              let headerBytes = runPut $ do
+                    put miModuleRef
+                    putSafeSetOf put miExposedInit
+                    putSafeMapOf put (putSafeSetOf put) miExposedReceive
+                  footerBytes = runPut $ do
+                    putWord64be miModuleSize
+                    put newSource
+                  !headerLen = fromIntegral $ BS.length headerBytes
+                  !imLen = fromIntegral $ BS.length instrumentedModuleBytes
+              br <- storeRaw (headerBytes <> instrumentedModuleBytes <> footerBytes)
+              let !miModule' = PIMVPtr BlobPtr {
+                      -- Pointer is blob ref + 8 bytes (length of blob) + header length +
+                      -- 4 bytes for version + 4 bytes for length of instrumented module
+                      theBlobPtr = theBlobRef br + 8 + headerLen + 8,
+                      -- Length is the length of the serialized instrumented module -
+                      -- 4 bytes for version - 4 bytes for length
+                      blobPtrLen =  imLen - 8
+                    }
+              let mv' = ModuleV{moduleVInterface = GSWasm.ModuleInterface{miModule = miModule',..}, moduleVSource = newSource,..}
+              -- getHash here is very cheap, in fact it just takes the @moduleReference@ field and coerces it.
+              return $! HCRFlushed br (getHash (mkModule ver mv'))
+      mkModule :: SWasmVersion v -> ModuleV v -> Module
+      mkModule SV0 = ModuleV0
+      mkModule SV1 = ModuleV1
