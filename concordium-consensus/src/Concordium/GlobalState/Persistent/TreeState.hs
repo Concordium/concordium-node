@@ -1,12 +1,12 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE MultiWayIf #-}
 -- FIXME: This is to suppress compiler warnings for derived instances of BlockStateOperations.
 -- This may be fixed in GHC 9.0.1.
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
@@ -47,11 +47,11 @@ import qualified Data.Sequence as Seq
 import Lens.Micro.Platform
 import Concordium.Utils
 import System.Mem.Weak
-import System.Directory
-import System.IO.Error
-import System.FilePath
 import Concordium.Logger
 import Control.Monad.Except
+import System.FilePath
+import System.Directory
+import System.IO.Error
 import qualified Concordium.TransactionVerification as TVer
 
 -- * Exceptions
@@ -306,9 +306,9 @@ initialSkovPersistentData rp treeStateDir gd genState serState genTT mPending = 
 
 -- * Initialization functions
 
--- |Check the permissions in the required files.
--- Returns 'True' if the database already existed, 'False' if not.
--- Raises an exception if the database is inaccessible, or only partially exists.
+--- |Check the permissions in the required files.  Returns 'True' if the database already exists,
+--- 'False' if it does not exist, or is inaccessible.  If the database exists only partially, then it
+--- is deleted to allow for creating it again through `newGenesis`.
 checkExistingDatabase :: forall m. (MonadLogger m, MonadIO m) =>
     -- |Tree state path
     FilePath ->
@@ -343,9 +343,13 @@ checkExistingDatabase treeStateDir blockStateFile = do
          mapM_ (logEvent TreeState LLTrace) ["Existing database found.", "TreeState filepath: " ++ show blockStateFile, "BlockState filepath: " ++ show treeStateFile]
          return True
      | bsPathEx -> do
-         logExceptionAndThrowTS $ DatabaseInvariantViolation "Block state file exists, but tree state file does not."
+         logEvent GlobalState LLWarning "Block state file exists, but tree state database does not. Deleting the block state file."
+         liftIO $ removeFile blockStateFile
+         return False
      | tsPathEx -> do
-         logExceptionAndThrowTS $ DatabaseInvariantViolation "Tree state file exists, but block state file does not."
+         logEvent GlobalState LLWarning "Tree state database exists, but block state file does not. Deleting the tree state database."
+         liftIO . removeDirectoryRecursive $ treeStateDir
+         return False
      | otherwise ->
          return False
 
