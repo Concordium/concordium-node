@@ -1,6 +1,10 @@
 use anyhow::Context;
 use prost::bytes::BufMut;
-use std::{convert::TryFrom, marker::PhantomData, path::Path};
+use std::{
+    convert::{TryFrom, TryInto},
+    marker::PhantomData,
+    path::Path,
+};
 
 /// Types generated from the types.proto file, together
 /// with some auxiliary definitions that help passing values through the FFI
@@ -217,7 +221,8 @@ pub mod server {
         p2p::P2PNode,
     };
     use anyhow::Context;
-    use byteorder::WriteBytesExt;
+    use byteorder::{BigEndian, WriteBytesExt};
+    use crypto_common::types::MAX_MEMO_SIZE;
     use futures::{FutureExt, StreamExt};
     use std::{
         io::Write,
@@ -637,20 +642,19 @@ pub mod server {
                 ));
             }
 
-            let request = request.get_ref();
-            let transaction = &request.payload;
+            let transaction = serialize_send_block_item_request(request.into_inner())?;
             if transaction.len() > crate::configuration::PROTOCOL_MAX_TRANSACTION_SIZE {
                 warn!("Received a transaction that exceeds maximum transaction size.");
                 return Err(tonic::Status::invalid_argument(
                     "Transaction size exceeds maximum allowed size.",
                 ));
             }
-            let consensus_result = self.consensus.send_transaction(transaction);
+            let consensus_result = self.consensus.send_transaction(&transaction);
 
             let result = if consensus_result == Success {
                 let mut payload = Vec::with_capacity(1 + transaction.len());
                 payload.write_u8(PacketType::Transaction as u8)?;
-                payload.write_all(transaction)?;
+                payload.write_all(&transaction)?;
 
                 CALLBACK_QUEUE.send_out_message(ConsensusMessage::new(
                     MessageType::Outbound(None),
@@ -696,6 +700,119 @@ pub mod server {
                     mk_err_invalid_argument_response(consensus_error.to_string())
                 }
             }
+        }
+    }
+
+    // TODO: Fix serialization.
+    // Getting:
+    // DEBUG: Runner: Failed reading: Need at least one signature.
+    // From:    getBlockItemV0
+    //          BareBlockItem
+    //          account transaction
+    //          signature
+    fn serialize_send_block_item_request(
+        request: types::SendBlockItemRequest,
+    ) -> Result<Vec<u8>, tonic::Status> {
+        let mut out = Vec::new();
+        out.write_u32::<BigEndian>(0)?; // The version prefix.
+        match request.block_item_type.require()? {
+            types::send_block_item_request::BlockItemType::AccountTransaction(v) => {
+                // put tag
+                out.write_u8(0)?;
+                // put signature
+                let cred_map = v.signature.require()?;
+                out.write_u8(try_into_u8(cred_map.signatures.len(), "Length of SignatureMap")?)?;
+                for (cred, sig_map) in cred_map.signatures.into_iter() {
+                    out.write_u8(try_into_u8(cred, "CredentialIndex")?)?;
+                    out.write_u8(try_into_u8(
+                        sig_map.signatures.len(),
+                        "Length of AccountSignatureMap",
+                    )?)?;
+                    for (k, sig) in sig_map.signatures.into_iter() {
+                        out.write_u8(try_into_u8(k, "KeyIndex")?)?;
+                        out.write_all(&sig.value)?;
+                    }
+                }
+                // put header
+                let header = v.header.require()?;
+                // nonce u64
+                out.write_u64::<BigEndian>(header.sequence_number.require()?.value)?;
+                // energy u64
+                out.write_u64::<BigEndian>(header.energy_amount.require()?.value)?;
+                // Construct payload, so we can serialize its size. The actual payload is
+                // included later.
+                let payload_bytes = {
+                    let payload = v.payload.require()?;
+                    let mut pl_out: Vec<u8>;
+                    match payload {
+                        types::account_transaction::Payload::RawPayload(bytes) => pl_out = bytes,
+                        types::account_transaction::Payload::Transfer(p) => {
+                            pl_out = Vec::new();
+                            match p.memo {
+                                None => {
+                                    pl_out.write_u8(3)?;
+                                    serialize_account_address(p.receiver.require()?, &mut pl_out)?;
+                                    pl_out.write_u64::<BigEndian>(p.amount.require()?.value)?;
+                                }
+                                Some(memo) => {
+                                    pl_out.write_u8(22)?;
+                                    serialize_account_address(p.receiver.require()?, &mut pl_out)?;
+                                    serialize_memo(memo, &mut pl_out)?;
+                                    pl_out.write_u64::<BigEndian>(p.amount.require()?.value)?;
+                                }
+                            }
+                        }
+                    }
+                    pl_out
+                };
+                // payload size in bytes, u32
+                out.write_u32::<BigEndian>(try_into_u32(payload_bytes.len(), "Payloadsize")?)?;
+                // expiry: trx_time u64
+                out.write_u64::<BigEndian>(header.expiry.require()?.value)?;
+                // put payload
+                out.write_all(&payload_bytes)?;
+            }
+            types::send_block_item_request::BlockItemType::CredentialDeployment(_) => todo!(),
+            types::send_block_item_request::BlockItemType::UpdateInstruction(_) => todo!(),
+        }
+        Ok(out)
+    }
+
+    /// Checks that the account address is 32 bytes and then writes it to the
+    /// provided buffer.
+    fn serialize_account_address(
+        address: types::AccountAddress,
+        mut out: &mut [u8],
+    ) -> Result<(), tonic::Status> {
+        if address.value.len() == 32 {
+            Ok(out.write_all(&address.value)?)
+        } else {
+            Err(tonic::Status::invalid_argument("Invalid AccountAddress. Must be 32 bytes long."))
+        }
+    }
+
+    fn try_into_u32<T: TryInto<u32>>(t: T, name: &str) -> Result<u32, tonic::Status> {
+        t.try_into().map_err(|_| {
+            tonic::Status::invalid_argument(format!("{} could not be converted into an u32.", name))
+        })
+    }
+
+    fn try_into_u8<T: TryInto<u8>>(t: T, name: &str) -> Result<u8, tonic::Status> {
+        t.try_into().map_err(|_| {
+            tonic::Status::invalid_argument(format!("{} could not be converted into an u8.", name))
+        })
+    }
+
+    /// Checks that the memo is at most 256 bytes and then writes it to the
+    /// provided buffer.
+    fn serialize_memo(memo: types::Memo, mut out: &mut [u8]) -> Result<(), tonic::Status> {
+        if memo.value.len() <= MAX_MEMO_SIZE {
+            Ok(out.write_all(&memo.value)?)
+        } else {
+            Err(tonic::Status::invalid_argument(format!(
+                "Invalid Memo. Must be less than {} bytes long.",
+                MAX_MEMO_SIZE
+            )))
         }
     }
 }
