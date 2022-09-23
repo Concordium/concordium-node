@@ -5,7 +5,11 @@ set -euxo pipefail
 # Used environment variables.
 # - UBUNTU_VERSION (mandatory)
 # - STATIC_LIBRARIES_IMAGE_TAG (defaults to 'latest' if not given)
+# - STATIC_BINARIES_IMAGE_TAG (defaults to 'latest' if not given)
 # - GHC_VERSION (defaults to '9.0.2' if not given)
+
+# Set STATIC_BINARIES_IMAGE_TAG to latest if not already set
+export STATIC_BINARIES_IMAGE_TAG="${STATIC_BINARIES_IMAGE_TAG:-latest}"
 
 # If the static-node-binaries image exists we use the binaries therein.
 # Otherwise we build it first.
@@ -19,6 +23,7 @@ fi
 
 docker build\
        --build-arg ubuntu_version=$UBUNTU_VERSION\
+       --build-arg static_binaries_image_tag=$STATIC_BINARIES_IMAGE_TAG\
        --build-arg build_env_name=Testnet\
        --build-arg build_env_name_lower=testnet\
        --build-arg build_genesis_hash=4221332d34e1694168c2a0c0b3fd0f273809612cb13d000d5c2e00e85f50f796\

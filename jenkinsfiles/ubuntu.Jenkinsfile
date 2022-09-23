@@ -42,6 +42,7 @@ pipeline {
         DATA_DIR = "./scripts/distribution/ubuntu-packages/template/data/"
         RPC_PORT = "${rpc_port[environment]}"
         LISTEN_PORT = "${listen_port[environment]}"
+        STATIC_BINARIES_IMAGE_TAG = "${BUILD_TAG}"
     }
     stages {
         stage('Precheck') {
@@ -83,6 +84,7 @@ pipeline {
                 sh '''
                     docker build\
                         --build-arg ubuntu_version=${UBUNTU_VERSION}\
+                        --build-arg static_binaries_image_tag=${STATIC_BINARIES_IMAGE_TAG}\
                         --build-arg build_env_name=${ENVIRONMENT_CAP}\
                         --build-arg build_env_name_lower=${ENVIRONMENT}\
                         --build-arg build_genesis_hash=$(cat ${GENESIS_HASH_PATH} | tr -cd "[:alnum:]")\
