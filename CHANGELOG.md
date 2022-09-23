@@ -6,6 +6,7 @@
 
 - Fix a bug in database recovery where corruption was not always correctly detected.
 - Fix typo in environment variable `CONCORDIUM_NODE_PROMETHEUS_LISTEN_ADDRESSS` (remove trailing `S`).
+- The node is now able to recover after crashes which leave only treestate or only blockstate usable.
 
 ## 4.4.2
 
