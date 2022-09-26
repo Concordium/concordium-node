@@ -230,7 +230,7 @@ constructCache = List.foldl' (flip insertDeadCache) emptyDeadCache
 -- - the size of the cache is bounded by 1000
 testDeadCache :: Property
 testDeadCache =
-    withMaxSuccess 100000 $
+    withMaxSuccess 1000 $
         property $
             forAll genBlockHashes $ \bhs ->
                 let dc = constructCache bhs
@@ -244,7 +244,7 @@ testDeadCache =
 -- - the size of the cache is bounded by 1000
 testDeadCacheDistinct :: Property
 testDeadCacheDistinct =
-    withMaxSuccess 100000 $
+    withMaxSuccess 1000 $
         property $
             forAll genDistinctBlockHashes $ \bhs ->
                 let dc = constructCache bhs
