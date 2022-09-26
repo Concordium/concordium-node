@@ -434,6 +434,7 @@ impl TryFrom<u8> for ConsensusIsInFinalizationCommitteeResponse {
 /// This is a response that is already parsed from the error code return through
 /// FFI.
 pub enum ConsensusQueryResponse {
+    InvalidArgument,
     InternalError,
     Ok,
     NotFound,
@@ -444,6 +445,7 @@ impl ConsensusQueryResponse {
     /// convenient to use in the implementations of the different queries.
     pub fn ensure_ok(self, msg: impl std::fmt::Display) -> Result<(), tonic::Status> {
         match self {
+            Self::InvalidArgument => Err(tonic::Status::invalid_argument("Invalid argument.")),
             Self::InternalError => Err(tonic::Status::internal(format!("Internal error: {}. Please report this bug at https://github.com/Concordium/concordium-node/issues.", msg))),
             Self::Ok => Ok(()),
             Self::NotFound => Err(tonic::Status::not_found(format!("{} not found.", msg))),
@@ -468,6 +470,7 @@ impl TryFrom<i64> for ConsensusQueryResponse {
 
     fn try_from(value: i64) -> Result<Self, Self::Error> {
         match value {
+            -2 => Ok(Self::InvalidArgument),
             -1 => Ok(Self::InternalError),
             0 => Ok(Self::Ok),
             1 => Ok(Self::NotFound),

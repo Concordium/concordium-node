@@ -401,7 +401,6 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
     getActiveBakersAndDelegators :: (AccountVersionFor (MPV m) ~ 'AccountV1) => BlockState m -> m ([ActiveBakerInfo m], [ActiveDelegatorInfo])
 
     -- |Get the active delegators of a pool.
-    -- |Get the delegators of a pool for the current payday.
     getActiveDelegators
       :: (AccountVersionFor (MPV m) ~ 'AccountV1)
       => BlockState m

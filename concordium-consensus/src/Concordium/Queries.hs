@@ -44,6 +44,7 @@ import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule (toAccount
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer
+import Concordium.GlobalState.CapitalDistribution (DelegatorCapital (..))
 import qualified Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Statistics
@@ -250,6 +251,17 @@ liftSkovQueryBlockAndVersion a bh = MVR $ \mvr ->
                 mvr
         )
         mvr
+
+data PoolDelegatorInfo = PoolDelegatorInfo {
+  pdiAccount :: !AccountAddress,
+  pdiStake :: !Amount,
+  pdiPendingChanges :: !(StakePendingChange 'AccountV1)
+}
+
+data PoolDelegatorRewardPeriodInfo = PoolDelegatorRewardPeriodInfo {
+  pdrpiAccount :: !AccountAddress,
+  pdrpiStake :: !Amount
+}
 
 -- |Retrieve the consensus status.
 getConsensusStatus :: MVR gsconf finconf ConsensusStatus
@@ -663,6 +675,53 @@ getPoolStatus blockHashInput mbid = do
 -- |Get a list of all registered baker IDs in the specified block.
 getRegisteredBakers :: forall gsconf finconf. BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe [BakerId])
 getRegisteredBakers = liftSkovQueryBHI (BS.getActiveBakers <=< blockState)
+
+-- |Get a list of delegators for a given pool at the end of a given block.
+getPoolDelegators :: forall gsconf finconf. BlockHashInput -> Maybe BakerId -> MVR gsconf finconf (BlockHash, Maybe (Maybe [PoolDelegatorInfo]))
+getPoolDelegators bhi maybeBakerId = do
+  (bh, res) <- liftSkovQueryBHI getDelegators bhi
+  return (bh, join res)
+    where
+      getDelegators ::
+        forall pv.
+        ( SkovMonad (VersionedSkovM gsconf finconf pv)) =>
+        BlockPointerType (VersionedSkovM gsconf finconf pv) ->
+        VersionedSkovM gsconf finconf pv (Maybe (Maybe [PoolDelegatorInfo]))
+      getDelegators bp = case accountVersion @(AccountVersionFor pv) of
+        SAccountV0 ->
+          return Nothing
+        SAccountV1 -> do
+          bs <- blockState bp
+          maybePoolDelegators <- BS.getActiveDelegators bs maybeBakerId
+          return $ Just $ fmap (fmap toPoolDelegatorInfo) maybePoolDelegators
+      toPoolDelegatorInfo (accountAddress, BS.ActiveDelegatorInfo {..}) = PoolDelegatorInfo {
+        pdiAccount = accountAddress,
+        pdiStake = activeDelegatorStake,
+        pdiPendingChanges = activeDelegatorPendingChange
+        }
+
+-- |Get a list of delegators for a given pool at the end of a given block.
+getPoolDelegatorsRewardPeriod :: forall gsconf finconf. BlockHashInput -> Maybe BakerId -> MVR gsconf finconf (BlockHash, Maybe (Maybe [PoolDelegatorRewardPeriodInfo]))
+getPoolDelegatorsRewardPeriod bhi maybeBakerId = do
+  (bh, res) <- liftSkovQueryBHI getDelegators bhi
+  return (bh, join res)
+    where
+      getDelegators ::
+        forall pv.
+        ( SkovMonad (VersionedSkovM gsconf finconf pv)) =>
+        BlockPointerType (VersionedSkovM gsconf finconf pv) ->
+        VersionedSkovM gsconf finconf pv (Maybe (Maybe [PoolDelegatorRewardPeriodInfo]))
+      getDelegators bp = case accountVersion @(AccountVersionFor pv) of
+        SAccountV0 ->
+          return Nothing
+        SAccountV1 -> do
+          bs <- blockState bp
+          maybePoolDelegators <- BS.getCurrentDelegators bs maybeBakerId
+          return $ Just $ fmap (fmap toPoolDelegatorInfo) maybePoolDelegators
+      toPoolDelegatorInfo (accountAddress, DelegatorCapital {..}) = PoolDelegatorRewardPeriodInfo {
+        pdrpiAccount = accountAddress,
+        pdrpiStake = dcDelegatorCapital
+        }
 
 -- ** Transaction indexed
 

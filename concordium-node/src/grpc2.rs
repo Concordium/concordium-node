@@ -511,6 +511,18 @@ pub mod server {
         >;
         /// Return type for the 'GetModuleList' method.
         type GetModuleListStream = futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
+        /// Return type for the 'GetPassiveDelegatorsRewardPeriod' method.
+        type GetPassiveDelegatorsRewardPeriodStream =
+            futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
+        /// Return type for the 'GetPassiveDelegators' method.
+        type GetPassiveDelegatorsStream =
+            futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
+        /// Return type for the 'GetPoolDelegatorsRewardPeriod' method.
+        type GetPoolDelegatorsRewardPeriodStream =
+            futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
+        /// Return type for the 'GetPoolDelegators' method.
+        type GetPoolDelegatorsStream =
+            futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
 
         async fn get_blocks(
             &self,
@@ -862,6 +874,55 @@ pub mod server {
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
             let (hash, response) = self.consensus.get_tokenomics_info_v2(request.get_ref())?;
             let mut response = tonic::Response::new(response);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_pool_delegators(
+            &self,
+            request: tonic::Request<crate::grpc2::types::GetPoolDelegatorsRequest>,
+        ) -> Result<tonic::Response<Self::GetPoolDelegatorsStream>, tonic::Status> {
+            let (sender, receiver) = futures::channel::mpsc::channel(100);
+            let hash = self.consensus.get_pool_delegators_v2(request.get_ref(), sender)?;
+            let mut response = tonic::Response::new(receiver);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_pool_delegators_reward_period(
+            &self,
+            request: tonic::Request<crate::grpc2::types::GetPoolDelegatorsRewardPeriodRequest>,
+        ) -> Result<tonic::Response<Self::GetPoolDelegatorsRewardPeriodStream>, tonic::Status>
+        {
+            let (sender, receiver) = futures::channel::mpsc::channel(100);
+            let hash =
+                self.consensus.get_pool_delegators_reward_period_v2(request.get_ref(), sender)?;
+            let mut response = tonic::Response::new(receiver);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_passive_delegators(
+            &self,
+            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+        ) -> Result<tonic::Response<Self::GetPassiveDelegatorsStream>, tonic::Status> {
+            let (sender, receiver) = futures::channel::mpsc::channel(100);
+            let hash = self.consensus.get_passive_delegators_v2(request.get_ref(), sender)?;
+            let mut response = tonic::Response::new(receiver);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_passive_delegators_reward_period(
+            &self,
+            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+        ) -> Result<tonic::Response<Self::GetPassiveDelegatorsRewardPeriodStream>, tonic::Status>
+        {
+            let (sender, receiver) = futures::channel::mpsc::channel(100);
+            let hash = self
+                .consensus
+                .get_passive_delegators_reward_period_v2(request.get_ref(), sender)?;
+            let mut response = tonic::Response::new(receiver);
             add_hash(&mut response, hash)?;
             Ok(response)
         }
