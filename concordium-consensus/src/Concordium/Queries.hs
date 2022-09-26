@@ -493,8 +493,8 @@ getRewardStatus = liftSkovQueryBHI $ \bp -> do
     return $ epochToUTC <$> reward
 
 -- |Get the birk parameters that applied when a given block was baked.
-getBlockBirkParameters :: BlockHash -> MVR gsconf finconf (Maybe BlockBirkParameters)
-getBlockBirkParameters = liftSkovQueryBlock $ \bp -> do
+getBlockBirkParameters :: BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe BlockBirkParameters)
+getBlockBirkParameters = liftSkovQueryBHI $ \bp -> do
     bs <- blockState bp
     bbpElectionDifficulty <- BS.getCurrentElectionDifficulty bs
     bbpElectionNonce <- currentLeadershipElectionNonce <$> BS.getSeedState bs

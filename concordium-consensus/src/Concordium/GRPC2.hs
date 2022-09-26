@@ -1450,6 +1450,24 @@ instance ToProto QueryTypes.Branch where
       ProtoFields.blockHash .= toProto branchBlockHash
       ProtoFields.children .= fmap toProto branchChildren
 
+instance ToProto QueryTypes.BlockBirkParameters where
+    type Output QueryTypes.BlockBirkParameters = Maybe Proto.ElectionInfo
+    toProto QueryTypes.BlockBirkParameters {..} = do
+      bakerElectionInfo <- mapM toProto (Vec.toList bbpBakers)
+      Just $ Proto.make $ do
+        ProtoFields.electionDifficulty .= toProto bbpElectionDifficulty
+        ProtoFields.electionNonce .= mkSerialize bbpElectionNonce
+        ProtoFields.bakerElectionInfo .= bakerElectionInfo
+
+instance ToProto QueryTypes.BakerSummary where
+    type Output QueryTypes.BakerSummary = Maybe Proto.ElectionInfo'Baker
+    toProto QueryTypes.BakerSummary {..} = do
+      bakerAccount <- bsBakerAccount
+      Just $ Proto.make $ do
+        ProtoFields.baker .= toProto bsBakerId
+        ProtoFields.account .= toProto bakerAccount
+        ProtoFields.lotteryPower .= bsBakerLotteryPower
+
 -- |NB: Assumes the data is at least 32 bytes
 decodeBlockHashInput :: Word8 -> Ptr Word8 -> IO Q.BlockHashInput
 decodeBlockHashInput 0 _ = return Q.BHIBest
@@ -2116,6 +2134,32 @@ getBranchesV2 cptr outVec copierCbk = do
     result <- runMVR Q.getBranches mvr
     returnMessage (copier outVec) $ Just result
 
+getElectionInfoV2 ::
+    StablePtr Ext.ConsensusRunner ->
+    -- |Block type.
+    Word8 ->
+    -- |Block hash.
+    Ptr Word8 ->
+    -- |Out pointer for writing the block hash that was used.
+    Ptr Word8 ->
+    Ptr ReceiverVec ->
+    -- |Callback to output data.
+    FunPtr CopyToVecCallback ->
+    IO Int64
+getElectionInfoV2 cptr blockType blockHashPtr outHash outVec copierCbk = do
+    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
+    let copier = callCopyToVecCallback copierCbk
+    bhi <- decodeBlockHashInput blockType blockHashPtr
+    (bh, maybeInfo) <- runMVR (Q.getBlockBirkParameters bhi) mvr
+    copyHashTo outHash bh
+    case maybeInfo of
+        Nothing -> return $ queryResultCode QRNotFound
+        Just info -> case toProto info of
+                       Nothing -> return $ queryResultCode QRInternalError
+                       Just proto -> do
+                         let encoded = Proto.encodeMessage proto
+                         BS.unsafeUseAsCStringLen encoded (\(ptr, len) -> copier outVec (castPtr ptr) (fromIntegral len))
+                         return $ queryResultCode QRSuccess
 
 {- |Write the hash to the provided pointer, and if the message is given encode and
    write it using the provided callback.
@@ -2517,6 +2561,19 @@ foreign export ccall
 foreign export ccall
     getBranchesV2 ::
         StablePtr Ext.ConsensusRunner ->
+        Ptr ReceiverVec ->
+        FunPtr CopyToVecCallback ->
+        IO Int64
+
+foreign export ccall
+    getElectionInfoV2 ::
+        StablePtr Ext.ConsensusRunner ->
+        -- |Block type.
+        Word8 ->
+        -- |Block hash.
+        Ptr Word8 ->
+        -- |Out pointer for writing the block hash that was used.
+        Ptr Word8 ->
         Ptr ReceiverVec ->
         FunPtr CopyToVecCallback ->
         IO Int64

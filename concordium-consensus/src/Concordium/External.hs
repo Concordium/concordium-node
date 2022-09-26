@@ -1040,7 +1040,7 @@ getBirkParameters :: StablePtr ConsensusRunner -> CString -> IO CString
 getBirkParameters cptr blockcstr =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (Q.getBlockBirkParameters bh)
+        Just bh -> jsonQuery cptr (snd <$> Q.getBlockBirkParameters (BHIGiven bh))
 
 -- |Get the cryptographic parameters in a given block. The block must be given as a
 -- null-terminated base16 encoding of the block hash.
