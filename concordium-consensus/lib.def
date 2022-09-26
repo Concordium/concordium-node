@@ -68,3 +68,4 @@ EXPORTS
  getPoolDelegatorsRewardPeriodV2
  getPassiveDelegatorsV2
  getPassiveDelegatorsRewardPeriodV2
+ getBranchesV2

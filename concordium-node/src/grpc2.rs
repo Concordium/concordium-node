@@ -926,6 +926,13 @@ pub mod server {
             add_hash(&mut response, hash)?;
             Ok(response)
         }
+
+        async fn get_branches(
+            &self,
+            _request: tonic::Request<crate::grpc2::types::Empty>,
+        ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            Ok(tonic::Response::new(self.consensus.get_branches_v2()?))
+        }
     }
 }
 

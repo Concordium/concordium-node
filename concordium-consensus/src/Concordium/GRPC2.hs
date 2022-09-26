@@ -1444,6 +1444,12 @@ instance ToProto Q.PoolDelegatorRewardPeriodInfo where
       ProtoFields.account .= toProto pdrpiAccount
       ProtoFields.stake .= toProto pdrpiStake
 
+instance ToProto QueryTypes.Branch where
+    type Output QueryTypes.Branch = Proto.Branch
+    toProto QueryTypes.Branch {..} = Proto.make $ do
+      ProtoFields.blockHash .= toProto branchBlockHash
+      ProtoFields.children .= fmap toProto branchChildren
+
 -- |NB: Assumes the data is at least 32 bytes
 decodeBlockHashInput :: Word8 -> Ptr Word8 -> IO Q.BlockHashInput
 decodeBlockHashInput 0 _ = return Q.BHIBest
@@ -2094,6 +2100,18 @@ getPassiveDelegatorsRewardPeriodV2 cptr channel blockType blockHashPtr outHash c
             _ <- enqueueMessages (sender channel) delegators
             return (queryResultCode QRSuccess)
 
+getBranchesV2 ::
+    StablePtr Ext.ConsensusRunner ->
+    Ptr ReceiverVec ->
+    -- |Callback to output data.
+    FunPtr CopyToVecCallback ->
+    IO Int64
+getBranchesV2 cptr outVec copierCbk = do
+    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
+    let copier = callCopyToVecCallback copierCbk
+    result <- runMVR Q.getBranches mvr
+    returnMessage (copier outVec) $ Just result
+
 
 {- |Write the hash to the provided pointer, and if the message is given encode and
    write it using the provided callback.
@@ -2490,4 +2508,11 @@ foreign export ccall
         -- |Out pointer for writing the block hash that was used.
         Ptr Word8 ->
         FunPtr ChannelSendCallback ->
+        IO Int64
+
+foreign export ccall
+    getBranchesV2 ::
+        StablePtr Ext.ConsensusRunner ->
+        Ptr ReceiverVec ->
+        FunPtr CopyToVecCallback ->
         IO Int64

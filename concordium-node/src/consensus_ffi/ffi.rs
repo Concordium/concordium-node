@@ -1038,6 +1038,17 @@ extern "C" {
         ) -> i32,
     ) -> i64;
 
+    /// Get the current branches of blocks starting and including from the last
+    /// finalized block.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `out` - Location to write the output of the query.
+    /// * `copier` - Callback for writting the output.
+    pub fn getBranchesV2(
+        consensus: *mut consensus_runner,
+        out: *mut Vec<u8>,
+        copier: CopyToVecCallback,
+    ) -> i64;
 }
 
 /// This is the callback invoked by consensus on newly arrived, and newly
@@ -2249,6 +2260,16 @@ impl ConsensusContainer {
         .try_into()?;
         response.ensure_ok("block")?;
         Ok(buf)
+    }
+
+    /// Get the current branches of blocks starting and including from the last
+    /// finalized block.
+    pub fn get_branches_v2(&self) -> Result<Vec<u8>, tonic::Status> {
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut out_data: Vec<u8> = Vec::new();
+        let _response: ConsensusQueryResponse =
+            unsafe { getBranchesV2(consensus, &mut out_data, copy_to_vec_callback) }.try_into()?;
+        Ok(out_data)
     }
 }
 
