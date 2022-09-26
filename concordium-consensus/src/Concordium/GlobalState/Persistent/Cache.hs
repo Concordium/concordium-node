@@ -17,7 +17,12 @@ import qualified Data.Vector.Primitive.Mutable as Vec
 
 import Concordium.Utils.Serialization.Put (PutT)
 
-import Concordium.GlobalState.Persistent.BlobStore (BlobRef (..), BlobStoreT, HasNull (..))
+import Concordium.GlobalState.Persistent.BlobStore (
+    BlobRef (..),
+    BlobStoreT,
+    HasNull (..),
+    ProvisionalBlobStoreT,
+ )
 
 -- |The 'HasCache' class supports projecting a cache of a particular type.
 -- This is used to access a cache given a context.
@@ -48,6 +53,10 @@ instance (MonadCache c m) => MonadCache c (ExceptT e m) where
     {-# INLINE getCache #-}
 
 instance (HasCache c r, MonadIO m) => MonadCache c (BlobStoreT r m) where
+    getCache = asks projectCache
+    {-# INLINE getCache #-}
+
+instance (HasCache c r, MonadIO m) => MonadCache c (ProvisionalBlobStoreT r m) where
     getCache = asks projectCache
     {-# INLINE getCache #-}
 

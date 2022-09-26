@@ -21,7 +21,9 @@ module Concordium.GlobalState.Persistent.BlockState (
     makePersistent,
     initialPersistentState,
     emptyBlockState,
-    PersistentBlockStateContext(..),
+    PersistentBlockStateContext'(..),
+    modifyPersistentBlobStore,
+    PersistentBlockStateContext,
     PersistentState,
     PersistentBlockStateMonad(..),
     withNewAccountCache,
@@ -2657,24 +2659,34 @@ doSetRewardAccounts pbs rewards = do
         storePBS pbs bsp{bspBank = bspBank bsp & unhashed . Rewards.rewardAccounts .~ rewards}
 
 -- |Context that supports the persistent block state.
-data PersistentBlockStateContext pv = PersistentBlockStateContext {
+data PersistentBlockStateContext' blobStore pv = PersistentBlockStateContext {
     -- |The 'BlobStore' used for storing the persistent state.
-    pbscBlobStore :: !BlobStore,
+    pbscBlobStore :: !blobStore,
     -- |Cache used for caching accounts.
     pbscAccountCache :: !(Accounts.AccountCache (AccountVersionFor pv)),
     -- |Cache used for caching modules.
     pbscModuleCache :: !Modules.ModuleCache
 }
 
+modifyPersistentBlobStore :: Lens (PersistentBlockStateContext' a pv) (PersistentBlockStateContext' b pv) a b
+modifyPersistentBlobStore f PersistentBlockStateContext{..} =
+    (\newbs -> PersistentBlockStateContext{pbscBlobStore = newbs, ..}) <$> f pbscBlobStore
+
+-- |Context that supports the persistent block state.
+type PersistentBlockStateContext = PersistentBlockStateContext' BlobStore
+
 instance HasBlobStore (PersistentBlockStateContext av) where
     blobStore = bscBlobStore . pbscBlobStore
     blobLoadCallback = bscLoadCallback . pbscBlobStore
     blobStoreCallback = bscStoreCallback . pbscBlobStore
 
-instance AccountVersionFor pv ~ av => Cache.HasCache (Accounts.AccountCache av) (PersistentBlockStateContext pv) where
+instance HasProvisionalBlobStore (PersistentBlockStateContext' ProvisionalBlobStore pv) where
+    provisionalBlobStore = pbscBlobStore
+
+instance AccountVersionFor pv ~ av => Cache.HasCache (Accounts.AccountCache av) (PersistentBlockStateContext' blobStore pv) where
   projectCache = pbscAccountCache
 
-instance Cache.HasCache Modules.ModuleCache (PersistentBlockStateContext pv) where
+instance Cache.HasCache Modules.ModuleCache (PersistentBlockStateContext' blobStore pv) where
   projectCache = pbscModuleCache
 
 -- |Create a new account cache of the specified size for running the given monadic operation by

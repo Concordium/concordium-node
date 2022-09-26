@@ -32,7 +32,7 @@ import qualified Concordium.GlobalState.Basic.TreeState as Basic
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.Persistent.BlobStore (closeBlobStore, createBlobStore, destroyBlobStore, loadBlobStore, BlobStoreT (runBlobStoreT))
+import Concordium.GlobalState.Persistent.BlobStore (closeBlobStore, createBlobStore, destroyBlobStore, BlobStoreT (runBlobStoreT), loadProvisionalBlobStore, closeProvisionalBlobStore)
 import Concordium.GlobalState.Persistent.BlockState
 import Concordium.GlobalState.Persistent.TreeState
 import Concordium.GlobalState.TreeState as TS
@@ -590,10 +590,10 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
         liftIO $ do
           pbscAccountCache <- Accounts.newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
           pbscModuleCache <- Modules.newModuleCache (rpModulesCacheSize dtdbRuntimeParameters)
-          pbscBlobStore <- loadBlobStore dtdbBlockStateFile
-          let pbsc = PersistentBlockStateContext{..}
-          skovData <- runLoggerT (loadSkovPersistentData dtdbRuntimeParameters dtdbTreeStateDirectory pbsc) logm
-                                   `onException` closeBlobStore pbscBlobStore
+          pbscBlobStore <- loadProvisionalBlobStore dtdbBlockStateFile
+          let proPBSC = PersistentBlockStateContext{..}
+          (skovData, pbsc) <- runLoggerT (loadSkovPersistentData dtdbRuntimeParameters dtdbTreeStateDirectory proPBSC) logm
+                `onException` closeProvisionalBlobStore pbscBlobStore
           return (Just (pbsc, skovData))
       else return Nothing
 

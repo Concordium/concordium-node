@@ -375,9 +375,14 @@ checkExistingDatabase treeStateDir blockStateFile = do
 loadSkovPersistentData :: forall pv. (IsProtocolVersion pv)
                        => RuntimeParameters
                        -> FilePath -- ^Tree state directory
-                       -> PBS.PersistentBlockStateContext pv
-                       -> LogIO (SkovPersistentData pv (PBS.HashedPersistentBlockState pv))
-loadSkovPersistentData rp _treeStateDirectory pbsc = do
+                       -> PBS.PersistentBlockStateContext' ProvisionalBlobStore pv -- ^Provisional context
+                       -> LogIO 
+                            (
+                              SkovPersistentData pv (PBS.HashedPersistentBlockState pv),
+                              PBS.PersistentBlockStateContext pv
+                            )
+loadSkovPersistentData rp _treeStateDirectory provisionalBSC = do
+  logEvent GlobalState LLTrace "Loading existing persistent skov."
   -- we open the environment first.
   -- It might be that the database is bigger than the default environment size.
   -- This seems to not be an issue while we only read from the database,
@@ -390,25 +395,35 @@ loadSkovPersistentData rp _treeStateDirectory pbsc = do
   liftIO (checkDatabaseVersion _db) >>=
       either (logExceptionAndThrowTS . IncorrectDatabaseVersion) return
 
-  -- Get the genesis block and check that its data matches the supplied genesis data.
-  genStoredBlock <- maybe (logExceptionAndThrowTS GenesisBlockNotInDataBaseError) return =<<
-          liftIO (getFirstBlock _db)
-  _genesisBlockPointer <- liftIO $ makeBlockPointer genStoredBlock
-  _genesisData <- case _bpBlock _genesisBlockPointer of
-    GenesisBlock gd' -> return gd'
-    _ -> logExceptionAndThrowTS (DatabaseInvariantViolation "Block at height 0 is not a genesis block.")
-
+  let isBlockStateCorrupted block =
+        not <$> runProvisionalBlobStoreT (isValidBlobRef (sbState block)) provisionalBSC
   -- Unroll the treestate if the last finalized blockstate is corrupted. If the last finalized
   -- blockstate is not corrupted, the treestate is unchanged.
-  unrollTreeStateWhile _db (liftIO . isBlockStateCorrupted) >>= \case
+  unrollTreeStateWhile _db isBlockStateCorrupted >>= \case
     Left e -> logExceptionAndThrowTS . DatabaseInvariantViolation $
               "The block state database is corrupt. Recovery attempt failed: " <> e
     Right (_lastFinalizationRecord, lfStoredBlock) -> do
-      -- Truncate the blobstore beyond the last finalized blockstate. If no corruption was found
-      -- earlier, the blobstore size does not change.
-      liftIO $ truncateBlobStore (bscBlobStore . PBS.pbscBlobStore $ pbsc) (sbState lfStoredBlock)
+      logEvent GlobalState LLTrace "Truncating blob store."
+      -- Truncate the blobstore beyond the last finalized blockstate.
+      liftIO $ truncateProvisionalBlobStore (PBS.pbscBlobStore provisionalBSC) (sbState lfStoredBlock)
+      -- Upgrade the blob store from provisional status, instantiating the memory map.
+      pbsc <- PBS.modifyPersistentBlobStore (liftIO . upgradeProvisionalBlobStore) provisionalBSC
+      let makeBlockPointer StoredBlock{..} = do
+            bstate <- runReaderT (PBS.runPersistentBlockStateMonad (loadBlockState (blockStateHash sbBlock) sbState)) pbsc
+            makeBlockPointerFromPersistentBlock sbBlock bstate sbInfo
+
+      -- Get the genesis block and check that its data matches the supplied genesis data.
+      genStoredBlock <- maybe (logExceptionAndThrowTS GenesisBlockNotInDataBaseError) return =<<
+              liftIO (getFirstBlock _db)
+      _genesisBlockPointer <- liftIO $ makeBlockPointer genStoredBlock
+      _genesisData <- case _bpBlock _genesisBlockPointer of
+        GenesisBlock gd' -> return gd'
+        _ -> logExceptionAndThrowTS (DatabaseInvariantViolation "Block at height 0 is not a genesis block.")
+      logEvent GlobalState LLTrace $ "Genesis: " ++ show _genesisData
+
+      logEvent GlobalState LLTrace "Generating last finalized pointer."
       _lastFinalized <- liftIO (makeBlockPointer lfStoredBlock)
-      return SkovPersistentData {
+      return (SkovPersistentData {
             _possiblyPendingTable = HM.empty,
             _possiblyPendingQueue = MPQ.empty,
             _branches = Seq.empty,
@@ -424,16 +439,7 @@ loadSkovPersistentData rp _treeStateDirectory pbsc = do
             _blockTable = BlockTable {_deadCache = emptyDeadCache, _liveMap = HM.empty},
             _nextGenesisInitialState = Nothing,
             ..
-        }
-
-  where
-    makeBlockPointer :: StoredBlock pv (TS.BlockStatePointer (PBS.PersistentBlockState pv)) -> IO (PersistentBlockPointer pv (PBS.HashedPersistentBlockState pv))
-    makeBlockPointer StoredBlock{..} = do
-      bstate <- runReaderT (PBS.runPersistentBlockStateMonad (loadBlockState (blockStateHash sbBlock) sbState)) pbsc
-      makeBlockPointerFromPersistentBlock sbBlock bstate sbInfo
-    isBlockStateCorrupted :: StoredBlock pv (TS.BlockStatePointer (PBS.PersistentBlockState pv)) -> IO Bool
-    isBlockStateCorrupted block =
-      not <$> runBlobStoreT (isValidBlobRef (sbState block)) pbsc
+        }, pbsc)
 
 -- |Activate the state and make it usable for use by consensus. This concretely
 -- means that the block state for the last finalized block is cached, and that

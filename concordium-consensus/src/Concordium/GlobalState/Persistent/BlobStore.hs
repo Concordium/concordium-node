@@ -41,7 +41,6 @@ module Concordium.GlobalState.Persistent.BlobStore(
     closeBlobStore,
     destroyBlobStore,
     runBlobStoreTemp,
-    truncateBlobStore,
     isValidBlobRef,
     BlobPtr(..),
     MonadBlobStore(..),
@@ -51,6 +50,14 @@ module Concordium.GlobalState.Persistent.BlobStore(
     BlobStoreM,
     runBlobStoreM,
     SupportMigration,
+    -- * Provisional blob store
+    ProvisionalBlobStore,
+    HasProvisionalBlobStore(..),
+    loadProvisionalBlobStore,
+    closeProvisionalBlobStore,
+    upgradeProvisionalBlobStore,
+    truncateProvisionalBlobStore,
+    ProvisionalBlobStoreT(..),
     -- * Storage classes
     -- $storageClasses
     BlobStorable(..),
@@ -278,25 +285,6 @@ runBlobStoreTemp dir a = bracket openf closef usef
             _ <- takeMVar mv
             freeCallbacks bscLoadCallback bscStoreCallback
             return res
-
--- | Truncate the blob store after the blob stored at the given offset. The blob should not be
--- corrupted (i.e., its size header should be readable, and its size should match the size header).
-truncateBlobStore :: BlobStoreAccess -> BlobRef a -> IO ()
-truncateBlobStore BlobStoreAccess{..} (BlobRef offset) = do
-  bh@BlobHandle{..} <- takeMVar blobStoreFile
-  eres <- try $ do
-    hSeek bhHandle AbsoluteSeek (fromIntegral offset)
-    esize <- decode <$> BS.hGet bhHandle 8
-    case esize :: Either String Word64 of
-      Right size -> do
-        let newSize = offset + 8 + size
-        hSetFileSize bhHandle $ fromIntegral newSize
-        putMVar blobStoreFile bh{bhSize = fromIntegral newSize, bhAtEnd=False}
-        mmapFileByteString blobStoreFilePath Nothing >>= writeIORef blobStoreMMap
-      _ -> throwIO $ userError "Cannot truncate the blob store: cannot obtain the last blob size"
-  case eres :: Either SomeException () of
-    Left e -> throwIO e
-    Right () -> return ()
 
 -- | Read a bytestring from the blob store at the given offset using the file handle.
 readBlobBSFromHandle :: BlobStoreAccess -> BlobRef a -> IO BS.ByteString
@@ -555,6 +543,112 @@ deriving via (LiftMonadBlobStore (ExceptT e) m)
 -- makes use of a context to achieve sharing.
 deriving via (LiftMonadBlobStore (ReaderT r) m)
     instance MonadBlobStore m => MonadBlobStore (ReaderT r m)
+
+-- * Provisional blob store
+
+-- |A 'ProvisionalBlobStore' is a blob store that does not memory-map the underlying file
+-- and should not be accessed concurrently.
+data ProvisionalBlobStore = ProvisionalBlobStore {
+    pbsFileHandle :: !(IORef BlobHandle),
+    pbsFilePath :: !FilePath
+}
+
+-- |A class for types that can be projected to a 'ProvisionalBlobStore'.
+class HasProvisionalBlobStore a where
+    provisionalBlobStore :: a -> ProvisionalBlobStore
+
+-- |Load a 'ProvisionalBlobStore' from a file.
+loadProvisionalBlobStore :: FilePath -> IO ProvisionalBlobStore
+loadProvisionalBlobStore pbsFilePath = do
+    bhHandle <- openBinaryFile pbsFilePath ReadWriteMode
+    bhSize <- fromIntegral <$> hFileSize bhHandle
+    pbsFileHandle <- newIORef $! BlobHandle{bhAtEnd=bhSize==0,..}
+    return ProvisionalBlobStore{..}
+
+-- |Close the file handle associated with a 'ProvisionalBlobStore'.
+-- The 'ProvisionalBlobStore' should not be used after this is called.
+closeProvisionalBlobStore :: ProvisionalBlobStore -> IO ()
+closeProvisionalBlobStore ProvisionalBlobStore{..} = do
+    hClose . bhHandle =<< readIORef pbsFileHandle
+
+-- |Upgrade a 'ProvisionalBlobStore' to a 'BlobStore'. This reuses the file handle,
+-- so the 'ProvisionalBlobStore' should not generally be used after the upgrade.
+upgradeProvisionalBlobStore :: ProvisionalBlobStore -> IO BlobStore
+upgradeProvisionalBlobStore ProvisionalBlobStore{..} = do
+    blobStoreFile <- newMVar =<< readIORef pbsFileHandle
+    let blobStoreFilePath = pbsFilePath
+    blobStoreMMap <- newIORef =<< mmapFileByteString blobStoreFilePath Nothing
+    let bscBlobStore = BlobStoreAccess{..}
+    (bscLoadCallback, bscStoreCallback) <- mkCallbacksFromBlobStore bscBlobStore
+    return $! BlobStore{..}
+
+-- |A newtype wrapper for equipping a monad with an instance of 'MonadBlobStore' that uses
+-- a 'ProvisionalBlobStore'.
+newtype ProvisionalBlobStoreT r m a = ProvisionalBlobStoreT
+    { runProvisionalBlobStoreT :: r -> m a
+    }
+    deriving
+        ( Functor,
+          Applicative,
+          Monad,
+          MonadIO,
+          MonadFail,
+          MonadReader r,
+          MonadLogger,
+          MonadCatch.MonadThrow,
+          MonadCatch.MonadCatch
+        )
+        via (ReaderT r m)
+    deriving
+        (MonadTrans)
+        via (ReaderT r)
+
+-- |This provides for loading from the provisional blob store, but not storing, or callbacks.
+instance (MonadIO m, HasProvisionalBlobStore r) => MonadBlobStore (ProvisionalBlobStoreT r m) where
+    storeRaw = error "storeRaw is unsupported on a provisional blob store"
+    loadRaw (BlobRef offset) = do
+        bhRef <- asks (pbsFileHandle . provisionalBlobStore)
+        liftIO $ do
+            bh@BlobHandle{..} <- readIORef bhRef
+            writeIORef bhRef $! bh{bhAtEnd = False}
+            hSeek bhHandle AbsoluteSeek (fromIntegral offset)
+            esize <- decode <$> BS.hGet bhHandle 8
+            case esize :: Either String Word64 of
+                -- there should be at least `size` bytes left to read after `offset + 8`, where 8 is
+                -- the size of the blob size header
+                Right size | offset + 8 + size <= fromIntegral bhSize ->
+                                BS.hGet bhHandle (fromIntegral size)
+                _ -> throwIO $ userError "Attempted to read beyond the blob store end"
+    flushStore = return ()
+    getCallbacks = error "getCallbacks is unsupported on a provisional blob store"
+    loadBlobPtr BlobPtr{..} = do
+        bhRef <- asks (pbsFileHandle . provisionalBlobStore)
+        liftIO $ do
+            bh@BlobHandle{..} <- readIORef bhRef
+            writeIORef bhRef $! bh{bhAtEnd = False}
+            hSeek bhHandle AbsoluteSeek (fromIntegral theBlobPtr)
+            BS.hGet bhHandle (fromIntegral blobPtrLen)
+
+-- | Truncate the blob store after the blob stored at the given offset. The blob should not be
+-- corrupted (i.e., its size header should be readable, and its size should match the size header).
+-- Note that this is only provided for a 'ProvisionalBlobStore' since on Windows it is not possible
+-- to truncate a file while it is memory-mapped.
+truncateProvisionalBlobStore :: ProvisionalBlobStore -> BlobRef a -> IO ()
+truncateProvisionalBlobStore ProvisionalBlobStore{..} (BlobRef offset) = do
+  bh@BlobHandle{..} <- readIORef pbsFileHandle
+  eres <- try $ do
+    writeIORef pbsFileHandle $! bh{bhAtEnd = False}
+    hSeek bhHandle AbsoluteSeek (fromIntegral offset)
+    esize <- decode <$> BS.hGet bhHandle 8
+    case esize :: Either String Word64 of
+      Right size -> do
+        let newSize = offset + 8 + size
+        hSetFileSize bhHandle $ fromIntegral newSize
+        writeIORef pbsFileHandle bh{bhSize = fromIntegral newSize, bhAtEnd=False}
+      _ -> throwIO $ userError "Cannot truncate the blob store: cannot obtain the last blob size"
+  case eres :: Either SomeException () of
+    Left e -> throwIO e
+    Right () -> return ()
 
 -- * Storage classes
 --
