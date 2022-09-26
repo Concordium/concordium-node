@@ -709,12 +709,13 @@ pub mod server {
     fn serial_and_hash_send_block_item_request(
         request: types::SendBlockItemRequest,
     ) -> Result<(Vec<u8>, Vec<u8>), tonic::Status> {
-        let start_of_header: u64;
+        let version_length;
         let mut out = std::io::Cursor::new(Vec::new());
         // The version prefix.
         out.write(&crypto_common::to_bytes(&Version {
             value: 0,
         }))?;
+        version_length = out.position();
         match request.block_item_type.require()? {
             types::send_block_item_request::BlockItemType::AccountTransaction(v) => {
                 // put tag
@@ -737,8 +738,6 @@ pub mod server {
                         let _ = out.write(&sig.value)?;
                     }
                 }
-                // Save the header start location for hashing.
-                start_of_header = out.position();
                 // put header
                 let header = v.header.require()?;
                 // account address
@@ -750,34 +749,42 @@ pub mod server {
                 // Construct payload, so we can serialize its size. The actual payload is
                 // included later.
                 let payload_bytes = {
-                    let payload = v.payload.require()?;
-                    let mut pl_cursor: std::io::Cursor<Vec<u8>>;
-                    match payload {
+                    let mut pl_cursor = std::io::Cursor::new(Vec::new());
+                    match v.payload.require()? {
                         types::account_transaction::Payload::RawPayload(bytes) => {
                             pl_cursor = std::io::Cursor::new(bytes);
                         }
-                        types::account_transaction::Payload::Transfer(p) => {
-                            pl_cursor = std::io::Cursor::new(Vec::new());
-                            match p.memo {
-                                None => {
-                                    pl_cursor.write_u8(3)?;
-                                    serialize_account_address(
-                                        p.receiver.require()?,
-                                        &mut pl_cursor,
-                                    )?;
-                                    pl_cursor.write_u64::<BigEndian>(p.amount.require()?.value)?;
-                                }
-                                Some(memo) => {
-                                    pl_cursor.write_u8(22)?;
-                                    serialize_account_address(
-                                        p.receiver.require()?,
-                                        &mut pl_cursor,
-                                    )?;
-                                    serialize_memo(memo, &mut pl_cursor)?;
-                                    pl_cursor.write_u64::<BigEndian>(p.amount.require()?.value)?;
-                                }
+                        types::account_transaction::Payload::Transfer(p) => match p.memo {
+                            None => {
+                                pl_cursor.write_u8(3)?;
+                                serialize_account_address(p.receiver.require()?, &mut pl_cursor)?;
+                                pl_cursor.write_u64::<BigEndian>(p.amount.require()?.value)?;
                             }
+                            Some(memo) => {
+                                pl_cursor.write_u8(22)?;
+                                serialize_account_address(p.receiver.require()?, &mut pl_cursor)?;
+                                serialize_memo(memo, &mut pl_cursor)?;
+                                pl_cursor.write_u64::<BigEndian>(p.amount.require()?.value)?;
+                            }
+                        },
+                        types::account_transaction::Payload::DeployModule(p) => {
+                            serialize_versioned_wasm_module(p, &mut pl_cursor)?;
                         }
+                        types::account_transaction::Payload::InitContract(p) => {
+                            pl_cursor.write_u64::<BigEndian>(p.amount.require()?.value)?;
+                            let module_ref = p.module_ref.require()?;
+                            if module_ref.value.len() != 32 {
+                                return Err(tonic::Status::internal(
+                                    "Invalid ModuleRef. Must be 32 bytes long",
+                                ));
+                            }
+                            pl_cursor.write(&module_ref.value)?;
+                            // TODO: Serialize the rest. Do we have access to an
+                            // init name validator func?
+                            todo!()
+                        }
+                        types::account_transaction::Payload::UpdateContract(p) => todo!(),
+                        types::account_transaction::Payload::RegisterData(p) => todo!(),
                     }
                     pl_cursor.into_inner()
                 };
@@ -792,14 +799,12 @@ pub mod server {
             types::send_block_item_request::BlockItemType::UpdateInstruction(_) => todo!(),
         }
         let out = out.into_inner();
-        // TODO: This does not match the hash computed in the rust-sdk yet. Figure out
-        // why.
         let hash = {
             use sha2::{Digest, Sha256};
             let mut hasher = Sha256::new();
-            // The transaction hash is computed from the header + payload. So we skip the
-            // signature.
-            hasher.update(&out[start_of_header as usize..]);
+            // The transaction hash is computed on the serialized output but without the
+            // version prefix.
+            hasher.update(&out[version_length as usize..]);
             hasher.finalize().to_vec()
         };
         Ok((out, hash))
@@ -847,6 +852,45 @@ pub mod server {
             Err(tonic::Status::invalid_argument(format!(
                 "Invalid Memo. Must be less than {} bytes long.",
                 MAX_MEMO_SIZE
+            )))
+        }
+    }
+
+    fn serialize_versioned_wasm_module<W: Write>(
+        module: types::VersionedModuleSource,
+        out: &mut W,
+    ) -> Result<(), tonic::Status> {
+        let (version, src) = match module.module.require()? {
+            types::versioned_module_source::Module::V0(src) => (0, src.value),
+            types::versioned_module_source::Module::V1(src) => (1, src.value),
+        };
+        const MAX_WASM_MODULE_SIZE: u32 = 65536; // TODO: This is not ideal.
+
+        if src.len() <= MAX_WASM_MODULE_SIZE as usize {
+            out.write_u32::<BigEndian>(version)?;
+            let _ = out.write(&src)?;
+            Ok(())
+        } else {
+            Err(tonic::Status::invalid_argument(format!(
+                "Invalid contract module. Must be less than {} bytes long.",
+                MAX_WASM_MODULE_SIZE
+            )))
+        }
+    }
+
+    fn serialize_parameter<W: Write>(
+        parameter: types::Parameter,
+        out: &mut W,
+    ) -> Result<(), tonic::Status> {
+        const MAX_PARAMETER_SIZE: u32 = 1024; // TODO: This is not ideal.
+
+        if parameter.value.len() <= MAX_PARAMETER_SIZE as usize {
+            let _ = out.write(&parameter.value)?;
+            Ok(())
+        } else {
+            Err(tonic::Status::invalid_argument(format!(
+                "Invalid Parameter. Must be less than {} bytes long.",
+                MAX_PARAMETER_SIZE
             )))
         }
     }
