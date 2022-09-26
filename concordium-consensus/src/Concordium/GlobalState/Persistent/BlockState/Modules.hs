@@ -51,7 +51,6 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Serialize
 import Data.Word
-import Control.Monad.IO.Class
 import Control.Monad.Trans
 import Lens.Micro.Platform
 
@@ -75,15 +74,13 @@ data PersistentInstrumentedModuleV (v :: WasmVersion) =
   deriving (Show)
 
 -- |Load a 'PersistentInstrumentedModuleV', retrieving the artifact.
--- If the artifact has been persisted to the blob store, this creates an (executable) copy of the
--- artifact on the Rust side.  The Rust artifact is reference counted, and Haskell retains a
--- reference with a 'ForeignPtr' that drops the reference when it is garbage collected.
-loadInstrumentedModuleV :: (MonadBlobStore m, IsWasmVersion v) => PersistentInstrumentedModuleV v -> m (GSWasm.InstrumentedModuleV v)
+-- If the artifact has been persisted to the blob store, the artifact will wrap a pointer into
+-- the memory-mapped blob store.
+loadInstrumentedModuleV :: forall m v . (MonadBlobStore m, IsWasmVersion v) => PersistentInstrumentedModuleV v -> m (GSWasm.InstrumentedModuleV v)
 loadInstrumentedModuleV (PIMVMem im) = return im
 loadInstrumentedModuleV (PIMVPtr ptr) = do
   bs <- loadBlobPtr ptr
-  liftIO $ GSWasm.instrumentedModuleVFromBytes bs
-  
+  return $! GSWasm.instrumentedModuleFromBytes getWasmVersion bs
 
 -- |A module contains both the module interface and the raw source code of the
 -- module. The module is parameterized by the wasm version, which determines the shape

@@ -310,6 +310,7 @@ mockOperations
 mockOperations
     [d|instance (Monad m) => ContractStateOperations (MockT (Action pv) m) where
          thawContractState = error "Unsupported operation."
+         externalContractState = error "Unsupported operation."
          getV1StateContext = error "Unsupported operation."
          stateSizeV0 = error "Unsupported operation."
          contractStateToByteString = error "Unsupported operation."
