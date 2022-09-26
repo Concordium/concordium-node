@@ -6,6 +6,8 @@
 
 - Fix a bug in database recovery where corruption was not always correctly detected.
 - Fix typo in environment variable `CONCORDIUM_NODE_PROMETHEUS_LISTEN_ADDRESSS` (remove trailing `S`).
+- Fix a bug in database migration upon a protocol update where smart contract
+  modules were incorrectly migrated.
 
 ## 4.4.2
 
