@@ -13,6 +13,7 @@ module GlobalStateTests.PersistentTreeState where
 import qualified Data.HashSet as HS
 import qualified Data.Sequence as Seq
 import qualified Data.List as List
+import Data.Serialize
 
 import qualified Data.FixedByteString as FBS
 import Concordium.Crypto.BlsSignature
@@ -208,19 +209,44 @@ genBlockHashes = do
   len <- choose (700, 5000)
   replicateM len (BlockHash . SHA256.Hash . FBS.pack <$> vector 32)
 
+-- |Generate distinct random block hashes. This uses repeated SHA256, which should reliably
+-- avoid collisions.
+genDistinctBlockHashes :: Gen [BlockHash]
+genDistinctBlockHashes = do
+  len <- choose (700 :: Int, 5000)
+  init <- BlockHash . SHA256.Hash . FBS.pack <$> vector 32
+  return $ doGen len init []
+  where
+    doGen len h0 l
+      | len > 0 = let h = BlockHash (SHA256.hash (encode h0)) in doGen (len - 1) h (h : l)
+      | otherwise = l
+
 -- |Construct a cache by inserting the list of blocks from left to right.
 constructCache :: [BlockHash] -> DeadCache
 constructCache = List.foldl' (flip insertDeadCache) emptyDeadCache
 
 -- |Test the following properties of the cache
--- - the last 1000 inserted blocks are always there
 -- - the queue and the hashmap are consistent (same length and elements)
 -- - the size of the cache is bounded by 1000
 testDeadCache :: Property
 testDeadCache =
-    withMaxSuccess 1000 $
+    withMaxSuccess 100000 $
         property $
             forAll genBlockHashes $ \bhs ->
+                let dc = constructCache bhs
+                 in HS.size (_dcHashes dc) === Seq.length (_dcQueue dc)
+                        .&&. Seq.length (_dcQueue dc) <= 1000
+                        .&&. all (`HS.member` _dcHashes dc) (_dcQueue dc)
+
+-- |Test the following properties of the cache when the blocks inserted have distinct hashes.
+-- - the last 1000 inserted blocks are always there
+-- - the queue and the hashmap are consistent (same length and elements)
+-- - the size of the cache is bounded by 1000
+testDeadCacheDistinct :: Property
+testDeadCacheDistinct =
+    withMaxSuccess 100000 $
+        property $
+            forAll genDistinctBlockHashes $ \bhs ->
                 let dc = constructCache bhs
                     lastThousand = drop (max 0 (length bhs - 1000)) bhs
                  in HS.size (_dcHashes dc) === Seq.length (_dcQueue dc)
@@ -228,10 +254,10 @@ testDeadCache =
                         .&&. all (`HS.member` _dcHashes dc) (_dcQueue dc)
                         .&&. all (`memberDeadCache` dc) lastThousand
 
-
 tests :: Spec
 tests = do
   describe "GlobalState:PersistentTreeState" $ do
     specifyWithGS "empty gs wrote the genesis to disk" testEmptyGS
     specifyWithGS "finalize a block" testFinalizeABlock
     it "Dead block cache" testDeadCache
+    it "Dead block cache (distinct hashes)" testDeadCacheDistinct
