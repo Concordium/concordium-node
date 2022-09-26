@@ -642,7 +642,8 @@ pub mod server {
                 ));
             }
 
-            let transaction = serialize_send_block_item_request(request.into_inner())?;
+            let (transaction, transaction_hash) =
+                serial_and_hash_send_block_item_request(request.into_inner())?;
             if transaction.len() > crate::configuration::PROTOCOL_MAX_TRANSACTION_SIZE {
                 warn!("Received a transaction that exceeds maximum transaction size.");
                 return Err(tonic::Status::invalid_argument(
@@ -674,7 +675,7 @@ pub mod server {
             match (result, consensus_result) {
                 (Ok(_), Success) => {
                     Ok(tonic::Response::new(crate::grpc2::types::TransactionHash {
-                        value: vec![0; 32], // TODO: Add actual transaction hash.
+                        value: transaction_hash,
                     }))
                 }
                 (Err(e), Success) => {
@@ -703,9 +704,12 @@ pub mod server {
         }
     }
 
-    fn serialize_send_block_item_request(
+    /// Try to serial and hash a [`types::SendBlockItemRequest`].
+    /// Returns a pair of bytearrays (serialized_request, transaction_hash).
+    fn serial_and_hash_send_block_item_request(
         request: types::SendBlockItemRequest,
-    ) -> Result<Vec<u8>, tonic::Status> {
+    ) -> Result<(Vec<u8>, Vec<u8>), tonic::Status> {
+        let start_of_header: u64;
         let mut out = std::io::Cursor::new(Vec::new());
         // The version prefix.
         out.write(&crypto_common::to_bytes(&Version {
@@ -733,6 +737,8 @@ pub mod server {
                         let _ = out.write(&sig.value)?;
                     }
                 }
+                // Save the header start location for hashing.
+                start_of_header = out.position();
                 // put header
                 let header = v.header.require()?;
                 // account address
@@ -786,7 +792,17 @@ pub mod server {
             types::send_block_item_request::BlockItemType::UpdateInstruction(_) => todo!(),
         }
         let out = out.into_inner();
-        Ok(out)
+        // TODO: This does not match the hash computed in the rust-sdk yet. Figure out
+        // why.
+        let hash = {
+            use sha2::{Digest, Sha256};
+            let mut hasher = Sha256::new();
+            // The transaction hash is computed from the header + payload. So we skip the
+            // signature.
+            hasher.update(&out[start_of_header as usize..]);
+            hasher.finalize().to_vec()
+        };
+        Ok((out, hash))
     }
 
     /// Checks that the account address is 32 bytes and then writes it to the
