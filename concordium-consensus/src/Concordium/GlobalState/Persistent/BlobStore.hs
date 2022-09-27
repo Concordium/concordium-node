@@ -103,6 +103,7 @@ import Data.Serialize
 import Data.Word
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Unsafe as BSUnsafe
+import qualified Data.ByteString.Internal as BSInternal
 import Control.Exception
 import Data.Functor.Foldable
 import Control.Monad
@@ -118,6 +119,7 @@ import Data.IORef
 import Concordium.Crypto.EncryptedTransfers
 import Data.Map (Map)
 import Foreign.Ptr
+import Foreign.ForeignPtr (finalizeForeignPtr)
 import System.IO.MMap
 
 import Concordium.GlobalState.Persistent.MonadicRecursive
