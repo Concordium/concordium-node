@@ -70,3 +70,4 @@ EXPORTS
  getPassiveDelegatorsRewardPeriodV2
  getBranchesV2
  getElectionInfoV2
+ getIdentityProvidersV2

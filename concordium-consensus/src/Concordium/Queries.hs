@@ -516,8 +516,8 @@ getCryptographicParameters = liftSkovQueryBHI $ \bp -> do
     BS.getCryptographicParameters bs
 
 -- |Get all of the identity providers registered in the system as of a given block.
-getAllIdentityProviders :: BlockHash -> MVR gsconf finconf (Maybe [IpInfo])
-getAllIdentityProviders = liftSkovQueryBlock $ BS.getAllIdentityProviders <=< blockState
+getAllIdentityProviders :: BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe [IpInfo])
+getAllIdentityProviders = liftSkovQueryBHI $ BS.getAllIdentityProviders <=< blockState
 
 -- |Get all of the anonymity revokers registered in the system as of a given block.
 getAllAnonymityRevokers :: BlockHash -> MVR gsconf finconf (Maybe [ArInfo])

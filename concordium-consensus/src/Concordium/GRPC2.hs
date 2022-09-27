@@ -2161,6 +2161,29 @@ getElectionInfoV2 cptr blockType blockHashPtr outHash outVec copierCbk = do
                          BS.unsafeUseAsCStringLen encoded (\(ptr, len) -> copier outVec (castPtr ptr) (fromIntegral len))
                          return $ queryResultCode QRSuccess
 
+getIdentityProvidersV2 ::
+    StablePtr Ext.ConsensusRunner ->
+    Ptr SenderChannel ->
+    -- |Block type.
+    Word8 ->
+    -- |Block hash.
+    Ptr Word8 ->
+    -- |Out pointer for writing the block hash that was used.
+    Ptr Word8 ->
+    FunPtr ChannelSendCallback ->
+    IO Int64
+getIdentityProvidersV2 cptr channel blockType blockHashPtr outHash cbk = do
+    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
+    let sender = callChannelSendCallback cbk
+    bhi <- decodeBlockHashInput blockType blockHashPtr
+    (bh, maybeIdentityProviders) <- runMVR (Q.getAllIdentityProviders bhi) mvr
+    case maybeIdentityProviders of
+        Nothing -> return (queryResultCode QRNotFound)
+        Just ipInfos -> do
+            copyHashTo outHash bh
+            _ <- enqueueMessages (sender channel) ipInfos
+            return (queryResultCode QRSuccess)
+
 {- |Write the hash to the provided pointer, and if the message is given encode and
    write it using the provided callback.
 -}
@@ -2577,3 +2600,17 @@ foreign export ccall
         Ptr ReceiverVec ->
         FunPtr CopyToVecCallback ->
         IO Int64
+
+foreign export ccall
+    getIdentityProvidersV2 ::
+        StablePtr Ext.ConsensusRunner ->
+        Ptr SenderChannel ->
+        -- |Block type.
+        Word8 ->
+        -- |Block hash.
+        Ptr Word8 ->
+        -- |Out pointer for writing the block hash that was used.
+        Ptr Word8 ->
+        FunPtr ChannelSendCallback ->
+        IO Int64
+

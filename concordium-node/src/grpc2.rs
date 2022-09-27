@@ -502,6 +502,9 @@ pub mod server {
         /// Return type for the 'FinalizedBlocks' method.
         type GetFinalizedBlocksStream =
             tokio_stream::wrappers::ReceiverStream<Result<Arc<[u8]>, tonic::Status>>;
+        /// Return type for the 'GetIdentityProviders' method.
+        type GetIdentityProvidersStream =
+            futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
         /// Return type for the 'GetInstanceList' method.
         type GetInstanceListStream =
             futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
@@ -940,6 +943,17 @@ pub mod server {
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
             let (hash, response) = self.consensus.get_election_info_v2(request.get_ref())?;
             let mut response = tonic::Response::new(response);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_identity_providers(
+            &self,
+            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+        ) -> Result<tonic::Response<Self::GetIdentityProvidersStream>, tonic::Status> {
+            let (sender, receiver) = futures::channel::mpsc::channel(10);
+            let hash = self.consensus.get_identity_providers_v2(request.get_ref(), sender)?;
+            let mut response = tonic::Response::new(receiver);
             add_hash(&mut response, hash)?;
             Ok(response)
         }

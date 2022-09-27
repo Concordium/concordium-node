@@ -1060,7 +1060,7 @@ getAllIdentityProviders :: StablePtr ConsensusRunner -> CString -> IO CString
 getAllIdentityProviders cptr blockcstr =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (Q.getAllIdentityProviders bh)
+        Just bh -> jsonQuery cptr (snd <$> Q.getAllIdentityProviders (BHIGiven bh))
 
 -- |Get all of the identity providers registered in the system as of a given block.
 -- The block must be given as a null-terminated base16 encoding of the block hash.

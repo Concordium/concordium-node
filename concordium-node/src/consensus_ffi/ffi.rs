@@ -1070,6 +1070,29 @@ extern "C" {
         copier: CopyToVecCallback,
     ) -> i64;
 
+    /// Get the identity providers registered as of the end of a given block.
+    /// The stream will end when all the identity providers have been returned.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `stream` - Pointer to the response stream.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `callback` - Callback for writing to the response stream.
+    pub fn getIdentityProvidersV2(
+        consensus: *mut consensus_runner,
+        stream: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+        block_id_type: u8,
+        block_id: *const u8,
+        out_hash: *mut u8,
+        callback: extern "C" fn(
+            *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+            *const u8,
+            i64,
+        ) -> i32,
+    ) -> i64;
+
 }
 
 /// This is the callback invoked by consensus on newly arrived, and newly
@@ -2318,6 +2341,34 @@ impl ConsensusContainer {
         .try_into()?;
         response.ensure_ok("block")?;
         Ok((out_hash, out_data))
+    }
+
+    /// Get the identity providers registered as of the end of a given block.
+    /// The stream will end when all the identity providers have been returned.
+    pub fn get_identity_providers_v2(
+        &self,
+        request: &crate::grpc2::types::BlockHashInput,
+        sender: futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+    ) -> Result<[u8; 32], tonic::Status> {
+        use crate::grpc2::Require;
+        let sender = Box::new(sender);
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut buf = [0u8; 32];
+        let (block_id_type, block_hash) =
+            crate::grpc2::types::block_hash_input_to_ffi(request).require()?;
+        let response: ConsensusQueryResponse = unsafe {
+            getIdentityProvidersV2(
+                consensus,
+                Box::into_raw(sender),
+                block_id_type,
+                block_hash,
+                buf.as_mut_ptr(),
+                enqueue_bytearray_callback,
+            )
+        }
+        .try_into()?;
+        response.ensure_ok("block")?;
+        Ok(buf)
     }
 }
 
