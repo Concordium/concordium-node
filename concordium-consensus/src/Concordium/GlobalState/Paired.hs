@@ -267,6 +267,14 @@ instance
         ab1 <- coerceBSML (getActiveBakers ls)
         ab2 <- coerceBSMR (getActiveBakers rs)
         assertEq ab1 ab2 $ return ab1
+    getActiveDelegators (ls, rs) pid = do
+        ad1 <- coerceBSML (getActiveDelegators ls pid)
+        ad2 <- coerceBSMR (getActiveDelegators rs pid)
+        assertEq ad1 ad2 $ return ad1
+    getCurrentDelegators (ls, rs) pid = do
+        cd1 <- coerceBSML (getCurrentDelegators ls pid)
+        cd2 <- coerceBSMR (getCurrentDelegators rs pid)
+        assertEq cd1 cd2 $ return cd1
     getActiveBakersAndDelegators (ls, rs) = do
         (b1, d1) <- coerceBSML $ getActiveBakersAndDelegators ls
         (b2, d2) <- coerceBSMR $ getActiveBakersAndDelegators rs

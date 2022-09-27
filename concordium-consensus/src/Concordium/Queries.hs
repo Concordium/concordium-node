@@ -44,6 +44,7 @@ import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule (toAccount
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer
+import Concordium.GlobalState.CapitalDistribution (DelegatorCapital (..))
 import qualified Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Statistics
@@ -250,6 +251,24 @@ liftSkovQueryBlockAndVersion a bh = MVR $ \mvr ->
                 mvr
         )
         mvr
+
+-- | Information about a registered delegator in a block.
+data DelegatorInfo = DelegatorInfo {
+  -- | The delegator account address.
+  pdiAccount :: !AccountAddress,
+  -- | The amount of stake currently staked to the pool.
+  pdiStake :: !Amount,
+  -- | Pending change to the current stake of the delegator.
+  pdiPendingChanges :: !(StakePendingChange 'AccountV1)
+}
+
+-- | Information about a fixed delegator in the reward period for a block.
+data DelegatorRewardPeriodInfo = DelegatorRewardPeriodInfo {
+  -- | The delegator account address.
+  pdrpiAccount :: !AccountAddress,
+  -- | The amount of stake fixed to the pool in the current reward period.
+  pdrpiStake :: !Amount
+}
 
 -- |Retrieve the consensus status.
 getConsensusStatus :: MVR gsconf finconf ConsensusStatus
@@ -663,6 +682,61 @@ getPoolStatus blockHashInput mbid = do
 -- |Get a list of all registered baker IDs in the specified block.
 getRegisteredBakers :: forall gsconf finconf. BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe [BakerId])
 getRegisteredBakers = liftSkovQueryBHI (BS.getActiveBakers <=< blockState)
+
+-- | Error type for querying delegators for some block.
+data GetDelegatorsError = GDEUnsupportedProtocolVersion -- ^ The block is from a protocol version without delegators.
+                        | GDEPoolNotFound -- ^ No pool found for the provided baker ID.
+                        | GDEBlockNotFound -- ^ No block found for the provided block input.
+
+-- |Get the list of registered delegators for a given block.
+-- Changes to delegation is reflected immediately in this list.
+-- If a BakerId is provided it will return the delegators for the corresponding pool otherwise it returns the passive delegators.
+getDelegators :: forall gsconf finconf. BlockHashInput -> Maybe BakerId -> MVR gsconf finconf (BlockHash, Either GetDelegatorsError [DelegatorInfo])
+getDelegators bhi maybeBakerId = do
+  (bh, res) <- liftSkovQueryBHI getter bhi
+  return (bh, fromMaybe (Left GDEBlockNotFound) res)
+    where
+      getter ::
+        forall pv.
+        ( SkovMonad (VersionedSkovM gsconf finconf pv)) =>
+        BlockPointerType (VersionedSkovM gsconf finconf pv) ->
+        VersionedSkovM gsconf finconf pv (Either GetDelegatorsError [DelegatorInfo])
+      getter bp = case accountVersion @(AccountVersionFor pv) of
+        SAccountV0 ->
+          return $ Left GDEUnsupportedProtocolVersion
+        SAccountV1 -> do
+          bs <- blockState bp
+          maybeDelegators <- BS.getActiveDelegators bs maybeBakerId
+          return $ maybe (Left GDEPoolNotFound) (Right . fmap toDelegatorInfo) maybeDelegators
+      toDelegatorInfo (accountAddress, BS.ActiveDelegatorInfo {..}) = DelegatorInfo {
+        pdiAccount = accountAddress,
+        pdiStake = activeDelegatorStake,
+        pdiPendingChanges = activeDelegatorPendingChange
+        }
+
+-- |Get the fixed list of delegators contributing stake in the reward period for a given block.
+-- If a BakerId is provided it will return the delegators for the corresponding pool otherwise it returns the passive delegators.
+getDelegatorsRewardPeriod :: forall gsconf finconf. BlockHashInput -> Maybe BakerId -> MVR gsconf finconf (BlockHash, Either GetDelegatorsError [DelegatorRewardPeriodInfo])
+getDelegatorsRewardPeriod bhi maybeBakerId = do
+  (bh, res) <- liftSkovQueryBHI getter bhi
+  return (bh, fromMaybe (Left GDEBlockNotFound) res)
+    where
+      getter ::
+        forall pv.
+        ( SkovMonad (VersionedSkovM gsconf finconf pv)) =>
+        BlockPointerType (VersionedSkovM gsconf finconf pv) ->
+        VersionedSkovM gsconf finconf pv (Either GetDelegatorsError [DelegatorRewardPeriodInfo])
+      getter bp = case accountVersion @(AccountVersionFor pv) of
+        SAccountV0 ->
+          return $ Left GDEUnsupportedProtocolVersion
+        SAccountV1 -> do
+          bs <- blockState bp
+          maybeDelegators <- BS.getCurrentDelegators bs maybeBakerId
+          return $ maybe (Left GDEPoolNotFound) (Right . fmap toDelegatorInfo) maybeDelegators
+      toDelegatorInfo (accountAddress, DelegatorCapital {..}) = DelegatorRewardPeriodInfo {
+        pdrpiAccount = accountAddress,
+        pdrpiStake = dcDelegatorCapital
+        }
 
 -- ** Transaction indexed
 
