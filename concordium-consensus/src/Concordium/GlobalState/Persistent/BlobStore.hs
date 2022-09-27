@@ -284,8 +284,8 @@ runBlobStoreTemp dir a = bracket openf closef usef
 -- | Truncate the blob store after the blob stored at the given offset. The blob should not be
 -- corrupted (i.e., its size header should be readable, and its size should match the size header).
 --
--- **Note**: This function must not be made after any writes to the blob store. It assumes that the
--- current 'blobStoreMMap' is the only mapping of the file (which can be relied on if no writes
+-- **Note**: This function must not be called after any writes to the blob store. It assumes that
+-- the current 'blobStoreMMap' is the only mapping of the file (which can be relied on if no writes
 -- have occurred). Since the existing memory map is invalidated, any other references to it will
 -- also be invalidated, such as 'BS.ByteString's returned by 'loadBlobPtr'.
 truncateBlobStore :: BlobStoreAccess -> BlobRef a -> IO ()
