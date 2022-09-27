@@ -891,7 +891,7 @@ pub mod server {
 
         async fn get_pool_delegators_reward_period(
             &self,
-            request: tonic::Request<crate::grpc2::types::GetPoolDelegatorsRewardPeriodRequest>,
+            request: tonic::Request<crate::grpc2::types::GetPoolDelegatorsRequest>,
         ) -> Result<tonic::Response<Self::GetPoolDelegatorsRewardPeriodStream>, tonic::Status>
         {
             let (sender, receiver) = futures::channel::mpsc::channel(100);

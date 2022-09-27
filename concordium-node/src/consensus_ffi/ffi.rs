@@ -943,7 +943,8 @@ extern "C" {
         copier: CopyToVecCallback,
     ) -> i64;
 
-    /// Get the pool delegators of a given pool at the end of a given block.
+    /// Get the pool delegators of a given pool at the end of a given block. The
+    /// stream will end when all the delegators have been returned.
     ///
     /// * `consensus` - Pointer to the current consensus.
     /// * `stream` - Pointer to the response stream.
@@ -968,7 +969,7 @@ extern "C" {
     ) -> i64;
 
     /// Get the reward period pool delegators of a given pool at the end of a
-    /// given block. The stream will end when all the delegators has been
+    /// given block. The stream will end when all the delegators have been
     /// returned.
     ///
     /// * `consensus` - Pointer to the current consensus.
@@ -993,7 +994,8 @@ extern "C" {
         ) -> i32,
     ) -> i64;
 
-    /// Get the passive delegators at the end of a given block.
+    /// Get the passive delegators at the end of a given block. The stream will
+    /// end when all the delegators have been returned.
     ///
     /// * `consensus` - Pointer to the current consensus.
     /// * `stream` - Pointer to the response stream.
@@ -1016,7 +1018,7 @@ extern "C" {
     ) -> i64;
 
     /// Get the reward period passive delegators at the end of a given block.
-    /// The stream will end when all the delegators has been returned.
+    /// The stream will end when all the delegators have been returned.
     ///
     /// * `consensus` - Pointer to the current consensus.
     /// * `stream` - Pointer to the response stream.
@@ -2143,7 +2145,7 @@ impl ConsensusContainer {
     }
 
     /// Get the pool delegators of a given pool at the end of a given block.
-    /// The stream will end when all the delegators has been returned.
+    /// The stream will end when all the delegators have been returned.
     pub fn get_pool_delegators_v2(
         &self,
         request: &crate::grpc2::types::GetPoolDelegatorsRequest,
@@ -2174,11 +2176,11 @@ impl ConsensusContainer {
     }
 
     /// Get the reward period pool delegators of a given pool at the end of a
-    /// given block. The stream will end when all the delegators has been
+    /// given block. The stream will end when all the delegators have been
     /// returned.
     pub fn get_pool_delegators_reward_period_v2(
         &self,
-        request: &crate::grpc2::types::GetPoolDelegatorsRewardPeriodRequest,
+        request: &crate::grpc2::types::GetPoolDelegatorsRequest,
         sender: futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
     ) -> Result<[u8; 32], tonic::Status> {
         use crate::grpc2::Require;
@@ -2206,7 +2208,7 @@ impl ConsensusContainer {
     }
 
     /// Get the passive delegators at the end of a given block.
-    /// The stream will end when all the delegators has been returned.
+    /// The stream will end when all the delegators have been returned.
     pub fn get_passive_delegators_v2(
         &self,
         request: &crate::grpc2::types::BlockHashInput,
@@ -2234,7 +2236,7 @@ impl ConsensusContainer {
     }
 
     /// Get the reward period pool delegators of a given pool at the end of a
-    /// given block. The stream will end when all the delegators has been
+    /// given block. The stream will end when all the delegators have been
     /// returned.
     pub fn get_passive_delegators_reward_period_v2(
         &self,

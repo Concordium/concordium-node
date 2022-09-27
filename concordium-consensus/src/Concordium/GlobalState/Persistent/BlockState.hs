@@ -913,6 +913,9 @@ doGetActiveBakersAndDelegators pbs = do
                     ..
                 }
 
+-- |Get the registered delegators of a pool. Changes are reflected immediately here and will be effective in the next reward period.
+-- The baker id is used to identify the pool and Nothing is used for the passive delegators.
+-- Returns Nothing if it fails to identify the baker pool. Should always return a value for the passive delegators.
 doGetActiveDelegators
     :: forall pv m
      . (IsProtocolVersion pv,
@@ -951,6 +954,9 @@ doGetActiveDelegators pbs mPoolId = do
                     ..
                 })
 
+-- |Get the delegators of a pool for the reward period. Changes are not reflected here until the next reward period.
+-- The baker id is used to identify the pool and Nothing is used for the passive delegators.
+-- Returns Nothing if it fails to identify the baker pool. Should always return a value for the passive delegators.
 doGetCurrentDelegators
     :: forall pv m
      . (SupportsPersistentAccount pv m,
@@ -2792,11 +2798,8 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateQuery (P
     accountExists = doGetAccountExists . hpbsPointers
     getActiveBakers = doGetActiveBakers . hpbsPointers
     getActiveBakersAndDelegators = doGetActiveBakersAndDelegators . hpbsPointers
-
     getActiveDelegators = doGetActiveDelegators . hpbsPointers
-
     getCurrentDelegators = doGetCurrentDelegators . hpbsPointers
-
     getAccountByCredId = doGetAccountByCredId . hpbsPointers
     getAccountByIndex = doGetIndexedAccountByIndex . hpbsPointers
     getContractInstance = doGetInstance . hpbsPointers

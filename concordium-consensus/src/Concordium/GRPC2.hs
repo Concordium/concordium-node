@@ -1431,16 +1431,16 @@ instance ToProto QueryTypes.RewardStatus where
       ProtoFields.totalStakedCapital .= toProto rsTotalStakedCapital
       ProtoFields.protocolVersion .= toProto rsProtocolVersion))
 
-instance ToProto Q.PoolDelegatorInfo where
-    type Output Q.PoolDelegatorInfo = Proto.PoolDelegator
-    toProto Q.PoolDelegatorInfo {..} = Proto.make $ do
+instance ToProto Q.DelegatorInfo where
+    type Output Q.DelegatorInfo = Proto.DelegatorInfo
+    toProto Q.DelegatorInfo {..} = Proto.make $ do
       ProtoFields.account .= toProto pdiAccount
       ProtoFields.stake .= toProto pdiStake
       ProtoFields.maybe'pendingChange .= toProto pdiPendingChanges
 
-instance ToProto Q.PoolDelegatorRewardPeriodInfo where
-    type Output Q.PoolDelegatorRewardPeriodInfo = Proto.PoolDelegatorRewardPeriod
-    toProto Q.PoolDelegatorRewardPeriodInfo {..} = Proto.make $ do
+instance ToProto Q.DelegatorRewardPeriodInfo where
+    type Output Q.DelegatorRewardPeriodInfo = Proto.DelegatorRewardPeriodInfo
+    toProto Q.DelegatorRewardPeriodInfo {..} = Proto.make $ do
       ProtoFields.account .= toProto pdrpiAccount
       ProtoFields.stake .= toProto pdrpiStake
 
@@ -2017,14 +2017,15 @@ getPoolDelegatorsV2 cptr channel blockType blockHashPtr bakerId outHash cbk = do
     Ext.ConsensusRunner mvr <- deRefStablePtr cptr
     let sender = callChannelSendCallback cbk
     bhi <- decodeBlockHashInput blockType blockHashPtr
-    (bh, mDelegators) <- runMVR (Q.getPoolDelegators bhi (Just $ fromIntegral bakerId)) mvr
-    case mDelegators of
-        Nothing -> return $ queryResultCode QRInvalidArgument
-        Just Nothing -> return $ queryResultCode QRNotFound
-        Just (Just delegators) -> do
-            copyHashTo outHash bh
-            _ <- enqueueMessages (sender channel) delegators
-            return (queryResultCode QRSuccess)
+    (bh, eitherDelegators) <- runMVR (Q.getDelegators bhi (Just $ fromIntegral bakerId)) mvr
+    case eitherDelegators of
+        Left Q.GDEUnsupportedProtocolVersion -> return $ queryResultCode QRInvalidArgument
+        Left Q.GDEPoolNotFound -> return $ queryResultCode QRNotFound
+        Left Q.GDEBlockNotFound -> return $ queryResultCode QRNotFound
+        Right delegators -> do
+          copyHashTo outHash bh
+          _ <- enqueueMessages (sender channel) delegators
+          return (queryResultCode QRSuccess)
 
 getPoolDelegatorsRewardPeriodV2 ::
     StablePtr Ext.ConsensusRunner ->
@@ -2043,14 +2044,15 @@ getPoolDelegatorsRewardPeriodV2 cptr channel blockType blockHashPtr bakerId outH
     Ext.ConsensusRunner mvr <- deRefStablePtr cptr
     let sender = callChannelSendCallback cbk
     bhi <- decodeBlockHashInput blockType blockHashPtr
-    (bh, mDelegators) <- runMVR (Q.getPoolDelegatorsRewardPeriod bhi (Just $ fromIntegral bakerId)) mvr
-    case mDelegators of
-        Nothing -> return $ queryResultCode QRInvalidArgument
-        Just Nothing -> return $ queryResultCode QRNotFound
-        Just (Just delegators) -> do
-            copyHashTo outHash bh
-            _ <- enqueueMessages (sender channel) delegators
-            return (queryResultCode QRSuccess)
+    (bh, eitherDelegators) <- runMVR (Q.getDelegatorsRewardPeriod bhi (Just $ fromIntegral bakerId)) mvr
+    case eitherDelegators of
+        Left Q.GDEUnsupportedProtocolVersion -> return $ queryResultCode QRInvalidArgument
+        Left Q.GDEPoolNotFound -> return $ queryResultCode QRNotFound
+        Left Q.GDEBlockNotFound -> return $ queryResultCode QRNotFound
+        Right delegators -> do
+          copyHashTo outHash bh
+          _ <- enqueueMessages (sender channel) delegators
+          return (queryResultCode QRSuccess)
 
 getPassiveDelegatorsV2 ::
     StablePtr Ext.ConsensusRunner ->
@@ -2067,14 +2069,15 @@ getPassiveDelegatorsV2 cptr channel blockType blockHashPtr outHash cbk = do
     Ext.ConsensusRunner mvr <- deRefStablePtr cptr
     let sender = callChannelSendCallback cbk
     bhi <- decodeBlockHashInput blockType blockHashPtr
-    (bh, mDelegators) <- runMVR (Q.getPoolDelegators bhi Nothing) mvr
-    case mDelegators of
-        Nothing -> return $ queryResultCode QRInvalidArgument
-        Just Nothing -> return $ queryResultCode QRNotFound
-        Just (Just delegators) -> do
-            copyHashTo outHash bh
-            _ <- enqueueMessages (sender channel) delegators
-            return (queryResultCode QRSuccess)
+    (bh, eitherDelegators) <- runMVR (Q.getDelegators bhi Nothing) mvr
+    case eitherDelegators of
+        Left Q.GDEUnsupportedProtocolVersion -> return $ queryResultCode QRInvalidArgument
+        Left Q.GDEPoolNotFound -> return $ queryResultCode QRNotFound
+        Left Q.GDEBlockNotFound -> return $ queryResultCode QRNotFound
+        Right delegators -> do
+          copyHashTo outHash bh
+          _ <- enqueueMessages (sender channel) delegators
+          return (queryResultCode QRSuccess)
 
 getPassiveDelegatorsRewardPeriodV2 ::
     StablePtr Ext.ConsensusRunner ->
@@ -2091,14 +2094,15 @@ getPassiveDelegatorsRewardPeriodV2 cptr channel blockType blockHashPtr outHash c
     Ext.ConsensusRunner mvr <- deRefStablePtr cptr
     let sender = callChannelSendCallback cbk
     bhi <- decodeBlockHashInput blockType blockHashPtr
-    (bh, mDelegators) <- runMVR (Q.getPoolDelegatorsRewardPeriod bhi Nothing) mvr
-    case mDelegators of
-        Nothing -> return $ queryResultCode QRInvalidArgument
-        Just Nothing -> return $ queryResultCode QRNotFound
-        Just (Just delegators) -> do
-            copyHashTo outHash bh
-            _ <- enqueueMessages (sender channel) delegators
-            return (queryResultCode QRSuccess)
+    (bh, eitherDelegators) <- runMVR (Q.getDelegatorsRewardPeriod bhi Nothing) mvr
+    case eitherDelegators of
+        Left Q.GDEUnsupportedProtocolVersion -> return $ queryResultCode QRInvalidArgument
+        Left Q.GDEPoolNotFound -> return $ queryResultCode QRNotFound
+        Left Q.GDEBlockNotFound -> return $ queryResultCode QRNotFound
+        Right delegators -> do
+          copyHashTo outHash bh
+          _ <- enqueueMessages (sender channel) delegators
+          return (queryResultCode QRSuccess)
 
 getBranchesV2 ::
     StablePtr Ext.ConsensusRunner ->

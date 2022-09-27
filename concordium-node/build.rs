@@ -381,7 +381,7 @@ fn build_grpc2(proto_root_input: &str) -> std::io::Result<()> {
             tonic_build::manual::Method::builder()
                 .name("get_pool_delegators_reward_period")
                 .route_name("GetPoolDelegatorsRewardPeriod")
-                .input_type("crate::grpc2::types::GetPoolDelegatorsRewardPeriodRequest")
+                .input_type("crate::grpc2::types::GetPoolDelegatorsRequest")
                 .output_type("Vec<u8>")
                 .codec_path("crate::grpc2::RawCodec")
                 .server_streaming()
