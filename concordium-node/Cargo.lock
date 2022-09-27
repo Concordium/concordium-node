@@ -519,6 +519,7 @@ dependencies = [
  "chrono",
  "circular-queue",
  "collector-backend",
+ "concordium-contracts-common",
  "criterion",
  "crossbeam-channel",
  "crypto_common",

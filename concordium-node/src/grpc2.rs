@@ -718,9 +718,9 @@ pub mod server {
         version_length = out.position();
         match request.block_item_type.require()? {
             types::send_block_item_request::BlockItemType::AccountTransaction(v) => {
-                // put tag
+                // Put the tag for account transaction.
                 out.write_u8(0)?;
-                // put signature
+                // Put the signatures
                 let cred_map = v.signature.require()?;
                 out.write_u8(try_into_u8(cred_map.signatures.len(), "Length of SignatureMap")?)?;
                 for (cred, sig_map) in cred_map.signatures.into_iter() {
@@ -733,18 +733,15 @@ pub mod server {
                         out.write_u8(try_into_u8(k, "KeyIndex")?)?;
                         out.write_u16::<BigEndian>(try_into_u16(
                             sig.value.len(),
-                            "Length of signature",
+                            "Length of Signature",
                         )?)?;
-                        let _ = out.write(&sig.value)?;
+                        out.write(&sig.value)?;
                     }
                 }
-                // put header
+                // Put the header.
                 let header = v.header.require()?;
-                // account address
                 serialize_account_address(header.sender.require()?, &mut out)?;
-                // nonce u64
                 out.write_u64::<BigEndian>(header.sequence_number.require()?.value)?;
-                // energy u64
                 out.write_u64::<BigEndian>(header.energy_amount.require()?.value)?;
                 // Construct payload, so we can serialize its size. The actual payload is
                 // included later.
@@ -772,31 +769,76 @@ pub mod server {
                         }
                         types::account_transaction::Payload::InitContract(p) => {
                             pl_cursor.write_u64::<BigEndian>(p.amount.require()?.value)?;
-                            let module_ref = p.module_ref.require()?;
-                            if module_ref.value.len() != 32 {
-                                return Err(tonic::Status::internal(
-                                    "Invalid ModuleRef. Must be 32 bytes long",
-                                ));
-                            }
-                            pl_cursor.write(&module_ref.value)?;
-                            // TODO: Serialize the rest. Do we have access to an
-                            // init name validator func?
-                            todo!()
+                            serialize_module_ref(p.module_ref.require()?, &mut pl_cursor)?;
+                            serialize_init_name(p.init_name.require()?, &mut pl_cursor)?;
+                            serialize_parameter(p.parameter.require()?, &mut pl_cursor)?;
                         }
-                        types::account_transaction::Payload::UpdateContract(p) => todo!(),
-                        types::account_transaction::Payload::RegisterData(p) => todo!(),
+                        types::account_transaction::Payload::UpdateContract(p) => {
+                            pl_cursor.write_u64::<BigEndian>(p.amount.require()?.value)?;
+                            let addr = p.address.require()?;
+                            pl_cursor.write_u64::<BigEndian>(addr.index)?;
+                            pl_cursor.write_u64::<BigEndian>(addr.subindex)?;
+                            serialize_receive_name(p.receive_name.require()?, &mut pl_cursor)?;
+                            serialize_parameter(p.parameter.require()?, &mut pl_cursor)?;
+                        }
+                        types::account_transaction::Payload::RegisterData(p) => {
+                            const MAX_REGISTERED_DATA_SIZE: usize = 256;
+                            if p.value.len() > MAX_REGISTERED_DATA_SIZE {
+                                return Err(tonic::Status::invalid_argument(format!(
+                                    "Invalid RegisteredData. Has length {}, which exceeds the \
+                                     limit of {} bytes.",
+                                    p.value.len(),
+                                    MAX_REGISTERED_DATA_SIZE
+                                )));
+                            }
+                            pl_cursor.write(&p.value)?;
+                        }
                     }
                     pl_cursor.into_inner()
                 };
-                // payload size in bytes, u32
                 out.write_u32::<BigEndian>(try_into_u32(payload_bytes.len(), "Payloadsize")?)?;
-                // expiry: trx_time u64
                 out.write_u64::<BigEndian>(header.expiry.require()?.value)?;
-                // put payload
-                let _ = out.write(&payload_bytes)?;
+                // Put the payload.
+                out.write(&payload_bytes)?;
             }
-            types::send_block_item_request::BlockItemType::CredentialDeployment(_) => todo!(),
-            types::send_block_item_request::BlockItemType::UpdateInstruction(_) => todo!(),
+            types::send_block_item_request::BlockItemType::CredentialDeployment(v) => {
+                // Put the tag for credential deployment.
+                out.write_u8(1)?;
+                out.write_u64::<BigEndian>(v.message_expiry.require()?.value)?;
+                match v.payload.require()? {
+                    types::credential_deployment::Payload::RawPayload(p) => out.write(&p)?,
+                };
+            }
+            types::send_block_item_request::BlockItemType::UpdateInstruction(v) => {
+                // Put the tag for update instruction.
+                out.write_u8(2)?;
+                // Signature
+                let signatures = v.signatures.require()?.signatures;
+                out.write_u16::<BigEndian>(try_into_u16(
+                    signatures.len(),
+                    "Length of SignatureMap",
+                )?)?;
+                for (k, sig) in signatures.into_iter() {
+                    out.write_u16::<BigEndian>(try_into_u16(k, "UpdateKeyIndex")?)?;
+                    out.write_u16::<BigEndian>(try_into_u16(
+                        sig.value.len(),
+                        "Length of Signature",
+                    )?)?;
+                    out.write(&sig.value)?;
+                }
+                // Header
+                let header = v.header.require()?;
+                out.write_u64::<BigEndian>(header.sequence_number.require()?.value)?;
+                out.write_u64::<BigEndian>(header.effective_time.require()?.value)?;
+                out.write_u64::<BigEndian>(header.timeout.require()?.value)?;
+                // Payload size + payload
+                match v.payload.require()? {
+                    types::update_instruction::Payload::RawPayload(p) => {
+                        out.write_u32::<BigEndian>(try_into_u32(p.len(), "PayloadSize")?)?;
+                        out.write(&p)?;
+                    }
+                };
+            }
         }
         let out = out.into_inner();
         let hash = {
@@ -817,36 +859,44 @@ pub mod server {
         out: &mut W,
     ) -> Result<(), tonic::Status> {
         if address.value.len() == 32 {
-            let _ = out.write(&address.value)?;
+            out.write(&address.value)?;
             Ok(())
         } else {
             Err(tonic::Status::invalid_argument("Invalid AccountAddress. Must be 32 bytes long."))
         }
     }
 
+    /// Tries to convert the value into a `u32`. If it fails, a `tonic::Status`
+    /// is returned with an appropriate error, which includes the `name`
+    /// parameter.
     fn try_into_u32<T: TryInto<u32>>(t: T, name: &str) -> Result<u32, tonic::Status> {
         t.try_into().map_err(|_| {
             tonic::Status::invalid_argument(format!("{} could not be converted into an u32.", name))
         })
     }
 
+    /// Tries to convert the value into a `u8`. If it fails, a `tonic::Status`
+    /// is returned with an appropriate error, which includes the `name`
+    /// parameter.
     fn try_into_u16<T: TryInto<u16>>(t: T, name: &str) -> Result<u16, tonic::Status> {
         t.try_into().map_err(|_| {
             tonic::Status::invalid_argument(format!("{} could not be converted into an u16.", name))
         })
     }
 
+    /// Tries to convert the value into a `u8`. If it fails, a `tonic::Status`
+    /// is returned with an appropriate error, which includes the `name`
+    /// parameter.
     fn try_into_u8<T: TryInto<u8>>(t: T, name: &str) -> Result<u8, tonic::Status> {
         t.try_into().map_err(|_| {
             tonic::Status::invalid_argument(format!("{} could not be converted into an u8.", name))
         })
     }
 
-    /// Checks that the memo is at most 256 bytes and then writes it to the
-    /// provided buffer.
+    /// Checks that the memo is valid and writes it into `out`.
     fn serialize_memo<W: Write>(memo: types::Memo, out: &mut W) -> Result<(), tonic::Status> {
         if memo.value.len() <= MAX_MEMO_SIZE {
-            let _ = out.write(&memo.value)?;
+            out.write(&memo.value)?;
             Ok(())
         } else {
             Err(tonic::Status::invalid_argument(format!(
@@ -856,42 +906,100 @@ pub mod server {
         }
     }
 
+    /// Checks that the module ref is valid and writes it into `out`.
+    fn serialize_module_ref<W: Write>(
+        module_ref: types::ModuleRef,
+        out: &mut W,
+    ) -> Result<(), tonic::Status> {
+        if module_ref.value.len() != 32 {
+            return Err(tonic::Status::internal("Invalid ModuleRef. Must be 32 bytes long"));
+        } else {
+            out.write(&module_ref.value)?;
+            Ok(())
+        }
+    }
+
+    /// Checks that the wasm module is valid and writes it into `out`.
     fn serialize_versioned_wasm_module<W: Write>(
         module: types::VersionedModuleSource,
         out: &mut W,
     ) -> Result<(), tonic::Status> {
-        let (version, src) = match module.module.require()? {
-            types::versioned_module_source::Module::V0(src) => (0, src.value),
-            types::versioned_module_source::Module::V1(src) => (1, src.value),
+        // TODO: Move these constants to base.
+        const MAX_WASM_MODULE_V0_SIZE: usize = 65536;
+        const MAX_WASM_MODULE_V1_SIZE: usize = 65536 * 8;
+        let (version, src, max_size) = match module.module.require()? {
+            types::versioned_module_source::Module::V0(src) => {
+                (0, src.value, MAX_WASM_MODULE_V0_SIZE)
+            }
+            types::versioned_module_source::Module::V1(src) => {
+                (1, src.value, MAX_WASM_MODULE_V1_SIZE)
+            }
         };
-        const MAX_WASM_MODULE_SIZE: u32 = 65536; // TODO: This is not ideal.
 
-        if src.len() <= MAX_WASM_MODULE_SIZE as usize {
+        if src.len() <= max_size {
             out.write_u32::<BigEndian>(version)?;
-            let _ = out.write(&src)?;
+            out.write(&src)?;
             Ok(())
         } else {
             Err(tonic::Status::invalid_argument(format!(
                 "Invalid contract module. Must be less than {} bytes long.",
-                MAX_WASM_MODULE_SIZE
+                max_size
             )))
         }
     }
 
+    /// Checks that the parameter is valid and writes it into `out`.
     fn serialize_parameter<W: Write>(
         parameter: types::Parameter,
         out: &mut W,
     ) -> Result<(), tonic::Status> {
-        const MAX_PARAMETER_SIZE: u32 = 1024; // TODO: This is not ideal.
+        // TODO: Move constant to base.
+        const MAX_PARAMETER_SIZE: u32 = 1024;
 
         if parameter.value.len() <= MAX_PARAMETER_SIZE as usize {
-            let _ = out.write(&parameter.value)?;
+            out.write(&parameter.value)?;
             Ok(())
         } else {
             Err(tonic::Status::invalid_argument(format!(
                 "Invalid Parameter. Must be less than {} bytes long.",
                 MAX_PARAMETER_SIZE
             )))
+        }
+    }
+
+    /// Checks that the init name is valid and writes it into `out`.
+    fn serialize_init_name<W: Write>(
+        init_name: types::InitName,
+        out: &mut W,
+    ) -> Result<(), tonic::Status> {
+        match concordium_contracts_common::ContractName::is_valid_contract_name(&init_name.value) {
+            Ok(()) => {
+                out.write_u16::<BigEndian>(try_into_u16(
+                    init_name.value.len(),
+                    "Length of InitName",
+                )?)?;
+                out.write(init_name.value.as_bytes())?;
+                Ok(())
+            }
+            Err(e) => Err(tonic::Status::invalid_argument(format!("Invalid InitName: {:?}", e))),
+        }
+    }
+
+    /// Checks that the receive name is valid and writes it into `out`.
+    fn serialize_receive_name<W: Write>(
+        receive_name: types::ReceiveName,
+        out: &mut W,
+    ) -> Result<(), tonic::Status> {
+        match concordium_contracts_common::ReceiveName::is_valid_receive_name(&receive_name.value) {
+            Ok(()) => {
+                out.write_u16::<BigEndian>(try_into_u16(
+                    receive_name.value.len(),
+                    "Length of ReceiveName",
+                )?)?;
+                out.write(receive_name.value.as_bytes())?;
+                Ok(())
+            }
+            Err(e) => Err(tonic::Status::invalid_argument(format!("Invalid ReceiveName: {:?}", e))),
         }
     }
 }

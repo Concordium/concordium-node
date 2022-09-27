@@ -68,6 +68,7 @@ url = "2.2"
 reqwest = { version = "0.11", features = ["stream"] }
 csv-async = "1.2"
 tokio-util = { version = "0.7.3", features = ["io"] }
+concordium-contracts-common = { path = "../concordium-base/concordium-contracts-common/concordium-contracts-common"}
 
 # gRPC dependencies
 tonic = { version = "0.8", features = ["tls"] }
