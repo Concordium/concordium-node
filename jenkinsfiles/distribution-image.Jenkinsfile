@@ -12,6 +12,7 @@ pipeline {
     
     environment {
         image_name = "${environment}-node"
+        STATIC_BINARIES_IMAGE_TAG = "${BUILD_TAG}"
     }
 
     stages {
