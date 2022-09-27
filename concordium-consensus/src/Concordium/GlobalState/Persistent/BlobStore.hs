@@ -102,6 +102,7 @@ import Data.Kind (Type)
 import Data.Serialize
 import Data.Word
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Internal as BSInternal
 import qualified Data.ByteString.Unsafe as BSUnsafe
 import Control.Exception
 import Data.Functor.Foldable
@@ -118,6 +119,7 @@ import Data.IORef
 import Concordium.Crypto.EncryptedTransfers
 import Data.Map (Map)
 import Foreign.Ptr
+import Foreign.ForeignPtr (finalizeForeignPtr)
 import System.IO.MMap
 
 import Concordium.GlobalState.Persistent.MonadicRecursive
@@ -281,6 +283,11 @@ runBlobStoreTemp dir a = bracket openf closef usef
 
 -- | Truncate the blob store after the blob stored at the given offset. The blob should not be
 -- corrupted (i.e., its size header should be readable, and its size should match the size header).
+--
+-- **Note**: This function must not be called after any writes to the blob store. It assumes that
+-- the current 'blobStoreMMap' is the only mapping of the file (which can be relied on if no writes
+-- have occurred). Since the existing memory map is invalidated, any other references to it will
+-- also be invalidated, such as 'BS.ByteString's returned by 'loadBlobPtr'.
 truncateBlobStore :: BlobStoreAccess -> BlobRef a -> IO ()
 truncateBlobStore BlobStoreAccess{..} (BlobRef offset) = do
   bh@BlobHandle{..} <- takeMVar blobStoreFile
@@ -290,12 +297,25 @@ truncateBlobStore BlobStoreAccess{..} (BlobRef offset) = do
     case esize :: Either String Word64 of
       Right size -> do
         let newSize = offset + 8 + size
-        hSetFileSize bhHandle $ fromIntegral newSize
+        unless (bhSize == fromIntegral newSize) $ do
+          -- unmap the current memory mapped file since on some platforms the file cannot be
+          -- truncated if it is memory mapped.
+          oldMmap <- readIORef blobStoreMMap
+          -- write a temporary empty string.
+          writeIORef blobStoreMMap BS.empty
+          let (fp, _, _) = BSInternal.toForeignPtr oldMmap
+          -- unmap the old mapping.
+          finalizeForeignPtr fp
+          -- truncate the file
+          hSetFileSize bhHandle $ fromIntegral newSize
+          -- and map it again.
+          mmapFileByteString blobStoreFilePath Nothing >>= writeIORef blobStoreMMap
         putMVar blobStoreFile bh{bhSize = fromIntegral newSize, bhAtEnd=False}
-        mmapFileByteString blobStoreFilePath Nothing >>= writeIORef blobStoreMMap
       _ -> throwIO $ userError "Cannot truncate the blob store: cannot obtain the last blob size"
   case eres :: Either SomeException () of
-    Left e -> throwIO e
+    Left e -> do
+      putMVar blobStoreFile bh
+      throwIO e
     Right () -> return ()
 
 -- | Read a bytestring from the blob store at the given offset using the file handle.
