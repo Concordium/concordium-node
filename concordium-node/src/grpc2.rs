@@ -225,7 +225,7 @@ pub mod server {
     use crypto_common::{types::MAX_MEMO_SIZE, Version};
     use futures::{FutureExt, StreamExt};
     use std::{
-        io::Write,
+        io::{Cursor, Write},
         sync::{Arc, Mutex},
     };
     use tonic::{async_trait, transport::ServerTlsConfig};
@@ -702,6 +702,22 @@ pub mod server {
                 }
             }
         }
+
+        async fn get_account_transaction_sign_hash(
+            &self,
+            request: tonic::Request<crate::grpc2::types::UnsignedAccountTransaction>,
+        ) -> Result<tonic::Response<crate::grpc2::types::AccountTransactionSignHash>, tonic::Status>
+        {
+            let request = request.into_inner();
+            let (_, transaction_sign_hash) =
+                serial_and_hash_account_transaction_header_and_payload(
+                    request.header.require()?,
+                    request.payload.require()?,
+                )?;
+            Ok(tonic::Response::new(types::AccountTransactionSignHash {
+                value: transaction_sign_hash,
+            }))
+        }
     }
 
     /// Try to serial and hash a [`types::SendBlockItemRequest`].
@@ -710,7 +726,7 @@ pub mod server {
         request: types::SendBlockItemRequest,
     ) -> Result<(Vec<u8>, Vec<u8>), tonic::Status> {
         let version_length;
-        let mut out = std::io::Cursor::new(Vec::new());
+        let mut out = Cursor::new(Vec::new());
         // The version prefix.
         out.write(&crypto_common::to_bytes(&Version {
             value: 0,
@@ -738,68 +754,11 @@ pub mod server {
                         out.write(&sig.value)?;
                     }
                 }
-                // Put the header.
-                let header = v.header.require()?;
-                serialize_account_address(header.sender.require()?, &mut out)?;
-                out.write_u64::<BigEndian>(header.sequence_number.require()?.value)?;
-                out.write_u64::<BigEndian>(header.energy_amount.require()?.value)?;
-                // Construct payload, so we can serialize its size. The actual payload is
-                // included later.
-                let payload_bytes = {
-                    let mut pl_cursor = std::io::Cursor::new(Vec::new());
-                    match v.payload.require()? {
-                        types::account_transaction::Payload::RawPayload(bytes) => {
-                            pl_cursor = std::io::Cursor::new(bytes);
-                        }
-                        types::account_transaction::Payload::Transfer(p) => match p.memo {
-                            None => {
-                                pl_cursor.write_u8(3)?;
-                                serialize_account_address(p.receiver.require()?, &mut pl_cursor)?;
-                                pl_cursor.write_u64::<BigEndian>(p.amount.require()?.value)?;
-                            }
-                            Some(memo) => {
-                                pl_cursor.write_u8(22)?;
-                                serialize_account_address(p.receiver.require()?, &mut pl_cursor)?;
-                                serialize_memo(memo, &mut pl_cursor)?;
-                                pl_cursor.write_u64::<BigEndian>(p.amount.require()?.value)?;
-                            }
-                        },
-                        types::account_transaction::Payload::DeployModule(p) => {
-                            serialize_versioned_wasm_module(p, &mut pl_cursor)?;
-                        }
-                        types::account_transaction::Payload::InitContract(p) => {
-                            pl_cursor.write_u64::<BigEndian>(p.amount.require()?.value)?;
-                            serialize_module_ref(p.module_ref.require()?, &mut pl_cursor)?;
-                            serialize_init_name(p.init_name.require()?, &mut pl_cursor)?;
-                            serialize_parameter(p.parameter.require()?, &mut pl_cursor)?;
-                        }
-                        types::account_transaction::Payload::UpdateContract(p) => {
-                            pl_cursor.write_u64::<BigEndian>(p.amount.require()?.value)?;
-                            let addr = p.address.require()?;
-                            pl_cursor.write_u64::<BigEndian>(addr.index)?;
-                            pl_cursor.write_u64::<BigEndian>(addr.subindex)?;
-                            serialize_receive_name(p.receive_name.require()?, &mut pl_cursor)?;
-                            serialize_parameter(p.parameter.require()?, &mut pl_cursor)?;
-                        }
-                        types::account_transaction::Payload::RegisterData(p) => {
-                            const MAX_REGISTERED_DATA_SIZE: usize = 256;
-                            if p.value.len() > MAX_REGISTERED_DATA_SIZE {
-                                return Err(tonic::Status::invalid_argument(format!(
-                                    "Invalid RegisteredData. Has length {}, which exceeds the \
-                                     limit of {} bytes.",
-                                    p.value.len(),
-                                    MAX_REGISTERED_DATA_SIZE
-                                )));
-                            }
-                            pl_cursor.write(&p.value)?;
-                        }
-                    }
-                    pl_cursor.into_inner()
-                };
-                out.write_u32::<BigEndian>(try_into_u32(payload_bytes.len(), "Payloadsize")?)?;
-                out.write_u64::<BigEndian>(header.expiry.require()?.value)?;
-                // Put the payload.
-                out.write(&payload_bytes)?;
+                let (serialized_data, _) = serial_and_hash_account_transaction_header_and_payload(
+                    v.header.require()?,
+                    v.payload.require()?,
+                )?;
+                out.write(&serialized_data)?;
             }
             types::send_block_item_request::BlockItemType::CredentialDeployment(v) => {
                 // Put the tag for credential deployment.
@@ -832,8 +791,8 @@ pub mod server {
                 out.write_u64::<BigEndian>(header.effective_time.require()?.value)?;
                 out.write_u64::<BigEndian>(header.timeout.require()?.value)?;
                 // Payload size + payload
-                match v.payload.require()? {
-                    types::update_instruction::Payload::RawPayload(p) => {
+                match v.payload.require()?.payload.require()? {
+                    types::update_instruction_payload::Payload::RawPayload(p) => {
                         out.write_u32::<BigEndian>(try_into_u32(p.len(), "PayloadSize")?)?;
                         out.write(&p)?;
                     }
@@ -841,15 +800,93 @@ pub mod server {
             }
         }
         let out = out.into_inner();
-        let hash = {
-            use sha2::{Digest, Sha256};
-            let mut hasher = Sha256::new();
-            // The transaction hash is computed on the serialized output but without the
-            // version prefix.
-            hasher.update(&out[version_length as usize..]);
-            hasher.finalize().to_vec()
-        };
+        // The transaction hash is computed on the serialized output but without the
+        // version prefix.
+        let hash = compute_sha256(&out[version_length as usize..]);
         Ok((out, hash))
+    }
+
+    /// Serialize an unsigned account transaction and return it along with its
+    /// hash, which is the transaction sign hash.
+    fn serial_and_hash_account_transaction_header_and_payload(
+        header: types::AccountTransactionHeader,
+        payload: types::AccountTransactionPayload,
+    ) -> Result<(Vec<u8>, Vec<u8>), tonic::Status> {
+        let mut out = Cursor::new(Vec::new());
+        // Put the header.
+        serialize_account_address(header.sender.require()?, &mut out)?;
+        out.write_u64::<BigEndian>(header.sequence_number.require()?.value)?;
+        out.write_u64::<BigEndian>(header.energy_amount.require()?.value)?;
+        // Construct payload, so we can serialize its size. The actual payload is
+        // included later.
+        let payload_bytes = {
+            let mut pl_cursor = Cursor::new(Vec::new());
+            match payload.payload.require()? {
+                types::account_transaction_payload::Payload::RawPayload(bytes) => {
+                    pl_cursor = Cursor::new(bytes);
+                }
+                types::account_transaction_payload::Payload::Transfer(p) => match p.memo {
+                    None => {
+                        pl_cursor.write_u8(3)?;
+                        serialize_account_address(p.receiver.require()?, &mut pl_cursor)?;
+                        pl_cursor.write_u64::<BigEndian>(p.amount.require()?.value)?;
+                    }
+                    Some(memo) => {
+                        pl_cursor.write_u8(22)?;
+                        serialize_account_address(p.receiver.require()?, &mut pl_cursor)?;
+                        serialize_memo(memo, &mut pl_cursor)?;
+                        pl_cursor.write_u64::<BigEndian>(p.amount.require()?.value)?;
+                    }
+                },
+                types::account_transaction_payload::Payload::DeployModule(p) => {
+                    serialize_versioned_wasm_module(p, &mut pl_cursor)?;
+                }
+                types::account_transaction_payload::Payload::InitContract(p) => {
+                    pl_cursor.write_u64::<BigEndian>(p.amount.require()?.value)?;
+                    serialize_module_ref(p.module_ref.require()?, &mut pl_cursor)?;
+                    serialize_init_name(p.init_name.require()?, &mut pl_cursor)?;
+                    serialize_parameter(p.parameter.require()?, &mut pl_cursor)?;
+                }
+                types::account_transaction_payload::Payload::UpdateContract(p) => {
+                    pl_cursor.write_u64::<BigEndian>(p.amount.require()?.value)?;
+                    let addr = p.address.require()?;
+                    pl_cursor.write_u64::<BigEndian>(addr.index)?;
+                    pl_cursor.write_u64::<BigEndian>(addr.subindex)?;
+                    serialize_receive_name(p.receive_name.require()?, &mut pl_cursor)?;
+                    serialize_parameter(p.parameter.require()?, &mut pl_cursor)?;
+                }
+                types::account_transaction_payload::Payload::RegisterData(p) => {
+                    const MAX_REGISTERED_DATA_SIZE: usize = 256;
+                    if p.value.len() > MAX_REGISTERED_DATA_SIZE {
+                        return Err(tonic::Status::invalid_argument(format!(
+                            "Invalid RegisteredData. Has length {}, which exceeds the limit of {} \
+                             bytes.",
+                            p.value.len(),
+                            MAX_REGISTERED_DATA_SIZE
+                        )));
+                    }
+                    pl_cursor.write(&p.value)?;
+                }
+            }
+            pl_cursor.into_inner()
+        };
+        out.write_u32::<BigEndian>(try_into_u32(payload_bytes.len(), "Payloadsize")?)?;
+        out.write_u64::<BigEndian>(header.expiry.require()?.value)?;
+        // Put the payload.
+        out.write(&payload_bytes)?;
+        let out = out.into_inner();
+        let hash = compute_sha256(&out);
+        // Compute the transaction sign hash, which is based on the header and payload.
+        Ok((out, hash))
+    }
+
+    /// Computes a sha256 hash of the `bytes` and returns it as a vector of
+    /// bytes.
+    fn compute_sha256(bytes: &[u8]) -> Vec<u8> {
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(bytes);
+        hasher.finalize().to_vec()
     }
 
     /// Checks that the account address is 32 bytes and then writes it to the
