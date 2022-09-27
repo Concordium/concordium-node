@@ -386,23 +386,22 @@ loadSkovPersistentData rp _treeStateDirectory pbsc = do
   liftIO (checkDatabaseVersion _db) >>=
       either (logExceptionAndThrowTS . IncorrectDatabaseVersion) return
 
-  -- Get the genesis block and check that its data matches the supplied genesis data.
-  genStoredBlock <- maybe (logExceptionAndThrowTS GenesisBlockNotInDataBaseError) return =<<
-          liftIO (getFirstBlock _db)
-  _genesisBlockPointer <- liftIO $ makeBlockPointer genStoredBlock
-  _genesisData <- case _bpBlock _genesisBlockPointer of
-    GenesisBlock gd' -> return gd'
-    _ -> logExceptionAndThrowTS (DatabaseInvariantViolation "Block at height 0 is not a genesis block.")
-
   -- Unroll the treestate if the last finalized blockstate is corrupted. If the last finalized
   -- blockstate is not corrupted, the treestate is unchanged.
   unrollTreeStateWhile _db (liftIO . isBlockStateCorrupted) >>= \case
     Left e -> logExceptionAndThrowTS . DatabaseInvariantViolation $
               "The block state database is corrupt. Recovery attempt failed: " <> e
     Right (_lastFinalizationRecord, lfStoredBlock) -> do
-      -- Truncate the blobstore beyond the last finalized blockstate. If no corruption was found
-      -- earlier, the blobstore size does not change.
+      -- Truncate the blobstore beyond the last finalized blockstate.
       liftIO $ truncateBlobStore (bscBlobStore . PBS.pbscBlobStore $ pbsc) (sbState lfStoredBlock)
+      -- Get the genesis block.
+      genStoredBlock <- maybe (logExceptionAndThrowTS GenesisBlockNotInDataBaseError) return =<<
+              liftIO (getFirstBlock _db)
+      _genesisBlockPointer <- liftIO $ makeBlockPointer genStoredBlock
+      _genesisData <- case _bpBlock _genesisBlockPointer of
+        GenesisBlock gd' -> return gd'
+        _ -> logExceptionAndThrowTS (DatabaseInvariantViolation "Block at height 0 is not a genesis block.")
+      -- Get the last finalized block.
       _lastFinalized <- liftIO (makeBlockPointer lfStoredBlock)
       return SkovPersistentData {
             _possiblyPendingTable = HM.empty,
