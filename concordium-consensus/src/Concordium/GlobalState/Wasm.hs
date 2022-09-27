@@ -4,7 +4,6 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-| Common types and functions used to support wasm module storage in block state. |-}
 module Concordium.GlobalState.Wasm (
@@ -14,15 +13,9 @@ module Concordium.GlobalState.Wasm (
   -- instantiated and run.
   V0,
   V1,
-  ModuleArtifact,
-  ModuleArtifactV0,
-  ModuleArtifactV1,
-  newModuleArtifactV0,
-  newModuleArtifactV1,
-  withModuleArtifact,
   InstrumentedModuleV(..),
-  imWasmArtifact,
-  instrumentedModuleVFromBytes,
+  imWasmArtifactBytes,
+  instrumentedModuleFromBytes,
   -- *** Module interface
   ModuleInterface(..),
   ModuleInterfaceA(..),
@@ -39,96 +32,33 @@ import Data.Serialize
 import Data.Word
 import qualified Data.Set as Set
 import qualified Data.Map.Strict as Map
-import Foreign (ForeignPtr, withForeignPtr, newForeignPtr)
-import Foreign.Ptr
-import Foreign.C
-
-import Concordium.Crypto.FFIHelpers (fromBytesHelper, toBytesHelper)
 import Concordium.Utils.Serialization
 import Concordium.Types
 import Concordium.Wasm
 
-foreign import ccall unsafe "&artifact_v0_free" freeArtifactV0 :: FunPtr (Ptr ModuleArtifactV0 -> IO ())
-foreign import ccall unsafe "artifact_v0_to_bytes" toBytesArtifactV0 :: Ptr ModuleArtifactV0 -> Ptr CSize -> IO (Ptr Word8)
-foreign import ccall unsafe "artifact_v0_from_bytes" fromBytesArtifactV0 :: Ptr Word8 -> CSize -> IO (Ptr ModuleArtifactV0)
-
-foreign import ccall unsafe "&artifact_v1_free" freeArtifactV1 :: FunPtr (Ptr ModuleArtifactV1 -> IO ())
-foreign import ccall unsafe "artifact_v1_to_bytes" toBytesArtifactV1 :: Ptr ModuleArtifactV1 -> Ptr CSize -> IO (Ptr Word8)
-foreign import ccall unsafe "artifact_v1_from_bytes" fromBytesArtifactV1 :: Ptr Word8 -> CSize -> IO (Ptr ModuleArtifactV1)
-
--- | A processed module artifact ready for execution. The actual module is
--- allocated and stored on the Rust heap, in a reference counted pointer.
-newtype ModuleArtifact (v :: WasmVersion) = ModuleArtifact { maArtifact :: ForeignPtr (ModuleArtifact v) }
-  deriving(Eq, Show) -- the Eq and Show instances are only for debugging and compare and show pointers.
-
-type ModuleArtifactV0 = ModuleArtifact V0
-type ModuleArtifactV1 = ModuleArtifact V1
-
--- |Wrap the pointer to the module artifact together with a finalizer that will
--- deallocate it when the module is no longer used.
-newModuleArtifactV0 :: Ptr ModuleArtifactV0 -> IO ModuleArtifactV0
-newModuleArtifactV0 p = do
-  maArtifact <- newForeignPtr freeArtifactV0 p
-  return ModuleArtifact{..}
-
--- |Wrap the pointer to the module artifact together with a finalizer that will
--- deallocate it when the module is no longer used.
-newModuleArtifactV1 :: Ptr ModuleArtifactV1 -> IO ModuleArtifactV1
-newModuleArtifactV1 p = do
-  maArtifact <- newForeignPtr freeArtifactV1 p
-  return ModuleArtifact{..}
-
--- |Use the module artifact temporarily. The pointer must not be leaked from the
--- computation.
-withModuleArtifact :: ModuleArtifact v -> (Ptr (ModuleArtifact v) -> IO a) -> IO a
-withModuleArtifact ModuleArtifact{..} = withForeignPtr maArtifact
-
--- |Load a module artifact from a 'BS.ByteString'. This creates a reference counted copy of
--- the artifact on the Rust side and attaches a finalizer to drop the reference when it is
--- garbage collected on the Haskell side.
-moduleArtifactFromBytes :: forall v. (IsWasmVersion v) => BS.ByteString -> IO (ModuleArtifact v)
-moduleArtifactFromBytes bs = do
-  let martifact = case getWasmVersion @v of
-        SV0 -> fromBytesHelper freeArtifactV0 fromBytesArtifactV0 bs
-        SV1 -> fromBytesHelper freeArtifactV1 fromBytesArtifactV1 bs
-  case martifact of
-    Nothing -> error "Cannot decode module artifact."
-    Just maArtifact -> return ModuleArtifact{..}
+-- |A processed module artifact as a 'BS.ByteString', as returned by the @validate_and_process_v*@
+-- Rust functions, and used by the @call_receive_v*@ and @call_init_v*@ functions.
+newtype ModuleArtifactBytes (v :: WasmVersion) = ModuleArtifactBytes { maBytes :: BS.ByteString }
+  deriving(Eq, Show)
 
 -- This serialization instance does not add explicit versioning on its own. The
 -- module artifact is always stored as part of another structure that has
 -- versioning.
-instance Serialize ModuleArtifactV0 where
+instance Serialize (ModuleArtifactBytes v) where
   get = do
     len <- getWord32be
     bs <- getByteString (fromIntegral len)
-    case fromBytesHelper freeArtifactV0 fromBytesArtifactV0 bs of
-      Nothing -> fail "Cannot decode module artifact."
-      Just maArtifact -> return ModuleArtifact{..}
+    return $! ModuleArtifactBytes bs
 
-  put ModuleArtifact{..} = 
-    let bs = toBytesHelper toBytesArtifactV0 maArtifact
-    in putWord32be (fromIntegral (BS.length bs)) <> putByteString bs
-
-
-instance Serialize ModuleArtifactV1 where
-  get = do
-    len <- getWord32be
-    bs <- getByteString (fromIntegral len)
-    case fromBytesHelper freeArtifactV1 fromBytesArtifactV1 bs of
-      Nothing -> fail "Cannot decode module artifact."
-      Just maArtifact -> return ModuleArtifact{..}
-
-  put ModuleArtifact{..} = 
-    let bs = toBytesHelper toBytesArtifactV1 maArtifact
-    in putWord32be (fromIntegral (BS.length bs)) <> putByteString bs
+  put ModuleArtifactBytes{..} = 
+    putWord32be (fromIntegral (BS.length maBytes)) <> putByteString maBytes
 
 -- |Web assembly module in binary format, instrumented with whatever it needs to
 -- be instrumented with, and preprocessed to an executable format, ready to be
 -- instantiated and run.
 data InstrumentedModuleV v where
-  InstrumentedWasmModuleV0 :: { imWasmArtifactV0 :: !(ModuleArtifact V0) } -> InstrumentedModuleV V0
-  InstrumentedWasmModuleV1 :: { imWasmArtifactV1 :: !(ModuleArtifact V1) } -> InstrumentedModuleV V1
+  InstrumentedWasmModuleV0 :: { imWasmArtifactV0 :: !(ModuleArtifactBytes V0) } -> InstrumentedModuleV V0
+  InstrumentedWasmModuleV1 :: { imWasmArtifactV1 :: !(ModuleArtifactBytes V1) } -> InstrumentedModuleV V1
 
 deriving instance Eq (InstrumentedModuleV v)
 deriving instance Show (InstrumentedModuleV v)
@@ -152,15 +82,16 @@ instance Serialize (InstrumentedModuleV V1) where
     V0 -> fail "Expected Wasm version 1, got 0."
     V1 -> InstrumentedWasmModuleV1 <$> get
 
--- |Load an instrumented module from a 'BS.ByteString'. This creates a reference counted copy of
--- the artifact on the Rust side and attaches a finalizer to drop the reference when it is
--- garbage collected on the Haskell side.
-instrumentedModuleVFromBytes :: forall v. (IsWasmVersion v) => BS.ByteString -> IO (InstrumentedModuleV v)
-instrumentedModuleVFromBytes bs = do
-    artifact <- moduleArtifactFromBytes @v bs
-    case getWasmVersion @v of
-      SV0 -> return (InstrumentedWasmModuleV0 artifact)
-      SV1 -> return (InstrumentedWasmModuleV1 artifact)
+-- |Get the 'BS.ByteString' serialized module artifact.
+imWasmArtifactBytes :: InstrumentedModuleV v -> BS.ByteString
+imWasmArtifactBytes InstrumentedWasmModuleV0{..} = maBytes imWasmArtifactV0
+imWasmArtifactBytes InstrumentedWasmModuleV1{..} = maBytes imWasmArtifactV1
+
+-- |Construct an 'InstrumentedModuleV' from the serialized bytes.
+-- (This does no checking of the 'BS.ByteString'.)
+instrumentedModuleFromBytes :: SWasmVersion v -> BS.ByteString -> InstrumentedModuleV v
+instrumentedModuleFromBytes SV0 = InstrumentedWasmModuleV0 . ModuleArtifactBytes
+instrumentedModuleFromBytes SV1 = InstrumentedWasmModuleV1 . ModuleArtifactBytes
 
 --------------------------------------------------------------------------------
 
@@ -184,10 +115,6 @@ data ModuleInterfaceA instrumentedModule = ModuleInterface {
 
 -- |A Wasm module interface, parametrised by the version of the instrumented module @v@.
 type ModuleInterfaceV (v :: WasmVersion) = ModuleInterfaceA (InstrumentedModuleV v)
-
-imWasmArtifact :: ModuleInterfaceV v -> ModuleArtifact v
-imWasmArtifact ModuleInterface{miModule = InstrumentedWasmModuleV0{..}} = imWasmArtifactV0
-imWasmArtifact ModuleInterface{miModule = InstrumentedWasmModuleV1{..}} = imWasmArtifactV1
 
 class HasModuleRef a where
   -- |Retrieve the module reference (the way a module is identified on the chain).

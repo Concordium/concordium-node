@@ -423,7 +423,8 @@ class GlobalStateConfig (c :: Type) where
     -- storage. This may throw a 'GlobalStateInitException'.
     --
     -- The return value is 'Nothing' if the state could not be found. If the
-    -- state could be found, but could not be loaded an exception is thrown.
+    -- state could be found, but could not be loaded, recovery is attempted,
+    -- and if that fails,  an exception is thrown.
     --
     -- Note that even if the state is successfully loaded it is not in a usable
     -- state for an active consensus and must be activated before. Use
@@ -584,18 +585,16 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
     initialiseExistingGlobalState _ DTDBConfig{..} = do
       -- check if all the necessary database files exist
       existingDB <- checkExistingDatabase dtdbTreeStateDirectory dtdbBlockStateFile
-      pbscAccountCache <- liftIO $ Accounts.newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
-      pbscModuleCache <- liftIO $ Modules.newModuleCache (rpModulesCacheSize dtdbRuntimeParameters)
       if existingDB then do
-        pbscBlobStore <- liftIO $ do
-          -- the block state file exists, is readable and writable
-          -- we ignore the given block state parameter in such a case.
-          loadBlobStore dtdbBlockStateFile
-        let pbsc = PersistentBlockStateContext{..}
         logm <- ask
-        skovData <- liftIO (runLoggerT (loadSkovPersistentData dtdbRuntimeParameters dtdbTreeStateDirectory pbsc) logm
-                    `onException` (closeBlobStore pbscBlobStore))
-        return (Just (pbsc, skovData))
+        liftIO $ do
+          pbscAccountCache <- Accounts.newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
+          pbscModuleCache <- Modules.newModuleCache (rpModulesCacheSize dtdbRuntimeParameters)
+          pbscBlobStore <- loadBlobStore dtdbBlockStateFile
+          let pbsc = PersistentBlockStateContext{..}
+          skovData <- runLoggerT (loadSkovPersistentData dtdbRuntimeParameters dtdbTreeStateDirectory pbsc) logm
+                                   `onException` closeBlobStore pbscBlobStore
+          return (Just (pbsc, skovData))
       else return Nothing
 
     migrateExistingState DTDBConfig{..} oldPbsc oldState migration genData = do

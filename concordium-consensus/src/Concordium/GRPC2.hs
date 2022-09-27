@@ -382,8 +382,12 @@ instance ToProto ScheduledRelease where
 instance ToProto (Timestamp, Amount) where
   type Output (Timestamp, Amount) = Proto.NewRelease
   toProto (t, a) = Proto.make $ do
-      ProtoFields.timestamp . ProtoFields.value .= tsMillis t
+      ProtoFields.timestamp .= toProto t
       ProtoFields.amount .= toProto a
+
+instance ToProto Timestamp where
+  type Output Timestamp = Proto.Timestamp
+  toProto timestamp = mkWord64 $ tsMillis timestamp
 
 instance ToProto (StakePendingChange' UTCTime) where
     type Output (StakePendingChange' UTCTime) = Maybe Proto.StakePendingChange
@@ -394,11 +398,26 @@ instance ToProto (StakePendingChange' UTCTime) where
                 .= Proto.make
                     ( do
                         ProtoFields.newStake .= toProto newStake
-                        ProtoFields.effectiveTime .= mkWord64 (utcTimeToTimestamp effectiveTime)
+                        ProtoFields.effectiveTime .= toProto effectiveTime
                     )
             )
     toProto (RemoveStake effectiveTime) =
-        Just . Proto.make $ (ProtoFields.remove .= mkWord64 (utcTimeToTimestamp effectiveTime))
+        Just . Proto.make $ (ProtoFields.remove .= toProto effectiveTime)
+
+instance ToProto (StakePendingChange 'AccountV1) where
+    type Output (StakePendingChange 'AccountV1) = Maybe Proto.StakePendingChange
+    toProto NoChange = Nothing
+    toProto (ReduceStake newStake (PendingChangeEffectiveV1 effectiveTime)) =
+        Just $ Proto.make
+            ( ProtoFields.reduce
+                .= Proto.make
+                    ( do
+                        ProtoFields.newStake .= toProto newStake
+                        ProtoFields.effectiveTime .= toProto effectiveTime
+                    )
+            )
+    toProto (RemoveStake (PendingChangeEffectiveV1 effectiveTime)) =
+        Just $ Proto.make (ProtoFields.remove .= toProto effectiveTime)
 
 instance ToProto BakerInfo where
     type Output BakerInfo = Proto.BakerInfo
@@ -1412,6 +1431,25 @@ instance ToProto QueryTypes.RewardStatus where
       ProtoFields.totalStakedCapital .= toProto rsTotalStakedCapital
       ProtoFields.protocolVersion .= toProto rsProtocolVersion))
 
+instance ToProto Q.DelegatorInfo where
+    type Output Q.DelegatorInfo = Proto.DelegatorInfo
+    toProto Q.DelegatorInfo {..} = Proto.make $ do
+      ProtoFields.account .= toProto pdiAccount
+      ProtoFields.stake .= toProto pdiStake
+      ProtoFields.maybe'pendingChange .= toProto pdiPendingChanges
+
+instance ToProto Q.DelegatorRewardPeriodInfo where
+    type Output Q.DelegatorRewardPeriodInfo = Proto.DelegatorRewardPeriodInfo
+    toProto Q.DelegatorRewardPeriodInfo {..} = Proto.make $ do
+      ProtoFields.account .= toProto pdrpiAccount
+      ProtoFields.stake .= toProto pdrpiStake
+
+instance ToProto QueryTypes.Branch where
+    type Output QueryTypes.Branch = Proto.Branch
+    toProto QueryTypes.Branch {..} = Proto.make $ do
+      ProtoFields.blockHash .= toProto branchBlockHash
+      ProtoFields.children .= fmap toProto branchChildren
+
 -- |NB: Assumes the data is at least 32 bytes
 decodeBlockHashInput :: Word8 -> Ptr Word8 -> IO Q.BlockHashInput
 decodeBlockHashInput 0 _ = return Q.BHIBest
@@ -1452,12 +1490,14 @@ decodeReceiveName ptr len = Wasm.ReceiveName <$> decodeText ptr len
 
 -- |The result type of a gRPC2 query.
 data QueryResult
-    = QRInternalError -- ^ An internal error occured.
+    = QRInvalidArgument -- ^ An invalid argument was provided by the client.
+    | QRInternalError -- ^ An internal error occured.
     | QRSuccess -- ^ The query succeeded.
     | QRNotFound -- ^ The requested data could not be found.
 
 -- |Convert a QueryResult to a result code.
 queryResultCode :: QueryResult -> Int64
+queryResultCode QRInvalidArgument = -2
 queryResultCode QRInternalError = -1
 queryResultCode QRSuccess = 0
 queryResultCode QRNotFound = 1
@@ -1960,6 +2000,123 @@ getTokenomicsInfoV2 cptr blockType blockHashPtr outHash outVec copierCbk = do
     result <- runMVR (Q.getRewardStatus bhi) mvr
     returnMessageWithBlock (copier outVec) outHash result
 
+getPoolDelegatorsV2 ::
+    StablePtr Ext.ConsensusRunner ->
+    Ptr SenderChannel ->
+    -- |Block type.
+    Word8 ->
+    -- |Block hash.
+    Ptr Word8 ->
+    -- |Baker id.
+    Word64 ->
+    -- |Out pointer for writing the block hash that was used.
+    Ptr Word8 ->
+    FunPtr ChannelSendCallback ->
+    IO Int64
+getPoolDelegatorsV2 cptr channel blockType blockHashPtr bakerId outHash cbk = do
+    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
+    let sender = callChannelSendCallback cbk
+    bhi <- decodeBlockHashInput blockType blockHashPtr
+    (bh, eitherDelegators) <- runMVR (Q.getDelegators bhi (Just $ fromIntegral bakerId)) mvr
+    case eitherDelegators of
+        Left Q.GDEUnsupportedProtocolVersion -> return $ queryResultCode QRInvalidArgument
+        Left Q.GDEPoolNotFound -> return $ queryResultCode QRNotFound
+        Left Q.GDEBlockNotFound -> return $ queryResultCode QRNotFound
+        Right delegators -> do
+          copyHashTo outHash bh
+          _ <- enqueueMessages (sender channel) delegators
+          return (queryResultCode QRSuccess)
+
+getPoolDelegatorsRewardPeriodV2 ::
+    StablePtr Ext.ConsensusRunner ->
+    Ptr SenderChannel ->
+    -- |Block type.
+    Word8 ->
+    -- |Block hash.
+    Ptr Word8 ->
+    -- |Baker id.
+    Word64 ->
+    -- |Out pointer for writing the block hash that was used.
+    Ptr Word8 ->
+    FunPtr ChannelSendCallback ->
+    IO Int64
+getPoolDelegatorsRewardPeriodV2 cptr channel blockType blockHashPtr bakerId outHash cbk = do
+    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
+    let sender = callChannelSendCallback cbk
+    bhi <- decodeBlockHashInput blockType blockHashPtr
+    (bh, eitherDelegators) <- runMVR (Q.getDelegatorsRewardPeriod bhi (Just $ fromIntegral bakerId)) mvr
+    case eitherDelegators of
+        Left Q.GDEUnsupportedProtocolVersion -> return $ queryResultCode QRInvalidArgument
+        Left Q.GDEPoolNotFound -> return $ queryResultCode QRNotFound
+        Left Q.GDEBlockNotFound -> return $ queryResultCode QRNotFound
+        Right delegators -> do
+          copyHashTo outHash bh
+          _ <- enqueueMessages (sender channel) delegators
+          return (queryResultCode QRSuccess)
+
+getPassiveDelegatorsV2 ::
+    StablePtr Ext.ConsensusRunner ->
+    Ptr SenderChannel ->
+    -- |Block type.
+    Word8 ->
+    -- |Block hash.
+    Ptr Word8 ->
+    -- |Out pointer for writing the block hash that was used.
+    Ptr Word8 ->
+    FunPtr ChannelSendCallback ->
+    IO Int64
+getPassiveDelegatorsV2 cptr channel blockType blockHashPtr outHash cbk = do
+    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
+    let sender = callChannelSendCallback cbk
+    bhi <- decodeBlockHashInput blockType blockHashPtr
+    (bh, eitherDelegators) <- runMVR (Q.getDelegators bhi Nothing) mvr
+    case eitherDelegators of
+        Left Q.GDEUnsupportedProtocolVersion -> return $ queryResultCode QRInvalidArgument
+        Left Q.GDEPoolNotFound -> return $ queryResultCode QRNotFound
+        Left Q.GDEBlockNotFound -> return $ queryResultCode QRNotFound
+        Right delegators -> do
+          copyHashTo outHash bh
+          _ <- enqueueMessages (sender channel) delegators
+          return (queryResultCode QRSuccess)
+
+getPassiveDelegatorsRewardPeriodV2 ::
+    StablePtr Ext.ConsensusRunner ->
+    Ptr SenderChannel ->
+    -- |Block type.
+    Word8 ->
+    -- |Block hash.
+    Ptr Word8 ->
+    -- |Out pointer for writing the block hash that was used.
+    Ptr Word8 ->
+    FunPtr ChannelSendCallback ->
+    IO Int64
+getPassiveDelegatorsRewardPeriodV2 cptr channel blockType blockHashPtr outHash cbk = do
+    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
+    let sender = callChannelSendCallback cbk
+    bhi <- decodeBlockHashInput blockType blockHashPtr
+    (bh, eitherDelegators) <- runMVR (Q.getDelegatorsRewardPeriod bhi Nothing) mvr
+    case eitherDelegators of
+        Left Q.GDEUnsupportedProtocolVersion -> return $ queryResultCode QRInvalidArgument
+        Left Q.GDEPoolNotFound -> return $ queryResultCode QRNotFound
+        Left Q.GDEBlockNotFound -> return $ queryResultCode QRNotFound
+        Right delegators -> do
+          copyHashTo outHash bh
+          _ <- enqueueMessages (sender channel) delegators
+          return (queryResultCode QRSuccess)
+
+getBranchesV2 ::
+    StablePtr Ext.ConsensusRunner ->
+    Ptr ReceiverVec ->
+    -- |Callback to output data.
+    FunPtr CopyToVecCallback ->
+    IO Int64
+getBranchesV2 cptr outVec copierCbk = do
+    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
+    let copier = callCopyToVecCallback copierCbk
+    result <- runMVR Q.getBranches mvr
+    returnMessage (copier outVec) $ Just result
+
+
 {- |Write the hash to the provided pointer, and if the message is given encode and
    write it using the provided callback.
 -}
@@ -2297,6 +2454,69 @@ foreign export ccall
         Ptr Word8 ->
         -- |Out pointer for writing the block hash that was used.
         Ptr Word8 ->
+        Ptr ReceiverVec ->
+        FunPtr CopyToVecCallback ->
+        IO Int64
+
+foreign export ccall
+    getPoolDelegatorsV2 ::
+        StablePtr Ext.ConsensusRunner ->
+        Ptr SenderChannel ->
+        -- |Block type.
+        Word8 ->
+        -- |Block hash.
+        Ptr Word8 ->
+        -- |Baker id.
+        Word64 ->
+        -- |Out pointer for writing the block hash that was used.
+        Ptr Word8 ->
+        FunPtr ChannelSendCallback ->
+        IO Int64
+
+foreign export ccall
+    getPoolDelegatorsRewardPeriodV2 ::
+        StablePtr Ext.ConsensusRunner ->
+        Ptr SenderChannel ->
+        -- |Block type.
+        Word8 ->
+        -- |Block hash.
+        Ptr Word8 ->
+        -- |Baker id.
+        Word64 ->
+        -- |Out pointer for writing the block hash that was used.
+        Ptr Word8 ->
+        FunPtr ChannelSendCallback ->
+        IO Int64
+
+foreign export ccall
+    getPassiveDelegatorsV2 ::
+        StablePtr Ext.ConsensusRunner ->
+        Ptr SenderChannel ->
+        -- |Block type.
+        Word8 ->
+        -- |Block hash.
+        Ptr Word8 ->
+        -- |Out pointer for writing the block hash that was used.
+        Ptr Word8 ->
+        FunPtr ChannelSendCallback ->
+        IO Int64
+
+foreign export ccall
+    getPassiveDelegatorsRewardPeriodV2 ::
+        StablePtr Ext.ConsensusRunner ->
+        Ptr SenderChannel ->
+        -- |Block type.
+        Word8 ->
+        -- |Block hash.
+        Ptr Word8 ->
+        -- |Out pointer for writing the block hash that was used.
+        Ptr Word8 ->
+        FunPtr ChannelSendCallback ->
+        IO Int64
+
+foreign export ccall
+    getBranchesV2 ::
+        StablePtr Ext.ConsensusRunner ->
         Ptr ReceiverVec ->
         FunPtr CopyToVecCallback ->
         IO Int64

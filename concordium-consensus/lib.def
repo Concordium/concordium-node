@@ -64,3 +64,8 @@ EXPORTS
  getBlocksAtHeightV2
  getTokenomicsInfoV2
  invokeInstanceV2
+ getPoolDelegatorsV2
+ getPoolDelegatorsRewardPeriodV2
+ getPassiveDelegatorsV2
+ getPassiveDelegatorsRewardPeriodV2
+ getBranchesV2

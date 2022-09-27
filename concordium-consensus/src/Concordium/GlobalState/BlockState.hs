@@ -400,6 +400,26 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
     -- with no duplicates.
     getActiveBakersAndDelegators :: (AccountVersionFor (MPV m) ~ 'AccountV1) => BlockState m -> m ([ActiveBakerInfo m], [ActiveDelegatorInfo])
 
+    -- |Get the registered delegators of a pool. Changes are reflected immediately here and will be effective in the next reward period.
+    -- The baker id is used to identify the pool and Nothing is used for the passive delegators.
+    -- Returns Nothing if it fails to identify the baker pool. Should always return a value for the passive delegators.
+    getActiveDelegators
+      :: (AccountVersionFor (MPV m) ~ 'AccountV1)
+      => BlockState m
+      -- |Nothing for the passive pool, otherwise the baker id of the pool.
+      -> Maybe BakerId
+      -> m (Maybe [(AccountAddress, ActiveDelegatorInfo)])
+
+    -- |Get the delegators of a pool for the reward period. Changes are not reflected here until the next reward period.
+    -- The baker id is used to identify the pool and Nothing is used for the passive delegators.
+    -- Returns Nothing if it fails to identify the baker pool. Should always return a value for the passive delegators.
+    getCurrentDelegators
+      :: (AccountVersionFor (MPV m) ~ 'AccountV1)
+      => BlockState m
+      -- |Nothing for the passive pool, otherwise the baker id of the pool.
+      -> Maybe BakerId
+      -> m (Maybe [(AccountAddress, DelegatorCapital)])
+
     -- |Query an account by the id of the credential that belonged to it.
     getAccountByCredId :: BlockState m -> ID.RawCredentialRegistrationID -> m (Maybe (AccountIndex, Account m))
 
@@ -1241,6 +1261,8 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   accountExists s = lift . accountExists s
   getActiveBakers = lift . getActiveBakers
   getActiveBakersAndDelegators = lift . getActiveBakersAndDelegators
+  getActiveDelegators bs = lift . getActiveDelegators bs
+  getCurrentDelegators bs = lift . getCurrentDelegators bs
   getAccountByCredId s = lift . getAccountByCredId s
   getAccountByIndex s = lift . getAccountByIndex s
   getBakerAccount s = lift . getBakerAccount s
