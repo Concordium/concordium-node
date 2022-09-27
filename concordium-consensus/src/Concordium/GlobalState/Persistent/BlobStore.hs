@@ -283,6 +283,11 @@ runBlobStoreTemp dir a = bracket openf closef usef
 
 -- | Truncate the blob store after the blob stored at the given offset. The blob should not be
 -- corrupted (i.e., its size header should be readable, and its size should match the size header).
+--
+-- **Note**: This function must not be made after any writes to the blob store. It assumes that the
+-- current 'blobStoreMMap' is the only mapping of the file (which can be relied on if no writes
+-- have occurred). Since the existing memory map is invalidated, any other references to it will
+-- also be invalidated, such as 'BS.ByteString's returned by 'loadBlobPtr'.
 truncateBlobStore :: BlobStoreAccess -> BlobRef a -> IO ()
 truncateBlobStore BlobStoreAccess{..} (BlobRef offset) = do
   bh@BlobHandle{..} <- takeMVar blobStoreFile
@@ -292,7 +297,7 @@ truncateBlobStore BlobStoreAccess{..} (BlobRef offset) = do
     case esize :: Either String Word64 of
       Right size -> do
         let newSize = offset + 8 + size
-        when (newSize < size) $ do
+        unless (bhSize == fromIntegral newSize) $ do
           -- unmap the current memory mapped file since on some platforms the file cannot be
           -- truncated if it is memory mapped.
           oldMmap <- readIORef blobStoreMMap
