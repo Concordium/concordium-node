@@ -2,7 +2,8 @@
 
 ## Unreleased changes
 
-- Fix a bug in database recovery where truncating the block state database would hang on Windows.
+- Fix a bug in database recovery where the node would hang when truncating the block state database
+  on Windows.
 
 ## 4.4.3
 
