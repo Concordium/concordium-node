@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+- Fix a bug in database recovery where truncating the block state database would hang on Windows.
+
 ## 4.4.3
 
 - Fix a bug in database recovery where corruption was not always correctly detected.
