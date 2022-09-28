@@ -520,8 +520,8 @@ getAllIdentityProviders :: BlockHashInput -> MVR gsconf finconf (BlockHash, Mayb
 getAllIdentityProviders = liftSkovQueryBHI $ BS.getAllIdentityProviders <=< blockState
 
 -- |Get all of the anonymity revokers registered in the system as of a given block.
-getAllAnonymityRevokers :: BlockHash -> MVR gsconf finconf (Maybe [ArInfo])
-getAllAnonymityRevokers = liftSkovQueryBlock $ BS.getAllAnonymityRevokers <=< blockState
+getAllAnonymityRevokers :: BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe [ArInfo])
+getAllAnonymityRevokers = liftSkovQueryBHI $ BS.getAllAnonymityRevokers <=< blockState
 
 -- |Get the ancestors of a block (including itself) up to a maximum
 -- length.

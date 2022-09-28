@@ -71,3 +71,4 @@ EXPORTS
  getBranchesV2
  getElectionInfoV2
  getIdentityProvidersV2
+ getAnonymityRevokersV2

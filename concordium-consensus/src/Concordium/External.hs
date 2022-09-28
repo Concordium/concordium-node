@@ -1070,7 +1070,7 @@ getAllAnonymityRevokers :: StablePtr ConsensusRunner -> CString -> IO CString
 getAllAnonymityRevokers cptr blockcstr =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (Q.getAllAnonymityRevokers bh)
+        Just bh -> jsonQuery cptr (snd <$> Q.getAllAnonymityRevokers (BHIGiven bh))
 
 -- |Given a null-terminated string that represents a block hash (base 16), and a number of blocks,
 -- returns a null-terminated string containing a JSON list of the ancestors of the node (up to the

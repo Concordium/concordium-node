@@ -494,6 +494,9 @@ pub mod server {
             futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
         /// Return type for the 'GetAncestors' method.
         type GetAncestorsStream = futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
+        /// Return type for the 'GetAnonymityRevokers' method.
+        type GetAnonymityRevokersStream =
+            futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
         /// Return type for the 'GetBakerList' method.
         type GetBakerListStream = futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
         /// Return type for the 'Blocks' method.
@@ -953,6 +956,17 @@ pub mod server {
         ) -> Result<tonic::Response<Self::GetIdentityProvidersStream>, tonic::Status> {
             let (sender, receiver) = futures::channel::mpsc::channel(10);
             let hash = self.consensus.get_identity_providers_v2(request.get_ref(), sender)?;
+            let mut response = tonic::Response::new(receiver);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_anonymity_revokers(
+            &self,
+            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+        ) -> Result<tonic::Response<Self::GetAnonymityRevokersStream>, tonic::Status> {
+            let (sender, receiver) = futures::channel::mpsc::channel(10);
+            let hash = self.consensus.get_anonymity_revokers_v2(request.get_ref(), sender)?;
             let mut response = tonic::Response::new(receiver);
             add_hash(&mut response, hash)?;
             Ok(response)

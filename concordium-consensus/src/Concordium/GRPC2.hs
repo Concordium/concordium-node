@@ -2184,6 +2184,30 @@ getIdentityProvidersV2 cptr channel blockType blockHashPtr outHash cbk = do
             _ <- enqueueMessages (sender channel) ipInfos
             return (queryResultCode QRSuccess)
 
+getAnonymityRevokersV2 ::
+    StablePtr Ext.ConsensusRunner ->
+    Ptr SenderChannel ->
+    -- |Block type.
+    Word8 ->
+    -- |Block hash.
+    Ptr Word8 ->
+    -- |Out pointer for writing the block hash that was used.
+    Ptr Word8 ->
+    FunPtr ChannelSendCallback ->
+    IO Int64
+getAnonymityRevokersV2 cptr channel blockType blockHashPtr outHash cbk = do
+    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
+    let sender = callChannelSendCallback cbk
+    bhi <- decodeBlockHashInput blockType blockHashPtr
+    (bh, maybeAnonymityRevokers) <- runMVR (Q.getAllAnonymityRevokers bhi) mvr
+    case maybeAnonymityRevokers of
+        Nothing -> return (queryResultCode QRNotFound)
+        Just arInfos -> do
+            copyHashTo outHash bh
+            _ <- enqueueMessages (sender channel) arInfos
+            return (queryResultCode QRSuccess)
+
+
 {- |Write the hash to the provided pointer, and if the message is given encode and
    write it using the provided callback.
 -}
@@ -2614,3 +2638,15 @@ foreign export ccall
         FunPtr ChannelSendCallback ->
         IO Int64
 
+foreign export ccall
+    getAnonymityRevokersV2 ::
+        StablePtr Ext.ConsensusRunner ->
+        Ptr SenderChannel ->
+        -- |Block type.
+        Word8 ->
+        -- |Block hash.
+        Ptr Word8 ->
+        -- |Out pointer for writing the block hash that was used.
+        Ptr Word8 ->
+        FunPtr ChannelSendCallback ->
+        IO Int64
