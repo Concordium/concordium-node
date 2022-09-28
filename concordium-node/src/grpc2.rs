@@ -827,11 +827,13 @@ pub mod server {
                 }
                 types::account_transaction_payload::Payload::Transfer(p) => match p.memo {
                     None => {
+                        // Add tag for payload type.
                         pl_cursor.write_u8(3)?;
                         serialize_account_address(p.receiver.require()?, &mut pl_cursor)?;
                         pl_cursor.write_u64::<BigEndian>(p.amount.require()?.value)?;
                     }
                     Some(memo) => {
+                        // Add tag for payload type.
                         pl_cursor.write_u8(22)?;
                         serialize_account_address(p.receiver.require()?, &mut pl_cursor)?;
                         serialize_memo(memo, &mut pl_cursor)?;
@@ -839,15 +841,21 @@ pub mod server {
                     }
                 },
                 types::account_transaction_payload::Payload::DeployModule(p) => {
+                    // Add tag for payload type.
+                    pl_cursor.write_u8(0)?;
                     serialize_versioned_wasm_module(p, &mut pl_cursor)?;
                 }
                 types::account_transaction_payload::Payload::InitContract(p) => {
+                    // Add tag for payload type.
+                    pl_cursor.write_u8(1)?;
                     pl_cursor.write_u64::<BigEndian>(p.amount.require()?.value)?;
                     serialize_module_ref(p.module_ref.require()?, &mut pl_cursor)?;
                     serialize_init_name(p.init_name.require()?, &mut pl_cursor)?;
                     serialize_parameter(p.parameter.require()?, &mut pl_cursor)?;
                 }
                 types::account_transaction_payload::Payload::UpdateContract(p) => {
+                    // Add tag for payload type.
+                    pl_cursor.write_u8(2)?;
                     pl_cursor.write_u64::<BigEndian>(p.amount.require()?.value)?;
                     let addr = p.address.require()?;
                     pl_cursor.write_u64::<BigEndian>(addr.index)?;
@@ -856,6 +864,8 @@ pub mod server {
                     serialize_parameter(p.parameter.require()?, &mut pl_cursor)?;
                 }
                 types::account_transaction_payload::Payload::RegisterData(p) => {
+                    // Add tag for payload type.
+                    pl_cursor.write_u8(21)?;
                     const MAX_REGISTERED_DATA_SIZE: usize = 256;
                     if p.value.len() > MAX_REGISTERED_DATA_SIZE {
                         return Err(tonic::Status::invalid_argument(format!(
@@ -975,6 +985,7 @@ pub mod server {
 
         if src.len() <= max_size {
             out.write_u32::<BigEndian>(version)?;
+            out.write_u32::<BigEndian>(try_into_u32(src.len(), "Length of module")?)?;
             out.write(&src)?;
             Ok(())
         } else {
@@ -994,6 +1005,10 @@ pub mod server {
         const MAX_PARAMETER_SIZE: u32 = 1024;
 
         if parameter.value.len() <= MAX_PARAMETER_SIZE as usize {
+            out.write_u16::<BigEndian>(try_into_u16(
+                parameter.value.len(),
+                "Length of Parameter",
+            )?)?;
             out.write(&parameter.value)?;
             Ok(())
         } else {
