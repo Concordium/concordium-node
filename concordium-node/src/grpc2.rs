@@ -943,6 +943,7 @@ pub mod server {
     /// Checks that the memo is valid and writes it into `out`.
     fn serialize_memo<W: Write>(memo: types::Memo, out: &mut W) -> Result<(), tonic::Status> {
         if memo.value.len() <= MAX_MEMO_SIZE {
+            out.write_u16::<BigEndian>(try_into_u16(memo.value.len(), "Length of Memo")?)?;
             out.write(&memo.value)?;
             Ok(())
         } else {
