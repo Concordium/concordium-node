@@ -7,12 +7,13 @@ efficient updates during a transaction, including checkpointing and rollbacks.
 module Concordium.GlobalState.ContractStateV1
  (
    PersistentState,
-   InMemoryPersistentState,
+   InMemoryPersistentState(..),
    MutableState(..),
    MutableStateInner,
    newMutableState,
    makePersistent,
    withMutableState,
+   withPersistentState,
    getNewStateSize,
    freeze,
    thaw,
@@ -20,6 +21,7 @@ module Concordium.GlobalState.ContractStateV1
    thawInMemoryPersistent,
    toByteString,
    migratePersistentState,
+   LoadCallback,
    -- * Testing
    lookupKey,
    generatePersistentTree

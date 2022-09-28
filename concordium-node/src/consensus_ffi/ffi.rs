@@ -1,3 +1,4 @@
+use super::helpers::ContractStateResponse;
 use crate::{
     common::p2p_peer::RemotePeerId,
     consensus_ffi::{
@@ -26,6 +27,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc, Once,
     },
+    u64,
 };
 
 /// A type used in this module to document that a given value is intended
@@ -258,6 +260,28 @@ type RegenesisFreeCallback = unsafe extern "C" fn(*const Regenesis);
 
 /// A type of callback that extends the given vector with the provided data.
 type CopyToVecCallback = extern "C" fn(*mut Vec<u8>, *const u8, i64);
+
+/// The cryptographic parameters expose through ffi.
+type CryptographicParameters = id::types::GlobalContext<id::constants::ArCurve>;
+
+/// A type of callback that copies cryptographic parameters from one pointer to
+/// another.
+type CopyCryptographicParametersCallback =
+    extern "C" fn(*mut Option<CryptographicParameters>, *const CryptographicParameters);
+
+/// Context for returning V1 contract state in the
+/// [`get_instance_state_v2`](ConsensusContainer::get_instance_state_v2) query.
+pub struct V1ContractStateReceiver {
+    state:  wasm_chain_integration::v1::trie::PersistentState,
+    loader: wasm_chain_integration::v1::trie::foreign::LoadCallback,
+}
+
+/// A type of callback to write V1 contract state into.
+type CopyV1ContractStateCallback = extern "C" fn(
+    *mut Option<V1ContractStateReceiver>,
+    *mut wasm_chain_integration::v1::trie::PersistentState,
+    wasm_chain_integration::v1::trie::foreign::LoadCallback,
+);
 
 /// Context necessary for Haskell code/Consensus to send notifications on
 /// important events to Rust code (i.e., RPC server, or network layer).
@@ -548,6 +572,24 @@ extern "C" {
         copier: CopyToVecCallback,
     ) -> i64;
 
+    /// Get the cryptographic parameters at the end of a given block.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `out` - Location to write the output of the query.
+    /// * `copier` - Callback for writting the output.
+    pub fn getCryptographicParametersV2(
+        consensus: *mut consensus_runner,
+        block_id_type: u8,
+        block_id: *const u8,
+        out_hash: *mut u8,
+        out: *mut Option<CryptographicParameters>,
+        copier: CopyCryptographicParametersCallback,
+    ) -> i64;
+
     /// Stream a list of all modules.
     ///
     /// * `consensus` - Pointer to the current consensus.
@@ -637,6 +679,38 @@ extern "C" {
         copier: CopyToVecCallback,
     ) -> i64;
 
+    /// Get an information about a specific smart contract instance state.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `contract_address_index` - The contract address index to use for the
+    ///   query.
+    /// * `contract_address_subindex` - The contract address subindex to use for
+    ///   the query.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `out_v0` - Location to write the state if the instance is a V0
+    ///   instance.
+    /// * `copier_v0` - Callback for writting the output in case of a V0
+    ///   instance.
+    /// * `out_v1` - Location where to write the state if the instance is a V1
+    ///   instance.
+    /// * `copier_v1` - Callback for writting the output in case of a V1
+    ///   instance.
+    pub fn getInstanceStateV2(
+        consensus: *mut consensus_runner,
+        block_id_type: u8,
+        block_id: *const u8,
+        contract_address_index: u64,
+        contract_address_subindex: u64,
+        out_hash: *mut u8,
+        out_v0: *mut Vec<u8>,
+        copier_v0: CopyToVecCallback,
+        out_v1: *mut Option<V1ContractStateReceiver>,
+        copier_v1: CopyV1ContractStateCallback,
+    ) -> i64;
+
     /// Stream a list of ancestors for the given block
     ///
     /// * `consensus` - Pointer to the current consensus.
@@ -695,6 +769,285 @@ extern "C" {
     pub fn getBlockItemStatusV2(
         consensus: *mut consensus_runner,
         transaction_hash: *const u8,
+        out: *mut Vec<u8>,
+        copier: CopyToVecCallback,
+    ) -> i64;
+
+    /// Run the smart contract entrypoint in a given context and in the state at
+    /// the end of the given block.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `contract_index` - The contact index to invoke.
+    /// * `contract_subindex` - The contact subindex to invoke.
+    /// * `invoker_address_type` - Tag for whether an account or a contract
+    ///   address is provided. If 0 no address is provided, if 1 the
+    ///   `invoker_account_address_ptr` is 32 bytes for an account address, if 2
+    ///   the `invoker_contract_index` and `invoker_contract_subindex` is used
+    ///   for the contract address.
+    /// * `invoker_account_address_ptr` - Pointer to the address if this is
+    ///   provided. The length will depend on the value of
+    ///   `invoker_address_type`.
+    /// * `invoker_contract_index` - The invoker contact index. Only used if
+    ///   `invoker_address_type` is 2.
+    /// * `invoker_contract_subindex` - The invoker contact subindex. Only used
+    ///   if `invoker_address_type` is 2.
+    /// * `amount` - The amount to use for the invocation.
+    /// * `receive_name_ptr` - Pointer to the entrypoint to invoke.
+    /// * `receive_name_len` - Length of the bytes for the entrypoint.
+    /// * `parameter_ptr` - Pointer to the parameter to invoke with.
+    /// * `parameter_len` - Length of the bytes for the parameter.
+    /// * `energy` - The energy to use for the invocation.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `out` - Location to write the output of the query.
+    /// * `copier` - Callback for writting the output.
+    pub fn invokeInstanceV2(
+        consensus: *mut consensus_runner,
+        block_id_type: u8,
+        block_id: *const u8,
+        contract_index: u64,
+        contract_subindex: u64,
+        invoker_address_type: u8,
+        invoker_account_address_ptr: *const u8,
+        invoker_contract_index: u64,
+        invoker_contract_subindex: u64,
+        amount: u64,
+        receive_name_ptr: *const u8,
+        receive_name_len: u32,
+        parameter_ptr: *const u8,
+        parameter_len: u32,
+        energy: u64,
+        out_hash: *mut u8,
+        out: *mut Vec<u8>,
+        copier: CopyToVecCallback,
+    ) -> i64;
+
+    /// Get information, such as height, timings, and transaction counts for the
+    /// given block.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `out` - Location to write the output of the query.
+    /// * `copier` - Callback for writting the output.
+    pub fn getBlockInfoV2(
+        consensus: *mut consensus_runner,
+        block_id_type: u8,
+        block_id: *const u8,
+        out_hash: *mut u8,
+        out: *mut Vec<u8>,
+        copier: CopyToVecCallback,
+    ) -> i64;
+
+    /// Stream a list of bakers at the end of a given block.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `stream` - Pointer to the response stream.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `callback` - Callback for writing to the response stream.
+    pub fn getBakerListV2(
+        consensus: *mut consensus_runner,
+        stream: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+        block_id_type: u8,
+        block_id: *const u8,
+        out_hash: *mut u8,
+        callback: extern "C" fn(
+            *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+            *const u8,
+            i64,
+        ) -> i32,
+    ) -> i64;
+
+    /// Get information about a given pool at the end of a given block.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `baker_id` - Baker id of the owner of the pool to query.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `out` - Location to write the output of the query.
+    /// * `copier` - Callback for writting the output.
+    pub fn getPoolInfoV2(
+        consensus: *mut consensus_runner,
+        block_id_type: u8,
+        block_id: *const u8,
+        baker_id: u64,
+        out_hash: *mut u8,
+        out: *mut Vec<u8>,
+        copier: CopyToVecCallback,
+    ) -> i64;
+
+    /// Get information about the passive delegators at the end of a given
+    /// block.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `out` - Location to write the output of the query.
+    /// * `copier` - Callback for writting the output.
+    pub fn getPassiveDelegationInfoV2(
+        consensus: *mut consensus_runner,
+        block_id_type: u8,
+        block_id: *const u8,
+        out_hash: *mut u8,
+        out: *mut Vec<u8>,
+        copier: CopyToVecCallback,
+    ) -> i64;
+
+    /// Get a list of live blocks at a given height.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `height` - Block height, is absolute if the genesis_index is 0,
+    ///   otherwise relative.
+    /// * `genesis_index` - Genesis index to start from. Set to 0 to use
+    ///   absolute height.
+    /// * `restrict` - Whether to return results only from the specified genesis
+    ///   index (1), or allow results from more recent genesis indices as well
+    ///   (0).
+    /// * `out` - Location to write the output of the query.
+    /// * `copier` - Callback for writting the output.
+    pub fn getBlocksAtHeightV2(
+        consensus: *mut consensus_runner,
+        height: u64,
+        genesis_index: u32,
+        restrict: u8,
+        out: *mut Vec<u8>,
+        copier: CopyToVecCallback,
+    ) -> i64;
+
+    /// Get information related to tokenomics at the end of a given block.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `out` - Location to write the output of the query.
+    /// * `copier` - Callback for writting the output.
+    pub fn getTokenomicsInfoV2(
+        consensus: *mut consensus_runner,
+        block_id_type: u8,
+        block_id: *const u8,
+        out_hash: *mut u8,
+        out: *mut Vec<u8>,
+        copier: CopyToVecCallback,
+    ) -> i64;
+
+    /// Get the pool delegators of a given pool at the end of a given block. The
+    /// stream will end when all the delegators have been returned.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `stream` - Pointer to the response stream.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `baker_id` - Baker id of the owner of the pool to query.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `callback` - Callback for writing to the response stream.
+    pub fn getPoolDelegatorsV2(
+        consensus: *mut consensus_runner,
+        stream: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+        block_id_type: u8,
+        block_id: *const u8,
+        baker_id: u64,
+        out_hash: *mut u8,
+        callback: extern "C" fn(
+            *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+            *const u8,
+            i64,
+        ) -> i32,
+    ) -> i64;
+
+    /// Get the reward period pool delegators of a given pool at the end of a
+    /// given block. The stream will end when all the delegators have been
+    /// returned.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `stream` - Pointer to the response stream.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `baker_id` - Baker id of the owner of the pool to query.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `callback` - Callback for writing to the response stream.
+    pub fn getPoolDelegatorsRewardPeriodV2(
+        consensus: *mut consensus_runner,
+        stream: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+        block_id_type: u8,
+        block_id: *const u8,
+        baker_id: u64,
+        out_hash: *mut u8,
+        callback: extern "C" fn(
+            *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+            *const u8,
+            i64,
+        ) -> i32,
+    ) -> i64;
+
+    /// Get the passive delegators at the end of a given block. The stream will
+    /// end when all the delegators have been returned.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `stream` - Pointer to the response stream.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `callback` - Callback for writing to the response stream.
+    pub fn getPassiveDelegatorsV2(
+        consensus: *mut consensus_runner,
+        stream: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+        block_id_type: u8,
+        block_id: *const u8,
+        out_hash: *mut u8,
+        callback: extern "C" fn(
+            *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+            *const u8,
+            i64,
+        ) -> i32,
+    ) -> i64;
+
+    /// Get the reward period passive delegators at the end of a given block.
+    /// The stream will end when all the delegators have been returned.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `stream` - Pointer to the response stream.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `callback` - Callback for writing to the response stream.
+    pub fn getPassiveDelegatorsRewardPeriodV2(
+        consensus: *mut consensus_runner,
+        stream: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+        block_id_type: u8,
+        block_id: *const u8,
+        out_hash: *mut u8,
+        callback: extern "C" fn(
+            *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+            *const u8,
+            i64,
+        ) -> i32,
+    ) -> i64;
+
+    /// Get the current branches of blocks starting and including from the last
+    /// finalized block.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `out` - Location to write the output of the query.
+    /// * `copier` - Callback for writting the output.
+    pub fn getBranchesV2(
+        consensus: *mut consensus_runner,
         out: *mut Vec<u8>,
         copier: CopyToVecCallback,
     ) -> i64;
@@ -1257,6 +1610,44 @@ impl ConsensusContainer {
         Ok(out_data)
     }
 
+    /// Get the cryptographic parameters in a given block.
+    pub fn get_cryptographic_parameters_v2(
+        &self,
+        block_hash: &crate::grpc2::types::BlockHashInput,
+    ) -> Result<([u8; 32], crate::grpc2::types::CryptographicParameters), tonic::Status> {
+        use crate::grpc2::Require;
+        let (block_id_type, block_hash) =
+            crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut out_hash = [0u8; 32];
+        let mut crypto_parameter_ptr: Option<CryptographicParameters> = None;
+        let response: ConsensusQueryResponse = unsafe {
+            getCryptographicParametersV2(
+                consensus,
+                block_id_type,
+                block_hash,
+                out_hash.as_mut_ptr(),
+                &mut crypto_parameter_ptr,
+                copy_cryptographic_parameters_callback,
+            )
+            .try_into()?
+        };
+        response.ensure_ok("block")?;
+        let crypto_parameters = crypto_parameter_ptr
+            .ok_or_else(|| tonic::Status::internal("Failed to access cryptographic parameters"))?;
+
+        let out = crate::grpc2::types::CryptographicParameters {
+            genesis_string:          crypto_parameters.genesis_string.clone(),
+            bulletproof_generators:  crypto_common::to_bytes(
+                crypto_parameters.bulletproof_generators(),
+            ),
+            on_chain_commitment_key: crypto_common::to_bytes(
+                &crypto_parameters.on_chain_commitment_key,
+            ),
+        };
+        Ok((out_hash, out))
+    }
+
     /// Look up accounts in the given block, and return a stream of their
     /// addresses.
     ///
@@ -1412,6 +1803,48 @@ impl ConsensusContainer {
         Ok((out_hash, out_data))
     }
 
+    /// Get the entire smart contract state of the specified instance.
+    pub fn get_instance_state_v2(
+        &self,
+        block_hash: &crate::grpc2::types::BlockHashInput,
+        address: &crate::grpc2::types::ContractAddress,
+    ) -> Result<([u8; 32], ContractStateResponse), tonic::Status> {
+        use crate::grpc2::Require;
+        let (block_id_type, block_hash) =
+            crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let addr_index = address.index;
+        let addr_subindex = address.subindex;
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut out_v0_data: Vec<u8> = Vec::new();
+        let mut out_v1_data = None;
+        let mut out_hash = [0u8; 32];
+        let response: ConsensusQueryResponse = unsafe {
+            getInstanceStateV2(
+                consensus,
+                block_id_type,
+                block_hash,
+                addr_index,
+                addr_subindex,
+                out_hash.as_mut_ptr(),
+                &mut out_v0_data,
+                copy_to_vec_callback,
+                &mut out_v1_data,
+                copy_v1_contract_state_callback,
+            )
+            .try_into()?
+        };
+        response.ensure_ok("block or instance")?;
+        match out_v1_data {
+            None => Ok((out_hash, ContractStateResponse::V0 {
+                state: out_v0_data,
+            })),
+            Some(data) => Ok((out_hash, ContractStateResponse::V1 {
+                state:  data.state,
+                loader: data.loader,
+            })),
+        }
+    }
+
     /// Get ancestors for the provided block.
     pub fn get_ancestors_v2(
         &self,
@@ -1461,6 +1894,383 @@ impl ConsensusContainer {
             .try_into()?
         };
         response.ensure_ok("transaction")?;
+        Ok(out_data)
+    }
+
+    /// Run the smart contract entrypoint in a given context and in the state at
+    /// the end of the given block.Get status of the tokenomics at the end of a
+    /// given block.
+    pub fn invoke_instance_v2(
+        &self,
+        request: &crate::grpc2::types::InvokeInstanceRequest,
+    ) -> Result<([u8; 32], Vec<u8>), tonic::Status> {
+        use crate::grpc2::Require;
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut out_data: Vec<u8> = Vec::new();
+        let mut out_hash = [0u8; 32];
+        let (block_id_type, block_id) =
+            crate::grpc2::types::block_hash_input_to_ffi(request.block_hash.as_ref().require()?)
+                .require()?;
+
+        // Optional Address to ffi
+        let (
+            invoker_address_type,
+            invoker_account_address_ptr,
+            invoker_contract_index,
+            invoker_contract_subindex,
+        ) = if let Some(address) = &request.invoker {
+            match address.r#type.as_ref().require()? {
+                crate::grpc2::types::address::Type::Account(account) => {
+                    (1, crate::grpc2::types::account_address_to_ffi(account).require()?, 0, 0)
+                }
+                crate::grpc2::types::address::Type::Contract(contract) => {
+                    (2, std::ptr::null(), contract.index, contract.subindex)
+                }
+            }
+        } else {
+            (0, std::ptr::null(), 0, 0)
+        };
+
+        let amount = request.amount.as_ref().require()?.value;
+
+        let (receive_name_ptr, receive_name_len) =
+            crate::grpc2::types::receive_name_to_ffi(request.entrypoint.as_ref().require()?)
+                .require()?;
+
+        // Parameter to ffi
+        let (parameter_ptr, parameter_len) = {
+            let bytes = &request.parameter.as_ref().require()?.value;
+            (
+                bytes.as_ptr(),
+                bytes.len().try_into().map_err(|_| {
+                    tonic::Status::invalid_argument("Parameter exceeds maximum supported size.")
+                })?,
+            )
+        };
+
+        let energy = request.energy.as_ref().require()?.value;
+
+        let contract = request.instance.as_ref().require()?;
+
+        let response: ConsensusQueryResponse = unsafe {
+            invokeInstanceV2(
+                consensus,
+                block_id_type,
+                block_id,
+                contract.index,
+                contract.subindex,
+                invoker_address_type,
+                invoker_account_address_ptr,
+                invoker_contract_index,
+                invoker_contract_subindex,
+                amount,
+                receive_name_ptr,
+                receive_name_len,
+                parameter_ptr,
+                parameter_len,
+                energy,
+                out_hash.as_mut_ptr(),
+                &mut out_data,
+                copy_to_vec_callback,
+            )
+        }
+        .try_into()?;
+        response.ensure_ok("block or contract")?;
+        Ok((out_hash, out_data))
+    }
+
+    /// Get information, such as height, timings, and transaction counts for the
+    /// given block.
+    pub fn get_block_info_v2(
+        &self,
+        block_hash: &crate::grpc2::types::BlockHashInput,
+    ) -> Result<([u8; 32], Vec<u8>), tonic::Status> {
+        use crate::grpc2::Require;
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut out_data: Vec<u8> = Vec::new();
+        let mut out_hash = [0u8; 32];
+        let (block_id_type, block_id) =
+            crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let response: ConsensusQueryResponse = unsafe {
+            getBlockInfoV2(
+                consensus,
+                block_id_type,
+                block_id,
+                out_hash.as_mut_ptr(),
+                &mut out_data,
+                copy_to_vec_callback,
+            )
+        }
+        .try_into()?;
+        response.ensure_ok("block")?;
+        Ok((out_hash, out_data))
+    }
+
+    /// Get a list bakers at the end of a given block. The stream will end when
+    /// all bakers has been returned.
+    pub fn get_baker_list_v2(
+        &self,
+        block_hash: &crate::grpc2::types::BlockHashInput,
+        sender: futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+    ) -> Result<[u8; 32], tonic::Status> {
+        use crate::grpc2::Require;
+        let sender = Box::new(sender);
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut buf = [0u8; 32];
+        let (block_id_type, block_hash) =
+            crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let response: ConsensusQueryResponse = unsafe {
+            getBakerListV2(
+                consensus,
+                Box::into_raw(sender),
+                block_id_type,
+                block_hash,
+                buf.as_mut_ptr(),
+                enqueue_bytearray_callback,
+            )
+        }
+        .try_into()?;
+        response.ensure_ok("block")?;
+        Ok(buf)
+    }
+
+    /// Get status information about a given pool at the end of a given block.
+    pub fn get_pool_info_v2(
+        &self,
+        request: &crate::grpc2::types::PoolInfoRequest,
+    ) -> Result<([u8; 32], Vec<u8>), tonic::Status> {
+        use crate::grpc2::Require;
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut out_data: Vec<u8> = Vec::new();
+        let mut out_hash = [0u8; 32];
+        let (block_id_type, block_id) =
+            crate::grpc2::types::block_hash_input_to_ffi(request.block_hash.as_ref().require()?)
+                .require()?;
+        let baker_id = crate::grpc2::types::baker_id_to_ffi(request.baker.as_ref().require()?);
+
+        let response: ConsensusQueryResponse = unsafe {
+            getPoolInfoV2(
+                consensus,
+                block_id_type,
+                block_id,
+                baker_id,
+                out_hash.as_mut_ptr(),
+                &mut out_data,
+                copy_to_vec_callback,
+            )
+        }
+        .try_into()?;
+        response.ensure_ok("block or baker")?;
+        Ok((out_hash, out_data))
+    }
+
+    /// Get status information about the passive delegators at the end of a
+    /// given block.
+    pub fn get_passive_delegation_info_v2(
+        &self,
+        block_hash: &crate::grpc2::types::BlockHashInput,
+    ) -> Result<([u8; 32], Vec<u8>), tonic::Status> {
+        use crate::grpc2::Require;
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut out_data: Vec<u8> = Vec::new();
+        let mut out_hash = [0u8; 32];
+        let (block_id_type, block_id) =
+            crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let response: ConsensusQueryResponse = unsafe {
+            getPassiveDelegationInfoV2(
+                consensus,
+                block_id_type,
+                block_id,
+                out_hash.as_mut_ptr(),
+                &mut out_data,
+                copy_to_vec_callback,
+            )
+        }
+        .try_into()?;
+        response.ensure_ok("block")?;
+        Ok((out_hash, out_data))
+    }
+
+    /// Get a stream of live blocks at a given height.
+    pub fn get_blocks_at_height_v2(
+        &self,
+        height: &crate::grpc2::types::BlocksAtHeightRequest,
+    ) -> Result<Vec<u8>, tonic::Status> {
+        use crate::grpc2::Require;
+        let consensus = self.consensus.load(Ordering::SeqCst);
+
+        let (block_height, genesis_index, restrict) =
+            crate::grpc2::types::blocks_at_height_request_to_ffi(height).require()?;
+
+        let mut out_data: Vec<u8> = Vec::new();
+        let _response: ConsensusQueryResponse = unsafe {
+            getBlocksAtHeightV2(
+                consensus,
+                block_height,
+                genesis_index,
+                restrict,
+                &mut out_data,
+                copy_to_vec_callback,
+            )
+        }
+        .try_into()?;
+        // The query should always return successfully, so no need to check here.
+        Ok(out_data)
+    }
+
+    /// Get status of the tokenomics at the end of a given block.
+    pub fn get_tokenomics_info_v2(
+        &self,
+        block_hash: &crate::grpc2::types::BlockHashInput,
+    ) -> Result<([u8; 32], Vec<u8>), tonic::Status> {
+        use crate::grpc2::Require;
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut out_data: Vec<u8> = Vec::new();
+        let mut out_hash = [0u8; 32];
+        let (block_id_type, block_id) =
+            crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let response: ConsensusQueryResponse = unsafe {
+            getTokenomicsInfoV2(
+                consensus,
+                block_id_type,
+                block_id,
+                out_hash.as_mut_ptr(),
+                &mut out_data,
+                copy_to_vec_callback,
+            )
+        }
+        .try_into()?;
+        response.ensure_ok("block")?;
+        Ok((out_hash, out_data))
+    }
+
+    /// Get the pool delegators of a given pool at the end of a given block.
+    /// The stream will end when all the delegators have been returned.
+    pub fn get_pool_delegators_v2(
+        &self,
+        request: &crate::grpc2::types::GetPoolDelegatorsRequest,
+        sender: futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+    ) -> Result<[u8; 32], tonic::Status> {
+        use crate::grpc2::Require;
+        let sender = Box::new(sender);
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut buf = [0u8; 32];
+        let (block_id_type, block_hash) =
+            crate::grpc2::types::block_hash_input_to_ffi(request.block_hash.as_ref().require()?)
+                .require()?;
+        let baker_id = crate::grpc2::types::baker_id_to_ffi(request.baker.as_ref().require()?);
+        let response: ConsensusQueryResponse = unsafe {
+            getPoolDelegatorsV2(
+                consensus,
+                Box::into_raw(sender),
+                block_id_type,
+                block_hash,
+                baker_id,
+                buf.as_mut_ptr(),
+                enqueue_bytearray_callback,
+            )
+        }
+        .try_into()?;
+        response.ensure_ok("block or pool")?;
+        Ok(buf)
+    }
+
+    /// Get the reward period pool delegators of a given pool at the end of a
+    /// given block. The stream will end when all the delegators have been
+    /// returned.
+    pub fn get_pool_delegators_reward_period_v2(
+        &self,
+        request: &crate::grpc2::types::GetPoolDelegatorsRequest,
+        sender: futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+    ) -> Result<[u8; 32], tonic::Status> {
+        use crate::grpc2::Require;
+        let sender = Box::new(sender);
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut buf = [0u8; 32];
+        let (block_id_type, block_hash) =
+            crate::grpc2::types::block_hash_input_to_ffi(request.block_hash.as_ref().require()?)
+                .require()?;
+        let baker_id = crate::grpc2::types::baker_id_to_ffi(request.baker.as_ref().require()?);
+        let response: ConsensusQueryResponse = unsafe {
+            getPoolDelegatorsRewardPeriodV2(
+                consensus,
+                Box::into_raw(sender),
+                block_id_type,
+                block_hash,
+                baker_id,
+                buf.as_mut_ptr(),
+                enqueue_bytearray_callback,
+            )
+        }
+        .try_into()?;
+        response.ensure_ok("block or pool")?;
+        Ok(buf)
+    }
+
+    /// Get the passive delegators at the end of a given block.
+    /// The stream will end when all the delegators have been returned.
+    pub fn get_passive_delegators_v2(
+        &self,
+        request: &crate::grpc2::types::BlockHashInput,
+        sender: futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+    ) -> Result<[u8; 32], tonic::Status> {
+        use crate::grpc2::Require;
+        let sender = Box::new(sender);
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut buf = [0u8; 32];
+        let (block_id_type, block_hash) =
+            crate::grpc2::types::block_hash_input_to_ffi(request).require()?;
+        let response: ConsensusQueryResponse = unsafe {
+            getPassiveDelegatorsV2(
+                consensus,
+                Box::into_raw(sender),
+                block_id_type,
+                block_hash,
+                buf.as_mut_ptr(),
+                enqueue_bytearray_callback,
+            )
+        }
+        .try_into()?;
+        response.ensure_ok("block")?;
+        Ok(buf)
+    }
+
+    /// Get the reward period pool delegators of a given pool at the end of a
+    /// given block. The stream will end when all the delegators have been
+    /// returned.
+    pub fn get_passive_delegators_reward_period_v2(
+        &self,
+        request: &crate::grpc2::types::BlockHashInput,
+        sender: futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+    ) -> Result<[u8; 32], tonic::Status> {
+        use crate::grpc2::Require;
+        let sender = Box::new(sender);
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut buf = [0u8; 32];
+        let (block_id_type, block_hash) =
+            crate::grpc2::types::block_hash_input_to_ffi(request).require()?;
+        let response: ConsensusQueryResponse = unsafe {
+            getPassiveDelegatorsRewardPeriodV2(
+                consensus,
+                Box::into_raw(sender),
+                block_id_type,
+                block_hash,
+                buf.as_mut_ptr(),
+                enqueue_bytearray_callback,
+            )
+        }
+        .try_into()?;
+        response.ensure_ok("block")?;
+        Ok(buf)
+    }
+
+    /// Get the current branches of blocks starting and including from the last
+    /// finalized block.
+    pub fn get_branches_v2(&self) -> Result<Vec<u8>, tonic::Status> {
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut out_data: Vec<u8> = Vec::new();
+        let _response: ConsensusQueryResponse =
+            unsafe { getBranchesV2(consensus, &mut out_data, copy_to_vec_callback) }.try_into()?;
         Ok(out_data)
     }
 }
@@ -1622,6 +2432,29 @@ extern "C" fn copy_to_vec_callback(out: *mut Vec<u8>, data: *const u8, len: i64)
     let data = unsafe { slice::from_raw_parts(data, len as usize) };
     let out = unsafe { &mut *out };
     out.extend_from_slice(data);
+}
+
+/// Copy cryptographic parameters to the target location provided by the
+/// `source` pointer.
+extern "C" fn copy_cryptographic_parameters_callback(
+    target: *mut Option<CryptographicParameters>,
+    source: *const CryptographicParameters,
+) {
+    unsafe { *target = source.as_ref().cloned() };
+}
+
+/// Store the V1 contract state and context to the given structure.
+extern "C" fn copy_v1_contract_state_callback(
+    out: *mut Option<V1ContractStateReceiver>,
+    state: *mut wasm_chain_integration::v1::trie::PersistentState,
+    loader: wasm_chain_integration::v1::trie::foreign::LoadCallback,
+) {
+    let out = unsafe { &mut *out };
+    let v = V1ContractStateReceiver {
+        state: unsafe { &*state }.clone(),
+        loader,
+    };
+    *out = Some(v);
 }
 
 pub extern "C" fn direct_callback(

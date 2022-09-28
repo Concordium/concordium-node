@@ -31,6 +31,7 @@ import Concordium.Types.Parameters
 import Concordium.Types.Queries
 import Concordium.Types.SeedState
 import qualified Concordium.Wasm as Wasm
+import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 
 import qualified Concordium.Scheduler.InvokeContract as InvokeContract
 import qualified Concordium.Types.InvokeContract as InvokeContract
@@ -43,6 +44,7 @@ import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule (toAccount
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer
+import Concordium.GlobalState.CapitalDistribution (DelegatorCapital (..))
 import qualified Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Statistics
@@ -187,6 +189,39 @@ liftSkovQueryBHI a bhi = do
                 BHILastFinal -> lastFinalizedBlock
             (bpHash bp,) . Just <$> a bp
 
+-- |Try a 'BlockHashInput' based query on the latest skov version. If a specific
+-- block hash is given we work backwards through consensus versions until we
+-- find the specified block or run out of versions.
+-- The return value is the hash used for the query, and a result if it was found.
+liftSkovQueryBHIAndVersion ::
+    ( forall (pv :: ProtocolVersion).
+      ( SkovMonad (VersionedSkovM gsconf finconf pv)
+      , FinalizationMonad (VersionedSkovM gsconf finconf pv)
+      ) =>
+      EVersionedConfiguration gsconf finconf ->
+      BlockPointerType (VersionedSkovM gsconf finconf pv) ->
+      VersionedSkovM gsconf finconf pv a
+    ) ->
+    BlockHashInput ->
+    MVR gsconf finconf (BlockHash, Maybe a)
+liftSkovQueryBHIAndVersion query bhi = do
+    case bhi of
+        BHIGiven bh ->
+            MVR $ \mvr ->
+                (bh,)
+                    <$> atLatestSuccessfulVersion
+                        (\evc -> liftSkovQuery mvr evc (mapM (query evc) =<< resolveBlock bh))
+                        mvr
+        other -> do
+          versions <- liftIO . readIORef =<< asks mvVersions
+          let evc = Vec.last versions
+          liftSkovQueryLatest $ do
+            bp <- case other of
+                    BHIBest -> bestBlock
+                    BHILastFinal -> lastFinalizedBlock
+            (bpHash bp,) . Just <$> query evc bp
+
+
 -- |Try a block based query on the latest skov version, working
 -- backwards until we find the specified block or run out of
 -- versions.  This version also passes the version configuration
@@ -216,6 +251,24 @@ liftSkovQueryBlockAndVersion a bh = MVR $ \mvr ->
                 mvr
         )
         mvr
+
+-- | Information about a registered delegator in a block.
+data DelegatorInfo = DelegatorInfo {
+  -- | The delegator account address.
+  pdiAccount :: !AccountAddress,
+  -- | The amount of stake currently staked to the pool.
+  pdiStake :: !Amount,
+  -- | Pending change to the current stake of the delegator.
+  pdiPendingChanges :: !(StakePendingChange 'AccountV1)
+}
+
+-- | Information about a fixed delegator in the reward period for a block.
+data DelegatorRewardPeriodInfo = DelegatorRewardPeriodInfo {
+  -- | The delegator account address.
+  pdrpiAccount :: !AccountAddress,
+  -- | The amount of stake fixed to the pool in the current reward period.
+  pdrpiStake :: !Amount
+}
 
 -- |Retrieve the consensus status.
 getConsensusStatus :: MVR gsconf finconf ConsensusStatus
@@ -355,10 +408,10 @@ getNextAccountNonce accountAddress = liftSkovQueryLatest $ do
 -- ** Block indexed
 
 -- |Get the basic info about a particular block.
-getBlockInfo :: BlockHash -> MVR gsconf finconf (Maybe BlockInfo)
-getBlockInfo bh =
-    liftSkovQueryBlockAndVersion
-        ( \vc bp -> do
+getBlockInfo :: BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe BlockInfo)
+getBlockInfo =
+    liftSkovQueryBHIAndVersion
+        ( \(EVersionedConfiguration vc) bp -> do
             let biBlockHash = getHash bp
             biBlockParent <-
                 if blockSlot bp == 0 && vcIndex vc /= 0
@@ -381,14 +434,13 @@ getBlockInfo bh =
             let biBlockSlot = blockSlot bp
             biBlockSlotTime <- getSlotTime biBlockSlot
             let biBlockBaker = blockBaker <$> blockFields bp
-            biFinalized <- isFinalized bh
+            biFinalized <- isFinalized (bpHash bp)
             let biTransactionCount = bpTransactionCount bp
             let biTransactionEnergyCost = bpTransactionsEnergyCost bp
             let biTransactionsSize = bpTransactionsSize bp
             let biBlockStateHash = blockStateHash bp
             return BlockInfo{..}
         )
-        bh
 
 -- |Get a detailed summary of a particular block including:
 --   * The transaction outcomes in the block (including special transactions)
@@ -432,11 +484,11 @@ getBlockSummary = liftSkovQueryBlock getBlockSummarySkovM
         return BlockSummary{..}
 
 -- |Get the total amount of GTU in existence and status of the reward accounts.
-getRewardStatus :: BlockHash -> MVR gsconf finconf (Maybe RewardStatus)
-getRewardStatus = liftSkovQueryBlock $ \bp -> do
+getRewardStatus :: BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe RewardStatus)
+getRewardStatus = liftSkovQueryBHI $ \bp -> do
     reward <- BS.getRewardStatus =<< blockState bp
     gd <- getGenesisData
-    let epochToUTC e = timestampToUTCTime $ 
+    let epochToUTC e = timestampToUTCTime $
             addDuration (gdGenesisTime gd) (fromIntegral e * fromIntegral (gdEpochLength gd) * gdSlotDuration gd)
     return $ epochToUTC <$> reward
 
@@ -458,11 +510,10 @@ getBlockBirkParameters = liftSkovQueryBlock $ \bp -> do
     return BlockBirkParameters{..}
 
 -- |Get the cryptographic parameters of the chain at a given block.
--- The result is versioned (which will currently always be version 0).
-getCryptographicParameters :: BlockHash -> MVR gsconf finconf (Maybe (Versioned CryptographicParameters))
-getCryptographicParameters = liftSkovQueryBlock $ \bp -> do
+getCryptographicParameters :: BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe CryptographicParameters)
+getCryptographicParameters = liftSkovQueryBHI $ \bp -> do
     bs <- blockState bp
-    Versioned 0 <$> BS.getCryptographicParameters bs
+    BS.getCryptographicParameters bs
 
 -- |Get all of the identity providers registered in the system as of a given block.
 getAllIdentityProviders :: BlockHash -> MVR gsconf finconf (Maybe [IpInfo])
@@ -556,7 +607,7 @@ getInstanceInfo bhi caddr = do
     return (bh, join ii)
     where mkII Nothing = return Nothing
           mkII (Just (BS.InstanceInfoV0 BS.InstanceInfoV{..})) = do
-            iiModel <- BS.thawContractState iiState
+            iiModel <- BS.externalContractState iiState
             return (Just (Wasm.InstanceInfoV0{
               Wasm.iiOwner = instanceOwner iiParameters,
               Wasm.iiAmount = iiBalance,
@@ -574,6 +625,29 @@ getInstanceInfo bhi caddr = do
               Wasm.iiSourceModule = GSWasm.miModuleRef (instanceModuleInterface iiParameters)
               }))
 
+
+-- |Get the exact state of a smart contract instance in the block state. The
+-- return value is 'Nothing' if the instance cannot be found (either the
+-- requested block does not exist, or the instance does not exist in that
+-- block), @Just . Left@ if the instance is a V0 instance, and @Just . Right@ if
+-- the instance is a V1 instance.
+getInstanceState :: BlockHashInput -> ContractAddress -> MVR gsconf finconf (BlockHash, Maybe (Either Wasm.ContractState (StateV1.PersistentState, StateV1.LoadCallback)))
+getInstanceState bhi caddr = do
+    (bh, ii) <- liftSkovQueryBHI
+            ( \bp -> do
+                bs <- blockState bp
+                mkII =<< BS.getContractInstance bs caddr
+            )
+            bhi
+    return (bh, join ii)
+    where mkII Nothing = return Nothing
+          mkII (Just (BS.InstanceInfoV0 BS.InstanceInfoV{..})) =
+            Just . Left <$> BS.externalContractState iiState
+          mkII (Just (BS.InstanceInfoV1 BS.InstanceInfoV{..})) = do
+            state <- BS.externalContractState iiState
+            callback <- BS.getV1StateContext
+            return . Just . Right $! (state, callback)
+
 -- |Get the source of a module as it was deployed to the chain.
 getModuleSource :: BlockHashInput -> ModuleRef -> MVR gsconf finconf (BlockHash, Maybe Wasm.WasmModule)
 getModuleSource bhi modRef = do
@@ -586,10 +660,10 @@ getModuleSource bhi modRef = do
     return (bh, join res)
 
 -- |Get the status of a particular delegation pool.
-getPoolStatus :: forall gsconf finconf. BlockHash -> Maybe BakerId -> MVR gsconf finconf (Maybe PoolStatus)
-getPoolStatus blockHash mbid =
-    join
-        <$> liftSkovQueryBlock poolStatus blockHash
+getPoolStatus :: forall gsconf finconf. BlockHashInput -> Maybe BakerId -> MVR gsconf finconf (BlockHash, Maybe PoolStatus)
+getPoolStatus blockHashInput mbid = do
+    (bh, res) <- liftSkovQueryBHI poolStatus blockHashInput
+    return (bh, join res)
   where
     poolStatus ::
         forall pv.
@@ -606,8 +680,63 @@ getPoolStatus blockHash mbid =
             BS.getPoolStatus bs mbid
 
 -- |Get a list of all registered baker IDs in the specified block.
-getRegisteredBakers :: forall gsconf finconf. BlockHash -> MVR gsconf finconf (Maybe [BakerId])
-getRegisteredBakers = liftSkovQueryBlock (BS.getActiveBakers <=< blockState)
+getRegisteredBakers :: forall gsconf finconf. BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe [BakerId])
+getRegisteredBakers = liftSkovQueryBHI (BS.getActiveBakers <=< blockState)
+
+-- | Error type for querying delegators for some block.
+data GetDelegatorsError = GDEUnsupportedProtocolVersion -- ^ The block is from a protocol version without delegators.
+                        | GDEPoolNotFound -- ^ No pool found for the provided baker ID.
+                        | GDEBlockNotFound -- ^ No block found for the provided block input.
+
+-- |Get the list of registered delegators for a given block.
+-- Changes to delegation is reflected immediately in this list.
+-- If a BakerId is provided it will return the delegators for the corresponding pool otherwise it returns the passive delegators.
+getDelegators :: forall gsconf finconf. BlockHashInput -> Maybe BakerId -> MVR gsconf finconf (BlockHash, Either GetDelegatorsError [DelegatorInfo])
+getDelegators bhi maybeBakerId = do
+  (bh, res) <- liftSkovQueryBHI getter bhi
+  return (bh, fromMaybe (Left GDEBlockNotFound) res)
+    where
+      getter ::
+        forall pv.
+        ( SkovMonad (VersionedSkovM gsconf finconf pv)) =>
+        BlockPointerType (VersionedSkovM gsconf finconf pv) ->
+        VersionedSkovM gsconf finconf pv (Either GetDelegatorsError [DelegatorInfo])
+      getter bp = case accountVersion @(AccountVersionFor pv) of
+        SAccountV0 ->
+          return $ Left GDEUnsupportedProtocolVersion
+        SAccountV1 -> do
+          bs <- blockState bp
+          maybeDelegators <- BS.getActiveDelegators bs maybeBakerId
+          return $ maybe (Left GDEPoolNotFound) (Right . fmap toDelegatorInfo) maybeDelegators
+      toDelegatorInfo (accountAddress, BS.ActiveDelegatorInfo {..}) = DelegatorInfo {
+        pdiAccount = accountAddress,
+        pdiStake = activeDelegatorStake,
+        pdiPendingChanges = activeDelegatorPendingChange
+        }
+
+-- |Get the fixed list of delegators contributing stake in the reward period for a given block.
+-- If a BakerId is provided it will return the delegators for the corresponding pool otherwise it returns the passive delegators.
+getDelegatorsRewardPeriod :: forall gsconf finconf. BlockHashInput -> Maybe BakerId -> MVR gsconf finconf (BlockHash, Either GetDelegatorsError [DelegatorRewardPeriodInfo])
+getDelegatorsRewardPeriod bhi maybeBakerId = do
+  (bh, res) <- liftSkovQueryBHI getter bhi
+  return (bh, fromMaybe (Left GDEBlockNotFound) res)
+    where
+      getter ::
+        forall pv.
+        ( SkovMonad (VersionedSkovM gsconf finconf pv)) =>
+        BlockPointerType (VersionedSkovM gsconf finconf pv) ->
+        VersionedSkovM gsconf finconf pv (Either GetDelegatorsError [DelegatorRewardPeriodInfo])
+      getter bp = case accountVersion @(AccountVersionFor pv) of
+        SAccountV0 ->
+          return $ Left GDEUnsupportedProtocolVersion
+        SAccountV1 -> do
+          bs <- blockState bp
+          maybeDelegators <- BS.getCurrentDelegators bs maybeBakerId
+          return $ maybe (Left GDEPoolNotFound) (Right . fmap toDelegatorInfo) maybeDelegators
+      toDelegatorInfo (accountAddress, DelegatorCapital {..}) = DelegatorRewardPeriodInfo {
+        pdrpiAccount = accountAddress,
+        pdrpiStake = dcDelegatorCapital
+        }
 
 -- ** Transaction indexed
 
@@ -674,16 +803,14 @@ getTransactionStatusInBlock trHash blockHash =
             )
 
 -- * Smart contract invocations
-invokeContract :: BlockHash -> InvokeContract.ContractContext -> MVR gsconf finconf (Maybe InvokeContract.InvokeContractResult)
-invokeContract bh cctx =
-    liftSkovQueryBlockAndVersion
-    (\(_ :: VersionedConfiguration gsconf finconf pv) bp -> do
+invokeContract :: BlockHashInput -> InvokeContract.ContractContext -> MVR gsconf finconf (BlockHash, Maybe InvokeContract.InvokeContractResult)
+invokeContract bhi cctx =
+    liftSkovQueryBHI
+    (\bp -> do
         bs <- blockState bp
         cm <- ChainMetadata <$> getSlotTimestamp (blockSlot bp)
         InvokeContract.invokeContract cctx cm bs)
-    bh
-
-
+    bhi
 
 -- * Miscellaneous
 

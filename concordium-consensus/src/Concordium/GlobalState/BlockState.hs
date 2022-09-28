@@ -283,12 +283,26 @@ type family UpdatableContractState (v :: Wasm.WasmVersion) = ty | ty -> v where
   UpdatableContractState GSWasm.V0 = Wasm.ContractState
   UpdatableContractState GSWasm.V1 = StateV1.MutableState
 
+-- |An external representation of the persistent (i.e., frozen) contract state.
+-- This is used to pass this state through FFI for queries and should not be
+-- used during contract execution in the scheduler since it's considered an
+-- implementation detail and needs to be used together with the correct loader
+-- callback. Higher-level abstractions should be used in the scheduler.
+type family ExternalContractState (v :: Wasm.WasmVersion) = ty | ty -> v where
+  ExternalContractState GSWasm.V0 = Wasm.ContractState
+  ExternalContractState GSWasm.V1 = StateV1.PersistentState
+
 class (BlockStateTypes m, Monad m) => ContractStateOperations m where
     -- |Convert a persistent state to a mutable one that can be updated by the
     -- scheduler. This function must generate independent mutable states for
     -- each invocation, where independent means that updates to different
     -- versions are __not__ reflected in others.
     thawContractState :: ContractState m v -> m (UpdatableContractState v)
+
+    -- |Convert a persistent state to its external representation that can be
+    -- passed through FFI. The state should be used together with the
+    -- callbacks returned by 'getV1StateContext'.
+    externalContractState :: ContractState m v -> m (ExternalContractState v)
 
     -- |Get the callback to allow loading the contract state. Contracts are
     -- executed on the other end of FFI, and state is managed by Haskell, this
@@ -385,6 +399,26 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
     -- set of passive delegators. In each case, the lists are ordered in ascending Id order,
     -- with no duplicates.
     getActiveBakersAndDelegators :: (AccountVersionFor (MPV m) ~ 'AccountV1) => BlockState m -> m ([ActiveBakerInfo m], [ActiveDelegatorInfo])
+
+    -- |Get the registered delegators of a pool. Changes are reflected immediately here and will be effective in the next reward period.
+    -- The baker id is used to identify the pool and Nothing is used for the passive delegators.
+    -- Returns Nothing if it fails to identify the baker pool. Should always return a value for the passive delegators.
+    getActiveDelegators
+      :: (AccountVersionFor (MPV m) ~ 'AccountV1)
+      => BlockState m
+      -- |Nothing for the passive pool, otherwise the baker id of the pool.
+      -> Maybe BakerId
+      -> m (Maybe [(AccountAddress, ActiveDelegatorInfo)])
+
+    -- |Get the delegators of a pool for the reward period. Changes are not reflected here until the next reward period.
+    -- The baker id is used to identify the pool and Nothing is used for the passive delegators.
+    -- Returns Nothing if it fails to identify the baker pool. Should always return a value for the passive delegators.
+    getCurrentDelegators
+      :: (AccountVersionFor (MPV m) ~ 'AccountV1)
+      => BlockState m
+      -- |Nothing for the passive pool, otherwise the baker id of the pool.
+      -> Maybe BakerId
+      -> m (Maybe [(AccountAddress, DelegatorCapital)])
 
     -- |Query an account by the id of the credential that belonged to it.
     getAccountByCredId :: BlockState m -> ID.RawCredentialRegistrationID -> m (Maybe (AccountIndex, Account m))
@@ -1227,6 +1261,8 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   accountExists s = lift . accountExists s
   getActiveBakers = lift . getActiveBakers
   getActiveBakersAndDelegators = lift . getActiveBakersAndDelegators
+  getActiveDelegators bs = lift . getActiveDelegators bs
+  getCurrentDelegators bs = lift . getCurrentDelegators bs
   getAccountByCredId s = lift . getAccountByCredId s
   getAccountByIndex s = lift . getAccountByIndex s
   getBakerAccount s = lift . getBakerAccount s
@@ -1326,6 +1362,8 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
 instance (Monad (t m), MonadTrans t, ContractStateOperations m) => ContractStateOperations (MGSTrans t m) where
   thawContractState = lift . thawContractState
   {-# INLINE thawContractState #-}
+  externalContractState = lift . externalContractState
+  {-# INLINE externalContractState #-}
   stateSizeV0 = lift . stateSizeV0
   {-# INLINE stateSizeV0 #-}
   getV1StateContext = lift getV1StateContext

@@ -2,13 +2,36 @@
 
 ## Unreleased changes
 
+- The node is now able to recover after crashes which leave only treestate or
+  only blockstate usable.
+- Fix a memory leak that could occur in certain usage scenarios involving smart
+  contracts.
+
+## 4.4.4
+
+- Fix a bug in database recovery where the node would hang when truncating the block state database
+  on Windows.
+
+## 4.4.3
+
+- Fix a bug in database recovery where corruption was not always correctly detected.
+- Fix typo in environment variable `CONCORDIUM_NODE_PROMETHEUS_LISTEN_ADDRESSS` (remove trailing `S`).
+
+## 4.4.2
+
 - Speed up and reduce memory overhead during protocol updates.
 
 - Smart contract modules are no longer retained in memory. Module artifacts are loaded as needed
   during contract execution. Metadata is cached for a limited number of smart contract modules.
-  By default, the cache will retain metadata for at most 100 smart contract modules, and this is
+  By default, the cache will retain metadata for at most 1000 smart contract modules, and this is
   configurable via the `--modules-cache-size` command line argument or by using the 
   `CONCORDIUM_NODE_CONSENSUS_MODULES_CACHE_SIZE` environment variable.
+
+- Smart contract state is no longer cached on startup and is not cached after
+  finalization.
+
+- Partial node database recovery. The node is now able to recover from the most
+  common causes of its database corruption.
 
 ## 4.4.1
 
@@ -23,7 +46,6 @@
   `--chunksize` option specifies the size of export files in blocks.
 - The `--download-blocks-from` option now takes the URL to the catchup _index file_, permitting to
   only download and import catchup files containing blocks not already present in the database.
-- Smart contract state is no longer cached on startup and is not cached after finalization.
 
 ## 4.3.1
 

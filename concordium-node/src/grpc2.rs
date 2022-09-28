@@ -6,6 +6,11 @@ use std::{
     path::Path,
 };
 
+/// Maximum allowed energy to use in the `invoke_instance` request.
+/// This is to make sure that there are no conversion errors to interpreter
+/// energy.
+const MAX_ALLOWED_INVOKE_ENERGY: u64 = 100_000_000_000;
+
 /// Types generated from the types.proto file, together
 /// with some auxiliary definitions that help passing values through the FFI
 /// boundary.
@@ -94,6 +99,46 @@ pub mod types {
             Some(transaction_hash.value.as_ptr())
         } else {
             None
+        }
+    }
+
+    pub(crate) fn receive_name_to_ffi(receive_name: &ReceiveName) -> Option<(*const u8, u32)> {
+        let string = &receive_name.value;
+        let len = string.len();
+        if string.is_ascii() && len <= 100 {
+            Some((string.as_ptr(), len as u32))
+        } else {
+            None
+        }
+    }
+
+    /// Convert [BakerId] to a u64.
+    pub(crate) fn baker_id_to_ffi(baker_id: &BakerId) -> u64 { baker_id.value }
+
+    /// Convert the [BlocksAtHeightRequest] to a triple of a block height,
+    /// genesis_index and a boolean. If the genesis_index is 0, the height
+    /// is treated as an absolute block height otherwise it is treated as
+    /// relative. Setting the boolean to true will restrict to only return
+    /// blocks within the specified genesis_index.
+    pub(crate) fn blocks_at_height_request_to_ffi(
+        height: &BlocksAtHeightRequest,
+    ) -> Option<(u64, u32, u8)> {
+        use blocks_at_height_request::BlocksAtHeight::*;
+        match height.blocks_at_height.as_ref()? {
+            Absolute(h) => {
+                let height = h.height.as_ref()?.value;
+                Some((height, 0, 0))
+            }
+            Relative(h) => {
+                let height = h.height.as_ref()?.value;
+                let genesis_index = h.genesis_index.as_ref()?.value;
+                let restrict = if h.restrict {
+                    1
+                } else {
+                    0
+                };
+                Some((height, genesis_index, restrict))
+            }
         }
     }
 }
@@ -215,7 +260,7 @@ pub mod server {
         consensus_ffi::{
             consensus::{ConsensusContainer, CALLBACK_QUEUE},
             ffi::NotificationHandlers,
-            helpers::{ConsensusFfiResponse, PacketType},
+            helpers::{ConsensusFfiResponse, ContractStateResponse, PacketType},
             messaging::{ConsensusMessage, MessageType},
         },
         p2p::P2PNode,
@@ -460,6 +505,8 @@ pub mod server {
             futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
         /// Return type for the 'GetAncestors' method.
         type GetAncestorsStream = futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
+        /// Return type for the 'GetBakerList' method.
+        type GetBakerListStream = futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
         /// Return type for the 'Blocks' method.
         type GetBlocksStream =
             tokio_stream::wrappers::ReceiverStream<Result<Arc<[u8]>, tonic::Status>>;
@@ -469,8 +516,24 @@ pub mod server {
         /// Return type for the 'GetInstanceList' method.
         type GetInstanceListStream =
             futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
+        /// Return type for the 'GetInstanceState' method.
+        type GetInstanceStateStream = tokio_stream::wrappers::ReceiverStream<
+            Result<types::InstanceStateKvPair, tonic::Status>,
+        >;
         /// Return type for the 'GetModuleList' method.
         type GetModuleListStream = futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
+        /// Return type for the 'GetPassiveDelegatorsRewardPeriod' method.
+        type GetPassiveDelegatorsRewardPeriodStream =
+            futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
+        /// Return type for the 'GetPassiveDelegators' method.
+        type GetPassiveDelegatorsStream =
+            futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
+        /// Return type for the 'GetPoolDelegatorsRewardPeriod' method.
+        type GetPoolDelegatorsRewardPeriodStream =
+            futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
+        /// Return type for the 'GetPoolDelegators' method.
+        type GetPoolDelegatorsStream =
+            futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
 
         async fn get_blocks(
             &self,
@@ -592,6 +655,107 @@ pub mod server {
             Ok(response)
         }
 
+        async fn get_instance_state(
+            &self,
+            request: tonic::Request<crate::grpc2::types::InstanceInfoRequest>,
+        ) -> Result<tonic::Response<Self::GetInstanceStateStream>, tonic::Status> {
+            let request = request.get_ref();
+            let block_hash = request.block_hash.as_ref().require()?;
+            let contract_address = request.address.as_ref().require()?;
+            let (hash, response) =
+                self.consensus.get_instance_state_v2(block_hash, contract_address)?;
+            match response {
+                ContractStateResponse::V0 {
+                    state,
+                } => {
+                    // We need to return the same type in both branches, so we create a silly
+                    // little channel to which we will only send one value.
+                    let (sender, receiver) = tokio::sync::mpsc::channel(1);
+                    let _sender = tokio::spawn(async move {
+                        let msg = types::InstanceStateKvPair {
+                            key:   Vec::new(),
+                            value: state,
+                        };
+                        let _ = sender.send(Ok(msg)).await;
+                        // The error only happens if the receiver has been
+                        // dropped already (e.g., connection closed),
+                        // so we do not have to handle it. We just stop sending.
+                    });
+                    let mut response =
+                        tonic::Response::new(tokio_stream::wrappers::ReceiverStream::new(receiver));
+                    add_hash(&mut response, hash)?;
+                    Ok(response)
+                }
+                ContractStateResponse::V1 {
+                    state,
+                    mut loader,
+                } => {
+                    // Create a buffer of size 10 to send messages. It is not clear what the optimal
+                    // size would be, or even what optimal means. I choose 10 here to have some
+                    // buffering to account for variance in networking and
+                    // scheduling of the sender task. 10 is also small enough so that not too many
+                    // values linger in memory while waiting to be sent.
+                    let (sender, receiver) = tokio::sync::mpsc::channel(10);
+                    let _sender = tokio::spawn(async move {
+                        let iter = state.into_iterator(&mut loader);
+                        for (key, value) in iter {
+                            let msg = types::InstanceStateKvPair {
+                                key,
+                                value,
+                            };
+                            if sender.send(Ok(msg)).await.is_err() {
+                                // the receiver has been dropped, so we stop
+                                break;
+                            }
+                        }
+                    });
+                    let mut response =
+                        tonic::Response::new(tokio_stream::wrappers::ReceiverStream::new(receiver));
+                    add_hash(&mut response, hash)?;
+                    Ok(response)
+                }
+            }
+        }
+
+        async fn instance_state_lookup(
+            &self,
+            request: tonic::Request<types::InstanceStateLookupRequest>,
+        ) -> Result<tonic::Response<types::InstanceStateValueAtKey>, tonic::Status> {
+            let request = request.get_ref();
+            let block_hash = request.block_hash.as_ref().require()?;
+            let contract_address = request.address.as_ref().require()?;
+            // this is cheap since we only lookup the tree root in the V1 case, and V0
+            // lookup always involves the entire state anyhow.
+            let (hash, response) =
+                self.consensus.get_instance_state_v2(block_hash, contract_address)?;
+            match response {
+                ContractStateResponse::V0 {
+                    state,
+                } => {
+                    let mut response = tonic::Response::new(types::InstanceStateValueAtKey {
+                        value: state,
+                    });
+                    add_hash(&mut response, hash)?;
+                    Ok(response)
+                }
+                ContractStateResponse::V1 {
+                    state,
+                    mut loader,
+                } => {
+                    let value = state.lookup(&mut loader, &request.key);
+                    if let Some(value) = value {
+                        let mut response = tonic::Response::new(types::InstanceStateValueAtKey {
+                            value,
+                        });
+                        add_hash(&mut response, hash)?;
+                        Ok(response)
+                    } else {
+                        Err(tonic::Status::not_found("Key not found."))
+                    }
+                }
+            }
+        }
+
         async fn get_next_account_sequence_number(
             &self,
             request: tonic::Request<crate::grpc2::types::AccountAddress>,
@@ -628,6 +792,157 @@ pub mod server {
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
             let response = self.consensus.get_block_item_status_v2(request.get_ref())?;
             Ok(tonic::Response::new(response))
+        }
+
+        async fn invoke_instance(
+            &self,
+            request: tonic::Request<crate::grpc2::types::InvokeInstanceRequest>,
+        ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            if request
+                .get_ref()
+                .energy
+                .as_ref()
+                .map_or(false, |x| x.value <= MAX_ALLOWED_INVOKE_ENERGY)
+            {
+                let (hash, response) = self.consensus.invoke_instance_v2(request.get_ref())?;
+                let mut response = tonic::Response::new(response);
+                add_hash(&mut response, hash)?;
+                Ok(response)
+            } else {
+                Err(tonic::Status::internal(format!(
+                    "`energy` must be supplied and be less than {}",
+                    MAX_ALLOWED_INVOKE_ENERGY
+                )))
+            }
+        }
+
+        async fn get_cryptographic_parameters(
+            &self,
+            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+        ) -> Result<tonic::Response<crate::grpc2::types::CryptographicParameters>, tonic::Status>
+        {
+            let (hash, response) =
+                self.consensus.get_cryptographic_parameters_v2(request.get_ref())?;
+            let mut response = tonic::Response::new(response);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_block_info(
+            &self,
+            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+        ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            let (hash, response) = self.consensus.get_block_info_v2(request.get_ref())?;
+            let mut response = tonic::Response::new(response);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_baker_list(
+            &self,
+            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+        ) -> Result<tonic::Response<Self::GetBakerListStream>, tonic::Status> {
+            let (sender, receiver) = futures::channel::mpsc::channel(100);
+            let hash = self.consensus.get_baker_list_v2(request.get_ref(), sender)?;
+            let mut response = tonic::Response::new(receiver);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_pool_info(
+            &self,
+            request: tonic::Request<crate::grpc2::types::PoolInfoRequest>,
+        ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            let (hash, response) = self.consensus.get_pool_info_v2(request.get_ref())?;
+            let mut response = tonic::Response::new(response);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_passive_delegation_info(
+            &self,
+            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+        ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            let (hash, response) =
+                self.consensus.get_passive_delegation_info_v2(request.get_ref())?;
+            let mut response = tonic::Response::new(response);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_blocks_at_height(
+            &self,
+            request: tonic::Request<crate::grpc2::types::BlocksAtHeightRequest>,
+        ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            let data = self.consensus.get_blocks_at_height_v2(request.get_ref())?;
+            let response = tonic::Response::new(data);
+            Ok(response)
+        }
+
+        async fn get_tokenomics_info(
+            &self,
+            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+        ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            let (hash, response) = self.consensus.get_tokenomics_info_v2(request.get_ref())?;
+            let mut response = tonic::Response::new(response);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_pool_delegators(
+            &self,
+            request: tonic::Request<crate::grpc2::types::GetPoolDelegatorsRequest>,
+        ) -> Result<tonic::Response<Self::GetPoolDelegatorsStream>, tonic::Status> {
+            let (sender, receiver) = futures::channel::mpsc::channel(100);
+            let hash = self.consensus.get_pool_delegators_v2(request.get_ref(), sender)?;
+            let mut response = tonic::Response::new(receiver);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_pool_delegators_reward_period(
+            &self,
+            request: tonic::Request<crate::grpc2::types::GetPoolDelegatorsRequest>,
+        ) -> Result<tonic::Response<Self::GetPoolDelegatorsRewardPeriodStream>, tonic::Status>
+        {
+            let (sender, receiver) = futures::channel::mpsc::channel(100);
+            let hash =
+                self.consensus.get_pool_delegators_reward_period_v2(request.get_ref(), sender)?;
+            let mut response = tonic::Response::new(receiver);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_passive_delegators(
+            &self,
+            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+        ) -> Result<tonic::Response<Self::GetPassiveDelegatorsStream>, tonic::Status> {
+            let (sender, receiver) = futures::channel::mpsc::channel(100);
+            let hash = self.consensus.get_passive_delegators_v2(request.get_ref(), sender)?;
+            let mut response = tonic::Response::new(receiver);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_passive_delegators_reward_period(
+            &self,
+            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+        ) -> Result<tonic::Response<Self::GetPassiveDelegatorsRewardPeriodStream>, tonic::Status>
+        {
+            let (sender, receiver) = futures::channel::mpsc::channel(100);
+            let hash = self
+                .consensus
+                .get_passive_delegators_reward_period_v2(request.get_ref(), sender)?;
+            let mut response = tonic::Response::new(receiver);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_branches(
+            &self,
+            _request: tonic::Request<crate::grpc2::types::Empty>,
+        ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            Ok(tonic::Response::new(self.consensus.get_branches_v2()?))
         }
 
         async fn send_block_item(

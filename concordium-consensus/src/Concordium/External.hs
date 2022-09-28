@@ -31,6 +31,7 @@ import Concordium.ID.Types
 import Concordium.Logger
 import Concordium.Types
 import qualified Data.FixedByteString as FBS
+import Concordium.Common.Version
 
 import Concordium.Afgjort.Finalize.Types (FinalizationInstance (FinalizationInstance))
 import Concordium.Birk.Bake
@@ -49,7 +50,7 @@ import Concordium.MultiVersion (
     makeMultiVersionRunner,
  )
 import qualified Concordium.MultiVersion as MV
-import Concordium.Queries (BakerStatus (..))
+import Concordium.Queries (BakerStatus (..), BlockHashInput (BHIGiven))
 import qualified Concordium.Queries as Q
 import Concordium.Scheduler.Types
 import Concordium.Skov (
@@ -1009,7 +1010,7 @@ getBlockInfo :: StablePtr ConsensusRunner -> CString -> IO CString
 getBlockInfo cptr blockcstr =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (Q.getBlockInfo bh)
+        Just bh -> jsonQuery cptr (snd <$> Q.getBlockInfo (BHIGiven bh))
 
 -- |Get the list of transactions in a block with short summaries of their effects.
 -- Returns a null-terminated string encoding a JSON value.
@@ -1029,7 +1030,7 @@ getRewardStatus :: StablePtr ConsensusRunner -> CString -> IO CString
 getRewardStatus cptr blockcstr =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (Q.getRewardStatus bh)
+        Just bh -> jsonQuery cptr (snd <$> Q.getRewardStatus (BHIGiven bh))
 
 -- |Get birk parameters for the given block. The block must be given as a
 -- null-terminated base16 encoding of the block hash.
@@ -1049,7 +1050,7 @@ getCryptographicParameters :: StablePtr ConsensusRunner -> CString -> IO CString
 getCryptographicParameters cptr blockcstr =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (Q.getCryptographicParameters bh)
+        Just bh -> jsonQuery cptr $ Versioned 0 . snd <$> Q.getCryptographicParameters (Q.BHIGiven bh)
 
 -- |Get all of the identity providers registered in the system as of a given block.
 -- The block must be given as a null-terminated base16 encoding of the block hash.
@@ -1155,7 +1156,7 @@ invokeContract cptr blockcstr ctxcstr = do
     mblock <- decodeBlockHash blockcstr
     mctx <- decodeContractContext ctxcstr
     case (mblock, mctx) of
-        (Just bh, Just ctx) -> jsonQuery cptr (Q.invokeContract bh ctx)
+        (Just bh, Just ctx) -> jsonQuery cptr (snd <$> Q.invokeContract (Q.BHIGiven bh) ctx)
         _ -> jsonCString AE.Null
 
 
@@ -1187,7 +1188,7 @@ getBakerList :: StablePtr ConsensusRunner -> CString -> IO CString
 getBakerList cptr blockcstr = do
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (Q.getRegisteredBakers bh)
+        Just bh -> jsonQuery cptr (snd <$> Q.getRegisteredBakers (BHIGiven bh))
 
 -- |Get the status of a baker pool or the passive delegators with respect to a particular block.
 -- The block must be given as a null-terminated base16 encoding of the block hash.
@@ -1210,7 +1211,7 @@ getPoolStatus ::
 getPoolStatus cptr blockcstr passive bid = do
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (Q.getPoolStatus bh mbid)
+        Just bh -> jsonQuery cptr (snd <$> Q.getPoolStatus (BHIGiven bh) mbid)
   where
     mbid = if passive /= 0 then Nothing else Just (BakerId (AccountIndex bid))
 

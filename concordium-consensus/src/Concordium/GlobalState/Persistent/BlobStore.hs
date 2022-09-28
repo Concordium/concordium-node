@@ -102,10 +102,12 @@ import Data.Kind (Type)
 import Data.Serialize
 import Data.Word
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Internal as BSInternal
 import qualified Data.ByteString.Unsafe as BSUnsafe
 import Control.Exception
 import Data.Functor.Foldable
 import Control.Monad
+import qualified Control.Monad.Catch as MonadCatch
 import Control.Monad.Reader.Class
 import Control.Monad.Trans.Writer.Strict (WriterT)
 import Control.Monad.Trans.State.Strict (StateT)
@@ -113,11 +115,11 @@ import Control.Monad.Trans.Reader (ReaderT(..))
 import Control.Monad.Trans.Except (ExceptT)
 import Control.Monad.Trans
 import System.Directory
-import GHC.Stack
 import Data.IORef
 import Concordium.Crypto.EncryptedTransfers
 import Data.Map (Map)
 import Foreign.Ptr
+import Foreign.ForeignPtr (finalizeForeignPtr)
 import System.IO.MMap
 
 import Concordium.GlobalState.Persistent.MonadicRecursive
@@ -281,6 +283,11 @@ runBlobStoreTemp dir a = bracket openf closef usef
 
 -- | Truncate the blob store after the blob stored at the given offset. The blob should not be
 -- corrupted (i.e., its size header should be readable, and its size should match the size header).
+--
+-- **Note**: This function must not be called after any writes to the blob store. It assumes that
+-- the current 'blobStoreMMap' is the only mapping of the file (which can be relied on if no writes
+-- have occurred). Since the existing memory map is invalidated, any other references to it will
+-- also be invalidated, such as 'BS.ByteString's returned by 'loadBlobPtr'.
 truncateBlobStore :: BlobStoreAccess -> BlobRef a -> IO ()
 truncateBlobStore BlobStoreAccess{..} (BlobRef offset) = do
   bh@BlobHandle{..} <- takeMVar blobStoreFile
@@ -290,12 +297,25 @@ truncateBlobStore BlobStoreAccess{..} (BlobRef offset) = do
     case esize :: Either String Word64 of
       Right size -> do
         let newSize = offset + 8 + size
-        hSetFileSize bhHandle $ fromIntegral newSize
+        unless (bhSize == fromIntegral newSize) $ do
+          -- unmap the current memory mapped file since on some platforms the file cannot be
+          -- truncated if it is memory mapped.
+          oldMmap <- readIORef blobStoreMMap
+          -- write a temporary empty string.
+          writeIORef blobStoreMMap BS.empty
+          let (fp, _, _) = BSInternal.toForeignPtr oldMmap
+          -- unmap the old mapping.
+          finalizeForeignPtr fp
+          -- truncate the file
+          hSetFileSize bhHandle $ fromIntegral newSize
+          -- and map it again.
+          mmapFileByteString blobStoreFilePath Nothing >>= writeIORef blobStoreMMap
         putMVar blobStoreFile bh{bhSize = fromIntegral newSize, bhAtEnd=False}
-        mmapFileByteString blobStoreFilePath Nothing >>= writeIORef blobStoreMMap
       _ -> throwIO $ userError "Cannot truncate the blob store: cannot obtain the last blob size"
   case eres :: Either SomeException () of
-    Left e -> throwIO e
+    Left e -> do
+      putMVar blobStoreFile bh
+      throwIO e
     Right () -> return ()
 
 -- | Read a bytestring from the blob store at the given offset using the file handle.
@@ -345,10 +365,18 @@ readBlobBS bs@BlobStoreAccess{..} br@(BlobRef offset) = do
                             $ BS.take (fromIntegral size)
                             $ BS.drop dataOffset mmap
 
--- |Check if a given 'BlobRef' is valid in the blob store. This does not attempt to deserialize
--- the value, but will check that the offset and length of the 'BlobRef' are valid.
-isValidBlobRef :: BlobStoreAccess -> BlobRef a -> IO Bool
-isValidBlobRef bs br = (True <$ readBlobBS bs br) `catch` (\(_ :: IOError) -> return False)
+-- |Check if a given 'BlobRef' is valid in the blob store. This attempts to
+-- load the value from the given location and handles the following two failures
+-- - there is not enough data to read from the blob store, i.e., the file ends prematurely
+-- - the value cannot be loaded/deserialized.
+--
+-- These two together handle the common case of corruption where data at the end
+-- of the blob store is not written properly. The second test is needed since at
+-- least on some platforms the blob store sometimes ends up with enough trailing
+-- zeros that the first check above succeeds, but those zeros are not valid
+-- data. This happens if the node is killed at the right time.
+isValidBlobRef :: (MonadCatch.MonadCatch m, BlobStorable m a) => BlobRef a -> m Bool
+isValidBlobRef br = (True <$ loadRef br) `MonadCatch.catch` (\(_ :: SomeException) -> return False)
 
 -- | Write a bytestring into the blob store and return the offset
 writeBlobBS :: BlobStoreAccess -> BS.ByteString -> IO (BlobRef a)
@@ -488,7 +516,7 @@ type SupportMigration m t = (MonadBlobStore m, MonadTrans t, MonadBlobStore (t m
 -- based on the context (rather than lifting).
 newtype BlobStoreT r m a = BlobStoreT {runBlobStoreT :: r -> m a}
     deriving
-        (Functor, Applicative, Monad, MonadReader r, MonadIO, MonadFail, MonadLogger)
+        (Functor, Applicative, Monad, MonadReader r, MonadIO, MonadFail, MonadLogger, MonadCatch.MonadThrow, MonadCatch.MonadCatch)
         via (ReaderT r m)
     deriving
         (MonadTrans)
@@ -621,11 +649,11 @@ storeUpdateRef v = do
 {-# INLINE storeUpdateRef #-}
 
 -- |Load a value from a reference.
-loadRef :: (HasCallStack, BlobStorable m a) => BlobRef a -> m a
+loadRef :: (BlobStorable m a) => BlobRef a -> m a
 loadRef ref = do
     bs <- loadRaw ref
     case runGet load bs of
-        Left e -> error (e ++ " :: " ++ show bs)
+        Left e -> liftIO (throwIO (userError (e ++ " :: " ++ show bs)))
         Right !mv -> mv
 {-# INLINE loadRef #-}
 

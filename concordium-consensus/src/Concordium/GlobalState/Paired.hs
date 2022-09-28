@@ -267,6 +267,14 @@ instance
         ab1 <- coerceBSML (getActiveBakers ls)
         ab2 <- coerceBSMR (getActiveBakers rs)
         assertEq ab1 ab2 $ return ab1
+    getActiveDelegators (ls, rs) pid = do
+        ad1 <- coerceBSML (getActiveDelegators ls pid)
+        ad2 <- coerceBSMR (getActiveDelegators rs pid)
+        assertEq ad1 ad2 $ return ad1
+    getCurrentDelegators (ls, rs) pid = do
+        cd1 <- coerceBSML (getCurrentDelegators ls pid)
+        cd2 <- coerceBSMR (getCurrentDelegators rs pid)
+        assertEq cd1 cd2 $ return cd1
     getActiveBakersAndDelegators (ls, rs) = do
         (b1, d1) <- coerceBSML $ getActiveBakersAndDelegators ls
         (b2, d2) <- coerceBSMR $ getActiveBakersAndDelegators rs
@@ -480,6 +488,8 @@ instance
 instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r) => ContractStateOperations (BlockStateM pv (PairGSContext lc rc) r (PairGState ls rs) s m) where
   thawContractState (InstanceStateV0 st) = return st
   thawContractState (InstanceStateV1 st) = return (StateV1.thawInMemoryPersistent st)
+  externalContractState (InstanceStateV0 st) = return st
+  externalContractState (InstanceStateV1 (StateV1.InMemoryPersistentState st)) = return st
   stateSizeV0 (InstanceStateV0 cs) = return (Wasm.contractStateSize cs)
   getV1StateContext = return errorLoadCallback
   contractStateToByteString (InstanceStateV0 st) = return (Wasm.contractState st)
