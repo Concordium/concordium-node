@@ -72,3 +72,4 @@ EXPORTS
  getElectionInfoV2
  getIdentityProvidersV2
  getAnonymityRevokersV2
+ getAccountNonFinalizedTransactionsV2

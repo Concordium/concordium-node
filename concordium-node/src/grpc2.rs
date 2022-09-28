@@ -492,6 +492,9 @@ pub mod server {
         /// Return type for the 'GetAccountList' method.
         type GetAccountListStream =
             futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
+        /// Return type for the 'GetAccountNonFinalizedTransactions' method.
+        type GetAccountNonFinalizedTransactionsStream =
+            futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
         /// Return type for the 'GetAncestors' method.
         type GetAncestorsStream = futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
         /// Return type for the 'GetAnonymityRevokers' method.
@@ -969,6 +972,17 @@ pub mod server {
             let hash = self.consensus.get_anonymity_revokers_v2(request.get_ref(), sender)?;
             let mut response = tonic::Response::new(receiver);
             add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_account_non_finalized_transactions(
+            &self,
+            request: tonic::Request<crate::grpc2::types::AccountAddress>,
+        ) -> Result<tonic::Response<Self::GetAccountNonFinalizedTransactionsStream>, tonic::Status>
+        {
+            let (sender, receiver) = futures::channel::mpsc::channel(10);
+            self.consensus.get_account_non_finalized_transactions_v2(request.get_ref(), sender)?;
+            let response = tonic::Response::new(receiver);
             Ok(response)
         }
     }
