@@ -866,16 +866,7 @@ pub mod server {
                 types::account_transaction_payload::Payload::RegisterData(p) => {
                     // Add tag for payload type.
                     pl_cursor.write_u8(21)?;
-                    const MAX_REGISTERED_DATA_SIZE: usize = 256;
-                    if p.value.len() > MAX_REGISTERED_DATA_SIZE {
-                        return Err(tonic::Status::invalid_argument(format!(
-                            "Invalid RegisteredData. Has length {}, which exceeds the limit of {} \
-                             bytes.",
-                            p.value.len(),
-                            MAX_REGISTERED_DATA_SIZE
-                        )));
-                    }
-                    pl_cursor.write(&p.value)?;
+                    serialize_registered_data(p, &mut pl_cursor)?;
                 }
             }
             pl_cursor.into_inner()
@@ -900,7 +891,7 @@ pub mod server {
     }
 
     /// Checks that the account address is 32 bytes and then writes it to the
-    /// provided buffer.
+    /// provided writer.
     fn serialize_account_address<W: Write>(
         address: types::AccountAddress,
         out: &mut W,
@@ -913,31 +904,23 @@ pub mod server {
         }
     }
 
-    /// Tries to convert the value into a `u32`. If it fails, a `tonic::Status`
-    /// is returned with an appropriate error, which includes the `name`
-    /// parameter.
-    fn try_into_u32<T: TryInto<u32>>(t: T, name: &str) -> Result<u32, tonic::Status> {
-        t.try_into().map_err(|_| {
-            tonic::Status::invalid_argument(format!("{} could not be converted into an u32.", name))
-        })
-    }
-
-    /// Tries to convert the value into a `u8`. If it fails, a `tonic::Status`
-    /// is returned with an appropriate error, which includes the `name`
-    /// parameter.
-    fn try_into_u16<T: TryInto<u16>>(t: T, name: &str) -> Result<u16, tonic::Status> {
-        t.try_into().map_err(|_| {
-            tonic::Status::invalid_argument(format!("{} could not be converted into an u16.", name))
-        })
-    }
-
-    /// Tries to convert the value into a `u8`. If it fails, a `tonic::Status`
-    /// is returned with an appropriate error, which includes the `name`
-    /// parameter.
-    fn try_into_u8<T: TryInto<u8>>(t: T, name: &str) -> Result<u8, tonic::Status> {
-        t.try_into().map_err(|_| {
-            tonic::Status::invalid_argument(format!("{} could not be converted into an u8.", name))
-        })
+    /// Checks that the registerd data is valid (less than 256 bytes) and then
+    /// writes it into the provided writer.
+    fn serialize_registered_data<W: Write>(
+        data: types::RegisteredData,
+        out: &mut W,
+    ) -> Result<(), tonic::Status> {
+        const MAX_REGISTERED_DATA_SIZE: usize = 256;
+        if data.value.len() > MAX_REGISTERED_DATA_SIZE {
+            return Err(tonic::Status::invalid_argument(format!(
+                "Invalid RegisteredData. Has length {}, which exceeds the limit of {} bytes.",
+                data.value.len(),
+                MAX_REGISTERED_DATA_SIZE
+            )));
+        }
+        out.write_u16::<BigEndian>(try_into_u16(data.value.len(), "Length of RegisteredData")?)?;
+        out.write(&data.value)?;
+        Ok(())
     }
 
     /// Checks that the memo is valid and writes it into `out`.
@@ -1054,6 +1037,33 @@ pub mod server {
             }
             Err(e) => Err(tonic::Status::invalid_argument(format!("Invalid ReceiveName: {:?}", e))),
         }
+    }
+
+    /// Tries to convert the value into a `u32`. If it fails, a `tonic::Status`
+    /// is returned with an appropriate error, which includes the `name`
+    /// parameter.
+    fn try_into_u32<T: TryInto<u32>>(t: T, name: &str) -> Result<u32, tonic::Status> {
+        t.try_into().map_err(|_| {
+            tonic::Status::invalid_argument(format!("{} could not be converted into an u32.", name))
+        })
+    }
+
+    /// Tries to convert the value into a `u8`. If it fails, a `tonic::Status`
+    /// is returned with an appropriate error, which includes the `name`
+    /// parameter.
+    fn try_into_u16<T: TryInto<u16>>(t: T, name: &str) -> Result<u16, tonic::Status> {
+        t.try_into().map_err(|_| {
+            tonic::Status::invalid_argument(format!("{} could not be converted into an u16.", name))
+        })
+    }
+
+    /// Tries to convert the value into a `u8`. If it fails, a `tonic::Status`
+    /// is returned with an appropriate error, which includes the `name`
+    /// parameter.
+    fn try_into_u8<T: TryInto<u8>>(t: T, name: &str) -> Result<u8, tonic::Status> {
+        t.try_into().map_err(|_| {
+            tonic::Status::invalid_argument(format!("{} could not be converted into an u8.", name))
+        })
     }
 }
 
