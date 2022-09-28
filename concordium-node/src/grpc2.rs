@@ -502,6 +502,12 @@ pub mod server {
             futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
         /// Return type for the 'GetBakerList' method.
         type GetBakerListStream = futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
+        /// Return type for the 'GetBlockSpecialEvents' method.
+        type GetBlockSpecialEventsStream =
+            futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
+        /// Return type for the 'GetBlockTransactionEvents' method.
+        type GetBlockTransactionEventsStream =
+            futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
         /// Return type for the 'Blocks' method.
         type GetBlocksStream =
             tokio_stream::wrappers::ReceiverStream<Result<Arc<[u8]>, tonic::Status>>;
@@ -983,6 +989,28 @@ pub mod server {
             let (sender, receiver) = futures::channel::mpsc::channel(10);
             self.consensus.get_account_non_finalized_transactions_v2(request.get_ref(), sender)?;
             let response = tonic::Response::new(receiver);
+            Ok(response)
+        }
+
+        async fn get_block_transaction_events(
+            &self,
+            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+        ) -> Result<tonic::Response<Self::GetBlockTransactionEventsStream>, tonic::Status> {
+            let (sender, receiver) = futures::channel::mpsc::channel(10);
+            let hash = self.consensus.get_block_transaction_events_v2(request.get_ref(), sender)?;
+            let mut response = tonic::Response::new(receiver);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_block_special_events(
+            &self,
+            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+        ) -> Result<tonic::Response<Self::GetBlockSpecialEventsStream>, tonic::Status> {
+            let (sender, receiver) = futures::channel::mpsc::channel(10);
+            let hash = self.consensus.get_block_special_events_v2(request.get_ref(), sender)?;
+            let mut response = tonic::Response::new(receiver);
+            add_hash(&mut response, hash)?;
             Ok(response)
         }
     }

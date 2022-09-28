@@ -17,6 +17,7 @@ import Data.Maybe
 import qualified Data.Set as Set
 import qualified Data.Vector as Vec
 import Lens.Micro.Platform
+import qualified Data.Sequence as Seq
 
 import Concordium.Common.Version
 import Concordium.Genesis.Data
@@ -30,6 +31,8 @@ import Concordium.Types.IdentityProviders
 import Concordium.Types.Parameters
 import Concordium.Types.Queries
 import Concordium.Types.SeedState
+import Concordium.Types.Execution (TransactionSummary)
+import Concordium.Types.Transactions (SpecialTransactionOutcome)
 import qualified Concordium.Wasm as Wasm
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 
@@ -482,6 +485,14 @@ getBlockSummary = liftSkovQueryBlock getBlockSummarySkovM
         bsUpdates <- BS.getUpdates bs
         let bsProtocolVersion = protocolVersion @pv
         return BlockSummary{..}
+
+-- |Get a the transaction outcomes in the block.
+getBlockTransactionSummaries :: forall gsconf finconf. BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe (Vec.Vector TransactionSummary))
+getBlockTransactionSummaries = liftSkovQueryBHI $ BS.getOutcomes <=< blockState
+
+-- |Get a the transaction outcomes in the block.
+getBlockSpecialEvents :: forall gsconf finconf. BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe (Seq.Seq SpecialTransactionOutcome))
+getBlockSpecialEvents = liftSkovQueryBHI $ BS.getSpecialOutcomes <=< blockState
 
 -- |Get the total amount of GTU in existence and status of the reward accounts.
 getRewardStatus :: BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe RewardStatus)

@@ -27,6 +27,7 @@ import qualified Data.Ratio as Ratio
 import qualified Data.Serialize as S
 import qualified Data.Set as Set
 import qualified Data.Vector as Vec
+import Data.Foldable (toList)
 import Data.Word
 import Foreign
 import Lens.Micro.Platform
@@ -37,6 +38,7 @@ import Concordium.Crypto.EncryptedTransfers
 import Concordium.ID.Types
 import Concordium.Types
 import Concordium.Types.Accounts
+import qualified Concordium.Types.Transactions as TxTypes
 import qualified Concordium.Types.Queries as QueryTypes
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 
@@ -813,7 +815,15 @@ data ConversionError
   | CEInvalidUpdateResult
   -- |An account transaction occurred but was malformed and could not be converted.
   | CEInvalidTransactionResult
-  deriving (Eq, Show)
+  deriving (Eq)
+
+instance Show ConversionError where
+  show e = case e of
+    CEFailedAccountCreation -> "An account creation failed."
+    CEInvalidAccountCreation -> "An account creation transaction occurred but was malformed and could not be converted."
+    CEFailedUpdate -> "An update transaction failed."
+    CEInvalidUpdateResult -> "An update transaction occurred but was malformed and could not be converted."
+    CEInvalidTransactionResult -> "An account transaction occurred but was malformed and could not be converted."
 
 instance ToProto TransactionTime where
   type Output TransactionTime = Proto.TransactionTime
@@ -1468,6 +1478,57 @@ instance ToProto QueryTypes.BakerSummary where
         ProtoFields.account .= toProto bakerAccount
         ProtoFields.lotteryPower .= bsBakerLotteryPower
 
+instance ToProto TxTypes.AccountAmounts where
+    type Output TxTypes.AccountAmounts = Proto.BlockSpecialEvent'AccountAmounts
+    toProto TxTypes.AccountAmounts{..} = Proto.make $ ProtoFields.entries .= fmap mapper (Map.toList accountAmounts)
+        where
+          mapper (account, amount) = Proto.make $ do
+            ProtoFields.account .= toProto account
+            ProtoFields.amount .= toProto amount
+
+instance ToProto TxTypes.SpecialTransactionOutcome where
+    type Output TxTypes.SpecialTransactionOutcome = Proto.BlockSpecialEvent
+    toProto TxTypes.BakingRewards{..} = Proto.make $ ProtoFields.bakingRewards .= Proto.make (do
+        ProtoFields.bakerRewards .= toProto stoBakerRewards
+        ProtoFields.remainder .= toProto stoRemainder)
+    toProto TxTypes.Mint{..} = Proto.make $ ProtoFields.mint .= Proto.make (do
+        ProtoFields.mintBakingReward .= toProto stoMintBakingReward
+        ProtoFields.mintFinalizationReward .= toProto stoMintFinalizationReward
+        ProtoFields.mintPlatformDevelopmentCharge .= toProto stoMintPlatformDevelopmentCharge
+        ProtoFields.foundationAccount .= toProto stoFoundationAccount)
+    toProto TxTypes.FinalizationRewards {..} = Proto.make $ ProtoFields.finalizationRewards .= Proto.make (do
+        ProtoFields.finalizationRewards .= toProto stoFinalizationRewards
+        ProtoFields.remainder .= toProto stoRemainder)
+    toProto TxTypes.BlockReward {..} = Proto.make $ ProtoFields.blockReward .= Proto.make (do
+        ProtoFields.transactionFees .= toProto stoTransactionFees
+        ProtoFields.oldGasAccount .= toProto stoOldGASAccount
+        ProtoFields.newGasAccount .= toProto stoNewGASAccount
+        ProtoFields.bakerReward .= toProto stoBakerReward
+        ProtoFields.foundationCharge .= toProto stoFoundationCharge
+        ProtoFields.baker .= toProto stoBaker
+        ProtoFields.foundationAccount .= toProto stoFoundationAccount)
+    toProto TxTypes.PaydayFoundationReward {..} = Proto.make $ ProtoFields.paydayFoundationReward .= Proto.make (do
+        ProtoFields.foundationAccount .= toProto stoFoundationAccount
+        ProtoFields.developmentCharge .= toProto stoDevelopmentCharge)
+    toProto TxTypes.PaydayAccountReward {..} = Proto.make $ ProtoFields.paydayAccountReward .= Proto.make (do
+        ProtoFields.account .= toProto stoAccount
+        ProtoFields.transactionFees .= toProto stoTransactionFees
+        ProtoFields.bakerReward .= toProto stoBakerReward
+        ProtoFields.finalizationReward .= toProto stoFinalizationReward)
+    toProto TxTypes.BlockAccrueReward {..} = Proto.make $ ProtoFields.blockAccrueReward .= Proto.make (do
+        ProtoFields.transactionFees .= toProto stoTransactionFees
+        ProtoFields.oldGasAccount .= toProto stoOldGASAccount
+        ProtoFields.newGasAccount .= toProto stoNewGASAccount
+        ProtoFields.bakerReward .= toProto stoBakerReward
+        ProtoFields.passiveReward .= toProto stoPassiveReward
+        ProtoFields.foundationCharge .= toProto stoFoundationCharge
+        ProtoFields.baker .= toProto stoBakerId)
+    toProto TxTypes.PaydayPoolReward {..} = Proto.make $ ProtoFields.paydayPoolReward .= Proto.make (do
+        ProtoFields.maybe'poolOwner .= fmap toProto stoPoolOwner
+        ProtoFields.transactionFees .= toProto stoTransactionFees
+        ProtoFields.bakerReward .= toProto stoBakerReward
+        ProtoFields.finalizationReward .= toProto stoFinalizationReward)
+
 -- |NB: Assumes the data is at least 32 bytes
 decodeBlockHashInput :: Word8 -> Ptr Word8 -> IO Q.BlockHashInput
 decodeBlockHashInput 0 _ = return Q.BHIBest
@@ -1806,13 +1867,7 @@ getBlockItemStatusV2 cptr trxHashPtr outVec copierCbk = do
           return $ queryResultCode QRNotFound
         Just ts -> case toBlockItemStatus ts of
               Left e -> do
-                let msg = case e of
-                      CEFailedAccountCreation -> "An account creation failed."
-                      CEInvalidAccountCreation -> "An account creation transaction occurred but was malformed and could not be converted."
-                      CEFailedUpdate -> "An update transaction failed."
-                      CEInvalidUpdateResult -> "An update transaction occurred but was malformed and could not be converted."
-                      CEInvalidTransactionResult -> "An account transaction occurred but was malformed and could not be converted."
-                mvLog mvr Logger.External Logger.LLError $ "Internal conversion error occured for transaction '" ++ show trxHash ++ "': " ++ msg
+                mvLog mvr Logger.External Logger.LLError $ "Internal conversion error occured for transaction '" ++ show trxHash ++ "': " ++ show e
                 return $ queryResultCode QRInternalError
               Right t -> do
                 let encoded = Proto.encodeMessage t
@@ -2177,10 +2232,10 @@ getIdentityProvidersV2 cptr channel blockType blockHashPtr outHash cbk = do
     let sender = callChannelSendCallback cbk
     bhi <- decodeBlockHashInput blockType blockHashPtr
     (bh, maybeIdentityProviders) <- runMVR (Q.getAllIdentityProviders bhi) mvr
+    copyHashTo outHash bh
     case maybeIdentityProviders of
         Nothing -> return (queryResultCode QRNotFound)
         Just ipInfos -> do
-            copyHashTo outHash bh
             _ <- enqueueMessages (sender channel) ipInfos
             return (queryResultCode QRSuccess)
 
@@ -2200,10 +2255,10 @@ getAnonymityRevokersV2 cptr channel blockType blockHashPtr outHash cbk = do
     let sender = callChannelSendCallback cbk
     bhi <- decodeBlockHashInput blockType blockHashPtr
     (bh, maybeAnonymityRevokers) <- runMVR (Q.getAllAnonymityRevokers bhi) mvr
+    copyHashTo outHash bh
     case maybeAnonymityRevokers of
         Nothing -> return (queryResultCode QRNotFound)
         Just arInfos -> do
-            copyHashTo outHash bh
             _ <- enqueueMessages (sender channel) arInfos
             return (queryResultCode QRSuccess)
 
@@ -2221,6 +2276,56 @@ getAccountNonFinalizedTransactionsV2 cptr channel accPtr cbk = do
     res <- runMVR (Q.getAccountNonFinalizedTransactions accountAddress) mvr
     _ <- enqueueMessages (sender channel) res
     return (queryResultCode QRSuccess)
+
+getBlockTransactionEventsV2 ::
+    StablePtr Ext.ConsensusRunner ->
+    Ptr SenderChannel ->
+    -- |Block type.
+    Word8 ->
+    -- |Block hash.
+    Ptr Word8 ->
+    -- |Out pointer for writing the block hash that was used.
+    Ptr Word8 ->
+    FunPtr ChannelSendCallback ->
+    IO Int64
+getBlockTransactionEventsV2 cptr channel blockType blockHashPtr outHash cbk = do
+    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
+    let sender = callChannelSendCallback cbk
+    bhi <- decodeBlockHashInput blockType blockHashPtr
+    (bh, maybeEvents) <- runMVR (Q.getBlockTransactionSummaries bhi) mvr
+    copyHashTo outHash bh
+    case maybeEvents of
+        Nothing -> return (queryResultCode QRNotFound)
+        Just events -> case traverse toBlockItemSummary events of
+          Left e -> do
+            mvLog mvr Logger.External Logger.LLError $ "Internal conversion error occured for block '" ++ show bh ++ "': " ++ show e
+            return $ queryResultCode QRInternalError
+          Right proto -> do
+            _ <- enqueueProtoMessages (sender channel) $ Vec.toList proto
+            return (queryResultCode QRSuccess)
+
+getBlockSpecialEventsV2 ::
+    StablePtr Ext.ConsensusRunner ->
+    Ptr SenderChannel ->
+    -- |Block type.
+    Word8 ->
+    -- |Block hash.
+    Ptr Word8 ->
+    -- |Out pointer for writing the block hash that was used.
+    Ptr Word8 ->
+    FunPtr ChannelSendCallback ->
+    IO Int64
+getBlockSpecialEventsV2 cptr channel blockType blockHashPtr outHash cbk = do
+    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
+    let sender = callChannelSendCallback cbk
+    bhi <- decodeBlockHashInput blockType blockHashPtr
+    (bh, maybeEvents) <- runMVR (Q.getBlockSpecialEvents bhi) mvr
+    copyHashTo outHash bh
+    case maybeEvents of
+        Nothing -> return (queryResultCode QRNotFound)
+        Just events -> do
+          _ <- enqueueMessages (sender channel) $ toList events
+          return (queryResultCode QRSuccess)
 
 {- |Write the hash to the provided pointer, and if the message is given encode and
    write it using the provided callback.
@@ -2252,15 +2357,17 @@ returnMessage copier res = case res of
     BS.unsafeUseAsCStringLen encoded (\(ptr, len) -> copier (castPtr ptr) (fromIntegral len))
     return $ queryResultCode QRSuccess
 
+enqueueMessages :: (Proto.Message (Output a), ToProto a) => (Ptr Word8 -> Int64 -> IO Int32) -> [a] -> IO ThreadId
+enqueueMessages callback = enqueueProtoMessages callback . fmap toProto
+
 {- |Spawn a new thread that will invoke the provided callback on the list of
  encoded messages. If the callback response indicates that the channel to
  which the callback is enqueueing is full, the thread will wait. The wait time
  follows exponential backoff strategy to a maximum of 10 seconds.
 -}
-enqueueMessages :: (Proto.Message (Output a), ToProto a) => (Ptr Word8 -> Int64 -> IO Int32) -> [a] -> IO ThreadId
-enqueueMessages callback = forkIO . go 0 . map encodeMsg
+enqueueProtoMessages :: (Proto.Message a) => (Ptr Word8 -> Int64 -> IO Int32) -> [a] -> IO ThreadId
+enqueueProtoMessages callback = forkIO . go 0 . map Proto.encodeMessage
   where
-    encodeMsg = Proto.encodeMessage . toProto
     go _ [] = () <$ callback nullPtr maxBound -- close the sender channel.
     go n msgs@(msg : msgs') =
         BS.unsafeUseAsCStringLen msg $ \(headPtr, len) -> do
@@ -2274,6 +2381,7 @@ enqueueMessages callback = forkIO . go 0 . map encodeMsg
                             threadDelay delay
                             go (min (n + 1) (10 :: Int)) msgs -- maximum delay is 10 seconds
                         else return () -- the sender channel is now dropped, so we stop.
+
 
 -- * Foreign exports
 
@@ -2670,6 +2778,32 @@ foreign export ccall
         StablePtr Ext.ConsensusRunner ->
         Ptr SenderChannel ->
         -- |Serialized account address. Length is 32 bytes.
+        Ptr Word8 ->
+        FunPtr ChannelSendCallback ->
+        IO Int64
+
+foreign export ccall
+    getBlockTransactionEventsV2 ::
+        StablePtr Ext.ConsensusRunner ->
+        Ptr SenderChannel ->
+        -- |Block type.
+        Word8 ->
+        -- |Block hash.
+        Ptr Word8 ->
+        -- |Out pointer for writing the block hash that was used.
+        Ptr Word8 ->
+        FunPtr ChannelSendCallback ->
+        IO Int64
+
+foreign export ccall
+    getBlockSpecialEventsV2 ::
+        StablePtr Ext.ConsensusRunner ->
+        Ptr SenderChannel ->
+        -- |Block type.
+        Word8 ->
+        -- |Block hash.
+        Ptr Word8 ->
+        -- |Out pointer for writing the block hash that was used.
         Ptr Word8 ->
         FunPtr ChannelSendCallback ->
         IO Int64
