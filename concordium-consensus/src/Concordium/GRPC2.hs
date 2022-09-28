@@ -2207,6 +2207,20 @@ getAnonymityRevokersV2 cptr channel blockType blockHashPtr outHash cbk = do
             _ <- enqueueMessages (sender channel) arInfos
             return (queryResultCode QRSuccess)
 
+getAccountNonFinalizedTransactionsV2 ::
+        StablePtr Ext.ConsensusRunner ->
+        Ptr SenderChannel ->
+        -- |Serialized account address. Length is 32 bytes.
+        Ptr Word8 ->
+        FunPtr ChannelSendCallback ->
+        IO Int64
+getAccountNonFinalizedTransactionsV2 cptr channel accPtr cbk = do
+    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
+    let sender = callChannelSendCallback cbk
+    accountAddress <- decodeAccountAddress accPtr
+    res <- runMVR (Q.getAccountNonFinalizedTransactions accountAddress) mvr
+    _ <- enqueueMessages (sender channel) res
+    return (queryResultCode QRSuccess)
 
 {- |Write the hash to the provided pointer, and if the message is given encode and
    write it using the provided callback.
@@ -2647,6 +2661,15 @@ foreign export ccall
         -- |Block hash.
         Ptr Word8 ->
         -- |Out pointer for writing the block hash that was used.
+        Ptr Word8 ->
+        FunPtr ChannelSendCallback ->
+        IO Int64
+
+foreign export ccall
+    getAccountNonFinalizedTransactionsV2 ::
+        StablePtr Ext.ConsensusRunner ->
+        Ptr SenderChannel ->
+        -- |Serialized account address. Length is 32 bytes.
         Ptr Word8 ->
         FunPtr ChannelSendCallback ->
         IO Int64
