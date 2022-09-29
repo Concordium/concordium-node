@@ -1086,6 +1086,18 @@ pub mod server {
             types::send_block_item_request::BlockItemType::UpdateInstruction(v) => {
                 // Put the tag for update instruction.
                 out.write_u8(2)?;
+                // Header
+                let header = v.header.require()?;
+                out.write_u64::<BigEndian>(header.sequence_number.require()?.value)?;
+                out.write_u64::<BigEndian>(header.effective_time.require()?.value)?;
+                out.write_u64::<BigEndian>(header.timeout.require()?.value)?;
+                // Payload size + payload
+                match v.payload.require()?.payload.require()? {
+                    types::update_instruction_payload::Payload::RawPayload(p) => {
+                        out.write_u32::<BigEndian>(try_into_u32(p.len(), "PayloadSize")?)?;
+                        out.write(&p)?;
+                    }
+                };
                 // Signature
                 let signatures = v.signatures.require()?.signatures;
                 out.write_u16::<BigEndian>(try_into_u16(
@@ -1100,18 +1112,6 @@ pub mod server {
                     )?)?;
                     out.write(&sig.value)?;
                 }
-                // Header
-                let header = v.header.require()?;
-                out.write_u64::<BigEndian>(header.sequence_number.require()?.value)?;
-                out.write_u64::<BigEndian>(header.effective_time.require()?.value)?;
-                out.write_u64::<BigEndian>(header.timeout.require()?.value)?;
-                // Payload size + payload
-                match v.payload.require()?.payload.require()? {
-                    types::update_instruction_payload::Payload::RawPayload(p) => {
-                        out.write_u32::<BigEndian>(try_into_u32(p.len(), "PayloadSize")?)?;
-                        out.write(&p)?;
-                    }
-                };
             }
         }
         let out = out.into_inner();
