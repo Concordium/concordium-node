@@ -87,8 +87,13 @@ module Concordium.GlobalState.Persistent.BlobStore(
     EagerlyHashedBufferedRef',
     EagerlyHashedBufferedRef,
     migrateEagerlyHashedBufferedRefKeepHash,
+    -- ** 'UnbufferedRef'
+    UnbufferedRef,
+    makeUnbufferedRef,
+    makeFlushedUnbufferedRef,
     -- * Fixpoint references
     BufferedFix(..),
+    UnbufferedFix(..),
     FixShowable(..),
     StoreSerialized(..),
     -- * Caching
@@ -889,7 +894,7 @@ flushBufferedRef = refFlush
 uncacheBufferedRef :: DirectBlobStorable m a => BufferedRef a -> m (BufferedRef a)
 uncacheBufferedRef = refUncache
 
-instance (Monad m, DirectBlobStorable m a) => Reference m BufferedRef a where
+instance DirectBlobStorable m a => Reference m BufferedRef a where
   refMake = makeBufferedRef
 
   refLoad (BRBlobbed ref) = loadDirect ref
@@ -1047,6 +1052,80 @@ instance DirectBlobStorable m a => BlobStorable m (Nullable (EagerBufferedRef a)
 instance (Applicative m, Cacheable m a) => Cacheable m (EagerBufferedRef a) where
     cache (EagerBufferedRef ioref v) = EagerBufferedRef ioref <$> cache v
 
+-- |A reference that is generally not retained in memory once it has been written to disk.
+--
+-- This is essentially a simplified version of 'BufferedRef', where @BRBoth ref v@ is simply
+-- replaced with @URBlobbed ref@.
+data UnbufferedRef a
+    = URBlobbed !(BlobRef a)
+    -- ^A reference that is already on disk
+    | URMemory {urIORef :: !(IORef (Nullable (UnbufferedRef a))), urValue :: !a}
+    -- ^A reference that is in memory and may have been written to disk.
+    -- If the reference has not been written, the 'urIORef' will contain 'Null'.
+    -- If it has been written, it will contain @Some (URBlobbed b)@ for a 'BlobRef' @b@ that
+    -- holds the stored value.
+
+instance Show a => Show (UnbufferedRef a) where
+    show (URBlobbed r) = show r
+    show (URMemory _ v) = "{" ++ show v ++ "}"
+
+instance DirectBlobStorable m a => BlobStorable m (UnbufferedRef a) where
+    load = fmap URBlobbed <$> load
+    storeUpdate ur = do
+        (ur', !r) <- refFlush ur
+        return (put r, ur')
+
+instance DirectBlobStorable m a => BlobStorable m (Nullable (UnbufferedRef a)) where
+    load = do
+        r <- get
+        if isNull r then
+            return (pure Null)
+        else
+            return (pure (Some (URBlobbed r)))
+    storeUpdate n@Null = return (put (refNull :: BlobRef a), n)
+    storeUpdate (Some v) = do
+        (!r, !v') <- storeUpdate v
+        return (r, Some v')
+
+-- |Make an 'UnbufferedRef' from a value.
+makeUnbufferedRef :: MonadIO m => a -> m (UnbufferedRef a)
+makeUnbufferedRef urValue = do
+        urIORef <- liftIO $ newIORef Null
+        return $! URMemory{..}
+
+-- |Make an 'UnbufferedRef' from a value that is immediately flushed to the blob store.
+-- This is equivalent to @refFlush <=< refMake@.
+makeFlushedUnbufferedRef :: DirectBlobStorable m a => a -> m (UnbufferedRef a)
+makeFlushedUnbufferedRef val = do
+    (r, _) <- storeUpdateDirect val
+    return $! URBlobbed r
+
+instance DirectBlobStorable m a => Reference m UnbufferedRef a where
+    refMake = makeUnbufferedRef
+
+    refLoad (URBlobbed ref) = loadDirect ref
+    refLoad (URMemory _ v) = return v
+
+    refCache ur@(URBlobbed ref) = do
+        v <- loadDirect ref
+        return (v, ur)
+    refCache ur@(URMemory _ v) = return (v, ur)
+
+    refFlush (URMemory ref v) = liftIO (readIORef ref) >>= \case
+        Null -> do
+            (r' :: BlobRef a, _) <- storeUpdateDirect v
+            let !ur' = URBlobbed r'
+            liftIO . writeIORef ref $! Some ur'
+            return (ur', r')
+        Some ur' -> refFlush ur'
+    refFlush ur@(URBlobbed r) = return (ur, r)
+
+    refUncache = fmap fst <$> refFlush
+
+instance (DirectBlobStorable m a, MHashableTo m h a) => MHashableTo m h (UnbufferedRef a) where
+    getHashM ref = getHashM =<< refLoad ref
+
+
 -- |'BufferedFix' is a fixed-point combinator that uses a 'BufferedRef'.
 -- This is used for constructing a recursive type from a type constructor.
 -- For instance, given
@@ -1103,6 +1182,35 @@ instance FixShowable BufferedFix where
 
 instance (Functor m, DirectBlobStorable m (f (BufferedFix f)), Cacheable m (f (BufferedFix f))) => Cacheable m (BufferedFix f) where
     cache = fmap BufferedFix . cache . unBF
+
+-- |'UnbufferedFix' is a fixed-point combinator that uses an 'UnbufferedRef'.
+-- (See also 'BufferedFix'.)
+newtype UnbufferedFix f = UnbufferedFix {unUF :: UnbufferedRef (f (UnbufferedFix f))}
+
+type instance Base (UnbufferedFix f) = f
+
+instance (MonadBlobStore m, DirectBlobStorable m (f (UnbufferedFix f))) => BlobStorable m (UnbufferedFix f) where
+    load = fmap UnbufferedFix <$> load
+    storeUpdate uf = do
+        (!p, !r) <- storeUpdate (unUF uf)
+        return (p, UnbufferedFix r)
+
+instance (MonadBlobStore m, DirectBlobStorable m (f (UnbufferedFix f))) => BlobStorable m (Nullable (UnbufferedFix f)) where
+    load = fmap (fmap UnbufferedFix) <$> load
+    storeUpdate bf = do
+        (!p, !r) <- storeUpdate (fmap unUF bf)
+        return (p, UnbufferedFix <$> r)
+
+
+instance (MonadBlobStore m, DirectBlobStorable m (f (UnbufferedFix f))) => MRecursive m (UnbufferedFix f) where
+    mproject = refLoad . unUF
+
+instance (MonadIO m) => MCorecursive m (UnbufferedFix f) where
+    membed = fmap UnbufferedFix . makeUnbufferedRef
+
+instance FixShowable UnbufferedFix where
+    showFix _ (UnbufferedFix (URBlobbed r)) = show r
+    showFix sh (UnbufferedFix (URMemory _ v)) = sh (showFix sh <$> v)
 
 -- BlobStorable instances
 instance MonadBlobStore m => BlobStorable m IPS.IpInfo
