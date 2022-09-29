@@ -485,6 +485,8 @@ pub mod server {
                 }
             }
         }
+
+        pub async fn get_node_info(&self) {}
     }
 
     #[async_trait]
