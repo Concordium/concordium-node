@@ -13,6 +13,7 @@
 
 # This builder script expects the following environment variables to be set
 # - static_libraries_image_tag (image with dependencies for building Haskell libraries that are linked statically)
+# - static_binaries_image_tag (image tag for the static libraries docker build, defaults to latest)
 # - ghc_version (version of the GHC compiler used to build static binaries)
 # - genesis_path (root of the genesis directory from which the genesis block is taken)
 # - genesis_ref (branch or commit of the genesis_data repository where the genesis data is located)
@@ -23,13 +24,14 @@
 set -euxo pipefail
 
 # Build the image and tag it as static-node-binaries
-GHC_VERSION="${ghc_version}" UBUNTU_VERSION=20.04 STATIC_LIBRARIES_IMAGE_TAG="${static_libraries_image_tag}" EXTRA_FEATURES="collector" ./scripts/static-binaries/build-static-binaries.sh
+GHC_VERSION="${ghc_version}" UBUNTU_VERSION=20.04 STATIC_LIBRARIES_IMAGE_TAG="${static_libraries_image_tag}" STATIC_BINARIES_IMAGE_TAG="${static_binaries_image_tag:-latest}" EXTRA_FEATURES="collector" ./scripts/static-binaries/build-static-binaries.sh
 
 # Then pack it all together with genesis
 DOCKER_BUILDKIT=1 docker build\
                   --build-arg environment="${environment}"\
                   --build-arg genesis_ref="${genesis_ref}"\
                   --build-arg genesis_path="${genesis_path}"\
+                  --build-arg static_binaries_image_tag="${static_binaries_image_tag:-latest}"\
                   -t "concordium/${image_name}:${image_tag}"\
                   --ssh default\
                   -f scripts/distribution/docker/builder.Dockerfile\

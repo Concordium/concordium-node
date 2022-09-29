@@ -17,7 +17,8 @@
 # The build of the image will clone the genesis data repository so needs
 # credentials to access it.
 
-FROM static-node-binaries:latest as binaries
+ARG static_binaries_image_tag
+FROM static-node-binaries:${static_binaries_image_tag} as binaries
 
 # Fetch genesis-data.
 FROM alpine/git:latest as genesis-data
