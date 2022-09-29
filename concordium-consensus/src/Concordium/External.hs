@@ -1040,7 +1040,7 @@ getBirkParameters :: StablePtr ConsensusRunner -> CString -> IO CString
 getBirkParameters cptr blockcstr =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (Q.getBlockBirkParameters bh)
+        Just bh -> jsonQuery cptr (snd <$> Q.getBlockBirkParameters (BHIGiven bh))
 
 -- |Get the cryptographic parameters in a given block. The block must be given as a
 -- null-terminated base16 encoding of the block hash.
@@ -1060,7 +1060,7 @@ getAllIdentityProviders :: StablePtr ConsensusRunner -> CString -> IO CString
 getAllIdentityProviders cptr blockcstr =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (Q.getAllIdentityProviders bh)
+        Just bh -> jsonQuery cptr (snd <$> Q.getAllIdentityProviders (BHIGiven bh))
 
 -- |Get all of the identity providers registered in the system as of a given block.
 -- The block must be given as a null-terminated base16 encoding of the block hash.
@@ -1070,7 +1070,7 @@ getAllAnonymityRevokers :: StablePtr ConsensusRunner -> CString -> IO CString
 getAllAnonymityRevokers cptr blockcstr =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (Q.getAllAnonymityRevokers bh)
+        Just bh -> jsonQuery cptr (snd <$> Q.getAllAnonymityRevokers (BHIGiven bh))
 
 -- |Given a null-terminated string that represents a block hash (base 16), and a number of blocks,
 -- returns a null-terminated string containing a JSON list of the ancestors of the node (up to the

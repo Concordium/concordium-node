@@ -69,3 +69,7 @@ EXPORTS
  getPassiveDelegatorsV2
  getPassiveDelegatorsRewardPeriodV2
  getBranchesV2
+ getElectionInfoV2
+ getIdentityProvidersV2
+ getAnonymityRevokersV2
+ getAccountNonFinalizedTransactionsV2
