@@ -109,9 +109,7 @@ pub mod types {
     }
 
     /// Convert [BakerId] to a u64.
-    pub(crate) fn baker_id_to_ffi(baker_id: &BakerId) -> u64 {
-        baker_id.value
-    }
+    pub(crate) fn baker_id_to_ffi(baker_id: &BakerId) -> u64 { baker_id.value }
 
     /// Convert the [BlocksAtHeightRequest] to a triple of a block height,
     /// genesis_index and a boolean. If the genesis_index is 0, the height
@@ -154,20 +152,20 @@ struct ServiceConfig {
     #[serde(default)]
     get_finalized_blocks: bool,
     #[serde(default)]
-    get_blocks: bool,
+    get_blocks:           bool,
     #[serde(default)]
-    get_account_list: bool,
+    get_account_list:     bool,
     #[serde(default)]
-    get_account_info: bool,
+    get_account_info:     bool,
 }
 
 impl ServiceConfig {
     pub const fn new_all_enabled() -> Self {
         Self {
             get_finalized_blocks: true,
-            get_blocks: true,
-            get_account_list: true,
-            get_account_info: true,
+            get_blocks:           true,
+            get_account_list:     true,
+            get_account_info:     true,
         }
     }
 
@@ -196,9 +194,7 @@ impl ServiceConfig {
 /// so will lead to an RPC error.**
 pub struct RawCodec<E, D>(PhantomData<E>, PhantomData<D>);
 impl<E, D> Default for RawCodec<E, D> {
-    fn default() -> Self {
-        Self(Default::default(), Default::default())
-    }
+    fn default() -> Self { Self(Default::default(), Default::default()) }
 }
 
 impl<E: AsRef<[u8]> + Send + Sync + 'static, D: prost::Message + Default + 'static>
@@ -209,21 +205,15 @@ impl<E: AsRef<[u8]> + Send + Sync + 'static, D: prost::Message + Default + 'stat
     type Encode = E;
     type Encoder = RawEncoder<E>;
 
-    fn encoder(&mut self) -> Self::Encoder {
-        RawEncoder::default()
-    }
+    fn encoder(&mut self) -> Self::Encoder { RawEncoder::default() }
 
-    fn decoder(&mut self) -> Self::Decoder {
-        RawDecoder::default()
-    }
+    fn decoder(&mut self) -> Self::Decoder { RawDecoder::default() }
 }
 
 pub struct RawEncoder<E>(PhantomData<E>);
 
 impl<E> Default for RawEncoder<E> {
-    fn default() -> Self {
-        Self(Default::default())
-    }
+    fn default() -> Self { Self(Default::default()) }
 }
 
 impl<E: AsRef<[u8]>> tonic::codec::Encoder for RawEncoder<E> {
@@ -244,9 +234,7 @@ impl<E: AsRef<[u8]>> tonic::codec::Encoder for RawEncoder<E> {
 pub struct RawDecoder<D>(PhantomData<D>);
 
 impl<D> Default for RawDecoder<D> {
-    fn default() -> Self {
-        RawDecoder(Default::default())
-    }
+    fn default() -> Self { RawDecoder(Default::default()) }
 }
 
 impl<D: prost::Message + Default> tonic::codec::Decoder for RawDecoder<D> {
@@ -309,15 +297,15 @@ pub mod server {
         /// A handle to the actual server task. This is used to shut down the
         /// server upon node shutdown if it does not want to shut down
         /// itself.
-        task: tokio::task::JoinHandle<Result<(), tonic::transport::Error>>,
+        task:                   tokio::task::JoinHandle<Result<(), tonic::transport::Error>>,
         /// A one-shot channel used to send an interrupt to the server, asking
         /// it to stop.
-        shutdown_sender: tokio::sync::oneshot::Sender<()>,
+        shutdown_sender:        tokio::sync::oneshot::Sender<()>,
         /// The handles to background tasks that relay messages from the queue
         /// which is written to by consensus, to the receivers for any
         /// existing clients. There is a task for relaying blocks, and one for
         /// relaying finalized blocks.
-        blocks_relay: tokio::task::JoinHandle<()>,
+        blocks_relay:           tokio::task::JoinHandle<()>,
         finalized_blocks_relay: tokio::task::JoinHandle<()>,
     }
 
@@ -686,7 +674,7 @@ pub mod server {
                     let (sender, receiver) = tokio::sync::mpsc::channel(1);
                     let _sender = tokio::spawn(async move {
                         let msg = types::InstanceStateKvPair {
-                            key: Vec::new(),
+                            key:   Vec::new(),
                             value: state,
                         };
                         let _ = sender.send(Ok(msg)).await;
@@ -1051,7 +1039,8 @@ pub mod server {
                     match in_baking_committee {
                         ConsensusIsInBakingCommitteeResponse::ActiveInCommittee => {
                             if self.consensus.in_finalization_committee() {
-                                // The node is configured with baker keys and is an active member of the finalization committee.
+                                // The node is configured with baker keys and is an active member of
+                                // the finalization committee.
                                 Some(node_info::ConsensusInfo::BakerConsensusInfo(node_info::BakerConsensusInfo {
                                     committee_info: Some(baker_consensus_info::CommitteeInfo::ActiveFinalizerCommitteeInfo(
                                         baker_consensus_info::ActiveFinalizerCommitteeInfo {
@@ -1061,7 +1050,8 @@ pub mod server {
                                         })),
                                 }))
                             } else {
-                                // The node is configured with baker keys and is an active member of the baking committee.
+                                // The node is configured with baker keys and is an active member of
+                                // the baking committee.
                                 Some(node_info::ConsensusInfo::BakerConsensusInfo(node_info::BakerConsensusInfo {
                                     committee_info: Some(baker_consensus_info::CommitteeInfo::ActiveBakerCommitteeInfo(
                                         baker_consensus_info::ActiveBakerCommitteeInfo {
@@ -1073,7 +1063,8 @@ pub mod server {
                             }
                         }
                         ConsensusIsInBakingCommitteeResponse::NotInCommittee => {
-                            // The node is configured with baker keys but is not in the baking committee.
+                            // The node is configured with baker keys but is not in the baking
+                            // committee.
                             Some(node_info::ConsensusInfo::BakerConsensusInfo(node_info::BakerConsensusInfo {
                                 committee_info: Some(baker_consensus_info::CommitteeInfo::PassiveCommitteeInfo(
                                     baker_consensus_info::PassiveCommitteeInfo::NotInCommittee as i32
@@ -1081,7 +1072,8 @@ pub mod server {
                             }))
                         }
                         ConsensusIsInBakingCommitteeResponse::AddedButNotActiveInCommittee => {
-                            // The node is configured with baker keys and it is a baker, but not for the current epoch.
+                            // The node is configured with baker keys and it is a baker, but not for
+                            // the current epoch.
                             Some(node_info::ConsensusInfo::BakerConsensusInfo(node_info::BakerConsensusInfo {
                                 committee_info: Some(baker_consensus_info::CommitteeInfo::PassiveCommitteeInfo(
                                     baker_consensus_info::PassiveCommitteeInfo::AddedButNotActiveInCommittee as i32
@@ -1089,7 +1081,8 @@ pub mod server {
                             }))
                         }
                         ConsensusIsInBakingCommitteeResponse::AddedButWrongKeys => {
-                            // The node is configured with baker keys however they do not match expected baker keys for the associated account.
+                            // The node is configured with baker keys however they do not match
+                            // expected baker keys for the associated account.
                             Some(node_info::ConsensusInfo::BakerConsensusInfo(node_info::BakerConsensusInfo {
                                 committee_info: Some(baker_consensus_info::CommitteeInfo::PassiveCommitteeInfo(
                                     baker_consensus_info::PassiveCommitteeInfo::AddedButWrongKeys as i32
@@ -1098,7 +1091,8 @@ pub mod server {
                         }
                     }
                 } else {
-                    // The node is not configured with baker keys and is participating in the consensus passively.
+                    // The node is not configured with baker keys and is participating in the
+                    // consensus passively.
                     Some(node_info::ConsensusInfo::NoBaker(
                         node_info::NoBakerConsensusInfo::Passive as i32,
                     ))
