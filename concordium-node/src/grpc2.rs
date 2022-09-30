@@ -985,6 +985,57 @@ pub mod server {
             let response = tonic::Response::new(receiver);
             Ok(response)
         }
+
+        async fn get_peers_info(
+            &self,
+            _request: tonic::Request<crate::grpc2::types::Empty>,
+        ) -> Result<tonic::Response<crate::grpc2::types::PeersInfo>, tonic::Status> {
+            let peer_statuss = (*crate::read_or_die!(self.node.peers)).peer_states.clone();
+            let peers = self
+                .node
+                .get_peer_stats(None)
+                .into_iter()
+                .map(|peer_stats| {
+                    // Collect the network statistics
+                    let network_stats = Some(crate::grpc2::types::peers_info::peer::NetworkStats {
+                        packets_sent:     peer_stats.msgs_sent,
+                        packets_received: peer_stats.msgs_received,
+                        latency:          peer_stats.latency,
+                    });
+                    // Get the type of the peer.
+                    let peer_type = match peer_stats.peer_type {
+                        crate::common::PeerType::Node => {
+                            crate::grpc2::types::peers_info::peer::PeerType::Node
+                        }
+                        crate::common::PeerType::Bootstrapper => {
+                            crate::grpc2::types::peers_info::peer::PeerType::Bootstrapper
+                        }
+                    };
+                    // Get the catchup status of the peer.
+                    let catchup_status = match peer_statuss.get(&peer_stats.local_id) {
+                        Some(crate::consensus_ffi::catch_up::PeerStatus::CatchingUp) => {
+                            crate::grpc2::types::peers_info::peer::CatchupStatus::Catchingup
+                        }
+                        Some(crate::consensus_ffi::catch_up::PeerStatus::UpToDate) => {
+                            crate::grpc2::types::peers_info::peer::CatchupStatus::Uptodate
+                        }
+                        _ => crate::grpc2::types::peers_info::peer::CatchupStatus::Pending,
+                    };
+
+                    crate::grpc2::types::peers_info::Peer {
+                        peer_id: format!("{}", peer_stats.self_id),
+                        peer_type: peer_type as i32,
+                        port: peer_stats.external_port as u32,
+                        ip: peer_stats.external_address().ip().to_string(),
+                        catchup_status: catchup_status as i32,
+                        network_stats,
+                    }
+                })
+                .collect();
+            Ok(tonic::Response::new(crate::grpc2::types::PeersInfo {
+                peers,
+            }))
+        }
     }
 }
 
