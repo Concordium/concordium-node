@@ -33,6 +33,7 @@ import Concordium.Types.Queries
 import Concordium.Types.SeedState
 import Concordium.Types.Execution (TransactionSummary)
 import Concordium.Types.Transactions (SpecialTransactionOutcome)
+import qualified Concordium.Types.UpdateQueues as UQ
 import qualified Concordium.Wasm as Wasm
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 
@@ -172,6 +173,7 @@ liftSkovQueryBHI ::
     ( forall (pv :: ProtocolVersion).
       ( SkovMonad (VersionedSkovM gsconf finconf pv)
       , FinalizationMonad (VersionedSkovM gsconf finconf pv)
+      , IsProtocolVersion pv
       ) =>
       BlockPointerType (VersionedSkovM gsconf finconf pv) ->
       VersionedSkovM gsconf finconf pv a
@@ -486,13 +488,39 @@ getBlockSummary = liftSkovQueryBlock getBlockSummarySkovM
         let bsProtocolVersion = protocolVersion @pv
         return BlockSummary{..}
 
--- |Get a the transaction outcomes in the block.
+-- |Get the transaction outcomes in the block.
 getBlockTransactionSummaries :: forall gsconf finconf. BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe (Vec.Vector TransactionSummary))
 getBlockTransactionSummaries = liftSkovQueryBHI $ BS.getOutcomes <=< blockState
 
--- |Get a the transaction outcomes in the block.
+-- |Get the transaction outcomes in the block.
 getBlockSpecialEvents :: forall gsconf finconf. BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe (Seq.Seq SpecialTransactionOutcome))
 getBlockSpecialEvents = liftSkovQueryBHI $ BS.getSpecialOutcomes <=< blockState
+
+-- |Get the pending updates at the end of a given block.
+getBlockPendingUpdates :: forall gsconf finconf. BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe [(TransactionTime, PendingUpdateEffect)])
+getBlockPendingUpdates = liftSkovQueryBHI query
+  where
+    query :: forall pv.
+        SkovMonad (VersionedSkovM gsconf finconf pv) =>
+        BlockPointerType (VersionedSkovM gsconf finconf pv) ->
+        VersionedSkovM gsconf finconf pv [(TransactionTime, PendingUpdateEffect)]
+    query bp = do
+      bs <- blockState bp
+      updates <- BS.getUpdates bs
+      return $ flattenUpdateQueues $ UQ._pendingUpdates updates
+
+-- |Get next update sequences numbers at the end of a given block.
+getNextUpdateSequenceNumbers :: forall gsconf finconf. BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe NextUpdateSequenceNumbers)
+getNextUpdateSequenceNumbers = liftSkovQueryBHI query
+  where
+    query :: forall pv.
+        SkovMonad (VersionedSkovM gsconf finconf pv) =>
+        BlockPointerType (VersionedSkovM gsconf finconf pv) ->
+        VersionedSkovM gsconf finconf pv NextUpdateSequenceNumbers
+    query bp = do
+      bs <- blockState bp
+      updates <- BS.getUpdates bs
+      return $ updateQueuesNextSequenceNumbers $ UQ._pendingUpdates updates
 
 -- |Get the total amount of GTU in existence and status of the reward accounts.
 getRewardStatus :: BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe RewardStatus)

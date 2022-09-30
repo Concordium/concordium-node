@@ -75,3 +75,5 @@ EXPORTS
  getAccountNonFinalizedTransactionsV2
  getBlockTransactionEventsV2
  getBlockSpecialEventsV2
+ getBlockPendingUpdatesV2
+ getNextUpdateSequenceNumbersV2
