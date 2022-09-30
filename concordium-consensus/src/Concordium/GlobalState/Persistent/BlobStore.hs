@@ -91,6 +91,7 @@ module Concordium.GlobalState.Persistent.BlobStore(
     UnbufferedRef,
     makeUnbufferedRef,
     makeFlushedUnbufferedRef,
+    blobRefToUnbufferedRef,
     -- * Fixpoint references
     BufferedFix(..),
     UnbufferedFix(..),
@@ -1099,6 +1100,10 @@ makeFlushedUnbufferedRef :: DirectBlobStorable m a => a -> m (UnbufferedRef a)
 makeFlushedUnbufferedRef val = do
     (r, _) <- storeUpdateDirect val
     return $! URBlobbed r
+
+-- |Create an 'UnbufferedRef' from a 'BlobRef'.
+blobRefToUnbufferedRef :: BlobRef a -> UnbufferedRef a
+blobRefToUnbufferedRef = URBlobbed
 
 instance DirectBlobStorable m a => Reference m UnbufferedRef a where
     refMake = makeUnbufferedRef
