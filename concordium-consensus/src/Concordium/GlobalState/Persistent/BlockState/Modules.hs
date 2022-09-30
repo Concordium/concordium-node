@@ -390,24 +390,47 @@ putModulesV0 mods = do
     liftPut $ putWord64be $ LFMB.size mt
     LFMB.mmap_ putModuleV0 mt
 
+-- |Migrate smart contract modules from context @m@ to the context @t m@.
 migrateModules ::
-  (SupportsPersistentModule m, SupportsPersistentModule (t m), SupportMigration m t)
+  forall t m . (SupportsPersistentModule m, SupportsPersistentModule (t m), SupportMigration m t)
   => Modules
   -> t m Modules
 migrateModules mods = do
-    newModulesTable <- LFMB.migrateLFMBTree migrateModule (_modulesTable mods)
+    newModulesTable <- LFMB.migrateLFMBTree migrateCachedModule (_modulesTable mods)
     return
         Modules
             { _modulesMap = _modulesMap mods
             , _modulesTable = newModulesTable
             }
+    where 
+      migrateCachedModule :: CachedModule -> t m CachedModule
+      migrateCachedModule cm = do
+        existingModule <- lift (refLoad cm)
+        case existingModule of
+          ModuleV0 v0 -> migrateModuleV v0
+          ModuleV1 v1 -> migrateModuleV v1
 
-migrateModule :: 
-  (SupportsPersistentModule m, SupportsPersistentModule (t m), SupportMigration m t)
-  => CachedModule
-  -> t m CachedModule
-migrateModule mdl = do
-    newModule <- lift (refLoad mdl)
-    ref <- refMake newModule
-    (ret, _) <- refFlush ref
-    return ret
+      migrateModuleV :: forall v . (IsWasmVersion v) => ModuleV v -> t m CachedModule
+      migrateModuleV ModuleV{..} = do
+        newModuleVSource <- do
+          -- Load the module source from the old context.
+          s <- lift (loadRef moduleVSource)
+          -- and store it in the new context, returning a reference to it.
+          storeRef s
+        -- load the module artifact into memory from the old state. This is
+        -- cheap since the artifact, which is the big part, is neither copied,
+        -- nor deserialized.
+        newArtifact <- lift (loadInstrumentedModuleV (GSWasm.miModule moduleVInterface))
+        -- construct the new module interface by loading the artifact. The
+        -- remaining fields have no blob references, so are just copied over.
+        let newModuleVInterface = moduleVInterface {GSWasm.miModule = PIMVMem newArtifact}
+        -- store the module into the new state, and remove it from memory
+        makeFlushedHashedCachedRef $!
+            mkModule (getWasmVersion @v) $! ModuleV {
+                moduleVInterface = newModuleVInterface,
+                moduleVSource = newModuleVSource
+            }
+
+      mkModule :: SWasmVersion v -> ModuleV v -> Module
+      mkModule SV0 = ModuleV0
+      mkModule SV1 = ModuleV1

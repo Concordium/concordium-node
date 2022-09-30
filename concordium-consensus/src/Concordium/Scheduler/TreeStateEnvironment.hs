@@ -943,7 +943,7 @@ data MintRewardParams (cpv :: ChainParametersVersion) where
 --        This is important, because that function rotates the stakes and capital, and clears the
 --        accrued rewards.
 --
---    (3) Mint for any additional paydays. THe amount is determined by the mint rate
+--    (3) Mint for any additional paydays. The amount is determined by the mint rate
 --
 --    (4) Set the mint rate and payday epoch for the next payday based on the time parameters
 --        at the most recent payday.
