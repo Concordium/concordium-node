@@ -985,6 +985,54 @@ pub mod server {
             let response = tonic::Response::new(receiver);
             Ok(response)
         }
+
+        #[cfg(feature = "network_dump")]
+        async fn dump_start(
+            &self,
+            request: tonic::Request<crate::grpc2::types::DumpRequest>,
+        ) -> Result<tonic::Response<crate::grpc2::types::BoolResponse>, tonic::Status> {
+            let file_path = request.get_ref().file.to_owned();
+            let result = self
+                .node
+                .activate_dump(
+                    if file_path.is_empty() {
+                        "dump"
+                    } else {
+                        &file_path
+                    },
+                    request.get_ref().raw,
+                )
+                .is_ok();
+            Ok(tonic::Response::new(crate::grpc2::types::BoolResponse {
+                value: result,
+            }))
+        }
+
+        #[cfg(not(feature = "network_dump"))]
+        async fn dump_start(
+            &self,
+            _request: tonic::Request<crate::grpc2::types::DumpRequest>,
+        ) -> Result<tonic::Response<crate::grpc2::types::BoolResponse>, tonic::Status> {
+            Err(tonic::Status::failed_precondition("Feature \"network_dump\" is not active"))
+        }
+
+        #[cfg(feature = "network_dump")]
+        async fn dump_stop(
+            &self,
+            _request: tonic::Request<crate::grpc2::types::Empty>,
+        ) -> Result<tonic::Response<crate::grpc2::types::BoolResponse>, tonic::Status> {
+            Ok(tonic::Response::new(crate::grpc2::types::BoolResponse {
+                value: self.node.stop_dump().is_ok(),
+            }))
+        }
+
+        #[cfg(not(feature = "network_dump"))]
+        async fn dump_stop(
+            &self,
+            _request: tonic::Request<crate::grpc2::types::Empty>,
+        ) -> Result<tonic::Response<crate::grpc2::types::BoolResponse>, tonic::Status> {
+            Err(tonic::Status::failed_precondition("Feature \"network_dump\" is not active"))
+        }
     }
 }
 
