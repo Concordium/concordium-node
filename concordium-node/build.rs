@@ -455,6 +455,33 @@ fn build_grpc2(proto_root_input: &str) -> std::io::Result<()> {
                 .server_streaming()
                 .build(),
         )
+        .method(
+            tonic_build::manual::Method::builder()
+                .name("get_banned_peers")
+                .route_name("GetBannedPeers")
+                .input_type("crate::grpc2::types::Empty")
+                .output_type("crate::grpc2::types::BannedPeers")
+                .codec_path("tonic::codec::ProstCodec")
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
+                .name("ban_peer")
+                .route_name("BanPeer")
+                .input_type("crate::grpc2::types::PeerToBan")
+                .output_type("crate::grpc2::types::BooleanResponse")
+                .codec_path("tonic::codec::ProstCodec")
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
+                .name("unban_peer")
+                .route_name("UnbanPeer")
+                .input_type("crate::grpc2::types::BannedPeer")
+                .output_type("crate::grpc2::types::BooleanResponse")
+                .codec_path("tonic::codec::ProstCodec")
+                .build(),
+        )
         .build();
     // Due to the slightly hacky nature of the RawCodec (i.e., it does not support
     // deserialization) we cannot build the client. But we also don't need it in the
