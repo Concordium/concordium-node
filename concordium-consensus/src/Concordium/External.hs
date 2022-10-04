@@ -795,12 +795,17 @@ receiveFinalizationRecord bptr genIndex msg msgLen = do
 -- @ResultCredentialDeploymentExpired@, @ResultChainUpdateInvalidSequenceNumber@,
 -- @ResultChainUpdateInvalidEffectiveTime@, @ResultChainUpdateInvalidSignatures@,
 -- @ResultEnergyExceeded@
-receiveTransaction :: StablePtr ConsensusRunner -> CString -> Int64 -> IO ReceiveResult
-receiveTransaction bptr transactionData transactionLen = do
+receiveTransaction :: StablePtr ConsensusRunner -> CString -> Int64 -> Ptr Word8 -> IO ReceiveResult
+receiveTransaction bptr transactionData transactionLen outPtr = do
     (ConsensusRunner mvr) <- deRefStablePtr bptr
     mvLog mvr External LLTrace $ "Received transaction, size = " ++ show transactionLen ++ "."
     transactionBS <- BS.packCStringLen (transactionData, fromIntegral transactionLen)
-    toReceiveResult <$> runMVR (MV.receiveTransaction transactionBS) mvr
+    (mh, ur) <- runMVR (MV.receiveTransaction transactionBS) mvr
+    case mh of
+      Nothing -> return (toReceiveResult ur)
+      Just (TransactionHashV0 (SHA256.Hash h)) -> do
+        FBS.withPtrReadOnly h $ \p -> copyBytes outPtr p 32
+        return (toReceiveResult ur)
 
 -- |Handle receiving a catch-up status message.
 -- If the message is a request, then the supplied callback will be used to
@@ -1040,7 +1045,7 @@ getBirkParameters :: StablePtr ConsensusRunner -> CString -> IO CString
 getBirkParameters cptr blockcstr =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (Q.getBlockBirkParameters bh)
+        Just bh -> jsonQuery cptr (snd <$> Q.getBlockBirkParameters (BHIGiven bh))
 
 -- |Get the cryptographic parameters in a given block. The block must be given as a
 -- null-terminated base16 encoding of the block hash.
@@ -1060,7 +1065,7 @@ getAllIdentityProviders :: StablePtr ConsensusRunner -> CString -> IO CString
 getAllIdentityProviders cptr blockcstr =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (Q.getAllIdentityProviders bh)
+        Just bh -> jsonQuery cptr (snd <$> Q.getAllIdentityProviders (BHIGiven bh))
 
 -- |Get all of the identity providers registered in the system as of a given block.
 -- The block must be given as a null-terminated base16 encoding of the block hash.
@@ -1070,7 +1075,7 @@ getAllAnonymityRevokers :: StablePtr ConsensusRunner -> CString -> IO CString
 getAllAnonymityRevokers cptr blockcstr =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (Q.getAllAnonymityRevokers bh)
+        Just bh -> jsonQuery cptr (snd <$> Q.getAllAnonymityRevokers (BHIGiven bh))
 
 -- |Given a null-terminated string that represents a block hash (base 16), and a number of blocks,
 -- returns a null-terminated string containing a JSON list of the ancestors of the node (up to the
@@ -1405,7 +1410,7 @@ foreign export ccall stopBaker :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall receiveBlock :: StablePtr ConsensusRunner -> GenesisIndex -> CString -> Int64 -> IO Int64
 foreign export ccall receiveFinalizationMessage :: StablePtr ConsensusRunner -> GenesisIndex -> CString -> Int64 -> IO Int64
 foreign export ccall receiveFinalizationRecord :: StablePtr ConsensusRunner -> GenesisIndex -> CString -> Int64 -> IO Int64
-foreign export ccall receiveTransaction :: StablePtr ConsensusRunner -> CString -> Int64 -> IO Int64
+foreign export ccall receiveTransaction :: StablePtr ConsensusRunner -> CString -> Int64 -> Ptr Word8 -> IO Int64
 
 foreign export ccall getConsensusStatus :: StablePtr ConsensusRunner -> IO CString
 foreign export ccall getBlockInfo :: StablePtr ConsensusRunner -> CString -> IO CString

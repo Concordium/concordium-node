@@ -14,6 +14,8 @@ specific package manager for installing dependencies (and possibly renaming depe
     - `STATIC_LIBRARIES_IMAGE_TAG`, tag of the docker image used to build static
       libraries. `latest` should work, but otherwise see which tags are
       available on dockerhub.
+    - `STATIC_BINARIES_IMAGE_TAG`, tag of the docker image produced by the script,
+      e.g. `latest`.
     - `GHC_VERSION` which Haskell compiler version to use. Generally this should
       match whatever the version is specified by the resolver in [stack.yaml](../../concordium-consensus/stack.yaml).
     - `EXTRA_FEATURES` (optional) extra features that will be used when building

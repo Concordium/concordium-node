@@ -25,8 +25,7 @@ codegen-units = 1
 
 [dependencies]
 # Internal dependencies
-crypto_common = { path = "../concordium-base/rust-src/crypto_common", features = ["encryption"] }
-id = { path = "../concordium-base/rust-src/id", default-features = false }
+concordium_base = { path = "../concordium-base/rust-src/concordium_base" }
 wasm-chain-integration = { path = "../concordium-base/smart-contracts/wasm-chain-integration", default-features=false }
 
 # External dependencies
@@ -70,7 +69,6 @@ url = "2.2"
 reqwest = { version = "0.11", features = ["stream", "native-tls-vendored"] }
 csv-async = "1.2"
 tokio-util = { version = "0.7.3", features = ["io"] }
-concordium-contracts-common = { path = "../concordium-base/concordium-contracts-common/concordium-contracts-common"}
 
 # gRPC dependencies
 tonic = { version = "0.8", features = ["tls"] }

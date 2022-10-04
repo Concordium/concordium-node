@@ -493,8 +493,8 @@ getRewardStatus = liftSkovQueryBHI $ \bp -> do
     return $ epochToUTC <$> reward
 
 -- |Get the birk parameters that applied when a given block was baked.
-getBlockBirkParameters :: BlockHash -> MVR gsconf finconf (Maybe BlockBirkParameters)
-getBlockBirkParameters = liftSkovQueryBlock $ \bp -> do
+getBlockBirkParameters :: BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe BlockBirkParameters)
+getBlockBirkParameters = liftSkovQueryBHI $ \bp -> do
     bs <- blockState bp
     bbpElectionDifficulty <- BS.getCurrentElectionDifficulty bs
     bbpElectionNonce <- currentLeadershipElectionNonce <$> BS.getSeedState bs
@@ -516,12 +516,12 @@ getCryptographicParameters = liftSkovQueryBHI $ \bp -> do
     BS.getCryptographicParameters bs
 
 -- |Get all of the identity providers registered in the system as of a given block.
-getAllIdentityProviders :: BlockHash -> MVR gsconf finconf (Maybe [IpInfo])
-getAllIdentityProviders = liftSkovQueryBlock $ BS.getAllIdentityProviders <=< blockState
+getAllIdentityProviders :: BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe [IpInfo])
+getAllIdentityProviders = liftSkovQueryBHI $ BS.getAllIdentityProviders <=< blockState
 
 -- |Get all of the anonymity revokers registered in the system as of a given block.
-getAllAnonymityRevokers :: BlockHash -> MVR gsconf finconf (Maybe [ArInfo])
-getAllAnonymityRevokers = liftSkovQueryBlock $ BS.getAllAnonymityRevokers <=< blockState
+getAllAnonymityRevokers :: BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe [ArInfo])
+getAllAnonymityRevokers = liftSkovQueryBHI $ BS.getAllAnonymityRevokers <=< blockState
 
 -- |Get the ancestors of a block (including itself) up to a maximum
 -- length.

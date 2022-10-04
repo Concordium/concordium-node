@@ -418,6 +418,45 @@ fn build_grpc2(proto_root_input: &str) -> std::io::Result<()> {
         )
         .method(
             tonic_build::manual::Method::builder()
+                .name("get_election_info")
+                .route_name("GetElectionInfo")
+                .input_type("crate::grpc2::types::BlockHashInput")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
+                .name("get_identity_providers")
+                .route_name("GetIdentityProviders")
+                .input_type("crate::grpc2::types::BlockHashInput")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .server_streaming()
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
+                .name("get_anonymity_revokers")
+                .route_name("GetAnonymityRevokers")
+                .input_type("crate::grpc2::types::BlockHashInput")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .server_streaming()
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
+                .name("get_account_non_finalized_transactions")
+                .route_name("GetAccountNonFinalizedTransactions")
+                .input_type("crate::grpc2::types::AccountAddress")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .server_streaming()
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
                 .name("send_block_item")
                 .route_name("SendBlockItem")
                 .input_type("crate::grpc2::types::SendBlockItemRequest")
@@ -429,7 +468,7 @@ fn build_grpc2(proto_root_input: &str) -> std::io::Result<()> {
             tonic_build::manual::Method::builder()
                 .name("get_account_transaction_sign_hash")
                 .route_name("GetAccountTransactionSignHash")
-                .input_type("crate::grpc2::types::UnsignedAccountTransaction")
+                .input_type("crate::grpc2::types::PreAccountTransaction")
                 .output_type("crate::grpc2::types::AccountTransactionSignHash")
                 .codec_path("tonic::codec::ProstCodec")
                 .build(),
