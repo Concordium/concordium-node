@@ -91,7 +91,7 @@ pub fn wait_node_delete_dirs(_: DeletePermission, node: Arc<P2PNode>) {
 }
 
 pub fn dummy_regenesis_blocks() -> Vec<BlockHash> {
-    vec![BlockHash::new([0u8; _]), BlockHash::new([1u8; _]), BlockHash::new([2u8; _])]
+    vec![BlockHash::new([0u8; 32]), BlockHash::new([1u8; 32]), BlockHash::new([2u8; 32])]
 }
 
 /// Creates a `P2PNode` for test purposes
