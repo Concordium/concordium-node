@@ -1001,7 +1001,9 @@ pub mod server {
                             crate::p2p::bans::PersistedBanId::Ip(addr) => addr.to_string(),
                         };
                         crate::grpc2::types::BannedPeer {
-                            ip_address,
+                            ip_address: Some(crate::grpc2::types::IpAddress {
+                                value: ip_address,
+                            }),
                         }
                     })
                     .collect();
@@ -1060,7 +1062,7 @@ pub mod server {
             request: tonic::Request<crate::grpc2::types::BannedPeer>,
         ) -> Result<tonic::Response<crate::grpc2::types::BooleanResponse>, tonic::Status> {
             match <std::net::IpAddr as std::str::FromStr>::from_str(
-                &request.into_inner().ip_address,
+                &request.into_inner().ip_address.require()?.value,
             ) {
                 Ok(ip_addr) => {
                     let banned_id = crate::p2p::bans::PersistedBanId::Ip(ip_addr);
