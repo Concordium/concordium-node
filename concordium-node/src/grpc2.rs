@@ -985,6 +985,15 @@ pub mod server {
             let response = tonic::Response::new(receiver);
             Ok(response)
         }
+
+        async fn shutdown(
+            &self,
+            _request: tonic::Request<crate::grpc2::types::Empty>,
+        ) -> Result<tonic::Response<crate::grpc2::types::BooleanResponse>, tonic::Status> {
+            Ok(tonic::Response::new(crate::grpc2::types::BooleanResponse {
+                value: self.node.close(),
+            }))
+        }
     }
 }
 
