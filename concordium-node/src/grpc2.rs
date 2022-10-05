@@ -261,7 +261,10 @@ pub mod server {
     };
     use anyhow::Context;
     use futures::{FutureExt, StreamExt};
-    use std::sync::{Arc, Mutex};
+    use std::{
+        net::SocketAddr,
+        sync::{Arc, Mutex},
+    };
     use tonic::{async_trait, transport::ServerTlsConfig};
 
     use super::*;
@@ -984,6 +987,57 @@ pub mod server {
             self.consensus.get_account_non_finalized_transactions_v2(request.get_ref(), sender)?;
             let response = tonic::Response::new(receiver);
             Ok(response)
+        }
+
+        async fn peer_connect(
+            &self,
+            request: tonic::Request<crate::grpc2::types::PeerConnection>,
+        ) -> Result<tonic::Response<crate::grpc2::types::BooleanResponse>, tonic::Status> {
+            if self.node.is_network_stopped() {
+                Err(tonic::Status::failed_precondition(
+                    "The network is stopped due to unrecognized protocol update.",
+                ))
+            } else {
+                let peer_connect = request.into_inner();
+                if let Ok(ip) = <std::net::IpAddr as std::str::FromStr>::from_str(
+                    &peer_connect.ip.require()?.value,
+                ) {
+                    let addr = SocketAddr::new(ip, peer_connect.port.require()?.value as u16);
+                    self.node.register_conn_change(crate::connection::ConnChange::NewConn {
+                        addr,
+                        peer_type: crate::common::PeerType::Node,
+                        given: true,
+                    });
+                    Ok(tonic::Response::new(crate::grpc2::types::BooleanResponse {
+                        value: true,
+                    }))
+                } else {
+                    Err(tonic::Status::invalid_argument("Invalid IP address"))
+                }
+            }
+        }
+
+        async fn peer_disconnect(
+            &self,
+            request: tonic::Request<crate::grpc2::types::PeerConnection>,
+        ) -> Result<tonic::Response<crate::grpc2::types::BooleanResponse>, tonic::Status> {
+            if self.node.is_network_stopped() {
+                Err(tonic::Status::failed_precondition(
+                    "The network is stopped due to unrecognized protocol update.",
+                ))
+            } else {
+                let peer_connect = request.into_inner();
+                if let Ok(ip) = <std::net::IpAddr as std::str::FromStr>::from_str(
+                    &peer_connect.ip.require()?.value,
+                ) {
+                    let addr = SocketAddr::new(ip, peer_connect.port.require()?.value as u16);
+                    Ok(tonic::Response::new(crate::grpc2::types::BooleanResponse {
+                        value: self.node.drop_addr(addr),
+                    }))
+                } else {
+                    Err(tonic::Status::invalid_argument("Invalid IP address"))
+                }
+            }
         }
     }
 }
