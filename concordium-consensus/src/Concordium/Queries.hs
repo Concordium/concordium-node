@@ -58,7 +58,7 @@ import Concordium.Kontrol.BestBlock
 import Concordium.MultiVersion
 import Concordium.Skov as Skov (
     SkovQueryMonad (getBlocksAtHeight),
-    evalSkovT, getBlockItems,
+    evalSkovT
  )
 
 -- |Input to block based queries, i.e., queries which query the state of an
@@ -492,13 +492,9 @@ getBlockItems = liftSkovQueryBlock getBlockItemsSkovM
         forall pv.
         SkovMonad (VersionedSkovM gsconf finconf pv) =>
         BlockPointerType (VersionedSkovM gsconf finconf pv) ->
-        VersionedSkovM gsconf finconf pv (Maybe [BlockItem])
+        VersionedSkovM gsconf finconf pv [BlockItem]
     getBlockItemsSkovM bp = do
-      let blockHash = getHash bp
-      maybeBlock <- Skov.resolveBlock blockHash
-      case maybeBlock of
-        Nothing -> return Nothing
-        Just block -> return $! blockTransactions theBlock
+      return $! blockTransactions bp
 
 -- |Get the total amount of GTU in existence and status of the reward accounts.
 getRewardStatus :: BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe RewardStatus)

@@ -242,7 +242,6 @@ instance (Monad (t m), MonadTrans t, SkovQueryMonad m) => SkovQueryMonad (MGSTra
     isShutDown = lift isShutDown
     getProtocolUpdateStatus = lift getProtocolUpdateStatus
     getConsensusStatistics = lift getConsensusStatistics
-    getBlockItems = lift . getBlockItems
     {- - INLINE resolveBlock - -}
     {- - INLINE isFinalized - -}
     {- - INLINE lastFinalizedBlock - -}

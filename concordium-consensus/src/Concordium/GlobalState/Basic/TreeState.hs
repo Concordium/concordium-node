@@ -456,8 +456,3 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
 
     storeFinalState bs = nextGenesisInitialState ?= bs
 
-    -- |TODO
-    getBlockItems bh = do
-        mBs <- use (blockTable . at' bh)
-        return undefined
-
