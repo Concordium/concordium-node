@@ -172,10 +172,6 @@ class (Monad m, Eq (BlockPointerType m), HashableTo BlockHash (BlockPointerType 
     default getConsensusStatistics :: (TS.TreeStateMonad m) => m ConsensusStatistics
     getConsensusStatistics = TS.getConsensusStatistics
 
-    getBlockItems :: BlockHash -> m (Maybe [BlockItem])
-    default getBlockItems :: (TS.TreeStateMonad m) => BlockHash -> m (Maybe [BlockItem])
-    getBlockItems = TS.getBlockItems
-
 data MessageType
     = MessageBlock
     | MessageFinalization

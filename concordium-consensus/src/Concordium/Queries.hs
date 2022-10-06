@@ -495,8 +495,10 @@ getBlockItems = liftSkovQueryBlock getBlockItemsSkovM
         VersionedSkovM gsconf finconf pv (Maybe [BlockItem])
     getBlockItemsSkovM bp = do
       let blockHash = getHash bp
-      items <- Skov.getBlockItems blockHash
-      return items
+      maybeBlock <- Skov.resolveBlock blockHash
+      case maybeBlock of
+        Nothing -> return Nothing
+        Just block -> return $! blockTransactions theBlock
 
 -- |Get the total amount of GTU in existence and status of the reward accounts.
 getRewardStatus :: BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe RewardStatus)

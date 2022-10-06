@@ -30,7 +30,6 @@ module Concordium.GlobalState.Persistent.LMDB (
   , finalizedByHeightStore
   , StoredBlock(..)
   , readBlock
-  , readBlockItems
   , readFinalizationRecord
   , readTransactionStatus
   , readFinalizedBlockAtHeight
@@ -506,22 +505,6 @@ readBlock bh = do
   liftIO
     $ transaction (dbh ^. storeEnv) True
     $ \txn -> loadRecord txn (dbh ^. blockStore) bh
-
--- |Read block items from a block.
-readBlockItems :: (MonadIO m,
-                  MonadState s m,
-                  IsProtocolVersion pv,
-                  HasDatabaseHandlers pv st s,
-                  FixedSizeSerialization st) =>
-                  BlockHash ->
-                  m (Maybe [BlockItem])
-readBlockItems blockHash = do
-  block <- readBlock blockHash
-  case block of
-    Nothing -> return Nothing
-    Just storedBlock -> case sbBlock storedBlock of
-      GenesisBlock _ -> return Nothing
-      NormalBlock bb -> return $ Just $! bbTransactions bb
 
 -- |Read a finalization record from the database by finalization index.
 readFinalizationRecord :: (MonadIO m, MonadState s m, HasDatabaseHandlers pv st s)
