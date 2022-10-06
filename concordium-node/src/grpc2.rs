@@ -472,7 +472,8 @@ pub mod types {
                         (1u8, message_expiry), /* 1 is the tag of the credential deployment
                                                 * variant. */
                     ));
-                    // then append the actual credential. This works because serialization
+                    // then append the actual credential. This works because the actual credential
+                    // is the last item to be serialized.
                     match ac {
                         credential_deployment::Payload::RawPayload(rp) => {
                             data.extend_from_slice(&rp);
