@@ -485,8 +485,8 @@ getBlockSummary = liftSkovQueryBlock getBlockSummarySkovM
         return BlockSummary{..}
 
 -- |Get the block items of a block.
-getBlockItems :: forall gsconf finconf. BlockHash -> MVR gsconf finconf (Maybe [BlockItem])
-getBlockItems = liftSkovQueryBlock getBlockItemsSkovM
+getBlockItems :: forall gsconf finconf. BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe [BlockItem])
+getBlockItems = liftSkovQueryBHI getBlockItemsSkovM
   where
     getBlockItemsSkovM ::
         forall pv.

@@ -1155,6 +1155,7 @@ extern "C" {
         stream: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
         block_id_type: u8,
         block_hash_ptr: *const u8,
+        out_hash: *mut u8,
         callback: extern "C" fn(
             *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
             *const u8,
@@ -2502,28 +2503,30 @@ impl ConsensusContainer {
     }
 
     /// Get a list of block items in a block specified by a block hash.
-    pub fn get_block_transactions_v2(
+    pub fn get_block_items_v2(
         &self,
         request: &crate::grpc2::types::BlockHashInput,
         sender: futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
-    ) -> Result<(), tonic::Status> {
+    ) -> Result<[u8; 32], tonic::Status> {
         use crate::grpc2::Require;
         let sender = Box::new(sender);
         let consensus = self.consensus.load(Ordering::SeqCst);
         let (block_id_type, block_hash) =
             crate::grpc2::types::block_hash_input_to_ffi(request).require()?;
+        let mut buf = [0u8; 32];
         let response: ConsensusQueryResponse = unsafe {
             getBlockItemsV2(
                 consensus,
                 Box::into_raw(sender),
                 block_id_type,
                 block_hash_ptr,
+                buf.as_mut_ptr(),
                 enqueue_bytearray_callback,
             )
         }
         .try_into()?;
         response.ensure_ok("block transactions failed")?;
-        Ok(())
+        Ok(buf)
     }
 }
 

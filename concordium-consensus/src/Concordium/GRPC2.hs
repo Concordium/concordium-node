@@ -2223,10 +2223,12 @@ getAccountNonFinalizedTransactionsV2 cptr channel accPtr cbk = do
     _ <- enqueueMessages (sender channel) res
     return (queryResultCode QRSuccess)
 
-
 -- |TODO
-toBlockItem :: Transactions.BlockItem -> Either ConversionError Proto.BlockItem
-toBlockItem = undefined
+instance ToProto Transactions.BlockItem where
+    type Output Transactions.BlockItem = Proto.BlockItem
+
+    toProto bi = undefined
+   
 
 -- |TODO
 getBlockItemsV2 ::
@@ -2236,15 +2238,21 @@ getBlockItemsV2 ::
     Word8 ->
     -- |Block hash ptr.
     Ptr Word8 ->
+    -- |Out pointer for writing the block hash that was used.
+    Ptr Word8 ->
     FunPtr ChannelSendCallback ->
     IO Int64
-getBlockItemsV2 cptr channel blockType blockHashPtr cbk = do
+getBlockItemsV2 cptr channel blockType blockHashPtr outHash cbk = do
     Ext.ConsensusRunner mvr <- deRefStablePtr cptr
     let sender = callChannelSendCallback cbk
-    blockHash <- decodeBlockHashInput blockType blockHashPtr
-    res <- runMVR (Q.getBlockItems blockHash) mvr
-    _ <- enqueueMessages (sender channel) res
-    return (queryResultCode QRSuccess)
+    bhi <- decodeBlockHashInput blockType blockHashPtr
+    (bh, mBis) <- runMVR (Q.getBlockItems bhi) mvr
+    case mBis of
+      Nothing -> return (queryResultCode QRNotFound)
+      Just items -> do
+        copyHashTo outHash bh
+        _ <- enqueueMessages (sender channel) items
+        return (queryResultCode QRSuccess)
 
 
 {- |Write the hash to the provided pointer, and if the message is given encode and
@@ -2706,6 +2714,8 @@ foreign export ccall
         -- |Block type
         Word8 ->
         -- |Block hash ptr.
+        Ptr Word8 ->
+        -- |Out pointer for writing the block hash that was used.
         Ptr Word8 ->
         FunPtr ChannelSendCallback ->
         IO Int64
