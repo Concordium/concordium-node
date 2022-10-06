@@ -389,6 +389,9 @@ class (Eq (BlockPointerType m),
     -- update.
     storeFinalState :: BlockState m -> m ()
 
+    -- |Get the block items of a block.
+    getBlockItems :: BlockHash -> m (Maybe [BlockItem])
+
 instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTrans t m) where
     makePendingBlock key slot parent bid pf n lastFin trs statehash transactionOutcomesHash = lift . makePendingBlock key slot parent bid pf n lastFin trs statehash transactionOutcomesHash
     getBlockStatus = lift . getBlockStatus
@@ -437,6 +440,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     clearOnProtocolUpdate = lift clearOnProtocolUpdate
     clearAfterProtocolUpdate = lift clearAfterProtocolUpdate
     storeFinalState = lift . storeFinalState
+    getBlockItems = lift . getBlockItems
     {-# INLINE makePendingBlock #-}
     {-# INLINE getBlockStatus #-}
     {-# INLINE makeLiveBlock #-}
@@ -479,6 +483,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     {-# INLINE getNonFinalizedTransactionVerificationResult #-}
     {-# INLINE clearOnProtocolUpdate #-}
     {-# INLINE clearAfterProtocolUpdate #-}
+    {-# INLINE getBlockItems #-}
 
 deriving via (MGSTrans MaybeT m) instance TreeStateMonad m => TreeStateMonad (MaybeT m)
 deriving via (MGSTrans (ExceptT e) m) instance TreeStateMonad m => TreeStateMonad (ExceptT e m)

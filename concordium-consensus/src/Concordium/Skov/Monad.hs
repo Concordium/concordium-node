@@ -172,6 +172,10 @@ class (Monad m, Eq (BlockPointerType m), HashableTo BlockHash (BlockPointerType 
     default getConsensusStatistics :: (TS.TreeStateMonad m) => m ConsensusStatistics
     getConsensusStatistics = TS.getConsensusStatistics
 
+    getBlockItems :: BlockHash -> m (Maybe [BlockItem])
+    default getBlockItems :: (TS.TreeStateMonad m) => BlockHash -> m (Maybe [BlockItem])
+    getBlockItems = TS.getBlockItems
+
 data MessageType
     = MessageBlock
     | MessageFinalization
@@ -242,6 +246,7 @@ instance (Monad (t m), MonadTrans t, SkovQueryMonad m) => SkovQueryMonad (MGSTra
     isShutDown = lift isShutDown
     getProtocolUpdateStatus = lift getProtocolUpdateStatus
     getConsensusStatistics = lift getConsensusStatistics
+    getBlockItems = lift . getBlockItems
     {- - INLINE resolveBlock - -}
     {- - INLINE isFinalized - -}
     {- - INLINE lastFinalizedBlock - -}

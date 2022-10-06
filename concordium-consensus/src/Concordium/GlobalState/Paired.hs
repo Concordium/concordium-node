@@ -1272,6 +1272,9 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
       coerceGSML (storeFinalState bs1)
       coerceGSMR (storeFinalState bs2)
 
+    -- |TODO
+    getBlockItems = undefined
+
 newtype PairGSConfig c1 c2 = PairGSConfig (c1, c2)
 
 instance (GlobalStateConfig c1, GlobalStateConfig c2) => GlobalStateConfig (PairGSConfig c1 c2) where

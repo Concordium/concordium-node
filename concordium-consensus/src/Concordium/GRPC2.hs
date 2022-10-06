@@ -38,6 +38,7 @@ import Concordium.ID.Types
 import Concordium.Types
 import Concordium.Types.Accounts
 import qualified Concordium.Types.Queries as QueryTypes
+import qualified Concordium.Types.Transactions as Transactions
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 
 import qualified Concordium.External as Ext -- TODO: This is not an ideal configuration.
@@ -2222,6 +2223,30 @@ getAccountNonFinalizedTransactionsV2 cptr channel accPtr cbk = do
     _ <- enqueueMessages (sender channel) res
     return (queryResultCode QRSuccess)
 
+
+-- |TODO
+toBlockItem :: Transactions.BlockItem -> Either ConversionError Proto.BlockItem
+toBlockItem = undefined
+
+-- |TODO
+getBlockItemsV2 ::
+    StablePtr Ext.ConsensusRunner ->
+    Ptr SenderChannel ->
+    -- |Block type
+    Word8 ->
+    -- |Block hash ptr.
+    Ptr Word8 ->
+    FunPtr ChannelSendCallback ->
+    IO Int64
+getBlockItemsV2 cptr channel blockType blockHashPtr cbk = do
+    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
+    let sender = callChannelSendCallback cbk
+    blockHash <- decodeBlockHashInput blockType blockHashPtr
+    res <- runMVR (Q.getBlockItems blockHash) mvr
+    _ <- enqueueMessages (sender channel) res
+    return (queryResultCode QRSuccess)
+
+
 {- |Write the hash to the provided pointer, and if the message is given encode and
    write it using the provided callback.
 -}
@@ -2670,6 +2695,17 @@ foreign export ccall
         StablePtr Ext.ConsensusRunner ->
         Ptr SenderChannel ->
         -- |Serialized account address. Length is 32 bytes.
+        Ptr Word8 ->
+        FunPtr ChannelSendCallback ->
+        IO Int64
+
+foreign export ccall
+  getBlockItemsV2 ::
+        StablePtr Ext.ConsensusRunner ->
+        Ptr SenderChannel ->
+        -- |Block type
+        Word8 ->
+        -- |Block hash ptr.
         Ptr Word8 ->
         FunPtr ChannelSendCallback ->
         IO Int64

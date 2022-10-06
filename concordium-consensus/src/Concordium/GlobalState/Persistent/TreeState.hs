@@ -966,3 +966,5 @@ instance (MonadLogger (PersistentTreeStateMonad bs m),
       return $ getNonFinalizedVerificationResult bi table
 
     storeFinalState bs = nextGenesisInitialState ?= bs
+
+    getBlockItems = readBlockItems
