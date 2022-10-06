@@ -25,7 +25,7 @@ use crate::{
     },
     read_or_die, write_or_die,
 };
-use crypto_common::Deserial;
+use concordium_base::common::Deserial;
 
 use std::{
     collections::hash_map::Entry::*,
@@ -119,7 +119,7 @@ pub fn get_baker_data(
             let pass = rpassword::read_password_from_tty(Some(
                 "Enter password to decrypt baker credentials: ",
             ))?;
-            match crypto_common::encryption::decrypt(&pass.into(), &et) {
+            match concordium_base::common::encryption::decrypt(&pass.into(), &et) {
                 Ok(d) => Some(d),
                 Err(_) => bail!(
                     "Could not decrypt baker credentials. Most likely the password you provided \
@@ -315,7 +315,7 @@ fn send_msg_to_consensus(
     let payload = &message.payload[1..]; // non-empty, already checked
 
     let consensus_response = match message.variant {
-        Transaction => consensus.send_transaction(payload),
+        Transaction => consensus.send_transaction(payload).1,
         _ => {
             let genesis_index = u32::deserial(&mut Cursor::new(&payload[..4]))?;
             match message.variant {

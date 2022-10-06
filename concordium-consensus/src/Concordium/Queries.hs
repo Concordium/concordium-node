@@ -18,6 +18,7 @@ import qualified Data.Set as Set
 import qualified Data.Vector as Vec
 import Lens.Micro.Platform
 import qualified Data.Sequence as Seq
+import Data.Bifunctor (second)
 
 import Concordium.Common.Version
 import Concordium.Genesis.Data
@@ -507,7 +508,72 @@ getBlockPendingUpdates = liftSkovQueryBHI query
     query bp = do
       bs <- blockState bp
       updates <- BS.getUpdates bs
-      return $ flattenUpdateQueues $ UQ._pendingUpdates updates
+      fuQueue <- foundationAccQueue bs (UQ._pFoundationAccountQueue . UQ._pendingUpdates $ updates)
+      let remainingQueues = flattenUpdateQueues $ UQ._pendingUpdates updates
+      return (merge fuQueue remainingQueues)
+        where
+          -- | Flatten all of the pending update queues into one queue ordered by
+          -- effective time. This is not the most efficient implementation and scales
+          -- linearly with the number of queues, where it could scale logarithmically. But
+          -- in practice this will not be an issue since update queues are very small.
+          --
+          -- The return list is ordered by the transaction time, ascending.
+          --
+          -- This flattens all queues except the foundation account updates.
+          -- That one needs access to account lookup so it is handled by a
+          -- separate helper below.
+          flattenUpdateQueues :: forall cpv. IsChainParametersVersion cpv =>
+              UQ.PendingUpdates cpv ->
+              [(TransactionTime, PendingUpdateEffect)]
+          flattenUpdateQueues UQ.PendingUpdates{..} =
+            queueMapper PUERootKeys _pRootKeysUpdateQueue `merge`
+            queueMapper PUELevel1Keys _pLevel1KeysUpdateQueue `merge`
+            (case chainParametersVersion @cpv of
+              SCPV0 -> queueMapper PUELevel2KeysV0 _pLevel2KeysUpdateQueue
+              SCPV1 -> queueMapper PUELevel2KeysV1 _pLevel2KeysUpdateQueue) `merge`
+            queueMapper PUEProtocol _pProtocolQueue `merge`
+            queueMapper PUEElectionDifficulty _pElectionDifficultyQueue `merge`
+            queueMapper PUEEuroPerEnergy _pEuroPerEnergyQueue `merge`
+            queueMapper PUEMicroCCDPerEuro _pMicroGTUPerEuroQueue `merge`
+            (case chainParametersVersion @cpv of
+              SCPV0 -> queueMapper PUEMintDistributionV0 _pMintDistributionQueue
+              SCPV1 -> queueMapper PUEMintDistributionV1 _pMintDistributionQueue) `merge`
+            queueMapper PUETransactionFeeDistribution _pTransactionFeeDistributionQueue `merge`
+            queueMapper PUEGASRewards _pGASRewardsQueue `merge`
+            (case chainParametersVersion @cpv of
+              SCPV0 -> queueMapper PUEPoolParametersV0 _pPoolParametersQueue
+              SCPV1 -> queueMapper PUEPoolParametersV1 _pPoolParametersQueue) `merge`
+            queueMapper PUEAddAnonymityRevoker _pAddAnonymityRevokerQueue `merge`
+            queueMapper PUEAddIdentityProvider _pAddIdentityProviderQueue `merge`
+            queueMapperForCPV1 PUECooldownParameters _pCooldownParametersQueue `merge`
+            queueMapperForCPV1 PUETimeParameters _pTimeParametersQueue
+            where
+
+              queueMapper :: (a -> PendingUpdateEffect) -> UQ.UpdateQueue a -> [(TransactionTime, PendingUpdateEffect)]
+              queueMapper constructor UQ.UpdateQueue {..} = second constructor <$> _uqQueue
+          
+              queueMapperForCPV1 :: (a -> PendingUpdateEffect) -> UQ.UpdateQueueForCPV1 cpv a -> [(TransactionTime, PendingUpdateEffect)]
+              queueMapperForCPV1 _ NothingForCPV1 = []
+              queueMapperForCPV1 constructor (JustForCPV1 queue) = queueMapper constructor queue
+          
+          -- Merge two ascending lists into an ascending list.
+          merge ::
+            [(TransactionTime, PendingUpdateEffect)] ->
+            [(TransactionTime, PendingUpdateEffect)] ->
+            [(TransactionTime, PendingUpdateEffect)]
+          merge [] y = y
+          merge x [] = x
+          merge (x:xs) (y:ys) | fst y < fst x = y : merge (x:xs) ys
+          merge (x:xs) (y:ys)                 = x : merge xs (y:ys)
+
+          foundationAccQueue :: SkovQueryMonad m => BlockState m -> UQ.UpdateQueue AccountIndex -> m [(TransactionTime, PendingUpdateEffect)]
+          foundationAccQueue bs UQ.UpdateQueue {..} = do
+            forM _uqQueue $ \(t, ai) -> do
+                                BS.getAccountByIndex bs ai >>= \case
+                                  Nothing -> error "Invariant violation. Foundation account index does not exist in the account table."
+                                  Just (_, acc) -> do
+                                    (t, ) . PUEFoundationAccount <$> BS.getAccountCanonicalAddress acc
+
 
 -- |Get next update sequences numbers at the end of a given block.
 getNextUpdateSequenceNumbers :: forall gsconf finconf. BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe NextUpdateSequenceNumbers)

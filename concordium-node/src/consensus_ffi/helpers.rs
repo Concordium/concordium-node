@@ -1,12 +1,5 @@
 use anyhow::{anyhow, Context};
-use byteorder::{NetworkEndian, ReadBytesExt};
-use serde::{Deserialize, Serialize};
-use std::{
-    convert::{TryFrom, TryInto},
-    fmt,
-    ops::Deref,
-    str::FromStr,
-};
+use std::{convert::TryFrom, fmt};
 use thiserror::Error;
 
 /// # Serialization packets
@@ -55,71 +48,6 @@ impl<T> RelayOrStopSenderHelper<T> for QueueSyncSender<T> {
     #[inline]
     fn send_blocking_msg(&self, msg: T) -> Result<(), crossbeam_channel::SendError<QueueMsg<T>>> {
         self.send(QueueMsg::Relay(msg))
-    }
-}
-
-pub const SHA256: u8 = 32;
-
-#[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(try_from = "String", into = "String")]
-pub struct HashBytes([u8; SHA256 as usize]);
-
-impl HashBytes {
-    /// Construct HashBytes from a slice.
-    /// This will succeed if and only if the length of the slice is 32.
-    pub fn new(bytes: &[u8]) -> anyhow::Result<Self> {
-        let buf = bytes.try_into()?;
-        Ok(HashBytes(buf))
-    }
-}
-
-impl From<[u8; 32]> for HashBytes {
-    fn from(array: [u8; 32]) -> Self { HashBytes(array) }
-}
-
-impl Deref for HashBytes {
-    type Target = [u8];
-
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-
-impl AsRef<[u8]> for HashBytes {
-    fn as_ref(&self) -> &[u8] { self }
-}
-
-impl FromStr for HashBytes {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let hex_decoded = hex::decode(s)?;
-        HashBytes::new(&hex_decoded)
-    }
-}
-
-impl TryFrom<String> for HashBytes {
-    type Error = anyhow::Error;
-
-    fn try_from(value: String) -> Result<Self, Self::Error> { Self::from_str(value.as_str()) }
-}
-
-impl From<HashBytes> for String {
-    fn from(x: HashBytes) -> Self { x.to_string() }
-}
-
-// a short, 8-character beginning of the SHA
-impl fmt::Debug for HashBytes {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:08x}", (&self.0[..]).read_u32::<NetworkEndian>().unwrap(),)
-    }
-}
-
-// the full SHA256 in hex
-impl fmt::Display for HashBytes {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for byte in self.iter() {
-            write!(f, "{:02x}", byte)?;
-        }
-        Ok(())
     }
 }
 

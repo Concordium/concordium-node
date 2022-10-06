@@ -6,7 +6,6 @@ use crate::{
         p2p_peer::{P2PPeer, PeerType},
         P2PNodeId,
     },
-    consensus_ffi::blockchain_types::BlockHash,
     flatbuffers_shim::network,
     network::{
         Handshake, NetworkId, NetworkMessage, NetworkPacket, NetworkPayload, NetworkRequest,
@@ -14,9 +13,11 @@ use crate::{
     },
 };
 use anyhow::{bail, Error};
+use concordium_base::hashes::BlockHash;
 use flatbuffers::FlatBufferBuilder;
 use semver::Version;
 use std::{
+    convert::TryFrom,
     io::{self, Read, Write},
     net::{IpAddr, SocketAddr},
     panic,
@@ -193,11 +194,14 @@ fn deserialize_request(root: &network::NetworkMessage) -> anyhow::Result<Network
                 let genesis_blocks = if let Some(genesis_blocks) = handshake.genesis_blocks() {
                     genesis_blocks
                         .iter()
-                        .map(|wv| {
-                            wv.genesis_block()
-                                .map_or_else(|| bail!("Missing block hash"), BlockHash::new)
+                        .map(|wv| match wv.genesis_block() {
+                            None => bail!("Missing block hash"),
+                            Some(bh) => {
+                                let hash = BlockHash::try_from(bh)?;
+                                Ok(hash)
+                            }
                         })
-                        .collect::<anyhow::Result<Vec<BlockHash>>>()?
+                        .collect::<Result<Vec<BlockHash>, _>>()?
                 } else {
                     bail!("missing genesis blocks in a Handshake")
                 };

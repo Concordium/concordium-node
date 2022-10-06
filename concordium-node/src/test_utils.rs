@@ -7,18 +7,14 @@ use crate::{
     common::{get_current_stamp, p2p_peer::RemotePeerId, PeerType},
     configuration::Config,
     connection::ConnChange,
-    consensus_ffi::{
-        blockchain_types::BlockHash,
-        consensus::Regenesis,
-        helpers::{PacketType, SHA256},
-    },
+    consensus_ffi::{consensus::Regenesis, helpers::PacketType},
     netmsg,
     network::{NetworkId, NetworkMessage, NetworkPacket, PacketDestination},
     p2p::{maintenance::spawn, P2PNode},
     read_or_die,
     stats_export_service::StatsExportService,
 };
-use crypto_common::Serial;
+use concordium_base::{common::Serial, hashes::BlockHash};
 
 use std::{
     io::Write,
@@ -95,11 +91,7 @@ pub fn wait_node_delete_dirs(_: DeletePermission, node: Arc<P2PNode>) {
 }
 
 pub fn dummy_regenesis_blocks() -> Vec<BlockHash> {
-    vec![
-        BlockHash::from([0u8; SHA256 as usize]),
-        BlockHash::from([1u8; SHA256 as usize]),
-        BlockHash::from([2u8; SHA256 as usize]),
-    ]
+    vec![BlockHash::new([0u8; 32]), BlockHash::new([1u8; 32]), BlockHash::new([2u8; 32])]
 }
 
 /// Creates a `P2PNode` for test purposes

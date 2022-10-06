@@ -63,8 +63,6 @@ macro_rules! wrap_c_bool_call {
     }};
 }
 
-#[macro_use]
-pub mod blockchain_types;
 pub mod catch_up;
 pub mod consensus;
 pub mod ffi;
