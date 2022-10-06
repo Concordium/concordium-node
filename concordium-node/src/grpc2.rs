@@ -1,6 +1,10 @@
 use anyhow::Context;
 use prost::bytes::BufMut;
-use std::{convert::TryFrom, marker::PhantomData, path::Path};
+use std::{
+    convert::{TryFrom, TryInto},
+    marker::PhantomData,
+    path::Path,
+};
 
 /// Maximum allowed energy to use in the `invoke_instance` request.
 /// This is to make sure that there are no conversion errors to interpreter
@@ -13,6 +17,12 @@ const MAX_ALLOWED_INVOKE_ENERGY: u64 = 100_000_000_000;
 pub mod types {
     // Tell clippy to allow large enum variants in the generated code.
     #![allow(clippy::large_enum_variant)]
+
+    use crate::configuration::PROTOCOL_MAX_TRANSACTION_SIZE;
+
+    use super::Require;
+    use concordium_base::{common::Versioned, transactions::PayloadLike};
+    use std::convert::{TryFrom, TryInto};
 
     include!(concat!(env!("OUT_DIR"), "/concordium.v2.rs"));
 
@@ -84,8 +94,8 @@ pub mod types {
         }
     }
 
-    /// Convert [TransactionHash] to a pointer to the content. The length of the
-    /// content is checked to be 32 bytes.
+    /// Convert [`TransactionHash`] to a pointer to the content. The length of
+    /// the content is checked to be 32 bytes.
     ///
     /// # Safety
     /// The caller **must** ensure that the pointer is not used after the
@@ -134,6 +144,370 @@ pub mod types {
                     0
                 };
                 Some((height, genesis_index, restrict))
+            }
+        }
+    }
+
+    impl From<Amount> for concordium_base::common::types::Amount {
+        fn from(n: Amount) -> Self { Self::from_micro_ccd(n.value) }
+    }
+
+    impl TryFrom<ModuleRef> for concordium_base::smart_contracts::ModuleRef {
+        type Error = tonic::Status;
+
+        fn try_from(value: ModuleRef) -> Result<Self, Self::Error> {
+            match value.value.try_into() {
+                Ok(mod_ref) => Ok(Self::new(mod_ref)),
+                Err(_) => {
+                    Err(tonic::Status::invalid_argument("Unexpected module reference format."))
+                }
+            }
+        }
+    }
+
+    impl TryFrom<InitName> for concordium_base::smart_contracts::OwnedContractName {
+        type Error = tonic::Status;
+
+        fn try_from(value: InitName) -> Result<Self, Self::Error> {
+            Self::new(value.value).map_err(|e| {
+                tonic::Status::invalid_argument(format!("Invalid contract init name: {}", e))
+            })
+        }
+    }
+
+    impl TryFrom<ReceiveName> for concordium_base::smart_contracts::OwnedReceiveName {
+        type Error = tonic::Status;
+
+        fn try_from(value: ReceiveName) -> Result<Self, Self::Error> {
+            Self::new(value.value).map_err(|e| {
+                tonic::Status::invalid_argument(format!("Invalid contract receive name: {}", e))
+            })
+        }
+    }
+
+    impl TryFrom<Parameter> for concordium_base::smart_contracts::Parameter {
+        type Error = tonic::Status;
+
+        fn try_from(value: Parameter) -> Result<Self, Self::Error> {
+            Self::try_from(value.value)
+                .map_err(|e| tonic::Status::invalid_argument(format!("Invalid parameter: {}", e)))
+        }
+    }
+
+    impl From<ContractAddress> for concordium_base::contracts_common::ContractAddress {
+        fn from(value: ContractAddress) -> Self { Self::new(value.index, value.subindex) }
+    }
+
+    impl TryFrom<Memo> for concordium_base::transactions::Memo {
+        type Error = tonic::Status;
+
+        fn try_from(value: Memo) -> Result<Self, Self::Error> {
+            value.value.try_into().map_err(|_| {
+                tonic::Status::invalid_argument("Memo is invalid because it is too big.")
+            })
+        }
+    }
+
+    impl TryFrom<RegisteredData> for concordium_base::transactions::RegisteredData {
+        type Error = tonic::Status;
+
+        fn try_from(value: RegisteredData) -> Result<Self, Self::Error> {
+            value.value.try_into().map_err(|e| {
+                tonic::Status::invalid_argument(format!("Invalid register data payload: {}", e))
+            })
+        }
+    }
+
+    impl TryFrom<AccountTransactionPayload> for concordium_base::transactions::EncodedPayload {
+        type Error = tonic::Status;
+
+        fn try_from(value: AccountTransactionPayload) -> Result<Self, Self::Error> {
+            match value.payload.require()? {
+                account_transaction_payload::Payload::RawPayload(rp) => {
+                    Self::try_from(rp).map_err(|_| {
+                        tonic::Status::invalid_argument("Payload size exceeds maximum allowed.")
+                    })
+                }
+                account_transaction_payload::Payload::DeployModule(dm) => {
+                    let module = match dm.module.require()? {
+                        versioned_module_source::Module::V0(source) => {
+                            concordium_base::smart_contracts::WasmModule {
+                                version: concordium_base::smart_contracts::WasmVersion::V0,
+                                source:  source.value.into(),
+                            }
+                        }
+                        versioned_module_source::Module::V1(source) => {
+                            concordium_base::smart_contracts::WasmModule {
+                                version: concordium_base::smart_contracts::WasmVersion::V1,
+                                source:  source.value.into(),
+                            }
+                        }
+                    };
+                    Ok(concordium_base::transactions::Payload::DeployModule {
+                        module,
+                    }
+                    .encode())
+                }
+                account_transaction_payload::Payload::InitContract(ic) => {
+                    let payload = concordium_base::transactions::InitContractPayload {
+                        amount:    ic.amount.require()?.into(),
+                        mod_ref:   ic.module_ref.require()?.try_into()?,
+                        init_name: ic.init_name.require()?.try_into()?,
+                        param:     ic.parameter.require()?.try_into()?,
+                    };
+                    Ok(concordium_base::transactions::Payload::InitContract {
+                        payload,
+                    }
+                    .encode())
+                }
+                account_transaction_payload::Payload::UpdateContract(uc) => {
+                    let payload = concordium_base::transactions::UpdateContractPayload {
+                        amount:       uc.amount.require()?.into(),
+                        address:      uc.address.require()?.into(),
+                        receive_name: uc.receive_name.require()?.try_into()?,
+                        message:      uc.parameter.require()?.try_into()?,
+                    };
+                    Ok(concordium_base::transactions::Payload::Update {
+                        payload,
+                    }
+                    .encode())
+                }
+                account_transaction_payload::Payload::Transfer(t) => {
+                    let payload = concordium_base::transactions::Payload::Transfer {
+                        to_address: t.receiver.require()?.try_into()?,
+                        amount:     t.amount.require()?.into(),
+                    };
+                    Ok(payload.encode())
+                }
+                account_transaction_payload::Payload::TransferWithMemo(t) => {
+                    let payload = concordium_base::transactions::Payload::TransferWithMemo {
+                        to_address: t.receiver.require()?.try_into()?,
+                        amount:     t.amount.require()?.into(),
+                        memo:       t.memo.require()?.try_into()?,
+                    };
+                    Ok(payload.encode())
+                }
+                account_transaction_payload::Payload::RegisterData(t) => {
+                    let payload = concordium_base::transactions::Payload::RegisterData {
+                        data: t.try_into()?,
+                    };
+                    Ok(payload.encode())
+                }
+            }
+        }
+    }
+
+    impl TryFrom<AccountAddress> for concordium_base::id::types::AccountAddress {
+        type Error = tonic::Status;
+
+        fn try_from(value: AccountAddress) -> Result<Self, Self::Error> {
+            match value.value.try_into() {
+                Ok(addr) => Ok(Self(addr)),
+                Err(_) => {
+                    Err(tonic::Status::invalid_argument("Unexpected account address format."))
+                }
+            }
+        }
+    }
+
+    impl From<SequenceNumber> for concordium_base::base::Nonce {
+        #[inline]
+        fn from(n: SequenceNumber) -> Self {
+            Self {
+                nonce: n.value,
+            }
+        }
+    }
+
+    impl From<UpdateSequenceNumber> for concordium_base::base::UpdateSequenceNumber {
+        #[inline]
+        fn from(n: UpdateSequenceNumber) -> Self { n.value.into() }
+    }
+
+    impl From<Energy> for concordium_base::base::Energy {
+        #[inline]
+        fn from(value: Energy) -> Self {
+            Self {
+                energy: value.value,
+            }
+        }
+    }
+
+    impl From<TransactionTime> for concordium_base::common::types::TransactionTime {
+        #[inline]
+        fn from(value: TransactionTime) -> Self {
+            Self {
+                seconds: value.value,
+            }
+        }
+    }
+
+    impl TryFrom<PreAccountTransaction>
+        for (
+            concordium_base::transactions::TransactionHeader,
+            concordium_base::transactions::EncodedPayload,
+        )
+    {
+        type Error = tonic::Status;
+
+        fn try_from(value: PreAccountTransaction) -> Result<Self, Self::Error> {
+            let header = value.header.require()?;
+            let payload = value.payload.require()?;
+            let sender = header.sender.require()?.try_into()?;
+            let nonce = header.sequence_number.require()?.into();
+            let energy_amount = header.energy_amount.require()?.into();
+            let expiry = header.expiry.require()?.into();
+            let payload: concordium_base::transactions::EncodedPayload = payload.try_into()?;
+            let payload_size = payload.size();
+            let header = concordium_base::transactions::TransactionHeader {
+                sender,
+                nonce,
+                energy_amount,
+                payload_size,
+                expiry,
+            };
+            Ok((header, payload))
+        }
+    }
+
+    impl TryFrom<Signature> for concordium_base::common::types::Signature {
+        type Error = tonic::Status;
+
+        fn try_from(value: Signature) -> Result<Self, Self::Error> {
+            if value.value.len() <= usize::from(u16::MAX) {
+                Ok(Self {
+                    sig: value.value,
+                })
+            } else {
+                Err(tonic::Status::invalid_argument("Signature is too large."))
+            }
+        }
+    }
+
+    impl TryFrom<AccountTransactionSignature> for concordium_base::common::types::TransactionSignature {
+        type Error = tonic::Status;
+
+        fn try_from(value: AccountTransactionSignature) -> Result<Self, Self::Error> {
+            let signatures = value
+                .signatures
+                .into_iter()
+                .map(|(ci, m)| {
+                    let ci = u8::try_from(ci).map_err(|_| {
+                        tonic::Status::invalid_argument("Invalid credential index.")
+                    })?;
+                    let cred_sigs = m
+                        .signatures
+                        .into_iter()
+                        .map(|(ki, sig)| {
+                            let ki = u8::try_from(ki).map_err(|_| {
+                                tonic::Status::invalid_argument("Invalid key index.")
+                            })?;
+                            let sig = sig.try_into()?;
+                            Ok::<_, tonic::Status>((ki.into(), sig))
+                        })
+                        .collect::<Result<_, _>>()?;
+                    Ok::<_, tonic::Status>((ci.into(), cred_sigs))
+                })
+                .collect::<Result<_, _>>()?;
+            Ok(Self {
+                signatures,
+            })
+        }
+    }
+
+    impl TryFrom<SignatureMap> for concordium_base::updates::UpdateInstructionSignature {
+        type Error = tonic::Status;
+
+        fn try_from(value: SignatureMap) -> Result<Self, Self::Error> {
+            let signatures = value
+                .signatures
+                .into_iter()
+                .map(|(k, sig)| {
+                    let k = u16::try_from(k).map_err(|_| {
+                        tonic::Status::invalid_argument("Update key index too large.")
+                    })?;
+                    let sig = sig.try_into()?;
+                    Ok::<_, tonic::Status>((k.into(), sig))
+                })
+                .collect::<Result<_, _>>()?;
+            Ok(Self {
+                signatures,
+            })
+        }
+    }
+
+    impl SendBlockItemRequest {
+        /// Return the Versioned block item serialized in the V0 format.
+        pub(crate) fn get_v0_format(self) -> Result<Vec<u8>, tonic::Status> {
+            match self.block_item.require()? {
+                send_block_item_request::BlockItem::AccountTransaction(at) => {
+                    let pat = PreAccountTransaction {
+                        header:  at.header,
+                        payload: at.payload,
+                    };
+                    let (header, payload) = pat.try_into()?;
+                    let signature = at.signature.require()?.try_into()?;
+                    let at = concordium_base::transactions::AccountTransaction {
+                        signature,
+                        header,
+                        payload,
+                    };
+                    Ok(concordium_base::common::to_bytes(&Versioned::new(
+                        0.into(),
+                        concordium_base::transactions::BlockItem::AccountTransaction(at),
+                    )))
+                }
+                send_block_item_request::BlockItem::CredentialDeployment(cd) => {
+                    // this variant is a bit hacky since we don't want to deserialize the credential
+                    // at this point that is expensive and wasteful. So we
+                    // directly construct the serialization of the V0
+                    // block item.
+                    let message_expiry: concordium_base::common::types::TransactionTime =
+                        cd.message_expiry.require()?.into();
+                    let ac = cd.payload.require()?;
+                    // first serialize the version prefix, the tag of credential deployment, and the
+                    // expiry
+                    let mut data = concordium_base::common::to_bytes(&Versioned::new(
+                        0.into(),
+                        (1u8, message_expiry), /* 1 is the tag of the credential deployment
+                                                * variant. */
+                    ));
+                    // then append the actual credential. This works because the actual credential
+                    // is the last item to be serialized.
+                    match ac {
+                        credential_deployment::Payload::RawPayload(rp) => {
+                            data.extend_from_slice(&rp);
+                            Ok(data)
+                        }
+                    }
+                }
+                send_block_item_request::BlockItem::UpdateInstruction(ui) => {
+                    use concordium_base::common::Serial;
+                    let header = ui.header.require()?;
+                    let update_instruction_payload::Payload::RawPayload(payload) =
+                        ui.payload.require()?.payload.require()?;
+                    if payload.len() > PROTOCOL_MAX_TRANSACTION_SIZE {
+                        return Err(tonic::Status::invalid_argument("Update payload too large."));
+                    }
+                    let header = concordium_base::updates::UpdateHeader {
+                        seq_number:     header.sequence_number.require()?.into(),
+                        effective_time: header.effective_time.require()?.into(),
+                        timeout:        header.timeout.require()?.into(),
+                        payload_size:   (payload.len() as u32).into(), /* as is safe since we
+                                                                        * checked size above. */
+                    };
+                    let signatures: concordium_base::updates::UpdateInstructionSignature =
+                        ui.signatures.require()?.try_into()?;
+
+                    let mut data = concordium_base::common::to_bytes(
+                        &Versioned::new(0.into(), (2u8, header)), /* 2 is the tag of the
+                                                                   * credential deployment
+                                                                   * variant. */
+                    );
+                    data.extend_from_slice(&payload);
+                    signatures.serial(&mut data);
+                    Ok(data)
+                }
             }
         }
     }
@@ -254,14 +628,20 @@ pub mod server {
     use crate::{
         configuration::GRPC2Config,
         consensus_ffi::{
-            consensus::ConsensusContainer, ffi::NotificationHandlers,
-            helpers::ContractStateResponse,
+            consensus::{ConsensusContainer, CALLBACK_QUEUE},
+            ffi::NotificationHandlers,
+            helpers::{ConsensusFfiResponse, ContractStateResponse, PacketType},
+            messaging::{ConsensusMessage, MessageType},
         },
         p2p::P2PNode,
     };
     use anyhow::Context;
+    use byteorder::WriteBytesExt;
     use futures::{FutureExt, StreamExt};
-    use std::sync::{Arc, Mutex};
+    use std::{
+        io::Write,
+        sync::{Arc, Mutex},
+    };
     use tonic::{async_trait, transport::ServerTlsConfig};
 
     use super::*;
@@ -608,6 +988,7 @@ pub mod server {
             &self,
             request: tonic::Request<crate::grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Self::GetModuleListStream>, tonic::Status> {
+            // TODO: Configuration.
             let (sender, receiver) = futures::channel::mpsc::channel(100);
             let hash = self.consensus.get_module_list_v2(request.get_ref(), sender)?;
             let mut response = tonic::Response::new(receiver);
@@ -984,6 +1365,102 @@ pub mod server {
             self.consensus.get_account_non_finalized_transactions_v2(request.get_ref(), sender)?;
             let response = tonic::Response::new(receiver);
             Ok(response)
+        }
+
+        async fn send_block_item(
+            &self,
+            request: tonic::Request<crate::grpc2::types::SendBlockItemRequest>,
+        ) -> Result<tonic::Response<crate::grpc2::types::TransactionHash>, tonic::Status> {
+            use ConsensusFfiResponse::*;
+
+            if self.node.is_network_stopped() {
+                return Err(tonic::Status::failed_precondition(
+                    "The network is stopped due to unrecognized protocol update.",
+                ));
+            }
+
+            let transaction_bytes = request.into_inner().get_v0_format()?;
+            if transaction_bytes.len() > crate::configuration::PROTOCOL_MAX_TRANSACTION_SIZE {
+                warn!("Received a transaction that exceeds maximum transaction size.");
+                return Err(tonic::Status::invalid_argument(
+                    "Transaction size exceeds maximum allowed size.",
+                ));
+            }
+            let (transaction_hash, consensus_result) =
+                self.consensus.send_transaction(&transaction_bytes);
+
+            let result = if consensus_result == Success {
+                let mut payload = Vec::with_capacity(1 + transaction_bytes.len());
+                payload.write_u8(PacketType::Transaction as u8)?;
+                payload.write_all(&transaction_bytes)?;
+
+                CALLBACK_QUEUE.send_out_message(ConsensusMessage::new(
+                    MessageType::Outbound(None),
+                    PacketType::Transaction,
+                    Arc::from(payload),
+                    vec![],
+                    None,
+                ))
+            } else {
+                Err(consensus_result.into())
+            };
+
+            let mk_err_response = |code, error| Err(tonic::Status::new(code, error));
+            let mk_err_invalid_argument_response =
+                |error| mk_err_response(tonic::Code::InvalidArgument, error);
+
+            match (result, consensus_result) {
+                (Ok(_), Success) => {
+                    let transaction_hash = match transaction_hash {
+                        Some(h) => h,
+                        None => {
+                            error!("Block item hash not present, but transaction is accepted.");
+                            return Err(tonic::Status::internal(
+                                "Block item hash not present, but transaction is accepted.",
+                            ));
+                        }
+                    };
+                    Ok(tonic::Response::new(crate::grpc2::types::TransactionHash {
+                        value: transaction_hash.to_vec(),
+                    }))
+                }
+                (Err(e), Success) => {
+                    warn!("Couldn't put a transaction in the outbound queue due to {:?}", e);
+                    Err(tonic::Status::new(
+                        tonic::Code::Internal,
+                        format!("Couldn't put a transaction in the outbound queue due to {:?}", e),
+                    ))
+                }
+                // the wildcard is always Err as only 'Success' responses from the consensus are
+                // being retransmitted. In other words Ok(_) implies consensus_result == Success
+                (_, DuplicateEntry) => {
+                    mk_err_response(tonic::Code::AlreadyExists, DuplicateEntry.to_string())
+                }
+                (_, ConsensusShutDown) => {
+                    warn!(
+                        "Consensus didn't accept a transaction via RPC due to {:?}",
+                        ConsensusShutDown.to_string()
+                    );
+                    mk_err_invalid_argument_response(ConsensusShutDown.to_string())
+                }
+                (_, consensus_error) => {
+                    mk_err_invalid_argument_response(consensus_error.to_string())
+                }
+            }
+        }
+
+        async fn get_account_transaction_sign_hash(
+            &self,
+            request: tonic::Request<crate::grpc2::types::PreAccountTransaction>,
+        ) -> Result<tonic::Response<crate::grpc2::types::AccountTransactionSignHash>, tonic::Status>
+        {
+            let request = request.into_inner();
+            let (header, payload) = request.try_into()?;
+            let sign_hash =
+                concordium_base::transactions::compute_transaction_sign_hash(&header, &payload);
+            Ok(tonic::Response::new(types::AccountTransactionSignHash {
+                value: sign_hash.to_vec(),
+            }))
         }
     }
 }

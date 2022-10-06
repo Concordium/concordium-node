@@ -1138,19 +1138,23 @@ currentProtocolVersion = do
 --
 -- 2. A transaction cannot be deserialized to two different block items in different protocol
 --    versions.
-receiveTransaction :: forall gsconf finconf. ByteString -> MVR gsconf finconf UpdateResult
+--
+-- The return value is a pair of potentially the hash of the transaction, and
+-- the result of the update. The hash is present unless the transaction could
+-- not be deserialized.
+receiveTransaction :: forall gsconf finconf. ByteString -> MVR gsconf finconf (Maybe TransactionHash, UpdateResult)
 receiveTransaction transactionBS = do
     now <- utcTimeToTransactionTime <$> currentTime
     SomeProtocolVersion spv <- currentProtocolVersion
     case runGet (getExactVersionedBlockItem spv now) transactionBS of
         Left err -> do
             logEvent Runner LLDebug err
-            return ResultSerializationFail
+            return (Nothing, ResultSerializationFail)
         Right transaction -> withWriteLock $ do
             vvec <- liftIO . readIORef =<< asks mvVersions
             case Vec.last vvec of
                 (EVersionedConfiguration vc) ->
-                    liftSkovUpdate vc $ Skov.receiveTransaction transaction
+                    (Just (wmdHash transaction),) <$> liftSkovUpdate vc (Skov.receiveTransaction transaction)
 
 -- |Import a block file for out-of-band catch-up.
 importBlocks :: FilePath -> MVR gsconf finconf UpdateResult

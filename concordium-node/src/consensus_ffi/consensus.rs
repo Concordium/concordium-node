@@ -1,9 +1,9 @@
 use crate::consensus_ffi::{
-    blockchain_types::BlockHash,
     ffi::{consensus_runner, get_consensus_ptr, startBaker, stopBaker, stopConsensus},
     helpers::{QueueReceiver, QueueSyncSender, RelayOrStopSenderHelper},
     messaging::ConsensusMessage,
 };
+use concordium_base::hashes::BlockHash;
 use parking_lot::Condvar;
 use std::{
     convert::TryFrom,
