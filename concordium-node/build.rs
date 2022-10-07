@@ -457,11 +457,54 @@ fn build_grpc2(proto_root_input: &str) -> std::io::Result<()> {
         )
         .method(
             tonic_build::manual::Method::builder()
+                .name("get_peers_info")
+                .route_name("GetPeersInfo")
+                .input_type("crate::grpc2::types::Empty")
+                .output_type("crate::grpc2::types::PeersInfo")
+                .codec_path("tonic::codec::ProstCodec")
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
+                .name("peer_connect")
+                .route_name("PeerConnect")
+                .input_type("crate::grpc2::types::PeerConnection")
+                .codec_path("tonic::codec::ProstCodec")
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
+                .name("peer_disconnect")
+                .route_name("PeerDisconnect")
+                .input_type("crate::grpc2::types::PeerConnection")
+                .output_type("crate::grpc2::types::Empty")
+                .codec_path("tonic::codec::ProstCodec")
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
                 .name("get_banned_peers")
                 .route_name("GetBannedPeers")
                 .input_type("crate::grpc2::types::Empty")
                 .output_type("crate::grpc2::types::BannedPeers")
                 .codec_path("tonic::codec::ProstCodec")
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
+                .name("ban_peer")
+                .route_name("BanPeer")
+                .input_type("crate::grpc2::types::PeerToBan")
+                .output_type("crate::grpc2::types::Empty")
+                .codec_path("tonic::codec::ProstCodec")
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
+                .name("unban_peer")
+                .route_name("UnbanPeer")
+                .input_type("crate::grpc2::types::BannedPeer")
+                .output_type("crate::grpc2::types::Empty")
                 .build(),
         )
         .method(
@@ -480,32 +523,6 @@ fn build_grpc2(proto_root_input: &str) -> std::io::Result<()> {
                 .input_type("crate::grpc2::types::Empty")
                 .output_type("crate::grpc2::types::Empty")
                 .codec_path("tonic::codec::ProstCodec")
-                .build(),
-        )
-        .method(
-            tonic_build::manual::Method::builder()
-                .name("ban_peer")
-                .route_name("BanPeer")
-                .input_type("crate::grpc2::types::PeerToBan")
-                .output_type("crate::grpc2::types::BooleanResponse")
-                .codec_path("tonic::codec::ProstCodec")
-                .build(),
-        )
-        .method(
-            tonic_build::manual::Method::builder()
-                .name("get_peers_info")
-                .route_name("GetPeersInfo")
-                .input_type("crate::grpc2::types::Empty")
-                .output_type("crate::grpc2::types::PeersInfo")
-                .codec_path("tonic::codec::ProstCodec")
-                .build(),
-        )
-        .method(
-            tonic_build::manual::Method::builder()
-                .name("unban_peer")
-                .route_name("UnbanPeer")
-                .input_type("crate::grpc2::types::BannedPeer")
-                .output_type("crate::grpc2::types::BooleanResponse")
                 .build(),
         )
         .method(
