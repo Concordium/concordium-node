@@ -418,9 +418,19 @@ instance
 
 
 -- |Construct a 'HashedCachedRef'' given the value and hash.
+-- The value is in memory, and is __not__ stored to disk.
 makeHashedCachedRef :: (MonadIO m) => a -> h -> m (HashedCachedRef' h c a)
 makeHashedCachedRef val hsh = liftIO $
     HCRUnflushed <$!> (newIORef $! HCRMemHashed val hsh)
+
+-- |Construct a 'HashedCachedRef'' given the value. The value is hashed and then
+-- stored to disk and only a reference to blob store, and the hash of the value,
+-- are retained.
+makeFlushedHashedCachedRef :: (MHashableTo m h a, DirectBlobStorable m a) => a -> m (HashedCachedRef' h c a)
+makeFlushedHashedCachedRef val = do
+    h <- getHashM val
+    (br, _) <- storeUpdateDirect val
+    return $! HCRFlushed br h
 
 instance
     ( MonadCache c m,

@@ -457,6 +457,14 @@ fn build_grpc2(proto_root_input: &str) -> std::io::Result<()> {
         )
         .method(
             tonic_build::manual::Method::builder()
+                .name("get_peers_info")
+                .route_name("GetPeersInfo")
+                .input_type("crate::grpc2::types::Empty")
+                .output_type("crate::grpc2::types::PeersInfo")
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
                 .name("get_node_info")
                 .route_name("GetNodeInfo")
                 .input_type("crate::grpc2::types::Empty")
