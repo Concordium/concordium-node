@@ -67,6 +67,7 @@ import qualified Concordium.ID.IdentityProvider as IpInfo
 import Concordium.Types.Block (AbsoluteBlockHeight(..))
 import qualified Concordium.Types.InvokeContract as InvokeContract
 import Concordium.GlobalState.Parameters (CryptographicParameters)
+import qualified Proto.Google.Protobuf.Wrappers as Proto
 
 
 {- |An opaque representation of a Rust vector. This is used by callbacks to copy
@@ -1469,6 +1470,10 @@ instance ToProto QueryTypes.BakerSummary where
         ProtoFields.account .= toProto bakerAccount
         ProtoFields.lotteryPower .= bsBakerLotteryPower
 
+instance ToProto Int where
+    type Output Int = Proto.UInt64Value
+    toProto = fromIntegral
+
 -- |TODO
 instance ToProto Transactions.BlockItem where
     type Output Transactions.BlockItem = Proto.BlockItem    
@@ -1486,7 +1491,7 @@ instance ToProto Transactions.BlockItem where
                     Transactions.ChainUpdate _ -> undefined            
         return $! Proto.make $ do
             ProtoFields.metadata .= Just metadata
-            --ProtoFields.blockItem .= Just blockItem
+            ProtoFields.blockItem .= Just blockItem
 
 -- |NB: Assumes the data is at least 32 bytes
 decodeBlockHashInput :: Word8 -> Ptr Word8 -> IO Q.BlockHashInput
