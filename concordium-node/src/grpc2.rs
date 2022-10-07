@@ -1664,8 +1664,10 @@ pub mod server {
                         // protocol on the chain.
                         types::node_info::node::ConsensusStatus::NotRunning(types::Empty {})
                     } else if matches!(self.consensus.consensus_type, ConsensusType::Active) {
-                        let (in_baking_committee, _, baker_id) =
-                            self.consensus.in_baking_committee();
+                        let (in_baking_committee, _, bid) = self.consensus.in_baking_committee();
+                        let baker_id = types::BakerId {
+                            value: bid,
+                        };
 
                         let baker_status = match in_baking_committee {
                             ConsensusIsInBakingCommitteeResponse::ActiveInCommittee => {
@@ -1674,19 +1676,13 @@ pub mod server {
                                     // member of
                                     // the finalization committee.
                                     types::node_info::baker_consensus_info::Status::ActiveFinalizerCommitteeInfo(
-                                            types::node_info::baker_consensus_info::ActiveFinalizerCommitteeInfo{baker_id: Some(types::BakerId {
-                                                value: baker_id,
-                                            })}
-                                        )
+                                            types::node_info::baker_consensus_info::ActiveFinalizerCommitteeInfo{})
                                 } else {
                                     // The node is configured with baker keys and is an active
                                     // member of the baking
                                     // committee.
                                     types::node_info::baker_consensus_info::Status::ActiveBakerCommitteeInfo(
-                                            types::node_info::baker_consensus_info::ActiveBakerCommitteeInfo{baker_id: Some(types::BakerId {
-                                                value: baker_id,
-                                            })}
-                                        )
+                                            types::node_info::baker_consensus_info::ActiveBakerCommitteeInfo{})
                                 }
                             }
                             ConsensusIsInBakingCommitteeResponse::NotInCommittee => {
@@ -1714,7 +1710,8 @@ pub mod server {
                         // construct the baker status
                         types::node_info::node::ConsensusStatus::Active(
                             types::node_info::BakerConsensusInfo {
-                                status: Some(baker_status),
+                                baker_id: Some(baker_id),
+                                status:   Some(baker_status),
                             },
                         )
                     } else {
