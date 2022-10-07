@@ -50,7 +50,9 @@ genRegID :: Int -> RawCredentialRegistrationID
 genRegID seed = RawCredentialRegistrationID $! FBS.pack (randoms (mkStdGen seed))
 
 -- |Create a benchmark environment by populating the map and tries with the given number of
--- generated credentials.
+-- generated credentials. The trie is written out after each insertion. This decreases the locality
+-- of the trie in the blob store and gives a more realistic scenario than if the trie is only
+-- written a single time.
 setup :: Int -> IO Setup
 setup size = do
     tempBlobStoreFile <- emptySystemTempFile "blb.dat"

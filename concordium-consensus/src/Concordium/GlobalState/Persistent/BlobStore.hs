@@ -1053,18 +1053,20 @@ instance DirectBlobStorable m a => BlobStorable m (Nullable (EagerBufferedRef a)
 instance (Applicative m, Cacheable m a) => Cacheable m (EagerBufferedRef a) where
     cache (EagerBufferedRef ioref v) = EagerBufferedRef ioref <$> cache v
 
--- |A reference that is generally not retained in memory once it has been written to disk.
+-- |A reference that is generally not retained in memory once it has been written to disk, unless
+-- it is retained by a copy of the reference. (Once all copies are flushed or dropped, the in-memory
+-- value will no longer be retained. The reference is only written once, even if it is copied.)
 --
 -- This is essentially a simplified version of 'BufferedRef', where @BRBoth ref v@ is simply
 -- replaced with @URBlobbed ref@.
 data UnbufferedRef a
     = URBlobbed !(BlobRef a)
     -- ^A reference that is already on disk
-    | URMemory {urIORef :: !(IORef (Nullable (UnbufferedRef a))), urValue :: !a}
+    | URMemory {urIORef :: !(IORef (BlobRef a)), urValue :: !a}
     -- ^A reference that is in memory and may have been written to disk.
-    -- If the reference has not been written, the 'urIORef' will contain 'Null'.
-    -- If it has been written, it will contain @Some (URBlobbed b)@ for a 'BlobRef' @b@ that
-    -- holds the stored value.
+    -- If the reference has not been written, the 'urIORef' will contain 'refNull'.
+    -- If it has been written, the 'BlobRef' will be a valid (non-null) reference to the
+    -- stored value.
 
 instance Show a => Show (UnbufferedRef a) where
     show (URBlobbed r) = show r
@@ -1091,7 +1093,7 @@ instance DirectBlobStorable m a => BlobStorable m (Nullable (UnbufferedRef a)) w
 -- |Make an 'UnbufferedRef' from a value.
 makeUnbufferedRef :: MonadIO m => a -> m (UnbufferedRef a)
 makeUnbufferedRef urValue = do
-        urIORef <- liftIO $ newIORef Null
+        urIORef <- liftIO $ newIORef refNull
         return $! URMemory{..}
 
 -- |Make an 'UnbufferedRef' from a value that is immediately flushed to the blob store.
@@ -1116,13 +1118,15 @@ instance DirectBlobStorable m a => Reference m UnbufferedRef a where
         return (v, ur)
     refCache ur@(URMemory _ v) = return (v, ur)
 
-    refFlush (URMemory ref v) = liftIO (readIORef ref) >>= \case
-        Null -> do
-            (r' :: BlobRef a, _) <- storeUpdateDirect v
+    refFlush (URMemory ref v) = do
+        r <- liftIO (readIORef ref)
+        if isNull r then do
+            (!r', _) <- storeUpdateDirect v
+            liftIO $ writeIORef ref r'
             let !ur' = URBlobbed r'
-            liftIO . writeIORef ref $! Some ur'
             return (ur', r')
-        Some ur' -> refFlush ur'
+        else
+            return (URBlobbed r, r)
     refFlush ur@(URBlobbed r) = return (ur, r)
 
     refUncache = fmap fst <$> refFlush
