@@ -990,6 +990,15 @@ pub mod server {
             Ok(response)
         }
 
+        async fn shutdown(
+            &self,
+            _request: tonic::Request<crate::grpc2::types::Empty>,
+        ) -> Result<tonic::Response<crate::grpc2::types::BooleanResponse>, tonic::Status> {
+            // todo fix
+            let closed = self.node.close();
+            Ok(tonic::Response::new(crate::grpc2::types::Empty{}))
+        }
+
         async fn peer_connect(
             &self,
             request: tonic::Request<crate::grpc2::types::PeerConnection>,
