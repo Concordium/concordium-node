@@ -477,7 +477,7 @@ fn build_grpc2(proto_root_input: &str) -> std::io::Result<()> {
             tonic_build::manual::Method::builder()
                 .name("peer_connect")
                 .route_name("PeerConnect")
-                .input_type("crate::grpc2::types::PeerConnection")
+                .input_type("crate::grpc2::types::IpSocketAddress")
                 .output_type("crate::grpc2::types::Empty")
                 .codec_path("tonic::codec::ProstCodec")
                 .build(),
@@ -486,7 +486,7 @@ fn build_grpc2(proto_root_input: &str) -> std::io::Result<()> {
             tonic_build::manual::Method::builder()
                 .name("peer_disconnect")
                 .route_name("PeerDisconnect")
-                .input_type("crate::grpc2::types::PeerConnection")
+                .input_type("crate::grpc2::types::IpSocketAddress")
                 .output_type("crate::grpc2::types::Empty")
                 .codec_path("tonic::codec::ProstCodec")
                 .build(),

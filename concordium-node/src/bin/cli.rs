@@ -233,8 +233,8 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // Shutdown node
-    if !node.close() {
-        error!("Can't shutdown node properly!");
+    if let Err(e) = node.close() {
+        error!("Can't shutdown node properly due to: {}", e);
         std::process::exit(1);
     }
 
