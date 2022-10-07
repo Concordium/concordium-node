@@ -1663,12 +1663,11 @@ pub mod server {
                         // The node does not support the current
                         // protocol on the chain.
                         types::node_info::node::ConsensusStatus::NotRunning(types::Empty {})
-                    } else {
-                        if matches!(self.consensus.consensus_type, ConsensusType::Active) {
-                            let (in_baking_committee, _, baker_id) =
-                                self.consensus.in_baking_committee();
+                    } else if matches!(self.consensus.consensus_type, ConsensusType::Active) {
+                        let (in_baking_committee, _, baker_id) =
+                            self.consensus.in_baking_committee();
 
-                            let baker_status = match in_baking_committee {
+                        let baker_status = match in_baking_committee {
                             ConsensusIsInBakingCommitteeResponse::ActiveInCommittee => {
                                 if self.consensus.in_finalization_committee() {
                                     // The node is configured with baker keys and is an active
@@ -1712,17 +1711,16 @@ pub mod server {
                                     )
                             }
                         };
-                            // construct the baker status
-                            types::node_info::node::ConsensusStatus::Active(
-                                types::node_info::BakerConsensusInfo {
-                                    status: Some(baker_status),
-                                },
-                            )
-                        } else {
-                            // The node is not configured with baker keys and is participating in
-                            // the consensus passively.
-                            types::node_info::node::ConsensusStatus::Passive(types::Empty {})
-                        }
+                        // construct the baker status
+                        types::node_info::node::ConsensusStatus::Active(
+                            types::node_info::BakerConsensusInfo {
+                                status: Some(baker_status),
+                            },
+                        )
+                    } else {
+                        // The node is not configured with baker keys and is participating in
+                        // the consensus passively.
+                        types::node_info::node::ConsensusStatus::Passive(types::Empty {})
                     };
                     // Construct the details of the node.
                     types::node_info::Details::Node(types::node_info::Node {
