@@ -2,7 +2,6 @@ use super::helpers::ContractStateResponse;
 use crate::{
     common::p2p_peer::RemotePeerId,
     consensus_ffi::{
-        blockchain_types::BlockHash,
         catch_up::*,
         consensus::*,
         helpers::{
@@ -15,7 +14,10 @@ use crate::{
 };
 use anyhow::{anyhow, bail, Context};
 use byteorder::{NetworkEndian, ReadBytesExt};
-use crypto_common::Serial;
+use concordium_base::{
+    common::Serial,
+    hashes::{BlockHash, TransactionHash},
+};
 use std::{
     convert::{TryFrom, TryInto},
     ffi::{CStr, CString},
@@ -262,7 +264,8 @@ type RegenesisFreeCallback = unsafe extern "C" fn(*const Regenesis);
 type CopyToVecCallback = extern "C" fn(*mut Vec<u8>, *const u8, i64);
 
 /// The cryptographic parameters expose through ffi.
-type CryptographicParameters = id::types::GlobalContext<id::constants::ArCurve>;
+type CryptographicParameters =
+    concordium_base::id::types::GlobalContext<concordium_base::id::constants::ArCurve>;
 
 /// A type of callback that copies cryptographic parameters from one pointer to
 /// another.
@@ -386,6 +389,8 @@ extern "C" {
         consensus: *mut consensus_runner,
         tx: *const u8,
         data_length: i64,
+        out_hash: *mut u8, /* location where the hash of the transaction will be written if the
+                            * transaction is successfully added. */
     ) -> i64;
     pub fn stopBaker(consensus: *mut consensus_runner);
     pub fn stopConsensus(consensus: *mut consensus_runner);
@@ -1291,15 +1296,24 @@ impl ConsensusContainer {
         wrap_send_data_to_c!(self, genesis_index, rec, receiveFinalizationRecord)
     }
 
-    pub fn send_transaction(&self, data: &[u8]) -> ConsensusFfiResponse {
+    /// Send a transaction to consensus. Return whether the operation succeeded
+    /// or not, and if the transaction is accepted by consensus then its
+    /// hash is returned.
+    pub fn send_transaction(&self, data: &[u8]) -> (Option<TransactionHash>, ConsensusFfiResponse) {
         let consensus = self.consensus.load(Ordering::SeqCst);
         let len = data.len();
+        let mut out_hash = [0u8; 32];
+        let result = unsafe {
+            receiveTransaction(consensus, data.as_ptr(), len as i64, out_hash.as_mut_ptr())
+        };
 
-        let result = unsafe { receiveTransaction(consensus, data.as_ptr(), len as i64) };
-
-        let return_code = ConsensusFfiResponse::try_from(result);
-
-        return_code.unwrap_or_else(|code| panic!("Unknown FFI return code: {}", code))
+        let return_code = ConsensusFfiResponse::try_from(result)
+            .unwrap_or_else(|code| panic!("Unknown FFI return code: {}", code));
+        if return_code == ConsensusFfiResponse::Success {
+            (Some(out_hash.into()), return_code)
+        } else {
+            (None, return_code)
+        }
     }
 
     pub fn get_consensus_status(&self) -> String {
@@ -1722,10 +1736,10 @@ impl ConsensusContainer {
 
         let out = crate::grpc2::types::CryptographicParameters {
             genesis_string:          crypto_parameters.genesis_string.clone(),
-            bulletproof_generators:  crypto_common::to_bytes(
+            bulletproof_generators:  concordium_base::common::to_bytes(
                 crypto_parameters.bulletproof_generators(),
             ),
-            on_chain_commitment_key: crypto_common::to_bytes(
+            on_chain_commitment_key: concordium_base::common::to_bytes(
                 &crypto_parameters.on_chain_commitment_key,
             ),
         };
@@ -2702,8 +2716,8 @@ pub unsafe extern "C" fn regenesis_callback(ptr: *const Regenesis, block_hash: *
         arc.stop_network.store(true, Ordering::Release);
     } else {
         write_or_die!(arc.blocks).push(
-            BlockHash::new(std::slice::from_raw_parts(block_hash, 32))
-                .expect("The slice is exactly 32 bytes so ::new must succeed."),
+            BlockHash::try_from(std::slice::from_raw_parts(block_hash, 32))
+                .expect("The slice is exactly 32 bytes so ::try_from must succeed."),
         );
         arc.trigger_catchup.store(true, Ordering::Release);
     }

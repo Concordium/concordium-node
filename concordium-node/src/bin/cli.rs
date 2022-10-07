@@ -19,7 +19,7 @@ use concordium_node::{
             CONSENSUS_QUEUE_DEPTH_IN_HI, CONSENSUS_QUEUE_DEPTH_OUT_HI,
         },
         ffi,
-        helpers::{HashBytes, QueueMsg},
+        helpers::QueueMsg,
         messaging::ConsensusMessage,
     },
     p2p::{
@@ -563,7 +563,7 @@ struct BlockChunkData {
 async fn import_missing_blocks(
     consensus: &ConsensusContainer,
     import_stopped: Arc<atomic::AtomicBool>,
-    genesis_block_hashes: &[HashBytes],
+    genesis_block_hashes: &[concordium_base::hashes::BlockHash],
     index_url: &url::Url,
     data_dir_path: &Path,
 ) -> anyhow::Result<()> {

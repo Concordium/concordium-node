@@ -6,9 +6,10 @@ use std::{alloc::System, sync::Arc};
 static A: System = System;
 
 use anyhow::{ensure, Context};
+use concordium_base::hashes::BlockHash;
 use concordium_node::{
     common::PeerType,
-    consensus_ffi::{blockchain_types::BlockHash, consensus::Regenesis},
+    consensus_ffi::consensus::Regenesis,
     p2p::maintenance::{attempt_bootstrap, spawn, P2PNode},
     stats_export_service::instantiate_stats_export_engine,
     utils::get_config_and_logging_setup,

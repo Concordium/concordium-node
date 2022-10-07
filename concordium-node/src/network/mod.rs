@@ -3,19 +3,14 @@
 pub mod buckets;
 pub mod serialization;
 
+pub use self::buckets::Buckets;
+use crate::common::{
+    p2p_peer::{P2PPeer, RemotePeerId},
+    P2PNodeId,
+};
+use concordium_base::hashes::BlockHash;
 use nohash_hasher::BuildNoHashHasher;
 use semver::Version;
-
-pub use self::buckets::Buckets;
-
-use crate::{
-    common::{
-        p2p_peer::{P2PPeer, RemotePeerId},
-        P2PNodeId,
-    },
-    consensus_ffi::blockchain_types::BlockHash,
-};
-
 use std::collections::HashSet;
 
 /// Wire protocol version number. Nodes must agree on a common wire protocol in

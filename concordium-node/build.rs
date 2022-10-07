@@ -466,6 +466,15 @@ fn build_grpc2(proto_root_input: &str) -> std::io::Result<()> {
         )
         .method(
             tonic_build::manual::Method::builder()
+                .name("send_block_item")
+                .route_name("SendBlockItem")
+                .input_type("crate::grpc2::types::SendBlockItemRequest")
+                .output_type("crate::grpc2::types::TransactionHash")
+                .codec_path("tonic::codec::ProstCodec")
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
                 .name("get_peers_info")
                 .route_name("GetPeersInfo")
                 .input_type("crate::grpc2::types::Empty")
@@ -542,6 +551,15 @@ fn build_grpc2(proto_root_input: &str) -> std::io::Result<()> {
                 .route_name("GetNodeInfo")
                 .input_type("crate::grpc2::types::Empty")
                 .output_type("crate::grpc2::types::NodeInfo")
+                .codec_path("tonic::codec::ProstCodec")
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
+                .name("get_account_transaction_sign_hash")
+                .route_name("GetAccountTransactionSignHash")
+                .input_type("crate::grpc2::types::PreAccountTransaction")
+                .output_type("crate::grpc2::types::AccountTransactionSignHash")
                 .codec_path("tonic::codec::ProstCodec")
                 .build(),
         )

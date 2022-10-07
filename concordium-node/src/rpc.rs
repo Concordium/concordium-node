@@ -250,7 +250,7 @@ impl P2p for RpcServerImpl {
                     "Transaction size exceeds maximum allowed size.",
                 ));
             }
-            let consensus_result = consensus.send_transaction(transaction);
+            let consensus_result = consensus.send_transaction(transaction).1;
 
             let result = if consensus_result == Success {
                 let mut payload = Vec::with_capacity(1 + transaction.len());
