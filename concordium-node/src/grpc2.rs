@@ -628,16 +628,13 @@ pub mod server {
     use crate::{
         configuration::GRPC2Config,
         consensus_ffi::{
-<<<<<<< HEAD
-            consensus::{ConsensusContainer, ConsensusType},
+            consensus::{ConsensusContainer, ConsensusType, CALLBACK_QUEUE},
             ffi::NotificationHandlers,
-            helpers::{ConsensusIsInBakingCommitteeResponse, ContractStateResponse},
-=======
-            consensus::{ConsensusContainer, CALLBACK_QUEUE},
-            ffi::NotificationHandlers,
-            helpers::{ConsensusFfiResponse, ContractStateResponse, PacketType},
+            helpers::{
+                ConsensusFfiResponse, ConsensusIsInBakingCommitteeResponse, ContractStateResponse,
+                PacketType,
+            },
             messaging::{ConsensusMessage, MessageType},
->>>>>>> main
         },
         p2p::P2PNode,
     };
@@ -645,11 +642,8 @@ pub mod server {
     use byteorder::WriteBytesExt;
     use futures::{FutureExt, StreamExt};
     use std::{
-<<<<<<< HEAD
-        net::SocketAddr,
-=======
         io::Write,
->>>>>>> main
+        net::SocketAddr,
         sync::{Arc, Mutex},
     };
     use tonic::{async_trait, transport::ServerTlsConfig};
@@ -1742,9 +1736,10 @@ pub mod server {
                 local_time,
                 peer_uptime,
                 network_info: Some(network_info),
-                details: Some(details),}))
-            }
-            
+                details: Some(details),
+            }))
+        }
+
         async fn send_block_item(
             &self,
             request: tonic::Request<crate::grpc2::types::SendBlockItemRequest>,
