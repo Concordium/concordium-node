@@ -1486,9 +1486,9 @@ instance ToProto Transactions.BlockItem where
             blockItem :: Proto.BlockItem'BlockItem
             blockItem = do 
                 return $! case bi of 
-                    Transactions.NormalTransaction _ -> undefined
-                    Transactions.CredentialDeployment _ -> undefined
-                    Transactions.ChainUpdate _ -> undefined            
+                    Transactions.NormalTransaction accTx -> undefined
+                    Transactions.CredentialDeployment cred -> undefined
+                    Transactions.ChainUpdate cu -> undefined
         return $! Proto.make $ do
             ProtoFields.metadata .= Just metadata
             ProtoFields.blockItem .= Just blockItem
