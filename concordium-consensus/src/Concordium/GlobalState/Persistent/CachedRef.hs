@@ -516,4 +516,3 @@ migrateHashedCachedRef' f hcr = do
     (!newRef, _) <- refFlush =<< makeHashedCachedRef v =<< getHashM v
     !_ <- lift (refUncache hcr)
     return newRef
-    
