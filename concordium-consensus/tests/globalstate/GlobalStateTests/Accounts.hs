@@ -71,7 +71,7 @@ checkEquivalent ba pa = do
   let bath = getHash (B.accountTable ba) :: H.Hash
   path <- getHashM (P.accountTable pa)
   checkBinary (==) bath path "==" "Basic account table hash" "Persistent account table hash"
-  (pregids, _) <- P.loadRegIds pa
+  pregids <- P.loadRegIds pa
   checkBinary (==) (B.accountRegIds ba) pregids "==" "Basic registration ids" "Persistent registration ids"
   where
     -- Check whether an in-memory account-index and account pair is equivalent to a persistent account-index and account pair
@@ -99,7 +99,7 @@ data AccountAction
 
 randomizeAccount :: AccountAddress -> ID.CredentialPublicKeys -> Gen (Account (AccountVersionFor PV))
 randomizeAccount _accountAddress _accountVerificationKeys = do
-  let vfKey = snd . head $ (OrdMap.toAscList (ID.credKeys _accountVerificationKeys))
+  let vfKey = snd . head $ OrdMap.toAscList (ID.credKeys _accountVerificationKeys)
   let cred = dummyCredential dummyCryptographicParameters _accountAddress vfKey dummyMaxValidTo dummyCreatedAt
   let a0 = newAccount dummyCryptographicParameters _accountAddress cred
   nonce <- Nonce <$> arbitrary
@@ -239,9 +239,9 @@ runAccountAction ArchivePersistent (ba, pa) = do
   return (ba, pa')
 runAccountAction (RegIdExists rid) (ba, pa) = do
   let be = B.regIdExists rid ba
-  (pe, pa') <- P.regIdExists rid pa
+  pe <- P.regIdExists rid pa
   checkBinary (==) be pe "<->" "regid exists in basic" "regid exists in persistent"
-  return (ba, pa')
+  return (ba, pa)
 runAccountAction (RecordRegId rid ai) (ba, pa) = do
   let ba' = B.recordRegId (ID.toRawCredRegId rid) ai ba
   pa' <- P.recordRegId rid ai pa
