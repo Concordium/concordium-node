@@ -1,33 +1,57 @@
+// Parameters:
+// - VERSION
+// - UBUNTU_VERSION (default: "20.04")
+
 pipeline {
     agent any
     environment {
-        aws_s3_bucket_name = 's3://node-deb.concordium.com/'
-        out_dir = sh(script: 'mktemp -d', returnStdout: true).trim()
+        OUT_DIR = sh(script: 'mktemp -d', returnStdout: true).trim()
+        TAG = """${sh(
+                returnStdout: true,
+                script: '''\
+                    if [ -z "$VERSION" ]; then
+                        awk '/version = / { print substr($3, 2, length($3)-2); exit }' concordium-node/Cargo.toml
+                    else
+                        echo "$VERSION"
+                    fi
+                '''
+            )}""".trim()
+        BUILD_FILE = "database-exporter_${TAG}.deb"
+        OUTFILE = "s3://distribution.concordium.software/tools/linux/${BUILD_FILE}"
     }
     stages {
+        stage('Precheck') {
+            steps {
+                // Fail the job if the OUTFILE already exists in S3.
+                sh '''\
+                    # Fail if file already exists
+                    totalFoundObjects=$(aws s3 ls "$OUTFILE" --summarize | grep "Total Objects: " | sed "s/[^0-9]*//g")
+                    if [ "$totalFoundObjects" -ne "0" ]; then
+                        echo "$OUTFILE already exists"
+                        false
+                    fi
+                '''.stripIndent()
+            }
+        }
         stage('build') {
             steps {
                sh '''\
                    docker build \
-                        --build-arg ubuntu_version="${ubuntu_version}" \
-                        --build-arg build_version="${build_version}" \
-                        --label ubuntu_version="${ubuntu_version}" \
-                        --label build_version="${build_version}" \
+                        --build-arg ubuntu_version="${UBUNTU_VERSION}" \
+                        --build-arg version="${TAG}" \
+                        --label ubuntu_version="${UBUNTU_VERSION}" \
+                        --label version="${TAG}" \
                         -f "scripts/db-exporter/Dockerfile" \
                         -t build-deb:${BUILD_TAG} \
                         --no-cache \
-                        ./distribution/node/deb/docker
+                        .
                '''
-               sh 'docker run -v "${out_dir}":/out build-deb'
+               sh 'docker run -v "${OUT_DIR}":/out build-deb'
             }
         }
         stage('push') {
             steps {
-                sh '''\
-                   for f in "${out_dir}"/*.deb; do
-                       aws s3 cp "\${f}" "${aws_s3_bucket_name}" --grants=read=uri=http://acs.amazonaws.com/groups/global/AllUsers
-                   done
-                   '''
+                sh 'aws s3 cp "${OUT_DIR}/${BUILD_FILE}" "${OUTFILE}" --grants=read=uri=http://acs.amazonaws.com/groups/global/AllUsers'
             }
         }
     }

@@ -29,9 +29,9 @@ COPY . /build
 # # Copy utils tools.
 # COPY --from=static-builder /build/concordium-base/rust-bins/target/release/utils /build/concordium-utils
 
-ARG build_version
+ARG version
 WORKDIR /build
-RUN BUILD_VERSION="${build_version}" \
+RUN VERSION="${version}" \
       /build.sh
 
 ENTRYPOINT [ "/copy.sh" ]

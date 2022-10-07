@@ -5,9 +5,9 @@ set -euxo pipefail
 # The script must be invoked with the concordium-node source directory as working directory.
 
 # Expected parameters:
-# - BUILD_VERSION
+# - VERSION
 
-build_version="${BUILD_VERSION}"
+version="${VERSION}"
 
 flatbuffers_tag=v2.0.0
 rust_toolchain_version=1.62
@@ -56,12 +56,6 @@ rustup default "$rust_toolchain_version"
 git clone --branch="${flatbuffers_tag}" --depth=1 https://github.com/google/flatbuffers.git
 ( cd flatbuffers && cmake -G "Unix Makefiles" . && make -j"$(nproc)" && make install )
 rm -rf flatbuffers
-
-# Build node and related binaries.
-
-node_version="$(awk '/version = / { print substr($3, 2, length($3)-2); exit }' ./concordium-node/Cargo.toml)" # extract and unquote value of the first occurrence of a 'version' key in Cargo.toml
-
-version="$node_version-$build_version"
 
 # - 'database-exporter'
 
