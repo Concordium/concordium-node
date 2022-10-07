@@ -1462,7 +1462,7 @@ pub mod server {
             request: tonic::Request<crate::grpc2::types::PeerToBan>,
         ) -> Result<tonic::Response<crate::grpc2::types::Empty>, tonic::Status> {
             let ip = request.into_inner().ip_address.require()?;
-            match <std::net::IpAddr as std::str::FromStr>::from_str(&ip.value) {
+            match ip.value.parse::<std::net::IpAddr>() {
                 Ok(ip_addr) => match self.node.drop_by_ip_and_ban(ip_addr) {
                     Ok(_) => Ok(tonic::Response::new(crate::grpc2::types::Empty {})),
                     Err(e) => Err(tonic::Status::internal(format!("Could not ban peer {}.", e))),
@@ -1478,9 +1478,7 @@ pub mod server {
             &self,
             request: tonic::Request<crate::grpc2::types::BannedPeer>,
         ) -> Result<tonic::Response<crate::grpc2::types::Empty>, tonic::Status> {
-            match <std::net::IpAddr as std::str::FromStr>::from_str(
-                &request.into_inner().ip_address.require()?.value,
-            ) {
+            match request.into_inner().ip_address.require()?.value.parse::<std::net::IpAddr>() {
                 Ok(ip_addr) => {
                     let banned_id = crate::p2p::bans::PersistedBanId::Ip(ip_addr);
                     match self.node.unban_node(banned_id) {
@@ -1502,19 +1500,12 @@ pub mod server {
             request: tonic::Request<crate::grpc2::types::DumpRequest>,
         ) -> Result<tonic::Response<crate::grpc2::types::Empty>, tonic::Status> {
             let file_path = request.get_ref().file.to_owned();
-            // todo: fail with invalid argument if file path was empty.
-            let result = self
-                .node
-                .activate_dump(
-                    if file_path.is_empty() {
-                        "dump"
-                    } else {
-                        &file_path
-                    },
-                    request.get_ref().raw,
-                )
-                .is_ok();
-            Ok(tonic::Response::new(crate::grpc2::types::Empty {}))
+            if file_path.is_empty() {
+                Err(tonic::Status::invalid_argument("The supplied path must be non-empty"));
+            } else {
+                self.node.activate_dump(&file_path, request.get_ref().raw)?;
+                Ok(tonic::Response::new(crate::grpc2::types::Empty {}))
+            }
         }
 
         #[cfg(not(feature = "network_dump"))]
