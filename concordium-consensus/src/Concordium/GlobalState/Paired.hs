@@ -977,8 +977,9 @@ type instance BlockStatePointer (a, b) = (BlockStatePointer a, BlockStatePointer
 instance (MonadLogger m,
     C.HasGlobalStateContext (PairGSContext lc rc) r,
     BlockStateStorage (BSML pv lc r ls s m),
-    BlockStateStorage (BSMR pv rc r rs s m))
-        => BlockStateStorage (BlockStateM pv (PairGSContext lc rc) r (PairGState ls rs) s m) where
+      BlockStateStorage (BSMR pv rc r rs s m)
+    ) =>
+    BlockStateStorage (BlockStateM pv (PairGSContext lc rc) r (PairGState ls rs) s m) where
     thawBlockState (bs1, bs2) = do
         ubs1 <- coerceBSML $ thawBlockState bs1
         ubs2 <- coerceBSMR $ thawBlockState bs2

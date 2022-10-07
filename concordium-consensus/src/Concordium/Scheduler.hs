@@ -89,7 +89,7 @@ import qualified Concordium.TransactionVerification as TVer
 import Lens.Micro.Platform
 
 import Prelude hiding (exp, mod)
-import Concordium.Types.Accounts hiding (getAccountStake)
+import Concordium.Types.Accounts
 import Concordium.Scheduler.WasmIntegration.V1 (ReceiveResultData(rrdCurrentState))
 import Concordium.Wasm (IsWasmVersion)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1

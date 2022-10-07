@@ -99,13 +99,14 @@ epochToFullBakers EpochBakers{..} = FullBakers{
         mkFullBakerInfo bi bs = FullBakerInfo (bi ^. bakerInfo) bs
 
 -- |Convert an 'EpochBakers' to a 'FullBakersEx'.
-epochToFullBakersEx :: (av ~ 'AccountV1) => EpochBakers av -> FullBakersEx
+epochToFullBakersEx :: forall av. (AVSupportsDelegation av) => EpochBakers av -> FullBakersEx
 epochToFullBakersEx EpochBakers{..} = FullBakersEx {
         bakerInfoExs = Vec.zipWith mkFullBakerInfoEx _bakerInfos _bakerStakes,
         bakerPoolTotalStake = _bakerTotalStake
     }
     where
-        mkFullBakerInfoEx bi bs =
+        mkFullBakerInfoEx :: BakerInfoEx av -> Amount -> FullBakerInfoEx
+        mkFullBakerInfoEx bi@BakerInfoExV1{} bs =
             FullBakerInfoEx
                 (FullBakerInfo (bi ^. bakerInfo) bs)
                 (bi ^. poolCommissionRates)
@@ -134,7 +135,11 @@ migrateEpochBakers (StateMigrationParametersP3ToP4 migration) EpochBakers{..} =
         }
     where
         migrateBakerInfo (BakerInfoExV0 bi) = BakerInfoExV1 bi (P4.defaultBakerPoolInfo migration)
-
+migrateEpochBakers StateMigrationParametersP4ToP5{} EpochBakers{..} =
+    EpochBakers
+        { _bakerInfos = (\BakerInfoExV1{..} -> BakerInfoExV1{..}) <$> _bakerInfos,
+          ..
+        }
 
 -- |The delegators and total stake of an active pool.
 data ActivePool = ActivePool {

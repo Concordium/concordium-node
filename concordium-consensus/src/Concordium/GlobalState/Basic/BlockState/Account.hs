@@ -116,7 +116,7 @@ serializeAccount cryptoParams acct@Account{..} = do
     S.put _accountAmount
     when asfExplicitEncryptedAmount $ S.put _accountEncryptedAmount
     when asfExplicitReleaseSchedule $ S.put _accountReleaseSchedule
-    when asfHasBakerOrDelegation $ putAccountStake _accountStaking
+    when asfHasBakerOrDelegation $ serializeAccountStake _accountStaking
   where
     PersistingAccountData {..} = acct ^. persistingAccountData
     flags = AccountSerializationFlags {..}
@@ -177,7 +177,7 @@ deserializeAccount migration cryptoParams = do
     _accountReleaseSchedule <- if asfExplicitReleaseSchedule then S.get else return emptyAccountReleaseSchedule
     _accountStaking <- if asfHasBakerOrDelegation
       then
-        migrateAccountStake migration <$> getAccountStake
+        migrateAccountStake migration <$> deserializeAccountStake
       else
         return AccountStakeNone
     let _accountPersisting = makeAccountPersisting PersistingAccountData {..}

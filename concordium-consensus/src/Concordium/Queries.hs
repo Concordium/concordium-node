@@ -259,7 +259,7 @@ data DelegatorInfo = DelegatorInfo {
   -- | The amount of stake currently staked to the pool.
   pdiStake :: !Amount,
   -- | Pending change to the current stake of the delegator.
-  pdiPendingChanges :: !(StakePendingChange 'AccountV1)
+  pdiPendingChanges :: !(StakePendingChange' Timestamp)
 }
 
 -- | Information about a fixed delegator in the reward period for a block.
@@ -671,11 +671,9 @@ getPoolStatus blockHashInput mbid = do
         ) =>
         BlockPointerType (VersionedSkovM gsconf finconf pv) ->
         VersionedSkovM gsconf finconf pv (Maybe PoolStatus)
-    poolStatus bp = case protocolVersion @pv of
-        SP1 -> return Nothing
-        SP2 -> return Nothing
-        SP3 -> return Nothing
-        SP4 -> do
+    poolStatus bp = case delegationSupport @(AccountVersionFor pv) of
+        SAVDelegationNotSupported -> return Nothing
+        SAVDelegationSupported -> do
             bs <- blockState bp
             BS.getPoolStatus bs mbid
 
@@ -701,10 +699,10 @@ getDelegators bhi maybeBakerId = do
         ( SkovMonad (VersionedSkovM gsconf finconf pv)) =>
         BlockPointerType (VersionedSkovM gsconf finconf pv) ->
         VersionedSkovM gsconf finconf pv (Either GetDelegatorsError [DelegatorInfo])
-      getter bp = case accountVersion @(AccountVersionFor pv) of
-        SAccountV0 ->
+      getter bp = case delegationSupport @(AccountVersionFor pv) of
+        SAVDelegationNotSupported ->
           return $ Left GDEUnsupportedProtocolVersion
-        SAccountV1 -> do
+        SAVDelegationSupported -> do
           bs <- blockState bp
           maybeDelegators <- BS.getActiveDelegators bs maybeBakerId
           return $ maybe (Left GDEPoolNotFound) (Right . fmap toDelegatorInfo) maybeDelegators
@@ -726,10 +724,10 @@ getDelegatorsRewardPeriod bhi maybeBakerId = do
         ( SkovMonad (VersionedSkovM gsconf finconf pv)) =>
         BlockPointerType (VersionedSkovM gsconf finconf pv) ->
         VersionedSkovM gsconf finconf pv (Either GetDelegatorsError [DelegatorRewardPeriodInfo])
-      getter bp = case accountVersion @(AccountVersionFor pv) of
-        SAccountV0 ->
+      getter bp = case delegationSupport @(AccountVersionFor pv) of
+        SAVDelegationNotSupported ->
           return $ Left GDEUnsupportedProtocolVersion
-        SAccountV1 -> do
+        SAVDelegationSupported -> do
           bs <- blockState bp
           maybeDelegators <- BS.getCurrentDelegators bs maybeBakerId
           return $ maybe (Left GDEPoolNotFound) (Right . fmap toDelegatorInfo) maybeDelegators

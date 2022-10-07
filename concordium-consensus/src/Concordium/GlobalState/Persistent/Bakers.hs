@@ -9,6 +9,9 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+-- We suppress redundant constraint warnings since GHC does not detect when a constraint is used
+-- for pattern matching. (See: https://gitlab.haskell.org/ghc/ghc/-/issues/20896)
+{-# OPTIONS_GHC -Wno-redundant-constraints #-}
 module Concordium.GlobalState.Persistent.Bakers where
 
 import Control.Exception
@@ -201,7 +204,11 @@ epochToFullBakers PersistentEpochBakers{..} = do
         mkFullBakerInfo info stake = FullBakerInfo info stake
 
 -- |Derive a 'FullBakers' from a 'PersistentEpochBakers'.
-epochToFullBakersEx :: (MonadBlobStore m) => PersistentEpochBakers 'AccountV1 -> m FullBakersEx
+epochToFullBakersEx ::
+    forall m av.
+    (MonadBlobStore m, IsAccountVersion av, AVSupportsDelegation av) =>
+    PersistentEpochBakers av ->
+    m FullBakersEx
 epochToFullBakersEx PersistentEpochBakers{..} = do
     BakerInfos infoRefs <- refLoad _bakerInfos
     infos <- mapM loadPersistentBakerInfoEx infoRefs
@@ -211,7 +218,7 @@ epochToFullBakersEx PersistentEpochBakers{..} = do
             bakerPoolTotalStake = _bakerTotalStake
         }
     where
-        mkFullBakerInfoEx :: BaseAccounts.BakerInfoEx 'AccountV1 -> Amount -> FullBakerInfoEx
+        mkFullBakerInfoEx :: BaseAccounts.BakerInfoEx av -> Amount -> FullBakerInfoEx
         mkFullBakerInfoEx (BaseAccounts.BakerInfoExV1 info extra) stake =
             FullBakerInfoEx (FullBakerInfo info stake) (extra ^. BaseAccounts.poolCommissionRates)
 
@@ -232,12 +239,13 @@ type BakerIdTrieMap av = Trie.TrieN BufferedFix BakerId (PersistentActiveDelegat
 data PersistentActiveDelegators (av :: AccountVersion) where
     PersistentActiveDelegatorsV0 :: PersistentActiveDelegators 'AccountV0
     PersistentActiveDelegatorsV1 ::
+        (AVSupportsDelegation av) =>
         { -- |The set of delegators to this pool.
           adDelegators :: !DelegatorIdTrieSet,
           -- |The total capital of the delegators to this pool.
           adDelegatorTotalCapital :: !Amount
         } ->
-        PersistentActiveDelegators 'AccountV1
+        PersistentActiveDelegators av
 
 -- |See documentation of @migratePersistentBlockState@.
 migratePersistentActiveDelegators ::
@@ -261,12 +269,14 @@ migratePersistentActiveDelegators (StateMigrationParametersP3ToP4 _) = \case
                 { adDelegators = Trie.empty
                 , adDelegatorTotalCapital = 0
                 }
+migratePersistentActiveDelegators StateMigrationParametersP4ToP5{} =
+    \PersistentActiveDelegatorsV1{..} -> return PersistentActiveDelegatorsV1{..}
 
 emptyPersistentActiveDelegators :: forall av. IsAccountVersion av => PersistentActiveDelegators av
 emptyPersistentActiveDelegators =
-    case accountVersion @av of
-        SAccountV0 -> PersistentActiveDelegatorsV0
-        SAccountV1 -> PersistentActiveDelegatorsV1 Trie.empty 0
+    case delegationSupport @av of
+        SAVDelegationNotSupported -> PersistentActiveDelegatorsV0
+        SAVDelegationSupported -> PersistentActiveDelegatorsV1 Trie.empty 0
 
 deriving instance Show (PersistentActiveDelegators av)
 
@@ -279,9 +289,9 @@ instance (IsAccountVersion av, MonadBlobStore m) => BlobStorable m (PersistentAc
         (pDas, newDs) <- storeUpdate adDelegators
         return (pDas <> put adDelegatorTotalCapital, PersistentActiveDelegatorsV1 newDs adDelegatorTotalCapital)
     load =
-        case accountVersion @av of
-            SAccountV0 -> return (return PersistentActiveDelegatorsV0)
-            SAccountV1 -> do
+        case delegationSupport @av of
+            SAVDelegationNotSupported -> return (return PersistentActiveDelegatorsV0)
+            SAVDelegationSupported -> do
                 madDelegators <- load
                 adDelegatorTotalCapital <- get
                 return $ do
@@ -292,7 +302,7 @@ instance (IsAccountVersion av, MonadBlobStore m) => BlobStorable m (PersistentAc
 -- This is not stored for 'AccountV0', so behaves as the unit type in that case.
 data TotalActiveCapital (av :: AccountVersion) where
     TotalActiveCapitalV0 :: TotalActiveCapital 'AccountV0
-    TotalActiveCapitalV1 :: !Amount -> TotalActiveCapital 'AccountV1
+    TotalActiveCapitalV1 :: (AVSupportsDelegation av) => !Amount -> TotalActiveCapital av
 
 deriving instance Show (TotalActiveCapital av)
 
@@ -307,13 +317,14 @@ migrateTotalActiveCapital StateMigrationParametersTrivial _ x = x
 migrateTotalActiveCapital StateMigrationParametersP1P2 _ x = x
 migrateTotalActiveCapital StateMigrationParametersP2P3 _ x = x
 migrateTotalActiveCapital (StateMigrationParametersP3ToP4 _) bts TotalActiveCapitalV0 = TotalActiveCapitalV1 bts
+migrateTotalActiveCapital StateMigrationParametersP4ToP5 _ (TotalActiveCapitalV1 bts) = TotalActiveCapitalV1 bts
 
 instance IsAccountVersion av => Serialize (TotalActiveCapital av) where
     put TotalActiveCapitalV0 = return ()
     put (TotalActiveCapitalV1 amt) = put amt
-    get = case accountVersion @av of
-        SAccountV0 -> return TotalActiveCapitalV0
-        SAccountV1 -> TotalActiveCapitalV1 <$> get
+    get = case delegationSupport @av of
+        SAVDelegationNotSupported -> return TotalActiveCapitalV0
+        SAVDelegationSupported -> TotalActiveCapitalV1 <$> get
 
 -- |Add an amount to a 'TotalActiveCapital'.
 addActiveCapital :: Amount -> TotalActiveCapital av -> TotalActiveCapital av
@@ -327,7 +338,7 @@ subtractActiveCapital :: Amount -> TotalActiveCapital av -> TotalActiveCapital a
 subtractActiveCapital _ TotalActiveCapitalV0 = TotalActiveCapitalV0
 subtractActiveCapital amt0 (TotalActiveCapitalV1 amt1) = TotalActiveCapitalV1 $ amt1 - amt0
 
-tacAmount :: Lens' (TotalActiveCapital 'AccountV1) Amount
+tacAmount :: (AVSupportsDelegation av) => Lens' (TotalActiveCapital av) Amount
 tacAmount f (TotalActiveCapitalV1 amt) = TotalActiveCapitalV1 <$> f amt
 
 type AggregationKeySet = Trie.TrieN BufferedFix BakerAggregationVerifyKey ()
@@ -374,15 +385,20 @@ migratePersistentActiveBakers migration accounts PersistentActiveBakers{..} = do
     _totalActiveCapital = newTotalActiveCapital
     }
 
-totalActiveCapitalV1 :: Lens' (PersistentActiveBakers 'AccountV1) Amount
+totalActiveCapitalV1 :: (AVSupportsDelegation av) => Lens' (PersistentActiveBakers av) Amount
 totalActiveCapitalV1 = totalActiveCapital . tac
     where
-        tac :: Lens' (TotalActiveCapital 'AccountV1) Amount
+        tac :: (AVSupportsDelegation av) => Lens' (TotalActiveCapital av) Amount
         tac f (TotalActiveCapitalV1 v) = TotalActiveCapitalV1 <$> f v
 
 -- |A helper function that adds a delegator to a 'PersistentActiveDelegators'.
 -- It is assumed that the delegator is not already in the delegators.
-addDelegatorHelper :: (MonadBlobStore m) => DelegatorId -> Amount -> PersistentActiveDelegators 'AccountV1 -> m (PersistentActiveDelegators 'AccountV1)
+addDelegatorHelper ::
+    (MonadBlobStore m, AVSupportsDelegation av) =>
+    DelegatorId ->
+    Amount ->
+    PersistentActiveDelegators av ->
+    m (PersistentActiveDelegators av)
 addDelegatorHelper did amt (PersistentActiveDelegatorsV1 dset tot) = do
     newDset <- Trie.insert did () dset
     return $ PersistentActiveDelegatorsV1 newDset (tot + amt)
@@ -395,12 +411,12 @@ addDelegatorHelper did amt (PersistentActiveDelegatorsV1 dset tot) = do
 --
 -- IMPORTANT: This does not update the total active capital!
 addDelegator ::
-    (MonadBlobStore m) =>
+    (MonadBlobStore m, IsAccountVersion av, AVSupportsDelegation av) =>
     DelegationTarget ->
     DelegatorId ->
     Amount ->
-    PersistentActiveBakers 'AccountV1 ->
-    m (Either BakerId (PersistentActiveBakers 'AccountV1))
+    PersistentActiveBakers av ->
+    m (Either BakerId (PersistentActiveBakers av))
 addDelegator DelegatePassive did amt pab =
     Right <$> passiveDelegators (addDelegatorHelper did amt) pab
 addDelegator (DelegateToBaker bid) did amt pab =
@@ -413,7 +429,12 @@ addDelegator (DelegateToBaker bid) did amt pab =
 
 -- |A helper function that removes a delegator from a 'PersistentActiveDelegators'.
 -- It is assumed that the delegator is in the delegators with the specified amount.
-removeDelegatorHelper :: (MonadBlobStore m) => DelegatorId -> Amount -> PersistentActiveDelegators 'AccountV1 -> m (PersistentActiveDelegators 'AccountV1)
+removeDelegatorHelper ::
+    (MonadBlobStore m, AVSupportsDelegation av) =>
+    DelegatorId ->
+    Amount ->
+    PersistentActiveDelegators av ->
+    m (PersistentActiveDelegators av)
 removeDelegatorHelper did amt (PersistentActiveDelegatorsV1 dset tot) = do
     newDset <- Trie.delete did dset
     return $ PersistentActiveDelegatorsV1 newDset (tot - amt)
@@ -423,12 +444,12 @@ removeDelegatorHelper did amt (PersistentActiveDelegatorsV1 dset tot) = do
 --
 -- IMPORTANT: This does not update the total active capital!
 removeDelegator ::
-    (MonadBlobStore m) =>
+    (MonadBlobStore m, IsAccountVersion av, AVSupportsDelegation av) =>
     DelegationTarget ->
     DelegatorId ->
     Amount ->
-    PersistentActiveBakers 'AccountV1 ->
-    m (PersistentActiveBakers 'AccountV1)
+    PersistentActiveBakers av ->
+    m (PersistentActiveBakers av)
 removeDelegator DelegatePassive did amt pab = passiveDelegators (removeDelegatorHelper did amt) pab
 removeDelegator (DelegateToBaker bid) did amt pab = do
     let rdh Nothing = return ((), Trie.NoChange)
@@ -443,10 +464,10 @@ removeDelegator (DelegateToBaker bid) did amt pab = do
 -- affected delegators.  (This will have no effect if the baker is not actually a baker, although
 -- this function should not be used in that case.)
 transferDelegatorsToPassive ::
-    (MonadBlobStore m) =>
+    (MonadBlobStore m, IsAccountVersion av, AVSupportsDelegation av) =>
     BakerId ->
-    PersistentActiveBakers 'AccountV1 ->
-    m ([DelegatorId], PersistentActiveBakers 'AccountV1)
+    PersistentActiveBakers av ->
+    m ([DelegatorId], PersistentActiveBakers av)
 transferDelegatorsToPassive bid pab = do
     (transferred, newAB) <- Trie.adjust extract bid (pab ^. activeBakers)
     transList <- Trie.keysAsc (adDelegators transferred)
@@ -496,24 +517,24 @@ makePersistentActiveBakers ::
     Basic.ActiveBakers ->
     m (PersistentActiveBakers av)
 makePersistentActiveBakers ab = do
-    let addActiveBaker acc (bid, dels) = case accountVersion @av of
-            SAccountV0 ->
+    let addActiveBaker acc (bid, dels) = case delegationSupport @av of
+            SAVDelegationNotSupported ->
                 Trie.insert bid PersistentActiveDelegatorsV0 acc
-            SAccountV1 -> do
+            SAVDelegationSupported -> do
                 pDels <- Trie.fromList $ (,()) <$> Set.toList (Basic._apDelegators dels)
                 Trie.insert bid (PersistentActiveDelegatorsV1 pDels (Basic._apDelegatorTotalCapital dels)) acc
     _activeBakers <- foldlM addActiveBaker Trie.empty (Map.toList (Basic._activeBakers ab))
     _aggregationKeys <- Trie.fromList $ (,()) <$> Set.toList (Basic._aggregationKeys ab)
-    _passiveDelegators <- case accountVersion @av of
-        SAccountV0 ->
+    _passiveDelegators <- case delegationSupport @av of
+        SAVDelegationNotSupported ->
             return PersistentActiveDelegatorsV0
-        SAccountV1 ->
+        SAVDelegationSupported ->
             PersistentActiveDelegatorsV1
                 <$> Trie.fromList ((,()) <$> Set.toList (Basic._apDelegators passive))
                 <*> pure (Basic._apDelegatorTotalCapital passive)
           where
             passive = Basic._passiveDelegators ab
-    let _totalActiveCapital = case accountVersion @av of
-            SAccountV0 -> TotalActiveCapitalV0
-            SAccountV1 -> TotalActiveCapitalV1 (Basic._totalActiveCapital ab)
+    let _totalActiveCapital = case delegationSupport @av of
+            SAVDelegationNotSupported -> TotalActiveCapitalV0
+            SAVDelegationSupported -> TotalActiveCapitalV1 (Basic._totalActiveCapital ab)
     return PersistentActiveBakers{..}

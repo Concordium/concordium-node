@@ -110,7 +110,10 @@ newtype PoolRewardsHash = PoolRewardsHash {prHash :: H.Hash}
 -- |Hash of block reward details.
 data BlockRewardDetailsHash (av :: AccountVersion) where
     BlockRewardDetailsHashV0 :: !EpochBlocksHash -> BlockRewardDetailsHash 'AccountV0
-    BlockRewardDetailsHashV1 :: !PoolRewardsHash -> BlockRewardDetailsHash 'AccountV1
+    BlockRewardDetailsHashV1 ::
+        (AVSupportsDelegation av) =>
+        !PoolRewardsHash ->
+        BlockRewardDetailsHash av
 
 deriving instance Show (BlockRewardDetailsHash av)
 deriving instance Eq (BlockRewardDetailsHash av)

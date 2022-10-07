@@ -299,7 +299,7 @@ dummyChainParameters = case chainParametersVersion @cpv of
       fullRange = InclusiveRange (makeAmountFraction 0) (makeAmountFraction 100000)
       cooldown = DurationSeconds (24 * 60 * 60)
 
-createPoolRewards :: (AccountVersionFor pv ~ 'AccountV1) => Accounts pv -> PoolRewards.PoolRewards
+createPoolRewards :: Accounts pv -> PoolRewards.PoolRewards
 createPoolRewards accounts = PoolRewards.makeInitialPoolRewards capDist 1 (MintRate 1 10)
   where
     (bakersMap, passive) = foldr accumDelegations (Map.empty, []) (AT.toList (accountTable accounts))
@@ -318,6 +318,7 @@ createRewardDetails :: forall pv. (IsProtocolVersion pv) => Accounts pv -> Block
 createRewardDetails accounts = case accountVersion @(AccountVersionFor pv) of
   SAccountV0 -> emptyBlockRewardDetails
   SAccountV1 -> BlockRewardDetailsV1 $ makeHashed $ createPoolRewards accounts
+  SAccountV2 -> BlockRewardDetailsV1 $ makeHashed $ createPoolRewards accounts
 
 {-# WARNING createBlockState "Do not use in production" #-}
 createBlockState :: (IsProtocolVersion pv) => Accounts pv -> BlockState pv

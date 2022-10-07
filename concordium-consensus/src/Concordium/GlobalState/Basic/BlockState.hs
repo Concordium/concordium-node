@@ -40,6 +40,7 @@ import qualified Concordium.Genesis.Data.P1 as P1
 import qualified Concordium.Genesis.Data.P2 as P2
 import qualified Concordium.Genesis.Data.P3 as P3
 import qualified Concordium.Genesis.Data.P4 as P4
+import qualified Concordium.Genesis.Data.P5 as P5
 import qualified Concordium.GlobalState.Types as GT
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Parameters
@@ -238,7 +239,10 @@ freeze cs = case Wasm.getWasmVersion @v of
 
 data BlockRewardDetails (av :: AccountVersion) where
     BlockRewardDetailsV0 :: !HashedEpochBlocks -> BlockRewardDetails 'AccountV0
-    BlockRewardDetailsV1 :: !(Hashed' Rewards.PoolRewardsHash PoolRewards.PoolRewards) -> BlockRewardDetails 'AccountV1
+    BlockRewardDetailsV1 ::
+        (AVSupportsDelegation av) =>
+        !(Hashed' Rewards.PoolRewardsHash PoolRewards.PoolRewards) ->
+        BlockRewardDetails av
 
 deriving instance Show (BlockRewardDetails av)
 
@@ -258,9 +262,9 @@ consBlockRewardDetails bid (BlockRewardDetailsV0 heb) =
 -- |The empty 'BlockRewardDetails'.
 emptyBlockRewardDetails :: forall av. IsAccountVersion av => BlockRewardDetails av
 emptyBlockRewardDetails =
-    case accountVersion @av of
-        SAccountV0 -> BlockRewardDetailsV0 emptyHashedEpochBlocks
-        SAccountV1 -> BlockRewardDetailsV1 (makeHashed PoolRewards.emptyPoolRewards)
+    case delegationSupport @av of
+        SAVDelegationNotSupported -> BlockRewardDetailsV0 emptyHashedEpochBlocks
+        SAVDelegationSupported -> BlockRewardDetailsV1 (makeHashed PoolRewards.emptyPoolRewards)
 
 -- |Serialize a 'BlockRewardDetails'.
 putBlockRewardDetails :: Putter (BlockRewardDetails av)
@@ -270,9 +274,9 @@ putBlockRewardDetails (BlockRewardDetailsV1 hpr) = PoolRewards.putPoolRewards (_
 -- |Deserialize 'BlockRewardDetails'. Note that different versions are not compatible, so migration
 -- may be necessary.
 getBlockRewardDetails :: forall av. (IsAccountVersion av) => Get (BlockRewardDetails av)
-getBlockRewardDetails = case accountVersion @av of
-    SAccountV0 -> BlockRewardDetailsV0 <$> getHashedEpochBlocksV0
-    SAccountV1 -> BlockRewardDetailsV1 . makeHashed <$> PoolRewards.getPoolRewards
+getBlockRewardDetails = case delegationSupport @av of
+    SAVDelegationNotSupported -> BlockRewardDetailsV0 <$> getHashedEpochBlocksV0
+    SAVDelegationSupported -> BlockRewardDetailsV1 . makeHashed <$> PoolRewards.getPoolRewards
 
 data BlockState (pv :: ProtocolVersion) = BlockState {
     _blockAccounts :: !(Accounts.Accounts pv),
@@ -301,12 +305,12 @@ makeLenses ''HashedBlockState
 blockEpochBlocksBaked :: (AccountVersionFor pv ~ 'AccountV0) => Lens' (BlockState pv) (BlockRewardDetails 'AccountV0)
 blockEpochBlocksBaked = blockRewardDetails . lens id (const id)
 
-blockPoolRewards :: (AccountVersionFor pv ~ 'AccountV1, HasBlockState c pv) => Lens' c PoolRewards.PoolRewards
+blockPoolRewards :: (SupportsDelegation pv, HasBlockState c pv) => Lens' c PoolRewards.PoolRewards
 blockPoolRewards =
     blockRewardDetails
         . lens
             (\(BlockRewardDetailsV1 a) -> a)
-            (\_ b -> BlockRewardDetailsV1 b)
+            (\BlockRewardDetailsV1{} b -> BlockRewardDetailsV1 b)
         . unhashed
 
 instance IsProtocolVersion pv => HasBlockState (HashedBlockState pv) pv where
@@ -446,6 +450,8 @@ getBlockState migration = do
                 where
                     TimeParametersV1{..} =
                         P4.updateTimeParameters (P4.migrationProtocolUpdateData migrationParams)
+            StateMigrationParametersP4ToP5 -> case preBlockRewardDetails of
+                BlockRewardDetailsV1 brd -> BlockRewardDetailsV1 brd
 
     -- Construct the release schedule and active bakers from the accounts
     let processBakerAccount (rs,bkrs) account = do
@@ -524,11 +530,11 @@ passiveDelegationCapital =
 totalCapital :: (HasBlockState s pv) => s -> Amount
 totalCapital = view (blockBirkParameters . birkActiveBakers . totalActiveCapital)
 
-doGetActiveBakersAndDelegators ::
+doGetActiveBakersAndDelegators :: forall s pv m.
     ( HasBlockState s pv,
       IsProtocolVersion pv,
       Monad m,
-      AccountVersionFor pv ~ 'AccountV1
+      SupportsDelegation pv
     ) =>
     s ->
     m ([BS.ActiveBakerInfo' (BakerInfoEx (AccountVersionFor pv))], [BS.ActiveDelegatorInfo])
@@ -536,19 +542,21 @@ doGetActiveBakersAndDelegators bs = return (bakers, passiveDelegatorInfos)
   where
     bkrs = Map.toAscList $ bs ^. blockBirkParameters . birkActiveBakers . activeBakers
     !bakers = mkActiveBakerInfo <$> bkrs
+    mkActiveBakerInfo :: (BakerId, ActivePool) -> BS.ActiveBakerInfo' (BakerInfoEx (AccountVersionFor pv))
     mkActiveBakerInfo (BakerId acct, dlgs) =
         BS.ActiveBakerInfo
             { activeBakerInfoRef = theBaker ^. accountBakerInfo,
               activeBakerEquityCapital = theBaker ^. stakedAmount,
-              activeBakerPendingChange = theBaker ^. bakerPendingChange,
+              activeBakerPendingChange = stakePendingChangeTimestamp $ theBaker ^. bakerPendingChange,
               activeBakerDelegators = mkActiveDelegatorInfo <$> Set.toAscList (_apDelegators dlgs)
             }
       where
+        theBaker :: AccountBaker (AccountVersionFor pv)
         !theBaker = bs ^. blockAccounts . Accounts.unsafeIndexedAccount acct . unsafeAccountBaker
     mkActiveDelegatorInfo activeDelegatorId@(DelegatorId acct) =
         BS.ActiveDelegatorInfo
             { activeDelegatorStake = theDelegator ^. delegationStakedAmount,
-              activeDelegatorPendingChange = theDelegator ^. delegationPendingChange,
+              activeDelegatorPendingChange = stakePendingChangeTimestamp $ theDelegator ^. delegationPendingChange,
               ..
             }
       where
@@ -560,7 +568,7 @@ doGetActiveDelegators ::
     ( HasBlockState s pv,
       IsProtocolVersion pv,
       Monad m,
-      AccountVersionFor pv ~ 'AccountV1
+      SupportsDelegation pv
     ) =>
     s ->
     Maybe BakerId ->
@@ -576,7 +584,7 @@ doGetActiveDelegators bs mPoolId =
     mkActiveDelegatorInfo activeDelegatorId@(DelegatorId acct) =
         (addr, BS.ActiveDelegatorInfo
             { activeDelegatorStake = theDelegator ^. delegationStakedAmount,
-              activeDelegatorPendingChange = theDelegator ^. delegationPendingChange,
+              activeDelegatorPendingChange = stakePendingChangeTimestamp $ theDelegator ^. delegationPendingChange,
               ..
             })
       where
@@ -589,7 +597,7 @@ doGetCurrentDelegators ::
     ( HasBlockState s pv,
       IsProtocolVersion pv,
       Monad m,
-      AccountVersionFor pv ~ 'AccountV1
+      SupportsDelegation pv
     ) =>
     s ->
     Maybe BakerId ->
@@ -753,11 +761,9 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
             Nothing -> error "Basic.getSlotBakers invariant violation: active baker account not valid"
 
     {-# INLINE getRewardStatus #-}
-    getRewardStatus bs = return $ case protocolVersion @pv of
-            SP1 -> rewardsV0
-            SP2 -> rewardsV0
-            SP3 -> rewardsV0
-            SP4 -> rewardsV1
+    getRewardStatus bs = return $ case delegationSupport @(AccountVersionFor pv) of
+            SAVDelegationNotSupported -> rewardsV0
+            SAVDelegationSupported -> rewardsV1
         where
             bankStatus = bs ^. blockBank . unhashed
             rewardsV0 :: RewardStatus' Epoch
@@ -769,7 +775,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
                     rsGasAccount = bankStatus ^. Rewards.gasAccount,
                     rsProtocolVersion = demoteProtocolVersion (protocolVersion @pv)
                 }
-            rewardsV1 :: (AccountVersionFor pv ~ 'AccountV1) => RewardStatus' Epoch
+            rewardsV1 :: (SupportsDelegation pv) => RewardStatus' Epoch
             rewardsV1 = RewardStatusV1 {
                     rsTotalAmount = bankStatus ^. Rewards.totalGTU,
                     rsTotalEncryptedAmount = bankStatus ^. Rewards.totalEncryptedGTU,
@@ -857,7 +863,9 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
     {-# INLINE getPoolStatus #-}
     getPoolStatus bs Nothing = return $ Just PassiveDelegationStatus {
             psDelegatedCapital = passiveDelegationCapital bs,
-            psCommissionRates = bs ^. blockUpdates . currentParameters . cpPoolParameters . to _ppPassiveCommissions,
+            psCommissionRates = case delegationChainParameters @pv of
+                DelegationChainParametersV1 ->
+                    bs ^. blockUpdates . currentParameters . cpPoolParameters . to _ppPassiveCommissions,
             psCurrentPaydayTransactionFeesEarned = PoolRewards.passiveDelegationTransactionRewards poolRewards, 
             psCurrentPaydayDelegatedCapital = PoolRewards.currentPassiveDelegationCapital poolRewards,
             psAllPoolTotalCapital = totalCapital bs
@@ -865,15 +873,16 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
         where
             poolRewards = bs ^. blockPoolRewards
     getPoolStatus bs (Just bid@(BakerId aid)) = return $ do
-        account <- bs ^? blockAccounts . Accounts.indexedAccount aid
-        baker <- account ^? accountBaker
+        account :: Account (AccountVersionFor pv) <- bs ^? blockAccounts . Accounts.indexedAccount aid
+        baker :: AccountBaker (AccountVersionFor pv) <- account ^? accountBaker
         let psBakerEquityCapital = baker ^. stakedAmount
             psDelegatedCapital = poolDelegatorCapital bs bid
-            psDelegatedCapitalCap = delegatedCapitalCap
-                (bs ^. blockUpdates . currentParameters . cpPoolParameters)
-                (totalCapital bs)
-                psBakerEquityCapital
-                psDelegatedCapital
+            psDelegatedCapitalCap = case delegationChainParameters @pv of
+                DelegationChainParametersV1 -> delegatedCapitalCap
+                    (bs ^. blockUpdates . currentParameters . cpPoolParameters)
+                    (totalCapital bs)
+                    psBakerEquityCapital
+                    psDelegatedCapital
             ceBakers = bs ^. blockBirkParameters . birkCurrentEpochBakers . unhashed
             psCurrentPaydayStatus = do
                 (_, effectiveStake) <- epochBaker bid ceBakers
@@ -892,7 +901,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
             psBakerId = bid,
             psBakerAddress = account ^. accountAddress,
             psPoolInfo = baker ^. accountBakerInfo . bieBakerPoolInfo,
-            psBakerStakePendingChange = makePoolPendingChange (baker ^. bakerPendingChange),
+            psBakerStakePendingChange = makePoolPendingChange (stakePendingChangeTimestamp $ baker ^. bakerPendingChange),
             psAllPoolTotalCapital = totalCapital bs,
             ..
         }
@@ -960,7 +969,7 @@ delegationConfigureDisallowOverdelegation bs poolParams target = case target of
 
 -- |This function updates the baker pool rewards details of a baker. It is a precondition that
 -- the given baker is active.
-modifyBakerPoolRewardDetailsInPoolRewards :: (Monad m, AccountVersionFor pv ~ 'AccountV1) => BlockState pv -> BakerId -> (PoolRewards.BakerPoolRewardDetails -> PoolRewards.BakerPoolRewardDetails) -> PureBlockStateMonad pv m (BlockState pv)
+modifyBakerPoolRewardDetailsInPoolRewards :: (Monad m, SupportsDelegation pv) => BlockState pv -> BakerId -> (PoolRewards.BakerPoolRewardDetails -> PoolRewards.BakerPoolRewardDetails) -> PureBlockStateMonad pv m (BlockState pv)
 modifyBakerPoolRewardDetailsInPoolRewards bs bid f = do
   let bprs = PoolRewards.bakerPoolRewardDetails (bs ^. blockPoolRewards)
   let bpc = bakerPoolCapital $ _unhashed (PoolRewards.currentCapital $ bs ^. blockPoolRewards)
@@ -1146,9 +1155,9 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                 preuse (blockAccounts . Accounts.indexedAccount accId) >>= \case
                     Just acct -> updateAccountDelegator accId acct
                     Nothing -> error "Invariant violation: active delegator account was not found"
-            updateAccountDelegator :: AccountIndex -> Account 'AccountV1 -> MTL.WriterT Amount (MTL.State (BlockState pv)) Bool
+            updateAccountDelegator :: AccountIndex -> Account (AccountVersionFor pv) -> MTL.WriterT Amount (MTL.State (BlockState pv)) Bool
             updateAccountDelegator accId acct = case acct ^? accountDelegator of
-                Just acctDel@AccountDelegationV1{..} -> case _delegationPendingChange of
+                Just acctDel@AccountDelegationV1{..} -> case stakePendingChangeTimestamp _delegationPendingChange of
                     RemoveStake pet | isEffective pet -> MTL.lift $ removeDelegatorStake accId
                     ReduceStake newAmt pet | isEffective pet -> do
                         MTL.tell newAmt
@@ -1162,7 +1171,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                 blockAccounts . Accounts.indexedAccount accId %=!
                     (accountStaking .~ AccountStakeNone)
                 return False
-            reduceDelegatorStake :: AccountIndex -> AccountDelegation 'AccountV1 -> Amount -> MTL.State (BlockState pv) Bool
+            reduceDelegatorStake :: AccountIndex -> AccountDelegation (AccountVersionFor pv) -> Amount -> MTL.State (BlockState pv) Bool
             reduceDelegatorStake accId acctDel newAmt = do
                 blockAccounts . Accounts.indexedAccount accId %=!
                     (accountStaking .~ AccountStakeDelegate acctDel{
@@ -1191,7 +1200,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                 newDelegators <- processDelegators oldDelegators
                 preuse (blockAccounts . Accounts.indexedAccount accId) >>= \case
                     Just acct -> case acct ^? accountBaker of
-                        Just acctBkr@AccountBaker{..} -> case _bakerPendingChange of
+                        Just acctBkr@AccountBaker{..} -> case stakePendingChangeTimestamp _bakerPendingChange of
                             RemoveStake pet | isEffective pet -> do
                                 removeBaker accId _accountBakerInfo newDelegators
                                 let !accumCapital' = accumCapital + newDelegators ^. apDelegatorTotalCapital
@@ -1871,19 +1880,19 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
 
     bsoGetChainParameters bs = return $! bs ^. blockUpdates . currentParameters
 
-    bsoGetEpochBlocksBaked bs = return $! case accountVersion @(AccountVersionFor pv) of
-        SAccountV0 -> (_2 %~ Map.toList) (foldl' accumBakers (0, Map.empty) (bs ^. blockEpochBlocksBaked . to brdBlocks))
+    bsoGetEpochBlocksBaked bs = return $! case delegationSupport @(AccountVersionFor pv) of
+        SAVDelegationNotSupported -> (_2 %~ Map.toList) (foldl' accumBakers (0, Map.empty) (bs ^. blockEpochBlocksBaked . to brdBlocks))
             where
                 accumBakers (t, m) b =
                     let !t' = t + 1
                         !m' = m & at b . non 0 +~ 1
                     in (t', m' )
-        SAccountV1 -> let bcs = bs ^. blockPoolRewards . to PoolRewards.bakerBlockCounts in
+        SAVDelegationSupported -> let bcs = bs ^. blockPoolRewards . to PoolRewards.bakerBlockCounts in
             (sum (snd <$> bcs), bcs)
 
-    bsoNotifyBlockBaked = case accountVersion @(AccountVersionFor pv) of
-        SAccountV0 -> \(bs :: BlockState pv) bid -> return $! bs & blockEpochBlocksBaked %~ consBlockRewardDetails bid
-        SAccountV1 -> \bs bid ->
+    bsoNotifyBlockBaked = case delegationSupport @(AccountVersionFor pv) of
+        SAVDelegationNotSupported -> \(bs :: BlockState pv) bid -> return $! bs & blockEpochBlocksBaked %~ consBlockRewardDetails bid
+        SAVDelegationSupported -> \bs bid ->
             let incBPR bpr = bpr{PoolRewards.blockCount = PoolRewards.blockCount bpr + 1}
             in modifyBakerPoolRewardDetailsInPoolRewards bs bid incBPR
 
@@ -1968,8 +1977,9 @@ initialState seedState cryptoParams genesisAccounts ips anonymityRevokers keysCo
 -- The accounts must be in ascending order (of account ID).
 -- The resulting bakers and delegators will also be in ascending order.
 collateBakersAndDelegators ::
-    [Account 'AccountV1] ->
-    ([BS.ActiveBakerInfo' (BakerInfoEx 'AccountV1)], [BS.ActiveDelegatorInfo])
+    (IsAccountVersion av, AVSupportsDelegation av) =>
+    [Account av] ->
+    ([BS.ActiveBakerInfo' (BakerInfoEx av)], [BS.ActiveDelegatorInfo])
 collateBakersAndDelegators accounts = (bakers, passiveDelegatorInfos)
   where
     (preActiveBakers, preDelegators, passiveDelegatorInfos) =
@@ -1983,7 +1993,7 @@ collateBakersAndDelegators accounts = (bakers, passiveDelegatorInfos)
                 BS.ActiveBakerInfo
                     { activeBakerInfoRef = bkr ^. accountBakerInfo,
                       activeBakerEquityCapital = bkr ^. stakedAmount,
-                      activeBakerPendingChange = bkr ^. bakerPendingChange,
+                      activeBakerPendingChange = stakePendingChangeTimestamp $ bkr ^. bakerPendingChange,
                       activeBakerDelegators = []
                     }
          in (Map.insert bid abi bkrs, dlgs, passive)
@@ -1992,7 +2002,7 @@ collateBakersAndDelegators accounts = (bakers, passiveDelegatorInfos)
                 BS.ActiveDelegatorInfo
                     { activeDelegatorId = dlg ^. delegationIdentity,
                       activeDelegatorStake = dlg ^. delegationStakedAmount,
-                      activeDelegatorPendingChange = dlg ^. delegationPendingChange
+                      activeDelegatorPendingChange = stakePendingChangeTimestamp $ dlg ^. delegationPendingChange
                     }
          in case dlg ^. delegationTarget of
                 DelegatePassive -> (bkrs, dlgs, adi : passive)
@@ -2014,17 +2024,18 @@ genesisStakesAndRewardDetails spv = case spv of
     SP2 -> gsc1
     SP3 -> gsc1
     SP4 -> gsc4
+    SP5 -> gsc4
   where
     gsc1 accounts seedState _ _ =
         ( initialBirkParameters accounts seedState,
           BlockRewardDetailsV0 emptyHashedEpochBlocks
         )
-    gsc4 :: (AccountVersionFor pv ~ 'AccountV1)
-        => [Account 'AccountV1]
+    gsc4 :: (AVSupportsDelegation av, av ~ AccountVersionFor pv)
+        => [Account av]
         -> SeedState
         -> PoolParameters 'ChainParametersV1
         -> TimeParameters 'ChainParametersV1
-        -> (BasicBirkParameters 'AccountV1, BlockRewardDetails 'AccountV1)
+        -> (BasicBirkParameters av, BlockRewardDetails av)
     gsc4 accounts _birkSeedState pp tp = runIdentity $
         runPureBlockStateMonad @pv $ do
             let (bakers, passiveDelegatorInfos) = collateBakersAndDelegators accounts
@@ -2046,7 +2057,6 @@ genesisStakesAndRewardDetails spv = case spv of
                     where
                         actPool = makeActivePool bcDelegatorCapital
                 _birkActiveBakers = foldl' accumBaker activeBakers0 (bakerPoolCapital capDist)
-                birkParams :: BasicBirkParameters 'AccountV1
                 birkParams =
                     BasicBirkParameters
                         { _birkNextEpochBakers = newEpochBakers,
@@ -2081,7 +2091,10 @@ genesisBakerInfo spv cp GenesisBaker{..} = AccountBaker{..}
         SP1 -> BakerInfoExV0 bkrInfo
         SP2 -> BakerInfoExV0 bkrInfo
         SP3 -> BakerInfoExV0 bkrInfo
-        SP4 ->
+        SP4 -> binfoV1
+        SP5 -> binfoV1
+    binfoV1 :: (SupportsDelegation pv, ChainParametersVersionFor pv ~ 'ChainParametersV1) => BakerInfoEx (AccountVersionFor pv)
+    binfoV1 =
             BakerInfoExV1
                 bkrInfo
                 BakerPoolInfo
@@ -2105,6 +2118,8 @@ genesisState gd = case protocolVersion @pv of
                       GDP3 P3.GDP3Initial{..} -> mkGenesisStateInitial genesisCore genesisInitialState
                     SP4 -> case gd of
                       GDP4 P4.GDP4Initial{..} -> mkGenesisStateInitial genesisCore genesisInitialState
+                    SP5 -> case gd of
+                      GDP5 P5.GDP5Initial{..} -> mkGenesisStateInitial genesisCore genesisInitialState
     where
         mkGenesisStateInitial :: CoreGenesisParameters -> GenesisState pv -> Either String (BlockState pv, TransactionTable.TransactionTable)
         mkGenesisStateInitial GenesisData.CoreGenesisParameters{..} GenesisData.GenesisState{..} = do
