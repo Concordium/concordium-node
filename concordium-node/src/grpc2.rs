@@ -990,7 +990,8 @@ pub mod server {
             &self,
             _request: tonic::Request<crate::grpc2::types::Empty>,
         ) -> Result<tonic::Response<crate::grpc2::types::PeersInfo>, tonic::Status> {
-            let peer_statuss = (*crate::read_or_die!(self.node.peers)).peer_states.clone();
+            // we do a clone so we can release the lock quickly.
+            let peer_statuses = (*crate::read_or_die!(self.node.peers)).peer_states.clone();
             let peers = self
                 .node
                 .get_peer_stats(None)
@@ -1003,31 +1004,47 @@ pub mod server {
                         latency:          peer_stats.latency,
                     });
                     // Get the type of the peer.
-                    let peer_type = match peer_stats.peer_type {
+                    let consensus_info = match peer_stats.peer_type {
+                        // Regular nodes do have a catchup status.
                         crate::common::PeerType::Node => {
-                            crate::grpc2::types::peers_info::peer::PeerType::Node
+                            let catchup_status = match peer_statuses.get(&peer_stats.local_id) {
+                                Some(crate::consensus_ffi::catch_up::PeerStatus::CatchingUp) => {
+                                    crate::grpc2::types::peers_info::peer::CatchupStatus::Catchingup
+                                }
+                                Some(crate::consensus_ffi::catch_up::PeerStatus::UpToDate) => {
+                                    crate::grpc2::types::peers_info::peer::CatchupStatus::Uptodate
+                                }
+                                _ => crate::grpc2::types::peers_info::peer::CatchupStatus::Pending,
+                            };
+                            crate::grpc2::types::peers_info::peer::ConsensusInfo::NodeCatchupStatus(
+                                catchup_status.into(),
+                            )
                         }
+                        // Bootstrappers do not have a catchup status as they are not participating in 
+                        // the consensus protocol.
                         crate::common::PeerType::Bootstrapper => {
-                            crate::grpc2::types::peers_info::peer::PeerType::Bootstrapper
+                            crate::grpc2::types::peers_info::peer::ConsensusInfo::Bootstrapper(
+                                crate::grpc2::types::Empty::default(),
+                            )
                         }
                     };
                     // Get the catchup status of the peer.
-                    let catchup_status = match peer_statuss.get(&peer_stats.local_id) {
-                        Some(crate::consensus_ffi::catch_up::PeerStatus::CatchingUp) => {
-                            crate::grpc2::types::peers_info::peer::CatchupStatus::Catchingup
-                        }
-                        Some(crate::consensus_ffi::catch_up::PeerStatus::UpToDate) => {
-                            crate::grpc2::types::peers_info::peer::CatchupStatus::Uptodate
-                        }
-                        _ => crate::grpc2::types::peers_info::peer::CatchupStatus::Pending,
+                    let socket_address = crate::grpc2::types::IpSocketAddress {
+                        ip:   Some(crate::grpc2::types::IpAddress {
+                            value: peer_stats.external_address().ip().to_string(),
+                        }),
+                        port: Some(crate::grpc2::types::Port {
+                            value: peer_stats.external_port as u32,
+                        }),
                     };
-
+                    // Wrap the peer id.
+                    let peer_id = crate::grpc2::types::PeerId {
+                        value: format!("{}", peer_stats.self_id),
+                    };
                     crate::grpc2::types::peers_info::Peer {
-                        peer_id: format!("{}", peer_stats.self_id),
-                        peer_type: peer_type as i32,
-                        port: peer_stats.external_port as u32,
-                        ip: peer_stats.external_address().ip().to_string(),
-                        catchup_status: catchup_status as i32,
+                        peer_id: Some(peer_id),
+                        socket_address: Some(socket_address),
+                        consensus_info: Some(consensus_info),
                         network_stats,
                     }
                 })
