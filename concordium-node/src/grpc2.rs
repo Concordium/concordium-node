@@ -262,7 +262,10 @@ pub mod server {
     };
     use anyhow::Context;
     use futures::{FutureExt, StreamExt};
-    use std::sync::{Arc, Mutex};
+    use std::{
+        str::FromStr,
+        sync::{Arc, Mutex},
+    };
     use tonic::{async_trait, transport::ServerTlsConfig};
 
     use super::*;        
@@ -986,6 +989,96 @@ pub mod server {
             Ok(response)
         }
 
+        async fn get_banned_peers(
+            &self,
+            _request: tonic::Request<crate::grpc2::types::Empty>,
+        ) -> Result<tonic::Response<crate::grpc2::types::BannedPeers>, tonic::Status> {
+            if let Ok(banned_peers) = self.node.get_banlist() {
+                let peers = banned_peers
+                    .into_iter()
+                    .map(|banned_peer| {
+                        let ip_address = match banned_peer {
+                            crate::p2p::bans::PersistedBanId::Ip(addr) => addr.to_string(),
+                        };
+                        crate::grpc2::types::BannedPeer {
+                            ip_address: Some(crate::grpc2::types::IpAddress {
+                                value: ip_address,
+                            }),
+                        }
+                    })
+                    .collect();
+                Ok(tonic::Response::new(crate::grpc2::types::BannedPeers {
+                    peers,
+                }))
+            } else {
+                Err(tonic::Status::internal("Could not load banned peers."))
+            }
+        }
+
+        async fn ban_peer(
+            &self,
+            request: tonic::Request<crate::grpc2::types::PeerToBan>,
+        ) -> Result<tonic::Response<crate::grpc2::types::BooleanResponse>, tonic::Status> {
+            match request.into_inner().peer.require()? {
+                crate::grpc2::types::peer_to_ban::Peer::IpAddress(ip) => {
+                    match <std::net::IpAddr as std::str::FromStr>::from_str(&ip.value) {
+                        Ok(ip_addr) => match self.node.drop_by_ip_and_ban(ip_addr) {
+                            Ok(value) => {
+                                Ok(tonic::Response::new(crate::grpc2::types::BooleanResponse {
+                                    value,
+                                }))
+                            }
+                            Err(e) => {
+                                Err(tonic::Status::internal(format!("Could not ban peer {}", e)))
+                            }
+                        },
+                        Err(e) => Err(tonic::Status::invalid_argument(format!(
+                            "Invalid IP address provided {}",
+                            e
+                        ))),
+                    }
+                }
+                crate::grpc2::types::peer_to_ban::Peer::PeerId(peer_id) => {
+                    match crate::common::p2p_peer::RemotePeerId::from_str(&peer_id.value) {
+                        Ok(peer_id) => {
+                            if self.node.drop_by_id(peer_id) {
+                                Ok(tonic::Response::new(crate::grpc2::types::BooleanResponse {
+                                    value: true,
+                                }))
+                            } else {
+                                Err(tonic::Status::internal("Could not ban peer"))
+                            }
+                        }
+                        Err(e) => {
+                            Err(tonic::Status::invalid_argument(format!("Invalid peer id {}", e)))
+                        }
+                    }
+                }
+            }
+        }
+
+        async fn unban_peer(
+            &self,
+            request: tonic::Request<crate::grpc2::types::BannedPeer>,
+        ) -> Result<tonic::Response<crate::grpc2::types::BooleanResponse>, tonic::Status> {
+            match <std::net::IpAddr as std::str::FromStr>::from_str(
+                &request.into_inner().ip_address.require()?.value,
+            ) {
+                Ok(ip_addr) => {
+                    let banned_id = crate::p2p::bans::PersistedBanId::Ip(ip_addr);
+                    match self.node.unban_node(banned_id) {
+                        Ok(_) => Ok(tonic::Response::new(crate::grpc2::types::BooleanResponse {
+                            value: true,
+                        })),
+                        Err(e) => {
+                            Err(tonic::Status::internal(format!("Could not unban peer {}", e)))
+                        }
+                    }
+                }
+                Err(e) => Err(tonic::Status::invalid_argument(format!("Invalid IP address {}", e))),
+            }
+        }
+        
         #[cfg(feature = "network_dump")]
         async fn dump_start(
             &self,
