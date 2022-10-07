@@ -46,7 +46,7 @@ pipeline {
                         --no-cache \
                         .
                '''
-               sh 'docker run -v "${OUT_DIR}":/out build-deb'
+               sh 'docker run -v "${OUT_DIR}":/out build-deb:${BUILD_TAG}'
             }
         }
         stage('push') {
