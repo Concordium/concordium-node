@@ -574,6 +574,25 @@ getBlockPendingUpdates = liftSkovQueryBHI query
                                   Just (_, acc) -> do
                                     (t, ) . PUEFoundationAccount <$> BS.getAccountCanonicalAddress acc
 
+-- |Get the chain parameters valid at the end of a given block, as well as the address of the foundation account.
+-- The chain parameters contain only the account index of the foundation account.
+getBlockChainParameters :: forall gsconf finconf. BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe (AccountAddress, EChainParameters))
+getBlockChainParameters = liftSkovQueryBHI query
+  where
+    query :: forall pv.
+        SkovMonad (VersionedSkovM gsconf finconf pv) =>
+        BlockPointerType (VersionedSkovM gsconf finconf pv) ->
+        VersionedSkovM gsconf finconf pv (AccountAddress, EChainParameters)
+    query bp = do
+      bs <- blockState bp
+      updates <- BS.getUpdates bs
+      let params = UQ._currentParameters updates
+      BS.getAccountByIndex bs (_cpFoundationAccount params) >>= \case
+        Nothing -> error "Invariant violation. Foundation account index does not exist in the account table."
+        Just (_, acc) -> do
+            foundationAddr <- BS.getAccountCanonicalAddress acc
+            return (foundationAddr, EChainParameters params)
+
 
 -- |Get next update sequences numbers at the end of a given block.
 getNextUpdateSequenceNumbers :: forall gsconf finconf. BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe NextUpdateSequenceNumbers)

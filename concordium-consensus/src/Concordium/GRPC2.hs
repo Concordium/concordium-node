@@ -166,6 +166,21 @@ mkWord32 ::
 mkWord32 a = Proto.make (ProtoFields.value .= coerce a)
 
 -- |Like 'mkWord32', but the supplied value must be coercible to
+-- 'Word16'.
+mkWord16 ::
+    forall a b.
+    ( Proto.Message b
+    , Data.ProtoLens.Field.HasField
+        b
+        "value"
+        Word32
+    , Coercible a Word16
+    ) =>
+    a ->
+    b
+mkWord16 a = Proto.make (ProtoFields.value .= (fromIntegral (coerce a :: Word16) :: Word32))
+
+-- |Like 'mkWord32', but the supplied value must be coercible to
 -- 'Word8'.
 mkWord8 ::
     forall a b.
@@ -743,7 +758,7 @@ toBlockItemSummary TransactionSummary{..} = case tsType of
             _ -> Left CEInvalidUpdateResult
 
 instance ToProto Updates.ProtocolUpdate where
-  type Output Updates.ProtocolUpdate = Proto.UpdatePayload'ProtocolUpdatePayload
+  type Output Updates.ProtocolUpdate = Proto.ProtocolUpdate
   toProto Updates.ProtocolUpdate{..} = Proto.make $ do
     ProtoFields.message .= puMessage
     ProtoFields.specificationUrl .= puSpecificationURL
@@ -751,26 +766,26 @@ instance ToProto Updates.ProtocolUpdate where
     ProtoFields.specificationAuxiliaryData .= puSpecificationAuxiliaryData
 
 instance ToProto (Parameters.MintDistribution 'ChainParametersV0) where
-  type Output (Parameters.MintDistribution 'ChainParametersV0) = Proto.UpdatePayload'MintDistributionCpv0UpdatePayload
+  type Output (Parameters.MintDistribution 'ChainParametersV0) = Proto.MintDistributionCpv0
   toProto md = Proto.make $ do
     ProtoFields.mintPerSlot .= toProto (md ^. Parameters.mdMintPerSlot . Parameters.mpsMintPerSlot)
     ProtoFields.bakingReward .= toProto (Parameters._mdBakingReward md)
     ProtoFields.finalizationReward .= toProto (Parameters._mdFinalizationReward md)
 
 instance ToProto (Parameters.MintDistribution 'ChainParametersV1) where
-  type Output (Parameters.MintDistribution 'ChainParametersV1) = Proto.UpdatePayload'MintDistributionCpv1UpdatePayload
+  type Output (Parameters.MintDistribution 'ChainParametersV1) = Proto.MintDistributionCpv1
   toProto md = Proto.make $ do
     ProtoFields.bakingReward .= toProto (Parameters._mdBakingReward md)
     ProtoFields.finalizationReward .= toProto (Parameters._mdFinalizationReward md)
 
 instance ToProto Parameters.TransactionFeeDistribution where
-  type Output Parameters.TransactionFeeDistribution = Proto.UpdatePayload'TransactionFeeDistributionUpdatePayload
+  type Output Parameters.TransactionFeeDistribution = Proto.TransactionFeeDistribution
   toProto Parameters.TransactionFeeDistribution{..} = Proto.make $ do
     ProtoFields.baker .= toProto _tfdBaker
     ProtoFields.gasAccount .= toProto _tfdGASAccount
 
 instance ToProto Parameters.GASRewards where
-  type Output Parameters.GASRewards = Proto.UpdatePayload'GasRewardsUpdatePayload
+  type Output Parameters.GASRewards = Proto.GasRewards
   toProto Parameters.GASRewards{..} = Proto.make $ do
     ProtoFields.baker .= toProto _gasBaker
     ProtoFields.finalizationProof .= toProto _gasFinalizationProof
@@ -778,11 +793,11 @@ instance ToProto Parameters.GASRewards where
     ProtoFields.chainUpdate .= toProto _gasChainUpdate
 
 instance ToProto (Parameters.PoolParameters 'ChainParametersV0) where
-  type Output (Parameters.PoolParameters 'ChainParametersV0) = Proto.UpdatePayload'BakerStakeThresholdUpdatePayload
+  type Output (Parameters.PoolParameters 'ChainParametersV0) = Proto.BakerStakeThreshold
   toProto pp = Proto.make $ ProtoFields.bakerStakeThreshold .= toProto (pp ^. Parameters.ppBakerStakeThreshold)
 
 instance ToProto (Parameters.PoolParameters 'ChainParametersV1) where
-  type Output (Parameters.PoolParameters 'ChainParametersV1) = Proto.UpdatePayload'PoolParametersCpv1UpdatePayload
+  type Output (Parameters.PoolParameters 'ChainParametersV1) = Proto.PoolParametersCpv1
   toProto pp = Proto.make $ do
     ProtoFields.passiveFinalizationCommission .= toProto (pp ^. Parameters.ppPassiveCommissions . finalizationCommission)
     ProtoFields.passiveBakingCommission .= toProto (pp ^. Parameters.ppPassiveCommissions . bakingCommission)
@@ -796,13 +811,13 @@ instance ToProto (Parameters.PoolParameters 'ChainParametersV1) where
     ProtoFields.leverageBound .= toProto (pp ^. Parameters.ppLeverageBound)
 
 instance ToProto (Parameters.CooldownParameters 'ChainParametersV1) where
-  type Output (Parameters.CooldownParameters 'ChainParametersV1) = Proto.UpdatePayload'CooldownParametersCpv1UpdatePayload
+  type Output (Parameters.CooldownParameters 'ChainParametersV1) = Proto.CooldownParametersCpv1
   toProto (Parameters.CooldownParametersV1{..}) = Proto.make $ do
     ProtoFields.poolOwnerCooldown .= toProto _cpPoolOwnerCooldown
     ProtoFields.delegatorCooldown .= toProto _cpDelegatorCooldown
 
 instance ToProto (Parameters.TimeParameters 'ChainParametersV1) where
-  type Output (Parameters.TimeParameters 'ChainParametersV1) = Proto.UpdatePayload'TimeParametersCpv1UpdatePayload
+  type Output (Parameters.TimeParameters 'ChainParametersV1) = Proto.TimeParametersCpv1
   toProto Parameters.TimeParametersV1{..} = Proto.make $ do
     ProtoFields.rewardPeriodLength .= toProto _tpRewardPeriodLength
     ProtoFields.mintPerPayday .= toProto _tpMintPerPayday
@@ -917,13 +932,13 @@ instance ToProto IpInfo.IpInfo where
     ProtoFields.cdiVerifyKey . ProtoFields.value .= IpInfo.ipCdiVerifyKey ii
 
 instance ToProto Updates.Level1Update where
-  type Output Updates.Level1Update = Proto.UpdatePayload'Level1UpdatePayload
+  type Output Updates.Level1Update = Proto.Level1Update
   toProto Updates.Level1KeysLevel1Update{..} = Proto.make $ ProtoFields.level1KeysUpdate .= toProto l1kl1uKeys
   toProto Updates.Level2KeysLevel1Update{..} = Proto.make $ ProtoFields.level2KeysUpdateV0 .= toProto l2kl1uAuthorizations
   toProto Updates.Level2KeysLevel1UpdateV1{..} = Proto.make $ ProtoFields.level2KeysUpdateV1 .= toProto l2kl1uAuthorizationsV1
 
 instance ToProto Updates.RootUpdate where
-  type Output Updates.RootUpdate = Proto.UpdatePayload'RootUpdatePayload
+  type Output Updates.RootUpdate = Proto.RootUpdate
   toProto ru = case ru of
     Updates.RootKeysRootUpdate{..} -> Proto.make $ ProtoFields.rootKeysUpdate .= toProto rkruKeys
     Updates.Level1KeysRootUpdate{..} -> Proto.make $ ProtoFields.level1KeysUpdate .= toProto l1kruKeys
@@ -1607,6 +1622,58 @@ instance ToProto QueryTypes.NextUpdateSequenceNumbers where
       ProtoFields.addIdentityProvider .= toProto _nusnAddIdentityProvider
       ProtoFields.cooldownParameters .= toProto _nusnCooldownParameters
       ProtoFields.timeParameters .= toProto _nusnTimeParameters
+
+instance ToProto Epoch where
+  type Output Epoch = Proto.Epoch
+  toProto = mkWord64
+
+instance ToProto CredentialsPerBlockLimit where
+  type Output CredentialsPerBlockLimit = Proto.CredentialsPerBlockLimit
+  toProto = mkWord16
+
+instance ToProto (AccountAddress, Parameters.EChainParameters) where
+    type Output (AccountAddress, Parameters.EChainParameters) = Proto.ChainParameters
+
+    toProto (foundationAddr, Parameters.EChainParameters (params :: Parameters.ChainParameters' cpv)) =
+        case chainParametersVersion @cpv of
+            SCPV0 ->
+                let Parameters.ChainParameters{_cpCooldownParameters = Parameters.CooldownParametersV0 epochs,
+                                               _cpPoolParameters = Parameters.PoolParametersV0 minThreshold,
+                                               ..} = params
+                 in Proto.make $
+                        ProtoFields.v0
+                            .= Proto.make
+                                ( do
+                                    ProtoFields.electionDifficulty .= toProto _cpElectionDifficulty
+                                    ProtoFields.euroPerEnergy .= toProto (Parameters._erEuroPerEnergy _cpExchangeRates)
+                                    ProtoFields.microCcdPerEuro .= toProto (Parameters._erMicroGTUPerEuro _cpExchangeRates)
+                                    ProtoFields.bakerCooldownEpochs .= toProto epochs
+                                    ProtoFields.accountCreationLimit .= toProto _cpAccountCreationLimit
+                                    ProtoFields.mintDistribution .= toProto (Parameters._rpMintDistribution _cpRewardParameters)
+                                    ProtoFields.transactionFeeDistribution .= toProto (Parameters._rpTransactionFeeDistribution _cpRewardParameters)
+                                    ProtoFields.gasRewards .= toProto (Parameters._rpGASRewards _cpRewardParameters)
+                                    ProtoFields.foundationAccount .= toProto foundationAddr
+                                    ProtoFields.minimumThresholdForBaking .= toProto minThreshold
+                                )
+            SCPV1 ->
+                let Parameters.ChainParameters{..} = params
+                 in Proto.make $
+                        ProtoFields.v1
+                            .= Proto.make
+                                ( do
+                                    ProtoFields.electionDifficulty .= toProto _cpElectionDifficulty
+                                    ProtoFields.euroPerEnergy .= toProto (Parameters._erEuroPerEnergy _cpExchangeRates)
+                                    ProtoFields.microCcdPerEuro .= toProto (Parameters._erMicroGTUPerEuro _cpExchangeRates)
+                                    ProtoFields.cooldownParameters .= toProto _cpCooldownParameters
+                                    ProtoFields.timeParameters .= toProto _cpTimeParameters
+                                    ProtoFields.accountCreationLimit .= toProto _cpAccountCreationLimit
+                                    ProtoFields.mintDistribution .= toProto (Parameters._rpMintDistribution _cpRewardParameters)
+                                    ProtoFields.transactionFeeDistribution .= toProto (Parameters._rpTransactionFeeDistribution _cpRewardParameters)
+                                    ProtoFields.gasRewards .= toProto (Parameters._rpGASRewards _cpRewardParameters)
+                                    ProtoFields.foundationAccount .= toProto foundationAddr
+                                    ProtoFields.poolParameters .= toProto _cpPoolParameters
+                                )
+
 
 -- |NB: Assumes the data is at least 32 bytes
 decodeBlockHashInput :: Word8 -> Ptr Word8 -> IO Q.BlockHashInput
@@ -2448,6 +2515,26 @@ getNextUpdateSequenceNumbersV2 cptr blockType blockHashPtr outHash outVec copier
     result <- runMVR (Q.getNextUpdateSequenceNumbers bhi) mvr
     returnMessageWithBlock (copier outVec) outHash result
 
+getBlockChainParametersV2 ::
+    StablePtr Ext.ConsensusRunner ->
+    -- |Block type.
+    Word8 ->
+    -- |Block hash.
+    Ptr Word8 ->
+    -- |Out pointer for writing the block hash that was used.
+    Ptr Word8 ->
+    Ptr ReceiverVec ->
+    -- |Callback to output data.
+    FunPtr CopyToVecCallback ->
+    IO Int64
+getBlockChainParametersV2 cptr blockType blockHashPtr outHash outVec copierCbk = do
+    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
+    let copier = callCopyToVecCallback copierCbk
+    bhi <- decodeBlockHashInput blockType blockHashPtr
+    res <- runMVR (Q.getBlockChainParameters bhi) mvr
+    returnMessageWithBlock (copier outVec) outHash res
+
+
 {- |Write the hash to the provided pointer, and if the message is given encode and
    write it using the provided callback.
 -}
@@ -2954,3 +3041,16 @@ foreign export ccall
         Ptr ReceiverVec ->
         FunPtr CopyToVecCallback ->
         IO Int64
+
+foreign export ccall getBlockChainParametersV2 ::
+    StablePtr Ext.ConsensusRunner ->
+    -- |Block type.
+    Word8 ->
+    -- |Block hash.
+    Ptr Word8 ->
+    -- |Out pointer for writing the block hash that was used.
+    Ptr Word8 ->
+    Ptr ReceiverVec ->
+    -- |Callback to output data.
+    FunPtr CopyToVecCallback ->
+    IO Int64
