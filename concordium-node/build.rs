@@ -457,6 +457,24 @@ fn build_grpc2(proto_root_input: &str) -> std::io::Result<()> {
         )
         .method(
             tonic_build::manual::Method::builder()
+                .name("dump_start")
+                .route_name("DumpStart")
+                .input_type("crate::grpc2::types::DumpRequest")
+                .output_type("crate::grpc2::types::Empty")
+                .codec_path("tonic::codec::ProstCodec")
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
+                .name("dump_stop")
+                .route_name("DumpStop")
+                .input_type("crate::grpc2::types::Empty")
+                .output_type("crate::grpc2::types::Empty")
+                .codec_path("tonic::codec::ProstCodec")
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
                 .name("get_peers_info")
                 .route_name("GetPeersInfo")
                 .input_type("crate::grpc2::types::Empty")

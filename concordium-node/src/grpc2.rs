@@ -986,6 +986,53 @@ pub mod server {
             Ok(response)
         }
 
+        #[cfg(feature = "network_dump")]
+        async fn dump_start(
+            &self,
+            request: tonic::Request<crate::grpc2::types::DumpRequest>,
+        ) -> Result<tonic::Response<crate::grpc2::types::Empty>, tonic::Status> {
+            let file_path = request.get_ref().file.to_owned();
+            // todo: fail with invalid argument if file path was empty.
+            let result = self
+                .node
+                .activate_dump(
+                    if file_path.is_empty() {
+                        "dump"
+                    } else {
+                        &file_path
+                    },
+                    request.get_ref().raw,
+                )
+                .is_ok();
+            Ok(tonic::Response::new(crate::grpc2::types::Empty {}))
+        }
+
+        #[cfg(not(feature = "network_dump"))]
+        async fn dump_start(
+            &self,
+            _request: tonic::Request<crate::grpc2::types::DumpRequest>,
+        ) -> Result<tonic::Response<crate::grpc2::types::Empty>, tonic::Status> {
+            Err(tonic::Status::failed_precondition("Feature \"network_dump\" is not active"))
+        }
+
+        #[cfg(feature = "network_dump")]
+        async fn dump_stop(
+            &self,
+            _request: tonic::Request<crate::grpc2::types::Empty>,
+        ) -> Result<tonic::Response<crate::grpc2::types::Empty>, tonic::Status> {
+            self.node.stop_dump();
+            Ok(tonic::Response::new(crate::grpc2::types::Empty {}))
+        }
+
+        #[cfg(not(feature = "network_dump"))]
+        async fn dump_stop(
+            &self,
+            _request: tonic::Request<crate::grpc2::types::Empty>,
+        ) -> Result<tonic::Response<crate::grpc2::types::Empty>, tonic::Status> {
+            Err(tonic::Status::failed_precondition("Feature \"network_dump\" is not active"))
+
+        }
+        
         async fn get_peers_info(
             &self,
             _request: tonic::Request<crate::grpc2::types::Empty>,
