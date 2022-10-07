@@ -1469,6 +1469,25 @@ instance ToProto QueryTypes.BakerSummary where
         ProtoFields.account .= toProto bakerAccount
         ProtoFields.lotteryPower .= bsBakerLotteryPower
 
+-- |TODO
+instance ToProto Transactions.BlockItem where
+    type Output Transactions.BlockItem = Proto.BlockItem    
+    toProto bi = do 
+        let metadata :: Proto.BlockItem'Metadata
+            metadata = pure $! Proto.make $! do
+                ProtoFields.size .= toProto $! Transactions.biSize bi
+                ProtoFields.hash .= toProto $! Transactions.biHash bi
+                ProtoFields.arrivalTime .= toProto $! Transactions.biArrivalTime bi
+            blockItem :: Proto.BlockItem'BlockItem
+            blockItem = do 
+                return $! case bi of 
+                    Transactions.NormalTransaction _ -> undefined
+                    Transactions.CredentialDeployment _ -> undefined
+                    Transactions.ChainUpdate _ -> undefined            
+        return $! Proto.make $ do
+            ProtoFields.metadata .= Just metadata
+            --ProtoFields.blockItem .= Just blockItem
+
 -- |NB: Assumes the data is at least 32 bytes
 decodeBlockHashInput :: Word8 -> Ptr Word8 -> IO Q.BlockHashInput
 decodeBlockHashInput 0 _ = return Q.BHIBest
@@ -2223,14 +2242,7 @@ getAccountNonFinalizedTransactionsV2 cptr channel accPtr cbk = do
     _ <- enqueueMessages (sender channel) res
     return (queryResultCode QRSuccess)
 
--- |TODO
-instance ToProto Transactions.BlockItem where
-    type Output Transactions.BlockItem = Proto.BlockItem
-
-    toProto bi = undefined
-   
-
--- |TODO
+-- |Get the block items for a block.
 getBlockItemsV2 ::
     StablePtr Ext.ConsensusRunner ->
     Ptr SenderChannel ->
