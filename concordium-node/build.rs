@@ -505,6 +505,15 @@ fn build_grpc2(proto_root_input: &str) -> std::io::Result<()> {
         )
         .method(
             tonic_build::manual::Method::builder()
+                .name("get_block_finalization_summary")
+                .route_name("GetBlockFinalizationSummary")
+                .input_type("crate::grpc2::types::BlockHashInput")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
                 .name("send_block_item")
                 .route_name("SendBlockItem")
                 .input_type("crate::grpc2::types::SendBlockItemRequest")

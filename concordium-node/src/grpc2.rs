@@ -1431,6 +1431,17 @@ pub mod server {
             Ok(response)
         }
 
+        async fn get_block_finalization_summary(
+            &self,
+            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+        ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            let (hash, response) =
+                self.consensus.get_block_finalization_summary_v2(request.get_ref())?;
+            let mut response = tonic::Response::new(response);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
         async fn send_block_item(
             &self,
             request: tonic::Request<crate::grpc2::types::SendBlockItemRequest>,

@@ -276,6 +276,11 @@ data DelegatorRewardPeriodInfo = DelegatorRewardPeriodInfo {
   pdrpiStake :: !Amount
 }
 
+-- |Information about the finalization record included in a block.
+data BlockFinalizationSummary =
+  NoSummary
+  | Summary !FinalizationSummary
+
 -- |Retrieve the consensus status.
 getConsensusStatus :: MVR gsconf finconf ConsensusStatus
 getConsensusStatus = MVR $ \mvr -> do
@@ -593,6 +598,37 @@ getBlockChainParameters = liftSkovQueryBHI query
             foundationAddr <- BS.getAccountCanonicalAddress acc
             return (foundationAddr, EChainParameters params)
 
+-- |Get the finalization record contained in the given block, if any.
+getBlockFinalizationSummary :: forall gsconf finconf. BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe BlockFinalizationSummary)
+getBlockFinalizationSummary = liftSkovQueryBHI getFinSummarySkovM
+  where
+    getFinSummarySkovM ::
+        forall pv.
+        SkovMonad (VersionedSkovM gsconf finconf pv) =>
+        BlockPointerType (VersionedSkovM gsconf finconf pv) ->
+        VersionedSkovM gsconf finconf pv BlockFinalizationSummary
+    getFinSummarySkovM bp = do
+        case blockFinalizationData <$> blockFields bp of
+            Just (BlockFinalizationData FinalizationRecord{..}) -> do
+                -- Get the finalization committee by examining the previous finalized block
+                fsFinalizers <-
+                    blockAtFinIndex (finalizationIndex - 1) >>= \case
+                        Nothing -> return Vec.empty
+                        Just prevFin -> do
+                            com <- getFinalizationCommittee prevFin
+                            let signers = Set.fromList (finalizationProofParties finalizationProof)
+                                fromPartyInfo i PartyInfo{..} =
+                                    FinalizationSummaryParty
+                                        { fspBakerId = partyBakerId,
+                                          fspWeight = fromIntegral partyWeight,
+                                          fspSigned = Set.member (fromIntegral i) signers
+                                        }
+                            return $ Vec.imap fromPartyInfo (parties com)
+                let fsFinalizationBlockPointer = finalizationBlockPointer
+                    fsFinalizationIndex = finalizationIndex
+                    fsFinalizationDelay = finalizationDelay
+                return . Summary $! FinalizationSummary{..}
+            _ -> return NoSummary
 
 -- |Get next update sequences numbers at the end of a given block.
 getNextUpdateSequenceNumbers :: forall gsconf finconf. BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe NextUpdateSequenceNumbers)

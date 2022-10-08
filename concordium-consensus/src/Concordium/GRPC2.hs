@@ -1674,6 +1674,31 @@ instance ToProto (AccountAddress, Parameters.EChainParameters) where
                                     ProtoFields.poolParameters .= toProto _cpPoolParameters
                                 )
 
+instance ToProto FinalizationIndex where
+  type Output FinalizationIndex = Proto.FinalizationIndex
+
+  toProto = mkWord64
+
+instance ToProto QueryTypes.FinalizationSummaryParty where
+  type Output QueryTypes.FinalizationSummaryParty = Proto.FinalizationSummaryParty
+
+  toProto QueryTypes.FinalizationSummaryParty{..} = Proto.make $ do
+    ProtoFields.baker .= toProto fspBakerId
+    ProtoFields.weight .= fromIntegral fspWeight
+    ProtoFields.signed .= fspSigned
+
+instance ToProto Q.BlockFinalizationSummary where
+  type Output Q.BlockFinalizationSummary = Proto.BlockFinalizationSummary
+
+  toProto Q.NoSummary = Proto.make (ProtoFields.none .= Proto.defMessage)
+  toProto (Q.Summary QueryTypes.FinalizationSummary{..}) =
+    Proto.make (ProtoFields.record .=
+                Proto.make (do
+                   ProtoFields.block .= toProto fsFinalizationBlockPointer
+                   ProtoFields.index .= toProto fsFinalizationIndex
+                   ProtoFields.delay .= toProto fsFinalizationDelay
+                   ProtoFields.finalizers .= map toProto (Vec.toList fsFinalizers)
+                           ))
 
 -- |NB: Assumes the data is at least 32 bytes
 decodeBlockHashInput :: Word8 -> Ptr Word8 -> IO Q.BlockHashInput
@@ -2534,6 +2559,24 @@ getBlockChainParametersV2 cptr blockType blockHashPtr outHash outVec copierCbk =
     res <- runMVR (Q.getBlockChainParameters bhi) mvr
     returnMessageWithBlock (copier outVec) outHash res
 
+getBlockFinalizationSummaryV2 ::
+    StablePtr Ext.ConsensusRunner ->
+    -- |Block type.
+    Word8 ->
+    -- |Block hash.
+    Ptr Word8 ->
+    -- |Out pointer for writing the block hash that was used.
+    Ptr Word8 ->
+    Ptr ReceiverVec ->
+    -- |Callback to output data.
+    FunPtr CopyToVecCallback ->
+    IO Int64
+getBlockFinalizationSummaryV2 cptr blockType blockHashPtr outHash outVec copierCbk = do
+    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
+    let copier = callCopyToVecCallback copierCbk
+    bhi <- decodeBlockHashInput blockType blockHashPtr
+    res <- runMVR (Q.getBlockFinalizationSummary bhi) mvr
+    returnMessageWithBlock (copier outVec) outHash res
 
 {- |Write the hash to the provided pointer, and if the message is given encode and
    write it using the provided callback.
@@ -3043,6 +3086,19 @@ foreign export ccall
         IO Int64
 
 foreign export ccall getBlockChainParametersV2 ::
+    StablePtr Ext.ConsensusRunner ->
+    -- |Block type.
+    Word8 ->
+    -- |Block hash.
+    Ptr Word8 ->
+    -- |Out pointer for writing the block hash that was used.
+    Ptr Word8 ->
+    Ptr ReceiverVec ->
+    -- |Callback to output data.
+    FunPtr CopyToVecCallback ->
+    IO Int64
+
+foreign export ccall getBlockFinalizationSummaryV2 ::
     StablePtr Ext.ConsensusRunner ->
     -- |Block type.
     Word8 ->
