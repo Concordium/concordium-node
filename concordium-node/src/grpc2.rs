@@ -1501,10 +1501,14 @@ pub mod server {
         ) -> Result<tonic::Response<crate::grpc2::types::Empty>, tonic::Status> {
             let file_path = request.get_ref().file.to_owned();
             if file_path.is_empty() {
-                Err(tonic::Status::invalid_argument("The supplied path must be non-empty"));
+                Err(tonic::Status::invalid_argument("The supplied path must be non-empty"))
             } else {
-                self.node.activate_dump(&file_path, request.get_ref().raw)?;
-                Ok(tonic::Response::new(crate::grpc2::types::Empty {}))
+                match self.node.activate_dump(&file_path, request.get_ref().raw) {
+                    Ok(_) => Ok(tonic::Response::new(crate::grpc2::types::Empty {})),
+                    Err(e) => {
+                        Err(tonic::Status::internal(format!("Could not start network dump {}", e)))
+                    }
+                }
             }
         }
 
@@ -1521,8 +1525,12 @@ pub mod server {
             &self,
             _request: tonic::Request<crate::grpc2::types::Empty>,
         ) -> Result<tonic::Response<crate::grpc2::types::Empty>, tonic::Status> {
-            self.node.stop_dump();
-            Ok(tonic::Response::new(crate::grpc2::types::Empty {}))
+            match self.node.stop_dump() {
+                Ok(_) => Ok(tonic::Response::new(crate::grpc2::types::Empty {})),
+                Err(e) => {
+                    Err(tonic::Status::internal(format!("Could not stop network dump {}", e)))
+                }
+            }
         }
 
         #[cfg(not(feature = "network_dump"))]
