@@ -386,7 +386,7 @@ pub struct GRPC2Config {
         help = "Maximum amount of seconds that the time of the last finalized block can be behind \
                 present before the health check fails.",
         env = "CONCORDIUM_NODE_GRPC2_HEALTH_MAX_FINALIZED_DELAY",
-        default_value = "300",
+        default_value = "300"
     )]
     pub health_max_finalized_delay: concordium_base::base::DurationSeconds,
 }

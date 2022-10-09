@@ -1161,7 +1161,7 @@ extern "C" {
             *const u8,
             i64,
         ) -> i32,
-        ) -> i64;
+    ) -> i64;
 
     /// Get a list of transaction events in a given block.
     /// The stream will end when all the transaction events for a given block
@@ -2652,8 +2652,10 @@ impl ConsensusContainer {
                 block_id_type,
                 block_hash,
                 buf.as_mut_ptr(),
-                enqueue_bytearray_callback)
-        }.try_into()?;
+                enqueue_bytearray_callback,
+            )
+        }
+        .try_into()?;
         response.ensure_ok("block")?;
         Ok(buf)
     }
