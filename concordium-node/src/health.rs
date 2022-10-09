@@ -1,4 +1,4 @@
-//! Implementation of the healt check service that is part of the GRPC2
+//! Implementation of the health check service that is part of the GRPC2
 //! interface.
 
 use crate::consensus_ffi::consensus::ConsensusContainer;
