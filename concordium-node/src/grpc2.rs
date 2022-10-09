@@ -1465,9 +1465,7 @@ pub mod server {
                 ))
             } else {
                 let peer_connect = request.into_inner();
-                if let Ok(ip) = <std::net::IpAddr as std::str::FromStr>::from_str(
-                    &peer_connect.ip.require()?.value,
-                ) {
+                if let Ok(ip) = peer_connect.ip.require()?.value.parse::<std::net::IpAddr>() {
                     let addr = SocketAddr::new(ip, peer_connect.port.require()?.value as u16);
                     self.node.register_conn_change(crate::connection::ConnChange::NewConn {
                         addr,
@@ -1491,9 +1489,7 @@ pub mod server {
                 ))
             } else {
                 let peer_connect = request.into_inner();
-                if let Ok(ip) = <std::net::IpAddr as std::str::FromStr>::from_str(
-                    &peer_connect.ip.require()?.value,
-                ) {
+                if let Ok(ip) = peer_connect.ip.require()?.value.parse::<std::net::IpAddr>() {
                     let addr = SocketAddr::new(ip, peer_connect.port.require()?.value as u16);
                     if self.node.drop_addr(addr) {
                         Ok(tonic::Response::new(crate::grpc2::types::Empty {}))
