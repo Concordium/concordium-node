@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -34,6 +35,7 @@ import Concordium.Types.Queries
 import Concordium.Types.SeedState
 import Concordium.Types.Transactions
 import Concordium.Types.Execution (TransactionSummary)
+import Concordium.Types.Updates
 import qualified Concordium.Types.UpdateQueues as UQ
 import qualified Concordium.Wasm as Wasm
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
@@ -592,15 +594,22 @@ getBlockPendingUpdates = liftSkovQueryBHI query
                                   Just (_, acc) -> do
                                     (t, ) . PUEFoundationAccount <$> BS.getAccountCanonicalAddress acc
 
+-- |An existentially qualified pair of chain parameters and update keys currently in effect.
+data EChainParametersAndKeys = forall (cpv :: ChainParametersVersion). IsChainParametersVersion cpv =>
+    EChainParametersAndKeys
+    { ecpParams :: !(ChainParameters' cpv)
+    , ecpKeys :: !(UpdateKeysCollection cpv)
+    }
+
 -- |Get the chain parameters valid at the end of a given block, as well as the address of the foundation account.
 -- The chain parameters contain only the account index of the foundation account.
-getBlockChainParameters :: forall gsconf finconf. BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe (AccountAddress, EChainParameters))
+getBlockChainParameters :: forall gsconf finconf. BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe (AccountAddress, EChainParametersAndKeys))
 getBlockChainParameters = liftSkovQueryBHI query
   where
     query :: forall pv.
         SkovMonad (VersionedSkovM gsconf finconf pv) =>
         BlockPointerType (VersionedSkovM gsconf finconf pv) ->
-        VersionedSkovM gsconf finconf pv (AccountAddress, EChainParameters)
+        VersionedSkovM gsconf finconf pv (AccountAddress, EChainParametersAndKeys)
     query bp = do
       bs <- blockState bp
       updates <- BS.getUpdates bs
@@ -609,7 +618,7 @@ getBlockChainParameters = liftSkovQueryBHI query
         Nothing -> error "Invariant violation. Foundation account index does not exist in the account table."
         Just (_, acc) -> do
             foundationAddr <- BS.getAccountCanonicalAddress acc
-            return (foundationAddr, EChainParameters params)
+            return (foundationAddr, EChainParametersAndKeys params (_unhashed (UQ._currentKeyCollection updates)))
 
 -- |Get the finalization record contained in the given block, if any.
 getBlockFinalizationSummary :: forall gsconf finconf. BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe BlockFinalizationSummary)
