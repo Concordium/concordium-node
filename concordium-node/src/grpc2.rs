@@ -1928,7 +1928,7 @@ pub mod server {
         ) -> Result<tonic::Response<Self::GetBlockItemsStream>, tonic::Status> {
             let (sender, receiver) = futures::channel::mpsc::channel(100);
             let hash = self.consensus.get_block_items_v2(request.get_ref(), sender)?;
-            let response = tonic::Response::new(receiver);
+            let mut response = tonic::Response::new(receiver);
             add_hash(&mut response, hash)?;
             Ok(response)
         }

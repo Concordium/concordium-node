@@ -34,7 +34,6 @@ import Concordium.Types.Queries
 import Concordium.Types.SeedState
 import Concordium.Types.Transactions
 import Concordium.Types.Execution (TransactionSummary)
-import Concordium.Types.Transactions (SpecialTransactionOutcome)
 import qualified Concordium.Types.UpdateQueues as UQ
 import qualified Concordium.Wasm as Wasm
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
@@ -519,6 +518,7 @@ getBlockSpecialEvents = liftSkovQueryBHI $ BS.getSpecialOutcomes <=< blockState
 -- |Get the pending updates at the end of a given block.
 getBlockPendingUpdates :: forall gsconf finconf. BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe [(TransactionTime, PendingUpdateEffect)])
 getBlockPendingUpdates = liftSkovQueryBHI query
+  where
     query :: forall pv.
         SkovMonad (VersionedSkovM gsconf finconf pv) =>
         BlockPointerType (VersionedSkovM gsconf finconf pv) ->
@@ -655,7 +655,6 @@ getNextUpdateSequenceNumbers = liftSkovQueryBHI query
       bs <- blockState bp
       updates <- BS.getUpdates bs
       return $ updateQueuesNextSequenceNumbers $ UQ._pendingUpdates updates
-======= end
 
 -- |Get the total amount of GTU in existence and status of the reward accounts.
 getRewardStatus :: BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe RewardStatus)

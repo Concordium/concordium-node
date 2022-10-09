@@ -55,7 +55,7 @@ import Concordium.ID.Parameters (withGlobalContext)
 import Concordium.Common.Time
 import Concordium.Common.Version
 import Concordium.Crypto.SHA256 (DigestSize, Hash (Hash))
-import Concordium.Crypto.SignatureScheme (VerifyKey (..))
+import Concordium.Crypto.SignatureScheme (VerifyKey (..), Signature(..))
 import Concordium.Types.Accounts.Releases
 import Concordium.Types.Execution
 import qualified Concordium.Wasm as Wasm
@@ -1529,24 +1529,87 @@ instance ToProto QueryTypes.BakerSummary where
         ProtoFields.account .= toProto bakerAccount
         ProtoFields.lotteryPower .= bsBakerLotteryPower
 
--- |TODO
+instance ToProto Transactions.TransactionHeader where
+  type Output Transactions.TransactionHeader = Proto.AccountTransactionHeader
+
+  toProto Transactions.TransactionHeader{..} = Proto.make $ do
+    ProtoFields.sender .= toProto thSender
+    ProtoFields.sequenceNumber .= toProto thNonce
+    ProtoFields.energyAmount .= toProto thEnergyAmount
+    ProtoFields.expiry .= toProto thExpiry
+
+instance ToProto Signature where
+  type Output Signature = Proto.Signature
+
+  toProto (Signature bss) = Proto.make $ do
+    ProtoFields.value .= BSS.fromShort bss
+
+instance ToProto Transactions.TransactionSignature where
+  type Output Transactions.TransactionSignature = Proto.AccountTransactionSignature
+
+  toProto Transactions.TransactionSignature{..} = Proto.make $ do
+    ProtoFields.signatures .= (Map.fromAscList . map mk . Map.toAscList $ tsSignatures)
+      where mk (k, s) = (fromIntegral k, mkSingleSig s)
+            mkSingleSig sigs = Proto.make $ do
+              ProtoFields.signatures .= (Map.fromAscList . map (\(ki, sig) -> (fromIntegral ki, toProto sig)) . Map.toAscList $ sigs)
+
+instance ToProto Transactions.AccountTransaction where
+  type Output Transactions.AccountTransaction = Proto.AccountTransaction
+
+  toProto Transactions.AccountTransaction{..} = Proto.make $ do
+    ProtoFields.signature .= toProto atrSignature
+    ProtoFields.header .= toProto atrHeader
+    ProtoFields.payload .= Proto.make (
+      ProtoFields.rawPayload .= BSS.fromShort (_spayload atrPayload)
+      )
+
+instance ToProto Transactions.AccountCreation where
+  type Output Transactions.AccountCreation = Proto.CredentialDeployment
+
+  toProto Transactions.AccountCreation{..} = Proto.make $ do
+    ProtoFields.messageExpiry .= toProto messageExpiry
+    ProtoFields.rawPayload .= S.encode credential
+
+instance ToProto Updates.UpdateInstructionSignatures where
+  type Output Updates.UpdateInstructionSignatures = Proto.SignatureMap
+
+  toProto Updates.UpdateInstructionSignatures{..} = Proto.make $ do
+    ProtoFields.signatures .= (Map.fromAscList . map mk . Map.toAscList $ signatures)
+      where mk (k, s) = (fromIntegral k, toProto s)
+
+instance ToProto Updates.UpdateHeader where
+  type Output Updates.UpdateHeader = Proto.UpdateInstructionHeader
+
+  toProto Updates.UpdateHeader{..} = Proto.make $ do
+    -- since UpdateSequenceNumber is an alias for Nonce in Haskell, but not in
+    -- the .proto file we have to use mkWord64 or similar, and not toProto since
+    -- that one is defined for the Nonce.
+    ProtoFields.sequenceNumber .= mkWord64 updateSeqNumber
+    ProtoFields.effectiveTime .= toProto updateEffectiveTime
+    ProtoFields.timeout .= toProto updateTimeout
+
+instance ToProto Updates.UpdateInstruction where
+  type Output Updates.UpdateInstruction = Proto.UpdateInstruction
+
+  toProto Updates.UpdateInstruction{..} = Proto.make $ do
+    ProtoFields.signatures .= toProto uiSignatures
+    ProtoFields.header .= toProto uiHeader
+    ProtoFields.payload .= Proto.make (
+      ProtoFields.rawPayload .= S.runPut (Updates.putUpdatePayload uiPayload)
+      )
+
+
 instance ToProto Transactions.BlockItem where
-    type Output Transactions.BlockItem = Proto.BlockItem    
-    toProto bi = do 
-        let metadata :: Proto.BlockItem'Metadata
-            metadata = pure $! Proto.make $! do
-                ProtoFields.size .= toProto $! Transactions.biSize bi
-                ProtoFields.hash .= toProto $! Transactions.biHash bi
-                ProtoFields.arrivalTime .= toProto $! Transactions.biArrivalTime bi
-            blockItem :: Proto.BlockItem'BlockItem
-            blockItem = do 
-                return $! case bi of 
-                    Transactions.NormalTransaction accTx -> undefined
-                    Transactions.CredentialDeployment cred -> undefined
-                    Transactions.ChainUpdate cu -> undefined
-        return $! Proto.make $ do
-            ProtoFields.metadata .= Just metadata
-            ProtoFields.blockItem .= Just blockItem
+    type Output Transactions.BlockItem = Proto.BlockItem
+    toProto bi = Proto.make $ do
+        ProtoFields.hash .= toProto (Transactions.wmdHash bi)
+        case Transactions.wmdData bi of
+            Transactions.NormalTransaction accTx -> do
+                ProtoFields.accountTransaction .= toProto accTx
+            Transactions.CredentialDeployment cred ->
+                ProtoFields.credentialDeployment .= toProto cred
+            Transactions.ChainUpdate cu ->
+                ProtoFields.updateInstruction .= toProto cu
 
 instance ToProto TxTypes.AccountAmounts where
     type Output TxTypes.AccountAmounts = Proto.BlockSpecialEvent'AccountAmounts
@@ -1720,7 +1783,6 @@ instance ToProto Q.BlockFinalizationSummary where
                    ProtoFields.delay .= toProto fsFinalizationDelay
                    ProtoFields.finalizers .= map toProto (Vec.toList fsFinalizers)
                            ))
->>>>>>> grpc2-health
 
 -- |NB: Assumes the data is at least 32 bytes
 decodeBlockHashInput :: Word8 -> Ptr Word8 -> IO Q.BlockHashInput
@@ -2636,7 +2698,6 @@ getLastFinalizedBlockSlotTimeV2 cptr = do
 
 -- |Write the hash to the provided pointer, and if the message is given encode and
 -- write it using the provided callback.
->>>>>>> grpc2-health
 returnMessageWithBlock ::
     (Proto.Message (Output a), ToProto a) =>
     (Ptr Word8 -> Int64 -> IO ()) ->
