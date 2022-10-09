@@ -17,6 +17,8 @@ import Data.Maybe
 import qualified Data.Set as Set
 import qualified Data.Vector as Vec
 import Lens.Micro.Platform
+import qualified Data.Sequence as Seq
+import Data.Bifunctor (second)
 
 import Concordium.Common.Version
 import Concordium.Genesis.Data
@@ -30,6 +32,9 @@ import Concordium.Types.IdentityProviders
 import Concordium.Types.Parameters
 import Concordium.Types.Queries
 import Concordium.Types.SeedState
+import Concordium.Types.Execution (TransactionSummary)
+import Concordium.Types.Transactions (SpecialTransactionOutcome)
+import qualified Concordium.Types.UpdateQueues as UQ
 import qualified Concordium.Wasm as Wasm
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 
@@ -169,6 +174,7 @@ liftSkovQueryBHI ::
     ( forall (pv :: ProtocolVersion).
       ( SkovMonad (VersionedSkovM gsconf finconf pv)
       , FinalizationMonad (VersionedSkovM gsconf finconf pv)
+      , IsProtocolVersion pv
       ) =>
       BlockPointerType (VersionedSkovM gsconf finconf pv) ->
       VersionedSkovM gsconf finconf pv a
@@ -269,6 +275,11 @@ data DelegatorRewardPeriodInfo = DelegatorRewardPeriodInfo {
   -- | The amount of stake fixed to the pool in the current reward period.
   pdrpiStake :: !Amount
 }
+
+-- |Information about the finalization record included in a block.
+data BlockFinalizationSummary =
+  NoSummary
+  | Summary !FinalizationSummary
 
 -- |Retrieve the consensus status.
 getConsensusStatus :: MVR gsconf finconf ConsensusStatus
@@ -482,6 +493,155 @@ getBlockSummary = liftSkovQueryBlock getBlockSummarySkovM
         bsUpdates <- BS.getUpdates bs
         let bsProtocolVersion = protocolVersion @pv
         return BlockSummary{..}
+
+-- |Get the transaction outcomes in the block.
+getBlockTransactionSummaries :: forall gsconf finconf. BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe (Vec.Vector TransactionSummary))
+getBlockTransactionSummaries = liftSkovQueryBHI $ BS.getOutcomes <=< blockState
+
+-- |Get the transaction outcomes in the block.
+getBlockSpecialEvents :: forall gsconf finconf. BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe (Seq.Seq SpecialTransactionOutcome))
+getBlockSpecialEvents = liftSkovQueryBHI $ BS.getSpecialOutcomes <=< blockState
+
+-- |Get the pending updates at the end of a given block.
+getBlockPendingUpdates :: forall gsconf finconf. BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe [(TransactionTime, PendingUpdateEffect)])
+getBlockPendingUpdates = liftSkovQueryBHI query
+  where
+    query :: forall pv.
+        SkovMonad (VersionedSkovM gsconf finconf pv) =>
+        BlockPointerType (VersionedSkovM gsconf finconf pv) ->
+        VersionedSkovM gsconf finconf pv [(TransactionTime, PendingUpdateEffect)]
+    query bp = do
+      bs <- blockState bp
+      updates <- BS.getUpdates bs
+      fuQueue <- foundationAccQueue bs (UQ._pFoundationAccountQueue . UQ._pendingUpdates $ updates)
+      let remainingQueues = flattenUpdateQueues $ UQ._pendingUpdates updates
+      return (merge fuQueue remainingQueues)
+        where
+          -- | Flatten all of the pending update queues into one queue ordered by
+          -- effective time. This is not the most efficient implementation and scales
+          -- linearly with the number of queues, where it could scale logarithmically. But
+          -- in practice this will not be an issue since update queues are very small.
+          --
+          -- The return list is ordered by the transaction time, ascending.
+          --
+          -- This flattens all queues except the foundation account updates.
+          -- That one needs access to account lookup so it is handled by a
+          -- separate helper below.
+          flattenUpdateQueues :: forall cpv. IsChainParametersVersion cpv =>
+              UQ.PendingUpdates cpv ->
+              [(TransactionTime, PendingUpdateEffect)]
+          flattenUpdateQueues UQ.PendingUpdates{..} =
+            queueMapper PUERootKeys _pRootKeysUpdateQueue `merge`
+            queueMapper PUELevel1Keys _pLevel1KeysUpdateQueue `merge`
+            (case chainParametersVersion @cpv of
+              SCPV0 -> queueMapper PUELevel2KeysV0 _pLevel2KeysUpdateQueue
+              SCPV1 -> queueMapper PUELevel2KeysV1 _pLevel2KeysUpdateQueue) `merge`
+            queueMapper PUEProtocol _pProtocolQueue `merge`
+            queueMapper PUEElectionDifficulty _pElectionDifficultyQueue `merge`
+            queueMapper PUEEuroPerEnergy _pEuroPerEnergyQueue `merge`
+            queueMapper PUEMicroCCDPerEuro _pMicroGTUPerEuroQueue `merge`
+            (case chainParametersVersion @cpv of
+              SCPV0 -> queueMapper PUEMintDistributionV0 _pMintDistributionQueue
+              SCPV1 -> queueMapper PUEMintDistributionV1 _pMintDistributionQueue) `merge`
+            queueMapper PUETransactionFeeDistribution _pTransactionFeeDistributionQueue `merge`
+            queueMapper PUEGASRewards _pGASRewardsQueue `merge`
+            (case chainParametersVersion @cpv of
+              SCPV0 -> queueMapper PUEPoolParametersV0 _pPoolParametersQueue
+              SCPV1 -> queueMapper PUEPoolParametersV1 _pPoolParametersQueue) `merge`
+            queueMapper PUEAddAnonymityRevoker _pAddAnonymityRevokerQueue `merge`
+            queueMapper PUEAddIdentityProvider _pAddIdentityProviderQueue `merge`
+            queueMapperForCPV1 PUECooldownParameters _pCooldownParametersQueue `merge`
+            queueMapperForCPV1 PUETimeParameters _pTimeParametersQueue
+            where
+
+              queueMapper :: (a -> PendingUpdateEffect) -> UQ.UpdateQueue a -> [(TransactionTime, PendingUpdateEffect)]
+              queueMapper constructor UQ.UpdateQueue {..} = second constructor <$> _uqQueue
+          
+              queueMapperForCPV1 :: (a -> PendingUpdateEffect) -> UQ.UpdateQueueForCPV1 cpv a -> [(TransactionTime, PendingUpdateEffect)]
+              queueMapperForCPV1 _ NothingForCPV1 = []
+              queueMapperForCPV1 constructor (JustForCPV1 queue) = queueMapper constructor queue
+          
+          -- Merge two ascending lists into an ascending list.
+          merge ::
+            [(TransactionTime, PendingUpdateEffect)] ->
+            [(TransactionTime, PendingUpdateEffect)] ->
+            [(TransactionTime, PendingUpdateEffect)]
+          merge [] y = y
+          merge x [] = x
+          merge (x:xs) (y:ys) | fst y < fst x = y : merge (x:xs) ys
+          merge (x:xs) (y:ys)                 = x : merge xs (y:ys)
+
+          foundationAccQueue :: SkovQueryMonad m => BlockState m -> UQ.UpdateQueue AccountIndex -> m [(TransactionTime, PendingUpdateEffect)]
+          foundationAccQueue bs UQ.UpdateQueue {..} = do
+            forM _uqQueue $ \(t, ai) -> do
+                                BS.getAccountByIndex bs ai >>= \case
+                                  Nothing -> error "Invariant violation. Foundation account index does not exist in the account table."
+                                  Just (_, acc) -> do
+                                    (t, ) . PUEFoundationAccount <$> BS.getAccountCanonicalAddress acc
+
+-- |Get the chain parameters valid at the end of a given block, as well as the address of the foundation account.
+-- The chain parameters contain only the account index of the foundation account.
+getBlockChainParameters :: forall gsconf finconf. BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe (AccountAddress, EChainParameters))
+getBlockChainParameters = liftSkovQueryBHI query
+  where
+    query :: forall pv.
+        SkovMonad (VersionedSkovM gsconf finconf pv) =>
+        BlockPointerType (VersionedSkovM gsconf finconf pv) ->
+        VersionedSkovM gsconf finconf pv (AccountAddress, EChainParameters)
+    query bp = do
+      bs <- blockState bp
+      updates <- BS.getUpdates bs
+      let params = UQ._currentParameters updates
+      BS.getAccountByIndex bs (_cpFoundationAccount params) >>= \case
+        Nothing -> error "Invariant violation. Foundation account index does not exist in the account table."
+        Just (_, acc) -> do
+            foundationAddr <- BS.getAccountCanonicalAddress acc
+            return (foundationAddr, EChainParameters params)
+
+-- |Get the finalization record contained in the given block, if any.
+getBlockFinalizationSummary :: forall gsconf finconf. BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe BlockFinalizationSummary)
+getBlockFinalizationSummary = liftSkovQueryBHI getFinSummarySkovM
+  where
+    getFinSummarySkovM ::
+        forall pv.
+        SkovMonad (VersionedSkovM gsconf finconf pv) =>
+        BlockPointerType (VersionedSkovM gsconf finconf pv) ->
+        VersionedSkovM gsconf finconf pv BlockFinalizationSummary
+    getFinSummarySkovM bp = do
+        case blockFinalizationData <$> blockFields bp of
+            Just (BlockFinalizationData FinalizationRecord{..}) -> do
+                -- Get the finalization committee by examining the previous finalized block
+                fsFinalizers <-
+                    blockAtFinIndex (finalizationIndex - 1) >>= \case
+                        Nothing -> return Vec.empty
+                        Just prevFin -> do
+                            com <- getFinalizationCommittee prevFin
+                            let signers = Set.fromList (finalizationProofParties finalizationProof)
+                                fromPartyInfo i PartyInfo{..} =
+                                    FinalizationSummaryParty
+                                        { fspBakerId = partyBakerId,
+                                          fspWeight = fromIntegral partyWeight,
+                                          fspSigned = Set.member (fromIntegral i) signers
+                                        }
+                            return $ Vec.imap fromPartyInfo (parties com)
+                let fsFinalizationBlockPointer = finalizationBlockPointer
+                    fsFinalizationIndex = finalizationIndex
+                    fsFinalizationDelay = finalizationDelay
+                return . Summary $! FinalizationSummary{..}
+            _ -> return NoSummary
+
+-- |Get next update sequences numbers at the end of a given block.
+getNextUpdateSequenceNumbers :: forall gsconf finconf. BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe NextUpdateSequenceNumbers)
+getNextUpdateSequenceNumbers = liftSkovQueryBHI query
+  where
+    query :: forall pv.
+        SkovMonad (VersionedSkovM gsconf finconf pv) =>
+        BlockPointerType (VersionedSkovM gsconf finconf pv) ->
+        VersionedSkovM gsconf finconf pv NextUpdateSequenceNumbers
+    query bp = do
+      bs <- blockState bp
+      updates <- BS.getUpdates bs
+      return $ updateQueuesNextSequenceNumbers $ UQ._pendingUpdates updates
 
 -- |Get the total amount of GTU in existence and status of the reward accounts.
 getRewardStatus :: BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe RewardStatus)

@@ -885,6 +885,15 @@ pub mod server {
             futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
         /// Return type for the 'GetBakerList' method.
         type GetBakerListStream = futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
+        /// Return type for the 'GetBlockPendingUpdates' method.
+        type GetBlockPendingUpdatesStream =
+            futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
+        /// Return type for the 'GetBlockSpecialEvents' method.
+        type GetBlockSpecialEventsStream =
+            futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
+        /// Return type for the 'GetBlockTransactionEvents' method.
+        type GetBlockTransactionEventsStream =
+            futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
         /// Return type for the 'Blocks' method.
         type GetBlocksStream =
             tokio_stream::wrappers::ReceiverStream<Result<Arc<[u8]>, tonic::Status>>;
@@ -1370,6 +1379,72 @@ pub mod server {
             Ok(response)
         }
 
+        async fn get_block_transaction_events(
+            &self,
+            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+        ) -> Result<tonic::Response<Self::GetBlockTransactionEventsStream>, tonic::Status> {
+            let (sender, receiver) = futures::channel::mpsc::channel(10);
+            let hash = self.consensus.get_block_transaction_events_v2(request.get_ref(), sender)?;
+            let mut response = tonic::Response::new(receiver);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_block_special_events(
+            &self,
+            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+        ) -> Result<tonic::Response<Self::GetBlockSpecialEventsStream>, tonic::Status> {
+            let (sender, receiver) = futures::channel::mpsc::channel(10);
+            let hash = self.consensus.get_block_special_events_v2(request.get_ref(), sender)?;
+            let mut response = tonic::Response::new(receiver);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_block_pending_updates(
+            &self,
+            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+        ) -> Result<tonic::Response<Self::GetBlockPendingUpdatesStream>, tonic::Status> {
+            let (sender, receiver) = futures::channel::mpsc::channel(10);
+            let hash = self.consensus.get_block_pending_updates_v2(request.get_ref(), sender)?;
+            let mut response = tonic::Response::new(receiver);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_next_update_sequence_numbers(
+            &self,
+            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+        ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            let (hash, response) =
+                self.consensus.get_next_update_sequence_numbers_v2(request.get_ref())?;
+            let mut response = tonic::Response::new(response);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_block_chain_parameters(
+            &self,
+            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+        ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            let (hash, response) =
+                self.consensus.get_block_chain_parameters_v2(request.get_ref())?;
+            let mut response = tonic::Response::new(response);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_block_finalization_summary(
+            &self,
+            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+        ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            let (hash, response) =
+                self.consensus.get_block_finalization_summary_v2(request.get_ref())?;
+            let mut response = tonic::Response::new(response);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
         async fn shutdown(
             &self,
             _request: tonic::Request<crate::grpc2::types::Empty>,
@@ -1390,9 +1465,7 @@ pub mod server {
                 ))
             } else {
                 let peer_connect = request.into_inner();
-                if let Ok(ip) = <std::net::IpAddr as std::str::FromStr>::from_str(
-                    &peer_connect.ip.require()?.value,
-                ) {
+                if let Ok(ip) = peer_connect.ip.require()?.value.parse::<std::net::IpAddr>() {
                     let addr = SocketAddr::new(ip, peer_connect.port.require()?.value as u16);
                     self.node.register_conn_change(crate::connection::ConnChange::NewConn {
                         addr,
@@ -1416,9 +1489,7 @@ pub mod server {
                 ))
             } else {
                 let peer_connect = request.into_inner();
-                if let Ok(ip) = <std::net::IpAddr as std::str::FromStr>::from_str(
-                    &peer_connect.ip.require()?.value,
-                ) {
+                if let Ok(ip) = peer_connect.ip.require()?.value.parse::<std::net::IpAddr>() {
                     let addr = SocketAddr::new(ip, peer_connect.port.require()?.value as u16);
                     if self.node.drop_addr(addr) {
                         Ok(tonic::Response::new(crate::grpc2::types::Empty {}))
