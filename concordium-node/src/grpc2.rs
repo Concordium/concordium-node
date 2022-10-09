@@ -628,11 +628,15 @@ pub mod server {
     use crate::{
         configuration::GRPC2Config,
         consensus_ffi::{
-            consensus::{ConsensusContainer, CALLBACK_QUEUE},
+            consensus::{ConsensusContainer, ConsensusType, CALLBACK_QUEUE},
             ffi::NotificationHandlers,
-            helpers::{ConsensusFfiResponse, ContractStateResponse, PacketType},
+            helpers::{
+                ConsensusFfiResponse, ConsensusIsInBakingCommitteeResponse, ContractStateResponse,
+                PacketType,
+            },
             messaging::{ConsensusMessage, MessageType},
         },
+        health,
         p2p::P2PNode,
     };
     use anyhow::Context;
@@ -640,6 +644,7 @@ pub mod server {
     use futures::{FutureExt, StreamExt};
     use std::{
         io::Write,
+        net::SocketAddr,
         sync::{Arc, Mutex},
     };
     use tonic::{async_trait, transport::ServerTlsConfig};
@@ -658,7 +663,6 @@ pub mod server {
         service_config: ServiceConfig,
         /// Reference to the node to support network and node status related
         /// queries.
-        #[allow(dead_code)] // this will be used by network queries.
         node: Arc<P2PNode>,
         /// Reference to consensus to support consensus queries.
         consensus: ConsensusContainer,
@@ -819,6 +823,24 @@ pub mod server {
                     builder.add_service(service)
                 };
 
+                let router = {
+                    // add the health service with reflection.
+                    // The naming of the reflection service here (queries_descriptor) must match
+                    // the naming chosen in the build.rs file.
+                    let reflection_service = tonic_reflection::server::Builder::configure()
+                        .register_encoded_file_descriptor_set(health::HEALTH_DESCRIPTOR)
+                        .build()
+                        .context("Unable to start the GRPC2 reflection service.")?;
+
+                    let health_service = health::HealthServiceImpl {
+                        consensus:                     consensus.clone(),
+                        health_max_finalization_delay: config.health_max_finalized_delay,
+                    };
+                    router
+                        .add_service(health::health_server::HealthServer::new(health_service))
+                        .add_service(reflection_service)
+                };
+
                 let task = tokio::spawn(async move {
                     router
                         .serve_with_shutdown(
@@ -884,6 +906,15 @@ pub mod server {
         type GetBakerListStream = futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
         /// Return type for `GetBlockItems`.
         type GetBlockItemsStream = futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
+        /// Return type for the 'GetBlockPendingUpdates' method.
+        type GetBlockPendingUpdatesStream =
+            futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
+        /// Return type for the 'GetBlockSpecialEvents' method.
+        type GetBlockSpecialEventsStream =
+            futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
+        /// Return type for the 'GetBlockTransactionEvents' method.
+        type GetBlockTransactionEventsStream =
+            futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
         /// Return type for the 'Blocks' method.
         type GetBlocksStream =
             tokio_stream::wrappers::ReceiverStream<Result<Arc<[u8]>, tonic::Status>>;
@@ -1369,6 +1400,432 @@ pub mod server {
             Ok(response)
         }
 
+        async fn get_block_transaction_events(
+            &self,
+            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+        ) -> Result<tonic::Response<Self::GetBlockTransactionEventsStream>, tonic::Status> {
+            let (sender, receiver) = futures::channel::mpsc::channel(10);
+            let hash = self.consensus.get_block_transaction_events_v2(request.get_ref(), sender)?;
+            let mut response = tonic::Response::new(receiver);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_block_special_events(
+            &self,
+            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+        ) -> Result<tonic::Response<Self::GetBlockSpecialEventsStream>, tonic::Status> {
+            let (sender, receiver) = futures::channel::mpsc::channel(10);
+            let hash = self.consensus.get_block_special_events_v2(request.get_ref(), sender)?;
+            let mut response = tonic::Response::new(receiver);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_block_pending_updates(
+            &self,
+            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+        ) -> Result<tonic::Response<Self::GetBlockPendingUpdatesStream>, tonic::Status> {
+            let (sender, receiver) = futures::channel::mpsc::channel(10);
+            let hash = self.consensus.get_block_pending_updates_v2(request.get_ref(), sender)?;
+            let mut response = tonic::Response::new(receiver);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_next_update_sequence_numbers(
+            &self,
+            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+        ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            let (hash, response) =
+                self.consensus.get_next_update_sequence_numbers_v2(request.get_ref())?;
+            let mut response = tonic::Response::new(response);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_block_chain_parameters(
+            &self,
+            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+        ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            let (hash, response) =
+                self.consensus.get_block_chain_parameters_v2(request.get_ref())?;
+            let mut response = tonic::Response::new(response);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_block_finalization_summary(
+            &self,
+            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+        ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            let (hash, response) =
+                self.consensus.get_block_finalization_summary_v2(request.get_ref())?;
+            let mut response = tonic::Response::new(response);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn shutdown(
+            &self,
+            _request: tonic::Request<crate::grpc2::types::Empty>,
+        ) -> Result<tonic::Response<crate::grpc2::types::Empty>, tonic::Status> {
+            match self.node.close() {
+                Ok(_) => Ok(tonic::Response::new(crate::grpc2::types::Empty {})),
+                Err(e) => Err(tonic::Status::internal(format!("Unable to shutdown server {}.", e))),
+            }
+        }
+
+        async fn peer_connect(
+            &self,
+            request: tonic::Request<crate::grpc2::types::IpSocketAddress>,
+        ) -> Result<tonic::Response<crate::grpc2::types::Empty>, tonic::Status> {
+            if self.node.is_network_stopped() {
+                Err(tonic::Status::failed_precondition(
+                    "The network is stopped due to unrecognized protocol update.",
+                ))
+            } else {
+                let peer_connect = request.into_inner();
+                if let Ok(ip) = peer_connect.ip.require()?.value.parse::<std::net::IpAddr>() {
+                    let addr = SocketAddr::new(ip, peer_connect.port.require()?.value as u16);
+                    self.node.register_conn_change(crate::connection::ConnChange::NewConn {
+                        addr,
+                        peer_type: crate::common::PeerType::Node,
+                        given: true,
+                    });
+                    Ok(tonic::Response::new(crate::grpc2::types::Empty {}))
+                } else {
+                    Err(tonic::Status::invalid_argument("Invalid IP address."))
+                }
+            }
+        }
+
+        async fn peer_disconnect(
+            &self,
+            request: tonic::Request<crate::grpc2::types::IpSocketAddress>,
+        ) -> Result<tonic::Response<crate::grpc2::types::Empty>, tonic::Status> {
+            if self.node.is_network_stopped() {
+                Err(tonic::Status::failed_precondition(
+                    "The network is stopped due to unrecognized protocol update.",
+                ))
+            } else {
+                let peer_connect = request.into_inner();
+                if let Ok(ip) = peer_connect.ip.require()?.value.parse::<std::net::IpAddr>() {
+                    let addr = SocketAddr::new(ip, peer_connect.port.require()?.value as u16);
+                    if self.node.drop_addr(addr) {
+                        Ok(tonic::Response::new(crate::grpc2::types::Empty {}))
+                    } else {
+                        Err(tonic::Status::not_found("The peer was not found."))
+                    }
+                } else {
+                    Err(tonic::Status::invalid_argument("Invalid IP address."))
+                }
+            }
+        }
+
+        async fn get_banned_peers(
+            &self,
+            _request: tonic::Request<crate::grpc2::types::Empty>,
+        ) -> Result<tonic::Response<crate::grpc2::types::BannedPeers>, tonic::Status> {
+            if let Ok(banned_peers) = self.node.get_banlist() {
+                let peers = banned_peers
+                    .into_iter()
+                    .map(|banned_peer| {
+                        let ip_address = match banned_peer {
+                            crate::p2p::bans::PersistedBanId::Ip(addr) => addr.to_string(),
+                        };
+                        crate::grpc2::types::BannedPeer {
+                            ip_address: Some(crate::grpc2::types::IpAddress {
+                                value: ip_address,
+                            }),
+                        }
+                    })
+                    .collect();
+                Ok(tonic::Response::new(crate::grpc2::types::BannedPeers {
+                    peers,
+                }))
+            } else {
+                Err(tonic::Status::internal("Could not load banned peers."))
+            }
+        }
+
+        async fn ban_peer(
+            &self,
+            request: tonic::Request<crate::grpc2::types::PeerToBan>,
+        ) -> Result<tonic::Response<crate::grpc2::types::Empty>, tonic::Status> {
+            let ip = request.into_inner().ip_address.require()?;
+            match ip.value.parse::<std::net::IpAddr>() {
+                Ok(ip_addr) => match self.node.drop_by_ip_and_ban(ip_addr) {
+                    Ok(_) => Ok(tonic::Response::new(crate::grpc2::types::Empty {})),
+                    Err(e) => Err(tonic::Status::internal(format!("Could not ban peer {}.", e))),
+                },
+                Err(e) => Err(tonic::Status::invalid_argument(format!(
+                    "Invalid IP address provided {}",
+                    e
+                ))),
+            }
+        }
+
+        async fn unban_peer(
+            &self,
+            request: tonic::Request<crate::grpc2::types::BannedPeer>,
+        ) -> Result<tonic::Response<crate::grpc2::types::Empty>, tonic::Status> {
+            match request.into_inner().ip_address.require()?.value.parse::<std::net::IpAddr>() {
+                Ok(ip_addr) => {
+                    let banned_id = crate::p2p::bans::PersistedBanId::Ip(ip_addr);
+                    match self.node.unban_node(banned_id) {
+                        Ok(_) => Ok(tonic::Response::new(crate::grpc2::types::Empty {})),
+                        Err(e) => {
+                            Err(tonic::Status::internal(format!("Could not unban peer {}.", e)))
+                        }
+                    }
+                }
+                Err(e) => {
+                    Err(tonic::Status::invalid_argument(format!("Invalid IP address {}.", e)))
+                }
+            }
+        }
+
+        #[cfg(feature = "network_dump")]
+        async fn dump_start(
+            &self,
+            request: tonic::Request<crate::grpc2::types::DumpRequest>,
+        ) -> Result<tonic::Response<crate::grpc2::types::Empty>, tonic::Status> {
+            let file_path = request.get_ref().file.to_owned();
+            if file_path.is_empty() {
+                Err(tonic::Status::invalid_argument("The supplied path must be non-empty"))
+            } else {
+                match self.node.activate_dump(&file_path, request.get_ref().raw) {
+                    Ok(_) => Ok(tonic::Response::new(crate::grpc2::types::Empty {})),
+                    Err(e) => {
+                        Err(tonic::Status::internal(format!("Could not start network dump {}", e)))
+                    }
+                }
+            }
+        }
+
+        #[cfg(not(feature = "network_dump"))]
+        async fn dump_start(
+            &self,
+            _request: tonic::Request<crate::grpc2::types::DumpRequest>,
+        ) -> Result<tonic::Response<crate::grpc2::types::Empty>, tonic::Status> {
+            Err(tonic::Status::failed_precondition("Feature \"network_dump\" is not active."))
+        }
+
+        #[cfg(feature = "network_dump")]
+        async fn dump_stop(
+            &self,
+            _request: tonic::Request<crate::grpc2::types::Empty>,
+        ) -> Result<tonic::Response<crate::grpc2::types::Empty>, tonic::Status> {
+            match self.node.stop_dump() {
+                Ok(_) => Ok(tonic::Response::new(crate::grpc2::types::Empty {})),
+                Err(e) => {
+                    Err(tonic::Status::internal(format!("Could not stop network dump {}", e)))
+                }
+            }
+        }
+
+        #[cfg(not(feature = "network_dump"))]
+        async fn dump_stop(
+            &self,
+            _request: tonic::Request<crate::grpc2::types::Empty>,
+        ) -> Result<tonic::Response<crate::grpc2::types::Empty>, tonic::Status> {
+            Err(tonic::Status::failed_precondition("Feature \"network_dump\" is not active."))
+        }
+
+        async fn get_peers_info(
+            &self,
+            _request: tonic::Request<crate::grpc2::types::Empty>,
+        ) -> Result<tonic::Response<crate::grpc2::types::PeersInfo>, tonic::Status> {
+            // we do a clone so we can release the lock quickly.
+            let peer_statuses = (*crate::read_or_die!(self.node.peers)).peer_states.clone();
+            let peers = self
+                .node
+                .get_peer_stats(None)
+                .into_iter()
+                .map(|peer_stats| {
+                    // Collect the network statistics
+                    let network_stats = Some(crate::grpc2::types::peers_info::peer::NetworkStats {
+                        packets_sent:     peer_stats.msgs_sent,
+                        packets_received: peer_stats.msgs_received,
+                        latency:          peer_stats.latency,
+                    });
+                    // Get the type of the peer.
+                    let consensus_info = match peer_stats.peer_type {
+                        // Regular nodes do have a catchup status.
+                        crate::common::PeerType::Node => {
+                            let catchup_status = match peer_statuses.get(&peer_stats.local_id) {
+                                Some(crate::consensus_ffi::catch_up::PeerStatus::CatchingUp) => {
+                                    crate::grpc2::types::peers_info::peer::CatchupStatus::Catchingup
+                                }
+                                Some(crate::consensus_ffi::catch_up::PeerStatus::UpToDate) => {
+                                    crate::grpc2::types::peers_info::peer::CatchupStatus::Uptodate
+                                }
+                                _ => crate::grpc2::types::peers_info::peer::CatchupStatus::Pending,
+                            };
+                            crate::grpc2::types::peers_info::peer::ConsensusInfo::NodeCatchupStatus(
+                                catchup_status.into(),
+                            )
+                        }
+                        // Bootstrappers do not have a catchup status as they are not participating
+                        // in the consensus protocol.
+                        crate::common::PeerType::Bootstrapper => {
+                            crate::grpc2::types::peers_info::peer::ConsensusInfo::Bootstrapper(
+                                crate::grpc2::types::Empty::default(),
+                            )
+                        }
+                    };
+                    // Get the catchup status of the peer.
+                    let socket_address = crate::grpc2::types::IpSocketAddress {
+                        ip:   Some(crate::grpc2::types::IpAddress {
+                            value: peer_stats.external_address().ip().to_string(),
+                        }),
+                        port: Some(crate::grpc2::types::Port {
+                            value: peer_stats.external_port as u32,
+                        }),
+                    };
+                    // Wrap the peer id.
+                    let peer_id = crate::grpc2::types::PeerId {
+                        value: format!("{}", peer_stats.self_id),
+                    };
+                    crate::grpc2::types::peers_info::Peer {
+                        peer_id: Some(peer_id),
+                        socket_address: Some(socket_address),
+                        consensus_info: Some(consensus_info),
+                        network_stats,
+                    }
+                })
+                .collect();
+            Ok(tonic::Response::new(crate::grpc2::types::PeersInfo {
+                peers,
+            }))
+        }
+
+        async fn get_node_info(
+            &self,
+            _request: tonic::Request<crate::grpc2::types::Empty>,
+        ) -> Result<tonic::Response<types::NodeInfo>, tonic::Status> {
+            let peer_version = self.node.get_version();
+            let local_time = Some(types::Timestamp {
+                value: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("Time went backwards.")
+                    .as_millis() as u64,
+            });
+            let peer_uptime = Some(types::Duration {
+                value: self.node.get_uptime() as u64,
+            });
+
+            let network_info = {
+                let node_id = self.node.id().to_string();
+                let peer_total_sent = self
+                    .node
+                    .connection_handler
+                    .total_sent
+                    .load(std::sync::atomic::Ordering::Relaxed);
+                let peer_total_received = self
+                    .node
+                    .connection_handler
+                    .total_received
+                    .load(std::sync::atomic::Ordering::Relaxed);
+                let avg_bps_in = self.node.stats.get_avg_bps_in();
+                let avg_bps_out = self.node.stats.get_avg_bps_out();
+
+                types::node_info::NetworkInfo {
+                    node_id: Some(types::PeerId {
+                        value: node_id,
+                    }),
+                    peer_total_sent,
+                    peer_total_received,
+                    avg_bps_in,
+                    avg_bps_out,
+                }
+            };
+
+            let details = match self.node.peer_type() {
+                // The node is a bootstrapper
+                crate::common::PeerType::Bootstrapper => {
+                    types::node_info::Details::Bootstrapper(types::Empty {})
+                }
+                // The node is a regular node
+                crate::common::PeerType::Node => {
+                    let consensus_status = if !self.consensus.is_consensus_running() {
+                        // The consensus is not running for the node.
+                        // The node does not support the current
+                        // protocol on the chain.
+                        types::node_info::node::ConsensusStatus::NotRunning(types::Empty {})
+                    } else if matches!(self.consensus.consensus_type, ConsensusType::Active) {
+                        let (in_baking_committee, _, bid) = self.consensus.in_baking_committee();
+                        let baker_id = types::BakerId {
+                            value: bid,
+                        };
+
+                        let baker_status = match in_baking_committee {
+                            ConsensusIsInBakingCommitteeResponse::ActiveInCommittee => {
+                                if self.consensus.in_finalization_committee() {
+                                    // The node is configured with baker keys and is an active
+                                    // member of
+                                    // the finalization committee.
+                                    types::node_info::baker_consensus_info::Status::ActiveFinalizerCommitteeInfo(
+                                            types::node_info::baker_consensus_info::ActiveFinalizerCommitteeInfo{})
+                                } else {
+                                    // The node is configured with baker keys and is an active
+                                    // member of the baking
+                                    // committee.
+                                    types::node_info::baker_consensus_info::Status::ActiveBakerCommitteeInfo(
+                                            types::node_info::baker_consensus_info::ActiveBakerCommitteeInfo{})
+                                }
+                            }
+                            ConsensusIsInBakingCommitteeResponse::NotInCommittee => {
+                                // The node is configured with baker keys but is not in the baking
+                                // committee.
+                                types::node_info::baker_consensus_info::Status::PassiveCommitteeInfo(
+                                        types::node_info::baker_consensus_info::PassiveCommitteeInfo::NotInCommittee.into()
+                                    )
+                            }
+                            ConsensusIsInBakingCommitteeResponse::AddedButNotActiveInCommittee => {
+                                // The node is configured with baker keys and it is a baker, but not
+                                // for the current epoch.
+                                types::node_info::baker_consensus_info::Status::PassiveCommitteeInfo(
+                                        types::node_info::baker_consensus_info::PassiveCommitteeInfo::AddedButNotActiveInCommittee.into()
+                                    )
+                            }
+                            ConsensusIsInBakingCommitteeResponse::AddedButWrongKeys => {
+                                // The node is configured with baker keys however they do not match
+                                // expected baker keys for the associated account.
+                                types::node_info::baker_consensus_info::Status::PassiveCommitteeInfo(
+                                        types::node_info::baker_consensus_info::PassiveCommitteeInfo::AddedButWrongKeys.into()
+                                    )
+                            }
+                        };
+                        // construct the baker status
+                        types::node_info::node::ConsensusStatus::Active(
+                            types::node_info::BakerConsensusInfo {
+                                baker_id: Some(baker_id),
+                                status:   Some(baker_status),
+                            },
+                        )
+                    } else {
+                        // The node is not configured with baker keys and is participating in
+                        // the consensus passively.
+                        types::node_info::node::ConsensusStatus::Passive(types::Empty {})
+                    };
+                    // Construct the details of the node.
+                    types::node_info::Details::Node(types::node_info::Node {
+                        consensus_status: Some(consensus_status),
+                    })
+                }
+            };
+
+            Ok(tonic::Response::new(types::NodeInfo {
+                peer_version,
+                local_time,
+                peer_uptime,
+                network_info: Some(network_info),
+                details: Some(details),
+            }))
+        }
+
         async fn send_block_item(
             &self,
             request: tonic::Request<crate::grpc2::types::SendBlockItemRequest>,
@@ -1468,7 +1925,7 @@ pub mod server {
         async fn get_block_items(
             &self,
             request: tonic::Request<crate::grpc2::types::BlockHashInput>,
-        ) -> Result<tonic::Response<GetBlockItemsStream>, tonic::Status> {
+        ) -> Result<tonic::Response<Self::GetBlockItemsStream>, tonic::Status> {
             let (sender, receiver) = futures::channel::mpsc::channel(100);
             let hash = self.consensus.get_block_items_v2(request.get_ref(), sender)?;
             let response = tonic::Response::new(receiver);

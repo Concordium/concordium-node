@@ -72,6 +72,7 @@ libc = "0.2"
 
 # gRPC dependencies
 tonic = { version = "0.8", features = ["tls"] }
+tonic-reflection = "0.5"
 tower-http = { version = "0.3", features = ["trace"] }
 tonic-web = "0.4"
 prost = "0.11"

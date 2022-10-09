@@ -1,7 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -13,7 +12,6 @@ module Concordium.GlobalState.Persistent.Accounts where
 import Control.Monad
 import Lens.Micro.Platform
 import Data.Serialize
-import GHC.Generics
 import Data.Maybe
 import qualified Data.Map.Strict as Map
 
@@ -83,10 +81,8 @@ data Accounts (pv :: ProtocolVersion) = Accounts {
     accountMap :: !(AccountMap.PersistentAccountMap pv),
     -- |Hashed Merkle-tree of the accounts
     accountTable :: !(LFMBTree' AccountIndex HashedBufferedRef (HashedCachedRef (AccountCache (AccountVersionFor pv)) (PersistentAccount (AccountVersionFor pv)))),
-    -- |Optional cached set of used 'ID.CredentialRegistrationID's
-    accountRegIds :: !(Nullable (Map.Map ID.RawCredentialRegistrationID AccountIndex)),
     -- |Persisted representation of the map from registration ids to account indices.
-    accountRegIdHistory :: !(Trie.TrieN BufferedFix ID.RawCredentialRegistrationID AccountIndex)
+    accountRegIdHistory :: !(Trie.TrieN UnbufferedFix ID.RawCredentialRegistrationID AccountIndex)
 }
 
 -- |A constraint that ensures a monad @m@ supports the persistent account operations.
@@ -105,33 +101,13 @@ makePersistent (Transient.Accounts amap atbl aregids) = do
     accountTable <- L.fromAscListV =<< mapM makePersistentAccountRef (Transient.toHashedList atbl)
     accountMap <- AccountMap.toPersistent amap
     accountRegIdHistory <- Trie.fromList (Map.toList aregids)
-    return Accounts {accountRegIds = Some aregids,..}
+    return Accounts {..}
 
 instance (IsProtocolVersion pv) => Show (Accounts pv) where
     show a = show (accountTable a)
 
 instance SupportsPersistentAccount pv m => MHashableTo m H.Hash (Accounts pv) where
   getHashM Accounts {..} = getHashM accountTable
-
--- |This history of used registration ids, consisting of a list of (uncommitted) ids, and a pointer
--- to a further (committed) history. Committed here means written to persistent storage.
-data RegIdHistory = RegIdHistory ![ID.CredentialRegistrationID] !(Nullable (BlobRef RegIdHistory))
-    deriving (Generic)
-
-instance Serialize RegIdHistory
-
--- This is probably not ideal, but some performance analysis is probably required to find a good
--- compromise.
-instance MonadBlobStore m => BlobStorable m RegIdHistory
-
--- |Load the registration ids.  If 'accountRegIds' is @Null@, then 'accountRegIdHistory'
--- is used (reading from disk as necessary) to determine it, in which case 'accountRegIds'
--- is updated with the determined value.
-loadRegIds :: forall m pv. MonadBlobStore m => Accounts pv -> m (Map.Map ID.RawCredentialRegistrationID AccountIndex, Accounts pv)
-loadRegIds a@Accounts{accountRegIds = Some regids} = return (regids, a)
-loadRegIds a@Accounts{accountRegIds = Null, ..} = do
-        regids <- Trie.toMap accountRegIdHistory
-        return (regids, a {accountRegIds = Some regids})
 
 instance (SupportsPersistentAccount pv m) => BlobStorable m (Accounts pv) where
     storeUpdate Accounts{..} = do
@@ -141,8 +117,7 @@ instance (SupportsPersistentAccount pv m) => BlobStorable m (Accounts pv) where
         let newAccounts = Accounts{
                 accountMap = accountMap',
                 accountTable = accountTable',
-                accountRegIdHistory = regIdHistory',
-                ..
+                accountRegIdHistory = regIdHistory'
             }
         return (pMap >> pTable >> pRegIdHistory, newAccounts)
     load = do
@@ -153,21 +128,20 @@ instance (SupportsPersistentAccount pv m) => BlobStorable m (Accounts pv) where
             accountMap <- maccountMap
             accountTable <- maccountTable
             accountRegIdHistory <- mrRIH
-            return $ Accounts {accountRegIds = Null,..}
+            return $ Accounts {..}
 
 instance (SupportsPersistentAccount pv m, av ~ AccountVersionFor pv) => Cacheable1 m (Accounts pv) (PersistentAccount av) where
-    liftCache cch accts0 = do
-        (_, accts@Accounts{..}) <- loadRegIds accts0
+    liftCache cch accts@Accounts{..} = do
         acctMap <- cache accountMap
         acctTable <- liftCache (liftCache @_ @(HashedCachedRef (AccountCache av) (PersistentAccount av)) cch) accountTable
-        return accts{
+        return accts {
             accountMap = acctMap,
             accountTable = acctTable
         }
 
 -- |An 'Accounts' with no accounts.
 emptyAccounts :: Accounts pv
-emptyAccounts = Accounts AccountMap.empty L.empty (Some Map.empty) Trie.empty
+emptyAccounts = Accounts AccountMap.empty L.empty Trie.empty
 
 -- |Add a new account. Returns @Just idx@ if the new account is fresh, i.e., the address does not exist,
 -- or @Nothing@ in case the account already exists. In the latter case there is no change to the accounts structure.
@@ -198,14 +172,9 @@ getAccount addr Accounts{..} = AccountMap.lookup addr accountMap >>= \case
 -- |Retrieve an account associated with the given credential registration ID.
 -- Returns @Nothing@ if no such account exists.
 getAccountByCredId :: SupportsPersistentAccount pv m => ID.RawCredentialRegistrationID -> Accounts pv -> m (Maybe (AccountIndex, PersistentAccount (AccountVersionFor pv)))
-getAccountByCredId cid accs@Accounts{accountRegIds = Null,..} = Trie.lookup cid accountRegIdHistory  >>= \case
+getAccountByCredId cid accs@Accounts{..} = Trie.lookup cid accountRegIdHistory  >>= \case
         Nothing -> return Nothing
         Just ai -> fmap (ai, ) <$> indexedAccount ai accs
-getAccountByCredId cid accs@Accounts{accountRegIds = Some cachedIds} =
-    case Map.lookup cid cachedIds of
-        Nothing -> return Nothing
-        Just ai -> fmap (ai, ) <$> indexedAccount ai accs
-
 
 -- |Get the account at a given index (if any).
 getAccountIndex :: (IsProtocolVersion pv, MonadBlobStore m) => AccountAddress -> Accounts pv -> m (Maybe AccountIndex)
@@ -237,22 +206,24 @@ addressWouldClash addr Accounts{..} = AccountMap.addressWouldClash addr accountM
 -- |Check that an account registration ID is not already on the chain.
 -- See the foundation (Section 4.2) for why this is necessary.
 -- Return @Just ai@ if the registration ID already exists, and @ai@ is the index of the account it is or was associated with.
-regIdExists :: MonadBlobStore m => ID.CredentialRegistrationID -> Accounts pv -> m (Maybe AccountIndex, Accounts pv)
-regIdExists rid accts0 = do
-        (regids, accts) <- loadRegIds accts0
-        return (ID.toRawCredRegId rid `Map.lookup` regids, accts)
+regIdExists :: MonadBlobStore m => ID.CredentialRegistrationID -> Accounts pv -> m (Maybe AccountIndex)
+regIdExists rid accts = Trie.lookup (ID.toRawCredRegId rid) (accountRegIdHistory accts)
 
 -- |Record an account registration ID as used.
 recordRegId :: MonadBlobStore m => ID.CredentialRegistrationID -> AccountIndex -> Accounts pv -> m (Accounts pv)
 recordRegId rid idx accts0 = do
         accountRegIdHistory' <- Trie.insert (ID.toRawCredRegId rid) idx (accountRegIdHistory accts0)
         return $! accts0 {
-                accountRegIds = Map.insert (ID.toRawCredRegId rid) idx <$> accountRegIds accts0,
                 accountRegIdHistory = accountRegIdHistory'
                 }
 
 recordRegIds :: MonadBlobStore m => [(ID.CredentialRegistrationID, AccountIndex)] -> Accounts pv -> m (Accounts pv)
 recordRegIds rids accts0 = foldM (\accts (cid, idx) -> recordRegId cid idx accts) accts0 rids
+
+-- |Get the account registration ids map. This loads the entire map from the blob store, and so
+-- should generally be avoided if this is not necessary.
+loadRegIds :: forall m pv. MonadBlobStore m => Accounts pv -> m (Map.Map ID.RawCredentialRegistrationID AccountIndex)
+loadRegIds accts = Trie.toMap (accountRegIdHistory accts)
 
 -- |Perform an update to an account with the given address.
 -- Does nothing (returning @Nothing@) if the account does not exist.
@@ -343,10 +314,9 @@ migrateAccounts migration Accounts{..} = do
     newAccountTable <- L.migrateLFMBTree (migrateHashedCachedRef' (migratePersistentAccount migration)) accountTable
     -- The account registration IDs are not cached. There is a separate cache
     -- that is purely in-memory and just copied over.
-    newAccountRegIds <- Trie.migrateTrieN False return accountRegIdHistory
+    newAccountRegIds <- Trie.migrateUnbufferedTrieN return accountRegIdHistory
     return $! Accounts {
       accountMap = newAccountMap,
       accountTable = newAccountTable,
-      accountRegIds = accountRegIds,
       accountRegIdHistory = newAccountRegIds
       }

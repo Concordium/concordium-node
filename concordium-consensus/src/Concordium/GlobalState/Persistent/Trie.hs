@@ -44,7 +44,7 @@ import Concordium.GlobalState.Persistent.BlobStore
     ( BlobStorable(..),
       Cacheable(..),
       FixShowable(..),
-      Nullable(..), BufferedFix(..), Reference(..))
+      Nullable(..), BufferedFix(..), Reference(..), UnbufferedFix (..), makeFlushedUnbufferedRef)
 
 class FixedTrieKey a where
     -- |Unpack a key to a list of bytes.
@@ -500,6 +500,37 @@ migrateTrieF cacheNew f (Branch branches) = do
       !childRefFlushed <- if cacheNew then fst <$> refFlush newChild else refUncache newChild
       !_ <- lift (refUncache (unBF be))
       return $! BufferedFix childRefFlushed
+    return $! Branch newBranches
+
+-- |Migrate a trie from one blob store to another.
+migrateUnbufferedTrieN ::
+  forall v1 v2 k m t .
+    (BlobStorable m v1, BlobStorable (t m) v2, MonadTrans t) =>
+    (v1 -> t m v2) ->
+    TrieN UnbufferedFix k v1 ->
+    t m (TrieN UnbufferedFix k v2)
+migrateUnbufferedTrieN _ EmptyTrieN = return EmptyTrieN
+migrateUnbufferedTrieN f (TrieN n root) = do
+    trieF <- lift (refLoad (unUF root))
+    !newRoot <- migrateUnbufferedTrieF f trieF
+    !rootRef <- makeFlushedUnbufferedRef newRoot
+    return $! TrieN n (UnbufferedFix rootRef)
+
+migrateUnbufferedTrieF ::
+    (BlobStorable m v1, BlobStorable (t m) v2, MonadTrans t) =>
+    (v1 -> t m v2) ->
+    TrieF k v1 (UnbufferedFix (TrieF k v1)) ->
+    t m (TrieF k v2 (UnbufferedFix (TrieF k v2)))
+migrateUnbufferedTrieF f (Tip v) = Tip <$!> f v
+migrateUnbufferedTrieF f (Stem stem r) = do
+    !child <- lift (refLoad (unUF r))
+    !newChild <- makeFlushedUnbufferedRef =<< migrateUnbufferedTrieF f child
+    return $! Stem stem (UnbufferedFix newChild)
+migrateUnbufferedTrieF f (Branch branches) = do
+    newBranches <- forM branches $ \be -> do
+      !child <- lift (refLoad (unUF be))
+      !newChild <- makeFlushedUnbufferedRef =<< migrateUnbufferedTrieF f child
+      return $! UnbufferedFix newChild
     return $! Branch newBranches
 
 instance (Show v, FixShowable fix) => Show (TrieN fix k v) where
