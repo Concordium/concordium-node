@@ -387,7 +387,6 @@ pub struct GRPC2Config {
                 present before the health check fails.",
         env = "CONCORDIUM_NODE_GRPC2_HEALTH_MAX_FINALIZED_DELAY",
         default_value = "300",
-        requires = "grpc2-listen-addr"
     )]
     pub health_max_finalized_delay: concordium_base::base::DurationSeconds,
 }
