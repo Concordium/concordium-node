@@ -330,6 +330,14 @@ getConsensusStatus = MVR $ \mvr -> do
                     csFinalizationPeriodEMSD = sqrt <$> stats ^. finalizationPeriodEMVar
                 return ConsensusStatus{..}
 
+-- |Retrieve the slot time of the last finalized block.
+getLastFinalizedSlotTime :: MVR gsconf finconf Timestamp
+getLastFinalizedSlotTime = MVR $ \mvr -> do
+    versions <- readIORef (mvVersions mvr)
+    liftSkovQuery mvr (Vec.last versions) $ do
+        lfb <- lastFinalizedBlock
+        utcTimeToTimestamp <$> getSlotTime (blockSlot lfb)
+
 -- * Queries against latest version
 
 -- ** Blocks

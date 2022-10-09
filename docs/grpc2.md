@@ -31,6 +31,9 @@ If these are enabled then the following options become available
 - `--grpc2-enable-grpc-web` (`CONCORDIUM_NODE_GRPC2_ENABLE_GRPC_WEB`) if set,
   enables the server support for [grpc-web](https://github.com/grpc/grpc-web)
   over HTTP 1.1. This allows the node's API to be used directly from a browser.
+- `--grpc2-health-max-finalized-delay` is a configuration for the
+  `GetNodeHealth` endpoint. It specifies (in seconds) the maximum delay in last
+  finalized block time before the health check fails.
 - `--grpc2-endpoint-config` (`CONCORDIUM_NODE_GRPC2_ENDPOINT_CONFIG`) if
   supplied, it should point to a `.toml` file with the configuration of
   endpoints. If this option is not supplied all endpoints are enabled. If it is

@@ -636,6 +636,7 @@ pub mod server {
             },
             messaging::{ConsensusMessage, MessageType},
         },
+        health,
         p2p::P2PNode,
     };
     use anyhow::Context;
@@ -820,6 +821,24 @@ pub mod server {
                     builder.add_service(tonic_web::enable(service))
                 } else {
                     builder.add_service(service)
+                };
+
+                let router = {
+                    // add the health service with reflection.
+                    // The naming of the reflection service here (queries_descriptor) must match
+                    // the naming chosen in the build.rs file.
+                    let reflection_service = tonic_reflection::server::Builder::configure()
+                        .register_encoded_file_descriptor_set(health::HEALTH_DESCRIPTOR)
+                        .build()
+                        .context("Unable to start the GRPC2 reflection service.")?;
+
+                    let health_service = health::HealthServiceImpl {
+                        consensus:                     consensus.clone(),
+                        health_max_finalization_delay: config.health_max_finalized_delay,
+                    };
+                    router
+                        .add_service(health::health_server::HealthServer::new(health_service))
+                        .add_service(reflection_service)
                 };
 
                 let task = tokio::spawn(async move {

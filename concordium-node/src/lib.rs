@@ -52,3 +52,4 @@ pub mod flatbuffers_shim;
 mod macos_log;
 
 pub mod grpc2;
+mod health;

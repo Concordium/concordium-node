@@ -1268,6 +1268,9 @@ extern "C" {
         out: *mut Vec<u8>,
         copier: CopyToVecCallback,
     ) -> i64;
+
+    /// Get the slot time (in milliseconds) of the last finalized block.
+    pub fn getLastFinalizedBlockSlotTimeV2(consensus: *mut consensus_runner) -> u64;
 }
 
 /// This is the callback invoked by consensus on newly arrived, and newly
@@ -2775,6 +2778,15 @@ impl ConsensusContainer {
         .try_into()?;
         response.ensure_ok("block")?;
         Ok((out_hash, out_data))
+    }
+
+    /// Get the slot time (in milliseconds) of the last finalized block.
+    pub fn get_last_finalized_block_slot_time_v2(
+        &self,
+    ) -> concordium_base::common::types::Timestamp {
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let millis = unsafe { getLastFinalizedBlockSlotTimeV2(consensus) };
+        millis.into()
     }
 }
 
