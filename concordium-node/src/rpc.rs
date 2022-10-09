@@ -876,7 +876,7 @@ impl P2p for RpcServerImpl {
     async fn shutdown(&self, req: Request<Empty>) -> Result<Response<BoolResponse>, Status> {
         authenticate!(req, self.access_token);
         Ok(Response::new(BoolResponse {
-            value: self.node.close(),
+            value: self.node.close().is_ok(),
         }))
     }
 

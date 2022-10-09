@@ -1840,7 +1840,7 @@ doRegIdExists :: (SupportsPersistentState pv m) => PersistentBlockState pv -> ID
 
 doRegIdExists pbs regid = do
         bsp <- loadPBS pbs
-        isJust . fst <$> Accounts.regIdExists regid (bspAccounts bsp)
+        isJust <$> Accounts.regIdExists regid (bspAccounts bsp)
 
 doCreateAccount :: (SupportsPersistentState pv m) => PersistentBlockState pv -> ID.GlobalContext -> AccountAddress -> ID.AccountCredential ->  m (Maybe (PersistentAccount (AccountVersionFor pv)), PersistentBlockState pv)
 doCreateAccount pbs cryptoParams acctAddr credential = do

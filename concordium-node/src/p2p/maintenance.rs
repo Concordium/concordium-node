@@ -569,12 +569,12 @@ impl P2PNode {
     pub fn internal_addr(&self) -> SocketAddr { self.self_peer.addr }
 
     /// Shut the node down gracefully without terminating its threads.
-    pub fn close(&self) -> bool {
+    pub fn close(&self) -> anyhow::Result<()> {
         // First notify the maintenance thread to stop processing new connections or
         // network packets.
         self.stop_network();
         // Then process all messages we still have in the inbound Consensus queues.
-        CALLBACK_QUEUE.stop().is_ok()
+        CALLBACK_QUEUE.stop()
     }
 
     /// Waits for all the spawned threads to terminate.
@@ -605,7 +605,9 @@ impl P2PNode {
     /// node. It may panic or deadlock (depending on platform) if used from
     /// two different node threads.
     pub fn close_and_join(&self) -> anyhow::Result<()> {
-        self.close();
+        if let Err(e) = self.close() {
+            error!("Unable to stop the node correctly: {e}.");
+        }
         self.join()
     }
 }
