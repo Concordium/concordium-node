@@ -526,20 +526,156 @@ struct ServiceConfig {
     #[serde(default)]
     get_finalized_blocks: bool,
     #[serde(default)]
-    get_blocks:           bool,
+    get_blocks: bool,
     #[serde(default)]
-    get_account_list:     bool,
+    get_account_list: bool,
     #[serde(default)]
-    get_account_info:     bool,
+    get_account_info: bool,
+    #[serde(default)]
+    get_module_list: bool,
+    #[serde(default)]
+    get_module_source: bool,
+    #[serde(default)]
+    get_instance_list: bool,
+    #[serde(default)]
+    get_instance_info: bool,
+    #[serde(default)]
+    get_instance_state: bool,
+    #[serde(default)]
+    instance_state_lookup: bool,
+    #[serde(default)]
+    get_next_account_sequence_number: bool,
+    #[serde(default)]
+    get_consensus_info: bool,
+    #[serde(default)]
+    get_ancestors: bool,
+    #[serde(default)]
+    get_block_item_status: bool,
+    #[serde(default)]
+    invoke_instance: bool,
+    #[serde(default)]
+    get_cryptographic_parameters: bool,
+    #[serde(default)]
+    get_block_info: bool,
+    #[serde(default)]
+    get_baker_list: bool,
+    #[serde(default)]
+    get_pool_info: bool,
+    #[serde(default)]
+    get_passive_delegation_info: bool,
+    #[serde(default)]
+    get_blocks_at_height: bool,
+    #[serde(default)]
+    get_tokenomics_info: bool,
+    #[serde(default)]
+    get_pool_delegators: bool,
+    #[serde(default)]
+    get_pool_delegators_reward_period: bool,
+    #[serde(default)]
+    get_passive_delegators: bool,
+    #[serde(default)]
+    get_passive_delegators_reward_period: bool,
+    #[serde(default)]
+    get_branches: bool,
+    #[serde(default)]
+    get_election_info: bool,
+    #[serde(default)]
+    get_identity_providers: bool,
+    #[serde(default)]
+    get_anonymity_revokers: bool,
+    #[serde(default)]
+    get_account_non_finalized_transactions: bool,
+    #[serde(default)]
+    get_block_transaction_events: bool,
+    #[serde(default)]
+    get_block_special_events: bool,
+    #[serde(default)]
+    get_block_pending_updates: bool,
+    #[serde(default)]
+    get_next_update_sequence_numbers: bool,
+    #[serde(default)]
+    get_block_chain_parameters: bool,
+    #[serde(default)]
+    get_block_finalization_summary: bool,
+    #[serde(default)]
+    shutdown: bool,
+    #[serde(default)]
+    peer_connect: bool,
+    #[serde(default)]
+    peer_disconnect: bool,
+    #[serde(default)]
+    get_banned_peers: bool,
+    #[serde(default)]
+    ban_peer: bool,
+    #[serde(default)]
+    unban_peer: bool,
+    #[serde(default)]
+    dump_start: bool,
+    #[serde(default)]
+    dump_stop: bool,
+    #[serde(default)]
+    get_peers_info: bool,
+    #[serde(default)]
+    get_node_info: bool,
+    #[serde(default)]
+    send_block_item: bool,
+    #[serde(default)]
+    get_account_transaction_sign_hash: bool,
 }
 
 impl ServiceConfig {
     pub const fn new_all_enabled() -> Self {
         Self {
             get_finalized_blocks: true,
-            get_blocks:           true,
-            get_account_list:     true,
-            get_account_info:     true,
+            get_blocks: true,
+            get_account_list: true,
+            get_account_info: true,
+            get_module_list: true,
+            get_module_source: true,
+            get_instance_list: true,
+            get_instance_info: true,
+            get_instance_state: true,
+            get_instance_state: true,
+            instance_state_lookup: true,
+            get_next_account_sequence_number: true,
+            get_consensus_info: true,
+            get_ancestors: true,
+            get_block_item_status: true,
+            invoke_instance: true,
+            get_cryptographic_parameters: true,
+            get_block_info: true,
+            get_baker_list: true,
+            get_pool_info: true,
+            get_passive_delegation_info: true,
+            get_blocks_at_height: true,
+            get_tokenomics_info: true,
+            get_pool_delegators: true,
+            get_pool_delegators_reward_period: true,
+            get_passive_delegators: true,
+            get_passive_delegators_reward_period: true,
+            get_branches: true,
+            get_election_info: true,
+            get_identity_providers: true,
+            get_anonymity_revokers: true,
+            get_account_non_finalized_transactions: true,
+            get_block_transaction_events: true,
+            get_block_special_events: true,
+            get_block_pending_updates: true,
+            get_next_update_sequence_numbers: true,
+            get_block_chain_parameters: true,
+            get_block_finalization_summary: true,
+            shutdown: true,
+            peer_connect: true,
+            peer_disconnect: true,
+            get_banned_peers: true,
+            ban_peer: true,
+            unban_peer: true,
+            dump_start: true,
+            dump_stop: true,
+            get_peers_info: true,
+            get_node_info: true,
+            send_block_item: true,
+            get_account_transaction_sign_hash: true,
         }
     }
 
@@ -1019,7 +1155,9 @@ pub mod server {
             &self,
             request: tonic::Request<crate::grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Self::GetModuleListStream>, tonic::Status> {
-            // TODO: Configuration.
+            if !self.service_config.get_module_list {
+                return Err(tonic::Status::unimplemented("`GetModuleList` is not enabled."));
+            }
             let (sender, receiver) = futures::channel::mpsc::channel(100);
             let hash = self.consensus.get_module_list_v2(request.get_ref(), sender)?;
             let mut response = tonic::Response::new(receiver);
@@ -1031,6 +1169,9 @@ pub mod server {
             &self,
             request: tonic::Request<crate::grpc2::types::ModuleSourceRequest>,
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            if !self.service_config.get_module_source {
+                return Err(tonic::Status::unimplemented("`GetModuleSource` is not enabled."));
+            }
             let request = request.get_ref();
             let block_hash = request.block_hash.as_ref().require()?;
             let module_ref = request.module_ref.as_ref().require()?;
@@ -1044,6 +1185,9 @@ pub mod server {
             &self,
             request: tonic::Request<crate::grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Self::GetInstanceListStream>, tonic::Status> {
+            if !self.service_config.get_instance_list {
+                return Err(tonic::Status::unimplemented("`GetInstanceList` is not enabled."));
+            }
             let (sender, receiver) = futures::channel::mpsc::channel(100);
             let hash = self.consensus.get_instance_list_v2(request.get_ref(), sender)?;
             let mut response = tonic::Response::new(receiver);
@@ -1055,6 +1199,9 @@ pub mod server {
             &self,
             request: tonic::Request<crate::grpc2::types::InstanceInfoRequest>,
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            if !self.service_config.get_instance_info {
+                return Err(tonic::Status::unimplemented("`GetInstanceInfo` is not enabled."));
+            }
             let request = request.get_ref();
             let block_hash = request.block_hash.as_ref().require()?;
             let contract_address = request.address.as_ref().require()?;
@@ -1069,6 +1216,9 @@ pub mod server {
             &self,
             request: tonic::Request<crate::grpc2::types::InstanceInfoRequest>,
         ) -> Result<tonic::Response<Self::GetInstanceStateStream>, tonic::Status> {
+            if !self.service_config.get_instance_state {
+                return Err(tonic::Status::unimplemented("`GetInstanceState` is not enabled."));
+            }
             let request = request.get_ref();
             let block_hash = request.block_hash.as_ref().require()?;
             let contract_address = request.address.as_ref().require()?;
@@ -1131,6 +1281,9 @@ pub mod server {
             &self,
             request: tonic::Request<types::InstanceStateLookupRequest>,
         ) -> Result<tonic::Response<types::InstanceStateValueAtKey>, tonic::Status> {
+            if !self.service_config.instance_state_lookup {
+                return Err(tonic::Status::unimplemented("`InstanceStateLookup` is not enabled."));
+            }
             let request = request.get_ref();
             let block_hash = request.block_hash.as_ref().require()?;
             let contract_address = request.address.as_ref().require()?;
@@ -1170,6 +1323,11 @@ pub mod server {
             &self,
             request: tonic::Request<crate::grpc2::types::AccountAddress>,
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            if !self.service_config.get_next_account_sequence_number {
+                return Err(tonic::Status::unimplemented(
+                    "`GetNextAccountSequenceNumber` is not enabled.",
+                ));
+            }
             let response = self.consensus.get_next_account_sequence_number_v2(request.get_ref())?;
             Ok(tonic::Response::new(response))
         }
@@ -1178,6 +1336,9 @@ pub mod server {
             &self,
             _request: tonic::Request<crate::grpc2::types::Empty>,
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            if !self.service_config.get_consensus_info {
+                return Err(tonic::Status::unimplemented("`GetConsensusInfo` is not enabled."));
+            }
             let response = self.consensus.get_consensus_info_v2()?;
             Ok(tonic::Response::new(response))
         }
@@ -1186,6 +1347,9 @@ pub mod server {
             &self,
             request: tonic::Request<crate::grpc2::types::AncestorsRequest>,
         ) -> Result<tonic::Response<Self::GetAncestorsStream>, tonic::Status> {
+            if !self.service_config.get_ancestors {
+                return Err(tonic::Status::unimplemented("`GetAncestors` is not enabled."));
+            }
             let (sender, receiver) = futures::channel::mpsc::channel(100);
             let request = request.get_ref();
             let block_hash = request.block_hash.as_ref().require()?;
@@ -1200,6 +1364,9 @@ pub mod server {
             &self,
             request: tonic::Request<crate::grpc2::types::TransactionHash>,
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            if !self.service_config.get_block_item_status {
+                return Err(tonic::Status::unimplemented("`GetBlockItemStatus` is not enabled."));
+            }
             let response = self.consensus.get_block_item_status_v2(request.get_ref())?;
             Ok(tonic::Response::new(response))
         }
@@ -1208,6 +1375,9 @@ pub mod server {
             &self,
             request: tonic::Request<crate::grpc2::types::InvokeInstanceRequest>,
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            if !self.service_config.invoke_instance {
+                return Err(tonic::Status::unimplemented("`InvokeInstance` is not enabled."));
+            }
             if request
                 .get_ref()
                 .energy
@@ -1231,6 +1401,11 @@ pub mod server {
             request: tonic::Request<crate::grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<crate::grpc2::types::CryptographicParameters>, tonic::Status>
         {
+            if !self.service_config.get_cryptographic_parameters {
+                return Err(tonic::Status::unimplemented(
+                    "`GetCryptographicParameters` is not enabled.",
+                ));
+            }
             let (hash, response) =
                 self.consensus.get_cryptographic_parameters_v2(request.get_ref())?;
             let mut response = tonic::Response::new(response);
@@ -1242,6 +1417,9 @@ pub mod server {
             &self,
             request: tonic::Request<crate::grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            if !self.service_config.get_block_info {
+                return Err(tonic::Status::unimplemented("`GetBlockInfo` is not enabled."));
+            }
             let (hash, response) = self.consensus.get_block_info_v2(request.get_ref())?;
             let mut response = tonic::Response::new(response);
             add_hash(&mut response, hash)?;
@@ -1252,6 +1430,9 @@ pub mod server {
             &self,
             request: tonic::Request<crate::grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Self::GetBakerListStream>, tonic::Status> {
+            if !self.service_config.get_baker_list {
+                return Err(tonic::Status::unimplemented("`GetBakerList` is not enabled."));
+            }
             let (sender, receiver) = futures::channel::mpsc::channel(100);
             let hash = self.consensus.get_baker_list_v2(request.get_ref(), sender)?;
             let mut response = tonic::Response::new(receiver);
@@ -1263,6 +1444,9 @@ pub mod server {
             &self,
             request: tonic::Request<crate::grpc2::types::PoolInfoRequest>,
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            if !self.service_config.get_pool_info {
+                return Err(tonic::Status::unimplemented("`GetPoolInfo` is not enabled."));
+            }
             let (hash, response) = self.consensus.get_pool_info_v2(request.get_ref())?;
             let mut response = tonic::Response::new(response);
             add_hash(&mut response, hash)?;
@@ -1273,6 +1457,11 @@ pub mod server {
             &self,
             request: tonic::Request<crate::grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            if !self.service_config.get_passive_delegation_info {
+                return Err(tonic::Status::unimplemented(
+                    "`GetPassiveDelegationInfo` is not enabled.",
+                ));
+            }
             let (hash, response) =
                 self.consensus.get_passive_delegation_info_v2(request.get_ref())?;
             let mut response = tonic::Response::new(response);
@@ -1284,6 +1473,9 @@ pub mod server {
             &self,
             request: tonic::Request<crate::grpc2::types::BlocksAtHeightRequest>,
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            if !self.service_config.get_blocks_at_height {
+                return Err(tonic::Status::unimplemented("`GetBlocksAtHeight` is not enabled."));
+            }
             let data = self.consensus.get_blocks_at_height_v2(request.get_ref())?;
             let response = tonic::Response::new(data);
             Ok(response)
@@ -1293,6 +1485,9 @@ pub mod server {
             &self,
             request: tonic::Request<crate::grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            if !self.service_config.get_tokenomics_info {
+                return Err(tonic::Status::unimplemented("`GetTokenomicsInfo` is not enabled."));
+            }
             let (hash, response) = self.consensus.get_tokenomics_info_v2(request.get_ref())?;
             let mut response = tonic::Response::new(response);
             add_hash(&mut response, hash)?;
@@ -1303,6 +1498,9 @@ pub mod server {
             &self,
             request: tonic::Request<crate::grpc2::types::GetPoolDelegatorsRequest>,
         ) -> Result<tonic::Response<Self::GetPoolDelegatorsStream>, tonic::Status> {
+            if !self.service_config.get_pool_delegators {
+                return Err(tonic::Status::unimplemented("`GetPoolDelegators` is not enabled."));
+            }
             let (sender, receiver) = futures::channel::mpsc::channel(100);
             let hash = self.consensus.get_pool_delegators_v2(request.get_ref(), sender)?;
             let mut response = tonic::Response::new(receiver);
@@ -1315,6 +1513,11 @@ pub mod server {
             request: tonic::Request<crate::grpc2::types::GetPoolDelegatorsRequest>,
         ) -> Result<tonic::Response<Self::GetPoolDelegatorsRewardPeriodStream>, tonic::Status>
         {
+            if !self.service_config.get_pool_delegators_reward_period {
+                return Err(tonic::Status::unimplemented(
+                    "`GetPoolDelegatorsRewardPeriod` is not enabled.",
+                ));
+            }
             let (sender, receiver) = futures::channel::mpsc::channel(100);
             let hash =
                 self.consensus.get_pool_delegators_reward_period_v2(request.get_ref(), sender)?;
@@ -1327,6 +1530,9 @@ pub mod server {
             &self,
             request: tonic::Request<crate::grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Self::GetPassiveDelegatorsStream>, tonic::Status> {
+            if !self.service_config.get_passive_delegators {
+                return Err(tonic::Status::unimplemented("`GetPassiveDelegators` is not enabled."));
+            }
             let (sender, receiver) = futures::channel::mpsc::channel(100);
             let hash = self.consensus.get_passive_delegators_v2(request.get_ref(), sender)?;
             let mut response = tonic::Response::new(receiver);
@@ -1339,6 +1545,11 @@ pub mod server {
             request: tonic::Request<crate::grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Self::GetPassiveDelegatorsRewardPeriodStream>, tonic::Status>
         {
+            if !self.service_config.get_passive_delegators_reward_period {
+                return Err(tonic::Status::unimplemented(
+                    "`GetPassiveDelegatorsRewardPeriod` is not enabled.",
+                ));
+            }
             let (sender, receiver) = futures::channel::mpsc::channel(100);
             let hash = self
                 .consensus
@@ -1352,6 +1563,9 @@ pub mod server {
             &self,
             _request: tonic::Request<crate::grpc2::types::Empty>,
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            if !self.service_config.get_branches {
+                return Err(tonic::Status::unimplemented("`GetBranches` is not enabled."));
+            }
             Ok(tonic::Response::new(self.consensus.get_branches_v2()?))
         }
 
@@ -1359,6 +1573,9 @@ pub mod server {
             &self,
             request: tonic::Request<crate::grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            if !self.service_config.get_election_info {
+                return Err(tonic::Status::unimplemented("`GetElectionInfo` is not enabled."));
+            }
             let (hash, response) = self.consensus.get_election_info_v2(request.get_ref())?;
             let mut response = tonic::Response::new(response);
             add_hash(&mut response, hash)?;
@@ -1369,6 +1586,9 @@ pub mod server {
             &self,
             request: tonic::Request<crate::grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Self::GetIdentityProvidersStream>, tonic::Status> {
+            if !self.service_config.get_identity_providers {
+                return Err(tonic::Status::unimplemented("`GetIdentityProviders` is not enabled."));
+            }
             let (sender, receiver) = futures::channel::mpsc::channel(10);
             let hash = self.consensus.get_identity_providers_v2(request.get_ref(), sender)?;
             let mut response = tonic::Response::new(receiver);
@@ -1380,6 +1600,9 @@ pub mod server {
             &self,
             request: tonic::Request<crate::grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Self::GetAnonymityRevokersStream>, tonic::Status> {
+            if !self.service_config.get_anonymity_revokers {
+                return Err(tonic::Status::unimplemented("`GetAnonymityRevokers` is not enabled."));
+            }
             let (sender, receiver) = futures::channel::mpsc::channel(10);
             let hash = self.consensus.get_anonymity_revokers_v2(request.get_ref(), sender)?;
             let mut response = tonic::Response::new(receiver);
@@ -1392,6 +1615,11 @@ pub mod server {
             request: tonic::Request<crate::grpc2::types::AccountAddress>,
         ) -> Result<tonic::Response<Self::GetAccountNonFinalizedTransactionsStream>, tonic::Status>
         {
+            if !self.service_config.get_account_non_finalized_transactions {
+                return Err(tonic::Status::unimplemented(
+                    "`GetAccountNonFinalizedTransactions` is not enabled.",
+                ));
+            }
             let (sender, receiver) = futures::channel::mpsc::channel(10);
             self.consensus.get_account_non_finalized_transactions_v2(request.get_ref(), sender)?;
             let response = tonic::Response::new(receiver);
@@ -1402,6 +1630,11 @@ pub mod server {
             &self,
             request: tonic::Request<crate::grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Self::GetBlockTransactionEventsStream>, tonic::Status> {
+            if !self.service_config.get_block_transaction_events {
+                return Err(tonic::Status::unimplemented(
+                    "`GetBlockTransactionEvents` is not enabled.",
+                ));
+            }
             let (sender, receiver) = futures::channel::mpsc::channel(10);
             let hash = self.consensus.get_block_transaction_events_v2(request.get_ref(), sender)?;
             let mut response = tonic::Response::new(receiver);
@@ -1413,6 +1646,11 @@ pub mod server {
             &self,
             request: tonic::Request<crate::grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Self::GetBlockSpecialEventsStream>, tonic::Status> {
+            if !self.service_config.get_block_special_events {
+                return Err(tonic::Status::unimplemented(
+                    "`GetBlockSpecialEvents` is not enabled.",
+                ));
+            }
             let (sender, receiver) = futures::channel::mpsc::channel(10);
             let hash = self.consensus.get_block_special_events_v2(request.get_ref(), sender)?;
             let mut response = tonic::Response::new(receiver);
@@ -1424,6 +1662,11 @@ pub mod server {
             &self,
             request: tonic::Request<crate::grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Self::GetBlockPendingUpdatesStream>, tonic::Status> {
+            if !self.service_config.get_block_pending_updates {
+                return Err(tonic::Status::unimplemented(
+                    "`GetBlockPendingUpdates` is not enabled.",
+                ));
+            }
             let (sender, receiver) = futures::channel::mpsc::channel(10);
             let hash = self.consensus.get_block_pending_updates_v2(request.get_ref(), sender)?;
             let mut response = tonic::Response::new(receiver);
@@ -1435,6 +1678,11 @@ pub mod server {
             &self,
             request: tonic::Request<crate::grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            if !self.service_config.get_next_update_sequence_numbers {
+                return Err(tonic::Status::unimplemented(
+                    "`GetNextUpdateSequenceNumber` is not enabled.",
+                ));
+            }
             let (hash, response) =
                 self.consensus.get_next_update_sequence_numbers_v2(request.get_ref())?;
             let mut response = tonic::Response::new(response);
@@ -1446,6 +1694,11 @@ pub mod server {
             &self,
             request: tonic::Request<crate::grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            if !self.service_config.get_block_chain_parameters {
+                return Err(tonic::Status::unimplemented(
+                    "`GetBlockChainParameters` is not enabled.",
+                ));
+            }
             let (hash, response) =
                 self.consensus.get_block_chain_parameters_v2(request.get_ref())?;
             let mut response = tonic::Response::new(response);
@@ -1457,6 +1710,11 @@ pub mod server {
             &self,
             request: tonic::Request<crate::grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            if !self.service_config.get_block_finalization_summary {
+                return Err(tonic::Status::unimplemented(
+                    "`GetBlockFinalizationSummary` is not enabled.",
+                ));
+            }
             let (hash, response) =
                 self.consensus.get_block_finalization_summary_v2(request.get_ref())?;
             let mut response = tonic::Response::new(response);
@@ -1468,6 +1726,9 @@ pub mod server {
             &self,
             _request: tonic::Request<crate::grpc2::types::Empty>,
         ) -> Result<tonic::Response<crate::grpc2::types::Empty>, tonic::Status> {
+            if !self.service_config.shutdown {
+                return Err(tonic::Status::unimplemented("`Shutdown` is not enabled."));
+            }
             match self.node.close() {
                 Ok(_) => Ok(tonic::Response::new(crate::grpc2::types::Empty {})),
                 Err(e) => Err(tonic::Status::internal(format!("Unable to shutdown server {}.", e))),
@@ -1478,6 +1739,9 @@ pub mod server {
             &self,
             request: tonic::Request<crate::grpc2::types::IpSocketAddress>,
         ) -> Result<tonic::Response<crate::grpc2::types::Empty>, tonic::Status> {
+            if !self.service_config.peer_connect {
+                return Err(tonic::Status::unimplemented("`PeerConnect` is not enabled."));
+            }
             if self.node.is_network_stopped() {
                 Err(tonic::Status::failed_precondition(
                     "The network is stopped due to unrecognized protocol update.",
@@ -1502,6 +1766,9 @@ pub mod server {
             &self,
             request: tonic::Request<crate::grpc2::types::IpSocketAddress>,
         ) -> Result<tonic::Response<crate::grpc2::types::Empty>, tonic::Status> {
+            if !self.service_config.peer_disconnect {
+                return Err(tonic::Status::unimplemented("`PeerDisconnect` is not enabled."));
+            }
             if self.node.is_network_stopped() {
                 Err(tonic::Status::failed_precondition(
                     "The network is stopped due to unrecognized protocol update.",
@@ -1525,6 +1792,9 @@ pub mod server {
             &self,
             _request: tonic::Request<crate::grpc2::types::Empty>,
         ) -> Result<tonic::Response<crate::grpc2::types::BannedPeers>, tonic::Status> {
+            if !self.service_config.get_banned_peers {
+                return Err(tonic::Status::unimplemented("`GetBannedPeers` is not enabled."));
+            }
             if let Ok(banned_peers) = self.node.get_banlist() {
                 let peers = banned_peers
                     .into_iter()
@@ -1551,6 +1821,9 @@ pub mod server {
             &self,
             request: tonic::Request<crate::grpc2::types::PeerToBan>,
         ) -> Result<tonic::Response<crate::grpc2::types::Empty>, tonic::Status> {
+            if !self.service_config.ban_peer {
+                return Err(tonic::Status::unimplemented("`BanPeer` is not enabled."));
+            }
             let ip = request.into_inner().ip_address.require()?;
             match ip.value.parse::<std::net::IpAddr>() {
                 Ok(ip_addr) => match self.node.drop_by_ip_and_ban(ip_addr) {
@@ -1568,6 +1841,9 @@ pub mod server {
             &self,
             request: tonic::Request<crate::grpc2::types::BannedPeer>,
         ) -> Result<tonic::Response<crate::grpc2::types::Empty>, tonic::Status> {
+            if !self.service_config.unban_peer {
+                return Err(tonic::Status::unimplemented("`UnbanPeer` is not enabled."));
+            }
             match request.into_inner().ip_address.require()?.value.parse::<std::net::IpAddr>() {
                 Ok(ip_addr) => {
                     let banned_id = crate::p2p::bans::PersistedBanId::Ip(ip_addr);
@@ -1589,6 +1865,9 @@ pub mod server {
             &self,
             request: tonic::Request<crate::grpc2::types::DumpRequest>,
         ) -> Result<tonic::Response<crate::grpc2::types::Empty>, tonic::Status> {
+            if !self.service_config.dump_start {
+                return Err(tonic::Status::unimplemented("`DumpStart` is not enabled."));
+            }
             let file_path = request.get_ref().file.to_owned();
             if file_path.is_empty() {
                 Err(tonic::Status::invalid_argument("The supplied path must be non-empty"))
@@ -1607,6 +1886,9 @@ pub mod server {
             &self,
             _request: tonic::Request<crate::grpc2::types::DumpRequest>,
         ) -> Result<tonic::Response<crate::grpc2::types::Empty>, tonic::Status> {
+            if !self.service_config.dump_start {
+                return Err(tonic::Status::unimplemented("`DumpStart` is not enabled."));
+            }
             Err(tonic::Status::failed_precondition("Feature \"network_dump\" is not active."))
         }
 
@@ -1615,6 +1897,9 @@ pub mod server {
             &self,
             _request: tonic::Request<crate::grpc2::types::Empty>,
         ) -> Result<tonic::Response<crate::grpc2::types::Empty>, tonic::Status> {
+            if !self.service_config.dump_stop {
+                return Err(tonic::Status::unimplemented("`DumpStop` is not enabled."));
+            }
             match self.node.stop_dump() {
                 Ok(_) => Ok(tonic::Response::new(crate::grpc2::types::Empty {})),
                 Err(e) => {
@@ -1628,6 +1913,9 @@ pub mod server {
             &self,
             _request: tonic::Request<crate::grpc2::types::Empty>,
         ) -> Result<tonic::Response<crate::grpc2::types::Empty>, tonic::Status> {
+            if !self.service_config.dump_stop {
+                return Err(tonic::Status::unimplemented("`DumpStop` is not enabled."));
+            }
             Err(tonic::Status::failed_precondition("Feature \"network_dump\" is not active."))
         }
 
@@ -1635,6 +1923,9 @@ pub mod server {
             &self,
             _request: tonic::Request<crate::grpc2::types::Empty>,
         ) -> Result<tonic::Response<crate::grpc2::types::PeersInfo>, tonic::Status> {
+            if !self.service_config.get_peers_info {
+                return Err(tonic::Status::unimplemented("`GetPeersInfo` is not enabled."));
+            }
             // we do a clone so we can release the lock quickly.
             let peer_statuses = (*crate::read_or_die!(self.node.peers)).peer_states.clone();
             let peers = self
@@ -1703,6 +1994,9 @@ pub mod server {
             &self,
             _request: tonic::Request<crate::grpc2::types::Empty>,
         ) -> Result<tonic::Response<types::NodeInfo>, tonic::Status> {
+            if !self.service_config.get_node_info {
+                return Err(tonic::Status::unimplemented("`GetNodeInfo` is not enabled."));
+            }
             let peer_version = self.node.get_version();
             let local_time = Some(types::Timestamp {
                 value: std::time::SystemTime::now()
@@ -1829,6 +2123,9 @@ pub mod server {
             request: tonic::Request<crate::grpc2::types::SendBlockItemRequest>,
         ) -> Result<tonic::Response<crate::grpc2::types::TransactionHash>, tonic::Status> {
             use ConsensusFfiResponse::*;
+            if !self.service_config.send_block_item {
+                return Err(tonic::Status::unimplemented("`SendBlockItem` is not enabled."));
+            }
 
             if self.node.is_network_stopped() {
                 return Err(tonic::Status::failed_precondition(
@@ -1911,6 +2208,11 @@ pub mod server {
             request: tonic::Request<crate::grpc2::types::PreAccountTransaction>,
         ) -> Result<tonic::Response<crate::grpc2::types::AccountTransactionSignHash>, tonic::Status>
         {
+            if !self.service_config.get_account_transaction_sign_hash {
+                return Err(tonic::Status::unimplemented(
+                    "`GetAccountTransactionSignHash` is not enabled.",
+                ));
+            }
             let request = request.into_inner();
             let (header, payload) = request.try_into()?;
             let sign_hash =
