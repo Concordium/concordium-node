@@ -635,7 +635,6 @@ impl ServiceConfig {
             get_instance_list: true,
             get_instance_info: true,
             get_instance_state: true,
-            get_instance_state: true,
             instance_state_lookup: true,
             get_next_account_sequence_number: true,
             get_consensus_info: true,
