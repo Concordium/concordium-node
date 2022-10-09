@@ -625,6 +625,19 @@ fn build_grpc2(proto_root_input: &str) -> std::io::Result<()> {
     // deserialization) we cannot build the client. But we also don't need it in the
     // node.
     tonic_build::manual::Builder::new().build_client(false).compile(&[query_service]);
+
+    {
+        let health = format!("{}/v2/concordium/health.proto", proto_root_input);
+        let descriptor_path =
+            std::path::PathBuf::from(env::var("OUT_DIR").unwrap()).join("health_descriptor.bin");
+        // build the health service with reflection support
+        tonic_build::configure()
+            .build_server(true)
+            .build_client(false)
+            .file_descriptor_set_path(descriptor_path)
+            .compile(&[&health], &[proto_root_input])
+            .expect("Failed to compile gRPC health definitions!");
+    }
     Ok(())
 }
 

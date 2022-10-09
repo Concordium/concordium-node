@@ -2578,9 +2578,17 @@ getBlockFinalizationSummaryV2 cptr blockType blockHashPtr outHash outVec copierC
     res <- runMVR (Q.getBlockFinalizationSummary bhi) mvr
     returnMessageWithBlock (copier outVec) outHash res
 
-{- |Write the hash to the provided pointer, and if the message is given encode and
-   write it using the provided callback.
--}
+-- |Get the slot time of the last finalized block.
+getLastFinalizedBlockSlotTimeV2 ::
+        StablePtr Ext.ConsensusRunner ->
+        IO Timestamp
+getLastFinalizedBlockSlotTimeV2 cptr = do
+    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
+    runMVR Q.getLastFinalizedSlotTime mvr
+
+
+-- |Write the hash to the provided pointer, and if the message is given encode and
+-- write it using the provided callback.
 returnMessageWithBlock ::
     (Proto.Message (Output a), ToProto a) =>
     (Ptr Word8 -> Int64 -> IO ()) ->
@@ -3110,3 +3118,8 @@ foreign export ccall getBlockFinalizationSummaryV2 ::
     -- |Callback to output data.
     FunPtr CopyToVecCallback ->
     IO Int64
+
+foreign export ccall
+    getLastFinalizedBlockSlotTimeV2 ::
+        StablePtr Ext.ConsensusRunner ->
+        IO Timestamp
