@@ -79,3 +79,5 @@ EXPORTS
  getNextUpdateSequenceNumbersV2
  getBlockChainParametersV2
  getBlockFinalizationSummaryV2
+ getBlockItemsV2
+ getLastFinalizedBlockSlotTimeV2
