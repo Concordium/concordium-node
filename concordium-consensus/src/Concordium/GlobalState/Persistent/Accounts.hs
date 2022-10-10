@@ -1,7 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -13,7 +12,6 @@ module Concordium.GlobalState.Persistent.Accounts where
 import Control.Monad
 import Lens.Micro.Platform
 import Data.Serialize
-import GHC.Generics
 import Data.Maybe
 import qualified Data.Map.Strict as Map
 
@@ -110,17 +108,6 @@ instance (IsProtocolVersion pv) => Show (Accounts pv) where
 
 instance SupportsPersistentAccount pv m => MHashableTo m H.Hash (Accounts pv) where
   getHashM Accounts {..} = getHashM accountTable
-
--- |This history of used registration ids, consisting of a list of (uncommitted) ids, and a pointer
--- to a further (committed) history. Committed here means written to persistent storage.
-data RegIdHistory = RegIdHistory ![ID.CredentialRegistrationID] !(Nullable (BlobRef RegIdHistory))
-    deriving (Generic)
-
-instance Serialize RegIdHistory
-
--- This is probably not ideal, but some performance analysis is probably required to find a good
--- compromise.
-instance MonadBlobStore m => BlobStorable m RegIdHistory
 
 instance (SupportsPersistentAccount pv m) => BlobStorable m (Accounts pv) where
     storeUpdate Accounts{..} = do
@@ -232,6 +219,11 @@ recordRegId rid idx accts0 = do
 
 recordRegIds :: MonadBlobStore m => [(ID.CredentialRegistrationID, AccountIndex)] -> Accounts pv -> m (Accounts pv)
 recordRegIds rids accts0 = foldM (\accts (cid, idx) -> recordRegId cid idx accts) accts0 rids
+
+-- |Get the account registration ids map. This loads the entire map from the blob store, and so
+-- should generally be avoided if this is not necessary.
+loadRegIds :: forall m pv. MonadBlobStore m => Accounts pv -> m (Map.Map ID.RawCredentialRegistrationID AccountIndex)
+loadRegIds accts = Trie.toMap (accountRegIdHistory accts)
 
 -- |Perform an update to an account with the given address.
 -- Does nothing (returning @Nothing@) if the account does not exist.

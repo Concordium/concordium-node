@@ -25,15 +25,13 @@ codegen-units = 1
 
 [dependencies]
 # Internal dependencies
-crypto_common = { path = "../concordium-base/rust-src/crypto_common", features = ["encryption"] }
-id = { path = "../concordium-base/rust-src/id", default-features = false }
+concordium_base = { path = "../concordium-base/rust-src/concordium_base" }
 wasm-chain-integration = { path = "../concordium-base/smart-contracts/wasm-chain-integration", default-features=false }
 
 # External dependencies
 parking_lot = "0.12"
 structopt = "0.3"
 rand = "0.7"
-ed25519-dalek = "1.0.1"
 mio = { version = "0.7", features = ["os-poll", "tcp"] }
 log = "0.4"
 env_logger = "0.8.3"
@@ -57,7 +55,7 @@ crossbeam-channel = "0.5"
 semver = { version = "1", features = ["serde"] }
 flatbuffers = { version = "2" }
 flatc-rust = { version = "0.2" }
-sha2 = "0.9"
+sha2 = "0.10"
 lazy_static = "^1.2"
 base58check = "^0.1"
 serde = { version = "1.0", features = ["rc"] }
@@ -70,9 +68,11 @@ url = "2.2"
 reqwest = { version = "0.11", features = ["stream", "native-tls-vendored"] }
 csv-async = "1.2"
 tokio-util = { version = "0.7.3", features = ["io"] }
+libc = "0.2"
 
 # gRPC dependencies
 tonic = { version = "0.8", features = ["tls"] }
+tonic-reflection = "0.5"
 tower-http = { version = "0.3", features = ["trace"] }
 tonic-web = "0.4"
 prost = "0.11"
@@ -99,11 +99,9 @@ cc = "1.0"
 
 [target.'cfg(windows)'.dependencies]
 ipconfig = { version = "0.2" }
-libc = "0.2"
 
 [target.'cfg(unix)'.dependencies]
 get_if_addrs = { version = "0.5" }
-libc = "0.2"
 
 [build-dependencies]
 tonic-build = { version = "0.8", default-features = false, features = ["transport", "prost"] }

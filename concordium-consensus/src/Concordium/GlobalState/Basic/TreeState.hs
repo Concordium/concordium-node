@@ -455,3 +455,4 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
       return $ getNonFinalizedVerificationResult bi table
 
     storeFinalState bs = nextGenesisInitialState ?= bs
+

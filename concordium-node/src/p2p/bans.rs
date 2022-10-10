@@ -3,7 +3,7 @@
 use crate::{common::p2p_peer::RemotePeerId, connection::ConnChange, p2p::P2PNode, write_or_die};
 use anyhow::bail;
 use byteorder::{ReadBytesExt, WriteBytesExt};
-use crypto_common::{Buffer, Deserial, Serial};
+use concordium_base::common::{Buffer, Deserial, Serial};
 use rkv::{StoreOptions, Value};
 use std::net::{IpAddr, SocketAddr};
 

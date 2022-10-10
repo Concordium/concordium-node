@@ -2,7 +2,7 @@
 
 use anyhow::bail;
 use byteorder::{ReadBytesExt, WriteBytesExt};
-use crypto_common::{Buffer, Deserial, Serial};
+use concordium_base::common::{Buffer, Deserial, Serial};
 use rand::distributions::{Distribution, Standard, Uniform};
 use std::fmt;
 

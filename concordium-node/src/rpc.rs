@@ -250,7 +250,7 @@ impl P2p for RpcServerImpl {
                     "Transaction size exceeds maximum allowed size.",
                 ));
             }
-            let consensus_result = consensus.send_transaction(transaction);
+            let consensus_result = consensus.send_transaction(transaction).1;
 
             let result = if consensus_result == Success {
                 let mut payload = Vec::with_capacity(1 + transaction.len());
@@ -876,7 +876,7 @@ impl P2p for RpcServerImpl {
     async fn shutdown(&self, req: Request<Empty>) -> Result<Response<BoolResponse>, Status> {
         authenticate!(req, self.access_token);
         Ok(Response::new(BoolResponse {
-            value: self.node.close(),
+            value: self.node.close().is_ok(),
         }))
     }
 

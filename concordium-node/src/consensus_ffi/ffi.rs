@@ -2,7 +2,6 @@ use super::helpers::ContractStateResponse;
 use crate::{
     common::p2p_peer::RemotePeerId,
     consensus_ffi::{
-        blockchain_types::BlockHash,
         catch_up::*,
         consensus::*,
         helpers::{
@@ -15,7 +14,10 @@ use crate::{
 };
 use anyhow::{anyhow, bail, Context};
 use byteorder::{NetworkEndian, ReadBytesExt};
-use crypto_common::Serial;
+use concordium_base::{
+    common::Serial,
+    hashes::{BlockHash, TransactionHash},
+};
 use std::{
     convert::{TryFrom, TryInto},
     ffi::{CStr, CString},
@@ -262,7 +264,8 @@ type RegenesisFreeCallback = unsafe extern "C" fn(*const Regenesis);
 type CopyToVecCallback = extern "C" fn(*mut Vec<u8>, *const u8, i64);
 
 /// The cryptographic parameters expose through ffi.
-type CryptographicParameters = id::types::GlobalContext<id::constants::ArCurve>;
+type CryptographicParameters =
+    concordium_base::id::types::GlobalContext<concordium_base::id::constants::ArCurve>;
 
 /// A type of callback that copies cryptographic parameters from one pointer to
 /// another.
@@ -386,6 +389,8 @@ extern "C" {
         consensus: *mut consensus_runner,
         tx: *const u8,
         data_length: i64,
+        out_hash: *mut u8, /* location where the hash of the transaction will be written if the
+                            * transaction is successfully added. */
     ) -> i64;
     pub fn stopBaker(consensus: *mut consensus_runner);
     pub fn stopConsensus(consensus: *mut consensus_runner);
@@ -1135,6 +1140,159 @@ extern "C" {
             i64,
         ) -> i32,
     ) -> i64;
+
+    /// Get a list of items for a given block.
+    /// The stream will end when all the transactions
+    /// for the block have been returned
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `stream` - Pointer to the response stream.
+    /// * `block_id_type` whether to query latest finalized or a specific block.
+    /// * `block_hash_ptr` - Pointer to block hash. Must contain 32 bytes.
+    /// * `callback` - Callback for writing to the response stream.
+    pub fn getBlockItemsV2(
+        consensus: *mut consensus_runner,
+        stream: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+        block_id_type: u8,
+        block_hash_ptr: *const u8,
+        out_hash: *mut u8,
+        callback: extern "C" fn(
+            *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+            *const u8,
+            i64,
+        ) -> i32,
+    ) -> i64;
+
+    /// Get a list of transaction events in a given block.
+    /// The stream will end when all the transaction events for a given block
+    /// have been returned.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `stream` - Pointer to the response stream.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `callback` - Callback for writing to the response stream.
+    pub fn getBlockTransactionEventsV2(
+        consensus: *mut consensus_runner,
+        stream: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+        block_id_type: u8,
+        block_id: *const u8,
+        out_hash: *mut u8,
+        callback: extern "C" fn(
+            *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+            *const u8,
+            i64,
+        ) -> i32,
+    ) -> i64;
+
+    /// Get a list of special events in a given block.
+    /// The stream will end when all the special events for a given block have
+    /// been returned.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `stream` - Pointer to the response stream.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `callback` - Callback for writing to the response stream.
+    pub fn getBlockSpecialEventsV2(
+        consensus: *mut consensus_runner,
+        stream: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+        block_id_type: u8,
+        block_id: *const u8,
+        out_hash: *mut u8,
+        callback: extern "C" fn(
+            *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+            *const u8,
+            i64,
+        ) -> i32,
+    ) -> i64;
+
+    /// Get the pending updates to chain parameters at the end of a given block.
+    /// The stream will end when all the pending updates for a given block have
+    /// been returned.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `stream` - Pointer to the response stream.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `callback` - Callback for writing to the response stream.
+    pub fn getBlockPendingUpdatesV2(
+        consensus: *mut consensus_runner,
+        stream: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+        block_id_type: u8,
+        block_id: *const u8,
+        out_hash: *mut u8,
+        callback: extern "C" fn(
+            *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+            *const u8,
+            i64,
+        ) -> i32,
+    ) -> i64;
+
+    /// Get next available sequence numbers for updating chain parameters after
+    /// a given block.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `out` - Location to write the output of the query.
+    /// * `copier` - Callback for writting the output.
+    pub fn getNextUpdateSequenceNumbersV2(
+        consensus: *mut consensus_runner,
+        block_id_type: u8,
+        block_id: *const u8,
+        out_hash: *mut u8,
+        out: *mut Vec<u8>,
+        copier: CopyToVecCallback,
+    ) -> i64;
+
+    /// Get the chain parameters that are in effect in the given block.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `out` - Location to write the output of the query.
+    /// * `copier` - Callback for writting the output.
+    pub fn getBlockChainParametersV2(
+        consensus: *mut consensus_runner,
+        block_id_type: u8,
+        block_id: *const u8,
+        out_hash: *mut u8,
+        out: *mut Vec<u8>,
+        copier: CopyToVecCallback,
+    ) -> i64;
+
+    /// Get the finalization summary of the block, i.e., whether it contains the
+    /// finalization record or not, and details if so.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `out` - Location to write the output of the query.
+    /// * `copier` - Callback for writting the output.
+    pub fn getBlockFinalizationSummaryV2(
+        consensus: *mut consensus_runner,
+        block_id_type: u8,
+        block_id: *const u8,
+        out_hash: *mut u8,
+        out: *mut Vec<u8>,
+        copier: CopyToVecCallback,
+    ) -> i64;
+
+    /// Get the slot time (in milliseconds) of the last finalized block.
+    pub fn getLastFinalizedBlockSlotTimeV2(consensus: *mut consensus_runner) -> u64;
 }
 
 /// This is the callback invoked by consensus on newly arrived, and newly
@@ -1291,15 +1449,24 @@ impl ConsensusContainer {
         wrap_send_data_to_c!(self, genesis_index, rec, receiveFinalizationRecord)
     }
 
-    pub fn send_transaction(&self, data: &[u8]) -> ConsensusFfiResponse {
+    /// Send a transaction to consensus. Return whether the operation succeeded
+    /// or not, and if the transaction is accepted by consensus then its
+    /// hash is returned.
+    pub fn send_transaction(&self, data: &[u8]) -> (Option<TransactionHash>, ConsensusFfiResponse) {
         let consensus = self.consensus.load(Ordering::SeqCst);
         let len = data.len();
+        let mut out_hash = [0u8; 32];
+        let result = unsafe {
+            receiveTransaction(consensus, data.as_ptr(), len as i64, out_hash.as_mut_ptr())
+        };
 
-        let result = unsafe { receiveTransaction(consensus, data.as_ptr(), len as i64) };
-
-        let return_code = ConsensusFfiResponse::try_from(result);
-
-        return_code.unwrap_or_else(|code| panic!("Unknown FFI return code: {}", code))
+        let return_code = ConsensusFfiResponse::try_from(result)
+            .unwrap_or_else(|code| panic!("Unknown FFI return code: {}", code));
+        if return_code == ConsensusFfiResponse::Success {
+            (Some(out_hash.into()), return_code)
+        } else {
+            (None, return_code)
+        }
     }
 
     pub fn get_consensus_status(&self) -> String {
@@ -1722,10 +1889,10 @@ impl ConsensusContainer {
 
         let out = crate::grpc2::types::CryptographicParameters {
             genesis_string:          crypto_parameters.genesis_string.clone(),
-            bulletproof_generators:  crypto_common::to_bytes(
+            bulletproof_generators:  concordium_base::common::to_bytes(
                 crypto_parameters.bulletproof_generators(),
             ),
-            on_chain_commitment_key: crypto_common::to_bytes(
+            on_chain_commitment_key: concordium_base::common::to_bytes(
                 &crypto_parameters.on_chain_commitment_key,
             ),
         };
@@ -2465,6 +2632,211 @@ impl ConsensusContainer {
         response.ensure_ok("account address")?;
         Ok(())
     }
+
+    /// Get a list of block items in a block specified by a block hash.
+    pub fn get_block_items_v2(
+        &self,
+        request: &crate::grpc2::types::BlockHashInput,
+        sender: futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+    ) -> Result<[u8; 32], tonic::Status> {
+        use crate::grpc2::Require;
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let sender = Box::new(sender);
+        let (block_id_type, block_hash) =
+            crate::grpc2::types::block_hash_input_to_ffi(request).require()?;
+        let mut buf = [0u8; 32];
+        let response: ConsensusQueryResponse = unsafe {
+            getBlockItemsV2(
+                consensus,
+                Box::into_raw(sender),
+                block_id_type,
+                block_hash,
+                buf.as_mut_ptr(),
+                enqueue_bytearray_callback,
+            )
+        }
+        .try_into()?;
+        response.ensure_ok("block")?;
+        Ok(buf)
+    }
+
+    /// Get a list of transaction events in a given block.
+    /// The stream will end when all the transaction events for a given block
+    /// have been returned.
+    pub fn get_block_transaction_events_v2(
+        &self,
+        request: &crate::grpc2::types::BlockHashInput,
+        sender: futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+    ) -> Result<[u8; 32], tonic::Status> {
+        use crate::grpc2::Require;
+        let sender = Box::new(sender);
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut buf = [0u8; 32];
+        let (block_id_type, block_hash) =
+            crate::grpc2::types::block_hash_input_to_ffi(request).require()?;
+        let response: ConsensusQueryResponse = unsafe {
+            getBlockTransactionEventsV2(
+                consensus,
+                Box::into_raw(sender),
+                block_id_type,
+                block_hash,
+                buf.as_mut_ptr(),
+                enqueue_bytearray_callback,
+            )
+        }
+        .try_into()?;
+        response.ensure_ok("block")?;
+        Ok(buf)
+    }
+
+    /// Get a list of special events in a given block.
+    /// The stream will end when all the special events for a given block have
+    /// been returned.
+    pub fn get_block_special_events_v2(
+        &self,
+        request: &crate::grpc2::types::BlockHashInput,
+        sender: futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+    ) -> Result<[u8; 32], tonic::Status> {
+        use crate::grpc2::Require;
+        let sender = Box::new(sender);
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut buf = [0u8; 32];
+        let (block_id_type, block_hash) =
+            crate::grpc2::types::block_hash_input_to_ffi(request).require()?;
+        let response: ConsensusQueryResponse = unsafe {
+            getBlockSpecialEventsV2(
+                consensus,
+                Box::into_raw(sender),
+                block_id_type,
+                block_hash,
+                buf.as_mut_ptr(),
+                enqueue_bytearray_callback,
+            )
+        }
+        .try_into()?;
+        response.ensure_ok("block")?;
+        Ok(buf)
+    }
+
+    /// Get the pending updates to chain parameters at the end of a given block.
+    /// The stream will end when all the pending updates for a given block have
+    /// been returned.
+    pub fn get_block_pending_updates_v2(
+        &self,
+        request: &crate::grpc2::types::BlockHashInput,
+        sender: futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+    ) -> Result<[u8; 32], tonic::Status> {
+        use crate::grpc2::Require;
+        let sender = Box::new(sender);
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut buf = [0u8; 32];
+        let (block_id_type, block_hash) =
+            crate::grpc2::types::block_hash_input_to_ffi(request).require()?;
+        let response: ConsensusQueryResponse = unsafe {
+            getBlockPendingUpdatesV2(
+                consensus,
+                Box::into_raw(sender),
+                block_id_type,
+                block_hash,
+                buf.as_mut_ptr(),
+                enqueue_bytearray_callback,
+            )
+        }
+        .try_into()?;
+        response.ensure_ok("block")?;
+        Ok(buf)
+    }
+
+    /// Get next available sequence numbers for updating chain parameters after
+    /// a given block.
+    pub fn get_next_update_sequence_numbers_v2(
+        &self,
+        request: &crate::grpc2::types::BlockHashInput,
+    ) -> Result<([u8; 32], Vec<u8>), tonic::Status> {
+        use crate::grpc2::Require;
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut out_data: Vec<u8> = Vec::new();
+        let mut out_hash = [0u8; 32];
+        let (block_id_type, block_id) =
+            crate::grpc2::types::block_hash_input_to_ffi(request).require()?;
+
+        let response: ConsensusQueryResponse = unsafe {
+            getNextUpdateSequenceNumbersV2(
+                consensus,
+                block_id_type,
+                block_id,
+                out_hash.as_mut_ptr(),
+                &mut out_data,
+                copy_to_vec_callback,
+            )
+        }
+        .try_into()?;
+        response.ensure_ok("block")?;
+        Ok((out_hash, out_data))
+    }
+
+    /// Get chain parameters for the given block.
+    pub fn get_block_chain_parameters_v2(
+        &self,
+        request: &crate::grpc2::types::BlockHashInput,
+    ) -> Result<([u8; 32], Vec<u8>), tonic::Status> {
+        use crate::grpc2::Require;
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut out_data: Vec<u8> = Vec::new();
+        let mut out_hash = [0u8; 32];
+        let (block_id_type, block_id) =
+            crate::grpc2::types::block_hash_input_to_ffi(request).require()?;
+
+        let response: ConsensusQueryResponse = unsafe {
+            getBlockChainParametersV2(
+                consensus,
+                block_id_type,
+                block_id,
+                out_hash.as_mut_ptr(),
+                &mut out_data,
+                copy_to_vec_callback,
+            )
+        }
+        .try_into()?;
+        response.ensure_ok("block")?;
+        Ok((out_hash, out_data))
+    }
+
+    /// Get chain parameters for the given block.
+    pub fn get_block_finalization_summary_v2(
+        &self,
+        request: &crate::grpc2::types::BlockHashInput,
+    ) -> Result<([u8; 32], Vec<u8>), tonic::Status> {
+        use crate::grpc2::Require;
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut out_data: Vec<u8> = Vec::new();
+        let mut out_hash = [0u8; 32];
+        let (block_id_type, block_id) =
+            crate::grpc2::types::block_hash_input_to_ffi(request).require()?;
+
+        let response: ConsensusQueryResponse = unsafe {
+            getBlockFinalizationSummaryV2(
+                consensus,
+                block_id_type,
+                block_id,
+                out_hash.as_mut_ptr(),
+                &mut out_data,
+                copy_to_vec_callback,
+            )
+        }
+        .try_into()?;
+        response.ensure_ok("block")?;
+        Ok((out_hash, out_data))
+    }
+
+    /// Get the slot time (in milliseconds) of the last finalized block.
+    pub fn get_last_finalized_block_slot_time_v2(
+        &self,
+    ) -> concordium_base::common::types::Timestamp {
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let millis = unsafe { getLastFinalizedBlockSlotTimeV2(consensus) };
+        millis.into()
+    }
 }
 
 pub enum CallbackType {
@@ -2702,8 +3074,8 @@ pub unsafe extern "C" fn regenesis_callback(ptr: *const Regenesis, block_hash: *
         arc.stop_network.store(true, Ordering::Release);
     } else {
         write_or_die!(arc.blocks).push(
-            BlockHash::new(std::slice::from_raw_parts(block_hash, 32))
-                .expect("The slice is exactly 32 bytes so ::new must succeed."),
+            BlockHash::try_from(std::slice::from_raw_parts(block_hash, 32))
+                .expect("The slice is exactly 32 bytes so ::try_from must succeed."),
         );
         arc.trigger_catchup.store(true, Ordering::Release);
     }

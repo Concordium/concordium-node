@@ -73,3 +73,11 @@ EXPORTS
  getIdentityProvidersV2
  getAnonymityRevokersV2
  getAccountNonFinalizedTransactionsV2
+ getBlockTransactionEventsV2
+ getBlockSpecialEventsV2
+ getBlockPendingUpdatesV2
+ getNextUpdateSequenceNumbersV2
+ getBlockChainParametersV2
+ getBlockFinalizationSummaryV2
+ getBlockItemsV2
+ getLastFinalizedBlockSlotTimeV2

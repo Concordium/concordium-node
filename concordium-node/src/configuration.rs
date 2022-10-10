@@ -340,7 +340,7 @@ pub struct GRPC2Config {
         help = "Address the GRPC server should listen on, e.g., 127.0.0.1",
         env = "CONCORDIUM_NODE_GRPC2_LISTEN_ADDRESS"
     )]
-    pub listen_addr:      Option<std::net::IpAddr>,
+    pub listen_addr:                Option<std::net::IpAddr>,
     #[structopt(
         name = "grpc2-listen-port",
         long = "grpc2-listen-port",
@@ -348,7 +348,7 @@ pub struct GRPC2Config {
         help = "Address the GRPC server should listen on, e.g. 11000",
         env = "CONCORDIUM_NODE_GRPC2_LISTEN_PORT"
     )]
-    pub listen_port:      Option<u16>,
+    pub listen_port:                Option<u16>,
     #[structopt(
         long = "grpc2-x509-cert",
         help = "Certificate used to enable TLS support for the GRPC V2 server.",
@@ -356,7 +356,7 @@ pub struct GRPC2Config {
         requires = "grpc2-listen-addr",
         requires = "grpc2-cert-private-key"
     )]
-    pub x509_cert:        Option<PathBuf>,
+    pub x509_cert:                  Option<PathBuf>,
     #[structopt(
         long = "grpc2-cert-private-key",
         help = "Private key corresponding to the certificate",
@@ -364,14 +364,14 @@ pub struct GRPC2Config {
         requires = "grpc2-listen-addr",
         requires = "grpc2-x509-cert"
     )]
-    pub cert_private_key: Option<PathBuf>,
+    pub cert_private_key:           Option<PathBuf>,
     #[structopt(
         long = "grpc2-enable-grpc-web",
         help = "Enable support for GRPC-Web protocol.",
         env = "CONCORDIUM_NODE_GRPC2_ENABLE_GRPC_WEB",
         requires = "grpc2-listen-addr"
     )]
-    pub enable_grpc_web:  bool,
+    pub enable_grpc_web:            bool,
     #[structopt(
         long = "grpc2-endpoint-config",
         help = "Configuration file for endpoints, listing which endpoints should be enabled or \
@@ -380,7 +380,15 @@ pub struct GRPC2Config {
         env = "CONCORDIUM_NODE_GRPC2_ENDPOINT_CONFIG",
         requires = "grpc2-listen-addr"
     )]
-    pub endpoint_config:  Option<PathBuf>,
+    pub endpoint_config:            Option<PathBuf>,
+    #[structopt(
+        long = "grpc2-health-max-finalized-delay",
+        help = "Maximum amount of seconds that the time of the last finalized block can be behind \
+                present before the health check fails.",
+        env = "CONCORDIUM_NODE_GRPC2_HEALTH_MAX_FINALIZED_DELAY",
+        default_value = "300"
+    )]
+    pub health_max_finalized_delay: concordium_base::base::DurationSeconds,
 }
 
 impl GRPC2Config {
