@@ -41,7 +41,9 @@ If these are enabled then the following options become available
   available.
 
   The format of the file is a simple key-value list, with values being booleans.
-  Keys are names of endpoints in snake_case. For example
+  Keys are names of endpoints in snake_case. For example the following configuration file 
+  would enable all available endpoints except the ones flagged with `false` i.e. `get_account_info`, 
+  `shutdown`, `dump_start` and `dump_end`.
 
   ```toml
   get_finalized_blocks = true
