@@ -40,6 +40,7 @@ import Concordium.Types
 import Concordium.Types.Accounts
 import qualified Concordium.Types.Transactions as TxTypes
 import qualified Concordium.Types.Queries as QueryTypes
+import qualified Concordium.Types.Transactions as Transactions
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import qualified Concordium.Queries as Q
 
@@ -54,7 +55,7 @@ import Concordium.ID.Parameters (withGlobalContext)
 import Concordium.Common.Time
 import Concordium.Common.Version
 import Concordium.Crypto.SHA256 (DigestSize, Hash (Hash))
-import Concordium.Crypto.SignatureScheme (VerifyKey (..))
+import Concordium.Crypto.SignatureScheme (VerifyKey (..), Signature(..))
 import Concordium.Types.Accounts.Releases
 import Concordium.Types.Execution
 import qualified Concordium.Wasm as Wasm
@@ -1527,6 +1528,88 @@ instance ToProto QueryTypes.BakerSummary where
         ProtoFields.account .= toProto bakerAccount
         ProtoFields.lotteryPower .= bsBakerLotteryPower
 
+instance ToProto Transactions.TransactionHeader where
+  type Output Transactions.TransactionHeader = Proto.AccountTransactionHeader
+
+  toProto Transactions.TransactionHeader{..} = Proto.make $ do
+    ProtoFields.sender .= toProto thSender
+    ProtoFields.sequenceNumber .= toProto thNonce
+    ProtoFields.energyAmount .= toProto thEnergyAmount
+    ProtoFields.expiry .= toProto thExpiry
+
+instance ToProto Signature where
+  type Output Signature = Proto.Signature
+
+  toProto (Signature bss) = Proto.make $ do
+    ProtoFields.value .= BSS.fromShort bss
+
+instance ToProto Transactions.TransactionSignature where
+  type Output Transactions.TransactionSignature = Proto.AccountTransactionSignature
+
+  toProto Transactions.TransactionSignature{..} = Proto.make $ do
+    ProtoFields.signatures .= (Map.fromAscList . map mk . Map.toAscList $ tsSignatures)
+      where mk (k, s) = (fromIntegral k, mkSingleSig s)
+            mkSingleSig sigs = Proto.make $ do
+              ProtoFields.signatures .= (Map.fromAscList . map (\(ki, sig) -> (fromIntegral ki, toProto sig)) . Map.toAscList $ sigs)
+
+instance ToProto Transactions.AccountTransaction where
+  type Output Transactions.AccountTransaction = Proto.AccountTransaction
+
+  toProto Transactions.AccountTransaction{..} = Proto.make $ do
+    ProtoFields.signature .= toProto atrSignature
+    ProtoFields.header .= toProto atrHeader
+    ProtoFields.payload .= Proto.make (
+      ProtoFields.rawPayload .= BSS.fromShort (_spayload atrPayload)
+      )
+
+instance ToProto Transactions.AccountCreation where
+  type Output Transactions.AccountCreation = Proto.CredentialDeployment
+
+  toProto Transactions.AccountCreation{..} = Proto.make $ do
+    ProtoFields.messageExpiry .= toProto messageExpiry
+    ProtoFields.rawPayload .= S.encode credential
+
+instance ToProto Updates.UpdateInstructionSignatures where
+  type Output Updates.UpdateInstructionSignatures = Proto.SignatureMap
+
+  toProto Updates.UpdateInstructionSignatures{..} = Proto.make $ do
+    ProtoFields.signatures .= (Map.fromAscList . map mk . Map.toAscList $ signatures)
+      where mk (k, s) = (fromIntegral k, toProto s)
+
+instance ToProto Updates.UpdateHeader where
+  type Output Updates.UpdateHeader = Proto.UpdateInstructionHeader
+
+  toProto Updates.UpdateHeader{..} = Proto.make $ do
+    -- since UpdateSequenceNumber is an alias for Nonce in Haskell, but not in
+    -- the .proto file we have to use mkWord64 or similar, and not toProto since
+    -- that one is defined for the Nonce.
+    ProtoFields.sequenceNumber .= mkWord64 updateSeqNumber
+    ProtoFields.effectiveTime .= toProto updateEffectiveTime
+    ProtoFields.timeout .= toProto updateTimeout
+
+instance ToProto Updates.UpdateInstruction where
+  type Output Updates.UpdateInstruction = Proto.UpdateInstruction
+
+  toProto Updates.UpdateInstruction{..} = Proto.make $ do
+    ProtoFields.signatures .= toProto uiSignatures
+    ProtoFields.header .= toProto uiHeader
+    ProtoFields.payload .= Proto.make (
+      ProtoFields.rawPayload .= S.runPut (Updates.putUpdatePayload uiPayload)
+      )
+
+
+instance ToProto Transactions.BlockItem where
+    type Output Transactions.BlockItem = Proto.BlockItem
+    toProto bi = Proto.make $ do
+        ProtoFields.hash .= toProto (Transactions.wmdHash bi)
+        case Transactions.wmdData bi of
+            Transactions.NormalTransaction accTx -> do
+                ProtoFields.accountTransaction .= toProto accTx
+            Transactions.CredentialDeployment cred ->
+                ProtoFields.credentialDeployment .= toProto cred
+            Transactions.ChainUpdate cu ->
+                ProtoFields.updateInstruction .= toProto cu
+
 instance ToProto TxTypes.AccountAmounts where
     type Output TxTypes.AccountAmounts = Proto.BlockSpecialEvent'AccountAmounts
     toProto TxTypes.AccountAmounts{..} = Proto.make $ ProtoFields.entries .= fmap mapper (Map.toList accountAmounts)
@@ -1631,10 +1714,10 @@ instance ToProto CredentialsPerBlockLimit where
   type Output CredentialsPerBlockLimit = Proto.CredentialsPerBlockLimit
   toProto = mkWord16
 
-instance ToProto (AccountAddress, Parameters.EChainParameters) where
-    type Output (AccountAddress, Parameters.EChainParameters) = Proto.ChainParameters
+instance ToProto (AccountAddress, Q.EChainParametersAndKeys) where
+    type Output (AccountAddress, Q.EChainParametersAndKeys) = Proto.ChainParameters
 
-    toProto (foundationAddr, Parameters.EChainParameters (params :: Parameters.ChainParameters' cpv)) =
+    toProto (foundationAddr, Q.EChainParametersAndKeys (params :: Parameters.ChainParameters' cpv) keys) =
         case chainParametersVersion @cpv of
             SCPV0 ->
                 let Parameters.ChainParameters{_cpCooldownParameters = Parameters.CooldownParametersV0 epochs,
@@ -1654,6 +1737,9 @@ instance ToProto (AccountAddress, Parameters.EChainParameters) where
                                     ProtoFields.gasRewards .= toProto (Parameters._rpGASRewards _cpRewardParameters)
                                     ProtoFields.foundationAccount .= toProto foundationAddr
                                     ProtoFields.minimumThresholdForBaking .= toProto minThreshold
+                                    ProtoFields.rootKeys .= toProto (Updates.rootKeys keys)
+                                    ProtoFields.level1Keys .= toProto (Updates.level1Keys keys)
+                                    ProtoFields.level2Keys .= toProto (Updates.level2Keys keys)
                                 )
             SCPV1 ->
                 let Parameters.ChainParameters{..} = params
@@ -1672,6 +1758,9 @@ instance ToProto (AccountAddress, Parameters.EChainParameters) where
                                     ProtoFields.gasRewards .= toProto (Parameters._rpGASRewards _cpRewardParameters)
                                     ProtoFields.foundationAccount .= toProto foundationAddr
                                     ProtoFields.poolParameters .= toProto _cpPoolParameters
+                                    ProtoFields.rootKeys .= toProto (Updates.rootKeys keys)
+                                    ProtoFields.level1Keys .= toProto (Updates.level1Keys keys)
+                                    ProtoFields.level2Keys .= toProto (Updates.level2Keys keys)
                                 )
 
 instance ToProto FinalizationIndex where
@@ -2448,6 +2537,31 @@ getAccountNonFinalizedTransactionsV2 cptr channel accPtr cbk = do
     _ <- enqueueMessages (sender channel) res
     return (queryResultCode QRSuccess)
 
+
+-- |Get the block items for a block.
+getBlockItemsV2 ::
+    StablePtr Ext.ConsensusRunner ->
+    Ptr SenderChannel ->
+    -- |Block type
+    Word8 ->
+    -- |Block hash ptr.
+    Ptr Word8 ->
+    -- |Out pointer for writing the block hash that was used.
+    Ptr Word8 ->
+    FunPtr ChannelSendCallback ->
+    IO Int64
+getBlockItemsV2 cptr channel blockType blockHashPtr outHash cbk = do
+    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
+    let sender = callChannelSendCallback cbk
+    bhi <- decodeBlockHashInput blockType blockHashPtr
+    (bh, mBis) <- runMVR (Q.getBlockItems bhi) mvr
+    case mBis of
+      Nothing -> return (queryResultCode QRNotFound)
+      Just items -> do
+        copyHashTo outHash bh
+        _ <- enqueueMessages (sender channel) items
+        return (queryResultCode QRSuccess)
+
 getBlockTransactionEventsV2 ::
     StablePtr Ext.ConsensusRunner ->
     Ptr SenderChannel ->
@@ -3037,6 +3151,19 @@ foreign export ccall
         StablePtr Ext.ConsensusRunner ->
         Ptr SenderChannel ->
         -- |Serialized account address. Length is 32 bytes.
+        Ptr Word8 ->
+        FunPtr ChannelSendCallback ->
+        IO Int64
+
+foreign export ccall
+  getBlockItemsV2 ::
+        StablePtr Ext.ConsensusRunner ->
+        Ptr SenderChannel ->
+        -- |Block type.
+        Word8 ->
+        -- |Block hash.
+        Ptr Word8 ->
+        -- |Out pointer for writing the block hash that was used.
         Ptr Word8 ->
         FunPtr ChannelSendCallback ->
         IO Int64

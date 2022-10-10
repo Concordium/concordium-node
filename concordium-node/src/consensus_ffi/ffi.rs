@@ -1141,6 +1141,28 @@ extern "C" {
         ) -> i32,
     ) -> i64;
 
+    /// Get a list of items for a given block.
+    /// The stream will end when all the transactions
+    /// for the block have been returned
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `stream` - Pointer to the response stream.
+    /// * `block_id_type` whether to query latest finalized or a specific block.
+    /// * `block_hash_ptr` - Pointer to block hash. Must contain 32 bytes.
+    /// * `callback` - Callback for writing to the response stream.
+    pub fn getBlockItemsV2(
+        consensus: *mut consensus_runner,
+        stream: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+        block_id_type: u8,
+        block_hash_ptr: *const u8,
+        out_hash: *mut u8,
+        callback: extern "C" fn(
+            *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+            *const u8,
+            i64,
+        ) -> i32,
+    ) -> i64;
+
     /// Get a list of transaction events in a given block.
     /// The stream will end when all the transaction events for a given block
     /// have been returned.
@@ -2609,6 +2631,33 @@ impl ConsensusContainer {
         .try_into()?;
         response.ensure_ok("account address")?;
         Ok(())
+    }
+
+    /// Get a list of block items in a block specified by a block hash.
+    pub fn get_block_items_v2(
+        &self,
+        request: &crate::grpc2::types::BlockHashInput,
+        sender: futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+    ) -> Result<[u8; 32], tonic::Status> {
+        use crate::grpc2::Require;
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let sender = Box::new(sender);
+        let (block_id_type, block_hash) =
+            crate::grpc2::types::block_hash_input_to_ffi(request).require()?;
+        let mut buf = [0u8; 32];
+        let response: ConsensusQueryResponse = unsafe {
+            getBlockItemsV2(
+                consensus,
+                Box::into_raw(sender),
+                block_id_type,
+                block_hash,
+                buf.as_mut_ptr(),
+                enqueue_bytearray_callback,
+            )
+        }
+        .try_into()?;
+        response.ensure_ok("block")?;
+        Ok(buf)
     }
 
     /// Get a list of transaction events in a given block.
