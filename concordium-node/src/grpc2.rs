@@ -521,7 +521,7 @@ pub mod service {
 /// Service configuration, listing which endpoints are enabled.
 /// If the endpoint is not listed in the configuration file it will be disabled.
 /// This is what the `#[serde(default)]` annotations achieve.
-#[derive(serde::Deserialize)]
+#[derive(Debug, serde::Deserialize)]
 struct ServiceConfig {
     #[serde(default)]
     get_finalized_blocks: bool,
@@ -849,6 +849,7 @@ pub mod server {
                 } else {
                     ServiceConfig::new_all_enabled()
                 };
+                debug!("GRPC endpoints enabled: {:#?}", service_config);
 
                 let identity = match (&config.x509_cert, &config.cert_private_key) {
                     (None, None) => None,
