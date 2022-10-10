@@ -118,7 +118,7 @@ pub mod types {
         }
     }
 
-    /// Convert [BakerId] to a u64.
+    /// Convert [`BakerId`] to a u64.
     pub(crate) fn baker_id_to_ffi(baker_id: &BakerId) -> u64 { baker_id.value }
 
     /// Convert the [BlocksAtHeightRequest] to a triple of a block height,
@@ -843,6 +843,8 @@ pub mod server {
                 // parser should already make sure that when the address is defined, so is the
                 // port.
                 let listen_port = config.listen_port.context("Missing GRPC port")?;
+
+                log::info!("Starting GRPC V2 server listening on {listen_addr}:{listen_port}");
 
                 let service_config = if let Some(ref source) = config.endpoint_config {
                     ServiceConfig::from_file(source)?
