@@ -2231,9 +2231,7 @@ pub mod server {
             request: tonic::Request<crate::grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Self::GetBlockItemsStream>, tonic::Status> {
             if !self.service_config.get_block_items {
-                return Err(tonic::Status::unimplemented(
-                    "`GetBlockItems` is not enabled.",
-                ));
+                return Err(tonic::Status::unimplemented("`GetBlockItems` is not enabled."));
             }
             let (sender, receiver) = futures::channel::mpsc::channel(100);
             let hash = self.consensus.get_block_items_v2(request.get_ref(), sender)?;
