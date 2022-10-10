@@ -185,6 +185,16 @@ fn load_config_file(conf_str: &str, conf_root: &Path) -> anyhow::Result<Config> 
             } else {
                 None
             };
+            let grpc2_address = if let Some(ip_str) = toml_get_as!(as_str, &node, "grpc2", "ip") {
+                Some(ip_str.parse()?)
+            } else {
+                None
+            };
+            let grpc2_port = if let Some(port) = toml_get_as!(as_integer, &node, "grpc2", "port") {
+                Some(u16::try_from(port)?)
+            } else {
+                None
+            };
             let rpc_enabled = toml_get_as!(as_bool, &node, "rpc", "enabled")
                 .or_else(|| toml_get_as!(as_bool, &common, "rpc", "enabled"));
             let rpc_token = toml_get_as!(as_str, &node, "rpc", "token")
@@ -265,6 +275,8 @@ fn load_config_file(conf_str: &str, conf_root: &Path) -> anyhow::Result<Config> 
                 rpc_port,
                 rpc_enabled,
                 rpc_token,
+                grpc2_address,
+                grpc2_port,
                 listen_address,
                 listen_port,
                 log_config,

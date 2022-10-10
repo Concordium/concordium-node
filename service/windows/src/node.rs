@@ -57,6 +57,10 @@ pub struct NodeConfig {
     pub rpc_address:         Option<IpAddr>,
     // Port for GRPC requests
     pub rpc_port:            Option<u16>,
+    // Address to accept GRPC V2 requests on
+    pub grpc2_address:       Option<IpAddr>,
+    // Port for GRPC V2 requests
+    pub grpc2_port:          Option<u16>,
     // Whether GRPC is enabled on the node
     pub rpc_enabled:         Option<bool>,
     // GRPC authentication token
@@ -226,6 +230,12 @@ impl NodeConfig {
         self.rpc_port
             .as_ref()
             .map(|rpcport| cmd.env("CONCORDIUM_NODE_RPC_SERVER_PORT", rpcport.to_string()));
+        self.grpc2_address
+            .as_ref()
+            .map(|rpcaddr| cmd.env("CONCORDIUM_NODE_GRPC2_LISTEN_ADDRESS", rpcaddr.to_string()));
+        self.grpc2_port
+            .as_ref()
+            .map(|rpcport| cmd.env("CONCORDIUM_NODE_GRPC2_LISTEN_PORT", rpcport.to_string()));
         self.rpc_token
             .as_ref()
             .map(|rpctoken| cmd.env("CONCORDIUM_NODE_RPC_SERVER_TOKEN", &rpctoken));

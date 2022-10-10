@@ -44,6 +44,14 @@
         <key>CONCORDIUM_NODE_RPC_SERVER_PORT</key>
         <string>10001</string>
 
+        <!-- Address of the GRPC V2 server. -->
+        <key>CONCORDIUM_NODE_GRPC2_LISTEN_ADDRESS</key>
+        <string>0.0.0.0</string>
+
+        <!-- Port of the GRPC V2 server. -->
+        <key>CONCORDIUM_NODE_GRPC2_LISTEN_PORT</key>
+        <string>20001</string>
+
         <!-- Maximum number of __connections__ the node can have. This can temporarily be more than -->
         <!-- the number of peers when incoming connections are processed.  -->
         <key>CONCORDIUM_NODE_CONNECTION_HARD_CONNECTION_LIMIT</key>
