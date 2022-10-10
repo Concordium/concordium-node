@@ -60,6 +60,7 @@ instantiated during build time with a tool such as `envsubst`. The variables are
   as the hash of the genesis.dat file, instead it is the protocol defined hash of the contents of the genesis block.))
 - `build_collector_backend_url` (e.g. https://dashboard.testnet.concordium.com/nodes/post)
 - `build_rpc_server_port` (e.g., 10001)
+- `build_grpc2_listen_port` (e.g., 20001)
 - `build_listen_port` (e.g., 8889)
 - `build_bootstrap` (e.g., bootstrap.testnet.concordium.com:8888)
 

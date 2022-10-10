@@ -29,6 +29,7 @@ docker build\
        --build-arg build_genesis_hash=4221332d34e1694168c2a0c0b3fd0f273809612cb13d000d5c2e00e85f50f796\
        --build-arg build_collector_backend_url=https://dashboard.testnet.concordium.com/nodes/post\
        --build-arg build_rpc_server_port=10001\
+       --build-arg build_grpc2_listen_port=20001\
        --build-arg build_listen_port=8889\
        --build-arg build_bootstrap=bootstrap.testnet.concordium.com:8888\
        -f deb.Dockerfile -t testnet-deb . --no-cache

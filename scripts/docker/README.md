@@ -36,9 +36,12 @@ services:
     - CONCORDIUM_NODE_BAKER_CREDENTIALS_FILE=/mnt/baker-credentials.json
     - CONCORDIUM_NODE_PROMETHEUS_SERVER=1
     - CONCORDIUM_NODE_RPC_SERVER_ADDR=0.0.0.0
+    - CONCORDIUM_NODE_GRPC2_LISTEN_ADDRESS=0.0.0.0
+    - CONCORDIUM_NODE_GRPC2_LISTEN_PORT=20000
     ports:
     - "8888:8888"
     - "10000:10000"
+    - "20000:20000"
     volumes:
     - ${GENESIS_DATA_FILE}:/mnt/genesis.dat
     - ${BAKER_CREDENTIALS_FILE}:/mnt/baker-credentials.json
